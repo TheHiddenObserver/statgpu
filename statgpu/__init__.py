@@ -8,10 +8,14 @@ __version__ = "0.1.0"
 
 from ._config import get_device, set_device, Device
 from ._base import BaseEstimator
+from .linear_model import LinearRegression, Ridge, Lasso
 
 __all__ = [
     "get_device",
-    "set_device", 
+    "set_device",
     "Device",
     "BaseEstimator",
+    "LinearRegression",
+    "Ridge",
+    "Lasso",
 ]
