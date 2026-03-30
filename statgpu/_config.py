@@ -1,0 +1,116 @@
+"""
+Device configuration and GPU detection.
+"""
+
+import os
+import warnings
+from enum import Enum
+from typing import Optional, Union
+
+
+class Device(Enum):
+    """Device types for computation."""
+    CPU = "cpu"
+    CUDA = "cuda"
+    AUTO = "auto"
+
+
+class _DeviceManager:
+    """Internal device state manager."""
+    
+    def __init__(self):
+        self._current_device = Device.AUTO
+        self._cupy_available = None
+        self._torch_available = None
+        self._cuda_available = None
+    
+    def _check_cupy(self) -> bool:
+        """Check if CuPy is available and working."""
+        if self._cupy_available is None:
+            try:
+                import cupy as cp
+                # Test actual CUDA functionality
+                cp.cuda.Device(0).use()
+                self._cupy_available = True
+            except Exception:
+                self._cupy_available = False
+        return self._cupy_available
+    
+    def _check_torch(self) -> bool:
+        """Check if PyTorch CUDA is available."""
+        if self._torch_available is None:
+            try:
+                import torch
+                self._torch_available = torch.cuda.is_available()
+            except Exception:
+                self._torch_available = False
+        return self._torch_available
+    
+    def cuda_available(self) -> bool:
+        """Check if any CUDA backend is available."""
+        if self._cuda_available is None:
+            self._cuda_available = self._check_cupy() or self._check_torch()
+        return self._cuda_available
+    
+    def get_device(self) -> Device:
+        """Get current device setting."""
+        if self._current_device == Device.AUTO:
+            return Device.CUDA if self.cuda_available() else Device.CPU
+        return self._current_device
+    
+    def set_device(self, device: Union[str, Device]) -> None:
+        """Set device for computation."""
+        if isinstance(device, str):
+            device = Device(device.lower())
+        
+        if device == Device.CUDA and not self.cuda_available():
+            warnings.warn(
+                "CUDA requested but not available. Falling back to CPU.",
+                RuntimeWarning
+            )
+        
+        self._current_device = device
+
+
+# Global device manager instance
+_device_manager = _DeviceManager()
+
+
+def get_device() -> Device:
+    """
+    Get the current computation device.
+    
+    Returns
+    -------
+    Device
+        Current device (CPU or CUDA).
+    """
+    return _device_manager.get_device()
+
+
+def set_device(device: Union[str, Device]) -> None:
+    """
+    Set the computation device.
+    
+    Parameters
+    ----------
+    device : str or Device
+        Device to use: 'cpu', 'cuda', or 'auto'.
+        'auto' will use CUDA if available, otherwise CPU.
+    
+    Examples
+    --------
+    >>> import statgpu as sg
+    >>> sg.set_device('cuda')  # Force GPU
+    >>> sg.set_device('auto')  # Auto-detect
+    """
+    _device_manager.set_device(device)
+
+
+def cuda_available() -> bool:
+    """Check if CUDA is available."""
+    return _device_manager.cuda_available()
+
+
+# Convenience imports
+__all__ = ['Device', 'get_device', 'set_device', 'cuda_available']
