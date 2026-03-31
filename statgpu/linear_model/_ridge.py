@@ -178,11 +178,31 @@ class Ridge(BaseEstimator):
         else:
             scale = cp.nan
         
-        # Single transfer
+        # Compute ALL statistics on GPU
+        from .._gpu_utils import compute_inference_gpu, compute_r2_gpu, compute_aic_bic_gpu, compute_f_stat_gpu
+        
+        self._bse_gpu, self._tvalues_gpu, self._pvalues_gpu, self._conf_int_gpu = \
+            compute_inference_gpu(X_design, resid, scale, df_resid, coef_full)
+        
+        self._rsquared_gpu = compute_r2_gpu(y, resid)
+        
+        k = n_features + (1 if self.fit_intercept else 0)
+        scale_mle = cp.sum(resid ** 2) / n_samples
+        self._aic_gpu, self._bic_gpu = compute_aic_bic_gpu(n_samples, k, scale_mle)
+        
+        self._fvalue_gpu, self._f_pvalue = compute_f_stat_gpu(y, resid, X_design, df_resid)
+        
+        # Single transfer to CPU at the end
         coef_full_np = coef_full.get()
         resid_np = resid.get()
         scale_float = float(scale.get()) if not cp.isnan(scale) else np.nan
         X_design_np = X_design.get()
+        
+        # Transfer inference results
+        self._bse = self._bse_gpu.get()
+        self._tvalues = self._tvalues_gpu.get()
+        self._pvalues = self._pvalues_gpu.get()
+        self._conf_int = self._conf_int_gpu.get()
         
         # Store
         if self.fit_intercept:

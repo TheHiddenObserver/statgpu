@@ -116,8 +116,9 @@ class LinearRegression(BaseEstimator):
             self._scale = np.nan
     
     def _fit_gpu(self, X, y, sample_weight=None):
-        """Fit using GPU with optimized algorithm."""
+        """Fit using GPU with FULL GPU computation (including inference)."""
         import cupy as cp
+        from .._gpu_utils import compute_inference_gpu, compute_r2_gpu, compute_aic_bic_gpu, compute_f_stat_gpu
         
         n_samples, n_features = X.shape
         self._nobs = n_samples
@@ -140,21 +141,19 @@ class LinearRegression(BaseEstimator):
         if y.ndim == 1:
             y = y.reshape(-1, 1)
         
-        # Use normal equations: (X'X)^-1 X'y - faster for well-conditioned problems
+        # Use normal equations: (X'X)^-1 X'y
         XtX = X_design.T @ X_design
         Xty = X_design.T @ y
         
         try:
-            # Try Cholesky decomposition (fastest for positive definite)
+            # Cholesky decomposition
             L = cp.linalg.cholesky(XtX)
-            # Solve L L' coef = Xty using forward/back substitution
             tmp = cp.linalg.solve_triangular(L, Xty, lower=True)
             coef = cp.linalg.solve_triangular(L.T, tmp, lower=False)
         except Exception:
-            # Fallback to standard solve
             coef = cp.linalg.solve(XtX, Xty)
         
-        # Keep data on GPU for residual computation
+        # Compute predictions and residuals on GPU
         y_pred = X_design @ coef
         resid = y - y_pred
         
@@ -165,11 +164,33 @@ class LinearRegression(BaseEstimator):
         else:
             scale = cp.nan
         
+        # Compute ALL statistics on GPU
+        coef_flat = coef.flatten()
+        self._bse_gpu, self._tvalues_gpu, self._pvalues_gpu, self._conf_int_gpu = \
+            compute_inference_gpu(X_design, resid, scale, df_resid, coef_flat)
+        
+        # R-squared on GPU
+        self._rsquared_gpu = compute_r2_gpu(y, resid)
+        
+        # AIC/BIC on GPU
+        k = n_features + (1 if self.fit_intercept else 0)
+        scale_mle = cp.sum(resid ** 2) / n_samples
+        self._aic_gpu, self._bic_gpu = compute_aic_bic_gpu(n_samples, k, scale_mle)
+        
+        # F-statistic on GPU
+        self._fvalue_gpu, self._f_pvalue = compute_f_stat_gpu(y, resid, X_design, df_resid)
+        
         # Single transfer to CPU at the end
         coef_np = coef.get().flatten()
         resid_np = resid.get().flatten()
         scale_float = float(scale.get()) if not cp.isnan(scale) else np.nan
         X_design_np = X_design.get()
+        
+        # Transfer inference results
+        self._bse = self._bse_gpu.get()
+        self._tvalues = self._tvalues_gpu.get()
+        self._pvalues = self._pvalues_gpu.get()
+        self._conf_int = self._conf_int_gpu.get()
         
         # Store results
         if self.fit_intercept:
