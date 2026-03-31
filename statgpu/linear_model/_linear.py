@@ -56,7 +56,8 @@ class LinearRegression(BaseEstimator):
     
     def fit(self, X, y, sample_weight=None):
         """Fit linear model."""
-        self._y = np.asarray(y)
+        # Store y (may be CuPy array, convert later for CPU)
+        self._y = y
         
         X_arr = self._to_array(X)
         y_arr = self._to_array(y)
@@ -67,6 +68,12 @@ class LinearRegression(BaseEstimator):
             self._fit_gpu(X_arr, y_arr, sample_weight)
         else:
             self._fit_cpu(X_arr, y_arr, sample_weight)
+        
+        # Convert y to numpy for diagnostics if needed
+        if hasattr(self._y, 'get'):
+            self._y = self._y.get()
+        else:
+            self._y = np.asarray(self._y)
         
         self._compute_inference()
         self._fitted = True
