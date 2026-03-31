@@ -116,11 +116,15 @@ class LinearRegression(BaseEstimator):
             self._scale = np.nan
     
     def _fit_gpu(self, X, y, sample_weight=None):
-        """Fit using GPU."""
+        """Fit using GPU with optimized algorithm."""
         import cupy as cp
         
         n_samples, n_features = X.shape
         self._nobs = n_samples
+        
+        # Ensure CuPy arrays
+        X = cp.asarray(X)
+        y = cp.asarray(y)
         
         if sample_weight is not None:
             sample_weight = cp.asarray(sample_weight)
@@ -136,10 +140,38 @@ class LinearRegression(BaseEstimator):
         if y.ndim == 1:
             y = y.reshape(-1, 1)
         
-        coef, _, _, _ = cp.linalg.lstsq(X_design, y, rcond=None)
+        # Use normal equations: (X'X)^-1 X'y - faster for well-conditioned problems
+        XtX = X_design.T @ X_design
+        Xty = X_design.T @ y
+        
+        try:
+            # Try Cholesky decomposition (fastest for positive definite)
+            L = cp.linalg.cholesky(XtX)
+            # Solve L L' coef = Xty using forward/back substitution
+            tmp = cp.linalg.solve_triangular(L, Xty, lower=True)
+            coef = cp.linalg.solve_triangular(L.T, tmp, lower=False)
+        except Exception:
+            # Fallback to standard solve
+            coef = cp.linalg.solve(XtX, Xty)
+        
+        # Keep data on GPU for residual computation
+        y_pred = X_design @ coef
+        resid = y - y_pred
+        
+        # Compute scale on GPU
+        df_resid = n_samples - (n_features + (1 if self.fit_intercept else 0))
+        if df_resid > 0:
+            scale = cp.sum(resid ** 2) / df_resid
+        else:
+            scale = cp.nan
+        
+        # Single transfer to CPU at the end
         coef_np = coef.get().flatten()
+        resid_np = resid.get().flatten()
+        scale_float = float(scale.get()) if not cp.isnan(scale) else np.nan
         X_design_np = X_design.get()
         
+        # Store results
         if self.fit_intercept:
             self.intercept_ = float(coef_np[0])
             self.coef_ = coef_np[1:]
@@ -150,14 +182,9 @@ class LinearRegression(BaseEstimator):
             self._params = coef_np
         
         self._X_design = X_design_np
-        y_pred = self._X_design @ self._params
-        self._resid = self._y - y_pred
-        self._df_resid = n_samples - (n_features + (1 if self.fit_intercept else 0))
-        
-        if self._df_resid > 0:
-            self._scale = np.sum(self._resid ** 2) / self._df_resid
-        else:
-            self._scale = np.nan
+        self._resid = resid_np
+        self._df_resid = df_resid
+        self._scale = scale_float
     
     def _compute_inference(self):
         """Compute standard errors, t-stats, p-values."""
