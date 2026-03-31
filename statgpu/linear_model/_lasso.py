@@ -277,23 +277,6 @@ class Lasso(BaseEstimator):
         self._resid = resid_np
         self._df_resid = df_resid
         self._scale = scale_float
-            self.coef_ = coef_np
-            self._params = np.concatenate([[self.intercept_], coef_np])
-            self._X_design = np.column_stack([np.ones(n_samples, dtype=np.float64), X.get()])
-        else:
-            self.intercept_ = 0.0
-            self.coef_ = coef_np
-            self._params = coef_np
-            self._X_design = X.get()
-
-        y_pred = self._X_design @ self._params
-        self._resid = self._y - y_pred
-        self._df_resid = n_samples - (n_features + (1 if self.fit_intercept else 0))
-
-        if self._df_resid > 0:
-            self._scale = np.sum(self._resid ** 2) / self._df_resid
-        else:
-            self._scale = np.nan
 
     def _compute_inference(self):
         """Compute standard errors, t-stats, p-values."""
