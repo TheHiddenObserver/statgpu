@@ -245,7 +245,20 @@ class LogisticRegression(BaseEstimator):
         
         self.n_iter_ = iteration + 1
         
-        # Convert back to numpy
+        # Compute log-likelihood on GPU
+        eta = X_design @ params
+        p = 1 / (1 + cp.exp(-cp.clip(eta, -500, 500)))
+        loglik = cp.sum(y * cp.log(p + 1e-10) + (1 - y) * cp.log(1 - p + 1e-10))
+        
+        # Compute accuracy on GPU
+        y_pred = (p > 0.5).astype(cp.int32)
+        accuracy = cp.mean(y_pred == y)
+        
+        # Store GPU results temporarily
+        self._loglik_gpu = loglik
+        self._accuracy_gpu = accuracy
+        
+        # Single transfer at the end
         params_np = params.get()
         X_design_np = X_design.get()
         
@@ -260,6 +273,8 @@ class LogisticRegression(BaseEstimator):
             self.coef_ = params_np.copy()
         
         self._df_resid = n_samples - (n_features + (1 if self.fit_intercept else 0))
+        self._loglik = float(self._loglik_gpu.get())
+        self._accuracy = float(self._accuracy_gpu.get())
     
     def _compute_inference(self):
         """Compute standard errors, z-stats, p-values, and confidence intervals."""

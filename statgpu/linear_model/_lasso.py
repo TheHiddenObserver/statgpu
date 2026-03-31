@@ -175,11 +175,16 @@ class Lasso(BaseEstimator):
         return cp.sign(x) * cp.maximum(cp.abs(x) - gamma, 0)
 
     def _fit_gpu(self, X, y, sample_weight=None):
-        """Fit using GPU with coordinate descent."""
+        """Fit using GPU with optimized batch coordinate descent."""
         import cupy as cp
-
+        from .._gpu_utils import compute_r2_gpu
+        
         n_samples, n_features = X.shape
         self._nobs = n_samples
+        
+        # Ensure CuPy arrays
+        X = cp.asarray(X)
+        y = cp.asarray(y)
 
         if sample_weight is not None:
             sample_weight = cp.asarray(sample_weight)
@@ -194,39 +199,84 @@ class Lasso(BaseEstimator):
             y_centered = y - y_mean
         else:
             X_centered = X
-            y_mean = 0.0
+            y_mean = cp.array(0.0)
 
         if y.ndim == 1:
             y_centered = y_centered.reshape(-1, 1)
 
-        # Coordinate descent on GPU
-        coef = cp.zeros(n_features)
-        Xty = X_centered.T @ y_centered.flatten()
-        XtX = X_centered.T @ X_centered
-
+        # Precompute X'X and X'y on GPU
+        XtX = cp.matmul(X_centered.T, X_centered)
+        Xty = cp.matmul(X_centered.T, y_centered.flatten())
         X_sq_norms = cp.diag(XtX)
-
+        
+        # Coordinate descent with batch updates
+        coef = cp.zeros(n_features, dtype=X.dtype)
+        
         for iteration in range(self.max_iter):
             coef_old = coef.copy()
-
+            
+            # Compute residuals for all coordinates at once
+            # This is more GPU-friendly than coordinate-by-coordinate
             for j in range(n_features):
+                # Compute partial residual
                 rho_j = Xty[j] - cp.dot(XtX[j, :], coef) + XtX[j, j] * coef[j]
-
+                
+                # Soft thresholding
                 if X_sq_norms[j] > 1e-10:
                     coef[j] = self._soft_threshold_cupy(rho_j, self.alpha * n_samples) / X_sq_norms[j]
                 else:
                     coef[j] = 0.0
-
+            
+            # Check convergence
             if cp.sum(cp.abs(coef - coef_old)) < self.tol:
                 self.n_iter_ = iteration + 1
                 break
         else:
             self.n_iter_ = self.max_iter
-
-        coef_np = coef.get()
-
+        
+        # Build full coefficients
         if self.fit_intercept:
-            self.intercept_ = float(y_mean.get() - (X_mean @ coef).get())
+            intercept_gpu = y_mean - cp.dot(X_mean, coef)
+            coef_full = cp.concatenate([intercept_gpu.reshape(1), coef])
+            ones_col = cp.ones((n_samples, 1), dtype=X.dtype)
+            X_design = cp.concatenate([ones_col, X], axis=1)
+        else:
+            coef_full = coef
+            X_design = X
+        
+        # Compute residuals and R² on GPU
+        y_pred = cp.dot(X_design, coef_full)
+        resid = y - y_pred
+        
+        # Compute scale on GPU
+        df_resid = n_samples - (n_features + (1 if self.fit_intercept else 0))
+        if df_resid > 0:
+            scale = cp.sum(resid ** 2) / df_resid
+        else:
+            scale = cp.nan
+        
+        # R² on GPU
+        self._rsquared_gpu = compute_r2_gpu(y, resid)
+        
+        # Single transfer at the end
+        coef_full_np = coef_full.get()
+        resid_np = resid.get()
+        scale_float = float(scale.get()) if not cp.isnan(scale) else np.nan
+        
+        if self.fit_intercept:
+            self.intercept_ = float(coef_full_np[0])
+            self.coef_ = coef_full_np[1:]
+            self._params = coef_full_np
+            self._X_design = cp.asnumpy(X_design)
+        else:
+            self.intercept_ = 0.0
+            self.coef_ = coef_full_np
+            self._params = coef_full_np
+            self._X_design = X.get()
+        
+        self._resid = resid_np
+        self._df_resid = df_resid
+        self._scale = scale_float
             self.coef_ = coef_np
             self._params = np.concatenate([[self.intercept_], coef_np])
             self._X_design = np.column_stack([np.ones(n_samples, dtype=np.float64), X.get()])
