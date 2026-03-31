@@ -95,15 +95,16 @@ class LinearRegression(BaseEstimator):
             y = y.reshape(-1, 1)
         
         coef, _, _, _ = np.linalg.lstsq(self._X_design, y, rcond=None)
+        coef = coef.flatten()  # Ensure 1D
         
         if self.fit_intercept:
             self.intercept_ = float(coef[0])
-            self.coef_ = coef[1:].flatten()
-            self._params = np.concatenate([[self.intercept_], self.coef_])
+            self.coef_ = coef[1:]
+            self._params = coef.copy()
         else:
             self.intercept_ = 0.0
-            self.coef_ = coef.flatten()
-            self._params = self.coef_.copy()
+            self.coef_ = coef.copy()
+            self._params = coef.copy()
         
         y_pred = self._X_design @ self._params
         self._resid = self._y - y_pred
