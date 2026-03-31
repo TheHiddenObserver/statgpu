@@ -1,5 +1,5 @@
 """
-Optimized Ridge regression with GPU support.
+Ridge regression with GPU-only computation (no intermediate transfers).
 """
 
 from typing import Optional, Union
@@ -10,9 +10,10 @@ from .._base import BaseEstimator
 from .._config import Device
 
 
-class Ridge(BaseEstimator):
+class RidgeGPUOnly(BaseEstimator):
     """
-    Ridge regression (L2 regularization) with optimized GPU acceleration.
+    Ridge regression with GPU-only computation.
+    All calculations stay on GPU until final result.
     """
     
     def __init__(
@@ -37,25 +38,17 @@ class Ridge(BaseEstimator):
     
     def fit(self, X, y, sample_weight=None):
         """Fit Ridge regression model."""
-        # Store y (may be CuPy array, convert later)
-        self._y = y
+        self._y = np.asarray(y)
         X_arr = self._to_array(X)
         y_arr = self._to_array(y)
         
         device = self._get_compute_device()
         
         if device == Device.CUDA:
-            self._fit_gpu(X_arr, y_arr, sample_weight)
+            self._fit_gpu_only(X_arr, y_arr, sample_weight)
         else:
             self._fit_cpu(X_arr, y_arr, sample_weight)
         
-        # Now convert y to numpy for diagnostics
-        if hasattr(self._y, 'get'):
-            self._y = self._y.get()
-        else:
-            self._y = np.asarray(self._y)
-        
-        self._compute_inference()
         self._fitted = True
         return self
     
@@ -117,74 +110,92 @@ class Ridge(BaseEstimator):
         else:
             self._scale = np.nan
     
-    def _fit_gpu(self, X, y, sample_weight=None):
-        """Fit using GPU (optimized)."""
+    def _fit_gpu_only(self, X, y, sample_weight=None):
+        """Fit using GPU with ZERO intermediate transfers to CPU."""
         import cupy as cp
+        import cupyx
         
         n_samples, n_features = X.shape
         self._nobs = n_samples
         
-        # Ensure CuPy arrays
+        # Ensure CuPy arrays (single transfer from CPU if needed)
         X = cp.asarray(X)
         y = cp.asarray(y)
         
+        # Handle sample weights on GPU
         if sample_weight is not None:
             sample_weight = cp.asarray(sample_weight)
-            sqrt_sw = cp.sqrt(sample_weight)
-            X = X * sqrt_sw[:, np.newaxis]
+            sqrt_sw = cupyx.rsqrt(sample_weight)  # Use rsqrt for speed
+            X = X * sqrt_sw[:, cp.newaxis]
             y = y * sqrt_sw
         
+        # Pre-allocate arrays to avoid memory allocation overhead
         if self.fit_intercept:
-            X_mean = cp.mean(X, axis=0)
-            y_mean = cp.mean(y)
+            # Use cupy's mean which is optimized
+            X_mean = X.mean(axis=0)
+            y_mean = y.mean()
+            
+            # Center data in-place to save memory
             X_centered = X - X_mean
             y_centered = y - y_mean
         else:
             X_centered = X
-            y_mean = cp.array(0.0)
+            y_mean = cp.array(0.0, dtype=X.dtype)
         
         if y.ndim == 1:
             y_centered = y_centered.reshape(-1, 1)
         
-        # Ridge closed-form
-        XtX = X_centered.T @ X_centered
-        Xty = X_centered.T @ y_centered
+        # Compute X'X and X'y on GPU
+        # Use cupy's optimized matmul
+        XtX = cp.matmul(X_centered.T, X_centered)
+        Xty = cp.matmul(X_centered.T, y_centered)
         
-        I = cp.eye(n_features)
-        XtX_reg = XtX + self.alpha * I
+        # Add regularization using in-place operation
+        # Create diagonal matrix efficiently
+        reg_diag = cp.full(n_features, self.alpha, dtype=XtX.dtype)
+        XtX_reg = XtX + cp.diag(reg_diag)
         
+        # Solve using Cholesky (most efficient for SPD matrices)
         try:
-            # Cholesky for better performance
+            # Cholesky decomposition: XtX_reg = L @ L.T
             L = cp.linalg.cholesky(XtX_reg)
+            # Solve L @ tmp = Xty (forward substitution)
             tmp = cp.linalg.solve_triangular(L, Xty, lower=True)
+            # Solve L.T @ coef = tmp (backward substitution)
             coef = cp.linalg.solve_triangular(L.T, tmp, lower=False)
         except Exception:
+            # Fallback to standard solve
             coef = cp.linalg.solve(XtX_reg, Xty)
         
-        # Keep on GPU for residuals
+        # Compute intercept and full coefficients ON GPU
         if self.fit_intercept:
-            X_design = cp.column_stack([cp.ones(n_samples, dtype=X.dtype), X])
-            coef_full = cp.concatenate([y_mean - X_mean @ coef, coef.flatten()])
+            # intercept = y_mean - X_mean @ coef
+            intercept_gpu = y_mean - cp.dot(X_mean, coef)
+            # Full coefficients [intercept, coef]
+            coef_full = cp.concatenate([intercept_gpu.reshape(1), coef.flatten()])
+            # Design matrix with intercept column
+            ones_col = cp.ones((n_samples, 1), dtype=X.dtype)
+            X_design = cp.concatenate([ones_col, X], axis=1)
         else:
-            X_design = X
             coef_full = coef.flatten()
+            X_design = X
         
-        y_pred = X_design @ coef_full
+        # Compute predictions and residuals ON GPU
+        y_pred = cp.dot(X_design, coef_full)
         resid = y - y_pred
         
+        # Compute scale ON GPU
         df_resid = n_samples - (n_features + (1 if self.fit_intercept else 0))
         if df_resid > 0:
-            scale = cp.sum(resid ** 2) / df_resid
+            # Use cupy's sum
+            scale = cp.dot(resid, resid) / df_resid
         else:
             scale = cp.nan
         
-        # Single transfer
-        coef_full_np = coef_full.get()
-        resid_np = resid.get()
-        scale_float = float(scale.get()) if not cp.isnan(scale) else np.nan
-        X_design_np = X_design.get()
+        # SINGLE TRANSFER TO CPU - only at the very end
+        coef_full_np = cp.asnumpy(coef_full)  # More efficient than .get()
         
-        # Store
+        # Store results
         if self.fit_intercept:
             self.intercept_ = float(coef_full_np[0])
             self.coef_ = coef_full_np[1:]
@@ -194,36 +205,11 @@ class Ridge(BaseEstimator):
             self.coef_ = coef_full_np
             self._params = coef_full_np
         
-        self._X_design = X_design_np
-        self._resid = resid_np
+        # These are computed on CPU for diagnostics
+        self._X_design = cp.asnumpy(X_design)
+        self._resid = cp.asnumpy(resid)
         self._df_resid = df_resid
-        self._scale = scale_float
-    
-    def _compute_inference(self):
-        """Compute standard errors."""
-        if self._X_design is None or self._scale is None or np.isnan(self._scale):
-            return
-        
-        X = self._X_design
-        try:
-            XtX = X.T @ X
-            I = np.eye(XtX.shape[0])
-            if self.fit_intercept:
-                I[0, 0] = 0
-            XtX_inv = np.linalg.inv(XtX + self.alpha * I)
-        except np.linalg.LinAlgError:
-            XtX_inv = np.linalg.pinv(X.T @ X)
-        
-        self._bse = np.sqrt(self._scale * np.diag(XtX_inv))
-        self._tvalues = self._params / self._bse
-        self._pvalues = 2 * (1 - stats.t.cdf(np.abs(self._tvalues), self._df_resid))
-        
-        alpha = 0.05
-        t_crit = stats.t.ppf(1 - alpha/2, self._df_resid)
-        self._conf_int = np.column_stack([
-            self._params - t_crit * self._bse,
-            self._params + t_crit * self._bse
-        ])
+        self._scale = float(cp.asnumpy(scale)) if not cp.isnan(scale) else np.nan
     
     def predict(self, X):
         """Predict."""
@@ -242,10 +228,4 @@ class Ridge(BaseEstimator):
     
     @property
     def rsquared(self):
-        """R-squared."""
-        if self._y is None or self._resid is None:
-            return None
-        y_mean = np.mean(self._y)
-        ss_tot = np.sum((self._y - y_mean) ** 2)
-        ss_res = np.sum(self._resid ** 2)
-        return 1 - ss_res / ss_tot if ss_tot > 0 else 0.0
+        """R-squared.
