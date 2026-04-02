@@ -16,3 +16,10 @@
 
 - `examples/benchmark_lasso_cpu_gpu_tol.py`
 - `examples/compare_lasso_kkt_stopping.py`
+
+## 全方法大数据量耗时对比
+
+- `examples/benchmark_all_methods_large_scale.py`
+  - 覆盖：`LinearRegression / Ridge / Lasso / LogisticRegression / CoxPH`
+  - 支持 CPU/GPU 双设备、warmup/repeats、可选 inference 计时
+  - 关键点：数据构造与 host->device 迁移在计时外，默认只统计 `fit()`
