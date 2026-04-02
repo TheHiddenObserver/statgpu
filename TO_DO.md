@@ -53,6 +53,22 @@
   - `examples/benchmark_lasso_inference_gpu_vs_cpu.py`
   - `examples/benchmark_gpu_memory_cleanup.py`
 - 修复 `LogisticRegression.fit()` 在 CUDA 输入 `cupy.ndarray` 时的隐式 `np.asarray` 转换报错。
+- `LinearRegression` 新增稳健协方差选项 `cov_type`（`nonrobust` / `hc0` / `hc1`）。
+- 新增对标测试：`LinearRegression cov_type=hc0/hc1` 与 `statsmodels OLS(cov_type=HC0/HC1)` 的 SE/pvalue/CI 一致性验证。
+- `LogisticRegression` 新增稳健协方差选项 `cov_type`（`nonrobust` / `hc0` / `hc1`），并实现 CPU/GPU 两条推断路径。
+- 新增对标测试：
+  - CPU: `LogisticRegression cov_type=hc0/hc1` 与 `statsmodels Logit(cov_type=HC0/HC1)` 一致性验证
+  - GPU: `LogisticRegression(cov_type=hc0/hc1, device='cuda')` 与 `statsmodels` 一致性验证
+
+### 开发门禁（新增）
+- 每次新增功能，必须同时提供：
+  - 全 CPU 实现
+  - 全 GPU 实现
+  - 且两条路径都可独立验证
+- 每次新增统计功能（推断/停止准则/显存机制影响数值路径）后，必须补至少一种外部框架对标验证：
+  - `statsmodels`（优先用于推断与统计量）
+  - `sklearn`（优先用于估计量与预测一致性）
+  - `R`（关键方法的补充验证）
 
 ### P0：统计推断严谨性（Inference Rigor）
 - 为线性模型实现稳健协方差（`robust covariance / cluster-robust / HAC` 等），并对齐 statsmodels 的可选项与数值定义。

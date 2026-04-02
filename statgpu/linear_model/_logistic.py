@@ -53,6 +53,7 @@ class LogisticRegression(BaseEstimator):
         device: Union[str, Device] = Device.AUTO,
         n_jobs: Optional[int] = None,
         compute_inference: bool = True,
+        cov_type: str = "nonrobust",
         gpu_memory_cleanup: bool = False,
     ):
         super().__init__(device=device, n_jobs=n_jobs)
@@ -61,6 +62,9 @@ class LogisticRegression(BaseEstimator):
         self.max_iter = max_iter
         self.tol = tol
         self.compute_inference = compute_inference
+        self.cov_type = cov_type.lower()
+        if self.cov_type not in ("nonrobust", "hc0", "hc1"):
+            raise ValueError("cov_type must be one of: 'nonrobust', 'hc0', 'hc1'")
         self.gpu_memory_cleanup = bool(gpu_memory_cleanup)
         self.coef_ = None
         self.intercept_ = None
@@ -123,7 +127,7 @@ class LogisticRegression(BaseEstimator):
         else:
             self._fit_cpu(X_arr, y_arr, sample_weight)
         
-        if self.compute_inference:
+        if self.compute_inference and device != Device.CUDA:
             self._compute_inference()
         self._fitted = True
         return self
@@ -204,6 +208,7 @@ class LogisticRegression(BaseEstimator):
     def _fit_gpu(self, X, y, sample_weight=None):
         """Fit using GPU with IRLS."""
         import cupy as cp
+        from .._gpu_utils import norm_two_tail_pvalues_gpu, norm_crit_gpu_two_tail
         
         n_samples, n_features = X.shape
         self._nobs = n_samples
@@ -273,6 +278,50 @@ class LogisticRegression(BaseEstimator):
         # Store GPU results temporarily
         self._loglik_gpu = loglik
         self._accuracy_gpu = accuracy
+
+        if self.compute_inference:
+            # Bread: inverse Hessian, H = X'WX (+ ridge)
+            W_inf = p * (1 - p)
+            W_inf = cp.clip(W_inf, 1e-8, 1 - 1e-8)
+            H = X_design.T @ (X_design * W_inf[:, cp.newaxis])
+            if alpha > 0:
+                reg_diag_inf = cp.full(H.shape[0], alpha)
+                if self.fit_intercept:
+                    reg_diag_inf[0] = 0.0
+                H += cp.diag(reg_diag_inf)
+            try:
+                bread = cp.linalg.inv(H)
+            except Exception:
+                bread = cp.linalg.pinv(H)
+
+            if self.cov_type == "nonrobust":
+                cov_params = bread
+            else:
+                # Sandwich robust covariance for GLM/logit:
+                # meat = X' diag((y-p)^2) X
+                resid_score = y - p
+                r2 = cp.square(resid_score)
+                Xw = X_design * r2[:, cp.newaxis]
+                meat = X_design.T @ Xw
+                cov_params = bread @ meat @ bread
+                if self.cov_type == "hc1":
+                    n = X_design.shape[0]
+                    k = X_design.shape[1]
+                    if n > k:
+                        cov_params = cov_params * (n / (n - k))
+
+            bse_gpu = cp.sqrt(cp.maximum(cp.diag(cov_params), 0.0))
+            zvalues_gpu = params / (bse_gpu + 1e-30)
+            pvalues_gpu = norm_two_tail_pvalues_gpu(cp.abs(zvalues_gpu))
+            z_crit = norm_crit_gpu_two_tail(0.05)
+            conf_int_gpu = cp.stack(
+                [params - z_crit * bse_gpu, params + z_crit * bse_gpu], axis=1
+            )
+
+            self._bse = bse_gpu.get()
+            self._zvalues = zvalues_gpu.get()
+            self._pvalues = pvalues_gpu.get()
+            self._conf_int = conf_int_gpu.get()
         
         # Single transfer at the end
         params_np = params.get()
@@ -291,6 +340,11 @@ class LogisticRegression(BaseEstimator):
         self._df_resid = n_samples - (n_features + (1 if self.fit_intercept else 0))
         self._loglik = float(self._loglik_gpu.get())
         self._accuracy = float(self._accuracy_gpu.get())
+        y_mean = cp.mean(y)
+        y_mean = cp.clip(y_mean, 1e-15, 1 - 1e-15)
+        self._loglik_null = float(
+            cp.sum(y * cp.log(y_mean) + (1 - y) * cp.log(1 - y_mean)).get()
+        )
 
         # Release large temporary GPU tensors early.
         try:
@@ -351,9 +405,23 @@ class LogisticRegression(BaseEstimator):
             XtWX += np.diag(reg_diag)
         
         try:
-            cov_params = np.linalg.inv(XtWX)
+            bread = np.linalg.inv(XtWX)
         except np.linalg.LinAlgError:
-            cov_params = np.linalg.pinv(XtWX)
+            bread = np.linalg.pinv(XtWX)
+
+        if self.cov_type == "nonrobust":
+            cov_params = bread
+        else:
+            resid_score = self._y - p
+            r2 = np.square(resid_score)
+            Xw = self._X_design * r2[:, np.newaxis]
+            meat = self._X_design.T @ Xw
+            cov_params = bread @ meat @ bread
+            if self.cov_type == "hc1":
+                n = self._X_design.shape[0]
+                k = self._X_design.shape[1]
+                if n > k:
+                    cov_params = cov_params * (n / (n - k))
         
         # Standard errors
         self._bse = np.sqrt(np.diag(cov_params))
@@ -547,6 +615,7 @@ class LogisticRegression(BaseEstimator):
         print(f"No. Observations:           {self._nobs:>15}")
         print(f"Degrees of Freedom:         {self._df_resid:>15}")
         print(f"Iterations:                 {self.n_iter_:>15}")
+        print(f"Covariance Type:            {self.cov_type:>15}")
         print(f"Log-Likelihood:             {self.loglikelihood:>15.4f}")
         print(f"Log-Likelihood (Null):      {self.loglikelihood_null:>15.4f}")
         print(f"Pseudo R-squared:           {self.pseudo_rsquared:>15.4f}")

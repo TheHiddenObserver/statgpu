@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 
 from statgpu.linear_model import LinearRegression, LogisticRegression, Ridge, Lasso
-from statgpu._config import set_device
+from statgpu._config import set_device, cuda_available
 
 try:
     import statsmodels.api as sm
@@ -20,6 +20,12 @@ try:
     HAS_SKLEARN = True
 except Exception:
     HAS_SKLEARN = False
+
+try:
+    import cupy as cp
+    HAS_CUPY = True
+except Exception:
+    HAS_CUPY = False
 
 
 @pytest.mark.skipif(not HAS_STATSMODELS, reason="statsmodels not available")
@@ -60,6 +66,78 @@ class TestStatsmodelsConsistency:
         assert np.allclose(sg.bic, sm_res.bic, rtol=1e-6, atol=1e-6)
 
     @pytest.mark.parametrize(
+        "cov_type,sm_cov_type,n_samples,n_features,seed",
+        [
+            ("hc0", "HC0", 4000, 12, 72),
+            ("hc1", "HC1", 4000, 12, 73),
+            ("hc0", "HC0", 12000, 24, 82),
+            ("hc1", "HC1", 12000, 24, 83),
+        ],
+        ids=["hc0-small", "hc1-small", "hc0-medium", "hc1-medium"],
+    )
+    def test_linear_robust_covariance_matches_statsmodels(
+        self, cov_type, sm_cov_type, n_samples, n_features, seed
+    ):
+        """HC0/HC1 robust SE and inference should align with statsmodels OLS."""
+        set_device("cpu")
+        rng = np.random.default_rng(seed)
+        X = rng.normal(size=(n_samples, n_features))
+        beta = rng.normal(size=n_features)
+
+        # Heteroskedastic noise to make robust covariance meaningful.
+        noise_scale = 0.2 + 0.8 * np.abs(X[:, 0])
+        y = X @ beta + 2.0 + rng.normal(scale=noise_scale, size=n_samples)
+
+        sg = LinearRegression(device="cpu", cov_type=cov_type)
+        sg.fit(X, y)
+
+        X_sm = sm.add_constant(X)
+        sm_res = sm.OLS(y, X_sm).fit(cov_type=sm_cov_type)
+
+        # Estimation should still match.
+        assert np.allclose(sg.intercept_, sm_res.params[0], rtol=1e-6, atol=1e-6)
+        assert np.allclose(sg.coef_, sm_res.params[1:], rtol=1e-6, atol=1e-6)
+
+        # Robust inference: statsmodels robust path typically uses z-based p-values.
+        assert np.allclose(sg._bse, sm_res.bse, rtol=2e-3, atol=1e-6)
+        assert np.allclose(sg._pvalues, sm_res.pvalues, rtol=5e-2, atol=1e-5)
+        assert np.allclose(sg._conf_int, sm_res.conf_int(), rtol=2e-2, atol=1e-4)
+
+    @pytest.mark.skipif(
+        (not HAS_CUPY) or (not cuda_available()),
+        reason="CuPy/CUDA not available",
+    )
+    @pytest.mark.parametrize(
+        "cov_type,sm_cov_type,seed",
+        [
+            ("hc0", "HC0", 172),
+            ("hc1", "HC1", 173),
+        ],
+        ids=["gpu-hc0", "gpu-hc1"],
+    )
+    def test_linear_robust_covariance_gpu_matches_statsmodels(self, cov_type, sm_cov_type, seed):
+        """GPU HC0/HC1 inference should align with statsmodels robust OLS."""
+        set_device("cuda")
+        rng = np.random.default_rng(seed)
+        n_samples, n_features = 4000, 12
+        X = rng.normal(size=(n_samples, n_features))
+        beta = rng.normal(size=n_features)
+        noise_scale = 0.2 + 0.8 * np.abs(X[:, 0])
+        y = X @ beta + 1.5 + rng.normal(scale=noise_scale, size=n_samples)
+
+        sg = LinearRegression(device="cuda", cov_type=cov_type)
+        sg.fit(cp.asarray(X), cp.asarray(y))
+
+        X_sm = sm.add_constant(X)
+        sm_res = sm.OLS(y, X_sm).fit(cov_type=sm_cov_type)
+
+        assert np.allclose(sg.intercept_, sm_res.params[0], rtol=1e-6, atol=1e-6)
+        assert np.allclose(sg.coef_, sm_res.params[1:], rtol=1e-6, atol=1e-6)
+        assert np.allclose(sg._bse, sm_res.bse, rtol=2e-3, atol=1e-6)
+        assert np.allclose(sg._pvalues, sm_res.pvalues, rtol=5e-2, atol=1e-5)
+        assert np.allclose(sg._conf_int, sm_res.conf_int(), rtol=2e-2, atol=1e-4)
+
+    @pytest.mark.parametrize(
         "n_samples,n_features,seed",
         [
             (3000, 8, 7),
@@ -91,6 +169,71 @@ class TestStatsmodelsConsistency:
         # Inference (SE / p-values) should be close for the same likelihood model.
         assert np.allclose(sg._bse, sm_res.bse, rtol=1e-1, atol=1e-2)
         assert np.allclose(sg._pvalues, sm_res.pvalues, rtol=2e-1, atol=1e-2)
+
+    @pytest.mark.parametrize(
+        "cov_type,sm_cov_type,n_samples,n_features,seed",
+        [
+            ("hc0", "HC0", 5000, 10, 107),
+            ("hc1", "HC1", 5000, 10, 108),
+        ],
+        ids=["logit-hc0-cpu", "logit-hc1-cpu"],
+    )
+    def test_logistic_robust_covariance_matches_statsmodels(
+        self, cov_type, sm_cov_type, n_samples, n_features, seed
+    ):
+        """Logit HC0/HC1 robust inference should align with statsmodels."""
+        set_device("cpu")
+        rng = np.random.default_rng(seed)
+        X = rng.normal(size=(n_samples, n_features))
+        beta = rng.normal(loc=0.0, scale=0.7, size=n_features)
+        logits = X @ beta + 0.2
+        p = 1.0 / (1.0 + np.exp(-logits))
+        y = (rng.random(n_samples) < p).astype(int)
+
+        sg = LogisticRegression(device="cpu", C=1e10, max_iter=200, cov_type=cov_type)
+        sg.fit(X, y)
+
+        X_sm = sm.add_constant(X)
+        sm_res = sm.Logit(y, X_sm).fit(disp=0, maxiter=200, cov_type=sm_cov_type)
+
+        sg_params = np.concatenate(([sg.intercept_], sg.coef_))
+        assert np.allclose(sg_params, sm_res.params, rtol=5e-2, atol=5e-2)
+        assert np.allclose(sg._bse, sm_res.bse, rtol=2e-1, atol=2e-2)
+        assert np.allclose(sg._pvalues, sm_res.pvalues, rtol=3e-1, atol=2e-2)
+
+    @pytest.mark.skipif(
+        (not HAS_CUPY) or (not cuda_available()),
+        reason="CuPy/CUDA not available",
+    )
+    @pytest.mark.parametrize(
+        "cov_type,sm_cov_type,seed",
+        [
+            ("hc0", "HC0", 207),
+            ("hc1", "HC1", 208),
+        ],
+        ids=["logit-hc0-gpu", "logit-hc1-gpu"],
+    )
+    def test_logistic_robust_covariance_gpu_matches_statsmodels(self, cov_type, sm_cov_type, seed):
+        """GPU Logit HC0/HC1 robust inference should align with statsmodels."""
+        set_device("cuda")
+        rng = np.random.default_rng(seed)
+        n_samples, n_features = 5000, 10
+        X = rng.normal(size=(n_samples, n_features))
+        beta = rng.normal(loc=0.0, scale=0.7, size=n_features)
+        logits = X @ beta + 0.2
+        p = 1.0 / (1.0 + np.exp(-logits))
+        y = (rng.random(n_samples) < p).astype(int)
+
+        sg = LogisticRegression(device="cuda", C=1e10, max_iter=200, cov_type=cov_type)
+        sg.fit(cp.asarray(X), cp.asarray(y))
+
+        X_sm = sm.add_constant(X)
+        sm_res = sm.Logit(y, X_sm).fit(disp=0, maxiter=200, cov_type=sm_cov_type)
+
+        sg_params = np.concatenate(([sg.intercept_], sg.coef_))
+        assert np.allclose(sg_params, sm_res.params, rtol=5e-2, atol=5e-2)
+        assert np.allclose(sg._bse, sm_res.bse, rtol=2e-1, atol=2e-2)
+        assert np.allclose(sg._pvalues, sm_res.pvalues, rtol=3e-1, atol=2e-2)
 
 
 @pytest.mark.skipif(not HAS_SKLEARN, reason="sklearn not available")

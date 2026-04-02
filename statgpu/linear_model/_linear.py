@@ -37,11 +37,15 @@ class LinearRegression(BaseEstimator):
         n_jobs: Optional[int] = None,
         compute_inference: bool = True,
         gpu_memory_cleanup: bool = False,
+        cov_type: str = "nonrobust",
     ):
         super().__init__(device=device, n_jobs=n_jobs)
         self.fit_intercept = fit_intercept
         self.compute_inference = compute_inference
         self.gpu_memory_cleanup = bool(gpu_memory_cleanup)
+        self.cov_type = cov_type.lower()
+        if self.cov_type not in ("nonrobust", "hc0", "hc1"):
+            raise ValueError("cov_type must be one of: 'nonrobust', 'hc0', 'hc1'")
         self.coef_ = None
         self.intercept_ = None
         
@@ -90,8 +94,7 @@ class LinearRegression(BaseEstimator):
         else:
             self._y = np.asarray(self._y)
 
-        # GPU path already computes inference on-device in _fit_gpu().
-        # If compute_inference=False, skip all inference work.
+        # GPU path computes both nonrobust and robust inference in _fit_gpu().
         if self.compute_inference and device != Device.CUDA:
             self._compute_inference()
         self._fitted = True
@@ -143,7 +146,14 @@ class LinearRegression(BaseEstimator):
     def _fit_gpu(self, X, y, sample_weight=None):
         """Fit using GPU with FULL GPU computation (including inference)."""
         import cupy as cp
-        from .._gpu_utils import compute_inference_gpu, compute_r2_gpu, compute_aic_bic_gpu, compute_f_stat_gpu
+        from .._gpu_utils import (
+            compute_inference_gpu,
+            compute_r2_gpu,
+            compute_aic_bic_gpu,
+            compute_f_stat_gpu,
+            norm_two_tail_pvalues_gpu,
+            norm_crit_gpu_two_tail,
+        )
         
         n_samples, n_features = X.shape
         self._nobs = n_samples
@@ -193,8 +203,33 @@ class LinearRegression(BaseEstimator):
 
         # Compute inference-related statistics only when requested.
         if self.compute_inference:
-            self._bse_gpu, self._tvalues_gpu, self._pvalues_gpu, self._conf_int_gpu = \
-                compute_inference_gpu(X_design, resid, scale, df_resid, coef_flat)
+            if self.cov_type == "nonrobust":
+                self._bse_gpu, self._tvalues_gpu, self._pvalues_gpu, self._conf_int_gpu = \
+                    compute_inference_gpu(X_design, resid, scale, df_resid, coef_flat)
+            else:
+                # HC0/HC1 robust covariance on GPU
+                XtX_cov = X_design.T @ X_design
+                try:
+                    XtX_inv = cp.linalg.inv(XtX_cov)
+                except Exception:
+                    XtX_inv = cp.linalg.pinv(XtX_cov)
+                e2 = cp.square(resid.reshape(-1))
+                Xw = X_design * e2[:, cp.newaxis]
+                meat = X_design.T @ Xw
+                cov_params = XtX_inv @ meat @ XtX_inv
+                if self.cov_type == "hc1":
+                    n = X_design.shape[0]
+                    k = X_design.shape[1]
+                    if n > k:
+                        cov_params = cov_params * (n / (n - k))
+                self._bse_gpu = cp.sqrt(cp.maximum(cp.diag(cov_params), 0.0))
+                self._tvalues_gpu = coef_flat / (self._bse_gpu + 1e-30)
+                self._pvalues_gpu = norm_two_tail_pvalues_gpu(cp.abs(self._tvalues_gpu))
+                z_crit = norm_crit_gpu_two_tail(0.05)
+                self._conf_int_gpu = cp.stack([
+                    coef_flat - z_crit * self._bse_gpu,
+                    coef_flat + z_crit * self._bse_gpu,
+                ], axis=1)
 
             # R-squared on GPU
             self._rsquared_gpu = compute_r2_gpu(y, resid)
@@ -262,21 +297,45 @@ class LinearRegression(BaseEstimator):
         """Compute standard errors, t-stats, p-values."""
         if self._X_design is None or self._scale is None or np.isnan(self._scale):
             return
-        
+
+        X = self._X_design
+        n = X.shape[0]
+        k = X.shape[1]
+        XtX = X.T @ X
         try:
-            XtX_inv = np.linalg.inv(self._X_design.T @ self._X_design)
+            XtX_inv = np.linalg.inv(XtX)
         except np.linalg.LinAlgError:
-            XtX_inv = np.linalg.pinv(self._X_design.T @ self._X_design)
-        
-        self._bse = np.sqrt(self._scale * np.diag(XtX_inv))
-        self._tvalues = self._params / self._bse
-        self._pvalues = 2 * (1 - stats.t.cdf(np.abs(self._tvalues), self._df_resid))
-        
+            XtX_inv = np.linalg.pinv(XtX)
+
         alpha = 0.05
-        t_crit = stats.t.ppf(1 - alpha/2, self._df_resid)
+        if self.cov_type == "nonrobust":
+            cov_params = self._scale * XtX_inv
+            self._bse = np.sqrt(np.diag(cov_params))
+            self._tvalues = self._params / self._bse
+            self._pvalues = 2 * (1 - stats.t.cdf(np.abs(self._tvalues), self._df_resid))
+            t_crit = stats.t.ppf(1 - alpha / 2, self._df_resid)
+            self._conf_int = np.column_stack([
+                self._params - t_crit * self._bse,
+                self._params + t_crit * self._bse,
+            ])
+            return
+
+        # Heteroskedasticity-robust covariance (White HC0/HC1).
+        e2 = np.asarray(self._resid, dtype=float).reshape(-1) ** 2
+        Xw = X * e2[:, np.newaxis]
+        meat = X.T @ Xw
+        cov_params = XtX_inv @ meat @ XtX_inv
+        if self.cov_type == "hc1":
+            if n > k:
+                cov_params *= (n / (n - k))
+        self._bse = np.sqrt(np.maximum(np.diag(cov_params), 0.0))
+        self._tvalues = self._params / (self._bse + 1e-30)
+        # Robust path uses large-sample normal approximation.
+        self._pvalues = 2 * (1 - stats.norm.cdf(np.abs(self._tvalues)))
+        z_crit = stats.norm.ppf(1 - alpha / 2)
         self._conf_int = np.column_stack([
-            self._params - t_crit * self._bse,
-            self._params + t_crit * self._bse
+            self._params - z_crit * self._bse,
+            self._params + z_crit * self._bse,
         ])
     
     @property
@@ -370,6 +429,7 @@ class LinearRegression(BaseEstimator):
         print("=" * 80)
         print("                            Linear Regression Results")
         print("=" * 80)
+        print(f"Covariance Type:            {self.cov_type:>15}")
         print(f"No. Observations:           {self._nobs:>15}")
         print(f"Degrees of Freedom:         {self._df_resid:>15}")
         print(f"R-squared:                  {self.rsquared:>15.4f}")

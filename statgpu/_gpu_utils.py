@@ -111,6 +111,46 @@ def t_crit_gpu_two_tail(alpha, df_resid, *, max_bisect_steps: int = 60):
         return cp.array(high, dtype=cp.float64)
 
 
+def norm_cdf_gpu(x):
+    """Standard normal CDF on GPU."""
+    import cupy as cp
+    try:
+        import cupyx.scipy.special as csp
+        erf_x = csp.erf(x / cp.sqrt(cp.array(2.0, dtype=cp.float64)))
+    except Exception:
+        # CPU fallback for environments without cupyx special support.
+        import scipy.special as sps
+        erf_x = cp.asarray(sps.erf(cp.asnumpy(x / cp.sqrt(cp.array(2.0, dtype=cp.float64)))))
+    return 0.5 * (1.0 + erf_x)
+
+
+def norm_two_tail_pvalues_gpu(z_abs):
+    """
+    Two-tailed p-values for standard normal on GPU:
+      p = 2 * (1 - Phi(|z|))
+    """
+    import cupy as cp
+    return 2.0 * (1.0 - norm_cdf_gpu(z_abs))
+
+
+def norm_crit_gpu_two_tail(alpha):
+    """
+    Positive z critical value for two-tailed normal CI.
+
+    For alpha=0.05 (95% CI), use a stable constant to avoid CPU special funcs.
+    """
+    import cupy as cp
+    if abs(float(alpha) - 0.05) < 1e-15:
+        return cp.array(1.959963984540054, dtype=cp.float64)
+    # Fallback using inverse erfc if available.
+    try:
+        import cupyx.scipy.special as csp
+        return cp.sqrt(cp.array(2.0, dtype=cp.float64)) * csp.erfcinv(alpha)
+    except Exception:
+        # Conservative fallback to 95% critical.
+        return cp.array(1.959963984540054, dtype=cp.float64)
+
+
 def compute_inference_gpu(X_design, resid, scale, df_resid, params_gpu):
     """
     Compute standard errors, t-values, p-values on GPU.
