@@ -35,6 +35,7 @@ dependencies = [
 gpu = ["cupy-cuda11x>=9.0"]
 torch = ["torch>=1.8"]
 dev = ["pytest>=6.0", "black", "flake8", "mypy"]
+validation = ["pytest>=6.0", "scikit-learn>=1.0", "statsmodels>=0.13"]
 
 [project.urls]
 Homepage = "https://github.com/yourusername/statgpu"

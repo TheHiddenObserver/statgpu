@@ -27,6 +27,9 @@ class CoxPH(BaseEstimator):
         Maximum number of iterations.
     device : str or Device, default='auto'
         Computation device: 'cpu', 'cuda', or 'auto'.
+    compute_inference : bool, default=True
+        If True, compute standard errors/tests/baseline hazard on CPU after fitting.
+        Set to False to reduce CPU-GPU data transfers in CUDA mode.
     
     Attributes
     ----------
@@ -42,12 +45,14 @@ class CoxPH(BaseEstimator):
         tol: float = 1e-9,
         max_iter: int = 100,
         device: Union[str, Device] = Device.AUTO,
-        n_jobs: Optional[int] = None
+        n_jobs: Optional[int] = None,
+        compute_inference: bool = True
     ):
         super().__init__(device=device, n_jobs=n_jobs)
         self.ties = ties.lower()
         self.tol = tol
         self.max_iter = max_iter
+        self.compute_inference = compute_inference
         
         if self.ties not in ('breslow', 'efron'):
             raise ValueError("ties must be 'breslow' or 'efron'")
@@ -103,30 +108,50 @@ class CoxPH(BaseEstimator):
         self : CoxPH
             Fitted estimator.
         """
-        # Convert inputs
-        X_np = np.asarray(X, dtype=np.float64)
-        time_np = np.asarray(time, dtype=np.float64)
-        event_np = np.asarray(event, dtype=np.int32)
-        
-        if X_np.ndim == 1:
-            X_np = X_np.reshape(-1, 1)
-        
-        self._nobs = X_np.shape[0]
-        self._nevents = np.sum(event_np)
-        
-        # Store original data
-        self._time = time_np.copy()
-        self._event = event_np.copy()
-        self._X = X_np.copy()
-        
-        # Create feature names
-        self._feature_names = [f'x{i+1}' for i in range(X_np.shape[1])]
-        
         device = self._get_compute_device()
         
         if device == Device.CUDA:
-            self._fit_gpu(X_np, time_np, event_np, entry)
+            import cupy as cp
+            
+            X_gpu = cp.asarray(self._to_array(X), dtype=cp.float64)
+            time_gpu = cp.asarray(self._to_array(time), dtype=cp.float64)
+            event_gpu = cp.asarray(self._to_array(event), dtype=cp.int32)
+            
+            if X_gpu.ndim == 1:
+                X_gpu = X_gpu.reshape(-1, 1)
+            
+            self._nobs = int(X_gpu.shape[0])
+            self._nevents = int(cp.sum(event_gpu).item())
+            self._feature_names = [f'x{i+1}' for i in range(int(X_gpu.shape[1]))]
+            
+            # Keep CPU copies only when CPU-side inference/baseline stats are requested.
+            if self.compute_inference:
+                self._X = cp.asnumpy(X_gpu)
+                self._time = cp.asnumpy(time_gpu)
+                self._event = cp.asnumpy(event_gpu)
+            else:
+                self._X = None
+                self._time = None
+                self._event = None
+            
+            self._fit_gpu(X_gpu, time_gpu, event_gpu, entry)
         else:
+            X_np = np.asarray(self._to_array(X, Device.CPU), dtype=np.float64)
+            time_np = np.asarray(self._to_array(time, Device.CPU), dtype=np.float64)
+            event_np = np.asarray(self._to_array(event, Device.CPU), dtype=np.int32)
+            
+            if X_np.ndim == 1:
+                X_np = X_np.reshape(-1, 1)
+            
+            self._nobs = X_np.shape[0]
+            self._nevents = np.sum(event_np)
+            
+            # Store original data (CPU mode is CPU-only)
+            self._time = time_np.copy()
+            self._event = event_np.copy()
+            self._X = X_np.copy()
+            self._feature_names = [f'x{i+1}' for i in range(X_np.shape[1])]
+            
             self._fit_cpu(X_np, time_np, event_np, entry)
         
         self._fitted = True
@@ -197,9 +222,25 @@ class CoxPH(BaseEstimator):
             beta, X_sorted, time_sorted, event_sorted
         )
         
-        # Compute inference statistics
-        self._compute_inference_cpu(X_sorted, time_sorted, event_sorted)
-        self._compute_baseline_hazard(X_sorted, time_sorted, event_sorted)
+        # Compute optional inference statistics
+        if self.compute_inference:
+            self._compute_inference_cpu(X_sorted, time_sorted, event_sorted)
+            self._compute_baseline_hazard(X_sorted, time_sorted, event_sorted)
+        else:
+            self._var_matrix = None
+            self._bse = None
+            self._zvalues = None
+            self._pvalues = None
+            self._conf_int = None
+            self._score_test_stat = None
+            self._score_test_pvalue = None
+            self._wald_test_stat = None
+            self._wald_test_pvalue = None
+            self._lr_test_stat = None
+            self._lr_test_pvalue = None
+            self._baseline_hazard = None
+            self._baseline_cumulative_hazard = None
+            self._unique_times = None
         self._compute_cindex()
     
     def _fit_gpu(self, X, time, event, entry=None):
@@ -224,7 +265,7 @@ class CoxPH(BaseEstimator):
         
         # Compute null log-likelihood on GPU
         loglik_null_gpu = self._compute_log_likelihood_gpu(
-            cp.zeros(n_features), X_sorted, time_sorted, event_sorted
+            cp.zeros(n_features, dtype=cp.float64), X_sorted, time_sorted, event_sorted
         )
         
         # Newton-Raphson optimization on GPU
@@ -263,13 +304,29 @@ class CoxPH(BaseEstimator):
         self._log_likelihood = float(cp.asnumpy(loglik_gpu))
         self._cindex = float(cp.asnumpy(cindex_gpu))
         
-        # Inference on CPU (for now)
-        X_sorted_np = cp.asnumpy(X_sorted)
-        time_sorted_np = cp.asnumpy(time_sorted)
-        event_sorted_np = cp.asnumpy(event_sorted)
-        
-        self._compute_inference_cpu(X_sorted_np, time_sorted_np, event_sorted_np)
-        self._compute_baseline_hazard(X_sorted_np, time_sorted_np, event_sorted_np)
+        # Optional inference on CPU (can be disabled to minimize host/device transfers)
+        if self.compute_inference:
+            X_sorted_np = cp.asnumpy(X_sorted)
+            time_sorted_np = cp.asnumpy(time_sorted)
+            event_sorted_np = cp.asnumpy(event_sorted)
+            
+            self._compute_inference_cpu(X_sorted_np, time_sorted_np, event_sorted_np)
+            self._compute_baseline_hazard(X_sorted_np, time_sorted_np, event_sorted_np)
+        else:
+            self._var_matrix = None
+            self._bse = None
+            self._zvalues = None
+            self._pvalues = None
+            self._conf_int = None
+            self._score_test_stat = None
+            self._score_test_pvalue = None
+            self._wald_test_stat = None
+            self._wald_test_pvalue = None
+            self._lr_test_stat = None
+            self._lr_test_pvalue = None
+            self._baseline_hazard = None
+            self._baseline_cumulative_hazard = None
+            self._unique_times = None
     
     def _compute_log_likelihood(self, beta, X, time, event):
         """Compute log partial likelihood."""
@@ -328,11 +385,37 @@ class CoxPH(BaseEstimator):
         risk_sum = cp.cumsum(exp_eta[::-1])[::-1]
         
         # Log-likelihood contribution from events
-        ll = 0.0
+        ll = cp.array(0.0, dtype=cp.float64)
         event_mask = event == 1
         
-        if cp.any(event_mask):
+        if not cp.any(event_mask):
+            return ll
+        
+        if self.ties == 'breslow':
             ll = cp.sum(eta[event_mask]) - cp.sum(cp.log(risk_sum[event_mask]))
+            return ll
+        
+        # Efron approximation
+        unique_times = cp.unique(time[event_mask])
+        for t in unique_times:
+            at_time_t = (time == t)
+            events_at_t = at_time_t & event_mask
+            d = int(cp.sum(events_at_t).item())
+            
+            if d == 0:
+                continue
+            
+            risk_indices = cp.where(time >= t)[0]
+            if risk_indices.size == 0:
+                continue
+            
+            first_idx = risk_indices[0]
+            risk_at_t = risk_sum[first_idx]
+            sum_events = cp.sum(exp_eta[events_at_t])
+            
+            ll += cp.sum(eta[events_at_t])
+            for k in range(d):
+                ll -= cp.log(risk_at_t - (k / d) * sum_events)
         
         return ll
     
@@ -463,24 +546,77 @@ class CoxPH(BaseEstimator):
         X_exp_eta = X * exp_eta[:, cp.newaxis]
         risk_X_sum = cp.cumsum(X_exp_eta[::-1], axis=0)[::-1]
         
-        # Gradient
+        # Efron path on GPU (avoid host/device transfers in iteration loop).
+        if self.ties == 'efron':
+            grad = cp.zeros(n_features, dtype=cp.float64)
+            hess = cp.zeros((n_features, n_features), dtype=cp.float64)
+            event_mask = event == 1
+            
+            if not cp.any(event_mask):
+                return grad, hess
+            
+            unique_times = cp.unique(time[event_mask])
+            for t in unique_times:
+                at_time_t = (time == t)
+                events_at_t = at_time_t & event_mask
+                d = int(cp.sum(events_at_t).item())
+                
+                if d == 0:
+                    continue
+                
+                risk_indices = cp.where(time >= t)[0]
+                if risk_indices.size == 0:
+                    continue
+                risk_set_start = int(risk_indices[0].item())
+                
+                # Event aggregates at this tied time.
+                X_events = X[events_at_t]
+                exp_events = exp_eta[events_at_t]
+                sum_X_events = cp.sum(X_events, axis=0)
+                sum_exp_events = cp.sum(exp_events)
+                sum_X_exp_events = cp.sum(X_events * exp_events[:, cp.newaxis], axis=0)
+                sum_X2_exp_events = cp.einsum('ni,nj,n->ij', X_events, X_events, exp_events)
+                
+                # Full risk-set second moment at time t.
+                X_risk = X[risk_set_start:]
+                exp_risk = exp_eta[risk_set_start:]
+                risk_X2_sum_full = cp.einsum('ni,nj,n->ij', X_risk, X_risk, exp_risk)
+                
+                for k in range(d):
+                    frac = k / d
+                    risk_sum_k = risk_sum[risk_set_start] - frac * sum_exp_events
+                    risk_X_sum_k = risk_X_sum[risk_set_start] - frac * sum_X_exp_events
+                    risk_X2_sum_k = risk_X2_sum_full - frac * sum_X2_exp_events
+                    
+                    E_X = risk_X_sum_k / risk_sum_k
+                    E_XX = risk_X2_sum_k / risk_sum_k
+                    
+                    # Same objective/sign convention as CPU implementation.
+                    grad += sum_X_events - d * E_X
+                    hess -= (E_XX - cp.outer(E_X, E_X))
+            
+            return grad, hess
+        
+        # Breslow gradient
         event_mask = event == 1
         grad = cp.zeros(n_features, dtype=cp.float64)
         
         if cp.any(event_mask):
             grad = cp.sum(X[event_mask], axis=0) - cp.sum(risk_X_sum[event_mask] / risk_sum[event_mask][:, cp.newaxis], axis=0)
         
-        # Hessian (simplified for GPU)
+        # Hessian on GPU (Breslow): reverse scan accumulates weighted second moments
         hess = cp.zeros((n_features, n_features), dtype=cp.float64)
+        risk_X2_sum = cp.zeros((n_features, n_features), dtype=cp.float64)
         
-        # Convert to numpy for complex Hessian computation
-        X_np = X.get()
-        time_np = time.get()
-        event_np = event.get()
-        beta_np = beta.get()
-        
-        _, hess_np = self._compute_gradient_hessian(beta_np, X_np, time_np, event_np)
-        hess = cp.asarray(hess_np)
+        for i in range(n_samples - 1, -1, -1):
+            x_i = X[i]
+            w_i = exp_eta[i]
+            risk_X2_sum = risk_X2_sum + w_i * cp.outer(x_i, x_i)
+            
+            if event[i]:
+                E_X = risk_X_sum[i] / risk_sum[i]
+                E_XX = risk_X2_sum / risk_sum[i]
+                hess -= (E_XX - cp.outer(E_X, E_X))
         
         return grad, hess
     
@@ -651,27 +787,38 @@ class CoxPH(BaseEstimator):
         print()
         print(f"  n= {self._nobs}, number of events= {int(self._nevents)}")
         print()
-        print(f"{'':<15} {'coef':>10} {'exp(coef)':>12} {'se(coef)':>10} {'z':>10} {'Pr(>|z|)':>10}")
-        print("-" * 80)
-        
-        for i, name in enumerate(self._feature_names):
-            print(f"{name:<15} {self.coef_[i]:>10.4f} {self.hazard_ratios_[i]:>12.4f} "
-                  f"{self._bse[i]:>10.4f} {self._zvalues[i]:>10.3f} {self._pvalues[i]:>10.4f}")
-        
-        print("-" * 80)
-        print(f"{'':<15} {'exp(coef)':>12} {'exp(-coef)':>12} {'lower .95':>12} {'upper .95':>12}")
-        print("-" * 80)
-        
-        for i, name in enumerate(self._feature_names):
-            hr = self.hazard_ratios_[i]
-            print(f"{name:<15} {hr:>12.4f} {1/hr:>12.4f} "
-                  f"{np.exp(self._conf_int[i, 0]):>12.4f} {np.exp(self._conf_int[i, 1]):>12.4f}")
+        if self.compute_inference and self._bse is not None:
+            print(f"{'':<15} {'coef':>10} {'exp(coef)':>12} {'se(coef)':>10} {'z':>10} {'Pr(>|z|)':>10}")
+            print("-" * 80)
+            
+            for i, name in enumerate(self._feature_names):
+                print(f"{name:<15} {self.coef_[i]:>10.4f} {self.hazard_ratios_[i]:>12.4f} "
+                      f"{self._bse[i]:>10.4f} {self._zvalues[i]:>10.3f} {self._pvalues[i]:>10.4f}")
+            
+            print("-" * 80)
+            print(f"{'':<15} {'exp(coef)':>12} {'exp(-coef)':>12} {'lower .95':>12} {'upper .95':>12}")
+            print("-" * 80)
+            
+            for i, name in enumerate(self._feature_names):
+                hr = self.hazard_ratios_[i]
+                print(f"{name:<15} {hr:>12.4f} {1/hr:>12.4f} "
+                      f"{np.exp(self._conf_int[i, 0]):>12.4f} {np.exp(self._conf_int[i, 1]):>12.4f}")
+        else:
+            print(f"{'':<15} {'coef':>10} {'exp(coef)':>12}")
+            print("-" * 80)
+            for i, name in enumerate(self._feature_names):
+                print(f"{name:<15} {self.coef_[i]:>10.4f} {self.hazard_ratios_[i]:>12.4f}")
+            print("-" * 80)
+            print("Inference statistics disabled (compute_inference=False).")
         
         print("=" * 80)
         print(f"Concordance: {self._cindex:.3f} (if 0.5-0.7: moderate, 0.7-0.9: strong)")
-        print(f"Likelihood ratio test: {self._lr_test_stat:.2f} on {len(self.coef_)} df, p={self._lr_test_pvalue:.4e}")
-        print(f"Wald test:            {self._wald_test_stat:.2f} on {len(self.coef_)} df, p={self._wald_test_pvalue:.4e}")
-        print(f"Score (logrank) test: {self._score_test_stat:.2f} on {len(self.coef_)} df, p={self._score_test_pvalue:.4e}")
+        if self.compute_inference and self._lr_test_stat is not None:
+            print(f"Likelihood ratio test: {self._lr_test_stat:.2f} on {len(self.coef_)} df, p={self._lr_test_pvalue:.4e}")
+            print(f"Wald test:            {self._wald_test_stat:.2f} on {len(self.coef_)} df, p={self._wald_test_pvalue:.4e}")
+            print(f"Score (logrank) test: {self._score_test_stat:.2f} on {len(self.coef_)} df, p={self._score_test_pvalue:.4e}")
+        else:
+            print("Likelihood/Wald/Score tests skipped (compute_inference=False).")
         print(f"Number of Newton-Raphson iterations: {self._iterations}")
         print(f"Converged: {self._converged}")
         print("=" * 80)
