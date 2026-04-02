@@ -1,15 +1,13 @@
-# statgpu Documentation Portal
+# statgpu Documentation Portal (English Alias)
 
 > Language: English  
 > Last updated: 2026-04-02  
-> This page: Primary documentation entrypoint  
+> This page: Compatibility alias  
 > Switch: [中文](USAGE_CN.md)
 
-Language switch:
-- Chinese: [USAGE_CN.md](USAGE_CN.md)
-- Legacy alias: [USAGE_EN.md](USAGE_EN.md)
-
-`USAGE.md` is the primary (English) documentation entrypoint. Detailed docs are organized in `docs/en/`.
+This file is kept as an alias for compatibility.
+Primary English entrypoint: [USAGE.md](USAGE.md)
+Chinese entrypoint: [USAGE_CN.md](USAGE_CN.md)
 
 ## 1) Getting Started
 

@@ -1,5 +1,12 @@
 # 设备与显存管理
 
+> 语言: 中文  
+> 最后更新: 2026-04-02  
+> 页面定位: 指南文档  
+> 切换: [English](../en/guides/device-and-memory.md)
+
+语言切换：[English](../en/guides/device-and-memory.md)
+
 ## 设备选择
 
 每个模型都支持 `device`：

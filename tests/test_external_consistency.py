@@ -4,10 +4,12 @@ import numpy as np
 import pytest
 
 from statgpu.linear_model import LinearRegression, LogisticRegression, Ridge, Lasso
+from statgpu.survival import CoxPH
 from statgpu._config import set_device, cuda_available
 
 try:
     import statsmodels.api as sm
+    import statsmodels.duration.api as smd
 
     HAS_STATSMODELS = True
 except Exception:
@@ -234,6 +236,36 @@ class TestStatsmodelsConsistency:
         assert np.allclose(sg_params, sm_res.params, rtol=5e-2, atol=5e-2)
         assert np.allclose(sg._bse, sm_res.bse, rtol=2e-1, atol=2e-2)
         assert np.allclose(sg._pvalues, sm_res.pvalues, rtol=3e-1, atol=2e-2)
+
+    @pytest.mark.parametrize(
+        "ties,n_samples,n_features,seed",
+        [
+            ("breslow", 1200, 10, 310),
+            ("efron", 1200, 10, 311),
+        ],
+        ids=["cox-breslow", "cox-efron"],
+    )
+    def test_cox_estimation_matches_statsmodels(self, ties, n_samples, n_features, seed):
+        """CoxPH coefficients should align with statsmodels PHReg under same ties."""
+        set_device("cpu")
+        rng = np.random.default_rng(seed)
+        X = rng.normal(size=(n_samples, n_features))
+        beta = rng.normal(scale=0.35, size=n_features)
+        lin = X @ beta
+        u = np.clip(rng.random(n_samples), 1e-12, 1 - 1e-12)
+        base = 0.03
+        t_true = -np.log(u) / (base * np.exp(np.clip(lin, -20, 20)))
+        censor = rng.exponential(scale=np.median(t_true), size=n_samples)
+        event = (t_true <= censor).astype(int)
+        time_obs = np.minimum(t_true, censor)
+
+        sg = CoxPH(device="cpu", ties=ties, max_iter=80, tol=1e-8, compute_inference=True)
+        sg.fit(X, time_obs, event)
+
+        sm_res = smd.PHReg(time_obs, X, status=event, ties=ties).fit()
+
+        assert np.allclose(sg.coef_, sm_res.params, rtol=2e-2, atol=2e-3)
+        assert np.allclose(sg._bse, sm_res.bse, rtol=2e-1, atol=2e-3)
 
 
 @pytest.mark.skipif(not HAS_SKLEARN, reason="sklearn not available")

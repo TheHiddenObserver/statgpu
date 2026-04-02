@@ -10,6 +10,10 @@
   - `statsmodels`（推断与统计量优先）
   - `sklearn`（估计量与预测一致性优先）
   - `R`（关键方法补充验证）
+- 外部对标时必须显式统一口径：
+  - 同一特征集合（禁止隐式 `y ~ .` 把目标列带入特征）
+  - 同一 `ties/solver` 配置
+  - 同一正则与收敛设置（`alpha/C/max_iter/tol`）
 
 ---
 
@@ -24,6 +28,7 @@
 - 修复 `LogisticRegression.fit()` 在 CUDA 输入 `cupy.ndarray` 时的隐式 `np.asarray` 转换报错。
 - `LinearRegression` 新增 `cov_type=nonrobust/hc0/hc1`，并补 CPU/GPU 推断路径。
 - `LogisticRegression` 新增 `cov_type=nonrobust/hc0/hc1`，并补 CPU/GPU 推断路径。
+- `CoxPH` 新增 `cov_type=nonrobust/hc0/hc1`（稳健协方差近似）并补 CPU/GPU 路径可用性。
 - 新增并验证对标测试（`statsmodels`）：
   - `LinearRegression` HC0/HC1（CPU+GPU）
   - `LogisticRegression` HC0/HC1（CPU+GPU）
@@ -31,6 +36,7 @@
   - `examples/benchmark_lasso_inference_gpu_vs_cpu.py`
   - `examples/benchmark_gpu_memory_cleanup.py`
   - `examples/benchmark_all_methods_large_scale.py`
+  - `examples/benchmark_external_frameworks.py`
 
 ---
 

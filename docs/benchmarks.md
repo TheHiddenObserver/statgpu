@@ -1,5 +1,12 @@
 # 基准脚本索引
 
+> 语言: 中文  
+> 最后更新: 2026-04-02  
+> 页面定位: 基准脚本索引  
+> 切换: [English](en/benchmarks.md)
+
+语言切换：[English](en/benchmarks.md)
+
 ## 推断相关
 
 - `examples/benchmark_lasso_inference_gpu_vs_cpu.py`
@@ -36,3 +43,32 @@ python examples/benchmark_all_methods_large_scale.py \
   --n-cox 50000 --p-cox 24 \
   --json-out examples/bench_all_large_results.json
 ```
+
+## 外部框架对标（数值 + 时间）
+
+- `examples/benchmark_external_frameworks.py`
+  - 优先对标：`statsmodels`、`sklearn`
+  - 可选对标：`R`（若系统有 `Rscript` 与对应包）
+  - 输出：`fit_ms` + 系数/推断统计差异（可输出 JSON）
+
+推荐运行命令（statsmodels + sklearn）：
+
+```bash
+python examples/benchmark_external_frameworks.py \
+  --n 1200 --p 10 \
+  --cox-ties breslow \
+  --skip-r
+```
+
+推荐运行命令（含 R）：
+
+```bash
+python examples/benchmark_external_frameworks.py \
+  --n 1200 --p 10 \
+  --cox-ties breslow
+```
+
+对标门禁建议（务必统一口径）：
+- 显式固定同一特征集合（避免 `y ~ .` 误包含目标/辅助列）
+- 显式固定 `ties`（如 `cox-ties=breslow` 或 `efron`）
+- 显式记录正则参数与迭代阈值（`alpha/C/max_iter/tol`）

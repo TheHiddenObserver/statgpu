@@ -1,5 +1,12 @@
 # Models Overview
 
+> 语言: 中文  
+> 最后更新: 2026-04-02  
+> 页面定位: 模型索引  
+> 切换: [English](../en/models/README.md)
+
+语言切换：[English](../en/models/README.md)
+
 This section organizes method-level docs so the documentation scales as more
 statistical methods are added.
 

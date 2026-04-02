@@ -1,5 +1,12 @@
 # CoxPH
 
+> 语言: 中文  
+> 最后更新: 2026-04-02  
+> 页面定位: 模型文档  
+> 切换: [English](../en/models/coxph.md)
+
+语言切换：[English](../en/models/coxph.md)
+
 路径：`statgpu.survival.CoxPH`
 
 ## 参数表
@@ -11,6 +18,7 @@
 | `max_iter` | `100` | 最大迭代数 |
 | `device` | `"auto"` | `cpu` / `cuda` / `auto` |
 | `compute_inference` | `True` | 是否计算推断与部分诊断 |
+| `cov_type` | `"nonrobust"` | `nonrobust` / `hc0` / `hc1` |
 | `gpu_memory_cleanup` | `False` | 每次 `fit` 后尝试释放 CuPy memory pool |
 
 ## 主要参数
@@ -19,6 +27,7 @@
 - `max_iter`
 - `device` (`cpu` / `cuda` / `auto`)
 - `compute_inference`
+- `cov_type` (`nonrobust` / `hc0` / `hc1`)
 - `gpu_memory_cleanup`
 
 ## 快速示例

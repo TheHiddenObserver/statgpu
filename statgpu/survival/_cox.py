@@ -47,6 +47,7 @@ class CoxPH(BaseEstimator):
         device: Union[str, Device] = Device.AUTO,
         n_jobs: Optional[int] = None,
         compute_inference: bool = True,
+        cov_type: str = "nonrobust",
         gpu_memory_cleanup: bool = False,
     ):
         super().__init__(device=device, n_jobs=n_jobs)
@@ -54,10 +55,13 @@ class CoxPH(BaseEstimator):
         self.tol = tol
         self.max_iter = max_iter
         self.compute_inference = compute_inference
+        self.cov_type = cov_type.lower()
         self.gpu_memory_cleanup = bool(gpu_memory_cleanup)
         
         if self.ties not in ('breslow', 'efron'):
             raise ValueError("ties must be 'breslow' or 'efron'")
+        if self.cov_type not in ("nonrobust", "hc0", "hc1"):
+            raise ValueError("cov_type must be one of: 'nonrobust', 'hc0', 'hc1'")
         
         # Fitted attributes
         self.coef_ = None
@@ -174,8 +178,9 @@ class CoxPH(BaseEstimator):
         """Fit using CPU (NumPy)."""
         n_samples, n_features = X.shape
         
-        # Sort by time (descending for partial likelihood)
-        order = np.argsort(-time)
+        # Sort by time ascending so risk-set terms are suffix sums:
+        # R(t_i) = {j: t_j >= t_i} -> indices i..n-1 after ascending sort.
+        order = np.argsort(time)
         X_sorted = X[order]
         time_sorted = time[order]
         event_sorted = event[order]
@@ -294,8 +299,9 @@ class CoxPH(BaseEstimator):
         time = cp.asarray(time, dtype=cp.float64)
         event = cp.asarray(event, dtype=cp.int32)
         
-        # Sort by time (descending) on GPU
-        order = cp.argsort(-time)
+        # Sort by time ascending so risk-set terms are suffix sums:
+        # R(t_i) = {j: t_j >= t_i} -> indices i..n-1 after ascending sort.
+        order = cp.argsort(time)
         X_sorted = X[order]
         time_sorted = time[order]
         event_sorted = event[order]
@@ -667,11 +673,23 @@ class CoxPH(BaseEstimator):
         # Compute information matrix (negative Hessian at MLE)
         _, hess = self._compute_gradient_hessian(self.coef_, X, time, event)
         
-        # Variance-covariance matrix is inverse of information matrix
+        # Bread matrix from observed information.
         try:
-            self._var_matrix = np.linalg.inv(-hess)
+            bread = np.linalg.inv(-hess)
         except np.linalg.LinAlgError:
-            self._var_matrix = np.linalg.pinv(-hess)
+            bread = np.linalg.pinv(-hess)
+
+        if self.cov_type == "nonrobust":
+            self._var_matrix = bread
+        else:
+            score_resid = self._compute_score_residuals_approx(X, time, event)
+            meat = score_resid.T @ score_resid
+            self._var_matrix = bread @ meat @ bread
+            if self.cov_type == "hc1":
+                n = X.shape[0]
+                k = X.shape[1]
+                if n > k:
+                    self._var_matrix = self._var_matrix * (n / (n - k))
         
         # Standard errors
         self._bse = np.sqrt(np.diag(self._var_matrix))
@@ -712,6 +730,25 @@ class CoxPH(BaseEstimator):
         except:
             self._score_test_stat = np.nan
         self._score_test_pvalue = 1 - stats.chi2.cdf(self._score_test_stat, n_features)
+
+    def _compute_score_residuals_approx(self, X, time, event):
+        """
+        Approximate per-observation score residuals at fitted beta.
+
+        Uses event-time contribution:
+          u_i = x_i - E[X | R(t_i)] for event rows, and 0 for censored rows.
+        """
+        n_samples, n_features = X.shape
+        eta = X @ self.coef_
+        exp_eta = np.exp(eta)
+        risk_sum = np.cumsum(exp_eta[::-1])[::-1]
+        risk_X_sum = np.cumsum((X * exp_eta[:, np.newaxis])[::-1], axis=0)[::-1]
+        u = np.zeros((n_samples, n_features), dtype=np.float64)
+        for i in range(n_samples):
+            if event[i]:
+                ex = risk_X_sum[i] / risk_sum[i]
+                u[i] = X[i] - ex
+        return u
     
     def _compute_baseline_hazard(self, X, time, event):
         """Compute Breslow estimator of baseline hazard and survival function."""
@@ -826,6 +863,7 @@ class CoxPH(BaseEstimator):
         print(f"  coxph(formula = Surv(time, event) ~ ., ties = '{self.ties}')")
         print()
         print(f"  n= {self._nobs}, number of events= {int(self._nevents)}")
+        print(f"  covariance type= {self.cov_type}")
         print()
         if self.compute_inference and self._bse is not None:
             print(f"{'':<15} {'coef':>10} {'exp(coef)':>12} {'se(coef)':>10} {'z':>10} {'Pr(>|z|)':>10}")

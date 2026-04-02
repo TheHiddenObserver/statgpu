@@ -1,48 +1,59 @@
 # Changelog
 
+> 语言: 中文  
+> 最后更新: 2026-04-02  
+> 页面定位: 变更记录  
+> 切换: [English](en/changelog.md)
+
+语言切换：[English](en/changelog.md)
+
 ## 2026-04
 
-### Added
+### 新增
 
-- Lasso inference method semantic rename:
-  - `cpu_ols_inference` (alias: `naive_ols`)
-  - `gpu_ols_inference` (alias: `gpu_naive_ols`)
-- GPU memory cleanup switch `gpu_memory_cleanup` for:
+- Lasso 推断方法语义化重命名：
+  - `cpu_ols_inference`（兼容旧名：`naive_ols`）
+  - `gpu_ols_inference`（兼容旧名：`gpu_naive_ols`）
+- 全模型显存管理开关 `gpu_memory_cleanup`：
   - `LinearRegression`
   - `Ridge`
   - `Lasso`
   - `LogisticRegression`
   - `CoxPH`
-- `LinearRegression(cov_type=...)`:
+- `LinearRegression(cov_type=...)`：
   - `nonrobust`
   - `hc0`
   - `hc1`
-  with CPU + GPU robust inference path
-- `LogisticRegression(cov_type=...)`:
+  并支持 CPU + GPU 推断路径
+- `LogisticRegression(cov_type=...)`：
   - `nonrobust`
   - `hc0`
   - `hc1`
-  with CPU + GPU robust inference path
-- New benchmark script:
+  并支持 CPU + GPU 推断路径
+- `CoxPH(cov_type=...)`：
+  - `nonrobust`
+  - `hc0`
+  - `hc1`
+  （当前为稳健协方差近似路径）
+- 新增全方法大规模 benchmark：
   - `examples/benchmark_all_methods_large_scale.py`
-  for large-scale runtime comparison across all current methods
 
-### Improved
+### 改进
 
-- Lasso `gpu_ols_inference` path computes more inference steps on GPU,
-  reducing CPU transfer and external SciPy dependency.
-- Documentation structure expanded into:
+- Lasso `gpu_ols_inference` 路径将更多推断步骤放在 GPU 侧，减少 CPU 传输与 SciPy 依赖。
+- 文档体系拆分为：
   - `docs/getting-started`
   - `docs/guides`
   - `docs/models`
   - `docs/benchmarks`
+  - `docs/en/*`（英文文档）
 
-### Fixed
+### 修复
 
-- `LogisticRegression.fit()` implicit NumPy conversion issue when `y` is a CuPy array.
+- 修复 `LogisticRegression.fit()` 在 `y` 为 CuPy 数组时的隐式 NumPy 转换问题。
 
-### Validation
+### 验证
 
-- Added external consistency tests with `statsmodels`:
-  - `LinearRegression` robust covariance (`HC0/HC1`) consistency
-  - `LogisticRegression` robust covariance (`HC0/HC1`) consistency (CPU + GPU)
+- 新增与 `statsmodels` 的一致性验证：
+  - `LinearRegression` 的 `HC0/HC1`
+  - `LogisticRegression` 的 `HC0/HC1`（CPU + GPU）

@@ -1,5 +1,12 @@
 # LogisticRegression
 
+> 语言: 中文  
+> 最后更新: 2026-04-02  
+> 页面定位: 模型文档  
+> 切换: [English](../en/models/logistic-regression.md)
+
+语言切换：[English](../en/models/logistic-regression.md)
+
 路径：`statgpu.linear_model.LogisticRegression`
 
 ## 参数表

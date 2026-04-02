@@ -4,18 +4,10 @@ GPU-accelerated statistical methods with sklearn-compatible API.
 
 ## Documentation
 
-- Usage portal: `USAGE.md`
-- Quickstart: `docs/getting-started/quickstart.md`
-- Guides:
-  - `docs/guides/device-and-memory.md`
-  - `docs/guides/inference-modes.md`
-- Model docs:
-  - `docs/models/linear-regression.md`
-  - `docs/models/ridge.md`
-  - `docs/models/lasso.md`
-  - `docs/models/logistic-regression.md`
-  - `docs/models/coxph.md`
-- Benchmarks: `docs/benchmarks.md`
+- Primary usage portal (English): `USAGE.md`
+- Chinese usage portal: `USAGE_CN.md`
+- English docs root: `docs/en/`
+- Chinese docs root: `docs/`
 
 ## Features
 

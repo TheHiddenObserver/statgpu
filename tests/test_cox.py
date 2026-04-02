@@ -47,6 +47,18 @@ class TestCoxPH:
         assert model._baseline_hazard is None
         assert np.isfinite(model._log_likelihood)
 
+    @pytest.mark.parametrize("cov_type", ["nonrobust", "hc0", "hc1"])
+    def test_cov_type_inference_cpu(self, cov_type):
+        """CoxPH supports nonrobust/hc0/hc1 covariance on CPU."""
+        set_device("cpu")
+        X, time, event = _make_survival_data(n_samples=220, n_features=5, seed=21)
+        model = CoxPH(device="cpu", cov_type=cov_type, compute_inference=True, max_iter=60)
+        model.fit(X, time, event)
+        assert model._bse is not None
+        assert model._conf_int is not None
+        assert np.all(np.isfinite(model._bse))
+        assert np.all(np.isfinite(model._pvalues))
+
 
 class TestGPU:
     """GPU-specific tests for CoxPH (run only when CUDA available)."""
@@ -86,3 +98,15 @@ class TestGPU:
             rtol=5e-3,
             atol=1e-4,
         )
+
+    @pytest.mark.skipif(
+        not CoxPH(device="auto")._get_compute_device() == Device.CUDA,
+        reason="CUDA not available",
+    )
+    def test_cov_type_inference_gpu(self):
+        """CoxPH cov_type runs in CUDA fit path with inference enabled."""
+        X, time, event = _make_survival_data(n_samples=180, n_features=5, seed=52)
+        model = CoxPH(device="cuda", cov_type="hc1", compute_inference=True, max_iter=50)
+        model.fit(X, time, event)
+        assert model._bse is not None
+        assert np.all(np.isfinite(model._bse))

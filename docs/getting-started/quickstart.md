@@ -1,5 +1,12 @@
 # 快速上手
 
+> 语言: 中文  
+> 最后更新: 2026-04-02  
+> 页面定位: 快速开始  
+> 切换: [English](../en/getting-started/quickstart.md)
+
+语言切换：[English](../en/getting-started/quickstart.md)
+
 ## 安装
 
 ```bash
