@@ -9,6 +9,11 @@
 - [设备与显存管理](docs/guides/device-and-memory.md)
 - [推断配置（Lasso）](docs/guides/inference-modes.md)
 
+安装提示：
+- GPU 环境请按 CUDA 主版本选择 CuPy wheel：
+  - CUDA 11.x -> `cupy-cuda11x`
+  - CUDA 12.x -> `cupy-cuda12x`
+
 ## 2) 方法文档（按模块扩展）
 
 总览索引：

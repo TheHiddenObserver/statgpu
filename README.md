@@ -30,8 +30,12 @@ GPU-accelerated statistical methods with sklearn-compatible API.
 # CPU only
 pip install statgpu
 
-# With GPU support (CUDA 11.x)
-pip install statgpu[gpu]
+# With GPU support (choose by CUDA major version)
+# CUDA 11.x runtime:
+pip install statgpu[gpu11]
+
+# CUDA 12.x runtime:
+pip install statgpu[gpu12]
 
 # Development
 pip install statgpu[dev]
@@ -84,8 +88,10 @@ model = LinearRegression(device='cuda', n_jobs=4)
 
 - Python >= 3.8
 - NumPy >= 1.20
-- CuPy >= 9.0 (optional, for GPU)
-- CUDA 11.1+ (for GPU)
+- CuPy (optional, for GPU; choose wheel matching CUDA major version)
+  - CUDA 11.x: `cupy-cuda11x`
+  - CUDA 12.x: `cupy-cuda12x`
+- CUDA runtime compatible with selected CuPy wheel
 
 ## License
 

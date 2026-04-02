@@ -32,7 +32,11 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-gpu = ["cupy-cuda11x>=9.0"]
+# IMPORTANT:
+# CuPy wheels are CUDA-major-version specific.
+# Pick ONE of gpu11 / gpu12 extras based on your CUDA runtime.
+gpu11 = ["cupy-cuda11x>=13.0"]
+gpu12 = ["cupy-cuda12x>=13.0"]
 torch = ["torch>=1.8"]
 dev = ["pytest>=6.0", "black", "flake8", "mypy"]
 validation = ["pytest>=6.0", "scikit-learn>=1.0", "statsmodels>=0.13"]
