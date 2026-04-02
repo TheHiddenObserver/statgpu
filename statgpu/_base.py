@@ -60,21 +60,35 @@ class BaseEstimator(ABC):
         """
         target_device = device or self._get_compute_device()
         
-        # Convert to numpy first if needed
-        if hasattr(X, 'get'):  # CuPy array
+        # If target is CUDA and X is already a CuPy array, keep it on GPU.
+        # This avoids an expensive host-device roundtrip when the user
+        # pre-constructs data on GPU (torch-like workflow).
+        if target_device == Device.CUDA:
+            try:
+                import cupy as cp
+
+                if isinstance(X, cp.ndarray):
+                    return X
+            except Exception:
+                # If CuPy isn't available / type check fails, fall back below.
+                pass
+
+        # Convert to numpy first for CPU paths or for non-CuPy inputs.
+        if hasattr(X, "get"):  # CuPy-like array
             X_np = X.get()
-        elif hasattr(X, 'cpu'):  # PyTorch tensor
+        elif hasattr(X, "cpu"):  # PyTorch tensor
             X_np = X.cpu().numpy()
         else:
             X_np = np.asarray(X)
-        
+
         if target_device == Device.CUDA:
             try:
                 import cupy as cp
                 return cp.asarray(X_np)
             except ImportError:
-                pass  # Fall back to numpy
-        
+                # Fall back to numpy if CuPy isn't available.
+                return X_np
+
         return X_np
     
     def _to_numpy(self, X) -> np.ndarray:

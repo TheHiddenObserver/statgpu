@@ -34,10 +34,12 @@ class LinearRegression(BaseEstimator):
         self,
         fit_intercept: bool = True,
         device: Union[str, Device] = Device.AUTO,
-        n_jobs: Optional[int] = None
+        n_jobs: Optional[int] = None,
+        compute_inference: bool = True,
     ):
         super().__init__(device=device, n_jobs=n_jobs)
         self.fit_intercept = fit_intercept
+        self.compute_inference = compute_inference
         self.coef_ = None
         self.intercept_ = None
         
@@ -74,8 +76,11 @@ class LinearRegression(BaseEstimator):
             self._y = self._y.get()
         else:
             self._y = np.asarray(self._y)
-        
-        self._compute_inference()
+
+        # GPU path already computes inference on-device in _fit_gpu().
+        # If compute_inference=False, skip all inference work.
+        if self.compute_inference and device != Device.CUDA:
+            self._compute_inference()
         self._fitted = True
         return self
     
@@ -171,33 +176,36 @@ class LinearRegression(BaseEstimator):
         else:
             scale = cp.nan
         
-        # Compute ALL statistics on GPU
         coef_flat = coef.flatten()
-        self._bse_gpu, self._tvalues_gpu, self._pvalues_gpu, self._conf_int_gpu = \
-            compute_inference_gpu(X_design, resid, scale, df_resid, coef_flat)
-        
-        # R-squared on GPU
-        self._rsquared_gpu = compute_r2_gpu(y, resid)
-        
-        # AIC/BIC on GPU
-        k = n_features + (1 if self.fit_intercept else 0)
-        scale_mle = cp.sum(resid ** 2) / n_samples
-        self._aic_gpu, self._bic_gpu = compute_aic_bic_gpu(n_samples, k, scale_mle)
-        
-        # F-statistic on GPU
-        self._fvalue_gpu, self._f_pvalue = compute_f_stat_gpu(y, resid, X_design, df_resid)
-        
+
+        # Compute inference-related statistics only when requested.
+        if self.compute_inference:
+            self._bse_gpu, self._tvalues_gpu, self._pvalues_gpu, self._conf_int_gpu = \
+                compute_inference_gpu(X_design, resid, scale, df_resid, coef_flat)
+
+            # R-squared on GPU
+            self._rsquared_gpu = compute_r2_gpu(y, resid)
+
+            # AIC/BIC on GPU
+            k = n_features + (1 if self.fit_intercept else 0)
+            scale_mle = cp.sum(resid ** 2) / n_samples
+            self._aic_gpu, self._bic_gpu = compute_aic_bic_gpu(n_samples, k, scale_mle)
+
+            # F-statistic on GPU
+            self._fvalue_gpu, self._f_pvalue = compute_f_stat_gpu(y, resid, X_design, df_resid)
+
         # Single transfer to CPU at the end
         coef_np = coef.get().flatten()
         resid_np = resid.get().flatten()
         scale_float = float(scale.get()) if not cp.isnan(scale) else np.nan
         X_design_np = X_design.get()
         
-        # Transfer inference results
-        self._bse = self._bse_gpu.get()
-        self._tvalues = self._tvalues_gpu.get()
-        self._pvalues = self._pvalues_gpu.get()
-        self._conf_int = self._conf_int_gpu.get()
+        if self.compute_inference:
+            # Transfer inference results
+            self._bse = self._bse_gpu.get()
+            self._tvalues = self._tvalues_gpu.get()
+            self._pvalues = self._pvalues_gpu.get()
+            self._conf_int = self._conf_int_gpu.get()
         
         # Store results
         if self.fit_intercept:
@@ -310,6 +318,12 @@ class LinearRegression(BaseEstimator):
         """Print summary table similar to R's summary(lm())."""
         if not self._fitted:
             raise RuntimeError("Model has not been fitted yet.")
+
+        if not self.compute_inference:
+            raise RuntimeError(
+                "compute_inference=False: summary/inference statistics are not available. "
+                "Re-fit with compute_inference=True (default)."
+            )
         
         # Build feature names
         if self.fit_intercept:

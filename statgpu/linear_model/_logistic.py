@@ -51,13 +51,15 @@ class LogisticRegression(BaseEstimator):
         max_iter: int = 100,
         tol: float = 1e-4,
         device: Union[str, Device] = Device.AUTO,
-        n_jobs: Optional[int] = None
+        n_jobs: Optional[int] = None,
+        compute_inference: bool = True,
     ):
         super().__init__(device=device, n_jobs=n_jobs)
         self.fit_intercept = fit_intercept
         self.C = C
         self.max_iter = max_iter
         self.tol = tol
+        self.compute_inference = compute_inference
         self.coef_ = None
         self.intercept_ = None
         self.n_iter_ = None
@@ -108,7 +110,8 @@ class LogisticRegression(BaseEstimator):
         else:
             self._fit_cpu(X_arr, y_arr, sample_weight)
         
-        self._compute_inference()
+        if self.compute_inference:
+            self._compute_inference()
         self._fitted = True
         return self
     
@@ -477,6 +480,12 @@ class LogisticRegression(BaseEstimator):
         """Print summary table similar to statsmodels/R."""
         if not self._fitted:
             raise RuntimeError("Model has not been fitted yet.")
+
+        if self._bse is None or self._pvalues is None or self._conf_int is None:
+            raise RuntimeError(
+                "compute_inference=False: inference statistics are not available. "
+                "Re-fit with compute_inference=True (default) to use summary()."
+            )
         
         # Build feature names
         if self.fit_intercept:

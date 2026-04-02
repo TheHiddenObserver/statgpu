@@ -54,8 +54,10 @@ class Ridge(BaseEstimator):
             self._y = self._y.get()
         else:
             self._y = np.asarray(self._y)
-        
-        self._compute_inference()
+
+        # GPU path already computes inference on-device in _fit_gpu().
+        if device != Device.CUDA:
+            self._compute_inference()
         self._fitted = True
         return self
     
