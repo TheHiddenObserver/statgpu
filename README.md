@@ -23,6 +23,19 @@ GPU-accelerated statistical methods with sklearn-compatible API.
 - 🔧 **sklearn-compatible**: Familiar `fit`/`predict` API
 - 🔄 **Auto Device Selection**: CPU fallback when GPU unavailable
 - 📊 **Statistical Focus**: Methods from R that Python lacks
+- 🧮 **Inference Support**:
+  - `LinearRegression`: `nonrobust` / `hc0` / `hc1`
+  - `Lasso`: `cpu_ols_inference` / `gpu_ols_inference` / `bootstrap`
+  - `LogisticRegression`: `nonrobust` / `hc0` / `hc1`
+- 🧹 **GPU Memory Control**: `gpu_memory_cleanup` for all current models
+
+## Implemented Methods (Current)
+
+- `statgpu.linear_model.LinearRegression`
+- `statgpu.linear_model.Ridge`
+- `statgpu.linear_model.Lasso`
+- `statgpu.linear_model.LogisticRegression`
+- `statgpu.survival.CoxPH`
 
 ## Installation
 
@@ -83,6 +96,15 @@ sg.set_device('auto')  # Auto-detect (default)
 from statgpu.linear_model import LinearRegression
 model = LinearRegression(device='cuda', n_jobs=4)
 ```
+
+## Benchmark Scripts
+
+- Large-scale all-method runtime benchmark:
+  - `examples/benchmark_all_methods_large_scale.py`
+- Lasso inference CPU/GPU comparison:
+  - `examples/benchmark_lasso_inference_gpu_vs_cpu.py`
+- GPU memory cleanup effect:
+  - `examples/benchmark_gpu_memory_cleanup.py`
 
 ## Requirements
 

@@ -35,3 +35,9 @@ print(sg.cuda_available())
 更多内容见：
 - [设备与显存管理](../guides/device-and-memory.md)
 - [推断配置（Lasso）](../guides/inference-modes.md)
+- [变更记录](../changelog.md)
+
+## 推荐下一步
+
+- 想看完整方法文档：进入 [Models Overview](../models/README.md)
+- 想跑性能测试：进入 [基准脚本索引](../benchmarks.md)

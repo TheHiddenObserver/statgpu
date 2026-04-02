@@ -35,3 +35,14 @@ model.fit(X, y)
 ## 基准脚本
 
 参见 `examples/benchmark_lasso_inference_gpu_vs_cpu.py`。
+
+## 相关模型的稳健协方差
+
+除了 `Lasso` 的推断模式外，以下模型也支持协方差配置：
+
+- `LinearRegression(cov_type="nonrobust" | "hc0" | "hc1")`
+- `LogisticRegression(cov_type="nonrobust" | "hc0" | "hc1")`
+
+可参考：
+- `docs/models/linear-regression.md`
+- `docs/models/logistic-regression.md`

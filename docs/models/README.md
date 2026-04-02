@@ -22,3 +22,13 @@ When adding a new estimator:
 2. Add it to this index
 3. Add it to `USAGE.md` navigation
 4. If benchmarked, add script reference in `docs/benchmarks.md`
+
+## Current Coverage Notes
+
+- All current models support `device="cpu"` / `device="cuda"` / `device="auto"`.
+- All current models support `gpu_memory_cleanup`.
+- Inference-rich models:
+  - `LinearRegression`: classical + `HC0/HC1`
+  - `Lasso`: CPU/GPU OLS-style inference + bootstrap
+  - `LogisticRegression`: classical + `HC0/HC1`
+- `CoxPH` supports Breslow/Efron ties and CPU/GPU fitting paths.

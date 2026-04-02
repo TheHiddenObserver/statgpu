@@ -23,3 +23,16 @@
   - 覆盖：`LinearRegression / Ridge / Lasso / LogisticRegression / CoxPH`
   - 支持 CPU/GPU 双设备、warmup/repeats、可选 inference 计时
   - 关键点：数据构造与 host->device 迁移在计时外，默认只统计 `fit()`
+
+推荐运行命令：
+
+```bash
+python examples/benchmark_all_methods_large_scale.py \
+  --devices cpu,cuda \
+  --repeats 3 \
+  --warmup-runs 1 \
+  --n-reg 60000 --p-reg 64 \
+  --n-logit 80000 --p-logit 48 \
+  --n-cox 50000 --p-cox 24 \
+  --json-out examples/bench_all_large_results.json
+```
