@@ -11,6 +11,9 @@
 
 ## 2) 方法文档（按模块扩展）
 
+总览索引：
+- [Models Overview](docs/models/README.md)
+
 ### 线性模型 `statgpu.linear_model`
 - [LinearRegression](docs/models/linear-regression.md)
 - [Ridge](docs/models/ridge.md)
