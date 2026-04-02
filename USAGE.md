@@ -1,124 +1,39 @@
-# statgpu 使用指南
+# statgpu 文档入口
 
-## 安装
+`USAGE.md` 作为统一入口，不再堆叠所有方法细节。  
+详细内容按“快速开始 / 核心指南 / 方法文档 / 基准脚本”拆分到 `docs/`。
 
-```bash
-cd statgpu
-pip install -e .
-```
+## 1) 快速开始
 
-## 快速开始
+- [快速上手](docs/getting-started/quickstart.md)
+- [设备与显存管理](docs/guides/device-and-memory.md)
+- [推断配置（Lasso）](docs/guides/inference-modes.md)
 
-### 1. 线性回归
+## 2) 方法文档（按模块扩展）
 
-```python
-from statgpu.linear_model import LinearRegression
-import numpy as np
+### 线性模型 `statgpu.linear_model`
+- [LinearRegression](docs/models/linear-regression.md)
+- [Ridge](docs/models/ridge.md)
+- [Lasso](docs/models/lasso.md)
+- [LogisticRegression](docs/models/logistic-regression.md)
 
-# 生成数据
-X = np.random.randn(100, 5)
-y = X @ np.array([1, 2, 3, 4, 5]) + 10
+### 生存分析 `statgpu.survival`
+- [CoxPH](docs/models/coxph.md)
 
-# 拟合模型
-model = LinearRegression(device='cuda')  # 自动使用 GPU
-model.fit(X, y)
+## 3) 基准与验证
 
-# 查看完整统计输出
-model.summary()
+- [基准脚本索引](docs/benchmarks.md)
 
-# 预测
-y_pred = model.predict(X)
-```
+当前重点脚本：
+- `examples/benchmark_lasso_inference_gpu_vs_cpu.py`
+- `examples/benchmark_gpu_memory_cleanup.py`
 
-### 2. Ridge 回归
+## 4) 面向未来的方法扩展规范
 
-```python
-from statgpu.linear_model import Ridge
+当新增统计方法时，建议按以下结构新增文档，避免全部放进 `USAGE.md`：
 
-model = Ridge(alpha=1.0, device='cuda')
-model.fit(X, y)
-model.summary()
-```
+- `docs/models/<method-name>.md`：方法专页（参数、示例、输出、限制）
+- `docs/guides/<topic>.md`：跨模型主题（设备、推断、调优、对比口径）
+- `docs/benchmarks.md`：基准脚本入口与结果解读口径
 
-### 3. Lasso 回归
-
-```python
-from statgpu.linear_model import Lasso
-
-model = Lasso(alpha=0.1, device='cuda')
-model.fit(X, y)
-model.summary()
-```
-
-### 4. Logistic 回归
-
-```python
-from statgpu.linear_model import LogisticRegression
-
-# 二分类问题
-model = LogisticRegression(device='cuda')
-model.fit(X, y_binary)
-model.summary()
-
-# 预测概率
-proba = model.predict_proba(X)
-```
-
-### 5. Cox 生存分析
-
-```python
-from statgpu.survival import CoxPH
-
-# time: 生存时间
-# event: 事件指示 (1=事件发生, 0=删失)
-model = CoxPH(device='cuda')
-model.fit(X, time, event)
-model.summary()
-```
-
-## 设备控制
-
-```python
-import statgpu as sg
-
-# 全局设置
-sg.set_device('cuda')   # 强制使用 GPU
-sg.set_device('cpu')    # 强制使用 CPU
-sg.set_device('auto')   # 自动选择 (默认)
-
-# 检查 GPU 是否可用
-print(sg.cuda_available())
-
-# 单个模型设置
-model = LinearRegression(device='cuda')  # 仅此模型使用 GPU
-```
-
-## 输出说明
-
-所有模型都提供 R 风格的完整统计输出：
-
-- **coef**: 系数估计值
-- **std err**: 标准误
-- **t/z**: t 统计量或 z 统计量
-- **P>|t/z|**: p 值
-- **[0.025, 0.975]**: 95% 置信区间
-- **R-squared**: R 方 (回归模型)
-- **AIC/BIC**: 信息准则
-- **Log-Likelihood**: 对数似然
-
-## GPU 加速
-
-大数据集时 GPU 显著加速：
-
-| 数据规模 | CPU | GPU | 加速比 |
-|---------|-----|-----|--------|
-| 100K × 200 | 238ms | 64ms | 3.7x |
-| 500K × 200 | 3.3s | 0.5s | 6.6x |
-| 1M × 500 | 19s | 2.4s | 7.9x |
-
-## 验证
-
-所有模型结果已与以下工具验证一致：
-- ✅ sklearn
-- ✅ statsmodels
-- ✅ R (lm, glm, coxph)
+`USAGE.md` 只保留导航与统一索引。

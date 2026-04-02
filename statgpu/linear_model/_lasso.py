@@ -8,6 +8,7 @@ from scipy import stats
 
 from .._base import BaseEstimator
 from .._config import Device
+from .._gpu_utils import t_two_tail_pvalues_gpu, t_crit_gpu_two_tail
 
 
 class Lasso(BaseEstimator):
@@ -52,7 +53,7 @@ class Lasso(BaseEstimator):
         max_iter: int = 1000,
         tol: float = 1e-4,
         stopping: str = "coef_delta",
-        inference_method: str = "naive_ols",
+        inference_method: str = "cpu_ols_inference",
         n_bootstrap: int = 200,
         bootstrap_random_state: Optional[int] = None,
         device: Union[str, Device] = Device.AUTO,
@@ -62,6 +63,7 @@ class Lasso(BaseEstimator):
         cpu_solver: str = "coordinate_descent",
         lipschitz_L: Optional[float] = None,
         admm_rho: float = 1.0,
+        gpu_memory_cleanup: bool = False,
     ):
         super().__init__(device=device, n_jobs=n_jobs)
         self.alpha = alpha
@@ -70,6 +72,15 @@ class Lasso(BaseEstimator):
         self.tol = tol
         self.stopping = stopping.lower()
         self.inference_method = inference_method.lower()
+        # Semantic rename with backwards-compatible aliases.
+        # - "naive_ols" previously meant CPU-sided t-distribution inference.
+        # - "gpu_naive_ols" previously meant GPU-sided t-distribution inference
+        #   with minimal residual/design transfers.
+        alias_map = {
+            "naive_ols": "cpu_ols_inference",
+            "gpu_naive_ols": "gpu_ols_inference",
+        }
+        self.inference_method = alias_map.get(self.inference_method, self.inference_method)
         self.n_bootstrap = int(n_bootstrap)
         self.bootstrap_random_state = bootstrap_random_state
         self.compute_inference = compute_inference
@@ -77,6 +88,7 @@ class Lasso(BaseEstimator):
         self.cpu_solver = cpu_solver.lower()
         self.lipschitz_L = lipschitz_L
         self.admm_rho = admm_rho
+        self.gpu_memory_cleanup = bool(gpu_memory_cleanup)
         self.coef_ = None
         self.intercept_ = None
         self.n_iter_ = 0
@@ -101,11 +113,16 @@ class Lasso(BaseEstimator):
         # - GPU path with compute_inference=False: residuals/scale are not computed,
         #   and properties depending on them return None.
         device = self._get_compute_device()
+        # If the user requested GPU-only inference but we ended up on CPU,
+        # gracefully fall back to CPU inference instead of leaving
+        # inference fields unset.
+        if device != Device.CUDA and self.inference_method == "gpu_ols_inference":
+            self.inference_method = "cpu_ols_inference"
         if device != Device.CUDA:
             self._y = np.asarray(y)
         else:
-            # If we compute inference fully on GPU (gpu_naive_ols), avoid copying y.
-            if self.compute_inference and self.inference_method == "gpu_naive_ols":
+            # If we compute inference fully on GPU, avoid copying y.
+            if self.compute_inference and self.inference_method == "gpu_ols_inference":
                 self._y = None
             else:
                 # y may already be a CuPy array; use safe conversion.
@@ -119,7 +136,7 @@ class Lasso(BaseEstimator):
         else:
             self._fit_cpu(X_arr, y_arr, sample_weight)
 
-        if self.compute_inference and self.inference_method != "gpu_naive_ols":
+        if self.compute_inference and self.inference_method != "gpu_ols_inference":
             self._compute_inference()
         self._fitted = True
         return self
@@ -286,6 +303,23 @@ class Lasso(BaseEstimator):
         import cupy as cp
         return cp.sign(x) * cp.maximum(cp.abs(x) - gamma, 0)
 
+    def _cleanup_cuda_memory(self):
+        """
+        Best-effort CUDA memory pool cleanup.
+
+        CuPy caches freed blocks in its memory pool for speed. Enable
+        `gpu_memory_cleanup=True` to return cached blocks after fit when
+        VRAM pressure is more important than repeated-fit throughput.
+        """
+        if not self.gpu_memory_cleanup:
+            return
+        try:
+            import cupy as cp
+            cp.get_default_memory_pool().free_all_blocks()
+            cp.get_default_pinned_memory_pool().free_all_blocks()
+        except Exception:
+            pass
+
     def _fit_gpu(self, X, y, sample_weight=None):
         """Fit using GPU solver."""
         import cupy as cp
@@ -427,7 +461,7 @@ class Lasso(BaseEstimator):
                 self._scale = np.nan
                 scale = cp.nan
 
-            if self.inference_method == "gpu_naive_ols":
+            if self.inference_method == "gpu_ols_inference":
                 # Compute inference fully on GPU, then transfer only small vectors.
                 XtX = X_design.T @ X_design
                 try:
@@ -437,23 +471,21 @@ class Lasso(BaseEstimator):
 
                 bse_gpu = cp.sqrt(scale * cp.diag(XtX_inv))
 
-                # Transfer inference vectors only
-                bse_cpu = cp.asnumpy(bse_gpu)
-                params_cpu = self._params  # already a CPU vector
-                tvalues_cpu = params_cpu / (bse_cpu + 1e-30)
-                pvalues_cpu = 2 * (1 - stats.t.cdf(np.abs(tvalues_cpu), df_resid))
+                # Inference vectors on GPU to avoid scipy/cpu cdf/ppf.
+                params_gpu = coef_full  # includes intercept when fit_intercept=True
+                tvalues_gpu = params_gpu / (bse_gpu + 1e-30)
+                pvalues_gpu = t_two_tail_pvalues_gpu(cp.abs(tvalues_gpu), df_resid)
 
-                alpha = 0.05
-                t_crit = stats.t.ppf(1 - alpha / 2, df_resid)
-                conf_int = np.column_stack([
-                    params_cpu - t_crit * bse_cpu,
-                    params_cpu + t_crit * bse_cpu,
-                ])
+                alpha = 0.05  # two-tailed for 95% CI
+                t_crit_gpu = t_crit_gpu_two_tail(alpha, df_resid)
+                margin_gpu = t_crit_gpu * bse_gpu
+                conf_int_gpu = cp.stack([params_gpu - margin_gpu, params_gpu + margin_gpu], axis=1)
 
-                self._bse = bse_cpu
-                self._tvalues = tvalues_cpu
-                self._pvalues = pvalues_cpu
-                self._conf_int = conf_int
+                # Transfer only the small inference vectors back to CPU.
+                self._bse = cp.asnumpy(bse_gpu)
+                self._tvalues = cp.asnumpy(tvalues_gpu)
+                self._pvalues = cp.asnumpy(pvalues_gpu)
+                self._conf_int = cp.asnumpy(conf_int_gpu)
 
                 # R^2 / keep diagnostics consistent without transferring residuals.
                 y_mean_gpu = cp.mean(y)
@@ -475,6 +507,41 @@ class Lasso(BaseEstimator):
             self._X_design = None
             # R^2 is optional; keep behavior as None when no residuals are available.
             self._rsquared_gpu = None
+
+        # Drop large temporaries early (before optional pool cleanup).
+        try:
+            del X_design
+        except Exception:
+            pass
+        try:
+            del resid
+        except Exception:
+            pass
+        try:
+            del XtX
+        except Exception:
+            pass
+        try:
+            del Xty
+        except Exception:
+            pass
+        try:
+            del X_centered
+        except Exception:
+            pass
+        try:
+            del y_centered
+        except Exception:
+            pass
+        try:
+            del y_pred
+        except Exception:
+            pass
+        try:
+            del coef_full
+        except Exception:
+            pass
+        self._cleanup_cuda_memory()
 
     def _fit_gpu_admm(self, X, y, sample_weight=None):
         """Fit using GPU with ADMM solver.
@@ -607,11 +674,54 @@ class Lasso(BaseEstimator):
             self._X_design = None
             self._rsquared_gpu = None
 
+        # Drop large temporaries early (before optional pool cleanup).
+        try:
+            del X_design
+        except Exception:
+            pass
+        try:
+            del resid
+        except Exception:
+            pass
+        try:
+            del XtX
+        except Exception:
+            pass
+        try:
+            del Xty
+        except Exception:
+            pass
+        try:
+            del X_centered
+        except Exception:
+            pass
+        try:
+            del y_centered
+        except Exception:
+            pass
+        try:
+            del y_pred
+        except Exception:
+            pass
+        try:
+            del coef_full
+        except Exception:
+            pass
+        try:
+            del lhs
+        except Exception:
+            pass
+        try:
+            del Lmat
+        except Exception:
+            pass
+        self._cleanup_cuda_memory()
+
     def _compute_inference(self):
         """Compute standard errors, t-stats, p-values."""
         if self.inference_method == "bootstrap":
             return self._compute_inference_bootstrap()
-        if self.inference_method == "gpu_naive_ols":
+        if self.inference_method == "gpu_ols_inference":
             # Inference already computed on GPU in _fit_gpu().
             return
         if self._X_design is None or self._scale is None or np.isnan(self._scale):
@@ -679,7 +789,7 @@ class Lasso(BaseEstimator):
                 max_iter=self.max_iter,
                 tol=self.tol,
                 stopping=self.stopping,
-                inference_method="naive_ols",
+                inference_method="cpu_ols_inference",
                 n_bootstrap=0,
                 bootstrap_random_state=None,
                 device="cpu",

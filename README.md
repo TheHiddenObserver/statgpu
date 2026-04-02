@@ -2,6 +2,21 @@
 
 GPU-accelerated statistical methods with sklearn-compatible API.
 
+## Documentation
+
+- Usage portal: `USAGE.md`
+- Quickstart: `docs/getting-started/quickstart.md`
+- Guides:
+  - `docs/guides/device-and-memory.md`
+  - `docs/guides/inference-modes.md`
+- Model docs:
+  - `docs/models/linear-regression.md`
+  - `docs/models/ridge.md`
+  - `docs/models/lasso.md`
+  - `docs/models/logistic-regression.md`
+  - `docs/models/coxph.md`
+- Benchmarks: `docs/benchmarks.md`
+
 ## Features
 
 - 🚀 **GPU Acceleration**: Automatic CUDA support via CuPy
@@ -26,7 +41,7 @@ pip install statgpu[dev]
 
 ```python
 import numpy as np
-from statgpu.linear_model import LinearRegression
+from statgpu.linear_model import LinearRegression, Lasso
 
 # Generate data
 X = np.random.randn(10000, 100)
@@ -39,6 +54,15 @@ model.fit(X, y)
 # Predict
 y_pred = model.predict(X)
 print(f"R² score: {model.score(X, y):.4f}")
+
+# Lasso with GPU-side inference and optional VRAM cleanup
+lasso = Lasso(
+    alpha=0.1,
+    device='cuda',
+    inference_method='gpu_ols_inference',
+    gpu_memory_cleanup=True,
+)
+lasso.fit(X, y)
 ```
 
 ## Device Control

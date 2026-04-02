@@ -6,6 +6,111 @@ All statistical computations on GPU.
 import numpy as np
 
 
+def _regularized_betainc_gpu(a, b, x):
+    """
+    Regularized incomplete beta I_x(a, b) evaluated on GPU.
+
+    Tries to use `cupyx.scipy.special.betainc`; falls back to CPU SciPy if
+    unavailable (this fallback may synchronize and reduce performance).
+    """
+    import cupy as cp
+
+    try:
+        import cupyx.scipy.special as csp
+
+        return csp.betainc(a, b, x)
+    except Exception:
+        # Fallback: compute on CPU then move back.
+        import scipy.special as sps
+
+        x_cpu = cp.asnumpy(x)
+        return cp.asarray(sps.betainc(a, b, x_cpu))
+
+
+def _regularized_betaincinv_gpu(a, b, y):
+    """
+    Inverse of regularized incomplete beta:
+    find x such that I_x(a,b) = y.
+    """
+    import cupy as cp
+
+    try:
+        import cupyx.scipy.special as csp
+
+        return csp.betaincinv(a, b, y)
+    except Exception:
+        # Caller can implement a numeric inversion; this exists mainly
+        # to centralize betaincinv availability.
+        raise RuntimeError("cupyx.scipy.special.betaincinv is not available")
+
+
+def t_two_tail_pvalues_gpu(t_abs, df_resid):
+    """
+    Two-tailed p-values for Student's t distribution on GPU.
+
+    Uses the identity:
+      p = P(|T| >= t) = I_{ df / (df + t^2) }(df/2, 1/2)
+    where I is the regularized incomplete beta.
+    """
+    import cupy as cp
+
+    df = float(df_resid)
+    if df <= 0:
+        return cp.full_like(t_abs, cp.nan, dtype=cp.float64)
+
+    x = df / (df + cp.square(t_abs))
+    a = df / 2.0
+    b = 0.5
+    return _regularized_betainc_gpu(a, b, x)
+
+
+def t_crit_gpu_two_tail(alpha, df_resid, *, max_bisect_steps: int = 60):
+    """
+    Compute positive t critical value for two-tailed test:
+      p_two_tail(t_crit) = alpha
+    """
+    import cupy as cp
+
+    df = float(df_resid)
+    if df <= 0:
+        return cp.array(cp.nan, dtype=cp.float64)
+
+    a = df / 2.0
+    b = 0.5
+
+    # Preferred: inverse regularized incomplete beta -> closed-form for t.
+    try:
+        # Find y = I^{-1}(a,b,alpha) where y = df/(df+t^2).
+        y = _regularized_betaincinv_gpu(a, b, float(alpha))
+        # t = sqrt(df*(1-y)/y)
+        t = cp.sqrt(df * (1.0 - y) / y)
+        return t
+    except Exception:
+        # Fallback: bisection on t using GPU betainc.
+        low = 0.0
+        high = 1.0
+
+        # Increase high until p(high) <= alpha.
+        p_high = float(t_two_tail_pvalues_gpu(cp.array(high, dtype=cp.float64), df_resid).get())
+        it = 0
+        while p_high > alpha and it < 50:
+            high *= 2.0
+            p_high = float(
+                t_two_tail_pvalues_gpu(cp.array(high, dtype=cp.float64), df_resid).get()
+            )
+            it += 1
+
+        for _ in range(max_bisect_steps):
+            mid = 0.5 * (low + high)
+            p_mid = float(t_two_tail_pvalues_gpu(cp.array(mid, dtype=cp.float64), df_resid).get())
+            if p_mid > alpha:
+                low = mid
+            else:
+                high = mid
+
+        return cp.array(high, dtype=cp.float64)
+
+
 def compute_inference_gpu(X_design, resid, scale, df_resid, params_gpu):
     """
     Compute standard errors, t-values, p-values on GPU.
@@ -35,7 +140,6 @@ def compute_inference_gpu(X_design, resid, scale, df_resid, params_gpu):
         Confidence intervals on GPU.
     """
     import cupy as cp
-    from scipy import stats
     
     # Compute (X'X)^-1 on GPU
     XtX = cp.matmul(X_design.T, X_design)
@@ -54,17 +158,12 @@ def compute_inference_gpu(X_design, resid, scale, df_resid, params_gpu):
     # t-statistics
     tvalues_gpu = params_gpu / bse_gpu
     
-    # p-values (two-tailed t-test)
-    # Note: cupy doesn't have stats.t.cdf, need to compute manually or transfer
-    # For now, compute on CPU (small array)
-    tvalues_cpu = cp.asnumpy(tvalues_gpu)
-    pvalues_cpu = 2 * (1 - stats.t.cdf(np.abs(tvalues_cpu), df_resid))
-    pvalues_gpu = cp.asarray(pvalues_cpu)
+    # p-values (two-tailed t-test), entirely on GPU.
+    pvalues_gpu = t_two_tail_pvalues_gpu(cp.abs(tvalues_gpu), df_resid)
     
     # Confidence intervals (95%)
-    alpha = 0.05
-    t_crit = stats.t.ppf(1 - alpha/2, df_resid)
-    t_crit_gpu = cp.array(t_crit)
+    alpha = 0.05  # two-tailed significance level for 95% CI
+    t_crit_gpu = t_crit_gpu_two_tail(alpha, df_resid)
     
     margin = t_crit_gpu * bse_gpu
     conf_int_lower = params_gpu - margin
@@ -157,7 +256,6 @@ def compute_f_stat_gpu(y, resid, X_design, df_resid):
         F-statistic.
     """
     import cupy as cp
-    from scipy import stats
     
     y_mean = y.mean()
     ss_tot = cp.sum((y - y_mean) ** 2)
@@ -171,7 +269,18 @@ def compute_f_stat_gpu(y, resid, X_design, df_resid):
     fvalue_gpu = (ss_reg / k) / (ss_res / df_resid)
     fvalue = float(cp.asnumpy(fvalue_gpu))
     
-    # p-value on CPU
-    pvalue = 1 - stats.f.cdf(fvalue, k, df_resid)
+    # p-value on GPU using F CDF expressed via regularized incomplete beta.
+    #
+    # For F ~ F(d1, d2):
+    #   CDF(x) = I_{ d1 x / (d1 x + d2) }(d1/2, d2/2)
+    #   pvalue = 1 - CDF
+    d1 = float(k)
+    d2 = float(df_resid)
+    if d2 <= 0 or d1 <= 0:
+        pvalue = 1.0
+    else:
+        z = (d1 * fvalue) / (d1 * fvalue + d2)
+        cdf = _regularized_betainc_gpu(d1 / 2.0, d2 / 2.0, cp.asarray(z))
+        pvalue = float(1.0 - cp.asnumpy(cdf))
     
     return fvalue, pvalue

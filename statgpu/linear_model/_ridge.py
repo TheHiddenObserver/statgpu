@@ -20,11 +20,13 @@ class Ridge(BaseEstimator):
         alpha: float = 1.0,
         fit_intercept: bool = True,
         device: Union[str, Device] = Device.AUTO,
-        n_jobs: Optional[int] = None
+        n_jobs: Optional[int] = None,
+        gpu_memory_cleanup: bool = False,
     ):
         super().__init__(device=device, n_jobs=n_jobs)
         self.alpha = alpha
         self.fit_intercept = fit_intercept
+        self.gpu_memory_cleanup = bool(gpu_memory_cleanup)
         self.coef_ = None
         self.intercept_ = None
         self._X_design = None
@@ -34,6 +36,17 @@ class Ridge(BaseEstimator):
         self._nobs = None
         self._df_resid = None
         self._params = None
+
+    def _cleanup_cuda_memory(self):
+        """Best-effort CuPy memory pool cleanup."""
+        if not self.gpu_memory_cleanup:
+            return
+        try:
+            import cupy as cp
+            cp.get_default_memory_pool().free_all_blocks()
+            cp.get_default_pinned_memory_pool().free_all_blocks()
+        except Exception:
+            pass
     
     def fit(self, X, y, sample_weight=None):
         """Fit Ridge regression model."""
@@ -220,6 +233,29 @@ class Ridge(BaseEstimator):
         self._resid = resid_np
         self._df_resid = df_resid
         self._scale = scale_float
+
+        # Release large temporary GPU tensors early.
+        try:
+            del X_design
+        except Exception:
+            pass
+        try:
+            del resid
+        except Exception:
+            pass
+        try:
+            del XtX
+        except Exception:
+            pass
+        try:
+            del Xty
+        except Exception:
+            pass
+        try:
+            del XtX_reg
+        except Exception:
+            pass
+        self._cleanup_cuda_memory()
     
     def _compute_inference(self):
         """Compute standard errors."""

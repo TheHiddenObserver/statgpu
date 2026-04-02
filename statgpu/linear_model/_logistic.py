@@ -53,6 +53,7 @@ class LogisticRegression(BaseEstimator):
         device: Union[str, Device] = Device.AUTO,
         n_jobs: Optional[int] = None,
         compute_inference: bool = True,
+        gpu_memory_cleanup: bool = False,
     ):
         super().__init__(device=device, n_jobs=n_jobs)
         self.fit_intercept = fit_intercept
@@ -60,6 +61,7 @@ class LogisticRegression(BaseEstimator):
         self.max_iter = max_iter
         self.tol = tol
         self.compute_inference = compute_inference
+        self.gpu_memory_cleanup = bool(gpu_memory_cleanup)
         self.coef_ = None
         self.intercept_ = None
         self.n_iter_ = None
@@ -76,6 +78,17 @@ class LogisticRegression(BaseEstimator):
         self._conf_int = None
         self._loglik = None
         self._loglik_null = None
+
+    def _cleanup_cuda_memory(self):
+        """Best-effort CuPy memory pool cleanup."""
+        if not self.gpu_memory_cleanup:
+            return
+        try:
+            import cupy as cp
+            cp.get_default_memory_pool().free_all_blocks()
+            cp.get_default_pinned_memory_pool().free_all_blocks()
+        except Exception:
+            pass
         
     def _sigmoid(self, z):
         """Sigmoid function."""
@@ -98,7 +111,7 @@ class LogisticRegression(BaseEstimator):
         -------
         self : object
         """
-        self._y = np.asarray(y).astype(float)
+        self._y = self._to_numpy(y).astype(float)
         
         X_arr = self._to_array(X)
         y_arr = self._to_array(y).astype(float)
@@ -278,6 +291,41 @@ class LogisticRegression(BaseEstimator):
         self._df_resid = n_samples - (n_features + (1 if self.fit_intercept else 0))
         self._loglik = float(self._loglik_gpu.get())
         self._accuracy = float(self._accuracy_gpu.get())
+
+        # Release large temporary GPU tensors early.
+        try:
+            del X_design
+        except Exception:
+            pass
+        try:
+            del XtWX
+        except Exception:
+            pass
+        try:
+            del Xtz
+        except Exception:
+            pass
+        try:
+            del params
+        except Exception:
+            pass
+        try:
+            del W
+        except Exception:
+            pass
+        try:
+            del z
+        except Exception:
+            pass
+        try:
+            del eta
+        except Exception:
+            pass
+        try:
+            del p
+        except Exception:
+            pass
+        self._cleanup_cuda_memory()
     
     def _compute_inference(self):
         """Compute standard errors, z-stats, p-values, and confidence intervals."""

@@ -36,10 +36,12 @@ class LinearRegression(BaseEstimator):
         device: Union[str, Device] = Device.AUTO,
         n_jobs: Optional[int] = None,
         compute_inference: bool = True,
+        gpu_memory_cleanup: bool = False,
     ):
         super().__init__(device=device, n_jobs=n_jobs)
         self.fit_intercept = fit_intercept
         self.compute_inference = compute_inference
+        self.gpu_memory_cleanup = bool(gpu_memory_cleanup)
         self.coef_ = None
         self.intercept_ = None
         
@@ -55,6 +57,17 @@ class LinearRegression(BaseEstimator):
         self._tvalues = None
         self._pvalues = None
         self._conf_int = None
+
+    def _cleanup_cuda_memory(self):
+        """Best-effort CuPy memory pool cleanup."""
+        if not self.gpu_memory_cleanup:
+            return
+        try:
+            import cupy as cp
+            cp.get_default_memory_pool().free_all_blocks()
+            cp.get_default_pinned_memory_pool().free_all_blocks()
+        except Exception:
+            pass
     
     def fit(self, X, y, sample_weight=None):
         """Fit linear model."""
@@ -221,6 +234,29 @@ class LinearRegression(BaseEstimator):
         self._resid = resid_np
         self._df_resid = df_resid
         self._scale = scale_float
+
+        # Release large temporary GPU tensors early.
+        try:
+            del X_design
+        except Exception:
+            pass
+        try:
+            del resid
+        except Exception:
+            pass
+        try:
+            del XtX
+        except Exception:
+            pass
+        try:
+            del Xty
+        except Exception:
+            pass
+        try:
+            del coef
+        except Exception:
+            pass
+        self._cleanup_cuda_memory()
     
     def _compute_inference(self):
         """Compute standard errors, t-stats, p-values."""

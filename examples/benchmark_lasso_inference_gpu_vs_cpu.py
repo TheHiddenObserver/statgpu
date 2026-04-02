@@ -1,8 +1,8 @@
 """
 Benchmark Lasso inference on GPU:
 
-Compare inference_method='naive_ols' (current behavior: residual/design transferred to CPU)
-vs inference_method='gpu_naive_ols' (new: compute SE/t/p/conf_int on GPU, avoid residual/design transfer).
+Compare inference_method='cpu_ols_inference' (CPU-sided t-distribution inference)
+vs inference_method='gpu_ols_inference' (GPU-sided inference, avoid residual/design transfer).
 """
 
 from __future__ import annotations
@@ -10,8 +10,15 @@ from __future__ import annotations
 import argparse
 import time
 from typing import Dict, Tuple
+import sys
+from pathlib import Path
 
 import numpy as np
+
+# Ensure local repo imports when running `python examples/...`
+REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 
 from statgpu.linear_model import Lasso
 from statgpu._config import cuda_available, set_device
@@ -102,7 +109,7 @@ def main() -> None:
     print(f"Data: {args.n_samples} x {args.n_features} | alpha={args.alpha} | tol={args.tol} | max_iter={args.max_iter}")
     print(f"solver_gpu={args.solver_gpu} | stopping={args.stopping} | lipschitz_L={lipschitz_L:.6g}")
 
-    methods = ["naive_ols", "gpu_naive_ols"]
+    methods = ["cpu_ols_inference", "gpu_ols_inference"]
     results: Dict[str, Dict] = {}
 
     import cupy as cp
@@ -161,8 +168,8 @@ def main() -> None:
         print(f"{method}: time_ms_mean={results[method]['time_ms_mean']:.2f} | n_iter={results[method]['n_iter']}")
 
     # Accuracy check between methods
-    m1 = results["naive_ols"]
-    m2 = results["gpu_naive_ols"]
+    m1 = results["cpu_ols_inference"]
+    m2 = results["gpu_ols_inference"]
     coef_diff = float(np.max(np.abs(m1["coef_inf"] - m2["coef_inf"])))
     intercept_diff = abs(m1["intercept_inf"] - m2["intercept_inf"])
     bse_diff = float(np.max(np.abs(m1["bse"] - m2["bse"])))
@@ -170,7 +177,7 @@ def main() -> None:
     pvalues_diff = float(np.max(np.abs(m1["pvalues"] - m2["pvalues"])))
     conf_int_diff = float(np.max(np.abs(m1["conf_int"] - m2["conf_int"])))
     print("-" * 80)
-    print("Accuracy check (naive_ols vs gpu_naive_ols):")
+    print("Accuracy check (cpu_ols_inference vs gpu_ols_inference):")
     print(f"  coef L_inf diff: {coef_diff:.3e}")
     print(f"  intercept abs diff: {intercept_diff:.3e}")
     print(f"  bse L_inf diff: {bse_diff:.3e}")

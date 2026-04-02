@@ -43,6 +43,17 @@
 
 ## TODO 任务（建议按优先级）
 
+### 最近已完成（2026-04）
+- `Lasso` 推断方法语义化重命名：
+  - `cpu_ols_inference`（旧名兼容：`naive_ols`）
+  - `gpu_ols_inference`（旧名兼容：`gpu_naive_ols`）
+- `Lasso` 的 `gpu_ols_inference` 路径改为尽量在 GPU 上完成 `SE/t/p/CI` 计算（减少 `scipy.stats` 依赖和大块 CPU 传输）。
+- 新增显存管理开关：`gpu_memory_cleanup`，已覆盖 `LinearRegression / Ridge / Lasso / LogisticRegression / CoxPH`。
+- 新增 benchmark：
+  - `examples/benchmark_lasso_inference_gpu_vs_cpu.py`
+  - `examples/benchmark_gpu_memory_cleanup.py`
+- 修复 `LogisticRegression.fit()` 在 CUDA 输入 `cupy.ndarray` 时的隐式 `np.asarray` 转换报错。
+
 ### P0：统计推断严谨性（Inference Rigor）
 - 为线性模型实现稳健协方差（`robust covariance / cluster-robust / HAC` 等），并对齐 statsmodels 的可选项与数值定义。
 - 为 Lasso 引入更接近真实 *post-selection inference* 的推断方案（例如 de-biased lasso / selective inference），并与当前 bootstrap/naive 形成对照基线。
@@ -66,4 +77,5 @@
 - 给所有模型的 benchmark 补齐“数据构造 vs fit vs inference”拆分时间统计，并默认包含 GPU warmup/repeats。
 - 统一等价 stopping 口径（KKT violation），并提供可复现的标定脚本，保证 tol/cnvrg_tol 与目标 KKT 阈值之间的映射有明确定义。
 - 统一 result diff 指标体系（例如 `L_inf`、`L2_rel`、以及推断统计 `bse/t/p/CI` 的数值差异），形成可对外的报告模板。
+- 为 `gpu_memory_cleanup` 增加模型级 benchmark 报告模板：默认记录 `fit_ms`、`pool_used_fit`、`pool_total_fit`、`pool_used_reset`、`pool_total_reset`。
 

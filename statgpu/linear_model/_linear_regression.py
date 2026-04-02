@@ -48,10 +48,12 @@ class LinearRegression(BaseEstimator):
         self,
         fit_intercept: bool = True,
         device: Union[str, Device] = Device.AUTO,
-        n_jobs: Optional[int] = None
+        n_jobs: Optional[int] = None,
+        gpu_memory_cleanup: bool = False,
     ):
         super().__init__(device=device, n_jobs=n_jobs)
         self.fit_intercept = fit_intercept
+        self.gpu_memory_cleanup = bool(gpu_memory_cleanup)
         self.coef_ = None
         self.intercept_ = None
         
@@ -62,6 +64,17 @@ class LinearRegression(BaseEstimator):
         self._scale = None
         self._nobs = None
         self._df_resid = None
+
+    def _cleanup_cuda_memory(self):
+        """Best-effort CuPy memory pool cleanup."""
+        if not self.gpu_memory_cleanup:
+            return
+        try:
+            import cupy as cp
+            cp.get_default_memory_pool().free_all_blocks()
+            cp.get_default_pinned_memory_pool().free_all_blocks()
+        except Exception:
+            pass
     
     def fit(self, X, y, sample_weight=None):
         """
@@ -203,6 +216,16 @@ class LinearRegression(BaseEstimator):
             self._scale = np.sum(self._resid ** 2) / self._df_resid
         else:
             self._scale = np.nan
+
+        try:
+            del X_design
+        except Exception:
+            pass
+        try:
+            del coef
+        except Exception:
+            pass
+        self._cleanup_cuda_memory()
     
     def _compute_inference(self):
         """Compute standard errors, t-stats, p-values."""

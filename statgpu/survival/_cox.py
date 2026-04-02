@@ -46,13 +46,15 @@ class CoxPH(BaseEstimator):
         max_iter: int = 100,
         device: Union[str, Device] = Device.AUTO,
         n_jobs: Optional[int] = None,
-        compute_inference: bool = True
+        compute_inference: bool = True,
+        gpu_memory_cleanup: bool = False,
     ):
         super().__init__(device=device, n_jobs=n_jobs)
         self.ties = ties.lower()
         self.tol = tol
         self.max_iter = max_iter
         self.compute_inference = compute_inference
+        self.gpu_memory_cleanup = bool(gpu_memory_cleanup)
         
         if self.ties not in ('breslow', 'efron'):
             raise ValueError("ties must be 'breslow' or 'efron'")
@@ -87,6 +89,17 @@ class CoxPH(BaseEstimator):
         self._lr_test_stat = None
         self._lr_test_pvalue = None
         self._score_test_pvalue = None
+
+    def _cleanup_cuda_memory(self):
+        """Best-effort CuPy memory pool cleanup."""
+        if not self.gpu_memory_cleanup:
+            return
+        try:
+            import cupy as cp
+            cp.get_default_memory_pool().free_all_blocks()
+            cp.get_default_pinned_memory_pool().free_all_blocks()
+        except Exception:
+            pass
         
     def fit(self, X, time, event, entry=None):
         """
@@ -241,6 +254,33 @@ class CoxPH(BaseEstimator):
             self._baseline_hazard = None
             self._baseline_cumulative_hazard = None
             self._unique_times = None
+
+        # Release large temporary GPU tensors early.
+        try:
+            del X_sorted
+        except Exception:
+            pass
+        try:
+            del time_sorted
+        except Exception:
+            pass
+        try:
+            del event_sorted
+        except Exception:
+            pass
+        try:
+            del grad
+        except Exception:
+            pass
+        try:
+            del hess
+        except Exception:
+            pass
+        try:
+            del delta
+        except Exception:
+            pass
+        self._cleanup_cuda_memory()
         self._compute_cindex()
     
     def _fit_gpu(self, X, time, event, entry=None):
