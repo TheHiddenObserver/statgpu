@@ -206,16 +206,15 @@ class CoxPH(BaseEstimator):
             except np.linalg.LinAlgError:
                 # Use pseudo-inverse if singular
                 delta = np.linalg.lstsq(hess, grad, rcond=None)[0]
-            
-            # Line search with step halving
+
+            # Line search with step halving.
+            # Compute old_ll once (invariant inside the inner loop).
+            old_ll = self._compute_log_likelihood(beta, X_sorted, time_sorted, event_sorted)
             step = 1.0
             for _ in range(20):
                 new_beta = beta - step * delta
                 new_ll = self._compute_log_likelihood(
                     new_beta, X_sorted, time_sorted, event_sorted
-                )
-                old_ll = self._compute_log_likelihood(
-                    beta, X_sorted, time_sorted, event_sorted
                 )
                 if new_ll > old_ll - 1e-8:
                     break
@@ -376,47 +375,33 @@ class CoxPH(BaseEstimator):
     
     def _compute_log_likelihood(self, beta, X, time, event):
         """Compute log partial likelihood."""
-        n_samples = X.shape[0]
         eta = X @ beta
         exp_eta = np.exp(eta)
-        
+
         # Risk sets (cumulative sum of exp(eta) from end)
         risk_sum = np.cumsum(exp_eta[::-1])[::-1]
-        
+
         # Log-likelihood contribution from events
-        ll = 0.0
         if self.ties == 'breslow':
-            # Breslow: sum of eta for events minus sum of log(risk_sum) at event times
-            for i in range(n_samples):
-                if event[i]:
-                    ll += eta[i] - np.log(risk_sum[i])
-        else:
-            # Efron approximation
-            unique_times = np.unique(time[event == 1])
-            for t in unique_times:
-                # Find indices at this time
-                at_time_t = (time == t)
-                events_at_t = at_time_t & (event == 1)
-                d = np.sum(events_at_t)
-                
-                if d == 0:
-                    continue
-                
-                # Risk set at time t (first index where time >= t)
-                first_idx = np.where(time >= t)[0][0]
-                risk_at_t = risk_sum[first_idx]
-                
-                # Sum of exp(eta) for events at t
-                sum_events = np.sum(exp_eta[events_at_t])
-                
-                # Efron correction: subtract k/d * sum_events for k = 0 to d-1
-                # Average of (risk_at_t - k/d * sum_events) for k=0,...,d-1
-                for k in range(d):
-                    ll -= np.log(risk_at_t - k * sum_events / d)
-                
-                # Add sum of eta for events
-                ll += np.sum(eta[events_at_t])
-        
+            # Vectorized: O(n) with no Python loop.
+            event_mask = event == 1
+            return float(np.sum(eta[event_mask]) - np.sum(np.log(risk_sum[event_mask])))
+
+        # Efron approximation (loop-based, kept for correctness)
+        ll = 0.0
+        unique_times = np.unique(time[event == 1])
+        for t in unique_times:
+            at_time_t = (time == t)
+            events_at_t = at_time_t & (event == 1)
+            d = np.sum(events_at_t)
+            if d == 0:
+                continue
+            first_idx = np.where(time >= t)[0][0]
+            risk_at_t = risk_sum[first_idx]
+            sum_events = np.sum(exp_eta[events_at_t])
+            for k in range(d):
+                ll -= np.log(risk_at_t - k * sum_events / d)
+            ll += np.sum(eta[events_at_t])
         return ll
     
     def _compute_log_likelihood_gpu(self, beta, X, time, event):
@@ -471,55 +456,67 @@ class CoxPH(BaseEstimator):
         Uses Breslow or Efron approximation for ties.
         """
         n_samples, n_features = X.shape
-        
+
         # Linear predictor
         eta = X @ beta
         exp_eta = np.exp(eta)
-        
+
         # Risk sets: cumulative sum of exp(eta) for all at risk
         risk_sum = np.cumsum(exp_eta[::-1])[::-1]
-        
+
         # Weighted risk sets for gradient
         X_exp_eta = X * exp_eta[:, np.newaxis]
         risk_X_sum = np.cumsum(X_exp_eta[::-1], axis=0)[::-1]
-        
-        # Initialize gradient and Hessian
-        grad = np.zeros(n_features, dtype=np.float64)
-        hess = np.zeros((n_features, n_features), dtype=np.float64)
-        
+
         if self.ties == 'breslow':
-            # Breslow approximation
-            for i in range(n_samples):
-                if event[i]:
-                    # Gradient: X[i] - risk_X_sum[i] / risk_sum[i]
-                    grad += X[i] - risk_X_sum[i] / risk_sum[i]
-            
-            # Hessian computation
+            # Vectorized gradient: O(n_events * p) instead of O(n * p) Python loop.
+            event_mask = event == 1
+            grad = (
+                np.sum(X[event_mask], axis=0)
+                - np.sum(risk_X_sum[event_mask] / risk_sum[event_mask, np.newaxis], axis=0)
+            )
             hess = self._compute_hessian_breslow(beta, X, time, event, risk_sum, risk_X_sum, exp_eta)
         else:
             # Efron approximation
             grad, hess = self._compute_gradient_hessian_efron(beta, X, time, event, risk_sum, risk_X_sum, exp_eta)
-        
+
         return grad, hess
     
     def _compute_hessian_breslow(self, beta, X, time, event, risk_sum, risk_X_sum, exp_eta):
-        """Compute Hessian for Breslow approximation."""
+        """
+        Compute Hessian for Breslow approximation.
+
+        Uses an incremental suffix-scan so total cost is O(n·p²) instead of
+        the previous O(n_events × n × p²) triple-loop.
+
+        Algorithm:
+          1. Compute the full second-moment matrix M = (X * exp_eta).T @ X  -- O(n·p²).
+          2. Walk through sorted event positions left-to-right, subtracting the
+             contribution of rows that fall *before* the current event (and are
+             therefore not in its risk set) from M incrementally.
+             Each row is subtracted exactly once, so total subtraction work = O(n·p²).
+        """
         n_samples, n_features = X.shape
         hess = np.zeros((n_features, n_features), dtype=np.float64)
-        
-        for i in range(n_samples):
-            if event[i]:
-                # E[X | risk set] and E[X X^T | risk set]
-                E_X = risk_X_sum[i] / risk_sum[i]
-                
-                # Second moment: sum(X X^T * exp_eta) / risk_sum
-                risk_X2_sum = np.zeros((n_features, n_features))
-                for j in range(i, n_samples):
-                    risk_X2_sum += np.outer(X[j], X[j]) * exp_eta[j]
-                
-                E_XX = risk_X2_sum / risk_sum[i]
-                hess -= (E_XX - np.outer(E_X, E_X))
-        
+
+        X_exp = X * exp_eta[:, np.newaxis]                  # (n, p)
+        risk_X2_sum = X_exp.T @ X                           # (p, p), O(n·p²)
+
+        event_positions = np.where(event)[0]                # sorted ascending
+        prev_pos = 0
+
+        for ev_i in event_positions:
+            # Remove rows [prev_pos, ev_i) from risk_X2_sum;
+            # they have t < t[ev_i] and are no longer in R(t[ev_i]).
+            if ev_i > prev_pos:
+                blk = slice(prev_pos, ev_i)
+                risk_X2_sum -= X_exp[blk].T @ X[blk]       # O(k·p²), k = ev_i - prev_pos
+            prev_pos = ev_i  # next event will subtract starting from here
+
+            E_X = risk_X_sum[ev_i] / risk_sum[ev_i]        # (p,)
+            E_XX = risk_X2_sum / risk_sum[ev_i]             # (p, p)
+            hess -= E_XX - np.outer(E_X, E_X)
+
         return hess
     
     def _compute_gradient_hessian_efron(self, beta, X, time, event, risk_sum, risk_X_sum, exp_eta):
@@ -744,10 +741,9 @@ class CoxPH(BaseEstimator):
         risk_sum = np.cumsum(exp_eta[::-1])[::-1]
         risk_X_sum = np.cumsum((X * exp_eta[:, np.newaxis])[::-1], axis=0)[::-1]
         u = np.zeros((n_samples, n_features), dtype=np.float64)
-        for i in range(n_samples):
-            if event[i]:
-                ex = risk_X_sum[i] / risk_sum[i]
-                u[i] = X[i] - ex
+        # Vectorized: fill only event rows.
+        event_mask = event == 1
+        u[event_mask] = X[event_mask] - risk_X_sum[event_mask] / risk_sum[event_mask, np.newaxis]
         return u
     
     def _compute_baseline_hazard(self, X, time, event):
@@ -815,37 +811,54 @@ class CoxPH(BaseEstimator):
         return cindex
     
     def _compute_cindex(self):
-        """Compute concordance index (C-index)."""
+        """
+        Compute concordance index (C-index) using chunked vectorized NumPy.
+
+        Replaces the O(n²) double Python loop with batched boolean matrix ops.
+        Chunk size is chosen so each batch matrix stays within ~128 MB.
+        """
         if self._X is None or self.coef_ is None:
             self._cindex = None
             return
-        
-        # Linear predictor (risk score)
+
         risk_score = self._X @ self.coef_
-        
-        n = len(self._time)
-        concordant = 0
-        permissible = 0
-        tied_risk = 0
-        
-        for i in range(n):
-            if self._event[i] == 0:
-                continue  # Skip censored observations as first in pair
-            
-            for j in range(n):
-                if i == j:
-                    continue
-                
-                # Check if pair is permissible (i had event before j or j is censored after i)
-                if self._time[i] < self._time[j] or (self._time[i] == self._time[j] and self._event[j] == 0):
-                    permissible += 1
-                    
-                    # Compare risk scores
-                    if risk_score[i] > risk_score[j]:
-                        concordant += 1
-                    elif risk_score[i] == risk_score[j]:
-                        tied_risk += 1
-        
+        time = self._time
+        event = self._event
+        n = len(time)
+
+        event_idx = np.where(event == 1)[0]
+        n_events = len(event_idx)
+
+        if n_events == 0:
+            self._cindex = np.nan
+            return
+
+        concordant = np.int64(0)
+        permissible = np.int64(0)
+        tied_risk   = np.int64(0)
+
+        # Chunk so each (chunk × n) bool matrix is ≤ 128 MB.
+        chunk_size = max(1, min(n_events, int(128e6 / max(n, 1))))
+
+        for start in range(0, n_events, chunk_size):
+            end = min(start + chunk_size, n_events)
+            idx_chunk = event_idx[start:end]          # (c,)
+
+            time_i  = time[idx_chunk, np.newaxis]     # (c, 1)
+            risk_i  = risk_score[idx_chunk, np.newaxis]
+            time_j  = time[np.newaxis, :]             # (1, n)
+            risk_j  = risk_score[np.newaxis, :]
+            event_j = event[np.newaxis, :]
+
+            # Permissible pairs: earlier time OR same time with j censored.
+            perm = (time_i < time_j) | ((time_i == time_j) & (event_j == 0))
+            # Exclude self-comparisons.
+            perm[np.arange(end - start), idx_chunk] = False
+
+            concordant  += int(np.sum(perm & (risk_i > risk_j)))
+            tied_risk   += int(np.sum(perm & (risk_i == risk_j)))
+            permissible += int(np.sum(perm))
+
         if permissible > 0:
             self._cindex = (concordant + 0.5 * tied_risk) / permissible
         else:

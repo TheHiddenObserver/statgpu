@@ -1,0 +1,11 @@
+nohup: ignoring input
+[2026-04-03 15:58:49] ==========================================
+[2026-04-03 15:58:49] Starting benchmark suite (7 experiments)
+[2026-04-03 15:58:49] Host: antalpha-Super-Server100101  PID: 278283
+[2026-04-03 15:58:50] GPU: NVIDIA GeForce RTX 4090
+[2026-04-03 15:58:50] Python: Python 3.13.5
+[2026-04-03 15:58:50] ==========================================
+[2026-04-03 15:58:50] --- EXPERIMENT 1/7: large_scale ---
+[2026-04-03 15:58:50] Log file: results/bench_large_scale.log
+le ---
+[2026-04-03 15:58:50] Log file: results/bench_large_scale.log

@@ -23,6 +23,7 @@ import statistics
 import sys
 import time
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Tuple
 
@@ -44,6 +45,11 @@ try:
 except Exception:
     cp = None
     HAS_CUPY = False
+
+
+def log(msg: str) -> None:
+    ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    print(f"[{ts}] {msg}", flush=True)
 
 
 @dataclass
@@ -129,9 +135,11 @@ def time_fit(
     fit_call: Callable[[Any], None],
     warmup_runs: int,
     repeats: int,
+    model_name: str = "",
 ) -> Tuple[bool, List[float], str]:
     try:
-        for _ in range(warmup_runs):
+        for i in range(warmup_runs):
+            log(f"  warmup {i + 1}/{warmup_runs} ...")
             m = factory()
             fit_call(m)
             del m
@@ -141,15 +149,18 @@ def time_fit(
         return False, [], f"warmup failed: {type(e).__name__}: {e}"
 
     times_ms: List[float] = []
-    for _ in range(repeats):
+    for i in range(repeats):
         try:
+            log(f"  repeat {i + 1}/{repeats} ...")
             m = factory()
             t0 = time.perf_counter()
             fit_call(m)
             if HAS_CUPY and cp is not None:
                 cp.cuda.Stream.null.synchronize()
             t1 = time.perf_counter()
-            times_ms.append((t1 - t0) * 1000.0)
+            elapsed_ms = (t1 - t0) * 1000.0
+            times_ms.append(elapsed_ms)
+            log(f"  repeat {i + 1}/{repeats} done: {elapsed_ms:.1f} ms")
             del m
         except Exception as e:
             return False, times_ms, f"repeat failed: {type(e).__name__}: {e}"
@@ -200,6 +211,15 @@ def main() -> None:
     args = parse_args()
     rng = np.random.default_rng(args.seed)
 
+    log("==============================================")
+    log(f"benchmark_all_methods_large_scale.py starting")
+    log(f"  devices={args.devices}  repeats={args.repeats}  warmup={args.warmup_runs}")
+    log(f"  regression:  n={args.n_reg}, p={args.p_reg}")
+    log(f"  logistic:    n={args.n_logit}, p={args.p_logit}")
+    log(f"  cox:         n={args.n_cox}, p={args.p_cox}")
+    log(f"  compute_inference={args.compute_inference}  gpu_memory_cleanup={args.gpu_memory_cleanup}")
+    log("==============================================")
+
     requested_devices = [d.strip().lower() for d in args.devices.split(",") if d.strip()]
     valid_devices = []
     for d in requested_devices:
@@ -207,23 +227,35 @@ def main() -> None:
             raise ValueError(f"Unsupported device '{d}', expected 'cpu' or 'cuda'")
         if d == "cuda":
             if not HAS_CUPY:
-                print("[skip] cuda requested but CuPy is unavailable.")
+                log("[skip] cuda requested but CuPy is unavailable.")
                 continue
             if not cuda_available():
-                print("[skip] cuda requested but CUDA runtime is unavailable.")
+                log("[skip] cuda requested but CUDA runtime is unavailable.")
                 continue
         valid_devices.append(d)
     if not valid_devices:
         raise RuntimeError("No valid devices to run.")
 
+    log(f"Active devices: {valid_devices}")
+
     # Build data once (outside timing)
+    log("Generating regression data ...")
     X_reg_np, y_reg_np = make_regression_data(rng, args.n_reg, args.p_reg)
+    log(f"  X_reg {X_reg_np.shape}, y_reg {y_reg_np.shape}")
+
+    log("Generating logistic data ...")
     X_log_np, y_log_np = make_logistic_data(rng, args.n_logit, args.p_logit)
+    log(f"  X_log {X_log_np.shape}, y_log {y_log_np.shape}")
+
+    log("Generating Cox data ...")
     X_cox_np, t_cox_np, e_cox_np = make_cox_data(rng, args.n_cox, args.p_cox)
+    log(f"  X_cox {X_cox_np.shape}")
 
     rows: List[CaseResult] = []
 
     for device in valid_devices:
+        log(f"----------------------------------------------")
+        log(f"[device={device}] transferring data ...")
         X_reg = as_device(X_reg_np, device)
         y_reg = as_device(y_reg_np, device)
         X_log = as_device(X_log_np, device)
@@ -290,10 +322,21 @@ def main() -> None:
             ),
         ]
 
-        print(f"\n[device={device}] running {len(cases)} methods ...")
-        for name, factory, fit_call in cases:
-            ok, times, err = time_fit(factory, fit_call, args.warmup_runs, args.repeats)
-            rows.append(summarize(name, device, args.repeats, ok, times, err))
+        log(f"[device={device}] running {len(cases)} models ...")
+        for idx, (name, factory, fit_call) in enumerate(cases, 1):
+            log(f"[device={device}] ({idx}/{len(cases)}) {name} ...")
+            t_start = time.perf_counter()
+            ok, times, err = time_fit(factory, fit_call, args.warmup_runs, args.repeats, name)
+            elapsed = time.perf_counter() - t_start
+            result = summarize(name, device, args.repeats, ok, times, err)
+            rows.append(result)
+            if result.ok:
+                log(f"[device={device}] ({idx}/{len(cases)}) {name} DONE — "
+                    f"mean={result.mean_ms:.1f}ms  std={result.std_ms:.1f}ms  "
+                    f"min={result.min_ms:.1f}ms  max={result.max_ms:.1f}ms  "
+                    f"(total wall {elapsed:.1f}s)")
+            else:
+                log(f"[device={device}] ({idx}/{len(cases)}) {name} FAILED: {result.error}")
 
     print_table(rows)
 
@@ -305,7 +348,11 @@ def main() -> None:
             "results": [r.__dict__ for r in rows],
         }
         out_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
-        print(f"\nSaved JSON: {out_path}")
+        log(f"Saved JSON: {out_path}")
+
+    log("==============================================")
+    log("benchmark_all_methods_large_scale.py complete")
+    log("==============================================")
 
 
 if __name__ == "__main__":
