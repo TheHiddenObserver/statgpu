@@ -29,6 +29,7 @@
 - `LinearRegression` 新增 `cov_type=nonrobust/hc0/hc1`，并补 CPU/GPU 推断路径。
 - `LogisticRegression` 新增 `cov_type=nonrobust/hc0/hc1`，并补 CPU/GPU 推断路径。
 - `CoxPH` 新增 `cov_type=nonrobust/hc0/hc1`（稳健协方差近似）并补 CPU/GPU 路径可用性。
+- `CoxPH` 新增 `cov_type=cluster`（按 cluster 分组的 sandwich 协方差，CPU 路径）。
 - 新增并验证对标测试（`statsmodels`）：
   - `LinearRegression` HC0/HC1（CPU+GPU）
   - `LogisticRegression` HC0/HC1（CPU+GPU）

@@ -72,3 +72,9 @@ python examples/benchmark_external_frameworks.py \
 - 显式固定同一特征集合（避免 `y ~ .` 误包含目标/辅助列）
 - 显式固定 `ties`（如 `cox-ties=breslow` 或 `efron`）
 - 显式记录正则参数与迭代阈值（`alpha/C/max_iter/tol`）
+
+## Cox 协方差专项基准
+
+- `examples/benchmark_cox_cluster.py`
+  - 对比 `CoxPH cov_type=nonrobust/hc1/cluster` 的时间与数值差异
+  - 覆盖 `statgpu CPU/GPU` 与 `statsmodels.PHReg`（可用时）

@@ -59,6 +59,16 @@ class TestCoxPH:
         assert np.all(np.isfinite(model._bse))
         assert np.all(np.isfinite(model._pvalues))
 
+    def test_cov_type_cluster_cpu(self):
+        """Cluster-robust covariance works when cluster ids are provided."""
+        set_device("cpu")
+        X, time, event = _make_survival_data(n_samples=240, n_features=5, seed=31)
+        cluster = np.repeat(np.arange(40), 6)
+        model = CoxPH(device="cpu", cov_type="cluster", compute_inference=True, max_iter=60)
+        model.fit(X, time, event, cluster=cluster)
+        assert model._bse is not None
+        assert np.all(np.isfinite(model._bse))
+
 
 class TestGPU:
     """GPU-specific tests for CoxPH (run only when CUDA available)."""

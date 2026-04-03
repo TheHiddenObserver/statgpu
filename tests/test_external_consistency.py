@@ -267,6 +267,36 @@ class TestStatsmodelsConsistency:
         assert np.allclose(sg.coef_, sm_res.params, rtol=2e-2, atol=2e-3)
         assert np.allclose(sg._bse, sm_res.bse, rtol=2e-1, atol=2e-3)
 
+    @pytest.mark.parametrize("ties,seed", [("breslow", 410), ("efron", 411)], ids=["cox-cluster-breslow", "cox-cluster-efron"])
+    def test_cox_cluster_covariance_matches_statsmodels(self, ties, seed):
+        """Cluster-robust Cox covariance should align with statsmodels PHReg(groups=...)."""
+        set_device("cpu")
+        rng = np.random.default_rng(seed)
+        n_samples, n_features = 1600, 8
+        X = rng.normal(size=(n_samples, n_features))
+        beta = rng.normal(scale=0.3, size=n_features)
+        lin = X @ beta
+        u = np.clip(rng.random(n_samples), 1e-12, 1 - 1e-12)
+        t_true = -np.log(u) / (0.03 * np.exp(np.clip(lin, -20, 20)))
+        censor = rng.exponential(scale=np.median(t_true), size=n_samples)
+        event = (t_true <= censor).astype(int)
+        time_obs = np.minimum(t_true, censor)
+        clusters = rng.integers(0, 80, size=n_samples)
+
+        sg = CoxPH(device="cpu", ties=ties, cov_type="cluster", max_iter=80, tol=1e-8, compute_inference=True)
+        sg.fit(X, time_obs, event, cluster=clusters)
+
+        sm_model = smd.PHReg(time_obs, X, status=event, ties=ties)
+        try:
+            sm_res = sm_model.fit(groups=clusters)
+        except TypeError:
+            pytest.skip("statsmodels PHReg fit(groups=...) not supported in this version")
+        if not np.all(np.isfinite(sm_res.bse)):
+            pytest.skip("statsmodels PHReg returned non-finite cluster-robust bse")
+
+        assert np.allclose(sg.coef_, sm_res.params, rtol=2e-2, atol=2e-3)
+        assert np.allclose(sg._bse, sm_res.bse, rtol=3e-1, atol=3e-3)
+
 
 @pytest.mark.skipif(not HAS_SKLEARN, reason="sklearn not available")
 class TestSklearnPenaltyConsistency:
