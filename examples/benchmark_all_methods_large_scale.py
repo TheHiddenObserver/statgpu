@@ -698,9 +698,6 @@ def main() -> None:
                 )
                 log(f"[R]   cox.csv   ({X_cox_np.shape[0]} rows × {X_cox_np.shape[1]} cols)")
 
-                _x_reg = "+".join(f"x{i}" for i in range(1, X_reg_np.shape[1] + 1))
-                _x_log = "+".join(f"x{i}" for i in range(1, X_log_np.shape[1] + 1))
-                _x_cox = "+".join(f"x{i}" for i in range(1, X_cox_np.shape[1] + 1))
                 _wu = args.warmup_runs
                 _rp = args.repeats
 
@@ -714,20 +711,22 @@ def main() -> None:
                         "LinearRegression", "R::lm",
                         f"""suppressWarnings({{
   warmup <- {_wu}; reps <- {_rp}
-  d <- read.csv("{_reg_csv.as_posix()}")
+  d    <- read.csv("{_reg_csv.as_posix()}")
+  Xmat <- cbind(1, as.matrix(d[, grep("^x", names(d))]))
+  yvec <- d$y
   times <- numeric(warmup + reps)
   for (i in seq_len(warmup + reps)) {{
     t0 <- proc.time()
-    m  <- lm(y ~ {_x_reg}, data=d)
+    m  <- .lm.fit(Xmat, yvec)
     t1 <- proc.time()
     times[i] <- as.numeric((t1 - t0)[3]) * 1000
     if (i <= warmup) message(sprintf("  warmup %d/%d done: %.1f ms", i, warmup, times[i]))
     else             message(sprintf("  repeat %d/%d done: %.1f ms", i-warmup, reps, times[i]))
   }}
   cat(jsonlite::toJSON(list(
-    times_ms = as.list(times[(warmup+1):(warmup+reps)]),
-    coef     = as.list(as.numeric(coef(m)))
-  ), auto_unbox=FALSE))
+    times_ms = times[(warmup+1):(warmup+reps)],
+    coef     = as.numeric(m$coefficients)
+  ), auto_unbox=TRUE))
 }})""",
                         ref_lin, "coef", "",
                     ),
@@ -735,20 +734,24 @@ def main() -> None:
                         "LogisticRegression", "R::glm(binomial)",
                         f"""suppressWarnings({{
   warmup <- {_wu}; reps <- {_rp}
-  d <- read.csv("{_log_csv.as_posix()}")
+  d    <- read.csv("{_log_csv.as_posix()}")
+  Xmat <- cbind(1, as.matrix(d[, grep("^x", names(d))]))
+  yvec <- d$y_bin
   times <- numeric(warmup + reps)
+  coefs <- NULL
   for (i in seq_len(warmup + reps)) {{
     t0 <- proc.time()
-    m  <- glm(y_bin ~ {_x_log}, data=d, family=binomial())
+    m  <- glm.fit(Xmat, yvec, family=binomial())
     t1 <- proc.time()
     times[i] <- as.numeric((t1 - t0)[3]) * 1000
+    coefs <- m$coefficients
     if (i <= warmup) message(sprintf("  warmup %d/%d done: %.1f ms", i, warmup, times[i]))
     else             message(sprintf("  repeat %d/%d done: %.1f ms", i-warmup, reps, times[i]))
   }}
   cat(jsonlite::toJSON(list(
-    times_ms = as.list(times[(warmup+1):(warmup+reps)]),
-    coef     = as.list(as.numeric(coef(m)))
-  ), auto_unbox=FALSE))
+    times_ms = times[(warmup+1):(warmup+reps)],
+    coef     = as.numeric(coefs)
+  ), auto_unbox=TRUE))
 }})""",
                         ref_log_unr, "coef", "no reg → compared vs statgpu C=1e6",
                     ),
@@ -757,20 +760,29 @@ def main() -> None:
                         f"""suppressWarnings({{
   if (!requireNamespace("survival", quietly=TRUE)) stop("R package 'survival' not installed")
   warmup <- {_wu}; reps <- {_rp}
-  d <- read.csv("{_cox_csv.as_posix()}")
+  d    <- read.csv("{_cox_csv.as_posix()}")
+  Xmat <- as.matrix(d[, grep("^x", names(d))])
+  tvec <- d$time
+  evec <- d$event
   times <- numeric(warmup + reps)
+  coefs <- NULL
   for (i in seq_len(warmup + reps)) {{
     t0 <- proc.time()
-    m  <- survival::coxph(survival::Surv(time, event) ~ {_x_cox}, data=d, ties="breslow")
+    m  <- survival::coxph.fit(Xmat, survival::Surv(tvec, evec),
+                              strata=NULL, offset=NULL, init=NULL,
+                              control=survival::coxph.control(),
+                              weights=rep(1, length(tvec)),
+                              method="breslow", rownames=NULL)
     t1 <- proc.time()
     times[i] <- as.numeric((t1 - t0)[3]) * 1000
+    coefs <- m$coefficients
     if (i <= warmup) message(sprintf("  warmup %d/%d done: %.1f ms", i, warmup, times[i]))
     else             message(sprintf("  repeat %d/%d done: %.1f ms", i-warmup, reps, times[i]))
   }}
   cat(jsonlite::toJSON(list(
-    times_ms = as.list(times[(warmup+1):(warmup+reps)]),
-    coef     = as.list(as.numeric(coef(m)))
-  ), auto_unbox=FALSE))
+    times_ms = times[(warmup+1):(warmup+reps)],
+    coef     = as.numeric(coefs)
+  ), auto_unbox=TRUE))
 }})""",
                         ref_cox, "coef", "",
                     ),
@@ -781,18 +793,19 @@ def main() -> None:
   warmup <- {_wu}; reps <- {_rp}
   d    <- read.csv("{_reg_csv.as_posix()}")
   Xmat <- as.matrix(d[, grep("^x", names(d))])
+  yvec <- d$y
   times <- numeric(warmup + reps)
   for (i in seq_len(warmup + reps)) {{
     t0 <- proc.time()
-    glmnet::glmnet(Xmat, d$y, alpha=0)
+    glmnet::glmnet(Xmat, yvec, alpha=0)
     t1 <- proc.time()
     times[i] <- as.numeric((t1 - t0)[3]) * 1000
     if (i <= warmup) message(sprintf("  warmup %d/%d done: %.1f ms", i, warmup, times[i]))
     else             message(sprintf("  repeat %d/%d done: %.1f ms", i-warmup, reps, times[i]))
   }}
   cat(jsonlite::toJSON(list(
-    times_ms = as.list(times[(warmup+1):(warmup+reps)])
-  ), auto_unbox=FALSE))
+    times_ms = times[(warmup+1):(warmup+reps)]
+  ), auto_unbox=TRUE))
 }})""",
                         None, None, "full reg path; no single-lambda coef cmp",
                     ),
@@ -803,18 +816,19 @@ def main() -> None:
   warmup <- {_wu}; reps <- {_rp}
   d    <- read.csv("{_reg_csv.as_posix()}")
   Xmat <- as.matrix(d[, grep("^x", names(d))])
+  yvec <- d$y
   times <- numeric(warmup + reps)
   for (i in seq_len(warmup + reps)) {{
     t0 <- proc.time()
-    glmnet::glmnet(Xmat, d$y, alpha=1)
+    glmnet::glmnet(Xmat, yvec, alpha=1)
     t1 <- proc.time()
     times[i] <- as.numeric((t1 - t0)[3]) * 1000
     if (i <= warmup) message(sprintf("  warmup %d/%d done: %.1f ms", i, warmup, times[i]))
     else             message(sprintf("  repeat %d/%d done: %.1f ms", i-warmup, reps, times[i]))
   }}
   cat(jsonlite::toJSON(list(
-    times_ms = as.list(times[(warmup+1):(warmup+reps)])
-  ), auto_unbox=FALSE))
+    times_ms = times[(warmup+1):(warmup+reps)]
+  ), auto_unbox=TRUE))
 }})""",
                         None, None, "full reg path; no single-lambda coef cmp",
                     ),
@@ -848,7 +862,11 @@ def main() -> None:
                             error=f"R error: {_r_result['error']}",
                         ))
                     else:
-                        _times = [float(t) for t in _r_result["times_ms"]]
+                        _raw_times = _r_result["times_ms"]
+                        if not isinstance(_raw_times, list):
+                            _raw_times = [_raw_times]
+                        _times = [float(t[0]) if isinstance(t, list) else float(t)
+                                  for t in _raw_times]
                         _cd = math.nan
                         if _r_ref is not None and _r_ckey and _r_ckey in _r_result:
                             _cd = _safe_diff(
