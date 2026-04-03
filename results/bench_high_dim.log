@@ -1,0 +1,17 @@
+[2026-04-03 20:02:01] ==============================================
+[2026-04-03 20:02:01] benchmark_all_methods_large_scale.py starting
+[2026-04-03 20:02:01]   devices=cpu,cuda  repeats=5  warmup=2
+[2026-04-03 20:02:01]   regression:  n=5000, p=2000
+[2026-04-03 20:02:01]   logistic:    n=8000, p=1000
+[2026-04-03 20:02:01]   cox:         n=5000, p=500
+[2026-04-03 20:02:01]   compute_inference=False  gpu_memory_cleanup=False
+[2026-04-03 20:02:01] ==============================================
+[2026-04-03 20:02:01] Active devices: ['cpu', 'cuda']
+[2026-04-03 20:02:01] Generating regression data ...
+[2026-04-03 20:02:01]   X_reg (5000, 2000), y_reg (5000,)
+[2026-04-03 20:02:01] Generating logistic data ...
+[2026-04-03 20:02:02]   X_log (8000, 1000), y_log (8000,)
+[2026-04-03 20:02:02] Generating Cox data ...
+[2026-04-03 20:02:02]   X_cox (5000, 500)
+[2026-04-03 20:02:02] ----------------------------------------------
+[2026-04-03 20:02:02] [refs] Building statgpu-cpu reference coefficients ...
