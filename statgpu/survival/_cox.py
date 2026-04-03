@@ -108,6 +108,10 @@ class CoxPH(BaseEstimator):
         # Efron only: cached CSR packed indices for GPU kernels.
         # (enter_ptr, enter_ind, exit_ptr, exit_ind, fail_ptr, fail_ind, first_idx_uft, nuft)
         self._efron_pre_csr = None
+        # Breslow only: cached (first_idx_uft, counts_uft) on CPU.
+        self._breslow_pre = None
+        # Breslow only: cached (first_idx_uft_gpu, counts_uft_gpu) on GPU.
+        self._breslow_pre_gpu = None
 
     def _cleanup_cuda_memory(self):
         """Best-effort CuPy memory pool cleanup."""
@@ -206,8 +210,14 @@ class CoxPH(BaseEstimator):
         cluster_sorted = None if cluster is None else np.asarray(cluster)[order]
         
         self._efron_pre = None
+        self._breslow_pre = None
+        self._breslow_pre_gpu = None
         if self.ties == "efron":
             self._efron_pre = self._efron_unique_failure_indices(time_sorted, event_sorted)
+        else:
+            self._breslow_pre = self._breslow_unique_failure_groups(
+                time_sorted, event_sorted
+            )
         
         # Initialize coefficients
         beta = np.zeros(n_features, dtype=np.float64)
@@ -334,6 +344,8 @@ class CoxPH(BaseEstimator):
         
         # Precompute Efron tie structure once (depends only on time/event order).
         efron_pre = None
+        self._breslow_pre = None
+        self._breslow_pre_gpu = None
         if self.ties == "efron":
             efron_pre = self._efron_unique_failure_indices(
                 cp.asnumpy(time_sorted), cp.asnumpy(event_sorted)
@@ -369,6 +381,14 @@ class CoxPH(BaseEstimator):
         else:
             self._efron_pre = None
             self._efron_pre_csr = None
+            first_idx_uft, counts_uft = self._breslow_unique_failure_groups(
+                cp.asnumpy(time_sorted), cp.asnumpy(event_sorted)
+            )
+            self._breslow_pre = (first_idx_uft, counts_uft)
+            self._breslow_pre_gpu = (
+                cp.asarray(first_idx_uft, dtype=cp.int32),
+                cp.asarray(counts_uft, dtype=cp.int32),
+            )
         
         # Initialize coefficients on GPU
         beta = cp.zeros(n_features, dtype=cp.float64)
@@ -473,35 +493,80 @@ class CoxPH(BaseEstimator):
             self._unique_times = None
     
     def _compute_log_likelihood(self, beta, X, time, event, efron_pre=None):
-        """Compute log partial likelihood."""
+        """Compute log partial likelihood (Breslow/Efron tie handling)."""
         eta = X @ beta
         exp_eta = np.exp(eta)
 
-        # Risk sets (cumulative sum of exp(eta) from end)
+        # Risk set suffix sums:
+        #   risk_sum[i] = sum_{j: time[j] >= time[i]} exp_eta[j]
         risk_sum = np.cumsum(exp_eta[::-1])[::-1]
 
-        # Log-likelihood contribution from events
-        if self.ties == 'breslow':
-            # Vectorized: O(n) with no Python loop.
-            event_mask = event == 1
-            return float(np.sum(eta[event_mask]) - np.sum(np.log(risk_sum[event_mask])))
+        event_mask = event == 1
+        if not np.any(event_mask):
+            return 0.0
 
-        # Efron approximation (loop-based, kept for correctness)
+        if self.ties == "breslow":
+            # l(β) = sum_i(eta_i) - sum_t(d_t * log(S0(t)))
+            breslow_pre = getattr(self, "_breslow_pre", None)
+            if (
+                breslow_pre is not None
+                and len(breslow_pre) == 2
+                and breslow_pre[0].size > 0
+            ):
+                first_idx = breslow_pre[0].astype(np.int64, copy=False)
+                counts = breslow_pre[1].astype(np.float64, copy=False)
+            else:
+                event_times = time[event_mask]
+                uft, counts_i = np.unique(event_times, return_counts=True)
+                first_idx = np.searchsorted(time, uft, side="left").astype(np.int64)
+                counts = counts_i.astype(np.float64)
+            risk_at = risk_sum[first_idx]
+            return float(np.sum(eta[event_mask]) - np.sum(counts * np.log(risk_at)))
+
+        # ---- Efron ----
         ll = 0.0
-        unique_times = np.unique(time[event == 1])
-        for t in unique_times:
-            at_time_t = (time == t)
-            events_at_t = at_time_t & (event == 1)
-            d = np.sum(events_at_t)
+        if efron_pre is not None:
+            uft, uft_ix, _, _, nuft, first_idx_uft = _unpack_efron_pre6(efron_pre)
+            for g in range(nuft):
+                ix_ev = uft_ix[g]
+                d = len(ix_ev)
+                if d == 0:
+                    continue
+                first_idx = (
+                    int(first_idx_uft[g])
+                    if first_idx_uft is not None
+                    else int(np.searchsorted(time, uft[g], side="left"))
+                )
+                risk_at_t = risk_sum[first_idx]
+                sum_events = float(np.sum(exp_eta[ix_ev]))
+                ll += float(np.sum(eta[ix_ev]))
+
+                k = np.arange(d, dtype=np.float64) / d
+                denom = risk_at_t - k * sum_events
+                ll -= float(np.sum(np.log(np.maximum(denom, 1e-300))))
+
+            return float(ll)
+
+        # No precomputation: group event rows by unique failure times.
+        event_idx = np.flatnonzero(event_mask)
+        event_times = time[event_idx]
+        uft, inv, counts = np.unique(event_times, return_inverse=True, return_counts=True)
+        first_idx = np.searchsorted(time, uft, side="left").astype(np.int64)
+        risk_at = risk_sum[first_idx]
+
+        sum_events = np.bincount(inv, weights=exp_eta[event_idx], minlength=len(uft)).astype(np.float64)
+        sum_eta_events = np.bincount(inv, weights=eta[event_idx], minlength=len(uft)).astype(np.float64)
+
+        for g in range(len(uft)):
+            d = int(counts[g])
             if d == 0:
                 continue
-            first_idx = np.where(time >= t)[0][0]
-            risk_at_t = risk_sum[first_idx]
-            sum_events = np.sum(exp_eta[events_at_t])
-            for k in range(d):
-                ll -= np.log(max(risk_at_t - k * sum_events / d, 1e-300))
-            ll += np.sum(eta[events_at_t])
-        return ll
+            ll += float(sum_eta_events[g])
+            k = np.arange(d, dtype=np.float64) / d
+            denom = risk_at[g] - k * sum_events[g]
+            ll -= float(np.sum(np.log(np.maximum(denom, 1e-300))))
+
+        return float(ll)
     
     def _solve_newton_delta_gpu(self, hess, grad, cp):
         """Newton step delta = inv(hess) @ grad; prefer SPD solve on (-hess) with light jitter."""
@@ -536,8 +601,23 @@ class CoxPH(BaseEstimator):
             return ll
         
         if self.ties == 'breslow':
-            ll = cp.sum(eta[event_mask]) - cp.sum(cp.log(risk_sum[event_mask]))
-            return ll
+            # Vectorized Breslow using cached failure groups to avoid
+            # Python loops and host-device sync in GPU hot path.
+            breslow_pre_gpu = getattr(self, "_breslow_pre_gpu", None)
+            if (
+                breslow_pre_gpu is not None
+                and len(breslow_pre_gpu) == 2
+                and int(breslow_pre_gpu[0].size) > 0
+            ):
+                first_idx_uft, counts_uft = breslow_pre_gpu
+            else:
+                uft, counts_uft = cp.unique(time[event_mask], return_counts=True)
+                first_idx_uft = cp.searchsorted(time, uft, side="left")
+                counts_uft = counts_uft.astype(cp.int32, copy=False)
+            risk_at = risk_sum[first_idx_uft]
+            return cp.sum(eta[event_mask]) - cp.sum(
+                counts_uft.astype(cp.float64) * cp.log(risk_at)
+            )
         
         # Efron: loop over cached failure groups (see `_cox_efron_cuda.compute_efron_loglik_raw`)
         if efron_pre is not None:
@@ -614,24 +694,48 @@ class CoxPH(BaseEstimator):
         if self.ties == 'breslow':
             event_mask = event == 1
             grad = np.zeros(n_features, dtype=np.float64)
+            first_idx = np.array([], dtype=np.int64)
+            counts = np.array([], dtype=np.float64)
             if np.any(event_mask):
-                grad = (
-                    np.sum(X[event_mask], axis=0)
-                    - np.sum(
-                        risk_X_sum[event_mask] / risk_sum[event_mask][:, np.newaxis],
-                        axis=0,
-                    )
-                )
+                breslow_pre = getattr(self, "_breslow_pre", None)
+                if (
+                    breslow_pre is not None
+                    and len(breslow_pre) == 2
+                    and breslow_pre[0].size > 0
+                ):
+                    first_idx = breslow_pre[0].astype(np.int64, copy=False)
+                    counts = breslow_pre[1].astype(np.float64, copy=False)
+                else:
+                    event_times = time[event_mask]
+                    uft, counts_i = np.unique(event_times, return_counts=True)
+                    first_idx = np.searchsorted(time, uft, side="left").astype(np.int64)
+                    counts = counts_i.astype(np.float64)
+
+                sum_X_events = np.sum(X[event_mask], axis=0)
+                E_X = risk_X_sum[first_idx] / risk_sum[first_idx][:, np.newaxis]
+                grad = sum_X_events - np.sum(E_X * counts[:, np.newaxis], axis=0)
+
             hess = self._compute_hessian_breslow_fast(
-                X, event, risk_sum, risk_X_sum, exp_eta
+                X, time, event, risk_sum, risk_X_sum, exp_eta, first_idx, counts
             )
         else:
             grad, hess = self._compute_gradient_hessian_efron_backward(
                 beta, X, time, event, efron_pre
             )
+        
         return grad, hess
 
-    def _compute_hessian_breslow_fast(self, X, event, risk_sum, risk_X_sum, exp_eta):
+    def _compute_hessian_breslow_fast(
+        self,
+        X,
+        time,
+        event,
+        risk_sum,
+        risk_X_sum,
+        exp_eta,
+        first_idx=None,
+        counts=None,
+    ):
         """Compute Breslow Hessian using reverse cumulative second moments."""
         # risk_X2_sum[i] = sum_{j>=i} exp_eta[j] * X[j]X[j]^T
         x2_weighted = np.einsum("ni,nj,n->nij", X, X, exp_eta)
@@ -639,10 +743,30 @@ class CoxPH(BaseEstimator):
         event_mask = event == 1
         if not np.any(event_mask):
             return np.zeros((X.shape[1], X.shape[1]), dtype=np.float64)
-        E_X = risk_X_sum[event_mask] / risk_sum[event_mask][:, np.newaxis]
-        E_XX = risk_X2_sum[event_mask] / risk_sum[event_mask][:, np.newaxis, np.newaxis]
-        centered = E_XX - np.einsum("ni,nj->nij", E_X, E_X)
-        return -np.sum(centered, axis=0)
+
+        # Group tied events by unique failure times to share the same R(t)
+        # denominator across all events at time t (Breslow ties).
+        if first_idx is None or counts is None or len(first_idx) == 0:
+            breslow_pre = getattr(self, "_breslow_pre", None)
+            if (
+                breslow_pre is not None
+                and len(breslow_pre) == 2
+                and breslow_pre[0].size > 0
+            ):
+                first_idx = breslow_pre[0].astype(np.int64, copy=False)
+                counts = breslow_pre[1].astype(np.float64, copy=False)
+            else:
+                event_times = time[event_mask]
+                uft, counts_i = np.unique(event_times, return_counts=True)
+                first_idx = np.searchsorted(time, uft, side="left").astype(np.int64)
+                counts = counts_i.astype(np.float64)
+
+        risk_sum_at = risk_sum[first_idx]  # (nuft,)
+        E_X = risk_X_sum[first_idx] / risk_sum_at[:, np.newaxis]  # (nuft, p)
+        E_XX = risk_X2_sum[first_idx] / risk_sum_at[:, np.newaxis, np.newaxis]  # (nuft, p, p)
+
+        centered = E_XX - np.einsum("ni,nj->nij", E_X, E_X)  # (nuft, p, p)
+        return -np.sum(centered * counts[:, np.newaxis, np.newaxis], axis=0)
     
     def _compute_hessian_breslow(self, beta, X, time, event, risk_sum, risk_X_sum, exp_eta):
         """
@@ -731,6 +855,19 @@ class CoxPH(BaseEstimator):
         risk_exit[j_exit] = list(range(n))
 
         return uft, uft_ix, risk_enter, risk_exit, nuft, first_idx_uft
+
+    def _breslow_unique_failure_groups(self, time: np.ndarray, event: np.ndarray):
+        """
+        Breslow tie groups for sorted time/event.
+        Returns (first_idx_uft, counts_uft), both int32 arrays.
+        """
+        ift = np.flatnonzero(event == 1)
+        if ift.size == 0:
+            return np.array([], dtype=np.int32), np.array([], dtype=np.int32)
+        ft = time[ift]
+        uft, counts = np.unique(ft, return_counts=True)
+        first_idx_uft = np.searchsorted(time, uft, side="left").astype(np.int32)
+        return first_idx_uft, counts.astype(np.int32)
 
     def _compute_gradient_hessian_efron_backward(self, beta, X, time, event, efron_pre=None):
         """
@@ -834,19 +971,36 @@ class CoxPH(BaseEstimator):
         # Breslow gradient (vectorized)
         event_mask = event == 1
         grad = cp.zeros(n_features, dtype=cp.float64)
-        
-        if cp.any(event_mask):
-            grad = cp.sum(X[event_mask], axis=0) - cp.sum(risk_X_sum[event_mask] / risk_sum[event_mask][:, cp.newaxis], axis=0)
 
-        # Hessian on GPU (Breslow): vectorized second-moment suffix sums
-        x2_weighted = cp.einsum("ni,nj,n->nij", X, X, exp_eta)
-        risk_X2_sum = cp.cumsum(x2_weighted[::-1], axis=0)[::-1]
         if not cp.any(event_mask):
             return grad, cp.zeros((n_features, n_features), dtype=cp.float64)
-        E_X = risk_X_sum[event_mask] / risk_sum[event_mask][:, cp.newaxis]
-        E_XX = risk_X2_sum[event_mask] / risk_sum[event_mask][:, cp.newaxis, cp.newaxis]
+
+        # For Breslow ties, all events at the same failure time share the
+        # same risk set R(t); grouping is required for correctness.
+        breslow_pre_gpu = getattr(self, "_breslow_pre_gpu", None)
+        if (
+            breslow_pre_gpu is not None
+            and len(breslow_pre_gpu) == 2
+            and int(breslow_pre_gpu[0].size) > 0
+        ):
+            first_idx_uft, counts_uft = breslow_pre_gpu
+        else:
+            uft, counts_uft = cp.unique(time[event_mask], return_counts=True)
+            first_idx_uft = cp.searchsorted(time, uft, side="left")
+            counts_uft = counts_uft.astype(cp.int32, copy=False)
+
+        counts_f = counts_uft.astype(cp.float64)
+        grad = cp.sum(X[event_mask], axis=0)
+        E_X = risk_X_sum[first_idx_uft] / risk_sum[first_idx_uft][:, cp.newaxis]
+        grad = grad - cp.sum(E_X * counts_f[:, cp.newaxis], axis=0)
+
+        # Hessian needs reverse cumulative second moments.
+        x2_weighted = cp.einsum("ni,nj,n->nij", X, X, exp_eta)
+        risk_X2_sum = cp.cumsum(x2_weighted[::-1], axis=0)[::-1]
+
+        E_XX = risk_X2_sum[first_idx_uft] / risk_sum[first_idx_uft][:, cp.newaxis, cp.newaxis]
         centered = E_XX - cp.einsum("ni,nj->nij", E_X, E_X)
-        hess = -cp.sum(centered, axis=0)
+        hess = -cp.sum(centered * counts_f[:, cp.newaxis, cp.newaxis], axis=0)
         return grad, hess
 
     def _compute_gradient_hessian_efron_backward_gpu(self, beta, X, efron_pre):
