@@ -18,7 +18,7 @@
 | `max_iter` | `100` | 最大迭代数 |
 | `device` | `"auto"` | `cpu` / `cuda` / `auto` |
 | `compute_inference` | `True` | 是否计算推断与部分诊断 |
-| `cov_type` | `"nonrobust"` | `nonrobust` / `hc0` / `hc1` |
+| `cov_type` | `"nonrobust"` | `nonrobust` / `hc0` / `hc1` / `cluster` |
 | `gpu_memory_cleanup` | `False` | 每次 `fit` 后尝试释放 CuPy memory pool |
 
 ## 主要参数
@@ -27,7 +27,7 @@
 - `max_iter`
 - `device` (`cpu` / `cuda` / `auto`)
 - `compute_inference`
-- `cov_type` (`nonrobust` / `hc0` / `hc1`)
+- `cov_type` (`nonrobust` / `hc0` / `hc1` / `cluster`)
 - `gpu_memory_cleanup`
 
 ## 快速示例
@@ -37,6 +37,13 @@ from statgpu.survival import CoxPH
 
 m = CoxPH(device="cuda", ties="breslow", compute_inference=False, gpu_memory_cleanup=True)
 m.fit(X, time, event)
+```
+
+当 `cov_type="cluster"` 时，需要传入 `cluster` 分组向量：
+
+```python
+m = CoxPH(device="cpu", cov_type="cluster")
+m.fit(X, time, event, cluster=cluster_ids)
 ```
 
 ## 输出

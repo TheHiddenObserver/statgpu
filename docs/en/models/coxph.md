@@ -18,7 +18,7 @@ Path: `statgpu.survival.CoxPH`
 | `max_iter` | `100` | Max iterations |
 | `device` | `"auto"` | `cpu` / `cuda` / `auto` |
 | `compute_inference` | `True` | Whether to compute inference and diagnostics |
-| `cov_type` | `"nonrobust"` | `nonrobust` / `hc0` / `hc1` |
+| `cov_type` | `"nonrobust"` | `nonrobust` / `hc0` / `hc1` / `cluster` |
 | `gpu_memory_cleanup` | `False` | Best-effort CuPy pool cleanup after each fit |
 
 ## Example
@@ -28,6 +28,13 @@ from statgpu.survival import CoxPH
 
 m = CoxPH(device="cuda", ties="efron", compute_inference=True)
 m.fit(X, time, event)
+```
+
+When `cov_type="cluster"`, pass cluster ids in `fit`:
+
+```python
+m = CoxPH(device="cpu", cov_type="cluster")
+m.fit(X, time, event, cluster=cluster_ids)
 ```
 
 ## Outputs

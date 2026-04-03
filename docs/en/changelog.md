@@ -17,10 +17,13 @@ Language switch: [中文](../changelog.md)
 - `gpu_memory_cleanup` for all current models
 - `LinearRegression` robust covariance: `nonrobust/hc0/hc1` (CPU+GPU)
 - `LogisticRegression` robust covariance: `nonrobust/hc0/hc1` (CPU+GPU)
+- `CoxPH` covariance support: `nonrobust/hc0/hc1/cluster` (cluster is CPU path)
 - New benchmark: `examples/benchmark_all_methods_large_scale.py`
+- New external comparison benchmark: `examples/benchmark_external_frameworks.py`
 
 ### Validation
 
 - Added consistency tests against `statsmodels` for robust covariance in:
   - `LinearRegression`
   - `LogisticRegression` (CPU+GPU)
+- Added Cox consistency checks vs `statsmodels.PHReg` (`breslow/efron`) for coefficients

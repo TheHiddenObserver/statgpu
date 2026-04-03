@@ -65,3 +65,9 @@ Comparison gate recommendations:
 - Explicitly use the same feature set across frameworks (avoid accidental `y ~ .` leakage)
 - Explicitly fix Cox tie method (`breslow` or `efron`)
 - Explicitly log regularization and convergence settings (`alpha/C/max_iter/tol`)
+
+## Cox Covariance Benchmark
+
+- `examples/benchmark_cox_cluster.py`
+  - Compares `CoxPH cov_type=nonrobust/hc1/cluster` on runtime and numerical differences
+  - Covers `statgpu CPU/GPU` and `statsmodels.PHReg` when available

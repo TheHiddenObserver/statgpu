@@ -35,6 +35,10 @@
   - `hc0`
   - `hc1`
   （当前为稳健协方差近似路径）
+- `CoxPH(cov_type='cluster')`：
+  - 支持按 cluster 分组的 sandwich 协方差（CPU 路径）
+- 新增外部框架统一对标脚本：
+  - `examples/benchmark_external_frameworks.py`
 - 新增全方法大规模 benchmark：
   - `examples/benchmark_all_methods_large_scale.py`
 
@@ -57,3 +61,4 @@
 - 新增与 `statsmodels` 的一致性验证：
   - `LinearRegression` 的 `HC0/HC1`
   - `LogisticRegression` 的 `HC0/HC1`（CPU + GPU）
+  - `CoxPH` 与 `statsmodels.PHReg`（`breslow/efron`）系数一致性

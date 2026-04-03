@@ -58,6 +58,8 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--lasso-alpha", type=float, default=0.05)
     p.add_argument("--ridge-alpha", type=float, default=1.0)
     p.add_argument("--cox-ties", type=str, default="breslow", choices=["breslow", "efron"])
+    p.add_argument("--cox-cov-type", type=str, default="hc1", choices=["nonrobust", "hc0", "hc1", "cluster"])
+    p.add_argument("--cluster-groups", type=int, default=80, help="Number of clusters when cox-cov-type=cluster")
     p.add_argument("--json-out", type=str, default="")
     p.add_argument("--skip-r", action="store_true", help="Skip R comparison even if Rscript exists")
     return p.parse_args()
@@ -120,6 +122,8 @@ def main():
     args = parse_args()
     set_device("cpu")
     X, y, y_bin, t_obs, event = _make_data(args.seed, args.n, args.p)
+    rng = np.random.default_rng(args.seed + 999)
+    cluster_ids = rng.integers(0, max(2, args.cluster_groups), size=args.n)
     rows: List[BenchRow] = []
 
     # statgpu baselines
@@ -141,8 +145,15 @@ def main():
     cox_sig = inspect.signature(CoxPH.__init__)
     cox_kwargs = {"device": "cpu", "ties": args.cox_ties, "max_iter": 80}
     if "cov_type" in cox_sig.parameters:
-        cox_kwargs["cov_type"] = "hc1"
-    cox_sg, cox_ms = _time_call(lambda: CoxPH(**cox_kwargs).fit(X, t_obs, event))
+        cox_kwargs["cov_type"] = args.cox_cov_type
+
+    fit_sig = inspect.signature(CoxPH.fit)
+    supports_cluster = "cluster" in fit_sig.parameters
+
+    if args.cox_cov_type == "cluster" and supports_cluster:
+        cox_sg, cox_ms = _time_call(lambda: CoxPH(**cox_kwargs).fit(X, t_obs, event, cluster=cluster_ids))
+    else:
+        cox_sg, cox_ms = _time_call(lambda: CoxPH(**cox_kwargs).fit(X, t_obs, event))
 
     rows += [
         BenchRow("LinearRegression", "statgpu", lin_ms, 0.0, 0.0, 0.0),
@@ -196,7 +207,12 @@ def main():
             )
         )
 
-        sm_cox, sm_cox_ms = _time_call(lambda: smd.PHReg(t_obs, X, status=event, ties=args.cox_ties).fit())
+        if args.cox_cov_type == "cluster":
+            sm_cox, sm_cox_ms = _time_call(
+                lambda: smd.PHReg(t_obs, X, status=event, ties=args.cox_ties).fit(groups=cluster_ids)
+            )
+        else:
+            sm_cox, sm_cox_ms = _time_call(lambda: smd.PHReg(t_obs, X, status=event, ties=args.cox_ties).fit())
         rows.append(
             BenchRow(
                 "CoxPH",
@@ -274,10 +290,10 @@ def main():
     if not args.skip_r:
         with tempfile.TemporaryDirectory() as td:
             csv_path = Path(td) / "data.csv"
-            arr = np.column_stack([X, y, y_bin, t_obs, event])
-            cols = [f"x{i+1}" for i in range(X.shape[1])] + ["y", "y_bin", "time", "event"]
-            np.savetxt(csv_path, arr, delimiter=",", header=",".join(cols), comments="")
             x_terms = "+".join([f"x{i}" for i in range(1, X.shape[1] + 1)])
+            arr = np.column_stack([X, y, y_bin, t_obs, event, cluster_ids])
+            cols = [f"x{i+1}" for i in range(X.shape[1])] + ["y", "y_bin", "time", "event", "cluster"]
+            np.savetxt(csv_path, arr, delimiter=",", header=",".join(cols), comments="")
             r_script = f"""
             suppressWarnings({{
               d <- read.csv("{csv_path.as_posix()}")
@@ -286,7 +302,7 @@ def main():
               t0 <- proc.time(); m_lm <- lm(y ~ {x_terms}, data=d); t1 <- proc.time()
               out$lm <- list(time_ms=as.numeric((t1-t0)[3])*1000, coef=coef(m_lm))
               if (requireNamespace("survival", quietly=TRUE)) {{
-                t2 <- proc.time(); m_cox <- survival::coxph(survival::Surv(time, event) ~ {x_terms}, data=d, ties="{args.cox_ties}"); t3 <- proc.time()
+                t2 <- proc.time(); m_cox <- survival::coxph(survival::Surv(time, event) ~ {x_terms}, data=d, ties="{args.cox_ties}"{", cluster=cluster" if args.cox_cov_type == "cluster" else ""}); t3 <- proc.time()
                 out$cox <- list(time_ms=as.numeric((t3-t2)[3])*1000, coef=coef(m_cox))
               }}
               if (requireNamespace("glmnet", quietly=TRUE)) {{
