@@ -221,34 +221,36 @@ def time_external_fit(
     return True, times_ms, "", last_result
 
 
-def _run_r_script(script: str, timeout: int = 1800) -> Optional[dict]:
-    """Invoke Rscript with *script* as inline code; return parsed JSON or an error dict.
+def _run_r_script(script: str, timeout: int = 1800) -> Tuple[Optional[dict], str]:
+    """Invoke Rscript with *script* as inline code; return (parsed JSON or error dict, stderr).
 
-    Returns None when Rscript is not installed.
+    Returns (None, "") when Rscript is not installed.
+    stdout is expected to contain a single JSON object; stderr carries progress messages.
     """
     if shutil.which("Rscript") is None:
-        return None
+        return None, ""
     try:
         proc = subprocess.run(
             ["Rscript", "-e", script],
             capture_output=True, text=True, timeout=timeout, check=False,
         )
+        stderr = proc.stderr.strip()
         if proc.returncode != 0:
-            return {"error": proc.stderr.strip() or "Rscript exited non-zero"}
+            return {"error": stderr or "Rscript exited non-zero"}, stderr
         stdout = proc.stdout.strip()
-        # R may emit warnings/messages before the JSON; find the first '{' line.
+        # R may emit residual messages before the JSON; find the first '{' line.
         for line in stdout.splitlines():
             line = line.strip()
             if line.startswith("{"):
                 try:
-                    return json.loads(line)
+                    return json.loads(line), stderr
                 except json.JSONDecodeError:
                     pass
-        return json.loads(stdout)
+        return json.loads(stdout), stderr
     except subprocess.TimeoutExpired:
-        return {"error": f"Rscript timed out after {timeout}s"}
+        return {"error": f"Rscript timed out after {timeout}s"}, ""
     except Exception as exc:
-        return {"error": str(exc)}
+        return {"error": str(exc)}, ""
 
 
 def summarize(model: str, device: str, repeats: int, ok: bool, times: List[float], err: str,
@@ -699,166 +701,169 @@ def main() -> None:
                 _x_reg = "+".join(f"x{i}" for i in range(1, X_reg_np.shape[1] + 1))
                 _x_log = "+".join(f"x{i}" for i in range(1, X_log_np.shape[1] + 1))
                 _x_cox = "+".join(f"x{i}" for i in range(1, X_cox_np.shape[1] + 1))
+                _wu = args.warmup_runs
+                _rp = args.repeats
 
-                # Timing loops run inside R to avoid repeated process-startup overhead.
-                # proc.time()[3] is elapsed (wall-clock) time in seconds.
-                _r_script = f"""
-suppressWarnings(suppressMessages({{
-  warmup <- {args.warmup_runs}
-  reps   <- {args.repeats}
-  out    <- list()
-
-  d_reg <- read.csv("{_reg_csv.as_posix()}")
-  d_log <- read.csv("{_log_csv.as_posix()}")
-  d_cox <- read.csv("{_cox_csv.as_posix()}")
-
-  # LinearRegression — lm
-  times_lm <- numeric(warmup + reps)
+                # Each model runs in its own Rscript process so Python can log
+                # per-model progress.  R uses message() for warmup/repeat lines
+                # (-> stderr, captured and relayed by Python) and cat() for the
+                # final JSON result (-> stdout).
+                # fmt: (model_name, fw_label, r_script, ref_array, coef_key, note)
+                _r_model_defs = [
+                    (
+                        "LinearRegression", "R::lm",
+                        f"""suppressWarnings({{
+  warmup <- {_wu}; reps <- {_rp}
+  d <- read.csv("{_reg_csv.as_posix()}")
+  times <- numeric(warmup + reps)
   for (i in seq_len(warmup + reps)) {{
     t0 <- proc.time()
-    m_lm <- lm(y ~ {_x_reg}, data=d_reg)
+    m  <- lm(y ~ {_x_reg}, data=d)
     t1 <- proc.time()
-    times_lm[i] <- as.numeric((t1 - t0)[3]) * 1000
+    times[i] <- as.numeric((t1 - t0)[3]) * 1000
+    if (i <= warmup) message(sprintf("  warmup %d/%d done: %.1f ms", i, warmup, times[i]))
+    else             message(sprintf("  repeat %d/%d done: %.1f ms", i-warmup, reps, times[i]))
   }}
-  out$lm <- list(
-    times_ms = as.list(times_lm[(warmup+1):(warmup+reps)]),
-    coef     = as.list(as.numeric(coef(m_lm)))
-  )
-
-  # LogisticRegression — glm(family=binomial)
-  times_glm <- numeric(warmup + reps)
+  cat(jsonlite::toJSON(list(
+    times_ms = as.list(times[(warmup+1):(warmup+reps)]),
+    coef     = as.list(as.numeric(coef(m)))
+  ), auto_unbox=FALSE))
+}})""",
+                        ref_lin, "coef", "",
+                    ),
+                    (
+                        "LogisticRegression", "R::glm(binomial)",
+                        f"""suppressWarnings({{
+  warmup <- {_wu}; reps <- {_rp}
+  d <- read.csv("{_log_csv.as_posix()}")
+  times <- numeric(warmup + reps)
   for (i in seq_len(warmup + reps)) {{
     t0 <- proc.time()
-    m_glm <- glm(y_bin ~ {_x_log}, data=d_log, family=binomial())
+    m  <- glm(y_bin ~ {_x_log}, data=d, family=binomial())
     t1 <- proc.time()
-    times_glm[i] <- as.numeric((t1 - t0)[3]) * 1000
+    times[i] <- as.numeric((t1 - t0)[3]) * 1000
+    if (i <= warmup) message(sprintf("  warmup %d/%d done: %.1f ms", i, warmup, times[i]))
+    else             message(sprintf("  repeat %d/%d done: %.1f ms", i-warmup, reps, times[i]))
   }}
-  out$logit <- list(
-    times_ms = as.list(times_glm[(warmup+1):(warmup+reps)]),
-    coef     = as.list(as.numeric(coef(m_glm)))
-  )
-
-  # CoxPH — survival::coxph
-  if (requireNamespace("survival", quietly=TRUE)) {{
-    times_cox <- numeric(warmup + reps)
-    for (i in seq_len(warmup + reps)) {{
-      t0 <- proc.time()
-      m_cox <- survival::coxph(
-        survival::Surv(time, event) ~ {_x_cox},
-        data=d_cox, ties="breslow"
-      )
-      t1 <- proc.time()
-      times_cox[i] <- as.numeric((t1 - t0)[3]) * 1000
-    }}
-    out$cox <- list(
-      times_ms = as.list(times_cox[(warmup+1):(warmup+reps)]),
-      coef     = as.list(as.numeric(coef(m_cox)))
-    )
+  cat(jsonlite::toJSON(list(
+    times_ms = as.list(times[(warmup+1):(warmup+reps)]),
+    coef     = as.list(as.numeric(coef(m)))
+  ), auto_unbox=FALSE))
+}})""",
+                        ref_log_unr, "coef", "no reg → compared vs statgpu C=1e6",
+                    ),
+                    (
+                        "CoxPH", "R::survival::coxph",
+                        f"""suppressWarnings({{
+  if (!requireNamespace("survival", quietly=TRUE)) stop("R package 'survival' not installed")
+  warmup <- {_wu}; reps <- {_rp}
+  d <- read.csv("{_cox_csv.as_posix()}")
+  times <- numeric(warmup + reps)
+  for (i in seq_len(warmup + reps)) {{
+    t0 <- proc.time()
+    m  <- survival::coxph(survival::Surv(time, event) ~ {_x_cox}, data=d, ties="breslow")
+    t1 <- proc.time()
+    times[i] <- as.numeric((t1 - t0)[3]) * 1000
+    if (i <= warmup) message(sprintf("  warmup %d/%d done: %.1f ms", i, warmup, times[i]))
+    else             message(sprintf("  repeat %d/%d done: %.1f ms", i-warmup, reps, times[i]))
   }}
-
-  # Ridge / Lasso — glmnet (fits full regularization path; no single-lambda coef cmp)
-  if (requireNamespace("glmnet", quietly=TRUE)) {{
-    X_mat <- as.matrix(d_reg[, grep("^x", names(d_reg))])
-    times_ridge <- numeric(warmup + reps)
-    for (i in seq_len(warmup + reps)) {{
-      t0 <- proc.time()
-      glmnet::glmnet(X_mat, d_reg$y, alpha=0)
-      t1 <- proc.time()
-      times_ridge[i] <- as.numeric((t1 - t0)[3]) * 1000
-    }}
-    out$ridge <- list(times_ms = as.list(times_ridge[(warmup+1):(warmup+reps)]))
-
-    times_lasso <- numeric(warmup + reps)
-    for (i in seq_len(warmup + reps)) {{
-      t0 <- proc.time()
-      glmnet::glmnet(X_mat, d_reg$y, alpha=1)
-      t1 <- proc.time()
-      times_lasso[i] <- as.numeric((t1 - t0)[3]) * 1000
-    }}
-    out$lasso <- list(times_ms = as.list(times_lasso[(warmup+1):(warmup+reps)]))
+  cat(jsonlite::toJSON(list(
+    times_ms = as.list(times[(warmup+1):(warmup+reps)]),
+    coef     = as.list(as.numeric(coef(m)))
+  ), auto_unbox=FALSE))
+}})""",
+                        ref_cox, "coef", "",
+                    ),
+                    (
+                        "Ridge", "R::glmnet(alpha=0)",
+                        f"""suppressWarnings({{
+  if (!requireNamespace("glmnet", quietly=TRUE)) stop("R package 'glmnet' not installed")
+  warmup <- {_wu}; reps <- {_rp}
+  d    <- read.csv("{_reg_csv.as_posix()}")
+  Xmat <- as.matrix(d[, grep("^x", names(d))])
+  times <- numeric(warmup + reps)
+  for (i in seq_len(warmup + reps)) {{
+    t0 <- proc.time()
+    glmnet::glmnet(Xmat, d$y, alpha=0)
+    t1 <- proc.time()
+    times[i] <- as.numeric((t1 - t0)[3]) * 1000
+    if (i <= warmup) message(sprintf("  warmup %d/%d done: %.1f ms", i, warmup, times[i]))
+    else             message(sprintf("  repeat %d/%d done: %.1f ms", i-warmup, reps, times[i]))
   }}
+  cat(jsonlite::toJSON(list(
+    times_ms = as.list(times[(warmup+1):(warmup+reps)])
+  ), auto_unbox=FALSE))
+}})""",
+                        None, None, "full reg path; no single-lambda coef cmp",
+                    ),
+                    (
+                        "Lasso", "R::glmnet(alpha=1)",
+                        f"""suppressWarnings({{
+  if (!requireNamespace("glmnet", quietly=TRUE)) stop("R package 'glmnet' not installed")
+  warmup <- {_wu}; reps <- {_rp}
+  d    <- read.csv("{_reg_csv.as_posix()}")
+  Xmat <- as.matrix(d[, grep("^x", names(d))])
+  times <- numeric(warmup + reps)
+  for (i in seq_len(warmup + reps)) {{
+    t0 <- proc.time()
+    glmnet::glmnet(Xmat, d$y, alpha=1)
+    t1 <- proc.time()
+    times[i] <- as.numeric((t1 - t0)[3]) * 1000
+    if (i <= warmup) message(sprintf("  warmup %d/%d done: %.1f ms", i, warmup, times[i]))
+    else             message(sprintf("  repeat %d/%d done: %.1f ms", i-warmup, reps, times[i]))
+  }}
+  cat(jsonlite::toJSON(list(
+    times_ms = as.list(times[(warmup+1):(warmup+reps)])
+  ), auto_unbox=FALSE))
+}})""",
+                        None, None, "full reg path; no single-lambda coef cmp",
+                    ),
+                ]
 
-  cat(jsonlite::toJSON(out, auto_unbox=FALSE))
-}}))
-"""
-                log("[R] Invoking Rscript (may take several minutes for large data) ...")
-                _r_wall_t0 = time.perf_counter()
-                _r_result = _run_r_script(_r_script)
-                _r_wall_elapsed = time.perf_counter() - _r_wall_t0
-                log(f"[R] Rscript returned in {_r_wall_elapsed:.1f}s")
+                log(f"[R] {len(_r_model_defs)} models to run ...")
+                for _r_idx, (_r_mname, _r_fw, _r_script, _r_ref, _r_ckey, _r_note) in \
+                        enumerate(_r_model_defs, 1):
+                    log(f"[R] ({_r_idx}/{len(_r_model_defs)}) {_r_fw} {_r_mname} ...")
+                    _r_t0 = time.perf_counter()
+                    _r_result, _r_stderr = _run_r_script(_r_script)
+                    _r_elapsed = time.perf_counter() - _r_t0
 
-                if _r_result is None:
-                    log("[R] Rscript unavailable (checked after CSV write).")
-                elif "error" in _r_result:
-                    log(f"[R] R benchmark failed: {_r_result['error']}")
-                    rows.append(CaseResult(
-                        model="ALL", device="R",
-                        mean_ms=math.nan, std_ms=math.nan,
-                        min_ms=math.nan, max_ms=math.nan,
-                        repeats=args.repeats, ok=False,
-                        error=f"R error: {_r_result['error']}",
-                    ))
-                else:
-                    def _r_coef_diff(ref_arr, coef_list) -> float:
-                        try:
-                            a = np.asarray(ref_arr, dtype=float).reshape(-1)
-                            b = np.asarray(coef_list, dtype=float).reshape(-1)
-                            n = min(len(a), len(b))
-                            return float(np.max(np.abs(a[:n] - b[:n])))
-                        except Exception:
-                            return math.nan
+                    # Relay per-repeat progress that R wrote to stderr
+                    for _line in _r_stderr.splitlines():
+                        _line = _line.strip()
+                        if _line:
+                            log(f"[R] {_line}")
 
-                    if "lm" in _r_result:
-                        _times = [float(t) for t in _r_result["lm"]["times_ms"]]
-                        _cd = (_r_coef_diff(ref_lin, _r_result["lm"]["coef"])
-                               if ref_lin is not None else math.nan)
-                        rows.append(summarize(
-                            "LinearRegression", "R::lm",
-                            args.repeats, True, _times, "", _cd,
+                    if _r_result is None:
+                        log(f"[R] ({_r_idx}/{len(_r_model_defs)}) {_r_fw} {_r_mname}"
+                            " SKIPPED (Rscript unavailable)")
+                    elif "error" in _r_result:
+                        log(f"[R] ({_r_idx}/{len(_r_model_defs)}) {_r_fw} {_r_mname}"
+                            f" FAILED: {_r_result['error']}")
+                        rows.append(CaseResult(
+                            model=_r_mname, device=_r_fw,
+                            mean_ms=math.nan, std_ms=math.nan,
+                            min_ms=math.nan, max_ms=math.nan,
+                            repeats=args.repeats, ok=False,
+                            error=f"R error: {_r_result['error']}",
                         ))
-                        log(f"[R] lm DONE — "
-                            f"mean={statistics.mean(_times):.1f}ms  coef_diff={_cd:.2e}")
-
-                    if "logit" in _r_result:
-                        _times = [float(t) for t in _r_result["logit"]["times_ms"]]
-                        _cd = (_r_coef_diff(ref_log_unr, _r_result["logit"]["coef"])
-                               if ref_log_unr is not None else math.nan)
+                    else:
+                        _times = [float(t) for t in _r_result["times_ms"]]
+                        _cd = math.nan
+                        if _r_ref is not None and _r_ckey and _r_ckey in _r_result:
+                            _cd = _safe_diff(
+                                _r_ref,
+                                np.asarray(_r_result[_r_ckey], dtype=float),
+                            )
                         rows.append(summarize(
-                            "LogisticRegression", "R::glm(binomial)",
-                            args.repeats, True, _times, "", _cd,
+                            _r_mname, _r_fw, args.repeats, True, _times, "", _cd,
                         ))
-                        log(f"[R] glm(binomial) DONE — "
-                            f"mean={statistics.mean(_times):.1f}ms  coef_diff={_cd:.2e}"
-                            "  [no reg → compared vs statgpu C=1e6]")
-
-                    if "cox" in _r_result:
-                        _times = [float(t) for t in _r_result["cox"]["times_ms"]]
-                        _cd = (_r_coef_diff(ref_cox, _r_result["cox"]["coef"])
-                               if ref_cox is not None else math.nan)
-                        rows.append(summarize(
-                            "CoxPH", "R::survival::coxph",
-                            args.repeats, True, _times, "", _cd,
-                        ))
-                        log(f"[R] survival::coxph DONE — "
-                            f"mean={statistics.mean(_times):.1f}ms  coef_diff={_cd:.2e}")
-
-                    if "ridge" in _r_result:
-                        _times = [float(t) for t in _r_result["ridge"]["times_ms"]]
-                        rows.append(summarize(
-                            "Ridge", "R::glmnet(alpha=0)",
-                            args.repeats, True, _times, "",
-                        ))
-                        log(f"[R] glmnet(ridge) DONE — "
-                            f"mean={statistics.mean(_times):.1f}ms  (path; no single-lambda coef cmp)")
-
-                    if "lasso" in _r_result:
-                        _times = [float(t) for t in _r_result["lasso"]["times_ms"]]
-                        rows.append(summarize(
-                            "Lasso", "R::glmnet(alpha=1)",
-                            args.repeats, True, _times, "",
-                        ))
-                        log(f"[R] glmnet(lasso) DONE — "
-                            f"mean={statistics.mean(_times):.1f}ms  (path; no single-lambda coef cmp)")
+                        cd_str = f"  coef_diff={_cd:.2e}" if not math.isnan(_cd) else ""
+                        note_str = f"  [{_r_note}]" if _r_note else ""
+                        log(f"[R] ({_r_idx}/{len(_r_model_defs)}) {_r_fw} {_r_mname} DONE — "
+                            f"mean={statistics.mean(_times):.1f}ms"
+                            f"  std={statistics.pstdev(_times) if len(_times)>1 else 0.0:.1f}ms"
+                            f"  (wall {_r_elapsed:.1f}s){cd_str}{note_str}")
 
                 print_table(rows)
 
