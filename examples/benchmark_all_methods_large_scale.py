@@ -19,13 +19,16 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import shutil
 import statistics
+import subprocess
 import sys
+import tempfile
 import time
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import numpy as np
 
@@ -88,6 +91,14 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Also benchmark statsmodels and sklearn and compare coefficients vs statgpu-cpu.",
     )
+    p.add_argument(
+        "--include-r",
+        action="store_true",
+        help=(
+            "Also benchmark R (lm, glm, coxph, glmnet). "
+            "Requires Rscript with packages: jsonlite, survival, glmnet."
+        ),
+    )
 
     # Sizes (intentionally large but still practical defaults)
     p.add_argument("--n-reg", type=int, default=60000, help="Rows for linear/ridge/lasso.")
@@ -142,7 +153,7 @@ def time_fit(
     warmup_runs: int,
     repeats: int,
     model_name: str = "",
-) -> Tuple[bool, List[float], str]:
+) -> Tuple[bool, List[float], str, Any]:
     try:
         for i in range(warmup_runs):
             log(f"  warmup {i + 1}/{warmup_runs} ...")
@@ -152,9 +163,10 @@ def time_fit(
             if HAS_CUPY and cp is not None:
                 cp.cuda.Stream.null.synchronize()
     except Exception as e:
-        return False, [], f"warmup failed: {type(e).__name__}: {e}"
+        return False, [], f"warmup failed: {type(e).__name__}: {e}", None
 
     times_ms: List[float] = []
+    last_model: Any = None
     for i in range(repeats):
         try:
             log(f"  repeat {i + 1}/{repeats} ...")
@@ -167,10 +179,12 @@ def time_fit(
             elapsed_ms = (t1 - t0) * 1000.0
             times_ms.append(elapsed_ms)
             log(f"  repeat {i + 1}/{repeats} done: {elapsed_ms:.1f} ms")
-            del m
+            if last_model is not None:
+                del last_model
+            last_model = m  # keep last fitted model for coef extraction
         except Exception as e:
-            return False, times_ms, f"repeat failed: {type(e).__name__}: {e}"
-    return True, times_ms, ""
+            return False, times_ms, f"repeat failed: {type(e).__name__}: {e}", last_model
+    return True, times_ms, "", last_model
 
 
 def time_external_fit(
@@ -207,6 +221,36 @@ def time_external_fit(
     return True, times_ms, "", last_result
 
 
+def _run_r_script(script: str, timeout: int = 1800) -> Optional[dict]:
+    """Invoke Rscript with *script* as inline code; return parsed JSON or an error dict.
+
+    Returns None when Rscript is not installed.
+    """
+    if shutil.which("Rscript") is None:
+        return None
+    try:
+        proc = subprocess.run(
+            ["Rscript", "-e", script],
+            capture_output=True, text=True, timeout=timeout, check=False,
+        )
+        if proc.returncode != 0:
+            return {"error": proc.stderr.strip() or "Rscript exited non-zero"}
+        stdout = proc.stdout.strip()
+        # R may emit warnings/messages before the JSON; find the first '{' line.
+        for line in stdout.splitlines():
+            line = line.strip()
+            if line.startswith("{"):
+                try:
+                    return json.loads(line)
+                except json.JSONDecodeError:
+                    pass
+        return json.loads(stdout)
+    except subprocess.TimeoutExpired:
+        return {"error": f"Rscript timed out after {timeout}s"}
+    except Exception as exc:
+        return {"error": str(exc)}
+
+
 def summarize(model: str, device: str, repeats: int, ok: bool, times: List[float], err: str,
               coef_diff: float = math.nan) -> CaseResult:
     if not ok or not times:
@@ -234,6 +278,17 @@ def summarize(model: str, device: str, repeats: int, ok: bool, times: List[float
         error="",
         coef_diff=coef_diff,
     )
+
+
+def _safe_diff(ref: np.ndarray, ext) -> float:
+    """Max absolute difference between two coefficient vectors (numpy-safe)."""
+    try:
+        a = np.asarray(ref, dtype=float).reshape(-1)
+        b = np.asarray(ext, dtype=float).reshape(-1)
+        n = min(len(a), len(b))
+        return float(np.max(np.abs(a[:n] - b[:n])))
+    except Exception:
+        return math.nan
 
 
 def print_table(rows: List[CaseResult]) -> None:
@@ -309,6 +364,54 @@ def main() -> None:
     X_cox_np, t_cox_np, e_cox_np = make_cox_data(rng, args.n_cox, args.p_cox)
     log(f"  X_cox {X_cox_np.shape}")
 
+    # ── Build reference coefficients ──────────────────────────────────────────
+    # Built before the device loop so GPU results can be compared vs CPU refs.
+    ref_lin: Optional[np.ndarray] = None
+    ref_rid: Optional[np.ndarray] = None
+    ref_las: Optional[np.ndarray] = None
+    ref_log_reg: Optional[np.ndarray] = None
+    ref_log_unr: Optional[np.ndarray] = None
+    ref_cox: Optional[np.ndarray] = None
+
+    if args.include_external or args.include_r:
+        log("----------------------------------------------")
+        log("[refs] Building statgpu-cpu reference coefficients ...")
+
+        # One-off statgpu-cpu fits to get reference coefficients.
+        # LogisticRegression uses two refs: C=1.0 (for device-loop/sklearn)
+        # and C=1e6 (for statsmodels/R unregularized comparison).
+        _ref_lin = LinearRegression(compute_inference=False, device="cpu", cov_type="nonrobust")
+        _ref_lin.fit(X_reg_np, y_reg_np)
+        ref_lin = np.r_[_ref_lin.intercept_, _ref_lin.coef_]
+
+        _ref_rid = Ridge(alpha=1.0, device="cpu")
+        _ref_rid.fit(X_reg_np, y_reg_np)
+        ref_rid = np.r_[_ref_rid.intercept_, _ref_rid.coef_]
+
+        _ref_las = Lasso(alpha=0.05, max_iter=3000, tol=1e-5, solver="fista",
+                         cpu_solver="fista", compute_inference=False, device="cpu")
+        _ref_las.fit(X_reg_np, y_reg_np)
+        ref_las = np.r_[_ref_las.intercept_, _ref_las.coef_]
+
+        # Regularized (C=1.0) for device-loop and sklearn comparison.
+        _ref_log_reg = LogisticRegression(C=1.0, max_iter=150, tol=1e-5,
+                                          compute_inference=False, cov_type="nonrobust", device="cpu")
+        _ref_log_reg.fit(X_log_np, y_log_np)
+        ref_log_reg = np.r_[_ref_log_reg.intercept_, _ref_log_reg.coef_]
+
+        # Unregularized (C=1e6) for statsmodels.Logit / R glm comparison.
+        _ref_log_unr = LogisticRegression(C=1e6, max_iter=300, tol=1e-8,
+                                          compute_inference=False, cov_type="nonrobust", device="cpu")
+        _ref_log_unr.fit(X_log_np, y_log_np)
+        ref_log_unr = np.r_[_ref_log_unr.intercept_, _ref_log_unr.coef_]
+
+        _ref_cox = CoxPH(ties="breslow", max_iter=120, tol=1e-8,
+                         compute_inference=False, device="cpu")
+        _ref_cox.fit(X_cox_np, t_cox_np, e_cox_np)
+        ref_cox = _ref_cox.coef_.copy()
+
+        log("[refs] References built.")
+
     rows: List[CaseResult] = []
 
     for device in valid_devices:
@@ -327,7 +430,16 @@ def main() -> None:
             "gpu_memory_cleanup": bool(args.gpu_memory_cleanup),
         }
 
-        cases: List[Tuple[str, Callable[[], Any], Callable[[Any], None]]] = [
+        # coef extractors: convert CuPy arrays to NumPy transparently
+        def _coef_intercept_coef(m) -> np.ndarray:
+            return np.r_[np.asarray(m.intercept_).reshape(-1),
+                         np.asarray(m.coef_).reshape(-1)]
+
+        def _coef_cox_only(m) -> np.ndarray:
+            return np.asarray(m.coef_).reshape(-1)
+
+        cases: List[Tuple[str, Callable[[], Any], Callable[[Any], None],
+                          Callable, Optional[np.ndarray]]] = [
             (
                 "LinearRegression",
                 lambda ck=common_kwargs: LinearRegression(
@@ -336,11 +448,15 @@ def main() -> None:
                     **ck,
                 ),
                 lambda m, X=X_reg, y=y_reg: m.fit(X, y),
+                _coef_intercept_coef,
+                ref_lin,
             ),
             (
                 "Ridge",
                 lambda ck=common_kwargs: Ridge(alpha=1.0, **ck),
                 lambda m, X=X_reg, y=y_reg: m.fit(X, y),
+                _coef_intercept_coef,
+                ref_rid,
             ),
             (
                 "Lasso",
@@ -354,6 +470,8 @@ def main() -> None:
                     **ck,
                 ),
                 lambda m, X=X_reg, y=y_reg: m.fit(X, y),
+                _coef_intercept_coef,
+                ref_las,
             ),
             (
                 "LogisticRegression",
@@ -366,6 +484,8 @@ def main() -> None:
                     **ck,
                 ),
                 lambda m, X=X_log, y=y_log: m.fit(X, y),
+                _coef_intercept_coef,
+                ref_log_reg,
             ),
             (
                 "CoxPH",
@@ -377,22 +497,33 @@ def main() -> None:
                     **ck,
                 ),
                 lambda m, X=X_cox, t=t_cox, e=e_cox: m.fit(X, t, e),
+                _coef_cox_only,
+                ref_cox,
             ),
         ]
 
         log(f"[device={device}] running {len(cases)} models ...")
-        for idx, (name, factory, fit_call) in enumerate(cases, 1):
+        for idx, (name, factory, fit_call, coef_fn, ref) in enumerate(cases, 1):
             log(f"[device={device}] ({idx}/{len(cases)}) {name} ...")
             t_start = time.perf_counter()
-            ok, times, err = time_fit(factory, fit_call, args.warmup_runs, args.repeats, name)
+            ok, times, err, last_model = time_fit(
+                factory, fit_call, args.warmup_runs, args.repeats, name
+            )
             elapsed = time.perf_counter() - t_start
-            result = summarize(name, device, args.repeats, ok, times, err)
+            cd = math.nan
+            if ok and last_model is not None and ref is not None:
+                try:
+                    cd = _safe_diff(ref, coef_fn(last_model))
+                except Exception:
+                    cd = math.nan
+            result = summarize(name, device, args.repeats, ok, times, err, cd)
             rows.append(result)
             if result.ok:
+                cd_str = f"  coef_diff={cd:.2e}" if not math.isnan(cd) else ""
                 log(f"[device={device}] ({idx}/{len(cases)}) {name} DONE — "
                     f"mean={result.mean_ms:.1f}ms  std={result.std_ms:.1f}ms  "
                     f"min={result.min_ms:.1f}ms  max={result.max_ms:.1f}ms  "
-                    f"(total wall {elapsed:.1f}s)")
+                    f"(total wall {elapsed:.1f}s){cd_str}")
             else:
                 log(f"[device={device}] ({idx}/{len(cases)}) {name} FAILED: {result.error}")
 
@@ -401,51 +532,7 @@ def main() -> None:
     # ── External frameworks (statsmodels / sklearn) ────────────────────────────
     if args.include_external:
         log("----------------------------------------------")
-        log("[external] Building statgpu-cpu reference coefficients ...")
-
-        def _safe_diff(ref: np.ndarray, ext) -> float:
-            """Max absolute difference between two coefficient vectors."""
-            try:
-                a = np.asarray(ref, dtype=float).reshape(-1)
-                b = np.asarray(ext, dtype=float).reshape(-1)
-                n = min(len(a), len(b))
-                return float(np.max(np.abs(a[:n] - b[:n])))
-            except Exception:
-                return math.nan
-
-        # One-off statgpu-cpu fits to get reference coefficients.
-        # LogisticRegression uses two refs: C=1.0 (for sklearn) and C=1e6 (for statsmodels).
-        _r_lin = LinearRegression(compute_inference=False, device="cpu", cov_type="nonrobust")
-        _r_lin.fit(X_reg_np, y_reg_np)
-        ref_lin = np.r_[_r_lin.intercept_, _r_lin.coef_]
-
-        _r_rid = Ridge(alpha=1.0, device="cpu")
-        _r_rid.fit(X_reg_np, y_reg_np)
-        ref_rid = np.r_[_r_rid.intercept_, _r_rid.coef_]
-
-        _r_las = Lasso(alpha=0.05, max_iter=3000, tol=1e-5, solver="fista",
-                       cpu_solver="fista", compute_inference=False, device="cpu")
-        _r_las.fit(X_reg_np, y_reg_np)
-        ref_las = np.r_[_r_las.intercept_, _r_las.coef_]
-
-        # Regularized (C=1.0, alpha_statgpu=0.5) for sklearn comparison (sklearn C=2.0 → alpha=0.5).
-        _r_log_reg = LogisticRegression(C=1.0, max_iter=150, tol=1e-5,
-                                        compute_inference=False, cov_type="nonrobust", device="cpu")
-        _r_log_reg.fit(X_log_np, y_log_np)
-        ref_log_reg = np.r_[_r_log_reg.intercept_, _r_log_reg.coef_]
-
-        # Unregularized (C=1e6) for statsmodels.Logit comparison.
-        _r_log_unr = LogisticRegression(C=1e6, max_iter=300, tol=1e-8,
-                                         compute_inference=False, cov_type="nonrobust", device="cpu")
-        _r_log_unr.fit(X_log_np, y_log_np)
-        ref_log_unr = np.r_[_r_log_unr.intercept_, _r_log_unr.coef_]
-
-        _r_cox = CoxPH(ties="breslow", max_iter=120, tol=1e-8,
-                       compute_inference=False, device="cpu")
-        _r_cox.fit(X_cox_np, t_cox_np, e_cox_np)
-        ref_cox = _r_cox.coef_.copy()
-
-        log("[external] References built.")
+        log("[external] statsmodels and sklearn benchmarks ...")
 
         # ── statsmodels ──────────────────────────────────────────────────────
         try:
@@ -459,7 +546,7 @@ def main() -> None:
                 (
                     "LinearRegression", "statsmodels.OLS",
                     lambda: _sm.OLS(y_reg_np, _sm.add_constant(X_reg_np)).fit(disp=0),
-                    lambda r: r.params,       # [intercept, coef...]
+                    lambda r: r.params,
                     ref_lin, "",
                 ),
                 (
@@ -476,7 +563,7 @@ def main() -> None:
                         t_cox_np, X_cox_np, status=e_cox_np.astype(bool),
                         ties="breslow",
                     ).fit(disp=0),
-                    lambda r: r.params,       # coefs only, no intercept for Cox
+                    lambda r: r.params,
                     ref_cox, "",
                 ),
             ]
@@ -565,6 +652,215 @@ def main() -> None:
 
         # Reprint the full table now that external rows are appended.
         print_table(rows)
+
+    # ── R benchmarks (via Rscript) ─────────────────────────────────────────────
+    if args.include_r:
+        log("----------------------------------------------")
+        log("[R] Starting R benchmarks ...")
+        if shutil.which("Rscript") is None:
+            log("[R] Rscript not found; skipping R benchmarks.")
+        else:
+            log("[R] Writing data to temporary CSV files ...")
+            with tempfile.TemporaryDirectory() as _r_tmpdir:
+                _r_td = Path(_r_tmpdir)
+                _reg_csv = _r_td / "reg.csv"
+                _log_csv = _r_td / "log.csv"
+                _cox_csv = _r_td / "cox.csv"
+
+                np.savetxt(
+                    _reg_csv,
+                    np.column_stack([X_reg_np, y_reg_np]),
+                    delimiter=",",
+                    header=",".join([f"x{i+1}" for i in range(X_reg_np.shape[1])] + ["y"]),
+                    comments="",
+                )
+                log(f"[R]   reg.csv   ({X_reg_np.shape[0]} rows × {X_reg_np.shape[1]} cols)")
+
+                np.savetxt(
+                    _log_csv,
+                    np.column_stack([X_log_np, y_log_np]),
+                    delimiter=",",
+                    header=",".join([f"x{i+1}" for i in range(X_log_np.shape[1])] + ["y_bin"]),
+                    comments="",
+                )
+                log(f"[R]   log.csv   ({X_log_np.shape[0]} rows × {X_log_np.shape[1]} cols)")
+
+                np.savetxt(
+                    _cox_csv,
+                    np.column_stack([X_cox_np, t_cox_np, e_cox_np]),
+                    delimiter=",",
+                    header=",".join(
+                        [f"x{i+1}" for i in range(X_cox_np.shape[1])] + ["time", "event"]
+                    ),
+                    comments="",
+                )
+                log(f"[R]   cox.csv   ({X_cox_np.shape[0]} rows × {X_cox_np.shape[1]} cols)")
+
+                _x_reg = "+".join(f"x{i}" for i in range(1, X_reg_np.shape[1] + 1))
+                _x_log = "+".join(f"x{i}" for i in range(1, X_log_np.shape[1] + 1))
+                _x_cox = "+".join(f"x{i}" for i in range(1, X_cox_np.shape[1] + 1))
+
+                # Timing loops run inside R to avoid repeated process-startup overhead.
+                # proc.time()[3] is elapsed (wall-clock) time in seconds.
+                _r_script = f"""
+suppressWarnings(suppressMessages({{
+  warmup <- {args.warmup_runs}
+  reps   <- {args.repeats}
+  out    <- list()
+
+  d_reg <- read.csv("{_reg_csv.as_posix()}")
+  d_log <- read.csv("{_log_csv.as_posix()}")
+  d_cox <- read.csv("{_cox_csv.as_posix()}")
+
+  # LinearRegression — lm
+  times_lm <- numeric(warmup + reps)
+  for (i in seq_len(warmup + reps)) {{
+    t0 <- proc.time()
+    m_lm <- lm(y ~ {_x_reg}, data=d_reg)
+    t1 <- proc.time()
+    times_lm[i] <- as.numeric((t1 - t0)[3]) * 1000
+  }}
+  out$lm <- list(
+    times_ms = as.list(times_lm[(warmup+1):(warmup+reps)]),
+    coef     = as.list(as.numeric(coef(m_lm)))
+  )
+
+  # LogisticRegression — glm(family=binomial)
+  times_glm <- numeric(warmup + reps)
+  for (i in seq_len(warmup + reps)) {{
+    t0 <- proc.time()
+    m_glm <- glm(y_bin ~ {_x_log}, data=d_log, family=binomial())
+    t1 <- proc.time()
+    times_glm[i] <- as.numeric((t1 - t0)[3]) * 1000
+  }}
+  out$logit <- list(
+    times_ms = as.list(times_glm[(warmup+1):(warmup+reps)]),
+    coef     = as.list(as.numeric(coef(m_glm)))
+  )
+
+  # CoxPH — survival::coxph
+  if (requireNamespace("survival", quietly=TRUE)) {{
+    times_cox <- numeric(warmup + reps)
+    for (i in seq_len(warmup + reps)) {{
+      t0 <- proc.time()
+      m_cox <- survival::coxph(
+        survival::Surv(time, event) ~ {_x_cox},
+        data=d_cox, ties="breslow"
+      )
+      t1 <- proc.time()
+      times_cox[i] <- as.numeric((t1 - t0)[3]) * 1000
+    }}
+    out$cox <- list(
+      times_ms = as.list(times_cox[(warmup+1):(warmup+reps)]),
+      coef     = as.list(as.numeric(coef(m_cox)))
+    )
+  }}
+
+  # Ridge / Lasso — glmnet (fits full regularization path; no single-lambda coef cmp)
+  if (requireNamespace("glmnet", quietly=TRUE)) {{
+    X_mat <- as.matrix(d_reg[, grep("^x", names(d_reg))])
+    times_ridge <- numeric(warmup + reps)
+    for (i in seq_len(warmup + reps)) {{
+      t0 <- proc.time()
+      glmnet::glmnet(X_mat, d_reg$y, alpha=0)
+      t1 <- proc.time()
+      times_ridge[i] <- as.numeric((t1 - t0)[3]) * 1000
+    }}
+    out$ridge <- list(times_ms = as.list(times_ridge[(warmup+1):(warmup+reps)]))
+
+    times_lasso <- numeric(warmup + reps)
+    for (i in seq_len(warmup + reps)) {{
+      t0 <- proc.time()
+      glmnet::glmnet(X_mat, d_reg$y, alpha=1)
+      t1 <- proc.time()
+      times_lasso[i] <- as.numeric((t1 - t0)[3]) * 1000
+    }}
+    out$lasso <- list(times_ms = as.list(times_lasso[(warmup+1):(warmup+reps)]))
+  }}
+
+  cat(jsonlite::toJSON(out, auto_unbox=FALSE))
+}}))
+"""
+                log("[R] Invoking Rscript (may take several minutes for large data) ...")
+                _r_wall_t0 = time.perf_counter()
+                _r_result = _run_r_script(_r_script)
+                _r_wall_elapsed = time.perf_counter() - _r_wall_t0
+                log(f"[R] Rscript returned in {_r_wall_elapsed:.1f}s")
+
+                if _r_result is None:
+                    log("[R] Rscript unavailable (checked after CSV write).")
+                elif "error" in _r_result:
+                    log(f"[R] R benchmark failed: {_r_result['error']}")
+                    rows.append(CaseResult(
+                        model="ALL", device="R",
+                        mean_ms=math.nan, std_ms=math.nan,
+                        min_ms=math.nan, max_ms=math.nan,
+                        repeats=args.repeats, ok=False,
+                        error=f"R error: {_r_result['error']}",
+                    ))
+                else:
+                    def _r_coef_diff(ref_arr, coef_list) -> float:
+                        try:
+                            a = np.asarray(ref_arr, dtype=float).reshape(-1)
+                            b = np.asarray(coef_list, dtype=float).reshape(-1)
+                            n = min(len(a), len(b))
+                            return float(np.max(np.abs(a[:n] - b[:n])))
+                        except Exception:
+                            return math.nan
+
+                    if "lm" in _r_result:
+                        _times = [float(t) for t in _r_result["lm"]["times_ms"]]
+                        _cd = (_r_coef_diff(ref_lin, _r_result["lm"]["coef"])
+                               if ref_lin is not None else math.nan)
+                        rows.append(summarize(
+                            "LinearRegression", "R::lm",
+                            args.repeats, True, _times, "", _cd,
+                        ))
+                        log(f"[R] lm DONE — "
+                            f"mean={statistics.mean(_times):.1f}ms  coef_diff={_cd:.2e}")
+
+                    if "logit" in _r_result:
+                        _times = [float(t) for t in _r_result["logit"]["times_ms"]]
+                        _cd = (_r_coef_diff(ref_log_unr, _r_result["logit"]["coef"])
+                               if ref_log_unr is not None else math.nan)
+                        rows.append(summarize(
+                            "LogisticRegression", "R::glm(binomial)",
+                            args.repeats, True, _times, "", _cd,
+                        ))
+                        log(f"[R] glm(binomial) DONE — "
+                            f"mean={statistics.mean(_times):.1f}ms  coef_diff={_cd:.2e}"
+                            "  [no reg → compared vs statgpu C=1e6]")
+
+                    if "cox" in _r_result:
+                        _times = [float(t) for t in _r_result["cox"]["times_ms"]]
+                        _cd = (_r_coef_diff(ref_cox, _r_result["cox"]["coef"])
+                               if ref_cox is not None else math.nan)
+                        rows.append(summarize(
+                            "CoxPH", "R::survival::coxph",
+                            args.repeats, True, _times, "", _cd,
+                        ))
+                        log(f"[R] survival::coxph DONE — "
+                            f"mean={statistics.mean(_times):.1f}ms  coef_diff={_cd:.2e}")
+
+                    if "ridge" in _r_result:
+                        _times = [float(t) for t in _r_result["ridge"]["times_ms"]]
+                        rows.append(summarize(
+                            "Ridge", "R::glmnet(alpha=0)",
+                            args.repeats, True, _times, "",
+                        ))
+                        log(f"[R] glmnet(ridge) DONE — "
+                            f"mean={statistics.mean(_times):.1f}ms  (path; no single-lambda coef cmp)")
+
+                    if "lasso" in _r_result:
+                        _times = [float(t) for t in _r_result["lasso"]["times_ms"]]
+                        rows.append(summarize(
+                            "Lasso", "R::glmnet(alpha=1)",
+                            args.repeats, True, _times, "",
+                        ))
+                        log(f"[R] glmnet(lasso) DONE — "
+                            f"mean={statistics.mean(_times):.1f}ms  (path; no single-lambda coef cmp)")
+
+                print_table(rows)
 
     if args.json_out:
         out_path = Path(args.json_out).resolve()
