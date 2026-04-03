@@ -147,3 +147,32 @@
 [2026-04-03 16:00:49] [device=cuda] (4/5) LogisticRegression DONE — mean=29.0ms  std=0.4ms  min=28.8ms  max=29.9ms  (total wall 1.7s)
 [2026-04-03 16:00:49] [device=cuda] (5/5) CoxPH ...
 [2026-04-03 16:00:49]   warmup 1/2 ...
+[2026-04-03 16:01:53]   warmup 2/2 ...
+[2026-04-03 16:02:53]   repeat 1/5 ...
+[2026-04-03 16:03:54]   repeat 1/5 done: 60714.3 ms
+[2026-04-03 16:03:54]   repeat 2/5 ...
+[2026-04-03 16:04:55]   repeat 2/5 done: 60930.9 ms
+[2026-04-03 16:04:55]   repeat 3/5 ...
+[2026-04-03 16:05:57]   repeat 3/5 done: 61606.5 ms
+[2026-04-03 16:05:57]   repeat 4/5 ...
+[2026-04-03 16:06:57]   repeat 4/5 done: 60579.9 ms
+[2026-04-03 16:06:57]   repeat 5/5 ...
+[2026-04-03 16:07:58]   repeat 5/5 done: 60759.7 ms
+[2026-04-03 16:07:58] [device=cuda] (5/5) CoxPH DONE — mean=60918.3ms  std=362.0ms  min=60579.9ms  max=61606.5ms  (total wall 429.3s)
+
+=== Large-Scale Runtime Benchmark (fit only) ===
+model                device        mean_ms     std_ms     min_ms     max_ms     ok
+LinearRegression     cpu            554.11      15.08     535.18     579.10    yes
+Ridge                cpu            231.86       4.51     224.28     236.16    yes
+Lasso                cpu            157.01       1.37     154.88     158.94    yes
+LogisticRegression   cpu            788.77      46.51     743.16     852.42    yes
+CoxPH                cpu          14470.50     138.63   14234.84   14666.32    yes
+LinearRegression     cuda            30.28       0.17      30.04      30.55    yes
+Ridge                cuda            45.10       0.43      44.70      45.72    yes
+Lasso                cuda            12.45       0.05      12.40      12.54    yes
+LogisticRegression   cuda            29.02       0.44      28.77      29.90    yes
+CoxPH                cuda         60918.27     361.95   60579.90   61606.50    yes
+[2026-04-03 16:07:58] Saved JSON: /home/bcyu/statgpu/results/bench_large_scale.json
+[2026-04-03 16:07:58] ==============================================
+[2026-04-03 16:07:58] benchmark_all_methods_large_scale.py complete
+[2026-04-03 16:07:58] ==============================================

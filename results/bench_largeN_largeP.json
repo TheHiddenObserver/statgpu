@@ -1,0 +1,129 @@
+{
+  "config": {
+    "seed": 42,
+    "repeats": 5,
+    "warmup_runs": 2,
+    "devices": "cpu,cuda",
+    "compute_inference": false,
+    "gpu_memory_cleanup": false,
+    "json_out": "results/bench_largeN_largeP.json",
+    "n_reg": 120000,
+    "p_reg": 512,
+    "n_logit": 100000,
+    "p_logit": 256,
+    "n_cox": 80000,
+    "p_cox": 128
+  },
+  "results": [
+    {
+      "model": "LinearRegression",
+      "device": "cpu",
+      "mean_ms": 4054.8854656517506,
+      "std_ms": 167.3229148737955,
+      "min_ms": 3847.849700599909,
+      "max_ms": 4312.57277354598,
+      "repeats": 5,
+      "ok": true,
+      "error": ""
+    },
+    {
+      "model": "Ridge",
+      "device": "cpu",
+      "mean_ms": 1665.7972157001495,
+      "std_ms": 114.37427690671858,
+      "min_ms": 1500.208131968975,
+      "max_ms": 1842.7323587238789,
+      "repeats": 5,
+      "ok": true,
+      "error": ""
+    },
+    {
+      "model": "Lasso",
+      "device": "cpu",
+      "mean_ms": 797.3449602723122,
+      "std_ms": 39.49891886565703,
+      "min_ms": 737.1671684086323,
+      "max_ms": 842.3203453421593,
+      "repeats": 5,
+      "ok": true,
+      "error": ""
+    },
+    {
+      "model": "LogisticRegression",
+      "device": "cpu",
+      "mean_ms": 3647.960378229618,
+      "std_ms": 128.02235371714892,
+      "min_ms": 3505.5676139891148,
+      "max_ms": 3815.4750391840935,
+      "repeats": 5,
+      "ok": true,
+      "error": ""
+    },
+    {
+      "model": "CoxPH",
+      "device": "cpu",
+      "mean_ms": 26110.573253035545,
+      "std_ms": 148.0206021835317,
+      "min_ms": 25883.83549079299,
+      "max_ms": 26276.972956955433,
+      "repeats": 5,
+      "ok": true,
+      "error": ""
+    },
+    {
+      "model": "LinearRegression",
+      "device": "cuda",
+      "mean_ms": 176.75737887620926,
+      "std_ms": 0.24591411484840264,
+      "min_ms": 176.48865655064583,
+      "max_ms": 177.19344422221184,
+      "repeats": 5,
+      "ok": true,
+      "error": ""
+    },
+    {
+      "model": "Ridge",
+      "device": "cuda",
+      "mean_ms": 242.2278366982937,
+      "std_ms": 0.17272308381883172,
+      "min_ms": 242.02591180801392,
+      "max_ms": 242.50487238168716,
+      "repeats": 5,
+      "ok": true,
+      "error": ""
+    },
+    {
+      "model": "Lasso",
+      "device": "cuda",
+      "mean_ms": 81.23297393321991,
+      "std_ms": 0.03370372943203701,
+      "min_ms": 81.18242770433426,
+      "max_ms": 81.27927035093307,
+      "repeats": 5,
+      "ok": true,
+      "error": ""
+    },
+    {
+      "model": "LogisticRegression",
+      "device": "cuda",
+      "mean_ms": 256.0720585286617,
+      "std_ms": 0.23499796387213476,
+      "min_ms": 255.64400479197502,
+      "max_ms": 256.28478452563286,
+      "repeats": 5,
+      "ok": true,
+      "error": ""
+    },
+    {
+      "model": "CoxPH",
+      "device": "cuda",
+      "mean_ms": 70255.03656119108,
+      "std_ms": 726.5900505824713,
+      "min_ms": 69079.88200709224,
+      "max_ms": 71163.52202370763,
+      "repeats": 5,
+      "ok": true,
+      "error": ""
+    }
+  ]
+}

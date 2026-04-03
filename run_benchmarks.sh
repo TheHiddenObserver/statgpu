@@ -46,24 +46,28 @@ run_experiment "large_scale" "bench_large_scale.log" \
   --devices cpu,cuda --repeats 5 --warmup-runs 2 \
   --n-reg 200000 --p-reg 64 --n-logit 150000 --p-logit 48 \
   --n-cox 100000 --p-cox 24 \
+  --include-external \
   --json-out results/bench_large_scale.json
 
 run_experiment "high_dim" "bench_high_dim.log" \
   --devices cpu,cuda --repeats 5 --warmup-runs 2 \
   --n-reg 5000 --p-reg 2000 --n-logit 8000 --p-logit 1000 \
   --n-cox 5000 --p-cox 500 \
+  --include-external \
   --json-out results/bench_high_dim.json
 
 run_experiment "largeN_largeP" "bench_largeN_largeP.log" \
   --devices cpu,cuda --repeats 5 --warmup-runs 2 \
   --n-reg 120000 --p-reg 512 --n-logit 100000 --p-logit 256 \
   --n-cox 80000 --p-cox 128 \
+  --include-external \
   --json-out results/bench_largeN_largeP.json
 
 run_experiment "extreme_n" "bench_extreme_n.log" \
   --devices cpu,cuda --repeats 3 --warmup-runs 1 \
   --n-reg 500000 --p-reg 32 --n-logit 400000 --p-logit 32 \
   --n-cox 300000 --p-cox 16 \
+  --include-external \
   --json-out results/bench_extreme_n.json
 
 run_experiment "with_inference" "bench_with_inference.log" \
@@ -71,6 +75,7 @@ run_experiment "with_inference" "bench_with_inference.log" \
   --compute-inference \
   --n-reg 60000 --p-reg 64 --n-logit 80000 --p-logit 48 \
   --n-cox 50000 --p-cox 24 \
+  --include-external \
   --json-out results/bench_with_inference.json
 
 run_experiment "gpu_cleanup" "bench_gpu_cleanup.log" \
@@ -78,12 +83,14 @@ run_experiment "gpu_cleanup" "bench_gpu_cleanup.log" \
   --gpu-memory-cleanup \
   --n-reg 120000 --p-reg 128 --n-logit 100000 --p-logit 64 \
   --n-cox 80000 --p-cox 48 \
+  --include-external \
   --json-out results/bench_gpu_cleanup.json
 
 run_experiment "baseline" "bench_baseline.log" \
   --devices cpu,cuda --repeats 3 --warmup-runs 1 \
   --n-reg 60000 --p-reg 64 --n-logit 80000 --p-logit 48 \
   --n-cox 50000 --p-cox 24 \
+  --include-external \
   --json-out results/bench_baseline.json
 
 TOTAL_ELAPSED=$(( $(date +%s) - OVERALL_START ))

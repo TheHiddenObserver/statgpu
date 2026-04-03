@@ -7,5 +7,14 @@ nohup: ignoring input
 [2026-04-03 15:58:50] ==========================================
 [2026-04-03 15:58:50] --- EXPERIMENT 1/7: large_scale ---
 [2026-04-03 15:58:50] Log file: results/bench_large_scale.log
-le ---
-[2026-04-03 15:58:50] Log file: results/bench_large_scale.log
+[2026-04-03 16:07:58] DONE large_scale in 548s
+[2026-04-03 16:07:58] --- EXPERIMENT 2/7: high_dim ---
+[2026-04-03 16:07:58] Log file: results/bench_high_dim.log
+[2026-04-03 16:18:55] DONE high_dim in 657s
+[2026-04-03 16:18:55] --- EXPERIMENT 3/7: largeN_largeP ---
+[2026-04-03 16:18:55] Log file: results/bench_largeN_largeP.log
+[2026-04-03 16:31:33] DONE largeN_largeP in 758s
+[2026-04-03 16:31:33] --- EXPERIMENT 4/7: extreme_n ---
+[2026-04-03 16:31:33] Log file: results/bench_extreme_n.log
+me_n ---
+[2026-04-03 16:31:33] Log file: results/bench_extreme_n.log
