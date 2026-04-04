@@ -52,6 +52,6 @@ proba = m.predict_proba(X)
 
 ## External Consistency
 
-- `tests/test_external_consistency.py`
+- `dev/tests/test_external_consistency.py`
   - `test_logistic_robust_covariance_matches_statsmodels`
   - `test_logistic_robust_covariance_gpu_matches_statsmodels`

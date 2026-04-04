@@ -43,7 +43,7 @@ m.summary()
 
 ## External Consistency
 
-- `tests/test_external_consistency.py`
+- `dev/tests/test_external_consistency.py`
   - `test_linear_estimation_and_inference_match_statsmodels`
   - `test_linear_robust_covariance_matches_statsmodels`
   - `test_linear_robust_covariance_gpu_matches_statsmodels`

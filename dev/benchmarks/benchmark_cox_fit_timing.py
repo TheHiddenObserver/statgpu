@@ -8,7 +8,7 @@ Cox PH 拟合耗时：以 **statsmodels PHReg** 为成熟实现基线，对比 s
 
 示例::
 
-    python examples/benchmark_cox_fit_timing.py --n 8000 --p 10 --repeats 3
+    python dev/benchmarks/benchmark_cox_fit_timing.py --n 8000 --p 10 --repeats 3
 """
 
 from __future__ import annotations
@@ -20,7 +20,7 @@ from pathlib import Path
 
 import numpy as np
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
+REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 

@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 
-cd ~/statgpu
+cd "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 mkdir -p results
 
 TOTAL=7
@@ -20,7 +20,7 @@ run_experiment() {
     log "--- EXPERIMENT ${STEP}/${TOTAL}: ${name} ---"
     log "Log file: results/${logfile}"
     local t0=$(date +%s)
-    CUDA_VISIBLE_DEVICES=0 timeout 3600 python examples/benchmark_all_methods_large_scale.py "$@" \
+    CUDA_VISIBLE_DEVICES=0 timeout 3600 python dev/benchmarks/benchmark_all_methods_large_scale.py "$@" \
         > "results/${logfile}" 2>&1
     local exit_code=$?
     local elapsed=$(( $(date +%s) - t0 ))

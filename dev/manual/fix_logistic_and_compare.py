@@ -6,9 +6,12 @@ import numpy as np
 import time
 import warnings
 import sys
+from pathlib import Path
 warnings.filterwarnings('ignore')
 
-sys.path.insert(0, '/root/.openclaw/workspace-coding/statgpu')
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
 
 print("=" * 80)
 print("Logistic Regression Fix & Detailed Comparison")

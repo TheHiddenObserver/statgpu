@@ -34,10 +34,10 @@
   - `LinearRegression` HC0/HC1（CPU+GPU）
   - `LogisticRegression` HC0/HC1（CPU+GPU）
 - 新增 benchmark 脚本：
-  - `examples/benchmark_lasso_inference_gpu_vs_cpu.py`
-  - `examples/benchmark_gpu_memory_cleanup.py`
-  - `examples/benchmark_all_methods_large_scale.py`
-  - `examples/benchmark_external_frameworks.py`
+  - `dev/benchmarks/benchmark_lasso_inference_gpu_vs_cpu.py`
+  - `dev/benchmarks/benchmark_gpu_memory_cleanup.py`
+  - `dev/benchmarks/benchmark_all_methods_large_scale.py`
+  - `dev/benchmarks/benchmark_external_frameworks.py`
 
 ---
 

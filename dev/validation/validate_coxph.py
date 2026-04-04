@@ -28,7 +28,7 @@ true_coef = np.array([0.5, -0.3, 0.8])
 hazard = np.exp(X @ true_coef)
 # Add some censoring
 survival_time = np.random.exponential(1.0 / hazard)
-censoring_time = np.random.exponential(2.0)  # Mean censoring time
+censoring_time = np.random.exponential(2.0, size=n_samples)  # Mean censoring time
 
 # Observed time is minimum of survival and censoring
 time = np.minimum(survival_time, censoring_time)
@@ -54,7 +54,11 @@ print("statgpu CoxPH (Breslow)")
 print("=" * 80)
 
 import sys
-sys.path.insert(0, '/root/.openclaw/workspace-coding/statgpu')
+from pathlib import Path
+
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
 from statgpu.survival import CoxPH
 from statgpu._config import set_device
 

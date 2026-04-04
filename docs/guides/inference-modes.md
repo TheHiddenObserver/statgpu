@@ -41,7 +41,7 @@ model.fit(X, y)
 
 ## 基准脚本
 
-参见 `examples/benchmark_lasso_inference_gpu_vs_cpu.py`。
+参见 `dev/benchmarks/benchmark_lasso_inference_gpu_vs_cpu.py`。
 
 ## 相关模型的稳健协方差
 

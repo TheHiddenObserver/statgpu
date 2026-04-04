@@ -31,7 +31,11 @@ print(f"Censored: {np.sum(1-event)} ({(1-np.mean(event))*100:.1f}%)")
 
 # Fit CoxPH
 import sys
-sys.path.insert(0, '/root/.openclaw/workspace-coding/statgpu')
+from pathlib import Path
+
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
 from statgpu.survival import CoxPH
 
 print("\nFitting CoxPH (CPU)...")
