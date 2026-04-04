@@ -124,6 +124,24 @@ class CoxPH(BaseEstimator):
             cp.get_default_pinned_memory_pool().free_all_blocks()
         except Exception:
             pass
+
+    @staticmethod
+    def _extract_convergence_status(result):
+        """Best-effort convergence extraction from statsmodels results."""
+        conv_attr = getattr(result, "converged", None)
+        if conv_attr is not None:
+            return bool(conv_attr)
+
+        mle_retvals = getattr(result, "mle_retvals", None)
+        if isinstance(mle_retvals, dict):
+            conv_attr = mle_retvals.get("converged")
+            if conv_attr is not None:
+                return bool(conv_attr)
+        elif mle_retvals is not None:
+            conv_attr = getattr(mle_retvals, "converged", None)
+            if conv_attr is not None:
+                return bool(conv_attr)
+        return None
         
     def fit(self, X, time, event, entry=None, cluster=None):
         """
@@ -354,9 +372,7 @@ class CoxPH(BaseEstimator):
         res = model.fit(disp=0)
 
         self._iterations = int(getattr(res, "iterations", 0) or 0)
-        conv_attr = getattr(res, "converged", None)
-        if conv_attr is None:
-            conv_attr = getattr(getattr(res, "mle_retvals", {}), "get", lambda *_: None)("converged")
+        conv_attr = self._extract_convergence_status(res)
         self._converged = bool(conv_attr) if conv_attr is not None else (self._iterations < self.max_iter)
         self.coef_ = np.asarray(res.params, dtype=np.float64)
         self.hazard_ratios_ = np.exp(self.coef_)
