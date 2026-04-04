@@ -159,7 +159,9 @@ class StepwiseSelector:
     
     def _evaluate_candidates(self, X, y, candidates):
         """Evaluate feature candidates in parallel with memoized scores."""
-        feature_to_key = {feature: tuple(sorted(feature_indices)) for feature, feature_indices in candidates}
+        feature_to_cache_key = {
+            feature: tuple(sorted(feature_indices)) for feature, feature_indices in candidates
+        }
 
         def _score_for_indices(feature_indices):
             key = tuple(sorted(feature_indices))
@@ -167,24 +169,28 @@ class StepwiseSelector:
                 return key, self._score_cache[key]
 
             score = self._fit_and_score(X, y, feature_indices)
-            self._score_cache[key] = score
             return key, score
 
         def eval_one(feature, feature_indices):
             key, score = _score_for_indices(feature_indices)
+            self._score_cache[key] = score
             return feature, score
+
+        def eval_one_parallel(feature, feature_indices):
+            key, score = _score_for_indices(feature_indices)
+            return feature, key, score
 
         if self.n_jobs == 1 or self.n_jobs is None or len(candidates) <= 1:
             return [eval_one(feature, feature_indices) for feature, feature_indices in candidates]
 
         out = Parallel(n_jobs=self.n_jobs)(
-            delayed(eval_one)(feature, feature_indices) for feature, feature_indices in candidates
+            delayed(eval_one_parallel)(feature, feature_indices) for feature, feature_indices in candidates
         )
-        for feature, score in out:
-            key = feature_to_key.get(feature)
-            if key is not None and key not in self._score_cache:
+        for feature, key, score in out:
+            expected_key = feature_to_cache_key.get(feature)
+            if expected_key is not None and expected_key == key and key not in self._score_cache:
                 self._score_cache[key] = score
-        return out
+        return [(feature, score) for feature, _, score in out]
     
     def _fit_and_score(self, X, y, feature_indices):
         """Fit model and return AIC/BIC scores."""
