@@ -453,6 +453,14 @@ class LinearRegression(BaseEstimator):
     def predict(self, X):
         """Predict using the linear model."""
         self._check_is_fitted()
+        device = self._get_compute_device()
+        if device == Device.CUDA:
+            import cupy as cp
+
+            X_gpu = cp.asarray(self._to_array(X, Device.CUDA))
+            coef_gpu = cp.asarray(self.coef_)
+            intercept_gpu = cp.asarray(self.intercept_, dtype=coef_gpu.dtype)
+            return X_gpu @ coef_gpu + intercept_gpu
         X = self._to_array(X, Device.CPU)
         X = np.asarray(X)
         return X @ self.coef_ + self.intercept_

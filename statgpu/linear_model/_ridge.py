@@ -268,7 +268,7 @@ class Ridge(BaseEstimator):
             I = np.eye(XtX.shape[0])
             if self.fit_intercept:
                 I[0, 0] = 0
-            XtX_inv = np.linalg.inv(XtX + self.alpha * I)
+            XtX_inv = np.linalg.solve(XtX + self.alpha * I, np.eye(XtX.shape[0]))
         except np.linalg.LinAlgError:
             XtX_inv = np.linalg.pinv(X.T @ X)
         
@@ -286,6 +286,14 @@ class Ridge(BaseEstimator):
     def predict(self, X):
         """Predict."""
         self._check_is_fitted()
+        device = self._get_compute_device()
+        if device == Device.CUDA:
+            import cupy as cp
+
+            X_gpu = cp.asarray(self._to_array(X, Device.CUDA))
+            coef_gpu = cp.asarray(self.coef_)
+            intercept_gpu = cp.asarray(self.intercept_, dtype=coef_gpu.dtype)
+            return X_gpu @ coef_gpu + intercept_gpu
         X = self._to_array(X, Device.CPU)
         X = np.asarray(X)
         return X @ self.coef_ + self.intercept_
