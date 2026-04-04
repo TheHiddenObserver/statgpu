@@ -163,7 +163,7 @@ class CoxPH(BaseEstimator):
                 raise ValueError("entry must have shape (n_samples,)")
             
             self._nobs = int(X_gpu.shape[0])
-            self._nevents = int(cp.asnumpy(cp.sum(event_gpu)))
+            self._nevents = int(cp.sum(event_gpu).item())
             self._feature_names = [f'x{i+1}' for i in range(int(X_gpu.shape[1]))]
             
             # Keep CPU copies only when CPU-side inference/baseline stats are requested.
@@ -179,7 +179,16 @@ class CoxPH(BaseEstimator):
                 self._entry = None
             
             cluster_gpu = None if cluster is None else cp.asarray(self._to_array(cluster), dtype=cp.int64)
-            self._fit_gpu(X_gpu, time_gpu, event_gpu, entry_gpu, cluster_gpu)
+            if entry_gpu is not None:
+                self._fit_cpu_with_entry(
+                    cp.asnumpy(X_gpu),
+                    cp.asnumpy(time_gpu),
+                    cp.asnumpy(event_gpu),
+                    cp.asnumpy(entry_gpu),
+                    None if cluster_gpu is None else cp.asnumpy(cluster_gpu),
+                )
+            else:
+                self._fit_gpu(X_gpu, time_gpu, event_gpu, entry_gpu, cluster_gpu)
         else:
             X_np = np.asarray(self._to_array(X, Device.CPU), dtype=np.float64)
             time_np = np.asarray(self._to_array(time, Device.CPU), dtype=np.float64)
@@ -210,7 +219,8 @@ class CoxPH(BaseEstimator):
     def _fit_cpu(self, X, time, event, entry=None, cluster=None):
         """Fit using CPU (NumPy)."""
         if entry is not None:
-            raise NotImplementedError("entry (left truncation) is not implemented in CPU fit yet.")
+            self._fit_cpu_with_entry(X, time, event, np.asarray(entry, dtype=np.float64), cluster)
+            return
         n_samples, n_features = X.shape
         
         # Sort by time ascending so risk-set terms are suffix sums:
@@ -333,13 +343,99 @@ class CoxPH(BaseEstimator):
             pass
         self._cleanup_cuda_memory()
         self._compute_cindex()
+
+    def _fit_cpu_with_entry(self, X, time, event, entry, cluster=None):
+        """Fit using statsmodels PHReg when delayed entry is provided."""
+        import statsmodels.duration.api as smd
+
+        n_samples, n_features = X.shape
+        model = smd.PHReg(time, X, status=event, entry=entry, ties=self.ties)
+        res = model.fit(disp=0)
+
+        self._iterations = int(getattr(res, "iterations", 0) or 0)
+        self._converged = True
+        self.coef_ = np.asarray(res.params, dtype=np.float64)
+        self.hazard_ratios_ = np.exp(self.coef_)
+        self._log_likelihood = float(res.llf)
+
+        try:
+            null_model = smd.PHReg(time, np.zeros((n_samples, 1), dtype=np.float64), status=event, entry=entry, ties=self.ties)
+            null_res = null_model.fit(disp=0)
+            self._log_likelihood_null = float(null_res.llf)
+        except Exception:
+            self._log_likelihood_null = np.nan
+
+        cov = np.asarray(res.cov_params(), dtype=np.float64)
+        if cov.shape != (n_features, n_features):
+            cov = np.full((n_features, n_features), np.nan, dtype=np.float64)
+        self._var_matrix = cov
+        self._bse = np.sqrt(np.maximum(np.diag(cov), 0.0))
+        self._zvalues = self.coef_ / (self._bse + 1e-30)
+        self._pvalues = 2 * (1 - stats.norm.cdf(np.abs(self._zvalues)))
+        self._conf_int = np.asarray(res.conf_int(), dtype=np.float64)
+
+        # Optional robust adjustments for delayed-entry path.
+        if self.cov_type in ("hc0", "hc1", "cluster"):
+            score_resid = np.asarray(self._compute_robust_score_residuals(X, time, event), dtype=np.float64)
+            try:
+                bread = np.linalg.solve(-self._compute_gradient_hessian(self.coef_, X, time, event, getattr(self, "_efron_pre", None))[1], np.eye(n_features))
+            except Exception:
+                bread = np.linalg.pinv(-self._compute_gradient_hessian(self.coef_, X, time, event, getattr(self, "_efron_pre", None))[1])
+
+            if self.cov_type == "cluster":
+                if cluster is None:
+                    raise ValueError("cov_type='cluster' requires cluster ids in fit(..., cluster=...)")
+                cluster = np.asarray(cluster)
+                uniq = np.unique(cluster)
+                meat = np.zeros((n_features, n_features), dtype=np.float64)
+                for g in uniq:
+                    u_g = np.sum(score_resid[cluster == g], axis=0)
+                    meat += np.outer(u_g, u_g)
+            else:
+                meat = score_resid.T @ score_resid
+                if self.cov_type == "hc1" and n_samples > n_features:
+                    meat = meat * (n_samples / (n_samples - n_features))
+
+            self._var_matrix = bread @ meat @ bread
+            self._bse = np.sqrt(np.maximum(np.diag(self._var_matrix), 0.0))
+            self._zvalues = self.coef_ / (self._bse + 1e-30)
+            self._pvalues = 2 * (1 - stats.norm.cdf(np.abs(self._zvalues)))
+            z_crit = stats.norm.ppf(1 - 0.05 / 2)
+            self._conf_int = np.column_stack([self.coef_ - z_crit * self._bse, self.coef_ + z_crit * self._bse])
+
+        self._lr_test_stat = 2 * (self._log_likelihood - self._log_likelihood_null)
+        self._lr_test_pvalue = 1 - stats.chi2.cdf(self._lr_test_stat, n_features)
+        try:
+            var_inv = np.linalg.solve(self._var_matrix, np.eye(n_features))
+            self._wald_test_stat = self.coef_ @ var_inv @ self.coef_
+        except np.linalg.LinAlgError:
+            self._wald_test_stat = np.nan
+        self._wald_test_pvalue = 1 - stats.chi2.cdf(self._wald_test_stat, n_features)
+        self._score_test_stat = np.nan
+        self._score_test_pvalue = np.nan
+
+        # Baseline hazard from PHReg output.
+        try:
+            base = res.baseline_cumulative_hazard[0]
+            self._unique_times = np.asarray(base[0], dtype=np.float64)
+            self._baseline_cumulative_hazard = np.asarray(base[1], dtype=np.float64)
+            if self._baseline_cumulative_hazard.size > 0:
+                self._baseline_hazard = np.diff(
+                    np.concatenate([[0.0], self._baseline_cumulative_hazard])
+                )
+            else:
+                self._baseline_hazard = np.array([], dtype=np.float64)
+        except Exception:
+            self._baseline_hazard = None
+            self._baseline_cumulative_hazard = None
+            self._unique_times = None
+
+        self._compute_cindex()
     
     def _fit_gpu(self, X, time, event, entry=None, cluster=None):
         """Fit using GPU with full GPU computation."""
         import cupy as cp
         from .._gpu_utils import norm_two_tail_pvalues_gpu, norm_crit_gpu_two_tail
-        if entry is not None:
-            raise NotImplementedError("entry (left truncation) is not implemented in CUDA fit yet.")
         
         n_samples, n_features = X.shape
         
@@ -1260,10 +1356,10 @@ class CoxPH(BaseEstimator):
         exp_eta = cp.exp(eta)
         risk_sum = cp.cumsum(exp_eta[::-1])[::-1] + 1e-30
         risk_X_sum = cp.cumsum((X * exp_eta[:, cp.newaxis])[::-1], axis=0)[::-1]
-        u = cp.zeros((X.shape[0], X.shape[1]), dtype=cp.float64)
+        score_residuals = cp.zeros((X.shape[0], X.shape[1]), dtype=cp.float64)
         event_mask = event == 1
-        u[event_mask] = X[event_mask] - risk_X_sum[event_mask] / risk_sum[event_mask, cp.newaxis]
-        return u
+        score_residuals[event_mask] = X[event_mask] - risk_X_sum[event_mask] / risk_sum[event_mask, cp.newaxis]
+        return score_residuals
 
     def _score_residuals_via_statsmodels_if_available(
         self, X: np.ndarray, time: np.ndarray, event: np.ndarray

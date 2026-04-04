@@ -86,6 +86,7 @@ class LogisticRegression(BaseEstimator):
 
     def _cleanup_cuda_memory(self):
         """Best-effort CuPy memory pool cleanup."""
+        self._train_pred_cache = None
         if not self.gpu_memory_cleanup:
             return
         try:

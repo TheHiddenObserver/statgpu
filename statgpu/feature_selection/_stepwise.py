@@ -46,12 +46,14 @@ class StepwiseSelector:
         criterion: str = 'aic',
         direction: Literal['forward', 'backward', 'both'] = 'both',
         max_features: Optional[int] = None,
+        n_jobs: Optional[int] = None,
         **model_kwargs
     ):
         self.model_class = model_class
         self.criterion = criterion.lower()
         self.direction = direction
         self.max_features = max_features
+        self.n_jobs = n_jobs
         self.model_kwargs = model_kwargs
         
         if self.criterion not in ('aic', 'bic'):
@@ -160,10 +162,9 @@ class StepwiseSelector:
         def eval_one(feature, feature_indices):
             return feature, self._fit_and_score(X, y, feature_indices)
 
-        if self.n_jobs == 1 or len(candidates) <= 1:
+        if self.n_jobs == 1 or self.n_jobs is None or len(candidates) <= 1:
             return [eval_one(feature, feature_indices) for feature, feature_indices in candidates]
-        jobs = self.n_jobs if self.n_jobs is not None else -1
-        return Parallel(n_jobs=jobs)(
+        return Parallel(n_jobs=self.n_jobs)(
             delayed(eval_one)(feature, feature_indices) for feature, feature_indices in candidates
         )
     
