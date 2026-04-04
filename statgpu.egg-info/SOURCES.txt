@@ -24,7 +24,9 @@ statgpu/linear_model/_ridge_gpu_only.py
 statgpu/linear_model/_stats.py
 statgpu/survival/__init__.py
 statgpu/survival/_cox.py
+statgpu/survival/_cox_efron_cuda.py
 tests/test_cox.py
 tests/test_external_consistency.py
 tests/test_linear.py
 tests/test_logistic.py
+tests/test_penalties_and_exports.py

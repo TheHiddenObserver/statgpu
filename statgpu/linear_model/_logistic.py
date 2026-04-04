@@ -82,9 +82,11 @@ class LogisticRegression(BaseEstimator):
         self._conf_int = None
         self._loglik = None
         self._loglik_null = None
+        self._train_pred_cache = None
 
     def _cleanup_cuda_memory(self):
         """Best-effort CuPy memory pool cleanup."""
+        self._train_pred_cache = None
         if not self.gpu_memory_cleanup:
             return
         try:
@@ -116,6 +118,7 @@ class LogisticRegression(BaseEstimator):
         self : object
         """
         self._y = self._to_numpy(y).astype(float)
+        self._train_pred_cache = None
         
         X_arr = self._to_array(X)
         y_arr = self._to_array(y).astype(float)
@@ -290,7 +293,8 @@ class LogisticRegression(BaseEstimator):
                     reg_diag_inf[0] = 0.0
                 H += cp.diag(reg_diag_inf)
             try:
-                bread = cp.linalg.inv(H)
+                eye = cp.eye(H.shape[0], dtype=H.dtype)
+                bread = cp.linalg.solve(H, eye)
             except Exception:
                 bread = cp.linalg.pinv(H)
 
@@ -338,12 +342,12 @@ class LogisticRegression(BaseEstimator):
             self.coef_ = params_np.copy()
         
         self._df_resid = n_samples - (n_features + (1 if self.fit_intercept else 0))
-        self._loglik = float(self._loglik_gpu.get())
-        self._accuracy = float(self._accuracy_gpu.get())
+        self._loglik = float(cp.asnumpy(self._loglik_gpu))
+        self._accuracy = float(cp.asnumpy(self._accuracy_gpu))
         y_mean = cp.mean(y)
         y_mean = cp.clip(y_mean, 1e-15, 1 - 1e-15)
         self._loglik_null = float(
-            cp.sum(y * cp.log(y_mean) + (1 - y) * cp.log(1 - y_mean)).get()
+            cp.asnumpy(cp.sum(y * cp.log(y_mean) + (1 - y) * cp.log(1 - y_mean)))
         )
 
         # Release large temporary GPU tensors early.
@@ -405,7 +409,7 @@ class LogisticRegression(BaseEstimator):
             XtWX += np.diag(reg_diag)
         
         try:
-            bread = np.linalg.inv(XtWX)
+            bread = np.linalg.solve(XtWX, np.eye(XtWX.shape[0]))
         except np.linalg.LinAlgError:
             bread = np.linalg.pinv(XtWX)
 
@@ -449,6 +453,15 @@ class LogisticRegression(BaseEstimator):
         y_mean = np.mean(self._y)
         y_mean = np.clip(y_mean, eps, 1 - eps)
         self._loglik_null = np.sum(self._y * np.log(y_mean) + (1 - self._y) * np.log(1 - y_mean))
+
+    def _train_pred_binary(self):
+        """Cached training-set binary predictions for metric properties."""
+        if self._y is None or not self._fitted:
+            return None
+        if self._train_pred_cache is None:
+            X_train = self._X_design[:, 1:] if self.fit_intercept else self._X_design
+            self._train_pred_cache = self._to_numpy(self.predict(X_train))
+        return self._train_pred_cache
     
     def predict_proba(self, X):
         """
@@ -465,16 +478,20 @@ class LogisticRegression(BaseEstimator):
             Returns the probability of the samples for each class.
         """
         self._check_is_fitted()
+        device = self._get_compute_device()
+        if device == Device.CUDA:
+            import cupy as cp
+
+            X_gpu = cp.asarray(self._to_array(X, Device.CUDA))
+            coef_gpu = cp.asarray(self.coef_)
+            intercept_gpu = cp.asarray(self.intercept_, dtype=coef_gpu.dtype)
+            eta = X_gpu @ coef_gpu + intercept_gpu
+            p1 = 1.0 / (1.0 + cp.exp(-cp.clip(eta, -500, 500)))
+            return cp.column_stack([1 - p1, p1])
         X = self._to_array(X, Device.CPU)
         X = np.asarray(X)
-        
-        # Linear predictor
         eta = X @ self.coef_ + self.intercept_
-        
-        # Sigmoid
         p1 = self._sigmoid(eta)
-        
-        # Return probabilities for both classes
         return np.column_stack([1 - p1, p1])
     
     def predict(self, X):
@@ -510,8 +527,8 @@ class LogisticRegression(BaseEstimator):
         float
             Mean accuracy.
         """
-        y_pred = self.predict(X)
-        y = np.asarray(y)
+        y_pred = self._to_numpy(self.predict(X))
+        y = self._to_numpy(y)
         return np.mean(y_pred == y)
     
     @property
@@ -558,7 +575,9 @@ class LogisticRegression(BaseEstimator):
         """Classification accuracy on training data."""
         if self._y is None or not self._fitted:
             return None
-        y_pred = self.predict(self._X_design[:, 1:] if self.fit_intercept else self._X_design)
+        y_pred = self._train_pred_binary()
+        if y_pred is None:
+            return None
         return np.mean(y_pred == self._y)
     
     @property
@@ -566,7 +585,9 @@ class LogisticRegression(BaseEstimator):
         """Precision on training data."""
         if self._y is None or not self._fitted:
             return None
-        y_pred = self.predict(self._X_design[:, 1:] if self.fit_intercept else self._X_design)
+        y_pred = self._train_pred_binary()
+        if y_pred is None:
+            return None
         tp = np.sum((y_pred == 1) & (self._y == 1))
         fp = np.sum((y_pred == 1) & (self._y == 0))
         return tp / (tp + fp) if (tp + fp) > 0 else 0.0
@@ -576,7 +597,9 @@ class LogisticRegression(BaseEstimator):
         """Recall on training data."""
         if self._y is None or not self._fitted:
             return None
-        y_pred = self.predict(self._X_design[:, 1:] if self.fit_intercept else self._X_design)
+        y_pred = self._train_pred_binary()
+        if y_pred is None:
+            return None
         tp = np.sum((y_pred == 1) & (self._y == 1))
         fn = np.sum((y_pred == 0) & (self._y == 1))
         return tp / (tp + fn) if (tp + fn) > 0 else 0.0

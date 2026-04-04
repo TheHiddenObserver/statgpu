@@ -408,7 +408,7 @@ class Lasso(BaseEstimator):
                 if self.stopping == "kkt":
                     grad_sse = (XtX @ coef - Xty) / n_samples
                     violation = cp.max(cp.maximum(cp.abs(grad_sse) - self.alpha, 0.0))
-                    if float(violation.get()) < self.tol:
+                    if violation < self.tol:
                         self.n_iter_ = iteration + 1
                         break
                 else:
@@ -623,7 +623,7 @@ class Lasso(BaseEstimator):
             if self.stopping == "kkt":
                 grad_sse = (XtX @ coef - Xty) / n_samples
                 violation = cp.max(cp.maximum(cp.abs(grad_sse) - self.alpha, 0.0))
-                if float(violation.get()) < self.tol:
+                if violation < self.tol:
                     self.n_iter_ = iteration + 1
                     break
             else:
@@ -952,14 +952,22 @@ class Lasso(BaseEstimator):
     def predict(self, X):
         """Predict using the Lasso model."""
         self._check_is_fitted()
+        device = self._get_compute_device()
+        if device == Device.CUDA:
+            import cupy as cp
+
+            X_gpu = cp.asarray(self._to_array(X, Device.CUDA))
+            coef_gpu = cp.asarray(self.coef_)
+            intercept_gpu = cp.asarray(self.intercept_, dtype=coef_gpu.dtype)
+            return X_gpu @ coef_gpu + intercept_gpu
         X = self._to_array(X, Device.CPU)
         X = np.asarray(X)
         return X @ self.coef_ + self.intercept_
 
     def score(self, X, y):
         """Return R^2 score."""
-        y_pred = self.predict(X)
-        y = np.asarray(y)
+        y_pred = self._to_numpy(self.predict(X))
+        y = self._to_numpy(y)
         ss_res = np.sum((y - y_pred) ** 2)
         ss_tot = np.sum((y - np.mean(y)) ** 2)
         return 1 - ss_res / ss_tot if ss_tot > 0 else 0.0

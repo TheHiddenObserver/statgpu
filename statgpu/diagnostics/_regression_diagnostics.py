@@ -59,13 +59,12 @@ class RegressionDiagnostics:
     def leverage(self):
         """Leverage values (diagonal of hat matrix)."""
         X = self.model._X_design
+        XtX = X.T @ X
         try:
-            hat_matrix = X @ np.linalg.inv(X.T @ X) @ X.T
-            return np.diag(hat_matrix)
+            XtX_inv_Xt = np.linalg.solve(XtX, X.T)
         except np.linalg.LinAlgError:
-            # Use pseudo-inverse
-            hat_matrix = X @ np.linalg.pinv(X.T @ X) @ X.T
-            return np.diag(hat_matrix)
+            XtX_inv_Xt = np.linalg.pinv(XtX) @ X.T
+        return np.einsum("ij,ij->i", X, XtX_inv_Xt.T)
     
     @property
     def cooks_distance(self):

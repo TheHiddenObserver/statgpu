@@ -69,6 +69,17 @@ class TestCoxPH:
         assert model._bse is not None
         assert np.all(np.isfinite(model._bse))
 
+    def test_entry_supported_cpu(self):
+        """entry should be supported in CPU fit path."""
+        set_device("cpu")
+        X, time, event = _make_survival_data(n_samples=120, n_features=4, seed=77)
+        entry = np.zeros_like(time, dtype=np.float64)
+        entry[:40] = np.minimum(time[:40] * 0.3, time[:40] * 0.95)
+        model = CoxPH(device="cpu", max_iter=20)
+        model.fit(X, time, event, entry=entry)
+        assert model.coef_ is not None
+        assert model._log_likelihood is not None
+
 
 class TestGPU:
     """GPU-specific tests for CoxPH (run only when CUDA available)."""
@@ -120,3 +131,16 @@ class TestGPU:
         model.fit(X, time, event)
         assert model._bse is not None
         assert np.all(np.isfinite(model._bse))
+
+    @pytest.mark.skipif(
+        not CoxPH(device="auto")._get_compute_device() == Device.CUDA,
+        reason="CUDA not available",
+    )
+    def test_entry_supported_gpu(self):
+        """entry should be supported for CUDA calls via CPU fallback path."""
+        X, time, event = _make_survival_data(n_samples=128, n_features=4, seed=88)
+        entry = np.zeros_like(time, dtype=np.float64)
+        entry[:30] = np.minimum(time[:30] * 0.25, time[:30] * 0.95)
+        model = CoxPH(device="cuda", max_iter=20)
+        model.fit(X, time, event, entry=entry)
+        assert model.coef_ is not None

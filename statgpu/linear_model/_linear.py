@@ -61,6 +61,7 @@ class LinearRegression(BaseEstimator):
         self._tvalues = None
         self._pvalues = None
         self._conf_int = None
+        self._is_multi_output = False
 
     def _cleanup_cuda_memory(self):
         """Best-effort CuPy memory pool cleanup."""
@@ -80,6 +81,7 @@ class LinearRegression(BaseEstimator):
         
         X_arr = self._to_array(X)
         y_arr = self._to_array(y)
+        self._is_multi_output = y_arr.ndim > 1 and y_arr.shape[1] > 1
         
         device = self._get_compute_device()
         
@@ -94,8 +96,8 @@ class LinearRegression(BaseEstimator):
         else:
             self._y = np.asarray(self._y)
 
-        # GPU path computes both nonrobust and robust inference in _fit_gpu().
-        if self.compute_inference and device != Device.CUDA:
+        # GPU single-output inference is computed in _fit_gpu().
+        if self.compute_inference and (self._is_multi_output or device != Device.CUDA):
             self._compute_inference()
         self._fitted = True
         return self
@@ -121,25 +123,40 @@ class LinearRegression(BaseEstimator):
         
         if y.ndim == 1:
             y = y.reshape(-1, 1)
-        
+
         coef, _, _, _ = np.linalg.lstsq(self._X_design, y, rcond=None)
-        coef = coef.flatten()  # Ensure 1D
-        
+
         if self.fit_intercept:
-            self.intercept_ = float(coef[0])
-            self.coef_ = coef[1:]
-            self._params = coef.copy()
+            if coef.shape[1] > 1:
+                self.intercept_ = coef[0, :].copy()
+                self.coef_ = coef[1:, :].T
+                self._params = coef.copy()
+            else:
+                coef_1d = coef[:, 0]
+                self.intercept_ = float(coef_1d[0])
+                self.coef_ = coef_1d[1:]
+                self._params = coef_1d.copy()
         else:
-            self.intercept_ = 0.0
-            self.coef_ = coef.copy()
-            self._params = coef.copy()
-        
-        y_pred = self._X_design @ self._params
-        self._resid = self._y - y_pred
+            if coef.shape[1] > 1:
+                self.intercept_ = np.zeros(coef.shape[1], dtype=coef.dtype)
+                self.coef_ = coef.T
+                self._params = coef.copy()
+            else:
+                self.intercept_ = 0.0
+                self.coef_ = coef[:, 0].copy()
+                self._params = self.coef_.copy()
+
+        y_pred = self._X_design @ coef
+        self._resid = y - y_pred
+        if self._resid.shape[1] == 1:
+            self._resid = self._resid[:, 0]
         self._df_resid = n_samples - (n_features + (1 if self.fit_intercept else 0))
         
         if self._df_resid > 0:
-            self._scale = np.sum(self._resid ** 2) / self._df_resid
+            if np.asarray(self._resid).ndim == 1:
+                self._scale = np.sum(self._resid ** 2) / self._df_resid
+            else:
+                self._scale = np.sum(self._resid ** 2, axis=0) / self._df_resid
         else:
             self._scale = np.nan
     
@@ -195,14 +212,19 @@ class LinearRegression(BaseEstimator):
         # Compute scale on GPU
         df_resid = n_samples - (n_features + (1 if self.fit_intercept else 0))
         if df_resid > 0:
-            scale = cp.sum(resid ** 2) / df_resid
+            if y.shape[1] > 1:
+                scale = cp.sum(resid ** 2, axis=0) / df_resid
+            else:
+                scale = cp.sum(resid ** 2) / df_resid
         else:
-            scale = cp.nan
+            if y.shape[1] > 1:
+                scale = cp.full((y.shape[1],), cp.nan, dtype=y.dtype)
+            else:
+                scale = cp.nan
         
-        coef_flat = coef.flatten()
-
         # Compute inference-related statistics only when requested.
-        if self.compute_inference:
+        if self.compute_inference and not self._is_multi_output:
+            coef_flat = coef.flatten()
             if self.cov_type == "nonrobust":
                 self._bse_gpu, self._tvalues_gpu, self._pvalues_gpu, self._conf_int_gpu = \
                     compute_inference_gpu(X_design, resid, scale, df_resid, coef_flat)
@@ -243,12 +265,15 @@ class LinearRegression(BaseEstimator):
             self._fvalue_gpu, self._f_pvalue = compute_f_stat_gpu(y, resid, X_design, df_resid)
 
         # Single transfer to CPU at the end
-        coef_np = coef.get().flatten()
-        resid_np = resid.get().flatten()
-        scale_float = float(scale.get()) if not cp.isnan(scale) else np.nan
+        coef_np = coef.get()
+        resid_np = resid.get()
+        if y.shape[1] > 1:
+            scale_np = scale.get()
+        else:
+            scale_np = float(scale.get()) if not cp.isnan(scale) else np.nan
         X_design_np = X_design.get()
         
-        if self.compute_inference:
+        if self.compute_inference and not self._is_multi_output:
             # Transfer inference results
             self._bse = self._bse_gpu.get()
             self._tvalues = self._tvalues_gpu.get()
@@ -257,18 +282,31 @@ class LinearRegression(BaseEstimator):
         
         # Store results
         if self.fit_intercept:
-            self.intercept_ = float(coef_np[0])
-            self.coef_ = coef_np[1:]
-            self._params = coef_np
+            if coef_np.shape[1] > 1:
+                self.intercept_ = coef_np[0, :].copy()
+                self.coef_ = coef_np[1:, :].T
+                self._params = coef_np.copy()
+            else:
+                self.intercept_ = float(coef_np[0, 0])
+                self.coef_ = coef_np[1:, 0]
+                self._params = coef_np[:, 0]
         else:
-            self.intercept_ = 0.0
-            self.coef_ = coef_np
-            self._params = coef_np
+            if coef_np.shape[1] > 1:
+                self.intercept_ = np.zeros(coef_np.shape[1], dtype=coef_np.dtype)
+                self.coef_ = coef_np.T
+                self._params = coef_np.copy()
+            else:
+                self.intercept_ = 0.0
+                self.coef_ = coef_np[:, 0]
+                self._params = coef_np[:, 0]
         
         self._X_design = X_design_np
-        self._resid = resid_np
+        if resid_np.shape[1] == 1:
+            self._resid = resid_np[:, 0]
+        else:
+            self._resid = resid_np
         self._df_resid = df_resid
-        self._scale = scale_float
+        self._scale = scale_np
 
         # Release large temporary GPU tensors early.
         try:
@@ -295,7 +333,9 @@ class LinearRegression(BaseEstimator):
     
     def _compute_inference(self):
         """Compute standard errors, t-stats, p-values."""
-        if self._X_design is None or self._scale is None or np.isnan(self._scale):
+        if self._X_design is None or self._scale is None:
+            return
+        if np.any(np.isnan(np.asarray(self._scale, dtype=float))):
             return
 
         X = self._X_design
@@ -306,6 +346,50 @@ class LinearRegression(BaseEstimator):
             XtX_inv = np.linalg.inv(XtX)
         except np.linalg.LinAlgError:
             XtX_inv = np.linalg.pinv(XtX)
+
+        if np.asarray(self._params).ndim == 2:
+            params = np.asarray(self._params, dtype=float)
+            resid = np.asarray(self._resid, dtype=float)
+            scale = np.asarray(self._scale, dtype=float).reshape(-1)
+            n_targets = params.shape[1]
+            self._bse = np.empty_like(params)
+            self._tvalues = np.empty_like(params)
+            self._pvalues = np.empty_like(params)
+            self._conf_int = np.empty((params.shape[0], n_targets, 2), dtype=float)
+            alpha = 0.05
+
+            for j in range(n_targets):
+                if self.cov_type == "nonrobust":
+                    cov_params = scale[j] * XtX_inv
+                    bse = np.sqrt(np.diag(cov_params))
+                    tvalues = params[:, j] / (bse + 1e-30)
+                    pvalues = 2 * (1 - stats.t.cdf(np.abs(tvalues), self._df_resid))
+                    t_crit = stats.t.ppf(1 - alpha / 2, self._df_resid)
+                    conf_int = np.column_stack([
+                        params[:, j] - t_crit * bse,
+                        params[:, j] + t_crit * bse,
+                    ])
+                else:
+                    e2 = resid[:, j] ** 2
+                    Xw = X * e2[:, np.newaxis]
+                    meat = X.T @ Xw
+                    cov_params = XtX_inv @ meat @ XtX_inv
+                    if self.cov_type == "hc1" and n > k:
+                        cov_params *= (n / (n - k))
+                    bse = np.sqrt(np.maximum(np.diag(cov_params), 0.0))
+                    tvalues = params[:, j] / (bse + 1e-30)
+                    pvalues = 2 * (1 - stats.norm.cdf(np.abs(tvalues)))
+                    z_crit = stats.norm.ppf(1 - alpha / 2)
+                    conf_int = np.column_stack([
+                        params[:, j] - z_crit * bse,
+                        params[:, j] + z_crit * bse,
+                    ])
+
+                self._bse[:, j] = bse
+                self._tvalues[:, j] = tvalues
+                self._pvalues[:, j] = pvalues
+                self._conf_int[:, j, :] = conf_int
+            return
 
         alpha = 0.05
         if self.cov_type == "nonrobust":
@@ -354,7 +438,7 @@ class LinearRegression(BaseEstimator):
         if self._nobs is None:
             return None
         r2 = self.rsquared
-        k = len(self.coef_)
+        k = int(self._X_design.shape[1] - (1 if self.fit_intercept else 0))
         return 1 - (1 - r2) * (self._nobs - 1) / self._df_resid
     
     @property
@@ -366,7 +450,7 @@ class LinearRegression(BaseEstimator):
         ss_tot = np.sum((self._y - y_mean) ** 2)
         ss_res = np.sum(self._resid ** 2)
         ss_reg = ss_tot - ss_res
-        k = len(self.coef_)
+        k = int(self._X_design.shape[1] - (1 if self.fit_intercept else 0))
         if k == 0 or ss_res <= 0:
             return np.inf
         return (ss_reg / k) / (ss_res / self._df_resid)
@@ -377,13 +461,17 @@ class LinearRegression(BaseEstimator):
         fv = self.fvalue
         if fv is None or fv == np.inf:
             return 1.0
-        k = len(self.coef_)
+        k = int(self._X_design.shape[1] - (1 if self.fit_intercept else 0))
         return 1 - stats.f.cdf(fv, k, self._df_resid)
     
     @property
     def aic(self):
         """Akaike Information Criterion."""
-        if self._nobs is None or np.isnan(self._scale):
+        if self._is_multi_output:
+            return None
+        if self._nobs is None or self._scale is None:
+            return None
+        if np.any(np.isnan(self._scale)):
             return None
         # AIC = -2 * log-likelihood + 2 * k
         return -2 * self.llf + 2 * len(self._params)
@@ -391,7 +479,11 @@ class LinearRegression(BaseEstimator):
     @property
     def bic(self):
         """Bayesian Information Criterion."""
-        if self._nobs is None or np.isnan(self._scale):
+        if self._is_multi_output:
+            return None
+        if self._nobs is None or self._scale is None:
+            return None
+        if np.any(np.isnan(self._scale)):
             return None
         n = self._nobs
         k = len(self._params)
@@ -419,6 +511,8 @@ class LinearRegression(BaseEstimator):
                 "compute_inference=False: summary/inference statistics are not available. "
                 "Re-fit with compute_inference=True (default)."
             )
+        if self._is_multi_output:
+            raise RuntimeError("summary() is only available for single-output linear regression.")
         
         # Build feature names
         if self.fit_intercept:
@@ -453,14 +547,33 @@ class LinearRegression(BaseEstimator):
     def predict(self, X):
         """Predict using the linear model."""
         self._check_is_fitted()
+        device = self._get_compute_device()
+        if device == Device.CUDA:
+            import cupy as cp
+
+            X_gpu = cp.asarray(self._to_array(X, Device.CUDA))
+            coef_gpu = cp.asarray(self.coef_)
+            intercept_gpu = cp.asarray(self.intercept_, dtype=coef_gpu.dtype)
+            if coef_gpu.ndim == 2:
+                return X_gpu @ coef_gpu.T + intercept_gpu
+            return X_gpu @ coef_gpu + intercept_gpu
         X = self._to_array(X, Device.CPU)
         X = np.asarray(X)
+        if np.asarray(self.coef_).ndim == 2:
+            return X @ self.coef_.T + self.intercept_
         return X @ self.coef_ + self.intercept_
     
     def score(self, X, y):
         """Return R^2 score."""
         y_pred = self.predict(X)
+        if hasattr(y_pred, "get"):
+            y_pred = y_pred.get()
         y = np.asarray(y)
-        ss_res = np.sum((y - y_pred) ** 2)
-        ss_tot = np.sum((y - np.mean(y)) ** 2)
-        return 1 - ss_res / ss_tot if ss_tot > 0 else 0.0
+        if y_pred.ndim == 1:
+            ss_res = np.sum((y - y_pred) ** 2)
+            ss_tot = np.sum((y - np.mean(y)) ** 2)
+            return 1 - ss_res / ss_tot if ss_tot > 0 else 0.0
+        ss_res = np.sum((y - y_pred) ** 2, axis=0)
+        ss_tot = np.sum((y - np.mean(y, axis=0)) ** 2, axis=0)
+        r2 = np.where(ss_tot > 0, 1 - ss_res / ss_tot, 0.0)
+        return float(np.mean(r2))

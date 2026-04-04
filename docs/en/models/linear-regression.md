@@ -35,6 +35,12 @@ m.summary()
 - Inference: `_bse`, `_tvalues`, `_pvalues`, `_conf_int`
 - Diagnostics: `aic`, `bic`, `r_squared`, `adj_r_squared`
 
+For multi-output `y` (shape=`(n_samples, n_targets)`):
+
+- Estimation is supported with `coef_` shaped `(n_targets, n_features)` and `intercept_` shaped `(n_targets,)`.
+- Inference is supported with `_bse/_tvalues/_pvalues` shaped `(n_params, n_targets)` and `_conf_int` shaped `(n_params, n_targets, 2)`.
+- `summary()` is single-output only and raises on multi-output fits.
+
 ## Returns and Properties
 
 - `fit(X, y)` returns `self`

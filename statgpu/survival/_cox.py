@@ -81,6 +81,7 @@ class CoxPH(BaseEstimator):
         self._time = None
         self._event = None
         self._X = None
+        self._entry = None
         self._nobs = None
         self._nevents = None
         self._bse = None
@@ -123,6 +124,24 @@ class CoxPH(BaseEstimator):
             cp.get_default_pinned_memory_pool().free_all_blocks()
         except Exception:
             pass
+
+    @staticmethod
+    def _extract_convergence_status(result):
+        """Best-effort convergence extraction from statsmodels results."""
+        conv_attr = getattr(result, "converged", None)
+        if conv_attr is not None:
+            return bool(conv_attr)
+
+        mle_retvals = getattr(result, "mle_retvals", None)
+        if isinstance(mle_retvals, dict):
+            conv_attr = mle_retvals.get("converged")
+            if conv_attr is not None:
+                return bool(conv_attr)
+        elif mle_retvals is not None:
+            conv_attr = getattr(mle_retvals, "converged", None)
+            if conv_attr is not None:
+                return bool(conv_attr)
+        return None
         
     def fit(self, X, time, event, entry=None, cluster=None):
         """
@@ -154,9 +173,12 @@ class CoxPH(BaseEstimator):
             X_gpu = cp.asarray(self._to_array(X), dtype=cp.float64)
             time_gpu = cp.asarray(self._to_array(time), dtype=cp.float64)
             event_gpu = cp.asarray(self._to_array(event), dtype=cp.int32)
+            entry_gpu = None if entry is None else cp.asarray(self._to_array(entry), dtype=cp.float64)
             
             if X_gpu.ndim == 1:
                 X_gpu = X_gpu.reshape(-1, 1)
+            if entry_gpu is not None and entry_gpu.shape[0] != X_gpu.shape[0]:
+                raise ValueError("entry must have shape (n_samples,)")
             
             self._nobs = int(X_gpu.shape[0])
             self._nevents = int(cp.sum(event_gpu).item())
@@ -167,20 +189,35 @@ class CoxPH(BaseEstimator):
                 self._X = cp.asnumpy(X_gpu)
                 self._time = cp.asnumpy(time_gpu)
                 self._event = cp.asnumpy(event_gpu)
+                self._entry = None if entry_gpu is None else cp.asnumpy(entry_gpu)
             else:
                 self._X = None
                 self._time = None
                 self._event = None
+                self._entry = None
             
             cluster_gpu = None if cluster is None else cp.asarray(self._to_array(cluster), dtype=cp.int64)
-            self._fit_gpu(X_gpu, time_gpu, event_gpu, entry, cluster_gpu)
+            if entry_gpu is not None:
+                self._fit_cpu_with_entry(
+                    cp.asnumpy(X_gpu),
+                    cp.asnumpy(time_gpu),
+                    cp.asnumpy(event_gpu),
+                    cp.asnumpy(entry_gpu),
+                    None if cluster_gpu is None else cp.asnumpy(cluster_gpu),
+                )
+                self._cleanup_cuda_memory()
+            else:
+                self._fit_gpu(X_gpu, time_gpu, event_gpu, entry_gpu, cluster_gpu)
         else:
             X_np = np.asarray(self._to_array(X, Device.CPU), dtype=np.float64)
             time_np = np.asarray(self._to_array(time, Device.CPU), dtype=np.float64)
             event_np = np.asarray(self._to_array(event, Device.CPU), dtype=np.int32)
+            entry_np = None if entry is None else np.asarray(self._to_array(entry, Device.CPU), dtype=np.float64)
             
             if X_np.ndim == 1:
                 X_np = X_np.reshape(-1, 1)
+            if entry_np is not None and entry_np.shape[0] != X_np.shape[0]:
+                raise ValueError("entry must have shape (n_samples,)")
             
             self._nobs = X_np.shape[0]
             self._nevents = np.sum(event_np)
@@ -189,16 +226,20 @@ class CoxPH(BaseEstimator):
             self._time = time_np.copy()
             self._event = event_np.copy()
             self._X = X_np.copy()
+            self._entry = None if entry_np is None else entry_np.copy()
             self._feature_names = [f'x{i+1}' for i in range(X_np.shape[1])]
             
             cluster_np = None if cluster is None else np.asarray(self._to_array(cluster, Device.CPU))
-            self._fit_cpu(X_np, time_np, event_np, entry, cluster_np)
+            self._fit_cpu(X_np, time_np, event_np, entry_np, cluster_np)
         
         self._fitted = True
         return self
     
     def _fit_cpu(self, X, time, event, entry=None, cluster=None):
         """Fit using CPU (NumPy)."""
+        if entry is not None:
+            self._fit_cpu_with_entry(X, time, event, np.asarray(entry, dtype=np.float64), cluster)
+            return
         n_samples, n_features = X.shape
         
         # Sort by time ascending so risk-set terms are suffix sums:
@@ -321,6 +362,69 @@ class CoxPH(BaseEstimator):
             pass
         self._cleanup_cuda_memory()
         self._compute_cindex()
+
+    def _fit_cpu_with_entry(self, X, time, event, entry, cluster=None):
+        """Fit using statsmodels PHReg when delayed entry is provided."""
+        import statsmodels.duration.api as smd
+
+        n_samples, n_features = X.shape
+        model = smd.PHReg(time, X, status=event, entry=entry, ties=self.ties)
+        res = model.fit(disp=0)
+
+        self._iterations = int(getattr(res, "iterations", 0) or 0)
+        conv_attr = self._extract_convergence_status(res)
+        self._converged = bool(conv_attr) if conv_attr is not None else False
+        self.coef_ = np.asarray(res.params, dtype=np.float64)
+        self.hazard_ratios_ = np.exp(self.coef_)
+        self._log_likelihood = float(res.llf)
+
+        try:
+            null_model = smd.PHReg(time, np.zeros((n_samples, 1), dtype=np.float64), status=event, entry=entry, ties=self.ties)
+            null_res = null_model.fit(disp=0)
+            self._log_likelihood_null = float(null_res.llf)
+        except Exception:
+            self._log_likelihood_null = np.nan
+
+        cov = np.asarray(res.cov_params(), dtype=np.float64)
+        if cov.shape != (n_features, n_features):
+            cov = np.full((n_features, n_features), np.nan, dtype=np.float64)
+        self._var_matrix = cov
+        self._bse = np.sqrt(np.maximum(np.diag(cov), 0.0))
+        self._zvalues = self.coef_ / (self._bse + 1e-30)
+        self._pvalues = 2 * (1 - stats.norm.cdf(np.abs(self._zvalues)))
+        self._conf_int = np.asarray(res.conf_int(), dtype=np.float64)
+
+        # Delayed-entry robust covariance override is intentionally skipped:
+        # current internal robust score/hessian helpers do not account for entry.
+
+        self._lr_test_stat = 2 * (self._log_likelihood - self._log_likelihood_null)
+        self._lr_test_pvalue = 1 - stats.chi2.cdf(self._lr_test_stat, n_features)
+        try:
+            var_inv = np.linalg.solve(self._var_matrix, np.eye(n_features))
+            self._wald_test_stat = self.coef_ @ var_inv @ self.coef_
+        except np.linalg.LinAlgError:
+            self._wald_test_stat = np.nan
+        self._wald_test_pvalue = 1 - stats.chi2.cdf(self._wald_test_stat, n_features)
+        self._score_test_stat = np.nan
+        self._score_test_pvalue = np.nan
+
+        # Baseline hazard from PHReg output.
+        try:
+            base = res.baseline_cumulative_hazard[0]
+            self._unique_times = np.asarray(base[0], dtype=np.float64)
+            self._baseline_cumulative_hazard = np.asarray(base[1], dtype=np.float64)
+            if self._baseline_cumulative_hazard.size > 0:
+                self._baseline_hazard = np.diff(
+                    np.concatenate([[0.0], self._baseline_cumulative_hazard])
+                )
+            else:
+                self._baseline_hazard = np.array([], dtype=np.float64)
+        except Exception:
+            self._baseline_hazard = None
+            self._baseline_cumulative_hazard = None
+            self._unique_times = None
+
+        self._compute_cindex()
     
     def _fit_gpu(self, X, time, event, entry=None, cluster=None):
         """Fit using GPU with full GPU computation."""
@@ -441,7 +545,8 @@ class CoxPH(BaseEstimator):
         if self.compute_inference:
             if self.cov_type == "nonrobust":
                 try:
-                    var_gpu = cp.linalg.inv(-hess)
+                    info = -hess
+                    var_gpu = cp.linalg.solve(info, cp.eye(info.shape[0], dtype=info.dtype))
                 except Exception:
                     var_gpu = cp.linalg.pinv(-hess)
                 bse_gpu = cp.sqrt(cp.maximum(cp.diag(var_gpu), 0.0))
@@ -458,7 +563,7 @@ class CoxPH(BaseEstimator):
                 self._lr_test_stat = 2 * (self._log_likelihood - self._log_likelihood_null)
                 self._lr_test_pvalue = 1 - stats.chi2.cdf(self._lr_test_stat, n_features)
                 try:
-                    var_inv = np.linalg.inv(self._var_matrix)
+                    var_inv = np.linalg.solve(self._var_matrix, np.eye(self._var_matrix.shape[0]))
                     self._wald_test_stat = self.coef_ @ var_inv @ self.coef_
                 except np.linalg.LinAlgError:
                     self._wald_test_stat = np.nan
@@ -470,12 +575,54 @@ class CoxPH(BaseEstimator):
                 self._baseline_cumulative_hazard = None
                 self._unique_times = None
             else:
-                X_sorted_np = cp.asnumpy(X_sorted)
-                time_sorted_np = cp.asnumpy(time_sorted)
-                event_sorted_np = cp.asnumpy(event_sorted)
-                cluster_sorted_np = None if cluster_sorted is None else cp.asnumpy(cluster_sorted)
-                self._compute_inference_cpu(X_sorted_np, time_sorted_np, event_sorted_np, cluster_sorted_np)
-                self._compute_baseline_hazard(X_sorted_np, time_sorted_np, event_sorted_np)
+                score_resid_gpu = self._compute_robust_score_residuals_gpu(X_sorted, time_sorted, event_sorted)
+                try:
+                    info = -hess
+                    bread = cp.linalg.solve(info, cp.eye(info.shape[0], dtype=info.dtype))
+                except Exception:
+                    bread = cp.linalg.pinv(-hess)
+
+                if self.cov_type == "cluster":
+                    if cluster_sorted is None:
+                        raise ValueError("cov_type='cluster' requires cluster ids in fit(..., cluster=...)")
+                    unique_clusters = cp.unique(cluster_sorted)
+                    meat = cp.zeros((n_features, n_features), dtype=cp.float64)
+                    for g in unique_clusters:
+                        u_g = cp.sum(score_resid_gpu[cluster_sorted == g], axis=0)
+                        meat += cp.outer(u_g, u_g)
+                else:
+                    meat = score_resid_gpu.T @ score_resid_gpu
+                    if self.cov_type == "hc1":
+                        n = X_sorted.shape[0]
+                        k = X_sorted.shape[1]
+                        if n > k:
+                            meat = meat * (n / (n - k))
+
+                var_gpu = bread @ meat @ bread
+                bse_gpu = cp.sqrt(cp.maximum(cp.diag(var_gpu), 0.0))
+                z_gpu = beta / (bse_gpu + 1e-30)
+                p_gpu = norm_two_tail_pvalues_gpu(cp.abs(z_gpu))
+                z_crit = norm_crit_gpu_two_tail(0.05)
+                ci_gpu = cp.stack([beta - z_crit * bse_gpu, beta + z_crit * bse_gpu], axis=1)
+
+                self._var_matrix = cp.asnumpy(var_gpu)
+                self._bse = cp.asnumpy(bse_gpu)
+                self._zvalues = cp.asnumpy(z_gpu)
+                self._pvalues = cp.asnumpy(p_gpu)
+                self._conf_int = cp.asnumpy(ci_gpu)
+                self._lr_test_stat = 2 * (self._log_likelihood - self._log_likelihood_null)
+                self._lr_test_pvalue = 1 - stats.chi2.cdf(self._lr_test_stat, n_features)
+                try:
+                    var_inv = np.linalg.solve(self._var_matrix, np.eye(self._var_matrix.shape[0]))
+                    self._wald_test_stat = self.coef_ @ var_inv @ self.coef_
+                except np.linalg.LinAlgError:
+                    self._wald_test_stat = np.nan
+                self._wald_test_pvalue = 1 - stats.chi2.cdf(self._wald_test_stat, n_features)
+                self._score_test_stat = np.nan
+                self._score_test_pvalue = np.nan
+                self._baseline_hazard = None
+                self._baseline_cumulative_hazard = None
+                self._unique_times = None
         else:
             self._var_matrix = None
             self._bse = None
@@ -1105,7 +1252,7 @@ class CoxPH(BaseEstimator):
         
         # Bread matrix from observed information.
         try:
-            bread = np.linalg.inv(-hess)
+            bread = np.linalg.solve(-hess, np.eye(n_features))
         except np.linalg.LinAlgError:
             bread = np.linalg.pinv(-hess)
 
@@ -1151,7 +1298,7 @@ class CoxPH(BaseEstimator):
         
         # Wald test (global test that all coefficients are 0)
         try:
-            var_inv = np.linalg.inv(self._var_matrix)
+            var_inv = np.linalg.solve(self._var_matrix, np.eye(n_features))
             self._wald_test_stat = self.coef_ @ var_inv @ self.coef_
         except np.linalg.LinAlgError:
             self._wald_test_stat = np.nan
@@ -1167,7 +1314,7 @@ class CoxPH(BaseEstimator):
         try:
             _, hess_0 = self._compute_gradient_hessian(np.zeros(n_features), X, time, event, ep)
             info_0 = -hess_0
-            info_0_inv = np.linalg.inv(info_0)
+            info_0_inv = np.linalg.solve(info_0, np.eye(n_features))
             self._score_test_stat = grad_0 @ info_0_inv @ grad_0
         except:
             self._score_test_stat = np.nan
@@ -1194,6 +1341,19 @@ class CoxPH(BaseEstimator):
         if self.ties == "breslow":
             return self._compute_score_residuals_exact_breslow(X, time, event)
         return self._compute_score_residuals_fast(X, time, event)
+
+    def _compute_robust_score_residuals_gpu(self, X, time, event):
+        """GPU robust score residuals using event-row approximation."""
+        import cupy as cp
+
+        eta = X @ cp.asarray(self.coef_)
+        exp_eta = cp.exp(eta)
+        risk_sum = cp.cumsum(exp_eta[::-1])[::-1] + 1e-30
+        risk_X_sum = cp.cumsum((X * exp_eta[:, cp.newaxis])[::-1], axis=0)[::-1]
+        score_residuals = cp.zeros((X.shape[0], X.shape[1]), dtype=cp.float64)
+        event_mask = event == 1
+        score_residuals[event_mask] = X[event_mask] - risk_X_sum[event_mask] / risk_sum[event_mask, cp.newaxis]
+        return score_residuals
 
     def _score_residuals_via_statsmodels_if_available(
         self, X: np.ndarray, time: np.ndarray, event: np.ndarray
