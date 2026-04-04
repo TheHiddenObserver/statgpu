@@ -8,6 +8,7 @@ GPU-accelerated statistical methods with sklearn-compatible API.
 - Chinese usage portal: `USAGE_CN.md`
 - English docs root: `docs/en/`
 - Chinese docs root: `docs/`
+- Repo development layout: `dev/` (`tests/`, `benchmarks/`, `comparisons/`, `validation/`, `manual/`, `scripts/` for Cox data + R bench helpers)
 
 ## Features
 
@@ -92,13 +93,13 @@ model = LinearRegression(device='cuda', n_jobs=4)
 ## Benchmark Scripts
 
 - Large-scale all-method runtime benchmark:
-  - `examples/benchmark_all_methods_large_scale.py`
+  - `dev/benchmarks/benchmark_all_methods_large_scale.py`
 - Multi-target LinearRegression benchmark (statgpu vs sklearn vs R):
-  - `examples/benchmark_multitarget_sklearn_r.py`
+  - `dev/benchmarks/benchmark_multitarget_sklearn_r.py`
 - Lasso inference CPU/GPU comparison:
-  - `examples/benchmark_lasso_inference_gpu_vs_cpu.py`
+  - `dev/benchmarks/benchmark_lasso_inference_gpu_vs_cpu.py`
 - GPU memory cleanup effect:
-  - `examples/benchmark_gpu_memory_cleanup.py`
+  - `dev/benchmarks/benchmark_gpu_memory_cleanup.py`
 
 ## Requirements
 

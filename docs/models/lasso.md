@@ -80,6 +80,6 @@ m.fit(X, y)
 
 ## 相关基准脚本
 
-- `examples/benchmark_lasso_inference_gpu_vs_cpu.py`
-- `examples/benchmark_lasso_cpu_gpu_tol.py`
-- `examples/compare_lasso_kkt_stopping.py`
+- `dev/benchmarks/benchmark_lasso_inference_gpu_vs_cpu.py`
+- `dev/benchmarks/benchmark_lasso_cpu_gpu_tol.py`
+- `dev/comparisons/compare_lasso_kkt_stopping.py`

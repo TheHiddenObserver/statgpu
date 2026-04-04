@@ -53,26 +53,26 @@
 - [基准脚本索引](docs/benchmarks.md)
 
 当前重点脚本：
-- `examples/benchmark_lasso_inference_gpu_vs_cpu.py`
-- `examples/benchmark_gpu_memory_cleanup.py`
-- `examples/benchmark_all_methods_large_scale.py`
+- `dev/benchmarks/benchmark_lasso_inference_gpu_vs_cpu.py`
+- `dev/benchmarks/benchmark_gpu_memory_cleanup.py`
+- `dev/benchmarks/benchmark_all_methods_large_scale.py`
 
 建议给协作者跑的大规模计时命令：
 
 ```bash
-python examples/benchmark_all_methods_large_scale.py \
+python dev/benchmarks/benchmark_all_methods_large_scale.py \
   --devices cpu,cuda \
   --repeats 3 \
   --warmup-runs 1 \
   --n-reg 60000 --p-reg 64 \
   --n-logit 80000 --p-logit 48 \
   --n-cox 50000 --p-cox 24 \
-  --json-out examples/bench_all_large_results.json
+  --json-out results/bench_all_large_results.json
 ```
 
 ## 4) 协作建议
 
-- 跑性能对比时，优先使用 `examples/benchmark_all_methods_large_scale.py`
+- 跑性能对比时，优先使用 `dev/benchmarks/benchmark_all_methods_large_scale.py`
 - 报告结果时至少包含：设备信息、数据规模、`repeats/warmup`、是否包含 inference
 - 若新增功能，请同步更新：
   - `docs/models/*.md`

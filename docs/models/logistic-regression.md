@@ -85,7 +85,7 @@ print(m._bse, m._pvalues, m._conf_int)
 
 项目已补充与 `statsmodels.Logit` 的一致性测试（`HC0/HC1`，CPU+GPU）：
 
-- `tests/test_external_consistency.py`
+- `dev/tests/test_external_consistency.py`
   - `test_logistic_robust_covariance_matches_statsmodels`
   - `test_logistic_robust_covariance_gpu_matches_statsmodels`
 

@@ -5,7 +5,11 @@ Test RidgeFullGPU: full GPU computation.
 import numpy as np
 import time
 import sys
-sys.path.insert(0, '/root/.openclaw/workspace-coding/statgpu')
+from pathlib import Path
+
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
 
 print("=" * 70)
 print("RidgeFullGPU Test - Full GPU Computation")

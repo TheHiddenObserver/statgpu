@@ -45,7 +45,7 @@ model.fit(X, y)
 
 ## 基准脚本
 
-参见 `examples/benchmark_gpu_memory_cleanup.py`，可对比：
+参见 `dev/benchmarks/benchmark_gpu_memory_cleanup.py`，可对比：
 - `fit_ms`
 - `pool_used_fit`
 - `pool_total_fit`

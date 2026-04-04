@@ -38,9 +38,9 @@
 - `CoxPH(cov_type='cluster')`：
   - 支持按 cluster 分组的 sandwich 协方差（CPU 路径）
 - 新增外部框架统一对标脚本：
-  - `examples/benchmark_external_frameworks.py`
+  - `dev/benchmarks/benchmark_external_frameworks.py`
 - 新增全方法大规模 benchmark：
-  - `examples/benchmark_all_methods_large_scale.py`
+  - `dev/benchmarks/benchmark_all_methods_large_scale.py`
 
 ### 改进
 

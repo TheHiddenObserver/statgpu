@@ -48,4 +48,7 @@ Repository = "https://github.com/yourusername/statgpu"
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["statgpu*"]
-exclude = ["tests*", "examples*"]
+exclude = ["tests*", "examples*", "dev*"]
+
+[tool.pytest.ini_options]
+testpaths = ["dev/tests"]

@@ -11,7 +11,11 @@ import sys
 warnings.filterwarnings('ignore')
 
 # Add statgpu to path
-sys.path.insert(0, '/root/.openclaw/workspace-coding/statgpu')
+from pathlib import Path
+
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
 
 print("=" * 80)
 print("StatGPU Full Benchmark: Python vs R")

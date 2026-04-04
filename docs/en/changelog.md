@@ -18,8 +18,8 @@ Language switch: [中文](../changelog.md)
 - `LinearRegression` robust covariance: `nonrobust/hc0/hc1` (CPU+GPU)
 - `LogisticRegression` robust covariance: `nonrobust/hc0/hc1` (CPU+GPU)
 - `CoxPH` covariance support: `nonrobust/hc0/hc1/cluster` (cluster is CPU path)
-- New benchmark: `examples/benchmark_all_methods_large_scale.py`
-- New external comparison benchmark: `examples/benchmark_external_frameworks.py`
+- New benchmark: `dev/benchmarks/benchmark_all_methods_large_scale.py`
+- New external comparison benchmark: `dev/benchmarks/benchmark_external_frameworks.py`
 
 ### Validation
 

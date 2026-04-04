@@ -44,21 +44,21 @@ Inference highlights:
 - [Benchmark Index](docs/en/benchmarks.md)
 
 Primary scripts:
-- `examples/benchmark_lasso_inference_gpu_vs_cpu.py`
-- `examples/benchmark_gpu_memory_cleanup.py`
-- `examples/benchmark_all_methods_large_scale.py`
+- `dev/benchmarks/benchmark_lasso_inference_gpu_vs_cpu.py`
+- `dev/benchmarks/benchmark_gpu_memory_cleanup.py`
+- `dev/benchmarks/benchmark_all_methods_large_scale.py`
 
 Recommended large-scale command:
 
 ```bash
-python examples/benchmark_all_methods_large_scale.py \
+python dev/benchmarks/benchmark_all_methods_large_scale.py \
   --devices cpu,cuda \
   --repeats 3 \
   --warmup-runs 1 \
   --n-reg 60000 --p-reg 64 \
   --n-logit 80000 --p-logit 48 \
   --n-cox 50000 --p-cox 24 \
-  --json-out examples/bench_all_large_results.json
+  --json-out results/bench_all_large_results.json
 ```
 
 ## 4) Collaboration Notes

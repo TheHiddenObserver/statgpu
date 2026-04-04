@@ -12,7 +12,11 @@ print("CoxPH Benchmark")
 print("=" * 80)
 
 import sys
-sys.path.insert(0, '/root/.openclaw/workspace-coding/statgpu')
+from pathlib import Path
+
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
 from statgpu.survival import CoxPH
 from statgpu._config import set_device, cuda_available
 
@@ -40,7 +44,7 @@ for n_samples, n_features, label in configs:
     true_coef = np.random.randn(n_features) * 0.5
     hazard = np.exp(X @ true_coef)
     survival_time = np.random.exponential(1.0 / hazard)
-    censoring_time = np.random.exponential(2.0)
+    censoring_time = np.random.exponential(2.0, size=n_samples)
     time_obs = np.minimum(survival_time, censoring_time)
     event = (survival_time <= censoring_time).astype(int)
     
