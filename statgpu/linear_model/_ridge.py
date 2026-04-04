@@ -300,8 +300,8 @@ class Ridge(BaseEstimator):
     
     def score(self, X, y):
         """R² score."""
-        y_pred = self.predict(X)
-        y = np.asarray(y)
+        y_pred = self._to_numpy(self.predict(X))
+        y = self._to_numpy(y)
         ss_res = np.sum((y - y_pred) ** 2)
         ss_tot = np.sum((y - np.mean(y)) ** 2)
         return 1 - ss_res / ss_tot if ss_tot > 0 else 0.0
