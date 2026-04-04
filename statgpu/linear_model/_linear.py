@@ -61,6 +61,7 @@ class LinearRegression(BaseEstimator):
         self._tvalues = None
         self._pvalues = None
         self._conf_int = None
+        self._is_multi_output = False
 
     def _cleanup_cuda_memory(self):
         """Best-effort CuPy memory pool cleanup."""
@@ -80,6 +81,7 @@ class LinearRegression(BaseEstimator):
         
         X_arr = self._to_array(X)
         y_arr = self._to_array(y)
+        self._is_multi_output = y_arr.ndim > 1 and y_arr.shape[1] > 1
         
         device = self._get_compute_device()
         
@@ -95,7 +97,7 @@ class LinearRegression(BaseEstimator):
             self._y = np.asarray(self._y)
 
         # GPU path computes both nonrobust and robust inference in _fit_gpu().
-        if self.compute_inference and device != Device.CUDA:
+        if self.compute_inference and device != Device.CUDA and not self._is_multi_output:
             self._compute_inference()
         self._fitted = True
         return self
@@ -121,25 +123,40 @@ class LinearRegression(BaseEstimator):
         
         if y.ndim == 1:
             y = y.reshape(-1, 1)
-        
+
         coef, _, _, _ = np.linalg.lstsq(self._X_design, y, rcond=None)
-        coef = coef.flatten()  # Ensure 1D
-        
+
         if self.fit_intercept:
-            self.intercept_ = float(coef[0])
-            self.coef_ = coef[1:]
-            self._params = coef.copy()
+            if coef.shape[1] > 1:
+                self.intercept_ = coef[0, :].copy()
+                self.coef_ = coef[1:, :].T
+                self._params = coef.copy()
+            else:
+                coef_1d = coef[:, 0]
+                self.intercept_ = float(coef_1d[0])
+                self.coef_ = coef_1d[1:]
+                self._params = coef_1d.copy()
         else:
-            self.intercept_ = 0.0
-            self.coef_ = coef.copy()
-            self._params = coef.copy()
-        
-        y_pred = self._X_design @ self._params
-        self._resid = self._y - y_pred
+            if coef.shape[1] > 1:
+                self.intercept_ = np.zeros(coef.shape[1], dtype=coef.dtype)
+                self.coef_ = coef.T
+                self._params = coef.copy()
+            else:
+                self.intercept_ = 0.0
+                self.coef_ = coef[:, 0].copy()
+                self._params = self.coef_.copy()
+
+        y_pred = self._X_design @ coef
+        self._resid = y - y_pred
+        if self._resid.shape[1] == 1:
+            self._resid = self._resid[:, 0]
         self._df_resid = n_samples - (n_features + (1 if self.fit_intercept else 0))
         
         if self._df_resid > 0:
-            self._scale = np.sum(self._resid ** 2) / self._df_resid
+            if np.asarray(self._resid).ndim == 1:
+                self._scale = np.sum(self._resid ** 2) / self._df_resid
+            else:
+                self._scale = np.sum(self._resid ** 2, axis=0) / self._df_resid
         else:
             self._scale = np.nan
     
@@ -460,15 +477,26 @@ class LinearRegression(BaseEstimator):
             X_gpu = cp.asarray(self._to_array(X, Device.CUDA))
             coef_gpu = cp.asarray(self.coef_)
             intercept_gpu = cp.asarray(self.intercept_, dtype=coef_gpu.dtype)
+            if coef_gpu.ndim == 2:
+                return X_gpu @ coef_gpu.T + intercept_gpu
             return X_gpu @ coef_gpu + intercept_gpu
         X = self._to_array(X, Device.CPU)
         X = np.asarray(X)
+        if np.asarray(self.coef_).ndim == 2:
+            return X @ self.coef_.T + self.intercept_
         return X @ self.coef_ + self.intercept_
     
     def score(self, X, y):
         """Return R^2 score."""
         y_pred = self.predict(X)
+        if hasattr(y_pred, "get"):
+            y_pred = y_pred.get()
         y = np.asarray(y)
-        ss_res = np.sum((y - y_pred) ** 2)
-        ss_tot = np.sum((y - np.mean(y)) ** 2)
-        return 1 - ss_res / ss_tot if ss_tot > 0 else 0.0
+        if y_pred.ndim == 1:
+            ss_res = np.sum((y - y_pred) ** 2)
+            ss_tot = np.sum((y - np.mean(y)) ** 2)
+            return 1 - ss_res / ss_tot if ss_tot > 0 else 0.0
+        ss_res = np.sum((y - y_pred) ** 2, axis=0)
+        ss_tot = np.sum((y - np.mean(y, axis=0)) ** 2, axis=0)
+        r2 = np.where(ss_tot > 0, 1 - ss_res / ss_tot, 0.0)
+        return float(np.mean(r2))
