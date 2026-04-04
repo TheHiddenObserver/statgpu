@@ -4,7 +4,7 @@ set -euo pipefail
 cd ~/statgpu
 mkdir -p results
 
-TOTAL=7
+TOTAL=6
 STEP=0
 OVERALL_START=$(date +%s)
 
@@ -12,17 +12,26 @@ log() {
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" | tee -a results/bench_master.log
 }
 
+is_complete() {
+    local logfile="$1"
+    [ -f "results/${logfile}" ] && grep -q "benchmark_all_methods_large_scale.py complete" "results/${logfile}"
+}
+
 run_experiment() {
     local name="$1"
     local logfile="$2"
     shift 2
     STEP=$((STEP + 1))
+    if is_complete "${logfile}"; then
+        log "--- EXPERIMENT ${STEP}/${TOTAL}: ${name} --- SKIPPED (already complete)"
+        return 0
+    fi
     log "--- EXPERIMENT ${STEP}/${TOTAL}: ${name} ---"
     log "Log file: results/${logfile}"
     local t0=$(date +%s)
+    local exit_code=0
     CUDA_VISIBLE_DEVICES=0 timeout 3600 python examples/benchmark_all_methods_large_scale.py "$@" \
-        > "results/${logfile}" 2>&1
-    local exit_code=$?
+        > "results/${logfile}" 2>&1 || exit_code=$?
     local elapsed=$(( $(date +%s) - t0 ))
     if [ $exit_code -eq 124 ]; then
         echo "[$(date '+%Y-%m-%d %H:%M:%S')] [TIMEOUT] Experiment exceeded 3600s limit (elapsed=${elapsed}s)" \
@@ -51,24 +60,17 @@ run_experiment "large_scale" "bench_large_scale.log" \
 
 run_experiment "high_dim" "bench_high_dim.log" \
   --devices cpu,cuda --repeats 5 --warmup-runs 2 \
-  --n-reg 5000 --p-reg 2000 --n-logit 8000 --p-logit 1000 \
-  --n-cox 5000 --p-cox 500 \
+  --n-reg 5000 --p-reg 2000 --n-logit 5000 --p-logit 1000 \
+  --n-cox 5000 --p-cox 1000 \
   --include-external --include-r \
   --json-out results/bench_high_dim.json
 
 run_experiment "largeN_largeP" "bench_largeN_largeP.log" \
   --devices cpu,cuda --repeats 5 --warmup-runs 2 \
-  --n-reg 120000 --p-reg 512 --n-logit 100000 --p-logit 256 \
+  --n-reg 100000 --p-reg 512 --n-logit 100000 --p-logit 256 \
   --n-cox 80000 --p-cox 128 \
   --include-external --include-r \
   --json-out results/bench_largeN_largeP.json
-
-run_experiment "extreme_n" "bench_extreme_n.log" \
-  --devices cpu,cuda --repeats 3 --warmup-runs 1 \
-  --n-reg 500000 --p-reg 32 --n-logit 400000 --p-logit 32 \
-  --n-cox 300000 --p-cox 16 \
-  --include-external --include-r \
-  --json-out results/bench_extreme_n.json
 
 run_experiment "with_inference" "bench_with_inference.log" \
   --devices cpu,cuda --repeats 5 --warmup-runs 2 \
