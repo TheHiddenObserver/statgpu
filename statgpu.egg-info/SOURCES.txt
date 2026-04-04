@@ -29,3 +29,4 @@ tests/test_cox.py
 tests/test_external_consistency.py
 tests/test_linear.py
 tests/test_logistic.py
+tests/test_penalties_and_exports.py
