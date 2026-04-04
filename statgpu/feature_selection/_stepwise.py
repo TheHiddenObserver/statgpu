@@ -6,6 +6,7 @@ Supports forward, backward, and bidirectional selection.
 from typing import Optional, Union, List, Literal
 import numpy as np
 from copy import deepcopy
+from joblib import Parallel, delayed
 
 from ..linear_model import LinearRegression, Ridge, Lasso, LogisticRegression
 
@@ -60,6 +61,7 @@ class StepwiseSelector:
         self.best_model_ = None
         self.aic_history_ = []
         self.bic_history_ = []
+        self._score_cache = {}
     
     def fit(self, X, y):
         """
@@ -84,6 +86,7 @@ class StepwiseSelector:
             self.max_features = n_features
         
         # Initialize
+        self._score_cache = {}
         if self.direction == 'forward':
             selected = []
             remaining = list(range(n_features))
@@ -108,11 +111,10 @@ class StepwiseSelector:
             
             if self.direction in ('forward', 'both'):
                 # Try adding each remaining feature
-                for feature in remaining[:]:
-                    candidate = selected + [feature]
-                    score = self._fit_and_score(X, y, candidate)
+                candidates = [(feature, selected + [feature]) for feature in remaining[:]]
+                scores = self._evaluate_candidates(X, y, candidates)
+                for feature, score in scores:
                     current_score = score[self.criterion]
-                    
                     if current_score < best_score[self.criterion]:
                         best_score = score
                         best_feature = feature
@@ -121,11 +123,10 @@ class StepwiseSelector:
             
             if self.direction in ('backward', 'both') and len(selected) > 0:
                 # Try removing each selected feature
-                for feature in selected[:]:
-                    candidate = [f for f in selected if f != feature]
-                    score = self._fit_and_score(X, y, candidate)
+                candidates = [(feature, [f for f in selected if f != feature]) for feature in selected[:]]
+                scores = self._evaluate_candidates(X, y, candidates)
+                for feature, score in scores:
                     current_score = score[self.criterion]
-                    
                     if current_score < best_score[self.criterion]:
                         best_score = score
                         best_feature = feature
@@ -154,18 +155,38 @@ class StepwiseSelector:
         
         return self
     
+    def _evaluate_candidates(self, X, y, candidates):
+        """Evaluate feature candidates in parallel with memoized scores."""
+        def eval_one(feature, feature_indices):
+            return feature, self._fit_and_score(X, y, feature_indices)
+
+        if self.n_jobs == 1 or len(candidates) <= 1:
+            return [eval_one(feature, feature_indices) for feature, feature_indices in candidates]
+        jobs = self.n_jobs if self.n_jobs is not None else -1
+        return Parallel(n_jobs=jobs)(
+            delayed(eval_one)(feature, feature_indices) for feature, feature_indices in candidates
+        )
+    
     def _fit_and_score(self, X, y, feature_indices):
         """Fit model and return AIC/BIC scores."""
+        key = tuple(sorted(feature_indices))
+        if key in self._score_cache:
+            return self._score_cache[key]
+
         if len(feature_indices) == 0:
             # Null model
-            return {'aic': np.inf, 'bic': np.inf}
+            score = {'aic': np.inf, 'bic': np.inf}
+            self._score_cache[key] = score
+            return score
         
         model = self.model_class(**self.model_kwargs)
         try:
             model.fit(X[:, feature_indices], y)
             
             if hasattr(model, 'aic') and model.aic is not None:
-                return {'aic': model.aic, 'bic': model.bic}
+                score = {'aic': model.aic, 'bic': model.bic}
+                self._score_cache[key] = score
+                return score
             else:
                 # Fallback: use R²-based approximation
                 n = len(y)
@@ -175,11 +196,17 @@ class StepwiseSelector:
                     # Approximate AIC
                     aic = n * np.log(1 - r2 + 1e-10) + 2 * k
                     bic = n * np.log(1 - r2 + 1e-10) + k * np.log(n)
-                    return {'aic': aic, 'bic': bic}
+                    score = {'aic': aic, 'bic': bic}
+                    self._score_cache[key] = score
+                    return score
                 else:
-                    return {'aic': np.inf, 'bic': np.inf}
+                    score = {'aic': np.inf, 'bic': np.inf}
+                    self._score_cache[key] = score
+                    return score
         except Exception:
-            return {'aic': np.inf, 'bic': np.inf}
+            score = {'aic': np.inf, 'bic': np.inf}
+            self._score_cache[key] = score
+            return score
     
     def predict(self, X):
         """Predict using the best model."""

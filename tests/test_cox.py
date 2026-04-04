@@ -69,6 +69,15 @@ class TestCoxPH:
         assert model._bse is not None
         assert np.all(np.isfinite(model._bse))
 
+    def test_entry_not_implemented_cpu(self):
+        """entry is accepted by API and currently raises explicit not-implemented."""
+        set_device("cpu")
+        X, time, event = _make_survival_data(n_samples=120, n_features=4, seed=77)
+        entry = np.zeros_like(time)
+        model = CoxPH(device="cpu", max_iter=20)
+        with pytest.raises(NotImplementedError):
+            model.fit(X, time, event, entry=entry)
+
 
 class TestGPU:
     """GPU-specific tests for CoxPH (run only when CUDA available)."""
@@ -120,3 +129,15 @@ class TestGPU:
         model.fit(X, time, event)
         assert model._bse is not None
         assert np.all(np.isfinite(model._bse))
+
+    @pytest.mark.skipif(
+        not CoxPH(device="auto")._get_compute_device() == Device.CUDA,
+        reason="CUDA not available",
+    )
+    def test_entry_not_implemented_gpu(self):
+        """entry is accepted by API and currently raises explicit not-implemented on CUDA."""
+        X, time, event = _make_survival_data(n_samples=128, n_features=4, seed=88)
+        entry = np.zeros_like(time)
+        model = CoxPH(device="cuda", max_iter=20)
+        with pytest.raises(NotImplementedError):
+            model.fit(X, time, event, entry=entry)
