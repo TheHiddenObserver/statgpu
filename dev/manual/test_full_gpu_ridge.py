@@ -1,5 +1,9 @@
 """
-Test RidgeFullGPU: full GPU computation.
+Test Ridge: full GPU computation.
+
+NOTE: RidgeFullGPU and RidgeGPUOnly were experimental classes that have been
+removed in favour of the unified Ridge class.  This script now benchmarks the
+standard Ridge estimator to keep the GPU pipeline comparison useful.
 """
 
 import numpy as np
@@ -12,16 +16,21 @@ if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
 print("=" * 70)
-print("RidgeFullGPU Test - Full GPU Computation")
+print("Ridge GPU Test - Full GPU Computation")
 print("=" * 70)
 
-from statgpu.linear_model._ridge_full_gpu import RidgeFullGPU
+from statgpu.linear_model import Ridge
 from statgpu._config import set_device, cuda_available
-import cupy as cp
 
 # Check GPU
 if not cuda_available():
     print("No GPU available")
+    exit()
+
+try:
+    import cupy as cp
+except ImportError:
+    print("CuPy not installed; cannot run GPU benchmark")
     exit()
 
 print("✓ GPU available\n")
@@ -45,7 +54,7 @@ for n_samples, n_features in sizes:
     y_cpu = X_cpu @ np.random.randn(n_features).astype(np.float32)
     
     # ========================================
-    # Full GPU Pipeline
+    # GPU Pipeline (Ridge with device='cuda')
     # ========================================
     set_device('cuda')
     
@@ -57,7 +66,7 @@ for n_samples, n_features in sizes:
     transfer_time = (time.perf_counter() - t0) * 1000
     
     # Fit on GPU
-    model = RidgeFullGPU(alpha=1.0, device='cuda')
+    model = Ridge(alpha=1.0, device='cuda')
     t0 = time.perf_counter()
     model.fit(X_gpu, y_gpu)
     cp.cuda.Device().synchronize()
@@ -88,7 +97,6 @@ for n_samples, n_features in sizes:
     # CPU Comparison
     # ========================================
     set_device('cpu')
-    from statgpu.linear_model import Ridge
     
     model_cpu = Ridge(alpha=1.0, device='cpu')
     t0 = time.perf_counter()
@@ -105,3 +113,4 @@ print("✓ Full GPU pipeline complete!")
 print("=" * 70)
 print("\nNote: Data stays on GPU for multiple predictions")
 print("      Only initial transfer and final results need CPU")
+

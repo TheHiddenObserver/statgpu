@@ -7,6 +7,7 @@ from typing import Optional, Union, Any
 import numpy as np
 
 from ._config import Device, get_device, cuda_available
+from .backends import get_backend, BackendBase
 
 
 class BaseEstimator(ABC):
@@ -41,6 +42,25 @@ class BaseEstimator(ABC):
         if self.device == Device.AUTO:
             return Device.CUDA if cuda_available() else Device.CPU
         return self.device
+
+    def _get_backend(self, backend: str = "auto") -> BackendBase:
+        """
+        Return the compute backend appropriate for this estimator's device.
+
+        Parameters
+        ----------
+        backend : {'auto', 'numpy', 'cupy', 'torch'}, default='auto'
+            Override which array library to use.  When ``'auto'``, the backend
+            is chosen based on :attr:`device` and GPU availability.
+
+        Returns
+        -------
+        BackendBase
+            A backend instance whose :attr:`~BackendBase.xp` attribute is the
+            underlying array module (NumPy, CuPy, or PyTorch).
+        """
+        device_str = self._get_compute_device().value  # 'cpu' or 'cuda'
+        return get_backend(backend=backend, device=device_str)
     
     def _to_array(self, X, device: Optional[Device] = None) -> Any:
         """
