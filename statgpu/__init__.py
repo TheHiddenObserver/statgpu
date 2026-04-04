@@ -10,6 +10,7 @@ from ._config import get_device, set_device, Device
 from ._base import BaseEstimator
 from .linear_model import LinearRegression, LogisticRegression, Ridge, Lasso
 from .survival import CoxPH
+from .backends import get_backend, NumpyBackend, CuPyBackend, TorchBackend
 
 __all__ = [
     "get_device",
@@ -21,4 +22,8 @@ __all__ = [
     "Ridge",
     "Lasso",
     "CoxPH",
+    "get_backend",
+    "NumpyBackend",
+    "CuPyBackend",
+    "TorchBackend",
 ]
