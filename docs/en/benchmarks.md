@@ -29,12 +29,19 @@ Recommended command:
 ```bash
 python examples/benchmark_all_methods_large_scale.py \
   --devices cpu,cuda \
+  --include-external \
   --repeats 3 \
   --warmup-runs 1 \
   --n-reg 60000 --p-reg 64 \
   --n-logit 80000 --p-logit 48 \
   --n-cox 50000 --p-cox 24 \
   --json-out examples/bench_all_large_results.json
+```
+
+To include inference-statistics computation time in measurements, add:
+
+```bash
+--compute-inference
 ```
 
 ## External Framework Comparison (accuracy + runtime)

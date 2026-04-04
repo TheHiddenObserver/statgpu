@@ -96,7 +96,47 @@ class TestLinearRegression:
         model = LinearRegression(device='cpu')
         model.fit(X, y)
         
-        assert model.coef_.shape == (2, 3) or model.coef_.shape == (3,)
+        assert model.coef_.shape == (2, 3)
+        assert model.intercept_.shape == (2,)
+
+        y_pred = model.predict(X)
+        assert y_pred.shape == y.shape
+
+        score = model.score(X, y)
+        assert score > 0.99
+
+    def test_multitarget_inference_shapes(self):
+        """Test multi-target inference statistics are computed with target axis."""
+        set_device("cpu")
+
+        rng = np.random.default_rng(7)
+        X = rng.normal(size=(200, 4))
+        y = np.column_stack(
+            [
+                X @ np.array([1.0, -2.0, 0.5, 3.0]) + rng.normal(scale=0.1, size=200),
+                X @ np.array([0.3, 1.2, -1.0, 2.4]) + rng.normal(scale=0.2, size=200),
+            ]
+        )
+
+        model = LinearRegression(device="cpu", compute_inference=True, cov_type="hc1")
+        model.fit(X, y)
+
+        assert model._bse.shape == (5, 2)
+        assert model._tvalues.shape == (5, 2)
+        assert model._pvalues.shape == (5, 2)
+        assert model._conf_int.shape == (5, 2, 2)
+
+    def test_multitarget_summary_not_supported(self):
+        """summary() should be unavailable for multi-target outputs."""
+        set_device("cpu")
+        X = np.random.randn(50, 3)
+        y = np.column_stack([X @ np.array([1.0, 2.0, 3.0]), X @ np.array([2.0, -1.0, 0.5])])
+
+        model = LinearRegression(device="cpu", compute_inference=True)
+        model.fit(X, y)
+
+        with pytest.raises(RuntimeError):
+            model.summary()
     
     def test_not_fitted_error(self):
         """Test error when predicting before fitting."""

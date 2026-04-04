@@ -59,6 +59,12 @@ m.fit(X, y)
 - 诊断：`r_squared`, `adj_r_squared`, `f_statistic`, `aic`, `bic`
 - 汇总：`summary()`
 
+多目标 `y`（shape=`(n_samples, n_targets)`）时：
+
+- 估计支持：`coef_` 为 `(n_targets, n_features)`，`intercept_` 为 `(n_targets,)`
+- 推断支持：`_bse/_tvalues/_pvalues` 形状为 `(n_params, n_targets)`，`_conf_int` 为 `(n_params, n_targets, 2)`
+- `summary()` 仅支持单目标，会在多目标下抛出错误
+
 ## 返回与属性
 
 - `fit(X, y)`：返回 `self`
