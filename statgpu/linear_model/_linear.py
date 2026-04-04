@@ -467,7 +467,11 @@ class LinearRegression(BaseEstimator):
     @property
     def aic(self):
         """Akaike Information Criterion."""
-        if self._nobs is None or np.isnan(self._scale):
+        if self._is_multi_output:
+            return None
+        if self._nobs is None or self._scale is None:
+            return None
+        if np.any(np.isnan(np.asarray(self._scale, dtype=float))):
             return None
         # AIC = -2 * log-likelihood + 2 * k
         return -2 * self.llf + 2 * len(self._params)
@@ -475,7 +479,11 @@ class LinearRegression(BaseEstimator):
     @property
     def bic(self):
         """Bayesian Information Criterion."""
-        if self._nobs is None or np.isnan(self._scale):
+        if self._is_multi_output:
+            return None
+        if self._nobs is None or self._scale is None:
+            return None
+        if np.any(np.isnan(np.asarray(self._scale, dtype=float))):
             return None
         n = self._nobs
         k = len(self._params)

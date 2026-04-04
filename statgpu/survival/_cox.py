@@ -187,6 +187,7 @@ class CoxPH(BaseEstimator):
                     cp.asnumpy(entry_gpu),
                     None if cluster_gpu is None else cp.asnumpy(cluster_gpu),
                 )
+                self._cleanup_cuda_memory()
             else:
                 self._fit_gpu(X_gpu, time_gpu, event_gpu, entry_gpu, cluster_gpu)
         else:
@@ -353,7 +354,10 @@ class CoxPH(BaseEstimator):
         res = model.fit(disp=0)
 
         self._iterations = int(getattr(res, "iterations", 0) or 0)
-        self._converged = True
+        conv_attr = getattr(res, "converged", None)
+        if conv_attr is None:
+            conv_attr = getattr(getattr(res, "mle_retvals", {}), "get", lambda *_: None)("converged")
+        self._converged = bool(conv_attr) if conv_attr is not None else (self._iterations < self.max_iter)
         self.coef_ = np.asarray(res.params, dtype=np.float64)
         self.hazard_ratios_ = np.exp(self.coef_)
         self._log_likelihood = float(res.llf)
@@ -374,34 +378,8 @@ class CoxPH(BaseEstimator):
         self._pvalues = 2 * (1 - stats.norm.cdf(np.abs(self._zvalues)))
         self._conf_int = np.asarray(res.conf_int(), dtype=np.float64)
 
-        # Optional robust adjustments for delayed-entry path.
-        if self.cov_type in ("hc0", "hc1", "cluster"):
-            score_resid = np.asarray(self._compute_robust_score_residuals(X, time, event), dtype=np.float64)
-            try:
-                bread = np.linalg.solve(-self._compute_gradient_hessian(self.coef_, X, time, event, getattr(self, "_efron_pre", None))[1], np.eye(n_features))
-            except Exception:
-                bread = np.linalg.pinv(-self._compute_gradient_hessian(self.coef_, X, time, event, getattr(self, "_efron_pre", None))[1])
-
-            if self.cov_type == "cluster":
-                if cluster is None:
-                    raise ValueError("cov_type='cluster' requires cluster ids in fit(..., cluster=...)")
-                cluster = np.asarray(cluster)
-                uniq = np.unique(cluster)
-                meat = np.zeros((n_features, n_features), dtype=np.float64)
-                for g in uniq:
-                    u_g = np.sum(score_resid[cluster == g], axis=0)
-                    meat += np.outer(u_g, u_g)
-            else:
-                meat = score_resid.T @ score_resid
-                if self.cov_type == "hc1" and n_samples > n_features:
-                    meat = meat * (n_samples / (n_samples - n_features))
-
-            self._var_matrix = bread @ meat @ bread
-            self._bse = np.sqrt(np.maximum(np.diag(self._var_matrix), 0.0))
-            self._zvalues = self.coef_ / (self._bse + 1e-30)
-            self._pvalues = 2 * (1 - stats.norm.cdf(np.abs(self._zvalues)))
-            z_crit = stats.norm.ppf(1 - 0.05 / 2)
-            self._conf_int = np.column_stack([self.coef_ - z_crit * self._bse, self.coef_ + z_crit * self._bse])
+        # Delayed-entry robust covariance override is intentionally skipped:
+        # current internal robust score/hessian helpers do not account for entry.
 
         self._lr_test_stat = 2 * (self._log_likelihood - self._log_likelihood_null)
         self._lr_test_pvalue = 1 - stats.chi2.cdf(self._lr_test_stat, n_features)
