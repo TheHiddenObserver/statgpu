@@ -188,7 +188,7 @@ class StepwiseSelector:
         )
         for feature, key, score in out:
             expected_key = feature_to_cache_key.get(feature)
-            if expected_key is not None and expected_key == key and key not in self._score_cache:
+            if expected_key is not None and key not in self._score_cache:
                 self._score_cache[key] = score
         return [(feature, score) for feature, _, score in out]
     

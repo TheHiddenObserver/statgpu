@@ -471,8 +471,7 @@ class LinearRegression(BaseEstimator):
             return None
         if self._nobs is None or self._scale is None:
             return None
-        scale = np.asarray(self._scale, dtype=float)
-        if np.any(np.isnan(scale)):
+        if np.any(np.isnan(self._scale)):
             return None
         # AIC = -2 * log-likelihood + 2 * k
         return -2 * self.llf + 2 * len(self._params)
@@ -484,8 +483,7 @@ class LinearRegression(BaseEstimator):
             return None
         if self._nobs is None or self._scale is None:
             return None
-        scale = np.asarray(self._scale, dtype=float)
-        if np.any(np.isnan(scale)):
+        if np.any(np.isnan(self._scale)):
             return None
         n = self._nobs
         k = len(self._params)

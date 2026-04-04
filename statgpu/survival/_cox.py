@@ -373,7 +373,7 @@ class CoxPH(BaseEstimator):
 
         self._iterations = int(getattr(res, "iterations", 0) or 0)
         conv_attr = self._extract_convergence_status(res)
-        self._converged = bool(conv_attr) if conv_attr is not None else (self._iterations < self.max_iter)
+        self._converged = bool(conv_attr) if conv_attr is not None else False
         self.coef_ = np.asarray(res.params, dtype=np.float64)
         self.hazard_ratios_ = np.exp(self.coef_)
         self._log_likelihood = float(res.llf)
