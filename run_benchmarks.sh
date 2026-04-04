@@ -20,9 +20,11 @@ run_experiment() {
     log "--- EXPERIMENT ${STEP}/${TOTAL}: ${name} ---"
     log "Log file: results/${logfile}"
     local t0=$(date +%s)
+    set +e
     CUDA_VISIBLE_DEVICES=0 timeout 3600 python dev/benchmarks/benchmark_all_methods_large_scale.py "$@" \
         > "results/${logfile}" 2>&1
     local exit_code=$?
+    set -e
     local elapsed=$(( $(date +%s) - t0 ))
     if [ $exit_code -eq 124 ]; then
         echo "[$(date '+%Y-%m-%d %H:%M:%S')] [TIMEOUT] Experiment exceeded 3600s limit (elapsed=${elapsed}s)" \
