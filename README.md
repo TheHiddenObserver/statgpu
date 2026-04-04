@@ -93,6 +93,8 @@ model = LinearRegression(device='cuda', n_jobs=4)
 
 - Large-scale all-method runtime benchmark:
   - `examples/benchmark_all_methods_large_scale.py`
+- Multi-target LinearRegression benchmark (statgpu vs sklearn vs R):
+  - `examples/benchmark_multitarget_sklearn_r.py`
 - Lasso inference CPU/GPU comparison:
   - `examples/benchmark_lasso_inference_gpu_vs_cpu.py`
 - GPU memory cleanup effect:
