@@ -38,6 +38,13 @@
   - `dev/benchmarks/benchmark_gpu_memory_cleanup.py`
   - `dev/benchmarks/benchmark_all_methods_large_scale.py`
   - `dev/benchmarks/benchmark_external_frameworks.py`
+- `Ridge` 新增完整推断体系，与 `LinearRegression` 对齐：
+  - `cov_type=nonrobust/hc0/hc1`（CPU + GPU 双路径）
+  - `compute_inference` 开关
+  - 新增属性：`rsquared_adj`、`fvalue`、`f_pvalue`、`llf`、`aic`、`bic`
+  - 新增 `summary()` 方法（R/statsmodels 风格）
+  - 修复 `fit_intercept=False` 时 `_fit_cpu` 的 `y_centered` 未赋值 bug
+  - 新增专项推断测试：`dev/tests/test_ridge_inference.py`（24 tests）
 
 ---
 
@@ -60,7 +67,7 @@
 ### P1：API parity / 功能补齐
 
 - Lasso：`ElasticNet(l1_ratio)`、`positive`、`warm_start`、alpha path
-- Ridge：`warm_start`、path、更完整推断输出
+- Ridge：~~`warm_start`、path、更完整推断输出~~ 推断体系已完成；待补 `warm_start`、path
 - LogisticRegression：multinomial/softmax、L1/elastic-net、更完整诊断
 - CoxPH：strata、frailty、time-varying covariates、penalized Cox
 - 稀疏输入支持：CSR/CSC
@@ -88,7 +95,7 @@
 - LinearRegression：
   - 公式接口、GLS/更完整诊断仍弱于 statsmodels
 - Ridge：
-  - solver/path/warm_start 与推断体系待增强
+  - solver/path/warm_start 待增强；推断体系（cov_type/summary）已完成
 - Lasso：
   - 缺 ElasticNet、positive、路径工具与严格 post-selection 推断
 - LogisticRegression：

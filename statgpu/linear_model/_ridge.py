@@ -12,9 +12,28 @@ from .._config import Device
 
 class Ridge(BaseEstimator):
     """
-    Ridge regression (L2 regularization) with optimized GPU acceleration.
+    Ridge regression (L2 regularization) with optimized GPU acceleration
+    and statistical inference (R/statsmodels style).
+
+    Parameters
+    ----------
+    alpha : float, default=1.0
+        Regularization strength; must be a positive float.
+    fit_intercept : bool, default=True
+        Whether to calculate the intercept.
+    device : str or Device, default='auto'
+        Computation device: 'cpu', 'cuda', or 'auto'.
+    n_jobs : int or None, default=None
+        Number of parallel jobs.
+    gpu_memory_cleanup : bool, default=False
+        Whether to free CuPy memory pool after fitting.
+    compute_inference : bool, default=True
+        Whether to compute standard errors, t-stats, p-values and CI.
+    cov_type : str, default='nonrobust'
+        Covariance estimator for inference. One of:
+        ``'nonrobust'`` (classical), ``'hc0'`` (White HC0), ``'hc1'`` (HC1).
     """
-    
+
     def __init__(
         self,
         alpha: float = 1.0,
@@ -22,11 +41,17 @@ class Ridge(BaseEstimator):
         device: Union[str, Device] = Device.AUTO,
         n_jobs: Optional[int] = None,
         gpu_memory_cleanup: bool = False,
+        compute_inference: bool = True,
+        cov_type: str = "nonrobust",
     ):
         super().__init__(device=device, n_jobs=n_jobs)
         self.alpha = alpha
         self.fit_intercept = fit_intercept
         self.gpu_memory_cleanup = bool(gpu_memory_cleanup)
+        self.compute_inference = compute_inference
+        self.cov_type = cov_type.lower()
+        if self.cov_type not in ("nonrobust", "hc0", "hc1"):
+            raise ValueError("cov_type must be one of: 'nonrobust', 'hc0', 'hc1'")
         self.coef_ = None
         self.intercept_ = None
         self._X_design = None
@@ -36,6 +61,10 @@ class Ridge(BaseEstimator):
         self._nobs = None
         self._df_resid = None
         self._params = None
+        self._bse = None
+        self._tvalues = None
+        self._pvalues = None
+        self._conf_int = None
 
     def _cleanup_cuda_memory(self):
         """Best-effort CuPy memory pool cleanup."""
@@ -69,7 +98,7 @@ class Ridge(BaseEstimator):
             self._y = np.asarray(self._y)
 
         # GPU path already computes inference on-device in _fit_gpu().
-        if device != Device.CUDA:
+        if self.compute_inference and device != Device.CUDA:
             self._compute_inference()
         self._fitted = True
         return self
@@ -94,6 +123,7 @@ class Ridge(BaseEstimator):
             y_centered = y - y_mean
         else:
             X_centered = X
+            y_centered = y
             y_mean = 0.0
         
         if y.ndim == 1:
@@ -195,29 +225,57 @@ class Ridge(BaseEstimator):
         
         # Compute ALL statistics on GPU
         from .._gpu_utils import compute_inference_gpu, compute_r2_gpu, compute_aic_bic_gpu, compute_f_stat_gpu
-        
-        self._bse_gpu, self._tvalues_gpu, self._pvalues_gpu, self._conf_int_gpu = \
-            compute_inference_gpu(X_design, resid, scale, df_resid, coef_full)
-        
-        self._rsquared_gpu = compute_r2_gpu(y, resid)
-        
-        k = n_features + (1 if self.fit_intercept else 0)
-        scale_mle = cp.sum(resid ** 2) / n_samples
-        self._aic_gpu, self._bic_gpu = compute_aic_bic_gpu(n_samples, k, scale_mle)
-        
-        self._fvalue_gpu, self._f_pvalue = compute_f_stat_gpu(y, resid, X_design, df_resid)
+        from .._gpu_utils import norm_two_tail_pvalues_gpu, norm_crit_gpu_two_tail
+
+        if self.compute_inference:
+            if self.cov_type == "nonrobust":
+                self._bse_gpu, self._tvalues_gpu, self._pvalues_gpu, self._conf_int_gpu = \
+                    compute_inference_gpu(X_design, resid, scale, df_resid, coef_full)
+            else:
+                # HC0/HC1 sandwich covariance on GPU
+                XtX_cov = X_design.T @ X_design
+                try:
+                    XtX_inv = cp.linalg.inv(XtX_cov)
+                except Exception:
+                    XtX_inv = cp.linalg.pinv(XtX_cov)
+                e2 = cp.square(resid.reshape(-1))
+                Xw = X_design * e2[:, cp.newaxis]
+                meat = X_design.T @ Xw
+                cov_params = XtX_inv @ meat @ XtX_inv
+                if self.cov_type == "hc1":
+                    n = X_design.shape[0]
+                    k_p = X_design.shape[1]
+                    if n > k_p:
+                        cov_params = cov_params * (n / (n - k_p))
+                self._bse_gpu = cp.sqrt(cp.maximum(cp.diag(cov_params), 0.0))
+                self._tvalues_gpu = coef_full / (self._bse_gpu + 1e-30)
+                self._pvalues_gpu = norm_two_tail_pvalues_gpu(cp.abs(self._tvalues_gpu))
+                z_crit = norm_crit_gpu_two_tail(0.05)
+                self._conf_int_gpu = cp.stack([
+                    coef_full - z_crit * self._bse_gpu,
+                    coef_full + z_crit * self._bse_gpu,
+                ], axis=1)
+
+            self._rsquared_gpu = compute_r2_gpu(y, resid)
+
+            k = n_features + (1 if self.fit_intercept else 0)
+            scale_mle = cp.sum(resid ** 2) / n_samples
+            self._aic_gpu, self._bic_gpu = compute_aic_bic_gpu(n_samples, k, scale_mle)
+
+            self._fvalue_gpu, self._f_pvalue = compute_f_stat_gpu(y, resid, X_design, df_resid)
         
         # Single transfer to CPU at the end
         coef_full_np = coef_full.get()
         resid_np = resid.get()
         scale_float = float(scale.get()) if not cp.isnan(scale) else np.nan
         X_design_np = X_design.get()
-        
+
         # Transfer inference results
-        self._bse = self._bse_gpu.get()
-        self._tvalues = self._tvalues_gpu.get()
-        self._pvalues = self._pvalues_gpu.get()
-        self._conf_int = self._conf_int_gpu.get()
+        if self.compute_inference:
+            self._bse = self._bse_gpu.get()
+            self._tvalues = self._tvalues_gpu.get()
+            self._pvalues = self._pvalues_gpu.get()
+            self._conf_int = self._conf_int_gpu.get()
         
         # Store
         if self.fit_intercept:
@@ -258,31 +316,50 @@ class Ridge(BaseEstimator):
         self._cleanup_cuda_memory()
     
     def _compute_inference(self):
-        """Compute standard errors."""
+        """Compute standard errors, t-stats, p-values, and CIs."""
         if self._X_design is None or self._scale is None or np.isnan(self._scale):
             return
-        
+
         X = self._X_design
+        n = X.shape[0]
+        k = X.shape[1]
+
+        # (X'X)^{-1} — used by all cov_type paths
         try:
-            XtX = X.T @ X
-            I = np.eye(XtX.shape[0])
-            if self.fit_intercept:
-                I[0, 0] = 0
-            XtX_inv = np.linalg.solve(XtX + self.alpha * I, np.eye(XtX.shape[0]))
+            XtX_inv = np.linalg.inv(X.T @ X)
         except np.linalg.LinAlgError:
             XtX_inv = np.linalg.pinv(X.T @ X)
-        
-        self._bse = np.sqrt(self._scale * np.diag(XtX_inv))
-        self._tvalues = self._params / self._bse
-        self._pvalues = 2 * (1 - stats.t.cdf(np.abs(self._tvalues), self._df_resid))
-        
+
         alpha = 0.05
-        t_crit = stats.t.ppf(1 - alpha/2, self._df_resid)
-        self._conf_int = np.column_stack([
-            self._params - t_crit * self._bse,
-            self._params + t_crit * self._bse
-        ])
-    
+
+        if self.cov_type == "nonrobust":
+            cov_params = self._scale * XtX_inv
+            self._bse = np.sqrt(np.diag(cov_params))
+            self._tvalues = self._params / (self._bse + 1e-30)
+            self._pvalues = 2 * (1 - stats.t.cdf(np.abs(self._tvalues), self._df_resid))
+            t_crit = stats.t.ppf(1 - alpha / 2, self._df_resid)
+            self._conf_int = np.column_stack([
+                self._params - t_crit * self._bse,
+                self._params + t_crit * self._bse,
+            ])
+        else:
+            # White HC0/HC1 sandwich covariance.
+            e2 = np.asarray(self._resid, dtype=float).reshape(-1) ** 2
+            Xw = X * e2[:, np.newaxis]
+            meat = X.T @ Xw
+            cov_params = XtX_inv @ meat @ XtX_inv
+            if self.cov_type == "hc1" and n > k:
+                cov_params *= n / (n - k)
+            self._bse = np.sqrt(np.maximum(np.diag(cov_params), 0.0))
+            self._tvalues = self._params / (self._bse + 1e-30)
+            # Robust path uses large-sample normal approximation.
+            self._pvalues = 2 * (1 - stats.norm.cdf(np.abs(self._tvalues)))
+            z_crit = stats.norm.ppf(1 - alpha / 2)
+            self._conf_int = np.column_stack([
+                self._params - z_crit * self._bse,
+                self._params + z_crit * self._bse,
+            ])
+
     def predict(self, X):
         """Predict."""
         self._check_is_fitted()
@@ -297,7 +374,7 @@ class Ridge(BaseEstimator):
         X = self._to_array(X, Device.CPU)
         X = np.asarray(X)
         return X @ self.coef_ + self.intercept_
-    
+
     def score(self, X, y):
         """R² score."""
         y_pred = self._to_numpy(self.predict(X))
@@ -305,7 +382,7 @@ class Ridge(BaseEstimator):
         ss_res = np.sum((y - y_pred) ** 2)
         ss_tot = np.sum((y - np.mean(y)) ** 2)
         return 1 - ss_res / ss_tot if ss_tot > 0 else 0.0
-    
+
     @property
     def rsquared(self):
         """R-squared."""
@@ -315,3 +392,104 @@ class Ridge(BaseEstimator):
         ss_tot = np.sum((self._y - y_mean) ** 2)
         ss_res = np.sum(self._resid ** 2)
         return 1 - ss_res / ss_tot if ss_tot > 0 else 0.0
+
+    @property
+    def rsquared_adj(self):
+        """Adjusted R-squared."""
+        if self._nobs is None or self._X_design is None:
+            return None
+        r2 = self.rsquared
+        if r2 is None:
+            return None
+        k = int(self._X_design.shape[1] - (1 if self.fit_intercept else 0))
+        return 1 - (1 - r2) * (self._nobs - 1) / self._df_resid
+
+    @property
+    def fvalue(self):
+        """F-statistic."""
+        if self._y is None or self._resid is None or self._X_design is None:
+            return None
+        y_mean = np.mean(self._y)
+        ss_tot = np.sum((self._y - y_mean) ** 2)
+        ss_res = np.sum(self._resid ** 2)
+        ss_reg = ss_tot - ss_res
+        k = int(self._X_design.shape[1] - (1 if self.fit_intercept else 0))
+        if k == 0 or ss_res <= 0:
+            return np.inf
+        return (ss_reg / k) / (ss_res / self._df_resid)
+
+    @property
+    def f_pvalue(self):
+        """p-value for F-statistic."""
+        fv = self.fvalue
+        if fv is None or fv == np.inf:
+            return 1.0
+        k = int(self._X_design.shape[1] - (1 if self.fit_intercept else 0))
+        return 1 - stats.f.cdf(fv, k, self._df_resid)
+
+    @property
+    def llf(self):
+        """Log-likelihood (Gaussian MLE)."""
+        if self._nobs is None or self._resid is None:
+            return None
+        n = self._nobs
+        sigma2_mle = np.sum(self._resid ** 2) / n
+        return -n / 2 * np.log(2 * np.pi * sigma2_mle) - n / 2
+
+    @property
+    def aic(self):
+        """Akaike Information Criterion."""
+        if self._nobs is None or self._scale is None or np.isnan(self._scale):
+            return None
+        return -2 * self.llf + 2 * len(self._params)
+
+    @property
+    def bic(self):
+        """Bayesian Information Criterion."""
+        if self._nobs is None or self._scale is None or np.isnan(self._scale):
+            return None
+        n = self._nobs
+        k = len(self._params)
+        return -2 * self.llf + k * np.log(n)
+
+    def summary(self):
+        """Print summary table similar to R's summary(lm())."""
+        if not self._fitted:
+            raise RuntimeError("Model has not been fitted yet.")
+        if not self.compute_inference:
+            raise RuntimeError(
+                "compute_inference=False: summary/inference statistics are not available. "
+                "Re-fit with compute_inference=True (default)."
+            )
+        if self._bse is None:
+            raise RuntimeError("Inference statistics are not available.")
+
+        if self.fit_intercept:
+            feature_names = ['(Intercept)'] + [f'x{i+1}' for i in range(len(self.coef_))]
+        else:
+            feature_names = [f'x{i+1}' for i in range(len(self.coef_))]
+
+        print("=" * 80)
+        print("                              Ridge Regression Results")
+        print("=" * 80)
+        print(f"Alpha (L2 penalty):         {self.alpha:>15.4f}")
+        print(f"Covariance Type:            {self.cov_type:>15}")
+        print(f"No. Observations:           {self._nobs:>15}")
+        print(f"Degrees of Freedom:         {self._df_resid:>15}")
+        print(f"R-squared:                  {self.rsquared:>15.4f}")
+        print(f"Adj. R-squared:             {self.rsquared_adj:>15.4f}")
+        print(f"F-statistic:                {self.fvalue:>15.4f}")
+        print(f"Prob (F-statistic):         {self.f_pvalue:>15.4e}")
+        print(f"Log-Likelihood:             {self.llf:>15.4f}")
+        print(f"AIC:                        {self.aic:>15.4f}")
+        print(f"BIC:                        {self.bic:>15.4f}")
+        print("-" * 80)
+        print(f"{'':<15} {'coef':>12} {'std err':>12} {'t':>10} {'P>|t|':>10} {'[0.025':>12} {'0.975]':>12}")
+        print("-" * 80)
+
+        for i, name in enumerate(feature_names):
+            print(f"{name:<15} {self._params[i]:>12.4f} {self._bse[i]:>12.4f} "
+                  f"{self._tvalues[i]:>10.3f} {self._pvalues[i]:>10.4f} "
+                  f"{self._conf_int[i, 0]:>12.4f} {self._conf_int[i, 1]:>12.4f}")
+
+        print("=" * 80)
