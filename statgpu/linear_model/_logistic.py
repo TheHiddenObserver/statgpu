@@ -3,12 +3,50 @@ Logistic regression with full statistical inference and GPU support.
 Uses IRLS (Iteratively Reweighted Least Squares) algorithm.
 """
 
-from typing import Optional, Union, Tuple
+from typing import Any, Dict, Optional, Union, Tuple
 import numpy as np
 from scipy import stats
 
 from .._base import BaseEstimator
 from .._config import Device
+from ..evaluation import (
+    binary_average_precision_score,
+    binary_precision_recall_curve,
+    binary_roc_auc_score,
+    binary_roc_curve,
+    evaluate_binary_classification,
+)
+
+
+def _require_cupy(context: str):
+    """Import CuPy or raise a clear ImportError when it is unavailable.
+
+    Parameters
+    ----------
+    context : str
+        Short description of the caller (used in the error message).
+
+    Returns
+    -------
+    module
+        The ``cupy`` module.
+
+    Raises
+    ------
+    ImportError
+        If CuPy is not installed, with a message that explains how to
+        install it and why it is required here.
+    """
+    try:
+        import cupy as cp
+        return cp
+    except ImportError as exc:
+        raise ImportError(
+            f"{context} requires CuPy for GPU computation, but CuPy is not "
+            "installed. Install CuPy matching your CUDA version, e.g.: "
+            "`pip install cupy-cuda12x` (CUDA 12.x) or "
+            "`pip install cupy-cuda11x` (CUDA 11.x)."
+        ) from exc
 
 
 class LogisticRegression(BaseEstimator):
@@ -83,10 +121,12 @@ class LogisticRegression(BaseEstimator):
         self._loglik = None
         self._loglik_null = None
         self._train_pred_cache = None
+        self._train_eval_cache = None
 
     def _cleanup_cuda_memory(self):
         """Best-effort CuPy memory pool cleanup."""
         self._train_pred_cache = None
+        self._train_eval_cache = None
         if not self.gpu_memory_cleanup:
             return
         try:
@@ -119,6 +159,7 @@ class LogisticRegression(BaseEstimator):
         """
         self._y = self._to_numpy(y).astype(float)
         self._train_pred_cache = None
+        self._train_eval_cache = None
         
         X_arr = self._to_array(X)
         y_arr = self._to_array(y).astype(float)
@@ -454,14 +495,64 @@ class LogisticRegression(BaseEstimator):
         y_mean = np.clip(y_mean, eps, 1 - eps)
         self._loglik_null = np.sum(self._y * np.log(y_mean) + (1 - self._y) * np.log(1 - y_mean))
 
-    def _train_pred_binary(self):
-        """Cached training-set binary predictions for metric properties."""
+    def _train_classification_table(self):
+        """Training-set classification table on current device.
+
+        Results are cached in ``_train_eval_cache`` so that multiple
+        properties (accuracy, precision, recall, f1, auc, average_precision)
+        sharing the same training data only trigger a single forward pass.
+        """
         if self._y is None or not self._fitted:
             return None
-        if self._train_pred_cache is None:
-            X_train = self._X_design[:, 1:] if self.fit_intercept else self._X_design
-            self._train_pred_cache = self._to_numpy(self.predict(X_train))
-        return self._train_pred_cache
+
+        if self._train_eval_cache is not None:
+            return self._train_eval_cache.get("classification_table")
+
+        X_train = self._X_design[:, 1:] if self.fit_intercept else self._X_design
+        if self._get_compute_device() == Device.CUDA:
+            cp = _require_cupy("_train_classification_table")
+
+            y_true = cp.asarray(self._to_array(self._y, Device.CUDA)).reshape(-1)
+            y_score = cp.asarray(self.predict_proba(X_train))[:, 1]
+            self._train_eval_cache = evaluate_binary_classification(
+                y_true,
+                y_score,
+                threshold=0.5,
+                include_curves=False,
+                backend="cupy",
+            )
+            return self._train_eval_cache["classification_table"]
+
+        y_score = self._to_numpy(self.predict_proba(X_train))[:, 1]
+        self._train_eval_cache = evaluate_binary_classification(
+            self._y,
+            y_score,
+            threshold=0.5,
+            include_curves=False,
+            backend="numpy",
+        )
+        return self._train_eval_cache["classification_table"]
+
+    @staticmethod
+    def _to_python_float(value):
+        """Convert scalar-like values (including CuPy scalars) to float."""
+        if value is None:
+            return float("nan")
+        try:
+            import cupy as cp
+
+            if isinstance(value, cp.ndarray):
+                return float(value.item())
+            if type(value).__module__.startswith("cupy"):
+                return float(value.item())
+        except Exception:
+            pass
+        if hasattr(value, "item"):
+            try:
+                return float(value.item())
+            except Exception:
+                pass
+        return float(value)
     
     def predict_proba(self, X):
         """
@@ -510,6 +601,27 @@ class LogisticRegression(BaseEstimator):
         """
         proba = self.predict_proba(X)
         return (proba[:, 1] >= 0.5).astype(int)
+
+    def predict_with_threshold(self, X, threshold: float = 0.5):
+        """
+        Predict class labels using a custom probability threshold.
+
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features)
+            Samples.
+        threshold : float, default=0.5
+            Probability threshold for positive class assignment.
+
+        Returns
+        -------
+        ndarray of shape (n_samples,)
+            Predicted class labels.
+        """
+        if threshold < 0.0 or threshold > 1.0:
+            raise ValueError("threshold must be in [0, 1]")
+        proba = self.predict_proba(X)
+        return (proba[:, 1] >= threshold).astype(int)
     
     def score(self, X, y):
         """
@@ -530,6 +642,236 @@ class LogisticRegression(BaseEstimator):
         y_pred = self._to_numpy(self.predict(X))
         y = self._to_numpy(y)
         return np.mean(y_pred == y)
+
+    def confusion_matrix(self, X, y, threshold: float = 0.5) -> np.ndarray:
+        """Compute binary confusion matrix on a dataset."""
+        if self._get_compute_device() == Device.CUDA:
+            cp = _require_cupy("confusion_matrix")
+
+            y_true = cp.asarray(self._to_array(y, Device.CUDA)).reshape(-1)
+            y_score = cp.asarray(self.predict_proba(X))[:, 1]
+            out = evaluate_binary_classification(
+                y_true,
+                y_score,
+                threshold=threshold,
+                include_curves=False,
+                backend="cupy",
+            )
+            return out["confusion_matrix"]
+
+        y_true = self._to_numpy(y)
+        y_score = self._to_numpy(self.predict_proba(X))[:, 1]
+        out = evaluate_binary_classification(
+            y_true,
+            y_score,
+            threshold=threshold,
+            include_curves=False,
+            backend="numpy",
+        )
+        return out["confusion_matrix"]
+
+    def classification_table(self, X, y, threshold: float = 0.5) -> Dict[str, float]:
+        """Return a compact classification table on a dataset."""
+        if self._get_compute_device() == Device.CUDA:
+            cp = _require_cupy("classification_table")
+
+            y_true = cp.asarray(self._to_array(y, Device.CUDA)).reshape(-1)
+            y_score = cp.asarray(self.predict_proba(X))[:, 1]
+            out = evaluate_binary_classification(
+                y_true,
+                y_score,
+                threshold=threshold,
+                include_curves=False,
+                backend="cupy",
+            )
+            return out["classification_table"]
+
+        y_true = self._to_numpy(y)
+        y_score = self._to_numpy(self.predict_proba(X))[:, 1]
+        out = evaluate_binary_classification(
+            y_true,
+            y_score,
+            threshold=threshold,
+            include_curves=False,
+            backend="numpy",
+        )
+        return out["classification_table"]
+
+    def roc_curve(self, X, y) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """Compute ROC curve arrays (fpr, tpr, thresholds)."""
+        if self._get_compute_device() == Device.CUDA:
+            cp = _require_cupy("roc_curve")
+
+            y_true = cp.asarray(self._to_array(y, Device.CUDA)).reshape(-1)
+            y_score = cp.asarray(self.predict_proba(X))[:, 1]
+            return binary_roc_curve(y_true, y_score, backend="cupy")
+
+        y_true = self._to_numpy(y)
+        y_score = self._to_numpy(self.predict_proba(X))[:, 1]
+        return binary_roc_curve(y_true, y_score, backend="numpy")
+
+    def roc_auc_score(self, X, y) -> float:
+        """Compute ROC-AUC on a dataset."""
+        if self._get_compute_device() == Device.CUDA:
+            cp = _require_cupy("roc_auc_score")
+
+            y_true = cp.asarray(self._to_array(y, Device.CUDA)).reshape(-1)
+            y_score = cp.asarray(self.predict_proba(X))[:, 1]
+            return binary_roc_auc_score(y_true, y_score, backend="cupy")
+
+        y_true = self._to_numpy(y)
+        y_score = self._to_numpy(self.predict_proba(X))[:, 1]
+        return binary_roc_auc_score(y_true, y_score, backend="numpy")
+
+    def precision_recall_curve(self, X, y) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """Compute precision-recall arrays (precision, recall, thresholds)."""
+        if self._get_compute_device() == Device.CUDA:
+            cp = _require_cupy("precision_recall_curve")
+
+            y_true = cp.asarray(self._to_array(y, Device.CUDA)).reshape(-1)
+            y_score = cp.asarray(self.predict_proba(X))[:, 1]
+            return binary_precision_recall_curve(y_true, y_score, backend="cupy")
+
+        y_true = self._to_numpy(y)
+        y_score = self._to_numpy(self.predict_proba(X))[:, 1]
+        return binary_precision_recall_curve(y_true, y_score, backend="numpy")
+
+    def average_precision_score(self, X, y) -> float:
+        """Compute average precision on a dataset."""
+        if self._get_compute_device() == Device.CUDA:
+            cp = _require_cupy("average_precision_score")
+
+            y_true = cp.asarray(self._to_array(y, Device.CUDA)).reshape(-1)
+            y_score = cp.asarray(self.predict_proba(X))[:, 1]
+            return binary_average_precision_score(y_true, y_score, backend="cupy")
+
+        y_true = self._to_numpy(y)
+        y_score = self._to_numpy(self.predict_proba(X))[:, 1]
+        return binary_average_precision_score(y_true, y_score, backend="numpy")
+
+    def evaluate_classification(
+        self,
+        X,
+        y,
+        threshold: float = 0.5,
+        include_curves: bool = True,
+    ) -> Dict[str, Any]:
+        """
+        Compute classification metrics in one pass from a single probability call.
+
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features)
+            Samples.
+        y : array-like of shape (n_samples,)
+            Binary true labels encoded as 0/1.
+        threshold : float, default=0.5
+            Probability threshold used for hard predictions.
+        include_curves : bool, default=True
+            Whether to include full ROC/PR curve arrays in the output.
+
+        Returns
+        -------
+        dict
+            A dictionary with batched metrics. On CUDA device, arrays/scalars
+            are GPU-backed (CuPy) except ``threshold``.
+        """
+        if threshold < 0.0 or threshold > 1.0:
+            raise ValueError("threshold must be in [0, 1]")
+
+        if self._get_compute_device() == Device.CUDA:
+            cp = _require_cupy("evaluate_classification")
+
+            y_true = cp.asarray(self._to_array(y, Device.CUDA)).reshape(-1)
+            y_score = cp.asarray(self.predict_proba(X))[:, 1]
+            return evaluate_binary_classification(
+                y_true,
+                y_score,
+                threshold=threshold,
+                include_curves=include_curves,
+                backend="cupy",
+            )
+
+        y_true = self._to_numpy(y).reshape(-1)
+        y_score = self._to_numpy(self.predict_proba(X))[:, 1]
+        return evaluate_binary_classification(
+            y_true,
+            y_score,
+            threshold=threshold,
+            include_curves=include_curves,
+            backend="numpy",
+        )
+
+    def plot_roc_curve(self, X, y, ax=None, label: Optional[str] = None):
+        """
+        Plot ROC curve with matplotlib and return the axes object.
+
+        Raises
+        ------
+        ImportError
+            If matplotlib is not installed.
+        """
+        try:
+            import matplotlib.pyplot as plt
+        except ImportError as exc:
+            raise ImportError(
+                "matplotlib is required for plot_roc_curve(). "
+                "Install it with: pip install matplotlib"
+            ) from exc
+
+        fpr, tpr, _ = self.roc_curve(X, y)
+        auc = self.roc_auc_score(X, y)
+        fpr_plot = self._to_numpy(fpr)
+        tpr_plot = self._to_numpy(tpr)
+
+        if ax is None:
+            _, ax = plt.subplots(figsize=(6, 5))
+
+        line_label = label if label is not None else f"ROC (AUC={self._to_python_float(auc):.3f})"
+        ax.plot(fpr_plot, tpr_plot, label=line_label)
+        ax.plot([0.0, 1.0], [0.0, 1.0], linestyle="--", color="gray", linewidth=1.0)
+        ax.set_xlim(0.0, 1.0)
+        ax.set_ylim(0.0, 1.0)
+        ax.set_xlabel("False Positive Rate")
+        ax.set_ylabel("True Positive Rate")
+        ax.set_title("ROC Curve")
+        ax.legend(loc="lower right")
+        return ax
+
+    def plot_precision_recall_curve(self, X, y, ax=None, label: Optional[str] = None):
+        """
+        Plot precision-recall curve with matplotlib and return the axes object.
+
+        Raises
+        ------
+        ImportError
+            If matplotlib is not installed.
+        """
+        try:
+            import matplotlib.pyplot as plt
+        except ImportError as exc:
+            raise ImportError(
+                "matplotlib is required for plot_precision_recall_curve(). "
+                "Install it with: pip install matplotlib"
+            ) from exc
+
+        precision, recall, _ = self.precision_recall_curve(X, y)
+        ap = self.average_precision_score(X, y)
+        precision_plot = self._to_numpy(precision)
+        recall_plot = self._to_numpy(recall)
+
+        if ax is None:
+            _, ax = plt.subplots(figsize=(6, 5))
+
+        line_label = label if label is not None else f"PR (AP={self._to_python_float(ap):.3f})"
+        ax.plot(recall_plot, precision_plot, label=line_label)
+        ax.set_xlim(0.0, 1.0)
+        ax.set_ylim(0.0, 1.0)
+        ax.set_xlabel("Recall")
+        ax.set_ylabel("Precision")
+        ax.set_title("Precision-Recall Curve")
+        ax.legend(loc="lower left")
+        return ax
     
     @property
     def loglikelihood(self):
@@ -573,47 +915,62 @@ class LogisticRegression(BaseEstimator):
     @property
     def accuracy(self):
         """Classification accuracy on training data."""
-        if self._y is None or not self._fitted:
+        table = self._train_classification_table()
+        if table is None:
             return None
-        y_pred = self._train_pred_binary()
-        if y_pred is None:
-            return None
-        return np.mean(y_pred == self._y)
+        return table["accuracy"]
     
     @property
     def precision(self):
         """Precision on training data."""
-        if self._y is None or not self._fitted:
+        table = self._train_classification_table()
+        if table is None:
             return None
-        y_pred = self._train_pred_binary()
-        if y_pred is None:
-            return None
-        tp = np.sum((y_pred == 1) & (self._y == 1))
-        fp = np.sum((y_pred == 1) & (self._y == 0))
-        return tp / (tp + fp) if (tp + fp) > 0 else 0.0
+        return table["precision"]
     
     @property
     def recall(self):
         """Recall on training data."""
-        if self._y is None or not self._fitted:
+        table = self._train_classification_table()
+        if table is None:
             return None
-        y_pred = self._train_pred_binary()
-        if y_pred is None:
-            return None
-        tp = np.sum((y_pred == 1) & (self._y == 1))
-        fn = np.sum((y_pred == 0) & (self._y == 1))
-        return tp / (tp + fn) if (tp + fn) > 0 else 0.0
+        return table["recall"]
     
     @property
     def f1(self):
         """F1 score on training data."""
-        prec = self.precision
-        rec = self.recall
-        if prec is None or rec is None:
+        table = self._train_classification_table()
+        if table is None:
             return None
-        if prec + rec == 0:
-            return 0.0
-        return 2 * prec * rec / (prec + rec)
+        return table["f1"]
+
+    @property
+    def auc(self):
+        """ROC-AUC on training data."""
+        if self._y is None or not self._fitted:
+            return None
+        # Use cached eval result if available (populated by _train_classification_table)
+        if self._train_eval_cache is not None:
+            return self._train_eval_cache.get("roc_auc")
+        # Trigger cache population via _train_classification_table
+        self._train_classification_table()
+        if self._train_eval_cache is not None:
+            return self._train_eval_cache.get("roc_auc")
+        return None
+
+    @property
+    def average_precision(self):
+        """Average precision on training data."""
+        if self._y is None or not self._fitted:
+            return None
+        # Use cached eval result if available (populated by _train_classification_table)
+        if self._train_eval_cache is not None:
+            return self._train_eval_cache.get("average_precision")
+        # Trigger cache population via _train_classification_table
+        self._train_classification_table()
+        if self._train_eval_cache is not None:
+            return self._train_eval_cache.get("average_precision")
+        return None
     
     def summary(self):
         """Print summary table similar to statsmodels/R."""
@@ -644,10 +1001,16 @@ class LogisticRegression(BaseEstimator):
         print(f"Pseudo R-squared:           {self.pseudo_rsquared:>15.4f}")
         print(f"AIC:                        {self.aic:>15.4f}")
         print(f"BIC:                        {self.bic:>15.4f}")
-        print(f"Accuracy:                   {self.accuracy:>15.4f}")
-        print(f"Precision:                  {self.precision:>15.4f}")
-        print(f"Recall:                     {self.recall:>15.4f}")
-        print(f"F1 Score:                   {self.f1:>15.4f}")
+        print(f"Accuracy:                   {self._to_python_float(self.accuracy):>15.4f}")
+        print(f"Precision:                  {self._to_python_float(self.precision):>15.4f}")
+        print(f"Recall:                     {self._to_python_float(self.recall):>15.4f}")
+        print(f"F1 Score:                   {self._to_python_float(self.f1):>15.4f}")
+        auc = self.auc
+        auc_display = self._to_python_float(auc)
+        print(f"ROC-AUC:                    {auc_display:>15.4f}")
+        ap = self.average_precision
+        ap_display = self._to_python_float(ap)
+        print(f"Avg Precision:              {ap_display:>15.4f}")
         print("-" * 80)
         print(f"{'':<15} {'coef':>12} {'std err':>12} {'z':>10} {'P>|z|':>10} {'[0.025':>12} {'0.975]':>12}")
         print("-" * 80)

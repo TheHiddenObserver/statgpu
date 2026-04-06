@@ -8,6 +8,10 @@ import numpy as np
 
 from ._config import Device, get_device, cuda_available
 from .backends import get_backend, BackendBase
+from .inference import adjust_pvalues as _adjust_pvalues
+from .inference import combine_pvalues as _combine_pvalues
+from .inference import bootstrap_statistic as _bootstrap_statistic
+from .inference import permutation_test as _permutation_test
 
 
 class BaseEstimator(ABC):
@@ -118,6 +122,255 @@ class BaseEstimator(ABC):
         elif hasattr(X, 'cpu'):  # PyTorch
             return X.cpu().numpy()
         return np.asarray(X)
+
+    def adjust_pvalues(
+        self,
+        pvalues=None,
+        method: str = "bh",
+        alpha: float = 0.05,
+        axis: Optional[int] = 0,
+        backend: str = "auto",
+    ):
+        """
+        Adjust p-values for multiple testing (FDR/FWER controls).
+
+        Parameters
+        ----------
+        pvalues : array-like, optional
+            Raw p-values. If omitted, uses this estimator's ``_pvalues``.
+        method : str, default='bh'
+            Adjustment method: ``bh``, ``by``, ``holm``, ``bonferroni``
+            (aliases accepted).
+        alpha : float, default=0.05
+            Rejection threshold in (0, 1).
+        axis : int or None, default=0
+            Axis along which to adjust. ``None`` flattens all entries.
+        backend : {'auto', 'numpy', 'cupy'}, default='auto'
+            Compute backend. ``'auto'`` uses CuPy when estimator device is CUDA.
+
+        Returns
+        -------
+        dict
+            Contains ``pvalues``, ``pvalues_adjusted``, ``reject``,
+            ``method``, ``alpha``, and ``axis``.
+        """
+        source = pvalues
+        if source is None:
+            source = getattr(self, "_pvalues", None)
+        if source is None:
+            raise RuntimeError(
+                "No p-values available. Fit with inference enabled or pass pvalues explicitly."
+            )
+
+        backend_name = str(backend).strip().lower()
+        if backend_name == "auto" and self._get_compute_device() == Device.CUDA:
+            backend_name = "cupy"
+
+        if backend_name == "cupy":
+            pvals = self._to_array(source, Device.CUDA)
+        else:
+            pvals = self._to_numpy(source)
+
+        reject, pvals_adj = _adjust_pvalues(
+            pvals,
+            method=method,
+            alpha=alpha,
+            axis=axis,
+            backend=backend_name,
+        )
+
+        return {
+            "method": method,
+            "alpha": float(alpha),
+            "axis": axis,
+            "backend": backend_name,
+            "pvalues": pvals,
+            "pvalues_adjusted": pvals_adj,
+            "reject": reject,
+        }
+
+    def combine_pvalues(
+        self,
+        pvalues=None,
+        method: str = "fisher",
+        weights=None,
+        axis: Optional[int] = None,
+        backend: str = "auto",
+    ):
+        """
+        Combine p-values into a global p-value.
+
+        Parameters
+        ----------
+        pvalues : array-like, optional
+            Raw p-values. If omitted, uses this estimator's ``_pvalues``.
+        method : str, default='fisher'
+            Combination method: ``fisher`` or ``cauchy`` (aliases accepted).
+        weights : array-like, optional
+            Optional non-negative weights for cauchy combination.
+        axis : int or None, default=None
+            Axis along which to combine p-values. ``None`` flattens input.
+        backend : {'auto', 'numpy', 'cupy'}, default='auto'
+            Compute backend. ``'auto'`` uses CuPy when estimator device is CUDA.
+
+        Returns
+        -------
+        dict
+            Contains ``pvalues``, ``statistic``, ``pvalue``,
+            ``method``, ``axis``, and ``backend``.
+        """
+        source = pvalues
+        if source is None:
+            source = getattr(self, "_pvalues", None)
+        if source is None:
+            raise RuntimeError(
+                "No p-values available. Fit with inference enabled or pass pvalues explicitly."
+            )
+
+        backend_name = str(backend).strip().lower()
+        if backend_name == "auto" and self._get_compute_device() == Device.CUDA:
+            backend_name = "cupy"
+
+        if backend_name == "cupy":
+            pvals = self._to_array(source, Device.CUDA)
+            w_cast = None if weights is None else self._to_array(weights, Device.CUDA)
+        elif backend_name == "numpy":
+            pvals = self._to_numpy(source)
+            w_cast = None if weights is None else self._to_numpy(weights)
+        else:
+            pvals = source
+            w_cast = weights
+
+        statistic, pvalue = _combine_pvalues(
+            pvals,
+            method=method,
+            weights=w_cast,
+            axis=axis,
+            backend=backend_name,
+        )
+
+        return {
+            "method": method,
+            "axis": axis,
+            "backend": backend_name,
+            "pvalues": pvals,
+            "weights": w_cast,
+            "statistic": statistic,
+            "pvalue": pvalue,
+        }
+
+    def bootstrap_statistic(
+        self,
+        statistic,
+        *arrays,
+        n_resamples: int = 200,
+        strategy: str = "iid",
+        strata=None,
+        clusters=None,
+        block_size: Optional[int] = None,
+        confidence_level: float = 0.95,
+        random_state: Optional[int] = None,
+        statistic_name: str = "statistic",
+        backend: str = "auto",
+    ):
+        """
+        Run unified bootstrap engine from model context.
+
+        This is a thin wrapper over ``statgpu.inference.bootstrap_statistic``.
+        """
+        arrays_use = arrays
+        if len(arrays_use) == 0:
+            X_cache = getattr(self, "_X_design", None)
+            y_cache = getattr(self, "_y", None)
+            if X_cache is None or y_cache is None:
+                raise RuntimeError(
+                    "No cached training arrays available. Pass arrays explicitly or fit first."
+                )
+            arrays_use = (X_cache, y_cache)
+
+        backend_name = str(backend).strip().lower()
+        if backend_name == "auto" and self._get_compute_device() == Device.CUDA:
+            backend_name = "cupy"
+
+        if backend_name == "cupy":
+            arrays_cast = tuple(self._to_array(a, Device.CUDA) for a in arrays_use)
+            strata_cast = None if strata is None else self._to_array(strata, Device.CUDA)
+            clusters_cast = None if clusters is None else self._to_array(clusters, Device.CUDA)
+        elif backend_name == "numpy":
+            arrays_cast = tuple(self._to_numpy(a) for a in arrays_use)
+            strata_cast = None if strata is None else self._to_numpy(strata)
+            clusters_cast = None if clusters is None else self._to_numpy(clusters)
+        else:
+            arrays_cast = arrays_use
+            strata_cast = strata
+            clusters_cast = clusters
+
+        return _bootstrap_statistic(
+            statistic,
+            *arrays_cast,
+            n_resamples=n_resamples,
+            strategy=strategy,
+            strata=strata_cast,
+            clusters=clusters_cast,
+            block_size=block_size,
+            confidence_level=confidence_level,
+            random_state=random_state,
+            statistic_name=statistic_name,
+            backend=backend_name,
+        )
+
+    def permutation_test(
+        self,
+        statistic,
+        X,
+        y,
+        n_resamples: int = 1000,
+        strategy: str = "iid",
+        strata=None,
+        groups=None,
+        alternative: str = "two-sided",
+        random_state: Optional[int] = None,
+        statistic_name: str = "statistic",
+        backend: str = "auto",
+    ):
+        """
+        Run unified permutation test engine from model context.
+
+        This is a thin wrapper over ``statgpu.inference.permutation_test``.
+        """
+        backend_name = str(backend).strip().lower()
+        if backend_name == "auto" and self._get_compute_device() == Device.CUDA:
+            backend_name = "cupy"
+
+        if backend_name == "cupy":
+            X_cast = self._to_array(X, Device.CUDA)
+            y_cast = self._to_array(y, Device.CUDA)
+            strata_cast = None if strata is None else self._to_array(strata, Device.CUDA)
+            groups_cast = None if groups is None else self._to_array(groups, Device.CUDA)
+        elif backend_name == "numpy":
+            X_cast = self._to_numpy(X)
+            y_cast = self._to_numpy(y)
+            strata_cast = None if strata is None else self._to_numpy(strata)
+            groups_cast = None if groups is None else self._to_numpy(groups)
+        else:
+            X_cast = X
+            y_cast = y
+            strata_cast = strata
+            groups_cast = groups
+
+        return _permutation_test(
+            statistic,
+            X_cast,
+            y_cast,
+            n_resamples=n_resamples,
+            strategy=strategy,
+            strata=strata_cast,
+            groups=groups_cast,
+            alternative=alternative,
+            random_state=random_state,
+            statistic_name=statistic_name,
+            backend=backend_name,
+        )
     
     @abstractmethod
     def fit(self, X, y=None, **fit_params):

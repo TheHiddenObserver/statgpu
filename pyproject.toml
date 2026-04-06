@@ -10,7 +10,7 @@ readme = "README.md"
 requires-python = ">=3.8"
 license = {text = "MIT"}
 authors = [
-    {name = "Your Name", email = "your.email@example.com"}
+    {name = "TheHiddenObserver"}
 ]
 keywords = ["statistics", "gpu", "cuda", "machine-learning", "sklearn"]
 classifiers = [
@@ -42,8 +42,8 @@ dev = ["pytest>=6.0", "black", "flake8", "mypy"]
 validation = ["pytest>=6.0", "scikit-learn>=1.0", "statsmodels>=0.13"]
 
 [project.urls]
-Homepage = "https://github.com/yourusername/statgpu"
-Repository = "https://github.com/yourusername/statgpu"
+Homepage = "https://github.com/TheHiddenObserver/statgpu"
+Repository = "https://github.com/TheHiddenObserver/statgpu"
 
 [tool.setuptools.packages.find]
 where = ["."]

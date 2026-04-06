@@ -53,6 +53,7 @@ pip install statgpu[dev]
 ```python
 import numpy as np
 from statgpu.linear_model import LinearRegression, Lasso
+from statgpu import adjust_pvalues, permutation_test
 
 # Generate data
 X = np.random.randn(10000, 100)
@@ -74,6 +75,18 @@ lasso = Lasso(
     gpu_memory_cleanup=True,
 )
 lasso.fit(X, y)
+
+# Multiple-testing adjustment (BH/BY/Holm/Bonferroni)
+reject, pvals_adj = adjust_pvalues(np.array([0.003, 0.02, 0.5]), method='bh')
+
+# Permutation test helper
+p = permutation_test(
+  lambda X_, y_: np.corrcoef(X_[:, 0], y_)[0, 1],
+  X[:, :1],
+  y,
+  n_resamples=200,
+  random_state=0,
+).pvalue
 ```
 
 ## Device Control
