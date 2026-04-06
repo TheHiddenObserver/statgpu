@@ -1,6 +1,6 @@
 """Binary classification metrics used by model-level evaluation APIs."""
 
-from typing import Dict, Tuple
+from typing import Dict, Tuple, Union
 
 import numpy as np
 
@@ -32,7 +32,7 @@ def binary_confusion_matrix(y_true, y_pred) -> np.ndarray:
     return np.array([[tn, fp], [fn, tp]], dtype=np.int64)
 
 
-def binary_classification_table(y_true, y_pred) -> Dict[str, float]:
+def binary_classification_table(y_true, y_pred) -> Dict[str, Union[int, float]]:
     """Compute a compact binary classification summary table."""
     cm = binary_confusion_matrix(y_true, y_pred)
     tn, fp = int(cm[0, 0]), int(cm[0, 1])
@@ -72,6 +72,12 @@ def binary_roc_curve(y_true, y_score) -> Tuple[np.ndarray, np.ndarray, np.ndarra
 
     if y_true_arr.shape[0] != y_score_arr.shape[0]:
         raise ValueError("y_true and y_score must have the same length")
+
+    if not np.all(np.isfinite(y_score_arr)):
+        raise ValueError(
+            "y_score contains non-finite values (NaN or inf). "
+            "All scores must be finite to compute the ROC curve."
+        )
 
     positives = np.sum(y_true_arr == 1)
     negatives = np.sum(y_true_arr == 0)
@@ -118,6 +124,12 @@ def binary_precision_recall_curve(y_true, y_score) -> Tuple[np.ndarray, np.ndarr
 
     if y_true_arr.shape[0] != y_score_arr.shape[0]:
         raise ValueError("y_true and y_score must have the same length")
+
+    if not np.all(np.isfinite(y_score_arr)):
+        raise ValueError(
+            "y_score contains non-finite values (NaN or inf). "
+            "All scores must be finite to compute the precision-recall curve."
+        )
 
     positives = np.sum(y_true_arr == 1)
     if positives == 0:

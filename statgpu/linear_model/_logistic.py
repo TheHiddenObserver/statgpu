@@ -18,6 +18,37 @@ from ..evaluation import (
 )
 
 
+def _require_cupy(context: str):
+    """Import CuPy or raise a clear ImportError when it is unavailable.
+
+    Parameters
+    ----------
+    context : str
+        Short description of the caller (used in the error message).
+
+    Returns
+    -------
+    module
+        The ``cupy`` module.
+
+    Raises
+    ------
+    ImportError
+        If CuPy is not installed, with a message that explains how to
+        install it and why it is required here.
+    """
+    try:
+        import cupy as cp
+        return cp
+    except ImportError as exc:
+        raise ImportError(
+            f"{context} requires CuPy for GPU computation, but CuPy is not "
+            "installed. Install CuPy matching your CUDA version, e.g.: "
+            "`pip install cupy-cuda12x` (CUDA 12.x) or "
+            "`pip install cupy-cuda11x` (CUDA 11.x)."
+        ) from exc
+
+
 class LogisticRegression(BaseEstimator):
     """
     Logistic regression with GPU acceleration and full statistical inference.
@@ -604,7 +635,7 @@ class LogisticRegression(BaseEstimator):
     def confusion_matrix(self, X, y, threshold: float = 0.5) -> np.ndarray:
         """Compute binary confusion matrix on a dataset."""
         if self._get_compute_device() == Device.CUDA:
-            import cupy as cp
+            cp = _require_cupy("confusion_matrix")
 
             y_true = cp.asarray(self._to_array(y, Device.CUDA)).reshape(-1)
             y_score = cp.asarray(self.predict_proba(X))[:, 1]
@@ -631,7 +662,7 @@ class LogisticRegression(BaseEstimator):
     def classification_table(self, X, y, threshold: float = 0.5) -> Dict[str, float]:
         """Return a compact classification table on a dataset."""
         if self._get_compute_device() == Device.CUDA:
-            import cupy as cp
+            cp = _require_cupy("classification_table")
 
             y_true = cp.asarray(self._to_array(y, Device.CUDA)).reshape(-1)
             y_score = cp.asarray(self.predict_proba(X))[:, 1]
@@ -658,7 +689,7 @@ class LogisticRegression(BaseEstimator):
     def roc_curve(self, X, y) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         """Compute ROC curve arrays (fpr, tpr, thresholds)."""
         if self._get_compute_device() == Device.CUDA:
-            import cupy as cp
+            cp = _require_cupy("roc_curve")
 
             y_true = cp.asarray(self._to_array(y, Device.CUDA)).reshape(-1)
             y_score = cp.asarray(self.predict_proba(X))[:, 1]
@@ -671,7 +702,7 @@ class LogisticRegression(BaseEstimator):
     def roc_auc_score(self, X, y) -> float:
         """Compute ROC-AUC on a dataset."""
         if self._get_compute_device() == Device.CUDA:
-            import cupy as cp
+            cp = _require_cupy("roc_auc_score")
 
             y_true = cp.asarray(self._to_array(y, Device.CUDA)).reshape(-1)
             y_score = cp.asarray(self.predict_proba(X))[:, 1]
@@ -684,7 +715,7 @@ class LogisticRegression(BaseEstimator):
     def precision_recall_curve(self, X, y) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         """Compute precision-recall arrays (precision, recall, thresholds)."""
         if self._get_compute_device() == Device.CUDA:
-            import cupy as cp
+            cp = _require_cupy("precision_recall_curve")
 
             y_true = cp.asarray(self._to_array(y, Device.CUDA)).reshape(-1)
             y_score = cp.asarray(self.predict_proba(X))[:, 1]
@@ -697,7 +728,7 @@ class LogisticRegression(BaseEstimator):
     def average_precision_score(self, X, y) -> float:
         """Compute average precision on a dataset."""
         if self._get_compute_device() == Device.CUDA:
-            import cupy as cp
+            cp = _require_cupy("average_precision_score")
 
             y_true = cp.asarray(self._to_array(y, Device.CUDA)).reshape(-1)
             y_score = cp.asarray(self.predict_proba(X))[:, 1]
@@ -738,7 +769,7 @@ class LogisticRegression(BaseEstimator):
             raise ValueError("threshold must be in [0, 1]")
 
         if self._get_compute_device() == Device.CUDA:
-            import cupy as cp
+            cp = _require_cupy("evaluate_classification")
 
             y_true = cp.asarray(self._to_array(y, Device.CUDA)).reshape(-1)
             y_score = cp.asarray(self.predict_proba(X))[:, 1]

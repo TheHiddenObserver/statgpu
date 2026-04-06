@@ -430,7 +430,7 @@ class TestGPU:
     )
     def test_gpu_evaluation_outputs_are_gpu_backed(self):
         """Test evaluation APIs return GPU-backed values on CUDA device."""
-        import cupy as cp
+        cp = pytest.importorskip("cupy")
 
         set_device('cuda')
         np.random.seed(42)
@@ -465,7 +465,7 @@ class TestGPU:
     )
     def test_gpu_batch_evaluation_outputs_are_gpu_backed(self):
         """Test one-shot batch evaluation API returns GPU-backed outputs on CUDA."""
-        import cupy as cp
+        cp = pytest.importorskip("cupy")
 
         set_device('cuda')
         np.random.seed(42)
@@ -498,7 +498,7 @@ class TestGPU:
     )
     def test_gpu_external_probability_evaluation_module(self):
         """Test standalone evaluation module with external probabilities on GPU."""
-        import cupy as cp
+        cp = pytest.importorskip("cupy")
 
         set_device('cuda')
         np.random.seed(42)

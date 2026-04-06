@@ -527,17 +527,32 @@ def evaluate_binary_classification(
     backend_name = _resolve_backend(y_true, y_score, backend)
     if backend_name == "numpy":
         y_score_arr = np.asarray(y_score, dtype=float).reshape(-1)
+        if not np.all(np.isfinite(y_score_arr)):
+            raise ValueError(
+                "y_score contains non-finite values (NaN or inf). "
+                "Ensure all predicted probabilities are finite before calling evaluate_binary_classification."
+            )
         y_pred = (y_score_arr >= threshold).astype(np.int64)
     elif backend_name == "cupy":
         import cupy as cp
 
         y_score_arr = cp.asarray(y_score, dtype=cp.float64).reshape(-1)
+        if not cp.all(cp.isfinite(y_score_arr)).item():
+            raise ValueError(
+                "y_score contains non-finite values (NaN or inf). "
+                "Ensure all predicted probabilities are finite before calling evaluate_binary_classification."
+            )
         y_pred = (y_score_arr >= threshold).astype(cp.int64)
     else:
         import torch
 
         y_true_t = torch.as_tensor(y_true)
         y_score_arr = torch.as_tensor(y_score, dtype=torch.float64, device=y_true_t.device).reshape(-1)
+        if not torch.all(torch.isfinite(y_score_arr)).item():
+            raise ValueError(
+                "y_score contains non-finite values (NaN or inf). "
+                "Ensure all predicted probabilities are finite before calling evaluate_binary_classification."
+            )
         y_pred = (y_score_arr >= threshold).to(dtype=torch.int64)
 
     result: Dict[str, Any] = {
