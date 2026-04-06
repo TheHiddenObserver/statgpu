@@ -1,0 +1,46 @@
+{
+  "bootstrap": {
+    "numpy": {
+      "time_ms": 33.64676237106323,
+      "observed": 1.1059681504433874,
+      "ci": [
+        1.0754330149522642,
+        1.1349500764593083
+      ],
+      "backend": "numpy"
+    },
+    "cupy": {
+      "time_ms": 247.88939952850342,
+      "observed": 1.1059681504433874,
+      "ci": [
+        1.0756075822028148,
+        1.1367824753380107
+      ],
+      "backend": "cupy"
+    },
+    "abs_diffs": {
+      "observed": 0.0,
+      "ci_low": 0.00017456725055065014,
+      "ci_high": 0.001832398878702346
+    }
+  },
+  "permutation": {
+    "numpy": {
+      "time_ms": 181.43856525421143,
+      "pvalue": 0.0006662225183211193,
+      "backend": "numpy"
+    },
+    "cupy": {
+      "time_ms": 1165.9221947193146,
+      "pvalue": 0.0006662225183211193,
+      "backend": "cupy"
+    },
+    "abs_diffs": {
+      "pvalue": 0.0
+    }
+  },
+  "ratios": {
+    "bootstrap_cpu_vs_gpu": 0.1357329616960663,
+    "permutation_cpu_vs_gpu": 0.15561807303779063
+  }
+}

@@ -38,6 +38,8 @@ Inference highlights:
 - `LinearRegression`: `cov_type=nonrobust/hc0/hc1` (CPU+GPU)
 - `Lasso`: `cpu_ols_inference/gpu_ols_inference/bootstrap`
 - `LogisticRegression`: `cov_type=nonrobust/hc0/hc1` (CPU+GPU)
+- Multiple-testing utilities: `statgpu.adjust_pvalues` / `statgpu.multipletests` (`bh/by/holm/bonferroni`)
+- Unified resampling engine: `statgpu.bootstrap_statistic` / `statgpu.permutation_test`
 
 ## 3) Benchmarks and Validation
 

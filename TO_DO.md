@@ -1,5 +1,8 @@
 # statgpu TO DO
 
+> Canonical merged planning entry: `PLAN_UNIFIED.md` in workspace root.
+> This file is retained for detailed execution history and checklist context.
+
 ## 开发门禁（必须遵守）
 
 - 每次新增功能，必须同时提供：

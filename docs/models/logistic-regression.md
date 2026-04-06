@@ -94,14 +94,53 @@ print(m._bse, m._pvalues, m._conf_int)
 - 系数：`intercept_`, `coef_`, `n_iter_`
 - 推断：`_bse`, `_zvalues`, `_pvalues`, `_conf_int`
 - 拟合质量：`loglikelihood`, `loglikelihood_null`, `pseudo_rsquared`, `aic`, `bic`
-- 分类指标：`accuracy`, `precision`, `recall`, `f1`
+- 分类指标：`accuracy`, `precision`, `recall`, `f1`, `auc`, `average_precision`
 - 汇总：`summary()`
+
+## 分类评估 API
+
+- `predict_with_threshold(X, threshold=0.5)`：自定义阈值预测标签
+- `confusion_matrix(X, y, threshold=0.5)`：返回 `[[TN, FP], [FN, TP]]`
+- `classification_table(X, y, threshold=0.5)`：返回准确率/精确率/召回率/F1/特异度等字典
+- `roc_curve(X, y)`：返回 `fpr, tpr, thresholds`
+- `roc_auc_score(X, y)`：返回 ROC AUC
+- `precision_recall_curve(X, y)`：返回 `precision, recall, thresholds`
+- `average_precision_score(X, y)`：返回 Average Precision（AP）
+- `evaluate_classification(X, y, threshold=0.5, include_curves=True)`：一次性批量返回 confusion/table/ROC/PR/AUC/AP（单次概率计算）
+- `statgpu.evaluation.evaluate_binary_classification(y_true, y_score, threshold=0.5, include_curves=True, backend='auto')`：对外部概率输入进行一次性批量评估（无需绑定模型对象）
+- `plot_roc_curve(X, y, ax=None, label=None)`：绘制 ROC 曲线，返回 matplotlib 轴对象
+- `plot_precision_recall_curve(X, y, ax=None, label=None)`：绘制 PR 曲线，返回 matplotlib 轴对象
+
+外部概率评估示例：
+
+```python
+from statgpu import evaluate_binary_classification
+
+# y_true: 0/1 标签；y_score: 正类概率
+out = evaluate_binary_classification(
+  y_true,
+  y_score,
+  threshold=0.5,
+  include_curves=True,
+  backend="auto",  # auto / numpy / cupy / torch
+)
+
+print(out["classification_table"])
+print(out["roc_auc"], out["average_precision"])
+```
+
+当 `device="cuda"` 时，`confusion_matrix` / `classification_table` / `roc_curve` /
+`roc_auc_score` / `precision_recall_curve` / `average_precision_score` 默认走 GPU
+计算路径，不进行 GPU 到 CPU 的数组转换（绘图接口会在绘图前转换为 NumPy）。
+
+> 绘图接口依赖 `matplotlib`（可选依赖）。
 
 ## 返回与属性
 
 - `fit(X, y)`：返回 `self`
 - `predict_proba(X)`：返回两列概率（0 类和 1 类）
 - `predict(X)`：返回二分类标签
+- `predict_with_threshold(X, threshold)`：按自定义阈值返回标签
 - 常用属性：`coef_`, `intercept_`, `n_iter_`, `aic`, `bic`
 
 ## 常见问题

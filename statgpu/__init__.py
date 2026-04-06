@@ -11,6 +11,9 @@ from ._base import BaseEstimator
 from .linear_model import LinearRegression, LogisticRegression, Ridge, Lasso
 from .survival import CoxPH
 from .backends import get_backend, NumpyBackend, CuPyBackend, TorchBackend
+from .evaluation import evaluate_binary_classification
+from .inference import adjust_pvalues, combine_pvalues, multipletests
+from .inference import bootstrap_statistic, permutation_test
 
 __all__ = [
     "get_device",
@@ -26,4 +29,10 @@ __all__ = [
     "NumpyBackend",
     "CuPyBackend",
     "TorchBackend",
+    "evaluate_binary_classification",
+    "adjust_pvalues",
+    "combine_pvalues",
+    "multipletests",
+    "bootstrap_statistic",
+    "permutation_test",
 ]

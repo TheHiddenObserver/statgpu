@@ -47,6 +47,8 @@
 - `LinearRegression`: `cov_type=nonrobust/hc0/hc1`（CPU+GPU）
 - `Lasso`: `inference_method=cpu_ols_inference/gpu_ols_inference/bootstrap`
 - `LogisticRegression`: `cov_type=nonrobust/hc0/hc1`（CPU+GPU）
+- 多重比较工具：`statgpu.adjust_pvalues` / `statgpu.multipletests`（`bh/by/holm/bonferroni`）
+- 统一重采样引擎：`statgpu.bootstrap_statistic` / `statgpu.permutation_test`
 
 ## 3) 基准与验证
 

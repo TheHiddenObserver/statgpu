@@ -57,6 +57,7 @@ GPU-accelerated statistical methods with sklearn-compatible API.
 - 📊 **Statistical Focus**: Methods from R that Python lacks
 - 🧮 **Inference Support**:
   - `LinearRegression`: `nonrobust` / `hc0` / `hc1`
+  - `Ridge`: `nonrobust` / `hc0` / `hc1`
   - `Lasso`: `cpu_ols_inference` / `gpu_ols_inference` / `bootstrap`
   - `LogisticRegression`: `nonrobust` / `hc0` / `hc1`
 - 🧹 **GPU Memory Control**: `gpu_memory_cleanup` for all current models
