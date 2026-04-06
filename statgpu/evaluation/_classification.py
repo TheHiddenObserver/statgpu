@@ -214,6 +214,12 @@ def _roc_curve_numpy(y_true, y_score):
     if y_true_arr.shape[0] != y_score_arr.shape[0]:
         raise ValueError("y_true and y_score must have the same length")
 
+    if not np.all(np.isfinite(y_score_arr)):
+        raise ValueError(
+            "y_score contains non-finite values (NaN or inf). "
+            "All scores must be finite to compute the ROC curve."
+        )
+
     positives = np.sum(y_true_arr == 1)
     negatives = np.sum(y_true_arr == 0)
     if positives == 0 or negatives == 0:
@@ -243,6 +249,12 @@ def _roc_curve_cupy(y_true, y_score):
     y_score_arr = cp.asarray(y_score, dtype=cp.float64).reshape(-1)
     if y_true_arr.shape[0] != y_score_arr.shape[0]:
         raise ValueError("y_true and y_score must have the same length")
+
+    if not cp.all(cp.isfinite(y_score_arr)).item():
+        raise ValueError(
+            "y_score contains non-finite values (NaN or inf). "
+            "All scores must be finite to compute the ROC curve."
+        )
 
     positives = cp.sum(y_true_arr == 1)
     negatives = cp.sum(y_true_arr == 0)
@@ -275,6 +287,12 @@ def _roc_curve_torch(y_true, y_score):
     y_score_arr = torch.as_tensor(y_score, dtype=torch.float64, device=y_true_arr.device).reshape(-1)
     if y_true_arr.shape[0] != y_score_arr.shape[0]:
         raise ValueError("y_true and y_score must have the same length")
+
+    if not torch.all(torch.isfinite(y_score_arr)).item():
+        raise ValueError(
+            "y_score contains non-finite values (NaN or inf). "
+            "All scores must be finite to compute the ROC curve."
+        )
 
     positives = torch.sum(y_true_arr == 1)
     negatives = torch.sum(y_true_arr == 0)
@@ -335,6 +353,12 @@ def _precision_recall_curve_numpy(y_true, y_score):
     if y_true_arr.shape[0] != y_score_arr.shape[0]:
         raise ValueError("y_true and y_score must have the same length")
 
+    if not np.all(np.isfinite(y_score_arr)):
+        raise ValueError(
+            "y_score contains non-finite values (NaN or inf). "
+            "All scores must be finite to compute the precision-recall curve."
+        )
+
     positives = np.sum(y_true_arr == 1)
     if positives == 0:
         raise ValueError("Precision-recall is undefined when y_true has no positive class")
@@ -364,6 +388,12 @@ def _precision_recall_curve_cupy(y_true, y_score):
     y_score_arr = cp.asarray(y_score, dtype=cp.float64).reshape(-1)
     if y_true_arr.shape[0] != y_score_arr.shape[0]:
         raise ValueError("y_true and y_score must have the same length")
+
+    if not cp.all(cp.isfinite(y_score_arr)).item():
+        raise ValueError(
+            "y_score contains non-finite values (NaN or inf). "
+            "All scores must be finite to compute the precision-recall curve."
+        )
 
     positives = cp.sum(y_true_arr == 1)
     if int(positives.item()) == 0:
@@ -399,6 +429,12 @@ def _precision_recall_curve_torch(y_true, y_score):
     y_score_arr = torch.as_tensor(y_score, dtype=torch.float64, device=y_true_arr.device).reshape(-1)
     if y_true_arr.shape[0] != y_score_arr.shape[0]:
         raise ValueError("y_true and y_score must have the same length")
+
+    if not torch.all(torch.isfinite(y_score_arr)).item():
+        raise ValueError(
+            "y_score contains non-finite values (NaN or inf). "
+            "All scores must be finite to compute the precision-recall curve."
+        )
 
     positives = torch.sum(y_true_arr == 1)
     if int(positives.item()) == 0:

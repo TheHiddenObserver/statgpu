@@ -121,10 +121,12 @@ class LogisticRegression(BaseEstimator):
         self._loglik = None
         self._loglik_null = None
         self._train_pred_cache = None
+        self._train_eval_cache = None
 
     def _cleanup_cuda_memory(self):
         """Best-effort CuPy memory pool cleanup."""
         self._train_pred_cache = None
+        self._train_eval_cache = None
         if not self.gpu_memory_cleanup:
             return
         try:
@@ -157,6 +159,7 @@ class LogisticRegression(BaseEstimator):
         """
         self._y = self._to_numpy(y).astype(float)
         self._train_pred_cache = None
+        self._train_eval_cache = None
         
         X_arr = self._to_array(X)
         y_arr = self._to_array(y).astype(float)
@@ -493,34 +496,42 @@ class LogisticRegression(BaseEstimator):
         self._loglik_null = np.sum(self._y * np.log(y_mean) + (1 - self._y) * np.log(1 - y_mean))
 
     def _train_classification_table(self):
-        """Training-set classification table on current device."""
+        """Training-set classification table on current device.
+
+        Results are cached in ``_train_eval_cache`` so that multiple
+        properties (accuracy, precision, recall, f1, auc, average_precision)
+        sharing the same training data only trigger a single forward pass.
+        """
         if self._y is None or not self._fitted:
             return None
 
+        if self._train_eval_cache is not None:
+            return self._train_eval_cache.get("classification_table")
+
         X_train = self._X_design[:, 1:] if self.fit_intercept else self._X_design
         if self._get_compute_device() == Device.CUDA:
-            import cupy as cp
+            cp = _require_cupy("_train_classification_table")
 
             y_true = cp.asarray(self._to_array(self._y, Device.CUDA)).reshape(-1)
             y_score = cp.asarray(self.predict_proba(X_train))[:, 1]
-            out = evaluate_binary_classification(
+            self._train_eval_cache = evaluate_binary_classification(
                 y_true,
                 y_score,
                 threshold=0.5,
                 include_curves=False,
                 backend="cupy",
             )
-            return out["classification_table"]
+            return self._train_eval_cache["classification_table"]
 
         y_score = self._to_numpy(self.predict_proba(X_train))[:, 1]
-        out = evaluate_binary_classification(
+        self._train_eval_cache = evaluate_binary_classification(
             self._y,
             y_score,
             threshold=0.5,
             include_curves=False,
             backend="numpy",
         )
-        return out["classification_table"]
+        return self._train_eval_cache["classification_table"]
 
     @staticmethod
     def _to_python_float(value):
@@ -938,42 +949,28 @@ class LogisticRegression(BaseEstimator):
         """ROC-AUC on training data."""
         if self._y is None or not self._fitted:
             return None
-        X_train = self._X_design[:, 1:] if self.fit_intercept else self._X_design
-        if self._get_compute_device() == Device.CUDA:
-            import cupy as cp
-
-            y_true = cp.asarray(self._to_array(self._y, Device.CUDA)).reshape(-1)
-            y_score = cp.asarray(self.predict_proba(X_train))[:, 1]
-            try:
-                return binary_roc_auc_score(y_true, y_score, backend="cupy")
-            except ValueError:
-                return None
-        y_score = self._to_numpy(self.predict_proba(X_train))[:, 1]
-        try:
-            return binary_roc_auc_score(self._y, y_score, backend="numpy")
-        except ValueError:
-            return None
+        # Use cached eval result if available (populated by _train_classification_table)
+        if self._train_eval_cache is not None:
+            return self._train_eval_cache.get("roc_auc")
+        # Trigger cache population via _train_classification_table
+        self._train_classification_table()
+        if self._train_eval_cache is not None:
+            return self._train_eval_cache.get("roc_auc")
+        return None
 
     @property
     def average_precision(self):
         """Average precision on training data."""
         if self._y is None or not self._fitted:
             return None
-        X_train = self._X_design[:, 1:] if self.fit_intercept else self._X_design
-        if self._get_compute_device() == Device.CUDA:
-            import cupy as cp
-
-            y_true = cp.asarray(self._to_array(self._y, Device.CUDA)).reshape(-1)
-            y_score = cp.asarray(self.predict_proba(X_train))[:, 1]
-            try:
-                return binary_average_precision_score(y_true, y_score, backend="cupy")
-            except ValueError:
-                return None
-        y_score = self._to_numpy(self.predict_proba(X_train))[:, 1]
-        try:
-            return binary_average_precision_score(self._y, y_score, backend="numpy")
-        except ValueError:
-            return None
+        # Use cached eval result if available (populated by _train_classification_table)
+        if self._train_eval_cache is not None:
+            return self._train_eval_cache.get("average_precision")
+        # Trigger cache population via _train_classification_table
+        self._train_classification_table()
+        if self._train_eval_cache is not None:
+            return self._train_eval_cache.get("average_precision")
+        return None
     
     def summary(self):
         """Print summary table similar to statsmodels/R."""
