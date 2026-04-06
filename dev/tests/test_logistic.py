@@ -5,7 +5,11 @@ import pytest
 
 from statgpu.linear_model import LogisticRegression
 from statgpu._config import set_device, Device
-from statgpu.evaluation import evaluate_binary_classification
+from statgpu.evaluation import (
+    binary_average_precision_score,
+    binary_precision_recall_curve,
+    evaluate_binary_classification,
+)
 
 
 class TestLogisticRegression:
@@ -529,6 +533,58 @@ class TestGPU:
 
 class TestEvaluationModuleBackends:
     """Standalone evaluation module backend tests."""
+
+    def test_torch_precision_recall_curve_matches_numpy(self):
+        """Torch PR curve/AP should align with NumPy semantics."""
+        torch = pytest.importorskip("torch")
+
+        y_true_np = np.array([0, 0, 1, 1, 0, 1, 0, 1], dtype=np.int64)
+        y_score_np = np.array([0.9, 0.9, 0.7, 0.7, 0.2, 0.2, 0.2, 0.1], dtype=np.float64)
+
+        precision_np, recall_np, thresholds_np = binary_precision_recall_curve(
+            y_true_np, y_score_np, backend="numpy"
+        )
+        ap_np = binary_average_precision_score(y_true_np, y_score_np, backend="numpy")
+
+        y_true_t = torch.as_tensor(y_true_np, dtype=torch.int64)
+        y_score_t = torch.as_tensor(y_score_np, dtype=torch.float64)
+        precision_t, recall_t, thresholds_t = binary_precision_recall_curve(
+            y_true_t, y_score_t, backend="torch"
+        )
+        ap_t = binary_average_precision_score(y_true_t, y_score_t, backend="torch")
+
+        assert np.allclose(precision_t.cpu().numpy(), precision_np)
+        assert np.allclose(recall_t.cpu().numpy(), recall_np)
+        assert np.allclose(thresholds_t.cpu().numpy(), thresholds_np)
+        assert np.isclose(float(ap_t.item()), ap_np)
+
+    @pytest.mark.skipif(
+        not LogisticRegression(device='auto')._get_compute_device() == Device.CUDA,
+        reason="CUDA not available"
+    )
+    def test_cupy_precision_recall_curve_matches_numpy(self):
+        """CuPy PR curve/AP should align with NumPy semantics."""
+        cp = pytest.importorskip("cupy")
+
+        y_true_np = np.array([0, 0, 1, 1, 0, 1, 0, 1], dtype=np.int64)
+        y_score_np = np.array([0.9, 0.9, 0.7, 0.7, 0.2, 0.2, 0.2, 0.1], dtype=np.float64)
+
+        precision_np, recall_np, thresholds_np = binary_precision_recall_curve(
+            y_true_np, y_score_np, backend="numpy"
+        )
+        ap_np = binary_average_precision_score(y_true_np, y_score_np, backend="numpy")
+
+        y_true_cp = cp.asarray(y_true_np)
+        y_score_cp = cp.asarray(y_score_np)
+        precision_cp, recall_cp, thresholds_cp = binary_precision_recall_curve(
+            y_true_cp, y_score_cp, backend="cupy"
+        )
+        ap_cp = binary_average_precision_score(y_true_cp, y_score_cp, backend="cupy")
+
+        assert np.allclose(cp.asnumpy(precision_cp), precision_np)
+        assert np.allclose(cp.asnumpy(recall_cp), recall_np)
+        assert np.allclose(cp.asnumpy(thresholds_cp), thresholds_np)
+        assert np.isclose(float(cp.asnumpy(ap_cp)), ap_np)
 
     def test_torch_external_probability_evaluation(self):
         """Test torch backend for external probability one-shot evaluation."""

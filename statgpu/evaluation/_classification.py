@@ -382,6 +382,7 @@ def _precision_recall_curve_cupy(y_true, y_score):
     denom = (tps + fps).astype(cp.float64)
     safe_denom = cp.where(denom != 0, denom, cp.asarray(1.0, dtype=cp.float64))
     precision = tps.astype(cp.float64) / safe_denom
+    precision = cp.where(denom != 0, precision, cp.ones_like(precision))
     recall = tps.astype(cp.float64) / positives.astype(cp.float64)
     thresholds = y_score_sorted[threshold_indices]
 
@@ -421,6 +422,7 @@ def _precision_recall_curve_torch(y_true, y_score):
     denom = (tps + fps).to(torch.float64)
     safe_denom = torch.where(denom != 0, denom, torch.ones_like(denom))
     precision = tps.to(torch.float64) / safe_denom
+    precision = torch.where(denom != 0, precision, torch.ones_like(precision))
     recall = tps.to(torch.float64) / positives.to(torch.float64)
     thresholds = y_score_sorted[threshold_indices]
 
