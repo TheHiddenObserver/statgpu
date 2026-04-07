@@ -48,6 +48,7 @@ def test_penalty_models_gpu_cpu_prediction_consistency(model_cls):
     gpu_model = model_cls(device="cuda")
     gpu_model.fit(X, y)
     gpu_pred = gpu_model.predict(X)
+    # CuPy arrays require .get() to transfer data back to host memory.
     if hasattr(gpu_pred, "get"):
         gpu_pred = gpu_pred.get()
     gpu_pred = np.asarray(gpu_pred)
