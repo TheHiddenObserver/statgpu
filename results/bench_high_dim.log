@@ -1,18 +1,18 @@
-[2026-04-04 01:52:40] ==============================================
-[2026-04-04 01:52:40] benchmark_all_methods_large_scale.py starting
-[2026-04-04 01:52:40]   devices=cpu,cuda  repeats=5  warmup=2
-[2026-04-04 01:52:40]   regression:  n=5000, p=2000
-[2026-04-04 01:52:40]   logistic:    n=5000, p=1000
-[2026-04-04 01:52:40]   cox:         n=5000, p=1000
-[2026-04-04 01:52:40]   compute_inference=False  gpu_memory_cleanup=False
-[2026-04-04 01:52:40] ==============================================
-[2026-04-04 01:52:40] Active devices: ['cpu', 'cuda']
-[2026-04-04 01:52:40] Generating regression data ...
-[2026-04-04 01:52:40]   X_reg (5000, 2000), y_reg (5000,)
-[2026-04-04 01:52:40] Generating logistic data ...
-[2026-04-04 01:52:40]   X_log (5000, 1000), y_log (5000,)
-[2026-04-04 01:52:40] Generating Cox data ...
-[2026-04-04 01:52:40]   X_cox (5000, 1000)
-[2026-04-04 01:52:40] ----------------------------------------------
-[2026-04-04 01:52:40] [refs] Building statgpu-cpu reference coefficients ...
-[2026-04-04 02:52:40] [TIMEOUT] Experiment exceeded 3600s limit (elapsed=3601s)
+[2026-04-07 15:24:28] ==============================================
+[2026-04-07 15:24:28] benchmark_all_methods_large_scale.py starting
+[2026-04-07 15:24:28]   devices=cpu,cuda  repeats=5  warmup=2
+[2026-04-07 15:24:28]   regression:  n=5000, p=2000
+[2026-04-07 15:24:28]   logistic:    n=5000, p=1000
+[2026-04-07 15:24:28]   cox:         n=5000, p=1000
+[2026-04-07 15:24:28]   compute_inference=False  gpu_memory_cleanup=False
+[2026-04-07 15:24:28] ==============================================
+[2026-04-07 15:24:29] Active devices: ['cpu', 'cuda']
+[2026-04-07 15:24:29] Generating regression data ...
+[2026-04-07 15:24:29]   X_reg (5000, 2000), y_reg (5000,)
+[2026-04-07 15:24:29] Generating logistic data ...
+[2026-04-07 15:24:29]   X_log (5000, 1000), y_log (5000,)
+[2026-04-07 15:24:29] Generating Cox data ...
+[2026-04-07 15:24:29]   X_cox (5000, 1000)
+[2026-04-07 15:24:29] ----------------------------------------------
+[2026-04-07 15:24:29] [refs] Building statgpu-cpu reference coefficients ...
+[2026-04-07 16:24:35] [TIMEOUT] Experiment exceeded 3600s limit (elapsed=3607s)
