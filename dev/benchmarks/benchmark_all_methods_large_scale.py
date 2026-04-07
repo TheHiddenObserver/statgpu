@@ -221,36 +221,103 @@ def time_external_fit(
     return True, times_ms, "", last_result
 
 
-def _run_r_script(script: str, timeout: int = 1800) -> Tuple[Optional[dict], str]:
-    """Invoke Rscript with *script* as inline code; return (parsed JSON or error dict, stderr).
+def _run_r_script(
+    script: str,
+    timeout: int = 1800,
+    log_fn: Optional[Callable[[str], None]] = None,
+) -> Tuple[Optional[dict], str]:
+    """Write *script* to a temp .R file and invoke Rscript, streaming stderr
+    in real-time so progress lines appear as they are produced.
 
+    Returns (parsed JSON from stdout or error dict, accumulated stderr str).
     Returns (None, "") when Rscript is not installed.
-    stdout is expected to contain a single JSON object; stderr carries progress messages.
     """
     if shutil.which("Rscript") is None:
         return None, ""
+
+    r_file = None
     try:
-        proc = subprocess.run(
-            ["Rscript", "-e", script],
-            capture_output=True, text=True, timeout=timeout, check=False,
+        r_file = tempfile.NamedTemporaryFile(
+            mode="w", suffix=".R", delete=False, encoding="utf-8",
         )
-        stderr = proc.stderr.strip()
+        r_file.write(script)
+        r_file.flush()
+        r_file.close()
+
+        proc = subprocess.Popen(
+            ["Rscript", "--vanilla", r_file.name],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            text=True, bufsize=1,
+        )
+
+        stderr_lines: List[str] = []
+        import selectors
+        sel = selectors.DefaultSelector()
+        sel.register(proc.stderr, selectors.EVENT_READ)
+        sel.register(proc.stdout, selectors.EVENT_READ)
+
+        stdout_chunks: List[str] = []
+        deadline = time.monotonic() + timeout
+
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                proc.kill()
+                proc.wait()
+                return {"error": f"Rscript timed out after {timeout}s"}, "\n".join(stderr_lines)
+
+            events = sel.select(timeout=min(remaining, 1.0))
+            for key, _ in events:
+                line = key.fileobj.readline()
+                if not line:
+                    continue
+                if key.fileobj is proc.stderr:
+                    line_s = line.rstrip("\n")
+                    stderr_lines.append(line_s)
+                    if log_fn and line_s.strip():
+                        log_fn(f"[R] {line_s.strip()}")
+                else:
+                    stdout_chunks.append(line)
+
+            if proc.poll() is not None:
+                for line in proc.stderr:
+                    line_s = line.rstrip("\n")
+                    stderr_lines.append(line_s)
+                    if log_fn and line_s.strip():
+                        log_fn(f"[R] {line_s.strip()}")
+                for line in proc.stdout:
+                    stdout_chunks.append(line)
+                break
+
+        sel.close()
+
         if proc.returncode != 0:
-            return {"error": stderr or "Rscript exited non-zero"}, stderr
-        stdout = proc.stdout.strip()
-        # R may emit residual messages before the JSON; find the first '{' line.
-        for line in stdout.splitlines():
-            line = line.strip()
-            if line.startswith("{"):
+            err_lines = [l for l in stderr_lines
+                         if not l.strip().startswith("[phase:") and l.strip()]
+            err = "\n".join(err_lines[-5:]) or "Rscript exited non-zero"
+            return {"error": err}, "\n".join(stderr_lines)
+
+        stdout = "".join(stdout_chunks).strip()
+        for sline in stdout.splitlines():
+            sline = sline.strip()
+            if sline.startswith("{"):
                 try:
-                    return json.loads(line), stderr
+                    return json.loads(sline), "\n".join(stderr_lines)
                 except json.JSONDecodeError:
                     pass
-        return json.loads(stdout), stderr
-    except subprocess.TimeoutExpired:
-        return {"error": f"Rscript timed out after {timeout}s"}, ""
+        try:
+            return json.loads(stdout), "\n".join(stderr_lines)
+        except json.JSONDecodeError:
+            return {"error": f"Could not parse R JSON output: {stdout[:200]}"}, "\n".join(stderr_lines)
+
     except Exception as exc:
         return {"error": str(exc)}, ""
+    finally:
+        if r_file is not None:
+            try:
+                Path(r_file.name).unlink(missing_ok=True)
+            except Exception:
+                pass
 
 
 def summarize(model: str, device: str, repeats: int, ok: bool, times: List[float], err: str,
@@ -711,10 +778,16 @@ def main() -> None:
                         "LinearRegression", "R::lm",
                         f"""suppressWarnings({{
   warmup <- {_wu}; reps <- {_rp}
-  d    <- read.csv("{_reg_csv.as_posix()}")
+  t_load0 <- proc.time()
+  d <- read.csv("{_reg_csv.as_posix()}")
+  t_load1 <- proc.time()
+  message(sprintf("[phase:load] %.1f ms", (t_load1 - t_load0)[3] * 1000))
+  t_build0 <- proc.time()
   Xmat <- cbind(1, as.matrix(d[, grep("^x", names(d))]))
   yvec <- d$y
   rm(d); gc(verbose=FALSE)
+  t_build1 <- proc.time()
+  message(sprintf("[phase:build] %.1f ms", (t_build1 - t_build0)[3] * 1000))
   times <- numeric(warmup + reps)
   for (i in seq_len(warmup + reps)) {{
     gc(verbose=FALSE)
@@ -736,10 +809,16 @@ def main() -> None:
                         "LogisticRegression", "R::glm(binomial)",
                         f"""suppressWarnings({{
   warmup <- {_wu}; reps <- {_rp}
-  d    <- read.csv("{_log_csv.as_posix()}")
+  t_load0 <- proc.time()
+  d <- read.csv("{_log_csv.as_posix()}")
+  t_load1 <- proc.time()
+  message(sprintf("[phase:load] %.1f ms", (t_load1 - t_load0)[3] * 1000))
+  t_build0 <- proc.time()
   Xmat <- cbind(1, as.matrix(d[, grep("^x", names(d))]))
   yvec <- d$y_bin
   rm(d); gc(verbose=FALSE)
+  t_build1 <- proc.time()
+  message(sprintf("[phase:build] %.1f ms", (t_build1 - t_build0)[3] * 1000))
   times <- numeric(warmup + reps)
   coefs <- NULL
   for (i in seq_len(warmup + reps)) {{
@@ -764,11 +843,17 @@ def main() -> None:
                         f"""suppressWarnings({{
   if (!requireNamespace("survival", quietly=TRUE)) stop("R package 'survival' not installed")
   warmup <- {_wu}; reps <- {_rp}
-  d    <- read.csv("{_cox_csv.as_posix()}")
+  t_load0 <- proc.time()
+  d <- read.csv("{_cox_csv.as_posix()}")
+  t_load1 <- proc.time()
+  message(sprintf("[phase:load] %.1f ms", (t_load1 - t_load0)[3] * 1000))
+  t_build0 <- proc.time()
   Xmat <- as.matrix(d[, grep("^x", names(d))])
   tvec <- d$time
   evec <- d$event
   rm(d); gc(verbose=FALSE)
+  t_build1 <- proc.time()
+  message(sprintf("[phase:build] %.1f ms", (t_build1 - t_build0)[3] * 1000))
   times <- numeric(warmup + reps)
   coefs <- NULL
   for (i in seq_len(warmup + reps)) {{
@@ -797,10 +882,16 @@ def main() -> None:
                         f"""suppressWarnings({{
   if (!requireNamespace("glmnet", quietly=TRUE)) stop("R package 'glmnet' not installed")
   warmup <- {_wu}; reps <- {_rp}
-  d    <- read.csv("{_reg_csv.as_posix()}")
+  t_load0 <- proc.time()
+  d <- read.csv("{_reg_csv.as_posix()}")
+  t_load1 <- proc.time()
+  message(sprintf("[phase:load] %.1f ms", (t_load1 - t_load0)[3] * 1000))
+  t_build0 <- proc.time()
   Xmat <- as.matrix(d[, grep("^x", names(d))])
   yvec <- d$y
   rm(d); gc(verbose=FALSE)
+  t_build1 <- proc.time()
+  message(sprintf("[phase:build] %.1f ms", (t_build1 - t_build0)[3] * 1000))
   times <- numeric(warmup + reps)
   for (i in seq_len(warmup + reps)) {{
     gc(verbose=FALSE)
@@ -822,10 +913,16 @@ def main() -> None:
                         f"""suppressWarnings({{
   if (!requireNamespace("glmnet", quietly=TRUE)) stop("R package 'glmnet' not installed")
   warmup <- {_wu}; reps <- {_rp}
-  d    <- read.csv("{_reg_csv.as_posix()}")
+  t_load0 <- proc.time()
+  d <- read.csv("{_reg_csv.as_posix()}")
+  t_load1 <- proc.time()
+  message(sprintf("[phase:load] %.1f ms", (t_load1 - t_load0)[3] * 1000))
+  t_build0 <- proc.time()
   Xmat <- as.matrix(d[, grep("^x", names(d))])
   yvec <- d$y
   rm(d); gc(verbose=FALSE)
+  t_build1 <- proc.time()
+  message(sprintf("[phase:build] %.1f ms", (t_build1 - t_build0)[3] * 1000))
   times <- numeric(warmup + reps)
   for (i in seq_len(warmup + reps)) {{
     gc(verbose=FALSE)
@@ -849,14 +946,8 @@ def main() -> None:
                         enumerate(_r_model_defs, 1):
                     log(f"[R] ({_r_idx}/{len(_r_model_defs)}) {_r_fw} {_r_mname} ...")
                     _r_t0 = time.perf_counter()
-                    _r_result, _r_stderr = _run_r_script(_r_script)
+                    _r_result, _r_stderr = _run_r_script(_r_script, log_fn=log)
                     _r_elapsed = time.perf_counter() - _r_t0
-
-                    # Relay per-repeat progress that R wrote to stderr
-                    for _line in _r_stderr.splitlines():
-                        _line = _line.strip()
-                        if _line:
-                            log(f"[R] {_line}")
 
                     if _r_result is None:
                         log(f"[R] ({_r_idx}/{len(_r_model_defs)}) {_r_fw} {_r_mname}"
