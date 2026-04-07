@@ -47,6 +47,6 @@ def test_penalty_models_gpu_cpu_prediction_consistency(model_cls):
 
     gpu_model = model_cls(device="cuda")
     gpu_model.fit(X, y)
-    gpu_pred = np.asarray(gpu_model.predict(X))
+    gpu_pred = gpu_model.predict(X)
 
     assert np.allclose(cpu_pred, gpu_pred, rtol=1e-4, atol=1e-4)

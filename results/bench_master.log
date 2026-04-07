@@ -1,55 +1,19 @@
 nohup: ignoring input
-[2026-04-07 14:37:54] ==========================================
-[2026-04-07 14:37:54] ==========================================
-[2026-04-07 14:37:54] Starting benchmark suite (6 experiments)
-[2026-04-07 14:37:54] Starting benchmark suite (6 experiments)
-[2026-04-07 14:37:54] Host: antalpha-Super-Server100101  PID: 344166
-[2026-04-07 14:37:54] Host: antalpha-Super-Server100101  PID: 344166
-[2026-04-07 14:37:54] GPU: NVIDIA GeForce RTX 4090
-[2026-04-07 14:37:54] GPU: NVIDIA GeForce RTX 4090
-[2026-04-07 14:37:54] Python: Python 3.13.5
-[2026-04-07 14:37:54] Python: Python 3.13.5
-[2026-04-07 14:37:54] ==========================================
-[2026-04-07 14:37:54] ==========================================
-[2026-04-07 14:37:54] --- EXPERIMENT 1/6: large_scale ---
-[2026-04-07 14:37:54] --- EXPERIMENT 1/6: large_scale ---
-[2026-04-07 14:37:54] Log file: results/bench_large_scale.log
-[2026-04-07 14:37:54] Log file: results/bench_large_scale.log
-[2026-04-07 15:24:28] DONE large_scale in 2794s
-[2026-04-07 15:24:28] DONE large_scale in 2794s
-[2026-04-07 15:24:28] --- EXPERIMENT 2/6: high_dim ---
-[2026-04-07 15:24:28] --- EXPERIMENT 2/6: high_dim ---
-[2026-04-07 15:24:28] Log file: results/bench_high_dim.log
-[2026-04-07 15:24:28] Log file: results/bench_high_dim.log
-[2026-04-07 16:24:35] TIMEOUT high_dim after 3607s (limit 3600s) — see results/bench_high_dim.log
-[2026-04-07 16:24:35] TIMEOUT high_dim after 3607s (limit 3600s) — see results/bench_high_dim.log
-[2026-04-07 16:24:35] --- EXPERIMENT 3/6: largeN_largeP ---
-[2026-04-07 16:24:35] --- EXPERIMENT 3/6: largeN_largeP ---
-[2026-04-07 16:24:35] Log file: results/bench_largeN_largeP.log
-[2026-04-07 16:24:35] Log file: results/bench_largeN_largeP.log
-[2026-04-07 17:24:35] TIMEOUT largeN_largeP after 3600s (limit 3600s) — see results/bench_largeN_largeP.log
-[2026-04-07 17:24:35] TIMEOUT largeN_largeP after 3600s (limit 3600s) — see results/bench_largeN_largeP.log
-[2026-04-07 17:24:35] --- EXPERIMENT 4/6: with_inference ---
-[2026-04-07 17:24:35] --- EXPERIMENT 4/6: with_inference ---
-[2026-04-07 17:24:35] Log file: results/bench_with_inference.log
-[2026-04-07 17:24:35] Log file: results/bench_with_inference.log
-[2026-04-07 17:45:04] DONE with_inference in 1229s
-[2026-04-07 17:45:04] DONE with_inference in 1229s
-[2026-04-07 17:45:04] --- EXPERIMENT 5/6: gpu_cleanup ---
-[2026-04-07 17:45:04] --- EXPERIMENT 5/6: gpu_cleanup ---
-[2026-04-07 17:45:04] Log file: results/bench_gpu_cleanup.log
-[2026-04-07 17:45:04] Log file: results/bench_gpu_cleanup.log
-[2026-04-07 18:38:37] DONE gpu_cleanup in 3213s
-[2026-04-07 18:38:37] DONE gpu_cleanup in 3213s
-[2026-04-07 18:38:37] --- EXPERIMENT 6/6: baseline ---
-[2026-04-07 18:38:37] --- EXPERIMENT 6/6: baseline ---
-[2026-04-07 18:38:37] Log file: results/bench_baseline.log
-[2026-04-07 18:38:37] Log file: results/bench_baseline.log
-[2026-04-07 18:54:24] DONE baseline in 947s
-[2026-04-07 18:54:24] DONE baseline in 947s
-[2026-04-07 18:54:24] ==========================================
-[2026-04-07 18:54:24] ==========================================
-[2026-04-07 18:54:24] ALL 6 EXPERIMENTS COMPLETE in 15390s
-[2026-04-07 18:54:24] ALL 6 EXPERIMENTS COMPLETE in 15390s
-[2026-04-07 18:54:24] ==========================================
-[2026-04-07 18:54:24] ==========================================
+[2026-04-07 21:18:16] ==========================================
+[2026-04-07 21:18:16] ==========================================
+[2026-04-07 21:18:16] Starting benchmark suite (6 experiments)
+[2026-04-07 21:18:16] Starting benchmark suite (6 experiments)
+[2026-04-07 21:18:16] Host: antalpha-Super-Server100101  PID: 824352
+[2026-04-07 21:18:16] Host: antalpha-Super-Server100101  PID: 824352
+[2026-04-07 21:18:17] GPU: NVIDIA GeForce RTX 4090
+N/A
+[2026-04-07 21:18:17] GPU: NVIDIA GeForce RTX 4090
+N/A
+[2026-04-07 21:18:17] Python: Python 3.13.5
+[2026-04-07 21:18:17] Python: Python 3.13.5
+[2026-04-07 21:18:17] ==========================================
+[2026-04-07 21:18:17] ==========================================
+[2026-04-07 21:18:17] --- EXPERIMENT 1/6: large_scale ---
+[2026-04-07 21:18:17] --- EXPERIMENT 1/6: large_scale ---
+[2026-04-07 21:18:17] Log file: results/bench_large_scale.log
+[2026-04-07 21:18:17] Log file: results/bench_large_scale.log

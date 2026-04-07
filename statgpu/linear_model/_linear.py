@@ -555,8 +555,8 @@ class LinearRegression(BaseEstimator):
             coef_gpu = cp.asarray(self.coef_)
             intercept_gpu = cp.asarray(self.intercept_, dtype=coef_gpu.dtype)
             if coef_gpu.ndim == 2:
-                return X_gpu @ coef_gpu.T + intercept_gpu
-            return X_gpu @ coef_gpu + intercept_gpu
+                return self._to_numpy(X_gpu @ coef_gpu.T + intercept_gpu)
+            return self._to_numpy(X_gpu @ coef_gpu + intercept_gpu)
         X = self._to_array(X, Device.CPU)
         X = np.asarray(X)
         if np.asarray(self.coef_).ndim == 2:
@@ -566,8 +566,6 @@ class LinearRegression(BaseEstimator):
     def score(self, X, y):
         """Return R^2 score."""
         y_pred = self.predict(X)
-        if hasattr(y_pred, "get"):
-            y_pred = y_pred.get()
         y = np.asarray(y)
         if y_pred.ndim == 1:
             ss_res = np.sum((y - y_pred) ** 2)

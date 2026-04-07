@@ -714,8 +714,10 @@ def main() -> None:
   d    <- read.csv("{_reg_csv.as_posix()}")
   Xmat <- cbind(1, as.matrix(d[, grep("^x", names(d))]))
   yvec <- d$y
+  rm(d); gc(verbose=FALSE)
   times <- numeric(warmup + reps)
   for (i in seq_len(warmup + reps)) {{
+    gc(verbose=FALSE)
     t0 <- proc.time()
     m  <- .lm.fit(Xmat, yvec)
     t1 <- proc.time()
@@ -737,9 +739,11 @@ def main() -> None:
   d    <- read.csv("{_log_csv.as_posix()}")
   Xmat <- cbind(1, as.matrix(d[, grep("^x", names(d))]))
   yvec <- d$y_bin
+  rm(d); gc(verbose=FALSE)
   times <- numeric(warmup + reps)
   coefs <- NULL
   for (i in seq_len(warmup + reps)) {{
+    gc(verbose=FALSE)
     t0 <- proc.time()
     m  <- glm.fit(Xmat, yvec, family=binomial())
     t1 <- proc.time()
@@ -764,9 +768,11 @@ def main() -> None:
   Xmat <- as.matrix(d[, grep("^x", names(d))])
   tvec <- d$time
   evec <- d$event
+  rm(d); gc(verbose=FALSE)
   times <- numeric(warmup + reps)
   coefs <- NULL
   for (i in seq_len(warmup + reps)) {{
+    gc(verbose=FALSE)
     t0 <- proc.time()
     m  <- survival::coxph.fit(Xmat, survival::Surv(tvec, evec),
                               strata=NULL, offset=NULL, init=NULL,
@@ -794,8 +800,10 @@ def main() -> None:
   d    <- read.csv("{_reg_csv.as_posix()}")
   Xmat <- as.matrix(d[, grep("^x", names(d))])
   yvec <- d$y
+  rm(d); gc(verbose=FALSE)
   times <- numeric(warmup + reps)
   for (i in seq_len(warmup + reps)) {{
+    gc(verbose=FALSE)
     t0 <- proc.time()
     glmnet::glmnet(Xmat, yvec, alpha=0)
     t1 <- proc.time()
@@ -817,8 +825,10 @@ def main() -> None:
   d    <- read.csv("{_reg_csv.as_posix()}")
   Xmat <- as.matrix(d[, grep("^x", names(d))])
   yvec <- d$y
+  rm(d); gc(verbose=FALSE)
   times <- numeric(warmup + reps)
   for (i in seq_len(warmup + reps)) {{
+    gc(verbose=FALSE)
     t0 <- proc.time()
     glmnet::glmnet(Xmat, yvec, alpha=1)
     t1 <- proc.time()
