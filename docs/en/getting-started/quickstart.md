@@ -1,7 +1,7 @@
 # Quickstart
 
 > Language: English  
-> Last updated: 2026-04-02  
+> Last updated: 2026-04-11  
 > This page: Getting started  
 > Switch: [Chinese](../../getting-started/quickstart.md)
 
@@ -36,7 +36,7 @@ import statgpu as sg
 sg.set_device("auto")
 sg.set_device("cuda")
 sg.set_device("cpu")
-print(sg.get_device())
+print(sg.get_device().value)  # resolved device, e.g. cuda / cpu
 ```
 
 See also:

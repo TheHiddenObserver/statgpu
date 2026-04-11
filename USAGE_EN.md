@@ -1,7 +1,7 @@
 # statgpu Documentation Portal (English Alias)
 
 > Language: English  
-> Last updated: 2026-04-10  
+> Last updated: 2026-04-11  
 > This page: Compatibility alias  
 > Switch: [Chinese](USAGE_CN.md)
 
