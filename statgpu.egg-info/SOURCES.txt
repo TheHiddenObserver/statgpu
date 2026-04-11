@@ -3,6 +3,7 @@ pyproject.toml
 statgpu/__init__.py
 statgpu/_base.py
 statgpu/_config.py
+statgpu/_cv_base.py
 statgpu/_gpu_utils.py
 statgpu.egg-info/PKG-INFO
 statgpu.egg-info/SOURCES.txt
@@ -20,6 +21,8 @@ statgpu/diagnostics/_regression_diagnostics.py
 statgpu/evaluation/__init__.py
 statgpu/evaluation/_classification.py
 statgpu/feature_selection/__init__.py
+statgpu/feature_selection/_knockoff.py
+statgpu/feature_selection/_knockoff_utils.py
 statgpu/feature_selection/_stepwise.py
 statgpu/inference/__init__.py
 statgpu/inference/_multiple_testing.py
@@ -28,10 +31,13 @@ statgpu/linear_model/__init__.py
 statgpu/linear_model/_lasso.py
 statgpu/linear_model/_linear.py
 statgpu/linear_model/_logistic.py
+statgpu/linear_model/_logistic_cv.py
 statgpu/linear_model/_ridge.py
+statgpu/linear_model/_ridge_cv.py
 statgpu/linear_model/_stats.py
 statgpu/metrics/__init__.py
 statgpu/metrics/_classification.py
 statgpu/survival/__init__.py
 statgpu/survival/_cox.py
+statgpu/survival/_cox_cv.py
 statgpu/survival/_cox_efron_cuda.py

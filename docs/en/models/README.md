@@ -23,8 +23,8 @@ Language switch: [中文](../../models/README.md)
 - All current models support `device="cpu"` / `device="cuda"` / `device="auto"`.
 - All current models support `gpu_memory_cleanup`.
 - Inference-rich models:
-	- `LinearRegression`: classical + `HC0/HC1/HC2/HC3/HAC`
-	- `Ridge`: classical + `HC0/HC1/HC2/HC3/HAC`
-	- `Lasso`: CPU/GPU OLS-style inference + bootstrap
-	- `LogisticRegression`: classical + `HC0/HC1/HC2/HC3/HAC`
+  - `LinearRegression`: classical + `HC0/HC1/HC2/HC3/HAC`
+  - `Ridge`: classical + `HC0/HC1/HC2/HC3/HAC`
+  - `Lasso`: CPU/GPU OLS-style inference + bootstrap
+  - `LogisticRegression`: classical + `HC0/HC1/HC2/HC3/HAC`
 - `CoxPH` supports Breslow/Efron ties and CPU/GPU fitting paths.

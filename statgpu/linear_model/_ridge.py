@@ -335,10 +335,16 @@ class Ridge(BaseEstimator):
                     compute_inference_gpu(X_design, resid, scale, df_resid, coef_full)
             else:
                 XtX_cov = X_design.T @ X_design
+                # Apply ridge penalty excluding the intercept column
+                k_design = X_design.shape[1]
+                penalty_diag = cp.ones(k_design, dtype=cp.float64) * self.alpha
+                if self.fit_intercept:
+                    penalty_diag[0] = 0.0  # no penalty on the intercept term
+                XtX_pen = XtX_cov + cp.diag(penalty_diag)
                 try:
-                    XtX_inv = cp.linalg.inv(XtX_cov)
+                    XtX_inv = cp.linalg.inv(XtX_pen)
                 except Exception:
-                    XtX_inv = cp.linalg.pinv(XtX_cov)
+                    XtX_inv = cp.linalg.pinv(XtX_pen)
                 cov_params = self._robust_covariance_cupy(X_design, resid, XtX_inv)
                 self._bse_gpu = cp.sqrt(cp.maximum(cp.diag(cov_params), 0.0))
                 self._tvalues_gpu = coef_full / (self._bse_gpu + 1e-30)
@@ -417,11 +423,18 @@ class Ridge(BaseEstimator):
         n = X.shape[0]
         k = X.shape[1]
 
-        # (X'X)^{-1} — used by all cov_type paths
+        # Build the penalized bread (X'X + alpha·P)^{-1} where the penalty
+        # matrix P excludes the intercept column (if fit_intercept is True).
+        # This ensures SE/t/p are consistent with the ridge fit rather than OLS.
+        XtX = X.T @ X
+        penalty_diag = np.ones(k) * self.alpha
+        if self.fit_intercept:
+            penalty_diag[0] = 0.0  # no penalty on the intercept term
+        XtX_pen = XtX + np.diag(penalty_diag)
         try:
-            XtX_inv = np.linalg.inv(X.T @ X)
+            XtX_inv = np.linalg.inv(XtX_pen)
         except np.linalg.LinAlgError:
-            XtX_inv = np.linalg.pinv(X.T @ X)
+            XtX_inv = np.linalg.pinv(XtX_pen)
 
         alpha = 0.05
 

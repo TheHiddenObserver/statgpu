@@ -66,4 +66,7 @@ class LogisticRegressionCV(CVEstimatorBase):
         self.C_ = None
 
     def fit(self, X, y, sample_weight=None):
-        pass
+        raise NotImplementedError(
+            "LogisticRegressionCV.fit() is not yet implemented. "
+            "This class currently exposes a stable interface skeleton only."
+        )

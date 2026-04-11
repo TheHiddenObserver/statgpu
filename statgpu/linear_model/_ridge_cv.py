@@ -60,4 +60,7 @@ class RidgeCV(CVEstimatorBase):
         self.alpha_ = None
 
     def fit(self, X, y, sample_weight=None):
-        pass
+        raise NotImplementedError(
+            "RidgeCV.fit() is not yet implemented. "
+            "This class currently exposes a stable interface skeleton only."
+        )

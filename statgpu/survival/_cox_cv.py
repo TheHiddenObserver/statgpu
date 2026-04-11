@@ -64,10 +64,19 @@ class CoxPHCV(CVEstimatorBase):
         self.penalty_ = None
 
     def fit(self, X, time, event, entry=None, cluster=None):
-        pass
+        raise NotImplementedError(
+            "CoxPHCV.fit() is not yet implemented. "
+            "This class currently exposes a stable interface skeleton only."
+        )
 
     def predict(self, X):
-        pass
+        raise NotImplementedError(
+            "CoxPHCV.predict() is not yet implemented. "
+            "This class currently exposes a stable interface skeleton only."
+        )
 
     def score(self, X, time, event):
-        pass
+        raise NotImplementedError(
+            "CoxPHCV.score() is not yet implemented. "
+            "This class currently exposes a stable interface skeleton only."
+        )
