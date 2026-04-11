@@ -1,7 +1,7 @@
 # LinearRegression
 
 > Language: English  
-> Last updated: 2026-04-02  
+> Last updated: 2026-04-10  
 > This page: Model documentation  
 > Switch: [中文](../../models/linear-regression.md)
 
@@ -16,7 +16,8 @@ Path: `statgpu.linear_model.LinearRegression`
 | `fit_intercept` | `True` | Whether to fit an intercept |
 | `device` | `"auto"` | `cpu` / `cuda` / `auto` |
 | `compute_inference` | `True` | Whether to compute inference stats (SE/t/p/CI) |
-| `cov_type` | `"nonrobust"` | `nonrobust` / `hc0` / `hc1` |
+| `cov_type` | `"nonrobust"` | `nonrobust` / `hc0` / `hc1` / `hc2` / `hc3` / `hac` |
+| `hac_maxlags` | `None` | Max lag used when `cov_type="hac"`; if omitted, Newey-West style default is used |
 | `gpu_memory_cleanup` | `False` | Best-effort CuPy pool cleanup after each fit |
 
 ## Example
@@ -27,6 +28,22 @@ from statgpu.linear_model import LinearRegression
 m = LinearRegression(device="cuda", cov_type="hc1", compute_inference=True)
 m.fit(X, y)
 m.summary()
+```
+
+## Robust Covariance (HC0/HC1/HC2/HC3/HAC)
+
+- `cov_type="nonrobust"`: classical OLS covariance
+- `cov_type="hc0"`: White/sandwich heteroskedasticity-robust covariance
+- `cov_type="hc1"`: HC0 with DOF correction `n/(n-k)`
+- `cov_type="hc2"`: leverage-adjusted robust covariance
+- `cov_type="hc3"`: more conservative jackknife-style robust covariance
+- `cov_type="hac"`: Newey-West (Bartlett kernel) covariance with optional `hac_maxlags`
+
+```python
+from statgpu.linear_model import LinearRegression
+
+m_hac = LinearRegression(device="cpu", cov_type="hac", hac_maxlags=4)
+m_hac.fit(X, y)
 ```
 
 ## Outputs
@@ -53,3 +70,4 @@ For multi-output `y` (shape=`(n_samples, n_targets)`):
   - `test_linear_estimation_and_inference_match_statsmodels`
   - `test_linear_robust_covariance_matches_statsmodels`
   - `test_linear_robust_covariance_gpu_matches_statsmodels`
+  - `test_linear_hac_covariance_matches_statsmodels`

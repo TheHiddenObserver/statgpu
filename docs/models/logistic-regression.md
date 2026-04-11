@@ -1,7 +1,7 @@
 # LogisticRegression
 
 > 语言: 中文  
-> 最后更新: 2026-04-02  
+> 最后更新: 2026-04-10  
 > 页面定位: 模型文档  
 > 切换: [English](../en/models/logistic-regression.md)
 
@@ -19,7 +19,8 @@
 | `tol` | `1e-4` | 收敛阈值 |
 | `device` | `"auto"` | `cpu` / `cuda` / `auto` |
 | `compute_inference` | `True` | 是否计算推断统计 |
-| `cov_type` | `"nonrobust"` | `nonrobust` / `hc0` / `hc1` |
+| `cov_type` | `"nonrobust"` | `nonrobust` / `hc0` / `hc1` / `hc2` / `hc3` / `hac` |
+| `hac_maxlags` | `None` | `cov_type="hac"` 时的最大滞后阶；为空时使用 Newey-West 风格默认规则 |
 | `gpu_memory_cleanup` | `False` | 每次 `fit` 后尝试释放 CuPy memory pool |
 
 ## 主要参数
@@ -29,7 +30,8 @@
 - `tol`
 - `device`
 - `compute_inference`
-- `cov_type`：`nonrobust` / `hc0` / `hc1`
+- `cov_type`：`nonrobust` / `hc0` / `hc1` / `hc2` / `hc3` / `hac`
+- `hac_maxlags`：仅 `cov_type="hac"` 生效；未指定时按样本规模自动推断
 - `gpu_memory_cleanup`
 
 ## 示例
@@ -42,13 +44,16 @@ m.fit(X, y_binary)
 proba = m.predict_proba(X)
 ```
 
-## 稳健协方差（HC0/HC1）
+## 稳健协方差（HC0/HC1/HC2/HC3/HAC）
 
 `LogisticRegression` 支持稳健协方差：
 
 - `cov_type="nonrobust"`：经典信息矩阵协方差
 - `cov_type="hc0"`：White/sandwich 稳健协方差
 - `cov_type="hc1"`：在 `hc0` 基础上做自由度修正 `n/(n-k)`
+- `cov_type="hc2"`：基于 leverage 的稳健修正
+- `cov_type="hc3"`：更保守的 jackknife 风格修正
+- `cov_type="hac"`：Newey-West（Bartlett kernel）自相关稳健协方差，可通过 `hac_maxlags` 控制滞后阶
 
 ### CPU 示例
 
@@ -73,7 +78,8 @@ from statgpu.linear_model import LogisticRegression
 m = LogisticRegression(
     device="cuda",
     C=1e10,
-    cov_type="hc1",
+  cov_type="hac",
+  hac_maxlags=4,
     compute_inference=True,
     gpu_memory_cleanup=True,
 )
@@ -88,6 +94,10 @@ print(m._bse, m._pvalues, m._conf_int)
 - `dev/tests/test_external_consistency.py`
   - `test_logistic_robust_covariance_matches_statsmodels`
   - `test_logistic_robust_covariance_gpu_matches_statsmodels`
+
+`HC2/HC3/HAC` 的三方（`statsmodels` / `statgpu CPU` / `statgpu GPU`）统一产物见：
+
+- `results/remote_covariance_full_compare_2026-04-10.json`
 
 ## 输出统计
 

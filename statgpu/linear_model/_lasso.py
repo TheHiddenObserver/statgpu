@@ -2,13 +2,36 @@
 Lasso regression with full statistical inference and GPU support.
 """
 
-from typing import Optional, Union
+from collections import OrderedDict
+import hashlib
+from typing import Any, Dict, Optional, Tuple, Union
+import os
 import numpy as np
 from scipy import stats
 
+try:
+    from numba import njit
+
+    _NUMBA_AVAILABLE = True
+except Exception:
+    njit = None
+    _NUMBA_AVAILABLE = False
+
 from .._base import BaseEstimator
 from .._config import Device
+from .._cv_base import CVEstimatorBase
 from .._gpu_utils import t_two_tail_pvalues_gpu, t_crit_gpu_two_tail
+
+
+_NUMBA_CD_DISABLED = str(os.getenv("STATGPU_DISABLE_NUMBA_CD", "0")).strip().lower() in (
+    "1",
+    "true",
+    "yes",
+    "on",
+)
+
+_LASSO_CV_ALPHA_CACHE_MAXSIZE = int(os.getenv("STATGPU_LASSO_CV_CACHE_SIZE", "64"))
+_LASSO_CV_ALPHA_CACHE: "OrderedDict[Tuple[Any, ...], Dict[str, Any]]" = OrderedDict()
 
 
 class Lasso(BaseEstimator):
@@ -971,3 +994,1774 @@ class Lasso(BaseEstimator):
         ss_res = np.sum((y - y_pred) ** 2)
         ss_tot = np.sum((y - np.mean(y)) ** 2)
         return 1 - ss_res / ss_tot if ss_tot > 0 else 0.0
+
+
+def _lasso_alpha_heuristic(y_centered: np.ndarray, n_features: int) -> float:
+    n_samples = int(y_centered.shape[0])
+    if n_samples > 1:
+        sigma_hat = float(np.std(y_centered, ddof=1))
+    else:
+        sigma_hat = float(np.std(y_centered))
+    sigma_hat = max(sigma_hat, 1e-8)
+    penalty_scale = np.sqrt(2.0 * np.log(max(2, int(n_features))) / max(1, n_samples))
+    return float(sigma_hat * penalty_scale)
+
+
+def _default_lasso_alpha_grid(
+    X: np.ndarray,
+    y: np.ndarray,
+    n_alphas: int = 12,
+    alpha_min_ratio: float = 1e-3,
+) -> np.ndarray:
+    n_samples = int(X.shape[0])
+    corr = np.abs(X.T @ y) / float(max(1, n_samples))
+    alpha_max = float(np.max(corr)) if corr.size else 1.0
+    alpha_max = max(alpha_max, _lasso_alpha_heuristic(y, n_features=int(X.shape[1])))
+    alpha_max = max(alpha_max, 1e-6)
+
+    if int(n_alphas) <= 1:
+        return np.asarray([alpha_max], dtype=np.float64)
+
+    alpha_min = max(float(alpha_min_ratio) * alpha_max, 1e-6)
+    return np.geomspace(alpha_max, alpha_min, num=int(n_alphas)).astype(np.float64)
+
+
+def _default_lasso_alpha_grid_cupy(
+    X,
+    y,
+    n_alphas: int = 12,
+    alpha_min_ratio: float = 1e-3,
+) -> np.ndarray:
+    import cupy as cp
+
+    X_cp = cp.asarray(X, dtype=cp.float64)
+    y_cp = cp.asarray(y, dtype=cp.float64).reshape(-1)
+
+    n_samples = int(X_cp.shape[0])
+    corr = cp.abs(X_cp.T @ y_cp) / float(max(1, n_samples))
+    alpha_max = float(cp.max(corr).item()) if int(corr.size) > 0 else 1.0
+
+    if n_samples > 1:
+        sigma_hat = float(cp.std(y_cp, ddof=1).item())
+    else:
+        sigma_hat = float(cp.std(y_cp).item())
+
+    sigma_hat = max(sigma_hat, 1e-8)
+    penalty_scale = np.sqrt(2.0 * np.log(max(2, int(X_cp.shape[1]))) / max(1, n_samples))
+    alpha_max = max(alpha_max, float(sigma_hat * penalty_scale), 1e-6)
+
+    if int(n_alphas) <= 1:
+        return np.asarray([alpha_max], dtype=np.float64)
+
+    alpha_min = max(float(alpha_min_ratio) * alpha_max, 1e-6)
+    return np.geomspace(alpha_max, alpha_min, num=int(n_alphas)).astype(np.float64)
+
+
+def _kfold_indices(n_samples: int, n_splits: int, random_state: Optional[int]):
+    n = int(n_samples)
+    k = max(2, min(int(n_splits), n))
+
+    rng = np.random.default_rng(random_state)
+    indices = rng.permutation(n)
+
+    fold_sizes = np.full(k, n // k, dtype=np.int64)
+    fold_sizes[: n % k] += 1
+
+    folds = []
+    current = 0
+    for fold_size in fold_sizes:
+        start, stop = current, current + int(fold_size)
+        val_idx = indices[start:stop]
+        train_idx = np.concatenate([indices[:start], indices[stop:]])
+        current = stop
+        if train_idx.size == 0 or val_idx.size == 0:
+            continue
+        folds.append((train_idx, val_idx))
+
+    if len(folds) == 0:
+        all_idx = np.arange(n, dtype=np.int64)
+        return [(all_idx, all_idx)]
+
+    return folds
+
+
+def _normalize_cv_splits(cv_splits, n_samples: int):
+    if cv_splits is None:
+        return None
+
+    n = int(n_samples)
+    folds = []
+
+    for split in cv_splits:
+        if not isinstance(split, (tuple, list)) or len(split) != 2:
+            raise ValueError("Each cv_splits entry must be a (train_idx, val_idx) pair")
+
+        train_idx = np.asarray(split[0], dtype=np.int64).reshape(-1)
+        val_idx = np.asarray(split[1], dtype=np.int64).reshape(-1)
+
+        if train_idx.size == 0 or val_idx.size == 0:
+            continue
+
+        if (
+            bool(np.any(train_idx < 0))
+            or bool(np.any(train_idx >= n))
+            or bool(np.any(val_idx < 0))
+            or bool(np.any(val_idx >= n))
+        ):
+            raise ValueError("cv_splits indices are out of range")
+
+        folds.append((train_idx, val_idx))
+
+    if len(folds) == 0:
+        raise ValueError("cv_splits must contain at least one non-empty split")
+
+    return folds
+
+
+def _folds_are_complements(folds, n_samples: int) -> bool:
+    """Return True when each fold uses train as the exact complement of validation."""
+    n = int(n_samples)
+    for train_idx, val_idx in folds:
+        train_arr = np.asarray(train_idx, dtype=np.int64).reshape(-1)
+        val_arr = np.asarray(val_idx, dtype=np.int64).reshape(-1)
+
+        if int(train_arr.size + val_arr.size) != n:
+            return False
+
+        mask = np.zeros((n,), dtype=np.int8)
+        mask[train_arr] = 1
+        if bool(np.any(mask[val_arr] != 0)):
+            return False
+        mask[val_arr] = 1
+        if bool(np.any(mask == 0)):
+            return False
+
+    return True
+
+
+def _array_identity_token(x: Any) -> Tuple[Any, ...]:
+    if x is None:
+        return ("none",)
+
+    try:
+        import cupy as cp
+
+        if isinstance(x, cp.ndarray):
+            return ("cupy", int(x.data.ptr), tuple(int(v) for v in x.shape), str(x.dtype))
+    except Exception:
+        pass
+
+    arr = np.asarray(x)
+    ptr = int(arr.__array_interface__["data"][0]) if int(arr.size) > 0 else 0
+    return ("numpy", ptr, tuple(int(v) for v in arr.shape), str(arr.dtype))
+
+
+def _alphas_signature(alphas: np.ndarray) -> str:
+    arr = np.ascontiguousarray(np.asarray(alphas, dtype=np.float64).reshape(-1))
+    return hashlib.blake2b(arr.tobytes(), digest_size=16).hexdigest()
+
+
+def _folds_signature(folds) -> str:
+    hasher = hashlib.blake2b(digest_size=16)
+    for train_idx, val_idx in folds:
+        train_arr = np.ascontiguousarray(np.asarray(train_idx, dtype=np.int64).reshape(-1))
+        val_arr = np.ascontiguousarray(np.asarray(val_idx, dtype=np.int64).reshape(-1))
+        hasher.update(train_arr.tobytes())
+        hasher.update(b"|")
+        hasher.update(val_arr.tobytes())
+        hasher.update(b";")
+    return hasher.hexdigest()
+
+
+def _make_lasso_cv_auto_cache_key(
+    *,
+    X,
+    y,
+    sample_weight,
+    alpha_grid: np.ndarray,
+    folds,
+    fit_intercept: bool,
+    use_gpu: bool,
+    max_iter: int,
+    tol: float,
+    cpu_solver: str,
+    cv_method: str,
+    cd_kkt_check_every: Optional[int],
+    gpu_cv_mixed_precision: bool,
+) -> Tuple[Any, ...]:
+    return (
+        "lasso_cv_auto_v1",
+        _array_identity_token(X),
+        _array_identity_token(y),
+        _array_identity_token(sample_weight),
+        _alphas_signature(alpha_grid),
+        _folds_signature(folds),
+        bool(fit_intercept),
+        bool(use_gpu),
+        int(max_iter),
+        float(tol),
+        str(cpu_solver).lower(),
+        str(cv_method).lower(),
+        None if cd_kkt_check_every is None else int(cd_kkt_check_every),
+        bool(gpu_cv_mixed_precision),
+    )
+
+
+def _clone_lasso_cv_cache_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "alpha": float(payload["alpha"]),
+        "alphas": np.asarray(payload["alphas"], dtype=np.float64).copy(),
+        "mse_path": np.asarray(payload["mse_path"], dtype=np.float64).copy(),
+        "mean_mse": np.asarray(payload["mean_mse"], dtype=np.float64).copy(),
+    }
+
+
+def _lasso_cv_cache_get(cache_key: Optional[Tuple[Any, ...]]) -> Optional[Dict[str, Any]]:
+    if cache_key is None or _LASSO_CV_ALPHA_CACHE_MAXSIZE <= 0:
+        return None
+
+    cached = _LASSO_CV_ALPHA_CACHE.get(cache_key)
+    if cached is None:
+        return None
+
+    _LASSO_CV_ALPHA_CACHE.move_to_end(cache_key)
+    return _clone_lasso_cv_cache_payload(cached)
+
+
+def _lasso_cv_cache_put(cache_key: Optional[Tuple[Any, ...]], payload: Dict[str, Any]) -> None:
+    if cache_key is None or _LASSO_CV_ALPHA_CACHE_MAXSIZE <= 0:
+        return
+
+    _LASSO_CV_ALPHA_CACHE[cache_key] = _clone_lasso_cv_cache_payload(payload)
+    _LASSO_CV_ALPHA_CACHE.move_to_end(cache_key)
+
+    while len(_LASSO_CV_ALPHA_CACHE) > int(_LASSO_CV_ALPHA_CACHE_MAXSIZE):
+        _LASSO_CV_ALPHA_CACHE.popitem(last=False)
+
+
+def _adaptive_gpu_check_every(
+    *,
+    base_check_every: int,
+    iteration: int,
+    max_iter: int,
+    active_ratio: float,
+) -> int:
+    """Adaptive cadence for expensive global convergence checks on GPU."""
+    base = max(1, int(base_check_every))
+    ratio = float(max(0.0, min(1.0, active_ratio)))
+
+    if ratio >= 0.75:
+        interval = max(base, 16)
+    elif ratio >= 0.40:
+        interval = max(base, 12)
+    elif ratio >= 0.15:
+        interval = max(4, base)
+    else:
+        interval = max(2, base // 2)
+
+    progress = float(iteration + 1) / float(max(1, int(max_iter)))
+    if progress >= 0.90:
+        interval = min(interval, 2)
+    elif progress >= 0.75:
+        interval = min(interval, 4)
+
+    return max(1, int(interval))
+
+
+def _soft_threshold_numpy(x: np.ndarray, gamma: float) -> np.ndarray:
+    gamma_arr = np.asarray(gamma, dtype=np.float64)
+    return np.sign(x) * np.maximum(np.abs(x) - gamma_arr, 0.0)
+
+
+def _soft_threshold_scalar(x: float, gamma: float) -> float:
+    ax = abs(float(x))
+    g = float(gamma)
+    if ax <= g:
+        return 0.0
+    return float(np.sign(x) * (ax - g))
+
+
+if _NUMBA_AVAILABLE:
+
+    @njit(cache=True)
+    def _soft_threshold_scalar_numba(x: float, gamma: float) -> float:
+        ax = abs(x)
+        if ax <= gamma:
+            return 0.0
+        if x >= 0.0:
+            return ax - gamma
+        return -(ax - gamma)
+
+
+    @njit(cache=True)
+    def _solve_lasso_path_cpu_cd_numba_impl(
+        XtX: np.ndarray,
+        Xty: np.ndarray,
+        n_samples: int,
+        alphas_desc: np.ndarray,
+        max_iter: int,
+        tol: float,
+        stopping_is_kkt: bool,
+        cd_kkt_check_every: int,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        n_features = XtX.shape[0]
+        n_alphas = alphas_desc.shape[0]
+
+        coefs_path = np.zeros((n_alphas, n_features), dtype=np.float64)
+        n_iters = np.zeros((n_alphas,), dtype=np.int32)
+
+        coef = np.zeros((n_features,), dtype=np.float64)
+        grad = -Xty.copy()
+
+        X_sq_norms = np.empty((n_features,), dtype=np.float64)
+        for j in range(n_features):
+            X_sq_norms[j] = XtX[j, j]
+
+        n_samp = float(max(1, n_samples))
+        alpha_scaled_desc = np.empty((n_alphas,), dtype=np.float64)
+        for idx in range(n_alphas):
+            alpha_scaled_desc[idx] = alphas_desc[idx] * n_samp
+
+        active_mask = np.zeros((n_features,), dtype=np.bool_)
+        check_every = max(1, int(cd_kkt_check_every))
+
+        for alpha_idx in range(n_alphas):
+            alpha = float(alphas_desc[alpha_idx])
+            alpha_scaled = float(alpha_scaled_desc[alpha_idx])
+            if alpha_idx > 0:
+                prev_alpha_scaled = float(alpha_scaled_desc[alpha_idx - 1])
+            else:
+                prev_alpha_scaled = alpha_scaled
+
+            strong_thresh = 2.0 * alpha_scaled - prev_alpha_scaled
+            if strong_thresh < 0.0:
+                strong_thresh = 0.0
+
+            any_active = False
+            max_abs_xty = -1.0
+            max_abs_xty_idx = 0
+            for j in range(n_features):
+                abs_xty = abs(Xty[j])
+                if abs_xty >= strong_thresh:
+                    active_mask[j] = True
+                    any_active = True
+                if abs_xty > max_abs_xty:
+                    max_abs_xty = abs_xty
+                    max_abs_xty_idx = j
+
+            if not any_active:
+                active_mask[max_abs_xty_idx] = True
+
+            converged = False
+
+            for iteration in range(int(max_iter)):
+                coef_delta_l1 = 0.0
+
+                for j in range(n_features):
+                    if not active_mask[j]:
+                        continue
+
+                    denom = float(X_sq_norms[j])
+                    old_val = float(coef[j])
+
+                    if denom > 1e-10:
+                        rho_j = -float(grad[j]) + denom * old_val
+                        new_val = _soft_threshold_scalar_numba(rho_j, alpha_scaled) / denom
+                    else:
+                        new_val = 0.0
+
+                    delta = new_val - old_val
+                    if delta != 0.0:
+                        coef[j] = new_val
+                        coef_delta_l1 += abs(delta)
+                        for row_idx in range(n_features):
+                            grad[row_idx] += XtX[row_idx, j] * delta
+
+                should_kkt_scan = (
+                    ((iteration + 1) % check_every == 0)
+                    or (coef_delta_l1 < float(tol))
+                    or (iteration + 1 == int(max_iter))
+                )
+
+                violation = 0.0
+                has_inactive_violation = False
+
+                if should_kkt_scan:
+                    for j in range(n_features):
+                        v = abs(grad[j] / n_samp) - alpha
+                        if v < 0.0:
+                            v = 0.0
+                        if v > violation:
+                            violation = v
+                        if v > float(tol) and (not active_mask[j]):
+                            active_mask[j] = True
+                            has_inactive_violation = True
+
+                if stopping_is_kkt:
+                    if should_kkt_scan and violation < float(tol):
+                        n_iters[alpha_idx] = int(iteration) + 1
+                        converged = True
+                        break
+                else:
+                    if coef_delta_l1 < float(tol) and (not has_inactive_violation):
+                        n_iters[alpha_idx] = int(iteration) + 1
+                        converged = True
+                        break
+
+            if not converged:
+                n_iters[alpha_idx] = int(max_iter)
+
+            for j in range(n_features):
+                coefs_path[alpha_idx, j] = coef[j]
+                if abs(coef[j]) > 0.0:
+                    active_mask[j] = True
+
+        return coefs_path, n_iters
+
+
+def _solve_lasso_path_cpu_cd_numba(
+    XtX: np.ndarray,
+    Xty: np.ndarray,
+    *,
+    n_samples: int,
+    alphas_desc: np.ndarray,
+    max_iter: int,
+    tol: float,
+    stopping: str,
+    cd_kkt_check_every: int,
+) -> tuple[np.ndarray, np.ndarray]:
+    XtX_c = np.ascontiguousarray(XtX, dtype=np.float64)
+    Xty_c = np.ascontiguousarray(Xty, dtype=np.float64)
+    alphas_c = np.ascontiguousarray(np.asarray(alphas_desc, dtype=np.float64))
+    stopping_is_kkt = str(stopping).lower() == "kkt"
+    return _solve_lasso_path_cpu_cd_numba_impl(
+        XtX_c,
+        Xty_c,
+        int(n_samples),
+        alphas_c,
+        int(max_iter),
+        float(tol),
+        bool(stopping_is_kkt),
+        int(cd_kkt_check_every),
+    )
+
+
+def _normalize_lassocv_method(method: str) -> str:
+    """Normalize CV optimization profile name."""
+    key = str(method).strip().lower()
+    alias_map = {
+        "default": "standard",
+        "classic": "standard",
+        "glmnet_cv": "glmnet",
+        "glmnet.cv": "glmnet",
+    }
+    key = alias_map.get(key, key)
+    if key not in ("standard", "glmnet"):
+        raise ValueError("method must be one of: 'standard', 'glmnet'")
+    return key
+
+
+def _normalize_cd_kkt_check_every(cd_kkt_check_every: Optional[int]) -> Optional[int]:
+    """Validate optional coordinate-descent global KKT scan cadence."""
+    if cd_kkt_check_every is None:
+        return None
+    value = int(cd_kkt_check_every)
+    if value <= 0:
+        raise ValueError("cd_kkt_check_every must be a positive integer or None")
+    return value
+
+
+def _solve_lasso_path_cpu_fista_batched_from_gram(
+    XtX: np.ndarray,
+    Xty: np.ndarray,
+    *,
+    n_samples: int,
+    alphas_desc: np.ndarray,
+    max_iter: int,
+    tol: float,
+    stopping: str,
+    lipschitz_L: Optional[float] = None,
+    check_every: int = 2,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Solve descending-alpha Lasso path with a batched CPU FISTA update."""
+    n_features = int(XtX.shape[0])
+    n_alphas = int(alphas_desc.shape[0])
+
+    coefs = np.zeros((n_features, n_alphas), dtype=np.float64)
+    yk = coefs.copy()
+    tk = np.ones((n_alphas,), dtype=np.float64)
+    n_iters = np.zeros((n_alphas,), dtype=np.int32)
+
+    if lipschitz_L is not None:
+        L = float(lipschitz_L)
+    else:
+        try:
+            eigvals = np.linalg.eigvalsh(XtX)
+            L = float(eigvals[-1] / float(max(1, n_samples)))
+        except Exception:
+            row_sum_bound = float(np.max(np.sum(np.abs(XtX), axis=1)) / float(max(1, n_samples)))
+            L = max(row_sum_bound, 1e-12)
+
+    if L <= 0.0:
+        return coefs.T, n_iters
+
+    n_samp = float(max(1, n_samples))
+    step = 1.0 / L
+    alphas_desc = np.asarray(alphas_desc, dtype=np.float64)
+    thresholds = alphas_desc * step
+    stopping_name = str(stopping).lower()
+    check_every = max(1, int(check_every))
+
+    active = np.arange(n_alphas, dtype=np.int64)
+
+    for iteration in range(int(max_iter)):
+        if active.size == 0:
+            break
+
+        y_active = yk[:, active]
+        coef_old = coefs[:, active]
+
+        grad = (XtX @ y_active - Xty.reshape(-1, 1)) / n_samp
+        thresh = thresholds[active].reshape(1, -1)
+        coef_new = _soft_threshold_numpy(y_active - step * grad, thresh)
+
+        t_old = tk[active]
+        t_new = (1.0 + np.sqrt(1.0 + 4.0 * (t_old ** 2))) / 2.0
+        beta = (t_old - 1.0) / t_new
+        y_new = coef_new + beta.reshape(1, -1) * (coef_new - coef_old)
+
+        coefs[:, active] = coef_new
+        yk[:, active] = y_new
+        tk[active] = t_new
+
+        should_check = ((iteration + 1) % check_every == 0) or (iteration + 1 == int(max_iter))
+        if not should_check:
+            continue
+
+        if stopping_name == "kkt":
+            grad_sse = (XtX @ coef_new - Xty.reshape(-1, 1)) / n_samp
+            viol = np.max(
+                np.maximum(
+                    np.abs(grad_sse) - alphas_desc[active].reshape(1, -1),
+                    0.0,
+                ),
+                axis=0,
+            )
+            converged_local = viol < float(tol)
+        else:
+            delta = np.sum(np.abs(coef_new - coef_old), axis=0)
+            converged_local = delta < float(tol)
+
+        if not np.any(converged_local):
+            continue
+
+        done = active[converged_local]
+        n_iters[done] = int(iteration) + 1
+        yk[:, done] = coefs[:, done]
+        active = active[~converged_local]
+
+    if active.size > 0:
+        n_iters[active] = int(max_iter)
+
+    return coefs.T, n_iters
+
+
+def _solve_lasso_path_gpu_fista_batched_from_gram(
+    XtX,
+    Xty,
+    *,
+    n_samples: int,
+    alphas_desc: np.ndarray,
+    max_iter: int,
+    tol: float,
+    stopping: str,
+    lipschitz_L: Optional[float] = None,
+    check_every: int = 8,
+):
+    """Solve descending-alpha Lasso path with a batched GPU FISTA update."""
+    import cupy as cp
+
+    n_features = int(XtX.shape[0])
+    n_alphas = int(alphas_desc.shape[0])
+
+    coefs = cp.zeros((n_features, n_alphas), dtype=XtX.dtype)
+    yk = coefs.copy()
+    tk = cp.ones((n_alphas,), dtype=XtX.dtype)
+    n_iters_gpu = cp.zeros((n_alphas,), dtype=cp.int32)
+
+    if lipschitz_L is not None:
+        L = cp.array(float(lipschitz_L), dtype=XtX.dtype)
+    else:
+        try:
+            eigvals = cp.linalg.eigvalsh(XtX)
+            L = eigvals[-1] / float(max(1, n_samples))
+        except Exception:
+            row_sum_bound = cp.max(cp.sum(cp.abs(XtX), axis=1)) / float(max(1, n_samples))
+            L = cp.maximum(row_sum_bound, cp.asarray(1e-12, dtype=XtX.dtype))
+
+    L_scalar = float(cp.asnumpy(L))
+    if L_scalar <= 0.0:
+        return coefs.T, np.zeros((n_alphas,), dtype=np.int32)
+
+    n_samp = float(max(1, n_samples))
+    step = 1.0 / L
+    alphas_desc = np.asarray(alphas_desc, dtype=np.float64)
+    alpha_gpu = cp.asarray(alphas_desc, dtype=XtX.dtype)
+    thresholds = alpha_gpu * step
+    stopping_name = str(stopping).lower()
+    check_every = max(1, int(check_every))
+
+    active_gpu = cp.arange(n_alphas, dtype=cp.int32)
+
+    for iteration in range(int(max_iter)):
+        if int(active_gpu.size) == 0:
+            break
+
+        y_active = yk[:, active_gpu]
+        coef_old = coefs[:, active_gpu]
+
+        grad = (XtX @ y_active - Xty.reshape(-1, 1)) / n_samp
+        thresh = thresholds[active_gpu].reshape(1, -1)
+        coef_new = cp.sign(y_active - step * grad) * cp.maximum(cp.abs(y_active - step * grad) - thresh, 0.0)
+
+        t_old = tk[active_gpu]
+        t_new = (1.0 + cp.sqrt(1.0 + 4.0 * (t_old ** 2))) / 2.0
+        beta = (t_old - 1.0) / t_new
+        y_new = coef_new + beta.reshape(1, -1) * (coef_new - coef_old)
+
+        coefs[:, active_gpu] = coef_new
+        yk[:, active_gpu] = y_new
+        tk[active_gpu] = t_new
+
+        active_ratio = float(int(active_gpu.size)) / float(max(1, n_alphas))
+        check_every_eff = _adaptive_gpu_check_every(
+            base_check_every=check_every,
+            iteration=iteration,
+            max_iter=int(max_iter),
+            active_ratio=active_ratio,
+        )
+        should_check = ((iteration + 1) % check_every_eff == 0) or (iteration + 1 == int(max_iter))
+        if not should_check:
+            continue
+
+        if stopping_name == "kkt":
+            grad_sse = (XtX @ coef_new - Xty.reshape(-1, 1)) / n_samp
+            viol = cp.max(
+                cp.maximum(
+                    cp.abs(grad_sse) - alpha_gpu[active_gpu].reshape(1, -1),
+                    0.0,
+                ),
+                axis=0,
+            )
+            converged_local_gpu = viol < float(tol)
+        else:
+            delta = cp.sum(cp.abs(coef_new - coef_old), axis=0)
+            converged_local_gpu = delta < float(tol)
+
+        done_gpu = active_gpu[converged_local_gpu]
+        if int(done_gpu.size) == 0:
+            continue
+
+        n_iters_gpu[done_gpu] = int(iteration) + 1
+        yk[:, done_gpu] = coefs[:, done_gpu]
+        active_gpu = active_gpu[~converged_local_gpu]
+
+    if int(active_gpu.size) > 0:
+        n_iters_gpu[active_gpu] = int(max_iter)
+
+    return coefs.T, cp.asnumpy(n_iters_gpu)
+
+
+def _solve_lasso_path_gpu_fista_multi_fold_from_gram(
+    XtX_batch,
+    Xty_batch,
+    *,
+    n_samples_vec: np.ndarray,
+    alphas_desc: np.ndarray,
+    max_iter: int,
+    tol: float,
+    stopping: str,
+    lipschitz_L: Optional[float] = None,
+    check_every: int = 8,
+):
+    """Solve descending-alpha Lasso paths for all folds together on GPU."""
+    import cupy as cp
+
+    n_folds = int(XtX_batch.shape[0])
+    n_features = int(XtX_batch.shape[1])
+    n_alphas = int(alphas_desc.shape[0])
+
+    coefs = cp.zeros((n_folds, n_features, n_alphas), dtype=XtX_batch.dtype)
+    yk = coefs.copy()
+    tk = cp.ones((n_folds, n_alphas), dtype=XtX_batch.dtype)
+    n_iters_gpu = cp.zeros((n_folds, n_alphas), dtype=cp.int32)
+
+    n_vec_cpu = np.asarray(n_samples_vec, dtype=np.float64).reshape(-1)
+    if n_vec_cpu.size != n_folds:
+        raise ValueError("n_samples_vec must have one entry per fold")
+    n_vec = cp.asarray(n_vec_cpu, dtype=XtX_batch.dtype)
+
+    if lipschitz_L is not None:
+        L = cp.full((n_folds,), float(lipschitz_L), dtype=XtX_batch.dtype)
+    else:
+        try:
+            eigvals = cp.linalg.eigvalsh(XtX_batch)
+            L = eigvals[:, -1] / n_vec
+        except Exception:
+            row_sum_bound = cp.max(cp.sum(cp.abs(XtX_batch), axis=2), axis=1) / n_vec
+            L = cp.maximum(row_sum_bound, cp.asarray(1e-12, dtype=XtX_batch.dtype))
+
+    step = 1.0 / L.reshape(n_folds, 1, 1)
+    alpha_gpu = cp.asarray(np.asarray(alphas_desc, dtype=np.float64), dtype=XtX_batch.dtype).reshape(1, 1, n_alphas)
+    thresholds = alpha_gpu * step
+
+    Xty_expanded = Xty_batch.reshape(n_folds, n_features, 1)
+    n_vec_expanded = n_vec.reshape(n_folds, 1, 1)
+    stopping_name = str(stopping).lower()
+    check_every = max(1, int(check_every))
+
+    active_gpu = cp.ones((n_folds, n_alphas), dtype=cp.bool_)
+    active_count = int(n_folds * n_alphas)
+
+    for iteration in range(int(max_iter)):
+        if active_count == 0:
+            break
+
+        active_expanded = active_gpu[:, cp.newaxis, :]
+
+        coef_old = coefs.copy()
+        grad = (cp.matmul(XtX_batch, yk) - Xty_expanded) / n_vec_expanded
+        coef_candidate = cp.sign(yk - step * grad) * cp.maximum(cp.abs(yk - step * grad) - thresholds, 0.0)
+        coefs = cp.where(active_expanded, coef_candidate, coefs)
+
+        t_old = tk
+        t_new = (1.0 + cp.sqrt(1.0 + 4.0 * (t_old ** 2))) / 2.0
+        beta = (t_old - 1.0) / t_new
+        y_candidate = coefs + beta[:, cp.newaxis, :] * (coefs - coef_old)
+        yk = cp.where(active_expanded, y_candidate, yk)
+        tk = cp.where(active_gpu, t_new, tk)
+
+        active_ratio = float(active_count) / float(max(1, n_folds * n_alphas))
+        check_every_eff = _adaptive_gpu_check_every(
+            base_check_every=check_every,
+            iteration=iteration,
+            max_iter=int(max_iter),
+            active_ratio=active_ratio,
+        )
+        should_check = ((iteration + 1) % check_every_eff == 0) or (iteration + 1 == int(max_iter))
+        if not should_check:
+            continue
+
+        if stopping_name == "kkt":
+            grad_sse = (cp.matmul(XtX_batch, coefs) - Xty_expanded) / n_vec_expanded
+            violation = cp.max(cp.maximum(cp.abs(grad_sse) - alpha_gpu, 0.0), axis=1)
+            converged_local_gpu = violation < float(tol)
+        else:
+            delta = cp.sum(cp.abs(coefs - coef_old), axis=1)
+            converged_local_gpu = delta < float(tol)
+
+        newly_done_gpu = active_gpu & converged_local_gpu
+        done_count = int(cp.count_nonzero(newly_done_gpu).item())
+        if done_count == 0:
+            continue
+
+        n_iters_gpu[newly_done_gpu] = int(iteration) + 1
+        yk = cp.where(newly_done_gpu[:, cp.newaxis, :], coefs, yk)
+        active_gpu = active_gpu & (~converged_local_gpu)
+        active_count -= done_count
+
+    n_iters_gpu[active_gpu] = int(max_iter)
+
+    return cp.transpose(coefs, (0, 2, 1)), cp.asnumpy(n_iters_gpu)
+
+
+def _solve_lasso_path_cpu_from_gram(
+    XtX: np.ndarray,
+    Xty: np.ndarray,
+    *,
+    n_samples: int,
+    alphas_desc: np.ndarray,
+    max_iter: int,
+    tol: float,
+    stopping: str,
+    cpu_solver: str,
+    lipschitz_L: Optional[float] = None,
+    cd_kkt_check_every: int = 1,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Solve a descending-alpha Lasso path on CPU using one precomputed Gram matrix."""
+    n_features = int(XtX.shape[0])
+    n_alphas = int(alphas_desc.shape[0])
+
+    coefs_path = np.zeros((n_alphas, n_features), dtype=np.float64)
+    n_iters = np.zeros(n_alphas, dtype=np.int32)
+
+    coef = np.zeros(n_features, dtype=np.float64)
+    stopping_name = str(stopping).lower()
+    solver_name = str(cpu_solver).lower()
+
+    if solver_name == "fista":
+        return _solve_lasso_path_cpu_fista_batched_from_gram(
+            XtX,
+            Xty,
+            n_samples=n_samples,
+            alphas_desc=alphas_desc,
+            max_iter=max_iter,
+            tol=tol,
+            stopping=stopping,
+            lipschitz_L=lipschitz_L,
+            check_every=2,
+        )
+
+    global _NUMBA_CD_DISABLED
+    use_numba_cd = (
+        _NUMBA_AVAILABLE
+        and (not _NUMBA_CD_DISABLED)
+        and solver_name == "coordinate_descent"
+    )
+
+    if use_numba_cd:
+        try:
+            return _solve_lasso_path_cpu_cd_numba(
+                XtX,
+                Xty,
+                n_samples=n_samples,
+                alphas_desc=alphas_desc,
+                max_iter=max_iter,
+                tol=tol,
+                stopping=stopping,
+                cd_kkt_check_every=cd_kkt_check_every,
+            )
+        except Exception:
+            _NUMBA_CD_DISABLED = True
+
+    # Coordinate descent with incremental gradient updates.
+    X_sq_norms = np.diag(XtX).astype(np.float64, copy=False)
+    grad = XtX @ coef - Xty
+    alpha_scaled_desc = np.asarray(alphas_desc, dtype=np.float64) * float(max(1, n_samples))
+    active_mask = np.zeros((n_features,), dtype=bool)
+    cd_kkt_check_every = max(1, int(cd_kkt_check_every))
+
+    for alpha_idx, alpha in enumerate(alphas_desc):
+        alpha_scaled = float(alpha_scaled_desc[alpha_idx])
+        prev_alpha_scaled = float(alpha_scaled_desc[alpha_idx - 1]) if alpha_idx > 0 else alpha_scaled
+
+        # Strong rule screening: expand active set before cyclic updates.
+        strong_thresh = max(0.0, 2.0 * alpha_scaled - prev_alpha_scaled)
+        active_mask |= np.abs(Xty) >= strong_thresh
+        if not bool(np.any(active_mask)):
+            active_mask[int(np.argmax(np.abs(Xty)))] = True
+
+        converged = False
+
+        for iteration in range(int(max_iter)):
+            coef_delta_l1 = 0.0
+
+            active_idx = np.flatnonzero(active_mask)
+            for j in active_idx:
+                denom = float(X_sq_norms[j])
+                old_val = float(coef[j])
+
+                if denom > 1e-10:
+                    rho_j = -float(grad[j]) + denom * old_val
+                    new_val = _soft_threshold_scalar(rho_j, alpha_scaled) / denom
+                else:
+                    new_val = 0.0
+
+                delta = new_val - old_val
+                if abs(delta) > 0.0:
+                    coef[j] = new_val
+                    grad += XtX[:, j] * delta
+                    coef_delta_l1 += abs(delta)
+
+            # glmnet-style optimization can skip full inactive KKT scans on every pass,
+            # then force a check when updates become small.
+            should_kkt_scan = (
+                ((iteration + 1) % cd_kkt_check_every == 0)
+                or (coef_delta_l1 < float(tol))
+                or (iteration + 1 == int(max_iter))
+            )
+            violation = float("inf")
+            inactive_violation_idx = np.empty((0,), dtype=np.int64)
+
+            if should_kkt_scan:
+                violation_vec = np.maximum(
+                    np.abs(grad / float(max(1, n_samples))) - float(alpha),
+                    0.0,
+                )
+                inactive_violation_idx = np.where((violation_vec > float(tol)) & (~active_mask))[0]
+                if inactive_violation_idx.size > 0:
+                    active_mask[inactive_violation_idx] = True
+                violation = float(np.max(violation_vec))
+
+            if stopping_name == "kkt":
+                if should_kkt_scan and violation < float(tol):
+                    n_iters[alpha_idx] = iteration + 1
+                    converged = True
+                    break
+            else:
+                if coef_delta_l1 < float(tol) and inactive_violation_idx.size == 0:
+                    n_iters[alpha_idx] = iteration + 1
+                    converged = True
+                    break
+
+        if not converged:
+            n_iters[alpha_idx] = int(max_iter)
+
+        coefs_path[alpha_idx, :] = coef
+        active_mask |= np.abs(coef) > 0.0
+
+    return coefs_path, n_iters
+
+
+def _solve_lasso_path_gpu_from_gram(
+    XtX,
+    Xty,
+    *,
+    n_samples: int,
+    alphas_desc: np.ndarray,
+    max_iter: int,
+    tol: float,
+    stopping: str,
+    lipschitz_L: Optional[float] = None,
+    check_every: int = 8,
+):
+    """Solve a descending-alpha Lasso path on GPU using one precomputed Gram matrix."""
+    return _solve_lasso_path_gpu_fista_batched_from_gram(
+        XtX,
+        Xty,
+        n_samples=n_samples,
+        alphas_desc=alphas_desc,
+        max_iter=max_iter,
+        tol=tol,
+        stopping=stopping,
+        lipschitz_L=lipschitz_L,
+        check_every=check_every,
+    )
+
+
+def _batch_mse_numpy(
+    X_val: np.ndarray,
+    y_val: np.ndarray,
+    coefs_path: np.ndarray,
+    intercepts_path: np.ndarray,
+    sample_weight_val: Optional[np.ndarray],
+) -> np.ndarray:
+    preds = X_val @ coefs_path.T + intercepts_path.reshape(1, -1)
+    sq_err = (y_val.reshape(-1, 1) - preds) ** 2
+
+    if sample_weight_val is None:
+        return np.mean(sq_err, axis=0)
+
+    denom = float(np.sum(sample_weight_val))
+    if denom <= 0.0:
+        return np.mean(sq_err, axis=0)
+
+    return np.sum(sample_weight_val.reshape(-1, 1) * sq_err, axis=0) / denom
+
+
+def _batch_mse_cupy(
+    X_val,
+    y_val,
+    coefs_path,
+    intercepts_path,
+    sample_weight_val,
+) -> np.ndarray:
+    import cupy as cp
+
+    preds = X_val @ coefs_path.T + intercepts_path.reshape(1, -1)
+    sq_err = (y_val.reshape(-1, 1) - preds) ** 2
+
+    if sample_weight_val is None:
+        mse = cp.mean(sq_err, axis=0)
+        return cp.asnumpy(mse)
+
+    denom = cp.sum(sample_weight_val)
+    denom_scalar = float(cp.asnumpy(denom))
+    if denom_scalar <= 0.0:
+        mse = cp.mean(sq_err, axis=0)
+        return cp.asnumpy(mse)
+
+    mse = cp.sum(sample_weight_val.reshape(-1, 1) * sq_err, axis=0) / denom
+    return cp.asnumpy(mse)
+
+
+def _fit_lasso_single_alpha_fast(
+    X,
+    y,
+    *,
+    alpha: float,
+    fit_intercept: bool,
+    max_iter: int,
+    tol: float,
+    stopping: str,
+    device: str,
+    cpu_solver: str,
+    cd_kkt_check_every: int = 1,
+    sample_weight=None,
+) -> Dict[str, object]:
+    """Fast single-alpha Lasso fit using optimized Gram-based path solvers."""
+    device_name = str(device).lower()
+    alpha_vec = np.asarray([float(alpha)], dtype=np.float64)
+
+    if device_name == Device.CUDA.value:
+        import cupy as cp
+
+        X_arr = cp.asarray(X)
+        y_arr = cp.asarray(y).reshape(-1)
+
+        if sample_weight is not None:
+            sw = cp.asarray(sample_weight)
+            sqrt_sw = cp.sqrt(sw)
+            X_arr = X_arr * sqrt_sw[:, cp.newaxis]
+            y_arr = y_arr * sqrt_sw
+
+        if bool(fit_intercept):
+            X_mean = cp.mean(X_arr, axis=0)
+            y_mean = cp.mean(y_arr)
+            X_centered = X_arr - X_mean
+            y_centered = y_arr - y_mean
+        else:
+            X_mean = cp.zeros((X_arr.shape[1],), dtype=X_arr.dtype)
+            y_mean = cp.array(0.0, dtype=X_arr.dtype)
+            X_centered = X_arr
+            y_centered = y_arr
+
+        XtX = X_centered.T @ X_centered
+        Xty = X_centered.T @ y_centered
+
+        coefs_desc, n_iters = _solve_lasso_path_gpu_from_gram(
+            XtX,
+            Xty,
+            n_samples=int(X_arr.shape[0]),
+            alphas_desc=alpha_vec,
+            max_iter=int(max_iter),
+            tol=float(tol),
+            stopping=str(stopping),
+            lipschitz_L=None,
+            check_every=8,
+        )
+
+        coef_gpu = coefs_desc[0]
+        if bool(fit_intercept):
+            intercept_gpu = y_mean - X_mean @ coef_gpu
+            intercept = float(cp.asnumpy(intercept_gpu))
+        else:
+            intercept = 0.0
+
+        coef = np.asarray(cp.asnumpy(coef_gpu), dtype=np.float64)
+        return {
+            "coef": coef,
+            "intercept": float(intercept),
+            "n_iter": int(n_iters[0]),
+            "n_samples": int(X_arr.shape[0]),
+            "n_features": int(X_arr.shape[1]),
+        }
+
+    X_arr = np.asarray(X)
+    y_arr = np.asarray(y).reshape(-1)
+
+    if sample_weight is not None:
+        sw = np.asarray(sample_weight)
+        sqrt_sw = np.sqrt(sw)
+        X_arr = X_arr * sqrt_sw[:, np.newaxis]
+        y_arr = y_arr * sqrt_sw
+
+    if bool(fit_intercept):
+        X_mean = np.mean(X_arr, axis=0)
+        y_mean = float(np.mean(y_arr))
+        X_centered = X_arr - X_mean
+        y_centered = y_arr - y_mean
+    else:
+        X_mean = np.zeros((X_arr.shape[1],), dtype=np.float64)
+        y_mean = 0.0
+        X_centered = X_arr
+        y_centered = y_arr
+
+    XtX = X_centered.T @ X_centered
+    Xty = X_centered.T @ y_centered
+
+    coefs_desc, n_iters = _solve_lasso_path_cpu_from_gram(
+        XtX,
+        Xty,
+        n_samples=int(X_arr.shape[0]),
+        alphas_desc=alpha_vec,
+        max_iter=int(max_iter),
+        tol=float(tol),
+        stopping=str(stopping),
+        cpu_solver=str(cpu_solver),
+        lipschitz_L=None,
+        cd_kkt_check_every=int(cd_kkt_check_every),
+    )
+
+    coef = np.asarray(coefs_desc[0], dtype=np.float64)
+    if bool(fit_intercept):
+        intercept = float(y_mean - X_mean @ coef)
+    else:
+        intercept = 0.0
+
+    return {
+        "coef": coef,
+        "intercept": float(intercept),
+        "n_iter": int(n_iters[0]),
+        "n_samples": int(X_arr.shape[0]),
+        "n_features": int(X_arr.shape[1]),
+    }
+
+
+def _select_lasso_alpha_cv(
+    X,
+    y,
+    *,
+    alphas=None,
+    n_alphas: int = 12,
+    alpha_min_ratio: float = 1e-3,
+    cv_folds: int = 5,
+    cv_splits=None,
+    random_state: Optional[int] = None,
+    sample_weight=None,
+    fit_intercept: bool = False,
+    device: Union[str, Device] = Device.CPU,
+    max_iter: int = 3000,
+    tol: float = 1e-4,
+    cpu_solver: str = "coordinate_descent",
+    method: str = "standard",
+    cd_kkt_check_every: Optional[int] = None,
+    gpu_cv_mixed_precision: bool = True,
+    return_details: bool = False,
+    cache_key: Optional[Tuple[Any, ...]] = None,
+):
+    """
+    Select alpha via K-fold CV using statgpu's own Lasso implementation.
+
+    Notes
+    -----
+    - Does not depend on sklearn.
+    - Supports GPU path by setting ``device='cuda'``.
+    """
+    device_name = str(device).lower()
+    use_gpu = device_name == Device.CUDA.value
+    gpu_requested = use_gpu
+
+    cp = None
+    gpu_input_cupy = False
+    if use_gpu:
+        try:
+            import cupy as cp  # type: ignore
+
+            gpu_input_cupy = isinstance(X, cp.ndarray) and isinstance(y, cp.ndarray)
+            if sample_weight is not None and not isinstance(sample_weight, cp.ndarray):
+                gpu_input_cupy = False
+        except Exception:
+            cp = None
+            gpu_input_cupy = False
+
+    X_np = None
+    y_np = None
+    sample_weight_np = None
+
+    if gpu_input_cupy:
+        if len(tuple(X.shape)) != 2:
+            raise ValueError("X must be a 2D array")
+
+        n_samples = int(X.shape[0])
+        if int(cp.asarray(y).reshape(-1).shape[0]) != n_samples:
+            raise ValueError("y must have the same number of rows as X")
+
+        if sample_weight is not None and int(cp.asarray(sample_weight).reshape(-1).shape[0]) != n_samples:
+            raise ValueError("sample_weight must have the same number of rows as X")
+    else:
+        X_np = np.asarray(X, dtype=np.float64)
+        y_np = np.asarray(y, dtype=np.float64).reshape(-1)
+
+        if sample_weight is not None:
+            sample_weight_np = np.asarray(sample_weight, dtype=np.float64).reshape(-1)
+
+        if X_np.ndim != 2:
+            raise ValueError("X must be a 2D array")
+        if y_np.shape[0] != X_np.shape[0]:
+            raise ValueError("y must have the same number of rows as X")
+        if sample_weight_np is not None and sample_weight_np.shape[0] != X_np.shape[0]:
+            raise ValueError("sample_weight must have the same number of rows as X")
+
+        n_samples = int(X_np.shape[0])
+
+    cv_method = _normalize_lassocv_method(method)
+    requested_cd_kkt_check_every = _normalize_cd_kkt_check_every(cd_kkt_check_every)
+
+    if alphas is None:
+        if gpu_input_cupy:
+            alpha_grid = _default_lasso_alpha_grid_cupy(
+                X,
+                y,
+                n_alphas=n_alphas,
+                alpha_min_ratio=alpha_min_ratio,
+            )
+        else:
+            alpha_grid = _default_lasso_alpha_grid(
+                X_np,
+                y_np,
+                n_alphas=n_alphas,
+                alpha_min_ratio=alpha_min_ratio,
+            )
+    else:
+        alpha_grid = np.asarray(alphas, dtype=np.float64).reshape(-1)
+        alpha_grid = alpha_grid[np.isfinite(alpha_grid)]
+        alpha_grid = alpha_grid[alpha_grid > 0.0]
+        if alpha_grid.size == 0:
+            if gpu_input_cupy:
+                alpha_grid = _default_lasso_alpha_grid_cupy(
+                    X,
+                    y,
+                    n_alphas=n_alphas,
+                    alpha_min_ratio=alpha_min_ratio,
+                )
+            else:
+                alpha_grid = _default_lasso_alpha_grid(
+                    X_np,
+                    y_np,
+                    n_alphas=n_alphas,
+                    alpha_min_ratio=alpha_min_ratio,
+                )
+
+    user_folds = _normalize_cv_splits(cv_splits, n_samples=n_samples)
+    effective_n_folds = int(len(user_folds)) if user_folds is not None else int(cv_folds)
+
+    if int(n_samples) < 4 or int(alpha_grid.size) == 1 or int(effective_n_folds) < 2:
+        alpha0 = float(alpha_grid[0])
+        if not return_details:
+            return alpha0
+        return {
+            "alpha": alpha0,
+            "alphas": alpha_grid.astype(np.float64, copy=False),
+            "mse_path": np.full((int(alpha_grid.size), 1), np.nan, dtype=np.float64),
+            "mean_mse": np.full(int(alpha_grid.size), np.nan, dtype=np.float64),
+        }
+
+    if user_folds is not None:
+        folds = user_folds
+    else:
+        folds = _kfold_indices(
+            n_samples=int(n_samples),
+            n_splits=int(cv_folds),
+            random_state=random_state,
+        )
+
+    folds_are_complements = _folds_are_complements(folds, n_samples=int(n_samples))
+
+    alpha_grid = alpha_grid.astype(np.float64, copy=False)
+    n_alpha = int(alpha_grid.size)
+    n_folds = int(len(folds))
+
+    cache_key_eff = cache_key
+    if cache_key_eff is None and _LASSO_CV_ALPHA_CACHE_MAXSIZE > 0:
+        cache_key_eff = _make_lasso_cv_auto_cache_key(
+            X=X,
+            y=y,
+            sample_weight=sample_weight,
+            alpha_grid=alpha_grid,
+            folds=folds,
+            fit_intercept=bool(fit_intercept),
+            use_gpu=bool(use_gpu),
+            max_iter=int(max_iter),
+            tol=float(tol),
+            cpu_solver=str(cpu_solver),
+            cv_method=str(cv_method),
+            cd_kkt_check_every=requested_cd_kkt_check_every,
+            gpu_cv_mixed_precision=bool(gpu_cv_mixed_precision),
+        )
+
+    cached_details = _lasso_cv_cache_get(cache_key_eff)
+    if cached_details is not None:
+        if return_details:
+            return cached_details
+        return float(cached_details["alpha"])
+
+    # Evaluate alpha path in descending order for warm-start efficiency.
+    alpha_order_desc = np.argsort(-alpha_grid)
+    alpha_desc = alpha_grid[alpha_order_desc]
+
+    mse_path = np.full((n_alpha, n_folds), np.nan, dtype=np.float64)
+
+    best_alpha = float(alpha_grid[0])
+    best_mse = float("inf")
+
+    if use_gpu:
+        try:
+            import cupy as cp
+
+            cv_dtype = cp.float32 if bool(gpu_cv_mixed_precision) else cp.float64
+            if gpu_input_cupy:
+                X_full = cp.asarray(X, dtype=cv_dtype)
+                y_full = cp.asarray(y, dtype=cv_dtype).reshape(-1)
+                sw_full = (
+                    None
+                    if sample_weight is None
+                    else cp.asarray(sample_weight, dtype=cv_dtype).reshape(-1)
+                )
+            else:
+                X_full = cp.asarray(X_np, dtype=cv_dtype)
+                y_full = cp.asarray(y_np, dtype=cv_dtype)
+                sw_full = (
+                    None
+                    if sample_weight_np is None
+                    else cp.asarray(sample_weight_np, dtype=cv_dtype)
+                )
+
+            XtX_folds = []
+            Xty_folds = []
+            n_train_folds = []
+            X_mean_folds = []
+            y_mean_folds = []
+            fold_eval_payload = []
+
+            fast_fold_stats = (sw_full is None) and bool(folds_are_complements)
+            if fast_fold_stats:
+                n_total = int(X_full.shape[0])
+                XtX_full = X_full.T @ X_full
+                Xty_full = X_full.T @ y_full
+                if bool(fit_intercept):
+                    X_sum_full = cp.sum(X_full, axis=0)
+                    y_sum_full = cp.sum(y_full)
+                else:
+                    X_sum_full = None
+                    y_sum_full = None
+
+            for fold_idx, (train_idx, val_idx) in enumerate(folds):
+                train_idx_gpu = cp.asarray(train_idx)
+                val_idx_gpu = cp.asarray(val_idx)
+
+                X_val = X_full[val_idx_gpu]
+                y_val = y_full[val_idx_gpu]
+                sw_val = None if sw_full is None else sw_full[val_idx_gpu]
+
+                if fast_fold_stats:
+                    n_val = int(val_idx_gpu.shape[0])
+                    n_train = int(n_total - n_val)
+
+                    XtX_val = X_val.T @ X_val
+                    Xty_val = X_val.T @ y_val
+                    XtX_raw = XtX_full - XtX_val
+                    Xty_raw = Xty_full - Xty_val
+
+                    if bool(fit_intercept):
+                        X_sum_val = cp.sum(X_val, axis=0)
+                        y_sum_val = cp.sum(y_val)
+                        X_sum_train = X_sum_full - X_sum_val
+                        y_sum_train = y_sum_full - y_sum_val
+
+                        inv_n = cp.asarray(1.0 / float(max(1, n_train)), dtype=X_full.dtype)
+                        X_mean = X_sum_train * inv_n
+                        y_mean = y_sum_train * inv_n
+                        XtX = XtX_raw - cp.outer(X_sum_train, X_sum_train) * inv_n
+                        Xty = Xty_raw - X_sum_train * y_mean
+                    else:
+                        X_mean = cp.zeros((X_full.shape[1],), dtype=X_full.dtype)
+                        y_mean = cp.array(0.0, dtype=X_full.dtype)
+                        XtX = XtX_raw
+                        Xty = Xty_raw
+                else:
+                    X_train = X_full[train_idx_gpu]
+                    y_train = y_full[train_idx_gpu]
+                    sw_train = None if sw_full is None else sw_full[train_idx_gpu]
+
+                    if sw_train is not None:
+                        sqrt_sw = cp.sqrt(sw_train)
+                        X_train = X_train * sqrt_sw[:, cp.newaxis]
+                        y_train = y_train * sqrt_sw
+
+                    if bool(fit_intercept):
+                        X_mean = cp.mean(X_train, axis=0)
+                        y_mean = cp.mean(y_train)
+                        X_centered = X_train - X_mean
+                        y_centered = y_train - y_mean
+                    else:
+                        X_mean = cp.zeros((X_train.shape[1],), dtype=X_train.dtype)
+                        y_mean = cp.array(0.0, dtype=X_train.dtype)
+                        X_centered = X_train
+                        y_centered = y_train
+
+                    XtX = X_centered.T @ X_centered
+                    Xty = X_centered.T @ y_centered
+                    n_train = int(X_train.shape[0])
+
+                XtX_folds.append(XtX)
+                Xty_folds.append(Xty)
+                n_train_folds.append(int(n_train))
+                X_mean_folds.append(X_mean)
+                y_mean_folds.append(y_mean)
+                fold_eval_payload.append((X_val, y_val, sw_val))
+
+            XtX_batch = cp.stack(XtX_folds, axis=0)
+            Xty_batch = cp.stack(Xty_folds, axis=0)
+
+            coefs_batch_desc, _ = _solve_lasso_path_gpu_fista_multi_fold_from_gram(
+                XtX_batch,
+                Xty_batch,
+                n_samples_vec=np.asarray(n_train_folds, dtype=np.int32),
+                alphas_desc=alpha_desc,
+                max_iter=int(max_iter),
+                tol=float(tol),
+                stopping="coef_delta",
+                lipschitz_L=None,
+                check_every=8,
+            )
+
+            for fold_idx in range(int(len(folds))):
+                coefs_desc = coefs_batch_desc[fold_idx]
+
+                if bool(fit_intercept):
+                    intercepts_desc = y_mean_folds[fold_idx] - X_mean_folds[fold_idx] @ coefs_desc.T
+                else:
+                    intercepts_desc = cp.zeros((coefs_desc.shape[0],), dtype=coefs_desc.dtype)
+
+                X_val, y_val, sw_val = fold_eval_payload[fold_idx]
+                mse_desc = _batch_mse_cupy(X_val, y_val, coefs_desc, intercepts_desc, sw_val)
+
+                mse_path[alpha_order_desc, fold_idx] = np.asarray(mse_desc, dtype=np.float64)
+
+        except Exception as exc:
+            raise RuntimeError(
+                "GPU path failed in _select_lasso_alpha_cv with device='cuda'; "
+                "CPU fallback is disabled for strict CUDA execution."
+            ) from exc
+
+    if not use_gpu:
+        if gpu_requested:
+            raise RuntimeError(
+                "device='cuda' requested but GPU path was not executed; "
+                "CPU fallback is disabled for strict CUDA execution."
+            )
+        cpu_solver_name = str(cpu_solver).lower()
+
+        if cv_method == "glmnet":
+            # glmnet-like CV profile: coordinate-descent path with periodic full KKT scans.
+            cpu_solver_name = "coordinate_descent"
+
+        if requested_cd_kkt_check_every is None:
+            cd_kkt_check_every_effective = 4 if cv_method == "glmnet" else 1
+        else:
+            cd_kkt_check_every_effective = int(requested_cd_kkt_check_every)
+
+        fast_fold_stats = (sample_weight_np is None) and bool(folds_are_complements)
+        if fast_fold_stats:
+            n_total = int(X_np.shape[0])
+            XtX_full = X_np.T @ X_np
+            Xty_full = X_np.T @ y_np
+            if bool(fit_intercept):
+                X_sum_full = np.sum(X_np, axis=0)
+                y_sum_full = float(np.sum(y_np))
+            else:
+                X_sum_full = None
+                y_sum_full = None
+
+        for fold_idx, (train_idx, val_idx) in enumerate(folds):
+            X_val = X_np[val_idx]
+            y_val = y_np[val_idx]
+            sw_val = None if sample_weight_np is None else sample_weight_np[val_idx]
+
+            if fast_fold_stats:
+                n_val = int(np.asarray(val_idx, dtype=np.int64).reshape(-1).size)
+                n_train = int(n_total - n_val)
+
+                XtX_val = X_val.T @ X_val
+                Xty_val = X_val.T @ y_val
+                XtX_raw = XtX_full - XtX_val
+                Xty_raw = Xty_full - Xty_val
+
+                if bool(fit_intercept):
+                    X_sum_val = np.sum(X_val, axis=0)
+                    y_sum_val = float(np.sum(y_val))
+                    X_sum_train = X_sum_full - X_sum_val
+                    y_sum_train = y_sum_full - y_sum_val
+
+                    inv_n = 1.0 / float(max(1, n_train))
+                    X_mean = X_sum_train * inv_n
+                    y_mean = y_sum_train * inv_n
+                    XtX = XtX_raw - np.outer(X_sum_train, X_sum_train) * inv_n
+                    Xty = Xty_raw - X_sum_train * y_mean
+                else:
+                    X_mean = np.zeros((X_np.shape[1],), dtype=np.float64)
+                    y_mean = 0.0
+                    XtX = XtX_raw
+                    Xty = Xty_raw
+            else:
+                X_train = X_np[train_idx]
+                y_train = y_np[train_idx]
+                sw_train = None if sample_weight_np is None else sample_weight_np[train_idx]
+
+                if sw_train is not None:
+                    sqrt_sw = np.sqrt(sw_train)
+                    X_train = X_train * sqrt_sw[:, np.newaxis]
+                    y_train = y_train * sqrt_sw
+
+                if bool(fit_intercept):
+                    X_mean = np.mean(X_train, axis=0)
+                    y_mean = float(np.mean(y_train))
+                    X_centered = X_train - X_mean
+                    y_centered = y_train - y_mean
+                else:
+                    X_mean = np.zeros((X_train.shape[1],), dtype=np.float64)
+                    y_mean = 0.0
+                    X_centered = X_train
+                    y_centered = y_train
+
+                XtX = X_centered.T @ X_centered
+                Xty = X_centered.T @ y_centered
+                n_train = int(X_train.shape[0])
+
+            coefs_desc, _ = _solve_lasso_path_cpu_from_gram(
+                XtX,
+                Xty,
+                n_samples=int(n_train),
+                alphas_desc=alpha_desc,
+                max_iter=int(max_iter),
+                tol=float(tol),
+                stopping="coef_delta",
+                cpu_solver=cpu_solver_name,
+                lipschitz_L=None,
+                cd_kkt_check_every=cd_kkt_check_every_effective,
+            )
+
+            if bool(fit_intercept):
+                intercepts_desc = y_mean - X_mean @ coefs_desc.T
+            else:
+                intercepts_desc = np.zeros((coefs_desc.shape[0],), dtype=np.float64)
+
+            mse_desc = _batch_mse_numpy(
+                X_val,
+                y_val,
+                coefs_desc,
+                intercepts_desc,
+                sw_val,
+            )
+
+            mse_path[alpha_order_desc, fold_idx] = np.asarray(mse_desc, dtype=np.float64)
+
+    for alpha_idx, alpha in enumerate(alpha_grid):
+        alpha_f = float(alpha)
+        valid = np.isfinite(mse_path[alpha_idx])
+        if not bool(np.any(valid)):
+            continue
+
+        mean_mse = float(np.mean(mse_path[alpha_idx, valid]))
+        if mean_mse < best_mse:
+            best_mse = mean_mse
+            best_alpha = alpha_f
+
+    mean_mse_vec = np.full(int(alpha_grid.size), np.nan, dtype=np.float64)
+    for alpha_idx in range(int(alpha_grid.size)):
+        valid = np.isfinite(mse_path[alpha_idx])
+        if bool(np.any(valid)):
+            mean_mse_vec[alpha_idx] = float(np.mean(mse_path[alpha_idx, valid]))
+
+    details = {
+        "alpha": float(best_alpha),
+        "alphas": alpha_grid.astype(np.float64, copy=False),
+        "mse_path": mse_path,
+        "mean_mse": mean_mse_vec,
+    }
+
+    _lasso_cv_cache_put(cache_key_eff, details)
+
+    if return_details:
+        return details
+
+    return float(details["alpha"])
+
+
+class LassoCV(CVEstimatorBase):
+    """
+    Cross-validated Lasso built on top of statgpu's own ``Lasso`` implementation.
+
+    This class mirrors the common sklearn-style usage pattern while keeping
+    backend/device behavior consistent with statgpu models.
+    """
+
+    def __init__(
+        self,
+        alphas=None,
+        n_alphas: int = 12,
+        alpha_min_ratio: float = 1e-3,
+        cv: int = 5,
+        cv_splits=None,
+        fit_intercept: bool = True,
+        max_iter: int = 3000,
+        tol: float = 1e-4,
+        stopping: str = "coef_delta",
+        inference_method: str = "cpu_ols_inference",
+        n_bootstrap: int = 200,
+        bootstrap_random_state: Optional[int] = None,
+        device: Union[str, Device] = Device.AUTO,
+        n_jobs: Optional[int] = None,
+        compute_inference: bool = True,
+        solver: str = "fista",
+        cpu_solver: str = "coordinate_descent",
+        method: str = "standard",
+        cd_kkt_check_every: Optional[int] = None,
+        lipschitz_L: Optional[float] = None,
+        admm_rho: float = 1.0,
+        gpu_memory_cleanup: bool = False,
+        gpu_cv_mixed_precision: bool = True,
+        random_state: Optional[int] = None,
+    ):
+        super().__init__(
+            cv=cv,
+            random_state=random_state,
+            device=device,
+            n_jobs=n_jobs,
+        )
+        self.alphas = alphas
+        self.n_alphas = int(n_alphas)
+        self.alpha_min_ratio = float(alpha_min_ratio)
+        self.cv = int(cv)
+        self.cv_splits = cv_splits
+        self.fit_intercept = bool(fit_intercept)
+        self.max_iter = int(max_iter)
+        self.tol = float(tol)
+        self.stopping = str(stopping)
+        self.inference_method = str(inference_method)
+        self.n_bootstrap = int(n_bootstrap)
+        self.bootstrap_random_state = bootstrap_random_state
+        self.compute_inference = bool(compute_inference)
+        self.solver = str(solver)
+        self.cpu_solver = str(cpu_solver)
+        self.method = _normalize_lassocv_method(method)
+        self.cd_kkt_check_every = _normalize_cd_kkt_check_every(cd_kkt_check_every)
+        self.lipschitz_L = lipschitz_L
+        self.admm_rho = float(admm_rho)
+        self.gpu_memory_cleanup = bool(gpu_memory_cleanup)
+        self.gpu_cv_mixed_precision = bool(gpu_cv_mixed_precision)
+        self.random_state = random_state
+
+        self.alpha_ = None
+        self.alphas_ = None
+        self.mse_path_ = None
+        self.mean_mse_ = None
+        self.best_score_ = None
+        self.coef_ = None
+        self.intercept_ = None
+        self.n_iter_ = None
+        self.estimator_ = None
+
+    def fit(self, X, y, sample_weight=None):
+        device_name = self._get_compute_device().value
+        effective_cpu_solver = (
+            "coordinate_descent" if str(self.method).lower() == "glmnet" else str(self.cpu_solver)
+        )
+
+        details = _select_lasso_alpha_cv(
+            X,
+            y,
+            alphas=self.alphas,
+            n_alphas=self.n_alphas,
+            alpha_min_ratio=self.alpha_min_ratio,
+            cv_folds=self.cv,
+            cv_splits=self.cv_splits,
+            random_state=self.random_state,
+            sample_weight=sample_weight,
+            fit_intercept=self.fit_intercept,
+            device=device_name,
+            max_iter=self.max_iter,
+            tol=self.tol,
+            cpu_solver=effective_cpu_solver,
+            method=self.method,
+            cd_kkt_check_every=self.cd_kkt_check_every,
+            gpu_cv_mixed_precision=self.gpu_cv_mixed_precision,
+            return_details=True,
+        )
+
+        effective_cd_kkt_check_every = self.cd_kkt_check_every
+        if effective_cd_kkt_check_every is None:
+            effective_cd_kkt_check_every = 4 if str(self.method).lower() == "glmnet" else 1
+
+        self.alpha_ = float(details["alpha"])
+        self.alphas_ = np.asarray(details["alphas"], dtype=np.float64)
+        self.mse_path_ = np.asarray(details["mse_path"], dtype=np.float64)
+        self.mean_mse_ = np.asarray(details["mean_mse"], dtype=np.float64)
+
+        if np.any(np.isfinite(self.mean_mse_)):
+            self.best_score_ = float(np.nanmin(self.mean_mse_))
+        else:
+            self.best_score_ = np.nan
+
+        estimator = Lasso(
+            alpha=self.alpha_,
+            fit_intercept=self.fit_intercept,
+            max_iter=self.max_iter,
+            tol=self.tol,
+            stopping=self.stopping,
+            inference_method=self.inference_method,
+            n_bootstrap=self.n_bootstrap,
+            bootstrap_random_state=self.bootstrap_random_state,
+            device=self.device,
+            n_jobs=self.n_jobs,
+            compute_inference=self.compute_inference,
+            solver=self.solver,
+            cpu_solver=effective_cpu_solver,
+            lipschitz_L=self.lipschitz_L,
+            admm_rho=self.admm_rho,
+            gpu_memory_cleanup=self.gpu_memory_cleanup,
+        )
+
+        fast_refit_enabled = (
+            (not bool(self.compute_inference))
+            and str(self.solver).lower() == "fista"
+            and str(self.stopping).lower() in ("coef_delta", "kkt")
+        )
+
+        if fast_refit_enabled:
+            fast = _fit_lasso_single_alpha_fast(
+                X,
+                y,
+                alpha=float(self.alpha_),
+                fit_intercept=bool(self.fit_intercept),
+                max_iter=int(self.max_iter),
+                tol=float(self.tol),
+                stopping=str(self.stopping),
+                device=str(device_name),
+                cpu_solver=str(effective_cpu_solver),
+                cd_kkt_check_every=int(effective_cd_kkt_check_every),
+                sample_weight=sample_weight,
+            )
+
+            estimator.coef_ = np.asarray(fast["coef"], dtype=np.float64)
+            estimator.intercept_ = float(fast["intercept"])
+            estimator.n_iter_ = int(fast["n_iter"])
+            estimator._nobs = int(fast["n_samples"])
+            estimator._df_resid = int(fast["n_samples"]) - (
+                int(fast["n_features"]) + (1 if bool(self.fit_intercept) else 0)
+            )
+
+            if bool(self.fit_intercept):
+                estimator._params = np.concatenate(
+                    [[estimator.intercept_], estimator.coef_]
+                )
+            else:
+                estimator._params = estimator.coef_.copy()
+
+            estimator._scale = np.nan
+            estimator._resid = None
+            estimator._X_design = None
+            estimator._fitted = True
+        else:
+            estimator.fit(X, y, sample_weight=sample_weight)
+
+        self.estimator_ = estimator
+        self.coef_ = np.asarray(estimator.coef_)
+        self.intercept_ = estimator.intercept_
+        self.n_iter_ = int(estimator.n_iter_)
+
+        self._fitted = True
+        return self
+
+    def predict(self, X):
+        self._check_is_fitted()
+        return self.estimator_.predict(X)
+
+    def score(self, X, y):
+        self._check_is_fitted()
+        return self.estimator_.score(X, y)
+
+    def summary(self):
+        self._check_is_fitted()
+        return self.estimator_.summary()

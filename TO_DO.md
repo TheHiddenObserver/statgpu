@@ -30,7 +30,10 @@
   - `LinearRegression / Ridge / Lasso / LogisticRegression / CoxPH`
 - 修复 `LogisticRegression.fit()` 在 CUDA 输入 `cupy.ndarray` 时的隐式 `np.asarray` 转换报错。
 - `LinearRegression` 新增 `cov_type=nonrobust/hc0/hc1`，并补 CPU/GPU 推断路径。
+- `LinearRegression / Ridge / LogisticRegression` 新增 `cov_type=nonrobust/hc0/hc1/hc2/hc3/hac`，并补 `hac_maxlags` 与 CPU/GPU 路径。
 - `LogisticRegression` 新增 `cov_type=nonrobust/hc0/hc1`，并补 CPU/GPU 推断路径。
+- 新增三方统一协方差对比产物：
+  - `results/remote_covariance_full_compare_2026-04-10.json`（`statsmodels` / `statgpu CPU` / `statgpu GPU`）
 - `CoxPH` 新增 `cov_type=nonrobust/hc0/hc1`（稳健协方差近似）并补 CPU/GPU 路径可用性。
 - `CoxPH` 新增 `cov_type=cluster`（按 cluster 分组的 sandwich 协方差，CPU 路径）。
 - 新增并验证对标测试（`statsmodels`）：
@@ -54,7 +57,7 @@
 ## 进行中（P0）
 
 - 完善推断严谨性：
-  - 扩展稳健协方差到 `cluster-robust` / `HAC`
+  - 扩展稳健协方差到 `cluster-robust`（Linear/Ridge/Logistic 的 `HC2/HC3/HAC` 已完成）
   - 提升跨设备一致性（`SE/t/z/p/CI`、`AIC/BIC/LLF`）
 - Lasso 推断增强：
   - 引入更严谨的 post-selection inference（如 de-biased lasso）
@@ -92,7 +95,7 @@
 ## 功能差距速览（对比 sklearn / statsmodels / R）
 
 - 通用：
-  - 稳健协方差类型仍不完整（cluster/HAC 待补）
+  - 稳健协方差类型仍不完整（多模型 `cluster-robust` 待补；`HAC` 已覆盖 Linear/Ridge/Logistic）
   - 稀疏矩阵与模型选择工具（CV/path）待完善
   - 预处理开关待补
 - LinearRegression：

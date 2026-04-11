@@ -32,6 +32,39 @@ class TestLogisticRegression:
         assert len(model.coef_) == 2
         assert model.intercept_ is not None
         assert model.n_iter_ <= 100
+
+    def test_invalid_hac_maxlags_raises(self):
+        with pytest.raises(ValueError):
+            LogisticRegression(device="cpu", cov_type="hac", hac_maxlags=-1)
+
+    @pytest.mark.parametrize("cov_type", ["hc2", "hc3", "hac"])
+    def test_extended_cov_types_cpu(self, cov_type):
+        """Extended robust covariance types should run and produce finite inference."""
+        set_device('cpu')
+
+        rng = np.random.default_rng(123)
+        X = rng.normal(size=(1200, 6))
+        beta = rng.normal(scale=0.7, size=6)
+        logits = X @ beta + 0.25
+        p = 1.0 / (1.0 + np.exp(-logits))
+        y = (rng.random(1200) < p).astype(int)
+
+        kwargs = {"hac_maxlags": 4} if cov_type == "hac" else {}
+        model = LogisticRegression(
+            device='cpu',
+            C=1e10,
+            max_iter=200,
+            cov_type=cov_type,
+            compute_inference=True,
+            **kwargs,
+        )
+        model.fit(X, y)
+
+        assert model._bse is not None
+        assert np.all(np.isfinite(model._bse))
+        assert np.all(model._bse > 0)
+        assert np.all(np.isfinite(model._pvalues))
+        assert np.all((model._pvalues >= 0) & (model._pvalues <= 1))
     
     def test_fit_with_intercept(self):
         """Test fitting with intercept."""

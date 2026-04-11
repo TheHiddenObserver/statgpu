@@ -1,7 +1,7 @@
 # Models Overview
 
 > 语言: 中文  
-> 最后更新: 2026-04-02  
+> 最后更新: 2026-04-11  
 > 页面定位: 模型索引  
 > 切换: [English](../en/models/README.md)
 
@@ -35,7 +35,9 @@ When adding a new estimator:
 - All current models support `device="cpu"` / `device="cuda"` / `device="auto"`.
 - All current models support `gpu_memory_cleanup`.
 - Inference-rich models:
-  - `LinearRegression`: classical + `HC0/HC1`
+  - `LinearRegression`: classical + `HC0/HC1/HC2/HC3/HAC`
+  - `Ridge`: classical + `HC0/HC1/HC2/HC3/HAC`
   - `Lasso`: CPU/GPU OLS-style inference + bootstrap
-  - `LogisticRegression`: classical + `HC0/HC1`
+  - `LogisticRegression`: classical + `HC0/HC1/HC2/HC3/HAC`
 - `CoxPH` supports Breslow/Efron ties and CPU/GPU fitting paths.
+- 已导出的 CV 类（`RidgeCV`、`LogisticRegressionCV`、`CoxPHCV`）当前仅为接口骨架；CV 训练/搜索逻辑尚未完成。
