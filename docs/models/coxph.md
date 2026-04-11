@@ -1,7 +1,7 @@
 # CoxPH
 
 > 语言: 中文  
-> 最后更新: 2026-04-02  
+> 最后更新: 2026-04-11  
 > 页面定位: 模型文档  
 > 切换: [English](../en/models/coxph.md)
 
@@ -56,7 +56,10 @@ m.fit(X, time, event, cluster=cluster_ids)
 ## 返回与属性
 
 - `fit(X, time, event, entry=None)`：返回 `self`
-- `predict_risk(X)` / `predict_partial_hazard(X)`（若已实现）用于风险排序
+- `predict_risk_score(X)`：返回线性风险分数（`X @ coef`）
+- `predict_hazard_ratio(X)`：返回风险比（`exp(X @ coef)`）
+- `predict_survival(X, times=None)`：返回二元组 `(``survival``, ``times``)`，分别表示生存函数预测值及其对应时间点
+- `predict(X)`：`predict_hazard_ratio` 的别名
 - 常用属性：`coef_`, `hazard_ratios_`, `concordance_index`, `aic`
 
 ## 常见问题

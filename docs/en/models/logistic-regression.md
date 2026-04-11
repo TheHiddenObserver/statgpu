@@ -3,9 +3,9 @@
 > Language: English  
 > Last updated: 2026-04-10  
 > This page: Model documentation  
-> Switch: [中文](../../models/logistic-regression.md)
+> Switch: [Chinese](../../models/logistic-regression.md)
 
-Language switch: [中文](../../models/logistic-regression.md)
+Language switch: [Chinese](../../models/logistic-regression.md)
 
 Path: `statgpu.linear_model.LogisticRegression`
 

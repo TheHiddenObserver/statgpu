@@ -3,9 +3,9 @@
 > Language: English  
 > Last updated: 2026-04-02  
 > This page: Model documentation  
-> Switch: [中文](../../models/coxph.md)
+> Switch: [Chinese](../../models/coxph.md)
 
-Language switch: [中文](../../models/coxph.md)
+Language switch: [Chinese](../../models/coxph.md)
 
 Path: `statgpu.survival.CoxPH`
 

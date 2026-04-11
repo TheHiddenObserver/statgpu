@@ -1,9 +1,9 @@
 # statgpu Documentation Portal
 
 > Language: English  
-> Last updated: 2026-04-10  
+> Last updated: 2026-04-11  
 > This page: Primary documentation entrypoint  
-> Switch: [中文](USAGE_CN.md)
+> Switch: [Chinese](USAGE_CN.md)
 
 Language switch:
 - Chinese: [USAGE_CN.md](USAGE_CN.md)
@@ -27,13 +27,28 @@ Install note:
 ## 2) Model Docs
 
 - [Models Overview](docs/en/models/README.md)
+- [Knockoff Feature Selection](docs/en/models/knockoff.md)
 
 Implemented estimators:
 - `LinearRegression`
 - `Ridge`
 - `Lasso`
+- `LassoCV`
 - `LogisticRegression`
 - `CoxPH`
+
+Exported CV classes currently in skeleton state:
+- `RidgeCV`
+- `LogisticRegressionCV`
+- `CoxPHCV`
+- Current behavior: `fit()` raises `NotImplementedError`.
+
+Implemented feature selection:
+- `knockoff_filter`
+- `fixed_x_knockoff_filter`
+- `model_x_knockoff_filter`
+- `KnockoffSelector`
+- `FixedXKnockoffSelector`
 
 Inference highlights:
 - `LinearRegression`: `cov_type=nonrobust/hc0/hc1/hc2/hc3/hac` (CPU+GPU)

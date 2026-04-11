@@ -26,7 +26,8 @@
 ## 2) 方法文档（按模块扩展）
 
 总览索引：
-- [Models Overview](docs/models/README.md)
+- [模型总览](docs/models/README.md)
+- [Knockoff 特征选择](docs/models/knockoff.md)
 
 ### 线性模型 `statgpu.linear_model`
 - [LinearRegression](docs/models/linear-regression.md)
@@ -41,8 +42,21 @@
 - `LinearRegression`
 - `Ridge`
 - `Lasso`
+- `LassoCV`
 - `LogisticRegression`
 - `CoxPH`
+
+当前导出的 CV 类中，以下仍是接口骨架（`fit()` 会抛出 `NotImplementedError`）：
+- `RidgeCV`
+- `LogisticRegressionCV`
+- `CoxPHCV`
+
+当前已实现特征选择：
+- `knockoff_filter`
+- `fixed_x_knockoff_filter`
+- `model_x_knockoff_filter`
+- `KnockoffSelector`
+- `FixedXKnockoffSelector`
 
 推断能力摘要：
 - `LinearRegression`: `cov_type=nonrobust/hc0/hc1/hc2/hc3/hac`（CPU+GPU）
