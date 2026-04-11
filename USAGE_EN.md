@@ -1,9 +1,9 @@
 # statgpu Documentation Portal (English Alias)
 
 > Language: English  
-> Last updated: 2026-04-02  
+> Last updated: 2026-04-11  
 > This page: Compatibility alias  
-> Switch: [中文](USAGE_CN.md)
+> Switch: [Chinese](USAGE_CN.md)
 
 This file is kept as an alias for compatibility.
 Primary English entrypoint: [USAGE.md](USAGE.md)
@@ -14,6 +14,7 @@ Chinese entrypoint: [USAGE_CN.md](USAGE_CN.md)
 - [Quickstart](docs/en/getting-started/quickstart.md)
 - [Device and GPU Memory](docs/en/guides/device-and-memory.md)
 - [Inference Modes (Lasso)](docs/en/guides/inference-modes.md)
+- [Global P-value Combination (Fisher/Cauchy/ACAT)](docs/en/guides/multiple-testing-combine-pvalues.md)
 - [Changelog](docs/en/changelog.md)
 
 Install note:
@@ -24,18 +25,37 @@ Install note:
 ## 2) Model Docs
 
 - [Models Overview](docs/en/models/README.md)
+- [Knockoff Feature Selection](docs/en/models/knockoff.md)
 
 Implemented estimators:
 - `LinearRegression`
 - `Ridge`
 - `Lasso`
+- `LassoCV`
 - `LogisticRegression`
 - `CoxPH`
 
+Exported CV classes currently in skeleton state:
+- `RidgeCV`
+- `LogisticRegressionCV`
+- `CoxPHCV`
+- Current behavior: `fit()` raises `NotImplementedError`.
+
+Implemented feature selection:
+- `knockoff_filter`
+- `fixed_x_knockoff_filter`
+- `model_x_knockoff_filter`
+- `KnockoffSelector`
+- `FixedXKnockoffSelector`
+
 Inference highlights:
-- `LinearRegression`: `cov_type=nonrobust/hc0/hc1` (CPU+GPU)
+- `LinearRegression`: `cov_type=nonrobust/hc0/hc1/hc2/hc3/hac` (CPU+GPU)
+- `Ridge`: `cov_type=nonrobust/hc0/hc1/hc2/hc3/hac` (CPU+GPU)
 - `Lasso`: `cpu_ols_inference/gpu_ols_inference/bootstrap`
-- `LogisticRegression`: `cov_type=nonrobust/hc0/hc1` (CPU+GPU)
+- `LogisticRegression`: `cov_type=nonrobust/hc0/hc1/hc2/hc3/hac` (CPU+GPU)
+- Multiple-testing utilities: `statgpu.adjust_pvalues` / `statgpu.multipletests` (`bh/by/holm/bonferroni`)
+- Global p-value combination: `statgpu.combine_pvalues` (`fisher/cauchy/acat`)
+- Unified resampling engine: `statgpu.bootstrap_statistic` / `statgpu.permutation_test`
 
 ## 3) Benchmarks and Validation
 
@@ -45,6 +65,9 @@ Primary scripts:
 - `dev/benchmarks/benchmark_lasso_inference_gpu_vs_cpu.py`
 - `dev/benchmarks/benchmark_gpu_memory_cleanup.py`
 - `dev/benchmarks/benchmark_all_methods_large_scale.py`
+
+Latest tri-backend covariance artifact:
+- `results/remote_covariance_full_compare_2026-04-10.json` (`statsmodels` / `statgpu CPU` / `statgpu GPU`, `hc2/hc3/hac`)
 
 Recommended large-scale command:
 

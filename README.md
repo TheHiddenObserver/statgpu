@@ -17,10 +17,10 @@ GPU-accelerated statistical methods with sklearn-compatible API.
 - 🔄 **Auto Device Selection**: CPU fallback when GPU unavailable
 - 📊 **Statistical Focus**: Methods from R that Python lacks
 - 🧮 **Inference Support**:
-  - `LinearRegression`: `nonrobust` / `hc0` / `hc1`
-  - `Ridge`: `nonrobust` / `hc0` / `hc1`
+  - `LinearRegression`: `nonrobust` / `hc0` / `hc1` / `hc2` / `hc3` / `hac`
+  - `Ridge`: `nonrobust` / `hc0` / `hc1` / `hc2` / `hc3` / `hac`
   - `Lasso`: `cpu_ols_inference` / `gpu_ols_inference` / `bootstrap`
-  - `LogisticRegression`: `nonrobust` / `hc0` / `hc1`
+  - `LogisticRegression`: `nonrobust` / `hc0` / `hc1` / `hc2` / `hc3` / `hac`
 - 🧹 **GPU Memory Control**: `gpu_memory_cleanup` for all current models
 
 ## Implemented Methods (Current)
@@ -28,8 +28,15 @@ GPU-accelerated statistical methods with sklearn-compatible API.
 - `statgpu.linear_model.LinearRegression`
 - `statgpu.linear_model.Ridge`
 - `statgpu.linear_model.Lasso`
+- `statgpu.linear_model.LassoCV`
 - `statgpu.linear_model.LogisticRegression`
 - `statgpu.survival.CoxPH`
+
+Exported CV interface skeletons (pending full CV training/search implementation):
+
+- `statgpu.linear_model.RidgeCV`
+- `statgpu.linear_model.LogisticRegressionCV`
+- `statgpu.survival.CoxPHCV`
 
 ## Installation
 

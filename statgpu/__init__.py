@@ -8,10 +8,25 @@ __version__ = "0.1.0"
 
 from ._config import get_device, set_device, Device
 from ._base import BaseEstimator
-from .linear_model import LinearRegression, LogisticRegression, Ridge, Lasso
-from .survival import CoxPH
+from .linear_model import (
+    LinearRegression,
+    LogisticRegression,
+    LogisticRegressionCV,
+    Ridge,
+    RidgeCV,
+    Lasso,
+    LassoCV,
+)
+from .survival import CoxPH, CoxPHCV
 from .backends import get_backend, NumpyBackend, CuPyBackend, TorchBackend
 from .evaluation import evaluate_binary_classification
+from .feature_selection import (
+    FixedXKnockoffSelector,
+    KnockoffSelector,
+    fixed_x_knockoff_filter,
+    knockoff_filter,
+    model_x_knockoff_filter,
+)
 from .inference import adjust_pvalues, combine_pvalues, multipletests
 from .inference import bootstrap_statistic, permutation_test
 
@@ -22,14 +37,23 @@ __all__ = [
     "BaseEstimator",
     "LinearRegression",
     "LogisticRegression",
+    "LogisticRegressionCV",
     "Ridge",
+    "RidgeCV",
     "Lasso",
+    "LassoCV",
     "CoxPH",
+    "CoxPHCV",
     "get_backend",
     "NumpyBackend",
     "CuPyBackend",
     "TorchBackend",
     "evaluate_binary_classification",
+    "knockoff_filter",
+    "fixed_x_knockoff_filter",
+    "model_x_knockoff_filter",
+    "KnockoffSelector",
+    "FixedXKnockoffSelector",
     "adjust_pvalues",
     "combine_pvalues",
     "multipletests",

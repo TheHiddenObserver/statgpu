@@ -57,7 +57,7 @@ Merged from:
 ## 3. In-Progress P0 Track
 
 - Improve inference rigor:
-  - extend robust covariance to `cluster-robust` and `HAC`
+  - extend robust covariance to `cluster-robust` (Linear/Ridge/Logistic `HC2/HC3/HAC` is completed)
   - improve cross-device alignment for `SE/t/z/p/CI` and `AIC/BIC/LLF`
 - Lasso inference enhancements:
   - de-biased lasso strict inference path implemented in this PR
@@ -73,7 +73,8 @@ Merged from:
 - GPU-side inference enhancement for `gpu_ols_inference` path.
 - Added `gpu_memory_cleanup` across core models.
 - Fixed `LogisticRegression.fit()` CUDA input conversion path.
-- Added `cov_type=nonrobust/hc0/hc1` for Linear/Logistic/Cox (with CPU/GPU availability by model path).
+- Added `cov_type=nonrobust/hc0/hc1/hc2/hc3/hac` for Linear/Ridge/Logistic (CPU+GPU paths).
+- `CoxPH` keeps `cov_type=nonrobust/hc0/hc1` with `cluster` on CPU path.
 - Added Cox `cov_type=cluster` (CPU path).
 - Added statsmodels comparison tests for Linear/Logistic HC0/HC1.
 - Added benchmark scripts for lasso inference, gpu memory cleanup, large-scale methods, external frameworks.
@@ -153,9 +154,14 @@ Merged from:
 
 ## 10. Next Action Queue
 
-1. Start knockoff batch 2 skeleton (fixed-X first).
-2. Add structured benchmark/comparison script for knockoff once API skeleton lands.
-3. Add docs page for `combine_pvalues` (Fisher/Cauchy/ACAT) with benchmark interpretation notes.
+1. P1 completed (2026-04-06): knockoff batch 2 skeleton landed (fixed-X first, unified API + selector wrappers).
+2. P1 completed (2026-04-06): structured knockoff benchmark/comparison scripts landed with JSON artifacts.
+3. P1 completed (2026-04-06): docs page for `combine_pvalues` (Fisher/Cauchy/ACAT) added with benchmark interpretation notes.
+4. P1 completed (2026-04-06): `model_x_knockoff_filter` core generator path landed (Gaussian second-order approximation) with deterministic CPU tests.
+5. P1 next: add optional external baseline checks for knockoff selection quality (Python/R when available).
+6. P1 completed (2026-04-06): first-round knockoff power calibration landed via `method='ols_coef_diff'`.
+7. P1 completed (2026-04-06): model-X stability calibration landed (covariance shrinkage + multi-draw W aggregation), and current benchmark reaches non-null threshold rate `1.0` at `q=0.1`.
+8. P1 next: expand calibration robustness sweep across `rho/noise` settings and larger `p/n` stress cases (plus CUDA path when available).
 
 ## 11. Consolidation Note
 
@@ -353,8 +359,14 @@ P2 recommendations:
   - summary: `results/remote_fisher_cauchy_benchmark_2026-04-05.md`
   - key metrics: Fisher SciPy vs statgpu NumPy `88.152x`; Fisher NumPy vs CuPy `4.879x`; Cauchy NumPy vs CuPy `4.634x`; Fisher/Cauchy consistency diffs remained at floating-point noise level.
 
-2. P1 high:
-- knockoff roadmap with fixed-X first and model-X next, plus standardized outputs and baseline comparisons.
+2. P1 high (mostly complete):
+- fixed-X and model-X knockoff paths are both available via unified dispatcher, with standardized output fields (`selected/W/threshold/q_trajectory/random_state/backend`).
+- benchmark artifacts landed:
+  - `results/benchmark_knockoff_fixedx_2026-04-06.json`
+  - `results/benchmark_knockoff_vs_baselines_2026-04-06.json`
+- fixed-X power improved after adding `ols_coef_diff` statistic (non-null thresholds and full-recall runs on current synthetic benchmark config).
+- model-X now uses Gaussian second-order approximation with covariance shrinkage and multi-draw W aggregation, showing stable non-null thresholds across seeds on the current synthetic benchmark config.
+- optional external baseline validation (Python/R) remains the next quality gate.
 
 3. P2 medium:
 - correlation-aware global methods (Brown/Kost/HMP/weighted variants).
@@ -364,3 +376,41 @@ P2 recommendations:
 
 5. P3 lower:
 - spatial econometrics methods after the same checkpoint.
+
+### 12.13 P0 covariance HC2/HC3/HAC unified benchmark snapshot (2026-04-10)
+
+- objective: compare `statsmodels`, `statgpu CPU`, and `statgpu GPU` under one aligned setting.
+- artifact: `results/remote_covariance_full_compare_2026-04-10.json`.
+- remote environment:
+  - CUDA available: true
+  - statsmodels available: true (`0.14.6`)
+  - timing repeats: 2 (with warmup)
+- aligned config:
+  - cov types: `hc2`, `hc3`, `hac` (`hac_maxlags=4`)
+  - linear: `n=8000, p=24`
+  - logistic: `n=12000, p=16`
+
+timing summary (speed ratio):
+- linear:
+  - hc2: statsmodels/statgpu_cpu `3.157x`, statsmodels/statgpu_gpu `11.718x`, statgpu_gpu/statgpu_cpu `0.269x`.
+  - hc3: statsmodels/statgpu_cpu `1.193x`, statsmodels/statgpu_gpu `4.823x`, statgpu_gpu/statgpu_cpu `0.247x`.
+  - hac: statsmodels/statgpu_cpu `0.959x`, statsmodels/statgpu_gpu `2.605x`, statgpu_gpu/statgpu_cpu `0.368x`.
+- logistic:
+  - hc2: statsmodels/statgpu_cpu `1.505x`, statsmodels/statgpu_gpu `3.479x`, statgpu_gpu/statgpu_cpu `0.433x`.
+  - hc3: statsmodels/statgpu_cpu `0.779x`, statsmodels/statgpu_gpu `1.792x`, statgpu_gpu/statgpu_cpu `0.435x`.
+  - hac: statsmodels/statgpu_cpu `1.429x`, statsmodels/statgpu_gpu `1.972x`, statgpu_gpu/statgpu_cpu `0.725x`.
+
+precision summary (max abs diff):
+- linear:
+  - statgpu_cpu vs statsmodels: coef <= `2.6646e-15`, bse <= `1.3817e-09`, p-value <= `1.4398e-56`.
+  - statgpu_gpu vs statsmodels: coef <= `2.8866e-15`, bse <= `3.6429e-17`, p-value <= `1.4398e-56`.
+  - statgpu_cpu vs statgpu_gpu: coef <= `2.7756e-15`, bse <= `1.3817e-09`, p-value <= `0`.
+- logistic:
+  - statgpu_cpu vs statsmodels: coef <= `1.3324e-05`, bse <= `4.7788e-05`, p-value <= `1.5108e-04`.
+  - statgpu_gpu vs statsmodels: coef <= `1.3324e-05`, bse <= `4.7788e-05`, p-value <= `1.5108e-04`.
+  - statgpu_cpu vs statgpu_gpu: coef <= `9.9920e-16`, bse <= `4.1633e-17`, p-value <= `2.2204e-16`.
+
+status:
+- P0 covariance extension benchmark gate is now evidenced with auditable same-setting artifact.
+- same-day rerun (2026-04-10) completed and the snapshot above is synchronized to the latest artifact values.
+- next: add this benchmark as a stable script entry in `dev/benchmarks` and wire into monthly non-regression gate.

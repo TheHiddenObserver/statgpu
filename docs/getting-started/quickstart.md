@@ -1,7 +1,7 @@
 # 快速上手
 
 > 语言: 中文  
-> 最后更新: 2026-04-02  
+> 最后更新: 2026-04-11  
 > 页面定位: 快速开始  
 > 切换: [English](../en/getting-started/quickstart.md)
 
@@ -36,7 +36,7 @@ import statgpu as sg
 sg.set_device("auto")   # 默认: 有 CUDA 就用 GPU
 sg.set_device("cuda")   # 强制 GPU
 sg.set_device("cpu")    # 强制 CPU
-print(sg.cuda_available())
+print(sg.get_device().value)   # 当前解析后的设备（如 cuda / cpu）
 ```
 
 更多内容见：

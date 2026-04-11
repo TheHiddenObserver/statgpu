@@ -31,7 +31,9 @@ class Ridge(BaseEstimator):
         Whether to compute standard errors, t-stats, p-values and CI.
     cov_type : str, default='nonrobust'
         Covariance estimator for inference. One of:
-        ``'nonrobust'`` (classical), ``'hc0'`` (White HC0), ``'hc1'`` (HC1).
+        ``'nonrobust'`` (classical), ``'hc0'`` (White HC0), ``'hc1'`` (HC1),
+        ``'hc2'`` (leverage-adjusted HC2), ``'hc3'`` (jackknife-style HC3),
+        or ``'hac'`` (Newey-West HAC with Bartlett kernel).
     """
 
     def __init__(
@@ -43,6 +45,7 @@ class Ridge(BaseEstimator):
         gpu_memory_cleanup: bool = False,
         compute_inference: bool = True,
         cov_type: str = "nonrobust",
+        hac_maxlags: Optional[int] = None,
     ):
         super().__init__(device=device, n_jobs=n_jobs)
         self.alpha = alpha
@@ -50,8 +53,13 @@ class Ridge(BaseEstimator):
         self.gpu_memory_cleanup = bool(gpu_memory_cleanup)
         self.compute_inference = compute_inference
         self.cov_type = cov_type.lower()
-        if self.cov_type not in ("nonrobust", "hc0", "hc1"):
-            raise ValueError("cov_type must be one of: 'nonrobust', 'hc0', 'hc1'")
+        if self.cov_type not in ("nonrobust", "hc0", "hc1", "hc2", "hc3", "hac"):
+            raise ValueError(
+                "cov_type must be one of: 'nonrobust', 'hc0', 'hc1', 'hc2', 'hc3', 'hac'"
+            )
+        if hac_maxlags is not None and int(hac_maxlags) < 0:
+            raise ValueError("hac_maxlags must be a non-negative integer or None")
+        self.hac_maxlags = None if hac_maxlags is None else int(hac_maxlags)
         self.coef_ = None
         self.intercept_ = None
         self._X_design = None
@@ -76,6 +84,100 @@ class Ridge(BaseEstimator):
             cp.get_default_pinned_memory_pool().free_all_blocks()
         except Exception:
             pass
+
+    def _resolve_hac_maxlags(self, n_obs: int) -> int:
+        """Resolve HAC lag count with a Newey-West style default rule."""
+        if n_obs <= 1:
+            return 0
+        if self.hac_maxlags is None:
+            maxlags = int(np.floor(4.0 * (n_obs / 100.0) ** (2.0 / 9.0)))
+        else:
+            maxlags = int(self.hac_maxlags)
+        return max(0, min(maxlags, n_obs - 1))
+
+    def _hac_meat_numpy(self, scores: np.ndarray) -> np.ndarray:
+        """Bartlett-kernel HAC meat from per-observation score matrix."""
+        n_obs = int(scores.shape[0])
+        meat = scores.T @ scores
+        maxlags = self._resolve_hac_maxlags(n_obs)
+        if maxlags == 0:
+            return meat
+        for lag in range(1, maxlags + 1):
+            weight = 1.0 - (lag / (maxlags + 1.0))
+            gamma = scores[lag:].T @ scores[:-lag]
+            meat = meat + weight * (gamma + gamma.T)
+        return meat
+
+    def _hac_meat_cupy(self, scores):
+        """CuPy Bartlett-kernel HAC meat from per-observation score matrix."""
+        import cupy as cp
+
+        n_obs = int(scores.shape[0])
+        meat = scores.T @ scores
+        maxlags = self._resolve_hac_maxlags(n_obs)
+        if maxlags == 0:
+            return meat
+        for lag in range(1, maxlags + 1):
+            weight = 1.0 - (lag / (maxlags + 1.0))
+            gamma = scores[lag:].T @ scores[:-lag]
+            meat = meat + weight * (gamma + gamma.T)
+        return meat
+
+    def _robust_covariance_numpy(self, X: np.ndarray, resid: np.ndarray, XtX_inv: np.ndarray) -> np.ndarray:
+        """Compute robust/HAC covariance matrix for Ridge score equations."""
+        n, k = X.shape
+        e = np.asarray(resid, dtype=float).reshape(-1)
+
+        if self.cov_type == "hac":
+            scores = X * e[:, np.newaxis]
+            meat = self._hac_meat_numpy(scores)
+            return XtX_inv @ meat @ XtX_inv
+
+        if self.cov_type in ("hc2", "hc3"):
+            leverage = np.einsum("ij,jk,ik->i", X, XtX_inv, X)
+            leverage = np.clip(leverage, 0.0, 1.0 - 1e-12)
+            if self.cov_type == "hc2":
+                e2 = (e ** 2) / (1.0 - leverage)
+            else:
+                e2 = (e ** 2) / ((1.0 - leverage) ** 2)
+        else:
+            e2 = e ** 2
+
+        Xw = X * e2[:, np.newaxis]
+        meat = X.T @ Xw
+        cov_params = XtX_inv @ meat @ XtX_inv
+        if self.cov_type == "hc1" and n > k:
+            cov_params *= n / (n - k)
+        return cov_params
+
+    def _robust_covariance_cupy(self, X, resid, XtX_inv):
+        """Compute robust/HAC covariance matrix for Ridge score equations on GPU."""
+        import cupy as cp
+
+        n, k = X.shape
+        e = resid.reshape(-1)
+
+        if self.cov_type == "hac":
+            scores = X * e[:, cp.newaxis]
+            meat = self._hac_meat_cupy(scores)
+            return XtX_inv @ meat @ XtX_inv
+
+        if self.cov_type in ("hc2", "hc3"):
+            leverage = cp.einsum("ij,jk,ik->i", X, XtX_inv, X)
+            leverage = cp.clip(leverage, 0.0, 1.0 - 1e-12)
+            if self.cov_type == "hc2":
+                e2 = cp.square(e) / (1.0 - leverage)
+            else:
+                e2 = cp.square(e) / cp.square(1.0 - leverage)
+        else:
+            e2 = cp.square(e)
+
+        Xw = X * e2[:, cp.newaxis]
+        meat = X.T @ Xw
+        cov_params = XtX_inv @ meat @ XtX_inv
+        if self.cov_type == "hc1" and n > k:
+            cov_params = cov_params * (n / (n - k))
+        return cov_params
     
     def fit(self, X, y, sample_weight=None):
         """Fit Ridge regression model."""
@@ -232,21 +334,18 @@ class Ridge(BaseEstimator):
                 self._bse_gpu, self._tvalues_gpu, self._pvalues_gpu, self._conf_int_gpu = \
                     compute_inference_gpu(X_design, resid, scale, df_resid, coef_full)
             else:
-                # HC0/HC1 sandwich covariance on GPU
                 XtX_cov = X_design.T @ X_design
+                # Apply ridge penalty excluding the intercept column
+                k_design = X_design.shape[1]
+                penalty_diag = cp.ones(k_design, dtype=cp.float64) * self.alpha
+                if self.fit_intercept:
+                    penalty_diag[0] = 0.0  # no penalty on the intercept term
+                XtX_pen = XtX_cov + cp.diag(penalty_diag)
                 try:
-                    XtX_inv = cp.linalg.inv(XtX_cov)
+                    XtX_inv = cp.linalg.inv(XtX_pen)
                 except Exception:
-                    XtX_inv = cp.linalg.pinv(XtX_cov)
-                e2 = cp.square(resid.reshape(-1))
-                Xw = X_design * e2[:, cp.newaxis]
-                meat = X_design.T @ Xw
-                cov_params = XtX_inv @ meat @ XtX_inv
-                if self.cov_type == "hc1":
-                    n = X_design.shape[0]
-                    k_p = X_design.shape[1]
-                    if n > k_p:
-                        cov_params = cov_params * (n / (n - k_p))
+                    XtX_inv = cp.linalg.pinv(XtX_pen)
+                cov_params = self._robust_covariance_cupy(X_design, resid, XtX_inv)
                 self._bse_gpu = cp.sqrt(cp.maximum(cp.diag(cov_params), 0.0))
                 self._tvalues_gpu = coef_full / (self._bse_gpu + 1e-30)
                 self._pvalues_gpu = norm_two_tail_pvalues_gpu(cp.abs(self._tvalues_gpu))
@@ -324,11 +423,18 @@ class Ridge(BaseEstimator):
         n = X.shape[0]
         k = X.shape[1]
 
-        # (X'X)^{-1} — used by all cov_type paths
+        # Build the penalized bread (X'X + alpha·P)^{-1} where the penalty
+        # matrix P excludes the intercept column (if fit_intercept is True).
+        # This ensures SE/t/p are consistent with the ridge fit rather than OLS.
+        XtX = X.T @ X
+        penalty_diag = np.ones(k) * self.alpha
+        if self.fit_intercept:
+            penalty_diag[0] = 0.0  # no penalty on the intercept term
+        XtX_pen = XtX + np.diag(penalty_diag)
         try:
-            XtX_inv = np.linalg.inv(X.T @ X)
+            XtX_inv = np.linalg.inv(XtX_pen)
         except np.linalg.LinAlgError:
-            XtX_inv = np.linalg.pinv(X.T @ X)
+            XtX_inv = np.linalg.pinv(XtX_pen)
 
         alpha = 0.05
 
@@ -343,13 +449,7 @@ class Ridge(BaseEstimator):
                 self._params + t_crit * self._bse,
             ])
         else:
-            # White HC0/HC1 sandwich covariance.
-            e2 = np.asarray(self._resid, dtype=float).reshape(-1) ** 2
-            Xw = X * e2[:, np.newaxis]
-            meat = X.T @ Xw
-            cov_params = XtX_inv @ meat @ XtX_inv
-            if self.cov_type == "hc1" and n > k:
-                cov_params *= n / (n - k)
+            cov_params = self._robust_covariance_numpy(X, self._resid, XtX_inv)
             self._bse = np.sqrt(np.maximum(np.diag(cov_params), 0.0))
             self._tvalues = self._params / (self._bse + 1e-30)
             # Robust path uses large-sample normal approximation.

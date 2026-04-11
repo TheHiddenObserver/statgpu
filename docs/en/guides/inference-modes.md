@@ -3,9 +3,9 @@
 > Language: English  
 > Last updated: 2026-04-02  
 > This page: Guide  
-> Switch: [中文](../../guides/inference-modes.md)
+> Switch: [Chinese](../../guides/inference-modes.md)
 
-Language switch: [中文](../../guides/inference-modes.md)
+Language switch: [Chinese](../../guides/inference-modes.md)
 
 `Lasso.inference_method` options:
 - `cpu_ols_inference` (default)
@@ -33,5 +33,6 @@ model.fit(X, y)
 ```
 
 Related robust covariance support:
-- `LinearRegression(cov_type="nonrobust" | "hc0" | "hc1")`
-- `LogisticRegression(cov_type="nonrobust" | "hc0" | "hc1")`
+- `LinearRegression(cov_type="nonrobust" | "hc0" | "hc1" | "hc2" | "hc3" | "hac")`
+- `Ridge(cov_type="nonrobust" | "hc0" | "hc1" | "hc2" | "hc3" | "hac")`
+- `LogisticRegression(cov_type="nonrobust" | "hc0" | "hc1" | "hc2" | "hc3" | "hac")`

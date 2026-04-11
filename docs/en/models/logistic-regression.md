@@ -1,11 +1,11 @@
 # LogisticRegression
 
 > Language: English  
-> Last updated: 2026-04-02  
+> Last updated: 2026-04-10  
 > This page: Model documentation  
-> Switch: [中文](../../models/logistic-regression.md)
+> Switch: [Chinese](../../models/logistic-regression.md)
 
-Language switch: [中文](../../models/logistic-regression.md)
+Language switch: [Chinese](../../models/logistic-regression.md)
 
 Path: `statgpu.linear_model.LogisticRegression`
 
@@ -19,7 +19,8 @@ Path: `statgpu.linear_model.LogisticRegression`
 | `tol` | `1e-4` | Convergence tolerance |
 | `device` | `"auto"` | `cpu` / `cuda` / `auto` |
 | `compute_inference` | `True` | Whether to compute inference stats |
-| `cov_type` | `"nonrobust"` | `nonrobust` / `hc0` / `hc1` |
+| `cov_type` | `"nonrobust"` | `nonrobust` / `hc0` / `hc1` / `hc2` / `hc3` / `hac` |
+| `hac_maxlags` | `None` | Max lag used when `cov_type="hac"`; if omitted, Newey-West style default is used |
 | `gpu_memory_cleanup` | `False` | Best-effort CuPy pool cleanup after each fit |
 
 ## Example
@@ -32,11 +33,21 @@ m.fit(X, y_binary)
 proba = m.predict_proba(X)
 ```
 
-## Robust Covariance (HC0/HC1)
+## Robust Covariance (HC0/HC1/HC2/HC3/HAC)
 
 - `cov_type="nonrobust"`: classical information-matrix covariance
 - `cov_type="hc0"`: White/sandwich robust covariance
 - `cov_type="hc1"`: HC0 with DOF correction `n/(n-k)`
+- `cov_type="hc2"`: leverage-adjusted robust covariance
+- `cov_type="hc3"`: more conservative jackknife-style robust covariance
+- `cov_type="hac"`: Newey-West (Bartlett kernel) covariance with optional `hac_maxlags`
+
+```python
+from statgpu.linear_model import LogisticRegression
+
+m = LogisticRegression(device="cpu", cov_type="hac", hac_maxlags=4, compute_inference=True)
+m.fit(X, y_binary)
+```
 
 ## Outputs
 
@@ -94,3 +105,7 @@ default without GPU-to-CPU array transfers (plotting APIs convert to NumPy for r
 - `dev/tests/test_external_consistency.py`
   - `test_logistic_robust_covariance_matches_statsmodels`
   - `test_logistic_robust_covariance_gpu_matches_statsmodels`
+
+Unified tri-backend artifact for `hc2/hc3/hac` under aligned settings:
+
+- `results/remote_covariance_full_compare_2026-04-10.json`

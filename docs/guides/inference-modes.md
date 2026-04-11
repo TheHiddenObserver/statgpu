@@ -47,8 +47,9 @@ model.fit(X, y)
 
 除了 `Lasso` 的推断模式外，以下模型也支持协方差配置：
 
-- `LinearRegression(cov_type="nonrobust" | "hc0" | "hc1")`
-- `LogisticRegression(cov_type="nonrobust" | "hc0" | "hc1")`
+- `LinearRegression(cov_type="nonrobust" | "hc0" | "hc1" | "hc2" | "hc3" | "hac")`
+- `Ridge(cov_type="nonrobust" | "hc0" | "hc1" | "hc2" | "hc3" | "hac")`
+- `LogisticRegression(cov_type="nonrobust" | "hc0" | "hc1" | "hc2" | "hc3" | "hac")`
 
 可参考：
 - `docs/models/linear-regression.md`

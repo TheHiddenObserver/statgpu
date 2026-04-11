@@ -93,6 +93,7 @@ class LogisticRegression(BaseEstimator):
         compute_inference: bool = True,
         cov_type: str = "nonrobust",
         gpu_memory_cleanup: bool = False,
+        hac_maxlags: Optional[int] = None,
     ):
         super().__init__(device=device, n_jobs=n_jobs)
         self.fit_intercept = fit_intercept
@@ -101,8 +102,13 @@ class LogisticRegression(BaseEstimator):
         self.tol = tol
         self.compute_inference = compute_inference
         self.cov_type = cov_type.lower()
-        if self.cov_type not in ("nonrobust", "hc0", "hc1"):
-            raise ValueError("cov_type must be one of: 'nonrobust', 'hc0', 'hc1'")
+        if self.cov_type not in ("nonrobust", "hc0", "hc1", "hc2", "hc3", "hac"):
+            raise ValueError(
+                "cov_type must be one of: 'nonrobust', 'hc0', 'hc1', 'hc2', 'hc3', 'hac'"
+            )
+        if hac_maxlags is not None and int(hac_maxlags) < 0:
+            raise ValueError("hac_maxlags must be a non-negative integer or None")
+        self.hac_maxlags = None if hac_maxlags is None else int(hac_maxlags)
         self.gpu_memory_cleanup = bool(gpu_memory_cleanup)
         self.coef_ = None
         self.intercept_ = None
@@ -135,6 +141,44 @@ class LogisticRegression(BaseEstimator):
             cp.get_default_pinned_memory_pool().free_all_blocks()
         except Exception:
             pass
+
+    def _resolve_hac_maxlags(self, n_obs: int) -> int:
+        """Resolve HAC lag count with a Newey-West style default rule."""
+        if n_obs <= 1:
+            return 0
+        if self.hac_maxlags is None:
+            maxlags = int(np.floor(4.0 * (n_obs / 100.0) ** (2.0 / 9.0)))
+        else:
+            maxlags = int(self.hac_maxlags)
+        return max(0, min(maxlags, n_obs - 1))
+
+    def _hac_meat_numpy(self, scores: np.ndarray) -> np.ndarray:
+        """Bartlett-kernel HAC meat from per-observation score matrix."""
+        n_obs = int(scores.shape[0])
+        meat = scores.T @ scores
+        maxlags = self._resolve_hac_maxlags(n_obs)
+        if maxlags == 0:
+            return meat
+        for lag in range(1, maxlags + 1):
+            weight = 1.0 - (lag / (maxlags + 1.0))
+            gamma = scores[lag:].T @ scores[:-lag]
+            meat = meat + weight * (gamma + gamma.T)
+        return meat
+
+    def _hac_meat_cupy(self, scores):
+        """CuPy Bartlett-kernel HAC meat from per-observation score matrix."""
+        cp = _require_cupy("_hac_meat_cupy")
+
+        n_obs = int(scores.shape[0])
+        meat = scores.T @ scores
+        maxlags = self._resolve_hac_maxlags(n_obs)
+        if maxlags == 0:
+            return meat
+        for lag in range(1, maxlags + 1):
+            weight = 1.0 - (lag / (maxlags + 1.0))
+            gamma = scores[lag:].T @ scores[:-lag]
+            meat = meat + weight * (gamma + gamma.T)
+        return meat
         
     def _sigmoid(self, z):
         """Sigmoid function."""
@@ -342,12 +386,21 @@ class LogisticRegression(BaseEstimator):
             if self.cov_type == "nonrobust":
                 cov_params = bread
             else:
-                # Sandwich robust covariance for GLM/logit:
-                # meat = X' diag((y-p)^2) X
                 resid_score = y - p
-                r2 = cp.square(resid_score)
-                Xw = X_design * r2[:, cp.newaxis]
-                meat = X_design.T @ Xw
+                scores = X_design * resid_score[:, cp.newaxis]
+
+                if self.cov_type == "hac":
+                    meat = self._hac_meat_cupy(scores)
+                else:
+                    if self.cov_type in ("hc2", "hc3"):
+                        leverage = W_inf * cp.einsum("ij,jk,ik->i", X_design, bread, X_design)
+                        leverage = cp.clip(leverage, 0.0, 1.0 - 1e-12)
+                        if self.cov_type == "hc2":
+                            scores = scores / cp.sqrt(1.0 - leverage)[:, cp.newaxis]
+                        else:
+                            scores = scores / (1.0 - leverage)[:, cp.newaxis]
+                    meat = scores.T @ scores
+
                 cov_params = bread @ meat @ bread
                 if self.cov_type == "hc1":
                     n = X_design.shape[0]
@@ -458,9 +511,20 @@ class LogisticRegression(BaseEstimator):
             cov_params = bread
         else:
             resid_score = self._y - p
-            r2 = np.square(resid_score)
-            Xw = self._X_design * r2[:, np.newaxis]
-            meat = self._X_design.T @ Xw
+
+            scores = self._X_design * resid_score[:, np.newaxis]
+            if self.cov_type == "hac":
+                meat = self._hac_meat_numpy(scores)
+            else:
+                if self.cov_type in ("hc2", "hc3"):
+                    leverage = W * np.einsum("ij,jk,ik->i", self._X_design, bread, self._X_design)
+                    leverage = np.clip(leverage, 0.0, 1.0 - 1e-12)
+                    if self.cov_type == "hc2":
+                        scores = scores / np.sqrt(1.0 - leverage)[:, np.newaxis]
+                    else:
+                        scores = scores / (1.0 - leverage)[:, np.newaxis]
+                meat = scores.T @ scores
+
             cov_params = bread @ meat @ bread
             if self.cov_type == "hc1":
                 n = self._X_design.shape[0]
