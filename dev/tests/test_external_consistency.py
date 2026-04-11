@@ -72,15 +72,28 @@ class TestStatsmodelsConsistency:
         [
             ("hc0", "HC0", 4000, 12, 72),
             ("hc1", "HC1", 4000, 12, 73),
+            ("hc2", "HC2", 4000, 12, 74),
+            ("hc3", "HC3", 4000, 12, 75),
             ("hc0", "HC0", 12000, 24, 82),
             ("hc1", "HC1", 12000, 24, 83),
+            ("hc2", "HC2", 12000, 24, 84),
+            ("hc3", "HC3", 12000, 24, 85),
         ],
-        ids=["hc0-small", "hc1-small", "hc0-medium", "hc1-medium"],
+        ids=[
+            "hc0-small",
+            "hc1-small",
+            "hc2-small",
+            "hc3-small",
+            "hc0-medium",
+            "hc1-medium",
+            "hc2-medium",
+            "hc3-medium",
+        ],
     )
     def test_linear_robust_covariance_matches_statsmodels(
         self, cov_type, sm_cov_type, n_samples, n_features, seed
     ):
-        """HC0/HC1 robust SE and inference should align with statsmodels OLS."""
+        """HC0/HC1/HC2/HC3 robust SE and inference should align with statsmodels OLS."""
         set_device("cpu")
         rng = np.random.default_rng(seed)
         X = rng.normal(size=(n_samples, n_features))
@@ -105,6 +118,33 @@ class TestStatsmodelsConsistency:
         assert np.allclose(sg._pvalues, sm_res.pvalues, rtol=5e-2, atol=1e-5)
         assert np.allclose(sg._conf_int, sm_res.conf_int(), rtol=2e-2, atol=1e-4)
 
+    @pytest.mark.parametrize("maxlags,seed", [(2, 92), (4, 93)], ids=["hac-l2", "hac-l4"])
+    def test_linear_hac_covariance_matches_statsmodels(self, maxlags, seed):
+        """HAC covariance (Bartlett) should align with statsmodels OLS HAC."""
+        set_device("cpu")
+        rng = np.random.default_rng(seed)
+        n_samples, n_features = 5000, 12
+        X = rng.normal(size=(n_samples, n_features))
+        beta = rng.normal(size=n_features)
+
+        # AR(1)-like serial dependence for HAC relevance.
+        eps = rng.normal(scale=0.5, size=n_samples)
+        for t in range(1, n_samples):
+            eps[t] += 0.55 * eps[t - 1]
+        y = X @ beta + 1.2 + eps
+
+        sg = LinearRegression(device="cpu", cov_type="hac", hac_maxlags=maxlags)
+        sg.fit(X, y)
+
+        X_sm = sm.add_constant(X)
+        sm_res = sm.OLS(y, X_sm).fit(cov_type="HAC", cov_kwds={"maxlags": maxlags})
+
+        assert np.allclose(sg.intercept_, sm_res.params[0], rtol=1e-6, atol=1e-6)
+        assert np.allclose(sg.coef_, sm_res.params[1:], rtol=1e-6, atol=1e-6)
+        assert np.allclose(sg._bse, sm_res.bse, rtol=5e-2, atol=5e-5)
+        assert np.allclose(sg._pvalues, sm_res.pvalues, rtol=8e-2, atol=5e-4)
+        assert np.allclose(sg._conf_int, sm_res.conf_int(), rtol=5e-2, atol=5e-4)
+
     @pytest.mark.skipif(
         (not HAS_CUPY) or (not cuda_available()),
         reason="CuPy/CUDA not available",
@@ -114,11 +154,13 @@ class TestStatsmodelsConsistency:
         [
             ("hc0", "HC0", 172),
             ("hc1", "HC1", 173),
+            ("hc2", "HC2", 174),
+            ("hc3", "HC3", 175),
         ],
-        ids=["gpu-hc0", "gpu-hc1"],
+        ids=["gpu-hc0", "gpu-hc1", "gpu-hc2", "gpu-hc3"],
     )
     def test_linear_robust_covariance_gpu_matches_statsmodels(self, cov_type, sm_cov_type, seed):
-        """GPU HC0/HC1 inference should align with statsmodels robust OLS."""
+        """GPU HC0/HC1/HC2/HC3 inference should align with statsmodels robust OLS."""
         set_device("cuda")
         rng = np.random.default_rng(seed)
         n_samples, n_features = 4000, 12
@@ -177,13 +219,15 @@ class TestStatsmodelsConsistency:
         [
             ("hc0", "HC0", 5000, 10, 107),
             ("hc1", "HC1", 5000, 10, 108),
+            ("hc2", "HC2", 5000, 10, 109),
+            ("hc3", "HC3", 5000, 10, 110),
         ],
-        ids=["logit-hc0-cpu", "logit-hc1-cpu"],
+        ids=["logit-hc0-cpu", "logit-hc1-cpu", "logit-hc2-cpu", "logit-hc3-cpu"],
     )
     def test_logistic_robust_covariance_matches_statsmodels(
         self, cov_type, sm_cov_type, n_samples, n_features, seed
     ):
-        """Logit HC0/HC1 robust inference should align with statsmodels."""
+        """Logit HC0/HC1/HC2/HC3 robust inference should align with statsmodels."""
         set_device("cpu")
         rng = np.random.default_rng(seed)
         X = rng.normal(size=(n_samples, n_features))
@@ -212,11 +256,13 @@ class TestStatsmodelsConsistency:
         [
             ("hc0", "HC0", 207),
             ("hc1", "HC1", 208),
+            ("hc2", "HC2", 209),
+            ("hc3", "HC3", 210),
         ],
-        ids=["logit-hc0-gpu", "logit-hc1-gpu"],
+        ids=["logit-hc0-gpu", "logit-hc1-gpu", "logit-hc2-gpu", "logit-hc3-gpu"],
     )
     def test_logistic_robust_covariance_gpu_matches_statsmodels(self, cov_type, sm_cov_type, seed):
-        """GPU Logit HC0/HC1 robust inference should align with statsmodels."""
+        """GPU Logit HC0/HC1/HC2/HC3 robust inference should align with statsmodels."""
         set_device("cuda")
         rng = np.random.default_rng(seed)
         n_samples, n_features = 5000, 10

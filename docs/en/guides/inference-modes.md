@@ -33,5 +33,6 @@ model.fit(X, y)
 ```
 
 Related robust covariance support:
-- `LinearRegression(cov_type="nonrobust" | "hc0" | "hc1")`
-- `LogisticRegression(cov_type="nonrobust" | "hc0" | "hc1")`
+- `LinearRegression(cov_type="nonrobust" | "hc0" | "hc1" | "hc2" | "hc3" | "hac")`
+- `Ridge(cov_type="nonrobust" | "hc0" | "hc1" | "hc2" | "hc3" | "hac")`
+- `LogisticRegression(cov_type="nonrobust" | "hc0" | "hc1" | "hc2" | "hc3" | "hac")`

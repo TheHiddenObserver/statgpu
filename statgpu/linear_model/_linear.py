@@ -5,6 +5,7 @@ Linear regression with full statistical inference and GPU support.
 from typing import Optional, Union
 import numpy as np
 from scipy import stats
+from time import perf_counter
 
 from .._base import BaseEstimator
 from .._config import Device
@@ -38,14 +39,20 @@ class LinearRegression(BaseEstimator):
         compute_inference: bool = True,
         gpu_memory_cleanup: bool = False,
         cov_type: str = "nonrobust",
+        hac_maxlags: Optional[int] = None,
     ):
         super().__init__(device=device, n_jobs=n_jobs)
         self.fit_intercept = fit_intercept
         self.compute_inference = compute_inference
         self.gpu_memory_cleanup = bool(gpu_memory_cleanup)
         self.cov_type = cov_type.lower()
-        if self.cov_type not in ("nonrobust", "hc0", "hc1"):
-            raise ValueError("cov_type must be one of: 'nonrobust', 'hc0', 'hc1'")
+        if self.cov_type not in ("nonrobust", "hc0", "hc1", "hc2", "hc3", "hac"):
+            raise ValueError(
+                "cov_type must be one of: 'nonrobust', 'hc0', 'hc1', 'hc2', 'hc3', 'hac'"
+            )
+        if hac_maxlags is not None and int(hac_maxlags) < 0:
+            raise ValueError("hac_maxlags must be a non-negative integer or None")
+        self.hac_maxlags = None if hac_maxlags is None else int(hac_maxlags)
         self.coef_ = None
         self.intercept_ = None
         
@@ -62,6 +69,7 @@ class LinearRegression(BaseEstimator):
         self._pvalues = None
         self._conf_int = None
         self._is_multi_output = False
+        self._hac_mixed_precision_preference = {}
 
     def _cleanup_cuda_memory(self):
         """Best-effort CuPy memory pool cleanup."""
@@ -73,6 +81,187 @@ class LinearRegression(BaseEstimator):
             cp.get_default_pinned_memory_pool().free_all_blocks()
         except Exception:
             pass
+
+    def _resolve_hac_maxlags(self, n_obs: int) -> int:
+        """Resolve HAC lag count with a Newey-West style default rule."""
+        if n_obs <= 1:
+            return 0
+        if self.hac_maxlags is None:
+            maxlags = int(np.floor(4.0 * (n_obs / 100.0) ** (2.0 / 9.0)))
+        else:
+            maxlags = int(self.hac_maxlags)
+        return max(0, min(maxlags, n_obs - 1))
+
+    def _benchmark_hac_numpy_kernel(
+        self,
+        scores: np.ndarray,
+        maxlags: int,
+        use_mixed_precision: bool,
+    ) -> float:
+        """Benchmark a tiny HAC kernel to choose the faster precision path."""
+        probe_maxlags = min(maxlags, 2)
+        if use_mixed_precision:
+            scores32 = scores.astype(np.float32, copy=False)
+            t0 = perf_counter()
+            meat = (scores32.T @ scores32).astype(np.float64)
+            for lag in range(1, probe_maxlags + 1):
+                weight = 1.0 - (lag / (maxlags + 1.0))
+                gamma = scores32[lag:].T @ scores32[:-lag]
+                meat = meat + float(weight) * (gamma + gamma.T).astype(np.float64)
+            _ = float(meat[0, 0])
+            return perf_counter() - t0
+
+        t0 = perf_counter()
+        meat = scores.T @ scores
+        for lag in range(1, probe_maxlags + 1):
+            weight = 1.0 - (lag / (maxlags + 1.0))
+            gamma = scores[lag:].T @ scores[:-lag]
+            meat = meat + weight * (gamma + gamma.T)
+        _ = float(meat[0, 0])
+        return perf_counter() - t0
+
+    def _should_use_mixed_precision_hac_numpy(self, scores: np.ndarray, maxlags: int) -> bool:
+        """Choose HAC precision path adaptively and cache by problem shape."""
+        n_obs = int(scores.shape[0])
+        n_features = int(scores.shape[1])
+        if not (scores.dtype == np.float64 and n_obs >= 4096 and n_features <= 64):
+            return False
+
+        if n_obs < 32768:
+            n_bucket = "small"
+        elif n_obs < 65536:
+            n_bucket = "medium"
+        else:
+            n_bucket = "large"
+
+        key = (n_features, int(min(maxlags, 8)), n_bucket)
+        cached = self._hac_mixed_precision_preference.get(key)
+        if cached is not None:
+            return bool(cached)
+
+        probe_cap = 12288 if n_bucket != "large" else 24576
+        probe_n = min(n_obs, probe_cap)
+        if probe_n <= maxlags + 16:
+            self._hac_mixed_precision_preference[key] = True
+            return True
+
+        probe_scores = np.asarray(scores[:probe_n], dtype=np.float64, order="C")
+        try:
+            # Warmup to reduce one-time BLAS startup noise.
+            self._benchmark_hac_numpy_kernel(probe_scores, maxlags, use_mixed_precision=True)
+            self._benchmark_hac_numpy_kernel(probe_scores, maxlags, use_mixed_precision=False)
+            mixed_time = self._benchmark_hac_numpy_kernel(
+                probe_scores, maxlags, use_mixed_precision=True
+            )
+            float64_time = self._benchmark_hac_numpy_kernel(
+                probe_scores, maxlags, use_mixed_precision=False
+            )
+            # Keep mixed path only if it clears a small speed margin.
+            use_mixed = mixed_time <= 0.95 * float64_time
+        except Exception:
+            use_mixed = True
+
+        self._hac_mixed_precision_preference[key] = use_mixed
+        return use_mixed
+
+    def _hac_meat_numpy(self, scores: np.ndarray) -> np.ndarray:
+        """Bartlett-kernel HAC meat from per-observation score matrix."""
+        n_obs = int(scores.shape[0])
+        maxlags = self._resolve_hac_maxlags(n_obs)
+        weights = 1.0 - (np.arange(1, maxlags + 1, dtype=float) / (maxlags + 1.0))
+
+        # Adaptive mixed precision: select per-shape path by quick local probe,
+        # then cache the decision to avoid recurring benchmark overhead.
+        use_mixed_precision = self._should_use_mixed_precision_hac_numpy(scores, maxlags)
+
+        if use_mixed_precision:
+            scores32 = scores.astype(np.float32, copy=False)
+            meat = (scores32.T @ scores32).astype(np.float64)
+            if maxlags == 0:
+                return meat
+            for lag, weight in enumerate(weights, start=1):
+                gamma = scores32[lag:].T @ scores32[:-lag]
+                meat = meat + float(weight) * (gamma + gamma.T).astype(np.float64)
+            return meat
+
+        meat = scores.T @ scores
+        if maxlags == 0:
+            return meat
+        for lag, weight in enumerate(weights, start=1):
+            gamma = scores[lag:].T @ scores[:-lag]
+            meat = meat + weight * (gamma + gamma.T)
+        return meat
+
+    def _hac_meat_cupy(self, scores):
+        """CuPy Bartlett-kernel HAC meat from per-observation score matrix."""
+        import cupy as cp
+
+        n_obs = int(scores.shape[0])
+        meat = scores.T @ scores
+        maxlags = self._resolve_hac_maxlags(n_obs)
+        if maxlags == 0:
+            return meat
+        for lag in range(1, maxlags + 1):
+            weight = 1.0 - (lag / (maxlags + 1.0))
+            gamma = scores[lag:].T @ scores[:-lag]
+            meat = meat + weight * (gamma + gamma.T)
+        return meat
+
+    def _robust_covariance_numpy(self, X: np.ndarray, resid: np.ndarray, XtX_inv: np.ndarray) -> np.ndarray:
+        """Compute robust/HAC covariance matrix for OLS-like score equations."""
+        n, k = X.shape
+        e = np.asarray(resid, dtype=float).reshape(-1)
+
+        if self.cov_type == "hac":
+            scores = X * e[:, np.newaxis]
+            meat = self._hac_meat_numpy(scores)
+            return XtX_inv @ meat @ XtX_inv
+
+        if self.cov_type in ("hc2", "hc3"):
+            leverage = np.einsum("ij,jk,ik->i", X, XtX_inv, X)
+            leverage = np.clip(leverage, 0.0, 1.0 - 1e-12)
+            if self.cov_type == "hc2":
+                e2 = (e ** 2) / (1.0 - leverage)
+            else:
+                e2 = (e ** 2) / ((1.0 - leverage) ** 2)
+        else:
+            e2 = e ** 2
+
+        Xw = X * e2[:, np.newaxis]
+        meat = X.T @ Xw
+        cov_params = XtX_inv @ meat @ XtX_inv
+        if self.cov_type == "hc1" and n > k:
+            cov_params *= (n / (n - k))
+        return cov_params
+
+    def _robust_covariance_cupy(self, X, resid, XtX_inv):
+        """Compute robust/HAC covariance matrix for OLS-like score equations on GPU."""
+        import cupy as cp
+
+        n, k = X.shape
+        e = resid.reshape(-1)
+
+        if self.cov_type == "hac":
+            scores = X * e[:, cp.newaxis]
+            meat = self._hac_meat_cupy(scores)
+            return XtX_inv @ meat @ XtX_inv
+
+        if self.cov_type in ("hc2", "hc3"):
+            leverage = cp.einsum("ij,jk,ik->i", X, XtX_inv, X)
+            leverage = cp.clip(leverage, 0.0, 1.0 - 1e-12)
+            if self.cov_type == "hc2":
+                e2 = cp.square(e) / (1.0 - leverage)
+            else:
+                e2 = cp.square(e) / cp.square(1.0 - leverage)
+        else:
+            e2 = cp.square(e)
+
+        Xw = X * e2[:, cp.newaxis]
+        meat = X.T @ Xw
+        cov_params = XtX_inv @ meat @ XtX_inv
+        if self.cov_type == "hc1" and n > k:
+            cov_params = cov_params * (n / (n - k))
+        return cov_params
     
     def fit(self, X, y, sample_weight=None):
         """Fit linear model."""
@@ -229,21 +418,12 @@ class LinearRegression(BaseEstimator):
                 self._bse_gpu, self._tvalues_gpu, self._pvalues_gpu, self._conf_int_gpu = \
                     compute_inference_gpu(X_design, resid, scale, df_resid, coef_flat)
             else:
-                # HC0/HC1 robust covariance on GPU
                 XtX_cov = X_design.T @ X_design
                 try:
                     XtX_inv = cp.linalg.inv(XtX_cov)
                 except Exception:
                     XtX_inv = cp.linalg.pinv(XtX_cov)
-                e2 = cp.square(resid.reshape(-1))
-                Xw = X_design * e2[:, cp.newaxis]
-                meat = X_design.T @ Xw
-                cov_params = XtX_inv @ meat @ XtX_inv
-                if self.cov_type == "hc1":
-                    n = X_design.shape[0]
-                    k = X_design.shape[1]
-                    if n > k:
-                        cov_params = cov_params * (n / (n - k))
+                cov_params = self._robust_covariance_cupy(X_design, resid, XtX_inv)
                 self._bse_gpu = cp.sqrt(cp.maximum(cp.diag(cov_params), 0.0))
                 self._tvalues_gpu = coef_flat / (self._bse_gpu + 1e-30)
                 self._pvalues_gpu = norm_two_tail_pvalues_gpu(cp.abs(self._tvalues_gpu))
@@ -370,12 +550,7 @@ class LinearRegression(BaseEstimator):
                         params[:, j] + t_crit * bse,
                     ])
                 else:
-                    e2 = resid[:, j] ** 2
-                    Xw = X * e2[:, np.newaxis]
-                    meat = X.T @ Xw
-                    cov_params = XtX_inv @ meat @ XtX_inv
-                    if self.cov_type == "hc1" and n > k:
-                        cov_params *= (n / (n - k))
+                    cov_params = self._robust_covariance_numpy(X, resid[:, j], XtX_inv)
                     bse = np.sqrt(np.maximum(np.diag(cov_params), 0.0))
                     tvalues = params[:, j] / (bse + 1e-30)
                     pvalues = 2 * (1 - stats.norm.cdf(np.abs(tvalues)))
@@ -404,14 +579,7 @@ class LinearRegression(BaseEstimator):
             ])
             return
 
-        # Heteroskedasticity-robust covariance (White HC0/HC1).
-        e2 = np.asarray(self._resid, dtype=float).reshape(-1) ** 2
-        Xw = X * e2[:, np.newaxis]
-        meat = X.T @ Xw
-        cov_params = XtX_inv @ meat @ XtX_inv
-        if self.cov_type == "hc1":
-            if n > k:
-                cov_params *= (n / (n - k))
+        cov_params = self._robust_covariance_numpy(X, self._resid, XtX_inv)
         self._bse = np.sqrt(np.maximum(np.diag(cov_params), 0.0))
         self._tvalues = self._params / (self._bse + 1e-30)
         # Robust path uses large-sample normal approximation.

@@ -145,6 +145,30 @@ class TestLinearRegression:
         with pytest.raises(RuntimeError):
             model.predict(np.array([[1, 2]]))
 
+    def test_invalid_hac_maxlags_raises(self):
+        with pytest.raises(ValueError):
+            LinearRegression(device="cpu", cov_type="hac", hac_maxlags=-1)
+
+    @pytest.mark.parametrize("cov_type", ["hc2", "hc3", "hac"])
+    def test_extended_cov_types_cpu(self, cov_type):
+        """Extended robust covariance types should run and produce finite inference."""
+        set_device("cpu")
+        rng = np.random.default_rng(123)
+        X = rng.normal(size=(600, 8))
+        beta = rng.normal(size=8)
+        noise_scale = 0.2 + 0.8 * np.abs(X[:, 0])
+        y = X @ beta + 2.0 + rng.normal(scale=noise_scale, size=600)
+
+        kwargs = {"hac_maxlags": 4} if cov_type == "hac" else {}
+        model = LinearRegression(device="cpu", cov_type=cov_type, compute_inference=True, **kwargs)
+        model.fit(X, y)
+
+        assert model._bse is not None
+        assert np.all(np.isfinite(model._bse))
+        assert np.all(model._bse > 0)
+        assert np.all(np.isfinite(model._pvalues))
+        assert np.all((model._pvalues >= 0) & (model._pvalues <= 1))
+
 
 class TestGPU:
     """GPU-specific tests (only run if CUDA available)."""
