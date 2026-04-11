@@ -1,7 +1,7 @@
 # Changelog
 
 > Language: English  
-> Last updated: 2026-04-10  
+> Last updated: 2026-04-11  
 > This page: Changelog  
 > Switch: [中文](../changelog.md)
 
@@ -26,6 +26,11 @@ Language switch: [中文](../changelog.md)
 - `Ridge` robust covariance: `nonrobust/hc0/hc1/hc2/hc3/hac` (CPU+GPU, with `hac_maxlags`)
 - `LogisticRegression` robust covariance: `nonrobust/hc0/hc1/hc2/hc3/hac` (CPU+GPU, with `hac_maxlags`)
 - `CoxPH` covariance support: `nonrobust/hc0/hc1/cluster` (cluster is CPU path)
+- Exported CV estimator interface skeletons:
+  - `RidgeCV`
+  - `LogisticRegressionCV`
+  - `CoxPHCV`
+  - Current status: interface-only scaffolding; CV training logic is not implemented yet and currently raises `NotImplementedError`.
 - New benchmark: `dev/benchmarks/benchmark_all_methods_large_scale.py`
 - New external comparison benchmark: `dev/benchmarks/benchmark_external_frameworks.py`
 - New knockoff benchmarks:

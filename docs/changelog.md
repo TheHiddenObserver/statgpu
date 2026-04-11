@@ -1,7 +1,7 @@
 # Changelog
 
 > 语言: 中文  
-> 最后更新: 2026-04-10  
+> 最后更新: 2026-04-11  
 > 页面定位: 变更记录  
 > 切换: [English](en/changelog.md)
 
@@ -58,6 +58,11 @@
   （当前为稳健协方差近似路径）
 - `CoxPH(cov_type='cluster')`：
   - 支持按 cluster 分组的 sandwich 协方差（CPU 路径）
+- 导出 CV 估计器接口骨架：
+  - `RidgeCV`
+  - `LogisticRegressionCV`
+  - `CoxPHCV`
+  - 当前状态：仅提供接口骨架；CV 训练逻辑尚未实现，当前会抛出 `NotImplementedError`。
 - 新增外部框架统一对标脚本：
   - `dev/benchmarks/benchmark_external_frameworks.py`
 - 新增全方法大规模 benchmark：

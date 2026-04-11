@@ -1,7 +1,7 @@
 # Models Overview
 
 > Language: English  
-> Last updated: 2026-04-10  
+> Last updated: 2026-04-11  
 > This page: Model index  
 > Switch: [中文](../../models/README.md)
 
@@ -28,3 +28,4 @@ Language switch: [中文](../../models/README.md)
   - `Lasso`: CPU/GPU OLS-style inference + bootstrap
   - `LogisticRegression`: classical + `HC0/HC1/HC2/HC3/HAC`
 - `CoxPH` supports Breslow/Efron ties and CPU/GPU fitting paths.
+- Exported CV classes (`RidgeCV`, `LogisticRegressionCV`, `CoxPHCV`) are currently interface skeletons only; CV training/search logic is pending.
