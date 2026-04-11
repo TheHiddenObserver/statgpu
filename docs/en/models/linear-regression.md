@@ -3,9 +3,9 @@
 > Language: English  
 > Last updated: 2026-04-10  
 > This page: Model documentation  
-> Switch: [中文](../../models/linear-regression.md)
+> Switch: [Chinese](../../models/linear-regression.md)
 
-Language switch: [中文](../../models/linear-regression.md)
+Language switch: [Chinese](../../models/linear-regression.md)
 
 Path: `statgpu.linear_model.LinearRegression`
 

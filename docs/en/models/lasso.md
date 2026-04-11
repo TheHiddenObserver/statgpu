@@ -3,9 +3,9 @@
 > Language: English  
 > Last updated: 2026-04-02  
 > This page: Model documentation  
-> Switch: [中文](../../models/lasso.md)
+> Switch: [Chinese](../../models/lasso.md)
 
-Language switch: [中文](../../models/lasso.md)
+Language switch: [Chinese](../../models/lasso.md)
 
 Path: `statgpu.linear_model.Lasso`
 

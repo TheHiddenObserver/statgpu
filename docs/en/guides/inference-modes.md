@@ -3,9 +3,9 @@
 > Language: English  
 > Last updated: 2026-04-02  
 > This page: Guide  
-> Switch: [中文](../../guides/inference-modes.md)
+> Switch: [Chinese](../../guides/inference-modes.md)
 
-Language switch: [中文](../../guides/inference-modes.md)
+Language switch: [Chinese](../../guides/inference-modes.md)
 
 `Lasso.inference_method` options:
 - `cpu_ols_inference` (default)

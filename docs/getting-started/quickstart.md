@@ -36,7 +36,7 @@ import statgpu as sg
 sg.set_device("auto")   # 默认: 有 CUDA 就用 GPU
 sg.set_device("cuda")   # 强制 GPU
 sg.set_device("cpu")    # 强制 CPU
-print(sg.cuda_available())
+print(sg.get_device())   # 当前全局设备策略
 ```
 
 更多内容见：

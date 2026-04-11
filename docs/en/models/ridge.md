@@ -3,9 +3,9 @@
 > Language: English  
 > Last updated: 2026-04-10  
 > This page: Model documentation  
-> Switch: [中文](../../models/ridge.md)
+> Switch: [Chinese](../../models/ridge.md)
 
-Language switch: [中文](../../models/ridge.md)
+Language switch: [Chinese](../../models/ridge.md)
 
 Path: `statgpu.linear_model.Ridge`
 

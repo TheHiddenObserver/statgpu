@@ -3,9 +3,9 @@
 > Language: English  
 > Last updated: 2026-04-11  
 > This page: Changelog  
-> Switch: [中文](../changelog.md)
+> Switch: [Chinese](../changelog.md)
 
-Language switch: [中文](../changelog.md)
+Language switch: [Chinese](../changelog.md)
 
 ## 2026-04
 

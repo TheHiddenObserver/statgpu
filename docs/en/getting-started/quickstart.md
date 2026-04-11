@@ -3,9 +3,9 @@
 > Language: English  
 > Last updated: 2026-04-02  
 > This page: Getting started  
-> Switch: [中文](../../getting-started/quickstart.md)
+> Switch: [Chinese](../../getting-started/quickstart.md)
 
-Language switch: [中文](../../getting-started/quickstart.md)
+Language switch: [Chinese](../../getting-started/quickstart.md)
 
 ## Installation
 
@@ -36,7 +36,7 @@ import statgpu as sg
 sg.set_device("auto")
 sg.set_device("cuda")
 sg.set_device("cpu")
-print(sg.cuda_available())
+print(sg.get_device())
 ```
 
 See also:
