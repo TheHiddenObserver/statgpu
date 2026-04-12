@@ -60,7 +60,7 @@ Merged from:
   - extend robust covariance to `cluster-robust` (Linear/Ridge/Logistic `HC2/HC3/HAC` is completed)
   - improve cross-device alignment for `SE/t/z/p/CI` and `AIC/BIC/LLF`
 - Lasso inference enhancements:
-  - move toward de-biased/post-selection inference
+  - de-biased lasso strict inference path implemented in this PR
   - continue bootstrap GPU optimization and large-scale benchmarks
 - CoxPH inference/evaluation:
   - robust/cluster sandwich covariance
@@ -69,6 +69,7 @@ Merged from:
 ## 4. Completed Capability Snapshot (2026-04)
 
 - Lasso inference semantic rename with compatibility aliases.
+- Debiased lasso strict inference path added (approximate route kept as explicit fallback).
 - GPU-side inference enhancement for `gpu_ols_inference` path.
 - Added `gpu_memory_cleanup` across core models.
 - Fixed `LogisticRegression.fit()` CUDA input conversion path.

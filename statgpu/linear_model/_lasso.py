@@ -8,6 +8,7 @@ from typing import Any, Dict, Optional, Tuple, Union
 import os
 import numpy as np
 from scipy import stats
+from scipy.stats import norm as _norm_dist
 
 try:
     from numba import njit
@@ -19,8 +20,12 @@ except Exception:
 
 from .._base import BaseEstimator
 from .._config import Device
-from .._cv_base import CVEstimatorBase
-from .._gpu_utils import t_two_tail_pvalues_gpu, t_crit_gpu_two_tail
+from .._gpu_utils import (
+    t_two_tail_pvalues_gpu,
+    t_crit_gpu_two_tail,
+    norm_two_tail_pvalues_gpu,
+    norm_crit_gpu_two_tail,
+)
 
 
 _NUMBA_CD_DISABLED = str(os.getenv("STATGPU_DISABLE_NUMBA_CD", "0")).strip().lower() in (
@@ -145,7 +150,9 @@ class Lasso(BaseEstimator):
             self._y = np.asarray(y)
         else:
             # If we compute inference fully on GPU, avoid copying y.
-            if self.compute_inference and self.inference_method == "gpu_ols_inference":
+            if self.compute_inference and self.inference_method in (
+                "gpu_ols_inference", "debiased",
+            ):
                 self._y = None
             else:
                 # y may already be a CuPy array; use safe conversion.
@@ -159,7 +166,10 @@ class Lasso(BaseEstimator):
         else:
             self._fit_cpu(X_arr, y_arr, sample_weight)
 
-        if self.compute_inference and self.inference_method != "gpu_ols_inference":
+        _skip_post_fit = {"gpu_ols_inference"}
+        if device == Device.CUDA and self.inference_method == "debiased":
+            _skip_post_fit.add("debiased")
+        if self.compute_inference and self.inference_method not in _skip_post_fit:
             self._compute_inference()
         self._fitted = True
         return self
@@ -518,6 +528,16 @@ class Lasso(BaseEstimator):
 
                 self._resid = None
                 self._X_design = None
+            elif self.inference_method == "debiased":
+                self._compute_inference_debiased_gpu(X, y, coef)
+
+                y_mean_gpu = cp.mean(y)
+                ss_tot = cp.sum((y - y_mean_gpu) ** 2)
+                ss_res = cp.sum(resid ** 2)
+                self._rsquared_gpu = float(cp.asnumpy(1 - ss_res / ss_tot)) if ss_tot > 0 else 0.0
+
+                self._resid = None
+                self._X_design = None
             else:
                 # Default: transfer residuals and design to CPU.
                 self._resid = resid.get()
@@ -744,6 +764,8 @@ class Lasso(BaseEstimator):
         """Compute standard errors, t-stats, p-values."""
         if self.inference_method == "bootstrap":
             return self._compute_inference_bootstrap()
+        if self.inference_method == "debiased":
+            return self._compute_inference_debiased()
         if self.inference_method == "gpu_ols_inference":
             # Inference already computed on GPU in _fit_gpu().
             return
@@ -857,6 +879,217 @@ class Lasso(BaseEstimator):
         # t-stats (approx) from bootstrap SE.
         self._tvalues = self._params / (self._bse + 1e-30)
 
+    def _compute_inference_debiased(self) -> None:
+        """Debiased Lasso inference (Javanmard-Montanari / Zhang-Zhang).
+
+        Constructs the decorrelation matrix M via node-wise Lasso,
+        then computes the debiased estimator, standard errors,
+        z-statistics, p-values, and confidence intervals.
+        """
+        if self._X_design is None or self._resid is None:
+            return
+
+        if self.fit_intercept:
+            X = self._X_design[:, 1:]
+        else:
+            X = self._X_design
+
+        n, p = X.shape
+        coef = self.coef_.copy()
+
+        Sigma_hat = X.T @ X / n
+        resid_lasso = self._resid
+
+        # --- noise variance: sigma^2 = RSS / (n - s_hat) ---
+        s_hat = int(np.sum(np.abs(coef) > 0))
+        denom = max(n - s_hat, 1)
+        sigma2 = np.sum(resid_lasso ** 2) / denom
+
+        # --- node-wise Lasso to build M (p x p) ---
+        lam_nw = np.sqrt(2.0 * np.log(max(p, 2)) / n)
+
+        M = np.zeros((p, p), dtype=X.dtype)
+        for j in range(p):
+            cols = np.concatenate([np.arange(0, j), np.arange(j + 1, p)])
+            X_minus_j = X[:, cols]
+            x_j = X[:, j]
+
+            nw = Lasso(
+                alpha=lam_nw,
+                fit_intercept=False,
+                max_iter=500,
+                tol=1e-5,
+                device="cpu",
+                cpu_solver="fista",
+                compute_inference=False,
+            )
+            nw.fit(X_minus_j, x_j)
+            gamma_j = nw.coef_
+
+            z_j = x_j - X_minus_j @ gamma_j
+            C_j = z_j @ x_j / n
+
+            if abs(C_j) < 1e-30:
+                M[j, j] = 1.0
+                continue
+
+            M[j, j] = 1.0 / C_j
+            M[j, cols] = -gamma_j / C_j
+
+        # --- debiased estimates ---
+        theta_db = coef + (M @ X.T @ resid_lasso) / n
+
+        # --- covariance and standard errors ---
+        V = M @ Sigma_hat @ M.T
+        se = np.sqrt(sigma2 * np.diag(V) / n)
+
+        z_stats = theta_db / (se + 1e-30)
+        pvalues = 2.0 * (1.0 - _norm_dist.cdf(np.abs(z_stats)))
+
+        alpha_ci = 0.05
+        z_crit = _norm_dist.ppf(1.0 - alpha_ci / 2.0)
+        ci = np.column_stack([theta_db - z_crit * se, theta_db + z_crit * se])
+
+        if self.fit_intercept:
+            # Intercept SE via OLS formula: sigma * sqrt([1/n + xbar' (X'X)^-1 xbar])
+            X_full = self._X_design
+            try:
+                XtX_inv = np.linalg.inv(X_full.T @ X_full)
+            except np.linalg.LinAlgError:
+                XtX_inv = np.linalg.pinv(X_full.T @ X_full)
+            se_intercept = np.sqrt(sigma2 * XtX_inv[0, 0])
+            z_intercept = self.intercept_ / (se_intercept + 1e-30)
+            p_intercept = 2.0 * (1.0 - _norm_dist.cdf(np.abs(z_intercept)))
+            ci_intercept = np.array([
+                self.intercept_ - z_crit * se_intercept,
+                self.intercept_ + z_crit * se_intercept,
+            ])
+
+            self._bse = np.concatenate([[se_intercept], se])
+            self._tvalues = np.concatenate([[z_intercept], z_stats])
+            self._pvalues = np.concatenate([[p_intercept], pvalues])
+            self._conf_int = np.vstack([ci_intercept[np.newaxis, :], ci])
+            self._params = np.concatenate([[self.intercept_], theta_db])
+        else:
+            self._bse = se
+            self._tvalues = z_stats
+            self._pvalues = pvalues
+            self._conf_int = ci
+            self._params = theta_db
+
+    def _compute_inference_debiased_gpu(self, X_gpu, y_gpu, coef_gpu):
+        """GPU path for debiased Lasso inference.
+
+        Parameters
+        ----------
+        X_gpu : cupy.ndarray, shape (n, p)
+            Raw feature matrix on GPU (no intercept column).
+        y_gpu : cupy.ndarray, shape (n,)
+            Response on GPU.
+        coef_gpu : cupy.ndarray, shape (p,)
+            Lasso coefficients on GPU (no intercept).
+        """
+        import cupy as cp
+
+        n, p = X_gpu.shape
+        Sigma_hat = X_gpu.T @ X_gpu / n
+
+        resid_lasso = y_gpu - X_gpu @ coef_gpu
+        if self.fit_intercept:
+            resid_lasso = resid_lasso - cp.mean(y_gpu) + cp.mean(X_gpu, axis=0) @ coef_gpu
+
+        s_hat = int(cp.sum(cp.abs(coef_gpu) > 0).get())
+        denom = max(n - s_hat, 1)
+        sigma2 = float((cp.sum(resid_lasso ** 2) / denom).get())
+
+        lam_nw = float(np.sqrt(2.0 * np.log(max(p, 2)) / n))
+
+        M = cp.zeros((p, p), dtype=X_gpu.dtype)
+        for j in range(p):
+            cols = cp.concatenate([cp.arange(0, j), cp.arange(j + 1, p)])
+            cols_np = cols.get().astype(int)
+            X_minus_j = X_gpu[:, cols_np]
+            x_j = X_gpu[:, j]
+
+            nw = Lasso(
+                alpha=lam_nw,
+                fit_intercept=False,
+                max_iter=500,
+                tol=1e-5,
+                device="cuda",
+                solver="fista",
+                compute_inference=False,
+                gpu_memory_cleanup=False,
+            )
+            nw.fit(X_minus_j, x_j)
+            gamma_j = cp.asarray(nw.coef_)
+
+            z_j = x_j - X_minus_j @ gamma_j
+            C_j = z_j @ x_j / n
+
+            if abs(float(C_j.get())) < 1e-30:
+                M[j, j] = 1.0
+                continue
+
+            M[j, j] = 1.0 / C_j
+            M[j, cols_np] = -gamma_j / C_j
+
+        # Recompute full residual from the original fit
+        if self.fit_intercept:
+            y_pred = X_gpu @ coef_gpu + cp.asarray(self.intercept_, dtype=X_gpu.dtype)
+        else:
+            y_pred = X_gpu @ coef_gpu
+        resid_full = y_gpu - y_pred
+
+        theta_db = coef_gpu + (M @ X_gpu.T @ resid_full) / n
+
+        V = M @ Sigma_hat @ M.T
+        sigma2_gpu = cp.array(sigma2, dtype=cp.float64)
+        se = cp.sqrt(sigma2_gpu * cp.diag(V) / n)
+
+        z_stats = theta_db / (se + 1e-30)
+        pvalues = norm_two_tail_pvalues_gpu(cp.abs(z_stats))
+
+        alpha_ci = 0.05
+        z_crit = norm_crit_gpu_two_tail(alpha_ci)
+        ci = cp.stack([theta_db - z_crit * se, theta_db + z_crit * se], axis=1)
+
+        if self.fit_intercept:
+            X_full = cp.concatenate(
+                [cp.ones((n, 1), dtype=X_gpu.dtype), X_gpu], axis=1
+            )
+            XtX_full = X_full.T @ X_full
+            try:
+                XtX_inv = cp.linalg.inv(XtX_full)
+            except Exception:
+                XtX_inv = cp.linalg.pinv(XtX_full)
+            se_intercept = cp.sqrt(sigma2_gpu * XtX_inv[0, 0])
+            intercept_gpu = cp.asarray(self.intercept_, dtype=cp.float64)
+            z_intercept = intercept_gpu / (se_intercept + 1e-30)
+            p_intercept = norm_two_tail_pvalues_gpu(cp.abs(z_intercept).reshape(1))
+            ci_intercept = cp.stack([
+                intercept_gpu - z_crit * se_intercept,
+                intercept_gpu + z_crit * se_intercept,
+            ]).reshape(1, 2)
+
+            bse_gpu = cp.concatenate([se_intercept.reshape(1), se])
+            tvalues_gpu = cp.concatenate([z_intercept.reshape(1), z_stats])
+            pvalues_gpu = cp.concatenate([p_intercept.reshape(1), pvalues])
+            conf_int_gpu = cp.concatenate([ci_intercept, ci], axis=0)
+            params_gpu = cp.concatenate([intercept_gpu.reshape(1), theta_db])
+        else:
+            bse_gpu = se
+            tvalues_gpu = z_stats
+            pvalues_gpu = pvalues
+            conf_int_gpu = ci
+            params_gpu = theta_db
+
+        self._bse = cp.asnumpy(bse_gpu)
+        self._tvalues = cp.asnumpy(tvalues_gpu)
+        self._pvalues = cp.asnumpy(pvalues_gpu)
+        self._conf_int = cp.asnumpy(conf_int_gpu)
+        self._params = cp.asnumpy(params_gpu)
+
     @property
     def rsquared(self):
         """R-squared."""
@@ -947,8 +1180,13 @@ class Lasso(BaseEstimator):
         else:
             feature_names = [f'x{i+1}' for i in range(len(self.coef_))]
 
+        is_debiased = self.inference_method == "debiased"
+        title = "Debiased Lasso Results" if is_debiased else "Lasso Regression Results"
+        stat_label = "z" if is_debiased else "t"
+        pval_label = "P>|z|" if is_debiased else "P>|t|"
+
         print("=" * 80)
-        print("                            Lasso Regression Results")
+        print(f"                            {title}")
         print(f"                            (alpha = {self.alpha:.4f})")
         print("=" * 80)
         print(f"No. Observations:           {self._nobs:>15}")
@@ -962,7 +1200,7 @@ class Lasso(BaseEstimator):
         print(f"AIC:                        {self.aic:>15.4f}")
         print(f"BIC:                        {self.bic:>15.4f}")
         print("-" * 80)
-        print(f"{'':<15} {'coef':>12} {'std err':>12} {'t':>10} {'P>|t|':>10} {'[0.025':>12} {'0.975]':>12}")
+        print(f"{'':<15} {'coef':>12} {'std err':>12} {stat_label:>10} {pval_label:>10} {'[0.025':>12} {'0.975]':>12}")
         print("-" * 80)
 
         for i, name in enumerate(feature_names):
