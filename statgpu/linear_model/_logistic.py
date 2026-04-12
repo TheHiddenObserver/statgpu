@@ -642,7 +642,7 @@ class LogisticRegression(BaseEstimator):
             intercept_gpu = cp.asarray(self.intercept_, dtype=coef_gpu.dtype)
             eta = X_gpu @ coef_gpu + intercept_gpu
             p1 = 1.0 / (1.0 + cp.exp(-cp.clip(eta, -500, 500)))
-            return self._to_numpy(cp.column_stack([1 - p1, p1]))
+            return cp.column_stack([1 - p1, p1])
         X = self._to_array(X, Device.CPU)
         X = np.asarray(X)
         eta = X @ self.coef_ + self.intercept_

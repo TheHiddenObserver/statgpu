@@ -470,7 +470,7 @@ class Ridge(BaseEstimator):
             X_gpu = cp.asarray(self._to_array(X, Device.CUDA))
             coef_gpu = cp.asarray(self.coef_)
             intercept_gpu = cp.asarray(self.intercept_, dtype=coef_gpu.dtype)
-            return self._to_numpy(X_gpu @ coef_gpu + intercept_gpu)
+            return X_gpu @ coef_gpu + intercept_gpu
         X = self._to_array(X, Device.CPU)
         X = np.asarray(X)
         return X @ self.coef_ + self.intercept_

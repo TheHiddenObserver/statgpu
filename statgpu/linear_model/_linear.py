@@ -723,8 +723,8 @@ class LinearRegression(BaseEstimator):
             coef_gpu = cp.asarray(self.coef_)
             intercept_gpu = cp.asarray(self.intercept_, dtype=coef_gpu.dtype)
             if coef_gpu.ndim == 2:
-                return self._to_numpy(X_gpu @ coef_gpu.T + intercept_gpu)
-            return self._to_numpy(X_gpu @ coef_gpu + intercept_gpu)
+                return X_gpu @ coef_gpu.T + intercept_gpu
+            return X_gpu @ coef_gpu + intercept_gpu
         X = self._to_array(X, Device.CPU)
         X = np.asarray(X)
         if np.asarray(self.coef_).ndim == 2:
