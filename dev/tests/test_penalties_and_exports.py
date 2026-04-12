@@ -4,6 +4,7 @@ import numpy as np
 import pytest
 
 import statgpu
+import statgpu.inference as inference
 from statgpu.linear_model import (
     Ridge,
     RidgeCV,
@@ -32,6 +33,23 @@ def test_top_level_knockoff_exports():
 def test_top_level_lasso_cv_export():
     """Top-level package should expose LassoCV."""
     assert hasattr(statgpu, "LassoCV")
+
+
+def test_inference_r_style_distribution_quartets_exports():
+    """Inference should expose full R-style d/p/q/r compatibility APIs by family."""
+    expected_by_family = {
+        "norm": ("dnorm_gpu", "pnorm_gpu", "qnorm_gpu", "rnorm_gpu"),
+        "t": ("dt_gpu", "pt_gpu", "qt_gpu", "rt_gpu"),
+        "chi2": ("dchisq_gpu", "pchisq_gpu", "qchisq_gpu", "rchisq_gpu"),
+        "gamma": ("dgamma_gpu", "pgamma_gpu", "qgamma_gpu", "rgamma_gpu"),
+        "beta": ("dbeta_gpu", "pbeta_gpu", "qbeta_gpu", "rbeta_gpu"),
+        "f": ("df_gpu", "pf_gpu", "qf_gpu", "rf_gpu"),
+        "poisson": ("dpois_gpu", "ppois_gpu", "qpois_gpu", "rpois_gpu"),
+        "binom": ("dbinom_gpu", "pbinom_gpu", "qbinom_gpu", "rbinom_gpu"),
+    }
+    for family, names in expected_by_family.items():
+        for name in names:
+            assert hasattr(inference, name), f"Missing R-style API `{name}` in family `{family}`"
 
 
 @pytest.mark.parametrize("name", ["RidgeCV", "LogisticRegressionCV", "CoxPHCV"])

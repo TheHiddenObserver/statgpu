@@ -1,7 +1,7 @@
 # statgpu Documentation Portal
 
 > Language: English  
-> Last updated: 2026-04-11  
+> Last updated: 2026-04-12  
 > This page: Primary documentation entrypoint  
 > Switch: [Chinese](USAGE_CN.md)
 
@@ -16,6 +16,7 @@ Language switch:
 - [Quickstart](docs/en/getting-started/quickstart.md)
 - [Device and GPU Memory](docs/en/guides/device-and-memory.md)
 - [Inference Modes (Lasso)](docs/en/guides/inference-modes.md)
+- [Distribution API (GPU Native + Explicit Fallback)](docs/en/guides/distribution-api.md)
 - [Global P-value Combination (Fisher/Cauchy/ACAT)](docs/en/guides/multiple-testing-combine-pvalues.md)
 - [Changelog](docs/en/changelog.md)
 

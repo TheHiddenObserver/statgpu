@@ -327,7 +327,7 @@ class Ridge(BaseEstimator):
         
         # Compute ALL statistics on GPU
         from .._gpu_utils import compute_inference_gpu, compute_r2_gpu, compute_aic_bic_gpu, compute_f_stat_gpu
-        from .._gpu_utils import norm_two_tail_pvalues_gpu, norm_crit_gpu_two_tail
+        from ..inference._distributions_gpu import norm
 
         if self.compute_inference:
             if self.cov_type == "nonrobust":
@@ -348,8 +348,8 @@ class Ridge(BaseEstimator):
                 cov_params = self._robust_covariance_cupy(X_design, resid, XtX_inv)
                 self._bse_gpu = cp.sqrt(cp.maximum(cp.diag(cov_params), 0.0))
                 self._tvalues_gpu = coef_full / (self._bse_gpu + 1e-30)
-                self._pvalues_gpu = norm_two_tail_pvalues_gpu(cp.abs(self._tvalues_gpu))
-                z_crit = norm_crit_gpu_two_tail(0.05)
+                self._pvalues_gpu = cp.minimum(1.0, 2.0 * norm.sf(cp.abs(self._tvalues_gpu)))
+                z_crit = norm.ppf(0.975)
                 self._conf_int_gpu = cp.stack([
                     coef_full - z_crit * self._bse_gpu,
                     coef_full + z_crit * self._bse_gpu,

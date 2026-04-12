@@ -1,4 +1,4 @@
-# StatGPU Unified Plan (Merged 2026-04-05)
+# StatGPU Unified Plan (Merged 2026-04-05, Queue-Pruned 2026-04-11)
 
 This file is the consolidated planning entry in the workspace root.
 It now includes both the actionable short queue and the detailed long-range blueprint.
@@ -6,6 +6,8 @@ Merged from:
 - `plan.md` (priority queue after bootstrap phase)
 - `TO_DO.md` (engineering gate + status board)
 - session plan snapshot (long-range architecture and release strategy)
+
+Active queues in Sections 2, 3, and 10 intentionally exclude completed items.
 
 ## 1. Hard Gates (Must Follow)
 
@@ -20,27 +22,49 @@ Merged from:
   - same ties/solver configuration
   - same regularization and convergence settings (`alpha/C/max_iter/tol`)
 
+### 1.1 Front-Loaded Constraint Pack (moved from detailed blueprint)
+
+1. strict inference gate
+- Ridge and Lasso strict paths must pass statsmodels/R comparison within thresholds.
+
+2. device consistency gate
+- strict outputs for key inference fields must align across CPU/GPU.
+
+3. feature admission gate
+- every new method must include implementation + tests + external baseline + benchmark + docs.
+
+4. engineering and release gate
+- nightly must run lint/type/test; monthly must additionally enforce baseline matrix and benchmark non-regression.
+- README, USAGE, EN/CN docs and changelog capability statements must remain consistent.
+
+5. remote experiment gate
+- performance-sensitive inference methods must include remote CUDA rerun artifacts (JSON + short MD summary) under `results/` for auditability.
+
+6. locked policy constraints
+- strict default remains the main inference strategy.
+- strict threshold baseline: coef `1e-6`, bse `1e-3`, p-value `5e-2`.
+- strict failures raise by default; downgrade only when explicitly enabled.
+- CUDA usage layering rule stays active: model layer should not scatter direct cupy imports.
+
+7. documentation hard requirements
+- Model pages must include: Overview, Path, Objective Function, Estimating Equation, Covariance/Inference, Parameters, CPU+GPU Examples, strict/approx difference, Outputs, FAQ, External Validation, References.
+
+8. model onboarding hard requirements
+- Mandatory flow: interface contract proposal -> CPU then GPU implementation -> strict inference first (if applicable) -> exports -> tests/external consistency/benchmarks -> EN-first/CN-follow docs -> nightly/monthly gate pass before release.
+
 ## 2. Priority Queue (Current)
 
-1. P0 (completed): Multiple-testing expansion batch 1
-- Added global p-value combination methods: Fisher and Cauchy (ACAT alias).
-- Added unified API in `statgpu.inference` and thin wrapper on `BaseEstimator`.
-- Added NumPy/CuPy consistency and axis-behavior tests.
+1. P1 (high): Knockoff external baseline validation
+- Add optional external baseline checks for knockoff selection quality (Python/R when available).
+- Standardize baseline report fields for power/FDR/selection stability under aligned settings.
 
-2. P0/P1 (completed in this cycle): Fisher/Cauchy precision + timing benchmark
-- Added benchmark section for `combine_pvalues` Fisher/Cauchy.
-- Includes precision comparison:
-  - Fisher vs SciPy `scipy.stats.combine_pvalues`.
-  - Cauchy vs independent NumPy reference implementation.
-  - NumPy vs CuPy consistency for both methods.
-- Includes runtime comparison:
-  - statgpu NumPy vs statgpu CuPy for Fisher/Cauchy.
-  - SciPy Fisher vs statgpu NumPy Fisher.
+2. P1 (high): Knockoff robustness and scale sweep
+- Expand calibration sweeps across `rho/noise` settings and larger `p/n` stress cases.
+- Add CUDA-path reruns with auditable JSON + short markdown summaries.
 
-3. P1 (high): Multiple-testing expansion batch 2
-- Add knockoff roadmap (fixed-X first, model-X next) for linear-family feature selection.
-- Standardize outputs: selected set, W statistics, q/FDR trajectory, random-state trace.
-- Add R/Python baseline comparison when optional packages are available.
+3. P1/P2 (medium-high): HC2/HC3/HAC benchmark gate integration
+- Promote current remote covariance benchmark into stable `dev/benchmarks` entry.
+- Wire benchmark non-regression checks into monthly stable gate.
 
 4. P2 (medium): Multiple-testing expansion batch 3
 - Add correlation-aware/global methods as needed:
@@ -57,16 +81,15 @@ Merged from:
 ## 3. In-Progress P0 Track
 
 - Improve inference rigor:
-  - extend robust covariance to `cluster-robust` (Linear/Ridge/Logistic `HC2/HC3/HAC` is completed)
-  - improve cross-device alignment for `SE/t/z/p/CI` and `AIC/BIC/LLF`
+  - improve cross-device alignment for `SE/t/z/p/CI` and `AIC/BIC/LLF` on larger and ill-conditioned settings
 - Lasso inference enhancements:
   - move toward de-biased/post-selection inference
   - continue bootstrap GPU optimization and large-scale benchmarks
 - CoxPH inference/evaluation:
-  - robust/cluster sandwich covariance
+  - robust/cluster sandwich covariance extension and external baseline parity
   - strict pairwise vs approximate C-index switchable path
 
-## 4. Completed Capability Snapshot (2026-04)
+## 4. Milestone Archive (Completed Capability Snapshot, 2026-04)
 
 - Lasso inference semantic rename with compatibility aliases.
 - GPU-side inference enhancement for `gpu_ols_inference` path.
@@ -153,14 +176,10 @@ Merged from:
 
 ## 10. Next Action Queue
 
-1. P1 completed (2026-04-06): knockoff batch 2 skeleton landed (fixed-X first, unified API + selector wrappers).
-2. P1 completed (2026-04-06): structured knockoff benchmark/comparison scripts landed with JSON artifacts.
-3. P1 completed (2026-04-06): docs page for `combine_pvalues` (Fisher/Cauchy/ACAT) added with benchmark interpretation notes.
-4. P1 completed (2026-04-06): `model_x_knockoff_filter` core generator path landed (Gaussian second-order approximation) with deterministic CPU tests.
-5. P1 next: add optional external baseline checks for knockoff selection quality (Python/R when available).
-6. P1 completed (2026-04-06): first-round knockoff power calibration landed via `method='ols_coef_diff'`.
-7. P1 completed (2026-04-06): model-X stability calibration landed (covariance shrinkage + multi-draw W aggregation), and current benchmark reaches non-null threshold rate `1.0` at `q=0.1`.
-8. P1 next: expand calibration robustness sweep across `rho/noise` settings and larger `p/n` stress cases (plus CUDA path when available).
+1. P1 next: add optional external baseline checks for knockoff selection quality (Python/R when available).
+2. P1 next: expand calibration robustness sweep across `rho/noise` settings and larger `p/n` stress cases (plus CUDA path when available).
+3. P1/P2 next: add stable benchmark entry for covariance HC2/HC3/HAC in `dev/benchmarks`.
+4. P1/P2 next: wire covariance benchmark into monthly non-regression gate with thresholded acceptance rules.
 
 ## 11. Consolidation Note
 
@@ -216,27 +235,14 @@ This section integrates the previously provided detailed blueprint into the unif
 12. Phase 4 (P2): release process finalization.
 - nightly for experimental capability with rolling regressions, monthly stable only after all gates pass and docs/changelogs are synchronized.
 
-### 12.3 Detailed Verification Rules
+### 12.3 Detailed Verification Rules (Reference Copy)
 
-1. strict inference gate
-- Ridge and Lasso strict paths must pass statsmodels/R comparison within thresholds.
+- Canonical hard-gate text has been moved to Section 1.1 for front-loaded reading.
+- This section is kept as blueprint reference; enforcement should follow Section 1.1.
 
-2. device consistency gate
-- strict outputs for key inference fields must align across CPU/GPU.
+### 12.4 Detailed Decisions (Locked, Reference)
 
-3. feature admission gate
-- every new method must include implementation + tests + external baseline + benchmark + docs.
-
-4. engineering gate
-- nightly must run lint/type/test, monthly additionally enforces baseline matrix and benchmark non-regression.
-
-5. release gate
-- README, USAGE, EN/CN docs and changelog capability statements must remain consistent.
-
-6. remote experiment gate
-- performance-sensitive inference methods must include remote CUDA rerun artifacts (JSON + short MD summary) under `results/` for auditability.
-
-### 12.4 Detailed Decisions (Locked)
+- Canonical locked constraints are front-loaded in Section 1.1; the following list is retained for traceability.
 
 - Expansion scope includes ElasticNet/path/warm_start, Logistic multiclass/penalties, advanced Cox features, model-selection tools, and sparse input.
 - Priority order keeps linear-family pathing first and advanced Cox second.
@@ -270,7 +276,7 @@ Week 2 focus:
 - Upgrade guides and quickstart/benchmarks with strict/approx and device-path guidance.
 - Monthly stable blocks on documentation quality and EN/CN parity.
 
-Model-page hard requirements:
+Model-page hard requirements (canonical gate text is in Section 1.1):
 - Overview, Path, Objective Function, Estimating Equation, Covariance/Inference, Parameters, CPU+GPU Examples, strict/approx difference, Outputs, FAQ, External Validation, References.
 
 ### 12.7 Optimizer Program (Detailed Merge)
@@ -347,18 +353,18 @@ P2 recommendations:
 - Keep Logistic model wrappers thin and reusable.
 - Add consistency tests against sklearn and doc updates in EN/CN.
 
-### 12.12 Post-Bootstrap Inference Delta (Merged)
+### 12.12 Post-Bootstrap Inference Milestone Archive (Merged)
 
-1. P0 complete:
+1. P0 milestone (archived):
 - Fisher and Cauchy/ACAT combine-pvalue support with wrappers and CPU/GPU consistency tests.
 
-1.1 P0 complete (remote supplement):
+1.1 P0 milestone (remote supplement, archived):
 - remote Fisher/Cauchy benchmark rerun is attached with precision + timing evidence:
   - JSON: `results/remote_fisher_cauchy_benchmark_2026-04-05.json`
   - summary: `results/remote_fisher_cauchy_benchmark_2026-04-05.md`
   - key metrics: Fisher SciPy vs statgpu NumPy `88.152x`; Fisher NumPy vs CuPy `4.879x`; Cauchy NumPy vs CuPy `4.634x`; Fisher/Cauchy consistency diffs remained at floating-point noise level.
 
-2. P1 high (mostly complete):
+2. P1 milestone (archived, mostly complete):
 - fixed-X and model-X knockoff paths are both available via unified dispatcher, with standardized output fields (`selected/W/threshold/q_trajectory/random_state/backend`).
 - benchmark artifacts landed:
   - `results/benchmark_knockoff_fixedx_2026-04-06.json`
@@ -411,5 +417,5 @@ precision summary (max abs diff):
 
 status:
 - P0 covariance extension benchmark gate is now evidenced with auditable same-setting artifact.
-- same-day rerun (2026-04-10) completed and the snapshot above is synchronized to the latest artifact values.
+- same-day rerun (2026-04-10) archived and synchronized to the latest artifact values.
 - next: add this benchmark as a stable script entry in `dev/benchmarks` and wire into monthly non-regression gate.
