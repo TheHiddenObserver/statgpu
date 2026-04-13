@@ -1211,6 +1211,8 @@ class Lasso(BaseEstimator):
         k = len(self.coef_)
         if k <= 0 or self._df_resid is None or self._df_resid <= 0:
             return None
+        if fv == np.inf:
+            return 0.0
         pval = 1.0 - stats.f.cdf(fv, k, self._df_resid)
         if not np.isfinite(pval):
             return None
