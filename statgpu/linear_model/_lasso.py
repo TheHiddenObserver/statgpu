@@ -1049,8 +1049,9 @@ class Lasso(BaseEstimator):
 
         M = cp.zeros((p, p), dtype=X_gpu.dtype)
         all_cols_np = np.arange(p)
+        cols_excluding_j = [np.concatenate((all_cols_np[:j], all_cols_np[j + 1 :])) for j in range(p)]
         for j in range(p):
-            cols_np = np.concatenate((all_cols_np[:j], all_cols_np[j + 1 :]))
+            cols_np = cols_excluding_j[j]
             X_minus_j = X_gpu[:, cols_np]
             x_j = X_gpu[:, j]
 

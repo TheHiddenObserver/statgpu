@@ -26,6 +26,9 @@ from ._distribution_utils_gpu import (
     scipy_dist_call_gpu,
 )
 
+# Conservative finite bracket for t-quantile inversion fallback:
+# +/-64 safely covers practical tail probabilities used by inference APIs
+# across typical degrees-of-freedom ranges while remaining numerically stable.
 _T_PPF_BISECT_LOWER = -64.0
 _T_PPF_BISECT_UPPER = 64.0
 
