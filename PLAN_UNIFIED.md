@@ -83,7 +83,7 @@ Active queues in Sections 2, 3, and 10 intentionally exclude completed items.
 - Improve inference rigor:
   - improve cross-device alignment for `SE/t/z/p/CI` and `AIC/BIC/LLF` on larger and ill-conditioned settings
 - Lasso inference enhancements:
-  - move toward de-biased/post-selection inference
+  - de-biased lasso strict inference path implemented in this PR
   - continue bootstrap GPU optimization and large-scale benchmarks
 - CoxPH inference/evaluation:
   - robust/cluster sandwich covariance extension and external baseline parity
@@ -92,6 +92,7 @@ Active queues in Sections 2, 3, and 10 intentionally exclude completed items.
 ## 4. Milestone Archive (Completed Capability Snapshot, 2026-04)
 
 - Lasso inference semantic rename with compatibility aliases.
+- Debiased lasso strict inference path added (approximate route kept as explicit fallback).
 - GPU-side inference enhancement for `gpu_ols_inference` path.
 - Added `gpu_memory_cleanup` across core models.
 - Fixed `LogisticRegression.fit()` CUDA input conversion path.

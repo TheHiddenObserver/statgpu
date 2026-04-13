@@ -733,8 +733,6 @@ class LinearRegression(BaseEstimator):
     def score(self, X, y):
         """Return R^2 score."""
         y_pred = self.predict(X)
-        if hasattr(y_pred, "get"):
-            y_pred = y_pred.get()
         y = np.asarray(y)
         if y_pred.ndim == 1:
             ss_res = np.sum((y - y_pred) ** 2)
