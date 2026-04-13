@@ -1045,25 +1045,25 @@ class Lasso(BaseEstimator):
             resid_lasso = resid_lasso - cp.mean(y_gpu) + cp.mean(X_gpu, axis=0) @ coef_gpu
 
         s_hat_gpu = cp.sum(cp.abs(coef_gpu) > 0).astype(cp.float64)
-        denom_gpu = cp.maximum(cp.asarray(1.0, dtype=cp.float64), cp.asarray(float(n), dtype=cp.float64) - s_hat_gpu)
+        denom_gpu = cp.maximum(1.0, float(n) - s_hat_gpu)
         sigma2_gpu = cp.asarray(cp.sum(resid_lasso ** 2) / denom_gpu, dtype=cp.float64)
 
         lam_nw = float(np.sqrt(2.0 * np.log(max(p, 2)) / n))
         alpha_nw = np.asarray([lam_nw], dtype=np.float64)
-        tiny = cp.asarray(1e-30, dtype=X_gpu.dtype)
-        zero = cp.asarray(0.0, dtype=X_gpu.dtype)
-        one = cp.asarray(1.0, dtype=X_gpu.dtype)
+        tiny = X_gpu.dtype.type(1e-30)
+        zero = X_gpu.dtype.type(0.0)
+        one = X_gpu.dtype.type(1.0)
 
         # Keep node-wise Lasso solves on GPU to avoid per-feature host round-trips.
         M = cp.zeros((p, p), dtype=X_gpu.dtype)
+        all_cols_gpu = cp.arange(p, dtype=cp.int32)
+        cols_excluding_j_gpu = [
+            cp.concatenate((all_cols_gpu[:j], all_cols_gpu[j + 1 :]))
+            for j in range(p)
+        ]
         for j in range(p):
-            cols_np = np.concatenate(
-                [
-                    np.arange(0, j, dtype=np.int64),
-                    np.arange(j + 1, p, dtype=np.int64),
-                ]
-            )
-            X_minus_j = X_gpu[:, cols_np]
+            cols_gpu = cols_excluding_j_gpu[j]
+            X_minus_j = cp.take(X_gpu, cols_gpu, axis=1)
             x_j = X_gpu[:, j]
 
             XtX_nw = X_minus_j.T @ X_minus_j
@@ -1086,8 +1086,8 @@ class Lasso(BaseEstimator):
 
             small_c = cp.abs(C_j) < tiny
             inv_c = cp.where(small_c, zero, one / C_j)
-            M[j, j] = cp.where(small_c, one, one / C_j)
-            M[j, cols_np] = -gamma_j * inv_c
+            M[j, j] = cp.where(small_c, one, inv_c)
+            M[j, cols_gpu] = -gamma_j * inv_c
 
             del XtX_nw
             del Xty_nw
@@ -1205,6 +1205,8 @@ class Lasso(BaseEstimator):
         if fv is None:
             return None
         if fv == np.inf:
+            # An infinite F-statistic corresponds to a perfect-fit / zero-residual
+            # case, so the upper-tail probability tends to 0.
             return 0.0
         k = len(self.coef_)
         if k <= 0 or self._df_resid is None or self._df_resid <= 0:
