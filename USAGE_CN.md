@@ -1,7 +1,7 @@
 # statgpu 文档入口（中文）
 
 > 语言: 中文  
-> 最后更新: 2026-04-10  
+> 最后更新: 2026-04-12  
 > 页面定位: 中文文档入口  
 > 切换: [English](USAGE.md)
 
@@ -15,6 +15,7 @@
 - [快速上手](docs/getting-started/quickstart.md)
 - [设备与显存管理](docs/guides/device-and-memory.md)
 - [推断配置（Lasso）](docs/guides/inference-modes.md)
+- [Distribution API 使用指南（原生 GPU + 显式 Fallback）](docs/guides/distribution-api.md)
 - [全局 p 值合并（Fisher/Cauchy/ACAT）](docs/guides/multiple-testing-combine-pvalues.md)
 - [变更记录](docs/changelog.md)
 

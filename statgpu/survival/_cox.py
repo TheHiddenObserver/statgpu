@@ -429,7 +429,7 @@ class CoxPH(BaseEstimator):
     def _fit_gpu(self, X, time, event, entry=None, cluster=None):
         """Fit using GPU with full GPU computation."""
         import cupy as cp
-        from .._gpu_utils import norm_two_tail_pvalues_gpu, norm_crit_gpu_two_tail
+        from ..inference._distributions_gpu import norm
         
         n_samples, n_features = X.shape
         
@@ -551,8 +551,8 @@ class CoxPH(BaseEstimator):
                     var_gpu = cp.linalg.pinv(-hess)
                 bse_gpu = cp.sqrt(cp.maximum(cp.diag(var_gpu), 0.0))
                 z_gpu = beta / (bse_gpu + 1e-30)
-                p_gpu = norm_two_tail_pvalues_gpu(cp.abs(z_gpu))
-                z_crit = norm_crit_gpu_two_tail(0.05)
+                p_gpu = cp.minimum(1.0, 2.0 * norm.sf(cp.abs(z_gpu)))
+                z_crit = norm.ppf(0.975)
                 ci_gpu = cp.stack([beta - z_crit * bse_gpu, beta + z_crit * bse_gpu], axis=1)
 
                 self._bse = cp.asnumpy(bse_gpu)
@@ -601,8 +601,8 @@ class CoxPH(BaseEstimator):
                 var_gpu = bread @ meat @ bread
                 bse_gpu = cp.sqrt(cp.maximum(cp.diag(var_gpu), 0.0))
                 z_gpu = beta / (bse_gpu + 1e-30)
-                p_gpu = norm_two_tail_pvalues_gpu(cp.abs(z_gpu))
-                z_crit = norm_crit_gpu_two_tail(0.05)
+                p_gpu = cp.minimum(1.0, 2.0 * norm.sf(cp.abs(z_gpu)))
+                z_crit = norm.ppf(0.975)
                 ci_gpu = cp.stack([beta - z_crit * bse_gpu, beta + z_crit * bse_gpu], axis=1)
 
                 self._var_matrix = cp.asnumpy(var_gpu)

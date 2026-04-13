@@ -296,7 +296,7 @@ class LogisticRegression(BaseEstimator):
     def _fit_gpu(self, X, y, sample_weight=None):
         """Fit using GPU with IRLS."""
         import cupy as cp
-        from .._gpu_utils import norm_two_tail_pvalues_gpu, norm_crit_gpu_two_tail
+        from ..inference._distributions_gpu import norm
         
         n_samples, n_features = X.shape
         self._nobs = n_samples
@@ -410,8 +410,8 @@ class LogisticRegression(BaseEstimator):
 
             bse_gpu = cp.sqrt(cp.maximum(cp.diag(cov_params), 0.0))
             zvalues_gpu = params / (bse_gpu + 1e-30)
-            pvalues_gpu = norm_two_tail_pvalues_gpu(cp.abs(zvalues_gpu))
-            z_crit = norm_crit_gpu_two_tail(0.05)
+            pvalues_gpu = cp.minimum(1.0, 2.0 * norm.sf(cp.abs(zvalues_gpu)))
+            z_crit = norm.ppf(0.975)
             conf_int_gpu = cp.stack(
                 [params - z_crit * bse_gpu, params + z_crit * bse_gpu], axis=1
             )

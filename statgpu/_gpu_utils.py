@@ -5,150 +5,35 @@ All statistical computations on GPU.
 
 import numpy as np
 
-
-def _regularized_betainc_gpu(a, b, x):
-    """
-    Regularized incomplete beta I_x(a, b) evaluated on GPU.
-
-    Tries to use `cupyx.scipy.special.betainc`; falls back to CPU SciPy if
-    unavailable (this fallback may synchronize and reduce performance).
-    """
-    import cupy as cp
-
-    try:
-        import cupyx.scipy.special as csp
-
-        return csp.betainc(a, b, x)
-    except Exception:
-        # Fallback: compute on CPU then move back.
-        import scipy.special as sps
-
-        x_cpu = cp.asnumpy(x)
-        return cp.asarray(sps.betainc(a, b, x_cpu))
-
-
-def _regularized_betaincinv_gpu(a, b, y):
-    """
-    Inverse of regularized incomplete beta:
-    find x such that I_x(a,b) = y.
-    """
-    import cupy as cp
-
-    try:
-        import cupyx.scipy.special as csp
-
-        return csp.betaincinv(a, b, y)
-    except Exception:
-        # Caller can implement a numeric inversion; this exists mainly
-        # to centralize betaincinv availability.
-        raise RuntimeError("cupyx.scipy.special.betaincinv is not available")
+from .inference._distributions_gpu import (
+    norm,
+    regularized_betainc_gpu,
+    t,
+)
 
 
 def t_two_tail_pvalues_gpu(t_abs, df_resid):
-    """
-    Two-tailed p-values for Student's t distribution on GPU.
-
-    Uses the identity:
-      p = P(|T| >= t) = I_{ df / (df + t^2) }(df/2, 1/2)
-    where I is the regularized incomplete beta.
-    """
-    import cupy as cp
-
-    df = float(df_resid)
-    if df <= 0:
-        return cp.full_like(t_abs, cp.nan, dtype=cp.float64)
-
-    x = df / (df + cp.square(t_abs))
-    a = df / 2.0
-    b = 0.5
-    return _regularized_betainc_gpu(a, b, x)
+    """Backward-compatible alias for two-sided t p-values on GPU."""
+    return t.two_sided_pvalue(t_abs, df=df_resid)
 
 
 def t_crit_gpu_two_tail(alpha, df_resid, *, max_bisect_steps: int = 60):
-    """
-    Compute positive t critical value for two-tailed test:
-      p_two_tail(t_crit) = alpha
-    """
-    import cupy as cp
-
-    df = float(df_resid)
-    if df <= 0:
-        return cp.array(cp.nan, dtype=cp.float64)
-
-    a = df / 2.0
-    b = 0.5
-
-    # Preferred: inverse regularized incomplete beta -> closed-form for t.
-    try:
-        # Find y = I^{-1}(a,b,alpha) where y = df/(df+t^2).
-        y = _regularized_betaincinv_gpu(a, b, float(alpha))
-        # t = sqrt(df*(1-y)/y)
-        t = cp.sqrt(df * (1.0 - y) / y)
-        return t
-    except Exception:
-        # Fallback: bisection on t using GPU betainc.
-        low = 0.0
-        high = 1.0
-
-        # Increase high until p(high) <= alpha.
-        p_high = float(t_two_tail_pvalues_gpu(cp.array(high, dtype=cp.float64), df_resid).get())
-        it = 0
-        while p_high > alpha and it < 50:
-            high *= 2.0
-            p_high = float(
-                t_two_tail_pvalues_gpu(cp.array(high, dtype=cp.float64), df_resid).get()
-            )
-            it += 1
-
-        for _ in range(max_bisect_steps):
-            mid = 0.5 * (low + high)
-            p_mid = float(t_two_tail_pvalues_gpu(cp.array(mid, dtype=cp.float64), df_resid).get())
-            if p_mid > alpha:
-                low = mid
-            else:
-                high = mid
-
-        return cp.array(high, dtype=cp.float64)
-
-
-def norm_cdf_gpu(x):
-    """Standard normal CDF on GPU."""
-    import cupy as cp
-    try:
-        import cupyx.scipy.special as csp
-        erf_x = csp.erf(x / cp.sqrt(cp.array(2.0, dtype=cp.float64)))
-    except Exception:
-        # CPU fallback for environments without cupyx special support.
-        import scipy.special as sps
-        erf_x = cp.asarray(sps.erf(cp.asnumpy(x / cp.sqrt(cp.array(2.0, dtype=cp.float64)))))
-    return 0.5 * (1.0 + erf_x)
+    """Backward-compatible alias for two-sided t critical value on GPU."""
+    return t.two_sided_critical_value(
+        alpha,
+        df=df_resid,
+        max_bisect_steps=max_bisect_steps,
+    )
 
 
 def norm_two_tail_pvalues_gpu(z_abs):
-    """
-    Two-tailed p-values for standard normal on GPU:
-      p = 2 * (1 - Phi(|z|))
-    """
-    import cupy as cp
-    return 2.0 * (1.0 - norm_cdf_gpu(z_abs))
+    """Backward-compatible alias for two-sided normal p-values on GPU."""
+    return norm.two_sided_pvalue(z_abs)
 
 
 def norm_crit_gpu_two_tail(alpha):
-    """
-    Positive z critical value for two-tailed normal CI.
-
-    For alpha=0.05 (95% CI), use a stable constant to avoid CPU special funcs.
-    """
-    import cupy as cp
-    if abs(float(alpha) - 0.05) < 1e-15:
-        return cp.array(1.959963984540054, dtype=cp.float64)
-    # Fallback using inverse erfc if available.
-    try:
-        import cupyx.scipy.special as csp
-        return cp.sqrt(cp.array(2.0, dtype=cp.float64)) * csp.erfcinv(alpha)
-    except Exception:
-        # Conservative fallback to 95% critical.
-        return cp.array(1.959963984540054, dtype=cp.float64)
+    """Backward-compatible alias for two-sided normal critical value on GPU."""
+    return norm.two_sided_critical_value(alpha)
 
 
 def compute_inference_gpu(X_design, resid, scale, df_resid, params_gpu):
@@ -199,11 +84,11 @@ def compute_inference_gpu(X_design, resid, scale, df_resid, params_gpu):
     tvalues_gpu = params_gpu / bse_gpu
     
     # p-values (two-tailed t-test), entirely on GPU.
-    pvalues_gpu = t_two_tail_pvalues_gpu(cp.abs(tvalues_gpu), df_resid)
+    pvalues_gpu = t.two_sided_pvalue(tvalues_gpu, df=df_resid)
     
     # Confidence intervals (95%)
     alpha = 0.05  # two-tailed significance level for 95% CI
-    t_crit_gpu = t_crit_gpu_two_tail(alpha, df_resid)
+    t_crit_gpu = t.two_sided_critical_value(alpha, df=df_resid)
     
     margin = t_crit_gpu * bse_gpu
     conf_int_lower = params_gpu - margin
@@ -320,7 +205,7 @@ def compute_f_stat_gpu(y, resid, X_design, df_resid):
         pvalue = 1.0
     else:
         z = (d1 * fvalue) / (d1 * fvalue + d2)
-        cdf = _regularized_betainc_gpu(d1 / 2.0, d2 / 2.0, cp.asarray(z))
+        cdf = regularized_betainc_gpu(d1 / 2.0, d2 / 2.0, cp.asarray(z))
         pvalue = float(1.0 - cp.asnumpy(cdf))
     
     return fvalue, pvalue

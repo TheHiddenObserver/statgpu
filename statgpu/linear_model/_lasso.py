@@ -20,11 +20,10 @@ except Exception:
 
 from .._base import BaseEstimator
 from .._config import Device
-from .._gpu_utils import (
-    t_two_tail_pvalues_gpu,
-    t_crit_gpu_two_tail,
-    norm_two_tail_pvalues_gpu,
-    norm_crit_gpu_two_tail,
+from .._cv_base import CVEstimatorBase
+from ..inference._distributions_gpu import (
+    norm,
+    t,
 )
 
 
@@ -149,9 +148,10 @@ class Lasso(BaseEstimator):
         if device != Device.CUDA:
             self._y = np.asarray(y)
         else:
-            # If we compute inference fully on GPU, avoid copying y.
-            if self.compute_inference and self.inference_method in (
-                "gpu_ols_inference", "debiased",
+            # GPU path: avoid host copies unless CPU-side inference needs y.
+            if (not self.compute_inference) or self.inference_method in (
+                "gpu_ols_inference",
+                "debiased",
             ):
                 self._y = None
             else:
@@ -507,10 +507,10 @@ class Lasso(BaseEstimator):
                 # Inference vectors on GPU to avoid scipy/cpu cdf/ppf.
                 params_gpu = coef_full  # includes intercept when fit_intercept=True
                 tvalues_gpu = params_gpu / (bse_gpu + 1e-30)
-                pvalues_gpu = t_two_tail_pvalues_gpu(cp.abs(tvalues_gpu), df_resid)
+                pvalues_gpu = cp.minimum(1.0, 2.0 * t.sf(cp.abs(tvalues_gpu), df=df_resid))
 
                 alpha = 0.05  # two-tailed for 95% CI
-                t_crit_gpu = t_crit_gpu_two_tail(alpha, df_resid)
+                t_crit_gpu = t.ppf(1.0 - alpha / 2.0, df=df_resid)
                 margin_gpu = t_crit_gpu * bse_gpu
                 conf_int_gpu = cp.stack([params_gpu - margin_gpu, params_gpu + margin_gpu], axis=1)
 
@@ -708,9 +708,52 @@ class Lasso(BaseEstimator):
                 self._scale = float(scale.get()) if not cp.isnan(scale) else np.nan
             else:
                 self._scale = np.nan
+                scale = cp.nan
 
-            self._resid = resid.get()
-            self._X_design = X_design.get()
+            if self.inference_method == "gpu_ols_inference":
+                # Keep the inference path on GPU and transfer only small vectors.
+                XtX_inf = X_design.T @ X_design
+                try:
+                    XtX_inv = cp.linalg.inv(XtX_inf)
+                except Exception:
+                    XtX_inv = cp.linalg.pinv(XtX_inf)
+
+                bse_gpu = cp.sqrt(scale * cp.diag(XtX_inv))
+                params_gpu = coef_full
+                tvalues_gpu = params_gpu / (bse_gpu + 1e-30)
+                pvalues_gpu = cp.minimum(1.0, 2.0 * t.sf(cp.abs(tvalues_gpu), df=df_resid))
+
+                alpha = 0.05
+                t_crit_gpu = t.ppf(1.0 - alpha / 2.0, df=df_resid)
+                margin_gpu = t_crit_gpu * bse_gpu
+                conf_int_gpu = cp.stack([params_gpu - margin_gpu, params_gpu + margin_gpu], axis=1)
+
+                self._bse = cp.asnumpy(bse_gpu)
+                self._tvalues = cp.asnumpy(tvalues_gpu)
+                self._pvalues = cp.asnumpy(pvalues_gpu)
+                self._conf_int = cp.asnumpy(conf_int_gpu)
+
+                y_mean_gpu = cp.mean(y)
+                ss_tot = cp.sum((y - y_mean_gpu) ** 2)
+                ss_res = cp.sum(resid ** 2)
+                self._rsquared_gpu = float(cp.asnumpy(1 - ss_res / ss_tot)) if ss_tot > 0 else 0.0
+
+                self._resid = None
+                self._X_design = None
+            elif self.inference_method == "debiased":
+                self._compute_inference_debiased_gpu(X, y, coef)
+
+                y_mean_gpu = cp.mean(y)
+                ss_tot = cp.sum((y - y_mean_gpu) ** 2)
+                ss_res = cp.sum(resid ** 2)
+                self._rsquared_gpu = float(cp.asnumpy(1 - ss_res / ss_tot)) if ss_tot > 0 else 0.0
+
+                self._resid = None
+                self._X_design = None
+            else:
+                # CPU-side inference path.
+                self._resid = resid.get()
+                self._X_design = X_design.get()
         else:
             self._scale = np.nan
             self._resid = None
@@ -1000,14 +1043,15 @@ class Lasso(BaseEstimator):
 
         s_hat = int(cp.sum(cp.abs(coef_gpu) > 0).get())
         denom = max(n - s_hat, 1)
-        sigma2 = float((cp.sum(resid_lasso ** 2) / denom).get())
+        sigma2_gpu = cp.asarray(cp.sum(resid_lasso ** 2) / float(denom), dtype=cp.float64)
 
         lam_nw = float(np.sqrt(2.0 * np.log(max(p, 2)) / n))
 
         M = cp.zeros((p, p), dtype=X_gpu.dtype)
+        all_cols_np = np.arange(p)
+        cols_excluding_j = [np.concatenate((all_cols_np[:j], all_cols_np[j + 1 :])) for j in range(p)]
         for j in range(p):
-            cols = cp.concatenate([cp.arange(0, j), cp.arange(j + 1, p)])
-            cols_np = cols.get().astype(int)
+            cols_np = cols_excluding_j[j]
             X_minus_j = X_gpu[:, cols_np]
             x_j = X_gpu[:, j]
 
@@ -1044,14 +1088,13 @@ class Lasso(BaseEstimator):
         theta_db = coef_gpu + (M @ X_gpu.T @ resid_full) / n
 
         V = M @ Sigma_hat @ M.T
-        sigma2_gpu = cp.array(sigma2, dtype=cp.float64)
         se = cp.sqrt(sigma2_gpu * cp.diag(V) / n)
 
         z_stats = theta_db / (se + 1e-30)
-        pvalues = norm_two_tail_pvalues_gpu(cp.abs(z_stats))
+        pvalues = cp.minimum(1.0, 2.0 * norm.sf(cp.abs(z_stats)))
 
         alpha_ci = 0.05
-        z_crit = norm_crit_gpu_two_tail(alpha_ci)
+        z_crit = norm.ppf(1.0 - alpha_ci / 2.0)
         ci = cp.stack([theta_db - z_crit * se, theta_db + z_crit * se], axis=1)
 
         if self.fit_intercept:
@@ -1066,7 +1109,7 @@ class Lasso(BaseEstimator):
             se_intercept = cp.sqrt(sigma2_gpu * XtX_inv[0, 0])
             intercept_gpu = cp.asarray(self.intercept_, dtype=cp.float64)
             z_intercept = intercept_gpu / (se_intercept + 1e-30)
-            p_intercept = norm_two_tail_pvalues_gpu(cp.abs(z_intercept).reshape(1))
+            p_intercept = cp.minimum(1.0, 2.0 * norm.sf(cp.abs(z_intercept).reshape(1)))
             ci_intercept = cp.stack([
                 intercept_gpu - z_crit * se_intercept,
                 intercept_gpu + z_crit * se_intercept,
@@ -1119,16 +1162,26 @@ class Lasso(BaseEstimator):
     @property
     def fvalue(self):
         """F-statistic."""
-        if self._y is None or self._resid is None:
+        if self._y is not None and self._resid is not None:
+            y_mean = np.mean(self._y)
+            ss_tot = np.sum((self._y - y_mean) ** 2)
+            ss_res = np.sum(self._resid ** 2)
+            ss_reg = ss_tot - ss_res
+            k = len(self.coef_)
+            if k == 0 or ss_res <= 0:
+                return np.inf
+            return (ss_reg / k) / (ss_res / self._df_resid)
+
+        # GPU inference mode may skip transferring residual vectors to host.
+        r2 = self.rsquared
+        if r2 is None:
             return None
-        y_mean = np.mean(self._y)
-        ss_tot = np.sum((self._y - y_mean) ** 2)
-        ss_res = np.sum(self._resid ** 2)
-        ss_reg = ss_tot - ss_res
         k = len(self.coef_)
-        if k == 0 or ss_res <= 0:
+        if k <= 0 or self._df_resid is None or self._df_resid <= 0:
+            return None
+        if r2 >= 1.0:
             return np.inf
-        return (ss_reg / k) / (ss_res / self._df_resid)
+        return (r2 / k) / ((1.0 - r2) / self._df_resid)
 
     @property
     def f_pvalue(self):
@@ -1158,10 +1211,19 @@ class Lasso(BaseEstimator):
     @property
     def llf(self):
         """Log-likelihood."""
-        if self._nobs is None or self._resid is None:
+        if self._nobs is None:
             return None
         n = self._nobs
-        sigma2_mle = np.sum(self._resid ** 2) / n
+        if self._resid is not None:
+            sigma2_mle = np.sum(self._resid ** 2) / n
+        else:
+            if self._scale is None or np.isnan(self._scale):
+                return None
+            if self._df_resid is None or self._df_resid <= 0:
+                return None
+            sigma2_mle = (self._scale * self._df_resid) / n
+        if sigma2_mle <= 0:
+            return None
         return -n/2 * np.log(2 * np.pi * sigma2_mle) - n/2
 
     def summary(self):
@@ -1185,6 +1247,21 @@ class Lasso(BaseEstimator):
         stat_label = "z" if is_debiased else "t"
         pval_label = "P>|z|" if is_debiased else "P>|t|"
 
+        def _fmt_stat(value, fmt_spec: str) -> str:
+            if value is None:
+                return f"{'nan':>15}"
+            try:
+                value_f = float(value)
+            except Exception:
+                return f"{'nan':>15}"
+            if np.isnan(value_f):
+                return f"{'nan':>15}"
+            if np.isposinf(value_f):
+                return f"{'inf':>15}"
+            if np.isneginf(value_f):
+                return f"{'-inf':>15}"
+            return format(value_f, fmt_spec)
+
         print("=" * 80)
         print(f"                            {title}")
         print(f"                            (alpha = {self.alpha:.4f})")
@@ -1192,13 +1269,13 @@ class Lasso(BaseEstimator):
         print(f"No. Observations:           {self._nobs:>15}")
         print(f"Degrees of Freedom:         {self._df_resid:>15}")
         print(f"Iterations:                 {self.n_iter_:>15}")
-        print(f"R-squared:                  {self.rsquared:>15.4f}")
-        print(f"Adj. R-squared:             {self.rsquared_adj:>15.4f}")
-        print(f"F-statistic:                {self.fvalue:>15.4f}")
-        print(f"Prob (F-statistic):         {self.f_pvalue:>15.4e}")
-        print(f"Log-Likelihood:             {self.llf:>15.4f}")
-        print(f"AIC:                        {self.aic:>15.4f}")
-        print(f"BIC:                        {self.bic:>15.4f}")
+        print(f"R-squared:                  {_fmt_stat(self.rsquared, '>15.4f')}")
+        print(f"Adj. R-squared:             {_fmt_stat(self.rsquared_adj, '>15.4f')}")
+        print(f"F-statistic:                {_fmt_stat(self.fvalue, '>15.4f')}")
+        print(f"Prob (F-statistic):         {_fmt_stat(self.f_pvalue, '>15.4e')}")
+        print(f"Log-Likelihood:             {_fmt_stat(self.llf, '>15.4f')}")
+        print(f"AIC:                        {_fmt_stat(self.aic, '>15.4f')}")
+        print(f"BIC:                        {_fmt_stat(self.bic, '>15.4f')}")
         print("-" * 80)
         print(f"{'':<15} {'coef':>12} {'std err':>12} {stat_label:>10} {pval_label:>10} {'[0.025':>12} {'0.975]':>12}")
         print("-" * 80)
