@@ -244,8 +244,19 @@ class TDistributionGPU:
             x_pos = cp.sqrt(df_val * (1.0 - y_inv) / y_inv)
             quant = cp.where(q_gpu >= 0.5, x_pos, -x_pos)
             return cp.where(valid, quant, out)
-        except Exception as exc:
-            raise RuntimeError("cupyx.scipy.special.betaincinv is required for GPU backend") from exc
+        except Exception:
+            # Monotone bisection fallback when betaincinv backend is unavailable.
+            steps = max(int(max_bisect_steps), 1)
+            lo = cp.full(q_gpu.shape, -64.0, dtype=cp.float64)
+            hi = cp.full(q_gpu.shape, 64.0, dtype=cp.float64)
+            for _ in range(steps):
+                mid = 0.5 * (lo + hi)
+                cdf_mid = TDistributionGPU._cdf_standard(mid, df_val)
+                go_right = cdf_mid < q_gpu
+                lo = cp.where(go_right, mid, lo)
+                hi = cp.where(go_right, hi, mid)
+            quant = 0.5 * (lo + hi)
+            return cp.where(valid, quant, out)
 
     @staticmethod
     def cdf(x, df, *, loc=0.0, scale=1.0):
@@ -1521,7 +1532,6 @@ def list_available_distributions_gpu(include_scipy: bool = True):
         return native
 
     import scipy.stats as sps
-    from scipy.stats._distn_infrastructure import rv_continuous, rv_discrete
 
     scipy_names = []
     for n in dir(sps):
@@ -1531,7 +1541,7 @@ def list_available_distributions_gpu(include_scipy: bool = True):
             obj = getattr(sps, n)
         except Exception:
             continue
-        if isinstance(obj, (rv_continuous, rv_discrete)):
+        if all(callable(getattr(obj, attr, None)) for attr in ("cdf", "ppf", "rvs")):
             scipy_names.append(n)
 
     return sorted(set(native + scipy_names))

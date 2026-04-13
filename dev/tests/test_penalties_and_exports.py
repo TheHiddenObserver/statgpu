@@ -52,6 +52,44 @@ def test_inference_r_style_distribution_quartets_exports():
             assert hasattr(inference, name), f"Missing R-style API `{name}` in family `{family}`"
 
 
+def test_inference_legacy_norm_isf_exported():
+    """Inference should export legacy norm_isf_gpu alias for compatibility."""
+    assert hasattr(inference, "norm_isf_gpu")
+    assert "norm_isf_gpu" in inference.__all__
+
+
+def test_inference_norm_distribution_matches_scipy_basics():
+    """norm object should provide GPU outputs with basic scipy-compatible values."""
+    cp = pytest.importorskip("cupy")
+    sps = pytest.importorskip("scipy.stats")
+
+    x = cp.asarray([-1.0, 0.0, 1.0], dtype=cp.float64)
+    q = cp.asarray([0.1, 0.5, 0.9], dtype=cp.float64)
+
+    cdf_gpu = inference.norm.cdf(x)
+    ppf_gpu = inference.norm.ppf(q)
+    roundtrip = inference.norm.cdf(ppf_gpu)
+
+    assert isinstance(cdf_gpu, cp.ndarray)
+    assert isinstance(ppf_gpu, cp.ndarray)
+    assert np.allclose(cp.asnumpy(cdf_gpu), sps.norm.cdf(cp.asnumpy(x)), rtol=1e-6, atol=1e-8)
+    assert np.allclose(cp.asnumpy(ppf_gpu), sps.norm.ppf(cp.asnumpy(q)), rtol=1e-6, atol=1e-8)
+    assert cp.allclose(roundtrip, q, rtol=1e-6, atol=1e-8)
+
+
+def test_legacy_non_r_distribution_names_emit_deprecation_warning():
+    """Legacy non-R helper names should emit DeprecationWarning."""
+    cp = pytest.importorskip("cupy")
+
+    with pytest.deprecated_call(DeprecationWarning, match="norm_cdf_gpu"):
+        out = inference.norm_cdf_gpu(cp.asarray([0.0], dtype=cp.float64))
+    assert isinstance(out, cp.ndarray)
+
+    with pytest.deprecated_call(DeprecationWarning, match="norm_isf_gpu"):
+        out2 = inference.norm_isf_gpu(cp.asarray([0.2], dtype=cp.float64))
+    assert isinstance(out2, cp.ndarray)
+
+
 @pytest.mark.parametrize("name", ["RidgeCV", "LogisticRegressionCV", "CoxPHCV"])
 def test_top_level_new_cv_exports(name):
     """Top-level package should expose new CV skeleton classes."""
