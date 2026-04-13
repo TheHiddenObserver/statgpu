@@ -151,6 +151,17 @@ class TestDebiasedInferenceCPU:
         assert "Debiased Lasso" in captured.out
         assert "P>|z|" in captured.out
 
+    def test_f_pvalue_infinite_fvalue_returns_zero(self):
+        """Perfect-fit style edge case should map to near-zero F-test p-value."""
+        m = Lasso(alpha=0.1, device="cpu")
+        m.coef_ = np.array([1.0, -0.5], dtype=float)
+        m._df_resid = 8
+        m._y = np.array([1.0, 2.0, 3.0, 4.0], dtype=float)
+        m._resid = np.zeros_like(m._y)
+
+        assert m.fvalue == np.inf
+        assert m.f_pvalue == 0.0
+
     def test_debiased_vs_ols_low_dim(self):
         """In low-dimensional regime (n >> p, sparse), debiased should be close to OLS."""
         X, y, beta, _ = _make_sparse_regression(n=1000, p=10, s=3, seed=55)
