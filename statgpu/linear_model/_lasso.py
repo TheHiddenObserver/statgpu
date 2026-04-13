@@ -507,6 +507,9 @@ class Lasso(BaseEstimator):
                 # Inference vectors on GPU to avoid scipy/cpu cdf/ppf.
                 params_gpu = coef_full  # includes intercept when fit_intercept=True
                 tvalues_gpu = params_gpu / (bse_gpu + 1e-30)
+                # Two-tailed p-values from the Student-t survival function should
+                # already lie in [0, 1]. We still clamp at 1.0 as a defensive
+                # safeguard against tiny floating-point overshoots on GPU/backends.
                 pvalues_gpu = cp.minimum(1.0, 2.0 * t.sf(cp.abs(tvalues_gpu), df=df_resid))
 
                 alpha = 0.05  # two-tailed for 95% CI
@@ -1041,42 +1044,54 @@ class Lasso(BaseEstimator):
         if self.fit_intercept:
             resid_lasso = resid_lasso - cp.mean(y_gpu) + cp.mean(X_gpu, axis=0) @ coef_gpu
 
-        s_hat = int(cp.sum(cp.abs(coef_gpu) > 0).get())
-        denom = max(n - s_hat, 1)
-        sigma2_gpu = cp.asarray(cp.sum(resid_lasso ** 2) / float(denom), dtype=cp.float64)
+        s_hat_gpu = cp.sum(cp.abs(coef_gpu) > 0).astype(cp.float64)
+        denom_gpu = cp.maximum(cp.asarray(1.0, dtype=cp.float64), cp.asarray(float(n), dtype=cp.float64) - s_hat_gpu)
+        sigma2_gpu = cp.asarray(cp.sum(resid_lasso ** 2) / denom_gpu, dtype=cp.float64)
 
         lam_nw = float(np.sqrt(2.0 * np.log(max(p, 2)) / n))
+        alpha_nw = np.asarray([lam_nw], dtype=np.float64)
+        tiny = cp.asarray(1e-30, dtype=X_gpu.dtype)
+        zero = cp.asarray(0.0, dtype=X_gpu.dtype)
+        one = cp.asarray(1.0, dtype=X_gpu.dtype)
 
+        # Keep node-wise Lasso solves on GPU to avoid per-feature host round-trips.
         M = cp.zeros((p, p), dtype=X_gpu.dtype)
-        all_cols_np = np.arange(p)
-        cols_excluding_j = [np.concatenate((all_cols_np[:j], all_cols_np[j + 1 :])) for j in range(p)]
         for j in range(p):
-            cols_np = cols_excluding_j[j]
+            cols_np = np.concatenate(
+                [
+                    np.arange(0, j, dtype=np.int64),
+                    np.arange(j + 1, p, dtype=np.int64),
+                ]
+            )
             X_minus_j = X_gpu[:, cols_np]
             x_j = X_gpu[:, j]
 
-            nw = Lasso(
-                alpha=lam_nw,
-                fit_intercept=False,
+            XtX_nw = X_minus_j.T @ X_minus_j
+            Xty_nw = X_minus_j.T @ x_j
+            gamma_path, _ = _solve_lasso_path_gpu_from_gram(
+                XtX_nw,
+                Xty_nw,
+                n_samples=int(n),
+                alphas_desc=alpha_nw,
                 max_iter=500,
                 tol=1e-5,
-                device="cuda",
-                solver="fista",
-                compute_inference=False,
-                gpu_memory_cleanup=False,
+                stopping="coef_delta",
+                lipschitz_L=None,
+                check_every=8,
             )
-            nw.fit(X_minus_j, x_j)
-            gamma_j = cp.asarray(nw.coef_)
+            gamma_j = gamma_path[0]
 
             z_j = x_j - X_minus_j @ gamma_j
             C_j = z_j @ x_j / n
 
-            if abs(float(C_j.get())) < 1e-30:
-                M[j, j] = 1.0
-                continue
+            small_c = cp.abs(C_j) < tiny
+            inv_c = cp.where(small_c, zero, one / C_j)
+            M[j, j] = cp.where(small_c, one, one / C_j)
+            M[j, cols_np] = -gamma_j * inv_c
 
-            M[j, j] = 1.0 / C_j
-            M[j, cols_np] = -gamma_j / C_j
+            del XtX_nw
+            del Xty_nw
+            del gamma_path
 
         # Recompute full residual from the original fit
         if self.fit_intercept:
@@ -1187,10 +1202,17 @@ class Lasso(BaseEstimator):
     def f_pvalue(self):
         """p-value for F-statistic."""
         fv = self.fvalue
-        if fv is None or fv == np.inf:
-            return 1.0
+        if fv is None:
+            return None
         k = len(self.coef_)
-        return 1 - stats.f.cdf(fv, k, self._df_resid)
+        if k <= 0 or self._df_resid is None or self._df_resid <= 0:
+            return None
+        if fv == np.inf:
+            return 0.0
+        pval = 1.0 - stats.f.cdf(fv, k, self._df_resid)
+        if not np.isfinite(pval):
+            return None
+        return float(np.clip(pval, 0.0, 1.0))
 
     @property
     def aic(self):
