@@ -251,8 +251,8 @@ class TDistributionGPU:
             # Monotone bisection fallback when betaincinv backend is unavailable.
             steps = max(int(max_bisect_steps), 1)
             # Wide finite bracket for practical t-quantile ranges.
-            lo = cp.full(q_gpu.shape, _T_PPF_BISECT_LOWER, dtype=cp.float64)
-            hi = cp.full(q_gpu.shape, _T_PPF_BISECT_UPPER, dtype=cp.float64)
+            lo = cp.full(q_gpu.shape, _T_PPF_BISECT_LOWER, dtype=q_gpu.dtype)
+            hi = cp.full(q_gpu.shape, _T_PPF_BISECT_UPPER, dtype=q_gpu.dtype)
             for _ in range(steps):
                 mid = 0.5 * (lo + hi)
                 cdf_mid = TDistributionGPU._cdf_standard(mid, df_val)
@@ -1536,6 +1536,7 @@ def list_available_distributions_gpu(include_scipy: bool = True):
         return native
 
     import scipy.stats as sps
+    from scipy.stats import rv_continuous, rv_discrete
 
     scipy_names = []
     for n in dir(sps):
@@ -1545,7 +1546,7 @@ def list_available_distributions_gpu(include_scipy: bool = True):
             obj = getattr(sps, n)
         except Exception:
             continue
-        if all(callable(getattr(obj, attr, None)) for attr in ("cdf", "ppf", "rvs")):
+        if isinstance(obj, (rv_continuous, rv_discrete)):
             scipy_names.append(n)
 
     return sorted(set(native + scipy_names))

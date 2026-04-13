@@ -1048,7 +1048,7 @@ class Lasso(BaseEstimator):
         lam_nw = float(np.sqrt(2.0 * np.log(max(p, 2)) / n))
 
         M = cp.zeros((p, p), dtype=X_gpu.dtype)
-        all_cols_np = np.arange(p, dtype=int)
+        all_cols_np = np.arange(p)
         for j in range(p):
             cols_np = np.concatenate((all_cols_np[:j], all_cols_np[j + 1 :]))
             X_minus_j = X_gpu[:, cols_np]
