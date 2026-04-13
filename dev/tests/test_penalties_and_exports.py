@@ -81,11 +81,11 @@ def test_legacy_non_r_distribution_names_emit_deprecation_warning():
     """Legacy non-R helper names should emit DeprecationWarning."""
     cp = pytest.importorskip("cupy")
 
-    with pytest.deprecated_call(DeprecationWarning, match="norm_cdf_gpu"):
+    with pytest.warns(DeprecationWarning, match="norm_cdf_gpu"):
         out = inference.norm_cdf_gpu(cp.asarray([0.0], dtype=cp.float64))
     assert isinstance(out, cp.ndarray)
 
-    with pytest.deprecated_call(DeprecationWarning, match="norm_isf_gpu"):
+    with pytest.warns(DeprecationWarning, match="norm_isf_gpu"):
         out2 = inference.norm_isf_gpu(cp.asarray([0.2], dtype=cp.float64))
     assert isinstance(out2, cp.ndarray)
 

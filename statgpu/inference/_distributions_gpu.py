@@ -26,6 +26,9 @@ from ._distribution_utils_gpu import (
     scipy_dist_call_gpu,
 )
 
+_T_PPF_BISECT_LOWER = -64.0
+_T_PPF_BISECT_UPPER = 64.0
+
 class NormDistributionGPU:
     """scipy.stats.norm-like GPU distribution object.
 
@@ -247,8 +250,9 @@ class TDistributionGPU:
         except Exception:
             # Monotone bisection fallback when betaincinv backend is unavailable.
             steps = max(int(max_bisect_steps), 1)
-            lo = cp.full(q_gpu.shape, -64.0, dtype=cp.float64)
-            hi = cp.full(q_gpu.shape, 64.0, dtype=cp.float64)
+            # Wide finite bracket for practical t-quantile ranges.
+            lo = cp.full(q_gpu.shape, _T_PPF_BISECT_LOWER, dtype=cp.float64)
+            hi = cp.full(q_gpu.shape, _T_PPF_BISECT_UPPER, dtype=cp.float64)
             for _ in range(steps):
                 mid = 0.5 * (lo + hi)
                 cdf_mid = TDistributionGPU._cdf_standard(mid, df_val)
