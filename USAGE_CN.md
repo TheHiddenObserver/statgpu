@@ -1,7 +1,7 @@
 # statgpu 文档入口（中文）
 
 > 语言: 中文  
-> 最后更新: 2026-04-12  
+> 最后更新: 2026-04-15  
 > 页面定位: 中文文档入口  
 > 切换: [English](USAGE.md)
 
@@ -29,6 +29,7 @@
 总览索引：
 - [模型总览](docs/models/README.md)
 - [Knockoff 特征选择](docs/models/knockoff.md)
+- [非参数方法](docs/models/nonparametric.md)
 
 ### 线性模型 `statgpu.linear_model`
 - [LinearRegression](docs/models/linear-regression.md)
@@ -76,6 +77,11 @@
 - `dev/benchmarks/benchmark_lasso_inference_gpu_vs_cpu.py`
 - `dev/benchmarks/benchmark_gpu_memory_cleanup.py`
 - `dev/benchmarks/benchmark_all_methods_large_scale.py`
+- `dev/benchmarks/benchmark_kernel_regression_vs_statsmodels.py`
+
+最新非参数产物：
+- 公平核对齐运行 `20260415_103036`（对角核设置下与 statsmodels 达到机器精度对齐）
+- local-linear 优化运行 `20260415_120903`（多维 local-linear：CPU 约 4.8-5.4x，GPU 约 115-116x）
 
 最新三方协方差产物：
 - `results/remote_covariance_full_compare_2026-04-10.json`（`statsmodels` / `statgpu CPU` / `statgpu GPU`，`hc2/hc3/hac`）

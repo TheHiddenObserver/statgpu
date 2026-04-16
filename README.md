@@ -21,6 +21,10 @@ GPU-accelerated statistical methods with sklearn-compatible API.
   - `Ridge`: `nonrobust` / `hc0` / `hc1` / `hc2` / `hc3` / `hac`
   - `Lasso`: `cpu_ols_inference` / `gpu_ols_inference` / `bootstrap`
   - `LogisticRegression`: `nonrobust` / `hc0` / `hc1` / `hc2` / `hc3` / `hac`
+- 📈 **Nonparametric Support**:
+  - KDE: `fit_kde` / `kde_pdf` / `kde_bootstrap_confidence_interval`
+  - KDE kernel options: `gaussian` / `rectangular` / `triangular` / `epanechnikov` / `biweight` / `triweight` / `cosine` / `optcosine`
+  - Kernel regression: `fit_kernel_regression` / `kernel_regression_predict`
 - 🧹 **GPU Memory Control**: `gpu_memory_cleanup` for all current models
 
 ## Implemented Methods (Current)

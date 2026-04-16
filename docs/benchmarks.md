@@ -1,7 +1,7 @@
 # 基准脚本索引
 
 > 语言: 中文  
-> 最后更新: 2026-04-10  
+> 最后更新: 2026-04-16  
 > 页面定位: 基准脚本索引  
 > 切换: [English](en/benchmarks.md)
 
@@ -12,6 +12,25 @@
 - `dev/benchmarks/benchmark_lasso_inference_gpu_vs_cpu.py`
   - 对比 `cpu_ols_inference` vs `gpu_ols_inference`
   - 输出时间与 `coef/bse/t/p/conf_int` 差异
+
+## 非参数方法
+
+- `dev/benchmarks/benchmark_kernel_regression_vs_statsmodels.py`
+  - 对比 `statgpu` 与 `statsmodels.nonparametric.kernel_regression.KernelReg`
+  - 支持 `regression=nw/local_linear` 与多维设置
+  - 支持通过 `--kernel-metric diagonal` 进行公平口径对齐
+  - 结果包含 `statgpu CPU/GPU` 与 `statsmodels` 的精度和时间对比
+  - 输出时间与精度 JSON 到 `results/`
+
+- `dev/benchmarks/benchmark_kde_vs_scipy.py`
+  - 对比 `statgpu` 与 `scipy.stats.gaussian_kde`
+  - 结果包含 `statgpu CPU/GPU` 与 SciPy 的精度和时间对比
+
+- `dev/benchmarks/benchmark_nonparametric_vs_r.py`
+  - 对比 `statgpu` 与 R 的 `density()` / `ksmooth()` / `KernSmooth::locpoly()`
+  - 支持 `--statgpu-backend numpy/cupy`
+  - 支持 `--ci-method normal/bootstrap`
+  - 结果包含 `statgpu CPU/GPU`、R，以及 KDE CI 与 SciPy 的对照
 
 ## 多重检验与全局 p 值合并
 
