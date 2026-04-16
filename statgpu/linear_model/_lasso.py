@@ -1057,12 +1057,8 @@ class Lasso(BaseEstimator):
         # Keep node-wise Lasso solves on GPU to avoid per-feature host round-trips.
         M = cp.zeros((p, p), dtype=X_gpu.dtype)
         all_cols_gpu = cp.arange(p, dtype=cp.int32)
-        cols_excluding_j_gpu = [
-            cp.concatenate((all_cols_gpu[:j], all_cols_gpu[j + 1 :]))
-            for j in range(p)
-        ]
         for j in range(p):
-            cols_gpu = cols_excluding_j_gpu[j]
+            cols_gpu = cp.concatenate((all_cols_gpu[:j], all_cols_gpu[j + 1 :]))
             X_minus_j = cp.take(X_gpu, cols_gpu, axis=1)
             x_j = X_gpu[:, j]
 

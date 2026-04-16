@@ -62,7 +62,7 @@ Kernel Regression supports `nw` and `local_linear`, plus a diagonal metric mode 
 ### Main APIs
 
 - `fit_kernel_regression(samples, targets, regression='nw', kernel='gaussian', kernel_metric='full'|'diagonal', ...)`
-- `kernel_regression_predict(model, points, ...)`
+- `kernel_regression_predict(samples, targets, points, ...)`
 - sklearn-style: `KernelRegressionRegressor(...).fit(X, y).predict(points)`
 
 ### Key options

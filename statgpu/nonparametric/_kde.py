@@ -350,7 +350,8 @@ def fit_kde(
               'biweight', 'triweight', 'cosine', 'optcosine'}, default='gaussian'
         Kernel function used for density estimation.
     backend : {'auto', 'numpy', 'cupy'}, default='auto'
-        Compute backend. 'auto' chooses CuPy when any input is a CuPy array.
+        Compute backend. 'auto' selects from the estimator's configured
+        device/backend rather than inferring from input array types.
 
     Returns
     -------

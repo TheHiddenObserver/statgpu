@@ -62,7 +62,7 @@ Kernel Regression 支持 `nw` 与 `local_linear` 两种回归器，并提供与 
 ### 主要 API
 
 - `fit_kernel_regression(samples, targets, regression='nw', kernel='gaussian', kernel_metric='full'|'diagonal', ...)`
-- `kernel_regression_predict(model, points, ...)`
+- `kernel_regression_predict(samples, targets, points, ...)`
 - sklearn 风格：`KernelRegressionRegressor(...).fit(X, y).predict(points)`
 
 ### 关键参数
