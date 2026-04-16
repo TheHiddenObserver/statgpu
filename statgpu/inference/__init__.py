@@ -87,6 +87,13 @@ from ._resampling import (
     bootstrap_statistic,
     permutation_test,
 )
+from ..nonparametric._kde import (
+    KDE,
+    KDEBootstrapResult,
+    fit_kde,
+    kde_pdf,
+    kde_bootstrap_confidence_interval,
+)
 
 __all__ = [
     "adjust_pvalues",
@@ -172,4 +179,9 @@ __all__ = [
     "PermutationTestResult",
     "bootstrap_statistic",
     "permutation_test",
+    "KDE",
+    "KDEBootstrapResult",
+    "fit_kde",
+    "kde_pdf",
+    "kde_bootstrap_confidence_interval",
 ]

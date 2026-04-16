@@ -106,6 +106,14 @@ Active queues in Sections 2, 3, and 10 intentionally exclude completed items.
   - inference switch
   - key statistics fields and `summary()`
   - dedicated ridge inference tests
+- Nonparametric kernel methods v1 released:
+  - KDE multi-kernel support: gaussian/rectangular/triangular/epanechnikov/biweight/cosine/optcosine/triweight.
+  - KDE bandwidth rules: `nrd0` / `nrd`; bootstrap pointwise CI via `kde_bootstrap_confidence_interval`.
+  - KDE 1D Numba fast path improved local SciPy ratio from ~1.39x slower to ~0.58x faster.
+  - Kernel regression gained `kernel_metric='full'|'diagonal'` and `bandwidth_per_feature` for fair statsmodels parity.
+  - Remote fair-kernel benchmark (`run_id=20260415_103036`) validated machine-precision parity vs statsmodels (NW ~1e-15, local-linear ~1e-14 to 1e-12).
+  - Local-linear multidimensional batched solve optimization (`run_id=20260415_120903`) delivered ~4.8-5.4x CPU and ~115-116x GPU speedups without precision regression.
+  - External validation: `dev/tests/test_inference_kde.py` (9 passed, 1 skipped), `dev/tests/test_nonparametric_kernel_regression.py` (13 passed, 1 skipped).
 
 ## 5. P1-P3 Model/Feature Backlog
 
@@ -186,6 +194,7 @@ Active queues in Sections 2, 3, and 10 intentionally exclude completed items.
 
 - This file is the workspace-level single entry point for planning.
 - Existing files are retained temporarily for backward compatibility and traceability.
+- De-scoped/canceled: previously proposed kernel-regression high-dimension stability sweep (`dim=8/10/12+`) is removed from active plan queue.
 
 ## 12. User Blueprint (Detailed Merge)
 

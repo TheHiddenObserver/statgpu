@@ -22,6 +22,10 @@ Language switch: [Chinese](../../models/README.md)
 
 - [Knockoff](knockoff.md)
 
+## Nonparametric
+
+- [Nonparametric](nonparametric.md)
+
 ## Current Coverage Notes
 
 - All current models support `device="cpu"` / `device="cuda"` / `device="auto"`.

@@ -8,10 +8,6 @@ import numpy as np
 
 from ._config import Device, get_device, cuda_available
 from .backends import get_backend, BackendBase
-from .inference import adjust_pvalues as _adjust_pvalues
-from .inference import combine_pvalues as _combine_pvalues
-from .inference import bootstrap_statistic as _bootstrap_statistic
-from .inference import permutation_test as _permutation_test
 
 
 class BaseEstimator(ABC):
@@ -154,6 +150,8 @@ class BaseEstimator(ABC):
             Contains ``pvalues``, ``pvalues_adjusted``, ``reject``,
             ``method``, ``alpha``, and ``axis``.
         """
+        from .inference import adjust_pvalues as _adjust_pvalues
+
         source = pvalues
         if source is None:
             source = getattr(self, "_pvalues", None)
@@ -219,6 +217,8 @@ class BaseEstimator(ABC):
             Contains ``pvalues``, ``statistic``, ``pvalue``,
             ``method``, ``axis``, and ``backend``.
         """
+        from .inference import combine_pvalues as _combine_pvalues
+
         source = pvalues
         if source is None:
             source = getattr(self, "_pvalues", None)
@@ -278,6 +278,8 @@ class BaseEstimator(ABC):
 
         This is a thin wrapper over ``statgpu.inference.bootstrap_statistic``.
         """
+        from .inference import bootstrap_statistic as _bootstrap_statistic
+
         arrays_use = arrays
         if len(arrays_use) == 0:
             X_cache = getattr(self, "_X_design", None)
@@ -338,6 +340,8 @@ class BaseEstimator(ABC):
 
         This is a thin wrapper over ``statgpu.inference.permutation_test``.
         """
+        from .inference import permutation_test as _permutation_test
+
         backend_name = str(backend).strip().lower()
         if backend_name == "auto" and self._get_compute_device() == Device.CUDA:
             backend_name = "cupy"

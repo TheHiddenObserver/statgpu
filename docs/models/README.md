@@ -24,6 +24,10 @@
 
 - [Knockoff](knockoff.md)
 
+## 非参数方法
+
+- [Nonparametric](nonparametric.md)
+
 ## 新增模型文档流程
 
 新增一个估计器时：

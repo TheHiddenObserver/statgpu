@@ -1,7 +1,7 @@
 # Benchmark Index
 
 > Language: English  
-> Last updated: 2026-04-10  
+> Last updated: 2026-04-16  
 > This page: Benchmark index  
 > Switch: [Chinese](../benchmarks.md)
 
@@ -11,6 +11,25 @@ Language switch: [Chinese](../benchmarks.md)
 
 - `dev/benchmarks/benchmark_lasso_inference_gpu_vs_cpu.py`
   - Compares `cpu_ols_inference` vs `gpu_ols_inference`
+
+## Nonparametric
+
+- `dev/benchmarks/benchmark_kernel_regression_vs_statsmodels.py`
+  - Compares `statgpu` vs `statsmodels.nonparametric.kernel_regression.KernelReg`
+  - Supports `regression=nw/local_linear` and multidimensional settings
+  - Supports fair parity mode via `--kernel-metric diagonal`
+  - Reports `statgpu CPU/GPU` and `statsmodels` accuracy/runtime comparisons
+  - Outputs precision and runtime JSON under `results/`
+
+- `dev/benchmarks/benchmark_kde_vs_scipy.py`
+  - Compares `statgpu` vs `scipy.stats.gaussian_kde`
+  - Reports `statgpu CPU/GPU` and SciPy accuracy/runtime comparisons
+
+- `dev/benchmarks/benchmark_nonparametric_vs_r.py`
+  - Compares `statgpu` with R `density()` / `ksmooth()` / `KernSmooth::locpoly()`
+  - Supports `--statgpu-backend numpy/cupy`
+  - Supports `--ci-method normal/bootstrap`
+  - Reports `statgpu CPU/GPU`, R, and KDE CI vs SciPy comparisons
 
 ## Multiple-testing and Global P-value Combination
 

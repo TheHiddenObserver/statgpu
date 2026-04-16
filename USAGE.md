@@ -1,7 +1,7 @@
 # statgpu Documentation Portal
 
 > Language: English  
-> Last updated: 2026-04-12  
+> Last updated: 2026-04-15  
 > This page: Primary documentation entrypoint  
 > Switch: [Chinese](USAGE_CN.md)
 
@@ -29,6 +29,7 @@ Install note:
 
 - [Models Overview](docs/en/models/README.md)
 - [Knockoff Feature Selection](docs/en/models/knockoff.md)
+- [Nonparametric Methods](docs/en/models/nonparametric.md)
 
 Implemented estimators:
 - `LinearRegression`
@@ -68,6 +69,11 @@ Primary scripts:
 - `dev/benchmarks/benchmark_lasso_inference_gpu_vs_cpu.py`
 - `dev/benchmarks/benchmark_gpu_memory_cleanup.py`
 - `dev/benchmarks/benchmark_all_methods_large_scale.py`
+- `dev/benchmarks/benchmark_kernel_regression_vs_statsmodels.py`
+
+Latest nonparametric artifacts:
+- Fair-kernel parity run `20260415_103036` (statsmodels parity in diagonal metric mode)
+- Local-linear optimization run `20260415_120903` (~4.8-5.4x CPU and ~115-116x GPU speedups in multidim local-linear)
 
 Latest tri-backend covariance artifact:
 - `results/remote_covariance_full_compare_2026-04-10.json` (`statsmodels` / `statgpu CPU` / `statgpu GPU`, `hc2/hc3/hac`)

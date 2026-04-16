@@ -29,6 +29,22 @@ from .feature_selection import (
 )
 from .inference import adjust_pvalues, combine_pvalues, multipletests
 from .inference import bootstrap_statistic, permutation_test
+from .nonparametric import (
+    BandwidthSelectionResult,
+    KernelDensityEstimator,
+    KDE,
+    KDEBootstrapResult,
+    KernelRegression,
+    KernelRegressionRegressor,
+    fit_kde,
+    fit_kernel_regression,
+    kde_pdf,
+    kde_confidence_interval,
+    kernel_regression_predict,
+    kde_bootstrap_confidence_interval,
+    select_bandwidth,
+    select_bandwidth_factor,
+)
 
 __all__ = [
     "get_device",
@@ -59,4 +75,18 @@ __all__ = [
     "multipletests",
     "bootstrap_statistic",
     "permutation_test",
+    "BandwidthSelectionResult",
+    "KernelDensityEstimator",
+    "KDE",
+    "KDEBootstrapResult",
+    "KernelRegression",
+    "KernelRegressionRegressor",
+    "fit_kde",
+    "fit_kernel_regression",
+    "kde_pdf",
+    "kde_confidence_interval",
+    "kernel_regression_predict",
+    "kde_bootstrap_confidence_interval",
+    "select_bandwidth",
+    "select_bandwidth_factor",
 ]
