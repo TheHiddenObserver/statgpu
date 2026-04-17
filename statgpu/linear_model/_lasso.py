@@ -55,19 +55,20 @@ def _debiased_m_cache_put(key, value):
         _LASSO_DEBIASED_M_CACHE.popitem(last=False)
 
 
-def _debiased_m_key_from_sample(
+def _debiased_m_key_from_numpy_design(
+    X: np.ndarray,
+    *,
     n: int,
     p: int,
-    dtype_name: str,
-    sample_block: np.ndarray,
     lam_nw: float,
     tol: float,
 ):
-    h = hashlib.sha1()
-    h.update(str((int(n), int(p), dtype_name)).encode("utf-8"))
-    h.update(np.ascontiguousarray(sample_block).tobytes())
-    h.update(str(float(lam_nw)).encode("utf-8"))
-    h.update(str(float(tol)).encode("utf-8"))
+    X_cache = np.ascontiguousarray(np.asarray(X))
+    h = hashlib.blake2b(digest_size=32)
+    h.update(np.asarray([int(n), int(p)], dtype=np.int64).tobytes())
+    h.update(str(X_cache.dtype).encode("utf-8"))
+    h.update(np.asarray([float(lam_nw), float(tol)], dtype=np.float64).tobytes())
+    h.update(X_cache.view(np.uint8).tobytes())
     return h.hexdigest()
 
 
@@ -302,16 +303,6 @@ class Lasso(BaseEstimator):
     def _soft_threshold(self, x, gamma):
         """Soft thresholding operator: S(x, gamma) = sign(x) * max(|x| - gamma, 0)."""
         return np.sign(x) * np.maximum(np.abs(x) - gamma, 0)
-
-    def _matrix_fingerprint_numpy(self, X: np.ndarray) -> str:
-        n, p = X.shape
-        r = min(24, n)
-        c = min(24, p)
-        sample = np.ascontiguousarray(X[:r, :c])
-        h = hashlib.sha1()
-        h.update(str((n, p, str(X.dtype))).encode("utf-8"))
-        h.update(sample.tobytes())
-        return h.hexdigest()
 
     def _fit_cpu(self, X, y, sample_weight=None):
         """Fit using CPU (coordinate descent or FISTA)."""
@@ -1089,13 +1080,10 @@ class Lasso(BaseEstimator):
 
         # --- node-wise Lasso to build M (p x p), with cross-fit cache ---
         lam_nw = np.sqrt(2.0 * np.log(max(p, 2)) / n)
-        r = min(24, n)
-        c = min(24, p)
-        m_cache_key = _debiased_m_key_from_sample(
+        m_cache_key = _debiased_m_key_from_numpy_design(
+            X,
             n=n,
             p=p,
-            dtype_name=str(np.asarray(X).dtype),
-            sample_block=np.asarray(X[:r, :c]),
             lam_nw=lam_nw,
             tol=float(self.tol),
         )
@@ -1206,15 +1194,16 @@ class Lasso(BaseEstimator):
         one = X_gpu.dtype.type(1.0)
 
         # Keep node-wise Lasso solves on GPU to avoid per-feature host round-trips.
-        X_np = cp.asnumpy(X_gpu[: min(24, n), : min(24, p)])
-        m_cache_key = _debiased_m_key_from_sample(
-            n=n,
-            p=p,
-            dtype_name=str(X_gpu.dtype),
-            sample_block=X_np,
-            lam_nw=lam_nw,
-            tol=float(self.tol),
-        )
+        x_hasher = hashlib.blake2b(digest_size=32)
+        x_hasher.update(np.asarray([int(n), int(p)], dtype=np.int64).tobytes())
+        x_hasher.update(str(X_gpu.dtype).encode("utf-8"))
+        x_hasher.update(np.asarray([float(lam_nw), float(self.tol)], dtype=np.float64).tobytes())
+        row_chunk = max(1, min(int(n), 1024))
+        for start in range(0, int(n), row_chunk):
+            stop = min(int(n), start + row_chunk)
+            x_chunk = cp.asnumpy(X_gpu[start:stop])
+            x_hasher.update(np.ascontiguousarray(x_chunk).tobytes())
+        m_cache_key = x_hasher.hexdigest()
         M_cached = _debiased_m_cache_get(m_cache_key)
         if M_cached is not None:
             M = cp.asarray(M_cached, dtype=X_gpu.dtype)
@@ -1429,23 +1418,43 @@ class Lasso(BaseEstimator):
             )
         self._compute_simultaneous_ci_maxz_bootstrap()
 
-    def compute_debiased_inference_(self):
+    def compute_debiased_inference(self):
         """Explicitly recompute debiased inference for a fitted model."""
         self._check_is_fitted()
         if self.inference_method != "debiased":
-            raise ValueError("compute_debiased_inference_ requires inference_method='debiased'.")
+            raise ValueError("compute_debiased_inference requires inference_method='debiased'.")
         self._compute_inference()
         return self
 
-    def compute_simultaneous_inference_(self):
+    def compute_debiased_inference_(self):
+        """Deprecated alias for :meth:`compute_debiased_inference`."""
+        warnings.warn(
+            "compute_debiased_inference_ is deprecated and will be removed in a future "
+            "release; use compute_debiased_inference instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return self.compute_debiased_inference()
+
+    def compute_simultaneous_inference(self):
         """Explicitly (re)compute simultaneous inference for a fitted model."""
         self._check_is_fitted()
         if not self.enable_simultaneous_inference:
             raise ValueError(
-                "compute_simultaneous_inference_ requires enable_simultaneous_inference=True."
+                "compute_simultaneous_inference requires enable_simultaneous_inference=True."
             )
         self._compute_simultaneous_inference()
         return self
+
+    def compute_simultaneous_inference_(self):
+        """Deprecated alias for :meth:`compute_simultaneous_inference`."""
+        warnings.warn(
+            "compute_simultaneous_inference_ is deprecated and will be removed in a "
+            "future release; use compute_simultaneous_inference instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return self.compute_simultaneous_inference()
 
     def _compute_simultaneous_ci_maxz_bootstrap(self):
         """Compute simultaneous CIs using max-|Z| multiplier bootstrap."""
