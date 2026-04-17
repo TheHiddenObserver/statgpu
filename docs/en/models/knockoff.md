@@ -1,145 +1,133 @@
 # Knockoff Feature Selection
 
 > Language: English  
-> Last updated: 2026-04-11  
+> Last updated: 2026-04-17  
 > This page: Method documentation  
 > Switch: [Chinese](../../models/knockoff.md)
 
 Language switch: [Chinese](../../models/knockoff.md)
 
-Path:
-- statgpu.feature_selection.knockoff_filter
-- statgpu.feature_selection.fixed_x_knockoff_filter
-- statgpu.feature_selection.model_x_knockoff_filter
-- statgpu.feature_selection.KnockoffSelector
-- statgpu.feature_selection.FixedXKnockoffSelector
-
-Top-level aliases:
-- statgpu.knockoff_filter
-- statgpu.fixed_x_knockoff_filter
-- statgpu.model_x_knockoff_filter
-- statgpu.KnockoffSelector
-- statgpu.FixedXKnockoffSelector
-
 ## Overview
 
-Current implementation supports two knockoff paths:
+The knockoff module controls FDR for feature selection using feature-wise statistics \(W_j\) and data-adaptive thresholds. Two paths are provided: fixed-X knockoff (design treated as fixed) and model-X knockoff (Gaussian second-order construction). A unified `knockoff_filter` entry point switches between them.
 
-- fixed-X knockoff
-  - For settings where design is treated as fixed.
-  - Typical constraint: n >= 2p for valid fixed-X construction.
-- model-X knockoff
-  - Gaussian second-order approximation (covariance estimation + S-matrix).
-  - Supports multi-draw W aggregation.
+## Path
 
-Use knockoff_filter as the unified entrypoint, with knockoff_type selecting fixed_x/model_x.
+- `statgpu.feature_selection.knockoff_filter`
+- `statgpu.feature_selection.fixed_x_knockoff_filter`
+- `statgpu.feature_selection.model_x_knockoff_filter`
+- `statgpu.feature_selection.KnockoffSelector`
+- `statgpu.feature_selection.FixedXKnockoffSelector`
 
-## Unified Entry Parameters (knockoff_filter)
+Top-level aliases:
+- `statgpu.knockoff_filter`
+- `statgpu.fixed_x_knockoff_filter`
+- `statgpu.model_x_knockoff_filter`
+- `statgpu.KnockoffSelector`
+- `statgpu.FixedXKnockoffSelector`
+
+## Objective Function
+
+Control false discovery rate at target `q` while maximizing stable power:
+- Build knockoff variables \(\tilde X\) that mirror dependence structure.
+- Compute antisymmetric statistics \(W_j\) (for example correlation or coefficient differences).
+- Select features with \(W_j\) above knockoff threshold.
+
+## Estimating Equation
+
+The decision rule follows knockoff thresholding:
+\[
+T = \min \left\{ t>0 : \frac{1+\#\{j:W_j\le -t\}}{\max(1,\#\{j:W_j\ge t\})}\le q \right\}
+\]
+for knockoff+ (`fdr_control="knockoff_plus"`), with the standard knockoff variant available via `fdr_control="knockoff"`.
+
+## Covariance/Inference
+
+This method does not report coefficient covariance tables. Inference is selection-based FDR control:
+- fixed-X path requires fixed-design assumptions and usually `n >= 2p`.
+- model-X path uses covariance estimation plus S-matrix construction; optional multi-draw averaging is supported.
+- `compat_mode="knockpy"` exposes compatibility controls for covariance/S-matrix behavior.
+
+## Parameters
+
+Key `knockoff_filter` parameters:
 
 | Parameter | Default | Description |
 |---|---:|---|
-| knockoff_type | fixed_x | fixed_x or model_x |
-| q | 0.1 | Target FDR level in (0, 1) |
-| method | corr_diff | W statistic: corr_diff / ols_coef_diff / lasso_coef_diff |
-| fdr_control | knockoff_plus | Threshold rule: knockoff_plus or knockoff |
-| random_state | None | Random seed |
-| backend | auto | auto / numpy / cupy |
-| Xk | None | User-provided knockoff matrix (must match X shape) |
-| compat_mode | statgpu | statgpu or knockpy |
-| lasso_cv_impl | auto | auto / statgpu / sklearn |
-| lasso_fast_profile | off | Lasso fast-profile switch |
-| modelx_covariance_shrinkage | 0.20 | Covariance shrinkage for model-X path |
-| modelx_s_scale | 0.999 | S scaling for model-X path |
-| modelx_draws | None | Number of model-X draws (auto if None) |
-| modelx_shrinkage | ledoitwolf | Covariance estimator strategy for knockpy-compat path |
-| modelx_smatrix_method | mvr | S-matrix method for knockpy-compat path |
-| knockpy_sampler | None | Optional dispatch entry (gaussian/fx/metro/artk, etc.) |
-| knockpy_sampler_method | None | Gaussian sub-method (mvr/sdp/maxent/equi/ci) |
+| `knockoff_type` | `fixed_x` | `fixed_x` or `model_x` |
+| `q` | `0.1` | Target FDR in `(0, 1)` |
+| `method` | `corr_diff` | `corr_diff` / `ols_coef_diff` / `lasso_coef_diff` |
+| `fdr_control` | `knockoff_plus` | Threshold rule: `knockoff_plus` or `knockoff` |
+| `backend` | `auto` | `auto` / `numpy` / `cupy` |
+| `Xk` | `None` | Optional external knockoff matrix (same shape as `X`) |
+| `compat_mode` | `statgpu` | `statgpu` or `knockpy` |
+| `lasso_cv_impl` | `auto` | `auto` / `statgpu` / `sklearn` |
+| `modelx_covariance_shrinkage` | `0.20` | model-X covariance shrinkage factor |
+| `modelx_s_scale` | `0.999` | model-X S-matrix scaling factor |
+| `modelx_draws` | `None` | Number of model-X draws (auto defaults by statistic) |
+| `modelx_shrinkage` | `ledoitwolf` | knockpy-compatible covariance strategy |
+| `modelx_smatrix_method` | `mvr` | knockpy-compatible S-matrix method |
+| `knockpy_sampler` | `None` | Optional dispatch target (`gaussian`, `fx`, `metro`, `artk`, ...) |
+| `knockpy_sampler_method` | `None` | Gaussian submethod (`mvr`, `sdp`, `maxent`, `equi`, `ci`) |
 
-## Return Object (KnockoffResult)
-
-Core fields:
-
-- selected_features: selected feature indices
-- W: per-feature W statistics
-- threshold: selected threshold at target q
-- estimated_fdr: estimated FDR
-- q_trajectory: threshold scan diagnostics
-- metadata: run metadata (draw count, compat mode, Xk source, etc.)
-
-## Quick Examples
-
-### 1) fixed-X function call
-
-```python
-from statgpu import fixed_x_knockoff_filter
-
-res = fixed_x_knockoff_filter(
-    X,
-    y,
-    q=0.1,
-    method="ols_coef_diff",
-    backend="auto",
-)
-
-print(res.selected_features)
-print(res.threshold, res.estimated_fdr)
-```
-
-### 2) model-X via unified API
+## CPU+GPU Examples
 
 ```python
 from statgpu import knockoff_filter
 
-res = knockoff_filter(
+# CPU fixed-X
+res_cpu = knockoff_filter(
     X,
     y,
+    knockoff_type="fixed_x",
+    q=0.1,
+    method="ols_coef_diff",
+    backend="numpy",
+)
+
+# GPU model-X
+res_gpu = knockoff_filter(
+    X_gpu,
+    y_gpu,
     knockoff_type="model_x",
     q=0.1,
     method="lasso_coef_diff",
-    compat_mode="knockpy",
+    backend="cupy",
     modelx_draws=3,
 )
 ```
 
-### 3) sklearn-style selector
+## strict/approx difference
 
-```python
-from statgpu import KnockoffSelector
+- `fdr_control="knockoff_plus"` is the stricter, more conservative option and default.
+- `fdr_control="knockoff"` is less conservative and may yield higher power.
+- In model-X, higher `modelx_draws` usually improves stability at higher runtime cost.
+- `knockpy_sampler` dispatch options are currently guarded; explicitly setting unsupported targets can raise `NotImplementedError` instead of silently falling back.
 
-selector = KnockoffSelector(
-    knockoff_type="model_x",
-    q=0.1,
-    method="corr_diff",
-    backend="auto",
-)
-selector.fit(X, y)
-X_sel = selector.transform(X)
-mask = selector.get_support()
-```
+## Outputs
 
-## Unified Dispatch Interface (new)
+`knockoff_filter` and selector wrappers return a `KnockoffResult`-style object with:
+- `selected_features`
+- `W`
+- `threshold`
+- `estimated_fdr`
+- `q_trajectory`
+- `metadata` (for example draw count, compatibility mode, and knockoff source)
 
-A unified knockpy_sampler_dispatch interface is now wired into the model-X path:
+## FAQ
 
-- knockpy_sampler: gaussian / gaussian_mvr / gaussian_sdp / gaussian_maxent / gaussian_equi / gaussian_ci / fx / metro / artk
-- knockpy_sampler_method: valid when sampler=gaussian (mvr/sdp/maxent/equi/ci)
+- Why do I get an error for fixed-X? Check constraints (`q` in `(0,1)`, `X` is 2D, `Xk` shape matches `X`, and fixed-X rank/sample requirements are met).
+- When should I use model-X? Use it when fixed-X construction is infeasible or when distribution-based knockoff construction is preferred.
+- Is CuPy required for GPU? Yes, `backend="cupy"` requires CuPy in the environment.
 
-Important notes:
-- Dispatched sampler targets are currently placeholders (function body uses pass).
-- Passing knockpy_sampler explicitly will raise NotImplementedError until those samplers are implemented.
-- If you do not pass knockpy_sampler, stable existing logic is used.
+## External Validation
 
-## Constraints and Troubleshooting
+- `dev/benchmarks/benchmark_knockoff_fixedx.py`
+- `dev/benchmarks/benchmark_knockoff_vs_baselines.py`
+- `dev/benchmarks/benchmark_knockoff_same_xk_parity.py`
+- Result artifacts are stored under `results/benchmark_knockoff_*.json`.
 
-- q must be in (0, 1).
-- X must be 2D and y must align with X rows.
-- If Xk is provided, shape must match X.
-- fixed-X requires sufficient sample size/rank, otherwise an error is raised.
-- cupy backend requires CuPy installed.
+## References
 
-## Related Scripts
-
-- dev/benchmarks/benchmark_knockoff_fixedx.py
-- dev/benchmarks/benchmark_knockoff_vs_baselines.py
-- dev/benchmarks/benchmark_knockoff_same_xk_parity.py
+- Barber, R. F., & Candes, E. J. (2015). Controlling the false discovery rate via knockoffs. *Annals of Statistics*, 43(5), 2055-2085. [https://doi.org/10.1214/15-AOS1337](https://doi.org/10.1214/15-AOS1337)
+- Candes, E., Fan, Y., Janson, L., & Lv, J. (2018). Panning for gold: Model-X knockoffs for high-dimensional controlled variable selection. *Journal of the Royal Statistical Society: Series B*, 80(3), 551-577. [https://doi.org/10.1111/rssb.12265](https://doi.org/10.1111/rssb.12265)

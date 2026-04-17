@@ -196,6 +196,104 @@ class TestDebiasedInferenceCPU:
             "In low-dim regime, debiased SE should be within 50% of OLS SE"
         )
 
+    def test_simultaneous_ci_shape_and_width(self):
+        m = Lasso(
+            alpha=0.05,
+            inference_method="debiased",
+            device="cpu",
+            compute_inference=True,
+            max_iter=500,
+            tol=1e-5,
+            cpu_solver="fista",
+            enable_simultaneous_inference=True,
+            simultaneous_method="maxz_bootstrap",
+            simultaneous_n_bootstrap=128,
+            simultaneous_random_state=123,
+            simultaneous_include_intercept=False,
+        )
+        m.fit(self.X, self.y)
+        assert m._conf_int_simultaneous is not None
+        assert m._conf_int_simultaneous.shape == m._conf_int.shape
+        # Feature intervals should be weakly wider than marginal intervals.
+        idx = np.arange(1, m._conf_int.shape[0])
+        width_m = m._conf_int[idx, 1] - m._conf_int[idx, 0]
+        width_s = m._conf_int_simultaneous[idx, 1] - m._conf_int_simultaneous[idx, 0]
+        assert np.all(width_s >= width_m - 1e-12)
+
+    def test_simultaneous_ci_reproducible(self):
+        kwargs = dict(
+            alpha=0.05,
+            inference_method="debiased",
+            device="cpu",
+            compute_inference=True,
+            max_iter=500,
+            tol=1e-5,
+            cpu_solver="fista",
+            enable_simultaneous_inference=True,
+            simultaneous_method="maxz_bootstrap",
+            simultaneous_n_bootstrap=96,
+            simultaneous_random_state=7,
+            simultaneous_include_intercept=False,
+        )
+        m1 = Lasso(**kwargs)
+        m1.fit(self.X, self.y)
+        m2 = Lasso(**kwargs)
+        m2.fit(self.X, self.y)
+        assert np.allclose(m1._conf_int_simultaneous, m2._conf_int_simultaneous)
+        assert np.isclose(m1._simultaneous_critical_value, m2._simultaneous_critical_value)
+
+    def test_simultaneous_guardrails(self):
+        with pytest.raises(ValueError, match="simultaneous_method must be 'maxz_bootstrap'"):
+            Lasso(
+                alpha=0.1,
+                inference_method="debiased",
+                device="cpu",
+                compute_inference=True,
+                enable_simultaneous_inference=True,
+                simultaneous_method="bonferroni",
+            ).fit(self.X, self.y)
+
+        with pytest.raises(ValueError, match="requires inference_method='debiased'"):
+            Lasso(
+                alpha=0.1,
+                inference_method="cpu_ols_inference",
+                device="cpu",
+                compute_inference=True,
+                enable_simultaneous_inference=True,
+                simultaneous_method="maxz_bootstrap",
+            ).fit(self.X, self.y)
+
+        with pytest.raises(ValueError, match="requires compute_inference=True"):
+            Lasso(
+                alpha=0.1,
+                inference_method="debiased",
+                device="cpu",
+                compute_inference=False,
+                enable_simultaneous_inference=True,
+                simultaneous_method="maxz_bootstrap",
+            ).fit(self.X, self.y)
+
+    def test_summary_includes_simultaneous_block(self, capsys):
+        m = Lasso(
+            alpha=0.05,
+            inference_method="debiased",
+            device="cpu",
+            compute_inference=True,
+            max_iter=500,
+            tol=1e-5,
+            cpu_solver="fista",
+            enable_simultaneous_inference=True,
+            simultaneous_method="maxz_bootstrap",
+            simultaneous_n_bootstrap=64,
+            simultaneous_random_state=11,
+            simultaneous_include_intercept=False,
+        )
+        m.fit(self.X, self.y)
+        m.summary()
+        captured = capsys.readouterr()
+        assert "Simultaneous inference" in captured.out
+        assert "critical value (max|Z|)" in captured.out
+
 
 @pytest.mark.skipif(not cuda_available(), reason="CUDA not available")
 class TestDebiasedInferenceGPU:
@@ -264,3 +362,69 @@ class TestDebiasedInferenceGPU:
         )
         m.fit(self.X, self.y)
         assert np.all(m._bse > 0)
+
+    def test_gpu_simultaneous_ci_runs(self):
+        m = Lasso(
+            alpha=0.05,
+            inference_method="debiased",
+            device="cuda",
+            compute_inference=True,
+            max_iter=500,
+            tol=1e-5,
+            solver="fista",
+            enable_simultaneous_inference=True,
+            simultaneous_method="maxz_bootstrap",
+            simultaneous_n_bootstrap=96,
+            simultaneous_random_state=7,
+            simultaneous_include_intercept=False,
+        )
+        m.fit(self.X, self.y)
+        assert m._conf_int_simultaneous is not None
+        assert m._conf_int_simultaneous.shape == m._conf_int.shape
+        assert m._resid is None
+        assert m._X_design is None
+        idx = np.arange(1, m._conf_int.shape[0])
+        width_m = m._conf_int[idx, 1] - m._conf_int[idx, 0]
+        width_s = m._conf_int_simultaneous[idx, 1] - m._conf_int_simultaneous[idx, 0]
+        assert np.all(width_s >= width_m - 1e-12)
+
+    def test_gpu_simultaneous_ci_cpu_gpu_consistency(self):
+        """GPU batched node-wise path should preserve simultaneous inference numerics."""
+        common = dict(
+            alpha=0.05,
+            inference_method="debiased",
+            compute_inference=True,
+            max_iter=500,
+            tol=1e-5,
+            enable_simultaneous_inference=True,
+            simultaneous_method="maxz_bootstrap",
+            simultaneous_n_bootstrap=96,
+            simultaneous_random_state=7,
+            simultaneous_include_intercept=False,
+        )
+        m_cpu = Lasso(device="cpu", cpu_solver="fista", **common)
+        m_cpu.fit(self.X, self.y)
+
+        m_gpu = Lasso(device="cuda", solver="fista", **common)
+        m_gpu.fit(self.X, self.y)
+
+        # Core parameters should remain numerically aligned after batched GPU node-wise solves.
+        assert np.allclose(m_cpu.coef_, m_gpu.coef_, rtol=1e-3, atol=1e-4)
+        # Simultaneous CI is bootstrap-based, allow a slightly looser tolerance.
+        assert np.isclose(
+            m_cpu._simultaneous_critical_value,
+            m_gpu._simultaneous_critical_value,
+            rtol=0.1,
+            atol=0.15,
+        )
+        assert np.allclose(
+            m_cpu._conf_int_simultaneous,
+            m_gpu._conf_int_simultaneous,
+            rtol=0.12,
+            atol=0.02,
+        )
+
+        idx = np.arange(1, m_gpu._conf_int.shape[0])
+        width_m = m_gpu._conf_int[idx, 1] - m_gpu._conf_int[idx, 0]
+        width_s = m_gpu._conf_int_simultaneous[idx, 1] - m_gpu._conf_int_simultaneous[idx, 0]
+        assert np.all(width_s >= width_m - 1e-12)

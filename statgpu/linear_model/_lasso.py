@@ -6,6 +6,7 @@ from collections import OrderedDict
 import hashlib
 from typing import Any, Dict, Optional, Tuple, Union
 import os
+import warnings
 import numpy as np
 from scipy import stats
 from scipy.stats import norm as _norm_dist
@@ -36,6 +37,42 @@ _NUMBA_CD_DISABLED = str(os.getenv("STATGPU_DISABLE_NUMBA_CD", "0")).strip().low
 
 _LASSO_CV_ALPHA_CACHE_MAXSIZE = int(os.getenv("STATGPU_LASSO_CV_CACHE_SIZE", "64"))
 _LASSO_CV_ALPHA_CACHE: "OrderedDict[Tuple[Any, ...], Dict[str, Any]]" = OrderedDict()
+_LASSO_DEBIASED_M_CACHE_MAXSIZE = int(os.getenv("STATGPU_LASSO_DEBIASED_M_CACHE_SIZE", "16"))
+_LASSO_DEBIASED_M_CACHE: "OrderedDict[Tuple[Any, ...], np.ndarray]" = OrderedDict()
+_LASSO_DEBIASED_M_GPU_HASH_ROW_CHUNK = 1024
+
+
+def _debiased_m_cache_get(key):
+    val = _LASSO_DEBIASED_M_CACHE.get(key)
+    if val is not None:
+        _LASSO_DEBIASED_M_CACHE.move_to_end(key)
+    return val
+
+
+def _debiased_m_cache_put(key, value):
+    _LASSO_DEBIASED_M_CACHE[key] = value
+    _LASSO_DEBIASED_M_CACHE.move_to_end(key)
+    while len(_LASSO_DEBIASED_M_CACHE) > _LASSO_DEBIASED_M_CACHE_MAXSIZE:
+        _LASSO_DEBIASED_M_CACHE.popitem(last=False)
+
+
+def _debiased_m_key_from_numpy_design(
+    X: np.ndarray,
+    *,
+    n: int,
+    p: int,
+    lam_nw: float,
+    tol: float,
+):
+    X_cache = np.asarray(X)
+    if not X_cache.flags["C_CONTIGUOUS"]:
+        X_cache = np.ascontiguousarray(X_cache)
+    h = hashlib.blake2b(digest_size=32)
+    h.update(np.asarray([int(n), int(p)], dtype=np.int64).tobytes())
+    h.update(str(X_cache.dtype).encode("utf-8"))
+    h.update(np.asarray([float(lam_nw), float(tol)], dtype=np.float64).tobytes())
+    h.update(X_cache.view(np.uint8).tobytes())
+    return h.hexdigest()
 
 
 class Lasso(BaseEstimator):
@@ -83,6 +120,12 @@ class Lasso(BaseEstimator):
         inference_method: str = "cpu_ols_inference",
         n_bootstrap: int = 200,
         bootstrap_random_state: Optional[int] = None,
+        enable_simultaneous_inference: bool = False,
+        simultaneous_method: str = "maxz_bootstrap",
+        simultaneous_alpha: float = 0.05,
+        simultaneous_n_bootstrap: int = 1000,
+        simultaneous_random_state: Optional[int] = None,
+        simultaneous_include_intercept: bool = False,
         device: Union[str, Device] = Device.AUTO,
         n_jobs: Optional[int] = None,
         compute_inference: bool = True,
@@ -110,6 +153,12 @@ class Lasso(BaseEstimator):
         self.inference_method = alias_map.get(self.inference_method, self.inference_method)
         self.n_bootstrap = int(n_bootstrap)
         self.bootstrap_random_state = bootstrap_random_state
+        self.enable_simultaneous_inference = bool(enable_simultaneous_inference)
+        self.simultaneous_method = str(simultaneous_method).lower()
+        self.simultaneous_alpha = float(simultaneous_alpha)
+        self.simultaneous_n_bootstrap = int(simultaneous_n_bootstrap)
+        self.simultaneous_random_state = simultaneous_random_state
+        self.simultaneous_include_intercept = bool(simultaneous_include_intercept)
         self.compute_inference = compute_inference
         self.solver = solver.lower()
         self.cpu_solver = cpu_solver.lower()
@@ -132,9 +181,20 @@ class Lasso(BaseEstimator):
         self._tvalues = None
         self._pvalues = None
         self._conf_int = None
+        self._conf_int_simultaneous = None
+        self._simultaneous_enabled = False
+        self._simultaneous_method = None
+        self._simultaneous_alpha = None
+        self._simultaneous_n_bootstrap = None
+        self._simultaneous_critical_value = None
+        self._simultaneous_target_mask = None
+        self._debiased_M_cpu = None
+        self._inference_cautions = []
 
     def fit(self, X, y, sample_weight=None):
         """Fit Lasso regression model using coordinate descent."""
+        self._validate_simultaneous_config()
+        self._reset_simultaneous_outputs()
         # Avoid GPU->CPU copies when we don't need diagnostics/inference.
         # - CPU path always needs y on host for residuals/RSS.
         # - GPU path with compute_inference=False: residuals/scale are not computed,
@@ -165,14 +225,83 @@ class Lasso(BaseEstimator):
             self._fit_gpu(X_arr, y_arr, sample_weight)
         else:
             self._fit_cpu(X_arr, y_arr, sample_weight)
-
         _skip_post_fit = {"gpu_ols_inference"}
         if device == Device.CUDA and self.inference_method == "debiased":
             _skip_post_fit.add("debiased")
         if self.compute_inference and self.inference_method not in _skip_post_fit:
             self._compute_inference()
+        if self.enable_simultaneous_inference:
+            self._compute_simultaneous_inference()
+        self._inference_cautions = self._build_inference_cautions()
+        for msg in self._inference_cautions:
+            warnings.warn(msg, UserWarning, stacklevel=2)
         self._fitted = True
         return self
+
+    def _validate_simultaneous_config(self):
+        if not self.enable_simultaneous_inference:
+            return
+        if not self.compute_inference:
+            raise ValueError(
+                "enable_simultaneous_inference=True requires compute_inference=True."
+            )
+        if self.inference_method != "debiased":
+            raise ValueError(
+                "enable_simultaneous_inference=True currently requires "
+                "inference_method='debiased'."
+            )
+        if self.simultaneous_method != "maxz_bootstrap":
+            raise ValueError(
+                "simultaneous_method must be 'maxz_bootstrap'."
+            )
+        if not (0.0 < self.simultaneous_alpha < 1.0):
+            raise ValueError("simultaneous_alpha must be in (0, 1).")
+        if self.simultaneous_n_bootstrap <= 0:
+            raise ValueError("simultaneous_n_bootstrap must be a positive integer.")
+
+    def _reset_simultaneous_outputs(self):
+        self._conf_int_simultaneous = None
+        self._simultaneous_enabled = False
+        self._simultaneous_method = None
+        self._simultaneous_alpha = None
+        self._simultaneous_n_bootstrap = None
+        self._simultaneous_critical_value = None
+        self._simultaneous_target_mask = None
+        self._debiased_M_cpu = None
+
+    def _build_inference_cautions(self):
+        cautions = []
+        if not self.compute_inference:
+            return cautions
+
+        if self.inference_method in ("cpu_ols_inference", "gpu_ols_inference"):
+            cautions.append(
+                "Lasso OLS-style post-selection intervals are heuristic and do not "
+                "provide valid selective-inference confidence coverage."
+            )
+
+        if self.inference_method == "debiased":
+            cautions.append(
+                "Debiased Lasso currently reports per-coefficient (marginal) confidence "
+                "intervals only; joint/multiple-testing coverage is not guaranteed."
+            )
+        if self._simultaneous_enabled:
+            target_txt = (
+                "including intercept"
+                if (self.fit_intercept and self.simultaneous_include_intercept)
+                else "excluding intercept"
+            )
+            cautions.append(
+                "Simultaneous inference enabled via maxz_bootstrap with joint coverage "
+                f"target set {target_txt}."
+            )
+            if self.fit_intercept and self.simultaneous_include_intercept:
+                cautions.append(
+                    "Intercept is included using the same max-|Z| critical value "
+                    "calibrated on feature coefficients."
+                )
+
+        return cautions
 
     def _soft_threshold(self, x, gamma):
         """Soft thresholding operator: S(x, gamma) = sign(x) * max(|x| - gamma, 0)."""
@@ -930,7 +1059,8 @@ class Lasso(BaseEstimator):
 
         Constructs the decorrelation matrix M via node-wise Lasso,
         then computes the debiased estimator, standard errors,
-        z-statistics, p-values, and confidence intervals.
+        z-statistics, p-values, and per-coefficient (marginal)
+        confidence intervals.
         """
         if self._X_design is None or self._resid is None:
             return
@@ -951,39 +1081,51 @@ class Lasso(BaseEstimator):
         denom = max(n - s_hat, 1)
         sigma2 = np.sum(resid_lasso ** 2) / denom
 
-        # --- node-wise Lasso to build M (p x p) ---
+        # --- node-wise Lasso to build M (p x p), with cross-fit cache ---
         lam_nw = np.sqrt(2.0 * np.log(max(p, 2)) / n)
+        m_cache_key = _debiased_m_key_from_numpy_design(
+            X,
+            n=n,
+            p=p,
+            lam_nw=lam_nw,
+            tol=float(self.tol),
+        )
+        M_cached = _debiased_m_cache_get(m_cache_key)
+        if M_cached is not None:
+            M = np.asarray(M_cached, dtype=X.dtype)
+        else:
+            M = np.zeros((p, p), dtype=X.dtype)
+            for j in range(p):
+                cols = np.concatenate([np.arange(0, j), np.arange(j + 1, p)])
+                X_minus_j = X[:, cols]
+                x_j = X[:, j]
 
-        M = np.zeros((p, p), dtype=X.dtype)
-        for j in range(p):
-            cols = np.concatenate([np.arange(0, j), np.arange(j + 1, p)])
-            X_minus_j = X[:, cols]
-            x_j = X[:, j]
+                nw = Lasso(
+                    alpha=lam_nw,
+                    fit_intercept=False,
+                    max_iter=500,
+                    tol=1e-5,
+                    device="cpu",
+                    cpu_solver="fista",
+                    compute_inference=False,
+                )
+                nw.fit(X_minus_j, x_j)
+                gamma_j = nw.coef_
 
-            nw = Lasso(
-                alpha=lam_nw,
-                fit_intercept=False,
-                max_iter=500,
-                tol=1e-5,
-                device="cpu",
-                cpu_solver="fista",
-                compute_inference=False,
-            )
-            nw.fit(X_minus_j, x_j)
-            gamma_j = nw.coef_
+                z_j = x_j - X_minus_j @ gamma_j
+                C_j = z_j @ x_j / n
 
-            z_j = x_j - X_minus_j @ gamma_j
-            C_j = z_j @ x_j / n
+                if abs(C_j) < 1e-30:
+                    M[j, j] = 1.0
+                    continue
 
-            if abs(C_j) < 1e-30:
-                M[j, j] = 1.0
-                continue
-
-            M[j, j] = 1.0 / C_j
-            M[j, cols] = -gamma_j / C_j
+                M[j, j] = 1.0 / C_j
+                M[j, cols] = -gamma_j / C_j
+            _debiased_m_cache_put(m_cache_key, np.asarray(M, dtype=np.float64))
 
         # --- debiased estimates ---
         theta_db = coef + (M @ X.T @ resid_lasso) / n
+        self._debiased_M_cpu = M
 
         # --- covariance and standard errors ---
         V = M @ Sigma_hat @ M.T
@@ -1055,39 +1197,81 @@ class Lasso(BaseEstimator):
         one = X_gpu.dtype.type(1.0)
 
         # Keep node-wise Lasso solves on GPU to avoid per-feature host round-trips.
-        M = cp.zeros((p, p), dtype=X_gpu.dtype)
-        all_cols_gpu = cp.arange(p, dtype=cp.int32)
-        for j in range(p):
-            cols_gpu = cp.concatenate((all_cols_gpu[:j], all_cols_gpu[j + 1 :]))
-            X_minus_j = cp.take(X_gpu, cols_gpu, axis=1)
-            x_j = X_gpu[:, j]
+        x_hasher = hashlib.blake2b(digest_size=32)
+        x_hasher.update(np.asarray([int(n), int(p)], dtype=np.int64).tobytes())
+        x_hasher.update(str(X_gpu.dtype).encode("utf-8"))
+        x_hasher.update(np.asarray([float(lam_nw), float(self.tol)], dtype=np.float64).tobytes())
+        row_chunk = max(1, min(int(n), _LASSO_DEBIASED_M_GPU_HASH_ROW_CHUNK))
+        for start in range(0, int(n), row_chunk):
+            stop = min(int(n), start + row_chunk)
+            x_chunk = cp.asnumpy(X_gpu[start:stop])
+            x_hasher.update(x_chunk.tobytes())
+        m_cache_key = x_hasher.hexdigest()
+        M_cached = _debiased_m_cache_get(m_cache_key)
+        if M_cached is not None:
+            M = cp.asarray(M_cached, dtype=X_gpu.dtype)
+        else:
+            M = cp.zeros((p, p), dtype=X_gpu.dtype)
+            # Reuse full Gram to avoid repeated X_minus_j.T @ X_minus_j products.
+            XtX_full = X_gpu.T @ X_gpu
+            Sigma_diag = cp.diag(Sigma_hat)
+            n_samp_vec_dtype = np.float64
 
-            XtX_nw = X_minus_j.T @ X_minus_j
-            Xty_nw = X_minus_j.T @ x_j
-            gamma_path, _ = _solve_lasso_path_gpu_from_gram(
-                XtX_nw,
-                Xty_nw,
-                n_samples=int(n),
-                alphas_desc=alpha_nw,
-                max_iter=500,
-                tol=1e-5,
-                stopping="coef_delta",
-                lipschitz_L=None,
-                check_every=8,
-            )
-            gamma_j = gamma_path[0]
+            # Batch node-wise problems so GPU can process many j's together.
+            try:
+                free_mem, _ = cp.cuda.Device().mem_info
+                bytes_per_fold = int(max(8, (p - 1) * (p - 1) * 8 * 2))
+                chunk_size = int(max(4, min(64, free_mem // max(bytes_per_fold, 1))))
+            except Exception:
+                chunk_size = 16
+            chunk_size = max(4, min(int(p), chunk_size))
 
-            z_j = x_j - X_minus_j @ gamma_j
-            C_j = z_j @ x_j / n
+            for j0 in range(0, p, chunk_size):
+                j1 = min(p, j0 + chunk_size)
+                bsz = j1 - j0
+                j_batch = cp.arange(j0, j1, dtype=cp.int32)
+                if int(j_batch.size) == 0:
+                    continue
 
-            small_c = cp.abs(C_j) < tiny
-            inv_c = cp.where(small_c, zero, one / C_j)
-            M[j, j] = cp.where(small_c, one, inv_c)
-            M[j, cols_gpu] = -gamma_j * inv_c
+                # Build per-j "all except j" column index matrix of shape (bsz, p-1).
+                base = cp.arange(p - 1, dtype=cp.int32).reshape(1, -1)
+                cols_batch = base + (base >= j_batch.reshape(-1, 1))
 
-            del XtX_nw
-            del Xty_nw
-            del gamma_path
+                # Gather batched Gram/Xty blocks.
+                XtX_batch = XtX_full[
+                    cols_batch[:, :, cp.newaxis],
+                    cols_batch[:, cp.newaxis, :],
+                ]
+                Xty_batch = XtX_full[cols_batch, j_batch.reshape(-1, 1)].reshape(bsz, p - 1)
+
+                coefs_batch_desc, _ = _solve_lasso_path_gpu_fista_multi_fold_from_gram(
+                    XtX_batch,
+                    Xty_batch,
+                    n_samples_vec=np.full((bsz,), float(n), dtype=n_samp_vec_dtype),
+                    alphas_desc=alpha_nw,
+                    max_iter=500,
+                    tol=1e-5,
+                    stopping="coef_delta",
+                    lipschitz_L=None,
+                    check_every=8,
+                )
+                gamma_batch = cp.asarray(coefs_batch_desc[:, 0, :], dtype=X_gpu.dtype)
+
+                # C_j = Sigma_jj - Sigma_{j,-j} gamma_j
+                sigma_j_cols = Sigma_hat[j_batch[:, cp.newaxis], cols_batch]
+                C_batch = Sigma_diag[j_batch] - cp.sum(sigma_j_cols * gamma_batch, axis=1)
+
+                small_c = cp.abs(C_batch) < tiny
+                inv_c = cp.where(small_c, zero, one / C_batch)
+                M[j_batch, j_batch] = cp.where(small_c, one, inv_c)
+                M[j_batch[:, cp.newaxis], cols_batch] = -gamma_batch * inv_c.reshape(-1, 1)
+
+                del XtX_batch
+                del Xty_batch
+                del coefs_batch_desc
+                del gamma_batch
+                del sigma_j_cols
+            _debiased_m_cache_put(m_cache_key, cp.asnumpy(M))
 
         # Recompute full residual from the original fit
         if self.fit_intercept:
@@ -1138,11 +1322,227 @@ class Lasso(BaseEstimator):
             conf_int_gpu = ci
             params_gpu = theta_db
 
+        if self.enable_simultaneous_inference:
+            # GPU-native simultaneous CI via max-|Z| multiplier bootstrap.
+            param_target_idx_np = self._get_simultaneous_target_indices(
+                int(params_gpu.shape[0])
+            )
+            param_target_idx_gpu = cp.asarray(param_target_idx_np, dtype=cp.int32)
+            if param_target_idx_gpu.size == 0:
+                raise RuntimeError(
+                    "No coefficients selected for simultaneous inference target set."
+                )
+
+            feature_offset = 1 if self.fit_intercept else 0
+            feature_target_gpu = param_target_idx_gpu - feature_offset
+            feature_target_gpu = feature_target_gpu[feature_target_gpu >= 0]
+            if feature_target_gpu.size == 0:
+                raise RuntimeError(
+                    "No feature coefficients selected for simultaneous inference target set."
+                )
+
+            se_feat_gpu = se
+            B = int(self.simultaneous_n_bootstrap)
+            rng = cp.random.RandomState(self.simultaneous_random_state)
+            se_target_gpu = cp.take(se_feat_gpu, feature_target_gpu)
+            M_target = cp.take(M, feature_target_gpu, axis=0)
+            # Run bootstrap in one shot when memory allows to reduce kernel-launch overhead.
+            try:
+                xi = rng.standard_normal(size=(B, n)).astype(cp.float64, copy=False)
+                weighted = xi * resid_full.reshape(1, -1)
+                score_target = (weighted @ X_gpu) @ M_target.T / float(max(n, 1))
+                z_star_target = score_target / (se_target_gpu.reshape(1, -1) + 1e-30)
+                max_stats_gpu = cp.max(cp.abs(z_star_target), axis=1)
+            except Exception:
+                free_mem, _ = cp.cuda.Device().mem_info
+                bytes_per_row = max(8 * (3 * n + 2 * p + 64), 8)
+                est_chunk = int(max(64, min(4096, free_mem // bytes_per_row)))
+                chunk = min(B, max(64, est_chunk))
+                max_stats_gpu = cp.empty((B,), dtype=cp.float64)
+                filled = 0
+                while filled < B:
+                    bsz = min(chunk, B - filled)
+                    xi = rng.standard_normal(size=(bsz, n)).astype(cp.float64, copy=False)
+                    weighted = xi * resid_full.reshape(1, -1)
+                    score_target = (weighted @ X_gpu) @ M_target.T / float(max(n, 1))
+                    z_star_target = score_target / (se_target_gpu.reshape(1, -1) + 1e-30)
+                    max_stats_gpu[filled : filled + bsz] = cp.max(
+                        cp.abs(z_star_target), axis=1
+                    )
+                    filled += bsz
+
+            critical_gpu = cp.quantile(
+                max_stats_gpu, 1.0 - float(self.simultaneous_alpha)
+            )
+            conf_sim_gpu = cp.array(conf_int_gpu, copy=True)
+            lower_gpu = cp.take(params_gpu, param_target_idx_gpu) - critical_gpu * cp.take(
+                bse_gpu, param_target_idx_gpu
+            )
+            upper_gpu = cp.take(params_gpu, param_target_idx_gpu) + critical_gpu * cp.take(
+                bse_gpu, param_target_idx_gpu
+            )
+            conf_sim_gpu[param_target_idx_gpu, 0] = lower_gpu
+            conf_sim_gpu[param_target_idx_gpu, 1] = upper_gpu
+
+            target_mask = np.zeros(int(params_gpu.shape[0]), dtype=bool)
+            target_mask[param_target_idx_np] = True
+            self._conf_int_simultaneous = cp.asnumpy(conf_sim_gpu)
+            self._simultaneous_enabled = True
+            self._simultaneous_method = self.simultaneous_method
+            self._simultaneous_alpha = float(self.simultaneous_alpha)
+            self._simultaneous_n_bootstrap = B
+            self._simultaneous_critical_value = float(cp.asnumpy(critical_gpu))
+            self._simultaneous_target_mask = target_mask
+
         self._bse = cp.asnumpy(bse_gpu)
         self._tvalues = cp.asnumpy(tvalues_gpu)
         self._pvalues = cp.asnumpy(pvalues_gpu)
         self._conf_int = cp.asnumpy(conf_int_gpu)
         self._params = cp.asnumpy(params_gpu)
+
+    def _get_simultaneous_target_indices(self, n_params: int):
+        if self.fit_intercept and (not self.simultaneous_include_intercept):
+            return np.arange(1, n_params, dtype=int)
+        return np.arange(n_params, dtype=int)
+
+    def _compute_simultaneous_inference(self):
+        if not self.enable_simultaneous_inference:
+            return
+        if self._simultaneous_enabled and self._conf_int_simultaneous is not None:
+            return
+        if self.inference_method != "debiased":
+            return
+        if self._params is None or self._bse is None or self._conf_int is None:
+            return
+        if self._X_design is None or self._resid is None:
+            raise RuntimeError(
+                "Simultaneous debiased inference requires accessible design/residual "
+                "state; re-fit with compute_inference=True."
+            )
+        self._compute_simultaneous_ci_maxz_bootstrap()
+
+    def compute_debiased_inference(self):
+        """Explicitly recompute debiased inference for a fitted model."""
+        self._check_is_fitted()
+        if self.inference_method != "debiased":
+            raise ValueError("compute_debiased_inference requires inference_method='debiased'.")
+        self._compute_inference()
+        return self
+
+    def compute_debiased_inference_(self):
+        """Deprecated alias for :meth:`compute_debiased_inference`."""
+        warnings.warn(
+            "compute_debiased_inference_ is deprecated and will be removed in a future "
+            "release; use compute_debiased_inference instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return self.compute_debiased_inference()
+
+    def compute_simultaneous_inference(self):
+        """Explicitly (re)compute simultaneous inference for a fitted model."""
+        self._check_is_fitted()
+        if not self.enable_simultaneous_inference:
+            raise ValueError(
+                "compute_simultaneous_inference requires enable_simultaneous_inference=True."
+            )
+        self._compute_simultaneous_inference()
+        return self
+
+    def compute_simultaneous_inference_(self):
+        """Deprecated alias for :meth:`compute_simultaneous_inference`."""
+        warnings.warn(
+            "compute_simultaneous_inference_ is deprecated and will be removed in a "
+            "future release; use compute_simultaneous_inference instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return self.compute_simultaneous_inference()
+
+    def _compute_simultaneous_ci_maxz_bootstrap(self):
+        """Compute simultaneous CIs using max-|Z| multiplier bootstrap."""
+        # Feature-only design used by debiased estimator.
+        if self.fit_intercept:
+            X = np.asarray(self._X_design[:, 1:], dtype=float)
+        else:
+            X = np.asarray(self._X_design, dtype=float)
+        resid = np.asarray(self._resid, dtype=float).reshape(-1)
+        n, p = X.shape
+        if p == 0:
+            raise RuntimeError("Simultaneous inference requires at least one feature.")
+
+        # Reuse M from debiased inference when available to avoid duplicate node-wise solves.
+        M = self._debiased_M_cpu
+        if M is None or M.shape != (p, p):
+            lam_nw = np.sqrt(2.0 * np.log(max(p, 2)) / max(n, 1))
+            M = np.zeros((p, p), dtype=float)
+            for j in range(p):
+                cols = np.concatenate([np.arange(0, j), np.arange(j + 1, p)])
+                X_minus_j = X[:, cols]
+                x_j = X[:, j]
+                nw = Lasso(
+                    alpha=lam_nw,
+                    fit_intercept=False,
+                    max_iter=500,
+                    tol=1e-5,
+                    device="cpu",
+                    cpu_solver="fista",
+                    compute_inference=False,
+                )
+                nw.fit(X_minus_j, x_j)
+                gamma_j = nw.coef_
+                z_j = x_j - X_minus_j @ gamma_j
+                c_j = float(z_j @ x_j / max(n, 1))
+                if abs(c_j) < 1e-30:
+                    M[j, j] = 1.0
+                    continue
+                M[j, j] = 1.0 / c_j
+                M[j, cols] = -gamma_j / c_j
+            self._debiased_M_cpu = M
+
+        # Bootstrap the studentized process max_j |Z*_j|.
+        param_target_idx = self._get_simultaneous_target_indices(len(self._params))
+        feature_target_idx = param_target_idx - (1 if self.fit_intercept else 0)
+        feature_target_idx = feature_target_idx[feature_target_idx >= 0]
+        if feature_target_idx.size == 0:
+            raise RuntimeError(
+                "No feature coefficients selected for simultaneous inference target set."
+            )
+
+        se_feat = np.asarray(self._bse[(1 if self.fit_intercept else 0):], dtype=float)
+        eps = resid
+        rng = np.random.default_rng(self.simultaneous_random_state)
+        B = int(self.simultaneous_n_bootstrap)
+        chunk = min(256, B)
+        max_stats = np.empty(B, dtype=float)
+        filled = 0
+        while filled < B:
+            bsz = min(chunk, B - filled)
+            xi = rng.standard_normal(size=(bsz, n))
+            weighted = xi * eps.reshape(1, -1)
+            score = (weighted @ X) @ M.T / float(max(n, 1))
+            z_star = score / (se_feat.reshape(1, -1) + 1e-30)
+            max_stats[filled:filled + bsz] = np.max(
+                np.abs(z_star[:, feature_target_idx]), axis=1
+            )
+            filled += bsz
+
+        critical = float(np.quantile(max_stats, 1.0 - self.simultaneous_alpha))
+        params = np.asarray(self._params, dtype=float)
+        bse = np.asarray(self._bse, dtype=float)
+        conf_sim = np.array(self._conf_int, copy=True, dtype=float)
+        conf_sim[param_target_idx, 0] = params[param_target_idx] - critical * bse[param_target_idx]
+        conf_sim[param_target_idx, 1] = params[param_target_idx] + critical * bse[param_target_idx]
+
+        mask = np.zeros(len(params), dtype=bool)
+        mask[param_target_idx] = True
+        self._conf_int_simultaneous = conf_sim
+        self._simultaneous_enabled = True
+        self._simultaneous_method = self.simultaneous_method
+        self._simultaneous_alpha = float(self.simultaneous_alpha)
+        self._simultaneous_n_bootstrap = B
+        self._simultaneous_critical_value = critical
+        self._simultaneous_target_mask = mask
 
     @property
     def rsquared(self):
@@ -1197,6 +1597,9 @@ class Lasso(BaseEstimator):
     @property
     def f_pvalue(self):
         """p-value for F-statistic."""
+        k = len(self.coef_)
+        if k <= 0 or self._df_resid is None or self._df_resid <= 0:
+            return None
         fv = self.fvalue
         if fv is None:
             return None
@@ -1204,9 +1607,6 @@ class Lasso(BaseEstimator):
             # An infinite F-statistic corresponds to a perfect-fit / zero-residual
             # case, so the upper-tail probability tends to 0.
             return 0.0
-        k = len(self.coef_)
-        if k <= 0 or self._df_resid is None or self._df_resid <= 0:
-            return None
         if fv == np.inf:
             return 0.0
         pval = 1.0 - stats.f.cdf(fv, k, self._df_resid)
@@ -1285,6 +1685,11 @@ class Lasso(BaseEstimator):
             return format(value_f, fmt_spec)
 
         print("=" * 80)
+        if self._inference_cautions:
+            print("Notes:")
+            for note in self._inference_cautions:
+                print(f"- {note}")
+            print("=" * 80)
         print(f"                            {title}")
         print(f"                            (alpha = {self.alpha:.4f})")
         print("=" * 80)
@@ -1306,6 +1711,20 @@ class Lasso(BaseEstimator):
             print(f"{name:<15} {self._params[i]:>12.4f} {self._bse[i]:>12.4f} "
                   f"{self._tvalues[i]:>10.3f} {self._pvalues[i]:>10.4f} "
                   f"{self._conf_int[i, 0]:>12.4f} {self._conf_int[i, 1]:>12.4f}")
+
+        if self._simultaneous_enabled and self._conf_int_simultaneous is not None:
+            target_txt = (
+                "include_intercept=True"
+                if (self.fit_intercept and self.simultaneous_include_intercept)
+                else "include_intercept=False"
+            )
+            print("-" * 80)
+            print("Simultaneous inference")
+            print(f"method:                     {self._simultaneous_method}")
+            print(f"alpha:                      {self._simultaneous_alpha:.6f}")
+            print(f"n_bootstrap:                {self._simultaneous_n_bootstrap}")
+            print(f"critical value (max|Z|):    {self._simultaneous_critical_value:.6f}")
+            print(f"target set:                 {target_txt}")
 
         print("=" * 80)
 
