@@ -39,6 +39,7 @@ _LASSO_CV_ALPHA_CACHE_MAXSIZE = int(os.getenv("STATGPU_LASSO_CV_CACHE_SIZE", "64
 _LASSO_CV_ALPHA_CACHE: "OrderedDict[Tuple[Any, ...], Dict[str, Any]]" = OrderedDict()
 _LASSO_DEBIASED_M_CACHE_MAXSIZE = int(os.getenv("STATGPU_LASSO_DEBIASED_M_CACHE_SIZE", "16"))
 _LASSO_DEBIASED_M_CACHE: "OrderedDict[Tuple[Any, ...], np.ndarray]" = OrderedDict()
+_LASSO_DEBIASED_M_GPU_HASH_ROW_CHUNK = 1024
 
 
 def _debiased_m_cache_get(key):
@@ -63,7 +64,7 @@ def _debiased_m_key_from_numpy_design(
     lam_nw: float,
     tol: float,
 ):
-    X_cache = np.ascontiguousarray(np.asarray(X))
+    X_cache = np.ascontiguousarray(X)
     h = hashlib.blake2b(digest_size=32)
     h.update(np.asarray([int(n), int(p)], dtype=np.int64).tobytes())
     h.update(str(X_cache.dtype).encode("utf-8"))
@@ -1198,7 +1199,7 @@ class Lasso(BaseEstimator):
         x_hasher.update(np.asarray([int(n), int(p)], dtype=np.int64).tobytes())
         x_hasher.update(str(X_gpu.dtype).encode("utf-8"))
         x_hasher.update(np.asarray([float(lam_nw), float(self.tol)], dtype=np.float64).tobytes())
-        row_chunk = max(1, min(int(n), 1024))
+        row_chunk = max(1, min(int(n), _LASSO_DEBIASED_M_GPU_HASH_ROW_CHUNK))
         for start in range(0, int(n), row_chunk):
             stop = min(int(n), start + row_chunk)
             x_chunk = cp.asnumpy(X_gpu[start:stop])
