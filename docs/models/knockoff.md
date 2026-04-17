@@ -1,145 +1,136 @@
 # Knockoff 特征选择
 
 > 语言: 中文  
-> 最后更新: 2026-04-11  
+> 最后更新: 2026-04-17  
 > 页面定位: 方法文档  
 > 切换: [English](../en/models/knockoff.md)
 
 语言切换：[English](../en/models/knockoff.md)
 
-路径：
-- statgpu.feature_selection.knockoff_filter
-- statgpu.feature_selection.fixed_x_knockoff_filter
-- statgpu.feature_selection.model_x_knockoff_filter
-- statgpu.feature_selection.KnockoffSelector
-- statgpu.feature_selection.FixedXKnockoffSelector
+## 概览（Overview）
+
+Knockoff 方法用于控制特征选择中的 FDR。当前实现包含 `fixed_x` 与 `model_x` 两条路径，统一入口为 `knockoff_filter`。`fixed_x` 通常要求 `n >= 2p`；`model_x` 基于高斯二阶近似（协方差估计 + S-matrix），支持多次 draw 聚合 W 统计量。
+
+## 路径（Path）
+
+主路径：
+- `statgpu.feature_selection.knockoff_filter`
+- `statgpu.feature_selection.fixed_x_knockoff_filter`
+- `statgpu.feature_selection.model_x_knockoff_filter`
+- `statgpu.feature_selection.KnockoffSelector`
+- `statgpu.feature_selection.FixedXKnockoffSelector`
 
 顶层别名：
-- statgpu.knockoff_filter
-- statgpu.fixed_x_knockoff_filter
-- statgpu.model_x_knockoff_filter
-- statgpu.KnockoffSelector
-- statgpu.FixedXKnockoffSelector
+- `statgpu.knockoff_filter`
+- `statgpu.fixed_x_knockoff_filter`
+- `statgpu.model_x_knockoff_filter`
+- `statgpu.KnockoffSelector`
+- `statgpu.FixedXKnockoffSelector`
 
-## 方法概览
+## 目标函数（Objective Function）
 
-当前实现提供两类 knockoff 路径：
+目标是在给定目标 FDR 水平 `q` 下，通过 knockoff 统计量 `W` 与阈值规则（`knockoff_plus` 或 `knockoff`）选择特征集合，同时控制期望误发现率。
 
-- fixed-X knockoff
-  - 适用于设计矩阵可视为固定的场景。
-  - 约束：通常要求 n >= 2p，否则无法构造 fixed-X knockoff。
-- model-X knockoff
-  - 基于高斯二阶近似（协方差估计 + S-matrix）构造 knockoff。
-  - 支持多次 draw 后对 W 统计量做平均。
+## 估计方程（Estimating Equation）
 
-统一入口为 knockoff_filter，通过参数 knockoff_type 在 fixed_x/model_x 之间切换。
+核心步骤：
+- 构造 knockoff 特征（`fixed_x` 或 `model_x`）
+- 计算特征统计量 `W`（`corr_diff` / `ols_coef_diff` / `lasso_coef_diff`）
+- 按 FDR 规则求阈值并输出入选特征
 
-## 统一入口参数（knockoff_filter）
+`model_x` 可通过 `modelx_draws` 进行多次采样并聚合统计量。
+
+## 协方差与推断（Covariance/Inference）
+
+Knockoff 为选择推断框架，不采用回归模型中的 `cov_type` 协方差配置。其统计保证依赖 knockoff 构造假设与阈值规则。
+
+`compat_mode` 支持：
+- `statgpu`：默认实现
+- `knockpy`：兼容路径（部分 sampler 分发入口仍为占位）
+
+## 参数（Parameters）
+
+统一入口 `knockoff_filter` 关键参数如下：
 
 | 参数 | 默认值 | 说明 |
 |---|---:|---|
-| knockoff_type | fixed_x | fixed_x 或 model_x |
-| q | 0.1 | FDR 控制目标，必须在 (0, 1) |
-| method | corr_diff | W 统计量：corr_diff / ols_coef_diff / lasso_coef_diff |
-| fdr_control | knockoff_plus | 阈值规则：knockoff_plus 或 knockoff |
-| random_state | None | 随机种子 |
-| backend | auto | auto / numpy / cupy |
-| Xk | None | 外部提供 knockoff 设计矩阵（形状必须与 X 相同） |
-| compat_mode | statgpu | statgpu 或 knockpy |
-| lasso_cv_impl | auto | auto / statgpu / sklearn |
-| lasso_fast_profile | off | lasso 快速配置开关 |
-| modelx_covariance_shrinkage | 0.20 | model-X 协方差收缩系数 |
-| modelx_s_scale | 0.999 | model-X S 缩放系数 |
-| modelx_draws | None | model-X draw 次数（None 时按统计量给默认） |
-| modelx_shrinkage | ledoitwolf | knockpy 兼容路径下的协方差估计策略 |
-| modelx_smatrix_method | mvr | knockpy 兼容路径下的 S-matrix 方法 |
-| knockpy_sampler | None | 可选分发入口（gaussian/fx/metro/artk 等） |
-| knockpy_sampler_method | None | gaussian 分发子方法（mvr/sdp/maxent/equi/ci） |
+| `knockoff_type` | `fixed_x` | `fixed_x` 或 `model_x` |
+| `q` | `0.1` | FDR 控制目标，必须在 `(0, 1)` |
+| `method` | `corr_diff` | `corr_diff` / `ols_coef_diff` / `lasso_coef_diff` |
+| `fdr_control` | `knockoff_plus` | `knockoff_plus` 或 `knockoff` |
+| `random_state` | `None` | 随机种子 |
+| `backend` | `auto` | `auto` / `numpy` / `cupy` |
+| `Xk` | `None` | 外部提供 knockoff 设计矩阵，形状需与 `X` 相同 |
+| `compat_mode` | `statgpu` | `statgpu` 或 `knockpy` |
+| `lasso_cv_impl` | `auto` | `auto` / `statgpu` / `sklearn` |
+| `lasso_fast_profile` | `off` | lasso 快速配置开关 |
+| `modelx_covariance_shrinkage` | `0.20` | model-X 协方差收缩系数 |
+| `modelx_s_scale` | `0.999` | model-X `S` 缩放系数 |
+| `modelx_draws` | `None` | model-X draw 次数 |
+| `modelx_shrinkage` | `ledoitwolf` | knockpy 兼容路径协方差估计策略 |
+| `modelx_smatrix_method` | `mvr` | knockpy 兼容路径 `S`-matrix 方法 |
+| `knockpy_sampler` | `None` | 可选分发入口 |
+| `knockpy_sampler_method` | `None` | `sampler=gaussian` 时子方法 |
 
-## 返回对象（KnockoffResult）
-
-fit/过滤函数返回 KnockoffResult，核心字段：
-
-- selected_features: 被选中的特征下标
-- W: 每个特征对应的 W 统计量
-- threshold: 当前 q 对应阈值
-- estimated_fdr: 估计 FDR
-- q_trajectory: 阈值扫描轨迹
-- metadata: 运行元数据（draw 次数、兼容模式、Xk 来源等）
-
-## 快速示例
-
-### 1) fixed-X 直接调用
+## CPU+GPU 示例（CPU+GPU Examples）
 
 ```python
-from statgpu import fixed_x_knockoff_filter
+from statgpu import fixed_x_knockoff_filter, knockoff_filter
 
-res = fixed_x_knockoff_filter(
+# CPU: fixed-X
+res_cpu = fixed_x_knockoff_filter(
     X,
     y,
     q=0.1,
     method="ols_coef_diff",
-    backend="auto",
+    backend="numpy",
 )
 
-print(res.selected_features)
-print(res.threshold, res.estimated_fdr)
-```
-
-### 2) model-X 统一入口
-
-```python
-from statgpu import knockoff_filter
-
-res = knockoff_filter(
+# GPU: model-X
+res_gpu = knockoff_filter(
     X,
     y,
     knockoff_type="model_x",
     q=0.1,
     method="lasso_coef_diff",
-    compat_mode="knockpy",
+    backend="cupy",
     modelx_draws=3,
 )
 ```
 
-### 3) sklearn 风格选择器
+## strict/approx 差异（strict/approx difference）
 
-```python
-from statgpu import KnockoffSelector
+本模块不使用 `strict/approx` 推断口径开关。性能与精度权衡主要体现在 `fixed_x`/`model_x` 选择、`modelx_draws` 次数和后端（`numpy`/`cupy`）选择上。
 
-selector = KnockoffSelector(
-    knockoff_type="model_x",
-    q=0.1,
-    method="corr_diff",
-    backend="auto",
-)
-selector.fit(X, y)
-X_sel = selector.transform(X)
-mask = selector.get_support()
-```
+## 输出（Outputs）
 
-## 统一分发接口说明（新增）
+核心返回对象为 `KnockoffResult`，常用字段：
 
-当前已提供 knockpy_sampler_dispatch 统一分发接口，并在 model_x 路径下支持参数透传：
+- `selected_features`
+- `W`
+- `threshold`
+- `estimated_fdr`
+- `q_trajectory`
+- `metadata`（例如 draw 次数、兼容模式、`Xk` 来源）
 
-- knockpy_sampler: gaussian / gaussian_mvr / gaussian_sdp / gaussian_maxent / gaussian_equi / gaussian_ci / fx / metro / artk
-- knockpy_sampler_method: 当 sampler=gaussian 时可选 mvr/sdp/maxent/equi/ci
+## 常见问题（FAQ）
 
-注意：
-- 目前这些分发目标接口仍处于占位阶段（函数体 pass）。
-- 若显式传入 knockpy_sampler，会触发 NotImplementedError（用于避免静默走错路径）。
-- 不传该参数时，仍走当前稳定实现路径。
+- **哪些输入会直接报错？**  
+  `q` 不在 `(0,1)`、`X` 非二维、`y` 长度与 `X` 不一致、`Xk` 形状不匹配都会报错。
+- **`knockpy_sampler` 可以直接用吗？**  
+  当前显式传入会触发 `NotImplementedError`（占位保护）；不传时走稳定路径。
+- **`fixed_x` 的主要约束是什么？**  
+  通常要求样本规模与矩阵秩满足构造条件（常见约束为 `n >= 2p`）。
 
-## 约束与排错
+## 外部验证（External Validation）
 
-- q 不在 (0, 1) 会报错。
-- X 必须为二维，y 行数需与 X 一致。
-- 传入 Xk 时，Xk 形状必须与 X 相同。
-- fixed-X 对样本数与秩有要求，若不满足会报错。
-- cupy 后端需要环境中已安装 CuPy。
+推荐验证脚本：
 
-## 相关脚本
+- `dev/benchmarks/benchmark_knockoff_fixedx.py`
+- `dev/benchmarks/benchmark_knockoff_vs_baselines.py`
+- `dev/benchmarks/benchmark_knockoff_same_xk_parity.py`
 
-- dev/benchmarks/benchmark_knockoff_fixedx.py
-- dev/benchmarks/benchmark_knockoff_vs_baselines.py
-- dev/benchmarks/benchmark_knockoff_same_xk_parity.py
+## 参考（References）
+
+- Barber, R. F., & Candes, E. J. (2015). Controlling the false discovery rate via knockoffs. *Annals of Statistics*, 43(5), 2055-2085. [https://doi.org/10.1214/15-AOS1337](https://doi.org/10.1214/15-AOS1337)
+- Candes, E., Fan, Y., Janson, L., & Lv, J. (2018). Panning for gold: Model-X knockoffs for high-dimensional controlled variable selection. *Journal of the Royal Statistical Society: Series B*, 80(3), 551-577. [https://doi.org/10.1111/rssb.12265](https://doi.org/10.1111/rssb.12265)

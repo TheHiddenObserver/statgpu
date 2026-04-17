@@ -1,15 +1,45 @@
 # LogisticRegression
 
 > Language: English  
-> Last updated: 2026-04-10  
+> Last updated: 2026-04-17  
 > This page: Model documentation  
 > Switch: [Chinese](../../models/logistic-regression.md)
 
 Language switch: [Chinese](../../models/logistic-regression.md)
 
-Path: `statgpu.linear_model.LogisticRegression`
+## Overview
 
-## Parameter Table
+`LogisticRegression` implements binary logit with IRLS fitting on CPU/GPU, robust covariance options, and integrated classification metrics. Current scope is binary classification with L2 regularization path; multiclass and elastic-net are not part of this API.
+
+## Path
+
+`statgpu.linear_model.LogisticRegression`
+
+## Objective Function
+
+Estimate binary log-likelihood (with L2 penalty controlled by `C`):
+\[
+\max_\beta \sum_i \left[y_i\log p_i + (1-y_i)\log(1-p_i)\right] - \lambda\|\beta\|_2^2
+\]
+where \(p_i = \sigma(x_i^\top\beta)\) and larger `C` means weaker regularization.
+
+## Estimating Equation
+
+The model is solved by IRLS/Newton-style updates to satisfy score equations:
+\[
+\sum_i x_i(y_i - p_i)=0
+\]
+under convergence controls `max_iter` and `tol`.
+
+## Covariance/Inference
+
+- `cov_type="nonrobust"`: information-matrix covariance.
+- `cov_type="hc0"|"hc1"|"hc2"|"hc3"`: robust sandwich covariance variants.
+- `cov_type="hac"`: Newey-West (Bartlett) covariance with optional `hac_maxlags`.
+- Inference outputs use z-statistic conventions: `_bse`, `_zvalues`, `_pvalues`, `_conf_int`.
+- `compute_inference=True` is required for inference fields.
+
+## Parameters
 
 | Parameter | Default | Description |
 |---|---:|---|
@@ -20,92 +50,58 @@ Path: `statgpu.linear_model.LogisticRegression`
 | `device` | `"auto"` | `cpu` / `cuda` / `auto` |
 | `compute_inference` | `True` | Whether to compute inference stats |
 | `cov_type` | `"nonrobust"` | `nonrobust` / `hc0` / `hc1` / `hc2` / `hc3` / `hac` |
-| `hac_maxlags` | `None` | Max lag used when `cov_type="hac"`; if omitted, Newey-West style default is used |
+| `hac_maxlags` | `None` | Max lag for `cov_type="hac"`; default follows Newey-West style heuristic |
 | `gpu_memory_cleanup` | `False` | Best-effort CuPy pool cleanup after each fit |
 
-## Example
+## CPU+GPU Examples
 
 ```python
 from statgpu.linear_model import LogisticRegression
 
-m = LogisticRegression(device="cuda", cov_type="hc1", compute_inference=True)
-m.fit(X, y_binary)
-proba = m.predict_proba(X)
+# CPU near-unregularized logit
+m_cpu = LogisticRegression(device="cpu", C=1e10, cov_type="hc1", compute_inference=True)
+m_cpu.fit(X, y_binary)
+
+# GPU with HAC covariance
+m_gpu = LogisticRegression(
+    device="cuda",
+    C=1e10,
+    cov_type="hac",
+    hac_maxlags=4,
+    compute_inference=True,
+    gpu_memory_cleanup=True,
+)
+m_gpu.fit(X_gpu, y_gpu)
 ```
 
-## Robust Covariance (HC0/HC1/HC2/HC3/HAC)
+## strict/approx difference
 
-- `cov_type="nonrobust"`: classical information-matrix covariance
-- `cov_type="hc0"`: White/sandwich robust covariance
-- `cov_type="hc1"`: HC0 with DOF correction `n/(n-k)`
-- `cov_type="hc2"`: leverage-adjusted robust covariance
-- `cov_type="hc3"`: more conservative jackknife-style robust covariance
-- `cov_type="hac"`: Newey-West (Bartlett kernel) covariance with optional `hac_maxlags`
-
-```python
-from statgpu.linear_model import LogisticRegression
-
-m = LogisticRegression(device="cpu", cov_type="hac", hac_maxlags=4, compute_inference=True)
-m.fit(X, y_binary)
-```
+No separate approx inference mode is exposed in this API. Robust covariance choice (`hc*`/`hac`) is the main practical trade-off between assumptions and computational cost.
 
 ## Outputs
 
 - Coefficients: `intercept_`, `coef_`, `n_iter_`
 - Inference: `_bse`, `_zvalues`, `_pvalues`, `_conf_int`
-- Metrics: `aic`, `bic`, `pseudo_rsquared`, `accuracy`, `precision`, `recall`, `f1`, `auc`, `average_precision`
+- Fit/metrics: `aic`, `bic`, `pseudo_rsquared`, `accuracy`, `precision`, `recall`, `f1`, `auc`, `average_precision`
+- Prediction methods: `predict_proba`, `predict`, `predict_with_threshold`
+- Evaluation methods: `confusion_matrix`, `classification_table`, `roc_curve`, `roc_auc_score`, `precision_recall_curve`, `average_precision_score`, `evaluate_classification`
+- Plot helpers: `plot_roc_curve`, `plot_precision_recall_curve` (`matplotlib` optional dependency)
 
-## Classification Evaluation APIs
+## FAQ
 
-- `predict_with_threshold(X, threshold=0.5)`: threshold-tuned class labels
-- `confusion_matrix(X, y, threshold=0.5)`: returns `[[TN, FP], [FN, TP]]`
-- `classification_table(X, y, threshold=0.5)`: compact dict with accuracy/precision/recall/F1/specificity
-- `roc_curve(X, y)`: returns `fpr, tpr, thresholds`
-- `roc_auc_score(X, y)`: returns ROC AUC
-- `precision_recall_curve(X, y)`: returns `precision, recall, thresholds`
-- `average_precision_score(X, y)`: returns Average Precision (AP)
-- `evaluate_classification(X, y, threshold=0.5, include_curves=True)`: one-shot batch output for confusion/table/ROC/PR/AUC/AP (single probability pass)
-- `statgpu.evaluation.evaluate_binary_classification(y_true, y_score, threshold=0.5, include_curves=True, backend='auto')`: one-shot batch evaluation for external probabilities (model-agnostic)
-- `plot_roc_curve(X, y, ax=None, label=None)`: plots ROC curve and returns matplotlib axes
-- `plot_precision_recall_curve(X, y, ax=None, label=None)`: plots PR curve and returns matplotlib axes
+- How do I approximate unregularized MLE? Use a large `C` value (for example, `1e10`).
+- Why are inference statistics z-values instead of t-values? Logistic regression inference follows large-sample normal approximation.
+- Are evaluation methods GPU-native? Yes for core metrics under `device="cuda"`; plotting converts to NumPy for rendering.
 
-External-probability example:
-
-```python
-from statgpu import evaluate_binary_classification
-
-# y_true: 0/1 labels; y_score: positive-class probabilities
-out = evaluate_binary_classification(
-  y_true,
-  y_score,
-  threshold=0.5,
-  include_curves=True,
-  backend="auto",  # auto / numpy / cupy / torch
-)
-
-print(out["classification_table"])
-print(out["roc_auc"], out["average_precision"])
-```
-
-When `device="cuda"`, `confusion_matrix` / `classification_table` / `roc_curve` /
-`roc_auc_score` / `precision_recall_curve` / `average_precision_score` run on GPU by
-default without GPU-to-CPU array transfers (plotting APIs convert to NumPy for rendering).
-
-> Plotting APIs require optional dependency `matplotlib`.
-
-## Returns and Properties
-
-- `fit(X, y)` returns `self`
-- `predict_proba(X)` returns class probabilities
-- `predict(X)` returns labels
-- `predict_with_threshold(X, threshold)` returns labels with a custom threshold
-
-## External Consistency
+## External Validation
 
 - `dev/tests/test_external_consistency.py`
   - `test_logistic_robust_covariance_matches_statsmodels`
   - `test_logistic_robust_covariance_gpu_matches_statsmodels`
+- Cross-backend artifact for `hc2/hc3/hac`:
+  - `results/remote_covariance_full_compare_2026-04-10.json`
 
-Unified tri-backend artifact for `hc2/hc3/hac` under aligned settings:
+## References
 
-- `results/remote_covariance_full_compare_2026-04-10.json`
+- McCullagh, P., & Nelder, J. A. (1989). *Generalized Linear Models* (2nd ed.). Chapman & Hall/CRC.
+- Hosmer, D. W., Lemeshow, S., & Sturdivant, R. X. (2013). *Applied Logistic Regression* (3rd ed.). Wiley.
