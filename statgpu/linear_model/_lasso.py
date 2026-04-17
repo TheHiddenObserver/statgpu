@@ -64,7 +64,9 @@ def _debiased_m_key_from_numpy_design(
     lam_nw: float,
     tol: float,
 ):
-    X_cache = np.ascontiguousarray(X)
+    X_cache = np.asarray(X)
+    if not X_cache.flags["C_CONTIGUOUS"]:
+        X_cache = np.ascontiguousarray(X_cache)
     h = hashlib.blake2b(digest_size=32)
     h.update(np.asarray([int(n), int(p)], dtype=np.int64).tobytes())
     h.update(str(X_cache.dtype).encode("utf-8"))
@@ -1203,7 +1205,7 @@ class Lasso(BaseEstimator):
         for start in range(0, int(n), row_chunk):
             stop = min(int(n), start + row_chunk)
             x_chunk = cp.asnumpy(X_gpu[start:stop])
-            x_hasher.update(np.ascontiguousarray(x_chunk).tobytes())
+            x_hasher.update(x_chunk.tobytes())
         m_cache_key = x_hasher.hexdigest()
         M_cached = _debiased_m_cache_get(m_cache_key)
         if M_cached is not None:
