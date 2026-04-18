@@ -79,7 +79,7 @@ m_gpu = Lasso(
 m_gpu.fit(X, y)
 ```
 
-Simultaneous inference example (supports `device=\"cpu\"` and `device=\"cuda\"`, with device-consistent computation):
+Simultaneous inference example (supports `device="cpu"` and `device="cuda"`, with device-consistent computation):
 
 ```python
 m_sim = Lasso(

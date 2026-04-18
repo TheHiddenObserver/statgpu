@@ -58,6 +58,9 @@ from statgpu.nonparametric import kde_pdf, kernel_regression_predict
 
 x = np.random.randn(500)
 grid = np.linspace(-4, 4, 200)
+X = np.random.randn(500, 2)
+y = X[:, 0] - 0.5 * X[:, 1] + 0.1 * np.random.randn(500)
+X_query = np.random.randn(64, 2)
 
 # CPU (NumPy)
 density_cpu = kde_pdf(x, grid, bandwidth="scott", kernel="gaussian", backend="numpy")
