@@ -12,29 +12,30 @@ GPU-accelerated statistical methods with sklearn-compatible API.
 
 ## Features
 
-- 🚀 **GPU Acceleration**: Automatic CUDA support via CuPy
+- 🚀 **GPU Acceleration**: Automatic CUDA support via CuPy and PyTorch
 - 🔧 **sklearn-compatible**: Familiar `fit`/`predict` API
 - 🔄 **Auto Device Selection**: CPU fallback when GPU unavailable
 - 📊 **Statistical Focus**: Methods from R that Python lacks
 - 🧮 **Inference Support**:
   - `LinearRegression`: `nonrobust` / `hc0` / `hc1` / `hc2` / `hc3` / `hac`
-  - `Ridge`: `nonrobust` / `hc0` / `hc1` / `hc2` / `hc3` / `hac`
-  - `Lasso`: `cpu_ols_inference` / `gpu_ols_inference` / `bootstrap`
-  - `LogisticRegression`: `nonrobust` / `hc0` / `hc1` / `hc2` / `hc3` / `hac`
+  - `Ridge`: `nonrobust` / `hc0` / `hc1` / `hc2` / `hc3` / `hac` ✅ (Torch backend)
+  - `Lasso`: `cpu_ols_inference` / `gpu_ols_inference` / `bootstrap` ✅ (Torch backend)
+  - `LogisticRegression`: `nonrobust` / `hc0` / `hc1` / `hc2` / `hc3` / `hac` ✅ (Torch backend)
 - 📈 **Nonparametric Support**:
   - KDE: `fit_kde` / `kde_pdf` / `kde_bootstrap_confidence_interval`
   - KDE kernel options: `gaussian` / `rectangular` / `triangular` / `epanechnikov` / `biweight` / `triweight` / `cosine` / `optcosine`
   - Kernel regression: `fit_kernel_regression` / `kernel_regression_predict`
 - 🧹 **GPU Memory Control**: `gpu_memory_cleanup` for all current models
+- 🔥 **PyTorch Backend**: Optional Torch backend for GPU acceleration (PyTorch 2.0+)
 
 ## Implemented Methods (Current)
 
 - `statgpu.linear_model.LinearRegression`
-- `statgpu.linear_model.Ridge`
-- `statgpu.linear_model.Lasso`
+- `statgpu.linear_model.Ridge` ✅ (Torch backend)
+- `statgpu.linear_model.Lasso` ✅ (Torch backend)
 - `statgpu.linear_model.LassoCV`
-- `statgpu.linear_model.LogisticRegression`
-- `statgpu.survival.CoxPH`
+- `statgpu.linear_model.LogisticRegression` ✅ (Torch backend)
+- `statgpu.survival.CoxPH` ✅ (Torch backend)
 
 Exported CV interface skeletons (pending full CV training/search implementation):
 
@@ -55,9 +56,50 @@ pip install statgpu[gpu11]
 # CUDA 12.x runtime:
 pip install statgpu[gpu12]
 
+# With PyTorch backend (CUDA 11.x)
+pip install statgpu[torch]
+
 # Development
 pip install statgpu[dev]
 ```
+
+### PyTorch Backend Requirements
+
+- PyTorch 2.0+ (for `torch.special` functions)
+- CUDA 11.x or 12.x driver
+- Recommended: Use conda environment with pre-configured CUDA toolkit
+
+```bash
+# Example conda setup
+conda create -n statgpu python=3.10
+conda activate statgpu
+conda install pytorch cudatoolkit=11.7 -c pytorch
+pip install statgpu
+```
+
+**Torch Backend Usage**:
+
+```python
+from statgpu.linear_model import Ridge, LogisticRegression, Lasso
+
+# Torch GPU backend
+model = Ridge(alpha=1.0, device='cuda')  # Auto-selects CuPy by default
+model = Ridge(alpha=1.0, device='cuda', backend='torch')  # Force Torch
+
+# Torch CPU backend (useful for debugging)
+model = Ridge(alpha=1.0, device='cpu', backend='torch')
+
+# All covariance types supported
+model = LogisticRegression(device='cuda', backend='torch', covariance_type='hc3')
+model.fit(X, y)
+print(f"Std Errors: {model._bse}")
+```
+
+**Performance Notes**:
+- **Small datasets (<10K)**: CuPy faster due to lower overhead
+- **Moderate-large datasets (20K-100K)**: Torch GPU competitive with CuPy
+- **Robust covariance (HC2/HC3)**: Torch GPU within 4-30% of CuPy, 60x faster than CPU
+- See `dev/docs/torch_backend_full_feature_report.md` for detailed benchmarks
 
 ## Quick Start
 

@@ -25,15 +25,27 @@ def _is_cupy_array(x: Any) -> bool:
         return False
 
 
+def _is_torch_array(x: Any) -> bool:
+    try:
+        import torch
+
+        return isinstance(x, torch.Tensor)
+    except Exception:
+        return False
+
+
 def _resolve_backend(backend: str, *arrays) -> str:
     backend_name = str(backend).strip().lower()
-    if backend_name not in ("auto", "numpy", "cupy"):
-        raise ValueError("backend must be one of: 'auto', 'numpy', 'cupy'")
+    if backend_name not in ("auto", "numpy", "cupy", "torch"):
+        raise ValueError("backend must be one of: 'auto', 'numpy', 'cupy', 'torch'")
     if backend_name != "auto":
         return backend_name
     for arr in arrays:
-        if arr is not None and _is_cupy_array(arr):
-            return "cupy"
+        if arr is not None:
+            if _is_torch_array(arr):
+                return "torch"
+            if _is_cupy_array(arr):
+                return "cupy"
     return "numpy"
 
 
@@ -49,12 +61,25 @@ def _get_xp(backend_name: str):
             raise ImportError(
                 "backend='cupy' requires CuPy, but CuPy is not installed"
             ) from exc
+    if backend_name == "torch":
+        try:
+            import torch
+
+            return torch
+        except ImportError as exc:
+            raise ImportError(
+                "backend='torch' requires PyTorch, but PyTorch is not installed"
+            ) from exc
     raise ValueError(f"Unsupported backend: {backend_name}")
 
 
 def _to_numpy(x):
     if hasattr(x, "get"):
+        # CuPy array
         return x.get()
+    if hasattr(x, "cpu") and hasattr(x, "numpy"):
+        # Torch tensor
+        return x.cpu().numpy()
     return np.asarray(x)
 
 
@@ -74,6 +99,7 @@ def _array_identity_token(x: Any) -> Tuple[Any, ...]:
     if x is None:
         return ("none",)
 
+    # Try CuPy array
     try:
         import cupy as cp
 
@@ -82,6 +108,19 @@ def _array_identity_token(x: Any) -> Tuple[Any, ...]:
     except Exception:
         pass
 
+    # Try Torch tensor
+    try:
+        import torch
+
+        if isinstance(x, torch.Tensor):
+            if x.is_cuda:
+                return ("torch_cuda", int(x.data_ptr()), tuple(int(v) for v in x.shape), str(x.dtype))
+            else:
+                return ("torch_cpu", int(x.data_ptr()), tuple(int(v) for v in x.shape), str(x.dtype))
+    except Exception:
+        pass
+
+    # Default to NumPy
     arr = np.asarray(x)
     ptr = int(arr.__array_interface__["data"][0]) if int(arr.size) > 0 else 0
     return ("numpy", ptr, tuple(int(v) for v in arr.shape), str(arr.dtype))
@@ -427,13 +466,28 @@ def _build_fixed_x_knockoffs(X_std, random_state: Optional[int], xp):
     c_eigvals = xp.clip(c_eigvals, 0.0, None)
     C = c_eigvecs @ xp.diag(xp.sqrt(c_eigvals)) @ c_eigvecs.T
 
+    # Generate random matrix A with appropriate backend
     if xp is np:
         rng = np.random.default_rng(random_state)
         A = rng.standard_normal(size=(n, p))
     else:
+        # CuPy or Torch
         seed = 0 if random_state is None else int(random_state)
-        rng = xp.random.RandomState(seed)
-        A = rng.standard_normal(size=(n, p), dtype=xp.float64)
+        try:
+            # Try CuPy API
+            rng = xp.random.RandomState(seed)
+            A = rng.standard_normal(size=(n, p), dtype=xp.float64)
+        except (AttributeError, TypeError):
+            # Torch API: use manual_seed and randn
+            import torch
+            if isinstance(xp, type(torch)):
+                gen = torch.Generator(device='cuda' if torch.cuda.is_available() else 'cpu')
+                gen.manual_seed(seed)
+                A = torch.randn(n, p, dtype=torch.float64, device='cuda' if torch.cuda.is_available() else 'cpu')
+            else:
+                # Fallback
+                rng = xp.random.Generator(xp.random.PCG64(seed))
+                A = rng.standard_normal(size=(n, p), dtype=xp.float64)
 
     # Q[:, :p] spans col(X), Q[:, p:2p] spans an orthonormal complement basis.
     Q, _ = xp.linalg.qr(xp.concatenate([X_std, A], axis=1), mode="reduced")
@@ -488,13 +542,28 @@ def _build_model_x_knockoffs(
     c_eigvals = xp.clip(c_eigvals, 0.0, None)
     C = c_eigvecs @ xp.diag(xp.sqrt(c_eigvals)) @ c_eigvecs.T
 
+    # Generate random matrix Z with appropriate backend
     if xp is np:
         rng = np.random.default_rng(random_state)
         Z = rng.standard_normal(size=(n, p))
     else:
+        # CuPy or Torch
         seed = 0 if random_state is None else int(random_state)
-        rng = xp.random.RandomState(seed)
-        Z = rng.standard_normal(size=(n, p), dtype=xp.float64)
+        try:
+            # Try CuPy API
+            rng = xp.random.RandomState(seed)
+            Z = rng.standard_normal(size=(n, p), dtype=xp.float64)
+        except (AttributeError, TypeError):
+            # Torch API: use manual_seed and randn
+            import torch
+            if isinstance(xp, type(torch)):
+                gen = torch.Generator(device='cuda' if torch.cuda.is_available() else 'cpu')
+                gen.manual_seed(seed)
+                Z = torch.randn(n, p, dtype=torch.float64, device='cuda' if torch.cuda.is_available() else 'cpu')
+            else:
+                # Fallback
+                rng = xp.random.Generator(xp.random.PCG64(seed))
+                Z = rng.standard_normal(size=(n, p), dtype=xp.float64)
 
     X_knock = X_std - X_std @ Sigma_inv_S + Z @ C
     return X_knock, {

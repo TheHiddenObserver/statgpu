@@ -208,6 +208,50 @@ class CoxPH(BaseEstimator):
                 self._cleanup_cuda_memory()
             else:
                 self._fit_gpu(X_gpu, time_gpu, event_gpu, entry_gpu, cluster_gpu)
+        elif device == Device.TORCH:
+            import torch
+
+            # Determine torch device (cuda if available, else cpu)
+            torch_device = "cuda" if torch.cuda.is_available() else "cpu"
+
+            X_torch = torch.tensor(self._to_array(X), dtype=torch.float64, device=torch_device)
+            time_torch = torch.tensor(self._to_array(time), dtype=torch.float64, device=torch_device)
+            event_torch = torch.tensor(self._to_array(event), dtype=torch.int32, device=torch_device)
+            entry_torch = None if entry is None else torch.tensor(self._to_array(entry), dtype=torch.float64, device=torch_device)
+
+            if X_torch.ndim == 1:
+                X_torch = X_torch.reshape(-1, 1)
+            if entry_torch is not None and entry_torch.shape[0] != X_torch.shape[0]:
+                raise ValueError("entry must have shape (n_samples,)")
+
+            self._nobs = int(X_torch.shape[0])
+            self._nevents = int(torch.sum(event_torch).item())
+            self._feature_names = [f'x{i+1}' for i in range(int(X_torch.shape[1]))]
+
+            # Keep CPU copies only when CPU-side inference/baseline stats are requested.
+            if self.compute_inference:
+                self._X = X_torch.cpu().numpy()
+                self._time = time_torch.cpu().numpy()
+                self._event = event_torch.cpu().numpy()
+                self._entry = None if entry_torch is None else entry_torch.cpu().numpy()
+            else:
+                self._X = None
+                self._time = None
+                self._event = None
+                self._entry = None
+
+            cluster_torch = None if cluster is None else torch.tensor(self._to_array(cluster), dtype=torch.int64, device=torch_device)
+            if entry_torch is not None:
+                # Fall back to CPU with statsmodels for delayed entry
+                self._fit_cpu_with_entry(
+                    X_torch.cpu().numpy(),
+                    time_torch.cpu().numpy(),
+                    event_torch.cpu().numpy(),
+                    entry_torch.cpu().numpy(),
+                    None if cluster_torch is None else cluster_torch.cpu().numpy(),
+                )
+            else:
+                self._fit_torch(X_torch, time_torch, event_torch, entry_torch, cluster_torch, torch_device)
         else:
             X_np = np.asarray(self._to_array(X, Device.CPU), dtype=np.float64)
             time_np = np.asarray(self._to_array(time, Device.CPU), dtype=np.float64)
@@ -620,6 +664,142 @@ class CoxPH(BaseEstimator):
                 self._wald_test_pvalue = 1 - stats.chi2.cdf(self._wald_test_stat, n_features)
                 self._score_test_stat = np.nan
                 self._score_test_pvalue = np.nan
+                # Compute baseline hazard on GPU
+                self._compute_baseline_hazard_gpu(X_sorted, time_sorted, event_sorted, beta)
+        else:
+            self._var_matrix = None
+            self._bse = None
+            self._zvalues = None
+            self._pvalues = None
+            self._conf_int = None
+            self._score_test_stat = None
+            self._score_test_pvalue = None
+            self._wald_test_stat = None
+            self._wald_test_pvalue = None
+            self._lr_test_stat = None
+            self._lr_test_pvalue = None
+            self._baseline_hazard = None
+            self._baseline_cumulative_hazard = None
+            self._unique_times = None
+
+    def _fit_torch(self, X, time, event, entry=None, cluster=None, torch_device="cuda"):
+        """Fit using Torch with full GPU computation."""
+        import torch
+        from ..inference._distributions_torch import norm
+
+        n_samples, n_features = X.shape
+
+        # Sort by time ascending so risk-set terms are suffix sums
+        order = torch.argsort(time)
+        X_sorted = X[order]
+        time_sorted = time[order]
+        event_sorted = event[order]
+        cluster_sorted = None if cluster is None else cluster[order]
+
+        # Precompute Efron tie structure once (depends only on time/event order)
+        efron_pre = None
+        self._breslow_pre = None
+        self._breslow_pre_torch = None
+        if self.ties == "efron":
+            efron_pre = self._efron_unique_failure_indices(
+                time_sorted.cpu().numpy(), event_sorted.cpu().numpy()
+            )
+            self._efron_pre = efron_pre
+            # Note: Efron CSR packing not yet implemented for Torch
+            self._efron_pre_csr = None
+        else:
+            self._efron_pre = None
+            self._efron_pre_csr = None
+            first_idx_uft, counts_uft = self._breslow_unique_failure_groups(
+                time_sorted.cpu().numpy(), event_sorted.cpu().numpy()
+            )
+            self._breslow_pre = (first_idx_uft, counts_uft)
+            self._breslow_pre_torch = (
+                torch.tensor(first_idx_uft, dtype=torch.int32, device=torch_device),
+                torch.tensor(counts_uft, dtype=torch.int32, device=torch_device),
+            )
+
+        # Initialize coefficients on Torch device
+        beta = torch.zeros(n_features, dtype=torch.float64, device=torch_device)
+
+        # Compute null log-likelihood on Torch
+        loglik_null_torch = self._compute_log_likelihood_torch(
+            torch.zeros(n_features, dtype=torch.float64, device=torch_device),
+            X_sorted,
+            time_sorted,
+            event_sorted,
+            efron_pre,
+        )
+
+        # Newton-Raphson optimization on Torch
+        iteration = 0
+        for iteration in range(self.max_iter):
+            # Compute gradient and Hessian on Torch
+            grad, hess = self._compute_gradient_hessian_torch(
+                beta, X_sorted, time_sorted, event_sorted, efron_pre
+            )
+
+            # Newton: delta = inv(hess) @ grad; hess is NSD — solve (-hess) x = grad, delta = -x
+            delta = self._solve_newton_delta_torch(hess, grad)
+
+            # Check convergence
+            if torch.linalg.norm(delta) < self.tol:
+                self._converged = True
+                break
+
+            beta = beta - delta
+
+        # Compute final log-likelihood on Torch
+        loglik_torch = self._compute_log_likelihood_torch(
+            beta, X_sorted, time_sorted, event_sorted, efron_pre
+        )
+
+        # Compute C-index on Torch
+        cindex_torch = self._compute_cindex_torch(X_sorted, time_sorted, event_sorted, beta)
+
+        # Single transfer at the end
+        self._iterations = iteration + 1
+        self.coef_ = beta.cpu().numpy()
+        self.hazard_ratios_ = np.exp(self.coef_)
+        self._log_likelihood_null = float(loglik_null_torch.item())
+        self._log_likelihood = float(loglik_torch.item())
+        self._cindex = float(cindex_torch.item())
+
+        # Inference: nonrobust on Torch, other types fall back to CPU
+        if self.compute_inference:
+            if self.cov_type == "nonrobust":
+                try:
+                    info = -hess
+                    var_torch = torch.linalg.solve(info, torch.eye(info.shape[0], dtype=info.dtype, device=torch_device))
+                except Exception:
+                    var_torch = torch.linalg.pinv(-hess)
+                bse_torch = torch.sqrt(torch.maximum(torch.diag(var_torch), torch.tensor(0.0, dtype=torch.float64, device=torch_device)))
+                z_torch = beta / (bse_torch + 1e-30)
+                p_torch = torch.minimum(torch.tensor(1.0, device=torch_device), 2.0 * norm.sf(torch.abs(z_torch)))
+                z_crit = norm.ppf(0.975)
+                ci_torch = torch.stack([beta - z_crit * bse_torch, beta + z_crit * bse_torch], dim=1)
+
+                self._bse = bse_torch.cpu().numpy()
+                self._zvalues = z_torch.cpu().numpy()
+                self._pvalues = p_torch.cpu().numpy()
+                self._conf_int = ci_torch.cpu().numpy()
+                self._var_matrix = np.diag(np.square(self._bse))
+                self._lr_test_stat = 2 * (self._log_likelihood - self._log_likelihood_null)
+                self._lr_test_pvalue = 1 - stats.chi2.cdf(self._lr_test_stat, n_features)
+                try:
+                    var_inv = np.linalg.solve(self._var_matrix, np.eye(self._var_matrix.shape[0]))
+                    self._wald_test_stat = self.coef_ @ var_inv @ self.coef_
+                except np.linalg.LinAlgError:
+                    self._wald_test_stat = np.nan
+                self._wald_test_pvalue = 1 - stats.chi2.cdf(self._wald_test_stat, n_features)
+                self._score_test_stat = np.nan
+                self._score_test_pvalue = np.nan
+                # Compute baseline hazard on Torch
+                self._compute_baseline_hazard_torch(X_sorted, time_sorted, event_sorted, beta)
+            else:
+                # For hc0/hc1/cluster, use CPU inference path
+                self._compute_inference_cpu(X_sorted.cpu().numpy(), time_sorted.cpu().numpy(), event_sorted.cpu().numpy(),
+                                           cluster_sorted.cpu().numpy() if cluster_sorted is not None else None)
                 self._baseline_hazard = None
                 self._baseline_cumulative_hazard = None
                 self._unique_times = None
@@ -638,7 +818,7 @@ class CoxPH(BaseEstimator):
             self._baseline_hazard = None
             self._baseline_cumulative_hazard = None
             self._unique_times = None
-    
+
     def _compute_log_likelihood(self, beta, X, time, event, efron_pre=None):
         """Compute log partial likelihood (Breslow/Efron tie handling)."""
         eta = X @ beta
@@ -1237,7 +1417,210 @@ class CoxPH(BaseEstimator):
 
         hess = -hess_inner
         return grad, hess
-    
+
+    def _solve_newton_delta_torch(self, hess, grad):
+        """Newton step delta = inv(hess) @ grad; prefer SPD solve on (-hess) with light jitter."""
+        import torch
+
+        p = int(hess.shape[0])
+        try:
+            H = -hess
+            eps = 1e-11 * (torch.max(torch.abs(torch.diag(H))) + 1.0)
+            H = H + eps * torch.eye(p, dtype=torch.float64, device=hess.device)
+            return -torch.linalg.solve(H, grad)
+        except Exception:
+            try:
+                return torch.linalg.solve(hess, grad)
+            except Exception:
+                result = torch.linalg.lstsq(hess, grad)
+                return result.solution.flatten()
+
+    def _compute_log_likelihood_torch(self, beta, X, time, event, efron_pre=None):
+        """Compute log partial likelihood on Torch."""
+        import torch
+
+        n_samples = X.shape[0]
+        eta = X @ beta
+        exp_eta = torch.exp(eta)
+
+        # Risk sets
+        risk_sum = torch.cumsum(exp_eta.flip(0), dim=0).flip(0)
+
+        # Log-likelihood contribution from events
+        ll = torch.tensor(0.0, dtype=torch.float64, device=beta.device)
+        event_mask = event == 1
+
+        if not torch.any(event_mask):
+            return ll
+
+        if self.ties == "breslow":
+            # Vectorized Breslow using cached failure groups
+            breslow_pre_torch = getattr(self, "_breslow_pre_torch", None)
+            if (
+                breslow_pre_torch is not None
+                and len(breslow_pre_torch) == 2
+                and int(breslow_pre_torch[0].numel()) > 0
+            ):
+                first_idx_uft, counts_uft = breslow_pre_torch
+            else:
+                uft, counts_uft = torch.unique(time[event_mask], return_counts=True)
+                first_idx_uft = torch.searchsorted(time, uft, side="left")
+                counts_uft = counts_uft.to(torch.int32)
+            risk_at = risk_sum[first_idx_uft]
+            return torch.sum(eta[event_mask]) - torch.sum(
+                counts_uft.to(torch.float64) * torch.log(risk_at)
+            )
+
+        # Efron: loop over cached failure groups (CPU-side loop, similar to CuPy fallback)
+        if efron_pre is not None:
+            from ._cox_efron_cuda import compute_efron_loglik_raw as compute_efron_loglik_raw_cpu
+            # For now, fall back to CPU computation for Efron (complex CUDA kernel not yet ported)
+            eta_cpu = eta.cpu().numpy()
+            exp_eta_cpu = exp_eta.cpu().numpy()
+            risk_sum_cpu = risk_sum.cpu().numpy()
+            time_cpu = time.cpu().numpy()
+            ll_cpu = compute_efron_loglik_raw_cpu(
+                eta_cpu, exp_eta_cpu, risk_sum_cpu, time_cpu, efron_pre, cupy_module=None
+            )
+            return torch.tensor(ll_cpu, dtype=torch.float64, device=beta.device)
+
+        # Fallback Efron (loop version)
+        unique_times = torch.unique(time[event_mask])
+        for t in unique_times:
+            at_time_t = time == t
+            events_at_t = at_time_t & event_mask
+            d = int(torch.sum(events_at_t).item())
+
+            if d == 0:
+                continue
+
+            risk_indices = torch.where(time >= t)[0]
+            if risk_indices.numel() == 0:
+                continue
+
+            first_idx = risk_indices[0]
+            risk_at_t = risk_sum[first_idx]
+            sum_events = torch.sum(exp_eta[events_at_t])
+
+            ll += torch.sum(eta[events_at_t])
+            for k in range(d):
+                ll -= torch.log(torch.maximum(risk_at_t - (k / d) * sum_events, torch.tensor(1e-300, dtype=torch.float64, device=beta.device)))
+
+        return ll
+
+    def _compute_gradient_hessian_torch(self, beta, X, time, event, efron_pre=None):
+        """Compute gradient and Hessian on Torch."""
+        import torch
+
+        n_samples, n_features = X.shape
+
+        eta = X @ beta
+        exp_eta = torch.exp(eta)
+
+        # Risk sets
+        risk_sum = torch.cumsum(exp_eta.flip(0), dim=0).flip(0)
+        X_exp_eta = X * exp_eta[:, None]
+        risk_X_sum = torch.cumsum(X_exp_eta.flip(0), dim=0).flip(0)
+
+        # Efron: use CPU computation (complex kernel not yet ported to Torch)
+        if self.ties == "efron":
+            if efron_pre is None:
+                efron_pre = self._efron_unique_failure_indices(
+                    time.cpu().numpy(), event.cpu().numpy()
+            )
+            # Fall back to CPU for Efron grad/hess
+            grad_cpu, hess_cpu = self._compute_gradient_hessian_efron_backward(
+                beta.cpu().numpy(), X.cpu().numpy(), time.cpu().numpy(), event.cpu().numpy(), efron_pre
+            )
+            return torch.tensor(grad_cpu, dtype=torch.float64, device=beta.device), \
+                   torch.tensor(hess_cpu, dtype=torch.float64, device=beta.device)
+
+        # Breslow gradient (vectorized)
+        event_mask = event == 1
+        grad = torch.zeros(n_features, dtype=torch.float64, device=beta.device)
+
+        if not torch.any(event_mask):
+            return grad, torch.zeros((n_features, n_features), dtype=torch.float64, device=beta.device)
+
+        # For Breslow ties, all events at the same failure time share the same risk set R(t)
+        breslow_pre_torch = getattr(self, "_breslow_pre_torch", None)
+        if (
+            breslow_pre_torch is not None
+            and len(breslow_pre_torch) == 2
+            and int(breslow_pre_torch[0].numel()) > 0
+        ):
+            first_idx_uft, counts_uft = breslow_pre_torch
+        else:
+            uft, counts_uft = torch.unique(time[event_mask], return_counts=True)
+            first_idx_uft = torch.searchsorted(time, uft, side="left")
+            counts_uft = counts_uft.to(torch.int32)
+
+        counts_f = counts_uft.to(torch.float64)
+        grad = torch.sum(X[event_mask], dim=0)
+        E_X = risk_X_sum[first_idx_uft] / risk_sum[first_idx_uft][:, None]
+        grad = grad - torch.sum(E_X * counts_f[:, None], dim=0)
+
+        # Hessian needs reverse cumulative second moments
+        x2_weighted = torch.einsum("ni,nj,n->nij", X, X, exp_eta)
+        risk_X2_sum = torch.cumsum(x2_weighted.flip(0), dim=0).flip(0)
+
+        E_XX = risk_X2_sum[first_idx_uft] / risk_sum[first_idx_uft][:, None, None]
+        centered = E_XX - torch.einsum("ni,nj->nij", E_X, E_X)
+        hess = -torch.sum(centered * counts_f[:, None, None], dim=0)
+        return grad, hess
+
+    def _compute_cindex_torch(self, X, time, event, beta):
+        """Compute concordance index (C-index) on Torch."""
+        import torch
+
+        # Linear predictor (risk score)
+        risk_score = X @ beta
+
+        n = len(time)
+        event_mask = (event == 1)
+
+        if torch.sum(event_mask) == 0:
+            return torch.tensor(0.5, dtype=torch.float64, device=beta.device)
+
+        # Use chunked vectorized approach for memory efficiency
+        event_idx = torch.where(event_mask)[0]
+        n_events = len(event_idx)
+
+        if n_events == 0:
+            return torch.tensor(float("nan"), dtype=torch.float64, device=beta.device)
+
+        concordant = torch.tensor(0, dtype=torch.int64, device=beta.device)
+        permissible = torch.tensor(0, dtype=torch.int64, device=beta.device)
+        tied_risk = torch.tensor(0, dtype=torch.int64, device=beta.device)
+
+        # Chunk size for memory efficiency (~128 MB per batch matrix)
+        chunk_size = max(1, min(n_events, int(128e6 / max(n, 1))))
+
+        for start in range(0, n_events, chunk_size):
+            end = min(start + chunk_size, n_events)
+            idx_chunk = event_idx[start:end]
+
+            time_i = time[idx_chunk][:, None]
+            risk_i = risk_score[idx_chunk][:, None]
+            time_j = time[None, :]
+            risk_j = risk_score[None, :]
+            event_j = event[None, :]
+
+            # Permissible pairs: earlier time OR same time with j censored
+            perm = (time_i < time_j) | ((time_i == time_j) & (event_j == 0))
+            # Exclude self-comparisons
+            chunk_indices = torch.arange(end - start, device=beta.device)
+            perm[chunk_indices, idx_chunk] = False
+
+            concordant += torch.sum(perm & (risk_i > risk_j))
+            tied_risk += torch.sum(perm & (risk_i == risk_j))
+            permissible += torch.sum(perm)
+
+        if permissible > 0:
+            return (concordant.to(torch.float64) + 0.5 * tied_risk.to(torch.float64)) / permissible.to(torch.float64)
+        else:
+            return torch.tensor(float("nan"), dtype=torch.float64, device=beta.device)
+
     def _compute_inference_cpu(self, X, time, event, cluster=None):
         """Compute standard errors, z-values, p-values, and confidence intervals."""
         n_features = X.shape[1]
@@ -1447,7 +1830,98 @@ class CoxPH(BaseEstimator):
         
         # Hazard (discrete)
         self._baseline_hazard = cumulative_hazard
-    
+
+    def _compute_baseline_hazard_gpu(self, X, time, event, beta):
+        """Compute Breslow estimator of baseline hazard and survival function on GPU."""
+        import cupy as cp
+
+        # Get unique event times
+        event_mask = event == 1
+        if not cp.any(event_mask):
+            self._unique_times = cp.array([])
+            self._baseline_hazard = cp.array([])
+            self._baseline_cumulative_hazard = cp.array([])
+            return
+
+        unique_times = cp.unique(time[event_mask])
+        self._unique_times = unique_times
+
+        # Linear predictor
+        eta = X @ beta
+        exp_eta = cp.exp(eta)
+
+        # Compute baseline cumulative hazard using Breslow estimator (vectorized)
+        cumulative_hazard = cp.zeros(len(unique_times))
+
+        # Vectorized computation using searchsorted
+        # For each unique time, compute d_i / risk_sum
+        for i, t in enumerate(unique_times):
+            # Events at time t
+            d_i = int(cp.sum((time == t) & (event == 1)))
+
+            # Risk set at time t (all with time >= t)
+            risk_set = time >= t
+            risk_sum = cp.sum(exp_eta[risk_set])
+
+            # Breslow estimator contribution
+            cumulative_hazard[i] = d_i / risk_sum
+
+        # Cumulative sum
+        self._baseline_cumulative_hazard = cp.cumsum(cumulative_hazard)
+
+        # Hazard (discrete)
+        self._baseline_hazard = cumulative_hazard
+
+        # Transfer to CPU for storage
+        self._unique_times = cp.asnumpy(self._unique_times)
+        self._baseline_hazard = cp.asnumpy(self._baseline_hazard)
+        self._baseline_cumulative_hazard = cp.asnumpy(self._baseline_cumulative_hazard)
+
+    def _compute_baseline_hazard_torch(self, X, time, event, beta):
+        """Compute Breslow estimator of baseline hazard and survival function on Torch."""
+        import torch
+
+        # Get unique event times
+        event_mask = event == 1
+        if not torch.any(event_mask):
+            self._unique_times = torch.tensor([], dtype=torch.float64, device=beta.device)
+            self._baseline_hazard = torch.tensor([], dtype=torch.float64, device=beta.device)
+            self._baseline_cumulative_hazard = torch.tensor([], dtype=torch.float64, device=beta.device)
+            return
+
+        unique_times = torch.unique(time[event_mask])
+        self._unique_times = unique_times
+
+        # Linear predictor
+        eta = X @ beta
+        exp_eta = torch.exp(eta)
+
+        # Compute baseline cumulative hazard using Breslow estimator (vectorized)
+        cumulative_hazard = torch.zeros(len(unique_times), dtype=torch.float64, device=beta.device)
+
+        # Vectorized computation
+        for i, t in enumerate(unique_times):
+            # Events at time t
+            d_i = int(torch.sum((time == t) & (event == 1)))
+
+            # Risk set at time t (all with time >= t)
+            risk_set = time >= t
+            risk_sum = torch.sum(exp_eta[risk_set])
+
+            # Breslow estimator contribution
+            cumulative_hazard[i] = d_i / risk_sum
+
+        # Cumulative sum
+        self._baseline_cumulative_hazard = torch.cumsum(cumulative_hazard, dim=0)
+
+        # Hazard (discrete)
+        self._baseline_hazard = cumulative_hazard
+
+        # Transfer to CPU for storage
+        self._unique_times = self._unique_times.cpu().numpy()
+        self._baseline_hazard = self._baseline_hazard.cpu().numpy()
+        self._baseline_cumulative_hazard = self._baseline_cumulative_hazard.cpu().numpy()
+
     def _compute_cindex_gpu(self, X, time, event, beta):
         """Compute concordance index (C-index) on GPU."""
         import cupy as cp

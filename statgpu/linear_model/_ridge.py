@@ -181,25 +181,35 @@ class Ridge(BaseEstimator):
     
     def fit(self, X, y, sample_weight=None):
         """Fit Ridge regression model."""
-        # Store y (may be CuPy array, convert later)
+        # Store y (may be CuPy/Torch array, convert later)
         self._y = y
-        X_arr = self._to_array(X)
-        y_arr = self._to_array(y)
-        
+
+        # Get backend - support explicit torch backend selection
+        backend = self._get_backend(backend="auto")
+        backend_name = backend.name
+
+        X_arr = self._to_array(X, backend=backend_name)
+        y_arr = self._to_array(y, backend=backend_name)
+
         device = self._get_compute_device()
-        
-        if device == Device.CUDA:
+
+        # Route to appropriate backend
+        if backend_name == "torch":
+            self._fit_torch(X_arr, y_arr, sample_weight)
+        elif backend_name == "cupy":
             self._fit_gpu(X_arr, y_arr, sample_weight)
         else:
             self._fit_cpu(X_arr, y_arr, sample_weight)
-        
+
         # Now convert y to numpy for diagnostics
-        if hasattr(self._y, 'get'):
+        if hasattr(self._y, 'get'):  # CuPy
             self._y = self._y.get()
+        elif hasattr(self._y, 'cpu'):  # Torch
+            self._y = self._y.cpu().numpy()
         else:
             self._y = np.asarray(self._y)
 
-        # GPU path already computes inference on-device in _fit_gpu().
+        # GPU path already computes inference on-device in _fit_gpu/_fit_torch().
         if self.compute_inference and device != Device.CUDA:
             self._compute_inference()
         self._fitted = True
@@ -413,6 +423,227 @@ class Ridge(BaseEstimator):
         except Exception:
             pass
         self._cleanup_cuda_memory()
+
+    def _cleanup_torch_memory(self):
+        """Best-effort Torch CUDA memory cleanup."""
+        if not self.gpu_memory_cleanup:
+            return
+        try:
+            import torch
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+                torch.cuda.synchronize()
+        except Exception:
+            pass
+
+    def _robust_covariance_torch(self, X, resid, XtX_inv):
+        """Compute robust/HAC covariance matrix for Ridge score equations on Torch GPU."""
+        import torch
+
+        n, k = X.shape
+        e = resid.reshape(-1)
+
+        if self.cov_type == "hac":
+            scores = X * e[:, None]
+            meat = self._hac_meat_torch(scores)
+            return XtX_inv @ meat @ XtX_inv
+
+        if self.cov_type in ("hc2", "hc3"):
+            leverage = torch.einsum("ij,jk,ik->i", X, XtX_inv, X)
+            leverage = torch.clamp(leverage, 0.0, 1.0 - 1e-12)
+            if self.cov_type == "hc2":
+                e2 = torch.square(e) / (1.0 - leverage)
+            else:
+                e2 = torch.square(e) / torch.square(1.0 - leverage)
+        else:
+            e2 = torch.square(e)
+
+        Xw = X * e2[:, None]
+        meat = X.T @ Xw
+        cov_params = XtX_inv @ meat @ XtX_inv
+        if self.cov_type == "hc1" and n > k:
+            cov_params = cov_params * (n / (n - k))
+        return cov_params
+
+    def _hac_meat_torch(self, scores):
+        """Torch Bartlett-kernel HAC meat from per-observation score matrix."""
+        import torch
+
+        n_obs = int(scores.shape[0])
+        meat = scores.T @ scores
+        maxlags = self._resolve_hac_maxlags(n_obs)
+        if maxlags == 0:
+            return meat
+        for lag in range(1, maxlags + 1):
+            weight = 1.0 - (lag / (maxlags + 1.0))
+            gamma = scores[lag:].T @ scores[:-lag]
+            meat = meat + weight * (gamma + gamma.T)
+        return meat
+
+    def _fit_torch(self, X, y, sample_weight=None):
+        """Fit using Torch GPU."""
+        import torch
+        from .._gpu_utils_torch import (
+            compute_inference_torch,
+            compute_r2_torch,
+            compute_aic_bic_torch,
+            compute_f_stat_torch,
+        )
+        from ..inference._distributions_torch import norm
+
+        # Note: Device.TORCH.value is 'torch', but Torch expects 'cuda' or 'cpu'
+        torch_device = "cuda" if torch.cuda.is_available() else "cpu"
+
+        n_samples, n_features = X.shape
+        self._nobs = n_samples
+
+        # Ensure Torch tensors on GPU
+        if not isinstance(X, torch.Tensor):
+            X = torch.from_numpy(X).to(torch_device)
+        if not isinstance(y, torch.Tensor):
+            y = torch.from_numpy(y).to(torch_device)
+        if y.dtype != torch.float64:
+            y = y.to(torch.float64)
+        if X.dtype != torch.float64:
+            X = X.to(torch.float64)
+
+        if sample_weight is not None:
+            if not isinstance(sample_weight, torch.Tensor):
+                sample_weight = torch.from_numpy(sample_weight).to(torch_device)
+            sqrt_sw = torch.sqrt(sample_weight)
+            X = X * sqrt_sw[:, None]
+            y = y * sqrt_sw
+
+        if self.fit_intercept:
+            X_mean = torch.mean(X, axis=0)
+            y_mean = torch.mean(y)
+            X_centered = X - X_mean
+            y_centered = y - y_mean
+        else:
+            X_centered = X
+            y_mean = torch.tensor(0.0, device=torch_device)
+
+        if y.ndim == 1:
+            y_centered = y_centered.reshape(-1, 1)
+
+        # Ridge closed-form
+        XtX = X_centered.T @ X_centered
+        Xty = X_centered.T @ y_centered
+
+        I = torch.eye(n_features, dtype=torch.float64, device=torch_device)
+        XtX_reg = XtX + self.alpha * I
+
+        try:
+            # Cholesky for better performance
+            L = torch.linalg.cholesky(XtX_reg)
+            tmp = torch.linalg.solve_triangular(L, Xty, upper=False)
+            coef = torch.linalg.solve_triangular(L.T, tmp, upper=True)
+        except Exception:
+            coef = torch.linalg.solve(XtX_reg, Xty)
+
+        # Keep on GPU for residuals
+        if self.fit_intercept:
+            X_design = torch.cat([torch.ones(n_samples, 1, dtype=torch.float64, device=torch_device), X], dim=1)
+            intercept_coef = y_mean - X_mean @ coef
+            coef_full = torch.cat([intercept_coef.reshape(-1), coef.flatten()])
+        else:
+            X_design = X
+            coef_full = coef.flatten()
+
+        y_pred = X_design @ coef_full
+        resid = y - y_pred
+
+        df_resid = n_samples - (n_features + (1 if self.fit_intercept else 0))
+        if df_resid > 0:
+            scale = torch.sum(resid ** 2) / df_resid
+        else:
+            scale = torch.tensor(float('nan'), dtype=torch.float64, device=torch_device)
+
+        # Compute ALL statistics on GPU
+        if self.compute_inference:
+            if self.cov_type == "nonrobust":
+                self._bse_gpu, self._tvalues_gpu, self._pvalues_gpu, self._conf_int_gpu = \
+                    compute_inference_torch(X_design, resid, scale, df_resid, coef_full, device=torch_device)
+            else:
+                XtX_cov = X_design.T @ X_design
+                # Apply ridge penalty excluding the intercept column
+                k_design = X_design.shape[1]
+                penalty_diag = torch.ones(k_design, dtype=torch.float64, device=torch_device) * self.alpha
+                if self.fit_intercept:
+                    penalty_diag[0] = 0.0  # no penalty on the intercept term
+                XtX_pen = XtX_cov + torch.diag(penalty_diag)
+                try:
+                    XtX_inv = torch.linalg.inv(XtX_pen)
+                except Exception:
+                    XtX_inv = torch.linalg.pinv(XtX_pen)
+                cov_params = self._robust_covariance_torch(X_design, resid, XtX_inv)
+                self._bse_gpu = torch.sqrt(torch.clamp(torch.diag(cov_params), 0.0))
+                self._tvalues_gpu = coef_full / (self._bse_gpu + 1e-30)
+                self._pvalues_gpu = torch.minimum(torch.tensor(1.0, device=torch_device), 2.0 * norm.sf(torch.abs(self._tvalues_gpu), device=torch_device))
+                z_crit = norm.ppf(0.975, device=torch_device)
+                self._conf_int_gpu = torch.stack([
+                    coef_full - z_crit * self._bse_gpu,
+                    coef_full + z_crit * self._bse_gpu,
+                ], dim=1)
+
+            self._rsquared_gpu = compute_r2_torch(y, resid)
+
+            k = n_features + (1 if self.fit_intercept else 0)
+            scale_mle = torch.sum(resid ** 2) / n_samples
+            self._aic_gpu, self._bic_gpu = compute_aic_bic_torch(n_samples, k, scale_mle, device=torch_device)
+
+            self._fvalue_gpu, self._f_pvalue = compute_f_stat_torch(y, resid, X_design, df_resid, device=torch_device)
+
+        # Single transfer to CPU at the end
+        coef_full_np = coef_full.cpu().numpy()
+        resid_np = resid.cpu().numpy()
+        scale_float = float(scale.cpu().numpy()) if not torch.isnan(scale) else np.nan
+        X_design_np = X_design.cpu().numpy()
+
+        # Transfer inference results
+        if self.compute_inference:
+            self._bse = self._bse_gpu.cpu().numpy()
+            self._tvalues = self._tvalues_gpu.cpu().numpy()
+            self._pvalues = self._pvalues_gpu.cpu().numpy()
+            self._conf_int = self._conf_int_gpu.cpu().numpy()
+
+        # Store
+        if self.fit_intercept:
+            self.intercept_ = float(coef_full_np[0])
+            self.coef_ = coef_full_np[1:]
+            self._params = coef_full_np
+        else:
+            self.intercept_ = 0.0
+            self.coef_ = coef_full_np
+            self._params = coef_full_np
+
+        self._X_design = X_design_np
+        self._resid = resid_np
+        self._df_resid = df_resid
+        self._scale = scale_float
+
+        # Release large temporary GPU tensors early.
+        try:
+            del X_design
+        except Exception:
+            pass
+        try:
+            del resid
+        except Exception:
+            pass
+        try:
+            del XtX
+        except Exception:
+            pass
+        try:
+            del Xty
+        except Exception:
+            pass
+        try:
+            del XtX_reg
+        except Exception:
+            pass
+        self._cleanup_torch_memory()
     
     def _compute_inference(self):
         """Compute standard errors, t-stats, p-values, and CIs."""

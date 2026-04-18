@@ -265,27 +265,36 @@ class LinearRegression(BaseEstimator):
     
     def fit(self, X, y, sample_weight=None):
         """Fit linear model."""
-        # Store y (may be CuPy array, convert later for CPU)
+        # Store y (may be CuPy/Torch array, convert later for CPU)
         self._y = y
-        
-        X_arr = self._to_array(X)
-        y_arr = self._to_array(y)
+
+        # Get backend - support explicit torch backend selection
+        backend = self._get_backend(backend="auto")
+        backend_name = backend.name
+
+        X_arr = self._to_array(X, backend=backend_name)
+        y_arr = self._to_array(y, backend=backend_name)
         self._is_multi_output = y_arr.ndim > 1 and y_arr.shape[1] > 1
-        
+
         device = self._get_compute_device()
-        
-        if device == Device.CUDA:
+
+        # Route to appropriate backend
+        if backend_name == "torch":
+            self._fit_torch(X_arr, y_arr, sample_weight)
+        elif backend_name == "cupy":
             self._fit_gpu(X_arr, y_arr, sample_weight)
         else:
             self._fit_cpu(X_arr, y_arr, sample_weight)
-        
+
         # Convert y to numpy for diagnostics if needed
-        if hasattr(self._y, 'get'):
+        if hasattr(self._y, 'get'):  # CuPy
             self._y = self._y.get()
+        elif hasattr(self._y, 'cpu'):  # Torch
+            self._y = self._y.cpu().numpy()
         else:
             self._y = np.asarray(self._y)
 
-        # GPU single-output inference is computed in _fit_gpu().
+        # GPU single-output inference is computed in _fit_gpu/_fit_torch().
         if self.compute_inference and (self._is_multi_output or device != Device.CUDA):
             self._compute_inference()
         self._fitted = True
@@ -509,6 +518,241 @@ class LinearRegression(BaseEstimator):
         except Exception:
             pass
         self._cleanup_cuda_memory()
+
+    def _cleanup_torch_memory(self):
+        """Best-effort Torch memory cleanup."""
+        if not self.gpu_memory_cleanup:
+            return
+        try:
+            import torch
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+        except Exception:
+            pass
+
+    def _hac_meat_torch(self, scores):
+        """Torch Bartlett-kernel HAC meat from per-observation score matrix."""
+        import torch
+
+        n_obs = int(scores.shape[0])
+        meat = scores.T @ scores
+        maxlags = self._resolve_hac_maxlags(n_obs)
+        if maxlags == 0:
+            return meat
+        for lag in range(1, maxlags + 1):
+            weight = 1.0 - (lag / (maxlags + 1.0))
+            gamma = scores[lag:].T @ scores[:-lag]
+            meat = meat + weight * (gamma + gamma.T)
+        return meat
+
+    def _robust_covariance_torch(self, X, resid, XtX_inv, device=None):
+        """Compute robust/HAC covariance matrix for OLS-like score equations on Torch GPU."""
+        import torch
+
+        n, k = X.shape
+        e = resid.reshape(-1)
+
+        if device is None:
+            device = 'cuda' if X.is_cuda else 'cpu'
+
+        if self.cov_type == "hac":
+            # HAC requires temporal ordering - compute score matrix and apply Bartlett kernel
+            scores = X * e[:, None]
+            meat = self._hac_meat_torch(scores)
+            return XtX_inv @ meat @ XtX_inv
+
+        if self.cov_type in ("hc2", "hc3"):
+            leverage = torch.einsum("ij,jk,ik->i", X, XtX_inv, X)
+            leverage = torch.clamp(leverage, 0.0, 1.0 - 1e-12)
+            if self.cov_type == "hc2":
+                e2 = torch.square(e) / (1.0 - leverage)
+            else:
+                e2 = torch.square(e) / torch.square(1.0 - leverage)
+        else:
+            e2 = torch.square(e)
+
+        Xw = X * e2[:, None]
+        meat = X.T @ Xw
+        cov_params = XtX_inv @ meat @ XtX_inv
+        if self.cov_type == "hc1" and n > k:
+            cov_params = cov_params * (n / (n - k))
+        return cov_params
+
+    def _fit_torch(self, X, y, sample_weight=None):
+        """Fit using Torch GPU with FULL GPU computation (including inference)."""
+        import torch
+        from .._gpu_utils_torch import (
+            compute_inference_torch,
+            compute_r2_torch,
+            compute_aic_bic_torch,
+            compute_f_stat_torch,
+        )
+        from ..inference._distributions_torch import norm
+
+        n_samples, n_features = X.shape
+        self._nobs = n_samples
+
+        # Ensure Torch tensors on correct device
+        # Note: Device.TORCH.value is 'torch', but Torch expects 'cuda' or 'cpu'
+        torch_device = "cuda" if torch.cuda.is_available() else "cpu"
+        if not isinstance(X, torch.Tensor):
+            X = torch.from_numpy(np.asarray(X)).to(torch_device)
+        if not isinstance(y, torch.Tensor):
+            y = torch.from_numpy(np.asarray(y)).to(torch_device)
+
+        if X.dtype != torch.float64:
+            X = X.to(torch.float64)
+        if y.dtype != torch.float64:
+            y = y.to(torch.float64)
+
+        if sample_weight is not None:
+            if not isinstance(sample_weight, torch.Tensor):
+                sample_weight = torch.from_numpy(np.asarray(sample_weight)).to(torch_device)
+            if sample_weight.dtype != torch.float64:
+                sample_weight = sample_weight.to(torch.float64)
+            sqrt_sw = torch.sqrt(sample_weight)
+            X = X * sqrt_sw[:, None]
+            y = y * sqrt_sw
+
+        if self.fit_intercept:
+            X_design = torch.cat([torch.ones(n_samples, 1, dtype=X.dtype, device=torch_device), X], dim=1)
+        else:
+            X_design = X.clone()
+
+        if y.ndim == 1:
+            y = y.reshape(-1, 1)
+
+        # Use normal equations: (X'X)^-1 X'y
+        XtX = X_design.T @ X_design
+        Xty = X_design.T @ y
+
+        try:
+            # Cholesky decomposition
+            L = torch.linalg.cholesky(XtX)
+            # Solve L @ tmp = Xty (L is lower triangular)
+            tmp = torch.linalg.solve_triangular(L, Xty, upper=False)
+            # Solve L.T @ coef = tmp (L.T is upper triangular)
+            coef = torch.linalg.solve_triangular(L.T, tmp, upper=True)
+        except Exception:
+            coef = torch.linalg.solve(XtX, Xty)
+
+        # Compute predictions and residuals on Torch
+        y_pred = X_design @ coef
+        resid = y - y_pred
+
+        # Compute scale on Torch
+        df_resid = n_samples - (n_features + (1 if self.fit_intercept else 0))
+        if df_resid > 0:
+            if y.shape[1] > 1:
+                scale = torch.sum(resid ** 2, dim=0) / df_resid
+            else:
+                scale = torch.sum(resid ** 2) / df_resid
+        else:
+            if y.shape[1] > 1:
+                scale = torch.full((y.shape[1],), float('nan'), dtype=y.dtype, device=torch_device)
+            else:
+                scale = torch.tensor(float('nan'), dtype=y.dtype, device=torch_device)
+
+        # Compute inference-related statistics only when requested.
+        if self.compute_inference and not self._is_multi_output:
+            coef_flat = coef.flatten()
+            if self.cov_type == "nonrobust":
+                self._bse_gpu, self._tvalues_gpu, self._pvalues_gpu, self._conf_int_gpu = \
+                    compute_inference_torch(X_design, resid, scale, df_resid, coef_flat, cov_type="nonrobust", device=torch_device)
+            else:
+                XtX_cov = X_design.T @ X_design
+                try:
+                    XtX_inv = torch.linalg.inv(XtX_cov)
+                except Exception:
+                    XtX_inv = torch.linalg.pinv(XtX_cov)
+                cov_params = self._robust_covariance_torch(X_design, resid, XtX_inv, device=torch_device)
+                self._bse_gpu = torch.sqrt(torch.clamp(torch.diag(cov_params), 0.0))
+                self._tvalues_gpu = coef_flat / (self._bse_gpu + 1e-30)
+                self._pvalues_gpu = torch.clamp(2.0 * norm.sf(torch.abs(self._tvalues_gpu), device=torch_device), 0.0, 1.0)
+                z_crit = norm.ppf(0.975, device=torch_device)
+                self._conf_int_gpu = torch.stack([
+                    coef_flat - z_crit * self._bse_gpu,
+                    coef_flat + z_crit * self._bse_gpu,
+                ], dim=1)
+
+            # R-squared on Torch
+            self._rsquared_gpu = compute_r2_torch(y, resid)
+
+            # AIC/BIC on Torch
+            k = n_features + (1 if self.fit_intercept else 0)
+            scale_mle = torch.sum(resid ** 2) / n_samples
+            self._aic_gpu, self._bic_gpu = compute_aic_bic_torch(n_samples, k, scale_mle, device=torch_device)
+
+            # F-statistic on Torch
+            self._fvalue_gpu, self._f_pvalue = compute_f_stat_torch(y, resid, X_design, df_resid, device=torch_device)
+
+        # Single transfer to CPU at the end
+        coef_np = coef.detach().cpu().numpy()
+        resid_np = resid.detach().cpu().numpy()
+        if y.shape[1] > 1:
+            scale_np = scale.detach().cpu().numpy()
+        else:
+            scale_val = scale.detach().cpu().item()
+            scale_np = float(scale_val) if not np.isnan(scale_val) else np.nan
+        X_design_np = X_design.detach().cpu().numpy()
+
+        if self.compute_inference and not self._is_multi_output:
+            # Transfer inference results
+            self._bse = self._bse_gpu.detach().cpu().numpy()
+            self._tvalues = self._tvalues_gpu.detach().cpu().numpy()
+            self._pvalues = self._pvalues_gpu.detach().cpu().numpy()
+            self._conf_int = self._conf_int_gpu.detach().cpu().numpy()
+
+        # Store results
+        if self.fit_intercept:
+            if coef_np.shape[1] > 1:
+                self.intercept_ = coef_np[0, :].copy()
+                self.coef_ = coef_np[1:, :].T
+                self._params = coef_np.copy()
+            else:
+                self.intercept_ = float(coef_np[0, 0])
+                self.coef_ = coef_np[1:, 0].copy()  # Ensure 1D array
+                self._params = coef_np[:, 0].copy()
+        else:
+            if coef_np.shape[1] > 1:
+                self.intercept_ = np.zeros(coef_np.shape[1], dtype=coef_np.dtype)
+                self.coef_ = coef_np.T
+                self._params = coef_np.copy()
+            else:
+                self.intercept_ = 0.0
+                self.coef_ = coef_np[:, 0].copy()  # Ensure 1D array
+                self._params = coef_np[:, 0].copy()
+
+        self._X_design = X_design_np
+        if resid_np.shape[1] == 1:
+            self._resid = resid_np[:, 0]
+        else:
+            self._resid = resid_np
+        self._df_resid = df_resid
+        self._scale = scale_np
+
+        # Release large temporary Torch tensors early.
+        try:
+            del X_design
+        except Exception:
+            pass
+        try:
+            del resid
+        except Exception:
+            pass
+        try:
+            del XtX
+        except Exception:
+            pass
+        try:
+            del Xty
+        except Exception:
+            pass
+        try:
+            del coef
+        except Exception:
+            pass
+        self._cleanup_torch_memory()
     
     def _compute_inference(self):
         """Compute standard errors, t-stats, p-values."""
@@ -588,7 +832,7 @@ class LinearRegression(BaseEstimator):
             self._params - z_crit * self._bse,
             self._params + z_crit * self._bse,
         ])
-    
+
     @property
     def rsquared(self):
         """R-squared."""
