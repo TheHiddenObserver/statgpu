@@ -22,24 +22,291 @@ from .._base import BaseEstimator
 from .._config import Device
 
 
-# Lazy import optimized implementations
-def _get_cupy_optimized():
-    """Lazy import of CuPy optimized implementation."""
+# ============================================================================
+# CuPy Fused Kernels for Elastic Net
+# ============================================================================
+
+def _get_cupy_fused_kernels():
+    """Lazy load CuPy fused kernels."""
     try:
-        from ._elasticnet_cupy_optimized import fit_elasticnet_optimized
-        return fit_elasticnet_optimized
+        import cupy as cp
+    except ImportError:
+        return None, None, None, None
+
+    @cp.fuse()
+    def _elastic_net_proximal(x, thresh, l2_scale):
+        """Fused soft thresholding with L2 scaling."""
+        return cp.sign(x) * cp.maximum(cp.abs(x) - thresh, 0) / l2_scale
+
+    @cp.fuse()
+    def _fista_momentum_update(coef, coef_old, t_old, t_new):
+        """Fused FISTA momentum update."""
+        beta = (t_old - 1) / t_new
+        return coef + beta * (coef - coef_old)
+
+    @cp.fuse()
+    def _compute_coef_delta(coef, coef_old):
+        """Compute absolute coefficient change."""
+        return cp.abs(coef - coef_old)
+
+    ELASTIC_NET_PROXIMAL_KERNEL = cp.ElementwiseKernel(
+        'float64 w_tilde, float64 thresh, float64 l2_scale',
+        'float64 coef',
+        '''
+        double abs_w = abs(w_tilde);
+        if (abs_w > thresh) {
+            coef = (w_tilde > 0 ? 1.0 : -1.0) * (abs_w - thresh) / l2_scale;
+        } else {
+            coef = 0.0;
+        }
+        ''',
+        'elastic_net_proximal'
+    )
+
+    return _elastic_net_proximal, _fista_momentum_update, _compute_coef_delta, ELASTIC_NET_PROXIMAL_KERNEL
+
+
+def _fit_elasticnet_cupy_optimized(X, y, alpha, l1_ratio, n_samples, n_features,
+                                    max_iter=1000, tol=1e-4, lipschitz_L=None,
+                                    stopping='coef_delta', warmup=True):
+    """
+    Fit Elastic Net using optimized CuPy operations with fused kernels.
+    """
+    import cupy as cp
+
+    # Get fused kernels
+    _elastic_net_proximal, _fista_momentum_update, _compute_coef_delta, _ = _get_cupy_fused_kernels()
+    if _elastic_net_proximal is None:
+        raise ImportError("CuPy not available")
+
+    # Precompute Gram matrix and cross product
+    XtX = X.T @ X
+    Xty = X.T @ y
+
+    # Parameters
+    l2_ratio = 1.0 - l1_ratio
+
+    # Lipschitz constant: L = lambda_max(XtX) / n
+    if lipschitz_L is not None:
+        L = float(lipschitz_L)
+    else:
+        eigvals = cp.linalg.eigvalsh(XtX)
+        L = float(eigvals[-1]) / n_samples
+
+    if L <= 0:
+        return cp.zeros(n_features), 0
+
+    step = 1.0 / L
+    thresh = alpha * l1_ratio * step
+    l2_scale = 1.0 + alpha * l2_ratio * step
+
+    # Pre-compute inverse for multiplication (faster than division)
+    inv_n_samples = 1.0 / n_samples
+    inv_l2_scale = 1.0 / l2_scale
+
+    # Allocate buffers (reuse to minimize allocation overhead)
+    coef = cp.zeros(n_features, dtype=X.dtype)
+    y_k = cp.zeros(n_features, dtype=X.dtype)
+    coef_old = cp.zeros(n_features, dtype=X.dtype)
+    grad = cp.empty(n_features, dtype=X.dtype)
+    w_tilde = cp.empty(n_features, dtype=X.dtype)
+
+    # FISTA state
+    t_k = 1.0
+    n_iter = 0
+
+    # Warm-up: Call fused kernel once to trigger JIT compilation
+    if warmup:
+        _ = _elastic_net_proximal(w_tilde, thresh, l2_scale)
+        _ = (1.0 + cp.sqrt(1.0 + 4.0 * t_k * t_k)) * 0.5
+
+    for iteration in range(max_iter):
+        # Store old coefficients for convergence check
+        coef_old[:] = coef
+
+        # Gradient step: grad = (XtX @ y_k - Xty) / n
+        grad = XtX @ y_k
+        grad -= Xty
+        grad *= inv_n_samples
+
+        # Proximal step: w_tilde = y_k - step * grad
+        w_tilde = y_k - step * grad
+
+        # Soft thresholding with L2 scaling (using fused kernel)
+        coef = _elastic_net_proximal(w_tilde, thresh, l2_scale)
+
+        # FISTA momentum update
+        t_new = (1.0 + cp.sqrt(1.0 + 4.0 * t_k * t_k)) * 0.5
+        beta = (t_k - 1.0) / t_new
+        y_k = coef + beta * (coef - coef_old)
+        t_k = t_new
+
+        n_iter = iteration + 1
+
+        # Convergence check
+        if stopping == 'kkt':
+            kkt_grad = XtX @ coef
+            kkt_grad -= Xty
+            kkt_grad *= inv_n_samples
+
+            grad_l2 = alpha * l2_ratio * coef
+            sign_coef = cp.sign(coef)
+            sign_coef[coef == 0] = 0
+
+            kkt_violation = cp.maximum(
+                cp.abs(kkt_grad + grad_l2 + alpha * l1_ratio * sign_coef),
+                cp.maximum(cp.abs(kkt_grad + grad_l2) - alpha * l1_ratio, 0)
+            )
+            violation = float(cp.max(kkt_violation))
+        else:
+            delta = cp.abs(coef - coef_old)
+            violation = float(cp.max(delta))
+
+        if violation < tol:
+            break
+
+    return coef, n_iter
+
+
+# ============================================================================
+# Torch Compiled Kernels for Elastic Net
+# ============================================================================
+
+def _get_torch_compiled_proximal():
+    """Lazy load torch.compile proximal operator."""
+    try:
+        import torch
     except ImportError:
         return None
 
+    def _elastic_net_proximal_torch(w_tilde, thresh, l2_scale):
+        """Soft thresholding with L2 scaling for Elastic Net."""
+        return torch.sign(w_tilde) * torch.maximum(
+            torch.abs(w_tilde) - thresh,
+            torch.tensor(0.0, device=w_tilde.device, dtype=w_tilde.dtype)
+        ) / l2_scale
 
-def _get_torch_optimized():
-    """Lazy import of Torch optimized implementation."""
+    # Compile the proximal operator
     try:
-        from ._elasticnet_torch_optimized import fit_elasticnet_torch_optimized
-        return fit_elasticnet_torch_optimized
-    except ImportError:
-        return None
+        torch._dynamo.config.suppress_errors = True
+        torch._dynamo.config.guard_immutable_object = False
+        _elastic_net_proximal_compiled = torch.compile(
+            _elastic_net_proximal_torch, mode='max-autotune'
+        )
+    except (AttributeError, RuntimeError):
+        _elastic_net_proximal_compiled = _elastic_net_proximal_torch
 
+    return _elastic_net_proximal_compiled
+
+
+def _fit_elasticnet_torch_optimized(X, y, alpha, l1_ratio, n_samples, n_features,
+                                     max_iter=1000, tol=1e-4, lipschitz_L=None,
+                                     stopping='coef_delta', warmup=True):
+    """
+    Fit Elastic Net using optimized PyTorch operations with torch.compile().
+    """
+    import torch
+
+    # Get compiled proximal operator
+    _elastic_net_proximal_compiled = _get_torch_compiled_proximal()
+    if _elastic_net_proximal_compiled is None:
+        raise ImportError("Torch not available")
+
+    # Precompute Gram matrix and cross product
+    XtX = X.T @ X
+    Xty = X.T @ y
+
+    # Parameters
+    l2_ratio = 1.0 - l1_ratio
+
+    # Lipschitz constant: L = lambda_max(XtX) / n
+    if lipschitz_L is not None:
+        L = float(lipschitz_L)
+    else:
+        eigvals = torch.linalg.eigvalsh(XtX)
+        L = float(eigvals[-1]) / n_samples
+
+    if L <= 0:
+        return torch.zeros(n_features, device=X.device, dtype=X.dtype), 0
+
+    step = 1.0 / L
+    thresh = alpha * l1_ratio * step
+    l2_scale = 1.0 + alpha * l2_ratio * step
+
+    # Pre-compute inverse for multiplication (faster than division)
+    inv_n_samples = 1.0 / n_samples
+    inv_l2_scale = 1.0 / l2_scale
+
+    # Allocate buffers (reuse to minimize allocation overhead)
+    coef = torch.zeros(n_features, dtype=X.dtype, device=X.device)
+    y_k = torch.zeros(n_features, dtype=X.dtype, device=X.device)
+    coef_old = torch.zeros(n_features, dtype=X.dtype, device=X.device)
+    grad = torch.empty(n_features, dtype=X.dtype, device=X.device)
+    w_tilde = torch.empty(n_features, dtype=X.dtype, device=X.device)
+
+    # FISTA state
+    t_k = 1.0
+    n_iter = 0
+
+    # Warm-up: Call compiled kernel once to trigger JIT compilation
+    if warmup:
+        _ = _elastic_net_proximal_compiled(w_tilde, thresh, l2_scale)
+        _ = (1.0 + torch.sqrt(1.0 + 4.0 * t_k * t_k)) * 0.5
+
+    for iteration in range(max_iter):
+        # Store old coefficients for convergence check
+        coef_old.copy_(coef)
+
+        # Gradient step: grad = (XtX @ y_k - Xty) / n
+        torch.matmul(XtX, y_k, out=grad)
+        grad -= Xty
+        grad *= inv_n_samples
+
+        # Proximal step: w_tilde = y_k - step * grad
+        torch.subtract(y_k, grad, alpha=step, out=w_tilde)
+
+        # Soft thresholding with L2 scaling (using compiled fused kernel)
+        coef = _elastic_net_proximal_compiled(w_tilde, thresh, l2_scale)
+
+        # FISTA momentum update
+        t_new = (1.0 + torch.sqrt(1.0 + 4.0 * t_k * t_k)) * 0.5
+        beta = (t_k - 1.0) / t_new
+        y_k = coef + beta * (coef - coef_old)
+        t_k = t_new
+
+        n_iter = iteration + 1
+
+        # Convergence check
+        if stopping == 'kkt':
+            kkt_grad = torch.matmul(XtX, coef, out=grad)
+            kkt_grad -= Xty
+            kkt_grad *= inv_n_samples
+
+            grad_l2 = alpha * l2_ratio * coef
+            sign_coef = torch.sign(coef)
+            sign_coef[coef == 0] = 0
+
+            kkt_violation = torch.maximum(
+                torch.abs(kkt_grad + grad_l2 + alpha * l1_ratio * sign_coef),
+                torch.maximum(
+                    torch.abs(kkt_grad + grad_l2) - alpha * l1_ratio,
+                    torch.tensor(0.0, device=X.device)
+                )
+            )
+            violation = float(torch.max(kkt_violation).item())
+        else:
+            delta = torch.abs(coef - coef_old)
+            violation = float(torch.max(delta).item())
+
+        if violation < tol:
+            break
+
+    return coef, n_iter
+
+
+# ============================================================================
+# Elastic Net Estimator Class
+# ============================================================================
 
 class ElasticNet(BaseEstimator):
     """
@@ -270,20 +537,13 @@ class ElasticNet(BaseEstimator):
 
     def _fit_cpu(self, X, y, sample_weight=None):
         """
-        Fit using CPU FISTA solver.
+        Fit using CPU FISTA solver with optimized implementation.
 
         Elastic Net proximal gradient update:
           grad = (XtX @ w - Xty) / n        # gradient of RSS only
           w = soft_threshold(w - step*grad, α*l1_ratio*step) / (1 + α*(1-l1_ratio)*step)
 
         Note: L2 regularization is handled in the proximal step, NOT in the gradient.
-        """
-        # Use optimized CPU implementation
-        self._fit_cpu_optimized(X, y, sample_weight)
-
-    def _fit_cpu_optimized(self, X, y, sample_weight=None):
-        """
-        Optimized CPU FISTA solver with pre-computed Gram matrix.
         """
         X = np.asarray(X)
         y = np.asarray(y)
@@ -367,20 +627,15 @@ class ElasticNet(BaseEstimator):
                 # Convergence test
                 if self.stopping == "kkt":
                     # KKT violation for Elastic Net
-                    # Optimality condition: 0 ∈ (XtX @ coef - Xty)/n + α*l1_ratio*∂||coef||_1 + α*l2_ratio*coef
                     grad_rss = (XtX @ coef - Xty) / n_samples
-                    # L2 gradient
                     grad_l2 = alpha * l2_ratio * coef
-                    # L1 subgradient
                     sign_coef = np.sign(coef)
                     sign_coef[coef == 0] = 0
                     kkt_violation = np.zeros(n_features)
                     for j in range(n_features):
                         if coef[j] != 0:
-                            # For non-zero coefficients: gradient + L1 subgradient should be zero
                             kkt_violation[j] = np.abs(grad_rss[j] + grad_l2[j] + alpha * l1_ratio * sign_coef[j])
                         else:
-                            # For zero coefficients: |gradient| should be <= alpha * l1_ratio
                             kkt_violation[j] = max(0, np.abs(grad_rss[j] + grad_l2[j]) - alpha * l1_ratio)
                     violation = np.max(kkt_violation)
                     if violation < self.tol:
@@ -425,9 +680,7 @@ class ElasticNet(BaseEstimator):
 
     def _fit_gpu(self, X, y, sample_weight=None):
         """
-        Fit using GPU (CuPy) with FISTA solver.
-
-        Uses optimized implementation with fused kernels if available.
+        Fit using GPU (CuPy) with optimized FISTA solver and fused kernels.
         """
         import cupy as cp
 
@@ -461,28 +714,20 @@ class ElasticNet(BaseEstimator):
             y_mean = cp.array(0.0, dtype=X.dtype)
             y_centered = y
 
-        # Try to use optimized implementation
-        fit_optimized = _get_cupy_optimized()
-        if fit_optimized is not None:
-            # Use optimized implementation with fused kernels
-            coef, self.n_iter_ = fit_optimized(
-                X=X_centered,
-                y=y_centered,
-                alpha=float(self.alpha),
-                l1_ratio=float(self.l1_ratio),
-                n_samples=n_samples,
-                n_features=n_features,
-                max_iter=self.max_iter,
-                tol=self.tol,
-                lipschitz_L=self.lipschitz_L,
-                stopping=self.stopping,
-                warmup=True  # Enable warm-up to avoid JIT overhead
-            )
-        else:
-            # Fallback to base implementation
-            coef, self.n_iter_ = self._fit_gpu_base(
-                X_centered, y_centered, n_samples, n_features
-            )
+        # Use optimized implementation with fused kernels
+        coef, self.n_iter_ = _fit_elasticnet_cupy_optimized(
+            X=X_centered,
+            y=y_centered,
+            alpha=float(self.alpha),
+            l1_ratio=float(self.l1_ratio),
+            n_samples=n_samples,
+            n_features=n_features,
+            max_iter=self.max_iter,
+            tol=self.tol,
+            lipschitz_L=self.lipschitz_L,
+            stopping=self.stopping,
+            warmup=True  # Enable warm-up to avoid JIT overhead
+        )
 
         # Build full coefficients
         if self.fit_intercept:
@@ -507,78 +752,6 @@ class ElasticNet(BaseEstimator):
 
         # Cleanup
         self._cleanup_cuda_memory()
-
-    def _fit_gpu_base(self, X_centered, y_centered, n_samples, n_features):
-        """
-        Base GPU implementation (fallback).
-        """
-        import cupy as cp
-
-        # Precompute XtX / Xty
-        XtX = X_centered.T @ X_centered
-        Xty = X_centered.T @ y_centered
-
-        # Elastic Net parameters
-        alpha = float(self.alpha)
-        l1_ratio = float(self.l1_ratio)
-        l2_ratio = 1.0 - l1_ratio
-
-        # Lipschitz constant: L = λ_max(XtX)/n (RSS only)
-        if self.lipschitz_L is not None:
-            L = cp.array(float(self.lipschitz_L), dtype=X_centered.dtype)
-        else:
-            try:
-                eigvals = cp.linalg.eigvalsh(XtX)
-                L = eigvals[-1] / n_samples
-            except Exception:
-                L_frob = cp.sum(X_centered ** 2) / n_samples
-                L = L_frob
-
-        if L <= 0:
-            return cp.zeros(n_features, dtype=X_centered.dtype), 0
-
-        step = 1.0 / L
-        thresh = alpha * l1_ratio * step
-        l2_scale = 1.0 + alpha * l2_ratio * step
-
-        # FISTA variables
-        coef = cp.zeros(n_features, dtype=X_centered.dtype)
-        y_k = coef.copy()
-        t_k = cp.array(1.0, dtype=X_centered.dtype)
-
-        for iteration in range(self.max_iter):
-            coef_old = coef.copy()
-
-            # Gradient of RSS ONLY (L2 is handled in proximal step)
-            grad = (XtX @ y_k - Xty) / n_samples
-
-            # Proximal step
-            w_tilde = y_k - step * grad
-            coef = self._soft_threshold_elastic_cupy(w_tilde, thresh, l2_scale)
-
-            # Momentum update
-            t_new = (1 + cp.sqrt(1 + 4 * (t_k ** 2))) / 2
-            beta = (t_k - 1) / t_new
-            y_k = coef + beta * (coef - coef_old)
-            t_k = t_new
-
-            # Convergence test
-            if self.stopping == "kkt":
-                grad_rss = (XtX @ coef - Xty) / n_samples
-                grad_l2 = alpha * l2_ratio * coef
-                sign_coef = cp.sign(coef)
-                sign_coef[coef == 0] = 0
-                kkt_nonzero = cp.abs(grad_rss + grad_l2 + alpha * l1_ratio * sign_coef)
-                kkt_zero = cp.maximum(cp.abs(grad_rss + grad_l2) - alpha * l1_ratio, 0)
-                kkt_violation = cp.where(coef != 0, kkt_nonzero, kkt_zero)
-                violation = cp.max(kkt_violation)
-                if violation < self.tol:
-                    return coef, iteration + 1
-            else:
-                if cp.sum(cp.abs(coef - coef_old)) < self.tol:
-                    return coef, iteration + 1
-
-        return coef, self.max_iter
 
     def _soft_threshold_elastic_cupy(self, x, gamma, l2_scale):
         """Elastic Net soft thresholding for CuPy."""
@@ -612,9 +785,7 @@ class ElasticNet(BaseEstimator):
 
     def _fit_torch(self, X, y, sample_weight=None):
         """
-        Fit using Torch GPU with FISTA solver.
-
-        Uses optimized implementation with torch.compile() if available.
+        Fit using Torch GPU with optimized FISTA solver and torch.compile().
         """
         import torch
 
@@ -655,28 +826,20 @@ class ElasticNet(BaseEstimator):
             y_mean = torch.tensor(0.0, dtype=X.dtype, device=X.device)
             y_centered = y
 
-        # Try to use optimized implementation
-        fit_optimized = _get_torch_optimized()
-        if fit_optimized is not None:
-            # Use optimized implementation with torch.compile()
-            coef, self.n_iter_ = fit_optimized(
-                X=X_centered,
-                y=y_centered,
-                alpha=float(self.alpha),
-                l1_ratio=float(self.l1_ratio),
-                n_samples=n_samples,
-                n_features=n_features,
-                max_iter=self.max_iter,
-                tol=self.tol,
-                lipschitz_L=self.lipschitz_L,
-                stopping=self.stopping,
-                warmup=True  # Enable warm-up to avoid JIT overhead
-            )
-        else:
-            # Fallback to base implementation
-            coef, self.n_iter_ = self._fit_torch_base(
-                X_centered, y_centered, n_samples, n_features
-            )
+        # Use optimized implementation with torch.compile()
+        coef, self.n_iter_ = _fit_elasticnet_torch_optimized(
+            X=X_centered,
+            y=y_centered,
+            alpha=float(self.alpha),
+            l1_ratio=float(self.l1_ratio),
+            n_samples=n_samples,
+            n_features=n_features,
+            max_iter=self.max_iter,
+            tol=self.tol,
+            lipschitz_L=self.lipschitz_L,
+            stopping=self.stopping,
+            warmup=True  # Enable warm-up to avoid JIT overhead
+        )
 
         # Build full coefficients
         if self.fit_intercept:
@@ -701,74 +864,3 @@ class ElasticNet(BaseEstimator):
 
         # Cleanup
         self._cleanup_torch_memory()
-
-    def _fit_torch_base(self, X_centered, y_centered, n_samples, n_features):
-        """
-        Base Torch implementation (fallback).
-        """
-        import torch
-
-        # Precompute XtX / Xty
-        XtX = X_centered.T @ X_centered
-        Xty = X_centered.T @ y_centered
-
-        # Elastic Net parameters
-        alpha = float(self.alpha)
-        l1_ratio = float(self.l1_ratio)
-        l2_ratio = 1.0 - l1_ratio
-
-        # Lipschitz constant: L = λ_max(XtX)/n (RSS only)
-        if self.lipschitz_L is not None:
-            L = torch.tensor(float(self.lipschitz_L), dtype=X_centered.dtype, device=X_centered.device)
-        else:
-            try:
-                eigvals = torch.linalg.eigvalsh(XtX)
-                L = eigvals[-1] / n_samples
-            except Exception:
-                L_frob = torch.sum(X_centered ** 2) / n_samples
-                L = L_frob
-
-        if L <= 0:
-            return torch.zeros(n_features, dtype=X_centered.dtype, device=X_centered.device), 0
-
-        step = 1.0 / L
-        thresh = alpha * l1_ratio * step
-        l2_scale = 1.0 + alpha * l2_ratio * step
-
-        # FISTA variables
-        coef = torch.zeros(n_features, dtype=X_centered.dtype, device=X_centered.device)
-        y_k = coef.clone()
-        t_k = torch.tensor(1.0, dtype=X_centered.dtype, device=X_centered.device)
-
-        for iteration in range(self.max_iter):
-            coef_old = coef.clone()
-
-            # Gradient of RSS ONLY (L2 is handled in proximal step)
-            grad = (XtX @ y_k - Xty) / n_samples
-
-            # Proximal step
-            w_tilde = y_k - step * grad
-            coef = self._soft_threshold_elastic_torch(w_tilde, thresh, l2_scale)
-
-            # Momentum update
-            t_new = (1.0 + torch.sqrt(1.0 + 4.0 * (t_k ** 2))) / 2.0
-            beta = (t_k - 1.0) / t_new
-            y_k = coef + beta * (coef - coef_old)
-            t_k = t_new
-
-            # Convergence test
-            if self.stopping == "kkt":
-                grad_rss = (XtX @ coef - Xty) / n_samples
-                grad_l2 = alpha * l2_ratio * coef
-                sign_coef = torch.sign(coef)
-                sign_coef[coef == 0] = 0
-                kkt_nonzero = torch.abs(grad_rss + grad_l2 + alpha * l1_ratio * sign_coef)
-                kkt_zero = torch.maximum(torch.abs(grad_rss + grad_l2) - alpha * l1_ratio, torch.tensor(0.0, dtype=X_centered.dtype, device=X_centered.device))
-                violation = torch.max(torch.where(coef != 0, kkt_nonzero, kkt_zero))
-                if violation < self.tol:
-                    return coef, iteration + 1
-            else:
-                if torch.sum(torch.abs(coef - coef_old)) < self.tol:
-                    return coef, iteration + 1
-
-        return coef, self.max_iter
