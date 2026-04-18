@@ -5,10 +5,12 @@ import paramiko
 import os
 from pathlib import Path
 
-HOST = "hz-4.matpool.com"
-PORT = 27609
-USERNAME = "root"
-PASSWORD = "5dXlK+bjg,j#*k(h"
+HOST = os.getenv("STATGPU_REMOTE_HOST")
+PORT = int(os.getenv("STATGPU_REMOTE_PORT", "22"))
+USERNAME = os.getenv("STATGPU_REMOTE_USER")
+PASSWORD = os.getenv("STATGPU_REMOTE_PASSWORD")
+KEY_FILENAME = os.getenv("STATGPU_REMOTE_KEY_PATH")
+KEY_PASSPHRASE = os.getenv("STATGPU_REMOTE_KEY_PASSPHRASE")
 
 
 def run(client: paramiko.SSHClient, cmd: str, timeout: int = 1800, print_output: bool = True):
@@ -36,6 +38,18 @@ def run(client: paramiko.SSHClient, cmd: str, timeout: int = 1800, print_output:
 
 
 def main():
+    if not HOST or not USERNAME:
+        raise ValueError(
+            "Missing remote connection settings. Set STATGPU_REMOTE_HOST and "
+            "STATGPU_REMOTE_USER (plus STATGPU_REMOTE_PASSWORD or "
+            "STATGPU_REMOTE_KEY_PATH)."
+        )
+    if not PASSWORD and not KEY_FILENAME:
+        raise ValueError(
+            "No authentication method configured. Set STATGPU_REMOTE_PASSWORD "
+            "or STATGPU_REMOTE_KEY_PATH."
+        )
+
     client = paramiko.SSHClient()
     client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
 
@@ -45,9 +59,11 @@ def main():
         port=PORT,
         username=USERNAME,
         password=PASSWORD,
+        key_filename=KEY_FILENAME,
+        passphrase=KEY_PASSPHRASE,
         timeout=30,
-        allow_agent=False,
-        look_for_keys=False
+        allow_agent=PASSWORD is None and KEY_FILENAME is None,
+        look_for_keys=PASSWORD is None,
     )
     print("Connected successfully!\n")
 
