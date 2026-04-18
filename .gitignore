@@ -4,3 +4,19 @@ env/
 __pycache__/
 *.pyc
 tmp/
+
+# Remote server configuration (contains sensitive credentials)
+dev/scripts/remote_config_local.py
+dev/**/remote_config_local.py
+*_local.py
+*_local.json
+
+# IDE
+.vscode/
+.idea/
+
+# Claude
+.claude/
+
+# Results
+results/
