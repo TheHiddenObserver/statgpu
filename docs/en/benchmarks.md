@@ -127,6 +127,60 @@ Latest rerun snapshot (2026-04-10, aligned setup):
   - Compares `CoxPH cov_type=nonrobust/hc1/cluster` on runtime and numerical differences
   - Covers `statgpu CPU/GPU` and `statsmodels.PHReg` when available
 
+## Elastic Net Benchmarks
+
+### sklearn Comparison
+
+- `dev/benchmarks/benchmark_elasticnet_sklearn.py`
+  - Compares `statgpu` (CPU/CuPy/Torch) vs `sklearn.linear_model.ElasticNet`
+  - Tests 6 datasets: n=200~5,000, p=20~100
+  - Outputs: coefficient difference, R², fit time (ms)
+  - Key finding: All backends match sklearn with max coef diff < 3e-8
+
+### R glmnet Comparison
+
+- `dev/benchmarks/benchmark_glmnet_full.R` (R script)
+- `dev/benchmarks/benchmark_statgpu_full.py` (Python script)
+- `dev/benchmarks/run_full_benchmark.py` (unified runner)
+  - Compares `statgpu CPU` vs `R glmnet::glmnet()`
+  - Tests 6 datasets: small/medium/large/high_dim/sparse_coef/high_noise
+  - Key findings:
+    - statgpu CPU wins 4/6 comparisons
+    - Coefficient norm difference due to regularization scaling conventions
+    - Both implementations are correct Elastic Net
+
+### Large-Scale Performance (n ≥ 10,000)
+
+- `dev/benchmarks/benchmark_large_scale.py`
+- `dev/benchmarks/run_large_scale.py` (remote runner)
+  - Tests 6 configurations: n=10k~100k, p=100~500
+  - Compares sklearn vs statgpu (CPU/CuPy/Torch)
+  - Key findings:
+    - statgpu Torch fastest in 5/6 tests (83%)
+    - Max speedup: **4.36x** vs sklearn (n=100k, p=500)
+    - GPU advantage visible at n ≥ 10,000
+
+### Backend Selection Recommendations
+
+| Data Scale | Recommended Backend | Expected Speedup |
+|------------|---------------------|------------------|
+| n < 1,000 | CPU (NumPy) | 0.7x - 1.0x |
+| 1,000 ≤ n < 10,000 | CPU (NumPy) | 1.5x - 4x |
+| 10,000 ≤ n < 50,000 | GPU (Torch) | 2x - 3x |
+| n ≥ 50,000 | GPU (Torch) | 3x - 4.4x |
+
+### Result Artifacts
+
+- `results/benchmark_elasticnet_sklearn_2026-04-18.json` - sklearn comparison
+- `results/benchmark_elasticnet_sklearn_2026-04-18.md` - sklearn summary
+- `results/benchmark_full/benchmark_glmnet_all.json` - R glmnet comparison
+- `results/benchmark_full/benchmark_complete_report.md` - full report
+- `results/large_scale/benchmark_elasticnet_large_scale_2026-04-18.json` - large scale
+- `results/large_scale/benchmark_elasticnet_large_scale_2026-04-18.md` - large scale summary
+- `results/benchmark_complete_summary.md` - comprehensive summary
+
+---
+
 ## Knockoff Feature Selection
 
 - `dev/benchmarks/benchmark_knockoff_fixedx.py`

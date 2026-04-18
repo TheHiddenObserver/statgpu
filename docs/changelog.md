@@ -11,6 +11,30 @@
 
 ### 新增 (2026-04-18)
 
+- **Elastic Net 实现与基准测试**:
+  - 新增 `ElasticNet` 类，结合 L1 和 L2 正则化，使用 FISTA 求解器
+  - 支持 CPU (NumPy)、GPU (CuPy) 和 GPU (PyTorch) 后端
+  - 新增文件:
+    - `statgpu/linear_model/_elasticnet.py` - Elastic Net 实现
+    - `dev/benchmarks/benchmark_elasticnet_sklearn.py` - sklearn 对比
+    - `dev/benchmarks/benchmark_glmnet_full.R` - R glmnet 对比
+    - `dev/benchmarks/benchmark_statgpu_full.py` - statgpu vs glmnet
+    - `dev/benchmarks/benchmark_large_scale.py` - 大规模性能测试
+    - `dev/benchmarks/run_full_benchmark.py` - 统一基准运行器
+    - `dev/benchmarks/run_large_scale.py` - 远端运行器
+    - `dev/benchmarks/generate_complete_report.py` - 报告生成器
+    - `dev/scripts/remote_elasticnet_smoke.py` - 基础验证
+    - `dev/scripts/remote_stability_en.py` - 数值稳定性测试
+  - 基准测试结果:
+    - 所有后端与 sklearn 最大系数差异 < 3e-8
+    - statgpu CPU 赢得 4/6 对比 R glmnet
+    - statgpu Torch 在 5/6 大规模测试中最快 (83%)
+    - 最大加速比：**4.36x** vs sklearn (n=100k, p=500)
+  - 文档:
+    - `docs/models/elastic-net.md` - 中文文档
+    - `docs/en/models/elastic-net.md` - 英文文档
+    - `results/benchmark_complete_summary.md` - 综合基准测试总结
+
 - **PyTorch 后端修复** (Torch Backend Fixes):
   - 修复 `_base.py` 中 `_get_backend()` 方法，正确处理 `Device.TORCH`
   - 修复 `_gpu_utils_torch.py` 中的导入路径问题

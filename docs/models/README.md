@@ -14,6 +14,7 @@
 - [LinearRegression](linear-regression.md)
 - [Ridge](ridge.md)
 - [Lasso](lasso.md)
+- [ElasticNet](elastic-net.md)
 - [LogisticRegression](logistic-regression.md)
 
 ## 生存分析
