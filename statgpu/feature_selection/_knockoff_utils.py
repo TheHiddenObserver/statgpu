@@ -480,7 +480,7 @@ def _build_fixed_x_knockoffs(X_std, random_state: Optional[int], xp):
         except (AttributeError, TypeError):
             # Torch API: use manual_seed and randn
             import torch
-            if getattr(xp, "__name__", "") == "torch":
+            if xp is torch:
                 if hasattr(X_std, "device"):
                     torch_device = X_std.device
                 else:

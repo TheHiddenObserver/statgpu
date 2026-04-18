@@ -470,9 +470,11 @@ class TDistributionTorch:
                 sample_shape = torch.Size(size)
 
             z = torch.randn(sample_shape, dtype=torch.float64, device=device)
+            concentration = torch.as_tensor(float(df) / 2.0, dtype=torch.float64, device=device)
+            rate = torch.as_tensor(0.5, dtype=torch.float64, device=device)
             gamma = torch.distributions.Gamma(
-                torch.tensor(float(df) / 2.0, dtype=torch.float64, device=device),
-                torch.tensor(0.5, dtype=torch.float64, device=device),
+                concentration,
+                rate,
             )
             chi2 = gamma.sample(sample_shape)
             t_var = z / torch.sqrt(chi2 / float(df))

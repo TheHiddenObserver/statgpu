@@ -1569,11 +1569,12 @@ class CoxPH(BaseEstimator):
         suffix_X2 = torch.zeros(
             (n_features, n_features), dtype=torch.float64, device=beta.device
         )
+        first_idx_uft_cpu = first_idx_uft.detach().cpu().numpy()
         idx_ptr = n_uft - 1
         for i in range(n_samples - 1, -1, -1):
             xi = X[i]
             suffix_X2 = suffix_X2 + exp_eta[i] * torch.outer(xi, xi)
-            while idx_ptr >= 0 and first_idx_uft[idx_ptr].item() == i:
+            while idx_ptr >= 0 and first_idx_uft_cpu[idx_ptr] == i:
                 risk_X2_at_uft[idx_ptr] = suffix_X2
                 idx_ptr -= 1
 
