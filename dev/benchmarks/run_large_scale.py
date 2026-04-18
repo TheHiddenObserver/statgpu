@@ -55,7 +55,7 @@ def main():
         username=USERNAME,
         password=PASSWORD,
         key_filename=KEY_FILENAME,
-        passphrase=KEY_PASSPHRASE if KEY_FILENAME else None,
+        passphrase=KEY_PASSPHRASE,
         timeout=30,
         allow_agent=True,
         look_for_keys=PASSWORD is None and KEY_FILENAME is None,
