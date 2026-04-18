@@ -42,12 +42,7 @@ def main():
         raise ValueError(
             "Missing remote connection settings. Set STATGPU_REMOTE_HOST and "
             "STATGPU_REMOTE_USER (plus STATGPU_REMOTE_PASSWORD or "
-            "STATGPU_REMOTE_KEY_PATH)."
-        )
-    if not PASSWORD and not KEY_FILENAME:
-        raise ValueError(
-            "No authentication method configured. Set STATGPU_REMOTE_PASSWORD "
-            "or STATGPU_REMOTE_KEY_PATH."
+            "STATGPU_REMOTE_KEY_PATH, or use SSH agent/default keys)."
         )
 
     client = paramiko.SSHClient()
@@ -60,10 +55,10 @@ def main():
         username=USERNAME,
         password=PASSWORD,
         key_filename=KEY_FILENAME,
-        passphrase=KEY_PASSPHRASE,
+        passphrase=KEY_PASSPHRASE if KEY_FILENAME else None,
         timeout=30,
-        allow_agent=PASSWORD is None and KEY_FILENAME is None,
-        look_for_keys=PASSWORD is None,
+        allow_agent=True,
+        look_for_keys=PASSWORD is None and KEY_FILENAME is None,
     )
     print("Connected successfully!\n")
 
