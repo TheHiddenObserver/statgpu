@@ -64,7 +64,14 @@ class BaseEstimator(ABC):
 
         # Handle Device.TORCH explicitly - use torch backend
         if compute_device == Device.TORCH:
-            return get_backend(backend="torch", device="cuda")
+            torch_device = "cpu"
+            try:
+                import torch
+                if torch.cuda.is_available():
+                    torch_device = "cuda"
+            except Exception:
+                pass
+            return get_backend(backend="torch", device=torch_device)
 
         return get_backend(backend=backend, device=device_str)
     
@@ -90,26 +97,22 @@ class BaseEstimator(ABC):
 
         # If backend is explicitly specified, use it
         if backend == "torch":
-            return self._to_torch(X)
+            torch_target = "cpu" if target_device == Device.CPU else "cuda"
+            return self._to_torch(X, device=torch_target)
         elif backend == "cupy":
             return self._to_cupy(X)
         elif backend == "numpy":
             return np.asarray(X)
 
         # Otherwise, use device-based default
+        if target_device == Device.TORCH:
+            return self._to_torch(X, device="cuda")
+
         if target_device == Device.CUDA:
             # Prefer CuPy for GPU, fall back to Torch if CuPy unavailable
             try:
                 import cupy as cp
                 if isinstance(X, cp.ndarray):
-                    return X
-            except Exception:
-                pass
-
-            # Try Torch
-            try:
-                import torch
-                if isinstance(X, torch.Tensor):
                     return X
             except Exception:
                 pass
@@ -142,6 +145,9 @@ class BaseEstimator(ABC):
         """Convert input to Torch tensor."""
         import torch
 
+        if device == "cuda" and not torch.cuda.is_available():
+            device = "cpu"
+
         if isinstance(X, torch.Tensor):
             if device and X.device.type != device:
                 return X.to(device)
@@ -149,12 +155,15 @@ class BaseEstimator(ABC):
 
         if hasattr(X, "get"):  # CuPy
             X_np = X.get()
-        elif hasattr(X, "cpu"):  # PyTorch
-            return X.cpu() if X.is_cuda else X
+        elif hasattr(X, "cpu"):  # Tensor-like
+            X_cpu = X.cpu()
+            X_np = X_cpu.numpy() if hasattr(X_cpu, "numpy") else np.asarray(X_cpu)
         else:
             X_np = np.asarray(X)
 
         target_device = device or ('cuda' if torch.cuda.is_available() else 'cpu')
+        if target_device == "cuda" and not torch.cuda.is_available():
+            target_device = "cpu"
         return torch.from_numpy(X_np).to(target_device)
 
     def _to_cupy(self, X):

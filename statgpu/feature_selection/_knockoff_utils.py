@@ -480,10 +480,20 @@ def _build_fixed_x_knockoffs(X_std, random_state: Optional[int], xp):
         except (AttributeError, TypeError):
             # Torch API: use manual_seed and randn
             import torch
-            if isinstance(xp, type(torch)):
-                gen = torch.Generator(device='cuda' if torch.cuda.is_available() else 'cpu')
+            if getattr(xp, "__name__", "") == "torch":
+                if hasattr(X_std, "device"):
+                    torch_device = X_std.device
+                else:
+                    torch_device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+                gen = torch.Generator(device=torch_device)
                 gen.manual_seed(seed)
-                A = torch.randn(n, p, dtype=torch.float64, device='cuda' if torch.cuda.is_available() else 'cpu')
+                A = torch.randn(
+                    n,
+                    p,
+                    dtype=torch.float64,
+                    device=torch_device,
+                    generator=gen,
+                )
             else:
                 # Fallback
                 rng = xp.random.Generator(xp.random.PCG64(seed))
@@ -938,4 +948,3 @@ def _knockoff_threshold_and_path(W, q: float, offset: int):
         return chosen_threshold, chosen_fdr, trajectory
 
     return float(np.inf), 0.0, trajectory
-

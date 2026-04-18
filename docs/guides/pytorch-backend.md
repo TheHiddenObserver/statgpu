@@ -92,7 +92,7 @@ import numpy as np
 X = np.random.randn(100, 10)
 y = X @ np.random.randn(10) + np.random.randn(100)
 
-model = LinearRegression(device='cuda')
+model = LinearRegression(device='torch')
 model.fit(X, y)
 print(f"R²: {model.rsquared:.4f}")
 ```
@@ -113,7 +113,7 @@ X = np.random.randn(1000, 50)
 y = X @ np.random.randn(50) + np.random.randn(1000)
 
 # 使用 PyTorch GPU 拟合
-model = LinearRegression(device='cuda')
+model = LinearRegression(device='torch')
 model.fit(X, y)
 
 print(f"系数：{model.coef_}")
@@ -131,13 +131,16 @@ from statgpu.linear_model import LinearRegression
 X_torch = torch.randn(1000, 50, device='cuda')
 y_torch = torch.randn(1000, device='cuda')
 
-# 直接用 Torch 张量拟合
-model = LinearRegression(device='cuda')
+# 使用 Torch 张量并强制 Torch 后端
+model = LinearRegression(device='torch')
 model.fit(X_torch, y_torch)
 
 # 系数以 numpy 数组形式返回
 print(f"系数：{model.coef_}")
 ```
+
+> 注意：`device='cuda'` 为自动后端选择，若安装 CuPy 会优先使用 CuPy。  
+> 如需强制使用 Torch，请设置 `device='torch'`。
 
 ### 稳健协方差选项
 
@@ -228,7 +231,7 @@ model_cpu = LinearRegression(device='cpu')
 model_cpu.fit(X, y)
 
 # PyTorch GPU
-model_torch = LinearRegression(device='cuda')
+model_torch = LinearRegression(device='torch')
 model_torch.fit(X, y)
 
 # 对比
@@ -241,7 +244,8 @@ print(f"最大系数差异：{coef_diff:.2e}")
 
 | 功能 | CuPy 后端 | PyTorch 后端 |
 |---------|--------------|-----------------|
-| `device='cuda'` | ✓ | ✓ |
+| `device='cuda'` | ✓ | 自动（优先 CuPy） |
+| `device='torch'` | ✗ | ✓ |
 | `device='cpu'` | ✓ | ✓ |
 | 稳健协方差 (HC1/HC2/HC3) | ✓ | ✓ |
 | HAC (Newey-West) | ✓ | ✓ |

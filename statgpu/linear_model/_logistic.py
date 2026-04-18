@@ -558,7 +558,9 @@ class LogisticRegression(BaseEstimator):
 
             if sample_weight is not None:
                 if not isinstance(sample_weight, torch.Tensor):
-                    sample_weight = torch.from_numpy(sample_weight).to(device)
+                    sample_weight = torch.from_numpy(sample_weight).to(torch_device)
+                if sample_weight.dtype != torch.float64:
+                    sample_weight = sample_weight.to(torch.float64)
                 W = W * sample_weight
 
             # Working response
@@ -594,7 +596,8 @@ class LogisticRegression(BaseEstimator):
 
         # Compute accuracy on GPU
         y_pred = (p > 0.5).to(torch.int32)
-        accuracy = torch.mean(y_pred.to(torch.float64))
+        y_true = y.to(torch.int32).reshape(y_pred.shape)
+        accuracy = torch.mean((y_pred == y_true).to(torch.float64))
 
         # Store GPU results temporarily
         self._loglik_gpu = loglik

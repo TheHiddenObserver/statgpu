@@ -93,7 +93,7 @@ import numpy as np
 X = np.random.randn(100, 10)
 y = X @ np.random.randn(10) + np.random.randn(100)
 
-model = LinearRegression(device='cuda')
+model = LinearRegression(device='torch')
 model.fit(X, y)
 print(f"R²: {model.rsquared:.4f}")
 ```
@@ -114,7 +114,7 @@ X = np.random.randn(1000, 50)
 y = X @ np.random.randn(50) + np.random.randn(1000)
 
 # Fit with PyTorch GPU
-model = LinearRegression(device='cuda')
+model = LinearRegression(device='torch')
 model.fit(X, y)
 
 print(f"Coefficients: {model.coef_}")
@@ -132,13 +132,16 @@ from statgpu.linear_model import LinearRegression
 X_torch = torch.randn(1000, 50, device='cuda')
 y_torch = torch.randn(1000, device='cuda')
 
-# Fit directly with Torch tensors
-model = LinearRegression(device='cuda')
+# Fit with Torch tensors and force Torch backend
+model = LinearRegression(device='torch')
 model.fit(X_torch, y_torch)
 
 # Coefficients returned as numpy array
 print(f"Coef: {model.coef_}")
 ```
+
+> Note: `device='cuda'` uses auto backend selection and prefers CuPy when available.
+> Use `device='torch'` to force Torch execution.
 
 ### Robust Covariance Options
 
@@ -219,7 +222,7 @@ model_cpu = LinearRegression(device='cpu')
 model_cpu.fit(X, y)
 
 # PyTorch GPU
-model_torch = LinearRegression(device='cuda')
+model_torch = LinearRegression(device='torch')
 model_torch.fit(X, y)
 
 # Compare
@@ -232,7 +235,8 @@ print(f"Max coefficient difference: {coef_diff:.2e}")
 
 | Feature | CuPy Backend | PyTorch Backend |
 |---------|--------------|-----------------|
-| `device='cuda'` | ✓ | ✓ |
+| `device='cuda'` | ✓ | auto (prefers CuPy) |
+| `device='torch'` | ✗ | ✓ |
 | `device='cpu'` | ✓ | ✓ |
 | Robust covariance (HC1/HC2/HC3) | ✓ | ✓ |
 | HAC (Newey-West) | ✓ | ✓ |

@@ -233,10 +233,11 @@ def run_benchmark_case(
     warmup_runs: int,
     repeats: int,
     ref_coef: Optional[np.ndarray] = None,
+    ref_bse: Optional[np.ndarray] = None,
 ) -> BenchmarkResult:
     """Run a single benchmark case."""
 
-    backend_name = f"{backend}_{device}" if device != "cpu" else "cpu"
+    backend_name = "cpu" if device == "cpu" else f"{backend}_gpu"
     log(f"  Running {model_name} on {backend_name}...")
 
     ok, times, error, fitted_model = time_fit(
@@ -253,8 +254,8 @@ def run_benchmark_case(
             coef_diff = safe_diff(ref_coef, model_coef)
 
             model_bse = extract_bse(fitted_model)
-            if model_bse is not None:
-                bse_diff = safe_diff(ref_coef, model_bse)  # Note: this compares bse to coef ref
+            if model_bse is not None and ref_bse is not None:
+                bse_diff = safe_diff(ref_bse, model_bse)
         except Exception:
             pass
 
@@ -577,6 +578,7 @@ def main() -> None:
                 ref_coef = ref_coef_cox_small if dataset_name == "small" else ref_coef_cox_large
             else:
                 ref_coef = None  # Ridge/Lasso may have different coefficients due to regularization
+            ref_bse = None
 
             for backend in backends:
                 # Prepare data for backend
@@ -611,6 +613,7 @@ def main() -> None:
                     warmup_runs=args.warmup_runs,
                     repeats=args.repeats,
                     ref_coef=ref_coef,
+                    ref_bse=ref_bse,
                 )
 
                 all_results.append(result)

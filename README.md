@@ -83,14 +83,16 @@ pip install statgpu
 from statgpu.linear_model import Ridge, LogisticRegression, Lasso
 
 # Torch GPU backend
-model = Ridge(alpha=1.0, device='cuda')  # Auto-selects CuPy by default
-model = Ridge(alpha=1.0, device='cuda', backend='torch')  # Force Torch
+model = Ridge(alpha=1.0, device='torch')  # Force Torch backend
+
+# GPU auto mode (prefers CuPy when available)
+model = Ridge(alpha=1.0, device='cuda')
 
 # Torch CPU backend (useful for debugging)
-model = Ridge(alpha=1.0, device='cpu', backend='torch')
+model = Ridge(alpha=1.0, device='cpu')
 
 # All covariance types supported
-model = LogisticRegression(device='cuda', backend='torch', covariance_type='hc3')
+model = LogisticRegression(device='torch', cov_type='hc3')
 model.fit(X, y)
 print(f"Std Errors: {model._bse}")
 ```

@@ -86,7 +86,9 @@ def _auto_backend_from_device(device: str, prefer_torch: bool = False) -> str:
     d = str(device).strip().lower()
     if d in ("numpy", "cpu"):
         return "numpy"
-    if d in ("torch", "cuda", "gpu"):
+    if d == "torch":
+        return "torch"
+    if d in ("cuda", "gpu"):
         # Check if Torch is available and has CUDA
         if prefer_torch:
             try:

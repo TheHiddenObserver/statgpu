@@ -1560,11 +1560,24 @@ class CoxPH(BaseEstimator):
         E_X = risk_X_sum[first_idx_uft] / risk_sum[first_idx_uft][:, None]
         grad = grad - torch.sum(E_X * counts_f[:, None], dim=0)
 
-        # Hessian needs reverse cumulative second moments
-        x2_weighted = torch.einsum("ni,nj,n->nij", X, X, exp_eta)
-        risk_X2_sum = torch.cumsum(x2_weighted.flip(0), dim=0).flip(0)
+        # Hessian needs reverse cumulative second moments, but avoid
+        # materializing an (n_samples, n_features, n_features) tensor.
+        n_uft = int(first_idx_uft.numel())
+        risk_X2_at_uft = torch.zeros(
+            (n_uft, n_features, n_features), dtype=torch.float64, device=beta.device
+        )
+        suffix_X2 = torch.zeros(
+            (n_features, n_features), dtype=torch.float64, device=beta.device
+        )
+        idx_ptr = n_uft - 1
+        for i in range(n_samples - 1, -1, -1):
+            xi = X[i]
+            suffix_X2 = suffix_X2 + exp_eta[i] * torch.outer(xi, xi)
+            while idx_ptr >= 0 and int(first_idx_uft[idx_ptr].item()) == i:
+                risk_X2_at_uft[idx_ptr] = suffix_X2
+                idx_ptr -= 1
 
-        E_XX = risk_X2_sum[first_idx_uft] / risk_sum[first_idx_uft][:, None, None]
+        E_XX = risk_X2_at_uft / risk_sum[first_idx_uft][:, None, None]
         centered = E_XX - torch.einsum("ni,nj->nij", E_X, E_X)
         hess = -torch.sum(centered * counts_f[:, None, None], dim=0)
         return grad, hess

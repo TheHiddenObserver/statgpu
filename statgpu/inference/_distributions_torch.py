@@ -461,13 +461,20 @@ class TDistributionTorch:
         if device is None:
             device = _get_torch_device()
 
-        # Use inverse transform sampling or accept-reject
-        # For simplicity, use SciPy fallback if needed
         try:
-            # Torch doesn't have native Student-t random generator
-            # Use standard normal / sqrt(chi2/df) ratio
-            z = torch.randn(size, dtype=torch.float64, device=device)
-            chi2 = torch.square(torch.randn(size, dtype=torch.float64, device=device))
+            if size is None:
+                sample_shape = torch.Size()
+            elif isinstance(size, int):
+                sample_shape = torch.Size([size])
+            else:
+                sample_shape = torch.Size(size)
+
+            z = torch.randn(sample_shape, dtype=torch.float64, device=device)
+            gamma = torch.distributions.Gamma(
+                torch.tensor(float(df) / 2.0, dtype=torch.float64, device=device),
+                torch.tensor(0.5, dtype=torch.float64, device=device),
+            )
+            chi2 = gamma.sample(sample_shape)
             t_var = z / torch.sqrt(chi2 / float(df))
             base = t_var * float(scale) + float(loc)
         except Exception:
