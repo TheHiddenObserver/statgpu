@@ -8,6 +8,7 @@ from ._ridge import Ridge
 from ._lasso import Lasso, LassoCV
 from ._ridge_cv import RidgeCV
 from ._logistic_cv import LogisticRegressionCV
+from ._elasticnet import ElasticNet
 
 __all__ = [
     'LinearRegression',
@@ -17,4 +18,5 @@ __all__ = [
     'RidgeCV',
     'Lasso',
     'LassoCV',
+    'ElasticNet',
 ]
