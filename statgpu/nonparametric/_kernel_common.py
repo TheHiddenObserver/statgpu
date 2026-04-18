@@ -17,16 +17,28 @@ def _is_cupy_array(x: Any) -> bool:
         return False
 
 
+def _is_torch_array(x: Any) -> bool:
+    try:
+        import torch
+
+        return isinstance(x, torch.Tensor)
+    except Exception:
+        return False
+
+
 def _resolve_backend(backend: str, *arrays) -> str:
     backend_name = str(backend).strip().lower()
-    if backend_name not in ("auto", "numpy", "cupy"):
-        raise ValueError("backend must be one of: 'auto', 'numpy', 'cupy'")
+    if backend_name not in ("auto", "numpy", "cupy", "torch"):
+        raise ValueError("backend must be one of: 'auto', 'numpy', 'cupy', 'torch'")
     if backend_name != "auto":
         return backend_name
 
     for arr in arrays:
-        if arr is not None and _is_cupy_array(arr):
-            return "cupy"
+        if arr is not None:
+            if _is_torch_array(arr):
+                return "torch"
+            if _is_cupy_array(arr):
+                return "cupy"
     return "numpy"
 
 
@@ -37,6 +49,10 @@ def _get_xp(backend_name: str):
         import cupy as cp
 
         return cp
+    if backend_name == "torch":
+        import torch
+
+        return torch
     raise ValueError(f"Unsupported backend: {backend_name}")
 
 
@@ -47,29 +63,67 @@ def _to_float_scalar(x: Any) -> float:
 
 
 def _to_numpy(x):
+    """Convert array (CuPy or Torch) to NumPy."""
     if hasattr(x, "get"):
+        # CuPy array
         return x.get()
+    if hasattr(x, "cpu") and hasattr(x, "numpy"):
+        # Torch tensor
+        return x.cpu().numpy()
     return np.asarray(x)
 
 
 def _to_numpy_simple(x):
+    """Simple conversion to NumPy."""
     if hasattr(x, "get"):
         return x.get()
+    if hasattr(x, "cpu") and hasattr(x, "numpy"):
+        return x.cpu().numpy()
     return np.asarray(x)
 
 
-def _auto_backend_from_device(device: str) -> str:
+def _auto_backend_from_device(device: str, prefer_torch: bool = False) -> str:
     d = str(device).strip().lower()
     if d in ("numpy", "cpu"):
         return "numpy"
-    if d in ("cupy", "cuda", "gpu"):
-        return "cupy"
+    if d == "torch":
+        return "torch"
+    if d in ("cuda", "gpu"):
+        # Check if Torch is available and has CUDA
+        if prefer_torch:
+            try:
+                import torch
+                if torch.cuda.is_available():
+                    return "torch"
+            except Exception:
+                pass
+        # Otherwise try CuPy
+        try:
+            import cupy as cp
+            _ = int(cp.cuda.runtime.getDeviceCount())
+            return "cupy"
+        except Exception:
+            # Fallback to Torch if CuPy unavailable
+            if not prefer_torch:
+                try:
+                    import torch
+                    if torch.cuda.is_available():
+                        return "torch"
+                except Exception:
+                    pass
+            return "numpy"
+    # Default: prefer CuPy, then Torch, then NumPy
     try:
         import cupy as cp
-
         _ = int(cp.cuda.runtime.getDeviceCount())
         return "cupy"
     except Exception:
+        try:
+            import torch
+            if torch.cuda.is_available():
+                return "torch"
+        except Exception:
+            pass
         return "numpy"
 
 

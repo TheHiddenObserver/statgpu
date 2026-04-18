@@ -59,38 +59,62 @@ class BaseEstimator(ABC):
             A backend instance whose :attr:`~BackendBase.xp` attribute is the
             underlying array module (NumPy, CuPy, or PyTorch).
         """
-        device_str = self._get_compute_device().value  # 'cpu' or 'cuda'
+        compute_device = self._get_compute_device()
+        device_str = compute_device.value  # 'cpu', 'cuda', or 'torch'
+
+        # Handle Device.TORCH explicitly - use torch backend
+        if compute_device == Device.TORCH:
+            torch_device = "cpu"
+            try:
+                import torch
+                if torch.cuda.is_available():
+                    torch_device = "cuda"
+            except Exception:
+                pass
+            return get_backend(backend="torch", device=torch_device)
+
         return get_backend(backend=backend, device=device_str)
     
-    def _to_array(self, X, device: Optional[Device] = None) -> Any:
+    def _to_array(self, X, device: Optional[Device] = None, backend: Optional[str] = None) -> Any:
         """
         Convert input to appropriate array type for device.
-        
+
         Parameters
         ----------
         X : array-like
             Input data.
         device : Device, optional
             Target device. If None, uses self._get_compute_device().
-        
+        backend : {'numpy', 'cupy', 'torch'}, optional
+            Explicit backend selection. If None, uses device-based default.
+
         Returns
         -------
         array
-            NumPy array (CPU) or CuPy array (GPU).
+            NumPy array (CPU), CuPy array (GPU), or Torch tensor.
         """
         target_device = device or self._get_compute_device()
-        
-        # If target is CUDA and X is already a CuPy array, keep it on GPU.
-        # This avoids an expensive host-device roundtrip when the user
-        # pre-constructs data on GPU (torch-like workflow).
+
+        # If backend is explicitly specified, use it
+        if backend == "torch":
+            torch_target = "cpu" if target_device == Device.CPU else "cuda"
+            return self._to_torch(X, device=torch_target)
+        elif backend == "cupy":
+            return self._to_cupy(X)
+        elif backend == "numpy":
+            return np.asarray(X)
+
+        # Otherwise, use device-based default
+        if target_device == Device.TORCH:
+            return self._to_torch(X, device="cuda")
+
         if target_device == Device.CUDA:
+            # Prefer CuPy for GPU, fall back to Torch if CuPy unavailable
             try:
                 import cupy as cp
-
                 if isinstance(X, cp.ndarray):
                     return X
             except Exception:
-                # If CuPy isn't available / type check fails, fall back below.
                 pass
 
         # Convert to numpy first for CPU paths or for non-CuPy inputs.
@@ -102,14 +126,59 @@ class BaseEstimator(ABC):
             X_np = np.asarray(X)
 
         if target_device == Device.CUDA:
+            # Try CuPy first
             try:
                 import cupy as cp
                 return cp.asarray(X_np)
             except ImportError:
-                # Fall back to numpy if CuPy isn't available.
+                # Fall back to torch if CuPy isn't available
+                try:
+                    import torch
+                    return torch.from_numpy(X_np).to('cuda' if torch.cuda.is_available() else 'cpu')
+                except ImportError:
+                    pass
                 return X_np
 
         return X_np
+
+    def _to_torch(self, X, device=None):
+        """Convert input to Torch tensor."""
+        import torch
+
+        if device == "cuda" and not torch.cuda.is_available():
+            device = "cpu"
+
+        if isinstance(X, torch.Tensor):
+            if device and X.device.type != device:
+                return X.to(device)
+            return X
+
+        if hasattr(X, "get"):  # CuPy
+            X_np = X.get()
+        elif hasattr(X, "cpu"):  # Tensor-like
+            X_cpu = X.cpu()
+            X_np = X_cpu.numpy() if hasattr(X_cpu, "numpy") else np.asarray(X_cpu)
+        else:
+            X_np = np.asarray(X)
+
+        target_device = device or ('cuda' if torch.cuda.is_available() else 'cpu')
+        return torch.from_numpy(X_np).to(target_device)
+
+    def _to_cupy(self, X):
+        """Convert input to CuPy array."""
+        import cupy as cp
+
+        if isinstance(X, cp.ndarray):
+            return X
+
+        if hasattr(X, "cpu"):  # PyTorch
+            X_np = X.detach().cpu().numpy()
+        elif hasattr(X, "get"):  # CuPy (shouldn't happen, but handle it)
+            X_np = X.get()
+        else:
+            X_np = np.asarray(X)
+
+        return cp.asarray(X_np)
     
     def _to_numpy(self, X) -> np.ndarray:
         """Convert array back to numpy."""

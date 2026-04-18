@@ -204,17 +204,34 @@ class LogisticRegression(BaseEstimator):
         self._y = self._to_numpy(y).astype(float)
         self._train_pred_cache = None
         self._train_eval_cache = None
-        
-        X_arr = self._to_array(X)
-        y_arr = self._to_array(y).astype(float)
-        
+
+        # Get backend - support explicit torch backend selection
+        backend = self._get_backend(backend="auto")
+        backend_name = backend.name
+
+        X_arr = self._to_array(X, backend=backend_name)
+        # Handle dtype conversion based on backend
+        if backend_name == "torch":
+            import torch
+            y_arr = self._to_array(y, backend=backend_name)
+            if y_arr.dtype != torch.float64:
+                y_arr = y_arr.to(torch.float64)
+        elif backend_name == "cupy":
+            import cupy as cp
+            y_arr = self._to_array(y, backend=backend_name).astype(cp.float64)
+        else:
+            y_arr = self._to_array(y, backend=backend_name).astype(float)
+
         device = self._get_compute_device()
-        
-        if device == Device.CUDA:
+
+        # Route to appropriate backend
+        if backend_name == "torch":
+            self._fit_torch(X_arr, y_arr, sample_weight)
+        elif backend_name == "cupy":
             self._fit_gpu(X_arr, y_arr, sample_weight)
         else:
             self._fit_cpu(X_arr, y_arr, sample_weight)
-        
+
         if self.compute_inference and device != Device.CUDA:
             self._compute_inference()
         self._fitted = True
@@ -478,6 +495,240 @@ class LogisticRegression(BaseEstimator):
         except Exception:
             pass
         self._cleanup_cuda_memory()
+
+    def _cleanup_torch_memory(self):
+        """Best-effort Torch CUDA memory cleanup."""
+        self._train_pred_cache = None
+        self._train_eval_cache = None
+        if not self.gpu_memory_cleanup:
+            return
+        try:
+            import torch
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+                torch.cuda.synchronize()
+        except Exception:
+            pass
+
+    def _fit_torch(self, X, y, sample_weight=None):
+        """Fit using Torch GPU with IRLS."""
+        import torch
+        from ..inference._distributions_torch import norm
+
+        # Note: Device.TORCH.value is 'torch', but Torch expects 'cuda' or 'cpu'
+        torch_device = "cuda" if torch.cuda.is_available() else "cpu"
+
+        n_samples, n_features = X.shape
+        self._nobs = n_samples
+
+        # Ensure Torch tensors on GPU
+        if not isinstance(X, torch.Tensor):
+            X = torch.from_numpy(X).to(torch_device)
+        if not isinstance(y, torch.Tensor):
+            y = torch.from_numpy(y).to(torch_device)
+        if y.dtype != torch.float64:
+            y = y.to(torch.float64)
+        if X.dtype != torch.float64:
+            X = X.to(torch.float64)
+
+        # Add intercept if needed
+        if self.fit_intercept:
+            X_design = torch.cat([torch.ones(n_samples, 1, dtype=torch.float64, device=torch_device), X], dim=1)
+        else:
+            X_design = X
+
+        # Initialize parameters
+        params = torch.zeros(X_design.shape[1], dtype=torch.float64, device=torch_device)
+
+        # Regularization parameter (lambda = 1 / (2*C))
+        alpha = 1.0 / (2.0 * self.C) if self.C > 0 else 0.0
+
+        # IRLS iteration
+        iteration = 0
+        for iteration in range(self.max_iter):
+            params_old = params.clone()
+
+            # Predicted probabilities
+            eta = X_design @ params
+            p = 1 / (1 + torch.exp(-torch.clamp(eta, -500, 500)))
+
+            # Weights for WLS
+            W = p * (1 - p)
+            W = torch.clamp(W, 1e-8, 1 - 1e-8)
+
+            if sample_weight is not None:
+                if not isinstance(sample_weight, torch.Tensor):
+                    sample_weight_torch = torch.from_numpy(sample_weight).to(torch_device)
+                else:
+                    sample_weight_torch = sample_weight.to(torch_device)
+                if sample_weight_torch.dtype != torch.float64:
+                    sample_weight_torch = sample_weight_torch.to(torch.float64)
+                W = W * sample_weight_torch
+
+            # Working response
+            z = eta + (y - p) / W
+
+            # Weighted least squares
+            XtWX = X_design.T @ (X_design * W[:, None])
+
+            # Add L2 regularization
+            if alpha > 0:
+                reg_diag = torch.full((XtWX.shape[0],), alpha, dtype=torch.float64, device=torch_device)
+                if self.fit_intercept:
+                    reg_diag[0] = 0.0
+                XtWX += torch.diag(reg_diag)
+
+            Xtz = X_design.T @ (W * z)
+
+            try:
+                params = torch.linalg.solve(XtWX, Xtz)
+            except Exception:
+                params = torch.linalg.lstsq(XtWX, Xtz)[0]
+
+            # Check convergence
+            if torch.linalg.norm(params - params_old) < self.tol:
+                break
+
+        self.n_iter_ = iteration + 1
+
+        # Compute log-likelihood on GPU
+        eta = X_design @ params
+        p = 1 / (1 + torch.exp(-torch.clamp(eta, -500, 500)))
+        loglik = torch.sum(y * torch.log(p + 1e-10) + (1 - y) * torch.log(1 - p + 1e-10))
+
+        # Compute accuracy on GPU
+        y_pred = (p > 0.5).to(torch.int32)
+        y_true = y.to(torch.int32).reshape(y_pred.shape)
+        accuracy = torch.mean((y_pred == y_true).to(torch.float64))
+
+        # Store GPU results temporarily
+        self._loglik_gpu = loglik
+        self._accuracy_gpu = accuracy
+
+        if self.compute_inference:
+            # Bread: inverse Hessian, H = X'WX (+ ridge)
+            W_inf = p * (1 - p)
+            W_inf = torch.clamp(W_inf, 1e-8, 1 - 1e-8)
+            H = X_design.T @ (X_design * W_inf[:, None])
+            if alpha > 0:
+                reg_diag_inf = torch.full((H.shape[0],), alpha, dtype=torch.float64, device=torch_device)
+                if self.fit_intercept:
+                    reg_diag_inf[0] = 0.0
+                H += torch.diag(reg_diag_inf)
+            try:
+                eye = torch.eye(H.shape[0], dtype=H.dtype, device=torch_device)
+                bread = torch.linalg.solve(H, eye)
+            except Exception:
+                bread = torch.linalg.pinv(H)
+
+            if self.cov_type == "nonrobust":
+                cov_params = bread
+            else:
+                resid_score = y - p
+                scores = X_design * resid_score[:, None]
+
+                if self.cov_type == "hac":
+                    meat = self._hac_meat_torch(scores)
+                else:
+                    if self.cov_type in ("hc2", "hc3"):
+                        leverage = W_inf * torch.einsum("ij,jk,ik->i", X_design, bread, X_design)
+                        leverage = torch.clamp(leverage, 0.0, 1.0 - 1e-12)
+                        if self.cov_type == "hc2":
+                            scores = scores / torch.sqrt(1.0 - leverage)[:, None]
+                        else:
+                            scores = scores / (1.0 - leverage)[:, None]
+                    meat = scores.T @ scores
+
+                cov_params = bread @ meat @ bread
+                if self.cov_type == "hc1":
+                    n = X_design.shape[0]
+                    k = X_design.shape[1]
+                    if n > k:
+                        cov_params = cov_params * (n / (n - k))
+
+            bse_gpu = torch.sqrt(torch.clamp(torch.diag(cov_params), 0.0))
+            zvalues_gpu = params / (bse_gpu + 1e-30)
+            pvalues_gpu = torch.minimum(torch.tensor(1.0, device=torch_device), 2.0 * norm.sf(torch.abs(zvalues_gpu), device=torch_device))
+            z_crit = norm.ppf(0.975, device=torch_device)
+            conf_int_gpu = torch.stack(
+                [params - z_crit * bse_gpu, params + z_crit * bse_gpu], dim=1
+            )
+
+            self._bse = bse_gpu.cpu().numpy()
+            self._zvalues = zvalues_gpu.cpu().numpy()
+            self._pvalues = pvalues_gpu.cpu().numpy()
+            self._conf_int = conf_int_gpu.cpu().numpy()
+
+        # Single transfer at the end
+        params_np = params.cpu().numpy()
+        X_design_np = X_design.cpu().numpy()
+
+        self._X_design = X_design_np
+        self._params = params_np
+
+        if self.fit_intercept:
+            self.intercept_ = float(params_np[0])
+            self.coef_ = params_np[1:]
+        else:
+            self.intercept_ = 0.0
+            self.coef_ = params_np.copy()
+
+        self._df_resid = n_samples - (n_features + (1 if self.fit_intercept else 0))
+        self._loglik = float(self._loglik_gpu.cpu().numpy())
+        self._accuracy = float(self._accuracy_gpu.cpu().numpy())
+        y_mean = torch.mean(y)
+        y_mean = torch.clamp(y_mean, 1e-15, 1 - 1e-15)
+        self._loglik_null = float(torch.sum(y * torch.log(y_mean) + (1 - y) * torch.log(1 - y_mean)).cpu().numpy())
+
+        # Release large temporary GPU tensors early.
+        try:
+            del X_design
+        except Exception:
+            pass
+        try:
+            del XtWX
+        except Exception:
+            pass
+        try:
+            del Xtz
+        except Exception:
+            pass
+        try:
+            del params
+        except Exception:
+            pass
+        try:
+            del W
+        except Exception:
+            pass
+        try:
+            del z
+        except Exception:
+            pass
+        try:
+            del eta
+        except Exception:
+            pass
+        try:
+            del p
+        except Exception:
+            pass
+        self._cleanup_torch_memory()
+
+    def _hac_meat_torch(self, scores):
+        """Torch Bartlett-kernel HAC meat from per-observation score matrix."""
+        import torch
+
+        n_obs = int(scores.shape[0])
+        meat = scores.T @ scores
+        maxlags = self._resolve_hac_maxlags(n_obs)
+        if maxlags == 0:
+            return meat
+        for lag in range(1, maxlags + 1):
+            weight = 1.0 - (lag / (maxlags + 1.0))
+            gamma = scores[lag:].T @ scores[:-lag]
+            meat = meat + weight * (gamma + gamma.T)
+        return meat
     
     def _compute_inference(self):
         """Compute standard errors, z-stats, p-values, and confidence intervals."""

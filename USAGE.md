@@ -1,7 +1,7 @@
 # statgpu Documentation Portal
 
 > Language: English  
-> Last updated: 2026-04-15  
+> Last updated: 2026-04-18  
 > This page: Primary documentation entrypoint  
 > Switch: [Chinese](USAGE_CN.md)
 
@@ -15,6 +15,7 @@ Language switch:
 
 - [Quickstart](docs/en/getting-started/quickstart.md)
 - [Device and GPU Memory](docs/en/guides/device-and-memory.md)
+- [PyTorch Backend](docs/en/guides/pytorch-backend.md)
 - [Inference Modes (Lasso)](docs/en/guides/inference-modes.md)
 - [Distribution API (GPU Native + Explicit Fallback)](docs/en/guides/distribution-api.md)
 - [Global P-value Combination (Fisher/Cauchy/ACAT)](docs/en/guides/multiple-testing-combine-pvalues.md)
@@ -24,6 +25,8 @@ Install note:
 - Choose CuPy wheel by CUDA major version:
   - CUDA 11.x -> `cupy-cuda11x`
   - CUDA 12.x -> `cupy-cuda12x`
+- PyTorch backend (alternative GPU option):
+  - PyTorch 2.0+ -> `pip install statgpu[torch]`
 
 ## 2) Model Docs
 
@@ -33,11 +36,11 @@ Install note:
 
 Implemented estimators:
 - `LinearRegression`
-- `Ridge`
-- `Lasso`
+- `Ridge` ✅ (Torch backend)
+- `Lasso` ✅ (Torch backend)
 - `LassoCV`
-- `LogisticRegression`
-- `CoxPH`
+- `LogisticRegression` ✅ (Torch backend)
+- `CoxPH` ✅ (Torch backend)
 
 Exported CV classes currently in skeleton state:
 - `RidgeCV`
@@ -54,9 +57,9 @@ Implemented feature selection:
 
 Inference highlights:
 - `LinearRegression`: `cov_type=nonrobust/hc0/hc1/hc2/hc3/hac` (CPU+GPU)
-- `Ridge`: `cov_type=nonrobust/hc0/hc1/hc2/hc3/hac` (CPU+GPU)
-- `Lasso`: `cpu_ols_inference/gpu_ols_inference/bootstrap`
-- `LogisticRegression`: `cov_type=nonrobust/hc0/hc1/hc2/hc3/hac` (CPU+GPU)
+- `Ridge`: `cov_type=nonrobust/hc0/hc1/hc2/hc3/hac` (CPU+GPU) ✅ (Torch backend)
+- `Lasso`: `cpu_ols_inference/gpu_ols_inference/bootstrap` ✅ (Torch backend)
+- `LogisticRegression`: `cov_type=nonrobust/hc0/hc1/hc2/hc3/hac` (CPU+GPU) ✅ (Torch backend)
 - Multiple-testing utilities: `statgpu.adjust_pvalues` / `statgpu.multipletests` (`bh/by/holm/bonferroni`)
 - Global p-value combination: `statgpu.combine_pvalues` (`fisher/cauchy/acat`)
 - Unified resampling engine: `statgpu.bootstrap_statistic` / `statgpu.permutation_test`

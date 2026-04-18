@@ -195,11 +195,12 @@ class Lasso(BaseEstimator):
         """Fit Lasso regression model using coordinate descent."""
         self._validate_simultaneous_config()
         self._reset_simultaneous_outputs()
-        # Avoid GPU->CPU copies when we don't need diagnostics/inference.
-        # - CPU path always needs y on host for residuals/RSS.
-        # - GPU path with compute_inference=False: residuals/scale are not computed,
-        #   and properties depending on them return None.
         device = self._get_compute_device()
+
+        # Get backend - support explicit torch backend selection
+        backend = self._get_backend(backend="auto")
+        backend_name = backend.name
+
         # If the user requested GPU-only inference but we ended up on CPU,
         # gracefully fall back to CPU inference instead of leaving
         # inference fields unset.
@@ -218,15 +219,21 @@ class Lasso(BaseEstimator):
                 # y may already be a CuPy array; use safe conversion.
                 self._y = self._to_numpy(y)
 
-        X_arr = self._to_array(X)
-        y_arr = self._to_array(y)
+        X_arr = self._to_array(X, backend=backend_name)
+        y_arr = self._to_array(y, backend=backend_name)
 
-        if device == Device.CUDA:
+        # Route to appropriate backend
+        if backend_name == "torch":
+            self._fit_torch(X_arr, y_arr, sample_weight)
+        elif device == Device.CUDA:
             self._fit_gpu(X_arr, y_arr, sample_weight)
         else:
             self._fit_cpu(X_arr, y_arr, sample_weight)
+
         _skip_post_fit = {"gpu_ols_inference"}
         if device == Device.CUDA and self.inference_method == "debiased":
+            _skip_post_fit.add("debiased")
+        if backend_name == "torch" and self.inference_method == "debiased":
             _skip_post_fit.add("debiased")
         if self.compute_inference and self.inference_method not in _skip_post_fit:
             self._compute_inference()
@@ -717,6 +724,629 @@ class Lasso(BaseEstimator):
         except Exception:
             pass
         self._cleanup_cuda_memory()
+
+    def _cleanup_torch_memory(self):
+        """Best-effort Torch CUDA memory cleanup."""
+        if not self.gpu_memory_cleanup:
+            return
+        try:
+            import torch
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+                torch.cuda.synchronize()
+        except Exception:
+            pass
+
+    def _matrix_fingerprint_torch(self, X: "torch.Tensor") -> str:
+        """Generate a fingerprint key for caching debiased M matrix (Torch version)."""
+        import torch
+        n, p = X.shape
+        r = min(24, n)
+        c = min(24, p)
+        sample = X[:r, :c].contiguous()
+        h = hashlib.sha1()
+        h.update(str((n, p, str(X.dtype))).encode("utf-8"))
+        h.update(sample.cpu().numpy().tobytes())
+        return h.hexdigest()
+
+    def _solve_lasso_path_torch_fista_multi_fold_from_gram(
+        self,
+        XtX_batch,
+        Xty_batch,
+        *,
+        n_samples_vec,
+        alphas_desc,
+        max_iter,
+        tol,
+        stopping,
+        lipschitz_L=None,
+        check_every=8,
+    ):
+        """Solve descending-alpha Lasso paths for all folds together on Torch GPU."""
+        import torch
+
+        n_folds = int(XtX_batch.shape[0])
+        n_features = int(XtX_batch.shape[1])
+        n_alphas = int(alphas_desc.shape[0])
+        dtype = XtX_batch.dtype
+        device = XtX_batch.device
+
+        coefs = torch.zeros((n_folds, n_features, n_alphas), dtype=dtype, device=device)
+        yk = coefs.clone()
+        tk = torch.ones((n_folds, n_alphas), dtype=dtype, device=device)
+        n_iters = torch.zeros((n_folds, n_alphas), dtype=torch.int32, device=device)
+
+        n_vec = torch.as_tensor(n_samples_vec, dtype=dtype, device=device).reshape(-1)
+        if n_vec.size != n_folds:
+            raise ValueError("n_samples_vec must have one entry per fold")
+
+        if lipschitz_L is not None:
+            L = torch.full((n_folds,), float(lipschitz_L), dtype=dtype, device=device)
+        else:
+            try:
+                eigvals = torch.linalg.eigvalsh(XtX_batch)
+                L = eigvals[:, -1] / n_vec
+            except Exception:
+                row_sum_bound = torch.max(torch.sum(torch.abs(XtX_batch), dim=2), dim=1)[0] / n_vec
+                L = torch.maximum(row_sum_bound, torch.tensor(1e-12, dtype=dtype, device=device))
+
+        step = 1.0 / L.reshape(n_folds, 1, 1)
+        alpha_gpu = torch.as_tensor(np.asarray(alphas_desc, dtype=np.float64), dtype=dtype, device=device).reshape(1, 1, n_alphas)
+        thresholds = alpha_gpu * step
+
+        Xty_expanded = Xty_batch.reshape(n_folds, n_features, 1)
+        n_vec_expanded = n_vec.reshape(n_folds, 1, 1)
+        stopping_name = str(stopping).lower()
+        check_every = max(1, int(check_every))
+
+        active_gpu = torch.ones((n_folds, n_alphas), dtype=torch.bool, device=device)
+        active_count = int(n_folds * n_alphas)
+
+        for iteration in range(int(max_iter)):
+            if active_count == 0:
+                break
+
+            active_expanded = active_gpu[:, None, :]
+
+            coef_old = coefs.clone()
+            grad = (torch.matmul(XtX_batch, yk) - Xty_expanded) / n_vec_expanded
+            coef_candidate = torch.sign(yk - step * grad) * torch.maximum(torch.abs(yk - step * grad) - thresholds, torch.tensor(0.0, dtype=dtype, device=device))
+            coefs = torch.where(active_expanded, coef_candidate, coefs)
+
+            t_old = tk
+            t_new = (1.0 + torch.sqrt(1.0 + 4.0 * (t_old ** 2))) / 2.0
+            beta = (t_old - 1.0) / t_new
+            y_candidate = coefs + beta[:, None, :] * (coefs - coef_old)
+            yk = torch.where(active_expanded, y_candidate, yk)
+            tk = torch.where(active_gpu, t_new, tk)
+
+            active_ratio = float(active_count) / float(max(1, n_folds * n_alphas))
+            check_every_eff = max(check_every, 1)
+            should_check = ((iteration + 1) % check_every_eff == 0) or (iteration + 1 == int(max_iter))
+            if not should_check:
+                continue
+
+            if stopping_name == "kkt":
+                grad_sse = (torch.matmul(XtX_batch, coefs) - Xty_expanded) / n_vec_expanded
+                violation = torch.max(torch.maximum(torch.abs(grad_sse) - alpha_gpu, torch.tensor(0.0, dtype=dtype, device=device)), dim=1)[0]
+                converged_local_gpu = violation < float(tol)
+            else:
+                delta = torch.sum(torch.abs(coefs - coef_old), dim=1)
+                converged_local_gpu = delta < float(tol)
+
+            newly_done_gpu = active_gpu & converged_local_gpu
+            done_count = int(torch.count_nonzero(newly_done_gpu).item())
+            if done_count == 0:
+                continue
+
+            n_iters[newly_done_gpu] = int(iteration) + 1
+            yk = torch.where(newly_done_gpu[:, None, :], coefs, yk)
+            active_gpu = active_gpu & (~converged_local_gpu)
+            active_count -= done_count
+
+        return coefs.transpose(1, 2), n_iters.cpu().numpy()
+
+    def _compute_inference_debiased_torch(self, X_torch, y_torch, coef_torch):
+        """Torch GPU path for debiased Lasso inference.
+
+        Parameters
+        ----------
+        X_torch : torch.Tensor, shape (n, p)
+            Raw feature matrix on Torch GPU (no intercept column).
+        y_torch : torch.Tensor, shape (n,)
+            Response on Torch GPU.
+        coef_torch : torch.Tensor, shape (p,)
+            Lasso coefficients on Torch GPU (no intercept).
+        """
+        import torch
+        from ..inference._distributions_torch import norm
+
+        n, p = X_torch.shape
+        dtype = torch.float64
+        device = X_torch.device
+
+        # Ensure correct dtype
+        if X_torch.dtype != dtype:
+            X_torch = X_torch.to(dtype)
+        if y_torch.dtype != dtype:
+            y_torch = y_torch.to(dtype)
+        if coef_torch.dtype != dtype:
+            coef_torch = coef_torch.to(dtype)
+
+        # Compute Sigma_hat = X'X / n
+        Sigma_hat = X_torch.T @ X_torch / n
+
+        # Compute Lasso residuals
+        resid_lasso = y_torch - X_torch @ coef_torch
+        if self.fit_intercept:
+            resid_lasso = resid_lasso - torch.mean(y_torch) + torch.mean(X_torch, dim=0) @ coef_torch
+
+        # Estimate noise variance sigma^2
+        s_hat = torch.sum(torch.abs(coef_torch) > 0).to(dtype)
+        denom = torch.maximum(torch.tensor(1.0, dtype=dtype, device=device), torch.tensor(float(n), dtype=dtype, device=device) - s_hat)
+        sigma2 = torch.sum(resid_lasso ** 2) / denom
+
+        # Node-wise Lasso for M matrix estimation
+        lam_nw = float(np.sqrt(2.0 * np.log(max(p, 2)) / n))
+        alpha_nw = np.asarray([lam_nw], dtype=np.float64)
+        tiny = 1e-30
+        zero = 0.0
+        one = 1.0
+
+        # Caching for M matrix
+        X_sample = X_torch[: min(24, n), : min(24, p)].cpu().numpy()
+        m_cache_key = _debiased_m_key_from_sample(
+            n=n,
+            p=p,
+            dtype_name=str(dtype),
+            sample_block=X_sample,
+            lam_nw=lam_nw,
+            tol=float(self.tol),
+        )
+        M_cached = _debiased_m_cache_get(m_cache_key)
+
+        if M_cached is not None:
+            M = torch.from_numpy(M_cached).to(dtype).to(device)
+        else:
+            M = torch.zeros((p, p), dtype=dtype, device=device)
+            XtX_full = X_torch.T @ X_torch
+            Sigma_diag = torch.diag(Sigma_hat)
+
+            # Batch node-wise problems for efficiency
+            try:
+                # Estimate available GPU memory for batching
+                if torch.cuda.is_available():
+                    free_mem = torch.cuda.mem_get_info(device)[0]
+                    bytes_per_fold = max(8, (p - 1) * (p - 1) * 8 * 2)
+                    chunk_size = int(max(4, min(64, free_mem // max(bytes_per_fold, 1))))
+                else:
+                    chunk_size = 16
+            except Exception:
+                chunk_size = 16
+            chunk_size = max(4, min(int(p), chunk_size))
+
+            for j0 in range(0, p, chunk_size):
+                j1 = min(p, j0 + chunk_size)
+                bsz = j1 - j0
+                j_batch = torch.arange(j0, j1, dtype=torch.int32, device=device)
+
+                # Build "all except j" column index matrix
+                base = torch.arange(p - 1, dtype=torch.int32, device=device).reshape(1, -1)
+                cols_batch = base + (base >= j_batch.reshape(-1, 1))
+
+                # Gather batched Gram/Xty blocks
+                XtX_batch = XtX_full[
+                    cols_batch[:, :, None],
+                    cols_batch[:, None, :],
+                ]
+                Xty_batch = XtX_full[cols_batch, j_batch.reshape(-1, 1)].reshape(bsz, p - 1)
+
+                # Solve node-wise Lasso problems
+                coefs_batch_desc, _ = self._solve_lasso_path_torch_fista_multi_fold_from_gram(
+                    XtX_batch,
+                    Xty_batch,
+                    n_samples_vec=np.full((bsz,), float(n), dtype=np.float64),
+                    alphas_desc=alpha_nw,
+                    max_iter=500,
+                    tol=1e-5,
+                    stopping="coef_delta",
+                    lipschitz_L=None,
+                    check_every=8,
+                )
+                gamma_batch = torch.from_numpy(np.asarray(coefs_batch_desc[:, 0, :], dtype=np.float64)).to(dtype).to(device)
+
+                # C_j = Sigma_jj - Sigma_{j,-j} gamma_j
+                sigma_j_cols = Sigma_hat[j_batch[:, None], cols_batch]
+                C_batch = Sigma_diag[j_batch] - torch.sum(sigma_j_cols * gamma_batch, dim=1)
+
+                small_c = torch.abs(C_batch) < tiny
+                inv_c = torch.where(small_c, torch.tensor(zero, dtype=dtype, device=device), torch.tensor(one, dtype=dtype, device=device) / C_batch)
+                M[j_batch, j_batch] = torch.where(small_c, torch.tensor(one, dtype=dtype, device=device), inv_c)
+                M[j_batch[:, None], cols_batch] = -gamma_batch * inv_c.reshape(-1, 1)
+
+                # Cleanup
+                del XtX_batch
+                del Xty_batch
+                del coefs_batch_desc
+                del gamma_batch
+                del sigma_j_cols
+
+            _debiased_m_cache_put(m_cache_key, M.cpu().numpy())
+
+        # Compute full residual
+        if self.fit_intercept:
+            y_pred = X_torch @ coef_torch + torch.tensor(self.intercept_, dtype=dtype, device=device)
+        else:
+            y_pred = X_torch @ coef_torch
+        resid_full = y_torch - y_pred
+
+        # Debiased estimate: theta_db = coef + M @ X' @ resid / n
+        theta_db = coef_torch + (M @ X_torch.T @ resid_full) / n
+
+        # Variance estimation: V = M @ Sigma_hat @ M'
+        V = M @ Sigma_hat @ M.T
+        se = torch.sqrt(sigma2 * torch.diag(V) / n)
+
+        # z-statistics and p-values
+        z_stats = theta_db / (se + 1e-30)
+        pvalues = torch.minimum(torch.tensor(1.0, dtype=dtype, device=device), 2.0 * norm.sf(torch.abs(z_stats)))
+
+        # Confidence intervals
+        alpha_ci = 0.05
+        z_crit = norm.ppf(1.0 - alpha_ci / 2.0)
+        ci = torch.stack([theta_db - z_crit * se, theta_db + z_crit * se], dim=1)
+
+        # Handle intercept
+        if self.fit_intercept:
+            X_full = torch.cat([torch.ones((n, 1), dtype=dtype, device=device), X_torch], dim=1)
+            XtX_full = X_full.T @ X_full
+            try:
+                XtX_inv = torch.linalg.inv(XtX_full)
+            except Exception:
+                XtX_inv = torch.linalg.pinv(XtX_full)
+            se_intercept = torch.sqrt(sigma2 * XtX_inv[0, 0])
+            intercept_torch = torch.tensor(self.intercept_, dtype=dtype, device=device)
+            z_intercept = intercept_torch / (se_intercept + 1e-30)
+            p_intercept = torch.minimum(torch.tensor(1.0, dtype=dtype, device=device), 2.0 * norm.sf(torch.abs(z_intercept).reshape(1)))
+            ci_intercept = torch.stack([
+                intercept_torch - z_crit * se_intercept,
+                intercept_torch + z_crit * se_intercept,
+            ]).reshape(1, 2)
+
+            bse_torch = torch.cat([se_intercept.reshape(1), se])
+            tvalues_torch = torch.cat([z_intercept.reshape(1), z_stats])
+            pvalues_torch = torch.cat([p_intercept.reshape(1), pvalues])
+            conf_int_torch = torch.cat([ci_intercept, ci], dim=0)
+            params_torch = torch.cat([intercept_torch.reshape(1), theta_db])
+        else:
+            bse_torch = se
+            tvalues_torch = z_stats
+            pvalues_torch = pvalues
+            conf_int_torch = ci
+            params_torch = theta_db
+
+        # Transfer to CPU
+        self._bse = bse_torch.cpu().numpy()
+        self._tvalues = tvalues_torch.cpu().numpy()
+        self._pvalues = pvalues_torch.cpu().numpy()
+        self._conf_int = conf_int_torch.cpu().numpy()
+        self._params = params_torch.cpu().numpy()
+
+        # Store M matrix for simultaneous inference
+        self._debiased_M_cpu = M.cpu().numpy()
+
+        # Simultaneous inference (max-|Z| bootstrap)
+        if self.enable_simultaneous_inference:
+            self._compute_simultaneous_inference_torch(
+                params_torch, bse_torch, se, M, X_torch, resid_full, n
+            )
+
+    def _compute_simultaneous_inference_torch(
+        self, params_torch, bse_torch, se_feat_torch, M_torch, X_torch, resid_full_torch, n
+    ):
+        """Torch GPU implementation of simultaneous inference via max-|Z| bootstrap."""
+        import torch
+
+        # Get target indices
+        param_target_idx_np = self._get_simultaneous_target_indices(int(params_torch.shape[0]))
+        param_target_idx_torch = torch.as_tensor(param_target_idx_np, dtype=torch.int32, device=params_torch.device)
+
+        if param_target_idx_torch.size == 0:
+            raise RuntimeError("No coefficients selected for simultaneous inference target set.")
+
+        feature_offset = 1 if self.fit_intercept else 0
+        feature_target_torch = param_target_idx_torch - feature_offset
+        feature_target_torch = feature_target_torch[feature_target_torch >= 0]
+
+        if feature_target_torch.size == 0:
+            raise RuntimeError("No feature coefficients selected for simultaneous inference target set.")
+
+        se_target_torch = torch.index_select(se_feat_torch, 0, feature_target_torch)
+        M_target = torch.index_select(M_torch, 0, feature_target_torch)
+
+        B = int(self.simultaneous_n_bootstrap)
+        if self.simultaneous_random_state is not None:
+            torch.manual_seed(self.simultaneous_random_state)
+
+        # Bootstrap in chunks to manage memory
+        try:
+            # Try one-shot computation
+            xi = torch.randn((B, n), dtype=torch.float64, device=X_torch.device)
+            weighted = xi * resid_full_torch.reshape(1, -1)
+            score_target = (weighted @ X_torch) @ M_target.T / float(max(n, 1))
+            z_star_target = score_target / (se_target_torch.reshape(1, -1) + 1e-30)
+            max_stats_torch = torch.max(torch.abs(z_star_target), dim=1)[0]
+        except Exception:
+            # Fallback to chunked computation
+            max_stats_torch = torch.empty((B,), dtype=torch.float64, device=X_torch.device)
+            chunk = min(B, 64)
+            filled = 0
+            while filled < B:
+                bsz = min(chunk, B - filled)
+                xi = torch.randn((bsz, n), dtype=torch.float64, device=X_torch.device)
+                weighted = xi * resid_full_torch.reshape(1, -1)
+                score_target = (weighted @ X_torch) @ M_target.T / float(max(n, 1))
+                z_star_target = score_target / (se_target_torch.reshape(1, -1) + 1e-30)
+                max_stats_torch[filled : filled + bsz] = torch.max(torch.abs(z_star_target), dim=1)[0]
+                filled += bsz
+
+        # Compute critical value
+        critical_torch = torch.quantile(max_stats_torch, 1.0 - float(self.simultaneous_alpha))
+
+        # Build simultaneous confidence intervals
+        conf_sim_torch = conf_int_torch.clone()
+        lower_torch = torch.index_select(params_torch, 0, param_target_idx_torch) - critical_torch * torch.index_select(bse_torch, 0, param_target_idx_torch)
+        upper_torch = torch.index_select(params_torch, 0, param_target_idx_torch) + critical_torch * torch.index_select(bse_torch, 0, param_target_idx_torch)
+        conf_sim_torch[param_target_idx_torch, 0] = lower_torch
+        conf_sim_torch[param_target_idx_torch, 1] = upper_torch
+
+        # Store results
+        target_mask = np.zeros(int(params_torch.shape[0]), dtype=bool)
+        target_mask[param_target_idx_np] = True
+        self._conf_int_simultaneous = conf_sim_torch.cpu().numpy()
+        self._simultaneous_enabled = True
+        self._simultaneous_method = self.simultaneous_method
+        self._simultaneous_alpha = float(self.simultaneous_alpha)
+        self._simultaneous_n_bootstrap = B
+        self._simultaneous_critical_value = float(critical_torch.cpu().numpy())
+        self._simultaneous_target_mask = target_mask
+
+    def _soft_threshold_torch(self, x, gamma):
+        """Soft thresholding operator for Torch tensors."""
+        import torch
+        return torch.sign(x) * torch.maximum(torch.abs(x) - gamma, torch.tensor(0.0, dtype=x.dtype, device=x.device))
+
+    def _fit_torch(self, X, y, sample_weight=None):
+        """Fit using Torch GPU with FISTA solver."""
+        import torch
+        from .._gpu_utils_torch import compute_r2_torch
+
+        if self.solver not in ("fista", "admm"):
+            raise ValueError("Torch backend currently only supports 'fista' solver")
+
+        # For now, only FISTA is implemented for Torch backend
+        if self.solver == "admm":
+            raise NotImplementedError("ADMM solver not yet implemented for Torch backend")
+
+        n_samples, n_features = X.shape
+        self._nobs = n_samples
+
+        # Ensure Torch tensors on GPU
+        if not isinstance(X, torch.Tensor):
+            X = torch.from_numpy(X).to('cuda')
+        if not isinstance(y, torch.Tensor):
+            y = torch.from_numpy(y).to('cuda')
+        if y.dtype != torch.float64:
+            y = y.to(torch.float64)
+        if X.dtype != torch.float64:
+            X = X.to(torch.float64)
+
+        if sample_weight is not None:
+            if not isinstance(sample_weight, torch.Tensor):
+                sample_weight = torch.from_numpy(sample_weight).to('cuda')
+            sqrt_sw = torch.sqrt(sample_weight)
+            X = X * sqrt_sw[:, None]
+            y = y * sqrt_sw
+
+        # Ensure vector y on GPU
+        y = y.reshape(-1)
+
+        # Center for intercept
+        if self.fit_intercept:
+            X_mean = torch.mean(X, dim=0)
+            y_mean = torch.mean(y)
+            X_centered = X - X_mean
+            y_centered = y - y_mean
+        else:
+            X_centered = X
+            y_mean = torch.tensor(0.0, dtype=X.dtype, device=X.device)
+            y_centered = y
+
+        # Precompute XtX / Xty for FISTA gradient
+        XtX = X_centered.T @ X_centered
+        Xty = X_centered.T @ y_centered
+
+        # Lipschitz constant L
+        if self.lipschitz_L is not None:
+            L = torch.tensor(float(self.lipschitz_L), dtype=X.dtype, device=X.device)
+        else:
+            L_frob = torch.sum(X_centered ** 2) / n_samples
+            try:
+                eigvals = torch.linalg.eigvalsh(XtX)
+                L = eigvals[-1] / n_samples
+            except Exception:
+                L = L_frob
+
+        if L <= 0:
+            coef = torch.zeros(n_features, dtype=X.dtype, device=X.device)
+            self.n_iter_ = 0
+        else:
+            step = 1.0 / L
+            thresh = self.alpha * step
+
+            # FISTA variables
+            coef = torch.zeros(n_features, dtype=X.dtype, device=X.device)
+            y_k = coef.clone()
+            t_k = torch.tensor(1.0, dtype=X.dtype, device=X.device)
+
+            for iteration in range(self.max_iter):
+                coef_old = coef.clone()
+
+                # Gradient at y_k
+                grad = (XtX @ y_k - Xty) / n_samples
+
+                # Prox step for L1
+                coef = self._soft_threshold_torch(y_k - step * grad, thresh)
+
+                # Momentum update
+                t_new = (1.0 + torch.sqrt(1.0 + 4.0 * (t_k ** 2))) / 2.0
+                beta = (t_k - 1.0) / t_new
+                y_k = coef + beta * (coef - coef_old)
+                t_k = t_new
+
+                # Convergence test
+                if self.stopping == "kkt":
+                    grad_sse = (XtX @ coef - Xty) / n_samples
+                    violation = torch.max(torch.maximum(torch.abs(grad_sse) - self.alpha, torch.tensor(0.0, dtype=X.dtype, device=X.device)))
+                    if violation < self.tol:
+                        self.n_iter_ = iteration + 1
+                        break
+                else:
+                    if torch.sum(torch.abs(coef - coef_old)) < self.tol:
+                        self.n_iter_ = iteration + 1
+                        break
+            else:
+                self.n_iter_ = self.max_iter
+
+        # Build full coefficients
+        if self.fit_intercept:
+            intercept_torch = y_mean - X_mean @ coef
+            coef_full = torch.cat([intercept_torch.reshape(1), coef])
+        else:
+            coef_full = coef
+
+        # Transfer coefficients to CPU
+        coef_full_np = coef_full.cpu().numpy()
+
+        if self.fit_intercept:
+            self.intercept_ = float(coef_full_np[0])
+            self.coef_ = coef_full_np[1:]
+            self._params = coef_full_np
+        else:
+            self.intercept_ = 0.0
+            self.coef_ = coef_full_np
+            self._params = coef_full_np
+
+        df_resid = n_samples - (n_features + (1 if self.fit_intercept else 0))
+        self._df_resid = df_resid
+
+        # Inference/diagnostics
+        if self.compute_inference:
+            if self.fit_intercept:
+                X_design = torch.cat([torch.ones((n_samples, 1), dtype=X.dtype, device=X.device), X], dim=1)
+            else:
+                X_design = X
+
+            y_pred = X_design @ coef_full
+            resid = y - y_pred
+
+            if df_resid > 0:
+                scale = torch.sum(resid ** 2) / df_resid
+                self._scale = float(scale.cpu().numpy()) if not torch.isnan(scale) else np.nan
+            else:
+                self._scale = np.nan
+                scale = torch.tensor(np.nan, dtype=X.dtype, device=X.device)
+
+            if self.inference_method == "gpu_ols_inference":
+                # Compute inference fully on GPU
+                XtX_inf = X_design.T @ X_design
+                try:
+                    XtX_inv = torch.linalg.inv(XtX_inf)
+                except Exception:
+                    XtX_inv = torch.linalg.pinv(XtX_inf)
+
+                bse_gpu = torch.sqrt(scale * torch.diag(XtX_inv))
+                params_gpu = coef_full
+                tvalues_gpu = params_gpu / (bse_gpu + 1e-30)
+
+                from ..inference._distributions_torch import t as t_dist
+                pvalues_gpu = torch.minimum(torch.tensor(1.0, device=X.device), 2.0 * t_dist.sf(torch.abs(tvalues_gpu), df=df_resid, device=X.device))
+
+                alpha = 0.05
+                t_crit_gpu = t_dist.ppf(1.0 - alpha / 2.0, df=df_resid, device=X.device)
+                margin_gpu = t_crit_gpu * bse_gpu
+                conf_int_gpu = torch.stack([params_gpu - margin_gpu, params_gpu + margin_gpu], dim=1)
+
+                # Transfer to CPU
+                self._bse = bse_gpu.cpu().numpy()
+                self._tvalues = tvalues_gpu.cpu().numpy()
+                self._pvalues = pvalues_gpu.cpu().numpy()
+                self._conf_int = conf_int_gpu.cpu().numpy()
+
+                # R^2
+                y_mean_gpu = torch.mean(y)
+                ss_tot = torch.sum((y - y_mean_gpu) ** 2)
+                ss_res = torch.sum(resid ** 2)
+                self._rsquared_gpu = float((1 - ss_res / ss_tot).cpu().numpy()) if ss_tot > 0 else 0.0
+
+                self._resid = None
+                self._X_design = None
+            elif self.inference_method == "debiased":
+                # Debiased Lasso inference on Torch GPU
+                self._compute_inference_debiased_torch(X, y, coef)
+
+                # R^2 computation
+                y_mean_gpu = torch.mean(y)
+                ss_tot = torch.sum((y - y_mean_gpu) ** 2)
+                ss_res = torch.sum(resid ** 2)
+                self._rsquared_gpu = float((1 - ss_res / ss_tot).cpu().numpy()) if ss_tot > 0 else 0.0
+
+                self._resid = None
+                self._X_design = None
+            else:
+                # Transfer residuals and design to CPU
+                self._resid = resid.cpu().numpy()
+                self._X_design = X_design.cpu().numpy()
+        else:
+            self._scale = np.nan
+            self._resid = None
+            self._X_design = None
+            self._rsquared_gpu = None
+
+        # Cleanup
+        try:
+            del X_design
+        except Exception:
+            pass
+        try:
+            del resid
+        except Exception:
+            pass
+        try:
+            del XtX
+        except Exception:
+            pass
+        try:
+            del Xty
+        except Exception:
+            pass
+        try:
+            del X_centered
+        except Exception:
+            pass
+        try:
+            del y_centered
+        except Exception:
+            pass
+        try:
+            del y_pred
+        except Exception:
+            pass
+        try:
+            del coef_full
+        except Exception:
+            pass
+        self._cleanup_torch_memory()
 
     def _fit_gpu_admm(self, X, y, sample_weight=None):
         """Fit using GPU with ADMM solver.

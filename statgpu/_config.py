@@ -12,18 +12,19 @@ class Device(Enum):
     """Device types for computation."""
     CPU = "cpu"
     CUDA = "cuda"
+    TORCH = "torch"
     AUTO = "auto"
 
 
 class _DeviceManager:
     """Internal device state manager."""
-    
+
     def __init__(self):
         self._current_device = Device.AUTO
         self._cupy_available = None
         self._torch_available = None
         self._cuda_available = None
-    
+
     def _check_cupy(self) -> bool:
         """Check if CuPy is available and working."""
         if self._cupy_available is None:
@@ -35,7 +36,7 @@ class _DeviceManager:
             except Exception:
                 self._cupy_available = False
         return self._cupy_available
-    
+
     def _check_torch(self) -> bool:
         """Check if PyTorch CUDA is available."""
         if self._torch_available is None:
@@ -45,30 +46,33 @@ class _DeviceManager:
             except Exception:
                 self._torch_available = False
         return self._torch_available
-    
+
     def cuda_available(self) -> bool:
-        """Check if any CUDA backend is available."""
+        """Check if any CUDA backend is available (CuPy or Torch)."""
         if self._cuda_available is None:
             self._cuda_available = self._check_cupy() or self._check_torch()
         return self._cuda_available
-    
+
     def get_device(self) -> Device:
         """Get current device setting."""
         if self._current_device == Device.AUTO:
-            return Device.CUDA if self.cuda_available() else Device.CPU
+            if self.cuda_available():
+                # Prefer CuPy if both are available for backward compatibility
+                return Device.CUDA if self._check_cupy() else Device.TORCH
+            return Device.CPU
         return self._current_device
-    
+
     def set_device(self, device: Union[str, Device]) -> None:
         """Set device for computation."""
         if isinstance(device, str):
             device = Device(device.lower())
-        
-        if device == Device.CUDA and not self.cuda_available():
+
+        if device in (Device.CUDA, Device.TORCH) and not self.cuda_available():
             warnings.warn(
                 "CUDA requested but not available. Falling back to CPU.",
                 RuntimeWarning
             )
-        
+
         self._current_device = device
 
 
