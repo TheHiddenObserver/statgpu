@@ -1562,7 +1562,7 @@ class CoxPH(BaseEstimator):
 
         # Hessian needs reverse cumulative second moments, but avoid
         # materializing an (n_samples, n_features, n_features) tensor.
-        n_uft = int(first_idx_uft.numel())
+        n_uft = first_idx_uft.numel()
         risk_X2_at_uft = torch.zeros(
             (n_uft, n_features, n_features), dtype=torch.float64, device=beta.device
         )
@@ -1573,7 +1573,7 @@ class CoxPH(BaseEstimator):
         for i in range(n_samples - 1, -1, -1):
             xi = X[i]
             suffix_X2 = suffix_X2 + exp_eta[i] * torch.outer(xi, xi)
-            while idx_ptr >= 0 and int(first_idx_uft[idx_ptr].item()) == i:
+            while idx_ptr >= 0 and first_idx_uft[idx_ptr].item() == i:
                 risk_X2_at_uft[idx_ptr] = suffix_X2
                 idx_ptr -= 1
 

@@ -558,10 +558,12 @@ class LogisticRegression(BaseEstimator):
 
             if sample_weight is not None:
                 if not isinstance(sample_weight, torch.Tensor):
-                    sample_weight = torch.from_numpy(sample_weight).to(torch_device)
-                if sample_weight.dtype != torch.float64:
-                    sample_weight = sample_weight.to(torch.float64)
-                W = W * sample_weight
+                    sample_weight_torch = torch.from_numpy(sample_weight).to(torch_device)
+                else:
+                    sample_weight_torch = sample_weight.to(torch_device)
+                if sample_weight_torch.dtype != torch.float64:
+                    sample_weight_torch = sample_weight_torch.to(torch.float64)
+                W = W * sample_weight_torch
 
             # Working response
             z = eta + (y - p) / W

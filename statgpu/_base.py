@@ -162,8 +162,6 @@ class BaseEstimator(ABC):
             X_np = np.asarray(X)
 
         target_device = device or ('cuda' if torch.cuda.is_available() else 'cpu')
-        if target_device == "cuda" and not torch.cuda.is_available():
-            target_device = "cpu"
         return torch.from_numpy(X_np).to(target_device)
 
     def _to_cupy(self, X):
