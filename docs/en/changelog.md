@@ -11,6 +11,30 @@ Language switch: [Chinese](../changelog.md)
 
 ### Added (2026-04-18)
 
+- **Elastic Net Implementation and Benchmarks**:
+  - New `ElasticNet` class combining L1 and L2 regularization with FISTA solver
+  - Supports CPU (NumPy), GPU (CuPy), and GPU (PyTorch) backends
+  - Files added:
+    - `statgpu/linear_model/_elasticnet.py` - Elastic Net implementation
+    - `dev/benchmarks/benchmark_elasticnet_sklearn.py` - sklearn comparison
+    - `dev/benchmarks/benchmark_glmnet_full.R` - R glmnet comparison
+    - `dev/benchmarks/benchmark_statgpu_full.py` - statgpu vs glmnet
+    - `dev/benchmarks/benchmark_large_scale.py` - large-scale performance tests
+    - `dev/benchmarks/run_full_benchmark.py` - unified benchmark runner
+    - `dev/benchmarks/run_large_scale.py` - remote runner
+    - `dev/benchmarks/generate_complete_report.py` - report generator
+    - `dev/scripts/remote_elasticnet_smoke.py` - basic validation
+    - `dev/scripts/remote_stability_en.py` - numerical stability tests
+  - Benchmark results:
+    - All backends match sklearn with max coef diff < 3e-8
+    - statgpu CPU wins 4/6 vs R glmnet
+    - statgpu Torch fastest in 5/6 large-scale tests (83%)
+    - Maximum speedup: **4.36x** vs sklearn (n=100k, p=500)
+  - Documentation:
+    - `docs/models/elastic-net.md` - Chinese documentation
+    - `docs/en/models/elastic-net.md` - English documentation
+    - `results/benchmark_complete_summary.md` - comprehensive benchmark summary
+
 - **PyTorch Backend Fixes** (Torch Backend Fixes):
   - Fixed `_get_backend()` method in `_base.py` to properly handle `Device.TORCH`
   - Fixed import path issues in `_gpu_utils_torch.py`

@@ -1,0 +1,235 @@
+{
+  "timestamp": "2026-04-18T20:09:40.105201",
+  "test_type": "large_scale",
+  "total_tests": 6,
+  "results": [
+    {
+      "name": "n_10k_p100",
+      "n_samples": 10000,
+      "n_features": 100,
+      "backends": {
+        "sklearn": {
+          "coef_norm": 1.1279239059507788,
+          "n_iter": 5,
+          "r2": 0.5747384846926629,
+          "fit_time_ms": 11.389553546905518,
+          "converged": true
+        },
+        "statgpu_cpu": {
+          "coef_norm": 1.1279239077560435,
+          "n_iter": 15,
+          "r2": 0.5747384854880887,
+          "fit_time_ms": 11.236727237701416,
+          "converged": true,
+          "speedup_vs_sklearn": 1.0136006068289474
+        },
+        "statgpu_gpu_cupy": {
+          "coef_norm": 1.1279239077560455,
+          "n_iter": 15,
+          "r2": 0.5747384854880894,
+          "fit_time_ms": 643.4666216373444,
+          "converged": true,
+          "speedup_vs_sklearn": 0.017700302026426838
+        },
+        "statgpu_gpu_torch": {
+          "coef_norm": 1.1279239077560455,
+          "n_iter": 15,
+          "r2": 0.5747384854880894,
+          "fit_time_ms": 12.020409107208252,
+          "converged": true,
+          "speedup_vs_sklearn": 0.9475179626020857
+        }
+      }
+    },
+    {
+      "name": "n_10k_p500",
+      "n_samples": 10000,
+      "n_features": 500,
+      "backends": {
+        "sklearn": {
+          "coef_norm": 0.8290135259946516,
+          "n_iter": 5,
+          "r2": 0.5051344808182343,
+          "fit_time_ms": 82.03470706939697,
+          "converged": true
+        },
+        "statgpu_cpu": {
+          "coef_norm": 0.8290135150362387,
+          "n_iter": 20,
+          "r2": 0.505134474573679,
+          "fit_time_ms": 100.51208734512329,
+          "converged": true,
+          "speedup_vs_sklearn": 0.8161675798028005
+        },
+        "statgpu_gpu_cupy": {
+          "coef_norm": 0.8290135150362375,
+          "n_iter": 20,
+          "r2": 0.5051344745736783,
+          "fit_time_ms": 85.33251285552979,
+          "converged": true,
+          "speedup_vs_sklearn": 0.9613534668583347
+        },
+        "statgpu_gpu_torch": {
+          "coef_norm": 0.8290135150362375,
+          "n_iter": 20,
+          "r2": 0.5051344745736783,
+          "fit_time_ms": 30.516624450683594,
+          "converged": true,
+          "speedup_vs_sklearn": 2.688197287415232
+        }
+      }
+    },
+    {
+      "name": "n_50k_p100",
+      "n_samples": 50000,
+      "n_features": 100,
+      "backends": {
+        "sklearn": {
+          "coef_norm": 0.8357819289163438,
+          "n_iter": 5,
+          "r2": 0.5089138143633872,
+          "fit_time_ms": 69.7411596775055,
+          "converged": true
+        },
+        "statgpu_cpu": {
+          "coef_norm": 0.8357819265853573,
+          "n_iter": 11,
+          "r2": 0.5089138130115451,
+          "fit_time_ms": 52.01256275177002,
+          "converged": true,
+          "speedup_vs_sklearn": 1.3408522093084552
+        },
+        "statgpu_gpu_cupy": {
+          "coef_norm": 0.8357819265853592,
+          "n_iter": 11,
+          "r2": 0.5089138130115463,
+          "fit_time_ms": 29.51890230178833,
+          "converged": true,
+          "speedup_vs_sklearn": 2.3625932619208676
+        },
+        "statgpu_gpu_torch": {
+          "coef_norm": 0.8357819265853592,
+          "n_iter": 11,
+          "r2": 0.5089138130115463,
+          "fit_time_ms": 21.735042333602905,
+          "converged": true,
+          "speedup_vs_sklearn": 3.2086967491056577
+        }
+      }
+    },
+    {
+      "name": "n_50k_p500",
+      "n_samples": 50000,
+      "n_features": 500,
+      "backends": {
+        "sklearn": {
+          "coef_norm": 2.2829751180432853,
+          "n_iter": 5,
+          "r2": 0.7047352349635203,
+          "fit_time_ms": 310.3369474411011,
+          "converged": true
+        },
+        "statgpu_cpu": {
+          "coef_norm": 2.282975117455595,
+          "n_iter": 17,
+          "r2": 0.7047352348361657,
+          "fit_time_ms": 145.30962705612183,
+          "converged": true,
+          "speedup_vs_sklearn": 2.1356943358009035
+        },
+        "statgpu_gpu_cupy": {
+          "coef_norm": 2.282975117455589,
+          "n_iter": 17,
+          "r2": 0.7047352348361645,
+          "fit_time_ms": 193.86261701583862,
+          "converged": true,
+          "speedup_vs_sklearn": 1.6008086149778247
+        },
+        "statgpu_gpu_torch": {
+          "coef_norm": 2.282975117455589,
+          "n_iter": 17,
+          "r2": 0.7047352348361645,
+          "fit_time_ms": 79.77330684661865,
+          "converged": true,
+          "speedup_vs_sklearn": 3.890235464825228
+        }
+      }
+    },
+    {
+      "name": "n_100k_p100",
+      "n_samples": 100000,
+      "n_features": 100,
+      "backends": {
+        "sklearn": {
+          "coef_norm": 2.1437647877675574,
+          "n_iter": 5,
+          "r2": 0.7084660044098473,
+          "fit_time_ms": 118.9429759979248,
+          "converged": true
+        },
+        "statgpu_cpu": {
+          "coef_norm": 2.143764787379456,
+          "n_iter": 11,
+          "r2": 0.7084660043554539,
+          "fit_time_ms": 60.851335525512695,
+          "converged": true,
+          "speedup_vs_sklearn": 1.9546485704994339
+        },
+        "statgpu_gpu_cupy": {
+          "coef_norm": 2.143764787379447,
+          "n_iter": 11,
+          "r2": 0.7084660043554525,
+          "fit_time_ms": 88.30347657203674,
+          "converged": true,
+          "speedup_vs_sklearn": 1.346979537106818
+        },
+        "statgpu_gpu_torch": {
+          "coef_norm": 2.143764787379447,
+          "n_iter": 11,
+          "r2": 0.7084660043554525,
+          "fit_time_ms": 33.226966857910156,
+          "converged": true,
+          "speedup_vs_sklearn": 3.5797121207772453
+        }
+      }
+    },
+    {
+      "name": "n_100k_p500",
+      "n_samples": 100000,
+      "n_features": 500,
+      "backends": {
+        "sklearn": {
+          "coef_norm": 0.8470251904321228,
+          "n_iter": 4,
+          "r2": 0.5164973053235187,
+          "fit_time_ms": 615.5904829502106,
+          "converged": true
+        },
+        "statgpu_cpu": {
+          "coef_norm": 0.8470251916023767,
+          "n_iter": 13,
+          "r2": 0.5164973058622813,
+          "fit_time_ms": 269.4489061832428,
+          "converged": true,
+          "speedup_vs_sklearn": 2.284627878695373
+        },
+        "statgpu_gpu_cupy": {
+          "coef_norm": 0.8470251916023837,
+          "n_iter": 13,
+          "r2": 0.516497305862285,
+          "fit_time_ms": 338.9693796634674,
+          "converged": true,
+          "speedup_vs_sklearn": 1.816065166598162
+        },
+        "statgpu_gpu_torch": {
+          "coef_norm": 0.8470251916023837,
+          "n_iter": 13,
+          "r2": 0.516497305862285,
+          "fit_time_ms": 141.0450041294098,
+          "converged": true,
+          "speedup_vs_sklearn": 4.364496897638444
+        }
+      }
+    }
+  ]
+}

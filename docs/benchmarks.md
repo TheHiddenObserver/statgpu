@@ -134,6 +134,60 @@ python dev/benchmarks/benchmark_external_frameworks.py \
   - 对比 `CoxPH cov_type=nonrobust/hc1/cluster` 的时间与数值差异
   - 覆盖 `statgpu CPU/GPU` 与 `statsmodels.PHReg`（可用时）
 
+## Elastic Net 基准测试
+
+### sklearn 对比
+
+- `dev/benchmarks/benchmark_elasticnet_sklearn.py`
+  - 对比 `statgpu` (CPU/CuPy/Torch) vs `sklearn.linear_model.ElasticNet`
+  - 测试 6 个数据集：n=200~5,000, p=20~100
+  - 输出：系数差异、R²、拟合时间 (ms)
+  - 关键发现：所有后端与 sklearn 最大系数差异 < 3e-8
+
+### R glmnet 对比
+
+- `dev/benchmarks/benchmark_glmnet_full.R` (R 脚本)
+- `dev/benchmarks/benchmark_statgpu_full.py` (Python 脚本)
+- `dev/benchmarks/run_full_benchmark.py` (统一运行器)
+  - 对比 `statgpu CPU` vs `R glmnet::glmnet()`
+  - 测试 6 个数据集：small/medium/large/high_dim/sparse_coef/high_noise
+  - 关键发现：
+    - statgpu CPU 赢得 4/6 对比
+    - 系数范数差异源于正则化缩放约定不同
+    - 两种实现都是正确的 Elastic Net
+
+### 大规模性能测试 (n ≥ 10,000)
+
+- `dev/benchmarks/benchmark_large_scale.py`
+- `dev/benchmarks/run_large_scale.py` (远端运行器)
+  - 测试 6 种配置：n=10k~100k, p=100~500
+  - 对比 sklearn vs statgpu (CPU/CuPy/Torch)
+  - 关键发现：
+    - statgpu Torch 在 5/6 测试中最快 (83%)
+    - 最大加速比：**4.36x** vs sklearn (n=100k, p=500)
+    - GPU 优势在 n ≥ 10,000 时显现
+
+### 后端选择建议
+
+| 数据规模 | 推荐后端 | 预期加速比 |
+|----------|----------|------------|
+| n < 1,000 | CPU (NumPy) | 0.7x - 1.0x |
+| 1,000 ≤ n < 10,000 | CPU (NumPy) | 1.5x - 4x |
+| 10,000 ≤ n < 50,000 | GPU (Torch) | 2x - 3x |
+| n ≥ 50,000 | GPU (Torch) | 3x - 4.4x |
+
+### 结果文件
+
+- `results/benchmark_elasticnet_sklearn_2026-04-18.json` - sklearn 对比
+- `results/benchmark_elasticnet_sklearn_2026-04-18.md` - sklearn 总结
+- `results/benchmark_full/benchmark_glmnet_all.json` - R glmnet 对比
+- `results/benchmark_full/benchmark_complete_report.md` - 完整报告
+- `results/large_scale/benchmark_elasticnet_large_scale_2026-04-18.json` - 大规模测试
+- `results/large_scale/benchmark_elasticnet_large_scale_2026-04-18.md` - 大规模总结
+- `results/benchmark_complete_summary.md` - 综合总结
+
+---
+
 ## Knockoff 特征选择
 
 - `dev/benchmarks/benchmark_knockoff_fixedx.py`
