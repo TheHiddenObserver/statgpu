@@ -16,6 +16,8 @@ from .linear_model import (
     RidgeCV,
     Lasso,
     LassoCV,
+    ElasticNet,
+    ElasticNetCV,
 )
 from .survival import CoxPH, CoxPHCV
 from .backends import get_backend, NumpyBackend, CuPyBackend, TorchBackend
@@ -58,6 +60,8 @@ __all__ = [
     "RidgeCV",
     "Lasso",
     "LassoCV",
+    "ElasticNet",
+    "ElasticNetCV",
     "CoxPH",
     "CoxPHCV",
     "get_backend",

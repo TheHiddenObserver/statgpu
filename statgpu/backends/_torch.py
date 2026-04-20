@@ -49,6 +49,19 @@ class TorchBackend(BackendBase):
 
     def __init__(self, device: str = _DEFAULT_TORCH_DEVICE):
         self._device = device
+        self._initialized = False
+
+    def _ensure_initialized(self):
+        """Perform one-time CUDA warmup to avoid lazy kernel init penalty."""
+        if self._initialized:
+            return
+        if self._device != 'cpu':
+            import torch
+            if torch.cuda.is_available():
+                # Warmup: small matmul to trigger CUDA kernel initialization
+                _ = torch.randn(32, 32, device=self._device) @ torch.randn(32, 32, device=self._device)
+                torch.cuda.synchronize()
+        self._initialized = True
 
     @property
     def xp(self):
@@ -71,6 +84,7 @@ class TorchBackend(BackendBase):
         torch.Tensor
         """
         import torch
+        self._ensure_initialized()  # Warmup on first use to avoid lazy CUDA init
         if isinstance(x, torch.Tensor):
             t = x.to(self._device)
         elif hasattr(x, "get"):
@@ -79,9 +93,18 @@ class TorchBackend(BackendBase):
             # mandatory cupy import here.
             t = torch.from_numpy(x.get()).to(self._device)
         else:
-            t = torch.from_numpy(np.asarray(x)).to(self._device)
+            # Use torch.from_numpy for numpy arrays, then ensure contiguous memory
+            arr = np.asarray(x)
+            if arr.flags['C_CONTIGUOUS']:
+                t = torch.from_numpy(arr).to(self._device)
+            else:
+                # Non-contiguous arrays need explicit contiguous copy
+                t = torch.from_numpy(np.ascontiguousarray(arr)).to(self._device)
         if dtype is not None:
             t = t.to(dtype)
+        # Ensure result is contiguous for optimal performance
+        if not t.is_contiguous():
+            t = t.contiguous()
         return t
 
     def to_numpy(self, x) -> np.ndarray:
@@ -99,6 +122,7 @@ class TorchBackend(BackendBase):
         """
         import torch
         if isinstance(x, torch.Tensor):
+            # Move to CPU first, then convert to numpy
             return x.detach().cpu().numpy()
         if hasattr(x, "get"):
             # CuPy arrays expose a .get() method that transfers the array from
@@ -144,6 +168,33 @@ class TorchBackend(BackendBase):
         result = torch.linalg.lstsq(A, b)
         return result.solution, result.residuals, result.rank, result.singular_values
 
+    def solve_triangular(self, A, b, lower=False, trans=False, unit_triangular=False):
+        """
+        Solve the triangular system Ax = b.
+
+        Parameters
+        ----------
+        A : torch.Tensor
+            Triangular matrix (n, n).
+        b : torch.Tensor
+            Right-hand side (n,) or (n, k).
+        lower : bool, default=False
+            Whether to use the lower triangle of A.
+        trans : bool, default=False
+            Whether to transpose A.
+        unit_triangular : bool, default=False
+            Whether to assume the diagonal of A is all ones.
+
+        Returns
+        -------
+        x : torch.Tensor
+            Solution to the system.
+        """
+        import torch
+        # torch.linalg.solve_triangular signature:
+        # torch.linalg.solve_triangular(A, b, *, upper=not lower, left=True, out=None)
+        return torch.linalg.solve_triangular(A, b, upper=not lower)
+
     # ------------------------------------------------------------------
     # Additional Torch-native helpers for common operations
     # ------------------------------------------------------------------
@@ -188,6 +239,20 @@ class TorchBackend(BackendBase):
         """Element-wise absolute value."""
         import torch
         return torch.abs(x)
+
+    def max(self, x, axis=None, keepdims=False):
+        """Maximum value along axis."""
+        import torch
+        if axis is None:
+            return torch.max(x)
+        if isinstance(axis, int):
+            result = torch.max(x, dim=axis, keepdim=keepdims)
+            return result.values if hasattr(result, 'values') else result[0]
+        # Multiple axes: reduce iteratively
+        for ax in sorted(axis, reverse=True):
+            result = torch.max(x, dim=ax, keepdim=keepdims)
+            x = result.values if hasattr(result, 'values') else result[0]
+        return x
 
     def square(self, x):
         """Element-wise square."""
@@ -297,6 +362,14 @@ class TorchBackend(BackendBase):
         """Create array filled with a constant value."""
         import torch
         result = torch.full(shape, fill_value, device=self._device)
+        if dtype is not None:
+            result = result.to(dtype)
+        return result
+
+    def array(self, val, dtype=None):
+        """Create a scalar or array from a value."""
+        import torch
+        result = torch.tensor(val, device=self._device)
         if dtype is not None:
             result = result.to(dtype)
         return result
@@ -436,6 +509,14 @@ class TorchBackend(BackendBase):
         import torch
         return x.unsqueeze(axis)
 
+    def atleast_1d(self, x):
+        """Ensure array is at least 1D."""
+        import torch
+        x = torch.as_tensor(x)
+        if x.ndim == 0:
+            return x.reshape(1)
+        return x
+
     def astype(self, x, dtype):
         """Cast array to dtype."""
         import torch
@@ -494,3 +575,13 @@ class TorchBackend(BackendBase):
         import torch
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
+
+    def count_nonzero(self, x):
+        """Count non-zero elements."""
+        import torch
+        return torch.count_nonzero(x)
+
+    def sign(self, x):
+        """Element-wise sign."""
+        import torch
+        return torch.sign(x)
