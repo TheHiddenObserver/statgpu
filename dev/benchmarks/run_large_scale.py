@@ -48,7 +48,7 @@ def main():
         raise ValueError(
             "Missing remote connection settings. Set STATGPU_REMOTE_HOST and "
             "STATGPU_REMOTE_USER (plus STATGPU_REMOTE_PASSWORD or "
-            "STATGPU_REMOTE_KEY_PATH, or use SSH agent/default keys)."
+            "STATGPU_SSH_KEY_PATH, or use SSH agent/default keys)."
         )
 
     client = paramiko.SSHClient()
