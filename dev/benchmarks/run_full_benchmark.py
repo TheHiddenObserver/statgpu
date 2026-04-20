@@ -4,11 +4,18 @@ Upload and run complete benchmark (R glmnet + statgpu) on remote server.
 import paramiko
 import json
 import os
+import sys
 
-HOST = "hz-4.matpool.com"
-PORT = 27609
-USERNAME = "root"
-PASSWORD = "5dXlK+bjg,j#*k(h"
+# Import remote configuration from environment or local config file
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'scripts'))
+from remote_config import get_remote_config
+
+config = get_remote_config()
+HOST = config['host']
+PORT = config['port']
+USERNAME = config['username']
+PASSWORD = config['password']
+SSH_KEY_PATH = config.get('ssh_key_path')
 
 
 def run(client: paramiko.SSHClient, cmd: str, timeout: int = 600, print_output: bool = True):
@@ -40,15 +47,22 @@ def main():
     client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
 
     print(f"Connecting to {HOST}:{PORT}...")
-    client.connect(
+    connect_kwargs = dict(
         hostname=HOST,
         port=PORT,
         username=USERNAME,
-        password=PASSWORD,
         timeout=30,
-        allow_agent=False,
-        look_for_keys=False
     )
+    if SSH_KEY_PATH:
+        connect_kwargs["key_filename"] = SSH_KEY_PATH
+        connect_kwargs["allow_agent"] = True
+        connect_kwargs["look_for_keys"] = True
+    else:
+        connect_kwargs["allow_agent"] = False
+        connect_kwargs["look_for_keys"] = False
+    if PASSWORD:
+        connect_kwargs["password"] = PASSWORD
+    client.connect(**connect_kwargs)
     print("Connected successfully!\n")
 
     try:

@@ -4,12 +4,18 @@ Upload and run large-scale benchmark on remote server.
 import paramiko
 import os
 from pathlib import Path
+import sys
 
-HOST = os.getenv("STATGPU_REMOTE_HOST")
-PORT = int(os.getenv("STATGPU_REMOTE_PORT", "22"))
-USERNAME = os.getenv("STATGPU_REMOTE_USER")
-PASSWORD = os.getenv("STATGPU_REMOTE_PASSWORD")
-KEY_FILENAME = os.getenv("STATGPU_REMOTE_KEY_PATH")
+# Import remote configuration from environment or local config file
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'scripts'))
+from remote_config import get_remote_config
+
+config = get_remote_config()
+HOST = config['host']
+PORT = config['port']
+USERNAME = config['username']
+PASSWORD = config['password']
+SSH_KEY_PATH = config.get('ssh_key_path')
 KEY_PASSPHRASE = os.getenv("STATGPU_REMOTE_KEY_PASSPHRASE")
 
 
@@ -42,24 +48,31 @@ def main():
         raise ValueError(
             "Missing remote connection settings. Set STATGPU_REMOTE_HOST and "
             "STATGPU_REMOTE_USER (plus STATGPU_REMOTE_PASSWORD or "
-            "STATGPU_REMOTE_KEY_PATH, or use SSH agent/default keys)."
+            "STATGPU_SSH_KEY_PATH, or use SSH agent/default keys)."
         )
 
     client = paramiko.SSHClient()
     client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
 
     print(f"Connecting to {HOST}:{PORT}...")
-    client.connect(
+    connect_kwargs = dict(
         hostname=HOST,
         port=PORT,
         username=USERNAME,
-        password=PASSWORD,
-        key_filename=KEY_FILENAME,
-        passphrase=KEY_PASSPHRASE,
         timeout=30,
-        allow_agent=True,
-        look_for_keys=PASSWORD is None and KEY_FILENAME is None,
     )
+    if SSH_KEY_PATH:
+        connect_kwargs["key_filename"] = SSH_KEY_PATH
+        if KEY_PASSPHRASE:
+            connect_kwargs["passphrase"] = KEY_PASSPHRASE
+        connect_kwargs["allow_agent"] = True
+        connect_kwargs["look_for_keys"] = True
+    else:
+        connect_kwargs["allow_agent"] = False
+        connect_kwargs["look_for_keys"] = False
+    if PASSWORD:
+        connect_kwargs["password"] = PASSWORD
+    client.connect(**connect_kwargs)
     print("Connected successfully!\n")
 
     try:

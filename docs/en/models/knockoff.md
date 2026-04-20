@@ -58,7 +58,7 @@ Key `knockoff_filter` parameters:
 | `q` | `0.1` | Target FDR in `(0, 1)` |
 | `method` | `corr_diff` | `corr_diff` / `ols_coef_diff` / `lasso_coef_diff` |
 | `fdr_control` | `knockoff_plus` | Threshold rule: `knockoff_plus` or `knockoff` |
-| `backend` | `auto` | `auto` / `numpy` / `cupy` |
+| `backend` | `auto` | Compute backend: `auto` / `numpy` / `cupy` / `torch` |
 | `Xk` | `None` | Optional external knockoff matrix (same shape as `X`) |
 | `compat_mode` | `statgpu` | `statgpu` or `knockpy` |
 | `lasso_cv_impl` | `auto` | `auto` / `statgpu` / `sklearn` |
@@ -95,6 +95,29 @@ res_gpu = knockoff_filter(
     backend="cupy",
     modelx_draws=3,
 )
+
+# GPU Torch fixed-X
+import torch
+X_torch = torch.from_numpy(X).to('cuda')
+y_torch = torch.from_numpy(y).to('cuda')
+
+res_torch = knockoff_filter(
+    X_torch, y_torch,
+    knockoff_type="fixed_x",
+    q=0.1,
+    method="lasso_coef_diff",
+    backend="torch",
+)
+
+# GPU Torch model-X
+res_torch_mx = knockoff_filter(
+    X_torch, y_torch,
+    knockoff_type="model_x",
+    q=0.1,
+    method="lasso_coef_diff",
+    backend="torch",
+    modelx_draws=3,
+)
 ```
 
 ## strict/approx difference
@@ -103,6 +126,13 @@ res_gpu = knockoff_filter(
 - `fdr_control="knockoff"` is less conservative and may yield higher power.
 - In model-X, higher `modelx_draws` usually improves stability at higher runtime cost.
 - `knockpy_sampler` dispatch options are currently guarded; explicitly setting unsupported targets can raise `NotImplementedError` instead of silently falling back.
+
+## Torch Backend Performance
+
+**Torch Backend Benchmarks** (20-experiment comparison):
+- **Large (n=1000, p=200)**: ~1.14x speedup vs NumPy
+- **XLarge (n=2000, p=500)**: ~1.33x speedup vs NumPy
+- **Small datasets (<500 samples)**: NumPy may be faster due to GPU overhead
 
 ## Outputs
 

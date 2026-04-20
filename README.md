@@ -27,6 +27,8 @@ GPU-accelerated statistical methods with sklearn-compatible API.
   - Kernel regression: `fit_kernel_regression` / `kernel_regression_predict`
 - 🧹 **GPU Memory Control**: `gpu_memory_cleanup` for all current models
 - 🔥 **PyTorch Backend**: Optional Torch backend for GPU acceleration (PyTorch 2.0+)
+  - Supported models: `Ridge`, `LogisticRegression`, `Lasso`, `LassoCV`, `CoxPH`
+  - **Knockoff filter**: `fixed_x_knockoff_filter`, `model_x_knockoff_filter` with `backend='torch'`
 
 ## Implemented Methods (Current)
 
@@ -142,6 +144,24 @@ p = permutation_test(
   n_resamples=200,
   random_state=0,
 ).pvalue
+
+# Knockoff feature selection with Torch GPU
+from statgpu import fixed_x_knockoff_filter
+import torch
+
+X_knock = np.random.randn(1000, 50)
+y_knock = X_knock[:, :10] @ np.ones(10) + np.random.randn(1000)
+
+# Torch GPU backend for knockoff (faster on large datasets)
+X_torch = torch.from_numpy(X_knock).to('cuda')
+y_torch = torch.from_numpy(y_knock).to('cuda')
+
+result = fixed_x_knockoff_filter(
+    X_torch, y_torch,
+    q=0.1, method='lasso_coef_diff',
+    backend='torch', random_state=42
+)
+print(f"Selected features: {result.selected_features}")
 ```
 
 ## Device Control

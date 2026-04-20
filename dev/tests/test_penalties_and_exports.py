@@ -10,8 +10,10 @@ from statgpu.linear_model import (
     RidgeCV,
     Lasso,
     LassoCV,
+    ElasticNetCV,
     LogisticRegressionCV,
 )
+from statgpu.linear_model._elasticnet_cv import _make_elasticnet_cv_auto_cache_key, _kfold_indices
 from statgpu.survival import CoxPHCV
 from statgpu._config import set_device, Device
 
@@ -230,6 +232,70 @@ def test_lasso_cv_cd_kkt_check_every_validation():
     """cd_kkt_check_every must be None or a positive integer."""
     with pytest.raises(ValueError, match="cd_kkt_check_every"):
         LassoCV(cd_kkt_check_every=0)
+
+
+def test_elasticnet_cv_basic_interface_cpu():
+    """ElasticNetCV should fit on CPU and expose selected hyperparameters."""
+    set_device("cpu")
+    rng = np.random.default_rng(20260420)
+    X = rng.normal(size=(200, 15))
+    beta = np.zeros(15)
+    beta[:5] = np.array([1.6, -1.1, 0.9, 0.7, -0.4])
+    y = X @ beta + rng.normal(scale=0.4, size=200)
+
+    model = ElasticNetCV(
+        l1_ratio=[0.2, 0.5, 0.8],
+        n_alphas=10,
+        cv=4,
+        random_state=13,
+        device="cpu",
+        max_iter=2000,
+        tol=1e-4,
+    )
+    model.fit(X, y)
+
+    assert np.isfinite(model.alpha_)
+    assert model.alpha_ > 0.0
+    assert float(model.l1_ratio_) in {0.2, 0.5, 0.8}
+    assert model.coef_.shape == (X.shape[1],)
+    pred = model.predict(X)
+    assert pred.shape == (X.shape[0],)
+    assert np.isfinite(model.score(X, y))
+
+
+def test_elasticnet_cv_auto_cache_key_depends_on_folds():
+    """Auto cache key should differ for different CV splits."""
+    folds_a = _kfold_indices(n_samples=40, n_splits=4, random_state=1)
+    folds_b = _kfold_indices(n_samples=40, n_splits=4, random_state=2)
+
+    key_a = _make_elasticnet_cv_auto_cache_key(
+        X_shape=(40, 6),
+        y_shape=(40,),
+        l1_ratios=(0.5, 0.9),
+        alphas=None,
+        n_alphas=8,
+        alpha_min_ratio=1e-3,
+        folds=folds_a,
+        fit_intercept=True,
+        use_gpu=False,
+        max_iter=1000,
+        tol=1e-4,
+    )
+    key_b = _make_elasticnet_cv_auto_cache_key(
+        X_shape=(40, 6),
+        y_shape=(40,),
+        l1_ratios=(0.5, 0.9),
+        alphas=None,
+        n_alphas=8,
+        alpha_min_ratio=1e-3,
+        folds=folds_b,
+        fit_intercept=True,
+        use_gpu=False,
+        max_iter=1000,
+        tol=1e-4,
+    )
+
+    assert key_a != key_b
 
 
 @pytest.mark.skipif(

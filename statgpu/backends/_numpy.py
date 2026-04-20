@@ -42,3 +42,62 @@ class NumpyBackend(BackendBase):
 
     def lstsq(self, A, b, rcond=None):
         return np.linalg.lstsq(A, b, rcond=rcond)
+
+    # ------------------------------------------------------------------
+    # Helper methods for array operations (mirror CuPyBackend API)
+    # ------------------------------------------------------------------
+
+    def sum(self, x, axis=None, keepdims=False):
+        """Sum over specified axis/axes."""
+        return np.sum(x, axis=axis, keepdims=keepdims)
+
+    def mean(self, x, axis=None, keepdims=False):
+        """Mean over specified axis/axes."""
+        return np.mean(x, axis=axis, keepdims=keepdims)
+
+    def sqrt(self, x):
+        """Element-wise square root."""
+        return np.sqrt(x)
+
+    def abs(self, x):
+        """Element-wise absolute value."""
+        return np.abs(x)
+
+    def max(self, x, axis=None, keepdims=False):
+        """Maximum value along axis."""
+        return np.max(x, axis=axis, keepdims=keepdims)
+
+    def outer(self, a, b):
+        """Outer product."""
+        return np.outer(a.flatten(), b.flatten())
+
+    def stack(self, arrays, axis=0):
+        """Stack arrays along a new axis."""
+        return np.stack(arrays, axis=axis)
+
+    def zeros(self, shape, dtype=None):
+        """Create array of zeros."""
+        return np.zeros(shape, dtype=dtype)
+
+    def array(self, val, dtype=None):
+        """Create a scalar or array from a value."""
+        return np.array(val, dtype=dtype)
+
+    def atleast_1d(self, x):
+        """Ensure array is at least 1D."""
+        return np.atleast_1d(x)
+
+    @property
+    def newaxis(self):
+        """Alias for None, used in indexing."""
+        return np.newaxis
+
+    @property
+    def float64(self):
+        """float64 dtype."""
+        return np.float64
+
+    @property
+    def float32(self):
+        """float32 dtype."""
+        return np.float32

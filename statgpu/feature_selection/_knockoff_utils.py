@@ -410,6 +410,15 @@ def _normalize_knockoff_type(knockoff_type: str) -> str:
 
 
 def _standardize_design(X, xp):
+    """Standardize design matrix to unit norm (L2 norm = 1 per column).
+
+    This centers each column to zero mean and scales to unit L2 norm,
+    which is the standard normalization for Fixed-X knockoff construction.
+
+    Note: This differs from R glmnet's internal standardization (unit variance),
+    but is the conventional scaling for knockoff methods as it ensures the
+    knockoff construction is invariant to feature scaling.
+    """
     X = xp.asarray(X, dtype=xp.float64)
     if X.ndim != 2:
         raise ValueError("X must be a 2D array")
@@ -456,8 +465,35 @@ def _build_fixed_x_knockoffs(X_std, random_state: Optional[int], xp):
     if s_val <= 1e-12:
         raise ValueError("Failed to construct a valid knockoff S-matrix")
 
-    S = s_val * xp.eye(p, dtype=xp.float64)
-    Sigma_inv_S = xp.linalg.solve(Sigma, S)
+    # Create identity matrix on the same device as X_std (important for torch)
+    # Handle numpy (no device), cupy (device attribute but different API), and torch
+    if xp is np:
+        S = s_val * xp.eye(p, dtype=xp.float64)
+    elif getattr(xp, '__name__', '') == 'cupy':
+        # CuPy: create eye on current device context (same as X_std)
+        S = s_val * xp.eye(p, dtype=xp.float64)
+    else:
+        # Torch: use device keyword
+        device = getattr(X_std, 'device', None)
+        S = s_val * xp.eye(p, dtype=xp.float64, device=device)
+
+    # For torch, use torch.linalg.solve which preserves device better
+    if xp is np:
+        Sigma_inv_S = xp.linalg.solve(Sigma, S)
+    elif getattr(xp, '__name__', '') == 'cupy':
+        # CuPy
+        Sigma_inv_S = xp.linalg.solve(Sigma, S)
+    else:
+        # Torch: use explicit torch.linalg.solve to ensure device consistency
+        import torch
+        # Ensure both inputs are on the same device
+        torch_device = getattr(X_std, 'device', None)
+        Sigma_on_device = Sigma.to(torch_device) if hasattr(Sigma, 'to') else Sigma
+        S_on_device = S.to(torch_device) if hasattr(S, 'to') else S
+        Sigma_inv_S = torch.linalg.solve(Sigma_on_device, S_on_device)
+        # Ensure result is on the correct device
+        if torch_device is not None and hasattr(Sigma_inv_S, 'to'):
+            Sigma_inv_S = Sigma_inv_S.to(torch_device)
 
     c_arg = 2.0 * S - S @ Sigma_inv_S
     c_arg = 0.5 * (c_arg + c_arg.T)
@@ -503,7 +539,18 @@ def _build_fixed_x_knockoffs(X_std, random_state: Optional[int], xp):
     Q, _ = xp.linalg.qr(xp.concatenate([X_std, A], axis=1), mode="reduced")
     U = Q[:, p : 2 * p]
 
-    X_knock = X_std @ (xp.eye(p, dtype=xp.float64) - Sigma_inv_S) + U @ C
+    # Create identity matrix on the same device as X_std (important for torch)
+    if xp is np:
+        eye_matrix = xp.eye(p, dtype=xp.float64)
+    elif getattr(xp, '__name__', '') == 'cupy':
+        # CuPy: create eye on current device context (same as X_std)
+        eye_matrix = xp.eye(p, dtype=xp.float64)
+    else:
+        # Torch: use device keyword
+        device = getattr(X_std, 'device', None)
+        eye_matrix = xp.eye(p, dtype=xp.float64, device=device)
+
+    X_knock = X_std @ (eye_matrix - Sigma_inv_S) + U @ C
     return X_knock
 
 
@@ -522,7 +569,17 @@ def _build_model_x_knockoffs(
     shrinkage = float(min(1.0, max(0.0, covariance_shrinkage)))
     if shrinkage > 0.0:
         trace_mean = xp.trace(Sigma) / float(max(1, p))
-        Sigma = (1.0 - shrinkage) * Sigma + shrinkage * trace_mean * xp.eye(p, dtype=xp.float64)
+        # Create identity matrix - numpy/cupy don't need device, torch does
+        if xp is np:
+            eye_matrix = xp.eye(p, dtype=xp.float64)
+        elif getattr(xp, '__name__', '') == 'cupy':
+            # CuPy: create eye on current device context (same as X_std)
+            eye_matrix = xp.eye(p, dtype=xp.float64)
+        else:
+            # Torch: use device keyword
+            device = getattr(X_std, 'device', None)
+            eye_matrix = xp.eye(p, dtype=xp.float64, device=device)
+        Sigma = (1.0 - shrinkage) * Sigma + shrinkage * trace_mean * eye_matrix
         Sigma = 0.5 * (Sigma + Sigma.T)
 
     eigvals = xp.linalg.eigvalsh(Sigma)
@@ -531,7 +588,17 @@ def _build_model_x_knockoffs(
     ridge = 0.0
     if min_eig < 1e-6:
         ridge = float((1e-6 - min_eig) + 1e-8)
-        Sigma = Sigma + ridge * xp.eye(p, dtype=xp.float64)
+        # Create identity matrix - numpy/cupy don't need device, torch does
+        if xp is np:
+            eye_matrix = xp.eye(p, dtype=xp.float64)
+        elif getattr(xp, '__name__', '') == 'cupy':
+            # CuPy: create eye on current device context (same as X_std)
+            eye_matrix = xp.eye(p, dtype=xp.float64)
+        else:
+            # Torch: use device keyword
+            device = getattr(X_std, 'device', None)
+            eye_matrix = xp.eye(p, dtype=xp.float64, device=device)
+        Sigma = Sigma + ridge * eye_matrix
         Sigma = 0.5 * (Sigma + Sigma.T)
         eigvals = xp.linalg.eigvalsh(Sigma)
         min_eig = _to_float(xp.min(eigvals))
@@ -543,8 +610,32 @@ def _build_model_x_knockoffs(
     if s_val <= 1e-12:
         raise ValueError("Failed to construct a valid model-X knockoff S-matrix")
 
-    S = s_val * xp.eye(p, dtype=xp.float64)
-    Sigma_inv_S = xp.linalg.solve(Sigma, S)
+    # Create identity matrix - numpy/cupy don't need device, torch does
+    if xp is np:
+        S = s_val * xp.eye(p, dtype=xp.float64)
+    elif getattr(xp, '__name__', '') == 'cupy':
+        # CuPy: create eye on current device context (same as X_std)
+        S = s_val * xp.eye(p, dtype=xp.float64)
+    else:
+        # Torch: use device keyword
+        device = getattr(X_std, 'device', None)
+        S = s_val * xp.eye(p, dtype=xp.float64, device=device)
+
+    # For torch, use explicit torch.linalg.solve to ensure device consistency
+    if xp is np:
+        Sigma_inv_S = xp.linalg.solve(Sigma, S)
+    elif getattr(xp, '__name__', '') == 'cupy':
+        # CuPy
+        Sigma_inv_S = xp.linalg.solve(Sigma, S)
+    else:
+        # Torch: use explicit torch.linalg.solve to ensure device consistency
+        import torch
+        torch_device = getattr(X_std, 'device', None)
+        Sigma_on_device = Sigma.to(torch_device) if hasattr(Sigma, 'to') else Sigma
+        S_on_device = S.to(torch_device) if hasattr(S, 'to') else S
+        Sigma_inv_S = torch.linalg.solve(Sigma_on_device, S_on_device)
+        if torch_device is not None and hasattr(Sigma_inv_S, 'to'):
+            Sigma_inv_S = Sigma_inv_S.to(torch_device)
 
     c_arg = 2.0 * S - S @ Sigma_inv_S
     c_arg = 0.5 * (c_arg + c_arg.T)
@@ -665,7 +756,17 @@ def _ols_coef_diff_statistics(X_std, X_knock, y, xp, ridge: float = 1e-8):
     ridge_f = float(max(0.0, ridge))
 
     if ridge_f > 0.0:
-        gram = Z.T @ Z + ridge_f * xp.eye(2 * p, dtype=xp.float64)
+        # Create identity matrix - numpy/cupy don't need device, torch does
+        if xp is np:
+            eye_matrix = xp.eye(2 * p, dtype=xp.float64)
+        elif getattr(xp, '__name__', '') == 'cupy':
+            # CuPy: create eye on current device context (same as Z)
+            eye_matrix = xp.eye(2 * p, dtype=xp.float64)
+        else:
+            # Torch: use device keyword
+            device = getattr(Z, 'device', None)
+            eye_matrix = xp.eye(2 * p, dtype=xp.float64, device=device)
+        gram = Z.T @ Z + ridge_f * eye_matrix
         rhs = Z.T @ y_centered
         try:
             coef = xp.linalg.solve(gram, rhs)
@@ -759,6 +860,11 @@ def _lasso_coef_diff_statistics(
 
     cv_impl = _normalize_lasso_cv_impl(lasso_cv_impl)
 
+    # Force statgpu for torch backend since sklearn doesn't support torch tensors
+    backend_is_torch = str(backend_name).lower() == "torch"
+    if backend_is_torch and cv_impl == "sklearn":
+        cv_impl = "statgpu"
+
     if cv_impl == "sklearn":
         try:
             from sklearn import linear_model
@@ -783,12 +889,18 @@ def _lasso_coef_diff_statistics(
         from ..linear_model._lasso import _fit_lasso_single_alpha_fast, _select_lasso_alpha_cv
 
         use_cupy_native = str(backend_name).lower() == "cupy" and _is_cupy_array(Z)
+        use_torch_native = str(backend_name).lower() == "torch" and hasattr(Z, 'shape')
         if use_cupy_native:
             import cupy as cp
 
             inds_device = cp.asarray(inds, dtype=cp.int64)
             Z_perm = xp.asarray(Z, dtype=xp.float64)[:, inds_device]
             y_fit = xp.asarray(y_model, dtype=xp.float64).reshape(-1)
+        elif use_torch_native:
+            import torch
+            inds_tensor = torch.tensor(inds, dtype=torch.int64, device=Z.device)
+            Z_perm = Z[:, inds_tensor]
+            y_fit = y_model.reshape(-1)
         else:
             Z_np = _to_numpy(Z).astype(np.float64, copy=False)
             Z_perm = Z_np[:, inds]
@@ -819,7 +931,7 @@ def _lasso_coef_diff_statistics(
             "cv_folds": int(cv_folds_eff),
             "random_state": random_state,
             "fit_intercept": fit_intercept_eff,
-            "device": "cuda" if str(backend_name).lower() == "cupy" else "cpu",
+            "device": "cuda" if str(backend_name).lower() in ("cupy", "torch") else "cpu",
             "max_iter": int(max_iter_eff),
             "tol": tol_eff,
             "cpu_solver": "coordinate_descent",
@@ -855,7 +967,7 @@ def _lasso_coef_diff_statistics(
             fit_intercept=fit_intercept_eff,
             max_iter=int(max_iter_eff),
             tol=tol_eff,
-            device="cuda" if str(backend_name).lower() == "cupy" else "cpu",
+            device="cuda" if str(backend_name).lower() in ("cupy", "torch") else "cpu",
             stopping="coef_delta",
             cpu_solver="coordinate_descent",
             cd_kkt_check_every=int(alpha_select_kwargs.get("cd_kkt_check_every", 1)),
