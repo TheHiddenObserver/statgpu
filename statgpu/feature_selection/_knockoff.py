@@ -274,8 +274,9 @@ def fixed_x_knockoff_filter(
         Knockoff threshold variant.
     random_state : int, optional
         Random seed for knockoff construction.
-    backend : {'auto', 'numpy', 'cupy'}, default='auto'
+    backend : {'auto', 'numpy', 'cupy', 'torch'}, default='auto'
         Compute backend. ``'auto'`` infers from input arrays.
+        Use ``'torch'`` for PyTorch GPU acceleration.
 
     Returns
     -------

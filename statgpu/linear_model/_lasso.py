@@ -22,6 +22,7 @@ except Exception:
 from .._base import BaseEstimator
 from .._config import Device
 from .._cv_base import CVEstimatorBase
+from ..backends import get_backend
 from ..inference._distributions_gpu import (
     norm,
     t,
@@ -40,6 +41,12 @@ _LASSO_CV_ALPHA_CACHE: "OrderedDict[Tuple[Any, ...], Dict[str, Any]]" = OrderedD
 _LASSO_DEBIASED_M_CACHE_MAXSIZE = int(os.getenv("STATGPU_LASSO_DEBIASED_M_CACHE_SIZE", "16"))
 _LASSO_DEBIASED_M_CACHE: "OrderedDict[Tuple[Any, ...], np.ndarray]" = OrderedDict()
 _LASSO_DEBIASED_M_GPU_HASH_ROW_CHUNK = 1024
+
+
+# ============================================================================
+# CuPy Fused Kernels for Lasso - Now implemented as Lasso class methods
+# See Lasso._get_cupy_fused_kernels() for details.
+# ============================================================================
 
 
 def _debiased_m_cache_get(key):
@@ -72,6 +79,29 @@ def _debiased_m_key_from_numpy_design(
     h.update(str(X_cache.dtype).encode("utf-8"))
     h.update(np.asarray([float(lam_nw), float(tol)], dtype=np.float64).tobytes())
     h.update(X_cache.view(np.uint8).tobytes())
+    return h.hexdigest()
+
+
+def _debiased_m_key_from_sample(
+    *,
+    n: int,
+    p: int,
+    dtype_name: str,
+    sample_block: np.ndarray,
+    lam_nw: float,
+    tol: float,
+):
+    """Generate cache key for debiased M matrix from a sample block of X.
+
+    This is used for Torch backend where we don't want to hash the entire matrix.
+    """
+    h = hashlib.blake2b(digest_size=32)
+    h.update(np.asarray([int(n), int(p)], dtype=np.int64).tobytes())
+    h.update(dtype_name.encode("utf-8"))
+    h.update(np.asarray([float(lam_nw), float(tol)], dtype=np.float64).tobytes())
+    if not sample_block.flags["C_CONTIGUOUS"]:
+        sample_block = np.ascontiguousarray(sample_block)
+    h.update(sample_block.view(np.uint8).tobytes())
     return h.hexdigest()
 
 
@@ -109,6 +139,9 @@ class Lasso(BaseEstimator):
     n_iter_ : int
         Number of iterations run.
     """
+
+    # Internal cache for CuPy fused kernels (populated on first GPU use)
+    _cupy_fused_kernels = None
 
     def __init__(
         self,
@@ -310,6 +343,87 @@ class Lasso(BaseEstimator):
 
         return cautions
 
+    @staticmethod
+    def _get_cupy_fused_kernels():
+        """
+        Get cached CuPy fused kernels for Lasso FISTA solver.
+
+        Fused kernels combine multiple elementwise operations into a single
+        kernel launch, reducing GPU kernel launch overhead. This is especially
+        beneficial for small-to-medium data sizes (n < 2000, p < 100).
+
+        Returns
+        -------
+        dict or None
+            Dictionary of fused kernels, or None if CuPy is not available.
+        """
+        # Check cache first (class-level cache shared across all instances)
+        if Lasso._cupy_fused_kernels is not None:
+            return Lasso._cupy_fused_kernels
+
+        try:
+            import cupy as cp
+        except ImportError:
+            return None
+
+        # Fused soft thresholding: sign(x) * max(|x| - gamma, 0)
+        @cp.fuse()
+        def _soft_threshold_fused(x, gamma):
+            """Fused soft thresholding operator."""
+            abs_x = abs(x)
+            return (x > 0) * (abs_x > gamma) * (abs_x - gamma) - (x < 0) * (abs_x > gamma) * (abs_x - gamma)
+
+        # Fused FISTA momentum update: coef + beta * (coef - coef_old)
+        @cp.fuse()
+        def _fista_momentum_fused(coef, coef_old, beta):
+            """Fused FISTA momentum update."""
+            return coef + beta * (coef - coef_old)
+
+        # Fused KKT violation check: max(|grad| - alpha, 0)
+        @cp.fuse()
+        def _kkt_violation_fused(grad, alpha):
+            """Fused KKT violation computation."""
+            abs_grad = abs(grad)
+            diff = abs_grad - alpha
+            return (diff > 0) * diff
+
+        # Custom ElementwiseKernel for soft thresholding
+        SOFT_THRESHOLD_KERNEL = cp.ElementwiseKernel(
+            'float64 x, float64 gamma',
+            'float64 y',
+            '''
+            double abs_x = abs(x);
+            if (abs_x > gamma) {
+                y = (x > 0 ? 1.0 : -1.0) * (abs_x - gamma);
+            } else {
+                y = 0.0;
+            }
+            ''',
+            'lasso_soft_threshold'
+        )
+
+        # Custom ElementwiseKernel for absolute delta (convergence check)
+        ABS_DELTA_KERNEL = cp.ElementwiseKernel(
+            'float64 a, float64 b',
+            'float64 y',
+            '''
+            double diff = a - b;
+            y = (diff > 0 ? diff : -diff);
+            ''',
+            'lasso_abs_delta'
+        )
+
+        # Cache and return
+        Lasso._cupy_fused_kernels = {
+            'soft_threshold': _soft_threshold_fused,
+            'fista_momentum': _fista_momentum_fused,
+            'kkt_violation': _kkt_violation_fused,
+            'elementwise_kernel': SOFT_THRESHOLD_KERNEL,
+            'abs_delta_kernel': ABS_DELTA_KERNEL,
+        }
+
+        return Lasso._cupy_fused_kernels
+
     def _soft_threshold(self, x, gamma):
         """Soft thresholding operator: S(x, gamma) = sign(x) * max(|x| - gamma, 0)."""
         return np.sign(x) * np.maximum(np.abs(x) - gamma, 0)
@@ -468,8 +582,20 @@ class Lasso(BaseEstimator):
             self._scale = np.nan
 
     def _soft_threshold_cupy(self, x, gamma):
-        """Soft thresholding operator for CuPy arrays."""
+        """Soft thresholding operator for CuPy arrays.
+
+        Uses fused kernel when available for improved performance on
+        small-to-medium data sizes.
+        """
         import cupy as cp
+
+        # Try to use fused kernel for better performance
+        fused = self._get_cupy_fused_kernels()
+        if fused is not None:
+            # Use ElementwiseKernel for best performance
+            return fused['elementwise_kernel'](x, gamma)
+
+        # Fallback to standard implementation
         return cp.sign(x) * cp.maximum(cp.abs(x) - gamma, 0)
 
     def _cleanup_cuda_memory(self):
@@ -558,6 +684,9 @@ class Lasso(BaseEstimator):
             y_k = coef.copy()  # y_k
             t_k = cp.array(1.0, dtype=X.dtype)
 
+            # Get fused kernels for optimized FISTA iterations
+            fused = self._get_cupy_fused_kernels()
+
             for iteration in range(self.max_iter):
                 coef_old = coef
 
@@ -567,22 +696,34 @@ class Lasso(BaseEstimator):
                 # Prox step for L1
                 coef = self._soft_threshold_cupy(y_k - step * grad, thresh)
 
-                # Momentum update
+                # Momentum update (use fused kernel when available)
                 t_new = (1 + cp.sqrt(1 + 4 * (t_k ** 2))) / 2
                 beta = (t_k - 1) / t_new
-                y_k = coef + beta * (coef - coef_old)
+                if fused is not None:
+                    y_k = fused['fista_momentum'](coef, coef_old, beta)
+                else:
+                    y_k = coef + beta * (coef - coef_old)
                 t_k = t_new
 
                 # Convergence test
                 if self.stopping == "kkt":
                     grad_sse = (XtX @ coef - Xty) / n_samples
-                    violation = cp.max(cp.maximum(cp.abs(grad_sse) - self.alpha, 0.0))
+                    # Use fused KKT violation check when available
+                    if fused is not None:
+                        violation = cp.max(fused['kkt_violation'](grad_sse, self.alpha))
+                    else:
+                        violation = cp.max(cp.maximum(cp.abs(grad_sse) - self.alpha, 0.0))
                     if violation < self.tol:
                         self.n_iter_ = iteration + 1
                         break
                 else:
                     # Legacy stopping: coefficient delta (fast but not guaranteed objective optimality)
-                    if cp.sum(cp.abs(coef - coef_old)) < self.tol:
+                    # Use fused delta kernel when available
+                    if fused is not None and 'abs_delta_kernel' in fused:
+                        delta = cp.sum(fused['abs_delta_kernel'](coef, coef_old))
+                    else:
+                        delta = cp.sum(cp.abs(coef - coef_old))
+                    if delta < self.tol:
                         self.n_iter_ = iteration + 1
                         break
             else:
@@ -2412,6 +2553,40 @@ def _default_lasso_alpha_grid(
     return np.geomspace(alpha_max, alpha_min, num=int(n_alphas)).astype(np.float64)
 
 
+def _default_lasso_alpha_grid_backend(
+    X,
+    y,
+    backend,
+    n_alphas: int = 12,
+    alpha_min_ratio: float = 1e-3,
+) -> np.ndarray:
+    """Generate default alpha grid for Lasso using backend abstraction."""
+    X_arr = backend.asarray(X, dtype=backend.float64)
+    y_arr = backend.asarray(y, dtype=backend.float64).reshape(-1)
+
+    n_samples = int(X_arr.shape[0])
+    corr = backend.abs(X_arr.T @ y_arr) / float(max(1, n_samples))
+    # Use shape to check size - works for both numpy and torch
+    corr_size = int(corr.shape[0]) if hasattr(corr, 'shape') else len(corr)
+    alpha_max = float(backend.to_numpy(backend.max(corr))) if corr_size > 0 else 1.0
+
+    if n_samples > 1:
+        y_std = backend.sqrt(backend.mean((y_arr - backend.mean(y_arr)) ** 2))
+        sigma_hat = float(backend.to_numpy(y_std))
+    else:
+        sigma_hat = 0.0
+
+    sigma_hat = max(sigma_hat, 1e-8)
+    penalty_scale = np.sqrt(2.0 * np.log(max(2, int(X_arr.shape[1]))) / max(1, n_samples))
+    alpha_max = max(alpha_max, float(sigma_hat * penalty_scale), 1e-6)
+
+    if int(n_alphas) <= 1:
+        return np.asarray([alpha_max], dtype=np.float64)
+
+    alpha_min = max(float(alpha_min_ratio) * alpha_max, 1e-6)
+    return np.geomspace(alpha_max, alpha_min, num=int(n_alphas)).astype(np.float64)
+
+
 def _default_lasso_alpha_grid_cupy(
     X,
     y,
@@ -2534,6 +2709,21 @@ def _array_identity_token(x: Any) -> Tuple[Any, ...]:
 
         if isinstance(x, cp.ndarray):
             return ("cupy", int(x.data.ptr), tuple(int(v) for v in x.shape), str(x.dtype))
+    except Exception:
+        pass
+
+    # Check for Torch tensors
+    try:
+        import torch
+
+        if isinstance(x, torch.Tensor):
+            # For GPU tensors, use the data pointer; for CPU, use storage pointer
+            if x.is_cuda:
+                ptr = int(x.data_ptr())
+            else:
+                # CPU tensor - use underlying storage pointer
+                ptr = int(x.untyped_storage().data_ptr()) if hasattr(x, 'untyped_storage') else id(x)
+            return ("torch", ptr, tuple(int(v) for v in x.shape), str(x.dtype))
     except Exception:
         pass
 
@@ -3062,15 +3252,19 @@ def _solve_lasso_path_gpu_fista_multi_fold_from_gram(
     XtX_batch,
     Xty_batch,
     *,
-    n_samples_vec: np.ndarray,
-    alphas_desc: np.ndarray,
+    n_samples_vec,
+    alphas_desc,
     max_iter: int,
     tol: float,
     stopping: str,
     lipschitz_L: Optional[float] = None,
     check_every: int = 8,
 ):
-    """Solve descending-alpha Lasso paths for all folds together on GPU."""
+    """Solve descending-alpha Lasso paths for all folds together on GPU.
+
+    Note: Fused kernel optimization is disabled for multi-fold solver due to
+    dtype complexity. The single-fold Lasso solver uses fused kernels.
+    """
     import cupy as cp
 
     n_folds = int(XtX_batch.shape[0])
@@ -3082,7 +3276,11 @@ def _solve_lasso_path_gpu_fista_multi_fold_from_gram(
     tk = cp.ones((n_folds, n_alphas), dtype=XtX_batch.dtype)
     n_iters_gpu = cp.zeros((n_folds, n_alphas), dtype=cp.int32)
 
-    n_vec_cpu = np.asarray(n_samples_vec, dtype=np.float64).reshape(-1)
+    # Convert n_samples_vec to numpy using .get() if it's a CuPy array
+    if hasattr(n_samples_vec, 'get'):
+        n_vec_cpu = n_samples_vec.get().astype(np.float64).reshape(-1)
+    else:
+        n_vec_cpu = np.asarray(n_samples_vec, dtype=np.float64).reshape(-1)
     if n_vec_cpu.size != n_folds:
         raise ValueError("n_samples_vec must have one entry per fold")
     n_vec = cp.asarray(n_vec_cpu, dtype=XtX_batch.dtype)
@@ -3098,7 +3296,12 @@ def _solve_lasso_path_gpu_fista_multi_fold_from_gram(
             L = cp.maximum(row_sum_bound, cp.asarray(1e-12, dtype=XtX_batch.dtype))
 
     step = 1.0 / L.reshape(n_folds, 1, 1)
-    alpha_gpu = cp.asarray(np.asarray(alphas_desc, dtype=np.float64), dtype=XtX_batch.dtype).reshape(1, 1, n_alphas)
+    # Convert alphas_desc to numpy using .get() if it's a CuPy array
+    if hasattr(alphas_desc, 'get'):
+        alphas_cpu = alphas_desc.get().astype(np.float64)
+    else:
+        alphas_cpu = np.asarray(alphas_desc, dtype=np.float64)
+    alpha_gpu = cp.asarray(alphas_cpu, dtype=XtX_batch.dtype).reshape(1, 1, n_alphas)
     thresholds = alpha_gpu * step
 
     Xty_expanded = Xty_batch.reshape(n_folds, n_features, 1)
@@ -3109,6 +3312,11 @@ def _solve_lasso_path_gpu_fista_multi_fold_from_gram(
     active_gpu = cp.ones((n_folds, n_alphas), dtype=cp.bool_)
     active_count = int(n_folds * n_alphas)
 
+    # Note: Fused kernels disabled for multi-fold solver due to dtype complexity
+    # The single-fold Lasso._fit_gpu uses fused kernels
+    use_fused = False
+    fused = None
+
     for iteration in range(int(max_iter)):
         if active_count == 0:
             break
@@ -3117,7 +3325,10 @@ def _solve_lasso_path_gpu_fista_multi_fold_from_gram(
 
         coef_old = coefs.copy()
         grad = (cp.matmul(XtX_batch, yk) - Xty_expanded) / n_vec_expanded
-        coef_candidate = cp.sign(yk - step * grad) * cp.maximum(cp.abs(yk - step * grad) - thresholds, 0.0)
+
+        # Proximal step: soft thresholding
+        yk_step = yk - step * grad
+        coef_candidate = cp.sign(yk_step) * cp.maximum(cp.abs(yk_step) - thresholds, 0.0)
         coefs = cp.where(active_expanded, coef_candidate, coefs)
 
         t_old = tk
@@ -3345,30 +3556,56 @@ def _batch_mse_numpy(
     return np.sum(sample_weight_val.reshape(-1, 1) * sq_err, axis=0) / denom
 
 
-def _batch_mse_cupy(
+def _batch_mse(
     X_val,
     y_val,
     coefs_path,
     intercepts_path,
+    backend,
     sample_weight_val,
 ) -> np.ndarray:
-    import cupy as cp
+    """
+    Compute MSE for multiple coefficient vectors.
 
+    Parameters
+    ----------
+    X_val : array-like
+        Validation design matrix.
+    y_val : array-like
+        Validation response.
+    coefs_path : array-like
+        Coefficient matrix (n_alphas, n_features).
+    intercepts_path : array-like
+        Intercept vector (n_alphas,).
+    backend : BackendBase
+        Backend instance (CuPyBackend or TorchBackend).
+    sample_weight_val : array-like or None
+        Sample weights.
+
+    Returns
+    -------
+    mse : ndarray
+        MSE for each alpha.
+    """
     preds = X_val @ coefs_path.T + intercepts_path.reshape(1, -1)
     sq_err = (y_val.reshape(-1, 1) - preds) ** 2
 
     if sample_weight_val is None:
-        mse = cp.mean(sq_err, axis=0)
-        return cp.asnumpy(mse)
+        mse = backend.mean(sq_err, axis=0)
+    else:
+        denom = backend.sum(sample_weight_val)
+        if float(backend.to_numpy(denom)) <= 0.0:
+            mse = backend.mean(sq_err, axis=0)
+        else:
+            mse = backend.sum(sample_weight_val.reshape(-1, 1) * sq_err, axis=0) / denom
 
-    denom = cp.sum(sample_weight_val)
-    denom_scalar = float(cp.asnumpy(denom))
-    if denom_scalar <= 0.0:
-        mse = cp.mean(sq_err, axis=0)
-        return cp.asnumpy(mse)
+    return backend.to_numpy(mse)
 
-    mse = cp.sum(sample_weight_val.reshape(-1, 1) * sq_err, axis=0) / denom
-    return cp.asnumpy(mse)
+
+def _soft_threshold_torch(x, gamma):
+    """Soft thresholding operator for Torch tensors."""
+    import torch
+    return torch.sign(x) * torch.maximum(torch.abs(x) - gamma, torch.tensor(0.0, dtype=x.dtype, device=x.device))
 
 
 def _fit_lasso_single_alpha_fast(
@@ -3389,7 +3626,16 @@ def _fit_lasso_single_alpha_fast(
     device_name = str(device).lower()
     alpha_vec = np.asarray([float(alpha)], dtype=np.float64)
 
-    if device_name == Device.CUDA.value:
+    # Check if inputs are torch tensors on GPU
+    is_torch_gpu = False
+    try:
+        import torch
+        is_torch_gpu = device_name == Device.CUDA.value and isinstance(X, torch.Tensor)
+    except Exception:
+        pass
+
+    if device_name == Device.CUDA.value and not is_torch_gpu:
+        # CuPy GPU path
         import cupy as cp
 
         X_arr = cp.asarray(X)
@@ -3441,6 +3687,72 @@ def _fit_lasso_single_alpha_fast(
             "n_iter": int(n_iters[0]),
             "n_samples": int(X_arr.shape[0]),
             "n_features": int(X_arr.shape[1]),
+        }
+
+    elif is_torch_gpu:
+        # Torch GPU path - use FISTA solver directly on GPU tensors
+        import torch
+
+        n_samples = int(X_arr.shape[0])
+        n_features = int(X_arr.shape[1])
+
+        # Precompute Gram matrix and X'y for FISTA gradient
+        XtX = X_centered.T @ X_centered
+        Xty = X_centered.T @ y_centered
+
+        # Compute Lipschitz constant L = max eigenvalue of XtX / n
+        try:
+            eigvals = torch.linalg.eigvalsh(XtX)
+            L = eigvals[-1] / n_samples
+        except Exception:
+            L = torch.sum(X_centered ** 2) / n_samples
+        L = max(L, 1e-10)
+
+        step = 1.0 / L
+        thresh = float(alpha) * step
+
+        # FISTA initialization
+        coef = torch.zeros(n_features, dtype=X_arr.dtype, device=X_arr.device)
+        z = coef.clone()
+        t = torch.tensor(1.0, dtype=X_arr.dtype, device=X_arr.device)
+
+        # FISTA iterations
+        for iteration in range(int(max_iter)):
+            coef_old = coef.clone()
+
+            # Gradient step at z
+            grad = (XtX @ z - Xty) / n_samples
+            coef = _soft_threshold_torch(z - step * grad, thresh)
+
+            # Momentum update
+            t_new = (1.0 + torch.sqrt(1.0 + 4.0 * t ** 2)) / 2.0
+            z = coef + ((t - 1.0) / t_new) * (coef - coef_old)
+            t = t_new
+
+            # Convergence check
+            if str(stopping).lower() == "kkt":
+                grad_sse = (XtX @ coef - Xty) / n_samples
+                violation = torch.max(torch.maximum(torch.abs(grad_sse) - float(alpha), torch.tensor(0.0, dtype=X_arr.dtype, device=X_arr.device)))
+                if violation < float(tol):
+                    break
+            else:
+                if torch.sum(torch.abs(coef - coef_old)) < float(tol):
+                    break
+
+        # Build coefficients
+        if bool(fit_intercept):
+            intercept_torch = y_mean - X_mean @ coef
+            intercept = float(intercept_torch.cpu().numpy())
+        else:
+            intercept = 0.0
+
+        coef_np = np.asarray(coef.cpu().numpy(), dtype=np.float64)
+        return {
+            "coef": coef_np,
+            "intercept": float(intercept),
+            "n_iter": int(iteration + 1),
+            "n_samples": n_samples,
+            "n_features": n_features,
         }
 
     X_arr = np.asarray(X)
@@ -3528,57 +3840,65 @@ def _select_lasso_alpha_cv(
     use_gpu = device_name == Device.CUDA.value
     gpu_requested = use_gpu
 
-    cp = None
     gpu_input_cupy = False
+    gpu_input_torch = False
     if use_gpu:
+        # Check if inputs are already on GPU (CuPy or Torch)
         try:
-            import cupy as cp  # type: ignore
-
+            import cupy as cp
             gpu_input_cupy = isinstance(X, cp.ndarray) and isinstance(y, cp.ndarray)
             if sample_weight is not None and not isinstance(sample_weight, cp.ndarray):
                 gpu_input_cupy = False
         except Exception:
-            cp = None
-            gpu_input_cupy = False
+            pass
+
+        # Also check for torch tensors
+        if not gpu_input_cupy:
+            try:
+                import torch
+                gpu_input_torch = isinstance(X, torch.Tensor) and isinstance(y, torch.Tensor)
+                if sample_weight is not None and not isinstance(sample_weight, torch.Tensor):
+                    gpu_input_torch = False
+            except Exception:
+                pass
 
     X_np = None
     y_np = None
     sample_weight_np = None
 
-    if gpu_input_cupy:
+    if gpu_input_cupy or gpu_input_torch:
+        # GPU inputs - get backend for validation
+        backend = get_backend(backend='auto', device='cuda')
         if len(tuple(X.shape)) != 2:
             raise ValueError("X must be a 2D array")
-
         n_samples = int(X.shape[0])
-        if int(cp.asarray(y).reshape(-1).shape[0]) != n_samples:
-            raise ValueError("y must have the same number of rows as X")
-
-        if sample_weight is not None and int(cp.asarray(sample_weight).reshape(-1).shape[0]) != n_samples:
-            raise ValueError("sample_weight must have the same number of rows as X")
     else:
         X_np = np.asarray(X, dtype=np.float64)
         y_np = np.asarray(y, dtype=np.float64).reshape(-1)
-
         if sample_weight is not None:
             sample_weight_np = np.asarray(sample_weight, dtype=np.float64).reshape(-1)
-
         if X_np.ndim != 2:
             raise ValueError("X must be a 2D array")
         if y_np.shape[0] != X_np.shape[0]:
             raise ValueError("y must have the same number of rows as X")
         if sample_weight_np is not None and sample_weight_np.shape[0] != X_np.shape[0]:
             raise ValueError("sample_weight must have the same number of rows as X")
-
         n_samples = int(X_np.shape[0])
 
     cv_method = _normalize_lassocv_method(method)
     requested_cd_kkt_check_every = _normalize_cd_kkt_check_every(cd_kkt_check_every)
 
     if alphas is None:
-        if gpu_input_cupy:
-            alpha_grid = _default_lasso_alpha_grid_cupy(
+        if gpu_input_cupy or gpu_input_torch:
+            # Get backend based on input type
+            if gpu_input_torch:
+                backend = get_backend(backend='torch', device='cuda')
+            else:
+                backend = get_backend(backend='cupy', device='cuda')
+            alpha_grid = _default_lasso_alpha_grid_backend(
                 X,
                 y,
+                backend,
                 n_alphas=n_alphas,
                 alpha_min_ratio=alpha_min_ratio,
             )
@@ -3594,10 +3914,16 @@ def _select_lasso_alpha_cv(
         alpha_grid = alpha_grid[np.isfinite(alpha_grid)]
         alpha_grid = alpha_grid[alpha_grid > 0.0]
         if alpha_grid.size == 0:
-            if gpu_input_cupy:
-                alpha_grid = _default_lasso_alpha_grid_cupy(
+            if gpu_input_cupy or gpu_input_torch:
+                # Get backend based on input type
+                if gpu_input_torch:
+                    backend = get_backend(backend='torch', device='cuda')
+                else:
+                    backend = get_backend(backend='cupy', device='cuda')
+                alpha_grid = _default_lasso_alpha_grid_backend(
                     X,
                     y,
+                    backend,
                     n_alphas=n_alphas,
                     alpha_min_ratio=alpha_min_ratio,
                 )
@@ -3673,25 +3999,34 @@ def _select_lasso_alpha_cv(
 
     if use_gpu:
         try:
-            import cupy as cp
-
-            cv_dtype = cp.float32 if bool(gpu_cv_mixed_precision) else cp.float64
-            if gpu_input_cupy:
-                X_full = cp.asarray(X, dtype=cv_dtype)
-                y_full = cp.asarray(y, dtype=cv_dtype).reshape(-1)
-                sw_full = (
-                    None
-                    if sample_weight is None
-                    else cp.asarray(sample_weight, dtype=cv_dtype).reshape(-1)
-                )
+            # Get backend based on input type - prefer Torch backend for Torch tensors
+            if gpu_input_torch:
+                backend = get_backend(backend='torch', device='cuda')
+            elif gpu_input_cupy:
+                backend = get_backend(backend='cupy', device='cuda')
             else:
-                X_full = cp.asarray(X_np, dtype=cv_dtype)
-                y_full = cp.asarray(y_np, dtype=cv_dtype)
-                sw_full = (
-                    None
-                    if sample_weight_np is None
-                    else cp.asarray(sample_weight_np, dtype=cv_dtype)
-                )
+                backend = get_backend(backend='auto', device='cuda')
+            xp = backend.xp
+
+            cv_dtype = backend.float32 if bool(gpu_cv_mixed_precision) else backend.float64
+
+            # Convert inputs to backend arrays
+            if gpu_input_cupy or gpu_input_torch:
+                # Already on GPU (CuPy or Torch)
+                X_full = backend.asarray(X, dtype=cv_dtype)
+                y_full = backend.asarray(y, dtype=cv_dtype).reshape(-1)
+                if sample_weight is not None:
+                    sw_full = backend.asarray(sample_weight, dtype=cv_dtype).reshape(-1)
+                else:
+                    sw_full = None
+            else:
+                # Convert from numpy
+                X_full = backend.asarray(X_np, dtype=cv_dtype)
+                y_full = backend.asarray(y_np, dtype=cv_dtype)
+                if sample_weight_np is not None:
+                    sw_full = backend.asarray(sample_weight_np, dtype=cv_dtype)
+                else:
+                    sw_full = None
 
             XtX_folds = []
             Xty_folds = []
@@ -3706,15 +4041,15 @@ def _select_lasso_alpha_cv(
                 XtX_full = X_full.T @ X_full
                 Xty_full = X_full.T @ y_full
                 if bool(fit_intercept):
-                    X_sum_full = cp.sum(X_full, axis=0)
-                    y_sum_full = cp.sum(y_full)
+                    X_sum_full = backend.sum(X_full, axis=0)
+                    y_sum_full = backend.sum(y_full)
                 else:
                     X_sum_full = None
                     y_sum_full = None
 
             for fold_idx, (train_idx, val_idx) in enumerate(folds):
-                train_idx_gpu = cp.asarray(train_idx)
-                val_idx_gpu = cp.asarray(val_idx)
+                train_idx_gpu = backend.asarray(train_idx)
+                val_idx_gpu = backend.asarray(val_idx)
 
                 X_val = X_full[val_idx_gpu]
                 y_val = y_full[val_idx_gpu]
@@ -3730,19 +4065,19 @@ def _select_lasso_alpha_cv(
                     Xty_raw = Xty_full - Xty_val
 
                     if bool(fit_intercept):
-                        X_sum_val = cp.sum(X_val, axis=0)
-                        y_sum_val = cp.sum(y_val)
+                        X_sum_val = backend.sum(X_val, axis=0)
+                        y_sum_val = backend.sum(y_val)
                         X_sum_train = X_sum_full - X_sum_val
                         y_sum_train = y_sum_full - y_sum_val
 
-                        inv_n = cp.asarray(1.0 / float(max(1, n_train)), dtype=X_full.dtype)
+                        inv_n = backend.asarray(1.0 / float(max(1, n_train)), dtype=X_full.dtype)
                         X_mean = X_sum_train * inv_n
                         y_mean = y_sum_train * inv_n
-                        XtX = XtX_raw - cp.outer(X_sum_train, X_sum_train) * inv_n
+                        XtX = XtX_raw - backend.outer(X_sum_train, X_sum_train) * inv_n
                         Xty = Xty_raw - X_sum_train * y_mean
                     else:
-                        X_mean = cp.zeros((X_full.shape[1],), dtype=X_full.dtype)
-                        y_mean = cp.array(0.0, dtype=X_full.dtype)
+                        X_mean = backend.zeros((X_full.shape[1],), dtype=X_full.dtype)
+                        y_mean = backend.array(0.0, dtype=X_full.dtype)
                         XtX = XtX_raw
                         Xty = Xty_raw
                 else:
@@ -3751,18 +4086,18 @@ def _select_lasso_alpha_cv(
                     sw_train = None if sw_full is None else sw_full[train_idx_gpu]
 
                     if sw_train is not None:
-                        sqrt_sw = cp.sqrt(sw_train)
-                        X_train = X_train * sqrt_sw[:, cp.newaxis]
+                        sqrt_sw = backend.sqrt(sw_train)
+                        X_train = X_train * sqrt_sw[:, backend.newaxis]
                         y_train = y_train * sqrt_sw
 
                     if bool(fit_intercept):
-                        X_mean = cp.mean(X_train, axis=0)
-                        y_mean = cp.mean(y_train)
+                        X_mean = backend.mean(X_train, axis=0)
+                        y_mean = backend.mean(y_train)
                         X_centered = X_train - X_mean
                         y_centered = y_train - y_mean
                     else:
-                        X_mean = cp.zeros((X_train.shape[1],), dtype=X_train.dtype)
-                        y_mean = cp.array(0.0, dtype=X_train.dtype)
+                        X_mean = backend.zeros((X_train.shape[1],), dtype=X_train.dtype)
+                        y_mean = backend.array(0.0, dtype=X_train.dtype)
                         X_centered = X_train
                         y_centered = y_train
 
@@ -3777,33 +4112,73 @@ def _select_lasso_alpha_cv(
                 y_mean_folds.append(y_mean)
                 fold_eval_payload.append((X_val, y_val, sw_val))
 
-            XtX_batch = cp.stack(XtX_folds, axis=0)
-            Xty_batch = cp.stack(Xty_folds, axis=0)
+            XtX_batch = backend.stack(XtX_folds, axis=0)
+            Xty_batch = backend.stack(Xty_folds, axis=0)
 
-            coefs_batch_desc, _ = _solve_lasso_path_gpu_fista_multi_fold_from_gram(
-                XtX_batch,
-                Xty_batch,
-                n_samples_vec=np.asarray(n_train_folds, dtype=np.int32),
-                alphas_desc=alpha_desc,
-                max_iter=int(max_iter),
-                tol=float(tol),
-                stopping="coef_delta",
-                lipschitz_L=None,
-                check_every=8,
-            )
+            # Use native Torch FISTA solver for Torch backend
+            if hasattr(xp, '__name__') and 'torch' in xp.__name__.lower():
+                import torch
+                n_samples_vec_torch = torch.tensor(np.asarray(n_train_folds, dtype=np.int32), device=XtX_batch.device, dtype=XtX_batch.dtype)
 
-            for fold_idx in range(int(len(folds))):
-                coefs_desc = coefs_batch_desc[fold_idx]
+                coefs_batch_desc, _ = _solve_lasso_path_gpu_fista_multi_fold_from_gram_torch(
+                    XtX_batch,
+                    Xty_batch,
+                    n_samples_vec=n_samples_vec_torch,
+                    alphas_desc=alpha_desc,
+                    max_iter=int(max_iter),
+                    tol=float(tol),
+                    stopping="coef_delta",
+                    lipschitz_L=None,
+                    check_every=8,
+                )
 
-                if bool(fit_intercept):
-                    intercepts_desc = y_mean_folds[fold_idx] - X_mean_folds[fold_idx] @ coefs_desc.T
-                else:
-                    intercepts_desc = cp.zeros((coefs_desc.shape[0],), dtype=coefs_desc.dtype)
+                # Convert results back to numpy for evaluation
+                for fold_idx in range(int(len(folds))):
+                    coefs_desc_np = coefs_batch_desc[fold_idx]  # already numpy from the solver
 
-                X_val, y_val, sw_val = fold_eval_payload[fold_idx]
-                mse_desc = _batch_mse_cupy(X_val, y_val, coefs_desc, intercepts_desc, sw_val)
+                    if bool(fit_intercept):
+                        y_mean_val = float(y_mean_folds[fold_idx])
+                        X_mean_val = X_mean_folds[fold_idx]
+                        intercepts_desc = y_mean_val - X_mean_val @ coefs_desc_np.T
+                        intercepts_desc_gpu = backend.asarray(intercepts_desc)
+                        coefs_desc_gpu = backend.asarray(coefs_desc_np)
+                    else:
+                        intercepts_desc_gpu = backend.zeros((coefs_desc_np.shape[0],), dtype=coefs_desc_np.dtype)
+                        coefs_desc_gpu = backend.asarray(coefs_desc_np)
 
-                mse_path[alpha_order_desc, fold_idx] = np.asarray(mse_desc, dtype=np.float64)
+                    X_val, y_val, sw_val = fold_eval_payload[fold_idx]
+                    mse_desc = _batch_mse(X_val, y_val, coefs_desc_gpu, intercepts_desc_gpu, backend, sw_val)
+
+                    mse_path[alpha_order_desc, fold_idx] = mse_desc
+            else:
+                # CuPy backend - use existing solver directly
+                import cupy as cp
+                n_samples_vec_cp = cp.asarray(np.asarray(n_train_folds, dtype=np.int32))
+
+                coefs_batch_desc, _ = _solve_lasso_path_gpu_fista_multi_fold_from_gram(
+                    XtX_batch,
+                    Xty_batch,
+                    n_samples_vec=n_samples_vec_cp,
+                    alphas_desc=alpha_desc,
+                    max_iter=int(max_iter),
+                    tol=float(tol),
+                    stopping="coef_delta",
+                    lipschitz_L=None,
+                    check_every=8,
+                )
+
+                for fold_idx in range(int(len(folds))):
+                    coefs_desc = coefs_batch_desc[fold_idx]
+
+                    if bool(fit_intercept):
+                        intercepts_desc = y_mean_folds[fold_idx] - X_mean_folds[fold_idx] @ coefs_desc.T
+                    else:
+                        intercepts_desc = backend.zeros((coefs_desc.shape[0],), dtype=coefs_desc.dtype)
+
+                    X_val, y_val, sw_val = fold_eval_payload[fold_idx]
+                    mse_desc = _batch_mse(X_val, y_val, coefs_desc, intercepts_desc, backend, sw_val)
+
+                    mse_path[alpha_order_desc, fold_idx] = mse_desc
 
         except Exception as exc:
             raise RuntimeError(
@@ -4147,6 +4522,219 @@ class LassoCV(CVEstimatorBase):
     def score(self, X, y):
         self._check_is_fitted()
         return self.estimator_.score(X, y)
+
+
+# =============================================================================
+# Torch FISTA Solvers
+# =============================================================================
+
+def _solve_lasso_path_gpu_fista_batched_from_gram_torch(
+    XtX,
+    Xty,
+    *,
+    n_samples: int,
+    alphas_desc: np.ndarray,
+    max_iter: int,
+    tol: float,
+    stopping: str,
+    lipschitz_L: Optional[float] = None,
+    check_every: int = 8,
+):
+    """Solve descending-alpha Lasso path with a batched Torch FISTA update."""
+    import torch
+
+    n_features = int(XtX.shape[0])
+    n_alphas = int(alphas_desc.shape[0])
+
+    coefs = torch.zeros((n_features, n_alphas), dtype=XtX.dtype, device=XtX.device)
+    yk = coefs.clone()
+    tk = torch.ones((n_alphas,), dtype=XtX.dtype, device=XtX.device)
+    n_iters_gpu = torch.zeros((n_alphas,), dtype=torch.int32, device=XtX.device)
+
+    if lipschitz_L is not None:
+        L = torch.tensor(float(lipschitz_L), dtype=XtX.dtype, device=XtX.device)
+    else:
+        try:
+            eigvals = torch.linalg.eigvalsh(XtX)
+            L = eigvals[-1] / float(max(1, n_samples))
+        except Exception:
+            row_sum_bound = torch.max(torch.sum(torch.abs(XtX), dim=1)) / float(max(1, n_samples))
+            L = torch.maximum(row_sum_bound, torch.tensor(1e-12, dtype=XtX.dtype, device=XtX.device))
+
+    L_scalar = float(L.item())
+    if L_scalar <= 0.0:
+        return coefs.T, torch.zeros((n_alphas,), dtype=torch.int32, device=XtX.device).cpu().numpy()
+
+    n_samp = float(max(1, n_samples))
+    step = 1.0 / L
+    alphas_desc = np.asarray(alphas_desc, dtype=np.float64)
+    alpha_gpu = torch.from_numpy(alphas_desc).to(XtX.device).to(XtX.dtype)
+    thresholds = alpha_gpu * step
+    stopping_name = str(stopping).lower()
+    check_every = max(1, int(check_every))
+
+    active_gpu = torch.arange(n_alphas, dtype=torch.int32, device=XtX.device)
+
+    for iteration in range(int(max_iter)):
+        if int(active_gpu.numel()) == 0:
+            break
+
+        y_active = yk[:, active_gpu]
+        coef_old = coefs[:, active_gpu]
+
+        grad = (XtX @ y_active - Xty.reshape(-1, 1)) / n_samp
+        thresh = thresholds[active_gpu].reshape(1, -1)
+        coef_new = torch.sign(y_active - step * grad) * torch.maximum(torch.abs(y_active - step * grad) - thresh, torch.tensor(0.0, dtype=XtX.dtype, device=XtX.device))
+
+        t_old = tk[active_gpu]
+        t_new = (1.0 + torch.sqrt(1.0 + 4.0 * (t_old ** 2))) / 2.0
+        beta = (t_old - 1.0) / t_new
+        y_new = coef_new + beta.reshape(1, -1) * (coef_new - coef_old)
+
+        coefs[:, active_gpu] = coef_new
+        yk[:, active_gpu] = y_new
+        tk[active_gpu] = t_new
+
+        active_ratio = float(int(active_gpu.numel())) / float(max(1, n_alphas))
+        check_every_eff = _adaptive_gpu_check_every(
+            base_check_every=check_every,
+            iteration=iteration,
+            max_iter=int(max_iter),
+            active_ratio=active_ratio,
+        )
+        should_check = ((iteration + 1) % check_every_eff == 0) or (iteration + 1 == int(max_iter))
+        if not should_check:
+            continue
+
+        if stopping_name == "kkt":
+            grad_sse = (XtX @ coef_new - Xty.reshape(-1, 1)) / n_samp
+            viol = torch.max(
+                torch.maximum(
+                    torch.abs(grad_sse) - alpha_gpu[active_gpu].reshape(1, -1),
+                    torch.tensor(0.0, dtype=XtX.dtype, device=XtX.device),
+                ),
+                dim=0,
+            ).values
+            converged_local_gpu = viol < float(tol)
+        else:
+            delta = torch.sum(torch.abs(coef_new - coef_old), dim=0)
+            converged_local_gpu = delta < float(tol)
+
+        done_gpu = active_gpu[converged_local_gpu]
+        if int(done_gpu.numel()) == 0:
+            continue
+
+        n_iters_gpu[done_gpu] = int(iteration) + 1
+        yk[:, done_gpu] = coefs[:, done_gpu]
+        active_gpu = active_gpu[~converged_local_gpu]
+
+    if int(active_gpu.numel()) > 0:
+        n_iters_gpu[active_gpu] = int(max_iter)
+
+    return coefs.T, n_iters_gpu.cpu().numpy()
+
+
+def _solve_lasso_path_gpu_fista_multi_fold_from_gram_torch(
+    XtX_batch,
+    Xty_batch,
+    *,
+    n_samples_vec: np.ndarray,
+    alphas_desc: np.ndarray,
+    max_iter: int,
+    tol: float,
+    stopping: str,
+    lipschitz_L: Optional[float] = None,
+    check_every: int = 8,
+):
+    """Solve descending-alpha Lasso paths for all folds together on Torch GPU."""
+    import torch
+
+    n_folds = int(XtX_batch.shape[0])
+    n_features = int(XtX_batch.shape[1])
+    n_alphas = int(alphas_desc.shape[0])
+
+    coefs = torch.zeros((n_folds, n_features, n_alphas), dtype=XtX_batch.dtype, device=XtX_batch.device)
+    yk = coefs.clone()
+    tk = torch.ones((n_folds, n_alphas), dtype=XtX_batch.dtype, device=XtX_batch.device)
+    n_iters_gpu = torch.zeros((n_folds, n_alphas), dtype=torch.int32, device=XtX_batch.device)
+
+    n_vec_cpu = n_samples_vec.cpu().numpy().astype(np.float64).reshape(-1)
+    if n_vec_cpu.size != n_folds:
+        raise ValueError("n_samples_vec must have one entry per fold")
+    n_vec = torch.from_numpy(n_vec_cpu).to(XtX_batch.device).to(XtX_batch.dtype)
+
+    if lipschitz_L is not None:
+        L = torch.full((n_folds,), float(lipschitz_L), dtype=XtX_batch.dtype, device=XtX_batch.device)
+    else:
+        try:
+            eigvals = torch.linalg.eigvalsh(XtX_batch)
+            L = eigvals[:, -1] / n_vec
+        except Exception:
+            row_sum_bound = torch.max(torch.sum(torch.abs(XtX_batch), dim=2), dim=1).values / n_vec
+            L = torch.maximum(row_sum_bound, torch.tensor(1e-12, dtype=XtX_batch.dtype, device=XtX_batch.device))
+
+    step = 1.0 / L.reshape(n_folds, 1, 1)
+    alpha_gpu = torch.from_numpy(np.asarray(alphas_desc, dtype=np.float64)).to(XtX_batch.device).to(XtX_batch.dtype).reshape(1, 1, n_alphas)
+    thresholds = alpha_gpu * step
+
+    Xty_expanded = Xty_batch.reshape(n_folds, n_features, 1)
+    n_vec_expanded = n_vec.reshape(n_folds, 1, 1)
+    stopping_name = str(stopping).lower()
+    check_every = max(1, int(check_every))
+
+    active_gpu = torch.ones((n_folds, n_alphas), dtype=torch.bool, device=XtX_batch.device)
+    active_count = int(n_folds * n_alphas)
+
+    for iteration in range(int(max_iter)):
+        if active_count == 0:
+            break
+
+        active_expanded = active_gpu.unsqueeze(1)
+
+        coef_old = coefs.clone()
+        grad = (torch.matmul(XtX_batch, yk) - Xty_expanded) / n_vec_expanded
+        coef_candidate = torch.sign(yk - step * grad) * torch.maximum(torch.abs(yk - step * grad) - thresholds, torch.tensor(0.0, dtype=XtX_batch.dtype, device=XtX_batch.device))
+        coefs = torch.where(active_expanded, coef_candidate, coefs)
+
+        t_old = tk
+        t_new = (1.0 + torch.sqrt(1.0 + 4.0 * (t_old ** 2))) / 2.0
+        beta = (t_old - 1.0) / t_new
+        y_candidate = coefs + beta.unsqueeze(1) * (coefs - coef_old)
+        yk = torch.where(active_expanded, y_candidate, yk)
+        tk = torch.where(active_gpu, t_new, tk)
+
+        active_ratio = float(active_count) / float(max(1, n_folds * n_alphas))
+        check_every_eff = _adaptive_gpu_check_every(
+            base_check_every=check_every,
+            iteration=iteration,
+            max_iter=int(max_iter),
+            active_ratio=active_ratio,
+        )
+        should_check = ((iteration + 1) % check_every_eff == 0) or (iteration + 1 == int(max_iter))
+        if not should_check:
+            continue
+
+        if stopping_name == "kkt":
+            grad_sse = (torch.matmul(XtX_batch, coefs) - Xty_expanded) / n_vec_expanded
+            violation = torch.max(torch.maximum(torch.abs(grad_sse) - alpha_gpu, torch.tensor(0.0, dtype=XtX_batch.dtype, device=XtX_batch.device)), dim=1).values
+            converged_local_gpu = violation < float(tol)
+        else:
+            delta = torch.sum(torch.abs(coefs - coef_old), dim=1)
+            converged_local_gpu = delta < float(tol)
+
+        newly_done_gpu = active_gpu & converged_local_gpu
+        done_count = int(torch.count_nonzero(newly_done_gpu).item())
+        if done_count == 0:
+            continue
+
+        n_iters_gpu[newly_done_gpu] = int(iteration) + 1
+        yk = torch.where(newly_done_gpu.unsqueeze(1), coefs, yk)
+        active_gpu = active_gpu & (~converged_local_gpu)
+        active_count -= done_count
+
+    n_iters_gpu[active_gpu] = int(max_iter)
+
+    return coefs.permute(0, 2, 1), n_iters_gpu.cpu().numpy()
 
     def summary(self):
         self._check_is_fitted()
