@@ -24,6 +24,7 @@ Usage:
 """
 
 import os
+import importlib.util
 from pathlib import Path
 
 
@@ -61,7 +62,11 @@ def get_remote_config():
     local_config_path = Path(__file__).parent / 'remote_config_local.py'
     if local_config_path.exists():
         try:
-            from . import remote_config_local
+            spec = importlib.util.spec_from_file_location("remote_config_local", str(local_config_path))
+            if spec is None or spec.loader is None:
+                raise ImportError(f"Unable to load spec from {local_config_path}")
+            remote_config_local = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(remote_config_local)
             return {
                 'host': getattr(remote_config_local, 'HOST', 'hz-4.matpool.com'),
                 'port': getattr(remote_config_local, 'PORT', 27609),

@@ -3693,6 +3693,30 @@ def _fit_lasso_single_alpha_fast(
         # Torch GPU path - use FISTA solver directly on GPU tensors
         import torch
 
+        X_arr = X
+        y_arr = y.reshape(-1) if isinstance(y, torch.Tensor) else torch.as_tensor(
+            y, dtype=X_arr.dtype, device=X_arr.device
+        ).reshape(-1)
+
+        if sample_weight is not None:
+            sw = sample_weight if isinstance(sample_weight, torch.Tensor) else torch.as_tensor(
+                sample_weight, dtype=X_arr.dtype, device=X_arr.device
+            )
+            sqrt_sw = torch.sqrt(sw)
+            X_arr = X_arr * sqrt_sw[:, None]
+            y_arr = y_arr * sqrt_sw
+
+        if bool(fit_intercept):
+            X_mean = torch.mean(X_arr, dim=0)
+            y_mean = torch.mean(y_arr)
+            X_centered = X_arr - X_mean
+            y_centered = y_arr - y_mean
+        else:
+            X_mean = torch.zeros((X_arr.shape[1],), dtype=X_arr.dtype, device=X_arr.device)
+            y_mean = torch.tensor(0.0, dtype=X_arr.dtype, device=X_arr.device)
+            X_centered = X_arr
+            y_centered = y_arr
+
         n_samples = int(X_arr.shape[0])
         n_features = int(X_arr.shape[1])
 
@@ -3706,7 +3730,7 @@ def _fit_lasso_single_alpha_fast(
             L = eigvals[-1] / n_samples
         except Exception:
             L = torch.sum(X_centered ** 2) / n_samples
-        L = max(L, 1e-10)
+        L = torch.clamp(L, min=1e-10)
 
         step = 1.0 / L
         thresh = float(alpha) * step
@@ -3742,11 +3766,11 @@ def _fit_lasso_single_alpha_fast(
         # Build coefficients
         if bool(fit_intercept):
             intercept_torch = y_mean - X_mean @ coef
-            intercept = float(intercept_torch.cpu().numpy())
+            intercept = float(intercept_torch.item())
         else:
             intercept = 0.0
 
-        coef_np = np.asarray(coef.cpu().numpy(), dtype=np.float64)
+        coef_np = np.asarray(coef.detach().cpu().numpy(), dtype=np.float64)
         return {
             "coef": coef_np,
             "intercept": float(intercept),
@@ -3872,6 +3896,13 @@ def _select_lasso_alpha_cv(
         if len(tuple(X.shape)) != 2:
             raise ValueError("X must be a 2D array")
         n_samples = int(X.shape[0])
+        y_check = backend.asarray(y).reshape(-1)
+        if int(y_check.shape[0]) != n_samples:
+            raise ValueError("y must have the same number of rows as X")
+        if sample_weight is not None:
+            sw_check = backend.asarray(sample_weight).reshape(-1)
+            if int(sw_check.shape[0]) != n_samples:
+                raise ValueError("sample_weight must have the same number of rows as X")
     else:
         X_np = np.asarray(X, dtype=np.float64)
         y_np = np.asarray(y, dtype=np.float64).reshape(-1)
@@ -4573,7 +4604,7 @@ def _solve_lasso_path_gpu_fista_batched_from_gram_torch(
     stopping_name = str(stopping).lower()
     check_every = max(1, int(check_every))
 
-    active_gpu = torch.arange(n_alphas, dtype=torch.int32, device=XtX.device)
+    active_gpu = torch.arange(n_alphas, dtype=torch.int64, device=XtX.device)
 
     for iteration in range(int(max_iter)):
         if int(active_gpu.numel()) == 0:

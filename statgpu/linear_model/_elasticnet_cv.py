@@ -7,7 +7,7 @@ from collections import OrderedDict
 import hashlib
 import numpy as np
 
-from .._config import Device
+from .._config import Device, cuda_available
 from .._cv_base import CVEstimatorBase
 from ..backends import get_backend
 from ._elasticnet import ElasticNet
@@ -68,6 +68,20 @@ def _make_elasticnet_cv_auto_cache_key(
     h.update(str(use_gpu).encode("utf-8"))
     h.update(str(max_iter).encode("utf-8"))
     h.update(str(tol).encode("utf-8"))
+    h.update(str(len(folds)).encode("utf-8"))
+    for train_idx, test_idx in folds:
+        train_idx_arr = (
+            train_idx
+            if isinstance(train_idx, np.ndarray) and train_idx.dtype == np.int64
+            else np.asarray(train_idx, dtype=np.int64)
+        )
+        test_idx_arr = (
+            test_idx
+            if isinstance(test_idx, np.ndarray) and test_idx.dtype == np.int64
+            else np.asarray(test_idx, dtype=np.int64)
+        )
+        h.update(train_idx_arr.tobytes())
+        h.update(test_idx_arr.tobytes())
     if sample_weight_shape is not None:
         h.update(np.asarray(sample_weight_shape, dtype=np.int64).tobytes())
     return h.hexdigest()
@@ -361,8 +375,22 @@ def _select_elasticnet_params_cv(
     best_l1_ratio : float
     details : dict (if return_details=True)
     """
-    device_name = str(device).lower()
-    use_gpu = device_name == Device.CUDA.value
+    if isinstance(device, Device):
+        device_name = device.value
+    else:
+        device_name = str(device).lower()
+        if device_name.startswith("device."):
+            enum_name = device_name.split(".", 1)[1].upper()
+            if enum_name not in Device.__members__:
+                valid = ", ".join(sorted(d.value for d in Device))
+                raise ValueError(f"Invalid device '{device}'. Expected one of: {valid}")
+            device_name = Device[enum_name].value
+    if device_name == Device.AUTO.value:
+        use_gpu = bool(cuda_available())
+    elif device_name in (Device.CUDA.value, Device.TORCH.value):
+        use_gpu = True
+    else:
+        use_gpu = False
     gpu_requested = use_gpu
 
     # Detect GPU input
@@ -749,8 +777,7 @@ class ElasticNetCV(CVEstimatorBase):
         -------
         self
         """
-        device_name = self._get_compute_device().value
-        use_gpu = device_name == Device.CUDA.value
+        compute_device = self._get_compute_device()
 
         # Normalize l1_ratio to list
         if isinstance(self.l1_ratio, (list, tuple, np.ndarray)):
@@ -770,7 +797,7 @@ class ElasticNetCV(CVEstimatorBase):
             random_state=self.random_state,
             sample_weight=sample_weight,
             fit_intercept=self.fit_intercept,
-            device=self.device,
+            device=compute_device,
             max_iter=self.max_iter,
             tol=self.tol,
             return_details=True,
