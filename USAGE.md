@@ -1,7 +1,7 @@
 # statgpu Documentation Portal
 
 > Language: English  
-> Last updated: 2026-04-18  
+> Last updated: 2026-04-21  
 > This page: Primary documentation entrypoint  
 > Switch: [Chinese](USAGE_CN.md)
 
@@ -41,12 +41,16 @@ Implemented estimators:
 - `LassoCV`
 - `LogisticRegression` ✅ (Torch backend)
 - `CoxPH` ✅ (Torch backend)
+  - `cov_type=nonrobust/hc0/hc1/cluster` (cluster is CPU path)
+  - `ties=breslow/efron` (Efron with numerical stability clipping)
+  - C-index, baseline hazard, AIC/BIC
+  - **Performance**: Torch GPU 15.44x speedup on n=5000, p=20 (vs statsmodels)
+  - See `results/coxph_benchmark_report_2026-04-20.md` for comprehensive benchmark
 
-Exported CV classes currently in skeleton state:
-- `RidgeCV`
-- `LogisticRegressionCV`
-- `CoxPHCV`
-- Current behavior: `fit()` raises `NotImplementedError`.
+Exported CV classes:
+- `RidgeCV` ✅ (Full implementation with GPU acceleration)
+- `LogisticRegressionCV` ✅ (Full implementation with GPU acceleration)
+- `CoxPHCV` (Skeleton, pending full CV training/search implementation)
 
 Implemented feature selection:
 - `knockoff_filter`

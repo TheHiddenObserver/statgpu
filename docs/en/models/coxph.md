@@ -1,7 +1,7 @@
 # CoxPH
 
 > Language: English  
-> Last updated: 2026-04-17  
+> Last updated: 2026-04-21  
 > This page: Model documentation  
 > Switch: [Chinese](../../models/coxph.md)
 
