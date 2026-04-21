@@ -11,6 +11,14 @@ Language switch: [Chinese](../changelog.md)
 
 ### Added (2026-04-21)
 
+- **CoxPHCV upgraded from skeleton to trainable implementation**:
+  - Implemented K-fold penalty search and final refit on full data
+  - Supports `ties='breslow'/'efron'` with existing `device` paths (executed via `CoxPH` backends)
+  - Current boundary: `entry` and `cluster` are not yet supported in `CoxPHCV.fit()` (explicit `NotImplementedError`)
+  - Files:
+    - `statgpu/survival/_cox_cv.py`
+    - `dev/tests/test_coxph_cv.py`
+
 - **RidgeCV and LogisticRegressionCV Full Implementation**:
   - Upgraded from interface scaffolding to full-featured implementation with GPU-accelerated cross-validation
   - `RidgeCV` new features:

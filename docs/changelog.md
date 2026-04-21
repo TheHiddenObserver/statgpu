@@ -11,6 +11,14 @@
 
 ### 新增 (2026-04-21)
 
+- **CoxPHCV 从接口骨架升级为可训练版本**:
+  - 已实现 penalty 网格搜索（K-fold）与最佳 penalty 全量重训流程
+  - 支持 `ties='breslow'/'efron'` 与现有 `device` 路径（通过 `CoxPH` 后端执行）
+  - 当前边界：`entry` 与 `cluster` 在 `CoxPHCV.fit()` 中暂未支持（显式 `NotImplementedError`）
+  - 修改文件:
+    - `statgpu/survival/_cox_cv.py`
+    - `dev/tests/test_coxph_cv.py`
+
 - **RidgeCV 和 LogisticRegressionCV 完整实现**:
   - 从接口骨架升级为完整功能实现，支持 GPU 加速的交叉验证
   - `RidgeCV` 新增功能:

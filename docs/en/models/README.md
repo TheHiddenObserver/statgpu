@@ -40,4 +40,6 @@ Language switch: [Chinese](../../models/README.md)
 - Feature selection:
   - `Knockoff`: fixed-X/model-X unified API + selector wrappers
 - `LassoCV` is implemented and trainable.
-- Exported CV classes (`RidgeCV`, `LogisticRegressionCV`, `CoxPHCV`) are currently interface skeletons only; CV training/search logic is pending.
+- Exported CV classes status:
+  - `RidgeCV`, `LogisticRegressionCV`, and `CoxPHCV` are implemented and trainable.
+  - Current `CoxPHCV` boundary: `entry` (delayed entry) and `cluster`-robust CV are not yet supported and raise `NotImplementedError`.

@@ -11,6 +11,8 @@
 
 `CoxPH` 实现比例风险模型，支持 CPU/GPU、Breslow/Efron ties 处理，以及 `cluster` 口径稳健方差。当前范围聚焦标准 CoxPH 主路径，`strata/frailty/time-varying covariates` 仍在规划中（见 `TO_DO.md`）。
 
+补充：`CoxPHCV`（交叉验证版本）当前已可用，支持 penalty 网格搜索 + 全量重训；但 `entry` 与 `cluster` 参数在 `CoxPHCV.fit()` 中暂未开放。
+
 ## 路径（Path）
 
 `statgpu.survival.CoxPH`
