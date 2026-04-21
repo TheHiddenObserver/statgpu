@@ -46,12 +46,17 @@
 - `Lasso`
 - `LassoCV`
 - `LogisticRegression`
-- `CoxPH`
+- `CoxPH` ✅ (Torch backend)
+  - `cov_type=nonrobust/hc0/hc1/cluster` (cluster 为 CPU 路径)
+  - `ties=breslow/efron` (Efron 带数值稳定性 clipping 保护)
+  - 支持 C-index、baseline hazard、AIC/BIC
+  - **性能**: Torch GPU 在 n=5000, p=20 规模下实现 15.44x 加速 (vs statsmodels)
+  - 详见 `results/coxph_benchmark_report_2026-04-20.md` 综合性能对比报告
 
-当前导出的 CV 类中，以下仍是接口骨架（`fit()` 会抛出 `NotImplementedError`）：
-- `RidgeCV`
-- `LogisticRegressionCV`
-- `CoxPHCV`
+当前导出的 CV 类：
+- `RidgeCV` ✅ (完整实现，支持 GPU 加速交叉验证)
+- `LogisticRegressionCV` ✅ (完整实现，支持 GPU 加速交叉验证)
+- `CoxPHCV` (骨架，待实现完整 CV 训练/搜索逻辑)
 
 当前已实现特征选择：
 - `knockoff_filter`

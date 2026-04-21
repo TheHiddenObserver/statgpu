@@ -51,4 +51,6 @@
 - 特征选择：
   - `Knockoff`：fixed-X / model-X 统一 API + selector 封装
 - `LassoCV` 已实现并可直接训练使用。
-- 已导出的 CV 类（`RidgeCV`、`LogisticRegressionCV`、`CoxPHCV`）当前仅为接口骨架；CV 训练/搜索逻辑尚未完成。
+- 已导出的 CV 类中：
+  - `RidgeCV`、`LogisticRegressionCV`、`CoxPHCV` 均已可直接训练使用。
+  - `CoxPHCV` 当前边界：`entry`（delayed entry）与 `cluster` 口径暂未支持，会抛出 `NotImplementedError`。

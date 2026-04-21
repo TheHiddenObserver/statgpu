@@ -22,6 +22,14 @@
 
 ## 已完成（2026-04）
 
+- **RidgeCV 和 LogisticRegressionCV 完整实现** (2026-04-21):
+  - 从接口骨架升级为完整功能实现
+  - 支持 K-fold 交叉验证（自定义 folds 或 folds 生成器）
+  - Alpha 网格自动生成（log-spaced grid）
+  - 交叉验证结果缓存（Blake2b hash key, LRU cache maxsize=64）
+  - 支持 `sample_weight` 和 `scoring` 参数
+  - 后端支持：CPU (NumPy), GPU (CuPy), GPU (PyTorch)
+
 - Lasso 推断方法语义化重命名：
   - `cpu_ols_inference`（兼容旧名：`naive_ols`）
   - `gpu_ols_inference`（兼容旧名：`gpu_naive_ols`）
@@ -39,6 +47,8 @@
 - 新增并验证对标测试（`statsmodels`）：
   - `LinearRegression` HC0/HC1（CPU+GPU）
   - `LogisticRegression` HC0/HC1（CPU+GPU）
+  - `CoxPH` 与 `statsmodels.PHReg`（`breslow/efron`）系数一致性
+  - CoxPH 综合性能对比 (2026-04-20)：Torch GPU 15.44x 加速 (n=5000, p=20)
 - 新增 benchmark 脚本：
   - `dev/benchmarks/benchmark_lasso_inference_gpu_vs_cpu.py`
   - `dev/benchmarks/benchmark_gpu_memory_cleanup.py`
@@ -63,8 +73,10 @@
   - 引入更严谨的 post-selection inference（如 de-biased lasso）
   - 继续推进 bootstrap 的 GPU 化与大规模 benchmark
 - CoxPH 推断与评估增强：
-  - robust/cluster sandwich 方差
-  - `C-index` 提供严格 pairwise 与近似版本可切换
+  - ✅ robust/cluster sandwich 方差已完成
+  - ✅ C-index 已修复 (2026-04-20)，使用精确分块向量化算法
+  - ✅ Efron ties 实现已修复数值溢出问题 (clipping 保护)
+  - ⚠️ Cython 编译版本存在正确性问题，待调试；当前使用 Python fallback
 
 ---
 
@@ -77,6 +89,10 @@
 - LogisticRegression：multinomial/softmax、L1/elastic-net、更完整诊断
 - CoxPH：strata、frailty、time-varying covariates、penalized Cox
 - 稀疏输入支持：CSR/CSC
+- CV 估计器：
+  - ~~`RidgeCV`~~ ✅ 已完成 (2026-04-21)
+  - ~~`LogisticRegressionCV`~~ ✅ 已完成 (2026-04-21)
+  - `CoxPHCV` - 待实现
 
 ### P2：模型选择与预处理
 

@@ -39,11 +39,11 @@ GPU-accelerated statistical methods with sklearn-compatible API.
 - `statgpu.linear_model.LogisticRegression` ✅ (Torch backend)
 - `statgpu.survival.CoxPH` ✅ (Torch backend)
 
-Exported CV interface skeletons (pending full CV training/search implementation):
+Exported CV classes (✅ = implemented and trainable):
 
-- `statgpu.linear_model.RidgeCV`
-- `statgpu.linear_model.LogisticRegressionCV`
-- `statgpu.survival.CoxPHCV`
+- `statgpu.linear_model.RidgeCV` ✅ (GPU-accelerated cross-validation)
+- `statgpu.linear_model.LogisticRegressionCV` ✅ (GPU-accelerated cross-validation)
+- `statgpu.survival.CoxPHCV` ✅ (CV penalty search + final refit; `entry`/`cluster` not yet supported)
 
 ## Installation
 

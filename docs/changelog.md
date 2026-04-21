@@ -9,6 +9,64 @@
 
 ## 2026-04
 
+### 新增 (2026-04-21)
+
+- **CoxPHCV 从接口骨架升级为可训练版本**:
+  - 已实现 penalty 网格搜索（K-fold）与最佳 penalty 全量重训流程
+  - 支持 `ties='breslow'/'efron'` 与现有 `device` 路径（通过 `CoxPH` 后端执行）
+  - 当前边界：`entry` 与 `cluster` 在 `CoxPHCV.fit()` 中暂未支持（显式 `NotImplementedError`）
+  - 修改文件:
+    - `statgpu/survival/_cox_cv.py`
+    - `dev/tests/test_coxph_cv.py`
+
+- **RidgeCV 和 LogisticRegressionCV 完整实现**:
+  - 从接口骨架升级为完整功能实现，支持 GPU 加速的交叉验证
+  - `RidgeCV` 新增功能:
+    - K-fold 交叉验证 (支持自定义 folds 或 folds 生成器)
+    - Alpha 网格自动生成 (log-spaced grid)
+    - 交叉验证结果缓存 (Blake2b hash key, LRU cache maxsize=64)
+    - 支持 `sample_weight` 和 `scoring` 参数
+    - 后端支持：CPU (NumPy), GPU (CuPy), GPU (PyTorch)
+  - `LogisticRegressionCV` 类似增强
+  - 修改文件:
+    - `statgpu/linear_model/_ridge_cv.py` - 完整实现 (约 1000 行)
+    - `statgpu/linear_model/_logistic_cv.py` - 完整实现
+  - 核心 API:
+    ```python
+    from statgpu.linear_model import RidgeCV, LogisticRegressionCV
+
+    # RidgeCV with automatic alpha grid
+    ridge_cv = RidgeCV(alphas=100, cv=5, device='cuda')
+    ridge_cv.fit(X, y)
+    print(f"Best alpha: {ridge_cv.best_alpha_}")
+    print(f"CV scores: {ridge_cv.cv_results_['mean_test_score']}")
+
+    # LogisticRegressionCV with custom alphas
+    logit_cv = LogisticRegressionCV(alphas=[0.01, 0.1, 1.0, 10.0], cv=5, device='cuda')
+    logit_cv.fit(X, y)
+    ```
+
+### 新增 (2026-04-20)
+
+- **CoxPH Efron 实现修复与性能优化**:
+  - 修复 Cython Efron 梯度/海森矩阵计算中的数值溢出问题，添加 clipping 保护 (`MAX_LINPRED=700`, `MIN_LINPRED=-700`)
+  - 发现 Cython 编译版本存在正确性问题，暂时使用 Python fallback 实现（已验证与数值梯度一致）
+  - CoxPH 综合性能对比 (vs statsmodels/lifelines/R survival)：
+    - statgpu-Torch GPU 在 n=5000, p=20 规模下实现 **15.44x** 加速 (vs statsmodels)
+    - 所有 statgpu 后端系数精度与 statsmodels 一致 (Max Diff < 4e-12)
+    - C-index 计算已修复，CPU/CuPy/Torch 现在使用相同的精确分块向量化算法
+  - 修改文件:
+    - `statgpu/survival/_cox_efron_cy.pyx` - 添加 exp() clipping 保护
+    - `statgpu/survival/_cox.py` - 使用 Python fallback 用于 Efron 梯度计算
+  - 基准测试结果:
+    - n=1000, p=10: statgpu-Torch 2.05x, lifelines 3.33x, R survival 21.6x (vs statsmodels)
+    - n=5000, p=20: statgpu-Torch **15.44x**, lifelines 3.42x (vs statsmodels)
+  - 测试脚本:
+    - `dev/scripts/test_coxph_fit.py` - CoxPH 拟合与 lifelines 对比
+    - `dev/scripts/final_verification.py` - 综合验证脚本
+  - 报告:
+    - `results/coxph_benchmark_report_2026-04-20.md` - 综合性能对比报告
+
 ### 新增 (2026-04-18)
 
 - **Elastic Net 实现与基准测试**:

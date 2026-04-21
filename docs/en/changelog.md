@@ -9,6 +9,64 @@ Language switch: [Chinese](../changelog.md)
 
 ## 2026-04
 
+### Added (2026-04-21)
+
+- **CoxPHCV upgraded from skeleton to trainable implementation**:
+  - Implemented K-fold penalty search and final refit on full data
+  - Supports `ties='breslow'/'efron'` with existing `device` paths (executed via `CoxPH` backends)
+  - Current boundary: `entry` and `cluster` are not yet supported in `CoxPHCV.fit()` (explicit `NotImplementedError`)
+  - Files:
+    - `statgpu/survival/_cox_cv.py`
+    - `dev/tests/test_coxph_cv.py`
+
+- **RidgeCV and LogisticRegressionCV Full Implementation**:
+  - Upgraded from interface scaffolding to full-featured implementation with GPU-accelerated cross-validation
+  - `RidgeCV` new features:
+    - K-fold cross-validation (custom folds or fold generator support)
+    - Automatic alpha grid generation (log-spaced grid)
+    - Cross-validation result caching (Blake2b hash key, LRU cache maxsize=64)
+    - Support for `sample_weight` and `scoring` parameters
+    - Backend support: CPU (NumPy), GPU (CuPy), GPU (PyTorch)
+  - `LogisticRegressionCV` similar enhancements
+  - Files modified:
+    - `statgpu/linear_model/_ridge_cv.py` - Full implementation (~1000 lines)
+    - `statgpu/linear_model/_logistic_cv.py` - Full implementation
+  - Core API:
+    ```python
+    from statgpu.linear_model import RidgeCV, LogisticRegressionCV
+
+    # RidgeCV with automatic alpha grid
+    ridge_cv = RidgeCV(alphas=100, cv=5, device='cuda')
+    ridge_cv.fit(X, y)
+    print(f"Best alpha: {ridge_cv.best_alpha_}")
+    print(f"CV scores: {ridge_cv.cv_results_['mean_test_score']}")
+
+    # LogisticRegressionCV with custom alphas
+    logit_cv = LogisticRegressionCV(alphas=[0.01, 0.1, 1.0, 10.0], cv=5, device='cuda')
+    logit_cv.fit(X, y)
+    ```
+
+### Added (2026-04-20)
+
+- **CoxPH Efron Implementation Fix and Performance Optimization**:
+  - Fixed numerical overflow in Cython Efron gradient/Hessian computation with clipping protection (`MAX_LINPRED=700`, `MIN_LINPRED=-700`)
+  - Identified correctness issues in compiled Cython version, temporarily using Python fallback (verified against numeric gradient)
+  - CoxPH comprehensive benchmark (vs statsmodels/lifelines/R survival):
+    - statgpu-Torch GPU achieves **15.44x** speedup on n=5000, p=20 (vs statsmodels)
+    - All statgpu backends match statsmodels coefficients (Max Diff < 4e-12)
+    - C-index calculation fixed: CPU/CuPy/Torch now use identical exact blockwise vectorized algorithm
+  - Files modified:
+    - `statgpu/survival/_cox_efron_cy.pyx` - Added exp() clipping protection
+    - `statgpu/survival/_cox.py` - Use Python fallback for Efron gradient computation
+  - Benchmark results:
+    - n=1000, p=10: statgpu-Torch 2.05x, lifelines 3.33x, R survival 21.6x (vs statsmodels)
+    - n=5000, p=20: statgpu-Torch **15.44x**, lifelines 3.42x (vs statsmodels)
+  - Test scripts:
+    - `dev/scripts/test_coxph_fit.py` - CoxPH fit with lifelines comparison
+    - `dev/scripts/final_verification.py` - Comprehensive verification script
+  - Report:
+    - `results/coxph_benchmark_report_2026-04-20.md` - Comprehensive benchmark report
+
 ### Added (2026-04-18)
 
 - **Elastic Net Implementation and Benchmarks**:

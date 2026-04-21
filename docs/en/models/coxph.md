@@ -1,7 +1,7 @@
 # CoxPH
 
 > Language: English  
-> Last updated: 2026-04-17  
+> Last updated: 2026-04-21  
 > This page: Model documentation  
 > Switch: [Chinese](../../models/coxph.md)
 
@@ -10,6 +10,8 @@ Language switch: [Chinese](../../models/coxph.md)
 ## Overview
 
 `CoxPH` implements proportional hazards regression with Breslow/Efron tie handling on CPU/GPU backends. It focuses on the standard Cox path with optional robust/cluster covariance, and currently does not provide full strata/frailty/time-varying covariate workflows.
+
+Note: `CoxPHCV` (cross-validated CoxPH) is now trainable (penalty search + final refit), but `entry` and `cluster` arguments are not yet supported in `CoxPHCV.fit()`.
 
 ## Path
 
