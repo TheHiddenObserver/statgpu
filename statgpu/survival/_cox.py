@@ -164,7 +164,7 @@ class CoxPH(BaseEstimator):
                 return bool(conv_attr)
         return None
         
-    def fit(self, X, time, event, entry=None, cluster=None):
+    def fit(self, X, time, event, entry=None, cluster=None, init_coef=None):
         """
         Fit Cox Proportional Hazards model.
         
@@ -180,6 +180,8 @@ class CoxPH(BaseEstimator):
             Entry time for delayed entry (left truncation).
         cluster : array-like of shape (n_samples,), optional
             Cluster ids for cluster-robust covariance when `cov_type='cluster'`.
+        init_coef : array-like of shape (n_features,), optional
+            Initial coefficient guess for warm-start optimization.
         
         Returns
         -------
@@ -228,17 +230,19 @@ class CoxPH(BaseEstimator):
                 )
                 self._cleanup_cuda_memory()
             else:
-                self._fit_gpu(X_gpu, time_gpu, event_gpu, entry_gpu, cluster_gpu)
+                self._fit_gpu(X_gpu, time_gpu, event_gpu, entry_gpu, cluster_gpu, init_coef=init_coef)
         elif device == Device.TORCH:
             import torch
 
             # Determine torch device (cuda if available, else cpu)
             torch_device = "cuda" if torch.cuda.is_available() else "cpu"
 
-            X_torch = torch.tensor(self._to_array(X), dtype=torch.float64, device=torch_device)
-            time_torch = torch.tensor(self._to_array(time), dtype=torch.float64, device=torch_device)
-            event_torch = torch.tensor(self._to_array(event), dtype=torch.int32, device=torch_device)
-            entry_torch = None if entry is None else torch.tensor(self._to_array(entry), dtype=torch.float64, device=torch_device)
+            X_torch = torch.as_tensor(self._to_array(X), dtype=torch.float64, device=torch_device)
+            time_torch = torch.as_tensor(self._to_array(time), dtype=torch.float64, device=torch_device)
+            event_torch = torch.as_tensor(self._to_array(event), dtype=torch.int32, device=torch_device)
+            entry_torch = None if entry is None else torch.as_tensor(
+                self._to_array(entry), dtype=torch.float64, device=torch_device
+            )
 
             if X_torch.ndim == 1:
                 X_torch = X_torch.reshape(-1, 1)
@@ -261,7 +265,9 @@ class CoxPH(BaseEstimator):
                 self._event = None
                 self._entry = None
 
-            cluster_torch = None if cluster is None else torch.tensor(self._to_array(cluster), dtype=torch.int64, device=torch_device)
+            cluster_torch = None if cluster is None else torch.as_tensor(
+                self._to_array(cluster), dtype=torch.int64, device=torch_device
+            )
             if entry_torch is not None:
                 # Fall back to CPU with statsmodels for delayed entry
                 self._fit_cpu_with_entry(
@@ -272,7 +278,15 @@ class CoxPH(BaseEstimator):
                     None if cluster_torch is None else cluster_torch.cpu().numpy(),
                 )
             else:
-                self._fit_torch(X_torch, time_torch, event_torch, entry_torch, cluster_torch, torch_device)
+                self._fit_torch(
+                    X_torch,
+                    time_torch,
+                    event_torch,
+                    entry_torch,
+                    cluster_torch,
+                    torch_device,
+                    init_coef=init_coef,
+                )
         else:
             X_np = np.asarray(self._to_array(X, Device.CPU), dtype=np.float64)
             time_np = np.asarray(self._to_array(time, Device.CPU), dtype=np.float64)
@@ -295,12 +309,12 @@ class CoxPH(BaseEstimator):
             self._feature_names = [f'x{i+1}' for i in range(X_np.shape[1])]
             
             cluster_np = None if cluster is None else np.asarray(self._to_array(cluster, Device.CPU))
-            self._fit_cpu(X_np, time_np, event_np, entry_np, cluster_np)
+            self._fit_cpu(X_np, time_np, event_np, entry_np, cluster_np, init_coef=init_coef)
         
         self._fitted = True
         return self
     
-    def _fit_cpu(self, X, time, event, entry=None, cluster=None):
+    def _fit_cpu(self, X, time, event, entry=None, cluster=None, init_coef=None):
         """Fit using CPU (NumPy)."""
         if entry is not None:
             self._fit_cpu_with_entry(X, time, event, np.asarray(entry, dtype=np.float64), cluster)
@@ -333,8 +347,13 @@ class CoxPH(BaseEstimator):
                 time_sorted, event_sorted
             )
         
-        # Initialize coefficients
-        beta = np.zeros(n_features, dtype=np.float64)
+        # Initialize coefficients (supports warm-start path in CV)
+        if init_coef is None:
+            beta = np.zeros(n_features, dtype=np.float64)
+        else:
+            beta = np.asarray(init_coef, dtype=np.float64).reshape(-1)
+            if beta.shape[0] != n_features:
+                raise ValueError("init_coef must have shape (n_features,)")
 
         # Compute null log-likelihood (beta = 0)
         self._log_likelihood_null = self._compute_log_likelihood(
@@ -556,7 +575,7 @@ class CoxPH(BaseEstimator):
         else:
             self._cindex = None
     
-    def _fit_gpu(self, X, time, event, entry=None, cluster=None):
+    def _fit_gpu(self, X, time, event, entry=None, cluster=None, init_coef=None):
         """Fit using GPU with full GPU computation."""
         import cupy as cp
         from ..inference._distributions_gpu import norm
@@ -569,7 +588,7 @@ class CoxPH(BaseEstimator):
             self.ties == "breslow"
             and n_samples >= 30000
             and n_features >= 80
-            and os.environ.get("STATGPU_CUDA_BRESLOW_TORCH_BRIDGE", "1").strip().lower()
+            and os.environ.get("STATGPU_CUDA_BRESLOW_TORCH_BRIDGE", "0").strip().lower()
             in ("1", "true", "yes", "on")
         )
         if use_torch_bridge:
@@ -602,6 +621,13 @@ class CoxPH(BaseEstimator):
         time_sorted = time[order]
         event_sorted = event[order]
         cluster_sorted = None if cluster is None else cluster[order]
+        event_idx_sorted = cp.where(event_sorted == 1)[0]
+        self._event_idx_gpu = event_idx_sorted
+        self._event_X_sum_gpu = (
+            cp.sum(X_sorted[event_idx_sorted], axis=0)
+            if int(event_idx_sorted.size) > 0
+            else cp.zeros(n_features, dtype=cp.float64)
+        )
         
         # Precompute Efron tie structure once (depends only on time/event order).
         efron_pre = None
@@ -676,11 +702,19 @@ class CoxPH(BaseEstimator):
                 cp.asarray(first_idx_uft, dtype=cp.int32),
                 cp.asarray(counts_uft, dtype=cp.int32),
             )
+            self._breslow_counts_f_gpu = cp.asarray(counts_uft, dtype=cp.float64)
+            self._breslow_first_idx_np = np.asarray(first_idx_uft, dtype=np.int64)
+            self._breslow_counts_np = np.asarray(counts_uft, dtype=np.float64)
             n_events = int(cp.asnumpy(cp.sum(event_sorted)))
             avg_tie = float(n_events / max(1, int(len(counts_uft))))
 
-        # Initialize coefficients on GPU
-        beta = cp.zeros(n_features, dtype=cp.float64)
+        # Initialize coefficients on GPU (supports warm-start path in CV)
+        if init_coef is None:
+            beta = cp.zeros(n_features, dtype=cp.float64)
+        else:
+            beta = cp.asarray(np.asarray(init_coef, dtype=np.float64), dtype=cp.float64).reshape(-1)
+            if int(beta.shape[0]) != int(n_features):
+                raise ValueError("init_coef must have shape (n_features,)")
 
         # Compute null log-likelihood on GPU
         loglik_null_gpu = self._compute_log_likelihood_gpu(
@@ -694,6 +728,12 @@ class CoxPH(BaseEstimator):
         # Newton-Raphson optimization on GPU with L2 penalty
         penalty = float(self.penalty) if hasattr(self, 'penalty') else 0.0
         use_penalty = penalty > 0.0
+        diag_idx = cp.arange(n_features, dtype=cp.int64) if use_penalty else None
+        eye_cache = (
+            cp.eye(n_features, dtype=cp.float64)
+            if (self.compute_inference or use_penalty)
+            else None
+        )
 
         # Newton-Raphson optimization on GPU
         loglik_gpu = None
@@ -706,10 +746,11 @@ class CoxPH(BaseEstimator):
             # Add penalty terms: gradient -= 2*penalty*beta, hessian -= 2*penalty*I
             if use_penalty:
                 grad = grad - 2 * penalty * beta
-                hess = hess - 2 * penalty * cp.eye(n_features, dtype=cp.float64)
+                # In-place diagonal shift avoids allocating a new dense eye each iteration.
+                hess[diag_idx, diag_idx] -= 2 * penalty
 
             # Newton: delta = inv(hess) @ grad; hess is NSD — solve (-hess) x = grad, delta = -x
-            delta = self._solve_newton_delta_gpu(hess, grad, cp)
+            delta = self._solve_newton_delta_gpu(hess, grad, cp, eye_cache=eye_cache)
 
             # Check convergence on GPU
             if cp.linalg.norm(delta) < self.tol:
@@ -749,7 +790,8 @@ class CoxPH(BaseEstimator):
             if self.cov_type == "nonrobust":
                 try:
                     info = -hess
-                    var_gpu = cp.linalg.solve(info, cp.eye(info.shape[0], dtype=info.dtype))
+                    rhs_eye = eye_cache if eye_cache is not None else cp.eye(info.shape[0], dtype=info.dtype)
+                    var_gpu = cp.linalg.solve(info, rhs_eye)
                 except Exception:
                     var_gpu = cp.linalg.pinv(-hess)
                 bse_gpu = cp.sqrt(cp.maximum(cp.diag(var_gpu), 0.0))
@@ -781,7 +823,8 @@ class CoxPH(BaseEstimator):
                 score_resid_gpu = self._compute_robust_score_residuals_gpu(X_sorted, time_sorted, event_sorted)
                 try:
                     info = -hess
-                    bread = cp.linalg.solve(info, cp.eye(info.shape[0], dtype=info.dtype))
+                    rhs_eye = eye_cache if eye_cache is not None else cp.eye(info.shape[0], dtype=info.dtype)
+                    bread = cp.linalg.solve(info, rhs_eye)
                 except Exception:
                     bread = cp.linalg.pinv(-hess)
 
@@ -841,7 +884,7 @@ class CoxPH(BaseEstimator):
             self._baseline_cumulative_hazard = None
             self._unique_times = None
 
-    def _fit_torch(self, X, time, event, entry=None, cluster=None, torch_device="cuda"):
+    def _fit_torch(self, X, time, event, entry=None, cluster=None, torch_device="cuda", init_coef=None):
         """Fit using Torch with full GPU computation."""
         import torch
         from ..inference._distributions_torch import norm
@@ -932,8 +975,13 @@ class CoxPH(BaseEstimator):
             n_events = int(torch.sum(event_sorted).item())
             avg_tie = float(n_events / max(1, int(len(counts_uft))))
 
-        # Initialize coefficients on Torch device
-        beta = torch.zeros(n_features, dtype=torch.float64, device=torch_device)
+        # Initialize coefficients on Torch device (supports warm-start path in CV)
+        if init_coef is None:
+            beta = torch.zeros(n_features, dtype=torch.float64, device=torch_device)
+        else:
+            beta = torch.as_tensor(init_coef, dtype=torch.float64, device=torch_device).reshape(-1)
+            if int(beta.shape[0]) != int(n_features):
+                raise ValueError("init_coef must have shape (n_features,)")
 
         # Compute null log-likelihood on Torch
         loglik_null_torch = self._compute_log_likelihood_torch(
@@ -1155,14 +1203,22 @@ class CoxPH(BaseEstimator):
 
         return float(ll)
     
-    def _solve_newton_delta_gpu(self, hess, grad, cp):
+    def _solve_newton_delta_gpu(self, hess, grad, cp, eye_cache=None):
         """Newton step delta = inv(hess) @ grad; prefer SPD solve on (-hess) with light jitter."""
         p = int(hess.shape[0])
         try:
             H = -hess
             eps = 1e-11 * (cp.max(cp.abs(cp.diag(H))) + 1.0)
-            H = H + eps * cp.eye(p, dtype=cp.float64)
-            return -cp.linalg.solve(H, grad)
+            jitter_eye = eye_cache if eye_cache is not None else cp.eye(p, dtype=cp.float64)
+            H = H + eps * jitter_eye
+            # Fast path: SPD solve via Cholesky is usually faster than generic solve.
+            try:
+                L = cp.linalg.cholesky(H)
+                y = cp.linalg.solve(L, grad)
+                x = cp.linalg.solve(L.T, y)
+                return -x
+            except Exception:
+                return -cp.linalg.solve(H, grad)
         except Exception:
             try:
                 return cp.linalg.solve(hess, grad)
@@ -1451,33 +1507,70 @@ class CoxPH(BaseEstimator):
     ):
         """CuPy grouped Breslow Hessian with incremental risk-set second moments."""
         import cupy as cp
+        from ._cox_efron_cuda import apply_breslow_hess_update_raw
 
         X_exp = X * exp_eta[:, cp.newaxis]
         risk_X2 = X_exp.T @ X
 
         p = int(X.shape[1])
         hess = cp.zeros((p, p), dtype=cp.float64)
+        use_update_kernel = (
+            os.environ.get("STATGPU_BRESLOW_HESS_UPDATE_KERNEL", "1").strip().lower()
+            in ("1", "true", "yes", "on")
+        )
+        exx_buf = cp.empty((p, p), dtype=cp.float64) if not use_update_kernel else None
+        outer_buf = cp.empty((p, p), dtype=cp.float64) if not use_update_kernel else None
         prev_idx = 0
-        n_groups = int(first_idx.size)
+        block_size = int(os.environ.get("STATGPU_BRESLOW_GEMM_BLOCK", "1024"))
+        block_size = max(64, block_size)
+        # Reuse cached host-side tie metadata when available.
+        first_idx_np = getattr(self, "_breslow_first_idx_np", None)
+        counts_np = getattr(self, "_breslow_counts_np", None)
+        if (
+            first_idx_np is None
+            or counts_np is None
+            or int(first_idx_np.shape[0]) != int(first_idx.shape[0])
+        ):
+            first_idx_np = cp.asnumpy(first_idx).astype(np.int64, copy=False)
+            counts_np = cp.asnumpy(counts).astype(np.float64, copy=False)
+        risk_at_np = cp.asnumpy(risk_sum[first_idx]).astype(np.float64, copy=False)
+        n_groups = int(first_idx_np.size)
         for g in range(n_groups):
-            idx = int(first_idx[g].item())
+            idx = int(first_idx_np[g])
             if idx > prev_idx:
-                blk = slice(prev_idx, idx)
-                risk_X2 = risk_X2 - (X_exp[blk].T @ X[blk])
+                # Batch removals to reduce many tiny GEMM launches.
+                cur = prev_idx
+                while cur < idx:
+                    nxt = min(idx, cur + block_size)
+                    blk = slice(cur, nxt)
+                    risk_X2 -= (X_exp[blk].T @ X[blk])
+                    cur = nxt
                 prev_idx = idx
 
-            rs = float(risk_sum[idx].item())
+            rs = float(risk_at_np[g])
             if rs <= 0.0:
                 continue
             ex = risk_X_sum[idx] / rs
-            exx = risk_X2 / rs
-            hess = hess - counts[g] * (exx - cp.outer(ex, ex))
+            if use_update_kernel:
+                apply_breslow_hess_update_raw(
+                    hess, risk_X2, ex, rs, counts_np[g], cupy_module=cp
+                )
+            else:
+                inv_rs = 1.0 / rs
+                cp.multiply(risk_X2, inv_rs, out=exx_buf)
+                cp.multiply(ex[:, cp.newaxis], ex[cp.newaxis, :], out=outer_buf)
+                cp.subtract(exx_buf, outer_buf, out=exx_buf)
+                hess -= counts_np[g] * exx_buf
 
         return hess
 
     def _compute_hessian_breslow_fused_cupy(self, X, first_idx, counts, exp_eta):
         """Try fused RawKernel Hessian for Breslow; return None on failure."""
         import cupy as cp
+        debug_fused = (
+            os.environ.get("STATGPU_DEBUG_BRESLOW_FUSED", "0").strip().lower()
+            in ("1", "true", "yes", "on")
+        )
         try:
             from ._cox_efron_cuda import compute_breslow_hess_raw
             return compute_breslow_hess_raw(
@@ -1487,7 +1580,9 @@ class CoxPH(BaseEstimator):
                 cupy_module=cp,
                 exp_eta=exp_eta,
             )
-        except Exception:
+        except Exception as ex:
+            if debug_fused:
+                print(f"[CUDA Breslow fused fallback] {type(ex).__name__}: {ex}")
             return None
 
     def _compute_hessian_breslow(self, beta, X, time, event, risk_sum, risk_X_sum, exp_eta):
@@ -1749,11 +1844,16 @@ class CoxPH(BaseEstimator):
                     first_idx_uft = cp.searchsorted(time, uft, side="left")
                     counts_uft = counts_uft.astype(cp.int32, copy=False)
                 counts_f = counts_uft.astype(cp.float64)
-                grad = cp.sum(X[event_mask], axis=0)
+                grad_pre = getattr(self, "_event_X_sum_gpu", None)
+                grad = (
+                    grad_pre.copy()
+                    if grad_pre is not None and int(grad_pre.shape[0]) == int(n_features)
+                    else cp.sum(X[event_mask], axis=0)
+                )
                 E_X = risk_X_sum[first_idx_uft] / risk_sum[first_idx_uft][:, cp.newaxis]
                 grad = grad - cp.sum(E_X * counts_f[:, cp.newaxis], axis=0)
                 use_fused_breslow = (
-                    os.environ.get("STATGPU_BRESLOW_FUSED_CUPY", "1").strip().lower()
+                    os.environ.get("STATGPU_BRESLOW_FUSED_CUPY", "0").strip().lower()
                     in ("1", "true", "yes", "on")
                 )
                 hess = None
@@ -1803,15 +1903,22 @@ class CoxPH(BaseEstimator):
             first_idx_uft = cp.searchsorted(time, uft, side="left")
             counts_uft = counts_uft.astype(cp.int32, copy=False)
 
-        counts_f = counts_uft.astype(cp.float64)
-        grad = cp.sum(X[event_mask], axis=0)
+        counts_f = getattr(self, "_breslow_counts_f_gpu", None)
+        if counts_f is None or int(counts_f.shape[0]) != int(counts_uft.shape[0]):
+            counts_f = counts_uft.astype(cp.float64)
+        grad_pre = getattr(self, "_event_X_sum_gpu", None)
+        grad = (
+            grad_pre.copy()
+            if grad_pre is not None and int(grad_pre.shape[0]) == int(n_features)
+            else cp.sum(X[event_mask], axis=0)
+        )
         E_X = risk_X_sum[first_idx_uft] / risk_sum[first_idx_uft][:, cp.newaxis]
         grad = grad - cp.sum(E_X * counts_f[:, cp.newaxis], axis=0)
         if profile_breslow:
             cp.cuda.Stream.null.synchronize()
             _t_grad = _time.perf_counter()
         use_fused_breslow = (
-            os.environ.get("STATGPU_BRESLOW_FUSED_CUPY", "1").strip().lower()
+            os.environ.get("STATGPU_BRESLOW_FUSED_CUPY", "0").strip().lower()
             in ("1", "true", "yes", "on")
         )
         hess = None
