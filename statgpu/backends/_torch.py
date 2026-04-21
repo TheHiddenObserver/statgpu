@@ -191,9 +191,19 @@ class TorchBackend(BackendBase):
             Solution to the system.
         """
         import torch
-        # torch.linalg.solve_triangular signature:
-        # torch.linalg.solve_triangular(A, b, *, upper=not lower, left=True, out=None)
-        return torch.linalg.solve_triangular(A, b, upper=not lower)
+        if isinstance(trans, str):
+            trans_flag = trans.upper() in ("T", "C")
+        else:
+            trans_flag = bool(trans)
+        if trans_flag:
+            A = A.transpose(-2, -1)
+            lower = not lower
+        return torch.linalg.solve_triangular(
+            A,
+            b,
+            upper=not lower,
+            unitriangular=bool(unit_triangular),
+        )
 
     # ------------------------------------------------------------------
     # Additional Torch-native helpers for common operations
