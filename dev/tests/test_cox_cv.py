@@ -44,6 +44,7 @@ def test_coxphcv_supports_entry_and_cluster_cpu():
 
 def test_coxphcv_env_toggles_do_not_change_cpu_penalty_selection(monkeypatch):
     """Two-stage/halving env toggles should not affect CPU full-grid selection."""
+    invalid_value = "invalid"
     X, time, event = _make_survival_data(seed=2026)
     penalties = np.geomspace(1.5, 0.01, 12)
 
@@ -64,11 +65,11 @@ def test_coxphcv_env_toggles_do_not_change_cpu_penalty_selection(monkeypatch):
 
     monkeypatch.setenv("STATGPU_COXPHCV_TWO_STAGE", "1")
     monkeypatch.setenv("STATGPU_COXPHCV_SUCCESSIVE_HALVING", "1")
-    monkeypatch.setenv("STATGPU_COXPHCV_TWO_STAGE_COARSE", "invalid")
-    monkeypatch.setenv("STATGPU_COXPHCV_TWO_STAGE_WINDOW", "invalid")
-    monkeypatch.setenv("STATGPU_COXPHCV_HALVING_TOPK", "invalid")
-    monkeypatch.setenv("STATGPU_COXPHCV_HALVING_FAST_ITER", "invalid")
-    monkeypatch.setenv("STATGPU_COXPHCV_HALVING_FAST_TOL", "invalid")
+    monkeypatch.setenv("STATGPU_COXPHCV_TWO_STAGE_COARSE", invalid_value)
+    monkeypatch.setenv("STATGPU_COXPHCV_TWO_STAGE_WINDOW", invalid_value)
+    monkeypatch.setenv("STATGPU_COXPHCV_HALVING_TOPK", invalid_value)
+    monkeypatch.setenv("STATGPU_COXPHCV_HALVING_FAST_ITER", invalid_value)
+    monkeypatch.setenv("STATGPU_COXPHCV_HALVING_FAST_TOL", invalid_value)
     assert _env_int("STATGPU_COXPHCV_TWO_STAGE_COARSE", 6, min_value=3, max_value=12) == 6
     assert _env_int("STATGPU_COXPHCV_TWO_STAGE_WINDOW", 2, min_value=1) == 2
     assert _env_int("STATGPU_COXPHCV_HALVING_TOPK", 3, min_value=1, max_value=12) == 3

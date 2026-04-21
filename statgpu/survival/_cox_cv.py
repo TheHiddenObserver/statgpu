@@ -66,10 +66,10 @@ def _env_float(name: str, default: float, *, min_value: Optional[float] = None) 
 
 def _hash_optional_array(h: "hashlib._blake2.blake2b", tag: str, arr: Optional[np.ndarray]) -> None:
     """Hash optional array content for cache-key disambiguation."""
-    h.update(tag.encode("utf-8"))
     if arr is None:
-        h.update(b":none")
+        h.update(f"{tag}:none".encode("utf-8"))
         return
+    h.update(tag.encode("utf-8"))
     arr_np = np.asarray(arr)
     h.update(np.asarray(arr_np.shape, dtype=np.int64).tobytes())
     h.update(str(arr_np.dtype).encode("utf-8"))
@@ -507,7 +507,7 @@ def _select_coxph_penalty_cv(
 
     # Keep exhaustive full-grid CV as the default behavior. Two-stage is opt-in.
     two_stage_enabled = (
-        _env_flag("STATGPU_COXPHCV_TWO_STAGE", False)
+        _env_flag("STATGPU_COXPHCV_TWO_STAGE", False)  # default=False: opt-in
         and device_name == Device.CUDA.value
         and n_penalties_actual >= 8
     )
