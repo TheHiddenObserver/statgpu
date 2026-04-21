@@ -1023,6 +1023,9 @@ def compute_efron_grad_hess_raw(
                 workspace,
             ),
         )
+        # Surface asynchronous kernel execution errors at this call site so fallback
+        # behavior is reliable and diagnostics point to the correct launch.
+        cp.cuda.Stream.null.synchronize()
     except Exception:
         return None
 

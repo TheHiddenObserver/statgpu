@@ -20,10 +20,10 @@ from ._cox import CoxPH
 # =============================================================================
 
 _COXPH_CV_CACHE_MAXSIZE = int(64)
-_COXPH_CV_CACHE: "OrderedDict[Tuple[Any, ...], Dict[str, Any]]" = OrderedDict()
+_COXPH_CV_CACHE: "OrderedDict[str, Dict[str, Any]]" = OrderedDict()
 
 
-def _coxcv_cache_get(cache_key: Optional[Tuple[Any, ...]]) -> Optional[Dict[str, Any]]:
+def _coxcv_cache_get(cache_key: Optional[str]) -> Optional[Dict[str, Any]]:
     """Get cached CoxPH CV results."""
     if cache_key is None:
         return None
@@ -33,7 +33,7 @@ def _coxcv_cache_get(cache_key: Optional[Tuple[Any, ...]]) -> Optional[Dict[str,
     return val
 
 
-def _coxcv_cache_put(cache_key: Optional[Tuple[Any, ...]], value: Dict[str, Any]) -> None:
+def _coxcv_cache_put(cache_key: Optional[str], value: Dict[str, Any]) -> None:
     """Put cached CoxPH CV results."""
     if cache_key is None:
         return
@@ -55,7 +55,7 @@ def _make_coxph_cv_auto_cache_key(
     use_gpu: bool,
     max_iter: int,
     tol: float,
-) -> Tuple[Any, ...]:
+) -> str:
     """Generate automatic cache key for CoxPH CV."""
     h = hashlib.blake2b(digest_size=32)
     h.update(np.asarray(X_shape, dtype=np.int64).tobytes())
@@ -274,7 +274,7 @@ def _select_coxph_penalty_cv(
     max_iter: int = 100,
     tol: float = 1e-9,
     return_details: bool = False,
-    cache_key: Optional[Tuple[Any, ...]] = None,
+    cache_key: Optional[str] = None,
 ):
     """
     Select penalty for CoxPH via K-fold cross-validation.
@@ -316,7 +316,7 @@ def _select_coxph_penalty_cv(
         Convergence tolerance.
     return_details : bool
         Whether to return full CV details.
-    cache_key : tuple or None
+    cache_key : str or None
         Cache key.
 
     Returns
