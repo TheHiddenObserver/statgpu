@@ -1521,7 +1521,11 @@ class CoxPH(BaseEstimator):
         exx_buf = cp.empty((p, p), dtype=cp.float64) if not use_update_kernel else None
         outer_buf = cp.empty((p, p), dtype=cp.float64) if not use_update_kernel else None
         prev_idx = 0
-        block_size = int(os.environ.get("STATGPU_BRESLOW_GEMM_BLOCK", "1024"))
+        block_size_env = os.environ.get("STATGPU_BRESLOW_GEMM_BLOCK", "1024")
+        try:
+            block_size = int(block_size_env)
+        except (TypeError, ValueError):
+            block_size = 1024
         block_size = max(64, block_size)
         # Reuse cached host-side tie metadata when available.
         first_idx_np = getattr(self, "_breslow_first_idx_np", None)

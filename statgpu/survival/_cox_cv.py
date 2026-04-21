@@ -24,6 +24,58 @@ _COXPH_CV_CACHE_MAXSIZE = int(64)
 _COXPH_CV_CACHE: "OrderedDict[str, Dict[str, Any]]" = OrderedDict()
 
 
+def _env_flag(name: str, default: bool = False) -> bool:
+    """Safely parse boolean env var."""
+    raw = os.environ.get(name)
+    if raw is None:
+        return bool(default)
+    return str(raw).strip().lower() in ("1", "true", "yes", "on")
+
+
+def _env_int(
+    name: str,
+    default: int,
+    *,
+    min_value: Optional[int] = None,
+    max_value: Optional[int] = None,
+) -> int:
+    """Safely parse integer env var with optional bounds."""
+    raw = os.environ.get(name)
+    try:
+        val = int(raw) if raw is not None else int(default)
+    except (TypeError, ValueError):
+        val = int(default)
+    if min_value is not None:
+        val = max(min_value, val)
+    if max_value is not None:
+        val = min(max_value, val)
+    return val
+
+
+def _env_float(name: str, default: float, *, min_value: Optional[float] = None) -> float:
+    """Safely parse float env var with optional lower bound."""
+    raw = os.environ.get(name)
+    try:
+        val = float(raw) if raw is not None else float(default)
+    except (TypeError, ValueError):
+        val = float(default)
+    if min_value is not None:
+        val = max(min_value, val)
+    return val
+
+
+def _hash_optional_array(h: "hashlib._blake2.blake2b", tag: str, arr: Optional[np.ndarray]) -> None:
+    """Hash optional array content for cache-key disambiguation."""
+    h.update(tag.encode("utf-8"))
+    if arr is None:
+        h.update(b":none")
+        return
+    arr_np = np.asarray(arr)
+    h.update(np.asarray(arr_np.shape, dtype=np.int64).tobytes())
+    h.update(str(arr_np.dtype).encode("utf-8"))
+    h.update(np.ascontiguousarray(arr_np).tobytes())
+
+
 def _coxcv_cache_get(cache_key: Optional[str]) -> Optional[Dict[str, Any]]:
     """Get cached CoxPH CV results."""
     if cache_key is None:
@@ -54,6 +106,17 @@ def _make_coxph_cv_auto_cache_key(
     folds: List[Tuple[np.ndarray, np.ndarray]],
     ties: str,
     use_gpu: bool,
+    fit_device: str,
+    cv_cuda_torch_bridge: bool,
+    entry: Optional[np.ndarray],
+    cluster: Optional[np.ndarray],
+    two_stage_enabled: bool,
+    halving_enabled: bool,
+    coarse_n: int,
+    window: int,
+    halving_topk: int,
+    fast_iter: int,
+    fast_tol: float,
     max_iter: int,
     tol: float,
 ) -> str:
@@ -69,6 +132,17 @@ def _make_coxph_cv_auto_cache_key(
     h.update(str(folds).encode("utf-8"))
     h.update(str(ties).encode("utf-8"))
     h.update(str(use_gpu).encode("utf-8"))
+    h.update(str(fit_device).encode("utf-8"))
+    h.update(str(cv_cuda_torch_bridge).encode("utf-8"))
+    _hash_optional_array(h, "entry", entry)
+    _hash_optional_array(h, "cluster", cluster)
+    h.update(str(two_stage_enabled).encode("utf-8"))
+    h.update(str(halving_enabled).encode("utf-8"))
+    h.update(str(coarse_n).encode("utf-8"))
+    h.update(str(window).encode("utf-8"))
+    h.update(str(halving_topk).encode("utf-8"))
+    h.update(str(fast_iter).encode("utf-8"))
+    h.update(str(fast_tol).encode("utf-8"))
     h.update(str(max_iter).encode("utf-8"))
     h.update(str(tol).encode("utf-8"))
     return h.hexdigest()
@@ -425,6 +499,37 @@ def _select_coxph_penalty_cv(
     folds_are_complements_flag = _folds_are_complements(folds, n_samples)
     n_folds = len(folds)
 
+    two_stage_enabled = (
+        _env_flag("STATGPU_COXPHCV_TWO_STAGE", False)
+        and device_name == Device.CUDA.value
+        and n_penalties_actual >= 8
+    )
+    halving_enabled = (
+        _env_flag("STATGPU_COXPHCV_SUCCESSIVE_HALVING", False)
+        and device_name == Device.CUDA.value
+        and n_penalties_actual >= 8
+    )
+    coarse_n = _env_int(
+        "STATGPU_COXPHCV_TWO_STAGE_COARSE",
+        6,
+        min_value=3,
+        max_value=n_penalties_actual,
+    )
+    window = _env_int("STATGPU_COXPHCV_TWO_STAGE_WINDOW", 2, min_value=1)
+    halving_topk = _env_int(
+        "STATGPU_COXPHCV_HALVING_TOPK",
+        3,
+        min_value=1,
+        max_value=n_penalties_actual,
+    )
+    fast_iter = _env_int(
+        "STATGPU_COXPHCV_HALVING_FAST_ITER",
+        30,
+        min_value=5,
+        max_value=max_iter,
+    )
+    fast_tol = _env_float("STATGPU_COXPHCV_HALVING_FAST_TOL", 1e-6, min_value=tol)
+
     # Cache handling
     cache_key_eff = cache_key
     if cache_key_eff is None and _COXPH_CV_CACHE_MAXSIZE > 0:
@@ -438,6 +543,17 @@ def _select_coxph_penalty_cv(
             folds=folds,
             ties=ties,
             use_gpu=use_gpu,
+            fit_device=fit_device,
+            cv_cuda_torch_bridge=cv_cuda_torch_bridge,
+            entry=entry_np,
+            cluster=cluster_np,
+            two_stage_enabled=two_stage_enabled,
+            halving_enabled=halving_enabled,
+            coarse_n=coarse_n,
+            window=window,
+            halving_topk=halving_topk,
+            fast_iter=fast_iter,
+            fast_tol=fast_tol,
             max_iter=max_iter,
             tol=tol,
         )
@@ -545,29 +661,6 @@ def _select_coxph_penalty_cv(
                     pl_path[penalty_idx, fold_idx] = pl_test
                 except Exception:
                     continue
-
-    two_stage_enabled = (
-        os.environ.get("STATGPU_COXPHCV_TWO_STAGE", "1").strip().lower()
-        in ("1", "true", "yes", "on")
-        and device_name == Device.CUDA.value
-        and n_penalties_actual >= 8
-    )
-    halving_enabled = (
-        os.environ.get("STATGPU_COXPHCV_SUCCESSIVE_HALVING", "0").strip().lower()
-        in ("1", "true", "yes", "on")
-        and device_name == Device.CUDA.value
-        and n_penalties_actual >= 8
-    )
-    coarse_n = int(os.environ.get("STATGPU_COXPHCV_TWO_STAGE_COARSE", "6"))
-    coarse_n = max(3, min(n_penalties_actual, coarse_n))
-    window = int(os.environ.get("STATGPU_COXPHCV_TWO_STAGE_WINDOW", "2"))
-    window = max(1, window)
-    halving_topk = int(os.environ.get("STATGPU_COXPHCV_HALVING_TOPK", "3"))
-    halving_topk = max(1, min(n_penalties_actual, halving_topk))
-    fast_iter = int(os.environ.get("STATGPU_COXPHCV_HALVING_FAST_ITER", "30"))
-    fast_iter = max(5, min(max_iter, fast_iter))
-    fast_tol = float(os.environ.get("STATGPU_COXPHCV_HALVING_FAST_TOL", "1e-6"))
-    fast_tol = max(fast_tol, tol)
 
     if two_stage_enabled:
         stage1_idx = np.unique(
