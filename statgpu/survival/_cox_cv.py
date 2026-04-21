@@ -120,7 +120,13 @@ def _make_coxph_cv_auto_cache_key(
     max_iter: int,
     tol: float,
 ) -> str:
-    """Generate automatic cache key for CoxPH CV."""
+    """
+    Generate automatic cache key for CoxPH CV.
+
+    Includes structural inputs (shapes/grid/folds), execution-path settings
+    (fit device/bridge/two-stage/halving), and optional delayed-entry or
+    clustering arrays to avoid stale collisions across distinct CV runs.
+    """
     h = hashlib.blake2b(digest_size=32)
     h.update(np.asarray(X_shape, dtype=np.int64).tobytes())
     h.update(np.asarray(time_shape, dtype=np.int64).tobytes())
@@ -499,6 +505,7 @@ def _select_coxph_penalty_cv(
     folds_are_complements_flag = _folds_are_complements(folds, n_samples)
     n_folds = len(folds)
 
+    # Keep exhaustive full-grid CV as the default behavior. Two-stage is opt-in.
     two_stage_enabled = (
         _env_flag("STATGPU_COXPHCV_TWO_STAGE", False)
         and device_name == Device.CUDA.value

@@ -3,7 +3,7 @@
 import numpy as np
 
 from statgpu.survival import CoxPHCV
-from statgpu.survival._cox_cv import _select_coxph_penalty_cv
+from statgpu.survival._cox_cv import _select_coxph_penalty_cv, _env_int, _env_float
 
 
 def _make_survival_data(n_samples=180, n_features=5, seed=123):
@@ -69,6 +69,11 @@ def test_coxphcv_env_toggles_do_not_change_cpu_penalty_selection(monkeypatch):
     monkeypatch.setenv("STATGPU_COXPHCV_HALVING_TOPK", "invalid")
     monkeypatch.setenv("STATGPU_COXPHCV_HALVING_FAST_ITER", "invalid")
     monkeypatch.setenv("STATGPU_COXPHCV_HALVING_FAST_TOL", "invalid")
+    assert _env_int("STATGPU_COXPHCV_TWO_STAGE_COARSE", 6, min_value=3, max_value=12) == 6
+    assert _env_int("STATGPU_COXPHCV_TWO_STAGE_WINDOW", 2, min_value=1) == 2
+    assert _env_int("STATGPU_COXPHCV_HALVING_TOPK", 3, min_value=1, max_value=12) == 3
+    assert _env_int("STATGPU_COXPHCV_HALVING_FAST_ITER", 30, min_value=5, max_value=40) == 30
+    assert np.isclose(_env_float("STATGPU_COXPHCV_HALVING_FAST_TOL", 1e-6, min_value=1e-7), 1e-6)
 
     best_tuned, details_tuned = _select_coxph_penalty_cv(
         X,
