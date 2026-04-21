@@ -190,7 +190,7 @@ def _batch_log_loss(y_val, probs_desc, sample_weight=None):
 # GPU batch log-loss
 # =============================================================================
 
-def _batch_log_loss(y_val, probs_desc, backend, sample_weight=None):
+def _batch_log_loss_backend(y_val, probs_desc, backend, sample_weight=None):
     """
     Compute log-loss for multiple probability vectors.
 
@@ -614,7 +614,7 @@ def _select_logistic_c_cv(
                     probs_desc.append(probs)
 
                 probs_desc = backend.stack(probs_desc, axis=0)
-                loss_desc = _batch_log_loss(y_val, probs_desc, backend, sw_val)
+                loss_desc = _batch_log_loss_backend(y_val, probs_desc, backend, sw_val)
                 loss_path[:, fold_idx] = backend.to_numpy(loss_desc)
 
         except Exception as exc:
