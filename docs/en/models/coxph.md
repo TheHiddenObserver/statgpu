@@ -1,7 +1,7 @@
 # CoxPH
 
 > Language: English  
-> Last updated: 2026-04-21  
+> Last updated: 2026-04-22  
 > This page: Model documentation  
 > Switch: [Chinese](../../models/coxph.md)
 
@@ -11,7 +11,11 @@ Language switch: [Chinese](../../models/coxph.md)
 
 `CoxPH` implements proportional hazards regression with Breslow/Efron tie handling on CPU/GPU backends. It focuses on the standard Cox path with optional robust/cluster covariance, and currently does not provide full strata/frailty/time-varying covariate workflows.
 
-Note: `CoxPHCV` (cross-validated CoxPH) is now trainable (penalty search + final refit), but `entry` and `cluster` arguments are not yet supported in `CoxPHCV.fit()`.
+Notes:
+
+- Delayed entry (`entry`) is available in `CoxPH` on `cpu/cuda/torch`.
+- `ties='efron' + entry` is implemented in `CoxPH` on `cpu/cuda/torch` and validated against lifelines.
+- `CoxPHCV` is trainable (penalty search + final refit), but for GPU paths `entry` currently supports only `ties='breslow'`, and `cluster` remains unsupported.
 
 ## Path
 
@@ -48,6 +52,15 @@ Solve score equations \(\partial \ell(\beta)/\partial \beta = 0\) using Newton-R
 | `compute_inference` | `True` | Whether to compute inference and diagnostics |
 | `cov_type` | `"nonrobust"` | `nonrobust` / `hc0` / `hc1` / `cluster` |
 | `gpu_memory_cleanup` | `False` | Best-effort CuPy pool cleanup after each fit |
+
+## Entry and Device Notes
+
+- `CoxPH`:
+  - `entry + breslow`: supported on CPU/CUDA/Torch
+  - `entry + efron`: supported on CPU/CUDA/Torch (since 2026-04-22)
+- `CoxPHCV`:
+  - GPU `entry` currently supports `ties='breslow'` only
+- `torch.compile` (if enabled) requires Triton-capable GPUs (Compute Capability >= 7.0), e.g., A30/RTX 4090. Tesla P100 (CC 6.0) is not supported.
 
 ## CPU+GPU Examples
 

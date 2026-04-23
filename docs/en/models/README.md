@@ -1,7 +1,7 @@
 # Models Overview
 
 > Language: English  
-> Last updated: 2026-04-11  
+> Last updated: 2026-04-22  
 > This page: Model index  
 > Switch: [Chinese](../../models/README.md)
 
@@ -37,9 +37,12 @@ Language switch: [Chinese](../../models/README.md)
   - `Lasso`: CPU/GPU OLS-style inference + bootstrap
   - `LogisticRegression`: classical + `HC0/HC1/HC2/HC3/HAC`
 - `CoxPH` supports Breslow/Efron ties and CPU/GPU fitting paths.
+- `CoxPH` delayed entry (`entry`) support:
+  - `entry + breslow`: CPU/CUDA/Torch
+  - `entry + efron`: CPU/CUDA/Torch
 - Feature selection:
   - `Knockoff`: fixed-X/model-X unified API + selector wrappers
 - `LassoCV` is implemented and trainable.
 - Exported CV classes status:
   - `RidgeCV`, `LogisticRegressionCV`, and `CoxPHCV` are implemented and trainable.
-  - Current `CoxPHCV` boundary: `entry` (delayed entry) and `cluster`-robust CV are not yet supported and raise `NotImplementedError`.
+  - Current `CoxPHCV` boundary: on GPU paths, `entry` currently supports only `ties='breslow'`; `cluster`-robust CV is not yet supported and raises `NotImplementedError`.

@@ -1034,6 +1034,8 @@ def compute_efron_grad_hess_raw(
 
 _BRESLOW_KERNEL_VER = 1
 _breslow_kernel_cache = None
+_BRESLOW_UPDATE_KERNEL_VER = 1
+_breslow_update_kernel_cache = None
 
 _BRESLOW_KERNEL_SOURCE = r"""
 extern "C" __global__
@@ -1148,6 +1150,64 @@ def get_breslow_hess_kernel(cp):
     return _breslow_kernel_cache[0]
 
 
+_BRESLOW_UPDATE_KERNEL_SOURCE = r"""
+extern "C" __global__
+void breslow_hess_update(
+    double* __restrict__ hess,
+    const double* __restrict__ risk_x2,
+    const double* __restrict__ ex,
+    const double rs,
+    const double count,
+    const int p
+) {
+    int idx = (int)(blockIdx.x * blockDim.x + threadIdx.x);
+    int total = p * p;
+    if (idx >= total) return;
+    int j1 = idx / p;
+    int j2 = idx - j1 * p;
+    double exx = risk_x2[idx] / rs;
+    double outer = ex[j1] * ex[j2];
+    hess[idx] -= count * (exx - outer);
+}
+"""
+
+
+def get_breslow_hess_update_kernel(cp):
+    global _breslow_update_kernel_cache
+    if (
+        _breslow_update_kernel_cache is None
+        or not isinstance(_breslow_update_kernel_cache, tuple)
+        or _breslow_update_kernel_cache[1] != _BRESLOW_UPDATE_KERNEL_VER
+    ):
+        _breslow_update_kernel_cache = (
+            cp.RawKernel(_BRESLOW_UPDATE_KERNEL_SOURCE, "breslow_hess_update"),
+            _BRESLOW_UPDATE_KERNEL_VER,
+        )
+    return _breslow_update_kernel_cache[0]
+
+
+def apply_breslow_hess_update_raw(hess, risk_x2, ex, rs, count, *, cupy_module):
+    cp = cupy_module
+    p = int(ex.shape[0])
+    if p <= 0:
+        return
+    threads = 256
+    blocks = (p * p + threads - 1) // threads
+    kernel = get_breslow_hess_update_kernel(cp)
+    kernel(
+        (blocks,),
+        (threads,),
+        (
+            hess.reshape(-1),
+            risk_x2.reshape(-1),
+            ex,
+            float(rs),
+            float(count),
+            p,
+        ),
+    )
+
+
 def compute_breslow_hess_raw(
     X,
     first_idx_uft,
@@ -1181,7 +1241,20 @@ def compute_breslow_hess_raw(
     counts_g = cp.asarray(counts_uft, dtype=cp.float64)
     hess_out = cp.zeros((p, p), dtype=cp.float64)
     workspace = cp.zeros(1 + p + 2 * p * p, dtype=cp.float64)
+    # Keep stable default launch behavior, allow opt-in manual tuning.
     seq_thresh, threads = _pick_backward_launch_params(p, nuft, n)
+    th_env = os.environ.get("STATGPU_BRESLOW_HESS_THREADS", "").strip()
+    if th_env:
+        try:
+            threads = max(32, min(512, int(th_env)))
+        except Exception:
+            pass
+    seq_env = os.environ.get("STATGPU_BRESLOW_SEQ_THRESH", "").strip()
+    if seq_env:
+        try:
+            seq_thresh = max(1, int(seq_env))
+        except Exception:
+            pass
     meta = cp.array([n, p, nuft, seq_thresh], dtype=cp.int32)
     kernel = get_breslow_hess_kernel(cp)
     try:
