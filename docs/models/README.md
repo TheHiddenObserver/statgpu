@@ -1,7 +1,7 @@
 # 模型总览
 
 > 语言: 中文  
-> 最后更新: 2026-04-11  
+> 最后更新: 2026-04-22  
 > 页面定位: 模型索引  
 > 切换: [English](../en/models/README.md)
 
@@ -48,9 +48,12 @@
   - `Lasso`：CPU/GPU OLS 风格推断 + bootstrap
   - `LogisticRegression`：经典协方差 + `HC0/HC1/HC2/HC3/HAC`
 - `CoxPH` 支持 Breslow/Efron ties，并提供 CPU/GPU 拟合路径。
+- `CoxPH` 的 `entry`（delayed entry）路径已支持：
+  - `entry + breslow`：CPU/CUDA/Torch
+  - `entry + efron`：CPU/CUDA/Torch
 - 特征选择：
   - `Knockoff`：fixed-X / model-X 统一 API + selector 封装
 - `LassoCV` 已实现并可直接训练使用。
 - 已导出的 CV 类中：
   - `RidgeCV`、`LogisticRegressionCV`、`CoxPHCV` 均已可直接训练使用。
-  - `CoxPHCV` 当前边界：`entry`（delayed entry）与 `cluster` 口径暂未支持，会抛出 `NotImplementedError`。
+  - `CoxPHCV` 当前边界：GPU 下 `entry` 目前仅支持 `ties='breslow'`；`cluster` 口径暂未支持，会抛出 `NotImplementedError`。

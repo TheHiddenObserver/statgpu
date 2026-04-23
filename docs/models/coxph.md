@@ -1,7 +1,7 @@
 # CoxPH
 
 > 语言: 中文  
-> 最后更新: 2026-04-21  
+> 最后更新: 2026-04-22  
 > 页面定位: 模型文档  
 > 切换: [English](../en/models/coxph.md)
 
@@ -11,7 +11,11 @@
 
 `CoxPH` 实现比例风险模型，支持 CPU/GPU、Breslow/Efron ties 处理，以及 `cluster` 口径稳健方差。当前范围聚焦标准 CoxPH 主路径，`strata/frailty/time-varying covariates` 仍在规划中（见 `TO_DO.md`）。
 
-补充：`CoxPHCV`（交叉验证版本）当前已可用，支持 penalty 网格搜索 + 全量重训；但 `entry` 与 `cluster` 参数在 `CoxPHCV.fit()` 中暂未开放。
+补充：
+
+- `CoxPH` 的 `entry`（delayed entry）路径在 `cpu/cuda/torch` 均可用。
+- `ties='efron' + entry` 已在 `CoxPH` 的 `cpu/cuda/torch` 路径落地，并完成与 lifelines 的精度对标。
+- `CoxPHCV`（交叉验证版本）当前已可用，支持 penalty 网格搜索 + 全量重训；GPU 场景下 `entry` 目前仅支持 `ties='breslow'`，`cluster` 口径仍未开放。
 
 ## 路径（Path）
 
@@ -47,6 +51,15 @@
 | `compute_inference` | `True` | 是否计算推断与部分诊断 |
 | `cov_type` | `"nonrobust"` | `nonrobust` / `hc0` / `hc1` / `cluster` |
 | `gpu_memory_cleanup` | `False` | `fit` 后尝试释放 CuPy memory pool |
+
+## Entry 与设备约束（Entry & Device Notes）
+
+- `CoxPH`：
+  - `entry + breslow`：CPU/CUDA/Torch 支持
+  - `entry + efron`：CPU/CUDA/Torch 支持（2026-04-22）
+- `CoxPHCV`：
+  - GPU 下 `entry` 目前仅支持 `ties='breslow'`
+- `torch.compile`（若启用）需要 Triton 支持的 GPU（Compute Capability >= 7.0），如 A30/RTX 4090；P100（CC 6.0）不支持。
 
 ## CPU+GPU 示例（CPU+GPU Examples）
 
