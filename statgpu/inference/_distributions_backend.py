@@ -2306,9 +2306,9 @@ class DistributionProxy:
         device = kwargs.pop("device", self._device)
         use_lut = kwargs.pop("use_lut", self._use_lut)
         if backend == "auto":
-            backend = _resolve_backend("auto", *(list(arrays) + list(kwargs.values())))
+            backend = _resolve_backend("auto", *arrays, *kwargs.values())
         if backend == "torch" and device is None:
-            for arr in list(arrays) + list(kwargs.values()):
+            for arr in (*arrays, *kwargs.values()):
                 if _is_torch_array(arr):
                     device = str(arr.device)
                     break
@@ -2338,7 +2338,7 @@ class DistributionProxy:
         return self._resolve(kw, k).pmf(k, **kw)
 
     def rvs(self, **kw):
-        return self._resolve(kw, *tuple(kw.values())).rvs(**kw)
+        return self._resolve(kw, *kw.values()).rvs(**kw)
 
     def two_sided_pvalue(self, stat_abs, **kw):
         return self._resolve(kw, stat_abs).two_sided_pvalue(stat_abs, **kw)
