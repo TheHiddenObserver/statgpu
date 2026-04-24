@@ -534,7 +534,7 @@ def evaluate_binary_classification(
     if threshold < 0.0 or threshold > 1.0:
         raise ValueError("threshold must be in [0, 1]")
 
-    backend_name = _resolve_backend(y_true, y_score, backend)
+    backend_name = _resolve_backend(backend, y_true, y_score)
     if backend_name == "numpy":
         y_score_arr = np.asarray(y_score, dtype=float).reshape(-1)
         if not np.all(np.isfinite(y_score_arr)):
