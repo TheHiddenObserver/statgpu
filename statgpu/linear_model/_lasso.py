@@ -19,11 +19,11 @@ except Exception:
     njit = None
     _NUMBA_AVAILABLE = False
 
-from .._base import BaseEstimator
-from .._config import Device
-from .._cv_base import CVEstimatorBase
-from ..backends import get_backend
-from ..inference._distributions_backend import (
+from statgpu._base import BaseEstimator
+from statgpu._config import Device
+from statgpu._cv_base import CVEstimatorBase
+from statgpu.backends import get_backend
+from statgpu.inference._distributions_backend import (
     norm,
     t,
 )
@@ -618,7 +618,7 @@ class Lasso(BaseEstimator):
     def _fit_gpu(self, X, y, sample_weight=None):
         """Fit using GPU solver."""
         import cupy as cp
-        from .._gpu_utils import compute_r2_gpu
+        from statgpu._gpu_utils import compute_r2_gpu
 
         if self.solver not in ("fista", "admm"):
             raise ValueError("solver must be one of: 'fista', 'admm'")
@@ -1000,7 +1000,7 @@ class Lasso(BaseEstimator):
             Lasso coefficients on Torch GPU (no intercept).
         """
         import torch
-        from ..inference._distributions_backend import norm
+        from statgpu.inference._distributions_backend import norm
 
         n, p = X_torch.shape
         dtype = torch.float64
@@ -1260,7 +1260,7 @@ class Lasso(BaseEstimator):
     def _fit_torch(self, X, y, sample_weight=None):
         """Fit using Torch GPU with FISTA solver."""
         import torch
-        from .._gpu_utils_torch import compute_r2_torch
+        from statgpu._gpu_utils_torch import compute_r2_torch
 
         if self.solver not in ("fista", "admm"):
             raise ValueError("Torch backend currently only supports 'fista' solver")
@@ -1410,7 +1410,7 @@ class Lasso(BaseEstimator):
                 params_gpu = coef_full
                 tvalues_gpu = params_gpu / (bse_gpu + 1e-30)
 
-                from ..inference._distributions_backend import get_distribution
+                from statgpu.inference._distributions_backend import get_distribution
                 t_dist = get_distribution("t", backend="torch", device=str(X.device))
                 pvalues_gpu = torch.minimum(torch.tensor(1.0, device=X.device), 2.0 * t_dist.sf(torch.abs(tvalues_gpu), df=df_resid))
 

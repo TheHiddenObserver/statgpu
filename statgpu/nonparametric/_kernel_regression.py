@@ -6,7 +6,7 @@ from typing import Any, Optional, Union
 
 import numpy as np
 
-from .._base import BaseEstimator
+from statgpu._base import BaseEstimator
 from ._bandwidth_selection import select_bandwidth
 
 from ._kernel_common import (

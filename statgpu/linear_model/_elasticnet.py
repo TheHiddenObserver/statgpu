@@ -18,8 +18,8 @@ from typing import Optional, Union
 import warnings
 import numpy as np
 
-from .._base import BaseEstimator
-from .._config import Device
+from statgpu._base import BaseEstimator
+from statgpu._config import Device
 
 
 # ============================================================================

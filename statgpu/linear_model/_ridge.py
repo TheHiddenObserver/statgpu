@@ -6,9 +6,9 @@ from typing import Optional, Union
 import numpy as np
 from scipy import stats
 
-from .._base import BaseEstimator
-from .._config import Device
-from ..backends import _get_torch_device_str
+from statgpu._base import BaseEstimator
+from statgpu._config import Device
+from statgpu.backends import _get_torch_device_str
 
 
 class Ridge(BaseEstimator):
@@ -337,8 +337,8 @@ class Ridge(BaseEstimator):
             scale = cp.nan
         
         # Compute ALL statistics on GPU
-        from .._gpu_utils import compute_inference_gpu, compute_r2_gpu, compute_aic_bic_gpu, compute_f_stat_gpu
-        from ..inference._distributions_backend import norm
+        from statgpu._gpu_utils import compute_inference_gpu, compute_r2_gpu, compute_aic_bic_gpu, compute_f_stat_gpu
+        from statgpu.inference._distributions_backend import norm
 
         if self.compute_inference:
             if self.cov_type == "nonrobust":
@@ -484,13 +484,13 @@ class Ridge(BaseEstimator):
     def _fit_torch(self, X, y, sample_weight=None):
         """Fit using Torch GPU."""
         import torch
-        from .._gpu_utils_torch import (
+        from statgpu._gpu_utils_torch import (
             compute_inference_torch,
             compute_r2_torch,
             compute_aic_bic_torch,
             compute_f_stat_torch,
         )
-        from ..inference._distributions_backend import norm
+        from statgpu.inference._distributions_backend import norm
 
         # Note: Device.TORCH.value is 'torch', but Torch expects 'cuda' or 'cpu'
         torch_device = _get_torch_device_str()

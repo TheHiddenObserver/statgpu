@@ -7,9 +7,9 @@ import numpy as np
 from scipy import stats
 from time import perf_counter
 
-from .._base import BaseEstimator
-from .._config import Device
-from ..backends import _get_torch_device_str
+from statgpu._base import BaseEstimator
+from statgpu._config import Device
+from statgpu.backends import _get_torch_device_str
 
 
 class LinearRegression(BaseEstimator):
@@ -362,13 +362,13 @@ class LinearRegression(BaseEstimator):
     def _fit_gpu(self, X, y, sample_weight=None):
         """Fit using GPU with FULL GPU computation (including inference)."""
         import cupy as cp
-        from .._gpu_utils import (
+        from statgpu._gpu_utils import (
             compute_inference_gpu,
             compute_r2_gpu,
             compute_aic_bic_gpu,
             compute_f_stat_gpu,
         )
-        from ..inference._distributions_backend import norm
+        from statgpu.inference._distributions_backend import norm
         
         n_samples, n_features = X.shape
         self._nobs = n_samples
@@ -582,13 +582,13 @@ class LinearRegression(BaseEstimator):
     def _fit_torch(self, X, y, sample_weight=None):
         """Fit using Torch GPU with FULL GPU computation (including inference)."""
         import torch
-        from .._gpu_utils_torch import (
+        from statgpu._gpu_utils_torch import (
             compute_inference_torch,
             compute_r2_torch,
             compute_aic_bic_torch,
             compute_f_stat_torch,
         )
-        from ..inference._distributions_backend import norm
+        from statgpu.inference._distributions_backend import norm
 
         n_samples, n_features = X.shape
         self._nobs = n_samples

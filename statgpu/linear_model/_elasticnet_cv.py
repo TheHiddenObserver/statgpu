@@ -7,9 +7,9 @@ from collections import OrderedDict
 import hashlib
 import numpy as np
 
-from .._config import Device, cuda_available
-from .._cv_base import CVEstimatorBase
-from ..backends import get_backend
+from statgpu._config import Device, cuda_available
+from statgpu._cv_base import CVEstimatorBase
+from statgpu.backends import get_backend
 from ._elasticnet import ElasticNet
 
 

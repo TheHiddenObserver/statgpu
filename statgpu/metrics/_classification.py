@@ -8,7 +8,7 @@ from typing import Dict, Tuple, Union
 
 import numpy as np
 
-from ..evaluation._classification import (
+from statgpu.evaluation._classification import (
     binary_average_precision_score as _eval_average_precision_score,
     binary_classification_table as _eval_classification_table,
     binary_confusion_matrix as _eval_confusion_matrix,
