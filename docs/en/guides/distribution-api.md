@@ -1,13 +1,13 @@
 # Distribution API Guide
 
-> Language: English  
-> Last updated: 2026-04-12  
-> This page: Guide  
+> Language: English
+> Last updated: 2026-04-24
+> This page: Guide
 > Switch: [Chinese](../../guides/distribution-api.md)
 
 Language switch: [Chinese](../../guides/distribution-api.md)
 
-This page documents the current, recommended distribution API usage.
+This page documents the recommended distribution API usage.
 
 ## 1) Preferred entrypoint (object-style API)
 
@@ -49,40 +49,98 @@ Natively implemented distribution names:
 - `poisson`
 - `binom`
 
-## 2) Dynamic lookup by name
+## 2) Backend selection
 
-Use `get_distribution_gpu(name)` when distribution names are selected dynamically.
+The module-level proxies (`norm`, `t`, `chi2`, etc.) automatically select the best available backend (GPU > Torch > NumPy). You can override the backend per-call:
 
 ```python
-from statgpu.inference import get_distribution_gpu
+from statgpu.inference import norm, t
 
-dist = get_distribution_gpu("norm")
+# Auto-detect (default) — uses CuPy if available, then Torch, then NumPy
+result = norm.cdf(x)
+
+# Force Torch backend
+result = norm.cdf(x, backend="torch")
+
+# Force NumPy/scipy backend
+result = norm.cdf(x, backend="numpy")
+
+# Per-call override works for all distributions and methods
+result = t.ppf(q, df=10, backend="cupy")
+```
+
+You can also create a distribution with a fixed backend:
+
+```python
+from statgpu.inference import get_distribution
+
+# Explicit backend
+norm_cupy = get_distribution("norm", backend="cupy")
+norm_torch = get_distribution("norm", backend="torch")
+norm_numpy = get_distribution("norm", backend="numpy")
+
+# Torch-specific: control device
+norm_torch_gpu = get_distribution("norm", backend="torch", device="cuda:0")
+
+# Disable LUT cache for inverse special functions (full iterative precision)
+norm_full_precision = get_distribution("norm", backend="numpy", use_lut=False)
+```
+
+## 3) Dynamic lookup by name
+
+Use `get_distribution(name, backend=...)` when distribution names are selected dynamically.
+
+```python
+from statgpu.inference import get_distribution
+
+dist = get_distribution("norm", backend="auto")
 y = dist.cdf(0.0)
 ```
 
-Current default policy is native-only:
+The `backend` parameter accepts: `"auto"` (default), `"numpy"`, `"cupy"`, `"torch"`.
 
-- `allow_fallback=False` by default.
-- Non-native names raise `ValueError` unless fallback is explicitly enabled.
+## 4) Explicit SciPy fallback (optional)
 
-## 3) Explicit SciPy fallback (optional)
-
-For long-tail distributions that are not natively implemented yet, fallback can be enabled explicitly:
+For long-tail distributions that are not natively implemented, fallback can be enabled explicitly:
 
 ```python
-import cupy as cp
-from statgpu.inference import get_distribution_gpu
+import numpy as np
+from statgpu.inference import get_distribution
 
-dist = get_distribution_gpu("gumbel_r", allow_fallback=True)
-out = dist.cdf(cp.asarray([0.0, 1.0, 2.0]))
+dist = get_distribution("gumbel_r", backend="numpy")
+out = dist.cdf(np.array([0.0, 1.0, 2.0]))
 ```
 
 Notes:
 
-- Fallback computes via `scipy.stats`, then converts outputs back to CuPy.
-- This is explicit behavior only (no implicit fallback in default path).
+- For non-native distribution names, `get_distribution` with `backend="numpy"` wraps the corresponding `scipy.stats` distribution.
+- GPU backends only work with natively implemented distributions.
 
-## 4) R-style compatibility API (kept for compatibility)
+## 5) LUT acceleration for inverse functions
+
+Inverse CDF methods (`ppf`/`isf`) for `t`, `f`, `beta`, `chi2`, `gamma` use LUT (lookup table) + 1-step Newton refinement by default. This provides 10-50x speedup with negligible precision loss (~1e-11).
+
+```python
+# Default: LUT enabled (fast)
+t.ppf(q, df=10)
+
+# Disable LUT for full iterative precision (slower)
+t.ppf(q, df=10, use_lut=False)
+
+# Or create a distribution with LUT disabled globally
+t_full = get_distribution("t", backend="torch", use_lut=False)
+t_full.ppf(q, df=10)  # always uses full iterative solver
+```
+
+**Precision trade-off**:
+
+| Backend | `use_lut=True` | `use_lut=False` |
+|---|---|---|
+| numpy | LUT + 1 Newton (err ~1e-11) | scipy.special (full iterative) |
+| cupy | Native `cupyx.scipy.special` | Same (no LUT effect) |
+| torch | LUT + 1 Newton (err ~1e-5 for t/f) | Newton + 64K Chebyshev integral |
+
+## 6) R-style compatibility API (kept for compatibility)
 
 The following wrappers follow R-style naming and are grouped by distribution family.
 
@@ -146,9 +204,9 @@ Example call:
 
 ```python
 from statgpu.inference import (
-	dnorm_gpu, pnorm_gpu, qnorm_gpu, rnorm_gpu,
-	dt_gpu, pt_gpu, qt_gpu, rt_gpu,
-	dpois_gpu, ppois_gpu, qpois_gpu, rpois_gpu,
+    dnorm_gpu, pnorm_gpu, qnorm_gpu, rnorm_gpu,
+    dt_gpu, pt_gpu, qt_gpu, rt_gpu,
+    dpois_gpu, ppois_gpu, qpois_gpu, rpois_gpu,
 )
 
 pdf = dnorm_gpu(0.0)
@@ -174,7 +232,7 @@ These wrappers are recommended for compatibility use only; object-style API is s
 - `pt_gpu(x, df)` -> `t.cdf(x, df=df)`
 - `qt_gpu(q, df)` -> `t.ppf(q, df=df)`
 
-## 5) Legacy non-R function names (soft-deprecated)
+## 7) Legacy non-R function names (soft-deprecated)
 
 The following non-R historical names are still available but emit `DeprecationWarning`, grouped by family.
 
@@ -197,24 +255,32 @@ The following non-R historical names are still available but emit `DeprecationWa
 
 Prefer migrating these names to object-style calls (`norm.*` / `t.*`).
 
-## 6) CPU vs GPU behavior
+## 8) Backend behavior
 
-- Distribution objects in this page are GPU-first (CuPy input/output).
-- Native distribution kernels do not silently fall back to CPU when required `cupyx.scipy.special` functionality is unavailable; they raise explicit errors.
-- CPU-side model inference (for example p-values/critical values in linear/logistic/Cox models) still directly uses `scipy.stats`; this is a separate path from distribution objects.
+- **Auto mode (default)**: Proxies try CuPy > Torch > NumPy/scipy. Input array type is not changed.
+- **NumPy backend**: Uses `scipy.stats` and `scipy.special`. Accepts numpy arrays.
+- **CuPy backend**: Uses `cupyx.scipy.special`. Accepts CuPy arrays.
+- **Torch backend**: Uses `torch.special` with fallbacks for missing functions. Accepts Torch tensors.
 
-## 7) Common issues
+Native distribution kernels do not silently fall back to CPU when required special functions are unavailable.
 
-1. Error: `cupyx.scipy.special.* is required for GPU backend`
+## 9) Common issues
 
-- Cause: missing/unsupported `cupyx.scipy.special` in the current CUDA/CuPy setup.
-- Action: verify CUDA driver + CuPy compatibility, or use CPU inference paths temporarily.
+1. Error: missing special function for GPU backend
+
+- Cause: required `cupyx.scipy.special` or `torch.special` function is unavailable.
+- Action: verify CUDA driver + CuPy/Torch compatibility, or use `backend="numpy"` temporarily.
 
 2. Listing available distributions
 
 ```python
-from statgpu.inference import list_available_distributions_gpu
+from statgpu.inference import list_available_distributions
 
-native_only = list_available_distributions_gpu(include_scipy=False)
-all_names = list_available_distributions_gpu(include_scipy=True)
+native_only = list_available_distributions()
 ```
+
+3. Backend precision differences
+
+- CuPy and NumPy backends match `scipy.stats` to machine epsilon for most functions.
+- Torch 2.0 lacks `torch.special.betainc` — t/f/beta CDF/PPF may have ~1e-5 to 1e-7 error.
+- Upgrading to Torch >= 2.1 with native `torch.special.betainc` resolves this.
