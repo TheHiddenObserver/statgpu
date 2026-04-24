@@ -7,9 +7,10 @@ from typing import Any, Dict, Optional, Union, Tuple
 import numpy as np
 from scipy import stats
 
-from .._base import BaseEstimator
-from .._config import Device
-from ..evaluation import (
+from statgpu._base import BaseEstimator
+from statgpu._config import Device
+from statgpu.backends import _get_torch_device_str
+from statgpu.evaluation import (
     binary_average_precision_score,
     binary_precision_recall_curve,
     binary_roc_auc_score,
@@ -47,6 +48,66 @@ def _require_cupy(context: str):
             "`pip install cupy-cuda12x` (CUDA 12.x) or "
             "`pip install cupy-cuda11x` (CUDA 11.x)."
         ) from exc
+
+
+# =============================================================================
+# Torch.compile for Logistic IRLS elementwise chain fusion
+# =============================================================================
+
+_LOGISTIC_IRLS_STEP_COMPILED = None
+_LOGISTIC_IRLS_STEP_FALLBACK = False
+
+
+def _logistic_torch_compile_supported():
+    """Check if torch.compile works on this GPU (requires CUDA Capability >= 7.0)."""
+    try:
+        import torch
+        if torch.cuda.is_available():
+            cap = torch.cuda.get_device_capability()
+            if cap[0] < 7:
+                return False
+        return True
+    except Exception:
+        return True
+
+
+def _get_logistic_irls_step_compiled():
+    """Lazily create a torch.compile'd logistic IRLS step function.
+
+    Fuses: sigmoid → weight computation → clamp → working response → weighted GEMM.
+
+    Falls back to eager mode on GPUs with CUDA capability < 7.0 (Pascal and older).
+    """
+    global _LOGISTIC_IRLS_STEP_COMPILED, _LOGISTIC_IRLS_STEP_FALLBACK
+    if _LOGISTIC_IRLS_STEP_FALLBACK:
+        return _LOGISTIC_IRLS_STEP_COMPILED
+    if _LOGISTIC_IRLS_STEP_COMPILED is not None:
+        return _LOGISTIC_IRLS_STEP_COMPILED
+
+    import torch
+
+    def _logistic_step(X_design, params, y, sample_weight_torch):
+        eta = X_design @ params
+        p = 1.0 / (1.0 + torch.exp(-torch.clamp(eta, -500, 500)))
+        W = p * (1.0 - p)
+        W = torch.clamp(W, 1e-8, 1.0 - 1e-8)
+        if sample_weight_torch is not None:
+            W = W * sample_weight_torch
+        z = eta + (y - p) / W
+        W_col = W.unsqueeze(1)
+        XtWX = X_design.T @ (X_design * W_col)
+        Xtz = X_design.T @ (W * z)
+        return p, W, z, XtWX, Xtz
+
+    if _logistic_torch_compile_supported():
+        try:
+            _LOGISTIC_IRLS_STEP_COMPILED = torch.compile(_logistic_step, dynamic=True, fullgraph=False)
+        except Exception:
+            _LOGISTIC_IRLS_STEP_COMPILED = _logistic_step
+    else:
+        _LOGISTIC_IRLS_STEP_COMPILED = _logistic_step
+
+    return _LOGISTIC_IRLS_STEP_COMPILED
 
 
 class LogisticRegression(BaseEstimator):

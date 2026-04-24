@@ -10,8 +10,9 @@ import os
 import numpy as np
 from scipy import stats
 
-from .._base import BaseEstimator
-from .._config import Device
+from statgpu._base import BaseEstimator
+from statgpu._config import Device
+from statgpu.backends import _get_torch_device_str
 
 # Optional Cython import for faster Efron gradient/Hessian computation
 try:
@@ -30,6 +31,69 @@ def _unpack_efron_pre6(efron_pre):
         uft, uft_ix, re, rx, nuft = efron_pre
         return uft, uft_ix, re, rx, nuft, None
     raise ValueError(f"invalid efron_pre length {len(efron_pre)}")
+
+
+def _efron_grouped_gemm_torch_kernel(
+    beta, X, e_linpred,
+    risk_enter_indices, risk_enter_offsets,
+    risk_exit_indices, risk_exit_offsets,
+    uft_ix_data, uft_ix_offsets,
+    nuft, n_features, device,
+):
+    """torch.compile kernel for Efron gradient/Hessian grouped GEMM."""
+    import torch
+
+    grad = torch.zeros(n_features, dtype=torch.float64, device=device)
+    hess_inner = torch.zeros((n_features, n_features), dtype=torch.float64, device=device)
+    xp0 = torch.zeros((), dtype=torch.float64, device=device)
+    xp1 = torch.zeros(n_features, dtype=torch.float64, device=device)
+    xp2 = torch.zeros((n_features, n_features), dtype=torch.float64, device=device)
+
+    for i in range(nuft - 1, -1, -1):
+        lo = int(risk_enter_offsets[i])
+        hi = int(risk_enter_offsets[i + 1])
+        if hi > lo:
+            idx = risk_enter_indices[lo:hi]
+            v = X[idx]
+            elx = e_linpred[idx]
+            wv = v * elx[:, None]
+            xp0 = xp0 + torch.sum(elx)
+            xp1 = xp1 + torch.sum(wv, dim=0)
+            xp2 = xp2 + (wv.transpose(0, 1) @ v)
+
+        f_lo = int(uft_ix_offsets[i])
+        f_hi = int(uft_ix_offsets[i + 1])
+        m = f_hi - f_lo
+        if m > 0:
+            ixf = uft_ix_data[f_lo:f_hi]
+            idxf = ixf
+            v = X[idxf]
+            elx = e_linpred[idxf]
+            wv = v * elx[:, None]
+            xp0f = torch.sum(elx)
+            xp1f = torch.sum(wv, dim=0)
+            xp2f = wv.transpose(0, 1) @ v
+            J = torch.arange(m, dtype=torch.float64, device=device) / float(max(m, 1))
+            c0 = torch.clamp(xp0 - J * xp0f, min=1e-300)
+            inv = 1.0 / c0
+            ak = inv
+            bk = J * inv
+            sum_inv_c0 = torch.sum(ak)
+            sum_J_c0 = torch.sum(bk)
+            sum_aa = torch.sum(ak * ak)
+            sum_bb = torch.sum(bk * bk)
+            sum_ab = torch.sum(ak * bk)
+            grad = grad + torch.sum(v, dim=0)
+            grad = grad - (xp1 * sum_inv_c0 - xp1f * sum_J_c0)
+            hess_inner = hess_inner + xp2 * sum_inv_c0
+            hess_inner = hess_inner - xp2f * sum_J_c0
+            hess_inner = hess_inner - (
+                sum_aa * torch.outer(xp1, xp1)
+                + sum_bb * torch.outer(xp1f, xp1f)
+                - sum_ab * (torch.outer(xp1, xp1f) + torch.outer(xp1f, xp1))
+            )
+
+    return grad, hess_inner
 
 
 class CoxPH(BaseEstimator):

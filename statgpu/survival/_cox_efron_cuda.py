@@ -92,40 +92,41 @@ void efron_backward_scan(
             // Stage A: block-local accumulation for small p to reduce global atomics.
             // Stage B: one global writeback per aggregated entry.
             if (p <= 64) {
-                __shared__ double sh_xp0;
-                __shared__ double sh_xp1[64];
-                __shared__ double sh_xp2[4096];
-                if (threadIdx.x == 0) sh_xp0 = 0.0;
+                extern __shared__ double sh_mem[];
+                double* sh_xp0_s = sh_mem;
+                double* sh_xp1_s = sh_xp0_s + 1;
+                double* sh_xp2_s = sh_xp1_s + 64;
+                if (threadIdx.x == 0) *sh_xp0_s = 0.0;
                 for (int j = threadIdx.x; j < p; j += blockDim.x) {
-                    sh_xp1[j] = 0.0;
+                    sh_xp1_s[j] = 0.0;
                 }
                 for (int j = threadIdx.x; j < p * p; j += blockDim.x) {
-                    sh_xp2[j] = 0.0;
+                    sh_xp2_s[j] = 0.0;
                 }
                 __syncthreads();
                 for (int tt = threadIdx.x; tt < nt; tt += blockDim.x) {
                     int idx = enter_ind[e0 + tt];
                     const double* Xrow = X + (size_t)idx * (size_t)p;
                     double elx = e_eta[idx];
-                    atomicAdd(&sh_xp0, elx);
+                    atomicAdd(sh_xp0_s, elx);
                     for (int j = 0; j < p; j++) {
                         double vj = Xrow[j];
-                        atomicAdd(sh_xp1 + j, elx * vj);
+                        atomicAdd(sh_xp1_s + j, elx * vj);
                     }
                     for (int j = 0; j < p; j++) {
                         double vj = Xrow[j];
                         for (int k = 0; k < p; k++) {
-                            atomicAdd(sh_xp2 + j * p + k, elx * vj * Xrow[k]);
+                            atomicAdd(sh_xp2_s + j * p + k, elx * vj * Xrow[k]);
                         }
                     }
                 }
                 __syncthreads();
-                if (threadIdx.x == 0) atomicAdd(xp0_ptr, sh_xp0);
+                if (threadIdx.x == 0) atomicAdd(xp0_ptr, *sh_xp0_s);
                 for (int j = threadIdx.x; j < p; j += blockDim.x) {
-                    atomicAdd(xp1 + j, sh_xp1[j]);
+                    atomicAdd(xp1 + j, sh_xp1_s[j]);
                 }
                 for (int j = threadIdx.x; j < p * p; j += blockDim.x) {
-                    atomicAdd(xp2 + j, sh_xp2[j]);
+                    atomicAdd(xp2 + j, sh_xp2_s[j]);
                 }
             } else {
                 for (int tt = threadIdx.x; tt < nt; tt += blockDim.x) {
@@ -234,46 +235,47 @@ void efron_backward_scan(
                 }
             } else {
                 if (p <= 64) {
-                    __shared__ double sh_xp0f;
-                    __shared__ double sh_xp1f[64];
-                    __shared__ double sh_grad[64];
-                    __shared__ double sh_xp2f[4096];
-                    if (threadIdx.x == 0) sh_xp0f = 0.0;
+                    extern __shared__ double sh_mem2[];
+                    double* sh_xp0f_s = sh_mem2;
+                    double* sh_xp1f_s = sh_xp0f_s + 1;
+                    double* sh_grad_s = sh_xp1f_s + 64;
+                    double* sh_xp2f_s = sh_grad_s + 64;
+                    if (threadIdx.x == 0) *sh_xp0f_s = 0.0;
                     for (int j = threadIdx.x; j < p; j += blockDim.x) {
-                        sh_xp1f[j] = 0.0;
-                        sh_grad[j] = 0.0;
+                        sh_xp1f_s[j] = 0.0;
+                        sh_grad_s[j] = 0.0;
                     }
                     for (int j = threadIdx.x; j < p * p; j += blockDim.x) {
-                        sh_xp2f[j] = 0.0;
+                        sh_xp2f_s[j] = 0.0;
                     }
                     __syncthreads();
                     for (int tt = threadIdx.x; tt < m; tt += blockDim.x) {
                         int idx = fail_ind[f0 + tt];
                         const double* Xrow = X + (size_t)idx * (size_t)p;
                         double elx = e_eta[idx];
-                        atomicAdd(&sh_xp0f, elx);
+                        atomicAdd(sh_xp0f_s, elx);
                         for (int j = 0; j < p; j++) {
                             double vj = Xrow[j];
-                            atomicAdd(sh_xp1f + j, elx * vj);
-                            atomicAdd(sh_grad + j, vj);
+                            atomicAdd(sh_xp1f_s + j, elx * vj);
+                            atomicAdd(sh_grad_s + j, vj);
                         }
                         for (int j = 0; j < p; j++) {
                             double vj = Xrow[j];
                             for (int k = 0; k < p; k++) {
-                                atomicAdd(sh_xp2f + j * p + k, elx * vj * Xrow[k]);
+                                atomicAdd(sh_xp2f_s + j * p + k, elx * vj * Xrow[k]);
                             }
                         }
                     }
                     __syncthreads();
                     for (int j = threadIdx.x; j < p; j += blockDim.x) {
-                        xp1f[j] = sh_xp1f[j];
-                        atomicAdd(grad_out + j, sh_grad[j]);
+                        xp1f[j] = sh_xp1f_s[j];
+                        atomicAdd(grad_out + j, sh_grad_s[j]);
                     }
                     for (int j = threadIdx.x; j < p * p; j += blockDim.x) {
-                        xp2f[j] = sh_xp2f[j];
+                        xp2f[j] = sh_xp2f_s[j];
                     }
                     if (threadIdx.x == 0) {
-                        *scratch_xp0f = sh_xp0f;
+                        *scratch_xp0f = *sh_xp0f_s;
                     }
                 } else {
                     if (threadIdx.x == 0) {
