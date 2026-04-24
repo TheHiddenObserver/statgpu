@@ -7,39 +7,7 @@ from typing import Any, Union
 
 import numpy as np
 
-
-def _is_cupy_array(x: Any) -> bool:
-    try:
-        import cupy as cp
-
-        return isinstance(x, cp.ndarray)
-    except Exception:
-        return False
-
-
-def _is_torch_array(x: Any) -> bool:
-    try:
-        import torch
-
-        return isinstance(x, torch.Tensor)
-    except Exception:
-        return False
-
-
-def _resolve_backend(backend: str, *arrays) -> str:
-    backend_name = str(backend).strip().lower()
-    if backend_name not in ("auto", "numpy", "cupy", "torch"):
-        raise ValueError("backend must be one of: 'auto', 'numpy', 'cupy', 'torch'")
-    if backend_name != "auto":
-        return backend_name
-
-    for arr in arrays:
-        if arr is not None:
-            if _is_torch_array(arr):
-                return "torch"
-            if _is_cupy_array(arr):
-                return "cupy"
-    return "numpy"
+from statgpu.backends import _is_cupy_array, _is_torch_array, _resolve_backend
 
 
 def _get_xp(backend_name: str):

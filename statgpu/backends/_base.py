@@ -11,6 +11,51 @@ from typing import Any, Optional
 import numpy as np
 
 
+# ---------------------------------------------------------------------------
+# Array-type detection helpers (deferred imports to avoid hard deps)
+# ---------------------------------------------------------------------------
+
+def _is_cupy_array(x: Any) -> bool:
+    """Return True if *x* is a CuPy ndarray."""
+    try:
+        import cupy as cp
+        return isinstance(x, cp.ndarray)
+    except Exception:
+        return False
+
+
+def _is_torch_array(x: Any) -> bool:
+    """Return True if *x* is a PyTorch Tensor."""
+    try:
+        import torch
+        return isinstance(x, torch.Tensor)
+    except Exception:
+        return False
+
+
+def _resolve_backend(backend: str, *arrays) -> str:
+    """Resolve the named *backend* string to one of ``'numpy'``, ``'cupy'``,
+    ``'torch'``.
+
+    When *backend* is ``'auto'``, inspect *arrays* and return the
+    matching backend name based on the first recognised array type.
+    Falls back to ``'numpy'`` when no array matches.
+    """
+    backend_name = str(backend).strip().lower()
+    if backend_name not in ("auto", "numpy", "cupy", "torch"):
+        raise ValueError("backend must be one of: 'auto', 'numpy', 'cupy', 'torch'")
+    if backend_name != "auto":
+        return backend_name
+
+    for arr in arrays:
+        if arr is not None:
+            if _is_torch_array(arr):
+                return "torch"
+            if _is_cupy_array(arr):
+                return "cupy"
+    return "numpy"
+
+
 class BackendBase(ABC):
     """
     Abstract base for compute backends.

@@ -5,10 +5,10 @@ All statistical computations on GPU.
 
 import numpy as np
 
-from .inference._distributions_gpu import (
+from .inference._distributions_backend import (
     norm,
-    regularized_betainc_gpu,
     t,
+    regularized_betainc_gpu,
 )
 
 

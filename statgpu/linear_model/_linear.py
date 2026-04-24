@@ -367,7 +367,7 @@ class LinearRegression(BaseEstimator):
             compute_aic_bic_gpu,
             compute_f_stat_gpu,
         )
-        from ..inference._distributions_gpu import norm
+        from ..inference._distributions_backend import norm
         
         n_samples, n_features = X.shape
         self._nobs = n_samples
@@ -587,7 +587,7 @@ class LinearRegression(BaseEstimator):
             compute_aic_bic_torch,
             compute_f_stat_torch,
         )
-        from ..inference._distributions_torch import norm
+        from ..inference._distributions_backend import norm
 
         n_samples, n_features = X.shape
         self._nobs = n_samples

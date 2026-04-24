@@ -23,7 +23,7 @@ from .._base import BaseEstimator
 from .._config import Device
 from .._cv_base import CVEstimatorBase
 from ..backends import get_backend
-from ..inference._distributions_gpu import (
+from ..inference._distributions_backend import (
     norm,
     t,
 )
@@ -1000,7 +1000,7 @@ class Lasso(BaseEstimator):
             Lasso coefficients on Torch GPU (no intercept).
         """
         import torch
-        from ..inference._distributions_torch import norm
+        from ..inference._distributions_backend import norm
 
         n, p = X_torch.shape
         dtype = torch.float64
@@ -1410,11 +1410,12 @@ class Lasso(BaseEstimator):
                 params_gpu = coef_full
                 tvalues_gpu = params_gpu / (bse_gpu + 1e-30)
 
-                from ..inference._distributions_torch import t as t_dist
-                pvalues_gpu = torch.minimum(torch.tensor(1.0, device=X.device), 2.0 * t_dist.sf(torch.abs(tvalues_gpu), df=df_resid, device=X.device))
+                from ..inference._distributions_backend import get_distribution
+                t_dist = get_distribution("t", backend="torch")
+                pvalues_gpu = torch.minimum(torch.tensor(1.0, device=X.device), 2.0 * t_dist.sf(torch.abs(tvalues_gpu), df=df_resid))
 
                 alpha = 0.05
-                t_crit_gpu = t_dist.ppf(1.0 - alpha / 2.0, df=df_resid, device=X.device)
+                t_crit_gpu = t_dist.ppf(1.0 - alpha / 2.0, df=df_resid)
                 margin_gpu = t_crit_gpu * bse_gpu
                 conf_int_gpu = torch.stack([params_gpu - margin_gpu, params_gpu + margin_gpu], dim=1)
 
