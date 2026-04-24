@@ -27,6 +27,7 @@ from ._numpy import NumpyBackend
 from ._cupy import CuPyBackend
 from ._torch import TorchBackend
 from ._factory import get_backend
+from ._utils import _get_xp, _to_numpy, _to_float_scalar, _get_torch_device_str
 
 __all__ = [
     "BackendBase",
@@ -37,4 +38,8 @@ __all__ = [
     "_is_cupy_array",
     "_is_torch_array",
     "_resolve_backend",
+    "_get_xp",
+    "_to_numpy",
+    "_to_float_scalar",
+    "_get_torch_device_str",
 ]

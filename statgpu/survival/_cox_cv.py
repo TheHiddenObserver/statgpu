@@ -12,6 +12,7 @@ import os
 import numpy as np
 
 from .._config import Device
+from ..backends import _get_torch_device_str
 from .._cv_base import CVEstimatorBase
 from ._cox import CoxPH
 
@@ -615,7 +616,7 @@ def _select_coxph_penalty_cv(
             elif fit_device == Device.TORCH.value:
                 try:
                     import torch
-                    torch_device = "cuda" if torch.cuda.is_available() else "cpu"
+                    torch_device = _get_torch_device_str()
                     X_fit = torch.as_tensor(X_train, dtype=torch.float64, device=torch_device)
                     time_fit = torch.as_tensor(time_train, dtype=torch.float64, device=torch_device)
                     event_fit = torch.as_tensor(event_train, dtype=torch.int32, device=torch_device)

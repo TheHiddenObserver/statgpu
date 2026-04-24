@@ -11,88 +11,25 @@ import warnings
 
 import numpy as np
 
+from statgpu.backends import (
+    _get_torch_device_str,
+    _get_xp,
+    _resolve_backend,
+    _to_float_scalar,
+    _to_numpy,
+)
+
+# Re-export for backward compatibility with modules that import from here
+__all__ = [
+    "_get_xp",
+    "_resolve_backend",
+    "_to_numpy",
+    "_to_float_scalar",
+]
+
 
 _LASSO_DIFF_CACHE_MAXSIZE = int(os.getenv("STATGPU_KNOCKOFF_LASSO_CACHE_SIZE", "32"))
 _LASSO_DIFF_CACHE: "OrderedDict[Tuple[Any, ...], np.ndarray]" = OrderedDict()
-
-
-def _is_cupy_array(x: Any) -> bool:
-    try:
-        import cupy as cp
-
-        return isinstance(x, cp.ndarray)
-    except Exception:
-        return False
-
-
-def _is_torch_array(x: Any) -> bool:
-    try:
-        import torch
-
-        return isinstance(x, torch.Tensor)
-    except Exception:
-        return False
-
-
-def _resolve_backend(backend: str, *arrays) -> str:
-    backend_name = str(backend).strip().lower()
-    if backend_name not in ("auto", "numpy", "cupy", "torch"):
-        raise ValueError("backend must be one of: 'auto', 'numpy', 'cupy', 'torch'")
-    if backend_name != "auto":
-        return backend_name
-    for arr in arrays:
-        if arr is not None:
-            if _is_torch_array(arr):
-                return "torch"
-            if _is_cupy_array(arr):
-                return "cupy"
-    return "numpy"
-
-
-def _get_xp(backend_name: str):
-    if backend_name == "numpy":
-        return np
-    if backend_name == "cupy":
-        try:
-            import cupy as cp
-
-            return cp
-        except ImportError as exc:
-            raise ImportError(
-                "backend='cupy' requires CuPy, but CuPy is not installed"
-            ) from exc
-    if backend_name == "torch":
-        try:
-            import torch
-
-            return torch
-        except ImportError as exc:
-            raise ImportError(
-                "backend='torch' requires PyTorch, but PyTorch is not installed"
-            ) from exc
-    raise ValueError(f"Unsupported backend: {backend_name}")
-
-
-def _to_numpy(x):
-    if hasattr(x, "get"):
-        # CuPy array
-        return x.get()
-    if hasattr(x, "cpu") and hasattr(x, "numpy"):
-        # Torch tensor
-        return x.cpu().numpy()
-    return np.asarray(x)
-
-
-def _to_float(x) -> float:
-    if hasattr(x, "item"):
-        return float(x.item())
-    return float(x)
-
-
-def _to_int(x) -> int:
-    if hasattr(x, "item"):
-        return int(x.item())
-    return int(x)
 
 
 def _array_identity_token(x: Any) -> Tuple[Any, ...]:
@@ -457,7 +394,7 @@ def _build_fixed_x_knockoffs(X_std, random_state: Optional[int], xp):
     Sigma = 0.5 * (Sigma + Sigma.T)
 
     eigvals = xp.linalg.eigvalsh(Sigma)
-    min_eig = _to_float(xp.min(eigvals))
+    min_eig = _to_float_scalar(xp.min(eigvals))
     if min_eig <= 1e-10:
         raise ValueError("X'X is near-singular; fixed-X knockoff requires full-rank design")
 
@@ -520,7 +457,7 @@ def _build_fixed_x_knockoffs(X_std, random_state: Optional[int], xp):
                 if hasattr(X_std, "device"):
                     torch_device = X_std.device
                 else:
-                    torch_device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+                    torch_device = torch.device(_get_torch_device_str())
                 gen = torch.Generator(device=torch_device)
                 gen.manual_seed(seed)
                 A = torch.randn(
@@ -583,7 +520,7 @@ def _build_model_x_knockoffs(
         Sigma = 0.5 * (Sigma + Sigma.T)
 
     eigvals = xp.linalg.eigvalsh(Sigma)
-    min_eig = _to_float(xp.min(eigvals))
+    min_eig = _to_float_scalar(xp.min(eigvals))
 
     ridge = 0.0
     if min_eig < 1e-6:
@@ -601,7 +538,7 @@ def _build_model_x_knockoffs(
         Sigma = Sigma + ridge * eye_matrix
         Sigma = 0.5 * (Sigma + Sigma.T)
         eigvals = xp.linalg.eigvalsh(Sigma)
-        min_eig = _to_float(xp.min(eigvals))
+        min_eig = _to_float_scalar(xp.min(eigvals))
 
     if min_eig <= 1e-12:
         raise ValueError("Estimated covariance is near-singular; model-X knockoff failed")
@@ -658,9 +595,9 @@ def _build_model_x_knockoffs(
             # Torch API: use manual_seed and randn
             import torch
             if isinstance(xp, type(torch)):
-                gen = torch.Generator(device='cuda' if torch.cuda.is_available() else 'cpu')
+                gen = torch.Generator(device=_get_torch_device_str())
                 gen.manual_seed(seed)
-                Z = torch.randn(n, p, dtype=torch.float64, device='cuda' if torch.cuda.is_available() else 'cpu')
+                Z = torch.randn(n, p, dtype=torch.float64, device=_get_torch_device_str())
             else:
                 # Fallback
                 rng = xp.random.Generator(xp.random.PCG64(seed))

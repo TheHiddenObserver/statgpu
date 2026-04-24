@@ -7,49 +7,7 @@ from typing import Any, Callable, Dict, Optional, Sequence, Tuple
 
 import numpy as np
 
-
-def _is_cupy_array(x: Any) -> bool:
-    try:
-        import cupy as cp
-
-        return isinstance(x, cp.ndarray)
-    except Exception:
-        return False
-
-
-def _resolve_backend(backend: str, *arrays) -> str:
-    backend_name = str(backend).strip().lower()
-    if backend_name not in ("auto", "numpy", "cupy"):
-        raise ValueError("backend must be one of: 'auto', 'numpy', 'cupy'")
-    if backend_name != "auto":
-        return backend_name
-
-    for arr in arrays:
-        if arr is not None and _is_cupy_array(arr):
-            return "cupy"
-    return "numpy"
-
-
-def _get_xp(backend_name: str):
-    if backend_name == "numpy":
-        return np
-    if backend_name == "cupy":
-        import cupy as cp
-
-        return cp
-    raise ValueError(f"Unsupported backend: {backend_name}")
-
-
-def _to_numpy(x):
-    if hasattr(x, "get"):
-        return x.get()
-    return np.asarray(x)
-
-
-def _to_float(x) -> float:
-    if hasattr(x, "item"):
-        return float(x.item())
-    return float(x)
+from statgpu.backends import _get_xp, _resolve_backend, _to_float_scalar, _to_numpy
 
 
 def _inf_value_for_xp(xp):
@@ -935,7 +893,7 @@ def bootstrap_statistic(
     if clusters is not None and xp.asarray(clusters).shape[0] != n:
         raise ValueError("clusters must have the same length as arrays")
 
-    observed = _to_float(statistic(*arrays_xp))
+    observed = _to_float_scalar(statistic(*arrays_xp))
     fastpath_hint = _validate_fastpath_hint(statistic_hint)
     bootstrap_state = _prepare_bootstrap_state(
         n,
@@ -1087,8 +1045,8 @@ def bootstrap_statistic(
 
     alpha = 1.0 - level
     ci = (
-        _to_float(xp.quantile(samples, alpha / 2.0)),
-        _to_float(xp.quantile(samples, 1.0 - alpha / 2.0)),
+        _to_float_scalar(xp.quantile(samples, alpha / 2.0)),
+        _to_float_scalar(xp.quantile(samples, 1.0 - alpha / 2.0)),
     )
 
     return BootstrapResult(
@@ -1258,7 +1216,7 @@ def permutation_test(
     if X_arr.shape[0] != y_arr.shape[0]:
         raise ValueError("X and y must have the same number of rows")
 
-    observed = _to_float(statistic(X_arr, y_arr))
+    observed = _to_float_scalar(statistic(X_arr, y_arr))
     fastpath_hint = _validate_fastpath_hint(statistic_hint)
     permutation_state = _prepare_permutation_state(
         int(y_arr.shape[0]),
@@ -1362,11 +1320,11 @@ def permutation_test(
             write_pos += cur
 
     if alt == "two-sided":
-        numerator = _to_float(xp.sum(xp.abs(samples) >= abs(observed)))
+        numerator = _to_float_scalar(xp.sum(xp.abs(samples) >= abs(observed)))
     elif alt == "greater":
-        numerator = _to_float(xp.sum(samples >= observed))
+        numerator = _to_float_scalar(xp.sum(samples >= observed))
     else:
-        numerator = _to_float(xp.sum(samples <= observed))
+        numerator = _to_float_scalar(xp.sum(samples <= observed))
 
     pvalue = float((numerator + 1.0) / (n_perm + 1.0))
 

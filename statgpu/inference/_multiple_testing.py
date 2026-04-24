@@ -7,45 +7,13 @@ from typing import Optional, Tuple
 import numpy as np
 from scipy.stats import chi2
 
-
-def _is_cupy_array(x) -> bool:
-    try:
-        import cupy as cp
-
-        return isinstance(x, cp.ndarray)
-    except Exception:
-        return False
-
-
-def _resolve_backend(backend: str, pvalues) -> str:
-    backend_name = str(backend).strip().lower()
-    if backend_name not in ("auto", "numpy", "cupy"):
-        raise ValueError("backend must be one of: 'auto', 'numpy', 'cupy'")
-    if backend_name != "auto":
-        return backend_name
-    return "cupy" if _is_cupy_array(pvalues) else "numpy"
-
-
-def _get_xp(backend_name: str):
-    if backend_name == "numpy":
-        return np
-    if backend_name == "cupy":
-        import cupy as cp
-
-        return cp
-    raise ValueError(f"Unsupported backend: {backend_name}")
+from statgpu.backends import _get_xp, _resolve_backend, _to_float_scalar
 
 
 def _to_bool_scalar(x) -> bool:
     if hasattr(x, "item"):
         return bool(x.item())
     return bool(x)
-
-
-def _to_float_scalar(x) -> float:
-    if hasattr(x, "item"):
-        return float(x.item())
-    return float(x)
 
 
 def _cumextreme(arr, mode: str, xp):

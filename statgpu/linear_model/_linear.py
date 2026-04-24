@@ -9,6 +9,7 @@ from time import perf_counter
 
 from .._base import BaseEstimator
 from .._config import Device
+from ..backends import _get_torch_device_str
 
 
 class LinearRegression(BaseEstimator):
@@ -594,7 +595,7 @@ class LinearRegression(BaseEstimator):
 
         # Ensure Torch tensors on correct device
         # Note: Device.TORCH.value is 'torch', but Torch expects 'cuda' or 'cpu'
-        torch_device = "cuda" if torch.cuda.is_available() else "cpu"
+        torch_device = _get_torch_device_str()
         if not isinstance(X, torch.Tensor):
             X = torch.from_numpy(np.asarray(X)).to(torch_device)
         if not isinstance(y, torch.Tensor):

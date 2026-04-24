@@ -7,6 +7,8 @@ All statistical computations run on GPU via Torch.
 
 import numpy as np
 
+from .backends import _get_torch_device_str as _get_torch_device
+
 
 def _import_torch():
     """Deferred torch import."""
@@ -15,14 +17,6 @@ def _import_torch():
         return torch
     except ImportError as exc:
         raise RuntimeError("PyTorch (torch) is required for Torch backend") from exc
-
-
-def _get_torch_device():
-    """Get current Torch device."""
-    torch = _import_torch()
-    if torch.cuda.is_available():
-        return "cuda"
-    return "cpu"
 
 
 def t_two_tail_pvalues_torch(t_abs, df_resid, device=None):

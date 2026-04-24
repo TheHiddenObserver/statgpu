@@ -8,6 +8,7 @@ from scipy import stats
 
 from .._base import BaseEstimator
 from .._config import Device
+from ..backends import _get_torch_device_str
 
 
 class Ridge(BaseEstimator):
@@ -492,7 +493,7 @@ class Ridge(BaseEstimator):
         from ..inference._distributions_backend import norm
 
         # Note: Device.TORCH.value is 'torch', but Torch expects 'cuda' or 'cpu'
-        torch_device = "cuda" if torch.cuda.is_available() else "cpu"
+        torch_device = _get_torch_device_str()
 
         n_samples, n_features = X.shape
         self._nobs = n_samples
