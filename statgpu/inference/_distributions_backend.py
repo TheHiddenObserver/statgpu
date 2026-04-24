@@ -439,9 +439,10 @@ class TorchSpecialFunctions:
 
         # Build 2D grid: (n_pairs, n_grid)
         # All LUTs share the same x-grid, so we only need one
-        y_grid = t.empty((n_pairs, 40000), dtype=t.float64, device=self._device)
+        y_grid = t.zeros((n_pairs, 40000), dtype=t.float64, device=self._device)
         xg = None
         n_actual = 0
+        failed_pairs = []
         for pi in range(n_pairs):
             k_val = unique_keys[pi].item()
             a_val = k_val // 100000
@@ -453,8 +454,7 @@ class TorchSpecialFunctions:
                     n_actual = len(xg_i)
                 y_grid[pi, :len(yg_i)] = yg_i
             except Exception:
-                # If LUT fails, leave this row as zeros (will be handled by fallback)
-                pass
+                failed_pairs.append((pi, float(a_val), float(b_val)))
 
         if xg is None:
             # All LUTs failed, fall back
@@ -481,6 +481,11 @@ class TorchSpecialFunctions:
         # inverse_idx: (n_elem,) → indices into pair dimension
         # y_all: (n_pairs, n_elem) → gather along dim=0
         result = y_all[inverse_idx, t.arange(n_elem, device=self._device)]
+        if failed_pairs:
+            for pi, a_val, b_val in failed_pairs:
+                mask = inverse_idx == pi
+                if t.any(mask):
+                    result[mask] = self._betainc_integral(a_val, b_val, x_clamp[mask])
 
         return result.view(self._as_tensor(a).shape)
 
@@ -2248,8 +2253,6 @@ def get_distribution(name: str, backend: str = "auto", device: str | None = None
     -------
     Distribution object with methods: cdf, sf, ppf, isf, pdf, rvs, etc.
     """
-    from statgpu.backends import _resolve_backend as _rb
-
     if backend == "auto":
         if CuPySpecialFunctions is not None:  # always importable if cupy installed
             try:
@@ -2296,10 +2299,19 @@ class DistributionProxy:
         self._device = device
         self._use_lut = use_lut
 
-    def _resolve(self, kwargs):
+    def _resolve(self, kwargs, *arrays):
+        from statgpu.backends import _is_torch_array, _resolve_backend
+
         backend = kwargs.pop("backend", self._default_backend)
         device = kwargs.pop("device", self._device)
         use_lut = kwargs.pop("use_lut", self._use_lut)
+        if backend == "auto":
+            backend = _resolve_backend("auto", *(list(arrays) + list(kwargs.values())))
+        if backend == "torch" and device is None:
+            for arr in list(arrays) + list(kwargs.values()):
+                if _is_torch_array(arr):
+                    device = str(arr.device)
+                    break
         return get_distribution(self._name, backend=backend, device=device, use_lut=use_lut)
 
     def __repr__(self):
@@ -2308,31 +2320,31 @@ class DistributionProxy:
                 f"use_lut={self._use_lut!r})")
 
     def cdf(self, x, **kw):
-        return self._resolve(kw).cdf(x, **kw)
+        return self._resolve(kw, x).cdf(x, **kw)
 
     def sf(self, x, **kw):
-        return self._resolve(kw).sf(x, **kw)
+        return self._resolve(kw, x).sf(x, **kw)
 
     def ppf(self, q, **kw):
-        return self._resolve(kw).ppf(q, **kw)
+        return self._resolve(kw, q).ppf(q, **kw)
 
     def isf(self, q, **kw):
-        return self._resolve(kw).isf(q, **kw)
+        return self._resolve(kw, q).isf(q, **kw)
 
     def pdf(self, x, **kw):
-        return self._resolve(kw).pdf(x, **kw)
+        return self._resolve(kw, x).pdf(x, **kw)
 
     def pmf(self, k, **kw):
-        return self._resolve(kw).pmf(k, **kw)
+        return self._resolve(kw, k).pmf(k, **kw)
 
     def rvs(self, **kw):
         return self._resolve(kw).rvs(**kw)
 
     def two_sided_pvalue(self, stat_abs, **kw):
-        return self._resolve(kw).two_sided_pvalue(stat_abs)
+        return self._resolve(kw, stat_abs).two_sided_pvalue(stat_abs, **kw)
 
     def two_sided_critical_value(self, alpha, **kw):
-        return self._resolve(kw).two_sided_critical_value(alpha)
+        return self._resolve(kw).two_sided_critical_value(alpha, **kw)
 
 
 # Module-level singletons (lazy, backend resolved per-call)

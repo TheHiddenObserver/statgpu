@@ -44,7 +44,7 @@ def t_two_tail_pvalues_torch(t_abs, df_resid, device=None):
         Two-sided p-values.
     """
     from statgpu.inference._distributions_backend import get_distribution
-    t_dist = get_distribution("t", backend="torch")
+    t_dist = get_distribution("t", backend="torch", device=device)
     return t_dist.two_sided_pvalue(t_abs, df=df_resid)
 
 
@@ -69,7 +69,7 @@ def t_crit_torch_two_tail_torch(alpha, df_resid, *, max_bisect_steps=60, device=
         Critical t-value.
     """
     from statgpu.inference._distributions_backend import get_distribution
-    t_dist = get_distribution("t", backend="torch")
+    t_dist = get_distribution("t", backend="torch", device=device)
     return t_dist.two_sided_critical_value(alpha, df=df_resid, max_bisect_steps=max_bisect_steps)
 
 
@@ -90,7 +90,7 @@ def norm_two_tail_pvalues_torch(z_abs, device=None):
         Two-sided p-values.
     """
     from statgpu.inference._distributions_backend import norm
-    return norm.two_sided_pvalue(z_abs, backend="torch")
+    return norm.two_sided_pvalue(z_abs, backend="torch", device=device)
 
 
 def norm_crit_torch_two_tail_torch(alpha, device=None):
@@ -151,7 +151,7 @@ def compute_inference_torch(X_design, resid, scale, df_resid, params_torch, cov_
         device = _get_torch_device()
 
     from statgpu.inference._distributions_backend import get_distribution
-    t_dist = get_distribution("t", backend="torch")
+    t_dist = get_distribution("t", backend="torch", device=device)
 
     # Compute (X'X)^-1 on GPU
     XtX = torch.matmul(X_design.T, X_design)
@@ -313,7 +313,7 @@ def compute_f_stat_torch(y, resid, X_design, df_resid, device=None):
         device = _get_torch_device()
 
     from statgpu.inference._distributions_backend import get_distribution
-    f_dist = get_distribution("f", backend="torch")
+    f_dist = get_distribution("f", backend="torch", device=device)
 
     y_mean = torch.mean(y)
     ss_tot = torch.sum((y - y_mean) ** 2)

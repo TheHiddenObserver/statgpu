@@ -7,7 +7,7 @@ from typing import Any, Union
 
 import numpy as np
 
-from statgpu.backends import _is_cupy_array, _is_torch_array, _resolve_backend
+from statgpu.backends import _resolve_backend
 
 
 def _get_xp(backend_name: str):

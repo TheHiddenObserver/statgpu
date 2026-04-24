@@ -1411,7 +1411,7 @@ class Lasso(BaseEstimator):
                 tvalues_gpu = params_gpu / (bse_gpu + 1e-30)
 
                 from ..inference._distributions_backend import get_distribution
-                t_dist = get_distribution("t", backend="torch")
+                t_dist = get_distribution("t", backend="torch", device=str(X.device))
                 pvalues_gpu = torch.minimum(torch.tensor(1.0, device=X.device), 2.0 * t_dist.sf(torch.abs(tvalues_gpu), df=df_resid))
 
                 alpha = 0.05

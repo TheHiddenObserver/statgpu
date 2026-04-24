@@ -299,6 +299,21 @@ class TestDistributionProxy:
         from statgpu.inference._distributions_backend import norm
         assert "norm" in repr(norm)
 
+    def test_t_proxy_two_sided_pvalue_forwards_kwargs(self):
+        from statgpu.inference._distributions_backend import t, get_distribution
+        stat = np.array([1.0, 2.0], dtype=np.float64)
+        expected = get_distribution("t", backend="numpy").two_sided_pvalue(stat, df=10)
+        result = t.two_sided_pvalue(stat, df=10, backend="numpy")
+        np.testing.assert_allclose(np.asarray(result), np.asarray(expected), rtol=1e-12, atol=1e-12)
+
+    def test_proxy_auto_routes_torch_tensor(self):
+        torch = pytest.importorskip("torch")
+        from statgpu.inference._distributions_backend import norm
+        x = torch.tensor([0.0], dtype=torch.float64)
+        out = norm.cdf(x, backend="auto")
+        assert isinstance(out, torch.Tensor)
+        assert out.device == x.device
+
 
 # =============================================================================
 # Backward compatibility tests
