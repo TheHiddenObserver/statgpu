@@ -22,7 +22,7 @@ Use ``get_backend(backend='cupy')`` or ``get_backend(backend='torch')`` to
 force a specific library.
 """
 
-from ._base import BackendBase
+from ._base import BackendBase, _is_cupy_array, _is_torch_array, _resolve_backend
 from ._numpy import NumpyBackend
 from ._cupy import CuPyBackend
 from ._torch import TorchBackend
@@ -34,4 +34,7 @@ __all__ = [
     "CuPyBackend",
     "TorchBackend",
     "get_backend",
+    "_is_cupy_array",
+    "_is_torch_array",
+    "_resolve_backend",
 ]

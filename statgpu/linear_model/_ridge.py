@@ -337,7 +337,7 @@ class Ridge(BaseEstimator):
         
         # Compute ALL statistics on GPU
         from .._gpu_utils import compute_inference_gpu, compute_r2_gpu, compute_aic_bic_gpu, compute_f_stat_gpu
-        from ..inference._distributions_gpu import norm
+        from ..inference._distributions_backend import norm
 
         if self.compute_inference:
             if self.cov_type == "nonrobust":
@@ -489,7 +489,7 @@ class Ridge(BaseEstimator):
             compute_aic_bic_torch,
             compute_f_stat_torch,
         )
-        from ..inference._distributions_torch import norm
+        from ..inference._distributions_backend import norm
 
         # Note: Device.TORCH.value is 'torch', but Torch expects 'cuda' or 'cpu'
         torch_device = "cuda" if torch.cuda.is_available() else "cpu"
