@@ -2338,13 +2338,13 @@ class DistributionProxy:
         return self._resolve(kw, k).pmf(k, **kw)
 
     def rvs(self, **kw):
-        return self._resolve(kw).rvs(**kw)
+        return self._resolve(kw, *tuple(kw.values())).rvs(**kw)
 
     def two_sided_pvalue(self, stat_abs, **kw):
         return self._resolve(kw, stat_abs).two_sided_pvalue(stat_abs, **kw)
 
     def two_sided_critical_value(self, alpha, **kw):
-        return self._resolve(kw).two_sided_critical_value(alpha, **kw)
+        return self._resolve(kw, alpha).two_sided_critical_value(alpha, **kw)
 
 
 # Module-level singletons (lazy, backend resolved per-call)
