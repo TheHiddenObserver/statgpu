@@ -7,47 +7,36 @@ from typing import Any, Union
 
 import numpy as np
 
-from statgpu.backends import _resolve_backend
+from statgpu.backends import (
+    _get_torch_device_str,
+    _get_xp,
+    _resolve_backend,
+    _to_float_scalar,
+    _to_numpy,
+)
 
+# Re-export for backward compatibility
+__all__ = [
+    "_auto_backend_from_device",
+    "_as_points_2d",
+    "_as_samples_2d",
+    "_bandwidth_factor",
+    "_bandwidth_factor_1d_nrd",
+    "_effective_sample_size",
+    "_get_xp",
+    "_kernel_values_from_quad",
+    "_normalize_kernel_name",
+    "_normalize_weights",
+    "_resolve_backend",
+    "_stable_inv_and_det",
+    "_to_float_scalar",
+    "_to_numpy",
+    "_to_numpy_simple",
+    "_weighted_covariance",
+]
 
-def _get_xp(backend_name: str):
-    if backend_name == "numpy":
-        return np
-    if backend_name == "cupy":
-        import cupy as cp
-
-        return cp
-    if backend_name == "torch":
-        import torch
-
-        return torch
-    raise ValueError(f"Unsupported backend: {backend_name}")
-
-
-def _to_float_scalar(x: Any) -> float:
-    if hasattr(x, "item"):
-        return float(x.item())
-    return float(x)
-
-
-def _to_numpy(x):
-    """Convert array (CuPy or Torch) to NumPy."""
-    if hasattr(x, "get"):
-        # CuPy array
-        return x.get()
-    if hasattr(x, "cpu") and hasattr(x, "numpy"):
-        # Torch tensor
-        return x.cpu().numpy()
-    return np.asarray(x)
-
-
-def _to_numpy_simple(x):
-    """Simple conversion to NumPy."""
-    if hasattr(x, "get"):
-        return x.get()
-    if hasattr(x, "cpu") and hasattr(x, "numpy"):
-        return x.cpu().numpy()
-    return np.asarray(x)
+# Alias for backward compatibility (deprecated, use _to_numpy instead)
+_to_numpy_simple = _to_numpy
 
 
 def _auto_backend_from_device(device: str, prefer_torch: bool = False) -> str:
@@ -313,23 +302,3 @@ def _stable_inv_and_det(cov, xp):
     if last_err is not None:
         raise ValueError("covariance inversion failed") from last_err
     raise ValueError("covariance matrix is not positive definite")
-
-
-__all__ = [
-    "_auto_backend_from_device",
-    "_as_points_2d",
-    "_as_samples_2d",
-    "_bandwidth_factor",
-    "_bandwidth_factor_1d_nrd",
-    "_effective_sample_size",
-    "_get_xp",
-    "_kernel_values_from_quad",
-    "_normalize_kernel_name",
-    "_normalize_weights",
-    "_resolve_backend",
-    "_stable_inv_and_det",
-    "_to_float_scalar",
-    "_to_numpy",
-    "_to_numpy_simple",
-    "_weighted_covariance",
-]

@@ -6,35 +6,7 @@ from typing import Any, Dict, Tuple
 
 import numpy as np
 
-
-def _is_torch_tensor(x: Any) -> bool:
-    try:
-        import torch
-
-        return isinstance(x, torch.Tensor)
-    except Exception:
-        return False
-
-
-def _is_cupy_array(x: Any) -> bool:
-    try:
-        import cupy as cp
-
-        return isinstance(x, cp.ndarray)
-    except Exception:
-        return False
-
-
-def _resolve_backend(y_true, y_other=None, backend: str = "auto") -> str:
-    if backend not in ("auto", "numpy", "cupy", "torch"):
-        raise ValueError("backend must be one of: 'auto', 'numpy', 'cupy', 'torch'")
-    if backend != "auto":
-        return backend
-    if _is_torch_tensor(y_true) or _is_torch_tensor(y_other):
-        return "torch"
-    if _is_cupy_array(y_true) or _is_cupy_array(y_other):
-        return "cupy"
-    return "numpy"
+from statgpu.backends import _resolve_backend
 
 
 def _as_binary_labels_numpy(y, *, name: str) -> np.ndarray:
@@ -484,7 +456,7 @@ def _average_precision_from_curve(backend: str, precision, recall):
 
 
 def binary_confusion_matrix(y_true, y_pred, backend: str = "auto"):
-    backend_name = _resolve_backend(y_true, y_pred, backend)
+    backend_name = _resolve_backend(backend, y_true, y_pred)
     if backend_name == "numpy":
         return _binary_confusion_numpy(y_true, y_pred)
     if backend_name == "cupy":
@@ -493,7 +465,7 @@ def binary_confusion_matrix(y_true, y_pred, backend: str = "auto"):
 
 
 def binary_classification_table(y_true, y_pred, backend: str = "auto") -> Dict[str, Any]:
-    backend_name = _resolve_backend(y_true, y_pred, backend)
+    backend_name = _resolve_backend(backend, y_true, y_pred)
     if backend_name == "numpy":
         return _classification_table_numpy(y_true, y_pred)
     if backend_name == "cupy":
@@ -502,7 +474,7 @@ def binary_classification_table(y_true, y_pred, backend: str = "auto") -> Dict[s
 
 
 def binary_roc_curve(y_true, y_score, backend: str = "auto"):
-    backend_name = _resolve_backend(y_true, y_score, backend)
+    backend_name = _resolve_backend(backend, y_true, y_score)
     if backend_name == "numpy":
         return _roc_curve_numpy(y_true, y_score)
     if backend_name == "cupy":
@@ -511,13 +483,13 @@ def binary_roc_curve(y_true, y_score, backend: str = "auto"):
 
 
 def binary_roc_auc_score(y_true, y_score, backend: str = "auto"):
-    backend_name = _resolve_backend(y_true, y_score, backend)
+    backend_name = _resolve_backend(backend, y_true, y_score)
     fpr, tpr, _ = binary_roc_curve(y_true, y_score, backend=backend_name)
     return _roc_auc_from_curve(backend_name, fpr, tpr)
 
 
 def binary_precision_recall_curve(y_true, y_score, backend: str = "auto"):
-    backend_name = _resolve_backend(y_true, y_score, backend)
+    backend_name = _resolve_backend(backend, y_true, y_score)
     if backend_name == "numpy":
         return _precision_recall_curve_numpy(y_true, y_score)
     if backend_name == "cupy":
@@ -526,7 +498,7 @@ def binary_precision_recall_curve(y_true, y_score, backend: str = "auto"):
 
 
 def binary_average_precision_score(y_true, y_score, backend: str = "auto"):
-    backend_name = _resolve_backend(y_true, y_score, backend)
+    backend_name = _resolve_backend(backend, y_true, y_score)
     precision, recall, _ = binary_precision_recall_curve(y_true, y_score, backend=backend_name)
     return _average_precision_from_curve(backend_name, precision, recall)
 
@@ -562,7 +534,7 @@ def evaluate_binary_classification(
     if threshold < 0.0 or threshold > 1.0:
         raise ValueError("threshold must be in [0, 1]")
 
-    backend_name = _resolve_backend(y_true, y_score, backend)
+    backend_name = _resolve_backend(backend, y_true, y_score)
     if backend_name == "numpy":
         y_score_arr = np.asarray(y_score, dtype=float).reshape(-1)
         if not np.all(np.isfinite(y_score_arr)):

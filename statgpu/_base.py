@@ -7,7 +7,7 @@ from typing import Optional, Union, Any
 import numpy as np
 
 from ._config import Device, get_device, cuda_available
-from .backends import get_backend, BackendBase
+from .backends import get_backend, BackendBase, _get_torch_device_str
 
 
 class BaseEstimator(ABC):
@@ -134,7 +134,7 @@ class BaseEstimator(ABC):
                 # Fall back to torch if CuPy isn't available
                 try:
                     import torch
-                    return torch.from_numpy(X_np).to('cuda' if torch.cuda.is_available() else 'cpu')
+                    return torch.from_numpy(X_np).to(_get_torch_device_str())
                 except ImportError:
                     pass
                 return X_np
@@ -161,7 +161,7 @@ class BaseEstimator(ABC):
         else:
             X_np = np.asarray(X)
 
-        target_device = device or ('cuda' if torch.cuda.is_available() else 'cpu')
+        target_device = device or _get_torch_device_str()
         return torch.from_numpy(X_np).to(target_device)
 
     def _to_cupy(self, X):
