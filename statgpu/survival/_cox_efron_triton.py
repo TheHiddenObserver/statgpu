@@ -30,7 +30,6 @@ def _import_triton():
 _triton, _tl = _import_triton()
 HAS_TRITON_EFRON: bool = False
 HAS_TRITON_BRESLOW: bool = False
-HAS_TRITON_BRESLOW: bool = False
 
 if _triton is not None and _tl is not None:
     try:
@@ -247,96 +246,20 @@ if _triton is not None and _tl is not None:
         _tl = None
 
     # =====================================================================
-    # Breslow Hessian Triton kernel
+    # Breslow Hessian — PyTorch GPU path (cuBLAS matmul + vectorized ops)
     # =====================================================================
-    # Computes Breslow hessian via single-program serial scan.
-    # Gradient is computed separately in Python (vectorized, fast).
-    #
-    # Algorithm (mirrors _cox.py line 3223-3237):
-    #   risk_X2 = X_exp^T @ X  (initial, full risk set)
-    #   prev_idx = 0
-    #   for g in range(n_uft):
-    #       idx = first_idx[g]          # where observations leave risk set
-    #       if idx > prev_idx:
-    #           risk_X2 -= X_exp[prev_idx:idx]^T @ X[prev_idx:idx]
-    #           prev_idx = idx
-    #       hess -= risk_X2 * (w/rs)
-    #       hess += outer(ex, ex) * w
-
+    # Originally attempted a Triton serial-scan kernel, but Triton 2.0 has a
+    # compiler bug producing non-deterministic wrong code for kernels with
+    # runtime-bounded loops (while/for with >= 3 iterations). The PyTorch
+    # approach is only marginally slower since each op is cuBLAS-optimized.
     try:
-        import triton
-        import triton.language as tl
-
-        @triton.jit
-        def _breslow_hessian_scan_serial(
-            # Input tensors
-            X_ptr,            # [n, p] float64
-            X_exp_ptr,        # [n, p] float64 = X * exp(eta)
-            risk_at_ptr,      # [n_uft] float64  (risk sum at each failure time)
-            E_X_ptr,          # [n_uft, p] float64 (E[X|risk] at each failure time)
-            weights_ptr,      # [n_uft] float64  (counts or efron_weight)
-            first_idx_ptr,    # [n_uft] int64    (first index in sorted risk set)
-            # Workspace + output
-            hess_ptr,         # [p*p] float64    (zeroed by caller, kernel computes -hess)
-            # Parameters
-            n,
-            p,
-            n_uft,
-            # Compile-time constant
-            P: tl.constexpr,
-        ):
-            """Single-program serial Breslow hessian scan kernel."""
-
-            # ---- Compute initial risk_X2 = sum of X_exp^T @ X ----
-            # Accumulate in hess workspace (already zeroed by caller)
-            for i in range(0, n, 1):
-                for j in range(0, P, 1):
-                    if j < p:
-                        xexp_j = tl.load(X_exp_ptr + i * p + j)
-                        for k in range(0, P, 1):
-                            if k < p:
-                                x_k = tl.load(X_ptr + i * p + k)
-                                old = tl.load(hess_ptr + j * P + k)
-                                tl.store(hess_ptr + j * P + k, old + xexp_j * x_k)
-
-            # ---- Loop over unique failure times ----
-            prev_idx = 0
-            for g in range(0, n_uft, 1):
-                idx = tl.load(first_idx_ptr + g)
-
-                # Shrink risk_X2: remove observations that left the risk set
-                if idx > prev_idx:
-                    for r in range(prev_idx, idx, 1):
-                        for j in range(0, P, 1):
-                            if j < p:
-                                xexp_j = tl.load(X_exp_ptr + r * p + j)
-                                for k in range(0, P, 1):
-                                    if k < p:
-                                        x_k = tl.load(X_ptr + r * p + k)
-                                        old = tl.load(hess_ptr + j * P + k)
-                                        tl.store(hess_ptr + j * P + k, old - xexp_j * x_k)
-                    prev_idx = idx
-
-                # Hessian update for this failure time
-                rs = tl.load(risk_at_ptr + g)
-                if rs < 1e-300:
-                    rs = 1e-300
-                w = tl.load(weights_ptr + g)
-                w_over_rs = w / rs
-
-                for j in range(0, P, 1):
-                    if j < p:
-                        ex_j = tl.load(E_X_ptr + g * p + j)
-                        for k in range(0, P, 1):
-                            if k < p:
-                                risk_x2_jk = tl.load(hess_ptr + j * P + k)
-                                ex_k = tl.load(E_X_ptr + g * p + k)
-                                tl.store(hess_ptr + j * P + k,
-                                         risk_x2_jk * (1.0 - w_over_rs) + ex_j * ex_k * w)
-
+        from statgpu.survival._cox_breslow_triton_kernel import (
+            compute_breslow_grad_hess_triton,
+            _find_p_ce as _find_p_ce_breslow,
+        )
         HAS_TRITON_BRESLOW = True
-
     except Exception:
+        compute_breslow_grad_hess_triton = None
         HAS_TRITON_BRESLOW = False
 
 
@@ -412,7 +335,8 @@ def compute_efron_grad_hess_triton(
     ws_size = 1 + 3 * p_ce + 3 * p_ce * p_ce + 1
     ws = torch.zeros(ws_size, dtype=torch.float64, device=device)
     grad_out = torch.zeros(p, dtype=torch.float64, device=device)
-    hess_out = torch.zeros(p * p, dtype=torch.float64, device=device)
+    # Allocate hess_out with padded stride (p_ce) to match Triton kernel indexing
+    hess_out = torch.zeros(p_ce * p_ce, dtype=torch.float64, device=device)
 
     try:
         _efron_backward_scan_serial[(1,)](
@@ -428,102 +352,8 @@ def compute_efron_grad_hess_triton(
     except Exception:
         return None
 
-    return grad_out, -hess_out.view(p, p)
+    return grad_out, -hess_out.view(p_ce, p_ce)[:p, :p]
 
 
-def compute_breslow_grad_hess_triton(
-    X: Any,
-    beta: Any,
-    time: Any,
-    event: Any,
-) -> Optional[Tuple[Any, Any]]:
-    """Compute Breslow gradient/Hessian via Triton serial kernel.
-
-    Gradient is computed in Python (vectorized, fast).
-    Hessian loop (3223-3237) is computed in Triton kernel.
-    """
-    if not HAS_TRITON_BRESLOW:
-        return None
-
-    import torch
-
-    if not isinstance(X, torch.Tensor) or not isinstance(beta, torch.Tensor):
-        return None
-    if not X.is_cuda or not beta.is_cuda:
-        return None
-
-    p = int(X.shape[1])
-    p_ce = _find_p_ce(p)
-    if p_ce is None:
-        return None
-
-    n = int(X.shape[0])
-    device = X.device
-
-    # Compute linear predictor and exp(eta)
-    eta = X @ beta
-    exp_eta = torch.exp(eta)
-
-    # Boolean event mask
-    event_mask = (event == 1)
-    if not torch.any(event_mask):
-        return (
-            torch.zeros(p, dtype=torch.float64, device=device),
-            torch.zeros((p, p), dtype=torch.float64, device=device),
-        )
-
-    # Reverse cumsum for risk sets (same as _cox.py line 2998-2999)
-    rev_idx = torch.arange(n - 1, -1, -1, device=device)
-    risk_sum = torch.cumsum(exp_eta[rev_idx], dim=0)[rev_idx]
-
-    # Risk sum * X
-    risk_X_sum = torch.cumsum((X * exp_eta[:, None])[rev_idx], dim=0)[rev_idx]
-
-    # Unique failure times (same as _cox.py line 2983-2990)
-    event_times = time[event_mask]
-    uft, unique_inv = torch.unique(event_times, sorted=True, return_inverse=True)
-    n_uft = len(uft)
-    counts = torch.bincount(unique_inv).to(torch.float64)
-
-    sorted_times, sort_idx = torch.sort(time)
-    first_in_sorted = torch.searchsorted(sorted_times, uft, side="left")
-    first_idx = sort_idx[first_in_sorted]
-
-    # Precompute risk values at unique times (same as _cox.py line 2993-2995)
-    risk_at_uft = risk_sum[first_idx]
-    risk_X_at_uft = risk_X_sum[first_idx]
-    E_X_at_uft = risk_X_at_uft / risk_at_uft[:, None]
-
-    # Sum X for events at each unique time (same as _cox.py line 2998-2999)
-    event_indices = event_mask.nonzero(as_tuple=True)[0]
-    sum_X_per_uft = torch.zeros((n_uft, p), dtype=torch.float64, device=device)
-    sum_X_per_uft.index_add_(0, unique_inv, X[event_indices])
-
-    # Gradient: Breslow closed-form (same as _cox.py line 3209)
-    grad = torch.sum(sum_X_per_uft - counts[:, None] * E_X_at_uft, dim=0)
-
-    # Prepare tensors for kernel
-    weights = counts  # Breslow uses raw counts
-    first_idx_int64 = first_idx.to(torch.int64)
-
-    hess_out = torch.zeros((p_ce, p_ce), dtype=torch.float64, device=device)
-
-    try:
-        _breslow_hessian_scan_serial[(1,)](
-            X,
-            X * exp_eta[:, None],
-            risk_at_uft,
-            E_X_at_uft,
-            weights,
-            first_idx_int64,
-            hess_out.view(-1),
-            n, p, n_uft,
-            P=p_ce,
-        )
-        torch.cuda.synchronize()
-    except Exception:
-        return None
-
-    # Extract p x p submatrix and negate (kernel produces -hess)
-    hess = hess_out[:p, :p].neg()
-    return grad, hess
+# compute_breslow_grad_hess_triton and _find_p_ce are imported from
+# _cox_breslow_triton_kernel.py above (in the try/except block).

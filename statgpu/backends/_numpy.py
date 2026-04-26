@@ -83,6 +83,20 @@ class NumpyBackend(BackendBase):
         """Create a scalar or array from a value."""
         return np.array(val, dtype=dtype)
 
+    def arange(self, start, stop=None, step=1, dtype=None):
+        """Create range array."""
+        if stop is None:
+            result = np.arange(start, step=step)
+        else:
+            result = np.arange(start, stop, step=step)
+        if dtype is not None:
+            result = result.astype(dtype)
+        return result
+
+    def full(self, shape, fill_value, dtype=None):
+        """Create array filled with a constant value."""
+        return np.full(shape, fill_value, dtype=dtype)
+
     def atleast_1d(self, x):
         """Ensure array is at least 1D."""
         return np.atleast_1d(x)
@@ -101,3 +115,25 @@ class NumpyBackend(BackendBase):
     def float32(self):
         """float32 dtype."""
         return np.float32
+
+    @property
+    def int64(self):
+        """int64 dtype."""
+        return np.int64
+
+    @property
+    def int32(self):
+        """int32 dtype."""
+        return np.int32
+
+    def minimum(self, x, y):
+        """Element-wise minimum of two arrays."""
+        return np.minimum(x, y)
+
+    def maximum(self, x, y):
+        """Element-wise maximum of two arrays."""
+        return np.maximum(x, y)
+
+    def clip(self, x, min_val, max_val):
+        """Clip values to [min_val, max_val]."""
+        return np.clip(x, min_val, max_val)

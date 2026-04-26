@@ -312,65 +312,6 @@ def _get_torch_betainc_lut(a, b, device, n_points=40000):
     return x_grid, y_grid
 
 
-# =============================================================================
-# Torch.compile for Distribution elementwise fusion
-# =============================================================================
-
-_BETAINC_INTEGRAL_COMPILED = None
-
-
-def _betainc_torch_compile_supported():
-    """Check if torch.compile is safe (CUDA Capability >= 7.0)."""
-    try:
-        import torch
-        if torch.cuda.is_available():
-            cap = torch.cuda.get_device_capability()
-            return cap[0] >= 7
-    except Exception:
-        pass
-    return True
-
-
-def _get_betainc_integral_compiled():
-    """Lazily create a torch.compile'd betainc integral core function.
-
-    Fuses Chebyshev grid elementwise ops: cos→log→log1p→exp→cumsum→interp.
-    Falls back to eager mode on GPUs with CUDA capability < 7.0.
-    """
-    global _BETAINC_INTEGRAL_COMPILED
-    if _BETAINC_INTEGRAL_COMPILED is not None:
-        return _BETAINC_INTEGRAL_COMPILED
-
-    import torch
-
-    def _betainc_integral_kernel(a, b, x_grid_comp, w_comp):
-        """Compute cumulative integral of t^(a-1)*(1-t)^(b-1) on Chebyshev grid."""
-        # Grid: Chebyshev nodes mapped to [0, 1]
-        n = x_grid_comp.shape[0]
-        t = (torch.arange(n, dtype=torch.float64, device=x_grid_comp.device) + 0.5) / n
-        x = 0.5 * (1.0 - torch.cos(torch.pi * t))
-        integrand = torch.exp((a - 1.0) * torch.log(x) + (b - 1.0) * torch.log1p(-x))
-        # Cumulative trapezoidal integration
-        cum_int = torch.cumsum(integrand, dim=0)
-        cum_int = cum_int / cum_int[-1]  # normalize
-        # Interpolate at query points
-        result = torch.zeros_like(x_grid_comp)
-        for i, xi in enumerate(x_grid_comp):
-            idx = torch.searchsorted(x, xi)
-            idx = min(idx, len(cum_int) - 1)
-            result[i] = cum_int[idx]
-        return result
-
-    if _betainc_torch_compile_supported():
-        try:
-            _BETAINC_INTEGRAL_COMPILED = torch.compile(_betainc_integral_kernel, dynamic=True, fullgraph=False)
-        except Exception:
-            _BETAINC_INTEGRAL_COMPILED = _betainc_integral_kernel
-    else:
-        _BETAINC_INTEGRAL_COMPILED = _betainc_integral_kernel
-
-    return _BETAINC_INTEGRAL_COMPILED
-
 
 class TorchSpecialFunctions:
     """Special functions via torch.special with fallbacks for missing functions."""

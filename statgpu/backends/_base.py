@@ -133,6 +133,30 @@ class BackendBase(ABC):
         """Return the least-squares solution to *Ax ≈ b*."""
         return self.xp.linalg.lstsq(A, b, rcond=rcond)
 
+    def astype(self, arr, dtype):
+        """Cast *arr* to *dtype* (backend-agnostic .astype / .to)."""
+        return arr.astype(dtype)
+
+    def concatenate(self, arrays, axis=0):
+        """Concatenate *arrays* along *axis* (.concatenate / .cat)."""
+        return self.xp.concatenate(arrays, axis=axis)
+
+    def take_along_axis(self, arr, indices, axis):
+        """Gather elements along *axis* (.take_along_axis / .take_along_dim)."""
+        return self.xp.take_along_axis(arr, indices, axis=axis)
+
+    def cummin(self, arr, axis=0):
+        """Cumulative minimum along *axis*."""
+        return self.xp.minimum.accumulate(arr, axis=axis)
+
+    def cummax(self, arr, axis=0):
+        """Cumulative maximum along *axis*."""
+        return self.xp.maximum.accumulate(arr, axis=axis)
+
+    def flip(self, arr, axis=0):
+        """Reverse the order of elements along *axis*."""
+        return self.xp.flip(arr, axis=axis)
+
     def __repr__(self) -> str:
         available = "available" if self.is_available() else "unavailable"
         return f"{self.__class__.__name__}(name={self.name!r}, {available})"

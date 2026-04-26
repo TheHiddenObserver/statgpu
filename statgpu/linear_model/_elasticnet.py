@@ -480,6 +480,26 @@ class ElasticNet(BaseEstimator):
         if self.coef_ is None:
             raise RuntimeError("Model has not been fitted yet.")
 
+        device = self._get_compute_device()
+        if device == Device.CUDA:
+            import cupy as cp
+            X_gpu = cp.asarray(self._to_array(X, Device.CUDA))
+            coef_gpu = cp.asarray(self.coef_)
+            y_pred = X_gpu @ coef_gpu
+            if self.fit_intercept:
+                y_pred += cp.asarray(self.intercept_, dtype=coef_gpu.dtype)
+            return y_pred
+        if device == Device.TORCH:
+            import torch
+            X_torch = self._to_array(X, Device.TORCH, backend="torch").to(torch.float64)
+            coef_torch = torch.as_tensor(self.coef_, dtype=X_torch.dtype, device=X_torch.device)
+            y_pred = X_torch @ coef_torch
+            if self.fit_intercept:
+                y_pred = y_pred + torch.as_tensor(
+                    self.intercept_, dtype=y_pred.dtype, device=y_pred.device
+                )
+            return y_pred
+
         X = np.asarray(X)
         y_pred = X @ self.coef_
         if self.fit_intercept:
@@ -502,7 +522,23 @@ class ElasticNet(BaseEstimator):
         r2 : float
             R² score.
         """
-        y_pred = self._to_numpy(self.predict(X))
+        y_pred = self.predict(X)
+        device = self._get_compute_device()
+        if device == Device.CUDA:
+            import cupy as cp
+
+            yb = cp.asarray(self._to_array(y, Device.CUDA))
+            ss_res = cp.sum((yb - y_pred) ** 2)
+            ss_tot = cp.sum((yb - cp.mean(yb)) ** 2)
+            return float((1 - ss_res / ss_tot).item()) if float(ss_tot.item()) > 0 else 0.0
+        if device == Device.TORCH:
+            import torch
+
+            yb = self._to_array(y, Device.TORCH, backend="torch").to(y_pred.dtype)
+            ss_res = torch.sum((yb - y_pred) ** 2)
+            ss_tot = torch.sum((yb - torch.mean(yb)) ** 2)
+            return float((1 - ss_res / ss_tot).item()) if float(ss_tot.item()) > 0 else 0.0
+        y_pred = np.asarray(y_pred)
         y = self._to_numpy(y)
         ss_res = np.sum((y - y_pred) ** 2)
         ss_tot = np.sum((y - np.mean(y)) ** 2)
@@ -864,3 +900,47 @@ class ElasticNet(BaseEstimator):
 
         # Cleanup
         self._cleanup_torch_memory()
+
+
+# =============================================================================
+# V9 thin wrapper
+# =============================================================================
+
+from ._penalized import PenalizedLinearRegression as _PenalizedLinearRegression
+
+
+class ElasticNet(_PenalizedLinearRegression):
+    """Thin sklearn-style wrapper over ``PenalizedLinearRegression`` with Elastic Net penalty."""
+
+    def __init__(
+        self,
+        alpha: float = 1.0,
+        l1_ratio: float = 0.5,
+        fit_intercept: bool = True,
+        max_iter: int = 1000,
+        tol: float = 1e-4,
+        stopping: str = "coef_delta",
+        device: Union[str, Device] = Device.AUTO,
+        n_jobs: Optional[int] = None,
+        solver: str = "fista",
+        cpu_solver: str = "fista",
+        lipschitz_L: Optional[float] = None,
+        gpu_memory_cleanup: bool = False,
+        **kwargs,
+    ):
+        self.stopping = str(stopping).lower()
+        self._ignored_kwargs = dict(kwargs)
+        super().__init__(
+            penalty="elasticnet",
+            alpha=alpha,
+            l1_ratio=l1_ratio,
+            fit_intercept=fit_intercept,
+            max_iter=max_iter,
+            tol=tol,
+            device=device,
+            n_jobs=n_jobs,
+            solver=solver,
+            cpu_solver=cpu_solver,
+            lipschitz_L=lipschitz_L,
+            gpu_memory_cleanup=gpu_memory_cleanup,
+        )

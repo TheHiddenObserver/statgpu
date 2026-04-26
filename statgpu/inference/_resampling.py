@@ -7,29 +7,32 @@ from typing import Any, Callable, Dict, Optional, Sequence, Tuple
 
 import numpy as np
 
-from statgpu.backends import _get_xp, _resolve_backend, _to_float_scalar, _to_numpy
+from statgpu.backends import get_backend, _resolve_backend, _to_float_scalar, _to_numpy
+import operator
+from functools import reduce
 
 
-def _inf_value_for_xp(xp):
-    return np.inf if xp is np else xp.inf
+def _count_elts(arr):
+    """Return total number of elements (works across numpy, cupy, torch)."""
+    return reduce(operator.mul, arr.shape, 1)
 
 
-def _coerce_sample_value(x, xp):
+def _coerce_sample_value(x, backend):
     """Convert statistic output to a scalar array value for samples without forcing host sync."""
     try:
-        x_arr = xp.asarray(x)
+        x_arr = backend.asarray(x)
     except Exception:
         return float(x)
 
     if x_arr.ndim != 0:
         raise ValueError("statistic must return a scalar value")
-    return x_arr.astype(xp.float64)
+    return backend.astype(x_arr, backend.float64)
 
 
-def _coerce_vectorized_values(values, expected_size: int, xp):
+def _coerce_vectorized_values(values, expected_size: int, backend):
     """Normalize vectorized statistic output to a 1D float64 array or return None."""
     try:
-        arr = xp.asarray(values)
+        arr = backend.asarray(values)
     except Exception:
         return None
 
@@ -37,23 +40,23 @@ def _coerce_vectorized_values(values, expected_size: int, xp):
         return None
 
     if arr.ndim != 1:
-        if int(arr.size) != int(expected_size):
+        if _count_elts(arr) != int(expected_size):
             return None
         arr = arr.reshape(-1)
 
     if int(arr.shape[0]) != int(expected_size):
         return None
 
-    return arr.astype(xp.float64, copy=False)
+    return backend.astype(arr, backend.float64)
 
 
-def _try_vectorized_statistic(statistic, expected_size: int, xp, *args):
+def _try_vectorized_statistic(statistic, expected_size: int, backend, *args):
     """Try vectorized statistic call and return normalized output when compatible."""
     try:
         out = statistic(*args)
     except Exception:
         return None
-    return _coerce_vectorized_values(out, expected_size, xp)
+    return _coerce_vectorized_values(out, expected_size, backend)
 
 
 def _validate_fastpath_hint(statistic_hint: Optional[str]) -> Optional[str]:
@@ -68,47 +71,53 @@ def _validate_fastpath_hint(statistic_hint: Optional[str]) -> Optional[str]:
     return hint
 
 
-def _mean_batch_stat(samples_batch, xp):
-    return xp.mean(samples_batch, axis=-1, dtype=xp.float64)
+def _mean_batch_stat(samples_batch, backend):
+    return backend.xp.mean(samples_batch, axis=-1, dtype=backend.float64)
 
 
-def _select_single_feature_vector(X, xp):
-    X_arr = xp.asarray(X)
+def _select_single_feature_vector(X, backend):
+    X_arr = backend.asarray(X)
     if X_arr.ndim == 1:
-        return X_arr.astype(xp.float64, copy=False)
+        return backend.astype(X_arr, backend.float64)
     if X_arr.ndim == 2 and int(X_arr.shape[1]) == 1:
-        return X_arr[:, 0].astype(xp.float64, copy=False)
+        return backend.astype(X_arr[:, 0], backend.float64)
     raise ValueError("statistic_hint='pearson_corr' requires X with shape (n,) or (n, 1)")
 
 
-def _pearson_corr_with_y_batch(x_vec, y_batch, xp):
-    x = xp.asarray(x_vec, dtype=xp.float64).reshape(-1)
-    y = xp.asarray(y_batch, dtype=xp.float64)
+def _pearson_corr_with_y_batch(x_vec, y_batch, backend):
+    x = backend.asarray(x_vec, dtype=backend.float64).reshape(-1)
+    y = backend.asarray(y_batch, dtype=backend.float64)
 
-    x_centered = x - xp.mean(x)
-    x_norm_sq = xp.sum(x_centered * x_centered)
+    x_centered = x - backend.xp.mean(x)
+    x_norm_sq = backend.xp.sum(x_centered * x_centered)
 
     if y.ndim == 1:
-        y_centered = y - xp.mean(y)
-        denom = xp.sqrt(x_norm_sq * xp.sum(y_centered * y_centered))
-        denom_safe = xp.where(denom > 0.0, denom, _inf_value_for_xp(xp))
-        numer = xp.sum(y_centered * x_centered)
+        y_centered = y - backend.xp.mean(y)
+        denom = backend.xp.sqrt(x_norm_sq * backend.xp.sum(y_centered * y_centered))
+        denom_safe = backend.xp.where(denom > 0.0, denom, backend.xp.inf)
+        numer = backend.xp.sum(y_centered * x_centered)
         return numer / denom_safe
 
     if y.ndim != 2:
         raise ValueError("y must be 1D or 2D batch matrix for pearson_corr fastpath")
 
-    y_centered = y - xp.mean(y, axis=1, keepdims=True)
-    y_norm_sq = xp.sum(y_centered * y_centered, axis=1)
-    denom = xp.sqrt(x_norm_sq * y_norm_sq)
-    denom_safe = xp.where(denom > 0.0, denom, _inf_value_for_xp(xp))
-    numer = xp.sum(y_centered * x_centered.reshape(1, -1), axis=1)
+    y_centered = y - backend.xp.mean(y, axis=1, keepdims=True)
+    y_norm_sq = backend.xp.sum(y_centered * y_centered, axis=1)
+    denom = backend.xp.sqrt(x_norm_sq * y_norm_sq)
+    denom_safe = backend.xp.where(denom > 0.0, denom, backend.xp.inf)
+    numer = backend.xp.sum(y_centered * x_centered.reshape(1, -1), axis=1)
     return numer / denom_safe
 
 
 def _rng_default(backend_name: str, random_state: Optional[int]):
     if backend_name == "numpy":
         return np.random.default_rng(random_state)
+    if backend_name == "torch":
+        import torch
+        g = torch.Generator(device="cuda")
+        if random_state is not None:
+            g.manual_seed(int(random_state))
+        return g
     import cupy as cp
 
     seed = 0 if random_state is None else int(random_state)
@@ -118,11 +127,13 @@ def _rng_default(backend_name: str, random_state: Optional[int]):
 def _rng_integers(rng, low: int, high: int, size, backend_name: str):
     if backend_name == "numpy":
         return rng.integers(low, high, size=size, dtype=np.int64)
+    if backend_name == "torch":
+        import torch
+        return torch.randint(low, high, size, generator=rng, dtype=torch.int64, device="cuda")
     if hasattr(rng, "integers"):
         try:
             return rng.integers(low, high, size=size, dtype=np.int64)
         except TypeError:
-            # Some RNG implementations may not support dtype explicitly.
             return rng.integers(low, high, size=size)
     return rng.randint(low, high, size=size, dtype="int64")
 
@@ -130,6 +141,9 @@ def _rng_integers(rng, low: int, high: int, size, backend_name: str):
 def _rng_permutation(rng, n: int, backend_name: str):
     if backend_name == "numpy":
         return rng.permutation(n)
+    if backend_name == "torch":
+        import torch
+        return torch.randperm(n, generator=rng, dtype=torch.int64, device="cuda")
     return rng.permutation(n)
 
 
@@ -138,6 +152,14 @@ def _rng_random(rng, size, backend_name: str, dtype=None):
         if dtype is None:
             return rng.random(size=size)
         return rng.random(size=size, dtype=dtype)
+
+    if backend_name == "torch":
+        import torch
+        if dtype is None:
+            dtype = torch.float64
+        elif not isinstance(dtype, torch.dtype):
+            dtype = torch.from_numpy(np.empty(0, dtype=dtype)).dtype
+        return torch.rand(size, generator=rng, dtype=dtype, device="cuda")
 
     if hasattr(rng, "random"):
         if dtype is None:
@@ -180,12 +202,8 @@ def _recommend_cupy_batch_size(
 def _iter_iid_bootstrap_index_batches(rng, n: int, n_resamples: int, backend_name: str):
     if backend_name == "numpy":
         batch_size = _recommend_cupy_batch_size(
-            n,
-            n_resamples,
-            bytes_per_row=8,
-            target_bytes=32 * 1024 * 1024,
-            min_batch=8,
-            max_batch=1024,
+            n, n_resamples, bytes_per_row=8,
+            target_bytes=32 * 1024 * 1024, min_batch=8, max_batch=1024,
         )
         for start in range(0, n_resamples, batch_size):
             cur = min(batch_size, n_resamples - start)
@@ -193,14 +211,21 @@ def _iter_iid_bootstrap_index_batches(rng, n: int, n_resamples: int, backend_nam
             yield idx_batch
         return
 
-    # int64 index matrix; keep around ~64MB to balance throughput and memory.
+    if backend_name == "torch":
+        batch_size = _recommend_cupy_batch_size(
+            n, n_resamples, bytes_per_row=8,
+            target_bytes=64 * 1024 * 1024, min_batch=32, max_batch=2048,
+        )
+        for start in range(0, n_resamples, batch_size):
+            cur = min(batch_size, n_resamples - start)
+            idx_batch = _rng_integers(rng, 0, n, size=(cur, n), backend_name=backend_name)
+            yield idx_batch
+        return
+
+    # CuPy path: int64 index matrix; keep around ~64MB to balance throughput and memory.
     batch_size = _recommend_cupy_batch_size(
-        n,
-        n_resamples,
-        bytes_per_row=8,
-        target_bytes=64 * 1024 * 1024,
-        min_batch=32,
-        max_batch=2048,
+        n, n_resamples, bytes_per_row=8,
+        target_bytes=64 * 1024 * 1024, min_batch=32, max_batch=2048,
     )
     index_dtype = _cupy_index_dtype_name(n)
 
@@ -219,12 +244,8 @@ def _iter_iid_bootstrap_index_batches(rng, n: int, n_resamples: int, backend_nam
 def _iter_iid_permutation_batches(rng, n: int, n_resamples: int, backend_name: str):
     if backend_name == "numpy":
         batch_size = _recommend_cupy_batch_size(
-            n,
-            n_resamples,
-            bytes_per_row=12,
-            target_bytes=24 * 1024 * 1024,
-            min_batch=4,
-            max_batch=256,
+            n, n_resamples, bytes_per_row=12,
+            target_bytes=24 * 1024 * 1024, min_batch=4, max_batch=256,
         )
         for start in range(0, n_resamples, batch_size):
             cur = min(batch_size, n_resamples - start)
@@ -233,21 +254,29 @@ def _iter_iid_permutation_batches(rng, n: int, n_resamples: int, backend_name: s
             yield perm_batch
         return
 
-    # Approx memory per row: float32 random keys + int64 permutation indices.
+    if backend_name == "torch":
+        import torch
+        batch_size = _recommend_cupy_batch_size(
+            n, n_resamples, bytes_per_row=12,
+            target_bytes=48 * 1024 * 1024, min_batch=16, max_batch=2048,
+        )
+        for start in range(0, n_resamples, batch_size):
+            cur = min(batch_size, n_resamples - start)
+            keys = _rng_random(rng, (cur, n), backend_name, dtype=torch.float32)
+            perm_batch = torch.argsort(keys, dim=1)
+            yield perm_batch
+        return
+
+    # CuPy path: approx memory per row: float32 random keys + int64 permutation indices.
     batch_size = _recommend_cupy_batch_size(
-        n,
-        n_resamples,
-        bytes_per_row=12,
-        target_bytes=48 * 1024 * 1024,
-        min_batch=16,
-        max_batch=2048,
+        n, n_resamples, bytes_per_row=12,
+        target_bytes=48 * 1024 * 1024, min_batch=16, max_batch=2048,
     )
 
     import cupy as cp
 
     for start in range(0, n_resamples, batch_size):
         cur = min(batch_size, n_resamples - start)
-        # Generate keys in batch then argsort per row to obtain permutations.
         keys = _rng_random(rng, (cur, n), backend_name, dtype=cp.float32)
         perm_batch = cp.argsort(keys, axis=1)
         yield perm_batch
@@ -261,7 +290,7 @@ def _iter_stratified_bootstrap_index_batches(
     *,
     shuffle_rows: bool = True,
 ):
-    xp = _get_xp(backend_name)
+    backend = get_backend(backend_name)
     strata_rows = state["strata_rows"]
     strata_rows_matrix = state.get("strata_rows_matrix")
     strata_uniform_size = state.get("strata_uniform_size")
@@ -272,6 +301,12 @@ def _iter_stratified_bootstrap_index_batches(
         min_batch = 4
         max_batch = 512
         key_dtype = np.float32
+    elif backend_name == "torch":
+        import torch
+        target = 64 * 1024 * 1024
+        min_batch = 16
+        max_batch = 1024
+        key_dtype = torch.float32
     else:
         target = 64 * 1024 * 1024
         min_batch = 16
@@ -282,12 +317,8 @@ def _iter_stratified_bootstrap_index_batches(
 
     bytes_per_row = 8 * n + (4 * n if shuffle_rows else 0)
     batch_size = _recommend_cupy_batch_size(
-        n,
-        n_resamples,
-        bytes_per_row=bytes_per_row,
-        target_bytes=target,
-        min_batch=min_batch,
-        max_batch=max_batch,
+        n, n_resamples, bytes_per_row=bytes_per_row,
+        target_bytes=target, min_batch=min_batch, max_batch=max_batch,
     )
 
     for start in range(0, n_resamples, batch_size):
@@ -296,27 +327,23 @@ def _iter_stratified_bootstrap_index_batches(
             n_strata = int(strata_rows_matrix.shape[0])
             m = int(strata_uniform_size)
             sampled_local = _rng_integers(
-                rng,
-                0,
-                m,
-                size=(cur, n_strata, m),
-                backend_name=backend_name,
+                rng, 0, m, size=(cur, n_strata, m), backend_name=backend_name,
             )
-            strata_ids = xp.arange(n_strata, dtype=xp.int64).reshape(1, n_strata, 1)
+            strata_ids = backend.arange(n_strata, dtype=backend.int64).reshape(1, n_strata, 1)
             idx_batch = strata_rows_matrix[strata_ids, sampled_local].reshape(cur, -1)
         else:
-            idx_batch = xp.empty((cur, n), dtype=xp.int64)
+            idx_batch = backend.xp.empty((cur, n), dtype=backend.int64)
             offset = 0
             for pos in strata_rows:
-                m = int(pos.size)
+                m = int(_count_elts(pos))
                 sampled_local = _rng_integers(rng, 0, m, size=(cur, m), backend_name=backend_name)
                 idx_batch[:, offset : offset + m] = pos[sampled_local]
                 offset += m
 
         if shuffle_rows:
             keys = _rng_random(rng, (cur, n), backend_name, dtype=key_dtype)
-            perm = xp.argsort(keys, axis=1)
-            idx_batch = xp.take_along_axis(idx_batch, perm, axis=1)
+            perm = backend.xp.argsort(keys, axis=1)
+            idx_batch = backend.take_along_axis(idx_batch, perm, axis=1)
 
         yield idx_batch
 
@@ -327,7 +354,7 @@ def _iter_block_bootstrap_index_batches(
     n_resamples: int,
     backend_name: str,
 ):
-    xp = _get_xp(backend_name)
+    backend = get_backend(backend_name)
     n = int(state["n_samples"])
     b = int(state["block_size"])
     n_blocks = int(state["n_blocks"])
@@ -337,6 +364,10 @@ def _iter_block_bootstrap_index_batches(
         target = 24 * 1024 * 1024
         min_batch = 4
         max_batch = 512
+    elif backend_name == "torch":
+        target = 64 * 1024 * 1024
+        min_batch = 16
+        max_batch = 1024
     else:
         target = 64 * 1024 * 1024
         min_batch = 16
@@ -344,20 +375,16 @@ def _iter_block_bootstrap_index_batches(
 
     bytes_per_row = 8 * max(1, n)
     batch_size = _recommend_cupy_batch_size(
-        max(1, n_blocks),
-        n_resamples,
-        bytes_per_row=bytes_per_row,
-        target_bytes=target,
-        min_batch=min_batch,
-        max_batch=max_batch,
+        max(1, n_blocks), n_resamples, bytes_per_row=bytes_per_row,
+        target_bytes=target, min_batch=min_batch, max_batch=max_batch,
     )
 
-    offsets = xp.arange(b, dtype=xp.int64).reshape(1, 1, b)
+    offsets = backend.arange(b, dtype=backend.int64).reshape(1, 1, b)
     for start in range(0, n_resamples, batch_size):
         cur = min(batch_size, n_resamples - start)
         starts = _rng_integers(rng, 0, max_start, size=(cur, n_blocks), backend_name=backend_name)
         idx_batch = (starts[:, :, None] + offsets).reshape(cur, -1)
-        yield idx_batch[:, :n].astype(xp.int64)
+        yield backend.astype(idx_batch[:, :n], backend.int64)
 
 
 def _iter_cluster_bootstrap_index_batches(
@@ -367,7 +394,7 @@ def _iter_cluster_bootstrap_index_batches(
     backend_name: str,
 ):
     """Batch cluster bootstrap index generation for uniform cluster sizes."""
-    xp = _get_xp(backend_name)
+    backend = get_backend(backend_name)
     n = int(state["n_samples"])
     n_clusters = int(state["n_clusters"])
     rows_matrix = state.get("cluster_rows_matrix")
@@ -384,25 +411,25 @@ def _iter_cluster_bootstrap_index_batches(
         target = 24 * 1024 * 1024
         min_batch = 4
         max_batch = 512
+    elif backend_name == "torch":
+        target = 64 * 1024 * 1024
+        min_batch = 16
+        max_batch = 1024
     else:
         target = 64 * 1024 * 1024
         min_batch = 16
         max_batch = 1024
 
     batch_size = _recommend_cupy_batch_size(
-        max(1, total_len),
-        n_resamples,
-        bytes_per_row=8,
-        target_bytes=target,
-        min_batch=min_batch,
-        max_batch=max_batch,
+        max(1, total_len), n_resamples, bytes_per_row=8,
+        target_bytes=target, min_batch=min_batch, max_batch=max_batch,
     )
 
     for start in range(0, n_resamples, batch_size):
         cur = min(batch_size, n_resamples - start)
         cluster_ids = _rng_integers(rng, 0, n_clusters, size=(cur, draws), backend_name=backend_name)
         idx_batch = rows_matrix[cluster_ids].reshape(cur, -1)
-        yield idx_batch[:, :n].astype(xp.int64)
+        yield backend.astype(idx_batch[:, :n], backend.int64)
 
 
 def _iter_non_iid_bootstrap_index_batches(
@@ -439,8 +466,8 @@ def _iter_labelwise_permuted_y_batches(
     n_resamples: int,
     backend_name: str,
 ):
-    xp = _get_xp(backend_name)
-    y_arr = xp.asarray(y)
+    backend = get_backend(backend_name)
+    y_arr = backend.asarray(y)
     n = int(state["n_samples"])
     label_rows = state["label_rows"]
     dense_label_rows = state.get("dense_label_rows")
@@ -462,6 +489,12 @@ def _iter_labelwise_permuted_y_batches(
         min_batch = 4
         max_batch = 512
         key_dtype = np.float32
+    elif backend_name == "torch":
+        import torch
+        target = 64 * 1024 * 1024
+        min_batch = 16
+        max_batch = 1024
+        key_dtype = torch.float32
     else:
         target = 64 * 1024 * 1024
         min_batch = 16
@@ -474,7 +507,6 @@ def _iter_labelwise_permuted_y_batches(
         n_labels = int(dense_label_rows.shape[0])
         max_label_size = int(dense_label_rows.shape[1])
         dense_elems = n_labels * max_label_size
-        # Dense mode holds key and permutation tensors over (labels, max_label_size).
         bytes_per_row = max(8, y_arr.dtype.itemsize) * n + 12 * dense_elems
         size_for_batch = max(1, dense_elems)
     else:
@@ -492,7 +524,7 @@ def _iter_labelwise_permuted_y_batches(
 
     for start in range(0, n_resamples, batch_size):
         cur = min(batch_size, n_resamples - start)
-        y_batch = xp.empty((cur, n), dtype=y_arr.dtype)
+        y_batch = backend.xp.empty((cur, n), dtype=y_arr.dtype)
 
         if use_dense:
             keys = _rng_random(
@@ -501,9 +533,9 @@ def _iter_labelwise_permuted_y_batches(
                 backend_name,
                 dtype=key_dtype,
             )
-            keys = xp.where(dense_valid_mask.reshape(1, *dense_valid_mask.shape), keys, _inf_value_for_xp(xp))
-            perm_dense = xp.argsort(keys, axis=2)
-            shuffled_dense = xp.take_along_axis(
+            keys = backend.xp.where(dense_valid_mask.reshape(1, *dense_valid_mask.shape), keys, backend.xp.inf)
+            perm_dense = backend.xp.argsort(keys, axis=2)
+            shuffled_dense = backend.take_along_axis(
                 dense_label_rows.reshape(1, *dense_label_rows.shape),
                 perm_dense,
                 axis=2,
@@ -517,12 +549,12 @@ def _iter_labelwise_permuted_y_batches(
             continue
 
         for pos in label_rows:
-            m = int(pos.size)
+            m = int(_count_elts(pos))
             if m == 1:
                 y_batch[:, pos] = y_arr[pos]
                 continue
             keys = _rng_random(rng, (cur, m), backend_name, dtype=key_dtype)
-            perm = xp.argsort(keys, axis=1)
+            perm = backend.xp.argsort(keys, axis=1)
             y_batch[:, pos] = y_arr[pos][perm]
 
         yield y_batch
@@ -653,7 +685,7 @@ def _prepare_bootstrap_state(
     block_size: Optional[int],
     backend_name: str,
 ):
-    xp = _get_xp(backend_name)
+    backend = get_backend(backend_name)
     strategy_n = str(strategy).strip().lower()
 
     if strategy_n == "iid":
@@ -662,16 +694,16 @@ def _prepare_bootstrap_state(
     if strategy_n == "stratified":
         if strata is None:
             raise ValueError("strata is required when strategy='stratified'")
-        strata_arr = xp.asarray(strata).reshape(-1)
+        strata_arr = backend.asarray(strata).reshape(-1)
         if int(strata_arr.shape[0]) != n:
             raise ValueError("strata must have the same length as arrays")
-        labels = xp.unique(strata_arr)
-        rows = tuple(xp.where(strata_arr == label)[0].astype(xp.int64) for label in labels)
-        sizes = np.asarray([int(r.size) for r in rows], dtype=np.int64)
+        labels = backend.xp.unique(strata_arr)
+        rows = tuple(backend.astype(backend.xp.where(strata_arr == label)[0], backend.int64) for label in labels)
+        sizes = np.asarray([int(_count_elts(r)) for r in rows], dtype=np.int64)
         uniform_size = int(sizes[0]) if sizes.size > 0 and np.all(sizes == sizes[0]) else None
         rows_matrix = None
         if uniform_size is not None:
-            rows_matrix = xp.stack(rows, axis=0).astype(xp.int64)
+            rows_matrix = backend.astype(backend.xp.stack(rows, axis=0), backend.int64)
         return {
             "strategy": strategy_n,
             "n_samples": int(n),
@@ -684,21 +716,21 @@ def _prepare_bootstrap_state(
     if strategy_n == "cluster":
         if clusters is None:
             raise ValueError("clusters is required when strategy='cluster'")
-        clusters_arr = xp.asarray(clusters).reshape(-1)
+        clusters_arr = backend.asarray(clusters).reshape(-1)
         if int(clusters_arr.shape[0]) != n:
             raise ValueError("clusters must have the same length as arrays")
-        labels = xp.unique(clusters_arr)
-        rows = tuple(xp.where(clusters_arr == label)[0].astype(xp.int64) for label in labels)
+        labels = backend.xp.unique(clusters_arr)
+        rows = tuple(backend.astype(backend.xp.where(clusters_arr == label)[0], backend.int64) for label in labels)
         if len(rows) == 0:
             raise ValueError("clusters must contain at least one group")
-        sizes = np.asarray([int(r.size) for r in rows], dtype=np.int64)
+        sizes = np.asarray([int(_count_elts(r)) for r in rows], dtype=np.int64)
         avg_size = float(np.mean(sizes)) if sizes.size > 0 else 1.0
         avg_size = max(avg_size, 1.0)
         uniform_size = int(sizes[0]) if np.all(sizes == sizes[0]) else None
         rows_matrix = None
         if uniform_size is not None:
             # Uniform clusters can be assembled in dense batched form without padding/masking.
-            rows_matrix = xp.stack(rows, axis=0).astype(xp.int64)
+            rows_matrix = backend.astype(backend.xp.stack(rows, axis=0), backend.int64)
         return {
             "strategy": strategy_n,
             "n_samples": int(n),
@@ -733,21 +765,21 @@ def _bootstrap_indices_stratified(
     state,
     backend_name: str,
 ):
-    xp = _get_xp(backend_name)
+    backend = get_backend(backend_name)
     chunks = []
     n = 0
     for pos in state["strata_rows"]:
-        pos_n = int(pos.size)
+        pos_n = int(_count_elts(pos))
         sampled_local = _rng_integers(rng, 0, pos_n, size=pos_n, backend_name=backend_name)
         chunks.append(pos[sampled_local])
         n += pos_n
 
-    idx = xp.concatenate(chunks) if chunks else xp.empty((0,), dtype=xp.int64)
-    if int(idx.size) != int(n):
+    idx = backend.concatenate(chunks) if chunks else backend.xp.empty((0,), dtype=backend.int64)
+    if int(_count_elts(idx)) != int(n):
         raise RuntimeError("Stratified bootstrap produced invalid sample size")
 
-    perm = _rng_permutation(rng, int(idx.size), backend_name)
-    return idx[perm].astype(xp.int64)
+    perm = _rng_permutation(rng, int(_count_elts(idx)), backend_name)
+    return backend.astype(idx[perm], backend.int64)
 
 
 def _bootstrap_indices_cluster(
@@ -756,7 +788,7 @@ def _bootstrap_indices_cluster(
     state,
     backend_name: str,
 ):
-    xp = _get_xp(backend_name)
+    backend = get_backend(backend_name)
     cluster_rows = state["cluster_rows"]
     cluster_sizes = state["cluster_sizes"]
     n_clusters = int(state["n_clusters"])
@@ -781,12 +813,12 @@ def _bootstrap_indices_cluster(
     for cid in selected_ids:
         rows = cluster_rows[int(cid)]
         chunks.append(rows)
-        filled += int(rows.size)
+        filled += int(_count_elts(rows))
         if filled >= n:
             break
 
-    idx = xp.concatenate(chunks)[:n] if chunks else xp.empty((0,), dtype=xp.int64)
-    return idx.astype(xp.int64)
+    idx = backend.concatenate(chunks)[:n] if chunks else backend.xp.empty((0,), dtype=backend.int64)
+    return backend.astype(idx, backend.int64)
 
 
 def _bootstrap_indices_block(
@@ -795,15 +827,15 @@ def _bootstrap_indices_block(
     state,
     backend_name: str,
 ):
-    xp = _get_xp(backend_name)
+    backend = get_backend(backend_name)
     b = int(state["block_size"])
     n_blocks = int(state["n_blocks"])
     max_start = int(state["max_start"])
 
     starts = _rng_integers(rng, 0, max_start, size=n_blocks, backend_name=backend_name)
-    offsets = xp.arange(b, dtype=xp.int64)
+    offsets = backend.arange(b, dtype=backend.int64)
     idx = (starts.reshape(-1, 1) + offsets.reshape(1, -1)).reshape(-1)
-    return idx[:n].astype(xp.int64)
+    return backend.astype(idx[:n], backend.int64)
 
 def _build_bootstrap_indices(
     rng,
@@ -884,13 +916,13 @@ def bootstrap_statistic(
     level = _validate_confidence_level(confidence_level)
 
     backend_name = _resolve_backend(backend, *arrays, strata, clusters)
-    xp = _get_xp(backend_name)
+    backend = get_backend(backend_name)
 
-    arrays_xp = [xp.asarray(a) for a in arrays]
+    arrays_xp = [backend.asarray(a) for a in arrays]
     n = _ensure_same_first_dim(arrays_xp)
-    if strata is not None and xp.asarray(strata).shape[0] != n:
+    if strata is not None and backend.asarray(strata).shape[0] != n:
         raise ValueError("strata must have the same length as arrays")
-    if clusters is not None and xp.asarray(clusters).shape[0] != n:
+    if clusters is not None and backend.asarray(clusters).shape[0] != n:
         raise ValueError("clusters must have the same length as arrays")
 
     observed = _to_float_scalar(statistic(*arrays_xp))
@@ -905,7 +937,7 @@ def bootstrap_statistic(
     )
 
     rng = _rng_default(backend_name, random_state)
-    samples = xp.empty(n_boot, dtype=xp.float64)
+    samples = backend.xp.empty(n_boot, dtype=backend.float64)
     strategy_n = bootstrap_state["strategy"]
 
     if strategy_n == "iid":
@@ -918,14 +950,14 @@ def bootstrap_statistic(
                 if len(arrays_xp) != 1:
                     raise ValueError("statistic_hint='mean' requires a single input array")
                 sampled_batch = arrays_xp[0][idx_batch]
-                samples[write_pos : write_pos + cur] = _mean_batch_stat(sampled_batch, xp)
+                samples[write_pos : write_pos + cur] = _mean_batch_stat(sampled_batch, backend)
                 write_pos += cur
                 continue
 
             if len(arrays_xp) == 1:
                 sampled_batch = arrays_xp[0][idx_batch]
                 if vectorized_mode is not False:
-                    vec_values = _try_vectorized_statistic(statistic, cur, xp, sampled_batch)
+                    vec_values = _try_vectorized_statistic(statistic, cur, backend, sampled_batch)
                     if vec_values is not None:
                         samples[write_pos : write_pos + cur] = vec_values
                         vectorized_mode = True
@@ -939,14 +971,14 @@ def bootstrap_statistic(
                             )
                         vectorized_mode = False
                 for j in range(cur):
-                    samples[write_pos + j] = _coerce_sample_value(statistic(sampled_batch[j]), xp)
+                    samples[write_pos + j] = _coerce_sample_value(statistic(sampled_batch[j]), backend)
             else:
                 sampled_args_batch = [arr[idx_batch] for arr in arrays_xp]
                 if vectorized_mode is not False:
                     vec_values = _try_vectorized_statistic(
                         statistic,
                         cur,
-                        xp,
+                        backend,
                         *sampled_args_batch,
                     )
                     if vec_values is not None:
@@ -963,7 +995,7 @@ def bootstrap_statistic(
                         vectorized_mode = False
                 for j in range(cur):
                     sampled_args = [arr[j] for arr in sampled_args_batch]
-                    samples[write_pos + j] = _coerce_sample_value(statistic(*sampled_args), xp)
+                    samples[write_pos + j] = _coerce_sample_value(statistic(*sampled_args), backend)
             write_pos += cur
     elif strategy_n in ("stratified", "block") or (
         strategy_n == "cluster" and bootstrap_state.get("cluster_rows_matrix") is not None
@@ -985,14 +1017,14 @@ def bootstrap_statistic(
                 if len(arrays_xp) != 1:
                     raise ValueError("statistic_hint='mean' requires a single input array")
                 sampled_batch = arrays_xp[0][idx_batch]
-                samples[write_pos : write_pos + cur] = _mean_batch_stat(sampled_batch, xp)
+                samples[write_pos : write_pos + cur] = _mean_batch_stat(sampled_batch, backend)
                 write_pos += cur
                 continue
 
             if len(arrays_xp) == 1:
                 sampled_batch = arrays_xp[0][idx_batch]
                 if vectorized_mode is not False:
-                    vec_values = _try_vectorized_statistic(statistic, cur, xp, sampled_batch)
+                    vec_values = _try_vectorized_statistic(statistic, cur, backend, sampled_batch)
                     if vec_values is not None:
                         samples[write_pos : write_pos + cur] = vec_values
                         vectorized_mode = True
@@ -1006,14 +1038,14 @@ def bootstrap_statistic(
                             )
                         vectorized_mode = False
                 for j in range(cur):
-                    samples[write_pos + j] = _coerce_sample_value(statistic(sampled_batch[j]), xp)
+                    samples[write_pos + j] = _coerce_sample_value(statistic(sampled_batch[j]), backend)
             else:
                 sampled_args_batch = [arr[idx_batch] for arr in arrays_xp]
                 if vectorized_mode is not False:
                     vec_values = _try_vectorized_statistic(
                         statistic,
                         cur,
-                        xp,
+                        backend,
                         *sampled_args_batch,
                     )
                     if vec_values is not None:
@@ -1030,7 +1062,7 @@ def bootstrap_statistic(
                         vectorized_mode = False
                 for j in range(cur):
                     sampled_args = [arr[j] for arr in sampled_args_batch]
-                    samples[write_pos + j] = _coerce_sample_value(statistic(*sampled_args), xp)
+                    samples[write_pos + j] = _coerce_sample_value(statistic(*sampled_args), backend)
             write_pos += cur
     else:
         for i in range(n_boot):
@@ -1041,12 +1073,12 @@ def bootstrap_statistic(
                 backend_name,
             )
             sampled_args = [arr[idx] for arr in arrays_xp]
-            samples[i] = _coerce_sample_value(statistic(*sampled_args), xp)
+            samples[i] = _coerce_sample_value(statistic(*sampled_args), backend)
 
     alpha = 1.0 - level
     ci = (
-        _to_float_scalar(xp.quantile(samples, alpha / 2.0)),
-        _to_float_scalar(xp.quantile(samples, 1.0 - alpha / 2.0)),
+        _to_float_scalar(backend.xp.quantile(samples, alpha / 2.0)),
+        _to_float_scalar(backend.xp.quantile(samples, 1.0 - alpha / 2.0)),
     )
 
     return BootstrapResult(
@@ -1068,9 +1100,9 @@ def _permute_y(
     state,
     backend_name: str,
 ):
-    xp = _get_xp(backend_name)
+    backend = get_backend(backend_name)
     strategy_n = state["strategy"]
-    y_arr = xp.asarray(y)
+    y_arr = backend.asarray(y)
 
     if strategy_n == "iid":
         perm = _rng_permutation(rng, int(y_arr.shape[0]), backend_name)
@@ -1079,7 +1111,7 @@ def _permute_y(
     if strategy_n in ("stratified", "grouped"):
         y_perm = y_arr.copy()
         for pos in state["label_rows"]:
-            shuffled_pos = pos[_rng_permutation(rng, int(pos.size), backend_name)]
+            shuffled_pos = pos[_rng_permutation(rng, int(_count_elts(pos)), backend_name)]
             y_perm[pos] = y_arr[shuffled_pos]
         return y_perm
 
@@ -1093,7 +1125,7 @@ def _prepare_permutation_state(
     groups,
     backend_name: str,
 ):
-    xp = _get_xp(backend_name)
+    backend = get_backend(backend_name)
     strategy_n = str(strategy).strip().lower()
 
     if strategy_n == "iid":
@@ -1105,18 +1137,18 @@ def _prepare_permutation_state(
             key = "strata" if strategy_n == "stratified" else "groups"
             raise ValueError(f"{key} is required when strategy='{strategy_n}'")
 
-        labels_arr = xp.asarray(labels).reshape(-1)
+        labels_arr = backend.asarray(labels).reshape(-1)
         if int(labels_arr.shape[0]) != n:
             raise ValueError("labels must have same length as y")
 
-        unique_labels = xp.unique(labels_arr)
-        label_rows = tuple(xp.where(labels_arr == label)[0].astype(xp.int64) for label in unique_labels)
+        unique_labels = backend.xp.unique(labels_arr)
+        label_rows = tuple(backend.astype(backend.xp.where(labels_arr == label)[0], backend.int64) for label in unique_labels)
 
         dense_label_rows = None
         dense_valid_mask = None
         dense_valid_flat = None
         dense_pos_valid = None
-        label_sizes = tuple(int(pos.size) for pos in label_rows)
+        label_sizes = tuple(int(_count_elts(pos)) for pos in label_rows)
 
         # Build a dense label matrix for CuPy when groups are not too ragged.
         if backend_name == "cupy" and len(label_sizes) > 0:
@@ -1124,8 +1156,8 @@ def _prepare_permutation_state(
             if max_label_size > 1:
                 fill_ratio = float(n) / float(len(label_sizes) * max_label_size)
                 if fill_ratio >= 0.60:
-                    dense_label_rows = xp.full((len(label_rows), max_label_size), -1, dtype=xp.int64)
-                    dense_valid_mask = xp.zeros((len(label_rows), max_label_size), dtype=bool)
+                    dense_label_rows = backend.full((len(label_rows), max_label_size), -1, dtype=backend.int64)
+                    dense_valid_mask = backend.xp.zeros((len(label_rows), max_label_size), dtype=bool)
                     for i, pos in enumerate(label_rows):
                         m = label_sizes[i]
                         dense_label_rows[i, :m] = pos
@@ -1209,10 +1241,10 @@ def permutation_test(
         raise ValueError("alternative must be one of: 'two-sided', 'greater', 'less'")
 
     backend_name = _resolve_backend(backend, X, y, strata, groups)
-    xp = _get_xp(backend_name)
+    backend = get_backend(backend_name)
 
-    X_arr = xp.asarray(X)
-    y_arr = xp.asarray(y).reshape(-1)
+    X_arr = backend.asarray(X)
+    y_arr = backend.asarray(y).reshape(-1)
     if X_arr.shape[0] != y_arr.shape[0]:
         raise ValueError("X and y must have the same number of rows")
 
@@ -1227,12 +1259,12 @@ def permutation_test(
     )
 
     rng = _rng_default(backend_name, random_state)
-    samples = xp.empty(n_perm, dtype=xp.float64)
+    samples = backend.xp.empty(n_perm, dtype=backend.float64)
     strategy_n = permutation_state["strategy"]
 
     x_vec_fast = None
     if fastpath_hint == "pearson_corr":
-        x_vec_fast = _select_single_feature_vector(X_arr, xp)
+        x_vec_fast = _select_single_feature_vector(X_arr, backend)
 
     if strategy_n == "iid":
 
@@ -1248,8 +1280,8 @@ def permutation_test(
             y_perm_batch = y_arr[perm_batch]
 
             if fastpath_hint == "pearson_corr":
-                corr_batch = _pearson_corr_with_y_batch(x_vec_fast, y_perm_batch, xp)
-                samples[write_pos : write_pos + cur] = _coerce_vectorized_values(corr_batch, cur, xp)
+                corr_batch = _pearson_corr_with_y_batch(x_vec_fast, y_perm_batch, backend)
+                samples[write_pos : write_pos + cur] = _coerce_vectorized_values(corr_batch, cur, backend)
                 write_pos += cur
                 continue
 
@@ -1257,7 +1289,7 @@ def permutation_test(
                 vec_values = _try_vectorized_statistic(
                     statistic,
                     cur,
-                    xp,
+                    backend,
                     X_arr,
                     y_perm_batch,
                 )
@@ -1274,7 +1306,7 @@ def permutation_test(
                         )
                     vectorized_mode = False
             for j in range(cur):
-                samples[write_pos + j] = _coerce_sample_value(statistic(X_arr, y_perm_batch[j]), xp)
+                samples[write_pos + j] = _coerce_sample_value(statistic(X_arr, y_perm_batch[j]), backend)
             write_pos += cur
     else:
         vectorized_mode = None
@@ -1289,8 +1321,8 @@ def permutation_test(
             cur = int(y_perm_batch.shape[0])
 
             if fastpath_hint == "pearson_corr":
-                corr_batch = _pearson_corr_with_y_batch(x_vec_fast, y_perm_batch, xp)
-                samples[write_pos : write_pos + cur] = _coerce_vectorized_values(corr_batch, cur, xp)
+                corr_batch = _pearson_corr_with_y_batch(x_vec_fast, y_perm_batch, backend)
+                samples[write_pos : write_pos + cur] = _coerce_vectorized_values(corr_batch, cur, backend)
                 write_pos += cur
                 continue
 
@@ -1298,7 +1330,7 @@ def permutation_test(
                 vec_values = _try_vectorized_statistic(
                     statistic,
                     cur,
-                    xp,
+                    backend,
                     X_arr,
                     y_perm_batch,
                 )
@@ -1316,15 +1348,15 @@ def permutation_test(
                     vectorized_mode = False
 
             for j in range(cur):
-                samples[write_pos + j] = _coerce_sample_value(statistic(X_arr, y_perm_batch[j]), xp)
+                samples[write_pos + j] = _coerce_sample_value(statistic(X_arr, y_perm_batch[j]), backend)
             write_pos += cur
 
     if alt == "two-sided":
-        numerator = _to_float_scalar(xp.sum(xp.abs(samples) >= abs(observed)))
+        numerator = _to_float_scalar(backend.xp.sum(backend.xp.abs(samples) >= abs(observed)))
     elif alt == "greater":
-        numerator = _to_float_scalar(xp.sum(samples >= observed))
+        numerator = _to_float_scalar(backend.xp.sum(samples >= observed))
     else:
-        numerator = _to_float_scalar(xp.sum(samples <= observed))
+        numerator = _to_float_scalar(backend.xp.sum(samples <= observed))
 
     pvalue = float((numerator + 1.0) / (n_perm + 1.0))
 

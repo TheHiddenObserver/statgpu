@@ -11,15 +11,34 @@ from ._ridge_cv import RidgeCV
 from ._logistic_cv import LogisticRegressionCV
 from ._elasticnet import ElasticNet
 from ._elasticnet_cv import ElasticNetCV
+from ._glm_base import GeneralizedLinearModel, OrderedGeneralizedLinearModel
+from ._penalized import (
+    PenalizedGeneralizedLinearModel,
+    PenalizedLinearRegression,
+    PenalizedLogisticRegression,
+    PenalizedPoissonRegression,
+)
+from ._poisson_glm import PoissonRegression
+from ._ordered_logit import OrderedLogitRegression
+from ._ordered_probit import OrderedProbitRegression
 
 __all__ = [
     'LinearRegression',
     'LogisticRegression',
     'LogisticRegressionCV',
+    'PoissonRegression',
+    'GeneralizedLinearModel',
+    'OrderedGeneralizedLinearModel',
+    'PenalizedGeneralizedLinearModel',
+    'PenalizedLinearRegression',
+    'PenalizedLogisticRegression',
+    'PenalizedPoissonRegression',
     'Ridge',
     'RidgeCV',
     'Lasso',
     'LassoCV',
     'ElasticNet',
     'ElasticNetCV',
+    'OrderedLogitRegression',
+    'OrderedProbitRegression',
 ]

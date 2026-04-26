@@ -295,7 +295,7 @@ model = LinearRegression(device='cuda', gpu_memory_cleanup=True)
 
 ### Old PyTorch Version (< 2.0)
 
-Some special functions require PyTorch 2.0+. The library falls back to SciPy for older versions:
+Some special functions require PyTorch 2.0+. Explicit `device="torch"` does not silently fall back to SciPy/CPU; upgrade dependencies or use `device="auto"`/`device="cpu"` when Torch CUDA or required functions are unavailable:
 
 ```python
 # Check PyTorch version

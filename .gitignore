@@ -4,18 +4,10 @@ env/
 __pycache__/
 *.pyc
 tmp/
-
-# Remote server configuration (contains sensitive credentials)
-dev/scripts/remote_config_local.py
-dev/**/remote_config_local.py
-*_local.py
-*_local.json
-
-# Remote testing scripts (contain server credentials)
-dev/benchmarks/upload_*.py
-dev/benchmarks/remote_*.py
-dev/scripts/upload_*.py
-dev/scripts/remote_*.py
+python
+setup_cython.py
+spec_tracking.md
+SECURITY.md
 
 # IDE
 .vscode/
@@ -26,3 +18,53 @@ dev/scripts/remote_*.py
 
 # Results
 results/
+
+# Dev tooling (benchmarks, scripts, plans, docs — not production code)
+dev/benchmarks/
+dev/scripts/
+dev/docs/
+dev/plans/
+dev/design/
+
+# Debug / scratch files in tests (keep only the formal test suite)
+dev/tests/_*/
+dev/tests/*_runner.py
+dev/tests/*_remote*.py
+dev/tests/upload_*.py
+dev/tests/deploy_*.py
+dev/tests/sync_*.py
+dev/tests/check_remote*.py
+dev/tests/run_remote*.py
+dev/tests/run_*.py
+dev/tests/run_*.sh
+dev/tests/*benchmark*.py
+dev/tests/*benchmark*.txt
+dev/tests/analyze_*.py
+dev/tests/compare_*.py
+dev/tests/profile_*.py
+dev/tests/l2_diagnosis*.py
+dev/tests/detailed_comparison*.py
+dev/tests/comprehensive_benchmark*.py
+dev/tests/display_full_benchmark.py
+dev/tests/download_benchmark_results.py
+dev/tests/test_backend_comparison.py
+dev/tests/test_benchmark*.py
+dev/tests/test_cupy_*.py
+dev/tests/test_coxph_*.py
+dev/tests/test_elasticnet_cv_runner.py
+dev/tests/test_elasticnet_cv_remote.py
+dev/tests/test_elasticnet_torch_simple.py
+dev/tests/test_import_check.py
+dev/tests/test_lasso_cv_torch_quick.py
+dev/tests/test_lassocv_inference_simple.py
+dev/tests/test_logistic_cv_remote_runner.py
+dev/tests/test_optimization_phases.py
+dev/tests/test_penalties_phase1.py
+dev/tests/test_ridge_cv_remote_runner.py
+dev/tests/test_ridge_cv_sklearn_compare.py
+dev/tests/test_ridge_cv_torch_backend.py
+dev/tests/test_torch_*.py
+dev/tests/test_v10_import_smoke.py
+dev/tests/verify_*.py
+dev/tests/REMOTE_GPU_TEST_GUIDE.md
+dev/tests/TORCH_BACKEND_CV_TESTING.md

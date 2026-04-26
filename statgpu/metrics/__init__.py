@@ -7,6 +7,7 @@ from ._classification import (
     binary_precision_recall_curve,
     binary_roc_auc_score,
     binary_roc_curve,
+    evaluate_binary_classification,
 )
 
 __all__ = [
@@ -16,4 +17,5 @@ __all__ = [
     "binary_average_precision_score",
     "binary_roc_curve",
     "binary_roc_auc_score",
+    "evaluate_binary_classification",
 ]

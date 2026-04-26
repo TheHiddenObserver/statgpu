@@ -12,7 +12,6 @@ from scipy import stats
 
 from statgpu._base import BaseEstimator
 from statgpu._config import Device
-from statgpu.backends import _get_torch_device_str
 
 # Optional Cython import for faster Efron gradient/Hessian computation
 try:
@@ -21,6 +20,8 @@ try:
 except ImportError:
     HAS_CYTHON_EFRON = False
     _efron_grad_hess_cython = None
+
+from statgpu.survival._cox_efron_triton import _find_p_ce
 
 
 def _unpack_efron_pre6(efron_pre):
@@ -31,70 +32,6 @@ def _unpack_efron_pre6(efron_pre):
         uft, uft_ix, re, rx, nuft = efron_pre
         return uft, uft_ix, re, rx, nuft, None
     raise ValueError(f"invalid efron_pre length {len(efron_pre)}")
-
-
-def _efron_grouped_gemm_torch_kernel(
-    beta, X, e_linpred,
-    risk_enter_indices, risk_enter_offsets,
-    risk_exit_indices, risk_exit_offsets,
-    uft_ix_data, uft_ix_offsets,
-    nuft, n_features, device,
-):
-    """torch.compile kernel for Efron gradient/Hessian grouped GEMM."""
-    import torch
-
-    grad = torch.zeros(n_features, dtype=torch.float64, device=device)
-    hess_inner = torch.zeros((n_features, n_features), dtype=torch.float64, device=device)
-    xp0 = torch.zeros((), dtype=torch.float64, device=device)
-    xp1 = torch.zeros(n_features, dtype=torch.float64, device=device)
-    xp2 = torch.zeros((n_features, n_features), dtype=torch.float64, device=device)
-
-    for i in range(nuft - 1, -1, -1):
-        lo = int(risk_enter_offsets[i])
-        hi = int(risk_enter_offsets[i + 1])
-        if hi > lo:
-            idx = risk_enter_indices[lo:hi]
-            v = X[idx]
-            elx = e_linpred[idx]
-            wv = v * elx[:, None]
-            xp0 = xp0 + torch.sum(elx)
-            xp1 = xp1 + torch.sum(wv, dim=0)
-            xp2 = xp2 + (wv.transpose(0, 1) @ v)
-
-        f_lo = int(uft_ix_offsets[i])
-        f_hi = int(uft_ix_offsets[i + 1])
-        m = f_hi - f_lo
-        if m > 0:
-            ixf = uft_ix_data[f_lo:f_hi]
-            idxf = ixf
-            v = X[idxf]
-            elx = e_linpred[idxf]
-            wv = v * elx[:, None]
-            xp0f = torch.sum(elx)
-            xp1f = torch.sum(wv, dim=0)
-            xp2f = wv.transpose(0, 1) @ v
-            J = torch.arange(m, dtype=torch.float64, device=device) / float(max(m, 1))
-            c0 = torch.clamp(xp0 - J * xp0f, min=1e-300)
-            inv = 1.0 / c0
-            ak = inv
-            bk = J * inv
-            sum_inv_c0 = torch.sum(ak)
-            sum_J_c0 = torch.sum(bk)
-            sum_aa = torch.sum(ak * ak)
-            sum_bb = torch.sum(bk * bk)
-            sum_ab = torch.sum(ak * bk)
-            grad = grad + torch.sum(v, dim=0)
-            grad = grad - (xp1 * sum_inv_c0 - xp1f * sum_J_c0)
-            hess_inner = hess_inner + xp2 * sum_inv_c0
-            hess_inner = hess_inner - xp2f * sum_J_c0
-            hess_inner = hess_inner - (
-                sum_aa * torch.outer(xp1, xp1)
-                + sum_bb * torch.outer(xp1f, xp1f)
-                - sum_ab * (torch.outer(xp1, xp1f) + torch.outer(xp1f, xp1))
-            )
-
-    return grad, hess_inner
-
 
 class CoxPH(BaseEstimator):
     """
@@ -228,30 +165,77 @@ class CoxPH(BaseEstimator):
                 return bool(conv_attr)
         return None
         
-    def fit(self, X, time, event, entry=None, cluster=None, init_coef=None):
+    def fit(self, X=None, time=None, event=None, entry=None, cluster=None, init_coef=None, formula=None, data=None):
         """
         Fit Cox Proportional Hazards model.
-        
+
         Parameters
         ----------
         X : array-like of shape (n_samples, n_features)
-            Covariate matrix.
+            Covariate matrix. Required if ``formula`` is None.
         time : array-like of shape (n_samples,)
-            Time to event or censoring.
+            Time to event or censoring. Required if ``formula`` is None.
         event : array-like of shape (n_samples,)
-            Event indicator (1 = event, 0 = censored).
+            Event indicator (1 = event, 0 = censored). Required if ``formula`` is None.
         entry : array-like of shape (n_samples,), optional
             Entry time for delayed entry (left truncation).
         cluster : array-like of shape (n_samples,), optional
             Cluster ids for cluster-robust covariance when `cov_type='cluster'`.
         init_coef : array-like of shape (n_features,), optional
             Initial coefficient guess for warm-start optimization.
-        
+        formula : str or None
+            R-style formula with Surv() response, e.g.
+            ``"Surv(time, event) ~ x1 + x2 + C(sex)"``.
+        data : pd.DataFrame or None
+            DataFrame used with ``formula`` for column lookup.
+
         Returns
         -------
         self : CoxPH
             Fitted estimator.
         """
+        # Handle formula interface
+        if formula is not None:
+            if data is None:
+                raise ValueError(
+                    "formula was provided but data is None. "
+                    "Pass data=your_dataframe when using formula."
+                )
+            from statgpu.core.formula import _surv, make_surv_env
+            import patsy
+            from patsy import EvalEnvironment
+
+            env = make_surv_env()
+            # Create evaluation environment with custom Surv function
+            custom_env = EvalEnvironment([env])
+            y_patsy, X_patsy = patsy.dmatrices(
+                formula, data, eval_env=custom_env, return_type="matrix",
+            )
+            design_info = X_patsy.design_info
+            # y_patsy is the result of Surv(time, event) -> shape (n, 2)
+            y_arr = np.asarray(y_patsy)
+            if y_arr.ndim == 1:
+                raise ValueError(
+                    "Formula response must be Surv(time, event), not a single variable. "
+                    "Use: formula='Surv(time, event) ~ x1 + x2'"
+                )
+            time = y_arr[:, 0]
+            event = y_arr[:, 1]
+            X_arr = np.asarray(X_patsy)
+
+            # Drop intercept column from design matrix (CoxPH doesn't use intercept)
+            self._feature_names = list(design_info.column_names)
+            if "Intercept" in self._feature_names:
+                self._feature_names.remove("Intercept")
+                X_arr = X_arr[:, 1:]
+            self._design_info = design_info
+            X = X_arr
+        else:
+            if X is None or time is None or event is None:
+                raise ValueError(
+                    "Either formula+data or X+time+event must be provided."
+                )
+            self._design_info = None
         device = self._get_compute_device()
         
         if device == Device.CUDA:
@@ -269,7 +253,8 @@ class CoxPH(BaseEstimator):
             
             self._nobs = int(X_gpu.shape[0])
             self._nevents = int(cp.sum(event_gpu).item())
-            self._feature_names = [f'x{i+1}' for i in range(int(X_gpu.shape[1]))]
+            if self._feature_names is None:
+                self._feature_names = [f'x{i+1}' for i in range(int(X_gpu.shape[1]))]
             
             # Keep CPU copies only when CPU-side inference/baseline stats are requested.
             if self.compute_inference:
@@ -305,7 +290,8 @@ class CoxPH(BaseEstimator):
 
             self._nobs = int(X_torch.shape[0])
             self._nevents = int(torch.sum(event_torch).item())
-            self._feature_names = [f'x{i+1}' for i in range(int(X_torch.shape[1]))]
+            if self._feature_names is None:
+                self._feature_names = [f'x{i+1}' for i in range(int(X_torch.shape[1]))]
 
             # Keep CPU copies only when CPU-side inference/baseline stats are requested.
             if self.compute_inference:
@@ -350,7 +336,8 @@ class CoxPH(BaseEstimator):
             self._event = event_np.copy()
             self._X = X_np.copy()
             self._entry = None if entry_np is None else entry_np.copy()
-            self._feature_names = [f'x{i+1}' for i in range(X_np.shape[1])]
+            if self._feature_names is None:
+                self._feature_names = [f'x{i+1}' for i in range(X_np.shape[1])]
             
             cluster_np = None if cluster is None else np.asarray(self._to_array(cluster, Device.CPU))
             self._fit_cpu(X_np, time_np, event_np, entry_np, cluster_np, init_coef=init_coef)
@@ -3009,6 +2996,21 @@ class CoxPH(BaseEstimator):
                     return out[0], out[1], (eta, exp_eta, risk_sum)
                 return out
 
+            # ---- Triton Efron path ----
+            if (
+                os.environ.get("STATGPU_EFRON_TRITON", "0").strip().lower()
+                in ("1", "true", "yes", "on")
+                and beta.is_cuda
+                and efron_pre is not None
+            ):
+                from statgpu.survival._cox_efron_triton import compute_efron_grad_hess_triton
+                triton_out = compute_efron_grad_hess_triton(X, beta, efron_pre)
+                if triton_out is not None:
+                    grad, hess = triton_out
+                    if return_aux:
+                        return grad, hess, (eta, exp_eta, risk_sum)
+                    return grad, hess
+
         # Reverse cumsum for risk sets (vectorized)
         risk_X_sum = torch.cumsum((X * exp_eta[:, None])[rev_idx], dim=0)[rev_idx] if entry is None else None
 
@@ -3191,6 +3193,21 @@ class CoxPH(BaseEstimator):
             weights = efron_weight
         else:
             weights = counts
+
+        # ---- Triton Breslow path ----
+        if (
+            self.ties != "efron"
+            and os.environ.get("STATGPU_BRESLOW_TRITON", "0").strip().lower()
+            in ("1", "true", "yes", "on")
+            and beta.is_cuda
+        ):
+            from statgpu.survival._cox_efron_triton import compute_breslow_grad_hess_triton
+            triton_out = compute_breslow_grad_hess_triton(X, beta, time, event)
+            if triton_out is not None:
+                grad, hess = triton_out
+                if return_aux:
+                    return grad, hess, (eta, exp_eta, risk_sum)
+                return grad, hess
 
         hess = torch.zeros((n_features, n_features), dtype=torch.float64, device=beta.device)
         prev_idx = 0

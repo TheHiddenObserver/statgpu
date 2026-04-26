@@ -9,6 +9,47 @@
 
 ## 2026-04
 
+### 新增 (2026-04-26)
+
+- **Phase 1: Ordered 模型跨后端精度修复**:
+  - CuPy 收敛容差对齐：`gtol = 1e-6` → `gtol = self.tol`（与 scipy 一致）
+  - CuPy 最小迭代次数从 30 降到 5（小样本下不再被迫多跑无用迭代）
+  - 移除 CuPy warm-start 分支，始终从零初始化（与 scipy/torch 一致）
+  - PyTorch 从 `optimizer.state_dict()` 捕获真实迭代数，不再虚假报告 `max_iter`
+  - PyTorch `strong_wolfe` 不可用时抛出 `RuntimeError`（不再静默降级）
+  - 回归测试：`dev/tests/test_ordered_cross_backend.py`（10 个跨后端用例，全部通过）
+  - 修改文件：`statgpu/linear_model/_glm_base.py`、`dev/tests/test_ordered_cross_backend.py`
+
+- **Phase 2a: 新增 hochberg (adjust_pvalues) + stouffer (combine_pvalues) 三端实现**:
+  - `adjust_pvalues` 新增 `method='hochberg'`（step-up FDR），别名 `fdr_hochberg` / `step_up` / `stepup`
+  - `combine_pvalues` 新增 `method='stouffer'`（加权 Z 检验），别名 `ztest` / `weighted_z`
+  - stouffer 支持权重，与 cauchy 权重接口一致
+  - 批量化支持 `axis` 参数（任意形状数组）
+  - 依赖：新增 `norm` distribution proxy（已有 `chi2`）
+  - 修改文件：`statgpu/inference/_multiple_testing.py`、`statgpu/inference/_distributions_backend.py`
+
+- **Phase 2b: 测试补齐**:
+  - 新增 `TestHochberg` (4 测试): 闭式验证、别名、vs BH、axis 批量化
+  - 新增 `TestStouffer` (6 测试): vs scipy、权重、别名、axis、边界条件
+  - 新增 `TestCauchyNoWeights` (2 测试): 无权重 cauchy、默认权重等效性
+  - 新增 `TestTorchBackend` (6 测试): adjust/combine 各方法的 Torch vs NumPy 一致性
+  - 修复 `np._core.numeric` 兼容性（NumPy 1.x vs 2.x），新增 `_normalize_axis_index` helper
+  - 测试文件扩展：从 339 行增加到 519 行
+  - 远程验证：40/40 通过 (Tesla P100)
+  - 修改文件：`dev/tests/test_inference_multiple_testing.py`
+
+- **Phase 3: 包结构审计与整理**:
+  - 移动 `_gpu_utils.py` → `backends/_gpu_inference_cupy.py`
+  - 移动 `_gpu_utils_torch.py` → `backends/_gpu_inference_torch.py`
+  - 合并 `evaluation/` → `metrics/`，删除 `evaluation/` 目录
+  - 合并 `glm_core/_backend.py` → `backends/_array_ops.py`
+  - 移动 `_cv_base.py` → `linear_model/_cv_base.py`
+  - 修正 `core/__init__.py` docstring（移除不存在模块的声明）
+  - 添加 `survival/__init__.py` 命名约定注释（`_cuda` / `_cupy` / `_triton`）
+  - 更新 18 处 import 站点
+  - 删除文件：`_gpu_utils.py`, `_gpu_utils_torch.py`, `_cv_base.py`, `glm_core/_backend.py`, `evaluation/` 目录
+  - 所有修改后 `import statgpu` 冒烟测试通过
+
 ### 新增 (2026-04-21)
 
 - **CoxPHCV 从接口骨架升级为可训练版本**:

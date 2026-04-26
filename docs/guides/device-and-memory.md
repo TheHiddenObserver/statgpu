@@ -1,7 +1,7 @@
 # 设备与显存管理
 
 > 语言: 中文  
-> 最后更新: 2026-04-02  
+> 最后更新: 2026-04-25  
 > 页面定位: 指南文档  
 > 切换: [English](../en/guides/device-and-memory.md)
 
@@ -12,7 +12,27 @@
 每个模型都支持 `device`：
 - `device="cpu"`
 - `device="cuda"`
+- `device="torch"`
 - `device="auto"`（默认）
+
+设备纯度规则：
+- `device="cpu"`：核心 fit/predict/score 使用 NumPy。
+- `device="cuda"`：核心计算使用 CuPy；如果 CuPy/CUDA 不可用，直接报错，不静默回落到 CPU。
+- `device="torch"`：核心计算使用 Torch CUDA；如果 Torch CUDA 不可用，直接报错，不使用 Torch CPU 伪装 GPU。
+- `device="auto"`：唯一允许自动选择其它可用后端的模式。
+- Formula/DataFrame 解析可以作为 CPU 预处理，但模型核心计算必须转换到所选后端。
+
+GLM 类 estimator 的 solver 覆盖矩阵：
+
+| Solver | NumPy | CuPy | Torch |
+|---|---|---|---|
+| `exact` | 支持 | 支持 | 支持 |
+| `fista` | 支持 | 支持 | 支持 |
+| `irls` | 支持 | 支持 | 支持 |
+| `newton` | smooth objective | smooth objective | smooth objective |
+| `lbfgs` | smooth objective | smooth objective | smooth objective |
+
+L1、ElasticNet 等非光滑 penalty 使用 FISTA；Newton/L-BFGS 搭配非光滑 penalty 会直接 `ValueError`。
 
 ## 显存管理开关：`gpu_memory_cleanup`
 

@@ -43,7 +43,7 @@
 | `C` | `1.0` | 正则强度倒数（越大正则越弱） |
 | `max_iter` | `100` | IRLS 最大迭代数 |
 | `tol` | `1e-4` | 收敛阈值 |
-| `device` | `"auto"` | `cpu` / `cuda` / `auto` |
+| `device` | `"auto"` | `cpu` / `cuda` / `torch` / `auto` |
 | `compute_inference` | `True` | 是否计算推断统计 |
 | `cov_type` | `"nonrobust"` | `nonrobust` / `hc0` / `hc1` / `hc2` / `hc3` / `hac` |
 | `hac_maxlags` | `None` | `cov_type="hac"` 时最大滞后阶 |

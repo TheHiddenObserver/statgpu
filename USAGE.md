@@ -1,7 +1,7 @@
 # statgpu Documentation Portal
 
 > Language: English  
-> Last updated: 2026-04-21  
+> Last updated: 2026-04-26  
 > This page: Primary documentation entrypoint  
 > Switch: [Chinese](USAGE_CN.md)
 
@@ -18,7 +18,7 @@ Language switch:
 - [PyTorch Backend](docs/en/guides/pytorch-backend.md)
 - [Inference Modes (Lasso)](docs/en/guides/inference-modes.md)
 - [Distribution API (GPU Native + Explicit Fallback)](docs/en/guides/distribution-api.md)
-- [Global P-value Combination (Fisher/Cauchy/ACAT)](docs/en/guides/multiple-testing-combine-pvalues.md)
+- [Multiple Testing: Adjust & Combine P-values (BH/BY/Holm/Bonferroni/Hochberg + Fisher/Cauchy/Stouffer)](docs/en/guides/multiple-testing-combine-pvalues.md)
 - [Changelog](docs/en/changelog.md)
 
 Install note:
@@ -31,13 +31,22 @@ Install note:
 ## 2) Model Docs
 
 - [Models Overview](docs/en/models/README.md)
+- [GeneralizedLinearModel and Penalized GLM](docs/en/models/generalized-linear-model.md)
+- [PoissonRegression](docs/en/models/poisson-regression.md)
 - [Knockoff Feature Selection](docs/en/models/knockoff.md)
+- [Ordered Generalized Linear Models (Logit/Probit)](docs/en/models/ordered.md)
 - [Nonparametric Methods](docs/en/models/nonparametric.md)
 
 Implemented estimators:
 - `LinearRegression`
+- `GeneralizedLinearModel`
+- `PoissonRegression`
+- `PenalizedLinearRegression`
+- `PenalizedLogisticRegression`
+- `PenalizedPoissonRegression`
 - `Ridge` ✅ (Torch backend)
 - `Lasso` ✅ (Torch backend)
+- `ElasticNet`
 - `LassoCV`
 - `LogisticRegression` ✅ (Torch backend)
 - `CoxPH` ✅ (Torch backend)
@@ -46,6 +55,9 @@ Implemented estimators:
   - C-index, baseline hazard, AIC/BIC
   - **Performance**: Torch GPU 15.44x speedup on n=5000, p=20 (vs statsmodels)
   - See `results/coxph_benchmark_report_2026-04-20.md` for comprehensive benchmark
+- `OrderedLogitRegression` / `OrderedProbitRegression` ✅ (3 backends)
+  - Ordered response models with cumulative logit/probit link
+  - Cross-backend precision fix (2026-04-26): coef diff < 1e-2 across backends
 
 Exported CV classes:
 - `RidgeCV` ✅ (Full implementation with GPU acceleration)
@@ -64,8 +76,9 @@ Inference highlights:
 - `Ridge`: `cov_type=nonrobust/hc0/hc1/hc2/hc3/hac` (CPU+GPU) ✅ (Torch backend)
 - `Lasso`: `cpu_ols_inference/gpu_ols_inference/bootstrap` ✅ (Torch backend)
 - `LogisticRegression`: `cov_type=nonrobust/hc0/hc1/hc2/hc3/hac` (CPU+GPU) ✅ (Torch backend)
-- Multiple-testing utilities: `statgpu.adjust_pvalues` / `statgpu.multipletests` (`bh/by/holm/bonferroni`)
-- Global p-value combination: `statgpu.combine_pvalues` (`fisher/cauchy/acat`)
+- Multiple-testing utilities: `statgpu.adjust_pvalues` / `statgpu.multipletests` (`bh/by/holm/bonferroni/hochberg`)
+- Global p-value combination: `statgpu.combine_pvalues` (`fisher/cauchy/stouffer`)
+- Ordered response models: `OrderedLogitRegression` / `OrderedProbitRegression` (CPU/CuPy/Torch)
 - Unified resampling engine: `statgpu.bootstrap_statistic` / `statgpu.permutation_test`
 
 ## 3) Benchmarks and Validation
@@ -73,7 +86,8 @@ Inference highlights:
 - [Benchmark Index](docs/en/benchmarks.md)
 
 Primary scripts:
-- `dev/benchmarks/benchmark_lasso_inference_gpu_vs_cpu.py`
+- `dev/benchmarks/_bench_inference_timing.py` (multiple-testing, p=100-10k)
+- `dev/benchmarks/_bench_inference_timing_large.py` (multiple-testing, p=50k-1M)
 - `dev/benchmarks/benchmark_gpu_memory_cleanup.py`
 - `dev/benchmarks/benchmark_all_methods_large_scale.py`
 - `dev/benchmarks/benchmark_kernel_regression_vs_statsmodels.py`

@@ -336,3 +336,194 @@ class TestGPUBackends:
         stat_cp_c, p_cp_c = combine_pvalues(p_cp, method="cauchy", weights=w_cp, backend="cupy")
         assert np.isclose(float(stat_np_c), float(cp.asnumpy(stat_cp_c)), rtol=1e-10, atol=1e-10)
         assert np.isclose(float(p_np_c), float(cp.asnumpy(p_cp_c)), rtol=1e-10, atol=1e-10)
+
+
+class TestHochberg:
+    def test_hochberg_closed_form(self):
+        """Hochberg step-up: p_sorted[i] * (m-i) reversed cummin, clipped to 1."""
+        p = np.array([0.001, 0.010, 0.020, 0.040, 0.200, 0.800], dtype=float)
+        _, adj_sg = adjust_pvalues(p, method='hochberg', backend='numpy')
+
+        # Manual Hochberg calculation
+        m = len(p)
+        order = np.argsort(p)
+        p_sorted = p[order]
+        factors = np.arange(m, 0, -1, dtype=float)
+        raw = p_sorted * factors
+        cummin = np.minimum.accumulate(raw[::-1])[::-1]
+        expected_sorted = np.minimum(cummin, 1.0)
+        expected = np.empty(m)
+        expected[order] = expected_sorted
+
+        assert np.allclose(adj_sg, expected, rtol=1e-12, atol=1e-12)
+
+    def test_hochberg_aliases(self):
+        p = np.array([0.003, 0.015, 0.050, 0.300], dtype=float)
+        _, adj_a = adjust_pvalues(p, method='hochberg', backend='numpy')
+        for alias in ['fdr_hochberg', 'step_up', 'stepup']:
+            _, adj_b = adjust_pvalues(p, method=alias, backend='numpy')
+            assert np.allclose(adj_a, adj_b, rtol=1e-12, atol=1e-12)
+
+    def test_hochberg_vs_bh_baseline(self):
+        p = np.array([0.001, 0.010, 0.020, 0.040, 0.080, 0.200], dtype=float)
+        _, adj_hoch = adjust_pvalues(p, method='hochberg', backend='numpy')
+        _, adj_bh = adjust_pvalues(p, method='bh', backend='numpy')
+        assert np.all(adj_hoch >= adj_bh - 1e-12)
+
+    def test_hochberg_with_axis(self):
+        p = np.array([[0.001, 0.040, 0.200], [0.010, 0.003, 0.500]], dtype=float)
+        _, adj_axis = adjust_pvalues(p, method='hochberg', axis=1, backend='numpy')
+        assert adj_axis.shape == (2, 3)
+        for i in range(p.shape[0]):
+            _, adj_col = adjust_pvalues(p[i], method='hochberg', backend='numpy')
+            assert np.allclose(adj_axis[i], adj_col, rtol=1e-12, atol=1e-12)
+
+
+class TestStouffer:
+    def test_stouffer_vs_scipy(self):
+        scipy_stats = pytest.importorskip('scipy.stats')
+        p = np.array([0.010, 0.030, 0.200, 0.400], dtype=float)
+        stat, p_comb = combine_pvalues(p, method='stouffer', backend='numpy')
+        stat_ref, p_ref = scipy_stats.combine_pvalues(p, method='stouffer')
+        assert np.isclose(float(stat), float(stat_ref), rtol=1e-10, atol=1e-10)
+        assert np.isclose(float(p_comb), float(p_ref), rtol=1e-10, atol=1e-12)
+
+    def test_stouffer_with_weights(self):
+        p = np.array([0.010, 0.050, 0.200, 0.500], dtype=float)
+        w = np.array([0.3, 0.2, 0.3, 0.2], dtype=float)
+        stat, p_comb = combine_pvalues(p, method='stouffer', weights=w, backend='numpy')
+        assert np.isfinite(float(stat))
+        assert 0.0 <= float(p_comb) <= 1.0
+
+    def test_stouffer_aliases(self):
+        p = np.array([0.005, 0.020, 0.080], dtype=float)
+        stat_a, p_a = combine_pvalues(p, method='stouffer', backend='numpy')
+        for alias in ['z-test', 'ztest', 'weighted_z']:
+            stat_b, p_b = combine_pvalues(p, method=alias, backend='numpy')
+            assert np.isclose(float(stat_a), float(stat_b), rtol=1e-12, atol=1e-12)
+            assert np.isclose(float(p_a), float(p_b), rtol=1e-12, atol=1e-12)
+
+    def test_stouffer_with_axis(self):
+        p = np.array([[0.010, 0.040, 0.200], [0.002, 0.030, 0.400]], dtype=float)
+        stat_axis, p_axis = combine_pvalues(p, method='stouffer', axis=1, backend='numpy')
+        assert stat_axis.shape == (2,)
+        assert p_axis.shape == (2,)
+        for i in range(p.shape[0]):
+            stat_i, p_i = combine_pvalues(p[i], method='stouffer', backend='numpy')
+            assert np.isclose(float(stat_axis[i]), float(stat_i), rtol=1e-10, atol=1e-10)
+            assert np.isclose(float(p_axis[i]), float(p_i), rtol=1e-10, atol=1e-10)
+
+    def test_stouffer_invalid_weights_raise(self):
+        p = np.array([0.010, 0.050, 0.200], dtype=float)
+        with pytest.raises(ValueError):
+            combine_pvalues(p, method='stouffer', weights=np.array([1.0, -1.0, 1.0]))
+        with pytest.raises(ValueError):
+            combine_pvalues(p, method='stouffer', weights=np.array([1.0, 2.0]))
+
+    def test_stouffer_edge_pvalues(self):
+        p = np.array([0.0, 0.5, 1.0], dtype=float)
+        stat, p_comb = combine_pvalues(p, method='stouffer', backend='numpy')
+        assert np.isfinite(float(stat))
+        assert 0.0 <= float(p_comb) <= 1.0
+
+
+class TestCauchyNoWeights:
+    def test_cauchy_no_weights(self):
+        p = np.array([0.001, 0.020, 0.050, 0.500], dtype=float)
+        stat, p_comb = combine_pvalues(p, method='cauchy', backend='numpy')
+        assert np.isfinite(float(stat))
+        assert 0.0 <= float(p_comb) <= 1.0
+
+    def test_cauchy_default_weights_equivalent(self):
+        p = np.array([0.001, 0.020, 0.050, 0.500], dtype=float)
+        w = np.ones(len(p))
+        stat_def, p_def = combine_pvalues(p, method='cauchy', backend='numpy')
+        stat_exp, p_exp = combine_pvalues(p, method='cauchy', weights=w, backend='numpy')
+        assert np.isclose(float(stat_def), float(stat_exp), rtol=1e-10, atol=1e-10)
+        assert np.isclose(float(p_def), float(p_exp), rtol=1e-10, atol=1e-10)
+
+
+class TestTorchBackend:
+    def test_adjust_pvalues_bh_torch(self):
+        try:
+            import torch
+            if not torch.cuda.is_available():
+                pytest.skip('CUDA not available for torch')
+        except ImportError:
+            pytest.skip('torch not installed')
+        p_np = np.array([0.001, 0.010, 0.020, 0.200, 0.800], dtype=float)
+        p_torch = torch.as_tensor(p_np, device='cuda')
+        _, adj_np = adjust_pvalues(p_np, method='bh', alpha=0.05, backend='numpy')
+        _, adj_torch = adjust_pvalues(p_torch, method='bh', alpha=0.05, backend='torch')
+        adj_torch_np = adj_torch.detach().cpu().numpy()
+        assert np.allclose(adj_np, adj_torch_np, rtol=1e-8, atol=1e-8)
+
+    def test_combine_fisher_torch(self):
+        try:
+            import torch
+            if not torch.cuda.is_available():
+                pytest.skip('CUDA not available for torch')
+        except ImportError:
+            pytest.skip('torch not installed')
+        p_np = np.array([0.010, 0.030, 0.200, 0.400], dtype=float)
+        p_torch = torch.as_tensor(p_np, device='cuda')
+        stat_np, pval_np = combine_pvalues(p_np, method='fisher', backend='numpy')
+        stat_torch, pval_torch = combine_pvalues(p_torch, method='fisher', backend='torch')
+        assert np.isclose(float(stat_np), float(stat_torch.detach().cpu()), rtol=1e-8, atol=1e-8)
+        assert np.isclose(float(pval_np), float(pval_torch.detach().cpu()), rtol=1e-8, atol=1e-8)
+
+    def test_combine_cauchy_torch(self):
+        try:
+            import torch
+            if not torch.cuda.is_available():
+                pytest.skip('CUDA not available for torch')
+        except ImportError:
+            pytest.skip('torch not installed')
+        p_np = np.array([0.001, 0.020, 0.050, 0.500], dtype=float)
+        p_torch = torch.as_tensor(p_np, device='cuda')
+        stat_np, pval_np = combine_pvalues(p_np, method='cauchy', backend='numpy')
+        stat_torch, pval_torch = combine_pvalues(p_torch, method='cauchy', backend='torch')
+        assert np.isclose(float(stat_np), float(stat_torch.detach().cpu()), rtol=1e-8, atol=1e-8)
+        assert np.isclose(float(pval_np), float(pval_torch.detach().cpu()), rtol=1e-8, atol=1e-8)
+
+    def test_combine_axis_torch(self):
+        try:
+            import torch
+            if not torch.cuda.is_available():
+                pytest.skip('CUDA not available for torch')
+        except ImportError:
+            pytest.skip('torch not installed')
+        p_np = np.array([[0.010, 0.040, 0.200], [0.002, 0.030, 0.400]], dtype=float)
+        p_torch = torch.as_tensor(p_np, device='cuda')
+        stat_np, pval_np = combine_pvalues(p_np, method='fisher', axis=1, backend='numpy')
+        stat_torch, pval_torch = combine_pvalues(p_torch, method='fisher', axis=1, backend='torch')
+        assert np.allclose(stat_np, stat_torch.detach().cpu().numpy(), rtol=1e-8, atol=1e-8)
+        assert np.allclose(pval_np, pval_torch.detach().cpu().numpy(), rtol=1e-8, atol=1e-8)
+
+    def test_adjust_axis_torch(self):
+        try:
+            import torch
+            if not torch.cuda.is_available():
+                pytest.skip('CUDA not available for torch')
+        except ImportError:
+            pytest.skip('torch not installed')
+        p_np = np.array([[0.001, 0.040, 0.200], [0.010, 0.003, 0.500]], dtype=float)
+        p_torch = torch.as_tensor(p_np, device='cuda')
+        _, adj_np = adjust_pvalues(p_np, method='bh', axis=1, backend='numpy')
+        _, adj_torch = adjust_pvalues(p_torch, method='bh', axis=1, backend='torch')
+        adj_torch_np = adj_torch.detach().cpu().numpy()
+        assert np.allclose(adj_np, adj_torch_np, rtol=1e-8, atol=1e-8)
+
+    def test_multipletests_alias_torch(self):
+        try:
+            import torch
+            if not torch.cuda.is_available():
+                pytest.skip('CUDA not available for torch')
+        except ImportError:
+            pytest.skip('torch not installed')
+        p_np = np.array([0.003, 0.020, 0.040, 0.400], dtype=float)
+        p_torch = torch.as_tensor(p_np, device='cuda')
+        _, adj_np = multipletests(p_np, method='bh', backend='numpy')
+        _, adj_torch = multipletests(p_torch, method='bh', backend='torch')
+        adj_torch_np = adj_torch.detach().cpu().numpy()
+        assert np.allclose(adj_np, adj_torch_np, rtol=1e-8, atol=1e-8)

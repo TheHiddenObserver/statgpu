@@ -10,7 +10,7 @@ from scipy import stats
 from statgpu._base import BaseEstimator
 from statgpu._config import Device
 from statgpu.backends import _get_torch_device_str
-from statgpu.evaluation import (
+from statgpu.metrics import (
     binary_average_precision_score,
     binary_precision_recall_curve,
     binary_roc_auc_score,
@@ -49,65 +49,6 @@ def _require_cupy(context: str):
             "`pip install cupy-cuda11x` (CUDA 11.x)."
         ) from exc
 
-
-# =============================================================================
-# Torch.compile for Logistic IRLS elementwise chain fusion
-# =============================================================================
-
-_LOGISTIC_IRLS_STEP_COMPILED = None
-_LOGISTIC_IRLS_STEP_FALLBACK = False
-
-
-def _logistic_torch_compile_supported():
-    """Check if torch.compile works on this GPU (requires CUDA Capability >= 7.0)."""
-    try:
-        import torch
-        if torch.cuda.is_available():
-            cap = torch.cuda.get_device_capability()
-            if cap[0] < 7:
-                return False
-        return True
-    except Exception:
-        return True
-
-
-def _get_logistic_irls_step_compiled():
-    """Lazily create a torch.compile'd logistic IRLS step function.
-
-    Fuses: sigmoid → weight computation → clamp → working response → weighted GEMM.
-
-    Falls back to eager mode on GPUs with CUDA capability < 7.0 (Pascal and older).
-    """
-    global _LOGISTIC_IRLS_STEP_COMPILED, _LOGISTIC_IRLS_STEP_FALLBACK
-    if _LOGISTIC_IRLS_STEP_FALLBACK:
-        return _LOGISTIC_IRLS_STEP_COMPILED
-    if _LOGISTIC_IRLS_STEP_COMPILED is not None:
-        return _LOGISTIC_IRLS_STEP_COMPILED
-
-    import torch
-
-    def _logistic_step(X_design, params, y, sample_weight_torch):
-        eta = X_design @ params
-        p = 1.0 / (1.0 + torch.exp(-torch.clamp(eta, -500, 500)))
-        W = p * (1.0 - p)
-        W = torch.clamp(W, 1e-8, 1.0 - 1e-8)
-        if sample_weight_torch is not None:
-            W = W * sample_weight_torch
-        z = eta + (y - p) / W
-        W_col = W.unsqueeze(1)
-        XtWX = X_design.T @ (X_design * W_col)
-        Xtz = X_design.T @ (W * z)
-        return p, W, z, XtWX, Xtz
-
-    if _logistic_torch_compile_supported():
-        try:
-            _LOGISTIC_IRLS_STEP_COMPILED = torch.compile(_logistic_step, dynamic=True, fullgraph=False)
-        except Exception:
-            _LOGISTIC_IRLS_STEP_COMPILED = _logistic_step
-    else:
-        _LOGISTIC_IRLS_STEP_COMPILED = _logistic_step
-
-    return _LOGISTIC_IRLS_STEP_COMPILED
 
 
 class LogisticRegression(BaseEstimator):
@@ -293,7 +234,7 @@ class LogisticRegression(BaseEstimator):
         else:
             self._fit_cpu(X_arr, y_arr, sample_weight)
 
-        if self.compute_inference and device != Device.CUDA:
+        if self.compute_inference and device == Device.CPU:
             self._compute_inference()
         self._fitted = True
         return self
@@ -576,8 +517,8 @@ class LogisticRegression(BaseEstimator):
         import torch
         from ..inference._distributions_backend import norm
 
-        # Note: Device.TORCH.value is 'torch', but Torch expects 'cuda' or 'cpu'
-        torch_device = "cuda" if torch.cuda.is_available() else "cpu"
+        # Note: Device.TORCH.value is 'torch', but Torch expects 'cuda' or 'cpu'.
+        torch_device = _get_torch_device_str()
 
         n_samples, n_features = X.shape
         self._nobs = n_samples
@@ -885,7 +826,8 @@ class LogisticRegression(BaseEstimator):
             return self._train_eval_cache.get("classification_table")
 
         X_train = self._X_design[:, 1:] if self.fit_intercept else self._X_design
-        if self._get_compute_device() == Device.CUDA:
+        device = self._get_compute_device()
+        if device == Device.CUDA:
             cp = _require_cupy("_train_classification_table")
 
             y_true = cp.asarray(self._to_array(self._y, Device.CUDA)).reshape(-1)
@@ -896,6 +838,21 @@ class LogisticRegression(BaseEstimator):
                 threshold=0.5,
                 include_curves=False,
                 backend="cupy",
+            )
+            return self._train_eval_cache["classification_table"]
+        if device == Device.TORCH:
+            import torch
+
+            y_true = self._to_array(self._y, Device.TORCH, backend="torch").reshape(-1)
+            y_score = self.predict_proba(X_train)[:, 1]
+            if not isinstance(y_score, torch.Tensor):
+                y_score = torch.as_tensor(y_score, dtype=torch.float64, device=y_true.device)
+            self._train_eval_cache = evaluate_binary_classification(
+                y_true,
+                y_score,
+                threshold=0.5,
+                include_curves=False,
+                backend="torch",
             )
             return self._train_eval_cache["classification_table"]
 
@@ -955,6 +912,17 @@ class LogisticRegression(BaseEstimator):
             eta = X_gpu @ coef_gpu + intercept_gpu
             p1 = 1.0 / (1.0 + cp.exp(-cp.clip(eta, -500, 500)))
             return cp.column_stack([1 - p1, p1])
+        if device == Device.TORCH:
+            import torch
+
+            X_torch = self._to_array(X, Device.TORCH, backend="torch").to(torch.float64)
+            coef_torch = torch.as_tensor(self.coef_, dtype=X_torch.dtype, device=X_torch.device)
+            intercept_torch = torch.as_tensor(
+                self.intercept_, dtype=X_torch.dtype, device=X_torch.device
+            )
+            eta = X_torch @ coef_torch + intercept_torch
+            p1 = 1.0 / (1.0 + torch.exp(-torch.clamp(eta, -500, 500)))
+            return torch.column_stack([1 - p1, p1])
         X = self._to_array(X, Device.CPU)
         X = np.asarray(X)
         eta = X @ self.coef_ + self.intercept_
@@ -976,6 +944,8 @@ class LogisticRegression(BaseEstimator):
             Predicted class labels.
         """
         proba = self.predict_proba(X)
+        if hasattr(proba, "to") and hasattr(proba, "dtype"):
+            return (proba[:, 1] >= 0.5).to(dtype=proba.dtype)
         return (proba[:, 1] >= 0.5).astype(int)
 
     def predict_with_threshold(self, X, threshold: float = 0.5):
@@ -997,6 +967,8 @@ class LogisticRegression(BaseEstimator):
         if threshold < 0.0 or threshold > 1.0:
             raise ValueError("threshold must be in [0, 1]")
         proba = self.predict_proba(X)
+        if hasattr(proba, "to") and hasattr(proba, "dtype"):
+            return (proba[:, 1] >= threshold).to(dtype=proba.dtype)
         return (proba[:, 1] >= threshold).astype(int)
     
     def score(self, X, y):
@@ -1015,7 +987,19 @@ class LogisticRegression(BaseEstimator):
         float
             Mean accuracy.
         """
-        y_pred = self._to_numpy(self.predict(X))
+        y_pred = self.predict(X)
+        device = self._get_compute_device()
+        if device == Device.CUDA:
+            import cupy as cp
+
+            yb = cp.asarray(self._to_array(y, Device.CUDA)).reshape(-1)
+            return float(cp.mean(y_pred.reshape(-1) == yb).item())
+        if device == Device.TORCH:
+            import torch
+
+            yb = self._to_array(y, Device.TORCH, backend="torch").reshape(-1)
+            return float(torch.mean((y_pred.reshape(-1) == yb).to(torch.float64)).item())
+        y_pred = self._to_numpy(y_pred)
         y = self._to_numpy(y)
         return np.mean(y_pred == y)
 
@@ -1032,6 +1016,17 @@ class LogisticRegression(BaseEstimator):
                 threshold=threshold,
                 include_curves=False,
                 backend="cupy",
+            )
+            return out["confusion_matrix"]
+        if self._get_compute_device() == Device.TORCH:
+            y_true = self._to_array(y, Device.TORCH, backend="torch").reshape(-1)
+            y_score = self.predict_proba(X)[:, 1]
+            out = evaluate_binary_classification(
+                y_true,
+                y_score,
+                threshold=threshold,
+                include_curves=False,
+                backend="torch",
             )
             return out["confusion_matrix"]
 
@@ -1061,6 +1056,17 @@ class LogisticRegression(BaseEstimator):
                 backend="cupy",
             )
             return out["classification_table"]
+        if self._get_compute_device() == Device.TORCH:
+            y_true = self._to_array(y, Device.TORCH, backend="torch").reshape(-1)
+            y_score = self.predict_proba(X)[:, 1]
+            out = evaluate_binary_classification(
+                y_true,
+                y_score,
+                threshold=threshold,
+                include_curves=False,
+                backend="torch",
+            )
+            return out["classification_table"]
 
         y_true = self._to_numpy(y)
         y_score = self._to_numpy(self.predict_proba(X))[:, 1]
@@ -1081,6 +1087,10 @@ class LogisticRegression(BaseEstimator):
             y_true = cp.asarray(self._to_array(y, Device.CUDA)).reshape(-1)
             y_score = cp.asarray(self.predict_proba(X))[:, 1]
             return binary_roc_curve(y_true, y_score, backend="cupy")
+        if self._get_compute_device() == Device.TORCH:
+            y_true = self._to_array(y, Device.TORCH, backend="torch").reshape(-1)
+            y_score = self.predict_proba(X)[:, 1]
+            return binary_roc_curve(y_true, y_score, backend="torch")
 
         y_true = self._to_numpy(y)
         y_score = self._to_numpy(self.predict_proba(X))[:, 1]
@@ -1094,6 +1104,10 @@ class LogisticRegression(BaseEstimator):
             y_true = cp.asarray(self._to_array(y, Device.CUDA)).reshape(-1)
             y_score = cp.asarray(self.predict_proba(X))[:, 1]
             return binary_roc_auc_score(y_true, y_score, backend="cupy")
+        if self._get_compute_device() == Device.TORCH:
+            y_true = self._to_array(y, Device.TORCH, backend="torch").reshape(-1)
+            y_score = self.predict_proba(X)[:, 1]
+            return binary_roc_auc_score(y_true, y_score, backend="torch")
 
         y_true = self._to_numpy(y)
         y_score = self._to_numpy(self.predict_proba(X))[:, 1]
@@ -1107,6 +1121,10 @@ class LogisticRegression(BaseEstimator):
             y_true = cp.asarray(self._to_array(y, Device.CUDA)).reshape(-1)
             y_score = cp.asarray(self.predict_proba(X))[:, 1]
             return binary_precision_recall_curve(y_true, y_score, backend="cupy")
+        if self._get_compute_device() == Device.TORCH:
+            y_true = self._to_array(y, Device.TORCH, backend="torch").reshape(-1)
+            y_score = self.predict_proba(X)[:, 1]
+            return binary_precision_recall_curve(y_true, y_score, backend="torch")
 
         y_true = self._to_numpy(y)
         y_score = self._to_numpy(self.predict_proba(X))[:, 1]
@@ -1120,6 +1138,10 @@ class LogisticRegression(BaseEstimator):
             y_true = cp.asarray(self._to_array(y, Device.CUDA)).reshape(-1)
             y_score = cp.asarray(self.predict_proba(X))[:, 1]
             return binary_average_precision_score(y_true, y_score, backend="cupy")
+        if self._get_compute_device() == Device.TORCH:
+            y_true = self._to_array(y, Device.TORCH, backend="torch").reshape(-1)
+            y_score = self.predict_proba(X)[:, 1]
+            return binary_average_precision_score(y_true, y_score, backend="torch")
 
         y_true = self._to_numpy(y)
         y_score = self._to_numpy(self.predict_proba(X))[:, 1]
@@ -1166,6 +1188,16 @@ class LogisticRegression(BaseEstimator):
                 threshold=threshold,
                 include_curves=include_curves,
                 backend="cupy",
+            )
+        if self._get_compute_device() == Device.TORCH:
+            y_true = self._to_array(y, Device.TORCH, backend="torch").reshape(-1)
+            y_score = self.predict_proba(X)[:, 1]
+            return evaluate_binary_classification(
+                y_true,
+                y_score,
+                threshold=threshold,
+                include_curves=include_curves,
+                backend="torch",
             )
 
         y_true = self._to_numpy(y).reshape(-1)

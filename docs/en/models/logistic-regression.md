@@ -47,7 +47,7 @@ under convergence controls `max_iter` and `tol`.
 | `C` | `1.0` | Inverse regularization strength |
 | `max_iter` | `100` | Max IRLS iterations |
 | `tol` | `1e-4` | Convergence tolerance |
-| `device` | `"auto"` | `cpu` / `cuda` / `auto` |
+| `device` | `"auto"` | `cpu` / `cuda` / `torch` / `auto` |
 | `compute_inference` | `True` | Whether to compute inference stats |
 | `cov_type` | `"nonrobust"` | `nonrobust` / `hc0` / `hc1` / `hc2` / `hc3` / `hac` |
 | `hac_maxlags` | `None` | Max lag for `cov_type="hac"`; default follows Newey-West style heuristic |
@@ -91,7 +91,7 @@ No separate approx inference mode is exposed in this API. Robust covariance choi
 
 - How do I approximate unregularized MLE? Use a large `C` value (for example, `1e10`).
 - Why are inference statistics z-values instead of t-values? Logistic regression inference follows large-sample normal approximation.
-- Are evaluation methods GPU-native? Yes for core metrics under `device="cuda"`; plotting converts to NumPy for rendering.
+- Are evaluation methods GPU-native? Core prediction and metrics stay on the selected supported backend; plotting converts to NumPy for rendering.
 
 ## External Validation
 
