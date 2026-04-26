@@ -315,7 +315,7 @@ class LogisticRegression(BaseEstimator):
     def _fit_gpu(self, X, y, sample_weight=None):
         """Fit using GPU with IRLS."""
         import cupy as cp
-        from ..inference._distributions_backend import norm
+        from statgpu.inference._distributions_backend import norm
         
         n_samples, n_features = X.shape
         self._nobs = n_samples
@@ -515,7 +515,7 @@ class LogisticRegression(BaseEstimator):
     def _fit_torch(self, X, y, sample_weight=None):
         """Fit using Torch GPU with IRLS."""
         import torch
-        from ..inference._distributions_backend import norm
+        from statgpu.inference._distributions_backend import norm
 
         # Note: Device.TORCH.value is 'torch', but Torch expects 'cuda' or 'cpu'.
         torch_device = _get_torch_device_str()

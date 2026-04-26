@@ -633,7 +633,7 @@ class CoxPH(BaseEstimator):
     def _fit_gpu(self, X, time, event, entry=None, cluster=None, init_coef=None):
         """Fit using GPU with full GPU computation."""
         import cupy as cp
-        from ..inference._distributions_backend import norm
+        from statgpu.inference._distributions_backend import norm
         
         n_samples, n_features = X.shape
 
@@ -1000,7 +1000,7 @@ class CoxPH(BaseEstimator):
     def _fit_torch(self, X, time, event, entry=None, cluster=None, torch_device="cuda", init_coef=None):
         """Fit using Torch with full GPU computation."""
         import torch
-        from ..inference._distributions_backend import norm
+        from statgpu.inference._distributions_backend import norm
 
         n_samples, n_features = X.shape
 
