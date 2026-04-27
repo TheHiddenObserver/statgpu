@@ -124,7 +124,6 @@ class GeneralizedLinearModel(BaseEstimator):
             DataFrame used with ``formula`` for column lookup.
         """
         # Handle formula interface
-        _orig_fit_intercept = self.fit_intercept
         if formula is not None:
             if data is None:
                 raise ValueError(
@@ -158,7 +157,6 @@ class GeneralizedLinearModel(BaseEstimator):
                 y_arr = y_arr.ravel()
             X_arr = np.asarray(X)
 
-        self.fit_intercept = _orig_fit_intercept
         backend = self._get_backend(backend="auto")
         backend_name = backend.name
 

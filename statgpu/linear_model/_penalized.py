@@ -164,7 +164,6 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
         self : PenalizedLinearRegression
             Fitted estimator.
         """
-        _orig_fit_intercept = self.fit_intercept
         if formula is not None:
             if data is None:
                 raise ValueError(
@@ -192,7 +191,6 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
             self._design_info = None
             self._formula_has_intercept = None
 
-        self.fit_intercept = _orig_fit_intercept
         self._penalty = self._resolve_penalty()
         self._validate_solver_penalty()
         self._loss = self._resolve_loss()
