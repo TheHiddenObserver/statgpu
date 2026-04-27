@@ -812,6 +812,8 @@ class ElasticNetCV(CVEstimatorBase):
             "std_mse": details["std_mse"],
             "alphas": details["alphas"],
             "l1_ratios": details["l1_ratios"],
+            "best_alpha": self.alpha_,
+            "best_l1_ratio": self.l1_ratio_,
         }
         self.best_score_ = details["best_mse"]
 

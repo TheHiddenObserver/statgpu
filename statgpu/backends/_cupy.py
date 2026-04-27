@@ -225,6 +225,11 @@ class CuPyBackend(BackendBase):
         import cupy as cp
         return cp.diag(x, k=k)
 
+    def transpose(self, x, axes=None):
+        """Transpose array."""
+        import cupy as cp
+        return cp.transpose(x, axes)
+
     def eye(self, n, m=None, dtype=None):
         """Create identity matrix."""
         import cupy as cp

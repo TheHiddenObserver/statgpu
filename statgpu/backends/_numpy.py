@@ -134,6 +134,10 @@ class NumpyBackend(BackendBase):
         """Element-wise maximum of two arrays."""
         return np.maximum(x, y)
 
+    def transpose(self, x, axes=None):
+        """Transpose array."""
+        return np.transpose(x, axes)
+
     def clip(self, x, min_val, max_val):
         """Clip values to [min_val, max_val]."""
         return np.clip(x, min_val, max_val)
