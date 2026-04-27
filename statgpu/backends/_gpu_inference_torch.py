@@ -7,7 +7,7 @@ All statistical computations run on GPU via Torch.
 
 import numpy as np
 
-from .backends import _get_torch_device_str as _get_torch_device
+from statgpu.backends import _get_torch_device_str as _get_torch_device
 
 
 def _import_torch():

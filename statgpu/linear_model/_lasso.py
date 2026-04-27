@@ -19,11 +19,11 @@ except Exception:
     njit = None
     _NUMBA_AVAILABLE = False
 
-from .._base import BaseEstimator
-from .._config import Device
-from .._cv_base import CVEstimatorBase
-from ..backends import get_backend
-from ..inference._distributions_backend import (
+from statgpu._base import BaseEstimator
+from statgpu._config import Device
+from statgpu.linear_model._cv_base import CVEstimatorBase
+from statgpu.backends import get_backend
+from statgpu.inference._distributions_backend import (
     norm,
     t,
 )
@@ -234,12 +234,14 @@ class Lasso(BaseEstimator):
         backend = self._get_backend(backend="auto")
         backend_name = backend.name
 
-        # If the user requested GPU-only inference but we ended up on CPU,
-        # gracefully fall back to CPU inference instead of leaving
-        # inference fields unset.
-        if device != Device.CUDA and self.inference_method == "gpu_ols_inference":
-            self.inference_method = "cpu_ols_inference"
-        if device != Device.CUDA:
+        if device == Device.CPU and self.inference_method == "gpu_ols_inference":
+            raise ValueError(
+                "inference_method='gpu_ols_inference' requires device='cuda' or "
+                "device='torch'. Use inference_method='cpu_ols_inference' on CPU."
+            )
+        if device in (Device.CUDA, Device.TORCH) and self.inference_method == "cpu_ols_inference":
+            self.inference_method = "gpu_ols_inference"
+        if device == Device.CPU:
             self._y = np.asarray(y)
         else:
             # GPU path: avoid host copies unless CPU-side inference needs y.
@@ -251,6 +253,16 @@ class Lasso(BaseEstimator):
             else:
                 # y may already be a CuPy array; use safe conversion.
                 self._y = self._to_numpy(y)
+
+        if (
+            self.compute_inference
+            and device in (Device.CUDA, Device.TORCH)
+            and self.inference_method not in ("gpu_ols_inference", "debiased")
+        ):
+            raise NotImplementedError(
+                f"Lasso inference_method='{self.inference_method}' is not implemented "
+                f"for device='{device.value}' without CPU fallback."
+            )
 
         X_arr = self._to_array(X, backend=backend_name)
         y_arr = self._to_array(y, backend=backend_name)
@@ -618,7 +630,7 @@ class Lasso(BaseEstimator):
     def _fit_gpu(self, X, y, sample_weight=None):
         """Fit using GPU solver."""
         import cupy as cp
-        from .._gpu_utils import compute_r2_gpu
+        from statgpu.backends._gpu_inference_cupy import compute_r2_gpu
 
         if self.solver not in ("fista", "admm"):
             raise ValueError("solver must be one of: 'fista', 'admm'")
@@ -1000,7 +1012,7 @@ class Lasso(BaseEstimator):
             Lasso coefficients on Torch GPU (no intercept).
         """
         import torch
-        from ..inference._distributions_backend import norm
+        from statgpu.inference._distributions_backend import norm
 
         n, p = X_torch.shape
         dtype = torch.float64
@@ -1260,7 +1272,7 @@ class Lasso(BaseEstimator):
     def _fit_torch(self, X, y, sample_weight=None):
         """Fit using Torch GPU with FISTA solver."""
         import torch
-        from .._gpu_utils_torch import compute_r2_torch
+        from statgpu.backends._gpu_inference_torch import compute_r2_torch
 
         if self.solver not in ("fista", "admm"):
             raise ValueError("Torch backend currently only supports 'fista' solver")
@@ -1410,7 +1422,7 @@ class Lasso(BaseEstimator):
                 params_gpu = coef_full
                 tvalues_gpu = params_gpu / (bse_gpu + 1e-30)
 
-                from ..inference._distributions_backend import get_distribution
+                from statgpu.inference._distributions_backend import get_distribution
                 t_dist = get_distribution("t", backend="torch", device=str(X.device))
                 pvalues_gpu = torch.minimum(torch.tensor(1.0, device=X.device), 2.0 * t_dist.sf(torch.abs(tvalues_gpu), df=df_resid))
 
@@ -1446,9 +1458,10 @@ class Lasso(BaseEstimator):
                 self._resid = None
                 self._X_design = None
             else:
-                # Transfer residuals and design to CPU
-                self._resid = resid.cpu().numpy()
-                self._X_design = X_design.cpu().numpy()
+                raise NotImplementedError(
+                    f"Lasso inference_method='{self.inference_method}' is not implemented "
+                    "for Torch without CPU fallback."
+                )
         else:
             self._scale = np.nan
             self._resid = None
@@ -1655,9 +1668,10 @@ class Lasso(BaseEstimator):
                 self._resid = None
                 self._X_design = None
             else:
-                # CPU-side inference path.
-                self._resid = resid.get()
-                self._X_design = X_design.get()
+                raise NotImplementedError(
+                    f"Lasso inference_method='{self.inference_method}' is not implemented "
+                    "for CuPy without CPU fallback."
+                )
         else:
             self._scale = np.nan
             self._resid = None
@@ -2511,13 +2525,38 @@ class Lasso(BaseEstimator):
             coef_gpu = cp.asarray(self.coef_)
             intercept_gpu = cp.asarray(self.intercept_, dtype=coef_gpu.dtype)
             return X_gpu @ coef_gpu + intercept_gpu
+        if device == Device.TORCH:
+            import torch
+
+            X_torch = self._to_array(X, Device.TORCH, backend="torch").to(torch.float64)
+            coef_torch = torch.as_tensor(self.coef_, dtype=X_torch.dtype, device=X_torch.device)
+            intercept_torch = torch.as_tensor(
+                self.intercept_, dtype=X_torch.dtype, device=X_torch.device
+            )
+            return X_torch @ coef_torch + intercept_torch
         X = self._to_array(X, Device.CPU)
         X = np.asarray(X)
         return X @ self.coef_ + self.intercept_
 
     def score(self, X, y):
         """Return R^2 score."""
-        y_pred = self._to_numpy(self.predict(X))
+        y_pred = self.predict(X)
+        device = self._get_compute_device()
+        if device == Device.CUDA:
+            import cupy as cp
+
+            yb = cp.asarray(self._to_array(y, Device.CUDA))
+            ss_res = cp.sum((yb - y_pred) ** 2)
+            ss_tot = cp.sum((yb - cp.mean(yb)) ** 2)
+            return float((1 - ss_res / ss_tot).item()) if float(ss_tot.item()) > 0 else 0.0
+        if device == Device.TORCH:
+            import torch
+
+            yb = self._to_array(y, Device.TORCH, backend="torch").to(y_pred.dtype)
+            ss_res = torch.sum((yb - y_pred) ** 2)
+            ss_tot = torch.sum((yb - torch.mean(yb)) ** 2)
+            return float((1 - ss_res / ss_tot).item()) if float(ss_tot.item()) > 0 else 0.0
+        y_pred = np.asarray(y_pred)
         y = self._to_numpy(y)
         ss_res = np.sum((y - y_pred) ** 2)
         ss_tot = np.sum((y - np.mean(y)) ** 2)
@@ -4771,3 +4810,67 @@ def _solve_lasso_path_gpu_fista_multi_fold_from_gram_torch(
     def summary(self):
         self._check_is_fitted()
         return self.estimator_.summary()
+
+
+# =============================================================================
+# V9 thin wrapper
+# =============================================================================
+
+from ._penalized import PenalizedLinearRegression as _PenalizedLinearRegression
+
+
+class Lasso(_PenalizedLinearRegression):
+    """Thin sklearn-style wrapper over ``PenalizedLinearRegression`` with L1 penalty."""
+
+    def __init__(
+        self,
+        alpha: float = 1.0,
+        fit_intercept: bool = True,
+        max_iter: int = 1000,
+        tol: float = 1e-4,
+        stopping: str = "coef_delta",
+        inference_method: str = "cpu_ols_inference",
+        n_bootstrap: int = 200,
+        bootstrap_random_state: Optional[int] = None,
+        enable_simultaneous_inference: bool = False,
+        simultaneous_method: str = "maxz_bootstrap",
+        simultaneous_alpha: float = 0.05,
+        simultaneous_n_bootstrap: int = 1000,
+        simultaneous_random_state: Optional[int] = None,
+        simultaneous_include_intercept: bool = False,
+        device: Union[str, Device] = Device.AUTO,
+        n_jobs: Optional[int] = None,
+        compute_inference: bool = True,
+        solver: str = "fista",
+        cpu_solver: str = "coordinate_descent",
+        lipschitz_L: Optional[float] = None,
+        admm_rho: float = 1.0,
+        gpu_memory_cleanup: bool = False,
+        **kwargs,
+    ):
+        self.stopping = str(stopping).lower()
+        self.inference_method = str(inference_method).lower()
+        self.n_bootstrap = int(n_bootstrap)
+        self.bootstrap_random_state = bootstrap_random_state
+        self.enable_simultaneous_inference = bool(enable_simultaneous_inference)
+        self.simultaneous_method = str(simultaneous_method).lower()
+        self.simultaneous_alpha = float(simultaneous_alpha)
+        self.simultaneous_n_bootstrap = int(simultaneous_n_bootstrap)
+        self.simultaneous_random_state = simultaneous_random_state
+        self.simultaneous_include_intercept = bool(simultaneous_include_intercept)
+        self.compute_inference = bool(compute_inference)
+        self.admm_rho = float(admm_rho)
+        self._ignored_kwargs = dict(kwargs)
+        super().__init__(
+            penalty="l1",
+            alpha=alpha,
+            fit_intercept=fit_intercept,
+            max_iter=max_iter,
+            tol=tol,
+            device=device,
+            n_jobs=n_jobs,
+            cpu_solver=cpu_solver,
+            solver=solver,
+            lipschitz_L=lipschitz_L,
+            gpu_memory_cleanup=gpu_memory_cleanup,
+        )

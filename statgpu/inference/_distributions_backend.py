@@ -27,6 +27,8 @@ from typing import Any, Protocol, runtime_checkable
 
 import numpy as np
 
+from statgpu.backends import _get_torch_device_str as _get_torch_device
+
 
 # =============================================================================
 # SpecialFunctions protocol — abstracts away library-specific special functions
@@ -250,11 +252,6 @@ class CuPySpecialFunctions:
 # Torch backend
 # =============================================================================
 
-def _get_torch_device():
-    import torch
-    return "cuda" if torch.cuda.is_available() else "cpu"
-
-
 # Module-level cache for torch betaincinv inverse LUTs (scalar a, b)
 # Key: (a, b, device) -> (y_grid, x_grid) tensors on device
 _torch_betaincinv_lut_cache: dict = {}
@@ -313,6 +310,7 @@ def _get_torch_betainc_lut(a, b, device, n_points=40000):
     y_grid = torch.as_tensor(y_vals, dtype=torch.float64, device=device)
     _torch_betainc_lut_cache[cache_key] = (x_grid, y_grid)
     return x_grid, y_grid
+
 
 
 class TorchSpecialFunctions:

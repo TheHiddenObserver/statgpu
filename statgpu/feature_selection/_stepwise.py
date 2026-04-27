@@ -8,7 +8,7 @@ import numpy as np
 from copy import deepcopy
 from joblib import Parallel, delayed
 
-from ..linear_model import LinearRegression, Ridge, Lasso, LogisticRegression
+from statgpu.linear_model import LinearRegression, Ridge, Lasso, LogisticRegression
 
 
 class StepwiseSelector:

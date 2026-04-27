@@ -5,9 +5,9 @@ from __future__ import annotations
 from typing import Optional, Tuple
 
 import numpy as np
-from scipy.stats import chi2
 
-from statgpu.backends import _get_xp, _resolve_backend, _to_float_scalar
+from statgpu.backends import get_backend, _resolve_backend, _to_float_scalar
+from statgpu.inference._distributions_backend import chi2, norm
 
 
 def _to_bool_scalar(x) -> bool:
@@ -16,26 +16,11 @@ def _to_bool_scalar(x) -> bool:
     return bool(x)
 
 
-def _cumextreme(arr, mode: str, xp):
-    """Backend-compatible cumulative min/max with CuPy fallback."""
-    if xp is np:
-        if mode == "min":
-            return np.minimum.accumulate(arr)
-        if mode == "max":
-            return np.maximum.accumulate(arr)
-        raise ValueError("mode must be 'min' or 'max'")
-
-    # CuPy does not support minimum/maximum.accumulate on all versions.
-    import cupy as cp
-
-    arr_np = cp.asnumpy(arr)
-    if mode == "min":
-        out_np = np.minimum.accumulate(arr_np)
-    elif mode == "max":
-        out_np = np.maximum.accumulate(arr_np)
-    else:
-        raise ValueError("mode must be 'min' or 'max'")
-    return cp.asarray(out_np)
+def _normalize_axis_index(axis, ndim):
+    try:
+        return int(np._core.numeric.normalize_axis_index(axis, ndim))
+    except AttributeError:
+        return int(np.core.numeric.normalize_axis_index(axis, ndim))
 
 
 _METHOD_ALIASES = {
@@ -52,6 +37,10 @@ _METHOD_ALIASES = {
     "holm_bonferroni": "holm",
     "bonferroni": "bonferroni",
     "bonf": "bonferroni",
+    "hochberg": "hochberg",
+    "fdr_hochberg": "hochberg",
+    "step_up": "hochberg",
+    "stepup": "hochberg",
 }
 
 
@@ -63,6 +52,10 @@ _COMBINE_METHOD_ALIASES = {
     "cauchy-combination": "cauchy",
     "cauchy_combination": "cauchy",
     "acat": "cauchy",
+    "stouffer": "stouffer",
+    "z-test": "stouffer",
+    "ztest": "stouffer",
+    "weighted_z": "stouffer",
 }
 
 
@@ -89,134 +82,142 @@ def _validate_alpha(alpha: float) -> float:
     return alpha_f
 
 
-def _validate_1d_pvalues(pvalues, xp):
-    p = xp.asarray(pvalues, dtype=xp.float64).reshape(-1)
-    if _to_bool_scalar(xp.any(~xp.isfinite(p))):
+def _validate_1d_pvalues(pvalues, backend):
+    p = backend.asarray(pvalues, dtype=backend.float64).reshape(-1)
+    if _to_bool_scalar(backend.xp.any(~backend.xp.isfinite(p))):
         raise ValueError("pvalues must be finite")
-    if _to_bool_scalar(xp.any((p < 0.0) | (p > 1.0))):
+    if _to_bool_scalar(backend.xp.any((p < 0.0) | (p > 1.0))):
         raise ValueError("pvalues must be within [0, 1]")
     return p
 
 
-def _validate_pvalues_array(arr, xp):
-    p = xp.asarray(arr, dtype=xp.float64)
-    if _to_bool_scalar(xp.any(~xp.isfinite(p))):
+def _validate_pvalues_array(arr, backend):
+    p = backend.asarray(arr, dtype=backend.float64)
+    if _to_bool_scalar(backend.xp.any(~backend.xp.isfinite(p))):
         raise ValueError("pvalues must be finite")
-    if _to_bool_scalar(xp.any((p < 0.0) | (p > 1.0))):
+    if _to_bool_scalar(backend.xp.any((p < 0.0) | (p > 1.0))):
         raise ValueError("pvalues must be within [0, 1]")
     return p
 
 
-def _adjust_1d_pvalues(pvalues_1d, method: str, xp):
-    m = int(pvalues_1d.size)
+def _adjust_1d_pvalues(pvalues_1d, method: str, backend):
+    m = int(pvalues_1d.shape[0])
     if m == 0:
-        return xp.asarray([], dtype=xp.float64)
+        return backend.asarray([], dtype=backend.float64)
 
-    order = xp.argsort(pvalues_1d)
+    order = backend.xp.argsort(pvalues_1d)
     p_sorted = pvalues_1d[order]
 
     if method == "bonferroni":
-        adj_sorted = xp.minimum(p_sorted * m, 1.0)
+        adj_sorted = backend.minimum(p_sorted * m, 1.0)
     elif method == "holm":
-        factors = m - xp.arange(m, dtype=xp.float64)
+        factors = m - backend.arange(m, dtype=backend.float64)
         raw = factors * p_sorted
-        adj_sorted = _cumextreme(raw, mode="max", xp=xp)
-        adj_sorted = xp.minimum(adj_sorted, 1.0)
+        adj_sorted = backend.cummax(raw)
+        adj_sorted = backend.minimum(adj_sorted, 1.0)
     elif method == "bh":
-        ranks = xp.arange(1.0, m + 1.0)
+        ranks = backend.arange(1.0, m + 1.0)
         raw = p_sorted * m / ranks
-        adj_sorted = _cumextreme(raw[::-1], mode="min", xp=xp)[::-1]
-        adj_sorted = xp.minimum(adj_sorted, 1.0)
+        adj_sorted = backend.flip(backend.cummin(backend.flip(raw, 0)), 0)
+        adj_sorted = backend.minimum(adj_sorted, 1.0)
     elif method == "by":
-        ranks = xp.arange(1.0, m + 1.0)
-        c_m = xp.sum(1.0 / ranks)
+        ranks = backend.arange(1.0, m + 1.0)
+        c_m = backend.xp.sum(1.0 / ranks)
         raw = p_sorted * m * c_m / ranks
-        adj_sorted = _cumextreme(raw[::-1], mode="min", xp=xp)[::-1]
-        adj_sorted = xp.minimum(adj_sorted, 1.0)
+        adj_sorted = backend.flip(backend.cummin(backend.flip(raw, 0)), 0)
+        adj_sorted = backend.minimum(adj_sorted, 1.0)
+    elif method == "hochberg":
+        factors = backend.arange(m, 0, -1, dtype=backend.float64)
+        raw = p_sorted * factors
+        adj_sorted = backend.flip(backend.cummin(backend.flip(raw, 0)), 0)
+        adj_sorted = backend.minimum(adj_sorted, 1.0)
     else:
         raise ValueError(f"Unsupported normalized method: {method}")
 
-    adj = xp.empty_like(adj_sorted)
+    adj = backend.xp.empty_like(adj_sorted)
     adj[order] = adj_sorted
     return adj
 
 
-def _validate_weights(weights, m: int, xp):
+def _validate_weights(weights, m: int, backend):
     if weights is None:
-        return xp.full(m, 1.0 / m, dtype=xp.float64)
+        return backend.full((m,), 1.0 / m, dtype=backend.float64)
 
-    w = xp.asarray(weights, dtype=xp.float64).reshape(-1)
-    if int(w.size) != int(m):
+    w = backend.asarray(weights, dtype=backend.float64).reshape(-1)
+    if int(w.shape[0]) != int(m):
         raise ValueError("weights must be 1D and have the same length as the combine axis")
-    if _to_bool_scalar(xp.any(~xp.isfinite(w))):
+    if _to_bool_scalar(backend.xp.any(~backend.xp.isfinite(w))):
         raise ValueError("weights must be finite")
-    if _to_bool_scalar(xp.any(w < 0.0)):
+    if _to_bool_scalar(backend.xp.any(w < 0.0)):
         raise ValueError("weights must be non-negative")
 
-    w_sum = xp.sum(w)
+    w_sum = backend.xp.sum(w)
     if _to_float_scalar(w_sum) <= 0.0:
         raise ValueError("weights must sum to a positive value")
     return w / w_sum
 
 
-def _chi2_sf(statistics, df: int, xp):
-    """Chi-square survival function for NumPy/CuPy arrays."""
-    if xp is np:
-        return np.asarray(chi2.sf(statistics, df=df), dtype=np.float64)
-
-    import cupy as cp
-
-    stats_cp = cp.asarray(statistics, dtype=cp.float64)
-
-    # Prefer GPU-native computation when cupyx is available.
-    try:
-        from cupyx.scipy.special import gammaincc
-
-        return cp.asarray(gammaincc(0.5 * df, 0.5 * stats_cp), dtype=cp.float64)
-    except Exception:
-        stats_np = cp.asnumpy(stats_cp)
-        sf_np = chi2.sf(stats_np, df=df)
-        return cp.asarray(sf_np, dtype=cp.float64)
 
 
-def _combine_1d_fisher(pvalues_1d, xp):
-    p = _validate_1d_pvalues(pvalues_1d, xp)
-    m = int(p.size)
+def _combine_1d_fisher(pvalues_1d, backend):
+    p = _validate_1d_pvalues(pvalues_1d, backend)
+    m = int(p.shape[0])
     if m == 0:
         raise ValueError("pvalues must contain at least one value")
 
     # Avoid log(0) while keeping statistical meaning for very small p-values.
     eps = np.finfo(np.float64).tiny
-    p_safe = xp.clip(p.astype(xp.float64), eps, 1.0)
-    statistic = -2.0 * xp.sum(xp.log(p_safe))
+    p_safe = backend.xp.clip(backend.astype(p, backend.float64), eps, 1.0)
+    statistic = -2.0 * backend.xp.sum(backend.xp.log(p_safe))
 
-    pvalue = _chi2_sf(statistic, df=2 * m, xp=xp)
-    return statistic.astype(xp.float64), pvalue.astype(xp.float64)
+    pvalue = chi2.sf(statistic, df=2 * m)
+    return backend.astype(statistic, backend.float64), backend.astype(pvalue, backend.float64)
 
 
-def _combine_1d_cauchy(pvalues_1d, weights, xp):
-    p = _validate_1d_pvalues(pvalues_1d, xp)
-    m = int(p.size)
+def _combine_1d_cauchy(pvalues_1d, weights, backend):
+    p = _validate_1d_pvalues(pvalues_1d, backend)
+    m = int(p.shape[0])
     if m == 0:
         raise ValueError("pvalues must contain at least one value")
 
-    w = _validate_weights(weights, m, xp)
+    w = _validate_weights(weights, m, backend)
 
     eps = np.finfo(np.float64).eps
-    p_safe = xp.clip(p.astype(xp.float64), eps, 1.0 - eps)
-    statistic = xp.sum(w * xp.tan((0.5 - p_safe) * np.pi))
-    pvalue = 0.5 - xp.arctan(statistic) / np.pi
-    pvalue = xp.clip(pvalue, 0.0, 1.0)
-    return statistic.astype(xp.float64), pvalue.astype(xp.float64)
+    p_safe = backend.xp.clip(backend.astype(p, backend.float64), eps, 1.0 - eps)
+    statistic = backend.xp.sum(w * backend.xp.tan((0.5 - p_safe) * np.pi))
+    pvalue = 0.5 - backend.xp.arctan(statistic) / np.pi
+    pvalue = backend.xp.clip(pvalue, 0.0, 1.0)
+    return backend.astype(statistic, backend.float64), backend.astype(pvalue, backend.float64)
 
 
-def _combine_1d_pvalues(pvalues_1d, method: str, weights, xp):
+def _combine_1d_stouffer(pvalues_1d, weights, backend):
+    p = _validate_1d_pvalues(pvalues_1d, backend)
+    m = int(p.shape[0])
+    if m == 0:
+        raise ValueError("pvalues must contain at least one value")
+
+    w = _validate_weights(weights, m, backend)
+
+    eps = np.finfo(np.float64).eps
+    p_safe = backend.xp.clip(backend.astype(p, backend.float64), eps, 1.0 - eps)
+    z_scores = norm.ppf(1.0 - p_safe)
+    z = backend.xp.sum(w * z_scores) / backend.xp.sqrt(backend.xp.sum(w * w))
+    pvalue = norm.sf(z)
+    pvalue = backend.xp.clip(pvalue, 0.0, 1.0)
+    return backend.astype(z, backend.float64), backend.astype(pvalue, backend.float64)
+
+
+def _combine_1d_pvalues(pvalues_1d, method: str, weights, backend):
     if method == "fisher":
         if weights is not None:
-            raise ValueError("weights are only supported for method='cauchy'")
-        return _combine_1d_fisher(pvalues_1d, xp)
+            raise ValueError(
+                "weights are only supported for method='cauchy' or method='stouffer'"
+            )
+        return _combine_1d_fisher(pvalues_1d, backend)
     if method == "cauchy":
-        return _combine_1d_cauchy(pvalues_1d, weights, xp)
+        return _combine_1d_cauchy(pvalues_1d, weights, backend)
+    if method == "stouffer":
+        return _combine_1d_stouffer(pvalues_1d, weights, backend)
     raise ValueError(f"Unsupported normalized combine method: {method}")
 
 
@@ -235,14 +236,14 @@ def adjust_pvalues(
     pvalues : array-like
         Raw p-values.
     method : str, default='bh'
-        One of: 'bh', 'by', 'holm', 'bonferroni'.
-        Common aliases are accepted (e.g., 'fdr_bh', 'bonf').
+        One of: 'bh', 'by', 'holm', 'bonferroni', 'hochberg'.
+        Common aliases are accepted (e.g., 'fdr_bh', 'bonf', 'step_up').
     alpha : float, default=0.05
         Rejection threshold in (0, 1).
     axis : int or None, default=None
         Axis along which to adjust p-values.
         If None, adjusts over all values flattened.
-    backend : {'auto', 'numpy', 'cupy'}, default='auto'
+    backend : {'auto', 'numpy', 'cupy', 'torch'}, default='auto'
         Compute backend. ``'auto'`` infers from input array type.
 
     Returns
@@ -255,29 +256,29 @@ def adjust_pvalues(
     method_n = _normalize_method(method)
     alpha_f = _validate_alpha(alpha)
     backend_name = _resolve_backend(backend, pvalues)
-    xp = _get_xp(backend_name)
+    backend = get_backend(backend_name)
 
-    arr = xp.asarray(pvalues, dtype=xp.float64)
+    arr = backend.asarray(pvalues, dtype=backend.float64)
 
     if axis is None:
-        flat = _validate_1d_pvalues(arr, xp)
-        adj_flat = _adjust_1d_pvalues(flat, method_n, xp)
+        flat = _validate_1d_pvalues(arr, backend)
+        adj_flat = _adjust_1d_pvalues(flat, method_n, backend)
         reject_flat = adj_flat <= alpha_f
         return reject_flat.reshape(arr.shape), adj_flat.reshape(arr.shape)
 
     if arr.ndim == 0:
         raise ValueError("axis must be None for scalar pvalues")
 
-    axis_n = int(np.core.numeric.normalize_axis_index(axis, arr.ndim))
-    moved = xp.moveaxis(arr, axis_n, -1)
+    axis_n = _normalize_axis_index(axis, arr.ndim)
+    moved = backend.xp.moveaxis(arr, axis_n, -1)
     matrix = moved.reshape(-1, moved.shape[-1])
 
-    adj_matrix = xp.empty_like(matrix, dtype=xp.float64)
-    reject_matrix = xp.empty_like(matrix, dtype=bool)
+    adj_matrix = backend.xp.empty_like(matrix, dtype=backend.float64)
+    reject_matrix = backend.xp.empty_like(matrix, dtype=bool)
 
     for i in range(matrix.shape[0]):
-        row = _validate_1d_pvalues(matrix[i], xp)
-        adj_row = _adjust_1d_pvalues(row, method_n, xp)
+        row = _validate_1d_pvalues(matrix[i], backend)
+        adj_row = _adjust_1d_pvalues(row, method_n, backend)
         adj_matrix[i] = adj_row
         reject_matrix[i] = adj_row <= alpha_f
 
@@ -285,8 +286,8 @@ def adjust_pvalues(
     reject_moved = reject_matrix.reshape(moved.shape)
 
     return (
-        xp.moveaxis(reject_moved, -1, axis_n),
-        xp.moveaxis(adj_moved, -1, axis_n),
+        backend.xp.moveaxis(reject_moved, -1, axis_n),
+        backend.xp.moveaxis(adj_moved, -1, axis_n),
     )
 
 
@@ -304,13 +305,13 @@ def combine_pvalues(
     ----------
     pvalues : array-like
         Raw p-values to combine.
-    method : {'fisher', 'cauchy'}, default='fisher'
+    method : {'fisher', 'cauchy', 'stouffer'}, default='fisher'
         Combination method. Aliases accepted (e.g., 'acat').
     weights : array-like, optional
-        Optional non-negative weights for method='cauchy'.
+        Optional non-negative weights for method='cauchy' or 'stouffer'.
     axis : int or None, default=None
         Axis along which to combine p-values. If None, flattens all values.
-    backend : {'auto', 'numpy', 'cupy'}, default='auto'
+    backend : {'auto', 'numpy', 'cupy', 'torch'}, default='auto'
         Compute backend. ``'auto'`` infers from input array type.
 
     Returns
@@ -322,42 +323,53 @@ def combine_pvalues(
     """
     method_n = _normalize_combine_method(method)
     backend_name = _resolve_backend(backend, pvalues)
-    xp = _get_xp(backend_name)
+    backend = get_backend(backend_name)
 
-    arr = xp.asarray(pvalues, dtype=xp.float64)
+    arr = backend.asarray(pvalues, dtype=backend.float64)
 
     if axis is None:
-        flat = _validate_1d_pvalues(arr, xp)
-        return _combine_1d_pvalues(flat, method_n, weights, xp)
+        flat = _validate_1d_pvalues(arr, backend)
+        return _combine_1d_pvalues(flat, method_n, weights, backend)
 
     if arr.ndim == 0:
         raise ValueError("axis must be None for scalar pvalues")
 
-    arr = _validate_pvalues_array(arr, xp)
-    axis_n = int(np.core.numeric.normalize_axis_index(axis, arr.ndim))
-    moved = xp.moveaxis(arr, axis_n, -1)
+    arr = _validate_pvalues_array(arr, backend)
+    axis_n = _normalize_axis_index(axis, arr.ndim)
+    moved = backend.xp.moveaxis(arr, axis_n, -1)
     m = int(moved.shape[-1])
     if m == 0:
         raise ValueError("pvalues must contain at least one value")
 
     if method_n == "fisher":
         if weights is not None:
-            raise ValueError("weights are only supported for method='cauchy'")
+            raise ValueError("weights are only supported for method='cauchy' or method='stouffer'")
         eps = np.finfo(np.float64).tiny
-        p_safe = xp.clip(moved.astype(xp.float64), eps, 1.0)
-        statistics = -2.0 * xp.sum(xp.log(p_safe), axis=-1)
-        pvals = _chi2_sf(statistics, df=2 * m, xp=xp)
-        return statistics.astype(xp.float64), pvals.astype(xp.float64)
+        p_safe = backend.xp.clip(backend.astype(moved, backend.float64), eps, 1.0)
+        statistics = -2.0 * backend.xp.sum(backend.xp.log(p_safe), axis=-1)
+        pvals = chi2.sf(statistics, df=2 * m)
+        return backend.astype(statistics, backend.float64), backend.astype(pvals, backend.float64)
 
     if method_n == "cauchy":
-        w = _validate_weights(weights, m, xp)
+        w = _validate_weights(weights, m, backend)
         eps = np.finfo(np.float64).eps
-        p_safe = xp.clip(moved.astype(xp.float64), eps, 1.0 - eps)
+        p_safe = backend.xp.clip(backend.astype(moved, backend.float64), eps, 1.0 - eps)
         w_shape = (1,) * (p_safe.ndim - 1) + (m,)
-        statistics = xp.sum(w.reshape(w_shape) * xp.tan((0.5 - p_safe) * np.pi), axis=-1)
-        pvals = 0.5 - xp.arctan(statistics) / np.pi
-        pvals = xp.clip(pvals, 0.0, 1.0)
-        return statistics.astype(xp.float64), pvals.astype(xp.float64)
+        statistics = backend.xp.sum(w.reshape(w_shape) * backend.xp.tan((0.5 - p_safe) * np.pi), axis=-1)
+        pvals = 0.5 - backend.xp.arctan(statistics) / np.pi
+        pvals = backend.xp.clip(pvals, 0.0, 1.0)
+        return backend.astype(statistics, backend.float64), backend.astype(pvals, backend.float64)
+
+    if method_n == "stouffer":
+        w = _validate_weights(weights, m, backend)
+        eps = np.finfo(np.float64).eps
+        p_safe = backend.xp.clip(backend.astype(moved, backend.float64), eps, 1.0 - eps)
+        z_scores = norm.ppf(1.0 - p_safe)
+        w_shape = (1,) * (p_safe.ndim - 1) + (m,)
+        statistics = backend.xp.sum(w.reshape(w_shape) * z_scores, axis=-1) / backend.xp.sqrt(backend.xp.sum(w * w))
+        pvals = norm.sf(statistics)
+        pvals = backend.xp.clip(pvals, 0.0, 1.0)
+        return backend.astype(statistics, backend.float64), backend.astype(pvals, backend.float64)
 
     raise ValueError(f"Unsupported normalized combine method: {method_n}")
 

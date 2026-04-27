@@ -12,6 +12,15 @@ from .linear_model import (
     LinearRegression,
     LogisticRegression,
     LogisticRegressionCV,
+    PoissonRegression,
+    GeneralizedLinearModel,
+    OrderedGeneralizedLinearModel,
+    OrderedLogitRegression,
+    OrderedProbitRegression,
+    PenalizedGeneralizedLinearModel,
+    PenalizedLinearRegression,
+    PenalizedLogisticRegression,
+    PenalizedPoissonRegression,
     Ridge,
     RidgeCV,
     Lasso,
@@ -21,7 +30,7 @@ from .linear_model import (
 )
 from .survival import CoxPH, CoxPHCV
 from .backends import get_backend, NumpyBackend, CuPyBackend, TorchBackend
-from .evaluation import evaluate_binary_classification
+from .metrics import evaluate_binary_classification
 from .feature_selection import (
     FixedXKnockoffSelector,
     KnockoffSelector,
@@ -56,6 +65,15 @@ __all__ = [
     "LinearRegression",
     "LogisticRegression",
     "LogisticRegressionCV",
+    "PoissonRegression",
+    "GeneralizedLinearModel",
+    "OrderedGeneralizedLinearModel",
+    "OrderedLogitRegression",
+    "OrderedProbitRegression",
+    "PenalizedGeneralizedLinearModel",
+    "PenalizedLinearRegression",
+    "PenalizedLogisticRegression",
+    "PenalizedPoissonRegression",
     "Ridge",
     "RidgeCV",
     "Lasso",

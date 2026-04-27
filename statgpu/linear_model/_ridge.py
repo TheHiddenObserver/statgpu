@@ -6,9 +6,9 @@ from typing import Optional, Union
 import numpy as np
 from scipy import stats
 
-from .._base import BaseEstimator
-from .._config import Device
-from ..backends import _get_torch_device_str
+from statgpu._base import BaseEstimator
+from statgpu._config import Device
+from statgpu.backends import _get_torch_device_str
 
 
 class Ridge(BaseEstimator):
@@ -211,7 +211,7 @@ class Ridge(BaseEstimator):
             self._y = np.asarray(self._y)
 
         # GPU path already computes inference on-device in _fit_gpu/_fit_torch().
-        if self.compute_inference and device != Device.CUDA:
+        if self.compute_inference and device == Device.CPU:
             self._compute_inference()
         self._fitted = True
         return self
@@ -337,8 +337,8 @@ class Ridge(BaseEstimator):
             scale = cp.nan
         
         # Compute ALL statistics on GPU
-        from .._gpu_utils import compute_inference_gpu, compute_r2_gpu, compute_aic_bic_gpu, compute_f_stat_gpu
-        from ..inference._distributions_backend import norm
+        from statgpu.backends._gpu_inference_cupy import compute_inference_gpu, compute_r2_gpu, compute_aic_bic_gpu, compute_f_stat_gpu
+        from statgpu.inference._distributions_backend import norm
 
         if self.compute_inference:
             if self.cov_type == "nonrobust":
@@ -484,13 +484,13 @@ class Ridge(BaseEstimator):
     def _fit_torch(self, X, y, sample_weight=None):
         """Fit using Torch GPU."""
         import torch
-        from .._gpu_utils_torch import (
+        from statgpu.backends._gpu_inference_torch import (
             compute_inference_torch,
             compute_r2_torch,
             compute_aic_bic_torch,
             compute_f_stat_torch,
         )
-        from ..inference._distributions_backend import norm
+        from statgpu.inference._distributions_backend import norm
 
         # Note: Device.TORCH.value is 'torch', but Torch expects 'cuda' or 'cpu'
         torch_device = _get_torch_device_str()
@@ -703,13 +703,38 @@ class Ridge(BaseEstimator):
             coef_gpu = cp.asarray(self.coef_)
             intercept_gpu = cp.asarray(self.intercept_, dtype=coef_gpu.dtype)
             return X_gpu @ coef_gpu + intercept_gpu
+        if device == Device.TORCH:
+            import torch
+
+            X_torch = self._to_array(X, Device.TORCH, backend="torch").to(torch.float64)
+            coef_torch = torch.as_tensor(self.coef_, dtype=X_torch.dtype, device=X_torch.device)
+            intercept_torch = torch.as_tensor(
+                self.intercept_, dtype=X_torch.dtype, device=X_torch.device
+            )
+            return X_torch @ coef_torch + intercept_torch
         X = self._to_array(X, Device.CPU)
         X = np.asarray(X)
         return X @ self.coef_ + self.intercept_
 
     def score(self, X, y):
         """R² score."""
-        y_pred = self._to_numpy(self.predict(X))
+        y_pred = self.predict(X)
+        device = self._get_compute_device()
+        if device == Device.CUDA:
+            import cupy as cp
+
+            yb = cp.asarray(self._to_array(y, Device.CUDA))
+            ss_res = cp.sum((yb - y_pred) ** 2)
+            ss_tot = cp.sum((yb - cp.mean(yb)) ** 2)
+            return float((1 - ss_res / ss_tot).item()) if float(ss_tot.item()) > 0 else 0.0
+        if device == Device.TORCH:
+            import torch
+
+            yb = self._to_array(y, Device.TORCH, backend="torch").to(y_pred.dtype)
+            ss_res = torch.sum((yb - y_pred) ** 2)
+            ss_tot = torch.sum((yb - torch.mean(yb)) ** 2)
+            return float((1 - ss_res / ss_tot).item()) if float(ss_tot.item()) > 0 else 0.0
+        y_pred = np.asarray(y_pred)
         y = self._to_numpy(y)
         ss_res = np.sum((y - y_pred) ** 2)
         ss_tot = np.sum((y - np.mean(y)) ** 2)
@@ -825,3 +850,50 @@ class Ridge(BaseEstimator):
                   f"{self._conf_int[i, 0]:>12.4f} {self._conf_int[i, 1]:>12.4f}")
 
         print("=" * 80)
+
+
+# =============================================================================
+# V9 thin wrapper
+# =============================================================================
+
+from ._penalized import PenalizedLinearRegression as _PenalizedLinearRegression
+
+
+class Ridge(_PenalizedLinearRegression):
+    """Thin sklearn-style wrapper over ``PenalizedLinearRegression`` with L2 penalty."""
+
+    def __init__(
+        self,
+        alpha: float = 1.0,
+        fit_intercept: bool = True,
+        device: Union[str, Device] = Device.AUTO,
+        n_jobs: Optional[int] = None,
+        gpu_memory_cleanup: bool = False,
+        compute_inference: bool = True,
+        cov_type: str = "nonrobust",
+        hac_maxlags: Optional[int] = None,
+        max_iter: int = 1000,
+        tol: float = 1e-4,
+        solver: str = "exact",
+        cpu_solver: str = "fista",
+        lipschitz_L: Optional[float] = None,
+    ):
+        self.compute_inference = compute_inference
+        self.cov_type = str(cov_type).lower()
+        self.hac_maxlags = hac_maxlags
+        super().__init__(
+            penalty="l2",
+            alpha=alpha,
+            fit_intercept=fit_intercept,
+            max_iter=max_iter,
+            tol=tol,
+            device=device,
+            n_jobs=n_jobs,
+            gpu_memory_cleanup=gpu_memory_cleanup,
+            solver=solver,
+            cpu_solver=cpu_solver,
+            lipschitz_L=lipschitz_L,
+            compute_inference=compute_inference,
+            cov_type=cov_type,
+            hac_maxlags=hac_maxlags,
+        )

@@ -9,13 +9,16 @@
 
 本节按方法维度组织文档，便于后续新增统计方法时持续扩展。
 
-## 线性模型
+## 线性与 GLM 模型
 
 - [LinearRegression](linear-regression.md)
+- [GeneralizedLinearModel 与 Penalized GLM](generalized-linear-model.md)
+- [PoissonRegression](poisson-regression.md)
 - [Ridge](ridge.md)
 - [Lasso](lasso.md)
 - [ElasticNet](elastic-net.md)
 - [LogisticRegression](logistic-regression.md)
+- [Ordered Generalized Linear Models (Logit/Probit)](ordered.md)
 
 ## 生存分析
 
@@ -42,12 +45,15 @@
 
 - 当前核心模型均支持 `device="cpu"` / `device="cuda"` / `device="auto"`。
 - 当前核心模型均支持 `gpu_memory_cleanup`。
+- `GeneralizedLinearModel` 与 typed penalized GLM 见 [GeneralizedLinearModel 与 Penalized GLM](generalized-linear-model.md)。
+- `PoissonRegression` 作为普通 Poisson GLM estimator 单独记录。
 - 推断能力较完整的模型：
   - `LinearRegression`：经典协方差 + `HC0/HC1/HC2/HC3/HAC`
   - `Ridge`：经典协方差 + `HC0/HC1/HC2/HC3/HAC`
   - `Lasso`：CPU/GPU OLS 风格推断 + bootstrap
   - `LogisticRegression`：经典协方差 + `HC0/HC1/HC2/HC3/HAC`
 - `CoxPH` 支持 Breslow/Efron ties，并提供 CPU/GPU 拟合路径。
+- `OrderedLogitRegression` / `OrderedProbitRegression` 支持 CPU/CuPy/Torch 三后端，跨后端精度已修复（coef diff < 1e-2）。
 - `CoxPH` 的 `entry`（delayed entry）路径已支持：
   - `entry + breslow`：CPU/CUDA/Torch
   - `entry + efron`：CPU/CUDA/Torch

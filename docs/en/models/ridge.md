@@ -1,7 +1,7 @@
 # Ridge
 
 > Language: English  
-> Last updated: 2026-04-17  
+> Last updated: 2026-04-25  
 > This page: Model documentation  
 > Switch: [Chinese](../../models/ridge.md)
 
@@ -31,6 +31,8 @@ The ridge first-order condition is
 \]
 solved by stable linear algebra routines on CPU/GPU backends.
 
+`Ridge` now defaults to `solver="exact"`, which uses the closed-form normal-equation solution.  The exact path is available on CPU, CuPy, and Torch backends.  For objective-scale comparisons with sklearn, use `sklearn_alpha = n_samples * statgpu_alpha`.
+
 ## Covariance/Inference
 
 - `cov_type="nonrobust"`: classical ridge covariance.
@@ -50,6 +52,7 @@ solved by stable linear algebra routines on CPU/GPU backends.
 | `cov_type` | `"nonrobust"` | `nonrobust` / `hc0` / `hc1` / `hc2` / `hc3` / `hac` |
 | `hac_maxlags` | `None` | Max lag for `cov_type="hac"`; default follows Newey-West style heuristic |
 | `gpu_memory_cleanup` | `False` | Best-effort CuPy pool cleanup after each fit |
+| `solver` | `"exact"` | Solver for the thin-wrapper path; exact L2 solution by default |
 
 ## CPU+GPU Examples
 

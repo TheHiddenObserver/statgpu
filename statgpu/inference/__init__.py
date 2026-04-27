@@ -105,7 +105,7 @@ from ._resampling import (
     bootstrap_statistic,
     permutation_test,
 )
-from ..nonparametric._kde import (
+from statgpu.nonparametric._kde import (
     KDE,
     KDEBootstrapResult,
     fit_kde,

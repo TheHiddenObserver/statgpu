@@ -7,9 +7,20 @@ import numpy as np
 from scipy import stats
 from time import perf_counter
 
-from .._base import BaseEstimator
-from .._config import Device
-from ..backends import _get_torch_device_str
+from statgpu._base import BaseEstimator
+from statgpu._config import Device
+from statgpu.backends import _get_torch_device_str
+
+
+def _parse_formula_if_provided(formula, data, X, y):
+    """Parse formula+data or fall back to raw arrays. Returns (y, X, info)."""
+    if formula is not None:
+        from statgpu.core.formula import parse_formula
+        return parse_formula(formula, data)
+    y = np.asarray(y)
+    if y.ndim == 2 and y.shape[1] == 1:
+        y = y.ravel()
+    return y, np.asarray(X), None
 
 
 class LinearRegression(BaseEstimator):
@@ -71,6 +82,9 @@ class LinearRegression(BaseEstimator):
         self._conf_int = None
         self._is_multi_output = False
         self._hac_mixed_precision_preference = {}
+        self._feature_names = None
+        self._design_info = None
+        self._formula_has_intercept = None
 
     def _cleanup_cuda_memory(self):
         """Best-effort CuPy memory pool cleanup."""
@@ -264,17 +278,69 @@ class LinearRegression(BaseEstimator):
             cov_params = cov_params * (n / (n - k))
         return cov_params
     
-    def fit(self, X, y, sample_weight=None):
-        """Fit linear model."""
+    def fit(self, X=None, y=None, sample_weight=None, formula=None, data=None):
+        """Fit linear model.
+
+        Parameters
+        ----------
+        X : array-like or None
+            Predictor matrix. Required if ``formula`` is None.
+        y : array-like or None
+            Response vector. Required if ``formula`` is None.
+        sample_weight : array-like or None
+            Sample weights.
+        formula : str or None
+            R-style formula string (e.g. ``"y ~ x1 + x2"``). Mutually
+            exclusive with ``X``/``y``.
+        data : pd.DataFrame or None
+            DataFrame used with ``formula`` for column lookup.
+        """
+        # Handle formula interface
+        _orig_fit_intercept = self.fit_intercept
+        if formula is not None:
+            if data is None:
+                raise ValueError(
+                    "formula was provided but data is None. "
+                    "Pass data=your_dataframe when using formula."
+                )
+            y_arr, X_arr, design_info = _parse_formula_if_provided(
+                formula, data, None, None
+            )
+            self._design_info = design_info
+            formula_column_names = list(design_info.column_names)
+            self._formula_has_intercept = "Intercept" in formula_column_names
+            self._feature_names = [name for name in formula_column_names if name != "Intercept"]
+            if self._formula_has_intercept:
+                intercept_idx = formula_column_names.index("Intercept")
+                # Drop the intercept column — let the fitting methods handle it
+                X_arr = np.delete(X_arr, intercept_idx, axis=1)
+                self.fit_intercept = True
+            else:
+                # Formula syntax owns intercept semantics, matching statsmodels/R.
+                self.fit_intercept = False
+        else:
+            if X is None or y is None:
+                raise ValueError(
+                    "Either formula+data or X+y must be provided."
+            )
+            self._feature_names = None
+            self._design_info = None
+            self._formula_has_intercept = None
+            y_arr = np.asarray(y)
+            if y_arr.ndim == 2 and y_arr.shape[1] == 1:
+                y_arr = y_arr.ravel()
+            X_arr = np.asarray(X)
+
+        self.fit_intercept = _orig_fit_intercept
         # Store y (may be CuPy/Torch array, convert later for CPU)
-        self._y = y
+        self._y = y_arr
 
         # Get backend - support explicit torch backend selection
         backend = self._get_backend(backend="auto")
         backend_name = backend.name
 
-        X_arr = self._to_array(X, backend=backend_name)
-        y_arr = self._to_array(y, backend=backend_name)
+        X_arr = self._to_array(X_arr, backend=backend_name)
+        y_arr = self._to_array(y_arr, backend=backend_name)
         self._is_multi_output = y_arr.ndim > 1 and y_arr.shape[1] > 1
 
         device = self._get_compute_device()
@@ -296,7 +362,14 @@ class LinearRegression(BaseEstimator):
             self._y = np.asarray(self._y)
 
         # GPU single-output inference is computed in _fit_gpu/_fit_torch().
-        if self.compute_inference and (self._is_multi_output or device != Device.CUDA):
+        # Multi-output GPU inference is not implemented yet; do not fall back to
+        # the NumPy inference path when the user selected a GPU backend.
+        if self.compute_inference and self._is_multi_output and device in (Device.CUDA, Device.TORCH):
+            raise NotImplementedError(
+                "Multi-output LinearRegression inference is not implemented for "
+                f"device='{device.value}'. Set compute_inference=False or use device='cpu'."
+            )
+        if self.compute_inference and device == Device.CPU:
             self._compute_inference()
         self._fitted = True
         return self
@@ -362,13 +435,13 @@ class LinearRegression(BaseEstimator):
     def _fit_gpu(self, X, y, sample_weight=None):
         """Fit using GPU with FULL GPU computation (including inference)."""
         import cupy as cp
-        from .._gpu_utils import (
+        from statgpu.backends._gpu_inference_cupy import (
             compute_inference_gpu,
             compute_r2_gpu,
             compute_aic_bic_gpu,
             compute_f_stat_gpu,
         )
-        from ..inference._distributions_backend import norm
+        from statgpu.inference._distributions_backend import norm
         
         n_samples, n_features = X.shape
         self._nobs = n_samples
@@ -582,13 +655,13 @@ class LinearRegression(BaseEstimator):
     def _fit_torch(self, X, y, sample_weight=None):
         """Fit using Torch GPU with FULL GPU computation (including inference)."""
         import torch
-        from .._gpu_utils_torch import (
+        from statgpu.backends._gpu_inference_torch import (
             compute_inference_torch,
             compute_r2_torch,
             compute_aic_bic_torch,
             compute_f_stat_torch,
         )
-        from ..inference._distributions_backend import norm
+        from statgpu.inference._distributions_backend import norm
 
         n_samples, n_features = X.shape
         self._nobs = n_samples
@@ -927,7 +1000,11 @@ class LinearRegression(BaseEstimator):
             raise RuntimeError("summary() is only available for single-output linear regression.")
         
         # Build feature names
-        if self.fit_intercept:
+        if self._feature_names is not None:
+            feature_names = list(self._feature_names)
+            if self.fit_intercept:
+                feature_names.insert(0, '(Intercept)')
+        elif self.fit_intercept:
             feature_names = ['(Intercept)'] + [f'x{i+1}' for i in range(len(self.coef_))]
         else:
             feature_names = [f'x{i+1}' for i in range(len(self.coef_))]
@@ -957,8 +1034,42 @@ class LinearRegression(BaseEstimator):
         print("=" * 80)
     
     def predict(self, X):
-        """Predict using the linear model."""
+        """Predict using the linear model.
+
+        Parameters
+        ----------
+        X : array-like or pd.DataFrame
+            If a DataFrame is passed and the model was trained with a formula,
+            the design matrix is automatically built using the stored
+            ``design_info``.
+
+        Returns
+        -------
+        predictions : ndarray
+        """
         self._check_is_fitted()
+
+        # If model was trained with formula and X is a DataFrame,
+        # rebuild the design matrix using the stored design_info.
+        if self._design_info is not None:
+            import pandas as pd
+            if isinstance(X, pd.DataFrame):
+                from statgpu.core.formula import FormulaParser
+                # Reconstruct parser from design_info
+                parser = FormulaParser.__new__(FormulaParser)
+                parser._design_info = self._design_info
+                parser.formula = None
+                X = parser.transform(X)
+                # Drop intercept column to match the fitting path
+                col_names = list(self._design_info.column_names)
+                if self._formula_has_intercept and "Intercept" in col_names:
+                    intercept_idx = col_names.index("Intercept")
+                    X = np.delete(X, intercept_idx, axis=1)
+            else:
+                X = np.asarray(X)
+        else:
+            X = np.asarray(X)
+
         device = self._get_compute_device()
         if device == Device.CUDA:
             import cupy as cp
@@ -969,6 +1080,17 @@ class LinearRegression(BaseEstimator):
             if coef_gpu.ndim == 2:
                 return X_gpu @ coef_gpu.T + intercept_gpu
             return X_gpu @ coef_gpu + intercept_gpu
+        if device == Device.TORCH:
+            import torch
+
+            X_torch = self._to_array(X, Device.TORCH, backend="torch").to(torch.float64)
+            coef_torch = torch.as_tensor(self.coef_, dtype=X_torch.dtype, device=X_torch.device)
+            intercept_torch = torch.as_tensor(
+                self.intercept_, dtype=X_torch.dtype, device=X_torch.device
+            )
+            if coef_torch.ndim == 2:
+                return X_torch @ coef_torch.T + intercept_torch
+            return X_torch @ coef_torch + intercept_torch
         X = self._to_array(X, Device.CPU)
         X = np.asarray(X)
         if np.asarray(self.coef_).ndim == 2:
@@ -978,7 +1100,33 @@ class LinearRegression(BaseEstimator):
     def score(self, X, y):
         """Return R^2 score."""
         y_pred = self.predict(X)
-        y = np.asarray(y)
+        device = self._get_compute_device()
+        if device == Device.CUDA:
+            import cupy as cp
+
+            yb = cp.asarray(self._to_array(y, Device.CUDA))
+            if y_pred.ndim == 1:
+                ss_res = cp.sum((yb - y_pred) ** 2)
+                ss_tot = cp.sum((yb - cp.mean(yb)) ** 2)
+                return float((1 - ss_res / ss_tot).item()) if float(ss_tot.item()) > 0 else 0.0
+            ss_res = cp.sum((yb - y_pred) ** 2, axis=0)
+            ss_tot = cp.sum((yb - cp.mean(yb, axis=0)) ** 2, axis=0)
+            r2 = cp.where(ss_tot > 0, 1 - ss_res / ss_tot, 0.0)
+            return float(cp.mean(r2).item())
+        if device == Device.TORCH:
+            import torch
+
+            yb = self._to_array(y, Device.TORCH, backend="torch").to(y_pred.dtype)
+            if y_pred.ndim == 1:
+                ss_res = torch.sum((yb - y_pred) ** 2)
+                ss_tot = torch.sum((yb - torch.mean(yb)) ** 2)
+                return float((1 - ss_res / ss_tot).item()) if float(ss_tot.item()) > 0 else 0.0
+            ss_res = torch.sum((yb - y_pred) ** 2, dim=0)
+            ss_tot = torch.sum((yb - torch.mean(yb, dim=0)) ** 2, dim=0)
+            r2 = torch.where(ss_tot > 0, 1 - ss_res / ss_tot, torch.zeros_like(ss_tot))
+            return float(torch.mean(r2).item())
+        y_pred = np.asarray(y_pred)
+        y = self._to_numpy(y)
         if y_pred.ndim == 1:
             ss_res = np.sum((y - y_pred) ** 2)
             ss_tot = np.sum((y - np.mean(y)) ** 2)

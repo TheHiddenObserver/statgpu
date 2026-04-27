@@ -69,7 +69,9 @@ class _DeviceManager:
 
         if device in (Device.CUDA, Device.TORCH) and not self.cuda_available():
             warnings.warn(
-                "CUDA requested but not available. Falling back to CPU.",
+                "CUDA requested but not available. statgpu keeps the explicit "
+                "device setting and model execution will raise unless a matching "
+                "GPU backend is installed; use device='auto' for automatic CPU selection.",
                 RuntimeWarning
             )
 

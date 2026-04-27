@@ -1,7 +1,7 @@
 # statgpu 文档入口（中文）
 
 > 语言: 中文  
-> 最后更新: 2026-04-18  
+> 最后更新: 2026-04-26  
 > 页面定位: 中文文档入口  
 > 切换: [English](USAGE.md)
 
@@ -16,7 +16,7 @@
 - [设备与显存管理](docs/guides/device-and-memory.md)
 - [推断配置（Lasso）](docs/guides/inference-modes.md)
 - [Distribution API 使用指南（原生 GPU + 显式 Fallback）](docs/guides/distribution-api.md)
-- [全局 p 值合并（Fisher/Cauchy/ACAT）](docs/guides/multiple-testing-combine-pvalues.md)
+- [多重检验：P值校正与合并（BH/BY/Holm/Bonferroni/Hochberg + Fisher/Cauchy/Stouffer）](docs/guides/multiple-testing-combine-pvalues.md)
 - [变更记录](docs/changelog.md)
 
 安装提示：
@@ -28,13 +28,19 @@
 
 总览索引：
 - [模型总览](docs/models/README.md)
+- [GeneralizedLinearModel 与 Penalized GLM](docs/models/generalized-linear-model.md)
+- [PoissonRegression](docs/models/poisson-regression.md)
 - [Knockoff 特征选择](docs/models/knockoff.md)
+- [有序广义线性模型 (Logit/Probit)](docs/models/ordered.md)
 - [非参数方法](docs/models/nonparametric.md)
 
 ### 线性模型 `statgpu.linear_model`
 - [LinearRegression](docs/models/linear-regression.md)
+- [GeneralizedLinearModel 与 Penalized GLM](docs/models/generalized-linear-model.md)
+- [PoissonRegression](docs/models/poisson-regression.md)
 - [Ridge](docs/models/ridge.md)
 - [Lasso](docs/models/lasso.md)
+- [ElasticNet](docs/models/elastic-net.md)
 - [LogisticRegression](docs/models/logistic-regression.md)
 
 ### 生存分析 `statgpu.survival`
@@ -42,8 +48,14 @@
 
 当前已实现方法：
 - `LinearRegression`
+- `GeneralizedLinearModel`
+- `PoissonRegression`
+- `PenalizedLinearRegression`
+- `PenalizedLogisticRegression`
+- `PenalizedPoissonRegression`
 - `Ridge`
 - `Lasso`
+- `ElasticNet`
 - `LassoCV`
 - `LogisticRegression`
 - `CoxPH` ✅ (Torch backend)
@@ -52,6 +64,9 @@
   - 支持 C-index、baseline hazard、AIC/BIC
   - **性能**: Torch GPU 在 n=5000, p=20 规模下实现 15.44x 加速 (vs statsmodels)
   - 详见 `results/coxph_benchmark_report_2026-04-20.md` 综合性能对比报告
+- `OrderedLogitRegression` / `OrderedProbitRegression` ✅ (三后端)
+  - 有序响应模型（累积 logit/probit 链接函数）
+  - 跨后端精度修复 (2026-04-26)：coef 最大差异 < 1e-2
 
 当前导出的 CV 类：
 - `RidgeCV` ✅ (完整实现，支持 GPU 加速交叉验证)
@@ -70,8 +85,9 @@
 - `Ridge`: `cov_type=nonrobust/hc0/hc1/hc2/hc3/hac`（CPU+GPU）
 - `Lasso`: `inference_method=cpu_ols_inference/gpu_ols_inference/bootstrap`
 - `LogisticRegression`: `cov_type=nonrobust/hc0/hc1/hc2/hc3/hac`（CPU+GPU）
-- 多重比较工具：`statgpu.adjust_pvalues` / `statgpu.multipletests`（`bh/by/holm/bonferroni`）
-- 全局 p 值合并：`statgpu.combine_pvalues`（`fisher/cauchy/acat`）
+- 多重比较工具：`statgpu.adjust_pvalues` / `statgpu.multipletests`（`bh/by/holm/bonferroni/hochberg`）
+- 全局 p 值合并：`statgpu.combine_pvalues`（`fisher/cauchy/stouffer`）
+- 有序响应模型：`OrderedLogitRegression` / `OrderedProbitRegression`（CPU/CuPy/Torch）
 - 统一重采样引擎：`statgpu.bootstrap_statistic` / `statgpu.permutation_test`
 
 ## 3) 基准与验证
@@ -79,7 +95,8 @@
 - [基准脚本索引](docs/benchmarks.md)
 
 当前重点脚本：
-- `dev/benchmarks/benchmark_lasso_inference_gpu_vs_cpu.py`
+- `dev/benchmarks/_bench_inference_timing.py`（多重检验计时, p=100-10k）
+- `dev/benchmarks/_bench_inference_timing_large.py`（多重检验计时, p=50k-1M）
 - `dev/benchmarks/benchmark_gpu_memory_cleanup.py`
 - `dev/benchmarks/benchmark_all_methods_large_scale.py`
 - `dev/benchmarks/benchmark_kernel_regression_vs_statsmodels.py`

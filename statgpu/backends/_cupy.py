@@ -129,6 +129,17 @@ class CuPyBackend(BackendBase):
         import cupy as cp
         return cp.zeros(shape, dtype=dtype)
 
+    def arange(self, start, stop=None, step=1, dtype=None):
+        """Create range array."""
+        import cupy as cp
+        if stop is None:
+            result = cp.arange(start, step=step)
+        else:
+            result = cp.arange(start, stop, step=step)
+        if dtype is not None:
+            result = result.astype(dtype)
+        return result
+
     def array(self, val, dtype=None):
         """Create a scalar or array from a value."""
         import cupy as cp
@@ -157,10 +168,32 @@ class CuPyBackend(BackendBase):
         import cupy as cp
         return cp.float32
 
+    @property
+    def int64(self):
+        """int64 dtype."""
+        import cupy as cp
+        return cp.int64
+
+    @property
+    def int32(self):
+        """int32 dtype."""
+        import cupy as cp
+        return cp.int32
+
     def clip(self, x, min_val, max_val):
         """Clip values to [min_val, max_val]."""
         import cupy as cp
         return cp.clip(x, min_val, max_val)
+
+    def minimum(self, x, y):
+        """Element-wise minimum of two arrays."""
+        import cupy as cp
+        return cp.minimum(x, y)
+
+    def maximum(self, x, y):
+        """Element-wise maximum of two arrays."""
+        import cupy as cp
+        return cp.maximum(x, y)
 
     def exp(self, x):
         """Element-wise exponential."""
@@ -192,9 +225,24 @@ class CuPyBackend(BackendBase):
         import cupy as cp
         return cp.diag(x, k=k)
 
+    def transpose(self, x, axes=None):
+        """Transpose array."""
+        import cupy as cp
+        return cp.transpose(x, axes)
+
     def eye(self, n, m=None, dtype=None):
         """Create identity matrix."""
         import cupy as cp
         if m is None:
             m = n
         return cp.eye(n, m, dtype=dtype)
+
+    def cummin(self, arr, axis=0):
+        """Cumulative minimum along *axis* (CuPy fallback via CPU)."""
+        import cupy as cp
+        return cp.asarray(np.minimum.accumulate(cp.asnumpy(arr), axis=axis))
+
+    def cummax(self, arr, axis=0):
+        """Cumulative maximum along *axis* (CuPy fallback via CPU)."""
+        import cupy as cp
+        return cp.asarray(np.maximum.accumulate(cp.asnumpy(arr), axis=axis))

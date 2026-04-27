@@ -7,10 +7,10 @@ from collections import OrderedDict
 import hashlib
 import numpy as np
 
-from .._config import Device
-from .._cv_base import CVEstimatorBase
-from ..backends import get_backend
-from ..backends._factory import _cupy_backend, _torch_backend
+from statgpu._config import Device
+from statgpu.linear_model._cv_base import CVEstimatorBase
+from statgpu.backends import get_backend
+from statgpu.backends._factory import _cupy_backend, _torch_backend
 from ._ridge import Ridge
 
 

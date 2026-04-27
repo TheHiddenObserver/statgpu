@@ -5,7 +5,7 @@ import pytest
 
 from statgpu.linear_model import LogisticRegression
 from statgpu._config import set_device, Device
-from statgpu.evaluation import (
+from statgpu.metrics import (
     binary_average_precision_score,
     binary_precision_recall_curve,
     evaluate_binary_classification,

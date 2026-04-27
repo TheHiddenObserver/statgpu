@@ -9,6 +9,47 @@ Language switch: [Chinese](../changelog.md)
 
 ## 2026-04
 
+### Added (2026-04-26)
+
+- **Phase 1: Ordered Model Cross-Backend Precision Fixes**:
+  - CuPy convergence tolerance aligned: `gtol = 1e-6` → `gtol = self.tol` (matches scipy)
+  - CuPy min iterations reduced from 30 to 5 (avoids forced extra iterations on small samples)
+  - Removed CuPy warm-start branch, always initialize from zero (matches scipy/torch)
+  - PyTorch captures real iteration count from `optimizer.state_dict()` instead of falsely reporting `max_iter`
+  - PyTorch `strong_wolfe` failure now raises `RuntimeError` instead of silently degrading
+  - Regression tests: `dev/tests/test_ordered_cross_backend.py` (10 cross-backend cases, all passed)
+  - Files modified: `statgpu/linear_model/_glm_base.py`, `dev/tests/test_ordered_cross_backend.py`
+
+- **Phase 2a: New hochberg (adjust_pvalues) + stouffer (combine_pvalues) across 3 backends**:
+  - `adjust_pvalues` new `method='hochberg'` (step-up FDR), aliases `fdr_hochberg` / `step_up` / `stepup`
+  - `combine_pvalues` new `method='stouffer'` (weighted Z-test), aliases `ztest` / `weighted_z`
+  - Stouffer supports weights, consistent with cauchy weight interface
+  - Batched support with `axis` parameter (arbitrary shape arrays)
+  - Dependency: added `norm` distribution proxy (alongside existing `chi2`)
+  - Files modified: `statgpu/inference/_multiple_testing.py`, `statgpu/inference/_distributions_backend.py`
+
+- **Phase 2b: Test Expansion**:
+  - New `TestHochberg` (4 tests): closed-form verification, aliases, vs BH, axis batching
+  - New `TestStouffer` (6 tests): vs scipy, weights, aliases, axis, edge cases
+  - New `TestCauchyNoWeights` (2 tests): cauchy without weights, default weight equivalence
+  - New `TestTorchBackend` (6 tests): adjust/combine Torch vs NumPy consistency
+  - Fixed `np._core.numeric` compatibility (NumPy 1.x vs 2.x), added `_normalize_axis_index` helper
+  - Test file grew from 339 to 519 lines
+  - Remote validation: 40/40 passed (Tesla P100)
+  - Files modified: `dev/tests/test_inference_multiple_testing.py`
+
+- **Phase 3: Package Structure Audit & Reorganization**:
+  - Moved `_gpu_utils.py` → `backends/_gpu_inference_cupy.py`
+  - Moved `_gpu_utils_torch.py` → `backends/_gpu_inference_torch.py`
+  - Merged `evaluation/` → `metrics/`, deleted `evaluation/` directory
+  - Merged `glm_core/_backend.py` → `backends/_array_ops.py`
+  - Moved `_cv_base.py` → `linear_model/_cv_base.py`
+  - Fixed `core/__init__.py` docstring (removed references to non-existent modules)
+  - Added `survival/__init__.py` naming convention docs (`_cuda` / `_cupy` / `_triton`)
+  - Updated 18 import sites across the codebase
+  - Deleted files: `_gpu_utils.py`, `_gpu_utils_torch.py`, `_cv_base.py`, `glm_core/_backend.py`, `evaluation/` directory
+  - All moves verified with `import statgpu` smoke test
+
 ### Added (2026-04-21)
 
 - **CoxPHCV upgraded from skeleton to trainable implementation**:

@@ -287,11 +287,15 @@ class TorchBackend(BackendBase):
     def maximum(self, x, y):
         """Element-wise maximum of two arrays."""
         import torch
+        if not isinstance(y, torch.Tensor):
+            y = torch.tensor(y, dtype=x.dtype, device=x.device)
         return torch.maximum(x, y)
 
     def minimum(self, x, y):
         """Element-wise minimum of two arrays."""
         import torch
+        if not isinstance(y, torch.Tensor):
+            y = torch.tensor(y, dtype=x.dtype, device=x.device)
         return torch.minimum(x, y)
 
     def clip(self, x, min_val, max_val):
@@ -335,9 +339,9 @@ class TorchBackend(BackendBase):
         """Create range array."""
         import torch
         if stop is None:
-            result = torch.arange(start, step=step, device=self._device)
+            result = torch.arange(0, start, step, device=self._device)
         else:
-            result = torch.arange(start, stop, step=step, device=self._device)
+            result = torch.arange(start, stop, step, device=self._device)
         if dtype is not None:
             result = result.to(dtype)
         return result
@@ -371,6 +375,8 @@ class TorchBackend(BackendBase):
     def full(self, shape, fill_value, dtype=None):
         """Create array filled with a constant value."""
         import torch
+        if isinstance(shape, int):
+            shape = (shape,)
         result = torch.full(shape, fill_value, device=self._device)
         if dtype is not None:
             result = result.to(dtype)
@@ -531,6 +537,33 @@ class TorchBackend(BackendBase):
         """Cast array to dtype."""
         import torch
         return x.to(dtype)
+
+    def concatenate(self, arrays, axis=0):
+        """Concatenate *arrays* along *axis* (torch.cat)."""
+        import torch
+        return torch.cat(arrays, dim=axis)
+
+    def take_along_axis(self, arr, indices, axis):
+        """Gather elements along *axis* (torch.take_along_dim)."""
+        import torch
+        return torch.take_along_dim(arr, indices, dim=axis)
+
+    def cummin(self, arr, axis=0):
+        """Cumulative minimum along *axis* (torch.cummin)."""
+        import torch
+        vals, _ = torch.cummin(arr, dim=axis)
+        return vals
+
+    def cummax(self, arr, axis=0):
+        """Cumulative maximum along *axis* (torch.cummax)."""
+        import torch
+        vals, _ = torch.cummax(arr, dim=axis)
+        return vals
+
+    def flip(self, arr, axis=0):
+        """Reverse the order of elements along *axis* (torch.flip)."""
+        import torch
+        return torch.flip(arr, dims=[axis])
 
     @property
     def float64(self):

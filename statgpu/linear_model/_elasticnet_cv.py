@@ -7,9 +7,9 @@ from collections import OrderedDict
 import hashlib
 import numpy as np
 
-from .._config import Device, cuda_available
-from .._cv_base import CVEstimatorBase
-from ..backends import get_backend
+from statgpu._config import Device, cuda_available
+from statgpu.linear_model._cv_base import CVEstimatorBase
+from statgpu.backends import get_backend
 from ._elasticnet import ElasticNet
 
 
@@ -812,6 +812,8 @@ class ElasticNetCV(CVEstimatorBase):
             "std_mse": details["std_mse"],
             "alphas": details["alphas"],
             "l1_ratios": details["l1_ratios"],
+            "best_alpha": self.alpha_,
+            "best_l1_ratio": self.l1_ratio_,
         }
         self.best_score_ = details["best_mse"]
 

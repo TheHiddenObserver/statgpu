@@ -6,8 +6,8 @@ from abc import ABC, abstractmethod
 from typing import Optional, Union, Any
 import numpy as np
 
-from ._config import Device, get_device, cuda_available
-from .backends import get_backend, BackendBase, _get_torch_device_str
+from statgpu._config import Device, get_device
+from statgpu.backends import get_backend, BackendBase, _get_torch_device_str
 
 
 class BaseEstimator(ABC):
@@ -40,7 +40,7 @@ class BaseEstimator(ABC):
     def _get_compute_device(self) -> Device:
         """Resolve device for actual computation."""
         if self.device == Device.AUTO:
-            return Device.CUDA if cuda_available() else Device.CPU
+            return get_device()
         return self.device
 
     def _get_backend(self, backend: str = "auto") -> BackendBase:
@@ -62,16 +62,33 @@ class BaseEstimator(ABC):
         compute_device = self._get_compute_device()
         device_str = compute_device.value  # 'cpu', 'cuda', or 'torch'
 
+        if (
+            self.device != Device.AUTO
+            and compute_device == Device.CUDA
+            and backend == "auto"
+        ):
+            cupy_backend = get_backend(backend="cupy", device="cuda")
+            if not cupy_backend.is_available():
+                raise RuntimeError(
+                    "device='cuda' requires a working CuPy CUDA backend. "
+                    "Use device='auto' to allow automatic backend selection."
+                )
+            return cupy_backend
+
         # Handle Device.TORCH explicitly - use torch backend
         if compute_device == Device.TORCH:
-            torch_device = "cpu"
             try:
                 import torch
-                if torch.cuda.is_available():
-                    torch_device = "cuda"
-            except Exception:
-                pass
-            return get_backend(backend="torch", device=torch_device)
+            except Exception as exc:
+                raise RuntimeError(
+                    "device='torch' requires PyTorch with CUDA support."
+                ) from exc
+            if not torch.cuda.is_available():
+                raise RuntimeError(
+                    "device='torch' requires torch.cuda.is_available() to be True. "
+                    "Use device='auto' or device='cpu' if CUDA is unavailable."
+                )
+            return get_backend(backend="torch", device="cuda")
 
         return get_backend(backend=backend, device=device_str)
     
@@ -109,7 +126,8 @@ class BaseEstimator(ABC):
             return self._to_torch(X, device="cuda")
 
         if target_device == Device.CUDA:
-            # Prefer CuPy for GPU, fall back to Torch if CuPy unavailable
+            # Strict CUDA means CuPy-backed arrays. Torch has its own explicit
+            # device mode and is not used as an implicit CUDA fallback.
             try:
                 import cupy as cp
                 if isinstance(X, cp.ndarray):
@@ -126,18 +144,14 @@ class BaseEstimator(ABC):
             X_np = np.asarray(X)
 
         if target_device == Device.CUDA:
-            # Try CuPy first
             try:
                 import cupy as cp
                 return cp.asarray(X_np)
-            except ImportError:
-                # Fall back to torch if CuPy isn't available
-                try:
-                    import torch
-                    return torch.from_numpy(X_np).to(_get_torch_device_str())
-                except ImportError:
-                    pass
-                return X_np
+            except Exception as exc:
+                raise RuntimeError(
+                    "device='cuda' requires a working CuPy CUDA backend; "
+                    "no CPU/Torch fallback is performed for explicit CUDA."
+                ) from exc
 
         return X_np
 
@@ -146,7 +160,10 @@ class BaseEstimator(ABC):
         import torch
 
         if device == "cuda" and not torch.cuda.is_available():
-            device = "cpu"
+            raise RuntimeError(
+                "device='torch' requires torch.cuda.is_available() to be True; "
+                "no Torch CPU fallback is performed for explicit Torch GPU."
+            )
 
         if isinstance(X, torch.Tensor):
             if device and X.device.type != device:
@@ -219,7 +236,7 @@ class BaseEstimator(ABC):
             Contains ``pvalues``, ``pvalues_adjusted``, ``reject``,
             ``method``, ``alpha``, and ``axis``.
         """
-        from .inference import adjust_pvalues as _adjust_pvalues
+        from statgpu.inference import adjust_pvalues as _adjust_pvalues
 
         source = pvalues
         if source is None:
@@ -286,7 +303,7 @@ class BaseEstimator(ABC):
             Contains ``pvalues``, ``statistic``, ``pvalue``,
             ``method``, ``axis``, and ``backend``.
         """
-        from .inference import combine_pvalues as _combine_pvalues
+        from statgpu.inference import combine_pvalues as _combine_pvalues
 
         source = pvalues
         if source is None:
@@ -347,7 +364,7 @@ class BaseEstimator(ABC):
 
         This is a thin wrapper over ``statgpu.inference.bootstrap_statistic``.
         """
-        from .inference import bootstrap_statistic as _bootstrap_statistic
+        from statgpu.inference import bootstrap_statistic as _bootstrap_statistic
 
         arrays_use = arrays
         if len(arrays_use) == 0:
@@ -409,7 +426,7 @@ class BaseEstimator(ABC):
 
         This is a thin wrapper over ``statgpu.inference.permutation_test``.
         """
-        from .inference import permutation_test as _permutation_test
+        from statgpu.inference import permutation_test as _permutation_test
 
         backend_name = str(backend).strip().lower()
         if backend_name == "auto" and self._get_compute_device() == Device.CUDA:

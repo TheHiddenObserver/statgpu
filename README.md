@@ -8,14 +8,16 @@ GPU-accelerated statistical methods with sklearn-compatible API.
 - Chinese usage portal: `USAGE_CN.md`
 - English docs root: `docs/en/`
 - Chinese docs root: `docs/`
+- GLM and penalized GLM model docs: `docs/en/models/generalized-linear-model.md` / `docs/models/generalized-linear-model.md`
 - Repo development layout: `dev/` (`tests/`, `benchmarks/`, `comparisons/`, `validation/`, `manual/`, `scripts/` for Cox data + R bench helpers)
 
 ## Features
 
 - 🚀 **GPU Acceleration**: Automatic CUDA support via CuPy and PyTorch
 - 🔧 **sklearn-compatible**: Familiar `fit`/`predict` API
-- 🔄 **Auto Device Selection**: CPU fallback when GPU unavailable
+- 🔄 **Auto Device Selection**: `device="auto"` can choose an available backend; explicit `cuda`/`torch` never silently falls back to CPU
 - 📊 **Statistical Focus**: Methods from R that Python lacks
+- 🧪 **Multiple Testing**: `adjust_pvalues` (`bh`/`by`/`holm`/`bonferroni`/`hochberg`) + `combine_pvalues` (`fisher`/`cauchy`/`stouffer`) across 3 backends (numpy/cupy/torch)
 - 🧮 **Inference Support**:
   - `LinearRegression`: `nonrobust` / `hc0` / `hc1` / `hc2` / `hc3` / `hac`
   - `Ridge`: `nonrobust` / `hc0` / `hc1` / `hc2` / `hc3` / `hac` ✅ (Torch backend)
@@ -34,11 +36,19 @@ GPU-accelerated statistical methods with sklearn-compatible API.
 ## Implemented Methods (Current)
 
 - `statgpu.linear_model.LinearRegression`
+- `statgpu.linear_model.GeneralizedLinearModel`
+- `statgpu.linear_model.PoissonRegression`
+- `statgpu.linear_model.PenalizedLinearRegression`
+- `statgpu.linear_model.PenalizedLogisticRegression`
+- `statgpu.linear_model.PenalizedPoissonRegression`
 - `statgpu.linear_model.Ridge` ✅ (Torch backend)
 - `statgpu.linear_model.Lasso` ✅ (Torch backend)
+- `statgpu.linear_model.ElasticNet`
 - `statgpu.linear_model.LassoCV`
 - `statgpu.linear_model.LogisticRegression` ✅ (Torch backend)
 - `statgpu.survival.CoxPH` ✅ (Torch backend)
+- `statgpu.linear_model.OrderedLogitRegression` ✅ (3 backends)
+- `statgpu.linear_model.OrderedProbitRegression` ✅ (3 backends)
 
 Exported CV classes (✅ = implemented and trainable):
 
@@ -64,7 +74,22 @@ pip install statgpu[torch]
 
 # Development
 pip install statgpu[dev]
+
+# Formula interface
+pip install statgpu[formula]
 ```
+
+## GLM and Penalized GLM Notes
+
+- Full model documentation: `docs/en/models/generalized-linear-model.md` / `docs/models/generalized-linear-model.md`
+- `statgpu.glm_core` is the GLM-specific core layer; `statgpu.losses` is not a compatibility namespace.
+- `Ridge`, `Lasso`, and `ElasticNet` are thin sklearn-style wrappers over typed penalized gaussian regression.
+- `Ridge` supports `solver="exact"` for the closed-form L2 solution.
+- Use `PenalizedLogisticRegression` and `PenalizedPoissonRegression` for typed penalized GLMs.
+- For L2 logistic/poisson, `solver="auto"` is device-aware: CPU uses IRLS, while CuPy/Torch GPU uses FISTA; explicit `irls`/`newton`/`lbfgs` stay on the selected backend when valid.
+- Explicit `device="cuda"` or `device="torch"` never silently falls back to CPU; unavailable GPU dependencies raise clear errors.
+- Formula fitting is optional and uses patsy, for example `model.fit(formula="y ~ x1 + C(group)", data=df)`.
+- Local checks are import/smoke only; CPU/GPU accuracy and runtime comparisons run on the remote `myconda` environment.
 
 ### PyTorch Backend Requirements
 
@@ -134,8 +159,11 @@ lasso = Lasso(
 )
 lasso.fit(X, y)
 
-# Multiple-testing adjustment (BH/BY/Holm/Bonferroni)
+# Multiple-testing adjustment (BH/BY/Holm/Bonferroni/Hochberg)
 reject, pvals_adj = adjust_pvalues(np.array([0.003, 0.02, 0.5]), method='bh')
+
+# Global p-value combination (Fisher/Cauchy/Stouffer)
+stat, p_global = combine_pvalues(np.array([0.01, 0.07, 0.03, 0.40]), method='fisher')
 
 # Permutation test helper
 p = permutation_test(
@@ -182,6 +210,9 @@ model = LinearRegression(device='cuda', n_jobs=4)
 
 ## Benchmark Scripts
 
+- Multiple-testing timing benchmarks (3 backends + statsmodels/scipy):
+  - `dev/benchmarks/_bench_inference_timing.py` (p=100-10k)
+  - `dev/benchmarks/_bench_inference_timing_large.py` (p=50k-1M)
 - Large-scale all-method runtime benchmark:
   - `dev/benchmarks/benchmark_all_methods_large_scale.py`
 - Multi-target LinearRegression benchmark (statgpu vs sklearn vs R):

@@ -11,9 +11,9 @@ import hashlib
 import os
 import numpy as np
 
-from .._config import Device
-from ..backends import _get_torch_device_str
-from .._cv_base import CVEstimatorBase
+from statgpu._config import Device
+from statgpu.backends import _get_torch_device_str
+from statgpu.linear_model._cv_base import CVEstimatorBase
 from ._cox import CoxPH
 
 
