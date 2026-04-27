@@ -87,6 +87,10 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
         solver: str = "auto",
         lipschitz_L: Optional[float] = None,
         gpu_memory_cleanup: bool = False,
+        compute_inference: bool = False,
+        cov_type: str = "nonrobust",
+        hac_maxlags: Optional[int] = None,
+        stopping: str = "coef_delta",
     ):
         super().__init__(device=device, n_jobs=n_jobs)
         self.loss = loss
@@ -101,6 +105,10 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
         self.solver = solver.lower()
         self.lipschitz_L = lipschitz_L
         self.gpu_memory_cleanup = gpu_memory_cleanup
+        self.compute_inference = compute_inference
+        self.cov_type = str(cov_type).lower()
+        self.hac_maxlags = hac_maxlags
+        self.stopping = str(stopping).lower()
 
         # Internal state
         self._penalty: Optional["Penalty"] = None
@@ -156,6 +164,7 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
         self : PenalizedLinearRegression
             Fitted estimator.
         """
+        _orig_fit_intercept = self.fit_intercept
         if formula is not None:
             if data is None:
                 raise ValueError(
@@ -183,6 +192,7 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
             self._design_info = None
             self._formula_has_intercept = None
 
+        self.fit_intercept = _orig_fit_intercept
         self._penalty = self._resolve_penalty()
         self._validate_solver_penalty()
         self._loss = self._resolve_loss()
@@ -1324,6 +1334,10 @@ class PenalizedLinearRegression(PenalizedGeneralizedLinearModel):
         solver: str = "auto",
         lipschitz_L: Optional[float] = None,
         gpu_memory_cleanup: bool = False,
+        compute_inference: bool = False,
+        cov_type: str = "nonrobust",
+        hac_maxlags: Optional[int] = None,
+        stopping: str = "coef_delta",
     ):
         super().__init__(
             loss="squared_error",
@@ -1340,6 +1354,10 @@ class PenalizedLinearRegression(PenalizedGeneralizedLinearModel):
             solver=solver,
             lipschitz_L=lipschitz_L,
             gpu_memory_cleanup=gpu_memory_cleanup,
+            compute_inference=compute_inference,
+            cov_type=cov_type,
+            hac_maxlags=hac_maxlags,
+            stopping=stopping,
         )
 
 
@@ -1361,6 +1379,10 @@ class PenalizedLogisticRegression(PenalizedGeneralizedLinearModel):
         solver: str = "auto",
         lipschitz_L: Optional[float] = None,
         gpu_memory_cleanup: bool = False,
+        compute_inference: bool = False,
+        cov_type: str = "nonrobust",
+        hac_maxlags: Optional[int] = None,
+        stopping: str = "coef_delta",
     ):
         super().__init__(
             loss="logistic",
@@ -1377,6 +1399,10 @@ class PenalizedLogisticRegression(PenalizedGeneralizedLinearModel):
             solver=solver,
             lipschitz_L=lipschitz_L,
             gpu_memory_cleanup=gpu_memory_cleanup,
+            compute_inference=compute_inference,
+            cov_type=cov_type,
+            hac_maxlags=hac_maxlags,
+            stopping=stopping,
         )
 
     def predict_proba(self, X):
@@ -1429,6 +1455,10 @@ class PenalizedPoissonRegression(PenalizedGeneralizedLinearModel):
         solver: str = "auto",
         lipschitz_L: Optional[float] = None,
         gpu_memory_cleanup: bool = False,
+        compute_inference: bool = False,
+        cov_type: str = "nonrobust",
+        hac_maxlags: Optional[int] = None,
+        stopping: str = "coef_delta",
     ):
         super().__init__(
             loss="poisson",
@@ -1445,4 +1475,8 @@ class PenalizedPoissonRegression(PenalizedGeneralizedLinearModel):
             solver=solver,
             lipschitz_L=lipschitz_L,
             gpu_memory_cleanup=gpu_memory_cleanup,
+            compute_inference=compute_inference,
+            cov_type=cov_type,
+            hac_maxlags=hac_maxlags,
+            stopping=stopping,
         )

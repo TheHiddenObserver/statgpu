@@ -1006,7 +1006,7 @@ def compute_efron_grad_hess_raw(
     use_serial = (p <= 24 and int(nuft) <= 512 and _env_int("STATGPU_EFRON_SERIAL_KERNEL", 1) == 1)
     meta = cp.array([n, p, nuft, seq_thresh], dtype=cp.int32)
     kernel = get_efron_backward_kernel_serial(cp) if use_serial else get_efron_backward_kernel(cp)
-    shared_mem = (1 + 2 * p + p * p) * 8 if (not use_serial and p <= 64) else 0
+    shared_mem = 33800 if (not use_serial and p <= 64) else 0
     try:
         kernel(
             (1,),

@@ -109,12 +109,12 @@ def _pearson_corr_with_y_batch(x_vec, y_batch, backend):
     return numer / denom_safe
 
 
-def _rng_default(backend_name: str, random_state: Optional[int]):
+def _rng_default(backend_name: str, random_state: Optional[int], device: str = "cuda"):
     if backend_name == "numpy":
         return np.random.default_rng(random_state)
     if backend_name == "torch":
         import torch
-        g = torch.Generator(device="cuda")
+        g = torch.Generator(device=device)
         if random_state is not None:
             g.manual_seed(int(random_state))
         return g
@@ -124,12 +124,12 @@ def _rng_default(backend_name: str, random_state: Optional[int]):
     return cp.random.RandomState(seed)
 
 
-def _rng_integers(rng, low: int, high: int, size, backend_name: str):
+def _rng_integers(rng, low: int, high: int, size, backend_name: str, device: str = "cuda"):
     if backend_name == "numpy":
         return rng.integers(low, high, size=size, dtype=np.int64)
     if backend_name == "torch":
         import torch
-        return torch.randint(low, high, size, generator=rng, dtype=torch.int64, device="cuda")
+        return torch.randint(low, high, size, generator=rng, dtype=torch.int64, device=device)
     if hasattr(rng, "integers"):
         try:
             return rng.integers(low, high, size=size, dtype=np.int64)
@@ -138,16 +138,16 @@ def _rng_integers(rng, low: int, high: int, size, backend_name: str):
     return rng.randint(low, high, size=size, dtype="int64")
 
 
-def _rng_permutation(rng, n: int, backend_name: str):
+def _rng_permutation(rng, n: int, backend_name: str, device: str = "cuda"):
     if backend_name == "numpy":
         return rng.permutation(n)
     if backend_name == "torch":
         import torch
-        return torch.randperm(n, generator=rng, dtype=torch.int64, device="cuda")
+        return torch.randperm(n, generator=rng, dtype=torch.int64, device=device)
     return rng.permutation(n)
 
 
-def _rng_random(rng, size, backend_name: str, dtype=None):
+def _rng_random(rng, size, backend_name: str, dtype=None, device: str = "cuda"):
     if backend_name == "numpy":
         if dtype is None:
             return rng.random(size=size)
@@ -159,7 +159,7 @@ def _rng_random(rng, size, backend_name: str, dtype=None):
             dtype = torch.float64
         elif not isinstance(dtype, torch.dtype):
             dtype = torch.from_numpy(np.empty(0, dtype=dtype)).dtype
-        return torch.rand(size, generator=rng, dtype=dtype, device="cuda")
+        return torch.rand(size, generator=rng, dtype=dtype, device=device)
 
     if hasattr(rng, "random"):
         if dtype is None:
@@ -199,7 +199,7 @@ def _recommend_cupy_batch_size(
     return max(1, min(batch, int(n_resamples)))
 
 
-def _iter_iid_bootstrap_index_batches(rng, n: int, n_resamples: int, backend_name: str):
+def _iter_iid_bootstrap_index_batches(rng, n: int, n_resamples: int, backend_name: str, device: str = "cuda"):
     if backend_name == "numpy":
         batch_size = _recommend_cupy_batch_size(
             n, n_resamples, bytes_per_row=8,
@@ -207,7 +207,7 @@ def _iter_iid_bootstrap_index_batches(rng, n: int, n_resamples: int, backend_nam
         )
         for start in range(0, n_resamples, batch_size):
             cur = min(batch_size, n_resamples - start)
-            idx_batch = _rng_integers(rng, 0, n, size=(cur, n), backend_name=backend_name)
+            idx_batch = _rng_integers(rng, 0, n, size=(cur, n), backend_name=backend_name, device=device)
             yield idx_batch
         return
 
@@ -218,7 +218,7 @@ def _iter_iid_bootstrap_index_batches(rng, n: int, n_resamples: int, backend_nam
         )
         for start in range(0, n_resamples, batch_size):
             cur = min(batch_size, n_resamples - start)
-            idx_batch = _rng_integers(rng, 0, n, size=(cur, n), backend_name=backend_name)
+            idx_batch = _rng_integers(rng, 0, n, size=(cur, n), backend_name=backend_name, device=device)
             yield idx_batch
         return
 
@@ -241,7 +241,7 @@ def _iter_iid_bootstrap_index_batches(rng, n: int, n_resamples: int, backend_nam
         yield idx_batch
 
 
-def _iter_iid_permutation_batches(rng, n: int, n_resamples: int, backend_name: str):
+def _iter_iid_permutation_batches(rng, n: int, n_resamples: int, backend_name: str, device: str = "cuda"):
     if backend_name == "numpy":
         batch_size = _recommend_cupy_batch_size(
             n, n_resamples, bytes_per_row=12,
@@ -249,7 +249,7 @@ def _iter_iid_permutation_batches(rng, n: int, n_resamples: int, backend_name: s
         )
         for start in range(0, n_resamples, batch_size):
             cur = min(batch_size, n_resamples - start)
-            keys = _rng_random(rng, (cur, n), backend_name, dtype=np.float32)
+            keys = _rng_random(rng, (cur, n), backend_name, dtype=np.float32, device=device)
             perm_batch = np.argsort(keys, axis=1)
             yield perm_batch
         return
@@ -262,7 +262,7 @@ def _iter_iid_permutation_batches(rng, n: int, n_resamples: int, backend_name: s
         )
         for start in range(0, n_resamples, batch_size):
             cur = min(batch_size, n_resamples - start)
-            keys = _rng_random(rng, (cur, n), backend_name, dtype=torch.float32)
+            keys = _rng_random(rng, (cur, n), backend_name, dtype=torch.float32, device=device)
             perm_batch = torch.argsort(keys, dim=1)
             yield perm_batch
         return
@@ -287,6 +287,7 @@ def _iter_stratified_bootstrap_index_batches(
     state,
     n_resamples: int,
     backend_name: str,
+    device: str = "cuda",
     *,
     shuffle_rows: bool = True,
 ):
@@ -327,7 +328,7 @@ def _iter_stratified_bootstrap_index_batches(
             n_strata = int(strata_rows_matrix.shape[0])
             m = int(strata_uniform_size)
             sampled_local = _rng_integers(
-                rng, 0, m, size=(cur, n_strata, m), backend_name=backend_name,
+                rng, 0, m, size=(cur, n_strata, m), backend_name=backend_name, device=device,
             )
             strata_ids = backend.arange(n_strata, dtype=backend.int64).reshape(1, n_strata, 1)
             idx_batch = strata_rows_matrix[strata_ids, sampled_local].reshape(cur, -1)
@@ -336,12 +337,12 @@ def _iter_stratified_bootstrap_index_batches(
             offset = 0
             for pos in strata_rows:
                 m = int(_count_elts(pos))
-                sampled_local = _rng_integers(rng, 0, m, size=(cur, m), backend_name=backend_name)
+                sampled_local = _rng_integers(rng, 0, m, size=(cur, m), backend_name=backend_name, device=device)
                 idx_batch[:, offset : offset + m] = pos[sampled_local]
                 offset += m
 
         if shuffle_rows:
-            keys = _rng_random(rng, (cur, n), backend_name, dtype=key_dtype)
+            keys = _rng_random(rng, (cur, n), backend_name, dtype=key_dtype, device=device)
             perm = backend.xp.argsort(keys, axis=1)
             idx_batch = backend.take_along_axis(idx_batch, perm, axis=1)
 
@@ -353,6 +354,7 @@ def _iter_block_bootstrap_index_batches(
     state,
     n_resamples: int,
     backend_name: str,
+    device: str = "cuda",
 ):
     backend = get_backend(backend_name)
     n = int(state["n_samples"])
@@ -382,7 +384,7 @@ def _iter_block_bootstrap_index_batches(
     offsets = backend.arange(b, dtype=backend.int64).reshape(1, 1, b)
     for start in range(0, n_resamples, batch_size):
         cur = min(batch_size, n_resamples - start)
-        starts = _rng_integers(rng, 0, max_start, size=(cur, n_blocks), backend_name=backend_name)
+        starts = _rng_integers(rng, 0, max_start, size=(cur, n_blocks), backend_name=backend_name, device=device)
         idx_batch = (starts[:, :, None] + offsets).reshape(cur, -1)
         yield backend.astype(idx_batch[:, :n], backend.int64)
 
@@ -392,6 +394,7 @@ def _iter_cluster_bootstrap_index_batches(
     state,
     n_resamples: int,
     backend_name: str,
+    device: str = "cuda",
 ):
     """Batch cluster bootstrap index generation for uniform cluster sizes."""
     backend = get_backend(backend_name)
@@ -427,7 +430,7 @@ def _iter_cluster_bootstrap_index_batches(
 
     for start in range(0, n_resamples, batch_size):
         cur = min(batch_size, n_resamples - start)
-        cluster_ids = _rng_integers(rng, 0, n_clusters, size=(cur, draws), backend_name=backend_name)
+        cluster_ids = _rng_integers(rng, 0, n_clusters, size=(cur, draws), backend_name=backend_name, device=device)
         idx_batch = rows_matrix[cluster_ids].reshape(cur, -1)
         yield backend.astype(idx_batch[:, :n], backend.int64)
 
@@ -437,6 +440,7 @@ def _iter_non_iid_bootstrap_index_batches(
     state,
     n_resamples: int,
     backend_name: str,
+    device: str = "cuda",
     *,
     shuffle_rows: bool = True,
 ):
@@ -447,14 +451,15 @@ def _iter_non_iid_bootstrap_index_batches(
             state,
             n_resamples,
             backend_name,
+            device=device,
             shuffle_rows=shuffle_rows,
         )
         return
     if strategy_n == "block":
-        yield from _iter_block_bootstrap_index_batches(rng, state, n_resamples, backend_name)
+        yield from _iter_block_bootstrap_index_batches(rng, state, n_resamples, backend_name, device=device)
         return
     if strategy_n == "cluster":
-        yield from _iter_cluster_bootstrap_index_batches(rng, state, n_resamples, backend_name)
+        yield from _iter_cluster_bootstrap_index_batches(rng, state, n_resamples, backend_name, device=device)
         return
     raise ValueError("Batched non-IID bootstrap supports only 'stratified', 'cluster', and 'block'")
 
@@ -465,6 +470,7 @@ def _iter_labelwise_permuted_y_batches(
     state,
     n_resamples: int,
     backend_name: str,
+    device: str = "cuda",
 ):
     backend = get_backend(backend_name)
     y_arr = backend.asarray(y)
@@ -532,6 +538,7 @@ def _iter_labelwise_permuted_y_batches(
                 (cur, int(dense_label_rows.shape[0]), int(dense_label_rows.shape[1])),
                 backend_name,
                 dtype=key_dtype,
+                device=device,
             )
             keys = backend.xp.where(dense_valid_mask.reshape(1, *dense_valid_mask.shape), keys, backend.xp.inf)
             perm_dense = backend.xp.argsort(keys, axis=2)
@@ -553,7 +560,7 @@ def _iter_labelwise_permuted_y_batches(
             if m == 1:
                 y_batch[:, pos] = y_arr[pos]
                 continue
-            keys = _rng_random(rng, (cur, m), backend_name, dtype=key_dtype)
+            keys = _rng_random(rng, (cur, m), backend_name, dtype=key_dtype, device=device)
             perm = backend.xp.argsort(keys, axis=1)
             y_batch[:, pos] = y_arr[pos][perm]
 
@@ -673,8 +680,8 @@ def _ensure_same_first_dim(arrays: Sequence[Any]) -> int:
     return n
 
 
-def _bootstrap_indices_iid(rng, n: int, backend_name: str):
-    return _rng_integers(rng, 0, n, size=n, backend_name=backend_name)
+def _bootstrap_indices_iid(rng, n: int, backend_name: str, device: str = "cuda"):
+    return _rng_integers(rng, 0, n, size=n, backend_name=backend_name, device=device)
 
 
 def _prepare_bootstrap_state(
@@ -764,13 +771,14 @@ def _bootstrap_indices_stratified(
     rng,
     state,
     backend_name: str,
+    device: str = "cuda",
 ):
     backend = get_backend(backend_name)
     chunks = []
     n = 0
     for pos in state["strata_rows"]:
         pos_n = int(_count_elts(pos))
-        sampled_local = _rng_integers(rng, 0, pos_n, size=pos_n, backend_name=backend_name)
+        sampled_local = _rng_integers(rng, 0, pos_n, size=pos_n, backend_name=backend_name, device=device)
         chunks.append(pos[sampled_local])
         n += pos_n
 
@@ -778,7 +786,7 @@ def _bootstrap_indices_stratified(
     if int(_count_elts(idx)) != int(n):
         raise RuntimeError("Stratified bootstrap produced invalid sample size")
 
-    perm = _rng_permutation(rng, int(_count_elts(idx)), backend_name)
+    perm = _rng_permutation(rng, int(_count_elts(idx)), backend_name, device=device)
     return backend.astype(idx[perm], backend.int64)
 
 
@@ -787,6 +795,7 @@ def _bootstrap_indices_cluster(
     n: int,
     state,
     backend_name: str,
+    device: str = "cuda",
 ):
     backend = get_backend(backend_name)
     cluster_rows = state["cluster_rows"]
@@ -800,7 +809,7 @@ def _bootstrap_indices_cluster(
     batch = max(4, int(np.ceil(n / avg_size)))
 
     while total_size < n:
-        ids = _rng_integers(rng, 0, n_clusters, size=batch, backend_name=backend_name)
+        ids = _rng_integers(rng, 0, n_clusters, size=batch, backend_name=backend_name, device=device)
         ids_np = _to_numpy(ids).astype(np.int64, copy=False)
         selected_ids.extend(ids_np.tolist())
         total_size += int(cluster_sizes[ids_np].sum())
@@ -826,13 +835,14 @@ def _bootstrap_indices_block(
     n: int,
     state,
     backend_name: str,
+    device: str = "cuda",
 ):
     backend = get_backend(backend_name)
     b = int(state["block_size"])
     n_blocks = int(state["n_blocks"])
     max_start = int(state["max_start"])
 
-    starts = _rng_integers(rng, 0, max_start, size=n_blocks, backend_name=backend_name)
+    starts = _rng_integers(rng, 0, max_start, size=n_blocks, backend_name=backend_name, device=device)
     offsets = backend.arange(b, dtype=backend.int64)
     idx = (starts.reshape(-1, 1) + offsets.reshape(1, -1)).reshape(-1)
     return backend.astype(idx[:n], backend.int64)
@@ -842,16 +852,17 @@ def _build_bootstrap_indices(
     n: int,
     state,
     backend_name: str,
+    device: str = "cuda",
 ):
     strategy_n = state["strategy"]
     if strategy_n == "iid":
-        return _bootstrap_indices_iid(rng, n, backend_name)
+        return _bootstrap_indices_iid(rng, n, backend_name, device=device)
     if strategy_n == "stratified":
-        return _bootstrap_indices_stratified(rng, state, backend_name)
+        return _bootstrap_indices_stratified(rng, state, backend_name, device=device)
     if strategy_n == "cluster":
-        return _bootstrap_indices_cluster(rng, n, state, backend_name)
+        return _bootstrap_indices_cluster(rng, n, state, backend_name, device=device)
     if strategy_n == "block":
-        return _bootstrap_indices_block(rng, n, state, backend_name)
+        return _bootstrap_indices_block(rng, n, state, backend_name, device=device)
     raise ValueError("strategy must be one of: 'iid', 'stratified', 'cluster', 'block'")
 
 
@@ -936,14 +947,19 @@ def bootstrap_statistic(
         backend_name,
     )
 
-    rng = _rng_default(backend_name, random_state)
+    if backend_name == "torch":
+        rng_device = str(arrays_xp[0].device)
+    else:
+        rng_device = "cuda"
+
+    rng = _rng_default(backend_name, random_state, device=rng_device)
     samples = backend.xp.empty(n_boot, dtype=backend.float64)
     strategy_n = bootstrap_state["strategy"]
 
     if strategy_n == "iid":
         vectorized_mode = None
         write_pos = 0
-        for idx_batch in _iter_iid_bootstrap_index_batches(rng, n, n_boot, backend_name):
+        for idx_batch in _iter_iid_bootstrap_index_batches(rng, n, n_boot, backend_name, device=rng_device):
             cur = int(idx_batch.shape[0])
 
             if fastpath_hint == "mean":
@@ -1009,6 +1025,7 @@ def bootstrap_statistic(
             bootstrap_state,
             n_boot,
             backend_name,
+            device=rng_device,
             shuffle_rows=shuffle_rows,
         ):
             cur = int(idx_batch.shape[0])
@@ -1071,6 +1088,7 @@ def bootstrap_statistic(
                 n,
                 bootstrap_state,
                 backend_name,
+                device=rng_device,
             )
             sampled_args = [arr[idx] for arr in arrays_xp]
             samples[i] = _coerce_sample_value(statistic(*sampled_args), backend)
@@ -1099,19 +1117,20 @@ def _permute_y(
     y,
     state,
     backend_name: str,
+    device: str = "cuda",
 ):
     backend = get_backend(backend_name)
     strategy_n = state["strategy"]
     y_arr = backend.asarray(y)
 
     if strategy_n == "iid":
-        perm = _rng_permutation(rng, int(y_arr.shape[0]), backend_name)
+        perm = _rng_permutation(rng, int(y_arr.shape[0]), backend_name, device=device)
         return y_arr[perm]
 
     if strategy_n in ("stratified", "grouped"):
         y_perm = y_arr.copy()
         for pos in state["label_rows"]:
-            shuffled_pos = pos[_rng_permutation(rng, int(_count_elts(pos)), backend_name)]
+            shuffled_pos = pos[_rng_permutation(rng, int(_count_elts(pos)), backend_name, device=device)]
             y_perm[pos] = y_arr[shuffled_pos]
         return y_perm
 
@@ -1258,7 +1277,12 @@ def permutation_test(
         backend_name,
     )
 
-    rng = _rng_default(backend_name, random_state)
+    if backend_name == "torch":
+        rng_device = str(y_arr.device)
+    else:
+        rng_device = "cuda"
+
+    rng = _rng_default(backend_name, random_state, device=rng_device)
     samples = backend.xp.empty(n_perm, dtype=backend.float64)
     strategy_n = permutation_state["strategy"]
 
@@ -1275,6 +1299,7 @@ def permutation_test(
             int(y_arr.shape[0]),
             n_perm,
             backend_name,
+            device=rng_device,
         ):
             cur = int(perm_batch.shape[0])
             y_perm_batch = y_arr[perm_batch]
@@ -1317,6 +1342,7 @@ def permutation_test(
             permutation_state,
             n_perm,
             backend_name,
+            device=rng_device,
         ):
             cur = int(y_perm_batch.shape[0])
 

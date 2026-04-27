@@ -943,4 +943,5 @@ class ElasticNet(_PenalizedLinearRegression):
             cpu_solver=cpu_solver,
             lipschitz_L=lipschitz_L,
             gpu_memory_cleanup=gpu_memory_cleanup,
+            stopping=stopping,
         )

@@ -893,4 +893,7 @@ class Ridge(_PenalizedLinearRegression):
             solver=solver,
             cpu_solver=cpu_solver,
             lipschitz_L=lipschitz_L,
+            compute_inference=compute_inference,
+            cov_type=cov_type,
+            hac_maxlags=hac_maxlags,
         )

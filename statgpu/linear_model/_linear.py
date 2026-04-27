@@ -4,7 +4,6 @@ Linear regression with full statistical inference and GPU support.
 
 from typing import Optional, Union
 import numpy as np
-import pandas as pd
 from scipy import stats
 from time import perf_counter
 
@@ -297,6 +296,7 @@ class LinearRegression(BaseEstimator):
             DataFrame used with ``formula`` for column lookup.
         """
         # Handle formula interface
+        _orig_fit_intercept = self.fit_intercept
         if formula is not None:
             if data is None:
                 raise ValueError(
@@ -331,6 +331,7 @@ class LinearRegression(BaseEstimator):
                 y_arr = y_arr.ravel()
             X_arr = np.asarray(X)
 
+        self.fit_intercept = _orig_fit_intercept
         # Store y (may be CuPy/Torch array, convert later for CPU)
         self._y = y_arr
 
@@ -1050,18 +1051,22 @@ class LinearRegression(BaseEstimator):
 
         # If model was trained with formula and X is a DataFrame,
         # rebuild the design matrix using the stored design_info.
-        if self._design_info is not None and isinstance(X, pd.DataFrame):
-            from statgpu.core.formula import FormulaParser
-            # Reconstruct parser from design_info
-            parser = FormulaParser.__new__(FormulaParser)
-            parser._design_info = self._design_info
-            parser.formula = None
-            X = parser.transform(X)
-            # Drop intercept column to match the fitting path
-            col_names = list(self._design_info.column_names)
-            if self._formula_has_intercept and "Intercept" in col_names:
-                intercept_idx = col_names.index("Intercept")
-                X = np.delete(X, intercept_idx, axis=1)
+        if self._design_info is not None:
+            import pandas as pd
+            if isinstance(X, pd.DataFrame):
+                from statgpu.core.formula import FormulaParser
+                # Reconstruct parser from design_info
+                parser = FormulaParser.__new__(FormulaParser)
+                parser._design_info = self._design_info
+                parser.formula = None
+                X = parser.transform(X)
+                # Drop intercept column to match the fitting path
+                col_names = list(self._design_info.column_names)
+                if self._formula_has_intercept and "Intercept" in col_names:
+                    intercept_idx = col_names.index("Intercept")
+                    X = np.delete(X, intercept_idx, axis=1)
+            else:
+                X = np.asarray(X)
         else:
             X = np.asarray(X)
 
