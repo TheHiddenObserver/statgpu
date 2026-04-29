@@ -8,7 +8,6 @@ GPU-accelerated statistical methods with sklearn-compatible API.
 - Chinese usage portal: `USAGE_CN.md`
 - English docs root: `docs/en/`
 - Chinese docs root: `docs/`
-- GLM and penalized GLM model docs: `docs/en/models/generalized-linear-model.md` / `docs/models/generalized-linear-model.md`
 - Repo development layout: `dev/` (`tests/`, `benchmarks/`, `comparisons/`, `validation/`, `manual/`, `scripts/` for Cox data + R bench helpers)
 
 ## Features
@@ -35,61 +34,75 @@ GPU-accelerated statistical methods with sklearn-compatible API.
 
 ## Implemented Methods (Current)
 
+### Linear / Gaussian Regression
+
 - `statgpu.linear_model.LinearRegression`
+- `statgpu.linear_model.PenalizedLinearRegression`
+- `statgpu.linear_model.Ridge`
+- `statgpu.linear_model.Lasso`
+- `statgpu.linear_model.ElasticNet`
+
+### Generalized Linear Models (GLM)
+
 - `statgpu.linear_model.GeneralizedLinearModel`
 - `statgpu.linear_model.PoissonRegression`
-- `statgpu.linear_model.PenalizedLinearRegression`
+- `statgpu.linear_model.LogisticRegression`
 - `statgpu.linear_model.PenalizedLogisticRegression`
 - `statgpu.linear_model.PenalizedPoissonRegression`
-- `statgpu.linear_model.Ridge` ✅ (Torch backend)
-- `statgpu.linear_model.Lasso` ✅ (Torch backend)
-- `statgpu.linear_model.ElasticNet`
-- `statgpu.linear_model.LassoCV`
-- `statgpu.linear_model.LogisticRegression` ✅ (Torch backend)
-- `statgpu.survival.CoxPH` ✅ (Torch backend)
-- `statgpu.linear_model.OrderedLogitRegression` ✅ (3 backends)
-- `statgpu.linear_model.OrderedProbitRegression` ✅ (3 backends)
 
-Exported CV classes (✅ = implemented and trainable):
+### Ordered / Survival Models
 
-- `statgpu.linear_model.RidgeCV` ✅ (GPU-accelerated cross-validation)
-- `statgpu.linear_model.LogisticRegressionCV` ✅ (GPU-accelerated cross-validation)
-- `statgpu.survival.CoxPHCV` ✅ (CV penalty search + final refit; `entry`/`cluster` not yet supported)
+- `statgpu.linear_model.OrderedLogitRegression`
+- `statgpu.linear_model.OrderedProbitRegression`
+- `statgpu.survival.CoxPH`
+
+Exported CV classes:
+
+- `statgpu.linear_model.RidgeCV`
+- `statgpu.linear_model.LogisticRegressionCV`
+- `statgpu.survival.CoxPHCV`
+
+Backend support and feature parity are documented per model in the Model Docs Index below.
+
+## Model Docs Index
+
+- Linear regression: `docs/en/models/linear-regression.md` / `docs/models/linear-regression.md`
+- Logistic regression: `docs/en/models/logistic-regression.md` / `docs/models/logistic-regression.md`
+- Poisson regression: `docs/en/models/poisson-regression.md` / `docs/models/poisson-regression.md`
+- Generalized linear model: `docs/en/models/generalized-linear-model.md` / `docs/models/generalized-linear-model.md`
+- Ridge: `docs/en/models/ridge.md` / `docs/models/ridge.md`
+- Lasso: `docs/en/models/lasso.md` / `docs/models/lasso.md`
+- Elastic Net: `docs/en/models/elastic-net.md` / `docs/models/elastic-net.md`
+- Ordered regression: `docs/en/models/ordered.md` / `docs/models/ordered.md`
+- Cox proportional hazards: `docs/en/models/coxph.md` / `docs/models/coxph.md`
+- Nonparametric methods: `docs/en/models/nonparametric.md` / `docs/models/nonparametric.md`
+- Knockoff filter: `docs/en/models/knockoff.md` / `docs/models/knockoff.md`
 
 ## Installation
 
 ```bash
-# CPU only
-pip install statgpu
+# Local editable install (current recommended path before PyPI release)
+pip install -e .
+
+# Direct install from GitHub
+pip install "git+https://github.com/TheHiddenObserver/statgpu.git"
 
 # With GPU support (choose by CUDA major version)
 # CUDA 11.x runtime:
-pip install statgpu[gpu11]
+pip install -e ".[gpu11]"
 
 # CUDA 12.x runtime:
-pip install statgpu[gpu12]
+pip install -e ".[gpu12]"
 
-# With PyTorch backend (CUDA 11.x)
-pip install statgpu[torch]
+# With PyTorch backend
+pip install -e ".[torch]"
 
 # Development
-pip install statgpu[dev]
+pip install -e ".[dev]"
 
 # Formula interface
-pip install statgpu[formula]
+pip install -e ".[formula]"
 ```
-
-## GLM and Penalized GLM Notes
-
-- Full model documentation: `docs/en/models/generalized-linear-model.md` / `docs/models/generalized-linear-model.md`
-- `statgpu.glm_core` is the GLM-specific core layer; `statgpu.losses` is not a compatibility namespace.
-- `Ridge`, `Lasso`, and `ElasticNet` are thin sklearn-style wrappers over typed penalized gaussian regression.
-- `Ridge` supports `solver="exact"` for the closed-form L2 solution.
-- Use `PenalizedLogisticRegression` and `PenalizedPoissonRegression` for typed penalized GLMs.
-- For L2 logistic/poisson, `solver="auto"` is device-aware: CPU uses IRLS, while CuPy/Torch GPU uses FISTA; explicit `irls`/`newton`/`lbfgs` stay on the selected backend when valid.
-- Explicit `device="cuda"` or `device="torch"` never silently falls back to CPU; unavailable GPU dependencies raise clear errors.
-- Formula fitting is optional and uses patsy, for example `model.fit(formula="y ~ x1 + C(group)", data=df)`.
-- Local checks are import/smoke only; CPU/GPU accuracy and runtime comparisons run on the remote `myconda` environment.
 
 ### PyTorch Backend Requirements
 
@@ -136,11 +149,11 @@ print(f"Std Errors: {model._bse}")
 ```python
 import numpy as np
 from statgpu.linear_model import LinearRegression, Lasso
-from statgpu import adjust_pvalues, permutation_test
+from statgpu import adjust_pvalues, combine_pvalues, permutation_test
 
 # Generate data
 X = np.random.randn(10000, 100)
-y = X @ np.random.randn(100) + 5
+y = X @ np.random.randn(100) + np.random.randn(10000) * 0.5 + 5
 
 # Fit with GPU
 model = LinearRegression(device='cuda')
