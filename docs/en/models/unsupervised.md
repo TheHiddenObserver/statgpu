@@ -2,34 +2,32 @@
 
 > Language: English
 > Last updated: 2026-05-02
-> This page: compatibility entry for unsupervised model docs
+> This page: unsupervised model overview
 > Switch: [Chinese](../../models/unsupervised.md)
 
 ## Overview
 
-The detailed unsupervised documentation has moved to [docs/en/unsupervised/](../unsupervised/README.md). This page is kept so existing links to `docs/en/models/unsupervised.md` remain valid.
+`statgpu.unsupervised` contains estimators for dimensionality reduction, clustering, density-based grouping, mixture modeling, and non-negative matrix factorization. The API follows the familiar `fit`, `transform`, `predict`, `fit_predict`, and `score` style where those operations make sense for the model.
 
-Current public estimators:
+The detailed pages under [docs/en/unsupervised/](../unsupervised/README.md) describe each estimator's objective function, estimating procedure, device behavior, outputs, limitations, and validation approach.
 
-- [PCA](../unsupervised/pca.md)
-- [KMeans](../unsupervised/kmeans.md)
-- [DBSCAN](../unsupervised/dbscan.md)
-- [GaussianMixture](../unsupervised/gaussian-mixture.md)
-- [NMF](../unsupervised/nmf.md)
-- [AgglomerativeClustering](../unsupervised/agglomerative-clustering.md)
+## Model Summary
 
-## Phase 2 Scope
+| Estimator | Main Use | Core Criterion |
+|---|---|---|
+| [PCA](../unsupervised/pca.md) | Linear dimensionality reduction | Maximize projected variance / minimize rank-k reconstruction error |
+| [KMeans](../unsupervised/kmeans.md) | Prototype-based clustering | Minimize squared Euclidean inertia |
+| [DBSCAN](../unsupervised/dbscan.md) | Density-based clustering with noise | Density reachability and connected components |
+| [GaussianMixture](../unsupervised/gaussian-mixture.md) | Probabilistic soft clustering | Maximize diagonal Gaussian mixture log likelihood with EM |
+| [NMF](../unsupervised/nmf.md) | Parts-based non-negative factorization | Minimize Frobenius reconstruction error under non-negativity |
+| [AgglomerativeClustering](../unsupervised/agglomerative-clustering.md) | Hierarchical clustering | Greedy single-linkage merges |
 
-`PCA`, `KMeans`, `DBSCAN`, `GaussianMixture(diag)`, and `NMF` support CPU, CuPy/CUDA, and Torch CUDA paths. `AgglomerativeClustering(single)` is CPU-only and raises for explicit GPU devices.
+## Device Behavior
 
-There is no strict inference mode for these unsupervised estimators because they do not report inference covariance, standard errors, or p-values. The relevant distinction is algorithmic exactness: PCA full/covariance and DBSCAN supported CPU paths are exact; PCA randomized, KMeans, GMM, and NMF are iterative or approximate where documented on each model page.
+Most unsupervised estimators expose `device="auto"`, `"cpu"`, `"cuda"`, and `"torch"` following the project-wide device rules. Explicit GPU devices must either run on that backend or raise a clear error; they should not silently fall back to CPU. Some algorithms have narrower support, so check the per-model page before relying on a GPU path.
 
-## External Validation
+## Notes
 
-Latest remote artifacts:
+Unsupervised estimators do not expose statistical inference fields such as standard errors, p-values, confidence intervals, AIC, or BIC unless the model naturally defines them. For these models, documentation focuses on algorithmic objective, exact versus iterative behavior, device support, and output semantics.
 
-- `results/unsupervised_phase2_dbscan_cython_verify_20260502_210000.json`
-- `results/unsupervised_phase2_verify_20260502_210000.json`
-- `results/unsupervised_phase2_verify_summary_20260502_210000.md`
-
-DBSCAN compact `n=5000` latest result: Cython CPU `219.62ms`, fallback CPU `379.80ms`, sklearn CPU `178.94ms`, CuPy `21.56ms`, Torch `21.07ms`; labels match with ARI `1.0`. This is near sklearn CPU but not a strict pass for the `<=1.2x` target (`1.23x`).
+For detailed API behavior and model-specific caveats, continue to the per-model pages linked above.

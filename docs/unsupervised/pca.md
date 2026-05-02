@@ -18,27 +18,49 @@ from statgpu.unsupervised import PCA
 
 对中心化数据 `X_c = X - mean(X)`，PCA 求解：
 
-```text
-maximize    tr(W.T @ X_c.T @ X_c @ W)
-subject to  W.T @ W = I
-```
+$$
+\begin{aligned}
+\max_{W \in \mathbb{R}^{p \times k}} \quad
+& \operatorname{tr}\left(W^\top X_c^\top X_c W\right) \\
+\text{s.t.} \quad
+& W^\top W = I_k .
+\end{aligned}
+$$
 
 保留 `k` 个 components 时，也等价于在正交投影中最小化 rank-`k` 平方重构误差：
 
-```text
-minimize_W  ||X_c - X_c @ W @ W.T||_F^2
-subject to  W.T @ W = I
-```
+$$
+\begin{aligned}
+\min_{W \in \mathbb{R}^{p \times k}} \quad
+& \left\|X_c - X_c W W^\top\right\|_F^2 \\
+\text{s.t.} \quad
+& W^\top W = I_k .
+\end{aligned}
+$$
 
 二者等价，因为中心化后的总方差是固定的。
 
 ## 估计方程
 
-- `svd_solver="covariance"` 计算 `cov = X_c.T @ X_c / (n_samples - 1)`，再用 `eigh` 求解 `cov v_j = lambda_j v_j`。
-- `svd_solver="full"` 计算 `X_c = U S V.T`，使用 `V.T` 的行作为 components。
+- `svd_solver="covariance"` 计算
+  $$
+  \Sigma = \frac{X_c^\top X_c}{n - 1}
+  $$
+  再用 `eigh` 求解
+  $$
+  \Sigma v_j = \lambda_j v_j .
+  $$
+- `svd_solver="full"` 计算
+  $$
+  X_c = U S V^\top
+  $$
+  使用 `V.T` 的行作为 components。
 - `svd_solver="auto"` 在 `n_samples >= n_features` 时使用 covariance/eigh，否则使用 full SVD。
 - `svd_solver="randomized"` 使用随机投影、power iteration 和小矩阵 SVD 近似 leading right singular vectors。
-- `explained_variance_ = singular_values_ ** 2 / (n_samples - 1)`。
+- explained variance 计算为
+  $$
+  \operatorname{explained\_variance}_j = \frac{s_j^2}{n - 1}.
+  $$
 - `explained_variance_ratio_` 是 retained variance 除以 centered total variance。
 
 ## 参数
@@ -99,5 +121,6 @@ Eigenvector 和 singular vector 的符号不唯一。验证时应使用 sign-awa
 
 ## References
 
-- Jolliffe, I. T. (2002). *Principal Component Analysis*. Springer.
-- Halko, N., Martinsson, P. G., & Tropp, J. A. (2011). Finding structure with randomness.
+- Pearson, K. (1901). On lines and planes of closest fit to systems of points in space. *The London, Edinburgh, and Dublin Philosophical Magazine and Journal of Science*, Series 6, 2(11), 559-572. https://doi.org/10.1080/14786440109462720
+- Jolliffe, I. T. (2002). *Principal Component Analysis* (2nd ed.). Springer Series in Statistics. Springer. https://doi.org/10.1007/b98835
+- Halko, N., Martinsson, P. G., & Tropp, J. A. (2011). Finding structure with randomness: Probabilistic algorithms for constructing approximate matrix decompositions. *SIAM Review*, 53(2), 217-288. https://doi.org/10.1137/090771806

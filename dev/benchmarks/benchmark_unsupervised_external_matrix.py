@@ -285,7 +285,54 @@ cat(sprintf('{"fit_ms":%.12f,"fit_ms_all":[%s],"explained_variance_sum":%.12f}',
     return rows
 
 
-def bench_r_kmeans(X, refs: Dict[int, KMeans], repeats: int, timeout: int, max_iter: int) -> List[Dict[str, Any]]:
+def _scalar(x) -> float:
+    return float(np.asarray(_to_numpy(x)).item())
+
+
+def _make_initial_centers(X: np.ndarray, k: int, seed: int) -> np.ndarray:
+    rng = np.random.default_rng(seed + 104729 * int(k))
+    indices = rng.choice(X.shape[0], size=int(k), replace=False)
+    return np.ascontiguousarray(X[indices], dtype=np.float64)
+
+
+def _fit_statgpu_kmeans_fixed_init(X, init_centers: np.ndarray, device: str, max_iter: int, tol: float = 1e-4) -> KMeans:
+    model = KMeans(
+        n_clusters=int(init_centers.shape[0]),
+        init="random",
+        n_init=1,
+        max_iter=max_iter,
+        tol=tol,
+        random_state=0,
+        device=device,
+    )
+    backend = model._get_backend()
+    X_arr = backend.asarray(X, dtype=backend.float64)
+    centers = backend.asarray(init_centers, dtype=backend.float64)
+    x_norm = backend.sum(X_arr * X_arr, axis=1, keepdims=True)
+    labels = None
+    min_dist_sq = None
+    n_iter = 0
+    for n_iter in range(1, int(max_iter) + 1):
+        distances = model._squared_distances_with_x_norm(backend, X_arr, x_norm, centers)
+        labels, min_dist_sq = model._labels_min_distances(backend, distances)
+        new_centers = model._compute_centers(backend, X_arr, labels, min_dist_sq, centers)
+        center_shift = backend.sum((new_centers - centers) ** 2)
+        centers = new_centers
+        if _scalar(center_shift) <= float(tol):
+            break
+    distances = model._squared_distances_with_x_norm(backend, X_arr, x_norm, centers)
+    labels, min_dist_sq = model._labels_min_distances(backend, distances)
+    model.cluster_centers_ = centers
+    model.labels_ = labels
+    model.inertia_ = _scalar(backend.sum(min_dist_sq))
+    model.n_iter_ = int(n_iter)
+    model.n_features_in_ = int(X_arr.shape[1])
+    model._backend_name = backend.name
+    model._fitted = True
+    return model
+
+
+def bench_r_kmeans(X, init_centers_by_k: Dict[int, np.ndarray], refs: Dict[int, KMeans], repeats: int, timeout: int, max_iter: int) -> List[Dict[str, Any]]:
     if shutil.which("Rscript") is None:
         return [{"method": "KMeans", "framework": "R", "status": "skipped", "notes": "Rscript not found"}]
     rows = []
@@ -320,8 +367,8 @@ cat(sprintf('{"fit_ms":%.12f,"fit_ms_all":[%s],"inertia":%.12f,"n_iter":%d}', me
 """,
             encoding="utf-8",
         )
-        for k, ref in refs.items():
-            np.ascontiguousarray(_to_numpy(ref.cluster_centers_), dtype=np.float64).tofile(centers_bin)
+        for k, init_centers in init_centers_by_k.items():
+            np.ascontiguousarray(init_centers, dtype=np.float64).tofile(centers_bin)
             try:
                 proc = subprocess.run(
                     [
@@ -344,16 +391,20 @@ cat(sprintf('{"fit_ms":%.12f,"fit_ms_all":[%s],"inertia":%.12f,"n_iter":%d}', me
                     rows.append({"method": "KMeans", "framework": "R", "k": k, "status": "error", "notes": proc.stderr[-500:]})
                     continue
                 parsed = json.loads(proc.stdout)
+                ref = refs.get(k)
+                row = {
+                    "method": "KMeans",
+                    "framework": "R",
+                    "backend": "cpu",
+                    "k": k,
+                    "status": "ok",
+                    **parsed,
+                    "init": "fixed_random_sample_centers",
+                }
+                if ref is not None:
+                    row["abs_inertia_diff_vs_ref"] = float(abs(parsed["inertia"] - ref.inertia_))
                 rows.append(
-                    {
-                        "method": "KMeans",
-                        "framework": "R",
-                        "backend": "cpu",
-                        "k": k,
-                        "status": "ok",
-                        **parsed,
-                        "abs_inertia_diff_vs_ref": float(abs(parsed["inertia"] - ref.inertia_)),
-                    }
+                    row
                 )
             except subprocess.TimeoutExpired:
                 rows.append({"method": "KMeans", "framework": "R", "k": k, "status": "timeout"})
@@ -373,20 +424,22 @@ def _match_centers(a, b):
 def bench_kmeans_matrix(X, ks, devices, repeats, warmup, preload, seed, max_iter) -> List[Dict[str, Any]]:
     rows = []
     refs: Dict[int, KMeans] = {}
+    init_centers_by_k = {int(k): _make_initial_centers(X, int(k), seed) for k in ks}
     for k in ks:
+        init_centers = init_centers_by_k[int(k)]
         for device in devices:
             if not _device_available(device):
                 rows.append({"method": "KMeans", "framework": "statgpu", "backend": device, "k": k, "status": "skipped"})
                 continue
             X_fit = _as_device_input(X, device) if preload else X
             model, fit_ms, fit_ms_all = _time_call(
-                lambda device=device, k=k: KMeans(n_clusters=k, n_init=2, max_iter=max_iter, random_state=seed, device=device).fit(X_fit),
+                lambda device=device, init_centers=init_centers: _fit_statgpu_kmeans_fixed_init(X_fit, init_centers, device=device, max_iter=max_iter),
                 repeats=repeats,
                 warmup=warmup,
             )
             if device == "cpu":
                 refs[k] = model
-            row = {"method": "KMeans", "framework": "statgpu", "backend": device, "k": k, "status": "ok", "fit_ms": fit_ms, "fit_ms_all": fit_ms_all, "inertia": float(model.inertia_), "n_iter": int(model.n_iter_)}
+            row = {"method": "KMeans", "framework": "statgpu", "backend": device, "k": k, "status": "ok", "fit_ms": fit_ms, "fit_ms_all": fit_ms_all, "inertia": float(model.inertia_), "n_iter": int(model.n_iter_), "init": "fixed_random_sample_centers"}
             if k in refs and device != "cpu":
                 row["abs_inertia_diff_vs_ref"] = float(abs(model.inertia_ - refs[k].inertia_))
                 row["max_center_distance_vs_ref"] = _match_centers(_to_numpy(model.cluster_centers_), _to_numpy(refs[k].cluster_centers_))
@@ -395,21 +448,20 @@ def bench_kmeans_matrix(X, ks, devices, repeats, warmup, preload, seed, max_iter
         from sklearn.cluster import KMeans as SkKMeans
         for k in ks:
             ref = refs.get(k)
-            init = _to_numpy(ref.cluster_centers_) if ref is not None else "k-means++"
-            n_init = 1 if ref is not None else 2
+            init = init_centers_by_k[int(k)]
             model, fit_ms, fit_ms_all = _time_call(
-                lambda k=k, init=init, n_init=n_init: SkKMeans(n_clusters=k, init=init, n_init=n_init, max_iter=max_iter, random_state=seed, algorithm="lloyd").fit(X),
+                lambda k=k, init=init: SkKMeans(n_clusters=k, init=init, n_init=1, max_iter=max_iter, random_state=seed, algorithm="lloyd").fit(X),
                 repeats=repeats,
                 warmup=warmup,
             )
-            row = {"method": "KMeans", "framework": "sklearn", "backend": "cpu", "k": k, "status": "ok", "fit_ms": fit_ms, "fit_ms_all": fit_ms_all, "inertia": float(model.inertia_), "n_iter": int(model.n_iter_)}
+            row = {"method": "KMeans", "framework": "sklearn", "backend": "cpu", "k": k, "status": "ok", "fit_ms": fit_ms, "fit_ms_all": fit_ms_all, "inertia": float(model.inertia_), "n_iter": int(model.n_iter_), "init": "fixed_random_sample_centers"}
             if ref is not None:
                 row["abs_inertia_diff_vs_ref"] = float(abs(model.inertia_ - ref.inertia_))
                 row["max_center_distance_vs_ref"] = _match_centers(model.cluster_centers_, _to_numpy(ref.cluster_centers_))
             rows.append(row)
     except Exception as exc:
         rows.append({"method": "KMeans", "framework": "sklearn", "status": "skipped", "notes": repr(exc)})
-    rows.extend(bench_r_kmeans(X, refs, repeats, timeout=600, max_iter=max_iter))
+    rows.extend(bench_r_kmeans(X, init_centers_by_k, refs, repeats, timeout=600, max_iter=max_iter))
     return rows
 
 
@@ -422,7 +474,7 @@ def parse_args():
     p.add_argument("--components", type=str, default="5,10,50,100")
     p.add_argument("--ks", type=str, default="5,10,25")
     p.add_argument("--devices", type=str, default="cpu,cuda,torch")
-    p.add_argument("--pca-solver", choices=["auto", "randomized"], default="auto")
+    p.add_argument("--pca-solver", choices=["auto", "full", "covariance", "randomized"], default="auto")
     p.add_argument("--methods", type=str, default="pca,kmeans")
     p.add_argument("--preload-device-data", action="store_true")
     p.add_argument("--warmup-runs", type=int, default=1)

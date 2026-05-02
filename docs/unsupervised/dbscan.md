@@ -19,6 +19,10 @@ from statgpu.unsupervised import DBSCAN
 DBSCAN 不是光滑优化问题，没有可微损失函数。它的准则是 density reachability：
 
 - 如果一个点的闭合 `eps` 邻域内至少有 `min_samples` 个点，则它是 core point。
+  $$
+  \left|\left\{x_j : \left\|x_i - x_j\right\|_2 \le \varepsilon\right\}\right|
+  \ge \text{min\_samples}.
+  $$
 - 由 `eps` 邻接链连通的 core points 组成一个 cluster。
 - 能从 core component 到达的非 core points 是 border points。
 - 其他点是 noise，标签为 `-1`。
@@ -70,15 +74,16 @@ DBSCAN 没有 strict inference 模式。CPU fallback 和 Cython fast path 对支
 只有在可选扩展已编译，且 CPU selector 判断输入是 compact dense 场景时使用。variable-density、sparse/all-noise 和无编译器环境使用 fallback。
 
 **为什么 Cython 仍可能慢于 sklearn？**
-Cython 路径是 statgpu 自有实现，目前在 compact dense 场景接近 sklearn，但不总是更快。最新 `n=5000` 运行是 sklearn CPU 的 `1.23x`，因此没有记录为严格速度达标。
+Cython 路径是 statgpu 自有实现，性能会受到数据密度、selector 路径、CPU 库开销和硬件环境影响。详细耗时结论放在 benchmark artifact 中，而不是写死在模型页里。
 
 ## 外部验证
 
 - 测试：`dev/tests/test_unsupervised_dbscan.py`。
 - Benchmark：`dev/benchmarks/benchmark_unsupervised_phase2.py` 和 `dev/benchmarks/benchmark_unsupervised_dbscan_cython.py`。
 - Baseline：sklearn DBSCAN，对齐 `eps`、`min_samples` 和 Euclidean metric。
-- 最新结果：compact `n=5000` Cython CPU `219.62ms`，fallback CPU `379.80ms`，sklearn CPU `178.94ms`，CuPy `21.56ms`，Torch `21.07ms`；labels 的 ARI 为 `1.0`，noise mask 一致。
+- 最新 artifact 覆盖 compact、variable-density 和 all-noise 场景，并比较 statgpu CPU fallback、可选 Cython CPU、CuPy、Torch 与 sklearn CPU baseline。labels 和 noise mask 会按对齐 reference 检查。
 
 ## References
 
-- Ester, M., Kriegel, H.-P., Sander, J., & Xu, X. (1996). A density-based algorithm for discovering clusters in large spatial databases with noise.
+- Ester, M., Kriegel, H.-P., Sander, J., & Xu, X. (1996). A density-based algorithm for discovering clusters in large spatial databases with noise. In *Proceedings of the Second International Conference on Knowledge Discovery and Data Mining (KDD-96)* (pp. 226-231). AAAI Press. https://aaai.org/papers/kdd96-037-a-density-based-algorithm-for-discovering-clusters-in-large-spatial-databases-with-noise/
+- Schubert, E., Sander, J., Ester, M., Kriegel, H.-P., & Xu, X. (2017). DBSCAN revisited, revisited: Why and how you should (still) use DBSCAN. *ACM Transactions on Database Systems*, 42(3), Article 19. https://doi.org/10.1145/3068335

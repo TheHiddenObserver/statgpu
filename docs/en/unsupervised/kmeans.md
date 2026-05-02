@@ -18,9 +18,9 @@ from statgpu.unsupervised import KMeans
 
 KMeans minimizes inertia:
 
-```text
-minimize_{C, z}  sum_i ||x_i - c_{z_i}||_2^2
-```
+$$
+\min_{C, z} \sum_{i=1}^{n} \left\|x_i - c_{z_i}\right\|_2^2 ,
+$$
 
 where `C` are cluster centers and `z_i` is the assigned cluster for sample `i`.
 
@@ -29,8 +29,14 @@ where `C` are cluster centers and `z_i` is the assigned cluster for sample `i`.
 The implementation uses Lloyd iterations:
 
 - Initialize centers with `random` or greedy `k-means++`.
-- Assign each sample to its nearest center using `||X||^2 + ||C||^2 - 2 X C.T`.
+- Assign each sample to its nearest center using
+  $$
+  d_{ij}^2 = \left\|x_i\right\|_2^2 + \left\|c_j\right\|_2^2 - 2 x_i^\top c_j .
+  $$
 - Update each center to the mean of assigned samples.
+  $$
+  c_j = \frac{1}{|\{i: z_i = j\}|}\sum_{i:z_i=j} x_i .
+  $$
 - Reset empty clusters with the sample currently farthest from its assigned center.
 - Stop when squared center movement is at most `tol`, or when `max_iter` is reached.
 - Run `n_init` initializations and retain the solution with the lowest inertia.
@@ -84,5 +90,6 @@ No. Phase 2 dense KMeans raises for sparse input and `sample_weight`.
 
 ## References
 
-- Lloyd, S. (1982). Least squares quantization in PCM.
-- Arthur, D., & Vassilvitskii, S. (2007). k-means++.
+- MacQueen, J. (1967). Some methods for classification and analysis of multivariate observations. In *Proceedings of the Fifth Berkeley Symposium on Mathematical Statistics and Probability* (Vol. 1, pp. 281-297). University of California Press.
+- Lloyd, S. P. (1982). Least squares quantization in PCM. *IEEE Transactions on Information Theory*, 28(2), 129-137. https://doi.org/10.1109/TIT.1982.1056489
+- Arthur, D., & Vassilvitskii, S. (2007). k-means++: The advantages of careful seeding. In *Proceedings of the Eighteenth Annual ACM-SIAM Symposium on Discrete Algorithms (SODA 2007)* (pp. 1027-1035). Society for Industrial and Applied Mathematics.

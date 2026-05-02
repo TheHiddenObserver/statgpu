@@ -18,9 +18,10 @@ from statgpu.unsupervised import NMF
 
 拟合 factors 需要求解非凸约束问题：
 
-```text
-minimize_{W >= 0, H >= 0}  0.5 * ||X - W @ H||_F^2
-```
+$$
+\min_{W \ge 0,\; H \ge 0}
+\frac{1}{2}\left\|X - WH\right\|_F^2 .
+$$
 
 `components_` 存储 `H`；`fit_transform` 返回 `W`。
 
@@ -28,10 +29,15 @@ minimize_{W >= 0, H >= 0}  0.5 * ||X - W @ H||_F^2
 
 实现使用 multiplicative updates：
 
-```text
-W <- W * (X @ H.T) / (W @ H @ H.T + eps)
-H <- H * (W.T @ X) / (W.T @ W @ H + eps)
-```
+$$
+W \leftarrow W \odot
+\frac{XH^\top}{WHH^\top + \varepsilon}
+$$
+
+$$
+H \leftarrow H \odot
+\frac{W^\top X}{W^\top W H + \varepsilon}
+$$
 
 Factors 使用按 `X` 均值缩放的正随机值初始化。重构误差每 10 次迭代和最后一次迭代检查。`transform(X)` 会固定已经拟合的 `H`，为新数据更新新的 `W`。
 
@@ -86,4 +92,5 @@ NMF 没有 strict inference 模式。目标函数是非凸的，multiplicative u
 
 ## References
 
-- Lee, D. D., & Seung, H. S. (2001). Algorithms for non-negative matrix factorization.
+- Lee, D. D., & Seung, H. S. (1999). Learning the parts of objects by non-negative matrix factorization. *Nature*, 401(6755), 788-791. https://doi.org/10.1038/44565
+- Lee, D. D., & Seung, H. S. (2001). Algorithms for non-negative matrix factorization. In T. K. Leen, T. G. Dietterich, & V. Tresp (Eds.), *Advances in Neural Information Processing Systems 13* (pp. 556-562). MIT Press.

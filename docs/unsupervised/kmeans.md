@@ -18,9 +18,9 @@ from statgpu.unsupervised import KMeans
 
 KMeans 最小化 inertia：
 
-```text
-minimize_{C, z}  sum_i ||x_i - c_{z_i}||_2^2
-```
+$$
+\min_{C, z} \sum_{i=1}^{n} \left\|x_i - c_{z_i}\right\|_2^2 .
+$$
 
 其中 `C` 是 cluster centers，`z_i` 是样本 `i` 的簇标签。
 
@@ -29,8 +29,14 @@ minimize_{C, z}  sum_i ||x_i - c_{z_i}||_2^2
 实现使用 Lloyd 迭代：
 
 - 使用 `random` 或 greedy `k-means++` 初始化 centers。
-- 用 `||X||^2 + ||C||^2 - 2 X C.T` 计算平方距离，把每个样本分配到最近中心。
+- 用下式计算平方距离，把每个样本分配到最近中心：
+  $$
+  d_{ij}^2 = \left\|x_i\right\|_2^2 + \left\|c_j\right\|_2^2 - 2 x_i^\top c_j .
+  $$
 - 把每个 center 更新为该簇样本均值。
+  $$
+  c_j = \frac{1}{|\{i: z_i = j\}|}\sum_{i:z_i=j} x_i .
+  $$
 - 空簇用当前距离 assigned center 最远的样本重置。
 - 当 squared center movement 不超过 `tol` 或达到 `max_iter` 时停止。
 - 运行 `n_init` 次初始化，保留 inertia 最低的结果。
@@ -84,5 +90,6 @@ Cluster ID 本身任意。验证应使用 inertia、center matching 或 permutat
 
 ## References
 
-- Lloyd, S. (1982). Least squares quantization in PCM.
-- Arthur, D., & Vassilvitskii, S. (2007). k-means++.
+- MacQueen, J. (1967). Some methods for classification and analysis of multivariate observations. In *Proceedings of the Fifth Berkeley Symposium on Mathematical Statistics and Probability* (Vol. 1, pp. 281-297). University of California Press.
+- Lloyd, S. P. (1982). Least squares quantization in PCM. *IEEE Transactions on Information Theory*, 28(2), 129-137. https://doi.org/10.1109/TIT.1982.1056489
+- Arthur, D., & Vassilvitskii, S. (2007). k-means++: The advantages of careful seeding. In *Proceedings of the Eighteenth Annual ACM-SIAM Symposium on Discrete Algorithms (SODA 2007)* (pp. 1027-1035). Society for Industrial and Applied Mathematics.

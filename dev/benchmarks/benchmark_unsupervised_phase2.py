@@ -117,6 +117,102 @@ def _ari(a, b):
         return None
 
 
+def _scalar(x) -> float:
+    return float(np.asarray(_to_numpy(x)).item())
+
+
+def _make_gmm_initial_state(X: np.ndarray, n_components: int, seed: int, reg_covar: float):
+    rng = np.random.default_rng(seed + 13007)
+    indices = rng.choice(X.shape[0], size=int(n_components), replace=False)
+    means = np.ascontiguousarray(X[indices], dtype=np.float64)
+    weights = np.full((int(n_components),), 1.0 / float(n_components), dtype=np.float64)
+    global_var = np.mean((X - np.mean(X, axis=0)) ** 2, axis=0) + float(reg_covar)
+    covariances = np.tile(global_var, (int(n_components), 1)).astype(np.float64, copy=False)
+    return weights, means, covariances
+
+
+def _fit_statgpu_gmm_fixed_init(X, initial_state, device: str, max_iter: int, tol: float, reg_covar: float) -> GaussianMixture:
+    weights0, means0, covariances0 = initial_state
+    model = GaussianMixture(
+        n_components=int(means0.shape[0]),
+        covariance_type="diag",
+        tol=tol,
+        reg_covar=reg_covar,
+        max_iter=max_iter,
+        n_init=1,
+        init_params="random",
+        random_state=0,
+        device=device,
+    )
+    backend = model._get_backend()
+    X_arr = backend.asarray(X, dtype=backend.float64)
+    weights = backend.asarray(weights0, dtype=backend.float64)
+    means = backend.asarray(means0, dtype=backend.float64)
+    covariances = backend.asarray(covariances0, dtype=backend.float64)
+    lower_bound = -np.inf
+    converged = False
+    n_iter = 0
+    for n_iter in range(1, int(max_iter) + 1):
+        prev_lower_bound = lower_bound
+        lower_bound, resp = model._e_step(backend, X_arr, weights, means, covariances)
+        weights, means, covariances = model._m_step(backend, X_arr, resp)
+        if abs(lower_bound - prev_lower_bound) < float(tol):
+            converged = True
+            break
+    model.weights_ = weights
+    model.means_ = means
+    model.covariances_ = covariances
+    model.precisions_cholesky_ = 1.0 / backend.sqrt(covariances)
+    model.converged_ = bool(converged)
+    model.n_iter_ = int(n_iter)
+    model.lower_bound_ = float(lower_bound)
+    model.n_features_in_ = int(X_arr.shape[1])
+    model._backend_name = backend.name
+    model._fitted = True
+    return model
+
+
+def _make_nmf_initial_state(X: np.ndarray, n_components: int, seed: int):
+    rng = np.random.RandomState(seed)
+    mean = max(float(np.mean(X)), np.finfo(np.float64).eps)
+    scale = np.sqrt(mean / float(n_components))
+    H = np.abs(rng.standard_normal((int(n_components), X.shape[1]))) * scale + 1e-8
+    W = np.abs(rng.standard_normal((X.shape[0], int(n_components)))) * scale + 1e-8
+    return np.ascontiguousarray(W, dtype=np.float64), np.ascontiguousarray(H, dtype=np.float64)
+
+
+def _fit_statgpu_nmf_fixed_init(X, initial_state, device: str, max_iter: int, tol: float) -> NMF:
+    W0, H0 = initial_state
+    model = NMF(n_components=int(H0.shape[0]), max_iter=max_iter, tol=tol, random_state=0, device=device)
+    backend = model._get_backend()
+    X_arr = backend.asarray(X, dtype=backend.float64)
+    W = backend.asarray(W0, dtype=backend.float64)
+    H = backend.asarray(H0, dtype=backend.float64)
+    eps = np.finfo(np.float64).eps
+    previous_error = None
+    error = None
+    n_iter = 0
+    for n_iter in range(1, int(max_iter) + 1):
+        W = model._update_w(backend, X_arr, W, H, eps)
+        H = model._update_h(backend, X_arr, W, H, eps)
+        if n_iter % 10 == 0 or n_iter == int(max_iter):
+            error = model._reconstruction_error(backend, X_arr, W, H)
+            if previous_error is not None and abs(previous_error - error) / max(previous_error, eps) <= float(tol):
+                break
+            previous_error = error
+    if error is None:
+        error = model._reconstruction_error(backend, X_arr, W, H)
+    model.components_ = H
+    model._fit_W = W
+    model.reconstruction_err_ = float(error)
+    model.n_iter_ = int(n_iter)
+    model.n_components_ = int(H0.shape[0])
+    model.n_features_in_ = int(X_arr.shape[1])
+    model._backend_name = backend.name
+    model._fitted = True
+    return model
+
+
 def bench_dbscan(X, devices, repeats, warmup):
     rows = []
     refs = {}
@@ -151,14 +247,29 @@ def bench_dbscan(X, devices, repeats, warmup):
 def bench_gmm(X, devices, repeats, warmup, seed):
     rows = []
     cpu_score = None
+    max_iter = 60
+    tol = 1e-5
+    reg_covar = 1e-6
+    initial_state = _make_gmm_initial_state(X, n_components=4, seed=seed, reg_covar=reg_covar)
     for device in devices:
         if not _device_available(device):
             rows.append({"method": "GaussianMixture", "framework": "statgpu", "backend": device, "status": "skipped"})
             continue
         X_fit = _as_device_input(X, device)
-        model, ms, all_ms = _time_call(lambda device=device: GaussianMixture(n_components=4, random_state=seed, max_iter=60, tol=1e-5, device=device).fit(X_fit), repeats, warmup)
+        model, ms, all_ms = _time_call(
+            lambda device=device: _fit_statgpu_gmm_fixed_init(
+                X_fit,
+                initial_state,
+                device=device,
+                max_iter=max_iter,
+                tol=tol,
+                reg_covar=reg_covar,
+            ),
+            repeats,
+            warmup,
+        )
         score = float(model.score(X_fit))
-        row = {"method": "GaussianMixture", "framework": "statgpu", "backend": device, "status": "ok", "fit_ms": ms, "fit_ms_all": all_ms, "score": score, "lower_bound": float(model.lower_bound_), "n_iter": int(model.n_iter_), "converged": bool(model.converged_)}
+        row = {"method": "GaussianMixture", "framework": "statgpu", "backend": device, "status": "ok", "fit_ms": ms, "fit_ms_all": all_ms, "score": score, "lower_bound": float(model.lower_bound_), "n_iter": int(model.n_iter_), "converged": bool(model.converged_), "init": "fixed_weights_means_diag_covariances"}
         if device == "cpu":
             cpu_score = score
         elif cpu_score is not None:
@@ -167,9 +278,26 @@ def bench_gmm(X, devices, repeats, warmup, seed):
     try:
         from sklearn.mixture import GaussianMixture as SkGMM
 
-        model, ms, all_ms = _time_call(lambda: SkGMM(n_components=4, covariance_type="diag", random_state=seed, max_iter=60, tol=1e-5).fit(X), repeats, warmup)
+        weights0, means0, covariances0 = initial_state
+        model, ms, all_ms = _time_call(
+            lambda: SkGMM(
+                n_components=4,
+                covariance_type="diag",
+                tol=tol,
+                reg_covar=reg_covar,
+                max_iter=max_iter,
+                n_init=1,
+                init_params="random",
+                random_state=seed,
+                weights_init=weights0,
+                means_init=means0,
+                precisions_init=1.0 / covariances0,
+            ).fit(X),
+            repeats,
+            warmup,
+        )
         score = float(model.score(X))
-        row = {"method": "GaussianMixture", "framework": "sklearn", "backend": "cpu", "status": "ok", "fit_ms": ms, "fit_ms_all": all_ms, "score": score, "n_iter": int(model.n_iter_), "converged": bool(model.converged_)}
+        row = {"method": "GaussianMixture", "framework": "sklearn", "backend": "cpu", "status": "ok", "fit_ms": ms, "fit_ms_all": all_ms, "score": score, "n_iter": int(model.n_iter_), "converged": bool(model.converged_), "init": "fixed_weights_means_diag_covariances"}
         if cpu_score is not None:
             row["abs_score_diff_vs_statgpu_cpu"] = float(abs(score - cpu_score))
         rows.append(row)
@@ -181,13 +309,26 @@ def bench_gmm(X, devices, repeats, warmup, seed):
 def bench_nmf(X, devices, repeats, warmup, seed):
     rows = []
     cpu_err = None
+    max_iter = 120
+    tol = 1e-4
+    initial_state = _make_nmf_initial_state(X, n_components=8, seed=seed)
     for device in devices:
         if not _device_available(device):
             rows.append({"method": "NMF", "framework": "statgpu", "backend": device, "status": "skipped"})
             continue
         X_fit = _as_device_input(X, device)
-        model, ms, all_ms = _time_call(lambda device=device: NMF(n_components=8, max_iter=120, random_state=seed, device=device).fit(X_fit), repeats, warmup)
-        row = {"method": "NMF", "framework": "statgpu", "backend": device, "status": "ok", "fit_ms": ms, "fit_ms_all": all_ms, "reconstruction_err": float(model.reconstruction_err_), "n_iter": int(model.n_iter_)}
+        model, ms, all_ms = _time_call(
+            lambda device=device: _fit_statgpu_nmf_fixed_init(
+                X_fit,
+                initial_state,
+                device=device,
+                max_iter=max_iter,
+                tol=tol,
+            ),
+            repeats,
+            warmup,
+        )
+        row = {"method": "NMF", "framework": "statgpu", "backend": device, "status": "ok", "fit_ms": ms, "fit_ms_all": all_ms, "reconstruction_err": float(model.reconstruction_err_), "n_iter": int(model.n_iter_), "init": "fixed_W_H"}
         if device == "cpu":
             cpu_err = float(model.reconstruction_err_)
         elif cpu_err is not None:
@@ -196,10 +337,33 @@ def bench_nmf(X, devices, repeats, warmup, seed):
     try:
         from sklearn.decomposition import NMF as SkNMF
 
-        model, ms, all_ms = _time_call(lambda: SkNMF(n_components=8, init="random", solver="mu", beta_loss="frobenius", max_iter=120, random_state=seed).fit(X), repeats, warmup)
-        row = {"method": "NMF", "framework": "sklearn", "backend": "cpu", "status": "ok", "fit_ms": ms, "fit_ms_all": all_ms, "reconstruction_err": float(model.reconstruction_err_), "n_iter": int(model.n_iter_)}
+        W0, H0 = initial_state
+        model, ms, all_ms = _time_call(
+            lambda: SkNMF(
+                n_components=8,
+                init="custom",
+                solver="mu",
+                beta_loss="frobenius",
+                max_iter=max_iter,
+                tol=tol,
+                random_state=seed,
+            ).fit_transform(X, W=W0.copy(), H=H0.copy()),
+            repeats,
+            warmup,
+        )
+        sk_model = SkNMF(
+            n_components=8,
+            init="custom",
+            solver="mu",
+            beta_loss="frobenius",
+            max_iter=max_iter,
+            tol=tol,
+            random_state=seed,
+        )
+        W = sk_model.fit_transform(X, W=W0.copy(), H=H0.copy())
+        row = {"method": "NMF", "framework": "sklearn", "backend": "cpu", "status": "ok", "fit_ms": ms, "fit_ms_all": all_ms, "reconstruction_err": float(sk_model.reconstruction_err_), "n_iter": int(sk_model.n_iter_), "init": "fixed_W_H"}
         if cpu_err is not None:
-            row["rel_reconstruction_err_vs_statgpu_cpu"] = float(model.reconstruction_err_ / cpu_err)
+            row["rel_reconstruction_err_vs_statgpu_cpu"] = float(sk_model.reconstruction_err_ / cpu_err)
         rows.append(row)
     except Exception as exc:
         rows.append({"method": "NMF", "framework": "sklearn", "status": "skipped", "notes": repr(exc)})

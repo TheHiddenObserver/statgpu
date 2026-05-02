@@ -19,6 +19,10 @@ from statgpu.unsupervised import DBSCAN
 DBSCAN is not a smooth optimization problem. It has no differentiable loss to minimize. Its criterion is density reachability:
 
 - A point is core if its closed `eps` neighborhood contains at least `min_samples` points.
+  $$
+  \left|\left\{x_j : \left\|x_i - x_j\right\|_2 \le \varepsilon\right\}\right|
+  \ge \text{min\_samples}.
+  $$
 - Core points connected by `eps`-neighbor chains form a cluster.
 - Non-core points reachable from a core component are border points.
 - Other points are noise with label `-1`.
@@ -70,15 +74,16 @@ No. sklearn is used only for tests and benchmarks.
 Only when the optional extension is built and the CPU selector identifies compact dense input. Variable-density, sparse/all-noise, and no-compiler environments use fallback.
 
 **Why can Cython still be slower than sklearn?**
-The Cython path is statgpu-owned and currently near sklearn on compact dense cases but not always faster. The latest `n=5000` run was `1.23x` sklearn CPU, so it is not recorded as a strict speed pass.
+The Cython path is statgpu-owned, and performance depends on data density, selector choice, CPU library overhead, and hardware. Detailed timing conclusions live in the benchmark artifacts rather than in this model page.
 
 ## External Validation
 
 - Tests: `dev/tests/test_unsupervised_dbscan.py`.
 - Benchmarks: `dev/benchmarks/benchmark_unsupervised_phase2.py` and `dev/benchmarks/benchmark_unsupervised_dbscan_cython.py`.
 - Baseline: sklearn DBSCAN with aligned `eps`, `min_samples`, and Euclidean metric.
-- Latest result: compact `n=5000` Cython CPU `219.62ms`, fallback CPU `379.80ms`, sklearn CPU `178.94ms`, CuPy `21.56ms`, Torch `21.07ms`; labels match with ARI `1.0` and matching noise masks.
+- Latest artifacts cover compact, variable-density, and all-noise cases across statgpu CPU fallback, optional Cython CPU, CuPy, Torch, and sklearn CPU baselines. Labels and noise masks are checked against the aligned reference.
 
 ## References
 
-- Ester, M., Kriegel, H.-P., Sander, J., & Xu, X. (1996). A density-based algorithm for discovering clusters in large spatial databases with noise.
+- Ester, M., Kriegel, H.-P., Sander, J., & Xu, X. (1996). A density-based algorithm for discovering clusters in large spatial databases with noise. In *Proceedings of the Second International Conference on Knowledge Discovery and Data Mining (KDD-96)* (pp. 226-231). AAAI Press. https://aaai.org/papers/kdd96-037-a-density-based-algorithm-for-discovering-clusters-in-large-spatial-databases-with-noise/
+- Schubert, E., Sander, J., Ester, M., Kriegel, H.-P., & Xu, X. (2017). DBSCAN revisited, revisited: Why and how you should (still) use DBSCAN. *ACM Transactions on Database Systems*, 42(3), Article 19. https://doi.org/10.1145/3068335

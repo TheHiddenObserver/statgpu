@@ -16,11 +16,17 @@ from statgpu.unsupervised import GaussianMixture
 
 ## Objective Function / Loss Function
 
-For `K` components and diagonal covariance `sigma_k^2`, the model maximizes average log likelihood:
+For a fixed number of mixture components with diagonal covariances, the model maximizes average log likelihood:
 
-```text
-(1 / n) * sum_i log sum_k pi_k * Normal(x_i | mu_k, diag(sigma_k^2))
-```
+$$
+\ell(\theta)
+= \frac{1}{n}\sum_{i=1}^{n}
+\log\left[
+\sum_{k=1}^{K}
+\pi_k \,
+\mathcal{N}\left(x_i \mid \mu_k, \operatorname{diag}(\sigma_k^2)\right)
+\right].
+$$
 
 `reg_covar` lower-bounds diagonal variances for numerical stability.
 
@@ -29,16 +35,65 @@ For `K` components and diagonal covariance `sigma_k^2`, the model maximizes aver
 The implementation uses log-domain EM:
 
 - Initialize means with KMeans or random samples.
-- E-step:
-  - compute weighted log probabilities `log pi_k + log N(x_i | mu_k, Sigma_k)`;
-  - normalize with `logsumexp`;
-  - produce responsibilities `r_ik`.
-- M-step:
-  - `n_k = sum_i r_ik`;
-  - `pi_k = n_k / n`;
-  - `mu_k = sum_i r_ik x_i / n_k`;
-  - `sigma_k^2 = max(sum_i r_ik x_i^2 / n_k - mu_k^2, reg_covar)`.
-- Stop when the lower-bound improvement is below `tol` or `max_iter` is reached.
+- E-step: compute weighted component log probabilities
+  $$
+  a_{ik}
+  =
+  \log \pi_k
+  +
+  \log \mathcal{N}\left(x_i \mid \mu_k, \Sigma_k\right).
+  $$
+  Then normalize with log-sum-exp:
+  $$
+  \log p(x_i)
+  =
+  \operatorname{logsumexp}_{k=1}^{K}\left(a_{ik}\right)
+  =
+  \log\left[
+    \sum_{k=1}^{K}
+    \pi_k \mathcal{N}\left(x_i \mid \mu_k, \Sigma_k\right)
+  \right].
+  $$
+  The responsibility of component `k` for sample `i` is
+  $$
+  r_{ik}
+  =
+  \exp\left(a_{ik} - \log p(x_i)\right)
+  =
+  \frac{
+    \pi_k \mathcal{N}\left(x_i \mid \mu_k, \Sigma_k\right)
+  }{
+    \sum_{\ell=1}^{K}
+    \pi_\ell \mathcal{N}\left(x_i \mid \mu_\ell, \Sigma_\ell\right)
+  } .
+  $$
+- M-step: update effective component sizes, weights, means, and diagonal variances:
+  $$
+  n_k = \sum_{i=1}^{n} r_{ik}.
+  $$
+  $$
+  \pi_k = \frac{n_k}{n}.
+  $$
+  $$
+  \mu_k = \frac{1}{n_k}\sum_{i=1}^{n} r_{ik}x_i.
+  $$
+  $$
+  \sigma_k^2
+  =
+  \max\left(
+    \frac{1}{n_k}\sum_{i=1}^{n} r_{ik} x_i^{\odot 2}
+    -
+    \mu_k^{\odot 2},
+    \text{reg\_covar}
+  \right).
+  $$
+- The monitored lower bound is
+  $$
+  \mathcal{L}
+  =
+  \frac{1}{n}\sum_{i=1}^{n}\log p(x_i).
+  $$
+  Stop when its improvement is below `tol` or `max_iter` is reached.
 - Run `n_init` initializations and keep the highest lower bound.
 
 ## Parameters
@@ -97,4 +152,5 @@ No. Phase 2 supports only `covariance_type="diag"`.
 
 ## References
 
-- Dempster, A. P., Laird, N. M., & Rubin, D. B. (1977). Maximum likelihood from incomplete data via the EM algorithm.
+- Dempster, A. P., Laird, N. M., & Rubin, D. B. (1977). Maximum likelihood from incomplete data via the EM algorithm. *Journal of the Royal Statistical Society: Series B (Methodological)*, 39(1), 1-22. https://doi.org/10.1111/j.2517-6161.1977.tb01600.x
+- McLachlan, G. J., & Peel, D. (2000). *Finite Mixture Models*. Wiley Series in Probability and Statistics. Wiley.

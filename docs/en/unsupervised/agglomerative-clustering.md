@@ -18,9 +18,12 @@ from statgpu.unsupervised import AgglomerativeClustering
 
 Single-linkage agglomerative clustering is a greedy hierarchical procedure, not a global smooth optimization. At each step it merges the two clusters with minimum pairwise distance:
 
-```text
-d(A, B) = min_{x in A, y in B} ||x - y||_2
-```
+$$
+d(A, B)
+=
+\min_{x \in A,\; y \in B}
+\left\|x - y\right\|_2 .
+$$
 
 ## Estimating Equation
 
@@ -78,5 +81,7 @@ No. Agglomerative clustering does not support `predict` for unseen samples in th
 
 ## References
 
-- Sneath, P. H. A. (1957). The application of computers to taxonomy.
-- SciPy hierarchical clustering documentation.
+- Sneath, P. H. A. (1957). The application of computers to taxonomy. *Journal of General Microbiology*, 17(1), 201-226. https://doi.org/10.1099/00221287-17-1-201
+- Murtagh, F. (1983). A survey of recent advances in hierarchical clustering algorithms. *The Computer Journal*, 26(4), 354-359. https://doi.org/10.1093/comjnl/26.4.354
+- Müllner, D. (2013). fastcluster: Fast hierarchical, agglomerative clustering routines for R and Python. *Journal of Statistical Software*, 53(9), 1-18. https://doi.org/10.18637/jss.v053.i09
+- SciPy Developers. `scipy.cluster.hierarchy`: Hierarchical clustering. SciPy documentation. https://docs.scipy.org/doc/scipy/reference/cluster.hierarchy.html
