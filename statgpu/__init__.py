@@ -29,6 +29,7 @@ from .linear_model import (
     ElasticNetCV,
 )
 from .survival import CoxPH, CoxPHCV
+from .unsupervised import PCA, KMeans, DBSCAN, GaussianMixture, NMF, AgglomerativeClustering
 from .backends import get_backend, NumpyBackend, CuPyBackend, TorchBackend
 from .metrics import evaluate_binary_classification
 from .feature_selection import (
@@ -82,6 +83,12 @@ __all__ = [
     "ElasticNetCV",
     "CoxPH",
     "CoxPHCV",
+    "PCA",
+    "KMeans",
+    "DBSCAN",
+    "GaussianMixture",
+    "NMF",
+    "AgglomerativeClustering",
     "get_backend",
     "NumpyBackend",
     "CuPyBackend",

@@ -246,3 +246,35 @@ class CuPyBackend(BackendBase):
         """Cumulative maximum along *axis* (CuPy fallback via CPU)."""
         import cupy as cp
         return cp.asarray(np.maximum.accumulate(cp.asnumpy(arr), axis=axis))
+
+    def where(self, cond, x, y):
+        """Element-wise selection based on condition."""
+        import cupy as cp
+        return cp.where(cond, x, y)
+
+    def bincount(self, x, weights=None, minlength=0):
+        """Count non-negative integer labels."""
+        import cupy as cp
+        return cp.bincount(x, weights=weights, minlength=minlength)
+
+    def logsumexp(self, x, axis=None, keepdims=False):
+        """Stable logsumexp reduction."""
+        import cupy as cp
+        from cupyx.scipy.special import logsumexp
+        return logsumexp(x, axis=axis, keepdims=keepdims)
+
+    def zeros_like(self, x, dtype=None):
+        """Create zeros with the same shape as x."""
+        import cupy as cp
+        return cp.zeros_like(x, dtype=dtype)
+
+    def ones_like(self, x, dtype=None):
+        """Create ones with the same shape as x."""
+        import cupy as cp
+        return cp.ones_like(x, dtype=dtype)
+
+    @property
+    def bool(self):
+        """Boolean dtype."""
+        import cupy as cp
+        return cp.bool_

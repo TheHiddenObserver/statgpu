@@ -36,6 +36,7 @@ Install note:
 - [Knockoff Feature Selection](docs/en/models/knockoff.md)
 - [Ordered Generalized Linear Models (Logit/Probit)](docs/en/models/ordered.md)
 - [Nonparametric Methods](docs/en/models/nonparametric.md)
+- [Unsupervised Learning](docs/en/unsupervised/README.md)
 
 Implemented estimators:
 - `LinearRegression`
@@ -58,6 +59,16 @@ Implemented estimators:
 - `OrderedLogitRegression` / `OrderedProbitRegression` ✅ (3 backends)
   - Ordered response models with cumulative logit/probit link
   - Cross-backend precision fix (2026-04-26): coef diff < 1e-2 across backends
+- `PCA` / `KMeans` / `DBSCAN` / `GaussianMixture` / `NMF` ✅ (3 backends)
+  - Unsupervised estimators under `statgpu.unsupervised`
+  - Detailed per-model loss/objective and estimating-equation docs: [docs/en/unsupervised/](docs/en/unsupervised/README.md)
+  - PCA supports full SVD, covariance/eigh, and randomized solvers
+  - KMeans supports Lloyd iterations with random or greedy k-means++ initialization
+  - DBSCAN supports dense Euclidean clustering with an optional statgpu-owned Cython CPU fast path for compact dense inputs
+  - GaussianMixture supports diagonal-covariance EM
+  - NMF supports MU with Frobenius loss
+- `AgglomerativeClustering` ✅ (CPU)
+  - Single-linkage exact clustering for dense Euclidean input
 
 Exported CV classes:
 - `RidgeCV` ✅ (Full implementation with GPU acceleration)

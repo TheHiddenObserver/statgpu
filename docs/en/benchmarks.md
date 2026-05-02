@@ -1,7 +1,7 @@
 # Benchmark Index
 
 > Language: English  
-> Last updated: 2026-04-16  
+> Last updated: 2026-05-02
 > This page: Benchmark index  
 > Switch: [Chinese](../benchmarks.md)
 
@@ -30,6 +30,34 @@ Language switch: [Chinese](../benchmarks.md)
   - Supports `--statgpu-backend numpy/cupy`
   - Supports `--ci-method normal/bootstrap`
   - Reports `statgpu CPU/GPU`, R, and KDE CI vs SciPy comparisons
+
+## Unsupervised Learning
+
+- Detailed model docs: [docs/en/unsupervised/](unsupervised/README.md)
+- `dev/benchmarks/benchmark_unsupervised.py`
+  - Compares `PCA` and `KMeans` across `statgpu` CPU/CuPy/Torch and sklearn when available.
+  - Outputs timing and numerical differences to JSON.
+- `dev/benchmarks/benchmark_unsupervised_phase2.py`
+  - Compares `DBSCAN`, `GaussianMixture`, `NMF`, and `AgglomerativeClustering` against available sklearn/SciPy/R baselines.
+  - Records `umap-learn` and `openTSNE` smoke/runtime baselines for future UMAP/t-SNE work.
+- `dev/benchmarks/benchmark_unsupervised_dbscan_cython.py`
+  - Validates the optional statgpu-owned DBSCAN Cython CPU fast path against the exact fallback, sklearn CPU, CuPy, and Torch.
+
+Remote Phase 2 artifacts:
+- `results/unsupervised_phase2_remote_20260502_142727.json`
+- `results/unsupervised_phase2_full_comparison_20260502_142727.md`
+- `results/unsupervised_phase2_dbscan_cython_benchmark_20260502_153927.json`
+- `results/unsupervised_phase2_dbscan_cython_summary_20260502_153927.md`
+- `results/unsupervised_phase2_dbscan_cython_final_20260502_160719.json`
+- `results/unsupervised_phase2_final_20260502_160719.json`
+- `results/unsupervised_phase2_final_summary_20260502_160719.md`
+- `results/unsupervised_phase2_dbscan_cython_verify_20260502_210000.json`
+- `results/unsupervised_phase2_verify_20260502_210000.json`
+- `results/unsupervised_phase2_verify_summary_20260502_210000.md`
+
+DBSCAN CPU Cython note:
+- The optional `_dbscan_cpu` extension is a statgpu-owned implementation, not a sklearn wrapper.
+- Compact dense CPU cases use the extension when it is built and selected; fallback remains available for variable-density, sparse/all-noise, or no-compiler environments.
 
 ## Multiple-testing and Global P-value Combination
 

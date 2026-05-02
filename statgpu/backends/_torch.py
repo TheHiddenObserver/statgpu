@@ -264,6 +264,19 @@ class TorchBackend(BackendBase):
             x = result.values if hasattr(result, 'values') else result[0]
         return x
 
+    def min(self, x, axis=None, keepdims=False):
+        """Minimum value along axis."""
+        import torch
+        if axis is None:
+            return torch.min(x)
+        if isinstance(axis, int):
+            result = torch.min(x, dim=axis, keepdim=keepdims)
+            return result.values if hasattr(result, 'values') else result[0]
+        for ax in sorted(axis, reverse=True):
+            result = torch.min(x, dim=ax, keepdim=keepdims)
+            x = result.values if hasattr(result, 'values') else result[0]
+        return x
+
     def square(self, x):
         """Element-wise square."""
         import torch
@@ -283,6 +296,13 @@ class TorchBackend(BackendBase):
         """Element-wise log(1 + x)."""
         import torch
         return torch.log1p(x)
+
+    def logsumexp(self, x, axis=None, keepdims=False):
+        """Stable logsumexp reduction."""
+        import torch
+        if axis is None:
+            return torch.logsumexp(x.reshape(-1), dim=0)
+        return torch.logsumexp(x, dim=axis, keepdim=keepdims)
 
     def maximum(self, x, y):
         """Element-wise maximum of two arrays."""
@@ -460,6 +480,11 @@ class TorchBackend(BackendBase):
             return torch.unique(x, return_counts=return_counts)
         return torch.unique(x)
 
+    def bincount(self, x, weights=None, minlength=0):
+        """Count non-negative integer labels."""
+        import torch
+        return torch.bincount(x, weights=weights, minlength=minlength)
+
     def any(self, x, axis=None):
         """Check if any element is true."""
         import torch
@@ -628,3 +653,12 @@ class TorchBackend(BackendBase):
         """Element-wise sign."""
         import torch
         return torch.sign(x)
+
+    def norm(self, x, axis=None, keepdims=False):
+        """Euclidean norm."""
+        import torch
+        return torch.sqrt(self.sum(x * x, axis=axis, keepdims=keepdims))
+
+    def item(self, x):
+        """Convert a scalar tensor to a Python scalar."""
+        return x.detach().cpu().item() if hasattr(x, "detach") else x

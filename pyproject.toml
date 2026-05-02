@@ -42,6 +42,7 @@ torch = ["torch>=2.0", "scipy>=1.7"]
 dev = ["pytest>=6.0", "black", "flake8", "mypy"]
 validation = ["pytest>=6.0", "scikit-learn>=1.0", "statsmodels>=0.13"]
 formula = ["patsy>=0.5.3", "pandas>=1.5"]
+cpu_ext = ["Cython>=3.0"]
 
 [project.urls]
 Homepage = "https://github.com/TheHiddenObserver/statgpu"

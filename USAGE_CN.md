@@ -33,6 +33,7 @@
 - [Knockoff 特征选择](docs/models/knockoff.md)
 - [有序广义线性模型 (Logit/Probit)](docs/models/ordered.md)
 - [非参数方法](docs/models/nonparametric.md)
+- [无监督学习](docs/unsupervised/README.md)
 
 ### 线性模型 `statgpu.linear_model`
 - [LinearRegression](docs/models/linear-regression.md)
@@ -67,6 +68,17 @@
 - `OrderedLogitRegression` / `OrderedProbitRegression` ✅ (三后端)
   - 有序响应模型（累积 logit/probit 链接函数）
   - 跨后端精度修复 (2026-04-26)：coef 最大差异 < 1e-2
+- `PCA` / `KMeans` / `DBSCAN` / `GaussianMixture` / `NMF` ✅ (三后端)
+  - 位于 `statgpu.unsupervised`
+  - 逐模型 loss/objective 与估计方程文档：[docs/unsupervised/](docs/unsupervised/README.md)
+  - PCA 支持 full SVD、covariance/eigh 与 randomized 求解
+  - KMeans 支持 Lloyd 迭代、random 与 k-means++ 初始化
+  - DBSCAN 支持 dense Euclidean 聚类；CPU 可选 statgpu 自有 Cython fast path，生产代码内部不调用 sklearn
+  - GaussianMixture 支持 diagonal covariance EM
+  - NMF 支持 Frobenius loss 下的 multiplicative update
+- `AgglomerativeClustering` ✅ (CPU)
+  - 位于 `statgpu.unsupervised`
+  - 首版支持 single linkage 与 Euclidean 距离
 
 当前导出的 CV 类：
 - `RidgeCV` ✅ (完整实现，支持 GPU 加速交叉验证)

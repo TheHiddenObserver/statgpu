@@ -27,6 +27,14 @@ GPU-accelerated statistical methods with sklearn-compatible API.
   - KDE: `fit_kde` / `kde_pdf` / `kde_bootstrap_confidence_interval`
   - KDE kernel options: `gaussian` / `rectangular` / `triangular` / `epanechnikov` / `biweight` / `triweight` / `cosine` / `optcosine`
   - Kernel regression: `fit_kernel_regression` / `kernel_regression_predict`
+- **Unsupervised Learning**:
+  - `PCA`: full SVD, covariance/eigh, or randomized principal components
+  - `KMeans`: Lloyd clustering with random or greedy k-means++ initialization
+  - `DBSCAN`: dense Euclidean density clustering with optional statgpu-owned Cython CPU fast path
+  - `GaussianMixture`: diagonal-covariance EM
+  - `NMF`: multiplicative-update matrix factorization
+  - `AgglomerativeClustering`: CPU exact single linkage
+  - Detailed loss/objective and estimating-equation docs: `docs/en/unsupervised/`
 - 🧹 **GPU Memory Control**: `gpu_memory_cleanup` for all current models
 - 🔥 **PyTorch Backend**: Optional Torch backend for GPU acceleration (PyTorch 2.0+)
   - Supported models: `Ridge`, `LogisticRegression`, `Lasso`, `LassoCV`, `CoxPH`
@@ -49,6 +57,12 @@ GPU-accelerated statistical methods with sklearn-compatible API.
 - `statgpu.survival.CoxPH` ✅ (Torch backend)
 - `statgpu.linear_model.OrderedLogitRegression` ✅ (3 backends)
 - `statgpu.linear_model.OrderedProbitRegression` ✅ (3 backends)
+- `statgpu.unsupervised.PCA` ✅ (3 backends)
+- `statgpu.unsupervised.KMeans` ✅ (3 backends)
+- `statgpu.unsupervised.DBSCAN` (3 backends; optional Cython CPU fast path, no sklearn production dependency)
+- `statgpu.unsupervised.GaussianMixture` (diag covariance, 3 backends)
+- `statgpu.unsupervised.NMF` (MU/Frobenius, 3 backends)
+- `statgpu.unsupervised.AgglomerativeClustering` (single linkage, CPU)
 
 Exported CV classes (✅ = implemented and trainable):
 
