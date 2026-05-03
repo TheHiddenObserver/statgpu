@@ -26,6 +26,14 @@ GPU-accelerated statistical methods with sklearn-compatible API.
   - KDE: `fit_kde` / `kde_pdf` / `kde_bootstrap_confidence_interval`
   - KDE kernel options: `gaussian` / `rectangular` / `triangular` / `epanechnikov` / `biweight` / `triweight` / `cosine` / `optcosine`
   - Kernel regression: `fit_kernel_regression` / `kernel_regression_predict`
+- **Unsupervised Learning**:
+  - `PCA`: full SVD, covariance/eigh, or randomized principal components
+  - `KMeans`: Lloyd clustering with random or greedy k-means++ initialization
+  - `DBSCAN`: dense Euclidean density clustering with optional statgpu-owned Cython CPU fast path
+  - `GaussianMixture`: diagonal-covariance EM
+  - `NMF`: multiplicative-update matrix factorization
+  - `AgglomerativeClustering`: CPU exact single linkage
+  - Detailed loss/objective and estimating-equation docs: `docs/en/unsupervised/`
 - 🧹 **GPU Memory Control**: `gpu_memory_cleanup` for all current models
 - 🔥 **PyTorch Backend**: Optional Torch backend for GPU acceleration (PyTorch 2.0+)
   - Supported models: `Ridge`, `LogisticRegression`, `Lasso`, `LassoCV`, `CoxPH`
@@ -56,6 +64,15 @@ GPU-accelerated statistical methods with sklearn-compatible API.
 - `statgpu.linear_model.OrderedProbitRegression`
 - `statgpu.survival.CoxPH`
 
+### Unsupervised Learning
+
+- `statgpu.unsupervised.PCA` (full SVD, covariance/eigh, or randomized; 3 backends)
+- `statgpu.unsupervised.KMeans` (Lloyd clustering, k-means++ init; 3 backends)
+- `statgpu.unsupervised.DBSCAN` (dense Euclidean; optional Cython CPU fast path; 3 backends)
+- `statgpu.unsupervised.GaussianMixture` (diagonal covariance EM; 3 backends)
+- `statgpu.unsupervised.NMF` (multiplicative-update MU/Frobenius; 3 backends)
+- `statgpu.unsupervised.AgglomerativeClustering` (single linkage, CPU)
+
 Exported CV classes:
 
 - `statgpu.linear_model.RidgeCV`
@@ -77,6 +94,7 @@ Backend support and feature parity are documented per model in the Model Docs In
 - Cox proportional hazards: `docs/en/models/coxph.md` / `docs/models/coxph.md`
 - Nonparametric methods: `docs/en/models/nonparametric.md` / `docs/models/nonparametric.md`
 - Knockoff filter: `docs/en/models/knockoff.md` / `docs/models/knockoff.md`
+- Unsupervised models: `docs/en/models/unsupervised.md` / `docs/models/unsupervised.md`
 
 ## Installation
 

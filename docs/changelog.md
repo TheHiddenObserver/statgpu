@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-05
+
+- **Unsupervised learning Phase 2 / DBSCAN Cython CPU path**:
+  - Added optional statgpu-owned `_dbscan_cpu` Cython fast path for compact dense CPU DBSCAN.
+  - No sklearn acceleration is used inside production DBSCAN code; sklearn remains an external test/benchmark baseline.
+  - Added remote artifacts under `results/` for Phase 2 and DBSCAN Cython validation.
+
 > 语言：中文  
 > 最后更新：2026-04-18  
 > 页面定位：变更记录  
@@ -8,6 +15,16 @@
 语言切换：[English](en/changelog.md)
 
 ## 2026-04
+
+### 新增 (2026-04-30)
+
+- **无监督学习 v1**:
+  - 新增 `statgpu.unsupervised.PCA`，支持 CPU/CuPy/Torch 路径、full SVD 与 covariance/eigh 求解。
+  - 新增 `statgpu.unsupervised.KMeans`，支持 CPU/CuPy/Torch 路径、Lloyd 迭代、random 与 k-means++ 初始化。
+  - 优化 exact covariance PCA：使用 Gram 协方差恒等式，避免物化中心化训练矩阵。
+  - 新增 `svd_solver="randomized"`，用于近似截断 PCA。
+  - 顶层 `statgpu` 命名空间导出 `PCA` 与 `KMeans`。
+  - 新增 sklearn 对齐测试与 `dev/benchmarks/benchmark_unsupervised.py`。
 
 ### 新增 (2026-04-26)
 

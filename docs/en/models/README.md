@@ -1,7 +1,7 @@
 # Models Overview
 
 > Language: English  
-> Last updated: 2026-04-22  
+> Last updated: 2026-05-02
 > This page: Model index  
 > Switch: [Chinese](../../models/README.md)
 
@@ -30,12 +30,18 @@ Language switch: [Chinese](../../models/README.md)
 
 - [Nonparametric](nonparametric.md)
 
+## Unsupervised Learning
+
+- [Unsupervised learning compatibility entry](unsupervised.md)
+- [Detailed unsupervised docs](../unsupervised/README.md): [PCA](../unsupervised/pca.md), [KMeans](../unsupervised/kmeans.md), [DBSCAN](../unsupervised/dbscan.md), [GaussianMixture](../unsupervised/gaussian-mixture.md), [NMF](../unsupervised/nmf.md), [AgglomerativeClustering](../unsupervised/agglomerative-clustering.md)
+
 ## Current Coverage Notes
 
-- All current models support `device="cpu"` / `device="cuda"` / `device="auto"`.
-- All current models support `gpu_memory_cleanup`.
+- Device support is model-specific. Explicit `device="cuda"` and `device="torch"` must raise when unavailable or unsupported; they must not silently fall back to CPU.
+- GPU memory cleanup support is model-specific and documented on pages where it affects behavior.
 - `GeneralizedLinearModel` and typed penalized GLMs are documented in [GeneralizedLinearModel and Penalized GLM](generalized-linear-model.md).
 - `PoissonRegression` is documented separately as the ordinary Poisson GLM estimator.
+- `PCA`, `KMeans`, `DBSCAN`, `GaussianMixture`, and `NMF` are available in `statgpu.unsupervised` with CPU/CuPy/Torch paths; `AgglomerativeClustering(single)` is CPU-only. See [Detailed unsupervised docs](../unsupervised/README.md) for per-model loss/objective functions, estimating equations, strict/approx notes, examples, and external validation artifacts.
 - Inference-rich models:
   - `LinearRegression`: classical + `HC0/HC1/HC2/HC3/HAC`
   - `Ridge`: classical + `HC0/HC1/HC2/HC3/HAC`

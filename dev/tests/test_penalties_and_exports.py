@@ -37,6 +37,15 @@ def test_top_level_lasso_cv_export():
     assert hasattr(statgpu, "LassoCV")
 
 
+@pytest.mark.parametrize(
+    "name",
+    ["PCA", "KMeans", "DBSCAN", "GaussianMixture", "NMF", "AgglomerativeClustering"],
+)
+def test_top_level_unsupervised_exports(name):
+    """Top-level package should expose unsupervised estimators."""
+    assert hasattr(statgpu, name)
+
+
 def test_inference_r_style_distribution_quartets_exports():
     """Inference should expose full R-style d/p/q/r compatibility APIs by family."""
     expected_by_family = {

@@ -9,6 +9,23 @@ Language switch: [Chinese](../changelog.md)
 
 ## 2026-04
 
+### Added (2026-04-30)
+
+- **Unsupervised learning Phase 2**:
+  - Added `DBSCAN`, `GaussianMixture`, `NMF`, and `AgglomerativeClustering`.
+  - Added an optional statgpu-owned Cython CPU fast path for compact dense `DBSCAN`, with exact SciPy/NumPy fallback when the extension is unavailable or unsuitable.
+  - Added shared unsupervised validation/scalar helpers and backend helpers for Phase 2 estimators.
+  - Added Phase 2 unit tests and `dev/benchmarks/benchmark_unsupervised_phase2.py` for sklearn/SciPy/R plus UMAP/openTSNE baseline validation.
+  - Added remote result artifacts for Phase 2 and DBSCAN Cython CPU validation under `results/`.
+
+- **Unsupervised learning v1**:
+  - Added `statgpu.unsupervised.PCA` with CPU/CuPy/Torch paths, full SVD and covariance/eigh solvers.
+  - Added `statgpu.unsupervised.KMeans` with CPU/CuPy/Torch paths, Lloyd iterations, random initialization, and k-means++ initialization.
+  - Optimized exact covariance PCA to use the Gram covariance identity and avoid materializing a centered training matrix.
+  - Added `svd_solver="randomized"` for approximate truncated PCA.
+  - Exported `PCA` and `KMeans` from the top-level `statgpu` namespace.
+  - Added sklearn parity tests and `dev/benchmarks/benchmark_unsupervised.py`.
+
 ### Added (2026-04-26)
 
 - **Phase 1: Ordered Model Cross-Backend Precision Fixes**:

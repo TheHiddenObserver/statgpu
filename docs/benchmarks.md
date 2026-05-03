@@ -1,7 +1,7 @@
 # 基准脚本索引
 
 > 语言: 中文  
-> 最后更新: 2026-04-16  
+> 最后更新: 2026-05-02
 > 页面定位: 基准脚本索引  
 > 切换: [English](en/benchmarks.md)
 
@@ -31,6 +31,32 @@
   - 支持 `--statgpu-backend numpy/cupy`
   - 支持 `--ci-method normal/bootstrap`
   - 结果包含 `statgpu CPU/GPU`、R，以及 KDE CI 与 SciPy 的对照
+
+## 无监督学习
+
+- 详细模型文档：[docs/unsupervised/](unsupervised/README.md)
+- `dev/benchmarks/benchmark_unsupervised.py`
+  - 对比 `PCA` 与 `KMeans` 在 `statgpu` CPU/CuPy/Torch 和 sklearn（可用时）下的时间与数值差异。
+  - 支持输出 JSON 结果。
+
+Phase 2 supplement:
+- `dev/benchmarks/benchmark_unsupervised_phase2.py`
+  - Compares `DBSCAN`, `GaussianMixture`, `NMF`, and `AgglomerativeClustering` against available sklearn/SciPy/R baselines.
+  - Records `umap-learn` and `openTSNE` smoke/runtime baselines for future comparison-only work.
+- `dev/benchmarks/benchmark_unsupervised_dbscan_cython.py`
+  - Validates the optional statgpu-owned DBSCAN Cython CPU fast path against fallback, sklearn CPU, CuPy, and Torch.
+
+Remote Phase 2 artifacts:
+- `results/unsupervised_phase2_dbscan_cython_final_20260502_160719.json`
+- `results/unsupervised_phase2_final_20260502_160719.json`
+- `results/unsupervised_phase2_final_summary_20260502_160719.md`
+- `results/unsupervised_phase2_dbscan_cython_verify_20260502_210000.json`
+- `results/unsupervised_phase2_verify_20260502_210000.json`
+- `results/unsupervised_phase2_verify_summary_20260502_210000.md`
+
+DBSCAN CPU Cython note:
+- The optional `_dbscan_cpu` extension is statgpu-owned and is not a sklearn wrapper.
+- Compact dense CPU cases can use the extension when it is built and selected; variable-density, sparse/all-noise, or no-compiler environments use fallback.
 
 ## 多重检验与全局 p 值合并
 
