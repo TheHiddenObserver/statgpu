@@ -158,10 +158,15 @@ class KMeans(BaseEstimator):
 
         empty = backend.to_numpy(counts == 0)
         if np.any(empty):
-            replacement = scalar_to_int(backend.argmax(min_dist_sq, axis=0))
-            bool_dtype = getattr(backend, "bool", getattr(backend.xp, "bool_", bool))
-            empty_backend = backend.asarray(empty, dtype=bool_dtype)
-            new_centers[empty_backend] = X[replacement]
+            empty_idx = np.flatnonzero(empty)
+            n_empty = int(empty_idx.shape[0])
+            # Assign distinct replacement samples to each empty cluster to avoid
+            # duplicated centroids that can remain empty due to argmin tie-breaking.
+            replacement_idx = np.argsort(backend.to_numpy(min_dist_sq))[::-1][:n_empty]
+            int_dtype = getattr(backend, "int64", getattr(backend.xp, "int64", np.int64))
+            empty_backend = backend.asarray(empty_idx, dtype=int_dtype)
+            replacement_backend = backend.asarray(replacement_idx, dtype=int_dtype)
+            new_centers[empty_backend] = X[replacement_backend]
         return new_centers
 
     def _run_single(self, backend, X, rng, n_clusters):
