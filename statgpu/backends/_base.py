@@ -250,6 +250,8 @@ class BackendBase(ABC):
 
     def take_along_axis(self, arr, indices, axis):
         """Gather elements along *axis* (.take_along_axis / .take_along_dim)."""
+        if self.name == "torch":
+            return self.xp.take_along_dim(arr, indices, dim=axis)
         return self.xp.take_along_axis(arr, indices, axis=axis)
 
     def cummin(self, arr, axis=0):
@@ -262,6 +264,8 @@ class BackendBase(ABC):
 
     def flip(self, arr, axis=0):
         """Reverse the order of elements along *axis*."""
+        if self.name == "torch":
+            return self.xp.flip(arr, dims=(axis,))
         return self.xp.flip(arr, axis=axis)
 
     def __repr__(self) -> str:
