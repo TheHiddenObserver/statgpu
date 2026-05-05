@@ -5,7 +5,6 @@ from __future__ import annotations
 from typing import Optional, Union
 
 import numpy as np
-from scipy.optimize import curve_fit
 
 from statgpu._base import BaseEstimator
 from statgpu._config import Device
@@ -141,7 +140,17 @@ class UMAP(BaseEstimator):
             return 1.0 / (1.0 + a * np.power(d, 2.0 * b))
 
         try:
-            params, _ = curve_fit(curve, xv, yv, p0=(1.0, 1.0), bounds=((1e-12, 1e-12), (1e6, 10.0)), maxfev=20000)
+            # Optional dependency: keep UMAP functional even when SciPy is absent.
+            from scipy.optimize import curve_fit
+
+            params, _ = curve_fit(
+                curve,
+                xv,
+                yv,
+                p0=(1.0, 1.0),
+                bounds=((1e-12, 1e-12), (1e6, 10.0)),
+                maxfev=20000,
+            )
             a, b = float(params[0]), float(params[1])
             if np.isfinite(a) and np.isfinite(b) and a > 0.0 and b > 0.0:
                 return a, b
