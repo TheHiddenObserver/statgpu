@@ -45,3 +45,28 @@ def test_umap_rejects_unsupported_modes():
         UMAP(device="cpu").fit(sparse.csr_matrix(X))
     with pytest.raises(NotImplementedError, match="transforming new data"):
         UMAP(n_neighbors=5, n_epochs=2, init="random", device="cpu").fit(X).transform(X)
+
+
+def test_umap_min_dist_and_spread_change_embedding():
+    X = _data()
+    base = UMAP(
+        n_neighbors=5,
+        n_components=2,
+        n_epochs=8,
+        init="random",
+        random_state=7,
+        min_dist=0.05,
+        spread=1.0,
+        device="cpu",
+    ).fit_transform(X)
+    changed = UMAP(
+        n_neighbors=5,
+        n_components=2,
+        n_epochs=8,
+        init="random",
+        random_state=7,
+        min_dist=0.8,
+        spread=2.0,
+        device="cpu",
+    ).fit_transform(X)
+    assert not np.allclose(base, changed)

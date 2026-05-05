@@ -122,6 +122,38 @@ class UMAP(BaseEstimator):
             return int(self.n_epochs)
         return 500 if n_samples <= 10_000 else 200
 
+    def _attraction_curve_params(self):
+        min_dist = float(self.min_dist)
+        spread = float(self.spread)
+        if min_dist == 0.0:
+            return 1.0, 1.0 / max(spread, 1e-12)
+
+        xv = np.linspace(0.0, spread * 3.0, 300)
+        yv = np.where(xv <= min_dist, 1.0, np.exp(-(xv - min_dist) / max(spread, 1e-12)))
+        target = np.clip(yv, 1e-9, 1.0 - 1e-9)
+
+        best_a = 1.0
+        best_b = 1.0
+        best_err = np.inf
+        b_candidates = np.linspace(0.25, 4.0, 150)
+        for b in b_candidates:
+            power = np.power(xv, 2.0 * b)
+            valid = power > 1e-12
+            if not np.any(valid):
+                continue
+            a_vals = ((1.0 / target[valid]) - 1.0) / power[valid]
+            a_vals = a_vals[a_vals > 0.0]
+            if a_vals.size == 0:
+                continue
+            a = float(np.median(a_vals))
+            model = 1.0 / (1.0 + a * np.power(xv, 2.0 * b))
+            err = float(np.mean((model - yv) ** 2))
+            if err < best_err:
+                best_err = err
+                best_a = a
+                best_b = float(b)
+        return best_a, best_b
+
     def fit(self, X, y=None):
         reject_sparse(X, "UMAP")
         backend = self._get_backend()
@@ -133,6 +165,7 @@ class UMAP(BaseEstimator):
         graph = self._fuzzy_graph(backend, X_arr)
         Y = self._initial_embedding(backend, graph)
         n_epochs = self._epochs(n_samples)
+        a, b = self._attraction_curve_params()
         off_diag = 1.0 - eye(backend, n_samples, dtype=backend.float64)
         graph = backend.clip(graph, 0.0, 1.0)
         repulsion = float(self.repulsion_strength) / float(self.negative_sample_rate)
@@ -141,7 +174,7 @@ class UMAP(BaseEstimator):
             alpha = float(self.learning_rate) * (1.0 - (epoch / max(n_epochs, 1)))
             diff = backend.expand_dims(Y, 1) - backend.expand_dims(Y, 0)
             dist_sq = backend.sum(diff * diff, axis=2)
-            inv = (1.0 / (1.0 + dist_sq)) * off_diag
+            inv = (1.0 / (1.0 + float(a) * (dist_sq ** float(b)))) * off_diag
             attractive = graph
             repulsive = (1.0 - graph) * inv * repulsion
             forces = (attractive - repulsive) * inv
