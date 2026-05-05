@@ -1,0 +1,86 @@
+{
+  "environment": {
+    "args": {
+      "batch_size": 1024,
+      "components": 16,
+      "debug_timeout": 240,
+      "devices": "cpu,cuda,torch",
+      "json_out": "",
+      "k": 10,
+      "manifold_epochs": 0,
+      "mb_iter": 50,
+      "md_out": "",
+      "n": 10000,
+      "neighbors": 15,
+      "p": 64,
+      "perplexity": 30.0,
+      "print_json": false,
+      "repeats": 2,
+      "seed": 0,
+      "skip_external": false,
+      "skip_r": false,
+      "svd_algorithm": "randomized",
+      "tsne_iter": 0,
+      "warmup": 1
+    }
+  },
+  "models": {
+    "MiniBatchKMeans": {
+      "cuml_gpu": {
+        "reason": "ModuleNotFoundError(\"No module named 'cuml'\")",
+        "status": "skipped"
+      },
+      "sklearn_cpu": {
+        "center_distance_vs_statgpu_cpu": 0.10637702261255173,
+        "inertia": 1234579.2676680645,
+        "status": "ok",
+        "timing": {
+          "cold_ms": 4970.7165360450745,
+          "repeats": 2,
+          "warm_mean_ms": 5403.595343232155,
+          "warm_std_ms": 40.711626410484314,
+          "warmup": 1
+        }
+      },
+      "statgpu_cpu": {
+        "ari_vs_statgpu_cpu": 1.0,
+        "center_distance_vs_statgpu_cpu": 0.0,
+        "inertia": 1234547.0205287235,
+        "status": "ok",
+        "timing": {
+          "cold_ms": 260.343998670578,
+          "repeats": 2,
+          "warm_mean_ms": 250.9465217590332,
+          "warm_std_ms": 0.05951523780822754,
+          "warmup": 1
+        }
+      },
+      "statgpu_cuda": {
+        "ari_vs_statgpu_cpu": 1.0,
+        "center_distance_vs_statgpu_cpu": 2.4006495507253052e-14,
+        "inertia": 1234547.0205287233,
+        "status": "ok",
+        "timing": {
+          "cold_ms": 1295.5858409404755,
+          "repeats": 2,
+          "warm_mean_ms": 525.0235348939896,
+          "warm_std_ms": 2.73953378200531,
+          "warmup": 1
+        }
+      },
+      "statgpu_torch": {
+        "ari_vs_statgpu_cpu": 1.0,
+        "center_distance_vs_statgpu_cpu": 2.4619486401136507e-14,
+        "inertia": 1234547.020528723,
+        "status": "ok",
+        "timing": {
+          "cold_ms": 304.1757047176361,
+          "repeats": 2,
+          "warm_mean_ms": 292.5303280353546,
+          "warm_std_ms": 3.950148820877075,
+          "warmup": 1
+        }
+      }
+    }
+  }
+}

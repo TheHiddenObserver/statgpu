@@ -33,7 +33,7 @@
 ## 无监督学习
 
 - [无监督学习兼容入口](unsupervised.md)
-- [无监督学习详细文档](../unsupervised/README.md)：[PCA](../unsupervised/pca.md)、[KMeans](../unsupervised/kmeans.md)、[DBSCAN](../unsupervised/dbscan.md)、[GaussianMixture](../unsupervised/gaussian-mixture.md)、[NMF](../unsupervised/nmf.md)、[AgglomerativeClustering](../unsupervised/agglomerative-clustering.md)
+- [无监督学习详细文档](../unsupervised/README.md)：[PCA](../unsupervised/pca.md)、[KMeans](../unsupervised/kmeans.md)、[DBSCAN](../unsupervised/dbscan.md)、[GaussianMixture](../unsupervised/gaussian-mixture.md)、[NMF](../unsupervised/nmf.md)、[AgglomerativeClustering](../unsupervised/agglomerative-clustering.md)、[TruncatedSVD](../unsupervised/truncated-svd.md)、[MiniBatchKMeans](../unsupervised/minibatch-kmeans.md)、[UMAP](../unsupervised/umap.md)、[TSNE](../unsupervised/tsne.md)
 
 ## 新增模型文档流程
 
@@ -50,7 +50,7 @@
 - 设备支持是模型级能力，不是所有模型都支持所有后端。显式 `device="cuda"` 或 `device="torch"` 在依赖不可用或模型不支持时应报错，不应静默 fallback 到 CPU。
 - `GeneralizedLinearModel` 与 typed penalized GLM 见 [GeneralizedLinearModel 与 Penalized GLM](generalized-linear-model.md)。
 - `PoissonRegression` 作为普通 Poisson GLM estimator 单独记录。
-- `PCA`、`KMeans`、`DBSCAN`、`GaussianMixture` 和 `NMF` 位于 `statgpu.unsupervised`，支持 CPU/CuPy/Torch 路径；`AgglomerativeClustering(single)` 仅支持 CPU。无监督学习详细文档包含逐模型 loss/objective、估计方程、strict/approx 说明、示例和外部验证 artifact。
+- `PCA`、`KMeans`、`DBSCAN`、`GaussianMixture`、`NMF`、`TruncatedSVD`、`MiniBatchKMeans`、`UMAP` 和 `TSNE` 位于 `statgpu.unsupervised`，支持 CPU/CuPy/Torch 路径；`AgglomerativeClustering(single)` 仅支持 CPU。无监督学习详细文档包含逐模型 loss/objective、估计方程、strict/approx 说明、示例和外部验证 artifact。
 - 推断能力较完整的模型：
   - `LinearRegression`：classical + `HC0/HC1/HC2/HC3/HAC`
   - `Ridge`：classical + `HC0/HC1/HC2/HC3/HAC`

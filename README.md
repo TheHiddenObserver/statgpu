@@ -33,6 +33,10 @@ GPU-accelerated statistical methods with sklearn-compatible API.
   - `GaussianMixture`: diagonal-covariance EM
   - `NMF`: multiplicative-update matrix factorization
   - `AgglomerativeClustering`: CPU exact single linkage
+  - `TruncatedSVD`: dense uncentered truncated SVD
+  - `MiniBatchKMeans`: mini-batch Euclidean clustering
+  - `UMAP`: dense exact Euclidean manifold embedding
+  - `TSNE`: dense exact Euclidean t-SNE
   - Detailed loss/objective and estimating-equation docs: `docs/en/unsupervised/`
 - 🧹 **GPU Memory Control**: `gpu_memory_cleanup` for all current models
 - 🔥 **PyTorch Backend**: Optional Torch backend for GPU acceleration (PyTorch 2.0+)
@@ -72,6 +76,10 @@ GPU-accelerated statistical methods with sklearn-compatible API.
 - `statgpu.unsupervised.GaussianMixture` (diagonal covariance EM; 3 backends)
 - `statgpu.unsupervised.NMF` (multiplicative-update MU/Frobenius; 3 backends)
 - `statgpu.unsupervised.AgglomerativeClustering` (single linkage, CPU)
+- `statgpu.unsupervised.TruncatedSVD` (dense uncentered randomized/full SVD; 3 backends)
+- `statgpu.unsupervised.MiniBatchKMeans` (mini-batch KMeans; 3 backends)
+- `statgpu.unsupervised.UMAP` (dense exact Euclidean UMAP; 3 backends)
+- `statgpu.unsupervised.TSNE` (dense exact Euclidean t-SNE; 3 backends)
 
 Exported CV classes:
 

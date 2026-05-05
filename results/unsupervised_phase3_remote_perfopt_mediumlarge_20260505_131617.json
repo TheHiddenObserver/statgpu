@@ -1,0 +1,279 @@
+{
+  "environment": {
+    "args": {
+      "batch_size": 256,
+      "components": 8,
+      "debug_timeout": 240,
+      "devices": "cpu,cuda,torch",
+      "json_out": "results/unsupervised_phase3_remote_perfopt_mediumlarge_20260505_131617.json",
+      "k": 8,
+      "manifold_epochs": 80,
+      "mb_iter": 30,
+      "md_out": "results/unsupervised_phase3_remote_perfopt_mediumlarge_20260505_131617.md",
+      "n": 800,
+      "neighbors": 15,
+      "p": 32,
+      "perplexity": 30.0,
+      "print_json": false,
+      "repeats": 2,
+      "seed": 0,
+      "skip_external": false,
+      "skip_r": false,
+      "svd_algorithm": "randomized",
+      "tsne_iter": 500,
+      "warmup": 1
+    },
+    "platform": "Linux-4.19.0-14-amd64-x86_64-with-glibc2.31",
+    "python": "3.9.16 (main, Mar  8 2023, 14:00:05) \n[GCC 11.2.0]"
+  },
+  "models": {
+    "MiniBatchKMeans": {
+      "cuml_gpu": {
+        "reason": "ModuleNotFoundError(\"No module named 'cuml'\")",
+        "status": "skipped"
+      },
+      "sklearn_cpu": {
+        "center_distance_vs_statgpu_cpu": 5.055024141613036,
+        "inertia": 40911.90894058572,
+        "status": "ok",
+        "timing": {
+          "cold_ms": 245.84192037582397,
+          "repeats": 2,
+          "warm_mean_ms": 22.46403694152832,
+          "warm_std_ms": 0.1481473445892334,
+          "warmup": 1
+        }
+      },
+      "statgpu_cpu": {
+        "ari_vs_statgpu_cpu": 1.0,
+        "center_distance_vs_statgpu_cpu": 0.0,
+        "inertia": 40901.511926678126,
+        "status": "ok",
+        "timing": {
+          "cold_ms": 36.43783926963806,
+          "repeats": 2,
+          "warm_mean_ms": 17.690196633338928,
+          "warm_std_ms": 0.22311508655548096,
+          "warmup": 1
+        }
+      },
+      "statgpu_cuda": {
+        "ari_vs_statgpu_cpu": 1.0,
+        "center_distance_vs_statgpu_cpu": 4.897959893035738e-15,
+        "inertia": 40901.51192667812,
+        "status": "ok",
+        "timing": {
+          "cold_ms": 347.7429747581482,
+          "repeats": 2,
+          "warm_mean_ms": 160.320445895195,
+          "warm_std_ms": 3.39372456073761,
+          "warmup": 1
+        }
+      },
+      "statgpu_torch": {
+        "ari_vs_statgpu_cpu": 1.0,
+        "center_distance_vs_statgpu_cpu": 5.535982648171481e-15,
+        "inertia": 40901.51192667815,
+        "status": "ok",
+        "timing": {
+          "cold_ms": 76.60478353500366,
+          "repeats": 2,
+          "warm_mean_ms": 73.32096993923187,
+          "warm_std_ms": 0.13272464275360107,
+          "warmup": 1
+        }
+      }
+    },
+    "TSNE": {
+      "cuml_gpu": {
+        "reason": "ModuleNotFoundError(\"No module named 'cuml'\")",
+        "status": "skipped"
+      },
+      "openTSNE_cpu": {
+        "status": "ok",
+        "timing": {
+          "cold_ms": 10836.855083703995,
+          "repeats": 2,
+          "warm_mean_ms": 11013.647854328156,
+          "warm_std_ms": 22.62982726097107,
+          "warmup": 1
+        },
+        "trustworthiness": 0.841645202020202
+      },
+      "sklearn_cpu": {
+        "kl_divergence": 2.276093997250448,
+        "status": "ok",
+        "timing": {
+          "cold_ms": 6995.719641447067,
+          "repeats": 2,
+          "warm_mean_ms": 7078.951880335808,
+          "warm_std_ms": 1.5947967767715454,
+          "warmup": 1
+        },
+        "trustworthiness": 0.8381493055555556
+      },
+      "statgpu_cpu": {
+        "kl_divergence": 2.329542786383158,
+        "status": "ok",
+        "timing": {
+          "cold_ms": 4178.704857826233,
+          "repeats": 2,
+          "warm_mean_ms": 4078.0807733535767,
+          "warm_std_ms": 52.93205380439758,
+          "warmup": 1
+        },
+        "trustworthiness": 0.8311278409090909
+      },
+      "statgpu_cuda": {
+        "kl_divergence": 2.3295427863831577,
+        "status": "ok",
+        "timing": {
+          "cold_ms": 497.8194236755371,
+          "repeats": 2,
+          "warm_mean_ms": 498.71091544628143,
+          "warm_std_ms": 4.988297820091248,
+          "warmup": 1
+        },
+        "trustworthiness": 0.8311278409090909
+      },
+      "statgpu_torch": {
+        "kl_divergence": 2.329542786383162,
+        "status": "ok",
+        "timing": {
+          "cold_ms": 338.3098244667053,
+          "repeats": 2,
+          "warm_mean_ms": 333.25745165348053,
+          "warm_std_ms": 0.4803091287612915,
+          "warmup": 1
+        },
+        "trustworthiness": 0.8311278409090909
+      }
+    },
+    "TruncatedSVD": {
+      "R_cpu": {
+        "status": "ok",
+        "timing": {
+          "source": "R system.time",
+          "warm_mean_ms": 3.0
+        }
+      },
+      "cuml_gpu": {
+        "reason": "ModuleNotFoundError(\"No module named 'cuml'\")",
+        "status": "skipped"
+      },
+      "sklearn_cpu": {
+        "projector_diff_vs_statgpu_cpu": 3.330118417632404e-14,
+        "singular_values_max_abs_diff_vs_statgpu_cpu": 3.552713678800501e-14,
+        "status": "ok",
+        "timing": {
+          "cold_ms": 232.3562204837799,
+          "repeats": 2,
+          "warm_mean_ms": 373.7916201353073,
+          "warm_std_ms": 1.7925947904586792,
+          "warmup": 1
+        }
+      },
+      "statgpu_cpu": {
+        "projector_diff_vs_statgpu_cpu": 0.0,
+        "singular_values_max_abs_diff_vs_statgpu_cpu": 0.0,
+        "status": "ok",
+        "timing": {
+          "cold_ms": 5.87695837020874,
+          "repeats": 2,
+          "warm_mean_ms": 3.5829395055770874,
+          "warm_std_ms": 0.46731531620025635,
+          "warmup": 1
+        }
+      },
+      "statgpu_cuda": {
+        "projector_diff_vs_statgpu_cpu": 5.291313773589907e-14,
+        "singular_values_max_abs_diff_vs_statgpu_cpu": 4.973799150320701e-14,
+        "status": "ok",
+        "timing": {
+          "cold_ms": 628.1116604804993,
+          "repeats": 2,
+          "warm_mean_ms": 5.388826131820679,
+          "warm_std_ms": 0.06124377250671387,
+          "warmup": 1
+        }
+      },
+      "statgpu_torch": {
+        "projector_diff_vs_statgpu_cpu": 8.370813129922676e-14,
+        "singular_values_max_abs_diff_vs_statgpu_cpu": 2.4513724383723456e-13,
+        "status": "ok",
+        "timing": {
+          "cold_ms": 120.26071548461914,
+          "repeats": 2,
+          "warm_mean_ms": 4.216477274894714,
+          "warm_std_ms": 0.04620850086212158,
+          "warmup": 1
+        }
+      },
+      "statsmodels_cpu": {
+        "note": "PCA-style centered baseline",
+        "status": "ok",
+        "timing": {
+          "cold_ms": 37.623465061187744,
+          "repeats": 2,
+          "warm_mean_ms": 7.738709449768066,
+          "warm_std_ms": 2.394944429397583,
+          "warmup": 1
+        }
+      }
+    },
+    "UMAP": {
+      "cuml_gpu": {
+        "reason": "ModuleNotFoundError(\"No module named 'cuml'\")",
+        "status": "skipped"
+      },
+      "statgpu_cpu": {
+        "knn_preservation": 0.20700000000000002,
+        "status": "ok",
+        "timing": {
+          "cold_ms": 3401.656687259674,
+          "repeats": 2,
+          "warm_mean_ms": 3401.776894927025,
+          "warm_std_ms": 9.161725640296936,
+          "warmup": 1
+        },
+        "trustworthiness": 0.7871515151515152
+      },
+      "statgpu_cuda": {
+        "knn_preservation": 0.20700000000000002,
+        "status": "ok",
+        "timing": {
+          "cold_ms": 401.3499319553375,
+          "repeats": 2,
+          "warm_mean_ms": 347.84671664237976,
+          "warm_std_ms": 0.06693601608276367,
+          "warmup": 1
+        },
+        "trustworthiness": 0.7871515151515152
+      },
+      "statgpu_torch": {
+        "knn_preservation": 0.20700000000000002,
+        "status": "ok",
+        "timing": {
+          "cold_ms": 52.73270606994629,
+          "repeats": 2,
+          "warm_mean_ms": 50.711557269096375,
+          "warm_std_ms": 0.10792911052703857,
+          "warmup": 1
+        },
+        "trustworthiness": 0.7871515151515152
+      },
+      "umap_learn_cpu": {
+        "knn_preservation": 0.08175,
+        "status": "ok",
+        "timing": {
+          "cold_ms": 7233.4639728069305,
+          "repeats": 2,
+          "warm_mean_ms": 522.662490606308,
+          "warm_std_ms": 1.9100010395050049,
+          "warmup": 1
+        },
+        "trustworthiness": 0.6306133207070708
+      }
+    }
+  }
+}

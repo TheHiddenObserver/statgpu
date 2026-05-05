@@ -29,7 +29,18 @@ from .linear_model import (
     ElasticNetCV,
 )
 from .survival import CoxPH, CoxPHCV
-from .unsupervised import PCA, KMeans, DBSCAN, GaussianMixture, NMF, AgglomerativeClustering
+from .unsupervised import (
+    PCA,
+    KMeans,
+    DBSCAN,
+    GaussianMixture,
+    NMF,
+    AgglomerativeClustering,
+    TruncatedSVD,
+    MiniBatchKMeans,
+    UMAP,
+    TSNE,
+)
 from .backends import get_backend, NumpyBackend, CuPyBackend, TorchBackend
 from .metrics import evaluate_binary_classification
 from .feature_selection import (
@@ -89,6 +100,10 @@ __all__ = [
     "GaussianMixture",
     "NMF",
     "AgglomerativeClustering",
+    "TruncatedSVD",
+    "MiniBatchKMeans",
+    "UMAP",
+    "TSNE",
     "get_backend",
     "NumpyBackend",
     "CuPyBackend",

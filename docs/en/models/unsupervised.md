@@ -1,7 +1,7 @@
 # Unsupervised Learning
 
 > Language: English
-> Last updated: 2026-05-02
+> Last updated: 2026-05-04
 > This page: unsupervised model overview
 > Switch: [Chinese](../../models/unsupervised.md)
 
@@ -21,6 +21,10 @@ The detailed pages under [docs/en/unsupervised/](../unsupervised/README.md) desc
 | [GaussianMixture](../unsupervised/gaussian-mixture.md) | Probabilistic soft clustering | Maximize diagonal Gaussian mixture log likelihood with EM |
 | [NMF](../unsupervised/nmf.md) | Parts-based non-negative factorization | Minimize Frobenius reconstruction error under non-negativity |
 | [AgglomerativeClustering](../unsupervised/agglomerative-clustering.md) | Hierarchical clustering | Greedy single-linkage merges |
+| [TruncatedSVD](../unsupervised/truncated-svd.md) | Uncentered low-rank projection | Minimize rank-k dense reconstruction error |
+| [MiniBatchKMeans](../unsupervised/minibatch-kmeans.md) | Larger-scale prototype clustering | Approximate inertia minimization with mini-batch updates |
+| [UMAP](../unsupervised/umap.md) | Manifold embedding | Fuzzy graph cross-entropy |
+| [TSNE](../unsupervised/tsne.md) | Manifold visualization | KL divergence between affinity distributions |
 
 ## Device Behavior
 

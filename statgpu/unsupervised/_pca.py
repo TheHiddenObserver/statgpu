@@ -8,7 +8,7 @@ import numpy as np
 
 from statgpu._base import BaseEstimator
 from statgpu._config import Device
-from statgpu.unsupervised._utils import check_2d_array, scalar_to_float
+from statgpu.unsupervised._utils import check_2d_array, random_normal, scalar_to_float, svd_flip_components
 
 
 class PCA(BaseEstimator):
@@ -79,16 +79,15 @@ class PCA(BaseEstimator):
     def _randomized_svd(self, backend, X_centered, n_components: int):
         n_samples, n_features = X_centered.shape
         n_random = min(n_features, n_components + int(self.n_oversamples))
-        rng = np.random.default_rng(self.random_state)
-        omega_np = rng.normal(size=(n_features, n_random))
+        omega_np = random_normal(self.random_state, size=(n_features, n_random))
         omega = backend.asarray(omega_np, dtype=backend.float64)
-        Y = backend.matmul(X_centered, omega)
+        Q, _ = backend.qr(backend.matmul(X_centered, omega))
         for _ in range(int(self.iterated_power)):
-            Y = backend.matmul(X_centered, backend.matmul(X_centered.T, Y))
-        Q, _ = backend.qr(Y)
+            Q, _ = backend.qr(backend.matmul(X_centered.T, Q))
+            Q, _ = backend.qr(backend.matmul(X_centered, Q))
         B = backend.matmul(Q.T, X_centered)
         _, singular_values_all, vh = backend.svd(B, full_matrices=False)
-        return singular_values_all[:n_components], vh[:n_components]
+        return singular_values_all[:n_components], svd_flip_components(backend, vh[:n_components])
 
     def fit(self, X, y=None):
         backend = self._get_backend()
@@ -111,6 +110,7 @@ class PCA(BaseEstimator):
             eigenvectors = eigenvectors[:, order]
             explained_variance = backend.maximum(eigenvalues[:n_components], 0.0)
             components = eigenvectors[:, :n_components].T
+            components = svd_flip_components(backend, components)
             singular_values = backend.sqrt(explained_variance * float(n_samples - 1))
             total_var = backend.sum(backend.diag(cov))
         elif solver == "randomized":
@@ -121,7 +121,7 @@ class PCA(BaseEstimator):
         else:
             X_centered = X_arr - mean
             _, singular_values_all, vh = backend.svd(X_centered, full_matrices=False)
-            components = vh[:n_components]
+            components = svd_flip_components(backend, vh[:n_components])
             singular_values = singular_values_all[:n_components]
             explained_variance = (singular_values ** 2) / float(n_samples - 1)
             total_var = backend.sum(X_centered * X_centered) / float(n_samples - 1)

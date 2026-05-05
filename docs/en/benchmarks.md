@@ -42,6 +42,10 @@ Language switch: [Chinese](../benchmarks.md)
   - Records `umap-learn` and `openTSNE` smoke/runtime baselines for future UMAP/t-SNE work.
 - `dev/benchmarks/benchmark_unsupervised_dbscan_cython.py`
   - Validates the optional statgpu-owned DBSCAN Cython CPU fast path against the exact fallback, sklearn CPU, CuPy, and Torch.
+- `dev/benchmarks/benchmark_unsupervised_phase3.py`
+  - Compares `TruncatedSVD`, `MiniBatchKMeans`, `UMAP`, and `TSNE` across statgpu CPU/CuPy/Torch and available external baselines.
+  - Records warmup/repeat timings, precision or quality metrics, and skipped optional frameworks.
+  - GPU measurements use backend-resident input arrays for the main timing path.
 
 Remote Phase 2 artifacts:
 - `results/unsupervised_phase2_remote_20260502_142727.json`
@@ -54,6 +58,14 @@ Remote Phase 2 artifacts:
 - `results/unsupervised_phase2_dbscan_cython_verify_20260502_210000.json`
 - `results/unsupervised_phase2_verify_20260502_210000.json`
 - `results/unsupervised_phase2_verify_summary_20260502_210000.md`
+
+Remote Phase 3 artifacts:
+- `results/unsupervised_phase3_remote_finalopt_20260505_084444.json`
+- `results/unsupervised_phase3_remote_finalopt_20260505_084444.md`
+- `results/unsupervised_phase3_remote_perfopt_mediumlarge_20260505_131617.json`
+- `results/unsupervised_phase3_remote_perfopt_mediumlarge_20260505_131617.md`
+- `results/unsupervised_phase3_remote_perfopt2_large_tabular_20260505_132223.json`
+- `results/unsupervised_phase3_remote_perfopt2_large_tabular_bs4096_20260505_132359.json`
 
 DBSCAN CPU Cython note:
 - The optional `_dbscan_cpu` extension is a statgpu-owned implementation, not a sklearn wrapper.

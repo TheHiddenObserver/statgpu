@@ -2,6 +2,12 @@
 
 ## 2026-05
 
+- **Unsupervised learning Phase 3A / scalable decomposition and manifold APIs**:
+  - Added `TruncatedSVD`, `MiniBatchKMeans`, `UMAP`, and `TSNE` to `statgpu.unsupervised` and top-level `statgpu`.
+  - Implemented dense CPU/CuPy/Torch paths for the new estimators, with explicit GPU devices preserving no-silent-fallback behavior.
+  - Added Phase 3 tests and a remote benchmark matrix script for statgpu CPU/CuPy/Torch plus available sklearn, statsmodels, R, umap-learn, openTSNE, and cuML baselines.
+  - Phase 3 UMAP/t-SNE are dense exact v1 implementations; sparse input, approximate neighbor search, Barnes-Hut, FFT/FIt-SNE, and new-data transform remain future work.
+
 - **Unsupervised learning Phase 2 / DBSCAN Cython CPU path**:
   - Added optional statgpu-owned `_dbscan_cpu` Cython fast path for compact dense CPU DBSCAN.
   - No sklearn acceleration is used inside production DBSCAN code; sklearn remains an external test/benchmark baseline.
