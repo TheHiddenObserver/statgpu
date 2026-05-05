@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import numpy as np
 from scipy import sparse
 
 
@@ -39,3 +40,73 @@ def scalar_to_int(x) -> int:
     if hasattr(x, "item"):
         return int(x.item())
     return int(x)
+
+
+def random_normal(random_state, size, scale: float = 1.0):
+    """Generate normal variates with sklearn-compatible integer seeds."""
+    if isinstance(random_state, np.random.Generator):
+        values = random_state.normal(size=size)
+    elif isinstance(random_state, np.random.RandomState):
+        values = random_state.normal(size=size)
+    else:
+        values = np.random.RandomState(random_state).normal(size=size)
+    return float(scale) * values
+
+
+def squared_euclidean_distances(backend, X, Y=None):
+    """Compute dense squared Euclidean distances with backend arrays."""
+    Y = X if Y is None else Y
+    x_norm = backend.sum(X * X, axis=1, keepdims=True)
+    y_norm = backend.sum(Y * Y, axis=1, keepdims=True)
+    distances = x_norm + y_norm.T - 2.0 * backend.matmul(X, Y.T)
+    return backend.maximum(distances, 0.0)
+
+
+def topk_smallest(backend, distances, k: int):
+    """Return the k smallest values and indices along axis 1."""
+    order = backend.argsort(distances, axis=1)
+    idx = order[:, :k]
+    values = backend.take_along_axis(distances, idx, axis=1)
+    return values, idx
+
+
+def svd_flip_components(backend, components):
+    """Apply a deterministic sign convention to right singular vectors."""
+    max_abs_cols = backend.argmax(backend.abs(components), axis=1)
+    rows = backend.arange(components.shape[0])
+    signs = backend.where(components[rows, max_abs_cols] < 0.0, -1.0, 1.0)
+    return components * backend.reshape(signs, (components.shape[0], 1))
+
+
+def randomized_svd(
+    backend,
+    X,
+    n_components: int,
+    n_oversamples: int = 10,
+    n_iter: int = 2,
+    random_state=None,
+):
+    """Backend randomized SVD for dense matrices."""
+    n_samples, n_features = X.shape
+    n_random = min(min(n_samples, n_features), int(n_components) + int(n_oversamples))
+    omega_np = random_normal(random_state, size=(n_features, n_random))
+    omega = backend.asarray(omega_np, dtype=backend.float64)
+
+    # Re-orthogonalize each power iteration. This is slightly more work than
+    # the raw power method, but greatly improves randomized SVD stability when
+    # singular values are close or the matrix is moderately ill-conditioned.
+    Q, _ = backend.qr(backend.matmul(X, omega))
+    for _ in range(int(n_iter)):
+        Q, _ = backend.qr(backend.matmul(X.T, Q))
+        Q, _ = backend.qr(backend.matmul(X, Q))
+
+    B = backend.matmul(Q.T, X)
+    _, singular_values, vh = backend.svd(B, full_matrices=False)
+    return singular_values[:n_components], svd_flip_components(backend, vh[:n_components])
+
+
+def eye(backend, n: int, dtype=None):
+    """Create an identity matrix on the requested backend."""
+    if hasattr(backend, "eye"):
+        return backend.eye(n, dtype=dtype)
+    return backend.asarray(np.eye(n), dtype=dtype or backend.float64)

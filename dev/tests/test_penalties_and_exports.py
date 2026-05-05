@@ -39,7 +39,18 @@ def test_top_level_lasso_cv_export():
 
 @pytest.mark.parametrize(
     "name",
-    ["PCA", "KMeans", "DBSCAN", "GaussianMixture", "NMF", "AgglomerativeClustering"],
+    [
+        "PCA",
+        "KMeans",
+        "DBSCAN",
+        "GaussianMixture",
+        "NMF",
+        "AgglomerativeClustering",
+        "TruncatedSVD",
+        "MiniBatchKMeans",
+        "UMAP",
+        "TSNE",
+    ],
 )
 def test_top_level_unsupervised_exports(name):
     """Top-level package should expose unsupervised estimators."""

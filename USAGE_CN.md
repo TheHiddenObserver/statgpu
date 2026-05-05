@@ -68,7 +68,7 @@
 - `OrderedLogitRegression` / `OrderedProbitRegression` ✅ (三后端)
   - 有序响应模型（累积 logit/probit 链接函数）
   - 跨后端精度修复 (2026-04-26)：coef 最大差异 < 1e-2
-- `PCA` / `KMeans` / `DBSCAN` / `GaussianMixture` / `NMF` ✅ (三后端)
+- `PCA` / `KMeans` / `DBSCAN` / `GaussianMixture` / `NMF` / `TruncatedSVD` / `MiniBatchKMeans` / `UMAP` / `TSNE` ✅ (三后端)
   - 位于 `statgpu.unsupervised`
   - 逐模型 loss/objective 与估计方程文档：[docs/unsupervised/](docs/unsupervised/README.md)
   - PCA 支持 full SVD、covariance/eigh 与 randomized 求解
@@ -76,6 +76,9 @@
   - DBSCAN 支持 dense Euclidean 聚类；CPU 可选 statgpu 自有 Cython fast path，生产代码内部不调用 sklearn
   - GaussianMixture 支持 diagonal covariance EM
   - NMF 支持 Frobenius loss 下的 multiplicative update
+  - TruncatedSVD 支持 dense 不中心化 full/randomized SVD
+  - MiniBatchKMeans 支持 dense Euclidean mini-batch 中心更新
+  - UMAP 与 TSNE 是 dense exact Euclidean v1 实现；approximate neighbor search、Barnes-Hut、FFT/FIt-SNE 和新样本 transform 留到后续阶段
 - `AgglomerativeClustering` ✅ (CPU)
   - 位于 `statgpu.unsupervised`
   - 首版支持 single linkage 与 Euclidean 距离

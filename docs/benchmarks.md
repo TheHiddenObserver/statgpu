@@ -58,6 +58,20 @@ DBSCAN CPU Cython note:
 - The optional `_dbscan_cpu` extension is statgpu-owned and is not a sklearn wrapper.
 - Compact dense CPU cases can use the extension when it is built and selected; variable-density, sparse/all-noise, or no-compiler environments use fallback.
 
+Phase 3 supplement:
+- `dev/benchmarks/benchmark_unsupervised_phase3.py`
+  - 对比 `TruncatedSVD`、`MiniBatchKMeans`、`UMAP` 和 `TSNE` 的 statgpu CPU/CuPy/Torch 路径，以及可用的 sklearn、statsmodels、R、umap-learn、openTSNE、cuML baseline。
+  - 记录 warmup/repeat 用时、精度或 embedding 质量指标，以及不可用外部框架的 skipped 原因。
+  - GPU 主计时路径使用已在目标 backend 上的输入数组，避免把 NumPy 到 GPU 的搬运混入主结论。
+
+Remote Phase 3 artifacts:
+- `results/unsupervised_phase3_remote_finalopt_20260505_084444.json`
+- `results/unsupervised_phase3_remote_finalopt_20260505_084444.md`
+- `results/unsupervised_phase3_remote_perfopt_mediumlarge_20260505_131617.json`
+- `results/unsupervised_phase3_remote_perfopt_mediumlarge_20260505_131617.md`
+- `results/unsupervised_phase3_remote_perfopt2_large_tabular_20260505_132223.json`
+- `results/unsupervised_phase3_remote_perfopt2_large_tabular_bs4096_20260505_132359.json`
+
 ## 多重检验与全局 p 值合并
 
 - `dev/benchmarks/benchmark_inference_backends.py`

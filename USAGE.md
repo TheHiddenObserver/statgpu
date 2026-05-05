@@ -59,7 +59,7 @@ Implemented estimators:
 - `OrderedLogitRegression` / `OrderedProbitRegression` ✅ (3 backends)
   - Ordered response models with cumulative logit/probit link
   - Cross-backend precision fix (2026-04-26): coef diff < 1e-2 across backends
-- `PCA` / `KMeans` / `DBSCAN` / `GaussianMixture` / `NMF` ✅ (3 backends)
+- `PCA` / `KMeans` / `DBSCAN` / `GaussianMixture` / `NMF` / `TruncatedSVD` / `MiniBatchKMeans` / `UMAP` / `TSNE` ✅ (3 backends)
   - Unsupervised estimators under `statgpu.unsupervised`
   - Detailed per-model loss/objective and estimating-equation docs: [docs/en/unsupervised/](docs/en/unsupervised/README.md)
   - PCA supports full SVD, covariance/eigh, and randomized solvers
@@ -67,6 +67,9 @@ Implemented estimators:
   - DBSCAN supports dense Euclidean clustering with an optional statgpu-owned Cython CPU fast path for compact dense inputs
   - GaussianMixture supports diagonal-covariance EM
   - NMF supports MU with Frobenius loss
+  - TruncatedSVD supports dense uncentered full or randomized SVD
+  - MiniBatchKMeans supports dense Euclidean mini-batch center updates
+  - UMAP and TSNE are dense exact Euclidean v1 implementations; approximate neighbor search, Barnes-Hut, FFT/FIt-SNE, and new-data transform are future work
 - `AgglomerativeClustering` ✅ (CPU)
   - Single-linkage exact clustering for dense Euclidean input
 
