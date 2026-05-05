@@ -70,3 +70,10 @@ def test_umap_min_dist_and_spread_change_embedding():
         device="cpu",
     ).fit_transform(X)
     assert not np.allclose(base, changed)
+
+
+def test_umap_attraction_curve_params_are_positive():
+    model = UMAP(min_dist=0.2, spread=1.5, device="cpu")
+    a, b = model._attraction_curve_params()
+    assert np.isfinite(a) and a > 0.0
+    assert np.isfinite(b) and b > 0.0

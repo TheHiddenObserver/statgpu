@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Optional, Union
 
 import numpy as np
+from scipy.optimize import curve_fit
 
 from statgpu._base import BaseEstimator
 from statgpu._config import Device
@@ -123,36 +124,32 @@ class UMAP(BaseEstimator):
         return 500 if n_samples <= 10_000 else 200
 
     def _attraction_curve_params(self):
+        """
+        Fit UMAP's (a, b) curve parameters from min_dist and spread.
+
+        This mirrors the reference approach used by umap-learn:
+        target(d) = 1                      if d <= min_dist
+                    exp(-(d-min_dist)/spread) otherwise
+        and we fit 1 / (1 + a * d^(2b)) to that target.
+        """
         min_dist = float(self.min_dist)
         spread = float(self.spread)
-        if min_dist == 0.0:
-            return 1.0, 1.0 / max(spread, 1e-12)
-
-        xv = np.linspace(0.0, spread * 3.0, 300)
+        xv = np.linspace(0.0, spread * 3.0, 300, dtype=np.float64)
         yv = np.where(xv <= min_dist, 1.0, np.exp(-(xv - min_dist) / max(spread, 1e-12)))
-        target = np.clip(yv, 1e-9, 1.0 - 1e-9)
 
-        best_a = 1.0
-        best_b = 1.0
-        best_err = np.inf
-        b_candidates = np.linspace(0.25, 4.0, 150)
-        for b in b_candidates:
-            power = np.power(xv, 2.0 * b)
-            valid = power > 1e-12
-            if not np.any(valid):
-                continue
-            a_vals = ((1.0 / target[valid]) - 1.0) / power[valid]
-            a_vals = a_vals[a_vals > 0.0]
-            if a_vals.size == 0:
-                continue
-            a = float(np.median(a_vals))
-            model = 1.0 / (1.0 + a * np.power(xv, 2.0 * b))
-            err = float(np.mean((model - yv) ** 2))
-            if err < best_err:
-                best_err = err
-                best_a = a
-                best_b = float(b)
-        return best_a, best_b
+        def curve(d, a, b):
+            return 1.0 / (1.0 + a * np.power(d, 2.0 * b))
+
+        try:
+            params, _ = curve_fit(curve, xv, yv, p0=(1.0, 1.0), bounds=((1e-12, 1e-12), (1e6, 10.0)), maxfev=20000)
+            a, b = float(params[0]), float(params[1])
+            if np.isfinite(a) and np.isfinite(b) and a > 0.0 and b > 0.0:
+                return a, b
+        except Exception:
+            pass
+
+        # Conservative fallback to ensure training can proceed.
+        return 1.0, 1.0 / max(spread, 1e-12)
 
     def fit(self, X, y=None):
         reject_sparse(X, "UMAP")
