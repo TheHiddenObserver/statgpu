@@ -50,6 +50,24 @@ def test_minibatch_kmeans_partial_fit_and_score():
     assert model.score(X) <= 0.0
 
 
+def test_minibatch_kmeans_partial_fit_initial_batch_validates_cluster_count():
+    X = _blobs()
+    model = MiniBatchKMeans(n_clusters=4, init="random", random_state=0, device="cpu")
+    with pytest.raises(ValueError, match="n_clusters"):
+        model.partial_fit(X[:3])
+
+
+def test_minibatch_kmeans_score_validates_input_shape():
+    X = _blobs()
+    model = MiniBatchKMeans(n_clusters=3, init=X[:3], random_state=0, device="cpu").fit(X)
+    with pytest.raises(ValueError, match="2D"):
+        model.score(X[0])
+    with pytest.raises(ValueError, match="features"):
+        model.score(np.ones((5, 3)))
+    with pytest.raises(NotImplementedError, match="sparse"):
+        model.score(sparse.csr_matrix(X))
+
+
 def test_minibatch_kmeans_rejects_unsupported_inputs():
     X = _blobs()
     with pytest.raises(NotImplementedError, match="sparse"):

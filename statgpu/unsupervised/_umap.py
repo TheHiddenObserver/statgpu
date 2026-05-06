@@ -96,8 +96,8 @@ class UMAP(BaseEstimator):
         neighbor_distances, neighbor_indices = topk_smallest(backend, distances, int(self.n_neighbors))
         membership = self._smooth_knn_membership(backend, neighbor_distances)
         graph = backend.zeros((n_samples, n_samples), dtype=backend.float64)
-        for i in range(n_samples):
-            graph[i, neighbor_indices[i]] = membership[i]
+        rows = backend.reshape(backend.arange(n_samples, dtype=backend.int64), (n_samples, 1))
+        graph[rows, backend.astype(neighbor_indices, backend.int64)] = membership
         graph = graph + graph.T - graph * graph.T
         graph = graph * (1.0 - eye(backend, n_samples, dtype=backend.float64))
         return graph
