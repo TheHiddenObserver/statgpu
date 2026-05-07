@@ -112,6 +112,8 @@ class NMF(BaseEstimator):
         if backend.name == "numpy":
             error_check_interval = 10
         else:
+            # GPU/torch backends check less frequently than CPU to reduce host-sync
+            # overhead while still preserving tol-based early stopping.
             error_check_interval = max(1, min(25, int(self.max_iter) // 5))
         for n_iter in range(1, int(self.max_iter) + 1):
             W = self._update_w(backend, X_arr, W, H, eps)
