@@ -186,16 +186,17 @@ def _fit_statgpu_nmf_fixed_init(X, initial_state, device: str, max_iter: int, to
     model = NMF(n_components=int(H0.shape[0]), max_iter=max_iter, tol=tol, random_state=0, device=device)
     backend = model._get_backend()
     X_arr = backend.asarray(X, dtype=backend.float64)
-    W = backend.asarray(W0, dtype=backend.float64)
-    H = backend.asarray(H0, dtype=backend.float64)
+    W = backend.copy(backend.asarray(W0, dtype=backend.float64))
+    H = backend.copy(backend.asarray(H0, dtype=backend.float64))
     eps = np.finfo(np.float64).eps
     previous_error = None
     error = None
     n_iter = 0
+    error_check_interval = 10 if backend.name == "numpy" else int(max_iter)
     for n_iter in range(1, int(max_iter) + 1):
         W = model._update_w(backend, X_arr, W, H, eps)
         H = model._update_h(backend, X_arr, W, H, eps)
-        if n_iter % 10 == 0 or n_iter == int(max_iter):
+        if n_iter % error_check_interval == 0 or n_iter == int(max_iter):
             error = model._reconstruction_error(backend, X_arr, W, H)
             if previous_error is not None and abs(previous_error - error) / max(previous_error, eps) <= float(tol):
                 break

@@ -9,6 +9,7 @@ import numpy as np
 from statgpu._base import BaseEstimator
 from statgpu._config import Device
 from statgpu.unsupervised._utils import (
+    backend_random_normal,
     check_2d_array,
     eye,
     reject_sparse,
@@ -104,18 +105,16 @@ class UMAP(BaseEstimator):
 
     def _initial_embedding(self, backend, graph):
         n_samples = graph.shape[0]
-        rng = np.random.default_rng(self.random_state)
         if self.init == "random":
-            init = 1e-4 * rng.normal(size=(n_samples, int(self.n_components)))
-            return backend.asarray(init, dtype=backend.float64)
+            return backend_random_normal(backend, self.random_state, size=(n_samples, int(self.n_components)), scale=1e-4)
 
         degree = backend.sum(graph, axis=1)
         laplacian = backend.diag(degree) - graph
         eigenvalues, eigenvectors = backend.eigh(laplacian)
         order = backend.argsort(eigenvalues, axis=0)
         components = eigenvectors[:, order[1 : int(self.n_components) + 1]]
-        jitter = 1e-4 * rng.normal(size=(n_samples, int(self.n_components)))
-        return components + backend.asarray(jitter, dtype=backend.float64)
+        jitter = backend_random_normal(backend, self.random_state, size=(n_samples, int(self.n_components)), scale=1e-4)
+        return components + jitter
 
     def _epochs(self, n_samples: int) -> int:
         if self.n_epochs is not None:

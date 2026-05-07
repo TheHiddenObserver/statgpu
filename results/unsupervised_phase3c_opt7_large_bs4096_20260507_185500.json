@@ -1,0 +1,140 @@
+{
+  "environment": {
+    "args": {
+      "batch_size": 4096,
+      "components": 8,
+      "devices": "cpu,cuda,torch",
+      "json_out": "results/unsupervised_phase3c_opt7_large_bs4096_20260507_185500.json",
+      "max_iter": 10,
+      "md_out": "results/unsupervised_phase3c_opt7_large_bs4096_summary_20260507_185500.md",
+      "n": 20000,
+      "p": 64,
+      "print_json": false,
+      "repeats": 2,
+      "seed": 20260507,
+      "warmup": 1
+    },
+    "platform": "Linux-4.19.0-14-amd64-x86_64-with-glibc2.31",
+    "python": "3.9.16 (main, Mar  8 2023, 14:00:05) \n[GCC 11.2.0]"
+  },
+  "models": {
+    "IncrementalPCA": {
+      "sklearn_cpu": {
+        "explained_variance": [
+          105.75642329676805,
+          94.05954200185194,
+          90.75039276530947,
+          73.05770847605235,
+          56.52440678144838,
+          45.77920200451621,
+          39.00749841294803,
+          35.513133697541484
+        ],
+        "explained_variance_ratio_sum": 0.9997414402555518,
+        "fit_ms_mean": 4277.993053197861,
+        "fit_ms_std": 42.09643602371216,
+        "n_samples_seen": 20000,
+        "reconstruction_error": 52.871036361077586,
+        "status": "ok"
+      },
+      "statgpu_cpu": {
+        "explained_variance": [
+          105.75642329676802,
+          94.05954200185194,
+          90.75039276530916,
+          73.05770847605221,
+          56.524406781448135,
+          45.77920200451619,
+          39.007498412947825,
+          35.513133697541356
+        ],
+        "explained_variance_ratio_sum": 0.9997414402555498,
+        "fit_ms_mean": 40.86095094680786,
+        "fit_ms_std": 0.040918588638305664,
+        "host_to_device_included": false,
+        "n_samples_seen": 20000,
+        "reconstruction_error": 52.871036361077586,
+        "status": "ok"
+      },
+      "statgpu_cuda": {
+        "explained_variance": [
+          105.75642329676782,
+          94.059542001852,
+          90.75039276530916,
+          73.05770847605244,
+          56.524406781448484,
+          45.77920200451619,
+          39.00749841294792,
+          35.51313369754151
+        ],
+        "explained_variance_ratio_sum": 0.999741440255551,
+        "fit_ms_mean": 35.25114059448242,
+        "fit_ms_std": 0.03707408905029297,
+        "host_to_device_included": false,
+        "n_samples_seen": 20000,
+        "reconstruction_error": 52.871036361077586,
+        "status": "ok"
+      },
+      "statgpu_torch": {
+        "explained_variance": [
+          105.75642329677773,
+          94.0595420018566,
+          90.75039276531427,
+          73.05770847605412,
+          56.52440678144898,
+          45.77920200451995,
+          39.007498412950085,
+          35.51313369754306
+        ],
+        "explained_variance_ratio_sum": 0.9997414402556052,
+        "fit_ms_mean": 30.77085316181183,
+        "fit_ms_std": 0.05169212818145752,
+        "host_to_device_included": false,
+        "n_samples_seen": 20000,
+        "reconstruction_error": 52.871036361077586,
+        "status": "ok"
+      }
+    },
+    "MiniBatchNMF": {
+      "sklearn_cpu": {
+        "W_min": 0.1247086598329927,
+        "components_min": 0.0028073319337581976,
+        "fit_ms_mean": 92.80648827552795,
+        "fit_ms_std": 1.3461112976074219,
+        "n_iter": 10,
+        "reconstruction_error": 233.22172998112995,
+        "status": "ok"
+      },
+      "statgpu_cpu": {
+        "W_min": 0.0556056249398667,
+        "components_min": 0.0009288982993682642,
+        "fit_ms_mean": 61.38600409030914,
+        "fit_ms_std": 1.108810305595398,
+        "host_to_device_included": false,
+        "n_iter": 10,
+        "reconstruction_error": 230.6564469740921,
+        "status": "ok"
+      },
+      "statgpu_cuda": {
+        "W_min": 0.05560562494061238,
+        "components_min": 0.000928898299366424,
+        "fit_ms_mean": 85.80814301967621,
+        "fit_ms_std": 0.252649188041687,
+        "host_to_device_included": false,
+        "n_iter": 10,
+        "reconstruction_error": 230.65644697395385,
+        "status": "ok"
+      },
+      "statgpu_torch": {
+        "W_min": 0.055605624940612726,
+        "components_min": 0.0009288982993664262,
+        "fit_ms_mean": 23.867890238761902,
+        "fit_ms_std": 0.25998055934906006,
+        "host_to_device_included": false,
+        "n_iter": 10,
+        "reconstruction_error": 230.65644697395388,
+        "status": "ok"
+      }
+    }
+  }
+}

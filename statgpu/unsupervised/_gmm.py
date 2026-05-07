@@ -13,7 +13,7 @@ from statgpu.unsupervised._utils import check_2d_array, reject_sparse, scalar_to
 
 
 class GaussianMixture(BaseEstimator):
-    """Diagonal-covariance Gaussian mixture model fitted with EM."""
+    """Gaussian mixture model fitted with log-domain EM."""
 
     def __init__(
         self,
@@ -43,8 +43,8 @@ class GaussianMixture(BaseEstimator):
             raise ValueError("n_components must be a positive integer")
         if int(self.n_components) > n_samples:
             raise ValueError("n_components must be less than or equal to n_samples")
-        if self.covariance_type != "diag":
-            raise NotImplementedError("GaussianMixture v1 only supports covariance_type='diag'")
+        if self.covariance_type not in ("diag", "spherical", "tied", "full"):
+            raise ValueError("covariance_type must be one of: 'diag', 'spherical', 'tied', 'full'")
         if self.init_params not in ("kmeans", "random"):
             raise ValueError("init_params must be one of: 'kmeans', 'random'")
         if float(self.tol) < 0.0:
@@ -56,15 +56,59 @@ class GaussianMixture(BaseEstimator):
         if not isinstance(self.n_init, (int, np.integer)) or int(self.n_init) < 1:
             raise ValueError("n_init must be a positive integer")
 
+    def _linalg_inv(self, backend, matrix):
+        return backend.xp.linalg.inv(matrix)
+
+    def _linalg_logdet(self, backend, matrix):
+        sign, logabsdet = backend.xp.linalg.slogdet(matrix)
+        if scalar_to_float(sign) <= 0.0:
+            raise ValueError("covariance matrix must be positive definite")
+        return logabsdet
+
+    def _linalg_cholesky(self, backend, matrix):
+        return backend.xp.linalg.cholesky(matrix)
+
+    def _eye(self, backend, n_features: int):
+        if hasattr(backend, "eye"):
+            return backend.eye(n_features, dtype=backend.float64)
+        return backend.asarray(np.eye(n_features), dtype=backend.float64)
+
     def _estimate_log_gaussian_prob(self, backend, X, means, covariances):
         n_features = X.shape[1]
-        precisions = 1.0 / covariances
-        log_det = backend.sum(backend.log(covariances), axis=1)
-        x2 = backend.matmul(X * X, precisions.T)
-        cross = backend.matmul(X, (means * precisions).T)
-        mean2 = backend.sum(means * means * precisions, axis=1)
-        quad = x2 - 2.0 * cross + backend.expand_dims(mean2, 0)
-        return -0.5 * (float(n_features) * np.log(2.0 * np.pi) + backend.expand_dims(log_det, 0) + quad)
+        log_2pi = float(n_features) * np.log(2.0 * np.pi)
+        if self.covariance_type == "diag":
+            precisions = 1.0 / covariances
+            log_det = backend.sum(backend.log(covariances), axis=1)
+            x2 = backend.matmul(X * X, precisions.T)
+            cross = backend.matmul(X, (means * precisions).T)
+            mean2 = backend.sum(means * means * precisions, axis=1)
+            quad = x2 - 2.0 * cross + backend.expand_dims(mean2, 0)
+            return -0.5 * (log_2pi + backend.expand_dims(log_det, 0) + quad)
+
+        if self.covariance_type == "spherical":
+            precisions = 1.0 / covariances
+            log_det = float(n_features) * backend.log(covariances)
+            diff = backend.expand_dims(X, 1) - backend.expand_dims(means, 0)
+            quad = backend.sum(diff * diff, axis=2) * backend.expand_dims(precisions, 0)
+            return -0.5 * (log_2pi + backend.expand_dims(log_det, 0) + quad)
+
+        log_probs = []
+        if self.covariance_type == "tied":
+            precision = self._linalg_inv(backend, covariances)
+            log_det = self._linalg_logdet(backend, covariances)
+            for k in range(int(self.n_components)):
+                diff = X - means[k]
+                quad = backend.sum(backend.matmul(diff, precision) * diff, axis=1)
+                log_probs.append(-0.5 * (log_2pi + log_det + quad))
+            return backend.stack(log_probs, axis=1)
+
+        for k in range(int(self.n_components)):
+            precision = self._linalg_inv(backend, covariances[k])
+            log_det = self._linalg_logdet(backend, covariances[k])
+            diff = X - means[k]
+            quad = backend.sum(backend.matmul(diff, precision) * diff, axis=1)
+            log_probs.append(-0.5 * (log_2pi + log_det + quad))
+        return backend.stack(log_probs, axis=1)
 
     def _estimate_weighted_log_prob(self, backend, X, weights, means, covariances):
         return self._estimate_log_gaussian_prob(backend, X, means, covariances) + backend.expand_dims(backend.log(weights), 0)
@@ -77,11 +121,35 @@ class GaussianMixture(BaseEstimator):
 
     def _m_step(self, backend, X, resp):
         n_samples = X.shape[0]
+        n_features = X.shape[1]
         nk = backend.sum(resp, axis=0) + 10.0 * np.finfo(np.float64).eps
         weights = nk / float(n_samples)
         means = backend.matmul(resp.T, X) / backend.expand_dims(nk, 1)
-        second_moment = backend.matmul(resp.T, X * X) / backend.expand_dims(nk, 1)
-        covariances = backend.maximum(second_moment - means * means, float(self.reg_covar))
+        if self.covariance_type in ("diag", "spherical"):
+            second_moment = backend.matmul(resp.T, X * X) / backend.expand_dims(nk, 1)
+            diag_covariances = backend.maximum(second_moment - means * means, float(self.reg_covar))
+            if self.covariance_type == "diag":
+                return weights, means, diag_covariances
+            spherical_covariances = backend.maximum(backend.mean(diag_covariances, axis=1), float(self.reg_covar))
+            return weights, means, spherical_covariances
+
+        eye = self._eye(backend, n_features)
+        if self.covariance_type == "tied":
+            covariance = backend.zeros((n_features, n_features), dtype=backend.float64)
+            for k in range(int(self.n_components)):
+                diff = X - means[k]
+                weighted = diff * backend.expand_dims(resp[:, k], 1)
+                covariance = covariance + backend.matmul(weighted.T, diff)
+            covariance = covariance / float(n_samples) + float(self.reg_covar) * eye
+            return weights, means, covariance
+
+        covariances = []
+        for k in range(int(self.n_components)):
+            diff = X - means[k]
+            weighted = diff * backend.expand_dims(resp[:, k], 1)
+            covariance = backend.matmul(weighted.T, diff) / nk[k] + float(self.reg_covar) * eye
+            covariances.append(covariance)
+        covariances = backend.stack(covariances, axis=0)
         return weights, means, covariances
 
     def _initialize(self, backend, X, seed):
@@ -100,9 +168,34 @@ class GaussianMixture(BaseEstimator):
             indices = rng.choice(n_samples, size=int(self.n_components), replace=False)
             means = X[backend.asarray(indices, dtype=backend.int64)]
         weights = backend.full((int(self.n_components),), 1.0 / float(self.n_components), dtype=backend.float64)
-        global_var = backend.mean((X - backend.mean(X, axis=0)) ** 2, axis=0) + float(self.reg_covar)
-        covariances = backend.ones((int(self.n_components), n_features), dtype=backend.float64) * global_var
+        centered = X - backend.mean(X, axis=0)
+        global_var = backend.mean(centered * centered, axis=0) + float(self.reg_covar)
+        if self.covariance_type == "diag":
+            covariances = backend.ones((int(self.n_components), n_features), dtype=backend.float64) * global_var
+        elif self.covariance_type == "spherical":
+            covariances = backend.full(
+                (int(self.n_components),),
+                scalar_to_float(backend.mean(global_var)),
+                dtype=backend.float64,
+            )
+        else:
+            global_covariance = backend.matmul(centered.T, centered) / float(n_samples)
+            global_covariance = global_covariance + float(self.reg_covar) * self._eye(backend, n_features)
+            if self.covariance_type == "tied":
+                covariances = global_covariance
+            else:
+                covariances = backend.stack([backend.copy(global_covariance) for _ in range(int(self.n_components))], axis=0)
         return weights, means, covariances
+
+    def _estimate_precisions_cholesky(self, backend, covariances):
+        if self.covariance_type in ("diag", "spherical"):
+            return 1.0 / backend.sqrt(covariances)
+        if self.covariance_type == "tied":
+            return self._linalg_cholesky(backend, self._linalg_inv(backend, covariances))
+        return backend.stack(
+            [self._linalg_cholesky(backend, self._linalg_inv(backend, covariances[k])) for k in range(int(self.n_components))],
+            axis=0,
+        )
 
     def fit(self, X, y=None):
         reject_sparse(X, "GaussianMixture")
@@ -134,7 +227,7 @@ class GaussianMixture(BaseEstimator):
         self.weights_ = weights
         self.means_ = means
         self.covariances_ = covariances
-        self.precisions_cholesky_ = 1.0 / backend.sqrt(covariances)
+        self.precisions_cholesky_ = self._estimate_precisions_cholesky(backend, covariances)
         self.converged_ = bool(converged)
         self.n_iter_ = int(n_iter)
         self.lower_bound_ = float(lower_bound)
@@ -177,7 +270,19 @@ class GaussianMixture(BaseEstimator):
         return scalar_to_float(backend.mean(self.score_samples(X)))
 
     def _n_parameters(self):
-        return int(self.n_components) * self.n_features_in_ * 2 + int(self.n_components) - 1
+        n_components = int(self.n_components)
+        n_features = int(self.n_features_in_)
+        mean_params = n_components * n_features
+        weight_params = n_components - 1
+        if self.covariance_type == "diag":
+            covariance_params = n_components * n_features
+        elif self.covariance_type == "spherical":
+            covariance_params = n_components
+        elif self.covariance_type == "tied":
+            covariance_params = n_features * (n_features + 1) // 2
+        else:
+            covariance_params = n_components * n_features * (n_features + 1) // 2
+        return mean_params + covariance_params + weight_params
 
     def bic(self, X):
         return -2.0 * float(self.score(X)) * X.shape[0] + self._n_parameters() * np.log(X.shape[0])

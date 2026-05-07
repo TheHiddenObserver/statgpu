@@ -13,7 +13,7 @@ from statgpu.unsupervised._utils import check_2d_array, reject_sparse
 
 
 class AgglomerativeClustering(BaseEstimator):
-    """Exact CPU single-linkage agglomerative clustering."""
+    """Exact CPU agglomerative clustering."""
 
     def __init__(
         self,
@@ -33,15 +33,15 @@ class AgglomerativeClustering(BaseEstimator):
             raise ValueError("n_clusters must be a positive integer")
         if int(self.n_clusters) > n_samples:
             raise ValueError("n_clusters must be less than or equal to n_samples")
-        if self.linkage != "single":
-            raise NotImplementedError("AgglomerativeClustering v1 only supports linkage='single'")
+        if self.linkage not in ("single", "complete", "average", "ward"):
+            raise ValueError("linkage must be one of: 'single', 'complete', 'average', 'ward'")
         if self.metric != "euclidean":
-            raise NotImplementedError("AgglomerativeClustering v1 only supports metric='euclidean'")
+            raise NotImplementedError("AgglomerativeClustering only supports metric='euclidean'")
 
     def _ensure_cpu_supported(self):
         if self.device in (Device.CUDA, Device.TORCH):
             raise NotImplementedError(
-                "AgglomerativeClustering v1 only supports CPU execution; "
+                "AgglomerativeClustering only supports CPU execution; "
                 "explicit device='cuda' or device='torch' is not silently downgraded"
             )
 
@@ -58,7 +58,7 @@ class AgglomerativeClustering(BaseEstimator):
             distances = np.empty((0,), dtype=np.float64)
             labels = np.zeros(1, dtype=np.int64)
         else:
-            Z = linkage(X_arr, method="single", metric="euclidean")
+            Z = linkage(X_arr, method=self.linkage, metric="euclidean")
             children = Z[:, :2].astype(np.int64, copy=False)
             distances = Z[:, 2].astype(np.float64, copy=False)
             labels = fcluster(Z, t=int(self.n_clusters), criterion="maxclust").astype(np.int64) - 1

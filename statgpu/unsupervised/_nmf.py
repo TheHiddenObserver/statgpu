@@ -8,7 +8,7 @@ import numpy as np
 
 from statgpu._base import BaseEstimator
 from statgpu._config import Device
-from statgpu.unsupervised._utils import check_2d_array, reject_sparse, scalar_to_float
+from statgpu.unsupervised._utils import backend_random_normal, check_2d_array, reject_sparse, scalar_to_float
 
 
 class NMF(BaseEstimator):
@@ -59,12 +59,25 @@ class NMF(BaseEstimator):
             raise ValueError("NMF input X must be non-negative")
 
     def _init_factors(self, backend, X, n_components, seed):
-        rng = np.random.RandomState(seed)
-        mean = max(scalar_to_float(backend.mean(X)), np.finfo(np.float64).eps)
-        scale = np.sqrt(mean / float(n_components))
-        H = backend.asarray(np.abs(rng.standard_normal((n_components, X.shape[1]))) * scale + 1e-8, dtype=backend.float64)
-        W = backend.asarray(np.abs(rng.standard_normal((X.shape[0], n_components))) * scale + 1e-8, dtype=backend.float64)
+        eps = np.finfo(np.float64).eps
+        if X.shape[0] >= n_components:
+            if n_components == 1:
+                indices = backend.zeros((1,), dtype=backend.int64)
+            else:
+                grid = backend.arange(n_components, dtype=backend.float64)
+                indices = backend.astype(backend.xp.round(grid * float(X.shape[0] - 1) / float(n_components - 1)), backend.int64)
+            H = backend.maximum(X[indices], eps) + 1e-8
+        else:
+            mean = max(scalar_to_float(backend.mean(X)), np.finfo(np.float64).eps)
+            scale = np.sqrt(mean / float(n_components))
+            H = backend.abs(backend_random_normal(backend, seed, size=(n_components, X.shape[1]), scale=scale)) + 1e-8
+        W = self._init_w_from_data(backend, X, H, eps)
         return W, H
+
+    def _init_w_from_data(self, backend, X, H, eps):
+        numerator = backend.matmul(X, H.T)
+        denominator = backend.reshape(backend.sum(H * H, axis=1) + eps, (1, H.shape[0]))
+        return backend.maximum(numerator / denominator, eps)
 
     def _reconstruction_error(self, backend, X, W, H):
         residual = X - backend.matmul(W, H)
@@ -73,12 +86,16 @@ class NMF(BaseEstimator):
     def _update_h(self, backend, X, W, H, eps):
         numerator = backend.matmul(W.T, X)
         denominator = backend.matmul(backend.matmul(W.T, W), H) + eps
-        return H * numerator / denominator
+        H *= numerator
+        H /= denominator
+        return H
 
     def _update_w(self, backend, X, W, H, eps):
         numerator = backend.matmul(X, H.T)
         denominator = backend.matmul(W, backend.matmul(H, H.T)) + eps
-        return W * numerator / denominator
+        W *= numerator
+        W /= denominator
+        return W
 
     def fit(self, X, y=None):
         reject_sparse(X, "NMF")
@@ -94,7 +111,7 @@ class NMF(BaseEstimator):
         previous_error = None
         error = None
         n_iter = 0
-        error_check_interval = 10
+        error_check_interval = 10 if backend.name == "numpy" else int(self.max_iter)
         for n_iter in range(1, int(self.max_iter) + 1):
             W = self._update_w(backend, X_arr, W, H, eps)
             H = self._update_h(backend, X_arr, W, H, eps)
@@ -127,8 +144,8 @@ class NMF(BaseEstimator):
         self._check_nonnegative(backend, X_arr)
         if X_arr.shape[1] != self.n_features_in_:
             raise ValueError(f"X has {X_arr.shape[1]} features, expected {self.n_features_in_}")
-        W, _ = self._init_factors(backend, X_arr, self.n_components_, self.random_state)
         eps = np.finfo(np.float64).eps
+        W = self._init_w_from_data(backend, X_arr, self.components_, eps)
         for _ in range(int(self.max_iter)):
             W = self._update_w(backend, X_arr, W, self.components_, eps)
         return W

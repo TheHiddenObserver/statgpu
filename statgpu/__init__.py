@@ -38,6 +38,8 @@ from .unsupervised import (
     AgglomerativeClustering,
     TruncatedSVD,
     MiniBatchKMeans,
+    IncrementalPCA,
+    MiniBatchNMF,
     UMAP,
     TSNE,
 )
@@ -102,6 +104,8 @@ __all__ = [
     "AgglomerativeClustering",
     "TruncatedSVD",
     "MiniBatchKMeans",
+    "IncrementalPCA",
+    "MiniBatchNMF",
     "UMAP",
     "TSNE",
     "get_backend",

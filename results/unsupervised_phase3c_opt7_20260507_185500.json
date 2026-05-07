@@ -1,0 +1,132 @@
+{
+  "environment": {
+    "args": {
+      "batch_size": 512,
+      "components": 6,
+      "devices": "cpu,cuda,torch",
+      "json_out": "results/unsupervised_phase3c_opt7_20260507_185500.json",
+      "max_iter": 15,
+      "md_out": "results/unsupervised_phase3c_opt7_summary_20260507_185500.md",
+      "n": 5000,
+      "p": 32,
+      "print_json": false,
+      "repeats": 2,
+      "seed": 20260507,
+      "warmup": 1
+    },
+    "platform": "Linux-4.19.0-14-amd64-x86_64-with-glibc2.31",
+    "python": "3.9.16 (main, Mar  8 2023, 14:00:05) \n[GCC 11.2.0]"
+  },
+  "models": {
+    "IncrementalPCA": {
+      "sklearn_cpu": {
+        "explained_variance": [
+          50.277558270246644,
+          41.579508932176694,
+          34.100353647152446,
+          29.568901180758765,
+          19.764634572432016,
+          11.541294463942462
+        ],
+        "explained_variance_ratio_sum": 0.9996525715036445,
+        "fit_ms_mean": 13.051062822341919,
+        "fit_ms_std": 0.8338987827301025,
+        "n_samples_seen": 5000,
+        "reconstruction_error": 18.016715478046773,
+        "status": "ok"
+      },
+      "statgpu_cpu": {
+        "explained_variance": [
+          50.27755827024685,
+          41.579508932177106,
+          34.10035364715256,
+          29.56890118075873,
+          19.76463457243201,
+          11.541294463942446
+        ],
+        "explained_variance_ratio_sum": 0.9996525715036481,
+        "fit_ms_mean": 9.693324565887451,
+        "fit_ms_std": 0.33083558082580566,
+        "host_to_device_included": false,
+        "n_samples_seen": 5000,
+        "reconstruction_error": 18.016715478046773,
+        "status": "ok"
+      },
+      "statgpu_cuda": {
+        "explained_variance": [
+          50.27755827024677,
+          41.57950893217698,
+          34.10035364715244,
+          29.568901180758683,
+          19.764634572432037,
+          11.541294463942469
+        ],
+        "explained_variance_ratio_sum": 0.9996525715036464,
+        "fit_ms_mean": 33.80981087684631,
+        "fit_ms_std": 0.022858381271362305,
+        "host_to_device_included": false,
+        "n_samples_seen": 5000,
+        "reconstruction_error": 18.016715478046777,
+        "status": "ok"
+      },
+      "statgpu_torch": {
+        "explained_variance": [
+          50.277558270247866,
+          41.579508932178456,
+          34.100353647153874,
+          29.568901180760076,
+          19.764634572432264,
+          11.541294463942792
+        ],
+        "explained_variance_ratio_sum": 0.9996525715036784,
+        "fit_ms_mean": 35.29013693332672,
+        "fit_ms_std": 0.4525035619735718,
+        "host_to_device_included": false,
+        "n_samples_seen": 5000,
+        "reconstruction_error": 18.016715478046777,
+        "status": "ok"
+      }
+    },
+    "MiniBatchNMF": {
+      "sklearn_cpu": {
+        "W_min": 0.09935344080449675,
+        "components_min": 0.003430393182166459,
+        "fit_ms_mean": 30.93498945236206,
+        "fit_ms_std": 0.40912628173828125,
+        "n_iter": 15,
+        "reconstruction_error": 69.18280401061195,
+        "status": "ok"
+      },
+      "statgpu_cpu": {
+        "W_min": 0.010340445557067047,
+        "components_min": 0.0017821016663782927,
+        "fit_ms_mean": 23.087352514266968,
+        "fit_ms_std": 0.5986690521240234,
+        "host_to_device_included": false,
+        "n_iter": 15,
+        "reconstruction_error": 61.511912926367025,
+        "status": "ok"
+      },
+      "statgpu_cuda": {
+        "W_min": 0.010340445555471174,
+        "components_min": 0.001782101663906722,
+        "fit_ms_mean": 259.4040334224701,
+        "fit_ms_std": 18.11438798904419,
+        "host_to_device_included": false,
+        "n_iter": 15,
+        "reconstruction_error": 61.51191292629763,
+        "status": "ok"
+      },
+      "statgpu_torch": {
+        "W_min": 0.010340445555471174,
+        "components_min": 0.001782101663906722,
+        "fit_ms_mean": 66.83856248855591,
+        "fit_ms_std": 0.309675931930542,
+        "host_to_device_included": false,
+        "n_iter": 15,
+        "reconstruction_error": 61.51191292629763,
+        "status": "ok"
+      }
+    }
+  }
+}

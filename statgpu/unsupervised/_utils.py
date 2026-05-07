@@ -42,15 +42,27 @@ def scalar_to_int(x) -> int:
     return int(x)
 
 
-def random_normal(random_state, size, scale: float = 1.0):
-    """Generate normal variates with sklearn-compatible integer seeds."""
-    if isinstance(random_state, np.random.Generator):
-        values = random_state.normal(size=size)
-    elif isinstance(random_state, np.random.RandomState):
-        values = random_state.normal(size=size)
-    else:
-        values = np.random.RandomState(random_state).normal(size=size)
-    return float(scale) * values
+def backend_random_normal(backend, random_state, size, scale: float = 1.0):
+    """Generate deterministic normal variates directly on the target backend.
+
+    This avoids allocating a NumPy random matrix and then transferring it to a
+    GPU backend.  The lightweight Box-Muller generator is used only for
+    estimator initialization and randomized projections, where deterministic
+    seeded behavior is more important than cryptographic-quality randomness.
+    """
+    total = int(np.prod(size))
+    seed = 0 if random_state is None else int(random_state)
+    idx = backend.arange(total, dtype=backend.float64)
+    xp = backend.xp
+
+    def uniform(offset):
+        values = xp.sin((idx + 1.0 + float(offset)) * (12.9898 + 0.001 * float(seed))) * 43758.5453
+        return values - xp.floor(values)
+
+    u1 = backend.maximum(uniform(0), 1e-12)
+    u2 = uniform(total + 17)
+    z = backend.sqrt(-2.0 * backend.log(u1)) * xp.cos(2.0 * np.pi * u2)
+    return backend.reshape(z * float(scale), size)
 
 
 def squared_euclidean_distances(backend, X, Y=None):
@@ -89,8 +101,7 @@ def randomized_svd(
     """Backend randomized SVD for dense matrices."""
     n_samples, n_features = X.shape
     n_random = min(min(n_samples, n_features), int(n_components) + int(n_oversamples))
-    omega_np = random_normal(random_state, size=(n_features, n_random))
-    omega = backend.asarray(omega_np, dtype=backend.float64)
+    omega = backend_random_normal(backend, random_state, size=(n_features, n_random))
 
     # Re-orthogonalize each power iteration. This is slightly more work than
     # the raw power method, but greatly improves randomized SVD stability when

@@ -72,6 +72,29 @@ Remote Phase 3 artifacts:
 - `results/unsupervised_phase3_remote_perfopt2_large_tabular_20260505_132223.json`
 - `results/unsupervised_phase3_remote_perfopt2_large_tabular_bs4096_20260505_132359.json`
 
+Phase 3B supplement:
+- `dev/benchmarks/benchmark_unsupervised_phase3b.py`
+  - 对比 `GaussianMixture` 的 `diag/spherical/tied/full` covariance variants。
+  - 对比 `AgglomerativeClustering` 的 `single/complete/average/ward` linkage variants。
+  - 覆盖 statgpu CPU/CuPy/Torch（适用时）、sklearn、SciPy，以及可用时的 R `cluster::agnes`。
+
+Remote Phase 3B artifacts:
+- `results/unsupervised_phase3b_verify_20260507_003957.json`
+- `results/unsupervised_phase3b_verify_summary_20260507_003957.md`
+
+Phase 3C supplement:
+- `dev/benchmarks/benchmark_unsupervised_phase3c.py`
+  - 对比 `IncrementalPCA` 和 `MiniBatchNMF` 的 statgpu CPU/CuPy/Torch 路径，以及可用时的 sklearn baseline。
+  - 记录重构质量、explained variance、warmup/repeat 用时和 skipped optional frameworks。
+
+Remote Phase 3C artifacts:
+- `results/unsupervised_phase3c_opt7_20260507_185500.json`
+- `results/unsupervised_phase3c_opt7_summary_20260507_185500.md`
+- `results/unsupervised_phase3c_opt7_large_bs4096_20260507_185500.json`
+- `results/unsupervised_phase3c_opt7_large_bs4096_summary_20260507_185500.md`
+- `results/unsupervised_phase3c_opt7_xlarge_20260507_185500.json`
+- `results/unsupervised_phase3c_opt7_xlarge_summary_20260507_185500.md`
+
 ## 多重检验与全局 p 值合并
 
 - `dev/benchmarks/benchmark_inference_backends.py`

@@ -10,9 +10,9 @@ from statgpu._base import BaseEstimator
 from statgpu._config import Device
 from statgpu.unsupervised._pca import PCA
 from statgpu.unsupervised._utils import (
+    backend_random_normal,
     check_2d_array,
     eye,
-    random_normal,
     reject_sparse,
     scalar_to_float,
     squared_euclidean_distances,
@@ -96,8 +96,7 @@ class TSNE(BaseEstimator):
     def _initial_embedding(self, backend, X):
         n_samples = X.shape[0]
         if self.init == "random":
-            init = random_normal(self.random_state, size=(n_samples, int(self.n_components)), scale=1e-4)
-            return backend.asarray(init, dtype=backend.float64)
+            return backend_random_normal(backend, self.random_state, size=(n_samples, int(self.n_components)), scale=1e-4)
         pca = PCA(
             n_components=int(self.n_components),
             svd_solver="auto",

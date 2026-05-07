@@ -8,6 +8,8 @@ from ._nmf import NMF
 from ._agglomerative import AgglomerativeClustering
 from ._truncated_svd import TruncatedSVD
 from ._minibatch_kmeans import MiniBatchKMeans
+from ._incremental_pca import IncrementalPCA
+from ._minibatch_nmf import MiniBatchNMF
 from ._umap import UMAP
 from ._tsne import TSNE
 
@@ -20,6 +22,8 @@ __all__ = [
     "AgglomerativeClustering",
     "TruncatedSVD",
     "MiniBatchKMeans",
+    "IncrementalPCA",
+    "MiniBatchNMF",
     "UMAP",
     "TSNE",
 ]

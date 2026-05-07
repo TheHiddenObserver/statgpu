@@ -18,9 +18,9 @@
 | [PCA](../unsupervised/pca.md) | 线性降维 | 最大化投影方差 / 最小化 rank-k 重构误差 |
 | [KMeans](../unsupervised/kmeans.md) | 原型聚类 | 最小化 squared Euclidean inertia |
 | [DBSCAN](../unsupervised/dbscan.md) | 带噪声的密度聚类 | Density reachability 和 connected components |
-| [GaussianMixture](../unsupervised/gaussian-mixture.md) | 概率软聚类 | 使用 EM 最大化 diagonal Gaussian mixture log likelihood |
+| [GaussianMixture](../unsupervised/gaussian-mixture.md) | 概率软聚类 | 使用 EM 最大化 Gaussian mixture log likelihood |
 | [NMF](../unsupervised/nmf.md) | 非负 parts-based 分解 | 在非负约束下最小化 Frobenius 重构误差 |
-| [AgglomerativeClustering](../unsupervised/agglomerative-clustering.md) | 层次聚类 | 贪心 single-linkage 合并 |
+| [AgglomerativeClustering](../unsupervised/agglomerative-clustering.md) | 层次聚类 | 贪心 linkage 合并 |
 | [TruncatedSVD](../unsupervised/truncated-svd.md) | 不中心化低秩投影 | 最小化 rank-k dense 重构误差 |
 | [MiniBatchKMeans](../unsupervised/minibatch-kmeans.md) | 较大规模原型聚类 | 使用 mini-batch 更新近似最小化 inertia |
 | [UMAP](../unsupervised/umap.md) | Manifold embedding | Fuzzy graph cross-entropy |
