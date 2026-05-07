@@ -55,6 +55,16 @@ def test_incremental_pca_partial_fit_and_whiten():
     assert np.all(np.isfinite(Xt))
 
 
+def test_incremental_pca_whiten_constant_data_stays_finite():
+    X = np.ones((8, 4), dtype=np.float64)
+    model = IncrementalPCA(n_components=2, whiten=True, device="cpu").fit(X)
+    Xt = _to_numpy(model.transform(X))
+    X_back = _to_numpy(model.inverse_transform(Xt))
+
+    assert np.all(np.isfinite(Xt))
+    assert np.all(np.isfinite(X_back))
+
+
 def test_incremental_pca_validation_errors():
     X = _make_data(seed=9)
     with pytest.raises(ValueError, match="n_components"):

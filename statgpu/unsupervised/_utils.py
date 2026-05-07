@@ -51,7 +51,7 @@ def backend_random_normal(backend, random_state, size, scale: float = 1.0):
     seeded behavior is more important than cryptographic-quality randomness.
     """
     total = int(np.prod(size))
-    seed = 0 if random_state is None else int(random_state)
+    seed = int(np.random.SeedSequence().generate_state(1, dtype=np.uint64)[0]) if random_state is None else int(random_state)
     idx = backend.arange(total, dtype=backend.float64)
     xp = backend.xp
 

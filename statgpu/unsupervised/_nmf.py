@@ -60,12 +60,10 @@ class NMF(BaseEstimator):
 
     def _init_factors(self, backend, X, n_components, seed):
         eps = np.finfo(np.float64).eps
+        rng = np.random.default_rng(seed)
         if X.shape[0] >= n_components:
-            if n_components == 1:
-                indices = backend.zeros((1,), dtype=backend.int64)
-            else:
-                grid = backend.arange(n_components, dtype=backend.float64)
-                indices = backend.astype(backend.xp.round(grid * float(X.shape[0] - 1) / float(n_components - 1)), backend.int64)
+            indices = rng.choice(int(X.shape[0]), size=int(n_components), replace=False)
+            indices = backend.asarray(indices, dtype=backend.int64)
             H = backend.maximum(X[indices], eps) + 1e-8
         else:
             mean = max(scalar_to_float(backend.mean(X)), np.finfo(np.float64).eps)
@@ -111,7 +109,10 @@ class NMF(BaseEstimator):
         previous_error = None
         error = None
         n_iter = 0
-        error_check_interval = 10 if backend.name == "numpy" else int(self.max_iter)
+        if backend.name == "numpy":
+            error_check_interval = 10
+        else:
+            error_check_interval = max(1, min(25, int(self.max_iter) // 5))
         for n_iter in range(1, int(self.max_iter) + 1):
             W = self._update_w(backend, X_arr, W, H, eps)
             H = self._update_h(backend, X_arr, W, H, eps)

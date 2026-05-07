@@ -73,7 +73,7 @@ class GaussianMixture(BaseEstimator):
             return backend.eye(n_features, dtype=backend.float64)
         return backend.asarray(np.eye(n_features), dtype=backend.float64)
 
-    def _estimate_log_gaussian_prob(self, backend, X, means, covariances):
+    def _estimate_log_gaussian_prob(self, backend, X, means, covariances, precisions_cholesky=None):
         n_features = X.shape[1]
         log_2pi = float(n_features) * np.log(2.0 * np.pi)
         if self.covariance_type == "diag":
@@ -94,27 +94,45 @@ class GaussianMixture(BaseEstimator):
 
         log_probs = []
         if self.covariance_type == "tied":
-            precision = self._linalg_inv(backend, covariances)
-            log_det = self._linalg_logdet(backend, covariances)
+            if precisions_cholesky is None:
+                precisions_cholesky = self._estimate_precisions_cholesky(backend, covariances)
+            log_det = -2.0 * backend.sum(backend.log(backend.diag(precisions_cholesky)))
             for k in range(int(self.n_components)):
                 diff = X - means[k]
-                quad = backend.sum(backend.matmul(diff, precision) * diff, axis=1)
+                solved = backend.matmul(diff, precisions_cholesky)
+                quad = backend.sum(solved * solved, axis=1)
                 log_probs.append(-0.5 * (log_2pi + log_det + quad))
             return backend.stack(log_probs, axis=1)
 
+        if precisions_cholesky is None:
+            precisions_cholesky = self._estimate_precisions_cholesky(backend, covariances)
         for k in range(int(self.n_components)):
-            precision = self._linalg_inv(backend, covariances[k])
-            log_det = self._linalg_logdet(backend, covariances[k])
+            log_det = -2.0 * backend.sum(backend.log(backend.diag(precisions_cholesky[k])))
             diff = X - means[k]
-            quad = backend.sum(backend.matmul(diff, precision) * diff, axis=1)
+            solved = backend.matmul(diff, precisions_cholesky[k])
+            quad = backend.sum(solved * solved, axis=1)
             log_probs.append(-0.5 * (log_2pi + log_det + quad))
         return backend.stack(log_probs, axis=1)
 
-    def _estimate_weighted_log_prob(self, backend, X, weights, means, covariances):
-        return self._estimate_log_gaussian_prob(backend, X, means, covariances) + backend.expand_dims(backend.log(weights), 0)
+    def _estimate_weighted_log_prob(self, backend, X, weights, means, covariances, precisions_cholesky=None):
+        return self._estimate_log_gaussian_prob(
+            backend,
+            X,
+            means,
+            covariances,
+            precisions_cholesky=precisions_cholesky,
+        ) + backend.expand_dims(backend.log(weights), 0)
 
     def _e_step(self, backend, X, weights, means, covariances):
-        weighted_log_prob = self._estimate_weighted_log_prob(backend, X, weights, means, covariances)
+        precisions_cholesky = self._estimate_precisions_cholesky(backend, covariances)
+        weighted_log_prob = self._estimate_weighted_log_prob(
+            backend,
+            X,
+            weights,
+            means,
+            covariances,
+            precisions_cholesky=precisions_cholesky,
+        )
         log_prob_norm = backend.logsumexp(weighted_log_prob, axis=1)
         log_resp = weighted_log_prob - backend.expand_dims(log_prob_norm, 1)
         return scalar_to_float(backend.mean(log_prob_norm)), backend.exp(log_resp)
@@ -244,7 +262,14 @@ class GaussianMixture(BaseEstimator):
         if X_arr.shape[1] != self.n_features_in_:
             raise ValueError(f"X has {X_arr.shape[1]} features, expected {self.n_features_in_}")
         return backend.logsumexp(
-            self._estimate_weighted_log_prob(backend, X_arr, self.weights_, self.means_, self.covariances_),
+            self._estimate_weighted_log_prob(
+                backend,
+                X_arr,
+                self.weights_,
+                self.means_,
+                self.covariances_,
+                precisions_cholesky=self.precisions_cholesky_,
+            ),
             axis=1,
         )
 

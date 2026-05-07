@@ -131,7 +131,8 @@ class IncrementalPCA(BaseEstimator):
             raise ValueError(f"X has {X_arr.shape[1]} features, expected {self.n_features_in_}")
         X_transformed = backend.matmul(X_arr - self.mean_, self.components_.T)
         if self.whiten:
-            X_transformed = X_transformed / backend.sqrt(self.explained_variance_)
+            safe_variance = backend.maximum(self.explained_variance_, np.finfo(np.float64).eps)
+            X_transformed = X_transformed / backend.sqrt(safe_variance)
         return X_transformed
 
     def fit_transform(self, X, y=None):
@@ -145,7 +146,8 @@ class IncrementalPCA(BaseEstimator):
         if X_arr.shape[1] != self.n_components_:
             raise ValueError(f"X has {X_arr.shape[1]} components, expected {self.n_components_}")
         if self.whiten:
-            X_arr = X_arr * backend.sqrt(self.explained_variance_)
+            safe_variance = backend.maximum(self.explained_variance_, np.finfo(np.float64).eps)
+            X_arr = X_arr * backend.sqrt(safe_variance)
         return backend.matmul(X_arr, self.components_) + self.mean_
 
     def predict(self, X):
