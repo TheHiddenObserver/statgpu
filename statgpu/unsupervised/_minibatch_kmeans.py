@@ -212,7 +212,8 @@ class MiniBatchKMeans(BaseEstimator):
         X_arr = backend.asarray(X, dtype=backend.float64)
         check_2d_array(X_arr)
         n_samples, n_features = X_arr.shape
-        validation_samples = n_samples if not self._fitted else max(n_samples, int(self.n_clusters))
+        needs_batch_based_init = (not self._fitted) and isinstance(self.init, str)
+        validation_samples = n_samples if needs_batch_based_init else max(n_samples, int(self.n_clusters))
         n_clusters, _ = self._validate_params(validation_samples, n_features)
         helper = self._helper()
 

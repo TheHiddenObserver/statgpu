@@ -196,10 +196,14 @@ class MiniBatchNMF(BaseEstimator):
         if last_A is None or last_B is None:
             W_full = self.transform(X_arr)
             self.reconstruction_err_ = self._reconstruction_error(backend, X_arr, W_full, self.components_)
+            self._A_accum = backend.zeros((self.n_components_, self.n_components_), dtype=backend.float64)
+            self._B_accum = backend.zeros((self.n_components_, self.n_features_in_), dtype=backend.float64)
         else:
             self.reconstruction_err_ = self._reconstruction_error_from_stats(
                 backend, backend.sum(X_arr * X_arr), last_A, last_B, self.components_
             )
+            self._A_accum = backend.copy(last_A)
+            self._B_accum = backend.copy(last_B)
         return self
 
     def transform(self, X):

@@ -57,6 +57,15 @@ def test_minibatch_kmeans_partial_fit_initial_batch_validates_cluster_count():
         model.partial_fit(X[:3])
 
 
+def test_minibatch_kmeans_partial_fit_allows_small_batch_with_explicit_init():
+    X = _blobs()
+    model = MiniBatchKMeans(n_clusters=4, init=X[:4], random_state=0, device="cpu")
+    model.partial_fit(X[:2])
+
+    assert model.cluster_centers_.shape == (4, 2)
+    assert model.n_steps_ == 1
+
+
 def test_minibatch_kmeans_score_validates_input_shape():
     X = _blobs()
     model = MiniBatchKMeans(n_clusters=3, init=X[:3], random_state=0, device="cpu").fit(X)

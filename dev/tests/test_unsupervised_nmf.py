@@ -74,6 +74,18 @@ def test_nmf_random_state_none_is_not_forced_to_fixed_seed():
     assert not np.allclose(_to_numpy(first.components_), _to_numpy(second.components_))
 
 
+def test_nmf_accepts_numpy_random_objects_for_random_state():
+    X = _make_nmf_data(seed=23)
+    rs = np.random.RandomState(3)
+    rg = np.random.default_rng(3)
+
+    m_rs = NMF(n_components=3, max_iter=1, random_state=rs, device="cpu").fit(X)
+    m_rg = NMF(n_components=3, max_iter=1, random_state=rg, device="cpu").fit(X)
+
+    assert m_rs.components_.shape == (3, X.shape[1])
+    assert m_rg.components_.shape == (3, X.shape[1])
+
+
 def test_nmf_validation_errors():
     X = _make_nmf_data()
     with pytest.raises(ValueError, match="non-negative"):

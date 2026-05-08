@@ -8,7 +8,13 @@ import numpy as np
 
 from statgpu._base import BaseEstimator
 from statgpu._config import Device
-from statgpu.unsupervised._utils import backend_random_normal, check_2d_array, reject_sparse, scalar_to_float
+from statgpu.unsupervised._utils import (
+    backend_random_normal,
+    check_2d_array,
+    draw_random_seed,
+    reject_sparse,
+    scalar_to_float,
+)
 
 
 class NMF(BaseEstimator):
@@ -60,7 +66,7 @@ class NMF(BaseEstimator):
 
     def _init_factors(self, backend, X, n_components, seed):
         eps = np.finfo(np.float64).eps
-        rng = np.random.default_rng(seed)
+        rng = np.random.default_rng(draw_random_seed(seed))
         if X.shape[0] >= n_components:
             indices = rng.choice(int(X.shape[0]), size=int(n_components), replace=False)
             indices = backend.asarray(indices, dtype=backend.int64)

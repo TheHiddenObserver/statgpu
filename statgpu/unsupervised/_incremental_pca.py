@@ -31,7 +31,10 @@ class IncrementalPCA(BaseEstimator):
 
     def _validate_params(self, n_samples: int, n_features: int, first_pass: bool):
         if self.n_components is None:
-            n_components = n_features
+            if first_pass:
+                n_components = min(n_samples, n_features)
+            else:
+                n_components = int(self.n_components_)
         else:
             if not isinstance(self.n_components, (int, np.integer)) or int(self.n_components) < 1:
                 raise ValueError("n_components must be None or a positive integer")
@@ -116,9 +119,14 @@ class IncrementalPCA(BaseEstimator):
         X_arr = backend.asarray(X, dtype=backend.float64)
         check_2d_array(X_arr)
         n_samples, n_features = X_arr.shape
+        n_components = self._validate_params(n_samples, n_features, first_pass=True)
         batch_size = int(self.batch_size) if self.batch_size is not None else min(n_samples, max(1, 5 * n_features))
         self._fitted = False
-        for start in range(0, n_samples, batch_size):
+        first_batch_end = batch_size
+        if n_samples >= n_components and first_batch_end < n_components:
+            first_batch_end = n_components
+        self.partial_fit(X_arr[:first_batch_end])
+        for start in range(first_batch_end, n_samples, batch_size):
             self.partial_fit(X_arr[start : start + batch_size])
         return self
 

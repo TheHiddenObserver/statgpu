@@ -60,6 +60,16 @@ def test_minibatch_nmf_partial_fit():
     assert np.all(W >= 0.0)
 
 
+def test_minibatch_nmf_fit_then_partial_fit_keeps_online_accumulators():
+    X = _make_nonnegative(seed=21)
+    model = MiniBatchNMF(n_components=3, batch_size=20, max_iter=4, random_state=7, device="cpu").fit(X[:60])
+    model.partial_fit(X[60:])
+
+    assert model.n_iter_ >= 2
+    assert model._A_accum.shape == (3, 3)
+    assert model._B_accum.shape == (3, X.shape[1])
+
+
 def test_minibatch_nmf_validation_errors():
     X = _make_nonnegative(seed=9)
     with pytest.raises(ValueError, match="n_components"):

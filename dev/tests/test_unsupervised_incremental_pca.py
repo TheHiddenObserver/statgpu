@@ -65,6 +65,24 @@ def test_incremental_pca_whiten_constant_data_stays_finite():
     assert np.all(np.isfinite(X_back))
 
 
+def test_incremental_pca_default_components_supports_wide_inputs():
+    X = np.arange(30, dtype=np.float64).reshape(3, 10)
+    model = IncrementalPCA(device="cpu").fit(X)
+    Xt = _to_numpy(model.transform(X))
+
+    assert model.n_components_ == min(X.shape)
+    assert Xt.shape == (X.shape[0], min(X.shape))
+
+
+def test_incremental_pca_fit_handles_small_batch_size_with_larger_components():
+    X = _make_data(seed=12)
+    model = IncrementalPCA(n_components=6, batch_size=3, device="cpu").fit(X)
+    Xt = _to_numpy(model.transform(X))
+
+    assert model.n_components_ == 6
+    assert Xt.shape == (X.shape[0], 6)
+
+
 def test_incremental_pca_validation_errors():
     X = _make_data(seed=9)
     with pytest.raises(ValueError, match="n_components"):

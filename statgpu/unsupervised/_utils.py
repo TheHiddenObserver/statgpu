@@ -42,6 +42,17 @@ def scalar_to_int(x) -> int:
     return int(x)
 
 
+def draw_random_seed(random_state) -> int:
+    """Draw an integer seed from int/None/RandomState/Generator inputs."""
+    if random_state is None:
+        return int(np.random.SeedSequence().generate_state(1, dtype=np.uint64)[0])
+    if isinstance(random_state, np.random.Generator):
+        return int(random_state.integers(0, np.iinfo(np.uint64).max, dtype=np.uint64))
+    if isinstance(random_state, np.random.RandomState):
+        return int(random_state.randint(0, np.iinfo(np.int64).max))
+    return int(random_state)
+
+
 def backend_random_normal(backend, random_state, size, scale: float = 1.0):
     """Generate deterministic normal variates directly on the target backend.
 
@@ -51,11 +62,7 @@ def backend_random_normal(backend, random_state, size, scale: float = 1.0):
     seeded behavior is more important than cryptographic-quality randomness.
     """
     total = int(np.prod(size))
-    if random_state is None:
-        entropy_seed = np.random.SeedSequence().generate_state(1, dtype=np.uint64)[0]
-        seed = int(entropy_seed)
-    else:
-        seed = int(random_state)
+    seed = draw_random_seed(random_state)
     idx = backend.arange(total, dtype=backend.float64)
     xp = backend.xp
 
