@@ -1,7 +1,7 @@
 # 无监督学习
 
 > 语言：中文
-> 最后更新：2026-05-04
+> 最后更新：2026-05-08
 > 本页：无监督模型总览
 > English: [English](../en/models/unsupervised.md)
 
@@ -23,6 +23,8 @@
 | [AgglomerativeClustering](../unsupervised/agglomerative-clustering.md) | 层次聚类 | 贪心 linkage 合并 |
 | [TruncatedSVD](../unsupervised/truncated-svd.md) | 不中心化低秩投影 | 最小化 rank-k dense 重构误差 |
 | [MiniBatchKMeans](../unsupervised/minibatch-kmeans.md) | 较大规模原型聚类 | 使用 mini-batch 更新近似最小化 inertia |
+| [IncrementalPCA](../unsupervised/incremental-pca.md) | 分批线性降维 | 近似 centered rank-k 重构 |
+| [MiniBatchNMF](../unsupervised/minibatch-nmf.md) | 较大规模非负矩阵分解 | Mini-batch Frobenius 重构损失 |
 | [UMAP](../unsupervised/umap.md) | Manifold embedding | Fuzzy graph cross-entropy |
 | [TSNE](../unsupervised/tsne.md) | Manifold visualization | Affinity 分布之间的 KL divergence |
 

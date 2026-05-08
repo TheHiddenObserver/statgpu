@@ -1,7 +1,7 @@
 # Unsupervised Learning
 
 > Language: English
-> Last updated: 2026-05-07
+> Last updated: 2026-05-08
 > This page: Unsupervised learning index
 > Switch: [Chinese](../../unsupervised/README.md)
 
@@ -69,7 +69,7 @@ Benchmark scripts:
 - `dev/benchmarks/benchmark_unsupervised_phase3b.py`
 - `dev/benchmarks/benchmark_unsupervised_phase3c.py`
 
-Latest remote artifacts:
+Remote validation artifacts:
 
 - `results/unsupervised_phase2_dbscan_cython_verify_20260502_210000.json`
 - `results/unsupervised_phase2_verify_20260502_210000.json`
@@ -89,4 +89,4 @@ Latest remote artifacts:
 - `results/unsupervised_phase3c_opt7_xlarge_20260507_185500.json`
 - `results/unsupervised_phase3c_opt7_xlarge_summary_20260507_185500.md`
 
-Phase 3 adds public dense exact `UMAP` and `TSNE` APIs. `umap-learn`, `openTSNE`, sklearn, statsmodels, R, and cuML remain external validation or benchmark baselines only.
+External packages such as `umap-learn`, `openTSNE`, sklearn, statsmodels, R, and cuML are used only as validation or benchmark baselines; production estimator code remains statgpu-owned.

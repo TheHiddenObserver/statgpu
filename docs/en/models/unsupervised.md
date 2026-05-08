@@ -1,13 +1,13 @@
 # Unsupervised Learning
 
 > Language: English
-> Last updated: 2026-05-04
+> Last updated: 2026-05-08
 > This page: unsupervised model overview
 > Switch: [Chinese](../../models/unsupervised.md)
 
 ## Overview
 
-`statgpu.unsupervised` contains estimators for dimensionality reduction, clustering, density-based grouping, mixture modeling, and non-negative matrix factorization. The API follows the familiar `fit`, `transform`, `predict`, `fit_predict`, and `score` style where those operations make sense for the model.
+`statgpu.unsupervised` contains estimators for dimensionality reduction, clustering, density-based grouping, mixture modeling, non-negative matrix factorization, and manifold embedding. The API follows the familiar `fit`, `transform`, `predict`, `fit_predict`, and `score` style where those operations make sense for the model.
 
 The detailed pages under [docs/en/unsupervised/](../unsupervised/README.md) describe each estimator's objective function, estimating procedure, device behavior, outputs, limitations, and validation approach.
 
