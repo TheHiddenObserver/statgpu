@@ -498,11 +498,16 @@ def main():
         faulthandler.dump_traceback_later(int(args.debug_timeout), repeat=True)
 
     X, X_cluster, init_centers = make_data(args)
+    args_metadata = {
+        **vars(args),
+        "json_out": str(args.json_out) if args.json_out else None,
+        "md_out": str(args.md_out) if args.md_out else None,
+    }
     results = {
         "environment": {
             "python": sys.version,
             "platform": platform.platform(),
-            "args": vars(args) | {"json_out": str(args.json_out) if args.json_out else None, "md_out": str(args.md_out) if args.md_out else None},
+            "args": args_metadata,
         },
         "models": {
             "TruncatedSVD": None,

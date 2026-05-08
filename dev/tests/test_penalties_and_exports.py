@@ -48,6 +48,8 @@ def test_top_level_lasso_cv_export():
         "AgglomerativeClustering",
         "TruncatedSVD",
         "MiniBatchKMeans",
+        "IncrementalPCA",
+        "MiniBatchNMF",
         "UMAP",
         "TSNE",
     ],

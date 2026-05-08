@@ -1,0 +1,298 @@
+{
+  "devices": [
+    "cpu",
+    "cuda",
+    "torch"
+  ],
+  "repeats": 3,
+  "rows": [
+    {
+      "backend": "cpu",
+      "fit_ms": 9.525001049041748,
+      "fit_ms_all": [
+        11.404037475585938,
+        9.525001049041748,
+        9.479016065597534
+      ],
+      "framework": "statgpu",
+      "method": "DBSCAN",
+      "n_clusters": 4,
+      "n_core": 591,
+      "n_noise": 3,
+      "status": "ok"
+    },
+    {
+      "ari_vs_cpu": 1.0,
+      "backend": "cuda",
+      "fit_ms": 2.512127161026001,
+      "fit_ms_all": [
+        2.548009157180786,
+        2.512127161026001,
+        2.3617148399353027
+      ],
+      "framework": "statgpu",
+      "method": "DBSCAN",
+      "n_clusters": 4,
+      "n_core": 591,
+      "n_noise": 3,
+      "noise_mask_match_vs_cpu": true,
+      "status": "ok"
+    },
+    {
+      "ari_vs_cpu": 1.0,
+      "backend": "torch",
+      "fit_ms": 1.4530718326568604,
+      "fit_ms_all": [
+        1.4530718326568604,
+        1.4777779579162598,
+        1.4276206493377686
+      ],
+      "framework": "statgpu",
+      "method": "DBSCAN",
+      "n_clusters": 4,
+      "n_core": 591,
+      "n_noise": 3,
+      "noise_mask_match_vs_cpu": true,
+      "status": "ok"
+    },
+    {
+      "ari_vs_statgpu_cpu": 1.0,
+      "backend": "cpu",
+      "fit_ms": 5.980968475341797,
+      "fit_ms_all": [
+        5.980968475341797,
+        6.001651287078857,
+        5.931615829467773
+      ],
+      "framework": "sklearn",
+      "method": "DBSCAN",
+      "n_clusters": 4,
+      "n_core": 591,
+      "n_noise": 3,
+      "noise_mask_match_vs_statgpu_cpu": true,
+      "status": "ok"
+    },
+    {
+      "backend": "cpu",
+      "converged": false,
+      "fit_ms": 41.25651717185974,
+      "fit_ms_all": [
+        51.84745788574219,
+        41.25651717185974,
+        39.14722800254822
+      ],
+      "framework": "statgpu",
+      "init": "fixed_weights_means_diag_covariances",
+      "lower_bound": -18.443381281773462,
+      "method": "GaussianMixture",
+      "n_iter": 60,
+      "score": -18.443347608459014,
+      "status": "ok"
+    },
+    {
+      "abs_score_diff_vs_cpu": 3.197442310920451e-14,
+      "backend": "cuda",
+      "converged": false,
+      "fit_ms": 91.67677164077759,
+      "fit_ms_all": [
+        92.05996990203857,
+        91.48761630058289,
+        91.67677164077759
+      ],
+      "framework": "statgpu",
+      "init": "fixed_weights_means_diag_covariances",
+      "lower_bound": -18.44338128177343,
+      "method": "GaussianMixture",
+      "n_iter": 60,
+      "score": -18.443347608458982,
+      "status": "ok"
+    },
+    {
+      "abs_score_diff_vs_cpu": 2.4868995751603507e-14,
+      "backend": "torch",
+      "converged": false,
+      "fit_ms": 37.71406412124634,
+      "fit_ms_all": [
+        38.38568925857544,
+        37.71406412124634,
+        36.788612604141235
+      ],
+      "framework": "statgpu",
+      "init": "fixed_weights_means_diag_covariances",
+      "lower_bound": -18.443381281773426,
+      "method": "GaussianMixture",
+      "n_iter": 60,
+      "score": -18.44334760845899,
+      "status": "ok"
+    },
+    {
+      "abs_score_diff_vs_statgpu_cpu": 2.192284753732565e-08,
+      "backend": "cpu",
+      "converged": false,
+      "fit_ms": 38.08790445327759,
+      "fit_ms_all": [
+        37.62829303741455,
+        38.08790445327759,
+        38.28224539756775
+      ],
+      "framework": "sklearn",
+      "init": "fixed_weights_means_diag_covariances",
+      "method": "GaussianMixture",
+      "n_iter": 60,
+      "score": -18.443347586536166,
+      "status": "ok"
+    },
+    {
+      "backend": "cpu",
+      "fit_ms": 11.05588674545288,
+      "fit_ms_all": [
+        12.114524841308594,
+        11.05588674545288,
+        10.92568039894104
+      ],
+      "framework": "statgpu",
+      "init": "fixed_W_H",
+      "method": "NMF",
+      "n_iter": 120,
+      "reconstruction_err": 29.046959761370243,
+      "status": "ok"
+    },
+    {
+      "abs_reconstruction_err_diff_vs_cpu": 3.197442310920451e-14,
+      "backend": "cuda",
+      "fit_ms": 77.58322358131409,
+      "fit_ms_all": [
+        80.2527368068695,
+        77.58322358131409,
+        76.84963941574097
+      ],
+      "framework": "statgpu",
+      "init": "fixed_W_H",
+      "method": "NMF",
+      "n_iter": 120,
+      "reconstruction_err": 29.046959761370275,
+      "status": "ok"
+    },
+    {
+      "abs_reconstruction_err_diff_vs_cpu": 3.552713678800501e-14,
+      "backend": "torch",
+      "fit_ms": 23.399323225021362,
+      "fit_ms_all": [
+        23.388326168060303,
+        23.411303758621216,
+        23.399323225021362
+      ],
+      "framework": "statgpu",
+      "init": "fixed_W_H",
+      "method": "NMF",
+      "n_iter": 120,
+      "reconstruction_err": 29.046959761370278,
+      "status": "ok"
+    },
+    {
+      "backend": "cpu",
+      "fit_ms": 14.625251293182373,
+      "fit_ms_all": [
+        15.515565872192383,
+        14.625251293182373,
+        14.479994773864746
+      ],
+      "framework": "sklearn",
+      "init": "fixed_W_H",
+      "method": "NMF",
+      "n_iter": 120,
+      "reconstruction_err": 29.04695976137025,
+      "rel_reconstruction_err_vs_statgpu_cpu": 1.0000000000000002,
+      "status": "ok"
+    },
+    {
+      "backend": "cpu",
+      "fit_ms": 0.7630884647369385,
+      "fit_ms_all": [
+        0.7630884647369385,
+        0.7722079753875732,
+        0.7582902908325195
+      ],
+      "framework": "statgpu",
+      "method": "AgglomerativeClustering",
+      "n_clusters": 4,
+      "n_merges": 199,
+      "status": "ok"
+    },
+    {
+      "ari_vs_statgpu_cpu": 1.0,
+      "backend": "cpu",
+      "fit_ms": 0.9373724460601807,
+      "fit_ms_all": [
+        0.9680092334747314,
+        0.9373724460601807,
+        0.9214282035827637
+      ],
+      "framework": "sklearn",
+      "method": "AgglomerativeClustering",
+      "status": "ok"
+    },
+    {
+      "ari_vs_statgpu_cpu": 1.0,
+      "backend": "cpu",
+      "fit_ms": 0.7392168045043945,
+      "fit_ms_all": [
+        0.7392168045043945,
+        0.7433295249938965,
+        0.7315278053283691
+      ],
+      "framework": "scipy",
+      "method": "AgglomerativeClustering",
+      "status": "ok"
+    },
+    {
+      "backend": "cpu",
+      "fit_ms": 11.0,
+      "fit_ms_all": [
+        13.0,
+        11.0,
+        11.0
+      ],
+      "framework": "R cluster",
+      "method": "AgglomerativeClustering",
+      "n_clusters": 4,
+      "status": "ok"
+    },
+    {
+      "backend": "cpu",
+      "fit_ms": 136.367529630661,
+      "fit_ms_all": [
+        136.367529630661,
+        137.53461837768555,
+        133.82267951965332
+      ],
+      "framework": "umap-learn",
+      "method": "UMAP",
+      "shape": [
+        400,
+        2
+      ],
+      "status": "ok",
+      "trustworthiness": 0.9456053315994799
+    },
+    {
+      "backend": "cpu",
+      "fit_ms": 1878.4164488315582,
+      "fit_ms_all": [
+        1895.5672681331635,
+        1878.4164488315582,
+        1865.4592037200928
+      ],
+      "framework": "openTSNE",
+      "method": "TSNE",
+      "shape": [
+        400,
+        2
+      ],
+      "status": "ok",
+      "trustworthiness": 0.9757880364109233
+    }
+  ],
+  "seed": 20260501,
+  "warmup_runs": 1
+}

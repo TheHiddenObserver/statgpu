@@ -3,7 +3,6 @@
 import numpy as np
 import pytest
 from scipy import sparse
-from sklearn.metrics import adjusted_rand_score
 
 from statgpu.unsupervised import AgglomerativeClustering
 
@@ -16,17 +15,19 @@ def _make_data(seed=20260501):
     return np.vstack([a, b, c])
 
 
-def test_agglomerative_single_matches_sklearn_labels():
+@pytest.mark.parametrize("linkage", ["single", "complete", "average", "ward"])
+def test_agglomerative_linkages_match_sklearn_labels(linkage):
     sk_cluster = pytest.importorskip("sklearn.cluster")
+    sk_metrics = pytest.importorskip("sklearn.metrics")
     X = _make_data()
 
-    sg = AgglomerativeClustering(n_clusters=3, linkage="single", device="cpu").fit(X)
-    sk = sk_cluster.AgglomerativeClustering(n_clusters=3, linkage="single", metric="euclidean").fit(X)
+    sg = AgglomerativeClustering(n_clusters=3, linkage=linkage, device="cpu").fit(X)
+    sk = sk_cluster.AgglomerativeClustering(n_clusters=3, linkage=linkage, metric="euclidean").fit(X)
 
     assert sg.labels_.shape == (X.shape[0],)
     assert sg.children_.shape == (X.shape[0] - 1, 2)
     assert sg.distances_.shape == (X.shape[0] - 1,)
-    assert adjusted_rand_score(sk.labels_, sg.labels_) == pytest.approx(1.0)
+    assert sk_metrics.adjusted_rand_score(sk.labels_, sg.labels_) == pytest.approx(1.0)
 
 
 def test_agglomerative_fit_predict_and_validation_errors():
@@ -36,8 +37,8 @@ def test_agglomerative_fit_predict_and_validation_errors():
     assert labels.shape == (X.shape[0],)
     with pytest.raises(ValueError, match="n_clusters"):
         AgglomerativeClustering(n_clusters=0, device="cpu").fit(X)
-    with pytest.raises(NotImplementedError, match="linkage"):
-        AgglomerativeClustering(linkage="average", device="cpu").fit(X)
+    with pytest.raises(ValueError, match="linkage"):
+        AgglomerativeClustering(linkage="bad", device="cpu").fit(X)
     with pytest.raises(NotImplementedError, match="metric"):
         AgglomerativeClustering(metric="manhattan", device="cpu").fit(X)
     with pytest.raises(NotImplementedError, match="sparse"):

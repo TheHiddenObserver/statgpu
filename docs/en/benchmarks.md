@@ -1,7 +1,7 @@
 # Benchmark Index
 
 > Language: English  
-> Last updated: 2026-05-02
+> Last updated: 2026-05-07
 > This page: Benchmark index  
 > Switch: [Chinese](../benchmarks.md)
 
@@ -46,6 +46,13 @@ Language switch: [Chinese](../benchmarks.md)
   - Compares `TruncatedSVD`, `MiniBatchKMeans`, `UMAP`, and `TSNE` across statgpu CPU/CuPy/Torch and available external baselines.
   - Records warmup/repeat timings, precision or quality metrics, and skipped optional frameworks.
   - GPU measurements use backend-resident input arrays for the main timing path.
+- `dev/benchmarks/benchmark_unsupervised_phase3b.py`
+  - Compares `GaussianMixture` covariance variants and `AgglomerativeClustering` linkage variants.
+  - Covers statgpu CPU/CuPy/Torch where supported plus sklearn, SciPy, and R `cluster::agnes` where available.
+  - Outputs JSON and Markdown summaries under `results/`.
+- `dev/benchmarks/benchmark_unsupervised_phase3c.py`
+  - Compares `IncrementalPCA` and `MiniBatchNMF` across statgpu CPU/CuPy/Torch and sklearn when available.
+  - Records reconstruction quality, explained variance metrics, warmup/repeat timings, and skipped optional frameworks.
 
 Remote Phase 2 artifacts:
 - `results/unsupervised_phase2_remote_20260502_142727.json`
@@ -66,6 +73,18 @@ Remote Phase 3 artifacts:
 - `results/unsupervised_phase3_remote_perfopt_mediumlarge_20260505_131617.md`
 - `results/unsupervised_phase3_remote_perfopt2_large_tabular_20260505_132223.json`
 - `results/unsupervised_phase3_remote_perfopt2_large_tabular_bs4096_20260505_132359.json`
+
+Remote Phase 3B artifacts:
+- `results/unsupervised_phase3b_verify_20260507_003957.json`
+- `results/unsupervised_phase3b_verify_summary_20260507_003957.md`
+
+Remote Phase 3C artifacts:
+- `results/unsupervised_phase3c_opt7_20260507_185500.json`
+- `results/unsupervised_phase3c_opt7_summary_20260507_185500.md`
+- `results/unsupervised_phase3c_opt7_large_bs4096_20260507_185500.json`
+- `results/unsupervised_phase3c_opt7_large_bs4096_summary_20260507_185500.md`
+- `results/unsupervised_phase3c_opt7_xlarge_20260507_185500.json`
+- `results/unsupervised_phase3c_opt7_xlarge_summary_20260507_185500.md`
 
 DBSCAN CPU Cython note:
 - The optional `_dbscan_cpu` extension is a statgpu-owned implementation, not a sklearn wrapper.

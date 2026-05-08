@@ -1,0 +1,13 @@
+........................................................................ [ 80%]
+.................                                                        [100%]
+=============================== warnings summary ===============================
+dev/tests/test_unsupervised_nmf.py::test_nmf_basic_interface_and_sklearn_reconstruction_scale
+  /root/miniconda3/envs/myconda/lib/python3.9/site-packages/sklearn/decomposition/_nmf.py:1742: ConvergenceWarning: Maximum number of iterations 120 reached. Increase it to improve convergence.
+    warnings.warn(
+
+dev/tests/test_unsupervised_minibatch_nmf.py::test_minibatch_nmf_basic_interface_and_sklearn_smoke
+  /root/miniconda3/envs/myconda/lib/python3.9/site-packages/sklearn/decomposition/_nmf.py:2328: ConvergenceWarning: Maximum number of iterations 10 reached. Increase it to improve convergence.
+    warnings.warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+89 passed, 2 warnings in 6.65s

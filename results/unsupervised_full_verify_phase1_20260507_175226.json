@@ -1,0 +1,123 @@
+{
+  "devices": [
+    "cpu",
+    "cuda",
+    "torch"
+  ],
+  "k": 8,
+  "methods": [
+    "kmeans",
+    "pca"
+  ],
+  "n": 10000,
+  "p": 128,
+  "preload_device_data": true,
+  "repeats": 2,
+  "rows": [
+    {
+      "device": "cpu",
+      "explained_variance_sum": 1770.9992236322478,
+      "fit_ms": 31.34305775165558,
+      "fit_ms_all": [
+        39.597660303115845,
+        23.088455200195312
+      ],
+      "method": "PCA",
+      "status": "ok"
+    },
+    {
+      "device": "cuda",
+      "explained_variance_sum": 1770.9992236322494,
+      "fit_ms": 6.269603967666626,
+      "fit_ms_all": [
+        6.340384483337402,
+        6.19882345199585
+      ],
+      "max_abs_explained_variance_diff_vs_cpu": 4.547473508864641e-13,
+      "max_abs_projector_diff_vs_cpu": 1.2049167219529977e-11,
+      "method": "PCA",
+      "status": "ok"
+    },
+    {
+      "device": "torch",
+      "explained_variance_sum": 1770.9992236322407,
+      "fit_ms": 6.672069430351257,
+      "fit_ms_all": [
+        6.888329982757568,
+        6.455808877944946
+      ],
+      "max_abs_explained_variance_diff_vs_cpu": 2.4442670110147446e-12,
+      "max_abs_projector_diff_vs_cpu": 1.2046807995602649e-11,
+      "method": "PCA",
+      "status": "ok"
+    },
+    {
+      "device": "sklearn",
+      "fit_ms": 5901.942402124405,
+      "fit_ms_all": [
+        5343.515127897263,
+        6460.369676351547
+      ],
+      "max_abs_explained_variance_diff_vs_cpu": 0.03726473816668313,
+      "max_abs_projector_diff_vs_cpu": 0.07583497188623245,
+      "method": "PCA",
+      "status": "ok"
+    },
+    {
+      "device": "cpu",
+      "fit_ms": 18.971219658851624,
+      "fit_ms_all": [
+        22.405177354812622,
+        15.537261962890625
+      ],
+      "inertia": 460033.6683403974,
+      "method": "KMeans",
+      "n_iter": 2,
+      "status": "ok"
+    },
+    {
+      "abs_inertia_diff_vs_cpu": 5.238689482212067e-10,
+      "device": "cuda",
+      "fit_ms": 10.80121099948883,
+      "fit_ms_all": [
+        10.926097631454468,
+        10.676324367523193
+      ],
+      "inertia": 460033.66834039794,
+      "max_center_distance_vs_cpu": 5.803128189542262e-14,
+      "method": "KMeans",
+      "n_iter": 2,
+      "status": "ok"
+    },
+    {
+      "abs_inertia_diff_vs_cpu": 5.820766091346741e-10,
+      "device": "torch",
+      "fit_ms": 8.573174476623535,
+      "fit_ms_all": [
+        8.68949294090271,
+        8.45685601234436
+      ],
+      "inertia": 460033.66834039683,
+      "max_center_distance_vs_cpu": 5.463222256473043e-14,
+      "method": "KMeans",
+      "n_iter": 2,
+      "status": "ok"
+    },
+    {
+      "abs_inertia_diff_vs_cpu": 1.7462298274040222e-10,
+      "device": "sklearn",
+      "fit_ms": 58.65003168582916,
+      "fit_ms_all": [
+        58.06407332420349,
+        59.235990047454834
+      ],
+      "inertia": 460033.66834039724,
+      "max_center_distance_vs_cpu": 1.1402543128689616e-14,
+      "method": "KMeans",
+      "n_iter": 1,
+      "status": "ok"
+    }
+  ],
+  "seed": 20260430,
+  "warmup_runs": 1
+}

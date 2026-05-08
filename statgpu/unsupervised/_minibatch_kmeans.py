@@ -212,7 +212,9 @@ class MiniBatchKMeans(BaseEstimator):
         X_arr = backend.asarray(X, dtype=backend.float64)
         check_2d_array(X_arr)
         n_samples, n_features = X_arr.shape
-        n_clusters, _ = self._validate_params(max(n_samples, int(self.n_clusters)), n_features)
+        needs_batch_based_init = (not self._fitted) and isinstance(self.init, str)
+        validation_samples = n_samples if needs_batch_based_init else max(n_samples, int(self.n_clusters))
+        n_clusters, _ = self._validate_params(validation_samples, n_features)
         helper = self._helper()
 
         if not self._fitted:
@@ -268,8 +270,13 @@ class MiniBatchKMeans(BaseEstimator):
 
     def score(self, X, y=None):
         self._check_is_fitted()
+        if sparse.issparse(X):
+            raise NotImplementedError("sparse input is not supported in MiniBatchKMeans v1")
         backend = self._get_backend()
         X_arr = backend.asarray(X, dtype=backend.float64)
+        check_2d_array(X_arr)
+        if X_arr.shape[1] != self.n_features_in_:
+            raise ValueError(f"X has {X_arr.shape[1]} features, expected {self.n_features_in_}")
         helper = self._helper()
         distances = helper._squared_distances(backend, X_arr, self.cluster_centers_)
         min_dist_sq = backend.min(distances, axis=1)

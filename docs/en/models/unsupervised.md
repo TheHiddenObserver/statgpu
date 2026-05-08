@@ -18,11 +18,13 @@ The detailed pages under [docs/en/unsupervised/](../unsupervised/README.md) desc
 | [PCA](../unsupervised/pca.md) | Linear dimensionality reduction | Maximize projected variance / minimize rank-k reconstruction error |
 | [KMeans](../unsupervised/kmeans.md) | Prototype-based clustering | Minimize squared Euclidean inertia |
 | [DBSCAN](../unsupervised/dbscan.md) | Density-based clustering with noise | Density reachability and connected components |
-| [GaussianMixture](../unsupervised/gaussian-mixture.md) | Probabilistic soft clustering | Maximize diagonal Gaussian mixture log likelihood with EM |
+| [GaussianMixture](../unsupervised/gaussian-mixture.md) | Probabilistic soft clustering | Maximize Gaussian mixture log likelihood with EM |
 | [NMF](../unsupervised/nmf.md) | Parts-based non-negative factorization | Minimize Frobenius reconstruction error under non-negativity |
-| [AgglomerativeClustering](../unsupervised/agglomerative-clustering.md) | Hierarchical clustering | Greedy single-linkage merges |
+| [AgglomerativeClustering](../unsupervised/agglomerative-clustering.md) | Hierarchical clustering | Greedy linkage merges |
 | [TruncatedSVD](../unsupervised/truncated-svd.md) | Uncentered low-rank projection | Minimize rank-k dense reconstruction error |
 | [MiniBatchKMeans](../unsupervised/minibatch-kmeans.md) | Larger-scale prototype clustering | Approximate inertia minimization with mini-batch updates |
+| [IncrementalPCA](../unsupervised/incremental-pca.md) | Batch-wise linear dimensionality reduction | Approximate centered rank-k reconstruction |
+| [MiniBatchNMF](../unsupervised/minibatch-nmf.md) | Larger-scale non-negative factorization | Mini-batch Frobenius reconstruction loss |
 | [UMAP](../unsupervised/umap.md) | Manifold embedding | Fuzzy graph cross-entropy |
 | [TSNE](../unsupervised/tsne.md) | Manifold visualization | KL divergence between affinity distributions |
 

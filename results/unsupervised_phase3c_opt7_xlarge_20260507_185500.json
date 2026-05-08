@@ -1,0 +1,156 @@
+{
+  "environment": {
+    "args": {
+      "batch_size": 8192,
+      "components": 12,
+      "devices": "cpu,cuda,torch",
+      "json_out": "results/unsupervised_phase3c_opt7_xlarge_20260507_185500.json",
+      "max_iter": 8,
+      "md_out": "results/unsupervised_phase3c_opt7_xlarge_summary_20260507_185500.md",
+      "n": 50000,
+      "p": 128,
+      "print_json": false,
+      "repeats": 2,
+      "seed": 20260507,
+      "warmup": 1
+    },
+    "platform": "Linux-4.19.0-14-amd64-x86_64-with-glibc2.31",
+    "python": "3.9.16 (main, Mar  8 2023, 14:00:05) \n[GCC 11.2.0]"
+  },
+  "models": {
+    "IncrementalPCA": {
+      "sklearn_cpu": {
+        "explained_variance": [
+          191.06246606261942,
+          184.64686993103942,
+          180.94450584005293,
+          152.90717015083658,
+          146.69168080588543,
+          138.16960377769965,
+          128.3766041891407,
+          121.17642500802255,
+          97.13310821281294,
+          85.40986555682025,
+          75.05770380976331,
+          64.07127756663282
+        ],
+        "explained_variance_ratio_sum": 0.9998149387959916,
+        "fit_ms_mean": 441.79724156856537,
+        "fit_ms_std": 2.0783990621566772,
+        "n_samples_seen": 50000,
+        "reconstruction_error": 120.37200720762712,
+        "status": "ok"
+      },
+      "statgpu_cpu": {
+        "explained_variance": [
+          191.06246606262195,
+          184.64686993103808,
+          180.94450584005364,
+          152.90717015083658,
+          146.69168080588432,
+          138.16960377770008,
+          128.37660418914106,
+          121.17642500802226,
+          97.13310821281308,
+          85.40986555682044,
+          75.05770380976304,
+          64.07127756663247
+        ],
+        "explained_variance_ratio_sum": 0.9998149387959924,
+        "fit_ms_mean": 288.8406068086624,
+        "fit_ms_std": 1.0536164045333862,
+        "host_to_device_included": false,
+        "n_samples_seen": 50000,
+        "reconstruction_error": 120.37200720762712,
+        "status": "ok"
+      },
+      "statgpu_cuda": {
+        "explained_variance": [
+          191.0624660626204,
+          184.6468699310383,
+          180.94450584005244,
+          152.90717015083672,
+          146.69168080588443,
+          138.16960377770005,
+          128.3766041891413,
+          121.17642500802245,
+          97.1331082128133,
+          85.40986555682059,
+          75.05770380976332,
+          64.07127756663233
+        ],
+        "explained_variance_ratio_sum": 0.9998149387959911,
+        "fit_ms_mean": 126.95518136024475,
+        "fit_ms_std": 0.10263919830322266,
+        "host_to_device_included": false,
+        "n_samples_seen": 50000,
+        "reconstruction_error": 120.37200720762715,
+        "status": "ok"
+      },
+      "statgpu_torch": {
+        "explained_variance": [
+          191.06246606267706,
+          184.64686993108552,
+          180.9445058401174,
+          152.90717015089075,
+          146.69168080593226,
+          138.16960377774504,
+          128.37660418918227,
+          121.17642500806191,
+          97.13310821283028,
+          85.40986555684476,
+          75.05770380978456,
+          64.0712775666479
+        ],
+        "explained_variance_ratio_sum": 0.9998149387962942,
+        "fit_ms_mean": 104.37963902950287,
+        "fit_ms_std": 0.08533895015716553,
+        "host_to_device_included": false,
+        "n_samples_seen": 50000,
+        "reconstruction_error": 120.37200720762716,
+        "status": "ok"
+      }
+    },
+    "MiniBatchNMF": {
+      "sklearn_cpu": {
+        "W_min": 0.1837503536542263,
+        "components_min": 0.001316987486917722,
+        "fit_ms_mean": 354.71199452877045,
+        "fit_ms_std": 5.28697669506073,
+        "n_iter": 8,
+        "reconstruction_error": 689.6133348497787,
+        "status": "ok"
+      },
+      "statgpu_cpu": {
+        "W_min": 0.07890079891287706,
+        "components_min": 0.00016736687469823223,
+        "fit_ms_mean": 290.6768172979355,
+        "fit_ms_std": 0.17185509204864502,
+        "host_to_device_included": false,
+        "n_iter": 8,
+        "reconstruction_error": 672.8458664229213,
+        "status": "ok"
+      },
+      "statgpu_cuda": {
+        "W_min": 0.07890079891261408,
+        "components_min": 0.00016736687469780993,
+        "fit_ms_mean": 92.59617328643799,
+        "fit_ms_std": 0.5047619342803955,
+        "host_to_device_included": false,
+        "n_iter": 8,
+        "reconstruction_error": 672.8458664227377,
+        "status": "ok"
+      },
+      "statgpu_torch": {
+        "W_min": 0.0789007989126139,
+        "components_min": 0.0001673668746978104,
+        "fit_ms_mean": 31.103402376174927,
+        "fit_ms_std": 0.04366040229797363,
+        "host_to_device_included": false,
+        "n_iter": 8,
+        "reconstruction_error": 672.8458664227377,
+        "status": "ok"
+      }
+    }
+  }
+}

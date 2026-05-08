@@ -8,7 +8,7 @@ import numpy as np
 
 from statgpu._base import BaseEstimator
 from statgpu._config import Device
-from statgpu.unsupervised._utils import check_2d_array, random_normal, scalar_to_float, svd_flip_components
+from statgpu.unsupervised._utils import backend_random_normal, check_2d_array, scalar_to_float, svd_flip_components
 
 
 class PCA(BaseEstimator):
@@ -79,8 +79,7 @@ class PCA(BaseEstimator):
     def _randomized_svd(self, backend, X_centered, n_components: int):
         n_samples, n_features = X_centered.shape
         n_random = min(n_features, n_components + int(self.n_oversamples))
-        omega_np = random_normal(self.random_state, size=(n_features, n_random))
-        omega = backend.asarray(omega_np, dtype=backend.float64)
+        omega = backend_random_normal(backend, self.random_state, size=(n_features, n_random))
         Q, _ = backend.qr(backend.matmul(X_centered, omega))
         for _ in range(int(self.iterated_power)):
             Q, _ = backend.qr(backend.matmul(X_centered.T, Q))

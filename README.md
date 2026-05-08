@@ -30,11 +30,13 @@ GPU-accelerated statistical methods with sklearn-compatible API.
   - `PCA`: full SVD, covariance/eigh, or randomized principal components
   - `KMeans`: Lloyd clustering with random or greedy k-means++ initialization
   - `DBSCAN`: dense Euclidean density clustering with optional statgpu-owned Cython CPU fast path
-  - `GaussianMixture`: diagonal-covariance EM
+  - `GaussianMixture`: EM with diagonal, spherical, tied, or full covariance
   - `NMF`: multiplicative-update matrix factorization
-  - `AgglomerativeClustering`: CPU exact single linkage
+  - `AgglomerativeClustering`: CPU exact single, complete, average, or ward linkage
   - `TruncatedSVD`: dense uncentered truncated SVD
   - `MiniBatchKMeans`: mini-batch Euclidean clustering
+  - `IncrementalPCA`: dense incremental principal components
+  - `MiniBatchNMF`: dense mini-batch non-negative matrix factorization
   - `UMAP`: dense exact Euclidean manifold embedding
   - `TSNE`: dense exact Euclidean t-SNE
   - Detailed loss/objective and estimating-equation docs: `docs/en/unsupervised/`
@@ -73,11 +75,13 @@ GPU-accelerated statistical methods with sklearn-compatible API.
 - `statgpu.unsupervised.PCA` (full SVD, covariance/eigh, or randomized; 3 backends)
 - `statgpu.unsupervised.KMeans` (Lloyd clustering, k-means++ init; 3 backends)
 - `statgpu.unsupervised.DBSCAN` (dense Euclidean; optional Cython CPU fast path; 3 backends)
-- `statgpu.unsupervised.GaussianMixture` (diagonal covariance EM; 3 backends)
+- `statgpu.unsupervised.GaussianMixture` (diag/spherical/tied/full covariance EM; 3 backends)
 - `statgpu.unsupervised.NMF` (multiplicative-update MU/Frobenius; 3 backends)
-- `statgpu.unsupervised.AgglomerativeClustering` (single linkage, CPU)
+- `statgpu.unsupervised.AgglomerativeClustering` (single/complete/average/ward linkage, CPU)
 - `statgpu.unsupervised.TruncatedSVD` (dense uncentered randomized/full SVD; 3 backends)
 - `statgpu.unsupervised.MiniBatchKMeans` (mini-batch KMeans; 3 backends)
+- `statgpu.unsupervised.IncrementalPCA` (dense incremental PCA; 3 backends)
+- `statgpu.unsupervised.MiniBatchNMF` (dense mini-batch NMF; 3 backends)
 - `statgpu.unsupervised.UMAP` (dense exact Euclidean UMAP; 3 backends)
 - `statgpu.unsupervised.TSNE` (dense exact Euclidean t-SNE; 3 backends)
 

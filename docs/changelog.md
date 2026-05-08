@@ -2,6 +2,17 @@
 
 ## 2026-05
 
+- **Unsupervised learning Phase 3C / large-data variants**:
+  - Added `IncrementalPCA` and `MiniBatchNMF` to `statgpu.unsupervised` and top-level `statgpu`.
+  - Implemented dense CPU/CuPy/Torch paths, with sparse/out-of-core file streaming left for later work.
+  - Added Phase 3C tests, per-model documentation, and a benchmark script for statgpu three-backend validation against available sklearn baselines.
+
+- **Unsupervised learning Phase 3B / GMM covariance and hierarchical linkage parity**:
+  - Extended `GaussianMixture` beyond diagonal covariance to support `diag`, `spherical`, `tied`, and `full` covariance types on CPU/CuPy/Torch.
+  - Extended `AgglomerativeClustering` CPU exact linkage support to `single`, `complete`, `average`, and `ward`; explicit GPU devices still raise rather than falling back.
+  - Added Phase 3B validation coverage for GMM covariance variants and agglomerative linkage variants, with sklearn/SciPy/R baselines used only in tests and benchmarks.
+  - Rewrote `dev/plans/plan_unsupervised.md` as a UTF-8 Chinese roadmap aligned with current Phase 3 capabilities.
+
 - **Unsupervised learning Phase 3A / scalable decomposition and manifold APIs**:
   - Added `TruncatedSVD`, `MiniBatchKMeans`, `UMAP`, and `TSNE` to `statgpu.unsupervised` and top-level `statgpu`.
   - Implemented dense CPU/CuPy/Torch paths for the new estimators, with explicit GPU devices preserving no-silent-fallback behavior.
