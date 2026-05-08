@@ -34,6 +34,8 @@ class IncrementalPCA(BaseEstimator):
             if first_pass:
                 n_components = min(n_samples, n_features)
             else:
+                if not hasattr(self, "n_components_"):
+                    raise ValueError("IncrementalPCA internal state is not initialized; call fit/partial_fit first")
                 n_components = int(self.n_components_)
         else:
             if not isinstance(self.n_components, (int, np.integer)) or int(self.n_components) < 1:
