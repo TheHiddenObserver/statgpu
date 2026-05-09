@@ -1,12 +1,20 @@
 # TruncatedSVD
 
 > 语言：中文
-> 最后更新：2026-05-04
+> 最后更新：2026-05-09
 > 路径：`statgpu.unsupervised.TruncatedSVD`
 
 ## 概览
 
 `TruncatedSVD` 在不中心化输入矩阵的情况下计算低秩投影，因此不同于 `PCA`，也更适合 dense LSA 类流程。
+
+## 导入路径
+
+从 `statgpu.unsupervised` 导入：
+
+```python
+from statgpu.unsupervised import TruncatedSVD
+```
 
 ## 目标函数
 

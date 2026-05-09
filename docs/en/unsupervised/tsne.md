@@ -1,12 +1,20 @@
 # TSNE
 
 > Language: English
-> Last updated: 2026-05-04
+> Last updated: 2026-05-09
 > Path: `statgpu.unsupervised.TSNE`
 
 ## Overview
 
 `TSNE` embeds dense data by matching high-dimensional Gaussian affinities with low-dimensional Student-t affinities. Phase 3A implements exact dense Euclidean t-SNE.
+
+## Path
+
+Import from `statgpu.unsupervised`:
+
+```python
+from statgpu.unsupervised import TSNE
+```
 
 ## Objective Function / Loss Function
 

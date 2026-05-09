@@ -1,12 +1,20 @@
 # MiniBatchKMeans
 
 > Language: English
-> Last updated: 2026-05-04
+> Last updated: 2026-05-09
 > Path: `statgpu.unsupervised.MiniBatchKMeans`
 
 ## Overview
 
 `MiniBatchKMeans` fits K-Means centers with small batches instead of full Lloyd passes over the whole dataset.
+
+## Path
+
+Import from `statgpu.unsupervised`:
+
+```python
+from statgpu.unsupervised import MiniBatchKMeans
+```
 
 ## Objective Function / Loss Function
 

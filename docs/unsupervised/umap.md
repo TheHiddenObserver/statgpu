@@ -1,12 +1,20 @@
 # UMAP
 
 > 语言：中文
-> 最后更新：2026-05-04
+> 最后更新：2026-05-09
 > 路径：`statgpu.unsupervised.UMAP`
 
 ## 概览
 
 `UMAP` 在输入空间构造 fuzzy neighbor graph，并优化低维 embedding。Phase 3A 实现 dense exact Euclidean 路径。
+
+## 导入路径
+
+从 `statgpu.unsupervised` 导入：
+
+```python
+from statgpu.unsupervised import UMAP
+```
 
 ## 目标函数
 

@@ -1,12 +1,20 @@
 # MiniBatchKMeans
 
 > 语言：中文
-> 最后更新：2026-05-04
+> 最后更新：2026-05-09
 > 路径：`statgpu.unsupervised.MiniBatchKMeans`
 
 ## 概览
 
 `MiniBatchKMeans` 使用小批量更新聚类中心，避免每一步 Lloyd 迭代都扫描完整数据集。
+
+## 导入路径
+
+从 `statgpu.unsupervised` 导入：
+
+```python
+from statgpu.unsupervised import MiniBatchKMeans
+```
 
 ## 目标函数
 
