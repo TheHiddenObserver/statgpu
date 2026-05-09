@@ -44,7 +44,7 @@ Language switch: [Chinese](../../models/README.md)
 - GPU memory cleanup support is model-specific and documented on pages where it affects behavior.
 - `GeneralizedLinearModel` and typed penalized GLMs are documented in [GeneralizedLinearModel and Penalized GLM](generalized-linear-model.md).
 - `PoissonRegression` is documented separately as the ordinary Poisson GLM estimator.
-- `statgpu.unsupervised` includes dimensionality reduction, clustering, mixture, factorization, and manifold estimators. Most expose CPU/CuPy/Torch paths; `AgglomerativeClustering(single/complete/average/ward)` is CPU-only. See [Detailed unsupervised docs](../unsupervised/README.md) for per-model objectives, estimating procedures, device notes, examples, and external validation artifacts.
+- `statgpu.unsupervised` includes dimensionality reduction, clustering, mixture, factorization, and manifold estimators. Current public estimators expose CPU/CuPy/Torch paths, with model-specific dense/exact or iterative limits documented per page. See [Detailed unsupervised docs](../unsupervised/README.md) for objectives, estimating procedures, device notes, examples, and external validation artifacts.
 - Inference-rich models:
   - `LinearRegression`: classical + `HC0/HC1/HC2/HC3/HAC`
   - `Ridge`: classical + `HC0/HC1/HC2/HC3/HAC`

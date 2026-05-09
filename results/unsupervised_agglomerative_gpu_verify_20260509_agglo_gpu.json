@@ -1,0 +1,1276 @@
+{
+  "cases": {
+    "n200_p16": {
+      "average": {
+        "R_cluster_agnes": {
+          "fit_ms": 9,
+          "status": "ok"
+        },
+        "scipy_cpu": {
+          "ari_vs_truth": 1.0,
+          "fit_ms": 0.6781816482543945,
+          "last_distance": 21.841387664620967,
+          "status": "ok"
+        },
+        "sklearn_cpu": {
+          "ari_vs_truth": 1.0,
+          "fit_ms": 1.1570751667022705,
+          "n_clusters": 4,
+          "status": "ok"
+        },
+        "statgpu_cpu": {
+          "ari_vs_statgpu_cpu": 1.0,
+          "ari_vs_truth": 1.0,
+          "distance_monotonic": true,
+          "fit_ms": 1.0543465614318848,
+          "host_to_device_included": false,
+          "last_distance": 21.841387664620967,
+          "last_distance_abs_diff_vs_statgpu_cpu": 0.0,
+          "n_clusters": 4,
+          "status": "ok"
+        },
+        "statgpu_cuda": {
+          "ari_vs_statgpu_cpu": 1.0,
+          "ari_vs_truth": 1.0,
+          "distance_monotonic": true,
+          "fit_ms": 89.88887071609497,
+          "host_to_device_included": false,
+          "last_distance": 21.841387664620967,
+          "last_distance_abs_diff_vs_statgpu_cpu": 0.0,
+          "n_clusters": 4,
+          "status": "ok"
+        },
+        "statgpu_torch": {
+          "ari_vs_statgpu_cpu": 1.0,
+          "ari_vs_truth": 1.0,
+          "distance_monotonic": true,
+          "fit_ms": 56.666433811187744,
+          "host_to_device_included": false,
+          "last_distance": 21.841387664620964,
+          "last_distance_abs_diff_vs_statgpu_cpu": 3.552713678800501e-15,
+          "n_clusters": 4,
+          "status": "ok"
+        }
+      },
+      "complete": {
+        "R_cluster_agnes": {
+          "fit_ms": 10,
+          "status": "ok"
+        },
+        "scipy_cpu": {
+          "ari_vs_truth": 1.0,
+          "fit_ms": 0.6734132766723633,
+          "last_distance": 26.035885894883997,
+          "status": "ok"
+        },
+        "sklearn_cpu": {
+          "ari_vs_truth": 1.0,
+          "fit_ms": 1.288384199142456,
+          "n_clusters": 4,
+          "status": "ok"
+        },
+        "statgpu_cpu": {
+          "ari_vs_statgpu_cpu": 1.0,
+          "ari_vs_truth": 1.0,
+          "distance_monotonic": true,
+          "fit_ms": 1.1219978332519531,
+          "host_to_device_included": false,
+          "last_distance": 26.035885894883997,
+          "last_distance_abs_diff_vs_statgpu_cpu": 0.0,
+          "n_clusters": 4,
+          "status": "ok"
+        },
+        "statgpu_cuda": {
+          "ari_vs_statgpu_cpu": 1.0,
+          "ari_vs_truth": 1.0,
+          "distance_monotonic": true,
+          "fit_ms": 76.03117823600769,
+          "host_to_device_included": false,
+          "last_distance": 26.035885894884,
+          "last_distance_abs_diff_vs_statgpu_cpu": 3.552713678800501e-15,
+          "n_clusters": 4,
+          "status": "ok"
+        },
+        "statgpu_torch": {
+          "ari_vs_statgpu_cpu": 1.0,
+          "ari_vs_truth": 1.0,
+          "distance_monotonic": true,
+          "fit_ms": 50.589293241500854,
+          "host_to_device_included": false,
+          "last_distance": 26.035885894884,
+          "last_distance_abs_diff_vs_statgpu_cpu": 3.552713678800501e-15,
+          "n_clusters": 4,
+          "status": "ok"
+        }
+      },
+      "single": {
+        "R_cluster_agnes": {
+          "fit_ms": 11,
+          "status": "ok"
+        },
+        "scipy_cpu": {
+          "ari_vs_truth": 1.0,
+          "fit_ms": 0.3720223903656006,
+          "last_distance": 17.997886175716072,
+          "status": "ok"
+        },
+        "sklearn_cpu": {
+          "ari_vs_truth": 1.0,
+          "fit_ms": 1.1757314205169678,
+          "n_clusters": 4,
+          "status": "ok"
+        },
+        "statgpu_cpu": {
+          "ari_vs_statgpu_cpu": 1.0,
+          "ari_vs_truth": 1.0,
+          "distance_monotonic": true,
+          "fit_ms": 3.1224489212036133,
+          "host_to_device_included": false,
+          "last_distance": 17.997886175716072,
+          "last_distance_abs_diff_vs_statgpu_cpu": 0.0,
+          "n_clusters": 4,
+          "status": "ok"
+        },
+        "statgpu_cuda": {
+          "ari_vs_statgpu_cpu": 1.0,
+          "ari_vs_truth": 1.0,
+          "distance_monotonic": true,
+          "fit_ms": 92.29764342308044,
+          "host_to_device_included": false,
+          "last_distance": 17.997886175716072,
+          "last_distance_abs_diff_vs_statgpu_cpu": 0.0,
+          "n_clusters": 4,
+          "status": "ok"
+        },
+        "statgpu_torch": {
+          "ari_vs_statgpu_cpu": 1.0,
+          "ari_vs_truth": 1.0,
+          "distance_monotonic": true,
+          "fit_ms": 53.944021463394165,
+          "host_to_device_included": false,
+          "last_distance": 17.997886175716072,
+          "last_distance_abs_diff_vs_statgpu_cpu": 0.0,
+          "n_clusters": 4,
+          "status": "ok"
+        }
+      },
+      "ward": {
+        "R_cluster_agnes": {
+          "fit_ms": 11,
+          "status": "ok"
+        },
+        "scipy_cpu": {
+          "ari_vs_truth": 1.0,
+          "fit_ms": 0.7002055644989014,
+          "last_distance": 166.63551558288174,
+          "status": "ok"
+        },
+        "sklearn_cpu": {
+          "ari_vs_truth": 1.0,
+          "fit_ms": 1.2041032314300537,
+          "n_clusters": 4,
+          "status": "ok"
+        },
+        "statgpu_cpu": {
+          "ari_vs_statgpu_cpu": 1.0,
+          "ari_vs_truth": 1.0,
+          "distance_monotonic": true,
+          "fit_ms": 1.052170991897583,
+          "host_to_device_included": false,
+          "last_distance": 166.63551558288174,
+          "last_distance_abs_diff_vs_statgpu_cpu": 0.0,
+          "n_clusters": 4,
+          "status": "ok"
+        },
+        "statgpu_cuda": {
+          "ari_vs_statgpu_cpu": 1.0,
+          "ari_vs_truth": 1.0,
+          "distance_monotonic": true,
+          "fit_ms": 125.51379203796387,
+          "host_to_device_included": false,
+          "last_distance": 166.63551558288174,
+          "last_distance_abs_diff_vs_statgpu_cpu": 0.0,
+          "n_clusters": 4,
+          "status": "ok"
+        },
+        "statgpu_torch": {
+          "ari_vs_statgpu_cpu": 1.0,
+          "ari_vs_truth": 1.0,
+          "distance_monotonic": true,
+          "fit_ms": 84.73661541938782,
+          "host_to_device_included": false,
+          "last_distance": 166.63551558288174,
+          "last_distance_abs_diff_vs_statgpu_cpu": 0.0,
+          "n_clusters": 4,
+          "status": "ok"
+        }
+      }
+    },
+    "n200_p4": {
+      "average": {
+        "R_cluster_agnes": {
+          "fit_ms": 10,
+          "status": "ok"
+        },
+        "scipy_cpu": {
+          "ari_vs_truth": 1.0,
+          "fit_ms": 0.5571246147155762,
+          "last_distance": 15.425448065855544,
+          "status": "ok"
+        },
+        "sklearn_cpu": {
+          "ari_vs_truth": 1.0,
+          "fit_ms": 1.1501014232635498,
+          "n_clusters": 4,
+          "status": "ok"
+        },
+        "statgpu_cpu": {
+          "ari_vs_statgpu_cpu": 1.0,
+          "ari_vs_truth": 1.0,
+          "distance_monotonic": true,
+          "fit_ms": 0.9261965751647949,
+          "host_to_device_included": false,
+          "last_distance": 15.425448065855544,
+          "last_distance_abs_diff_vs_statgpu_cpu": 0.0,
+          "n_clusters": 4,
+          "status": "ok"
+        },
+        "statgpu_cuda": {
+          "ari_vs_statgpu_cpu": 1.0,
+          "ari_vs_truth": 1.0,
+          "distance_monotonic": true,
+          "fit_ms": 90.70494771003723,
+          "host_to_device_included": false,
+          "last_distance": 15.425448065855544,
+          "last_distance_abs_diff_vs_statgpu_cpu": 0.0,
+          "n_clusters": 4,
+          "status": "ok"
+        },
+        "statgpu_torch": {
+          "ari_vs_statgpu_cpu": 1.0,
+          "ari_vs_truth": 1.0,
+          "distance_monotonic": true,
+          "fit_ms": 56.72192573547363,
+          "host_to_device_included": false,
+          "last_distance": 15.425448065855543,
+          "last_distance_abs_diff_vs_statgpu_cpu": 1.7763568394002505e-15,
+          "n_clusters": 4,
+          "status": "ok"
+        }
+      },
+      "complete": {
+        "R_cluster_agnes": {
+          "fit_ms": 12,
+          "status": "ok"
+        },
+        "scipy_cpu": {
+          "ari_vs_truth": 1.0,
+          "fit_ms": 0.5983710289001465,
+          "last_distance": 18.368562699544473,
+          "status": "ok"
+        },
+        "sklearn_cpu": {
+          "ari_vs_truth": 1.0,
+          "fit_ms": 1.1066198348999023,
+          "n_clusters": 4,
+          "status": "ok"
+        },
+        "statgpu_cpu": {
+          "ari_vs_statgpu_cpu": 1.0,
+          "ari_vs_truth": 1.0,
+          "distance_monotonic": true,
+          "fit_ms": 1.062333583831787,
+          "host_to_device_included": false,
+          "last_distance": 18.368562699544473,
+          "last_distance_abs_diff_vs_statgpu_cpu": 0.0,
+          "n_clusters": 4,
+          "status": "ok"
+        },
+        "statgpu_cuda": {
+          "ari_vs_statgpu_cpu": 1.0,
+          "ari_vs_truth": 1.0,
+          "distance_monotonic": true,
+          "fit_ms": 77.04871892929077,
+          "host_to_device_included": false,
+          "last_distance": 18.368562699544473,
+          "last_distance_abs_diff_vs_statgpu_cpu": 0.0,
+          "n_clusters": 4,
+          "status": "ok"
+        },
+        "statgpu_torch": {
+          "ari_vs_statgpu_cpu": 1.0,
+          "ari_vs_truth": 1.0,
+          "distance_monotonic": true,
+          "fit_ms": 50.809770822525024,
+          "host_to_device_included": false,
+          "last_distance": 18.368562699544473,
+          "last_distance_abs_diff_vs_statgpu_cpu": 0.0,
+          "n_clusters": 4,
+          "status": "ok"
+        }
+      },
+      "single": {
+        "R_cluster_agnes": {
+          "fit_ms": 10,
+          "status": "ok"
+        },
+        "scipy_cpu": {
+          "ari_vs_truth": 1.0,
+          "fit_ms": 0.2754330635070801,
+          "last_distance": 11.114918315023846,
+          "status": "ok"
+        },
+        "sklearn_cpu": {
+          "ari_vs_truth": 1.0,
+          "fit_ms": 1.1218786239624023,
+          "n_clusters": 4,
+          "status": "ok"
+        },
+        "statgpu_cpu": {
+          "ari_vs_statgpu_cpu": 1.0,
+          "ari_vs_truth": 1.0,
+          "distance_monotonic": true,
+          "fit_ms": 2.9242336750030518,
+          "host_to_device_included": false,
+          "last_distance": 11.114918315023846,
+          "last_distance_abs_diff_vs_statgpu_cpu": 0.0,
+          "n_clusters": 4,
+          "status": "ok"
+        },
+        "statgpu_cuda": {
+          "ari_vs_statgpu_cpu": 1.0,
+          "ari_vs_truth": 1.0,
+          "distance_monotonic": true,
+          "fit_ms": 88.35846185684204,
+          "host_to_device_included": false,
+          "last_distance": 11.114918315023848,
+          "last_distance_abs_diff_vs_statgpu_cpu": 1.7763568394002505e-15,
+          "n_clusters": 4,
+          "status": "ok"
+        },
+        "statgpu_torch": {
+          "ari_vs_statgpu_cpu": 1.0,
+          "ari_vs_truth": 1.0,
+          "distance_monotonic": true,
+          "fit_ms": 52.09147930145264,
+          "host_to_device_included": false,
+          "last_distance": 11.114918315023848,
+          "last_distance_abs_diff_vs_statgpu_cpu": 1.7763568394002505e-15,
+          "n_clusters": 4,
+          "status": "ok"
+        }
+      },
+      "ward": {
+        "R_cluster_agnes": {
+          "fit_ms": 11,
+          "status": "ok"
+        },
+        "scipy_cpu": {
+          "ari_vs_truth": 1.0,
+          "fit_ms": 0.6142556667327881,
+          "last_distance": 124.00478193101195,
+          "status": "ok"
+        },
+        "sklearn_cpu": {
+          "ari_vs_truth": 1.0,
+          "fit_ms": 1.0709762573242188,
+          "n_clusters": 4,
+          "status": "ok"
+        },
+        "statgpu_cpu": {
+          "ari_vs_statgpu_cpu": 1.0,
+          "ari_vs_truth": 1.0,
+          "distance_monotonic": true,
+          "fit_ms": 0.9860694408416748,
+          "host_to_device_included": false,
+          "last_distance": 124.00478193101195,
+          "last_distance_abs_diff_vs_statgpu_cpu": 0.0,
+          "n_clusters": 4,
+          "status": "ok"
+        },
+        "statgpu_cuda": {
+          "ari_vs_statgpu_cpu": 1.0,
+          "ari_vs_truth": 1.0,
+          "distance_monotonic": true,
+          "fit_ms": 128.30403447151184,
+          "host_to_device_included": false,
+          "last_distance": 124.00478193101196,
+          "last_distance_abs_diff_vs_statgpu_cpu": 1.4210854715202004e-14,
+          "n_clusters": 4,
+          "status": "ok"
+        },
+        "statgpu_torch": {
+          "ari_vs_statgpu_cpu": 1.0,
+          "ari_vs_truth": 1.0,
+          "distance_monotonic": true,
+          "fit_ms": 88.21231126785278,
+          "host_to_device_included": false,
+          "last_distance": 124.00478193101196,
+          "last_distance_abs_diff_vs_statgpu_cpu": 1.4210854715202004e-14,
+          "n_clusters": 4,
+          "status": "ok"
+        }
+      }
+    },
+    "n500_p16": {
+      "average": {
+        "R_cluster_agnes": {
+          "fit_ms": 139,
+          "status": "ok"
+        },
+        "scipy_cpu": {
+          "ari_vs_truth": 1.0,
+          "fit_ms": 3.8888752460479736,
+          "last_distance": 26.391775269649216,
+          "status": "ok"
+        },
+        "sklearn_cpu": {
+          "ari_vs_truth": 1.0,
+          "fit_ms": 4.633158445358276,
+          "n_clusters": 4,
+          "status": "ok"
+        },
+        "statgpu_cpu": {
+          "ari_vs_statgpu_cpu": 1.0,
+          "ari_vs_truth": 1.0,
+          "distance_monotonic": true,
+          "fit_ms": 4.628688097000122,
+          "host_to_device_included": false,
+          "last_distance": 26.391775269649216,
+          "last_distance_abs_diff_vs_statgpu_cpu": 0.0,
+          "n_clusters": 4,
+          "status": "ok"
+        },
+        "statgpu_cuda": {
+          "ari_vs_statgpu_cpu": 1.0,
+          "ari_vs_truth": 1.0,
+          "distance_monotonic": true,
+          "fit_ms": 245.42155861854553,
+          "host_to_device_included": false,
+          "last_distance": 26.39177526964921,
+          "last_distance_abs_diff_vs_statgpu_cpu": 7.105427357601002e-15,
+          "n_clusters": 4,
+          "status": "ok"
+        },
+        "statgpu_torch": {
+          "ari_vs_statgpu_cpu": 1.0,
+          "ari_vs_truth": 1.0,
+          "distance_monotonic": true,
+          "fit_ms": 153.9543867111206,
+          "host_to_device_included": false,
+          "last_distance": 26.391775269649212,
+          "last_distance_abs_diff_vs_statgpu_cpu": 3.552713678800501e-15,
+          "n_clusters": 4,
+          "status": "ok"
+        }
+      },
+      "complete": {
+        "R_cluster_agnes": {
+          "fit_ms": 150,
+          "status": "ok"
+        },
+        "scipy_cpu": {
+          "ari_vs_truth": 1.0,
+          "fit_ms": 3.878951072692871,
+          "last_distance": 29.841881753687993,
+          "status": "ok"
+        },
+        "sklearn_cpu": {
+          "ari_vs_truth": 1.0,
+          "fit_ms": 4.680663347244263,
+          "n_clusters": 4,
+          "status": "ok"
+        },
+        "statgpu_cpu": {
+          "ari_vs_statgpu_cpu": 1.0,
+          "ari_vs_truth": 1.0,
+          "distance_monotonic": true,
+          "fit_ms": 5.294233560562134,
+          "host_to_device_included": false,
+          "last_distance": 29.841881753687993,
+          "last_distance_abs_diff_vs_statgpu_cpu": 0.0,
+          "n_clusters": 4,
+          "status": "ok"
+        },
+        "statgpu_cuda": {
+          "ari_vs_statgpu_cpu": 1.0,
+          "ari_vs_truth": 1.0,
+          "distance_monotonic": true,
+          "fit_ms": 208.0424726009369,
+          "host_to_device_included": false,
+          "last_distance": 29.84188175368799,
+          "last_distance_abs_diff_vs_statgpu_cpu": 3.552713678800501e-15,
+          "n_clusters": 4,
+          "status": "ok"
+        },
+        "statgpu_torch": {
+          "ari_vs_statgpu_cpu": 1.0,
+          "ari_vs_truth": 1.0,
+          "distance_monotonic": true,
+          "fit_ms": 138.07839155197144,
+          "host_to_device_included": false,
+          "last_distance": 29.84188175368799,
+          "last_distance_abs_diff_vs_statgpu_cpu": 3.552713678800501e-15,
+          "n_clusters": 4,
+          "status": "ok"
+        }
+      },
+      "single": {
+        "R_cluster_agnes": {
+          "fit_ms": 164,
+          "status": "ok"
+        },
+        "scipy_cpu": {
+          "ari_vs_truth": 1.0,
+          "fit_ms": 1.9279420375823975,
+          "last_distance": 22.07174414188729,
+          "status": "ok"
+        },
+        "sklearn_cpu": {
+          "ari_vs_truth": 1.0,
+          "fit_ms": 3.2813549041748047,
+          "n_clusters": 4,
+          "status": "ok"
+        },
+        "statgpu_cpu": {
+          "ari_vs_statgpu_cpu": 1.0,
+          "ari_vs_truth": 1.0,
+          "distance_monotonic": true,
+          "fit_ms": 9.509444236755371,
+          "host_to_device_included": false,
+          "last_distance": 22.07174414188729,
+          "last_distance_abs_diff_vs_statgpu_cpu": 0.0,
+          "n_clusters": 4,
+          "status": "ok"
+        },
+        "statgpu_cuda": {
+          "ari_vs_statgpu_cpu": 1.0,
+          "ari_vs_truth": 1.0,
+          "distance_monotonic": true,
+          "fit_ms": 217.94551610946655,
+          "host_to_device_included": false,
+          "last_distance": 22.07174414188729,
+          "last_distance_abs_diff_vs_statgpu_cpu": 0.0,
+          "n_clusters": 4,
+          "status": "ok"
+        },
+        "statgpu_torch": {
+          "ari_vs_statgpu_cpu": 1.0,
+          "ari_vs_truth": 1.0,
+          "distance_monotonic": true,
+          "fit_ms": 140.53720235824585,
+          "host_to_device_included": false,
+          "last_distance": 22.07174414188729,
+          "last_distance_abs_diff_vs_statgpu_cpu": 0.0,
+          "n_clusters": 4,
+          "status": "ok"
+        }
+      },
+      "ward": {
+        "R_cluster_agnes": {
+          "fit_ms": 160,
+          "status": "ok"
+        },
+        "scipy_cpu": {
+          "ari_vs_truth": 1.0,
+          "fit_ms": 4.196882247924805,
+          "last_distance": 324.850703567678,
+          "status": "ok"
+        },
+        "sklearn_cpu": {
+          "ari_vs_truth": 1.0,
+          "fit_ms": 4.846930503845215,
+          "n_clusters": 4,
+          "status": "ok"
+        },
+        "statgpu_cpu": {
+          "ari_vs_statgpu_cpu": 1.0,
+          "ari_vs_truth": 1.0,
+          "distance_monotonic": true,
+          "fit_ms": 4.819244146347046,
+          "host_to_device_included": false,
+          "last_distance": 324.850703567678,
+          "last_distance_abs_diff_vs_statgpu_cpu": 0.0,
+          "n_clusters": 4,
+          "status": "ok"
+        },
+        "statgpu_cuda": {
+          "ari_vs_statgpu_cpu": 1.0,
+          "ari_vs_truth": 1.0,
+          "distance_monotonic": true,
+          "fit_ms": 342.2113358974457,
+          "host_to_device_included": false,
+          "last_distance": 324.850703567678,
+          "last_distance_abs_diff_vs_statgpu_cpu": 0.0,
+          "n_clusters": 4,
+          "status": "ok"
+        },
+        "statgpu_torch": {
+          "ari_vs_statgpu_cpu": 1.0,
+          "ari_vs_truth": 1.0,
+          "distance_monotonic": true,
+          "fit_ms": 231.3750684261322,
+          "host_to_device_included": false,
+          "last_distance": 324.850703567678,
+          "last_distance_abs_diff_vs_statgpu_cpu": 0.0,
+          "n_clusters": 4,
+          "status": "ok"
+        }
+      }
+    },
+    "n500_p4": {
+      "average": {
+        "R_cluster_agnes": {
+          "fit_ms": 144,
+          "status": "ok"
+        },
+        "scipy_cpu": {
+          "ari_vs_truth": 1.0,
+          "fit_ms": 3.299504518508911,
+          "last_distance": 18.607607345687622,
+          "status": "ok"
+        },
+        "sklearn_cpu": {
+          "ari_vs_truth": 1.0,
+          "fit_ms": 3.949671983718872,
+          "n_clusters": 4,
+          "status": "ok"
+        },
+        "statgpu_cpu": {
+          "ari_vs_statgpu_cpu": 1.0,
+          "ari_vs_truth": 1.0,
+          "distance_monotonic": true,
+          "fit_ms": 4.079222679138184,
+          "host_to_device_included": false,
+          "last_distance": 18.607607345687622,
+          "last_distance_abs_diff_vs_statgpu_cpu": 0.0,
+          "n_clusters": 4,
+          "status": "ok"
+        },
+        "statgpu_cuda": {
+          "ari_vs_statgpu_cpu": 1.0,
+          "ari_vs_truth": 1.0,
+          "distance_monotonic": true,
+          "fit_ms": 247.55531549453735,
+          "host_to_device_included": false,
+          "last_distance": 18.607607345687622,
+          "last_distance_abs_diff_vs_statgpu_cpu": 0.0,
+          "n_clusters": 4,
+          "status": "ok"
+        },
+        "statgpu_torch": {
+          "ari_vs_statgpu_cpu": 1.0,
+          "ari_vs_truth": 1.0,
+          "distance_monotonic": true,
+          "fit_ms": 154.59322929382324,
+          "host_to_device_included": false,
+          "last_distance": 18.60760734568762,
+          "last_distance_abs_diff_vs_statgpu_cpu": 3.552713678800501e-15,
+          "n_clusters": 4,
+          "status": "ok"
+        }
+      },
+      "complete": {
+        "R_cluster_agnes": {
+          "fit_ms": 153,
+          "status": "ok"
+        },
+        "scipy_cpu": {
+          "ari_vs_truth": 1.0,
+          "fit_ms": 3.1501948833465576,
+          "last_distance": 22.52067185370376,
+          "status": "ok"
+        },
+        "sklearn_cpu": {
+          "ari_vs_truth": 1.0,
+          "fit_ms": 3.9004087448120117,
+          "n_clusters": 4,
+          "status": "ok"
+        },
+        "statgpu_cpu": {
+          "ari_vs_statgpu_cpu": 1.0,
+          "ari_vs_truth": 1.0,
+          "distance_monotonic": true,
+          "fit_ms": 4.345118999481201,
+          "host_to_device_included": false,
+          "last_distance": 22.52067185370376,
+          "last_distance_abs_diff_vs_statgpu_cpu": 0.0,
+          "n_clusters": 4,
+          "status": "ok"
+        },
+        "statgpu_cuda": {
+          "ari_vs_statgpu_cpu": 1.0,
+          "ari_vs_truth": 1.0,
+          "distance_monotonic": true,
+          "fit_ms": 206.9655954837799,
+          "host_to_device_included": false,
+          "last_distance": 22.52067185370376,
+          "last_distance_abs_diff_vs_statgpu_cpu": 0.0,
+          "n_clusters": 4,
+          "status": "ok"
+        },
+        "statgpu_torch": {
+          "ari_vs_statgpu_cpu": 1.0,
+          "ari_vs_truth": 1.0,
+          "distance_monotonic": true,
+          "fit_ms": 138.01699876785278,
+          "host_to_device_included": false,
+          "last_distance": 22.52067185370376,
+          "last_distance_abs_diff_vs_statgpu_cpu": 0.0,
+          "n_clusters": 4,
+          "status": "ok"
+        }
+      },
+      "single": {
+        "R_cluster_agnes": {
+          "fit_ms": 153,
+          "status": "ok"
+        },
+        "scipy_cpu": {
+          "ari_vs_truth": 0.710444600446023,
+          "fit_ms": 1.2827813625335693,
+          "last_distance": 13.772941678455252,
+          "status": "ok"
+        },
+        "sklearn_cpu": {
+          "ari_vs_truth": 0.710444600446023,
+          "fit_ms": 2.1301209926605225,
+          "n_clusters": 4,
+          "status": "ok"
+        },
+        "statgpu_cpu": {
+          "ari_vs_statgpu_cpu": 1.0,
+          "ari_vs_truth": 0.710444600446023,
+          "distance_monotonic": true,
+          "fit_ms": 8.354008197784424,
+          "host_to_device_included": false,
+          "last_distance": 13.772941678455252,
+          "last_distance_abs_diff_vs_statgpu_cpu": 0.0,
+          "n_clusters": 4,
+          "status": "ok"
+        },
+        "statgpu_cuda": {
+          "ari_vs_statgpu_cpu": 1.0,
+          "ari_vs_truth": 0.710444600446023,
+          "distance_monotonic": true,
+          "fit_ms": 218.29020977020264,
+          "host_to_device_included": false,
+          "last_distance": 13.772941678455252,
+          "last_distance_abs_diff_vs_statgpu_cpu": 0.0,
+          "n_clusters": 4,
+          "status": "ok"
+        },
+        "statgpu_torch": {
+          "ari_vs_statgpu_cpu": 1.0,
+          "ari_vs_truth": 0.710444600446023,
+          "distance_monotonic": true,
+          "fit_ms": 142.01930165290833,
+          "host_to_device_included": false,
+          "last_distance": 13.772941678455252,
+          "last_distance_abs_diff_vs_statgpu_cpu": 0.0,
+          "n_clusters": 4,
+          "status": "ok"
+        }
+      },
+      "ward": {
+        "R_cluster_agnes": {
+          "fit_ms": 154,
+          "status": "ok"
+        },
+        "scipy_cpu": {
+          "ari_vs_truth": 1.0,
+          "fit_ms": 3.3250153064727783,
+          "last_distance": 247.14645510442983,
+          "status": "ok"
+        },
+        "sklearn_cpu": {
+          "ari_vs_truth": 1.0,
+          "fit_ms": 4.1242241859436035,
+          "n_clusters": 4,
+          "status": "ok"
+        },
+        "statgpu_cpu": {
+          "ari_vs_statgpu_cpu": 1.0,
+          "ari_vs_truth": 1.0,
+          "distance_monotonic": true,
+          "fit_ms": 4.102945327758789,
+          "host_to_device_included": false,
+          "last_distance": 247.14645510442983,
+          "last_distance_abs_diff_vs_statgpu_cpu": 0.0,
+          "n_clusters": 4,
+          "status": "ok"
+        },
+        "statgpu_cuda": {
+          "ari_vs_statgpu_cpu": 1.0,
+          "ari_vs_truth": 1.0,
+          "distance_monotonic": true,
+          "fit_ms": 345.6532657146454,
+          "host_to_device_included": false,
+          "last_distance": 247.14645510442983,
+          "last_distance_abs_diff_vs_statgpu_cpu": 0.0,
+          "n_clusters": 4,
+          "status": "ok"
+        },
+        "statgpu_torch": {
+          "ari_vs_statgpu_cpu": 1.0,
+          "ari_vs_truth": 1.0,
+          "distance_monotonic": true,
+          "fit_ms": 232.05465078353882,
+          "host_to_device_included": false,
+          "last_distance": 247.14645510442983,
+          "last_distance_abs_diff_vs_statgpu_cpu": 0.0,
+          "n_clusters": 4,
+          "status": "ok"
+        }
+      }
+    },
+    "n50_p16": {
+      "average": {
+        "R_cluster_agnes": {
+          "fit_ms": 0,
+          "status": "ok"
+        },
+        "scipy_cpu": {
+          "ari_vs_truth": 1.0,
+          "fit_ms": 0.14019012451171875,
+          "last_distance": 24.985467354271254,
+          "status": "ok"
+        },
+        "sklearn_cpu": {
+          "ari_vs_truth": 1.0,
+          "fit_ms": 0.45412778854370117,
+          "n_clusters": 4,
+          "status": "ok"
+        },
+        "statgpu_cpu": {
+          "ari_vs_statgpu_cpu": 1.0,
+          "ari_vs_truth": 1.0,
+          "distance_monotonic": true,
+          "fit_ms": 0.279158353805542,
+          "host_to_device_included": false,
+          "last_distance": 24.985467354271254,
+          "last_distance_abs_diff_vs_statgpu_cpu": 0.0,
+          "n_clusters": 4,
+          "status": "ok"
+        },
+        "statgpu_cuda": {
+          "ari_vs_statgpu_cpu": 1.0,
+          "ari_vs_truth": 1.0,
+          "distance_monotonic": true,
+          "fit_ms": 22.088706493377686,
+          "host_to_device_included": false,
+          "last_distance": 24.985467354271254,
+          "last_distance_abs_diff_vs_statgpu_cpu": 0.0,
+          "n_clusters": 4,
+          "status": "ok"
+        },
+        "statgpu_torch": {
+          "ari_vs_statgpu_cpu": 1.0,
+          "ari_vs_truth": 1.0,
+          "distance_monotonic": true,
+          "fit_ms": 12.77703046798706,
+          "host_to_device_included": false,
+          "last_distance": 24.985467354271258,
+          "last_distance_abs_diff_vs_statgpu_cpu": 3.552713678800501e-15,
+          "n_clusters": 4,
+          "status": "ok"
+        }
+      },
+      "complete": {
+        "R_cluster_agnes": {
+          "fit_ms": 0,
+          "status": "ok"
+        },
+        "scipy_cpu": {
+          "ari_vs_truth": 1.0,
+          "fit_ms": 0.12058019638061523,
+          "last_distance": 26.46030367332253,
+          "status": "ok"
+        },
+        "sklearn_cpu": {
+          "ari_vs_truth": 1.0,
+          "fit_ms": 0.48226118087768555,
+          "n_clusters": 4,
+          "status": "ok"
+        },
+        "statgpu_cpu": {
+          "ari_vs_statgpu_cpu": 1.0,
+          "ari_vs_truth": 1.0,
+          "distance_monotonic": true,
+          "fit_ms": 0.2917051315307617,
+          "host_to_device_included": false,
+          "last_distance": 26.46030367332253,
+          "last_distance_abs_diff_vs_statgpu_cpu": 0.0,
+          "n_clusters": 4,
+          "status": "ok"
+        },
+        "statgpu_cuda": {
+          "ari_vs_statgpu_cpu": 1.0,
+          "ari_vs_truth": 1.0,
+          "distance_monotonic": true,
+          "fit_ms": 18.570005893707275,
+          "host_to_device_included": false,
+          "last_distance": 26.46030367332253,
+          "last_distance_abs_diff_vs_statgpu_cpu": 0.0,
+          "n_clusters": 4,
+          "status": "ok"
+        },
+        "statgpu_torch": {
+          "ari_vs_statgpu_cpu": 1.0,
+          "ari_vs_truth": 1.0,
+          "distance_monotonic": true,
+          "fit_ms": 14.863193035125732,
+          "host_to_device_included": false,
+          "last_distance": 26.46030367332253,
+          "last_distance_abs_diff_vs_statgpu_cpu": 0.0,
+          "n_clusters": 4,
+          "status": "ok"
+        }
+      },
+      "single": {
+        "R_cluster_agnes": {
+          "fit_ms": 1,
+          "status": "ok"
+        },
+        "scipy_cpu": {
+          "ari_vs_truth": 1.0,
+          "fit_ms": 0.09012222290039062,
+          "last_distance": 23.83357778934434,
+          "status": "ok"
+        },
+        "sklearn_cpu": {
+          "ari_vs_truth": 1.0,
+          "fit_ms": 0.7184445858001709,
+          "n_clusters": 4,
+          "status": "ok"
+        },
+        "statgpu_cpu": {
+          "ari_vs_statgpu_cpu": 1.0,
+          "ari_vs_truth": 1.0,
+          "distance_monotonic": true,
+          "fit_ms": 1.3184547424316406,
+          "host_to_device_included": false,
+          "last_distance": 23.83357778934434,
+          "last_distance_abs_diff_vs_statgpu_cpu": 0.0,
+          "n_clusters": 4,
+          "status": "ok"
+        },
+        "statgpu_cuda": {
+          "ari_vs_statgpu_cpu": 1.0,
+          "ari_vs_truth": 1.0,
+          "distance_monotonic": true,
+          "fit_ms": 29.913246631622314,
+          "host_to_device_included": false,
+          "last_distance": 23.83357778934434,
+          "last_distance_abs_diff_vs_statgpu_cpu": 0.0,
+          "n_clusters": 4,
+          "status": "ok"
+        },
+        "statgpu_torch": {
+          "ari_vs_statgpu_cpu": 1.0,
+          "ari_vs_truth": 1.0,
+          "distance_monotonic": true,
+          "fit_ms": 11.93949580192566,
+          "host_to_device_included": false,
+          "last_distance": 23.83357778934434,
+          "last_distance_abs_diff_vs_statgpu_cpu": 0.0,
+          "n_clusters": 4,
+          "status": "ok"
+        }
+      },
+      "ward": {
+        "R_cluster_agnes": {
+          "fit_ms": 0,
+          "status": "ok"
+        },
+        "scipy_cpu": {
+          "ari_vs_truth": 1.0,
+          "fit_ms": 0.12800097465515137,
+          "last_distance": 94.85954268491159,
+          "status": "ok"
+        },
+        "sklearn_cpu": {
+          "ari_vs_truth": 1.0,
+          "fit_ms": 0.46572089195251465,
+          "n_clusters": 4,
+          "status": "ok"
+        },
+        "statgpu_cpu": {
+          "ari_vs_statgpu_cpu": 1.0,
+          "ari_vs_truth": 1.0,
+          "distance_monotonic": true,
+          "fit_ms": 0.2630949020385742,
+          "host_to_device_included": false,
+          "last_distance": 94.85954268491159,
+          "last_distance_abs_diff_vs_statgpu_cpu": 0.0,
+          "n_clusters": 4,
+          "status": "ok"
+        },
+        "statgpu_cuda": {
+          "ari_vs_statgpu_cpu": 1.0,
+          "ari_vs_truth": 1.0,
+          "distance_monotonic": true,
+          "fit_ms": 29.787540435791016,
+          "host_to_device_included": false,
+          "last_distance": 94.85954268491159,
+          "last_distance_abs_diff_vs_statgpu_cpu": 0.0,
+          "n_clusters": 4,
+          "status": "ok"
+        },
+        "statgpu_torch": {
+          "ari_vs_statgpu_cpu": 1.0,
+          "ari_vs_truth": 1.0,
+          "distance_monotonic": true,
+          "fit_ms": 18.947094678878784,
+          "host_to_device_included": false,
+          "last_distance": 94.85954268491159,
+          "last_distance_abs_diff_vs_statgpu_cpu": 0.0,
+          "n_clusters": 4,
+          "status": "ok"
+        }
+      }
+    },
+    "n50_p4": {
+      "average": {
+        "R_cluster_agnes": {
+          "fit_ms": 0,
+          "status": "ok"
+        },
+        "scipy_cpu": {
+          "ari_vs_truth": 1.0,
+          "fit_ms": 0.11914968490600586,
+          "last_distance": 17.589355335334684,
+          "status": "ok"
+        },
+        "sklearn_cpu": {
+          "ari_vs_truth": 1.0,
+          "fit_ms": 0.4386305809020996,
+          "n_clusters": 4,
+          "status": "ok"
+        },
+        "statgpu_cpu": {
+          "ari_vs_statgpu_cpu": 1.0,
+          "ari_vs_truth": 1.0,
+          "distance_monotonic": true,
+          "fit_ms": 0.25665760040283203,
+          "host_to_device_included": false,
+          "last_distance": 17.589355335334684,
+          "last_distance_abs_diff_vs_statgpu_cpu": 0.0,
+          "n_clusters": 4,
+          "status": "ok"
+        },
+        "statgpu_cuda": {
+          "ari_vs_statgpu_cpu": 1.0,
+          "ari_vs_truth": 1.0,
+          "distance_monotonic": true,
+          "fit_ms": 22.644877433776855,
+          "host_to_device_included": false,
+          "last_distance": 17.589355335334684,
+          "last_distance_abs_diff_vs_statgpu_cpu": 0.0,
+          "n_clusters": 4,
+          "status": "ok"
+        },
+        "statgpu_torch": {
+          "ari_vs_statgpu_cpu": 1.0,
+          "ari_vs_truth": 1.0,
+          "distance_monotonic": true,
+          "fit_ms": 12.424051761627197,
+          "host_to_device_included": false,
+          "last_distance": 17.58935533533468,
+          "last_distance_abs_diff_vs_statgpu_cpu": 3.552713678800501e-15,
+          "n_clusters": 4,
+          "status": "ok"
+        }
+      },
+      "complete": {
+        "R_cluster_agnes": {
+          "fit_ms": 0,
+          "status": "ok"
+        },
+        "scipy_cpu": {
+          "ari_vs_truth": 1.0,
+          "fit_ms": 0.12296438217163086,
+          "last_distance": 21.122784483405436,
+          "status": "ok"
+        },
+        "sklearn_cpu": {
+          "ari_vs_truth": 1.0,
+          "fit_ms": 0.5071163177490234,
+          "n_clusters": 4,
+          "status": "ok"
+        },
+        "statgpu_cpu": {
+          "ari_vs_statgpu_cpu": 1.0,
+          "ari_vs_truth": 1.0,
+          "distance_monotonic": true,
+          "fit_ms": 0.4038810729980469,
+          "host_to_device_included": false,
+          "last_distance": 21.122784483405436,
+          "last_distance_abs_diff_vs_statgpu_cpu": 0.0,
+          "n_clusters": 4,
+          "status": "ok"
+        },
+        "statgpu_cuda": {
+          "ari_vs_statgpu_cpu": 1.0,
+          "ari_vs_truth": 1.0,
+          "distance_monotonic": true,
+          "fit_ms": 20.16720175743103,
+          "host_to_device_included": false,
+          "last_distance": 21.122784483405436,
+          "last_distance_abs_diff_vs_statgpu_cpu": 0.0,
+          "n_clusters": 4,
+          "status": "ok"
+        },
+        "statgpu_torch": {
+          "ari_vs_statgpu_cpu": 1.0,
+          "ari_vs_truth": 1.0,
+          "distance_monotonic": true,
+          "fit_ms": 11.006563901901245,
+          "host_to_device_included": false,
+          "last_distance": 21.122784483405436,
+          "last_distance_abs_diff_vs_statgpu_cpu": 0.0,
+          "n_clusters": 4,
+          "status": "ok"
+        }
+      },
+      "single": {
+        "R_cluster_agnes": {
+          "fit_ms": 1,
+          "status": "ok"
+        },
+        "scipy_cpu": {
+          "ari_vs_truth": 1.0,
+          "fit_ms": 0.08431077003479004,
+          "last_distance": 15.255944605969864,
+          "status": "ok"
+        },
+        "sklearn_cpu": {
+          "ari_vs_truth": 1.0,
+          "fit_ms": 0.6479024887084961,
+          "n_clusters": 4,
+          "status": "ok"
+        },
+        "statgpu_cpu": {
+          "ari_vs_statgpu_cpu": 1.0,
+          "ari_vs_truth": 1.0,
+          "distance_monotonic": true,
+          "fit_ms": 1.0022222995758057,
+          "host_to_device_included": false,
+          "last_distance": 15.255944605969864,
+          "last_distance_abs_diff_vs_statgpu_cpu": 0.0,
+          "n_clusters": 4,
+          "status": "ok"
+        },
+        "statgpu_cuda": {
+          "ari_vs_statgpu_cpu": 1.0,
+          "ari_vs_truth": 1.0,
+          "distance_monotonic": true,
+          "fit_ms": 489.8297190666199,
+          "host_to_device_included": false,
+          "last_distance": 15.255944605969864,
+          "last_distance_abs_diff_vs_statgpu_cpu": 0.0,
+          "n_clusters": 4,
+          "status": "ok"
+        },
+        "statgpu_torch": {
+          "ari_vs_statgpu_cpu": 1.0,
+          "ari_vs_truth": 1.0,
+          "distance_monotonic": true,
+          "fit_ms": 26.56376361846924,
+          "host_to_device_included": false,
+          "last_distance": 15.255944605969864,
+          "last_distance_abs_diff_vs_statgpu_cpu": 0.0,
+          "n_clusters": 4,
+          "status": "ok"
+        }
+      },
+      "ward": {
+        "R_cluster_agnes": {
+          "fit_ms": 0,
+          "status": "ok"
+        },
+        "scipy_cpu": {
+          "ari_vs_truth": 1.0,
+          "fit_ms": 0.1137852668762207,
+          "last_distance": 72.60626480651874,
+          "status": "ok"
+        },
+        "sklearn_cpu": {
+          "ari_vs_truth": 1.0,
+          "fit_ms": 0.45293569564819336,
+          "n_clusters": 4,
+          "status": "ok"
+        },
+        "statgpu_cpu": {
+          "ari_vs_statgpu_cpu": 1.0,
+          "ari_vs_truth": 1.0,
+          "distance_monotonic": true,
+          "fit_ms": 0.24819374084472656,
+          "host_to_device_included": false,
+          "last_distance": 72.60626480651874,
+          "last_distance_abs_diff_vs_statgpu_cpu": 0.0,
+          "n_clusters": 4,
+          "status": "ok"
+        },
+        "statgpu_cuda": {
+          "ari_vs_statgpu_cpu": 1.0,
+          "ari_vs_truth": 1.0,
+          "distance_monotonic": true,
+          "fit_ms": 32.084763050079346,
+          "host_to_device_included": false,
+          "last_distance": 72.60626480651875,
+          "last_distance_abs_diff_vs_statgpu_cpu": 1.4210854715202004e-14,
+          "n_clusters": 4,
+          "status": "ok"
+        },
+        "statgpu_torch": {
+          "ari_vs_statgpu_cpu": 1.0,
+          "ari_vs_truth": 1.0,
+          "distance_monotonic": true,
+          "fit_ms": 19.194304943084717,
+          "host_to_device_included": false,
+          "last_distance": 72.60626480651875,
+          "last_distance_abs_diff_vs_statgpu_cpu": 1.4210854715202004e-14,
+          "n_clusters": 4,
+          "status": "ok"
+        }
+      }
+    }
+  },
+  "environment": {
+    "cases": [
+      [
+        50,
+        4
+      ],
+      [
+        50,
+        16
+      ],
+      [
+        200,
+        4
+      ],
+      [
+        200,
+        16
+      ],
+      [
+        500,
+        4
+      ],
+      [
+        500,
+        16
+      ]
+    ],
+    "linkages": [
+      "single",
+      "complete",
+      "average",
+      "ward"
+    ],
+    "platform": "Linux-4.19.0-14-amd64-x86_64-with-glibc2.31",
+    "python": "3.9.16 (main, Mar  8 2023, 14:00:05) \n[GCC 11.2.0]"
+  }
+}

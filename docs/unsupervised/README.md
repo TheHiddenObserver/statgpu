@@ -16,7 +16,7 @@
 - [DBSCAN](dbscan.md)：dense Euclidean 密度聚类，支持可选的 statgpu 自有 Cython CPU 快路径。
 - [GaussianMixture](gaussian-mixture.md)：支持 diagonal、spherical、tied、full covariance 的 Gaussian mixture，使用 EM 拟合。
 - [NMF](nmf.md)：Frobenius loss 下的 multiplicative update 非负矩阵分解。
-- [AgglomerativeClustering](agglomerative-clustering.md)：CPU exact single、complete、average、ward linkage 聚类。
+- [AgglomerativeClustering](agglomerative-clustering.md)：dense exact single、complete、average、ward linkage 聚类。
 - [TruncatedSVD](truncated-svd.md)：不中心化输入的 dense truncated SVD。
 - [MiniBatchKMeans](minibatch-kmeans.md)：面向较大 dense 数据的 mini-batch KMeans。
 - [IncrementalPCA](incremental-pca.md)：dense batch-wise 主成分分析。
@@ -33,7 +33,7 @@
 | `DBSCAN` | 支持 | 支持 | 支持 | Density reachability 和 connected components |
 | `GaussianMixture` | 支持 | 支持 | 支持 | Gaussian mixture log likelihood |
 | `NMF` | 支持 | 支持 | 支持 | 非负约束下的 Frobenius 重构损失 |
-| `AgglomerativeClustering` | 支持 | 不支持 | 不支持 | Hierarchical linkage merge criterion |
+| `AgglomerativeClustering` | 支持 | 支持 | 支持 | Hierarchical linkage merge criterion |
 | `TruncatedSVD` | 支持 | 支持 | 支持 | 不中心化低秩重构 |
 | `MiniBatchKMeans` | 支持 | 支持 | 支持 | Mini-batch squared Euclidean inertia |
 | `IncrementalPCA` | 支持 | 支持 | 支持 | Batch-wise centered low-rank reconstruction |

@@ -16,7 +16,7 @@
 - [DBSCAN](dbscan.md): dense Euclidean density clustering with optional statgpu-owned Cython CPU acceleration.
 - [GaussianMixture](gaussian-mixture.md): Gaussian mixture fitted by EM with diagonal, spherical, tied, or full covariance.
 - [NMF](nmf.md): non-negative matrix factorization with multiplicative updates and Frobenius loss.
-- [AgglomerativeClustering](agglomerative-clustering.md): exact CPU single, complete, average, or ward linkage clustering.
+- [AgglomerativeClustering](agglomerative-clustering.md): exact dense single, complete, average, or ward linkage clustering.
 - [TruncatedSVD](truncated-svd.md): dense uncentered truncated SVD for low-rank projection.
 - [MiniBatchKMeans](minibatch-kmeans.md): mini-batch Euclidean K-Means for larger dense datasets.
 - [IncrementalPCA](incremental-pca.md): dense batch-wise principal component analysis.
@@ -33,7 +33,7 @@
 | `DBSCAN` | yes | yes | yes | Density reachability and connected components |
 | `GaussianMixture` | yes | yes | yes | Gaussian mixture log likelihood |
 | `NMF` | yes | yes | yes | Frobenius reconstruction loss under non-negativity |
-| `AgglomerativeClustering` | yes | no | no | Hierarchical linkage merge criterion |
+| `AgglomerativeClustering` | yes | yes | yes | Hierarchical linkage merge criterion |
 | `TruncatedSVD` | yes | yes | yes | Uncentered low-rank reconstruction |
 | `MiniBatchKMeans` | yes | yes | yes | Mini-batch squared Euclidean inertia |
 | `IncrementalPCA` | yes | yes | yes | Batch-wise centered low-rank reconstruction |

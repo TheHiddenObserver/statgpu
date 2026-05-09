@@ -72,8 +72,9 @@ Implemented estimators:
   - IncrementalPCA supports dense batch-wise PCA updates
   - MiniBatchNMF supports dense non-negative mini-batch MU updates
   - UMAP and TSNE are dense exact Euclidean v1 implementations; approximate neighbor search, Barnes-Hut, FFT/FIt-SNE, and new-data transform are future work
-- `AgglomerativeClustering` ✅ (CPU)
+- `AgglomerativeClustering` ✅ (3 backends)
   - Exact single, complete, average, and ward linkage for dense Euclidean input
+  - `device="auto"` keeps the CPU default; explicit CuPy/Torch paths use dense exact v1 execution
 
 Exported CV classes:
 - `RidgeCV` ✅ (Full implementation with GPU acceleration)
