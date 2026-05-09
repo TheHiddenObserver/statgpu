@@ -73,6 +73,72 @@ class AgglomerativeClustering(BaseEstimator):
             labels[np.asarray(members, dtype=np.int64)] = label
         return labels
 
+    @staticmethod
+    def _single_linkage_from_mst(
+        n_samples: int,
+        edge_parents: np.ndarray,
+        edge_children: np.ndarray,
+        edge_weights: np.ndarray,
+    ):
+        order = np.argsort(edge_weights, kind="mergesort")
+        uf_parent = list(range(n_samples))
+        cluster_ids = list(range(n_samples))
+        children = np.empty((n_samples - 1, 2), dtype=np.int64)
+        distances = np.empty(n_samples - 1, dtype=np.float64)
+
+        def find(idx: int) -> int:
+            while uf_parent[idx] != idx:
+                uf_parent[idx] = uf_parent[uf_parent[idx]]
+                idx = uf_parent[idx]
+            return idx
+
+        merge_step = 0
+        for edge_idx in order:
+            left_root = find(int(edge_parents[edge_idx]))
+            right_root = find(int(edge_children[edge_idx]))
+            if left_root == right_root:
+                continue
+            children[merge_step] = (cluster_ids[left_root], cluster_ids[right_root])
+            distances[merge_step] = float(edge_weights[edge_idx])
+            uf_parent[right_root] = left_root
+            cluster_ids[left_root] = n_samples + merge_step
+            merge_step += 1
+            if merge_step == n_samples - 1:
+                break
+
+        return children, distances
+
+    def _fit_gpu_single(self, backend, X_arr, n_samples: int):
+        D = backend.sqrt(squared_euclidean_distances(backend, X_arr))
+        inf = float("inf")
+        indices = backend.arange(n_samples, dtype=backend.int64)
+        D[indices, indices] = inf
+
+        selected = backend.zeros(n_samples, dtype=backend.bool)
+        selected[0] = True
+        min_dist = backend.copy(D[0, :])
+        min_dist[0] = inf
+        nearest_parent = backend.zeros(n_samples, dtype=backend.int64)
+
+        edge_parents = np.empty(n_samples - 1, dtype=np.int64)
+        edge_children = np.empty(n_samples - 1, dtype=np.int64)
+        edge_weights = np.empty(n_samples - 1, dtype=np.float64)
+
+        for step in range(n_samples - 1):
+            child = int(backend.item(backend.argmin(min_dist)))
+            edge_children[step] = child
+            edge_parents[step] = int(backend.item(nearest_parent[child]))
+            edge_weights[step] = float(backend.item(min_dist[child]))
+
+            selected[child] = True
+            candidate = D[child, :]
+            update_mask = (candidate < min_dist) & (~selected)
+            nearest_parent[update_mask] = child
+            min_dist = backend.where(update_mask, candidate, min_dist)
+            min_dist[child] = inf
+
+        return self._single_linkage_from_mst(n_samples, edge_parents, edge_children, edge_weights)
+
     def _fit_gpu(self, X):
         backend = self._get_backend()
         X_arr = self._to_array(X, backend=backend.name)
@@ -91,6 +157,16 @@ class AgglomerativeClustering(BaseEstimator):
             self._fitted = True
             return self
 
+        if self.linkage == "single" and backend.name == "torch":
+            children, distances = self._fit_gpu_single(backend, X_arr, n_samples)
+            self.children_ = children
+            self.distances_ = distances
+            self.labels_ = self._labels_from_children(n_samples, int(self.n_clusters), children)
+            self.n_features_in_ = int(n_features)
+            self._backend_name = backend.name
+            self._fitted = True
+            return self
+
         D = squared_euclidean_distances(backend, X_arr)
         if self.linkage != "ward":
             D = backend.sqrt(D)
@@ -102,7 +178,9 @@ class AgglomerativeClustering(BaseEstimator):
         distances = np.empty(n_samples - 1, dtype=np.float64)
         cluster_ids = list(range(n_samples))
         cluster_sizes = [1.0] * n_samples
-        active = [True] * n_samples
+        cluster_sizes_backend = (
+            backend.asarray(cluster_sizes, dtype=backend.float64) if self.linkage == "ward" else None
+        )
 
         for step in range(n_samples - 1):
             flat_idx = int(backend.item(backend.argmin(D)))
@@ -115,37 +193,44 @@ class AgglomerativeClustering(BaseEstimator):
             children[step] = (cluster_ids[a], cluster_ids[b])
             distances[step] = np.sqrt(max(merge_value, 0.0)) if self.linkage == "ward" else merge_value
 
-            active_ids = [idx for idx, is_active in enumerate(active) if is_active and idx not in (a, b)]
-            if active_ids:
-                idx_arr = backend.asarray(active_ids, dtype=backend.int64)
-                da = D[a, idx_arr]
-                db = D[b, idx_arr]
-                size_a = cluster_sizes[a]
-                size_b = cluster_sizes[b]
+            da = D[a, :]
+            db = D[b, :]
+            size_a = cluster_sizes[a]
+            size_b = cluster_sizes[b]
 
-                if self.linkage == "single":
-                    updated = backend.minimum(da, db)
-                elif self.linkage == "complete":
-                    updated = backend.maximum(da, db)
-                elif self.linkage == "average":
-                    updated = (size_a * da + size_b * db) / (size_a + size_b)
+            if self.linkage == "single":
+                updated = backend.minimum(da, db)
+            elif self.linkage == "complete":
+                if backend.name in ("cupy", "torch"):
+                    backend.xp.maximum(da, db, out=da)
+                    updated = da
                 else:
-                    size_k = backend.asarray([cluster_sizes[idx] for idx in active_ids], dtype=backend.float64)
-                    total = size_a + size_b + size_k
-                    updated = (
-                        ((size_k + size_a) / total) * da
-                        + ((size_k + size_b) / total) * db
-                        - (size_k / total) * merge_value
-                    )
-                    updated = backend.maximum(updated, 0.0)
+                    updated = backend.maximum(da, db)
+            elif self.linkage == "average":
+                if backend.name in ("cupy", "torch"):
+                    da *= size_a
+                    da += size_b * db
+                    da /= size_a + size_b
+                    updated = da
+                else:
+                    updated = (size_a * da + size_b * db) / (size_a + size_b)
+            else:
+                total = size_a + size_b + cluster_sizes_backend
+                updated = (
+                    ((cluster_sizes_backend + size_a) / total) * da
+                    + ((cluster_sizes_backend + size_b) / total) * db
+                    - (cluster_sizes_backend / total) * merge_value
+                )
+                updated = backend.maximum(updated, 0.0)
 
-                D[a, idx_arr] = updated
-                D[idx_arr, a] = updated
-
-            active[b] = False
+            D[a, :] = updated
+            D[:, a] = updated
             cluster_ids[a] = n_samples + step
             cluster_sizes[a] += cluster_sizes[b]
             cluster_sizes[b] = 0.0
+            if cluster_sizes_backend is not None:
+                cluster_sizes_backend[a] = cluster_sizes[a]
+                cluster_sizes_backend[b] = 0.0
             D[b, :] = inf
             D[:, b] = inf
             D[a, a] = inf
