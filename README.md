@@ -2,14 +2,6 @@
 
 GPU-accelerated statistical methods with sklearn-compatible API.
 
-## Documentation
-
-- Primary usage portal (English): `USAGE.md`
-- Chinese usage portal: `USAGE_CN.md`
-- English docs root: `docs/en/`
-- Chinese docs root: `docs/`
-- Repo development layout: `dev/` (`tests/`, `benchmarks/`, `comparisons/`, `validation/`, `manual/`, `scripts/` for Cox data + R bench helpers)
-
 ## Features
 
 - 🚀 **GPU Acceleration**: Automatic CUDA support via CuPy and PyTorch
@@ -85,6 +77,16 @@ Exported CV classes:
 Backend support and feature parity are documented per model in the Model Docs Index below.
 
 ## Model Docs Index
+
+General documentation:
+
+- Primary usage portal (English): `USAGE.md`
+- Chinese usage portal: `USAGE_CN.md`
+- English docs root: `docs/en/`
+- Chinese docs root: `docs/`
+- Repo development layout: `dev/` (`tests/`, `benchmarks/`, `comparisons/`, `validation/`, `manual/`, `scripts/` for Cox data + R bench helpers)
+
+Model documentation:
 
 - Linear regression: `docs/en/models/linear-regression.md` / `docs/models/linear-regression.md`
 - Logistic regression: `docs/en/models/logistic-regression.md` / `docs/models/logistic-regression.md`
