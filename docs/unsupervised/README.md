@@ -1,7 +1,7 @@
 # 无监督学习
 
 > 语言：中文
-> 最后更新：2026-05-07
+> 最后更新：2026-05-08
 > 本页：无监督学习索引
 > English: [English](../en/unsupervised/README.md)
 
@@ -9,14 +9,14 @@
 
 `statgpu.unsupervised` 提供 sklearn 风格的无监督学习 estimator，并遵循显式 CPU、CuPy/CUDA、Torch CUDA 设备语义。这个目录按模型拆分说明目标函数、估计过程、后端行为、输出字段、限制和外部验证方式。
 
-## Estimators
+## 模型列表
 
 - [PCA](pca.md)：exact 或 randomized 主成分分析。
 - [KMeans](kmeans.md)：Lloyd 聚类，支持 random 和 greedy k-means++ 初始化。
 - [DBSCAN](dbscan.md)：dense Euclidean 密度聚类，支持可选的 statgpu 自有 Cython CPU 快路径。
 - [GaussianMixture](gaussian-mixture.md)：支持 diagonal、spherical、tied、full covariance 的 Gaussian mixture，使用 EM 拟合。
 - [NMF](nmf.md)：Frobenius loss 下的 multiplicative update 非负矩阵分解。
-- [AgglomerativeClustering](agglomerative-clustering.md)：CPU exact single、complete、average、ward linkage 聚类。
+- [AgglomerativeClustering](agglomerative-clustering.md)：dense exact single、complete、average、ward linkage 聚类。
 - [TruncatedSVD](truncated-svd.md)：不中心化输入的 dense truncated SVD。
 - [MiniBatchKMeans](minibatch-kmeans.md)：面向较大 dense 数据的 mini-batch KMeans。
 - [IncrementalPCA](incremental-pca.md)：dense batch-wise 主成分分析。
@@ -33,7 +33,7 @@
 | `DBSCAN` | 支持 | 支持 | 支持 | Density reachability 和 connected components |
 | `GaussianMixture` | 支持 | 支持 | 支持 | Gaussian mixture log likelihood |
 | `NMF` | 支持 | 支持 | 支持 | 非负约束下的 Frobenius 重构损失 |
-| `AgglomerativeClustering` | 支持 | 不支持 | 不支持 | Hierarchical linkage merge criterion |
+| `AgglomerativeClustering` | 支持 | 支持 | 支持 | Hierarchical linkage merge criterion |
 | `TruncatedSVD` | 支持 | 支持 | 支持 | 不中心化低秩重构 |
 | `MiniBatchKMeans` | 支持 | 支持 | 支持 | Mini-batch squared Euclidean inertia |
 | `IncrementalPCA` | 支持 | 支持 | 支持 | Batch-wise centered low-rank reconstruction |
@@ -69,8 +69,11 @@ benchmark：
 - `dev/benchmarks/benchmark_unsupervised_phase3b.py`
 - `dev/benchmarks/benchmark_unsupervised_phase3c.py`
 
-最新远程验证产物：
+远程验证产物：
 
+- `results/unsupervised_phase2_dbscan_cython_verify_20260502_210000.json`
+- `results/unsupervised_phase2_verify_20260502_210000.json`
+- `results/unsupervised_phase2_verify_summary_20260502_210000.md`
 - `results/unsupervised_phase3_remote_finalopt_20260505_084444.json`
 - `results/unsupervised_phase3_remote_finalopt_20260505_084444.md`
 - `results/unsupervised_phase3_remote_perfopt_mediumlarge_20260505_131617.json`
@@ -86,4 +89,4 @@ benchmark：
 - `results/unsupervised_phase3c_opt7_xlarge_20260507_185500.json`
 - `results/unsupervised_phase3c_opt7_xlarge_summary_20260507_185500.md`
 
-Phase 3 中 `UMAP` 和 `TSNE` 已进入 statgpu public API；`umap-learn`、`openTSNE`、sklearn、statsmodels、R 和 cuML 仍仅作为外部验证或 benchmark baseline。
+`umap-learn`、`openTSNE`、sklearn、statsmodels、R 和 cuML 等外部包仅作为验证或 benchmark baseline；production estimator code 保持 statgpu 自有实现。

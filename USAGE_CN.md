@@ -81,9 +81,10 @@
   - IncrementalPCA 支持 dense batch-wise PCA 更新
   - MiniBatchNMF 支持 dense 非负 mini-batch MU 更新
   - UMAP 与 TSNE 是 dense exact Euclidean v1 实现；approximate neighbor search、Barnes-Hut、FFT/FIt-SNE 和新样本 transform 留到后续阶段
-- `AgglomerativeClustering` ✅ (CPU)
+- `AgglomerativeClustering` ✅ (三后端)
   - 位于 `statgpu.unsupervised`
   - 支持 single、complete、average、ward linkage 与 Euclidean 距离
+  - `device="auto"` 仍默认 CPU；显式 CuPy/Torch 路径使用 dense exact v1 execution
 
 当前导出的 CV 类：
 - `RidgeCV` ✅ (完整实现，支持 GPU 加速交叉验证)

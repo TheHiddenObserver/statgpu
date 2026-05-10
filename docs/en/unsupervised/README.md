@@ -1,7 +1,7 @@
 # Unsupervised Learning
 
 > Language: English
-> Last updated: 2026-05-07
+> Last updated: 2026-05-08
 > This page: Unsupervised learning index
 > Switch: [Chinese](../../unsupervised/README.md)
 
@@ -16,7 +16,7 @@
 - [DBSCAN](dbscan.md): dense Euclidean density clustering with optional statgpu-owned Cython CPU acceleration.
 - [GaussianMixture](gaussian-mixture.md): Gaussian mixture fitted by EM with diagonal, spherical, tied, or full covariance.
 - [NMF](nmf.md): non-negative matrix factorization with multiplicative updates and Frobenius loss.
-- [AgglomerativeClustering](agglomerative-clustering.md): exact CPU single, complete, average, or ward linkage clustering.
+- [AgglomerativeClustering](agglomerative-clustering.md): exact dense single, complete, average, or ward linkage clustering.
 - [TruncatedSVD](truncated-svd.md): dense uncentered truncated SVD for low-rank projection.
 - [MiniBatchKMeans](minibatch-kmeans.md): mini-batch Euclidean K-Means for larger dense datasets.
 - [IncrementalPCA](incremental-pca.md): dense batch-wise principal component analysis.
@@ -33,7 +33,7 @@
 | `DBSCAN` | yes | yes | yes | Density reachability and connected components |
 | `GaussianMixture` | yes | yes | yes | Gaussian mixture log likelihood |
 | `NMF` | yes | yes | yes | Frobenius reconstruction loss under non-negativity |
-| `AgglomerativeClustering` | yes | no | no | Hierarchical linkage merge criterion |
+| `AgglomerativeClustering` | yes | yes | yes | Hierarchical linkage merge criterion |
 | `TruncatedSVD` | yes | yes | yes | Uncentered low-rank reconstruction |
 | `MiniBatchKMeans` | yes | yes | yes | Mini-batch squared Euclidean inertia |
 | `IncrementalPCA` | yes | yes | yes | Batch-wise centered low-rank reconstruction |
@@ -69,7 +69,7 @@ Benchmark scripts:
 - `dev/benchmarks/benchmark_unsupervised_phase3b.py`
 - `dev/benchmarks/benchmark_unsupervised_phase3c.py`
 
-Latest remote artifacts:
+Remote validation artifacts:
 
 - `results/unsupervised_phase2_dbscan_cython_verify_20260502_210000.json`
 - `results/unsupervised_phase2_verify_20260502_210000.json`
@@ -89,4 +89,4 @@ Latest remote artifacts:
 - `results/unsupervised_phase3c_opt7_xlarge_20260507_185500.json`
 - `results/unsupervised_phase3c_opt7_xlarge_summary_20260507_185500.md`
 
-Phase 3 adds public dense exact `UMAP` and `TSNE` APIs. `umap-learn`, `openTSNE`, sklearn, statsmodels, R, and cuML remain external validation or benchmark baselines only.
+External packages such as `umap-learn`, `openTSNE`, sklearn, statsmodels, R, and cuML are used only as validation or benchmark baselines; production estimator code remains statgpu-owned.

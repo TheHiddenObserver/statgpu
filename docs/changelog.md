@@ -9,7 +9,7 @@
 
 - **Unsupervised learning Phase 3B / GMM covariance and hierarchical linkage parity**:
   - Extended `GaussianMixture` beyond diagonal covariance to support `diag`, `spherical`, `tied`, and `full` covariance types on CPU/CuPy/Torch.
-  - Extended `AgglomerativeClustering` CPU exact linkage support to `single`, `complete`, `average`, and `ward`; explicit GPU devices still raise rather than falling back.
+  - Extended `AgglomerativeClustering` to CPU/CuPy/Torch dense exact support for `single`, `complete`, `average`, and `ward`; `device="auto"` keeps the CPU default while explicit GPU paths no longer fall back.
   - Added Phase 3B validation coverage for GMM covariance variants and agglomerative linkage variants, with sklearn/SciPy/R baselines used only in tests and benchmarks.
   - Rewrote `dev/plans/plan_unsupervised.md` as a UTF-8 Chinese roadmap aligned with current Phase 3 capabilities.
 

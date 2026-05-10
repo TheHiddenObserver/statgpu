@@ -1,12 +1,20 @@
 # TSNE
 
 > 语言：中文
-> 最后更新：2026-05-04
+> 最后更新：2026-05-09
 > 路径：`statgpu.unsupervised.TSNE`
 
 ## 概览
 
 `TSNE` 通过匹配高维 Gaussian affinity 和低维 Student-t affinity 来学习 embedding。Phase 3A 实现 dense exact Euclidean t-SNE。
+
+## 导入路径
+
+从 `statgpu.unsupervised` 导入：
+
+```python
+from statgpu.unsupervised import TSNE
+```
 
 ## 目标函数
 

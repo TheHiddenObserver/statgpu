@@ -2,14 +2,6 @@
 
 GPU-accelerated statistical methods with sklearn-compatible API.
 
-## Documentation
-
-- Primary usage portal (English): `USAGE.md`
-- Chinese usage portal: `USAGE_CN.md`
-- English docs root: `docs/en/`
-- Chinese docs root: `docs/`
-- Repo development layout: `dev/` (`tests/`, `benchmarks/`, `comparisons/`, `validation/`, `manual/`, `scripts/` for Cox data + R bench helpers)
-
 ## Features
 
 - 🚀 **GPU Acceleration**: Automatic CUDA support via CuPy and PyTorch
@@ -26,20 +18,11 @@ GPU-accelerated statistical methods with sklearn-compatible API.
   - KDE: `fit_kde` / `kde_pdf` / `kde_bootstrap_confidence_interval`
   - KDE kernel options: `gaussian` / `rectangular` / `triangular` / `epanechnikov` / `biweight` / `triweight` / `cosine` / `optcosine`
   - Kernel regression: `fit_kernel_regression` / `kernel_regression_predict`
-- **Unsupervised Learning**:
-  - `PCA`: full SVD, covariance/eigh, or randomized principal components
-  - `KMeans`: Lloyd clustering with random or greedy k-means++ initialization
-  - `DBSCAN`: dense Euclidean density clustering with optional statgpu-owned Cython CPU fast path
-  - `GaussianMixture`: EM with diagonal, spherical, tied, or full covariance
-  - `NMF`: multiplicative-update matrix factorization
-  - `AgglomerativeClustering`: CPU exact single, complete, average, or ward linkage
-  - `TruncatedSVD`: dense uncentered truncated SVD
-  - `MiniBatchKMeans`: mini-batch Euclidean clustering
-  - `IncrementalPCA`: dense incremental principal components
-  - `MiniBatchNMF`: dense mini-batch non-negative matrix factorization
-  - `UMAP`: dense exact Euclidean manifold embedding
-  - `TSNE`: dense exact Euclidean t-SNE
-  - Detailed loss/objective and estimating-equation docs: `docs/en/unsupervised/`
+- 🧭 **Unsupervised Learning**:
+  - Dimensionality and factorization: `PCA`, `TruncatedSVD`, `IncrementalPCA`, `NMF`, `MiniBatchNMF`
+  - Clustering and mixtures: `KMeans`, `MiniBatchKMeans`, `DBSCAN`, `GaussianMixture`, `AgglomerativeClustering`
+  - Manifold embeddings: `UMAP`, `TSNE`
+  - Detailed objectives, estimating procedures, and backend notes: `docs/en/unsupervised/`
 - 🧹 **GPU Memory Control**: `gpu_memory_cleanup` for all current models
 - 🔥 **PyTorch Backend**: Optional Torch backend for GPU acceleration (PyTorch 2.0+)
   - Supported models: `Ridge`, `LogisticRegression`, `Lasso`, `LassoCV`, `CoxPH`
@@ -72,18 +55,18 @@ GPU-accelerated statistical methods with sklearn-compatible API.
 
 ### Unsupervised Learning
 
-- `statgpu.unsupervised.PCA` (full SVD, covariance/eigh, or randomized; 3 backends)
-- `statgpu.unsupervised.KMeans` (Lloyd clustering, k-means++ init; 3 backends)
-- `statgpu.unsupervised.DBSCAN` (dense Euclidean; optional Cython CPU fast path; 3 backends)
-- `statgpu.unsupervised.GaussianMixture` (diag/spherical/tied/full covariance EM; 3 backends)
-- `statgpu.unsupervised.NMF` (multiplicative-update MU/Frobenius; 3 backends)
-- `statgpu.unsupervised.AgglomerativeClustering` (single/complete/average/ward linkage, CPU)
-- `statgpu.unsupervised.TruncatedSVD` (dense uncentered randomized/full SVD; 3 backends)
-- `statgpu.unsupervised.MiniBatchKMeans` (mini-batch KMeans; 3 backends)
-- `statgpu.unsupervised.IncrementalPCA` (dense incremental PCA; 3 backends)
-- `statgpu.unsupervised.MiniBatchNMF` (dense mini-batch NMF; 3 backends)
-- `statgpu.unsupervised.UMAP` (dense exact Euclidean UMAP; 3 backends)
-- `statgpu.unsupervised.TSNE` (dense exact Euclidean t-SNE; 3 backends)
+- `statgpu.unsupervised.PCA`
+- `statgpu.unsupervised.KMeans`
+- `statgpu.unsupervised.DBSCAN`
+- `statgpu.unsupervised.GaussianMixture`
+- `statgpu.unsupervised.NMF`
+- `statgpu.unsupervised.AgglomerativeClustering`
+- `statgpu.unsupervised.TruncatedSVD`
+- `statgpu.unsupervised.MiniBatchKMeans`
+- `statgpu.unsupervised.IncrementalPCA`
+- `statgpu.unsupervised.MiniBatchNMF`
+- `statgpu.unsupervised.UMAP`
+- `statgpu.unsupervised.TSNE`
 
 Exported CV classes:
 
@@ -94,6 +77,16 @@ Exported CV classes:
 Backend support and feature parity are documented per model in the Model Docs Index below.
 
 ## Model Docs Index
+
+General documentation:
+
+- Primary usage portal (English): `USAGE.md`
+- Chinese usage portal: `USAGE_CN.md`
+- English docs root: `docs/en/`
+- Chinese docs root: `docs/`
+- Repo development layout: `dev/` (`tests/`, `benchmarks/`, `comparisons/`, `validation/`, `manual/`, `scripts/` for Cox data + R bench helpers)
+
+Model documentation:
 
 - Linear regression: `docs/en/models/linear-regression.md` / `docs/models/linear-regression.md`
 - Logistic regression: `docs/en/models/logistic-regression.md` / `docs/models/logistic-regression.md`

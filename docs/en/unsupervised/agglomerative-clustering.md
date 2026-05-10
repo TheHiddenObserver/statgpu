@@ -1,12 +1,12 @@
 # AgglomerativeClustering
 
 > Language: English
-> Last updated: 2026-05-07
+> Last updated: 2026-05-09
 > Switch: [Chinese](../../unsupervised/agglomerative-clustering.md)
 
 ## Overview
 
-`AgglomerativeClustering` builds an exact hierarchical clustering tree for dense Euclidean data. It supports `"single"`, `"complete"`, `"average"`, and `"ward"` linkage on the CPU path. Explicit `device="cuda"` or `device="torch"` raises `NotImplementedError` rather than silently falling back.
+`AgglomerativeClustering` builds an exact hierarchical clustering tree for dense Euclidean data. It supports `"single"`, `"complete"`, `"average"`, and `"ward"` linkage on CPU, CuPy/CUDA, and Torch CUDA paths. The GPU paths are dense exact v1 implementations intended for small to medium data; they do not silently fall back to CPU.
 
 ## Path
 
@@ -62,14 +62,14 @@ $$
 - Store the merge tree as `children_` and merge distances as `distances_`.
 - Cut the tree to produce `n_clusters` labels.
 
-The implementation delegates exact CPU linkage computation to SciPy hierarchy routines and does not expose a GPU path.
+The CPU path delegates exact linkage computation to SciPy hierarchy routines. Explicit CuPy/Torch paths use statgpu-owned backend-resident dense distance matrices and Lance-Williams linkage updates.
 
 ## Parameters
 
 - `n_clusters`: number of clusters after cutting the tree.
 - `linkage`: `"single"`, `"complete"`, `"average"`, or `"ward"`.
 - `metric`: only `"euclidean"` is supported.
-- `device`: CPU only; explicit `"cuda"` or `"torch"` raises `NotImplementedError`.
+- `device`: `"cpu"`, `"cuda"`, `"torch"`, or `"auto"`. `device="auto"` keeps the CPU default for this estimator; explicit GPU devices use dense exact backend execution.
 
 ## CPU+GPU Examples
 
@@ -81,11 +81,19 @@ X = np.random.default_rng(0).normal(size=(300, 6))
 
 model = AgglomerativeClustering(n_clusters=4, linkage="ward", device="cpu")
 labels = model.fit_predict(X)
+
+model_gpu = AgglomerativeClustering(n_clusters=4, linkage="ward", device="cuda")
+labels_gpu = model_gpu.fit_predict(X)  # NumPy input is moved to the CUDA backend
+
+# With CuPy installed, you can also keep data resident as a CuPy array.
+# import cupy as cp
+# X_gpu = cp.asarray(X)
+# labels_gpu = model_gpu.fit_predict(X_gpu)
 ```
 
 ## Strict/Approx Difference
 
-There is no strict inference mode. Supported CPU linkages are exact for dense Euclidean inputs. GPU execution is intentionally unavailable rather than silently downgraded.
+There is no strict inference mode. Supported linkages are exact for dense Euclidean inputs on CPU, CuPy, and Torch. GPU execution allocates a dense distance matrix and raises a clear `MemoryError` if the configured v1 memory limit would be exceeded.
 
 ## Outputs
 
@@ -96,8 +104,8 @@ There is no strict inference mode. Supported CPU linkages are exact for dense Eu
 
 ## FAQ
 
-**Why is GPU unsupported?**
-The current goal is an exact, clear CPU baseline. GPU hierarchical clustering needs a separate implementation plan because efficient linkage updates and memory behavior differ from the dense matrix paths used by other estimators.
+**When should I use the GPU path?**
+Use explicit `device="cuda"` or `device="torch"` for small to medium dense datasets where backend-resident execution is useful. Hierarchical clustering is still sequential and dense-memory heavy, so large datasets may be better handled by the CPU path or a different clustering method.
 
 **Can it predict labels for new samples?**
 No. Agglomerative clustering does not support `predict` for unseen samples in this implementation.
@@ -106,7 +114,7 @@ No. Agglomerative clustering does not support `predict` for unseen samples in th
 
 - Tests: `dev/tests/test_unsupervised_agglomerative.py`.
 - Benchmark: `dev/benchmarks/benchmark_unsupervised_phase3b.py`.
-- Latest remote artifact: `results/unsupervised_phase3b_verify_20260507_003957.json`.
+- Latest remote artifacts: `results/unsupervised_agglomerative_gpu_verify_20260509_agglo_gpu.json` and `results/unsupervised_agglomerative_gpu_verify_summary_20260509_agglo_gpu.md`.
 - Baselines: sklearn `AgglomerativeClustering`, SciPy `linkage`, and R `cluster::agnes` where parameter alignment is available.
 - Phase 3B validation target: label agreement up to permutation, ARI, and linkage distances for `"single"`, `"complete"`, `"average"`, and `"ward"` where comparable.
 

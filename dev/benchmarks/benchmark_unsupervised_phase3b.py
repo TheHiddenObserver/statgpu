@@ -177,21 +177,42 @@ def run_gmm_sklearn(X, args):
 def run_agglomerative_statgpu(X, true_labels, args):
     out = {}
     for linkage in ("single", "complete", "average", "ward"):
-        try:
-            factory = lambda link=linkage: AgglomerativeClustering(n_clusters=args.k, linkage=link, device="cpu")
-            model, times = _time_fit(factory, X, args.repeats, args.warmup)
-            out[linkage] = {
-                "statgpu_cpu": {
+        out[linkage] = {}
+        cpu_labels = None
+        cpu_last_distance = None
+        for device in args.devices.split(","):
+            device = device.strip()
+            if not device:
+                continue
+            try:
+                X_backend = _backend_array(X, device)
+                factory = lambda link=linkage, dev=device: AgglomerativeClustering(
+                    n_clusters=args.k,
+                    linkage=link,
+                    device=dev,
+                )
+                model, times = _time_fit(factory, X_backend, args.repeats, args.warmup)
+                labels = np.asarray(model.labels_)
+                last_distance = float(model.distances_[-1]) if model.distances_.size else 0.0
+                if device == "cpu":
+                    cpu_labels = labels
+                    cpu_last_distance = last_distance
+                payload = {
                     "status": "ok",
                     "fit_ms_mean": float(np.mean(times)),
                     "fit_ms_std": float(np.std(times)),
                     "n_clusters": int(len(np.unique(model.labels_))),
-                    "last_distance": float(model.distances_[-1]) if model.distances_.size else 0.0,
+                    "last_distance": last_distance,
                     "ari_vs_truth": _adjusted_rand_score(true_labels, model.labels_),
+                    "host_to_device_included": False,
                 }
-            }
-        except Exception as exc:
-            out[linkage] = {"statgpu_cpu": {"status": "skipped", "reason": repr(exc)}}
+                if cpu_labels is not None:
+                    payload["ari_vs_statgpu_cpu"] = _adjusted_rand_score(cpu_labels, labels)
+                if cpu_last_distance is not None:
+                    payload["last_distance_abs_diff_vs_statgpu_cpu"] = abs(last_distance - cpu_last_distance)
+                out[linkage][f"statgpu_{device}"] = payload
+            except Exception as exc:
+                out[linkage][f"statgpu_{device}"] = {"status": "skipped", "reason": repr(exc)}
     return out
 
 

@@ -1,12 +1,20 @@
 # TruncatedSVD
 
 > Language: English
-> Last updated: 2026-05-04
+> Last updated: 2026-05-09
 > Path: `statgpu.unsupervised.TruncatedSVD`
 
 ## Overview
 
 `TruncatedSVD` computes a low-rank projection without centering the input matrix. This makes it different from `PCA` and suitable for dense LSA-style workflows.
+
+## Path
+
+Import from `statgpu.unsupervised`:
+
+```python
+from statgpu.unsupervised import TruncatedSVD
+```
 
 ## Objective Function / Loss Function
 

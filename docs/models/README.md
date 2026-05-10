@@ -1,7 +1,7 @@
 # 模型总览
 
 > 语言：中文
-> 最后更新：2026-05-02
+> 最后更新：2026-05-08
 > 页面定位：模型索引
 > English: [English](../en/models/README.md)
 
@@ -33,7 +33,10 @@
 ## 无监督学习
 
 - [无监督学习兼容入口](unsupervised.md)
-- [无监督学习详细文档](../unsupervised/README.md)：[PCA](../unsupervised/pca.md)、[KMeans](../unsupervised/kmeans.md)、[DBSCAN](../unsupervised/dbscan.md)、[GaussianMixture](../unsupervised/gaussian-mixture.md)、[NMF](../unsupervised/nmf.md)、[AgglomerativeClustering](../unsupervised/agglomerative-clustering.md)、[TruncatedSVD](../unsupervised/truncated-svd.md)、[MiniBatchKMeans](../unsupervised/minibatch-kmeans.md)、[IncrementalPCA](../unsupervised/incremental-pca.md)、[MiniBatchNMF](../unsupervised/minibatch-nmf.md)、[UMAP](../unsupervised/umap.md)、[TSNE](../unsupervised/tsne.md)
+- [无监督学习详细文档](../unsupervised/README.md)
+- 降维与矩阵分解：[PCA](../unsupervised/pca.md)、[TruncatedSVD](../unsupervised/truncated-svd.md)、[IncrementalPCA](../unsupervised/incremental-pca.md)、[NMF](../unsupervised/nmf.md)、[MiniBatchNMF](../unsupervised/minibatch-nmf.md)
+- 聚类与混合模型：[KMeans](../unsupervised/kmeans.md)、[MiniBatchKMeans](../unsupervised/minibatch-kmeans.md)、[DBSCAN](../unsupervised/dbscan.md)、[GaussianMixture](../unsupervised/gaussian-mixture.md)、[AgglomerativeClustering](../unsupervised/agglomerative-clustering.md)
+- Manifold embedding：[UMAP](../unsupervised/umap.md)、[TSNE](../unsupervised/tsne.md)
 
 ## 新增模型文档流程
 
@@ -50,7 +53,7 @@
 - 设备支持是模型级能力，不是所有模型都支持所有后端。显式 `device="cuda"` 或 `device="torch"` 在依赖不可用或模型不支持时应报错，不应静默 fallback 到 CPU。
 - `GeneralizedLinearModel` 与 typed penalized GLM 见 [GeneralizedLinearModel 与 Penalized GLM](generalized-linear-model.md)。
 - `PoissonRegression` 作为普通 Poisson GLM estimator 单独记录。
-- `PCA`、`KMeans`、`DBSCAN`、`GaussianMixture`、`NMF`、`TruncatedSVD`、`MiniBatchKMeans`、`IncrementalPCA`、`MiniBatchNMF`、`UMAP` 和 `TSNE` 位于 `statgpu.unsupervised`，支持 CPU/CuPy/Torch 路径；`AgglomerativeClustering(single/complete/average/ward)` 仅支持 CPU。无监督学习详细文档包含逐模型 loss/objective、估计方程、strict/approx 说明、示例和外部验证 artifact。
+- `statgpu.unsupervised` 包含降维、聚类、混合模型、矩阵分解和 manifold estimator。当前 public estimators 提供 CPU/CuPy/Torch 路径，具体 dense/exact 或 iterative 限制见逐模型页面。无监督学习详细文档包含逐模型目标函数、估计过程、设备说明、示例和外部验证 artifact。
 - 推断能力较完整的模型：
   - `LinearRegression`：classical + `HC0/HC1/HC2/HC3/HAC`
   - `Ridge`：classical + `HC0/HC1/HC2/HC3/HAC`

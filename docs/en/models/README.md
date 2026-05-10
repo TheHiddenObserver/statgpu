@@ -1,7 +1,7 @@
 # Models Overview
 
 > Language: English  
-> Last updated: 2026-05-02
+> Last updated: 2026-05-08
 > This page: Model index  
 > Switch: [Chinese](../../models/README.md)
 
@@ -33,7 +33,10 @@ Language switch: [Chinese](../../models/README.md)
 ## Unsupervised Learning
 
 - [Unsupervised learning compatibility entry](unsupervised.md)
-- [Detailed unsupervised docs](../unsupervised/README.md): [PCA](../unsupervised/pca.md), [KMeans](../unsupervised/kmeans.md), [DBSCAN](../unsupervised/dbscan.md), [GaussianMixture](../unsupervised/gaussian-mixture.md), [NMF](../unsupervised/nmf.md), [AgglomerativeClustering](../unsupervised/agglomerative-clustering.md), [TruncatedSVD](../unsupervised/truncated-svd.md), [MiniBatchKMeans](../unsupervised/minibatch-kmeans.md), [IncrementalPCA](../unsupervised/incremental-pca.md), [MiniBatchNMF](../unsupervised/minibatch-nmf.md), [UMAP](../unsupervised/umap.md), [TSNE](../unsupervised/tsne.md)
+- [Detailed unsupervised docs](../unsupervised/README.md)
+- Dimensionality and factorization: [PCA](../unsupervised/pca.md), [TruncatedSVD](../unsupervised/truncated-svd.md), [IncrementalPCA](../unsupervised/incremental-pca.md), [NMF](../unsupervised/nmf.md), [MiniBatchNMF](../unsupervised/minibatch-nmf.md)
+- Clustering and mixtures: [KMeans](../unsupervised/kmeans.md), [MiniBatchKMeans](../unsupervised/minibatch-kmeans.md), [DBSCAN](../unsupervised/dbscan.md), [GaussianMixture](../unsupervised/gaussian-mixture.md), [AgglomerativeClustering](../unsupervised/agglomerative-clustering.md)
+- Manifold embeddings: [UMAP](../unsupervised/umap.md), [TSNE](../unsupervised/tsne.md)
 
 ## Current Coverage Notes
 
@@ -41,7 +44,7 @@ Language switch: [Chinese](../../models/README.md)
 - GPU memory cleanup support is model-specific and documented on pages where it affects behavior.
 - `GeneralizedLinearModel` and typed penalized GLMs are documented in [GeneralizedLinearModel and Penalized GLM](generalized-linear-model.md).
 - `PoissonRegression` is documented separately as the ordinary Poisson GLM estimator.
-- `PCA`, `KMeans`, `DBSCAN`, `GaussianMixture`, `NMF`, `TruncatedSVD`, `MiniBatchKMeans`, `IncrementalPCA`, `MiniBatchNMF`, `UMAP`, and `TSNE` are available in `statgpu.unsupervised` with CPU/CuPy/Torch paths; `AgglomerativeClustering(single/complete/average/ward)` is CPU-only. See [Detailed unsupervised docs](../unsupervised/README.md) for per-model loss/objective functions, estimating equations, strict/approx notes, examples, and external validation artifacts.
+- `statgpu.unsupervised` includes dimensionality reduction, clustering, mixture, factorization, and manifold estimators. Current public estimators expose CPU/CuPy/Torch paths, with model-specific dense/exact or iterative limits documented per page. See [Detailed unsupervised docs](../unsupervised/README.md) for objectives, estimating procedures, device notes, examples, and external validation artifacts.
 - Inference-rich models:
   - `LinearRegression`: classical + `HC0/HC1/HC2/HC3/HAC`
   - `Ridge`: classical + `HC0/HC1/HC2/HC3/HAC`

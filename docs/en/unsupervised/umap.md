@@ -1,12 +1,20 @@
 # UMAP
 
 > Language: English
-> Last updated: 2026-05-04
+> Last updated: 2026-05-09
 > Path: `statgpu.unsupervised.UMAP`
 
 ## Overview
 
 `UMAP` builds a fuzzy neighbor graph in the input space and optimizes a low-dimensional embedding. Phase 3A implements a dense exact Euclidean path.
+
+## Path
+
+Import from `statgpu.unsupervised`:
+
+```python
+from statgpu.unsupervised import UMAP
+```
 
 ## Objective Function / Loss Function
 
