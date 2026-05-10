@@ -1,5 +1,7 @@
 """Tests for statgpu.unsupervised.AgglomerativeClustering."""
 
+import importlib
+
 import numpy as np
 import pytest
 from scipy import sparse
@@ -45,6 +47,18 @@ def test_agglomerative_fit_predict_and_validation_errors():
         AgglomerativeClustering(device="cpu").fit(sparse.csr_matrix(X))
     with pytest.raises(NotImplementedError, match="predict"):
         AgglomerativeClustering(device="cpu").fit(X).predict(X)
+
+
+def test_agglomerative_invalid_gpu_memory_env_falls_back_to_default(monkeypatch):
+    import statgpu.unsupervised._agglomerative as agglomerative_module
+
+    monkeypatch.setenv("STATGPU_AGGLOMERATIVE_GPU_MAX_BYTES", "not_an_int")
+    with pytest.warns(RuntimeWarning, match="Invalid STATGPU_AGGLOMERATIVE_GPU_MAX_BYTES"):
+        importlib.reload(agglomerative_module)
+    assert agglomerative_module.AgglomerativeClustering._GPU_DISTANCE_LIMIT_BYTES == 1 << 30
+
+    monkeypatch.delenv("STATGPU_AGGLOMERATIVE_GPU_MAX_BYTES", raising=False)
+    importlib.reload(agglomerative_module)
 
 
 def test_agglomerative_explicit_cuda_runs_without_fallback():

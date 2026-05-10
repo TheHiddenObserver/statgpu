@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import warnings
 from typing import Optional, Union
 
 import numpy as np
@@ -16,9 +17,22 @@ from statgpu.unsupervised._utils import check_2d_array, reject_sparse, squared_e
 class AgglomerativeClustering(BaseEstimator):
     """Exact dense agglomerative clustering."""
 
-    _GPU_DISTANCE_LIMIT_BYTES = int(
-        os.environ.get("STATGPU_AGGLOMERATIVE_GPU_MAX_BYTES", str(1 << 30))
-    )
+    @staticmethod
+    def _gpu_distance_limit_bytes() -> int:
+        value = os.environ.get("STATGPU_AGGLOMERATIVE_GPU_MAX_BYTES")
+        if value is None:
+            return 1 << 30
+        try:
+            return int(value)
+        except ValueError:
+            warnings.warn(
+                "Invalid STATGPU_AGGLOMERATIVE_GPU_MAX_BYTES value; using default 1073741824 bytes.",
+                RuntimeWarning,
+                stacklevel=2,
+            )
+            return 1 << 30
+
+    _GPU_DISTANCE_LIMIT_BYTES = _gpu_distance_limit_bytes.__func__()
 
     def __init__(
         self,
@@ -157,7 +171,7 @@ class AgglomerativeClustering(BaseEstimator):
             self._fitted = True
             return self
 
-        if self.linkage == "single" and backend.name == "torch":
+        if self.linkage == "single" and backend.name in ("cupy", "torch"):
             children, distances = self._fit_gpu_single(backend, X_arr, n_samples)
             self.children_ = children
             self.distances_ = distances

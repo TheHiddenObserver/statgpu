@@ -82,11 +82,13 @@ X = np.random.default_rng(0).normal(size=(300, 6))
 model = AgglomerativeClustering(n_clusters=4, linkage="ward", device="cpu")
 labels = model.fit_predict(X)
 
-# With CuPy installed, keep data on the CUDA backend for the GPU path.
+model_gpu = AgglomerativeClustering(n_clusters=4, linkage="ward", device="cuda")
+labels_gpu = model_gpu.fit_predict(X)  # NumPy input is moved to the CUDA backend
+
+# With CuPy installed, you can also keep data resident as a CuPy array.
 # import cupy as cp
 # X_gpu = cp.asarray(X)
-model_gpu = AgglomerativeClustering(n_clusters=4, linkage="ward", device="cuda")
-labels_gpu = model_gpu.fit_predict(X_gpu)
+# labels_gpu = model_gpu.fit_predict(X_gpu)
 ```
 
 ## Strict/Approx Difference

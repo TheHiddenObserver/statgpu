@@ -82,11 +82,13 @@ X = np.random.default_rng(0).normal(size=(300, 6))
 model = AgglomerativeClustering(n_clusters=4, linkage="ward", device="cpu")
 labels = model.fit_predict(X)
 
-# 安装 CuPy 后，GPU 路径应传入 CUDA backend 上的数组。
+model_gpu = AgglomerativeClustering(n_clusters=4, linkage="ward", device="cuda")
+labels_gpu = model_gpu.fit_predict(X)  # NumPy 输入会转到 CUDA backend
+
+# 若希望全程保持 CuPy array，可显式转换后再传入。
 # import cupy as cp
 # X_gpu = cp.asarray(X)
-model_gpu = AgglomerativeClustering(n_clusters=4, linkage="ward", device="cuda")
-labels_gpu = model_gpu.fit_predict(X_gpu)
+# labels_gpu = model_gpu.fit_predict(X_gpu)
 ```
 
 ## strict/approx 差异
