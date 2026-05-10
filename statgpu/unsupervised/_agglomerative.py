@@ -14,19 +14,23 @@ from statgpu._config import Device
 from statgpu.unsupervised._utils import check_2d_array, reject_sparse, squared_euclidean_distances
 
 
+DEFAULT_GPU_DISTANCE_LIMIT_BYTES = 1 << 30
+
+
 def _gpu_distance_limit_bytes() -> int:
     value = os.environ.get("STATGPU_AGGLOMERATIVE_GPU_MAX_BYTES")
     if value is None:
-        return 1 << 30
+        return DEFAULT_GPU_DISTANCE_LIMIT_BYTES
     try:
         return int(value)
     except ValueError:
         warnings.warn(
-            "Invalid STATGPU_AGGLOMERATIVE_GPU_MAX_BYTES value; using default 1073741824 bytes.",
+            "Invalid STATGPU_AGGLOMERATIVE_GPU_MAX_BYTES value; "
+            f"using default {DEFAULT_GPU_DISTANCE_LIMIT_BYTES} bytes.",
             RuntimeWarning,
             stacklevel=2,
         )
-        return 1 << 30
+        return DEFAULT_GPU_DISTANCE_LIMIT_BYTES
 
 
 class AgglomerativeClustering(BaseEstimator):

@@ -49,7 +49,7 @@ def test_agglomerative_fit_predict_and_validation_errors():
         AgglomerativeClustering(device="cpu").fit(X).predict(X)
 
 
-def test_agglomerative_invalid_gpu_memory_env_falls_back_to_default(monkeypatch):
+def test_gpu_memory_env_invalid_value_fallback(monkeypatch):
     import statgpu.unsupervised._agglomerative as agglomerative_module
 
     monkeypatch.setenv("STATGPU_AGGLOMERATIVE_GPU_MAX_BYTES", "not_an_int")
