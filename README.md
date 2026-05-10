@@ -78,26 +78,24 @@ Backend support and feature parity are documented per model in the Model Docs In
 
 General documentation:
 
-- Primary usage portal (English): `USAGE.md`
-- Chinese usage portal: `USAGE_CN.md`
-- English docs root: `docs/en/`
-- Chinese docs root: `docs/`
-- Repo development layout: `dev/` (`tests/`, `benchmarks/`, `comparisons/`, `validation/`, `manual/`, `scripts/` for Cox data + R bench helpers)
+- Primary usage portal: [English](USAGE.md) / [Chinese](USAGE_CN.md)
+- Documentation root: [English](docs/en/) / [Chinese](docs/)
+- Repo development layout: [dev/](dev/) (`tests/`, `benchmarks/`, `comparisons`, `validation`, `manual`, `scripts`)
 
 Model documentation:
 
-- Linear regression: `docs/en/models/linear-regression.md` / `docs/models/linear-regression.md`
-- Logistic regression: `docs/en/models/logistic-regression.md` / `docs/models/logistic-regression.md`
-- Poisson regression: `docs/en/models/poisson-regression.md` / `docs/models/poisson-regression.md`
-- Generalized linear model: `docs/en/models/generalized-linear-model.md` / `docs/models/generalized-linear-model.md`
-- Ridge: `docs/en/models/ridge.md` / `docs/models/ridge.md`
-- Lasso: `docs/en/models/lasso.md` / `docs/models/lasso.md`
-- Elastic Net: `docs/en/models/elastic-net.md` / `docs/models/elastic-net.md`
-- Ordered regression: `docs/en/models/ordered.md` / `docs/models/ordered.md`
-- Cox proportional hazards: `docs/en/models/coxph.md` / `docs/models/coxph.md`
-- Nonparametric methods: `docs/en/models/nonparametric.md` / `docs/models/nonparametric.md`
-- Knockoff filter: `docs/en/models/knockoff.md` / `docs/models/knockoff.md`
-- Unsupervised models: `docs/en/models/unsupervised.md` / `docs/models/unsupervised.md`
+- Linear regression: [EN](docs/en/models/linear-regression.md) / [CN](docs/models/linear-regression.md)
+- Logistic regression: [EN](docs/en/models/logistic-regression.md) / [CN](docs/models/logistic-regression.md)
+- Poisson regression: [EN](docs/en/models/poisson-regression.md) / [CN](docs/models/poisson-regression.md)
+- Generalized linear model: [EN](docs/en/models/generalized-linear-model.md) / [CN](docs/models/generalized-linear-model.md)
+- Ridge: [EN](docs/en/models/ridge.md) / [CN](docs/models/ridge.md)
+- Lasso: [EN](docs/en/models/lasso.md) / [CN](docs/models/lasso.md)
+- Elastic Net: [EN](docs/en/models/elastic-net.md) / [CN](docs/models/elastic-net.md)
+- Ordered regression: [EN](docs/en/models/ordered.md) / [CN](docs/models/ordered.md)
+- Cox proportional hazards: [EN](docs/en/models/coxph.md) / [CN](docs/models/coxph.md)
+- Nonparametric methods: [EN](docs/en/models/nonparametric.md) / [CN](docs/models/nonparametric.md)
+- Knockoff filter: [EN](docs/en/models/knockoff.md) / [CN](docs/models/knockoff.md)
+- Unsupervised models: [EN](docs/en/models/unsupervised.md) / [CN](docs/models/unsupervised.md)
 
 ## Installation
 
