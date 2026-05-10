@@ -4,30 +4,28 @@ GPU-accelerated statistical methods with sklearn-compatible API.
 
 ## Features
 
-- 🚀 **GPU Acceleration**: Automatic CUDA support via CuPy and PyTorch
+- 🚀 **GPU Acceleration**: CUDA acceleration for supported estimators
 - 🔧 **sklearn-compatible**: Familiar `fit`/`predict` API
-- 🔄 **Auto Device Selection**: `device="auto"` can choose an available backend; explicit `cuda`/`torch` never silently falls back to CPU
+- 🔄 **Auto Device Selection**: `device="auto"` can choose an available backend; explicit devices never silently fall back
 - 📊 **Statistical Focus**: Methods from R that Python lacks
-- 🧪 **Multiple Testing**: `adjust_pvalues` (`bh`/`by`/`holm`/`bonferroni`/`hochberg`) + `combine_pvalues` (`fisher`/`cauchy`/`stouffer`) across 3 backends (numpy/cupy/torch)
+- 🧪 **Multiple Testing**: `adjust_pvalues` (`bh`/`by`/`holm`/`bonferroni`/`hochberg`) + `combine_pvalues` (`fisher`/`cauchy`/`stouffer`)
 - 🧮 **Inference Support**:
   - `LinearRegression`: `nonrobust` / `hc0` / `hc1` / `hc2` / `hc3` / `hac`
-  - `Ridge`: `nonrobust` / `hc0` / `hc1` / `hc2` / `hc3` / `hac` ✅ (Torch backend)
-  - `Lasso`: `cpu_ols_inference` / `gpu_ols_inference` / `bootstrap` ✅ (Torch backend)
-  - `LogisticRegression`: `nonrobust` / `hc0` / `hc1` / `hc2` / `hc3` / `hac` ✅ (Torch backend)
+  - `Ridge`: `nonrobust` / `hc0` / `hc1` / `hc2` / `hc3` / `hac`
+  - `Lasso`: `debiased` / `cpu_ols_inference` / `gpu_ols_inference` / `bootstrap`
+  - `LogisticRegression`: `nonrobust` / `hc0` / `hc1` / `hc2` / `hc3` / `hac`
 - 📈 **Nonparametric Support**:
   - KDE: `fit_kde` / `kde_pdf` / `kde_bootstrap_confidence_interval`
   - KDE kernel options: `gaussian` / `rectangular` / `triangular` / `epanechnikov` / `biweight` / `triweight` / `cosine` / `optcosine`
   - Kernel regression: `fit_kernel_regression` / `kernel_regression_predict`
+- 🧬 **Feature Selection**: Stepwise regression plus fixed-X and model-X knockoff filters
 - 🧭 **Unsupervised Learning**:
   - Dimensionality and factorization: `PCA`, `TruncatedSVD`, `IncrementalPCA`, `NMF`, `MiniBatchNMF`
   - Clustering and mixtures: `KMeans`, `MiniBatchKMeans`, `DBSCAN`, `GaussianMixture`, `AgglomerativeClustering`
   - Manifold embeddings: `UMAP`, `TSNE`
-  - Detailed objectives, estimating procedures, and backend notes: `docs/en/unsupervised/`
 - 🧹 **GPU Memory Control**: `gpu_memory_cleanup` for all current models
-- 🔥 **PyTorch Backend**: Optional Torch backend for GPU acceleration (PyTorch 2.0+)
-  - Supported models: `Ridge`, `LogisticRegression`, `Lasso`, `LassoCV`, `CoxPH`
-  - **Knockoff filter**: `fixed_x_knockoff_filter`, `model_x_knockoff_filter` with `backend='torch'`
-- 📐 **Unified Distribution Backend**: 15 distributions (norm, t, f, chi2, gamma, beta, uniform, expon, cauchy, laplace, logistic, weibull_min, lognorm, poisson, binom) across 3 backends (numpy/cupy/torch) via `get_distribution()`. GPU speedup 10-500x at 1M points. [API docs](docs/en/guides/distribution-api.md)
+- 🔥 **PyTorch Backend**: Optional Torch execution path for supported estimators
+- 📐 **Unified Distribution Backend**: 15 distributions (norm, t, f, chi2, gamma, beta, uniform, expon, cauchy, laplace, logistic, weibull_min, lognorm, poisson, binom) via `get_distribution()`
 
 ## Implemented Methods (Current)
 
@@ -80,26 +78,24 @@ Backend support and feature parity are documented per model in the Model Docs In
 
 General documentation:
 
-- Primary usage portal (English): `USAGE.md`
-- Chinese usage portal: `USAGE_CN.md`
-- English docs root: `docs/en/`
-- Chinese docs root: `docs/`
-- Repo development layout: `dev/` (`tests/`, `benchmarks/`, `comparisons/`, `validation/`, `manual/`, `scripts/` for Cox data + R bench helpers)
+- Primary usage portal: [English](USAGE.md) / [Chinese](USAGE_CN.md)
+- Documentation root: [English](docs/en/) / [Chinese](docs/)
+- Repo development layout: [dev/](dev/) (`tests/`, `benchmarks/`, `comparisons/`, `validation/`, `manual/`, `scripts/`)
 
 Model documentation:
 
-- Linear regression: `docs/en/models/linear-regression.md` / `docs/models/linear-regression.md`
-- Logistic regression: `docs/en/models/logistic-regression.md` / `docs/models/logistic-regression.md`
-- Poisson regression: `docs/en/models/poisson-regression.md` / `docs/models/poisson-regression.md`
-- Generalized linear model: `docs/en/models/generalized-linear-model.md` / `docs/models/generalized-linear-model.md`
-- Ridge: `docs/en/models/ridge.md` / `docs/models/ridge.md`
-- Lasso: `docs/en/models/lasso.md` / `docs/models/lasso.md`
-- Elastic Net: `docs/en/models/elastic-net.md` / `docs/models/elastic-net.md`
-- Ordered regression: `docs/en/models/ordered.md` / `docs/models/ordered.md`
-- Cox proportional hazards: `docs/en/models/coxph.md` / `docs/models/coxph.md`
-- Nonparametric methods: `docs/en/models/nonparametric.md` / `docs/models/nonparametric.md`
-- Knockoff filter: `docs/en/models/knockoff.md` / `docs/models/knockoff.md`
-- Unsupervised models: `docs/en/models/unsupervised.md` / `docs/models/unsupervised.md`
+- Linear regression: [EN](docs/en/models/linear-regression.md) / [CN](docs/models/linear-regression.md)
+- Logistic regression: [EN](docs/en/models/logistic-regression.md) / [CN](docs/models/logistic-regression.md)
+- Poisson regression: [EN](docs/en/models/poisson-regression.md) / [CN](docs/models/poisson-regression.md)
+- Generalized linear model: [EN](docs/en/models/generalized-linear-model.md) / [CN](docs/models/generalized-linear-model.md)
+- Ridge: [EN](docs/en/models/ridge.md) / [CN](docs/models/ridge.md)
+- Lasso: [EN](docs/en/models/lasso.md) / [CN](docs/models/lasso.md)
+- Elastic Net: [EN](docs/en/models/elastic-net.md) / [CN](docs/models/elastic-net.md)
+- Ordered regression: [EN](docs/en/models/ordered.md) / [CN](docs/models/ordered.md)
+- Cox proportional hazards: [EN](docs/en/models/coxph.md) / [CN](docs/models/coxph.md)
+- Nonparametric methods: [EN](docs/en/models/nonparametric.md) / [CN](docs/models/nonparametric.md)
+- Knockoff filter: [EN](docs/en/models/knockoff.md) / [CN](docs/models/knockoff.md)
+- Unsupervised models: [EN](docs/en/models/unsupervised.md) / [CN](docs/models/unsupervised.md)
 
 ## Installation
 
