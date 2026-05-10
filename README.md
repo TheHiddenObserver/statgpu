@@ -4,30 +4,28 @@ GPU-accelerated statistical methods with sklearn-compatible API.
 
 ## Features
 
-- 🚀 **GPU Acceleration**: Automatic CUDA support via CuPy and PyTorch
+- 🚀 **GPU Acceleration**: CUDA acceleration for supported estimators
 - 🔧 **sklearn-compatible**: Familiar `fit`/`predict` API
-- 🔄 **Auto Device Selection**: `device="auto"` can choose an available backend; explicit `cuda`/`torch` never silently falls back to CPU
+- 🔄 **Auto Device Selection**: `device="auto"` can choose an available backend; explicit devices never silently fall back
 - 📊 **Statistical Focus**: Methods from R that Python lacks
-- 🧪 **Multiple Testing**: `adjust_pvalues` (`bh`/`by`/`holm`/`bonferroni`/`hochberg`) + `combine_pvalues` (`fisher`/`cauchy`/`stouffer`) across 3 backends (numpy/cupy/torch)
+- 🧪 **Multiple Testing**: `adjust_pvalues` (`bh`/`by`/`holm`/`bonferroni`/`hochberg`) + `combine_pvalues` (`fisher`/`cauchy`/`stouffer`)
 - 🧮 **Inference Support**:
   - `LinearRegression`: `nonrobust` / `hc0` / `hc1` / `hc2` / `hc3` / `hac`
-  - `Ridge`: `nonrobust` / `hc0` / `hc1` / `hc2` / `hc3` / `hac` ✅ (Torch backend)
-  - `Lasso`: `cpu_ols_inference` / `gpu_ols_inference` / `bootstrap` ✅ (Torch backend)
-  - `LogisticRegression`: `nonrobust` / `hc0` / `hc1` / `hc2` / `hc3` / `hac` ✅ (Torch backend)
+  - `Ridge`: `nonrobust` / `hc0` / `hc1` / `hc2` / `hc3` / `hac`
+  - `Lasso`: `debiased` / `cpu_ols_inference` / `gpu_ols_inference` / `bootstrap`
+  - `LogisticRegression`: `nonrobust` / `hc0` / `hc1` / `hc2` / `hc3` / `hac`
 - 📈 **Nonparametric Support**:
   - KDE: `fit_kde` / `kde_pdf` / `kde_bootstrap_confidence_interval`
   - KDE kernel options: `gaussian` / `rectangular` / `triangular` / `epanechnikov` / `biweight` / `triweight` / `cosine` / `optcosine`
   - Kernel regression: `fit_kernel_regression` / `kernel_regression_predict`
+- 🧬 **Feature Selection**: Fixed-X and model-X knockoff filters
 - 🧭 **Unsupervised Learning**:
   - Dimensionality and factorization: `PCA`, `TruncatedSVD`, `IncrementalPCA`, `NMF`, `MiniBatchNMF`
   - Clustering and mixtures: `KMeans`, `MiniBatchKMeans`, `DBSCAN`, `GaussianMixture`, `AgglomerativeClustering`
   - Manifold embeddings: `UMAP`, `TSNE`
-  - Detailed objectives, estimating procedures, and backend notes: `docs/en/unsupervised/`
 - 🧹 **GPU Memory Control**: `gpu_memory_cleanup` for all current models
-- 🔥 **PyTorch Backend**: Optional Torch backend for GPU acceleration (PyTorch 2.0+)
-  - Supported models: `Ridge`, `LogisticRegression`, `Lasso`, `LassoCV`, `CoxPH`
-  - **Knockoff filter**: `fixed_x_knockoff_filter`, `model_x_knockoff_filter` with `backend='torch'`
-- 📐 **Unified Distribution Backend**: 15 distributions (norm, t, f, chi2, gamma, beta, uniform, expon, cauchy, laplace, logistic, weibull_min, lognorm, poisson, binom) across 3 backends (numpy/cupy/torch) via `get_distribution()`. GPU speedup 10-500x at 1M points. [API docs](docs/en/guides/distribution-api.md)
+- 🔥 **PyTorch Backend**: Optional Torch execution path for supported estimators
+- 📐 **Unified Distribution Backend**: 15 distributions (norm, t, f, chi2, gamma, beta, uniform, expon, cauchy, laplace, logistic, weibull_min, lognorm, poisson, binom) via `get_distribution()`
 
 ## Implemented Methods (Current)
 
