@@ -59,6 +59,7 @@ def test_agglomerative_invalid_gpu_memory_env_falls_back_to_default(monkeypatch)
 
     monkeypatch.delenv("STATGPU_AGGLOMERATIVE_GPU_MAX_BYTES", raising=False)
     importlib.reload(agglomerative_module)
+    assert agglomerative_module.AgglomerativeClustering._GPU_DISTANCE_LIMIT_BYTES == 1 << 30
 
 
 def test_agglomerative_explicit_cuda_runs_without_fallback():
