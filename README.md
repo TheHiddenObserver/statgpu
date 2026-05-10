@@ -18,7 +18,7 @@ GPU-accelerated statistical methods with sklearn-compatible API.
   - KDE: `fit_kde` / `kde_pdf` / `kde_bootstrap_confidence_interval`
   - KDE kernel options: `gaussian` / `rectangular` / `triangular` / `epanechnikov` / `biweight` / `triweight` / `cosine` / `optcosine`
   - Kernel regression: `fit_kernel_regression` / `kernel_regression_predict`
-- 🧬 **Feature Selection**: Fixed-X and model-X knockoff filters
+- 🧬 **Feature Selection**: Stepwise regression plus fixed-X and model-X knockoff filters
 - 🧭 **Unsupervised Learning**:
   - Dimensionality and factorization: `PCA`, `TruncatedSVD`, `IncrementalPCA`, `NMF`, `MiniBatchNMF`
   - Clustering and mixtures: `KMeans`, `MiniBatchKMeans`, `DBSCAN`, `GaussianMixture`, `AgglomerativeClustering`
