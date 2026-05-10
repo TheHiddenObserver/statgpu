@@ -80,7 +80,7 @@ General documentation:
 
 - Primary usage portal: [English](USAGE.md) / [Chinese](USAGE_CN.md)
 - Documentation root: [English](docs/en/) / [Chinese](docs/)
-- Repo development layout: [dev/](dev/) (`tests/`, `benchmarks/`, `comparisons`, `validation`, `manual`, `scripts`)
+- Repo development layout: [dev/](dev/) (`tests/`, `benchmarks/`, `comparisons/`, `validation/`, `manual/`, `scripts/`)
 
 Model documentation:
 
