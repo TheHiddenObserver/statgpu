@@ -116,6 +116,39 @@ class TestKDE:
             assert np.min(dens) >= -1e-12
             assert abs(integral - 1.0) < 0.08
 
+    def test_compact_support_kde_preserves_zero_density_regions(self):
+        x_1d = np.array([-0.2, 0.0, 0.2], dtype=np.float64)
+        kde_1d = fit_kde(x_1d, bandwidth=0.1, kernel="epanechnikov", backend="numpy")
+
+        pdf_1d = np.asarray(kde_1d.pdf(np.array([5.0])), dtype=np.float64)
+        logpdf_1d = np.asarray(kde_1d.logpdf(np.array([5.0])), dtype=np.float64)
+
+        assert pdf_1d.shape == (1,)
+        assert pdf_1d[0] == 0.0
+        assert logpdf_1d.shape == (1,)
+        assert np.isneginf(logpdf_1d[0])
+
+        rng = np.random.default_rng(20260511)
+        x_hd = rng.normal(scale=0.1, size=(32, 8))
+        points_hd = np.full((2, 8), 10.0, dtype=np.float64)
+        kde_hd = fit_kde(x_hd, bandwidth=0.2, kernel="epanechnikov", backend="numpy")
+
+        pdf_hd = np.asarray(kde_hd.pdf(points_hd), dtype=np.float64)
+        logpdf_hd = np.asarray(kde_hd.logpdf(points_hd), dtype=np.float64)
+
+        assert np.array_equal(pdf_hd, np.zeros(2, dtype=np.float64))
+        assert np.all(np.isneginf(logpdf_hd))
+
+    def test_gaussian_kde_logpdf_stays_finite_in_tail(self):
+        x_1d = np.array([-0.1, 0.0, 0.1], dtype=np.float64)
+        kde_1d = fit_kde(x_1d, bandwidth=0.1, kernel="gaussian", backend="numpy")
+
+        logpdf = np.asarray(kde_1d.logpdf(np.array([50.0])), dtype=np.float64)
+
+        assert logpdf.shape == (1,)
+        assert np.isfinite(logpdf[0])
+        assert logpdf[0] < 0.0
+
     def test_nrd_bandwidth_rules_for_1d(self):
         rng = np.random.default_rng(20260414)
         x = rng.normal(loc=0.3, scale=1.8, size=600)
@@ -322,4 +355,5 @@ class TestKDE:
         x_cp = cp.asarray(x_np)
         p_cp = cp.asarray(p_np)
         kde_cp = fit_kde(x_cp, bandwidth="scott", backend="cupy")
-
+        dens_cp = kde_cp(p_cp)
+        np.testing.assert_allclose(dens_np, cp.asnumpy(dens_cp), atol=5e-6)

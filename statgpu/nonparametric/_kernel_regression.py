@@ -17,11 +17,11 @@ from ._kernel_common import (
     _get_xp,
     _kernel_values_from_quad,
     _normalize_kernel_name,
+    _normalize_regression_name,
     _normalize_weights,
     _stable_inv_and_det,
     _to_float_scalar,
     _to_numpy,
-    _to_numpy_simple,
     _weighted_covariance,
 )
 
@@ -43,6 +43,7 @@ class KernelRegression(BaseEstimator):
         n_jobs: Optional[int] = None,
         batch_size: int = 1024,
         min_effective_weight: float = 1e-12,
+        gpu_memory_cleanup: bool = False,
     ):
         super().__init__(device=device, n_jobs=n_jobs)
         self.bandwidth = bandwidth
@@ -54,6 +55,7 @@ class KernelRegression(BaseEstimator):
         self.backend = backend
         self.batch_size = int(batch_size)
         self.min_effective_weight = float(min_effective_weight)
+        self.gpu_memory_cleanup = gpu_memory_cleanup
 
     def _resolve_backend_name(self, X, y) -> str:
         backend_name = str(self.backend).strip().lower()
@@ -173,6 +175,33 @@ class KernelRegression(BaseEstimator):
     def _require_fitted(self) -> None:
         if not self._fitted:
             raise RuntimeError("Model not fitted. Call fit() first.")
+
+    def _cleanup_cuda_memory(self):
+        if not self.gpu_memory_cleanup:
+            return
+        try:
+            import cupy as cp
+            cp.get_default_memory_pool().free_all_blocks()
+            cp.get_default_pinned_memory_pool().free_all_blocks()
+        except Exception:
+            pass
+
+    def _cleanup_torch_memory(self):
+        if not self.gpu_memory_cleanup:
+            return
+        try:
+            import torch
+            torch.cuda.empty_cache()
+            torch.cuda.synchronize()
+        except Exception:
+            pass
+
+    def __del__(self):
+        try:
+            self._cleanup_cuda_memory()
+            self._cleanup_torch_memory()
+        except Exception:
+            pass
 
     def _evaluate_nadaraya_watson(
         self,
@@ -508,6 +537,8 @@ class KernelRegression(BaseEstimator):
                 xp=xp,
             )
 
+        self._cleanup_cuda_memory()
+        self._cleanup_torch_memory()
         if self.target_was_1d_:
             return preds_2d.reshape(-1)
         return preds_2d
@@ -526,8 +557,8 @@ class KernelRegression(BaseEstimator):
         )
 
     def score(self, X, y):
-        pred = _to_numpy_simple(self.predict(X)).reshape(-1)
-        target = _to_numpy_simple(y).reshape(-1)
+        pred = _to_numpy(self.predict(X)).reshape(-1)
+        target = _to_numpy(y).reshape(-1)
         if pred.shape[0] != target.shape[0]:
             raise ValueError("X and y have incompatible lengths")
 
@@ -641,24 +672,6 @@ def _as_targets_2d(targets, n_samples: int, xp):
         return arr, False
 
     raise ValueError("targets must be 1D or 2D")
-
-
-def _normalize_regression_name(regression: str) -> str:
-    name = str(regression).strip().lower()
-    aliases = {
-        "nw": "nw",
-        "nadaraya_watson": "nw",
-        "nadaraya-watson": "nw",
-        "local_linear": "local_linear",
-        "local-linear": "local_linear",
-        "ll": "local_linear",
-    }
-    normalized = aliases.get(name)
-    if normalized is None:
-        raise ValueError(
-            "regression must be one of: 'nw', 'nadaraya_watson', 'local_linear', 'll'"
-        )
-    return normalized
 
 
 def _normalize_kernel_metric_name(kernel_metric: str) -> str:

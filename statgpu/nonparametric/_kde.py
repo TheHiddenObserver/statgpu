@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import math
-import os
 from statistics import NormalDist
 from typing import Any, Dict, Optional, Union
 
@@ -25,49 +24,8 @@ from ._kernel_common import (
     _stable_inv_and_det,
     _to_float_scalar,
     _to_numpy,
-    _to_numpy_simple,
     _weighted_covariance,
 )
-
-try:
-    from numba import njit
-
-    _NUMBA_AVAILABLE = True
-except Exception:
-    njit = None
-    _NUMBA_AVAILABLE = False
-
-
-_NUMBA_KDE_DISABLED = str(os.getenv("STATGPU_DISABLE_NUMBA_KDE", "0")).strip().lower() in (
-    "1",
-    "true",
-    "yes",
-    "on",
-)
-_NUMBA_KDE_RUNTIME_DISABLED = False
-
-
-if _NUMBA_AVAILABLE:
-
-    @njit(cache=True)
-    def _evaluate_density_1d_numba(points_1d, samples_1d, weights_1d, inv_scalar: float, norm_const: float):
-        m = int(points_1d.shape[0])
-        n = int(samples_1d.shape[0])
-        out = np.empty(m, dtype=np.float64)
-
-        scale = -0.5 * float(inv_scalar)
-        inv_norm = 1.0 / float(norm_const)
-        for i in range(m):
-            qi = points_1d[i]
-            acc = 0.0
-            for j in range(n):
-                diff = qi - samples_1d[j]
-                acc += np.exp(scale * diff * diff) * weights_1d[j]
-            out[i] = acc * inv_norm
-        return out
-
-else:
-    _evaluate_density_1d_numba = None
 
 
 def _unit_ball_volume(n_features: int) -> float:
@@ -117,12 +75,14 @@ class KernelDensityEstimator(BaseEstimator):
         backend: str = "auto",
         device: str = "auto",
         n_jobs: Optional[int] = None,
+        gpu_memory_cleanup: bool = False,
     ):
         super().__init__(device=device, n_jobs=n_jobs)
         self.bandwidth = bandwidth
         self.weights = weights
         self.kernel = kernel
         self.backend = backend
+        self.gpu_memory_cleanup = gpu_memory_cleanup
 
     def _resolve_backend_name(self, X) -> str:
         name = str(self.backend).strip().lower()
@@ -194,9 +154,34 @@ class KernelDensityEstimator(BaseEstimator):
         if not self._fitted:
             raise RuntimeError("Estimator not fitted. Call fit() first.")
 
-    def _evaluate_density(self, points_2d, *, batch_size: int, xp):
-        global _NUMBA_KDE_RUNTIME_DISABLED
+    def _cleanup_cuda_memory(self):
+        if not self.gpu_memory_cleanup:
+            return
+        try:
+            import cupy as cp
+            cp.get_default_memory_pool().free_all_blocks()
+            cp.get_default_pinned_memory_pool().free_all_blocks()
+        except Exception:
+            pass
 
+    def _cleanup_torch_memory(self):
+        if not self.gpu_memory_cleanup:
+            return
+        try:
+            import torch
+            torch.cuda.empty_cache()
+            torch.cuda.synchronize()
+        except Exception:
+            pass
+
+    def __del__(self):
+        try:
+            self._cleanup_cuda_memory()
+            self._cleanup_torch_memory()
+        except Exception:
+            pass
+
+    def _evaluate_density(self, points_2d, *, batch_size: int, xp):
         n_points = int(points_2d.shape[0])
         n_samples = int(self.samples_.shape[0])
         n_features = int(self.samples_.shape[1])
@@ -204,31 +189,11 @@ class KernelDensityEstimator(BaseEstimator):
         if batch_size <= 0:
             raise ValueError("batch_size must be a positive integer")
 
-        out = xp.empty(n_points, dtype=xp.float64)
+        out = xp.empty((n_points,), dtype=xp.float64)
 
         if n_features == 1:
             samples_1d = self.samples_[:, 0]
             inv_scalar = self.inv_covariance_[0, 0]
-
-            if (
-                xp is np
-                and _NUMBA_AVAILABLE
-                and (not _NUMBA_KDE_DISABLED)
-                and (not _NUMBA_KDE_RUNTIME_DISABLED)
-                and _evaluate_density_1d_numba is not None
-                and self.kernel_ == "gaussian"
-            ):
-                try:
-                    out[:] = _evaluate_density_1d_numba(
-                        np.ascontiguousarray(points_2d[:, 0], dtype=np.float64),
-                        np.ascontiguousarray(samples_1d, dtype=np.float64),
-                        np.ascontiguousarray(self.weights_, dtype=np.float64),
-                        float(inv_scalar),
-                        float(self.norm_const_),
-                    )
-                    return out
-                except Exception:
-                    _NUMBA_KDE_RUNTIME_DISABLED = True
 
             if xp is np and self.kernel_ == "gaussian" and (n_points * n_samples) <= 8_000_000:
                 q_1d = points_2d[:, 0]
@@ -262,8 +227,9 @@ class KernelDensityEstimator(BaseEstimator):
                     out[start:stop] = (kernels @ self.weights_) * self.inv_norm_const_
             return out
 
-        s_proj = self._samples_proj_
         s_quad = self._samples_quad_
+        is_gaussian = self.kernel_ == "gaussian"
+        use_log_sum_exp = n_features >= 8
 
         for start in range(0, n_points, int(batch_size)):
             stop = min(start + int(batch_size), n_points)
@@ -275,23 +241,118 @@ class KernelDensityEstimator(BaseEstimator):
             quad = q_quad[:, None] + s_quad[None, :] - 2.0 * cross
             quad = xp.maximum(quad, 0.0)
 
-            kernels = _kernel_values_from_quad(quad, self.kernel_, xp)
-            out[start:stop] = (kernels @ self.weights_) * self.inv_norm_const_
+            if use_log_sum_exp:
+                if is_gaussian:
+                    log_kernels = -0.5 * quad
+                    log_kernels_max = xp.max(log_kernels, axis=1, keepdims=True)
+                    log_sum = log_kernels_max[:, 0] + xp.log(
+                        xp.sum(xp.exp(log_kernels - log_kernels_max) * self.weights_[None, :], axis=1)
+                    )
+                    out[start:stop] = xp.exp(log_sum) * self.inv_norm_const_
+                else:
+                    kernels = _kernel_values_from_quad(quad, self.kernel_, xp)
+                    log_sum = self._log_weighted_kernel_sum(kernels, xp)
+                    out[start:stop] = xp.where(
+                        xp.isfinite(log_sum),
+                        xp.exp(log_sum) * self.inv_norm_const_,
+                        0.0,
+                    )
+            else:
+                kernels = _kernel_values_from_quad(quad, self.kernel_, xp)
+                out[start:stop] = (kernels @ self.weights_) * self.inv_norm_const_
 
         return out
+
+    def _log_weighted_kernel_sum(self, kernels, xp):
+        """Compute row-wise log(weighted kernel sum) with exact zero-density handling.
+
+        Parameters
+        ----------
+        kernels : array-like
+            Kernel values for each query/sample pair.
+        xp : module
+            Backend array module used for the computation.
+
+        Returns
+        -------
+        array-like
+            Per-row log-sum values, or ``-inf`` when all weighted kernel terms are zero.
+        """
+        positive_weight_mask = self.weights_[None, :] > 0.0
+        positive_term_mask = (kernels > 0.0) & positive_weight_mask
+        safe_kernels = xp.where(positive_term_mask, kernels, 1.0)
+        safe_weights = xp.where(positive_weight_mask, self.weights_[None, :], 1.0)
+        log_terms = xp.where(
+            positive_term_mask,
+            xp.log(safe_kernels) + xp.log(safe_weights),
+            float("-inf"),
+        )
+        log_terms_max = xp.max(log_terms, axis=1, keepdims=True)
+        finite_rows = xp.isfinite(log_terms_max[:, 0])
+        shifted = xp.where(finite_rows[:, None], log_terms - log_terms_max, float("-inf"))
+        return xp.where(
+            finite_rows,
+            log_terms_max[:, 0] + xp.log(xp.sum(xp.exp(shifted), axis=1)),
+            float("-inf"),
+        )
 
     def pdf(self, points, *, batch_size: int = 1024):
         self._require_fitted()
         xp = _get_xp(self.backend_)
         points_2d = _as_points_2d(points, self.n_features_, xp)
-        return self._evaluate_density(points_2d, batch_size=int(batch_size), xp=xp)
+        result = self._evaluate_density(points_2d, batch_size=int(batch_size), xp=xp)
+        self._cleanup_cuda_memory()
+        self._cleanup_torch_memory()
+        return result
+
+    def _evaluate_log_density(self, points_2d, *, batch_size: int, xp):
+        """Evaluate log-density in log domain (avoids underflow for high dimensions)."""
+        if batch_size <= 0:
+            raise ValueError("batch_size must be a positive integer")
+
+        s_quad = self._samples_quad_
+        log_norm = math.log(self.inv_norm_const_) if self.inv_norm_const_ > 0.0 else float("-inf")
+        is_gaussian = self.kernel_ == "gaussian"
+
+        out = xp.empty((points_2d.shape[0],), dtype=xp.float64)
+
+        for start in range(0, points_2d.shape[0], int(batch_size)):
+            stop = min(start + int(batch_size), points_2d.shape[0])
+            q = points_2d[start:stop]
+
+            q_proj = q @ self.inv_covariance_
+            q_quad = xp.sum(q_proj * q, axis=1)
+            cross = q_proj @ self.samples_.T
+            quad = q_quad[:, None] + s_quad[None, :] - 2.0 * cross
+            quad = xp.maximum(quad, 0.0)
+
+            if is_gaussian:
+                log_kernels = -0.5 * quad
+                log_kernels_max = xp.max(log_kernels, axis=1, keepdims=True)
+                log_kernels_shifted = log_kernels - log_kernels_max
+                log_sum = log_kernels_max[:, 0] + xp.log(
+                    xp.sum(xp.exp(log_kernels_shifted) * self.weights_[None, :], axis=1)
+                )
+                out[start:stop] = log_sum + log_norm
+            else:
+                kernels = _kernel_values_from_quad(quad, self.kernel_, xp)
+                log_sum = self._log_weighted_kernel_sum(kernels, xp)
+                out[start:stop] = xp.where(
+                    xp.isfinite(log_sum),
+                    log_sum + log_norm,
+                    float("-inf"),
+                )
+
+        return out
 
     def logpdf(self, points, *, batch_size: int = 1024):
         self._require_fitted()
         xp = _get_xp(self.backend_)
-        density = self.pdf(points, batch_size=batch_size)
-        tiny = np.finfo(np.float64).tiny
-        return xp.log(xp.maximum(density, tiny))
+        points_2d = _as_points_2d(points, self.n_features_, xp)
+        result = self._evaluate_log_density(points_2d, batch_size=int(batch_size), xp=xp)
+        self._cleanup_cuda_memory()
+        self._cleanup_torch_memory()
+        return result
 
     def __call__(self, points, *, batch_size: int = 1024):
         return self.pdf(points, batch_size=batch_size)
@@ -321,7 +382,7 @@ class KernelDensityEstimator(BaseEstimator):
 
     def score(self, X, y=None):
         vals = self.score_samples(X)
-        return float(np.mean(_to_numpy_simple(vals)))
+        return float(np.mean(_to_numpy(vals)))
 
 
 class KDE(KernelDensityEstimator):
