@@ -227,7 +227,6 @@ class KernelDensityEstimator(BaseEstimator):
                     out[start:stop] = (kernels @ self.weights_) * self.inv_norm_const_
             return out
 
-        s_proj = self._samples_proj_
         s_quad = self._samples_quad_
         is_gaussian = self.kernel_ == "gaussian"
         use_log_sum_exp = n_features >= 8
@@ -245,14 +244,14 @@ class KernelDensityEstimator(BaseEstimator):
             if use_log_sum_exp:
                 if is_gaussian:
                     log_kernels = -0.5 * quad
+                    log_kernels_max = xp.max(log_kernels, axis=1, keepdims=True)
+                    log_sum = log_kernels_max[:, 0] + xp.log(
+                        xp.sum(xp.exp(log_kernels - log_kernels_max) * self.weights_[None, :], axis=1)
+                    )
+                    out[start:stop] = xp.exp(log_sum) * self.inv_norm_const_
                 else:
                     kernels = _kernel_values_from_quad(quad, self.kernel_, xp)
-                    log_kernels = xp.log(xp.maximum(kernels, np.finfo(np.float64).tiny))
-                log_kernels_max = xp.max(log_kernels, axis=1, keepdims=True)
-                log_sum = log_kernels_max[:, 0] + xp.log(
-                    xp.sum(xp.exp(log_kernels - log_kernels_max) * self.weights_[None, :], axis=1)
-                )
-                out[start:stop] = xp.exp(log_sum) * self.inv_norm_const_
+                    out[start:stop] = (kernels @ self.weights_) * self.inv_norm_const_
             else:
                 kernels = _kernel_values_from_quad(quad, self.kernel_, xp)
                 out[start:stop] = (kernels @ self.weights_) * self.inv_norm_const_
@@ -278,10 +277,12 @@ class KernelDensityEstimator(BaseEstimator):
 
         if n_features == 1:
             density = self._evaluate_density(points_2d, batch_size=batch_size, xp=xp)
-            tiny = np.finfo(np.float64).tiny
-            return xp.log(xp.maximum(density, tiny))
+            return xp.where(
+                density > 0.0,
+                xp.log(density),
+                xp.full(density.shape, float("-inf"), dtype=xp.float64),
+            )
 
-        s_proj = self._samples_proj_
         s_quad = self._samples_quad_
         log_norm = math.log(self.inv_norm_const_) if self.inv_norm_const_ > 0.0 else float("-inf")
         is_gaussian = self.kernel_ == "gaussian"
@@ -300,16 +301,20 @@ class KernelDensityEstimator(BaseEstimator):
 
             if is_gaussian:
                 log_kernels = -0.5 * quad
+                log_kernels_max = xp.max(log_kernels, axis=1, keepdims=True)
+                log_kernels_shifted = log_kernels - log_kernels_max
+                log_sum = log_kernels_max[:, 0] + xp.log(
+                    xp.sum(xp.exp(log_kernels_shifted) * self.weights_[None, :], axis=1)
+                )
+                out[start:stop] = log_sum + log_norm
             else:
                 kernels = _kernel_values_from_quad(quad, self.kernel_, xp)
-                log_kernels = xp.log(xp.maximum(kernels, np.finfo(np.float64).tiny))
-
-            log_kernels_max = xp.max(log_kernels, axis=1, keepdims=True)
-            log_kernels_shifted = log_kernels - log_kernels_max
-            log_sum = log_kernels_max[:, 0] + xp.log(
-                xp.sum(xp.exp(log_kernels_shifted) * self.weights_[None, :], axis=1)
-            )
-            out[start:stop] = log_sum + log_norm
+                density = xp.sum(kernels * self.weights_[None, :], axis=1)
+                out[start:stop] = xp.where(
+                    density > 0.0,
+                    xp.log(density) + log_norm,
+                    xp.full(density.shape, float("-inf"), dtype=xp.float64),
+                )
 
         return out
 
