@@ -251,12 +251,36 @@ class KernelDensityEstimator(BaseEstimator):
                     out[start:stop] = xp.exp(log_sum) * self.inv_norm_const_
                 else:
                     kernels = _kernel_values_from_quad(quad, self.kernel_, xp)
-                    out[start:stop] = (kernels @ self.weights_) * self.inv_norm_const_
+                    log_sum = self._log_weighted_kernel_sum(kernels, xp)
+                    out[start:stop] = xp.where(
+                        xp.isfinite(log_sum),
+                        xp.exp(log_sum) * self.inv_norm_const_,
+                        0.0,
+                    )
             else:
                 kernels = _kernel_values_from_quad(quad, self.kernel_, xp)
                 out[start:stop] = (kernels @ self.weights_) * self.inv_norm_const_
 
         return out
+
+    def _log_weighted_kernel_sum(self, kernels, xp):
+        positive_weight_mask = self.weights_[None, :] > 0.0
+        positive_term_mask = (kernels > 0.0) & positive_weight_mask
+        safe_kernels = xp.where(positive_term_mask, kernels, 1.0)
+        safe_weights = xp.where(positive_weight_mask, self.weights_[None, :], 1.0)
+        log_terms = xp.where(
+            positive_term_mask,
+            xp.log(safe_kernels) + xp.log(safe_weights),
+            float("-inf"),
+        )
+        log_terms_max = xp.max(log_terms, axis=1, keepdims=True)
+        finite_rows = xp.isfinite(log_terms_max[:, 0])
+        shifted = xp.where(finite_rows[:, None], log_terms - log_terms_max, float("-inf"))
+        return xp.where(
+            finite_rows,
+            log_terms_max[:, 0] + xp.log(xp.sum(xp.exp(shifted), axis=1)),
+            float("-inf"),
+        )
 
     def pdf(self, points, *, batch_size: int = 1024):
         self._require_fitted()
@@ -280,7 +304,7 @@ class KernelDensityEstimator(BaseEstimator):
             return xp.where(
                 density > 0.0,
                 xp.log(density),
-                xp.full(density.shape, float("-inf"), dtype=xp.float64),
+                float("-inf"),
             )
 
         s_quad = self._samples_quad_
@@ -309,11 +333,11 @@ class KernelDensityEstimator(BaseEstimator):
                 out[start:stop] = log_sum + log_norm
             else:
                 kernels = _kernel_values_from_quad(quad, self.kernel_, xp)
-                density = xp.sum(kernels * self.weights_[None, :], axis=1)
+                log_sum = self._log_weighted_kernel_sum(kernels, xp)
                 out[start:stop] = xp.where(
-                    density > 0.0,
-                    xp.log(density) + log_norm,
-                    xp.full(density.shape, float("-inf"), dtype=xp.float64),
+                    xp.isfinite(log_sum),
+                    log_sum + log_norm,
+                    float("-inf"),
                 )
 
         return out
