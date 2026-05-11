@@ -584,6 +584,7 @@ def _stable_inverse_cov(cov, xp=np):
 
 
 def _fill_diagonal_zero(arr, xp=np):
+    """Set diagonal entries to zero across NumPy/CuPy/Torch backends."""
     if hasattr(xp, "fill_diagonal"):
         xp.fill_diagonal(arr, 0.0)
         return

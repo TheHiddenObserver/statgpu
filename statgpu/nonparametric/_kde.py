@@ -307,8 +307,6 @@ class KernelDensityEstimator(BaseEstimator):
 
     def _evaluate_log_density(self, points_2d, *, batch_size: int, xp):
         """Evaluate log-density in log domain (avoids underflow for high dimensions)."""
-        n_points = int(points_2d.shape[0])
-
         if batch_size <= 0:
             raise ValueError("batch_size must be a positive integer")
 
@@ -316,10 +314,10 @@ class KernelDensityEstimator(BaseEstimator):
         log_norm = math.log(self.inv_norm_const_) if self.inv_norm_const_ > 0.0 else float("-inf")
         is_gaussian = self.kernel_ == "gaussian"
 
-        out = xp.empty((n_points,), dtype=xp.float64)
+        out = xp.empty((points_2d.shape[0],), dtype=xp.float64)
 
-        for start in range(0, n_points, int(batch_size)):
-            stop = min(start + int(batch_size), n_points)
+        for start in range(0, points_2d.shape[0], int(batch_size)):
+            stop = min(start + int(batch_size), points_2d.shape[0])
             q = points_2d[start:stop]
 
             q_proj = q @ self.inv_covariance_
