@@ -189,7 +189,7 @@ class KernelDensityEstimator(BaseEstimator):
         if batch_size <= 0:
             raise ValueError("batch_size must be a positive integer")
 
-        out = xp.empty(n_points, dtype=xp.float64)
+        out = xp.empty((n_points,), dtype=xp.float64)
 
         if n_features == 1:
             samples_1d = self.samples_[:, 0]
@@ -325,7 +325,7 @@ class KernelDensityEstimator(BaseEstimator):
         log_norm = math.log(self.inv_norm_const_) if self.inv_norm_const_ > 0.0 else float("-inf")
         is_gaussian = self.kernel_ == "gaussian"
 
-        out = xp.empty(n_points, dtype=xp.float64)
+        out = xp.empty((n_points,), dtype=xp.float64)
 
         for start in range(0, n_points, int(batch_size)):
             stop = min(start + int(batch_size), n_points)

@@ -185,7 +185,7 @@ def _as_points_2d(points, n_features: int, xp):
 
 def _normalize_weights(weights, n_samples: int, xp):
     if weights is None:
-        return xp.full(n_samples, 1.0 / float(n_samples), dtype=xp.float64)
+        return xp.full((n_samples,), 1.0 / float(n_samples), dtype=xp.float64)
 
     w = xp.asarray(weights, dtype=xp.float64).reshape(-1)
     if int(w.size) != int(n_samples):
