@@ -264,6 +264,20 @@ class KernelDensityEstimator(BaseEstimator):
         return out
 
     def _log_weighted_kernel_sum(self, kernels, xp):
+        """Compute row-wise log(weighted kernel sum) with exact zero-density handling.
+
+        Parameters
+        ----------
+        kernels : array-like
+            Kernel values for each query/sample pair.
+        xp : module
+            Backend array module used for the computation.
+
+        Returns
+        -------
+        array-like
+            Per-row log-sum values, or ``-inf`` when all weighted kernel terms are zero.
+        """
         positive_weight_mask = self.weights_[None, :] > 0.0
         positive_term_mask = (kernels > 0.0) & positive_weight_mask
         safe_kernels = xp.where(positive_term_mask, kernels, 1.0)
