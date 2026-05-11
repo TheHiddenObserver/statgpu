@@ -583,6 +583,17 @@ def _stable_inverse_cov(cov, xp=np):
     return xp.linalg.pinv(cov_work)
 
 
+def _fill_diagonal_zero(arr, xp=np):
+    if hasattr(xp, "fill_diagonal"):
+        xp.fill_diagonal(arr, 0.0)
+        return
+    if hasattr(arr, "fill_diagonal_"):
+        arr.fill_diagonal_(0.0)
+        return
+    diag_idx = xp.arange(arr.shape[0])
+    arr[diag_idx, diag_idx] = 0.0
+
+
 def _kernel_regression_cv_score(
     *,
     samples_2d,
@@ -617,7 +628,7 @@ def _kernel_regression_cv_score(
         quad = xp.maximum(quad, 0.0)
 
     kernels = _kernel_values_from_quad(quad, kernel_name, xp)
-    xp.fill_diagonal(kernels, 0.0)
+    _fill_diagonal_zero(kernels, xp)
 
     weighted = kernels * weights_norm[None, :]
     denom = xp.sum(weighted, axis=1)

@@ -308,18 +308,9 @@ class KernelDensityEstimator(BaseEstimator):
     def _evaluate_log_density(self, points_2d, *, batch_size: int, xp):
         """Evaluate log-density in log domain (avoids underflow for high dimensions)."""
         n_points = int(points_2d.shape[0])
-        n_features = int(points_2d.shape[1])
 
         if batch_size <= 0:
             raise ValueError("batch_size must be a positive integer")
-
-        if n_features == 1:
-            density = self._evaluate_density(points_2d, batch_size=batch_size, xp=xp)
-            return xp.where(
-                density > 0.0,
-                xp.log(density),
-                float("-inf"),
-            )
 
         s_quad = self._samples_quad_
         log_norm = math.log(self.inv_norm_const_) if self.inv_norm_const_ > 0.0 else float("-inf")

@@ -139,6 +139,16 @@ class TestKDE:
         assert np.array_equal(pdf_hd, np.zeros(2, dtype=np.float64))
         assert np.all(np.isneginf(logpdf_hd))
 
+    def test_gaussian_kde_logpdf_stays_finite_in_tail(self):
+        x_1d = np.array([-0.1, 0.0, 0.1], dtype=np.float64)
+        kde_1d = fit_kde(x_1d, bandwidth=0.1, kernel="gaussian", backend="numpy")
+
+        logpdf = np.asarray(kde_1d.logpdf(np.array([50.0])), dtype=np.float64)
+
+        assert logpdf.shape == (1,)
+        assert np.isfinite(logpdf[0])
+        assert logpdf[0] < 0.0
+
     def test_nrd_bandwidth_rules_for_1d(self):
         rng = np.random.default_rng(20260414)
         x = rng.normal(loc=0.3, scale=1.8, size=600)
