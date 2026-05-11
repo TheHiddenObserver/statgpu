@@ -8,7 +8,14 @@ from typing import Any, Dict, Optional, Union
 
 import numpy as np
 
-from ._kernel_common import _to_float_scalar, _to_numpy, _kernel_values_from_quad
+from ._kernel_common import (
+    _bandwidth_factor,
+    _bandwidth_factor_1d_nrd,
+    _kernel_values_from_quad,
+    _normalize_regression_name,
+    _to_float_scalar,
+    _to_numpy,
+)
 
 _BW_DELMAX = 1000.0
 _SQRT_PI = math.sqrt(math.pi)
@@ -87,22 +94,8 @@ def _normalize_estimator_name(estimator: str) -> str:
     return out
 
 
-def _normalize_regression_mode(regression: str) -> str:
-    name = str(regression).strip().lower()
-    aliases = {
-        "nw": "nw",
-        "nadaraya_watson": "nw",
-        "nadaraya-watson": "nw",
-        "local_linear": "local_linear",
-        "local-linear": "local_linear",
-        "ll": "local_linear",
-    }
-    out = aliases.get(name)
-    if out is None:
-        raise ValueError(
-            "regression must be one of: 'nw', 'nadaraya_watson', 'local_linear', 'll'"
-        )
-    return out
+# Alias for backward compatibility - delegates to _kernel_common
+_normalize_regression_mode = _normalize_regression_name
 
 
 def _normalized_weights_numpy(weights: np.ndarray) -> np.ndarray:
@@ -192,72 +185,8 @@ def _project_to_principal_axis(samples_2d, weights_1d) -> tuple[np.ndarray, np.n
     return np.asarray(proj, dtype=np.float64), principal_vec, explained_ratio
 
 
-def _bandwidth_factor(
-    bandwidth: Union[str, float, int],
-    *,
-    n_eff: float,
-    n_features: int,
-) -> float:
-    if isinstance(bandwidth, str):
-        method = bandwidth.strip().lower()
-        if method == "scott":
-            factor = n_eff ** (-1.0 / (n_features + 4.0))
-        elif method == "silverman":
-            factor = (n_eff * (n_features + 2.0) / 4.0) ** (-1.0 / (n_features + 4.0))
-        else:
-            raise ValueError(
-                "bandwidth must be one of: 'scott', 'silverman', 'nrd0', 'nrd', "
-                "'ucv', 'bcv', 'sj', 'sj-ste', 'sj-dpi', 'cv', 'cv_ls', 'cv-nw', 'cv-ll', "
-                "or a positive scalar"
-            )
-    else:
-        factor = float(bandwidth)
-
-    if not np.isfinite(factor) or factor <= 0.0:
-        raise ValueError("bandwidth factor must be a finite positive scalar")
-    return float(factor)
-
-
-def _bandwidth_factor_1d_nrd(
-    method: str,
-    *,
-    n_eff: float,
-    samples_2d,
-    data_cov,
-    xp,
-) -> float:
-    method_n = str(method).strip().lower()
-    if method_n not in ("nrd0", "nrd"):
-        raise ValueError("method must be one of: 'nrd0', 'nrd'")
-
-    x = np.asarray(_to_numpy(samples_2d[:, 0]), dtype=np.float64)
-    x = x[np.isfinite(x)]
-    if x.size < 2:
-        raise ValueError("need at least 2 finite samples for 'nrd0'/'nrd' bandwidth")
-
-    sd = float(np.std(x, ddof=1))
-    q75, q25 = np.quantile(x, [0.75, 0.25])
-    robust = float((q75 - q25) / 1.34)
-
-    scale = min(sd, robust) if np.isfinite(robust) and robust > 0.0 else sd
-    if (not np.isfinite(scale)) or scale <= 0.0:
-        scale = float(np.std(x, ddof=0))
-    if (not np.isfinite(scale)) or scale <= 0.0:
-        raise ValueError("unable to compute positive scale for 'nrd0'/'nrd' bandwidth")
-
-    coeff = 0.9 if method_n == "nrd0" else 1.06
-    bw_abs = float(coeff * scale * (float(n_eff) ** (-1.0 / 5.0)))
-    if (not np.isfinite(bw_abs)) or bw_abs <= 0.0:
-        raise ValueError("automatic bandwidth rule produced a non-positive value")
-
-    data_sd = math.sqrt(max(_to_float_scalar(data_cov[0, 0]), 0.0))
-    if data_sd <= 0.0 or (not np.isfinite(data_sd)):
-        data_sd = max(float(np.finfo(np.float64).tiny), sd)
-
-    factor = float(bw_abs / data_sd)
-    if (not np.isfinite(factor)) or factor <= 0.0:
-        raise ValueError("bandwidth factor must be a finite positive scalar")
-    return factor
+# _bandwidth_factor, _bandwidth_factor_1d_nrd, _normalize_regression_mode
+# are imported from _kernel_common (see top-level imports)
 
 
 def _golden_section_minimize(func, lower: float, upper: float, tol: float) -> float:
@@ -635,34 +564,35 @@ def _as_targets_numpy_2d(targets, n_samples: int) -> np.ndarray:
     return y
 
 
-def _stable_inverse_cov_numpy(cov: np.ndarray) -> np.ndarray:
+def _stable_inverse_cov(cov, xp=np):
     d = int(cov.shape[0])
-    cov_work = np.asarray(cov, dtype=np.float64)
+    cov_work = xp.asarray(cov, dtype=xp.float64)
     cov_work = 0.5 * (cov_work + cov_work.T)
 
-    trace = float(np.trace(cov_work))
+    trace = _to_float_scalar(xp.trace(cov_work))
     base = trace / float(max(1, d)) if np.isfinite(trace) else 1.0
     jitter = max(base * 1e-12, 1e-12)
 
     for _ in range(8):
         try:
-            return np.linalg.inv(cov_work)
+            return xp.linalg.inv(cov_work)
         except Exception:
-            cov_work = cov_work + jitter * np.eye(d, dtype=np.float64)
+            cov_work = cov_work + jitter * xp.eye(d, dtype=xp.float64)
             jitter *= 10.0
 
-    return np.linalg.pinv(cov_work)
+    return xp.linalg.pinv(cov_work)
 
 
 def _kernel_regression_cv_score(
     *,
-    samples_2d: np.ndarray,
-    targets_2d: np.ndarray,
-    weights_norm: np.ndarray,
-    data_cov: np.ndarray,
+    samples_2d,
+    targets_2d,
+    weights_norm,
+    data_cov,
     kernel_name: str,
     factor: float,
     regression_mode: str,
+    xp=np,
 ) -> float:
     f = float(factor)
     if (not np.isfinite(f)) or f <= 0.0:
@@ -672,37 +602,36 @@ def _kernel_regression_cv_score(
     if n < 3:
         return float("inf")
 
-    scaled_cov = np.asarray(data_cov, dtype=np.float64) * (f ** 2)
-    inv_cov = _stable_inverse_cov_numpy(scaled_cov)
+    scaled_cov = xp.asarray(data_cov, dtype=xp.float64) * (f ** 2)
+    inv_cov = _stable_inverse_cov(scaled_cov, xp=xp)
 
     if d == 1:
         x = samples_2d[:, 0]
         diff = x[:, None] - x[None, :]
-        quad = (diff * diff) * float(inv_cov[0, 0])
+        quad = (diff * diff) * _to_float_scalar(inv_cov[0, 0])
     else:
         s_proj = samples_2d @ inv_cov
-        s_quad = np.sum(s_proj * samples_2d, axis=1)
+        s_quad = xp.sum(s_proj * samples_2d, axis=1)
         cross = s_proj @ samples_2d.T
         quad = s_quad[:, None] + s_quad[None, :] - 2.0 * cross
-        quad = np.maximum(quad, 0.0)
+        quad = xp.maximum(quad, 0.0)
 
-    kernels = _kernel_values_from_quad(quad, kernel_name, np)
-    np.fill_diagonal(kernels, 0.0)
+    kernels = _kernel_values_from_quad(quad, kernel_name, xp)
+    xp.fill_diagonal(kernels, 0.0)
 
     weighted = kernels * weights_norm[None, :]
-    denom = np.sum(weighted, axis=1)
+    denom = xp.sum(weighted, axis=1)
     tiny = float(np.finfo(np.float64).tiny)
 
     valid = denom > tiny
-    if not np.any(valid):
+    if not _to_float_scalar(xp.any(valid)):
         return float("inf")
 
     numer_nw = weighted @ targets_2d
-    pred_nw = np.divide(
-        numer_nw,
-        denom[:, None],
-        out=np.zeros_like(numer_nw),
-        where=denom[:, None] > tiny,
+    pred_nw = xp.where(
+        denom[:, None] > tiny,
+        numer_nw / xp.where(denom[:, None] > tiny, denom[:, None], 1.0),
+        xp.zeros_like(numer_nw),
     )
     pred = pred_nw
 
@@ -711,36 +640,58 @@ def _kernel_regression_cv_score(
         diff = x[:, None] - x[None, :]
 
         s0 = denom
-        s1 = np.sum(weighted * diff, axis=1)
-        s2 = np.sum(weighted * diff * diff, axis=1)
+        s1 = xp.sum(weighted * diff, axis=1)
+        s2 = xp.sum(weighted * diff * diff, axis=1)
 
         t0 = numer_nw
         t1 = (weighted * diff) @ targets_2d
 
         det = s0 * s2 - s1 * s1
         det_thresh = tiny * tiny
-        use_ll = (s0 > tiny) & (np.abs(det) > det_thresh)
+        use_ll = (s0 > tiny) & (xp.abs(det) > det_thresh)
 
-        pred_ll = pred_nw.copy()
-        good_det = np.abs(det) > det_thresh
-        pred_ll[good_det] = (
-            (s2[good_det, None] * t0[good_det] - s1[good_det, None] * t1[good_det])
-            / det[good_det, None]
+        safe_det = xp.where(xp.abs(det) > det_thresh, det, 1.0)
+        pred_ll = xp.where(
+            use_ll[:, None],
+            (xp.where(s2 > 0, s2, 0.0)[:, None] * t0 - s1[:, None] * t1) / safe_det[:, None],
+            pred_nw,
         )
-        pred = np.where(use_ll[:, None], pred_ll, pred_nw)
+        pred = xp.where(use_ll[:, None], pred_ll, pred_nw)
 
     err = targets_2d - pred
-    mse_i = np.mean(err * err, axis=1)
+    mse_i = xp.mean(err * err, axis=1)
 
-    w_valid = weights_norm * valid.astype(np.float64)
-    wsum = float(np.sum(w_valid))
+    w_valid = weights_norm * valid.astype(xp.float64)
+    wsum = _to_float_scalar(xp.sum(w_valid))
     if (not np.isfinite(wsum)) or wsum <= 0.0:
         return float("inf")
 
-    score = float(np.sum(w_valid * mse_i) / wsum)
+    score = _to_float_scalar(xp.sum(w_valid * mse_i) / wsum)
     if not np.isfinite(score):
         return float("inf")
     return score
+
+
+def _as_targets_2d(targets, n_samples: int, xp=np):
+    y = xp.asarray(targets, dtype=xp.float64)
+    if y.ndim == 1:
+        if y.shape[0] != n_samples:
+            raise ValueError("targets length must match samples")
+        y = y.reshape(-1, 1)
+    elif y.ndim == 2:
+        if y.shape[0] != n_samples:
+            raise ValueError("targets rows must match samples")
+    else:
+        raise ValueError("targets must be 1D or 2D")
+    return y
+
+
+def _normalized_weights(w, xp=np):
+    w_arr = xp.asarray(w, dtype=xp.float64).reshape(-1)
+    w_sum = _to_float_scalar(xp.sum(w_arr))
+    if w_sum <= 0.0:
+        raise ValueError("weights must sum to a positive value")
+    return w_arr / w_sum
 
 
 def _kernel_regression_cv_factor(
@@ -753,11 +704,12 @@ def _kernel_regression_cv_factor(
     regression_mode: str,
     n_eff: float,
     n_features: int,
+    xp=np,
 ) -> tuple[float, Dict[str, Any]]:
-    x = np.asarray(_to_numpy(samples_2d), dtype=np.float64)
-    y = _as_targets_numpy_2d(targets_2d, int(x.shape[0]))
-    w = _normalized_weights_numpy(np.asarray(_to_numpy(weights_1d), dtype=np.float64).reshape(-1))
-    cov = np.asarray(_to_numpy(data_cov), dtype=np.float64)
+    x = xp.asarray(samples_2d, dtype=xp.float64)
+    y = _as_targets_2d(targets_2d, int(x.shape[0]), xp=xp)
+    w = _normalized_weights(weights_1d, xp=xp)
+    cov = xp.asarray(data_cov, dtype=xp.float64)
 
     d = int(n_features)
     if d != int(x.shape[1]):
@@ -779,6 +731,7 @@ def _kernel_regression_cv_factor(
             kernel_name=kernel_name,
             factor=f,
             regression_mode=regression_mode,
+            xp=xp,
         )
         if score < best_score_box["value"]:
             best_score_box["value"] = score
@@ -994,6 +947,7 @@ class _KernelRegressionBandwidthSelector(_BaseBandwidthSelector):
             regression_mode=cv_mode,
             n_eff=self.n_eff,
             n_features=self.n_features,
+            xp=self.xp,
         )
 
         details["rule"] = "regression_cv"

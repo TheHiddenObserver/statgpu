@@ -322,4 +322,6 @@ class TestKDE:
         x_cp = cp.asarray(x_np)
         p_cp = cp.asarray(p_np)
         kde_cp = fit_kde(x_cp, bandwidth="scott", backend="cupy")
+        dens_cp = kde_cp(p_cp)
+        np.testing.assert_allclose(dens_np, cp.asnumpy(dens_cp), atol=5e-6)
 

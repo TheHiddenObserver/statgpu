@@ -26,17 +26,14 @@ __all__ = [
     "_get_xp",
     "_kernel_values_from_quad",
     "_normalize_kernel_name",
+    "_normalize_regression_name",
     "_normalize_weights",
     "_resolve_backend",
     "_stable_inv_and_det",
     "_to_float_scalar",
     "_to_numpy",
-    "_to_numpy_simple",
     "_weighted_covariance",
 ]
-
-# Alias for backward compatibility (deprecated, use _to_numpy instead)
-_to_numpy_simple = _to_numpy
 
 
 def _auto_backend_from_device(device: str, prefer_torch: bool = False) -> str:
@@ -106,6 +103,24 @@ def _normalize_kernel_name(kernel: str) -> str:
         raise ValueError(
             "kernel must be one of: 'gaussian', 'rectangular', 'triangular', "
             "'epanechnikov', 'biweight', 'triweight', 'cosine', 'optcosine'"
+        )
+    return normalized
+
+
+def _normalize_regression_name(regression: str) -> str:
+    name = str(regression).strip().lower()
+    aliases = {
+        "nw": "nw",
+        "nadaraya_watson": "nw",
+        "nadaraya-watson": "nw",
+        "local_linear": "local_linear",
+        "local-linear": "local_linear",
+        "ll": "local_linear",
+    }
+    normalized = aliases.get(name)
+    if normalized is None:
+        raise ValueError(
+            "regression must be one of: 'nw', 'nadaraya_watson', 'local_linear', 'll'"
         )
     return normalized
 
@@ -248,7 +263,11 @@ def _bandwidth_factor(
         elif method == "silverman":
             factor = (n_eff * (n_features + 2.0) / 4.0) ** (-1.0 / (n_features + 4.0))
         else:
-            raise ValueError("bandwidth must be one of: 'scott', 'silverman', or a positive scalar")
+            raise ValueError(
+                "bandwidth must be one of: 'scott', 'silverman', 'nrd0', 'nrd', "
+                "'ucv', 'bcv', 'sj', 'sj-ste', 'sj-dpi', 'cv', 'cv_ls', 'cv-nw', 'cv-ll', "
+                "or a positive scalar"
+            )
     else:
         factor = float(bandwidth)
 
