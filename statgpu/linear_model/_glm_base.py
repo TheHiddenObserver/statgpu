@@ -25,7 +25,15 @@ from statgpu._config import Device
 from statgpu.backends import _to_numpy
 from statgpu.glm_core._irls import IRLSSolver
 from statgpu.glm_core._solver import fista_solver
-from statgpu.glm_core._family import Gaussian, Binomial, Poisson
+from statgpu.glm_core._family import (
+    Gaussian,
+    Binomial,
+    Poisson,
+    Gamma,
+    InverseGaussian,
+    NegativeBinomial,
+    Tweedie,
+)
 
 
 def _xp_arr(arr):
@@ -100,8 +108,13 @@ class GeneralizedLinearModel(BaseEstimator):
             "gaussian": Gaussian,
             "binomial": Binomial,
             "poisson": Poisson,
+            "gamma": Gamma,
+            "inverse_gaussian": InverseGaussian,
+            "negative_binomial": NegativeBinomial,
+            "tweedie": Tweedie,
         }
-        return family_map[self.family]()
+        kwargs = self._get_loss_kwargs()
+        return family_map[self.family](**kwargs)
 
     def _get_penalty_alpha(self):
         """L2 regularization alpha for IRLS: lambda = 1/(2*C)."""
@@ -355,12 +368,20 @@ class GeneralizedLinearModel(BaseEstimator):
             X.shape[1] + (1 if self.fit_intercept else 0)
         )
 
+    def _get_loss_kwargs(self):
+        """Override in subclass to pass extra kwargs to family/loss."""
+        return {}
+
     def family_to_loss(self):
         """Map family name to loss name."""
         mapping = {
             "gaussian": "squared_error",
             "binomial": "logistic",
             "poisson": "poisson",
+            "gamma": "gamma",
+            "inverse_gaussian": "inverse_gaussian",
+            "negative_binomial": "negative_binomial",
+            "tweedie": "tweedie",
         }
         return mapping.get(self.family, "squared_error")
 

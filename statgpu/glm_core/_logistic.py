@@ -7,7 +7,7 @@ where z = X @ coef.
 
 Supports numpy / cupy / torch backends via _backend helpers.
 """
-from statgpu.backends._array_ops import _clip, _log1p, _exp, _sigmoid, _sum, _eigvalsh
+from statgpu.backends._array_ops import _clip, _log1p, _exp, _sigmoid, _sum, _max_eigval_power
 from ._base import GLMLoss, register_glm_loss
 
 
@@ -34,10 +34,10 @@ class LogisticLoss(GLMLoss):
         W = _clip(p * (1.0 - p), 1e-10, 1.0 - 1e-10)
         return X.T @ (X * W[:, None]) / X.shape[0]
 
-    def lipschitz(self, X, coef):
+    def lipschitz(self, X, coef, y=None):
         # Global Lipschitz: L = lambda_max(X'X) / (4n)
         XtX = X.T @ X
-        return float(_eigvalsh(XtX)[-1]) / (4.0 * X.shape[0])
+        return _max_eigval_power(XtX) / (4.0 * X.shape[0])
 
     def predict(self, X, coef):
         z = X @ coef

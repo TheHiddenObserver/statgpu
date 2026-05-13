@@ -19,6 +19,10 @@ from ._penalized import (
     PenalizedPoissonRegression,
 )
 from ._poisson_glm import PoissonRegression
+from ._gamma_glm import GammaRegression
+from ._inverse_gaussian_glm import InverseGaussianRegression
+from ._negative_binomial_glm import NegativeBinomialRegression
+from ._tweedie_glm import TweedieRegression
 from ._ordered_logit import OrderedLogitRegression
 from ._ordered_probit import OrderedProbitRegression
 
@@ -27,6 +31,10 @@ __all__ = [
     'LogisticRegression',
     'LogisticRegressionCV',
     'PoissonRegression',
+    'GammaRegression',
+    'InverseGaussianRegression',
+    'NegativeBinomialRegression',
+    'TweedieRegression',
     'GeneralizedLinearModel',
     'OrderedGeneralizedLinearModel',
     'PenalizedGeneralizedLinearModel',

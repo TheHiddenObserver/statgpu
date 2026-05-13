@@ -5,6 +5,7 @@ Extracted from the duplicated IRLS loops in _logistic.py across CPU/GPU/Torch.
 Single implementation works on numpy/cupy/torch backends via auto detection.
 """
 
+import warnings
 from typing import Optional
 
 import numpy as np
@@ -57,6 +58,9 @@ def _clip(x, lo, hi, backend):
         if hi is not None:
             x = torch.clamp(x, max=hi)
         return x
+    if backend == "cupy":
+        import cupy as cp
+        return cp.clip(x, lo, hi)
     return np.clip(x, lo, hi)
 
 
@@ -227,11 +231,21 @@ def irls_solver(
     for iteration in range(max_iter):
         params_old = _copy_arr(params)
 
-        # Step 1: linear predictor
-        eta = X @ params
+        # Step 1: linear predictor (clip eta to prevent exp overflow)
+        # For identity link (squared_error), skip clipping — mu = eta = X@params
+        # and clipping distorts the OLS solution.
+        eta_raw = X @ params
+        _link_name = getattr(family.link, 'name', '')
+        if _link_name in ('identity', 'Identity'):
+            eta = eta_raw
+        else:
+            eta = _clip(eta_raw, -30, 30, backend)
 
-        # Step 2: inverse link -> mean
+        # Step 2: inverse link -> mean (clip mu to prevent extreme weights)
+        # For identity link (squared_error), skip clipping — mu = eta.
         mu = family.link.inverse(eta)
+        if _link_name not in ('identity', 'Identity'):
+            mu = _clip(mu, 1e-10, 1e6, backend)
 
         # Step 3: IRLS weights
         W = family.irls_weights(mu, y)
@@ -245,10 +259,8 @@ def irls_solver(
         z = family.irls_working_response(mu, y, eta)
 
         # Step 5: weighted least squares (X'WX + lambda*I) params = X'Wz
-        # Broadcasting: W is (n_samples,), X is (n_samples, n_features)
         if backend == "torch":
             import torch
-            # Use torch.compile'd weighted GEMM for elementwise fusion
             W_col = W.unsqueeze(1)
             _compiled_step = _get_irls_step_compiled()
             XtWX, Xtz = _irls_step_call(_compiled_step, X, W, z)
@@ -267,12 +279,209 @@ def irls_solver(
                 reg[0] = 0.0
             XtWX = XtWX + _diag(reg, backend, ref_tensor=X)
 
-        params = _solve(XtWX, Xtz, backend)
+        params_new = _solve(XtWX, Xtz, backend)
 
-        if _norm(params - params_old, backend) < tol:
-            break
+        # Armijo backtracking line search: find step in (0, 1] that
+        # gives sufficient decrease in the loss (deviance).
+        _fname = getattr(family, 'name', '')
+        _tweedie_power = float(getattr(family, 'power', 1.5)) if _fname == "tweedie" else 0.0
+        _nb_alpha = float(getattr(family, 'alpha', 1.0)) if _fname == "negative_binomial" else 0.0
 
-    return params, iteration + 1
+        def _dev_val(mu_arr):
+            """Compute family-specific deviance (lower is better).
+
+            Correct Tweedie deviance for power p (p != 1, p != 2):
+              d(y, mu) = y*(y^(1-p) - mu^(1-p))/(1-p) - (y^(2-p) - mu^(2-p))/(2-p)
+            """
+            _y = _to_backend(y, backend, X)
+            if backend == "torch":
+                import torch
+                if _fname in ("gaussian", "squared_error"):
+                    return float(torch.sum((_y - mu_arr) ** 2).item())
+                elif _fname == "gamma":
+                    return float(torch.sum(_y / mu_arr - torch.log(_y / mu_arr) - 1.0).item())
+                elif _fname == "inverse_gaussian":
+                    return float(torch.sum((_y - mu_arr) ** 2 / (_y * mu_arr ** 2)).item())
+                elif _fname == "negative_binomial":
+                    _mu_c = torch.clamp(mu_arr, min=1e-10)
+                    _y_c = torch.clamp(_y, min=1e-10)
+                    _a = _nb_alpha
+                    return float(torch.sum(
+                        2.0 * (_y_c * torch.log(_y_c / _mu_c)
+                               - (_y_c + 1.0 / _a) * torch.log((1.0 + _a * _y_c) / (1.0 + _a * _mu_c)))
+                    ).item())
+                elif _fname == "tweedie":
+                    p = _tweedie_power
+                    if abs(p - 1.0) < 0.01:
+                        return float(torch.sum(mu_arr - _y * torch.log(mu_arr)).item())
+                    elif abs(p - 2.0) < 0.01:
+                        return float(torch.sum(_y / mu_arr - torch.log(_y / mu_arr) - 1.0).item())
+                    else:
+                        return float(torch.sum(
+                            _y * (torch.pow(_y, 1.0 - p) - torch.pow(mu_arr, 1.0 - p)) / (1.0 - p)
+                            - (torch.pow(_y, 2.0 - p) - torch.pow(mu_arr, 2.0 - p)) / (2.0 - p)
+                        ).item())
+                else:
+                    return float(torch.sum(mu_arr - _y * torch.log(mu_arr)).item())
+            elif backend == "cupy":
+                import cupy as cp
+                if _fname in ("gaussian", "squared_error"):
+                    return float(cp.sum((_y - mu_arr) ** 2))
+                elif _fname == "gamma":
+                    return float(cp.sum(_y / mu_arr - cp.log(_y / mu_arr) - 1.0))
+                elif _fname == "inverse_gaussian":
+                    return float(cp.sum((_y - mu_arr) ** 2 / (_y * mu_arr ** 2)))
+                elif _fname == "negative_binomial":
+                    _mu_c = cp.clip(mu_arr, 1e-10)
+                    _y_c = cp.clip(_y, 1e-10)
+                    _a = _nb_alpha
+                    return float(cp.sum(
+                        2.0 * (_y_c * cp.log(_y_c / _mu_c)
+                               - (_y_c + 1.0 / _a) * cp.log((1.0 + _a * _y_c) / (1.0 + _a * _mu_c)))
+                    ))
+                elif _fname == "tweedie":
+                    p = _tweedie_power
+                    if abs(p - 1.0) < 0.01:
+                        return float(cp.sum(mu_arr - _y * cp.log(mu_arr)))
+                    elif abs(p - 2.0) < 0.01:
+                        return float(cp.sum(_y / mu_arr - cp.log(_y / mu_arr) - 1.0))
+                    else:
+                        return float(cp.sum(
+                            _y * (cp.power(_y, 1.0 - p) - cp.power(mu_arr, 1.0 - p)) / (1.0 - p)
+                            - (cp.power(_y, 2.0 - p) - cp.power(mu_arr, 2.0 - p)) / (2.0 - p)
+                        ))
+                else:
+                    return float(cp.sum(mu_arr - _y * cp.log(mu_arr)))
+            else:
+                if _fname in ("gaussian", "squared_error"):
+                    return float(np.sum((_y - mu_arr) ** 2))
+                elif _fname == "gamma":
+                    return float(np.sum(_y / mu_arr - np.log(_y / mu_arr) - 1.0))
+                elif _fname == "inverse_gaussian":
+                    return float(np.sum((_y - mu_arr) ** 2 / (_y * mu_arr ** 2)))
+                elif _fname == "negative_binomial":
+                    _mu_c = np.clip(mu_arr, 1e-10, None)
+                    _y_c = np.clip(_y, 1e-10, None)
+                    _a = _nb_alpha
+                    return float(np.sum(
+                        2.0 * (_y_c * np.log(_y_c / _mu_c)
+                               - (_y_c + 1.0 / _a) * np.log((1.0 + _a * _y_c) / (1.0 + _a * _mu_c)))
+                    ))
+                elif _fname == "tweedie":
+                    p = _tweedie_power
+                    if abs(p - 1.0) < 0.01:
+                        return float(np.sum(mu_arr - _y * np.log(mu_arr)))
+                    elif abs(p - 2.0) < 0.01:
+                        return float(np.sum(_y / mu_arr - np.log(_y / mu_arr) - 1.0))
+                    else:
+                        return float(np.sum(
+                            _y * (np.power(_y, 1.0 - p) - np.power(mu_arr, 1.0 - p)) / (1.0 - p)
+                            - (np.power(_y, 2.0 - p) - np.power(mu_arr, 2.0 - p)) / (2.0 - p)
+                        ))
+                else:
+                    return float(np.sum(mu_arr - _y * np.log(mu_arr)))
+
+        # Current loss — use only eta clipping (prevent exp overflow),
+        # NOT mu clipping (which distorts the deviance landscape).
+        eta_cur = _clip(X @ params_old, -30, 30, backend)
+        mu_cur = family.link.inverse(eta_cur)
+        try:
+            dev_old = _dev_val(mu_cur)
+        except Exception:
+            dev_old = float('inf')
+
+        # Line search: for families with constant IRLS weights (Gaussian,
+        # Gamma, InverseGaussian), the IRLS step IS the Newton step on the
+        # GLM loss, and the Hessian is constant X'X/n.  Accept full step.
+        # For variable-weight families (Poisson, Logistic, Tweedie),
+        # use Armijo backtracking on the deviance.
+        _direction = params_new - params_old
+        _is_constant_W = _fname in ("gamma", "gaussian", "squared_error")
+
+        if _is_constant_W:
+            # Constant weights: IRLS = Newton.  Try full step first;
+            # if deviance increases significantly, fall back to Armijo.
+            eta_new = _clip(X @ params_new, -30, 30, backend)
+            mu_new = family.link.inverse(eta_new)
+            try:
+                dev_new = _dev_val(mu_new)
+            except Exception:
+                dev_new = float('inf')
+            _dev_tol = max(abs(dev_old) * 1e-10, 1e-6)
+            if dev_new == dev_new and dev_new <= dev_old + _dev_tol:
+                params = params_new
+            else:
+                step = 1.0
+                _accepted = False
+                for _bt in range(30):
+                    params_try = params_old + step * _direction
+                    eta_try = _clip(X @ params_try, -30, 30, backend)
+                    mu_try = family.link.inverse(eta_try)
+                    try:
+                        dev_try = _dev_val(mu_try)
+                    except Exception:
+                        step *= 0.5
+                        continue
+                    if not (dev_try == dev_try):
+                        step *= 0.5
+                        continue
+                    if dev_try <= dev_old + _dev_tol:
+                        _accepted = True
+                        break
+                    step *= 0.5
+                params = params_try if _accepted else params_old + 0.1 * _direction
+        else:
+            # Variable weights: Armijo backtracking on deviance
+            _dev_tol = max(abs(dev_old) * 1e-10, 1e-6)
+            step = 1.0
+            _accepted = False
+            for _bt in range(30):
+                params_try = params_old + step * _direction
+                eta_try = _clip(X @ params_try, -30, 30, backend)
+                mu_try = family.link.inverse(eta_try)
+                try:
+                    dev_try = _dev_val(mu_try)
+                except Exception:
+                    step *= 0.5
+                    continue
+                if not (dev_try == dev_try):  # NaN check
+                    step *= 0.5
+                    continue
+                if dev_try <= dev_old + _dev_tol:
+                    _accepted = True
+                    break
+                step *= 0.5
+
+            if _accepted:
+                params = params_try
+            else:
+                params = params_old + 0.1 * _direction
+
+        # Convergence: gradient norm check (most reliable for all families)
+        if iteration % 5 == 4 or iteration == max_iter - 1:
+            try:
+                grad_f = family.gradient(X, y, params)
+                if ridge_alpha > 0:
+                    grad_f[1:] = grad_f[1:] + (ridge_alpha / X.shape[0]) * params[1:]
+                grad_norm = float(_norm(grad_f, backend))
+            except Exception:
+                # No gradient method available — fall back to param change
+                _param_change = float(_norm(params - params_old, backend))
+                _param_norm = max(float(_norm(params, backend)), 1.0)
+                grad_norm = _param_change / _param_norm  # relative change
+            if grad_norm < tol:
+                break
+
+    n_iter = iteration + 1
+    if n_iter >= max_iter:
+        from statgpu.glm_core._solver import ConvergenceWarning
+        warnings.warn(
+            f"irls did not converge within {max_iter} iterations "
+            f"(family={getattr(family, 'name', '?')}).",
+            ConvergenceWarning,
+            stacklevel=2,
+        )
+    return params, n_iter
 
 
 class IRLSSolver:

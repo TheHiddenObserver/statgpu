@@ -46,7 +46,7 @@ class GLMLoss(ABC):
             f"{self.name} does not support Hessian."
         )
 
-    def lipschitz(self, X, coef) -> float:
+    def lipschitz(self, X, coef, y=None) -> float:
         """Lipschitz constant (for FISTA step size step=1/L)."""
         XtX = X.T @ X
         return float(np.linalg.eigvalsh(XtX)[-1]) / X.shape[0]

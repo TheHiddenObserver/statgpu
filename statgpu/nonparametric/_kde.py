@@ -24,6 +24,7 @@ from ._kernel_common import (
     _stable_inv_and_det,
     _to_float_scalar,
     _to_numpy,
+    _torch_device_from_data,
     _weighted_covariance,
 )
 
@@ -97,7 +98,9 @@ class KernelDensityEstimator(BaseEstimator):
         samples_2d = _as_samples_2d(X, xp)
         n_samples, n_features = int(samples_2d.shape[0]), int(samples_2d.shape[1])
 
-        weights_1d = _normalize_weights(self.weights, n_samples, xp)
+        device = _torch_device_from_data(samples_2d)
+        self._torch_device = device
+        weights_1d = _normalize_weights(self.weights, n_samples, xp, device=device)
         n_eff = _effective_sample_size(weights_1d, xp)
         kernel_name = _normalize_kernel_name(self.kernel)
 
@@ -189,7 +192,15 @@ class KernelDensityEstimator(BaseEstimator):
         if batch_size <= 0:
             raise ValueError("batch_size must be a positive integer")
 
-        out = xp.empty((n_points,), dtype=xp.float64)
+        device = _torch_device_from_data(points_2d)
+        try:
+            import torch
+            if xp is torch:
+                out = xp.empty((n_points,), dtype=xp.float64, device=device)
+            else:
+                out = xp.empty((n_points,), dtype=xp.float64)
+        except ImportError:
+            out = xp.empty((n_points,), dtype=xp.float64)
 
         if n_features == 1:
             samples_1d = self.samples_[:, 0]
@@ -310,6 +321,23 @@ class KernelDensityEstimator(BaseEstimator):
         if batch_size <= 0:
             raise ValueError("batch_size must be a positive integer")
 
+        device = _torch_device_from_data(points_2d)
+        try:
+            import torch
+            if xp is torch:
+                out = xp.empty((n_points,), dtype=xp.float64, device=device)
+            else:
+                out = xp.empty((n_points,), dtype=xp.float64)
+        except ImportError:
+            out = xp.empty((n_points,), dtype=xp.float64)
+
+        if n_features == 1:
+            density = self._evaluate_density(points_2d, batch_size=batch_size, xp=xp)
+            return xp.where(
+                density > 0.0,
+                xp.log(density),
+                float("-inf"),
+            )
         s_quad = self._samples_quad_
         log_norm = math.log(self.inv_norm_const_) if self.inv_norm_const_ > 0.0 else float("-inf")
         is_gaussian = self.kernel_ == "gaussian"

@@ -7,7 +7,7 @@ where mu = exp(X @ coef).
 
 Supports numpy / cupy / torch backends via _backend helpers.
 """
-from statgpu.backends._array_ops import _clip, _exp, _log, _eigvalsh, _sum
+from statgpu.backends._array_ops import _clip, _exp, _log, _sum, _max_eigval_power
 from ._base import GLMLoss, register_glm_loss
 
 
@@ -18,32 +18,29 @@ class PoissonLoss(GLMLoss):
     smooth_gradient = True
     has_hessian = True
 
+    _MU_LO = 1e-10
+    _MU_HI = 1e6  # must exceed typical max(y); clip prevents extreme weights
+
     def value(self, X, y, coef):
-        """Negative Poisson log-likelihood (to minimize)."""
-        z = _clip(X @ coef, -500, 500)
-        mu = _exp(z)
-        return _sum(mu - y * _log(_clip(mu, 1e-300, None))) / X.shape[0]
+        z = _clip(X @ coef, -30, 30)
+        mu = _clip(_exp(z), self._MU_LO, self._MU_HI)
+        return _sum(mu - y * _log(mu)) / X.shape[0]
 
     def gradient(self, X, y, coef):
-        """Gradient = X'(mu - y) / n."""
-        z = _clip(X @ coef, -500, 500)
-        mu = _exp(z)
+        z = _clip(X @ coef, -30, 30)
+        mu = _clip(_exp(z), self._MU_LO, self._MU_HI)
         return X.T @ (mu - y) / X.shape[0]
 
     def hessian(self, X, y, coef):
-        """Hessian = X'WX / n, W = diag(mu)."""
-        z = _clip(X @ coef, -500, 500)
-        mu = _exp(z)
-        W = _clip(mu, 1e-10, None)
-        return X.T @ (X * W[:, None]) / X.shape[0]
+        z = _clip(X @ coef, -30, 30)
+        mu = _clip(_exp(z), self._MU_LO, self._MU_HI)
+        return X.T @ (X * mu[:, None]) / X.shape[0]
 
-    def lipschitz(self, X, coef):
-        z = _clip(X @ coef, -500, 500)
-        mu = _exp(z)
-        # Cap mu to prevent explosion
-        W = _clip(mu, 1e-10, 1e6)
-        XtWX = X.T @ (X * W[:, None])
-        L = float(_eigvalsh(XtWX)[-1]) / X.shape[0]
+    def lipschitz(self, X, coef, y=None):
+        z = _clip(X @ coef, -30, 30)
+        mu = _clip(_exp(z), self._MU_LO, self._MU_HI)
+        XtWX = X.T @ (X * mu[:, None])
+        L = _max_eigval_power(XtWX) / X.shape[0]
         return max(L, 1e-8)
 
     def predict(self, X, coef):

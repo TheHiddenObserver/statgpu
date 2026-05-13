@@ -8,6 +8,27 @@ from typing import Optional
 import numpy as np
 from ._base import Penalty
 
+# ---- torch.compile lazy-loader (fuses elementwise ops into 1 kernel) ---------
+_L1_PROXIMAL_TORCH_COMPILED = None
+
+
+def _get_l1_torch_compiled():
+    global _L1_PROXIMAL_TORCH_COMPILED
+    if _L1_PROXIMAL_TORCH_COMPILED is not None:
+        return _L1_PROXIMAL_TORCH_COMPILED
+    from statgpu.penalties import _torch_compile_ok
+    if not _torch_compile_ok():
+        _L1_PROXIMAL_TORCH_COMPILED = None
+        return None
+    try:
+        import torch
+        def _prox(w, thresh):
+            return torch.sign(w) * torch.relu(torch.abs(w) - thresh)
+        _L1_PROXIMAL_TORCH_COMPILED = torch.compile(_prox, mode='reduce-overhead')
+    except Exception:
+        _L1_PROXIMAL_TORCH_COMPILED = None
+    return _L1_PROXIMAL_TORCH_COMPILED
+
 
 class L1Penalty(Penalty):
     """
@@ -67,6 +88,9 @@ class L1Penalty(Penalty):
             return cp.sign(w) * cp.maximum(cp.abs(w) - thresh, 0.0)
         elif backend == "torch":
             import torch
+            compiled_fn = _get_l1_torch_compiled()
+            if compiled_fn is not None:
+                return compiled_fn(w, thresh)
             return torch.sign(w) * torch.relu(torch.abs(w) - thresh)
         else:
             # numpy

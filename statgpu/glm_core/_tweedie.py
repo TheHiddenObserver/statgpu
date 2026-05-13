@@ -1,0 +1,62 @@
+"""
+Tweedie loss: negative Tweedie log-likelihood with log link.
+
+For compound Poisson-Gamma (1 < p < 2) outcomes:
+    loss = (1/n) * sum(-y * mu^(1-p)/(1-p) + mu^(2-p)/(2-p))
+where mu = exp(X @ coef), p is the Tweedie power parameter.
+
+Supports numpy / cupy / torch backends via _array_ops helpers.
+"""
+from statgpu.backends._array_ops import _clip, _exp, _sum, _max_eigval_power
+from ._base import GLMLoss, register_glm_loss
+
+
+@register_glm_loss('tweedie')
+class TweedieLoss(GLMLoss):
+    name = "tweedie"
+    y_type = "nonnegative"
+    smooth_gradient = True
+    has_hessian = True
+
+    # Clip z to [-50, 50] instead of [-500, 500] to prevent
+    # mu^(-0.5) explosion: mu >= exp(-50) ~ 1.9e-22 -> mu^(-0.5) <= 2.3e10.
+    _Z_CLIP = 50.0
+
+    def __init__(self, power=1.5):
+        if not 1.0 < power < 2.0:
+            raise ValueError(f"Tweedie power must be in (1, 2), got {power}")
+        self.power = power
+
+    def value(self, X, y, coef):
+        z = _clip(X @ coef, -self._Z_CLIP, self._Z_CLIP)
+        mu = _clip(_exp(z), 1e-3, 1e4)
+        p = self.power
+        return _sum(
+            -y * mu ** (1.0 - p) / (1.0 - p)
+            + mu ** (2.0 - p) / (2.0 - p)
+        ) / X.shape[0]
+
+    def gradient(self, X, y, coef):
+        z = _clip(X @ coef, -self._Z_CLIP, self._Z_CLIP)
+        mu = _clip(_exp(z), 1e-3, 1e4)
+        p = self.power
+        return X.T @ (mu ** (1.0 - p) * (mu - y)) / X.shape[0]
+
+    def hessian(self, X, y, coef):
+        z = _clip(X @ coef, -self._Z_CLIP, self._Z_CLIP)
+        mu = _clip(_exp(z), 1e-3, 1e4)
+        p = self.power
+        W = mu ** (2.0 - p)
+        return X.T @ (X * W[:, None]) / X.shape[0]
+
+    def lipschitz(self, X, coef, y=None):
+        z = _clip(X @ coef, -self._Z_CLIP, self._Z_CLIP)
+        mu = _clip(_exp(z), 1e-3, 1e4)
+        p = self.power
+        W = mu ** (2.0 - p)
+        XtWX = X.T @ (X * W[:, None])
+        L = _max_eigval_power(XtWX) / X.shape[0]
+        return max(min(L, 1e3), 1e-8)
+
+    def predict(self, X, coef):
+        return _exp(X @ coef)

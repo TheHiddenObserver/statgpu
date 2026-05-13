@@ -12,7 +12,7 @@ These are equivalent when sklearn_alpha = n * statgpu_alpha.
 
 Supports numpy / cupy / torch backends via _backend helpers.
 """
-from statgpu.backends._array_ops import _eigvalsh
+from statgpu.backends._array_ops import _max_eigval_power
 from ._base import GLMLoss, register_glm_loss
 
 
@@ -33,6 +33,6 @@ class SquaredErrorLoss(GLMLoss):
     def hessian(self, X, y, coef):
         return X.T @ X / X.shape[0]
 
-    def lipschitz(self, X, coef):
+    def lipschitz(self, X, coef, y=None):
         XtX = X.T @ X
-        return float(_eigvalsh(XtX)[-1]) / X.shape[0]
+        return _max_eigval_power(XtX) / X.shape[0]

@@ -36,6 +36,17 @@ __all__ = [
 ]
 
 
+def _torch_device_from_data(data) -> str:
+    """Extract device string from a torch tensor, or return 'cpu' for others."""
+    try:
+        import torch
+        if isinstance(data, torch.Tensor):
+            return str(data.device)
+    except (ImportError, AttributeError):
+        pass
+    return "cpu"
+
+
 def _auto_backend_from_device(device: str, prefer_torch: bool = False) -> str:
     d = str(device).strip().lower()
     if d in ("numpy", "cpu"):
@@ -183,9 +194,16 @@ def _as_points_2d(points, n_features: int, xp):
     return arr
 
 
-def _normalize_weights(weights, n_samples: int, xp):
+def _normalize_weights(weights, n_samples: int, xp, device: str = "cuda"):
     if weights is None:
-        return xp.full((n_samples,), 1.0 / float(n_samples), dtype=xp.float64)
+        fill_val = 1.0 / float(n_samples)
+        try:
+            import torch
+            if xp is torch:
+                return xp.full((n_samples,), fill_val, dtype=xp.float64, device=device)
+        except ImportError:
+            pass
+        return xp.full((n_samples,), fill_val, dtype=xp.float64)
 
     w = xp.asarray(weights, dtype=xp.float64).reshape(-1)
     if int(w.size) != int(n_samples):

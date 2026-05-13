@@ -191,7 +191,7 @@ def _get_torch_compiled_proximal():
         torch._dynamo.config.suppress_errors = True
         torch._dynamo.config.guard_immutable_object = False
         _elastic_net_proximal_compiled = torch.compile(
-            _elastic_net_proximal_torch, mode='max-autotune'
+            _elastic_net_proximal_torch, mode='reduce-overhead'
         )
     except (AttributeError, RuntimeError):
         _elastic_net_proximal_compiled = _elastic_net_proximal_torch
