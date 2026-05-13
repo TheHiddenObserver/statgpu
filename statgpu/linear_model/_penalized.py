@@ -337,18 +337,23 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
             _y_c = y_arr - np.mean(y_arr)
             _lam_max = float(np.max(np.abs(_X_s.T @ _y_c / _n)))
             _target_alpha = float(self._penalty.alpha)
-            _n_cont = 50
+            _n_cont = 20
             _alpha_path = np.geomspace(
                 max(_lam_max, _target_alpha * 1.1), _target_alpha, _n_cont,
             )
             _max_lla_per_step = max(6, getattr(self, '_max_lla_iters', 50) // _n_cont)
+            _saved_mi = self.max_iter
+            _mi_path = []
+            for _i in range(_n_cont):
+                _is_last = (_i == _n_cont - 1)
+                _mi_path.append(_saved_mi if _is_last else max(100, _saved_mi // 10))
             coef_np, intercept, n_iter = fista_lla_path(
                 self._loss, self._penalty,
                 X_arr, y_arr,
                 alpha_path=_alpha_path,
                 max_lla_per_step=_max_lla_per_step,
                 lla_tol=getattr(self, '_lla_tol', 1e-6),
-                max_iter=self.max_iter,
+                max_iter=_mi_path,
                 tol=self.tol,
                 fit_intercept=self.fit_intercept,
                 sample_weight=sample_weight,
