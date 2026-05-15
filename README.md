@@ -128,6 +128,7 @@ Choose only the extras that match your environment:
 | CUDA 11.x via CuPy | `pip install -e ".[gpu11]"` | Installs `cupy-cuda11x`; do not combine with `gpu12`. |
 | CUDA 12.x via CuPy | `pip install -e ".[gpu12]"` | Installs `cupy-cuda12x`; do not combine with `gpu11`. |
 | PyTorch CUDA backend | `pip install -e ".[torch]"` | Installs PyTorch from PyPI. If you need a specific CUDA wheel, install PyTorch from the official PyTorch index first, then install `statgpu`. |
+| Optional CPU extension build deps | `pip install -e ".[cpu_ext]"` | Adds `Cython>=3.0` for optional Cython CPU extensions. |
 | Formula/dataframe interface | `pip install -e ".[formula]"` | Adds `patsy` and `pandas`. |
 | Development tools | `pip install -e ".[dev]"` | Adds pytest, black, flake8, and mypy. |
 | External validation | `pip install -e ".[validation]"` | Adds scikit-learn and statsmodels for comparison tests. |
@@ -262,15 +263,6 @@ model = LinearRegression(device='cuda', n_jobs=4)
   - `dev/benchmarks/benchmark_lasso_inference_gpu_vs_cpu.py`
 - GPU memory cleanup effect:
   - `dev/benchmarks/benchmark_gpu_memory_cleanup.py`
-
-## Requirements
-
-- Python >= 3.8
-- NumPy >= 1.20
-- CuPy (optional, for GPU; choose wheel matching CUDA major version)
-  - CUDA 11.x: `cupy-cuda11x`
-  - CUDA 12.x: `cupy-cuda12x`
-- CUDA runtime compatible with selected CuPy wheel
 
 ## License
 
