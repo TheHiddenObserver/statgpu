@@ -157,22 +157,6 @@ pip install "statgpu[gpu12] @ git+https://github.com/TheHiddenObserver/statgpu.g
 - **PyTorch CUDA (`device="torch"`)**: PyTorch >= 2.0 with CUDA support is recommended. Explicit `device="torch"` requires Torch CUDA to be available; it does not silently fall back to Torch CPU.
 - **Formula interface**: `patsy>=0.5.3` and `pandas>=1.5` via `statgpu[formula]`.
 
-### Device selection notes
-
-- `device="cpu"` uses NumPy.
-- `device="cuda"` uses CuPy and raises an error if CuPy/CUDA is unavailable.
-- `device="torch"` uses Torch CUDA and raises an error if Torch CUDA is unavailable.
-- `device="auto"` is the only mode that automatically chooses an available backend, usually preferring CuPy, then Torch CUDA, then NumPy.
-
-```python
-from statgpu.linear_model import Ridge
-
-cpu_model = Ridge(alpha=1.0, device="cpu")
-cupy_model = Ridge(alpha=1.0, device="cuda")
-torch_model = Ridge(alpha=1.0, device="torch")
-auto_model = Ridge(alpha=1.0, device="auto")
-```
-
 ## Quick Start
 
 ```python
@@ -237,17 +221,35 @@ print(f"Selected features: {result.selected_features}")
 
 ## Device Control
 
+Use this section for runtime backend behavior. The requirements table above only lists which optional packages to install.
+
+### Selection rules
+
+- `device="cpu"` uses NumPy.
+- `device="cuda"` uses CuPy and raises an error if CuPy/CUDA is unavailable.
+- `device="torch"` uses Torch CUDA and raises an error if Torch CUDA is unavailable; it does not silently fall back to Torch CPU.
+- `device="auto"` is the only mode that automatically chooses an available backend, usually preferring CuPy, then Torch CUDA, then NumPy.
+
+### Global and per-model settings
+
 ```python
 import statgpu as sg
+from statgpu.linear_model import Ridge
 
-# Global setting
-sg.set_device('cuda')  # Force GPU
-sg.set_device('cpu')   # Force CPU
-sg.set_device('auto')  # Auto-detect (default)
+# Global default for estimators that do not receive an explicit device
+sg.set_device("cuda")  # Force CuPy CUDA
+sg.set_device("torch") # Force Torch CUDA
+sg.set_device("cpu")   # Force NumPy CPU
+sg.set_device("auto")  # Auto-detect (default)
 
-# Per-model setting
-from statgpu.linear_model import LinearRegression
-model = LinearRegression(device='cuda', n_jobs=4)
+# Explicit per-model settings override the global default
+cpu_model = Ridge(alpha=1.0, device="cpu")
+cupy_model = Ridge(alpha=1.0, device="cuda")
+torch_model = Ridge(alpha=1.0, device="torch")
+
+# device="auto" follows the current global setting/policy
+# (it does not independently override the global choice)
+auto_model = Ridge(alpha=1.0, device="auto")
 ```
 
 ## Benchmark Scripts
