@@ -89,7 +89,8 @@ def get_device() -> Device:
     Returns
     -------
     Device
-        Current device (CPU or CUDA).
+        Current resolved device. If the configured device is ``'auto'``, this
+        resolves to CuPy CUDA when available, then Torch CUDA, then CPU.
     """
     return _device_manager.get_device()
 
@@ -101,13 +102,17 @@ def set_device(device: Union[str, Device]) -> None:
     Parameters
     ----------
     device : str or Device
-        Device to use: 'cpu', 'cuda', or 'auto'.
-        'auto' will use CUDA if available, otherwise CPU.
+        Device to use: ``'cpu'``, ``'cuda'``, ``'torch'``, or ``'auto'``.
+        ``'cuda'`` and ``'torch'`` are explicit GPU requests and are kept as
+        configured; model execution raises if the matching backend is not
+        available. ``'auto'`` chooses CuPy CUDA when available, then Torch CUDA,
+        then CPU.
     
     Examples
     --------
     >>> import statgpu as sg
-    >>> sg.set_device('cuda')  # Force GPU
+    >>> sg.set_device('cuda')  # Force CuPy CUDA
+    >>> sg.set_device('torch') # Force Torch CUDA
     >>> sg.set_device('auto')  # Auto-detect
     """
     _device_manager.set_device(device)
