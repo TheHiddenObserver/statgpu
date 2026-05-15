@@ -370,41 +370,57 @@ def _run_r_script(r_code, coef_file):
         f.write(r_code); tmp_r = f.name
     try:
         result = subprocess.run([_RSCRIPT, tmp_r], capture_output=True, text=True, timeout=600)
+        if result.returncode != 0:
+            _stderr = result.stderr.strip()[:200] if result.stderr else ""
+            print(f"    [R] non-zero exit {result.returncode}: {_stderr}")
+            return None, None
+        if not os.path.exists(coef_file):
+            _stderr = result.stderr.strip()[:200] if result.stderr else ""
+            print(f"    [R] no coef file produced: {_stderr}")
+            return None, None
         coef = np.loadtxt(coef_file, delimiter=',')
         r_t = None
         for line in result.stdout.strip().split('\n'):
             if line.startswith('R_TIME:'):
                 r_t = float(line.split(':')[1])
+            if line.startswith('R_ERROR:'):
+                print(f"    [R] {line}")
         return coef, r_t
-    except Exception:
+    except Exception as e:
+        print(f"    [R] exception: {e}")
         return None, None
     finally:
         os.unlink(tmp_r)
         if os.path.exists(coef_file): os.unlink(coef_file)
 
-def _run_r_ncvreg(X, y, family_r, penalty, lambda_val):
+def _run_r_ncvreg(X, y, family_r, penalty, lambda_val, standardize=False):
     tmp_x = tempfile.NamedTemporaryFile(suffix='.csv', delete=False).name
     tmp_y = tempfile.NamedTemporaryFile(suffix='.csv', delete=False).name
     tmp_coef = tempfile.NamedTemporaryFile(suffix='.csv', delete=False).name
     np.savetxt(tmp_x, X, delimiter=',', fmt='%.12g')
     np.savetxt(tmp_y, y, delimiter=',', fmt='%.12g')
+    std_flag = "TRUE" if standardize else "FALSE"
     r_code = f'''
 library(ncvreg, quietly=TRUE)
 X <- as.matrix(read.csv("{tmp_x}", header=FALSE))
 y <- as.numeric(read.csv("{tmp_y}", header=FALSE)[,1])
-t0 <- proc.time()[[3]]
-fit0 <- ncvreg(X, y, family="{family_r}", penalty="{penalty}", standardize=FALSE)
-lam_seq <- fit0$lambda
-target <- {lambda_val}
-if (!(target %in% lam_seq)) {{
-  lam_seq <- sort(unique(c(lam_seq, target)), decreasing=TRUE)
-  fit0 <- ncvreg(X, y, family="{family_r}", penalty="{penalty}", lambda=lam_seq, standardize=FALSE)
-}}
-t1 <- proc.time()[[3]]
-coef_all <- coef(fit0, lambda=target)
-if (is.matrix(coef_all)) {{ beta <- as.vector(coef_all[-1, 1]) }} else {{ beta <- as.vector(coef_all[-1]) }}
-write.table(matrix(beta, nrow=1), "{tmp_coef}", row.names=FALSE, col.names=FALSE, sep=",")
-cat(sprintf("R_TIME:%.3f\\n", t1-t0))
+tryCatch({{
+  t0 <- proc.time()[[3]]
+  fit0 <- ncvreg(X, y, family="{family_r}", penalty="{penalty}", standardize={std_flag})
+  lam_seq <- fit0$lambda
+  target <- {lambda_val}
+  if (!(target %in% lam_seq)) {{
+    lam_seq <- sort(unique(c(lam_seq, target)), decreasing=TRUE)
+    fit0 <- ncvreg(X, y, family="{family_r}", penalty="{penalty}", lambda=lam_seq, standardize={std_flag})
+  }}
+  t1 <- proc.time()[[3]]
+  coef_all <- coef(fit0, lambda=target)
+  if (is.matrix(coef_all)) {{ beta <- as.vector(coef_all[-1, 1]) }} else {{ beta <- as.vector(coef_all[-1]) }}
+  write.table(matrix(beta, nrow=1), "{tmp_coef}", row.names=FALSE, col.names=FALSE, sep=",")
+  cat(sprintf("R_TIME:%.3f\\n", t1-t0))
+}}, error = function(e) {{
+  cat(paste0("R_ERROR: ", conditionMessage(e), "\\n"))
+}})
 '''
     t0 = time.perf_counter()
     coef, r_t = _run_r_script(r_code, tmp_coef)
@@ -447,7 +463,7 @@ cat(sprintf("R_TIME:%.3f\\n", t1-t0))
         if os.path.exists(f): os.unlink(f)
     return coef, t
 
-def _run_r_glmnet(X, y, family_r, lambda_val, alpha_en=1.0, penalty_factor=None):
+def _run_r_glmnet(X, y, family_r, lambda_val, alpha_en=1.0, penalty_factor=None, standardize=False):
     tmp_x = tempfile.NamedTemporaryFile(suffix='.csv', delete=False).name
     tmp_y = tempfile.NamedTemporaryFile(suffix='.csv', delete=False).name
     tmp_coef = tempfile.NamedTemporaryFile(suffix='.csv', delete=False).name
@@ -457,20 +473,25 @@ def _run_r_glmnet(X, y, family_r, lambda_val, alpha_en=1.0, penalty_factor=None)
     if penalty_factor is not None:
         pf_str = "c(" + ",".join(f"{v:.10f}" for v in penalty_factor) + ")"
         pf_line = f"              penalty.factor={pf_str},"
+    std_flag = "TRUE" if standardize else "FALSE"
     r_code = f'''
 library(glmnet, quietly=TRUE)
 X <- as.matrix(read.csv("{tmp_x}", header=FALSE))
 y <- as.numeric(read.csv("{tmp_y}", header=FALSE)[,1])
-t0 <- proc.time()[[3]]
-fit <- glmnet(X, y, family="{family_r}", alpha={alpha_en},
-              lambda=c({lambda_val}),
+tryCatch({{
+  t0 <- proc.time()[[3]]
+  fit <- glmnet(X, y, family="{family_r}", alpha={alpha_en},
+                lambda=c({lambda_val}),
 {pf_line}
-              standardize=FALSE, intercept=TRUE)
-t1 <- proc.time()[[3]]
-coef <- as.vector(coef(fit))
-beta <- coef[-1]
-write.table(matrix(beta, nrow=1), "{tmp_coef}", row.names=FALSE, col.names=FALSE, sep=",")
-cat(sprintf("R_TIME:%.3f\\n", t1-t0))
+                standardize={std_flag}, intercept=TRUE)
+  t1 <- proc.time()[[3]]
+  coef <- as.vector(coef(fit))
+  beta <- coef[-1]
+  write.table(matrix(beta, nrow=1), "{tmp_coef}", row.names=FALSE, col.names=FALSE, sep=",")
+  cat(sprintf("R_TIME:%.3f\\n", t1-t0))
+}}, error = function(e) {{
+  cat(paste0("R_ERROR: ", conditionMessage(e), "\\n"))
+}})
 '''
     t0 = time.perf_counter()
     coef, r_t = _run_r_script(r_code, tmp_coef)
@@ -720,15 +741,16 @@ def main():
         n_r, p_r = 500, 50
 
         r_combos = []
-        # ncvreg: SCAD, MCP for gaussian/binomial/poisson/gamma
-        for fam, fam_r in [("squared_error","gaussian"),("logistic","binomial"),("poisson","poisson"),("gamma","gamma")]:
+        # ncvreg: SCAD, MCP for gaussian/binomial/poisson (ncvreg does NOT support gamma)
+        for fam, fam_r in [("squared_error","gaussian"),("logistic","binomial"),("poisson","poisson")]:
             for pen, r_pen in [("scad","SCAD"),("mcp","MCP")]:
                 r_combos.append((fam, pen, "ncvreg", fam_r, r_pen))
         # grpreg: group penalties for gaussian
         for pen, r_pen in [("group_lasso","grLasso"),("group_mcp","grMCP"),("group_scad","grSCAD")]:
             r_combos.append(("squared_error", pen, "grpreg", "gaussian", r_pen))
-        # glmnet: l1, elasticnet, adaptive_l1 for all smooth families
-        for fam, fam_r in [("squared_error","gaussian"),("logistic","binomial"),("poisson","poisson"),("gamma","Gamma")]:
+        # glmnet: l1, elasticnet, adaptive_l1 for smooth families
+        # (gamma excluded: R glmnet on this server doesn't support gamma family)
+        for fam, fam_r in [("squared_error","gaussian"),("logistic","binomial"),("poisson","poisson")]:
             r_combos.append((fam, "l1", "glmnet", fam_r, None))
             r_combos.append((fam, "elasticnet", "glmnet_en", fam_r, None))
             r_combos.append((fam, "adaptive_l1", "glmnet_adaptive", fam_r, None))
@@ -740,23 +762,26 @@ def main():
             groups = np.arange(p_r) // 5 + 1
 
             adaptive_pf = None
+            # gamma signal is weak (eta*0.3); use smaller lambda for R
+            _alpha_r = ALPHA * 0.1 if family == "gamma" else ALPHA
+            _std = (family == "gamma")  # gamma needs standardize=TRUE for R
             if r_pkg == "ncvreg":
-                r_c, r_t = _run_r_ncvreg(X, y, family_r, r_penalty, ALPHA)
+                r_c, r_t = _run_r_ncvreg(X, y, family_r, r_penalty, _alpha_r, standardize=_std)
             elif r_pkg == "grpreg":
-                r_c, r_t = _run_r_grpreg(X, y, family_r, r_penalty, ALPHA, groups)
+                r_c, r_t = _run_r_grpreg(X, y, family_r, r_penalty, _alpha_r, groups)
             elif r_pkg == "glmnet":
-                r_c, r_t = _run_r_glmnet(X, y, family_r, ALPHA, 1.0)
+                r_c, r_t = _run_r_glmnet(X, y, family_r, _alpha_r, 1.0, standardize=_std)
             elif r_pkg == "glmnet_en":
-                r_c, r_t = _run_r_glmnet(X, y, family_r, ALPHA, 0.5)
+                r_c, r_t = _run_r_glmnet(X, y, family_r, _alpha_r, 0.5, standardize=_std)
             elif r_pkg == "glmnet_adaptive":
                 init_solver = "lbfgs" if family == "squared_error" else "irls"
                 try:
                     init_c, _, _, _ = _run_statgpu(X, y, family, "l2", init_solver, "cpu", alpha=0.001, max_iter=500, tol=1e-4)
                     adaptive_pf = 1.0 / (np.abs(init_c) + 1e-4)
-                    adaptive_pf = np.clip(adaptive_pf, 1e-4, 100.0)
+                    adaptive_pf = np.clip(adaptive_pf, 1e-4, 10.0)
                 except:
                     adaptive_pf = None
-                r_c, r_t = _run_r_glmnet(X, y, family_r, ALPHA, 1.0, adaptive_pf)
+                r_c, r_t = _run_r_glmnet(X, y, family_r, _alpha_r, 1.0, adaptive_pf, standardize=_std)
             else:
                 continue
 
@@ -766,9 +791,9 @@ def main():
                 sys.stdout.flush()
                 continue
 
-            r_obj = _compute_objective(X, y, r_c, 0.0, family, ALPHA, penalty=penalty)
+            r_obj = _compute_objective(X, y, r_c, 0.0, family, _alpha_r, penalty=penalty)
 
-            # Run statgpu
+            # Run statgpu — use same alpha as R for fair comparison
             pk = _penalty_kwargs_for(penalty, p_r)
             if penalty == "adaptive_l1" and adaptive_pf is not None:
                 pk["weights"] = adaptive_pf; pk["normalize"] = False
@@ -779,10 +804,10 @@ def main():
             _tol = 1e-8 if penalty in _convex else TOL
             _mi = 5000 if penalty in _convex else MAX_ITER
 
-            c, ic, ni, t = _run_statgpu(X, y, family, penalty, solver, "cpu", ALPHA,
+            c, ic, ni, t = _run_statgpu(X, y, family, penalty, solver, "cpu", _alpha_r,
                                          max_iter=_mi, tol=_tol, penalty_kwargs=pk)
             diff = float(np.max(np.abs(c - r_c)))
-            obj_sg = _compute_objective(X, y, c, ic, family, ALPHA, penalty=penalty)
+            obj_sg = _compute_objective(X, y, c, ic, family, _alpha_r, penalty=penalty)
             grade = _grade_obj(diff, obj_sg, r_obj, tol=2e-2)
 
             print(f"\n  [{family}+{penalty} | R {r_pkg} | n={n_r},p={p_r}]")

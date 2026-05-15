@@ -319,6 +319,24 @@ def _objective_gradient(loss, penalty, X, y, coef):
     return loss.gradient(X, y, coef) + _smooth_penalty_gradient(penalty, coef)
 
 
+def _smooth_penalty_lipschitz(penalty):
+    """Return the Lipschitz constant of the smooth penalty gradient.
+
+    For l2: gradient = alpha * coef → Lipschitz = alpha.
+    For ElasticNet: smooth part gradient = alpha*(1-l1_ratio)*coef → Lipschitz = alpha*(1-l1_ratio).
+    For pure L1: no smooth part → Lipschitz = 0.
+    """
+    if penalty is None:
+        return 0.0
+    _pname = _penalty_name(penalty)
+    if _pname in ("none", "null", "l1", "scad", "mcp", "adaptive_l1", "adaptive_lasso",
+                  "group_lasso", "group_mcp", "group_scad", "gl", "gmcp", "gscad"):
+        return 0.0
+    alpha = float(getattr(penalty, 'alpha', 0.0))
+    l1_ratio = float(getattr(penalty, 'l1_ratio', 0.0))
+    return alpha * (1.0 - l1_ratio)
+
+
 def _fused_glm_value_and_gradient(loss, X, y, coef):
     """Compute GLM loss value and gradient in one pass, avoiding redundant X @ coef.
 
@@ -572,6 +590,12 @@ def fista_solver(
         L = loss.lipschitz(X_proc, _zero_coef, y=y_proc)
     if L <= 0:
         L = 1.0
+    # Add smooth penalty Lipschitz contribution (e.g. l2 penalty gradient
+    # alpha*coef has Lipschitz constant alpha).  Without this, the step
+    # size 1/L is too large, causing oscillation near the optimum.
+    _smooth_lip = _smooth_penalty_lipschitz(penalty)
+    if _smooth_lip > 0:
+        L = L + _smooth_lip
     # For GLM losses with exp link (Poisson, etc.), mu at coef=0
     # is ~1, but mu near the optimum ≈ y.  Scale Lipschitz up by a
     # geometric-mean factor to avoid oversized first steps that cause
@@ -676,12 +700,16 @@ def fista_solver(
 
         # Divergence detection for GLM losses — reuse cached loss from
         # backtracking when available, otherwise compute fresh.
+        # Track full objective (loss + penalty) for correct convergence detection.
         if not _is_quadratic and iteration > 0:
             if _q_new_dev_last is not None:
                 _obj_val_f = float(_to_numpy(_q_new_dev_last))
                 _q_new_dev_last = None  # consume cache
             else:
                 _obj_val_f = float(_to_numpy(loss.value(X_proc, y_proc, coef)))
+            # Only add smooth penalty value if penalty has a smooth component
+            if _smooth_lip > 0:
+                _obj_val_f += _smooth_penalty_value(penalty, coef)
             _diverged_f = False
             if not np.isfinite(_obj_val_f):
                 _diverged_f = True
@@ -727,6 +755,9 @@ def fista_solver(
                     L_new *= 3.0
                 elif _loss_name == "inverse_gaussian":
                     L_new *= 3.0
+                # Add smooth penalty Lipschitz contribution
+                if _smooth_lip > 0:
+                    L_new = L_new + _smooth_lip
                 # Allow L to move toward L_new but dampen decreases
                 # to avoid oscillation.  Full increase, half decrease.
                 if L_new > L:
