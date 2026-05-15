@@ -324,17 +324,20 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
         _pen_name = str(getattr(self._penalty, 'name', '')).lower()
         _loss_name = str(getattr(self._loss, 'name', '') if hasattr(self, '_loss') else self.loss).lower()
         _is_glm_loss = _loss_name not in ("squared_error", "")
-        if _pen_name in ("scad", "mcp") and self._lla_enabled and not _is_glm_loss and backend_name == "numpy":
-            # Use fused FISTA+LLA path (same as GPU) for consistent results.
+        if _pen_name in ("scad", "mcp") and self._lla_enabled and not _is_glm_loss:
+            # Use fused FISTA+LLA path for all backends (CPU/GPU).
             from statgpu.glm_core._solver import fista_lla_path
             self._nobs = X.shape[0]
-            X_arr = np.asarray(X, dtype=np.float64)
-            y_arr = np.asarray(y, dtype=np.float64)
-            _n = X_arr.shape[0]
-            _col_norms = np.sqrt(np.sum(X_arr ** 2, axis=0))
+            X_arr = self._to_array(X, backend=backend_name)
+            y_arr = self._to_array(y, backend=backend_name)
+            # Lambda_max computation uses numpy (one-time cost, negligible).
+            _X_np = _to_numpy(X_arr)
+            _y_np = _to_numpy(y_arr)
+            _n = _X_np.shape[0]
+            _col_norms = np.sqrt(np.sum(_X_np ** 2, axis=0))
             _col_norms = np.maximum(_col_norms, 1e-20)
-            _X_s = X_arr * (np.sqrt(_n) / _col_norms)
-            _y_c = y_arr - np.mean(y_arr)
+            _X_s = _X_np * (np.sqrt(_n) / _col_norms)
+            _y_c = _y_np - np.mean(_y_np)
             _lam_max = float(np.max(np.abs(_X_s.T @ _y_c / _n)))
             _target_alpha = float(self._penalty.alpha)
             _n_cont = 20
@@ -366,6 +369,10 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
             else:
                 self._params = np.asarray(self.coef_).copy()
             self._df_resid = X.shape[0] - (X.shape[1] + (1 if self.fit_intercept else 0))
+            if backend_name == "cupy":
+                self._cleanup_cuda_memory()
+            elif backend_name == "torch":
+                self._cleanup_torch_memory()
             self._fitted = True
             return self
 
@@ -2552,6 +2559,113 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
         """GPU-native block coordinate descent for group_lasso penalty.
 
         Same algorithm as _block_cd_group_lasso but keeps all arrays on GPU.
+        Enforces float64 precision to avoid NaN from float32 conditioning issues.
+        """
+        if backend_name == "cupy":
+            import cupy as xp
+        elif backend_name == "torch":
+            import torch
+            xp = torch
+        else:
+            raise ValueError(f"GPU backend required, got {backend_name}")
+
+        # Enforce float64 precision for numerical stability
+        if backend_name == "cupy":
+            X_work = xp.asarray(X_work, dtype=xp.float64)
+            y_arr = xp.asarray(y_arr, dtype=xp.float64)
+        else:
+            X_work = X_work.to(dtype=torch.float64)
+            y_arr = y_arr.to(dtype=torch.float64)
+
+        n, pp = X_work.shape
+        p = pp - 1 if self.fit_intercept else pp
+        alpha = self.alpha
+
+        _inner = getattr(self, '_penalty', pen)
+        _g_indices = getattr(_inner, '_group_indices', None)
+        _sqrt_pg_np = getattr(_inner, '_sqrt_pg', None)
+        if _g_indices is None or _sqrt_pg_np is None:
+            raise ValueError(
+                "group_lasso penalty must have groups set. "
+                "Pass groups=... in penalty_kwargs."
+            )
+        _n_groups = len(_g_indices)
+        _sqrt_pg = [float(s) for s in _sqrt_pg_np]
+
+        XtX = X_work.T @ X_work / n
+        Xty = (X_work.T @ y_arr.flatten()) / n
+
+        # Pre-compute XtX blocks with diagonal ridge for conditioning
+        _XtX_blocks = []
+        _ridge = 1e-10 if backend_name == "cupy" else torch.tensor(1e-10, dtype=torch.float64, device=X_work.device)
+        for g_idx in _g_indices:
+            block = XtX[g_idx][:, g_idx]
+            # Add diagonal ridge to ensure positive definiteness
+            if backend_name == "cupy":
+                block = block + _ridge * xp.eye(block.shape[0], dtype=block.dtype)
+            else:
+                block = block + _ridge * torch.eye(block.shape[0], dtype=block.dtype, device=block.device)
+            _XtX_blocks.append(block)
+
+        if init is not None:
+            if isinstance(init, np.ndarray):
+                coef = xp.asarray(init, dtype=X_work.dtype) if backend_name == "cupy" else torch.from_numpy(init).to(dtype=torch.float64, device=X_work.device)
+            else:
+                coef = init.clone() if backend_name == "torch" else init.copy()
+        else:
+            coef = xp.zeros(pp, dtype=X_work.dtype) if backend_name == "cupy" else torch.zeros(pp, dtype=torch.float64, device=X_work.device)
+
+        for iteration in range(self.max_iter):
+            coef_old = coef.clone() if backend_name == "torch" else coef.copy()
+
+            for g in range(_n_groups):
+                g_idx = _g_indices[g]
+                rho_g = Xty[g_idx] - XtX[g_idx, :] @ coef + _XtX_blocks[g] @ coef[g_idx]
+                try:
+                    if backend_name == "cupy":
+                        w_g = xp.linalg.solve(_XtX_blocks[g], rho_g)
+                    else:
+                        w_g = torch.linalg.solve(_XtX_blocks[g], rho_g)
+                    # Check for NaN/Inf in solution
+                    if backend_name == "cupy":
+                        if xp.any(xp.isnan(w_g)) or xp.any(xp.isinf(w_g)):
+                            w_g = xp.zeros(len(g_idx), dtype=X_work.dtype)
+                    else:
+                        if torch.any(torch.isnan(w_g)) or torch.any(torch.isinf(w_g)):
+                            w_g = torch.zeros(len(g_idx), dtype=torch.float64, device=X_work.device)
+                except Exception:
+                    w_g = xp.zeros(len(g_idx), dtype=X_work.dtype) if backend_name == "cupy" else torch.zeros(len(g_idx), dtype=torch.float64, device=X_work.device)
+                norm_w = float(xp.linalg.norm(w_g)) if backend_name == "cupy" else float(torch.linalg.norm(w_g))
+                thresh_g = alpha * _sqrt_pg[g]
+                if norm_w > thresh_g:
+                    coef[g_idx] = w_g * (1.0 - thresh_g / norm_w)
+                else:
+                    coef[g_idx] = 0.0
+
+            if self.fit_intercept:
+                coef[pp - 1] = float(xp.mean(y_arr - X_work[:, :p] @ coef[:p])) if backend_name == "cupy" else float(torch.mean(y_arr - X_work[:, :p] @ coef[:p]))
+
+            _max_change = float(xp.max(xp.abs(coef - coef_old))) if backend_name == "cupy" else float(torch.max(torch.abs(coef - coef_old)))
+            if _max_change < self.tol:
+                break
+
+        n_iter = iteration + 1
+
+        if self.fit_intercept:
+            beta = coef[:p]
+            intercept = float(coef[p])
+        else:
+            beta = coef
+            intercept = 0.0
+
+        return beta, intercept, n_iter
+
+    def _block_cd_group_lasso_gpu_batched(self, pen, X_work, y_arr, init, backend_name):
+        """Batched GPU block coordinate descent for group_lasso penalty.
+
+        Processes all groups in parallel within each iteration to minimize
+        kernel launch overhead. Groups of the same size are batched together
+        for efficient linear solves.
         """
         if backend_name == "cupy":
             import cupy as xp
@@ -2576,12 +2690,22 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
         _n_groups = len(_g_indices)
         _sqrt_pg = [float(s) for s in _sqrt_pg_np]
 
+        # Pre-compute XtX and Xty once
         XtX = X_work.T @ X_work / n
         Xty = (X_work.T @ y_arr.flatten()) / n
 
+        # Pre-compute XtX blocks for each group
         _XtX_blocks = []
         for g_idx in _g_indices:
             _XtX_blocks.append(XtX[g_idx][:, g_idx])
+
+        # Group indices by size for batched solving
+        _size_groups = {}  # size -> list of (group_idx, indices)
+        for g, g_idx in enumerate(_g_indices):
+            sz = len(g_idx)
+            if sz not in _size_groups:
+                _size_groups[sz] = []
+            _size_groups[sz].append((g, g_idx))
 
         if init is not None:
             if isinstance(init, np.ndarray):
@@ -2594,22 +2718,89 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
         for iteration in range(self.max_iter):
             coef_old = coef.clone() if backend_name == "torch" else coef.copy()
 
-            for g in range(_n_groups):
-                g_idx = _g_indices[g]
-                rho_g = Xty[g_idx] - XtX[g_idx, :] @ coef + _XtX_blocks[g] @ coef[g_idx]
-                try:
-                    if backend_name == "cupy":
-                        w_g = xp.linalg.solve(_XtX_blocks[g], rho_g)
-                    else:
-                        w_g = torch.linalg.solve(_XtX_blocks[g], rho_g)
-                except Exception:
-                    w_g = xp.zeros(len(g_idx), dtype=X_work.dtype) if backend_name == "cupy" else torch.zeros(len(g_idx), dtype=X_work.dtype, device=X_work.device)
-                norm_w = float(xp.linalg.norm(w_g)) if backend_name == "cupy" else float(torch.linalg.norm(w_g))
-                thresh_g = alpha * _sqrt_pg[g]
-                if norm_w > thresh_g:
-                    coef[g_idx] = w_g * (1.0 - thresh_g / norm_w)
-                else:
-                    coef[g_idx] = 0.0
+            # Process groups by size for batched solving
+            for sz, size_groups in _size_groups.items():
+                n_batch = len(size_groups)
+                if n_batch == 0:
+                    continue
+
+                # Collect indices for all groups of this size
+                all_indices = []
+                batch_g_indices = []
+                for g, g_idx in size_groups:
+                    all_indices.extend(g_idx)
+                    batch_g_indices.append(g)
+
+                # Compute rho_g for all groups of this size in one shot
+                # rho_g = Xty[g_idx] - XtX[g_idx, :] @ coef + XtX_block[g] @ coef[g_idx]
+                if backend_name == "cupy":
+                    import cupy as cp
+                    # Stack all indices for batched indexing
+                    idx_arr = cp.array(all_indices, dtype=cp.int32)
+                    # Compute XtX[g_idx, :] @ coef for all groups at once
+                    XtX_coef = XtX[idx_arr, :] @ coef  # shape: (n_batch * sz,)
+                    # Compute Xty for all groups
+                    Xty_all = Xty[idx_arr]
+                    # Compute block diagonal contributions
+                    block_contrib = xp.zeros_like(Xty_all)
+                    for i, (g, g_idx) in enumerate(size_groups):
+                        block_contrib[i*sz:(i+1)*sz] = _XtX_blocks[g] @ coef[g_idx]
+                    # rho_g = Xty - XtX_coef + block_contrib
+                    rho_all = Xty_all - XtX_coef + block_contrib
+
+                    # Solve all group systems in one batched call
+                    # Reshape to (n_batch, sz, 1) for batched solve
+                    rho_mat = rho_all.reshape(n_batch, sz, 1)
+                    # Stack all XtX blocks into a single (n_batch, sz, sz) tensor
+                    XtX_batch = xp.stack([_XtX_blocks[g] for g in batch_g_indices])
+                    try:
+                        w_all = xp.linalg.solve(XtX_batch, rho_mat)  # (n_batch, sz, 1)
+                        w_all = w_all.reshape(n_batch, sz)
+                    except Exception:
+                        w_all = xp.zeros((n_batch, sz), dtype=X_work.dtype)
+
+                    # Apply soft-thresholding to all groups at once
+                    norms = xp.linalg.norm(w_all, axis=1)  # (n_batch,)
+                    thresh = xp.array([alpha * _sqrt_pg[g] for g in batch_g_indices])
+                    scale = xp.where(norms > thresh, 1.0 - thresh / (norms + 1e-12), 0.0)
+
+                    # Write back coefficients
+                    for i, (g, g_idx) in enumerate(size_groups):
+                        coef[g_idx] = w_all[i] * scale[i]
+
+                else:  # torch
+                    import torch
+                    # Stack all indices for batched indexing
+                    idx_arr = torch.tensor(all_indices, dtype=torch.long, device=X_work.device)
+                    # Compute XtX[g_idx, :] @ coef for all groups at once
+                    XtX_coef = XtX[idx_arr, :] @ coef  # shape: (n_batch * sz,)
+                    # Compute Xty for all groups
+                    Xty_all = Xty[idx_arr]
+                    # Compute block diagonal contributions
+                    block_contrib = torch.zeros_like(Xty_all)
+                    for i, (g, g_idx) in enumerate(size_groups):
+                        block_contrib[i*sz:(i+1)*sz] = _XtX_blocks[g] @ coef[g_idx]
+                    # rho_g = Xty - XtX_coef + block_contrib
+                    rho_all = Xty_all - XtX_coef + block_contrib
+
+                    # Solve all group systems in one batched call
+                    rho_mat = rho_all.reshape(n_batch, sz, 1)
+                    XtX_batch = torch.stack([_XtX_blocks[g] for g in batch_g_indices])
+                    try:
+                        w_all = torch.linalg.solve(XtX_batch, rho_mat)  # (n_batch, sz, 1)
+                        w_all = w_all.reshape(n_batch, sz)
+                    except Exception:
+                        w_all = torch.zeros((n_batch, sz), dtype=X_work.dtype, device=X_work.device)
+
+                    # Apply soft-thresholding to all groups at once
+                    norms = torch.linalg.norm(w_all, dim=1)  # (n_batch,)
+                    thresh = torch.tensor([alpha * _sqrt_pg[g] for g in batch_g_indices],
+                                         dtype=X_work.dtype, device=X_work.device)
+                    scale = torch.where(norms > thresh, 1.0 - thresh / (norms + 1e-12), torch.tensor(0.0, dtype=X_work.dtype, device=X_work.device))
+
+                    # Write back coefficients
+                    for i, (g, g_idx) in enumerate(size_groups):
+                        coef[g_idx] = w_all[i] * scale[i]
 
             if self.fit_intercept:
                 coef[pp - 1] = float(xp.mean(y_arr - X_work[:, :p] @ coef[:p])) if backend_name == "cupy" else float(torch.mean(y_arr - X_work[:, :p] @ coef[:p]))
@@ -2741,21 +2932,21 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
             newton_solver,
         )
 
-        # Convert to target backend — solvers auto-detect backend from array type
+        # Convert to target backend with float64 precision for numerical stability
         if backend_name == "cupy":
             import cupy as cp
-            X_arr = X if isinstance(X, cp.ndarray) else cp.asarray(X)
-            y_arr = y if isinstance(y, cp.ndarray) else cp.asarray(y)
+            X_arr = cp.asarray(X, dtype=cp.float64) if not isinstance(X, cp.ndarray) else cp.asarray(X, dtype=cp.float64)
+            y_arr = cp.asarray(y, dtype=cp.float64) if not isinstance(y, cp.ndarray) else cp.asarray(y, dtype=cp.float64)
         elif backend_name == "torch":
             import torch
             if not isinstance(X, torch.Tensor):
                 X_arr = torch.from_numpy(np.asarray(X, dtype=np.float64)).to(_get_torch_device_str())
             else:
-                X_arr = X
+                X_arr = X.to(dtype=torch.float64)
             if not isinstance(y, torch.Tensor):
                 y_arr = torch.from_numpy(np.asarray(y, dtype=np.float64)).to(_get_torch_device_str())
             else:
-                y_arr = y
+                y_arr = y.to(dtype=torch.float64)
         else:
             X_arr = np.asarray(X, dtype=np.float64)
             y_arr = np.asarray(y, dtype=np.float64)
@@ -2828,6 +3019,12 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
         _use_irls_cd = (
             (_pen_name in ("scad", "mcp") and not _is_glm_loss)
         )
+        _use_lla_fista = (
+            _pen_name in ("scad", "mcp") and _is_glm_loss
+        )
+        _use_lla_group = (
+            _pen_name in ("group_mcp", "group_scad", "gmcp", "gscad") and _is_glm_loss
+        )
 
         if _use_fista:
             # FISTA for GLM+adaptive_l1 — works on any backend.
@@ -2854,11 +3051,16 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
             _y_c = _y_feat - _np.mean(_y_feat)
             _lam_max = float(_np.max(_np.abs(_X_s.T @ _y_c / _n)))
             _target_alpha = float(getattr(self._penalty, 'alpha', self.alpha))
-            _n_cont = 50
+            _n_cont = 20
             _alpha_path = _np.geomspace(
                 max(_lam_max, _target_alpha * 1.1), _target_alpha, _n_cont,
             )
             _max_lla_per_step = max(6, getattr(self, '_max_lla_iters', 50) // _n_cont)
+            _saved_mi = self.max_iter
+            _mi_path = []
+            for _i in range(_n_cont):
+                _is_last = (_i == _n_cont - 1)
+                _mi_path.append(_saved_mi if _is_last else max(100, _saved_mi // 10))
 
             X_orig = X_work[:, :p] if self.fit_intercept else X_work
             coef_np, intercept, n_iter = fista_lla_path(
@@ -2867,7 +3069,7 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
                 alpha_path=_alpha_path,
                 max_lla_per_step=_max_lla_per_step,
                 lla_tol=getattr(self, '_lla_tol', 1e-6),
-                max_iter=self.max_iter,
+                max_iter=_mi_path,
                 tol=self.tol,
                 fit_intercept=self.fit_intercept,
                 sample_weight=sample_weight,
@@ -2877,6 +3079,108 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
             else:
                 params_np = coef_np
             params = params_np
+        elif _use_lla_fista:
+            # GLM + SCAD/MCP: use LLA outer loop + FISTA inner solve.
+            from statgpu.glm_core._solver import fista_lla_path
+            import numpy as _np
+
+            xp = get_backend(backend_name).xp
+
+            # lambda_max with backend-native arrays (no CPU-GPU transfer)
+            X_feat = X_work[:, :p] if self.fit_intercept else X_work
+            _n = X_feat.shape[0]
+            _col_norms = xp.sqrt(xp.sum(X_feat ** 2, axis=0))
+            _col_norms = xp.maximum(_col_norms, 1e-20)
+            X_s = X_feat * (xp.sqrt(float(_n)) / _col_norms)
+            y_c = y_arr - xp.mean(y_arr)
+            _lam_max = float(xp.max(xp.abs(X_s.T @ y_c / _n)))
+            _target_alpha = float(getattr(self._penalty, 'alpha', self.alpha))
+
+            _n_cont = 20
+            _alpha_path = _np.geomspace(
+                max(_lam_max, _target_alpha * 1.1), _target_alpha, _n_cont,
+            )
+            _max_lla_per_step = max(6, getattr(self, '_max_lla_iters', 50) // _n_cont)
+            _saved_mi = self.max_iter
+            _mi_path = [_saved_mi if i == _n_cont - 1 else max(100, _saved_mi // 10)
+                        for i in range(_n_cont)]
+
+            X_orig = X_work[:, :p] if self.fit_intercept else X_work
+            coef_np, intercept, n_iter = fista_lla_path(
+                self._loss, self._penalty,
+                X_orig, y_arr,
+                alpha_path=_alpha_path,
+                max_lla_per_step=_max_lla_per_step,
+                lla_tol=getattr(self, '_lla_tol', 1e-6),
+                max_iter=_mi_path,
+                tol=self.tol,
+                fit_intercept=self.fit_intercept,
+                sample_weight=sample_weight,
+            )
+            # fista_lla_path returns numpy, convert back to backend-native
+            if self.fit_intercept:
+                params = xp.concatenate([xp.asarray(coef_np), xp.asarray([intercept])])
+            else:
+                params = xp.asarray(coef_np)
+        elif _use_lla_group:
+            # GLM + group_mcp/group_scad: LLA outer loop + FISTA inner solve
+            # with AdaptiveGroupLassoPenalty as inner penalty.
+            from statgpu.glm_core._solver import fista_lla_path
+            from statgpu.penalties._group_lasso import AdaptiveGroupLassoPenalty
+            import numpy as _np
+
+            xp = get_backend(backend_name).xp
+
+            # lambda_max with backend-native arrays
+            X_feat = X_work[:, :p] if self.fit_intercept else X_work
+            _n = X_feat.shape[0]
+            _col_norms = xp.sqrt(xp.sum(X_feat ** 2, axis=0))
+            _col_norms = xp.maximum(_col_norms, 1e-20)
+            X_s = X_feat * (xp.sqrt(float(_n)) / _col_norms)
+            y_c = y_arr - xp.mean(y_arr)
+            _lam_max = float(xp.max(xp.abs(X_s.T @ y_c / _n)))
+            _target_alpha = float(getattr(self._penalty, 'alpha', self.alpha))
+
+            _n_cont = 20
+            _alpha_path = _np.geomspace(
+                max(_lam_max, _target_alpha * 1.1), _target_alpha, _n_cont,
+            )
+            _max_lla_per_step = max(6, getattr(self, '_max_lla_iters', 50) // _n_cont)
+            _saved_mi = self.max_iter
+            _mi_path = [_saved_mi if i == _n_cont - 1 else max(100, _saved_mi // 10)
+                        for i in range(_n_cont)]
+
+            # Create penalty factory for group LLA
+            _orig_pen = self._penalty  # unwrap SelectivePenalty
+            _groups = getattr(_orig_pen, '_group_indices', None)
+            _pen_alpha = float(_orig_pen.alpha)
+
+            def _group_lla_factory(weights_np):
+                # lla_weights returns per-coordinate; extract per-group weights
+                _gw = np.array([float(weights_np[idx[0]]) if len(idx) > 0 else 0.0
+                                for idx in _groups])
+                return AdaptiveGroupLassoPenalty(
+                    groups=_groups, alpha=_pen_alpha, weights=_gw,
+                )
+
+            X_orig = X_work[:, :p] if self.fit_intercept else X_work
+            coef_np, intercept, n_iter = fista_lla_path(
+                self._loss, self._penalty,
+                X_orig, y_arr,
+                alpha_path=_alpha_path,
+                max_lla_per_step=_max_lla_per_step,
+                lla_tol=getattr(self, '_lla_tol', 1e-6),
+                max_iter=_mi_path,
+                tol=self.tol,
+                fit_intercept=self.fit_intercept,
+                sample_weight=sample_weight,
+                lla_penalty_factory=_group_lla_factory,
+            )
+            # fista_lla_path returns numpy, convert back to backend-native
+            if self.fit_intercept:
+                params = xp.concatenate([xp.asarray(coef_np), xp.asarray([intercept])])
+            else:
+                params = xp.asarray(coef_np)
         elif _pen_name == "group_lasso":
             # Block CD for group_lasso: use GPU-native solver on GPU backends.
             if backend_name != "numpy":

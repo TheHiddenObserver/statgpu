@@ -35,9 +35,18 @@ class LogisticLoss(GLMLoss):
         return X.T @ (X * W[:, None]) / X.shape[0]
 
     def lipschitz(self, X, coef, y=None):
-        # Global Lipschitz: L = lambda_max(X'X) / (4n)
+        # Global bound: L_global = lambda_max(X'X) / (4n)
         XtX = X.T @ X
-        return _max_eigval_power(XtX) / (4.0 * X.shape[0])
+        L_global = _max_eigval_power(XtX) / (4.0 * X.shape[0])
+        if coef is not None:
+            z = X @ coef
+            p = _sigmoid(z)
+            W = _clip(p * (1.0 - p), 1e-10, 0.25)
+            XtWX = X.T @ (X * W[:, None])
+            L_iter = _max_eigval_power(XtWX) / X.shape[0]
+            # Floor at 10% of global bound to prevent overshoot near optimum
+            return max(L_iter, L_global * 0.1)
+        return L_global
 
     def predict(self, X, coef):
         z = X @ coef

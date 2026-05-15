@@ -338,3 +338,114 @@ class GroupLassoPenalty(Penalty):
             "n_groups": self._n_groups if self._group_indices else 0,
         })
         return params
+
+
+class AdaptiveGroupLassoPenalty(GroupLassoPenalty):
+    """Group Lasso with per-group weights for LLA linearization of group SCAD/MCP.
+
+    The penalty is:
+        P(w) = alpha * sum_g weights_g * sqrt(p_g) * ||w_g||_2
+
+    where weights_g are per-group LLA weights.
+    """
+
+    name = "adaptive_group_lasso"
+
+    def __init__(self, groups, alpha=1.0, weights=None):
+        super().__init__(alpha=alpha, groups=groups)
+        # weights: per-group weight array, shape (n_groups,)
+        # None = uniform (same as GroupLasso)
+        self._group_weights = weights
+
+    def set_weights(self, weights):
+        """Update per-group weights (numpy array, shape (n_groups,))."""
+        self._group_weights = weights
+
+    def _proximal_loop(self, w, step, xp):
+        """Per-group serial loop with per-group weights."""
+        result = w.copy() if hasattr(w, 'copy') else w.clone()
+        for g, idx in enumerate(self._group_indices):
+            w_g = w[idx]
+            norm = float(xp.linalg.norm(w_g))
+            wg = float(self._group_weights[g]) if self._group_weights is not None else 1.0
+            thresh = self.alpha * wg * self._sqrt_pg[g] * step
+            if norm > thresh:
+                result[idx] = w_g * (1.0 - thresh / norm)
+            else:
+                result[idx] = 0.0
+        return result
+
+    def _proximal_equal(self, w, step, xp, G, gs):
+        """Fast path: all groups equal size, vectorized norm + scale with weights."""
+        if self._is_contiguous:
+            w_mat = w.reshape(G, gs)
+        else:
+            w_mat = w[self._flat_indices].reshape(G, gs)
+
+        sqrt_pg_arr = _to_backend_array(self._sqrt_pg, xp, w)
+        if self._group_weights is not None:
+            weights_arr = _to_backend_array(self._group_weights, xp, w)
+        else:
+            weights_arr = xp.ones(G, dtype=w.dtype)
+            if hasattr(w, 'device'):
+                weights_arr = weights_arr.to(device=w.device)
+
+        norms = _vector_norm(w_mat, xp, dim=1)
+        thresh = self.alpha * weights_arr * sqrt_pg_arr * step
+        scale = xp.clamp(1.0 - thresh / (norms + 1e-12), 0.0, None) if xp.__name__ == "torch" else xp.clip(1.0 - thresh / (norms + 1e-12), 0.0, None)
+        scaled_flat = (w_mat * scale[:, None]).reshape(-1)
+
+        result = w.clone() if hasattr(w, 'clone') else w.copy()
+        if self._is_contiguous:
+            result[:] = scaled_flat
+        else:
+            result[self._flat_indices] = scaled_flat
+        return result
+
+    def _proximal_padded(self, w, step, xp, G, max_sz):
+        """General path: pad unequal groups with per-group weights."""
+        sizes = self._group_sizes
+        padded = _backend_zeros((G, max_sz), xp, dtype=w.dtype, ref_arr=w)
+        pos = 0
+        for g in range(G):
+            sz = int(sizes[g])
+            if sz > 0:
+                if self._is_contiguous:
+                    padded[g, :sz] = w[pos:pos + sz]
+                else:
+                    idx = self._flat_indices[pos:pos + sz]
+                    padded[g, :sz] = w[idx]
+            pos += sz
+
+        norms = _vector_norm(padded, xp, dim=1)
+        sqrt_pg_arr = _to_backend_array(self._sqrt_pg, xp, w)
+        if self._group_weights is not None:
+            weights_arr = _to_backend_array(self._group_weights, xp, w)
+        else:
+            weights_arr = xp.ones(G, dtype=w.dtype)
+            if hasattr(w, 'device'):
+                weights_arr = weights_arr.to(device=w.device)
+
+        thresh = self.alpha * weights_arr * sqrt_pg_arr * step
+        scale = xp.clip(1.0 - thresh / (norms + 1e-12), 0.0, None)
+        padded_scaled = padded * scale[:, None]
+
+        result = w.copy() if hasattr(w, 'copy') else w.clone()
+        pos = 0
+        for g in range(G):
+            sz = int(sizes[g])
+            if sz > 0:
+                if self._is_contiguous:
+                    result[pos:pos + sz] = padded_scaled[g, :sz]
+                else:
+                    idx = self._flat_indices[pos:pos + sz]
+                    result[idx] = padded_scaled[g, :sz]
+            pos += sz
+        return result
+
+    def get_params(self) -> dict:
+        params = super().get_params()
+        params.update({
+            "weights": self._group_weights,
+        })
+        return params
