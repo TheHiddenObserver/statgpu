@@ -242,10 +242,13 @@ sg.set_device("torch") # Force Torch CUDA
 sg.set_device("cpu")   # Force NumPy CPU
 sg.set_device("auto")  # Auto-detect (default)
 
-# Per-model settings override the global default
+# Explicit per-model settings override the global default
 cpu_model = Ridge(alpha=1.0, device="cpu")
 cupy_model = Ridge(alpha=1.0, device="cuda")
 torch_model = Ridge(alpha=1.0, device="torch")
+
+# device="auto" follows the current global setting/policy
+# (it does not independently override the global choice)
 auto_model = Ridge(alpha=1.0, device="auto")
 ```
 
