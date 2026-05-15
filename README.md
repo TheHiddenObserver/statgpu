@@ -99,69 +99,78 @@ Model documentation:
 
 ## Installation
 
-```bash
-# Local editable install (current recommended path before PyPI release)
-pip install -e .
+`statgpu` is currently installed from source or directly from GitHub. Start with the CPU-only install, then add the optional backend extras you need.
 
-# Direct install from GitHub
-pip install "git+https://github.com/TheHiddenObserver/statgpu.git"
-
-# With GPU support (choose by CUDA major version)
-# CUDA 11.x runtime:
-pip install -e ".[gpu11]"
-
-# CUDA 12.x runtime:
-pip install -e ".[gpu12]"
-
-# With PyTorch backend
-pip install -e ".[torch]"
-
-# Development
-pip install -e ".[dev]"
-
-# Formula interface
-pip install -e ".[formula]"
-```
-
-### PyTorch Backend Requirements
-
-- PyTorch 2.0+ (for `torch.special` functions)
-- CUDA 11.x or 12.x driver
-- Recommended: Use conda environment with pre-configured CUDA toolkit
+### 1. Create an environment
 
 ```bash
-# Example conda setup
 conda create -n statgpu python=3.10
 conda activate statgpu
-conda install pytorch cudatoolkit=11.7 -c pytorch
-pip install statgpu
+python -m pip install --upgrade pip
 ```
 
-**Torch Backend Usage**:
+### 2. Install the package
+
+```bash
+# Local editable install from a cloned checkout
+pip install -e .
+
+# Or install directly from GitHub
+pip install "git+https://github.com/TheHiddenObserver/statgpu.git"
+```
+
+### 3. Add optional extras
+
+Choose only the extras that match your environment:
+
+| Use case | Command | Notes |
+| --- | --- | --- |
+| CUDA 11.x via CuPy | `pip install -e ".[gpu11]"` | Installs `cupy-cuda11x`; do not combine with `gpu12`. |
+| CUDA 12.x via CuPy | `pip install -e ".[gpu12]"` | Installs `cupy-cuda12x`; do not combine with `gpu11`. |
+| PyTorch CUDA backend | `pip install -e ".[torch]"` | Installs PyTorch from PyPI. If you need a specific CUDA wheel, install PyTorch from the official PyTorch index first, then install `statgpu`. |
+| Formula/dataframe interface | `pip install -e ".[formula]"` | Adds `patsy` and `pandas`. |
+| Development tools | `pip install -e ".[dev]"` | Adds pytest, black, flake8, and mypy. |
+| External validation | `pip install -e ".[validation]"` | Adds scikit-learn and statsmodels for comparison tests. |
+
+For a non-editable GitHub install with extras, append the extra to the package name:
+
+```bash
+pip install "statgpu[gpu12] @ git+https://github.com/TheHiddenObserver/statgpu.git"
+```
+
+## Requirements
+
+### Core requirements
+
+- Python >= 3.8
+- NumPy >= 1.20
+- SciPy >= 1.7
+- joblib >= 1.0
+
+### Optional backend requirements
+
+- **CPU (`device="cpu"`)**: no optional GPU dependency required.
+- **CuPy CUDA (`device="cuda"`)**: install exactly one CuPy wheel that matches your CUDA major version:
+  - CUDA 11.x: `cupy-cuda11x>=13.0` via `statgpu[gpu11]`
+  - CUDA 12.x: `cupy-cuda12x>=13.0` via `statgpu[gpu12]`
+- **PyTorch CUDA (`device="torch"`)**: PyTorch >= 2.0 with CUDA support is recommended. Explicit `device="torch"` requires Torch CUDA to be available; it does not silently fall back to Torch CPU.
+- **Formula interface**: `patsy>=0.5.3` and `pandas>=1.5` via `statgpu[formula]`.
+
+### Device selection notes
+
+- `device="cpu"` uses NumPy.
+- `device="cuda"` uses CuPy and raises an error if CuPy/CUDA is unavailable.
+- `device="torch"` uses Torch CUDA and raises an error if Torch CUDA is unavailable.
+- `device="auto"` is the only mode that automatically chooses an available backend, usually preferring CuPy, then Torch CUDA, then NumPy.
 
 ```python
-from statgpu.linear_model import Ridge, LogisticRegression, Lasso
+from statgpu.linear_model import Ridge
 
-# Torch GPU backend
-model = Ridge(alpha=1.0, device='torch')  # Force Torch backend
-
-# GPU auto mode (prefers CuPy when available)
-model = Ridge(alpha=1.0, device='cuda')
-
-# Torch CPU backend (useful for debugging)
-model = Ridge(alpha=1.0, device='cpu')
-
-# All covariance types supported
-model = LogisticRegression(device='torch', cov_type='hc3')
-model.fit(X, y)
-print(f"Std Errors: {model._bse}")
+cpu_model = Ridge(alpha=1.0, device="cpu")
+cupy_model = Ridge(alpha=1.0, device="cuda")
+torch_model = Ridge(alpha=1.0, device="torch")
+auto_model = Ridge(alpha=1.0, device="auto")
 ```
-
-**Performance Notes**:
-- **Small datasets (<10K)**: CuPy faster due to lower overhead
-- **Moderate-large datasets (20K-100K)**: Torch GPU competitive with CuPy
-- **Robust covariance (HC2/HC3)**: Torch GPU within 4-30% of CuPy, 60x faster than CPU
-- See `dev/docs/torch_backend_full_feature_report.md` for detailed benchmarks
 
 ## Quick Start
 
