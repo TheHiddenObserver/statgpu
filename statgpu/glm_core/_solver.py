@@ -2619,26 +2619,28 @@ def admm_solver(
     z = _copy_arr(w)
     u = _zeros_like(w)
 
-    # Precompute sample_weight scaling if needed
-    sw = None
+    # Precompute sample_weight scaling if needed.
+    # Current solver path supports only uniform weighting semantics
+    # (same as other solvers in this module): scale smooth gradient by mean weight.
+    sw_scale = None
     if sample_weight is not None:
+        sw_np = np.asarray(sample_weight, dtype=np.float64)
+        if sw_np.ndim != 1 or sw_np.shape[0] != X_proc.shape[0]:
+            raise ValueError("sample_weight must be a 1D array with length n_samples")
         if backend == "cupy":
             import cupy as cp
-            sw = cp.asarray(sample_weight)
+            sw_scale = cp.mean(cp.asarray(sample_weight, dtype=X_proc.dtype))
         elif backend == "torch":
             import torch
-            sw = torch.tensor(sample_weight, device=X.device, dtype=X.dtype)
+            sw_scale = torch.mean(torch.tensor(sample_weight, device=X.device, dtype=X.dtype))
         else:
-            sw = np.asarray(sample_weight)
+            sw_scale = float(sw_np.mean())
 
     def _grad_w(w_vec, z_cur, u_cur):
         """Gradient of f(w) + (rho/2)||w - z_cur + u_cur||^2 w.r.t. w."""
         g = loss.gradient(X_proc, y_proc, w_vec)
-        if sw is not None:
-            if g.ndim > 1:
-                g = g * sw[:, None]
-            else:
-                g = g * sw
+        if sw_scale is not None:
+            g = g * sw_scale
         g = g + rho * (w_vec - z_cur + u_cur)
         return g
 
@@ -2672,11 +2674,8 @@ def admm_solver(
         # Precompute -grad_f(0) = Xty/n for squared_error (the constant part)
         _zero_coef = _zeros_like(w)
         _neg_grad_zero = -loss.gradient(X_proc, y_proc, _zero_coef)  # Xty/n
-        if sw is not None:
-            if _neg_grad_zero.ndim > 1:
-                _neg_grad_zero = _neg_grad_zero * sw[:, None]
-            else:
-                _neg_grad_zero = _neg_grad_zero * sw
+        if sw_scale is not None:
+            _neg_grad_zero = _neg_grad_zero * sw_scale
 
     else:
         # Gradient descent step: 1/(L_f + rho)
