@@ -42,13 +42,15 @@ class NegativeBinomialLoss(GLMLoss):
         W = _clip(mu, 1e-10, None) / (1.0 + self.alpha * _clip(mu, 1e-10, None))
         return X.T @ (X * W[:, None]) / X.shape[0]
 
+    _lipschitz_safety = 2.0  # NB Hessian varies moderately with mu
+
     def lipschitz(self, X, coef, y=None):
         z = _clip(X @ coef, -30, 30)
         mu = _exp(z)
         W = _clip(mu, 1e-10, 1e6) / (1.0 + self.alpha * _clip(mu, 1e-10, 1e6))
         XtWX = X.T @ (X * W[:, None])
         L = _max_eigval_power(XtWX) / X.shape[0]
-        return max(L, 1e-8)
+        return max(L, 1e-8) * self._lipschitz_safety
 
     def predict(self, X, coef):
         return _exp(X @ coef)

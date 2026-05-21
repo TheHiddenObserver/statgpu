@@ -12,7 +12,7 @@ where SCAD(t; lambda, a) is the element-wise SCAD penalty.
 from typing import Optional, List, Union
 import numpy as np
 from ._base import Penalty
-from ._group_lasso import _vector_norm, _to_backend_array, _backend_zeros
+from ._group_lasso import _vector_norm, _to_backend_array, _backend_zeros, _batched_group_norms, _get_xp
 
 # ---- torch.compile lazy-loader for vectorized SCAD proximal ---------
 _GROUP_SCAD_PROXIMAL_TORCH_COMPILED = None
@@ -144,66 +144,202 @@ class GroupSCADPenalty(Penalty):
 
         if not self._is_contiguous:
             self._flat_indices = np.concatenate(
-                [np.asarray(g, dtype=int) for g in self._group_indices]
+                [np.asarray(g, dtype=np.int64) for g in self._group_indices]
             )
 
-    def _reshape_to_matrix(self, w, xp, G, gs):
+        # Invalidate cached device tensors for _sqrt_pg
+        self._sqrt_pg_torch = None
+        self._sqrt_pg_cupy = None
+
+        # Precompute padded gather/scatter index arrays (for unequal groups)
+        if not self._all_equal_size:
+            self._padded_row_idx = np.repeat(np.arange(self._n_groups), self._group_sizes).astype(np.int64)
+            self._padded_col_idx = np.concatenate([np.arange(sz) for sz in self._group_sizes]).astype(np.int64)
+
+        # Precompute feature→group mapping (for gradient/lla_weights vectorization)
+        p_total = sum(len(g) for g in self._group_indices)
+        self._group_feat_idx = np.empty(p_total, dtype=np.int64)
+        for g, idx in enumerate(self._group_indices):
+            self._group_feat_idx[idx] = g
+
+        # Invalidate all cached device tensors
+        self._padded_row_idx_torch = None
+        self._padded_row_idx_cupy = None
+        self._padded_col_idx_torch = None
+        self._padded_col_idx_cupy = None
+        self._flat_indices_torch = None
+        self._flat_indices_cupy = None
+        self._group_feat_idx_torch = None
+        self._group_feat_idx_cupy = None
+
+    def _get_sqrt_pg(self, xp, w):
+        """Cached device tensor for _sqrt_pg."""
+        if xp.__name__ == "torch":
+            if self._sqrt_pg_torch is None:
+                self._sqrt_pg_torch = _to_backend_array(self._sqrt_pg, xp, w)
+            return self._sqrt_pg_torch
+        else:
+            if self._sqrt_pg_cupy is None:
+                self._sqrt_pg_cupy = _to_backend_array(self._sqrt_pg, xp, w)
+            return self._sqrt_pg_cupy
+
+    def _get_cached(self, attr_name, xp, w):
+        """Get or create cached device tensor for a numpy attribute."""
+        backend = "torch" if xp.__name__ == "torch" else "cupy"
+        cache_attr = f"_{attr_name}_{backend}"
+        cached = getattr(self, cache_attr, None)
+        if cached is None:
+            cached = _to_backend_array(getattr(self, attr_name), xp, w)
+            setattr(self, cache_attr, cached)
+        return cached
+
+    def _get_flat_indices(self, xp, w):
+        """Cached device tensor for _flat_indices."""
+        if not hasattr(self, '_flat_indices') or self._flat_indices is None:
+            return None
+        return self._get_cached('_flat_indices', xp, w)
+
+    def _batched_group_norms_vec(self, coef_feat, xp, w_ref):
+        """Vectorized batched group norms using padded fancy indexing."""
+        G = self._n_groups
+        max_sz = int(self._group_sizes.max())
+        padded = _backend_zeros((G, max_sz), xp, dtype=coef_feat.dtype, ref_arr=w_ref)
+        row_idx_dev = self._get_cached('_padded_row_idx', xp, w_ref)
+        col_idx_dev = self._get_cached('_padded_col_idx', xp, w_ref)
         if self._is_contiguous:
-            return w.reshape(G, gs)
-        return w[self._flat_indices].reshape(G, gs)
+            padded[row_idx_dev, col_idx_dev] = coef_feat
+        else:
+            flat_idx_dev = self._get_flat_indices(xp, w_ref)
+            padded[row_idx_dev, col_idx_dev] = coef_feat[flat_idx_dev]
+        return _vector_norm(padded, xp, dim=1)
+
+    def _reshape_to_matrix(self, w, xp, G, gs):
+        p_total = G * gs
+        w_feat = w[:p_total]  # handle augmented intercept
+        if self._is_contiguous:
+            return w_feat.reshape(G, gs)
+        return w_feat[self._flat_indices].reshape(G, gs)
 
     def _scatter_from_flat(self, flat_vals, result, xp):
+        p_total = len(flat_vals)
         if self._is_contiguous:
-            result[:] = flat_vals
+            result[:p_total] = flat_vals
         else:
-            result[self._flat_indices] = flat_vals
+            result[:p_total][self._flat_indices] = flat_vals
 
     # ----------------------------------------------------------------
     # Value
     # ----------------------------------------------------------------
 
-    def value(self, coef: np.ndarray) -> float:
+    def value(self, coef) -> float:
         if self._group_indices is None:
             raise ValueError("groups must be set before calling value()")
 
-        total = 0.0
-        for g, idx in enumerate(self._group_indices):
-            w_g = coef[idx]
-            ng = float(np.linalg.norm(w_g))
-            alpha_g = self.alpha * self._sqrt_pg[g]
-            a_alpha_g = self.a * alpha_g
+        xp = _get_xp(coef)
+        is_torch = xp.__name__ == "torch"
+        is_cupy = xp.__name__ == "cupy"
+        a = self.a
 
-            if ng <= alpha_g:
-                total += alpha_g * ng
-            elif ng <= a_alpha_g:
-                total += -(ng * ng - 2.0 * self.a * alpha_g * ng + alpha_g * alpha_g) / (2.0 * (self.a - 1.0))
+        p_total = int(self._group_sizes.sum())
+        coef_feat = coef[:p_total]  # handle augmented intercept
+
+        # Compute all group norms in one batch
+        if self._all_equal_size and self._group_size_uniform is not None:
+            gs = self._group_size_uniform
+            if self._is_contiguous:
+                w_mat = coef_feat.reshape(self._n_groups, gs)
             else:
-                total += (self.a + 1.0) * alpha_g * alpha_g / 2.0
-        return total
+                w_mat = coef_feat[self._flat_indices].reshape(self._n_groups, gs)
+            norms = _vector_norm(w_mat, xp, dim=1)
+        else:
+            norms = self._batched_group_norms_vec(coef_feat, xp, coef)
+
+        sqrt_pg = self._get_sqrt_pg(xp, coef)
+        alpha_g = self.alpha * sqrt_pg
+        a_alpha_g = a * alpha_g
+
+        if is_torch:
+            import torch
+            mask_r1 = norms <= alpha_g
+            mask_r2 = (norms > alpha_g) & (norms <= a_alpha_g)
+            # Region 1: alpha_g * ng
+            total = torch.sum(alpha_g[mask_r1] * norms[mask_r1])
+            # Region 2: -(ng^2 - 2*a*alpha_g*ng + alpha_g^2) / (2*(a-1))
+            ng2 = norms[mask_r2]
+            ag2 = alpha_g[mask_r2]
+            total += torch.sum(-(ng2 * ng2 - 2.0 * a * ag2 * ng2 + ag2 * ag2) / (2.0 * (a - 1.0)))
+            # Region 3: (a+1)*alpha_g^2 / 2
+            mask_r3 = norms > a_alpha_g
+            total += torch.sum((a + 1.0) * alpha_g[mask_r3] ** 2 / 2.0)
+            return total.item()
+        elif is_cupy:
+            import cupy as cp
+            mask_r1 = norms <= alpha_g
+            mask_r2 = (norms > alpha_g) & (norms <= a_alpha_g)
+            total = cp.sum(alpha_g[mask_r1] * norms[mask_r1])
+            ng2 = norms[mask_r2]
+            ag2 = alpha_g[mask_r2]
+            total += cp.sum(-(ng2 * ng2 - 2.0 * a * ag2 * ng2 + ag2 * ag2) / (2.0 * (a - 1.0)))
+            mask_r3 = norms > a_alpha_g
+            total += cp.sum((a + 1.0) * alpha_g[mask_r3] ** 2 / 2.0)
+            return float(total)
+        else:
+            mask_r1 = norms <= alpha_g
+            mask_r2 = (norms > alpha_g) & (norms <= a_alpha_g)
+            total = np.sum(alpha_g[mask_r1] * norms[mask_r1])
+            ng2 = norms[mask_r2]
+            ag2 = alpha_g[mask_r2]
+            total += np.sum(-(ng2 * ng2 - 2.0 * a * ag2 * ng2 + ag2 * ag2) / (2.0 * (a - 1.0)))
+            mask_r3 = norms > a_alpha_g
+            total += np.sum((a + 1.0) * alpha_g[mask_r3] ** 2 / 2.0)
+            return float(total)
 
     # ----------------------------------------------------------------
     # Gradient
     # ----------------------------------------------------------------
 
-    def gradient(self, coef: np.ndarray) -> np.ndarray:
+    def gradient(self, coef) -> np.ndarray:
         if self._group_indices is None:
             raise ValueError("groups must be set before calling gradient()")
 
-        grad = np.zeros_like(coef, dtype=float)
-        for g, idx in enumerate(self._group_indices):
-            w_g = coef[idx]
-            ng = float(np.linalg.norm(w_g))
-            alpha_g = self.alpha * self._sqrt_pg[g]
-            a_alpha_g = self.a * alpha_g
+        xp = _get_xp(coef)
+        is_torch = xp.__name__ == "torch"
+        is_cupy = xp.__name__ == "cupy"
+        a = self.a
 
-            if ng > 1e-15:
-                if ng <= alpha_g:
-                    deriv = alpha_g
-                elif ng <= a_alpha_g:
-                    deriv = (self.a * alpha_g - ng) / (self.a - 1.0)
-                else:
-                    deriv = 0.0
-                grad[idx] = deriv * w_g / ng
+        p_total = int(self._group_sizes.sum())
+        coef_feat = coef[:p_total]  # handle augmented intercept
+
+        # Compute all group norms in one batch
+        if self._all_equal_size and self._group_size_uniform is not None:
+            gs = self._group_size_uniform
+            G = self._n_groups
+            if self._is_contiguous:
+                w_mat = coef_feat.reshape(G, gs)
+            else:
+                w_mat = coef_feat[self._flat_indices].reshape(G, gs)
+            norms = _vector_norm(w_mat, xp, dim=1)
+        else:
+            norms = self._batched_group_norms_vec(coef_feat, xp, coef)
+
+        sqrt_pg = self._get_sqrt_pg(xp, coef)
+        alpha_g = self.alpha * sqrt_pg
+        a_alpha_g = a * alpha_g
+
+        # Fused: single scale_g per group (eliminates intermediate deriv_g + inv_norms_g)
+        # Region 1 (|w|<=alpha): deriv=alpha_g, scale=alpha_g/norm
+        # Region 2 (alpha<|w|<=a*alpha): deriv=(a*alpha_g-norm)/(a-1), scale=deriv/norm
+        # Region 3 (|w|>a*alpha): scale=0
+        safe_norms = xp.clamp(norms, min=1e-15) if is_torch else xp.maximum(norms, 1e-15)
+        scale_g = xp.where(norms <= alpha_g,
+                           alpha_g / safe_norms,
+                           xp.where((norms > alpha_g) & (norms <= a_alpha_g),
+                                    (a * alpha_g - norms) / ((a - 1.0) * safe_norms),
+                                    0.0))
+
+        feat_idx = self._get_cached('_group_feat_idx', xp, coef)
+        grad = xp.zeros_like(coef)
+        grad[:p_total] = scale_g[feat_idx] * coef_feat
         return grad
 
     # ----------------------------------------------------------------
@@ -262,7 +398,7 @@ class GroupSCADPenalty(Penalty):
     def _proximal_equal(self, w, step, xp, G, gs):
         """Equal-size groups: vectorized SCAD proximal (3 regions)."""
         w_mat = self._reshape_to_matrix(w, xp, G, gs)
-        sqrt_pg_arr = _to_backend_array(self._sqrt_pg, xp, w)
+        sqrt_pg_arr = self._get_sqrt_pg(xp, w)
 
         # Torch compiled fast path
         if xp.__name__ == "torch":
@@ -301,21 +437,21 @@ class GroupSCADPenalty(Penalty):
 
     def _proximal_padded(self, w, step, xp, G, max_sz):
         """Unequal groups: pad, vectorize, unpack."""
-        sizes = self._group_sizes
+        p_total = int(self._group_sizes.sum())
+        w_feat = w[:p_total]  # handle augmented intercept
+
+        # Build padded matrix via fancy indexing — 1 kernel launch
         padded = _backend_zeros((G, max_sz), xp, dtype=w.dtype, ref_arr=w)
-        pos = 0
-        for g in range(G):
-            sz = int(sizes[g])
-            if sz > 0:
-                if self._is_contiguous:
-                    padded[g, :sz] = w[pos:pos + sz]
-                else:
-                    idx = self._flat_indices[pos:pos + sz]
-                    padded[g, :sz] = w[idx]
-            pos += sz
+        row_idx_dev = self._get_cached('_padded_row_idx', xp, w)
+        col_idx_dev = self._get_cached('_padded_col_idx', xp, w)
+        if self._is_contiguous:
+            padded[row_idx_dev, col_idx_dev] = w_feat
+        else:
+            flat_idx_dev = self._get_flat_indices(xp, w)
+            padded[row_idx_dev, col_idx_dev] = w_feat[flat_idx_dev]
 
         norms = _vector_norm(padded, xp, dim=1)
-        sqrt_pg_arr = _to_backend_array(self._sqrt_pg, xp, w)
+        sqrt_pg_arr = self._get_sqrt_pg(xp, w)
         alpha_g = self.alpha * sqrt_pg_arr
         t_g = alpha_g * step
         a_alpha_g = self.a * alpha_g
@@ -332,43 +468,99 @@ class GroupSCADPenalty(Penalty):
 
         padded_scaled = padded * scale[:, None]
 
+        # Scatter back via fancy indexing — 1 kernel launch
         result = w.copy() if hasattr(w, 'copy') else w.clone()
-        pos = 0
-        for g in range(G):
-            sz = int(sizes[g])
-            if sz > 0:
-                if self._is_contiguous:
-                    result[pos:pos + sz] = padded_scaled[g, :sz]
-                else:
-                    idx = self._flat_indices[pos:pos + sz]
-                    result[idx] = padded_scaled[g, :sz]
-            pos += sz
+        if self._is_contiguous:
+            result[:p_total] = padded_scaled[row_idx_dev, col_idx_dev]
+        else:
+            result[:p_total][flat_idx_dev] = padded_scaled[row_idx_dev, col_idx_dev]
         return result
 
     # ----------------------------------------------------------------
     # LLA weights (for LLA outer loop optimization)
     # ----------------------------------------------------------------
 
-    def lla_weights(self, coef: np.ndarray) -> np.ndarray:
+    def lla_weights(self, coef):
         if self._group_indices is None:
             raise ValueError("groups must be set before calling lla_weights()")
 
-        weights = np.zeros(len(coef), dtype=float)
-        for g, idx in enumerate(self._group_indices):
-            w_g = coef[idx]
-            ng = float(np.linalg.norm(w_g))
-            alpha_g = self.alpha * self._sqrt_pg[g]
-            a_alpha_g = self.a * alpha_g
+        xp = _get_xp(coef)
+        is_torch = xp.__name__ == "torch"
+        is_cupy = xp.__name__ == "cupy"
+        a = self.a
 
-            if ng <= alpha_g:
-                deriv = alpha_g
-            elif ng <= a_alpha_g:
-                deriv = (self.a * alpha_g - ng) / (self.a - 1.0)
+        p_total = int(self._group_sizes.sum())
+        coef_feat = coef[:p_total]  # handle augmented intercept
+
+        # Compute all group norms in one batch
+        if self._all_equal_size and self._group_size_uniform is not None:
+            gs = self._group_size_uniform
+            if self._is_contiguous:
+                w_mat = coef_feat.reshape(self._n_groups, gs)
             else:
-                deriv = 0.0
+                w_mat = coef_feat[self._flat_indices].reshape(self._n_groups, gs)
+            norms = _vector_norm(w_mat, xp, dim=1)
+        else:
+            norms = self._batched_group_norms_vec(coef_feat, xp, coef)
 
-            weights[idx] = deriv
-        return weights
+        sqrt_pg = self._get_sqrt_pg(xp, coef)
+        alpha_g = self.alpha * sqrt_pg
+        a_alpha_g = a * alpha_g
+
+        # Per-group derivative weight
+        if is_torch:
+            import torch
+            weight_g = torch.where(
+                norms <= alpha_g,
+                alpha_g,
+                torch.where(
+                    norms <= a_alpha_g,
+                    (a * alpha_g - norms) / (a - 1.0),
+                    torch.zeros_like(norms),
+                ),
+            )
+            # Broadcast to per-coordinate
+            if self._all_equal_size and self._group_size_uniform is not None:
+                gs = self._group_size_uniform
+                weights = weight_g.repeat_interleave(gs)
+            else:
+                feat_idx = self._get_cached('_group_feat_idx', xp, coef)
+                weights = weight_g[feat_idx]
+            return weights
+        elif is_cupy:
+            import cupy as cp
+            weight_g = cp.where(
+                norms <= alpha_g,
+                alpha_g,
+                cp.where(
+                    norms <= a_alpha_g,
+                    (a * alpha_g - norms) / (a - 1.0),
+                    0.0,
+                ),
+            )
+            if self._all_equal_size and self._group_size_uniform is not None:
+                gs = self._group_size_uniform
+                weights = cp.repeat(weight_g, gs)
+            else:
+                feat_idx = self._get_cached('_group_feat_idx', xp, coef)
+                weights = weight_g[feat_idx]
+            return weights
+        else:
+            weight_g = np.where(
+                norms <= alpha_g,
+                alpha_g,
+                np.where(
+                    norms <= a_alpha_g,
+                    (a * alpha_g - norms) / (a - 1.0),
+                    0.0,
+                ),
+            )
+            if self._all_equal_size and self._group_size_uniform is not None:
+                gs = self._group_size_uniform
+                weights = np.repeat(weight_g, gs)
+            else:
+                weights = weight_g[self._group_feat_idx]
+            return weights
 
     # ----------------------------------------------------------------
 

@@ -83,14 +83,40 @@ class SCADPenalty(Penalty):
     # ----------------------------------------------------------------
 
     def value(self, coef: np.ndarray) -> float:
-        abs_w = np.abs(coef)
+        # Backend-aware: compute on device, only transfer final scalar.
+        mod = type(coef).__module__
         a = self.a
         alpha = self.alpha
 
+        if mod.startswith("torch"):
+            import torch
+            abs_w = torch.abs(coef)
+            region1 = abs_w <= alpha
+            region2 = (abs_w > alpha) & (abs_w <= a * alpha)
+            region3 = abs_w > a * alpha
+            total = alpha * abs_w[region1].sum()
+            total += (-(abs_w[region2] ** 2 - 2 * a * alpha * abs_w[region2] + alpha ** 2)
+                      / (2.0 * (a - 1.0))).sum()
+            total += (a + 1.0) * alpha ** 2 / 2.0 * region3.sum()
+            return float(total.item())
+        if mod.startswith("cupy"):
+            import cupy as cp
+            abs_w = cp.abs(coef)
+            region1 = abs_w <= alpha
+            region2 = (abs_w > alpha) & (abs_w <= a * alpha)
+            region3 = abs_w > a * alpha
+            total = alpha * cp.sum(abs_w[region1])
+            total += cp.sum(
+                -(abs_w[region2] ** 2 - 2 * a * alpha * abs_w[region2] + alpha ** 2)
+                / (2.0 * (a - 1.0))
+            )
+            total += (a + 1.0) * alpha ** 2 / 2.0 * cp.sum(region3)
+            return float(total)
+
+        abs_w = np.abs(coef)
         region1 = abs_w <= alpha
         region2 = (abs_w > alpha) & (abs_w <= a * alpha)
         region3 = abs_w > a * alpha
-
         total = 0.0
         total += alpha * np.sum(abs_w[region1])
         total += np.sum(
@@ -218,7 +244,7 @@ class SCADPenalty(Penalty):
     # LLA weights (Local Linear Approximation path)
     # ----------------------------------------------------------------
 
-    def lla_weights(self, coef: np.ndarray) -> np.ndarray:
+    def lla_weights(self, coef):
         """
         LLA weights: w_j = P'(|coef_j|) — the subgradient of SCAD at |coef_j|.
 
@@ -227,20 +253,39 @@ class SCADPenalty(Penalty):
             (a*alpha - |coef_j|) / (a - 1)   if alpha < |coef_j| <= a*alpha
             0                                 if |coef_j| > a*alpha
         }
+
+        Accepts numpy, cupy, or torch arrays. Returns same backend type.
         """
-        abs_w = np.abs(coef)
+        mod = type(coef).__module__
         a = self.a
         alpha = self.alpha
 
-        weights = np.full_like(coef, alpha, dtype=float)
-
-        mask2 = (abs_w > alpha) & (abs_w <= a * alpha)
-        weights[mask2] = (a * alpha - abs_w[mask2]) / (a - 1.0)
-
-        mask3 = abs_w > a * alpha
-        weights[mask3] = 0.0
-
-        return weights
+        if mod.startswith("torch"):
+            import torch
+            abs_w = torch.abs(coef)
+            weights = torch.full_like(coef, alpha)
+            mask2 = (abs_w > alpha) & (abs_w <= a * alpha)
+            weights[mask2] = (a * alpha - abs_w[mask2]) / (a - 1.0)
+            mask3 = abs_w > a * alpha
+            weights[mask3] = 0.0
+            return weights
+        elif mod.startswith("cupy"):
+            import cupy as cp
+            abs_w = cp.abs(coef)
+            weights = cp.full_like(coef, alpha)
+            mask2 = (abs_w > alpha) & (abs_w <= a * alpha)
+            weights[mask2] = (a * alpha - abs_w[mask2]) / (a - 1.0)
+            mask3 = abs_w > a * alpha
+            weights[mask3] = 0.0
+            return weights
+        else:
+            abs_w = np.abs(coef)
+            weights = np.full_like(coef, alpha, dtype=float)
+            mask2 = (abs_w > alpha) & (abs_w <= a * alpha)
+            weights[mask2] = (a * alpha - abs_w[mask2]) / (a - 1.0)
+            mask3 = abs_w > a * alpha
+            weights[mask3] = 0.0
+            return weights
 
     # ----------------------------------------------------------------
 

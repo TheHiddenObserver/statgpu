@@ -305,6 +305,14 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
         # while GPU/Torch stays on accelerator-capable FISTA.
         backend = self._get_backend(backend="auto")
         backend_name = backend.name
+
+        # Auto-dispatch small problems to CPU — GPU kernel launch overhead
+        # dominates for n*p < 200k FLOPs per iteration.
+        if backend_name in ("cupy", "torch") and X is not None:
+            _n, _p = X.shape
+            if _n * _p < 200_000:
+                backend_name = "numpy"
+
         selected_solver = self._select_solver(self._loss, backend_name=backend_name)
         selected_solver = self._validate_solver_for_penalty(selected_solver, backend_name)
         self._selected_solver = selected_solver
@@ -1609,7 +1617,16 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
         solver_name = self._selected_solver or self._select_solver(
             self._loss, backend_name="cupy"
         )
-        _solver = fista_bb_solver if solver_name == "fista_bb" else fista_solver
+        # For smooth penalties (l2), fista_bb converges more reliably.
+        _pen_name = getattr(self._penalty, 'name', '')
+        _is_smooth = (_pen_name == "l2") or (
+            _pen_name == "elasticnet" and
+            float(getattr(self._penalty, 'l1_ratio', 1.0)) < 0.5
+        )
+        if solver_name == "fista_bb" or (solver_name in ("fista", "auto") and _is_smooth):
+            _solver = fista_bb_solver
+        else:
+            _solver = fista_solver
 
         X_arr = cp.asarray(X)
         y_arr = cp.asarray(y)
@@ -1680,7 +1697,16 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
         solver_name = self._selected_solver or self._select_solver(
             self._loss, backend_name="torch"
         )
-        _solver = fista_bb_solver if solver_name == "fista_bb" else fista_solver
+        # For smooth penalties (l2), fista_bb converges more reliably.
+        _pen_name = getattr(self._penalty, 'name', '')
+        _is_smooth = (_pen_name == "l2") or (
+            _pen_name == "elasticnet" and
+            float(getattr(self._penalty, 'l1_ratio', 1.0)) < 0.5
+        )
+        if solver_name == "fista_bb" or (solver_name in ("fista", "auto") and _is_smooth):
+            _solver = fista_bb_solver
+        else:
+            _solver = fista_solver
 
         torch_device = _get_torch_device_str()
 
@@ -1952,9 +1978,12 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
         """Penalty wrapper that leaves the last intercept coefficient free."""
         pen = self._penalty
         alpha = float(getattr(pen, "alpha", self.alpha))
+        l1_ratio = float(getattr(pen, "l1_ratio", 0.0))
 
         class SelectivePenalty:
             name = pen.name
+            alpha = getattr(pen, 'alpha', 0.0)
+            l1_ratio = getattr(pen, 'l1_ratio', 0.0)
 
             def value(self, coef):
                 return pen.value(coef[:-1])
@@ -1980,20 +2009,30 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
                 return result
 
             def smooth_value(self, coef):
-                if str(pen.name).lower() != "l2":
-                    raise ValueError("smooth solvers only support L2 penalties.")
+                pname = str(pen.name).lower()
+                if pname == "l2":
+                    smooth_alpha = alpha
+                elif pname == "elasticnet":
+                    smooth_alpha = alpha * (1.0 - l1_ratio)
+                else:
+                    raise ValueError("smooth solvers only support L2/ElasticNet penalties.")
                 active = coef[:p]
                 if backend_name == "cupy":
                     import cupy as cp
-                    return 0.5 * alpha * cp.sum(active * active)
+                    return 0.5 * smooth_alpha * cp.sum(active * active)
                 if backend_name == "torch":
                     import torch
-                    return 0.5 * alpha * torch.sum(active * active)
-                return 0.5 * alpha * np.sum(active * active)
+                    return 0.5 * smooth_alpha * torch.sum(active * active)
+                return 0.5 * smooth_alpha * np.sum(active * active)
 
             def smooth_gradient(self, coef):
-                if str(pen.name).lower() != "l2":
-                    raise ValueError("smooth solvers only support L2 penalties.")
+                pname = str(pen.name).lower()
+                if pname == "l2":
+                    smooth_alpha = alpha
+                elif pname == "elasticnet":
+                    smooth_alpha = alpha * (1.0 - l1_ratio)
+                else:
+                    raise ValueError("smooth solvers only support L2/ElasticNet penalties.")
                 if backend_name == "cupy":
                     import cupy as cp
                     grad = cp.zeros_like(coef)
@@ -2002,26 +2041,31 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
                     grad = torch.zeros_like(coef)
                 else:
                     grad = np.zeros_like(coef)
-                grad[:p] = alpha * coef[:p]
+                grad[:p] = smooth_alpha * coef[:p]
                 return grad
 
             def smooth_hessian(self, coef):
-                if str(pen.name).lower() != "l2":
-                    raise ValueError("smooth solvers only support L2 penalties.")
+                pname = str(pen.name).lower()
+                if pname == "l2":
+                    smooth_alpha = alpha
+                elif pname == "elasticnet":
+                    smooth_alpha = alpha * (1.0 - l1_ratio)
+                else:
+                    raise ValueError("smooth solvers only support L2/ElasticNet penalties.")
                 if backend_name == "cupy":
                     import cupy as cp
                     diag = cp.zeros(coef.shape[0], dtype=coef.dtype)
-                    diag[:p] = alpha
+                    diag[:p] = smooth_alpha
                     return cp.diag(diag)
                 if backend_name == "torch":
                     import torch
                     diag = torch.zeros(
                         coef.shape[0], dtype=coef.dtype, device=coef.device
                     )
-                    diag[:p] = alpha
+                    diag[:p] = smooth_alpha
                     return torch.diag(diag)
                 diag = np.zeros(coef.shape[0], dtype=coef.dtype)
-                diag[:p] = alpha
+                diag[:p] = smooth_alpha
                 return np.diag(diag)
 
         return SelectivePenalty()
@@ -3090,8 +3134,12 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
             X_feat = X_work[:, :p] if self.fit_intercept else X_work
             _n = X_feat.shape[0]
             _col_norms = xp.sqrt(xp.sum(X_feat ** 2, axis=0))
-            _col_norms = xp.maximum(_col_norms, 1e-20)
-            X_s = X_feat * (xp.sqrt(float(_n)) / _col_norms)
+            if backend_name == "torch":
+                import torch
+                _col_norms = torch.clamp(_col_norms, min=1e-20)
+            else:
+                _col_norms = xp.maximum(_col_norms, 1e-20)
+            X_s = X_feat * (float(_n) ** 0.5 / _col_norms)
             y_c = y_arr - xp.mean(y_arr)
             _lam_max = float(xp.max(xp.abs(X_s.T @ y_c / _n)))
             _target_alpha = float(getattr(self._penalty, 'alpha', self.alpha))
@@ -3135,8 +3183,12 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
             X_feat = X_work[:, :p] if self.fit_intercept else X_work
             _n = X_feat.shape[0]
             _col_norms = xp.sqrt(xp.sum(X_feat ** 2, axis=0))
-            _col_norms = xp.maximum(_col_norms, 1e-20)
-            X_s = X_feat * (xp.sqrt(float(_n)) / _col_norms)
+            if backend_name == "torch":
+                import torch
+                _col_norms = torch.clamp(_col_norms, min=1e-20)
+            else:
+                _col_norms = xp.maximum(_col_norms, 1e-20)
+            X_s = X_feat * (float(_n) ** 0.5 / _col_norms)
             y_c = y_arr - xp.mean(y_arr)
             _lam_max = float(xp.max(xp.abs(X_s.T @ y_c / _n)))
             _target_alpha = float(getattr(self._penalty, 'alpha', self.alpha))
@@ -3155,13 +3207,17 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
             _groups = getattr(_orig_pen, '_group_indices', None)
             _pen_alpha = float(_orig_pen.alpha)
 
+            # Create penalty object once; reuse via set_weights() to avoid
+            # repeated _init_groups() + object creation overhead.
+            _adaptive_pen = AdaptiveGroupLassoPenalty(
+                groups=_groups, alpha=_pen_alpha,
+            )
             def _group_lla_factory(weights_np):
                 # lla_weights returns per-coordinate; extract per-group weights
                 _gw = np.array([float(weights_np[idx[0]]) if len(idx) > 0 else 0.0
                                 for idx in _groups])
-                return AdaptiveGroupLassoPenalty(
-                    groups=_groups, alpha=_pen_alpha, weights=_gw,
-                )
+                _adaptive_pen.set_weights(_gw)
+                return _adaptive_pen
 
             X_orig = X_work[:, :p] if self.fit_intercept else X_work
             coef_np, intercept, n_iter = fista_lla_path(
@@ -3205,11 +3261,25 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
                 else:
                     params = coef_np
         elif solver_name in ("auto", "fista"):
-            params, n_iter = fista_solver(
-                self._loss, pen, X_work, y_arr,
-                max_iter=self.max_iter, tol=self.tol,
-                init_coef=init, sample_weight=sample_weight,
+            # For smooth penalties (l2, elasticnet with low l1_ratio),
+            # fista_bb with BB step sizes converges much more reliably
+            # than standard FISTA with Nesterov momentum + proximal l2.
+            _is_smooth = (_pen_name == "l2") or (
+                _pen_name == "elasticnet" and
+                float(getattr(pen, 'l1_ratio', 1.0)) < 0.5
             )
+            if _is_smooth:
+                params, n_iter = fista_bb_solver(
+                    self._loss, pen, X_work, y_arr,
+                    max_iter=self.max_iter, tol=self.tol,
+                    init_coef=init, sample_weight=sample_weight,
+                )
+            else:
+                params, n_iter = fista_solver(
+                    self._loss, pen, X_work, y_arr,
+                    max_iter=self.max_iter, tol=self.tol,
+                    init_coef=init, sample_weight=sample_weight,
+                )
         elif solver_name == "fista_bb":
             params, n_iter = fista_bb_solver(
                 self._loss, pen, X_work, y_arr,

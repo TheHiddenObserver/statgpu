@@ -82,13 +82,31 @@ class MCPPenalty(Penalty):
     # ----------------------------------------------------------------
 
     def value(self, coef: np.ndarray) -> float:
-        abs_w = np.abs(coef)
+        # Backend-aware: compute on device, only transfer final scalar.
+        mod = type(coef).__module__
         alpha = self.alpha
         gamma = self.gamma
 
+        if mod.startswith("torch"):
+            import torch
+            abs_w = torch.abs(coef)
+            region1 = abs_w <= gamma * alpha
+            region2 = ~region1
+            total = (alpha * abs_w[region1] - abs_w[region1] ** 2 / (2.0 * gamma)).sum()
+            total += 0.5 * gamma * alpha ** 2 * region2.sum()
+            return float(total.item())
+        if mod.startswith("cupy"):
+            import cupy as cp
+            abs_w = cp.abs(coef)
+            region1 = abs_w <= gamma * alpha
+            region2 = ~region1
+            total = cp.sum(alpha * abs_w[region1] - abs_w[region1] ** 2 / (2.0 * gamma))
+            total += 0.5 * gamma * alpha ** 2 * cp.sum(region2)
+            return float(total)
+
+        abs_w = np.abs(coef)
         region1 = abs_w <= gamma * alpha
         region2 = ~region1
-
         total = 0.0
         total += np.sum(alpha * abs_w[region1] - abs_w[region1] ** 2 / (2.0 * gamma))
         total += 0.5 * gamma * alpha ** 2 * np.sum(region2)
@@ -198,7 +216,7 @@ class MCPPenalty(Penalty):
     # LLA weights (Local Linear Approximation path)
     # ----------------------------------------------------------------
 
-    def lla_weights(self, coef: np.ndarray) -> np.ndarray:
+    def lla_weights(self, coef):
         """
         LLA weights: w_j = P'(|coef_j|) — the subgradient of MCP at |coef_j|.
 
@@ -206,17 +224,33 @@ class MCPPenalty(Penalty):
             alpha - |coef_j| / gamma   if |coef_j| <= gamma*alpha
             0                           if |coef_j| > gamma*alpha
         }
+
+        Accepts numpy, cupy, or torch arrays. Returns same backend type.
         """
-        abs_w = np.abs(coef)
+        mod = type(coef).__module__
         alpha = self.alpha
         gamma = self.gamma
 
-        weights = np.zeros_like(coef, dtype=float)
-
-        mask = abs_w <= gamma * alpha
-        weights[mask] = alpha - abs_w[mask] / gamma
-
-        return weights
+        if mod.startswith("torch"):
+            import torch
+            abs_w = torch.abs(coef)
+            weights = torch.zeros_like(coef)
+            mask = abs_w <= gamma * alpha
+            weights[mask] = alpha - abs_w[mask] / gamma
+            return weights
+        elif mod.startswith("cupy"):
+            import cupy as cp
+            abs_w = cp.abs(coef)
+            weights = cp.zeros_like(coef)
+            mask = abs_w <= gamma * alpha
+            weights[mask] = alpha - abs_w[mask] / gamma
+            return weights
+        else:
+            abs_w = np.abs(coef)
+            weights = np.zeros_like(coef, dtype=float)
+            mask = abs_w <= gamma * alpha
+            weights[mask] = alpha - abs_w[mask] / gamma
+            return weights
 
     # ----------------------------------------------------------------
 

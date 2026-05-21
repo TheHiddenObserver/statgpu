@@ -109,11 +109,15 @@ def _max_eigval_power(mat, n_iter=20, tol=1e-8):
     lambda_old = 0.0
     for _ in range(n_iter):
         v_new = mat @ v
-        v_norm = float(xp.sqrt(xp.dot(v_new, v_new)))
-        if v_norm < 1e-15:
+        # Cache dot(v_new, v_new) to avoid recomputing mat @ v.
+        nv2 = xp.dot(v_new, v_new)
+        v_norm_sq = float(nv2)
+        if v_norm_sq < 1e-30:
             return 1.0
+        v_norm = v_norm_sq ** 0.5
         v = v_new / v_norm
-        lambda_new = float(v @ (mat @ v))
+        # lambda = v^T A v = v^T v_new (v_new = A v, already computed)
+        lambda_new = float(xp.dot(v, v_new))
         if abs(lambda_new - lambda_old) < tol * abs(lambda_new):
             break
         lambda_old = lambda_new

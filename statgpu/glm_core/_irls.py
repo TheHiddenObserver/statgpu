@@ -290,6 +290,7 @@ def irls_solver(
         def _dev_val(mu_arr):
             """Compute family-specific deviance (lower is better).
 
+            Returns device-side value (no GPU→CPU sync) for torch/cupy.
             Correct Tweedie deviance for power p (p != 1, p != 2):
               d(y, mu) = y*(y^(1-p) - mu^(1-p))/(1-p) - (y^(2-p) - mu^(2-p))/(2-p)
             """
@@ -297,61 +298,61 @@ def irls_solver(
             if backend == "torch":
                 import torch
                 if _fname in ("gaussian", "squared_error"):
-                    return float(torch.sum((_y - mu_arr) ** 2).item())
+                    return torch.sum((_y - mu_arr) ** 2)
                 elif _fname == "gamma":
-                    return float(torch.sum(_y / mu_arr - torch.log(_y / mu_arr) - 1.0).item())
+                    return torch.sum(_y / mu_arr - torch.log(_y / mu_arr) - 1.0)
                 elif _fname == "inverse_gaussian":
-                    return float(torch.sum((_y - mu_arr) ** 2 / (_y * mu_arr ** 2)).item())
+                    return torch.sum((_y - mu_arr) ** 2 / (_y * mu_arr ** 2))
                 elif _fname == "negative_binomial":
                     _mu_c = torch.clamp(mu_arr, min=1e-10)
                     _y_c = torch.clamp(_y, min=1e-10)
                     _a = _nb_alpha
-                    return float(torch.sum(
+                    return torch.sum(
                         2.0 * (_y_c * torch.log(_y_c / _mu_c)
                                - (_y_c + 1.0 / _a) * torch.log((1.0 + _a * _y_c) / (1.0 + _a * _mu_c)))
-                    ).item())
+                    )
                 elif _fname == "tweedie":
                     p = _tweedie_power
                     if abs(p - 1.0) < 0.01:
-                        return float(torch.sum(mu_arr - _y * torch.log(mu_arr)).item())
+                        return torch.sum(mu_arr - _y * torch.log(mu_arr))
                     elif abs(p - 2.0) < 0.01:
-                        return float(torch.sum(_y / mu_arr - torch.log(_y / mu_arr) - 1.0).item())
+                        return torch.sum(_y / mu_arr - torch.log(_y / mu_arr) - 1.0)
                     else:
-                        return float(torch.sum(
+                        return torch.sum(
                             _y * (torch.pow(_y, 1.0 - p) - torch.pow(mu_arr, 1.0 - p)) / (1.0 - p)
                             - (torch.pow(_y, 2.0 - p) - torch.pow(mu_arr, 2.0 - p)) / (2.0 - p)
-                        ).item())
+                        )
                 else:
-                    return float(torch.sum(mu_arr - _y * torch.log(mu_arr)).item())
+                    return torch.sum(mu_arr - _y * torch.log(mu_arr))
             elif backend == "cupy":
                 import cupy as cp
                 if _fname in ("gaussian", "squared_error"):
-                    return float(cp.sum((_y - mu_arr) ** 2))
+                    return cp.sum((_y - mu_arr) ** 2)
                 elif _fname == "gamma":
-                    return float(cp.sum(_y / mu_arr - cp.log(_y / mu_arr) - 1.0))
+                    return cp.sum(_y / mu_arr - cp.log(_y / mu_arr) - 1.0)
                 elif _fname == "inverse_gaussian":
-                    return float(cp.sum((_y - mu_arr) ** 2 / (_y * mu_arr ** 2)))
+                    return cp.sum((_y - mu_arr) ** 2 / (_y * mu_arr ** 2))
                 elif _fname == "negative_binomial":
                     _mu_c = cp.clip(mu_arr, 1e-10)
                     _y_c = cp.clip(_y, 1e-10)
                     _a = _nb_alpha
-                    return float(cp.sum(
+                    return cp.sum(
                         2.0 * (_y_c * cp.log(_y_c / _mu_c)
                                - (_y_c + 1.0 / _a) * cp.log((1.0 + _a * _y_c) / (1.0 + _a * _mu_c)))
-                    ))
+                    )
                 elif _fname == "tweedie":
                     p = _tweedie_power
                     if abs(p - 1.0) < 0.01:
-                        return float(cp.sum(mu_arr - _y * cp.log(mu_arr)))
+                        return cp.sum(mu_arr - _y * cp.log(mu_arr))
                     elif abs(p - 2.0) < 0.01:
-                        return float(cp.sum(_y / mu_arr - cp.log(_y / mu_arr) - 1.0))
+                        return cp.sum(_y / mu_arr - cp.log(_y / mu_arr) - 1.0)
                     else:
-                        return float(cp.sum(
+                        return cp.sum(
                             _y * (cp.power(_y, 1.0 - p) - cp.power(mu_arr, 1.0 - p)) / (1.0 - p)
                             - (cp.power(_y, 2.0 - p) - cp.power(mu_arr, 2.0 - p)) / (2.0 - p)
-                        ))
+                        )
                 else:
-                    return float(cp.sum(mu_arr - _y * cp.log(mu_arr)))
+                    return cp.sum(mu_arr - _y * cp.log(mu_arr))
             else:
                 if _fname in ("gaussian", "squared_error"):
                     return float(np.sum((_y - mu_arr) ** 2))
@@ -386,9 +387,9 @@ def irls_solver(
         eta_cur = _clip(X @ params_old, -30, 30, backend)
         mu_cur = family.link.inverse(eta_cur)
         try:
-            dev_old = _dev_val(mu_cur)
+            dev_old_dev = _dev_val(mu_cur)
         except Exception:
-            dev_old = float('inf')
+            dev_old_dev = float('inf')
 
         # Line search: for families with constant IRLS weights (Gaussian,
         # Gamma, InverseGaussian), the IRLS step IS the Newton step on the
@@ -398,17 +399,43 @@ def irls_solver(
         _direction = params_new - params_old
         _is_constant_W = _fname in ("gamma", "gaussian", "squared_error")
 
+        # Convert dev_old to Python float for tolerance computation
+        # (single sync per iteration, not per line-search step)
+        if backend == "torch":
+            dev_old_f = float(dev_old_dev.item())
+        elif backend == "cupy":
+            dev_old_f = float(dev_old_dev)
+        else:
+            dev_old_f = float(dev_old_dev)
+        _dev_tol = max(abs(dev_old_f) * 1e-10, 1e-6)
+
+        def _dev_accept(dev_try_dev):
+            """Check if trial deviance is acceptable (device-side NaN + comparison)."""
+            if backend == "torch":
+                import torch
+                if torch.isnan(dev_try_dev):
+                    return False
+                return bool((dev_try_dev <= dev_old_dev + _dev_tol).item())
+            elif backend == "cupy":
+                import cupy as cp
+                if cp.isnan(dev_try_dev):
+                    return False
+                return bool(dev_try_dev <= dev_old_dev + _dev_tol)
+            else:
+                if dev_try_dev != dev_try_dev:
+                    return False
+                return dev_try_dev <= dev_old_f + _dev_tol
+
         if _is_constant_W:
             # Constant weights: IRLS = Newton.  Try full step first;
             # if deviance increases significantly, fall back to Armijo.
             eta_new = _clip(X @ params_new, -30, 30, backend)
             mu_new = family.link.inverse(eta_new)
             try:
-                dev_new = _dev_val(mu_new)
+                dev_new_dev = _dev_val(mu_new)
             except Exception:
-                dev_new = float('inf')
-            _dev_tol = max(abs(dev_old) * 1e-10, 1e-6)
-            if dev_new == dev_new and dev_new <= dev_old + _dev_tol:
+                dev_new_dev = float('inf')
+            if _dev_accept(dev_new_dev):
                 params = params_new
             else:
                 step = 1.0
@@ -418,21 +445,17 @@ def irls_solver(
                     eta_try = _clip(X @ params_try, -30, 30, backend)
                     mu_try = family.link.inverse(eta_try)
                     try:
-                        dev_try = _dev_val(mu_try)
+                        dev_try_dev = _dev_val(mu_try)
                     except Exception:
                         step *= 0.5
                         continue
-                    if not (dev_try == dev_try):
-                        step *= 0.5
-                        continue
-                    if dev_try <= dev_old + _dev_tol:
+                    if _dev_accept(dev_try_dev):
                         _accepted = True
                         break
                     step *= 0.5
                 params = params_try if _accepted else params_old + 0.1 * _direction
         else:
             # Variable weights: Armijo backtracking on deviance
-            _dev_tol = max(abs(dev_old) * 1e-10, 1e-6)
             step = 1.0
             _accepted = False
             for _bt in range(30):
@@ -440,14 +463,11 @@ def irls_solver(
                 eta_try = _clip(X @ params_try, -30, 30, backend)
                 mu_try = family.link.inverse(eta_try)
                 try:
-                    dev_try = _dev_val(mu_try)
+                    dev_try_dev = _dev_val(mu_try)
                 except Exception:
                     step *= 0.5
                     continue
-                if not (dev_try == dev_try):  # NaN check
-                    step *= 0.5
-                    continue
-                if dev_try <= dev_old + _dev_tol:
+                if _dev_accept(dev_try_dev):
                     _accepted = True
                     break
                 step *= 0.5

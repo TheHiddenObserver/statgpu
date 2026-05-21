@@ -238,11 +238,139 @@ class CuPyBackend(BackendBase):
         return cp.eye(n, m, dtype=dtype)
 
     def cummin(self, arr, axis=0):
-        """Cumulative minimum along *axis* (CuPy fallback via CPU)."""
+        """Cumulative minimum along *axis* (GPU-native for small arrays)."""
         import cupy as cp
-        return cp.asarray(np.minimum.accumulate(cp.asnumpy(arr), axis=axis))
+        if arr.ndim == 1:
+            return self._cumop_1d(arr, cp.minimum)
+        # Multi-dim: transpose target axis to last, scan, transpose back
+        if axis != arr.ndim - 1:
+            axes = list(range(arr.ndim))
+            axes[axis], axes[-1] = axes[-1], axes[axis]
+            arr = cp.transpose(arr, axes)
+            return cp.transpose(self._cumop_last_axis(arr, cp.minimum), axes)
+        return self._cumop_last_axis(arr, cp.minimum)
 
     def cummax(self, arr, axis=0):
-        """Cumulative maximum along *axis* (CuPy fallback via CPU)."""
+        """Cumulative maximum along *axis* (GPU-native for small arrays)."""
         import cupy as cp
-        return cp.asarray(np.maximum.accumulate(cp.asnumpy(arr), axis=axis))
+        if arr.ndim == 1:
+            return self._cumop_1d(arr, cp.maximum)
+        if axis != arr.ndim - 1:
+            axes = list(range(arr.ndim))
+            axes[axis], axes[-1] = axes[-1], axes[axis]
+            arr = cp.transpose(arr, axes)
+            return cp.transpose(self._cumop_last_axis(arr, cp.maximum), axes)
+        return self._cumop_last_axis(arr, cp.maximum)
+
+    @staticmethod
+    def _cumop_1d(arr, op):
+        """1D cumulative op using sequential write."""
+        import cupy as cp
+        n = len(arr)
+        result = cp.empty_like(arr)
+        result[0] = arr[0]
+        if n > 1:
+            _launch_cumop_1d(arr, result, n, op is cp.minimum)
+        return result
+
+    @staticmethod
+    def _cumop_last_axis(arr, op):
+        """Cumulative op along last axis for N-D arrays."""
+        import cupy as cp
+        shape = arr.shape
+        K = shape[-1]
+        flat = arr.reshape(-1, K)
+        N = flat.shape[0]
+        result = cp.empty_like(flat)
+        result[:, 0] = flat[:, 0]
+        if K > 1:
+            _launch_cumop_2d(flat, result, N, K, op is cp.minimum)
+        return result.reshape(shape)
+
+
+# ── Raw CUDA kernels for cumulative scan ──
+_cummin_1d_src = r'''
+extern "C" __global__
+void cummin_1d(const double* __restrict__ x,
+               double* __restrict__ out, int n) {
+    double min_val = x[0];
+    out[0] = min_val;
+    for (int j = 1; j < n; j++) {
+        if (x[j] < min_val) min_val = x[j];
+        out[j] = min_val;
+    }
+}
+'''
+
+_cummax_1d_src = r'''
+extern "C" __global__
+void cummax_1d(const double* __restrict__ x,
+               double* __restrict__ out, int n) {
+    double max_val = x[0];
+    out[0] = max_val;
+    for (int j = 1; j < n; j++) {
+        if (x[j] > max_val) max_val = x[j];
+        out[j] = max_val;
+    }
+}
+'''
+
+_cummin_2d_src = r'''
+extern "C" __global__
+void cummin_2d(const double* __restrict__ x,
+               double* __restrict__ out, int N, int K) {
+    int tid = blockIdx.x * blockDim.x + threadIdx.x;
+    if (tid >= N) return;
+    const double* row = x + tid * K;
+    double* orow = out + tid * K;
+    double min_val = row[0];
+    orow[0] = min_val;
+    for (int j = 1; j < K; j++) {
+        if (row[j] < min_val) min_val = row[j];
+        orow[j] = min_val;
+    }
+}
+'''
+
+_cummax_2d_src = r'''
+extern "C" __global__
+void cummax_2d(const double* __restrict__ x,
+               double* __restrict__ out, int N, int K) {
+    int tid = blockIdx.x * blockDim.x + threadIdx.x;
+    if (tid >= N) return;
+    const double* row = x + tid * K;
+    double* orow = out + tid * K;
+    double max_val = row[0];
+    orow[0] = max_val;
+    for (int j = 1; j < K; j++) {
+        if (row[j] > max_val) max_val = row[j];
+        orow[j] = max_val;
+    }
+}
+'''
+
+# Compile once at import time
+import cupy as _cp
+_cummin_1d_mod = _cp.RawModule(code=_cummin_1d_src)
+_cummax_1d_mod = _cp.RawModule(code=_cummax_1d_src)
+_cummin_2d_mod = _cp.RawModule(code=_cummin_2d_src)
+_cummax_2d_mod = _cp.RawModule(code=_cummax_2d_src)
+_cummin_1d_kernel = _cummin_1d_mod.get_function('cummin_1d')
+_cummax_1d_kernel = _cummax_1d_mod.get_function('cummax_1d')
+_cummin_2d_kernel = _cummin_2d_mod.get_function('cummin_2d')
+_cummax_2d_kernel = _cummax_2d_mod.get_function('cummax_2d')
+del _cp
+
+
+def _launch_cumop_1d(arr, result, n, is_min):
+    import cupy as cp
+    kernel = _cummin_1d_kernel if is_min else _cummax_1d_kernel
+    kernel((1,), (1,), (arr, result, n))
+
+
+def _launch_cumop_2d(arr, result, N, K, is_min):
+    import cupy as cp
+    kernel = _cummin_2d_kernel if is_min else _cummax_2d_kernel
+    block = min(N, 256)
+    grid = (N + block - 1) // block
+    kernel((grid,), (block,), (arr, result, N, K))
