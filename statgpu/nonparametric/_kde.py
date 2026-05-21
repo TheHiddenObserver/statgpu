@@ -344,8 +344,6 @@ class KernelDensityEstimator(BaseEstimator):
         log_norm = math.log(self.inv_norm_const_) if self.inv_norm_const_ > 0.0 else float("-inf")
         is_gaussian = self.kernel_ == "gaussian"
 
-        out = xp.empty((n_points,), dtype=xp.float64)
-
         for start in range(0, n_points, int(batch_size)):
             stop = min(start + int(batch_size), points_2d.shape[0])
             q = points_2d[start:stop]

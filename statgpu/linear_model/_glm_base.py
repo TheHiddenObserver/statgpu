@@ -245,7 +245,8 @@ class GeneralizedLinearModel(BaseEstimator):
         from statgpu.glm_core import get_glm_loss
         from statgpu.penalties._l2 import L2Penalty
 
-        loss = get_glm_loss(self.family_to_loss())
+        loss_kwargs = self._get_loss_kwargs()
+        loss = get_glm_loss(self.family_to_loss(), **loss_kwargs)
 
         if not self.fit_intercept:
             X_centered = X
@@ -321,7 +322,8 @@ class GeneralizedLinearModel(BaseEstimator):
                 "use solver='irls' or solver='fista'."
             )
 
-        loss = get_glm_loss(self.family_to_loss())
+        loss_kwargs = self._get_loss_kwargs()
+        loss = get_glm_loss(self.family_to_loss(), **loss_kwargs)
         if not getattr(loss, "has_hessian", False):
             raise ValueError(f"solver='{solver_name}' requires a Hessian.")
 

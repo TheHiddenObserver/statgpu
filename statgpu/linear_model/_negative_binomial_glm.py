@@ -47,3 +47,6 @@ class NegativeBinomialRegression(GeneralizedLinearModel):
 
     def _get_family(self):
         return NegativeBinomial(alpha=self._alpha)
+
+    def _get_loss_kwargs(self):
+        return {"alpha": self._alpha}
