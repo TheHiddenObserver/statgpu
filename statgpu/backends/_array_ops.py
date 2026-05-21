@@ -102,24 +102,34 @@ def _max_eigval_power(mat, n_iter=20, tol=1e-8):
         if dtype is not None and hasattr(v, 'astype'):
             v = v.astype(dtype)
 
-    v_norm = float(xp.sqrt(xp.dot(v, v)))
-    if v_norm < 1e-15:
+    v_norm = xp.sqrt(xp.dot(v, v))
+    v_norm_val = float(v_norm)
+    if v_norm_val < 1e-15:
         return 1.0
     v = v / v_norm
 
-    lambda_old = 0.0
+    if xp.__name__ == "numpy":
+        lambda_old = 0.0
+        for _ in range(n_iter):
+            v_new = mat @ v
+            # Cache dot(v_new, v_new) to avoid recomputing mat @ v.
+            nv2 = xp.dot(v_new, v_new)
+            v_norm_sq = float(nv2)
+            if v_norm_sq < 1e-30:
+                return 1.0
+            v_norm = v_norm_sq ** 0.5
+            v = v_new / v_norm
+            # lambda = v^T A v = v^T v_new (v_new = A v, already computed)
+            lambda_new = float(xp.dot(v, v_new))
+            if abs(lambda_new - lambda_old) < tol * abs(lambda_new):
+                break
+            lambda_old = lambda_new
+        return lambda_new
+
+    lambda_new = None
     for _ in range(n_iter):
         v_new = mat @ v
-        # Cache dot(v_new, v_new) to avoid recomputing mat @ v.
-        nv2 = xp.dot(v_new, v_new)
-        v_norm_sq = float(nv2)
-        if v_norm_sq < 1e-30:
-            return 1.0
-        v_norm = v_norm_sq ** 0.5
+        v_norm = _clip(xp.sqrt(xp.dot(v_new, v_new)), 1e-30, None)
         v = v_new / v_norm
-        # lambda = v^T A v = v^T v_new (v_new = A v, already computed)
-        lambda_new = float(xp.dot(v, v_new))
-        if abs(lambda_new - lambda_old) < tol * abs(lambda_new):
-            break
-        lambda_old = lambda_new
-    return lambda_new
+        lambda_new = xp.dot(v, v_new)
+    return float(lambda_new.item() if hasattr(lambda_new, "item") else lambda_new)

@@ -240,6 +240,8 @@ class CuPyBackend(BackendBase):
     def cummin(self, arr, axis=0):
         """Cumulative minimum along *axis* (GPU-native for small arrays)."""
         import cupy as cp
+        if str(arr.dtype) not in _CUPY_CUMOP_DTYPES:
+            return cp.minimum.accumulate(arr, axis=axis)
         if arr.ndim == 1:
             return self._cumop_1d(arr, cp.minimum)
         # Multi-dim: transpose target axis to last, scan, transpose back
@@ -253,6 +255,8 @@ class CuPyBackend(BackendBase):
     def cummax(self, arr, axis=0):
         """Cumulative maximum along *axis* (GPU-native for small arrays)."""
         import cupy as cp
+        if str(arr.dtype) not in _CUPY_CUMOP_DTYPES:
+            return cp.maximum.accumulate(arr, axis=axis)
         if arr.ndim == 1:
             return self._cumop_1d(arr, cp.maximum)
         if axis != arr.ndim - 1:

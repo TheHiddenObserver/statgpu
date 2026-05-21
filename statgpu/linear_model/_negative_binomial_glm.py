@@ -1,5 +1,7 @@
 """Negative Binomial regression (GLM, log link, fixed dispersion)."""
 
+import numpy as np
+
 from statgpu._config import Device
 from statgpu.glm_core._family import NegativeBinomial
 from ._glm_base import GeneralizedLinearModel
@@ -32,6 +34,8 @@ class NegativeBinomialRegression(GeneralizedLinearModel):
         solver: str = "auto",
         gpu_memory_cleanup: bool = False,
     ):
+        if not np.isfinite(alpha) or alpha <= 0.0:
+            raise ValueError("alpha must be a finite positive scalar for negative binomial regression")
         self._alpha = alpha
         super().__init__(
             family="negative_binomial",

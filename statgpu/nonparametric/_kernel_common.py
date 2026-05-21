@@ -194,7 +194,7 @@ def _as_points_2d(points, n_features: int, xp):
     return arr
 
 
-def _normalize_weights(weights, n_samples: int, xp, device: str = "cuda"):
+def _normalize_weights(weights, n_samples: int, xp, device: str = "cpu"):
     if weights is None:
         fill_val = 1.0 / float(n_samples)
         try:

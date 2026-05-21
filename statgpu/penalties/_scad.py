@@ -208,7 +208,8 @@ class SCADPenalty(Penalty):
             import torch
             compiled_fn = _get_scad_torch_compiled()
             if compiled_fn is not None:
-                return compiled_fn(w, step, alpha, a)
+                step_t = torch.as_tensor(step, dtype=w.dtype, device=w.device)
+                return compiled_fn(w, step_t, alpha, a)
             abs_w = torch.abs(w)
             sign_w = torch.sign(w)
 

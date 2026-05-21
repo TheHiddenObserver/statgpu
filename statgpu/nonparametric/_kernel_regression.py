@@ -20,6 +20,7 @@ from ._kernel_common import (
     _normalize_regression_name,
     _normalize_weights,
     _stable_inv_and_det,
+    _torch_device_from_data,
     _to_float_scalar,
     _to_numpy,
     _weighted_covariance,
@@ -74,7 +75,8 @@ class KernelRegression(BaseEstimator):
         targets_2d, target_was_1d = _as_targets_2d(y, n_samples, xp)
         n_targets = int(targets_2d.shape[1])
 
-        weights_1d = _normalize_weights(self.weights, n_samples, xp)
+        device = _torch_device_from_data(samples_2d)
+        weights_1d = _normalize_weights(self.weights, n_samples, xp, device=device)
         n_eff = _effective_sample_size(weights_1d, xp)
 
         kernel_name = _normalize_kernel_name(self.kernel)

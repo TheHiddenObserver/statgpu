@@ -308,7 +308,7 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
 
         # Auto-dispatch small problems to CPU only when device="auto".
         # Explicit CUDA/TORCH device selection must never silently fall back.
-        if self.device == "auto" and backend_name in ("cupy", "torch") and X is not None:
+        if self.device == Device.AUTO and backend_name in ("cupy", "torch") and X is not None:
             _n, _p = X.shape
             if _n * _p < 200_000:
                 backend_name = "numpy"
@@ -349,9 +349,11 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
             _lam_max = float(np.max(np.abs(_X_s.T @ _y_c / _n)))
             _target_alpha = float(self._penalty.alpha)
             _n_cont = 20
-            _alpha_path = np.geomspace(
-                max(_lam_max, _target_alpha * 1.1), _target_alpha, _n_cont,
-            )
+            _alpha_start = max(_lam_max, _target_alpha * 1.1)
+            if (not np.isfinite(_alpha_start)) or _alpha_start <= 0.0 or _target_alpha <= 0.0:
+                _alpha_path = np.linspace(max(_lam_max, 0.0), _target_alpha, _n_cont)
+            else:
+                _alpha_path = np.geomspace(_alpha_start, _target_alpha, _n_cont)
             _max_lla_per_step = max(6, getattr(self, '_max_lla_iters', 50) // _n_cont)
             _saved_mi = self.max_iter
             _mi_path = []

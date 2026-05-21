@@ -196,7 +196,8 @@ class InverseSquaredLink(Link):
         return 1.0 / _clip(mu * mu, 1e-10, None)
 
     def inverse(self, eta):
-        return 1.0 / _clip(_sqrt(eta), 1e-10, None)
+        eta_c = _clip(eta, 1e-20, None)
+        return 1.0 / _clip(_sqrt(eta_c), 1e-10, None)
 
     def derivative(self, mu):
         return -2.0 / (mu * mu * mu)
@@ -339,6 +340,8 @@ class NegativeBinomial(GLMFamily):
 
     def __init__(self, alpha=1.0):
         self.link = self.__class__.link  # use class-level link
+        if not np.isfinite(alpha) or alpha <= 0.0:
+            raise ValueError("alpha must be a finite positive scalar for negative binomial family")
         self.alpha = alpha
 
     def variance(self, mu):
