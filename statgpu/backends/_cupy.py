@@ -271,6 +271,8 @@ class CuPyBackend(BackendBase):
         """1D cumulative op using sequential write."""
         import cupy as cp
         n = len(arr)
+        if n == 0:
+            return cp.empty_like(arr)
         result = cp.empty_like(arr)
         result[0] = arr[0]
         if n > 1:
@@ -283,6 +285,8 @@ class CuPyBackend(BackendBase):
         import cupy as cp
         shape = arr.shape
         K = shape[-1]
+        if K == 0:
+            return cp.empty_like(arr)
         flat = arr.reshape(-1, K)
         N = flat.shape[0]
         result = cp.empty_like(flat)

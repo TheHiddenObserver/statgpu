@@ -106,6 +106,22 @@ class TestCuPyBackend:
         assert isinstance(result, np.ndarray)
         np.testing.assert_array_equal(result, arr_np)
 
+    @pytest.mark.skipif(not _cupy_available, reason="CuPy / CUDA not available")
+    def test_cummin_empty_returns_empty(self):
+        import cupy as cp
+        arr = cp.array([], dtype=cp.float64)
+        out = self.backend.cummin(arr)
+        assert isinstance(out, cp.ndarray)
+        assert out.shape == (0,)
+
+    @pytest.mark.skipif(not _cupy_available, reason="CuPy / CUDA not available")
+    def test_cummax_empty_last_axis_returns_empty(self):
+        import cupy as cp
+        arr = cp.empty((3, 0), dtype=cp.float32)
+        out = self.backend.cummax(arr, axis=1)
+        assert isinstance(out, cp.ndarray)
+        assert out.shape == (3, 0)
+
 
 # ---------------------------------------------------------------------------
 # TorchBackend tests – skip gracefully when PyTorch not installed
