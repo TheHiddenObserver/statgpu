@@ -656,7 +656,9 @@ def fista_solver(
     init_coef : array, optional
         Initial coefficient vector.
     sample_weight : array, optional
-        Sample weights (added to loss gradient as multiplier).
+        Sample weights. In this solver, gradients are parameter-space vectors
+        already aggregated over samples, so we apply a stable scalar rescaling
+        based on the mean sample weight.
 
     Returns
     -------
@@ -783,16 +785,13 @@ def fista_solver(
         if sample_weight is not None:
             if backend == "cupy":
                 import cupy as cp
-                sw = cp.asarray(sample_weight)
+                sw_scale = cp.mean(cp.asarray(sample_weight, dtype=grad.dtype))
             elif backend == "torch":
                 import torch
-                sw = torch.tensor(sample_weight, device=grad.device, dtype=grad.dtype)
+                sw_scale = torch.mean(torch.tensor(sample_weight, device=grad.device, dtype=grad.dtype))
             else:
-                sw = np.asarray(sample_weight)
-            if grad.ndim > 1:
-                grad = grad * sw[:, np.newaxis] if backend == "numpy" else grad * sw[:, None]
-            else:
-                grad = grad * sw
+                sw_scale = float(np.asarray(sample_weight, dtype=np.float64).mean())
+            grad = grad * sw_scale
 
         if _use_gpu_loop:
             # ── GPU async path: all ops stay on device ──
@@ -1295,6 +1294,17 @@ def fista_lla_path(
                     else:
                         q_yk_dev = loss.value(X_c, y_c, y_k)
                         grad = loss.gradient(X_c, y_c, y_k)
+
+                    if sample_weight is not None:
+                        if backend == "cupy":
+                            import cupy as cp
+                            sw_scale = cp.mean(cp.asarray(sample_weight, dtype=grad.dtype))
+                        elif backend == "torch":
+                            import torch
+                            sw_scale = torch.mean(torch.tensor(sample_weight, device=grad.device, dtype=grad.dtype))
+                        else:
+                            sw_scale = float(np.asarray(sample_weight, dtype=np.float64).mean())
+                        grad = grad * sw_scale
 
                     # Clip gradients (device-side, every 10 iterations)
                     if backend == "numpy" or iteration % 10 == 0:
@@ -1949,15 +1959,12 @@ def fista_bb_solver(
     grad_old = loss.gradient(X_proc, y_proc, coef)
     if sample_weight is not None:
         if backend == "cupy":
-            sw = cp.asarray(sample_weight, dtype=grad_old.dtype)
+            sw_scale = cp.mean(cp.asarray(sample_weight, dtype=grad_old.dtype))
         elif backend == "torch":
-            sw = torch.tensor(sample_weight, device=grad_old.device, dtype=grad_old.dtype)
+            sw_scale = torch.mean(torch.tensor(sample_weight, device=grad_old.device, dtype=grad_old.dtype))
         else:
-            sw = np.asarray(sample_weight, dtype=np.float64)
-        if grad_old.ndim > 1:
-            grad_old = grad_old * sw[:, None]
-        else:
-            grad_old = grad_old * sw
+            sw_scale = float(np.asarray(sample_weight, dtype=np.float64).mean())
+        grad_old = grad_old * sw_scale
 
     for iteration in range(max_iter):
         coef_old = _copy_arr(coef)
@@ -1966,15 +1973,12 @@ def fista_bb_solver(
         grad = loss.gradient(X_proc, y_proc, y_k)
         if sample_weight is not None:
             if backend == "cupy":
-                sw = cp.asarray(sample_weight, dtype=grad.dtype)
+                sw_scale = cp.mean(cp.asarray(sample_weight, dtype=grad.dtype))
             elif backend == "torch":
-                sw = torch.tensor(sample_weight, device=grad.device, dtype=grad.dtype)
+                sw_scale = torch.mean(torch.tensor(sample_weight, device=grad.device, dtype=grad.dtype))
             else:
-                sw = np.asarray(sample_weight, dtype=np.float64)
-            if grad.ndim > 1:
-                grad = grad * sw[:, None]
-            else:
-                grad = grad * sw
+                sw_scale = float(np.asarray(sample_weight, dtype=np.float64).mean())
+            grad = grad * sw_scale
 
         # Clip extreme gradients — every iteration, all backends.
         # Skip for inverse_gaussian: 1/mu^3 gradient scaling produces large but
