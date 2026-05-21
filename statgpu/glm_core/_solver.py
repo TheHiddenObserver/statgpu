@@ -656,9 +656,8 @@ def fista_solver(
     init_coef : array, optional
         Initial coefficient vector.
     sample_weight : array, optional
-        Sample weights. In this solver, gradients are parameter-space vectors
-        already aggregated over samples, so we apply a stable scalar rescaling
-        based on the mean sample weight.
+        Per-sample weights. Non-uniform weights are currently rejected in this
+        solver path to avoid silently running an incorrect unweighted update.
 
     Returns
     -------
@@ -783,15 +782,15 @@ def fista_solver(
             grad = loss.gradient(X_proc, y_proc, y_k)
 
         if sample_weight is not None:
-            if backend == "cupy":
-                import cupy as cp
-                sw_scale = cp.mean(cp.asarray(sample_weight, dtype=grad.dtype))
-            elif backend == "torch":
-                import torch
-                sw_scale = torch.mean(torch.tensor(sample_weight, device=grad.device, dtype=grad.dtype))
-            else:
-                sw_scale = float(np.asarray(sample_weight, dtype=np.float64).mean())
-            grad = grad * sw_scale
+            sw_np = np.asarray(sample_weight, dtype=np.float64)
+            if sw_np.ndim != 1 or sw_np.shape[0] != X_proc.shape[0]:
+                raise ValueError("sample_weight must be a 1D array with length n_samples")
+            if not np.allclose(sw_np, sw_np[0]):
+                raise ValueError(
+                    "fista_solver does not support non-uniform sample_weight yet; "
+                    "use solver='irls' for weighted GLM fits."
+                )
+            grad = grad * float(sw_np[0])
 
         if _use_gpu_loop:
             # ── GPU async path: all ops stay on device ──
@@ -1740,12 +1739,28 @@ def newton_solver(
     _use_fused = _loss_name in ('logistic', 'poisson', 'gamma',
                                 'negative_binomial', 'tweedie', 'inverse_gaussian')
 
+    if sample_weight is not None:
+        sw_np = np.asarray(sample_weight, dtype=np.float64)
+        if sw_np.ndim != 1 or sw_np.shape[0] != X.shape[0]:
+            raise ValueError("sample_weight must be a 1D array with length n_samples")
+        if not np.allclose(sw_np, sw_np[0]):
+            raise ValueError(
+                "newton_solver does not support non-uniform sample_weight yet; "
+                "use solver='irls' for weighted GLM fits."
+            )
+        sw_scale = float(sw_np[0])
+    else:
+        sw_scale = None
+
     for iteration in range(max_iter):
         params_old = _copy_arr(params)
         grad = _objective_gradient(loss, penalty, X, y, params)
         hess = _fixed_hess if _fixed_hess is not None else (
             loss.hessian(X, y, params) + _smooth_penalty_hessian(penalty, params)
         )
+        if sw_scale is not None:
+            grad = grad * sw_scale
+            hess = hess * sw_scale
 
         try:
             if backend == "numpy":
