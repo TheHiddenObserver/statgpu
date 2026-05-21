@@ -226,12 +226,13 @@ class GLMFamily(ABC):
     def irls_weights(self, mu, y):
         """IRLS working weights.
 
-        W = V(mu) * (g'(mu))^2
+        W = 1 / (V(mu) * (g'(mu))^2)
 
-        Default uses W = V(mu) * (link'(mu))^2.
+        Default uses the inverse Fisher weights for the WLS step in IRLS.
         Subclasses can override for more efficient implementations.
         """
-        return self.variance(mu) * self.link.derivative(mu) ** 2
+        denom = self.variance(mu) * self.link.derivative(mu) ** 2
+        return 1.0 / _clip(denom, 1e-10, None)
 
     def irls_working_response(self, mu, y, eta):
         """Working response z = eta + (y - mu) * link'(mu)."""

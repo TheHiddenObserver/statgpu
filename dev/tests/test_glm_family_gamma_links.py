@@ -29,7 +29,7 @@ def test_gamma_inverse_power_link_irls_uses_link_derivative():
     z = family.irls_working_response(mu, y, eta)
 
     # Gamma variance: V(mu)=mu^2, inverse-power derivative: g'(mu)=-1/mu^2
-    expected_w = 1.0 / (mu * mu)
+    expected_w = mu * mu
     expected_z = eta - (y - mu) / (mu * mu)
 
     assert np.allclose(w, expected_w)
