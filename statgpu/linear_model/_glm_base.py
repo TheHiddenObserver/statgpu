@@ -261,8 +261,10 @@ class GeneralizedLinearModel(BaseEstimator):
             self._df_resid = self._nobs - X.shape[1]
             return
 
-        if loss.name in ("logistic", "poisson"):
-            # Augment X with intercept column (no penalty in _fit_fista)
+        if loss.name != "squared_error":
+            # All non-Gaussian GLM losses must optimize intercept jointly with
+            # coefficients. Centering y is only valid for squared-error loss.
+            # Augment X with intercept column (no penalty in _fit_fista).
             if backend_name == "cupy":
                 import cupy as cp
                 X_aug = cp.column_stack([X, cp.ones(X.shape[0])])
@@ -284,7 +286,7 @@ class GeneralizedLinearModel(BaseEstimator):
             self.intercept_ = float(full_np[p])
             self.n_iter_ = n_iter
         else:
-            # Squared error: center X and y
+            # Squared error: centering X and y preserves the objective.
             if backend_name == "cupy":
                 import cupy as cp
                 X_centered = X - cp.mean(X, axis=0)
