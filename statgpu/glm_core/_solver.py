@@ -1296,20 +1296,6 @@ def fista_lla_path(
                         q_yk_dev = loss.value(X_c, y_c, y_k)
                         grad = loss.gradient(X_c, y_c, y_k)
 
-                    if sample_weight is not None:
-                        if backend == "cupy":
-                            import cupy as cp
-                            sw = cp.asarray(sample_weight)
-                        elif backend == "torch":
-                            import torch
-                            sw = torch.tensor(sample_weight, device=grad.device, dtype=grad.dtype)
-                        else:
-                            sw = np.asarray(sample_weight)
-                        if grad.ndim > 1:
-                            grad = grad * sw[:, None]
-                        else:
-                            grad = grad * sw
-
                     # Clip gradients (device-side, every 10 iterations)
                     if backend == "numpy" or iteration % 10 == 0:
                         _gn_dev = _norm2_dev(grad)
