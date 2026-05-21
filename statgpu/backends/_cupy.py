@@ -349,28 +349,37 @@ void cummax_2d(const double* __restrict__ x,
 }
 '''
 
-# Compile once at import time
-import cupy as _cp
-_cummin_1d_mod = _cp.RawModule(code=_cummin_1d_src)
-_cummax_1d_mod = _cp.RawModule(code=_cummax_1d_src)
-_cummin_2d_mod = _cp.RawModule(code=_cummin_2d_src)
-_cummax_2d_mod = _cp.RawModule(code=_cummax_2d_src)
-_cummin_1d_kernel = _cummin_1d_mod.get_function('cummin_1d')
-_cummax_1d_kernel = _cummax_1d_mod.get_function('cummax_1d')
-_cummin_2d_kernel = _cummin_2d_mod.get_function('cummin_2d')
-_cummax_2d_kernel = _cummax_2d_mod.get_function('cummax_2d')
-del _cp
+_cummin_1d_kernel = None
+_cummax_1d_kernel = None
+_cummin_2d_kernel = None
+_cummax_2d_kernel = None
+
+
+def _get_cumop_kernels():
+    global _cummin_1d_kernel, _cummax_1d_kernel, _cummin_2d_kernel, _cummax_2d_kernel
+    if _cummin_1d_kernel is not None:
+        return _cummin_1d_kernel, _cummax_1d_kernel, _cummin_2d_kernel, _cummax_2d_kernel
+    import cupy as cp
+    _cummin_1d_mod = cp.RawModule(code=_cummin_1d_src)
+    _cummax_1d_mod = cp.RawModule(code=_cummax_1d_src)
+    _cummin_2d_mod = cp.RawModule(code=_cummin_2d_src)
+    _cummax_2d_mod = cp.RawModule(code=_cummax_2d_src)
+    _cummin_1d_kernel = _cummin_1d_mod.get_function('cummin_1d')
+    _cummax_1d_kernel = _cummax_1d_mod.get_function('cummax_1d')
+    _cummin_2d_kernel = _cummin_2d_mod.get_function('cummin_2d')
+    _cummax_2d_kernel = _cummax_2d_mod.get_function('cummax_2d')
+    return _cummin_1d_kernel, _cummax_1d_kernel, _cummin_2d_kernel, _cummax_2d_kernel
 
 
 def _launch_cumop_1d(arr, result, n, is_min):
-    import cupy as cp
-    kernel = _cummin_1d_kernel if is_min else _cummax_1d_kernel
+    kmin1, kmax1, _, _ = _get_cumop_kernels()
+    kernel = kmin1 if is_min else kmax1
     kernel((1,), (1,), (arr, result, n))
 
 
 def _launch_cumop_2d(arr, result, N, K, is_min):
-    import cupy as cp
-    kernel = _cummin_2d_kernel if is_min else _cummax_2d_kernel
+    _, _, kmin2, kmax2 = _get_cumop_kernels()
+    kernel = kmin2 if is_min else kmax2
     block = min(N, 256)
     grid = (N + block - 1) // block
     kernel((grid,), (block,), (arr, result, N, K))

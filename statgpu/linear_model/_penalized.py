@@ -306,9 +306,9 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
         backend = self._get_backend(backend="auto")
         backend_name = backend.name
 
-        # Auto-dispatch small problems to CPU — GPU kernel launch overhead
-        # dominates for n*p < 200k FLOPs per iteration.
-        if backend_name in ("cupy", "torch") and X is not None:
+        # Auto-dispatch small problems to CPU only when device="auto".
+        # Explicit CUDA/TORCH device selection must never silently fall back.
+        if self.device == "auto" and backend_name in ("cupy", "torch") and X is not None:
             _n, _p = X.shape
             if _n * _p < 200_000:
                 backend_name = "numpy"
@@ -663,8 +663,18 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
         _n_cont = 20 if not _is_glm and _is_scad_mcp else (100 if _is_scad_mcp else 10)
         # Start from lambda_max to match R ncvreg's pathwise approach.
         # lambda_max is the smallest penalty where all coefficients are zero.
-        _alpha_start = _lam_max
-        _alpha_path = _np.geomspace(_alpha_start, self.alpha, _n_cont)
+        _alpha_start = float(_lam_max)
+        _alpha_end = float(self.alpha)
+        if _alpha_start <= 0.0 or _alpha_end <= 0.0:
+            _lo = max(min(_alpha_start, _alpha_end), 1e-12)
+            _hi = max(_alpha_start, _alpha_end, 1e-12)
+            if _hi <= _lo:
+                _alpha_path = _np.full(_n_cont, _hi, dtype=float)
+            else:
+                _alpha_path = _np.linspace(_hi, _lo, _n_cont, dtype=float)
+                _alpha_path[-1] = max(_alpha_end, 1e-12)
+        else:
+            _alpha_path = _np.geomspace(_alpha_start, _alpha_end, _n_cont)
         _max_lla_per_step = max(6, self._max_lla_iters // _n_cont)
 
         saved_penalty_alpha = self._penalty.alpha
