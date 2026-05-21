@@ -322,6 +322,11 @@ def irls_solver(
                             _y * (torch.pow(_y, 1.0 - p) - torch.pow(mu_arr, 1.0 - p)) / (1.0 - p)
                             - (torch.pow(_y, 2.0 - p) - torch.pow(mu_arr, 2.0 - p)) / (2.0 - p)
                         )
+                elif _fname in ("binomial", "logistic"):
+                    _mu_c = torch.clamp(mu_arr, min=1e-10, max=1.0 - 1e-10)
+                    return -2.0 * torch.sum(
+                        _y * torch.log(_mu_c) + (1.0 - _y) * torch.log(1.0 - _mu_c)
+                    )
                 else:
                     return torch.sum(mu_arr - _y * torch.log(mu_arr))
             elif backend == "cupy":
@@ -351,6 +356,11 @@ def irls_solver(
                             _y * (cp.power(_y, 1.0 - p) - cp.power(mu_arr, 1.0 - p)) / (1.0 - p)
                             - (cp.power(_y, 2.0 - p) - cp.power(mu_arr, 2.0 - p)) / (2.0 - p)
                         )
+                elif _fname in ("binomial", "logistic"):
+                    _mu_c = cp.clip(mu_arr, 1e-10, 1.0 - 1e-10)
+                    return -2.0 * cp.sum(
+                        _y * cp.log(_mu_c) + (1.0 - _y) * cp.log(1.0 - _mu_c)
+                    )
                 else:
                     return cp.sum(mu_arr - _y * cp.log(mu_arr))
             else:
@@ -379,6 +389,11 @@ def irls_solver(
                             _y * (np.power(_y, 1.0 - p) - np.power(mu_arr, 1.0 - p)) / (1.0 - p)
                             - (np.power(_y, 2.0 - p) - np.power(mu_arr, 2.0 - p)) / (2.0 - p)
                         ))
+                elif _fname in ("binomial", "logistic"):
+                    _mu_c = np.clip(mu_arr, 1e-10, 1.0 - 1e-10)
+                    return float(-2.0 * np.sum(
+                        _y * np.log(_mu_c) + (1.0 - _y) * np.log(1.0 - _mu_c)
+                    ))
                 else:
                     return float(np.sum(mu_arr - _y * np.log(mu_arr)))
 

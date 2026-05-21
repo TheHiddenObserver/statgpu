@@ -321,6 +321,8 @@ class KernelDensityEstimator(BaseEstimator):
         if batch_size <= 0:
             raise ValueError("batch_size must be a positive integer")
 
+        n_points = points_2d.shape[0]
+        n_features = points_2d.shape[1]
         device = _torch_device_from_data(points_2d)
         try:
             import torch
@@ -331,7 +333,7 @@ class KernelDensityEstimator(BaseEstimator):
         except ImportError:
             out = xp.empty((n_points,), dtype=xp.float64)
 
-        if n_features == 1:
+        if n_features == 1 and self.kernel_ != "gaussian":
             density = self._evaluate_density(points_2d, batch_size=batch_size, xp=xp)
             return xp.where(
                 density > 0.0,
@@ -342,9 +344,9 @@ class KernelDensityEstimator(BaseEstimator):
         log_norm = math.log(self.inv_norm_const_) if self.inv_norm_const_ > 0.0 else float("-inf")
         is_gaussian = self.kernel_ == "gaussian"
 
-        out = xp.empty((points_2d.shape[0],), dtype=xp.float64)
+        out = xp.empty((n_points,), dtype=xp.float64)
 
-        for start in range(0, points_2d.shape[0], int(batch_size)):
+        for start in range(0, n_points, int(batch_size)):
             stop = min(start + int(batch_size), points_2d.shape[0])
             q = points_2d[start:stop]
 
