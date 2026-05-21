@@ -299,12 +299,6 @@ class Gamma(GLMFamily):
     def variance(self, mu):
         return mu * mu
 
-    def irls_weights(self, mu, y):
-        return _ones_like(mu)
-
-    def irls_working_response(self, mu, y, eta):
-        return eta + (y - mu) / _clip(mu, 1e-10, None)
-
 
 class InverseGaussian(GLMFamily):
     """Inverse Gaussian family (positive continuous, right-skewed).
