@@ -92,12 +92,13 @@ def _max_eigval_power(mat, n_iter=20, tol=1e-8):
     xp = _xp(mat)
     p = mat.shape[0]
     dtype = getattr(mat, 'dtype', None)
-    # Use deterministic initial vector (ones) instead of random to ensure
-    # identical eigenvalue estimates across numpy/cupy/torch backends.
+    # Build a deterministic but non-constant seed vector to avoid the
+    # pathological case where an all-ones vector is orthogonal to the top
+    # eigenspace (e.g., [[1,-1],[-1,1]]).
     if xp.__name__ == "torch":
-        v = xp.ones(p, dtype=dtype, device=mat.device)
+        v = xp.arange(1, p + 1, dtype=dtype, device=mat.device)
     else:
-        v = xp.ones(p)
+        v = xp.arange(1, p + 1)
         if dtype is not None and hasattr(v, 'astype'):
             v = v.astype(dtype)
 

@@ -289,96 +289,76 @@ class CuPyBackend(BackendBase):
 
 
 # ── Raw CUDA kernels for cumulative scan ──
-_cummin_1d_src = r'''
+_cumop_1d_template = r'''
 extern "C" __global__
-void cummin_1d(const double* __restrict__ x,
-               double* __restrict__ out, int n) {
-    double min_val = x[0];
-    out[0] = min_val;
+void {name}(const {dtype}* __restrict__ x,
+            {dtype}* __restrict__ out, int n) {{
+    {dtype} cur = x[0];
+    out[0] = cur;
     for (int j = 1; j < n; j++) {
-        if (x[j] < min_val) min_val = x[j];
-        out[j] = min_val;
+        if ({cmp}) cur = x[j];
+        out[j] = cur;
     }
-}
+}}
 '''
 
-_cummax_1d_src = r'''
+_cumop_2d_template = r'''
 extern "C" __global__
-void cummax_1d(const double* __restrict__ x,
-               double* __restrict__ out, int n) {
-    double max_val = x[0];
-    out[0] = max_val;
-    for (int j = 1; j < n; j++) {
-        if (x[j] > max_val) max_val = x[j];
-        out[j] = max_val;
-    }
-}
-'''
-
-_cummin_2d_src = r'''
-extern "C" __global__
-void cummin_2d(const double* __restrict__ x,
-               double* __restrict__ out, int N, int K) {
+void {name}(const {dtype}* __restrict__ x,
+            {dtype}* __restrict__ out, int N, int K) {{
     int tid = blockIdx.x * blockDim.x + threadIdx.x;
     if (tid >= N) return;
-    const double* row = x + tid * K;
-    double* orow = out + tid * K;
-    double min_val = row[0];
-    orow[0] = min_val;
+    const {dtype}* row = x + tid * K;
+    {dtype}* orow = out + tid * K;
+    {dtype} cur = row[0];
+    orow[0] = cur;
     for (int j = 1; j < K; j++) {
-        if (row[j] < min_val) min_val = row[j];
-        orow[j] = min_val;
+        if ({cmp}) cur = row[j];
+        orow[j] = cur;
     }
-}
+}}
 '''
-
-_cummax_2d_src = r'''
-extern "C" __global__
-void cummax_2d(const double* __restrict__ x,
-               double* __restrict__ out, int N, int K) {
-    int tid = blockIdx.x * blockDim.x + threadIdx.x;
-    if (tid >= N) return;
-    const double* row = x + tid * K;
-    double* orow = out + tid * K;
-    double max_val = row[0];
-    orow[0] = max_val;
-    for (int j = 1; j < K; j++) {
-        if (row[j] > max_val) max_val = row[j];
-        orow[j] = max_val;
-    }
+_CUPY_CUMOP_DTYPES = {
+    "float64": "double",
+    "float32": "float",
+    "int64": "long long",
+    "int32": "int",
 }
-'''
-
-_cummin_1d_kernel = None
-_cummax_1d_kernel = None
-_cummin_2d_kernel = None
-_cummax_2d_kernel = None
+_cumop_kernels = {}
 
 
-def _get_cumop_kernels():
-    global _cummin_1d_kernel, _cummax_1d_kernel, _cummin_2d_kernel, _cummax_2d_kernel
-    if _cummin_1d_kernel is not None:
-        return _cummin_1d_kernel, _cummax_1d_kernel, _cummin_2d_kernel, _cummax_2d_kernel
+def _get_cumop_kernels(dtype):
+    dtype = str(dtype)
+    if dtype not in _CUPY_CUMOP_DTYPES:
+        raise TypeError(f"Unsupported dtype for CuPy cumop kernels: {dtype}")
+    if dtype in _cumop_kernels:
+        return _cumop_kernels[dtype]
     import cupy as cp
-    _cummin_1d_mod = cp.RawModule(code=_cummin_1d_src)
-    _cummax_1d_mod = cp.RawModule(code=_cummax_1d_src)
-    _cummin_2d_mod = cp.RawModule(code=_cummin_2d_src)
-    _cummax_2d_mod = cp.RawModule(code=_cummax_2d_src)
-    _cummin_1d_kernel = _cummin_1d_mod.get_function('cummin_1d')
-    _cummax_1d_kernel = _cummax_1d_mod.get_function('cummax_1d')
-    _cummin_2d_kernel = _cummin_2d_mod.get_function('cummin_2d')
-    _cummax_2d_kernel = _cummax_2d_mod.get_function('cummax_2d')
-    return _cummin_1d_kernel, _cummax_1d_kernel, _cummin_2d_kernel, _cummax_2d_kernel
+    ctype = _CUPY_CUMOP_DTYPES[dtype]
+
+    kmin1_mod = cp.RawModule(code=_cumop_1d_template.format(name="cummin_1d", dtype=ctype, cmp="x[j] < cur"))
+    kmax1_mod = cp.RawModule(code=_cumop_1d_template.format(name="cummax_1d", dtype=ctype, cmp="x[j] > cur"))
+    kmin2_mod = cp.RawModule(code=_cumop_2d_template.format(name="cummin_2d", dtype=ctype, cmp="row[j] < cur"))
+    kmax2_mod = cp.RawModule(code=_cumop_2d_template.format(name="cummax_2d", dtype=ctype, cmp="row[j] > cur"))
+
+    kernels = (
+        kmin1_mod.get_function('cummin_1d'),
+        kmax1_mod.get_function('cummax_1d'),
+        kmin2_mod.get_function('cummin_2d'),
+        kmax2_mod.get_function('cummax_2d'),
+    )
+    _cumop_kernels[dtype] = kernels
+    return kernels
 
 
 def _launch_cumop_1d(arr, result, n, is_min):
-    kmin1, kmax1, _, _ = _get_cumop_kernels()
+    kmin1, kmax1, _, _ = _get_cumop_kernels(arr.dtype)
     kernel = kmin1 if is_min else kmax1
     kernel((1,), (1,), (arr, result, n))
 
 
 def _launch_cumop_2d(arr, result, N, K, is_min):
-    _, _, kmin2, kmax2 = _get_cumop_kernels()
+    _, _, kmin2, kmax2 = _get_cumop_kernels(arr.dtype)
     kernel = kmin2 if is_min else kmax2
     block = min(N, 256)
     grid = (N + block - 1) // block
