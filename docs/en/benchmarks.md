@@ -205,3 +205,31 @@ Latest rerun snapshot (2026-04-10, aligned setup):
   - Compares `statgpu` and `knockpy` using the exact same `Xk` generated once by knockpy.
   - Key outputs: `W` correlation, `W` error, threshold difference, and selected-set Jaccard.
   - Useful for correctness diagnostics when sampler randomness must be held constant.
+
+---
+
+## GLM Full Matrix Benchmark (v23c)
+
+- `dev/tests/_bench_full_matrix.py`
+  - Comprehensive GLM benchmark: 7 families x 10 penalties x 3 scales x multiple solvers x 3 backends
+  - Families: squared_error, logistic, poisson, gamma, inverse_gaussian, negative_binomial, tweedie
+  - Penalties: none, l1, l2, elasticnet, scad, mcp, adaptive_l1, group_lasso, group_mcp, group_scad
+  - Scales: n=500/p=50, n=2000/p=200, n=5000/p=500
+  - Backends: CPU (NumPy), CuPy, PyTorch
+
+Sections:
+- **Section A** (816 tests): Cross-backend timing + precision across all family x penalty x solver x backend x scale
+- **Section B** (13 tests): Precision vs sklearn at n=1000, p=50
+- **Section D** (68 tests): Precision vs statsmodels at n=500, p=50
+- **Section E** (146 tests): Cross-solver consistency at n=2000, p=200
+
+v23c results: **1043/1043 ALL PASS** (100%)
+
+Timing highlights (Section A):
+| Scale | CPU avg | CuPy avg | Torch avg |
+|-------|---------|----------|-----------|
+| n=500 | 953ms | 957ms (1.00x) | 954ms (1.00x) |
+| n=2000 | 3995ms | 15599ms (0.26x) | 9108ms (0.44x) |
+| n=5000 | 2875ms | 2168ms (1.33x) | 1313ms (2.19x) |
+
+Full report: `dev/tests/_bench_v23c_report.md`

@@ -211,4 +211,32 @@ python dev/benchmarks/benchmark_external_frameworks.py \
 - `dev/benchmarks/benchmark_knockoff_same_xk_parity.py`
   - 用同一个 `Xk`（由 knockpy 生成）对比 `statgpu` 与 `knockpy`。
   - 重点输出：`W` 相关系数、`W` 误差、阈值差、选择集合 Jaccard。
-  - 适用于“先固定 knockoff 变量，再比较算法实现差异”的正确性诊断场景。
+  - 适用于”先固定 knockoff 变量，再比较算法实现差异”的正确性诊断场景。
+
+---
+
+## GLM 全矩阵基准测试 (v23c)
+
+- `dev/tests/_bench_full_matrix.py`
+  - 完整 GLM 基准: 7 families x 10 penalties x 3 规模 x 多求解器 x 3 backends
+  - Families: squared_error, logistic, poisson, gamma, inverse_gaussian, negative_binomial, tweedie
+  - Penalties: none, l1, l2, elasticnet, scad, mcp, adaptive_l1, group_lasso, group_mcp, group_scad
+  - 规模: n=500/p=50, n=2000/p=200, n=5000/p=500
+  - Backends: CPU (NumPy), CuPy, PyTorch
+
+Sections:
+- **Section A** (816 tests): 跨后端时间 + 精度
+- **Section B** (13 tests): 精度 vs sklearn (n=1000, p=50)
+- **Section D** (68 tests): 精度 vs statsmodels (n=500, p=50)
+- **Section E** (146 tests): 跨求解器一致性 (n=2000, p=200)
+
+v23c 结果: **1043/1043 ALL PASS** (100%)
+
+Section A 时间摘要:
+| 规模 | CPU 平均 | CuPy 平均 | Torch 平均 |
+|------|---------|-----------|------------|
+| n=500 | 953ms | 957ms (1.00x) | 954ms (1.00x) |
+| n=2000 | 3995ms | 15599ms (0.26x) | 9108ms (0.44x) |
+| n=5000 | 2875ms | 2168ms (1.33x) | 1313ms (2.19x) |
+
+完整报告: `dev/tests/_bench_v23c_report.md`

@@ -1,7 +1,7 @@
 # GeneralizedLinearModel and Penalized GLM
 
 > Language: English  
-> Last updated: 2026-04-25  
+> Last updated: 2026-05-20  
 > This page: Model documentation  
 > Switch: [Chinese](../../models/generalized-linear-model.md)
 
@@ -70,7 +70,7 @@ Current solver behavior:
 | `PenalizedPoissonRegression(penalty="l2")` on CuPy/Torch GPU | FISTA |
 | explicit `solver="irls"` | backend-native IRLS on NumPy/CuPy/Torch |
 | explicit `solver="newton"` | backend-native Newton on smooth objectives |
-| explicit `solver="lbfgs"` | backend-native L-BFGS on smooth objectives |
+| explicit `solver="lbfgs"` | backend-native L-BFGS on smooth objectives (all GLM families + L2/ElasticNet) |
 | non-smooth penalty with `solver="newton"` or `solver="lbfgs"` | raises `ValueError` |
 
 Important device rule: explicit `device="cuda"` stays on CuPy, explicit `device="torch"` stays on Torch CUDA, and explicit solver choices do not silently fall back to CPU. Formula parsing may run on CPU, but the core fit/predict path is converted to the selected backend.
@@ -187,12 +187,7 @@ Future unified result objects are reserved for later work and are not part of th
 
 Local checks cover imports and smoke tests only. Accuracy, runtime, GPU behavior, and external-framework comparisons run on the remote `myconda` environment.
 
-Remote entry points:
-
-```bash
-python dev/tests/run_remote_v10_accuracy.py
-python dev/benchmarks/run_remote_v10_benchmark.py
-```
+**v23c full matrix benchmark (2026-05-20):** 1043/1043 ALL PASS across 7 families x 10 penalties x 3 scales x 3 backends, validated against sklearn and statsmodels. See `dev/tests/_bench_v23c_report.md` and `dev/tests/_bench_full_matrix.py`.
 
 Validation coverage includes:
 

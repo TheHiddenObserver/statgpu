@@ -1,11 +1,41 @@
 # Changelog
 
 > Language: English  
-> Last updated: 2026-04-18  
+> Last updated: 2026-05-20  
 > This page: Changelog  
 > Switch: [Chinese](../changelog.md)
 
 Language switch: [Chinese](../changelog.md)
+
+## 2026-05
+
+### Fixed (2026-05-20)
+
+- **v23c: L-BFGS fused penalty gradient fix**:
+  - Root cause: `lbfgs_solver` fused GLM path computed loss-only gradient, missing penalty gradient
+  - L-BFGS converged to unregularized solution (`loss_grad ≈ 0`) instead of `loss_grad + α·coef = 0`
+  - Fix: add `_smooth_penalty_gradient(penalty, coef)` after each `_fused_glm_value_and_gradient` call
+  - Affected: all GLM families (logistic, poisson, gamma, NB, tweedie, inv_gauss) + smooth penalties (L2, ElasticNet)
+  - Impact: 9 MISMATCH cases fixed (max|diff| from 1e-01~1e-02 down to 1e-04~1e-08)
+  - Full benchmark: 1043/1043 ALL PASS (Section A: 816, B: 13, D: 68, E: 146)
+  - Files modified: `statgpu/glm_core/_solver.py`
+
+### Optimized (2026-05-20)
+
+- **v22g: Async FISTA and GPU optimizations**:
+  - Async FISTA for non-smooth penalties: 2-5.5x speedup on GLM+non-smooth at n=5000
+  - Lipschitz recomputation, y-scaling cap, NB momentum cap, gamma conservative momentum
+  - Backtracking optimization, gradient clipping unification
+  - GPU sync optimizations for CuPy/Torch backends
+  - Files modified: `statgpu/glm_core/_solver.py`, `statgpu/glm_core/_negative_binomial.py`, `statgpu/backends/_array_ops.py`
+
+- **v23c: Full matrix benchmark (1043 tests)**:
+  - 7 families x 10 penalties x 3 scales x multiple solvers x 3 backends
+  - Section A timing: CPU avg 953ms/3995ms/2875ms, Torch at n=5000: 2.19x speedup
+  - Section B: 13/13 vs sklearn ALL PASS
+  - Section D: 68/68 vs statsmodels ALL PASS
+  - Section E: 146/146 cross-solver ALL PASS
+  - Report: `dev/tests/_bench_v23c_report.md`
 
 ## 2026-04
 

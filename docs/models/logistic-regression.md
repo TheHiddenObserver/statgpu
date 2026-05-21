@@ -1,7 +1,7 @@
 # LogisticRegression
 
 > 语言: 中文  
-> 最后更新: 2026-04-17  
+> 最后更新: 2026-05-20  
 > 页面定位: 模型文档  
 > 切换: [English](../en/models/logistic-regression.md)
 
@@ -21,7 +21,7 @@
 
 ## 估计方程（Estimating Equation）
 
-采用 IRLS（迭代加权最小二乘）求解，受 `max_iter` 与 `tol` 控制；`fit_intercept=True` 时联合估计截距。
+采用 IRLS/Newton/L-BFGS 求解，受 `max_iter` 与 `tol` 控制；`fit_intercept=True` 时联合估计截距。v23c (2026-05) 起，`solver="lbfgs"` 在各后端上正确支持 L2 惩罚。
 
 ## 协方差与推断（Covariance/Inference）
 

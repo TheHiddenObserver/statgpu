@@ -1,11 +1,41 @@
 # Changelog
 
 > 语言：中文  
-> 最后更新：2026-04-18  
+> 最后更新：2026-05-20  
 > 页面定位：变更记录  
 > 切换：[English](en/changelog.md)
 
 语言切换：[English](en/changelog.md)
+
+## 2026-05
+
+### 修复 (2026-05-20)
+
+- **v23c: L-BFGS fused penalty gradient 修复**:
+  - 根因: `lbfgs_solver` fused GLM 路径只计算 loss 梯度, 遗漏 penalty 梯度
+  - L-BFGS 收敛到无正则化解 (`loss_grad ≈ 0`) 而非正确的 `loss_grad + α·coef = 0`
+  - 修复: 在 `_fused_glm_value_and_gradient` 调用后添加 `_smooth_penalty_gradient`
+  - 影响: 所有 GLM family + smooth penalty (L2, ElasticNet)
+  - 修复 9 个 MISMATCH (max|diff| 从 1e-01~1e-02 降至 1e-04~1e-08)
+  - 完整基准测试: 1043/1043 ALL PASS
+  - 修改文件: `statgpu/glm_core/_solver.py`
+
+### 优化 (2026-05-20)
+
+- **v22g: Async FISTA 与 GPU 优化**:
+  - Async FISTA: GLM+非光滑惩罚在 n=5000 时 2-5.5x 加速
+  - Lipschitz 重算、y-scaling cap、NB momentum cap、gamma 保守 momentum
+  - 回溯优化、梯度裁剪统一
+  - CuPy/Torch 后端 GPU sync 优化
+  - 修改文件: `statgpu/glm_core/_solver.py`、`statgpu/glm_core/_negative_binomial.py`、`statgpu/backends/_array_ops.py`
+
+- **v23c: 完整矩阵基准测试 (1043 tests)**:
+  - 7 families x 10 penalties x 3 scales x 多求解器 x 3 backends
+  - Section A 时间: CPU 平均 953ms/3995ms/2875ms, Torch n=5000: 2.19x 加速
+  - Section B: 13/13 vs sklearn ALL PASS
+  - Section D: 68/68 vs statsmodels ALL PASS
+  - Section E: 146/146 跨求解器 ALL PASS
+  - 报告: `dev/tests/_bench_v23c_report.md`
 
 ## 2026-04
 
