@@ -157,8 +157,21 @@ class GroupSCADPenalty(Penalty):
             self._padded_col_idx = np.concatenate([np.arange(sz) for sz in self._group_sizes]).astype(np.int64)
 
         # Precompute feature→group mapping (for gradient/lla_weights vectorization)
-        p_total = sum(len(g) for g in self._group_indices)
-        self._group_feat_idx = np.empty(p_total, dtype=np.int64)
+        flat_indices = np.concatenate(
+            [np.asarray(g, dtype=np.int64) for g in self._group_indices]
+        )
+        if flat_indices.size == 0:
+            raise ValueError("groups must contain at least one feature index")
+        max_idx = int(flat_indices.max())
+        expected = max_idx + 1
+        unique_idx = np.unique(flat_indices)
+        if unique_idx.size != flat_indices.size:
+            raise ValueError("groups contain duplicate feature indices")
+        if unique_idx.size != expected:
+            raise ValueError(
+                "groups must cover a dense range of feature indices [0..max_index]"
+            )
+        self._group_feat_idx = np.empty(expected, dtype=np.int64)
         for g, idx in enumerate(self._group_indices):
             self._group_feat_idx[idx] = g
 

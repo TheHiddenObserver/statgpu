@@ -240,6 +240,8 @@ class CuPyBackend(BackendBase):
     def cummin(self, arr, axis=0):
         """Cumulative minimum along *axis* (GPU-native for small arrays)."""
         import cupy as cp
+        if arr.size == 0 or arr.shape[axis] == 0:
+            return arr.copy()
         if str(arr.dtype) not in _CUPY_CUMOP_DTYPES:
             return cp.minimum.accumulate(arr, axis=axis)
         if arr.ndim == 1:
@@ -255,6 +257,8 @@ class CuPyBackend(BackendBase):
     def cummax(self, arr, axis=0):
         """Cumulative maximum along *axis* (GPU-native for small arrays)."""
         import cupy as cp
+        if arr.size == 0 or arr.shape[axis] == 0:
+            return arr.copy()
         if str(arr.dtype) not in _CUPY_CUMOP_DTYPES:
             return cp.maximum.accumulate(arr, axis=axis)
         if arr.ndim == 1:
@@ -289,6 +293,8 @@ class CuPyBackend(BackendBase):
             return cp.empty_like(arr)
         flat = arr.reshape(-1, K)
         N = flat.shape[0]
+        if N == 0:
+            return cp.empty_like(arr)
         result = cp.empty_like(flat)
         result[:, 0] = flat[:, 0]
         if K > 1:
