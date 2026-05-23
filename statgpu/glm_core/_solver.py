@@ -158,6 +158,26 @@ def _sync_scalars(*dev_vals, backend):
     return tuple(float(stacked[i]) for i in range(len(dev_vals)))
 
 
+def _validate_uniform_sample_weight(sample_weight, n_samples, solver_name):
+    """Validate solver paths that only support unweighted semantics."""
+    if sample_weight is None:
+        return
+    sw_np = np.asarray(sample_weight, dtype=np.float64)
+    if sw_np.ndim != 1 or sw_np.shape[0] != n_samples:
+        raise ValueError("sample_weight must be a 1D array with length n_samples")
+    if not np.all(np.isfinite(sw_np)):
+        raise ValueError("sample_weight must contain only finite values")
+    if np.any(sw_np < 0):
+        raise ValueError("sample_weight must be non-negative")
+    if np.sum(sw_np) <= 0.0:
+        raise ValueError("sample_weight must contain at least one positive value")
+    if not np.allclose(sw_np, sw_np[0]):
+        raise ValueError(
+            f"{solver_name} does not support non-uniform sample_weight yet; "
+            "use solver='irls' for weighted GLM fits."
+        )
+
+
 def _abs_sum(x):
     """Sum of absolute values."""
     if isinstance(x, np.ndarray):
@@ -549,26 +569,26 @@ def _fused_glm_value_and_gradient(loss, X, y, coef):
         import numpy as np
         eta = X @ coef
         mod = type(eta).__module__
-        a = 1.0  # dispersion parameter
+        a = float(getattr(loss, 'alpha', 1.0))
         if mod.startswith('torch'):
             import torch
             mu = torch.exp(torch.clamp(eta, -30, 30))
             mu_c = torch.clamp(mu, min=1e-300)
-            a_plus_mu = a + mu_c
-            val = torch.sum(-y * torch.log(mu_c / a_plus_mu) - (1.0 / a) * torch.log(a / a_plus_mu)) / n
+            one_plus_alpha_mu = 1.0 + a * mu_c
+            val = torch.sum(-y * torch.log(mu_c / one_plus_alpha_mu) + (1.0 / a) * torch.log(one_plus_alpha_mu)) / n
             grad = X.T @ ((mu_c - y) / (1.0 + a * mu_c)) / n
         elif mod.startswith('cupy'):
             import cupy as cp
             mu = cp.exp(cp.clip(eta, -30, 30))
             mu_c = cp.clip(mu, 1e-300, None)
-            a_plus_mu = a + mu_c
-            val = cp.sum(-y * cp.log(mu_c / a_plus_mu) - (1.0 / a) * cp.log(a / a_plus_mu)) / n
+            one_plus_alpha_mu = 1.0 + a * mu_c
+            val = cp.sum(-y * cp.log(mu_c / one_plus_alpha_mu) + (1.0 / a) * cp.log(one_plus_alpha_mu)) / n
             grad = X.T @ ((mu_c - y) / (1.0 + a * mu_c)) / n
         else:
             mu = np.exp(np.clip(eta, -30, 30))
             mu_c = np.clip(mu, 1e-300, None)
-            a_plus_mu = a + mu_c
-            val = np.sum(-y * np.log(mu_c / a_plus_mu) - (1.0 / a) * np.log(a / a_plus_mu)) / n
+            one_plus_alpha_mu = 1.0 + a * mu_c
+            val = np.sum(-y * np.log(mu_c / one_plus_alpha_mu) + (1.0 / a) * np.log(one_plus_alpha_mu)) / n
             grad = X.T @ ((mu_c - y) / (1.0 + a * mu_c)) / n
         return val, grad
 
@@ -576,7 +596,7 @@ def _fused_glm_value_and_gradient(loss, X, y, coef):
         import numpy as np
         eta = X @ coef
         mod = type(eta).__module__
-        p = 1.5  # Tweedie variance power
+        p = float(getattr(loss, 'power', 1.5))
         if mod.startswith('torch'):
             import torch
             mu = torch.exp(torch.clamp(eta, -50, 50))
@@ -770,6 +790,7 @@ def fista_solver(
     _is_gpu = backend in ("torch", "cupy")
     _conv_interval = 3  # check convergence every N iterations (GPU path)
     _div_interval = 5   # check divergence every N iterations (GPU path)
+    _validate_uniform_sample_weight(sample_weight, X_proc.shape[0], "fista_solver")
 
     for iteration in range(max_iter):
         coef_old = _copy_arr(coef)
@@ -780,17 +801,6 @@ def fista_solver(
         else:
             q_yk_dev = loss.value(X_proc, y_proc, y_k)
             grad = loss.gradient(X_proc, y_proc, y_k)
-
-        if sample_weight is not None:
-            sw_np = np.asarray(sample_weight, dtype=np.float64)
-            if sw_np.ndim != 1 or sw_np.shape[0] != X_proc.shape[0]:
-                raise ValueError("sample_weight must be a 1D array with length n_samples")
-            if not np.allclose(sw_np, sw_np[0]):
-                raise ValueError(
-                    "fista_solver does not support non-uniform sample_weight yet; "
-                    "use solver='irls' for weighted GLM fits."
-                )
-            grad = grad * float(sw_np[0])
 
         if _use_gpu_loop:
             # ── GPU async path: all ops stay on device ──
@@ -1061,6 +1071,7 @@ def fista_lla_path(
     )
 
     n_samples, n_features = X_proc.shape
+    _validate_uniform_sample_weight(sample_weight, n_samples, "fista_lla_path")
 
     # --- Intercept handling ---
     # For squared_error (identity link): centering X, y is exact.
@@ -1293,17 +1304,6 @@ def fista_lla_path(
                     else:
                         q_yk_dev = loss.value(X_c, y_c, y_k)
                         grad = loss.gradient(X_c, y_c, y_k)
-
-                    if sample_weight is not None:
-                        if backend == "cupy":
-                            import cupy as cp
-                            sw_scale = cp.mean(cp.asarray(sample_weight, dtype=grad.dtype))
-                        elif backend == "torch":
-                            import torch
-                            sw_scale = torch.mean(torch.tensor(sample_weight, device=grad.device, dtype=grad.dtype))
-                        else:
-                            sw_scale = float(np.asarray(sample_weight, dtype=np.float64).mean())
-                        grad = grad * sw_scale
 
                     # Clip gradients (device-side, every 10 iterations)
                     if backend == "numpy" or iteration % 10 == 0:
@@ -1739,18 +1739,7 @@ def newton_solver(
     _use_fused = _loss_name in ('logistic', 'poisson', 'gamma',
                                 'negative_binomial', 'tweedie', 'inverse_gaussian')
 
-    if sample_weight is not None:
-        sw_np = np.asarray(sample_weight, dtype=np.float64)
-        if sw_np.ndim != 1 or sw_np.shape[0] != X.shape[0]:
-            raise ValueError("sample_weight must be a 1D array with length n_samples")
-        if not np.allclose(sw_np, sw_np[0]):
-            raise ValueError(
-                "newton_solver does not support non-uniform sample_weight yet; "
-                "use solver='irls' for weighted GLM fits."
-            )
-        sw_scale = float(sw_np[0])
-    else:
-        sw_scale = None
+    _validate_uniform_sample_weight(sample_weight, X.shape[0], "newton_solver")
 
     for iteration in range(max_iter):
         params_old = _copy_arr(params)
@@ -1758,9 +1747,6 @@ def newton_solver(
         hess = _fixed_hess if _fixed_hess is not None else (
             loss.hessian(X, y, params) + _smooth_penalty_hessian(penalty, params)
         )
-        if sw_scale is not None:
-            grad = grad * sw_scale
-            hess = hess * sw_scale
 
         try:
             if backend == "numpy":
@@ -1969,31 +1955,16 @@ def fista_bb_solver(
     step_k = step_L
     step_max = step_L * step_max_factor
     step_min = step_L * step_min_factor
+    _validate_uniform_sample_weight(sample_weight, X_proc.shape[0], "fista_bb_solver")
 
     # Gradient at initial point for first BB difference
     grad_old = loss.gradient(X_proc, y_proc, coef)
-    if sample_weight is not None:
-        if backend == "cupy":
-            sw_scale = cp.mean(cp.asarray(sample_weight, dtype=grad_old.dtype))
-        elif backend == "torch":
-            sw_scale = torch.mean(torch.tensor(sample_weight, device=grad_old.device, dtype=grad_old.dtype))
-        else:
-            sw_scale = float(np.asarray(sample_weight, dtype=np.float64).mean())
-        grad_old = grad_old * sw_scale
 
     for iteration in range(max_iter):
         coef_old = _copy_arr(coef)
 
         # Gradient at extrapolated point
         grad = loss.gradient(X_proc, y_proc, y_k)
-        if sample_weight is not None:
-            if backend == "cupy":
-                sw_scale = cp.mean(cp.asarray(sample_weight, dtype=grad.dtype))
-            elif backend == "torch":
-                sw_scale = torch.mean(torch.tensor(sample_weight, device=grad.device, dtype=grad.dtype))
-            else:
-                sw_scale = float(np.asarray(sample_weight, dtype=np.float64).mean())
-            grad = grad * sw_scale
 
         # Clip extreme gradients — every iteration, all backends.
         # Skip for inverse_gaussian: 1/mu^3 gradient scaling produces large but
@@ -2065,11 +2036,6 @@ def fista_bb_solver(
                 y_k = _copy_arr(coef)
                 t_k = 1.0
                 grad_old = loss.gradient(X_proc, y_proc, coef)
-                if sample_weight is not None:
-                    if grad_old.ndim > 1:
-                        grad_old = grad_old * sw[:, None]
-                    else:
-                        grad_old = grad_old * sw
                 # Halve step size bounds
                 step_L = step_L * 0.5
                 step_k = step_L
@@ -2191,11 +2157,6 @@ def fista_bb_solver(
                     y_k = _copy_arr(coef)
                     t_k = 1.0
                     grad_old = loss.gradient(X_proc, y_proc, coef)
-                    if sample_weight is not None:
-                        if grad_old.ndim > 1:
-                            grad_old = grad_old * sw[:, None]
-                        else:
-                            grad_old = grad_old * sw
                     step_L = step_L * 0.5
                     step_k = step_L
                     step_max = step_max * 0.5
@@ -2208,11 +2169,6 @@ def fista_bb_solver(
         # --- Store BB step info for next iteration (non-quadratic only) ---
         if not _is_quadratic:
             grad_new = loss.gradient(X_proc, y_proc, coef_new)
-            if sample_weight is not None:
-                if grad_new.ndim > 1:
-                    grad_new = grad_new * sw[:, None]
-                else:
-                    grad_new = grad_new * sw
 
             dw = coef_new - coef_old
             dg = grad_new - grad_old
@@ -2333,6 +2289,7 @@ def lbfgs_solver(
     tol=1e-4,
     init_coef=None,
     history_size=10,
+    sample_weight=None,
 ):
     """Limited-memory BFGS for smooth GLM objectives.
 
@@ -2346,6 +2303,7 @@ def lbfgs_solver(
     backend = _infer_backend(X)
     X_proc, y_proc = loss.preprocess(X, y)
     n_features = X_proc.shape[1]
+    _validate_uniform_sample_weight(sample_weight, X_proc.shape[0], "lbfgs_solver")
 
     if init_coef is not None:
         params = (
@@ -2619,28 +2577,12 @@ def admm_solver(
     z = _copy_arr(w)
     u = _zeros_like(w)
 
-    # Precompute sample_weight scaling if needed.
-    # Current solver path supports only uniform weighting semantics
-    # (same as other solvers in this module): scale smooth gradient by mean weight.
-    sw_scale = None
     if sample_weight is not None:
-        sw_np = np.asarray(sample_weight, dtype=np.float64)
-        if sw_np.ndim != 1 or sw_np.shape[0] != X_proc.shape[0]:
-            raise ValueError("sample_weight must be a 1D array with length n_samples")
-        if backend == "cupy":
-            import cupy as cp
-            sw_scale = cp.mean(cp.asarray(sample_weight, dtype=X_proc.dtype))
-        elif backend == "torch":
-            import torch
-            sw_scale = torch.mean(torch.tensor(sample_weight, device=X.device, dtype=X.dtype))
-        else:
-            sw_scale = float(sw_np.mean())
+        _validate_uniform_sample_weight(sample_weight, X_proc.shape[0], "admm_solver")
 
     def _grad_w(w_vec, z_cur, u_cur):
         """Gradient of f(w) + (rho/2)||w - z_cur + u_cur||^2 w.r.t. w."""
         g = loss.gradient(X_proc, y_proc, w_vec)
-        if sw_scale is not None:
-            g = g * sw_scale
         g = g + rho * (w_vec - z_cur + u_cur)
         return g
 
@@ -2674,8 +2616,6 @@ def admm_solver(
         # Precompute -grad_f(0) = Xty/n for squared_error (the constant part)
         _zero_coef = _zeros_like(w)
         _neg_grad_zero = -loss.gradient(X_proc, y_proc, _zero_coef)  # Xty/n
-        if sw_scale is not None:
-            _neg_grad_zero = _neg_grad_zero * sw_scale
 
     else:
         # Gradient descent step: 1/(L_f + rho)

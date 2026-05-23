@@ -198,7 +198,10 @@ class GeneralizedLinearModel(BaseEstimator):
 
     def _fit_irls(self, X, y, sample_weight, family, backend_name="numpy"):
         """Fit using IRLS (per-iteration weighted least squares)."""
-        alpha = self._get_penalty_alpha()
+        # IRLSSolver solves the unnormalized WLS normal equations
+        # X'WX + lambda I, while _get_penalty_alpha() is the normalized
+        # objective penalty.  Scale by n to keep C semantics consistent.
+        ridge_alpha = X.shape[0] * self._get_penalty_alpha()
 
         if self.fit_intercept:
             if backend_name == "cupy":
@@ -216,7 +219,7 @@ class GeneralizedLinearModel(BaseEstimator):
         params, n_iter = solver.fit(
             X_design, y,
             sample_weight=sample_weight,
-            ridge_alpha=alpha,
+            ridge_alpha=ridge_alpha,
             ridge_penalize_intercept=not self.fit_intercept,
             backend=backend_name,
         )

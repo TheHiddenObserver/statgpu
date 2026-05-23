@@ -415,14 +415,20 @@ def irls_solver(
         _is_constant_W = _fname in ("gamma", "gaussian", "squared_error")
 
         # Convert dev_old to Python float for tolerance computation
-        # (single sync per iteration, not per line-search step)
+        # (single sync per iteration, not per line-search step).  CuPy NB
+        # needs a slightly looser tolerance; the stricter 1e-10 relative
+        # check over-damps late Fisher steps and causes hundreds of extra
+        # iterations while converging to the same objective as CPU/Torch.
         if backend == "torch":
             dev_old_f = float(dev_old_dev.item())
         elif backend == "cupy":
             dev_old_f = float(dev_old_dev)
         else:
             dev_old_f = float(dev_old_dev)
-        _dev_tol = max(abs(dev_old_f) * 1e-10, 1e-6)
+        if backend == "cupy" and _fname == "negative_binomial":
+            _dev_tol = max(abs(dev_old_f) * 1e-6, 1e-4)
+        else:
+            _dev_tol = max(abs(dev_old_f) * 1e-10, 1e-6)
 
         def _dev_accept(dev_try_dev):
             """Check if trial deviance is acceptable (device-side NaN + comparison)."""

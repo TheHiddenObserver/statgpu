@@ -1,9 +1,9 @@
 """Full matrix benchmark: ALL families x ALL penalties (incl. none) x ALL solvers x ALL backends x ALL scales.
 Includes precision comparison vs sklearn, R ncvreg/grpreg/glmnet, and statsmodels.
-Sections A-E independently selectable via --section.
+Sections A-G independently selectable via --section.
 Designed to run on remote GPU server via nohup.
 """
-import time, sys, os, warnings, tempfile, subprocess, shutil, argparse
+import time, sys, os, warnings, tempfile, subprocess, shutil, argparse, traceback
 import numpy as np
 warnings.filterwarnings("ignore")
 sys.path.insert(0, "/root")
@@ -17,11 +17,13 @@ THIN = "-" * 130
 
 def _parse_args():
     p = argparse.ArgumentParser()
-    p.add_argument("--section", default="all", help="A,B,C,D,E or 'all'")
+    p.add_argument("--section", default="all", help="A,B,C,D,E,F,G or 'all'")
     p.add_argument("--alpha", type=float, default=0.01)
     p.add_argument("--max-iter", type=int, default=2000)
     p.add_argument("--tol", type=float, default=1e-6)
     p.add_argument("--seed", type=int, default=42)
+    p.add_argument("--diagnose-slow", action="store_true",
+                   help="include explicit GPU slow-path diagnostics with Section G")
     return p.parse_args()
 
 # ── Utility ──────────────────────────────────────────────────────────────────
@@ -228,6 +230,48 @@ def _auto_solver(family, penalty):
     if family in ("inverse_gaussian", "tweedie"):
         return "lbfgs"
     return "lbfgs"
+
+def _production_auto_solver(family, penalty):
+    """Mirror PenalizedGeneralizedLinearModel solver='auto' selection."""
+    effective_penalty = "l2" if penalty == "none" else penalty
+    if family == "squared_error" and effective_penalty == "l2":
+        return "exact"
+    if effective_penalty in ("l1", "elasticnet", "en", "scad", "mcp",
+                             "adaptive_l1", "adaptive_lasso",
+                             "group_lasso", "group_mcp", "group_scad"):
+        if family in ("gamma", "inverse_gaussian"):
+            return "fista"
+        return "fista_bb"
+    if family in ("gamma", "tweedie", "inverse_gaussian"):
+        return "newton"
+    return "irls"
+
+def _production_auto_backend(family, penalty, backend, n, p):
+    """Mirror benchmark-backed device='auto' backend overrides."""
+    effective_penalty = "l2" if penalty == "none" else penalty
+    problem_size = int(n) * int(p)
+    if problem_size < 200_000 and backend in ("cupy", "torch"):
+        return "cpu"
+    if problem_size < 1_000_000:
+        return backend
+    if family == "squared_error" and effective_penalty == "l2":
+        return "cpu"
+    if family == "squared_error" and effective_penalty in ("l1", "elasticnet", "en"):
+        return "cpu"
+    if family == "negative_binomial" and effective_penalty in ("l1", "elasticnet", "en"):
+        return "cpu"
+    if family == "logistic" and effective_penalty in ("l1", "elasticnet", "en"):
+        return "cpu"
+    if family == "gamma" and effective_penalty == "l2":
+        return "cpu"
+    if family == "tweedie" and effective_penalty in ("l1", "elasticnet", "en"):
+        return "cpu"
+    if backend == "cupy":
+        if family == "negative_binomial" and effective_penalty == "l2":
+            return "torch"
+        if family in ("logistic", "poisson") and effective_penalty in ("l1", "elasticnet", "en"):
+            return "torch"
+    return backend
 
 def _all_solvers(family, penalty):
     """Return list of all applicable solvers for this family x penalty combo."""
@@ -635,6 +679,602 @@ ALL_SCALES = [(500, 50), (2000, 200), (5000, 500)]
 _SLOW_PENALTIES = {"scad", "mcp", "adaptive_l1", "group_lasso", "group_mcp", "group_scad"}
 
 
+def _review_check(results, label, fn):
+    try:
+        fn()
+        print(f"  [OK]   {label}")
+        results.append((label, True))
+    except Exception as exc:
+        print(f"  [FAIL] {label}: {exc}")
+        traceback.print_exc()
+        results.append((label, False))
+
+
+def _available_review_devices():
+    devices = ["cpu"]
+    try:
+        import cupy  # noqa: F401
+        devices.append("cuda")
+    except Exception:
+        pass
+    try:
+        import torch
+        if torch.cuda.is_available():
+            devices.append("torch")
+    except Exception:
+        pass
+    return devices
+
+
+def _review_predict_mean_scale(loss, loss_kwargs, devices):
+    from statgpu.backends import _to_numpy
+
+    X = np.array([[0.2, -0.1], [1.0, 0.5], [-0.4, 0.7]], dtype=np.float64)
+    coef = np.array([0.8, -0.35], dtype=np.float64)
+    intercept = 0.15
+    expected = np.exp(X @ coef + intercept)
+    for device in devices:
+        model = PGLM(
+            loss=loss,
+            penalty="l2",
+            fit_intercept=True,
+            device=device,
+            loss_kwargs=dict(loss_kwargs),
+        )
+        model.coef_ = coef.copy()
+        model.intercept_ = intercept
+        pred = np.asarray(_to_numpy(model.predict(X)), dtype=np.float64)
+        if not np.all(pred > 0.0):
+            raise AssertionError(f"{device} returned non-positive predictions")
+        if not np.allclose(pred, expected, rtol=1e-12, atol=1e-12):
+            raise AssertionError(f"{device} predictions are not on mean scale")
+
+
+def _review_negative_binomial_finite_difference():
+    from statgpu.glm_core._negative_binomial import NegativeBinomialLoss
+
+    rng = np.random.default_rng(10)
+    X = rng.normal(size=(40, 4))
+    y = rng.poisson(lam=2.0, size=40).astype(float)
+    coef = rng.normal(scale=0.15, size=4)
+    loss = NegativeBinomialLoss(alpha=0.35)
+    analytical = loss.gradient(X, y, coef)
+    numerical = np.empty_like(coef)
+    eps = 1e-6
+    for j in range(coef.size):
+        step = np.zeros_like(coef)
+        step[j] = eps
+        numerical[j] = (
+            loss.value(X, y, coef + step) - loss.value(X, y, coef - step)
+        ) / (2.0 * eps)
+    if not np.allclose(analytical, numerical, rtol=1e-4, atol=1e-5):
+        raise AssertionError("negative binomial gradient does not match finite difference")
+
+
+def _review_fused_negative_binomial_alpha():
+    from statgpu.glm_core._negative_binomial import NegativeBinomialLoss
+    from statgpu.glm_core._solver import _fused_glm_value_and_gradient
+
+    rng = np.random.default_rng(11)
+    X = rng.normal(size=(32, 3))
+    y = rng.poisson(lam=1.7, size=32).astype(float)
+    coef = rng.normal(scale=0.2, size=3)
+    loss = NegativeBinomialLoss(alpha=0.25)
+    fused_value, fused_grad = _fused_glm_value_and_gradient(loss, X, y, coef)
+    if not np.allclose(fused_value, loss.value(X, y, coef)):
+        raise AssertionError("fused NB value ignored loss.alpha")
+    if not np.allclose(fused_grad, loss.gradient(X, y, coef)):
+        raise AssertionError("fused NB gradient ignored loss.alpha")
+
+
+def _review_fused_tweedie_power():
+    from statgpu.glm_core._solver import _fused_glm_value_and_gradient
+    from statgpu.glm_core._tweedie import TweedieLoss
+
+    rng = np.random.default_rng(12)
+    X = rng.normal(size=(32, 3))
+    y = np.exp(rng.normal(scale=0.3, size=32))
+    coef = rng.normal(scale=0.2, size=3)
+    loss = TweedieLoss(power=1.25)
+    fused_value, fused_grad = _fused_glm_value_and_gradient(loss, X, y, coef)
+    if not np.allclose(fused_value, loss.value(X, y, coef)):
+        raise AssertionError("fused Tweedie value ignored loss.power")
+    if not np.allclose(fused_grad, loss.gradient(X, y, coef)):
+        raise AssertionError("fused Tweedie gradient ignored loss.power")
+
+
+def _review_irls_l2_scaling(compare_intercept=False):
+    from statgpu.linear_model import GeneralizedLinearModel, PenalizedLinearRegression
+
+    rng = np.random.default_rng(13)
+    X = rng.normal(size=(80, 5))
+    beta = rng.normal(size=5)
+    y = X @ beta + 0.3 + rng.normal(scale=0.2, size=80)
+    C = 0.7
+    alpha = 1.0 / (2.0 * C)
+    glm = GeneralizedLinearModel(
+        family="gaussian",
+        fit_intercept=True,
+        C=C,
+        solver="irls",
+        device="cpu",
+        max_iter=100,
+        tol=1e-10,
+    ).fit(X, y)
+    penalized = PenalizedLinearRegression(
+        penalty="l2",
+        alpha=alpha,
+        fit_intercept=True,
+        solver="irls",
+        device="cpu",
+        max_iter=100,
+        tol=1e-10,
+    ).fit(X, y)
+    if compare_intercept:
+        if not np.allclose(glm.intercept_, penalized.intercept_, rtol=1e-6, atol=1e-6):
+            raise AssertionError("GLM and penalized intercept differ")
+    elif not np.allclose(glm.coef_, penalized.coef_, rtol=1e-6, atol=1e-6):
+        raise AssertionError("GLM and penalized coefficients differ")
+
+
+def _review_fista_uniform_sample_weight():
+    from statgpu.glm_core._solver import fista_solver
+    from statgpu.glm_core._squared import SquaredErrorLoss
+    from statgpu.penalties import L2Penalty
+
+    rng = np.random.default_rng(14)
+    X = rng.normal(size=(40, 4))
+    y = rng.normal(size=40)
+    loss = SquaredErrorLoss()
+    penalty = L2Penalty(alpha=0.05)
+    coef_unweighted, _ = fista_solver(loss, penalty, X, y, max_iter=80, tol=1e-10)
+    coef_uniform, _ = fista_solver(
+        loss, penalty, X, y, max_iter=80, tol=1e-10,
+        sample_weight=np.full(X.shape[0], 3.0),
+    )
+    if not np.allclose(coef_uniform, coef_unweighted):
+        raise AssertionError("uniform sample_weight changed FISTA solution")
+
+
+def _review_nonuniform_sample_weight_rejected(solver_name):
+    from statgpu.glm_core._solver import (
+        admm_solver,
+        fista_bb_solver,
+        fista_solver,
+        lbfgs_solver,
+        newton_solver,
+    )
+    from statgpu.glm_core._squared import SquaredErrorLoss
+    from statgpu.penalties import L2Penalty
+
+    solvers = {
+        "fista": fista_solver,
+        "fista_bb": fista_bb_solver,
+        "newton": newton_solver,
+        "admm": admm_solver,
+        "lbfgs": lbfgs_solver,
+    }
+    rng = np.random.default_rng(15)
+    X = rng.normal(size=(24, 3))
+    y = rng.normal(size=24)
+    try:
+        solvers[solver_name](
+            SquaredErrorLoss(),
+            L2Penalty(alpha=0.1),
+            X,
+            y,
+            sample_weight=np.linspace(1.0, 2.0, X.shape[0]),
+        )
+    except ValueError as exc:
+        if "non-uniform sample_weight" not in str(exc):
+            raise
+        return
+    raise AssertionError(f"{solver_name} accepted non-uniform sample_weight")
+
+
+def _review_scad_validation():
+    from statgpu.penalties import GroupSCADPenalty, SCADPenalty
+
+    for factory in (SCADPenalty, lambda **kw: GroupSCADPenalty(groups=[[0, 1]], **kw)):
+        try:
+            factory(alpha=0.0)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError("SCAD accepted alpha=0")
+        try:
+            factory(a=2.0)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError("SCAD accepted a=2")
+
+
+def _review_mcp_validation():
+    from statgpu.penalties import GroupMCPPenalty, MCPPenalty
+
+    for factory in (MCPPenalty, lambda **kw: GroupMCPPenalty(groups=[[0, 1]], **kw)):
+        try:
+            factory(alpha=0.0)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError("MCP accepted alpha=0")
+        try:
+            factory(gamma=1.0)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError("MCP accepted gamma=1")
+
+
+def _run_review_finding_section():
+    print(f"\n{SEP}")
+    print("  SECTION F: Review Finding Regression Proofs")
+    print(SEP)
+    devices = _available_review_devices()
+    print(f"  Predict devices: {devices}")
+    results = []
+
+    for loss, loss_kwargs in [
+        ("poisson", {}),
+        ("gamma", {}),
+        ("inverse_gaussian", {}),
+        ("negative_binomial", {"alpha": 0.4}),
+        ("tweedie", {"power": 1.3}),
+    ]:
+        _review_check(
+            results,
+            f"Finding 1 / {loss} predict mean scale",
+            lambda loss=loss, loss_kwargs=loss_kwargs: _review_predict_mean_scale(loss, loss_kwargs, devices),
+        )
+
+    _review_check(results, "Finding 2 / NB fused alpha", _review_fused_negative_binomial_alpha)
+    _review_check(results, "Finding 2 / Tweedie fused power", _review_fused_tweedie_power)
+    _review_check(results, "Finding 3 / NB value-gradient consistency", _review_negative_binomial_finite_difference)
+    _review_check(results, "Finding 4 / IRLS L2 coefficient scaling", _review_irls_l2_scaling)
+    _review_check(
+        results,
+        "Finding 4 / IRLS L2 intercept scaling",
+        lambda: _review_irls_l2_scaling(compare_intercept=True),
+    )
+    _review_check(results, "Finding 5 / FISTA uniform sample_weight no-op", _review_fista_uniform_sample_weight)
+    for solver_name in ("fista", "fista_bb", "newton", "admm", "lbfgs"):
+        _review_check(
+            results,
+            f"Finding 5 / {solver_name} rejects non-uniform sample_weight",
+            lambda solver_name=solver_name: _review_nonuniform_sample_weight_rejected(solver_name),
+        )
+    _review_check(results, "Penalty validation / SCAD and group SCAD", _review_scad_validation)
+    _review_check(results, "Penalty validation / MCP and group MCP", _review_mcp_validation)
+
+    f_ok = sum(1 for _, ok in results if ok)
+    f_total = len(results)
+    print()
+    print(f"  Section F review regression checks: {f_ok}/{f_total} passed  [{'PASS' if f_ok == f_total else 'FAIL'}]")
+    sys.stdout.flush()
+    return f_ok, f_total
+
+
+def _records_to_lookup(records):
+    lookup = {}
+    for rec in records:
+        key = (
+            rec["family"],
+            rec["penalty"],
+            rec["n"],
+            rec["p"],
+            rec["solver"],
+            rec["backend"],
+        )
+        lookup[key] = rec
+    return lookup
+
+
+def _run_production_auto_section(
+    Xy_data,
+    section_a_records,
+    alpha,
+    max_iter,
+    tol,
+    has_cupy,
+    has_torch,
+    diagnose_slow=False,
+):
+    print(f"\n{SEP}")
+    print("  SECTION G: Production Auto Performance Routing")
+    print(SEP)
+    print("  Reports solver='auto'/device='auto' equivalent choices; explicit solvers remain covered by Section A.")
+    if has_cupy:
+        try:
+            import cupy as cp
+            a = cp.eye(4, dtype=cp.float64)
+            b = cp.ones(4, dtype=cp.float64)
+            cp.linalg.solve(a, b)
+            cp.cuda.Stream.null.synchronize()
+        except Exception:
+            pass
+    if has_torch:
+        try:
+            import torch
+            a = torch.eye(4, dtype=torch.float64, device="cuda")
+            b = torch.ones(4, dtype=torch.float64, device="cuda")
+            torch.linalg.solve(a, b)
+            torch.cuda.synchronize()
+        except Exception:
+            pass
+
+    lookup = _records_to_lookup(section_a_records)
+    g_ok = 0
+    g_total = 0
+    slow = []
+
+    def _ensure_record(family, penalty, n, p, solver, backend):
+        if backend == "cpu":
+            rec = lookup.get((family, penalty, n, p, solver, "cpu"))
+            if rec is not None:
+                return rec
+        else:
+            rec = lookup.get((family, penalty, n, p, solver, backend))
+            if rec is not None:
+                return rec
+
+        X, y, _ = Xy_data[(family, n, p)]
+        pk = _penalty_kwargs_for(penalty, p)
+        mi = max_iter
+        if family != "squared_error" and penalty not in SMOOTH_PENALTIES:
+            mi = max(mi, 5000)
+        device = "cuda" if backend == "cupy" else backend
+        c, ic, ni, t = _run_statgpu(
+            X, y, family, penalty, solver,
+            device,
+            alpha=alpha, max_iter=mi, tol=tol,
+            penalty_kwargs=pk,
+        )
+        rec = {
+            "family": family,
+            "penalty": penalty,
+            "n": n,
+            "p": p,
+            "solver": solver,
+            "backend": backend,
+            "time_ms": t,
+            "iters": ni,
+            "diff": 0.0,
+            "speed": 1.0,
+        }
+        lookup[(family, penalty, n, p, solver, backend)] = rec
+        return rec
+
+    scales = ALL_SCALES if section_a_records else [ALL_SCALES[-1]]
+    print(f"  Scales: {scales}")
+    print(f"  {'Case':<42} {'initial':<8} {'selected':<8} {'solver':<10} {'CPU(ms)':>10} {'Auto(ms)':>10} {'spd':>8} {'Status':>8}")
+    print(f"  {THIN}")
+
+    for n, p in scales:
+        for family in ALL_FAMILIES:
+            if (family, n, p) not in Xy_data:
+                continue
+            for penalty in ALL_PENALTIES:
+                if penalty in _SLOW_PENALTIES and n > 2000:
+                    continue
+                solver = _production_auto_solver(family, penalty)
+                initial_backend = "cupy" if has_cupy else ("torch" if has_torch else "cpu")
+                selected_backend = _production_auto_backend(family, penalty, initial_backend, n, p)
+                if selected_backend == "torch" and not has_torch:
+                    selected_backend = "cupy" if has_cupy else "cpu"
+                if selected_backend == "cupy" and not has_cupy:
+                    selected_backend = "torch" if has_torch else "cpu"
+
+                try:
+                    cpu_rec = _ensure_record(family, penalty, n, p, solver, "cpu")
+                    auto_rec = (
+                        cpu_rec if selected_backend == "cpu"
+                        else _ensure_record(family, penalty, n, p, solver, selected_backend)
+                    )
+                except Exception as exc:
+                    g_total += 1
+                    print(f"  {family+'+'+penalty+' n='+str(n):<42} {initial_backend:<8} {selected_backend:<8} {solver:<10} {'--':>10} {'--':>10} {'--':>8} {'FAIL':>8}")
+                    print(f"    ERROR: {exc}")
+                    continue
+
+                speed = cpu_rec["time_ms"] / auto_rec["time_ms"] if auto_rec["time_ms"] > 0 else 0.0
+                # Treat tiny timing noise as parity.  Section G is a routing
+                # smoke gate, not a microbenchmark; explicit slow-path details
+                # are reported by --diagnose-slow.
+                status = "OK" if speed >= 0.95 or selected_backend == "cpu" else "SLOW"
+                g_total += 1
+                if status == "OK":
+                    g_ok += 1
+                else:
+                    slow.append((speed, family, penalty, n, p, selected_backend, solver))
+                print(
+                    f"  {family+'+'+penalty+' n='+str(n):<42} "
+                    f"{initial_backend:<8} {selected_backend:<8} {solver:<10} "
+                    f"{cpu_rec['time_ms']:>10.1f} {auto_rec['time_ms']:>10.1f} "
+                    f"{speed:>7.2f}x {status:>8}"
+                )
+
+    if slow:
+        print("\n  Slow production-auto rows:")
+        for speed, family, penalty, n, p, selected_backend, solver in sorted(slow)[:20]:
+            print(f"    {speed:.2f}x {selected_backend} {family}+{penalty} n={n},p={p} solver={solver}")
+    print()
+    print(f"  Section G production-auto rows: {g_ok}/{g_total} passed  [{'PASS' if g_ok == g_total else 'HAS SLOW ROWS'}]")
+    if diagnose_slow:
+        _run_explicit_gpu_slow_diagnostics(Xy_data, alpha, max_iter, tol, has_cupy, has_torch)
+    sys.stdout.flush()
+    return g_ok, g_total
+
+
+def _run_explicit_gpu_slow_diagnostics(Xy_data, alpha, max_iter, tol, has_cupy, has_torch):
+    print(f"\n{SEP}")
+    print("  SECTION G DIAGNOSTICS: Explicit GPU Slow Paths")
+    print(SEP)
+    cases = [
+        ("squared_error", "l2", "exact", 2000),
+        ("squared_error", "l1", "fista_bb", 5000),
+        ("logistic", "l1", "fista_bb", 5000),
+        ("logistic", "elasticnet", "fista_bb", 5000),
+        ("negative_binomial", "l2", "irls", 2000),
+        ("tweedie", "l1", "fista_bb", 5000),
+    ]
+    n, p = ALL_SCALES[-1]
+    print(f"  {'Case':<38} {'backend':<8} {'time(ms)':>10} {'iters':>7} {'obj':>12} {'speed':>8}")
+    print(f"  {THIN}")
+    for family, penalty, solver, mi in cases:
+        if (family, n, p) not in Xy_data:
+            continue
+        X, y, _ = Xy_data[(family, n, p)]
+        pk = _penalty_kwargs_for(penalty, p)
+        rows = {}
+        for backend, device, enabled in [
+            ("cpu", "cpu", True),
+            ("cupy", "cuda", has_cupy),
+            ("torch", "torch", has_torch),
+        ]:
+            if not enabled:
+                continue
+            try:
+                c, ic, ni, t = _run_statgpu(
+                    X, y, family, penalty, solver, device,
+                    alpha=alpha, max_iter=mi, tol=tol,
+                    penalty_kwargs=pk,
+                )
+                obj = _compute_objective(X, y, c, ic, family, alpha, penalty=penalty)
+                rows[backend] = (t, ni, obj)
+            except Exception as exc:
+                rows[backend] = (None, None, exc)
+        cpu_t = rows.get("cpu", (None, None, None))[0]
+        for backend in ("cpu", "cupy", "torch"):
+            if backend not in rows:
+                continue
+            t, ni, obj = rows[backend]
+            label = f"{family}+{penalty} {solver}"
+            if t is None:
+                print(f"  {label:<38} {backend:<8} {'FAIL':>10} {'--':>7} {str(obj)[:12]:>12} {'--':>8}")
+                continue
+            speed = (cpu_t / t) if backend != "cpu" and cpu_t and t > 0 else 1.0
+            print(f"  {label:<38} {backend:<8} {t:>10.1f} {ni:>7} {obj:>12.5g} {speed:>7.2f}x")
+
+    if ("negative_binomial", n, p) in Xy_data:
+        X, y, _ = Xy_data[("negative_binomial", n, p)]
+        _run_nb_irls_trace(X, y, alpha, has_cupy, has_torch)
+
+
+def _run_nb_irls_trace(X, y, alpha, has_cupy, has_torch, n_steps=8):
+    """Print a small NB IRLS trace for CPU/CuPy/Torch damping diagnostics."""
+    from statgpu.backends import _to_numpy
+    from statgpu.glm_core._family import NegativeBinomial
+    from statgpu.glm_core._irls import _solve
+
+    print("\n  NB IRLS trace (first iterations):")
+    print(f"  {'backend':<8} {'iter':>4} {'step':>6} {'bt':>3} {'delta':>10} {'dev':>12} {'w_min':>10} {'w_max':>10} {'cond':>10}")
+    X_np = np.asarray(X, dtype=np.float64)
+    y_np = np.asarray(y, dtype=np.float64)
+    devices = [("cpu", X_np, y_np)]
+    if has_cupy:
+        try:
+            import cupy as cp
+            devices.append(("cupy", cp.asarray(X_np), cp.asarray(y_np)))
+        except Exception:
+            pass
+    if has_torch:
+        try:
+            import torch
+            devices.append(("torch", torch.as_tensor(X_np, dtype=torch.float64, device="cuda"),
+                            torch.as_tensor(y_np, dtype=torch.float64, device="cuda")))
+        except Exception:
+            pass
+
+    fam = NegativeBinomial()
+    X_aug_np = np.column_stack([np.ones(X_np.shape[0]), X_np])
+    init = np.zeros(X_aug_np.shape[1], dtype=np.float64)
+    init[0] = np.log(max(float(np.mean(y_np)), 1e-3))
+
+    def _nb_dev(yv, muv, a=1.0):
+        mu_c = np.clip(muv, 1e-10, None)
+        y_c = np.clip(yv, 1e-10, None)
+        return float(np.sum(
+            2.0 * (y_c * np.log(y_c / mu_c)
+                   - (y_c + 1.0 / a) * np.log((1.0 + a * y_c) / (1.0 + a * mu_c)))
+        ))
+
+    for backend, Xb, yb in devices:
+        if backend == "cpu":
+            X_work = X_aug_np
+            params = init.copy()
+        elif backend == "cupy":
+            import cupy as cp
+            X_work = cp.column_stack([cp.ones(Xb.shape[0], dtype=cp.float64), Xb])
+            params = cp.asarray(init)
+        else:
+            import torch
+            X_work = torch.column_stack([
+                torch.ones(Xb.shape[0], dtype=torch.float64, device=Xb.device), Xb
+            ])
+            params = torch.as_tensor(init, dtype=torch.float64, device=Xb.device)
+
+        for iteration in range(n_steps):
+            params_old = params.copy() if backend != "torch" else params.clone()
+            eta = X_work @ params_old
+            if backend == "torch":
+                import torch
+                eta = torch.clamp(eta, -30, 30)
+                mu = torch.clamp(torch.exp(eta), min=1e-10, max=1e6)
+                W = torch.clamp(mu / (1.0 + mu), min=1e-10)
+                z = eta + (yb - mu) / mu
+                XtWX = X_work.T @ (X_work * W.unsqueeze(1))
+                Xtz = X_work.T @ (W * z)
+            elif backend == "cupy":
+                import cupy as cp
+                eta = cp.clip(eta, -30, 30)
+                mu = cp.clip(cp.exp(eta), 1e-10, 1e6)
+                W = cp.clip(mu / (1.0 + mu), 1e-10, None)
+                z = eta + (yb - mu) / mu
+                XtWX = X_work.T @ (X_work * W[:, cp.newaxis])
+                Xtz = X_work.T @ (W * z)
+            else:
+                eta = np.clip(eta, -30, 30)
+                mu = np.clip(np.exp(eta), 1e-10, 1e6)
+                W = np.clip(mu / (1.0 + mu), 1e-10, None)
+                z = eta + (yb - mu) / mu
+                XtWX = X_work.T @ (X_work * W[:, np.newaxis])
+                Xtz = X_work.T @ (W * z)
+            reg = np.full(XtWX.shape[0], X_np.shape[0] * alpha)
+            reg[0] = 0.0
+            if backend == "torch":
+                import torch
+                XtWX_reg = XtWX + torch.diag(torch.as_tensor(reg, dtype=torch.float64, device=X_work.device))
+            elif backend == "cupy":
+                import cupy as cp
+                XtWX_reg = XtWX + cp.diag(cp.asarray(reg, dtype=cp.float64))
+            else:
+                XtWX_reg = XtWX + np.diag(reg)
+            params_new = _solve(XtWX_reg, Xtz, backend)
+            direction = params_new - params_old
+            old_dev = _nb_dev(y_np, np.exp(np.clip(_to_numpy(X_work @ params_old), -30, 30)))
+            bt = 0
+            step = 1.0
+            dev_tol = max(abs(old_dev) * (1e-6 if backend == "cupy" else 1e-10),
+                          1e-4 if backend == "cupy" else 1e-6)
+            while bt < 30:
+                trial = params_old + step * direction
+                trial_dev = _nb_dev(y_np, np.exp(np.clip(_to_numpy(X_work @ trial), -30, 30)))
+                if trial_dev <= old_dev + dev_tol:
+                    params = trial
+                    break
+                step *= 0.5
+                bt += 1
+            else:
+                params = params_old + 0.1 * direction
+            delta = float(np.linalg.norm(_to_numpy(params - params_old)))
+            W_np = _to_numpy(W)
+            cond = float(np.linalg.cond(_to_numpy(XtWX_reg)))
+            dev = _nb_dev(y_np, np.exp(np.clip(_to_numpy(X_work @ params), -30, 30)))
+            print(f"  {backend:<8} {iteration + 1:>4} {step:>6.3f} {bt:>3} {delta:>10.3e} {dev:>12.5g} {float(np.min(W_np)):>10.3e} {float(np.max(W_np)):>10.3e} {cond:>10.3e}")
+
+
 def main():
     args = _parse_args()
     ALPHA = args.alpha
@@ -664,20 +1304,26 @@ def main():
     except: pass
     print()
 
-    # Pre-generate datasets
-    print("  Generating datasets...")
+    # Pre-generate datasets for the full-matrix sections only. Section F is a
+    # lightweight review-regression proof and should remain seconds-fast.
+    needs_matrix_data = run_all or any(sec in sections for sec in ("A", "B", "C", "D", "E", "G"))
     Xy_data = {}
-    seed = args.seed
-    for family in ALL_FAMILIES:
-        for n, p in ALL_SCALES:
-            X, y, true = _gen_data(family, n, p, seed)
-            Xy_data[(family, n, p)] = (X, y, true)
-            seed += 1
-    print(f"  Generated {len(Xy_data)} datasets.\n")
+    if needs_matrix_data:
+        print("  Generating datasets...")
+        seed = args.seed
+        for family in ALL_FAMILIES:
+            for n, p in ALL_SCALES:
+                X, y, true = _gen_data(family, n, p, seed)
+                Xy_data[(family, n, p)] = (X, y, true)
+                seed += 1
+        print(f"  Generated {len(Xy_data)} datasets.\n")
+    else:
+        print("  Skipping full-matrix dataset generation for Section F-only run.\n")
     sys.stdout.flush()
 
     # Counters for summary
     section_stats = {}
+    section_a_records = []
 
     # ══════════════════════════════════════════════════════════════════════════
     # SECTION A: Cross-backend timing — auto solver x ALL backends x ALL scales
@@ -739,6 +1385,18 @@ def main():
                         cpu_nnz = _nnz(cpu_c)
                         cpu_norm = float(np.linalg.norm(cpu_c))
                         obj_cpu = _compute_objective(X, y, cpu_c, cpu_ic, family, ALPHA, penalty=penalty)
+                        section_a_records.append({
+                            "family": family,
+                            "penalty": penalty,
+                            "n": n,
+                            "p": p,
+                            "solver": solver,
+                            "backend": "cpu",
+                            "time_ms": cpu_t,
+                            "iters": cpu_ni,
+                            "diff": 0.0,
+                            "speed": 1.0,
+                        })
 
                         print(f"  {solver:<14} {'CPU':<8} {cpu_t:>10.1f}  {cpu_ni:>7}  {cpu_nnz:>5}  {cpu_norm:>12.6f}  {'—':>14}  {'—':>8}")
 
@@ -779,6 +1437,18 @@ def main():
                                 _obj_diff = abs(obj_be - obj_cpu) if (obj_be is not None and obj_cpu is not None) else float('nan')
                                 print(f"  *** FAIL: {family}+{penalty} n={n} {solver}/{be_name} diff={diff:.2e} coef_tol={_effective_coef_tol:.2e} obj_diff={_obj_diff:.2e} obj_tol={_effective_obj_tol:.2e}")
                             print(f"  {solver:<14} {be_name:<8} {be_t:>10.1f}  {be_ni:>7}  {_nnz(be_c):>5}  {np.linalg.norm(be_c):>12.6f}  {diff:>14.2e}  {spd:>7.2f}x")
+                            section_a_records.append({
+                                "family": family,
+                                "penalty": penalty,
+                                "n": n,
+                                "p": p,
+                                "solver": solver,
+                                "backend": be_name,
+                                "time_ms": be_t,
+                                "iters": be_ni,
+                                "diff": diff,
+                                "speed": spd,
+                            })
 
                     sys.stdout.flush()
 
@@ -1134,6 +1804,29 @@ def main():
         section_stats["E"] = (e_ok, e_total, 0.0)
 
     # ══════════════════════════════════════════════════════════════════════════
+    # =========================================================================
+    # SECTION F: Review finding regression proofs
+    # =========================================================================
+    if run_all or "F" in sections:
+        f_ok, f_total = _run_review_finding_section()
+        section_stats["F"] = (f_ok, f_total, 0.0)
+
+    # =========================================================================
+    # SECTION G: Production auto performance routing
+    # =========================================================================
+    if run_all or "G" in sections:
+        g_ok, g_total = _run_production_auto_section(
+            Xy_data,
+            section_a_records,
+            ALPHA,
+            MAX_ITER,
+            TOL,
+            has_cupy,
+            has_torch,
+            diagnose_slow=args.diagnose_slow,
+        )
+        section_stats["G"] = (g_ok, g_total, 0.0)
+
     # Summary
     # ══════════════════════════════════════════════════════════════════════════
     print(f"\n{SEP}")

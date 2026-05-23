@@ -75,6 +75,10 @@ class SCADPenalty(Penalty):
     is_convex = False
 
     def __init__(self, alpha: float = 1.0, a: float = 3.7):
+        if not np.isfinite(alpha) or alpha <= 0.0:
+            raise ValueError("alpha must be a finite positive scalar for SCAD penalty")
+        if not np.isfinite(a) or a <= 2.0:
+            raise ValueError("a must be a finite scalar greater than 2 for SCAD penalty")
         self.alpha = alpha
         self.a = a
 

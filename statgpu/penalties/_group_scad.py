@@ -81,6 +81,10 @@ class GroupSCADPenalty(Penalty):
         a: float = 3.7,
         groups=None,
     ):
+        if not np.isfinite(alpha) or alpha <= 0.0:
+            raise ValueError("alpha must be a finite positive scalar for group SCAD penalty")
+        if not np.isfinite(a) or a <= 2.0:
+            raise ValueError("a must be a finite scalar greater than 2 for group SCAD penalty")
         self.alpha = alpha
         self.a = a
         self._group_indices = None
