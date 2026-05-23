@@ -267,8 +267,8 @@ def test_predict_uses_selected_backend_after_auto_routing():
     assert np.allclose(pred, np.exp(np.ones((3, 2)) @ model.coef_ + model.intercept_))
 
 
-def test_predict_falls_back_to_numpy_when_selected_gpu_backend_unavailable(monkeypatch):
-    model = _configured_pglm("poisson", "l2")
+def test_predict_auto_falls_back_to_numpy_when_selected_gpu_backend_unavailable(monkeypatch):
+    model = _configured_pglm("poisson", "l2", device="auto")
     model.coef_ = np.array([0.2, -0.1])
     model.intercept_ = 0.3
     model._selected_backend_name = "cupy"
@@ -287,3 +287,31 @@ def test_predict_falls_back_to_numpy_when_selected_gpu_backend_unavailable(monke
 
     assert isinstance(pred, np.ndarray)
     assert np.allclose(pred, np.exp(np.ones((3, 2)) @ model.coef_ + model.intercept_))
+
+
+def test_predict_explicit_cuda_raises_when_gpu_backend_unavailable(monkeypatch):
+    model = _configured_pglm("poisson", "l2", device="cuda")
+    model.coef_ = np.array([0.2, -0.1])
+    model.intercept_ = 0.3
+    monkeypatch.setattr(
+        PenalizedGeneralizedLinearModel,
+        "_cupy_available",
+        staticmethod(lambda: False),
+    )
+
+    with pytest.raises(RuntimeError, match="device='cuda'"):
+        model.predict(np.ones((3, 2)))
+
+
+def test_predict_explicit_torch_raises_when_gpu_backend_unavailable(monkeypatch):
+    model = _configured_pglm("poisson", "l2", device="torch")
+    model.coef_ = np.array([0.2, -0.1])
+    model.intercept_ = 0.3
+    monkeypatch.setattr(
+        PenalizedGeneralizedLinearModel,
+        "_torch_cuda_available",
+        staticmethod(lambda: False),
+    )
+
+    with pytest.raises(RuntimeError, match="device='torch'"):
+        model.predict(np.ones((3, 2)))

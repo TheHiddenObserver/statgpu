@@ -1929,10 +1929,18 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
         if backend_name == "numpy":
             return "numpy"
         device = self._get_compute_device()
-        if device == Device.CUDA and self._cupy_available():
-            return "cupy"
-        if device == Device.TORCH and self._torch_cuda_available():
-            return "torch"
+        if device == Device.CUDA:
+            if self._cupy_available():
+                return "cupy"
+            raise RuntimeError(
+                "device='cuda' was explicitly requested, but CuPy/CUDA is unavailable at prediction time."
+            )
+        if device == Device.TORCH:
+            if self._torch_cuda_available():
+                return "torch"
+            raise RuntimeError(
+                "device='torch' was explicitly requested, but Torch CUDA is unavailable at prediction time."
+            )
         return "numpy"
 
     def predict(self, X):
