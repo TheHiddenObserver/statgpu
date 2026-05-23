@@ -479,6 +479,15 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
         except Exception:
             return False
 
+    @staticmethod
+    def _cupy_available():
+        try:
+            from statgpu.backends._cupy import cupy_backend
+
+            return cupy_backend.is_available()
+        except Exception:
+            return False
+
     def _auto_backend_override(self, backend_name, X):
         """Benchmark-backed backend routing for device='auto' only."""
         self._auto_backend_reason = None
@@ -1913,12 +1922,16 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
 
     def _prediction_backend_name(self):
         backend_name = getattr(self, "_selected_backend_name", None)
-        if backend_name in ("numpy", "cupy", "torch"):
-            return backend_name
-        device = self._get_compute_device()
-        if device == Device.CUDA:
+        if backend_name == "cupy" and self._cupy_available():
             return "cupy"
-        if device == Device.TORCH:
+        if backend_name == "torch" and self._torch_cuda_available():
+            return "torch"
+        if backend_name == "numpy":
+            return "numpy"
+        device = self._get_compute_device()
+        if device == Device.CUDA and self._cupy_available():
+            return "cupy"
+        if device == Device.TORCH and self._torch_cuda_available():
             return "torch"
         return "numpy"
 

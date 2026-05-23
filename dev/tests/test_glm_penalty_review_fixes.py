@@ -265,3 +265,25 @@ def test_predict_uses_selected_backend_after_auto_routing():
 
     assert isinstance(pred, np.ndarray)
     assert np.allclose(pred, np.exp(np.ones((3, 2)) @ model.coef_ + model.intercept_))
+
+
+def test_predict_falls_back_to_numpy_when_selected_gpu_backend_unavailable(monkeypatch):
+    model = _configured_pglm("poisson", "l2")
+    model.coef_ = np.array([0.2, -0.1])
+    model.intercept_ = 0.3
+    model._selected_backend_name = "cupy"
+    monkeypatch.setattr(
+        PenalizedGeneralizedLinearModel,
+        "_cupy_available",
+        staticmethod(lambda: False),
+    )
+    monkeypatch.setattr(
+        PenalizedGeneralizedLinearModel,
+        "_torch_cuda_available",
+        staticmethod(lambda: False),
+    )
+
+    pred = model.predict(np.ones((3, 2)))
+
+    assert isinstance(pred, np.ndarray)
+    assert np.allclose(pred, np.exp(np.ones((3, 2)) @ model.coef_ + model.intercept_))
