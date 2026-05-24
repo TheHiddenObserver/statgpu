@@ -91,3 +91,21 @@ def test_negative_binomial_fista_intercept_is_finite_and_nonzero():
 
     assert np.isfinite(model.intercept_)
     assert abs(model.intercept_) > 1e-6
+
+
+def test_gamma_inverse_power_rejects_fista_solver():
+    rng = np.random.default_rng(99)
+    X = rng.normal(size=(120, 4))
+    y = np.clip(rng.gamma(shape=2.0, scale=1.0, size=120), 1e-6, None)
+
+    model = GammaRegression(
+        device="cpu",
+        fit_intercept=True,
+        solver="fista",
+        link="inverse_power",
+        max_iter=80,
+        tol=1e-6,
+    )
+
+    with pytest.raises(ValueError, match="supports GammaRegression only with link='log'"):
+        model.fit(X, y)
