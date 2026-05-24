@@ -258,10 +258,106 @@ class GeneralizedLinearModel(BaseEstimator):
 
         if not self.fit_intercept:
             X_centered = X
+            init = None
+            if self.family == "gamma" and loss_kwargs.get("link") == "inverse_power":
+                eta_lo = float(getattr(loss, "_ETA_LO", 1e-4))
+                if backend_name == "cupy":
+                    import cupy as cp
+                    if not cp.issubdtype(X_centered.dtype, cp.floating):
+                        X_centered = X_centered.astype(cp.float64)
+                    y_cp = cp.asarray(y, dtype=cp.float64)
+                    X_cp = cp.asarray(X_centered, dtype=cp.float64)
+                    eta_raw = 1.0 / cp.clip(y_cp, 1e-6, None)
+                    eta_target = eta_raw - cp.mean(eta_raw)
+                    try:
+                        init_cp, *_ = cp.linalg.lstsq(X_cp, eta_target, rcond=None)
+                    except cp.linalg.LinAlgError:
+                        init_cp = cp.zeros(X.shape[1], dtype=cp.float64)
+                    eta_init = X_cp @ init_cp
+                    eta_abs_max = cp.max(cp.abs(eta_init))
+                    min_scale = eta_lo * 10.0
+                    if float(eta_abs_max) < min_scale:
+                        scale = min_scale / (float(eta_abs_max) + 1e-12)
+                        init_cp = init_cp * scale
+                        eta_init = X_cp @ init_cp
+                    near_zero_frac = cp.mean((cp.abs(eta_init) < (eta_lo * 10.0)).astype(cp.float64))
+                    if float(near_zero_frac) > 0.5:
+                        g = X_cp.T @ (y_cp - cp.mean(y_cp))
+                        g_norm = cp.sqrt(cp.sum(g * g))
+                        if float(g_norm) > 0:
+                            init_cp = g / g_norm
+                            eta_g = X_cp @ init_cp
+                            med_abs = float(cp.median(cp.abs(eta_g)))
+                            target = eta_lo * 20.0
+                            init_cp = init_cp * (target / (med_abs + 1e-12))
+                    coef_dtype = (
+                        X_centered.dtype
+                        if cp.issubdtype(X_centered.dtype, cp.floating)
+                        else cp.float64
+                    )
+                    init = init_cp.astype(coef_dtype, copy=False)
+                elif backend_name == "torch":
+                    import torch
+                    if not X_centered.is_floating_point():
+                        X_centered = X_centered.to(torch.float64)
+                    dtype = X_centered.dtype if X_centered.is_floating_point() else torch.float64
+                    y_t = y.to(X.device).to(torch.float64)
+                    X_t = X_centered.to(X.device).to(torch.float64)
+                    eta_raw = 1.0 / torch.clamp(y_t, min=1e-6)
+                    eta_target = eta_raw - torch.mean(eta_raw)
+                    try:
+                        init_t = torch.linalg.lstsq(X_t, eta_target).solution
+                    except RuntimeError:
+                        init_t = torch.zeros(X.shape[1], dtype=torch.float64, device=X.device)
+                    eta_init = X_t @ init_t
+                    eta_abs_max = torch.max(torch.abs(eta_init))
+                    min_scale = eta_lo * 10.0
+                    if float(eta_abs_max.item()) < min_scale:
+                        scale = min_scale / (float(eta_abs_max.item()) + 1e-12)
+                        init_t = init_t * scale
+                        eta_init = X_t @ init_t
+                    near_zero_frac = torch.mean((torch.abs(eta_init) < (eta_lo * 10.0)).to(torch.float64))
+                    if float(near_zero_frac.item()) > 0.5:
+                        g = X_t.T @ (y_t - torch.mean(y_t))
+                        g_norm = torch.sqrt(torch.sum(g * g))
+                        if float(g_norm.item()) > 0:
+                            init_t = g / g_norm
+                            eta_g = X_t @ init_t
+                            med_abs = float(torch.median(torch.abs(eta_g)).item())
+                            target = eta_lo * 20.0
+                            init_t = init_t * (target / (med_abs + 1e-12))
+                    init = init_t.to(dtype)
+                else:
+                    if not np.issubdtype(X_centered.dtype, np.floating):
+                        X_centered = X_centered.astype(np.float64)
+                    y_np = np.asarray(y, dtype=np.float64)
+                    X_np = np.asarray(X_centered, dtype=np.float64)
+                    eta_raw = 1.0 / np.clip(y_np, 1e-6, None)
+                    eta_target = eta_raw - np.mean(eta_raw)
+                    try:
+                        init = np.linalg.lstsq(X_np, eta_target, rcond=None)[0]
+                    except np.linalg.LinAlgError:
+                        init = np.zeros(X.shape[1], dtype=np.float64)
+                    eta_init = X_np @ init
+                    eta_abs_max = float(np.max(np.abs(eta_init))) if eta_init.size else 0.0
+                    min_scale = eta_lo * 10.0
+                    if eta_abs_max < min_scale:
+                        init = init * (min_scale / (eta_abs_max + 1e-12))
+                        eta_init = X_np @ init
+                    near_zero_frac = float(np.mean(np.abs(eta_init) < (eta_lo * 10.0))) if eta_init.size else 1.0
+                    if near_zero_frac > 0.5:
+                        g = X_np.T @ (y_np - np.mean(y_np))
+                        g_norm = float(np.sqrt(np.sum(g * g)))
+                        if g_norm > 0:
+                            init = g / g_norm
+                            eta_g = X_np @ init
+                            med_abs = float(np.median(np.abs(eta_g)))
+                            target = eta_lo * 20.0
+                            init = init * (target / (med_abs + 1e-12))
             coef, n_iter = fista_solver(
                 loss, L2Penalty(alpha=0.0), X_centered, y,
                 max_iter=self.max_iter, tol=self.tol,
-                init_coef=None, sample_weight=sample_weight,
+                init_coef=init, sample_weight=sample_weight,
             )
             self.coef_ = _to_numpy(coef)
             self.n_iter_ = n_iter
@@ -275,18 +371,38 @@ class GeneralizedLinearModel(BaseEstimator):
             # Augment X with intercept column (no penalty in _fit_fista).
             if backend_name == "cupy":
                 import cupy as cp
-                X_aug = cp.column_stack([X, cp.ones(X.shape[0])])
+                x_dtype = X.dtype if cp.issubdtype(X.dtype, cp.floating) else cp.float64
+                X_float = X.astype(x_dtype, copy=False)
+                X_aug = cp.column_stack([X_float, cp.ones(X.shape[0], dtype=x_dtype)])
             elif backend_name == "torch":
                 import torch
-                X_aug = torch.column_stack([X, torch.ones(X.shape[0], dtype=torch.float64, device=X.device)])
+                x_dtype = X.dtype if getattr(X, "is_floating_point", lambda: False)() else torch.float64
+                X_float = X.to(dtype=x_dtype)
+                X_aug = torch.column_stack([X_float, torch.ones(X.shape[0], dtype=x_dtype, device=X.device)])
             else:
                 X_aug = np.column_stack([X, np.ones(X.shape[0])])
             p = X.shape[1]
+            y_mean = max(float(np.mean(_to_numpy(y))), 1e-3)
+            init = np.zeros(p + 1, dtype=np.float64)
+            if self.family == "binomial":
+                p_mean = np.clip(y_mean, 1e-3, 1.0 - 1e-3)
+                init[-1] = np.log(p_mean / (1.0 - p_mean))
+            elif self.family == "gamma" and loss_kwargs.get("link") == "inverse_power":
+                init[-1] = 1.0 / y_mean
+            elif self.family in (
+                "poisson", "gamma", "inverse_gaussian",
+                "negative_binomial", "tweedie",
+            ):
+                init[-1] = np.log(y_mean)
+            if backend_name == "cupy":
+                init = cp.asarray(init, dtype=x_dtype)
+            elif backend_name == "torch":
+                init = torch.from_numpy(init).to(X.device).to(x_dtype)
 
             full_coef, n_iter = fista_solver(
                 loss, L2Penalty(alpha=0.0), X_aug, y,
                 max_iter=self.max_iter, tol=self.tol,
-                init_coef=None, sample_weight=sample_weight,
+                init_coef=init, sample_weight=sample_weight,
             )
 
             full_np = _to_numpy(full_coef)
@@ -345,15 +461,21 @@ class GeneralizedLinearModel(BaseEstimator):
         if self.fit_intercept:
             if backend_name == "cupy":
                 import cupy as cp
-                X_work = cp.column_stack([X, cp.ones(X.shape[0], dtype=X.dtype)])
+                x_dtype = X.dtype if getattr(X.dtype, "kind", "") == "f" else cp.float64
+                X_float = X.astype(x_dtype, copy=False)
+                X_work = cp.column_stack([X_float, cp.ones(X.shape[0], dtype=x_dtype)])
             elif backend_name == "torch":
                 import torch
+                x_dtype = X.dtype if getattr(X, "is_floating_point", lambda: False)() else torch.float64
+                X_float = X.to(dtype=x_dtype)
                 X_work = torch.column_stack([
-                    X,
-                    torch.ones(X.shape[0], dtype=X.dtype, device=X.device),
+                    X_float,
+                    torch.ones(X.shape[0], dtype=x_dtype, device=X.device),
                 ])
             else:
-                X_work = np.column_stack([X, np.ones(X.shape[0], dtype=X.dtype)])
+                x_dtype = X.dtype if np.issubdtype(X.dtype, np.floating) else np.float64
+                X_float = X.astype(x_dtype, copy=False)
+                X_work = np.column_stack([X_float, np.ones(X.shape[0], dtype=x_dtype)])
             p = X.shape[1]
         else:
             X_work = X

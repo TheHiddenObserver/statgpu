@@ -558,6 +558,28 @@ def _fused_glm_value_and_gradient(loss, X, y, coef):
         import numpy as np
         eta = X @ coef
         mod = type(eta).__module__
+        gamma_link = getattr(loss, 'link_name', getattr(loss, 'link', 'log'))
+        if gamma_link == 'inverse_power':
+            eta_lo = float(getattr(loss, '_ETA_LO', 1e-2))
+            eta_hi = float(getattr(loss, '_ETA_HI', 1e3))
+            if mod.startswith('torch'):
+                import torch
+                eta_c = torch.clamp(eta, min=eta_lo, max=eta_hi)
+                mu = 1.0 / eta_c
+                val = torch.sum(y * eta_c - torch.log(eta_c)) / n
+                grad = X.T @ (y - mu) / n
+            elif mod.startswith('cupy'):
+                import cupy as cp
+                eta_c = cp.clip(eta, eta_lo, eta_hi)
+                mu = 1.0 / eta_c
+                val = cp.sum(y * eta_c - cp.log(eta_c)) / n
+                grad = X.T @ (y - mu) / n
+            else:
+                eta_c = np.clip(eta, eta_lo, eta_hi)
+                mu = 1.0 / eta_c
+                val = np.sum(y * eta_c - np.log(eta_c)) / n
+                grad = X.T @ (y - mu) / n
+            return val, grad
         if mod.startswith('torch'):
             import torch
             mu = torch.exp(torch.clamp(eta, -30, 30))
@@ -744,15 +766,17 @@ def fista_solver(
     # Objective-based restart for Nesterov momentum
     _prev_obj_fista = None
 
-    # Initial Lipschitz at zero (safe for all losses).  Computing L at
-    # init_coef can produce enormous values for exp-link families (mu =
-    # exp(X@coef) explodes for warm-start coefs from OLS), causing step
-    # = 1/L to be zero and the solver to exit immediately.
+    # Initial Lipschitz: default to zero (safe for exp-link warm starts),
+    # but allow losses to request evaluation at the provided init to avoid
+    # degenerate curvature from eta=0 clipping.
     if lipschitz_L is not None and lipschitz_L > 0:
         L = lipschitz_L
     else:
-        _zero_coef = _copy_arr(coef) * 0.0
-        L = loss.lipschitz(X_proc, _zero_coef, y=y_proc)
+        if getattr(loss, '_lipschitz_at_init', False):
+            _lip_coef = _copy_arr(coef)
+        else:
+            _lip_coef = _copy_arr(coef) * 0.0
+        L = loss.lipschitz(X_proc, _lip_coef, y=y_proc)
     if L <= 0:
         L = 1.0
     # Add smooth penalty Lipschitz contribution (e.g. l2 penalty gradient
@@ -1095,15 +1119,21 @@ def fista_lla_path(
         # Augment X with a column of ones
         if backend == "torch":
             import torch
-            ones_col = torch.ones(X.shape[0], 1, device=X.device, dtype=X.dtype)
-            X_c = torch.cat([X, ones_col], dim=1)
+            x_dtype = X.dtype if getattr(X, "is_floating_point", lambda: False)() else torch.float64
+            X_float = X.to(dtype=x_dtype)
+            ones_col = torch.ones(X.shape[0], 1, device=X.device, dtype=x_dtype)
+            X_c = torch.cat([X_float, ones_col], dim=1)
         elif backend == "cupy":
             import cupy as cp
-            ones_col = cp.ones((X.shape[0], 1), dtype=X.dtype)
-            X_c = cp.concatenate([X, ones_col], axis=1)
+            x_dtype = X.dtype if getattr(X.dtype, "kind", "") == "f" else cp.float64
+            X_float = X.astype(x_dtype, copy=False)
+            ones_col = cp.ones((X.shape[0], 1), dtype=x_dtype)
+            X_c = cp.concatenate([X_float, ones_col], axis=1)
         else:
-            ones_col = np.ones((X.shape[0], 1), dtype=X.dtype)
-            X_c = np.concatenate([X, ones_col], axis=1)
+            x_dtype = X.dtype if np.issubdtype(X.dtype, np.floating) else np.float64
+            X_float = X.astype(x_dtype, copy=False)
+            ones_col = np.ones((X.shape[0], 1), dtype=x_dtype)
+            X_c = np.concatenate([X_float, ones_col], axis=1)
         y_c = y
         n_aug = n_features + 1
     elif fit_intercept:
