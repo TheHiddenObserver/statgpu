@@ -23,7 +23,7 @@ class GammaLoss(GLMLoss):
 
     _MU_LO = 1e-3
     _MU_HI = 1e4
-    _ETA_LO = 1e-4
+    _ETA_LO = 1e-2
     _ETA_HI = 1e3
 
     def __init__(self, link="log"):
