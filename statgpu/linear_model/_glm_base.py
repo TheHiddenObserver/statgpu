@@ -358,7 +358,7 @@ class GeneralizedLinearModel(BaseEstimator):
                 X_aug = cp.column_stack([X, cp.ones(X.shape[0])])
             elif backend_name == "torch":
                 import torch
-                X_aug = torch.column_stack([X, torch.ones(X.shape[0], dtype=torch.float64, device=X.device)])
+                X_aug = torch.column_stack([X, torch.ones(X.shape[0], dtype=X.dtype, device=X.device)])
             else:
                 X_aug = np.column_stack([X, np.ones(X.shape[0])])
             p = X.shape[1]
