@@ -1120,15 +1120,21 @@ def fista_lla_path(
         # Augment X with a column of ones
         if backend == "torch":
             import torch
-            ones_col = torch.ones(X.shape[0], 1, device=X.device, dtype=X.dtype)
-            X_c = torch.cat([X, ones_col], dim=1)
+            x_dtype = X.dtype if getattr(X, "is_floating_point", lambda: False)() else torch.float64
+            X_float = X.to(dtype=x_dtype)
+            ones_col = torch.ones(X.shape[0], 1, device=X.device, dtype=x_dtype)
+            X_c = torch.cat([X_float, ones_col], dim=1)
         elif backend == "cupy":
             import cupy as cp
-            ones_col = cp.ones((X.shape[0], 1), dtype=X.dtype)
-            X_c = cp.concatenate([X, ones_col], axis=1)
+            x_dtype = X.dtype if getattr(X.dtype, "kind", "") == "f" else cp.float64
+            X_float = X.astype(x_dtype, copy=False)
+            ones_col = cp.ones((X.shape[0], 1), dtype=x_dtype)
+            X_c = cp.concatenate([X_float, ones_col], axis=1)
         else:
-            ones_col = np.ones((X.shape[0], 1), dtype=X.dtype)
-            X_c = np.concatenate([X, ones_col], axis=1)
+            x_dtype = X.dtype if np.issubdtype(X.dtype, np.floating) else np.float64
+            X_float = X.astype(x_dtype, copy=False)
+            ones_col = np.ones((X.shape[0], 1), dtype=x_dtype)
+            X_c = np.concatenate([X_float, ones_col], axis=1)
         y_c = y
         n_aug = n_features + 1
     elif fit_intercept:

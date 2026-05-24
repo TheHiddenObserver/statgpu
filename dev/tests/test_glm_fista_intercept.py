@@ -226,3 +226,23 @@ def test_gamma_inverse_power_fista_torch_integer_X_runs():
     pred = np.asarray(_to_numpy(model.predict(X_int)), dtype=float)
     assert np.all(np.isfinite(pred))
     assert np.all(pred > 0)
+
+
+@pytest.mark.parametrize("solver", ["newton", "lbfgs"])
+def test_gamma_smooth_solver_integer_X_cpu_runs(solver):
+    X, y = _gamma_inverse_power_data(seed=13, n=120, p=5)
+    X_int = np.rint(X * 5.0).astype(np.int64)
+
+    model = GammaRegression(
+        link="log",
+        device="cpu",
+        fit_intercept=True,
+        solver=solver,
+        max_iter=200,
+        tol=1e-7,
+    )
+    model.fit(X_int, y)
+
+    pred = np.asarray(model.predict(X_int), dtype=float)
+    assert np.all(np.isfinite(pred))
+    assert np.all(pred > 0)

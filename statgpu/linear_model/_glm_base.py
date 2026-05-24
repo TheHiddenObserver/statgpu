@@ -438,15 +438,21 @@ class GeneralizedLinearModel(BaseEstimator):
         if self.fit_intercept:
             if backend_name == "cupy":
                 import cupy as cp
-                X_work = cp.column_stack([X, cp.ones(X.shape[0], dtype=X.dtype)])
+                x_dtype = X.dtype if getattr(X.dtype, "kind", "") == "f" else cp.float64
+                X_float = X.astype(x_dtype, copy=False)
+                X_work = cp.column_stack([X_float, cp.ones(X.shape[0], dtype=x_dtype)])
             elif backend_name == "torch":
                 import torch
+                x_dtype = X.dtype if getattr(X, "is_floating_point", lambda: False)() else torch.float64
+                X_float = X.to(dtype=x_dtype)
                 X_work = torch.column_stack([
-                    X,
-                    torch.ones(X.shape[0], dtype=X.dtype, device=X.device),
+                    X_float,
+                    torch.ones(X.shape[0], dtype=x_dtype, device=X.device),
                 ])
             else:
-                X_work = np.column_stack([X, np.ones(X.shape[0], dtype=X.dtype)])
+                x_dtype = X.dtype if np.issubdtype(X.dtype, np.floating) else np.float64
+                X_float = X.astype(x_dtype, copy=False)
+                X_work = np.column_stack([X_float, np.ones(X.shape[0], dtype=x_dtype)])
             p = X.shape[1]
         else:
             X_work = X
