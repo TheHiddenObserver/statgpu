@@ -255,8 +255,13 @@ class GeneralizedLinearModel(BaseEstimator):
             X_centered = X
             init = None
             if self.family == "gamma" and loss_kwargs.get("link") == "inverse_power":
-                y_mean = max(float(np.mean(_to_numpy(y))), 1e-3)
-                init_np = np.full(X.shape[1], 1.0 / y_mean, dtype=np.float64)
+                y_np = np.asarray(_to_numpy(y), dtype=np.float64)
+                X_np = np.asarray(_to_numpy(X_centered), dtype=np.float64)
+                eta_target = 1.0 / np.clip(y_np, 1e-6, None)
+                try:
+                    init_np, *_ = np.linalg.lstsq(X_np, eta_target, rcond=None)
+                except np.linalg.LinAlgError:
+                    init_np = np.zeros(X.shape[1], dtype=np.float64)
                 if backend_name == "cupy":
                     import cupy as cp
                     init = cp.asarray(init_np, dtype=X.dtype if hasattr(X, "dtype") else cp.float64)
