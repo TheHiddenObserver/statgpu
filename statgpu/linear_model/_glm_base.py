@@ -249,6 +249,11 @@ class GeneralizedLinearModel(BaseEstimator):
         from statgpu.penalties._l2 import L2Penalty
 
         loss_kwargs = self._get_loss_kwargs()
+        if self.family == "gamma" and getattr(self, "_link_name", "log") != "log":
+            raise ValueError(
+                "solver='fista' currently supports GammaRegression only with link='log'. "
+                "Use solver='irls'/'newton'/'lbfgs' for link='inverse_power'."
+            )
         loss = get_glm_loss(self.family_to_loss(), **loss_kwargs)
 
         if not self.fit_intercept:
@@ -444,6 +449,11 @@ class GeneralizedLinearModel(BaseEstimator):
             )
 
         loss_kwargs = self._get_loss_kwargs()
+        if self.family == "gamma" and getattr(self, "_link_name", "log") != "log":
+            raise ValueError(
+                "solver='fista' currently supports GammaRegression only with link='log'. "
+                "Use solver='irls'/'newton'/'lbfgs' for link='inverse_power'."
+            )
         loss = get_glm_loss(self.family_to_loss(), **loss_kwargs)
         if not getattr(loss, "has_hessian", False):
             raise ValueError(f"solver='{solver_name}' requires a Hessian.")
