@@ -176,14 +176,13 @@ class InversePowerLink(Link):
     """Inverse power link: eta = 1/mu (canonical for Gamma)."""
 
     name = "inverse_power"
-    _ETA_LO = 1e-2
-    _ETA_HI = 1e3
+    _ETA_LO = 1e-10
 
     def link(self, mu):
         return 1.0 / _clip(mu, 1e-10, None)
 
     def inverse(self, eta):
-        return 1.0 / _clip(eta, self._ETA_LO, self._ETA_HI)
+        return 1.0 / _clip(eta, self._ETA_LO, None)
 
     def derivative(self, mu):
         return -1.0 / (mu * mu)

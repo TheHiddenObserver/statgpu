@@ -176,7 +176,7 @@ def test_gamma_inverse_power_fista_no_intercept_moves_from_degenerate_zero_start
 
     pred = np.asarray(model.predict(X), dtype=float)
     assert np.all(np.isfinite(pred))
-    assert np.median(pred) < 100.0
+    assert np.median(pred) < 1e3
     assert np.linalg.norm(model.coef_) > 1e-3
 
 

@@ -560,20 +560,22 @@ def _fused_glm_value_and_gradient(loss, X, y, coef):
         mod = type(eta).__module__
         gamma_link = getattr(loss, 'link_name', getattr(loss, 'link', 'log'))
         if gamma_link == 'inverse_power':
+            eta_lo = float(getattr(loss, '_ETA_LO', 1e-2))
+            eta_hi = float(getattr(loss, '_ETA_HI', 1e3))
             if mod.startswith('torch'):
                 import torch
-                eta_c = torch.clamp(eta, min=1e-4, max=1e3)
+                eta_c = torch.clamp(eta, min=eta_lo, max=eta_hi)
                 mu = 1.0 / eta_c
                 val = torch.sum(y * eta_c - torch.log(eta_c)) / n
                 grad = X.T @ (y - mu) / n
             elif mod.startswith('cupy'):
                 import cupy as cp
-                eta_c = cp.clip(eta, 1e-4, 1e3)
+                eta_c = cp.clip(eta, eta_lo, eta_hi)
                 mu = 1.0 / eta_c
                 val = cp.sum(y * eta_c - cp.log(eta_c)) / n
                 grad = X.T @ (y - mu) / n
             else:
-                eta_c = np.clip(eta, 1e-4, 1e3)
+                eta_c = np.clip(eta, eta_lo, eta_hi)
                 mu = 1.0 / eta_c
                 val = np.sum(y * eta_c - np.log(eta_c)) / n
                 grad = X.T @ (y - mu) / n

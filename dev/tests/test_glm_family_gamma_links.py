@@ -34,3 +34,10 @@ def test_gamma_inverse_power_link_irls_uses_link_derivative():
 
     assert np.allclose(w, expected_w)
     assert np.allclose(z, expected_z)
+
+
+def test_inverse_power_link_inverse_does_not_impose_mu_100_ceiling():
+    link = InversePowerLink()
+    eta = np.array([1e-3, 5e-4])
+    mu = link.inverse(eta)
+    assert np.all(mu > 100.0)
