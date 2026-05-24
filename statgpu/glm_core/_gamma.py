@@ -23,7 +23,7 @@ class GammaLoss(GLMLoss):
 
     _MU_LO = 1e-3
     _MU_HI = 1e4
-    _ETA_LO = 1e-2
+    _ETA_LO = 1e-4
     _ETA_HI = 1e3
 
     def __init__(self, link="log"):
@@ -44,7 +44,7 @@ class GammaLoss(GLMLoss):
         if self.link == "inverse_power":
             eta_c = _clip(eta, self._ETA_LO, self._ETA_HI)
             return eta_c, 1.0 / eta_c
-        z = _clip(X @ coef, -30, 30)
+        z = _clip(eta, -30, 30)
         return z, _clip(_exp(z), self._MU_LO, self._MU_HI)
 
     def value(self, X, y, coef):

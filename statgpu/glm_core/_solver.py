@@ -766,18 +766,17 @@ def fista_solver(
     # Objective-based restart for Nesterov momentum
     _prev_obj_fista = None
 
-    # Initial Lipschitz at zero (safe for all losses).  Computing L at
-    # init_coef can produce enormous values for exp-link families (mu =
-    # exp(X@coef) explodes for warm-start coefs from OLS), causing step
-    # = 1/L to be zero and the solver to exit immediately.
+    # Initial Lipschitz: default to zero (safe for exp-link warm starts),
+    # but allow losses to request evaluation at the provided init to avoid
+    # degenerate curvature from eta=0 clipping.
     if lipschitz_L is not None and lipschitz_L > 0:
         L = lipschitz_L
     else:
         if getattr(loss, '_lipschitz_at_init', False):
-            _zero_coef = _copy_arr(coef)
+            _lip_coef = _copy_arr(coef)
         else:
-            _zero_coef = _copy_arr(coef) * 0.0
-        L = loss.lipschitz(X_proc, _zero_coef, y=y_proc)
+            _lip_coef = _copy_arr(coef) * 0.0
+        L = loss.lipschitz(X_proc, _lip_coef, y=y_proc)
     if L <= 0:
         L = 1.0
     # Add smooth penalty Lipschitz contribution (e.g. l2 penalty gradient

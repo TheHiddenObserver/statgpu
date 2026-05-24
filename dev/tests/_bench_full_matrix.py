@@ -1321,62 +1321,62 @@ def _run_gamma_fista_link_section(has_cupy, has_torch):
     print(f"  {'Link':<14} {'Scale':<14} {'backend':<8} {'time(ms)':>10} {'iters':>7} {'obj_diff':>12} {'pred_diff':>12} {'speed':>8} {'Status':>8}")
     print(f"  {THIN}")
     for link in links:
-      for n, p in scales:
-        X, y = _gamma_fista_bench_data(link, n, p)
-        ref = GammaRegression(
-            link=link,
-            device="cpu",
-            fit_intercept=True,
-            solver="fista",
-            max_iter=2200,
-            tol=1e-6,
-        )
-        t0 = time.perf_counter()
-        ref.fit(X, y)
-        t_cpu = (time.perf_counter() - t0) * 1000
-        ref_obj = _gamma_fista_objective(link, X, y, ref.coef_, ref.intercept_)
-        ref_pred = np.asarray(_to_numpy(ref.predict(X)), dtype=float)
+        for n, p in scales:
+            X, y = _gamma_fista_bench_data(link, n, p)
+            ref = GammaRegression(
+                link=link,
+                device="cpu",
+                fit_intercept=True,
+                solver="fista",
+                max_iter=2200,
+                tol=1e-6,
+            )
+            t0 = time.perf_counter()
+            ref.fit(X, y)
+            t_cpu = (time.perf_counter() - t0) * 1000
+            ref_obj = _gamma_fista_objective(link, X, y, ref.coef_, ref.intercept_)
+            ref_pred = np.asarray(_to_numpy(ref.predict(X)), dtype=float)
 
-        for backend, device, enabled in devices:
-            if not enabled:
-                continue
-            h_total += 1
-            try:
-                if backend == "cpu":
-                    model = ref
-                    elapsed = t_cpu
-                else:
-                    model = GammaRegression(
-                        link=link,
-                        device=device,
-                        fit_intercept=True,
-                        solver="fista",
-                        max_iter=2200,
-                        tol=1e-6,
+            for backend, device, enabled in devices:
+                if not enabled:
+                    continue
+                h_total += 1
+                try:
+                    if backend == "cpu":
+                        model = ref
+                        elapsed = t_cpu
+                    else:
+                        model = GammaRegression(
+                            link=link,
+                            device=device,
+                            fit_intercept=True,
+                            solver="fista",
+                            max_iter=2200,
+                            tol=1e-6,
+                        )
+                        t0 = time.perf_counter()
+                        model.fit(X, y)
+                        elapsed = (time.perf_counter() - t0) * 1000
+                    obj = _gamma_fista_objective(link, X, y, model.coef_, model.intercept_)
+                    pred = np.asarray(_to_numpy(model.predict(X)), dtype=float)
+                    obj_diff = abs(obj - ref_obj)
+                    pred_diff = float(np.max(np.abs(pred - ref_pred)))
+                    speed = t_cpu / elapsed if elapsed > 0 else 0.0
+                    status = "OK" if obj_diff < 1e-4 and pred_diff < 5e-3 and np.all(pred > 0) else "FAIL"
+                    if status == "OK":
+                        h_ok += 1
+                    print(
+                        f"  {link:<14} {('n='+str(n)+',p='+str(p)):<14} {backend:<8} "
+                        f"{elapsed:>10.1f} {int(model.n_iter_):>7} "
+                        f"{obj_diff:>12.2e} {pred_diff:>12.2e} "
+                        f"{speed:>7.2f}x {status:>8}"
                     )
-                    t0 = time.perf_counter()
-                    model.fit(X, y)
-                    elapsed = (time.perf_counter() - t0) * 1000
-                obj = _gamma_fista_objective(link, X, y, model.coef_, model.intercept_)
-                pred = np.asarray(_to_numpy(model.predict(X)), dtype=float)
-                obj_diff = abs(obj - ref_obj)
-                pred_diff = float(np.max(np.abs(pred - ref_pred)))
-                speed = t_cpu / elapsed if elapsed > 0 else 0.0
-                status = "OK" if obj_diff < 1e-4 and pred_diff < 5e-3 and np.all(pred > 0) else "FAIL"
-                if status == "OK":
-                    h_ok += 1
-                print(
-                    f"  {link:<14} {('n='+str(n)+',p='+str(p)):<14} {backend:<8} "
-                    f"{elapsed:>10.1f} {int(model.n_iter_):>7} "
-                    f"{obj_diff:>12.2e} {pred_diff:>12.2e} "
-                    f"{speed:>7.2f}x {status:>8}"
-                )
-            except Exception as exc:
-                print(
-                    f"  {link:<14} {('n='+str(n)+',p='+str(p)):<14} {backend:<8} "
-                    f"{'--':>10} {'--':>7} {'--':>12} {'--':>12} {'--':>8} {'FAIL':>8}"
-                )
-                print(f"    ERROR: {exc}")
+                except Exception as exc:
+                    print(
+                        f"  {link:<14} {('n='+str(n)+',p='+str(p)):<14} {backend:<8} "
+                        f"{'--':>10} {'--':>7} {'--':>12} {'--':>12} {'--':>8} {'FAIL':>8}"
+                    )
+                    print(f"    ERROR: {exc}")
     print()
     print(f"  Section H gamma FISTA rows: {h_ok}/{h_total} passed  [{'PASS' if h_ok == h_total else 'FAIL'}]")
     sys.stdout.flush()

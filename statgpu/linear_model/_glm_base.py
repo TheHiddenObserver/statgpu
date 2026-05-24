@@ -255,9 +255,11 @@ class GeneralizedLinearModel(BaseEstimator):
             X_centered = X
             init = None
             if self.family == "gamma" and loss_kwargs.get("link") == "inverse_power":
-                eta_lo = 1e-2
+                eta_lo = float(getattr(loss, "_ETA_LO", 1e-4))
                 if backend_name == "cupy":
                     import cupy as cp
+                    if not cp.issubdtype(X_centered.dtype, cp.floating):
+                        X_centered = X_centered.astype(cp.float64)
                     y_cp = cp.asarray(y, dtype=cp.float64)
                     X_cp = cp.asarray(X_centered, dtype=cp.float64)
                     eta_raw = 1.0 / cp.clip(y_cp, 1e-6, None)
@@ -283,10 +285,17 @@ class GeneralizedLinearModel(BaseEstimator):
                             med_abs = float(cp.median(cp.abs(eta_g)))
                             target = eta_lo * 20.0
                             init_cp = init_cp * (target / (med_abs + 1e-12))
-                    init = init_cp.astype(X.dtype if hasattr(X, "dtype") else cp.float64, copy=False)
+                    coef_dtype = (
+                        X_centered.dtype
+                        if cp.issubdtype(X_centered.dtype, cp.floating)
+                        else cp.float64
+                    )
+                    init = init_cp.astype(coef_dtype, copy=False)
                 elif backend_name == "torch":
                     import torch
-                    dtype = X.dtype if hasattr(X, "dtype") else torch.float64
+                    if not X_centered.is_floating_point():
+                        X_centered = X_centered.to(torch.float64)
+                    dtype = X_centered.dtype if X_centered.is_floating_point() else torch.float64
                     y_t = y.to(X.device).to(torch.float64)
                     X_t = X_centered.to(X.device).to(torch.float64)
                     eta_raw = 1.0 / torch.clamp(y_t, min=1e-6)
@@ -314,6 +323,8 @@ class GeneralizedLinearModel(BaseEstimator):
                             init_t = init_t * (target / (med_abs + 1e-12))
                     init = init_t.to(dtype)
                 else:
+                    if not np.issubdtype(X_centered.dtype, np.floating):
+                        X_centered = X_centered.astype(np.float64)
                     y_np = np.asarray(y, dtype=np.float64)
                     X_np = np.asarray(X_centered, dtype=np.float64)
                     eta_raw = 1.0 / np.clip(y_np, 1e-6, None)
