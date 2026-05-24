@@ -366,7 +366,9 @@ class GeneralizedLinearModel(BaseEstimator):
             # Augment X with intercept column (no penalty in _fit_fista).
             if backend_name == "cupy":
                 import cupy as cp
-                X_aug = cp.column_stack([X, cp.ones(X.shape[0])])
+                x_dtype = X.dtype if cp.issubdtype(X.dtype, cp.floating) else cp.float64
+                X_float = X.astype(x_dtype, copy=False)
+                X_aug = cp.column_stack([X_float, cp.ones(X.shape[0], dtype=x_dtype)])
             elif backend_name == "torch":
                 import torch
                 x_dtype = X.dtype if getattr(X, "is_floating_point", lambda: False)() else torch.float64
@@ -388,7 +390,7 @@ class GeneralizedLinearModel(BaseEstimator):
             ):
                 init[-1] = np.log(y_mean)
             if backend_name == "cupy":
-                init = cp.asarray(init, dtype=X.dtype if hasattr(X, "dtype") else cp.float64)
+                init = cp.asarray(init, dtype=x_dtype)
             elif backend_name == "torch":
                 init = torch.from_numpy(init).to(X.device).to(x_dtype)
 
