@@ -255,21 +255,35 @@ class GeneralizedLinearModel(BaseEstimator):
             X_centered = X
             init = None
             if self.family == "gamma" and loss_kwargs.get("link") == "inverse_power":
-                y_np = np.asarray(_to_numpy(y), dtype=np.float64)
-                X_np = np.asarray(_to_numpy(X_centered), dtype=np.float64)
-                eta_target = 1.0 / np.clip(y_np, 1e-6, None)
-                try:
-                    init_np, *_ = np.linalg.lstsq(X_np, eta_target, rcond=None)
-                except np.linalg.LinAlgError:
-                    init_np = np.zeros(X.shape[1], dtype=np.float64)
                 if backend_name == "cupy":
                     import cupy as cp
-                    init = cp.asarray(init_np, dtype=X.dtype if hasattr(X, "dtype") else cp.float64)
+                    y_cp = cp.asarray(y, dtype=cp.float64)
+                    X_cp = cp.asarray(X_centered, dtype=cp.float64)
+                    eta_target = 1.0 / cp.clip(y_cp, 1e-6, None)
+                    try:
+                        init_cp, *_ = cp.linalg.lstsq(X_cp, eta_target, rcond=None)
+                    except cp.linalg.LinAlgError:
+                        init_cp = cp.zeros(X.shape[1], dtype=cp.float64)
+                    init = init_cp.astype(X.dtype if hasattr(X, "dtype") else cp.float64, copy=False)
                 elif backend_name == "torch":
                     import torch
-                    init = torch.from_numpy(init_np).to(X.device).to(X.dtype if hasattr(X, "dtype") else torch.float64)
+                    dtype = X.dtype if hasattr(X, "dtype") else torch.float64
+                    y_t = y.to(X.device).to(torch.float64)
+                    X_t = X_centered.to(X.device).to(torch.float64)
+                    eta_target = 1.0 / torch.clamp(y_t, min=1e-6)
+                    try:
+                        init_t = torch.linalg.lstsq(X_t, eta_target).solution
+                    except RuntimeError:
+                        init_t = torch.zeros(X.shape[1], dtype=torch.float64, device=X.device)
+                    init = init_t.to(dtype)
                 else:
-                    init = init_np
+                    y_np = np.asarray(y, dtype=np.float64)
+                    X_np = np.asarray(X_centered, dtype=np.float64)
+                    eta_target = 1.0 / np.clip(y_np, 1e-6, None)
+                    try:
+                        init = np.linalg.lstsq(X_np, eta_target, rcond=None)[0]
+                    except np.linalg.LinAlgError:
+                        init = np.zeros(X.shape[1], dtype=np.float64)
             coef, n_iter = fista_solver(
                 loss, L2Penalty(alpha=0.0), X_centered, y,
                 max_iter=self.max_iter, tol=self.tol,
