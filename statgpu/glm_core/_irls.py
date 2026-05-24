@@ -318,9 +318,16 @@ def irls_solver(
                     elif abs(p - 2.0) < 0.01:
                         return torch.sum(_y / mu_arr - torch.log(_y / mu_arr) - 1.0)
                     else:
+                        _y_pow_1mp = torch.zeros_like(_y)
+                        _y_pow_2mp = torch.zeros_like(_y)
+                        _mask = _y > 0.0
+                        if torch.any(_mask):
+                            _y_pos = _y[_mask]
+                            _y_pow_1mp[_mask] = torch.pow(_y_pos, 1.0 - p)
+                            _y_pow_2mp[_mask] = torch.pow(_y_pos, 2.0 - p)
                         return torch.sum(
-                            _y * (torch.pow(_y, 1.0 - p) - torch.pow(mu_arr, 1.0 - p)) / (1.0 - p)
-                            - (torch.pow(_y, 2.0 - p) - torch.pow(mu_arr, 2.0 - p)) / (2.0 - p)
+                            _y * (_y_pow_1mp - torch.pow(mu_arr, 1.0 - p)) / (1.0 - p)
+                            - (_y_pow_2mp - torch.pow(mu_arr, 2.0 - p)) / (2.0 - p)
                         )
                 elif _fname in ("binomial", "logistic"):
                     _mu_c = torch.clamp(mu_arr, min=1e-10, max=1.0 - 1e-10)
@@ -352,9 +359,16 @@ def irls_solver(
                     elif abs(p - 2.0) < 0.01:
                         return cp.sum(_y / mu_arr - cp.log(_y / mu_arr) - 1.0)
                     else:
+                        _y_pow_1mp = cp.zeros_like(_y)
+                        _y_pow_2mp = cp.zeros_like(_y)
+                        _mask = _y > 0.0
+                        if bool(cp.any(_mask)):
+                            _y_pos = _y[_mask]
+                            _y_pow_1mp[_mask] = cp.power(_y_pos, 1.0 - p)
+                            _y_pow_2mp[_mask] = cp.power(_y_pos, 2.0 - p)
                         return cp.sum(
-                            _y * (cp.power(_y, 1.0 - p) - cp.power(mu_arr, 1.0 - p)) / (1.0 - p)
-                            - (cp.power(_y, 2.0 - p) - cp.power(mu_arr, 2.0 - p)) / (2.0 - p)
+                            _y * (_y_pow_1mp - cp.power(mu_arr, 1.0 - p)) / (1.0 - p)
+                            - (_y_pow_2mp - cp.power(mu_arr, 2.0 - p)) / (2.0 - p)
                         )
                 elif _fname in ("binomial", "logistic"):
                     _mu_c = cp.clip(mu_arr, 1e-10, 1.0 - 1e-10)
@@ -385,9 +399,16 @@ def irls_solver(
                     elif abs(p - 2.0) < 0.01:
                         return float(np.sum(_y / mu_arr - np.log(_y / mu_arr) - 1.0))
                     else:
+                        _y_pow_1mp = np.zeros_like(_y)
+                        _y_pow_2mp = np.zeros_like(_y)
+                        _mask = _y > 0.0
+                        if np.any(_mask):
+                            _y_pos = _y[_mask]
+                            _y_pow_1mp[_mask] = np.power(_y_pos, 1.0 - p)
+                            _y_pow_2mp[_mask] = np.power(_y_pos, 2.0 - p)
                         return float(np.sum(
-                            _y * (np.power(_y, 1.0 - p) - np.power(mu_arr, 1.0 - p)) / (1.0 - p)
-                            - (np.power(_y, 2.0 - p) - np.power(mu_arr, 2.0 - p)) / (2.0 - p)
+                            _y * (_y_pow_1mp - np.power(mu_arr, 1.0 - p)) / (1.0 - p)
+                            - (_y_pow_2mp - np.power(mu_arr, 2.0 - p)) / (2.0 - p)
                         ))
                 elif _fname in ("binomial", "logistic"):
                     _mu_c = np.clip(mu_arr, 1e-10, 1.0 - 1e-10)
