@@ -159,3 +159,46 @@ def test_gamma_inverse_power_fista_matches_cpu_across_backends(device):
     assert abs(_gamma_inverse_power_objective(X, y, model)
                - _gamma_inverse_power_objective(X, y, ref)) < 2e-5
     assert np.max(np.abs(pred - ref_pred)) < 2e-3
+
+
+def test_gamma_inverse_power_fista_no_intercept_moves_from_degenerate_zero_start():
+    """inverse_power FISTA without intercept should not stall at near-zero coef init."""
+    X, y = _gamma_inverse_power_data(seed=77, n=240, p=5)
+    model = GammaRegression(
+        link="inverse_power",
+        device="cpu",
+        fit_intercept=False,
+        solver="fista",
+        max_iter=2500,
+        tol=1e-8,
+    )
+    model.fit(X, y)
+
+    pred = np.asarray(model.predict(X), dtype=float)
+    assert np.all(np.isfinite(pred))
+    assert np.median(pred) < 100.0
+    assert np.linalg.norm(model.coef_) > 1e-3
+
+
+def test_gamma_inverse_power_fista_torch_float32_input_dtype_consistent():
+    torch = pytest.importorskip("torch")
+    if not torch.cuda.is_available():
+        pytest.skip("Torch CUDA unavailable")
+
+    X, y = _gamma_inverse_power_data(seed=9, n=120, p=5)
+    X = X.astype(np.float32)
+    y = y.astype(np.float32)
+
+    model = GammaRegression(
+        link="inverse_power",
+        device="torch",
+        fit_intercept=True,
+        solver="fista",
+        max_iter=600,
+        tol=1e-7,
+    )
+    model.fit(X, y)
+
+    pred = np.asarray(_to_numpy(model.predict(X)), dtype=float)
+    assert np.all(np.isfinite(pred))
+    assert np.all(pred > 0)

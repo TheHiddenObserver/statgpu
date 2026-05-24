@@ -253,10 +253,22 @@ class GeneralizedLinearModel(BaseEstimator):
 
         if not self.fit_intercept:
             X_centered = X
+            init = None
+            if self.family == "gamma" and loss_kwargs.get("link") == "inverse_power":
+                y_mean = max(float(np.mean(_to_numpy(y))), 1e-3)
+                init_np = np.full(X.shape[1], 1.0 / y_mean, dtype=np.float64)
+                if backend_name == "cupy":
+                    import cupy as cp
+                    init = cp.asarray(init_np, dtype=X.dtype if hasattr(X, "dtype") else cp.float64)
+                elif backend_name == "torch":
+                    import torch
+                    init = torch.from_numpy(init_np).to(X.device).to(X.dtype if hasattr(X, "dtype") else torch.float64)
+                else:
+                    init = init_np
             coef, n_iter = fista_solver(
                 loss, L2Penalty(alpha=0.0), X_centered, y,
                 max_iter=self.max_iter, tol=self.tol,
-                init_coef=None, sample_weight=sample_weight,
+                init_coef=init, sample_weight=sample_weight,
             )
             self.coef_ = _to_numpy(coef)
             self.n_iter_ = n_iter
@@ -290,9 +302,9 @@ class GeneralizedLinearModel(BaseEstimator):
             ):
                 init[-1] = np.log(y_mean)
             if backend_name == "cupy":
-                init = cp.asarray(init, dtype=cp.float64)
+                init = cp.asarray(init, dtype=X.dtype if hasattr(X, "dtype") else cp.float64)
             elif backend_name == "torch":
-                init = torch.from_numpy(init).to(X.device).to(torch.float64)
+                init = torch.from_numpy(init).to(X.device).to(X.dtype if hasattr(X, "dtype") else torch.float64)
 
             full_coef, n_iter = fista_solver(
                 loss, L2Penalty(alpha=0.0), X_aug, y,
