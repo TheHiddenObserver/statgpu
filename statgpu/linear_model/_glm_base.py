@@ -358,7 +358,9 @@ class GeneralizedLinearModel(BaseEstimator):
                 X_aug = cp.column_stack([X, cp.ones(X.shape[0])])
             elif backend_name == "torch":
                 import torch
-                X_aug = torch.column_stack([X, torch.ones(X.shape[0], dtype=X.dtype, device=X.device)])
+                x_dtype = X.dtype if getattr(X, "is_floating_point", lambda: False)() else torch.float64
+                X_float = X.to(dtype=x_dtype)
+                X_aug = torch.column_stack([X_float, torch.ones(X.shape[0], dtype=x_dtype, device=X.device)])
             else:
                 X_aug = np.column_stack([X, np.ones(X.shape[0])])
             p = X.shape[1]
@@ -377,7 +379,7 @@ class GeneralizedLinearModel(BaseEstimator):
             if backend_name == "cupy":
                 init = cp.asarray(init, dtype=X.dtype if hasattr(X, "dtype") else cp.float64)
             elif backend_name == "torch":
-                init = torch.from_numpy(init).to(X.device).to(X.dtype if hasattr(X, "dtype") else torch.float64)
+                init = torch.from_numpy(init).to(X.device).to(x_dtype)
 
             full_coef, n_iter = fista_solver(
                 loss, L2Penalty(alpha=0.0), X_aug, y,

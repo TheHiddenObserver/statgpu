@@ -202,3 +202,27 @@ def test_gamma_inverse_power_fista_torch_float32_input_dtype_consistent():
     pred = np.asarray(_to_numpy(model.predict(X)), dtype=float)
     assert np.all(np.isfinite(pred))
     assert np.all(pred > 0)
+
+
+def test_gamma_inverse_power_fista_torch_integer_X_runs():
+    torch = pytest.importorskip("torch")
+    if not torch.cuda.is_available():
+        pytest.skip("Torch CUDA unavailable")
+
+    X, y = _gamma_inverse_power_data(seed=11, n=100, p=4)
+    X_int = np.rint(X * 3.0).astype(np.int64)
+    y = y.astype(np.float64)
+
+    model = GammaRegression(
+        link="inverse_power",
+        device="torch",
+        fit_intercept=True,
+        solver="fista",
+        max_iter=600,
+        tol=1e-7,
+    )
+    model.fit(X_int, y)
+
+    pred = np.asarray(_to_numpy(model.predict(X_int)), dtype=float)
+    assert np.all(np.isfinite(pred))
+    assert np.all(pred > 0)
