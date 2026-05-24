@@ -29,10 +29,10 @@ class NegativeBinomialLoss(GLMLoss):
         z = _clip(X @ coef, -30, 30)
         mu = _exp(z)
         mu_c = _clip(mu, 1e-300, None)
-        a_plus_mu = self.alpha + mu_c
+        one_plus_alpha_mu = 1.0 + self.alpha * mu_c
         return _sum(
-            -y * _log(mu_c / a_plus_mu)
-            - (1.0 / self.alpha) * _log(self.alpha / a_plus_mu)
+            -y * _log(mu_c / one_plus_alpha_mu)
+            + (1.0 / self.alpha) * _log(one_plus_alpha_mu)
         ) / X.shape[0]
 
     def gradient(self, X, y, coef):

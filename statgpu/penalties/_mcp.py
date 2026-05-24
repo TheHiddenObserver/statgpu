@@ -74,6 +74,10 @@ class MCPPenalty(Penalty):
     is_convex = False
 
     def __init__(self, alpha: float = 1.0, gamma: float = 3.0):
+        if not np.isfinite(alpha) or alpha <= 0.0:
+            raise ValueError("alpha must be a finite positive scalar for MCP penalty")
+        if not np.isfinite(gamma) or gamma <= 1.0:
+            raise ValueError("gamma must be a finite scalar greater than 1 for MCP penalty")
         self.alpha = alpha
         self.gamma = gamma
 

@@ -15,7 +15,7 @@ from statgpu._config import Device
 from statgpu.backends import get_backend, _get_torch_device_str, _to_numpy
 
 
-def _irls_ridge_init(X, y, loss_name, alpha=0.01, max_iter=100, tol=1e-4):
+def _irls_ridge_init(X, y, loss_name, alpha=0.01, max_iter=100, tol=1e-4, loss_kwargs=None):
     """Compute ridge-penalized GLM coefficients for adaptive_l1 init.
 
     For squared_error uses IRLS-CD (matching R glmnet's ridge solver).
@@ -48,7 +48,7 @@ def _irls_ridge_init(X, y, loss_name, alpha=0.01, max_iter=100, tol=1e-4):
     from statgpu.glm_core._solver import fista_solver
     from statgpu.penalties import get_penalty
     l2_pen = get_penalty("l2", alpha=alpha)
-    loss_obj = _resolve_loss_name(loss_name)
+    loss_obj = _resolve_loss_name(loss_name, loss_kwargs=loss_kwargs)
     coef, _ = fista_solver(
         loss_obj, l2_pen, np.asarray(X, dtype=np.float64),
         np.asarray(y, dtype=np.float64),
@@ -57,8 +57,9 @@ def _irls_ridge_init(X, y, loss_name, alpha=0.01, max_iter=100, tol=1e-4):
     return np.asarray(coef, dtype=np.float64)
 
 
-def _resolve_loss_name(loss_name):
+def _resolve_loss_name(loss_name, loss_kwargs=None):
     """Resolve loss name string to loss object."""
+    loss_kwargs = loss_kwargs or {}
     if loss_name == "logistic":
         from statgpu.glm_core._logistic import LogisticLoss
         return LogisticLoss()
@@ -73,10 +74,10 @@ def _resolve_loss_name(loss_name):
         return InverseGaussianLoss()
     elif loss_name == "negative_binomial":
         from statgpu.glm_core._negative_binomial import NegativeBinomialLoss
-        return NegativeBinomialLoss()
+        return NegativeBinomialLoss(**loss_kwargs)
     elif loss_name == "tweedie":
         from statgpu.glm_core._tweedie import TweedieLoss
-        return TweedieLoss()
+        return TweedieLoss(**loss_kwargs)
     else:
         from statgpu.glm_core._squared import SquaredErrorLoss
         return SquaredErrorLoss()
@@ -188,6 +189,7 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
         lla: bool = True,
         max_lla_iters: int = 50,
         lla_tol: float = 1e-6,
+        loss_kwargs: Optional[Dict] = None,
     ):
         super().__init__(device=device, n_jobs=n_jobs)
         self.loss = loss
@@ -209,6 +211,7 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
         self.lla = lla
         self.max_lla_iters = max_lla_iters
         self.lla_tol = lla_tol
+        self.loss_kwargs = loss_kwargs or {}
 
         # Internal state
         self._penalty: Optional["Penalty"] = None
@@ -313,6 +316,7 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
             if _n * _p < 200_000:
                 backend_name = "numpy"
 
+        backend_name = self._auto_backend_override(backend_name, X)
         selected_solver = self._select_solver(self._loss, backend_name=backend_name)
         selected_solver = self._validate_solver_for_penalty(selected_solver, backend_name)
         self._selected_solver = selected_solver
@@ -403,7 +407,7 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
         """Resolve loss string to a GLMLoss object."""
         from statgpu.glm_core import get_glm_loss
 
-        return get_glm_loss(self.loss)
+        return get_glm_loss(self.loss, **self.loss_kwargs)
 
     def _validate_solver_penalty(self):
         """Validate solver/penalty combinations before backend dispatch."""
@@ -466,6 +470,79 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
                 return "newton"
             return "irls"
         return "fista"
+
+    @staticmethod
+    def _torch_cuda_available():
+        try:
+            import torch
+            return torch.cuda.is_available()
+        except Exception:
+            return False
+
+    @staticmethod
+    def _cupy_available():
+        try:
+            from statgpu.backends._cupy import cupy_backend
+
+            return cupy_backend.is_available()
+        except Exception:
+            return False
+
+    def _auto_backend_override(self, backend_name, X):
+        """Benchmark-backed backend routing for device='auto' only."""
+        self._auto_backend_reason = None
+        if self.device != Device.AUTO or self.solver != "auto" or X is None:
+            return backend_name
+
+        n_samples, n_features = X.shape
+        problem_size = int(n_samples) * int(n_features)
+        if problem_size < 1_000_000:
+            return backend_name
+
+        loss_name = str(getattr(self._loss, "name", self.loss)).lower()
+        penalty_name = str(getattr(self._penalty, "name", self.penalty)).lower()
+        torch_ok = self._torch_cuda_available()
+
+        # CPU remains faster for these Gram/precompute-heavy proximal paths at
+        # benchmarked large scale.  This is auto-only; explicit GPU devices stay
+        # on the requested backend.
+        if loss_name == "squared_error" and penalty_name == "l2":
+            self._auto_backend_reason = "large squared-error exact solve is faster on CPU"
+            return "numpy"
+        if loss_name == "squared_error" and penalty_name in ("l1", "elasticnet", "en"):
+            self._auto_backend_reason = "large squared-error l1/elasticnet is faster on CPU"
+            return "numpy"
+        if loss_name == "negative_binomial" and penalty_name in ("l1", "elasticnet", "en"):
+            self._auto_backend_reason = "large negative-binomial l1/elasticnet is faster on CPU"
+            return "numpy"
+        if loss_name == "logistic" and penalty_name in ("l1", "elasticnet", "en"):
+            self._auto_backend_reason = f"large logistic {penalty_name} is faster on CPU"
+            return "numpy"
+        if loss_name == "gamma" and penalty_name == "l2":
+            self._auto_backend_reason = "large gamma l2/newton is faster on CPU"
+            return "numpy"
+        if loss_name == "tweedie" and penalty_name in ("l1", "elasticnet", "en"):
+            self._auto_backend_reason = f"large tweedie {penalty_name} is faster on CPU"
+            return "numpy"
+
+        # CuPy is consistently slower than Torch for these large-scale GLM
+        # paths in the full-matrix benchmark.  Prefer Torch when available,
+        # otherwise fall back to CPU only for the known slow NB IRLS path.
+        if backend_name == "cupy":
+            if loss_name == "negative_binomial" and penalty_name == "l2":
+                if torch_ok:
+                    self._auto_backend_reason = "large negative-binomial l2 is faster on torch than cupy"
+                    return "torch"
+                self._auto_backend_reason = "large negative-binomial l2 is faster on CPU than cupy"
+                return "numpy"
+            if loss_name in ("logistic", "poisson") and penalty_name in ("l1", "elasticnet", "en"):
+                if torch_ok:
+                    self._auto_backend_reason = f"large {loss_name} {penalty_name} is faster on torch than cupy"
+                    return "torch"
+                self._auto_backend_reason = f"large {loss_name} {penalty_name} is faster on CPU than cupy"
+                return "numpy"
+
+        return backend_name
 
     def _validate_solver_for_penalty(self, solver_name, backend_name):
         if solver_name != "fista_bb":
@@ -537,6 +614,7 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
                 alpha=0.01,
                 max_iter=100,
                 tol=1e-4,
+                loss_kwargs=getattr(self, "loss_kwargs", None),
             )
             return init_coef
 
@@ -1842,6 +1920,29 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
                     X = np.delete(X, col_names.index("Intercept"), axis=1)
         return np.asarray(X)
 
+    def _prediction_backend_name(self):
+        backend_name = getattr(self, "_selected_backend_name", None)
+        if backend_name == "cupy" and self._cupy_available():
+            return "cupy"
+        if backend_name == "torch" and self._torch_cuda_available():
+            return "torch"
+        if backend_name == "numpy":
+            return "numpy"
+        device = self._get_compute_device()
+        if device == Device.CUDA:
+            if self._cupy_available():
+                return "cupy"
+            raise RuntimeError(
+                "device='cuda' was explicitly requested, but CuPy/CUDA is unavailable at prediction time."
+            )
+        if device == Device.TORCH:
+            if self._torch_cuda_available():
+                return "torch"
+            raise RuntimeError(
+                "device='torch' was explicitly requested, but Torch CUDA is unavailable at prediction time."
+            )
+        return "numpy"
+
     def predict(self, X):
         """
         Predict using fitted model.
@@ -1864,8 +1965,8 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
             raise RuntimeError("Model has not been fitted yet.")
 
         X = self._prepare_predict_X(X)
-        device = self._get_compute_device()
-        if device == Device.CUDA:
+        backend_name = self._prediction_backend_name()
+        if backend_name == "cupy":
             import cupy as cp
             Xb = cp.asarray(self._to_array(X, Device.CUDA))
             coef = cp.asarray(self.coef_)
@@ -1875,10 +1976,10 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
             if self.loss == "logistic":
                 p = 1.0 / (1.0 + cp.exp(-cp.clip(raw, -500, 500)))
                 return (p > 0.5).astype(float)
-            if self.loss == "poisson":
-                return cp.exp(raw)
+            if self.loss != "squared_error":
+                return self._family_for_loss().link.inverse(raw)
             return raw
-        if device == Device.TORCH:
+        if backend_name == "torch":
             import torch
             Xb = self._to_array(X, Device.TORCH, backend="torch").to(torch.float64)
             coef = torch.as_tensor(self.coef_, dtype=Xb.dtype, device=Xb.device)
@@ -1890,8 +1991,8 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
             if self.loss == "logistic":
                 p = 1.0 / (1.0 + torch.exp(-torch.clamp(raw, -500, 500)))
                 return (p > 0.5).to(raw.dtype)
-            if self.loss == "poisson":
-                return torch.exp(raw)
+            if self.loss != "squared_error":
+                return self._family_for_loss().link.inverse(raw)
             return raw
 
         raw = X @ self.coef_
@@ -1902,8 +2003,8 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
         if self.loss == "logistic":
             p = 1.0 / (1.0 + np.exp(-np.clip(raw, -500, 500)))
             return (p > 0.5).astype(float)
-        elif self.loss == "poisson":
-            return np.exp(raw)
+        elif self.loss != "squared_error":
+            return self._family_for_loss().link.inverse(raw)
         return raw
 
     def score(self, X, y):
@@ -1961,10 +2062,18 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
         if self.loss == "inverse_gaussian":
             return InverseGaussian()
         if self.loss == "negative_binomial":
-            alpha = getattr(self._loss, "alpha", 1.0)
+            alpha = getattr(
+                getattr(self, "_loss", None),
+                "alpha",
+                getattr(self, "loss_kwargs", {}).get("alpha", 1.0),
+            )
             return NegativeBinomial(alpha=alpha)
         if self.loss == "tweedie":
-            power = getattr(self._loss, "power", 1.5)
+            power = getattr(
+                getattr(self, "_loss", None),
+                "power",
+                getattr(self, "loss_kwargs", {}).get("power", 1.5),
+            )
             return Tweedie(power=power)
         return Gaussian()
 
@@ -3315,7 +3424,7 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
             params, n_iter = lbfgs_solver(
                 self._loss, pen, X_work, y_arr,
                 max_iter=self.max_iter, tol=self.tol,
-                init_coef=init,
+                init_coef=init, sample_weight=sample_weight,
             )
         else:
             raise ValueError(f"Unsupported solver: {solver_name}")
@@ -3681,8 +3790,8 @@ class PenalizedLogisticRegression(PenalizedGeneralizedLinearModel):
         if self.coef_ is None:
             raise RuntimeError("Model has not been fitted yet.")
         X = self._prepare_predict_X(X)
-        device = self._get_compute_device()
-        if device == Device.CUDA:
+        backend_name = self._prediction_backend_name()
+        if backend_name == "cupy":
             import cupy as cp
             Xb = cp.asarray(self._to_array(X, Device.CUDA))
             coef = cp.asarray(self.coef_)
@@ -3691,7 +3800,7 @@ class PenalizedLogisticRegression(PenalizedGeneralizedLinearModel):
                 raw += cp.asarray(self.intercept_, dtype=raw.dtype)
             p1 = 1.0 / (1.0 + cp.exp(-cp.clip(raw, -500, 500)))
             return cp.column_stack([1.0 - p1, p1])
-        if device == Device.TORCH:
+        if backend_name == "torch":
             import torch
             Xb = self._to_array(X, Device.TORCH, backend="torch").to(torch.float64)
             coef = torch.as_tensor(self.coef_, dtype=Xb.dtype, device=Xb.device)

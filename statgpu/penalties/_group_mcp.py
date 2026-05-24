@@ -80,6 +80,10 @@ class GroupMCPPenalty(Penalty):
         gamma: float = 3.0,
         groups=None,
     ):
+        if not np.isfinite(alpha) or alpha <= 0.0:
+            raise ValueError("alpha must be a finite positive scalar for group MCP penalty")
+        if not np.isfinite(gamma) or gamma <= 1.0:
+            raise ValueError("gamma must be a finite scalar greater than 1 for group MCP penalty")
         self.alpha = alpha
         self.gamma = gamma
         self._group_indices = None
