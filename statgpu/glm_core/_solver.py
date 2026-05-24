@@ -162,7 +162,19 @@ def _validate_uniform_sample_weight(sample_weight, n_samples, solver_name):
     """Validate solver paths that only support unweighted semantics."""
     if sample_weight is None:
         return
-    sw_np = np.asarray(sample_weight, dtype=np.float64)
+    mod = type(sample_weight).__module__
+    if mod.startswith("cupy"):
+        import cupy as cp
+        sw_np = cp.asnumpy(sample_weight)
+    elif mod.startswith("torch"):
+        import torch
+        sw_tensor = sample_weight.detach()
+        if sw_tensor.is_cuda:
+            sw_tensor = sw_tensor.cpu()
+        sw_np = sw_tensor.numpy()
+    else:
+        sw_np = sample_weight
+    sw_np = np.asarray(sw_np, dtype=np.float64)
     if sw_np.ndim != 1 or sw_np.shape[0] != n_samples:
         raise ValueError("sample_weight must be a 1D array with length n_samples")
     if not np.all(np.isfinite(sw_np)):

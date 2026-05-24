@@ -149,6 +149,40 @@ def test_fista_uniform_sample_weight_is_noop_and_nonuniform_raises():
         fista_solver(loss, penalty, X, y, sample_weight=np.linspace(0.5, 1.5, X.shape[0]))
 
 
+def test_fista_uniform_sample_weight_accepts_torch_tensor():
+    torch = pytest.importorskip("torch")
+    if not torch.cuda.is_available():
+        pytest.skip("CUDA not available for torch")
+    rng = np.random.default_rng(14)
+    X = rng.normal(size=(40, 4))
+    y = rng.normal(size=40)
+    loss = SquaredErrorLoss()
+    penalty = L2Penalty(alpha=0.05)
+    sample_weight = torch.full((X.shape[0],), 3.0, device="cuda")
+
+    coef_uniform, _ = fista_solver(
+        loss, penalty, X, y, max_iter=80, tol=1e-10, sample_weight=sample_weight
+    )
+
+    assert coef_uniform.shape == (X.shape[1],)
+
+
+def test_fista_uniform_sample_weight_accepts_cupy_array():
+    cp = pytest.importorskip("cupy")
+    rng = np.random.default_rng(14)
+    X = rng.normal(size=(40, 4))
+    y = rng.normal(size=40)
+    loss = SquaredErrorLoss()
+    penalty = L2Penalty(alpha=0.05)
+    sample_weight = cp.full(X.shape[0], 3.0)
+
+    coef_uniform, _ = fista_solver(
+        loss, penalty, X, y, max_iter=80, tol=1e-10, sample_weight=sample_weight
+    )
+
+    assert coef_uniform.shape == (X.shape[1],)
+
+
 @pytest.mark.parametrize("solver", [fista_bb_solver, newton_solver, admm_solver, lbfgs_solver])
 def test_non_irls_solvers_reject_nonuniform_sample_weight(solver):
     rng = np.random.default_rng(15)
