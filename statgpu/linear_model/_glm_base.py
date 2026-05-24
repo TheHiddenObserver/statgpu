@@ -277,11 +277,27 @@ class GeneralizedLinearModel(BaseEstimator):
             else:
                 X_aug = np.column_stack([X, np.ones(X.shape[0])])
             p = X.shape[1]
+            y_mean = max(float(np.mean(_to_numpy(y))), 1e-3)
+            init = np.zeros(p + 1, dtype=np.float64)
+            if self.family == "binomial":
+                p_mean = np.clip(y_mean, 1e-3, 1.0 - 1e-3)
+                init[-1] = np.log(p_mean / (1.0 - p_mean))
+            elif self.family == "gamma" and loss_kwargs.get("link") == "inverse_power":
+                init[-1] = 1.0 / y_mean
+            elif self.family in (
+                "poisson", "gamma", "inverse_gaussian",
+                "negative_binomial", "tweedie",
+            ):
+                init[-1] = np.log(y_mean)
+            if backend_name == "cupy":
+                init = cp.asarray(init, dtype=cp.float64)
+            elif backend_name == "torch":
+                init = torch.from_numpy(init).to(X.device).to(torch.float64)
 
             full_coef, n_iter = fista_solver(
                 loss, L2Penalty(alpha=0.0), X_aug, y,
                 max_iter=self.max_iter, tol=self.tol,
-                init_coef=None, sample_weight=sample_weight,
+                init_coef=init, sample_weight=sample_weight,
             )
 
             full_np = _to_numpy(full_coef)

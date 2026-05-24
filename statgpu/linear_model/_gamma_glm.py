@@ -55,5 +55,11 @@ class GammaRegression(GeneralizedLinearModel):
         )
 
     def _get_family(self):
-        link_cls = _LINK_MAP.get(self._link_name, LogLink)
+        if self._link_name not in _LINK_MAP:
+            valid = ", ".join(sorted(_LINK_MAP))
+            raise ValueError(f"GammaRegression link must be one of: {valid}")
+        link_cls = _LINK_MAP[self._link_name]
         return Gamma(link=link_cls())
+
+    def _get_loss_kwargs(self):
+        return {"link": self._link_name}

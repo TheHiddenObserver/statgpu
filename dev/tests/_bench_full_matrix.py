@@ -1,6 +1,6 @@
 """Full matrix benchmark: ALL families x ALL penalties (incl. none) x ALL solvers x ALL backends x ALL scales.
 Includes precision comparison vs sklearn, R ncvreg/grpreg/glmnet, and statsmodels.
-Sections A-G independently selectable via --section.
+Sections A-H independently selectable via --section.
 Designed to run on remote GPU server via nohup.
 """
 import time, sys, os, warnings, tempfile, subprocess, shutil, argparse, traceback
@@ -17,7 +17,7 @@ THIN = "-" * 130
 
 def _parse_args():
     p = argparse.ArgumentParser()
-    p.add_argument("--section", default="all", help="A,B,C,D,E,F,G or 'all'")
+    p.add_argument("--section", default="all", help="A,B,C,D,E,F,G,H or 'all'")
     p.add_argument("--alpha", type=float, default=0.01)
     p.add_argument("--max-iter", type=int, default=2000)
     p.add_argument("--tol", type=float, default=1e-6)
@@ -1275,6 +1275,114 @@ def _run_nb_irls_trace(X, y, alpha, has_cupy, has_torch, n_steps=8):
             print(f"  {backend:<8} {iteration + 1:>4} {step:>6.3f} {bt:>3} {delta:>10.3e} {dev:>12.5g} {float(np.min(W_np)):>10.3e} {float(np.max(W_np)):>10.3e} {cond:>10.3e}")
 
 
+def _gamma_fista_bench_data(link, n, p, seed=20240524):
+    rng = np.random.default_rng(seed + n + p)
+    if link == "inverse_power":
+        rng = np.random.default_rng(seed + n + p + 100000)
+        X = rng.normal(scale=0.16, size=(n, p))
+        nnz = min(p, max(4, p // 8))
+        beta = np.zeros(p)
+        beta[:nnz] = rng.normal(0.0, 0.08, size=nnz)
+        eta = np.clip(0.7 + X @ beta, 0.25, None)
+        mu = 1.0 / eta
+    else:
+        X = rng.normal(scale=0.22, size=(n, p))
+        nnz = min(p, max(4, p // 8))
+        beta = np.zeros(p)
+        beta[:nnz] = rng.normal(0.0, 0.18, size=nnz)
+        eta = np.clip(0.3 + X @ beta, -2.0, 3.0)
+        mu = np.exp(eta)
+    y = rng.gamma(shape=4.0, scale=mu / 4.0)
+    return X, y
+
+
+def _gamma_fista_objective(link, X, y, coef, intercept):
+    eta = np.clip(X @ coef + intercept, 1e-4, 1e3)
+    if link == "log":
+        eta = np.clip(X @ coef + intercept, -30, 30)
+        mu = np.clip(np.exp(eta), 1e-3, 1e4)
+        return float(np.mean(y / mu + np.log(mu)))
+    return float(np.mean(y * eta - np.log(eta)))
+
+
+def _run_gamma_fista_link_section(has_cupy, has_torch):
+    print(f"\n{SEP}")
+    print("  SECTION H: Gamma FISTA Three-Backend Benchmark")
+    print(SEP)
+    print("  Verifies GammaRegression(..., solver='fista') timing and precision for log and inverse_power links.")
+    from statgpu.backends import _to_numpy
+    from statgpu.linear_model import GammaRegression
+
+    devices = [("cpu", "cpu", True), ("cupy", "cuda", has_cupy), ("torch", "torch", has_torch)]
+    links = ("log", "inverse_power")
+    scales = ALL_SCALES
+    h_ok = 0
+    h_total = 0
+    print(f"  {'Link':<14} {'Scale':<14} {'backend':<8} {'time(ms)':>10} {'iters':>7} {'obj_diff':>12} {'pred_diff':>12} {'speed':>8} {'Status':>8}")
+    print(f"  {THIN}")
+    for link in links:
+      for n, p in scales:
+        X, y = _gamma_fista_bench_data(link, n, p)
+        ref = GammaRegression(
+            link=link,
+            device="cpu",
+            fit_intercept=True,
+            solver="fista",
+            max_iter=2200,
+            tol=1e-6,
+        )
+        t0 = time.perf_counter()
+        ref.fit(X, y)
+        t_cpu = (time.perf_counter() - t0) * 1000
+        ref_obj = _gamma_fista_objective(link, X, y, ref.coef_, ref.intercept_)
+        ref_pred = np.asarray(_to_numpy(ref.predict(X)), dtype=float)
+
+        for backend, device, enabled in devices:
+            if not enabled:
+                continue
+            h_total += 1
+            try:
+                if backend == "cpu":
+                    model = ref
+                    elapsed = t_cpu
+                else:
+                    model = GammaRegression(
+                        link=link,
+                        device=device,
+                        fit_intercept=True,
+                        solver="fista",
+                        max_iter=2200,
+                        tol=1e-6,
+                    )
+                    t0 = time.perf_counter()
+                    model.fit(X, y)
+                    elapsed = (time.perf_counter() - t0) * 1000
+                obj = _gamma_fista_objective(link, X, y, model.coef_, model.intercept_)
+                pred = np.asarray(_to_numpy(model.predict(X)), dtype=float)
+                obj_diff = abs(obj - ref_obj)
+                pred_diff = float(np.max(np.abs(pred - ref_pred)))
+                speed = t_cpu / elapsed if elapsed > 0 else 0.0
+                status = "OK" if obj_diff < 1e-4 and pred_diff < 5e-3 and np.all(pred > 0) else "FAIL"
+                if status == "OK":
+                    h_ok += 1
+                print(
+                    f"  {link:<14} {('n='+str(n)+',p='+str(p)):<14} {backend:<8} "
+                    f"{elapsed:>10.1f} {int(model.n_iter_):>7} "
+                    f"{obj_diff:>12.2e} {pred_diff:>12.2e} "
+                    f"{speed:>7.2f}x {status:>8}"
+                )
+            except Exception as exc:
+                print(
+                    f"  {link:<14} {('n='+str(n)+',p='+str(p)):<14} {backend:<8} "
+                    f"{'--':>10} {'--':>7} {'--':>12} {'--':>12} {'--':>8} {'FAIL':>8}"
+                )
+                print(f"    ERROR: {exc}")
+    print()
+    print(f"  Section H gamma FISTA rows: {h_ok}/{h_total} passed  [{'PASS' if h_ok == h_total else 'FAIL'}]")
+    sys.stdout.flush()
+    return h_ok, h_total
+
+
 def main():
     args = _parse_args()
     ALPHA = args.alpha
@@ -1304,8 +1412,8 @@ def main():
     except: pass
     print()
 
-    # Pre-generate datasets for the full-matrix sections only. Section F is a
-    # lightweight review-regression proof and should remain seconds-fast.
+    # Pre-generate datasets for the full-matrix sections only. Sections F/H are
+    # lightweight targeted proofs and should remain seconds-fast.
     needs_matrix_data = run_all or any(sec in sections for sec in ("A", "B", "C", "D", "E", "G"))
     Xy_data = {}
     if needs_matrix_data:
@@ -1318,7 +1426,7 @@ def main():
                 seed += 1
         print(f"  Generated {len(Xy_data)} datasets.\n")
     else:
-        print("  Skipping full-matrix dataset generation for Section F-only run.\n")
+        print("  Skipping full-matrix dataset generation for targeted-only run.\n")
     sys.stdout.flush()
 
     # Counters for summary
@@ -1826,6 +1934,13 @@ def main():
             diagnose_slow=args.diagnose_slow,
         )
         section_stats["G"] = (g_ok, g_total, 0.0)
+
+    # =========================================================================
+    # SECTION H: Gamma inverse-power FISTA three-backend benchmark
+    # =========================================================================
+    if run_all or "H" in sections:
+        h_ok, h_total = _run_gamma_fista_link_section(has_cupy, has_torch)
+        section_stats["H"] = (h_ok, h_total, 0.0)
 
     # Summary
     # ══════════════════════════════════════════════════════════════════════════

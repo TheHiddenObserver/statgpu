@@ -7,6 +7,22 @@ from statgpu.linear_model import (
     TweedieRegression,
     NegativeBinomialRegression,
 )
+from statgpu.backends import _to_numpy
+
+
+def _gamma_inverse_power_data(seed=2024, n=180, p=5):
+    rng = np.random.default_rng(seed)
+    X = rng.normal(scale=0.18, size=(n, p))
+    beta = np.array([0.12, -0.08, 0.06, -0.04, 0.03])
+    eta = np.clip(0.7 + X @ beta, 0.25, None)
+    mu = 1.0 / eta
+    y = rng.gamma(shape=4.0, scale=mu / 4.0)
+    return X, y
+
+
+def _gamma_inverse_power_objective(X, y, model):
+    eta = np.clip(X @ model.coef_ + model.intercept_, 1e-4, 1e3)
+    return float(np.mean(y * eta - np.log(eta)))
 
 
 @pytest.mark.parametrize(
@@ -47,16 +63,18 @@ def test_non_gaussian_glm_fista_intercept_matches_irls(model_cls, sample_fn, kwa
         device="cpu",
         fit_intercept=True,
         solver="fista",
-        max_iter=600,
+        max_iter=1000,
         tol=1e-8,
+        C=1e12,
         **kwargs,
     )
     model_irls = model_cls(
         device="cpu",
         fit_intercept=True,
         solver="irls",
-        max_iter=600,
+        max_iter=1000,
         tol=1e-8,
+        C=1e12,
         **kwargs,
     )
 
@@ -91,3 +109,53 @@ def test_negative_binomial_fista_intercept_is_finite_and_nonzero():
 
     assert np.isfinite(model.intercept_)
     assert abs(model.intercept_) > 1e-6
+
+
+def test_gamma_rejects_unknown_link():
+    with pytest.raises(ValueError, match="GammaRegression link"):
+        GammaRegression(link="inverse", solver="irls").fit(
+            np.ones((4, 2)), np.ones(4)
+        )
+
+
+@pytest.mark.parametrize("device", ["cpu", "cuda", "torch"])
+def test_gamma_inverse_power_fista_matches_cpu_across_backends(device):
+    if device == "cuda":
+        cp = pytest.importorskip("cupy")
+        try:
+            cp.cuda.runtime.getDeviceCount()
+        except Exception as exc:
+            pytest.skip(f"CuPy CUDA unavailable: {exc}")
+    if device == "torch":
+        torch = pytest.importorskip("torch")
+        if not torch.cuda.is_available():
+            pytest.skip("Torch CUDA unavailable")
+
+    X, y = _gamma_inverse_power_data()
+    ref = GammaRegression(
+        link="inverse_power",
+        device="cpu",
+        fit_intercept=True,
+        solver="fista",
+        max_iter=2500,
+        tol=1e-7,
+    )
+    ref.fit(X, y)
+
+    model = GammaRegression(
+        link="inverse_power",
+        device=device,
+        fit_intercept=True,
+        solver="fista",
+        max_iter=2500,
+        tol=1e-7,
+    )
+    model.fit(X, y)
+
+    pred = np.asarray(_to_numpy(model.predict(X)), dtype=float)
+    ref_pred = np.asarray(_to_numpy(ref.predict(X)), dtype=float)
+    assert np.all(np.isfinite(pred))
+    assert np.all(pred > 0)
+    assert abs(_gamma_inverse_power_objective(X, y, model)
+               - _gamma_inverse_power_objective(X, y, ref)) < 2e-5
+    assert np.max(np.abs(pred - ref_pred)) < 2e-3

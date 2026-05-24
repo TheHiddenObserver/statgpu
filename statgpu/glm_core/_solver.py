@@ -558,6 +558,26 @@ def _fused_glm_value_and_gradient(loss, X, y, coef):
         import numpy as np
         eta = X @ coef
         mod = type(eta).__module__
+        gamma_link = getattr(loss, 'link_name', getattr(loss, 'link', 'log'))
+        if gamma_link == 'inverse_power':
+            if mod.startswith('torch'):
+                import torch
+                eta_c = torch.clamp(eta, min=1e-4, max=1e3)
+                mu = 1.0 / eta_c
+                val = torch.sum(y * eta_c - torch.log(eta_c)) / n
+                grad = X.T @ (y - mu) / n
+            elif mod.startswith('cupy'):
+                import cupy as cp
+                eta_c = cp.clip(eta, 1e-4, 1e3)
+                mu = 1.0 / eta_c
+                val = cp.sum(y * eta_c - cp.log(eta_c)) / n
+                grad = X.T @ (y - mu) / n
+            else:
+                eta_c = np.clip(eta, 1e-4, 1e3)
+                mu = 1.0 / eta_c
+                val = np.sum(y * eta_c - np.log(eta_c)) / n
+                grad = X.T @ (y - mu) / n
+            return val, grad
         if mod.startswith('torch'):
             import torch
             mu = torch.exp(torch.clamp(eta, -30, 30))
@@ -751,7 +771,10 @@ def fista_solver(
     if lipschitz_L is not None and lipschitz_L > 0:
         L = lipschitz_L
     else:
-        _zero_coef = _copy_arr(coef) * 0.0
+        if getattr(loss, '_lipschitz_at_init', False):
+            _zero_coef = _copy_arr(coef)
+        else:
+            _zero_coef = _copy_arr(coef) * 0.0
         L = loss.lipschitz(X_proc, _zero_coef, y=y_proc)
     if L <= 0:
         L = 1.0
