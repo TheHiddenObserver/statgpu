@@ -240,6 +240,7 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
         self._tvalues = None
         self._pvalues = None
         self._conf_int = None
+        self._inference_result = None
         self._feature_names = None
         self._design_info = None
         self._formula_has_intercept = None
@@ -505,10 +506,21 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
         )
         if result is None:
             return
-        self._bse = result.bse
-        self._tvalues = result.tvalues
-        self._pvalues = result.pvalues
-        self._conf_int = result.conf_int
+        result.feature_names = self._inference_feature_names()
+        result.apply_to(self)
+
+    def _inference_feature_names(self):
+        if self._feature_names is not None:
+            names = list(self._feature_names)
+            if self.fit_intercept:
+                names.insert(0, "(Intercept)")
+            return names
+        if self.coef_ is None:
+            return None
+        n_features = int(np.asarray(self.coef_).shape[-1])
+        if self.fit_intercept:
+            return ["(Intercept)"] + [f"x{i+1}" for i in range(n_features)]
+        return [f"x{i+1}" for i in range(n_features)]
 
     def _select_solver(self, loss, backend_name=None):
         """Auto-select solver based on loss and penalty (same across all backends)."""

@@ -10,6 +10,7 @@ from time import perf_counter
 from statgpu._base import BaseEstimator
 from statgpu._config import Device
 from statgpu.backends import _get_torch_device_str
+from statgpu.inference._results import GaussianInferenceResult
 from statgpu.linear_model._gaussian_inference import (
     compute_gaussian_inference,
     validate_cov_type,
@@ -79,6 +80,7 @@ class LinearRegression(BaseEstimator):
         self._tvalues = None
         self._pvalues = None
         self._conf_int = None
+        self._inference_result = None
         self._is_multi_output = False
         self._hac_mixed_precision_preference = {}
         self._feature_names = None
@@ -568,6 +570,8 @@ class LinearRegression(BaseEstimator):
             self._resid = resid_np
         self._df_resid = df_resid
         self._scale = scale_np
+        if self.compute_inference and not self._is_multi_output:
+            self._wrap_gaussian_inference_result()
 
         # Release large temporary GPU tensors early.
         try:
@@ -803,6 +807,8 @@ class LinearRegression(BaseEstimator):
             self._resid = resid_np
         self._df_resid = df_resid
         self._scale = scale_np
+        if self.compute_inference and not self._is_multi_output:
+            self._wrap_gaussian_inference_result()
 
         # Release large temporary Torch tensors early.
         try:
@@ -840,10 +846,39 @@ class LinearRegression(BaseEstimator):
         )
         if result is None:
             return
-        self._bse = result.bse
-        self._tvalues = result.tvalues
-        self._pvalues = result.pvalues
-        self._conf_int = result.conf_int
+        result.feature_names = self._inference_feature_names()
+        result.apply_to(self)
+
+    def _inference_feature_names(self):
+        if self._feature_names is not None:
+            names = list(self._feature_names)
+            if self.fit_intercept:
+                names.insert(0, "(Intercept)")
+            return names
+        if self.coef_ is None:
+            return None
+        n_features = int(np.asarray(self.coef_).shape[-1])
+        if self.fit_intercept:
+            return ["(Intercept)"] + [f"x{i+1}" for i in range(n_features)]
+        return [f"x{i+1}" for i in range(n_features)]
+
+    def _wrap_gaussian_inference_result(self):
+        method = "classical" if self.cov_type == "nonrobust" else "sandwich"
+        distribution = "t" if self.cov_type == "nonrobust" else "normal"
+        result = GaussianInferenceResult(
+            params=self._params,
+            bse=self._bse,
+            statistic=self._tvalues,
+            pvalues=self._pvalues,
+            conf_int=self._conf_int,
+            cov_type=self.cov_type,
+            distribution=distribution,
+            df=self._df_resid,
+            method=method,
+            feature_names=self._inference_feature_names(),
+            metadata={"alpha": 0.05},
+        )
+        result.apply_to(self)
 
     @property
     def rsquared(self):
