@@ -88,7 +88,10 @@ def compute_inference_gpu(X_design, resid, scale, df_resid, params_gpu):
     
     # Confidence intervals (95%)
     alpha = 0.05  # two-tailed significance level for 95% CI
-    t_crit_gpu = t.two_sided_critical_value(alpha, df=df_resid)
+    t_crit_gpu = cp.asarray(
+        t.two_sided_critical_value(alpha, df=df_resid),
+        dtype=bse_gpu.dtype,
+    )
     
     margin = t_crit_gpu * bse_gpu
     conf_int_lower = params_gpu - margin
