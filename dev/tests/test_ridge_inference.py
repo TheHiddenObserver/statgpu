@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from statgpu.linear_model import Ridge
+from statgpu.linear_model import PenalizedLinearRegression, Ridge
 from statgpu._config import set_device, Device
 
 
@@ -68,6 +68,35 @@ class TestRidgeInferenceParams:
         with contextlib.redirect_stdout(buf):
             m.summary()
         assert "Ridge Regression Results" in buf.getvalue()
+
+    def test_penalized_l2_compute_inference_populates_stats(self):
+        set_device("cpu")
+        X, y = _make_data()
+        m = PenalizedLinearRegression(
+            penalty="l2",
+            alpha=0.1,
+            device="cpu",
+            compute_inference=True,
+            cov_type="hc1",
+        )
+        m.fit(X, y)
+        n_params = X.shape[1] + 1
+        assert m._bse.shape == (n_params,)
+        assert m._conf_int.shape == (n_params, 2)
+        assert np.all(np.isfinite(m._bse))
+        assert np.all((m._pvalues >= 0) & (m._pvalues <= 1))
+
+    def test_penalized_non_l2_compute_inference_raises(self):
+        set_device("cpu")
+        X, y = _make_data()
+        m = PenalizedLinearRegression(
+            penalty="l1",
+            alpha=0.1,
+            device="cpu",
+            compute_inference=True,
+        )
+        with pytest.raises(NotImplementedError, match="squared-error L2"):
+            m.fit(X, y)
 
 
 class TestRidgeInferenceStatistics:
