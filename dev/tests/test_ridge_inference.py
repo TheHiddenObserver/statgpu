@@ -3,7 +3,8 @@
 import numpy as np
 import pytest
 
-from statgpu.linear_model import PenalizedLinearRegression, Ridge
+from statgpu.inference import GaussianInferenceResult, ParameterInferenceResult
+from statgpu.linear_model import LinearRegression, PenalizedLinearRegression, Ridge
 from statgpu._config import set_device, Device
 
 
@@ -45,6 +46,7 @@ class TestRidgeInferenceParams:
         assert m._tvalues is None
         assert m._pvalues is None
         assert m._conf_int is None
+        assert m._inference_result is None
 
     def test_compute_inference_true_has_bse(self):
         """When compute_inference=True (default), inference attributes should be populated and summary works."""
@@ -62,12 +64,51 @@ class TestRidgeInferenceParams:
         assert np.all(np.isfinite(m._bse))
         assert np.all(np.isfinite(m._pvalues))
         assert np.all((m._pvalues >= 0) & (m._pvalues <= 1))
+        assert isinstance(m._inference_result, GaussianInferenceResult)
+        assert isinstance(m._inference_result, ParameterInferenceResult)
+        np.testing.assert_allclose(m._inference_result.bse, m._bse)
+        np.testing.assert_allclose(m._inference_result.tvalues, m._tvalues)
+        np.testing.assert_allclose(m._inference_result.pvalues, m._pvalues)
+        np.testing.assert_allclose(m._inference_result.conf_int, m._conf_int)
         # summary() should run without errors when inference is available
         import io, contextlib
         buf = io.StringIO()
         with contextlib.redirect_stdout(buf):
             m.summary()
         assert "Ridge Regression Results" in buf.getvalue()
+
+    def test_gaussian_inference_result_serialization(self):
+        set_device("cpu")
+        X, y = _make_data(n_samples=80, n_features=3)
+        m = LinearRegression(device="cpu")
+        m.fit(X, y)
+        result = m._inference_result
+        assert isinstance(result, GaussianInferenceResult)
+        assert result.tvalues is result.statistic
+        payload = result.to_dict()
+        assert payload["result_type"] == "GaussianInferenceResult"
+        assert payload["statistic_name"] == "t"
+        assert payload["cov_type"] == "nonrobust"
+        assert len(payload["params"]) == X.shape[1] + 1
+
+    def test_gaussian_inference_result_to_dataframe(self):
+        pd = pytest.importorskip("pandas")
+        set_device("cpu")
+        X, y = _make_data(n_samples=80, n_features=3)
+        m = LinearRegression(device="cpu")
+        m.fit(X, y)
+        frame = m._inference_result.to_dataframe()
+        assert isinstance(frame, pd.DataFrame)
+        assert list(frame.columns) == [
+            "term",
+            "estimate",
+            "std_error",
+            "t",
+            "pvalue",
+            "conf_low",
+            "conf_high",
+        ]
+        assert frame.shape[0] == X.shape[1] + 1
 
     def test_penalized_l2_compute_inference_populates_stats(self):
         set_device("cpu")
@@ -85,6 +126,8 @@ class TestRidgeInferenceParams:
         assert m._conf_int.shape == (n_params, 2)
         assert np.all(np.isfinite(m._bse))
         assert np.all((m._pvalues >= 0) & (m._pvalues <= 1))
+        assert isinstance(m._inference_result, GaussianInferenceResult)
+        np.testing.assert_allclose(m._inference_result.tvalues, m._tvalues)
 
     def test_penalized_non_l2_compute_inference_raises(self):
         set_device("cpu")

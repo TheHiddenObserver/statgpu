@@ -8,6 +8,8 @@ from typing import Optional
 import numpy as np
 from scipy import stats
 
+from statgpu.inference._results import GaussianInferenceResult
+
 
 @dataclass
 class GaussianFitState:
@@ -18,14 +20,6 @@ class GaussianFitState:
     nobs: int
     df_resid: int
     params: np.ndarray
-
-
-@dataclass
-class GaussianInferenceResult:
-    bse: np.ndarray
-    tvalues: np.ndarray
-    pvalues: np.ndarray
-    conf_int: np.ndarray
 
 
 def validate_cov_type(cov_type: str) -> str:
@@ -194,7 +188,20 @@ def compute_gaussian_inference(
             t_out[:, j] = result.tvalues
             p_out[:, j] = result.pvalues
             ci_out[:, j, :] = result.conf_int
-        return GaussianInferenceResult(bse_out, t_out, p_out, ci_out)
+        method = "classical" if validate_cov_type(cov_type) == "nonrobust" else "sandwich"
+        distribution = "t" if validate_cov_type(cov_type) == "nonrobust" else "normal"
+        return GaussianInferenceResult(
+            params=params_arr,
+            bse=bse_out,
+            statistic=t_out,
+            pvalues=p_out,
+            conf_int=ci_out,
+            cov_type=cov_type,
+            distribution=distribution,
+            df=df_resid,
+            method=method,
+            metadata={"ridge_alpha": float(ridge_alpha), "alpha": float(alpha)},
+        )
 
     cov_type = validate_cov_type(cov_type)
     if cov_type == "nonrobust":
@@ -207,7 +214,18 @@ def compute_gaussian_inference(
             params_arr - t_crit * bse,
             params_arr + t_crit * bse,
         ])
-        return GaussianInferenceResult(bse, tvalues, pvalues, conf_int)
+        return GaussianInferenceResult(
+            params=params_arr,
+            bse=bse,
+            statistic=tvalues,
+            pvalues=pvalues,
+            conf_int=conf_int,
+            cov_type=cov_type,
+            distribution="t",
+            df=df_resid,
+            method="classical",
+            metadata={"ridge_alpha": float(ridge_alpha), "alpha": float(alpha)},
+        )
 
     cov_params = robust_covariance_numpy(
         X,
@@ -224,4 +242,15 @@ def compute_gaussian_inference(
         params_arr - z_crit * bse,
         params_arr + z_crit * bse,
     ])
-    return GaussianInferenceResult(bse, tvalues, pvalues, conf_int)
+    return GaussianInferenceResult(
+        params=params_arr,
+        bse=bse,
+        statistic=tvalues,
+        pvalues=pvalues,
+        conf_int=conf_int,
+        cov_type=cov_type,
+        distribution="normal",
+        df=df_resid,
+        method="sandwich",
+        metadata={"ridge_alpha": float(ridge_alpha), "alpha": float(alpha)},
+    )
