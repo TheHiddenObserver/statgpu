@@ -2,9 +2,11 @@ import numpy as np
 import pytest
 
 from statgpu.glm_core._negative_binomial import NegativeBinomialLoss
+from statgpu.glm_core._gamma import GammaLoss
 from statgpu.glm_core._solver import (
     _fused_glm_value_and_gradient,
     admm_solver,
+    fista_lla_path,
     fista_bb_solver,
     fista_solver,
     lbfgs_solver,
@@ -12,9 +14,17 @@ from statgpu.glm_core._solver import (
 )
 from statgpu.glm_core._squared import SquaredErrorLoss
 from statgpu.glm_core._tweedie import TweedieLoss
-from statgpu.linear_model import GeneralizedLinearModel, PenalizedLinearRegression
-from statgpu.linear_model._penalized import PenalizedGeneralizedLinearModel
+from statgpu.linear_model import (
+    GeneralizedLinearModel,
+    OrderedGeneralizedLinearModel,
+    PenalizedLinearRegression,
+)
+from statgpu.linear_model._penalized import (
+    PenalizedGeneralizedLinearModel,
+    _resolve_loss_name,
+)
 from statgpu.penalties import (
+    AdaptiveL1Penalty,
     GroupMCPPenalty,
     GroupSCADPenalty,
     L2Penalty,
@@ -67,6 +77,127 @@ def test_fused_tweedie_uses_loss_power():
 
     assert np.allclose(fused_value, loss.value(X, y, coef))
     assert np.allclose(fused_grad, loss.gradient(X, y, coef))
+
+
+def test_resolve_gamma_loss_forwards_link_kwargs():
+    loss = _resolve_loss_name("gamma", {"link": "inverse_power"})
+
+    assert isinstance(loss, GammaLoss)
+    assert loss.link_name == "inverse_power"
+
+
+def test_adaptive_l1_external_weights_respect_normalize_false():
+    weights = np.array([1.0, 2.0, 5.0])
+    penalty = AdaptiveL1Penalty(alpha=0.1, weights=weights, normalize=False)
+
+    assert np.allclose(penalty.lla_weights(np.zeros_like(weights)), weights)
+
+
+def test_general_glm_fit_invokes_cleanup_hook(monkeypatch):
+    rng = np.random.default_rng(12)
+    X = rng.normal(size=(20, 3))
+    y = rng.normal(size=20)
+    model = GeneralizedLinearModel(
+        family="gaussian",
+        solver="irls",
+        device="cpu",
+        gpu_memory_cleanup=True,
+    )
+    calls = []
+    monkeypatch.setattr(model, "_cleanup_backend_memory", calls.append)
+
+    model.fit(X, y)
+
+    assert calls == ["numpy"]
+
+
+def test_ordered_glm_rejects_sample_weight():
+    rng = np.random.default_rng(13)
+    X = rng.normal(size=(24, 3))
+    y = rng.integers(0, 3, size=24)
+    sample_weight = np.linspace(0.5, 1.5, X.shape[0])
+    model = OrderedGeneralizedLinearModel(device="cpu", max_iter=5)
+
+    with pytest.raises(ValueError, match="sample_weight"):
+        model.fit(X, y, sample_weight=sample_weight)
+
+
+def test_ordered_glm_fit_invokes_cleanup_hook(monkeypatch):
+    rng = np.random.default_rng(14)
+    X = rng.normal(size=(30, 3))
+    y = rng.integers(0, 3, size=30)
+    model = OrderedGeneralizedLinearModel(device="cpu", max_iter=5)
+    calls = []
+
+    def fake_cleanup(backend_name):
+        calls.append(backend_name)
+
+    monkeypatch.setattr(model, "_cleanup_backend_memory", fake_cleanup)
+    model.fit(X, y)
+
+    assert calls == ["numpy"]
+
+
+def test_torch_irls_promotes_mixed_float_dtype_runs():
+    torch = pytest.importorskip("torch")
+    if not torch.cuda.is_available():
+        pytest.skip("Torch CUDA unavailable")
+
+    rng = np.random.default_rng(15)
+    X = rng.normal(size=(40, 4)).astype(np.float32)
+    beta = np.array([0.1, -0.2, 0.05, 0.15])
+    y = rng.poisson(np.exp(X.astype(np.float64) @ beta)).astype(np.float64)
+
+    glm = GeneralizedLinearModel(
+        family="poisson",
+        solver="irls",
+        device="torch",
+        fit_intercept=False,
+        max_iter=5,
+    )
+    glm.fit(X, y)
+    assert np.all(np.isfinite(glm.coef_))
+
+    pglm = PenalizedGeneralizedLinearModel(
+        loss="poisson",
+        penalty="l2",
+        alpha=0.01,
+        solver="irls",
+        device="torch",
+        fit_intercept=True,
+        max_iter=5,
+    )
+    pglm.fit(X, y)
+    assert np.all(np.isfinite(pglm.coef_))
+
+
+def test_torch_fista_lla_squared_error_promotes_mixed_float_dtype_runs():
+    torch = pytest.importorskip("torch")
+    if not torch.cuda.is_available():
+        pytest.skip("Torch CUDA unavailable")
+
+    rng = np.random.default_rng(16)
+    X_np = rng.normal(size=(36, 4)).astype(np.float32)
+    y_np = rng.normal(size=36).astype(np.float64)
+    X = torch.as_tensor(X_np, device="cuda")
+    y = torch.as_tensor(y_np, device="cuda")
+
+    coef, intercept, n_iter = fista_lla_path(
+        SquaredErrorLoss(),
+        SCADPenalty(alpha=0.05),
+        X,
+        y,
+        alpha_path=np.array([0.08, 0.05]),
+        max_lla_per_step=1,
+        max_iter=[3, 3],
+        tol=1e-4,
+        fit_intercept=True,
+    )
+
+    assert coef.shape == (X_np.shape[1],)
+    assert np.all(np.isfinite(coef))
+    assert np.isfinite(intercept)
+    assert n_iter > 0
 
 
 @pytest.mark.parametrize(
@@ -168,7 +299,10 @@ def test_fista_uniform_sample_weight_accepts_torch_tensor():
 
 
 def test_fista_uniform_sample_weight_accepts_cupy_array():
-    cp = pytest.importorskip("cupy")
+    try:
+        import cupy as cp
+    except Exception as exc:
+        pytest.skip(f"CuPy unavailable: {exc}")
     rng = np.random.default_rng(14)
     X = rng.normal(size=(40, 4))
     y = rng.normal(size=40)

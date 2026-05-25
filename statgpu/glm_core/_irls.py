@@ -79,7 +79,11 @@ def _zeros(n, backend, ref_tensor=None, dtype=np.float64):
     if backend == "torch":
         import torch
         device = ref_tensor.device if ref_tensor is not None else "cpu"
-        return torch.zeros(n, dtype=torch.float64, device=device)
+        if ref_tensor is not None and getattr(ref_tensor, "is_floating_point", lambda: False)():
+            dtype = ref_tensor.dtype
+        else:
+            dtype = torch.float64
+        return torch.zeros(n, dtype=dtype, device=device)
     return np.zeros(n, dtype=dtype)
 
 
@@ -90,8 +94,14 @@ def _diag(reg, backend, ref_tensor=None):
         return cp.diag(cp.asarray(reg, dtype=cp.float64))
     if backend == "torch":
         import torch
+        dtype = (
+            ref_tensor.dtype
+            if ref_tensor is not None
+            and getattr(ref_tensor, "is_floating_point", lambda: False)()
+            else torch.float64
+        )
         return torch.diag(
-            torch.tensor(reg, dtype=torch.float64, device=ref_tensor.device if ref_tensor is not None else "cpu")
+            torch.as_tensor(reg, dtype=dtype, device=ref_tensor.device if ref_tensor is not None else "cpu")
         )
     return np.diag(reg)
 
@@ -103,8 +113,39 @@ def _to_backend(arr, backend, ref_tensor):
         return cp.asarray(arr, dtype=cp.float64)
     if backend == "torch":
         import torch
-        return torch.tensor(arr, dtype=torch.float64, device=ref_tensor.device if ref_tensor is not None else "cpu")
+        dtype = (
+            ref_tensor.dtype
+            if ref_tensor is not None
+            and getattr(ref_tensor, "is_floating_point", lambda: False)()
+            else torch.float64
+        )
+        return torch.as_tensor(arr, dtype=dtype, device=ref_tensor.device if ref_tensor is not None else "cpu")
     return np.asarray(arr, dtype=float)
+
+
+def _promote_torch_irls_inputs(X, y, init_coef=None, sample_weight=None):
+    """Keep all Torch IRLS operands on one floating dtype/device."""
+    import torch
+
+    def _floating_dtype(arr):
+        if hasattr(arr, "is_floating_point") and arr.is_floating_point():
+            return arr.dtype
+        return torch.float64
+
+    dtype = torch.promote_types(_floating_dtype(X), _floating_dtype(y))
+    if init_coef is not None:
+        dtype = torch.promote_types(dtype, _floating_dtype(init_coef))
+    if sample_weight is not None:
+        dtype = torch.promote_types(dtype, _floating_dtype(sample_weight))
+
+    device = X.device
+    X = X.to(device=device, dtype=dtype)
+    y = torch.as_tensor(y, device=device, dtype=dtype)
+    if init_coef is not None:
+        init_coef = torch.as_tensor(init_coef, device=device, dtype=dtype)
+    if sample_weight is not None:
+        sample_weight = torch.as_tensor(sample_weight, device=device, dtype=dtype)
+    return X, y, init_coef, sample_weight
 
 
 def _copy_arr(arr):
@@ -221,6 +262,11 @@ def irls_solver(
     """
     if backend == "auto":
         backend = _infer_backend(X)
+
+    if backend == "torch":
+        X, y, init_coef, sample_weight = _promote_torch_irls_inputs(
+            X, y, init_coef=init_coef, sample_weight=sample_weight
+        )
 
     if init_coef is None:
         n_features = X.shape[1]

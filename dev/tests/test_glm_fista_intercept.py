@@ -13,7 +13,8 @@ from statgpu.backends import _to_numpy
 def _gamma_inverse_power_data(seed=2024, n=180, p=5):
     rng = np.random.default_rng(seed)
     X = rng.normal(scale=0.18, size=(n, p))
-    beta = np.array([0.12, -0.08, 0.06, -0.04, 0.03])
+    beta_base = np.array([0.12, -0.08, 0.06, -0.04, 0.03])
+    beta = np.resize(beta_base, p) / np.sqrt(np.ceil(p / beta_base.size))
     eta = np.clip(0.7 + X @ beta, 0.25, None)
     mu = 1.0 / eta
     y = rng.gamma(shape=4.0, scale=mu / 4.0)
@@ -204,6 +205,30 @@ def test_gamma_inverse_power_fista_torch_float32_input_dtype_consistent():
     assert np.all(pred > 0)
 
 
+def test_gamma_inverse_power_fista_torch_mixed_float_dtype_runs():
+    torch = pytest.importorskip("torch")
+    if not torch.cuda.is_available():
+        pytest.skip("Torch CUDA unavailable")
+
+    X, y = _gamma_inverse_power_data(seed=10, n=100, p=5)
+    X = X.astype(np.float32)
+    y = y.astype(np.float64)
+
+    model = GammaRegression(
+        link="inverse_power",
+        device="torch",
+        fit_intercept=True,
+        solver="fista",
+        max_iter=600,
+        tol=1e-7,
+    )
+    model.fit(X, y)
+
+    pred = np.asarray(_to_numpy(model.predict(X)), dtype=float)
+    assert np.all(np.isfinite(pred))
+    assert np.all(pred > 0)
+
+
 def test_gamma_inverse_power_fista_torch_integer_X_runs():
     torch = pytest.importorskip("torch")
     if not torch.cuda.is_available():
@@ -224,6 +249,84 @@ def test_gamma_inverse_power_fista_torch_integer_X_runs():
     model.fit(X_int, y)
 
     pred = np.asarray(_to_numpy(model.predict(X_int)), dtype=float)
+    assert np.all(np.isfinite(pred))
+    assert np.all(pred > 0)
+
+
+def test_gamma_inverse_power_newton_recomputes_iterate_dependent_hessian():
+    from statgpu.glm_core._gamma import GammaLoss
+    from statgpu.glm_core._solver import ConvergenceWarning, newton_solver
+
+    X, y = _gamma_inverse_power_data(seed=12, n=90, p=4)
+    X_aug = np.column_stack([X, np.ones(X.shape[0])])
+    init = np.zeros(X_aug.shape[1], dtype=np.float64)
+    init[-1] = 1.0 / max(float(np.mean(y)), 1e-3)
+    loss = GammaLoss(link="inverse_power")
+
+    calls = 0
+    original_hessian = loss.hessian
+
+    def counted_hessian(X_arg, y_arg, coef_arg):
+        nonlocal calls
+        calls += 1
+        return original_hessian(X_arg, y_arg, coef_arg)
+
+    loss.hessian = counted_hessian
+    with pytest.warns(ConvergenceWarning):
+        _, n_iter = newton_solver(
+            loss,
+            None,
+            X_aug,
+            y,
+            max_iter=4,
+            tol=-1.0,
+            init_coef=init,
+        )
+
+    assert n_iter == 4
+    assert calls == n_iter
+
+
+@pytest.mark.parametrize("solver", ["newton", "lbfgs"])
+def test_gamma_inverse_power_smooth_solver_cpu_runs(solver):
+    X, y = _gamma_inverse_power_data(seed=14, n=120, p=5)
+
+    model = GammaRegression(
+        link="inverse_power",
+        device="cpu",
+        fit_intercept=True,
+        solver=solver,
+        max_iter=200,
+        tol=1e-7,
+    )
+    model.fit(X, y)
+
+    pred = np.asarray(model.predict(X), dtype=float)
+    assert np.all(np.isfinite(pred))
+    assert np.all(pred > 0)
+
+
+@pytest.mark.parametrize("solver", ["newton", "lbfgs"])
+def test_gamma_log_smooth_solver_torch_mixed_float_dtype_runs(solver):
+    torch = pytest.importorskip("torch")
+    if not torch.cuda.is_available():
+        pytest.skip("Torch CUDA unavailable")
+
+    X, y = _gamma_inverse_power_data(seed=15, n=90, p=4)
+    X = X.astype(np.float32)
+    y = y.astype(np.float64)
+
+    model = GammaRegression(
+        link="log",
+        device="torch",
+        fit_intercept=True,
+        solver=solver,
+        max_iter=80,
+        tol=1e-7,
+    )
+    model.fit(X, y)
+
+    pred = np.asarray(_to_numpy(model.predict(X)), dtype=float)
     assert np.all(np.isfinite(pred))
     assert np.all(pred > 0)
 
