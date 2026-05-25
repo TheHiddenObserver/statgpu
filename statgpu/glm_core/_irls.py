@@ -23,6 +23,10 @@ from statgpu.backends._array_ops import (
 )
 
 
+# Backward-compatible private alias used by benchmark/debug scripts.
+_solve = _solve_linear_system
+
+
 def _promote_torch_irls_inputs(X, y, init_coef=None, sample_weight=None):
     """Keep all Torch IRLS operands on one floating dtype/device."""
     import torch
