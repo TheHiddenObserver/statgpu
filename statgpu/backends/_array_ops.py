@@ -143,7 +143,16 @@ def _to_backend(arr, backend="auto", ref_tensor=None, dtype=None):
     backend = _resolve_backend(backend, ref_tensor, arr)
     if backend == "cupy":
         import cupy as cp
-        out_dtype = dtype if dtype is not None else getattr(arr, "dtype", cp.float64)
+        out_dtype = dtype
+        if out_dtype is None:
+            ref_dtype = getattr(ref_tensor, "dtype", None)
+            try:
+                if ref_dtype is not None and np.issubdtype(ref_dtype, np.floating):
+                    out_dtype = ref_dtype
+                else:
+                    out_dtype = cp.float64
+            except TypeError:
+                out_dtype = cp.float64
         return cp.asarray(arr, dtype=out_dtype)
     if backend == "torch":
         import torch
