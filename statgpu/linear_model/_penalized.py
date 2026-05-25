@@ -9,10 +9,17 @@ gaussian, logistic, and poisson models without the old ``loss=...`` switch on
 
 from typing import Optional, Union, Any, Dict, List
 import numpy as np
+from scipy import stats
 
 from statgpu._base import BaseEstimator
 from statgpu._config import Device
 from statgpu.backends import get_backend, _get_torch_device_str, _to_numpy
+from statgpu.linear_model._gaussian_inference import (
+    build_gaussian_fit_state,
+    compute_gaussian_inference,
+    validate_cov_type,
+    validate_hac_maxlags,
+)
 
 
 def _irls_ridge_init(X, y, loss_name, alpha=0.01, max_iter=100, tol=1e-4, loss_kwargs=None):
@@ -205,8 +212,8 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
         self.lipschitz_L = lipschitz_L
         self.gpu_memory_cleanup = gpu_memory_cleanup
         self.compute_inference = compute_inference
-        self.cov_type = str(cov_type).lower()
-        self.hac_maxlags = hac_maxlags
+        self.cov_type = validate_cov_type(cov_type)
+        self.hac_maxlags = validate_hac_maxlags(hac_maxlags)
         self.stopping = str(stopping).lower()
         self.lla = lla
         self.max_lla_iters = max_lla_iters
@@ -229,6 +236,10 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
         self._nobs = None
         self._df_resid = None
         self._params = None
+        self._bse = None
+        self._tvalues = None
+        self._pvalues = None
+        self._conf_int = None
         self._feature_names = None
         self._design_info = None
         self._formula_has_intercept = None
@@ -302,6 +313,7 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
         self._penalty = self._resolve_penalty()
         self._validate_solver_penalty()
         self._loss = self._resolve_loss()
+        self._validate_inference_request()
 
         # Resolve the actual backend before auto-selecting the solver. This
         # keeps solver="auto" device-aware: CPU can use IRLS for smooth GLMs,
@@ -383,6 +395,7 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
             else:
                 self._params = np.asarray(self.coef_).copy()
             self._df_resid = X.shape[0] - (X.shape[1] + (1 if self.fit_intercept else 0))
+            self._compute_post_fit_gaussian_inference(X, y)
             if backend_name == "cupy":
                 self._cleanup_cuda_memory()
             elif backend_name == "torch":
@@ -400,6 +413,7 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
         else:
             self._fit_cpu(X_arr, y_arr, sample_weight)
 
+        self._compute_post_fit_gaussian_inference(X, y)
         self._fitted = True
         return self
 
@@ -440,6 +454,61 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
             )
         if solver_name != "lbfgs":
             return
+
+    def _validate_inference_request(self):
+        """Reject unsupported penalized inference paths with a clear error."""
+        if not self.compute_inference:
+            return
+        penalty_name = str(getattr(self._penalty, "name", self.penalty)).lower()
+        if self.loss == "squared_error" and penalty_name == "l2":
+            return
+        raise NotImplementedError(
+            "compute_inference=True is currently supported only for "
+            "squared-error L2/Ridge penalized models. L1/ElasticNet and "
+            "non-Gaussian penalized GLM inference require an explicit "
+            "post-selection or GLM covariance method."
+        )
+
+    def _compute_post_fit_gaussian_inference(self, X, y):
+        """Populate shared Gaussian inference state for squared-error L2 fits."""
+        if not self.compute_inference:
+            return
+        if self.loss != "squared_error":
+            return
+        penalty_name = str(getattr(self._penalty, "name", self.penalty)).lower()
+        if penalty_name != "l2":
+            return
+        state = build_gaussian_fit_state(
+            X,
+            y,
+            self.coef_,
+            self.intercept_,
+            self.fit_intercept,
+        )
+        self._X_design = state.X_design
+        self._y = state.y
+        self._resid = state.resid
+        self._scale = state.scale
+        self._nobs = state.nobs
+        self._df_resid = state.df_resid
+        self._params = state.params
+        ridge_alpha = float(state.nobs) * self._ridge_alpha_for_exact()
+        result = compute_gaussian_inference(
+            self._X_design,
+            self._params,
+            self._resid,
+            self._scale,
+            self._df_resid,
+            self.cov_type,
+            hac_maxlags=self.hac_maxlags,
+            ridge_alpha=ridge_alpha,
+        )
+        if result is None:
+            return
+        self._bse = result.bse
+        self._tvalues = result.tvalues
+        self._pvalues = result.pvalues
+        self._conf_int = result.conf_int
 
     def _select_solver(self, loss, backend_name=None):
         """Auto-select solver based on loss and penalty (same across all backends)."""
@@ -3735,6 +3804,119 @@ class PenalizedLinearRegression(PenalizedGeneralizedLinearModel):
             max_lla_iters=max_lla_iters,
             lla_tol=lla_tol,
         )
+
+    @property
+    def rsquared(self):
+        if self._y is None or self._resid is None:
+            return None
+        y_mean = np.mean(self._y)
+        ss_tot = np.sum((self._y - y_mean) ** 2)
+        ss_res = np.sum(self._resid ** 2)
+        return 1 - ss_res / ss_tot if ss_tot > 0 else 0.0
+
+    @property
+    def rsquared_adj(self):
+        if self._nobs is None or self._X_design is None:
+            return None
+        r2 = self.rsquared
+        if r2 is None:
+            return None
+        k = int(self._X_design.shape[1] - (1 if self.fit_intercept else 0))
+        return 1 - (1 - r2) * (self._nobs - 1) / self._df_resid
+
+    @property
+    def fvalue(self):
+        if self._y is None or self._resid is None or self._X_design is None:
+            return None
+        y_mean = np.mean(self._y)
+        ss_tot = np.sum((self._y - y_mean) ** 2)
+        ss_res = np.sum(self._resid ** 2)
+        ss_reg = ss_tot - ss_res
+        k = int(self._X_design.shape[1] - (1 if self.fit_intercept else 0))
+        if k == 0 or ss_res <= 0:
+            return np.inf
+        return (ss_reg / k) / (ss_res / self._df_resid)
+
+    @property
+    def f_pvalue(self):
+        fv = self.fvalue
+        if fv is None or fv == np.inf:
+            return 1.0
+        k = int(self._X_design.shape[1] - (1 if self.fit_intercept else 0))
+        return 1 - stats.f.cdf(fv, k, self._df_resid)
+
+    @property
+    def llf(self):
+        if self._nobs is None or self._resid is None:
+            return None
+        n = self._nobs
+        sigma2_mle = np.sum(self._resid ** 2) / n
+        return -n / 2 * np.log(2 * np.pi * sigma2_mle) - n / 2
+
+    @property
+    def aic(self):
+        if self._nobs is None or self._scale is None:
+            return None
+        if np.any(np.isnan(np.asarray(self._scale, dtype=float))):
+            return None
+        return -2 * self.llf + 2 * len(self._params)
+
+    @property
+    def bic(self):
+        if self._nobs is None or self._scale is None:
+            return None
+        if np.any(np.isnan(np.asarray(self._scale, dtype=float))):
+            return None
+        n = self._nobs
+        k = len(self._params)
+        return -2 * self.llf + k * np.log(n)
+
+    def summary(self):
+        if self.coef_ is None:
+            raise RuntimeError("Model has not been fitted yet.")
+        if not self.compute_inference:
+            raise RuntimeError(
+                "compute_inference=False: summary/inference statistics are not available. "
+                "Re-fit with compute_inference=True to use summary()."
+            )
+        if self._bse is None:
+            raise RuntimeError("Inference statistics are not available.")
+
+        if self._feature_names is not None:
+            feature_names = list(self._feature_names)
+            if self.fit_intercept:
+                feature_names.insert(0, "(Intercept)")
+        elif self.fit_intercept:
+            feature_names = ["(Intercept)"] + [f"x{i+1}" for i in range(len(self.coef_))]
+        else:
+            feature_names = [f"x{i+1}" for i in range(len(self.coef_))]
+
+        is_ridge = str(getattr(self._penalty, "name", self.penalty)).lower() == "l2"
+        title = "Ridge Regression Results" if is_ridge else "Penalized Linear Regression Results"
+        print("=" * 80)
+        print(f"{title:^80}")
+        print("=" * 80)
+        print(f"Alpha (L2 penalty):         {float(self.alpha):>15.4f}")
+        print(f"Covariance Type:            {self.cov_type:>15}")
+        print(f"No. Observations:           {self._nobs:>15}")
+        print(f"Degrees of Freedom:         {self._df_resid:>15}")
+        print(f"R-squared:                  {self.rsquared:>15.4f}")
+        print(f"Adj. R-squared:             {self.rsquared_adj:>15.4f}")
+        print(f"F-statistic:                {self.fvalue:>15.4f}")
+        print(f"Prob (F-statistic):         {self.f_pvalue:>15.4e}")
+        print(f"Log-Likelihood:             {self.llf:>15.4f}")
+        print(f"AIC:                        {self.aic:>15.4f}")
+        print(f"BIC:                        {self.bic:>15.4f}")
+        print("-" * 80)
+        print(f"{'':<15} {'coef':>12} {'std err':>12} {'t':>10} {'P>|t|':>10} {'[0.025':>12} {'0.975]':>12}")
+        print("-" * 80)
+
+        for i, name in enumerate(feature_names):
+            print(f"{name:<15} {self._params[i]:>12.4f} {self._bse[i]:>12.4f} "
+                  f"{self._tvalues[i]:>10.3f} {self._pvalues[i]:>10.4f} "
+                  f"{self._conf_int[i, 0]:>12.4f} {self._conf_int[i, 1]:>12.4f}")
+
+        print("=" * 80)
 
 
 class PenalizedLogisticRegression(PenalizedGeneralizedLinearModel):
