@@ -11,116 +11,16 @@ from typing import Optional
 import numpy as np
 
 
-def _infer_backend(X):
-    """Detect backend from array type."""
-    mod = type(X).__module__
-    if mod.startswith("cupy"):
-        return "cupy"
-    if mod.startswith("torch"):
-        return "torch"
-    return "numpy"
-
-
-def _solve(A, b, backend="auto"):
-    """Solve linear system, fallback to lstsq if singular."""
-    if backend == "auto":
-        backend = _infer_backend(A)
-
-    try:
-        if backend == "torch":
-            import torch
-            b_col = b.unsqueeze(1) if b.ndim == 1 else b
-            sol = torch.linalg.solve(A, b_col)
-            return sol.squeeze(1) if b.ndim == 1 else sol
-        elif backend == "cupy":
-            import cupy as cp
-            return cp.linalg.solve(A, b)
-        else:
-            return np.linalg.solve(A, b)
-    except (np.linalg.LinAlgError, Exception):
-        if backend == "torch":
-            import torch
-            b_col = b.unsqueeze(1) if b.ndim == 1 else b
-            sol = torch.linalg.lstsq(A, b_col).solution
-            return sol.squeeze(1) if b.ndim == 1 else sol
-        elif backend == "cupy":
-            import cupy as cp
-            return cp.linalg.lstsq(A, b)[0]
-        return np.linalg.lstsq(A, b, rcond=None)[0]
-
-
-def _clip(x, lo, hi, backend):
-    if backend == "torch":
-        import torch
-
-        if lo is not None:
-            x = torch.clamp(x, min=lo)
-        if hi is not None:
-            x = torch.clamp(x, max=hi)
-        return x
-    if backend == "cupy":
-        import cupy as cp
-        return cp.clip(x, lo, hi)
-    return np.clip(x, lo, hi)
-
-
-def _norm(x, backend):
-    if backend == "torch":
-        import torch
-
-        return float(torch.linalg.norm(x).item())
-    return float(np.linalg.norm(x))
-
-
-def _zeros(n, backend, ref_tensor=None, dtype=np.float64):
-    if backend == "cupy":
-        import cupy as cp
-        return cp.zeros(n, dtype=cp.float64)
-    if backend == "torch":
-        import torch
-        device = ref_tensor.device if ref_tensor is not None else "cpu"
-        if ref_tensor is not None and getattr(ref_tensor, "is_floating_point", lambda: False)():
-            dtype = ref_tensor.dtype
-        else:
-            dtype = torch.float64
-        return torch.zeros(n, dtype=dtype, device=device)
-    return np.zeros(n, dtype=dtype)
-
-
-def _diag(reg, backend, ref_tensor=None):
-    """Create diagonal matrix from 1D array."""
-    if backend == "cupy":
-        import cupy as cp
-        return cp.diag(cp.asarray(reg, dtype=cp.float64))
-    if backend == "torch":
-        import torch
-        dtype = (
-            ref_tensor.dtype
-            if ref_tensor is not None
-            and getattr(ref_tensor, "is_floating_point", lambda: False)()
-            else torch.float64
-        )
-        return torch.diag(
-            torch.as_tensor(reg, dtype=dtype, device=ref_tensor.device if ref_tensor is not None else "cpu")
-        )
-    return np.diag(reg)
-
-
-def _to_backend(arr, backend, ref_tensor):
-    """Convert numpy array to the target backend."""
-    if backend == "cupy":
-        import cupy as cp
-        return cp.asarray(arr, dtype=cp.float64)
-    if backend == "torch":
-        import torch
-        dtype = (
-            ref_tensor.dtype
-            if ref_tensor is not None
-            and getattr(ref_tensor, "is_floating_point", lambda: False)()
-            else torch.float64
-        )
-        return torch.as_tensor(arr, dtype=dtype, device=ref_tensor.device if ref_tensor is not None else "cpu")
-    return np.asarray(arr, dtype=float)
+from statgpu.backends import _resolve_backend
+from statgpu.backends._array_ops import (
+    _clip,
+    _copy_arr,
+    _diag,
+    _norm2,
+    _solve_linear_system,
+    _to_backend,
+    _zeros,
+)
 
 
 def _promote_torch_irls_inputs(X, y, init_coef=None, sample_weight=None):
@@ -146,13 +46,6 @@ def _promote_torch_irls_inputs(X, y, init_coef=None, sample_weight=None):
     if sample_weight is not None:
         sample_weight = torch.as_tensor(sample_weight, device=device, dtype=dtype)
     return X, y, init_coef, sample_weight
-
-
-def _copy_arr(arr):
-    """Copy array: .clone() for torch, .copy() for numpy/cupy."""
-    if hasattr(arr, 'clone'):
-        return arr.clone()
-    return arr.copy()
 
 
 # =============================================================================
@@ -261,12 +154,16 @@ def irls_solver(
         Number of iterations.
     """
     if backend == "auto":
-        backend = _infer_backend(X)
+        backend = _resolve_backend("auto", X)
 
     if backend == "torch":
         X, y, init_coef, sample_weight = _promote_torch_irls_inputs(
             X, y, init_coef=init_coef, sample_weight=sample_weight
         )
+    else:
+        y = _to_backend(y, backend, X)
+        if sample_weight is not None:
+            sample_weight = _to_backend(sample_weight, backend, X)
 
     if init_coef is None:
         n_features = X.shape[1]
@@ -285,21 +182,20 @@ def irls_solver(
         if _link_name in ('identity', 'Identity'):
             eta = eta_raw
         else:
-            eta = _clip(eta_raw, -30, 30, backend)
+            eta = _clip(eta_raw, -30, 30)
 
         # Step 2: inverse link -> mean (clip mu to prevent extreme weights)
         # For identity link (squared_error), skip clipping — mu = eta.
         mu = family.link.inverse(eta)
         if _link_name not in ('identity', 'Identity'):
-            mu = _clip(mu, 1e-10, 1e6, backend)
+            mu = _clip(mu, 1e-10, 1e6)
 
         # Step 3: IRLS weights
         W = family.irls_weights(mu, y)
-        W = _clip(W, 1e-10, None, backend)
+        W = _clip(W, 1e-10, None)
 
         if sample_weight is not None:
-            sw = _to_backend(sample_weight, backend, X)
-            W = W * sw
+            W = W * sample_weight
 
         # Step 4: working response
         z = family.irls_working_response(mu, y, eta)
@@ -325,7 +221,7 @@ def irls_solver(
                 reg[0] = 0.0
             XtWX = XtWX + _diag(reg, backend, ref_tensor=X)
 
-        params_new = _solve(XtWX, Xtz, backend)
+        params_new = _solve_linear_system(XtWX, Xtz, backend)
 
         # Armijo backtracking line search: find step in (0, 1] that
         # gives sufficient decrease in the loss (deviance).
@@ -340,7 +236,7 @@ def irls_solver(
             Correct Tweedie deviance for power p (p != 1, p != 2):
               d(y, mu) = y*(y^(1-p) - mu^(1-p))/(1-p) - (y^(2-p) - mu^(2-p))/(2-p)
             """
-            _y = _to_backend(y, backend, X)
+            _y = y
             if backend == "torch":
                 import torch
                 if _fname in ("gaussian", "squared_error"):
@@ -466,7 +362,7 @@ def irls_solver(
 
         # Current loss — use only eta clipping (prevent exp overflow),
         # NOT mu clipping (which distorts the deviance landscape).
-        eta_cur = _clip(X @ params_old, -30, 30, backend)
+        eta_cur = _clip(X @ params_old, -30, 30)
         mu_cur = family.link.inverse(eta_cur)
         try:
             dev_old_dev = _dev_val(mu_cur)
@@ -517,7 +413,7 @@ def irls_solver(
         if _is_constant_W:
             # Constant weights: IRLS = Newton.  Try full step first;
             # if deviance increases significantly, fall back to Armijo.
-            eta_new = _clip(X @ params_new, -30, 30, backend)
+            eta_new = _clip(X @ params_new, -30, 30)
             mu_new = family.link.inverse(eta_new)
             try:
                 dev_new_dev = _dev_val(mu_new)
@@ -530,7 +426,7 @@ def irls_solver(
                 _accepted = False
                 for _bt in range(30):
                     params_try = params_old + step * _direction
-                    eta_try = _clip(X @ params_try, -30, 30, backend)
+                    eta_try = _clip(X @ params_try, -30, 30)
                     mu_try = family.link.inverse(eta_try)
                     try:
                         dev_try_dev = _dev_val(mu_try)
@@ -548,7 +444,7 @@ def irls_solver(
             _accepted = False
             for _bt in range(30):
                 params_try = params_old + step * _direction
-                eta_try = _clip(X @ params_try, -30, 30, backend)
+                eta_try = _clip(X @ params_try, -30, 30)
                 mu_try = family.link.inverse(eta_try)
                 try:
                     dev_try_dev = _dev_val(mu_try)
@@ -571,11 +467,11 @@ def irls_solver(
                 grad_f = family.gradient(X, y, params)
                 if ridge_alpha > 0:
                     grad_f[1:] = grad_f[1:] + (ridge_alpha / X.shape[0]) * params[1:]
-                grad_norm = float(_norm(grad_f, backend))
+                grad_norm = float(_norm2(grad_f))
             except Exception:
                 # No gradient method available — fall back to param change
-                _param_change = float(_norm(params - params_old, backend))
-                _param_norm = max(float(_norm(params, backend)), 1.0)
+                _param_change = float(_norm2(params - params_old))
+                _param_norm = max(float(_norm2(params)), 1.0)
                 grad_norm = _param_change / _param_norm  # relative change
             if grad_norm < tol:
                 break
