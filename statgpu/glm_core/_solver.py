@@ -1089,6 +1089,12 @@ def fista_lla_path(
     backend = _infer_backend(X)
     if backend == "torch":
         import torch as xp
+        torch = xp
+        x_dtype = X.dtype if getattr(X, "is_floating_point", lambda: False)() else torch.float64
+        y_dtype = y.dtype if getattr(y, "is_floating_point", lambda: False)() else torch.float64
+        common_dtype = torch.promote_types(x_dtype, y_dtype)
+        X = X.to(dtype=common_dtype)
+        y = torch.as_tensor(y, device=X.device, dtype=common_dtype)
     elif backend == "cupy":
         import cupy as xp
     else:
@@ -1119,8 +1125,8 @@ def fista_lla_path(
         # Augment X with a column of ones
         if backend == "torch":
             import torch
-            x_dtype = X.dtype if getattr(X, "is_floating_point", lambda: False)() else torch.float64
-            X_float = X.to(dtype=x_dtype)
+            x_dtype = X.dtype
+            X_float = X
             ones_col = torch.ones(X.shape[0], 1, device=X.device, dtype=x_dtype)
             X_c = torch.cat([X_float, ones_col], dim=1)
         elif backend == "cupy":
@@ -1763,10 +1769,11 @@ def newton_solver(
             import torch
             params = torch.zeros(n_features, device=X.device if hasattr(X, 'device') else 'cpu', dtype=X.dtype if hasattr(X, 'dtype') else torch.float64)
 
-    # Detect constant-Hessian losses (Gamma: H=X'X/n, Tweedie power≈2).
+    # Detect constant-Hessian losses (Gamma log link: H=X'X/n, Tweedie power≈2).
     # For these, the Newton step is always valid — skip line search.
     _loss_name = getattr(loss, 'name', '')
-    _const_hessian = (_loss_name == "gamma")
+    _gamma_link = getattr(loss, 'link_name', getattr(loss, 'link', 'log'))
+    _const_hessian = (_loss_name == "gamma" and _gamma_link == "log")
     if not _const_hessian and _loss_name == "tweedie":
         pw = getattr(loss, 'power', 1.5)
         if abs(pw - 2.0) < 0.01:

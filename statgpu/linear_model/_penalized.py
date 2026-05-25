@@ -68,7 +68,7 @@ def _resolve_loss_name(loss_name, loss_kwargs=None):
         return PoissonLoss()
     elif loss_name == "gamma":
         from statgpu.glm_core._gamma import GammaLoss
-        return GammaLoss()
+        return GammaLoss(**loss_kwargs)
     elif loss_name == "inverse_gaussian":
         from statgpu.glm_core._inverse_gaussian import InverseGaussianLoss
         return InverseGaussianLoss()
@@ -482,9 +482,8 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
     @staticmethod
     def _cupy_available():
         try:
-            from statgpu.backends._cupy import cupy_backend
-
-            return cupy_backend.is_available()
+            import cupy as cp
+            return cp.cuda.runtime.getDeviceCount() > 0
         except Exception:
             return False
 
@@ -1927,6 +1926,8 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
         if backend_name == "torch" and self._torch_cuda_available():
             return "torch"
         if backend_name == "numpy":
+            return "numpy"
+        if self.device == Device.AUTO:
             return "numpy"
         device = self._get_compute_device()
         if device == Device.CUDA:
