@@ -23,6 +23,17 @@ from statgpu.backends._array_ops import (
 )
 
 
+# Backward-compatible private wrapper used by benchmark/debug scripts.
+def _solve(A, b, backend="auto"):
+    if isinstance(backend, str):
+        legacy_backend = backend.strip().lower()
+        if legacy_backend == "cpu":
+            backend = "numpy"
+        elif legacy_backend in ("cuda", "gpu"):
+            backend = "cupy"
+    return _solve_linear_system(A, b, backend=backend)
+
+
 def _promote_torch_irls_inputs(X, y, init_coef=None, sample_weight=None):
     """Keep all Torch IRLS operands on one floating dtype/device."""
     import torch
