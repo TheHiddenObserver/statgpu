@@ -21,6 +21,7 @@ from statgpu.backends import (
 )
 from statgpu._base import BaseEstimator
 from statgpu._config import Device
+from statgpu.glm_core._irls import _solve
 
 
 # ---------------------------------------------------------------------------
@@ -72,6 +73,15 @@ class TestNumpyBackend:
         r = repr(self.backend)
         assert "NumpyBackend" in r
         assert "available" in r
+
+
+def test_irls_solve_accepts_legacy_cpu_backend_alias():
+    A = np.array([[2.0, 0.0], [0.0, 4.0]])
+    b = np.array([6.0, 8.0])
+
+    x = _solve(A, b, backend="cpu")
+
+    np.testing.assert_allclose(x, [3.0, 2.0], rtol=1e-6)
 
 
 # ---------------------------------------------------------------------------
