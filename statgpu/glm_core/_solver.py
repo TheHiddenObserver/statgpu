@@ -9,7 +9,26 @@ Supports numpy / cupy / torch backends via auto-detection.
 import warnings
 import numpy as np
 
-from statgpu.backends import _to_numpy
+from statgpu.backends import _resolve_backend, _to_numpy
+from statgpu.backends._array_ops import (
+    _abs_max,
+    _abs_sum,
+    _abs_sum_dev,
+    _clip_grad_on_device,
+    _copy_arr,
+    _device_gt,
+    _device_leq,
+    _dot,
+    _dot_dev,
+    _eye_like,
+    _norm2,
+    _norm2_dev,
+    _sum_sq,
+    _sum_sq_dev,
+    _sync_scalars,
+    _zeros,
+    _zeros_like,
+)
 
 
 class ConvergenceWarning(UserWarning):
@@ -103,60 +122,6 @@ def _newton_step_call(compiled_fn, *args):
         return _newton_eager(*args)
 
 
-def _infer_backend(X):
-    """Detect backend from array type."""
-    mod = type(X).__module__
-    if mod.startswith("cupy"):
-        return "cupy"
-    if mod.startswith("torch"):
-        return "torch"
-    return "numpy"
-
-
-def _zeros_like(arr):
-    """Create zeros array with same shape/type as arr."""
-    if isinstance(arr, np.ndarray):
-        return np.zeros_like(arr)
-    mod = type(arr).__module__
-    if mod.startswith("cupy"):
-        import cupy as cp
-        return cp.zeros_like(arr)
-    if mod.startswith("torch"):
-        import torch
-        return torch.zeros_like(arr)
-    return np.zeros_like(arr)
-
-
-def _zeros(n, backend, ref_tensor=None):
-    """Create a 1-D zeros vector of length n on the correct device/dtype."""
-    if backend == "numpy":
-        return np.zeros(n)
-    if backend == "cupy":
-        import cupy as cp
-        dtype = getattr(ref_tensor, 'dtype', cp.float64)
-        return cp.zeros(n, dtype=dtype)
-    import torch
-    device = getattr(ref_tensor, 'device', 'cpu') if ref_tensor is not None else 'cpu'
-    dtype = getattr(ref_tensor, 'dtype', torch.float64) if ref_tensor is not None else torch.float64
-    return torch.zeros(n, device=device, dtype=dtype)
-
-
-def _sync_scalars(*dev_vals, backend):
-    """Batch multiple device scalars into a single GPU→CPU sync.
-
-    Returns a tuple of Python floats.  For numpy the values are already on CPU;
-    for torch/cupy a single stack+transfer replaces N individual transfers.
-    """
-    if backend == "numpy":
-        return tuple(float(v) for v in dev_vals)
-    if backend == "torch":
-        import torch
-        stacked = torch.stack(list(dev_vals))
-        return tuple(stacked[i].item() for i in range(len(dev_vals)))
-    import cupy as cp
-    stacked = cp.array(list(dev_vals))
-    return tuple(float(stacked[i]) for i in range(len(dev_vals)))
-
 
 def _validate_uniform_sample_weight(sample_weight, n_samples, solver_name):
     """Validate solver paths that only support unweighted semantics."""
@@ -189,183 +154,6 @@ def _validate_uniform_sample_weight(sample_weight, n_samples, solver_name):
             "use solver='irls' for weighted GLM fits."
         )
 
-
-def _abs_sum(x):
-    """Sum of absolute values."""
-    if isinstance(x, np.ndarray):
-        return np.sum(np.abs(x))
-    mod = type(x).__module__
-    if mod.startswith("cupy"):
-        import cupy as cp
-        return float(cp.sum(cp.abs(x)))
-    if mod.startswith("torch"):
-        import torch
-        return float(torch.sum(torch.abs(x)).item())
-    return np.sum(np.abs(x))
-
-
-def _abs_max(x):
-    """Max of absolute values (L-infinity norm)."""
-    if isinstance(x, np.ndarray):
-        return float(np.max(np.abs(x)))
-    mod = type(x).__module__
-    if mod.startswith("cupy"):
-        import cupy as cp
-        return float(cp.max(cp.abs(x)))
-    if mod.startswith("torch"):
-        import torch
-        return float(torch.max(torch.abs(x)).item())
-    return float(np.max(np.abs(x)))
-
-
-def _norm2(x):
-    """L2 norm."""
-    if isinstance(x, np.ndarray):
-        return float(np.linalg.norm(x))
-    mod = type(x).__module__
-    if mod.startswith("cupy"):
-        import cupy as cp
-        return float(cp.linalg.norm(x))
-    if mod.startswith("torch"):
-        import torch
-        return float(torch.linalg.norm(x).item())
-    return float(np.linalg.norm(x))
-
-
-def _dot(a, b):
-    """Dot product (returns Python float — forces GPU→CPU sync)."""
-    if isinstance(a, np.ndarray):
-        return float(a.dot(b))
-    mod = type(a).__module__
-    if mod.startswith("cupy"):
-        return float(a.dot(b))
-    if mod.startswith("torch"):
-        return float(a.dot(b))
-    return float(a.dot(b))
-
-
-def _dot_dev(a, b):
-    """Dot product staying on device (no GPU→CPU sync)."""
-    if isinstance(a, np.ndarray):
-        return float(a.dot(b))
-    return a.dot(b)
-
-
-def _sum_sq(x):
-    """Sum of squares (returns Python float — forces GPU→CPU sync)."""
-    if isinstance(x, np.ndarray):
-        return float(np.sum(x ** 2))
-    mod = type(x).__module__
-    if mod.startswith("cupy"):
-        import cupy as cp
-        return float(cp.sum(x ** 2))
-    if mod.startswith("torch"):
-        import torch
-        return float(torch.sum(x ** 2))
-    return float(np.sum(x ** 2))
-
-
-def _sum_sq_dev(x):
-    """Sum of squares staying on device (no GPU→CPU sync)."""
-    if isinstance(x, np.ndarray):
-        return float(np.sum(x ** 2))
-    mod = type(x).__module__
-    if mod.startswith("cupy"):
-        import cupy as cp
-        return cp.sum(x ** 2)
-    if mod.startswith("torch"):
-        import torch
-        return torch.sum(x ** 2)
-    return float(np.sum(x ** 2))
-
-
-def _norm2_dev(x):
-    """L2 norm staying on device (no GPU→CPU sync)."""
-    if isinstance(x, np.ndarray):
-        return float(np.linalg.norm(x))
-    mod = type(x).__module__
-    if mod.startswith("cupy"):
-        import cupy as cp
-        return cp.linalg.norm(x)
-    if mod.startswith("torch"):
-        import torch
-        return torch.linalg.norm(x)
-    return float(np.linalg.norm(x))
-
-
-def _abs_sum_dev(x):
-    """Sum of absolute values staying on device (no GPU→CPU sync)."""
-    if isinstance(x, np.ndarray):
-        return float(np.sum(np.abs(x)))
-    mod = type(x).__module__
-    if mod.startswith("cupy"):
-        import cupy as cp
-        return cp.sum(cp.abs(x))
-    if mod.startswith("torch"):
-        import torch
-        return torch.sum(torch.abs(x))
-    return float(np.sum(np.abs(x)))
-
-
-def _clip_grad_on_device(grad, coef_old, backend):
-    """Clip gradient entirely on device — no GPU→CPU sync.
-
-    Used ONLY in the async GPU loop (non-smooth penalties) where
-    per-iteration sync is avoided.  For smooth penalties (backtracking),
-    use sync-based clipping in the main loop instead.
-
-    Clipping threshold: max(||coef||_1 * 10 + 1e3, 1e4).
-    If ||grad||_2 exceeds threshold, scale grad down.
-    """
-    if backend == "numpy":
-        gn = float(np.linalg.norm(grad))
-        ca = float(np.sum(np.abs(coef_old)))
-        gmax = max(ca * 10.0 + 1e3, 1e4)
-        if gn > gmax:
-            return grad * (gmax / gn)
-        return grad
-    if backend == "torch":
-        import torch
-        gn_sq = torch.sum(grad ** 2)
-        coef_abs = torch.sum(torch.abs(coef_old))
-        gmax = coef_abs * 10.0 + 1e3
-        gmax = torch.clamp(gmax, min=1e4)  # match CPU: max(..., 1e4)
-        # Use where to avoid branching on scalar
-        scale = torch.where(
-            gn_sq > gmax * gmax,
-            gmax / torch.sqrt(gn_sq + 1e-30),
-            torch.ones(1, device=grad.device, dtype=grad.dtype))
-        return grad * scale
-    # cupy
-    import cupy as cp
-    gn_sq = cp.sum(grad ** 2)
-    coef_abs = cp.sum(cp.abs(coef_old))
-    gmax = coef_abs * 10.0 + 1e3
-    gmax = cp.maximum(gmax, 1e4)  # match CPU: max(..., 1e4)
-    scale = cp.where(
-        gn_sq > gmax * gmax,
-        gmax / cp.sqrt(gn_sq + 1e-30),
-        cp.ones(1, dtype=grad.dtype))
-    return grad * scale
-
-
-def _copy_arr(arr):
-    """Copy array: .clone() for torch, .copy() for numpy/cupy."""
-    if hasattr(arr, 'clone'):
-        return arr.clone()
-    return arr.copy()
-
-
-def _eye_like(n, ref):
-    """Create an identity matrix on the same backend/device as ref."""
-    backend = _infer_backend(ref)
-    if backend == "cupy":
-        import cupy as cp
-        return cp.eye(n, dtype=ref.dtype)
-    if backend == "torch":
-        import torch
-        return torch.eye(n, dtype=ref.dtype, device=ref.device)
-    return np.eye(n, dtype=getattr(ref, "dtype", np.float64))
 
 
 def _penalty_name(penalty):
@@ -480,25 +268,6 @@ def _objective_value_dev(loss, penalty, X, y, coef):
         return val
     return val + pen_val
 
-
-def _device_leq(a, b):
-    """Device-side a <= b comparison (returns Python bool, single sync)."""
-    mod = type(a).__module__
-    if mod.startswith('torch'):
-        return bool((a <= b).item())
-    if mod.startswith('cupy'):
-        return bool(a <= b)
-    return a <= b
-
-
-def _device_gt(a, b):
-    """Device-side a > b comparison (returns Python bool, single sync)."""
-    mod = type(a).__module__
-    if mod.startswith('torch'):
-        return bool((a > b).item())
-    if mod.startswith('cupy'):
-        return bool(a > b)
-    return a > b
 
 
 def _fused_glm_value_and_gradient(loss, X, y, coef):
@@ -720,7 +489,7 @@ def fista_solver(
     n_iter : int
         Number of iterations.
     """
-    backend = _infer_backend(X)
+    backend = _resolve_backend("auto", X)
     X_proc, y_proc = loss.preprocess(X, y)
     _loss_name = getattr(loss, 'name', '')
     _is_quadratic = (_loss_name == "squared_error")
@@ -1086,7 +855,7 @@ def fista_lla_path(
     from statgpu.penalties._adaptive_l1 import AdaptiveL1Penalty
     from statgpu.backends import _to_numpy
 
-    backend = _infer_backend(X)
+    backend = _resolve_backend("auto", X)
     if backend == "torch":
         import torch as xp
         torch = xp
@@ -1754,7 +1523,7 @@ def newton_solver(
 
     Requires: loss has hessian() and penalty is smooth.
     """
-    backend = _infer_backend(X)
+    backend = _resolve_backend("auto", X)
     n_features = X.shape[1]
 
     if init_coef is not None:
@@ -1885,7 +1654,7 @@ def fista_bb_solver(
 
     Supports numpy / cupy / torch backends via auto-detection of X.
     """
-    backend = _infer_backend(X)
+    backend = _resolve_backend("auto", X)
     _is_gpu = backend in ("torch", "cupy")
     X_proc, y_proc = loss.preprocess(X, y)
     n_features = X_proc.shape[1]
@@ -2349,7 +2118,7 @@ def lbfgs_solver(
     - _sync_scalars to batch GPU→CPU transfers
     - _objective_value_dev + _device_leq for device-side line search
     """
-    backend = _infer_backend(X)
+    backend = _resolve_backend("auto", X)
     X_proc, y_proc = loss.preprocess(X, y)
     n_features = X_proc.shape[1]
     _validate_uniform_sample_weight(sample_weight, X_proc.shape[0], "lbfgs_solver")
@@ -2505,7 +2274,7 @@ def _cg_solve(A_op, b, x0=None, max_iter=30, tol=1e-6):
     A_op(x) returns A(x) — used for the augmented Lagrangian subproblem.
     GPU-optimised: all dot products stay on device via _dot_dev.
     """
-    backend = _infer_backend(b)
+    backend = _resolve_backend("auto", b)
     if x0 is not None:
         x = _copy_arr(x0)
     else:
@@ -2600,7 +2369,7 @@ def admm_solver(
     -------
     coef : array, n_iter : int
     """
-    backend = _infer_backend(X)
+    backend = _resolve_backend("auto", X)
     X_proc, y_proc = loss.preprocess(X, y)
     n_features = X_proc.shape[1]
 
