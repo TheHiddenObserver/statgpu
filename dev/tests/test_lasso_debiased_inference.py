@@ -95,6 +95,25 @@ class TestDebiasedInferenceCPU:
         assert isinstance(m._inference_result, ParameterInferenceResult)
         assert m._inference_result.statistic_name == "t"
 
+    def test_base_z_result_clears_stale_tvalues(self):
+        class Estimator:
+            pass
+
+        est = Estimator()
+        est._tvalues = np.array([9.0, 8.0])
+        result = ParameterInferenceResult(
+            method="z_test",
+            params=np.array([1.0, 2.0]),
+            bse=np.array([0.1, 0.2]),
+            statistic=np.array([3.0, 4.0]),
+            statistic_name="z",
+            pvalues=np.array([0.01, 0.02]),
+            conf_int=np.array([[0.8, 1.2], [1.6, 2.4]]),
+        )
+        result.apply_to(est)
+        np.testing.assert_allclose(est._zvalues, [3.0, 4.0])
+        assert est._tvalues is None
+
     def test_bootstrap_result_container_metadata(self):
         m = Lasso(
             alpha=0.1, inference_method="bootstrap", device="cpu",
