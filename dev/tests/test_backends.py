@@ -17,6 +17,7 @@ from statgpu.backends import (
     NumpyBackend,
     CuPyBackend,
     TorchBackend,
+    _resolve_backend,
     get_backend,
 )
 from statgpu._base import BaseEstimator
@@ -72,6 +73,10 @@ class TestNumpyBackend:
         r = repr(self.backend)
         assert "NumpyBackend" in r
         assert "available" in r
+
+
+def test_resolve_backend_accepts_legacy_cpu_backend_alias():
+    assert _resolve_backend("cpu") == "numpy"
 
 
 # ---------------------------------------------------------------------------
