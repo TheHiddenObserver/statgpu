@@ -190,6 +190,39 @@ class TestRidgeInferenceParams:
         np.testing.assert_allclose(m._resid, expected_resid)
         assert np.isclose(m._scale, expected_scale)
 
+    def test_penalized_l2_exact_no_inference_when_df_resid_nonpositive(self):
+        set_device("cpu")
+        X, y = _make_data(n_samples=4, n_features=6, seed=123)
+        m = PenalizedLinearRegression(
+            penalty="l2",
+            alpha=0.1,
+            device="cpu",
+            compute_inference=True,
+            solver="exact",
+        )
+        m.fit(X, y)
+        assert m._inference_result is None
+        assert m._bse is None
+        assert m._pvalues is None
+        assert m._conf_int is None
+
+    def test_penalized_l2_perfect_fit_infinite_f_pvalue_zero(self):
+        set_device("cpu")
+        rng = np.random.default_rng(123)
+        X = rng.normal(size=(30, 3))
+        beta = np.array([1.2, -0.4, 0.7])
+        y = 0.5 + X @ beta
+        m = PenalizedLinearRegression(
+            penalty="l2",
+            alpha=0.0,
+            device="cpu",
+            compute_inference=True,
+            solver="exact",
+        )
+        m.fit(X, y)
+        assert m.fvalue > 1e20
+        assert m.f_pvalue == 0.0
+
     def test_penalized_non_l2_compute_inference_raises(self):
         set_device("cpu")
         X, y = _make_data()
