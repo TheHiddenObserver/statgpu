@@ -8,6 +8,7 @@ from typing import Optional
 import numpy as np
 from scipy import stats
 
+from statgpu.backends import _to_numpy
 from statgpu.inference._results import GaussianInferenceResult
 
 
@@ -48,8 +49,8 @@ def resolve_hac_maxlags(n_obs: int, hac_maxlags: Optional[int]) -> int:
 
 
 def build_gaussian_fit_state(X, y, coef, intercept, fit_intercept: bool) -> GaussianFitState:
-    X_np = np.asarray(X, dtype=float)
-    y_np = np.asarray(y, dtype=float)
+    X_np = np.asarray(_to_numpy(X), dtype=float)
+    y_np = np.asarray(_to_numpy(y), dtype=float)
     if y_np.ndim == 2 and y_np.shape[1] == 1:
         y_np = y_np.ravel()
 
@@ -141,6 +142,7 @@ def compute_gaussian_inference(
     hac_maxlags: Optional[int] = None,
     ridge_alpha: float = 0.0,
     alpha: float = 0.05,
+    ridge_penalize_intercept: Optional[bool] = None,
 ) -> Optional[GaussianInferenceResult]:
     if X_design is None or scale is None:
         return None
@@ -148,15 +150,19 @@ def compute_gaussian_inference(
     if np.any(np.isnan(scale_arr)):
         return None
 
-    X = np.asarray(X_design, dtype=float)
-    params_arr = np.asarray(params, dtype=float)
-    resid_arr = np.asarray(resid, dtype=float)
+    X = np.asarray(_to_numpy(X_design), dtype=float)
+    params_arr = np.asarray(_to_numpy(params), dtype=float)
+    resid_arr = np.asarray(_to_numpy(resid), dtype=float)
     n, k = X.shape
     XtX = X.T @ X
     penalty_diag = np.zeros(k, dtype=float)
     if ridge_alpha:
         penalty_diag[:] = float(ridge_alpha)
-        if k > 0 and np.allclose(X[:, 0], 1.0):
+        if ridge_penalize_intercept is None:
+            unpenalized_intercept = k > 0 and np.allclose(X[:, 0], X[0, 0])
+        else:
+            unpenalized_intercept = k > 0 and not bool(ridge_penalize_intercept)
+        if unpenalized_intercept:
             penalty_diag[0] = 0.0
     bread = XtX + np.diag(penalty_diag)
     try:
@@ -181,6 +187,7 @@ def compute_gaussian_inference(
                 hac_maxlags=hac_maxlags,
                 ridge_alpha=ridge_alpha,
                 alpha=alpha,
+                ridge_penalize_intercept=ridge_penalize_intercept,
             )
             if result is None:
                 return None

@@ -1346,7 +1346,8 @@ class Lasso(BaseEstimator):
         critical_torch = torch.quantile(max_stats_torch, 1.0 - float(self.simultaneous_alpha))
 
         # Build simultaneous confidence intervals
-        z_crit = torch.tensor(1.959963984540054, dtype=bse_torch.dtype, device=bse_torch.device)
+        alpha_ci = 0.05
+        z_crit = norm.ppf(1.0 - alpha_ci / 2.0)
         conf_int_torch = torch.stack(
             [params_torch - z_crit * bse_torch, params_torch + z_crit * bse_torch],
             dim=1,

@@ -320,6 +320,7 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
         self._validate_inference_request()
         self._inference_precomputed = False
         self._precomputed_gaussian_state = None
+        self._clear_inference_state()
 
         # Resolve the actual backend before auto-selecting the solver. This
         # keeps solver="auto" device-aware: CPU can use IRLS for smooth GLMs,
@@ -401,7 +402,7 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
             else:
                 self._params = np.asarray(self.coef_).copy()
             self._df_resid = X.shape[0] - (X.shape[1] + (1 if self.fit_intercept else 0))
-            self._compute_post_fit_gaussian_inference(X, y)
+            self._compute_post_fit_gaussian_inference(X, y, sample_weight=sample_weight)
             if backend_name == "cupy":
                 self._cleanup_cuda_memory()
             elif backend_name == "torch":
@@ -419,7 +420,7 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
         else:
             self._fit_cpu(X_arr, y_arr, sample_weight)
 
-        self._compute_post_fit_gaussian_inference(X, y)
+        self._compute_post_fit_gaussian_inference(X, y, sample_weight=sample_weight)
         self._fitted = True
         return self
 
@@ -475,7 +476,34 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
             "post-selection or GLM covariance method."
         )
 
-    def _compute_post_fit_gaussian_inference(self, X, y):
+    def _clear_inference_state(self):
+        self._X_design = None
+        self._y = None
+        self._resid = None
+        self._scale = None
+        self._nobs = None
+        self._df_resid = None
+        self._params = None
+        self._bse = None
+        self._tvalues = None
+        self._pvalues = None
+        self._conf_int = None
+        self._inference_result = None
+
+    def _weighted_gaussian_fit_inputs(self, X, y, sample_weight=None):
+        X_np = np.asarray(_to_numpy(X), dtype=float)
+        y_np = np.asarray(_to_numpy(y), dtype=float)
+        if y_np.ndim == 2 and y_np.shape[1] == 1:
+            y_np = y_np.ravel()
+        if sample_weight is None:
+            return X_np, y_np
+        sw = np.asarray(_to_numpy(sample_weight), dtype=float)
+        if sw.ndim != 1 or sw.shape[0] != X_np.shape[0]:
+            raise ValueError("sample_weight must be one-dimensional with length n_samples.")
+        sqrt_sw = np.sqrt(sw)
+        return X_np * sqrt_sw[:, np.newaxis], y_np * sqrt_sw
+
+    def _compute_post_fit_gaussian_inference(self, X, y, sample_weight=None):
         """Populate shared Gaussian inference state for squared-error L2 fits."""
         if not self.compute_inference:
             return
@@ -486,12 +514,8 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
             return
         if self._inference_precomputed and self._inference_result is not None:
             state = self._precomputed_gaussian_state
-            X_arr = np.asarray(X, dtype=float)
-            if self.fit_intercept:
-                self._X_design = np.column_stack([np.ones(X_arr.shape[0], dtype=X_arr.dtype), X_arr])
-            else:
-                self._X_design = X_arr.copy()
-            self._y = np.asarray(y, dtype=float)
+            self._X_design = np.asarray(state["X_design"], dtype=float)
+            self._y = np.asarray(state["y"], dtype=float)
             self._resid = np.asarray(state["resid"], dtype=float)
             self._scale = float(state["scale"])
             self._nobs = int(state["nobs"])
@@ -502,9 +526,10 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
             self._inference_precomputed = False
             self._precomputed_gaussian_state = None
             return
+        X_fit, y_fit = self._weighted_gaussian_fit_inputs(X, y, sample_weight=sample_weight)
         state = build_gaussian_fit_state(
-            X,
-            y,
+            X_fit,
+            y_fit,
             self.coef_,
             self.intercept_,
             self.fit_intercept,
@@ -526,6 +551,7 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
             self.cov_type,
             hac_maxlags=self.hac_maxlags,
             ridge_alpha=ridge_alpha,
+            ridge_penalize_intercept=False if self.fit_intercept else True,
         )
         if result is None:
             return
@@ -1260,6 +1286,11 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
                 raise ValueError("solver='exact' is only supported for L2/Ridge penalty.")
             X = cp.asarray(X)
             y = cp.asarray(y)
+            if sample_weight is not None:
+                sw = cp.asarray(sample_weight, dtype=X.dtype)
+                sqrt_sw = cp.sqrt(sw)
+                X = X * sqrt_sw[:, cp.newaxis]
+                y = y * sqrt_sw
             if self.fit_intercept:
                 X_mean = cp.mean(X, axis=0)
                 y_mean = cp.mean(y)
@@ -1555,6 +1586,18 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
                 X = torch.from_numpy(np.asarray(X, dtype=np.float64)).to(torch_device)
             if not isinstance(y, torch.Tensor):
                 y = torch.from_numpy(np.asarray(y, dtype=np.float64)).to(torch_device)
+            if X.dtype != torch.float64:
+                X = X.to(torch.float64)
+            if y.dtype != torch.float64:
+                y = y.to(torch.float64)
+            if sample_weight is not None:
+                if not isinstance(sample_weight, torch.Tensor):
+                    sample_weight = torch.as_tensor(sample_weight, dtype=X.dtype, device=X.device)
+                else:
+                    sample_weight = sample_weight.to(dtype=X.dtype, device=X.device)
+                sqrt_sw = torch.sqrt(sample_weight)
+                X = X * sqrt_sw[:, None]
+                y = y * sqrt_sw
             if self.fit_intercept:
                 X_mean = torch.mean(X, dim=0)
                 y_mean = torch.mean(y)
@@ -1562,7 +1605,7 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
                 y_centered = y - y_mean
             else:
                 X_centered = X
-                y_mean = torch.tensor(0.0, dtype=torch.float64, device=torch_device)
+                y_mean = torch.tensor(0.0, dtype=X.dtype, device=X.device)
                 y_centered = y
             if y_centered.ndim == 1:
                 y_centered = y_centered.reshape(-1)
@@ -2097,8 +2140,15 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
         )
         result.apply_to(self)
         self._inference_precomputed = True
+        if X_mean is None:
+            X_design = X.get()
+        else:
+            X_np = X.get()
+            X_design = np.column_stack([np.ones(int(n_samples), dtype=X_np.dtype), X_np])
         self._precomputed_gaussian_state = {
             "params": coef_full.get(),
+            "X_design": X_design,
+            "y": y.get(),
             "resid": resid.get(),
             "scale": float(scale.get()) if df_resid > 0 else np.nan,
             "nobs": int(n_samples),
@@ -2156,8 +2206,15 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
         )
         result.apply_to(self)
         self._inference_precomputed = True
+        if X_mean is None:
+            X_design = X.detach().cpu().numpy()
+        else:
+            X_np = X.detach().cpu().numpy()
+            X_design = np.column_stack([np.ones(int(n_samples), dtype=X_np.dtype), X_np])
         self._precomputed_gaussian_state = {
             "params": coef_full.detach().cpu().numpy(),
+            "X_design": X_design,
+            "y": y.detach().cpu().numpy(),
             "resid": resid.detach().cpu().numpy(),
             "scale": float(scale.detach().cpu().numpy()) if df_resid > 0 else np.nan,
             "nobs": int(n_samples),
