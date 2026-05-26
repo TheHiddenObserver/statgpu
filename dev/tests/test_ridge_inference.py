@@ -110,6 +110,24 @@ class TestRidgeInferenceParams:
         ]
         assert frame.shape[0] == X.shape[1] + 1
 
+    def test_linear_refit_clears_stale_inference_when_unavailable(self):
+        set_device("cpu")
+        X, y = _make_data(n_samples=80, n_features=3)
+        m = LinearRegression(device="cpu", compute_inference=True)
+        m.fit(X, y)
+        assert m._inference_result is not None
+        assert m._bse is not None
+
+        X_bad, y_bad = _make_data(n_samples=4, n_features=6, seed=123)
+        m.fit(X_bad, y_bad)
+        assert m._inference_result is None
+        assert m._bse is None
+        assert m._tvalues is None
+        assert m._pvalues is None
+        assert m._conf_int is None
+        with pytest.raises(RuntimeError, match="Inference statistics are not available"):
+            m.summary()
+
     def test_penalized_l2_compute_inference_populates_stats(self):
         set_device("cpu")
         X, y = _make_data()

@@ -87,6 +87,13 @@ class LinearRegression(BaseEstimator):
         self._design_info = None
         self._formula_has_intercept = None
 
+    def _clear_inference_result(self):
+        self._bse = None
+        self._tvalues = None
+        self._pvalues = None
+        self._conf_int = None
+        self._inference_result = None
+
     def _cleanup_cuda_memory(self):
         """Best-effort CuPy memory pool cleanup."""
         if not self.gpu_memory_cleanup:
@@ -296,6 +303,8 @@ class LinearRegression(BaseEstimator):
         data : pd.DataFrame or None
             DataFrame used with ``formula`` for column lookup.
         """
+        self._clear_inference_result()
+
         # Handle formula interface
         _orig_fit_intercept = self.fit_intercept
         if formula is not None:
@@ -845,6 +854,7 @@ class LinearRegression(BaseEstimator):
             hac_maxlags=self.hac_maxlags,
         )
         if result is None:
+            self._clear_inference_result()
             return
         result.feature_names = self._inference_feature_names()
         result.apply_to(self)
@@ -971,6 +981,11 @@ class LinearRegression(BaseEstimator):
             )
         if self._is_multi_output:
             raise RuntimeError("summary() is only available for single-output linear regression.")
+        if self._bse is None or self._pvalues is None or self._conf_int is None:
+            raise RuntimeError(
+                "Inference statistics are not available for the current fit. "
+                "This can happen when residual degrees of freedom are non-positive."
+            )
         
         # Build feature names
         if self._feature_names is not None:
