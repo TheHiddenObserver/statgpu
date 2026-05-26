@@ -512,17 +512,18 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
         penalty_name = str(getattr(self._penalty, "name", self.penalty)).lower()
         if penalty_name != "l2":
             return
-        if self._inference_precomputed and self._inference_result is not None:
+        if self._inference_precomputed:
             state = self._precomputed_gaussian_state
-            self._X_design = np.asarray(state["X_design"], dtype=float)
-            self._y = np.asarray(state["y"], dtype=float)
             self._resid = np.asarray(state["resid"], dtype=float)
             self._scale = float(state["scale"])
             self._nobs = int(state["nobs"])
             self._df_resid = int(state["df_resid"])
             self._params = np.asarray(state["params"], dtype=float)
-            self._inference_result.feature_names = self._inference_feature_names()
-            self._inference_result.apply_to(self)
+            if self._inference_result is not None:
+                self._X_design = np.asarray(state["X_design"], dtype=float)
+                self._y = np.asarray(state["y"], dtype=float)
+                self._inference_result.feature_names = self._inference_feature_names()
+                self._inference_result.apply_to(self)
             self._inference_precomputed = False
             self._precomputed_gaussian_state = None
             return
@@ -554,6 +555,11 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
             ridge_penalize_intercept=False if self.fit_intercept else True,
         )
         if result is None:
+            self._inference_result = None
+            self._bse = None
+            self._tvalues = None
+            self._pvalues = None
+            self._conf_int = None
             return
         result.feature_names = self._inference_feature_names()
         result.apply_to(self)
