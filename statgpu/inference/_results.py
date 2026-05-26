@@ -163,10 +163,53 @@ class DebiasedInferenceResult(ParameterInferenceResult):
     statistic_name: str = "z"
     distribution: Optional[str] = "normal"
     precision_method: Optional[str] = None
+    simultaneous_conf_int: Any = None
+    simultaneous_method: Optional[str] = None
+    simultaneous_alpha: Optional[float] = None
+    simultaneous_n_bootstrap: Optional[int] = None
+    simultaneous_critical_value: Optional[float] = None
+    simultaneous_target_mask: Any = None
+
+    def __post_init__(self):
+        super().__post_init__()
+        self.simultaneous_conf_int = _to_numpy_or_none(self.simultaneous_conf_int)
+        self.simultaneous_target_mask = _to_numpy_or_none(self.simultaneous_target_mask)
+
+    def apply_to(self, estimator):
+        super().apply_to(estimator)
+        if self.statistic is not None:
+            stat = np.asarray(self.statistic).copy()
+            estimator._zvalues = stat
+            # Existing Lasso summary code displays debiased z-statistics through
+            # the legacy _tvalues slot.
+            estimator._tvalues = stat
+        if self.simultaneous_conf_int is not None:
+            estimator._conf_int_simultaneous = np.asarray(self.simultaneous_conf_int).copy()
+            estimator._simultaneous_enabled = True
+            estimator._simultaneous_method = self.simultaneous_method
+            estimator._simultaneous_alpha = self.simultaneous_alpha
+            estimator._simultaneous_n_bootstrap = self.simultaneous_n_bootstrap
+            estimator._simultaneous_critical_value = self.simultaneous_critical_value
+            estimator._simultaneous_target_mask = (
+                None
+                if self.simultaneous_target_mask is None
+                else np.asarray(self.simultaneous_target_mask).copy()
+            )
+        return estimator
 
     def to_dict(self) -> Dict[str, Any]:
         data = super().to_dict()
         data["precision_method"] = self.precision_method
+        data.update(
+            {
+                "simultaneous_conf_int": _serializable(self.simultaneous_conf_int),
+                "simultaneous_method": self.simultaneous_method,
+                "simultaneous_alpha": self.simultaneous_alpha,
+                "simultaneous_n_bootstrap": self.simultaneous_n_bootstrap,
+                "simultaneous_critical_value": self.simultaneous_critical_value,
+                "simultaneous_target_mask": _serializable(self.simultaneous_target_mask),
+            }
+        )
         return data
 
 

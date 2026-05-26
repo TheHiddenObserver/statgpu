@@ -20,6 +20,7 @@ from statgpu.linear_model._gaussian_inference import (
     validate_cov_type,
     validate_hac_maxlags,
 )
+from statgpu.inference._results import GaussianInferenceResult
 
 
 def _irls_ridge_init(X, y, loss_name, alpha=0.01, max_iter=100, tol=1e-4, loss_kwargs=None):
@@ -247,6 +248,8 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
         self._selected_solver = None
         self._selected_backend_name = None
         self._init_coef = None
+        self._inference_precomputed = False
+        self._precomputed_gaussian_state = None
 
     def _resolve_penalty(self) -> "Penalty":
         """Resolve penalty string or instance to a Penalty object."""
@@ -315,6 +318,8 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
         self._validate_solver_penalty()
         self._loss = self._resolve_loss()
         self._validate_inference_request()
+        self._inference_precomputed = False
+        self._precomputed_gaussian_state = None
 
         # Resolve the actual backend before auto-selecting the solver. This
         # keeps solver="auto" device-aware: CPU can use IRLS for smooth GLMs,
@@ -478,6 +483,24 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
             return
         penalty_name = str(getattr(self._penalty, "name", self.penalty)).lower()
         if penalty_name != "l2":
+            return
+        if self._inference_precomputed and self._inference_result is not None:
+            state = self._precomputed_gaussian_state
+            X_arr = np.asarray(X, dtype=float)
+            if self.fit_intercept:
+                self._X_design = np.column_stack([np.ones(X_arr.shape[0], dtype=X_arr.dtype), X_arr])
+            else:
+                self._X_design = X_arr.copy()
+            self._y = np.asarray(y, dtype=float)
+            self._resid = np.asarray(state["resid"], dtype=float)
+            self._scale = float(state["scale"])
+            self._nobs = int(state["nobs"])
+            self._df_resid = int(state["df_resid"])
+            self._params = np.asarray(state["params"], dtype=float)
+            self._inference_result.feature_names = self._inference_feature_names()
+            self._inference_result.apply_to(self)
+            self._inference_precomputed = False
+            self._precomputed_gaussian_state = None
             return
         state = build_gaussian_fit_state(
             X,
@@ -1252,6 +1275,27 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
             Xty = X_centered.T @ y_centered
             coef = self._solve_exact_cupy(XtX, Xty, n_samples)
             self.n_iter_ = 1
+            if self.compute_inference and self.cov_type == "nonrobust":
+                if self.fit_intercept:
+                    intercept_gpu = (y_mean.reshape(1) - X_mean.reshape(1, -1) @ coef.reshape(-1, 1)).reshape(-1)
+                    coef_full_gpu = cp.concatenate([intercept_gpu, coef.reshape(-1)])
+                    self._precompute_exact_l2_inference_cupy(
+                        X,
+                        y,
+                        XtX,
+                        X_mean,
+                        coef_full_gpu.reshape(-1),
+                        n_samples,
+                    )
+                else:
+                    self._precompute_exact_l2_inference_cupy(
+                        X,
+                        y,
+                        XtX,
+                        None,
+                        coef.reshape(-1),
+                        n_samples,
+                    )
             coef_np = coef.get()
             if self.fit_intercept:
                 self.intercept_ = float(y_mean.get() - X_mean.get() @ coef_np)
@@ -1526,6 +1570,29 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
             Xty = X_centered.T @ y_centered
             coef = self._solve_exact_torch(XtX, Xty, n_samples)
             self.n_iter_ = 1
+            if self.compute_inference and self.cov_type == "nonrobust":
+                if self.fit_intercept:
+                    coef_full_torch = torch.cat([
+                        (y_mean.reshape(1) - X_mean.reshape(1, -1) @ coef.reshape(-1, 1)).reshape(-1),
+                        coef.reshape(-1),
+                    ])
+                    self._precompute_exact_l2_inference_torch(
+                        X,
+                        y,
+                        XtX,
+                        X_mean,
+                        coef_full_torch.reshape(-1),
+                        n_samples,
+                    )
+                else:
+                    self._precompute_exact_l2_inference_torch(
+                        X,
+                        y,
+                        XtX,
+                        None,
+                        coef.reshape(-1),
+                        n_samples,
+                    )
             coef_np = coef.cpu().numpy()
             if self.fit_intercept:
                 self.intercept_ = float(y_mean.cpu().numpy() - X_mean.cpu().numpy() @ coef_np)
@@ -1980,6 +2047,122 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
             return torch.linalg.solve(A, Xty)
         except RuntimeError:
             return torch.linalg.pinv(A) @ Xty
+
+    def _precompute_exact_l2_inference_cupy(self, X, y, XtX_centered, X_mean, coef_full, n_samples):
+        """Compute nonrobust exact L2 inference on CuPy without a CPU Gram rebuild."""
+        import cupy as cp
+        from statgpu.inference._distributions_backend import t
+
+        p = XtX_centered.shape[0]
+        ridge_alpha = float(n_samples) * self._ridge_alpha_for_exact()
+        if X_mean is None:
+            bread = XtX_centered + ridge_alpha * cp.eye(p, dtype=XtX_centered.dtype)
+        else:
+            sum_x = float(n_samples) * X_mean
+            xtx_orig = XtX_centered + float(n_samples) * cp.outer(X_mean, X_mean)
+            bread = cp.empty((p + 1, p + 1), dtype=XtX_centered.dtype)
+            bread[0, 0] = float(n_samples)
+            bread[0, 1:] = sum_x
+            bread[1:, 0] = sum_x
+            bread[1:, 1:] = xtx_orig + ridge_alpha * cp.eye(p, dtype=XtX_centered.dtype)
+        try:
+            chol = cp.linalg.cholesky(bread)
+            bread_inv = cp.linalg.solve(chol.T, cp.linalg.solve(chol, cp.eye(bread.shape[0], dtype=bread.dtype)))
+        except Exception:
+            bread_inv = cp.linalg.pinv(bread)
+
+        if X_mean is None:
+            y_pred = X @ coef_full
+        else:
+            y_pred = coef_full[0] + X @ coef_full[1:]
+        resid = y - y_pred
+        df_resid = int(n_samples - coef_full.shape[0])
+        scale = cp.sum(resid ** 2) / df_resid if df_resid > 0 else cp.asarray(cp.nan, dtype=X.dtype)
+        bse = cp.sqrt(cp.maximum(scale * cp.diag(bread_inv), 0.0))
+        tvalues = coef_full / (bse + 1e-30)
+        pvalues = t.two_sided_pvalue(tvalues, df=df_resid)
+        t_crit = cp.asarray(t.two_sided_critical_value(0.05, df=df_resid), dtype=bse.dtype)
+        conf_int = cp.stack([coef_full - t_crit * bse, coef_full + t_crit * bse], axis=1)
+        result = GaussianInferenceResult(
+            params=coef_full.get(),
+            bse=bse.get(),
+            statistic=tvalues.get(),
+            pvalues=pvalues.get(),
+            conf_int=conf_int.get(),
+            cov_type="nonrobust",
+            distribution="t",
+            df=df_resid,
+            method="classical",
+            metadata={"ridge_alpha": ridge_alpha, "alpha": 0.05},
+        )
+        result.apply_to(self)
+        self._inference_precomputed = True
+        self._precomputed_gaussian_state = {
+            "params": coef_full.get(),
+            "resid": resid.get(),
+            "scale": float(scale.get()) if df_resid > 0 else np.nan,
+            "nobs": int(n_samples),
+            "df_resid": int(df_resid),
+        }
+
+    def _precompute_exact_l2_inference_torch(self, X, y, XtX_centered, X_mean, coef_full, n_samples):
+        """Compute nonrobust exact L2 inference on Torch without a CPU Gram rebuild."""
+        import torch
+        from statgpu.inference._distributions_backend import get_distribution
+
+        p = XtX_centered.shape[0]
+        ridge_alpha = float(n_samples) * self._ridge_alpha_for_exact()
+        eye_p = torch.eye(p, dtype=XtX_centered.dtype, device=XtX_centered.device)
+        if X_mean is None:
+            bread = XtX_centered + ridge_alpha * eye_p
+        else:
+            sum_x = float(n_samples) * X_mean
+            xtx_orig = XtX_centered + float(n_samples) * torch.outer(X_mean, X_mean)
+            bread = torch.empty((p + 1, p + 1), dtype=XtX_centered.dtype, device=XtX_centered.device)
+            bread[0, 0] = float(n_samples)
+            bread[0, 1:] = sum_x
+            bread[1:, 0] = sum_x
+            bread[1:, 1:] = xtx_orig + ridge_alpha * eye_p
+        try:
+            chol = torch.linalg.cholesky(bread)
+            bread_inv = torch.cholesky_inverse(chol)
+        except RuntimeError:
+            bread_inv = torch.linalg.pinv(bread)
+
+        if X_mean is None:
+            y_pred = X @ coef_full
+        else:
+            y_pred = coef_full[0] + X @ coef_full[1:]
+        resid = y - y_pred
+        df_resid = int(n_samples - coef_full.shape[0])
+        scale = torch.sum(resid ** 2) / df_resid if df_resid > 0 else torch.tensor(float("nan"), dtype=X.dtype, device=X.device)
+        bse = torch.sqrt(torch.clamp(scale * torch.diag(bread_inv), min=0.0))
+        tvalues = coef_full / (bse + 1e-30)
+        t_dist = get_distribution("t", backend="torch", device=X.device)
+        pvalues = t_dist.two_sided_pvalue(tvalues, df=df_resid)
+        t_crit = t_dist.two_sided_critical_value(0.05, df=df_resid)
+        conf_int = torch.stack([coef_full - t_crit * bse, coef_full + t_crit * bse], dim=1)
+        result = GaussianInferenceResult(
+            params=coef_full.detach().cpu().numpy(),
+            bse=bse.detach().cpu().numpy(),
+            statistic=tvalues.detach().cpu().numpy(),
+            pvalues=pvalues.detach().cpu().numpy(),
+            conf_int=conf_int.detach().cpu().numpy(),
+            cov_type="nonrobust",
+            distribution="t",
+            df=df_resid,
+            method="classical",
+            metadata={"ridge_alpha": ridge_alpha, "alpha": 0.05},
+        )
+        result.apply_to(self)
+        self._inference_precomputed = True
+        self._precomputed_gaussian_state = {
+            "params": coef_full.detach().cpu().numpy(),
+            "resid": resid.detach().cpu().numpy(),
+            "scale": float(scale.detach().cpu().numpy()) if df_resid > 0 else np.nan,
+            "nobs": int(n_samples),
+            "df_resid": int(df_resid),
+        }
 
     def _prepare_predict_X(self, X):
         """Apply stored formula design metadata to DataFrame inputs."""

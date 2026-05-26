@@ -10,6 +10,7 @@ Covers:
 import numpy as np
 import pytest
 
+from statgpu.inference import DebiasedInferenceResult, ParameterInferenceResult
 from statgpu.linear_model import Lasso
 from statgpu._config import cuda_available
 
@@ -48,6 +49,52 @@ class TestDebiasedInferenceCPU:
         assert m._pvalues.shape == (n_params,)
         assert m._conf_int.shape == (n_params, 2)
         assert m._tvalues.shape == (n_params,)
+        assert isinstance(m._inference_result, DebiasedInferenceResult)
+        assert m._inference_result.precision_method == "nodewise_lasso"
+        assert m._inference_result.statistic_name == "z"
+        assert np.allclose(m._inference_result.statistic, m._tvalues)
+        assert np.allclose(m._zvalues, m._tvalues)
+        assert m._inference_result.metadata["precision_cache_hit"] in (True, False)
+
+    def test_compute_inference_false_no_result(self):
+        m = Lasso(
+            alpha=0.1, inference_method="cpu_ols_inference", device="cpu",
+            compute_inference=False, max_iter=100, tol=1e-5, cpu_solver="fista",
+        )
+        m.fit(self.X, self.y)
+        assert m._bse is None
+        assert m._pvalues is None
+        assert m._conf_int is None
+        assert m._inference_result is None
+
+    def test_cpu_ols_result_container(self):
+        m = Lasso(
+            alpha=0.1, inference_method="cpu_ols_inference", device="cpu",
+            compute_inference=True, max_iter=500, tol=1e-5, cpu_solver="fista",
+        )
+        m.fit(self.X, self.y)
+        assert isinstance(m._inference_result, ParameterInferenceResult)
+        assert not isinstance(m._inference_result, DebiasedInferenceResult)
+        assert m._inference_result.method == "post_selection_ols"
+        assert m._inference_result.statistic_name == "t"
+        assert m._inference_result.metadata["heuristic_post_selection"] is True
+        assert m._inference_result.metadata["backend_path"] == "cpu_ols"
+        assert np.allclose(m._inference_result.bse, m._bse)
+        assert np.allclose(m._inference_result.statistic, m._tvalues)
+
+    def test_bootstrap_result_container_metadata(self):
+        m = Lasso(
+            alpha=0.1, inference_method="bootstrap", device="cpu",
+            compute_inference=True, max_iter=200, tol=1e-5, cpu_solver="fista",
+            n_bootstrap=12, bootstrap_random_state=123,
+        )
+        m.fit(self.X[:120], self.y[:120])
+        assert isinstance(m._inference_result, ParameterInferenceResult)
+        assert m._inference_result.method == "residual_bootstrap"
+        assert m._inference_result.distribution == "bootstrap_percentile"
+        assert m._inference_result.metadata["n_bootstrap"] == 12
+        assert m._inference_result.metadata["random_state"] == 123
+        assert "samples" not in m._inference_result.to_dict()
 
     def test_shapes_no_intercept(self):
         m = Lasso(
@@ -214,6 +261,17 @@ class TestDebiasedInferenceCPU:
         m.fit(self.X, self.y)
         assert m._conf_int_simultaneous is not None
         assert m._conf_int_simultaneous.shape == m._conf_int.shape
+        assert isinstance(m._inference_result, DebiasedInferenceResult)
+        assert np.allclose(
+            m._inference_result.simultaneous_conf_int,
+            m._conf_int_simultaneous,
+        )
+        assert m._inference_result.simultaneous_method == "maxz_bootstrap"
+        assert m._inference_result.simultaneous_n_bootstrap == 128
+        assert np.isclose(
+            m._inference_result.simultaneous_critical_value,
+            m._simultaneous_critical_value,
+        )
         # Feature intervals should be weakly wider than marginal intervals.
         idx = np.arange(1, m._conf_int.shape[0])
         width_m = m._conf_int[idx, 1] - m._conf_int[idx, 0]
@@ -318,6 +376,9 @@ class TestDebiasedInferenceGPU:
         assert m._bse.shape == (n_params,)
         assert m._pvalues.shape == (n_params,)
         assert m._conf_int.shape == (n_params, 2)
+        assert isinstance(m._inference_result, DebiasedInferenceResult)
+        assert m._inference_result.precision_method == "nodewise_lasso"
+        assert m._inference_result.metadata["backend_path"] == "cupy_debiased"
 
     def test_gpu_cpu_consistency(self):
         """GPU and CPU debiased inference should produce close results."""
@@ -381,6 +442,11 @@ class TestDebiasedInferenceGPU:
         m.fit(self.X, self.y)
         assert m._conf_int_simultaneous is not None
         assert m._conf_int_simultaneous.shape == m._conf_int.shape
+        assert isinstance(m._inference_result, DebiasedInferenceResult)
+        assert np.allclose(
+            m._inference_result.simultaneous_conf_int,
+            m._conf_int_simultaneous,
+        )
         assert m._resid is None
         assert m._X_design is None
         idx = np.arange(1, m._conf_int.shape[0])
