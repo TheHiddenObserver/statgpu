@@ -90,6 +90,8 @@ class ParameterInferenceResult(BaseInferenceResult):
             stat = np.asarray(self.statistic).copy()
             if self.statistic_name == "z":
                 estimator._zvalues = stat
+                if hasattr(estimator, "_tvalues"):
+                    estimator._tvalues = None
             elif self.statistic_name == "t":
                 estimator._tvalues = stat
                 if hasattr(estimator, "_zvalues"):
