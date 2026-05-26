@@ -129,6 +129,49 @@ class TestRidgeInferenceParams:
         assert isinstance(m._inference_result, GaussianInferenceResult)
         np.testing.assert_allclose(m._inference_result.tvalues, m._tvalues)
 
+    def test_penalized_l2_refit_clears_stale_inference(self):
+        set_device("cpu")
+        X, y = _make_data()
+        m = PenalizedLinearRegression(
+            penalty="l2",
+            alpha=0.1,
+            device="cpu",
+            compute_inference=True,
+        )
+        m.fit(X, y)
+        assert m._inference_result is not None
+        m.compute_inference = False
+        m.fit(X, y)
+        assert m._inference_result is None
+        assert m._bse is None
+        assert m._tvalues is None
+        assert m._pvalues is None
+        assert m._conf_int is None
+
+    def test_penalized_l2_weighted_inference_uses_weighted_state(self):
+        set_device("cpu")
+        X, y = _make_data(n_samples=90, n_features=4)
+        sample_weight = np.linspace(0.25, 2.5, X.shape[0])
+        m = PenalizedLinearRegression(
+            penalty="l2",
+            alpha=0.15,
+            device="cpu",
+            compute_inference=True,
+            solver="exact",
+        )
+        m.fit(X, y, sample_weight=sample_weight)
+        sqrt_sw = np.sqrt(sample_weight)
+        X_fit = X * sqrt_sw[:, None]
+        y_fit = y * sqrt_sw
+        X_design = np.column_stack([np.ones(X.shape[0]), X_fit])
+        params = np.concatenate([[m.intercept_], m.coef_])
+        expected_resid = y_fit - X_design @ params
+        expected_scale = np.sum(expected_resid ** 2) / (X_design.shape[0] - X_design.shape[1])
+        np.testing.assert_allclose(m._X_design, X_design)
+        np.testing.assert_allclose(m._y, y_fit)
+        np.testing.assert_allclose(m._resid, expected_resid)
+        assert np.isclose(m._scale, expected_scale)
+
     def test_penalized_non_l2_compute_inference_raises(self):
         set_device("cpu")
         X, y = _make_data()
