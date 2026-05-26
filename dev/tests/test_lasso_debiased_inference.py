@@ -82,6 +82,19 @@ class TestDebiasedInferenceCPU:
         assert np.allclose(m._inference_result.bse, m._bse)
         assert np.allclose(m._inference_result.statistic, m._tvalues)
 
+    def test_cpu_ols_refit_clears_stale_zvalues(self):
+        m = Lasso(
+            alpha=0.1, inference_method="debiased", device="cpu",
+            compute_inference=True, max_iter=500, tol=1e-5, cpu_solver="fista",
+        )
+        m.fit(self.X, self.y)
+        assert m._zvalues is not None
+        m.inference_method = "cpu_ols_inference"
+        m.fit(self.X, self.y)
+        assert m._zvalues is None
+        assert isinstance(m._inference_result, ParameterInferenceResult)
+        assert m._inference_result.statistic_name == "t"
+
     def test_bootstrap_result_container_metadata(self):
         m = Lasso(
             alpha=0.1, inference_method="bootstrap", device="cpu",

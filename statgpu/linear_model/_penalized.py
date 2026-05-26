@@ -2120,6 +2120,23 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
             y_pred = coef_full[0] + X @ coef_full[1:]
         resid = y - y_pred
         df_resid = int(n_samples - coef_full.shape[0])
+        if df_resid <= 0:
+            if X_mean is None:
+                X_design = X.get()
+            else:
+                X_np = X.get()
+                X_design = np.column_stack([np.ones(int(n_samples), dtype=X_np.dtype), X_np])
+            self._inference_precomputed = True
+            self._precomputed_gaussian_state = {
+                "params": coef_full.get(),
+                "X_design": X_design,
+                "y": y.get(),
+                "resid": resid.get(),
+                "scale": np.nan,
+                "nobs": int(n_samples),
+                "df_resid": int(df_resid),
+            }
+            return
         scale = cp.sum(resid ** 2) / df_resid if df_resid > 0 else cp.asarray(cp.nan, dtype=X.dtype)
         bse = cp.sqrt(cp.maximum(scale * cp.diag(bread_inv), 0.0))
         tvalues = coef_full / (bse + 1e-30)
@@ -2185,6 +2202,23 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
             y_pred = coef_full[0] + X @ coef_full[1:]
         resid = y - y_pred
         df_resid = int(n_samples - coef_full.shape[0])
+        if df_resid <= 0:
+            if X_mean is None:
+                X_design = X.detach().cpu().numpy()
+            else:
+                X_np = X.detach().cpu().numpy()
+                X_design = np.column_stack([np.ones(int(n_samples), dtype=X_np.dtype), X_np])
+            self._inference_precomputed = True
+            self._precomputed_gaussian_state = {
+                "params": coef_full.detach().cpu().numpy(),
+                "X_design": X_design,
+                "y": y.detach().cpu().numpy(),
+                "resid": resid.detach().cpu().numpy(),
+                "scale": np.nan,
+                "nobs": int(n_samples),
+                "df_resid": int(df_resid),
+            }
+            return
         scale = torch.sum(resid ** 2) / df_resid if df_resid > 0 else torch.tensor(float("nan"), dtype=X.dtype, device=X.device)
         bse = torch.sqrt(torch.clamp(scale * torch.diag(bread_inv), min=0.0))
         tvalues = coef_full / (bse + 1e-30)
@@ -4092,8 +4126,10 @@ class PenalizedLinearRegression(PenalizedGeneralizedLinearModel):
     @property
     def f_pvalue(self):
         fv = self.fvalue
-        if fv is None or fv == np.inf:
+        if fv is None:
             return 1.0
+        if np.isposinf(fv):
+            return 0.0
         k = int(self._X_design.shape[1] - (1 if self.fit_intercept else 0))
         return 1 - stats.f.cdf(fv, k, self._df_resid)
 

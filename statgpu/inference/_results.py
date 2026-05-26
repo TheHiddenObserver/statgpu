@@ -92,8 +92,12 @@ class ParameterInferenceResult(BaseInferenceResult):
                 estimator._zvalues = stat
             elif self.statistic_name == "t":
                 estimator._tvalues = stat
+                if hasattr(estimator, "_zvalues"):
+                    estimator._zvalues = None
             else:
                 estimator._statistic = stat
+                if hasattr(estimator, "_zvalues"):
+                    estimator._zvalues = None
         estimator._pvalues = None if self.pvalues is None else np.asarray(self.pvalues).copy()
         estimator._conf_int = None if self.conf_int is None else np.asarray(self.conf_int).copy()
         return estimator
