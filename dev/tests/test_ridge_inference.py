@@ -442,3 +442,25 @@ class TestRidgeGPUInference:
         # GPU/CPU can differ slightly due to linear algebra kernel implementations.
         assert np.allclose(m_cpu._bse, m_gpu._bse, rtol=6e-4, atol=1e-6)
         assert np.allclose(m_cpu._pvalues, m_gpu._pvalues, rtol=1e-3, atol=1e-6)
+
+    @pytest.mark.skipif(
+        not Ridge(device="auto")._get_compute_device() == Device.CUDA,
+        reason="CUDA not available",
+    )
+    @pytest.mark.parametrize("device", ["cuda", "torch"])
+    def test_penalized_l2_gpu_underdetermined_clears_precompute_cache(self, device):
+        X, y = _make_data(n_samples=4, n_features=6, seed=123)
+        m = PenalizedLinearRegression(
+            penalty="l2",
+            alpha=0.1,
+            solver="exact",
+            device=device,
+            compute_inference=True,
+        )
+        m.fit(X, y)
+        assert m._df_resid <= 0
+        assert m._inference_result is None
+        assert m._bse is None
+        assert m._pvalues is None
+        assert m._inference_precomputed is False
+        assert m._precomputed_gaussian_state is None
