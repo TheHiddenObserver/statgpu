@@ -226,11 +226,29 @@ class Lasso(BaseEstimator):
         self._inference_cautions = []
         self._inference_result = None
 
+    def _clear_inference_result(self):
+        self._X_design = None
+        self._y = None
+        self._resid = None
+        self._scale = None
+        self._nobs = None
+        self._df_resid = None
+        self._params = None
+        self._bse = None
+        self._tvalues = None
+        self._pvalues = None
+        self._conf_int = None
+        self._inference_result = None
+        if hasattr(self, "_zvalues"):
+            self._zvalues = None
+        if hasattr(self, "_statistic"):
+            self._statistic = None
+
     def fit(self, X, y, sample_weight=None):
         """Fit Lasso regression model using coordinate descent."""
         self._validate_simultaneous_config()
         self._reset_simultaneous_outputs()
-        self._inference_result = None
+        self._clear_inference_result()
         device = self._get_compute_device()
 
         # Get backend - support explicit torch backend selection
