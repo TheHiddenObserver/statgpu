@@ -27,6 +27,7 @@ from statgpu.inference._distributions_backend import (
     norm,
     t,
 )
+from statgpu.inference._results import DebiasedInferenceResult, ParameterInferenceResult
 
 
 _NUMBA_CD_DISABLED = str(os.getenv("STATGPU_DISABLE_NUMBA_CD", "0")).strip().lower() in (
@@ -223,11 +224,31 @@ class Lasso(BaseEstimator):
         self._simultaneous_target_mask = None
         self._debiased_M_cpu = None
         self._inference_cautions = []
+        self._inference_result = None
+
+    def _clear_inference_result(self):
+        self._X_design = None
+        self._y = None
+        self._resid = None
+        self._scale = None
+        self._nobs = None
+        self._df_resid = None
+        self._params = None
+        self._bse = None
+        self._tvalues = None
+        self._pvalues = None
+        self._conf_int = None
+        self._inference_result = None
+        if hasattr(self, "_zvalues"):
+            self._zvalues = None
+        if hasattr(self, "_statistic"):
+            self._statistic = None
 
     def fit(self, X, y, sample_weight=None):
         """Fit Lasso regression model using coordinate descent."""
         self._validate_simultaneous_config()
         self._reset_simultaneous_outputs()
+        self._clear_inference_result()
         device = self._get_compute_device()
 
         # Get backend - support explicit torch backend selection
@@ -284,6 +305,7 @@ class Lasso(BaseEstimator):
             self._compute_inference()
         if self.enable_simultaneous_inference:
             self._compute_simultaneous_inference()
+            self._sync_inference_result()
         self._inference_cautions = self._build_inference_cautions()
         for msg in self._inference_cautions:
             warnings.warn(msg, UserWarning, stacklevel=2)
@@ -354,6 +376,86 @@ class Lasso(BaseEstimator):
                 )
 
         return cautions
+
+    def _inference_feature_names(self):
+        if self.coef_ is None:
+            return None
+        names = [f"x{i+1}" for i in range(int(np.asarray(self.coef_).shape[0]))]
+        if self.fit_intercept:
+            return ["(Intercept)"] + names
+        return names
+
+    def _sync_inference_result(self, *, backend_path: Optional[str] = None, extra_metadata: Optional[Dict[str, Any]] = None):
+        """Create the shared inference result wrapper from existing Lasso arrays."""
+        if not self.compute_inference:
+            self._inference_result = None
+            return None
+        if self._params is None or self._bse is None or self._pvalues is None or self._conf_int is None:
+            return None
+
+        metadata = {
+            "alpha": float(self.alpha),
+            "inference_method": self.inference_method,
+            "fit_intercept": bool(self.fit_intercept),
+        }
+        if self._inference_result is not None:
+            metadata.update(getattr(self._inference_result, "metadata", {}) or {})
+        if backend_path is not None:
+            metadata["backend_path"] = backend_path
+        if extra_metadata:
+            metadata.update(extra_metadata)
+
+        if self.inference_method == "debiased":
+            result = DebiasedInferenceResult(
+                method="debiased_lasso",
+                params=self._params,
+                bse=self._bse,
+                statistic=self._tvalues,
+                pvalues=self._pvalues,
+                conf_int=self._conf_int,
+                cov_type="debiased",
+                distribution="normal",
+                df=self._df_resid,
+                feature_names=self._inference_feature_names(),
+                metadata=metadata,
+                precision_method="nodewise_lasso",
+                simultaneous_conf_int=self._conf_int_simultaneous,
+                simultaneous_method=self._simultaneous_method,
+                simultaneous_alpha=self._simultaneous_alpha,
+                simultaneous_n_bootstrap=self._simultaneous_n_bootstrap,
+                simultaneous_critical_value=self._simultaneous_critical_value,
+                simultaneous_target_mask=self._simultaneous_target_mask,
+            )
+        else:
+            if self.inference_method == "bootstrap":
+                method = "residual_bootstrap"
+                distribution = "bootstrap_percentile"
+                metadata.update(
+                    {
+                        "n_bootstrap": int(self.n_bootstrap),
+                        "random_state": self.bootstrap_random_state,
+                    }
+                )
+            else:
+                method = "post_selection_ols"
+                distribution = "t"
+                metadata["heuristic_post_selection"] = True
+            result = ParameterInferenceResult(
+                method=method,
+                params=self._params,
+                bse=self._bse,
+                statistic=self._tvalues,
+                statistic_name="t",
+                pvalues=self._pvalues,
+                conf_int=self._conf_int,
+                cov_type="nonrobust",
+                distribution=distribution,
+                df=self._df_resid,
+                feature_names=self._inference_feature_names(),
+                metadata=metadata,
+            )
+        result.apply_to(self)
+        return result
 
     @staticmethod
     def _get_cupy_fused_kernels():
@@ -811,6 +913,7 @@ class Lasso(BaseEstimator):
                 self._tvalues = cp.asnumpy(tvalues_gpu)
                 self._pvalues = cp.asnumpy(pvalues_gpu)
                 self._conf_int = cp.asnumpy(conf_int_gpu)
+                self._sync_inference_result(backend_path="cupy_gpu_ols")
 
                 # R^2 / keep diagnostics consistent without transferring residuals.
                 y_mean_gpu = cp.mean(y)
@@ -930,7 +1033,7 @@ class Lasso(BaseEstimator):
         n_iters = torch.zeros((n_folds, n_alphas), dtype=torch.int32, device=device)
 
         n_vec = torch.as_tensor(n_samples_vec, dtype=dtype, device=device).reshape(-1)
-        if n_vec.size != n_folds:
+        if int(n_vec.numel()) != n_folds:
             raise ValueError("n_samples_vec must have one entry per fold")
 
         if lipschitz_L is not None:
@@ -1106,7 +1209,13 @@ class Lasso(BaseEstimator):
                     lipschitz_L=None,
                     check_every=8,
                 )
-                gamma_batch = torch.from_numpy(np.asarray(coefs_batch_desc[:, 0, :], dtype=np.float64)).to(dtype).to(device)
+                gamma_raw = coefs_batch_desc[:, 0, :]
+                if isinstance(gamma_raw, torch.Tensor):
+                    gamma_batch = gamma_raw.to(dtype=dtype, device=device)
+                else:
+                    gamma_batch = torch.from_numpy(
+                        np.asarray(gamma_raw, dtype=np.float64)
+                    ).to(dtype).to(device)
 
                 # C_j = Sigma_jj - Sigma_{j,-j} gamma_j
                 sigma_j_cols = Sigma_hat[j_batch[:, None], cols_batch]
@@ -1193,6 +1302,14 @@ class Lasso(BaseEstimator):
             self._compute_simultaneous_inference_torch(
                 params_torch, bse_torch, se, M, X_torch, resid_full, n
             )
+        self._sync_inference_result(
+            backend_path="torch_debiased",
+            extra_metadata={
+                "lam_nw": float(lam_nw),
+                "sigma2": float(sigma2.detach().cpu().numpy()),
+                "precision_cache_hit": bool(M_cached is not None),
+            },
+        )
 
     def _compute_simultaneous_inference_torch(
         self, params_torch, bse_torch, se_feat_torch, M_torch, X_torch, resid_full_torch, n
@@ -1202,16 +1319,16 @@ class Lasso(BaseEstimator):
 
         # Get target indices
         param_target_idx_np = self._get_simultaneous_target_indices(int(params_torch.shape[0]))
-        param_target_idx_torch = torch.as_tensor(param_target_idx_np, dtype=torch.int32, device=params_torch.device)
+        param_target_idx_torch = torch.as_tensor(param_target_idx_np, dtype=torch.long, device=params_torch.device)
 
-        if param_target_idx_torch.size == 0:
+        if int(param_target_idx_torch.numel()) == 0:
             raise RuntimeError("No coefficients selected for simultaneous inference target set.")
 
         feature_offset = 1 if self.fit_intercept else 0
         feature_target_torch = param_target_idx_torch - feature_offset
         feature_target_torch = feature_target_torch[feature_target_torch >= 0]
 
-        if feature_target_torch.size == 0:
+        if int(feature_target_torch.numel()) == 0:
             raise RuntimeError("No feature coefficients selected for simultaneous inference target set.")
 
         se_target_torch = torch.index_select(se_feat_torch, 0, feature_target_torch)
@@ -1247,6 +1364,12 @@ class Lasso(BaseEstimator):
         critical_torch = torch.quantile(max_stats_torch, 1.0 - float(self.simultaneous_alpha))
 
         # Build simultaneous confidence intervals
+        alpha_ci = 0.05
+        z_crit = norm.ppf(1.0 - alpha_ci / 2.0)
+        conf_int_torch = torch.stack(
+            [params_torch - z_crit * bse_torch, params_torch + z_crit * bse_torch],
+            dim=1,
+        )
         conf_sim_torch = conf_int_torch.clone()
         lower_torch = torch.index_select(params_torch, 0, param_target_idx_torch) - critical_torch * torch.index_select(bse_torch, 0, param_target_idx_torch)
         upper_torch = torch.index_select(params_torch, 0, param_target_idx_torch) + critical_torch * torch.index_select(bse_torch, 0, param_target_idx_torch)
@@ -1263,6 +1386,7 @@ class Lasso(BaseEstimator):
         self._simultaneous_n_bootstrap = B
         self._simultaneous_critical_value = float(critical_torch.cpu().numpy())
         self._simultaneous_target_mask = target_mask
+        self._sync_inference_result()
 
     def _soft_threshold_torch(self, x, gamma):
         """Soft thresholding operator for Torch tensors."""
@@ -1436,6 +1560,7 @@ class Lasso(BaseEstimator):
                 self._tvalues = tvalues_gpu.cpu().numpy()
                 self._pvalues = pvalues_gpu.cpu().numpy()
                 self._conf_int = conf_int_gpu.cpu().numpy()
+                self._sync_inference_result(backend_path="torch_gpu_ols")
 
                 # R^2
                 y_mean_gpu = torch.mean(y)
@@ -1649,6 +1774,7 @@ class Lasso(BaseEstimator):
                 self._tvalues = cp.asnumpy(tvalues_gpu)
                 self._pvalues = cp.asnumpy(pvalues_gpu)
                 self._conf_int = cp.asnumpy(conf_int_gpu)
+                self._sync_inference_result(backend_path="cupy_gpu_ols")
 
                 y_mean_gpu = cp.mean(y)
                 ss_tot = cp.sum((y - y_mean_gpu) ** 2)
@@ -1750,6 +1876,7 @@ class Lasso(BaseEstimator):
             self._params - t_crit * self._bse,
             self._params + t_crit * self._bse
         ])
+        self._sync_inference_result(backend_path="cpu_ols")
 
     def _compute_inference_bootstrap(self) -> None:
         """
@@ -1839,6 +1966,7 @@ class Lasso(BaseEstimator):
 
         # t-stats (approx) from bootstrap SE.
         self._tvalues = self._params / (self._bse + 1e-30)
+        self._sync_inference_result(backend_path="cpu_bootstrap")
 
     def _compute_inference_debiased(self) -> None:
         """Debiased Lasso inference (Javanmard-Montanari / Zhang-Zhang).
@@ -1950,6 +2078,14 @@ class Lasso(BaseEstimator):
             self._pvalues = pvalues
             self._conf_int = ci
             self._params = theta_db
+        self._sync_inference_result(
+            backend_path="cpu_debiased",
+            extra_metadata={
+                "lam_nw": float(lam_nw),
+                "sigma2": float(sigma2),
+                "precision_cache_hit": bool(M_cached is not None),
+            },
+        )
 
     def _compute_inference_debiased_gpu(self, X_gpu, y_gpu, coef_gpu):
         """GPU path for debiased Lasso inference.
@@ -2185,6 +2321,14 @@ class Lasso(BaseEstimator):
         self._pvalues = cp.asnumpy(pvalues_gpu)
         self._conf_int = cp.asnumpy(conf_int_gpu)
         self._params = cp.asnumpy(params_gpu)
+        self._sync_inference_result(
+            backend_path="cupy_debiased",
+            extra_metadata={
+                "lam_nw": float(lam_nw),
+                "sigma2": float(cp.asnumpy(sigma2_gpu)),
+                "precision_cache_hit": bool(M_cached is not None),
+            },
+        )
 
     def _get_simultaneous_target_indices(self, n_params: int):
         if self.fit_intercept and (not self.simultaneous_include_intercept):
@@ -2329,6 +2473,7 @@ class Lasso(BaseEstimator):
         self._simultaneous_n_bootstrap = B
         self._simultaneous_critical_value = critical
         self._simultaneous_target_mask = mask
+        self._sync_inference_result()
 
     @property
     def rsquared(self):
@@ -4816,11 +4961,16 @@ def _solve_lasso_path_gpu_fista_multi_fold_from_gram_torch(
 # V9 thin wrapper
 # =============================================================================
 
-from ._penalized import PenalizedLinearRegression as _PenalizedLinearRegression
+_InferenceCapableLasso = Lasso
 
 
-class Lasso(_PenalizedLinearRegression):
-    """Thin sklearn-style wrapper over ``PenalizedLinearRegression`` with L1 penalty."""
+class Lasso(_InferenceCapableLasso):
+    """Inference-capable Lasso estimator.
+
+    This public wrapper keeps the existing Lasso inference algorithms available
+    while the shared inference result containers are introduced.  The pure
+    GLM+penalty L1 path remains available through ``PenalizedLinearRegression``.
+    """
 
     def __init__(
         self,
@@ -4862,15 +5012,26 @@ class Lasso(_PenalizedLinearRegression):
         self.admm_rho = float(admm_rho)
         self._ignored_kwargs = dict(kwargs)
         super().__init__(
-            penalty="l1",
             alpha=alpha,
             fit_intercept=fit_intercept,
             max_iter=max_iter,
             tol=tol,
+            stopping=stopping,
+            inference_method=inference_method,
+            n_bootstrap=n_bootstrap,
+            bootstrap_random_state=bootstrap_random_state,
+            enable_simultaneous_inference=enable_simultaneous_inference,
+            simultaneous_method=simultaneous_method,
+            simultaneous_alpha=simultaneous_alpha,
+            simultaneous_n_bootstrap=simultaneous_n_bootstrap,
+            simultaneous_random_state=simultaneous_random_state,
+            simultaneous_include_intercept=simultaneous_include_intercept,
             device=device,
             n_jobs=n_jobs,
+            compute_inference=compute_inference,
             cpu_solver=cpu_solver,
             solver=solver,
             lipschitz_L=lipschitz_L,
+            admm_rho=admm_rho,
             gpu_memory_cleanup=gpu_memory_cleanup,
         )
