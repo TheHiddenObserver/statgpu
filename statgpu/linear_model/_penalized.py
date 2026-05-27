@@ -2105,14 +2105,17 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
         p = XtX_centered.shape[0]
         ridge_alpha = float(n_samples) * self._ridge_alpha_for_exact()
         if X_mean is None:
-            bread = XtX_centered + ridge_alpha * cp.eye(p, dtype=XtX_centered.dtype)
+            xtx_full = XtX_centered
+            bread = xtx_full + ridge_alpha * cp.eye(p, dtype=XtX_centered.dtype)
         else:
             sum_x = float(n_samples) * X_mean
             xtx_orig = XtX_centered + float(n_samples) * cp.outer(X_mean, X_mean)
-            bread = cp.empty((p + 1, p + 1), dtype=XtX_centered.dtype)
-            bread[0, 0] = float(n_samples)
-            bread[0, 1:] = sum_x
-            bread[1:, 0] = sum_x
+            xtx_full = cp.empty((p + 1, p + 1), dtype=XtX_centered.dtype)
+            xtx_full[0, 0] = float(n_samples)
+            xtx_full[0, 1:] = sum_x
+            xtx_full[1:, 0] = sum_x
+            xtx_full[1:, 1:] = xtx_orig
+            bread = xtx_full.copy()
             bread[1:, 1:] = xtx_orig + ridge_alpha * cp.eye(p, dtype=XtX_centered.dtype)
         try:
             chol = cp.linalg.cholesky(bread)
@@ -2144,7 +2147,8 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
             }
             return
         scale = cp.sum(resid ** 2) / df_resid if df_resid > 0 else cp.asarray(cp.nan, dtype=X.dtype)
-        bse = cp.sqrt(cp.maximum(scale * cp.diag(bread_inv), 0.0))
+        cov_params = scale * (bread_inv @ xtx_full @ bread_inv)
+        bse = cp.sqrt(cp.maximum(cp.diag(cov_params), 0.0))
         tvalues = coef_full / (bse + 1e-30)
         pvalues = t.two_sided_pvalue(tvalues, df=df_resid)
         t_crit = cp.asarray(t.two_sided_critical_value(0.05, df=df_resid), dtype=bse.dtype)
@@ -2187,14 +2191,17 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
         ridge_alpha = float(n_samples) * self._ridge_alpha_for_exact()
         eye_p = torch.eye(p, dtype=XtX_centered.dtype, device=XtX_centered.device)
         if X_mean is None:
-            bread = XtX_centered + ridge_alpha * eye_p
+            xtx_full = XtX_centered
+            bread = xtx_full + ridge_alpha * eye_p
         else:
             sum_x = float(n_samples) * X_mean
             xtx_orig = XtX_centered + float(n_samples) * torch.outer(X_mean, X_mean)
-            bread = torch.empty((p + 1, p + 1), dtype=XtX_centered.dtype, device=XtX_centered.device)
-            bread[0, 0] = float(n_samples)
-            bread[0, 1:] = sum_x
-            bread[1:, 0] = sum_x
+            xtx_full = torch.empty((p + 1, p + 1), dtype=XtX_centered.dtype, device=XtX_centered.device)
+            xtx_full[0, 0] = float(n_samples)
+            xtx_full[0, 1:] = sum_x
+            xtx_full[1:, 0] = sum_x
+            xtx_full[1:, 1:] = xtx_orig
+            bread = xtx_full.clone()
             bread[1:, 1:] = xtx_orig + ridge_alpha * eye_p
         try:
             chol = torch.linalg.cholesky(bread)
@@ -2226,7 +2233,8 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
             }
             return
         scale = torch.sum(resid ** 2) / df_resid if df_resid > 0 else torch.tensor(float("nan"), dtype=X.dtype, device=X.device)
-        bse = torch.sqrt(torch.clamp(scale * torch.diag(bread_inv), min=0.0))
+        cov_params = scale * (bread_inv @ xtx_full @ bread_inv)
+        bse = torch.sqrt(torch.clamp(torch.diag(cov_params), min=0.0))
         tvalues = coef_full / (bse + 1e-30)
         t_dist = get_distribution("t", backend="torch", device=X.device)
         pvalues = t_dist.two_sided_pvalue(tvalues, df=df_resid)

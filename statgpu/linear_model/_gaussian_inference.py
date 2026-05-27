@@ -212,7 +212,10 @@ def compute_gaussian_inference(
 
     cov_type = validate_cov_type(cov_type)
     if cov_type == "nonrobust":
-        cov_params = float(scale_arr) * bread_inv
+        if ridge_alpha:
+            cov_params = float(scale_arr) * (bread_inv @ XtX @ bread_inv)
+        else:
+            cov_params = float(scale_arr) * bread_inv
         bse = np.sqrt(np.diag(cov_params))
         tvalues = params_arr / (bse + 1e-30)
         pvalues = 2 * (1 - stats.t.cdf(np.abs(tvalues), df_resid))
