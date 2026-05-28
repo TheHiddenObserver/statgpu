@@ -100,7 +100,7 @@ def _register_default_methods():
     Factories accept an optional AgentConfig to pass device/cov_type/etc.
     The config is applied in _analysis.py's _run_with_methods().
     """
-    from statgpu.linear_model import LinearRegression, LogisticRegression, PoissonRegression, Ridge
+    from statgpu.linear_model import LinearRegression, LogisticRegression, PoissonRegression, Ridge, Lasso, ElasticNet
     from statgpu.survival import CoxPH
     from statgpu.unsupervised import KMeans, PCA
 
@@ -108,6 +108,12 @@ def _register_default_methods():
                             factory=lambda cfg=None: LinearRegression(), priority=0)
     MethodRegistry.register("regression", "Ridge(alpha=1.0)",
                             factory=lambda cfg=None: Ridge(alpha=1.0), priority=1)
+    MethodRegistry.register("regression", "Ridge",
+                            factory=lambda cfg=None: Ridge(alpha=1.0), priority=2)
+    MethodRegistry.register("regression", "Lasso",
+                            factory=lambda cfg=None: Lasso(), priority=3)
+    MethodRegistry.register("regression", "ElasticNet",
+                            factory=lambda cfg=None: ElasticNet(), priority=4)
 
     MethodRegistry.register("binary_classification", "LogisticRegression",
                             factory=lambda cfg=None: LogisticRegression(), priority=0)
