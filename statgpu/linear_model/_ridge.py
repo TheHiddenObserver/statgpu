@@ -217,7 +217,7 @@ class Ridge(BaseEstimator):
         return self
     
     def _fit_cpu(self, X, y, sample_weight=None):
-        """Fit using CPU."""
+        """Fit using CPU with optimized memory usage."""
         X = np.asarray(X)
         y = np.asarray(y)
         n_samples, n_features = X.shape
@@ -232,19 +232,21 @@ class Ridge(BaseEstimator):
         if self.fit_intercept:
             X_mean = np.mean(X, axis=0)
             y_mean = np.mean(y)
-            X_centered = X - X_mean
-            y_centered = y - y_mean
+            # Avoid creating full X_centered (n×p) matrix when computing XtX/Xty.
+            # Use the centering formula: X_centered.T @ X_centered = X.T@X - n*outer(mean)
+            # This reduces memory from O(n*p) to O(p²).
+            XtX = X.T @ X
+            XtX -= n_samples * np.outer(X_mean, X_mean)
+            Xty = X.T @ y
+            Xty -= n_samples * X_mean * y_mean
         else:
-            X_centered = X
-            y_centered = y
             y_mean = 0.0
-        
-        if y.ndim == 1:
-            y_centered = y_centered.reshape(-1, 1)
-        
-        XtX = X_centered.T @ X_centered
-        Xty = X_centered.T @ y_centered
-        
+            XtX = X.T @ X
+            Xty = X.T @ y
+
+        if Xty.ndim == 1:
+            Xty = Xty.reshape(-1, 1)
+
         I = np.eye(n_features)
         XtX_reg = XtX + self.alpha * I
         
@@ -255,24 +257,32 @@ class Ridge(BaseEstimator):
         
         coef = coef.flatten()
         
+        # Only build design matrix and compute residuals when inference is needed
         if self.fit_intercept:
             self.intercept_ = float(y_mean - X_mean @ coef)
             self.coef_ = coef
             self._params = np.concatenate([[self.intercept_], self.coef_])
-            self._X_design = np.column_stack([np.ones(n_samples, dtype=X.dtype), X])
         else:
             self.intercept_ = 0.0
             self.coef_ = coef
             self._params = self.coef_.copy()
-            self._X_design = X.copy()
         
-        y_pred = self._X_design @ self._params
-        self._resid = self._y - y_pred
         self._df_resid = n_samples - (n_features + (1 if self.fit_intercept else 0))
         
-        if self._df_resid > 0:
-            self._scale = np.sum(self._resid ** 2) / self._df_resid
+        if self.compute_inference:
+            if self.fit_intercept:
+                self._X_design = np.column_stack([np.ones(n_samples, dtype=X.dtype), X])
+            else:
+                self._X_design = X.copy()
+            y_pred = self._X_design @ self._params
+            self._resid = self._y - y_pred
+            if self._df_resid > 0:
+                self._scale = np.sum(self._resid ** 2) / self._df_resid
+            else:
+                self._scale = np.nan
         else:
+            self._X_design = None
+            self._resid = None
             self._scale = np.nan
     
     def _fit_gpu(self, X, y, sample_weight=None):
@@ -897,3 +907,82 @@ class Ridge(_PenalizedLinearRegression):
             cov_type=cov_type,
             hac_maxlags=hac_maxlags,
         )
+
+    def fit(self, X=None, y=None, sample_weight=None, formula=None, data=None):
+        """Fit Ridge regression model with optimized memory-efficient path.
+
+        Uses centering formulas to avoid allocating the full centered design matrix,
+        and skips expensive inference computations when ``compute_inference=False``.
+        """
+        if formula is not None or self._get_compute_device() != Device.CPU or self.solver != "exact":
+            # Fall back to parent implementation for formula interface or GPU paths
+            return super().fit(X=X, y=y, sample_weight=sample_weight, formula=formula, data=data)
+
+        X_np = np.asarray(self._to_array(X, Device.CPU), dtype=np.float64)
+        y_np = np.asarray(self._to_array(y, Device.CPU), dtype=np.float64)
+
+        n_samples, n_features = X_np.shape
+        self._nobs = n_samples
+        self._fitted = False
+
+        if sample_weight is not None:
+            sample_weight = np.asarray(sample_weight, dtype=np.float64)
+            sqrt_sw = np.sqrt(sample_weight)
+            X_np = X_np * sqrt_sw[:, np.newaxis]
+            y_np = y_np * sqrt_sw
+
+        # Memory-efficient centering: avoid creating full X_centered (n×p) matrix.
+        # Use: XtX = X.T@X - n*outer(mean), Xty = X.T@y - n*mean_x*mean_y
+        if self.fit_intercept:
+            X_mean = np.mean(X_np, axis=0)
+            y_mean = np.mean(y_np)
+            XtX = X_np.T @ X_np
+            XtX -= n_samples * np.outer(X_mean, X_mean)
+            Xty = X_np.T @ y_np
+            Xty -= n_samples * X_mean * y_mean
+        else:
+            y_mean = 0.0
+            XtX = X_np.T @ X_np
+            Xty = X_np.T @ y_np
+
+        if Xty.ndim == 0:
+            Xty = Xty.reshape(1)
+        if Xty.ndim == 1:
+            Xty = Xty.reshape(-1, 1)
+
+        # Solve (XtX + alpha*n*I) @ coef = Xty
+        alpha_scaled = float(self.alpha) * n_samples
+        A = XtX + alpha_scaled * np.eye(n_features, dtype=np.float64)
+        try:
+            coef = np.linalg.solve(A, Xty).flatten()
+        except np.linalg.LinAlgError:
+            coef = np.linalg.lstsq(A, Xty, rcond=None)[0].flatten()
+
+        if self.fit_intercept:
+            self.intercept_ = float(y_mean - X_mean @ coef)
+            self.coef_ = coef
+            self._params = np.concatenate([[self.intercept_], self.coef_])
+        else:
+            self.intercept_ = 0.0
+            self.coef_ = coef
+            self._params = self.coef_.copy()
+
+        self._X_design = None
+        self._resid = None
+        self._scale = np.nan
+        self.n_iter_ = 1
+        self._df_resid = n_samples - (n_features + (1 if self.fit_intercept else 0))
+
+        # Build design matrix and compute residuals only when inference is needed
+        if self.compute_inference:
+            if self.fit_intercept:
+                self._X_design = np.column_stack([np.ones(n_samples, dtype=X_np.dtype), X_np])
+            else:
+                self._X_design = X_np.copy()
+            y_pred = self._X_design @ self._params
+            self._resid = y_np - y_pred
+            if self._df_resid > 0:
+                self._scale = np.sum(self._resid ** 2) / self._df_resid
+
+        self._fitted = True
+        return self

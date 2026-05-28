@@ -19,18 +19,9 @@ from scipy import stats
 
 from statgpu._base import BaseEstimator
 from statgpu._config import Device
-from statgpu.backends import _get_torch_device_str, _torch_dev, xp_astype, xp_zeros
+from statgpu.backends import _get_torch_device_str, _torch_dev, _to_numpy, xp_astype, xp_zeros, xp_cholesky_solve
 
-from ._utils import within_transform, group_means, group_sizes
-
-
-def _to_numpy(x):
-    """Convert array to numpy."""
-    if hasattr(x, 'get'):
-        return x.get()
-    if hasattr(x, 'cpu') and hasattr(x, 'numpy'):
-        return x.cpu().numpy()
-    return np.asarray(x)
+from ._utils import within_transform, group_means, group_sizes, ols_inference_nonrobust
 
 
 class RandomEffects(BaseEstimator):
@@ -220,16 +211,7 @@ class RandomEffects(BaseEstimator):
         XtX_s = X_star.T @ X_star
         Xty_s = X_star.T @ y_star
         try:
-            if hasattr(xp.linalg, 'cholesky'):
-                L = xp.linalg.cholesky(XtX_s)
-                if _torch_dev(L) is not None:
-                    tmp = xp.linalg.solve_triangular(L, Xty_s, upper=False)
-                    beta_gls = xp.linalg.solve_triangular(L.T, tmp, upper=True)
-                else:
-                    tmp = xp.linalg.solve_triangular(L, Xty_s, lower=True)
-                    beta_gls = xp.linalg.solve_triangular(L.T, tmp, lower=False)
-            else:
-                beta_gls = xp.linalg.solve(XtX_s, Xty_s)
+            beta_gls = xp_cholesky_solve(XtX_s, Xty_s, xp)
         except Exception:
             beta_gls = xp.linalg.solve(XtX_s, Xty_s)
 
@@ -253,28 +235,8 @@ class RandomEffects(BaseEstimator):
 
     def _compute_inference(self):
         """Compute SE, t-values, p-values, and confidence intervals."""
-        X = self._X_design
-        n, k = X.shape
-        params = self._params
-        df = self.df_resid
-
-        XtX = X.T @ X
-        try:
-            XtX_inv = np.linalg.inv(XtX)
-        except np.linalg.LinAlgError:
-            XtX_inv = np.linalg.pinv(XtX)
-
-        cov_params = self._scale * XtX_inv
-        alpha = 0.05
-
-        self.bse_ = np.sqrt(np.diag(cov_params))
-        self.tvalues_ = params / (self.bse_ + 1e-30)
-        self.pvalues_ = 2 * (1 - stats.t.cdf(np.abs(self.tvalues_), df))
-        t_crit = stats.t.ppf(1 - alpha / 2, df)
-        self.conf_int_ = np.column_stack([
-            params - t_crit * self.bse_,
-            params + t_crit * self.bse_,
-        ])
+        self.bse_, self.tvalues_, self.pvalues_, self.conf_int_ = \
+            ols_inference_nonrobust(self._params, self._X_design, self._scale, self.df_resid)
 
     def predict(self, X):
         """Predict using the fitted model.

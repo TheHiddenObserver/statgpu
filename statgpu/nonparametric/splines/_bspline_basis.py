@@ -7,7 +7,7 @@ vectorized over sample points for efficient GPU computation.
 
 import numpy as np
 
-from statgpu.backends import _torch_dev, xp_zeros, xp_eye, xp_full, xp_astype, xp_asarray
+from statgpu.backends import _torch_dev, _to_numpy, xp_zeros, xp_eye, xp_full, xp_astype, xp_asarray
 
 
 def _get_xp(xp):
@@ -76,8 +76,8 @@ def bspline_basis(x, knots, degree=3, xp=None):
     n_knots = len(t)
     n_basis = n_knots - degree - 1  # = m + degree + 1
 
-    # Pre-extract all knot values to CPU (single GPU sync for torch tensors)
-    t_cpu = [float(t[i]) for i in range(n_knots)]
+    # Pre-extract all knot values to CPU in one transfer
+    t_cpu = _to_numpy(t).tolist()
 
     # De Boor recursion, vectorized over x
     # Initialize degree-0 indicator functions for all n_knots-1 intervals.

@@ -43,6 +43,7 @@ from ._utils import (
     xp_ones,
     xp_maximum,
     xp_copy,
+    xp_cholesky_solve,
 )
 
 __all__ = [
@@ -69,4 +70,5 @@ __all__ = [
     "xp_ones",
     "xp_maximum",
     "xp_copy",
+    "xp_cholesky_solve",
 ]

@@ -1,8 +1,5 @@
-"""
-Spline basis functions and GAM (Generalized Additive Model) with GPU support.
-"""
-
-from ._bspline_basis import bspline_basis, natural_cubic_spline_basis
-from ._gam import GAM
-
-__all__ = ['bspline_basis', 'natural_cubic_spline_basis', 'GAM']
+"""Backward compatibility shim. Use statgpu.nonparametric.splines and statgpu.semiparametric instead."""
+from statgpu.nonparametric.splines import *  # noqa: F401,F403
+from statgpu.nonparametric.splines import __all__  # noqa: F401
+# GAM moved to semiparametric but re-exported here for backward compat
+from statgpu.semiparametric import GAM  # noqa: F401

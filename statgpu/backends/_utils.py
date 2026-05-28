@@ -192,3 +192,17 @@ def xp_copy(arr):
     if _torch_dev(arr) is not None:
         return arr.clone()
     return arr.copy()
+
+
+def xp_cholesky_solve(A, b, xp):
+    """Solve ``A @ x = b`` via Cholesky decomposition.
+
+    Works across numpy, cupy, and torch backends.  Handles the torch-specific
+    argument difference for ``solve_triangular`` (``upper=False`` vs ``lower=True``).
+    """
+    L = xp.linalg.cholesky(A)
+    if _torch_dev(L) is not None:
+        tmp = xp.linalg.solve_triangular(L, b, upper=False)
+        return xp.linalg.solve_triangular(L.T, tmp, upper=True)
+    tmp = xp.linalg.solve_triangular(L, b, lower=True)
+    return xp.linalg.solve_triangular(L.T, tmp, lower=False)

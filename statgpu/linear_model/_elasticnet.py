@@ -427,7 +427,7 @@ class ElasticNet(BaseEstimator):
         self._X_design = None
         self._resid = None
 
-    def fit(self, X, y, sample_weight=None):
+    def fit(self, X, y, sample_weight=None, initial_coef=None):
         """
         Fit Elastic Net model.
 
@@ -439,6 +439,10 @@ class ElasticNet(BaseEstimator):
             Target values.
         sample_weight : array-like of shape (n_samples,), optional
             Sample weights.
+        initial_coef : array-like of shape (n_features,), optional
+            Initial coefficient vector for warm-start. When fitting along a
+            regularization path (alphas from large to small), passing the
+            previous solution can significantly reduce iterations.
 
         Returns
         -------
@@ -458,7 +462,7 @@ class ElasticNet(BaseEstimator):
         elif device == Device.CUDA:
             self._fit_gpu(X_arr, y_arr, sample_weight)
         else:
-            self._fit_cpu(X_arr, y_arr, sample_weight)
+            self._fit_cpu(X_arr, y_arr, sample_weight, initial_coef=initial_coef)
 
         self._fitted = True
         return self
@@ -571,15 +575,27 @@ class ElasticNet(BaseEstimator):
         """
         return self._soft_threshold(x, gamma) / l2_scale
 
-    def _fit_cpu(self, X, y, sample_weight=None):
+    def _fit_cpu(self, X, y, sample_weight=None, initial_coef=None):
         """
         Fit using CPU FISTA solver with optimized implementation.
 
         Elastic Net proximal gradient update:
           grad = (XtX @ w - Xty) / n        # gradient of RSS only
-          w = soft_threshold(w - step*grad, α*l1_ratio*step) / (1 + α*(1-l1_ratio)*step)
+          w = soft_threshold(w - step*grad, alpha*l1_ratio*step) / (1 + alpha*(1-l1_ratio)*step)
 
         Note: L2 regularization is handled in the proximal step, NOT in the gradient.
+
+        Parameters
+        ----------
+        X : ndarray
+            Training data (n_samples, n_features).
+        y : ndarray
+            Target values (n_samples,).
+        sample_weight : ndarray, optional
+            Sample weights.
+        initial_coef : ndarray, optional
+            Initial coefficient vector for warm-start. If provided, avoids starting from zero
+            and can significantly speed up convergence along a regularization path.
         """
         X = np.asarray(X)
         y = np.asarray(y)
@@ -596,26 +612,26 @@ class ElasticNet(BaseEstimator):
         if self.fit_intercept:
             X_mean = np.mean(X, axis=0)
             y_mean = np.mean(y)
-            X_centered = X - X_mean
-            y_centered = y - y_mean
+            # Memory-efficient centering: avoid creating full X_centered (n×p) matrix
+            XtX = X.T @ X - n_samples * np.outer(X_mean, X_mean)
+            Xty = X.T @ y - n_samples * X_mean * y_mean
         else:
-            X_centered = X
             y_mean = 0.0
-            y_centered = y
+            XtX = X.T @ X
+            Xty = X.T @ y
 
-        if y.ndim == 1:
-            y_centered = y_centered.reshape(-1, 1)
-
-        # Precompute XtX and Xty for FISTA gradient
-        XtX = X_centered.T @ X_centered
-        Xty = X_centered.T @ y_centered.flatten()
+        if Xty.ndim == 0:
+            Xty = Xty.reshape(1)
+        if Xty.ndim == 1:
+            Xty = Xty.reshape(-1, 1)
+        Xty_flat = Xty.flatten()
 
         # Elastic Net parameters
         alpha = float(self.alpha)
         l1_ratio = float(self.l1_ratio)
         l2_ratio = 1.0 - l1_ratio
 
-        # Lipschitz constant: L = λ_max(XtX)/n (RSS only, L2 is handled in proximal step)
+        # Lipschitz constant: L = lambda_max(XtX)/n (RSS only, L2 is handled in proximal step)
         if self.lipschitz_L is not None:
             L = float(self.lipschitz_L)
         else:
@@ -623,8 +639,8 @@ class ElasticNet(BaseEstimator):
                 eig_max = np.linalg.eigvalsh(XtX)[-1]
                 L = float(eig_max / n_samples)
             except Exception:
-                L_frob = float(np.sum(X_centered ** 2) / n_samples)
-                L = L_frob
+                # Frobenius norm squared / n = trace(XtX) / n = sum(X_centered^2) / n
+                L = float(np.trace(XtX) / n_samples)
 
         if L <= 0:
             # Degenerate case: apply pure proximal operator
@@ -638,49 +654,60 @@ class ElasticNet(BaseEstimator):
             # Elastic Net proximal parameters
             thresh = alpha * l1_ratio * step
             l2_scale = 1.0 + alpha * l2_ratio * step
+            inv_l2_scale = 1.0 / l2_scale
+            inv_n_samples = 1.0 / n_samples
 
-            # FISTA variables
-            coef = np.zeros(n_features)
+            # FISTA variables - use warm-start if available
+            if initial_coef is not None and len(initial_coef) == n_features:
+                coef = np.asarray(initial_coef, dtype=np.float64).copy()
+            else:
+                coef = np.zeros(n_features)
             y_k = coef.copy()
             t_k = 1.0
 
+            # Pre-allocate buffers to reduce allocation overhead
+            coef_old = np.empty_like(coef)
+            grad = np.empty_like(coef)
+            w_tilde = np.empty_like(coef)
+            delta = np.empty_like(coef)
+
             for iteration in range(self.max_iter):
-                coef_old = coef.copy()
+                # Store old coefficients (in-place copy)
+                coef_old[:] = coef
 
                 # Gradient of RSS ONLY (L2 is handled in proximal step)
-                grad = (XtX @ y_k - Xty) / n_samples
+                # grad = (XtX @ y_k - Xty) / n_samples
+                np.matmul(XtX, y_k, out=grad)
+                grad -= Xty_flat
+                grad *= inv_n_samples
 
                 # Proximal gradient step with Elastic Net soft thresholding
-                w_tilde = y_k - step * grad
-                coef = self._soft_threshold_elastic(w_tilde, thresh, l2_scale)
+                # w_tilde = y_k - step * grad
+                np.subtract(y_k, step * grad, out=w_tilde)
+
+                # coef = soft_threshold(w_tilde, thresh) / l2_scale
+                # Using vectorized operations with pre-computed inv_l2_scale
+                np.abs(w_tilde, out=delta)
+                np.maximum(delta - thresh, 0, out=delta)
+                coef[:] = np.sign(w_tilde) * delta * inv_l2_scale
 
                 # Momentum update (FISTA)
-                t_new = (1.0 + np.sqrt(1.0 + 4.0 * (t_k ** 2))) / 2.0
+                sqrt_arg = 1.0 + 4.0 * t_k * t_k
+                t_new = (1.0 + np.sqrt(sqrt_arg)) * 0.5
                 beta = (t_k - 1.0) / t_new
-                y_k = coef + beta * (coef - coef_old)
+                # y_k = coef + beta * (coef - coef_old)
+                np.subtract(coef, coef_old, out=y_k)
+                y_k *= beta
+                y_k += coef
                 t_k = t_new
 
-                # Convergence test
-                if self.stopping == "kkt":
-                    # KKT violation for Elastic Net
-                    grad_rss = (XtX @ coef - Xty) / n_samples
-                    grad_l2 = alpha * l2_ratio * coef
-                    sign_coef = np.sign(coef)
-                    sign_coef[coef == 0] = 0
-                    kkt_violation = np.zeros(n_features)
-                    for j in range(n_features):
-                        if coef[j] != 0:
-                            kkt_violation[j] = np.abs(grad_rss[j] + grad_l2[j] + alpha * l1_ratio * sign_coef[j])
-                        else:
-                            kkt_violation[j] = max(0, np.abs(grad_rss[j] + grad_l2[j]) - alpha * l1_ratio)
-                    violation = np.max(kkt_violation)
-                    if violation < self.tol:
-                        self.n_iter_ = iteration + 1
-                        break
-                else:
-                    if np.sum(np.abs(coef - coef_old)) < self.tol:
-                        self.n_iter_ = iteration + 1
-                        break
+                # Convergence test - use L-infinity norm of coefficient change
+                np.abs(coef - coef_old, out=delta)
+                violation = float(np.max(delta))
+
+                if violation < self.tol:
+                    self.n_iter_ = iteration + 1
+                    break
             else:
                 self.n_iter_ = self.max_iter
 

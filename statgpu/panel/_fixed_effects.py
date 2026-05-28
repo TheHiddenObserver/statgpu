@@ -15,19 +15,10 @@ from scipy import stats
 
 from statgpu._base import BaseEstimator
 from statgpu._config import Device
-from statgpu.backends import _get_torch_device_str, _torch_dev, xp_astype
+from statgpu.backends import _get_torch_device_str, _torch_dev, _to_numpy, xp_astype, xp_cholesky_solve
 
-from ._utils import demean_variables
+from ._utils import demean_variables, ols_inference_nonrobust
 from ._covariance import clustered_covariance, two_way_clustered_covariance
-
-
-def _to_numpy(x):
-    """Convert array to numpy."""
-    if hasattr(x, 'get'):
-        return x.get()
-    if hasattr(x, 'cpu') and hasattr(x, 'numpy'):
-        return x.cpu().numpy()
-    return np.asarray(x)
 
 
 class PanelOLS(BaseEstimator):
@@ -173,17 +164,7 @@ class PanelOLS(BaseEstimator):
         Xty = X_d.T @ y_d
 
         try:
-            # Prefer Cholesky for stability
-            if hasattr(xp, 'linalg') and hasattr(xp.linalg, 'cholesky'):
-                L = xp.linalg.cholesky(XtX)
-                if _torch_dev(L) is not None:
-                    tmp = xp.linalg.solve_triangular(L, Xty, upper=False)
-                    coef = xp.linalg.solve_triangular(L.T, tmp, upper=True)
-                else:
-                    tmp = xp.linalg.solve_triangular(L, Xty, lower=True)
-                    coef = xp.linalg.solve_triangular(L.T, tmp, lower=False)
-            else:
-                coef = xp.linalg.solve(XtX, Xty)
+            coef = xp_cholesky_solve(XtX, Xty, xp)
         except Exception:
             coef = xp.linalg.solve(XtX, Xty)
 
@@ -238,15 +219,8 @@ class PanelOLS(BaseEstimator):
         alpha = 0.05
 
         if self.cov_type == 'nonrobust':
-            cov_params = self._scale * XtX_inv
-            self.bse_ = np.sqrt(np.diag(cov_params))
-            self.tvalues_ = params / (self.bse_ + 1e-30)
-            self.pvalues_ = 2 * (1 - stats.t.cdf(np.abs(self.tvalues_), df))
-            t_crit = stats.t.ppf(1 - alpha / 2, df)
-            self.conf_int_ = np.column_stack([
-                params - t_crit * self.bse_,
-                params + t_crit * self.bse_,
-            ])
+            self.bse_, self.tvalues_, self.pvalues_, self.conf_int_ = \
+                ols_inference_nonrobust(params, X, self._scale, df)
 
         elif self.cov_type == 'robust':
             # HC1 sandwich

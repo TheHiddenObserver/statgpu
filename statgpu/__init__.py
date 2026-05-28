@@ -46,7 +46,6 @@ from .feature_selection import (
 from .inference import adjust_pvalues, combine_pvalues, multipletests
 from .inference import bootstrap_statistic, permutation_test
 from .anova import f_oneway
-from .kernel_methods import KernelRidge, KernelRidgeCV
 from .nonparametric import (
     BandwidthSelectionResult,
     KernelDensityEstimator,
@@ -54,6 +53,8 @@ from .nonparametric import (
     KDEBootstrapResult,
     KernelRegression,
     KernelRegressionRegressor,
+    KernelRidge,
+    KernelRidgeCV,
     fit_kde,
     fit_kernel_regression,
     kde_pdf,
@@ -62,8 +63,10 @@ from .nonparametric import (
     kde_bootstrap_confidence_interval,
     select_bandwidth,
     select_bandwidth_factor,
+    bspline_basis,
+    natural_cubic_spline_basis,
 )
-from .splines import GAM, bspline_basis, natural_cubic_spline_basis
+from .semiparametric import GAM
 from .covariance import EmpiricalCovariance, LedoitWolf, OAS
 
 __all__ = [

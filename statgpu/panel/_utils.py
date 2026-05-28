@@ -202,3 +202,43 @@ def group_sizes(groups, xp=None):
         result[mask] = float(xp.sum(mask))
 
     return result
+
+
+def ols_inference_nonrobust(params, X, scale, df, alpha=0.05):
+    """Compute non-robust OLS inference (SE, t, p, CI).
+
+    Parameters
+    ----------
+    params : ndarray, shape (k,)
+        Estimated coefficients.
+    X : ndarray, shape (n, k)
+        Design matrix (numpy).
+    scale : float
+        Residual variance (RSS / df).
+    df : int
+        Residual degrees of freedom.
+    alpha : float
+        Significance level for confidence intervals.
+
+    Returns
+    -------
+    bse, tvalues, pvalues, conf_int : ndarrays
+    """
+    from scipy import stats
+
+    XtX = X.T @ X
+    try:
+        XtX_inv = np.linalg.inv(XtX)
+    except np.linalg.LinAlgError:
+        XtX_inv = np.linalg.pinv(XtX)
+
+    cov_params = scale * XtX_inv
+    bse = np.sqrt(np.diag(cov_params))
+    tvalues = params / (bse + 1e-30)
+    pvalues = 2 * (1 - stats.t.cdf(np.abs(tvalues), df))
+    t_crit = stats.t.ppf(1 - alpha / 2, df)
+    conf_int = np.column_stack([
+        params - t_crit * bse,
+        params + t_crit * bse,
+    ])
+    return bse, tvalues, pvalues, conf_int

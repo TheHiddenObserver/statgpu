@@ -14,18 +14,10 @@ import numpy as np
 from statgpu.backends import (
     _get_torch_device_str,
     _torch_dev,
+    _to_numpy,
     xp_asarray,
     xp_zeros,
 )
-
-
-def _to_numpy(x):
-    """Convert array to numpy."""
-    if hasattr(x, 'get'):
-        return x.get()
-    if hasattr(x, 'cpu') and hasattr(x, 'numpy'):
-        return x.cpu().numpy()
-    return np.asarray(x)
 
 
 def _ensure_xp(xp=None):
@@ -122,14 +114,11 @@ def two_way_clustered_covariance(X, resid, cluster1, cluster2, xp=None):
     V1 = clustered_covariance(X, resid, cluster1, xp)
     V2 = clustered_covariance(X, resid, cluster2, xp)
 
-    # Intersection clusters: unique (c1, c2) pairs
-    c1_np = _to_numpy(cluster1).ravel()
-    c2_np = _to_numpy(cluster2).ravel()
-    # Create a combined label via a Cantor-pair-like hash
-    combined_np = (c1_np.astype(np.int64) + c2_np.astype(np.int64)) * \
-                  (c1_np.astype(np.int64) + c2_np.astype(np.int64) + 1) // 2 + \
-                  c2_np.astype(np.int64)
-    combined = xp_asarray(combined_np, xp=xp, ref_arr=V1)
+    # Intersection clusters: unique (c1, c2) pairs via Cantor-pair hash
+    c1 = xp_asarray(cluster1, dtype=xp.int64, xp=xp, ref_arr=V1).ravel()
+    c2 = xp_asarray(cluster2, dtype=xp.int64, xp=xp, ref_arr=V1).ravel()
+    s = c1 + c2
+    combined = s * (s + 1) // 2 + c2
 
     V12 = clustered_covariance(X, resid, combined, xp)
     return V1 + V2 - V12

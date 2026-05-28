@@ -10,9 +10,9 @@ from typing import Optional, Union
 
 from statgpu._base import BaseEstimator
 from statgpu._config import Device
-from statgpu.backends import _torch_dev, xp_zeros, xp_ones, xp_asarray, xp_copy
-from ._bspline_basis import bspline_basis
-from ._penalized import (
+from statgpu.backends import _torch_dev, _to_numpy, xp_zeros, xp_ones, xp_asarray, xp_copy
+from statgpu.nonparametric.splines._bspline_basis import bspline_basis
+from statgpu.nonparametric.splines._penalized import (
     difference_penalty,
     penalized_ls,
     generalized_cross_validation,
@@ -141,12 +141,7 @@ class GAM(BaseEstimator):
         percentiles = np.linspace(0, 100, n_interior + 2)[1:-1]
 
         # Convert to numpy for percentile computation
-        if hasattr(x_col, 'cpu'):
-            x_np = x_col.cpu().numpy()
-        elif hasattr(x_col, 'get'):
-            x_np = x_col.get()
-        else:
-            x_np = np.asarray(x_col)
+        x_np = _to_numpy(x_col)
 
         knots = np.percentile(x_np, percentiles)
 
@@ -318,12 +313,7 @@ class GAM(BaseEstimator):
         # Predict
         y_pred = B @ self.coef_
 
-        # Convert to numpy if needed
-        if hasattr(y_pred, 'cpu'):
-            return y_pred.cpu().numpy()
-        elif hasattr(y_pred, 'get'):
-            return y_pred.get()
-        return np.asarray(y_pred)
+        return _to_numpy(y_pred)
 
     def summary(self):
         """

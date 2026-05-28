@@ -7,7 +7,7 @@ constructing difference penalty matrices for spline smoothing.
 
 import numpy as np
 
-from statgpu.backends import _torch_dev, xp_zeros, xp_eye, xp_asarray
+from statgpu.backends import _torch_dev, xp_zeros, xp_eye, xp_asarray, xp_cholesky_solve
 
 
 def _get_xp(xp):
@@ -111,14 +111,7 @@ def penalized_ls(B, y, penalty_matrix, lambda_, xp=None):
         jitter = 1e-10 * xp.trace(A) / p
         A_stable = A + jitter * xp_eye(p, xp.float64, xp, A)
 
-        L = xp.linalg.cholesky(A_stable)
-        # Forward substitution: L @ z = Bty
-        if _torch_dev(L) is not None:
-            z = xp.linalg.solve_triangular(L, Bty, upper=False)
-            beta = xp.linalg.solve_triangular(L.T, z, upper=True)
-        else:
-            z = xp.linalg.solve_triangular(L, Bty, lower=True)
-            beta = xp.linalg.solve_triangular(L.T, z, lower=False)
+        beta = xp_cholesky_solve(A_stable, Bty, xp)
     except Exception:
         # Fallback to general solve
         try:

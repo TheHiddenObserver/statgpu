@@ -7,9 +7,17 @@
 
 语言切换：[English](../en/models/nonparametric.md)
 
+## 相关页面
+
+- [核岭回归](nonparametric/kernel-methods.md) — KernelRidge, KernelRidgeCV
+- [样条基函数](nonparametric/splines.md) — bspline_basis, natural_cubic_spline_basis
+- [GAM（半参数）](semiparametric.md) — 广义可加模型
+
 ## 概览（Overview）
 
-statgpu 非参数模块包含两条主线：KDE 与 Kernel Regression。两者均支持 NumPy/CuPy 后端，并提供函数式 API 与 sklearn 风格封装。
+statgpu 非参数模块提供核平滑方法：
+- **KDE**：密度估计（`fit_kde`、`kde_pdf`、bootstrap 置信区间）。
+- **核回归**：Nadaraya-Watson（`nw`）和局部线性（`local_linear`）回归，提供函数式 API 和 sklearn 风格封装。
 
 ## 路径（Path）
 

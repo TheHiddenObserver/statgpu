@@ -7,11 +7,17 @@
 
 Language switch: [Chinese](../../models/nonparametric.md)
 
+## Related Pages
+
+- [Kernel Ridge Regression](nonparametric/kernel-methods.md) — KernelRidge, KernelRidgeCV
+- [Spline Basis Functions](nonparametric/splines.md) — bspline_basis, natural_cubic_spline_basis
+- [GAM (Semiparametric)](semiparametric.md) — Generalized Additive Model
+
 ## Overview
 
-The nonparametric module currently has two main families:
-- KDE: density estimation via `fit_kde`, `kde_pdf`, and bootstrap confidence intervals.
-- Kernel Regression: Nadaraya-Watson (`nw`) and local-linear (`local_linear`) regression via functional APIs and sklearn-style wrappers.
+The nonparametric module provides kernel smoothing methods:
+- **KDE**: density estimation via `fit_kde`, `kde_pdf`, and bootstrap confidence intervals.
+- **Kernel Regression**: Nadaraya-Watson (`nw`) and local-linear (`local_linear`) regression via functional APIs and sklearn-style wrappers.
 
 Both families support NumPy/CuPy execution paths and are used in dedicated SciPy/statsmodels/R comparison benchmarks.
 

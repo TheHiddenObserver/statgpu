@@ -66,6 +66,19 @@ class EmpiricalCovariance(BaseEstimator):
         Computation device: ``'cpu'``, ``'cuda'``, ``'torch'``, or ``'auto'``.
     n_jobs : int or None, default=None
         Number of parallel jobs (reserved for future use).
+
+    Attributes
+    ----------
+    covariance_ : array, shape (n_features, n_features)
+        Estimated covariance matrix.
+    location_ : array, shape (n_features,)
+        Estimated location (mean) vector.
+    precision_ : array, shape (n_features, n_features)
+        Estimated precision matrix (inverse covariance).
+    n_samples_ : int
+        Number of samples seen during fit.
+    n_features_ : int
+        Number of features seen during fit.
     """
 
     def __init__(

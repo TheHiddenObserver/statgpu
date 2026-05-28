@@ -1,7 +1,7 @@
 # Models Overview
 
 > Language: English  
-> Last updated: 2026-04-22  
+> Last updated: 2026-05-28  
 > This page: Model index  
 > Switch: [Chinese](../../models/README.md)
 
@@ -18,6 +18,28 @@ Language switch: [Chinese](../../models/README.md)
 - [LogisticRegression](logistic-regression.md)
 - [Ordered Generalized Linear Models (Logit/Probit)](ordered.md)
 
+## ANOVA
+
+- [One-Way ANOVA](anova.md)
+
+## Covariance Estimation
+
+- [EmpiricalCovariance, LedoitWolf, OAS](covariance.md)
+
+## Panel Data
+
+- [PanelOLS and RandomEffects](panel.md)
+
+## Nonparametric Methods
+
+- [Kernel Density Estimation and Kernel Regression](nonparametric.md)
+- [Kernel Ridge Regression](nonparametric/kernel-methods.md)
+- [Spline Basis Functions](nonparametric/splines.md)
+
+## Semiparametric Models
+
+- [GAM (Generalized Additive Model)](semiparametric.md)
+
 ## Survival
 
 - [CoxPH](coxph.md)
@@ -25,10 +47,6 @@ Language switch: [Chinese](../../models/README.md)
 ## Feature Selection
 
 - [Knockoff](knockoff.md)
-
-## Nonparametric
-
-- [Nonparametric](nonparametric.md)
 
 ## Current Coverage Notes
 
@@ -52,3 +70,9 @@ Language switch: [Chinese](../../models/README.md)
 - Exported CV classes status:
   - `RidgeCV`, `LogisticRegressionCV`, and `CoxPHCV` are implemented and trainable.
   - Current `CoxPHCV` boundary: on GPU paths, `entry` currently supports only `ties='breslow'`; `cluster`-robust CV is not yet supported and raises `NotImplementedError`.
+- New modules (validated 38/38 ALL PASS on Tesla P100):
+  - `ANOVA`: `f_oneway` — drop-in replacement for `scipy.stats.f_oneway`
+  - `Covariance`: `EmpiricalCovariance`, `LedoitWolf`, `OAS` — equivalent to `sklearn.covariance`
+  - `KernelMethods`: `KernelRidge`, `KernelRidgeCV` — equivalent to `sklearn.kernel_ridge`
+  - `Panel`: `PanelOLS`, `RandomEffects` — equivalent to `linearmodels.panel`
+  - `Splines`: `bspline_basis`, `natural_cubic_spline_basis`, `GAM` — penalized B-spline GAM with GCV

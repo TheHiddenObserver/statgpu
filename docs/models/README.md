@@ -1,7 +1,7 @@
 # 模型总览
 
 > 语言: 中文  
-> 最后更新: 2026-04-22  
+> 最后更新: 2026-05-28  
 > 页面定位: 模型索引  
 > 切换: [English](../en/models/README.md)
 
@@ -20,6 +20,28 @@
 - [LogisticRegression](logistic-regression.md)
 - [Ordered Generalized Linear Models (Logit/Probit)](ordered.md)
 
+## 方差分析
+
+- [单因素方差分析 (One-Way ANOVA)](anova.md)
+
+## 协方差估计
+
+- [经验协方差、LedoitWolf、OAS](covariance.md)
+
+## 面板数据
+
+- [固定效应与随机效应 (PanelOLS / RandomEffects)](panel.md)
+
+## 非参数方法
+
+- [核密度估计与核回归](nonparametric.md)
+- [核岭回归 (KernelRidge / KernelRidgeCV)](nonparametric/kernel-methods.md)
+- [样条基函数](nonparametric/splines.md)
+
+## 半参数模型
+
+- [GAM（广义可加模型）](semiparametric.md)
+
 ## 生存分析
 
 - [CoxPH](coxph.md)
@@ -27,10 +49,6 @@
 ## 特征选择
 
 - [Knockoff](knockoff.md)
-
-## 非参数方法
-
-- [Nonparametric](nonparametric.md)
 
 ## 新增模型文档流程
 
@@ -63,3 +81,9 @@
 - 已导出的 CV 类中：
   - `RidgeCV`、`LogisticRegressionCV`、`CoxPHCV` 均已可直接训练使用。
   - `CoxPHCV` 当前边界：GPU 下 `entry` 目前仅支持 `ties='breslow'`；`cluster` 口径暂未支持，会抛出 `NotImplementedError`。
+- 新增模块（Tesla P100 验证 38/38 ALL PASS）：
+  - `ANOVA`：`f_oneway` — 可替代 `scipy.stats.f_oneway`
+  - `Covariance`：`EmpiricalCovariance`、`LedoitWolf`、`OAS` — 等价于 `sklearn.covariance`
+  - `KernelMethods`：`KernelRidge`、`KernelRidgeCV` — 等价于 `sklearn.kernel_ridge`
+  - `Panel`：`PanelOLS`、`RandomEffects` — 等价于 `linearmodels.panel`
+  - `Splines`：`bspline_basis`、`natural_cubic_spline_basis`、`GAM` — 惩罚 B 样条 GAM + GCV

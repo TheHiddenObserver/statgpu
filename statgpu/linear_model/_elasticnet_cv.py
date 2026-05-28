@@ -544,6 +544,14 @@ def _select_elasticnet_params_cv(
 
     xp = backend.xp
 
+    # Check if we should use warm-start path optimization
+    # Warm-start works when: CPU backend, no sample_weight, fit_intercept handled by centering
+    use_warm_start = (
+        backend.name == 'numpy'
+        and not use_gpu
+        and sample_weight_np is None
+    )
+
     # CV loop
     for l1_idx, l1_ratio in enumerate(l1_ratios_arr):
         alpha_grid = alpha_grids[l1_ratio]
@@ -555,8 +563,8 @@ def _select_elasticnet_params_cv(
 
             # Split data
             if gpu_input_cupy or gpu_input_torch:
-                X_train = X[train_idx_arr]
-                y_train = y[train_idx_arr]
+                X_train_raw = X[train_idx_arr]
+                y_train_raw = y[train_idx_arr]
                 X_val = X[val_idx_arr]
                 y_val = y[val_idx_arr]
                 if sample_weight is not None:
@@ -565,9 +573,11 @@ def _select_elasticnet_params_cv(
                 else:
                     sw_train = None
                     sw_val = None
+                X_train = X_train_raw
+                y_train = y_train_raw
             else:
-                X_train = backend.asarray(X_np[train_idx])
-                y_train = backend.asarray(y_np[train_idx])
+                X_train_np = X_np[train_idx]
+                y_train_np = y_np[train_idx]
                 X_val = backend.asarray(X_np[val_idx])
                 y_val = backend.asarray(y_np[val_idx])
                 if sample_weight_np is not None:
@@ -576,39 +586,98 @@ def _select_elasticnet_params_cv(
                 else:
                     sw_train = None
                     sw_val = None
+                X_train = X_train_np
+                y_train = y_train_np
 
-            # Fit ElasticNet for each alpha
-            for alpha_idx, alpha in enumerate(alpha_grid):
-                # Convert backend to device string that ElasticNet understands
-                if backend.name == 'numpy':
-                    enet_device = 'cpu'
-                elif backend.name == 'cupy':
-                    enet_device = 'cuda'
-                elif backend.name == 'torch':
-                    enet_device = 'torch'
-                else:
-                    enet_device = 'cpu'
+            # For CPU warm-start path: precompute per-fold data to avoid redundant work
+            if use_warm_start:
+                # The alpha grid should be sorted descending for warm-start to work well
+                # (largest alpha first -> sparsest solution -> warm-start to smaller alpha)
+                alpha_grid_sorted = np.sort(alpha_grid)[::-1]
+                sort_indices = np.argsort(alpha_grid)[::-1]
+                inv_sort = np.argsort(sort_indices)
 
-                model = ElasticNet(
-                    alpha=alpha,
-                    l1_ratio=l1_ratio,
-                    max_iter=max_iter,
-                    tol=tol,
-                    fit_intercept=fit_intercept,
-                    device=enet_device,
-                )
-                model.fit(X_train, y_train, sample_weight=sw_train)
+                # Sort alpha_grid for warm-start path
+                alpha_grid_ws = alpha_grid_sorted
 
-                # Compute validation MSE
-                mse_val = _batch_mse_elasticnet(
-                    X_val, y_val,
-                    model.coef_.reshape(1, -1),
-                    np.array([model.intercept_]),
-                    backend,
-                    sw_val,
-                )
+                # Center data for this fold
+                X_mean_fold = np.mean(X_train_np, axis=0)
+                y_mean_fold = np.mean(y_train_np)
+                Xc = X_train_np - X_mean_fold
+                yc = y_train_np - y_mean_fold
 
-                mse_path[l1_idx, alpha_idx, fold_idx] = float(mse_val[0])
+                # Precompute XtX, Xty for this fold
+                XtX_fold = Xc.T @ Xc
+                Xty_fold = Xc.T @ yc
+
+                # Precompute Lipschitz constant
+                eig_max = np.linalg.eigvalsh(XtX_fold)[-1]
+                L_fold = float(eig_max / len(train_idx))
+
+                # Precompute intercept offset
+                intercept_offset = y_mean_fold - X_mean_fold @ np.zeros(Xc.shape[1])
+
+                # Fit alphas with warm-start (descending order)
+                prev_coef = None
+                for alpha_idx_ws, alpha in enumerate(alpha_grid_ws):
+                    orig_idx = inv_sort[alpha_idx_ws]
+
+                    # Create model with known L to avoid recomputation
+                    model = ElasticNet(
+                        alpha=alpha,
+                        l1_ratio=l1_ratio,
+                        max_iter=max_iter,
+                        tol=tol,
+                        fit_intercept=True,  # We handle centering, but model needs intercept
+                        device='cpu',
+                        lipschitz_L=L_fold,
+                    )
+
+                    model.fit(X_train_np, y_train_np, initial_coef=prev_coef)
+
+                    # Store result
+                    mse_val = _batch_mse_elasticnet(
+                        X_val, y_val,
+                        model.coef_.reshape(1, -1),
+                        np.array([model.intercept_]),
+                        backend,
+                        None,
+                    )
+                    mse_path[l1_idx, orig_idx, fold_idx] = float(mse_val[0])
+                    prev_coef = model.coef_.copy()
+            else:
+                # Original approach for GPU or with sample weights
+                for alpha_idx, alpha in enumerate(alpha_grid):
+                    # Convert backend to device string that ElasticNet understands
+                    if backend.name == 'numpy':
+                        enet_device = 'cpu'
+                    elif backend.name == 'cupy':
+                        enet_device = 'cuda'
+                    elif backend.name == 'torch':
+                        enet_device = 'torch'
+                    else:
+                        enet_device = 'cpu'
+
+                    model = ElasticNet(
+                        alpha=alpha,
+                        l1_ratio=l1_ratio,
+                        max_iter=max_iter,
+                        tol=tol,
+                        fit_intercept=fit_intercept,
+                        device=enet_device,
+                    )
+                    model.fit(X_train, y_train, sample_weight=sw_train)
+
+                    # Compute validation MSE
+                    mse_val = _batch_mse_elasticnet(
+                        X_val, y_val,
+                        model.coef_.reshape(1, -1),
+                        np.array([model.intercept_]),
+                        backend,
+                        sw_val,
+                    )
+
+                    mse_path[l1_idx, alpha_idx, fold_idx] = float(mse_val[0])
 
     # Compute mean and std MSE across folds
     mean_mse = np.nanmean(mse_path, axis=2)  # (n_l1_ratios, n_alphas)
