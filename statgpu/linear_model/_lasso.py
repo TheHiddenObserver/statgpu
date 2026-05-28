@@ -2,6 +2,8 @@
 Lasso regression with full statistical inference and GPU support.
 """
 
+from __future__ import annotations
+
 from collections import OrderedDict
 import hashlib
 from typing import Any, Dict, Optional, Tuple, Union
