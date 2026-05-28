@@ -114,6 +114,21 @@ def _copy_arr(arr):
     return arr.copy()
 
 
+def _mean(x, backend):
+    """Compute mean of array."""
+    if backend == "torch":
+        return float(x.mean().item())
+    return float(np.mean(x))
+
+
+def _log_val(x, backend):
+    """Compute log of scalar."""
+    if backend == "torch":
+        import torch
+        return float(torch.log(torch.tensor(x, dtype=torch.float64)).item())
+    return float(np.log(x))
+
+
 # =============================================================================
 # Torch.compile for IRLS elementwise chain fusion
 # =============================================================================
@@ -230,6 +245,13 @@ def irls_solver(
     if init_coef is None:
         n_features = X.shape[1]
         params = _zeros(n_features, backend, ref_tensor=X)
+        # Initialize intercept to log(mean(y)) for log-link families
+        # (matches sklearn; avoids starting at mu=1 when true mu is small)
+        _link_name_init = getattr(family.link, "name", "")
+        if _link_name_init in ("log", "Log"):
+            y_mean = _mean(y, backend)
+            if y_mean > 0:
+                params[0] = _log_val(y_mean, backend)
     else:
         params = init_coef
 
