@@ -68,22 +68,6 @@ def aft_specific_checks(prepared, models):
 ValidationRuleRegistry.register("survival", aft_specific_checks)
 ```
 
-## 5. ReportTemplateRegistry — Register Report Templates
-
-```python
-from statgpu.agent import ReportTemplateRegistry
-
-# Register a custom report template for a model
-def render_elasticnet_report(model):
-    lines = [f"### {model.name}"]
-    if model.metrics:
-        lines.append(f"- Alpha: {model.metrics.get('alpha', 'N/A')}")
-        lines.append(f"- L1 Ratio: {model.metrics.get('l1_ratio', 'N/A')}")
-    return lines
-
-ReportTemplateRegistry.register("ElasticNet", render_elasticnet_report)
-```
-
 ## Adding a New Model (Complete Example)
 
 To add ElasticNet support, add this to `statgpu/linear_model/_elasticnet.py`:

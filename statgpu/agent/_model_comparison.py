@@ -37,21 +37,35 @@ class ModelComparator:
 
         metric_name, higher_is_better = self._ranking_metric(task_type)
         scores = []
+        # Map metrics to their sort direction (higher_is_better)
+        _direction = {
+            "aic": False, "bic": False, "mean_poisson_deviance": False, "inertia": False,
+            "roc_auc": True, "accuracy": True, "f1": True, "c_index": True,
+            "log_likelihood": True, "score": True, "explained_variance_ratio_sum": True,
+        }
+
         for model in successful:
             score = model.metrics.get(metric_name)
+            used_metric = metric_name
             if score is None:
                 # Try fallback metrics
                 for fallback in self._fallback_metrics(task_type):
-                    score = model.metrics.get(fallback)
-                    if score is not None:
+                    if fallback in model.metrics:
+                        score = model.metrics[fallback]
+                        used_metric = fallback
                         break
             if score is not None:
-                scores.append((model.name, float(score)))
+                scores.append((model.name, float(score), used_metric))
 
         if len(scores) < 2:
             return None
 
-        scores.sort(key=lambda x: x[1], reverse=higher_is_better)
+        # Use the direction of the actual metric used (primary or fallback)
+        actual_metric = scores[0][2] if scores else metric_name
+        actual_direction = _direction.get(actual_metric, higher_is_better)
+        scores.sort(key=lambda x: x[1], reverse=actual_direction)
+        # Strip metric name from scores for output
+        scores = [(name, score) for name, score, _ in scores]
         best_name, best_score = scores[0]
 
         # Compute deltas

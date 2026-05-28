@@ -96,7 +96,7 @@ def fit_supervised_model(
 
         return ModelResult(
             name=name,
-            task_type=_model_task_name(name),
+            task_type=task_type,
             estimator=model,
             metrics=metrics,
             coefficients=coefficients,
@@ -104,7 +104,7 @@ def fit_supervised_model(
             feature_importance=feature_importance,
         )
     except Exception as exc:
-        return ModelResult(name=name, task_type=_model_task_name(name), error=str(exc))
+        return ModelResult(name=name, task_type=task_type, error=str(exc))
 
 
 def fit_survival_model(model, prepared, config: AgentConfig) -> "ModelResult":
@@ -218,13 +218,19 @@ def _supervised_metrics(model: Any, name: str, score_args: Tuple[Any, ...]) -> D
         else:
             metrics["score"] = score
     if hasattr(model, "aic"):
-        aic = _safe_call(model.aic)
-        if aic is not None:
-            metrics["aic"] = aic
+        try:
+            aic_val = model.aic
+            if aic_val is not None and np.isfinite(float(aic_val)):
+                metrics["aic"] = float(aic_val)
+        except Exception:
+            pass
     if hasattr(model, "bic"):
-        bic = _safe_call(model.bic)
-        if bic is not None:
-            metrics["bic"] = bic
+        try:
+            bic_val = model.bic
+            if bic_val is not None and np.isfinite(float(bic_val)):
+                metrics["bic"] = float(bic_val)
+        except Exception:
+            pass
     if "Logistic" in name:
         X, y = score_args
         auc = _safe_call(model.roc_auc_score, X, y) if hasattr(model, "roc_auc_score") else None

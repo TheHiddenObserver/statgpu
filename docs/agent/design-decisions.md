@@ -39,9 +39,9 @@
 - **JSON**: Machine-readable artifact for audit trails and reproducibility
 - **Notebook**: Executable analysis record (CellVoyager pattern), users can review and modify each step
 
-## Why Five Registries?
+## Why Four Registries?
 
-**Decision**: MethodRegistry, TaskRegistry, PruningRuleRegistry, ValidationRuleRegistry, ReportTemplateRegistry.
+**Decision**: MethodRegistry, TaskRegistry, PruningRuleRegistry, ValidationRuleRegistry.
 
 **Reasoning**:
 - statgpu will add more models (AFT, NegativeBinomial, causal inference, time series)

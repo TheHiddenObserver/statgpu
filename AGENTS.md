@@ -167,7 +167,7 @@ GPU、远程、benchmark、R 对比类脚本较多，通常不应在本地无目
 
 1. **主动剪枝**：`MethodPruner` 在拟合前根据数据特征（p > n、条件数、事件数等）排除不适用的方法
 2. **自验证闭环**：拟合失败时诊断问题并自动修正，最多 3 轮（GeneAgent 模式）
-3. **可扩展性**：5 个注册表，新模型只需注册不需改核心代码
+3. **可扩展性**：4 个注册表（MethodRegistry, TaskRegistry, PruningRuleRegistry, ValidationRuleRegistry），新模型只需注册不需改核心代码
 4. **三种输出**：Markdown + JSON + Jupyter Notebook
 5. **向后兼容**：公开 API 签名不变，新功能是新增字段
 

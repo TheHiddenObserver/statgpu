@@ -27,7 +27,6 @@ __all__ = [
     "CVResult",
     "DataProfile",
     "MemoryStore",
-    "MethodComparator",
     "MethodPruner",
     "MethodRegistry",
     "ModelComparison",

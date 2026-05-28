@@ -13,7 +13,6 @@ from ._memory import MemoryStore
 from ._profiler import prepare_table, prepare_array
 from ._planner import infer_task, build_plan, MethodPruner
 from ._runner import (
-    SelfCorrectingRunner,
     run_regression,
     run_binary_classification,
     run_poisson,
@@ -281,7 +280,6 @@ class StatGPUAnalysisAgent:
         task_type = infer_task(prepared, task)
         profile = self._build_profile(prepared, task_type)
 
-        runner = SelfCorrectingRunner(self.config)
         available_methods = MethodPruner().prune(prepared, task_type, self.config)
         plan = build_plan(task_type, prepared, available_methods, self.config)
 
@@ -514,6 +512,9 @@ class StatGPUAnalysisAgent:
 
         GPU tensors are converted to numpy before serialization.
         Loaded estimators can be used for predict() but not fit().
+
+        SECURITY WARNING: pickle files can execute arbitrary code on load.
+        Only load pipeline files from trusted sources.
         """
         import pickle
 
@@ -560,6 +561,9 @@ class StatGPUAnalysisAgent:
         Returns a dict with keys: config, profile, plan, models, warnings,
         recommendations, validation_trace. Loaded estimators can be used
         for predict() but not fit().
+
+        SECURITY WARNING: pickle files can execute arbitrary code on load.
+        Only load pipeline files from trusted sources.
         """
         import pickle
         with open(path, "rb") as f:
