@@ -13,6 +13,16 @@ from statgpu.backends import (
     _resolve_backend,
     _to_float_scalar,
     _to_numpy,
+    _torch_dev,
+    xp_arange,
+    xp_asarray,
+    xp_astype,
+    xp_empty,
+    xp_eye,
+    xp_full,
+    xp_maximum,
+    xp_ones,
+    xp_zeros,
 )
 
 # Re-export for backward compatibility
@@ -142,12 +152,12 @@ def _kernel_values_from_quad(quad, kernel_name: str, xp):
 
     support_mask = quad <= 1.0
     if kernel_name == "rectangular":
-        return support_mask.astype(xp.float64)
+        return xp_astype(support_mask, xp.float64, xp)
 
     if kernel_name == "triangular":
-        return xp.maximum(1.0 - xp.sqrt(xp.maximum(quad, 0.0)), 0.0)
+        return xp_maximum(1.0 - xp.sqrt(xp_maximum(quad, 0.0, xp)), 0.0, xp)
 
-    one_minus_quad = xp.maximum(1.0 - quad, 0.0)
+    one_minus_quad = xp_maximum(1.0 - quad, 0.0, xp)
     if kernel_name == "epanechnikov":
         return one_minus_quad
     if kernel_name == "biweight":
@@ -155,17 +165,17 @@ def _kernel_values_from_quad(quad, kernel_name: str, xp):
     if kernel_name == "triweight":
         return one_minus_quad * one_minus_quad * one_minus_quad
     if kernel_name == "cosine":
-        r = xp.sqrt(xp.maximum(quad, 0.0))
+        r = xp.sqrt(xp_maximum(quad, 0.0, xp))
         return xp.where(support_mask, 0.5 * (1.0 + xp.cos(math.pi * r)), 0.0)
     if kernel_name == "optcosine":
-        r = xp.sqrt(xp.maximum(quad, 0.0))
+        r = xp.sqrt(xp_maximum(quad, 0.0, xp))
         return xp.where(support_mask, xp.cos(0.5 * math.pi * r), 0.0)
 
     raise ValueError(f"Unsupported kernel: {kernel_name}")
 
 
-def _as_samples_2d(samples, xp):
-    arr = xp.asarray(samples, dtype=xp.float64)
+def _as_samples_2d(samples, xp, ref_arr=None):
+    arr = xp_asarray(samples, dtype=xp.float64, xp=xp, ref_arr=ref_arr)
     if arr.ndim == 1:
         arr = arr.reshape(-1, 1)
     elif arr.ndim != 2:
@@ -177,8 +187,8 @@ def _as_samples_2d(samples, xp):
     return arr
 
 
-def _as_points_2d(points, n_features: int, xp):
-    arr = xp.asarray(points, dtype=xp.float64)
+def _as_points_2d(points, n_features: int, xp, ref_arr=None):
+    arr = xp_asarray(points, dtype=xp.float64, xp=xp, ref_arr=ref_arr)
     if arr.ndim == 1:
         if n_features == 1:
             arr = arr.reshape(-1, 1)
@@ -194,18 +204,12 @@ def _as_points_2d(points, n_features: int, xp):
     return arr
 
 
-def _normalize_weights(weights, n_samples: int, xp, device: str = "cuda"):
+def _normalize_weights(weights, n_samples: int, xp, device: str = "cuda", ref_arr=None):
     if weights is None:
         fill_val = 1.0 / float(n_samples)
-        try:
-            import torch
-            if xp is torch:
-                return xp.full((n_samples,), fill_val, dtype=xp.float64, device=device)
-        except ImportError:
-            pass
-        return xp.full((n_samples,), fill_val, dtype=xp.float64)
+        return xp_full(n_samples, fill_val, xp.float64, xp, ref_arr=ref_arr)
 
-    w = xp.asarray(weights, dtype=xp.float64).reshape(-1)
+    w = xp_asarray(weights, dtype=xp.float64, xp=xp, ref_arr=ref_arr).reshape(-1)
     if int(w.size) != int(n_samples):
         raise ValueError("weights must have the same length as samples")
     if _to_float_scalar(xp.min(w)) < 0.0:
@@ -311,13 +315,13 @@ def _weighted_covariance(samples_2d, weights_1d, xp):
     trace = _to_float_scalar(xp.trace(cov))
     base = trace / float(max(1, n_features)) if np.isfinite(trace) else 1.0
     jitter = max(base * 1e-12, 1e-12)
-    cov = cov + jitter * xp.eye(n_features, dtype=xp.float64)
+    cov = cov + jitter * xp_eye(n_features, xp.float64, xp, ref_arr=cov)
     return cov
 
 
 def _stable_inv_and_det(cov, xp):
     n_features = int(cov.shape[0])
-    cov_work = cov.astype(xp.float64, copy=True)
+    cov_work = xp_astype(cov, xp.float64, xp)
 
     trace = _to_float_scalar(xp.trace(cov_work))
     base = trace / float(max(1, n_features)) if np.isfinite(trace) else 1.0
@@ -333,7 +337,7 @@ def _stable_inv_and_det(cov, xp):
         except Exception as exc:
             last_err = exc
 
-        cov_work = cov_work + jitter * xp.eye(n_features, dtype=xp.float64)
+        cov_work = cov_work + jitter * xp_eye(n_features, xp.float64, xp, ref_arr=cov_work)
         jitter *= 10.0
 
     if last_err is not None:

@@ -9,7 +9,7 @@ import numpy as np
 
 from statgpu._config import Device
 from statgpu.linear_model._cv_base import CVEstimatorBase
-from statgpu.backends import get_backend
+from statgpu.backends import get_backend, _torch_dev
 from statgpu.backends._factory import _cupy_backend, _torch_backend
 from ._ridge import Ridge
 
@@ -245,11 +245,11 @@ def _solve_ridge_path_gpu_from_gram_eig(XtX_batch, Xty_batch, alphas, backend, f
     # Step 2: Project Xty into eigenbasis
     # QTXty = Q.T @ Xty_batch  -> (n_folds, n_features)
     Q_T = backend.transpose(Q, (0, 2, 1))
-    QTXty = xp.matmul(Q_T, Xty_batch[:, :, xp.newaxis])[:, :, 0]
+    QTXty = xp.matmul(Q_T, Xty_batch[:, :, None])[:, :, 0]
 
     # Step 3: Convert alphas to backend array and compute inverse diagonal
     # inv_diag: (n_folds, n_features, n_alphas)
-    alphas_arr = backend.asarray(alphas, dtype=backend.float64)
+    alphas_arr = backend.asarray(alphas, dtype=eigvals.dtype)
     inv_diag = 1.0 / (eigvals[:, :, None] + alphas_arr[None, None, :])
 
     # Step 4: Scale projected Xty by inverse diagonal
@@ -621,7 +621,7 @@ def _select_ridge_alpha_cv(
 
                     if sw_train is not None:
                         sqrt_sw = backend.sqrt(sw_train)
-                        X_train = X_train * sqrt_sw[:, backend.newaxis]
+                        X_train = X_train * sqrt_sw[:, None]
                         y_train = y_train * sqrt_sw
 
                     if bool(fit_intercept):
@@ -851,7 +851,7 @@ def _batch_mse(X_val, y_val, coefs_desc, intercepts_desc, backend, sample_weight
 
     # Predictions: (n_alphas, n_samples)
     # coefs_desc: (n_alphas, n_features), X_val: (n_samples, n_features)
-    y_pred = coefs_desc @ X_val.T + intercepts_desc[:, backend.newaxis]
+    y_pred = coefs_desc @ X_val.T + intercepts_desc[:, None]
 
     # Residuals: (n_alphas, n_samples)
     residuals = y_pred - y_val.reshape(1, -1)
@@ -901,21 +901,24 @@ def _batch_mse_all_folds(X_val_batch, y_val_batch, coefs_batch, intercepts_batch
     # Compute predictions: (n_folds, n_val_max, n_alphas)
     # X_val_batch: (n_folds, n_val_max, n_features)
     # coefs_batch: (n_alphas, n_folds, n_features) -> transpose to (n_folds, n_features, n_alphas)
-    coefs_T = coefs_batch.transpose(1, 2, 0)  # (n_folds, n_features, n_alphas)
+    coefs_T = backend.transpose(coefs_batch, (1, 2, 0))  # (n_folds, n_features, n_alphas)
     y_pred = xp.matmul(X_val_batch, coefs_T)  # (n_folds, n_val_max, n_alphas)
 
     # Add intercepts: (n_alphas, n_folds) -> (n_folds, 1, n_alphas) broadcasts
     # intercepts_batch.T: (n_folds, n_alphas) -> expand_dims to (1, n_folds, n_alphas)
-    intercepts_expanded = xp.expand_dims(intercepts_batch.T, axis=1)  # (1, n_folds, n_alphas)
+    _is_torch = _torch_dev(coefs_batch) is not None
+    _expand = lambda a, dim: a.unsqueeze(dim) if _is_torch else xp.expand_dims(a, axis=dim)
+
+    intercepts_expanded = _expand(intercepts_batch.T, 1)  # (1, n_folds, n_alphas)
     y_pred = y_pred + intercepts_expanded  # broadcasts to (n_folds, n_val_max, n_alphas)
 
     # Residuals: (n_folds, n_val_max, n_alphas)
-    y_val_expanded = xp.expand_dims(y_val_batch, axis=2)  # (n_folds, n_val_max, 1)
+    y_val_expanded = _expand(y_val_batch, 2)  # (n_folds, n_val_max, 1)
     residuals = y_pred - y_val_expanded
 
     # Compute MSE
     if sample_weights_batch is not None:
-        sw = xp.expand_dims(sample_weights_batch, axis=2)  # (n_folds, n_val_max, 1)
+        sw = _expand(sample_weights_batch, 2)  # (n_folds, n_val_max, 1)
         ssr = xp.sum(sw * residuals ** 2, axis=1)  # (n_folds, n_alphas)
         sw_sum = xp.sum(sw, axis=1)  # (n_folds,)
         mse = (ssr / sw_sum[:, None]).T  # (n_alphas, n_folds)
@@ -970,7 +973,10 @@ def _compute_intercepts_batch(coefs_batch, X_mean_batch, y_mean_batch, backend, 
     coefs_dot_sum = coefs_dot_sum.reshape((n_alphas, n_folds))     # (n_alphas, n_folds)
 
     # y_mean_batch: (n_folds,) -> (1, n_folds) broadcasts to (n_alphas, n_folds)
-    y_mean_expanded = xp.expand_dims(y_mean_batch, axis=0)
+    if _torch_dev(coefs_batch) is not None:
+        y_mean_expanded = y_mean_batch.unsqueeze(0)
+    else:
+        y_mean_expanded = xp.expand_dims(y_mean_batch, axis=0)
     intercepts = y_mean_expanded - coefs_dot_sum
 
     return intercepts
@@ -1138,9 +1144,12 @@ class RidgeCV(CVEstimatorBase):
         else:
             self.best_score_ = np.nan
 
-        # Fit final model with selected alpha
+        # Fit final model with selected alpha.
+        # V9 Ridge wrapper multiplies alpha by n_samples internally,
+        # so we divide by n to get the same regularization as CV evaluated.
+        n_samples = X.shape[0] if hasattr(X, 'shape') else len(X)
         estimator = Ridge(
-            alpha=self.alpha_,
+            alpha=self.alpha_ / n_samples,
             fit_intercept=self.fit_intercept,
             device=self.device,
             n_jobs=self.n_jobs,

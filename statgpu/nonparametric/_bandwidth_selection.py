@@ -8,6 +8,8 @@ from typing import Any, Dict, Optional, Union
 
 import numpy as np
 
+from statgpu.backends import _torch_dev, xp_eye, xp_arange, xp_asarray, xp_astype, xp_maximum
+
 from ._kernel_common import (
     _bandwidth_factor,
     _bandwidth_factor_1d_nrd,
@@ -564,9 +566,9 @@ def _as_targets_numpy_2d(targets, n_samples: int) -> np.ndarray:
     return y
 
 
-def _stable_inverse_cov(cov, xp=np):
+def _stable_inverse_cov(cov, xp=np, ref_arr=None):
     d = int(cov.shape[0])
-    cov_work = xp.asarray(cov, dtype=xp.float64)
+    cov_work = xp_asarray(cov, dtype=xp.float64, xp=xp, ref_arr=ref_arr)
     cov_work = 0.5 * (cov_work + cov_work.T)
 
     trace = _to_float_scalar(xp.trace(cov_work))
@@ -577,7 +579,7 @@ def _stable_inverse_cov(cov, xp=np):
         try:
             return xp.linalg.inv(cov_work)
         except Exception:
-            cov_work = cov_work + jitter * xp.eye(d, dtype=xp.float64)
+            cov_work = cov_work + jitter * xp_eye(d, xp.float64, xp, cov_work)
             jitter *= 10.0
 
     return xp.linalg.pinv(cov_work)
@@ -591,7 +593,7 @@ def _fill_diagonal_zero(arr, xp=np):
     if hasattr(arr, "fill_diagonal_"):
         arr.fill_diagonal_(0.0)
         return
-    diag_idx = xp.arange(arr.shape[0])
+    diag_idx = xp_arange(arr.shape[0], xp=xp, ref_arr=arr)
     arr[diag_idx, diag_idx] = 0.0
 
 
@@ -614,8 +616,8 @@ def _kernel_regression_cv_score(
     if n < 3:
         return float("inf")
 
-    scaled_cov = xp.asarray(data_cov, dtype=xp.float64) * (f ** 2)
-    inv_cov = _stable_inverse_cov(scaled_cov, xp=xp)
+    scaled_cov = xp_asarray(data_cov, dtype=xp.float64, xp=xp, ref_arr=samples_2d) * (f ** 2)
+    inv_cov = _stable_inverse_cov(scaled_cov, xp=xp, ref_arr=samples_2d)
 
     if d == 1:
         x = samples_2d[:, 0]
@@ -626,7 +628,7 @@ def _kernel_regression_cv_score(
         s_quad = xp.sum(s_proj * samples_2d, axis=1)
         cross = s_proj @ samples_2d.T
         quad = s_quad[:, None] + s_quad[None, :] - 2.0 * cross
-        quad = xp.maximum(quad, 0.0)
+        quad = xp_maximum(quad, 0.0, xp)
 
     kernels = _kernel_values_from_quad(quad, kernel_name, xp)
     _fill_diagonal_zero(kernels, xp)
@@ -673,7 +675,7 @@ def _kernel_regression_cv_score(
     err = targets_2d - pred
     mse_i = xp.mean(err * err, axis=1)
 
-    w_valid = weights_norm * valid.astype(xp.float64)
+    w_valid = weights_norm * xp_astype(valid, xp.float64, xp)
     wsum = _to_float_scalar(xp.sum(w_valid))
     if (not np.isfinite(wsum)) or wsum <= 0.0:
         return float("inf")
@@ -684,8 +686,8 @@ def _kernel_regression_cv_score(
     return score
 
 
-def _as_targets_2d(targets, n_samples: int, xp=np):
-    y = xp.asarray(targets, dtype=xp.float64)
+def _as_targets_2d(targets, n_samples: int, xp=np, ref_arr=None):
+    y = xp_asarray(targets, dtype=xp.float64, xp=xp, ref_arr=ref_arr)
     if y.ndim == 1:
         if y.shape[0] != n_samples:
             raise ValueError("targets length must match samples")
@@ -698,8 +700,8 @@ def _as_targets_2d(targets, n_samples: int, xp=np):
     return y
 
 
-def _normalized_weights(w, xp=np):
-    w_arr = xp.asarray(w, dtype=xp.float64).reshape(-1)
+def _normalized_weights(w, xp=np, ref_arr=None):
+    w_arr = xp_asarray(w, dtype=xp.float64, xp=xp, ref_arr=ref_arr).reshape(-1)
     w_sum = _to_float_scalar(xp.sum(w_arr))
     if w_sum <= 0.0:
         raise ValueError("weights must sum to a positive value")
@@ -718,10 +720,10 @@ def _kernel_regression_cv_factor(
     n_features: int,
     xp=np,
 ) -> tuple[float, Dict[str, Any]]:
-    x = xp.asarray(samples_2d, dtype=xp.float64)
-    y = _as_targets_2d(targets_2d, int(x.shape[0]), xp=xp)
-    w = _normalized_weights(weights_1d, xp=xp)
-    cov = xp.asarray(data_cov, dtype=xp.float64)
+    x = xp_asarray(samples_2d, dtype=xp.float64, xp=xp)
+    y = _as_targets_2d(targets_2d, int(x.shape[0]), xp=xp, ref_arr=x)
+    w = _normalized_weights(weights_1d, xp=xp, ref_arr=x)
+    cov = xp_asarray(data_cov, dtype=xp.float64, xp=xp, ref_arr=x)
 
     d = int(n_features)
     if d != int(x.shape[1]):

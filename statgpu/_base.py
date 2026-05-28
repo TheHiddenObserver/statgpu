@@ -119,6 +119,9 @@ class BaseEstimator(ABC):
         elif backend == "cupy":
             return self._to_cupy(X)
         elif backend == "numpy":
+            # Handle torch tensors that may be on CUDA — must move to CPU first
+            if hasattr(X, 'cpu') and hasattr(X, 'numpy'):
+                return X.cpu().numpy()
             return np.asarray(X)
 
         # Otherwise, use device-based default

@@ -4158,7 +4158,7 @@ def _select_lasso_alpha_cv(
 
                     if sw_train is not None:
                         sqrt_sw = backend.sqrt(sw_train)
-                        X_train = X_train * sqrt_sw[:, backend.newaxis]
+                        X_train = X_train * sqrt_sw[:, None]
                         y_train = y_train * sqrt_sw
 
                     if bool(fit_intercept):

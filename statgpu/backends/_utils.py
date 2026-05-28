@@ -81,3 +81,114 @@ def _get_torch_device_str() -> str:
         return "cuda" if torch.cuda.is_available() else "cpu"
     except Exception:
         return "cpu"
+
+
+# ---------------------------------------------------------------------------
+# Device-aware array creation helpers
+# ---------------------------------------------------------------------------
+
+def _torch_dev(arr):
+    """Extract device from a torch tensor, or ``None`` for non-torch arrays."""
+    try:
+        import torch
+        if isinstance(arr, torch.Tensor):
+            return arr.device
+    except (ImportError, AttributeError):
+        pass
+    return None
+
+
+def xp_zeros(shape, dtype, xp, ref_arr=None):
+    """Device-aware ``xp.zeros``.  *ref_arr* provides the target device."""
+    dev = _torch_dev(ref_arr) if ref_arr is not None else None
+    if dev is not None:
+        return xp.zeros(shape, dtype=dtype, device=dev)
+    return xp.zeros(shape, dtype=dtype)
+
+
+def xp_eye(n, dtype, xp, ref_arr=None):
+    """Device-aware ``xp.eye``.  *ref_arr* provides the target device."""
+    dev = _torch_dev(ref_arr) if ref_arr is not None else None
+    if dev is not None:
+        return xp.eye(n, dtype=dtype, device=dev)
+    return xp.eye(n, dtype=dtype)
+
+
+def xp_full(shape, fill_value, dtype, xp, ref_arr=None):
+    """Device-aware ``xp.full`` with int→tuple normalisation."""
+    if isinstance(shape, int):
+        shape = (shape,)
+    dev = _torch_dev(ref_arr) if ref_arr is not None else None
+    if dev is not None:
+        return xp.full(shape, fill_value, dtype=dtype, device=dev)
+    return xp.full(shape, fill_value, dtype=dtype)
+
+
+def xp_astype(arr, dtype, xp):
+    """Backend-safe type cast (``.to()`` for torch, ``.astype()`` otherwise)."""
+    if _torch_dev(arr) is not None:
+        return arr.to(dtype)
+    return arr.astype(dtype)
+
+
+def xp_asarray(data, dtype=None, xp=None, ref_arr=None):
+    """Device-aware ``xp.asarray``.  *ref_arr* provides the target device."""
+    dev = _torch_dev(ref_arr) if ref_arr is not None else None
+    if dev is not None:
+        kwargs = {'device': dev}
+        if dtype is not None:
+            kwargs['dtype'] = dtype
+        return xp.asarray(data, **kwargs)
+    if dtype is not None:
+        return xp.asarray(data, dtype=dtype)
+    return xp.asarray(data)
+
+
+def xp_empty(shape, dtype, xp, ref_arr=None):
+    """Device-aware ``xp.empty``.  *ref_arr* provides the target device."""
+    dev = _torch_dev(ref_arr) if ref_arr is not None else None
+    if dev is not None:
+        return xp.empty(shape, dtype=dtype, device=dev)
+    return xp.empty(shape, dtype=dtype)
+
+
+def xp_arange(n, dtype=None, xp=None, ref_arr=None):
+    """Device-aware ``xp.arange``.  *ref_arr* provides the target device."""
+    dev = _torch_dev(ref_arr) if ref_arr is not None else None
+    if dev is not None:
+        kwargs = {'device': dev}
+        if dtype is not None:
+            kwargs['dtype'] = dtype
+        return xp.arange(n, **kwargs)
+    if dtype is not None:
+        return xp.arange(n, dtype=dtype)
+    return xp.arange(n)
+
+
+def xp_ones(shape, dtype, xp, ref_arr=None):
+    """Device-aware ``xp.ones``.  *ref_arr* provides the target device."""
+    dev = _torch_dev(ref_arr) if ref_arr is not None else None
+    if dev is not None:
+        return xp.ones(shape, dtype=dtype, device=dev)
+    return xp.ones(shape, dtype=dtype)
+
+
+def xp_maximum(arr, value, xp=None):
+    """Element-wise maximum that works for both numpy/cupy and torch.
+
+    Torch's ``maximum()`` requires both args to be tensors; numpy/cupy accept
+    scalars.  This helper wraps *value* as needed.
+    """
+    if _torch_dev(arr) is not None:
+        import torch
+        if not isinstance(value, torch.Tensor):
+            value = torch.tensor(value, dtype=arr.dtype, device=arr.device)
+        return torch.maximum(arr, value)
+    return xp.maximum(arr, value) if xp is not None else np.maximum(arr, value)
+
+
+def xp_copy(arr):
+    """Backend-safe copy (``.clone()`` for torch, ``.copy()`` otherwise)."""
+    if _torch_dev(arr) is not None:
+        return arr.clone()
+    return arr.copy()

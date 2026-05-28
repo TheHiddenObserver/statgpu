@@ -9,7 +9,7 @@ import numpy as np
 
 from statgpu._config import Device
 from statgpu.linear_model._cv_base import CVEstimatorBase
-from statgpu.backends import get_backend
+from statgpu.backends import get_backend, _torch_dev
 from ._logistic import LogisticRegression
 
 
@@ -279,7 +279,13 @@ def _solve_logistic_path_gpu_from_batch(X_batch, y_batch, n_train_vec, Cs, backe
         for C in Cs:
             # Initialize
             if fit_intercept:
-                X_design = xp.column_stack([backend.ones(n_train, dtype=X_fold.dtype), X_fold])
+                ones_col = backend.ones(n_train, dtype=X_fold.dtype)
+                if _torch_dev(X_fold) is not None:
+                    if ones_col.ndim == 1:
+                        ones_col = ones_col.unsqueeze(1)
+                    X_design = xp.cat([ones_col, X_fold], dim=1)
+                else:
+                    X_design = xp.column_stack([ones_col, X_fold])
                 params = backend.zeros(X_design.shape[1])
             else:
                 X_design = X_fold
@@ -299,7 +305,7 @@ def _solve_logistic_path_gpu_from_batch(X_batch, y_batch, n_train_vec, Cs, backe
 
                 z = eta + (y_fold - p) / W
 
-                XtWX = X_design.T @ (X_design * W[:, backend.newaxis])
+                XtWX = X_design.T @ (X_design * W[:, None])
 
                 if alpha > 0:
                     reg_diag = backend.full(XtWX.shape[0], alpha)

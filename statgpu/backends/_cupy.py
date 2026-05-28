@@ -266,6 +266,8 @@ class CuPyBackend(BackendBase):
     def _cumop_1d(arr, op):
         """1D cumulative op using sequential write."""
         import cupy as cp
+        # Ensure contiguous memory for CUDA kernel
+        arr = cp.ascontiguousarray(arr)
         n = len(arr)
         result = cp.empty_like(arr)
         result[0] = arr[0]
@@ -280,6 +282,8 @@ class CuPyBackend(BackendBase):
         shape = arr.shape
         K = shape[-1]
         flat = arr.reshape(-1, K)
+        # Ensure contiguous memory for CUDA kernel
+        flat = cp.ascontiguousarray(flat)
         N = flat.shape[0]
         result = cp.empty_like(flat)
         result[:, 0] = flat[:, 0]
@@ -349,17 +353,23 @@ void cummax_2d(const double* __restrict__ x,
 }
 '''
 
-# Compile once at import time
-import cupy as _cp
-_cummin_1d_mod = _cp.RawModule(code=_cummin_1d_src)
-_cummax_1d_mod = _cp.RawModule(code=_cummax_1d_src)
-_cummin_2d_mod = _cp.RawModule(code=_cummin_2d_src)
-_cummax_2d_mod = _cp.RawModule(code=_cummax_2d_src)
-_cummin_1d_kernel = _cummin_1d_mod.get_function('cummin_1d')
-_cummax_1d_kernel = _cummax_1d_mod.get_function('cummax_1d')
-_cummin_2d_kernel = _cummin_2d_mod.get_function('cummin_2d')
-_cummax_2d_kernel = _cummax_2d_mod.get_function('cummax_2d')
-del _cp
+# Compile once at import time (guarded: cupy may not be installed)
+try:
+    import cupy as _cp
+    _cummin_1d_mod = _cp.RawModule(code=_cummin_1d_src)
+    _cummax_1d_mod = _cp.RawModule(code=_cummax_1d_src)
+    _cummin_2d_mod = _cp.RawModule(code=_cummin_2d_src)
+    _cummax_2d_mod = _cp.RawModule(code=_cummax_2d_src)
+    _cummin_1d_kernel = _cummin_1d_mod.get_function('cummin_1d')
+    _cummax_1d_kernel = _cummax_1d_mod.get_function('cummax_1d')
+    _cummin_2d_kernel = _cummin_2d_mod.get_function('cummin_2d')
+    _cummax_2d_kernel = _cummax_2d_mod.get_function('cummax_2d')
+    del _cp
+except ImportError:
+    _cummin_1d_kernel = None
+    _cummax_1d_kernel = None
+    _cummin_2d_kernel = None
+    _cummax_2d_kernel = None
 
 
 def _launch_cumop_1d(arr, result, n, is_min):

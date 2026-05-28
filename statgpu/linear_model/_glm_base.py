@@ -22,7 +22,7 @@ def _parse_formula_if_provided(formula, data, X, y):
 
 from statgpu._base import BaseEstimator
 from statgpu._config import Device
-from statgpu.backends import _to_numpy
+from statgpu.backends import _to_numpy, xp_arange, xp_empty, xp_zeros
 from statgpu.glm_core._irls import IRLSSolver
 from statgpu.glm_core._solver import fista_solver
 from statgpu.glm_core._family import (
@@ -843,7 +843,7 @@ class OrderedGeneralizedLinearModel(GeneralizedLinearModel):
         pi = family.link.inverse(thresh[:, None] - eta[None, :])  # (K-1, n)
 
         xp = _xp_arr(X)
-        prob = xp.zeros((K, X.shape[0]), dtype=getattr(X, 'dtype', None))
+        prob = xp_zeros((K, X.shape[0]), getattr(X, 'dtype', None), xp, X)
         prob[0] = pi[0]
         for j in range(1, K - 1):
             prob[j] = pi[j] - pi[j - 1]
@@ -856,7 +856,7 @@ class OrderedGeneralizedLinearModel(GeneralizedLinearModel):
         p = X.shape[1]
         n_thresh = K - 1
         dim = p + n_thresh
-        grad = xp.zeros(dim)
+        grad = xp_zeros(dim, None, xp, X)
 
         eta = X @ beta  # (n,)
 
@@ -867,14 +867,14 @@ class OrderedGeneralizedLinearModel(GeneralizedLinearModel):
             deriv_all[j] = self._ordered_link_derivative(diff[j], family)
 
         # inv_prob[i] = 1 / P(y[i] | X[i]), shape (n,)
-        inv_prob = 1.0 / prob_clipped[y, xp.arange(n)]  # (n,)
+        inv_prob = 1.0 / prob_clipped[y, xp_arange(n, xp=xp, ref_arr=X)]  # (n,)
 
         # dP_dthresh contribution for each (j, i):
         #   +deriv_all[j, i] if j == y[i]
         #   -deriv_all[j, i] if j == y[i] - 1
         # Vectorized: for each j, count how many samples have y==j (positive)
         # and y==j+1 (negative).
-        dP_dthresh_j = xp.zeros(n_thresh)
+        dP_dthresh_j = xp_zeros(n_thresh, None, xp, X)
         for j in range(n_thresh):
             mask_pos = (y == j)
             mask_neg = (y == j + 1)
@@ -886,7 +886,7 @@ class OrderedGeneralizedLinearModel(GeneralizedLinearModel):
         # scalar_i = -(deriv_all[0, i]) if y[i]==0
         #           (deriv_all[y[i]-1, i] - deriv_all[y[i], i]) if 0 < y[i] < K-1
         #           (deriv_all[n_thresh-1, i]) if y[i]==K-1
-        scalar = xp.empty(n)
+        scalar = xp_empty(n, X.dtype, xp, X)
         mask0 = (y == 0)
         mask_last = (y == K - 1)
         mask_mid = ~mask0 & ~mask_last

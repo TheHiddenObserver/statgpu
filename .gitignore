@@ -3,6 +3,7 @@ venv/
 env/
 __pycache__/
 *.pyc
+*.egg-info/
 tmp/
 python
 setup_cython.py
@@ -28,6 +29,8 @@ dev/design/
 
 # Debug / scratch files in tests (keep only the formal test suite)
 dev/tests/_*/
+dev/tests/_bench_*.py
+dev/tests/_bench_*.txt
 dev/tests/*_runner.py
 dev/tests/*_remote*.py
 dev/tests/upload_*.py

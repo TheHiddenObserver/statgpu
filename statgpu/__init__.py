@@ -33,6 +33,7 @@ from .linear_model import (
     ElasticNetCV,
 )
 from .survival import CoxPH, CoxPHCV
+from .panel import PanelOLS, RandomEffects
 from .backends import get_backend, NumpyBackend, CuPyBackend, TorchBackend
 from .metrics import evaluate_binary_classification
 from .feature_selection import (
@@ -44,6 +45,8 @@ from .feature_selection import (
 )
 from .inference import adjust_pvalues, combine_pvalues, multipletests
 from .inference import bootstrap_statistic, permutation_test
+from .anova import f_oneway
+from .kernel_methods import KernelRidge, KernelRidgeCV
 from .nonparametric import (
     BandwidthSelectionResult,
     KernelDensityEstimator,
@@ -60,6 +63,8 @@ from .nonparametric import (
     select_bandwidth,
     select_bandwidth_factor,
 )
+from .splines import GAM, bspline_basis, natural_cubic_spline_basis
+from .covariance import EmpiricalCovariance, LedoitWolf, OAS
 
 __all__ = [
     "get_device",
@@ -90,6 +95,10 @@ __all__ = [
     "ElasticNetCV",
     "CoxPH",
     "CoxPHCV",
+    "PanelOLS",
+    "RandomEffects",
+    "KernelRidge",
+    "KernelRidgeCV",
     "get_backend",
     "NumpyBackend",
     "CuPyBackend",
@@ -105,6 +114,7 @@ __all__ = [
     "multipletests",
     "bootstrap_statistic",
     "permutation_test",
+    "f_oneway",
     "BandwidthSelectionResult",
     "KernelDensityEstimator",
     "KDE",
@@ -119,4 +129,10 @@ __all__ = [
     "kde_bootstrap_confidence_interval",
     "select_bandwidth",
     "select_bandwidth_factor",
+    "GAM",
+    "bspline_basis",
+    "natural_cubic_spline_basis",
+    "EmpiricalCovariance",
+    "LedoitWolf",
+    "OAS",
 ]

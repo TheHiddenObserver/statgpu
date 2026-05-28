@@ -10,6 +10,7 @@ from typing import Any, Dict, Optional, Union
 import numpy as np
 
 from statgpu._base import BaseEstimator
+from statgpu.backends import xp_asarray, xp_empty, xp_maximum
 from ._bandwidth_selection import select_bandwidth
 
 from ._kernel_common import (
@@ -100,7 +101,7 @@ class KernelDensityEstimator(BaseEstimator):
 
         device = _torch_device_from_data(samples_2d)
         self._torch_device = device
-        weights_1d = _normalize_weights(self.weights, n_samples, xp, device=device)
+        weights_1d = _normalize_weights(self.weights, n_samples, xp, device=device, ref_arr=samples_2d)
         n_eff = _effective_sample_size(weights_1d, xp)
         kernel_name = _normalize_kernel_name(self.kernel)
 
@@ -192,15 +193,7 @@ class KernelDensityEstimator(BaseEstimator):
         if batch_size <= 0:
             raise ValueError("batch_size must be a positive integer")
 
-        device = _torch_device_from_data(points_2d)
-        try:
-            import torch
-            if xp is torch:
-                out = xp.empty((n_points,), dtype=xp.float64, device=device)
-            else:
-                out = xp.empty((n_points,), dtype=xp.float64)
-        except ImportError:
-            out = xp.empty((n_points,), dtype=xp.float64)
+        out = xp_empty((n_points,), xp.float64, xp, ref_arr=points_2d)
 
         if n_features == 1:
             samples_1d = self.samples_[:, 0]
@@ -250,7 +243,7 @@ class KernelDensityEstimator(BaseEstimator):
             q_quad = xp.sum(q_proj * q, axis=1)
             cross = q_proj @ self.samples_.T
             quad = q_quad[:, None] + s_quad[None, :] - 2.0 * cross
-            quad = xp.maximum(quad, 0.0)
+            quad = xp_maximum(quad, 0.0, xp)
 
             if use_log_sum_exp:
                 if is_gaussian:
@@ -321,15 +314,8 @@ class KernelDensityEstimator(BaseEstimator):
         if batch_size <= 0:
             raise ValueError("batch_size must be a positive integer")
 
-        device = _torch_device_from_data(points_2d)
-        try:
-            import torch
-            if xp is torch:
-                out = xp.empty((n_points,), dtype=xp.float64, device=device)
-            else:
-                out = xp.empty((n_points,), dtype=xp.float64)
-        except ImportError:
-            out = xp.empty((n_points,), dtype=xp.float64)
+        n_points = int(points_2d.shape[0])
+        n_features = int(self.samples_.shape[1])
 
         if n_features == 1:
             density = self._evaluate_density(points_2d, batch_size=batch_size, xp=xp)
@@ -342,7 +328,7 @@ class KernelDensityEstimator(BaseEstimator):
         log_norm = math.log(self.inv_norm_const_) if self.inv_norm_const_ > 0.0 else float("-inf")
         is_gaussian = self.kernel_ == "gaussian"
 
-        out = xp.empty((points_2d.shape[0],), dtype=xp.float64)
+        out = xp_empty((n_points,), xp.float64, xp, ref_arr=points_2d)
 
         for start in range(0, points_2d.shape[0], int(batch_size)):
             stop = min(start + int(batch_size), points_2d.shape[0])
@@ -352,7 +338,7 @@ class KernelDensityEstimator(BaseEstimator):
             q_quad = xp.sum(q_proj * q, axis=1)
             cross = q_proj @ self.samples_.T
             quad = q_quad[:, None] + s_quad[None, :] - 2.0 * cross
-            quad = xp.maximum(quad, 0.0)
+            quad = xp_maximum(quad, 0.0, xp)
 
             if is_gaussian:
                 log_kernels = -0.5 * quad
@@ -723,8 +709,8 @@ def kde_confidence_interval(
                 raise ValueError("bootstrap weights must sum to a positive value")
             sampled_weights = sampled_weights / sampled_weight_sum
 
-            sampled_data_backend = sampled_data if xp is np else xp.asarray(sampled_data, dtype=xp.float64)
-            sampled_weights_backend = sampled_weights if xp is np else xp.asarray(sampled_weights, dtype=xp.float64)
+            sampled_data_backend = sampled_data if xp is np else xp_asarray(sampled_data, dtype=xp.float64, xp=xp, ref_arr=points_2d)
+            sampled_weights_backend = sampled_weights if xp is np else xp_asarray(sampled_weights, dtype=xp.float64, xp=xp, ref_arr=points_2d)
 
             boot_model = fit_kde(
                 sampled_data_backend,

@@ -27,7 +27,23 @@ from ._numpy import NumpyBackend
 from ._cupy import CuPyBackend
 from ._torch import TorchBackend
 from ._factory import get_backend
-from ._utils import _get_xp, _to_numpy, _to_float_scalar, _get_torch_device_str
+from ._utils import (
+    _get_xp,
+    _to_numpy,
+    _to_float_scalar,
+    _get_torch_device_str,
+    _torch_dev,
+    xp_zeros,
+    xp_eye,
+    xp_full,
+    xp_astype,
+    xp_asarray,
+    xp_empty,
+    xp_arange,
+    xp_ones,
+    xp_maximum,
+    xp_copy,
+)
 
 __all__ = [
     "BackendBase",
@@ -42,4 +58,15 @@ __all__ = [
     "_to_numpy",
     "_to_float_scalar",
     "_get_torch_device_str",
+    "_torch_dev",
+    "xp_zeros",
+    "xp_eye",
+    "xp_full",
+    "xp_astype",
+    "xp_asarray",
+    "xp_empty",
+    "xp_arange",
+    "xp_ones",
+    "xp_maximum",
+    "xp_copy",
 ]

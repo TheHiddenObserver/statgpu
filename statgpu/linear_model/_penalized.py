@@ -12,7 +12,7 @@ import numpy as np
 
 from statgpu._base import BaseEstimator
 from statgpu._config import Device
-from statgpu.backends import get_backend, _get_torch_device_str, _to_numpy
+from statgpu.backends import get_backend, _get_torch_device_str, _to_numpy, _torch_dev, xp_asarray
 
 
 def _irls_ridge_init(X, y, loss_name, alpha=0.01, max_iter=100, tol=1e-4):
@@ -1828,7 +1828,10 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
                 col_names = list(self._design_info.column_names)
                 if self._formula_has_intercept and "Intercept" in col_names:
                     X = np.delete(X, col_names.index("Intercept"), axis=1)
-        return np.asarray(X)
+                return np.asarray(X)
+        # Return as-is for torch/numpy inputs — predict() uses _to_array()
+        # which handles device-aware conversion without unnecessary round-trips.
+        return X
 
     def predict(self, X):
         """
@@ -3167,9 +3170,9 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
             )
             # fista_lla_path returns numpy, convert back to backend-native
             if self.fit_intercept:
-                params = xp.concatenate([xp.asarray(coef_np), xp.asarray([intercept])])
+                params = xp.concatenate([xp_asarray(coef_np, xp=xp, ref_arr=X_work), xp_asarray([intercept], xp=xp, ref_arr=X_work)])
             else:
-                params = xp.asarray(coef_np)
+                params = xp_asarray(coef_np, xp=xp, ref_arr=X_work)
         elif _use_lla_group:
             # GLM + group_mcp/group_scad: LLA outer loop + FISTA inner solve
             # with AdaptiveGroupLassoPenalty as inner penalty.
@@ -3234,9 +3237,9 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
             )
             # fista_lla_path returns numpy, convert back to backend-native
             if self.fit_intercept:
-                params = xp.concatenate([xp.asarray(coef_np), xp.asarray([intercept])])
+                params = xp.concatenate([xp_asarray(coef_np, xp=xp, ref_arr=X_work), xp_asarray([intercept], xp=xp, ref_arr=X_work)])
             else:
-                params = xp.asarray(coef_np)
+                params = xp_asarray(coef_np, xp=xp, ref_arr=X_work)
         elif _pen_name == "group_lasso":
             # Block CD for group_lasso: use GPU-native solver on GPU backends.
             if backend_name != "numpy":

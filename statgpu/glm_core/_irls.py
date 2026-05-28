@@ -186,6 +186,7 @@ def irls_solver(
     ridge_alpha=0.0,
     ridge_penalize_intercept=False,
     backend="auto",
+    penalty_matrix=None,
 ):
     """IRLS: solve GLM by iteratively weighted least squares.
 
@@ -211,6 +212,10 @@ def irls_solver(
         Whether to penalize the intercept.
     backend : str
         'numpy', 'cupy', 'torch', or 'auto'.
+    penalty_matrix : array, optional
+        Additional penalty matrix to add to the normal equations.
+        Shape must be (n_features, n_features). When provided, the
+        normal equations become: X'WX + ridge_alpha*I + penalty_matrix.
 
     Returns
     -------
@@ -278,6 +283,10 @@ def irls_solver(
             if not ridge_penalize_intercept:
                 reg[0] = 0.0
             XtWX = XtWX + _diag(reg, backend, ref_tensor=X)
+
+        # Add penalty matrix if provided (e.g., for spline smoothing)
+        if penalty_matrix is not None:
+            XtWX = XtWX + _to_backend(penalty_matrix, backend, X)
 
         params_new = _solve(XtWX, Xtz, backend)
 
@@ -524,6 +533,7 @@ class IRLSSolver:
         ridge_alpha=0.0,
         ridge_penalize_intercept=False,
         backend="auto",
+        penalty_matrix=None,
     ):
         """Run IRLS loop.
 
@@ -533,6 +543,8 @@ class IRLSSolver:
             L2 regularization (lambda = 1/(2*C) format).
         ridge_penalize_intercept : bool
             Whether to penalize the intercept.
+        penalty_matrix : array, optional
+            Additional penalty matrix for the normal equations.
         """
         return irls_solver(
             self.family,
@@ -545,4 +557,5 @@ class IRLSSolver:
             ridge_alpha=ridge_alpha,
             ridge_penalize_intercept=ridge_penalize_intercept,
             backend=backend,
+            penalty_matrix=penalty_matrix,
         )

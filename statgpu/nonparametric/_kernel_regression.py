@@ -7,6 +7,15 @@ from typing import Any, Optional, Union
 import numpy as np
 
 from statgpu._base import BaseEstimator
+from statgpu.backends import (
+    _torch_dev,
+    xp_asarray,
+    xp_empty,
+    xp_eye,
+    xp_full,
+    xp_maximum,
+    xp_ones,
+)
 from ._bandwidth_selection import select_bandwidth
 
 from ._kernel_common import (
@@ -71,10 +80,10 @@ class KernelRegression(BaseEstimator):
         samples_2d = _as_samples_2d(X, xp)
         n_samples, n_features = int(samples_2d.shape[0]), int(samples_2d.shape[1])
 
-        targets_2d, target_was_1d = _as_targets_2d(y, n_samples, xp)
+        targets_2d, target_was_1d = _as_targets_2d(y, n_samples, xp, ref_arr=samples_2d)
         n_targets = int(targets_2d.shape[1])
 
-        weights_1d = _normalize_weights(self.weights, n_samples, xp)
+        weights_1d = _normalize_weights(self.weights, n_samples, xp, ref_arr=samples_2d)
         n_eff = _effective_sample_size(weights_1d, xp)
 
         kernel_name = _normalize_kernel_name(self.kernel)
@@ -85,7 +94,7 @@ class KernelRegression(BaseEstimator):
 
         data_cov = _weighted_covariance(samples_2d, weights_1d, xp)
 
-        bandwidth_vec = _as_bandwidth_per_feature(self.bandwidth_per_feature, n_features, xp)
+        bandwidth_vec = _as_bandwidth_per_feature(self.bandwidth_per_feature, n_features, xp, ref_arr=data_cov)
         if bandwidth_vec is not None and metric_name != "diagonal":
             raise ValueError("bandwidth_per_feature requires kernel_metric='diagonal'")
 
@@ -116,7 +125,7 @@ class KernelRegression(BaseEstimator):
         else:
             tiny = float(np.finfo(np.float64).tiny)
             diag_cov = xp.diag(data_cov)
-            diag_sd = xp.sqrt(xp.maximum(diag_cov, tiny))
+            diag_sd = xp.sqrt(xp_maximum(diag_cov, tiny, xp))
             rel = bandwidth_vec / diag_sd
             factor = float(_to_float_scalar(xp.mean(rel)))
             if (not np.isfinite(factor)) or factor <= 0.0:
@@ -166,9 +175,9 @@ class KernelRegression(BaseEstimator):
                         self.n_features_ * self.n_targets_,
                     )
                 )
-                self._ll_eye_p1_ = xp.eye(self.n_features_ + 1, dtype=xp.float64)
+                self._ll_eye_p1_ = xp_eye(self.n_features_ + 1, xp.float64, xp, ref_arr=self.samples_)
             else:
-                self._ll_ones_col_ = xp.ones((self.n_samples_, 1), dtype=xp.float64)
+                self._ll_ones_col_ = xp_ones((self.n_samples_, 1), xp.float64, xp, ref_arr=self.samples_)
         self._fitted = True
         return self
 
@@ -231,7 +240,7 @@ class KernelRegression(BaseEstimator):
         n_features = int(samples_2d.shape[1])
         n_targets = int(targets_2d.shape[1])
 
-        out = xp.empty((n_points, n_targets), dtype=xp.float64)
+        out = xp_empty((n_points, n_targets), xp.float64, xp, ref_arr=points_2d)
 
         if n_features == 1:
             samples_1d = samples_2d[:, 0]
@@ -252,7 +261,7 @@ class KernelRegression(BaseEstimator):
                     denom = xp.sum(weighted_kernels, axis=1)
                     numer = weighted_kernels @ targets_2d
 
-                    denom_safe = xp.maximum(denom, min_weight)
+                    denom_safe = xp_maximum(denom, min_weight, xp)
                     pred = numer / denom_safe[:, None]
                     out[start:stop] = xp.where(denom[:, None] > min_weight, pred, fallback[None, :])
 
@@ -270,7 +279,7 @@ class KernelRegression(BaseEstimator):
                 denom = xp.sum(weighted_kernels, axis=1)
                 numer = weighted_kernels @ targets_2d
 
-                denom_safe = xp.maximum(denom, min_weight)
+                denom_safe = xp_maximum(denom, min_weight, xp)
                 pred = numer / denom_safe[:, None]
                 out[start:stop] = xp.where(denom[:, None] > min_weight, pred, fallback[None, :])
 
@@ -287,7 +296,7 @@ class KernelRegression(BaseEstimator):
             q_quad = xp.sum(q_proj * q, axis=1)
             cross = q_proj @ samples_2d.T
             quad = q_quad[:, None] + s_quad[None, :] - 2.0 * cross
-            quad = xp.maximum(quad, 0.0)
+            quad = xp_maximum(quad, 0.0, xp)
 
             kernels = _kernel_values_from_quad(quad, kernel_name, xp)
             weighted_kernels = kernels * weights_1d[None, :]
@@ -295,7 +304,7 @@ class KernelRegression(BaseEstimator):
             denom = xp.sum(weighted_kernels, axis=1)
             numer = weighted_kernels @ targets_2d
 
-            denom_safe = xp.maximum(denom, min_weight)
+            denom_safe = xp_maximum(denom, min_weight, xp)
             pred = numer / denom_safe[:, None]
             out[start:stop] = xp.where(denom[:, None] > min_weight, pred, fallback[None, :])
 
@@ -330,7 +339,7 @@ class KernelRegression(BaseEstimator):
         n_features = int(samples_2d.shape[1])
         n_targets = int(targets_2d.shape[1])
 
-        out = xp.empty((n_points, n_targets), dtype=xp.float64)
+        out = xp_empty((n_points, n_targets), xp.float64, xp, ref_arr=points_2d)
 
         if n_features == 1:
             samples_1d = samples_2d[:, 0]
@@ -362,7 +371,7 @@ class KernelRegression(BaseEstimator):
                     det_safe = xp.where(use_ll, det, 1.0)
                     pred_ll = (s2[:, None] * t0 - s1[:, None] * t1) / det_safe[:, None]
 
-                    denom_safe = xp.maximum(s0, min_weight)
+                    denom_safe = xp_maximum(s0, min_weight, xp)
                     pred_nw = t0 / denom_safe[:, None]
 
                     pred = xp.where(use_ll[:, None], pred_ll, pred_nw)
@@ -393,7 +402,7 @@ class KernelRegression(BaseEstimator):
                 det_safe = xp.where(use_ll, det, 1.0)
                 pred_ll = (s2[:, None] * t0 - s1[:, None] * t1) / det_safe[:, None]
 
-                denom_safe = xp.maximum(s0, min_weight)
+                denom_safe = xp_maximum(s0, min_weight, xp)
                 pred_nw = t0 / denom_safe[:, None]
 
                 pred = xp.where(use_ll[:, None], pred_ll, pred_nw)
@@ -418,14 +427,14 @@ class KernelRegression(BaseEstimator):
             q_quad = xp.sum(q_proj * q, axis=1)
             cross = q_proj @ samples_2d.T
             quad = q_quad[:, None] + s_quad[None, :] - 2.0 * cross
-            quad = xp.maximum(quad, 0.0)
+            quad = xp_maximum(quad, 0.0, xp)
 
             kernels = _kernel_values_from_quad(quad, kernel_name, xp)
             weighted_kernels = kernels * weights_1d[None, :]
             denom = xp.sum(weighted_kernels, axis=1)
             numer_nw = weighted_kernels @ targets_2d
 
-            denom_safe = xp.maximum(denom, min_weight)
+            denom_safe = xp_maximum(denom, min_weight, xp)
             pred_nw = numer_nw / denom_safe[:, None]
 
             if use_vectorized_moments:
@@ -448,18 +457,21 @@ class KernelRegression(BaseEstimator):
                 t1 = t1 - q[:, :, None] * numer_nw[:, None, :]
 
                 p1 = n_features + 1
-                A_batch = xp.empty((b, p1, p1), dtype=xp.float64)
+                A_batch = xp_empty((b, p1, p1), xp.float64, xp, ref_arr=weighted_kernels)
                 A_batch[:, 0, 0] = denom
                 A_batch[:, 0, 1:] = s1
                 A_batch[:, 1:, 0] = s1
                 A_batch[:, 1:, 1:] = s2
 
-                B_batch = xp.empty((b, p1, n_targets), dtype=xp.float64)
+                B_batch = xp_empty((b, p1, n_targets), xp.float64, xp, ref_arr=weighted_kernels)
                 B_batch[:, 0, :] = numer_nw
                 B_batch[:, 1:, :] = t1
 
-                trace_batch = xp.sum(xp.diagonal(A_batch, axis1=1, axis2=2), axis=1)
-                ridge = xp.maximum(trace_batch / float(max(1, p1)) * 1e-10, 1e-10)
+                if _torch_dev(A_batch) is not None:
+                    trace_batch = xp.sum(xp.diagonal(A_batch, dim1=1, dim2=2), axis=1)
+                else:
+                    trace_batch = xp.sum(xp.diagonal(A_batch, axis1=1, axis2=2), axis=1)
+                ridge = xp_maximum(trace_batch / float(max(1, p1)) * 1e-10, 1e-10, xp)
 
                 solved = False
                 beta0 = None
@@ -521,7 +533,7 @@ class KernelRegression(BaseEstimator):
             min_effective_weight = float(self.min_effective_weight)
 
         xp = _get_xp(self.backend_)
-        points_2d = _as_points_2d(points, self.n_features_, xp)
+        points_2d = _as_points_2d(points, self.n_features_, xp, ref_arr=self.samples_)
         if self.regression_ == "local_linear":
             preds_2d = self._evaluate_local_linear(
                 points_2d,
@@ -659,8 +671,8 @@ def kernel_regression_predict(
     )
 
 
-def _as_targets_2d(targets, n_samples: int, xp):
-    arr = xp.asarray(targets, dtype=xp.float64)
+def _as_targets_2d(targets, n_samples: int, xp, ref_arr=None):
+    arr = xp_asarray(targets, dtype=xp.float64, xp=xp, ref_arr=ref_arr)
     if arr.ndim == 1:
         if int(arr.shape[0]) != int(n_samples):
             raise ValueError("targets must have the same number of rows as samples")
@@ -692,13 +704,13 @@ def _normalize_kernel_metric_name(kernel_metric: str) -> str:
     return normalized
 
 
-def _as_bandwidth_per_feature(bandwidth_per_feature, n_features: int, xp):
+def _as_bandwidth_per_feature(bandwidth_per_feature, n_features: int, xp, ref_arr=None):
     if bandwidth_per_feature is None:
         return None
 
-    bw = xp.asarray(bandwidth_per_feature, dtype=xp.float64).reshape(-1)
+    bw = xp_asarray(bandwidth_per_feature, dtype=xp.float64, xp=xp, ref_arr=ref_arr).reshape(-1)
     if int(bw.size) == 1 and int(n_features) > 1:
-        bw = xp.full(int(n_features), _to_float_scalar(bw[0]), dtype=xp.float64)
+        bw = xp_full(int(n_features), _to_float_scalar(bw[0]), xp.float64, xp, ref_arr=ref_arr)
 
     if int(bw.size) != int(n_features):
         raise ValueError("bandwidth_per_feature must match sample feature dimension")
@@ -712,7 +724,7 @@ def _as_bandwidth_per_feature(bandwidth_per_feature, n_features: int, xp):
 
 def _solve_linear_system_with_ridge(A, B, xp):
     p1 = int(A.shape[0])
-    eye = xp.eye(p1, dtype=xp.float64)
+    eye = xp_eye(p1, xp.float64, xp, ref_arr=A)
 
     trace = _to_float_scalar(xp.trace(A))
     base = trace / float(max(1, p1)) if np.isfinite(trace) else 1.0
