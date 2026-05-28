@@ -252,6 +252,49 @@ torch_model = Ridge(alpha=1.0, device="torch")
 auto_model = Ridge(alpha=1.0, device="auto")
 ```
 
+## Automatic Analysis Agent
+
+statgpu includes a deterministic automatic statistical analysis agent that profiles data, selects methods, fits models, validates results, and generates reports.
+
+### Quick Start
+
+```python
+from statgpu.agent import StatGPUAnalysisAgent
+
+agent = StatGPUAnalysisAgent(device="auto")
+result = agent.analyze(X=X, y=y, target="outcome")
+print(result.to_markdown())
+```
+
+### CLI
+
+```bash
+statgpu-agent data.csv --target outcome --device auto --output report.md
+```
+
+### Features
+
+- **Task auto-detection**: regression, binary classification, Poisson, survival, unsupervised
+- **Proactive pruning**: skips unsuitable methods (e.g., OLS when p > n)
+- **Self-correction loop**: automatically retries with fallback methods on failure
+- **Cross-validation**: K-fold CV metrics (configurable via `cv_folds`)
+- **Multiple testing correction**: optional BH/Holm/Bonferroni (configurable)
+- **Model comparison**: systematic ranking of fitted models
+- **Feature importance**: standardized coefficient magnitude
+- **Memory system**: records successful workflows for reuse
+- **Pipeline serialization**: save/load fitted pipelines
+- **Output formats**: Markdown, JSON, Jupyter Notebook
+
+### Architecture
+
+```
+Profiler → Planner (MethodPruner) → Runner → Validator → Reporter
+                 │                    │     ▲
+                 │ Proactive pruning  │     │ Self-correction (max 3 rounds)
+                 ▼                    └─────┘
+          MethodRegistry            SelfCorrectingRunner
+```
+
 ## Benchmark Scripts
 
 - Multiple-testing timing benchmarks (3 backends + statsmodels/scipy):
