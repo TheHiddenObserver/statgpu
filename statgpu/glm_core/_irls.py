@@ -5,10 +5,14 @@ Extracted from the duplicated IRLS loops in _logistic.py across CPU/GPU/Torch.
 Single implementation works on numpy/cupy/torch backends via auto detection.
 """
 
+import math
 import warnings
 from typing import Optional
 
 import numpy as np
+
+from statgpu.backends import xp_copy
+from statgpu.backends._utils import _get_xp
 
 
 def _infer_backend(X):
@@ -105,28 +109,6 @@ def _to_backend(arr, backend, ref_tensor):
         import torch
         return torch.tensor(arr, dtype=torch.float64, device=ref_tensor.device if ref_tensor is not None else "cpu")
     return np.asarray(arr, dtype=float)
-
-
-def _copy_arr(arr):
-    """Copy array: .clone() for torch, .copy() for numpy/cupy."""
-    if hasattr(arr, 'clone'):
-        return arr.clone()
-    return arr.copy()
-
-
-def _mean(x, backend):
-    """Compute mean of array."""
-    if backend == "torch":
-        return float(x.mean().item())
-    return float(np.mean(x))
-
-
-def _log_val(x, backend):
-    """Compute log of scalar."""
-    if backend == "torch":
-        import torch
-        return float(torch.log(torch.tensor(x, dtype=torch.float64)).item())
-    return float(np.log(x))
 
 
 # =============================================================================
@@ -249,14 +231,16 @@ def irls_solver(
         # (matches sklearn; avoids starting at mu=1 when true mu is small)
         _link_name_init = getattr(family.link, "name", "")
         if _link_name_init in ("log", "Log"):
-            y_mean = _mean(y, backend)
+            xp = _get_xp(backend)
+            y_mean_arr = xp.mean(y)
+            y_mean = float(y_mean_arr.item()) if hasattr(y_mean_arr, 'item') else float(y_mean_arr)
             if y_mean > 0:
-                params[0] = _log_val(y_mean, backend)
+                params[0] = math.log(y_mean)
     else:
         params = init_coef
 
     for iteration in range(max_iter):
-        params_old = _copy_arr(params)
+        params_old = xp_copy(params)
 
         # Step 1: linear predictor (clip eta to prevent exp overflow)
         # For identity link (squared_error), skip clipping — mu = eta = X@params

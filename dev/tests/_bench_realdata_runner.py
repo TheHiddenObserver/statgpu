@@ -4,7 +4,12 @@ Uploads stage scripts to RTX 4090 server, runs them sequentially.
 On PASS: automatically proceeds to next stage.
 On FAIL: diagnoses failure, prints fix instructions, restarts from Stage 1.
 
-Usage: python _bench_realdata_runner.py [--start-stage N]
+Usage:
+  export STATGPU_BENCH_SERVER=your-server
+  export STATGPU_BENCH_PORT=22
+  export STATGPU_BENCH_USER=root
+  export STATGPU_BENCH_PASS=your-password
+  python _bench_realdata_runner.py [--start-stage N]
 """
 import paramiko
 import time
@@ -12,10 +17,10 @@ import re
 import sys
 import os
 
-SERVER = "px1-jcy.matpool.com"
-PORT = 26803
-USER = "root"
-PASS = "lS3+dU5]XVnZ*kc0"
+SERVER = os.environ.get("STATGPU_BENCH_SERVER", "")
+PORT = int(os.environ.get("STATGPU_BENCH_PORT", "22"))
+USER = os.environ.get("STATGPU_BENCH_USER", "root")
+PASS = os.environ.get("STATGPU_BENCH_PASS", "")
 
 LOCAL_DIR = os.path.dirname(os.path.abspath(__file__))
 REMOTE_DIR = "/root/statgpu/dev/tests"
@@ -200,6 +205,12 @@ def clear_cache(client):
 
 
 def main():
+    if not SERVER or not PASS:
+        print("Error: Set STATGPU_BENCH_SERVER and STATGPU_BENCH_PASS environment variables.")
+        print("  export STATGPU_BENCH_SERVER=your-server")
+        print("  export STATGPU_BENCH_PASS=your-password")
+        sys.exit(1)
+
     start_stage = 1
     if len(sys.argv) > 2 and sys.argv[1] == '--start-stage':
         start_stage = int(sys.argv[2])
