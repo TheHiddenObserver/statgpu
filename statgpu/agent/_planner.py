@@ -95,29 +95,35 @@ class PruningRuleRegistry:
 # ---------------------------------------------------------------------------
 
 def _register_default_methods():
-    """Register the default set of methods."""
+    """Register the default set of methods.
+
+    Factories accept an optional AgentConfig to pass device/cov_type/etc.
+    The config is applied in _analysis.py's _run_with_methods().
+    """
     from statgpu.linear_model import LinearRegression, LogisticRegression, PoissonRegression, Ridge
     from statgpu.survival import CoxPH
     from statgpu.unsupervised import KMeans, PCA
 
     MethodRegistry.register("regression", "LinearRegression",
-                            factory=lambda: LinearRegression(), priority=0)
+                            factory=lambda cfg=None: LinearRegression(), priority=0)
     MethodRegistry.register("regression", "Ridge(alpha=1.0)",
-                            factory=lambda: Ridge(alpha=1.0), priority=1)
+                            factory=lambda cfg=None: Ridge(alpha=1.0), priority=1)
 
     MethodRegistry.register("binary_classification", "LogisticRegression",
-                            factory=lambda: LogisticRegression(), priority=0)
+                            factory=lambda cfg=None: LogisticRegression(), priority=0)
 
     MethodRegistry.register("poisson", "PoissonRegression",
-                            factory=lambda: PoissonRegression(), priority=0)
+                            factory=lambda cfg=None: PoissonRegression(), priority=0)
 
     MethodRegistry.register("survival", "CoxPH",
-                            factory=lambda: CoxPH(ties="efron"), priority=0)
+                            factory=lambda cfg=None: CoxPH(ties="efron"), priority=0)
+    MethodRegistry.register("survival", "CoxPH(penalized)",
+                            factory=lambda cfg=None: CoxPH(ties="efron", penalty=1.0), priority=1)
 
     MethodRegistry.register("unsupervised", "PCA",
-                            factory=lambda: PCA(), priority=0)
+                            factory=lambda cfg=None: PCA(), priority=0)
     MethodRegistry.register("unsupervised", "KMeans",
-                            factory=lambda: KMeans(), priority=1)
+                            factory=lambda cfg=None: KMeans(), priority=1)
 
 
 # Initialize default methods on module load

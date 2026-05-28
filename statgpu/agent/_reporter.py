@@ -154,13 +154,17 @@ def save_markdown(result, path: str, max_terms: int = 12) -> None:
 
 
 def save_json(result, path: str, include_estimators: bool = False) -> None:
-    """Save complete analysis result as JSON artifact."""
+    """Save complete analysis result as JSON artifact.
+
+    Note: Estimator objects are never serialized to JSON (not JSON-safe).
+    Use save_pipeline() for pickle serialization of estimators.
+    """
     import statgpu
 
     artifact = {
         "version": statgpu.__version__,
         "timestamp": datetime.now(timezone.utc).isoformat(),
-        "result": result.to_dict(include_estimators=include_estimators),
+        "result": result.to_dict(include_estimators=False),  # Never serialize estimators to JSON
         "provenance": {
             "python_version": sys.version,
             "numpy_version": np.__version__,

@@ -1,7 +1,7 @@
 # statgpu 自动统计分析 Agent 设计笔记
 
-> 日期：2026-05-28  
-> 相关文件：`nature_agent_report.md`、`statgpu/statgpu/agent/`、`statgpu/`  
+> 日期：2026-05-28
+> 相关文件：`nature_agent_report.md`、`statgpu/statgpu/agent/`、`statgpu/`
 > 当前定位：第一版可运行的 deterministic statistical agent，不是完整 LLM 自进化科学家系统。
 
 ## 1. 为什么要做这个 agent
@@ -401,13 +401,13 @@ python -m statgpu.agent data.csv --target outcome --device cpu
 
 从 Nature 报告看，很多系统都用 LLM 做 planner 或 controller。但对 `statgpu` 来说，第一版直接上 LLM 不一定是正确顺序，原因有三点：
 
-1. **统计分析首先需要可复现。**  
+1. **统计分析首先需要可复现。**
    同一份数据、同一参数应该给出同样的模型计划、同样的警告和同样的报告结构。
 
-2. **`statgpu` 是底层统计库，不应强制依赖远程模型服务。**  
+2. **`statgpu` 是底层统计库，不应强制依赖远程模型服务。**
    项目核心依赖目前是 NumPy/SciPy/joblib，pandas 也是 optional extra。把 LLM 作为硬依赖会改变包定位。
 
-3. **LLM 更适合放在 planner/report 层，而不是 estimator 层。**  
+3. **LLM 更适合放在 planner/report 层，而不是 estimator 层。**
    当前 deterministic agent 已经把流程边界划清楚。后续如果要接 LLM，可以只替换 `_build_plan()` 或增加自然语言解释层，不需要改模型执行层。
 
 所以当前 agent 是一个“agentic workflow engine”，不是“LLM scientist”。这也是有意设计的边界。

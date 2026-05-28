@@ -307,7 +307,31 @@ class StatGPUAnalysisAgent:
                 available_methods = corrected_methods
                 models = self._run_with_methods(prepared, task_type, available_methods)
 
-        # Stage 4: Validate
+        # Stage 4: Cross-validation (if enabled)
+        if self.config.cv_folds > 0 and task_type != "unsupervised":
+            from ._cross_validation import AgentCrossValidator
+            cv = AgentCrossValidator(
+                n_folds=self.config.cv_folds,
+                random_state=self.config.random_state,
+            )
+            for model in models:
+                if model.error is not None or model.estimator is None:
+                    continue
+                try:
+                    if task_type == "survival" and hasattr(prepared, 'time') and prepared.time is not None:
+                        model.cv_results = cv.evaluate_survival(
+                            lambda m=model: m.__class__(**{k: v for k, v in m.get_params().items() if k != 'device'}),
+                            prepared.X, prepared.time, prepared.event,
+                        )
+                    elif prepared.y is not None:
+                        model.cv_results = cv.evaluate_supervised(
+                            lambda m=model: m.__class__(**{k: v for k, v in m.get_params().items() if k != 'device'}),
+                            prepared.X, prepared.y, task_type,
+                        )
+                except Exception:
+                    pass  # CV is best-effort
+
+        # Stage 5: Validate
         warnings = validate(prepared, task_type, models, self.config)
         recommendations = recommend(prepared, task_type, warnings, models)
 
@@ -362,16 +386,46 @@ class StatGPUAnalysisAgent:
 
             if entry is not None:
                 try:
-                    estimator = entry["factory"]()
+                    # Pass config to factory (new signature supports cfg= parameter)
+                    import inspect
+                    sig = inspect.signature(entry["factory"])
+                    if "cfg" in sig.parameters:
+                        estimator = entry["factory"](cfg=self.config)
+                    else:
+                        estimator = entry["factory"]()
+
+                    # Apply config parameters to estimator
+                    if hasattr(estimator, 'device'):
+                        from statgpu._config import Device
+                        device_val = self.config.device
+                        if isinstance(device_val, str):
+                            try:
+                                device_val = Device(device_val)
+                            except ValueError:
+                                pass
+                        estimator.device = device_val
+                    if hasattr(estimator, 'cov_type') and self.config.cov_type:
+                        estimator.cov_type = self.config.cov_type
+                    if hasattr(estimator, 'compute_inference'):
+                        estimator.compute_inference = True
+                    if hasattr(estimator, 'gpu_memory_cleanup'):
+                        estimator.gpu_memory_cleanup = self.config.gpu_memory_cleanup
+
                     if task_type == "survival":
                         result = fit_survival_model(estimator, prepared, self.config)
                     else:
                         if prepared.y is None:
                             continue
+                        # Binary classification: coerce y to 0/1
+                        if task_type == "binary_classification":
+                            from ._validator import _coerce_binary_y
+                            y = _coerce_binary_y(prepared.y)
+                        else:
+                            y = prepared.y
                         result = fit_supervised_model(
                             method_name, estimator, prepared,
-                            fit_args=(prepared.X, prepared.y),
-                            score_args=(prepared.X, prepared.y),
+                            fit_args=(prepared.X, y),
+                            score_args=(prepared.X, y),
                             task_type=task_type, config=self.config,
                         )
                     models.append(result)
@@ -379,6 +433,12 @@ class StatGPUAnalysisAgent:
                     models.append(ModelResult(name=method_name, task_type=task_type, error=str(exc)))
             elif "PCA" in method_name:
                 models.extend(run_pca_diagnostic(prepared, self.config))
+            else:
+                # Unknown method - report error instead of silent skip
+                models.append(ModelResult(
+                    name=method_name, task_type=task_type,
+                    error=f"Method '{method_name}' not found in registry",
+                ))
 
         # Always run PCA diagnostic for supervised tasks if not already included
         has_pca = any("PCA" in m.name for m in models)
