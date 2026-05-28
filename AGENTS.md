@@ -143,3 +143,45 @@ GPU、远程、benchmark、R 对比类脚本较多，通常不应在本地无目
 - 新增 estimator 时尽量继承或模仿现有 `BaseEstimator`、`linear_model` 和 `glm_core` 模式。
 - 新增后端相关逻辑时，要同时考虑 NumPy、CuPy、Torch 的数组类型、设备纯度和结果转回 NumPy 的边界。
 - 新增统计方法时，至少补充针对性单元测试；若涉及 GPU 或性能，再补充 benchmark 或远程验证脚本。
+
+## Agent 模块（`statgpu/agent/`）
+
+自动统计分析 agent，采用 GeneAgent 自验证闭环模式（while 循环 + 诊断规则）。
+
+### 文件结构
+
+| 文件 | 职责 |
+|------|------|
+| `_analysis.py` | 协调器，定义数据类（`DataProfile`, `AnalysisPlan`, `ModelResult`, `AnalysisResult`） |
+| `_profiler.py` | 数据摄入、类型推断、缺失值填充、分类变量编码 |
+| `_planner.py` | 任务推断、`MethodRegistry`、`TaskRegistry`、`PruningRuleRegistry`、`MethodPruner` |
+| `_runner.py` | 模型拟合、系数提取、`SelfCorrectingRunner` |
+| `_validator.py` | 验证检查、多重检验校正、`ValidationRuleRegistry`、残差诊断 |
+| `_reporter.py` | Markdown/JSON/Notebook 输出 |
+| `_config.py` | `AgentConfig` 集中配置（替换魔法数字） |
+| `_cross_validation.py` | `AgentCrossValidator` K-fold CV 评估 |
+| `_model_comparison.py` | `ModelComparator` 模型比较 |
+| `_memory.py` | `MemoryStore` 轻量记忆系统 |
+
+### 关键设计原则
+
+1. **主动剪枝**：`MethodPruner` 在拟合前根据数据特征（p > n、条件数、事件数等）排除不适用的方法
+2. **自验证闭环**：拟合失败时诊断问题并自动修正，最多 3 轮（GeneAgent 模式）
+3. **可扩展性**：5 个注册表，新模型只需注册不需改核心代码
+4. **三种输出**：Markdown + JSON + Jupyter Notebook
+5. **向后兼容**：公开 API 签名不变，新功能是新增字段
+
+### 添加新模型
+
+在模型文件中注册即可，无需修改 agent 核心代码：
+
+```python
+from statgpu.agent import MethodRegistry, PruningRuleRegistry
+
+MethodRegistry.register("regression", "ElasticNet", factory=lambda: ElasticNet(alpha=0.5), priority=2)
+PruningRuleRegistry.register("ElasticNet", rule=lambda p: p.X.shape[0] > 10, reason="n too small")
+```
+
+### 测试
+
+Agent 专项测试位于 `dev/tests/test_agent.py`（24 个测试），运行：`pytest dev/tests/test_agent.py -v`

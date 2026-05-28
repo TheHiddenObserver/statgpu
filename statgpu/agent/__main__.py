@@ -21,9 +21,24 @@ def main(argv=None) -> int:
     )
     parser.add_argument("--device", default="auto", help="statgpu device: auto, cpu, cuda, or torch")
     parser.add_argument("--output", help="Optional markdown report path")
+    parser.add_argument("--output-json", help="Optional JSON artifact path")
+    parser.add_argument("--output-notebook", help="Optional Jupyter notebook path")
+    parser.add_argument("--cv", type=int, default=5, help="Cross-validation folds (0 to disable)")
+    parser.add_argument(
+        "--multiple-testing",
+        default="none",
+        choices=["none", "bh", "by", "holm", "bonferroni", "hochberg"],
+        help="Multiple testing correction method. Default: none (no correction).",
+    )
+    parser.add_argument("--alpha", type=float, default=0.05, help="Significance level for multiple testing")
     args = parser.parse_args(argv)
 
-    agent = StatGPUAnalysisAgent(device=args.device)
+    agent = StatGPUAnalysisAgent(
+        device=args.device,
+        cv_folds=args.cv,
+        multiple_testing_method=args.multiple_testing,
+        alpha=args.alpha,
+    )
     result = agent.analyze_csv(
         args.csv,
         target=args.target,
@@ -31,11 +46,18 @@ def main(argv=None) -> int:
         time=args.time,
         event=args.event,
     )
-    markdown = result.to_markdown()
+
     if args.output:
         result.save_markdown(args.output)
     else:
-        print(markdown)
+        print(result.to_markdown())
+
+    if args.output_json:
+        result.save_json(args.output_json)
+
+    if args.output_notebook:
+        result.save_notebook(args.csv, args.output_notebook)
+
     return 0
 
 

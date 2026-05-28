@@ -1,0 +1,165 @@
+"""Cross-validation evaluation for the agent pipeline."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from typing import Any, Callable, List, Optional
+
+import numpy as np
+
+
+@dataclass
+class CVResult:
+    """Cross-validation result."""
+
+    n_folds: int
+    metric_name: str
+    fold_scores: List[float]
+    mean: float
+    std: float
+    ci_low: float
+    ci_high: float
+
+    def to_dict(self):
+        return {
+            "n_folds": self.n_folds,
+            "metric_name": self.metric_name,
+            "fold_scores": self.fold_scores,
+            "mean": self.mean,
+            "std": self.std,
+            "ci_low": self.ci_low,
+            "ci_high": self.ci_high,
+        }
+
+
+def _kfold_indices(n: int, n_folds: int, random_state: Optional[int] = None) -> List[tuple]:
+    """Generate K-fold train/test indices."""
+    rng = np.random.default_rng(random_state)
+    indices = rng.permutation(n)
+    fold_sizes = np.full(n_folds, n // n_folds, dtype=int)
+    fold_sizes[: n % n_folds] += 1
+    folds = []
+    current = 0
+    for fold_size in fold_sizes:
+        test_idx = indices[current : current + fold_size]
+        train_idx = np.concatenate([indices[:current], indices[current + fold_size :]])
+        folds.append((train_idx, test_idx))
+        current += fold_size
+    return folds
+
+
+class AgentCrossValidator:
+    """Cross-validation evaluator for the agent pipeline."""
+
+    def __init__(self, n_folds: int = 5, random_state: Optional[int] = 0):
+        self.n_folds = n_folds
+        self.random_state = random_state
+
+    def evaluate_supervised(
+        self,
+        model_factory: Callable[[], Any],
+        X: np.ndarray,
+        y: np.ndarray,
+        task_type: str,
+    ) -> CVResult:
+        """Run K-fold CV and return aggregated metrics."""
+        folds = _kfold_indices(X.shape[0], self.n_folds, self.random_state)
+        scores = []
+
+        for train_idx, test_idx in folds:
+            X_train, X_test = X[train_idx], X[test_idx]
+            y_train, y_test = y[train_idx], y[test_idx]
+
+            try:
+                model = model_factory()
+                model.fit(X_train, y_train)
+                score = model.score(X_test, y_test)
+                scores.append(float(score))
+            except Exception:
+                scores.append(np.nan)
+
+        scores_arr = np.array(scores)
+        valid = scores_arr[np.isfinite(scores_arr)]
+        if valid.size == 0:
+            return CVResult(
+                n_folds=self.n_folds,
+                metric_name="score",
+                fold_scores=scores,
+                mean=np.nan,
+                std=np.nan,
+                ci_low=np.nan,
+                ci_high=np.nan,
+            )
+
+        mean = float(np.mean(valid))
+        std = float(np.std(valid))
+        ci_low = mean - 1.96 * std / np.sqrt(valid.size)
+        ci_high = mean + 1.96 * std / np.sqrt(valid.size)
+
+        return CVResult(
+            n_folds=self.n_folds,
+            metric_name=self._metric_name(task_type),
+            fold_scores=scores,
+            mean=mean,
+            std=std,
+            ci_low=ci_low,
+            ci_high=ci_high,
+        )
+
+    def evaluate_survival(
+        self,
+        model_factory: Callable[[], Any],
+        X: np.ndarray,
+        time: np.ndarray,
+        event: np.ndarray,
+    ) -> CVResult:
+        """Run K-fold CV for survival models, returning C-index distribution."""
+        folds = _kfold_indices(X.shape[0], self.n_folds, self.random_state)
+        scores = []
+
+        for train_idx, test_idx in folds:
+            X_train, X_test = X[train_idx], X[test_idx]
+            t_train, t_test = time[train_idx], time[test_idx]
+            e_train, e_test = event[train_idx], event[test_idx]
+
+            try:
+                model = model_factory()
+                model.fit(X_train, t_train, e_train)
+                cindex = getattr(model, "_cindex", None)
+                if cindex is not None:
+                    scores.append(float(cindex))
+                else:
+                    scores.append(np.nan)
+            except Exception:
+                scores.append(np.nan)
+
+        scores_arr = np.array(scores)
+        valid = scores_arr[np.isfinite(scores_arr)]
+        if valid.size == 0:
+            return CVResult(
+                n_folds=self.n_folds,
+                metric_name="c_index",
+                fold_scores=scores,
+                mean=np.nan, std=np.nan, ci_low=np.nan, ci_high=np.nan,
+            )
+
+        mean = float(np.mean(valid))
+        std = float(np.std(valid))
+        return CVResult(
+            n_folds=self.n_folds,
+            metric_name="c_index",
+            fold_scores=scores,
+            mean=mean,
+            std=std,
+            ci_low=mean - 1.96 * std / np.sqrt(valid.size),
+            ci_high=mean + 1.96 * std / np.sqrt(valid.size),
+        )
+
+    @staticmethod
+    def _metric_name(task_type: str) -> str:
+        return {
+            "regression": "r2",
+            "binary_classification": "roc_auc",
+            "poisson": "deviance",
+            "survival": "c_index",
+        }.get(task_type, "score")
