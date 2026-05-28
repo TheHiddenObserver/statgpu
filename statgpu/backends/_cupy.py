@@ -365,7 +365,7 @@ try:
     _cummin_2d_kernel = _cummin_2d_mod.get_function('cummin_2d')
     _cummax_2d_kernel = _cummax_2d_mod.get_function('cummax_2d')
     del _cp
-except ImportError:
+except Exception:
     _cummin_1d_kernel = None
     _cummax_1d_kernel = None
     _cummin_2d_kernel = None

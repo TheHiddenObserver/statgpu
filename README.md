@@ -35,6 +35,7 @@ GPU-accelerated statistical methods with sklearn-compatible API.
 
 ## Implemented Methods (Current)
 
+### Linear and GLM Models
 - `statgpu.linear_model.LinearRegression`
 - `statgpu.linear_model.GeneralizedLinearModel`
 - `statgpu.linear_model.PoissonRegression`
@@ -46,12 +47,38 @@ GPU-accelerated statistical methods with sklearn-compatible API.
 - `statgpu.linear_model.ElasticNet`
 - `statgpu.linear_model.LassoCV`
 - `statgpu.linear_model.LogisticRegression` ✅ (Torch backend)
-- `statgpu.survival.CoxPH` ✅ (Torch backend)
 - `statgpu.linear_model.OrderedLogitRegression` ✅ (3 backends)
 - `statgpu.linear_model.OrderedProbitRegression` ✅ (3 backends)
 
-Exported CV classes (✅ = implemented and trainable):
+### ANOVA
+- `statgpu.anova.f_oneway` — GPU-accelerated one-way ANOVA (drop-in for `scipy.stats.f_oneway`)
 
+### Covariance Estimation
+- `statgpu.covariance.EmpiricalCovariance` — sample covariance with jitter-stabilized inversion
+- `statgpu.covariance.LedoitWolf` — Ledoit-Wolf shrinkage estimator
+- `statgpu.covariance.OAS` — Oracle Approximating Shrinkage estimator
+
+### Panel Data
+- `statgpu.panel.PanelOLS` — fixed effects with nonrobust/robust/clustered SE
+- `statgpu.panel.RandomEffects` — Swamy-Arora feasible GLS random effects
+
+### Nonparametric Methods
+- `statgpu.nonparametric.kernel_methods.KernelRidge` — kernel ridge regression
+- `statgpu.nonparametric.kernel_methods.KernelRidgeCV` — cross-validated kernel ridge regression (GPU-accelerated CV)
+- `statgpu.nonparametric.kernel_methods.pairwise_kernels` — 6 kernel functions (RBF, polynomial, linear, Laplacian, sigmoid, cosine)
+- `statgpu.nonparametric.splines.bspline_basis` — B-spline basis (De Boor algorithm, vectorized on GPU)
+- `statgpu.nonparametric.splines.natural_cubic_spline_basis` — natural cubic spline basis
+
+### Semiparametric Models
+- `statgpu.semiparametric.GAM` — generalized additive model with penalized B-splines + GCV
+
+### Survival
+- `statgpu.survival.CoxPH` ✅ (Torch backend)
+
+### Feature Selection
+- `statgpu.feature_selection.Knockoff` — fixed-X/model-X knockoff filter
+
+### CV Classes (✅ = implemented and trainable)
 - `statgpu.linear_model.RidgeCV` ✅ (GPU-accelerated cross-validation)
 - `statgpu.linear_model.LogisticRegressionCV` ✅ (GPU-accelerated cross-validation)
 - `statgpu.survival.CoxPHCV` ✅ (CV penalty search + final refit; `entry`/`cluster` not yet supported)
@@ -221,6 +248,33 @@ model = LinearRegression(device='cuda', n_jobs=4)
   - `dev/benchmarks/benchmark_lasso_inference_gpu_vs_cpu.py`
 - GPU memory cleanup effect:
   - `dev/benchmarks/benchmark_gpu_memory_cleanup.py`
+
+## Benchmark Results (RTX 4090)
+
+Full report: `dev/tests/_bench_realdata_report.md`
+
+Test environment: RTX 4090 (24GB), CuPy 14.1.0, PyTorch 2.8.0+cu128, scikit-learn 1.8.0, statsmodels 0.14.6, lifelines 0.30.3
+
+### Real-Data Performance
+
+| Module | Dataset | n | p | Best Speedup | Precision |
+|--------|---------|---|---|-------------|-----------|
+| Poisson GLM | freMTPL2 | 678K | 42 | 15.8x vs sklearn | coef_corr=0.937 |
+| Gamma GLM | synthetic | 678K | 42 | 97.9x vs sklearn | coef_corr=0.9995 |
+| CoxPH | synthetic | 1.9K | 500 | 1.2x vs CPU | coef_corr=1.000 |
+| adjust_pvalues (BH) | synthetic | — | 1M | 0.55x | 100% agreement |
+| PenalizedPoisson(L1) | freMTPL2 | 678K | 42 | — | OK |
+| PenalizedCoxPH(L2) | synthetic | 1.9K | 500 | — | C-index match |
+
+### Precision Summary
+
+| Module | Metric | Result |
+|--------|--------|--------|
+| Poisson GLM | coef correlation vs sklearn | 0.937 (full freMTPL2), 0.991 (10K subset) |
+| Gamma GLM | coef correlation vs sklearn | 1.000 |
+| CoxPH | coef correlation vs lifelines | 1.000 |
+| adjust_pvalues (BH) | reject agreement vs statsmodels | 100% (100K to 5M p-values) |
+| Penalized (L1/L2) | self-consistency | C-index match across penalties |
 
 ## Requirements
 
