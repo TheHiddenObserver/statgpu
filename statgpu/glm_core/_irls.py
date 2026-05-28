@@ -508,8 +508,8 @@ def irls_solver(
             else:
                 params = params_old + 0.1 * _direction
 
-        # Convergence: gradient norm check (most reliable for all families)
-        if iteration % 5 == 4 or iteration == max_iter - 1:
+        # Convergence: check every iteration for reliable convergence (sklearn behavior)
+        if True:
             try:
                 grad_f = family.gradient(X, y, params)
                 if ridge_alpha > 0:
