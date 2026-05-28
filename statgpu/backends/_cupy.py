@@ -365,7 +365,14 @@ try:
     _cummin_2d_kernel = _cummin_2d_mod.get_function('cummin_2d')
     _cummax_2d_kernel = _cummax_2d_mod.get_function('cummax_2d')
     del _cp
-except Exception:
+except ImportError:
+    _cummin_1d_kernel = None
+    _cummax_1d_kernel = None
+    _cummin_2d_kernel = None
+    _cummax_2d_kernel = None
+except Exception as _e:
+    import warnings
+    warnings.warn(f"CuPy cummin/cummax kernels unavailable: {_e}")
     _cummin_1d_kernel = None
     _cummax_1d_kernel = None
     _cummin_2d_kernel = None

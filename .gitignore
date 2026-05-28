@@ -54,6 +54,7 @@ dev/tests/download_benchmark_results.py
 dev/tests/test_backend_comparison.py
 dev/tests/test_benchmark*.py
 dev/tests/test_cupy_*.py
+!dev/tests/test_cupy_cumop_contiguous.py
 dev/tests/test_coxph_*.py
 dev/tests/test_elasticnet_cv_runner.py
 dev/tests/test_elasticnet_cv_remote.py

@@ -259,7 +259,7 @@ Test environment: RTX 4090 (24GB), CuPy 14.1.0, PyTorch 2.8.0+cu128, scikit-lear
 
 | Module | Dataset | n | p | Best Speedup | Precision |
 |--------|---------|---|---|-------------|-----------|
-| Poisson GLM | freMTPL2 | 678K | 42 | 15.8x vs sklearn | coef_corr=0.937 |
+| Poisson GLM | freMTPL2 | 678K | 42 | 196.9x vs sklearn | coef_corr=1.000000 |
 | Gamma GLM | synthetic | 678K | 42 | 97.9x vs sklearn | coef_corr=0.9995 |
 | CoxPH | synthetic | 1.9K | 500 | 1.2x vs CPU | coef_corr=1.000 |
 | adjust_pvalues (BH) | synthetic | — | 1M | 0.55x | 100% agreement |
@@ -270,7 +270,7 @@ Test environment: RTX 4090 (24GB), CuPy 14.1.0, PyTorch 2.8.0+cu128, scikit-lear
 
 | Module | Metric | Result |
 |--------|--------|--------|
-| Poisson GLM | coef correlation vs sklearn | 0.937 (full freMTPL2), 0.991 (10K subset) |
+| Poisson GLM | coef correlation vs sklearn | 1.000000 (full freMTPL2) |
 | Gamma GLM | coef correlation vs sklearn | 1.000 |
 | CoxPH | coef correlation vs lifelines | 1.000 |
 | adjust_pvalues (BH) | reject agreement vs statsmodels | 100% (100K to 5M p-values) |

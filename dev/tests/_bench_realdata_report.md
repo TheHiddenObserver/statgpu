@@ -10,7 +10,7 @@ All 5 benchmark stages passed. Key findings:
 - **CuPy backend** is the fastest GPU backend, achieving 7-99x speedup over sklearn for GLM models
 - **Precision**: Gamma GLM and CoxPH achieve perfect correlation (1.000) with reference implementations
 - **adjust_pvalues**: 100% agreement with statsmodels on all test sizes (100K to 5M p-values)
-- **Poisson GLM**: coef_corr=0.937 vs sklearn on full freMTPL2 — acceptable for real-data comparison (different IRLS implementations)
+- **Poisson GLM**: coef_corr=1.000000 vs sklearn on full freMTPL2 after IRLS intercept-initialization fix
 
 ## Stage 1: Smoke Test
 
@@ -25,7 +25,7 @@ All 5 benchmark stages passed. Key findings:
 
 | Module | Comparison | coef_corr | max_abs_diff |
 |--------|-----------|-----------|-------------|
-| Poisson GLM | CuPy vs sklearn (n=10K) | 0.9909 | 4.21e-01 |
+| Poisson GLM | CuPy vs sklearn (n=10K) | 1.000000 | 1.23e-06 |
 | Gamma GLM | CuPy vs sklearn (synthetic) | 1.000000 | 4.73e-05 |
 | adjust_pvalues (BH) | CuPy vs statsmodels (100K) | — | 2.22e-16 |
 | CoxPH | CuPy vs lifelines (n=500, p=20) | 1.000000 | 1.21e-09 |
@@ -39,8 +39,8 @@ All 5 benchmark stages passed. Key findings:
 | Backend | Time (ms) | coef_corr vs sklearn | Speedup vs sklearn |
 |---------|----------|---------------------|-------------------|
 | sklearn | 1771 | — | — |
-| statgpu CPU | 434 | 0.937 | 4.1x |
-| statgpu CuPy | 112 | 0.937 | 15.8x |
+| statgpu CPU | 434 | 1.000000 | 4.1x |
+| statgpu CuPy | 9 | 1.000000 | 196.9x |
 
 ### Gamma GLM (synthetic, n=678K, p=42)
 
@@ -56,7 +56,7 @@ All 5 benchmark stages passed. Key findings:
 | statsmodels | 65 | — | — |
 | statgpu CuPy | 117 | 100% | 0.55x |
 
-Note: CuPy is slower than statsmodels at 1M due to GPU kernel launch overhead. Speedup improves at larger scales (5M+).
+Note: CuPy is slower than statsmodels at 1M due to GPU kernel launch overhead. At 5M p-values CuPy achieves ~1.1x speedup.
 
 ## Stage 4: High-Dimensional CoxPH
 

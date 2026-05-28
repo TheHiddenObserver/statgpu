@@ -232,10 +232,15 @@ def irls_solver(
         _link_name_init = getattr(family.link, "name", "")
         if _link_name_init in ("log", "Log"):
             xp = _get_xp(backend)
-            y_mean_arr = xp.mean(y)
-            y_mean = float(y_mean_arr.item()) if hasattr(y_mean_arr, 'item') else float(y_mean_arr)
-            if y_mean > 0:
-                params[0] = math.log(y_mean)
+            # Only warm-start intercept if X has an intercept column
+            # (fit_intercept=True prepends ones column → col 0 mean ≈ 1.0)
+            _col0 = X[:, 0]
+            _col0_mean = float(xp.mean(_col0).item()) if hasattr(xp.mean(_col0), 'item') else float(xp.mean(_col0))
+            if abs(_col0_mean - 1.0) < 1e-10:
+                y_mean_arr = xp.mean(y)
+                y_mean = float(y_mean_arr.item()) if hasattr(y_mean_arr, 'item') else float(y_mean_arr)
+                if y_mean > 0:
+                    params[0] = math.log(max(y_mean, 1e-3))
     else:
         params = init_coef
 
@@ -493,19 +498,18 @@ def irls_solver(
                 params = params_old + 0.1 * _direction
 
         # Convergence: check every iteration for reliable convergence (sklearn behavior)
-        if True:
-            try:
-                grad_f = family.gradient(X, y, params)
-                if ridge_alpha > 0:
-                    grad_f[1:] = grad_f[1:] + (ridge_alpha / X.shape[0]) * params[1:]
-                grad_norm = float(_norm(grad_f, backend))
-            except Exception:
-                # No gradient method available — fall back to param change
-                _param_change = float(_norm(params - params_old, backend))
-                _param_norm = max(float(_norm(params, backend)), 1.0)
-                grad_norm = _param_change / _param_norm  # relative change
-            if grad_norm < tol:
-                break
+        try:
+            grad_f = family.gradient(X, y, params)
+            if ridge_alpha > 0:
+                grad_f[1:] = grad_f[1:] + (ridge_alpha / X.shape[0]) * params[1:]
+            grad_norm = float(_norm(grad_f, backend))
+        except Exception:
+            # No gradient method available — fall back to param change
+            _param_change = float(_norm(params - params_old, backend))
+            _param_norm = max(float(_norm(params, backend)), 1.0)
+            grad_norm = _param_change / _param_norm  # relative change
+        if grad_norm < tol:
+            break
 
     n_iter = iteration + 1
     if n_iter >= max_iter:
