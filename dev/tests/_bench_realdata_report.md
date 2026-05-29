@@ -99,7 +99,7 @@ CuPy achieves perfect agreement with CPU backend. Torch is slower due to eager m
 
 | Module | Dataset | n | p | Best Speedup | Precision |
 |--------|---------|---|---|-------------|-----------|
-| Poisson GLM | freMTPL2 | 678K | 42 | 15.8x vs sklearn | coef_corr=0.937 |
+| Poisson GLM | freMTPL2 | 678K | 42 | 196.9x vs sklearn | coef_corr=1.000000 |
 | Gamma GLM | synthetic | 678K | 42 | 97.9x vs sklearn | coef_corr=0.9995 |
 | CoxPH | synthetic | 1.9K | 500 | 1.2x vs CPU | coef_corr=1.000 |
 | adjust_pvalues | synthetic | — | 1M | 0.55x | 100% agreement |
@@ -108,7 +108,7 @@ CuPy achieves perfect agreement with CPU backend. Torch is slower due to eager m
 
 ## Notes
 
-1. **Poisson coef_corr=0.937**: This is expected for real-data comparison. sklearn's PoissonRegressor and statgpu use different IRLS implementations with different convergence criteria. The coefficient correlation is high but not perfect.
+1. **Poisson coef_corr=1.000000**: After the IRLS intercept-initialization fix, statgpu achieves perfect coefficient correlation with sklearn on the full freMTPL2 dataset.
 2. **adjust_pvalues speedup < 1x at 1M**: GPU kernel launch overhead dominates at moderate sizes. The BH algorithm is O(n log n) with small constant — CPU is competitive at 1M. Speedup improves at 5M+ where parallel sort advantages kick in.
 3. **Torch backend slow**: The RTX 4090 (cap 8.9) supports torch.compile, but the benchmark used eager mode for fair comparison. torch.compile can provide additional 2-5x speedup.
 4. **METABRIC download**: The pycox GitHub URL returns 404. Synthetic METABRIC-like data was used instead, which still validates the algorithm correctly.

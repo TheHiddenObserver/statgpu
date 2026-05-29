@@ -260,7 +260,8 @@ class GeneralizedLinearModel(BaseEstimator):
             self._df_resid = self._nobs - X.shape[1]
             return
 
-        if loss.name in ("logistic", "poisson"):
+        _link_name = getattr(getattr(loss, 'link', None), 'name', '')
+        if _link_name not in ('identity', 'Identity'):
             # Augment X with intercept column (no penalty in _fit_fista)
             if backend_name == "cupy":
                 import cupy as cp
@@ -302,8 +303,17 @@ class GeneralizedLinearModel(BaseEstimator):
                 init_coef=None, sample_weight=sample_weight,
             )
 
-            X_mean = np.mean(_to_numpy(X), axis=0)
-            y_mean = float(np.mean(_to_numpy(y)))
+            if backend_name == "cupy":
+                import cupy as cp
+                X_mean = cp.asnumpy(cp.mean(X, axis=0))
+                y_mean = float(cp.mean(y).item())
+            elif backend_name == "torch":
+                import torch
+                X_mean = torch.mean(X, dim=0).cpu().numpy()
+                y_mean = float(torch.mean(y).item())
+            else:
+                X_mean = np.mean(X, axis=0)
+                y_mean = float(np.mean(y))
             self.coef_ = _to_numpy(coef)
             self.intercept_ = float(y_mean - X_mean @ self.coef_)
             self.n_iter_ = n_iter

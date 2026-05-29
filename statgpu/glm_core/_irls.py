@@ -7,7 +7,6 @@ Single implementation works on numpy/cupy/torch backends via auto detection.
 
 import math
 import warnings
-from typing import Optional
 
 import numpy as np
 
@@ -71,8 +70,10 @@ def _clip(x, lo, hi, backend):
 def _norm(x, backend):
     if backend == "torch":
         import torch
-
         return float(torch.linalg.norm(x).item())
+    if backend == "cupy":
+        import cupy as cp
+        return float(cp.linalg.norm(x).item())
     return float(np.linalg.norm(x))
 
 
@@ -511,7 +512,7 @@ def irls_solver(
         if grad_norm < tol:
             break
 
-    n_iter = iteration + 1
+    n_iter = iteration + 1 if max_iter > 0 else 0
     if n_iter >= max_iter:
         from statgpu.glm_core._solver import ConvergenceWarning
         warnings.warn(

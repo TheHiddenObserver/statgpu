@@ -1712,7 +1712,8 @@ def newton_solver(
     Requires: loss has hessian() and penalty is smooth.
     """
     backend = _infer_backend(X)
-    n_features = X.shape[1]
+    X_proc, y_proc = loss.preprocess(X, y)
+    n_features = X_proc.shape[1]
 
     if init_coef is not None:
         params = _copy_arr(init_coef) if hasattr(init_coef, 'copy') or hasattr(init_coef, 'clone') else np.array(init_coef).copy()
@@ -1721,10 +1722,10 @@ def newton_solver(
             params = np.zeros(n_features)
         elif backend == "cupy":
             import cupy as cp
-            params = cp.zeros(n_features, dtype=X.dtype if hasattr(X, 'dtype') else cp.float64)
+            params = cp.zeros(n_features, dtype=X_proc.dtype if hasattr(X_proc, 'dtype') else cp.float64)
         else:
             import torch
-            params = torch.zeros(n_features, device=X.device if hasattr(X, 'device') else 'cpu', dtype=X.dtype if hasattr(X, 'dtype') else torch.float64)
+            params = torch.zeros(n_features, device=X_proc.device if hasattr(X_proc, 'device') else 'cpu', dtype=X_proc.dtype if hasattr(X_proc, 'dtype') else torch.float64)
 
     # Detect constant-Hessian losses (Gamma: H=X'X/n, Tweedie power≈2).
     # For these, the Newton step is always valid — skip line search.
@@ -1738,7 +1739,7 @@ def newton_solver(
     # Precompute constant Hessian if applicable (saves O(p^2) per iter)
     _fixed_hess = None
     if _const_hessian:
-        _fixed_hess = loss.hessian(X, y, params) + _smooth_penalty_hessian(penalty, params)
+        _fixed_hess = loss.hessian(X_proc, y_proc, params) + _smooth_penalty_hessian(penalty, params)
 
     _newton_step = _get_newton_step_compiled() if backend == "torch" else None
     _use_fused = _loss_name in ('logistic', 'poisson', 'gamma',
@@ -1746,9 +1747,9 @@ def newton_solver(
 
     for iteration in range(max_iter):
         params_old = _copy_arr(params)
-        grad = _objective_gradient(loss, penalty, X, y, params)
+        grad = _objective_gradient(loss, penalty, X_proc, y_proc, params)
         hess = _fixed_hess if _fixed_hess is not None else (
-            loss.hessian(X, y, params) + _smooth_penalty_hessian(penalty, params)
+            loss.hessian(X_proc, y_proc, params) + _smooth_penalty_hessian(penalty, params)
         )
 
         try:
@@ -1774,10 +1775,10 @@ def newton_solver(
 
         # Armijo backtracking line search — device-side.
         if _use_fused:
-            obj_old_dev, _ = _fused_glm_value_and_gradient(loss, X, y, params_old)
+            obj_old_dev, _ = _fused_glm_value_and_gradient(loss, X_proc, y_proc, params_old)
             obj_old_dev = obj_old_dev + _smooth_penalty_value_dev(penalty, params_old)
         else:
-            obj_old_dev = _objective_value_dev(loss, penalty, X, y, params_old)
+            obj_old_dev = _objective_value_dev(loss, penalty, X_proc, y_proc, params_old)
         gdd_dev = _dot_dev(grad, direction)
         obj_old, gdd = _sync_scalars(obj_old_dev, gdd_dev, backend=backend)
 
@@ -1786,14 +1787,14 @@ def newton_solver(
             params_try = params_old - step * direction
             try:
                 if _use_fused:
-                    obj_try_dev, _ = _fused_glm_value_and_gradient(loss, X, y, params_try)
+                    obj_try_dev, _ = _fused_glm_value_and_gradient(loss, X_proc, y_proc, params_try)
                     obj_try_dev = obj_try_dev + _smooth_penalty_value_dev(penalty, params_try)
                 else:
-                    obj_try_dev = _objective_value_dev(loss, penalty, X, y, params_try)
+                    obj_try_dev = _objective_value_dev(loss, penalty, X_proc, y_proc, params_try)
                 if _device_leq(obj_try_dev, obj_old_dev + 1e-4 * step * gdd):
                     params = params_try
                     break
-            except Exception:
+            except (ValueError, RuntimeError, FloatingPointError):
                 pass
             step *= 0.5
         else:
@@ -1841,6 +1842,10 @@ def fista_bb_solver(
     """
     backend = _infer_backend(X)
     _is_gpu = backend in ("torch", "cupy")
+    if backend == "torch":
+        import torch
+    elif backend == "cupy":
+        import cupy as cp
     X_proc, y_proc = loss.preprocess(X, y)
     n_features = X_proc.shape[1]
 
