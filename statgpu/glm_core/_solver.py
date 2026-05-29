@@ -380,7 +380,7 @@ def _smooth_penalty_hessian(penalty, coef):
     """Return smooth penalty Hessian on the same backend as coef."""
     n = coef.shape[0]
     if penalty is None or _penalty_name(penalty) in ("none", "null"):
-        return 0.0 * _eye_like(n, coef)
+        return 0.0
     if hasattr(penalty, "smooth_hessian"):
         return penalty.smooth_hessian(coef)
     if _penalty_name(penalty) == "l2":
@@ -971,12 +971,8 @@ def fista_solver(
         if _is_gpu:
             if iteration < 20 or iteration % _conv_interval == 0:
                 _conv_dev = _abs_sum_dev(coef - coef_old)
-                if backend == "torch":
-                    if bool((_conv_dev < tol).item()):
-                        break
-                else:
-                    if bool((_conv_dev < tol).item()):
-                        break
+                if _device_leq(_conv_dev, tol):
+                    break
         else:
             _conv_dev = _abs_sum_dev(coef - coef_old)
             if float(_conv_dev) < tol:
@@ -1040,7 +1036,6 @@ def fista_lla_path(
     total_iter : int
     """
     from statgpu.penalties._adaptive_l1 import AdaptiveL1Penalty
-    from statgpu.backends import _to_numpy
 
     backend = _infer_backend(X)
     if backend == "torch":
@@ -2038,8 +2033,8 @@ def fista_bb_solver(
             if not _diverged:
                 _obj_val = float(_to_numpy(loss.value(X_proc, y_proc, coef)))
                 try:
-                    _pen_val = float(_to_numpy(penalty.value(_to_numpy(coef))))
-                except (AttributeError, Exception):
+                    _pen_val = float(penalty.value(coef))
+                except AttributeError:
                     _pen_val = 0.0
                 _obj_total = _obj_val + _pen_val
                 if not np.isfinite(_obj_total):
@@ -2151,8 +2146,8 @@ def fista_bb_solver(
                 _new_obj, _new_norm = _sync_scalars(
                     loss.value(X_proc, y_proc, coef), _norm2_dev(coef), backend=backend)
                 try:
-                    _new_pen = float(_to_numpy(penalty.value(_to_numpy(coef))))
-                except (AttributeError, Exception):
+                    _new_pen = float(penalty.value(coef))
+                except AttributeError:
                     _new_pen = 0.0
                 _new_total = _new_obj + _new_pen
                 # Accept if: finite, reasonable norm, and objective not exploded

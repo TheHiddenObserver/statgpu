@@ -40,7 +40,7 @@ def _solve(A, b, backend="auto"):
             return cp.linalg.solve(A, b)
         else:
             return np.linalg.solve(A, b)
-    except (np.linalg.LinAlgError, Exception):
+    except (np.linalg.LinAlgError, RuntimeError):
         if backend == "torch":
             import torch
             b_col = b.unsqueeze(1) if b.ndim == 1 else b
@@ -129,7 +129,7 @@ def _torch_compile_supported():
         if torch.cuda.is_available():
             cap = torch.cuda.get_device_capability()
             return cap[0] >= 7
-    except Exception:
+    except (RuntimeError, OSError):
         pass
     return True
 
@@ -152,7 +152,7 @@ def _get_irls_step_compiled():
     if _torch_compile_supported():
         try:
             _IRLS_STEP_COMPILED = torch.compile(_irls_weighted_gemm, dynamic=True, fullgraph=False)
-        except Exception:
+        except RuntimeError:
             _IRLS_STEP_COMPILED = _irls_weighted_gemm
     else:
         _IRLS_STEP_COMPILED = _irls_weighted_gemm
@@ -164,7 +164,7 @@ def _irls_step_call(compiled_fn, *args):
     """Call compiled IRLS step, falling back to eager on GPU arch mismatch."""
     try:
         return compiled_fn(*args)
-    except Exception:
+    except RuntimeError:
         def _irls_gemm_eager(X, W, z):
             W_col = W.unsqueeze(1)
             XtWX = X.T @ (X * W_col)
@@ -409,7 +409,7 @@ def irls_solver(
         mu_cur = family.link.inverse(eta_cur)
         try:
             dev_old_dev = _dev_val(mu_cur)
-        except Exception:
+        except (ValueError, FloatingPointError, RuntimeError):
             dev_old_dev = float('inf')
 
         # Line search: for families with constant IRLS weights (Gaussian,
@@ -454,7 +454,7 @@ def irls_solver(
             mu_new = family.link.inverse(eta_new)
             try:
                 dev_new_dev = _dev_val(mu_new)
-            except Exception:
+            except (ValueError, FloatingPointError, RuntimeError):
                 dev_new_dev = float('inf')
             if _dev_accept(dev_new_dev):
                 params = params_new
@@ -467,7 +467,7 @@ def irls_solver(
                     mu_try = family.link.inverse(eta_try)
                     try:
                         dev_try_dev = _dev_val(mu_try)
-                    except Exception:
+                    except (ValueError, FloatingPointError, RuntimeError):
                         step *= 0.5
                         continue
                     if _dev_accept(dev_try_dev):
@@ -485,7 +485,7 @@ def irls_solver(
                 mu_try = family.link.inverse(eta_try)
                 try:
                     dev_try_dev = _dev_val(mu_try)
-                except Exception:
+                except (ValueError, FloatingPointError, RuntimeError):
                     step *= 0.5
                     continue
                 if _dev_accept(dev_try_dev):
@@ -504,7 +504,7 @@ def irls_solver(
             if ridge_alpha > 0:
                 grad_f[1:] = grad_f[1:] + (ridge_alpha / X.shape[0]) * params[1:]
             grad_norm = float(_norm(grad_f, backend))
-        except Exception:
+        except (AttributeError, RuntimeError):
             # No gradient method available — fall back to param change
             _param_change = float(_norm(params - params_old, backend))
             _param_norm = max(float(_norm(params, backend)), 1.0)
