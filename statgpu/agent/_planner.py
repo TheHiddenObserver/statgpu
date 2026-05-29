@@ -108,8 +108,6 @@ def _register_default_methods():
                             factory=lambda cfg=None: LinearRegression(), priority=0)
     MethodRegistry.register("regression", "Ridge(alpha=1.0)",
                             factory=lambda cfg=None: Ridge(alpha=1.0), priority=1)
-    MethodRegistry.register("regression", "Ridge",
-                            factory=lambda cfg=None: Ridge(alpha=1.0), priority=2)
     MethodRegistry.register("regression", "Lasso",
                             factory=lambda cfg=None: Lasso(), priority=3)
     MethodRegistry.register("regression", "ElasticNet",
@@ -149,28 +147,32 @@ class MethodPruner:
         if not candidates:
             candidates = self._fallback_candidates(task_type)
 
+        # Respect include_regularized setting
+        if task_type == "regression" and not config.include_regularized:
+            candidates = [c for c in candidates if c in ("LinearRegression",)]
+
         n, p = prepared.X.shape
 
         # High-dimensional: p > n
         if p > n:
             candidates = [c for c in candidates if c not in ("LinearRegression",)]
-            for m in ("Lasso", "Ridge", "ElasticNet"):
+            for m in ("Lasso", "Ridge(alpha=1.0)", "ElasticNet"):
                 if m not in candidates:
                     candidates.insert(0, m)
 
         # Near-high-dimensional: p > n/2
         elif p > n / 2:
             candidates = [c for c in candidates if c != "LinearRegression"]
-            if "Ridge" not in candidates:
-                candidates.insert(0, "Ridge")
+            if "Ridge(alpha=1.0)" not in candidates:
+                candidates.insert(0, "Ridge(alpha=1.0)")
 
         # High condition number
         try:
             cond = float(np.linalg.cond(prepared.X))
             if np.isfinite(cond) and cond > 1e10:
                 candidates = [c for c in candidates if c != "LinearRegression"]
-                if "Ridge" not in candidates:
-                    candidates.insert(0, "Ridge")
+                if "Ridge(alpha=1.0)" not in candidates:
+                    candidates.insert(0, "Ridge(alpha=1.0)")
         except Exception:
             pass
 

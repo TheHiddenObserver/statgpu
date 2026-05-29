@@ -316,15 +316,18 @@ class StatGPUAnalysisAgent:
                 if model.error is not None or model.estimator is None:
                     continue
                 try:
+                    est = model.estimator
+                    est_class = est.__class__
+                    est_params = {k: v for k, v in est.get_params().items() if k != 'device'}
+                    factory = lambda c=est_class, p=est_params: c(**p)
+
                     if task_type == "survival" and hasattr(prepared, 'time') and prepared.time is not None:
                         model.cv_results = cv.evaluate_survival(
-                            lambda m=model: m.__class__(**{k: v for k, v in m.get_params().items() if k != 'device'}),
-                            prepared.X, prepared.time, prepared.event,
+                            factory, prepared.X, prepared.time, prepared.event,
                         )
                     elif prepared.y is not None:
                         model.cv_results = cv.evaluate_supervised(
-                            lambda m=model: m.__class__(**{k: v for k, v in m.get_params().items() if k != 'device'}),
-                            prepared.X, prepared.y, task_type,
+                            factory, prepared.X, prepared.y, task_type,
                         )
                 except Exception:
                     pass  # CV is best-effort
