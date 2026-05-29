@@ -844,7 +844,7 @@ class OrderedGeneralizedLinearModel(GeneralizedLinearModel):
             for group in state_dict.get('state', {}).values():
                 n_iter = max(n_iter, group.get('n_iter', 0))
             self.n_iter_ = n_iter if n_iter > 0 else self.max_iter
-        except Exception:
+        except (KeyError, AttributeError, TypeError):
             self.n_iter_ = self.max_iter
 
     def _ordered_category_probs(self, X, beta, thresh, family, K):
