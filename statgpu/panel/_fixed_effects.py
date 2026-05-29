@@ -101,8 +101,8 @@ class PanelOLS(BaseEstimator):
         y : array-like, shape (n,)
             Outcome vector.
         X : array-like, shape (n, k)
-            Regressor matrix (do **not** include a constant; the model
-            handles intercepts automatically).
+            Regressor matrix. Include a constant column if you want an
+            intercept (the model does not add one automatically).
         entity_ids : array-like, shape (n,), optional
             Entity (individual) identifiers.  Required when
             ``entity_effects=True``.

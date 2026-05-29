@@ -62,7 +62,7 @@ def clustered_covariance(X, resid, clusters, xp=None):
     XtX = X.T @ X / n
     try:
         bread = xp.linalg.inv(XtX)
-    except (np.linalg.LinAlgError, Exception):
+    except Exception:
         bread = xp.linalg.pinv(XtX)
 
     # Meat: sum over clusters of (X_g' e_g)(X_g' e_g)'
@@ -98,9 +98,10 @@ def two_way_clustered_covariance(X, resid, cluster1, cluster2, xp=None):
     resid : array-like, shape (n,)
         OLS residuals.
     cluster1 : array-like, shape (n,)
-        First cluster dimension (e.g. entity).
+        First cluster dimension (e.g. entity).  Accepts integer or
+        categorical labels (will be factorized to integers internally).
     cluster2 : array-like, shape (n,)
-        Second cluster dimension (e.g. time).
+        Second cluster dimension (e.g. time).  Same as cluster1.
     xp : module, optional
         Array module (numpy / cupy / torch).  Defaults to numpy.
 
@@ -115,8 +116,13 @@ def two_way_clustered_covariance(X, resid, cluster1, cluster2, xp=None):
     V2 = clustered_covariance(X, resid, cluster2, xp)
 
     # Intersection clusters: unique (c1, c2) pairs via Cantor-pair hash
-    c1 = xp_asarray(cluster1, dtype=xp.int64, xp=xp, ref_arr=V1).ravel()
-    c2 = xp_asarray(cluster2, dtype=xp.int64, xp=xp, ref_arr=V1).ravel()
+    # Factorize labels to integers (supports string/categorical labels)
+    c1_raw = _to_numpy(xp_asarray(cluster1, xp=xp, ref_arr=V1).ravel())
+    c2_raw = _to_numpy(xp_asarray(cluster2, xp=xp, ref_arr=V1).ravel())
+    _, c1 = np.unique(c1_raw, return_inverse=True)
+    _, c2 = np.unique(c2_raw, return_inverse=True)
+    c1 = xp_asarray(c1, dtype=xp.int64, xp=xp, ref_arr=V1)
+    c2 = xp_asarray(c2, dtype=xp.int64, xp=xp, ref_arr=V1)
     s = c1 + c2
     combined = s * (s + 1) // 2 + c2
 

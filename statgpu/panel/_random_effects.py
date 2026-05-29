@@ -8,6 +8,9 @@ The model is::
 
 where ``a_i ~ iid(0, sigma2_a)`` is the individual random effect and
 ``epsilon_{it} ~ iid(0, sigma2_e)`` is the idiosyncratic error.
+
+Note: ``X`` should include a constant column if an intercept is desired;
+the model does not add one automatically.
 """
 
 from __future__ import annotations
@@ -160,8 +163,8 @@ class RandomEffects(BaseEstimator):
         T_i = group_sizes(entity_arr, xp=xp)
         T_i_np = _to_numpy(T_i)
 
-        # Harmonic mean of group sizes
-        T_bar = float(n_entities) / float(np.sum(1.0 / np.unique(T_i_np)))
+        # Harmonic mean of group sizes: n / sum(1/T_i) for all groups
+        T_bar = float(n_entities) / float(np.sum(1.0 / T_i_np))
 
         # df for within residuals: n*T - k - (n_entities - 1)
         df_within = n - k - (n_entities - 1)

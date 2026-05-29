@@ -121,7 +121,7 @@ class BaseEstimator(ABC):
         elif backend == "numpy":
             # Handle torch tensors that may be on CUDA — must move to CPU first
             if hasattr(X, 'cpu') and hasattr(X, 'numpy'):
-                return X.cpu().numpy()
+                return X.detach().cpu().numpy()
             return np.asarray(X)
 
         # Otherwise, use device-based default
