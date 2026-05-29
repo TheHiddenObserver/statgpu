@@ -17,6 +17,15 @@ from sklearn.covariance import (
 from statgpu.covariance import EmpiricalCovariance, LedoitWolf, OAS
 
 
+def _to_numpy(arr):
+    """Convert CuPy/Torch array to NumPy for comparison."""
+    if hasattr(arr, 'get'):
+        return arr.get()  # CuPy
+    if hasattr(arr, 'cpu'):
+        return arr.cpu().numpy()  # Torch
+    return np.asarray(arr)
+
+
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -66,21 +75,21 @@ class TestEmpiricalCovariance:
         sk = SKEmpirical().fit(sample_data)
         sg = EmpiricalCovariance().fit(sample_data)
 
-        assert_allclose(sg.covariance_, sk.covariance_, rtol=1e-10)
-        assert_allclose(sg.location_, sk.location_, rtol=1e-10)
+        assert_allclose(_to_numpy(sg.covariance_), sk.covariance_, rtol=1e-10)
+        assert_allclose(_to_numpy(sg.location_), sk.location_, rtol=1e-10)
 
     def test_precision_matches_sklearn(self, sample_data):
         sk = SKEmpirical().fit(sample_data)
         sg = EmpiricalCovariance().fit(sample_data)
 
-        assert_allclose(sg.precision_, sk.precision_, rtol=1e-5)
+        assert_allclose(_to_numpy(sg.precision_), sk.precision_, rtol=1e-5)
 
     def test_assume_centered(self, sample_data):
         sk = SKEmpirical(assume_centered=True).fit(sample_data)
         sg = EmpiricalCovariance(assume_centered=True).fit(sample_data)
 
-        assert_allclose(sg.covariance_, sk.covariance_, rtol=1e-10)
-        assert_allclose(sg.location_, np.zeros(sample_data.shape[1]), atol=1e-15)
+        assert_allclose(_to_numpy(sg.covariance_), sk.covariance_, rtol=1e-10)
+        assert_allclose(_to_numpy(sg.location_), np.zeros(sample_data.shape[1]), atol=1e-15)
 
     def test_mahalanobis_matches_sklearn(self, sample_data, test_data):
         sk = SKEmpirical().fit(sample_data)
@@ -89,7 +98,7 @@ class TestEmpiricalCovariance:
         mahal_sk = sk.mahalanobis(test_data)
         mahal_sg = sg.mahalanobis(test_data)
 
-        assert_allclose(mahal_sg, mahal_sk, rtol=1e-5)
+        assert_allclose(_to_numpy(mahal_sg), mahal_sk, rtol=1e-5)
 
     def test_score_matches_sklearn(self, sample_data, test_data):
         sk = SKEmpirical().fit(sample_data)
@@ -98,7 +107,7 @@ class TestEmpiricalCovariance:
         score_sk = sk.score(test_data)
         score_sg = sg.score(test_data)
 
-        assert_allclose(score_sg, score_sk, rtol=1e-5)
+        assert_allclose(_to_numpy(score_sg), score_sk, rtol=1e-5)
 
     def test_predict_returns_mahalanobis(self, sample_data, test_data):
         sg = EmpiricalCovariance().fit(sample_data)
@@ -106,7 +115,7 @@ class TestEmpiricalCovariance:
         pred = sg.predict(test_data)
         mahal = sg.mahalanobis(test_data)
 
-        assert_allclose(pred, mahal, rtol=1e-15)
+        assert_allclose(_to_numpy(pred), _to_numpy(mahal), rtol=1e-15)
 
     def test_1d_input(self, rng):
         x = rng.randn(100)
@@ -135,25 +144,25 @@ class TestLedoitWolf:
         sk = SKLedoitWolf().fit(sample_data)
         sg = LedoitWolf().fit(sample_data)
 
-        assert_allclose(sg.covariance_, sk.covariance_, rtol=1e-5)
+        assert_allclose(_to_numpy(sg.covariance_), sk.covariance_, rtol=1e-5)
 
     def test_shrinkage_matches_sklearn(self, sample_data):
         sk = SKLedoitWolf().fit(sample_data)
         sg = LedoitWolf().fit(sample_data)
 
-        assert_allclose(sg.shrinkage_, sk.shrinkage_, rtol=1e-5)
+        assert_allclose(_to_numpy(sg.shrinkage_), sk.shrinkage_, rtol=1e-5)
 
     def test_precision_matches_sklearn(self, sample_data):
         sk = SKLedoitWolf().fit(sample_data)
         sg = LedoitWolf().fit(sample_data)
 
-        assert_allclose(sg.precision_, sk.precision_, rtol=1e-3)
+        assert_allclose(_to_numpy(sg.precision_), sk.precision_, rtol=1e-3)
 
     def test_location_matches_sklearn(self, sample_data):
         sk = SKLedoitWolf().fit(sample_data)
         sg = LedoitWolf().fit(sample_data)
 
-        assert_allclose(sg.location_, sk.location_, rtol=1e-10)
+        assert_allclose(_to_numpy(sg.location_), sk.location_, rtol=1e-10)
 
     def test_mahalanobis_matches_sklearn(self, sample_data, test_data):
         sk = SKLedoitWolf().fit(sample_data)
@@ -162,7 +171,7 @@ class TestLedoitWolf:
         mahal_sk = sk.mahalanobis(test_data)
         mahal_sg = sg.mahalanobis(test_data)
 
-        assert_allclose(mahal_sg, mahal_sk, rtol=1e-3)
+        assert_allclose(_to_numpy(mahal_sg), mahal_sk, rtol=1e-3)
 
     def test_score_matches_sklearn(self, sample_data, test_data):
         sk = SKLedoitWolf().fit(sample_data)
@@ -171,7 +180,7 @@ class TestLedoitWolf:
         score_sk = sk.score(test_data)
         score_sg = sg.score(test_data)
 
-        assert_allclose(score_sg, score_sk, rtol=1e-3)
+        assert_allclose(_to_numpy(score_sg), score_sk, rtol=1e-3)
 
     def test_wide_data_shrinkage(self, wide_data):
         """With p > n, shrinkage should be substantial."""
@@ -186,8 +195,8 @@ class TestLedoitWolf:
         sk = SKLedoitWolf(assume_centered=True).fit(sample_data)
         sg = LedoitWolf(assume_centered=True).fit(sample_data)
 
-        assert_allclose(sg.covariance_, sk.covariance_, rtol=1e-5)
-        assert_allclose(sg.shrinkage_, sk.shrinkage_, rtol=1e-5)
+        assert_allclose(_to_numpy(sg.covariance_), sk.covariance_, rtol=1e-5)
+        assert_allclose(_to_numpy(sg.shrinkage_), sk.shrinkage_, rtol=1e-5)
 
     def test_small_sample(self, rng):
         """n=10, p=5 -- extreme shrinkage regime."""
@@ -195,8 +204,8 @@ class TestLedoitWolf:
         sk = SKLedoitWolf().fit(X)
         sg = LedoitWolf().fit(X)
 
-        assert_allclose(sg.shrinkage_, sk.shrinkage_, rtol=1e-5)
-        assert_allclose(sg.covariance_, sk.covariance_, rtol=1e-5)
+        assert_allclose(_to_numpy(sg.shrinkage_), sk.shrinkage_, rtol=1e-5)
+        assert_allclose(_to_numpy(sg.covariance_), sk.covariance_, rtol=1e-5)
 
 
 # ---------------------------------------------------------------------------
@@ -208,25 +217,25 @@ class TestOAS:
         sk = SKOAS().fit(sample_data)
         sg = OAS().fit(sample_data)
 
-        assert_allclose(sg.covariance_, sk.covariance_, rtol=1e-5)
+        assert_allclose(_to_numpy(sg.covariance_), sk.covariance_, rtol=1e-5)
 
     def test_shrinkage_matches_sklearn(self, sample_data):
         sk = SKOAS().fit(sample_data)
         sg = OAS().fit(sample_data)
 
-        assert_allclose(sg.shrinkage_, sk.shrinkage_, rtol=1e-10)
+        assert_allclose(_to_numpy(sg.shrinkage_), sk.shrinkage_, rtol=1e-10)
 
     def test_precision_matches_sklearn(self, sample_data):
         sk = SKOAS().fit(sample_data)
         sg = OAS().fit(sample_data)
 
-        assert_allclose(sg.precision_, sk.precision_, rtol=1e-3)
+        assert_allclose(_to_numpy(sg.precision_), sk.precision_, rtol=1e-3)
 
     def test_location_matches_sklearn(self, sample_data):
         sk = SKOAS().fit(sample_data)
         sg = OAS().fit(sample_data)
 
-        assert_allclose(sg.location_, sk.location_, rtol=1e-10)
+        assert_allclose(_to_numpy(sg.location_), sk.location_, rtol=1e-10)
 
     def test_mahalanobis_matches_sklearn(self, sample_data, test_data):
         sk = SKOAS().fit(sample_data)
@@ -235,7 +244,7 @@ class TestOAS:
         mahal_sk = sk.mahalanobis(test_data)
         mahal_sg = sg.mahalanobis(test_data)
 
-        assert_allclose(mahal_sg, mahal_sk, rtol=1e-3)
+        assert_allclose(_to_numpy(mahal_sg), mahal_sk, rtol=1e-3)
 
     def test_score_matches_sklearn(self, sample_data, test_data):
         sk = SKOAS().fit(sample_data)
@@ -244,7 +253,7 @@ class TestOAS:
         score_sk = sk.score(test_data)
         score_sg = sg.score(test_data)
 
-        assert_allclose(score_sg, score_sk, rtol=1e-3)
+        assert_allclose(_to_numpy(score_sg), score_sk, rtol=1e-3)
 
     def test_shrinkage_range(self, sample_data):
         sg = OAS().fit(sample_data)
@@ -254,8 +263,8 @@ class TestOAS:
         sk = SKOAS(assume_centered=True).fit(sample_data)
         sg = OAS(assume_centered=True).fit(sample_data)
 
-        assert_allclose(sg.covariance_, sk.covariance_, rtol=1e-5)
-        assert_allclose(sg.shrinkage_, sk.shrinkage_, rtol=1e-5)
+        assert_allclose(_to_numpy(sg.covariance_), sk.covariance_, rtol=1e-5)
+        assert_allclose(_to_numpy(sg.shrinkage_), sk.shrinkage_, rtol=1e-5)
 
     def test_small_sample(self, rng):
         """n=10, p=5 -- extreme shrinkage regime."""
@@ -263,8 +272,8 @@ class TestOAS:
         sk = SKOAS().fit(X)
         sg = OAS().fit(X)
 
-        assert_allclose(sg.shrinkage_, sk.shrinkage_, rtol=1e-5)
-        assert_allclose(sg.covariance_, sk.covariance_, rtol=1e-5)
+        assert_allclose(_to_numpy(sg.shrinkage_), sk.shrinkage_, rtol=1e-5)
+        assert_allclose(_to_numpy(sg.covariance_), sk.covariance_, rtol=1e-5)
 
 
 # ---------------------------------------------------------------------------
