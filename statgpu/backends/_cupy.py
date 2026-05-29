@@ -267,29 +267,31 @@ class CuPyBackend(BackendBase):
         """1D cumulative op using sequential write."""
         import cupy as cp
         # Ensure contiguous memory for CUDA kernel
-        arr = cp.ascontiguousarray(arr)
+        orig_dtype = arr.dtype
+        arr = cp.ascontiguousarray(arr, dtype=cp.float64)
         n = len(arr)
         result = cp.empty_like(arr)
         result[0] = arr[0]
         if n > 1:
             _launch_cumop_1d(arr, result, n, op is cp.minimum)
-        return result
+        return result.astype(orig_dtype)
 
     @staticmethod
     def _cumop_last_axis(arr, op):
         """Cumulative op along last axis for N-D arrays."""
         import cupy as cp
         shape = arr.shape
+        orig_dtype = arr.dtype
         K = shape[-1]
         flat = arr.reshape(-1, K)
-        # Ensure contiguous memory for CUDA kernel
-        flat = cp.ascontiguousarray(flat)
+        # Ensure contiguous memory for CUDA kernel (kernels are double-only)
+        flat = cp.ascontiguousarray(flat, dtype=cp.float64)
         N = flat.shape[0]
         result = cp.empty_like(flat)
         result[:, 0] = flat[:, 0]
         if K > 1:
             _launch_cumop_2d(flat, result, N, K, op is cp.minimum)
-        return result.reshape(shape)
+        return result.reshape(shape).astype(orig_dtype)
 
 
 # ── Raw CUDA kernels for cumulative scan ──
@@ -370,17 +372,26 @@ except ImportError:
     _cummax_1d_kernel = None
     _cummin_2d_kernel = None
     _cummax_2d_kernel = None
+except Exception as _e:
+    import warnings
+    warnings.warn(f"CuPy cummin/cummax kernels unavailable: {_e}")
+    _cummin_1d_kernel = None
+    _cummax_1d_kernel = None
+    _cummin_2d_kernel = None
+    _cummax_2d_kernel = None
 
 
 def _launch_cumop_1d(arr, result, n, is_min):
-    import cupy as cp
     kernel = _cummin_1d_kernel if is_min else _cummax_1d_kernel
+    if kernel is None:
+        raise RuntimeError("CuPy cummin/cummax kernels failed to compile")
     kernel((1,), (1,), (arr, result, n))
 
 
 def _launch_cumop_2d(arr, result, N, K, is_min):
-    import cupy as cp
     kernel = _cummin_2d_kernel if is_min else _cummax_2d_kernel
+    if kernel is None:
+        raise RuntimeError("CuPy cummin/cummax kernels failed to compile")
     block = min(N, 256)
     grid = (N + block - 1) // block
     kernel((grid,), (block,), (arr, result, N, K))

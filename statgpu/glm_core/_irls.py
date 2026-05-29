@@ -5,10 +5,13 @@ Extracted from the duplicated IRLS loops in _logistic.py across CPU/GPU/Torch.
 Single implementation works on numpy/cupy/torch backends via auto detection.
 """
 
+import math
 import warnings
-from typing import Optional
 
 import numpy as np
+
+from statgpu.backends import xp_copy
+from statgpu.backends._utils import _get_xp
 
 
 def _infer_backend(X):
@@ -37,7 +40,7 @@ def _solve(A, b, backend="auto"):
             return cp.linalg.solve(A, b)
         else:
             return np.linalg.solve(A, b)
-    except (np.linalg.LinAlgError, Exception):
+    except (np.linalg.LinAlgError, RuntimeError):
         if backend == "torch":
             import torch
             b_col = b.unsqueeze(1) if b.ndim == 1 else b
@@ -67,8 +70,10 @@ def _clip(x, lo, hi, backend):
 def _norm(x, backend):
     if backend == "torch":
         import torch
-
         return float(torch.linalg.norm(x).item())
+    if backend == "cupy":
+        import cupy as cp
+        return float(cp.linalg.norm(x).item())
     return float(np.linalg.norm(x))
 
 
@@ -107,13 +112,6 @@ def _to_backend(arr, backend, ref_tensor):
     return np.asarray(arr, dtype=float)
 
 
-def _copy_arr(arr):
-    """Copy array: .clone() for torch, .copy() for numpy/cupy."""
-    if hasattr(arr, 'clone'):
-        return arr.clone()
-    return arr.copy()
-
-
 # =============================================================================
 # Torch.compile for IRLS elementwise chain fusion
 # =============================================================================
@@ -131,7 +129,7 @@ def _torch_compile_supported():
         if torch.cuda.is_available():
             cap = torch.cuda.get_device_capability()
             return cap[0] >= 7
-    except Exception:
+    except (RuntimeError, OSError):
         pass
     return True
 
@@ -154,7 +152,7 @@ def _get_irls_step_compiled():
     if _torch_compile_supported():
         try:
             _IRLS_STEP_COMPILED = torch.compile(_irls_weighted_gemm, dynamic=True, fullgraph=False)
-        except Exception:
+        except RuntimeError:
             _IRLS_STEP_COMPILED = _irls_weighted_gemm
     else:
         _IRLS_STEP_COMPILED = _irls_weighted_gemm
@@ -166,7 +164,7 @@ def _irls_step_call(compiled_fn, *args):
     """Call compiled IRLS step, falling back to eager on GPU arch mismatch."""
     try:
         return compiled_fn(*args)
-    except Exception:
+    except RuntimeError:
         def _irls_gemm_eager(X, W, z):
             W_col = W.unsqueeze(1)
             XtWX = X.T @ (X * W_col)
@@ -230,11 +228,25 @@ def irls_solver(
     if init_coef is None:
         n_features = X.shape[1]
         params = _zeros(n_features, backend, ref_tensor=X)
+        # Initialize intercept to log(mean(y)) for log-link families
+        # (matches sklearn; avoids starting at mu=1 when true mu is small)
+        _link_name_init = getattr(family.link, "name", "")
+        if _link_name_init in ("log", "Log"):
+            xp = _get_xp(backend)
+            # Only warm-start intercept if X has an intercept column
+            # (fit_intercept=True prepends ones column → col 0 mean ≈ 1.0)
+            _col0 = X[:, 0]
+            _col0_mean = float(xp.mean(_col0).item()) if hasattr(xp.mean(_col0), 'item') else float(xp.mean(_col0))
+            if abs(_col0_mean - 1.0) < 1e-10:
+                y_mean_arr = xp.mean(y)
+                y_mean = float(y_mean_arr.item()) if hasattr(y_mean_arr, 'item') else float(y_mean_arr)
+                if y_mean > 0:
+                    params[0] = math.log(max(y_mean, 1e-3))
     else:
         params = init_coef
 
     for iteration in range(max_iter):
-        params_old = _copy_arr(params)
+        params_old = xp_copy(params)
 
         # Step 1: linear predictor (clip eta to prevent exp overflow)
         # For identity link (squared_error), skip clipping — mu = eta = X@params
@@ -397,7 +409,7 @@ def irls_solver(
         mu_cur = family.link.inverse(eta_cur)
         try:
             dev_old_dev = _dev_val(mu_cur)
-        except Exception:
+        except (ValueError, FloatingPointError, RuntimeError):
             dev_old_dev = float('inf')
 
         # Line search: for families with constant IRLS weights (Gaussian,
@@ -442,7 +454,7 @@ def irls_solver(
             mu_new = family.link.inverse(eta_new)
             try:
                 dev_new_dev = _dev_val(mu_new)
-            except Exception:
+            except (ValueError, FloatingPointError, RuntimeError):
                 dev_new_dev = float('inf')
             if _dev_accept(dev_new_dev):
                 params = params_new
@@ -455,7 +467,7 @@ def irls_solver(
                     mu_try = family.link.inverse(eta_try)
                     try:
                         dev_try_dev = _dev_val(mu_try)
-                    except Exception:
+                    except (ValueError, FloatingPointError, RuntimeError):
                         step *= 0.5
                         continue
                     if _dev_accept(dev_try_dev):
@@ -473,7 +485,7 @@ def irls_solver(
                 mu_try = family.link.inverse(eta_try)
                 try:
                     dev_try_dev = _dev_val(mu_try)
-                except Exception:
+                except (ValueError, FloatingPointError, RuntimeError):
                     step *= 0.5
                     continue
                 if _dev_accept(dev_try_dev):
@@ -486,22 +498,21 @@ def irls_solver(
             else:
                 params = params_old + 0.1 * _direction
 
-        # Convergence: gradient norm check (most reliable for all families)
-        if iteration % 5 == 4 or iteration == max_iter - 1:
-            try:
-                grad_f = family.gradient(X, y, params)
-                if ridge_alpha > 0:
-                    grad_f[1:] = grad_f[1:] + (ridge_alpha / X.shape[0]) * params[1:]
-                grad_norm = float(_norm(grad_f, backend))
-            except Exception:
-                # No gradient method available — fall back to param change
-                _param_change = float(_norm(params - params_old, backend))
-                _param_norm = max(float(_norm(params, backend)), 1.0)
-                grad_norm = _param_change / _param_norm  # relative change
-            if grad_norm < tol:
-                break
+        # Convergence: check every iteration for reliable convergence (sklearn behavior)
+        try:
+            grad_f = family.gradient(X, y, params)
+            if ridge_alpha > 0:
+                grad_f[1:] = grad_f[1:] + (ridge_alpha / X.shape[0]) * params[1:]
+            grad_norm = float(_norm(grad_f, backend))
+        except (AttributeError, RuntimeError):
+            # No gradient method available — fall back to param change
+            _param_change = float(_norm(params - params_old, backend))
+            _param_norm = max(float(_norm(params, backend)), 1.0)
+            grad_norm = _param_change / _param_norm  # relative change
+        if grad_norm < tol:
+            break
 
-    n_iter = iteration + 1
+    n_iter = iteration + 1 if max_iter > 0 else 0
     if n_iter >= max_iter:
         from statgpu.glm_core._solver import ConvergenceWarning
         warnings.warn(
