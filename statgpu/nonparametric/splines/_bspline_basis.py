@@ -5,6 +5,8 @@ Implements De Boor's recursive algorithm for B-spline basis evaluation,
 vectorized over sample points for efficient GPU computation.
 """
 
+from __future__ import annotations
+
 import numpy as np
 
 from statgpu.backends import _torch_dev, _to_numpy, xp_zeros, xp_eye, xp_full, xp_astype, xp_asarray

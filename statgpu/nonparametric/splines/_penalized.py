@@ -5,9 +5,11 @@ Provides functions for solving penalized regression problems and
 constructing difference penalty matrices for spline smoothing.
 """
 
+from __future__ import annotations
+
 import numpy as np
 
-from statgpu.backends import _torch_dev, xp_zeros, xp_eye, xp_asarray, xp_cholesky_solve
+from statgpu.backends import _torch_dev, _to_numpy, xp_zeros, xp_eye, xp_asarray, xp_cholesky_solve
 
 
 def _get_xp(xp):
@@ -221,10 +223,12 @@ def select_lambda_gcv(B, y, penalty_matrix, lambda_grid=None, xp=None):
     lambda_grid = xp_asarray(lambda_grid, dtype=xp.float64, xp=xp, ref_arr=B)
 
     gcv_scores = xp_zeros(len(lambda_grid), xp.float64, xp, B)
+    # Batch-transfer lambda grid to CPU (single sync, not per-iteration)
+    lambda_cpu = _to_numpy(lambda_grid).tolist()
 
-    for i, lam in enumerate(lambda_grid):
+    for i, lam_val in enumerate(lambda_cpu):
         gcv_scores[i] = generalized_cross_validation(
-            B, y, penalty_matrix, float(lam), xp
+            B, y, penalty_matrix, float(lam_val), xp
         )
 
     best_idx = int(xp.argmin(gcv_scores))

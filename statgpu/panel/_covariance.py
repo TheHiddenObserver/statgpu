@@ -66,9 +66,10 @@ def clustered_covariance(X, resid, clusters, xp=None):
         bread = xp.linalg.pinv(XtX)
 
     # Meat: sum over clusters of (X_g' e_g)(X_g' e_g)'
+    # Batch-transfer unique cluster values to CPU (single sync, not per-cluster)
+    unique_clusters_cpu = _to_numpy(xp.unique(clusters)).tolist()
     meat = xp_zeros((k, k), xp.float64, xp, X)
-    for g in xp.unique(clusters):
-        g_val = g.item() if hasattr(g, 'item') else g
+    for g_val in unique_clusters_cpu:
         mask = clusters == g_val
         Xg = X[mask]
         eg = resid[mask]

@@ -22,7 +22,7 @@ from scipy import stats
 
 from statgpu._base import BaseEstimator
 from statgpu._config import Device
-from statgpu.backends import _get_torch_device_str, _torch_dev, _to_numpy, xp_astype, xp_zeros, xp_cholesky_solve
+from statgpu.backends import _get_torch_device_str, _torch_dev, _to_float_scalar, _to_numpy, xp_astype, xp_zeros, xp_cholesky_solve
 
 from ._utils import within_transform, group_means, group_sizes, ols_inference_nonrobust
 
@@ -161,10 +161,11 @@ class RandomEffects(BaseEstimator):
         unique_entities = xp.unique(entity_arr)
         n_entities = len(unique_entities)
         T_i = group_sizes(entity_arr, xp=xp)
-        T_i_np = _to_numpy(T_i)
+        T_i_np = _to_numpy(T_i)  # needed for theta computation below
 
         # Harmonic mean of group sizes: n / sum(1/T_i) for all groups
-        T_bar = float(n_entities) / float(np.sum(1.0 / T_i_np))
+        # Keep on GPU — single scalar transfer at the end
+        T_bar = float(n_entities) / float(_to_float_scalar(xp.sum(1.0 / T_i)))
 
         # df for within residuals: n*T - k - (n_entities - 1)
         df_within = n - k - (n_entities - 1)

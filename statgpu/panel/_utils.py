@@ -12,7 +12,7 @@ from typing import Optional
 
 import numpy as np
 
-from statgpu.backends import xp_asarray, xp_zeros
+from statgpu.backends import xp_asarray, xp_zeros, _to_numpy
 
 
 def within_transform(y, groups, xp=None):
@@ -42,11 +42,11 @@ def within_transform(y, groups, xp=None):
     groups = xp_asarray(groups, xp=xp, ref_arr=y).ravel()
 
     unique_groups = xp.unique(groups)
+    # Batch-transfer unique group values to CPU (single sync, not per-group)
+    unique_cpu = _to_numpy(unique_groups).tolist()
     result = xp.copy(y) if hasattr(xp, 'copy') else y.clone() if hasattr(y, 'clone') else y - 0.0
 
-    for g in unique_groups:
-        # Works for numpy, cupy, and torch tensors
-        g_val = g.item() if hasattr(g, 'item') else g
+    for g_val in unique_cpu:
         mask = groups == g_val
         group_mean = xp.mean(y[mask])
         if hasattr(result, '__setitem__'):
@@ -79,10 +79,11 @@ def make_group_dummies(groups, xp=None):
     unique = xp.unique(groups)
     n = len(groups)
     n_groups = len(unique)
+    # Batch-transfer unique group values to CPU (single sync)
+    unique_cpu = _to_numpy(unique).tolist()
 
     D = xp_zeros((n, n_groups), xp.float64, xp, groups)
-    for i, g in enumerate(unique):
-        g_val = g.item() if hasattr(g, 'item') else g
+    for i, g_val in enumerate(unique_cpu):
         mask = groups == g_val
         D[mask, i] = 1.0
 
@@ -164,8 +165,9 @@ def group_means(y, groups, xp=None):
     groups = xp_asarray(groups, xp=xp, ref_arr=y).ravel()
 
     result = xp.zeros_like(y)
-    for g in xp.unique(groups):
-        g_val = g.item() if hasattr(g, 'item') else g
+    # Batch-transfer unique group values to CPU (single sync)
+    unique_cpu = _to_numpy(xp.unique(groups)).tolist()
+    for g_val in unique_cpu:
         mask = groups == g_val
         result[mask] = xp.mean(y[mask])
 
@@ -195,9 +197,10 @@ def group_sizes(groups, xp=None):
 
     groups = xp_asarray(groups, xp=xp).ravel()
     result = xp_zeros(len(groups), xp.float64, xp, groups)
+    # Batch-transfer unique group values to CPU (single sync)
+    unique_cpu = _to_numpy(xp.unique(groups)).tolist()
 
-    for g in xp.unique(groups):
-        g_val = g.item() if hasattr(g, 'item') else g
+    for g_val in unique_cpu:
         mask = groups == g_val
         result[mask] = float(xp.sum(mask))
 

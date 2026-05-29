@@ -2,6 +2,8 @@
 Kernel Ridge Regression with GPU acceleration.
 """
 
+from __future__ import annotations
+
 from typing import Optional, Union
 
 import numpy as np
