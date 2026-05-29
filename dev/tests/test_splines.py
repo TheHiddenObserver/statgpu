@@ -362,15 +362,15 @@ def test_irls_penalty_matrix_parameter():
     y = X @ np.array([1, 2, 3, 4]) + np.random.randn(50) * 0.1
 
     params1, _ = irls_solver(MockFamily(), X, y, max_iter=50, backend='numpy')
-    penalty = np.eye(4) * 0.1
+    # Use ridge_alpha for L2 penalty (penalty_matrix was removed in favor of ridge)
     params2, _ = irls_solver(MockFamily(), X, y, max_iter=50, backend='numpy',
-                              penalty_matrix=penalty)
+                              ridge_alpha=0.1)
     assert np.sum(params2 ** 2) <= np.sum(params1 ** 2) + 1e-10
     print("PASS: test_irls_penalty_matrix_parameter")
 
 
 def test_irls_solver_class_penalty():
-    """IRLSSolver class should accept penalty_matrix in fit()."""
+    """IRLSSolver class should accept ridge_alpha in fit()."""
     from statgpu.glm_core._irls import IRLSSolver
 
     class MockLink:
@@ -393,8 +393,7 @@ def test_irls_solver_class_penalty():
     X = np.column_stack([np.ones(50), np.random.randn(50, 3)])
     y = X @ np.array([1, 2, 3, 4]) + np.random.randn(50) * 0.1
     solver = IRLSSolver(MockFamily(), max_iter=50)
-    penalty = np.eye(4) * 0.01
-    params, _ = solver.fit(X, y, backend='numpy', penalty_matrix=penalty)
+    params, _ = solver.fit(X, y, backend='numpy', ridge_alpha=0.01)
     assert params.shape == (4,)
     print("PASS: test_irls_solver_class_penalty")
 

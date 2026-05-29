@@ -7,6 +7,8 @@ where mu = exp(X @ coef), alpha is the dispersion parameter.
 
 Supports numpy / cupy / torch backends via _array_ops helpers.
 """
+import numpy as np
+
 from statgpu.backends._array_ops import _clip, _exp, _log, _sum, _max_eigval_power
 from ._base import GLMLoss, register_glm_loss
 
@@ -19,16 +21,18 @@ class NegativeBinomialLoss(GLMLoss):
     has_hessian = True
 
     def __init__(self, alpha=1.0):
+        if not np.isfinite(alpha) or alpha <= 0.0:
+            raise ValueError("alpha must be a finite positive scalar for negative binomial loss")
         self.alpha = alpha
 
     def value(self, X, y, coef):
         z = _clip(X @ coef, -30, 30)
         mu = _exp(z)
         mu_c = _clip(mu, 1e-300, None)
-        a_plus_mu = self.alpha + mu_c
+        one_plus_alpha_mu = 1.0 + self.alpha * mu_c
         return _sum(
-            -y * _log(mu_c / a_plus_mu)
-            - (1.0 / self.alpha) * _log(self.alpha / a_plus_mu)
+            -y * _log(mu_c / one_plus_alpha_mu)
+            + (1.0 / self.alpha) * _log(one_plus_alpha_mu)
         ) / X.shape[0]
 
     def gradient(self, X, y, coef):

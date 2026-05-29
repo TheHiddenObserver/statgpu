@@ -37,13 +37,20 @@ def _resolve_backend(backend: str, *arrays) -> str:
     """Resolve the named *backend* string to one of ``'numpy'``, ``'cupy'``,
     ``'torch'``.
 
+    Accepts legacy aliases ``'cpu'`` → ``'numpy'`` and ``'cuda'``/``'gpu'`` → ``'cupy'``.
     When *backend* is ``'auto'``, inspect *arrays* and return the
     matching backend name based on the first recognised array type.
     Falls back to ``'numpy'`` when no array matches.
     """
     backend_name = str(backend).strip().lower()
+    backend_name = {"cpu": "numpy", "cuda": "cupy", "gpu": "cupy"}.get(
+        backend_name, backend_name
+    )
     if backend_name not in ("auto", "numpy", "cupy", "torch"):
-        raise ValueError("backend must be one of: 'auto', 'numpy', 'cupy', 'torch'")
+        raise ValueError(
+            "backend must be one of: 'auto', 'numpy', 'cupy', 'torch', "
+            "or legacy aliases 'cpu', 'cuda', 'gpu'"
+        )
     if backend_name != "auto":
         return backend_name
 

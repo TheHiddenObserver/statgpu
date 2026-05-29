@@ -74,6 +74,10 @@ class MCPPenalty(Penalty):
     is_convex = False
 
     def __init__(self, alpha: float = 1.0, gamma: float = 3.0):
+        if not np.isfinite(alpha) or alpha <= 0.0:
+            raise ValueError("alpha must be a finite positive scalar for MCP penalty")
+        if not np.isfinite(gamma) or gamma <= 1.0:
+            raise ValueError("gamma must be a finite scalar greater than 1 for MCP penalty")
         self.alpha = alpha
         self.gamma = gamma
 
@@ -181,7 +185,8 @@ class MCPPenalty(Penalty):
             import torch
             compiled_fn = _get_mcp_torch_compiled()
             if compiled_fn is not None:
-                return compiled_fn(w, step, alpha, gamma)
+                step_t = torch.as_tensor(step, dtype=w.dtype, device=w.device)
+                return compiled_fn(w, step_t, alpha, gamma)
             abs_w = torch.abs(w)
             sign_w = torch.sign(w)
 

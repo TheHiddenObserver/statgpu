@@ -89,18 +89,14 @@ class AdaptiveL1Penalty(Penalty):
         self.normalize = normalize
         if weights is not None:
             w = np.asarray(weights, dtype=float)
-            # Normalize by mean to match R glmnet's penalty.factor convention.
-            # R's glmnet internally normalizes penalty.factor so that
-            # mean(penalty.factor) = 1.  Without this, raw 1/|coef| weights
-            # (which can have mean >> 1) make the penalty orders of magnitude
-            # stronger than intended.
-            mean_w = float(np.mean(w))
-            if mean_w > 0:
-                self._weights = w / mean_w
-                self._norm_factor = mean_w
-            else:
-                self._weights = w
-                self._norm_factor = 1.0
+            self._norm_factor = 1.0
+            if self.normalize:
+                # Normalize by mean to match R glmnet's penalty.factor convention.
+                mean_w = float(np.mean(w))
+                if mean_w > 0:
+                    w = w / mean_w
+                    self._norm_factor = mean_w
+            self._weights = w
         else:
             self._weights = None
 

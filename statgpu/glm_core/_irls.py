@@ -5,133 +5,58 @@ Extracted from the duplicated IRLS loops in _logistic.py across CPU/GPU/Torch.
 Single implementation works on numpy/cupy/torch backends via auto detection.
 """
 
-import math
 import warnings
+from typing import Optional
 
 import numpy as np
 
-from statgpu.backends import xp_copy
-from statgpu.backends._utils import _get_xp
+
+from statgpu.backends import _resolve_backend
+from statgpu.backends._array_ops import (
+    _clip,
+    _copy_arr,
+    _diag,
+    _norm2,
+    _solve_linear_system,
+    _to_backend,
+    _zeros,
+)
 
 
-def _infer_backend(X):
-    """Detect backend from array type."""
-    mod = type(X).__module__
-    if mod.startswith("cupy"):
-        return "cupy"
-    if mod.startswith("torch"):
-        return "torch"
-    return "numpy"
-
-
+# Backward-compatible private wrapper used by benchmark/debug scripts.
 def _solve(A, b, backend="auto"):
-    """Solve linear system, fallback to lstsq if singular."""
-    if backend == "auto":
-        backend = _infer_backend(A)
-
-    try:
-        if backend == "torch":
-            import torch
-            b_col = b.unsqueeze(1) if b.ndim == 1 else b
-            sol = torch.linalg.solve(A, b_col)
-            return sol.squeeze(1) if b.ndim == 1 else sol
-        elif backend == "cupy":
-            import cupy as cp
-            return cp.linalg.solve(A, b)
-        else:
-            return np.linalg.solve(A, b)
-    except (np.linalg.LinAlgError, RuntimeError):
-        if backend == "torch":
-            import torch
-            b_col = b.unsqueeze(1) if b.ndim == 1 else b
-            sol = torch.linalg.lstsq(A, b_col).solution
-            return sol.squeeze(1) if b.ndim == 1 else sol
-        elif backend == "cupy":
-            import cupy as cp
-            return cp.linalg.lstsq(A, b)[0]
-        return np.linalg.lstsq(A, b, rcond=None)[0]
+    if isinstance(backend, str):
+        legacy_backend = backend.strip().lower()
+        if legacy_backend == "cpu":
+            backend = "numpy"
+        elif legacy_backend in ("cuda", "gpu"):
+            backend = "cupy"
+    return _solve_linear_system(A, b, backend=backend)
 
 
-def _clip(x, lo, hi, backend):
-    if backend == "torch":
-        import torch
+def _promote_torch_irls_inputs(X, y, init_coef=None, sample_weight=None):
+    """Keep all Torch IRLS operands on one floating dtype/device."""
+    import torch
 
-        if lo is not None:
-            x = torch.clamp(x, min=lo)
-        if hi is not None:
-            x = torch.clamp(x, max=hi)
-        return x
-    if backend == "cupy":
-        import cupy as cp
-        return cp.clip(x, lo, hi)
-    return np.clip(x, lo, hi)
+    def _floating_dtype(arr):
+        if hasattr(arr, "is_floating_point") and arr.is_floating_point():
+            return arr.dtype
+        return torch.float64
 
+    dtype = torch.promote_types(_floating_dtype(X), _floating_dtype(y))
+    if init_coef is not None:
+        dtype = torch.promote_types(dtype, _floating_dtype(init_coef))
+    if sample_weight is not None:
+        dtype = torch.promote_types(dtype, _floating_dtype(sample_weight))
 
-def _norm(x, backend):
-    if backend == "torch":
-        import torch
-        return float(torch.linalg.norm(x).item())
-    if backend == "cupy":
-        import cupy as cp
-        return float(cp.linalg.norm(x).item())
-    return float(np.linalg.norm(x))
-
-
-def _zeros(n, backend, ref_tensor=None, dtype=np.float64):
-    if backend == "cupy":
-        import cupy as cp
-        return cp.zeros(n, dtype=cp.float64)
-    if backend == "torch":
-        import torch
-        device = ref_tensor.device if ref_tensor is not None else "cpu"
-        return torch.zeros(n, dtype=torch.float64, device=device)
-    return np.zeros(n, dtype=dtype)
-
-
-def _diag(reg, backend, ref_tensor=None):
-    """Create diagonal matrix from 1D array."""
-    if backend == "cupy":
-        import cupy as cp
-        return cp.diag(cp.asarray(reg, dtype=cp.float64))
-    if backend == "torch":
-        import torch
-        return torch.diag(
-            torch.tensor(reg, dtype=torch.float64, device=ref_tensor.device if ref_tensor is not None else "cpu")
-        )
-    return np.diag(reg)
-
-
-def _to_backend(arr, backend, ref_tensor):
-    """Convert numpy array to the target backend."""
-    if backend == "cupy":
-        import cupy as cp
-        return cp.asarray(arr, dtype=cp.float64)
-    if backend == "torch":
-        import torch
-        return torch.tensor(arr, dtype=torch.float64, device=ref_tensor.device if ref_tensor is not None else "cpu")
-    return np.asarray(arr, dtype=float)
-
-
-def _copy_arr(arr):
-    """Copy array: .clone() for torch, .copy() for numpy/cupy."""
-    if hasattr(arr, 'clone'):
-        return arr.clone()
-    return arr.copy()
-
-
-def _mean(x, backend):
-    """Compute mean of array."""
-    if backend == "torch":
-        return float(x.mean().item())
-    return float(np.mean(x))
-
-
-def _log_val(x, backend):
-    """Compute log of scalar."""
-    if backend == "torch":
-        import torch
-        return float(torch.log(torch.tensor(x, dtype=torch.float64)).item())
-    return float(np.log(x))
+    device = X.device
+    X = X.to(device=device, dtype=dtype)
+    y = torch.as_tensor(y, device=device, dtype=dtype)
+    if init_coef is not None:
+        init_coef = torch.as_tensor(init_coef, device=device, dtype=dtype)
+    if sample_weight is not None:
+        sample_weight = torch.as_tensor(sample_weight, device=device, dtype=dtype)
+    return X, y, init_coef, sample_weight
 
 
 # =============================================================================
@@ -151,7 +76,7 @@ def _torch_compile_supported():
         if torch.cuda.is_available():
             cap = torch.cuda.get_device_capability()
             return cap[0] >= 7
-    except (RuntimeError, OSError):
+    except Exception:
         pass
     return True
 
@@ -174,7 +99,7 @@ def _get_irls_step_compiled():
     if _torch_compile_supported():
         try:
             _IRLS_STEP_COMPILED = torch.compile(_irls_weighted_gemm, dynamic=True, fullgraph=False)
-        except RuntimeError:
+        except Exception:
             _IRLS_STEP_COMPILED = _irls_weighted_gemm
     else:
         _IRLS_STEP_COMPILED = _irls_weighted_gemm
@@ -186,7 +111,7 @@ def _irls_step_call(compiled_fn, *args):
     """Call compiled IRLS step, falling back to eager on GPU arch mismatch."""
     try:
         return compiled_fn(*args)
-    except RuntimeError:
+    except Exception:
         def _irls_gemm_eager(X, W, z):
             W_col = W.unsqueeze(1)
             XtWX = X.T @ (X * W_col)
@@ -206,7 +131,6 @@ def irls_solver(
     ridge_alpha=0.0,
     ridge_penalize_intercept=False,
     backend="auto",
-    penalty_matrix=None,
 ):
     """IRLS: solve GLM by iteratively weighted least squares.
 
@@ -232,10 +156,6 @@ def irls_solver(
         Whether to penalize the intercept.
     backend : str
         'numpy', 'cupy', 'torch', or 'auto'.
-    penalty_matrix : array, optional
-        Additional penalty matrix to add to the normal equations.
-        Shape must be (n_features, n_features). When provided, the
-        normal equations become: X'WX + ridge_alpha*I + penalty_matrix.
 
     Returns
     -------
@@ -245,18 +165,20 @@ def irls_solver(
         Number of iterations.
     """
     if backend == "auto":
-        backend = _infer_backend(X)
+        backend = _resolve_backend("auto", X)
+
+    if backend == "torch":
+        X, y, init_coef, sample_weight = _promote_torch_irls_inputs(
+            X, y, init_coef=init_coef, sample_weight=sample_weight
+        )
+    else:
+        y = _to_backend(y, backend, X)
+        if sample_weight is not None:
+            sample_weight = _to_backend(sample_weight, backend, X)
 
     if init_coef is None:
         n_features = X.shape[1]
         params = _zeros(n_features, backend, ref_tensor=X)
-        # Initialize intercept to log(mean(y)) for log-link families
-        # (matches sklearn; avoids starting at mu=1 when true mu is small)
-        _link_name_init = getattr(family.link, "name", "")
-        if _link_name_init in ("log", "Log"):
-            y_mean = _mean(y, backend)
-            if y_mean > 0:
-                params[0] = _log_val(max(y_mean, 1e-3), backend)
     else:
         params = init_coef
 
@@ -272,7 +194,7 @@ def irls_solver(
         Correct Tweedie deviance for power p (p != 1, p != 2):
           d(y, mu) = y*(y^(1-p) - mu^(1-p))/(1-p) - (y^(2-p) - mu^(2-p))/(2-p)
         """
-        _y = _to_backend(y, backend, X)
+        _y = y
         if backend == "torch":
             import torch
             if _fname in ("gaussian", "squared_error"):
@@ -296,10 +218,22 @@ def irls_solver(
                 elif abs(p - 2.0) < 0.01:
                     return torch.sum(_y / mu_arr - torch.log(_y / mu_arr) - 1.0)
                 else:
+                    _y_pow_1mp = torch.zeros_like(_y)
+                    _y_pow_2mp = torch.zeros_like(_y)
+                    _mask = _y > 0.0
+                    if torch.any(_mask):
+                        _y_pos = _y[_mask]
+                        _y_pow_1mp[_mask] = torch.pow(_y_pos, 1.0 - p)
+                        _y_pow_2mp[_mask] = torch.pow(_y_pos, 2.0 - p)
                     return torch.sum(
-                        _y * (torch.pow(_y, 1.0 - p) - torch.pow(mu_arr, 1.0 - p)) / (1.0 - p)
-                        - (torch.pow(_y, 2.0 - p) - torch.pow(mu_arr, 2.0 - p)) / (2.0 - p)
+                        _y * (_y_pow_1mp - torch.pow(mu_arr, 1.0 - p)) / (1.0 - p)
+                        - (_y_pow_2mp - torch.pow(mu_arr, 2.0 - p)) / (2.0 - p)
                     )
+            elif _fname in ("binomial", "logistic"):
+                _mu_c = torch.clamp(mu_arr, min=1e-10, max=1.0 - 1e-10)
+                return -2.0 * torch.sum(
+                    _y * torch.log(_mu_c) + (1.0 - _y) * torch.log(1.0 - _mu_c)
+                )
             else:
                 return torch.sum(mu_arr - _y * torch.log(mu_arr))
         elif backend == "cupy":
@@ -325,10 +259,22 @@ def irls_solver(
                 elif abs(p - 2.0) < 0.01:
                     return cp.sum(_y / mu_arr - cp.log(_y / mu_arr) - 1.0)
                 else:
+                    _y_pow_1mp = cp.zeros_like(_y)
+                    _y_pow_2mp = cp.zeros_like(_y)
+                    _mask = _y > 0.0
+                    if bool(cp.any(_mask)):
+                        _y_pos = _y[_mask]
+                        _y_pow_1mp[_mask] = cp.power(_y_pos, 1.0 - p)
+                        _y_pow_2mp[_mask] = cp.power(_y_pos, 2.0 - p)
                     return cp.sum(
-                        _y * (cp.power(_y, 1.0 - p) - cp.power(mu_arr, 1.0 - p)) / (1.0 - p)
-                        - (cp.power(_y, 2.0 - p) - cp.power(mu_arr, 2.0 - p)) / (2.0 - p)
+                        _y * (_y_pow_1mp - cp.power(mu_arr, 1.0 - p)) / (1.0 - p)
+                        - (_y_pow_2mp - cp.power(mu_arr, 2.0 - p)) / (2.0 - p)
                     )
+            elif _fname in ("binomial", "logistic"):
+                _mu_c = cp.clip(mu_arr, 1e-10, 1.0 - 1e-10)
+                return -2.0 * cp.sum(
+                    _y * cp.log(_mu_c) + (1.0 - _y) * cp.log(1.0 - _mu_c)
+                )
             else:
                 return cp.sum(mu_arr - _y * cp.log(mu_arr))
         else:
@@ -353,15 +299,27 @@ def irls_solver(
                 elif abs(p - 2.0) < 0.01:
                     return float(np.sum(_y / mu_arr - np.log(_y / mu_arr) - 1.0))
                 else:
+                    _y_pow_1mp = np.zeros_like(_y)
+                    _y_pow_2mp = np.zeros_like(_y)
+                    _mask = _y > 0.0
+                    if np.any(_mask):
+                        _y_pos = _y[_mask]
+                        _y_pow_1mp[_mask] = np.power(_y_pos, 1.0 - p)
+                        _y_pow_2mp[_mask] = np.power(_y_pos, 2.0 - p)
                     return float(np.sum(
-                        _y * (np.power(_y, 1.0 - p) - np.power(mu_arr, 1.0 - p)) / (1.0 - p)
-                        - (np.power(_y, 2.0 - p) - np.power(mu_arr, 2.0 - p)) / (2.0 - p)
+                        _y * (_y_pow_1mp - np.power(mu_arr, 1.0 - p)) / (1.0 - p)
+                        - (_y_pow_2mp - np.power(mu_arr, 2.0 - p)) / (2.0 - p)
                     ))
+            elif _fname in ("binomial", "logistic"):
+                _mu_c = np.clip(mu_arr, 1e-10, 1.0 - 1e-10)
+                return float(-2.0 * np.sum(
+                    _y * np.log(_mu_c) + (1.0 - _y) * np.log(1.0 - _mu_c)
+                ))
             else:
                 return float(np.sum(mu_arr - _y * np.log(mu_arr)))
 
     for iteration in range(max_iter):
-        params_old = xp_copy(params)
+        params_old = _copy_arr(params)
 
         # Step 1: linear predictor (clip eta to prevent exp overflow)
         # For identity link (squared_error), skip clipping — mu = eta = X@params
@@ -371,21 +329,20 @@ def irls_solver(
         if _link_name in ('identity', 'Identity'):
             eta = eta_raw
         else:
-            eta = _clip(eta_raw, -30, 30, backend)
+            eta = _clip(eta_raw, -30, 30)
 
         # Step 2: inverse link -> mean (clip mu to prevent extreme weights)
         # For identity link (squared_error), skip clipping — mu = eta.
         mu = family.link.inverse(eta)
         if _link_name not in ('identity', 'Identity'):
-            mu = _clip(mu, 1e-10, 1e6, backend)
+            mu = _clip(mu, 1e-10, 1e6)
 
         # Step 3: IRLS weights
         W = family.irls_weights(mu, y)
-        W = _clip(W, 1e-10, None, backend)
+        W = _clip(W, 1e-10, None)
 
         if sample_weight is not None:
-            sw = _to_backend(sample_weight, backend, X)
-            W = W * sw
+            W = W * sample_weight
 
         # Step 4: working response
         z = family.irls_working_response(mu, y, eta)
@@ -411,19 +368,15 @@ def irls_solver(
                 reg[0] = 0.0
             XtWX = XtWX + _diag(reg, backend, ref_tensor=X)
 
-        # Add penalty matrix if provided (e.g., for spline smoothing)
-        if penalty_matrix is not None:
-            XtWX = XtWX + _to_backend(penalty_matrix, backend, X)
-
-        params_new = _solve(XtWX, Xtz, backend)
+        params_new = _solve_linear_system(XtWX, Xtz, backend)
 
         # Current loss — use only eta clipping (prevent exp overflow),
         # NOT mu clipping (which distorts the deviance landscape).
-        eta_cur = _clip(X @ params_old, -30, 30, backend)
+        eta_cur = _clip(X @ params_old, -30, 30)
         mu_cur = family.link.inverse(eta_cur)
         try:
             dev_old_dev = _dev_val(mu_cur)
-        except (ValueError, FloatingPointError, RuntimeError):
+        except Exception:
             dev_old_dev = float('inf')
 
         # Line search: for families with constant IRLS weights (Gaussian,
@@ -435,14 +388,20 @@ def irls_solver(
         _is_constant_W = _fname in ("gamma", "gaussian", "squared_error")
 
         # Convert dev_old to Python float for tolerance computation
-        # (single sync per iteration, not per line-search step)
+        # (single sync per iteration, not per line-search step).  CuPy NB
+        # needs a slightly looser tolerance; the stricter 1e-10 relative
+        # check over-damps late Fisher steps and causes hundreds of extra
+        # iterations while converging to the same objective as CPU/Torch.
         if backend == "torch":
             dev_old_f = float(dev_old_dev.item())
         elif backend == "cupy":
             dev_old_f = float(dev_old_dev)
         else:
             dev_old_f = float(dev_old_dev)
-        _dev_tol = max(abs(dev_old_f) * 1e-10, 1e-6)
+        if backend == "cupy" and _fname == "negative_binomial":
+            _dev_tol = max(abs(dev_old_f) * 1e-6, 1e-4)
+        else:
+            _dev_tol = max(abs(dev_old_f) * 1e-10, 1e-6)
 
         def _dev_accept(dev_try_dev):
             """Check if trial deviance is acceptable (device-side NaN + comparison)."""
@@ -464,11 +423,11 @@ def irls_solver(
         if _is_constant_W:
             # Constant weights: IRLS = Newton.  Try full step first;
             # if deviance increases significantly, fall back to Armijo.
-            eta_new = _clip(X @ params_new, -30, 30, backend)
+            eta_new = _clip(X @ params_new, -30, 30)
             mu_new = family.link.inverse(eta_new)
             try:
                 dev_new_dev = _dev_val(mu_new)
-            except (ValueError, FloatingPointError, RuntimeError):
+            except Exception:
                 dev_new_dev = float('inf')
             if _dev_accept(dev_new_dev):
                 params = params_new
@@ -477,11 +436,11 @@ def irls_solver(
                 _accepted = False
                 for _bt in range(30):
                     params_try = params_old + step * _direction
-                    eta_try = _clip(X @ params_try, -30, 30, backend)
+                    eta_try = _clip(X @ params_try, -30, 30)
                     mu_try = family.link.inverse(eta_try)
                     try:
                         dev_try_dev = _dev_val(mu_try)
-                    except (ValueError, FloatingPointError, RuntimeError):
+                    except Exception:
                         step *= 0.5
                         continue
                     if _dev_accept(dev_try_dev):
@@ -495,11 +454,11 @@ def irls_solver(
             _accepted = False
             for _bt in range(30):
                 params_try = params_old + step * _direction
-                eta_try = _clip(X @ params_try, -30, 30, backend)
+                eta_try = _clip(X @ params_try, -30, 30)
                 mu_try = family.link.inverse(eta_try)
                 try:
                     dev_try_dev = _dev_val(mu_try)
-                except (ValueError, FloatingPointError, RuntimeError):
+                except Exception:
                     step *= 0.5
                     continue
                 if _dev_accept(dev_try_dev):
@@ -512,21 +471,22 @@ def irls_solver(
             else:
                 params = params_old + 0.1 * _direction
 
-        # Convergence: check every iteration for reliable convergence (sklearn behavior)
-        try:
-            grad_f = family.gradient(X, y, params)
-            if ridge_alpha > 0:
-                grad_f[1:] = grad_f[1:] + (ridge_alpha / X.shape[0]) * params[1:]
-            grad_norm = float(_norm(grad_f, backend))
-        except (AttributeError, RuntimeError):
-            # No gradient method available — fall back to param change
-            _param_change = float(_norm(params - params_old, backend))
-            _param_norm = max(float(_norm(params, backend)), 1.0)
-            grad_norm = _param_change / _param_norm  # relative change
-        if grad_norm < tol:
-            break
+        # Convergence: gradient norm check (most reliable for all families)
+        if iteration % 5 == 4 or iteration == max_iter - 1:
+            try:
+                grad_f = family.gradient(X, y, params)
+                if ridge_alpha > 0:
+                    grad_f[1:] = grad_f[1:] + (ridge_alpha / X.shape[0]) * params[1:]
+                grad_norm = float(_norm2(grad_f))
+            except Exception:
+                # No gradient method available — fall back to param change
+                _param_change = float(_norm2(params - params_old))
+                _param_norm = max(float(_norm2(params)), 1.0)
+                grad_norm = _param_change / _param_norm  # relative change
+            if grad_norm < tol:
+                break
 
-    n_iter = iteration + 1 if max_iter > 0 else 0
+    n_iter = iteration + 1
     if n_iter >= max_iter:
         from statgpu.glm_core._solver import ConvergenceWarning
         warnings.warn(
@@ -558,7 +518,6 @@ class IRLSSolver:
         ridge_alpha=0.0,
         ridge_penalize_intercept=False,
         backend="auto",
-        penalty_matrix=None,
     ):
         """Run IRLS loop.
 
@@ -568,8 +527,6 @@ class IRLSSolver:
             L2 regularization (lambda = 1/(2*C) format).
         ridge_penalize_intercept : bool
             Whether to penalize the intercept.
-        penalty_matrix : array, optional
-            Additional penalty matrix for the normal equations.
         """
         return irls_solver(
             self.family,
@@ -582,5 +539,4 @@ class IRLSSolver:
             ridge_alpha=ridge_alpha,
             ridge_penalize_intercept=ridge_penalize_intercept,
             backend=backend,
-            penalty_matrix=penalty_matrix,
         )

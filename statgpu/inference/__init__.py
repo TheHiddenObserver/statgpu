@@ -99,6 +99,14 @@ from ._distributions_legacy_gpu import (
     t_two_sided_pvalue_gpu,
 )
 from ._multiple_testing import adjust_pvalues, combine_pvalues, multipletests
+from ._results import (
+    BaseInferenceResult,
+    DebiasedInferenceResult,
+    GaussianInferenceResult,
+    OracleActiveSetInferenceResult,
+    ParameterInferenceResult,
+    ResamplingInferenceResult,
+)
 from ._resampling import (
     BootstrapResult,
     PermutationTestResult,
@@ -117,6 +125,13 @@ __all__ = [
     "adjust_pvalues",
     "combine_pvalues",
     "multipletests",
+    # Inference results
+    "BaseInferenceResult",
+    "ParameterInferenceResult",
+    "GaussianInferenceResult",
+    "DebiasedInferenceResult",
+    "OracleActiveSetInferenceResult",
+    "ResamplingInferenceResult",
     # Distribution base classes
     "NormDistributionBase",
     "TDistributionBase",

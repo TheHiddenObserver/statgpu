@@ -176,12 +176,14 @@ class InversePowerLink(Link):
     """Inverse power link: eta = 1/mu (canonical for Gamma)."""
 
     name = "inverse_power"
+    _ETA_LO = 1e-4
+    _ETA_HI = 1e3
 
     def link(self, mu):
         return 1.0 / _clip(mu, 1e-10, None)
 
     def inverse(self, eta):
-        return 1.0 / _clip(eta, 1e-10, None)
+        return 1.0 / _clip(eta, self._ETA_LO, self._ETA_HI)
 
     def derivative(self, mu):
         return -1.0 / (mu * mu)
@@ -196,7 +198,8 @@ class InverseSquaredLink(Link):
         return 1.0 / _clip(mu * mu, 1e-10, None)
 
     def inverse(self, eta):
-        return 1.0 / _clip(_sqrt(eta), 1e-10, None)
+        eta_c = _clip(eta, 1e-20, None)
+        return 1.0 / _clip(_sqrt(eta_c), 1e-10, None)
 
     def derivative(self, mu):
         return -2.0 / (mu * mu * mu)
@@ -225,12 +228,13 @@ class GLMFamily(ABC):
     def irls_weights(self, mu, y):
         """IRLS working weights.
 
-        W = V(mu) * (g'(mu))^2
+        W = 1 / (V(mu) * (g'(mu))^2)
 
-        Default uses W = V(mu) * (link'(mu))^2.
+        Default uses the inverse Fisher weights for the WLS step in IRLS.
         Subclasses can override for more efficient implementations.
         """
-        return self.variance(mu) * self.link.derivative(mu) ** 2
+        denom = self.variance(mu) * self.link.derivative(mu) ** 2
+        return 1.0 / _clip(denom, 1e-10, None)
 
     def irls_working_response(self, mu, y, eta):
         """Working response z = eta + (y - mu) * link'(mu)."""
@@ -298,12 +302,6 @@ class Gamma(GLMFamily):
     def variance(self, mu):
         return mu * mu
 
-    def irls_weights(self, mu, y):
-        return _ones_like(mu)
-
-    def irls_working_response(self, mu, y, eta):
-        return eta + (y - mu) / _clip(mu, 1e-10, None)
-
 
 class InverseGaussian(GLMFamily):
     """Inverse Gaussian family (positive continuous, right-skewed).
@@ -339,6 +337,8 @@ class NegativeBinomial(GLMFamily):
 
     def __init__(self, alpha=1.0):
         self.link = self.__class__.link  # use class-level link
+        if not np.isfinite(alpha) or alpha <= 0.0:
+            raise ValueError("alpha must be a finite positive scalar for negative binomial family")
         self.alpha = alpha
 
     def variance(self, mu):

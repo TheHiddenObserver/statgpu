@@ -50,3 +50,6 @@ class TweedieRegression(GeneralizedLinearModel):
 
     def _get_family(self):
         return Tweedie(power=self._power)
+
+    def _get_loss_kwargs(self):
+        return {"power": self._power}
