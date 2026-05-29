@@ -5,6 +5,8 @@ Implements GAM using penalized B-splines with automatic smoothing
 parameter selection via Generalized Cross-Validation (GCV).
 """
 
+from __future__ import annotations
+
 import numpy as np
 from typing import Optional, Union
 

@@ -1757,7 +1757,7 @@ def newton_solver(
                 import torch
                 direction = torch.linalg.solve(hess, grad.unsqueeze(1))
                 direction = direction.squeeze(1)
-        except Exception:
+        except (np.linalg.LinAlgError, RuntimeError):
             if backend == "numpy":
                 direction = np.linalg.lstsq(hess, grad, rcond=None)[0]
             elif backend == "cupy":
