@@ -62,7 +62,7 @@ def _to_numpy(x):
     if hasattr(x, "get"):
         return x.get()
     if hasattr(x, "cpu") and hasattr(x, "numpy"):
-        return x.cpu().numpy()
+        return x.detach().cpu().numpy() if hasattr(x, 'detach') else x.cpu().numpy()
     return np.asarray(x)
 
 
@@ -79,7 +79,11 @@ def _get_torch_device_str() -> str:
         import torch
 
         return "cuda" if torch.cuda.is_available() else "cpu"
-    except Exception:
+    except ImportError:
+        return "cpu"
+    except Exception as e:
+        import warnings
+        warnings.warn(f"torch.cuda.is_available() failed, falling back to CPU: {e}")
         return "cpu"
 
 
