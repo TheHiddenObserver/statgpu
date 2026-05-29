@@ -32,6 +32,25 @@ class CVResult:
         }
 
 
+def _concordance_index(time: np.ndarray, risk: np.ndarray, event: np.ndarray) -> float:
+    """Compute concordance index (C-index) for survival data."""
+    n = len(time)
+    concordant = 0
+    permissible = 0
+    for i in range(n):
+        for j in range(i + 1, n):
+            if time[i] != time[j]:
+                if time[i] < time[j] and event[i] == 1:
+                    permissible += 1
+                    if risk[i] > risk[j]:
+                        concordant += 1
+                elif time[j] < time[i] and event[j] == 1:
+                    permissible += 1
+                    if risk[j] > risk[i]:
+                        concordant += 1
+    return concordant / permissible if permissible > 0 else np.nan
+
+
 def _kfold_indices(n: int, n_folds: int, random_state: Optional[int] = None) -> List[tuple]:
     """Generate K-fold train/test indices."""
     rng = np.random.default_rng(random_state)
@@ -65,6 +84,7 @@ class AgentCrossValidator:
         """Run K-fold CV and return aggregated metrics."""
         folds = _kfold_indices(X.shape[0], self.n_folds, self.random_state)
         scores = []
+        metric_name = self._metric_name(task_type)
 
         for train_idx, test_idx in folds:
             X_train, X_test = X[train_idx], X[test_idx]
@@ -73,7 +93,11 @@ class AgentCrossValidator:
             try:
                 model = model_factory()
                 model.fit(X_train, y_train)
-                score = model.score(X_test, y_test)
+                # Compute the metric that matches metric_name
+                if metric_name == "roc_auc" and hasattr(model, "roc_auc_score"):
+                    score = model.roc_auc_score(X_test, y_test)
+                else:
+                    score = model.score(X_test, y_test)
                 scores.append(float(score))
             except Exception:
                 scores.append(np.nan)
@@ -113,7 +137,7 @@ class AgentCrossValidator:
         time: np.ndarray,
         event: np.ndarray,
     ) -> CVResult:
-        """Run K-fold CV for survival models, returning C-index distribution."""
+        """Run K-fold CV for survival models, returning C-index on test folds."""
         folds = _kfold_indices(X.shape[0], self.n_folds, self.random_state)
         scores = []
 
@@ -125,11 +149,10 @@ class AgentCrossValidator:
             try:
                 model = model_factory()
                 model.fit(X_train, t_train, e_train)
-                cindex = getattr(model, "_cindex", None)
-                if cindex is not None:
-                    scores.append(float(cindex))
-                else:
-                    scores.append(np.nan)
+                # Compute C-index on TEST fold, not training
+                risk = -np.dot(X_test, model.coef_)
+                cindex = _concordance_index(t_test, risk, e_test)
+                scores.append(float(cindex))
             except Exception:
                 scores.append(np.nan)
 

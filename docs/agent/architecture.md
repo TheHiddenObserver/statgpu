@@ -50,8 +50,8 @@ Input (CSV/DataFrame/array)
 1. **No external multi-agent framework**: Nature papers (GeneAgent, Co-Scientist, DeepRare) all use custom orchestration, not LangGraph/AutoGen/CrewAI.
 2. **GeneAgent self-correction pattern**: while loop + diagnosis rules, max 3 rounds.
 3. **Proactive pruning over reactive correction**: MethodPruner excludes methods before fitting.
-4. **Optional LLM integration**: `planner_fn` callback for LLM-based task parsing, no hard dependency.
-5. **Five extensibility registries**: New models register themselves, agent core code unchanged.
+4. **Extensible via registries**: TaskRegistry, MethodRegistry, PruningRuleRegistry, ValidationRuleRegistry for plugin-style extension.
+5. **Four extensibility registries**: New models register themselves, agent core code unchanged.
 
 ## Extensibility
 

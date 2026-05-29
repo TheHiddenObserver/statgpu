@@ -300,30 +300,42 @@ class StatGPUAnalysisAgent:
             if corrected_methods and corrected_methods != available_methods:
                 available_methods = corrected_methods
                 models = self._run_with_methods(prepared, task_type, available_methods)
+            else:
+                break  # No actionable correction possible
 
         # Stage 4: Cross-validation (if enabled)
         if self.config.cv_folds > 0 and task_type != "unsupervised":
             from ._cross_validation import AgentCrossValidator
+            from ._validator import _coerce_binary_y
             cv = AgentCrossValidator(
                 n_folds=self.config.cv_folds,
                 random_state=self.config.random_state,
             )
+            # Prepare CV target (coerce binary y)
+            cv_y = prepared.y
+            if task_type == "binary_classification" and prepared.y is not None:
+                try:
+                    cv_y = _coerce_binary_y(prepared.y)
+                except Exception:
+                    cv_y = prepared.y
+
             for model in models:
                 if model.error is not None or model.estimator is None:
                     continue
                 try:
                     est = model.estimator
                     est_class = est.__class__
-                    est_params = {k: v for k, v in est.get_params().items() if k != 'device'}
-                    factory = lambda c=est_class, p=est_params: c(**p)
+                    est_params = est.get_params()
+                    est_params.pop('device', None)
+                    factory = lambda c=est_class, p=dict(est_params): c(**p)
 
                     if task_type == "survival" and hasattr(prepared, 'time') and prepared.time is not None:
                         model.cv_results = cv.evaluate_survival(
                             factory, prepared.X, prepared.time, prepared.event,
                         )
-                    elif prepared.y is not None:
+                    elif cv_y is not None:
                         model.cv_results = cv.evaluate_supervised(
-                            factory, prepared.X, prepared.y, task_type,
+                            factory, prepared.X, cv_y, task_type,
                         )
                 except Exception:
                     pass  # CV is best-effort
@@ -402,7 +414,13 @@ class StatGPUAnalysisAgent:
                                 pass
                         estimator.device = device_val
                     if hasattr(estimator, 'cov_type') and self.config.cov_type:
-                        estimator.cov_type = self.config.cov_type
+                        # CoxPH only supports nonrobust/hc0/hc1/cluster
+                        from statgpu.survival import CoxPH
+                        if isinstance(estimator, CoxPH):
+                            safe_cov_types = {"nonrobust", "hc0", "hc1", "cluster"}
+                            estimator.cov_type = self.config.cov_type if self.config.cov_type in safe_cov_types else "nonrobust"
+                        else:
+                            estimator.cov_type = self.config.cov_type
                     if hasattr(estimator, 'compute_inference'):
                         estimator.compute_inference = True
                     if hasattr(estimator, 'gpu_memory_cleanup'):
@@ -509,7 +527,6 @@ class StatGPUAnalysisAgent:
     def save_pipeline(self, path: str, result: AnalysisResult) -> None:
         """Save fitted pipeline (config + estimator states) for later reuse.
 
-        GPU tensors are converted to numpy before serialization.
         Loaded estimators can be used for predict() but not fit().
 
         SECURITY WARNING: pickle files can execute arbitrary code on load.

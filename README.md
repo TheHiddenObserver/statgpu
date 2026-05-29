@@ -292,7 +292,7 @@ Profiler → Planner (MethodPruner) → Runner → Validator → Reporter
                  │                    │     ▲
                  │ Proactive pruning  │     │ Self-correction (max 3 rounds)
                  ▼                    └─────┘
-          MethodRegistry            SelfCorrectingRunner
+          MethodRegistry            Inline loop
 ```
 
 ## Benchmark Scripts

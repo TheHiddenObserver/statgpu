@@ -105,6 +105,10 @@ def validate(
             "or --multiple-testing holm for confirmatory analysis."
         )
 
+    # Run custom validation rules
+    custom_warnings = ValidationRuleRegistry.run_custom_rules(task_type, prepared, models)
+    warnings.extend(custom_warnings)
+
     return _deduplicate(warnings)
 
 

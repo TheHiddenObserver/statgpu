@@ -2,7 +2,7 @@
 
 ## Overview
 
-The statgpu agent uses five pluggable registries. New models, task types, and rules can be registered without modifying agent core code.
+The statgpu agent uses four pluggable registries. New models, task types, and rules can be registered without modifying agent core code.
 
 ## 1. MethodRegistry — Register Analysis Methods
 

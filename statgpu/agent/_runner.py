@@ -269,14 +269,6 @@ def _model_diagnostics(model: Any) -> Dict[str, Any]:
     return diagnostics
 
 
-def _model_task_name(model_name: str) -> str:
-    if "Logistic" in model_name:
-        return "binary_classification"
-    if "Poisson" in model_name:
-        return "poisson"
-    return "regression"
-
-
 # ---------------------------------------------------------------------------
 # Task-specific runners
 # ---------------------------------------------------------------------------

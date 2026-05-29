@@ -204,7 +204,7 @@ class MethodPruner:
     def _fallback_candidates(task_type: str) -> List[str]:
         """Fallback candidates when registry is empty."""
         return {
-            "regression": ["LinearRegression", "Ridge"],
+            "regression": ["LinearRegression", "Ridge(alpha=1.0)"],
             "binary_classification": ["LogisticRegression"],
             "poisson": ["PoissonRegression"],
             "survival": ["CoxPH"],
