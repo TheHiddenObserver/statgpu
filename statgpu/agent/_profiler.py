@@ -76,6 +76,8 @@ def table_column(data: Any, name: str) -> List[Any]:
             raise KeyError(f"Column '{name}' not found.")
         return list(data[name])
     if isinstance(data, Sequence) and data and isinstance(data[0], Mapping):
+        if name not in data[0]:
+            raise KeyError(f"Column '{name}' not found.")
         return [row.get(name) for row in data]
     raise ValueError("Unsupported data object.")
 

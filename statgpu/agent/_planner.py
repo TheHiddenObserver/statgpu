@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import math
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
@@ -169,7 +168,7 @@ class MethodPruner:
         # High condition number
         try:
             cond = float(np.linalg.cond(prepared.X))
-            if np.isfinite(cond) and cond > 1e10:
+            if np.isfinite(cond) and cond > config.condition_number_threshold:
                 candidates = [c for c in candidates if c != "LinearRegression"]
                 if "Ridge(alpha=1.0)" not in candidates:
                     candidates.insert(0, "Ridge(alpha=1.0)")

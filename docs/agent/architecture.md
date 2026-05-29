@@ -55,9 +55,8 @@ Input (CSV/DataFrame/array)
 
 ## Extensibility
 
-See [extensibility.md](extensibility.md) for details on the five registries:
+See [extensibility.md](extensibility.md) for details on the four registries:
 - `MethodRegistry` — register analysis methods
 - `TaskRegistry` — register new task types
 - `PruningRuleRegistry` — register pruning rules
 - `ValidationRuleRegistry` — register validation rules
-- `ReportTemplateRegistry` — register report templates

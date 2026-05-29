@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import csv
 from dataclasses import dataclass, field
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 
@@ -13,10 +13,6 @@ from ._memory import MemoryStore
 from ._profiler import prepare_table, prepare_array
 from ._planner import infer_task, build_plan, MethodPruner
 from ._runner import (
-    run_regression,
-    run_binary_classification,
-    run_poisson,
-    run_survival,
     run_unsupervised,
     run_pca_diagnostic,
 )

@@ -120,6 +120,12 @@ def to_markdown(result, max_terms: int = 12) -> str:
             lines.append("| --- | ---: |")
             for fi in model.feature_importance[:max_terms]:
                 lines.append(f"| {fi['feature']} | {fi['importance']:.4f} |")
+        if model.cv_results is not None:
+            lines.append("")
+            lines.append(f"**Cross-Validation** ({model.cv_results.n_folds}-fold {model.cv_results.metric_name}):")
+            lines.append(f"- Mean: {_format_metric(model.cv_results.mean)} ± {_format_metric(model.cv_results.std)}")
+            if model.cv_results.ci_low is not None:
+                lines.append(f"- 95% CI: [{_format_metric(model.cv_results.ci_low)}, {_format_metric(model.cv_results.ci_high)}]")
         for warning in model.warnings:
             lines.append(f"- Warning: {warning}")
 
@@ -156,15 +162,16 @@ def save_markdown(result, path: str, max_terms: int = 12) -> None:
 def save_json(result, path: str, include_estimators: bool = False) -> None:
     """Save complete analysis result as JSON artifact.
 
-    Note: Estimator objects are never serialized to JSON (not JSON-safe).
-    Use save_pipeline() for pickle serialization of estimators.
+    Note: Estimator objects are never serialized to JSON (not JSON-safe),
+    regardless of the include_estimators parameter. Use save_pipeline()
+    for pickle serialization of estimators.
     """
     import statgpu
 
     artifact = {
         "version": statgpu.__version__,
         "timestamp": datetime.now(timezone.utc).isoformat(),
-        "result": result.to_dict(include_estimators=False),  # Never serialize estimators to JSON
+        "result": result.to_dict(include_estimators=False),
         "provenance": {
             "python_version": sys.version,
             "numpy_version": np.__version__,

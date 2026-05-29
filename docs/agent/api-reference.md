@@ -93,6 +93,7 @@ Run analysis on a CSV file.
 | `warnings` | `List[str]` | Model-specific warnings |
 | `error` | `Optional[str]` | Error message if fitting failed |
 | `cv_results` | `Optional[CVResult]` | Cross-validation results |
+| `feature_importance` | `List[Dict]` | Feature importance rankings |
 
 ### `ModelComparison`
 

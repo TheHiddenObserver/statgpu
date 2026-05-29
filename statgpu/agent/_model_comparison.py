@@ -79,7 +79,7 @@ class ModelComparator:
             })
 
         return ModelComparison(
-            ranking_metric=metric_name,
+            ranking_metric=actual_metric,
             ranking=scores,
             best_model=best_name,
             delta_table=delta_table,

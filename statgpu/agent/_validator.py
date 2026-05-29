@@ -32,7 +32,12 @@ class ValidationRuleRegistry:
 
 
 def _coerce_binary_y(y: np.ndarray) -> np.ndarray:
-    """Coerce target to binary 0/1."""
+    """Coerce target to binary 0/1.
+
+    Maps the larger unique value to 1.0 and the smaller to 0.0.
+    Assumes target has already been numeric-encoded by prepare_target_array()
+    (string targets like "alive"/"dead" are encoded as 0.0/1.0 upstream).
+    """
     values = np.asarray(y, dtype=float)
     unique = np.unique(values[np.isfinite(values)])
     if unique.size != 2:
