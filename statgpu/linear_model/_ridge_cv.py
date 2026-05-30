@@ -365,7 +365,7 @@ def _select_ridge_alpha_cv(
         Full CV results including alpha grid, MSE path, etc.
     """
     device_name = str(device).lower()
-    use_gpu = device_name == Device.CUDA.value
+    use_gpu = device_name in (Device.CUDA.value, Device.TORCH.value, "torch")
     gpu_requested = use_gpu
 
     gpu_input_cupy = False
@@ -396,7 +396,11 @@ def _select_ridge_alpha_cv(
 
     if gpu_input_cupy or gpu_input_torch:
         # GPU inputs - get backend for validation
-        backend = get_backend(backend='auto', device='cuda')
+        # Use torch backend for torch tensors, cupy for cupy arrays
+        if gpu_input_torch:
+            backend = get_backend(backend='torch', device='cuda')
+        else:
+            backend = get_backend(backend='cupy', device='cuda')
         if len(tuple(X.shape)) != 2:
             raise ValueError("X must be a 2D array")
         n_samples = int(X.shape[0])
@@ -424,7 +428,10 @@ def _select_ridge_alpha_cv(
     if alphas is None:
         if gpu_input_cupy or (use_gpu and hasattr(X, 'device') and str(X.device) != 'cpu'):
             # GPU path for alpha grid generation
-            backend = get_backend(backend='auto', device='cuda')
+            if gpu_input_torch:
+                backend = get_backend(backend='torch', device='cuda')
+            else:
+                backend = get_backend(backend='cupy', device='cuda')
             X_temp = backend.asarray(X)
             y_temp = backend.asarray(y)
             X_mean = backend.mean(X_temp, axis=0)

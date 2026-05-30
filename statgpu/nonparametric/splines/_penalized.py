@@ -129,7 +129,11 @@ def penalized_ls(B, y, penalty_matrix, lambda_, xp=None):
         A_inv_BtB = xp.linalg.solve(A_used, BtB)
         edf = xp.trace(A_inv_BtB)
         # Clamp edf to valid range [0, p]
-        edf = xp.minimum(xp.maximum(edf, 0.0), float(p))
+        # Keep as GPU scalar — use clip/clamp for device compatibility
+        if hasattr(edf, 'clamp'):  # torch
+            edf = edf.clamp(0.0, float(p))
+        else:  # numpy/cupy
+            edf = xp.clip(edf, 0.0, float(p))
     except _LINALG_ERRORS:
         edf = float(p)
 
@@ -181,7 +185,11 @@ def generalized_cross_validation(B, y, penalty_matrix, lambda_, xp=None):
 
     # Avoid division by zero or negative denom (edf >= n)
     denom = 1.0 - edf / n
-    gcv = xp.where(denom > 1e-10, rss / n / (denom ** 2), float('inf'))
+    # Keep denom as GPU scalar for xp.where compatibility
+    if hasattr(denom, 'item'):  # torch/cupy scalar
+        gcv = xp.where(denom > 1e-10, rss / n / (denom ** 2), xp.tensor(float('inf')) if hasattr(xp, 'tensor') else float('inf'))
+    else:
+        gcv = rss / n / (denom ** 2) if denom > 1e-10 else float('inf')
 
     return gcv
 

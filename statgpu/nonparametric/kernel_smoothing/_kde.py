@@ -11,6 +11,18 @@ import numpy as np
 
 from statgpu._base import BaseEstimator
 from statgpu.backends import xp_asarray, xp_empty, xp_maximum
+
+
+def _xp_max(x, **kwargs):
+    """Backend-safe max that returns values only (torch.max returns (values, indices))."""
+    # Use amax if available (returns values only, works for torch/cupy/numpy)
+    if hasattr(x, 'amax'):
+        return x.amax(**kwargs)
+    # Fallback: check if max returns (values, indices) tuple
+    result = x.max(**kwargs)
+    if hasattr(result, 'values'):
+        return result.values
+    return result
 from ._bandwidth_selection import select_bandwidth
 
 from ._kernel_common import (
@@ -248,7 +260,7 @@ class KernelDensityEstimator(BaseEstimator):
             if use_log_sum_exp:
                 if is_gaussian:
                     log_kernels = -0.5 * quad
-                    log_kernels_max = xp.max(log_kernels, axis=1, keepdims=True)
+                    log_kernels_max = _xp_max(log_kernels, axis=1, keepdims=True)
                     log_sum = log_kernels_max[:, 0] + xp.log(
                         xp.sum(xp.exp(log_kernels - log_kernels_max) * self.weights_[None, :], axis=1)
                     )
@@ -291,7 +303,7 @@ class KernelDensityEstimator(BaseEstimator):
             xp.log(safe_kernels) + xp.log(safe_weights),
             float("-inf"),
         )
-        log_terms_max = xp.max(log_terms, axis=1, keepdims=True)
+        log_terms_max = _xp_max(log_terms, axis=1, keepdims=True)
         finite_rows = xp.isfinite(log_terms_max[:, 0])
         shifted = xp.where(finite_rows[:, None], log_terms - log_terms_max, float("-inf"))
         return xp.where(
@@ -334,7 +346,9 @@ class KernelDensityEstimator(BaseEstimator):
 
             if is_gaussian:
                 log_kernels = -0.5 * quad
-                log_kernels_max = xp.max(log_kernels, axis=1, keepdims=True)
+                # Use amax (values only) — torch.max returns (values, indices)
+                _max_fn = getattr(xp, 'amax', None) or (lambda x, **kw: xp.max(x, **kw)[0] if hasattr(xp.max(x, **kw), 'values') else xp.max(x, **kw))
+                log_kernels_max = _max_fn(log_kernels, axis=1, keepdims=True)
                 log_kernels_shifted = log_kernels - log_kernels_max
                 log_sum = log_kernels_max[:, 0] + xp.log(
                     xp.sum(xp.exp(log_kernels_shifted) * self.weights_[None, :], axis=1)
