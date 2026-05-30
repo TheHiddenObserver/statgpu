@@ -203,10 +203,13 @@ def xp_cholesky_solve(A, b, xp):
 
     Works across numpy, cupy, and torch backends.  Handles the torch-specific
     argument difference for ``solve_triangular`` (``upper=False`` vs ``lower=True``).
+    For numpy, uses scipy.linalg.solve_triangular (numpy does not provide it).
     """
     L = xp.linalg.cholesky(A)
     if _torch_dev(L) is not None:
         tmp = xp.linalg.solve_triangular(L, b, upper=False)
         return xp.linalg.solve_triangular(L.T, tmp, upper=True)
-    tmp = xp.linalg.solve_triangular(L, b, lower=True)
-    return xp.linalg.solve_triangular(L.T, tmp, lower=False)
+    # numpy/cupy: use scipy for solve_triangular
+    from scipy.linalg import solve_triangular
+    tmp = solve_triangular(L, b, lower=True)
+    return solve_triangular(L.T, tmp, lower=False)

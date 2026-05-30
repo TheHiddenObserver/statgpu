@@ -102,7 +102,12 @@ def f_oneway(
         flat_groups.append(arr)
 
     k = len(flat_groups)
+    # Use first group as device reference for torch
+    ref = flat_groups[0]
     group_sizes = xp.asarray([int(g.shape[0]) for g in flat_groups], dtype=xp.float64)
+    # Ensure group_sizes is on same device as groups (torch CUDA)
+    if hasattr(group_sizes, 'to') and hasattr(ref, 'device'):
+        group_sizes = group_sizes.to(device=ref.device)
     N = _to_float_scalar(xp.sum(group_sizes))
 
     if N <= k:
@@ -110,10 +115,14 @@ def f_oneway(
             f"total observations ({int(N)}) must exceed number of groups ({k})"
         )
 
-    # Group means
+    # Group means — computed per-group, kept on device
     group_means = xp.asarray(
-        [xp.sum(g) / g.shape[0] for g in flat_groups], dtype=xp.float64
+        [float(_to_float_scalar(xp.sum(g) / g.shape[0])) for g in flat_groups],
+        dtype=xp.float64,
     )
+    # Ensure group_means is on same device as groups (torch CUDA)
+    if hasattr(group_means, 'to') and hasattr(ref, 'device'):
+        group_means = group_means.to(device=ref.device)
 
     # Grand mean (weighted by group sizes)
     grand_mean = _to_float_scalar(xp.sum(group_means * group_sizes) / N)
