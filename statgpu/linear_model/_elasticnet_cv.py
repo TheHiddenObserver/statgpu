@@ -617,11 +617,17 @@ def _select_elasticnet_params_cv(
                 # Sort alpha_grid for warm-start path
                 alpha_grid_ws = alpha_grid_sorted
 
-                # Center data for this fold
-                X_mean_fold = np.mean(X_train_np, axis=0)
-                y_mean_fold = np.mean(y_train_np)
-                Xc = X_train_np - X_mean_fold
-                yc = y_train_np - y_mean_fold
+                # Center data for this fold (only when fit_intercept=True)
+                if fit_intercept:
+                    X_mean_fold = np.mean(X_train_np, axis=0)
+                    y_mean_fold = np.mean(y_train_np)
+                    Xc = X_train_np - X_mean_fold
+                    yc = y_train_np - y_mean_fold
+                else:
+                    Xc = X_train_np
+                    yc = y_train_np
+                    X_mean_fold = np.zeros(X_train_np.shape[1])
+                    y_mean_fold = 0.0
 
                 # Precompute XtX, Xty for this fold
                 XtX_fold = Xc.T @ Xc
@@ -630,9 +636,6 @@ def _select_elasticnet_params_cv(
                 # Precompute Lipschitz constant
                 eig_max = np.linalg.eigvalsh(XtX_fold)[-1]
                 L_fold = float(eig_max / len(train_idx))
-
-                # Precompute intercept offset
-                intercept_offset = y_mean_fold - X_mean_fold @ np.zeros(Xc.shape[1])
 
                 # Fit alphas with warm-start (descending order)
                 prev_coef = None
@@ -645,7 +648,7 @@ def _select_elasticnet_params_cv(
                         l1_ratio=l1_ratio,
                         max_iter=max_iter,
                         tol=tol,
-                        fit_intercept=True,  # We handle centering, but model needs intercept
+                        fit_intercept=fit_intercept,
                         device='cpu',
                         lipschitz_L=L_fold,
                     )
