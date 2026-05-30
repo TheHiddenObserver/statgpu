@@ -207,7 +207,7 @@ class BaseEstimator(ABC):
         if hasattr(X, 'get'):  # CuPy
             return X.get()
         elif hasattr(X, 'cpu'):  # PyTorch
-            return X.cpu().numpy()
+            return X.detach().cpu().numpy()
         return np.asarray(X)
 
     def adjust_pvalues(

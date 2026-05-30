@@ -7,6 +7,8 @@ gaussian, logistic, and poisson models without the old ``loss=...`` switch on
 ``PenalizedLinearRegression``.
 """
 
+from __future__ import annotations
+
 from typing import Optional, Union, Any, Dict, List
 import numpy as np
 from scipy import stats

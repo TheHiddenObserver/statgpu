@@ -35,7 +35,7 @@ def _detect_backend(X, device: Device) -> str:
         try:
             import cupy as cp  # noqa: F401
             return "cupy"
-        except Exception:
+        except ImportError:
             pass
     return "numpy"
 

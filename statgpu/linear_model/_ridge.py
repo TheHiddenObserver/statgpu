@@ -2,19 +2,20 @@
 Optimized Ridge regression with GPU support.
 """
 
+from __future__ import annotations
+
 from typing import Optional, Union
 import numpy as np
 from scipy import stats
 
 from statgpu._base import BaseEstimator
 from statgpu._config import Device
-from statgpu.backends import _get_torch_device_str
+from statgpu.backends import _LINALG_ERRORS, _get_torch_device_str
 
 
-class Ridge(BaseEstimator):
+class _RidgeLegacy(BaseEstimator):
     """
-    Ridge regression (L2 regularization) with optimized GPU acceleration
-    and statistical inference (R/statsmodels style).
+    Legacy Ridge implementation (superseded by V9 wrapper below).
 
     Parameters
     ----------
@@ -326,7 +327,7 @@ class Ridge(BaseEstimator):
             L = cp.linalg.cholesky(XtX_reg)
             tmp = cp.linalg.solve_triangular(L, Xty, lower=True)
             coef = cp.linalg.solve_triangular(L.T, tmp, lower=False)
-        except Exception:
+        except _LINALG_ERRORS:
             coef = cp.linalg.solve(XtX_reg, Xty)
         
         # Keep on GPU for residuals
@@ -549,7 +550,7 @@ class Ridge(BaseEstimator):
             L = torch.linalg.cholesky(XtX_reg)
             tmp = torch.linalg.solve_triangular(L, Xty, upper=False)
             coef = torch.linalg.solve_triangular(L.T, tmp, upper=True)
-        except Exception:
+        except _LINALG_ERRORS:
             coef = torch.linalg.solve(XtX_reg, Xty)
 
         # Keep on GPU for residuals
