@@ -303,3 +303,172 @@ class TestIntegration:
         assert isinstance(result.profile, DataProfile)
         assert isinstance(result.plan, AnalysisPlan)
         assert all(isinstance(m, ModelResult) for m in result.models)
+
+
+# ---------------------------------------------------------------------------
+# Survival tests
+# ---------------------------------------------------------------------------
+
+class TestSurvival:
+    def test_coxph_basic(self, rng):
+        X = rng.normal(size=(100, 5))
+        time = rng.exponential(size=100)
+        event = rng.integers(0, 2, size=100).astype(float)
+        result = StatGPUAnalysisAgent(device="cpu", cv_folds=0).analyze(
+            X=X, time=time, event=event, task="survival"
+        )
+        assert result.profile.task_type == "survival"
+        assert any("Cox" in m.name for m in result.models)
+        cox = [m for m in result.models if "Cox" in m.name][0]
+        assert cox.error is None
+        assert "c_index" in cox.metrics
+
+    def test_coxph_low_events_pruned(self, rng):
+        """Low events should trigger pruning to penalized CoxPH."""
+        X = rng.normal(size=(50, 20))
+        time = rng.exponential(size=50)
+        event = np.zeros(50)
+        event[:3] = 1.0  # Only 3 events, p=20
+        result = StatGPUAnalysisAgent(device="cpu", cv_folds=0).analyze(
+            X=X, time=time, event=event, task="survival"
+        )
+        model_names = [m.name for m in result.models]
+        assert any("penalized" in n for n in model_names)
+
+
+# ---------------------------------------------------------------------------
+# Poisson tests
+# ---------------------------------------------------------------------------
+
+class TestPoisson:
+    def test_poisson_basic(self, rng):
+        X = rng.normal(size=(200, 3))
+        eta = X[:, 0] * 0.5
+        y = rng.poisson(lam=np.exp(np.clip(eta, -5, 5)))
+        result = StatGPUAnalysisAgent(device="cpu", cv_folds=0).analyze(X=X, y=y)
+        assert result.profile.task_type == "poisson"
+        poisson = [m for m in result.models if "Poisson" in m.name]
+        assert len(poisson) >= 1
+        assert poisson[0].error is None
+
+
+# ---------------------------------------------------------------------------
+# Cross-validation tests
+# ---------------------------------------------------------------------------
+
+class TestCrossValidation:
+    def test_cv_regression(self, regression_data):
+        X, y = regression_data
+        result = StatGPUAnalysisAgent(device="cpu", cv_folds=5).analyze(X=X, y=y)
+        m = result.models[0]
+        assert m.cv_results is not None
+        assert isinstance(m.cv_results, CVResult)
+        assert m.cv_results.n_folds == 5
+        assert m.cv_results.metric_name == "r2"
+        assert not np.isnan(m.cv_results.mean)
+        assert len(m.cv_results.fold_scores) == 5
+
+    def test_cv_classification(self, rng):
+        X = rng.normal(size=(200, 5))
+        y = (X[:, 0] > 0).astype(float)
+        result = StatGPUAnalysisAgent(device="cpu", cv_folds=3).analyze(X=X, y=y)
+        logistic = [m for m in result.models if "Logistic" in m.name][0]
+        assert logistic.cv_results is not None
+        assert logistic.cv_results.n_folds == 3
+
+    def test_cv_disabled(self, regression_data):
+        X, y = regression_data
+        result = StatGPUAnalysisAgent(device="cpu", cv_folds=0).analyze(X=X, y=y)
+        assert result.models[0].cv_results is None
+
+
+# ---------------------------------------------------------------------------
+# Memory tests
+# ---------------------------------------------------------------------------
+
+class TestMemory:
+    def test_memory_store_record_and_recall(self, tmp_path):
+        from statgpu.agent import MemoryStore
+        path = str(tmp_path / "memory.json")
+        store = MemoryStore(path)
+        store.record_analysis(
+            n_samples=100, n_features=5, task_type="regression",
+            successful=["LinearRegression", "Ridge(alpha=1.0)"],
+            failed=[],
+        )
+        assert len(store.memories) == 1
+        mem = store.recall("n=100_p=5_task=regression")
+        assert mem is not None
+        assert "LinearRegression" in mem.successful_methods
+
+    def test_memory_store_recall_similar(self, tmp_path):
+        from statgpu.agent import MemoryStore
+        path = str(tmp_path / "memory.json")
+        store = MemoryStore(path)
+        store.record_analysis(
+            n_samples=200, n_features=10, task_type="regression",
+            successful=["LinearRegression"], failed=[],
+        )
+        mem = store.recall_similar(150, 8, "regression")
+        assert mem is not None
+
+    def test_memory_store_clear(self, tmp_path):
+        from statgpu.agent import MemoryStore
+        path = str(tmp_path / "memory.json")
+        store = MemoryStore(path)
+        store.record_analysis(n_samples=100, n_features=5, task_type="regression",
+                              successful=["LinearRegression"], failed=[])
+        store.clear()
+        assert len(store.memories) == 0
+
+
+# ---------------------------------------------------------------------------
+# Pipeline serialization tests
+# ---------------------------------------------------------------------------
+
+class TestPipelineSerialization:
+    def test_save_load_pipeline(self, regression_data, tmp_path):
+        X, y = regression_data
+        agent = StatGPUAnalysisAgent(device="cpu", cv_folds=0)
+        result = agent.analyze(X=X, y=y)
+        path = str(tmp_path / "pipeline.pkl")
+        agent.save_pipeline(path, result)
+        state = StatGPUAnalysisAgent.load_pipeline(path)
+        assert "config" in state
+        assert "models" in state
+        assert len(state["models"]) >= 1
+        assert state["config"]["device"] == "cpu"
+
+
+# ---------------------------------------------------------------------------
+# Self-correction tests
+# ---------------------------------------------------------------------------
+
+class TestSelfCorrection:
+    def test_rank_deficient_correction(self, rng):
+        """Rank-deficient data should trigger Ridge correction."""
+        X = rng.normal(size=(50, 5))
+        X = np.column_stack([X, X[:, 0]])  # Duplicate column
+        y = rng.normal(size=50)
+        result = StatGPUAnalysisAgent(device="cpu", cv_folds=0).analyze(X=X, y=y)
+        # Should still produce results (via Ridge correction)
+        assert any(m.error is None for m in result.models)
+
+
+# ---------------------------------------------------------------------------
+# Edge case tests
+# ---------------------------------------------------------------------------
+
+class TestEdgeCases:
+    def test_single_feature(self, rng):
+        X = rng.normal(size=(100, 1))
+        y = X[:, 0] + rng.normal(size=100) * 0.1
+        result = StatGPUAnalysisAgent(device="cpu", cv_folds=0).analyze(X=X, y=y)
+        assert result.profile.n_features == 1
+        assert any(m.error is None for m in result.models)
+
+    def test_small_sample(self, rng):
+        X = rng.normal(size=(15, 3))
+        y = X[:, 0] + rng.normal(size=15) * 0.1
+        result = StatGPUAnalysisAgent(device="cpu", cv_folds=0).analyze(X=X, y=y)
+        assert any("below" in w.lower() for w in result.warnings)

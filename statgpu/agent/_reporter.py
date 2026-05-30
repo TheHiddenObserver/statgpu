@@ -9,6 +9,8 @@ from typing import Any, Dict, List, Optional, Sequence
 
 import numpy as np
 
+from ._utils import json_ready as _json_ready
+
 
 def _format_metric(value: Any) -> str:
     if value is None:
@@ -22,18 +24,6 @@ def _format_metric(value: Any) -> str:
     if abs(numeric) >= 1000 or (abs(numeric) < 0.001 and numeric != 0.0):
         return f"{numeric:.3e}"
     return f"{numeric:.4f}"
-
-
-def _json_ready(value):
-    if isinstance(value, np.generic):
-        return value.item()
-    if isinstance(value, np.ndarray):
-        return value.tolist()
-    if isinstance(value, dict):
-        return {str(k): _json_ready(v) for k, v in value.items()}
-    if isinstance(value, (list, tuple)):
-        return [_json_ready(v) for v in value]
-    return value
 
 
 def to_markdown(result, max_terms: int = 12) -> str:

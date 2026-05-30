@@ -8,6 +8,7 @@ import numpy as np
 
 from ._config import AgentConfig
 from ._planner import MethodRegistry, MethodPruner
+from ._utils import to_numpy as _to_numpy
 
 
 def compute_feature_importance(model, X: np.ndarray, feature_names: Sequence[str]) -> List[Dict[str, Any]]:
@@ -32,14 +33,6 @@ def compute_feature_importance(model, X: np.ndarray, feature_names: Sequence[str
          for i in range(n)],
         key=lambda x: -x["importance"],
     )
-
-
-def _to_numpy(value):
-    if hasattr(value, "detach"):
-        return value.detach().cpu().numpy()
-    if hasattr(value, "get"):
-        return value.get()
-    return np.asarray(value)
 
 
 def _safe_call(func, *args, **kwargs):

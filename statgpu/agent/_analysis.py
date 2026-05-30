@@ -16,18 +16,7 @@ from ._validator import validate, recommend
 from ._reporter import to_markdown, save_markdown as _save_markdown, save_json as _save_json, save_notebook as _save_notebook
 from ._model_comparison import ModelComparator
 from ._cross_validation import AgentCrossValidator, CVResult
-
-
-def _json_ready(value):
-    if isinstance(value, np.generic):
-        return value.item()
-    if isinstance(value, np.ndarray):
-        return value.tolist()
-    if isinstance(value, dict):
-        return {str(k): _json_ready(v) for k, v in value.items()}
-    if isinstance(value, (list, tuple)):
-        return [_json_ready(v) for v in value]
-    return value
+from ._utils import json_ready as _json_ready
 
 
 # ---------------------------------------------------------------------------
