@@ -15,7 +15,7 @@ from scipy import stats
 
 from statgpu._base import BaseEstimator
 from statgpu._config import Device
-from statgpu.backends import get_backend, _get_torch_device_str, _to_numpy
+from statgpu.backends import get_backend, _get_torch_device_str, _to_numpy, _LINALG_ERRORS
 from statgpu.linear_model._gaussian_inference import (
     build_gaussian_fit_state,
     compute_gaussian_inference,
@@ -2097,6 +2097,7 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
 
     def _solve_exact_cupy(self, XtX, Xty, n_samples):
         import cupy as cp
+        from cupyx.scipy.linalg import solve_triangular as cp_solve_triangular
 
         alpha = self._ridge_alpha_for_exact()
         p = XtX.shape[0]
@@ -2105,8 +2106,8 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
             # Cholesky + triangular solve is faster than general solve
             # for positive-definite matrices (Ridge penalty guarantees PD)
             L = cp.linalg.cholesky(A)
-            tmp = cp.linalg.solve_triangular(L, Xty, lower=True)
-            return cp.linalg.solve_triangular(L.T, tmp, lower=False)
+            tmp = cp_solve_triangular(L, Xty, lower=True)
+            return cp_solve_triangular(L.T, tmp, lower=False)
         except _LINALG_ERRORS:
             try:
                 return cp.linalg.solve(A, Xty)
@@ -2122,14 +2123,11 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
             p, dtype=XtX.dtype, device=XtX.device
         )
         try:
-            # Cholesky + triangular solve is faster than general solve
-            L = torch.linalg.cholesky(A)
-            return torch.linalg.solve_triangular(L.T, torch.linalg.solve_triangular(L, Xty, upper=False), upper=True)
+            # torch.linalg.solve is faster than Cholesky + solve_triangular
+            # on PyTorch due to kernel launch overhead for small matrices
+            return torch.linalg.solve(A, Xty)
         except RuntimeError:
-            try:
-                return torch.linalg.solve(A, Xty)
-            except RuntimeError:
-                return torch.linalg.pinv(A) @ Xty
+            return torch.linalg.pinv(A) @ Xty
 
     def _precompute_exact_l2_inference_cupy(self, X, y, XtX_centered, X_mean, coef_full, n_samples):
         """Compute nonrobust exact L2 inference on CuPy without a CPU Gram rebuild."""
