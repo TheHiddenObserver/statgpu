@@ -1320,7 +1320,7 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
             Xty = X_centered.T @ y_centered
             coef = self._solve_exact_cupy(XtX, Xty, n_samples)
             self.n_iter_ = 1
-            if self.compute_inference and self.cov_type == "nonrobust":
+            if self.compute_inference:
                 if self.fit_intercept:
                     intercept_gpu = (y_mean.reshape(1) - X_mean.reshape(1, -1) @ coef.reshape(-1, 1)).reshape(-1)
                     coef_full_gpu = cp.concatenate([intercept_gpu, coef.reshape(-1)])
@@ -1630,7 +1630,7 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
             Xty = X_centered.T @ y_centered
             coef = self._solve_exact_torch(XtX, Xty, n_samples)
             self.n_iter_ = 1
-            if self.compute_inference and self.cov_type == "nonrobust":
+            if self.compute_inference:
                 if self.fit_intercept:
                     coef_full_torch = torch.cat([
                         (y_mean.reshape(1) - X_mean.reshape(1, -1) @ coef.reshape(-1, 1)).reshape(-1),
