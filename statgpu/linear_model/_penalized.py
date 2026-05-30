@@ -1395,20 +1395,24 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
         XtX = X_centered.T @ X_centered
         Xty = X_centered.T @ y_centered
 
-        # Lipschitz constant via power iteration (O(p^2) vs O(p^3) for eigvalsh)
+        # Lipschitz constant: L = lambda_max(XtX) / n
         if self.lipschitz_L is not None:
             L = float(self.lipschitz_L)
         else:
-            # Deterministic init to avoid different L for same X across calls
-            v = cp.ones(n_features, dtype=X.dtype)
-            v /= cp.linalg.norm(v)
-            for _ in range(50):
-                v_new = XtX @ v
-                v_norm = cp.linalg.norm(v_new)
-                if v_norm < 1e-15:
-                    break
-                v = v_new / v_norm
-            L = float((v @ (XtX @ v)) / n_samples)
+            # eigvalsh is faster for p < ~1000 (single cuBLAS call);
+            # power iteration only wins for very large p.
+            if n_features < 1000:
+                L = float(cp.linalg.eigvalsh(XtX)[-1]) / n_samples
+            else:
+                v = cp.ones(n_features, dtype=X.dtype)
+                v /= cp.linalg.norm(v)
+                for _ in range(50):
+                    v_new = XtX @ v
+                    v_norm = cp.linalg.norm(v_new)
+                    if v_norm < 1e-15:
+                        break
+                    v = v_new / v_norm
+                L = float((v @ (XtX @ v)) / n_samples)
 
         if L <= 0:
             coef = cp.zeros(n_features, dtype=X.dtype)
@@ -1717,20 +1721,22 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
         XtX = X_centered.T @ X_centered
         Xty = X_centered.T @ y_centered
 
-        # Lipschitz constant via power iteration (O(p^2) vs O(p^3) for eigvalsh)
+        # Lipschitz constant: L = lambda_max(XtX) / n
         if self.lipschitz_L is not None:
             L = float(self.lipschitz_L)
         else:
-            # Deterministic init to avoid different L for same X across calls
-            v = torch.ones(n_features, dtype=X.dtype, device=X.device)
-            v /= torch.linalg.norm(v)
-            for _ in range(50):
-                v_new = XtX @ v
-                v_norm = torch.linalg.norm(v_new)
-                if v_norm < 1e-15:
-                    break
-                v = v_new / v_norm
-            L = float((v @ (XtX @ v)) / n_samples)
+            if n_features < 1000:
+                L = float(torch.linalg.eigvalsh(XtX)[-1]) / n_samples
+            else:
+                v = torch.ones(n_features, dtype=X.dtype, device=X.device)
+                v /= torch.linalg.norm(v)
+                for _ in range(50):
+                    v_new = XtX @ v
+                    v_norm = torch.linalg.norm(v_new)
+                    if v_norm < 1e-15:
+                        break
+                    v = v_new / v_norm
+                L = float((v @ (XtX @ v)) / n_samples)
 
         if L <= 0:
             coef = torch.zeros(n_features, dtype=X.dtype, device=X.device)
