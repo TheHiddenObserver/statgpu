@@ -2067,6 +2067,8 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
     def _solve_exact_numpy(self, XtX, Xty, n_samples):
         alpha = self._ridge_alpha_for_exact()
         p = XtX.shape[0]
+        # Per-sample convention: XtX is unnormalized (X'X), so we need
+        # n*alpha to match loss/n + alpha*||w||^2 used by all other paths.
         A = XtX + (float(n_samples) * alpha) * np.eye(p, dtype=XtX.dtype)
         try:
             return np.linalg.solve(A, Xty)
