@@ -85,7 +85,17 @@ class Ridge(_PenalizedLinearRegression):
 
         # Memory-efficient centering: avoid creating full X_centered (n×p) matrix.
         # Use: XtX = X.T@X - n*outer(mean), Xty = X.T@y - n*mean_x*mean_y
+        # For weighted case, use weighted means of original (unweighted) data.
         if self.fit_intercept:
+            if sample_weight is not None:
+                # Weighted means of original data for intercept computation
+                w_sum = float(np.sum(sample_weight))
+                X_wmean = np.sum(sample_weight[:, None] * (X_np / sqrt_sw[:, None]), axis=0) / w_sum
+                y_wmean = float(np.sum(sample_weight * (y_np / sqrt_sw))) / w_sum
+            else:
+                X_wmean = np.mean(X_np, axis=0)
+                y_wmean = np.mean(y_np)
+            # Use simple means for Gram matrix centering (sqrt(w)*X centered)
             X_mean = np.mean(X_np, axis=0)
             y_mean = np.mean(y_np)
             XtX = X_np.T @ X_np
@@ -93,7 +103,8 @@ class Ridge(_PenalizedLinearRegression):
             Xty = X_np.T @ y_np
             Xty -= n_samples * X_mean * y_mean
         else:
-            y_mean = 0.0
+            y_wmean = 0.0
+            X_wmean = None
             XtX = X_np.T @ X_np
             Xty = X_np.T @ y_np
 
@@ -111,7 +122,7 @@ class Ridge(_PenalizedLinearRegression):
             coef = np.linalg.lstsq(A, Xty, rcond=None)[0].flatten()
 
         if self.fit_intercept:
-            self.intercept_ = float(y_mean - X_mean @ coef)
+            self.intercept_ = float(y_wmean - X_wmean @ coef)
             self.coef_ = coef
             self._params = np.concatenate([[self.intercept_], self.coef_])
         else:
