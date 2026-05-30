@@ -108,11 +108,12 @@ def penalized_ls(B, y, penalty_matrix, lambda_, xp=None):
     A = BtB + lambda_ * penalty_matrix
 
     # Solve using Cholesky decomposition (more efficient for symmetric positive definite)
+    A_used = A  # track which matrix was actually used (for edf consistency)
     try:
         # Add small jitter for numerical stability
         jitter = 1e-10 * xp.trace(A) / p
         A_stable = A + jitter * xp_eye(p, xp.float64, xp, A)
-
+        A_used = A_stable
         beta = xp_cholesky_solve(A_stable, Bty, xp)
     except _LINALG_ERRORS:
         # Fallback to general solve
@@ -123,13 +124,14 @@ def penalized_ls(B, y, penalty_matrix, lambda_, xp=None):
             beta = xp.linalg.lstsq(A, Bty, rcond=None)[0]
 
     # Effective degrees of freedom: edf = tr(A^{-1} @ B^T @ B)
-    # = tr((B^T @ B + lambda_ * S)^{-1} @ B^T @ B)
+    # Use the same matrix as the beta solve for consistency.
     try:
-        A_inv_BtB = xp.linalg.solve(A, BtB)
+        A_inv_BtB = xp.linalg.solve(A_used, BtB)
         edf = float(xp.trace(A_inv_BtB))
+        # Clamp edf to valid range [0, p] to prevent GCV denominator issues
+        edf = max(0.0, min(edf, float(p)))
     except _LINALG_ERRORS:
-        # Fallback: approximate edf
-        edf = p  # Without penalty, edf = p
+        edf = p
 
     # Flatten beta if y was 1D
     if y.shape[1] == 1:
@@ -177,9 +179,9 @@ def generalized_cross_validation(B, y, penalty_matrix, lambda_, xp=None):
 
     rss = float(xp.sum(resid ** 2))
 
-    # Avoid division by zero
+    # Avoid division by zero or negative denom (edf >= n)
     denom = (1.0 - edf / n)
-    if abs(denom) < 1e-10:
+    if denom < 1e-10:
         return float('inf')
 
     gcv = rss / n / (denom ** 2)
@@ -218,21 +220,26 @@ def select_lambda_gcv(B, y, penalty_matrix, lambda_grid=None, xp=None):
     xp = _get_xp(xp)
 
     if lambda_grid is None:
-        lambda_grid = xp.logspace(-10, 10, 100)
+        lambda_grid_np = np.logspace(-10, 10, 100)
+    else:
+        lambda_grid_np = _to_numpy(xp_asarray(lambda_grid, dtype=xp.float64, xp=xp, ref_arr=B))
 
-    lambda_grid = xp_asarray(lambda_grid, dtype=xp.float64, xp=xp, ref_arr=B)
+    # Transfer B, y, penalty to CPU ONCE and run the GCV loop on numpy.
+    # The matrices are small (n x p where p ~ 60), so the transfer cost is
+    # negligible compared to 300+ GPU syncs that would occur in the loop.
+    B_np = _to_numpy(B)
+    y_np = _to_numpy(y)
+    penalty_np = _to_numpy(penalty_matrix)
 
-    gcv_scores = xp_zeros(len(lambda_grid), xp.float64, xp, B)
-    # Batch-transfer lambda grid to CPU (single sync, not per-iteration)
-    lambda_cpu = _to_numpy(lambda_grid).tolist()
-
-    for i, lam_val in enumerate(lambda_cpu):
-        gcv_scores[i] = generalized_cross_validation(
-            B, y, penalty_matrix, float(lam_val), xp
+    gcv_scores_np = np.empty(len(lambda_grid_np), dtype=np.float64)
+    for i, lam_val in enumerate(lambda_grid_np):
+        gcv_scores_np[i] = generalized_cross_validation(
+            B_np, y_np, penalty_np, float(lam_val), np
         )
 
-    best_idx = int(xp.argmin(gcv_scores))
-    best_lambda = float(lambda_grid[best_idx])
+    best_idx = int(np.argmin(gcv_scores_np))
+    best_lambda = float(lambda_grid_np[best_idx])
+    gcv_scores = xp_asarray(gcv_scores_np, dtype=xp.float64, xp=xp, ref_arr=B)
 
     return best_lambda, gcv_scores
 
