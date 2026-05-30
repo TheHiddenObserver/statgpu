@@ -33,6 +33,7 @@ from ._utils import (
     _to_float_scalar,
     _get_torch_device_str,
     _torch_dev,
+    _LINALG_ERRORS,
     xp_zeros,
     xp_eye,
     xp_full,

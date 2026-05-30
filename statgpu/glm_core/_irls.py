@@ -5,6 +5,8 @@ Extracted from the duplicated IRLS loops in _logistic.py across CPU/GPU/Torch.
 Single implementation works on numpy/cupy/torch backends via auto detection.
 """
 
+from __future__ import annotations
+
 import warnings
 from typing import Optional
 

@@ -15,7 +15,7 @@ from scipy import stats
 
 from statgpu._base import BaseEstimator
 from statgpu._config import Device
-from statgpu.backends import _get_torch_device_str, _torch_dev, _to_numpy, xp_astype, xp_cholesky_solve
+from statgpu.backends import _LINALG_ERRORS, _get_torch_device_str, _torch_dev, _to_numpy, xp_astype, xp_cholesky_solve
 
 from ._utils import demean_variables, ols_inference_nonrobust
 from ._covariance import clustered_covariance, two_way_clustered_covariance
@@ -165,7 +165,7 @@ class PanelOLS(BaseEstimator):
 
         try:
             coef = xp_cholesky_solve(XtX, Xty, xp)
-        except Exception:
+        except _LINALG_ERRORS:
             coef = xp.linalg.solve(XtX, Xty)
 
         # Degrees of freedom

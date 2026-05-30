@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from statgpu.backends import _torch_dev, _to_numpy, xp_zeros, xp_eye, xp_full, xp_astype, xp_asarray
+from statgpu.backends import _LINALG_ERRORS, _torch_dev, _to_numpy, xp_zeros, xp_eye, xp_full, xp_astype, xp_asarray
 
 
 def _get_xp(xp):
@@ -227,7 +227,7 @@ def natural_cubic_spline_basis(x, knots, xp=None):
         U, S_vals, Vh = xp.linalg.svd(C)
         n_rank = int(xp.sum(S_vals > max(C.shape) * S_vals[0] * xp.finfo(xp.float64).eps))
         null_space = Vh[n_rank:].T  # shape: (n_basis, n_basis - n_rank)
-    except Exception:
+    except _LINALG_ERRORS:
         # Fallback: use QR with mode='reduced' and manual extension
         Q_full, _ = xp.linalg.qr(xp_eye(n_basis, xp.float64, xp, x))
         Q_c, _ = xp.linalg.qr(C.T)

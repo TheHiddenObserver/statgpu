@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from statgpu.backends import _torch_dev, _to_numpy, xp_zeros, xp_eye, xp_asarray, xp_cholesky_solve
+from statgpu.backends import _LINALG_ERRORS, _torch_dev, _to_numpy, xp_zeros, xp_eye, xp_asarray, xp_cholesky_solve
 
 
 def _get_xp(xp):
@@ -114,11 +114,11 @@ def penalized_ls(B, y, penalty_matrix, lambda_, xp=None):
         A_stable = A + jitter * xp_eye(p, xp.float64, xp, A)
 
         beta = xp_cholesky_solve(A_stable, Bty, xp)
-    except Exception:
+    except _LINALG_ERRORS:
         # Fallback to general solve
         try:
             beta = xp.linalg.solve(A, Bty)
-        except Exception:
+        except _LINALG_ERRORS:
             # Last resort: least squares
             beta = xp.linalg.lstsq(A, Bty, rcond=None)[0]
 
@@ -127,7 +127,7 @@ def penalized_ls(B, y, penalty_matrix, lambda_, xp=None):
     try:
         A_inv_BtB = xp.linalg.solve(A, BtB)
         edf = float(xp.trace(A_inv_BtB))
-    except Exception:
+    except _LINALG_ERRORS:
         # Fallback: approximate edf
         edf = p  # Without penalty, edf = p
 

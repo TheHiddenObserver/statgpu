@@ -10,6 +10,15 @@ from typing import Any
 
 import numpy as np
 
+# Exception types raised by linalg operations on singular/ill-conditioned matrices.
+# numpy raises LinAlgError; torch raises RuntimeError.
+_LINALG_ERRORS: tuple = (np.linalg.LinAlgError,)
+try:
+    import torch  # noqa: F811
+    _LINALG_ERRORS = _LINALG_ERRORS + (RuntimeError,)
+except ImportError:
+    pass
+
 
 def _get_xp(backend_name: str):
     """Return the array module (numpy / cupy / torch) for *backend_name*.

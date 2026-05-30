@@ -9,6 +9,7 @@ import numpy as np
 from statgpu._base import BaseEstimator
 from statgpu._config import Device
 from statgpu.backends import (
+    _LINALG_ERRORS,
     _get_xp,
     _is_cupy_array,
     _is_torch_array,
@@ -284,7 +285,7 @@ def _stable_inv(S, xp, backend_name: str):
             test_val = _to_float_scalar(xp.max(xp.abs(inv_S)))
             if np.isfinite(test_val):
                 return inv_S
-        except Exception:
+        except _LINALG_ERRORS + (ValueError,):
             pass
         jitter *= 10.0
 

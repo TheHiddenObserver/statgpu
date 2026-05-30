@@ -22,7 +22,7 @@ from scipy import stats
 
 from statgpu._base import BaseEstimator
 from statgpu._config import Device
-from statgpu.backends import _get_torch_device_str, _torch_dev, _to_float_scalar, _to_numpy, xp_astype, xp_zeros, xp_cholesky_solve
+from statgpu.backends import _LINALG_ERRORS, _get_torch_device_str, _torch_dev, _to_float_scalar, _to_numpy, xp_astype, xp_zeros, xp_cholesky_solve
 
 from ._utils import within_transform, group_means, group_sizes, ols_inference_nonrobust
 
@@ -134,7 +134,7 @@ class RandomEffects(BaseEstimator):
         Xty_b = X_bar_i.T @ y_bar_i
         try:
             beta_between = xp.linalg.solve(XtX_b, Xty_b)
-        except Exception:
+        except _LINALG_ERRORS:
             beta_between = xp.linalg.pinv(XtX_b) @ Xty_b
 
         # Between residuals
@@ -151,7 +151,7 @@ class RandomEffects(BaseEstimator):
         Xty_w = X_within.T @ y_within
         try:
             beta_within = xp.linalg.solve(XtX_w, Xty_w)
-        except Exception:
+        except _LINALG_ERRORS:
             beta_within = xp.linalg.pinv(XtX_w) @ Xty_w
 
         resid_within = y_within - X_within @ beta_within
@@ -218,7 +218,7 @@ class RandomEffects(BaseEstimator):
         Xty_s = X_star.T @ y_star
         try:
             beta_gls = xp_cholesky_solve(XtX_s, Xty_s, xp)
-        except Exception:
+        except _LINALG_ERRORS:
             beta_gls = xp.linalg.solve(XtX_s, Xty_s)
 
         resid_gls = y_star - X_star @ beta_gls

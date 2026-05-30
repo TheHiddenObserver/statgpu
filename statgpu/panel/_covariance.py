@@ -12,6 +12,7 @@ from typing import Optional
 import numpy as np
 
 from statgpu.backends import (
+    _LINALG_ERRORS,
     _get_torch_device_str,
     _torch_dev,
     _to_numpy,
@@ -62,7 +63,7 @@ def clustered_covariance(X, resid, clusters, xp=None):
     XtX = X.T @ X / n
     try:
         bread = xp.linalg.inv(XtX)
-    except Exception:
+    except _LINALG_ERRORS:
         bread = xp.linalg.pinv(XtX)
 
     # Meat: sum over clusters of (X_g' e_g)(X_g' e_g)'
