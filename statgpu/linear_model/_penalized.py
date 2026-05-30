@@ -1449,6 +1449,42 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
             _fused_step = None
             _fused_step_l2 = None
 
+            # Warm-up: compile fused kernel BEFORE the loop to avoid
+            # first-iteration JIT compilation overhead.
+            if _use_l2:
+                try:
+                    @cp.fuse()
+                    def _fista_elementwise_l2(
+                        _y_k, _xtx_y, _step_over_n_Xty, _step_over_n,
+                        _thresh, _l2_scale, _coef_old, _beta,
+                    ):
+                        w = (_y_k - _step_over_n * _xtx_y + _step_over_n_Xty)
+                        c = (cp.sign(w) * cp.maximum(cp.abs(w) - _thresh, 0.0) / _l2_scale)
+                        y = c + _beta * (c - _coef_old)
+                        return c, y
+                    _fused_step_l2 = _fista_elementwise_l2
+                    # Trigger JIT compilation with dummy data
+                    _dummy = cp.zeros(1, dtype=X.dtype)
+                    _fused_step_l2(_dummy, _dummy, _dummy, 0.0, 0.0, 1.0, _dummy, 0.0)
+                except Exception:
+                    _fused_step_l2 = None
+            else:
+                try:
+                    @cp.fuse()
+                    def _fista_elementwise(
+                        _y_k, _xtx_y, _step_over_n_Xty, _step_over_n,
+                        _thresh, _coef_old, _beta,
+                    ):
+                        w = (_y_k - _step_over_n * _xtx_y + _step_over_n_Xty)
+                        c = (cp.sign(w) * cp.maximum(cp.abs(w) - _thresh, 0.0))
+                        y = c + _beta * (c - _coef_old)
+                        return c, y
+                    _fused_step = _fista_elementwise
+                    _dummy = cp.zeros(1, dtype=X.dtype)
+                    _fused_step(_dummy, _dummy, _dummy, 0.0, 0.0, _dummy, 0.0)
+                except Exception:
+                    _fused_step = None
+
             for iteration in range(self.max_iter):
                 coef_old = coef.copy()
 
@@ -1462,34 +1498,12 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
                             thresh, l2_scale, coef_old, beta,
                         )
                     else:
-                        try:
-                            @cp.fuse()
-                            def _fista_elementwise_l2(
-                                _y_k, _xtx_y, _step_over_n_Xty, _step_over_n,
-                                _thresh, _l2_scale, _coef_old, _beta,
-                            ):
-                                w = (_y_k - _step_over_n * _xtx_y
-                                     + _step_over_n_Xty)
-                                c = (cp.sign(w)
-                                     * cp.maximum(cp.abs(w) - _thresh, 0.0)
-                                     / _l2_scale)
-                                y = c + _beta * (c - _coef_old)
-                                return c, y
-                            _fused_step_l2 = _fista_elementwise_l2
-                        except Exception:
-                            _fused_step_l2 = None
-                        if _fused_step_l2 is not None:
-                            coef, y_k = _fused_step_l2(
-                                y_k, xtx_y, step_over_n_Xty, step_over_n,
-                                thresh, l2_scale, coef_old, beta,
-                            )
-                        else:
-                            w_tilde = (y_k - step_over_n * xtx_y
-                                       + step_over_n_Xty)
-                            coef = (cp.sign(w_tilde)
-                                    * cp.maximum(cp.abs(w_tilde) - thresh, 0.0)
-                                    / l2_scale)
-                            y_k = coef + beta * (coef - coef_old)
+                        w_tilde = (y_k - step_over_n * xtx_y
+                                   + step_over_n_Xty)
+                        coef = (cp.sign(w_tilde)
+                                * cp.maximum(cp.abs(w_tilde) - thresh, 0.0)
+                                / l2_scale)
+                        y_k = coef + beta * (coef - coef_old)
                 else:
                     if _fused_step is not None:
                         coef, y_k = _fused_step(
@@ -1497,32 +1511,11 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
                             thresh, coef_old, beta,
                         )
                     else:
-                        try:
-                            @cp.fuse()
-                            def _fista_elementwise(
-                                _y_k, _xtx_y, _step_over_n_Xty,
-                                _step_over_n, _thresh, _coef_old, _beta,
-                            ):
-                                w = (_y_k - _step_over_n * _xtx_y
-                                     + _step_over_n_Xty)
-                                c = (cp.sign(w)
-                                     * cp.maximum(cp.abs(w) - _thresh, 0.0))
-                                y = c + _beta * (c - _coef_old)
-                                return c, y
-                            _fused_step = _fista_elementwise
-                        except Exception:
-                            _fused_step = None
-                        if _fused_step is not None:
-                            coef, y_k = _fused_step(
-                                y_k, xtx_y, step_over_n_Xty, step_over_n,
-                                thresh, coef_old, beta,
-                            )
-                        else:
-                            w_tilde = (y_k - step_over_n * xtx_y
-                                       + step_over_n_Xty)
-                            coef = (cp.sign(w_tilde)
-                                    * cp.maximum(cp.abs(w_tilde) - thresh, 0.0))
-                            y_k = coef + beta * (coef - coef_old)
+                        w_tilde = (y_k - step_over_n * xtx_y
+                                   + step_over_n_Xty)
+                        coef = (cp.sign(w_tilde)
+                                * cp.maximum(cp.abs(w_tilde) - thresh, 0.0))
+                        y_k = coef + beta * (coef - coef_old)
 
                 # Scheduled momentum restart (zero sync overhead)
                 if iteration > 0 and iteration % 50 == 0:
@@ -1765,13 +1758,41 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
             t_k = 1.0
             beta = 0.0
 
-            # Lazy-compile the fused element-wise step.
-            # torch.compile JIT is lazy — triggers on first CALL.
-            # Both phases are wrapped so old GPUs (P100 SM 6.0) fall back.
+            # Warm-up: compile fused kernel BEFORE the loop to avoid
+            # first-iteration JIT compilation overhead.
             _fused_step = None
             _fused_step_l2 = None
-            _compile_tried = False
-            _compile_tried_l2 = False
+            from statgpu.penalties import _torch_compile_ok as _tc_ok
+            if _tc_ok():
+                try:
+                    def _fista_elementwise_l2(
+                        _y_k, _xtx_y, _step_over_n_Xty,
+                        _step_over_n, _thresh, _l2_scale,
+                        _coef_old, _beta,
+                    ):
+                        w = (_y_k - _step_over_n * _xtx_y + _step_over_n_Xty)
+                        c = (torch.sign(w) * torch.relu(torch.abs(w) - _thresh) / _l2_scale)
+                        y = c + _beta * (c - _coef_old)
+                        return c, y
+                    _fused_step_l2 = torch.compile(_fista_elementwise_l2, mode='reduce-overhead')
+                    _dummy = torch.zeros(1, dtype=X.dtype, device=X.device)
+                    _fused_step_l2(_dummy, _dummy, _dummy, 0.0, 0.0, 1.0, _dummy, 0.0)
+                except Exception:
+                    _fused_step_l2 = None
+                try:
+                    def _fista_elementwise(
+                        _y_k, _xtx_y, _step_over_n_Xty,
+                        _step_over_n, _thresh, _coef_old, _beta,
+                    ):
+                        w = (_y_k - _step_over_n * _xtx_y + _step_over_n_Xty)
+                        c = (torch.sign(w) * torch.relu(torch.abs(w) - _thresh))
+                        y = c + _beta * (c - _coef_old)
+                        return c, y
+                    _fused_step = torch.compile(_fista_elementwise, mode='reduce-overhead')
+                    _dummy = torch.zeros(1, dtype=X.dtype, device=X.device)
+                    _fused_step(_dummy, _dummy, _dummy, 0.0, 0.0, _dummy, 0.0)
+                except Exception:
+                    _fused_step = None
 
             for iteration in range(self.max_iter):
                 coef_old = coef.clone()
@@ -1786,33 +1807,6 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
                             thresh, l2_scale, coef_old, beta,
                         )
                     else:
-                        if not _compile_tried_l2:
-                            _compile_tried_l2 = True
-                            from statgpu.penalties import _torch_compile_ok as _tc_ok
-                            if _tc_ok():
-                                try:
-                                    def _fista_elementwise_l2(
-                                        _y_k, _xtx_y, _step_over_n_Xty,
-                                        _step_over_n, _thresh, _l2_scale,
-                                        _coef_old, _beta,
-                                    ):
-                                        w = (_y_k - _step_over_n * _xtx_y
-                                             + _step_over_n_Xty)
-                                        c = (torch.sign(w)
-                                             * torch.relu(torch.abs(w) - _thresh)
-                                             / _l2_scale)
-                                        y = c + _beta * (c - _coef_old)
-                                        return c, y
-                                    _fused_step_l2 = torch.compile(
-                                        _fista_elementwise_l2, mode='reduce-overhead',
-                                    )
-                                    coef, y_k = _fused_step_l2(
-                                        y_k, xtx_y, step_over_n_Xty, step_over_n,
-                                        thresh, l2_scale, coef_old, beta,
-                                    )
-                                    continue
-                                except Exception:
-                                    _fused_step_l2 = None
                         w_tilde = (y_k - step_over_n * xtx_y
                                    + step_over_n_Xty)
                         coef = (torch.sign(w_tilde)
@@ -1826,32 +1820,6 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
                             thresh, coef_old, beta,
                         )
                     else:
-                        if not _compile_tried:
-                            _compile_tried = True
-                            from statgpu.penalties import _torch_compile_ok as _tc_ok
-                            if _tc_ok():
-                                try:
-                                    def _fista_elementwise(
-                                        _y_k, _xtx_y, _step_over_n_Xty,
-                                        _step_over_n, _thresh,
-                                        _coef_old, _beta,
-                                    ):
-                                        w = (_y_k - _step_over_n * _xtx_y
-                                             + _step_over_n_Xty)
-                                        c = (torch.sign(w)
-                                             * torch.relu(torch.abs(w) - _thresh))
-                                        y = c + _beta * (c - _coef_old)
-                                        return c, y
-                                    _fused_step = torch.compile(
-                                        _fista_elementwise, mode='reduce-overhead',
-                                    )
-                                    coef, y_k = _fused_step(
-                                        y_k, xtx_y, step_over_n_Xty, step_over_n,
-                                        thresh, coef_old, beta,
-                                    )
-                                    continue
-                                except Exception:
-                                    _fused_step = None
                         w_tilde = (y_k - step_over_n * xtx_y
                                    + step_over_n_Xty)
                         coef = (torch.sign(w_tilde)
