@@ -1112,7 +1112,10 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
                 # FISTA with XtX precomputation.
                 # BB step (fista_bb) provides no benefit for quadratic losses
                 # (BB1=BB2=1/R_H(dw)), so both use the fixed Lipschitz step.
-                coef = np.zeros(n_features)
+                if hasattr(self, '_init_coef') and self._init_coef is not None:
+                    coef = np.asarray(self._init_coef, dtype=np.float64).copy()
+                else:
+                    coef = np.zeros(n_features)
                 y_k = coef.copy()
                 t_k = 1.0
 
@@ -1141,7 +1144,10 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
             else:
                 # Coordinate descent (for L1-type penalties)
                 X_sq_norms = np.diag(XtX)
-                coef = np.zeros(n_features)
+                if hasattr(self, '_init_coef') and self._init_coef is not None:
+                    coef = np.asarray(self._init_coef, dtype=np.float64).copy()
+                else:
+                    coef = np.zeros(n_features)
 
                 # Precompute per-coordinate thresholds for adaptive penalties.
                 # The penalty object stores mean-normalized weights (w = pf / mean(pf))
@@ -1427,7 +1433,10 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
             # and more iterations to converge.
             _use_l2 = abs(l2_scale - 1.0) > 1e-12
 
-            coef = cp.zeros(n_features, dtype=X.dtype)
+            if hasattr(self, '_init_coef') and self._init_coef is not None:
+                coef = cp.asarray(self._init_coef, dtype=X.dtype)
+            else:
+                coef = cp.zeros(n_features, dtype=X.dtype)
             y_k = coef.copy()
             t_k = 1.0
             beta = 0.0  # first iteration: y_k = coef (no momentum)
@@ -1526,7 +1535,10 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
                     break
         else:
             step = 1.0 / L
-            coef = cp.zeros(n_features, dtype=X.dtype)
+            if hasattr(self, '_init_coef') and self._init_coef is not None:
+                coef = cp.asarray(self._init_coef, dtype=X.dtype)
+            else:
+                coef = cp.zeros(n_features, dtype=X.dtype)
             y_k = coef.copy()
             t_k = cp.array(1.0, dtype=X.dtype)
 
@@ -1739,7 +1751,10 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
                 l2_scale = 1.0
             _use_l2 = abs(l2_scale - 1.0) > 1e-12
 
-            coef = torch.zeros(n_features, dtype=X.dtype, device=X.device)
+            if hasattr(self, '_init_coef') and self._init_coef is not None:
+                coef = torch.tensor(self._init_coef, dtype=X.dtype, device=X.device)
+            else:
+                coef = torch.zeros(n_features, dtype=X.dtype, device=X.device)
             y_k = coef.clone()
             t_k = 1.0
             beta = 0.0
@@ -1852,7 +1867,10 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
                     break
         else:
             step = 1.0 / L
-            coef = torch.zeros(n_features, dtype=X.dtype, device=X.device)
+            if hasattr(self, '_init_coef') and self._init_coef is not None:
+                coef = torch.tensor(self._init_coef, dtype=X.dtype, device=X.device)
+            else:
+                coef = torch.zeros(n_features, dtype=X.dtype, device=X.device)
             y_k = coef.clone()
             t_k = torch.tensor(1.0, dtype=X.dtype, device=X.device)
 
@@ -2084,9 +2102,16 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
         p = XtX.shape[0]
         A = XtX + (float(n_samples) * alpha) * cp.eye(p, dtype=XtX.dtype)
         try:
-            return cp.linalg.solve(A, Xty)
-        except Exception:
-            return cp.linalg.pinv(A) @ Xty
+            # Cholesky + triangular solve is faster than general solve
+            # for positive-definite matrices (Ridge penalty guarantees PD)
+            L = cp.linalg.cholesky(A)
+            tmp = cp.linalg.solve_triangular(L, Xty, lower=True)
+            return cp.linalg.solve_triangular(L.T, tmp, lower=False)
+        except _LINALG_ERRORS:
+            try:
+                return cp.linalg.solve(A, Xty)
+            except _LINALG_ERRORS:
+                return cp.linalg.pinv(A) @ Xty
 
     def _solve_exact_torch(self, XtX, Xty, n_samples):
         import torch
@@ -2097,9 +2122,14 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
             p, dtype=XtX.dtype, device=XtX.device
         )
         try:
-            return torch.linalg.solve(A, Xty)
+            # Cholesky + triangular solve is faster than general solve
+            L = torch.linalg.cholesky(A)
+            return torch.linalg.solve_triangular(L.T, torch.linalg.solve_triangular(L, Xty, upper=False), upper=True)
         except RuntimeError:
-            return torch.linalg.pinv(A) @ Xty
+            try:
+                return torch.linalg.solve(A, Xty)
+            except RuntimeError:
+                return torch.linalg.pinv(A) @ Xty
 
     def _precompute_exact_l2_inference_cupy(self, X, y, XtX_centered, X_mean, coef_full, n_samples):
         """Compute nonrobust exact L2 inference on CuPy without a CPU Gram rebuild."""

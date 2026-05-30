@@ -72,5 +72,5 @@ class ElasticNet(_PenalizedLinearRegression):
             Warm-start coefficients. Passed to the underlying solver.
         """
         if initial_coef is not None:
-            self.init_coef = initial_coef
+            self._init_coef = np.asarray(initial_coef, dtype=np.float64)
         return super().fit(X=X, y=y, sample_weight=sample_weight, **kwargs)
