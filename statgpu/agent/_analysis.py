@@ -12,22 +12,10 @@ from ._config import AgentConfig
 from ._memory import MemoryStore
 from ._profiler import prepare_table, prepare_array
 from ._planner import infer_task, build_plan, MethodPruner
-from ._runner import (
-    run_unsupervised,
-    run_pca_diagnostic,
-)
-from ._validator import validate, recommend, run_diagnostics
+from ._validator import validate, recommend
 from ._reporter import to_markdown, save_markdown as _save_markdown, save_json as _save_json, save_notebook as _save_notebook
 from ._model_comparison import ModelComparator
 from ._cross_validation import AgentCrossValidator, CVResult
-
-
-def _to_numpy(value):
-    if hasattr(value, "detach"):
-        return value.detach().cpu().numpy()
-    if hasattr(value, "get"):
-        return value.get()
-    return np.asarray(value)
 
 
 def _json_ready(value):
@@ -165,8 +153,8 @@ class AnalysisResult:
     def save_markdown(self, path: str, max_terms: int = 12) -> None:
         _save_markdown(self, path, max_terms=max_terms)
 
-    def save_json(self, path: str, include_estimators: bool = False) -> None:
-        _save_json(self, path, include_estimators=include_estimators)
+    def save_json(self, path: str) -> None:
+        _save_json(self, path)
 
     def save_notebook(self, data_source: str, output_path: str) -> None:
         _save_notebook(self, data_source, output_path)
@@ -384,6 +372,9 @@ class StatGPUAnalysisAgent:
             return run_unsupervised(prepared, self.config)
 
         # Fit each method from the pruned list
+        import inspect
+        from statgpu.survival import CoxPH
+
         for method_name in methods:
             # Look up in registry
             entry = None
@@ -395,7 +386,6 @@ class StatGPUAnalysisAgent:
             if entry is not None:
                 try:
                     # Pass config to factory (new signature supports cfg= parameter)
-                    import inspect
                     sig = inspect.signature(entry["factory"])
                     if "cfg" in sig.parameters:
                         estimator = entry["factory"](cfg=self.config)
@@ -414,7 +404,6 @@ class StatGPUAnalysisAgent:
                         estimator.device = device_val
                     if hasattr(estimator, 'cov_type') and self.config.cov_type:
                         # CoxPH only supports nonrobust/hc0/hc1/cluster
-                        from statgpu.survival import CoxPH
                         if isinstance(estimator, CoxPH):
                             safe_cov_types = {"nonrobust", "hc0", "hc1", "cluster"}
                             estimator.cov_type = self.config.cov_type if self.config.cov_type in safe_cov_types else "nonrobust"
@@ -426,7 +415,7 @@ class StatGPUAnalysisAgent:
                         estimator.gpu_memory_cleanup = self.config.gpu_memory_cleanup
 
                     if task_type == "survival":
-                        result = fit_survival_model(estimator, prepared, self.config)
+                        result = fit_survival_model(estimator, prepared, self.config, name=method_name)
                     else:
                         if prepared.y is None:
                             continue
@@ -516,12 +505,20 @@ class StatGPUAnalysisAgent:
     def _plan_correction(self, issues: List[str], prepared,
                          task_type: str) -> dict:
         """Plan correction based on diagnosed issues."""
-        n, p = prepared.X.shape
         if "rank_deficient" in issues:
             return {"action": "switch_to_ridge", "methods": ["Ridge(alpha=1.0)"]}
         if "separation" in issues:
+            # LogisticRegression handles separation internally via C=1.0 retry
             return {"action": "already_corrected", "methods": []}
-        return {"action": "unknown", "methods": []}
+        if "non_convergence" in issues:
+            # Try regularized version for convergence issues
+            if task_type == "regression":
+                return {"action": "switch_to_ridge", "methods": ["Ridge(alpha=1.0)"]}
+            if task_type == "binary_classification":
+                return {"action": "already_corrected", "methods": []}  # Logistic self-corrects
+            if task_type == "survival":
+                return {"action": "switch_to_penalized", "methods": ["CoxPH(penalized)"]}
+        return {"action": "no_correction", "methods": []}
 
     def save_pipeline(self, path: str, result: AnalysisResult) -> None:
         """Save fitted pipeline (config + estimator states) for later reuse.

@@ -159,12 +159,11 @@ def save_markdown(result, path: str, max_terms: int = 12) -> None:
         handle.write(to_markdown(result, max_terms=max_terms))
 
 
-def save_json(result, path: str, include_estimators: bool = False) -> None:
+def save_json(result, path: str) -> None:
     """Save complete analysis result as JSON artifact.
 
-    Note: Estimator objects are never serialized to JSON (not JSON-safe),
-    regardless of the include_estimators parameter. Use save_pipeline()
-    for pickle serialization of estimators.
+    Note: Estimator objects are never serialized to JSON (not JSON-safe).
+    Use save_pipeline() for pickle serialization of estimators.
     """
     import statgpu
 

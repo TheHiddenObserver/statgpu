@@ -29,7 +29,6 @@ class AgentConfig:
 
     # Cross-validation
     cv_folds: int = 5
-    cv_random_state: Optional[int] = 0
 
     # Multiple testing
     multiple_testing_method: str = "none"  # "none", "bh", "by", "holm", "bonferroni", "hochberg"

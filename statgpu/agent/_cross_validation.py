@@ -117,8 +117,15 @@ class AgentCrossValidator:
 
         mean = float(np.mean(valid))
         std = float(np.std(valid))
-        ci_low = mean - 1.96 * std / np.sqrt(valid.size)
-        ci_high = mean + 1.96 * std / np.sqrt(valid.size)
+        # Use t-distribution for small samples (more accurate than z=1.96)
+        try:
+            from scipy.stats import t as t_dist
+            t_crit = float(t_dist.ppf(0.975, df=valid.size - 1))
+        except ImportError:
+            # Fallback: approximate t-critical for small df
+            t_crit = 2.776 if valid.size <= 5 else 2.571 if valid.size <= 10 else 2.262 if valid.size <= 20 else 2.093 if valid.size <= 30 else 1.96
+        ci_low = mean - t_crit * std / np.sqrt(valid.size)
+        ci_high = mean + t_crit * std / np.sqrt(valid.size)
 
         return CVResult(
             n_folds=self.n_folds,
@@ -150,7 +157,7 @@ class AgentCrossValidator:
                 model = model_factory()
                 model.fit(X_train, t_train, e_train)
                 # Compute C-index on TEST fold, not training
-                risk = -np.dot(X_test, model.coef_)
+                risk = np.dot(X_test, model.coef_)
                 cindex = _concordance_index(t_test, risk, e_test)
                 scores.append(float(cindex))
             except Exception:
@@ -168,14 +175,19 @@ class AgentCrossValidator:
 
         mean = float(np.mean(valid))
         std = float(np.std(valid))
+        try:
+            from scipy.stats import t as t_dist
+            t_crit = float(t_dist.ppf(0.975, df=valid.size - 1))
+        except ImportError:
+            t_crit = 2.776 if valid.size <= 5 else 2.571 if valid.size <= 10 else 2.262 if valid.size <= 20 else 2.093 if valid.size <= 30 else 1.96
         return CVResult(
             n_folds=self.n_folds,
             metric_name="c_index",
             fold_scores=scores,
             mean=mean,
             std=std,
-            ci_low=mean - 1.96 * std / np.sqrt(valid.size),
-            ci_high=mean + 1.96 * std / np.sqrt(valid.size),
+            ci_low=mean - t_crit * std / np.sqrt(valid.size),
+            ci_high=mean + t_crit * std / np.sqrt(valid.size),
         )
 
     @staticmethod

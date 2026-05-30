@@ -147,8 +147,10 @@ class MethodPruner:
             candidates = self._fallback_candidates(task_type)
 
         # Respect include_regularized setting
+        had_regularized_restriction = False
         if task_type == "regression" and not config.include_regularized:
             candidates = [c for c in candidates if c in ("LinearRegression",)]
+            had_regularized_restriction = True
 
         n, p = prepared.X.shape
 
@@ -158,6 +160,11 @@ class MethodPruner:
             for m in ("Lasso", "Ridge(alpha=1.0)", "ElasticNet"):
                 if m not in candidates:
                     candidates.insert(0, m)
+            if had_regularized_restriction and hasattr(prepared, 'notes'):
+                prepared.notes.append(
+                    f"include_regularized=False overridden: p={p} > n={n}, "
+                    "regularized methods required for high-dimensional data."
+                )
 
         # Near-high-dimensional: p > n/2
         elif p > n / 2:

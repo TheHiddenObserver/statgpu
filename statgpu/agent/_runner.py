@@ -106,7 +106,7 @@ def fit_supervised_model(
         return ModelResult(name=name, task_type=task_type, error=str(exc))
 
 
-def fit_survival_model(model, prepared, config: AgentConfig) -> "ModelResult":
+def fit_survival_model(model, prepared, config: AgentConfig, name: str = "CoxPH") -> "ModelResult":
     """Fit a survival model and extract results."""
     from ._analysis import ModelResult
 
@@ -130,7 +130,7 @@ def fit_survival_model(model, prepared, config: AgentConfig) -> "ModelResult":
             "iterations": int(getattr(model, "_iterations", 0)),
         }
         return ModelResult(
-            name="CoxPH",
+            name=name,
             task_type="survival",
             estimator=model,
             metrics=metrics,
@@ -138,7 +138,7 @@ def fit_survival_model(model, prepared, config: AgentConfig) -> "ModelResult":
             diagnostics=diagnostics,
         )
     except Exception as exc:
-        return ModelResult(name="CoxPH", task_type="survival", error=str(exc))
+        return ModelResult(name=name, task_type="survival", error=str(exc))
 
 
 def extract_coefficients(model, feature_names: Sequence[str], model_name: str) -> List[Dict[str, Any]]:
@@ -269,128 +269,7 @@ def _model_diagnostics(model: Any) -> Dict[str, Any]:
     return diagnostics
 
 
-# ---------------------------------------------------------------------------
-# Task-specific runners
-# ---------------------------------------------------------------------------
-
-def run_regression(prepared, config: AgentConfig) -> List["ModelResult"]:
-    """Fit regression models."""
-    from statgpu.linear_model import LinearRegression, Ridge
-    from ._analysis import ModelResult
-
-    assert prepared.y is not None
-    results: List[ModelResult] = []
-    device = config.device
-
-    model = LinearRegression(
-        device=device,
-        compute_inference=True,
-        cov_type=config.cov_type,
-        gpu_memory_cleanup=config.gpu_memory_cleanup,
-    )
-    results.append(
-        fit_supervised_model(
-            "LinearRegression", model, prepared,
-            fit_args=(prepared.X, prepared.y),
-            score_args=(prepared.X, prepared.y),
-            task_type="regression", config=config,
-        )
-    )
-
-    if config.include_regularized:
-        ridge = Ridge(
-            alpha=1.0,
-            device=device,
-            compute_inference=prepared.X.shape[0] > prepared.X.shape[1] + 1,
-            cov_type=config.cov_type,
-            gpu_memory_cleanup=config.gpu_memory_cleanup,
-        )
-        results.append(
-            fit_supervised_model(
-                "Ridge(alpha=1.0)", ridge, prepared,
-                fit_args=(prepared.X, prepared.y),
-                score_args=(prepared.X, prepared.y),
-                task_type="regression", config=config,
-            )
-        )
-    return results
-
-
-def run_binary_classification(prepared, config: AgentConfig) -> List["ModelResult"]:
-    """Fit binary classification models with self-correction."""
-    from statgpu.linear_model import LogisticRegression
-    from ._analysis import ModelResult
-    from ._validator import _coerce_binary_y
-
-    assert prepared.y is not None
-    y = _coerce_binary_y(prepared.y)
-    device = config.device
-
-    attempts = [
-        ("LogisticRegression", 1e10),
-        ("LogisticRegression(C=1.0 self-correction)", 1.0),
-    ]
-    result = None
-    for idx, (name, c_value) in enumerate(attempts):
-        model = LogisticRegression(
-            C=c_value,
-            max_iter=200,
-            device=device,
-            compute_inference=True,
-            cov_type=config.cov_type,
-            gpu_memory_cleanup=config.gpu_memory_cleanup,
-        )
-        result = fit_supervised_model(
-            name, model, prepared,
-            fit_args=(prepared.X, y),
-            score_args=(prepared.X, y),
-            task_type="binary_classification", config=config,
-        )
-        if result.error is None:
-            if idx == 1:
-                result.warnings.append("Unregularized logistic fit failed; reran with C=1.0.")
-            return [result]
-    return [result]
-
-
-def run_poisson(prepared, config: AgentConfig) -> List["ModelResult"]:
-    """Fit Poisson regression model."""
-    from statgpu.linear_model import PoissonRegression
-    from ._analysis import ModelResult
-
-    assert prepared.y is not None
-    y = np.asarray(prepared.y, dtype=float)
-    model = PoissonRegression(
-        device=config.device,
-        max_iter=200,
-        gpu_memory_cleanup=config.gpu_memory_cleanup,
-    )
-    return [
-        fit_supervised_model(
-            "PoissonRegression", model, prepared,
-            fit_args=(prepared.X, y),
-            score_args=(prepared.X, y),
-            task_type="poisson", config=config,
-        )
-    ]
-
-
-def run_survival(prepared, config: AgentConfig) -> List["ModelResult"]:
-    """Fit survival model."""
-    from statgpu.survival import CoxPH
-
-    if prepared.time is None or prepared.event is None:
-        raise ValueError("Survival analysis requires time and event.")
-    model = CoxPH(
-        ties="efron",
-        device=config.device,
-        compute_inference=True,
-        compute_cindex=True,
-        cov_type="nonrobust" if config.cov_type not in ("hc0", "hc1") else config.cov_type,
-        gpu_memory_cleanup=config.gpu_memory_cleanup,
-    )
-    return [fit_survival_model(model, prepared, config)]
-
+# Unsupervised helpers
 
 def _fit_kmeans(Xs: np.ndarray, k: int, prepared, config: AgentConfig) -> "ModelResult":
     """Fit KMeans with k clusters."""
