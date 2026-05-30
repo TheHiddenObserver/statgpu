@@ -2153,11 +2153,36 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
             }
             return
         scale = cp.sum(resid ** 2) / df_resid if df_resid > 0 else cp.asarray(cp.nan, dtype=X.dtype)
-        cov_params = scale * (bread_inv @ xtx_full @ bread_inv)
+
+        # Compute covariance matrix
+        if self.cov_type == "nonrobust":
+            cov_params = scale * (bread_inv @ xtx_full @ bread_inv)
+            distribution = "t"
+            method = "classical"
+        else:
+            # GPU-native robust/HAC covariance
+            from statgpu.linear_model._gaussian_inference import robust_covariance_gpu
+            if X_mean is None:
+                X_design_gpu = X
+            else:
+                X_design_gpu = cp.column_stack([cp.ones(int(n_samples), dtype=X.dtype), X])
+            cov_params = robust_covariance_gpu(
+                X_design_gpu, resid, bread_inv, self.cov_type, cp,
+                hac_maxlags=self.hac_maxlags,
+            )
+            distribution = "normal"
+            method = "sandwich"
+
         bse = cp.sqrt(cp.maximum(cp.diag(cov_params), 0.0))
         tvalues = coef_full / (bse + 1e-30)
-        pvalues = t.two_sided_pvalue(tvalues, df=df_resid)
-        t_crit = cp.asarray(t.two_sided_critical_value(0.05, df=df_resid), dtype=bse.dtype)
+        if distribution == "t":
+            pvalues = t.two_sided_pvalue(tvalues, df=df_resid)
+            t_crit = cp.asarray(t.two_sided_critical_value(0.05, df=df_resid), dtype=bse.dtype)
+        else:
+            from statgpu.inference._distributions_backend import norm
+            pvalues = 2.0 * norm.sf(cp.abs(tvalues))
+            z_crit = cp.asarray(norm.ppf(0.975), dtype=bse.dtype)
+            t_crit = z_crit
         conf_int = cp.stack([coef_full - t_crit * bse, coef_full + t_crit * bse], axis=1)
         result = GaussianInferenceResult(
             params=coef_full.get(),
@@ -2165,10 +2190,10 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
             statistic=tvalues.get(),
             pvalues=pvalues.get(),
             conf_int=conf_int.get(),
-            cov_type="nonrobust",
-            distribution="t",
+            cov_type=self.cov_type,
+            distribution=distribution,
             df=df_resid,
-            method="classical",
+            method=method,
             metadata={"ridge_alpha": ridge_alpha, "alpha": 0.05},
         )
         result.apply_to(self)
@@ -2239,12 +2264,37 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
             }
             return
         scale = torch.sum(resid ** 2) / df_resid if df_resid > 0 else torch.tensor(float("nan"), dtype=X.dtype, device=X.device)
-        cov_params = scale * (bread_inv @ xtx_full @ bread_inv)
+
+        # Compute covariance matrix
+        if self.cov_type == "nonrobust":
+            cov_params = scale * (bread_inv @ xtx_full @ bread_inv)
+            distribution = "t"
+            method = "classical"
+        else:
+            # GPU-native robust/HAC covariance
+            from statgpu.linear_model._gaussian_inference import robust_covariance_gpu
+            if X_mean is None:
+                X_design_gpu = X
+            else:
+                X_design_gpu = torch.cat([torch.ones(int(n_samples), 1, dtype=X.dtype, device=X.device), X], dim=1)
+            cov_params = robust_covariance_gpu(
+                X_design_gpu, resid, bread_inv, self.cov_type, torch,
+                hac_maxlags=self.hac_maxlags,
+            )
+            distribution = "normal"
+            method = "sandwich"
+
         bse = torch.sqrt(torch.clamp(torch.diag(cov_params), min=0.0))
         tvalues = coef_full / (bse + 1e-30)
-        t_dist = get_distribution("t", backend="torch", device=X.device)
-        pvalues = t_dist.two_sided_pvalue(tvalues, df=df_resid)
-        t_crit = t_dist.two_sided_critical_value(0.05, df=df_resid)
+        if distribution == "t":
+            t_dist = get_distribution("t", backend="torch", device=X.device)
+            pvalues = t_dist.two_sided_pvalue(tvalues, df=df_resid)
+            t_crit = t_dist.two_sided_critical_value(0.05, df=df_resid)
+        else:
+            norm_dist = get_distribution("norm", backend="torch", device=X.device)
+            pvalues = 2.0 * norm_dist.sf(torch.abs(tvalues))
+            z_crit = norm_dist.ppf(0.975)
+            t_crit = z_crit
         conf_int = torch.stack([coef_full - t_crit * bse, coef_full + t_crit * bse], dim=1)
         result = GaussianInferenceResult(
             params=coef_full.detach().cpu().numpy(),
@@ -2252,10 +2302,10 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
             statistic=tvalues.detach().cpu().numpy(),
             pvalues=pvalues.detach().cpu().numpy(),
             conf_int=conf_int.detach().cpu().numpy(),
-            cov_type="nonrobust",
-            distribution="t",
+            cov_type=self.cov_type,
+            distribution=distribution,
             df=df_resid,
-            method="classical",
+            method=method,
             metadata={"ridge_alpha": ridge_alpha, "alpha": 0.05},
         )
         result.apply_to(self)
