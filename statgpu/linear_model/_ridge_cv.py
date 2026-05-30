@@ -1148,12 +1148,11 @@ class RidgeCV(CVEstimatorBase):
 
         # Fit final model with selected alpha.
         # V9 Ridge wrapper multiplies alpha by n_samples internally,
-        # so we divide by n to get the same regularization as CV evaluated.
-        # Store alpha_ as the value matching the refit estimator (sklearn convention).
+        # so we pass alpha * n_samples to get the CV-selected regularization.
+        # alpha_ stores the CV-selected value (sklearn convention).
         n_samples = X.shape[0] if hasattr(X, 'shape') else len(X)
-        self.alpha_ = self.alpha_ / n_samples
         estimator = Ridge(
-            alpha=self.alpha_,
+            alpha=self.alpha_ * n_samples,
             fit_intercept=self.fit_intercept,
             device=self.device,
             n_jobs=self.n_jobs,

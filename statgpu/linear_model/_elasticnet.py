@@ -972,3 +972,21 @@ class ElasticNet(_PenalizedLinearRegression):
             gpu_memory_cleanup=gpu_memory_cleanup,
             stopping=stopping,
         )
+
+    def fit(self, X=None, y=None, sample_weight=None, initial_coef=None, **kwargs):
+        """Fit Elastic Net model.
+
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features)
+            Training data.
+        y : array-like of shape (n_samples,)
+            Target values.
+        sample_weight : array-like of shape (n_samples,), optional
+            Sample weights.
+        initial_coef : array-like of shape (n_features,), optional
+            Warm-start coefficients. Passed to the underlying solver.
+        """
+        if initial_coef is not None:
+            self.init_coef = initial_coef
+        return super().fit(X=X, y=y, sample_weight=sample_weight, **kwargs)

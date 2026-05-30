@@ -182,6 +182,10 @@ class GAM(BaseEstimator):
             knots_j = self._create_knots(x_col, self.n_splines, xp)
             self.knots_.append(knots_j)
 
+            # Store training boundary for prediction
+            self._boundary_lo_.append(float(xp.min(x_col)))
+            self._boundary_hi_.append(float(xp.max(x_col)))
+
             # Build B-spline basis
             B_j = bspline_basis(x_col, knots_j, degree=self.degree, xp=xp)
             n_basis_j = B_j.shape[1]
@@ -234,6 +238,8 @@ class GAM(BaseEstimator):
         n, p = X.shape
         self.n_features_ = p
         self.knots_ = []
+        self._boundary_lo_ = []
+        self._boundary_hi_ = []
 
         # Build basis matrix and penalty
         B, penalty = self._build_basis(X, xp)
@@ -297,12 +303,17 @@ class GAM(BaseEstimator):
                 f"X has {p} features, but model was fitted with {self.n_features_}"
             )
 
-        # Build basis for prediction
+        # Build basis for prediction (use training boundaries to avoid
+        # "knots must be strictly within boundary" errors on small batches)
         basis_blocks = []
         for j in range(p):
             x_col = X[:, j]
             knots_j = self.knots_[j]
-            B_j = bspline_basis(x_col, knots_j, degree=self.degree, xp=xp)
+            B_j = bspline_basis(
+                x_col, knots_j, degree=self.degree, xp=xp,
+                boundary_lo=self._boundary_lo_[j],
+                boundary_hi=self._boundary_hi_[j],
+            )
             basis_blocks.append(B_j)
 
         # Combine: [1, B_1, B_2, ..., B_p]

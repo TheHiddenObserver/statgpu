@@ -163,11 +163,13 @@ class RandomEffects(BaseEstimator):
         T_i = group_sizes(entity_arr, xp=xp)
         T_i_np = _to_numpy(T_i)  # needed for theta computation below
 
-        # Harmonic mean of group sizes: n_entities / sum(1/T_j) for unique groups
-        # Must use unique sizes — T_i is per-observation, summing 1/T_i would
-        # count each group T times, giving T_bar = 1 always.
-        T_unique = np.unique(T_i_np)
-        T_bar = float(n_entities) / float(np.sum(1.0 / T_unique))
+        # Harmonic mean of group sizes: one value per entity, not per observation.
+        # T_i_np is per-observation (each entity's size repeated T_i times).
+        # Get one size per entity via unique entity IDs + first occurrence.
+        entity_np = _to_numpy(entity_arr).ravel()
+        _, first_idx = np.unique(entity_np, return_index=True)
+        per_entity_sizes = T_i_np[first_idx]
+        T_bar = float(n_entities) / float(np.sum(1.0 / per_entity_sizes))
 
         # df for within residuals: n*T - k - (n_entities - 1)
         df_within = n - k - (n_entities - 1)

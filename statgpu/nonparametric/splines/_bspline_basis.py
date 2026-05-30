@@ -17,7 +17,7 @@ def _get_xp(xp):
     return xp if xp is not None else np
 
 
-def bspline_basis(x, knots, degree=3, xp=None):
+def bspline_basis(x, knots, degree=3, xp=None, boundary_lo=None, boundary_hi=None):
     """
     Evaluate B-spline basis matrix at points x.
 
@@ -34,6 +34,10 @@ def bspline_basis(x, knots, degree=3, xp=None):
         Spline degree (3 = cubic).
     xp : module, optional
         Array module (numpy, cupy, or torch). If None, uses numpy.
+    boundary_lo : float, optional
+        Explicit lower boundary knot. If None, uses min(x, knots).
+    boundary_hi : float, optional
+        Explicit upper boundary knot. If None, uses max(x, knots).
 
     Returns
     -------
@@ -52,17 +56,18 @@ def bspline_basis(x, knots, degree=3, xp=None):
         raise ValueError("At least one interior knot is required")
 
     # Construct augmented knot vector:
-    # t = [x_min]*(degree+1), knots..., [x_max]*(degree+1)
-    # Use the wider of (x range, knots range) to define boundary knots,
-    # so evaluation at boundary points is valid.
-    x_min = float(xp.min(x))
-    x_max = float(xp.max(x))
+    # t = [boundary_lo]*(degree+1), knots..., [boundary_hi]*(degree+1)
+    # Use explicit boundaries if provided (e.g., training range for prediction),
+    # otherwise use the wider of (x range, knots range).
     knot_min = float(xp.min(knots))
     knot_max = float(xp.max(knots))
 
-    # Boundary knots should be at or beyond both x range and knot range
-    boundary_lo = min(x_min, knot_min)
-    boundary_hi = max(x_max, knot_max)
+    if boundary_lo is None:
+        x_min = float(xp.min(x))
+        boundary_lo = min(x_min, knot_min)
+    if boundary_hi is None:
+        x_max = float(xp.max(x))
+        boundary_hi = max(x_max, knot_max)
 
     # Ensure interior knots are strictly within boundary
     if knot_min <= boundary_lo or knot_max >= boundary_hi:
