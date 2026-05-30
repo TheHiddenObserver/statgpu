@@ -224,13 +224,15 @@ def select_lambda_gcv(B, y, penalty_matrix, lambda_grid=None, xp=None):
     else:
         lambda_grid_np = _to_numpy(xp_asarray(lambda_grid, dtype=xp.float64, xp=xp, ref_arr=B))
 
-    # Transfer B, y, penalty to CPU ONCE and run the GCV loop on numpy.
-    # The matrices are small (n x p where p ~ 60), so the transfer cost is
-    # negligible compared to 300+ GPU syncs that would occur in the loop.
+    # Transfer B, y, penalty to CPU ONCE and run GCV loop on numpy.
+    # For the typical GAM problem (n x p where p ~ 60), the matrices are
+    # small enough that a single transfer + CPU loop is faster than
+    # 300+ GPU syncs (3 per iteration x 100 lambdas).
     B_np = _to_numpy(B)
-    y_np = _to_numpy(y)
+    y_np = _to_numpy(y).ravel()
     penalty_np = _to_numpy(penalty_matrix)
 
+    n = B_np.shape[0]
     gcv_scores_np = np.empty(len(lambda_grid_np), dtype=np.float64)
     for i, lam_val in enumerate(lambda_grid_np):
         gcv_scores_np[i] = generalized_cross_validation(
