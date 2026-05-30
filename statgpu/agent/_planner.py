@@ -186,7 +186,7 @@ class MethodPruner:
         # Insufficient events for survival
         if task_type == "survival" and prepared.event is not None:
             events = int(np.sum(prepared.event == 1))
-            if events < p:
+            if events < config.min_events_per_feature * p:
                 candidates = [c for c in candidates if c != "CoxPH"]
                 if "CoxPH(penalized)" not in candidates:
                     candidates.insert(0, "CoxPH(penalized)")

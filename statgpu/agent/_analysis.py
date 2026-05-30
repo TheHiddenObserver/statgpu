@@ -325,9 +325,8 @@ class StatGPUAnalysisAgent:
                 try:
                     est = model.estimator
                     est_class = est.__class__
-                    est_params = est.get_params()
-                    est_params.pop('device', None)
-                    factory = lambda c=est_class, p=dict(est_params): c(**p)
+                    est_params = dict(est.get_params())
+                    factory = lambda c=est_class, p=est_params: c(**p)
 
                     if task_type == "survival" and hasattr(prepared, 'time') and prepared.time is not None:
                         model.cv_results = cv.evaluate_survival(

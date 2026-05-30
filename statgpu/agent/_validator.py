@@ -80,7 +80,7 @@ def validate(
 
     if task_type == "survival" and prepared.event is not None:
         events = int(np.sum(prepared.event == 1))
-        if events < max(config.min_events_per_feature, p):
+        if events < config.min_events_per_feature * p:
             warnings.append("Number of observed events is low relative to model size.")
 
     if all(model.error for model in models):
