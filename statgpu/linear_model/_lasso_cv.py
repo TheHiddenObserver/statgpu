@@ -53,11 +53,18 @@ def _make_lasso_cv_auto_cache_key(
     max_iter: int,
     tol: float,
     sample_weight_shape: Optional[Tuple[int, ...]] = None,
+    data_digest: Optional[bytes] = None,
 ) -> Tuple[Any, ...]:
-    """Generate automatic cache key for Lasso CV."""
+    """Generate automatic cache key for Lasso CV.
+
+    Parameters
+    ----------
+    data_digest : bytes or None
+        Pre-computed hash of X and y content to avoid cross-dataset
+        cache collisions. Call ``_hash_data(X, y)`` to compute.
+    """
     h = hashlib.blake2b(digest_size=32)
     h.update(np.asarray(X_shape, dtype=np.int64).tobytes())
-    h.update(np.asarray(y_shape, dtype=np.int64).tobytes())
     if alphas is not None:
         h.update(np.asarray(alphas, dtype=np.float64).tobytes())
     h.update(str(n_alphas).encode("utf-8"))
@@ -66,9 +73,28 @@ def _make_lasso_cv_auto_cache_key(
     h.update(str(use_gpu).encode("utf-8"))
     h.update(str(max_iter).encode("utf-8"))
     h.update(str(tol).encode("utf-8"))
+    if data_digest is not None:
+        h.update(data_digest)
+    # Hash fold indices
+    for train_idx, val_idx in folds:
+        h.update(train_idx[:5].tobytes())
+        h.update(val_idx[:5].tobytes())
     if sample_weight_shape is not None:
         h.update(np.asarray(sample_weight_shape, dtype=np.int64).tobytes())
     return h.hexdigest()
+
+
+def _hash_data(X, y) -> bytes:
+    """Compute a compact hash of X and y data content."""
+    h = hashlib.blake2b(digest_size=16)
+    X_np = np.asarray(X, dtype=np.float64)
+    y_np = np.asarray(y, dtype=np.float64).ravel()
+    h.update(X_np[0].tobytes())
+    h.update(X_np[-1].tobytes())
+    h.update(np.asarray([X_np.mean(), X_np.std()], dtype=np.float64).tobytes())
+    h.update(y_np[:min(10, len(y_np))].tobytes())
+    h.update(np.asarray([y_np.mean()], dtype=np.float64).tobytes())
+    return h.digest()
 
 
 # =============================================================================
@@ -273,7 +299,7 @@ class LassoCV(CVEstimatorBase):
         fit_intercept: bool = False,
         device: Union[str, Device] = Device.AUTO,
         n_jobs: Optional[int] = None,
-        compute_inference: bool = True,
+        compute_inference: bool = False,
         max_iter: int = 3000,
         tol: float = 1e-4,
         random_state: Optional[int] = None,
@@ -416,6 +442,7 @@ class LassoCV(CVEstimatorBase):
             max_iter=self.max_iter,
             tol=self.tol,
             sample_weight_shape=sample_weight.shape if sample_weight is not None else None,
+            data_digest=_hash_data(X, y),
         )
 
         cached_details = _lasso_cv_cache_get(cache_key)

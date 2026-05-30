@@ -123,13 +123,17 @@ def demean_variables(y, X, entity_ids, time_ids=None, xp=None):
     if X.ndim == 1:
         X = X.reshape(-1, 1)
 
-    # Entity demeaning
-    y_d = within_transform(y, entity_ids, xp)
-    X_d = xp.zeros_like(X)
-    for j in range(X.shape[1]):
-        X_d[:, j] = within_transform(X[:, j], entity_ids, xp)
+    # Entity demeaning (skip if entity_ids is None)
+    if entity_ids is not None:
+        y_d = within_transform(y, entity_ids, xp)
+        X_d = xp.zeros_like(X)
+        for j in range(X.shape[1]):
+            X_d[:, j] = within_transform(X[:, j], entity_ids, xp)
+    else:
+        y_d = y.copy() if hasattr(y, 'copy') else y - 0.0
+        X_d = X.copy() if hasattr(X, 'copy') else X - 0.0
 
-    # Time demeaning (two-way FE)
+    # Time demeaning (two-way FE, or time-only FE)
     if time_ids is not None:
         y_d = within_transform(y_d, time_ids, xp)
         for j in range(X.shape[1]):

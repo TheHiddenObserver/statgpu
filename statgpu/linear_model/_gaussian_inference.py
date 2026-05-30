@@ -149,9 +149,9 @@ def robust_covariance_gpu(X, resid, bread_inv, cov_type, xp, hac_maxlags=None):
         leverage = xp.clip(leverage, 0.0, 1.0 - 1e-12)
 
     if cov_type == "hc2":
-        omega = resid ** 2 / xp.maximum(1.0 - leverage, 1e-12)
+        omega = resid ** 2 / xp.clip(1.0 - leverage, 1e-12, None)
     elif cov_type == "hc3":
-        omega = resid ** 2 / xp.maximum((1.0 - leverage) ** 2, 1e-12)
+        omega = resid ** 2 / xp.clip((1.0 - leverage) ** 2, 1e-12, None)
     else:
         omega = resid ** 2
 

@@ -45,16 +45,32 @@ def _ridge_cv_cache_put(key, value):
 
 
 def _make_ridge_cv_auto_cache_key(X, y, alphas, folds, fit_intercept, use_gpu, sample_weight=None):
-    """Generate automatic cache key for Ridge CV."""
+    """Generate automatic cache key for Ridge CV.
+
+    Includes a digest of X and y content (first/last rows + summary stats)
+    to avoid cross-dataset cache collisions.
+    """
     h = hashlib.blake2b(digest_size=32)
     h.update(np.asarray(X.shape, dtype=np.int64).tobytes())
-    h.update(np.asarray(y.shape, dtype=np.int64).tobytes())
     h.update(str(X.dtype).encode("utf-8"))
     h.update(np.asarray(alphas, dtype=np.float64).tobytes())
     h.update(str(fit_intercept).encode("utf-8"))
     h.update(str(use_gpu).encode("utf-8"))
+    # Hash data content: first row, last row, mean, std
+    X_np = np.asarray(X, dtype=np.float64)
+    y_np = np.asarray(y, dtype=np.float64).ravel()
+    h.update(X_np[0].tobytes())
+    h.update(X_np[-1].tobytes())
+    h.update(np.asarray([X_np.mean(), X_np.std()], dtype=np.float64).tobytes())
+    h.update(y_np[:min(10, len(y_np))].tobytes())
+    h.update(np.asarray([y_np.mean()], dtype=np.float64).tobytes())
+    # Hash fold indices
+    for train_idx, val_idx in folds:
+        h.update(train_idx[:5].tobytes())
+        h.update(val_idx[:5].tobytes())
     if sample_weight is not None:
-        h.update(np.asarray(sample_weight.shape, dtype=np.int64).tobytes())
+        sw = np.asarray(sample_weight, dtype=np.float64).ravel()
+        h.update(sw[:min(10, len(sw))].tobytes())
     return h.hexdigest()
 
 

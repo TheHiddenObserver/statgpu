@@ -304,7 +304,8 @@ def fit_penalized_spline(x, y, knots, degree=3, penalty_order=2,
     return beta, edf, B, S
 
 
-def predict_penalized_spline(x_new, beta, knots, degree=3, xp=None):
+def predict_penalized_spline(x_new, beta, knots, degree=3, xp=None,
+                             boundary_lo=None, boundary_hi=None):
     """
     Predict using a fitted penalized spline.
 
@@ -320,6 +321,10 @@ def predict_penalized_spline(x_new, beta, knots, degree=3, xp=None):
         Spline degree.
     xp : module, optional
         Array module.
+    boundary_lo : float, optional
+        Lower boundary knot (from training data). Required for small batches.
+    boundary_hi : float, optional
+        Upper boundary knot (from training data). Required for small batches.
 
     Returns
     -------
@@ -333,8 +338,9 @@ def predict_penalized_spline(x_new, beta, knots, degree=3, xp=None):
     x_new = xp.asarray(x_new, dtype=xp.float64).ravel()
     beta = xp.asarray(beta, dtype=xp.float64)
 
-    # Build basis matrix for new points
-    B_new = bspline_basis(x_new, knots, degree=degree, xp=xp)
+    # Build basis matrix for new points, using training boundaries
+    B_new = bspline_basis(x_new, knots, degree=degree, xp=xp,
+                          boundary_lo=boundary_lo, boundary_hi=boundary_hi)
 
     # Predict
     y_pred = B_new @ beta
