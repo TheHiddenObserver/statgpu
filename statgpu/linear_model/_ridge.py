@@ -66,9 +66,8 @@ class Ridge(_PenalizedLinearRegression):
         """
         if (formula is not None
                 or self._get_compute_device() != Device.CPU
-                or self.solver != "exact"
-                or self.cov_type != "nonrobust"):
-            # Fall back to parent for formula, GPU, non-exact solver, or robust cov_type
+                or self.solver != "exact"):
+            # Fall back to parent for formula, GPU, or non-exact solver
             return super().fit(X=X, y=y, sample_weight=sample_weight, formula=formula, data=data)
 
         X_np = np.asarray(self._to_array(X, Device.CPU), dtype=np.float64)
