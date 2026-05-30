@@ -151,26 +151,38 @@ class PenalizedGLM_CV(CVEstimatorBase):
         y_pred = _to_numpy(model.predict(X_val))
         y_val_np = _to_numpy(y_val).ravel()
 
-        # Compute score based on loss type
-        if self.loss == 'squared_error':
-            if sample_weight_val is not None:
-                sw = _to_numpy(sample_weight_val).ravel()
-                return float(np.mean((y_val_np - y_pred) ** 2 * sw))
-            return float(np.mean((y_val_np - y_pred) ** 2))
+        # Compute score using the GLM loss function
+        # For CV, we want to minimize the validation loss.
+        # The loss.value() returns per-sample negative log-likelihood.
+        from statgpu.linear_model._penalized import _resolve_loss_name
 
-        elif self.loss == 'logistic':
-            p = np.clip(y_pred, 1e-10, 1 - 1e-10)
-            return float(-np.mean(y_val_np * np.log(p) + (1 - y_val_np) * np.log(1 - p)))
+        loss_fn = _resolve_loss_name(self.loss)
+        y_val_np = _to_numpy(y_val).ravel()
 
+        # Build design matrix for loss evaluation
+        n_val = X_val.shape[0]
+        if model.fit_intercept:
+            X_design = np.column_stack([np.ones(n_val), _to_numpy(X_val)])
+            coef_with_intercept = np.concatenate([[float(model.intercept_)], _to_numpy(model.coef_)])
         else:
-            # GLM deviance: 2 * (log-likelihood(saturated) - log-likelihood(model))
-            # Simplified: use residual deviance
-            p = np.clip(y_pred, 1e-10, None)
-            return float(np.sum((y_val_np - p) ** 2 / p))
+            X_design = _to_numpy(X_val)
+            coef_with_intercept = _to_numpy(model.coef_)
+
+        # Compute validation loss using the GLM loss function
+        try:
+            val_loss = loss_fn.value(X_design, y_val_np, coef_with_intercept)
+            return float(val_loss)
+        except Exception:
+            # Fallback: MSE
+            y_pred_np = _to_numpy(y_pred).ravel()
+            return float(np.mean((y_val_np - y_pred_np) ** 2))
 
     def _refit_best(self, X, y, best_alpha):
         """Refit on full data with best alpha."""
         from statgpu.linear_model._penalized import PenalizedGeneralizedLinearModel
+
+        # Only request inference for squared_error + l2 (the only supported combo)
+        can_infer = (self.loss == 'squared_error' and self.penalty == 'l2')
 
         model = PenalizedGeneralizedLinearModel(
             loss=self.loss,
@@ -178,7 +190,7 @@ class PenalizedGLM_CV(CVEstimatorBase):
             alpha=best_alpha,
             l1_ratio=self.l1_ratio,
             device=self.device,
-            compute_inference=True,
+            compute_inference=can_infer,
             max_iter=self.max_iter,
             tol=self.tol,
             solver=self.solver,
