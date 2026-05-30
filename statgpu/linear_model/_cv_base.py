@@ -71,6 +71,14 @@ def folds_are_complements(
     return len(combined) == n_samples and len(np.unique(combined)) == n_samples
 
 
+def folds_are_complete(folds, n_samples: int) -> bool:
+    """Check that all folds together cover every sample exactly once."""
+    val_indices = np.concatenate([f[1] for f in folds])
+    if len(val_indices) != n_samples:
+        return False
+    return np.array_equal(np.sort(val_indices), np.arange(n_samples))
+
+
 # ---------------------------------------------------------------------------
 # LRU cache for CV results
 # ---------------------------------------------------------------------------

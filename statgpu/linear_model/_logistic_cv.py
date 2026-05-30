@@ -60,30 +60,7 @@ def _make_logistic_cv_auto_cache_key(X, y, Cs, folds, fit_intercept, max_iter, u
 # K-fold helper (reuse from RidgeCV)
 # =============================================================================
 
-def _kfold_indices(n_samples: int, n_splits: int, random_state: Optional[int] = None):
-    """Generate K-fold train/test indices."""
-    rng = np.random.RandomState(random_state)
-    indices = np.arange(n_samples)
-    rng.shuffle(indices)
-    fold_sizes = np.full(n_splits, n_samples // n_splits, dtype=np.int64)
-    fold_sizes[: n_samples % n_splits] += 1
-    current = 0
-    folds = []
-    for fold_size in fold_sizes:
-        start, stop = current, current + fold_size
-        test_idx = indices[start:stop]
-        train_idx = np.concatenate([indices[:start], indices[stop:]])
-        folds.append((train_idx, test_idx))
-        current = stop
-    return folds
-
-
-def _folds_are_complements(folds, n_samples: int) -> bool:
-    """Check if folds are complementary (each sample appears exactly once in test)."""
-    test_indices = np.concatenate([f[1] for f in folds])
-    if len(test_indices) != n_samples:
-        return False
-    return np.array_equal(np.sort(test_indices), np.arange(n_samples))
+from statgpu.linear_model._cv_base import kfold_indices as _kfold_indices, folds_are_complete as _folds_are_complements
 
 
 # =============================================================================
