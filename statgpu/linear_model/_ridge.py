@@ -14,7 +14,6 @@ from typing import Optional, Union
 import numpy as np
 
 from statgpu._config import Device
-from statgpu.backends import _LINALG_ERRORS
 
 from ._penalized import PenalizedLinearRegression as _PenalizedLinearRegression
 from ._ridge_legacy import _RidgeLegacy  # noqa: F401 — backward compat
@@ -65,8 +64,11 @@ class Ridge(_PenalizedLinearRegression):
         Uses centering formulas to avoid allocating the full centered design matrix,
         and skips expensive inference computations when ``compute_inference=False``.
         """
-        if formula is not None or self._get_compute_device() != Device.CPU or self.solver != "exact":
-            # Fall back to parent implementation for formula interface or GPU paths
+        if (formula is not None
+                or self._get_compute_device() != Device.CPU
+                or self.solver != "exact"
+                or self.cov_type != "nonrobust"):
+            # Fall back to parent for formula, GPU, non-exact solver, or robust cov_type
             return super().fit(X=X, y=y, sample_weight=sample_weight, formula=formula, data=data)
 
         X_np = np.asarray(self._to_array(X, Device.CPU), dtype=np.float64)
@@ -134,6 +136,8 @@ class Ridge(_PenalizedLinearRegression):
             self._resid = y_np - y_pred
             if self._df_resid > 0:
                 self._scale = np.sum(self._resid ** 2) / self._df_resid
+            # Compute inference statistics (bse, tvalues, pvalues, conf_int)
+            self._compute_post_fit_gaussian_inference(X_np, y_np, sample_weight=sample_weight)
 
         self._fitted = True
         return self

@@ -16,9 +16,15 @@ import numpy as np
 from statgpu._config import Device
 from statgpu._base import BaseEstimator
 
-# Backward-compat import for legacy implementation
+# Backward-compat imports for legacy implementation
 from ._lasso_legacy import Lasso as _LassoLegacy  # noqa: F401
 from ._lasso_legacy import _InferenceCapableLasso  # noqa: F401
+from ._lasso_legacy import (  # noqa: F401 — used by LassoCV and knockoff
+    _fit_lasso_single_alpha_fast,
+    _select_lasso_alpha_cv,
+    _solve_lasso_path_gpu_fista_multi_fold_from_gram,
+    _solve_lasso_path_gpu_fista_multi_fold_from_gram_torch,
+)
 
 class Lasso(_InferenceCapableLasso):
     """Inference-capable Lasso estimator.
