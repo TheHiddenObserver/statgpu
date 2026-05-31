@@ -980,9 +980,10 @@ def fista_lla_path(
     total_iter = 0
     inner_pen = AdaptiveL1Penalty(alpha=1.0)
 
-    # For squared_error + GPU: fully inlined fused loop
-    # Keeps coef on GPU throughout entire continuation+LLA loop
-    if _is_quadratic and backend in ("torch", "cupy"):
+    # For squared_error + Torch GPU: fully inlined fused loop.
+    # CuPy ElementwiseKernel has numerical instability for SCAD/MCP
+    # continuation paths, so it falls through to the unfused path.
+    if _is_quadratic and backend == "torch":
         Xty = X_c.T @ y_c
         yty = float(_to_numpy(y_c @ y_c)) if backend == "cupy" else float((y_c * y_c).sum().item())
 
@@ -1046,7 +1047,12 @@ def fista_lla_path(
 
                     # Convergence check (deferred sync)
                     if iteration < 20 or iteration % _conv_interval == 0:
-                        if float(_to_numpy(_abs_sum_dev(coef - coef_old))) < tol:
+                        coef_diff = float(_to_numpy(_abs_sum_dev(coef - coef_old)))
+                        if coef_diff < tol:
+                            break
+                        # Divergence detection: if coef becomes NaN/inf, stop
+                        if not np.isfinite(coef_diff):
+                            coef = _copy_arr(coef_old)
                             break
 
                 total_iter += iteration + 1
