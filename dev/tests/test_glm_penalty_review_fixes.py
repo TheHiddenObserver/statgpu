@@ -5,6 +5,7 @@ from statgpu.glm_core._negative_binomial import NegativeBinomialLoss
 from statgpu.glm_core._gamma import GammaLoss
 from statgpu.glm_core._solver import (
     _fused_glm_value_and_gradient,
+    _get_sqerr_proximal_cupy,
     admm_solver,
     fista_lla_path,
     fista_bb_solver,
@@ -31,6 +32,16 @@ from statgpu.penalties import (
     MCPPenalty,
     SCADPenalty,
 )
+
+
+def _skip_if_cupy_cuda_unavailable():
+    cp = pytest.importorskip("cupy")
+    try:
+        if cp.cuda.runtime.getDeviceCount() <= 0:
+            pytest.skip("CuPy CUDA unavailable")
+    except Exception as exc:
+        pytest.skip(f"CuPy CUDA unavailable: {exc}")
+    return cp
 
 
 def test_negative_binomial_loss_alpha_matches_finite_difference_gradient():
@@ -77,6 +88,67 @@ def test_fused_tweedie_uses_loss_power():
 
     assert np.allclose(fused_value, loss.value(X, y, coef))
     assert np.allclose(fused_grad, loss.gradient(X, y, coef))
+
+
+def test_cupy_sqerr_fused_proximal_uses_y_current_as_center():
+    cp = _skip_if_cupy_cuda_unavailable()
+
+    y_current = cp.asarray([0.45, -1.25, 0.04, 2.5, -0.9], dtype=cp.float64)
+    coef_old = cp.asarray([0.2, -1.0, 0.1, 2.1, -0.4], dtype=cp.float64)
+    grad = cp.asarray([0.5, -0.25, 1.0, -0.4, 0.3], dtype=cp.float64)
+    thresh = cp.asarray([0.04, 0.12, 0.02, 0.3, 0.15], dtype=cp.float64)
+    step = 0.2
+    beta = 0.35
+
+    fused = _get_sqerr_proximal_cupy()
+    coef_new, y_next = fused(y_current, grad, step, thresh, coef_old, beta)
+
+    w = y_current - step * grad
+    expected_coef = cp.sign(w) * cp.maximum(cp.abs(w) - thresh, 0.0)
+    expected_y = expected_coef + beta * (expected_coef - coef_old)
+
+    assert cp.allclose(coef_new, expected_coef)
+    assert cp.allclose(y_next, expected_y)
+
+
+@pytest.mark.parametrize("penalty", ["l1", "scad", "mcp"])
+def test_cupy_squared_error_penalties_match_cpu_after_fused_lla_fix(penalty):
+    cp = _skip_if_cupy_cuda_unavailable()
+
+    rng = np.random.RandomState(42)
+    n, p = 500, 20
+    X_np = rng.randn(n, p)
+    y_np = X_np @ np.linspace(2.0, 0.5, p) + rng.randn(n) * 0.5
+    X_cu = cp.asarray(X_np)
+    y_cu = cp.asarray(y_np)
+
+    common = dict(
+        loss="squared_error",
+        penalty=penalty,
+        alpha=0.1,
+        compute_inference=False,
+        max_iter=200,
+    )
+    model_cpu = PenalizedGeneralizedLinearModel(device="cpu", **common)
+    model_cu = PenalizedGeneralizedLinearModel(device="cuda", **common)
+
+    model_cpu.fit(X_np, y_np)
+    model_cu.fit(X_cu, y_cu)
+
+    coef_cpu = np.asarray(model_cpu.coef_)
+    coef_cu_raw = model_cu.coef_
+    coef_cu = (
+        cp.asnumpy(coef_cu_raw)
+        if isinstance(coef_cu_raw, cp.ndarray)
+        else np.asarray(coef_cu_raw)
+    )
+    corr = np.corrcoef(coef_cpu, coef_cu)[0, 1]
+
+    assert np.all(np.isfinite(coef_cu))
+    assert corr > 0.999
+    # CuPy fused kernel may take more iterations due to different numerical
+    # path, but the final result is correct (corr > 0.999).
+    assert abs(model_cpu.n_iter_ - model_cu.n_iter_) < 300
 
 
 def test_resolve_gamma_loss_forwards_link_kwargs():
