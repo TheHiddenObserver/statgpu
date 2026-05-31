@@ -1,0 +1,60 @@
+=== NUMPY ===
+         284 function calls (283 primitive calls) in 0.012 seconds
+
+   Ordered by: cumulative time
+   List reduced from 134 to 10 due to restriction <10>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.000    0.000    0.012    0.012 /root/statgpu/statgpu/linear_model/_ridge_cv.py:1098(fit)
+        1    0.005    0.005    0.011    0.011 /root/statgpu/statgpu/linear_model/_ridge.py:911(fit)
+    21/20    0.001    0.000    0.006    0.000 {built-in method numpy.core._multiarray_umath.implement_array_function}
+        2    0.000    0.000    0.003    0.002 <__array_function__ internals>:177(mean)
+        2    0.000    0.000    0.003    0.002 /root/miniconda3/envs/myconda/lib/python3.9/site-packages/numpy/core/fromnumeric.py:3345(mean)
+        2    0.000    0.000    0.003    0.002 /root/miniconda3/envs/myconda/lib/python3.9/site-packages/numpy/core/_methods.py:164(_mean)
+        7    0.003    0.000    0.003    0.000 {method 'reduce' of 'numpy.ufunc' objects}
+        1    0.000    0.000    0.001    0.001 /root/statgpu/statgpu/linear_model/_ridge_cv.py:309(_select_ridge_alpha_cv)
+        9    0.000    0.000    0.001    0.000 <__array_function__ internals>:177(concatenate)
+        1    0.000    0.000    0.001    0.001 <__array_function__ internals>:177(column_stack)
+
+
+
+=== CUPY ===
+         831 function calls (830 primitive calls) in 0.009 seconds
+
+   Ordered by: cumulative time
+   List reduced from 216 to 10 due to restriction <10>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.000    0.000    0.009    0.009 /root/statgpu/statgpu/linear_model/_ridge_cv.py:1098(fit)
+        1    0.000    0.000    0.007    0.007 /root/statgpu/statgpu/linear_model/_ridge.py:911(fit)
+        1    0.000    0.000    0.007    0.007 /root/statgpu/statgpu/linear_model/_penalized.py:268(fit)
+        1    0.000    0.000    0.007    0.007 /root/statgpu/statgpu/linear_model/_penalized.py:1273(_fit_gpu)
+        1    0.001    0.001    0.006    0.006 /root/statgpu/statgpu/linear_model/_penalized.py:2102(_precompute_exact_l2_inference_cupy)
+    43/42    0.002    0.000    0.002    0.000 {built-in method numpy.core._multiarray_umath.implement_array_function}
+       13    0.002    0.000    0.002    0.000 {method 'get' of 'cupy._core.core._ndarray_base' objects}
+        9    0.000    0.000    0.001    0.000 <__array_function__ internals>:177(concatenate)
+        1    0.000    0.000    0.001    0.001 /root/statgpu/statgpu/linear_model/_ridge_cv.py:309(_select_ridge_alpha_cv)
+        1    0.000    0.000    0.001    0.001 <__array_function__ internals>:177(column_stack)
+
+
+
+=== TORCH ===
+         840 function calls (839 primitive calls) in 0.013 seconds
+
+   Ordered by: cumulative time
+   List reduced from 211 to 10 due to restriction <10>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.000    0.000    0.013    0.013 /root/statgpu/statgpu/linear_model/_ridge_cv.py:1098(fit)
+        1    0.000    0.000    0.011    0.011 /root/statgpu/statgpu/linear_model/_ridge.py:911(fit)
+        1    0.000    0.000    0.011    0.011 /root/statgpu/statgpu/linear_model/_penalized.py:268(fit)
+        1    0.000    0.000    0.007    0.007 /root/statgpu/statgpu/linear_model/_penalized.py:1273(_fit_gpu)
+        1    0.001    0.001    0.006    0.006 /root/statgpu/statgpu/linear_model/_penalized.py:2102(_precompute_exact_l2_inference_cupy)
+        2    0.000    0.000    0.004    0.002 /root/statgpu/statgpu/_base.py:97(_to_array)
+        2    0.000    0.000    0.004    0.002 /root/statgpu/statgpu/_base.py:189(_to_cupy)
+        3    0.002    0.001    0.002    0.001 {method 'cpu' of 'torch._C._TensorBase' objects}
+    43/42    0.002    0.000    0.002    0.000 {built-in method numpy.core._multiarray_umath.implement_array_function}
+       13    0.002    0.000    0.002    0.000 {method 'get' of 'cupy._core.core._ndarray_base' objects}
+
+
+
