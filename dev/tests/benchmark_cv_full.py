@@ -1,10 +1,14 @@
 # -*- coding: utf-8 -*-
-"""Full CV benchmark: statgpu PenalizedGLM_CV across all loss x penalty combos."""
+"""Full CV benchmark: PenalizedGLM_CV across all loss x penalty combos.
+
+Compares:
+- CPU-only CV (device='cpu')
+- CuPy CV (device='cuda')
+- Torch CV (device='torch')
+"""
 import time
 import warnings
 import numpy as np
-import subprocess
-import sys
 
 warnings.filterwarnings("ignore")
 
@@ -45,9 +49,7 @@ print("=" * 90)
 
 import cupy as cp
 import torch
-from sklearn.metrics import r2_score, accuracy_score
 from statgpu.linear_model._penalized_cv import PenalizedGLM_CV
-from statgpu.linear_model._penalized import PenalizedGeneralizedLinearModel
 
 gpu_name = cp.cuda.runtime.getDeviceProperties(0)["name"].decode()
 print(f"GPU: {gpu_name}")
@@ -79,6 +81,7 @@ def gen_positive(n, p, rng):
 LOSSES = ["squared_error", "logistic", "poisson", "gamma"]
 PENALTIES = ["l2", "l1", "elasticnet", "scad", "mcp"]
 N_ALPHAS = 20
+N_FOLDS = 3
 
 # ─── Test each loss x penalty ─────────────────────────────────────────
 for loss in LOSSES:
@@ -106,58 +109,55 @@ for loss in LOSSES:
     y_to = torch.tensor(y_np, dtype=torch.float64, device="cuda")
 
     for penalty in PENALTIES:
-        if loss == "logistic" and penalty == "elasticnet":
-            l1_ratio = 0.5
-        elif penalty == "elasticnet":
-            l1_ratio = 0.5
-        else:
-            l1_ratio = 0.5
+        l1_ratio = 0.5 if penalty == "elasticnet" else 0.5
 
-        # Fit on numpy
+        # CPU CV
         try:
             cv_np = PenalizedGLM_CV(
                 loss=loss, penalty=penalty, n_alphas=N_ALPHAS,
-                l1_ratio=l1_ratio, cv=3, device="cpu",
+                l1_ratio=l1_ratio, cv=N_FOLDS, device="cpu",
             )
             _, t_np = bench(lambda: PenalizedGLM_CV(
                 loss=loss, penalty=penalty, n_alphas=N_ALPHAS,
-                l1_ratio=l1_ratio, cv=3, device="cpu",
+                l1_ratio=l1_ratio, cv=N_FOLDS, device="cpu",
             ).fit(X_np, y_np))
             cv_np.fit(X_np, y_np)
             coef_np = cv_np.coef_
             alpha_np = cv_np.alpha_
         except Exception as e:
-            print(f"  {penalty:15s} numpy: ERROR - {e}")
+            print(f"  {penalty:15s} cpu:   ERROR - {e}")
             continue
 
-        # Fit on cupy
+        # CuPy CV
         try:
             cv_cu = PenalizedGLM_CV(
                 loss=loss, penalty=penalty, n_alphas=N_ALPHAS,
-                l1_ratio=l1_ratio, cv=3, device="cuda",
+                l1_ratio=l1_ratio, cv=N_FOLDS, device="cuda",
             )
             _, t_cu = bench(lambda: PenalizedGLM_CV(
                 loss=loss, penalty=penalty, n_alphas=N_ALPHAS,
-                l1_ratio=l1_ratio, cv=3, device="cuda",
+                l1_ratio=l1_ratio, cv=N_FOLDS, device="cuda",
             ).fit(X_cu, y_cu))
             cv_cu.fit(X_cu, y_cu)
             coef_cu = _to_numpy(cv_cu.coef_)
+            alpha_cu = cv_cu.alpha_
         except Exception as e:
             print(f"  {penalty:15s} cupy:  ERROR - {e}")
             continue
 
-        # Fit on torch
+        # Torch CV
         try:
             cv_to = PenalizedGLM_CV(
                 loss=loss, penalty=penalty, n_alphas=N_ALPHAS,
-                l1_ratio=l1_ratio, cv=3, device="torch",
+                l1_ratio=l1_ratio, cv=N_FOLDS, device="torch",
             )
             _, t_to = bench(lambda: PenalizedGLM_CV(
                 loss=loss, penalty=penalty, n_alphas=N_ALPHAS,
-                l1_ratio=l1_ratio, cv=3, device="torch",
+                l1_ratio=l1_ratio, cv=N_FOLDS, device="torch",
             ).fit(X_to, y_to))
             cv_to.fit(X_to, y_to)
             coef_to = _to_numpy(cv_to.coef_)
+            alpha_to = cv_to.alpha_
         except Exception as e:
             print(f"  {penalty:15s} torch: ERROR - {e}")
             continue
@@ -168,9 +168,13 @@ for loss in LOSSES:
         l2_cu = coef_l2(coef_np, coef_cu)
         l2_to = coef_l2(coef_np, coef_to)
 
-        print(f"  {penalty:15s} corr_cu={corr_cu:.6f} corr_to={corr_to:.6f} "
+        alpha_match = "OK" if abs(alpha_np - alpha_cu) / max(alpha_np, 1e-10) < 0.1 and abs(alpha_np - alpha_to) / max(alpha_np, 1e-10) < 0.1 else "DIFF"
+
+        print(f"  {penalty:15s} "
+              f"corr_cu={corr_cu:.6f} corr_to={corr_to:.6f} "
               f"L2_cu={l2_cu:.2e} L2_to={l2_to:.2e} "
-              f"time: np={t_np*1000:.1f}ms cu={t_cu*1000:.1f}ms to={t_to*1000:.1f}ms")
+              f"alpha={alpha_match} "
+              f"time: np={t_np*1000:.0f}ms cu={t_cu*1000:.0f}ms to={t_to*1000:.0f}ms")
 
 print("\n" + "=" * 90)
 print("DONE")
