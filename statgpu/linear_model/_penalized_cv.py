@@ -135,25 +135,9 @@ class PenalizedGLM_CV(CVEstimatorBase):
 
         return mse, coefs, intercepts
 
-    def _evaluate_single(self, X_train, y_train, X_val, y_val, alpha,
-                         sample_weight_train=None, prev_coef=None):
-        """Train on training fold, return (validation_loss, model)."""
-        from statgpu.linear_model._penalized import PenalizedGeneralizedLinearModel, _resolve_loss_name
-
-        model = PenalizedGeneralizedLinearModel(
-            loss=self.loss,
-            penalty=self.penalty,
-            alpha=alpha,
-            l1_ratio=self.l1_ratio,
-            device=self.device,
-            compute_inference=False,
-            max_iter=self.max_iter,
-            tol=self.tol,
-            solver=self.solver,
-        )
-        if prev_coef is not None:
-            model._init_coef = np.asarray(prev_coef, dtype=np.float64)
-        model.fit(X_train, y_train, sample_weight=sample_weight_train)
+    def _evaluate_single(self, model, X_val, y_val):
+        """Evaluate a fitted model on validation data, return validation loss."""
+        from statgpu.linear_model._penalized import _resolve_loss_name
 
         loss_fn = _resolve_loss_name(self.loss)
         X_val_np = _to_numpy(X_val).astype(np.float64)
@@ -176,7 +160,7 @@ class PenalizedGLM_CV(CVEstimatorBase):
             y_pred_np = _to_numpy(model.predict(X_val_np)).ravel()
             val_loss = float(np.mean((y_val_np - y_pred_np) ** 2))
 
-        return val_loss, model
+        return val_loss
 
     def _refit_best(self, X, y, best_alpha):
         """Refit on full data with best alpha."""
@@ -239,6 +223,8 @@ class PenalizedGLM_CV(CVEstimatorBase):
 
         else:
             # General path: warm-start across descending alphas
+            from statgpu.linear_model._penalized import PenalizedGeneralizedLinearModel
+
             sort_idx = np.argsort(-alpha_grid)
             alpha_sorted = alpha_grid[sort_idx]
             all_scores = np.full((self.cv, n_alphas), np.nan)
@@ -250,14 +236,31 @@ class PenalizedGLM_CV(CVEstimatorBase):
                 y_val = y[val_idx]
                 sw_train = sample_weight[train_idx] if sample_weight is not None else None
 
+                # Create model once per fold, reuse across alphas
+                model = PenalizedGeneralizedLinearModel(
+                    loss=self.loss,
+                    penalty=self.penalty,
+                    alpha=alpha_sorted[0],
+                    l1_ratio=self.l1_ratio,
+                    device=self.device,
+                    compute_inference=False,
+                    max_iter=self.max_iter,
+                    tol=self.tol,
+                    solver=self.solver,
+                )
+
                 prev_coef = None
                 for alpha_idx_sorted, alpha in enumerate(alpha_sorted):
                     try:
-                        val_loss, model = self._evaluate_single(
-                            X_train, y_train, X_val, y_val, alpha,
-                            sample_weight_train=sw_train,
-                            prev_coef=prev_coef,
-                        )
+                        # Update alpha on model and penalty
+                        model.alpha = alpha
+                        if hasattr(model, '_penalty') and model._penalty is not None:
+                            model._penalty.alpha = alpha
+                        if prev_coef is not None:
+                            model._init_coef = np.asarray(prev_coef, dtype=np.float64)
+                        model.fit(X_train, y_train, sample_weight=sw_train)
+
+                        val_loss = self._evaluate_single(model, X_val, y_val)
                         orig_idx = sort_idx[alpha_idx_sorted]
                         all_scores[fold_idx, orig_idx] = val_loss
                         prev_coef = _to_numpy(model.coef_).copy()
