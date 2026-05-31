@@ -982,7 +982,10 @@ def fista_lla_path(
 
     # For squared_error + Torch GPU: fully inlined fused loop.
     # CuPy ElementwiseKernel has numerical instability for SCAD/MCP
-    # continuation paths, so it falls through to the unfused path.
+    # LLA continuation paths (coefficients diverge to NaN after ~3000
+    # iterations). Root cause: per-coefficient threshold changes each
+    # LLA step interact poorly with the fused kernel's JIT compilation.
+    # Disable for CuPy, keep for torch (torch.compile handles this correctly).
     if _is_quadratic and backend == "torch":
         Xty = X_c.T @ y_c
         yty = float(_to_numpy(y_c @ y_c)) if backend == "cupy" else float((y_c * y_c).sum().item())
