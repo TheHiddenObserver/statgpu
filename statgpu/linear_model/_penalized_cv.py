@@ -4,6 +4,11 @@ Unified cross-validated penalized GLM estimator.
 Supports all GLM loss functions (squared_error, logistic, poisson, gamma,
 inverse_gaussian, negative_binomial, tweedie) with all penalty types
 (l1, l2, elasticnet, scad, mcp, adaptive_l1, group_lasso).
+
+Optimizations:
+- Warm-start across alpha values (descending order)
+- Batch eigendecomposition for squared_error + l2
+- Precomputed XtX/Lipschitz per fold
 """
 
 from __future__ import annotations
@@ -18,35 +23,7 @@ from statgpu.linear_model._cv_base import CVEstimatorBase, kfold_indices
 
 
 class PenalizedGLM_CV(CVEstimatorBase):
-    """Cross-validated penalized GLM supporting all loss + penalty combinations.
-
-    Parameters
-    ----------
-    loss : str
-        Loss function: 'squared_error', 'logistic', 'poisson', 'gamma',
-        'inverse_gaussian', 'negative_binomial', 'tweedie'.
-    penalty : str
-        Penalty type: 'l1', 'l2', 'elasticnet', 'scad', 'mcp',
-        'adaptive_l1', 'group_lasso'.
-    alpha_grid : array-like or None
-        Explicit alpha grid. If None, auto-generated from data.
-    n_alphas : int
-        Number of alphas for auto-generated grid.
-    l1_ratio : float
-        ElasticNet mixing parameter (only used for elasticnet penalty).
-    cv : int
-        Number of CV folds.
-    random_state : int or None
-        Random seed.
-    device : str or Device
-        Computation device.
-    max_iter : int
-        Maximum iterations for the inner solver.
-    tol : float
-        Convergence tolerance.
-    solver : str
-        Solver to use for the inner model.
-    """
+    """Cross-validated penalized GLM supporting all loss + penalty combinations."""
 
     def __init__(
         self,
@@ -114,6 +91,50 @@ class PenalizedGLM_CV(CVEstimatorBase):
 
         return grid
 
+    def _solve_ridge_fold_batch(self, X_train, y_train, X_val, y_val, alphas):
+        """Batch solve Ridge CV for all alphas using eigendecomposition.
+
+        This is O(eigendecomposition + n_alphas * O(diagonal_scaling))
+        instead of O(n_alphas * O(solve)).
+        """
+        X_train_np = _to_numpy(X_train).astype(np.float64)
+        y_train_np = _to_numpy(y_train).astype(np.float64).ravel()
+        X_val_np = _to_numpy(X_val).astype(np.float64)
+        y_val_np = _to_numpy(y_val).astype(np.float64).ravel()
+
+        n, p = X_train_np.shape
+        n_alphas = len(alphas)
+
+        # Center data
+        X_mean = np.mean(X_train_np, axis=0)
+        y_mean = np.mean(y_train_np)
+        Xc = X_train_np - X_mean
+        yc = y_train_np - y_mean
+
+        # Eigendecomposition of X'X
+        XtX = Xc.T @ Xc
+        eigvals, Q = np.linalg.eigh(XtX)
+        eigvals = np.maximum(eigvals, 1e-15)
+
+        # Q'X'y
+        QtXty = Q.T @ (Xc.T @ yc)
+
+        # Solve for all alphas at once
+        # coef = Q @ diag(1/(eigvals + n*alpha)) @ Q' @ X'y
+        n_alpha = n * alphas  # per-sample convention
+        inv_diag = 1.0 / (eigvals[:, None] + n_alpha[None, :])  # (p, n_alphas)
+        coefs = Q @ (inv_diag * QtXty[:, None])  # (p, n_alphas)
+
+        # Compute intercepts
+        intercepts = y_mean - X_mean @ coefs  # (n_alphas,)
+
+        # Compute validation MSE for all alphas
+        X_val_centered = X_val_np - X_mean
+        y_pred = X_val_centered @ coefs + intercepts[None, :]  # (n_val, n_alphas)
+        mse = np.mean((y_val_np[:, None] - y_pred) ** 2, axis=0)  # (n_alphas,)
+
+        return mse, coefs, intercepts
+
     def _evaluate_single(self, X_train, y_train, X_val, y_val, alpha,
                          sample_weight_train=None, prev_coef=None):
         """Train on training fold, return (validation_loss, model)."""
@@ -130,12 +151,10 @@ class PenalizedGLM_CV(CVEstimatorBase):
             tol=self.tol,
             solver=self.solver,
         )
-        # Warm-start from previous alpha's coefficients
         if prev_coef is not None:
             model._init_coef = np.asarray(prev_coef, dtype=np.float64)
         model.fit(X_train, y_train, sample_weight=sample_weight_train)
 
-        # Compute validation score
         loss_fn = _resolve_loss_name(self.loss)
         X_val_np = _to_numpy(X_val).astype(np.float64)
         y_val_np = _to_numpy(y_val).astype(np.float64).ravel()
@@ -180,10 +199,10 @@ class PenalizedGLM_CV(CVEstimatorBase):
         return model
 
     def fit(self, X, y, sample_weight=None):
-        """Fit the CV model with warm-start optimization.
+        """Fit the CV model with optimized CV loop.
 
-        Sorts alphas descending and warm-starts from the previous alpha's
-        solution, reducing FISTA iterations by 50-80% for adjacent alphas.
+        For squared_error + l2: uses batch eigendecomposition.
+        For other combos: uses warm-start across descending alphas.
         """
         # Generate alpha grid
         if self._alpha_grid_input is not None:
@@ -193,47 +212,62 @@ class PenalizedGLM_CV(CVEstimatorBase):
 
         self.alpha_grid_ = alpha_grid
         n_samples = X.shape[0]
+        n_alphas = len(alpha_grid)
 
         # Generate folds
         folds = kfold_indices(n_samples, self.cv, self.random_state)
-        n_alphas = len(alpha_grid)
 
-        # Sort alphas descending for warm-start (largest alpha first = sparsest)
-        sort_idx = np.argsort(-alpha_grid)
-        alpha_sorted = alpha_grid[sort_idx]
-
-        # CV loop with warm-start
-        all_scores = np.full((self.cv, n_alphas), np.nan)
-
-        for fold_idx, (train_idx, val_idx) in enumerate(folds):
-            X_train = X[train_idx]
-            y_train = y[train_idx]
-            X_val = X[val_idx]
-            y_val = y[val_idx]
-            sw_train = sample_weight[train_idx] if sample_weight is not None else None
-
-            prev_coef = None
-            for alpha_idx_sorted, alpha in enumerate(alpha_sorted):
+        # Fast path: squared_error + l2 uses eigendecomposition
+        if self.loss == 'squared_error' and self.penalty == 'l2':
+            all_scores = np.full((self.cv, n_alphas), np.nan)
+            for fold_idx, (train_idx, val_idx) in enumerate(folds):
+                X_train = X[train_idx]
+                y_train = y[train_idx]
+                X_val = X[val_idx]
+                y_val = y[val_idx]
                 try:
-                    val_loss, model = self._evaluate_single(
-                        X_train, y_train, X_val, y_val, alpha,
-                        sample_weight_train=sw_train,
-                        prev_coef=prev_coef,
+                    mse, _, _ = self._solve_ridge_fold_batch(
+                        X_train, y_train, X_val, y_val, alpha_grid,
                     )
-                    # Map back to original alpha ordering
-                    orig_idx = sort_idx[alpha_idx_sorted]
-                    all_scores[fold_idx, orig_idx] = val_loss
-
-                    # Store coefficients for warm-start to next alpha
-                    prev_coef = _to_numpy(model.coef_).copy()
+                    all_scores[fold_idx, :] = mse
                 except Exception:
-                    orig_idx = sort_idx[alpha_idx_sorted]
-                    all_scores[fold_idx, orig_idx] = np.nan
+                    pass
 
-        # Aggregate across folds
-        mean_scores = np.nanmean(all_scores, axis=0)
-        best_idx = int(np.nanargmin(mean_scores))
-        best_alpha = float(alpha_grid[best_idx])
+            mean_scores = np.nanmean(all_scores, axis=0)
+            best_idx = int(np.nanargmin(mean_scores))
+            best_alpha = float(alpha_grid[best_idx])
+
+        else:
+            # General path: warm-start across descending alphas
+            sort_idx = np.argsort(-alpha_grid)
+            alpha_sorted = alpha_grid[sort_idx]
+            all_scores = np.full((self.cv, n_alphas), np.nan)
+
+            for fold_idx, (train_idx, val_idx) in enumerate(folds):
+                X_train = X[train_idx]
+                y_train = y[train_idx]
+                X_val = X[val_idx]
+                y_val = y[val_idx]
+                sw_train = sample_weight[train_idx] if sample_weight is not None else None
+
+                prev_coef = None
+                for alpha_idx_sorted, alpha in enumerate(alpha_sorted):
+                    try:
+                        val_loss, model = self._evaluate_single(
+                            X_train, y_train, X_val, y_val, alpha,
+                            sample_weight_train=sw_train,
+                            prev_coef=prev_coef,
+                        )
+                        orig_idx = sort_idx[alpha_idx_sorted]
+                        all_scores[fold_idx, orig_idx] = val_loss
+                        prev_coef = _to_numpy(model.coef_).copy()
+                    except Exception:
+                        orig_idx = sort_idx[alpha_idx_sorted]
+                        all_scores[fold_idx, orig_idx] = np.nan
+
+            mean_scores = np.nanmean(all_scores, axis=0)
+            best_idx = int(np.nanargmin(mean_scores))
+            best_alpha = float(alpha_grid[best_idx])
 
         self.alpha_ = best_alpha
         self.best_score_ = float(np.nanmin(mean_scores))
