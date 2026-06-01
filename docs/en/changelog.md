@@ -1,11 +1,22 @@
 # Changelog
 
 > Language: English  
-> Last updated: 2026-05-20  
+> Last updated: 2026-06-01
 > This page: Changelog  
 > Switch: [Chinese](../changelog.md)
 
 Language switch: [Chinese](../changelog.md)
+
+## 2026-06
+
+### Optimized (2026-06-01)
+
+- **Backend transfer helpers and benchmark parser**:
+  - CuPy <-> Torch CUDA conversions now prefer DLPack zero-copy sharing and fall back to the previous safe conversion path when unavailable.
+  - NumPy -> Torch CUDA transfers try pinned host memory with `non_blocking=True`.
+  - Added `dev/tests/_bench_report_parser.py` to summarize full-matrix benchmark text logs into JSON or Markdown.
+  - Benchmark summaries include backend/family/penalty row counts and support `--fail-on-alerts` for scriptable benchmark gates.
+  - CoxPH/CoxPHCV now expose Torch cleanup hooks consistently with the GPU memory cleanup contract.
 
 ## 2026-05
 

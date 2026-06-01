@@ -9,7 +9,15 @@ from typing import Optional, Union, Any
 import numpy as np
 
 from statgpu._config import Device, get_device
-from statgpu.backends import get_backend, BackendBase, _get_torch_device_str
+from statgpu.backends import (
+    get_backend,
+    BackendBase,
+    _get_torch_device_str,
+    _cupy_to_torch_dlpack,
+    _torch_to_cupy_dlpack,
+    _numpy_to_torch_tensor,
+    _move_torch_tensor,
+)
 
 
 class BaseEstimator(ABC):
@@ -121,6 +129,8 @@ class BaseEstimator(ABC):
         elif backend == "cupy":
             return self._to_cupy(X)
         elif backend == "numpy":
+            if hasattr(X, "get"):
+                return X.get()
             # Handle torch tensors that may be on CUDA — must move to CPU first
             if hasattr(X, 'cpu') and hasattr(X, 'numpy'):
                 return X.detach().cpu().numpy()
@@ -144,7 +154,8 @@ class BaseEstimator(ABC):
         if hasattr(X, "get"):  # CuPy-like array
             X_np = X.get()
         elif hasattr(X, "cpu"):  # PyTorch tensor
-            X_np = X.cpu().numpy()
+            X_cpu = X.detach().cpu() if hasattr(X, "detach") else X.cpu()
+            X_np = X_cpu.numpy() if hasattr(X_cpu, "numpy") else np.asarray(X_cpu)
         else:
             X_np = np.asarray(X)
 
@@ -171,20 +182,30 @@ class BaseEstimator(ABC):
             )
 
         if isinstance(X, torch.Tensor):
-            if device and X.device.type != device:
-                return X.to(device)
-            return X
+            return _move_torch_tensor(X, device=device) if device else X
 
         if hasattr(X, "get"):  # CuPy
+            tensor = _cupy_to_torch_dlpack(X, device=device)
+            if tensor is not None:
+                return tensor
             X_np = X.get()
         elif hasattr(X, "cpu"):  # Tensor-like
-            X_cpu = X.cpu()
+            X_cpu = X.detach().cpu() if hasattr(X, "detach") else X.cpu()
             X_np = X_cpu.numpy() if hasattr(X_cpu, "numpy") else np.asarray(X_cpu)
         else:
-            X_np = np.asarray(X)
+            target_device = device or _get_torch_device_str()
+            return _numpy_to_torch_tensor(
+                X,
+                device=target_device,
+                pin_memory=str(target_device).startswith("cuda"),
+            )
 
         target_device = device or _get_torch_device_str()
-        return torch.from_numpy(X_np).to(target_device)
+        return _numpy_to_torch_tensor(
+            X_np,
+            device=target_device,
+            pin_memory=str(target_device).startswith("cuda"),
+        )
 
     def _to_cupy(self, X):
         """Convert input to CuPy array."""
@@ -194,6 +215,9 @@ class BaseEstimator(ABC):
             return X
 
         if hasattr(X, "cpu"):  # PyTorch
+            arr = _torch_to_cupy_dlpack(X)
+            if arr is not None:
+                return arr
             X_np = X.detach().cpu().numpy()
         elif hasattr(X, "get"):  # CuPy (shouldn't happen, but handle it)
             X_np = X.get()

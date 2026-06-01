@@ -6,7 +6,7 @@ array-library detection, module resolution, and scalar conversion logic.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Optional
 
 import numpy as np
 
@@ -94,6 +94,97 @@ def _get_torch_device_str() -> str:
         import warnings
         warnings.warn(f"torch.cuda.is_available() failed, falling back to CPU: {e}")
         return "cpu"
+
+
+def _torch_on_target_device(tensor, device: Optional[str]) -> bool:
+    """Return True when a torch tensor is already on the requested device."""
+    if device is None:
+        return True
+    device = str(device)
+    if device == "cuda":
+        return getattr(tensor, "device", None).type == "cuda"
+    return str(getattr(tensor, "device", "")) == device
+
+
+def _move_torch_tensor(tensor, device: Optional[str] = None, dtype=None, pin_memory: bool = False):
+    """Move/cast a torch tensor, using pinned non-blocking H2D when useful."""
+    import torch
+
+    if dtype is not None and not isinstance(dtype, torch.dtype):
+        try:
+            dtype = getattr(torch, np.dtype(dtype).name)
+        except Exception:
+            pass
+
+    target = device or _get_torch_device_str()
+    needs_move = not _torch_on_target_device(tensor, target)
+    needs_dtype = dtype is not None and tensor.dtype != dtype
+    if not needs_move and not needs_dtype:
+        return tensor
+
+    if pin_memory and str(target).startswith("cuda") and tensor.device.type == "cpu":
+        try:
+            pinned = tensor.pin_memory() if not tensor.is_pinned() else tensor
+            kwargs = {"device": target, "non_blocking": True}
+            if dtype is not None:
+                kwargs["dtype"] = dtype
+            return pinned.to(**kwargs)
+        except Exception:
+            pass
+
+    kwargs = {}
+    if device is not None:
+        kwargs["device"] = target
+    if dtype is not None:
+        kwargs["dtype"] = dtype
+    return tensor.to(**kwargs) if kwargs else tensor
+
+
+def _numpy_to_torch_tensor(x, device: Optional[str] = None, dtype=None, pin_memory: bool = False):
+    """Convert NumPy-like input to torch, preserving contiguous fast paths."""
+    import torch
+
+    arr = np.asarray(x)
+    if not arr.flags["C_CONTIGUOUS"]:
+        arr = np.ascontiguousarray(arr)
+    tensor = torch.from_numpy(arr)
+    return _move_torch_tensor(tensor, device=device, dtype=dtype, pin_memory=pin_memory)
+
+
+def _cupy_to_torch_dlpack(x, device: Optional[str] = None):
+    """Convert a CuPy array to torch through DLPack, returning None if unsupported."""
+    try:
+        import cupy as cp
+        import torch
+
+        if not isinstance(x, cp.ndarray):
+            return None
+        try:
+            tensor = torch.utils.dlpack.from_dlpack(x)
+        except TypeError:
+            tensor = torch.utils.dlpack.from_dlpack(x.toDlpack())
+        return _move_torch_tensor(tensor, device=device)
+    except Exception:
+        return None
+
+
+def _torch_to_cupy_dlpack(x):
+    """Convert a CUDA torch tensor to CuPy through DLPack, returning None if unsupported."""
+    try:
+        import cupy as cp
+        import torch
+
+        if not isinstance(x, torch.Tensor) or not x.is_cuda:
+            return None
+        tensor = x.detach()
+        if not tensor.is_contiguous():
+            tensor = tensor.contiguous()
+        try:
+            return cp.from_dlpack(tensor)
+        except Exception:
+            return cp.fromDlpack(torch.utils.dlpack.to_dlpack(tensor))
+    except Exception:
+        return None
 
 
 # ---------------------------------------------------------------------------

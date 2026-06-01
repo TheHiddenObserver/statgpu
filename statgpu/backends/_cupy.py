@@ -5,6 +5,7 @@ CuPy GPU backend.
 import numpy as np
 
 from ._base import BackendBase
+from ._utils import _torch_to_cupy_dlpack
 
 
 class CuPyBackend(BackendBase):
@@ -25,6 +26,9 @@ class CuPyBackend(BackendBase):
     def asarray(self, x, dtype=None):
         import cupy as cp
         if hasattr(x, "cpu"):
+            arr = _torch_to_cupy_dlpack(x)
+            if arr is not None:
+                return arr.astype(dtype, copy=False) if dtype is not None else arr
             # PyTorch tensors expose a .cpu() method that moves the tensor to
             # CPU memory before converting to NumPy.  Duck-typing avoids a
             # mandatory torch import.

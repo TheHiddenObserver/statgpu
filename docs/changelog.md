@@ -7,6 +7,17 @@
 
 语言切换：[English](en/changelog.md)
 
+## 2026-06
+
+### 优化 (2026-06-01)
+
+- **后端传输 helper 与 benchmark parser**:
+  - CuPy <-> Torch CUDA 转换优先使用 DLPack 零拷贝共享，失败时回退到原安全路径。
+  - NumPy -> Torch CUDA 传输在可用时尝试 pinned memory 与 `non_blocking=True`。
+  - 新增 `dev/tests/_bench_report_parser.py`，可将 full-matrix benchmark 文本日志汇总为 JSON/Markdown。
+  - Benchmark summary 现在包含 backend/family/penalty 行数统计，并支持 `--fail-on-alerts` 作为脚本化 gate。
+  - CoxPH/CoxPHCV 统一暴露 Torch CUDA 清理钩子，补齐 GPU memory cleanup 约束。
+
 ## 2026-05
 
 ### 修复 (2026-05-20)

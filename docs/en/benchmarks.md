@@ -1,7 +1,7 @@
 # Benchmark Index
 
 > Language: English  
-> Last updated: 2026-04-16  
+> Last updated: 2026-06-01
 > This page: Benchmark index  
 > Switch: [Chinese](../benchmarks.md)
 
@@ -216,6 +216,21 @@ Latest rerun snapshot (2026-04-10, aligned setup):
   - Penalties: none, l1, l2, elasticnet, scad, mcp, adaptive_l1, group_lasso, group_mcp, group_scad
   - Scales: n=500/p=50, n=2000/p=200, n=5000/p=500
   - Backends: CPU (NumPy), CuPy, PyTorch
+
+- `dev/tests/_bench_report_parser.py`
+  - Summarizes full-matrix text logs into JSON and Markdown without importing `statgpu`.
+  - Reports row counts, backend/family/penalty distributions, precision alerts, slow GPU rows, fastest GPU rows, warnings, and errors.
+  - Supports `--fail-on-alerts` for scriptable gates on precision alerts, failed sections, failed TOTAL status, or errors.
+
+Example:
+
+```bash
+python dev/tests/_bench_report_parser.py \
+  dev/tests/_bench_full_matrix_output_section_A.txt \
+  --summary-json tmp/bench_summary.json \
+  --summary-md tmp/bench_summary.md \
+  --fail-on-alerts
+```
 
 Sections:
 - **Section A** (816 tests): Cross-backend timing + precision across all family x penalty x solver x backend x scale

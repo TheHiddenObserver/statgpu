@@ -30,6 +30,7 @@ dev/design/
 # Debug / scratch files in tests (keep only the formal test suite)
 dev/tests/_*/
 dev/tests/_bench_*.py
+!dev/tests/_bench_report_parser.py
 dev/tests/_bench_*.txt
 !dev/tests/_bench_realdata_*.py
 dev/tests/*_runner.py

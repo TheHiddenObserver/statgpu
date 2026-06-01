@@ -147,6 +147,25 @@ class CoxPH(BaseEstimator):
         except Exception:
             pass
 
+    def _cleanup_torch_memory(self):
+        """Best-effort Torch CUDA cache cleanup."""
+        if not self.gpu_memory_cleanup:
+            return
+        try:
+            import torch
+
+            torch.cuda.empty_cache()
+            torch.cuda.synchronize()
+        except Exception:
+            pass
+
+    def __del__(self):
+        try:
+            self._cleanup_cuda_memory()
+            self._cleanup_torch_memory()
+        except Exception:
+            pass
+
     @staticmethod
     def _extract_convergence_status(result):
         """Best-effort convergence extraction from statsmodels results."""
@@ -273,15 +292,14 @@ class CoxPH(BaseEstimator):
         elif device == Device.TORCH:
             import torch
 
-            # Determine torch device (cuda if available, else cpu)
-            torch_device = "cuda" if torch.cuda.is_available() else "cpu"
+            torch_device = "cuda"
 
-            X_torch = torch.as_tensor(self._to_array(X), dtype=torch.float64, device=torch_device)
-            time_torch = torch.as_tensor(self._to_array(time), dtype=torch.float64, device=torch_device)
-            event_torch = torch.as_tensor(self._to_array(event), dtype=torch.int32, device=torch_device)
-            entry_torch = None if entry is None else torch.as_tensor(
-                self._to_array(entry), dtype=torch.float64, device=torch_device
-            )
+            X_torch = self._to_array(X, Device.TORCH, backend="torch").to(dtype=torch.float64)
+            time_torch = self._to_array(time, Device.TORCH, backend="torch").to(dtype=torch.float64)
+            event_torch = self._to_array(event, Device.TORCH, backend="torch").to(dtype=torch.int32)
+            entry_torch = None if entry is None else self._to_array(
+                entry, Device.TORCH, backend="torch"
+            ).to(dtype=torch.float64)
 
             if X_torch.ndim == 1:
                 X_torch = X_torch.reshape(-1, 1)
@@ -305,9 +323,9 @@ class CoxPH(BaseEstimator):
                 self._event = None
                 self._entry = None
 
-            cluster_torch = None if cluster is None else torch.as_tensor(
-                self._to_array(cluster), dtype=torch.int64, device=torch_device
-            )
+            cluster_torch = None if cluster is None else self._to_array(
+                cluster, Device.TORCH, backend="torch"
+            ).to(dtype=torch.int64)
             self._fit_torch(
                 X_torch,
                 time_torch,
@@ -1297,6 +1315,7 @@ class CoxPH(BaseEstimator):
             self._baseline_hazard = None
             self._baseline_cumulative_hazard = None
             self._unique_times = None
+        self._cleanup_torch_memory()
 
     def _compute_log_likelihood(self, beta, X, time, event, efron_pre=None, entry=None):
         """Compute log partial likelihood (Breslow/Efron tie handling)."""
