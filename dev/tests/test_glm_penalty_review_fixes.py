@@ -726,7 +726,7 @@ def test_logistic_sparse_torch_cv_uses_fold_batched_path(monkeypatch):
         alpha_grid,
         "torch",
         folds,
-        strict=True,
+        strict=False,
     )
 
     assert len(calls) == 1
@@ -797,7 +797,7 @@ def test_logistic_sparse_cupy_cv_uses_fold_batched_path(monkeypatch):
         alpha_grid,
         "cuda",
         folds,
-        strict=True,
+        strict=False,
     )
 
     assert len(calls) == 1

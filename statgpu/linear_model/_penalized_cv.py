@@ -2218,9 +2218,12 @@ class PenalizedGLM_CV(CVEstimatorBase):
         )
         use_glm_sparse_path_cv = self._uses_glm_sparse_path(penalty_name, cv_solver)
 
-        # Unified fold-batched path for all GLM losses with l1/elasticnet
+        # Unified fold-batched path for all GLM losses with l1/elasticnet.
+        # Only used for approximate/two-stage CV; strict CV must use the
+        # per-fold solver to match the refit path exactly.
         use_fold_batch_cv = (
-            loss_name in _FOLD_BATCH_CONFIGS
+            not strict
+            and loss_name in _FOLD_BATCH_CONFIGS
             and penalty_name in ("l1", "elasticnet", "en")
             and device_name in ("torch", "cuda")
         )
