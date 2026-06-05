@@ -133,6 +133,7 @@ def demean_variables(y, X, entity_ids, time_ids=None, xp=None):
         # Two-way FE: iterate until convergence
         for _ in range(50):
             y_prev = y_d.copy() if hasattr(y_d, 'copy') else y_d - 0.0
+            X_prev = X_d.copy() if hasattr(X_d, 'copy') else X_d - 0.0
             # Entity demean
             y_d = within_transform(y_d, entity_ids, xp)
             for j in range(X_d.shape[1]):
@@ -141,9 +142,10 @@ def demean_variables(y, X, entity_ids, time_ids=None, xp=None):
             y_d = within_transform(y_d, time_ids, xp)
             for j in range(X_d.shape[1]):
                 X_d[:, j] = within_transform(X_d[:, j], time_ids, xp)
-            # Check convergence
-            delta = float(xp.max(xp.abs(y_d - y_prev)))
-            if delta < 1e-10:
+            # Check convergence on both y and X
+            delta_y = float(xp.max(xp.abs(y_d - y_prev)))
+            delta_X = float(xp.max(xp.abs(X_d - X_prev)))
+            if max(delta_y, delta_X) < 1e-10:
                 break
     else:
         # One-way FE: single pass

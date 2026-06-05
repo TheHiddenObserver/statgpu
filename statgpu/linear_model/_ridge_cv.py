@@ -57,8 +57,9 @@ def _make_ridge_cv_auto_cache_key(X, y, alphas, folds, fit_intercept, use_gpu, s
     h.update(str(fit_intercept).encode("utf-8"))
     h.update(str(use_gpu).encode("utf-8"))
     # Hash data content: first row, last row, mean, std
-    X_np = np.asarray(X, dtype=np.float64)
-    y_np = np.asarray(y, dtype=np.float64).ravel()
+    from statgpu.backends import _to_numpy
+    X_np = np.asarray(_to_numpy(X), dtype=np.float64)
+    y_np = np.asarray(_to_numpy(y), dtype=np.float64).ravel()
     h.update(X_np[0].tobytes())
     h.update(X_np[-1].tobytes())
     h.update(np.asarray([X_np.mean(), X_np.std()], dtype=np.float64).tobytes())
