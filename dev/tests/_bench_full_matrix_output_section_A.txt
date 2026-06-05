@@ -1,0 +1,1929 @@
+==================================================================================================================================
+  FULL MATRIX BENCHMARK: ALL Families x ALL Penalties (incl. none) x ALL Solvers x ALL Backends x ALL Scales
+==================================================================================================================================
+  Families: ['squared_error', 'logistic', 'poisson', 'gamma', 'inverse_gaussian', 'negative_binomial', 'tweedie']
+  Penalties: ['none', 'l1', 'l2', 'elasticnet', 'scad', 'mcp', 'adaptive_l1', 'group_lasso', 'group_mcp', 'group_scad']
+  Scales: [(500, 50), (2000, 200), (5000, 500)]
+  Alpha: 0.01  Max-iter: 2000  Tol: 1e-06
+  Sections: A
+
+  CuPy: 13.6.0
+  Torch: 2.0.0+cu117, CUDA: True
+
+  Generating datasets...
+  Generated 21 datasets.
+
+==================================================================================================================================
+  SECTION A: Cross-Backend Timing — Auto Solver x ALL Backends x ALL Scales
+==================================================================================================================================
+  Warming up GPU backends...
+  Warming up solver+penalty compiled paths (28 pairs x 2 devices)...
+  Warming up loss-specific fused paths (6 families x 2 devices)...
+  Warm-up complete.
+
+  Warm-up complete.
+
+
+  [squared_error+none | n=500,p=50 | solvers=newton,fista,fista_bb,exact]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  newton         CPU             4.6        2     50      6.142098               —         —
+  newton         cupy            5.2        2     50      6.142098        2.37e-15     0.87x
+  newton         torch           3.9        2     50      6.142098        6.88e-15     1.17x
+  fista          CPU             5.0      199     50      6.142097               —         —
+  fista          cupy          124.6      124     50      6.142098        9.95e-07     0.04x
+  fista          torch          60.4      124     50      6.142098        9.95e-07     0.08x
+  fista_bb       CPU             5.1      199     50      6.142097               —         —
+  fista_bb       cupy          124.0      124     50      6.142098        9.95e-07     0.04x
+  fista_bb       torch          60.0      124     50      6.142098        9.95e-07     0.08x
+  exact          CPU             1.2        1     50      6.142098               —         —
+  exact          cupy            1.5        1     50      6.142098        6.77e-15     0.79x
+  exact          torch           1.0        1     50      6.142098        7.44e-15     1.13x
+
+  [squared_error+l1 | n=500,p=50 | solvers=fista,fista_bb]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  fista          CPU             4.8      174     25      6.104016               —         —
+  fista          cupy           24.5      175     25      6.104016        3.33e-08     0.19x
+  fista          torch          28.0      175     25      6.104016        3.33e-08     0.17x
+  fista_bb       CPU             4.8      174     25      6.104016               —         —
+  fista_bb       cupy           23.4      175     25      6.104016        3.33e-08     0.21x
+  fista_bb       torch          28.0      175     25      6.104016        3.33e-08     0.17x
+
+  [squared_error+l2 | n=500,p=50 | solvers=newton,fista,fista_bb,irls,exact,admm]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  newton         CPU             1.4        2     50      6.047221               —         —
+  newton         cupy            4.8        2     50      6.047221        1.63e-16     0.29x
+  newton         torch           3.4        2     50      6.047221        2.42e-15     0.41x
+  fista          CPU             4.7      199     50      6.047220               —         —
+  fista          cupy          103.7      103     50      6.047222        1.61e-06     0.05x
+  fista          torch          50.5      103     50      6.047222        1.61e-06     0.09x
+  fista_bb       CPU             5.0      199     50      6.047220               —         —
+  fista_bb       cupy          105.9      103     50      6.047222        1.61e-06     0.05x
+  fista_bb       torch          50.6      103     50      6.047222        1.61e-06     0.10x
+  irls           CPU             4.7        5     50      6.047221               —         —
+  irls           cupy            8.7        5     50      6.047221        6.22e-15     0.54x
+  irls           torch           6.1        5     50      6.047221        6.22e-15     0.76x
+  exact          CPU             0.7        1     50      6.047221               —         —
+  exact          cupy            1.2        1     50      6.047221        7.17e-15     0.57x
+  exact          torch           0.9        1     50      6.047221        7.30e-15     0.72x
+  admm           CPU            11.2       41     50      6.047220               —         —
+  admm           cupy           33.1       41     50      6.047220        8.70e-15     0.34x
+  admm           torch          27.9       41     50      6.047220        8.88e-15     0.40x
+
+  [squared_error+elasticnet | n=500,p=50 | solvers=fista,fista_bb]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  fista          CPU             5.1      176     34      6.076067               —         —
+  fista          cupy           24.4      180     34      6.076067        9.18e-08     0.21x
+  fista          torch          31.0      180     34      6.076067        9.18e-08     0.17x
+  fista_bb       CPU             5.2      176     34      6.076067               —         —
+  fista_bb       cupy           24.7      180     34      6.076067        9.18e-08     0.21x
+  fista_bb       torch          31.3      180     34      6.076067        9.18e-08     0.17x
+
+  [squared_error+scad | n=500,p=50 | solvers=fista,fista_bb]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  fista          CPU          1394.4    13444     25      6.141014               —         —
+  fista          cupy         3128.0    13872     25      6.141014        1.82e-07     0.45x
+  fista          torch        2793.5    13872     25      6.141014        1.82e-07     0.50x
+  fista_bb       CPU          1393.0    13444     25      6.141014               —         —
+  fista_bb       cupy         3131.1    13872     25      6.141014        1.82e-07     0.44x
+  fista_bb       torch        2778.9    13872     25      6.141014        1.82e-07     0.50x
+
+  [squared_error+mcp | n=500,p=50 | solvers=fista,fista_bb]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  fista          CPU          1619.9    15785     25      6.142289               —         —
+  fista          cupy         3693.5    16713     25      6.142289        3.09e-06     0.44x
+  fista          torch        3306.9    16713     25      6.142289        3.09e-06     0.49x
+  fista_bb       CPU          1621.5    15785     25      6.142289               —         —
+  fista_bb       cupy         3671.8    16713     25      6.142289        3.09e-06     0.44x
+  fista_bb       torch        3344.8    16713     25      6.142289        3.09e-06     0.48x
+
+  [squared_error+adaptive_l1 | n=500,p=50 | solvers=fista,fista_bb]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  fista          CPU           126.9      561     44      6.140889               —         —
+  fista          cupy          667.0      562     44      6.141242        9.05e-04     0.19x
+  fista          torch         557.4      562     44      6.141242        9.05e-04     0.23x
+  fista_bb       CPU           149.0      561     44      6.140889               —         —
+  fista_bb       cupy          775.1      562     44      6.141242        9.05e-04     0.19x
+  fista_bb       torch         558.5      562     44      6.141242        9.05e-04     0.27x
+
+  [squared_error+group_lasso | n=500,p=50 | solvers=fista,fista_bb]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  fista          CPU            32.9       80     45      6.062966               —         —
+  fista          cupy         1497.1       80     45      6.062966        3.86e-12     0.02x
+  fista          torch         465.1       80     45      6.062966        3.86e-12     0.07x
+  fista_bb       CPU            27.2       80     45      6.062966               —         —
+  fista_bb       cupy          942.3       80     45      6.062966        3.86e-12     0.03x
+  fista_bb       torch         464.1       80     45      6.062966        3.86e-12     0.06x
+
+  [squared_error+group_mcp | n=500,p=50 | solvers=fista,fista_bb]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  fista          CPU            17.3      202     45      6.142673               —         —
+  fista          cupy          962.9      580     45      6.139918        2.85e-03     0.02x
+  fista          torch         529.3      580     45      6.139918        2.85e-03     0.03x
+  fista_bb       CPU            17.7      202     45      6.142673               —         —
+  fista_bb       cupy          272.0      166     45      6.142674        3.83e-06     0.06x
+  fista_bb       torch         140.7      166     45      6.142674        3.83e-06     0.13x
+
+  [squared_error+group_scad | n=500,p=50 | solvers=fista,fista_bb]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  fista          CPU            18.1      202     45      6.142791               —         —
+  fista          cupy         1072.2      595     45      6.142808        2.60e-03     0.02x
+  fista          torch         587.1      595     45      6.142808        2.60e-03     0.03x
+  fista_bb       CPU            18.4      202     45      6.142791               —         —
+  fista_bb       cupy          292.4      157     45      6.142791        5.91e-07     0.06x
+  fista_bb       torch         143.9      157     45      6.142791        5.91e-07     0.13x
+
+  [logistic+none | n=500,p=50 | solvers=newton,fista,fista_bb,lbfgs]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  newton         CPU            11.3       10     50      8.837516               —         —
+  newton         cupy           29.4       10     50      8.837516        7.26e-11     0.38x
+  newton         torch          18.9       10     50      8.837516        7.26e-11     0.60x
+  fista          CPU           412.1     1110     50      8.837516               —         —
+  fista          cupy         4946.2     2000     50      8.837900        2.57e-04     0.08x
+  fista          torch        2785.6     2000     50      8.837503        9.21e-06     0.15x
+  fista_bb       CPU           408.8     1110     50      8.837516               —         —
+  fista_bb       cupy         4934.9     2000     50      8.837900        2.57e-04     0.08x
+  fista_bb       torch        2785.5     2000     50      8.837503        9.21e-06     0.15x
+  lbfgs          CPU            14.6       30     50      8.837485               —         —
+  lbfgs          cupy          144.3       30     50      8.837485        2.66e-15     0.10x
+  lbfgs          torch          57.3       30     50      8.837485        7.84e-16     0.25x
+
+  [logistic+l1 | n=500,p=50 | solvers=fista,fista_bb]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  fista          CPU           134.5      323     19      3.439733               —         —
+  fista          cupy         1066.8      325     19      3.439732        5.85e-07     0.13x
+  fista          torch         458.8      325     19      3.439732        5.85e-07     0.29x
+  fista_bb       CPU            51.5      118     19      3.439743               —         —
+  fista_bb       cupy          402.8      118     19      3.439743        2.20e-12     0.13x
+  fista_bb       torch         210.3      118     19      3.439743        2.20e-12     0.24x
+
+  [logistic+l2 | n=500,p=50 | solvers=newton,fista,fista_bb,irls,lbfgs]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  newton         CPU             9.3        6     50      3.216471               —         —
+  newton         cupy           31.2        6     50      3.216471        1.67e-16     0.30x
+  newton         torch          17.4        6     50      3.216471        4.44e-16     0.53x
+  fista          CPU           123.6      333     50      3.216554               —         —
+  fista          cupy         4909.5     2000     50      3.211283        3.95e-03     0.03x
+  fista          torch        2764.3     2000     50      3.211283        3.95e-03     0.04x
+  fista_bb       CPU           127.4      333     50      3.216554               —         —
+  fista_bb       cupy         4929.5     2000     50      3.211283        3.95e-03     0.03x
+  fista_bb       torch        2771.0     2000     50      3.211283        3.95e-03     0.05x
+  irls           CPU            11.4       10     50      3.216554               —         —
+  irls           cupy           22.2       10     50      3.216554        2.00e-15     0.52x
+  irls           torch          16.9       10     50      3.216554        2.00e-15     0.68x
+  lbfgs          CPU             9.6       17     50      3.216581               —         —
+  lbfgs          cupy           95.6       17     50      3.216581        6.66e-16     0.10x
+  lbfgs          torch          38.9       17     50      3.216581        4.72e-16     0.25x
+
+  [logistic+elasticnet | n=500,p=50 | solvers=fista,fista_bb]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  fista          CPU            90.9      251     35      3.221659               —         —
+  fista          cupy          834.1      253     35      3.221659        2.66e-15     0.11x
+  fista          torch         368.5      253     35      3.221659        1.78e-15     0.25x
+  fista_bb       CPU            50.2      108     35      3.221665               —         —
+  fista_bb       cupy          382.6      109     35      3.221665        1.06e-07     0.13x
+  fista_bb       torch         199.3      109     35      3.221665        1.06e-07     0.25x
+
+  [logistic+scad | n=500,p=50 | solvers=fista,fista_bb]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  fista          CPU          2275.9     9195     19      5.000000               —         —
+  fista          cupy        21059.1     9280     19      5.000000        3.99e-07     0.11x
+  fista          torch       11442.8     9280     19      5.000000        3.99e-07     0.20x
+  fista_bb       CPU          2304.1     9195     19      5.000000               —         —
+  fista_bb       cupy        20708.9     9280     19      5.000000        3.99e-07     0.11x
+  fista_bb       torch       11430.5     9280     19      5.000000        3.99e-07     0.20x
+
+  [logistic+mcp | n=500,p=50 | solvers=fista,fista_bb]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  fista          CPU          2211.4     8809     20      5.000000               —         —
+  fista          cupy        19907.5     8900     20      5.000000        2.77e-07     0.11x
+  fista          torch       10926.3     8900     20      5.000000        2.77e-07     0.20x
+  fista_bb       CPU          2184.2     8809     20      5.000000               —         —
+  fista_bb       cupy        19979.3     8900     20      5.000000        2.77e-07     0.11x
+  fista_bb       torch       11076.8     8900     20      5.000000        2.77e-07     0.20x
+
+  [logistic+adaptive_l1 | n=500,p=50 | solvers=fista,fista_bb]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  fista          CPU           275.5      703     29      5.761484               —         —
+  fista          cupy         2255.1      703     29      5.761483        4.74e-07     0.12x
+  fista          torch        1026.6      703     29      5.761483        4.74e-07     0.27x
+  fista_bb       CPU           277.9      703     29      5.761484               —         —
+  fista_bb       cupy         2285.1      703     29      5.761483        4.74e-07     0.12x
+  fista_bb       torch        1026.9      703     29      5.761483        4.74e-07     0.27x
+
+  [logistic+group_lasso | n=500,p=50 | solvers=fista,fista_bb]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  fista          CPU             9.7       26     40      0.317143               —         —
+  fista          cupy          311.7       26     40      0.317143        3.54e-12     0.03x
+  fista          torch         151.7       26     40      0.317143        3.54e-12     0.06x
+  fista_bb       CPU             9.8       26     40      0.317143               —         —
+  fista_bb       cupy          310.9       26     40      0.317143        3.54e-12     0.03x
+  fista_bb       torch         151.0       26     40      0.317143        3.54e-12     0.06x
+
+  [logistic+group_mcp | n=500,p=50 | solvers=fista,fista_bb]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  fista          CPU          3357.3    10201     50      5.000000               —         —
+  fista          cupy        28805.5    10293     50      5.000000        5.16e-08     0.12x
+  fista          torch       15054.7    10293     50      5.000000        5.16e-08     0.22x
+  fista_bb       CPU          3434.1    10201     50      5.000000               —         —
+  fista_bb       cupy        28976.1    10293     50      5.000000        5.16e-08     0.12x
+  fista_bb       torch       15070.0    10293     50      5.000000        5.16e-08     0.23x
+
+  [logistic+group_scad | n=500,p=50 | solvers=fista,fista_bb]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  fista          CPU          4076.2    12249     50      5.000000               —         —
+  fista          cupy        34400.2    12374     50      5.000000        6.85e-08     0.12x
+  fista          torch       17902.8    12374     50      5.000000        6.85e-08     0.23x
+  fista_bb       CPU          4059.3    12249     50      5.000000               —         —
+  fista_bb       cupy        35368.2    12374     50      5.000000        6.85e-08     0.11x
+  fista_bb       torch       17728.3    12374     50      5.000000        6.85e-08     0.23x
+
+  [poisson+none | n=500,p=50 | solvers=newton,fista,fista_bb,lbfgs]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  newton         CPU             9.4        8     50      2.517136               —         —
+  newton         cupy           22.7        8     50      2.517136        2.22e-16     0.41x
+  newton         torch          13.5        8     50      2.517136        3.05e-16     0.69x
+  fista          CPU            68.7      163     50      2.517115               —         —
+  fista          cupy          378.5      163     50      2.517115        1.64e-09     0.18x
+  fista          torch         212.5      163     50      2.517115        1.64e-09     0.32x
+  fista_bb       CPU            70.2      163     50      2.517115               —         —
+  fista_bb       cupy          378.9      163     50      2.517115        1.64e-09     0.19x
+  fista_bb       torch         212.7      163     50      2.517115        1.64e-09     0.33x
+  lbfgs          CPU            25.4       57     50      2.517136               —         —
+  lbfgs          cupy          273.7       57     50      2.517136        1.20e-14     0.09x
+  lbfgs          torch         106.7       57     50      2.517136        4.75e-15     0.24x
+
+  [poisson+l1 | n=500,p=50 | solvers=fista,fista_bb]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  fista          CPU           408.3     1295     49      2.499022               —         —
+  fista          cupy         3281.4     1552     49      2.499121        6.42e-05     0.12x
+  fista          torch        1546.1     1552     49      2.499121        6.42e-05     0.26x
+  fista_bb       CPU            66.4      144     49      2.499140               —         —
+  fista_bb       cupy          388.5      151     49      2.499140        1.52e-06     0.17x
+  fista_bb       torch         219.3      151     49      2.499140        1.52e-06     0.30x
+
+  [poisson+l2 | n=500,p=50 | solvers=newton,fista,fista_bb,irls,lbfgs]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  newton         CPU             8.4        8     50      2.507664               —         —
+  newton         cupy           21.5        8     50      2.507664        2.22e-16     0.39x
+  newton         torch          13.5        8     50      2.507664        2.78e-16     0.63x
+  fista          CPU            86.7      207     50      2.507681               —         —
+  fista          cupy          480.8      208     50      2.507682        7.63e-07     0.18x
+  fista          torch         267.7      208     50      2.507682        7.64e-07     0.32x
+  fista_bb       CPU            88.0      207     50      2.507681               —         —
+  fista_bb       cupy          476.9      208     50      2.507682        7.63e-07     0.18x
+  fista_bb       torch         268.1      208     50      2.507682        7.64e-07     0.33x
+  irls           CPU            10.2       10     50      2.507664               —         —
+  irls           cupy           17.0       10     50      2.507664        1.82e-14     0.60x
+  irls           torch          12.7       10     50      2.507664        1.22e-14     0.80x
+  lbfgs          CPU            15.2       33     50      2.508139               —         —
+  lbfgs          cupy          168.2       33     50      2.508139        1.11e-15     0.09x
+  lbfgs          torch          67.0       33     50      2.508139        2.50e-16     0.23x
+
+  [poisson+elasticnet | n=500,p=50 | solvers=fista,fista_bb]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  fista          CPU           435.1     1300     50      2.503270               —         —
+  fista          cupy         3385.5     1558     50      2.503369        6.43e-05     0.13x
+  fista          torch        1617.8     1558     50      2.503369        6.43e-05     0.27x
+  fista_bb       CPU            77.2      160     50      2.503389               —         —
+  fista_bb       cupy          419.7      160     50      2.503389        4.82e-09     0.18x
+  fista_bb       torch         238.0      160     50      2.503389        4.71e-09     0.32x
+
+  [poisson+scad | n=500,p=50 | solvers=fista,fista_bb]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  fista          CPU           203.8      360     49      2.162689               —         —
+  fista          cupy         2304.2      360     49      2.162689        8.37e-12     0.09x
+  fista          torch        1612.3      360     49      2.162689        8.37e-12     0.13x
+  fista_bb       CPU           204.3      360     49      2.162689               —         —
+  fista_bb       cupy         2474.5      360     49      2.162689        8.37e-12     0.08x
+  fista_bb       torch        1610.6      360     49      2.162689        8.37e-12     0.13x
+
+  [poisson+mcp | n=500,p=50 | solvers=fista,fista_bb]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  fista          CPU           202.7      360     50      2.172908               —         —
+  fista          cupy         2234.7      360     50      2.172908        8.39e-12     0.09x
+  fista          torch        1606.1      360     50      2.172908        8.39e-12     0.13x
+  fista_bb       CPU           203.0      360     50      2.172908               —         —
+  fista_bb       cupy         2247.4      360     50      2.172908        8.39e-12     0.09x
+  fista_bb       torch        1608.4      360     50      2.172908        8.39e-12     0.13x
+
+  [poisson+adaptive_l1 | n=500,p=50 | solvers=fista,fista_bb]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  fista          CPU           456.5     1313     49      2.515906               —         —
+  fista          cupy         3296.6     1576     49      2.516008        6.59e-05     0.14x
+  fista          torch        1632.6     1576     49      2.516008        6.59e-05     0.28x
+  fista_bb       CPU           455.4     1313     49      2.515906               —         —
+  fista_bb       cupy         3296.1     1576     49      2.516008        6.59e-05     0.14x
+  fista_bb       torch        1633.9     1576     49      2.516008        6.59e-05     0.28x
+
+  [poisson+group_lasso | n=500,p=50 | solvers=fista,fista_bb]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  fista          CPU            50.2      139     50     29.010460               —         —
+  fista          cupy         1626.0      139     50     29.010460        3.78e-12     0.03x
+  fista          torch         792.7      139     50     29.010460        3.78e-12     0.06x
+  fista_bb       CPU            47.1      139     50     29.010460               —         —
+  fista_bb       cupy         1614.8      139     50     29.010460        3.78e-12     0.03x
+  fista_bb       torch         789.4      139     50     29.010460        3.78e-12     0.06x
+
+  [poisson+group_mcp | n=500,p=50 | solvers=fista,fista_bb]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  fista          CPU           533.9      360     50      2.378245               —         —
+  fista          cupy         4745.2      360     50      2.378245        4.36e-12     0.11x
+  fista          torch        2570.1      360     50      2.378245        4.36e-12     0.21x
+  fista_bb       CPU           540.5      360     50      2.378245               —         —
+  fista_bb       cupy         4749.7      360     50      2.378245        4.36e-12     0.11x
+  fista_bb       torch        2585.6      360     50      2.378245        4.36e-12     0.21x
+
+  [poisson+group_scad | n=500,p=50 | solvers=fista,fista_bb]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  fista          CPU           533.5      360     50      2.377077               —         —
+  fista          cupy         4814.7      360     50      2.377077        4.35e-12     0.11x
+  fista          torch        2531.3      360     50      2.377077        4.35e-12     0.21x
+  fista_bb       CPU           539.9      360     50      2.377077               —         —
+  fista_bb       cupy         4738.2      360     50      2.377077        4.35e-12     0.11x
+  fista_bb       torch        2547.1      360     50      2.377077        4.35e-12     0.21x
+
+  [gamma+none | n=500,p=50 | solvers=newton,fista,fista_bb,lbfgs]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  newton         CPU            78.7      140     50      1.705682               —         —
+  newton         cupy          297.1      140     50      1.705682        2.29e-16     0.26x
+  newton         torch         189.6      140     50      1.705682        1.11e-16     0.41x
+  fista          CPU           187.0      408     50      1.705680               —         —
+  fista          cupy         1164.0      415     50      1.705681        7.73e-07     0.16x
+  fista          torch         622.1      415     50      1.705681        7.73e-07     0.30x
+  fista_bb       CPU           186.5      408     50      1.705680               —         —
+  fista_bb       cupy         1177.9      415     50      1.705681        7.73e-07     0.16x
+  fista_bb       torch         620.8      415     50      1.705681        7.73e-07     0.30x
+  lbfgs          CPU            15.4       29     50      1.705682               —         —
+  lbfgs          cupy          136.5       29     50      1.705682        2.22e-16     0.11x
+  lbfgs          torch          54.6       29     50      1.705682        2.22e-16     0.28x
+
+  [gamma+l1 | n=500,p=50 | solvers=fista]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  fista          CPU           249.2      759     42      1.643554               —         —
+  fista          cupy         1623.2      760     42      1.643554        2.16e-07     0.15x
+  fista          torch         781.2      760     42      1.643554        2.16e-07     0.32x
+
+  [gamma+l2 | n=500,p=50 | solvers=newton,fista,fista_bb,irls,lbfgs]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  newton         CPU            18.9       24     50      1.681472               —         —
+  newton         cupy           66.1       24     50      1.681472        2.22e-16     0.29x
+  newton         torch          40.1       24     50      1.681472        1.11e-16     0.47x
+  fista          CPU           181.6      402     50      1.681461               —         —
+  fista          cupy         1191.0      409     50      1.681461        3.80e-07     0.15x
+  fista          torch         826.9      409     50      1.681461        3.80e-07     0.22x
+  fista_bb       CPU           208.2      402     50      1.681461               —         —
+  fista_bb       cupy         1357.2      409     50      1.681461        3.80e-07     0.15x
+  fista_bb       torch         620.5      409     50      1.681461        3.80e-07     0.34x
+  irls           CPU            19.6       15     50      1.681854               —         —
+  irls           cupy           57.5       15     50      1.681854        1.55e-15     0.34x
+  irls           torch          36.4       15     50      1.681854        1.78e-15     0.54x
+  lbfgs          CPU             9.7       16     50      1.681654               —         —
+  lbfgs          cupy           84.5       16     50      1.681654        6.73e-16     0.11x
+  lbfgs          torch          36.0       16     50      1.681654        7.77e-16     0.27x
+
+  [gamma+elasticnet | n=500,p=50 | solvers=fista]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  fista          CPU           295.0      843     46      1.661727               —         —
+  fista          cupy         1842.3      844     46      1.661727        1.19e-07     0.16x
+  fista          torch         897.0      844     46      1.661727        1.19e-07     0.33x
+
+  [gamma+scad | n=500,p=50 | solvers=fista]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  fista          CPU          4101.0    15843     44      1.699914               —         —
+  fista          cupy        29349.7    15985     44      1.699914        2.81e-07     0.14x
+  fista          torch       17689.3    15985     44      1.699914        2.81e-07     0.23x
+
+  [gamma+mcp | n=500,p=50 | solvers=fista]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  fista          CPU          4308.8    16755     44      1.703679               —         —
+  fista          cupy        31706.4    16910     44      1.703679        2.02e-07     0.14x
+  fista          torch       18703.7    16910     44      1.703679        2.02e-07     0.23x
+
+  [gamma+adaptive_l1 | n=500,p=50 | solvers=fista]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  fista          CPU           336.5      925     48      1.698282               —         —
+  fista          cupy         1985.4      925     48      1.698621        2.96e-04     0.17x
+  fista          torch        1012.2      925     48      1.698621        2.96e-04     0.33x
+
+  [gamma+group_lasso | n=500,p=50 | solvers=fista]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  fista          CPU            40.8      122     50     15.349227               —         —
+  fista          cupy         1435.1      122     50     15.349227        3.75e-12     0.03x
+  fista          torch         700.5      122     50     15.349227        3.75e-12     0.06x
+
+  [gamma+group_mcp | n=500,p=50 | solvers=fista]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  fista          CPU          2568.7     7526     50      1.705681               —         —
+  fista          cupy        17901.2     7600     50      1.705681        3.41e-07     0.14x
+  fista          torch        9906.8     7600     50      1.705681        3.41e-07     0.26x
+
+  [gamma+group_scad | n=500,p=50 | solvers=fista]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  fista          CPU          2052.5     6017     50      1.705679               —         —
+  fista          cupy        14216.3     6070     50      1.705679        8.80e-08     0.14x
+  fista          torch        7851.2     6070     50      1.705679        8.80e-08     0.26x
+
+  [inverse_gaussian+none | n=500,p=50 | solvers=newton,fista,fista_bb,lbfgs]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  newton         CPU            24.8       24     50      0.630399               —         —
+  newton         cupy           69.3       24     50      0.630399        9.71e-17     0.36x
+  newton         torch          43.7       24     50      0.630399        1.08e-16     0.57x
+  fista          CPU           394.0      850     50      0.630395               —         —
+  fista          cupy         2617.7      850     50      0.630395        5.55e-17     0.15x
+  fista          torch        1314.7      850     50      0.630395        5.55e-17     0.30x
+  fista_bb       CPU           394.6      850     50      0.630395               —         —
+  fista_bb       cupy         2513.4      850     50      0.630395        5.55e-17     0.16x
+  fista_bb       torch        1315.9      850     50      0.630395        5.55e-17     0.30x
+  lbfgs          CPU            21.2       38     50      0.630399               —         —
+  lbfgs          cupy          193.7       38     50      0.630399        9.71e-17     0.11x
+  lbfgs          torch          78.4       38     50      0.630399        9.02e-17     0.27x
+
+  [inverse_gaussian+l1 | n=500,p=50 | solvers=fista]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  fista          CPU           414.5     1215     46      0.594265               —         —
+  fista          cupy         2701.4     1216     46      0.594265        5.79e-08     0.15x
+  fista          torch        1332.9     1216     46      0.594265        5.79e-08     0.31x
+
+  [inverse_gaussian+l2 | n=500,p=50 | solvers=newton,fista,fista_bb,irls,lbfgs]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  newton         CPU            14.6       11     50      0.624799               —         —
+  newton         cupy           45.7       11     50      0.624799        5.55e-17     0.32x
+  newton         torch          26.9       11     50      0.624799        7.63e-17     0.54x
+  fista          CPU           385.1      831     50      0.624792               —         —
+  fista          cupy         2459.5      832     50      0.624792        5.39e-08     0.16x
+  fista          torch        1285.0      832     50      0.624792        5.39e-08     0.30x
+  fista_bb       CPU           389.4      831     50      0.624792               —         —
+  fista_bb       cupy         2463.2      832     50      0.624792        5.39e-08     0.16x
+  fista_bb       torch        1283.4      832     50      0.624792        5.39e-08     0.30x
+  irls           CPU           108.6       85     50      0.624858               —         —
+  irls           cupy          435.4       85     50      0.624858        1.17e-15     0.25x
+  irls           torch         260.6       85     50      0.624858        1.17e-15     0.42x
+  lbfgs          CPU            17.8       26     50      0.624571               —         —
+  lbfgs          cupy          143.9       26     50      0.624571        7.30e-15     0.12x
+  lbfgs          torch          59.7       26     50      0.624571        1.10e-14     0.30x
+
+  [inverse_gaussian+elasticnet | n=500,p=50 | solvers=fista]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  fista          CPU           454.2     1267     48      0.607934               —         —
+  fista          cupy         2864.4     1267     48      0.607934        5.63e-08     0.16x
+  fista          torch        1421.8     1267     48      0.607934        5.63e-08     0.32x
+
+  [inverse_gaussian+scad | n=500,p=50 | solvers=fista]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  fista          CPU          1063.5     1657     47      0.620739               —         —
+  fista          cupy        12149.8     1657     47      0.620739        2.59e-14     0.09x
+  fista          torch        9035.8     1657     47      0.620739        4.14e-14     0.12x
+
+  [inverse_gaussian+mcp | n=500,p=50 | solvers=fista]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  fista          CPU          1031.3     1646     47      0.623794               —         —
+  fista          cupy        12099.5     1646     47      0.623794        1.84e-11     0.09x
+  fista          torch        9237.1     1646     47      0.623794        1.84e-11     0.11x
+
+  [inverse_gaussian+adaptive_l1 | n=500,p=50 | solvers=fista]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  fista          CPU           420.7     1119     43      0.615519               —         —
+  fista          cupy         2470.7     1120     43      0.615519        7.22e-16     0.17x
+  fista          torch        1263.9     1120     43      0.615519        6.38e-16     0.33x
+
+  [inverse_gaussian+group_lasso | n=500,p=50 | solvers=fista]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  fista          CPU            24.2       71     50      1.086228               —         —
+  fista          cupy          831.8       71     50      1.086228        3.72e-12     0.03x
+  fista          torch         404.6       71     50      1.086228        3.72e-12     0.06x
+
+  [inverse_gaussian+group_mcp | n=500,p=50 | solvers=fista]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  fista          CPU          2870.2     1511     50      0.628607               —         —
+  fista          cupy        25306.1     1511     50      0.628607        9.84e-15     0.11x
+  fista          torch       13543.8     1511     50      0.628607        9.86e-15     0.21x
+
+  [inverse_gaussian+group_scad | n=500,p=50 | solvers=fista]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  fista          CPU          2833.4     1517     50      0.628281               —         —
+  fista          cupy        25503.7     1517     50      0.628281        1.34e-14     0.11x
+  fista          torch       13511.7     1517     50      0.628281        1.35e-14     0.21x
+
+  [negative_binomial+none | n=500,p=50 | solvers=newton,fista,fista_bb,lbfgs]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  newton         CPU            65.7       70     49      3.090599               —         —
+  newton         cupy          202.6       70     49      3.090599        1.53e-16     0.32x
+  newton         torch         124.8       70     49      3.090599        4.44e-16     0.53x
+  fista          CPU           854.0     2000     49      3.090616               —         —
+  fista          cupy         2068.3      787     49      3.090600        1.52e-05     0.41x
+  fista          torch        1150.9      787     49      3.090600        1.52e-05     0.74x
+  fista_bb       CPU           852.3     2000     49      3.090616               —         —
+  fista_bb       cupy         2071.4      787     49      3.090600        1.52e-05     0.41x
+  fista_bb       torch        1154.5      787     49      3.090600        1.52e-05     0.74x
+  lbfgs          CPU            21.7       39     49      3.090599               —         —
+  lbfgs          cupy          199.6       39     49      3.090599        8.88e-16     0.11x
+  lbfgs          torch          81.9       39     49      3.090599        2.36e-16     0.27x
+
+  [negative_binomial+l1 | n=500,p=50 | solvers=fista,fista_bb]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  fista          CPU           350.2      949     35      2.941192               —         —
+  fista          cupy         2189.7      949     35      2.941191        6.32e-07     0.16x
+  fista          torch        1092.6      949     35      2.941191        6.32e-07     0.32x
+  fista_bb       CPU            73.5      150     35      2.941205               —         —
+  fista_bb       cupy          482.0      157     35      2.941210        4.20e-06     0.15x
+  fista_bb       torch         264.4      157     35      2.941210        4.20e-06     0.28x
+
+  [negative_binomial+l2 | n=500,p=50 | solvers=newton,fista,fista_bb,irls,lbfgs]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  newton         CPU            43.3       43     50      2.902765               —         —
+  newton         cupy          135.9       43     50      2.902765        6.09e-10     0.32x
+  newton         torch          83.6       43     50      2.902765        7.86e-10     0.52x
+  fista          CPU           852.9     2000     50      2.902866               —         —
+  fista          cupy         5266.0     2000     50      2.902770        8.97e-05     0.16x
+  fista          torch        2934.1     2000     50      2.902780        8.21e-05     0.29x
+  fista_bb       CPU           854.1     2000     50      2.902866               —         —
+  fista_bb       cupy         5238.6     2000     50      2.902770        8.97e-05     0.16x
+  fista_bb       torch        2926.5     2000     50      2.902780        8.21e-05     0.29x
+  irls           CPU            21.5       15     50      2.902729               —         —
+  irls           cupy          954.9      175     50      2.902751        4.66e-04     0.02x
+  irls           torch          36.8       15     50      2.902729        2.78e-15     0.58x
+  lbfgs          CPU            17.9       26     50      2.902883               —         —
+  lbfgs          cupy          156.6       26     50      2.902883        1.44e-15     0.11x
+  lbfgs          torch          66.9       26     50      2.902883        1.78e-15     0.27x
+
+  [negative_binomial+elasticnet | n=500,p=50 | solvers=fista,fista_bb]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  fista          CPU           366.0      950     42      2.916495               —         —
+  fista          cupy         2255.0      952     42      2.916495        1.51e-07     0.16x
+  fista          torch        1109.7      952     42      2.916495        1.51e-07     0.33x
+  fista_bb       CPU           197.7      421     42      2.916507               —         —
+  fista_bb       cupy          522.5      172     42      2.916504        2.88e-06     0.38x
+  fista_bb       torch         290.6      172     42      2.916504        2.88e-06     0.68x
+
+  [negative_binomial+scad | n=500,p=50 | solvers=fista,fista_bb]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  fista          CPU         13003.0    44794     35      3.086152               —         —
+  fista          cupy        93781.8    44810     35      3.086153        6.69e-07     0.14x
+  fista          torch       65306.8    44810     35      3.086153        6.69e-07     0.20x
+  fista_bb       CPU         12969.3    44794     35      3.086152               —         —
+  fista_bb       cupy        92842.6    44810     35      3.086153        6.69e-07     0.14x
+  fista_bb       torch       56371.8    44810     35      3.086153        6.69e-07     0.23x
+
+  [negative_binomial+mcp | n=500,p=50 | solvers=fista,fista_bb]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  fista          CPU         12861.4    44204     35      3.086166               —         —
+  fista          cupy        94668.0    44215     35      3.086166        2.04e-07     0.14x
+  fista          torch       54100.3    44215     35      3.086166        2.04e-07     0.24x
+  fista_bb       CPU         12906.4    44204     35      3.086166               —         —
+  fista_bb       cupy        92668.1    44215     35      3.086166        2.04e-07     0.14x
+  fista_bb       torch       54440.0    44215     35      3.086166        2.04e-07     0.24x
+
+  [negative_binomial+adaptive_l1 | n=500,p=50 | solvers=fista,fista_bb]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  fista          CPU           409.7      994     37      3.052308               —         —
+  fista          cupy         2290.3      994     37      3.052307        6.23e-07     0.18x
+  fista          torch        1166.0      994     37      3.052307        6.23e-07     0.35x
+  fista_bb       CPU           407.6      994     37      3.052308               —         —
+  fista_bb       cupy         2295.4      994     37      3.052307        6.23e-07     0.18x
+  fista_bb       torch        1167.5      994     37      3.052307        6.23e-07     0.35x
+
+  [negative_binomial+group_lasso | n=500,p=50 | solvers=fista,fista_bb]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  fista          CPU            49.8      144     50     24.892162               —         —
+  fista          cupy         1705.4      144     50     24.892162        3.46e-12     0.03x
+  fista          torch         822.2      144     50     24.892162        3.46e-12     0.06x
+  fista_bb       CPU            48.3      144     50     24.892162               —         —
+  fista_bb       cupy         1687.5      144     50     24.892162        3.46e-12     0.03x
+  fista_bb       torch         825.8      144     50     24.892162        3.46e-12     0.06x
+
+  [negative_binomial+group_mcp | n=500,p=50 | solvers=fista,fista_bb]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  fista          CPU         12418.8    33000     50      3.090557               —         —
+  fista          cupy        84215.9    33000     50      3.090557        1.33e-15     0.15x
+  fista          torch       46724.3    33000     50      3.090557        8.88e-16     0.27x
+  fista_bb       CPU         12212.3    33000     50      3.090557               —         —
+  fista_bb       cupy        89938.9    33000     50      3.090557        1.33e-15     0.14x
+  fista_bb       torch       46593.7    33000     50      3.090557        8.88e-16     0.26x
+
+  [negative_binomial+group_scad | n=500,p=50 | solvers=fista,fista_bb]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  fista          CPU         12611.2    33500     50      3.090452               —         —
+  fista          cupy        85475.1    33500     50      3.090452        8.88e-16     0.15x
+  fista          torch       47208.5    33500     50      3.090452        1.33e-15     0.27x
+  fista_bb       CPU         12511.6    33500     50      3.090452               —         —
+  fista_bb       cupy        85571.4    33500     50      3.090452        8.88e-16     0.15x
+  fista_bb       torch       48189.4    33500     50      3.090452        1.33e-15     0.26x
+
+  [tweedie+none | n=500,p=50 | solvers=newton,fista,fista_bb,lbfgs]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  newton         CPU            14.5       13     50      1.527457               —         —
+  newton         cupy           39.7       13     50      1.527457        1.11e-16     0.37x
+  newton         torch          24.3       13     50      1.527457        1.11e-16     0.60x
+  fista          CPU           590.0     1277     50      1.527453               —         —
+  fista          cupy         4173.2     1279     50      1.527453        1.21e-07     0.14x
+  fista          torch        2132.1     1279     50      1.527453        1.21e-07     0.28x
+  fista_bb       CPU           609.4     1277     50      1.527453               —         —
+  fista_bb       cupy         4108.2     1279     50      1.527453        1.21e-07     0.15x
+  fista_bb       torch        2129.7     1279     50      1.527453        1.21e-07     0.29x
+  lbfgs          CPU            19.8       32     50      1.527458               —         —
+  lbfgs          cupy          172.4       32     50      1.527458        5.34e-16     0.11x
+  lbfgs          torch          68.2       32     50      1.527458        4.44e-15     0.29x
+
+  [tweedie+l1 | n=500,p=50 | solvers=fista,fista_bb]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  fista          CPU           542.4     1532     39      1.494914               —         —
+  fista          cupy         3581.4     1534     39      1.494914        6.52e-08     0.15x
+  fista          torch        1705.5     1534     39      1.494914        6.52e-08     0.32x
+  fista_bb       CPU           742.5     1512     39      1.494916               —         —
+  fista_bb       cupy         5312.6     1513     39      1.494916        6.47e-08     0.14x
+  fista_bb       torch        2760.5     1513     39      1.494916        6.47e-08     0.27x
+
+  [tweedie+l2 | n=500,p=50 | solvers=newton,fista,fista_bb,irls,lbfgs]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  newton         CPU            10.1        7     50      1.512035               —         —
+  newton         cupy           36.1        7     50      1.512035        1.25e-16     0.28x
+  newton         torch          19.7        7     50      1.512035        9.02e-17     0.51x
+  fista          CPU           595.0     1266     50      1.511972               —         —
+  fista          cupy         4124.6     1267     50      1.511972        6.14e-08     0.14x
+  fista          torch        2115.4     1267     50      1.511972        6.14e-08     0.28x
+  fista_bb       CPU           603.5     1266     50      1.511972               —         —
+  fista_bb       cupy         4124.4     1267     50      1.511972        6.14e-08     0.15x
+  fista_bb       torch        2119.2     1267     50      1.511972        6.14e-08     0.28x
+  irls           CPU            16.6       10     50      1.512035               —         —
+  irls           cupy         3245.9       10     50      1.512035        2.72e-15     0.01x
+  irls           torch          41.6       10     50      1.512035        2.47e-15     0.40x
+  lbfgs          CPU            15.2       19     50      1.512314               —         —
+  lbfgs          cupy          117.7       19     50      1.512314        8.88e-16     0.13x
+  lbfgs          torch          47.3       19     50      1.512314        6.66e-16     0.32x
+
+  [tweedie+elasticnet | n=500,p=50 | solvers=fista,fista_bb]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  fista          CPU           597.8     1591     44      1.502395               —         —
+  fista          cupy         3824.7     1591     44      1.502395        4.66e-15     0.16x
+  fista          torch        1810.2     1591     44      1.502395        6.88e-15     0.33x
+  fista_bb       CPU           818.7     1562     44      1.502397               —         —
+  fista_bb       cupy         5470.0     1564     44      1.502397        1.15e-07     0.15x
+  fista_bb       torch        2866.4     1564     44      1.502397        1.15e-07     0.29x
+
+  [tweedie+scad | n=500,p=50 | solvers=fista,fista_bb]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  fista          CPU          2387.5     8464     39      1.524848               —         —
+  fista          cupy        18216.7     8630     39      1.524847        2.14e-07     0.13x
+  fista          torch       10482.5     8630     39      1.524847        2.14e-07     0.23x
+  fista_bb       CPU          2255.4     8464     39      1.524848               —         —
+  fista_bb       cupy        18316.8     8630     39      1.524847        2.14e-07     0.12x
+  fista_bb       torch       10480.4     8630     39      1.524847        2.14e-07     0.22x
+
+  [tweedie+mcp | n=500,p=50 | solvers=fista,fista_bb]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  fista          CPU          2897.4     9612     39      1.525790               —         —
+  fista          cupy        21298.9     9794     39      1.525790        3.28e-07     0.14x
+  fista          torch       11784.4     9794     39      1.525790        3.28e-07     0.25x
+  fista_bb       CPU          2715.9     9612     39      1.525790               —         —
+  fista_bb       cupy        20676.6     9794     39      1.525790        3.28e-07     0.13x
+  fista_bb       torch       11759.3     9794     39      1.525790        3.28e-07     0.23x
+
+  [tweedie+adaptive_l1 | n=500,p=50 | solvers=fista,fista_bb]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  fista          CPU           599.8     1626     46      1.522034               —         —
+  fista          cupy         3745.6     1627     46      1.522034        1.78e-15     0.16x
+  fista          torch        1836.6     1627     46      1.522034        1.78e-15     0.33x
+  fista_bb       CPU           609.9     1626     46      1.522034               —         —
+  fista_bb       cupy         3730.3     1627     46      1.522034        1.78e-15     0.16x
+  fista_bb       torch        1839.2     1627     46      1.522034        1.78e-15     0.33x
+
+  [tweedie+group_lasso | n=500,p=50 | solvers=fista,fista_bb]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  fista          CPU            33.4      100     50      7.234257               —         —
+  fista          cupy         1174.3      100     50      7.234257        3.52e-12     0.03x
+  fista          torch         571.5      100     50      7.234257        3.52e-12     0.06x
+  fista_bb       CPU            33.3      100     50      7.234257               —         —
+  fista_bb       cupy         1186.6      100     50      7.234257        3.52e-12     0.03x
+  fista_bb       torch         569.7      100     50      7.234257        3.52e-12     0.06x
+
+  [tweedie+group_mcp | n=500,p=50 | solvers=fista,fista_bb]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  fista          CPU          1606.4     4405     50      1.527453               —         —
+  fista          cupy        11859.5     4459     50      1.527453        8.84e-08     0.14x
+  fista          torch        6334.7     4459     50      1.527453        8.84e-08     0.25x
+  fista_bb       CPU          1600.3     4405     50      1.527453               —         —
+  fista_bb       cupy        11794.8     4459     50      1.527453        8.84e-08     0.14x
+  fista_bb       torch        6379.2     4459     50      1.527453        8.84e-08     0.25x
+
+  [tweedie+group_scad | n=500,p=50 | solvers=fista,fista_bb]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  fista          CPU          1354.2     3650     50      1.527444               —         —
+  fista          cupy         9666.8     3683     50      1.527444        1.52e-07     0.14x
+  fista          torch        5196.2     3683     50      1.527444        1.52e-07     0.26x
+  fista_bb       CPU          1327.6     3650     50      1.527444               —         —
+  fista_bb       cupy         9690.6     3683     50      1.527444        1.52e-07     0.14x
+  fista_bb       torch        5189.1     3683     50      1.527444        1.52e-07     0.26x
+
+  [squared_error+none | n=2000,p=200 | solvers=newton,fista,fista_bb,exact]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  newton         CPU            10.4        2    200     13.741414               —         —
+  newton         cupy           11.7        2    200     13.741414        9.33e-15     0.89x
+  newton         torch           6.1        2    200     13.741414        3.84e-16     1.71x
+  fista          CPU            13.1      346    200     13.741415               —         —
+  fista          cupy          292.8      307    200     13.741415        4.13e-07     0.04x
+  fista          torch         144.5      307    200     13.741415        4.13e-07     0.09x
+  fista_bb       CPU            15.7      346    200     13.741415               —         —
+  fista_bb       cupy          288.8      307    200     13.741415        4.13e-07     0.05x
+  fista_bb       torch         144.9      307    200     13.741415        4.13e-07     0.11x
+  exact          CPU             4.6        1    200     13.741414               —         —
+  exact          cupy            2.2        1    200     13.741414        4.57e-14     2.06x
+  exact          torch           2.7        1    200     13.741414        4.73e-14     1.69x
+
+  [squared_error+l1 | n=2000,p=200 | solvers=fista,fista_bb]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  fista          CPU            13.8      302     85     13.674349               —         —
+  fista          cupy           47.9      345     85     13.674357        3.89e-06     0.29x
+  fista          torch          57.4      345     85     13.674357        3.89e-06     0.24x
+  fista_bb       CPU            14.1      302     85     13.674349               —         —
+  fista_bb       cupy           48.5      345     85     13.674357        3.89e-06     0.29x
+  fista_bb       torch          56.6      345     85     13.674357        3.89e-06     0.25x
+
+  [squared_error+l2 | n=2000,p=200 | solvers=newton,fista,fista_bb,irls,exact,admm]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  newton         CPU             5.1        2    200     13.532862               —         —
+  newton         cupy            6.8        2    200     13.532862        4.85e-16     0.75x
+  newton         torch           6.0        2    200     13.532862        8.88e-16     0.86x
+  fista          CPU            13.1      346    200     13.532862               —         —
+  fista          cupy          243.7      259    200     13.532861        1.14e-06     0.05x
+  fista          torch         122.7      259    200     13.532861        1.14e-06     0.11x
+  fista_bb       CPU            14.8      346    200     13.532862               —         —
+  fista_bb       cupy          245.1      259    200     13.532861        1.14e-06     0.06x
+  fista_bb       torch         122.7      259    200     13.532861        1.14e-06     0.12x
+  irls           CPU            19.0        5    200     13.532862               —         —
+  irls           cupy           14.6        5    200     13.532862        4.43e-14     1.30x
+  irls           torch          12.2        5    200     13.532862        4.77e-14     1.56x
+  exact          CPU             2.8        1    200     13.532862               —         —
+  exact          cupy            1.9        1    200     13.532862        4.56e-14     1.49x
+  exact          torch           2.6        1    200     13.532862        4.61e-14     1.09x
+  admm           CPU            47.9       45    200     13.532861               —         —
+  admm           cupy           68.3       45    200     13.532861        4.80e-14     0.70x
+  admm           torch          71.7       45    200     13.532861        4.73e-14     0.67x
+
+  [squared_error+elasticnet | n=2000,p=200 | solvers=fista,fista_bb]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  fista          CPU            14.9      302    137     13.605950               —         —
+  fista          cupy           48.9      345    137     13.605959        3.82e-06     0.30x
+  fista          torch          60.9      345    137     13.605959        3.82e-06     0.24x
+  fista_bb       CPU            14.8      302    137     13.605950               —         —
+  fista_bb       cupy           48.1      345    137     13.605959        3.82e-06     0.31x
+  fista_bb       torch          61.0      345    137     13.605959        3.82e-06     0.24x
+
+  [squared_error+scad | n=2000,p=200 | solvers=fista,fista_bb]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  fista          CPU          2791.7    18576     82     13.744439               —         —
+  fista          cupy         4119.7    18679     82     13.744439        1.91e-07     0.68x
+  fista          torch        3693.3    18679     82     13.744439        1.91e-07     0.76x
+  fista_bb       CPU          2560.6    18576     82     13.744439               —         —
+  fista_bb       cupy         4093.6    18679     82     13.744439        1.91e-07     0.63x
+  fista_bb       torch        3684.6    18679     82     13.744439        1.91e-07     0.69x
+
+  [squared_error+mcp | n=2000,p=200 | solvers=fista,fista_bb]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  fista          CPU          3323.1    23023     82     13.743602               —         —
+  fista          cupy         5072.7    23341     82     13.743602        6.32e-08     0.66x
+  fista          torch        4578.3    23341     82     13.743602        6.32e-08     0.73x
+  fista_bb       CPU          3294.7    23023     82     13.743602               —         —
+  fista_bb       cupy         5049.9    23341     82     13.743602        6.32e-08     0.65x
+  fista_bb       torch        4561.3    23341     82     13.743602        6.32e-08     0.72x
+
+  [squared_error+adaptive_l1 | n=2000,p=200 | solvers=fista,fista_bb]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  fista          CPU           752.2     2000    152     13.741023               —         —
+  fista          cupy         2273.5     2000    152     13.740680        5.12e-04     0.33x
+  fista          torch        1504.3     2000    152     13.740680        5.12e-04     0.50x
+  fista_bb       CPU           759.0     2000    152     13.741023               —         —
+  fista_bb       cupy         2274.4     2000    152     13.740680        5.12e-04     0.33x
+  fista_bb       torch        1527.8     2000    152     13.740680        5.12e-04     0.50x
+
+  [squared_error+group_lasso | n=2000,p=200 | solvers=fista,fista_bb]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  fista          CPU           771.5      714    165     13.620616               —         —
+  fista          cupy        31315.5      714    165     13.620616        4.01e-12     0.02x
+  fista          torch       15314.3      714    165     13.620616        4.01e-12     0.05x
+  fista_bb       CPU           766.7      714    165     13.620616               —         —
+  fista_bb       cupy        31433.5      714    165     13.620616        4.01e-12     0.02x
+  fista_bb       torch       15306.4      714    165     13.620616        4.01e-12     0.05x
+
+  [squared_error+group_mcp | n=2000,p=200 | solvers=fista,fista_bb]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  fista          CPU            84.1      302    140     13.739486               —         —
+  fista          cupy         3297.6     2000    140     13.739176        6.46e-04     0.03x
+  fista          torch        1808.6     2000    140     13.739176        6.46e-04     0.05x
+  fista_bb       CPU            88.7      302    140     13.739486               —         —
+  fista_bb       cupy          546.9      343    140     13.739494        3.52e-06     0.16x
+  fista_bb       torch         285.9      343    140     13.739494        3.52e-06     0.31x
+
+  [squared_error+group_scad | n=2000,p=200 | solvers=fista,fista_bb]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  fista          CPU            96.2      302    140     13.739334               —         —
+  fista          cupy         3573.7     2000    140     13.738820        8.35e-04     0.03x
+  fista          torch        1955.5     2000    140     13.738820        8.35e-04     0.05x
+  fista_bb       CPU            96.0      302    140     13.739334               —         —
+  fista_bb       cupy          508.4      289    140     13.739341        3.81e-06     0.19x
+  fista_bb       torch         265.0      289    140     13.739341        3.81e-06     0.36x
+
+  [logistic+none | n=2000,p=200 | solvers=newton,fista,fista_bb,lbfgs]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  newton         CPU          6070.0     2000    200    261.027508               —         —
+  newton         cupy         6126.7     2000    200    261.027508        4.00e-13     0.99x
+  newton         torch        5163.0     2000    200    261.027508        6.03e-13     1.18x
+  fista          CPU          1192.5     2000    200     94.559885               —         —
+  fista          cupy         4955.1     2000    200     88.369115        2.02e+00     0.24x
+  fista          torch        2786.9     2000    200     88.369115        2.02e+00     0.43x
+  fista_bb       CPU          1167.2     2000    200     94.559885               —         —
+  fista_bb       cupy         4938.9     2000    200     88.369115        2.02e+00     0.24x
+  fista_bb       torch        2934.6     2000    200     88.369115        2.02e+00     0.40x
+  lbfgs          CPU            30.6       31    200    166.568281               —         —
+  lbfgs          cupy          190.6       31    200    166.568281        9.24e-13     0.16x
+  lbfgs          torch          85.3       31    200    166.568281        1.13e-12     0.36x
+
+  [logistic+l1 | n=2000,p=200 | solvers=fista,fista_bb]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  fista          CPU           522.6      579     38      2.569639               —         —
+  fista          cupy         2347.7      580     38      2.569639        2.68e-07     0.22x
+  fista          torch        1154.0      580     38      2.569639        2.68e-07     0.45x
+  fista_bb       CPU           107.5      122     38      2.569653               —         —
+  fista_bb       cupy          508.6      124     38      2.569653        6.30e-08     0.21x
+  fista_bb       torch         292.9      124     38      2.569653        6.30e-08     0.37x
+
+  [logistic+l2 | n=2000,p=200 | solvers=newton,fista,fista_bb,irls,lbfgs]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  newton         CPU            30.2        8    200      3.371840               —         —
+  newton         cupy           31.8        8    200      3.371840        2.22e-16     0.95x
+  newton         torch          28.0        8    200      3.371840        2.22e-16     1.08x
+  fista          CPU           536.8      459    200      3.371841               —         —
+  fista          cupy         2282.4      775    200      3.371839        7.26e-07     0.24x
+  fista          torch        1442.2     1024    200      3.371837        1.75e-06     0.37x
+  fista_bb       CPU           291.2      459    200      3.371841               —         —
+  fista_bb       cupy         1989.2      775    200      3.371839        7.26e-07     0.15x
+  fista_bb       torch        1602.2     1024    200      3.371837        1.75e-06     0.18x
+  irls           CPU            35.2       10    200      3.371840               —         —
+  irls           cupy           30.0       10    200      3.371840        1.44e-15     1.17x
+  irls           torch          28.3       10    200      3.371840        1.44e-15     1.25x
+  lbfgs          CPU            21.7       21    200      3.371839               —         —
+  lbfgs          cupy          122.3       21    200      3.371839        2.22e-16     0.18x
+  lbfgs          torch          49.2       21    200      3.371839        2.22e-16     0.44x
+
+  [logistic+elasticnet | n=2000,p=200 | solvers=fista,fista_bb]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  fista          CPU           479.8      558     68      2.919987               —         —
+  fista          cupy         1849.0      559     68      2.919986        1.40e-07     0.26x
+  fista          torch         836.7      559     68      2.919986        1.40e-07     0.57x
+  fista_bb       CPU           130.1      162     68      2.919988               —         —
+  fista_bb       cupy          751.7      250     68      2.919962        1.28e-05     0.17x
+  fista_bb       torch         960.5      610     68      2.919994        2.40e-06     0.14x
+
+  [logistic+scad | n=2000,p=200 | solvers=fista,fista_bb]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  fista          CPU         10464.3    22828     32      5.000000               —         —
+  fista          cupy        51160.3    22940     32      5.000000        2.10e-07     0.20x
+  fista          torch       28509.7    22940     32      5.000000        2.10e-07     0.37x
+  fista_bb       CPU         10249.0    22828     32      5.000000               —         —
+  fista_bb       cupy        51570.6    22940     32      5.000000        2.10e-07     0.20x
+  fista_bb       torch       28542.5    22940     32      5.000000        2.10e-07     0.36x
+
+  [logistic+mcp | n=2000,p=200 | solvers=fista,fista_bb]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  fista          CPU         11089.9    24835     32      5.000000               —         —
+  fista          cupy        56040.6    24950     32      5.000000        4.04e-07     0.20x
+  fista          torch       30967.2    24950     32      5.000000        4.04e-07     0.36x
+  fista_bb       CPU         11305.7    24835     32      5.000000               —         —
+  fista_bb       cupy        55743.6    24950     32      5.000000        4.04e-07     0.20x
+  fista_bb       torch       31018.3    24950     32      5.000000        4.04e-07     0.36x
+
+  [logistic+adaptive_l1 | n=2000,p=200 | solvers=fista,fista_bb]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  fista          CPU          4313.5     5000     77     12.418636               —         —
+  fista          cupy        16015.2     5000     77     12.418293        1.27e-04     0.27x
+  fista          torch        7247.7     5000     77     12.418293        1.27e-04     0.60x
+  fista_bb       CPU          4158.8     5000     77     12.418636               —         —
+  fista_bb       cupy        16047.6     5000     77     12.418293        1.27e-04     0.26x
+  fista_bb       torch        7328.7     5000     77     12.418293        1.27e-04     0.57x
+
+  [logistic+group_lasso | n=2000,p=200 | solvers=fista,fista_bb]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  fista          CPU           105.0       94    125      0.209778               —         —
+  fista          cupy         4060.0       94    125      0.209778        3.71e-12     0.03x
+  fista          torch        2009.4       94    125      0.209778        3.71e-12     0.05x
+  fista_bb       CPU           105.3       94    125      0.209778               —         —
+  fista_bb       cupy         4156.5       94    125      0.209778        3.71e-12     0.03x
+  fista_bb       torch        2033.5       94    125      0.209778        3.71e-12     0.05x
+
+  [logistic+group_mcp | n=2000,p=200 | solvers=fista,fista_bb]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  fista          CPU         28905.5    37133    200      5.000000               —         —
+  fista          cupy       105375.9    37232    200      5.000000        9.28e-11     0.27x
+  fista          torch       55427.5    37232    200      5.000000        9.28e-11     0.52x
+  fista_bb       CPU         28435.9    37133    200      5.000000               —         —
+  fista_bb       cupy       104971.3    37232    200      5.000000        9.28e-11     0.27x
+  fista_bb       torch       55288.1    37232    200      5.000000        9.28e-11     0.51x
+
+  [logistic+group_scad | n=2000,p=200 | solvers=fista,fista_bb]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  fista          CPU         31908.0    40826    200      5.000000               —         —
+  fista          cupy       117271.0    40940    200      5.000000        5.18e-08     0.27x
+  fista          torch       60421.9    40940    200      5.000000        5.18e-08     0.53x
+  fista_bb       CPU         30915.9    40826    200      5.000000               —         —
+  fista_bb       cupy       113979.2    40940    200      5.000000        5.18e-08     0.27x
+  fista_bb       torch       59792.3    40940    200      5.000000        5.18e-08     0.52x
+
+  [poisson+none | n=2000,p=200 | solvers=newton,fista,fista_bb,lbfgs]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  newton         CPU            29.8        7    200      1.987489               —         —
+  newton         cupy           24.2        7    200      1.987489        1.41e-16     1.23x
+  newton         torch          20.2        7    200      1.987489        1.56e-16     1.48x
+  fista          CPU            90.3      118    200      1.987475               —         —
+  fista          cupy          291.7      118    200      1.987474        1.42e-07     0.31x
+  fista          torch         162.4      118    200      1.987474        1.35e-07     0.56x
+  fista_bb       CPU            86.0      118    200      1.987475               —         —
+  fista_bb       cupy          289.9      118    200      1.987474        1.42e-07     0.30x
+  fista_bb       torch         161.2      118    200      1.987474        1.35e-07     0.53x
+  lbfgs          CPU            40.2       50    200      1.987491               —         —
+  lbfgs          cupy          248.4       50    200      1.987491        9.71e-16     0.16x
+  lbfgs          torch          97.8       50    200      1.987491        8.57e-16     0.41x
+
+  [poisson+l1 | n=2000,p=200 | solvers=fista,fista_bb]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  fista          CPU          1603.6     2454    199      1.977441               —         —
+  fista          cupy         5898.7     2767    199      1.977494        1.82e-05     0.27x
+  fista          torch        2860.0     2767    199      1.977494        1.82e-05     0.56x
+  fista_bb       CPU           118.4      155    199      1.977486               —         —
+  fista_bb       cupy          418.9      160    199      1.977505        6.30e-06     0.28x
+  fista_bb       torch         240.4      160    199      1.977505        6.31e-06     0.49x
+
+  [poisson+l2 | n=2000,p=200 | solvers=newton,fista,fista_bb,irls,lbfgs]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  newton         CPU            27.9        7    200      1.985183               —         —
+  newton         cupy           23.2        7    200      1.985183        1.42e-16     1.20x
+  newton         torch          19.9        7    200      1.985183        2.08e-16     1.41x
+  fista          CPU            77.7      115    200      1.985183               —         —
+  fista          cupy          281.2      115    200      1.985183        3.90e-09     0.28x
+  fista          torch         158.5      115    200      1.985183        3.83e-09     0.49x
+  fista_bb       CPU            82.5      115    200      1.985183               —         —
+  fista_bb       cupy          280.2      115    200      1.985183        3.90e-09     0.29x
+  fista_bb       torch         158.3      115    200      1.985183        3.83e-09     0.52x
+  irls           CPU            33.9       10    200      1.985183               —         —
+  irls           cupy           26.5       10    200      1.985183        6.55e-15     1.28x
+  irls           torch          24.3       10    200      1.985183        8.66e-15     1.40x
+  lbfgs          CPU            25.3       29    200      1.985267               —         —
+  lbfgs          cupy          154.4       29    200      1.985267        5.32e-12     0.16x
+  lbfgs          torch          63.3       29    200      1.985267        5.32e-12     0.40x
+
+  [poisson+elasticnet | n=2000,p=200 | solvers=fista,fista_bb]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  fista          CPU          1642.4     2465    200      1.981262               —         —
+  fista          cupy         6101.2     2785    200      1.981316        1.82e-05     0.27x
+  fista          torch        2956.5     2785    200      1.981316        1.82e-05     0.56x
+  fista_bb       CPU           125.6      160    200      1.981337               —         —
+  fista_bb       cupy          425.7      160    200      1.981337        3.81e-11     0.30x
+  fista_bb       torch         243.5      160    200      1.981337        1.18e-11     0.52x
+
+  [poisson+scad | n=2000,p=200 | solvers=fista,fista_bb]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  fista          CPU           280.7      360    200      1.667941               —         —
+  fista          cupy         2362.2      360    200      1.667941        5.47e-12     0.12x
+  fista          torch        1702.6      360    200      1.667941        5.46e-12     0.16x
+  fista_bb       CPU           288.5      360    200      1.667941               —         —
+  fista_bb       cupy         2601.2      360    200      1.667941        5.47e-12     0.11x
+  fista_bb       torch        1724.6      360    200      1.667941        5.46e-12     0.17x
+
+  [poisson+mcp | n=2000,p=200 | solvers=fista,fista_bb]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  fista          CPU           272.7      360    200      1.679091               —         —
+  fista          cupy         2339.6      360    200      1.679091        1.15e-11     0.12x
+  fista          torch        1697.8      360    200      1.679091        1.15e-11     0.16x
+  fista_bb       CPU           274.7      360    200      1.679091               —         —
+  fista_bb       cupy         2330.3      360    200      1.679091        1.15e-11     0.12x
+  fista_bb       torch        1698.9      360    200      1.679091        1.15e-11     0.16x
+
+  [poisson+adaptive_l1 | n=2000,p=200 | solvers=fista,fista_bb]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  fista          CPU          1721.3     2465    197      1.980959               —         —
+  fista          cupy         5917.2     2782    197      1.981013        1.83e-05     0.29x
+  fista          torch        2970.3     2782    197      1.981013        1.83e-05     0.58x
+  fista_bb       CPU          1700.4     2465    197      1.980959               —         —
+  fista_bb       cupy         5906.5     2782    197      1.981013        1.83e-05     0.29x
+  fista_bb       torch        2975.4     2782    197      1.981013        1.83e-05     0.57x
+
+  [poisson+group_lasso | n=2000,p=200 | solvers=fista,fista_bb]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  fista          CPU          1490.9     1348    200     56.343032               —         —
+  fista          cupy        59142.8     1348    200     56.343032        4.38e-12     0.03x
+  fista          torch       28837.8     1348    200     56.343032        4.39e-12     0.05x
+  fista_bb       CPU          1479.2     1348    200     56.343032               —         —
+  fista_bb       cupy        59493.3     1348    200     56.343032        4.38e-12     0.02x
+  fista_bb       torch       28727.5     1348    200     56.343032        4.39e-12     0.05x
+
+  [poisson+group_mcp | n=2000,p=200 | solvers=fista,fista_bb]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  fista          CPU          1803.9      360    200      2.054061               —         —
+  fista          cupy         5023.3      360    200      2.054061        1.41e-13     0.36x
+  fista          torch        2695.1      360    200      2.054061        1.41e-13     0.67x
+  fista_bb       CPU          1773.2      360    200      2.054061               —         —
+  fista_bb       cupy         4984.3      360    200      2.054061        1.41e-13     0.36x
+  fista_bb       torch        2688.1      360    200      2.054061        1.41e-13     0.66x
+
+  [poisson+group_scad | n=2000,p=200 | solvers=fista,fista_bb]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  fista          CPU          1788.6      360    200      2.052787               —         —
+  fista          cupy         5363.2      360    200      2.052787        1.39e-13     0.33x
+  fista          torch        3066.3      360    200      2.052787        1.38e-13     0.58x
+  fista_bb       CPU          1775.5      360    200      2.052787               —         —
+  fista_bb       cupy         5010.3      360    200      2.052787        1.39e-13     0.35x
+  fista_bb       torch        2705.9      360    200      2.052787        1.38e-13     0.66x
+
+  [gamma+none | n=2000,p=200 | solvers=newton,fista,fista_bb,lbfgs]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  newton         CPU            51.2       27    200      2.059479               —         —
+  newton         cupy           80.2       27    200      2.059479        1.11e-16     0.64x
+  newton         torch          68.0       27    200      2.059479        1.11e-16     0.75x
+  fista          CPU           618.6      844    200      2.059477               —         —
+  fista          cupy         2182.8      847    200      2.059477        1.65e-07     0.28x
+  fista          torch        1217.9      847    200      2.059477        1.65e-07     0.51x
+  fista_bb       CPU           627.3      844    200      2.059477               —         —
+  fista_bb       cupy         2163.4      847    200      2.059477        1.65e-07     0.29x
+  fista_bb       torch        1217.7      847    200      2.059477        1.65e-07     0.52x
+  lbfgs          CPU            50.0       59    200      2.059479               —         —
+  lbfgs          cupy          293.0       59    200      2.059479        9.37e-14     0.17x
+  lbfgs          torch         118.2       59    200      2.059479        1.84e-14     0.42x
+
+  [gamma+l1 | n=2000,p=200 | solvers=fista]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  fista          CPU          1971.6     2788    135      1.964018               —         —
+  fista          cupy         6058.4     2788    135      1.964018        4.71e-08     0.33x
+  fista          torch        2911.6     2788    135      1.964018        4.71e-08     0.68x
+
+  [gamma+l2 | n=2000,p=200 | solvers=newton,fista,fista_bb,irls,lbfgs]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  newton         CPU            42.8       19    200      2.031108               —         —
+  newton         cupy           69.2       19    200      2.031108        1.67e-16     0.62x
+  newton         torch          54.0       19    200      2.031108        1.39e-16     0.79x
+  fista          CPU           606.3      820    200      2.031105               —         —
+  fista          cupy         2126.0      835    200      2.031105        8.21e-07     0.29x
+  fista          torch        1187.6      835    200      2.031105        8.21e-07     0.51x
+  fista_bb       CPU           605.8      820    200      2.031105               —         —
+  fista_bb       cupy         2120.9      835    200      2.031105        8.21e-07     0.29x
+  fista_bb       torch        1187.1      835    200      2.031105        8.21e-07     0.51x
+  irls           CPU            54.4       15    200      2.031015               —         —
+  irls           cupy           77.7       15    200      2.031015        2.11e-15     0.70x
+  irls           torch          55.7       15    200      2.031015        1.51e-15     0.98x
+  lbfgs          CPU            26.3       27    200      2.031464               —         —
+  lbfgs          cupy          141.5       27    200      2.031464        1.01e-13     0.19x
+  lbfgs          torch          58.0       27    200      2.031464        5.00e-14     0.45x
+
+  [gamma+elasticnet | n=2000,p=200 | solvers=fista]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  fista          CPU          2125.6     3023    163      1.993124               —         —
+  fista          cupy         7523.7     3025    163      1.993124        4.05e-08     0.28x
+  fista          torch        3259.6     3025    163      1.993124        4.05e-08     0.65x
+
+  [gamma+scad | n=2000,p=200 | solvers=fista]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  fista          CPU         14948.6    34120    138      2.045801               —         —
+  fista          cupy        63160.7    34180    138      2.045801        1.07e-07     0.24x
+  fista          torch       38528.9    34180    138      2.045801        1.07e-07     0.39x
+
+  [gamma+mcp | n=2000,p=200 | solvers=fista]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  fista          CPU         15757.5    36282    141      2.052914               —         —
+  fista          cupy        71090.4    36345    141      2.052914        1.74e-07     0.22x
+  fista          torch       43795.6    36345    141      2.052914        1.74e-07     0.36x
+
+  [gamma+adaptive_l1 | n=2000,p=200 | solvers=fista]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  fista          CPU          2005.6     2790    143      2.041348               —         —
+  fista          cupy         5923.5     2791    143      2.041348        2.61e-08     0.34x
+  fista          torch        3060.0     2791    143      2.041348        2.61e-08     0.66x
+
+  [gamma+group_lasso | n=2000,p=200 | solvers=fista]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  fista          CPU          1417.9     1277    200     18.012184               —         —
+  fista          cupy        56525.8     1277    200     18.012184        4.31e-12     0.03x
+  fista          torch       27404.0     1277    200     18.012184        4.30e-12     0.05x
+
+  [gamma+group_mcp | n=2000,p=200 | solvers=fista]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  fista          CPU         12243.1    16515    200      2.059430               —         —
+  fista          cupy        39204.0    16550    200      2.059430        5.46e-08     0.31x
+  fista          torch       21570.6    16550    200      2.059430        5.46e-08     0.57x
+
+  [gamma+group_scad | n=2000,p=200 | solvers=fista]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  fista          CPU         10140.9    13433    200      2.059337               —         —
+  fista          cupy        31466.4    13450    200      2.059337        5.24e-08     0.32x
+  fista          torch       17534.3    13450    200      2.059337        5.24e-08     0.58x
+
+  [inverse_gaussian+none | n=2000,p=200 | solvers=newton,fista,fista_bb,lbfgs]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  newton         CPU           168.7       53    200      1.009857               —         —
+  newton         cupy          183.9       53    200      1.009857        8.33e-17     0.92x
+  newton         torch         150.5       53    200      1.009857        8.33e-17     1.12x
+  fista          CPU          1827.7     2000    200      1.003107               —         —
+  fista          cupy         5994.7     2000    200      1.003107        2.25e-14     0.30x
+  fista          torch        3234.5     2000    200      1.003107        2.24e-14     0.57x
+  fista_bb       CPU          1801.4     2000    200      1.003107               —         —
+  fista_bb       cupy         6001.2     2000    200      1.003107        2.25e-14     0.30x
+  fista_bb       torch        3165.6     2000    200      1.003107        2.24e-14     0.57x
+  lbfgs          CPU            76.3       94    200      1.009858               —         —
+  lbfgs          cupy          484.2       92    200      1.009858        6.23e-07     0.16x
+  lbfgs          torch         199.3       93    200      1.009858        8.28e-07     0.38x
+
+  [inverse_gaussian+l1 | n=2000,p=200 | solvers=fista]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  fista          CPU          3426.7     5000    151      0.906206               —         —
+  fista          cupy        11166.9     5000    151      0.906206        2.65e-07     0.31x
+  fista          torch        5567.3     5000    151      0.906206        2.65e-07     0.62x
+
+  [inverse_gaussian+l2 | n=2000,p=200 | solvers=newton,fista,fista_bb,irls,lbfgs]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  newton         CPU            86.0       25    200      0.997893               —         —
+  newton         cupy          102.0       25    200      0.997893        1.11e-16     0.84x
+  newton         torch          78.8       25    200      0.997893        1.13e-16     1.09x
+  fista          CPU          1762.3     2000    200      0.992268               —         —
+  fista          cupy         6018.3     2000    200      0.992268        2.40e-14     0.29x
+  fista          torch        3152.6     2000    200      0.992268        2.40e-14     0.56x
+  fista_bb       CPU          1725.1     2000    200      0.992268               —         —
+  fista_bb       cupy         5956.3     2000    200      0.992268        2.40e-14     0.29x
+  fista_bb       torch        3153.7     2000    200      0.992268        2.40e-14     0.55x
+  irls           CPU           425.6       95    200      0.997923               —         —
+  irls           cupy          623.9       95    200      0.997923        1.96e-15     0.68x
+  irls           torch         412.3       95    200      0.997923        1.95e-15     1.03x
+  lbfgs          CPU            62.4       68    200      0.997861               —         —
+  lbfgs          cupy          368.9       68    200      0.997861        1.03e-10     0.17x
+  lbfgs          torch         153.3       68    200      0.997861        5.14e-10     0.41x
+
+  [inverse_gaussian+elasticnet | n=2000,p=200 | solvers=fista]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  fista          CPU          3541.8     5000    179      0.945526               —         —
+  fista          cupy        11429.9     5000    179      0.945526        6.75e-07     0.31x
+  fista          torch        5720.6     5000    179      0.945526        6.75e-07     0.62x
+
+  [inverse_gaussian+scad | n=2000,p=200 | solvers=fista]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  fista          CPU          1314.9     1746    200      0.814464               —         —
+  fista          cupy        12857.3     1746    200      0.814464        1.38e-13     0.10x
+  fista          torch        9623.4     1746    200      0.814464        1.38e-13     0.14x
+
+  [inverse_gaussian+mcp | n=2000,p=200 | solvers=fista]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  fista          CPU          1349.3     1758    161      0.829140               —         —
+  fista          cupy        13091.7     1758    161      0.829140        4.17e-13     0.10x
+  fista          torch        9754.1     1758    161      0.829140        4.11e-13     0.14x
+
+  [inverse_gaussian+adaptive_l1 | n=2000,p=200 | solvers=fista]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  fista          CPU          3530.3     5000    162      0.969628               —         —
+  fista          cupy        11047.8     5000    162      0.969628        5.11e-07     0.32x
+  fista          torch        5728.6     5000    162      0.969628        5.11e-07     0.62x
+
+  [inverse_gaussian+group_lasso | n=2000,p=200 | solvers=fista]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  fista          CPU           858.6      787    200      2.646076               —         —
+  fista          cupy        34589.6      787    200      2.646076        4.04e-12     0.02x
+  fista          torch       16811.1      787    200      2.646076        4.04e-12     0.05x
+
+  [inverse_gaussian+group_mcp | n=2000,p=200 | solvers=fista]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  fista          CPU         11105.1     1842    200      0.911129               —         —
+  fista          cupy        30742.6     1842    200      0.911129        1.17e-12     0.36x
+  fista          torch       16835.4     1842    200      0.911129        1.17e-12     0.66x
+
+  [inverse_gaussian+group_scad | n=2000,p=200 | solvers=fista]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  fista          CPU         11312.1     1844    200      0.908818               —         —
+  fista          cupy        30978.2     1844    200      0.908818        1.23e-12     0.37x
+  fista          torch       16722.3     1844    200      0.908818        1.24e-12     0.68x
+
+  [negative_binomial+none | n=2000,p=200 | solvers=newton,fista,fista_bb,lbfgs]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  newton         CPU           135.2       41    200      3.721538               —         —
+  newton         cupy          146.6       41    200      3.721538        2.22e-16     0.92x
+  newton         torch         116.3       41    200      3.721538        2.22e-16     1.16x
+  fista          CPU           223.0      316    200      3.721533               —         —
+  fista          cupy         1014.3      376    200      3.721538        2.37e-06     0.22x
+  fista          torch         560.6      376    200      3.721538        2.37e-06     0.40x
+  fista_bb       CPU           219.9      316    200      3.721533               —         —
+  fista_bb       cupy         1015.6      376    200      3.721538        2.37e-06     0.22x
+  fista_bb       torch         562.1      376    200      3.721538        2.37e-06     0.39x
+  lbfgs          CPU            53.0       57    200      3.721535               —         —
+  lbfgs          cupy          306.4       57    200      3.721535        5.33e-13     0.17x
+  lbfgs          torch         127.4       57    200      3.721535        5.73e-13     0.42x
+
+  [negative_binomial+l1 | n=2000,p=200 | solvers=fista,fista_bb]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  fista          CPU          2911.1     3893    142      3.284682               —         —
+  fista          cupy         8907.2     3895    142      3.284682        1.09e-07     0.33x
+  fista          torch        4452.6     3895    142      3.284682        1.09e-07     0.65x
+  fista_bb       CPU           214.5      294    142      3.284725               —         —
+  fista_bb       cupy         1204.1      433    142      3.284723        7.27e-07     0.18x
+  fista_bb       torch         693.0      433    142      3.284723        7.27e-07     0.31x
+
+  [negative_binomial+l2 | n=2000,p=200 | solvers=newton,fista,fista_bb,irls,lbfgs]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  newton         CPU           102.7       30    200      3.437979               —         —
+  newton         cupy          119.4       30    200      3.437979        3.47e-16     0.86x
+  newton         torch          93.8       30    200      3.437979        3.47e-16     1.10x
+  fista          CPU           974.4     1459    200      3.437996               —         —
+  fista          cupy          817.1      301    200      3.437995        5.56e-07     1.19x
+  fista          torch         452.6      301    200      3.437995        5.56e-07     2.15x
+  fista_bb       CPU           983.9     1459    200      3.437996               —         —
+  fista_bb       cupy          810.1      301    200      3.437995        5.56e-07     1.21x
+  fista_bb       torch         451.6      301    200      3.437995        5.56e-07     2.18x
+  irls           CPU           117.8       35    200      3.437993               —         —
+  irls           cupy         1495.5      270    200      3.437945        8.04e-05     0.08x
+  irls           torch         108.0       35    200      3.437993        6.04e-15     1.09x
+  lbfgs          CPU            36.9       32    200      3.438450               —         —
+  lbfgs          cupy          185.3       32    200      3.438450        7.55e-15     0.20x
+  lbfgs          torch          78.4       32    200      3.438450        3.33e-15     0.47x
+
+  [negative_binomial+elasticnet | n=2000,p=200 | solvers=fista,fista_bb]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  fista          CPU          2991.0     3932    169      3.350947               —         —
+  fista          cupy         9285.7     3934    169      3.350947        5.01e-08     0.32x
+  fista          torch        4608.1     3934    169      3.350947        5.01e-08     0.65x
+  fista_bb       CPU           901.5      993    169      3.350981               —         —
+  fista_bb       cupy         1213.3      421    169      3.350987        2.37e-06     0.74x
+  fista_bb       torch         681.6      421    169      3.350987        2.36e-06     1.32x
+
+  [negative_binomial+scad | n=2000,p=200 | solvers=fista,fista_bb]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  fista          CPU         28698.3    59795    134      3.716103               —         —
+  fista          cupy       132402.9    59795    134      3.716103        3.89e-14     0.22x
+  fista          torch      102658.8    59795    134      3.716103        3.90e-14     0.28x
+  fista_bb       CPU         30897.9    59795    134      3.716103               —         —
+  fista_bb       cupy       156040.0    59795    134      3.716103        3.89e-14     0.20x
+  fista_bb       torch      102659.1    59795    134      3.716103        3.90e-14     0.30x
+
+  [negative_binomial+mcp | n=2000,p=200 | solvers=fista,fista_bb]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  fista          CPU         29741.4    60000    136      3.719134               —         —
+  fista          cupy       153057.4    60000    136      3.719134        7.05e-15     0.19x
+  fista          torch      103031.3    60000    136      3.719134        7.15e-15     0.29x
+  fista_bb       CPU         31542.2    60000    136      3.719134               —         —
+  fista_bb       cupy       138183.1    60000    136      3.719134        7.05e-15     0.23x
+  fista_bb       torch       75288.1    60000    136      3.719134        7.15e-15     0.42x
+
+  [negative_binomial+adaptive_l1 | n=2000,p=200 | solvers=fista,fista_bb]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  fista          CPU          3650.6     4384    146      3.626201               —         —
+  fista          cupy         9959.6     4384    146      3.626200        1.56e-07     0.37x
+  fista          torch        5165.1     4384    146      3.626200        1.56e-07     0.71x
+  fista_bb       CPU          3432.9     4384    146      3.626201               —         —
+  fista_bb       cupy        10004.1     4384    146      3.626200        1.56e-07     0.34x
+  fista_bb       torch        5152.3     4384    146      3.626200        1.56e-07     0.67x
+
+  [negative_binomial+group_lasso | n=2000,p=200 | solvers=fista,fista_bb]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  fista          CPU          1626.2     1503    200     58.038444               —         —
+  fista          cupy        69364.9     1503    200     58.038444        4.09e-12     0.02x
+  fista          torch       32235.0     1503    200     58.038444        4.09e-12     0.05x
+  fista_bb       CPU          1655.0     1503    200     58.038444               —         —
+  fista_bb       cupy        69172.1     1503    200     58.038444        4.09e-12     0.02x
+  fista_bb       torch       32033.7     1503    200     58.038444        4.09e-12     0.05x
+
+  [negative_binomial+group_mcp | n=2000,p=200 | solvers=fista,fista_bb]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  fista          CPU         46254.0    58542    200      3.721402               —         —
+  fista          cupy       150318.5    58545    200      3.721402        7.48e-08     0.31x
+  fista          torch       84145.9    58545    200      3.721402        7.48e-08     0.55x
+  fista_bb       CPU         45074.2    58542    200      3.721402               —         —
+  fista_bb       cupy       159628.3    58545    200      3.721402        7.48e-08     0.28x
+  fista_bb       torch       82959.9    58545    200      3.721402        7.48e-08     0.54x
+
+  [negative_binomial+group_scad | n=2000,p=200 | solvers=fista,fista_bb]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  fista          CPU         46261.7    60267    200      3.721403               —         —
+  fista          cupy       160311.0    60270    200      3.721403        7.50e-08     0.29x
+  fista          torch       95325.0    60270    200      3.721403        7.50e-08     0.49x
+  fista_bb       CPU         46781.3    60267    200      3.721403               —         —
+  fista_bb       cupy       158443.1    60270    200      3.721403        7.50e-08     0.30x
+  fista_bb       torch       86209.0    60270    200      3.721403        7.50e-08     0.54x
+
+  [tweedie+none | n=2000,p=200 | solvers=newton,fista,fista_bb,lbfgs]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  newton         CPU            69.6       20    200      2.265523               —         —
+  newton         cupy           68.9       20    200      2.265523        8.41e-17     1.01x
+  newton         torch          57.1       20    200      2.265523        1.11e-16     1.22x
+  fista          CPU          1672.3     2000    200      2.263243               —         —
+  fista          cupy         5939.7     2000    200      2.263243        6.22e-15     0.28x
+  fista          torch        3210.2     2000    200      2.263243        6.22e-15     0.52x
+  fista_bb       CPU          1660.9     2000    200      2.263243               —         —
+  fista_bb       cupy         5888.3     2000    200      2.263243        6.22e-15     0.28x
+  fista_bb       torch        3164.7     2000    200      2.263243        6.22e-15     0.52x
+  lbfgs          CPU            59.8       62    200      2.265522               —         —
+  lbfgs          cupy          338.4       62    200      2.265522        1.12e-12     0.18x
+  lbfgs          torch         136.0       62    200      2.265522        1.44e-12     0.44x
+
+  [tweedie+l1 | n=2000,p=200 | solvers=fista,fista_bb]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  fista          CPU          3734.0     5000    168      2.190007               —         —
+  fista          cupy        11685.7     5000    168      2.189996        4.51e-06     0.32x
+  fista          torch        5650.4     5000    168      2.189996        4.51e-06     0.66x
+  fista_bb       CPU          3251.6     3814    168      2.191888               —         —
+  fista_bb       cupy        12186.2     3814    168      2.191888        8.88e-15     0.27x
+  fista_bb       torch        6543.6     3814    168      2.191888        8.88e-15     0.50x
+
+  [tweedie+l2 | n=2000,p=200 | solvers=newton,fista,fista_bb,irls,lbfgs]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  newton         CPU            47.0       12    200      2.243483               —         —
+  newton         cupy           56.7       12    200      2.243483        1.11e-16     0.83x
+  newton         torch          41.6       12    200      2.243483        1.11e-16     1.13x
+  fista          CPU          1677.5     2000    200      2.241394               —         —
+  fista          cupy         5834.4     2000    200      2.241394        1.91e-14     0.29x
+  fista          torch        3317.3     2000    200      2.241394        1.91e-14     0.51x
+  fista_bb       CPU          1660.4     2000    200      2.241394               —         —
+  fista_bb       cupy         5969.8     2000    200      2.241394        1.91e-14     0.28x
+  fista_bb       torch        3192.7     2000    200      2.241394        1.91e-14     0.52x
+  irls           CPU            41.3       10    200      2.243474               —         —
+  irls           cupy           79.2       10    200      2.243474        4.55e-15     0.52x
+  irls           torch          43.7       10    200      2.243474        4.22e-15     0.95x
+  lbfgs          CPU            41.0       40    200      2.243472               —         —
+  lbfgs          cupy          240.0       40    200      2.243472        1.44e-14     0.17x
+  lbfgs          torch          92.9       40    200      2.243472        1.01e-15     0.44x
+
+  [tweedie+elasticnet | n=2000,p=200 | solvers=fista,fista_bb]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  fista          CPU          3745.2     5000    185      2.214300               —         —
+  fista          cupy        11981.1     5000    185      2.214289        4.83e-06     0.31x
+  fista          torch        5813.2     5000    185      2.214289        4.83e-06     0.64x
+  fista_bb       CPU          3553.3     3860    185      2.216371               —         —
+  fista_bb       cupy        12476.6     3862    185      2.216371        5.85e-08     0.28x
+  fista_bb       torch        6790.4     3862    185      2.216371        5.85e-08     0.52x
+
+  [tweedie+scad | n=2000,p=200 | solvers=fista,fista_bb]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  fista          CPU         15260.0    31475    171      2.259188               —         —
+  fista          cupy        66582.7    31564    171      2.259188        9.13e-08     0.23x
+  fista          torch       38348.8    31564    171      2.259188        9.13e-08     0.40x
+  fista_bb       CPU         14939.9    31475    171      2.259188               —         —
+  fista_bb       cupy        66205.3    31564    171      2.259188        9.13e-08     0.23x
+  fista_bb       torch       37828.6    31564    171      2.259188        9.13e-08     0.39x
+
+  [tweedie+mcp | n=2000,p=200 | solvers=fista,fista_bb]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  fista          CPU         16752.2    35589    170      2.261608               —         —
+  fista          cupy        74983.0    35692    170      2.261608        8.39e-08     0.22x
+  fista          torch       43575.1    35692    170      2.261608        8.39e-08     0.38x
+  fista_bb       CPU         17110.4    35589    170      2.261608               —         —
+  fista_bb       cupy        74852.6    35692    170      2.261608        8.39e-08     0.23x
+  fista_bb       torch       43587.2    35692    170      2.261608        8.39e-08     0.39x
+
+  [tweedie+adaptive_l1 | n=2000,p=200 | solvers=fista,fista_bb]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  fista          CPU          3805.3     5000    166      2.224946               —         —
+  fista          cupy        12959.7     5000    166      2.224936        4.58e-06     0.29x
+  fista          torch        6597.5     5000    166      2.224936        4.58e-06     0.58x
+  fista_bb       CPU          3742.7     5000    166      2.224946               —         —
+  fista_bb       cupy        11415.0     5000    166      2.224936        4.58e-06     0.33x
+  fista_bb       torch        5770.5     5000    166      2.224936        4.58e-06     0.65x
+
+  [tweedie+group_lasso | n=2000,p=200 | solvers=fista,fista_bb]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  fista          CPU          1391.9     1269    200     17.788443               —         —
+  fista          cupy        56207.8     1269    200     17.788443        4.18e-12     0.02x
+  fista          torch       27130.9     1269    200     17.788443        4.18e-12     0.05x
+  fista_bb       CPU          1664.9     1269    200     17.788443               —         —
+  fista_bb       cupy        64909.5     1269    200     17.788443        4.18e-12     0.03x
+  fista_bb       torch       34168.2     1269    200     17.788443        4.18e-12     0.05x
+
+  [tweedie+group_mcp | n=2000,p=200 | solvers=fista,fista_bb]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  fista          CPU         17424.7    18594    200      2.265505               —         —
+  fista          cupy        59981.3    18645    200      2.265505        1.87e-08     0.29x
+  fista          torch       35503.1    18645    200      2.265505        1.87e-08     0.49x
+  fista_bb       CPU         17540.6    18594    200      2.265505               —         —
+  fista_bb       cupy        59473.4    18645    200      2.265505        1.87e-08     0.29x
+  fista_bb       torch       35439.6    18645    200      2.265505        1.87e-08     0.49x
+
+  [tweedie+group_scad | n=2000,p=200 | solvers=fista,fista_bb]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  fista          CPU         16858.5    18075    200      2.265467               —         —
+  fista          cupy        57667.3    18122    200      2.265467        2.69e-08     0.29x
+  fista          torch       34436.6    18122    200      2.265467        2.69e-08     0.49x
+  fista_bb       CPU         15885.7    18075    200      2.265467               —         —
+  fista_bb       cupy        47405.0    18122    200      2.265467        2.69e-08     0.34x
+  fista_bb       torch       25306.1    18122    200      2.265467        2.69e-08     0.63x
+
+  [squared_error+none | n=5000,p=500 | solvers=newton,fista,fista_bb,exact]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  newton         CPU            45.7        2    500     20.323115               —         —
+  newton         cupy           36.8        2    500     20.323115        1.55e-14     1.24x
+  newton         torch          18.1        2    500     20.323115        2.31e-14     2.53x
+  fista          CPU            60.2      652    500     20.323110               —         —
+  fista          cupy          424.0      442    500     20.323114        3.09e-06     0.14x
+  fista          torch         215.4      442    500     20.323114        3.09e-06     0.28x
+  fista_bb       CPU            68.3      652    500     20.323110               —         —
+  fista_bb       cupy          422.5      442    500     20.323114        3.09e-06     0.16x
+  fista_bb       torch         215.2      442    500     20.323114        3.09e-06     0.32x
+  exact          CPU            21.6        1    500     20.323115               —         —
+  exact          cupy            8.1        1    500     20.323115        1.87e-14     2.66x
+  exact          torch          10.6        1    500     20.323115        2.19e-14     2.04x
+
+  [squared_error+l1 | n=5000,p=500 | solvers=fista,fista_bb]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  fista          CPU            49.1      452    142     20.201936               —         —
+  fista          cupy           71.4      455    142     20.201936        3.29e-08     0.69x
+  fista          torch          81.4      455    142     20.201936        3.29e-08     0.60x
+  fista_bb       CPU            47.6      452    142     20.201936               —         —
+  fista_bb       cupy           70.8      455    142     20.201936        3.29e-08     0.67x
+  fista_bb       torch          81.2      455    142     20.201936        3.29e-08     0.59x
+
+  [squared_error+l2 | n=5000,p=500 | solvers=newton,fista,fista_bb,irls,exact,admm]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  newton         CPU            26.8        2    500     19.993828               —         —
+  newton         cupy           18.2        2    500     19.993828        1.87e-14     1.48x
+  newton         torch          17.0        2    500     19.993828        2.20e-14     1.58x
+  fista          CPU            35.9      652    500     19.993825               —         —
+  fista          cupy          425.5      439    500     19.993827        1.89e-06     0.08x
+  fista          torch         214.0      439    500     19.993827        1.89e-06     0.17x
+  fista_bb       CPU            63.4      652    500     19.993825               —         —
+  fista_bb       cupy          423.0      439    500     19.993827        1.89e-06     0.15x
+  fista_bb       torch         214.1      439    500     19.993827        1.89e-06     0.30x
+  irls           CPU            97.4        5    500     19.993828               —         —
+  irls           cupy           34.3        5    500     19.993828        1.95e-14     2.84x
+  irls           torch          33.1        5    500     19.993828        2.31e-14     2.95x
+  exact          CPU            27.1        1    500     19.993828               —         —
+  exact          cupy            8.1        1    500     19.993828        2.31e-14     3.35x
+  exact          torch           9.9        1    500     19.993828        1.94e-14     2.74x
+  admm           CPU           146.4       47    500     19.993827               —         —
+  admm           cupy          200.0       47    500     19.993827        3.46e-14     0.73x
+  admm           torch         194.0       47    500     19.993827        2.93e-14     0.75x
+
+  [squared_error+elasticnet | n=5000,p=500 | solvers=fista,fista_bb]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  fista          CPU            57.1      552    275     20.102277               —         —
+  fista          cupy           85.9      555    275     20.102277        1.65e-08     0.66x
+  fista          torch         101.0      555    275     20.102277        1.65e-08     0.56x
+  fista_bb       CPU            42.6      552    275     20.102277               —         —
+  fista_bb       cupy           84.2      555    275     20.102277        1.65e-08     0.51x
+  fista_bb       torch         100.7      555    275     20.102277        1.65e-08     0.42x
+
+  [logistic+none | n=5000,p=500 | solvers=newton,fista,fista_bb,lbfgs]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  newton         CPU         33604.6     2000    500    314.734216               —         —
+  newton         cupy        12036.0     2000    500    314.734216        1.19e-08     2.79x
+  newton         torch       11194.6     2000    500    314.734216        1.04e-08     3.00x
+  fista          CPU          3068.0     2000    500     70.106144               —         —
+  fista          cupy         5021.3     2000    500     75.798605        1.42e+00     0.61x
+  fista          torch        2832.5     2000    500     75.798605        1.42e+00     1.08x
+  fista_bb       CPU          3096.6     2000    500     70.106144               —         —
+  fista_bb       cupy         5029.0     2000    500     75.798605        1.42e+00     0.62x
+  fista_bb       torch        2823.7     2000    500     75.798605        1.42e+00     1.10x
+  lbfgs          CPU            95.3       40    500    294.208269               —         —
+  lbfgs          cupy          205.3       40    500    294.208269        5.75e-10     0.46x
+  lbfgs          torch          83.6       40    500    294.208269        2.36e-10     1.14x
+
+  [logistic+l1 | n=5000,p=500 | solvers=fista,fista_bb]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  fista          CPU          9260.2     2141     78      2.276593               —         —
+  fista          cupy         7393.6     2143     78      2.276593        2.22e-15     1.25x
+  fista          torch        3524.9     2143     78      2.276593        2.44e-15     2.63x
+  fista_bb       CPU           541.0      221     78      2.276569               —         —
+  fista_bb       cupy          841.2      283     78      2.276588        1.02e-05     0.64x
+  fista_bb       torch         415.3      244     78      2.276862        9.15e-05     1.30x
+
+  [logistic+l2 | n=5000,p=500 | solvers=newton,fista,fista_bb,irls,lbfgs]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  newton         CPU           149.2        7    500      3.741471               —         —
+  newton         cupy           53.7        7    500      3.741471        2.47e-12     2.78x
+  newton         torch          47.1        7    500      3.741471        2.47e-12     3.17x
+  fista          CPU          1061.1      652    500      3.741471               —         —
+  fista          cupy         2748.6     1084    500      3.741472        7.71e-08     0.39x
+  fista          torch        1322.2      925    500      3.741476        1.23e-06     0.80x
+  fista_bb       CPU          1261.6      652    500      3.741471               —         —
+  fista_bb       cupy         2976.8     1084    500      3.741472        7.71e-08     0.42x
+  fista_bb       torch        1323.8      925    500      3.741476        1.23e-06     0.95x
+  irls           CPU           198.4       10    500      3.741471               —         —
+  irls           cupy           67.1       10    500      3.741471        2.50e-15     2.96x
+  irls           torch          67.4       10    500      3.741471        2.22e-15     2.94x
+  lbfgs          CPU           113.3       42    500      3.741479               —         —
+  lbfgs          cupy          241.6       42    500      3.741479        8.61e-11     0.47x
+  lbfgs          torch          98.1       42    500      3.741479        5.63e-10     1.15x
+
+  [logistic+elasticnet | n=5000,p=500 | solvers=fista,fista_bb]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  fista          CPU         10497.5     2489    119      2.914291               —         —
+  fista          cupy         8709.5     2491    119      2.914292        7.12e-08     1.21x
+  fista          torch        4167.8     2491    119      2.914292        7.12e-08     2.52x
+  fista_bb       CPU           625.1      265    119      2.914336               —         —
+  fista_bb       cupy          831.4      271    119      2.914335        4.63e-07     0.75x
+  fista_bb       torch         863.1      532    119      2.914332        1.09e-06     0.72x
+
+  [poisson+none | n=5000,p=500 | solvers=newton,fista,fista_bb,lbfgs]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  newton         CPU           151.2        7    500      1.525606               —         —
+  newton         cupy           47.8        7    500      1.525606        1.11e-16     3.16x
+  newton         torch          45.6        7    500      1.525606        2.84e-13     3.32x
+  fista          CPU           495.4      269    500      1.525577               —         —
+  fista          cupy          756.8      319    500      1.525599        4.95e-06     0.65x
+  fista          torch         432.2      319    500      1.525599        4.95e-06     1.15x
+  fista_bb       CPU           504.0      269    500      1.525577               —         —
+  fista_bb       cupy          747.1      319    500      1.525599        4.95e-06     0.67x
+  fista_bb       torch         431.8      319    500      1.525599        4.95e-06     1.17x
+  lbfgs          CPU            96.9       38    500      1.525605               —         —
+  lbfgs          cupy          195.6       38    500      1.525605        2.38e-14     0.50x
+  lbfgs          torch          80.1       38    500      1.525605        4.42e-14     1.21x
+
+  [poisson+l1 | n=5000,p=500 | solvers=fista,fista_bb]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  fista          CPU         13052.5     4236    499      1.516122               —         —
+  fista          cupy        10767.2     4810    499      1.516177        1.22e-05     1.21x
+  fista          torch        5485.7     4810    499      1.516177        1.22e-05     2.38x
+  fista_bb       CPU           477.2      196    499      1.516158               —         —
+  fista_bb       cupy          488.3      181    499      1.516185        5.92e-06     0.98x
+  fista_bb       torch         314.7      202    499      1.516200        9.52e-06     1.52x
+
+  [poisson+l2 | n=5000,p=500 | solvers=newton,fista,fista_bb,irls,lbfgs]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  newton         CPU           140.8        7    500      1.524661               —         —
+  newton         cupy           48.0        7    500      1.524661        1.11e-16     2.93x
+  newton         torch          44.1        7    500      1.524661        1.20e-16     3.19x
+  fista          CPU           521.7      285    500      1.524635               —         —
+  fista          cupy          719.7      298    500      1.524646        2.32e-06     0.72x
+  fista          torch         407.6      298    500      1.524646        2.33e-06     1.28x
+  fista_bb       CPU           502.2      285    500      1.524635               —         —
+  fista_bb       cupy          710.7      298    500      1.524646        2.32e-06     0.71x
+  fista_bb       torch         406.9      298    500      1.524646        2.33e-06     1.23x
+  irls           CPU           180.6       10    500      1.524661               —         —
+  irls           cupy           58.9       10    500      1.524661        6.22e-15     3.07x
+  irls           torch          57.2       10    500      1.524661        8.05e-15     3.16x
+  lbfgs          CPU            82.3       26    500      1.524653               —         —
+  lbfgs          cupy          146.7       26    500      1.524653        5.86e-12     0.56x
+  lbfgs          torch          61.9       26    500      1.524653        1.95e-12     1.33x
+
+  [poisson+elasticnet | n=5000,p=500 | solvers=fista,fista_bb]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  fista          CPU         13360.0     4254    500      1.520338               —         —
+  fista          cupy        11053.1     4828    500      1.520393        1.22e-05     1.21x
+  fista          torch        5693.6     4828    500      1.520393        1.22e-05     2.35x
+  fista_bb       CPU           420.3      171    500      1.520414               —         —
+  fista_bb       cupy          490.5      178    500      1.520408        2.67e-06     0.86x
+  fista_bb       torch         311.1      199    500      1.520407        2.86e-06     1.35x
+
+  [gamma+none | n=5000,p=500 | solvers=newton,fista,fista_bb,lbfgs]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  newton         CPU           235.2       39    500      2.229293               —         —
+  newton         cupy          220.3       39    500      2.229293        1.73e-16     1.07x
+  newton         torch         196.1       39    500      2.229293        1.65e-16     1.20x
+  fista          CPU          4396.4     1886    500      2.229290               —         —
+  fista          cupy         4604.5     1888    500      2.229290        2.73e-08     0.95x
+  fista          torch        2641.2     1888    500      2.229290        2.73e-08     1.66x
+  fista_bb       CPU          3539.9     1886    500      2.229290               —         —
+  fista_bb       cupy         4573.3     1888    500      2.229290        2.73e-08     0.77x
+  fista_bb       torch        2645.8     1888    500      2.229290        2.73e-08     1.34x
+  lbfgs          CPU           182.2       82    500      2.229294               —         —
+  lbfgs          cupy          399.7       78    500      2.229294        6.64e-07     0.46x
+  lbfgs          torch         161.2       78    500      2.229295        1.31e-06     1.13x
+
+  [gamma+l1 | n=5000,p=500 | solvers=fista]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  fista          CPU         15646.1     5000    330      2.046809               —         —
+  fista          cupy        11381.8     5000    330      2.046807        9.13e-07     1.37x
+  fista          torch        5801.1     5000    330      2.046807        9.13e-07     2.70x
+
+  [gamma+l2 | n=5000,p=500 | solvers=newton,fista,fista_bb,irls,lbfgs]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  newton         CPU           137.3       20    500      2.193241               —         —
+  newton         cupy          127.1       20    500      2.193241        9.71e-17     1.08x
+  newton         torch         108.0       20    500      2.193241        1.04e-16     1.27x
+  fista          CPU          3472.8     1814    500      2.193349               —         —
+  fista          cupy         4445.3     1816    500      2.193349        2.72e-08     0.78x
+  fista          torch        2551.2     1816    500      2.193349        2.72e-08     1.36x
+  fista_bb       CPU          3425.3     1814    500      2.193349               —         —
+  fista_bb       cupy         4437.6     1816    500      2.193349        2.72e-08     0.77x
+  fista_bb       torch        2545.5     1816    500      2.193349        2.72e-08     1.35x
+  irls           CPU           511.8       30    500      2.193354               —         —
+  irls           cupy          229.3       30    500      2.193354        3.31e-15     2.23x
+  irls           torch         195.6       30    500      2.193354        3.49e-15     2.62x
+  lbfgs          CPU            94.8       29    500      2.193935               —         —
+  lbfgs          cupy          164.3       29    500      2.193935        1.63e-14     0.58x
+  lbfgs          torch          70.4       29    500      2.193935        2.40e-14     1.35x
+
+  [gamma+elasticnet | n=5000,p=500 | solvers=fista]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  fista          CPU         15901.9     5000    420      2.110679               —         —
+  fista          cupy        11589.7     5000    420      2.110676        1.43e-06     1.37x
+  fista          torch        5927.7     5000    420      2.110676        1.43e-06     2.68x
+
+  [inverse_gaussian+none | n=5000,p=500 | solvers=newton,fista,fista_bb,lbfgs]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  newton         CPU          1088.9       64    500      1.381745               —         —
+  newton         cupy          402.1       64    500      1.381745        1.28e-16     2.71x
+  newton         torch         369.7       64    500      1.381745        1.25e-16     2.95x
+  fista          CPU          7771.9     2000    500      1.251044               —         —
+  fista          cupy         6200.1     2000    500      1.251044        5.93e-16     1.25x
+  fista          torch        3376.3     2000    500      1.251044        5.76e-16     2.30x
+  fista_bb       CPU          7341.3     2000    500      1.251044               —         —
+  fista_bb       cupy         6240.0     2000    500      1.251044        5.93e-16     1.18x
+  fista_bb       torch        3384.5     2000    500      1.251044        5.76e-16     2.17x
+  lbfgs          CPU           226.8      110    500      1.381747               —         —
+  lbfgs          cupy          560.5      106    500      1.381747        5.43e-07     0.40x
+  lbfgs          torch         248.3      116    500      1.381746        1.39e-06     0.91x
+
+  [inverse_gaussian+l1 | n=5000,p=500 | solvers=fista]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  fista          CPU         15519.8     5000    357      1.220474               —         —
+  fista          cupy        11749.4     5000    357      1.220469        3.94e-06     1.32x
+  fista          torch        6103.0     5000    357      1.220469        3.94e-06     2.54x
+
+  [inverse_gaussian+l2 | n=5000,p=500 | solvers=newton,fista,fista_bb,irls,lbfgs]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  newton         CPU           536.4       30    500      1.363347               —         —
+  newton         cupy          206.3       30    500      1.363347        1.37e-16     2.60x
+  newton         torch         182.5       30    500      1.363347        1.32e-16     2.94x
+  fista          CPU          7292.8     2000    500      1.241995               —         —
+  fista          cupy         6240.0     2000    500      1.241995        5.00e-16     1.17x
+  fista          torch        3389.1     2000    500      1.241995        4.72e-16     2.15x
+  fista_bb       CPU          7295.0     2000    500      1.241995               —         —
+  fista_bb       cupy         6214.1     2000    500      1.241995        5.00e-16     1.17x
+  fista_bb       torch        3416.1     2000    500      1.241995        4.72e-16     2.14x
+  irls           CPU           327.2       20    500      1.362238               —         —
+  irls           cupy          129.2       20    500      1.362238        1.86e-15     2.53x
+  irls           torch         117.9       20    500      1.362238        2.47e-15     2.78x
+  lbfgs          CPU           209.2       86    500      1.363579               —         —
+  lbfgs          cupy          470.1       86    500      1.363579        3.80e-08     0.45x
+  lbfgs          torch         195.7       86    500      1.363579        9.00e-08     1.07x
+
+  [inverse_gaussian+elasticnet | n=5000,p=500 | solvers=fista]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  fista          CPU         15496.3     5000    426      1.273944               —         —
+  fista          cupy        12840.9     5000    426      1.273933        5.66e-06     1.21x
+  fista          torch        8522.3     5000    426      1.273933        5.66e-06     1.82x
+
+  [negative_binomial+none | n=5000,p=500 | solvers=newton,fista,fista_bb,lbfgs]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  newton         CPU           815.6       48    500      4.304243               —         —
+  newton         cupy          349.6       48    500      4.304243        2.22e-16     2.33x
+  newton         torch         310.3       48    500      4.304243        2.22e-16     2.63x
+  fista          CPU          1232.7      677    500      4.304250               —         —
+  fista          cupy         2598.6      814    500      4.304243        2.26e-06     0.47x
+  fista          torch        1588.2      814    500      4.304243        2.26e-06     0.78x
+  fista_bb       CPU          1226.3      677    500      4.304250               —         —
+  fista_bb       cupy         2619.8      814    500      4.304243        2.26e-06     0.47x
+  fista_bb       torch        1589.5      814    500      4.304243        2.26e-06     0.77x
+  lbfgs          CPU           216.6       83    500      4.304247               —         —
+  lbfgs          cupy          585.2       83    500      4.304247        7.97e-09     0.37x
+  lbfgs          torch         275.1       83    500      4.304247        2.09e-09     0.79x
+
+  [negative_binomial+l1 | n=5000,p=500 | solvers=fista,fista_bb]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  fista          CPU         16380.1     5000    289      3.549126               —         —
+  fista          cupy        12325.4     5000    289      3.549039        2.71e-05     1.33x
+  fista          torch        6324.5     5000    289      3.549039        2.71e-05     2.59x
+  fista_bb       CPU           870.3      448    289      3.570503               —         —
+  fista_bb       cupy         1586.8      559    289      3.570519        4.93e-06     0.55x
+  fista_bb       torch         911.2      559    289      3.570519        4.93e-06     0.96x
+
+  [negative_binomial+l2 | n=5000,p=500 | solvers=newton,fista,fista_bb,irls,lbfgs]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  newton         CPU           723.1       40    500      3.917670               —         —
+  newton         cupy          274.3       40    500      3.917670        1.70e-16     2.64x
+  newton         torch         243.8       40    500      3.917670        1.86e-16     2.97x
+  fista          CPU          1164.3      649    500      3.917681               —         —
+  fista          cupy         1910.7      688    500      3.917670        3.11e-06     0.61x
+  fista          torch        1341.3      688    500      3.917670        3.11e-06     0.87x
+  fista_bb       CPU          1162.8      649    500      3.917681               —         —
+  fista_bb       cupy         2235.3      688    500      3.917670        3.11e-06     0.52x
+  fista_bb       torch        1341.9      688    500      3.917670        3.11e-06     0.87x
+  irls           CPU           656.9       40    500      3.917668               —         —
+  irls           cupy         2041.0      280    500      3.917599        2.92e-05     0.32x
+  irls           torch         236.1       40    500      3.917668        8.66e-15     2.78x
+  lbfgs          CPU           122.5       39    500      3.918175               —         —
+  lbfgs          cupy          236.3       39    500      3.918175        6.78e-11     0.52x
+  lbfgs          torch         104.2       39    500      3.918175        2.61e-11     1.18x
+
+  [negative_binomial+elasticnet | n=5000,p=500 | solvers=fista,fista_bb]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  fista          CPU         15964.0     5000    375      3.702087               —         —
+  fista          cupy        12335.9     5000    375      3.701990        3.00e-05     1.29x
+  fista          torch        6350.4     5000    375      3.701990        3.00e-05     2.51x
+  fista_bb       CPU          1132.4      505    375      3.726531               —         —
+  fista_bb       cupy         1850.8      634    375      3.726518        4.37e-06     0.61x
+  fista_bb       torch        1030.5      634    375      3.726518        4.37e-06     1.10x
+
+  [tweedie+none | n=5000,p=500 | solvers=newton,fista,fista_bb,lbfgs]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  newton         CPU           307.5       16    500      1.331598               —         —
+  newton         cupy          103.6       16    500      1.331598        1.11e-16     2.97x
+  newton         torch          94.9       16    500      1.331598        1.11e-16     3.24x
+  fista          CPU          5560.9     2000    500      1.318660               —         —
+  fista          cupy         6078.1     2000    500      1.318660        2.22e-16     0.91x
+  fista          torch        3292.4     2000    500      1.318660        2.50e-16     1.69x
+  fista_bb       CPU          5566.7     2000    500      1.318660               —         —
+  fista_bb       cupy         6085.2     2000    500      1.318660        2.22e-16     0.91x
+  fista_bb       torch        3320.4     2000    500      1.318660        2.50e-16     1.68x
+  lbfgs          CPU           196.6       78    500      1.331598               —         —
+  lbfgs          cupy          438.2       78    500      1.331598        1.18e-07     0.45x
+  lbfgs          torch         174.0       77    500      1.331598        1.03e-07     1.13x
+
+  [tweedie+l1 | n=5000,p=500 | solvers=fista,fista_bb]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  fista          CPU         16049.4     5000    428      1.172716               —         —
+  fista          cupy        12251.0     5000    428      1.172570        4.01e-05     1.31x
+  fista          torch        6223.6     5000    428      1.172570        4.01e-05     2.58x
+  fista_bb       CPU         13944.6     4964    421      1.244048               —         —
+  fista_bb       cupy        15329.5     4966    421      1.244048        2.56e-08     0.91x
+  fista_bb       torch        8676.9     4966    421      1.244048        2.56e-08     1.61x
+
+  [tweedie+l2 | n=5000,p=500 | solvers=newton,fista,fista_bb,irls,lbfgs]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  newton         CPU           292.1       16    500      1.322760               —         —
+  newton         cupy          111.8       16    500      1.322760        1.14e-16     2.61x
+  newton         torch          98.0       16    500      1.322760        1.25e-16     2.98x
+  fista          CPU          5543.8     2000    500      1.310376               —         —
+  fista          cupy         6094.8     2000    500      1.310376        2.22e-16     0.91x
+  fista          torch        3393.8     2000    500      1.310376        2.22e-16     1.63x
+  fista_bb       CPU          5668.2     2000    500      1.310376               —         —
+  fista_bb       cupy         6039.8     2000    500      1.310376        2.22e-16     0.94x
+  fista_bb       torch        3272.7     2000    500      1.310376        2.22e-16     1.73x
+  irls           CPU           255.9       15    500      1.322760               —         —
+  irls           cupy          108.6       15    500      1.322760        1.39e-14     2.36x
+  irls           torch          93.2       15    500      1.322760        1.32e-14     2.74x
+  lbfgs          CPU           108.0       34    500      1.324693               —         —
+  lbfgs          cupy          207.4       34    500      1.324693        5.60e-14     0.52x
+  lbfgs          torch          85.4       34    500      1.324693        8.26e-14     1.26x
+
+  [tweedie+elasticnet | n=5000,p=500 | solvers=fista,fista_bb]
+  Solver         Backend    Time(ms)    Iters    NNZ      ||coef||          vs_CPU       spd
+  ----------------------------------------------------------------------------------------------------------------------------------
+  fista          CPU         15861.9     5000    469      1.204785               —         —
+  fista          cupy        12418.1     5000    469      1.204631        4.17e-05     1.28x
+  fista          torch        6296.5     5000    469      1.204631        4.17e-05     2.52x
+  fista_bb       CPU         14205.6     5000    465      1.281780               —         —
+  fista_bb       cupy        15599.5     5000    465      1.281780        1.11e-16     0.91x
+  fista_bb       torch        8794.9     5000    465      1.281780        3.77e-15     1.62x
+
+==================================================================================================================================
+  SUMMARY
+==================================================================================================================================
+  Section A: 816/816 passed (max diff: 2.02e+00)  [PASS]
+
+  TOTAL: 816/816 passed  [ALL PASS]
+==================================================================================================================================

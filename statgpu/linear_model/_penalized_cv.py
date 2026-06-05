@@ -2178,7 +2178,8 @@ class PenalizedGLM_CV(CVEstimatorBase):
         tol = self.tol if tol is None else tol
 
         # Fast path: squared_error + l2 uses eigendecomposition.
-        if loss_name == "squared_error" and penalty_name == "l2":
+        # Skip when sample_weight is provided (weighted ridge needs different math).
+        if loss_name == "squared_error" and penalty_name == "l2" and sample_weight is None:
             all_scores = np.full((self.cv, n_alphas), np.nan)
             for fold_idx, (train_idx, val_idx) in enumerate(folds):
                 X_train = _slice_rows(X, train_idx)

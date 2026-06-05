@@ -32,6 +32,7 @@ dev/tests/_*/
 dev/tests/_bench_*.py
 !dev/tests/_bench_report_parser.py
 dev/tests/_bench_*.txt
+!dev/tests/_bench_full_matrix_output_section_A.txt
 !dev/tests/_bench_realdata_*.py
 dev/tests/*_runner.py
 dev/tests/*_remote*.py
@@ -43,10 +44,12 @@ dev/tests/run_remote*.py
 dev/tests/run_*.py
 dev/tests/run_*.sh
 dev/tests/*benchmark*.py
+!dev/tests/benchmark_glm_penalty_external_small.py
 dev/tests/*benchmark*.txt
 dev/tests/analyze_*.py
 dev/tests/compare_*.py
 dev/tests/profile_*.py
+!dev/tests/profile_cv_hotspots.py
 dev/tests/l2_diagnosis*.py
 dev/tests/detailed_comparison*.py
 dev/tests/comprehensive_benchmark*.py
