@@ -52,6 +52,9 @@ def _make_lasso_cv_auto_cache_key(
     use_gpu: bool,
     max_iter: int,
     tol: float,
+    cpu_solver: str = "coordinate_descent",
+    cv_method: str = "standard",
+    cd_kkt_check_every: Optional[int] = None,
     sample_weight_shape: Optional[Tuple[int, ...]] = None,
     data_digest: Optional[bytes] = None,
 ) -> Tuple[Any, ...]:
@@ -73,6 +76,9 @@ def _make_lasso_cv_auto_cache_key(
     h.update(str(use_gpu).encode("utf-8"))
     h.update(str(max_iter).encode("utf-8"))
     h.update(str(tol).encode("utf-8"))
+    h.update(str(cpu_solver).lower().encode("utf-8"))
+    h.update(str(cv_method).lower().encode("utf-8"))
+    h.update(str(cd_kkt_check_every).encode("utf-8"))
     if data_digest is not None:
         h.update(data_digest)
     # Hash fold indices
@@ -86,15 +92,34 @@ def _make_lasso_cv_auto_cache_key(
 
 def _hash_data(X, y) -> bytes:
     """Compute a compact hash of X and y data content."""
+    from statgpu.backends import _to_numpy
     h = hashlib.blake2b(digest_size=16)
-    X_np = np.asarray(X, dtype=np.float64)
-    y_np = np.asarray(y, dtype=np.float64).ravel()
+    X_np = np.asarray(_to_numpy(X), dtype=np.float64)
+    y_np = np.asarray(_to_numpy(y), dtype=np.float64).ravel()
     h.update(X_np[0].tobytes())
     h.update(X_np[-1].tobytes())
     h.update(np.asarray([X_np.mean(), X_np.std()], dtype=np.float64).tobytes())
     h.update(y_np[:min(10, len(y_np))].tobytes())
     h.update(np.asarray([y_np.mean()], dtype=np.float64).tobytes())
     return h.digest()
+
+
+def _normalize_lassocv_method(method: str) -> str:
+    key = str(method).strip().lower()
+    if key in ("standard", "default"):
+        return "standard"
+    if key in ("glmnet", "cd_path", "coordinate_descent_path"):
+        return "glmnet"
+    raise ValueError("method must be one of: 'standard', 'glmnet'")
+
+
+def _normalize_cd_kkt_check_every(cd_kkt_check_every: Optional[int]) -> Optional[int]:
+    if cd_kkt_check_every is None:
+        return None
+    value = int(cd_kkt_check_every)
+    if value < 1:
+        raise ValueError("cd_kkt_check_every must be a positive integer or None")
+    return value
 
 
 # =============================================================================
@@ -279,6 +304,15 @@ class LassoCV(CVEstimatorBase):
         compute_inference: bool = False,
         max_iter: int = 3000,
         tol: float = 1e-4,
+        stopping: str = "coef_delta",
+        solver: str = "fista",
+        cpu_solver: str = "coordinate_descent",
+        method: str = "standard",
+        cd_kkt_check_every: Optional[int] = None,
+        inference_method: str = "cpu_ols_inference",
+        lipschitz_L: Optional[float] = None,
+        admm_rho: float = 1.0,
+        gpu_memory_cleanup: bool = False,
         random_state: Optional[int] = None,
         gpu_cv_mixed_precision: bool = True,
     ):
@@ -297,11 +331,21 @@ class LassoCV(CVEstimatorBase):
         self.compute_inference = bool(compute_inference)
         self.max_iter = int(max_iter)
         self.tol = float(tol)
+        self.stopping = str(stopping)
+        self.solver = str(solver)
+        self.cpu_solver = str(cpu_solver)
+        self.method = _normalize_lassocv_method(method)
+        self.cd_kkt_check_every = _normalize_cd_kkt_check_every(cd_kkt_check_every)
+        self.inference_method = str(inference_method)
+        self.lipschitz_L = lipschitz_L
+        self.admm_rho = float(admm_rho)
+        self.gpu_memory_cleanup = bool(gpu_memory_cleanup)
         self.gpu_cv_mixed_precision = bool(gpu_cv_mixed_precision)
 
         self.alpha_ = None
         self.alphas_ = None
         self.cv_results_ = None
+        self.mse_path_ = None
         self.mean_mse_ = None
         self.best_score_ = None
         self.coef_ = None
@@ -317,6 +361,14 @@ class LassoCV(CVEstimatorBase):
         """
         device_name = self._get_compute_device().value
         use_gpu = device_name == Device.CUDA.value
+        cv_method = str(self.method).lower()
+        effective_cpu_solver = (
+            "coordinate_descent" if cv_method == "glmnet" else str(self.cpu_solver)
+        )
+        if self.cd_kkt_check_every is None:
+            effective_cd_kkt_check_every = 4 if cv_method == "glmnet" else 1
+        else:
+            effective_cd_kkt_check_every = int(self.cd_kkt_check_every)
 
         # Detect input type
         gpu_input_cupy = False
@@ -418,6 +470,9 @@ class LassoCV(CVEstimatorBase):
             use_gpu=use_gpu,
             max_iter=self.max_iter,
             tol=self.tol,
+            cpu_solver=effective_cpu_solver,
+            cv_method=cv_method,
+            cd_kkt_check_every=effective_cd_kkt_check_every,
             sample_weight_shape=sample_weight.shape if sample_weight is not None else None,
             data_digest=_hash_data(X, y),
         )
@@ -620,9 +675,10 @@ class LassoCV(CVEstimatorBase):
                 for alpha in alpha_desc:
                     result = _fit_lasso_single_alpha_fast(
                         X_train, y_train, alpha=alpha, fit_intercept=self.fit_intercept,
-                        max_iter=self.max_iter, tol=self.tol, stopping="coef_delta",
-                        device='cpu', cpu_solver="coordinate_descent",
-                        cd_kkt_check_every=1, sample_weight=sw_train,
+                        max_iter=self.max_iter, tol=self.tol, stopping=self.stopping,
+                        device='cpu', cpu_solver=effective_cpu_solver,
+                        cd_kkt_check_every=effective_cd_kkt_check_every,
+                        sample_weight=sw_train,
                     )
                     coef = result['coef']
                     intercept = result['intercept'] if self.fit_intercept else 0.0
@@ -678,6 +734,7 @@ class LassoCV(CVEstimatorBase):
         mean_mse = np.asarray(details["mean_mse"], dtype=np.float64)
 
         self.cv_results_ = {"mse_path": mse_path}
+        self.mse_path_ = mse_path
         self.mean_mse_ = mean_mse
         self.best_score_ = float(np.nanmin(mean_mse)) if np.any(np.isfinite(mean_mse)) else np.nan
 
@@ -687,8 +744,22 @@ class LassoCV(CVEstimatorBase):
             fit_intercept=self.fit_intercept,
             device=self.device,
             n_jobs=self.n_jobs,
+            max_iter=self.max_iter,
+            tol=self.tol,
+            stopping=self.stopping,
+            solver=self.solver,
+            cpu_solver=(
+                "coordinate_descent"
+                if str(self.method).lower() == "glmnet"
+                else str(self.cpu_solver)
+            ),
+            lipschitz_L=self.lipschitz_L,
+            gpu_memory_cleanup=self.gpu_memory_cleanup,
             compute_inference=self.compute_inference,
-            inference_method="debiased" if self.compute_inference else "cpu_ols_inference",
+            inference_method=(
+                "debiased" if self.compute_inference else self.inference_method
+            ),
+            admm_rho=self.admm_rho,
         )
         estimator.fit(X, y, sample_weight=sample_weight)
 

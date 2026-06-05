@@ -92,9 +92,10 @@ def _make_elasticnet_cv_auto_cache_key(
 
 def _hash_data(X, y) -> bytes:
     """Compute a compact hash of X and y data content."""
+    from statgpu.backends import _to_numpy
     h = hashlib.blake2b(digest_size=16)
-    X_np = np.asarray(X, dtype=np.float64)
-    y_np = np.asarray(y, dtype=np.float64).ravel()
+    X_np = np.asarray(_to_numpy(X), dtype=np.float64)
+    y_np = np.asarray(_to_numpy(y), dtype=np.float64).ravel()
     h.update(X_np[0].tobytes())
     h.update(X_np[-1].tobytes())
     h.update(np.asarray([X_np.mean(), X_np.std()], dtype=np.float64).tobytes())

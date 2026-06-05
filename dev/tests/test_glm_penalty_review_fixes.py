@@ -306,7 +306,7 @@ def test_penalized_glm_cv_strict_is_default_and_scores_all_alphas(monkeypatch):
     monkeypatch.setattr(
         cv_mod.PenalizedGLM_CV,
         "_refit_best",
-        lambda self, X, y, best_alpha: DummyEstimator(),
+        lambda self, X, y, best_alpha, sample_weight=None: DummyEstimator(),
     )
 
     alpha_grid = np.array([0.3, 0.2, 0.1])
@@ -473,7 +473,7 @@ def test_penalized_glm_cv_two_stage_selects_from_refined_scores(monkeypatch):
     monkeypatch.setattr(
         cv_mod.PenalizedGLM_CV,
         "_refit_best",
-        lambda self, X, y, best_alpha: DummyEstimator(),
+        lambda self, X, y, best_alpha, sample_weight=None: DummyEstimator(),
     )
 
     model = cv_mod.PenalizedGLM_CV(
@@ -522,7 +522,7 @@ def test_penalized_glm_cv_two_stage_refines_all_gaussian_nonconvex(monkeypatch):
     monkeypatch.setattr(
         cv_mod.PenalizedGLM_CV,
         "_refit_best",
-        lambda self, X, y, best_alpha: DummyEstimator(),
+        lambda self, X, y, best_alpha, sample_weight=None: DummyEstimator(),
     )
 
     model = cv_mod.PenalizedGLM_CV(

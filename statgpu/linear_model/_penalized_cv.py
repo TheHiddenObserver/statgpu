@@ -1963,7 +1963,7 @@ class PenalizedGLM_CV(CVEstimatorBase):
 
         return val_loss
 
-    def _refit_best(self, X, y, best_alpha):
+    def _refit_best(self, X, y, best_alpha, sample_weight=None):
         """Refit on full data with best alpha.
 
         For squared_error + l2, uses eigendecomposition to match the CV path
@@ -1982,7 +1982,7 @@ class PenalizedGLM_CV(CVEstimatorBase):
                 device='cpu', compute_inference=True,
                 max_iter=self.max_iter, tol=self.tol,
             )
-            model.fit(X_np, y_np)
+            model.fit(X_np, y_np, sample_weight=sample_weight)
             # Override with eigendecomposition solution for exact match
             model.coef_ = coef
             model.intercept_ = intercept
@@ -2115,7 +2115,7 @@ class PenalizedGLM_CV(CVEstimatorBase):
             tol=self.tol,
             solver=self._solver_for_cv(refit_device, X=X),
         )
-        model.fit(X, y)
+        model.fit(X, y, sample_weight=sample_weight)
         return model
 
     def _uses_glm_sparse_path(self, penalty_name, cv_solver):
@@ -2617,7 +2617,7 @@ class PenalizedGLM_CV(CVEstimatorBase):
             "refined_mask": refined_mask,
         }
 
-        self.estimator_ = self._refit_best(X, y, best_alpha)
+        self.estimator_ = self._refit_best(X, y, best_alpha, sample_weight=sample_weight)
         self.coef_ = self.estimator_.coef_
         self.intercept_ = self.estimator_.intercept_
 
