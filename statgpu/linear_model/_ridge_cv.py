@@ -70,7 +70,7 @@ def _make_ridge_cv_auto_cache_key(X, y, alphas, folds, fit_intercept, use_gpu, s
         h.update(train_idx[:5].tobytes())
         h.update(val_idx[:5].tobytes())
     if sample_weight is not None:
-        sw = np.asarray(sample_weight, dtype=np.float64).ravel()
+        sw = np.asarray(_to_numpy(sample_weight), dtype=np.float64).ravel()
         h.update(sw[:min(10, len(sw))].tobytes())
     return h.hexdigest()
 
