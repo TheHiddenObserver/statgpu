@@ -1703,16 +1703,36 @@ def _scad_mcp_cv_path(
             if _scalar_lt(delta, lla_tol, backend):
                 break
 
-        # Extract coef and intercept
+        # Extract coef and compute intercept from centered-data fit.
+        # For squared_error, the FISTA loop works on centered X/y, so
+        # coef[n_features] stays at zero. Compute the correct intercept.
         if backend == "torch":
-            coef_np = coef[:n_features].detach().cpu().numpy()
-            intercept = float(coef[n_features].item())
+            coef_feat = coef[:n_features]
+            coef_np = coef_feat.detach().cpu().numpy()
         elif backend == "cupy":
-            coef_np = coef[:n_features].get()
-            intercept = float(coef[n_features].get())
+            coef_feat = coef[:n_features]
+            coef_np = coef_feat.get()
         else:
-            coef_np = coef[:n_features].copy()
-            intercept = float(coef[n_features])
+            coef_feat = coef[:n_features]
+            coef_np = coef_feat.copy()
+
+        if _is_quadratic and X_mean is not None:
+            # intercept = y_mean - X_mean @ coef_features (from centering)
+            if backend == "torch":
+                intercept = float((y_mean - (torch.as_tensor(X_mean, device=coef.device, dtype=coef.dtype) @ coef_feat).item()))
+            elif backend == "cupy":
+                intercept = float(y_mean - float((cp.asarray(X_mean) @ coef_feat).item()))
+            else:
+                intercept = float(y_mean - X_mean @ coef_feat)
+            # Update coef[n_features] so validation uses correct intercept
+            coef[n_features] = intercept
+        else:
+            if backend == "torch":
+                intercept = float(coef[n_features].item())
+            elif backend == "cupy":
+                intercept = float(coef[n_features].get())
+            else:
+                intercept = float(coef[n_features])
 
         # Validation loss on device
         if X_val_work is not None:
@@ -2241,9 +2261,11 @@ class PenalizedGLM_CV(CVEstimatorBase):
         max_iter = int(self.max_iter if max_iter is None else max_iter)
         tol = self.tol if tol is None else tol
 
-        # Fast path: squared_error + l2 uses eigendecomposition.
+        # Fast path: squared_error + l2 uses eigendecomposition (CPU only).
         # Skip when sample_weight is provided (weighted ridge needs different math).
-        if loss_name == "squared_error" and penalty_name == "l2" and sample_weight is None:
+        # Skip when device is explicit GPU (fast path always runs on CPU).
+        _is_explicit_gpu = device_name in ("cuda", "torch")
+        if loss_name == "squared_error" and penalty_name == "l2" and sample_weight is None and not _is_explicit_gpu:
             all_scores = np.full((self.cv, n_alphas), np.nan)
             for fold_idx, (train_idx, val_idx) in enumerate(folds):
                 X_train = _slice_rows(X, train_idx)
@@ -2598,6 +2620,12 @@ class PenalizedGLM_CV(CVEstimatorBase):
 
     def fit(self, X, y, sample_weight=None):
         """Fit the CV model with optimized strict or explicit two-stage CV."""
+        # Normalize array-like inputs (lists, tuples, etc.) to arrays
+        if not hasattr(X, 'shape'):
+            X = np.asarray(X, dtype=np.float64)
+        if not hasattr(y, 'shape'):
+            y = np.asarray(y, dtype=np.float64)
+
         if self._alpha_grid_input is not None:
             alpha_grid = np.asarray(self._alpha_grid_input, dtype=np.float64)
         else:
