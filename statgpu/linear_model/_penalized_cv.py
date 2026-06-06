@@ -145,9 +145,32 @@ def _ridge_eig_batch(X_train_np, y_train_np, X_val_np, y_val_np, alphas_np):
     return mse, coefs, intercepts
 
 
-def _ridge_eig_single(X_train_np, y_train_np, alpha):
-    """Single Ridge solve via eigendecomposition. Returns (coef, intercept)."""
+def _ridge_eig_single(X_train_np, y_train_np, alpha, sample_weight=None):
+    """Single Ridge solve via eigendecomposition. Returns (coef, intercept).
+
+    When sample_weight is provided, uses weighted centering and weighted
+    normal equations: X'WX coef = X'Wy, solved via eigendecomposition of
+    X'WX. Same O(p³) cost as unweighted path.
+    """
     n, p = X_train_np.shape
+    if sample_weight is not None:
+        w = np.asarray(sample_weight, dtype=np.float64).ravel()
+        w_sum = w.sum()
+        X_mean = np.average(X_train_np, axis=0, weights=w)
+        y_mean = float(np.average(y_train_np, weights=w))
+        Xc = X_train_np - X_mean
+        yc = y_train_np - y_mean
+        # Weighted normal equations: Xc' diag(w) Xc
+        W_sqrt_Xc = Xc * np.sqrt(w)[:, None]
+        XtWX = W_sqrt_Xc.T @ W_sqrt_Xc
+        XtWy = (Xc * w[:, None]).T @ yc
+        eigvals, Q = np.linalg.eigh(XtWX)
+        eigvals = np.maximum(eigvals, 1e-15)
+        QtXtWy = Q.T @ XtWy
+        inv_diag = 1.0 / (eigvals + w_sum * alpha)
+        coef = Q @ (inv_diag * QtXtWy)
+        intercept = float(y_mean - X_mean @ coef)
+        return coef, intercept
     X_mean = np.mean(X_train_np, axis=0)
     y_mean = np.mean(y_train_np)
     Xc = X_train_np - X_mean
@@ -1972,20 +1995,18 @@ class PenalizedGLM_CV(CVEstimatorBase):
         from statgpu.linear_model._penalized import PenalizedGeneralizedLinearModel
 
         # For Ridge: use eigendecomposition to match CV path exactly.
-        # Skip the eig override when sample_weight is provided — the
-        # unweighted eigensolve would produce different coefficients.
-        if self.loss == 'squared_error' and self.penalty == 'l2' and sample_weight is None:
+        # Supports weighted Ridge via weighted eigensolve (same O(p³) cost).
+        if self.loss == 'squared_error' and self.penalty == 'l2':
             X_np = _to_numpy(X).astype(np.float64)
             y_np = _to_numpy(y).astype(np.float64).ravel()
-            coef, intercept = _ridge_eig_single(X_np, y_np, best_alpha)
-            # Build a minimal model wrapper for predict/score compatibility
+            sw_np = _to_numpy(sample_weight).astype(np.float64).ravel() if sample_weight is not None else None
+            coef, intercept = _ridge_eig_single(X_np, y_np, best_alpha, sample_weight=sw_np)
             model = PenalizedGeneralizedLinearModel(
                 loss='squared_error', penalty='l2', alpha=best_alpha,
                 device='cpu', compute_inference=True,
                 max_iter=self.max_iter, tol=self.tol,
             )
-            model.fit(X_np, y_np)
-            # Override with eigendecomposition solution for exact match
+            model.fit(X_np, y_np, sample_weight=sample_weight)
             model.coef_ = coef
             model.intercept_ = intercept
             return model
