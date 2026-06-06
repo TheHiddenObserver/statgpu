@@ -1971,8 +1971,10 @@ class PenalizedGLM_CV(CVEstimatorBase):
         """
         from statgpu.linear_model._penalized import PenalizedGeneralizedLinearModel
 
-        # For Ridge: use eigendecomposition to match CV path exactly
-        if self.loss == 'squared_error' and self.penalty == 'l2':
+        # For Ridge: use eigendecomposition to match CV path exactly.
+        # Skip the eig override when sample_weight is provided — the
+        # unweighted eigensolve would produce different coefficients.
+        if self.loss == 'squared_error' and self.penalty == 'l2' and sample_weight is None:
             X_np = _to_numpy(X).astype(np.float64)
             y_np = _to_numpy(y).astype(np.float64).ravel()
             coef, intercept = _ridge_eig_single(X_np, y_np, best_alpha)
@@ -1982,7 +1984,7 @@ class PenalizedGLM_CV(CVEstimatorBase):
                 device='cpu', compute_inference=True,
                 max_iter=self.max_iter, tol=self.tol,
             )
-            model.fit(X_np, y_np, sample_weight=sample_weight)
+            model.fit(X_np, y_np)
             # Override with eigendecomposition solution for exact match
             model.coef_ = coef
             model.intercept_ = intercept
