@@ -138,8 +138,8 @@ def _ridge_eig_batch(X_train_np, y_train_np, X_val_np, y_val_np, alphas_np):
     coefs = Q @ (inv_diag * QtXty[:, None])
     intercepts = y_mean - X_mean @ coefs
 
-    X_val_centered = X_val_np - X_mean
-    y_pred = X_val_centered @ coefs + intercepts[None, :]
+    # Predict: X_val @ coef + intercept (intercept already includes -X_mean @ coef)
+    y_pred = X_val_np @ coefs + intercepts[None, :]
     mse = np.mean((y_val_np[:, None] - y_pred) ** 2, axis=0)
 
     return mse, coefs, intercepts
@@ -2027,6 +2027,7 @@ class PenalizedGLM_CV(CVEstimatorBase):
                 _logistic_sparse_effective_max_iter(self.max_iter, refit_device, penalty_name, refit=True),
                 self.tol,
                 refit_device,
+                sample_weight=sample_weight,
             )
             if path is not None:
                 model = PenalizedGeneralizedLinearModel(

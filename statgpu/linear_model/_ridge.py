@@ -88,10 +88,14 @@ class Ridge(_PenalizedLinearRegression):
         # For weighted case, use weighted means of original (unweighted) data.
         if self.fit_intercept:
             if sample_weight is not None:
-                # Weighted means of original data for intercept computation
+                # Weighted means of original data for intercept computation.
+                # Use original X/y (before sqrt_sw multiplication) to avoid 0/0
+                # when sample_weight has zero entries.
                 w_sum = float(np.sum(sample_weight))
-                X_wmean = np.sum(sample_weight[:, None] * (X_np / sqrt_sw[:, None]), axis=0) / w_sum
-                y_wmean = float(np.sum(sample_weight * (y_np / sqrt_sw))) / w_sum
+                X_orig = X_np / np.maximum(sqrt_sw[:, None], 1e-300)
+                y_orig = y_np / np.maximum(sqrt_sw, 1e-300)
+                X_wmean = np.sum(sample_weight[:, None] * X_orig, axis=0) / w_sum
+                y_wmean = float(np.sum(sample_weight * y_orig)) / w_sum
             else:
                 X_wmean = np.mean(X_np, axis=0)
                 y_wmean = np.mean(y_np)
