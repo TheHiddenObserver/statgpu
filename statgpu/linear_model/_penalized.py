@@ -93,6 +93,101 @@ def _resolve_loss_name(loss_name, loss_kwargs=None):
         return SquaredErrorLoss()
 
 
+def _preferred_penalized_glm_solver(
+    loss_name,
+    penalty_name,
+    backend_name: str = "numpy",
+    l1_ratio: float = 0.5,
+    cv_mode: bool = False,
+    problem_size: Optional[int] = None,
+):
+    """Return the default solver for a penalized GLM configuration.
+
+    The selector is shared by ``PenalizedGeneralizedLinearModel`` and
+    ``PenalizedGLM_CV`` so solver="auto" follows the same strict policy in
+    refits and CV folds.  ``cv_mode`` keeps the CV path conservative: prefer
+    backtracking FISTA for numerically sensitive GLM families and only use the
+    faster BB variant on benchmarked small/medium workloads where it is stable.
+    """
+    loss_name = str(getattr(loss_name, "name", loss_name)).lower()
+    penalty_name = str(getattr(penalty_name, "name", penalty_name)).lower()
+    backend_name = str(backend_name or "numpy").lower()
+    if backend_name == "cuda":
+        backend_name = "cupy"
+    if backend_name == "cpu":
+        backend_name = "numpy"
+
+    loss_aliases = {
+        "gaussian": "squared_error",
+        "normal": "squared_error",
+        "linear": "squared_error",
+    }
+    penalty_aliases = {
+        "en": "elasticnet",
+        "elastic_net": "elasticnet",
+        "adaptive_lasso": "adaptive_l1",
+        "gl": "group_lasso",
+        "gmcp": "group_mcp",
+        "gscad": "group_scad",
+    }
+    loss_name = loss_aliases.get(loss_name, loss_name)
+    penalty_name = penalty_aliases.get(penalty_name, penalty_name)
+
+    non_smooth = {
+        "l1",
+        "elasticnet",
+        "scad",
+        "mcp",
+        "adaptive_l1",
+        "group_lasso",
+        "adaptive_group_lasso",
+        "group_mcp",
+        "group_scad",
+    }
+
+    if loss_name == "squared_error" and penalty_name == "l2":
+        return "exact"
+
+    if penalty_name in non_smooth:
+        if loss_name in ("gamma", "inverse_gaussian", "tweedie"):
+            return "fista"
+        if not cv_mode:
+            return "fista_bb"
+        if loss_name == "negative_binomial":
+            if (
+                penalty_name == "elasticnet"
+                and backend_name == "torch"
+                and problem_size is not None
+                and int(problem_size) >= 400_000
+            ):
+                return "fista"
+            return "fista_bb"
+        if backend_name == "numpy":
+            return "fista"
+        if loss_name == "logistic":
+            return "fista"
+        if loss_name == "poisson":
+            if problem_size is not None and int(problem_size) >= 2_000_000:
+                return "fista"
+            return "fista_bb"
+        return "fista"
+
+    if penalty_name == "l2":
+        if (
+            cv_mode
+            and backend_name == "cupy"
+            and loss_name in ("gamma", "negative_binomial")
+        ):
+            return "lbfgs"
+        if loss_name in ("gamma", "tweedie", "inverse_gaussian", "poisson"):
+            return "newton"
+        if loss_name in ("logistic", "negative_binomial"):
+            return "irls"
+
+    # Smooth custom penalties and losses without a Hessian fall back to FISTA.
+    return "fista"
+
+
 def _irls_ridge_init_cd(X, y, alpha, max_iter, tol):
     """CD ridge for squared_error (matching R glmnet's ridge solver)."""
     n, p = X.shape
@@ -580,34 +675,16 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
         return [f"x{i+1}" for i in range(n_features)]
 
     def _select_solver(self, loss, backend_name=None):
-        """Auto-select solver based on loss and penalty (same across all backends)."""
+        """Auto-select solver based on loss, penalty, and backend."""
         if self.solver != "auto":
             return self.solver
-        if self.loss == "squared_error" and self._penalty.name == "l2":
-            return "exact"
-        _non_smooth = {
-            "l1", "elasticnet", "en",
-            "scad", "mcp", "adaptive_l1", "adaptive_lasso",
-            "group_lasso", "gl", "group_mcp", "gmcp", "group_scad", "gscad",
-        }
-        if self._penalty.name in _non_smooth:
-            # Gamma and InverseGaussian with L1/elasticnet: Lipschitz varies
-            # with y and iterate, fista_bb burn-in (no backtracking) can't
-            # handle the curvature changes.  fista's line search compensates.
-            _loss_name = getattr(loss, 'name', '')
-            if _loss_name in ("gamma", "inverse_gaussian"):
-                return "fista"
-            return "fista_bb"  # fista_bb auto-disables BB for non-smooth penalties
-        if getattr(loss, "has_hessian", False):
-            # For log-link families (gamma, tweedie, inverse_gaussian),
-            # IRLS weights are constant or near-constant, making IRLS a
-            # slow fixed-point iteration.  Newton with line search converges
-            # much faster for these families.
-            _loss_name = getattr(loss, 'name', '')
-            if _loss_name in ("gamma", "tweedie", "inverse_gaussian"):
-                return "newton"
-            return "irls"
-        return "fista"
+        return _preferred_penalized_glm_solver(
+            getattr(loss, "name", self.loss),
+            getattr(self._penalty, "name", self.penalty),
+            backend_name=backend_name or "numpy",
+            l1_ratio=self.l1_ratio,
+            cv_mode=False,
+        )
 
     @staticmethod
     def _torch_cuda_available():
