@@ -2063,6 +2063,7 @@ class PenalizedGLM_CV(CVEstimatorBase):
                 self.max_iter,
                 self.tol,
                 refit_device,
+                sample_weight=sample_weight,
             )
             if path is not None:
                 model = PenalizedGeneralizedLinearModel(
@@ -2103,6 +2104,7 @@ class PenalizedGLM_CV(CVEstimatorBase):
                 return_path=True,
                 solver_name=cv_solver,
                 cv_mode=False,
+                sample_weight=sample_weight,
             )
             if path is not None:
                 model = PenalizedGeneralizedLinearModel(

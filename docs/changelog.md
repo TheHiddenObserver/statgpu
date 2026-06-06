@@ -9,6 +9,38 @@
 
 ## 2026-06
 
+### Optimized (2026-06-05)
+
+- **Strict sparse GLM CV GPU squeeze pass, round 7**:
+  - Reused fold-level initial Lipschitz estimates across sparse GLM alpha paths, including `fista_bb_solver` burn-in checks.
+  - Batched CuPy validation scoring for sparse GLM CV; solver trajectories and strict final refits are unchanged.
+  - Added a Torch fold-batched strict logistic sparse CV path with per-fold Lipschitz constants and equivalent validation scores.
+  - Strict CV still preserves the requested `max_iter` and `tol`; the logistic GPU iteration cap is not applied to strict CV.
+  - Matpool P100 strict matrix (`cv=3`, `n_alphas=8`, `max_iter=1000`, `tol=1e-4`) kept all CPU/CuPy/Torch alpha selections matching. Torch was faster than CPU in 18/32 mid/high rows after fold-batched logistic CV; logistic Torch runtimes improved to about `0.46x`-`0.53x` of round-6 timings.
+  - `device="auto"` selected CPU for 14 rows and Torch for 18 rows on the same matrix; it was faster than explicit CPU in 27/32 rows, with all alpha selections matching CPU.
+  - A follow-up auto-routing pass keeps low-dimensional squared-error sparse CV (`p<256`) on CPU, avoiding the Torch cold-start outlier while preserving high-dimensional Torch acceleration.
+  - Round 9 adds CuPy fold-batched strict logistic sparse CV. It keeps explicit `device="cuda"` on the CuPy backend and falls back only to the previous CuPy per-fold path if the helper fails.
+  - Round 9 Matpool P100 strict matrix (`warmup=1`, `cv=3`, `n_alphas=8`, `max_iter=1000`, `tol=1e-4`) kept all CPU/CuPy/Torch/auto alpha selections matching CPU. Explicit Torch was faster than CPU in 18/32 rows, explicit CuPy in 8/32 rows, and `device="auto"` in 27/32 rows while selecting CPU for 16 rows and Torch for 16 rows.
+  - Targeted logistic CuPy validation matched the previous CuPy per-fold scores to numerical precision and made CuPy faster than CPU on larger `10000x100` and `5000x500` logistic rows; `2000x100` and `2000x500` remain explicit-CuPy hotspots.
+  - Validation artifacts: `results/cv_poisson_gamma_lipcache_round5.json`, `results/cv_poisson_gamma_cupy_score_batch_round6.json`, `results/cv_mid_high_after_lipcache_scorebatch_round6.json`, `results/cv_auto_after_lipcache_scorebatch_round6.json`, `results/cv_logistic_foldbatch_round7.json`, `results/cv_mid_high_after_logistic_foldbatch_round7.json`, `results/cv_auto_after_logistic_foldbatch_round7.json`, `results/cv_auto_lowp_sqerr_cpu_round8.json`, `results/cv_logistic_cupy_foldbatch_round9.json`, `results/cv_mid_high_after_cupy_foldbatch_round9.json`.
+
+### 优化 (2026-06-04)
+
+- **小规模 sparse CV GPU 传输优化**:
+  - squared-error sparse CV 在只需要 validation score 时不再把 coefficient path 传回主机。
+  - Matpool P100 小规模 strict CV (`n=500`, `p=20`, `cv=3`, `n_alphas=8`) 中，`squared_error+l1` 从 CuPy `820ms` 降到 `190ms`，Torch 从 `266ms` 降到 `97ms`；alpha 选择不变，GPU vs CPU 系数 L2 约 `6.9e-06`。
+  - logistic sparse CV 仍是 strict 模式热点；为保持 strict 的 `max_iter`/`tol` 语义，未把现有 iteration cap 接入 strict CV。
+  - 新增 `dev/tests/benchmark_glm_penalty_external_small.py`，用于小规模 sklearn/statsmodels/R 外部精度与运行时间比较，并显式记录等价惩罚参数映射。
+  - 验证产物：`results/cv_strict_sparse_sync_opt_v2_500x20.json` 和 `results/external_glm_penalty_small_gpu_sync_opt_v2.json`。
+
+### 新增 (2026-06-04)
+
+- **Strict-first PenalizedGLM_CV 策略控制**:
+  - `PenalizedGLM_CV` 默认保持 `cv_strategy="strict"`，并新增显式 opt-in 的 `cv_strategy="two_stage"` alpha screening。
+  - two-stage CV 使用放松的 screening 求解、strict 候选复核，以及 strict 最终 refit。
+  - 新增 `ApproximateCVWarning`、`acknowledge_approx`、`refine_top_k`，以及 CV 诊断字段 `cv_strategy_`、`cv_selected_device_`、`refined_mask` 和 stage-1 score 数组。
+  - benchmark 脚本可通过 `--cv-strategy` 运行 strict 或 two-stage CV。
+
 ### 优化 (2026-06-01)
 
 - **后端传输 helper 与 benchmark parser**:
@@ -17,6 +49,21 @@
   - 新增 `dev/tests/_bench_report_parser.py`，可将 full-matrix benchmark 文本日志汇总为 JSON/Markdown。
   - Benchmark summary 现在包含 backend/family/penalty 行数统计，并支持 `--fail-on-alerts` 作为脚本化 gate。
   - CoxPH/CoxPHCV 统一暴露 Torch CUDA 清理钩子，补齐 GPU memory cleanup 约束。
+
+### 修复 (2026-06-04)
+
+- **Poisson sparse `PenalizedGLM_CV` 跨后端精度**:
+  - strict GPU FISTA 不再使用仅供近似筛选的异步 CV 更新路径。
+  - Poisson L1/ElasticNet CV 对几乎平坦的 CV 曲线使用稳定 near-tie 规则；当后端分数差异处于数值噪声量级时，确定性选择更强正则化的 alpha。
+  - Matpool P100 远程验证中，`poisson+l1/elasticnet`、`n=500`、`p=20`、`cv=3`、`n_alphas=8` 在 CPU、CuPy、Torch 上选出相同 alpha，系数 L2 差异约 `1.6e-05`。
+
+### 优化 (2026-06-04)
+
+- **GPU sparse GLM CV solver policy**:
+  - `solver="auto"` 现在按后端选择 strict-CV sparse GLM 求解器：GPU `poisson+l1` 和 `negative_binomial+l1` 使用 `fista_bb`，Torch `gamma+l1/elasticnet` 使用 `fista_bb`；用户显式指定的 solver 不变。
+  - sparse GLM CV path 的首个截距初始化改为 `log(mean(y))`，与 positive-family 常规 fit 初始化一致。
+  - Matpool P100 strict 矩阵 (`n=500`, `p=20`, `cv=3`, `n_alphas=8`) 保持 CPU、CuPy、Torch 的 90/90 alpha 一致；相对上一版 strict baseline，targeted speedup 包括 `negative_binomial+l1` Torch `0.37x`、CuPy `0.55x`，`poisson+l1` Torch `0.57x`、CuPy `0.83x`。
+  - 验证产物：`results/cv_strict_500x20_gpu_policy_opt_v3.json` 和 `results/cv_two_stage_sparse_auto_policy_opt_500x20.json`。
 
 ## 2026-05
 

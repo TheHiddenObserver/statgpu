@@ -96,95 +96,87 @@ def _resolve_loss_name(loss_name, loss_kwargs=None):
 def _preferred_penalized_glm_solver(
     loss_name,
     penalty_name,
-    backend_name: str = "numpy",
-    l1_ratio: float = 0.5,
-    cv_mode: bool = False,
-    problem_size: Optional[int] = None,
+    backend_name=None,
+    l1_ratio=0.5,
+    cv_mode=False,
+    problem_size=None,
 ):
-    """Return the default solver for a penalized GLM configuration.
+    """Private benchmark-backed solver policy for solver='auto'.
 
-    The selector is shared by ``PenalizedGeneralizedLinearModel`` and
-    ``PenalizedGLM_CV`` so solver="auto" follows the same strict policy in
-    refits and CV folds.  ``cv_mode`` keeps the CV path conservative: prefer
-    backtracking FISTA for numerically sensitive GLM families and only use the
-    faster BB variant on benchmarked small/medium workloads where it is stable.
+    This helper only chooses an internal solver.  It must never be used to
+    override an explicitly requested solver or to change the selected device.
     """
-    loss_name = str(getattr(loss_name, "name", loss_name)).lower()
-    penalty_name = str(getattr(penalty_name, "name", penalty_name)).lower()
-    backend_name = str(backend_name or "numpy").lower()
-    if backend_name == "cuda":
-        backend_name = "cupy"
-    if backend_name == "cpu":
-        backend_name = "numpy"
-
-    loss_aliases = {
-        "gaussian": "squared_error",
-        "normal": "squared_error",
-        "linear": "squared_error",
+    loss_name = str(loss_name or "").lower()
+    penalty_name = str(penalty_name or "").lower()
+    backend_name = str(backend_name or "").lower()
+    if problem_size is not None:
+        problem_size = int(problem_size)
+    sparse_penalties = {
+        "l1", "elasticnet", "en",
+        "adaptive_l1", "adaptive_lasso",
+        "scad", "mcp",
+        "group_lasso", "gl", "group_mcp", "gmcp", "group_scad", "gscad",
     }
-    penalty_aliases = {
-        "en": "elasticnet",
-        "elastic_net": "elasticnet",
-        "adaptive_lasso": "adaptive_l1",
-        "gl": "group_lasso",
-        "gmcp": "group_mcp",
-        "gscad": "group_scad",
-    }
-    loss_name = loss_aliases.get(loss_name, loss_name)
-    penalty_name = penalty_aliases.get(penalty_name, penalty_name)
-
-    non_smooth = {
-        "l1",
-        "elasticnet",
-        "scad",
-        "mcp",
-        "adaptive_l1",
-        "group_lasso",
-        "adaptive_group_lasso",
-        "group_mcp",
-        "group_scad",
+    nonconvex_penalties = {
+        "scad", "mcp", "group_mcp", "gmcp", "group_scad", "gscad",
     }
 
     if loss_name == "squared_error" and penalty_name == "l2":
         return "exact"
 
-    if penalty_name in non_smooth:
-        if loss_name in ("gamma", "inverse_gaussian", "tweedie"):
+    if penalty_name in sparse_penalties:
+        if penalty_name in nonconvex_penalties:
             return "fista"
-        if not cv_mode:
-            return "fista_bb"
-        if loss_name == "negative_binomial":
-            if (
-                penalty_name == "elasticnet"
-                and backend_name == "torch"
-                and problem_size is not None
-                and int(problem_size) >= 400_000
-            ):
-                return "fista"
-            return "fista_bb"
-        if backend_name == "numpy":
+        if loss_name == "squared_error":
             return "fista"
-        if loss_name == "logistic":
+        if cv_mode and loss_name == "poisson" and backend_name in ("cupy", "torch"):
+            if penalty_name == "l1":
+                if problem_size is not None and problem_size >= 2_000_000:
+                    return "fista"
+                return "fista_bb"
+            if penalty_name in ("elasticnet", "en"):
+                return "fista_bb"
+        if cv_mode and loss_name == "poisson":
             return "fista"
-        if loss_name == "poisson":
-            if problem_size is not None and int(problem_size) >= 2_000_000:
-                return "fista"
-            return "fista_bb"
-        return "fista"
-
-    if penalty_name == "l2":
         if (
             cv_mode
-            and backend_name == "cupy"
-            and loss_name in ("gamma", "negative_binomial")
+            and loss_name == "negative_binomial"
+            and backend_name in ("cupy", "torch")
+            and problem_size is not None
         ):
+            # P100 targeted CV data shows NB L1 benefits from BB across the
+            # tested strict-CV scales; ElasticNet still has a medium-scale BB
+            # overhead pocket.
+            if penalty_name == "l1":
+                return "fista_bb"
+            if penalty_name in ("elasticnet", "en"):
+                return "fista" if 200_000 <= problem_size < 1_000_000 else "fista_bb"
+        if loss_name in ("gamma", "inverse_gaussian"):
+            return "fista"
+        if loss_name == "tweedie" and backend_name in ("cupy", "torch"):
+            return "fista"
+        if cv_mode and loss_name == "logistic":
+            return "fista"
+        return "fista_bb"
+
+    if cv_mode and penalty_name == "l2":
+        if loss_name == "negative_binomial":
             return "lbfgs"
-        if loss_name in ("gamma", "tweedie", "inverse_gaussian", "poisson"):
+        if loss_name == "poisson":
             return "newton"
-        if loss_name in ("logistic", "negative_binomial"):
+        if loss_name == "gamma":
+            return "lbfgs"
+        if loss_name == "inverse_gaussian":
+            return "lbfgs"
+        if loss_name == "tweedie":
+            return "newton"
+
+    if penalty_name in ("l2", "none", "null", ""):
+        if loss_name in ("gamma", "tweedie", "inverse_gaussian"):
+            return "newton"
+        if loss_name in ("logistic", "poisson", "negative_binomial"):
             return "irls"
 
-    # Smooth custom penalties and losses without a Hessian fall back to FISTA.
     return "fista"
 
 
@@ -433,7 +425,9 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
                 backend_name = "numpy"
 
         backend_name = self._auto_backend_override(backend_name, X)
-        selected_solver = self._select_solver(self._loss, backend_name=backend_name)
+        selected_solver = self._select_solver(
+            self._loss, backend_name=backend_name, X=X
+        )
         selected_solver = self._validate_solver_for_penalty(selected_solver, backend_name)
         self._selected_solver = selected_solver
         self._selected_backend_name = backend_name
@@ -519,6 +513,10 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
 
         self._compute_post_fit_gaussian_inference(X, y, sample_weight=sample_weight)
         self._fitted = True
+        # Clean up CV cache unless a caller is intentionally reusing one
+        # across repeated fits, as PenalizedGLM_CV does within a fold.
+        if hasattr(self, '_cv_cache') and not getattr(self, '_preserve_cv_cache', False):
+            del self._cv_cache
         return self
 
     def _resolve_loss(self):
@@ -674,16 +672,17 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
             return ["(Intercept)"] + [f"x{i+1}" for i in range(n_features)]
         return [f"x{i+1}" for i in range(n_features)]
 
-    def _select_solver(self, loss, backend_name=None):
+    def _select_solver(self, loss, backend_name=None, X=None):
         """Auto-select solver based on loss, penalty, and backend."""
         if self.solver != "auto":
             return self.solver
         return _preferred_penalized_glm_solver(
             getattr(loss, "name", self.loss),
             getattr(self._penalty, "name", self.penalty),
-            backend_name=backend_name or "numpy",
-            l1_ratio=self.l1_ratio,
+            backend_name=backend_name,
+            l1_ratio=getattr(self._penalty, "l1_ratio", self.l1_ratio),
             cv_mode=False,
+            problem_size=None if X is None else int(X.shape[0]) * int(X.shape[1]),
         )
 
     @staticmethod
@@ -1152,9 +1151,14 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
         if y_centered.ndim == 1:
             y_centered = y_centered.reshape(-1, 1)
 
-        # Precompute for gradient
-        XtX = X_centered.T @ X_centered
-        Xty = X_centered.T @ y_centered.flatten()
+        # Precompute for gradient (use CV cache if available)
+        _cv = getattr(self, '_cv_cache', None)
+        if _cv is not None and 'XtX' in _cv:
+            XtX = _cv['XtX']
+            Xty = _cv['Xty']
+        else:
+            XtX = X_centered.T @ X_centered
+            Xty = X_centered.T @ y_centered.flatten()
 
         pen = self._penalty
         if solver_name == "exact":
@@ -1393,8 +1397,13 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
                 y_centered = y
             if y_centered.ndim == 1:
                 y_centered = y_centered.reshape(-1)
-            XtX = X_centered.T @ X_centered
-            Xty = X_centered.T @ y_centered
+            _cv = getattr(self, '_cv_cache', None)
+            if _cv is not None and 'XtX' in _cv:
+                XtX = _cv['XtX']
+                Xty = _cv['Xty']
+            else:
+                XtX = X_centered.T @ X_centered
+                Xty = X_centered.T @ y_centered
             coef = self._solve_exact_cupy(XtX, Xty, n_samples)
             self.n_iter_ = 1
             if self.compute_inference:
@@ -1468,9 +1477,14 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
         if y_centered.ndim == 1:
             y_centered = y_centered.reshape(-1)
 
-        # Precompute
-        XtX = X_centered.T @ X_centered
-        Xty = X_centered.T @ y_centered
+        # Precompute (use CV cache if available)
+        _cv = getattr(self, '_cv_cache', None)
+        if _cv is not None and 'XtX' in _cv:
+            XtX = _cv['XtX']
+            Xty = _cv['Xty']
+        else:
+            XtX = X_centered.T @ X_centered
+            Xty = X_centered.T @ y_centered
 
         # Lipschitz constant: L = lambda_max(XtX) / n
         if self.lipschitz_L is not None:
@@ -1703,8 +1717,13 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
                 y_centered = y
             if y_centered.ndim == 1:
                 y_centered = y_centered.reshape(-1)
-            XtX = X_centered.T @ X_centered
-            Xty = X_centered.T @ y_centered
+            _cv = getattr(self, '_cv_cache', None)
+            if _cv is not None and 'XtX' in _cv:
+                XtX = _cv['XtX']
+                Xty = _cv['Xty']
+            else:
+                XtX = X_centered.T @ X_centered
+                Xty = X_centered.T @ y_centered
             coef = self._solve_exact_torch(XtX, Xty, n_samples)
             self.n_iter_ = 1
             if self.compute_inference:
@@ -1787,9 +1806,14 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
         if y_centered.ndim == 1:
             y_centered = y_centered.reshape(-1)
 
-        # Precompute
-        XtX = X_centered.T @ X_centered
-        Xty = X_centered.T @ y_centered
+        # Precompute (use CV cache if available)
+        _cv = getattr(self, '_cv_cache', None)
+        if _cv is not None and 'XtX' in _cv:
+            XtX = _cv['XtX']
+            Xty = _cv['Xty']
+        else:
+            XtX = X_centered.T @ X_centered
+            Xty = X_centered.T @ y_centered
 
         # Lipschitz constant: L = lambda_max(XtX) / n
         if self.lipschitz_L is not None:
@@ -1980,7 +2004,7 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
             _pen_name == "elasticnet" and
             float(getattr(self._penalty, 'l1_ratio', 1.0)) < 0.5
         )
-        if solver_name == "fista_bb" or (solver_name in ("fista", "auto") and _is_smooth):
+        if solver_name == "fista_bb" or (solver_name == "auto" and _is_smooth):
             _solver = fista_bb_solver
         else:
             _solver = fista_solver
@@ -2060,7 +2084,7 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
             _pen_name == "elasticnet" and
             float(getattr(self._penalty, 'l1_ratio', 1.0)) < 0.5
         )
-        if solver_name == "fista_bb" or (solver_name in ("fista", "auto") and _is_smooth):
+        if solver_name == "fista_bb" or (solver_name == "auto" and _is_smooth):
             _solver = fista_bb_solver
         else:
             _solver = fista_solver
@@ -3627,7 +3651,8 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
             pen = self._selective_penalty(p, backend_name)
             init = None
             if self._init_coef is not None:
-                init = np.append(self._init_coef, 0.0)
+                init_intercept = float(getattr(self, '_init_intercept', 0.0) or 0.0)
+                init = np.append(self._init_coef, init_intercept)
                 if backend_name == "cupy":
                     init = cp.asarray(init)
                 elif backend_name == "torch":
@@ -3766,19 +3791,54 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
             X_s = X_feat * (float(_n) ** 0.5 / _col_norms)
             y_c = y_arr - xp.mean(y_arr)
             _lam_max = float(xp.max(xp.abs(X_s.T @ y_c / _n)))
-            _target_alpha = float(getattr(self._penalty, 'alpha', self.alpha))
+            _cv_alpha_path = getattr(self, '_cv_alpha_path', None)
+            _cv_return_path = _cv_alpha_path is not None
+            if _cv_return_path:
+                _targets = _np.asarray(_cv_alpha_path, dtype=float).ravel()
+                _targets = _targets[_np.isfinite(_targets) & (_targets > 0.0)]
+                if _targets.size == 0:
+                    _targets = _np.asarray([float(getattr(self._penalty, 'alpha', self.alpha))])
+                _targets = _np.sort(_targets)[::-1]
+                _target_alpha = float(_targets[-1])
+                _alpha_start = max(_lam_max, float(_targets[0]) * 1.1)
+                if _alpha_start > float(_targets[0]) * (1.0 + 1e-10):
+                    _alpha_path = _np.concatenate([[_alpha_start], _targets])
+                else:
+                    _alpha_path = _targets
+                _n_cont = int(_alpha_path.size)
+            else:
+                _target_alpha = float(getattr(self._penalty, 'alpha', self.alpha))
+                _n_cont = 20
+                _alpha_path = _np.geomspace(
+                    max(_lam_max, _target_alpha * 1.1), _target_alpha, _n_cont,
+                )
 
-            _n_cont = 20
-            _alpha_path = _np.geomspace(
-                max(_lam_max, _target_alpha * 1.1), _target_alpha, _n_cont,
-            )
-            _max_lla_per_step = max(6, getattr(self, '_max_lla_iters', 50) // _n_cont)
+            _max_lla_per_step = max(6, getattr(self, '_max_lla_iters', 50) // max(_n_cont, 1))
             _saved_mi = self.max_iter
-            _mi_path = [_saved_mi if i == _n_cont - 1 else max(100, _saved_mi // 10)
-                        for i in range(_n_cont)]
+            if _cv_return_path:
+                _mi_path = [max(200, _saved_mi // 2)] * max(_n_cont - 1, 0) + [_saved_mi]
+            else:
+                _mi_path = [_saved_mi if i == _n_cont - 1 else max(100, _saved_mi // 10)
+                            for i in range(_n_cont)]
 
             X_orig = X_work[:, :p] if self.fit_intercept else X_work
-            coef_np, intercept, n_iter = fista_lla_path(
+
+            _warm_coef = None
+            _warm_intercept = None
+            _init = getattr(self, '_init_coef', None)
+            if _init is not None:
+                _init_np = np.asarray(_to_numpy(_init), dtype=np.float64).ravel()
+                if self.fit_intercept and _init_np.size == p + 1:
+                    _warm_coef = _init_np[:p]
+                    _warm_intercept = float(_init_np[p])
+                elif _init_np.size == p:
+                    _warm_coef = _init_np
+                    if self.fit_intercept:
+                        _warm_intercept = float(
+                            getattr(self, '_init_intercept', 0.0) or 0.0
+                        )
+
+            _lla_result = fista_lla_path(
                 self._loss, self._penalty,
                 X_orig, y_arr,
                 alpha_path=_alpha_path,
@@ -3788,7 +3848,15 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
                 tol=self.tol,
                 fit_intercept=self.fit_intercept,
                 sample_weight=sample_weight,
+                init_coef=_warm_coef,
+                init_intercept=_warm_intercept,
+                return_path=_cv_return_path,
             )
+            if _cv_return_path:
+                coef_np, intercept, n_iter, _path_results = _lla_result
+                self._cv_path_results = _path_results
+            else:
+                coef_np, intercept, n_iter = _lla_result
             # fista_lla_path returns numpy, convert back to backend-native
             if self.fit_intercept:
                 params = xp.concatenate([xp.asarray(coef_np), xp.asarray([intercept])])
@@ -3884,7 +3952,7 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
                     params = np.concatenate([coef_np, [intercept]])
                 else:
                     params = coef_np
-        elif solver_name in ("auto", "fista"):
+        elif solver_name == "auto":
             # For smooth penalties (l2, elasticnet with low l1_ratio),
             # fista_bb with BB step sizes converges much more reliably
             # than standard FISTA with Nesterov momentum + proximal l2.
@@ -3904,6 +3972,12 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
                     max_iter=self.max_iter, tol=self.tol,
                     init_coef=init, sample_weight=sample_weight,
                 )
+        elif solver_name == "fista":
+            params, n_iter = fista_solver(
+                self._loss, pen, X_work, y_arr,
+                max_iter=self.max_iter, tol=self.tol,
+                init_coef=init, sample_weight=sample_weight,
+            )
         elif solver_name == "fista_bb":
             params, n_iter = fista_bb_solver(
                 self._loss, pen, X_work, y_arr,
@@ -3957,8 +4031,31 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
         if str(getattr(self._penalty, "name", self.penalty)).lower() != "l2":
             raise ValueError("solver='irls' only supports L2 penalties.")
 
-        X_arr = X
-        y_arr = y
+        if backend_name == "cupy":
+            import cupy as cp
+            X_arr = cp.asarray(X, dtype=cp.float64)
+            y_arr = cp.asarray(y, dtype=cp.float64)
+        elif backend_name == "torch":
+            import torch
+            if isinstance(X, torch.Tensor):
+                X_arr = X.to(dtype=torch.float64)
+            else:
+                X_arr = torch.as_tensor(
+                    np.asarray(X, dtype=np.float64),
+                    dtype=torch.float64,
+                    device=_get_torch_device_str(),
+                )
+            if isinstance(y, torch.Tensor):
+                y_arr = y.to(dtype=torch.float64, device=X_arr.device)
+            else:
+                y_arr = torch.as_tensor(
+                    np.asarray(y, dtype=np.float64),
+                    dtype=torch.float64,
+                    device=X_arr.device,
+                )
+        else:
+            X_arr = np.asarray(X, dtype=np.float64)
+            y_arr = np.asarray(y, dtype=np.float64)
         n_samples = X_arr.shape[0]
         if self.fit_intercept:
             X_work = self._column_stack(
@@ -3968,17 +4065,47 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
         else:
             X_work = X_arr
 
-        # Warm-start intercept for log-link models to prevent divergence.
-        # Starting from mu=1 (eta=0) is disastrous when y is far from 1.
+        # Respect CV warm starts first.  IRLS uses [intercept, coef...] while
+        # the FISTA design stores the intercept as the final column.
         _loss_name = getattr(self._loss, 'name', '')
+        init_coef = None
+        init_features = getattr(self, '_init_coef', None)
+        if init_features is not None:
+            init_features_np = np.asarray(init_features, dtype=np.float64).ravel()
+            if self.fit_intercept:
+                init_intercept = float(getattr(self, '_init_intercept', 0.0) or 0.0)
+                init_coef_np = np.concatenate([[init_intercept], init_features_np])
+            else:
+                init_coef_np = init_features_np
+            if backend_name == "cupy":
+                import cupy as cp
+                init_coef = cp.asarray(init_coef_np, dtype=cp.float64)
+            elif backend_name == "torch":
+                import torch
+                init_coef = torch.as_tensor(
+                    init_coef_np,
+                    dtype=torch.float64,
+                    device=X_work.device,
+                )
+            else:
+                init_coef = init_coef_np
+
+        # Otherwise warm-start intercept for GLM losses whose default eta=0
+        # can be far from the intercept-only optimum.
         _log_link_losses = ("gamma", "poisson", "inverse_gaussian",
                             "negative_binomial", "tweedie")
-        if self.fit_intercept and _loss_name in _log_link_losses:
+        if init_coef is None and self.fit_intercept and (
+            _loss_name in _log_link_losses or _loss_name == "logistic"
+        ):
             _y_mean = float(np.mean(_to_numpy(y_arr)))
-            _int_init = np.log(max(_y_mean, 1e-3))
+            if _loss_name == "logistic":
+                _y_mean = float(np.clip(_y_mean, 1e-3, 1.0 - 1e-3))
+                _int_init = np.log(_y_mean / (1.0 - _y_mean))
+            else:
+                _int_init = np.log(max(_y_mean, 1e-3))
             n_feat = X_work.shape[1]
             if backend_name == "numpy":
-                init_coef = np.zeros(n_feat)
+                init_coef = np.zeros(n_feat, dtype=np.float64)
             elif backend_name == "cupy":
                 import cupy as cp
                 init_coef = cp.zeros(n_feat, dtype=cp.float64)
@@ -3996,8 +4123,6 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
                 init_coef = torch.from_numpy(init_coef_np).to(X_work.device)
             else:
                 init_coef = init_coef_np
-        else:
-            init_coef = None
 
         solver = IRLSSolver(
             self._family_for_loss(), max_iter=self.max_iter, tol=self.tol

@@ -370,7 +370,15 @@ def irls_solver(
                 reg[0] = 0.0
             XtWX = XtWX + _diag(reg, backend, ref_tensor=X)
 
-        params_new = _solve_linear_system(XtWX, Xtz, backend)
+        if backend == "cupy" and _fname == "negative_binomial":
+            import cupy as cp
+            XtWX = 0.5 * (XtWX + XtWX.T)
+            diag_mean = cp.mean(cp.abs(cp.diag(XtWX)))
+            jitter = cp.maximum(diag_mean * 1e-10, cp.asarray(1e-8, dtype=XtWX.dtype))
+            XtWX_stable = XtWX + cp.eye(XtWX.shape[0], dtype=XtWX.dtype) * jitter
+            params_new = _solve_linear_system(XtWX_stable, Xtz, backend)
+        else:
+            params_new = _solve_linear_system(XtWX, Xtz, backend)
 
         # Current loss — use only eta clipping (prevent exp overflow),
         # NOT mu clipping (which distorts the deviance landscape).

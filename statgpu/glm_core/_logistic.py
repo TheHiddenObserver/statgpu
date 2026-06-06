@@ -21,7 +21,12 @@ class LogisticLoss(GLMLoss):
     def value(self, X, y, coef):
         """Negative Bernoulli log-likelihood (to minimize)."""
         z = X @ coef
-        return _sum(-y * z + _log1p(_exp(_clip(z, -500, 500)))) / X.shape[0]
+        xp = __import__(type(z).__module__.split(".")[0])
+        if xp.__name__ == "torch":
+            log1pexp = _log1p(_exp(-xp.abs(z))) + xp.clamp(z, min=0)
+        else:
+            log1pexp = _log1p(_exp(-xp.abs(z))) + xp.maximum(z, 0)
+        return _sum(-y * z + log1pexp) / X.shape[0]
 
     def gradient(self, X, y, coef):
         z = X @ coef
