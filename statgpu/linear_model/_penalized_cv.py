@@ -2040,6 +2040,13 @@ class PenalizedGLM_CV(CVEstimatorBase):
             model.fit(X_np, y_np, sample_weight=sample_weight)
             model.coef_ = coef
             model.intercept_ = intercept
+            # Keep inference state aligned with the eigensolve coefficients
+            model._params = np.concatenate([[intercept], coef])
+            # Clear stale inference attributes from model.fit() path
+            for attr in ('_bse', '_pvalues', '_conf_int_lower', '_conf_int_upper',
+                         '_z_scores', '_cov_params'):
+                if hasattr(model, attr):
+                    delattr(model, attr)
             return model
 
         can_infer = (self.loss == 'squared_error' and self.penalty == 'l2')
@@ -2424,7 +2431,9 @@ class PenalizedGLM_CV(CVEstimatorBase):
                 sw_train_fit = sw_train
 
             # Precompute XtX/Xty once per fold only for squared-error GPU cache.
-            if loss_name == "squared_error" and device_name in ("cuda", "torch"):
+            # Skip when sample_weight is present — the cache would be unweighted
+            # but the fit uses weighted normal equations.
+            if loss_name == "squared_error" and device_name in ("cuda", "torch") and sw_train is None:
                 X_train_np = _to_numpy(X_train).astype(np.float64)
                 y_train_np = _to_numpy(y_train).astype(np.float64).ravel()
                 n_tr, _ = X_train_np.shape
