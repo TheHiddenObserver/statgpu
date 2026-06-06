@@ -92,17 +92,25 @@ def _two_stage_candidate_mask(scores, refine_top_k=3):
     return mask
 
 
-def _evaluate_loss_numpy(loss_name, loss_fn, X_val_np, y_val_np, coef_np, intercept, fit_intercept):
-    """Backend-independent validation loss in float64 numpy."""
+def _evaluate_loss_numpy(loss_name, loss_fn, X_val_np, y_val_np, coef_np, intercept, fit_intercept, sample_weight=None):
+    """Backend-independent validation loss in float64 numpy.
+
+    When sample_weight is provided, returns weighted mean loss.
+    """
     coef_np = np.asarray(coef_np, dtype=np.float64).ravel()
     if fit_intercept:
         eta = X_val_np @ coef_np + float(intercept)
     else:
         eta = X_val_np @ coef_np
 
+    sw = np.asarray(sample_weight, dtype=np.float64).ravel() if sample_weight is not None else None
+
     if loss_name == "logistic":
         log1pexp = np.log1p(np.exp(-np.abs(eta))) + np.maximum(eta, 0.0)
-        return float(np.mean(-y_val_np * eta + log1pexp))
+        per_sample = -y_val_np * eta + log1pexp
+        if sw is not None:
+            return float(np.sum(sw * per_sample) / np.sum(sw))
+        return float(np.mean(per_sample))
 
     n_val = X_val_np.shape[0]
     if fit_intercept:
@@ -111,7 +119,28 @@ def _evaluate_loss_numpy(loss_name, loss_fn, X_val_np, y_val_np, coef_np, interc
     else:
         X_design = X_val_np
         coef_with_intercept = coef_np
-    return float(loss_fn.value(X_design, y_val_np, coef_with_intercept))
+
+    # Compute per-sample loss for weighting
+    if loss_name == "squared_error":
+        per_sample = (y_val_np - X_design @ coef_with_intercept) ** 2
+        if sw is not None:
+            return float(np.sum(sw * per_sample) / np.sum(sw))
+        return float(np.mean(per_sample))
+    elif loss_name == "poisson":
+        mu = np.exp(np.clip(X_design @ coef_with_intercept, -30, 30))
+        per_sample = mu - y_val_np * np.log(np.clip(mu, 1e-10, None))
+        if sw is not None:
+            return float(np.sum(sw * per_sample) / np.sum(sw))
+        return float(np.mean(per_sample))
+    elif loss_name == "gamma":
+        mu = np.exp(np.clip(X_design @ coef_with_intercept, -30, 30))
+        per_sample = y_val_np / np.clip(mu, 1e-10, None) + np.log(np.clip(mu, 1e-10, None))
+        if sw is not None:
+            return float(np.sum(sw * per_sample) / np.sum(sw))
+        return float(np.mean(per_sample))
+    else:
+        # Fallback: use loss_fn.value (unweighted)
+        return float(loss_fn.value(X_design, y_val_np, coef_with_intercept))
 
 
 def _ridge_eig_batch(X_train_np, y_train_np, X_val_np, y_val_np, alphas_np):
@@ -1952,13 +1981,14 @@ class PenalizedGLM_CV(CVEstimatorBase):
         alphas_np = _to_numpy(alphas).astype(np.float64).ravel()
         return _ridge_eig_batch(X_train_np, y_train_np, X_val_np, y_val_np, alphas_np)
 
-    def _evaluate_single(self, model, X_val, y_val, loss_fn=None, X_val_np=None, y_val_np=None):
+    def _evaluate_single(self, model, X_val, y_val, loss_fn=None, X_val_np=None, y_val_np=None, sample_weight=None):
         """Evaluate a fitted model on validation data, return validation loss.
 
         Parameters
         ----------
         loss_fn : optional, pre-resolved loss function (avoids repeated import)
         X_val_np, y_val_np : optional, pre-cached numpy validation data (avoids D2H)
+        sample_weight : optional, per-sample weights for weighted validation loss
         """
         from statgpu.linear_model._penalized import _resolve_loss_name
 
@@ -1979,6 +2009,7 @@ class PenalizedGLM_CV(CVEstimatorBase):
                 _to_numpy(model.coef_).ravel(),
                 float(model.intercept_),
                 model.fit_intercept,
+                sample_weight=sample_weight,
             )
         except Exception:
             y_pred_np = _to_numpy(model.predict(X_val_np)).ravel()
@@ -2278,6 +2309,7 @@ class PenalizedGLM_CV(CVEstimatorBase):
             X_val = _slice_rows(X, val_idx)
             y_val = _slice_rows(y, val_idx)
             sw_train = _slice_rows(sample_weight, train_idx) if sample_weight is not None else None
+            sw_val = _slice_rows(sample_weight, val_idx) if sample_weight is not None else None
 
             # SCAD/MCP batch path: strict only permits this for squared error.
             if use_scad_mcp_batch_cv:
@@ -2467,6 +2499,7 @@ class PenalizedGLM_CV(CVEstimatorBase):
                             path_coefs[path_idx],
                             float(path_intercepts[path_idx]),
                             True,
+                            sample_weight=sw_val,
                         )
                         all_scores[fold_idx, sort_idx[alpha_idx_sorted]] = val_loss
                     path_handled = True
@@ -2513,6 +2546,7 @@ class PenalizedGLM_CV(CVEstimatorBase):
                             coef_np,
                             intercept,
                             model.fit_intercept,
+                            sample_weight=sw_val,
                         )
                     except Exception:
                         if model.fit_intercept:
