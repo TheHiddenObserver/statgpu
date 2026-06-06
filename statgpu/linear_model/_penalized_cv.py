@@ -2430,32 +2430,47 @@ class PenalizedGLM_CV(CVEstimatorBase):
                 y_train_fit = y_train
                 sw_train_fit = sw_train
 
-            # Precompute XtX/Xty once per fold only for squared-error GPU cache.
-            # Skip when sample_weight is present — the cache would be unweighted
-            # but the fit uses weighted normal equations.
-            if loss_name == "squared_error" and device_name in ("cuda", "torch") and sw_train is None:
+            # Precompute XtX/Xty once per fold for squared-error GPU cache.
+            # When sample_weight is present, compute weighted Gram matrices.
+            if loss_name == "squared_error" and device_name in ("cuda", "torch"):
                 X_train_np = _to_numpy(X_train).astype(np.float64)
                 y_train_np = _to_numpy(y_train).astype(np.float64).ravel()
                 n_tr, _ = X_train_np.shape
-                X_mean_np = np.mean(X_train_np, axis=0)
-                y_mean_np = np.mean(y_train_np)
-                Xc_np = X_train_np - X_mean_np
-                yc_np = y_train_np - y_mean_np
-                XtX_np = Xc_np.T @ Xc_np
-                Xty_np = Xc_np.T @ yc_np
-                eigvals_np = np.linalg.eigvalsh(XtX_np)
-                L_np = float(np.max(eigvals_np)) / n_tr
+                sw_np = _to_numpy(sw_train).astype(np.float64).ravel() if sw_train is not None else None
+                if sw_np is not None:
+                    w_sum = float(sw_np.sum())
+                    X_mean_np = np.average(X_train_np, axis=0, weights=sw_np)
+                    y_mean_np = float(np.average(y_train_np, weights=sw_np))
+                    Xc_np = X_train_np - X_mean_np
+                    yc_np = y_train_np - y_mean_np
+                    sqrt_w = np.sqrt(sw_np)
+                    W_Xc = Xc_np * sqrt_w[:, None]
+                    XtX_np = W_Xc.T @ W_Xc
+                    Xty_np = (Xc_np * sw_np[:, None]).T @ yc_np
+                    L_np = float(np.max(np.linalg.eigvalsh(XtX_np))) / max(w_sum, 1.0)
+                    n_effective = w_sum
+                else:
+                    X_mean_np = np.mean(X_train_np, axis=0)
+                    y_mean_np = np.mean(y_train_np)
+                    Xc_np = X_train_np - X_mean_np
+                    yc_np = y_train_np - y_mean_np
+                    XtX_np = Xc_np.T @ Xc_np
+                    Xty_np = Xc_np.T @ yc_np
+                    L_np = float(np.max(np.linalg.eigvalsh(XtX_np))) / n_tr
+                    n_effective = float(n_tr)
                 if device_name == "cuda":
                     import cupy as cp
                     cv_cache = {
                         "XtX": cp.asarray(XtX_np),
                         "Xty": cp.asarray(Xty_np),
+                        "n_effective": n_effective,
                     }
                 else:
                     import torch
                     cv_cache = {
                         "XtX": torch.as_tensor(XtX_np, device="cuda", dtype=torch.float64),
                         "Xty": torch.as_tensor(Xty_np, device="cuda", dtype=torch.float64),
+                        "n_effective": n_effective,
                     }
             else:
                 cv_cache = None
