@@ -250,9 +250,13 @@ def _solve_ridge_path_gpu_from_gram_eig(XtX_batch, Xty_batch, alphas, backend, f
 
     # Step 3: Convert alphas to backend array and compute inverse diagonal
     # inv_diag: (n_folds, n_features, n_alphas)
-    # No n scaling: alpha is per-sample penalty strength.
+    # Scale alpha by n_samples to match Ridge.fit() convention.
     alphas_arr = backend.asarray(alphas, dtype=eigvals.dtype)
-    inv_diag = 1.0 / (eigvals[:, :, None] + alphas_arr[None, None, :])
+    if n_samples_vec is not None:
+        n_arr = backend.asarray(n_samples_vec, dtype=eigvals.dtype).reshape(-1, 1, 1)
+        inv_diag = 1.0 / (eigvals[:, :, None] + alphas_arr[None, None, :] * n_arr)
+    else:
+        inv_diag = 1.0 / (eigvals[:, :, None] + alphas_arr[None, None, :])
 
     # Step 4: Scale projected Xty by inverse diagonal
     # scaled: (n_folds, n_features, n_alphas)
@@ -797,13 +801,12 @@ def _select_ridge_alpha_cv(
                 Xty = X_centered.T @ y_centered
                 n_train = int(X_train.shape[0])
 
-            # Solve for all alphas: (XtX + alpha*I)^-1 @ Xty
-            # No n scaling: alpha is per-sample penalty strength,
-            # consistent with all other penalties.
+            # Solve for all alphas: (XtX + n_eff*alpha*I)^-1 @ Xty
+            # n_eff scaling matches Ridge.fit() and PGLM exact ridge.
             I = np.eye(XtX.shape[0])
             coefs_desc = []
             for alpha in alpha_grid:
-                XtX_reg = XtX + alpha * I
+                XtX_reg = XtX + alpha * float(n_train) * I
                 try:
                     coef = np.linalg.solve(XtX_reg, Xty)
                 except np.linalg.LinAlgError:

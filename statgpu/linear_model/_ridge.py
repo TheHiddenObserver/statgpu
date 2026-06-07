@@ -119,10 +119,10 @@ class Ridge(_PenalizedLinearRegression):
         if Xty.ndim == 1:
             Xty = Xty.reshape(-1, 1)
 
-        # Solve (XtX + alpha*I) @ coef = Xty
-        # No n_eff scaling: alpha is the per-sample penalty strength,
-        # consistent with all other penalties (L1, ElasticNet, etc.)
-        A = XtX + float(self.alpha) * np.eye(n_features, dtype=np.float64)
+        # Solve (XtX + n_eff*alpha*I) @ coef = Xty
+        # n_eff scaling matches PenalizedGeneralizedLinearModel exact ridge
+        # and sklearn Ridge convention.
+        A = XtX + float(self.alpha) * n_eff * np.eye(n_features, dtype=np.float64)
         try:
             coef = np.linalg.solve(A, Xty).flatten()
         except np.linalg.LinAlgError:
