@@ -2045,6 +2045,11 @@ class PenalizedGLM_CV(CVEstimatorBase):
         """
         from statgpu.linear_model._penalized import PenalizedGeneralizedLinearModel
 
+        # Resolve refit device (used by Ridge and general paths)
+        refit_device = self.device
+        if _device_to_name(self.device) == "auto":
+            refit_device = getattr(self, "_cv_selected_device_", self.device) or self.device
+
         # For Ridge: use eigendecomposition to match CV path exactly.
         # Supports weighted Ridge via weighted eigensolve (same O(p³) cost).
         if self.loss == 'squared_error' and self.penalty == 'l2':
@@ -2054,7 +2059,7 @@ class PenalizedGLM_CV(CVEstimatorBase):
             coef, intercept = _ridge_eig_single(X_np, y_np, best_alpha, sample_weight=sw_np)
             model = PenalizedGeneralizedLinearModel(
                 loss='squared_error', penalty='l2', alpha=best_alpha,
-                device='cpu', compute_inference=True,
+                device=refit_device, compute_inference=True,
                 max_iter=self.max_iter, tol=self.tol,
             )
             model.fit(X_np, y_np, sample_weight=sample_weight)
@@ -2070,9 +2075,6 @@ class PenalizedGLM_CV(CVEstimatorBase):
             return model
 
         can_infer = (self.loss == 'squared_error' and self.penalty == 'l2')
-        refit_device = self.device
-        if _device_to_name(self.device) == "auto":
-            refit_device = getattr(self, "_cv_selected_device_", self.device) or self.device
         penalty_name = str(self.penalty).lower()
 
         if self.loss == "logistic" and penalty_name in ("l1", "elasticnet", "en"):
