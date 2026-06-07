@@ -1227,11 +1227,8 @@ def _glm_sparse_cv_path(
     penalty, and FISTA solver while avoiding estimator reconstruction and
     repeated host/device conversions inside a fold.
 
-    Parameters
-    ----------
-    val_sample_weight : array-like, optional
-        Per-sample weights for validation scoring. When provided, validation
-        loss is computed as weighted mean.
+    When ``val_sample_weight`` is provided, validation loss is computed as
+    a weighted mean instead of a simple mean.
     """
     loss_name = str(loss_name).lower()
     penalty_name = str(penalty_name).lower()
@@ -1290,7 +1287,7 @@ def _glm_sparse_cv_path(
     else:
         X_val_work = yv = swv = None
 
-    if X_val is not None and val_sample_weight is not None:
+    if X_val is not None and y_val is not None and val_sample_weight is not None:
         swv = _to_backend_float64(val_sample_weight, backend).reshape(-1)
     else:
         swv = None
@@ -1381,21 +1378,25 @@ def _glm_sparse_cv_path(
             elif backend == "cupy":
                 score_params_path.append(params.copy())
             else:
-                # NumPy path: compute per-sample loss with optional weights
-                from statgpu.linear_model._penalized_cv import _evaluate_loss_numpy
-                params_np = np.asarray(_to_numpy(params), dtype=np.float64).ravel()
-                sw_np = np.asarray(_to_numpy(swv), dtype=np.float64).ravel() if swv is not None else None
-                # Use Xv (without intercept column) since _evaluate_loss_numpy
-                # adds its own intercept column when fit_intercept=True.
-                Xv_np = np.asarray(_to_numpy(Xv), dtype=np.float64) if Xv is not None else None
-                yv_np = np.asarray(_to_numpy(yv), dtype=np.float64).ravel() if yv is not None else None
-                score_params_path.append(
-                    _evaluate_loss_numpy(loss_name, loss_fn,
-                                         Xv_np, yv_np,
-                                         params_np[:n_features],
-                                         float(params_np[n_features]),
-                                         True, sample_weight=sw_np)
-                )
+                # NumPy path: use loss_fn.value() for consistency with GPU paths.
+                # loss_fn handles all loss-specific parameters (NB alpha, Tweedie power, etc.)
+                val = float(loss_fn.value(X_val_work, yv, params))
+                if swv is not None:
+                    # loss_fn.value returns mean loss; recompute as weighted mean
+                    # by scaling with n_val and dividing by sum(sw)
+                    n_val_local = X_val_work.shape[0]
+                    # Compute per-sample loss for weighting
+                    eta_np = np.asarray(_to_numpy(X_val_work @ params), dtype=np.float64)
+                    yv_np = np.asarray(_to_numpy(yv), dtype=np.float64).ravel()
+                    sw_np = np.asarray(_to_numpy(swv), dtype=np.float64).ravel()
+                    from statgpu.linear_model._penalized_cv import _evaluate_loss_numpy
+                    val = _evaluate_loss_numpy(loss_name, loss_fn,
+                                               np.asarray(_to_numpy(X_val_work), dtype=np.float64),
+                                               yv_np,
+                                               np.asarray(_to_numpy(params), dtype=np.float64).ravel()[:n_features],
+                                               float(np.asarray(_to_numpy(params)).ravel()[n_features]),
+                                               True, sample_weight=sw_np)
+                score_params_path.append(val)
         if return_path:
             params_np = np.asarray(_to_numpy(params), dtype=np.float64).ravel()
             coef_path.append(params_np[:n_features].copy())
@@ -1509,7 +1510,6 @@ def _glm_sparse_cv_path(
                     scores_arr = (sw_col * per_sample).sum(axis=0) / swv.sum()
                 else:
                     scores_arr = per_sample.mean(axis=0)
-                    -yy * mu ** (1.0 - pwr) / (1.0 - pwr)
             else:
                 scores_arr = cp.stack(
                     [loss_fn.value(X_val_work, yv, p) for p in score_params_path]
