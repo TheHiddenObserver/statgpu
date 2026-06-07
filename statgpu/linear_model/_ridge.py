@@ -154,21 +154,12 @@ class Ridge(_PenalizedLinearRegression):
             self._resid = y_np - y_pred
             if self._df_resid > 0:
                 resid_sq = self._resid ** 2
-                if sw is not None:
-                    # Weighted residual variance with correct denominator
-                    sw_bc = sw.reshape(-1, 1) if resid_sq.ndim > 1 else sw
-                    w_sum = float(sw.sum())
-                    df_eff = max(w_sum - (n_features + (1 if self.fit_intercept else 0)), 1.0)
-                    self._scale = float(np.sum(sw_bc * resid_sq)) / df_eff
-                else:
-                    self._scale = float(np.sum(resid_sq)) / self._df_resid
+                self._scale = float(np.sum(resid_sq)) / self._df_resid
             # Compute inference statistics (bse, tvalues, pvalues, conf_int).
-            # _compute_post_fit_gaussian_inference overwrites _scale with
-            # n-p denominator; restore the correct weighted value afterward.
-            weighted_scale = self._scale if sw is not None else None
+            # For weighted fits, _compute_post_fit_gaussian_inference uses
+            # sqrt(w)*X internally, producing correct weighted scale and
+            # consistent inference attributes.
             self._compute_post_fit_gaussian_inference(X_np, y_np, sample_weight=sample_weight)
-            if weighted_scale is not None:
-                self._scale = weighted_scale
 
         self._fitted = True
         return self
