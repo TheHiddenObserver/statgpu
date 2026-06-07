@@ -628,24 +628,37 @@ def _select_ridge_alpha_cv(
                     sw_train = None if sw_full is None else sw_full[train_idx_gpu]
 
                     if sw_train is not None:
-                        sqrt_sw = backend.sqrt(sw_train)
-                        X_train = X_train * sqrt_sw[:, None]
-                        y_train = y_train * sqrt_sw
-
-                    if bool(fit_intercept):
-                        X_mean = backend.mean(X_train, axis=0)
-                        y_mean = backend.mean(y_train)
-                        X_centered = X_train - X_mean
-                        y_centered = y_train - y_mean
+                        # Weighted Ridge: use X'WX, X'Wy directly
+                        sw_col = sw_train[:, None]
+                        if bool(fit_intercept):
+                            w_sum = float(backend.sum(sw_train))
+                            X_wmean = backend.sum(X_train * sw_col, axis=0) / w_sum
+                            y_wmean = float(backend.sum(y_train * sw_train)) / w_sum
+                            XtX = (X_train * sw_col).T @ X_train - w_sum * backend.outer(X_wmean, X_wmean)
+                            Xty = (X_train * sw_col).T @ y_train - w_sum * X_wmean * y_wmean
+                            X_mean = X_wmean
+                            y_mean = y_wmean
+                        else:
+                            XtX = (X_train * sw_col).T @ X_train
+                            Xty = (X_train * sw_col).T @ y_train
+                            X_mean = backend.zeros((X_train.shape[1],), dtype=X_train.dtype)
+                            y_mean = backend.array(0.0, dtype=X_train.dtype)
+                        n_train = float(sw_train.sum()) if bool(fit_intercept) else int(X_train.shape[0])
                     else:
-                        X_mean = backend.zeros((X_train.shape[1],), dtype=X_train.dtype)
-                        y_mean = backend.array(0.0, dtype=X_train.dtype)
-                        X_centered = X_train
-                        y_centered = y_train
+                        if bool(fit_intercept):
+                            X_mean = backend.mean(X_train, axis=0)
+                            y_mean = backend.mean(y_train)
+                            X_centered = X_train - X_mean
+                            y_centered = y_train - y_mean
+                        else:
+                            X_mean = backend.zeros((X_train.shape[1],), dtype=X_train.dtype)
+                            y_mean = backend.array(0.0, dtype=X_train.dtype)
+                            X_centered = X_train
+                            y_centered = y_train
 
-                    XtX = X_centered.T @ X_centered
-                    Xty = X_centered.T @ y_centered
-                    n_train = int(X_train.shape[0])
+                        XtX = X_centered.T @ X_centered
+                        Xty = X_centered.T @ y_centered
+                        n_train = int(X_train.shape[0])
 
                 XtX_folds.append(XtX)
                 Xty_folds.append(Xty)

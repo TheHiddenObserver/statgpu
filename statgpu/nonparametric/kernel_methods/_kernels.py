@@ -229,12 +229,12 @@ def pairwise_kernels(X, Y=None, metric="rbf", xp=None, **params):
     if callable(metric):
         # Try calling with xp parameter first; fall back without it
         # for user-defined callables that don't accept xp.
-        # Also ensure Y is not None (use X for self-kernel).
-        Y_arg = Y if Y is not None else X
+        # Pass Y as-is (including None) so callables can distinguish
+        # self-kernel (Y=None) from cross-kernel.
         try:
-            return metric(X, Y_arg, xp=xp, **params)
+            return metric(X, Y, xp=xp, **params)
         except TypeError:
-            return metric(X, Y_arg, **params)
+            return metric(X, Y, **params)
 
     key = str(metric).strip().lower()
     func = KERNEL_REGISTRY.get(key)

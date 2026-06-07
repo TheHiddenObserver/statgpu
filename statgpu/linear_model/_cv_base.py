@@ -42,6 +42,11 @@ def kfold_indices(
     -------
     folds : list of (train_idx, val_idx) tuples
     """
+    if n_splits > n_samples:
+        raise ValueError(
+            f"n_splits={n_splits} cannot be greater than n_samples={n_samples}"
+        )
+
     indices = np.arange(n_samples)
     if shuffle:
         rng = np.random.RandomState(random_state)

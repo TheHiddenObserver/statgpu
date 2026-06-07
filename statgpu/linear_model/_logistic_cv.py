@@ -41,18 +41,43 @@ def _logistic_cv_cache_put(key, value):
         _LOGISTIC_CV_C_CACHE.popitem(last=False)
 
 
-def _make_logistic_cv_auto_cache_key(X, y, Cs, folds, fit_intercept, max_iter, use_gpu, sample_weight=None):
+def _hash_logistic_data(X, y, sample_weight=None):
+    """Compute a compact hash of X, y, and optionally sample_weight."""
+    from statgpu.backends import _to_numpy
+    h = hashlib.blake2b(digest_size=16)
+    X_np = np.asarray(_to_numpy(X), dtype=np.float64)
+    y_np = np.asarray(_to_numpy(y), dtype=np.float64).ravel()
+    n = X_np.shape[0]
+    h.update(np.asarray(X_np.shape, dtype=np.int64).tobytes())
+    step = max(1, n // 100)
+    idx = np.arange(0, n, step)[:100]
+    h.update(X_np[idx].tobytes())
+    h.update(y_np[idx].tobytes())
+    h.update(np.asarray([X_np.mean(), X_np.std()], dtype=np.float64).tobytes())
+    h.update(np.asarray([y_np.mean(), y_np.std()], dtype=np.float64).tobytes())
+    if sample_weight is not None:
+        sw_np = np.asarray(_to_numpy(sample_weight), dtype=np.float64).ravel()
+        h.update(sw_np[idx].tobytes())
+        h.update(np.asarray([sw_np.mean()], dtype=np.float64).tobytes())
+    return h.digest()
+
+
+def _make_logistic_cv_auto_cache_key(X, y, Cs, folds, fit_intercept, max_iter, tol, use_gpu, sample_weight=None):
     """Generate automatic cache key for LogisticRegression CV."""
     h = hashlib.blake2b(digest_size=32)
     h.update(np.asarray(X.shape, dtype=np.int64).tobytes())
-    h.update(np.asarray(y.shape, dtype=np.int64).tobytes())
     h.update(str(X.dtype).encode("utf-8"))
     h.update(np.asarray(Cs, dtype=np.float64).tobytes())
     h.update(str(fit_intercept).encode("utf-8"))
     h.update(str(max_iter).encode("utf-8"))
+    h.update(str(tol).encode("utf-8"))
     h.update(str(use_gpu).encode("utf-8"))
-    if sample_weight is not None:
-        h.update(np.asarray(sample_weight.shape, dtype=np.int64).tobytes())
+    # Hash data content to avoid cross-dataset collisions
+    h.update(_hash_logistic_data(X, y, sample_weight))
+    # Hash fold indices
+    for train_idx, val_idx in folds:
+        h.update(np.asarray(train_idx[:5], dtype=np.int64).tobytes())
+        h.update(np.asarray(val_idx[:5], dtype=np.int64).tobytes())
     return h.hexdigest()
 
 
@@ -500,8 +525,8 @@ def _select_logistic_c_cv(
     if cache_key_eff is None and _LOGISTIC_CV_C_CACHE_MAXSIZE > 0:
         cache_key_eff = _make_logistic_cv_auto_cache_key(
             X=X, y=y, Cs=C_grid, folds=folds,
-            fit_intercept=bool(fit_intercept), max_iter=max_iter, use_gpu=bool(use_gpu),
-            sample_weight=sample_weight,
+            fit_intercept=bool(fit_intercept), max_iter=max_iter, tol=tol,
+            use_gpu=bool(use_gpu), sample_weight=sample_weight,
         )
 
     cached_details = _logistic_cv_cache_get(cache_key_eff)

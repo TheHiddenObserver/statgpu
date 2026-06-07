@@ -2140,9 +2140,10 @@ class PenalizedGLM_CV(CVEstimatorBase):
             model.intercept_ = intercept
             # Keep inference state aligned with the eigensolve coefficients
             model._params = np.concatenate([[intercept], coef])
-            # Clear stale inference attributes from model.fit() path
+            # Clear stale inference and diagnostic attributes from model.fit() path
             for attr in ('_bse', '_pvalues', '_conf_int_lower', '_conf_int_upper',
-                         '_z_scores', '_cov_params'):
+                         '_z_scores', '_cov_params', '_resid', '_scale',
+                         '_X_design', '_hat_matrix_diag'):
                 if hasattr(model, attr):
                     delattr(model, attr)
             return model

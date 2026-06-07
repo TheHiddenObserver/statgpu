@@ -55,6 +55,3 @@
         3    0.002    0.001    0.002    0.001 {method 'cpu' of 'torch._C._TensorBase' objects}
     43/42    0.002    0.000    0.002    0.000 {built-in method numpy.core._multiarray_umath.implement_array_function}
        13    0.002    0.000    0.002    0.000 {method 'get' of 'cupy._core.core._ndarray_base' objects}
-
-
-

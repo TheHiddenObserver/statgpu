@@ -77,48 +77,51 @@ class Ridge(_PenalizedLinearRegression):
         self._nobs = n_samples
         self._fitted = False
 
-        if sample_weight is not None:
-            sample_weight = np.asarray(sample_weight, dtype=np.float64)
-            sqrt_sw = np.sqrt(sample_weight)
-            X_np = X_np * sqrt_sw[:, np.newaxis]
-            y_np = y_np * sqrt_sw
+        sw = np.asarray(sample_weight, dtype=np.float64).ravel() if sample_weight is not None else None
 
-        # Memory-efficient centering: avoid creating full X_centered (n×p) matrix.
-        # Use: XtX = X.T@X - n*outer(mean), Xty = X.T@y - n*mean_x*mean_y
-        # For weighted case, use weighted means of original (unweighted) data.
         if self.fit_intercept:
-            if sample_weight is not None:
-                # Weighted means of original data for intercept computation.
-                # Use original X/y (before sqrt_sw multiplication) to avoid 0/0
-                # when sample_weight has zero entries.
-                w_sum = float(np.sum(sample_weight))
-                X_orig = X_np / np.maximum(sqrt_sw[:, None], 1e-300)
-                y_orig = y_np / np.maximum(sqrt_sw, 1e-300)
-                X_wmean = np.sum(sample_weight[:, None] * X_orig, axis=0) / w_sum
-                y_wmean = float(np.sum(sample_weight * y_orig)) / w_sum
+            if sw is not None:
+                w_sum = float(sw.sum())
+                X_wmean = np.average(X_np, axis=0, weights=sw)
+                y_wmean = float(np.average(y_np, weights=sw))
             else:
                 X_wmean = np.mean(X_np, axis=0)
                 y_wmean = np.mean(y_np)
-            # Use simple means for Gram matrix centering (sqrt(w)*X centered)
-            X_mean = np.mean(X_np, axis=0)
-            y_mean = np.mean(y_np)
-            XtX = X_np.T @ X_np
-            XtX -= n_samples * np.outer(X_mean, X_mean)
-            Xty = X_np.T @ y_np
-            Xty -= n_samples * X_mean * y_mean
+
+        # Build Gram matrix and RHS.
+        # Weighted: X'WX, X'Wy.  Unweighted: X'X, X'y.
+        # Centering for intercept: subtract weighted/unweighted outer product.
+        if sw is not None:
+            # Weighted normal equations: (X'WX + alpha*I) coef = X'Wy
+            sw_col = sw[:, None]
+            XtX = (X_np * sw_col).T @ X_np
+            Xty = (X_np * sw_col).T @ y_np
+            if self.fit_intercept:
+                XtX -= w_sum * np.outer(X_wmean, X_wmean)
+                Xty -= w_sum * X_wmean * y_wmean
+                n_eff = w_sum
+            else:
+                n_eff = float(sw.sum())
         else:
-            y_wmean = 0.0
-            X_wmean = None
-            XtX = X_np.T @ X_np
-            Xty = X_np.T @ y_np
+            if self.fit_intercept:
+                X_mean = np.mean(X_np, axis=0)
+                y_mean = np.mean(y_np)
+                XtX = X_np.T @ X_np
+                XtX -= n_samples * np.outer(X_mean, X_mean)
+                Xty = X_np.T @ y_np
+                Xty -= n_samples * X_mean * y_mean
+            else:
+                XtX = X_np.T @ X_np
+                Xty = X_np.T @ y_np
+            n_eff = float(n_samples)
 
         if Xty.ndim == 0:
             Xty = Xty.reshape(1)
         if Xty.ndim == 1:
             Xty = Xty.reshape(-1, 1)
 
-        # Solve (XtX + alpha*n*I) @ coef = Xty
-        alpha_scaled = float(self.alpha) * n_samples
+        # Solve (XtX + alpha*n_eff*I) @ coef = Xty
+        alpha_scaled = float(self.alpha) * n_eff
         A = XtX + alpha_scaled * np.eye(n_features, dtype=np.float64)
         try:
             coef = np.linalg.solve(A, Xty).flatten()
