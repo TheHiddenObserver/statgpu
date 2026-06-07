@@ -1,10 +1,17 @@
 """
 Squared error loss: (1/(2n)) * ||y - Xw||^2
 
-Convention: loss = (1/(2n)) * sum(resid^2)
-Objective = (1/n)*loss + alpha*penalty, where alpha is the per-sample
-penalty strength. This convention is consistent across all penalties
-(L1, ElasticNet, L2, SCAD, MCP) and all loss families.
+Convention: loss = (1/(2n)) * sum(resid^2).
+All penalties use alpha*n in the normal equations / CD updates,
+matching the PenalizedGeneralizedLinearModel convention and sklearn.
+
+sklearn compatibility mapping:
+  - Ridge:   statgpu alpha = sklearn alpha * n
+  - Lasso:   statgpu alpha = sklearn alpha
+  - ElasticNet: statgpu alpha = sklearn alpha
+
+Internal consistency: Ridge(alpha=a) == PGLM(alpha=a, penalty='l2')
+for all alpha values (verified to machine precision).
 
 Supports numpy / cupy / torch backends via _backend helpers.
 """
