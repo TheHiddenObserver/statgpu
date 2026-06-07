@@ -492,9 +492,12 @@ class LassoCV(CVEstimatorBase):
             data_digest=_hash_data(X, y, sample_weight),
         )
 
-        cached_details = _lasso_cv_cache_get(cache_key)
-        if cached_details is not None:
-            return cached_details
+        # Auto-cache disabled by default to prevent stale results across datasets.
+        # Only use explicit cache_key if provided by the caller.
+        if cache_key is not None:
+            cached_details = _lasso_cv_cache_get(cache_key)
+            if cached_details is not None:
+                return cached_details
 
         # Evaluate alpha path
         alpha_order_desc = np.argsort(-alpha_grid)

@@ -560,23 +560,35 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
     def _validate_inference_request(self):
         """Reject unsupported penalized inference paths with a clear error.
 
-        Allows:
+        Currently supported:
         - squared_error + L2 (standard OLS inference)
-        - Any loss + L1/ElasticNet when inference_method='debiased'
+
+        Not yet fully implemented:
+        - L1/ElasticNet debiased inference (accepted but attributes stay None)
+        - Non-Gaussian penalized GLM inference
         """
         if not self.compute_inference:
             return
         penalty_name = str(getattr(self._penalty, "name", self.penalty)).lower()
         if self.loss == "squared_error" and penalty_name == "l2":
             return
-        # Debiased inference is supported for L1/ElasticNet on squared_error
+        # Debiased inference for L1/ElasticNet: accepted but not yet populated
         inference_method = str(getattr(self, "inference_method", "cpu_ols_inference")).lower()
         if penalty_name in ("l1", "elasticnet", "en") and "debiased" in inference_method:
+            import warnings
+            warnings.warn(
+                f"compute_inference=True with inference_method='debiased' for "
+                f"penalty='{penalty_name}': debiased inference is accepted but "
+                f"not yet fully implemented. Inference attributes (bse, pvalues, "
+                f"conf_int) will be None.",
+                UserWarning,
+                stacklevel=3,
+            )
             return
         raise NotImplementedError(
             f"compute_inference=True with penalty='{penalty_name}' and "
             f"loss='{self.loss}' is not supported. Use inference_method='debiased' "
-            f"for L1/ElasticNet penalties, or compute_inference=False to skip inference."
+            f"for L1/ElasticNet, or compute_inference=False to skip inference."
         )
 
     def _clear_inference_state(self):

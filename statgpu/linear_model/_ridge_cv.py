@@ -203,7 +203,7 @@ def _batch_mse_numpy(X_val, y_val, coefs_desc, intercepts_desc, sample_weight=No
 # GPU batch solver for Ridge
 # =============================================================================
 
-def _solve_ridge_path_gpu_from_gram_eig(XtX_batch, Xty_batch, alphas, backend, fit_intercept=True):
+def _solve_ridge_path_gpu_from_gram_eig(XtX_batch, Xty_batch, alphas, backend, fit_intercept=True, n_samples_vec=None):
     """
     Solve Ridge path for multiple folds using eigendecomposition (vectorized over alphas).
 
@@ -250,8 +250,13 @@ def _solve_ridge_path_gpu_from_gram_eig(XtX_batch, Xty_batch, alphas, backend, f
 
     # Step 3: Convert alphas to backend array and compute inverse diagonal
     # inv_diag: (n_folds, n_features, n_alphas)
+    # Scale alpha by n_samples to match Ridge.fit() per-sample convention
     alphas_arr = backend.asarray(alphas, dtype=eigvals.dtype)
-    inv_diag = 1.0 / (eigvals[:, :, None] + alphas_arr[None, None, :])
+    if n_samples_vec is not None:
+        n_arr = backend.asarray(n_samples_vec, dtype=eigvals.dtype).reshape(-1, 1, 1)
+        inv_diag = 1.0 / (eigvals[:, :, None] + alphas_arr[None, None, :] * n_arr)
+    else:
+        inv_diag = 1.0 / (eigvals[:, :, None] + alphas_arr[None, None, :])
 
     # Step 4: Scale projected Xty by inverse diagonal
     # scaled: (n_folds, n_features, n_alphas)
@@ -298,7 +303,7 @@ def _solve_ridge_path_gpu_from_gram(XtX_batch, Xty_batch, n_samples_vec, alphas,
         Coefficients for each alpha and fold (n_alphas, n_folds, n_features).
     """
     # Use eigendecomposition-based solver (vectorized over alphas)
-    return _solve_ridge_path_gpu_from_gram_eig(XtX_batch, Xty_batch, alphas, backend, fit_intercept)
+    return _solve_ridge_path_gpu_from_gram_eig(XtX_batch, Xty_batch, alphas, backend, fit_intercept, n_samples_vec=n_samples_vec)
 
 
 # =============================================================================
@@ -498,8 +503,10 @@ def _select_ridge_alpha_cv(
     n_folds = int(len(folds))
 
     # Cache handling
+    # Auto-cache disabled by default to prevent stale results across datasets.
+    # Only use explicit cache_key if provided by the caller.
     cache_key_eff = cache_key
-    if cache_key_eff is None and _RIDGE_CV_ALPHA_CACHE_MAXSIZE > 0:
+    if cache_key_eff is None and False and _RIDGE_CV_ALPHA_CACHE_MAXSIZE > 0:
         cache_key_eff = _make_ridge_cv_auto_cache_key(
             X=X, y=y, alphas=alpha_grid, folds=folds,
             fit_intercept=bool(fit_intercept), use_gpu=bool(use_gpu),
@@ -794,11 +801,12 @@ def _select_ridge_alpha_cv(
                 Xty = X_centered.T @ y_centered
                 n_train = int(X_train.shape[0])
 
-            # Solve for all alphas: (XtX + alpha*I)^-1 @ Xty
+            # Solve for all alphas: (XtX + alpha*n_eff*I)^-1 @ Xty
+            # n_eff scaling matches Ridge.fit() convention (per-sample objective)
             I = np.eye(XtX.shape[0])
             coefs_desc = []
             for alpha in alpha_grid:
-                XtX_reg = XtX + alpha * I
+                XtX_reg = XtX + alpha * float(n_train) * I
                 try:
                     coef = np.linalg.solve(XtX_reg, Xty)
                 except np.linalg.LinAlgError:
@@ -1132,6 +1140,10 @@ class RidgeCV(CVEstimatorBase):
         self : RidgeCV
             Fitted estimator.
         """
+        from statgpu.linear_model._cv_base import validate_cv_sample_weight
+        n_samples = int(X.shape[0]) if hasattr(X, 'shape') else len(X)
+        sample_weight = validate_cv_sample_weight(sample_weight, n_samples)
+
         device_name = self._get_compute_device().value
 
         # Run CV to select alpha

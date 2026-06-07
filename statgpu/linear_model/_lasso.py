@@ -44,7 +44,7 @@ class Lasso(_PenalizedLinearRegression):
         cpu_solver: str = "coordinate_descent",
         lipschitz_L: Optional[float] = None,
         gpu_memory_cleanup: bool = False,
-        compute_inference: bool = True,
+        compute_inference: bool = False,
         inference_method: str = "debiased",
         n_bootstrap: int = 200,
         bootstrap_random_state: Optional[int] = None,

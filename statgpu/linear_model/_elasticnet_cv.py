@@ -509,9 +509,9 @@ def _select_elasticnet_params_cv(
 
     n_folds = int(len(folds))
 
-    # Cache handling
+    # Auto-cache disabled by default to prevent stale results across datasets.
     cache_key_eff = cache_key
-    if cache_key_eff is None and _ELASTICNET_CV_CACHE_MAXSIZE > 0:
+    if cache_key_eff is None and False and _ELASTICNET_CV_CACHE_MAXSIZE > 0:
         cache_key_eff = _make_elasticnet_cv_auto_cache_key(
             X_shape=X_np.shape if X_np is not None else tuple(X.shape),
             y_shape=y_np.shape if y_np is not None else tuple(y.shape),

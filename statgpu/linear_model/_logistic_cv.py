@@ -521,8 +521,9 @@ def _select_logistic_c_cv(
     n_folds = int(len(folds))
 
     # Cache handling
+    # Auto-cache disabled by default to prevent stale results across datasets.
     cache_key_eff = cache_key
-    if cache_key_eff is None and _LOGISTIC_CV_C_CACHE_MAXSIZE > 0:
+    if cache_key_eff is None and False and _LOGISTIC_CV_C_CACHE_MAXSIZE > 0:
         cache_key_eff = _make_logistic_cv_auto_cache_key(
             X=X, y=y, Cs=C_grid, folds=folds,
             fit_intercept=bool(fit_intercept), max_iter=max_iter, tol=tol,

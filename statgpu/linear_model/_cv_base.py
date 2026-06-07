@@ -84,6 +84,26 @@ def folds_are_complete(folds, n_samples: int) -> bool:
     return np.array_equal(np.sort(val_indices), np.arange(n_samples))
 
 
+def validate_cv_sample_weight(sample_weight, n_samples: int):
+    """Validate sample_weight for CV: must be non-negative and finite.
+
+    Returns None if sample_weight is None, otherwise returns validated array.
+    Raises ValueError for invalid weights.
+    """
+    if sample_weight is None:
+        return None
+    sw = np.asarray(sample_weight, dtype=np.float64).ravel()
+    if sw.shape[0] != n_samples:
+        raise ValueError(
+            f"sample_weight length {sw.shape[0]} != n_samples {n_samples}"
+        )
+    if np.any(sw < 0):
+        raise ValueError("sample_weight must be non-negative")
+    if not np.all(np.isfinite(sw)):
+        raise ValueError("sample_weight must be finite")
+    return sw
+
+
 # ---------------------------------------------------------------------------
 # LRU cache for CV results
 # ---------------------------------------------------------------------------
