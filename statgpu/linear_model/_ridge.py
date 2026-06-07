@@ -153,9 +153,26 @@ class Ridge(_PenalizedLinearRegression):
             y_pred = self._X_design @ self._params
             self._resid = y_np - y_pred
             if self._df_resid > 0:
-                self._scale = np.sum(self._resid ** 2) / self._df_resid
-            # Compute inference statistics (bse, tvalues, pvalues, conf_int)
-            self._compute_post_fit_gaussian_inference(X_np, y_np, sample_weight=sample_weight)
+                resid_sq = self._resid ** 2
+                if sw is not None:
+                    # Align weight shape for broadcasting with potentially 2D residuals
+                    sw_bc = sw.reshape(-1, *([1] * (resid_sq.ndim - 1))) if resid_sq.ndim > 1 else sw
+                    # Weighted residual variance: sum(w * resid^2) / df_eff
+                    # For frequency weights, effective df = sum(w) - p
+                    # For analytic/precision weights, df = n - p (current default)
+                    # Use sum(w) as conservative effective n for weighted fits
+                    w_sum = float(np.sum(sw))
+                    df_eff = max(w_sum - (n_features + (1 if self.fit_intercept else 0)), 1.0)
+                    self._scale = float(np.sum(sw_bc * resid_sq)) / df_eff
+                else:
+                    self._scale = float(np.sum(resid_sq)) / self._df_resid
+            # Compute inference statistics (bse, tvalues, pvalues, conf_int).
+            # Skip when sample_weight is present: the weighted _scale above
+            # uses sum(w)-p denominator, which is correct for weighted fits.
+            # _compute_post_fit_gaussian_inference uses n-p denominator and
+            # would overwrite with an incorrect value.
+            if sw is None:
+                self._compute_post_fit_gaussian_inference(X_np, y_np)
 
         self._fitted = True
         return self
