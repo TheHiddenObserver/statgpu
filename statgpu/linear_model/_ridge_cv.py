@@ -60,18 +60,23 @@ def _make_ridge_cv_auto_cache_key(X, y, alphas, folds, fit_intercept, use_gpu, s
     from statgpu.backends import _to_numpy
     X_np = np.asarray(_to_numpy(X), dtype=np.float64)
     y_np = np.asarray(_to_numpy(y), dtype=np.float64).ravel()
-    h.update(X_np[0].tobytes())
-    h.update(X_np[-1].tobytes())
+    n = X_np.shape[0]
+    h.update(np.asarray(X_np.shape, dtype=np.int64).tobytes())
+    # Sample up to 100 evenly spaced rows for robust hashing
+    step = max(1, n // 100)
+    idx = np.arange(0, n, step)[:100]
+    h.update(X_np[idx].tobytes())
+    h.update(y_np[idx].tobytes())
     h.update(np.asarray([X_np.mean(), X_np.std()], dtype=np.float64).tobytes())
-    h.update(y_np[:min(10, len(y_np))].tobytes())
-    h.update(np.asarray([y_np.mean()], dtype=np.float64).tobytes())
+    h.update(np.asarray([y_np.mean(), y_np.std()], dtype=np.float64).tobytes())
     # Hash fold indices
     for train_idx, val_idx in folds:
         h.update(train_idx[:5].tobytes())
         h.update(val_idx[:5].tobytes())
     if sample_weight is not None:
         sw = np.asarray(_to_numpy(sample_weight), dtype=np.float64).ravel()
-        h.update(sw[:min(10, len(sw))].tobytes())
+        h.update(sw[idx].tobytes())
+        h.update(np.asarray([sw.mean()], dtype=np.float64).tobytes())
     return h.hexdigest()
 
 

@@ -90,8 +90,8 @@ def _make_elasticnet_cv_auto_cache_key(
     return h.hexdigest()
 
 
-def _hash_data(X, y) -> bytes:
-    """Compute a compact hash of X and y data content.
+def _hash_data(X, y, sample_weight=None) -> bytes:
+    """Compute a compact hash of X, y, and optionally sample_weight.
 
     Samples evenly spaced rows to avoid collisions from different middle rows.
     """
@@ -107,6 +107,10 @@ def _hash_data(X, y) -> bytes:
     h.update(y_np[idx].tobytes())
     h.update(np.asarray([X_np.mean(), X_np.std()], dtype=np.float64).tobytes())
     h.update(np.asarray([y_np.mean(), y_np.std()], dtype=np.float64).tobytes())
+    if sample_weight is not None:
+        sw_np = np.asarray(_to_numpy(sample_weight), dtype=np.float64).ravel()
+        h.update(sw_np[idx].tobytes())
+        h.update(np.asarray([sw_np.mean()], dtype=np.float64).tobytes())
     return h.digest()
 
 
@@ -521,7 +525,7 @@ def _select_elasticnet_params_cv(
             max_iter=max_iter,
             tol=tol,
             sample_weight_shape=sample_weight_np.shape if sample_weight_np is not None else None,
-            data_digest=_hash_data(X_np if X_np is not None else X, y_np if y_np is not None else y),
+            data_digest=_hash_data(X_np if X_np is not None else X, y_np if y_np is not None else y, sample_weight_np),
         )
 
     cached_result = _elasticnet_cv_cache_get(cache_key_eff)

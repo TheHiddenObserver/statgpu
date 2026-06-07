@@ -90,8 +90,8 @@ def _make_lasso_cv_auto_cache_key(
     return h.hexdigest()
 
 
-def _hash_data(X, y) -> bytes:
-    """Compute a compact hash of X and y data content.
+def _hash_data(X, y, sample_weight=None) -> bytes:
+    """Compute a compact hash of X, y, and optionally sample_weight.
 
     Samples evenly spaced rows to avoid collisions from different middle rows
     while keeping the hash cost proportional to sqrt(n) rather than full data.
@@ -111,6 +111,11 @@ def _hash_data(X, y) -> bytes:
     # Hash summary stats as fallback uniqueness
     h.update(np.asarray([X_np.mean(), X_np.std()], dtype=np.float64).tobytes())
     h.update(np.asarray([y_np.mean(), y_np.std()], dtype=np.float64).tobytes())
+    # Hash sample_weight if provided
+    if sample_weight is not None:
+        sw_np = np.asarray(_to_numpy(sample_weight), dtype=np.float64).ravel()
+        h.update(sw_np[idx].tobytes())
+        h.update(np.asarray([sw_np.mean()], dtype=np.float64).tobytes())
     return h.digest()
 
 
@@ -484,7 +489,7 @@ class LassoCV(CVEstimatorBase):
             cv_method=cv_method,
             cd_kkt_check_every=effective_cd_kkt_check_every,
             sample_weight_shape=sample_weight.shape if sample_weight is not None else None,
-            data_digest=_hash_data(X, y),
+            data_digest=_hash_data(X, y, sample_weight),
         )
 
         cached_details = _lasso_cv_cache_get(cache_key)
