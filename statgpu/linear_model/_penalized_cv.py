@@ -740,12 +740,19 @@ def _logistic_sparse_cv_path(
     X_val=None,
     y_val=None,
     sample_weight=None,
+    val_sample_weight=None,
     return_path=True,
 ):
     """Fit a logistic sparse alpha path and optionally score validation loss.
 
     This CV-only path uses a fixed global Lipschitz bound and sparse proximal
     updates, avoiding per-iteration Armijo/objective synchronizations.
+
+    Parameters
+    ----------
+    val_sample_weight : array-like, optional
+        Per-sample weights for validation scoring. When provided, validation
+        loss is computed as weighted mean.
     """
     if sample_weight is not None:
         sw_np = np.asarray(_to_numpy(sample_weight), dtype=np.float64).ravel()
@@ -801,8 +808,9 @@ def _logistic_sparse_cv_path(
     if X_val is not None and y_val is not None:
         Xv = _to_backend_float64(X_val, backend)
         yv = _to_backend_float64(y_val, backend).reshape(-1)
+        swv = _to_backend_float64(val_sample_weight, backend).reshape(-1) if val_sample_weight is not None else None
     else:
-        Xv = yv = None
+        Xv = yv = swv = None
 
     scores = []
     score_coef_path = []
@@ -866,13 +874,13 @@ def _logistic_sparse_cv_path(
             if backend == "torch":
                 score_coef_path.append(coef.clone())
                 score_intercept_path.append(intercept.clone())
-            elif backend == "cupy":
-                eta_v = Xv @ coef + intercept
-                val_loss = xp.mean(-yv * eta_v + _softplus(eta_v, backend))
-                score_coef_path.append(val_loss)
             else:
                 eta_v = Xv @ coef + intercept
-                val_loss = xp.mean(-yv * eta_v + _softplus(eta_v, backend))
+                per_sample = -yv * eta_v + _softplus(eta_v, backend)
+                if swv is not None:
+                    val_loss = xp.sum(swv * per_sample) / xp.sum(swv)
+                else:
+                    val_loss = xp.mean(per_sample)
                 score_coef_path.append(val_loss)
         if return_path:
             coef_path.append(np.asarray(_to_numpy(coef), dtype=np.float64).copy())
@@ -887,10 +895,12 @@ def _logistic_sparse_cv_path(
             coef_mat = torch.stack(score_coef_path, dim=1)
             intercept_vec = torch.stack(score_intercept_path).reshape(1, -1)
             eta_v = Xv @ coef_mat + intercept_vec
-            scores_tensor = torch.mean(
-                -yv.reshape(-1, 1) * eta_v + _softplus(eta_v, backend),
-                dim=0,
-            )
+            per_sample = -yv.reshape(-1, 1) * eta_v + _softplus(eta_v, backend)
+            if swv is not None:
+                sw_sum = swv.sum()
+                scores_tensor = (swv.reshape(-1, 1) * per_sample).sum(dim=0) / sw_sum
+            else:
+                scores_tensor = per_sample.mean(dim=0)
             scores = _to_numpy(scores_tensor).tolist()
         elif backend == "cupy":
             import cupy as cp
@@ -924,6 +934,7 @@ def _squared_error_sparse_cv_path(
     X_val=None,
     y_val=None,
     sample_weight=None,
+    val_sample_weight=None,
     return_path=True,
 ):
     """Fit a squared-error sparse alpha path with centered data.
@@ -985,8 +996,9 @@ def _squared_error_sparse_cv_path(
         Xv = _to_backend_float64(X_val, backend)
         yv = _to_backend_float64(y_val, backend).reshape(-1)
         Xv_centered = Xv - X_mean
+        swv = _to_backend_float64(val_sample_weight, backend).reshape(-1) if val_sample_weight is not None else None
     else:
-        Xv = yv = Xv_centered = None
+        Xv = yv = Xv_centered = swv = None
 
     if backend in ("torch", "cupy") and not return_path and Xv_centered is not None:
         n_alpha = int(alphas.size)
@@ -1045,10 +1057,18 @@ def _squared_error_sparse_cv_path(
                     break
 
         pred = Xv_centered @ coef_mat + y_mean
-        if backend == "torch":
-            scores_dev = torch.mean((yv.reshape(-1, 1) - pred) ** 2, dim=0)
+        sq_err = (yv.reshape(-1, 1) - pred) ** 2
+        if swv is not None:
+            sw_col = swv.reshape(-1, 1)
+            if backend == "torch":
+                scores_dev = (sw_col * sq_err).sum(dim=0) / swv.sum()
+            else:
+                scores_dev = (sw_col * sq_err).sum(axis=0) / swv.sum()
         else:
-            scores_dev = cp.mean((yv.reshape(-1, 1) - pred) ** 2, axis=0)
+            if backend == "torch":
+                scores_dev = sq_err.mean(dim=0)
+            else:
+                scores_dev = sq_err.mean(axis=0)
         return {
             "scores": np.asarray(_to_numpy(scores_dev), dtype=np.float64),
             "n_iter": np.full(n_alpha, int(last_iter), dtype=np.int64),
@@ -1104,7 +1124,11 @@ def _squared_error_sparse_cv_path(
         intercept = y_mean - X_mean @ coef
         if Xv_centered is not None:
             pred = Xv_centered @ coef + y_mean
-            mse = xp.mean((yv - pred) ** 2)
+            sq_err = (yv - pred) ** 2
+            if swv is not None:
+                mse = xp.sum(swv * sq_err) / xp.sum(swv)
+            else:
+                mse = xp.mean(sq_err)
             scores_dev.append(mse)  # keep on device
         if return_path:
             coef_path.append(np.asarray(_to_numpy(coef), dtype=np.float64).copy())
@@ -2391,10 +2415,7 @@ class PenalizedGLM_CV(CVEstimatorBase):
                         stacklevel=2,
                     )
 
-            # Sparse CV fast paths score validation internally without weights.
-            # Skip when sample_weight is present so the general weighted path handles it.
-            _has_weights = sample_weight is not None
-            if use_logistic_sparse_path_cv and not _has_weights:
+            if use_logistic_sparse_path_cv:
                 path = _logistic_sparse_cv_path(
                     X_train,
                     y_train,
@@ -2407,13 +2428,14 @@ class PenalizedGLM_CV(CVEstimatorBase):
                     X_val=X_val,
                     y_val=y_val,
                     sample_weight=sw_train,
+                    val_sample_weight=sw_val,
                     return_path=False,
                 )
                 if path is not None and path["scores"] is not None:
                     all_scores[fold_idx, sort_idx] = path["scores"]
                     continue
 
-            if use_squared_sparse_path_cv and not _has_weights:
+            if use_squared_sparse_path_cv:
                 path = _squared_error_sparse_cv_path(
                     X_train,
                     y_train,
@@ -2432,7 +2454,9 @@ class PenalizedGLM_CV(CVEstimatorBase):
                     all_scores[fold_idx, sort_idx] = path["scores"]
                     continue
 
-            if use_glm_sparse_path_cv and not _has_weights:
+            # GLM sparse path scores validation internally without weights.
+            # Skip when sample_weight is present (logistic/squared_error paths handle weights).
+            if use_glm_sparse_path_cv and sample_weight is None:
                 path = _glm_sparse_cv_path(
                     loss_name,
                     X_train,
