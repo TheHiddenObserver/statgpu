@@ -138,6 +138,27 @@ def _evaluate_loss_numpy(loss_name, loss_fn, X_val_np, y_val_np, coef_np, interc
         if sw is not None:
             return float(np.sum(sw * per_sample) / np.sum(sw))
         return float(np.mean(per_sample))
+    elif loss_name == "inverse_gaussian":
+        mu = np.exp(np.clip(X_design @ coef_with_intercept, -30, 30))
+        per_sample = y_val_np / (2.0 * np.clip(mu * mu, 1e-10, None)) - 1.0 / np.clip(mu, 1e-10, None)
+        if sw is not None:
+            return float(np.sum(sw * per_sample) / np.sum(sw))
+        return float(np.mean(per_sample))
+    elif loss_name == "negative_binomial":
+        mu = np.exp(np.clip(X_design @ coef_with_intercept, -30, 30))
+        mu_c = np.clip(mu, 1e-10, None)
+        one_plus = 1.0 + mu_c
+        per_sample = -y_val_np * np.log(mu_c / one_plus) + np.log(one_plus)
+        if sw is not None:
+            return float(np.sum(sw * per_sample) / np.sum(sw))
+        return float(np.mean(per_sample))
+    elif loss_name == "tweedie":
+        mu = np.exp(np.clip(X_design @ coef_with_intercept, -50, 50))
+        mu_c = np.clip(mu, 1e-3, 1e4)
+        per_sample = -y_val_np * np.exp(-0.5 * np.log(mu_c)) / 0.5 + np.exp(0.5 * np.log(mu_c)) / 0.5
+        if sw is not None:
+            return float(np.sum(sw * per_sample) / np.sum(sw))
+        return float(np.mean(per_sample))
     else:
         # Fallback: use loss_fn.value (unweighted)
         return float(loss_fn.value(X_design, y_val_np, coef_with_intercept))
