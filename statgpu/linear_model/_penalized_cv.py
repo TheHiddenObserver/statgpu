@@ -2477,6 +2477,7 @@ class PenalizedGLM_CV(CVEstimatorBase):
                     X_val=X_val,
                     y_val=y_val,
                     sample_weight=sw_train,
+                    val_sample_weight=sw_val,
                     return_path=False,
                 )
                 if path is not None and path["scores"] is not None:
