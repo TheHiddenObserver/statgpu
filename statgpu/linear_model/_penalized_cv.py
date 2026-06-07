@@ -2391,7 +2391,10 @@ class PenalizedGLM_CV(CVEstimatorBase):
                         stacklevel=2,
                     )
 
-            if use_logistic_sparse_path_cv:
+            # Sparse CV fast paths score validation internally without weights.
+            # Skip when sample_weight is present so the general weighted path handles it.
+            _has_weights = sample_weight is not None
+            if use_logistic_sparse_path_cv and not _has_weights:
                 path = _logistic_sparse_cv_path(
                     X_train,
                     y_train,
@@ -2410,7 +2413,7 @@ class PenalizedGLM_CV(CVEstimatorBase):
                     all_scores[fold_idx, sort_idx] = path["scores"]
                     continue
 
-            if use_squared_sparse_path_cv:
+            if use_squared_sparse_path_cv and not _has_weights:
                 path = _squared_error_sparse_cv_path(
                     X_train,
                     y_train,
@@ -2429,7 +2432,7 @@ class PenalizedGLM_CV(CVEstimatorBase):
                     all_scores[fold_idx, sort_idx] = path["scores"]
                     continue
 
-            if use_glm_sparse_path_cv:
+            if use_glm_sparse_path_cv and not _has_weights:
                 path = _glm_sparse_cv_path(
                     loss_name,
                     X_train,
