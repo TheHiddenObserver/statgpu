@@ -2,13 +2,9 @@
 Squared error loss: (1/(2n)) * ||y - Xw||^2
 
 Convention: loss = (1/(2n)) * sum(resid^2)
-This matches sklearn's Lasso convention (1/(2n)) and ensures
-FISTA effective penalty = alpha (not alpha*n).
-
-For sklearn Ridge compatibility: sklearn Ridge uses
-min ||y-Xw||^2 + alpha * ||w||^2, while statgpu's L2 penalty is
-(alpha/2) * ||w||^2 with loss (1/(2n)) * ||y-Xw||^2.
-These are equivalent when sklearn_alpha = n * statgpu_alpha.
+Objective = (1/n)*loss + alpha*penalty, where alpha is the per-sample
+penalty strength. This convention is consistent across all penalties
+(L1, ElasticNet, L2, SCAD, MCP) and all loss families.
 
 Supports numpy / cupy / torch backends via _backend helpers.
 """
