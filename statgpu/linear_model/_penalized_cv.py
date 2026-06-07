@@ -1382,19 +1382,18 @@ def _glm_sparse_cv_path(
                 # loss_fn handles all loss-specific parameters (NB alpha, Tweedie power, etc.)
                 val = float(loss_fn.value(X_val_work, yv, params))
                 if swv is not None:
-                    # loss_fn.value returns mean loss; recompute as weighted mean
-                    # by scaling with n_val and dividing by sum(sw)
-                    n_val_local = X_val_work.shape[0]
-                    # Compute per-sample loss for weighting
-                    eta_np = np.asarray(_to_numpy(X_val_work @ params), dtype=np.float64)
+                    # Compute per-sample weighted loss.
+                    # Use Xv (without intercept column) since _evaluate_loss_numpy
+                    # adds its own intercept column when fit_intercept=True.
                     yv_np = np.asarray(_to_numpy(yv), dtype=np.float64).ravel()
                     sw_np = np.asarray(_to_numpy(swv), dtype=np.float64).ravel()
+                    Xv_np = np.asarray(_to_numpy(Xv), dtype=np.float64) if Xv is not None else None
+                    params_np = np.asarray(_to_numpy(params), dtype=np.float64).ravel()
                     from statgpu.linear_model._penalized_cv import _evaluate_loss_numpy
                     val = _evaluate_loss_numpy(loss_name, loss_fn,
-                                               np.asarray(_to_numpy(X_val_work), dtype=np.float64),
-                                               yv_np,
-                                               np.asarray(_to_numpy(params), dtype=np.float64).ravel()[:n_features],
-                                               float(np.asarray(_to_numpy(params)).ravel()[n_features]),
+                                               Xv_np, yv_np,
+                                               params_np[:n_features],
+                                               float(params_np[n_features]),
                                                True, sample_weight=sw_np)
                 score_params_path.append(val)
         if return_path:
