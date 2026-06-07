@@ -153,7 +153,11 @@ class Ridge(_PenalizedLinearRegression):
             y_pred = self._X_design @ self._params
             self._resid = y_np - y_pred
             if self._df_resid > 0:
-                self._scale = np.sum(self._resid ** 2) / self._df_resid
+                if sw is not None:
+                    # Weighted residual variance: sum(w * resid^2) / df
+                    self._scale = np.sum(sw * self._resid ** 2) / self._df_resid
+                else:
+                    self._scale = np.sum(self._resid ** 2) / self._df_resid
             # Compute inference statistics (bse, tvalues, pvalues, conf_int)
             self._compute_post_fit_gaussian_inference(X_np, y_np, sample_weight=sample_weight)
 
