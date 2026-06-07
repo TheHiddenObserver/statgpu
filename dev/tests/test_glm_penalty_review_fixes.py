@@ -348,6 +348,7 @@ def test_penalized_glm_cv_strict_poisson_sparse_disables_cv_mode(monkeypatch):
         X_val=None,
         y_val=None,
         sample_weight=None,
+        val_sample_weight=None,
         return_path=False,
         solver_name="fista",
         cv_mode=True,
