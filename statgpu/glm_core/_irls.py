@@ -5,60 +5,113 @@ Extracted from the duplicated IRLS loops in _logistic.py across CPU/GPU/Torch.
 Single implementation works on numpy/cupy/torch backends via auto detection.
 """
 
-from __future__ import annotations
-
 import warnings
 from typing import Optional
 
 import numpy as np
 
 
-from statgpu.backends import _resolve_backend
-from statgpu.backends._array_ops import (
-    _clip,
-    _copy_arr,
-    _diag,
-    _norm2,
-    _solve_linear_system,
-    _to_backend,
-    _zeros,
-)
+def _infer_backend(X):
+    """Detect backend from array type."""
+    mod = type(X).__module__
+    if mod.startswith("cupy"):
+        return "cupy"
+    if mod.startswith("torch"):
+        return "torch"
+    return "numpy"
 
 
-# Backward-compatible private wrapper used by benchmark/debug scripts.
 def _solve(A, b, backend="auto"):
-    if isinstance(backend, str):
-        legacy_backend = backend.strip().lower()
-        if legacy_backend == "cpu":
-            backend = "numpy"
-        elif legacy_backend in ("cuda", "gpu"):
-            backend = "cupy"
-    return _solve_linear_system(A, b, backend=backend)
+    """Solve linear system, fallback to lstsq if singular."""
+    if backend == "auto":
+        backend = _infer_backend(A)
+
+    try:
+        if backend == "torch":
+            import torch
+            b_col = b.unsqueeze(1) if b.ndim == 1 else b
+            sol = torch.linalg.solve(A, b_col)
+            return sol.squeeze(1) if b.ndim == 1 else sol
+        elif backend == "cupy":
+            import cupy as cp
+            return cp.linalg.solve(A, b)
+        else:
+            return np.linalg.solve(A, b)
+    except (np.linalg.LinAlgError, Exception):
+        if backend == "torch":
+            import torch
+            b_col = b.unsqueeze(1) if b.ndim == 1 else b
+            sol = torch.linalg.lstsq(A, b_col).solution
+            return sol.squeeze(1) if b.ndim == 1 else sol
+        elif backend == "cupy":
+            import cupy as cp
+            return cp.linalg.lstsq(A, b)[0]
+        return np.linalg.lstsq(A, b, rcond=None)[0]
 
 
-def _promote_torch_irls_inputs(X, y, init_coef=None, sample_weight=None):
-    """Keep all Torch IRLS operands on one floating dtype/device."""
-    import torch
+def _clip(x, lo, hi, backend):
+    if backend == "torch":
+        import torch
 
-    def _floating_dtype(arr):
-        if hasattr(arr, "is_floating_point") and arr.is_floating_point():
-            return arr.dtype
-        return torch.float64
+        if lo is not None:
+            x = torch.clamp(x, min=lo)
+        if hi is not None:
+            x = torch.clamp(x, max=hi)
+        return x
+    if backend == "cupy":
+        import cupy as cp
+        return cp.clip(x, lo, hi)
+    return np.clip(x, lo, hi)
 
-    dtype = torch.promote_types(_floating_dtype(X), _floating_dtype(y))
-    if init_coef is not None:
-        dtype = torch.promote_types(dtype, _floating_dtype(init_coef))
-    if sample_weight is not None:
-        dtype = torch.promote_types(dtype, _floating_dtype(sample_weight))
 
-    device = X.device
-    X = X.to(device=device, dtype=dtype)
-    y = torch.as_tensor(y, device=device, dtype=dtype)
-    if init_coef is not None:
-        init_coef = torch.as_tensor(init_coef, device=device, dtype=dtype)
-    if sample_weight is not None:
-        sample_weight = torch.as_tensor(sample_weight, device=device, dtype=dtype)
-    return X, y, init_coef, sample_weight
+def _norm(x, backend):
+    if backend == "torch":
+        import torch
+
+        return float(torch.linalg.norm(x).item())
+    return float(np.linalg.norm(x))
+
+
+def _zeros(n, backend, ref_tensor=None, dtype=np.float64):
+    if backend == "cupy":
+        import cupy as cp
+        return cp.zeros(n, dtype=cp.float64)
+    if backend == "torch":
+        import torch
+        device = ref_tensor.device if ref_tensor is not None else "cpu"
+        return torch.zeros(n, dtype=torch.float64, device=device)
+    return np.zeros(n, dtype=dtype)
+
+
+def _diag(reg, backend, ref_tensor=None):
+    """Create diagonal matrix from 1D array."""
+    if backend == "cupy":
+        import cupy as cp
+        return cp.diag(cp.asarray(reg, dtype=cp.float64))
+    if backend == "torch":
+        import torch
+        return torch.diag(
+            torch.tensor(reg, dtype=torch.float64, device=ref_tensor.device if ref_tensor is not None else "cpu")
+        )
+    return np.diag(reg)
+
+
+def _to_backend(arr, backend, ref_tensor):
+    """Convert numpy array to the target backend."""
+    if backend == "cupy":
+        import cupy as cp
+        return cp.asarray(arr, dtype=cp.float64)
+    if backend == "torch":
+        import torch
+        return torch.tensor(arr, dtype=torch.float64, device=ref_tensor.device if ref_tensor is not None else "cpu")
+    return np.asarray(arr, dtype=float)
+
+
+def _copy_arr(arr):
+    """Copy array: .clone() for torch, .copy() for numpy/cupy."""
+    if hasattr(arr, 'clone'):
+        return arr.clone()
+    return arr.copy()
 
 
 # =============================================================================
@@ -133,6 +186,7 @@ def irls_solver(
     ridge_alpha=0.0,
     ridge_penalize_intercept=False,
     backend="auto",
+    penalty_matrix=None,
 ):
     """IRLS: solve GLM by iteratively weighted least squares.
 
@@ -158,6 +212,10 @@ def irls_solver(
         Whether to penalize the intercept.
     backend : str
         'numpy', 'cupy', 'torch', or 'auto'.
+    penalty_matrix : array, optional
+        Additional penalty matrix to add to the normal equations.
+        Shape must be (n_features, n_features). When provided, the
+        normal equations become: X'WX + ridge_alpha*I + penalty_matrix.
 
     Returns
     -------
@@ -167,158 +225,13 @@ def irls_solver(
         Number of iterations.
     """
     if backend == "auto":
-        backend = _resolve_backend("auto", X)
-
-    if backend == "torch":
-        X, y, init_coef, sample_weight = _promote_torch_irls_inputs(
-            X, y, init_coef=init_coef, sample_weight=sample_weight
-        )
-    else:
-        y = _to_backend(y, backend, X)
-        if sample_weight is not None:
-            sample_weight = _to_backend(sample_weight, backend, X)
+        backend = _infer_backend(X)
 
     if init_coef is None:
         n_features = X.shape[1]
         params = _zeros(n_features, backend, ref_tensor=X)
     else:
         params = init_coef
-
-    # Pre-compute family-specific constants for deviance (hoisted out of loop)
-    _fname = getattr(family, 'name', '')
-    _tweedie_power = float(getattr(family, 'power', 1.5)) if _fname == "tweedie" else 0.0
-    _nb_alpha = float(getattr(family, 'alpha', 1.0)) if _fname == "negative_binomial" else 0.0
-
-    def _dev_val(mu_arr):
-        """Compute family-specific deviance (lower is better).
-
-        Returns device-side value (no GPU→CPU sync) for torch/cupy.
-        Correct Tweedie deviance for power p (p != 1, p != 2):
-          d(y, mu) = y*(y^(1-p) - mu^(1-p))/(1-p) - (y^(2-p) - mu^(2-p))/(2-p)
-        """
-        _y = y
-        if backend == "torch":
-            import torch
-            if _fname in ("gaussian", "squared_error"):
-                return torch.sum((_y - mu_arr) ** 2)
-            elif _fname == "gamma":
-                return torch.sum(_y / mu_arr - torch.log(_y / mu_arr) - 1.0)
-            elif _fname == "inverse_gaussian":
-                return torch.sum((_y - mu_arr) ** 2 / (_y * mu_arr ** 2))
-            elif _fname == "negative_binomial":
-                _mu_c = torch.clamp(mu_arr, min=1e-10)
-                _y_c = torch.clamp(_y, min=1e-10)
-                _a = _nb_alpha
-                return torch.sum(
-                    2.0 * (_y_c * torch.log(_y_c / _mu_c)
-                           - (_y_c + 1.0 / _a) * torch.log((1.0 + _a * _y_c) / (1.0 + _a * _mu_c)))
-                )
-            elif _fname == "tweedie":
-                p = _tweedie_power
-                if abs(p - 1.0) < 0.01:
-                    return torch.sum(mu_arr - _y * torch.log(mu_arr))
-                elif abs(p - 2.0) < 0.01:
-                    return torch.sum(_y / mu_arr - torch.log(_y / mu_arr) - 1.0)
-                else:
-                    _y_pow_1mp = torch.zeros_like(_y)
-                    _y_pow_2mp = torch.zeros_like(_y)
-                    _mask = _y > 0.0
-                    if torch.any(_mask):
-                        _y_pos = _y[_mask]
-                        _y_pow_1mp[_mask] = torch.pow(_y_pos, 1.0 - p)
-                        _y_pow_2mp[_mask] = torch.pow(_y_pos, 2.0 - p)
-                    return torch.sum(
-                        _y * (_y_pow_1mp - torch.pow(mu_arr, 1.0 - p)) / (1.0 - p)
-                        - (_y_pow_2mp - torch.pow(mu_arr, 2.0 - p)) / (2.0 - p)
-                    )
-            elif _fname in ("binomial", "logistic"):
-                _mu_c = torch.clamp(mu_arr, min=1e-10, max=1.0 - 1e-10)
-                return -2.0 * torch.sum(
-                    _y * torch.log(_mu_c) + (1.0 - _y) * torch.log(1.0 - _mu_c)
-                )
-            else:
-                return torch.sum(mu_arr - _y * torch.log(mu_arr))
-        elif backend == "cupy":
-            import cupy as cp
-            if _fname in ("gaussian", "squared_error"):
-                return cp.sum((_y - mu_arr) ** 2)
-            elif _fname == "gamma":
-                return cp.sum(_y / mu_arr - cp.log(_y / mu_arr) - 1.0)
-            elif _fname == "inverse_gaussian":
-                return cp.sum((_y - mu_arr) ** 2 / (_y * mu_arr ** 2))
-            elif _fname == "negative_binomial":
-                _mu_c = cp.clip(mu_arr, 1e-10)
-                _y_c = cp.clip(_y, 1e-10)
-                _a = _nb_alpha
-                return cp.sum(
-                    2.0 * (_y_c * cp.log(_y_c / _mu_c)
-                           - (_y_c + 1.0 / _a) * cp.log((1.0 + _a * _y_c) / (1.0 + _a * _mu_c)))
-                )
-            elif _fname == "tweedie":
-                p = _tweedie_power
-                if abs(p - 1.0) < 0.01:
-                    return cp.sum(mu_arr - _y * cp.log(mu_arr))
-                elif abs(p - 2.0) < 0.01:
-                    return cp.sum(_y / mu_arr - cp.log(_y / mu_arr) - 1.0)
-                else:
-                    _y_pow_1mp = cp.zeros_like(_y)
-                    _y_pow_2mp = cp.zeros_like(_y)
-                    _mask = _y > 0.0
-                    if bool(cp.any(_mask)):
-                        _y_pos = _y[_mask]
-                        _y_pow_1mp[_mask] = cp.power(_y_pos, 1.0 - p)
-                        _y_pow_2mp[_mask] = cp.power(_y_pos, 2.0 - p)
-                    return cp.sum(
-                        _y * (_y_pow_1mp - cp.power(mu_arr, 1.0 - p)) / (1.0 - p)
-                        - (_y_pow_2mp - cp.power(mu_arr, 2.0 - p)) / (2.0 - p)
-                    )
-            elif _fname in ("binomial", "logistic"):
-                _mu_c = cp.clip(mu_arr, 1e-10, 1.0 - 1e-10)
-                return -2.0 * cp.sum(
-                    _y * cp.log(_mu_c) + (1.0 - _y) * cp.log(1.0 - _mu_c)
-                )
-            else:
-                return cp.sum(mu_arr - _y * cp.log(mu_arr))
-        else:
-            if _fname in ("gaussian", "squared_error"):
-                return float(np.sum((_y - mu_arr) ** 2))
-            elif _fname == "gamma":
-                return float(np.sum(_y / mu_arr - np.log(_y / mu_arr) - 1.0))
-            elif _fname == "inverse_gaussian":
-                return float(np.sum((_y - mu_arr) ** 2 / (_y * mu_arr ** 2)))
-            elif _fname == "negative_binomial":
-                _mu_c = np.clip(mu_arr, 1e-10, None)
-                _y_c = np.clip(_y, 1e-10, None)
-                _a = _nb_alpha
-                return float(np.sum(
-                    2.0 * (_y_c * np.log(_y_c / _mu_c)
-                           - (_y_c + 1.0 / _a) * np.log((1.0 + _a * _y_c) / (1.0 + _a * _mu_c)))
-                ))
-            elif _fname == "tweedie":
-                p = _tweedie_power
-                if abs(p - 1.0) < 0.01:
-                    return float(np.sum(mu_arr - _y * np.log(mu_arr)))
-                elif abs(p - 2.0) < 0.01:
-                    return float(np.sum(_y / mu_arr - np.log(_y / mu_arr) - 1.0))
-                else:
-                    _y_pow_1mp = np.zeros_like(_y)
-                    _y_pow_2mp = np.zeros_like(_y)
-                    _mask = _y > 0.0
-                    if np.any(_mask):
-                        _y_pos = _y[_mask]
-                        _y_pow_1mp[_mask] = np.power(_y_pos, 1.0 - p)
-                        _y_pow_2mp[_mask] = np.power(_y_pos, 2.0 - p)
-                    return float(np.sum(
-                        _y * (_y_pow_1mp - np.power(mu_arr, 1.0 - p)) / (1.0 - p)
-                        - (_y_pow_2mp - np.power(mu_arr, 2.0 - p)) / (2.0 - p)
-                    ))
-            elif _fname in ("binomial", "logistic"):
-                _mu_c = np.clip(mu_arr, 1e-10, 1.0 - 1e-10)
-                return float(-2.0 * np.sum(
-                    _y * np.log(_mu_c) + (1.0 - _y) * np.log(1.0 - _mu_c)
-                ))
-            else:
-                return float(np.sum(mu_arr - _y * np.log(mu_arr)))
 
     for iteration in range(max_iter):
         params_old = _copy_arr(params)
@@ -331,20 +244,21 @@ def irls_solver(
         if _link_name in ('identity', 'Identity'):
             eta = eta_raw
         else:
-            eta = _clip(eta_raw, -30, 30)
+            eta = _clip(eta_raw, -30, 30, backend)
 
         # Step 2: inverse link -> mean (clip mu to prevent extreme weights)
         # For identity link (squared_error), skip clipping — mu = eta.
         mu = family.link.inverse(eta)
         if _link_name not in ('identity', 'Identity'):
-            mu = _clip(mu, 1e-10, 1e6)
+            mu = _clip(mu, 1e-10, 1e6, backend)
 
         # Step 3: IRLS weights
         W = family.irls_weights(mu, y)
-        W = _clip(W, 1e-10, None)
+        W = _clip(W, 1e-10, None, backend)
 
         if sample_weight is not None:
-            W = W * sample_weight
+            sw = _to_backend(sample_weight, backend, X)
+            W = W * sw
 
         # Step 4: working response
         z = family.irls_working_response(mu, y, eta)
@@ -370,19 +284,116 @@ def irls_solver(
                 reg[0] = 0.0
             XtWX = XtWX + _diag(reg, backend, ref_tensor=X)
 
-        if backend == "cupy" and _fname == "negative_binomial":
-            import cupy as cp
-            XtWX = 0.5 * (XtWX + XtWX.T)
-            diag_mean = cp.mean(cp.abs(cp.diag(XtWX)))
-            jitter = cp.maximum(diag_mean * 1e-10, cp.asarray(1e-8, dtype=XtWX.dtype))
-            XtWX_stable = XtWX + cp.eye(XtWX.shape[0], dtype=XtWX.dtype) * jitter
-            params_new = _solve_linear_system(XtWX_stable, Xtz, backend)
-        else:
-            params_new = _solve_linear_system(XtWX, Xtz, backend)
+        # Add penalty matrix if provided (e.g., for spline smoothing)
+        if penalty_matrix is not None:
+            XtWX = XtWX + _to_backend(penalty_matrix, backend, X)
+
+        params_new = _solve(XtWX, Xtz, backend)
+
+        # Armijo backtracking line search: find step in (0, 1] that
+        # gives sufficient decrease in the loss (deviance).
+        _fname = getattr(family, 'name', '')
+        _tweedie_power = float(getattr(family, 'power', 1.5)) if _fname == "tweedie" else 0.0
+        _nb_alpha = float(getattr(family, 'alpha', 1.0)) if _fname == "negative_binomial" else 0.0
+
+        def _dev_val(mu_arr):
+            """Compute family-specific deviance (lower is better).
+
+            Returns device-side value (no GPU→CPU sync) for torch/cupy.
+            Correct Tweedie deviance for power p (p != 1, p != 2):
+              d(y, mu) = y*(y^(1-p) - mu^(1-p))/(1-p) - (y^(2-p) - mu^(2-p))/(2-p)
+            """
+            _y = _to_backend(y, backend, X)
+            if backend == "torch":
+                import torch
+                if _fname in ("gaussian", "squared_error"):
+                    return torch.sum((_y - mu_arr) ** 2)
+                elif _fname == "gamma":
+                    return torch.sum(_y / mu_arr - torch.log(_y / mu_arr) - 1.0)
+                elif _fname == "inverse_gaussian":
+                    return torch.sum((_y - mu_arr) ** 2 / (_y * mu_arr ** 2))
+                elif _fname == "negative_binomial":
+                    _mu_c = torch.clamp(mu_arr, min=1e-10)
+                    _y_c = torch.clamp(_y, min=1e-10)
+                    _a = _nb_alpha
+                    return torch.sum(
+                        2.0 * (_y_c * torch.log(_y_c / _mu_c)
+                               - (_y_c + 1.0 / _a) * torch.log((1.0 + _a * _y_c) / (1.0 + _a * _mu_c)))
+                    )
+                elif _fname == "tweedie":
+                    p = _tweedie_power
+                    if abs(p - 1.0) < 0.01:
+                        return torch.sum(mu_arr - _y * torch.log(mu_arr))
+                    elif abs(p - 2.0) < 0.01:
+                        return torch.sum(_y / mu_arr - torch.log(_y / mu_arr) - 1.0)
+                    else:
+                        return torch.sum(
+                            _y * (torch.pow(_y, 1.0 - p) - torch.pow(mu_arr, 1.0 - p)) / (1.0 - p)
+                            - (torch.pow(_y, 2.0 - p) - torch.pow(mu_arr, 2.0 - p)) / (2.0 - p)
+                        )
+                else:
+                    return torch.sum(mu_arr - _y * torch.log(mu_arr))
+            elif backend == "cupy":
+                import cupy as cp
+                if _fname in ("gaussian", "squared_error"):
+                    return cp.sum((_y - mu_arr) ** 2)
+                elif _fname == "gamma":
+                    return cp.sum(_y / mu_arr - cp.log(_y / mu_arr) - 1.0)
+                elif _fname == "inverse_gaussian":
+                    return cp.sum((_y - mu_arr) ** 2 / (_y * mu_arr ** 2))
+                elif _fname == "negative_binomial":
+                    _mu_c = cp.clip(mu_arr, 1e-10)
+                    _y_c = cp.clip(_y, 1e-10)
+                    _a = _nb_alpha
+                    return cp.sum(
+                        2.0 * (_y_c * cp.log(_y_c / _mu_c)
+                               - (_y_c + 1.0 / _a) * cp.log((1.0 + _a * _y_c) / (1.0 + _a * _mu_c)))
+                    )
+                elif _fname == "tweedie":
+                    p = _tweedie_power
+                    if abs(p - 1.0) < 0.01:
+                        return cp.sum(mu_arr - _y * cp.log(mu_arr))
+                    elif abs(p - 2.0) < 0.01:
+                        return cp.sum(_y / mu_arr - cp.log(_y / mu_arr) - 1.0)
+                    else:
+                        return cp.sum(
+                            _y * (cp.power(_y, 1.0 - p) - cp.power(mu_arr, 1.0 - p)) / (1.0 - p)
+                            - (cp.power(_y, 2.0 - p) - cp.power(mu_arr, 2.0 - p)) / (2.0 - p)
+                        )
+                else:
+                    return cp.sum(mu_arr - _y * cp.log(mu_arr))
+            else:
+                if _fname in ("gaussian", "squared_error"):
+                    return float(np.sum((_y - mu_arr) ** 2))
+                elif _fname == "gamma":
+                    return float(np.sum(_y / mu_arr - np.log(_y / mu_arr) - 1.0))
+                elif _fname == "inverse_gaussian":
+                    return float(np.sum((_y - mu_arr) ** 2 / (_y * mu_arr ** 2)))
+                elif _fname == "negative_binomial":
+                    _mu_c = np.clip(mu_arr, 1e-10, None)
+                    _y_c = np.clip(_y, 1e-10, None)
+                    _a = _nb_alpha
+                    return float(np.sum(
+                        2.0 * (_y_c * np.log(_y_c / _mu_c)
+                               - (_y_c + 1.0 / _a) * np.log((1.0 + _a * _y_c) / (1.0 + _a * _mu_c)))
+                    ))
+                elif _fname == "tweedie":
+                    p = _tweedie_power
+                    if abs(p - 1.0) < 0.01:
+                        return float(np.sum(mu_arr - _y * np.log(mu_arr)))
+                    elif abs(p - 2.0) < 0.01:
+                        return float(np.sum(_y / mu_arr - np.log(_y / mu_arr) - 1.0))
+                    else:
+                        return float(np.sum(
+                            _y * (np.power(_y, 1.0 - p) - np.power(mu_arr, 1.0 - p)) / (1.0 - p)
+                            - (np.power(_y, 2.0 - p) - np.power(mu_arr, 2.0 - p)) / (2.0 - p)
+                        ))
+                else:
+                    return float(np.sum(mu_arr - _y * np.log(mu_arr)))
 
         # Current loss — use only eta clipping (prevent exp overflow),
         # NOT mu clipping (which distorts the deviance landscape).
-        eta_cur = _clip(X @ params_old, -30, 30)
+        eta_cur = _clip(X @ params_old, -30, 30, backend)
         mu_cur = family.link.inverse(eta_cur)
         try:
             dev_old_dev = _dev_val(mu_cur)
@@ -398,20 +409,14 @@ def irls_solver(
         _is_constant_W = _fname in ("gamma", "gaussian", "squared_error")
 
         # Convert dev_old to Python float for tolerance computation
-        # (single sync per iteration, not per line-search step).  CuPy NB
-        # needs a slightly looser tolerance; the stricter 1e-10 relative
-        # check over-damps late Fisher steps and causes hundreds of extra
-        # iterations while converging to the same objective as CPU/Torch.
+        # (single sync per iteration, not per line-search step)
         if backend == "torch":
             dev_old_f = float(dev_old_dev.item())
         elif backend == "cupy":
             dev_old_f = float(dev_old_dev)
         else:
             dev_old_f = float(dev_old_dev)
-        if backend == "cupy" and _fname == "negative_binomial":
-            _dev_tol = max(abs(dev_old_f) * 1e-6, 1e-4)
-        else:
-            _dev_tol = max(abs(dev_old_f) * 1e-10, 1e-6)
+        _dev_tol = max(abs(dev_old_f) * 1e-10, 1e-6)
 
         def _dev_accept(dev_try_dev):
             """Check if trial deviance is acceptable (device-side NaN + comparison)."""
@@ -433,7 +438,7 @@ def irls_solver(
         if _is_constant_W:
             # Constant weights: IRLS = Newton.  Try full step first;
             # if deviance increases significantly, fall back to Armijo.
-            eta_new = _clip(X @ params_new, -30, 30)
+            eta_new = _clip(X @ params_new, -30, 30, backend)
             mu_new = family.link.inverse(eta_new)
             try:
                 dev_new_dev = _dev_val(mu_new)
@@ -446,7 +451,7 @@ def irls_solver(
                 _accepted = False
                 for _bt in range(30):
                     params_try = params_old + step * _direction
-                    eta_try = _clip(X @ params_try, -30, 30)
+                    eta_try = _clip(X @ params_try, -30, 30, backend)
                     mu_try = family.link.inverse(eta_try)
                     try:
                         dev_try_dev = _dev_val(mu_try)
@@ -464,7 +469,7 @@ def irls_solver(
             _accepted = False
             for _bt in range(30):
                 params_try = params_old + step * _direction
-                eta_try = _clip(X @ params_try, -30, 30)
+                eta_try = _clip(X @ params_try, -30, 30, backend)
                 mu_try = family.link.inverse(eta_try)
                 try:
                     dev_try_dev = _dev_val(mu_try)
@@ -487,11 +492,11 @@ def irls_solver(
                 grad_f = family.gradient(X, y, params)
                 if ridge_alpha > 0:
                     grad_f[1:] = grad_f[1:] + (ridge_alpha / X.shape[0]) * params[1:]
-                grad_norm = float(_norm2(grad_f))
+                grad_norm = float(_norm(grad_f, backend))
             except Exception:
                 # No gradient method available — fall back to param change
-                _param_change = float(_norm2(params - params_old))
-                _param_norm = max(float(_norm2(params)), 1.0)
+                _param_change = float(_norm(params - params_old, backend))
+                _param_norm = max(float(_norm(params, backend)), 1.0)
                 grad_norm = _param_change / _param_norm  # relative change
             if grad_norm < tol:
                 break
@@ -528,6 +533,7 @@ class IRLSSolver:
         ridge_alpha=0.0,
         ridge_penalize_intercept=False,
         backend="auto",
+        penalty_matrix=None,
     ):
         """Run IRLS loop.
 
@@ -537,6 +543,8 @@ class IRLSSolver:
             L2 regularization (lambda = 1/(2*C) format).
         ridge_penalize_intercept : bool
             Whether to penalize the intercept.
+        penalty_matrix : array, optional
+            Additional penalty matrix for the normal equations.
         """
         return irls_solver(
             self.family,
@@ -549,4 +557,5 @@ class IRLSSolver:
             ridge_alpha=ridge_alpha,
             ridge_penalize_intercept=ridge_penalize_intercept,
             backend=backend,
+            penalty_matrix=penalty_matrix,
         )
