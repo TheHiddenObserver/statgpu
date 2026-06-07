@@ -1216,6 +1216,7 @@ def _glm_sparse_cv_path(
     X_val=None,
     y_val=None,
     sample_weight=None,
+    val_sample_weight=None,
     return_path=False,
     solver_name="fista",
     cv_mode=True,
@@ -1225,6 +1226,9 @@ def _glm_sparse_cv_path(
     The helper is intentionally private: it reuses the production loss,
     penalty, and FISTA solver while avoiding estimator reconstruction and
     repeated host/device conversions inside a fold.
+
+    When ``val_sample_weight`` is provided, validation loss is computed as
+    a weighted mean instead of a simple mean.
     """
     loss_name = str(loss_name).lower()
     penalty_name = str(penalty_name).lower()
@@ -1281,7 +1285,12 @@ def _glm_sparse_cv_path(
             ones_v = np.ones((n_val, 1), dtype=Xv.dtype)
             X_val_work = np.concatenate([Xv, ones_v], axis=1)
     else:
-        X_val_work = yv = None
+        X_val_work = yv = swv = None
+
+    if X_val is not None and y_val is not None and val_sample_weight is not None:
+        swv = _to_backend_float64(val_sample_weight, backend).reshape(-1)
+    else:
+        swv = None
 
     sw_fit = (
         _to_backend_float64(sample_weight, backend)
@@ -1369,7 +1378,24 @@ def _glm_sparse_cv_path(
             elif backend == "cupy":
                 score_params_path.append(params.copy())
             else:
-                score_params_path.append(loss_fn.value(X_val_work, yv, params))
+                # NumPy path: use loss_fn.value() for consistency with GPU paths.
+                # loss_fn handles all loss-specific parameters (NB alpha, Tweedie power, etc.)
+                val = float(loss_fn.value(X_val_work, yv, params))
+                if swv is not None:
+                    # Compute per-sample weighted loss.
+                    # Use Xv (without intercept column) since _evaluate_loss_numpy
+                    # adds its own intercept column when fit_intercept=True.
+                    yv_np = np.asarray(_to_numpy(yv), dtype=np.float64).ravel()
+                    sw_np = np.asarray(_to_numpy(swv), dtype=np.float64).ravel()
+                    Xv_np = np.asarray(_to_numpy(Xv), dtype=np.float64) if Xv is not None else None
+                    params_np = np.asarray(_to_numpy(params), dtype=np.float64).ravel()
+                    from statgpu.linear_model._penalized_cv import _evaluate_loss_numpy
+                    val = _evaluate_loss_numpy(loss_name, loss_fn,
+                                               Xv_np, yv_np,
+                                               params_np[:n_features],
+                                               float(params_np[n_features]),
+                                               True, sample_weight=sw_np)
+                score_params_path.append(val)
         if return_path:
             params_np = np.asarray(_to_numpy(params), dtype=np.float64).ravel()
             coef_path.append(params_np[:n_features].copy())
@@ -1386,7 +1412,7 @@ def _glm_sparse_cv_path(
             if loss_name == "poisson":
                 z = torch.clamp(eta, -30.0, 30.0)
                 mu = torch.clamp(torch.exp(z), min=1e-10, max=1e6)
-                scores_tensor = torch.mean(mu - yy * torch.log(mu), dim=0)
+                per_sample = mu - yy * torch.log(mu)
             elif loss_name == "gamma":
                 if getattr(loss_fn, "link", "log") == "inverse_power":
                     eta_c = torch.clamp(
@@ -1394,7 +1420,7 @@ def _glm_sparse_cv_path(
                         min=float(getattr(loss_fn, "_ETA_LO", 1e-4)),
                         max=float(getattr(loss_fn, "_ETA_HI", 1e3)),
                     )
-                    scores_tensor = torch.mean(yy * eta_c - torch.log(eta_c), dim=0)
+                    per_sample = yy * eta_c - torch.log(eta_c)
                 else:
                     z = torch.clamp(eta, -30.0, 30.0)
                     mu = torch.clamp(
@@ -1402,31 +1428,32 @@ def _glm_sparse_cv_path(
                         min=float(getattr(loss_fn, "_MU_LO", 1e-3)),
                         max=float(getattr(loss_fn, "_MU_HI", 1e4)),
                     )
-                    scores_tensor = torch.mean(yy / mu + torch.log(mu), dim=0)
+                    per_sample = yy / mu + torch.log(mu)
             elif loss_name == "inverse_gaussian":
                 z = torch.clamp(eta, -30.0, 30.0)
                 mu = torch.clamp(torch.exp(z), min=5e-2, max=1e3)
-                scores_tensor = torch.mean(yy / (2.0 * mu * mu) - 1.0 / mu, dim=0)
+                per_sample = yy / (2.0 * mu * mu) - 1.0 / mu
             elif loss_name == "negative_binomial":
                 alpha_nb = float(getattr(loss_fn, "alpha", 1.0))
                 z = torch.clamp(eta, -30.0, 30.0)
                 mu_c = torch.clamp(torch.exp(z), min=1e-300)
                 one_plus = 1.0 + alpha_nb * mu_c
-                scores_tensor = torch.mean(
-                    -yy * torch.log(mu_c / one_plus)
-                    + (1.0 / alpha_nb) * torch.log(one_plus),
-                    dim=0,
-                )
+                per_sample = -yy * torch.log(mu_c / one_plus) + (1.0 / alpha_nb) * torch.log(one_plus)
             elif loss_name == "tweedie":
                 pwr = float(getattr(loss_fn, "power", 1.5))
                 z_clip = float(getattr(loss_fn, "_Z_CLIP", 50.0))
                 z = torch.clamp(eta, -z_clip, z_clip)
                 mu = torch.clamp(torch.exp(z), min=1e-3, max=1e4)
-                scores_tensor = torch.mean(
-                    -yy * mu ** (1.0 - pwr) / (1.0 - pwr)
-                    + mu ** (2.0 - pwr) / (2.0 - pwr),
-                    dim=0,
-                )
+                per_sample = -yy * mu ** (1.0 - pwr) / (1.0 - pwr) + mu ** (2.0 - pwr) / (2.0 - pwr)
+            else:
+                per_sample = None
+
+            if per_sample is not None:
+                if swv is not None:
+                    sw_col = swv.reshape(-1, 1)
+                    scores_tensor = (sw_col * per_sample).sum(dim=0) / swv.sum()
+                else:
+                    scores_tensor = per_sample.mean(dim=0)
             else:
                 scores_tensor = torch.stack(
                     [loss_fn.value(X_val_work, yv, p) for p in score_params_path]
@@ -1440,7 +1467,7 @@ def _glm_sparse_cv_path(
             if loss_name == "poisson":
                 z = cp.clip(eta, -30.0, 30.0)
                 mu = cp.clip(cp.exp(z), 1e-10, 1e6)
-                scores_arr = cp.mean(mu - yy * cp.log(mu), axis=0)
+                per_sample = mu - yy * cp.log(mu)
             elif loss_name == "gamma":
                 if getattr(loss_fn, "link", "log") == "inverse_power":
                     eta_c = cp.clip(
@@ -1448,7 +1475,7 @@ def _glm_sparse_cv_path(
                         float(getattr(loss_fn, "_ETA_LO", 1e-4)),
                         float(getattr(loss_fn, "_ETA_HI", 1e3)),
                     )
-                    scores_arr = cp.mean(yy * eta_c - cp.log(eta_c), axis=0)
+                    per_sample = yy * eta_c - cp.log(eta_c)
                 else:
                     z = cp.clip(eta, -30.0, 30.0)
                     mu = cp.clip(
@@ -1456,31 +1483,32 @@ def _glm_sparse_cv_path(
                         float(getattr(loss_fn, "_MU_LO", 1e-3)),
                         float(getattr(loss_fn, "_MU_HI", 1e4)),
                     )
-                    scores_arr = cp.mean(yy / mu + cp.log(mu), axis=0)
+                    per_sample = yy / mu + cp.log(mu)
             elif loss_name == "inverse_gaussian":
                 z = cp.clip(eta, -30.0, 30.0)
                 mu = cp.clip(cp.exp(z), 5e-2, 1e3)
-                scores_arr = cp.mean(yy / (2.0 * mu * mu) - 1.0 / mu, axis=0)
+                per_sample = yy / (2.0 * mu * mu) - 1.0 / mu
             elif loss_name == "negative_binomial":
                 alpha_nb = float(getattr(loss_fn, "alpha", 1.0))
                 z = cp.clip(eta, -30.0, 30.0)
                 mu_c = cp.clip(cp.exp(z), 1e-300, None)
                 one_plus = 1.0 + alpha_nb * mu_c
-                scores_arr = cp.mean(
-                    -yy * cp.log(mu_c / one_plus)
-                    + (1.0 / alpha_nb) * cp.log(one_plus),
-                    axis=0,
-                )
+                per_sample = -yy * cp.log(mu_c / one_plus) + (1.0 / alpha_nb) * cp.log(one_plus)
             elif loss_name == "tweedie":
                 pwr = float(getattr(loss_fn, "power", 1.5))
                 z_clip = float(getattr(loss_fn, "_Z_CLIP", 50.0))
                 z = cp.clip(eta, -z_clip, z_clip)
                 mu = cp.clip(cp.exp(z), 1e-3, 1e4)
-                scores_arr = cp.mean(
-                    -yy * mu ** (1.0 - pwr) / (1.0 - pwr)
-                    + mu ** (2.0 - pwr) / (2.0 - pwr),
-                    axis=0,
-                )
+                per_sample = -yy * mu ** (1.0 - pwr) / (1.0 - pwr) + mu ** (2.0 - pwr) / (2.0 - pwr)
+            else:
+                per_sample = None
+
+            if per_sample is not None:
+                if swv is not None:
+                    sw_col = swv.reshape(-1, 1)
+                    scores_arr = (sw_col * per_sample).sum(axis=0) / swv.sum()
+                else:
+                    scores_arr = per_sample.mean(axis=0)
             else:
                 scores_arr = cp.stack(
                     [loss_fn.value(X_val_work, yv, p) for p in score_params_path]
@@ -2454,9 +2482,7 @@ class PenalizedGLM_CV(CVEstimatorBase):
                     all_scores[fold_idx, sort_idx] = path["scores"]
                     continue
 
-            # GLM sparse path scores validation internally without weights.
-            # Skip when sample_weight is present (logistic/squared_error paths handle weights).
-            if use_glm_sparse_path_cv and sample_weight is None:
+            if use_glm_sparse_path_cv:
                 path = _glm_sparse_cv_path(
                     loss_name,
                     X_train,
@@ -2470,6 +2496,7 @@ class PenalizedGLM_CV(CVEstimatorBase):
                     X_val=X_val,
                     y_val=y_val,
                     sample_weight=sw_train,
+                    val_sample_weight=sw_val,
                     return_path=False,
                     solver_name=cv_solver,
                     cv_mode=not strict,
