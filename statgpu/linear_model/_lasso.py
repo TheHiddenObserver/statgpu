@@ -150,7 +150,7 @@ class Lasso(BaseEstimator):
         max_iter: int = 1000,
         tol: float = 1e-4,
         stopping: str = "coef_delta",
-        inference_method: str = "cpu_ols_inference",
+        inference_method: str = "debiased",
         n_bootstrap: int = 200,
         bootstrap_random_state: Optional[int] = None,
         enable_simultaneous_inference: bool = False,
@@ -168,7 +168,10 @@ class Lasso(BaseEstimator):
         admm_rho: float = 1.0,
         gpu_memory_cleanup: bool = False,
     ):
-        super().__init__(device=device, n_jobs=n_jobs)
+        super().__init__(
+            device=device, n_jobs=n_jobs,
+            compute_inference=compute_inference, stopping=stopping,
+        )
         self.alpha = alpha
         self.fit_intercept = fit_intercept
         self.max_iter = max_iter
@@ -4420,7 +4423,7 @@ class LassoCV(CVEstimatorBase):
         max_iter: int = 3000,
         tol: float = 1e-4,
         stopping: str = "coef_delta",
-        inference_method: str = "cpu_ols_inference",
+        inference_method: str = "debiased",
         n_bootstrap: int = 200,
         bootstrap_random_state: Optional[int] = None,
         device: Union[str, Device] = Device.AUTO,
@@ -4829,7 +4832,7 @@ class Lasso(_PenalizedLinearRegression):
         max_iter: int = 1000,
         tol: float = 1e-4,
         stopping: str = "coef_delta",
-        inference_method: str = "cpu_ols_inference",
+        inference_method: str = "debiased",
         n_bootstrap: int = 200,
         bootstrap_random_state: Optional[int] = None,
         enable_simultaneous_inference: bool = False,
@@ -4858,7 +4861,6 @@ class Lasso(_PenalizedLinearRegression):
         self.simultaneous_n_bootstrap = int(simultaneous_n_bootstrap)
         self.simultaneous_random_state = simultaneous_random_state
         self.simultaneous_include_intercept = bool(simultaneous_include_intercept)
-        self.compute_inference = bool(compute_inference)
         self.admm_rho = float(admm_rho)
         self._ignored_kwargs = dict(kwargs)
         super().__init__(
@@ -4873,4 +4875,6 @@ class Lasso(_PenalizedLinearRegression):
             solver=solver,
             lipschitz_L=lipschitz_L,
             gpu_memory_cleanup=gpu_memory_cleanup,
+            compute_inference=compute_inference,
+            stopping=stopping,
         )

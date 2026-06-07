@@ -38,7 +38,6 @@ class Ridge(_PenalizedLinearRegression):
         cpu_solver: str = "fista",
         lipschitz_L: Optional[float] = None,
     ):
-        self.compute_inference = compute_inference
         self.cov_type = str(cov_type).lower()
         self.hac_maxlags = hac_maxlags
         super().__init__(
@@ -50,12 +49,12 @@ class Ridge(_PenalizedLinearRegression):
             device=device,
             n_jobs=n_jobs,
             gpu_memory_cleanup=gpu_memory_cleanup,
-            solver=solver,
-            cpu_solver=cpu_solver,
-            lipschitz_L=lipschitz_L,
             compute_inference=compute_inference,
             cov_type=cov_type,
             hac_maxlags=hac_maxlags,
+            solver=solver,
+            cpu_solver=cpu_solver,
+            lipschitz_L=lipschitz_L,
         )
 
     def fit(self, X=None, y=None, sample_weight=None, formula=None, data=None):
