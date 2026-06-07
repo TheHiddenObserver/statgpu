@@ -558,17 +558,20 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
             return
 
     def _validate_inference_request(self):
-        """Reject unsupported penalized inference paths with a clear error."""
+        """Warn for unsupported penalized inference paths instead of raising."""
         if not self.compute_inference:
             return
         penalty_name = str(getattr(self._penalty, "name", self.penalty)).lower()
         if self.loss == "squared_error" and penalty_name == "l2":
             return
-        raise NotImplementedError(
-            "compute_inference=True is currently supported only for "
-            "squared-error L2/Ridge penalized models. L1/ElasticNet and "
-            "non-Gaussian penalized GLM inference require an explicit "
-            "post-selection or GLM covariance method."
+        import warnings
+        warnings.warn(
+            f"compute_inference=True with penalty='{penalty_name}' and "
+            f"loss='{self.loss}': standard inference is not yet implemented "
+            f"for non-L2 penalties. Inference attributes (bse, pvalues, etc.) "
+            f"will be set to NaN. Use results with caution.",
+            UserWarning,
+            stacklevel=3,
         )
 
     def _clear_inference_state(self):
