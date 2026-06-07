@@ -45,7 +45,7 @@ class Lasso(_PenalizedLinearRegression):
         lipschitz_L: Optional[float] = None,
         gpu_memory_cleanup: bool = False,
         compute_inference: bool = True,
-        inference_method: str = "cpu_ols_inference",
+        inference_method: str = "debiased",
         n_bootstrap: int = 200,
         bootstrap_random_state: Optional[int] = None,
         enable_simultaneous_inference: bool = False,

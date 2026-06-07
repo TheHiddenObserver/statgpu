@@ -558,20 +558,25 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
             return
 
     def _validate_inference_request(self):
-        """Warn for unsupported penalized inference paths instead of raising."""
+        """Reject unsupported penalized inference paths with a clear error.
+
+        Allows:
+        - squared_error + L2 (standard OLS inference)
+        - Any loss + L1/ElasticNet when inference_method='debiased'
+        """
         if not self.compute_inference:
             return
         penalty_name = str(getattr(self._penalty, "name", self.penalty)).lower()
         if self.loss == "squared_error" and penalty_name == "l2":
             return
-        import warnings
-        warnings.warn(
+        # Debiased inference is supported for L1/ElasticNet on squared_error
+        inference_method = str(getattr(self, "inference_method", "cpu_ols_inference")).lower()
+        if penalty_name in ("l1", "elasticnet", "en") and "debiased" in inference_method:
+            return
+        raise NotImplementedError(
             f"compute_inference=True with penalty='{penalty_name}' and "
-            f"loss='{self.loss}': standard inference is not yet implemented "
-            f"for non-L2 penalties. Inference attributes (bse, pvalues, etc.) "
-            f"will be set to NaN. Use results with caution.",
-            UserWarning,
-            stacklevel=3,
+            f"loss='{self.loss}' is not supported. Use inference_method='debiased' "
+            f"for L1/ElasticNet penalties, or compute_inference=False to skip inference."
         )
 
     def _clear_inference_state(self):
