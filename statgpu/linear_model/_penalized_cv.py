@@ -598,24 +598,8 @@ def _val_tweedie(eta, y, power=_TWEEDIE_POWER_DEFAULT, **_):
     return term1 + term2
 
 
-def _get_xp(arr):
-    """Get array module (numpy/torch/cupy) from an array."""
-    mod = type(arr).__module__
-    if mod.startswith("torch"):
-        import torch
-        return torch
-    if mod.startswith("cupy"):
-        import cupy as cp
-        return cp
-
-
-def _safe_clip(arr, lo, hi=None):
-    """Backend-agnostic clip/clamp. Works with numpy, cupy, and torch."""
-    xp = _get_xp(arr)
-    if hasattr(xp, 'clip'):
-        return xp.clip(arr, lo, hi)
-    return xp.clamp(arr, min=lo, max=hi)
-    return np
+# Use backend-agnostic utilities from statgpu.backends._array_ops
+from statgpu.backends._array_ops import _clip as _safe_clip, _xp as _get_xp
 
 
 _register_loss_fns("logistic", _res_logistic, _val_logistic)
