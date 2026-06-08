@@ -714,7 +714,8 @@ def _select_ridge_alpha_cv(
 
             # Batched MSE computation (fully vectorized)
             mse_path_gpu = _batch_mse_all_folds(
-                X_val_batch, y_val_batch, coefs_batch, intercepts_batch, backend, sw_val_batch
+                X_val_batch, y_val_batch, coefs_batch, intercepts_batch, backend, sw_val_batch,
+                n_val_folds=n_val_folds,
             )
 
             # Convert to numpy
@@ -894,7 +895,7 @@ def _batch_mse(X_val, y_val, coefs_desc, intercepts_desc, backend, sample_weight
     return mse
 
 
-def _batch_mse_all_folds(X_val_batch, y_val_batch, coefs_batch, intercepts_batch, backend, sample_weights_batch=None):
+def _batch_mse_all_folds(X_val_batch, y_val_batch, coefs_batch, intercepts_batch, backend, sample_weights_batch=None, n_val_folds=None):
     """
     Compute MSE for all folds and all alphas simultaneously (fully vectorized).
 
@@ -945,16 +946,19 @@ def _batch_mse_all_folds(X_val_batch, y_val_batch, coefs_batch, intercepts_batch
     y_val_expanded = _expand(y_val_batch, 2)  # (n_folds, n_val_max, 1)
     residuals = y_pred - y_val_expanded
 
-    # Compute MSE
+    # Compute MSE — use per-fold n_val to exclude padded zeros
     if sample_weights_batch is not None:
         sw = _expand(sample_weights_batch, 2)  # (n_folds, n_val_max, 1)
         ssr = xp.sum(sw * residuals ** 2, axis=1)  # (n_folds, n_alphas)
         sw_sum = xp.sum(sw, axis=1)  # (n_folds,)
         mse = (ssr / sw_sum[:, None]).T  # (n_alphas, n_folds)
     else:
-        # Mean over validation samples
-        mse = xp.mean(residuals ** 2, axis=1)  # (n_folds, n_alphas)
-        mse = mse.T  # (n_alphas, n_folds)
+        ssr = xp.sum(residuals ** 2, axis=1)  # (n_folds, n_alphas)
+        if n_val_folds is not None:
+            n_val_vec = backend.asarray(n_val_folds, dtype=ssr.dtype).reshape(-1, 1)
+            mse = (ssr / n_val_vec).T  # (n_alphas, n_folds)
+        else:
+            mse = xp.mean(residuals ** 2, axis=1).T
 
     return mse
 

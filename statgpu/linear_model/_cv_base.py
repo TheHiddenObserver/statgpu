@@ -215,7 +215,11 @@ def batch_mse(
 
     if sample_weight is not None:
         sw = _to_numpy(sample_weight).ravel()
-        mse = np.mean(residuals ** 2 * sw[None, :], axis=1)
+        sw_sum = float(np.sum(sw))
+        if sw_sum > 0:
+            mse = np.sum(residuals ** 2 * sw[None, :], axis=1) / sw_sum
+        else:
+            mse = np.full(coefs.shape[0], np.nan)
     else:
         mse = np.mean(residuals ** 2, axis=1)
 

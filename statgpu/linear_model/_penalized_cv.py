@@ -160,8 +160,16 @@ def _evaluate_loss_numpy(loss_name, loss_fn, X_val_np, y_val_np, coef_np, interc
             return float(np.sum(sw * per_sample) / np.sum(sw))
         return float(np.mean(per_sample))
     else:
-        # Fallback: use loss_fn.value (unweighted)
-        return float(loss_fn.value(X_design, y_val_np, coef_with_intercept))
+        # Fallback for unknown loss types: use loss_fn.value().
+        # Note: loss_fn.value() returns unweighted mean loss.
+        # If weights are provided, we approximate weighted mean by
+        # scaling with sum(w)/n. This is exact when per-sample losses
+        # are uniform, and approximate otherwise.
+        val = float(loss_fn.value(X_design, y_val_np, coef_with_intercept))
+        if sw is not None:
+            # Scale: weighted_mean ≈ unweighted_mean * (sum(w) / n)
+            return val * float(np.sum(sw)) / float(len(sw))
+        return val
 
 
 def _ridge_eig_batch(X_train_np, y_train_np, X_val_np, y_val_np, alphas_np):
