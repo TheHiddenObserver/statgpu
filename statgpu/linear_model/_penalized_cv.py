@@ -524,33 +524,33 @@ def _res_poisson(eta, y, **_):
     # Gradient of Poisson loss: d/deta [mu - y*log(mu)] = mu - y
     xp = _get_xp(eta)
     mu = xp.exp(_safe_clip(eta, -_ETA_CLIP_STANDARD, _ETA_CLIP_STANDARD))
-    mu_c = _safe_clip(mu, _MU_LO)
+    mu_c = _safe_clip(mu, _MU_LO, None)
     return mu_c - y
 
 def _val_poisson(eta, y, **_):
     xp = _get_xp(eta)
     mu = xp.exp(_safe_clip(eta, -_ETA_CLIP_STANDARD, _ETA_CLIP_STANDARD))
-    mu_c = _safe_clip(mu, _MU_LO)
+    mu_c = _safe_clip(mu, _MU_LO, None)
     return mu_c - y * xp.log(mu_c)
 
 # --- Gamma ---
 def _res_gamma(eta, y, **_):
     xp = _get_xp(eta)
     mu = xp.exp(_safe_clip(eta, -_ETA_CLIP_STANDARD, _ETA_CLIP_STANDARD))
-    mu_c = _safe_clip(mu, _MU_LO)
+    mu_c = _safe_clip(mu, _MU_LO, None)
     return 1.0 - y / mu_c
 
 def _val_gamma(eta, y, **_):
     xp = _get_xp(eta)
     mu = xp.exp(_safe_clip(eta, -_ETA_CLIP_STANDARD, _ETA_CLIP_STANDARD))
-    mu_c = _safe_clip(mu, _MU_LO)
+    mu_c = _safe_clip(mu, _MU_LO, None)
     return y / mu_c + xp.log(mu_c)
 
 # --- Inverse Gaussian ---
 def _res_invgauss(eta, y, **_):
     xp = _get_xp(eta)
     mu = xp.exp(_safe_clip(eta, -_ETA_CLIP_STANDARD, _ETA_CLIP_STANDARD))
-    mu_c = _safe_clip(mu, _MU_LO)
+    mu_c = _safe_clip(mu, _MU_LO, None)
     return (mu_c - y) / (mu_c * mu_c)
 
 def _val_invgauss(eta, y, **_):
@@ -558,8 +558,8 @@ def _val_invgauss(eta, y, **_):
     xp = _get_xp(eta)
     mu = xp.exp(_safe_clip(eta, -_ETA_CLIP_STANDARD, _ETA_CLIP_STANDARD))
     # Clip mu^2 (not mu) to match _ps_inverse_gaussian: denom >= 2e-10
-    mu_sq_c = _safe_clip(mu * mu, _MU_LO)
-    mu_c = _safe_clip(mu, _MU_LO)
+    mu_sq_c = _safe_clip(mu * mu, _MU_LO, None)
+    mu_c = _safe_clip(mu, _MU_LO, None)
     return y / (2.0 * mu_sq_c) - 1.0 / mu_c
 
 # --- Negative Binomial ---
@@ -567,13 +567,13 @@ def _res_nb(eta, y, alpha=_NB_ALPHA_DEFAULT, **_):
     # Gradient of NB loss: d/deta L = (mu - y) / (1 + alpha*mu)
     xp = _get_xp(eta)
     mu = xp.exp(_safe_clip(eta, -_ETA_CLIP_STANDARD, _ETA_CLIP_STANDARD))
-    mu_c = _safe_clip(mu, _MU_LO)
+    mu_c = _safe_clip(mu, _MU_LO, None)
     return (mu_c - y) / (1.0 + alpha * mu_c)
 
 def _val_nb(eta, y, alpha=_NB_ALPHA_DEFAULT, **_):
     xp = _get_xp(eta)
     mu = xp.exp(_safe_clip(eta, -_ETA_CLIP_STANDARD, _ETA_CLIP_STANDARD))
-    mu_c = _safe_clip(mu, _MU_LO)
+    mu_c = _safe_clip(mu, _MU_LO, None)
     one_plus = 1.0 + alpha * mu_c
     return -y * xp.log(mu_c / one_plus) + (1.0 / alpha) * xp.log(one_plus)
 
