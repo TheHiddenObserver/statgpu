@@ -128,7 +128,7 @@ def _ps_tweedie(eta, y, power=1.5, **_):
     return -y * np.exp((1 - power) * np.log(mu_c)) / (1 - power) + np.exp((2 - power) * np.log(mu_c)) / (2 - power)
 
 
-# loss_name -> (per_sample_fn, uses_design_matrix)
+# loss_name -> (per_sample_fn, uses_design)
 # uses_design=True: fn needs X_design and coef_with_intercept (squared_error)
 # uses_design=False: fn uses eta directly (all GLM losses)
 _LOSS_EVAL_DISPATCH = {
@@ -185,6 +185,14 @@ def _evaluate_loss_numpy(loss_name, loss_fn, X_val_np, y_val_np, coef_np, interc
         coef_with_intercept = coef_np
     # Fallback: unweighted loss. Weighted mean cannot be derived from
     # unweighted mean, so weights are ignored for unknown loss types.
+    if sw is not None:
+        import warnings
+        warnings.warn(
+            f"_evaluate_loss_numpy: loss '{loss_name}' not in dispatch table, "
+            f"falling back to unweighted loss_fn.value(). Sample weights ignored.",
+            RuntimeWarning,
+            stacklevel=2,
+        )
     return float(loss_fn.value(X_design, y_val_np, coef_with_intercept))
 
 
@@ -1415,7 +1423,6 @@ def _glm_sparse_cv_path(
                     sw_np = np.asarray(_to_numpy(swv), dtype=np.float64).ravel()
                     Xv_np = np.asarray(_to_numpy(Xv), dtype=np.float64) if Xv is not None else None
                     params_np = np.asarray(_to_numpy(params), dtype=np.float64).ravel()
-                    from statgpu.linear_model._penalized_cv import _evaluate_loss_numpy
                     val = _evaluate_loss_numpy(loss_name, loss_fn,
                                                Xv_np, yv_np,
                                                params_np[:n_features],
@@ -1835,14 +1842,7 @@ def _scad_mcp_cv_path(
 
         # Validation loss on device
         if X_val_work is not None:
-            if backend == "torch":
-                eta_v = X_val_work @ coef
-                val_loss = loss_fn.value(X_val_work, yv, coef)
-            elif backend == "cupy":
-                eta_v = X_val_work @ coef
-                val_loss = loss_fn.value(X_val_work, yv, coef)
-            else:
-                val_loss = loss_fn.value(X_val_work, yv, coef)
+            val_loss = loss_fn.value(X_val_work, yv, coef)
             scores_dev.append(val_loss)
 
         if return_path:
@@ -2033,6 +2033,14 @@ class PenalizedGLM_CV(CVEstimatorBase):
             self._cv_selected_device_ = "cpu"
             self._cv_auto_reason_ = "gamma sparse CV is faster on CPU below the benchmarked torch break-even"
             return "cpu"
+        if loss_name == "inverse_gaussian" and penalty_name in ("l1", "elasticnet", "en"):
+            if int(n_features) >= 500 and int(n_samples) * int(n_features) >= 2_000_000 and _torch_cuda_available():
+                self._cv_selected_device_ = "torch"
+                self._cv_auto_reason_ = "large high-dimensional inverse-gaussian sparse CV benefits from torch"
+                return "torch"
+            self._cv_selected_device_ = "cpu"
+            self._cv_auto_reason_ = "inverse-gaussian sparse CV is faster on CPU below the benchmarked torch break-even"
+            return "cpu"
         if loss_name == "negative_binomial" and penalty_name in ("l2", "l1", "elasticnet", "en"):
             self._cv_selected_device_ = "cpu"
             self._cv_auto_reason_ = "negative-binomial CV is faster on CPU for current benchmarked sizes"
@@ -2172,21 +2180,10 @@ class PenalizedGLM_CV(CVEstimatorBase):
             coef, intercept = _ridge_eig_single(X_np, y_np, best_alpha, sample_weight=sw_np)
             model = PenalizedGeneralizedLinearModel(
                 loss='squared_error', penalty='l2', alpha=best_alpha,
-                device=refit_device, compute_inference=True,
+                device=refit_device, compute_inference=False,
                 max_iter=self.max_iter, tol=self.tol,
             )
-            model.fit(X_np, y_np, sample_weight=sample_weight)
-            model.coef_ = coef
-            model.intercept_ = intercept
-            # Keep inference state aligned with the eigensolve coefficients
-            model._params = np.concatenate([[intercept], coef])
-            # Clear stale inference and diagnostic attributes from model.fit() path
-            for attr in ('_bse', '_pvalues', '_conf_int_lower', '_conf_int_upper',
-                         '_z_scores', '_cov_params', '_resid', '_scale',
-                         '_X_design', '_hat_matrix_diag'):
-                if hasattr(model, attr):
-                    delattr(model, attr)
-            return model
+            return self._populate_refit_model(model, coef, intercept, X, refit_device)
 
         can_infer = (self.loss == 'squared_error' and self.penalty == 'l2')
         penalty_name = str(self.penalty).lower()
@@ -2510,7 +2507,9 @@ class PenalizedGLM_CV(CVEstimatorBase):
         y_val_np = _to_numpy(y_val).astype(np.float64).ravel()
         loss_fn = _resolve_loss_name(loss_name)
 
-        use_warm_start = not (loss_name != "squared_error" and penalty_name in ("scad", "mcp"))
+        # Disable warm-start for SCAD/MCP on non-squared-error losses
+        _is_scad_mcp_non_se = penalty_name in ("scad", "mcp") and loss_name != "squared_error"
+        use_warm_start = not _is_scad_mcp_non_se
         use_lla_path_cv = (
             not strict and loss_name != "squared_error" and penalty_name in ("scad", "mcp")
         )
