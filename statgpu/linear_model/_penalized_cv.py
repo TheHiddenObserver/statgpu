@@ -1959,6 +1959,7 @@ class PenalizedGLM_CV(CVEstimatorBase):
         n_alphas: int = 100,
         l1_ratio: float = 0.5,
         cv: int = 5,
+        cv_splits=None,
         random_state: Optional[int] = 0,
         device: Union[str, Device] = Device.AUTO,
         max_iter: int = 1000,
@@ -1969,6 +1970,7 @@ class PenalizedGLM_CV(CVEstimatorBase):
         refine_top_k: int = 3,
     ):
         super().__init__(cv=cv, random_state=random_state, device=device)
+        self.cv_splits = cv_splits
         cv_strategy = str(cv_strategy).lower()
         if cv_strategy not in ("strict", "two_stage"):
             raise ValueError(
@@ -2770,7 +2772,10 @@ class PenalizedGLM_CV(CVEstimatorBase):
         self.cv_strategy_ = self.cv_strategy
         self.cv_selected_device_ = _device_to_name(cv_device)
 
-        folds = kfold_indices(n_samples, self.cv, self.random_state)
+        if self.cv_splits is not None:
+            folds = self.cv_splits
+        else:
+            folds = kfold_indices(n_samples, self.cv, self.random_state)
         all_scores_stage1 = None
         mean_scores_stage1 = None
         refined_mask = np.ones(n_alphas, dtype=bool)
