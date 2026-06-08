@@ -541,6 +541,8 @@ def _glm_sparse_cv_folds(
     if sample_weight is not None:
         sw_np = np.asarray(_to_numpy(sample_weight), dtype=np.float64).ravel()
         if sw_np.size and not np.allclose(sw_np, sw_np[0]):
+            # Fold-batch path does not support non-uniform sample_weight.
+            # Return None to fall back to per-fold path.
             return None
 
     is_torch = (device_backend == "torch")
@@ -2104,10 +2106,20 @@ class PenalizedGLM_CV(CVEstimatorBase):
                 model.fit(X_np, y_np)
                 grad = X_np.T @ (y_np - _to_numpy(model.predict(X_np))) / n
                 alpha_max = float(np.max(np.abs(grad)))
-            except Exception:
+            except Exception as e:
+                warnings.warn(
+                    f"Alpha grid estimation failed ({e}), using alpha_max=1.0",
+                    RuntimeWarning,
+                    stacklevel=2,
+                )
                 alpha_max = 1.0
 
         if alpha_max <= 0:
+            warnings.warn(
+                f"Alpha grid estimation returned {alpha_max}, using alpha_max=1.0",
+                RuntimeWarning,
+                stacklevel=2,
+            )
             alpha_max = 1.0
 
         if self.penalty in ('l1', 'elasticnet', 'scad', 'mcp', 'adaptive_l1'):
@@ -2161,8 +2173,18 @@ class PenalizedGLM_CV(CVEstimatorBase):
                 sample_weight=sample_weight,
             )
         except Exception:
-            y_pred_np = _to_numpy(model.predict(X_val_np)).ravel()
-            val_loss = float(np.mean((y_val_np - y_pred_np) ** 2))
+            # Fallback: use loss_fn.value() for correct loss, not raw MSE
+            try:
+                if model.fit_intercept:
+                    X_design = np.column_stack([np.ones(n_val), X_val_np])
+                    coef_full = np.concatenate([[float(model.intercept_)], _to_numpy(model.coef_).ravel()])
+                else:
+                    X_design = X_val_np
+                    coef_full = _to_numpy(model.coef_).ravel()
+                val_loss = float(loss_fn.value(X_design, y_val_np, coef_full))
+            except Exception:
+                y_pred_np = _to_numpy(model.predict(X_val_np)).ravel()
+                val_loss = float(np.mean((y_val_np - y_pred_np) ** 2))
 
         return val_loss
 
@@ -2368,8 +2390,12 @@ class PenalizedGLM_CV(CVEstimatorBase):
                         X_train, y_train, X_val, y_val, alpha_grid,
                     )
                     all_scores[fold_idx, :] = mse
-                except Exception:
-                    pass
+                except Exception as e:
+                    warnings.warn(
+                        f"Ridge eig batch failed for fold {fold_idx}: {e}",
+                        RuntimeWarning,
+                        stacklevel=2,
+                    )
             return all_scores
 
         sort_idx = np.argsort(-alpha_grid)
