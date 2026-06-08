@@ -24,6 +24,28 @@ from statgpu.backends import _to_numpy
 from statgpu.linear_model._cv_base import CVEstimatorBase, kfold_indices
 
 
+# ---------------------------------------------------------------------------
+# Numerical constants for GLM loss computation (shared across CV paths)
+# ---------------------------------------------------------------------------
+
+# Eta clipping bounds (prevents overflow in exp/link functions)
+_ETA_CLIP_STANDARD = 30.0       # Poisson, Gamma, NB, InvGauss
+_ETA_CLIP_TWEEDIE = 50.0        # Tweedie (wider range for mu^p stability)
+_ETA_CLIP_LOGISTIC = 500.0      # Logistic (sigmoid saturates, safe range)
+
+# Mu clipping bounds (prevents division by zero / log(0))
+_MU_LO = 1e-10                  # Standard lower bound for mu
+_MU_LO_TWEEDIE = 1e-3           # Tweedie lower bound
+_MU_HI_TWEEDIE = 1e4            # Tweedie upper bound
+_MU_LO_INVGAUSS = 5e-2          # Inverse Gaussian lower bound
+_MU_HI_INVGAUSS = 1e3           # Inverse Gaussian upper bound
+_MU_LO_NB = 1e-300              # Negative binomial lower bound
+
+# Default loss parameters (must match loss object defaults)
+_NB_ALPHA_DEFAULT = 1.0         # NegativeBinomialLoss default alpha
+_TWEEDIE_POWER_DEFAULT = 1.5    # TweedieLoss default power
+
+
 class ApproximateCVWarning(UserWarning):
     """Warning emitted when approximate two-stage CV screening is enabled."""
 
@@ -104,26 +126,26 @@ def _ps_squared_error(eta, y, X_design=None, coef_with_intercept=None, **_):
     return (y - X_design @ coef_with_intercept) ** 2
 
 def _ps_poisson(eta, y, **_):
-    mu = np.exp(np.clip(eta, -30, 30))
-    return mu - y * np.log(np.clip(mu, 1e-10, None))
+    mu = np.exp(np.clip(eta, -_ETA_CLIP_STANDARD, _ETA_CLIP_STANDARD))
+    return mu - y * np.log(np.clip(mu, _MU_LO, None))
 
 def _ps_gamma(eta, y, **_):
-    mu = np.exp(np.clip(eta, -30, 30))
-    return y / np.clip(mu, 1e-10, None) + np.log(np.clip(mu, 1e-10, None))
+    mu = np.exp(np.clip(eta, -_ETA_CLIP_STANDARD, _ETA_CLIP_STANDARD))
+    return y / np.clip(mu, _MU_LO, None) + np.log(np.clip(mu, _MU_LO, None))
 
 def _ps_inverse_gaussian(eta, y, **_):
-    mu = np.exp(np.clip(eta, -30, 30))
-    return y / (2.0 * np.clip(mu * mu, 1e-10, None)) - 1.0 / np.clip(mu, 1e-10, None)
+    mu = np.exp(np.clip(eta, -_ETA_CLIP_STANDARD, _ETA_CLIP_STANDARD))
+    return y / (2.0 * np.clip(mu * mu, _MU_LO, None)) - 1.0 / np.clip(mu, _MU_LO, None)
 
 def _ps_negative_binomial(eta, y, **_):
-    mu = np.exp(np.clip(eta, -30, 30))
-    mu_c = np.clip(mu, 1e-10, None)
-    one_plus = 1.0 + mu_c
-    return -y * np.log(mu_c / one_plus) + np.log(one_plus)
+    mu = np.exp(np.clip(eta, -_ETA_CLIP_STANDARD, _ETA_CLIP_STANDARD))
+    mu_c = np.clip(mu, _MU_LO, None)
+    one_plus = 1.0 + _NB_ALPHA_DEFAULT * mu_c
+    return -y * np.log(mu_c / one_plus) + (1.0 / _NB_ALPHA_DEFAULT) * np.log(one_plus)
 
-def _ps_tweedie(eta, y, power=1.5, **_):
-    mu = np.exp(np.clip(eta, -50, 50))
-    mu_c = np.clip(mu, 1e-3, 1e4)
+def _ps_tweedie(eta, y, power=_TWEEDIE_POWER_DEFAULT, **_):
+    mu = np.exp(np.clip(eta, -_ETA_CLIP_TWEEDIE, _ETA_CLIP_TWEEDIE))
+    mu_c = np.clip(mu, _MU_LO_TWEEDIE, _MU_HI_TWEEDIE)
     # Tweedie loss: -y * mu^(1-p) / (1-p) + mu^(2-p) / (2-p)
     return -y * np.exp((1 - power) * np.log(mu_c)) / (1 - power) + np.exp((2 - power) * np.log(mu_c)) / (2 - power)
 
@@ -610,48 +632,48 @@ def _glm_sparse_cv_folds(
 
             eta = Xb @ y_coef + y_intercept
             # Inline residual to avoid function call overhead in hot loop.
-            # WARNING: NB uses alpha=1.0, Tweedie uses power=1.5 (hardcoded).
-            # If PenalizedGLM_CV ever exposes custom alpha/power, update these.
+            # Uses module-level constants for clip bounds and loss parameters.
             if loss_name == "logistic":
                 if is_torch:
-                    resid = (torch.sigmoid(torch.clamp(eta, -500.0, 500.0)) - y_col) * train_mask
+                    resid = (torch.sigmoid(torch.clamp(eta, -_ETA_CLIP_LOGISTIC, _ETA_CLIP_LOGISTIC)) - y_col) * train_mask
                 else:
-                    resid = (1.0 / (1.0 + cp.exp(-cp.clip(eta, -500.0, 500.0))) - y_col) * train_mask
+                    resid = (1.0 / (1.0 + cp.exp(-cp.clip(eta, -_ETA_CLIP_LOGISTIC, _ETA_CLIP_LOGISTIC))) - y_col) * train_mask
             elif loss_name == "gamma":
                 if is_torch:
-                    mu_r = torch.exp(torch.clamp(eta, -30.0, 30.0))
-                    resid = (1.0 - y_col / torch.clamp(mu_r, min=1e-10)) * train_mask
+                    mu_r = torch.exp(torch.clamp(eta, -_ETA_CLIP_STANDARD, _ETA_CLIP_STANDARD))
+                    resid = (1.0 - y_col / torch.clamp(mu_r, min=_MU_LO)) * train_mask
                 else:
-                    mu_r = cp.exp(cp.clip(eta, -30.0, 30.0))
-                    resid = (1.0 - y_col / cp.clip(mu_r, 1e-10, None)) * train_mask
+                    mu_r = cp.exp(cp.clip(eta, -_ETA_CLIP_STANDARD, _ETA_CLIP_STANDARD))
+                    resid = (1.0 - y_col / cp.clip(mu_r, _MU_LO, None)) * train_mask
             elif loss_name == "inverse_gaussian":
                 if is_torch:
-                    mu_r = torch.exp(torch.clamp(eta, -30.0, 30.0))
-                    resid = ((mu_r - y_col) / torch.clamp(mu_r * mu_r, min=1e-10)) * train_mask
+                    mu_r = torch.exp(torch.clamp(eta, -_ETA_CLIP_STANDARD, _ETA_CLIP_STANDARD))
+                    resid = ((mu_r - y_col) / torch.clamp(mu_r * mu_r, min=_MU_LO)) * train_mask
                 else:
-                    mu_r = cp.exp(cp.clip(eta, -30.0, 30.0))
-                    resid = ((mu_r - y_col) / cp.clip(mu_r * mu_r, 1e-10, None)) * train_mask
+                    mu_r = cp.exp(cp.clip(eta, -_ETA_CLIP_STANDARD, _ETA_CLIP_STANDARD))
+                    resid = ((mu_r - y_col) / cp.clip(mu_r * mu_r, _MU_LO, None)) * train_mask
             elif loss_name == "negative_binomial":
                 if is_torch:
-                    mu_r = torch.exp(torch.clamp(eta, -30.0, 30.0))
-                    resid = ((mu_r - y_col) / (1.0 + mu_r)) * train_mask
+                    mu_r = torch.exp(torch.clamp(eta, -_ETA_CLIP_STANDARD, _ETA_CLIP_STANDARD))
+                    resid = ((mu_r - y_col) / (_NB_ALPHA_DEFAULT + mu_r)) * train_mask
                 else:
-                    mu_r = cp.exp(cp.clip(eta, -30.0, 30.0))
-                    resid = ((mu_r - y_col) / (1.0 + mu_r)) * train_mask
+                    mu_r = cp.exp(cp.clip(eta, -_ETA_CLIP_STANDARD, _ETA_CLIP_STANDARD))
+                    resid = ((mu_r - y_col) / (_NB_ALPHA_DEFAULT + mu_r)) * train_mask
             elif loss_name == "tweedie":
+                _p = _TWEEDIE_POWER_DEFAULT
                 if is_torch:
-                    mu_r = torch.exp(torch.clamp(eta, -50.0, 50.0))
-                    mu_c = torch.clamp(mu_r, min=1e-3, max=1e4)
-                    resid = (torch.exp(-0.5 * torch.log(mu_c)) * (mu_c - y_col)) * train_mask
+                    mu_r = torch.exp(torch.clamp(eta, -_ETA_CLIP_TWEEDIE, _ETA_CLIP_TWEEDIE))
+                    mu_c = torch.clamp(mu_r, min=_MU_LO_TWEEDIE, max=_MU_HI_TWEEDIE)
+                    resid = (torch.exp((1 - _p) * torch.log(mu_c)) * (mu_c - y_col)) * train_mask
                 else:
-                    mu_r = cp.exp(cp.clip(eta, -50.0, 50.0))
-                    mu_c = cp.clip(mu_r, 1e-3, 1e4)
-                    resid = (cp.exp(-0.5 * cp.log(mu_c)) * (mu_c - y_col)) * train_mask
+                    mu_r = cp.exp(cp.clip(eta, -_ETA_CLIP_TWEEDIE, _ETA_CLIP_TWEEDIE))
+                    mu_c = cp.clip(mu_r, _MU_LO_TWEEDIE, _MU_HI_TWEEDIE)
+                    resid = (cp.exp((1 - _p) * cp.log(mu_c)) * (mu_c - y_col)) * train_mask
             elif loss_name == "poisson":
                 if is_torch:
-                    resid = (torch.exp(torch.clamp(eta, -30.0, 30.0)) - y_col) * train_mask
+                    resid = (torch.exp(torch.clamp(eta, -_ETA_CLIP_STANDARD, _ETA_CLIP_STANDARD)) - y_col) * train_mask
                 else:
-                    resid = (cp.exp(cp.clip(eta, -30.0, 30.0)) - y_col) * train_mask
+                    resid = (cp.exp(cp.clip(eta, -_ETA_CLIP_STANDARD, _ETA_CLIP_STANDARD)) - y_col) * train_mask
             else:
                 raise ValueError(f"Unknown loss_name for fold-batch residual: {loss_name}")
             grad_coef = (Xb.T @ resid) / n_train_vec
@@ -704,47 +726,47 @@ def _glm_sparse_cv_folds(
             val_loss = (-y_col * eta_val + _softplus(eta_val, "torch" if is_torch else "cupy")) * val_mask
         elif loss_name == "gamma":
             if is_torch:
-                mu_v = torch.exp(torch.clamp(eta_val, -30.0, 30.0))
-                val_loss = (y_col / torch.clamp(mu_v, min=1e-10) + torch.log(torch.clamp(mu_v, min=1e-10))) * val_mask
+                mu_v = torch.exp(torch.clamp(eta_val, -_ETA_CLIP_STANDARD, _ETA_CLIP_STANDARD))
+                val_loss = (y_col / torch.clamp(mu_v, min=_MU_LO) + torch.log(torch.clamp(mu_v, min=_MU_LO))) * val_mask
             else:
-                mu_v = cp.exp(cp.clip(eta_val, -30.0, 30.0))
-                val_loss = (y_col / cp.clip(mu_v, 1e-10, None) + cp.log(cp.clip(mu_v, 1e-10, None))) * val_mask
+                mu_v = cp.exp(cp.clip(eta_val, -_ETA_CLIP_STANDARD, _ETA_CLIP_STANDARD))
+                val_loss = (y_col / cp.clip(mu_v, _MU_LO, None) + cp.log(cp.clip(mu_v, _MU_LO, None))) * val_mask
         elif loss_name == "inverse_gaussian":
             if is_torch:
-                mu_v = torch.exp(torch.clamp(eta_val, -30.0, 30.0))
-                val_loss = (y_col / (2.0 * torch.clamp(mu_v * mu_v, min=1e-10)) - 1.0 / torch.clamp(mu_v, min=1e-10)) * val_mask
+                mu_v = torch.exp(torch.clamp(eta_val, -_ETA_CLIP_STANDARD, _ETA_CLIP_STANDARD))
+                val_loss = (y_col / (2.0 * torch.clamp(mu_v * mu_v, min=_MU_LO)) - 1.0 / torch.clamp(mu_v, min=_MU_LO)) * val_mask
             else:
-                mu_v = cp.exp(cp.clip(eta_val, -30.0, 30.0))
-                val_loss = (y_col / (2.0 * cp.clip(mu_v * mu_v, 1e-10, None)) - 1.0 / cp.clip(mu_v, 1e-10, None)) * val_mask
+                mu_v = cp.exp(cp.clip(eta_val, -_ETA_CLIP_STANDARD, _ETA_CLIP_STANDARD))
+                val_loss = (y_col / (2.0 * cp.clip(mu_v * mu_v, _MU_LO, None)) - 1.0 / cp.clip(mu_v, _MU_LO, None)) * val_mask
         elif loss_name == "negative_binomial":
+            _a = _NB_ALPHA_DEFAULT
             if is_torch:
-                mu_v = torch.exp(torch.clamp(eta_val, -30.0, 30.0))
-                mu_c = torch.clamp(mu_v, min=1e-10)
-                one_plus = 1.0 + mu_c
-                val_loss = (-y_col * torch.log(mu_c / one_plus) + torch.log(one_plus)) * val_mask
+                mu_v = torch.exp(torch.clamp(eta_val, -_ETA_CLIP_STANDARD, _ETA_CLIP_STANDARD))
+                mu_c = torch.clamp(mu_v, min=_MU_LO)
+                one_plus = 1.0 + _a * mu_c
+                val_loss = (-y_col * torch.log(mu_c / one_plus) + (1.0 / _a) * torch.log(one_plus)) * val_mask
             else:
-                mu_v = cp.exp(cp.clip(eta_val, -30.0, 30.0))
-                mu_c = cp.clip(mu_v, 1e-10, None)
-                one_plus = 1.0 + mu_c
-                val_loss = (-y_col * cp.log(mu_c / one_plus) + cp.log(one_plus)) * val_mask
+                mu_v = cp.exp(cp.clip(eta_val, -_ETA_CLIP_STANDARD, _ETA_CLIP_STANDARD))
+                mu_c = cp.clip(mu_v, _MU_LO, None)
+                one_plus = 1.0 + _a * mu_c
+                val_loss = (-y_col * cp.log(mu_c / one_plus) + (1.0 / _a) * cp.log(one_plus)) * val_mask
         elif loss_name == "tweedie":
+            _p = _TWEEDIE_POWER_DEFAULT
             if is_torch:
-                mu_v = torch.exp(torch.clamp(eta_val, -50.0, 50.0))
-                mu_c = torch.clamp(mu_v, min=1e-3, max=1e4)
-                # Tweedie loss: -y * mu^(1-p)/(1-p) + mu^(2-p)/(2-p), p=1.5
-                val_loss = (y_col * 2.0 * torch.exp(-0.5 * torch.log(mu_c)) + 2.0 * torch.exp(0.5 * torch.log(mu_c))) * val_mask
+                mu_v = torch.exp(torch.clamp(eta_val, -_ETA_CLIP_TWEEDIE, _ETA_CLIP_TWEEDIE))
+                mu_c = torch.clamp(mu_v, min=_MU_LO_TWEEDIE, max=_MU_HI_TWEEDIE)
+                val_loss = (-y_col * torch.exp((1 - _p) * torch.log(mu_c)) / (1 - _p) + torch.exp((2 - _p) * torch.log(mu_c)) / (2 - _p)) * val_mask
             else:
-                mu_v = cp.exp(cp.clip(eta_val, -50.0, 50.0))
-                mu_c = cp.clip(mu_v, 1e-3, 1e4)
-                # Tweedie loss: -y * mu^(1-p)/(1-p) + mu^(2-p)/(2-p), p=1.5
-                val_loss = (y_col * 2.0 * cp.exp(-0.5 * cp.log(mu_c)) + 2.0 * cp.exp(0.5 * cp.log(mu_c))) * val_mask
+                mu_v = cp.exp(cp.clip(eta_val, -_ETA_CLIP_TWEEDIE, _ETA_CLIP_TWEEDIE))
+                mu_c = cp.clip(mu_v, _MU_LO_TWEEDIE, _MU_HI_TWEEDIE)
+                val_loss = (-y_col * cp.exp((1 - _p) * cp.log(mu_c)) / (1 - _p) + cp.exp((2 - _p) * cp.log(mu_c)) / (2 - _p)) * val_mask
         elif loss_name == "poisson":
             if is_torch:
-                mu_v = torch.exp(torch.clamp(eta_val, -30.0, 30.0))
-                val_loss = (mu_v - y_col * torch.log(torch.clamp(mu_v, min=1e-10))) * val_mask
+                mu_v = torch.exp(torch.clamp(eta_val, -_ETA_CLIP_STANDARD, _ETA_CLIP_STANDARD))
+                val_loss = (mu_v - y_col * torch.log(torch.clamp(mu_v, min=_MU_LO))) * val_mask
             else:
-                mu_v = cp.exp(cp.clip(eta_val, -30.0, 30.0))
-                val_loss = (mu_v - y_col * cp.log(cp.clip(mu_v, 1e-10, None))) * val_mask
+                mu_v = cp.exp(cp.clip(eta_val, -_ETA_CLIP_STANDARD, _ETA_CLIP_STANDARD))
+                val_loss = (mu_v - y_col * cp.log(cp.clip(mu_v, _MU_LO, None))) * val_mask
         else:
             raise ValueError(f"Unknown loss_name for fold-batch val_loss: {loss_name}")
         scores_path.append(_fb_sum(val_loss, is_torch, axis=0, keepdims=True).reshape(-1) / n_val_vec.reshape(-1))
