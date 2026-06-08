@@ -115,8 +115,12 @@ def _two_stage_candidate_mask(scores, refine_top_k=3):
 
 
 # ---------------------------------------------------------------------------
-# Per-sample loss functions for validation scoring (numpy-only)
+# Per-sample loss/residual functions (numpy-only, for _evaluate_loss_numpy)
 # ---------------------------------------------------------------------------
+# These functions define the canonical per-sample loss formulas.
+# The inline code in _glm_sparse_cv_folds uses the same mathematical formulas
+# with torch/cupy operations for performance. When modifying a formula,
+# update BOTH this section AND the inline code in _glm_sparse_cv_folds.
 
 def _ps_logistic(eta, y, **_):
     log1pexp = np.log1p(np.exp(-np.abs(eta))) + np.maximum(eta, 0.0)
@@ -126,27 +130,31 @@ def _ps_squared_error(eta, y, X_design=None, coef_with_intercept=None, **_):
     return (y - X_design @ coef_with_intercept) ** 2
 
 def _ps_poisson(eta, y, **_):
+    # loss = mu - y*log(mu), where mu = exp(eta)
     mu = np.exp(np.clip(eta, -_ETA_CLIP_STANDARD, _ETA_CLIP_STANDARD))
     return mu - y * np.log(np.clip(mu, _MU_LO, None))
 
 def _ps_gamma(eta, y, **_):
+    # loss = y/mu + log(mu), where mu = exp(eta)
     mu = np.exp(np.clip(eta, -_ETA_CLIP_STANDARD, _ETA_CLIP_STANDARD))
     return y / np.clip(mu, _MU_LO, None) + np.log(np.clip(mu, _MU_LO, None))
 
 def _ps_inverse_gaussian(eta, y, **_):
+    # loss = y/(2*mu^2) - 1/mu, where mu = exp(eta)
     mu = np.exp(np.clip(eta, -_ETA_CLIP_STANDARD, _ETA_CLIP_STANDARD))
     return y / (2.0 * np.clip(mu * mu, _MU_LO, None)) - 1.0 / np.clip(mu, _MU_LO, None)
 
-def _ps_negative_binomial(eta, y, **_):
+def _ps_negative_binomial(eta, y, alpha=_NB_ALPHA_DEFAULT, **_):
+    # loss = -y*log(mu/(1+alpha*mu)) + (1/alpha)*log(1+alpha*mu)
     mu = np.exp(np.clip(eta, -_ETA_CLIP_STANDARD, _ETA_CLIP_STANDARD))
     mu_c = np.clip(mu, _MU_LO, None)
-    one_plus = 1.0 + _NB_ALPHA_DEFAULT * mu_c
-    return -y * np.log(mu_c / one_plus) + (1.0 / _NB_ALPHA_DEFAULT) * np.log(one_plus)
+    one_plus = 1.0 + alpha * mu_c
+    return -y * np.log(mu_c / one_plus) + (1.0 / alpha) * np.log(one_plus)
 
 def _ps_tweedie(eta, y, power=_TWEEDIE_POWER_DEFAULT, **_):
+    # loss = -y*mu^(1-p)/(1-p) + mu^(2-p)/(2-p)
     mu = np.exp(np.clip(eta, -_ETA_CLIP_TWEEDIE, _ETA_CLIP_TWEEDIE))
     mu_c = np.clip(mu, _MU_LO_TWEEDIE, _MU_HI_TWEEDIE)
-    # Tweedie loss: -y * mu^(1-p) / (1-p) + mu^(2-p) / (2-p)
     return -y * np.exp((1 - power) * np.log(mu_c)) / (1 - power) + np.exp((2 - power) * np.log(mu_c)) / (2 - power)
 
 
@@ -547,7 +555,7 @@ def _glm_sparse_cv_folds(
             import torch
             if not torch.cuda.is_available():
                 return None
-        except Exception:
+        except (ImportError, RuntimeError, OSError):
             return None
     else:
         if _backend_name_for_cv_device("cuda") != "cupy":
@@ -556,7 +564,7 @@ def _glm_sparse_cv_folds(
             import cupy as cp
             if cp.cuda.runtime.getDeviceCount() <= 0:
                 return None
-        except Exception:
+        except (ImportError, RuntimeError, OSError):
             return None
 
     Xb = _to_backend_float64(X, device_backend)

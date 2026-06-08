@@ -125,3 +125,67 @@
 - CoxPH：
   - 缺 strata/frailty/time-varying、robust/cluster、penalized Cox
 
+---
+
+## CV 框架后续改进项
+
+### P1: FISTA/BB solver 支持非均匀 sample_weight
+
+**现状**：`fista_solver` 和 `fista_bb_solver` 拒绝非均匀 `sample_weight`。只有 `irls` 支持，但 IRLS 仅适用于 L2 惩罚。
+
+**影响**：L1/ElasticNet/SCAD/MCP + 非均匀权重 → `ValueError`。
+
+**方案**：在 FISTA 梯度计算中改为 `X' diag(w) residual / sum(w)`，需要：
+1. `_solver.py` 的 `fista_solver` 和 `fista_bb_solver` 支持 `sample_weight`
+2. Armijo 回溯使用加权 loss
+3. Lipschitz 使用加权 Hessian `X' diag(w) X`
+
+### P2: NB alpha / Tweedie power 参数化
+
+**现状**：`_glm_sparse_cv_folds` 内联代码硬编码 `NB alpha=1.0`、`Tweedie power=1.5`。如果用户自定义这些参数，内联代码会使用错误值。
+
+**方案**：
+- 在 `_glm_sparse_cv_folds` 中从 loss 对象读取参数
+- 或在 `_FOLD_BATCH_CONFIGS` 中存储参数化 residual/val_loss 函数
+- 需要 `PenalizedGLM_CV` 暴露 `loss_kwargs` 参数
+
+### P2: 添加新 loss 的改动点统一
+
+**现状**：添加新 GLM loss 需要修改 8-10 处代码。
+
+**方案**：设计 loss registry + auto-dispatch：
+- Loss 对象定义 `residual(eta, y)`, `val_loss(eta, y)`, `lipschitz(X, y)`, `intercept(y_mean)`
+- `_FOLD_BATCH_CONFIGS` 从 loss 对象自动生成
+- `_LOSS_EVAL_DISPATCH` 从 loss 对象自动生成
+- `_effective_cv_device` 使用 loss 对象的 `preferred_device(n, p)` 方法
+
+### P2: CV 策略可扩展性
+
+**现状**：`PenalizedGLM_CV` 的 `cv` 参数只接受整数（K-fold），不支持自定义 fold 生成器。
+
+**方案**：添加 `cv_splits` 参数（类似 `RidgeCV.cv_splits`）：
+- `cv_splits=None` 时使用 `kfold_indices(n, cv)`
+- `cv_splits=[(train_idx, val_idx), ...]` 时直接使用
+- 支持 TimeSeriesSplit、StratifiedKFold 等
+
+### P3: Backend 可扩展性
+
+**现状**：`_glm_sparse_cv_folds` 有 ~200 行 `if is_torch` 分支。添加新 backend（如 JAX）需要修改所有分支。
+
+**方案**：创建 backend dispatch 对象：
+```python
+class _CVBackend:
+    def __init__(self, backend):
+        self.backend = backend
+    def exp(self, x): ...
+    def clamp(self, x, lo, hi): ...
+    # ...
+```
+**注意**：之前尝试过 `_BackendOps` 抽象，因函数调用开销被放弃。需要 benchmark 确认新方案无性能退化。
+
+### P3: 非 Ridge 模型的 inference
+
+**现状**：`_refit_best` 对非 Ridge 模型设置 `compute_inference=False`，用户无法直接获取标准误和 p 值。
+
+**方案**：实现 debiased inference for L1/ElasticNet（Zhang-Zhang / Javanmard-Montanari 方法），或提供 bootstrap inference 接口。
+
