@@ -510,7 +510,7 @@ def _register_loss_fns(loss_name, residual_fn, val_loss_fn, params=None):
 def _res_logistic(eta, y, **_):
     # Gradient of logistic loss: sigmoid(eta) - y
     xp = _get_xp(eta)
-    sig = 1.0 / (1.0 + xp.exp(-xp.clip(eta, -_ETA_CLIP_LOGISTIC, _ETA_CLIP_LOGISTIC) if hasattr(xp, 'clip') else xp.clamp(eta, -_ETA_CLIP_LOGISTIC, _ETA_CLIP_LOGISTIC)))
+    sig = 1.0 / (1.0 + xp.exp(-_safe_clip(eta, -_ETA_CLIP_LOGISTIC, _ETA_CLIP_LOGISTIC)))
     return sig - y
 
 def _val_logistic(eta, y, **_):
@@ -523,73 +523,73 @@ def _val_logistic(eta, y, **_):
 def _res_poisson(eta, y, **_):
     # Gradient of Poisson loss: d/deta [mu - y*log(mu)] = mu - y
     xp = _get_xp(eta)
-    mu = xp.exp(xp.clip(eta, -_ETA_CLIP_STANDARD, _ETA_CLIP_STANDARD) if hasattr(xp, 'clip') else xp.clamp(eta, -_ETA_CLIP_STANDARD, _ETA_CLIP_STANDARD))
-    mu_c = xp.clip(mu, _MU_LO, None) if hasattr(xp, 'clip') else xp.clamp(mu, min=_MU_LO)
+    mu = xp.exp(_safe_clip(eta, -_ETA_CLIP_STANDARD, _ETA_CLIP_STANDARD))
+    mu_c = _safe_clip(mu, _MU_LO)
     return mu_c - y
 
 def _val_poisson(eta, y, **_):
     xp = _get_xp(eta)
-    mu = xp.exp(xp.clip(eta, -_ETA_CLIP_STANDARD, _ETA_CLIP_STANDARD) if hasattr(xp, 'clip') else xp.clamp(eta, -_ETA_CLIP_STANDARD, _ETA_CLIP_STANDARD))
-    mu_c = xp.clip(mu, _MU_LO, None) if hasattr(xp, 'clip') else xp.clamp(mu, min=_MU_LO)
+    mu = xp.exp(_safe_clip(eta, -_ETA_CLIP_STANDARD, _ETA_CLIP_STANDARD))
+    mu_c = _safe_clip(mu, _MU_LO)
     return mu_c - y * xp.log(mu_c)
 
 # --- Gamma ---
 def _res_gamma(eta, y, **_):
     xp = _get_xp(eta)
-    mu = xp.exp(xp.clip(eta, -_ETA_CLIP_STANDARD, _ETA_CLIP_STANDARD) if hasattr(xp, 'clip') else xp.clamp(eta, -_ETA_CLIP_STANDARD, _ETA_CLIP_STANDARD))
-    mu_c = xp.clip(mu, _MU_LO, None) if hasattr(xp, 'clip') else xp.clamp(mu, min=_MU_LO)
+    mu = xp.exp(_safe_clip(eta, -_ETA_CLIP_STANDARD, _ETA_CLIP_STANDARD))
+    mu_c = _safe_clip(mu, _MU_LO)
     return 1.0 - y / mu_c
 
 def _val_gamma(eta, y, **_):
     xp = _get_xp(eta)
-    mu = xp.exp(xp.clip(eta, -_ETA_CLIP_STANDARD, _ETA_CLIP_STANDARD) if hasattr(xp, 'clip') else xp.clamp(eta, -_ETA_CLIP_STANDARD, _ETA_CLIP_STANDARD))
-    mu_c = xp.clip(mu, _MU_LO, None) if hasattr(xp, 'clip') else xp.clamp(mu, min=_MU_LO)
+    mu = xp.exp(_safe_clip(eta, -_ETA_CLIP_STANDARD, _ETA_CLIP_STANDARD))
+    mu_c = _safe_clip(mu, _MU_LO)
     return y / mu_c + xp.log(mu_c)
 
 # --- Inverse Gaussian ---
 def _res_invgauss(eta, y, **_):
     xp = _get_xp(eta)
-    mu = xp.exp(xp.clip(eta, -_ETA_CLIP_STANDARD, _ETA_CLIP_STANDARD) if hasattr(xp, 'clip') else xp.clamp(eta, -_ETA_CLIP_STANDARD, _ETA_CLIP_STANDARD))
-    mu_c = xp.clip(mu, _MU_LO, None) if hasattr(xp, 'clip') else xp.clamp(mu, min=_MU_LO)
+    mu = xp.exp(_safe_clip(eta, -_ETA_CLIP_STANDARD, _ETA_CLIP_STANDARD))
+    mu_c = _safe_clip(mu, _MU_LO)
     return (mu_c - y) / (mu_c * mu_c)
 
 def _val_invgauss(eta, y, **_):
     # Inverse Gaussian loss: y/(2*mu^2) - 1/mu
     xp = _get_xp(eta)
-    mu = xp.exp(xp.clip(eta, -_ETA_CLIP_STANDARD, _ETA_CLIP_STANDARD) if hasattr(xp, 'clip') else xp.clamp(eta, -_ETA_CLIP_STANDARD, _ETA_CLIP_STANDARD))
+    mu = xp.exp(_safe_clip(eta, -_ETA_CLIP_STANDARD, _ETA_CLIP_STANDARD))
     # Clip mu^2 (not mu) to match _ps_inverse_gaussian: denom >= 2e-10
-    mu_sq_c = xp.clip(mu * mu, _MU_LO, None) if hasattr(xp, 'clip') else xp.clamp(mu * mu, min=_MU_LO)
-    mu_c = xp.clip(mu, _MU_LO, None) if hasattr(xp, 'clip') else xp.clamp(mu, min=_MU_LO)
+    mu_sq_c = _safe_clip(mu * mu, _MU_LO)
+    mu_c = _safe_clip(mu, _MU_LO)
     return y / (2.0 * mu_sq_c) - 1.0 / mu_c
 
 # --- Negative Binomial ---
 def _res_nb(eta, y, alpha=_NB_ALPHA_DEFAULT, **_):
     # Gradient of NB loss: d/deta L = (mu - y) / (1 + alpha*mu)
     xp = _get_xp(eta)
-    mu = xp.exp(xp.clip(eta, -_ETA_CLIP_STANDARD, _ETA_CLIP_STANDARD) if hasattr(xp, 'clip') else xp.clamp(eta, -_ETA_CLIP_STANDARD, _ETA_CLIP_STANDARD))
-    mu_c = xp.clip(mu, _MU_LO, None) if hasattr(xp, 'clip') else xp.clamp(mu, min=_MU_LO)
+    mu = xp.exp(_safe_clip(eta, -_ETA_CLIP_STANDARD, _ETA_CLIP_STANDARD))
+    mu_c = _safe_clip(mu, _MU_LO)
     return (mu_c - y) / (1.0 + alpha * mu_c)
 
 def _val_nb(eta, y, alpha=_NB_ALPHA_DEFAULT, **_):
     xp = _get_xp(eta)
-    mu = xp.exp(xp.clip(eta, -_ETA_CLIP_STANDARD, _ETA_CLIP_STANDARD) if hasattr(xp, 'clip') else xp.clamp(eta, -_ETA_CLIP_STANDARD, _ETA_CLIP_STANDARD))
-    mu_c = xp.clip(mu, _MU_LO, None) if hasattr(xp, 'clip') else xp.clamp(mu, min=_MU_LO)
+    mu = xp.exp(_safe_clip(eta, -_ETA_CLIP_STANDARD, _ETA_CLIP_STANDARD))
+    mu_c = _safe_clip(mu, _MU_LO)
     one_plus = 1.0 + alpha * mu_c
     return -y * xp.log(mu_c / one_plus) + (1.0 / alpha) * xp.log(one_plus)
 
 # --- Tweedie ---
 def _res_tweedie(eta, y, power=_TWEEDIE_POWER_DEFAULT, **_):
     xp = _get_xp(eta)
-    mu = xp.exp(xp.clip(eta, -_ETA_CLIP_TWEEDIE, _ETA_CLIP_TWEEDIE) if hasattr(xp, 'clip') else xp.clamp(eta, -_ETA_CLIP_TWEEDIE, _ETA_CLIP_TWEEDIE))
-    mu_c = xp.clip(mu, _MU_LO_TWEEDIE, _MU_HI_TWEEDIE) if hasattr(xp, 'clip') else xp.clamp(mu, min=_MU_LO_TWEEDIE, max=_MU_HI_TWEEDIE)
+    mu = xp.exp(_safe_clip(eta, -_ETA_CLIP_TWEEDIE, _ETA_CLIP_TWEEDIE))
+    mu_c = _safe_clip(mu, _MU_LO_TWEEDIE, _MU_HI_TWEEDIE)
     return xp.exp((1 - power) * xp.log(mu_c)) * (mu_c - y)
 
 def _val_tweedie(eta, y, power=_TWEEDIE_POWER_DEFAULT, **_):
     # Tweedie loss: -y*mu^(1-p)/(1-p) + mu^(2-p)/(2-p)
     # Handle boundary: power=1 (Poisson) and power=2 (Gamma) use log form.
     xp = _get_xp(eta)
-    mu = xp.exp(xp.clip(eta, -_ETA_CLIP_TWEEDIE, _ETA_CLIP_TWEEDIE) if hasattr(xp, 'clip') else xp.clamp(eta, -_ETA_CLIP_TWEEDIE, _ETA_CLIP_TWEEDIE))
-    mu_c = xp.clip(mu, _MU_LO_TWEEDIE, _MU_HI_TWEEDIE) if hasattr(xp, 'clip') else xp.clamp(mu, min=_MU_LO_TWEEDIE, max=_MU_HI_TWEEDIE)
+    mu = xp.exp(_safe_clip(eta, -_ETA_CLIP_TWEEDIE, _ETA_CLIP_TWEEDIE))
+    mu_c = _safe_clip(mu, _MU_LO_TWEEDIE, _MU_HI_TWEEDIE)
     log_mu = xp.log(mu_c)
     d1 = 1.0 - power
     d2 = 2.0 - power
@@ -607,6 +607,14 @@ def _get_xp(arr):
     if mod.startswith("cupy"):
         import cupy as cp
         return cp
+
+
+def _safe_clip(arr, lo, hi=None):
+    """Backend-agnostic clip/clamp. Works with numpy, cupy, and torch."""
+    xp = _get_xp(arr)
+    if hasattr(xp, 'clip'):
+        return xp.clip(arr, lo, hi)
+    return xp.clamp(arr, min=lo, max=hi)
     return np
 
 
@@ -780,6 +788,7 @@ def _glm_sparse_cv_folds(
     iters_path = []
 
     # --- FISTA loop over alphas ---
+    # y_coef / y_intercept are the extrapolated iterates (standard FISTA notation).
     for alpha in alphas:
         y_coef = _fb_copy(coef, is_torch)
         y_intercept = _fb_copy(intercept, is_torch)
@@ -832,6 +841,7 @@ def _glm_sparse_cv_folds(
             else:
                 last_iter = cp.where(active.reshape(-1), cp.full_like(last_iter, iteration + 1), last_iter)
 
+            # Check convergence: every iteration for first 20, then every 50
             if iteration < 20 or iteration % 50 == 0:
                 if is_torch:
                     delta = torch.sum(torch.abs(coef - coef_old), dim=0, keepdim=True) + torch.abs(intercept - intercept_old)
@@ -2458,7 +2468,7 @@ class PenalizedGLM_CV(CVEstimatorBase):
             return penalty_name in ("scad", "mcp") and (loss_name == "squared_error" or not strict)
 
         def _path_scad_mcp(X_train, y_train, alpha_sorted, penalty_name, l1_ratio,
-                           max_iter, tol, cv_device, X_val, y_val, sw_train, sw_val, **kw):
+                           max_iter, tol, cv_device, X_val, y_val, sw_train, sw_val):
             return _scad_mcp_cv_path(
                 loss_name, X_train, y_train, alpha_sorted, penalty_name,
                 l1_ratio, max_iter, tol, cv_device,
@@ -2469,7 +2479,7 @@ class PenalizedGLM_CV(CVEstimatorBase):
             return loss_name == "logistic" and penalty_name in ("l1", "elasticnet", "en")
 
         def _path_logistic(X_train, y_train, alpha_sorted, penalty_name, l1_ratio,
-                           max_iter, tol, cv_device, X_val, y_val, sw_train, sw_val, **kw):
+                           max_iter, tol, cv_device, X_val, y_val, sw_train, sw_val):
             return _logistic_sparse_cv_path(
                 X_train, y_train, alpha_sorted, penalty_name, l1_ratio,
                 max_iter, tol, cv_device,
@@ -2494,7 +2504,7 @@ class PenalizedGLM_CV(CVEstimatorBase):
 
         def _path_glm_sparse(X_train, y_train, alpha_sorted, penalty_name, l1_ratio,
                              max_iter, tol, cv_device, X_val, y_val, sw_train, sw_val,
-                             cv_solver=cv_solver, strict=strict, **kw):
+                             cv_solver=cv_solver, strict=strict):
             return _glm_sparse_cv_path(
                 loss_name, X_train, y_train, alpha_sorted, penalty_name,
                 l1_ratio, max_iter, tol, cv_device,
@@ -2637,10 +2647,12 @@ class PenalizedGLM_CV(CVEstimatorBase):
                         if hasattr(model, attr): delattr(model, attr)
                     return
                 else:
-                    # path is None — cleanup and fall through to warm-start loop
+                    # path is None — cleanup LLA state only; _cv_cache and
+                    # _preserve_cv_cache are still needed for the warm-start fallback.
                     for attr in ("_cv_alpha_path", "_cv_path_results"):
                         if hasattr(model, attr): delattr(model, attr)
             except Exception:
+                # Same as path-is-None: keep _cv_cache for warm-start fallback.
                 for attr in ("_cv_alpha_path", "_cv_path_results"):
                     if hasattr(model, attr): delattr(model, attr)
 
