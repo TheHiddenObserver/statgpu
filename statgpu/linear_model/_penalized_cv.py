@@ -1373,13 +1373,8 @@ def _glm_sparse_cv_path(
     """
     loss_name = str(loss_name).lower()
     penalty_name = str(penalty_name).lower()
-    if loss_name not in (
-        "poisson",
-        "gamma",
-        "inverse_gaussian",
-        "negative_binomial",
-        "tweedie",
-    ):
+    # Allow any loss registered in the formula registry
+    if loss_name not in _LOSS_RESIDUAL_FNS:
         return None
     if penalty_name not in ("l1", "elasticnet", "en"):
         return None
@@ -1542,117 +1537,39 @@ def _glm_sparse_cv_path(
             intercept_path.append(float(params_np[n_features]))
         iters.append(int(n_iter))
 
-    # GPU backends benefit from one alpha-path GEMM for validation.
+    # GPU backends: compute per-sample validation loss via registry,
+    # then aggregate across samples (weighted or unweighted).
+    # The registry functions work with any shape (1D or 2D batched eta).
     if score_params_path:
+        _loss_params = {}
+        if loss_name == "negative_binomial":
+            _loss_params["alpha"] = float(getattr(loss_fn, "alpha", _NB_ALPHA_DEFAULT))
+        elif loss_name == "tweedie":
+            _loss_params["power"] = float(getattr(loss_fn, "power", _TWEEDIE_POWER_DEFAULT))
+
         if backend == "torch":
             import torch
             params_mat = torch.stack(score_params_path, dim=1)
-            eta = X_val_work @ params_mat
+            eta = X_val_work @ params_mat  # (n_val, n_alphas)
             yy = yv.reshape(-1, 1)
-            if loss_name == "poisson":
-                z = torch.clamp(eta, -30.0, 30.0)
-                mu = torch.clamp(torch.exp(z), min=1e-10, max=1e6)
-                per_sample = mu - yy * torch.log(mu)
-            elif loss_name == "gamma":
-                if getattr(loss_fn, "link", "log") == "inverse_power":
-                    eta_c = torch.clamp(
-                        eta,
-                        min=float(getattr(loss_fn, "_ETA_LO", 1e-4)),
-                        max=float(getattr(loss_fn, "_ETA_HI", 1e3)),
-                    )
-                    per_sample = yy * eta_c - torch.log(eta_c)
-                else:
-                    z = torch.clamp(eta, -30.0, 30.0)
-                    mu = torch.clamp(
-                        torch.exp(z),
-                        min=float(getattr(loss_fn, "_MU_LO", 1e-3)),
-                        max=float(getattr(loss_fn, "_MU_HI", 1e4)),
-                    )
-                    per_sample = yy / mu + torch.log(mu)
-            elif loss_name == "inverse_gaussian":
-                z = torch.clamp(eta, -30.0, 30.0)
-                mu = torch.clamp(torch.exp(z), min=5e-2, max=1e3)
-                per_sample = yy / (2.0 * mu * mu) - 1.0 / mu
-            elif loss_name == "negative_binomial":
-                alpha_nb = float(getattr(loss_fn, "alpha", 1.0))
-                z = torch.clamp(eta, -30.0, 30.0)
-                mu_c = torch.clamp(torch.exp(z), min=1e-300)
-                one_plus = 1.0 + alpha_nb * mu_c
-                per_sample = -yy * torch.log(mu_c / one_plus) + (1.0 / alpha_nb) * torch.log(one_plus)
-            elif loss_name == "tweedie":
-                pwr = float(getattr(loss_fn, "power", 1.5))
-                z_clip = float(getattr(loss_fn, "_Z_CLIP", 50.0))
-                z = torch.clamp(eta, -z_clip, z_clip)
-                mu = torch.clamp(torch.exp(z), min=1e-3, max=1e4)
-                per_sample = -yy * mu ** (1.0 - pwr) / (1.0 - pwr) + mu ** (2.0 - pwr) / (2.0 - pwr)
+            per_sample = _LOSS_VALLOSS_FNS[loss_name](eta, yy, **_loss_params)
+            if swv is not None:
+                sw_col = swv.reshape(-1, 1)
+                scores_tensor = (sw_col * per_sample).sum(dim=0) / swv.sum()
             else:
-                per_sample = None
-
-            if per_sample is not None:
-                if swv is not None:
-                    sw_col = swv.reshape(-1, 1)
-                    scores_tensor = (sw_col * per_sample).sum(dim=0) / swv.sum()
-                else:
-                    scores_tensor = per_sample.mean(dim=0)
-            else:
-                scores_tensor = torch.stack(
-                    [loss_fn.value(X_val_work, yv, p) for p in score_params_path]
-                )
+                scores_tensor = per_sample.mean(dim=0)
             scores = _to_numpy(scores_tensor).tolist()
         elif backend == "cupy":
             import cupy as cp
             params_mat = cp.stack(score_params_path, axis=1)
-            eta = X_val_work @ params_mat
+            eta = X_val_work @ params_mat  # (n_val, n_alphas)
             yy = yv.reshape(-1, 1)
-            if loss_name == "poisson":
-                z = cp.clip(eta, -30.0, 30.0)
-                mu = cp.clip(cp.exp(z), 1e-10, 1e6)
-                per_sample = mu - yy * cp.log(mu)
-            elif loss_name == "gamma":
-                if getattr(loss_fn, "link", "log") == "inverse_power":
-                    eta_c = cp.clip(
-                        eta,
-                        float(getattr(loss_fn, "_ETA_LO", 1e-4)),
-                        float(getattr(loss_fn, "_ETA_HI", 1e3)),
-                    )
-                    per_sample = yy * eta_c - cp.log(eta_c)
-                else:
-                    z = cp.clip(eta, -30.0, 30.0)
-                    mu = cp.clip(
-                        cp.exp(z),
-                        float(getattr(loss_fn, "_MU_LO", 1e-3)),
-                        float(getattr(loss_fn, "_MU_HI", 1e4)),
-                    )
-                    per_sample = yy / mu + cp.log(mu)
-            elif loss_name == "inverse_gaussian":
-                z = cp.clip(eta, -30.0, 30.0)
-                mu = cp.clip(cp.exp(z), 5e-2, 1e3)
-                per_sample = yy / (2.0 * mu * mu) - 1.0 / mu
-            elif loss_name == "negative_binomial":
-                alpha_nb = float(getattr(loss_fn, "alpha", 1.0))
-                z = cp.clip(eta, -30.0, 30.0)
-                mu_c = cp.clip(cp.exp(z), 1e-300, None)
-                one_plus = 1.0 + alpha_nb * mu_c
-                per_sample = -yy * cp.log(mu_c / one_plus) + (1.0 / alpha_nb) * cp.log(one_plus)
-            elif loss_name == "tweedie":
-                pwr = float(getattr(loss_fn, "power", 1.5))
-                z_clip = float(getattr(loss_fn, "_Z_CLIP", 50.0))
-                z = cp.clip(eta, -z_clip, z_clip)
-                mu = cp.clip(cp.exp(z), 1e-3, 1e4)
-                per_sample = -yy * mu ** (1.0 - pwr) / (1.0 - pwr) + mu ** (2.0 - pwr) / (2.0 - pwr)
+            per_sample = _LOSS_VALLOSS_FNS[loss_name](eta, yy, **_loss_params)
+            if swv is not None:
+                sw_col = swv.reshape(-1, 1)
+                scores_arr = (sw_col * per_sample).sum(axis=0) / swv.sum()
             else:
-                per_sample = None
-
-            if per_sample is not None:
-                if swv is not None:
-                    sw_col = swv.reshape(-1, 1)
-                    scores_arr = (sw_col * per_sample).sum(axis=0) / swv.sum()
-                else:
-                    scores_arr = per_sample.mean(axis=0)
-            else:
-                scores_arr = cp.stack(
-                    [loss_fn.value(X_val_work, yv, p) for p in score_params_path]
-                )
+                scores_arr = per_sample.mean(axis=0)
             scores = _to_numpy(scores_arr).tolist()
         else:
             scores = [_scalar_to_float(s) for s in score_params_path]
