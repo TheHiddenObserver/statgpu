@@ -501,12 +501,13 @@ def _register_loss_fns(loss_name, residual_fn, val_loss_fn, params=None):
 
 # --- Logistic ---
 def _res_logistic(eta, y, **_):
-    # Use backend-agnostic ops via eta's module
+    # Gradient of logistic loss: sigmoid(eta) - y
     xp = _get_xp(eta)
-    log1pexp = xp.log1p(xp.exp(-xp.abs(eta))) + xp.maximum(eta, 0.0)
-    return -y * eta + log1pexp
+    sig = 1.0 / (1.0 + xp.exp(-xp.clip(eta, -500.0, 500.0) if hasattr(xp, 'clip') else xp.clamp(eta, -500.0, 500.0)))
+    return sig - y
 
 def _val_logistic(eta, y, **_):
+    # Logistic loss: -y*eta + softplus(eta)
     xp = _get_xp(eta)
     log1pexp = xp.log1p(xp.exp(-xp.abs(eta))) + xp.maximum(eta, 0.0)
     return -y * eta + log1pexp
