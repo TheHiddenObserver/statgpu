@@ -724,7 +724,7 @@ class LassoCV(CVEstimatorBase):
             "mean_mse": mean_mse,
         }
 
-        _lasso_cv_cache_put(cache_key, details)
+        _lasso_cv_cache_put(cache_key_eff, details)
         return details
 
     def fit(self, X, y, sample_weight=None):
