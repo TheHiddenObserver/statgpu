@@ -538,12 +538,6 @@ def _glm_sparse_cv_folds(
     cfg = _FOLD_BATCH_CONFIGS.get(loss_name)
     if cfg is None:
         return None
-    if sample_weight is not None:
-        sw_np = np.asarray(_to_numpy(sample_weight), dtype=np.float64).ravel()
-        if sw_np.size and not np.allclose(sw_np, sw_np[0]):
-            # Fold-batch path does not support non-uniform sample_weight.
-            # Return None to fall back to per-fold path.
-            return None
 
     is_torch = (device_backend == "torch")
     if is_torch:
@@ -583,6 +577,14 @@ def _glm_sparse_cv_folds(
     train_mask = _fb_ones((n_samples, n_folds), Xb.dtype, is_torch, dev)
     val_mask = _fb_zeros((n_samples, n_folds), Xb.dtype, is_torch, dev)
 
+    # Sample weight mask: per-fold weights (n_samples, n_folds)
+    has_weights = sample_weight is not None
+    if has_weights:
+        sw_all = _to_backend_float64(sample_weight, device_backend).reshape(-1)
+        sw_mask = sw_all.reshape(-1, 1) * train_mask  # (n_samples, n_folds)
+    else:
+        sw_mask = train_mask  # effectively all 1s for train, 0s for val
+
     step_values = []
     for fold_idx, (train_idx, val_idx) in enumerate(folds):
         train_idx_dev = _fb_as_tensor(train_idx, is_torch, dev)
@@ -595,14 +597,27 @@ def _glm_sparse_cv_folds(
         ones = _fb_ones((X_train.shape[0], 1), Xb.dtype, is_torch, dev)
         X_aug = _fb_cat([X_train, ones], is_torch)
         n_train = int(X_train.shape[0])
-        L_loss = lipschitz_fn(X_aug, y_train, n_train, is_torch)
+        # For weighted Lipschitz, pass sample weights if available
+        if has_weights:
+            sw_fold = sw_all[train_idx_dev]
+            # Weighted Lipschitz: use X' diag(w) X for Hessian
+            sw_col_fold = sw_fold.reshape(-1, 1)
+            Xw = X_aug * sw_col_fold.sqrt() if is_torch else X_aug * cp.sqrt(sw_col_fold)
+            L_loss = lipschitz_fn(Xw, y_train, n_train, is_torch)
+        else:
+            L_loss = lipschitz_fn(X_aug, y_train, n_train, is_torch)
         step_values.append(1.0 / L_loss)
 
+    # Update sw_mask after train_mask has been modified
+    if has_weights:
+        sw_mask = sw_all.reshape(-1, 1) * train_mask
+
     # --- Initialize parameters ---
-    n_train_vec = _fb_sum(train_mask, is_torch, axis=0, keepdims=True).reshape(1, n_folds)
+    sw_train_vec = _fb_sum(sw_mask, is_torch, axis=0, keepdims=True).reshape(1, n_folds)
     n_val_vec = _fb_sum(val_mask, is_torch, axis=0, keepdims=True).reshape(1, n_folds)
     y_col = yb.reshape(-1, 1)
-    y_mean = _fb_sum(y_col * train_mask, is_torch, axis=0, keepdims=True) / n_train_vec
+    # Weighted mean of y per fold
+    y_mean = _fb_sum(y_col * sw_mask, is_torch, axis=0, keepdims=True) / sw_train_vec
     intercept = intercept_fn(y_mean, is_torch).reshape(1, n_folds)
     coef = _fb_zeros((n_features, n_folds), Xb.dtype, is_torch, dev)
     if is_torch:
@@ -678,8 +693,10 @@ def _glm_sparse_cv_folds(
                     resid = (cp.exp(cp.clip(eta, -_ETA_CLIP_STANDARD, _ETA_CLIP_STANDARD)) - y_col) * train_mask
             else:
                 raise ValueError(f"Unknown loss_name for fold-batch residual: {loss_name}")
-            grad_coef = (Xb.T @ resid) / n_train_vec
-            grad_intercept = _fb_sum(resid, is_torch, axis=0, keepdims=True) / n_train_vec
+            # Weighted gradient: multiply residual by sw_mask (includes train_mask)
+            # and divide by sum of weights per fold
+            grad_coef = (Xb.T @ (resid * sw_mask)) / sw_train_vec
+            grad_intercept = _fb_sum(resid * sw_mask, is_torch, axis=0, keepdims=True) / sw_train_vec
 
             w = y_coef - step * grad_coef
             if is_enet:
@@ -771,7 +788,13 @@ def _glm_sparse_cv_folds(
                 val_loss = (mu_v - y_col * cp.log(cp.clip(mu_v, _MU_LO, None))) * val_mask
         else:
             raise ValueError(f"Unknown loss_name for fold-batch val_loss: {loss_name}")
-        scores_path.append(_fb_sum(val_loss, is_torch, axis=0, keepdims=True).reshape(-1) / n_val_vec.reshape(-1))
+        # Weighted validation scoring: use sw_val_mask when weights present
+        if has_weights:
+            sw_val_mask = sw_all.reshape(-1, 1) * val_mask
+            sw_val_vec = _fb_sum(sw_val_mask, is_torch, axis=0, keepdims=True).reshape(1, n_folds)
+            scores_path.append(_fb_sum(val_loss * sw_val_mask, is_torch, axis=0, keepdims=True).reshape(-1) / sw_val_vec.reshape(-1))
+        else:
+            scores_path.append(_fb_sum(val_loss, is_torch, axis=0, keepdims=True).reshape(-1) / n_val_vec.reshape(-1))
         iters_path.append(last_iter)
 
     scores = _fb_stack(scores_path, is_torch)
@@ -2374,6 +2397,24 @@ class PenalizedGLM_CV(CVEstimatorBase):
         loss_name = str(self.loss).lower()
         device_name = _device_to_name(cv_device)
         max_iter = int(self.max_iter if max_iter is None else max_iter)
+
+        # Validate sample_weight compatibility with penalty.
+        # Only L2/IRLS supports non-uniform weights. All other penalties
+        # (L1, ElasticNet, SCAD, MCP, etc.) use FISTA which rejects
+        # non-uniform sample_weight.
+        _non_l2_penalties = ("l1", "elasticnet", "en", "scad", "mcp",
+                             "adaptive_l1", "adaptive_lasso",
+                             "group_lasso", "gl", "group_mcp", "gmcp",
+                             "group_scad", "gscad")
+        if sample_weight is not None and penalty_name in _non_l2_penalties:
+            sw_np = np.asarray(_to_numpy(sample_weight), dtype=np.float64).ravel()
+            if not np.allclose(sw_np, sw_np[0]):
+                raise ValueError(
+                    f"Non-uniform sample_weight is not supported for "
+                    f"penalty='{penalty_name}' with any current solver. "
+                    f"Use penalty='l2' with solver='irls' for weighted "
+                    f"GLM fits, or use uniform weights."
+                )
         tol = self.tol if tol is None else tol
 
         # ── Fast path: Ridge eigendecomposition (CPU only, unweighted) ──

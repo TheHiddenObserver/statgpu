@@ -282,6 +282,26 @@ for alpha in alphas_descending:
 
 内部一致性已验证到机器精度（diff ~1e-16）。
 
+## 已知限制
+
+### 非均匀 sample_weight 与非 L2 惩罚不兼容
+
+非均匀 `sample_weight` **不支持** L2 以外的惩罚：
+
+| 惩罚 | 求解器 | 非均匀权重 |
+|------|--------|-----------|
+| L2 | IRLS | ✅ 支持 |
+| L1, ElasticNet | FISTA | ❌ 抛出 ValueError |
+| SCAD, MCP | FISTA | ❌ 抛出 ValueError |
+| Adaptive L1 | FISTA | ❌ 抛出 ValueError |
+| Group Lasso/MCP/SCAD | FISTA | ❌ 抛出 ValueError |
+
+底层求解器（`fista`, `fista_bb`）拒绝非均匀 `sample_weight`。这是求解器层面的限制，不是 CV 限制。
+
+**临时方案**：使用 `penalty='l2'` + `solver='irls'` 进行加权 GLM 拟合。
+
+**后续工作**：在 `fista_solver` 和 `fista_bb_solver` 中实现加权梯度计算（`X' diag(w) residual / sum(w)`），以支持所有惩罚的非均匀权重。
+
 ## 性能特征
 
 ### CPU vs GPU 盈亏平衡点
