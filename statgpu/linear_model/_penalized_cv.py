@@ -189,6 +189,13 @@ def _evaluate_loss_numpy(loss_name, loss_fn, X_val_np, y_val_np, coef_np, interc
 
     entry = _LOSS_EVAL_DISPATCH.get(loss_name)
     if entry is not None:
+        # Resolve loss-specific parameters from loss_fn object
+        _loss_params = {}
+        if loss_name == "negative_binomial":
+            _loss_params["alpha"] = float(getattr(loss_fn, "alpha", _NB_ALPHA_DEFAULT))
+        elif loss_name == "tweedie":
+            _loss_params["power"] = float(getattr(loss_fn, "power", _TWEEDIE_POWER_DEFAULT))
+
         per_sample_fn, uses_design = entry
         if uses_design:
             n_val = X_val_np.shape[0]
@@ -199,10 +206,10 @@ def _evaluate_loss_numpy(loss_name, loss_fn, X_val_np, y_val_np, coef_np, interc
                 X_design = X_val_np
                 coef_with_intercept = coef_np
             eta = X_val_np @ coef_np + (float(intercept) if fit_intercept else 0.0)
-            per_sample = per_sample_fn(eta, y_val_np, X_design=X_design, coef_with_intercept=coef_with_intercept)
+            per_sample = per_sample_fn(eta, y_val_np, X_design=X_design, coef_with_intercept=coef_with_intercept, **_loss_params)
         else:
             eta = X_val_np @ coef_np + (float(intercept) if fit_intercept else 0.0)
-            per_sample = per_sample_fn(eta, y_val_np)
+            per_sample = per_sample_fn(eta, y_val_np, **_loss_params)
         return _weighted_mean(per_sample, sw)
 
     # Fallback for unknown loss types
@@ -503,7 +510,7 @@ def _register_loss_fns(loss_name, residual_fn, val_loss_fn, params=None):
 def _res_logistic(eta, y, **_):
     # Gradient of logistic loss: sigmoid(eta) - y
     xp = _get_xp(eta)
-    sig = 1.0 / (1.0 + xp.exp(-xp.clip(eta, -500.0, 500.0) if hasattr(xp, 'clip') else xp.clamp(eta, -500.0, 500.0)))
+    sig = 1.0 / (1.0 + xp.exp(-xp.clip(eta, -_ETA_CLIP_LOGISTIC, _ETA_CLIP_LOGISTIC) if hasattr(xp, 'clip') else xp.clamp(eta, -_ETA_CLIP_LOGISTIC, _ETA_CLIP_LOGISTIC)))
     return sig - y
 
 def _val_logistic(eta, y, **_):
@@ -738,13 +745,13 @@ def _glm_sparse_cv_folds(
         ones = _fb_ones((X_train.shape[0], 1), Xb.dtype, is_torch, dev)
         X_aug = _fb_cat([X_train, ones], is_torch)
         n_train = int(X_train.shape[0])
-        # For weighted Lipschitz, pass sample weights if available
+        # For weighted Lipschitz, pass sum(w) as effective n for normalization
         if has_weights:
             sw_fold = sw_all[train_idx_dev]
-            # Weighted Lipschitz: use X' diag(w) X for Hessian
             sw_col_fold = sw_fold.reshape(-1, 1)
             Xw = X_aug * sw_col_fold.sqrt() if is_torch else X_aug * cp.sqrt(sw_col_fold)
-            L_loss = lipschitz_fn(Xw, y_train, n_train, is_torch)
+            w_sum_fold = float(sw_fold.sum().item()) if is_torch else float(sw_fold.sum())
+            L_loss = lipschitz_fn(Xw, y_train, max(w_sum_fold, 1.0), is_torch)
         else:
             L_loss = lipschitz_fn(X_aug, y_train, n_train, is_torch)
         step_values.append(1.0 / L_loss)
@@ -2818,7 +2825,8 @@ class PenalizedGLM_CV(CVEstimatorBase):
         self.cv_selected_device_ = _device_to_name(cv_device)
 
         if self.cv_splits is not None:
-            folds = self.cv_splits
+            # Normalize to list (generators would exhaust on first pass)
+            folds = list(self.cv_splits) if not isinstance(self.cv_splits, list) else self.cv_splits
         else:
             folds = kfold_indices(n_samples, self.cv, self.random_state)
         all_scores_stage1 = None
