@@ -92,26 +92,89 @@ def _two_stage_candidate_mask(scores, refine_top_k=3):
     return mask
 
 
+# ---------------------------------------------------------------------------
+# Per-sample loss functions for validation scoring (numpy-only)
+# ---------------------------------------------------------------------------
+
+def _ps_logistic(eta, y, **_):
+    log1pexp = np.log1p(np.exp(-np.abs(eta))) + np.maximum(eta, 0.0)
+    return -y * eta + log1pexp
+
+def _ps_squared_error(eta, y, X_design=None, coef_with_intercept=None, **_):
+    return (y - X_design @ coef_with_intercept) ** 2
+
+def _ps_poisson(eta, y, **_):
+    mu = np.exp(np.clip(eta, -30, 30))
+    return mu - y * np.log(np.clip(mu, 1e-10, None))
+
+def _ps_gamma(eta, y, **_):
+    mu = np.exp(np.clip(eta, -30, 30))
+    return y / np.clip(mu, 1e-10, None) + np.log(np.clip(mu, 1e-10, None))
+
+def _ps_inverse_gaussian(eta, y, **_):
+    mu = np.exp(np.clip(eta, -30, 30))
+    return y / (2.0 * np.clip(mu * mu, 1e-10, None)) - 1.0 / np.clip(mu, 1e-10, None)
+
+def _ps_negative_binomial(eta, y, **_):
+    mu = np.exp(np.clip(eta, -30, 30))
+    mu_c = np.clip(mu, 1e-10, None)
+    one_plus = 1.0 + mu_c
+    return -y * np.log(mu_c / one_plus) + np.log(one_plus)
+
+def _ps_tweedie(eta, y, **_):
+    mu = np.exp(np.clip(eta, -50, 50))
+    mu_c = np.clip(mu, 1e-3, 1e4)
+    return -y * np.exp(-0.5 * np.log(mu_c)) / 0.5 + np.exp(0.5 * np.log(mu_c)) / 0.5
+
+
+# loss_name -> (per_sample_fn, uses_design_matrix)
+# uses_design=True: fn needs X_design and coef_with_intercept (squared_error)
+# uses_design=False: fn uses eta directly (all GLM losses)
+_LOSS_EVAL_DISPATCH = {
+    "logistic": (_ps_logistic, False),
+    "squared_error": (_ps_squared_error, True),
+    "poisson": (_ps_poisson, False),
+    "gamma": (_ps_gamma, False),
+    "inverse_gaussian": (_ps_inverse_gaussian, False),
+    "negative_binomial": (_ps_negative_binomial, False),
+    "tweedie": (_ps_tweedie, False),
+}
+
+
+def _weighted_mean(per_sample, sw):
+    """Compute weighted or unweighted mean of per-sample values."""
+    if sw is not None:
+        return float(np.sum(sw * per_sample) / np.sum(sw))
+    return float(np.mean(per_sample))
+
+
 def _evaluate_loss_numpy(loss_name, loss_fn, X_val_np, y_val_np, coef_np, intercept, fit_intercept, sample_weight=None):
     """Backend-independent validation loss in float64 numpy.
 
     When sample_weight is provided, returns weighted mean loss.
     """
     coef_np = np.asarray(coef_np, dtype=np.float64).ravel()
-    if fit_intercept:
-        eta = X_val_np @ coef_np + float(intercept)
-    else:
-        eta = X_val_np @ coef_np
-
     sw = np.asarray(sample_weight, dtype=np.float64).ravel() if sample_weight is not None else None
 
-    if loss_name == "logistic":
-        log1pexp = np.log1p(np.exp(-np.abs(eta))) + np.maximum(eta, 0.0)
-        per_sample = -y_val_np * eta + log1pexp
-        if sw is not None:
-            return float(np.sum(sw * per_sample) / np.sum(sw))
-        return float(np.mean(per_sample))
+    entry = _LOSS_EVAL_DISPATCH.get(loss_name)
+    if entry is not None:
+        per_sample_fn, uses_design = entry
+        if uses_design:
+            n_val = X_val_np.shape[0]
+            if fit_intercept:
+                X_design = np.column_stack([np.ones(n_val), X_val_np])
+                coef_with_intercept = np.concatenate([[float(intercept)], coef_np])
+            else:
+                X_design = X_val_np
+                coef_with_intercept = coef_np
+            eta = X_val_np @ coef_np + (float(intercept) if fit_intercept else 0.0)
+            per_sample = per_sample_fn(eta, y_val_np, X_design=X_design, coef_with_intercept=coef_with_intercept)
+        else:
+            eta = X_val_np @ coef_np + (float(intercept) if fit_intercept else 0.0)
+            per_sample = per_sample_fn(eta, y_val_np)
+        return _weighted_mean(per_sample, sw)
 
+    # Fallback for unknown loss types
     n_val = X_val_np.shape[0]
     if fit_intercept:
         X_design = np.column_stack([np.ones(n_val), X_val_np])
@@ -119,57 +182,11 @@ def _evaluate_loss_numpy(loss_name, loss_fn, X_val_np, y_val_np, coef_np, interc
     else:
         X_design = X_val_np
         coef_with_intercept = coef_np
-
-    # Compute per-sample loss for weighting
-    if loss_name == "squared_error":
-        per_sample = (y_val_np - X_design @ coef_with_intercept) ** 2
-        if sw is not None:
-            return float(np.sum(sw * per_sample) / np.sum(sw))
-        return float(np.mean(per_sample))
-    elif loss_name == "poisson":
-        mu = np.exp(np.clip(X_design @ coef_with_intercept, -30, 30))
-        per_sample = mu - y_val_np * np.log(np.clip(mu, 1e-10, None))
-        if sw is not None:
-            return float(np.sum(sw * per_sample) / np.sum(sw))
-        return float(np.mean(per_sample))
-    elif loss_name == "gamma":
-        mu = np.exp(np.clip(X_design @ coef_with_intercept, -30, 30))
-        per_sample = y_val_np / np.clip(mu, 1e-10, None) + np.log(np.clip(mu, 1e-10, None))
-        if sw is not None:
-            return float(np.sum(sw * per_sample) / np.sum(sw))
-        return float(np.mean(per_sample))
-    elif loss_name == "inverse_gaussian":
-        mu = np.exp(np.clip(X_design @ coef_with_intercept, -30, 30))
-        per_sample = y_val_np / (2.0 * np.clip(mu * mu, 1e-10, None)) - 1.0 / np.clip(mu, 1e-10, None)
-        if sw is not None:
-            return float(np.sum(sw * per_sample) / np.sum(sw))
-        return float(np.mean(per_sample))
-    elif loss_name == "negative_binomial":
-        mu = np.exp(np.clip(X_design @ coef_with_intercept, -30, 30))
-        mu_c = np.clip(mu, 1e-10, None)
-        one_plus = 1.0 + mu_c
-        per_sample = -y_val_np * np.log(mu_c / one_plus) + np.log(one_plus)
-        if sw is not None:
-            return float(np.sum(sw * per_sample) / np.sum(sw))
-        return float(np.mean(per_sample))
-    elif loss_name == "tweedie":
-        mu = np.exp(np.clip(X_design @ coef_with_intercept, -50, 50))
-        mu_c = np.clip(mu, 1e-3, 1e4)
-        per_sample = -y_val_np * np.exp(-0.5 * np.log(mu_c)) / 0.5 + np.exp(0.5 * np.log(mu_c)) / 0.5
-        if sw is not None:
-            return float(np.sum(sw * per_sample) / np.sum(sw))
-        return float(np.mean(per_sample))
-    else:
-        # Fallback for unknown loss types: use loss_fn.value().
-        # Note: loss_fn.value() returns unweighted mean loss.
-        # If weights are provided, we approximate weighted mean by
-        # scaling with sum(w)/n. This is exact when per-sample losses
-        # are uniform, and approximate otherwise.
-        val = float(loss_fn.value(X_design, y_val_np, coef_with_intercept))
-        if sw is not None:
-            # Scale: weighted_mean ≈ unweighted_mean * (sum(w) / n)
-            return val * float(np.sum(sw)) / float(len(sw))
-        return val
+    val = float(loss_fn.value(X_design, y_val_np, coef_with_intercept))
+    if sw is not None:
+        # Scale: weighted_mean ≈ unweighted_mean * (sum(w) / n)
+        return val * float(np.sum(sw)) / float(len(sw))
+    return val
 
 
 def _ridge_eig_batch(X_train_np, y_train_np, X_val_np, y_val_np, alphas_np):
@@ -2118,6 +2135,20 @@ class PenalizedGLM_CV(CVEstimatorBase):
 
         return val_loss
 
+    @staticmethod
+    def _populate_refit_model(model, coef, intercept, X, device, n_iter=None):
+        """Set standard attributes on a refit model from path results."""
+        model.coef_ = np.asarray(coef, dtype=np.float64)
+        model.intercept_ = float(intercept)
+        if n_iter is not None:
+            model.n_iter_ = int(n_iter)
+        model._params = np.concatenate([[float(intercept)], np.asarray(coef, dtype=np.float64)])
+        model._nobs = int(X.shape[0])
+        model._df_resid = int(X.shape[0] - X.shape[1] - 1)
+        model._selected_backend_name = _backend_name_for_cv_device(device)
+        model._fitted = True
+        return model
+
     def _refit_best(self, X, y, best_alpha, sample_weight=None):
         """Refit on full data with best alpha.
 
@@ -2173,63 +2204,33 @@ class PenalizedGLM_CV(CVEstimatorBase):
             )
             if path is not None:
                 model = PenalizedGeneralizedLinearModel(
-                    loss=self.loss,
-                    penalty=self.penalty,
-                    alpha=best_alpha,
-                    l1_ratio=self.l1_ratio,
-                    device=refit_device,
-                    compute_inference=False,
-                    max_iter=self.max_iter,
-                    tol=self.tol,
-                    solver=self._solver_for_cv(refit_device, X=X),
+                    loss=self.loss, penalty=self.penalty, alpha=best_alpha,
+                    l1_ratio=self.l1_ratio, device=refit_device,
+                    compute_inference=False, max_iter=self.max_iter,
+                    tol=self.tol, solver=self._solver_for_cv(refit_device, X=X),
                 )
-                coef = np.asarray(path["coef"][-1], dtype=np.float64)
-                intercept = float(path["intercept"][-1])
-                model.coef_ = coef
-                model.intercept_ = intercept
-                model.n_iter_ = int(path["n_iter"][-1])
-                model._params = np.concatenate([[intercept], coef])
-                model._nobs = int(X.shape[0])
-                model._df_resid = int(X.shape[0] - X.shape[1] - 1)
-                model._selected_backend_name = _backend_name_for_cv_device(refit_device)
-                model._fitted = True
-                return model
+                return self._populate_refit_model(
+                    model, path["coef"][-1], path["intercept"][-1],
+                    X, refit_device, n_iter=path["n_iter"][-1],
+                )
 
         if self.loss == "squared_error" and penalty_name in ("l1", "elasticnet", "en"):
             path = _squared_error_sparse_cv_path(
-                X,
-                y,
-                np.asarray([best_alpha], dtype=np.float64),
-                penalty_name,
-                self.l1_ratio,
-                self.max_iter,
-                self.tol,
-                refit_device,
-                sample_weight=sample_weight,
+                X, y, np.asarray([best_alpha], dtype=np.float64),
+                penalty_name, self.l1_ratio, self.max_iter, self.tol,
+                refit_device, sample_weight=sample_weight,
             )
             if path is not None:
                 model = PenalizedGeneralizedLinearModel(
-                    loss=self.loss,
-                    penalty=self.penalty,
-                    alpha=best_alpha,
-                    l1_ratio=self.l1_ratio,
-                    device=refit_device,
-                    compute_inference=False,
-                    max_iter=self.max_iter,
-                    tol=self.tol,
-                    solver=self._solver_for_cv(refit_device, X=X),
+                    loss=self.loss, penalty=self.penalty, alpha=best_alpha,
+                    l1_ratio=self.l1_ratio, device=refit_device,
+                    compute_inference=False, max_iter=self.max_iter,
+                    tol=self.tol, solver=self._solver_for_cv(refit_device, X=X),
                 )
-                coef = np.asarray(path["coef"][-1], dtype=np.float64)
-                intercept = float(path["intercept"][-1])
-                model.coef_ = coef
-                model.intercept_ = intercept
-                model.n_iter_ = int(path["n_iter"][-1])
-                model._params = np.concatenate([[intercept], coef])
-                model._nobs = int(X.shape[0])
-                model._df_resid = int(X.shape[0] - X.shape[1] - 1)
-                model._selected_backend_name = _backend_name_for_cv_device(refit_device)
-                model._fitted = True
-                return model
+                return self._populate_refit_model(
+                    model, path["coef"][-1], path["intercept"][-1],
+                    X, refit_device, n_iter=path["n_iter"][-1],
+                )
 
         cv_solver = self._solver_for_cv(refit_device, X=X)
         if self._uses_glm_sparse_path(penalty_name, cv_solver):
@@ -2250,27 +2251,15 @@ class PenalizedGLM_CV(CVEstimatorBase):
             )
             if path is not None:
                 model = PenalizedGeneralizedLinearModel(
-                    loss=self.loss,
-                    penalty=self.penalty,
-                    alpha=best_alpha,
-                    l1_ratio=self.l1_ratio,
-                    device=refit_device,
-                    compute_inference=False,
-                    max_iter=self.max_iter,
-                    tol=self.tol,
-                    solver=cv_solver,
+                    loss=self.loss, penalty=self.penalty, alpha=best_alpha,
+                    l1_ratio=self.l1_ratio, device=refit_device,
+                    compute_inference=False, max_iter=self.max_iter,
+                    tol=self.tol, solver=cv_solver,
                 )
-                coef = np.asarray(path["coef"][-1], dtype=np.float64)
-                intercept = float(path["intercept"][-1])
-                model.coef_ = coef
-                model.intercept_ = intercept
-                model.n_iter_ = int(path["n_iter"][-1])
-                model._params = np.concatenate([[intercept], coef])
-                model._nobs = int(X.shape[0])
-                model._df_resid = int(X.shape[0] - X.shape[1] - 1)
-                model._selected_backend_name = _backend_name_for_cv_device(refit_device)
-                model._fitted = True
-                return model
+                return self._populate_refit_model(
+                    model, path["coef"][-1], path["intercept"][-1],
+                    X, refit_device, n_iter=path["n_iter"][-1],
+                )
 
         model = PenalizedGeneralizedLinearModel(
             loss=self.loss,

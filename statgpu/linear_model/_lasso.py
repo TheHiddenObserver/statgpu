@@ -21,7 +21,7 @@ except Exception:
 
 from statgpu._base import BaseEstimator
 from statgpu._config import Device
-from statgpu.linear_model._cv_base import CVEstimatorBase
+from statgpu.linear_model._cv_base import CVEstimatorBase, kfold_indices as _kfold_indices
 from statgpu.backends import get_backend
 from statgpu.inference._distributions_backend import (
     norm,
@@ -2661,26 +2661,7 @@ def _default_lasso_alpha_grid_cupy(
     return np.geomspace(alpha_max, alpha_min, num=int(n_alphas)).astype(np.float64)
 
 
-def _kfold_indices(n_samples: int, n_splits: int, random_state: Optional[int]):
-    n = int(n_samples)
-    k = max(2, min(int(n_splits), n))
-
-    rng = np.random.default_rng(random_state)
-    indices = rng.permutation(n)
-
-    fold_sizes = np.full(k, n // k, dtype=np.int64)
-    fold_sizes[: n % k] += 1
-
-    folds = []
-    current = 0
-    for fold_size in fold_sizes:
-        start, stop = current, current + int(fold_size)
-        val_idx = indices[start:stop]
-        train_idx = np.concatenate([indices[:start], indices[stop:]])
-        current = stop
-        if train_idx.size == 0 or val_idx.size == 0:
-            continue
-        folds.append((train_idx, val_idx))
+# _kfold_indices imported from _cv_base (see top of file)
 
     if len(folds) == 0:
         all_idx = np.arange(n, dtype=np.int64)
