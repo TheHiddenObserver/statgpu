@@ -482,10 +482,123 @@ def _fold_batch_lipschitz_gamma(X_aug, y_train, n_train, is_torch):
 
 
 # Loss-specific configs: lipschitz_fn and intercept_fn only.
-# Residual and val_loss are inlined in _glm_sparse_cv_folds for performance.
-# NOTE: NB uses alpha=1.0, Tweedie uses power=1.5 (defaults).
-#       Inline code hardcodes these values; update both if defaults change.
+# ---------------------------------------------------------------------------
+# Loss formula registry — single source of truth for residual and val_loss
+# ---------------------------------------------------------------------------
+# Each loss registers (residual_fn, val_loss_fn) that work with any backend
+# (numpy/torch/cupy) via elementwise ops. The FISTA hot loop calls these
+# instead of inline if/elif chains, eliminating formula duplication.
+#
+# Signature: fn(eta, y, **params) -> per_sample_loss_or_residual
+# `eta` and `y` are backend arrays; `params` carries loss-specific scalars.
 
+_LOSS_RESIDUAL_FNS = {}
+_LOSS_VALLOSS_FNS = {}
+
+def _register_loss_fns(loss_name, residual_fn, val_loss_fn, params=None):
+    _LOSS_RESIDUAL_FNS[loss_name] = residual_fn
+    _LOSS_VALLOSS_FNS[loss_name] = val_loss_fn
+
+# --- Logistic ---
+def _res_logistic(eta, y, **_):
+    # Use backend-agnostic ops via eta's module
+    xp = _get_xp(eta)
+    log1pexp = xp.log1p(xp.exp(-xp.abs(eta))) + xp.maximum(eta, 0.0)
+    return -y * eta + log1pexp
+
+def _val_logistic(eta, y, **_):
+    xp = _get_xp(eta)
+    log1pexp = xp.log1p(xp.exp(-xp.abs(eta))) + xp.maximum(eta, 0.0)
+    return -y * eta + log1pexp
+
+# --- Poisson ---
+def _res_poisson(eta, y, **_):
+    xp = _get_xp(eta)
+    mu = xp.exp(xp.clip(eta, -_ETA_CLIP_STANDARD, _ETA_CLIP_STANDARD) if hasattr(xp, 'clip') else xp.clamp(eta, -_ETA_CLIP_STANDARD, _ETA_CLIP_STANDARD))
+    mu_c = xp.clip(mu, _MU_LO, None) if hasattr(xp, 'clip') else xp.clamp(mu, min=_MU_LO)
+    return mu_c - y * xp.log(mu_c)
+
+def _val_poisson(eta, y, **_):
+    xp = _get_xp(eta)
+    mu = xp.exp(xp.clip(eta, -_ETA_CLIP_STANDARD, _ETA_CLIP_STANDARD) if hasattr(xp, 'clip') else xp.clamp(eta, -_ETA_CLIP_STANDARD, _ETA_CLIP_STANDARD))
+    mu_c = xp.clip(mu, _MU_LO, None) if hasattr(xp, 'clip') else xp.clamp(mu, min=_MU_LO)
+    return mu_c - y * xp.log(mu_c)
+
+# --- Gamma ---
+def _res_gamma(eta, y, **_):
+    xp = _get_xp(eta)
+    mu = xp.exp(xp.clip(eta, -_ETA_CLIP_STANDARD, _ETA_CLIP_STANDARD) if hasattr(xp, 'clip') else xp.clamp(eta, -_ETA_CLIP_STANDARD, _ETA_CLIP_STANDARD))
+    mu_c = xp.clip(mu, _MU_LO, None) if hasattr(xp, 'clip') else xp.clamp(mu, min=_MU_LO)
+    return 1.0 - y / mu_c
+
+def _val_gamma(eta, y, **_):
+    xp = _get_xp(eta)
+    mu = xp.exp(xp.clip(eta, -_ETA_CLIP_STANDARD, _ETA_CLIP_STANDARD) if hasattr(xp, 'clip') else xp.clamp(eta, -_ETA_CLIP_STANDARD, _ETA_CLIP_STANDARD))
+    mu_c = xp.clip(mu, _MU_LO, None) if hasattr(xp, 'clip') else xp.clamp(mu, min=_MU_LO)
+    return y / mu_c + xp.log(mu_c)
+
+# --- Inverse Gaussian ---
+def _res_invgauss(eta, y, **_):
+    xp = _get_xp(eta)
+    mu = xp.exp(xp.clip(eta, -_ETA_CLIP_STANDARD, _ETA_CLIP_STANDARD) if hasattr(xp, 'clip') else xp.clamp(eta, -_ETA_CLIP_STANDARD, _ETA_CLIP_STANDARD))
+    mu_c = xp.clip(mu, _MU_LO, None) if hasattr(xp, 'clip') else xp.clamp(mu, min=_MU_LO)
+    return (mu_c - y) / (mu_c * mu_c)
+
+def _val_invgauss(eta, y, **_):
+    xp = _get_xp(eta)
+    mu = xp.exp(xp.clip(eta, -_ETA_CLIP_STANDARD, _ETA_CLIP_STANDARD) if hasattr(xp, 'clip') else xp.clamp(eta, -_ETA_CLIP_STANDARD, _ETA_CLIP_STANDARD))
+    mu_c = xp.clip(mu, _MU_LO, None) if hasattr(xp, 'clip') else xp.clamp(mu, min=_MU_LO)
+    return y / (2.0 * mu_c * mu_c) - 1.0 / mu_c
+
+# --- Negative Binomial ---
+def _res_nb(eta, y, alpha=_NB_ALPHA_DEFAULT, **_):
+    xp = _get_xp(eta)
+    mu = xp.exp(xp.clip(eta, -_ETA_CLIP_STANDARD, _ETA_CLIP_STANDARD) if hasattr(xp, 'clip') else xp.clamp(eta, -_ETA_CLIP_STANDARD, _ETA_CLIP_STANDARD))
+    mu_c = xp.clip(mu, _MU_LO, None) if hasattr(xp, 'clip') else xp.clamp(mu, min=_MU_LO)
+    return (mu_c - y) / (alpha + mu_c)
+
+def _val_nb(eta, y, alpha=_NB_ALPHA_DEFAULT, **_):
+    xp = _get_xp(eta)
+    mu = xp.exp(xp.clip(eta, -_ETA_CLIP_STANDARD, _ETA_CLIP_STANDARD) if hasattr(xp, 'clip') else xp.clamp(eta, -_ETA_CLIP_STANDARD, _ETA_CLIP_STANDARD))
+    mu_c = xp.clip(mu, _MU_LO, None) if hasattr(xp, 'clip') else xp.clamp(mu, min=_MU_LO)
+    one_plus = 1.0 + alpha * mu_c
+    return -y * xp.log(mu_c / one_plus) + (1.0 / alpha) * xp.log(one_plus)
+
+# --- Tweedie ---
+def _res_tweedie(eta, y, power=_TWEEDIE_POWER_DEFAULT, **_):
+    xp = _get_xp(eta)
+    mu = xp.exp(xp.clip(eta, -_ETA_CLIP_TWEEDIE, _ETA_CLIP_TWEEDIE) if hasattr(xp, 'clip') else xp.clamp(eta, -_ETA_CLIP_TWEEDIE, _ETA_CLIP_TWEEDIE))
+    mu_c = xp.clip(mu, _MU_LO_TWEEDIE, _MU_HI_TWEEDIE) if hasattr(xp, 'clip') else xp.clamp(mu, min=_MU_LO_TWEEDIE, max=_MU_HI_TWEEDIE)
+    return xp.exp((1 - power) * xp.log(mu_c)) * (mu_c - y)
+
+def _val_tweedie(eta, y, power=_TWEEDIE_POWER_DEFAULT, **_):
+    xp = _get_xp(eta)
+    mu = xp.exp(xp.clip(eta, -_ETA_CLIP_TWEEDIE, _ETA_CLIP_TWEEDIE) if hasattr(xp, 'clip') else xp.clamp(eta, -_ETA_CLIP_TWEEDIE, _ETA_CLIP_TWEEDIE))
+    mu_c = xp.clip(mu, _MU_LO_TWEEDIE, _MU_HI_TWEEDIE) if hasattr(xp, 'clip') else xp.clamp(mu, min=_MU_LO_TWEEDIE, max=_MU_HI_TWEEDIE)
+    return -y * xp.exp((1 - power) * xp.log(mu_c)) / (1 - power) + xp.exp((2 - power) * xp.log(mu_c)) / (2 - power)
+
+
+def _get_xp(arr):
+    """Get array module (numpy/torch/cupy) from an array."""
+    mod = type(arr).__module__
+    if mod.startswith("torch"):
+        import torch
+        return torch
+    if mod.startswith("cupy"):
+        import cupy as cp
+        return cp
+    return np
+
+
+_register_loss_fns("logistic", _res_logistic, _val_logistic)
+_register_loss_fns("poisson", _res_poisson, _val_poisson)
+_register_loss_fns("gamma", _res_gamma, _val_gamma)
+_register_loss_fns("inverse_gaussian", _res_invgauss, _val_invgauss)
+_register_loss_fns("negative_binomial", _res_nb, _val_nb)
+_register_loss_fns("tweedie", _res_tweedie, _val_tweedie)
+
+
+# Legacy fold-batch config (Lipschitz + intercept only; residual/val_loss now use registry)
 _FOLD_BATCH_CONFIGS = {}
 
 
@@ -663,51 +776,9 @@ def _glm_sparse_cv_folds(
             intercept_old = _fb_copy(intercept, is_torch)
 
             eta = Xb @ y_coef + y_intercept
-            # Inline residual to avoid function call overhead in hot loop.
-            # Uses module-level constants for clip bounds and loss parameters.
-            if loss_name == "logistic":
-                if is_torch:
-                    resid = (torch.sigmoid(torch.clamp(eta, -_ETA_CLIP_LOGISTIC, _ETA_CLIP_LOGISTIC)) - y_col) * train_mask
-                else:
-                    resid = (1.0 / (1.0 + cp.exp(-cp.clip(eta, -_ETA_CLIP_LOGISTIC, _ETA_CLIP_LOGISTIC))) - y_col) * train_mask
-            elif loss_name == "gamma":
-                if is_torch:
-                    mu_r = torch.exp(torch.clamp(eta, -_ETA_CLIP_STANDARD, _ETA_CLIP_STANDARD))
-                    resid = (1.0 - y_col / torch.clamp(mu_r, min=_MU_LO)) * train_mask
-                else:
-                    mu_r = cp.exp(cp.clip(eta, -_ETA_CLIP_STANDARD, _ETA_CLIP_STANDARD))
-                    resid = (1.0 - y_col / cp.clip(mu_r, _MU_LO, None)) * train_mask
-            elif loss_name == "inverse_gaussian":
-                if is_torch:
-                    mu_r = torch.exp(torch.clamp(eta, -_ETA_CLIP_STANDARD, _ETA_CLIP_STANDARD))
-                    resid = ((mu_r - y_col) / torch.clamp(mu_r * mu_r, min=_MU_LO)) * train_mask
-                else:
-                    mu_r = cp.exp(cp.clip(eta, -_ETA_CLIP_STANDARD, _ETA_CLIP_STANDARD))
-                    resid = ((mu_r - y_col) / cp.clip(mu_r * mu_r, _MU_LO, None)) * train_mask
-            elif loss_name == "negative_binomial":
-                if is_torch:
-                    mu_r = torch.exp(torch.clamp(eta, -_ETA_CLIP_STANDARD, _ETA_CLIP_STANDARD))
-                    resid = ((mu_r - y_col) / (_nb_alpha + mu_r)) * train_mask
-                else:
-                    mu_r = cp.exp(cp.clip(eta, -_ETA_CLIP_STANDARD, _ETA_CLIP_STANDARD))
-                    resid = ((mu_r - y_col) / (_nb_alpha + mu_r)) * train_mask
-            elif loss_name == "tweedie":
-                _p = _tw_power
-                if is_torch:
-                    mu_r = torch.exp(torch.clamp(eta, -_ETA_CLIP_TWEEDIE, _ETA_CLIP_TWEEDIE))
-                    mu_c = torch.clamp(mu_r, min=_MU_LO_TWEEDIE, max=_MU_HI_TWEEDIE)
-                    resid = (torch.exp((1 - _p) * torch.log(mu_c)) * (mu_c - y_col)) * train_mask
-                else:
-                    mu_r = cp.exp(cp.clip(eta, -_ETA_CLIP_TWEEDIE, _ETA_CLIP_TWEEDIE))
-                    mu_c = cp.clip(mu_r, _MU_LO_TWEEDIE, _MU_HI_TWEEDIE)
-                    resid = (cp.exp((1 - _p) * cp.log(mu_c)) * (mu_c - y_col)) * train_mask
-            elif loss_name == "poisson":
-                if is_torch:
-                    resid = (torch.exp(torch.clamp(eta, -_ETA_CLIP_STANDARD, _ETA_CLIP_STANDARD)) - y_col) * train_mask
-                else:
-                    resid = (cp.exp(cp.clip(eta, -_ETA_CLIP_STANDARD, _ETA_CLIP_STANDARD)) - y_col) * train_mask
-            else:
-                raise ValueError(f"Unknown loss_name for fold-batch residual: {loss_name}")
+            # Compute per-sample residual via loss registry.
+            # Each loss defines a backend-agnostic residual function.
+            resid = _LOSS_RESIDUAL_FNS[loss_name](eta, y_col, alpha=_nb_alpha, power=_tw_power) * train_mask
             # Weighted gradient: multiply residual by sw_mask (includes train_mask)
             # and divide by sum of weights per fold
             grad_coef = (Xb.T @ (resid * sw_mask)) / sw_train_vec
@@ -754,55 +825,9 @@ def _glm_sparse_cv_folds(
                     if not bool(cp.any(active)):
                         break
 
-        # Validation loss (inline to avoid function call overhead)
+        # Validation loss via loss registry (single call, backend-agnostic)
         eta_val = Xb @ coef + intercept
-        if loss_name == "logistic":
-            val_loss = (-y_col * eta_val + _softplus(eta_val, "torch" if is_torch else "cupy")) * val_mask
-        elif loss_name == "gamma":
-            if is_torch:
-                mu_v = torch.exp(torch.clamp(eta_val, -_ETA_CLIP_STANDARD, _ETA_CLIP_STANDARD))
-                val_loss = (y_col / torch.clamp(mu_v, min=_MU_LO) + torch.log(torch.clamp(mu_v, min=_MU_LO))) * val_mask
-            else:
-                mu_v = cp.exp(cp.clip(eta_val, -_ETA_CLIP_STANDARD, _ETA_CLIP_STANDARD))
-                val_loss = (y_col / cp.clip(mu_v, _MU_LO, None) + cp.log(cp.clip(mu_v, _MU_LO, None))) * val_mask
-        elif loss_name == "inverse_gaussian":
-            if is_torch:
-                mu_v = torch.exp(torch.clamp(eta_val, -_ETA_CLIP_STANDARD, _ETA_CLIP_STANDARD))
-                val_loss = (y_col / (2.0 * torch.clamp(mu_v * mu_v, min=_MU_LO)) - 1.0 / torch.clamp(mu_v, min=_MU_LO)) * val_mask
-            else:
-                mu_v = cp.exp(cp.clip(eta_val, -_ETA_CLIP_STANDARD, _ETA_CLIP_STANDARD))
-                val_loss = (y_col / (2.0 * cp.clip(mu_v * mu_v, _MU_LO, None)) - 1.0 / cp.clip(mu_v, _MU_LO, None)) * val_mask
-        elif loss_name == "negative_binomial":
-            _a = _nb_alpha
-            if is_torch:
-                mu_v = torch.exp(torch.clamp(eta_val, -_ETA_CLIP_STANDARD, _ETA_CLIP_STANDARD))
-                mu_c = torch.clamp(mu_v, min=_MU_LO)
-                one_plus = 1.0 + _a * mu_c
-                val_loss = (-y_col * torch.log(mu_c / one_plus) + (1.0 / _a) * torch.log(one_plus)) * val_mask
-            else:
-                mu_v = cp.exp(cp.clip(eta_val, -_ETA_CLIP_STANDARD, _ETA_CLIP_STANDARD))
-                mu_c = cp.clip(mu_v, _MU_LO, None)
-                one_plus = 1.0 + _a * mu_c
-                val_loss = (-y_col * cp.log(mu_c / one_plus) + (1.0 / _a) * cp.log(one_plus)) * val_mask
-        elif loss_name == "tweedie":
-            _p = _TWEEDIE_POWER_DEFAULT
-            if is_torch:
-                mu_v = torch.exp(torch.clamp(eta_val, -_ETA_CLIP_TWEEDIE, _ETA_CLIP_TWEEDIE))
-                mu_c = torch.clamp(mu_v, min=_MU_LO_TWEEDIE, max=_MU_HI_TWEEDIE)
-                val_loss = (-y_col * torch.exp((1 - _p) * torch.log(mu_c)) / (1 - _p) + torch.exp((2 - _p) * torch.log(mu_c)) / (2 - _p)) * val_mask
-            else:
-                mu_v = cp.exp(cp.clip(eta_val, -_ETA_CLIP_TWEEDIE, _ETA_CLIP_TWEEDIE))
-                mu_c = cp.clip(mu_v, _MU_LO_TWEEDIE, _MU_HI_TWEEDIE)
-                val_loss = (-y_col * cp.exp((1 - _p) * cp.log(mu_c)) / (1 - _p) + cp.exp((2 - _p) * cp.log(mu_c)) / (2 - _p)) * val_mask
-        elif loss_name == "poisson":
-            if is_torch:
-                mu_v = torch.exp(torch.clamp(eta_val, -_ETA_CLIP_STANDARD, _ETA_CLIP_STANDARD))
-                val_loss = (mu_v - y_col * torch.log(torch.clamp(mu_v, min=_MU_LO))) * val_mask
-            else:
-                mu_v = cp.exp(cp.clip(eta_val, -_ETA_CLIP_STANDARD, _ETA_CLIP_STANDARD))
-                val_loss = (mu_v - y_col * cp.log(cp.clip(mu_v, _MU_LO, None))) * val_mask
-        else:
-            raise ValueError(f"Unknown loss_name for fold-batch val_loss: {loss_name}")
+        val_loss = _LOSS_VALLOSS_FNS[loss_name](eta_val, y_col, alpha=_nb_alpha, power=_tw_power) * val_mask
         # Weighted validation scoring: use sw_val_mask when weights present
         if has_weights:
             sw_val_mask = sw_all.reshape(-1, 1) * val_mask
