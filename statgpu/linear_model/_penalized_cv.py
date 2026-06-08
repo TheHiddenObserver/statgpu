@@ -547,6 +547,13 @@ def _glm_sparse_cv_folds(
     if cfg is None:
         return None
 
+    # Resolve loss-specific parameters from the loss object defaults.
+    # This ensures inline code stays in sync with loss class defaults.
+    from statgpu.linear_model._penalized import _resolve_loss_name
+    _loss_obj = _resolve_loss_name(loss_name)
+    _nb_alpha = float(getattr(_loss_obj, 'alpha', _NB_ALPHA_DEFAULT))
+    _tw_power = float(getattr(_loss_obj, 'power', _TWEEDIE_POWER_DEFAULT))
+
     is_torch = (device_backend == "torch")
     if is_torch:
         if _backend_name_for_cv_device("torch") != "torch":
@@ -680,12 +687,12 @@ def _glm_sparse_cv_folds(
             elif loss_name == "negative_binomial":
                 if is_torch:
                     mu_r = torch.exp(torch.clamp(eta, -_ETA_CLIP_STANDARD, _ETA_CLIP_STANDARD))
-                    resid = ((mu_r - y_col) / (_NB_ALPHA_DEFAULT + mu_r)) * train_mask
+                    resid = ((mu_r - y_col) / (_nb_alpha + mu_r)) * train_mask
                 else:
                     mu_r = cp.exp(cp.clip(eta, -_ETA_CLIP_STANDARD, _ETA_CLIP_STANDARD))
-                    resid = ((mu_r - y_col) / (_NB_ALPHA_DEFAULT + mu_r)) * train_mask
+                    resid = ((mu_r - y_col) / (_nb_alpha + mu_r)) * train_mask
             elif loss_name == "tweedie":
-                _p = _TWEEDIE_POWER_DEFAULT
+                _p = _tw_power
                 if is_torch:
                     mu_r = torch.exp(torch.clamp(eta, -_ETA_CLIP_TWEEDIE, _ETA_CLIP_TWEEDIE))
                     mu_c = torch.clamp(mu_r, min=_MU_LO_TWEEDIE, max=_MU_HI_TWEEDIE)
@@ -766,7 +773,7 @@ def _glm_sparse_cv_folds(
                 mu_v = cp.exp(cp.clip(eta_val, -_ETA_CLIP_STANDARD, _ETA_CLIP_STANDARD))
                 val_loss = (y_col / (2.0 * cp.clip(mu_v * mu_v, _MU_LO, None)) - 1.0 / cp.clip(mu_v, _MU_LO, None)) * val_mask
         elif loss_name == "negative_binomial":
-            _a = _NB_ALPHA_DEFAULT
+            _a = _nb_alpha
             if is_torch:
                 mu_v = torch.exp(torch.clamp(eta_val, -_ETA_CLIP_STANDARD, _ETA_CLIP_STANDARD))
                 mu_c = torch.clamp(mu_v, min=_MU_LO)
