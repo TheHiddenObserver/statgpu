@@ -2471,7 +2471,13 @@ class PenalizedGLM_CV(CVEstimatorBase):
                         all_scores[fold_idx, sort_idx] = path["scores"]
                         fold_handled = True
                         break
-                except Exception:
+                except Exception as e:
+                    warnings.warn(
+                        f"{path_fn.__name__} failed for {loss_name}+{penalty_name} "
+                        f"fold {fold_idx}: {e}",
+                        RuntimeWarning,
+                        stacklevel=2,
+                    )
                     continue
 
             if fold_handled:
@@ -2501,7 +2507,6 @@ class PenalizedGLM_CV(CVEstimatorBase):
 
         X_val_np = _to_numpy(X_val).astype(np.float64)
         y_val_np = _to_numpy(y_val).astype(np.float64).ravel()
-        n_val = X_val_np.shape[0]
         loss_fn = _resolve_loss_name(loss_name)
 
         use_warm_start = not (loss_name != "squared_error" and penalty_name in ("scad", "mcp"))
@@ -2560,14 +2565,16 @@ class PenalizedGLM_CV(CVEstimatorBase):
                             True, sample_weight=sw_val,
                         )
                         all_scores[fold_idx, sort_idx[alpha_idx_sorted]] = val_loss
-                    if hasattr(model, "_cv_alpha_path"): del model._cv_alpha_path
-                    if hasattr(model, "_cv_path_results"): del model._cv_path_results
-                    if hasattr(model, "_cv_cache"): del model._cv_cache
-                    if hasattr(model, "_preserve_cv_cache"): del model._preserve_cv_cache
+                    for attr in ("_cv_alpha_path", "_cv_path_results", "_cv_cache", "_preserve_cv_cache"):
+                        if hasattr(model, attr): delattr(model, attr)
                     return
+                else:
+                    # path is None — cleanup and fall through to warm-start loop
+                    for attr in ("_cv_alpha_path", "_cv_path_results"):
+                        if hasattr(model, attr): delattr(model, attr)
             except Exception:
-                if hasattr(model, "_cv_alpha_path"): del model._cv_alpha_path
-                if hasattr(model, "_cv_path_results"): del model._cv_path_results
+                for attr in ("_cv_alpha_path", "_cv_path_results"):
+                    if hasattr(model, attr): delattr(model, attr)
 
         # Warm-started alpha loop
         prev_coef = None
