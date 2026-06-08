@@ -514,10 +514,11 @@ def _val_logistic(eta, y, **_):
 
 # --- Poisson ---
 def _res_poisson(eta, y, **_):
+    # Gradient of Poisson loss: d/deta [mu - y*log(mu)] = mu - y
     xp = _get_xp(eta)
     mu = xp.exp(xp.clip(eta, -_ETA_CLIP_STANDARD, _ETA_CLIP_STANDARD) if hasattr(xp, 'clip') else xp.clamp(eta, -_ETA_CLIP_STANDARD, _ETA_CLIP_STANDARD))
     mu_c = xp.clip(mu, _MU_LO, None) if hasattr(xp, 'clip') else xp.clamp(mu, min=_MU_LO)
-    return mu_c - y * xp.log(mu_c)
+    return mu_c - y
 
 def _val_poisson(eta, y, **_):
     xp = _get_xp(eta)
@@ -546,17 +547,21 @@ def _res_invgauss(eta, y, **_):
     return (mu_c - y) / (mu_c * mu_c)
 
 def _val_invgauss(eta, y, **_):
+    # Inverse Gaussian loss: y/(2*mu^2) - 1/mu
     xp = _get_xp(eta)
     mu = xp.exp(xp.clip(eta, -_ETA_CLIP_STANDARD, _ETA_CLIP_STANDARD) if hasattr(xp, 'clip') else xp.clamp(eta, -_ETA_CLIP_STANDARD, _ETA_CLIP_STANDARD))
+    # Clip mu^2 (not mu) to match _ps_inverse_gaussian: denom >= 2e-10
+    mu_sq_c = xp.clip(mu * mu, _MU_LO, None) if hasattr(xp, 'clip') else xp.clamp(mu * mu, min=_MU_LO)
     mu_c = xp.clip(mu, _MU_LO, None) if hasattr(xp, 'clip') else xp.clamp(mu, min=_MU_LO)
-    return y / (2.0 * mu_c * mu_c) - 1.0 / mu_c
+    return y / (2.0 * mu_sq_c) - 1.0 / mu_c
 
 # --- Negative Binomial ---
 def _res_nb(eta, y, alpha=_NB_ALPHA_DEFAULT, **_):
+    # Gradient of NB loss: d/deta L = (mu - y) / (1 + alpha*mu)
     xp = _get_xp(eta)
     mu = xp.exp(xp.clip(eta, -_ETA_CLIP_STANDARD, _ETA_CLIP_STANDARD) if hasattr(xp, 'clip') else xp.clamp(eta, -_ETA_CLIP_STANDARD, _ETA_CLIP_STANDARD))
     mu_c = xp.clip(mu, _MU_LO, None) if hasattr(xp, 'clip') else xp.clamp(mu, min=_MU_LO)
-    return (mu_c - y) / (alpha + mu_c)
+    return (mu_c - y) / (1.0 + alpha * mu_c)
 
 def _val_nb(eta, y, alpha=_NB_ALPHA_DEFAULT, **_):
     xp = _get_xp(eta)
@@ -573,10 +578,17 @@ def _res_tweedie(eta, y, power=_TWEEDIE_POWER_DEFAULT, **_):
     return xp.exp((1 - power) * xp.log(mu_c)) * (mu_c - y)
 
 def _val_tweedie(eta, y, power=_TWEEDIE_POWER_DEFAULT, **_):
+    # Tweedie loss: -y*mu^(1-p)/(1-p) + mu^(2-p)/(2-p)
+    # Handle boundary: power=1 (Poisson) and power=2 (Gamma) use log form.
     xp = _get_xp(eta)
     mu = xp.exp(xp.clip(eta, -_ETA_CLIP_TWEEDIE, _ETA_CLIP_TWEEDIE) if hasattr(xp, 'clip') else xp.clamp(eta, -_ETA_CLIP_TWEEDIE, _ETA_CLIP_TWEEDIE))
     mu_c = xp.clip(mu, _MU_LO_TWEEDIE, _MU_HI_TWEEDIE) if hasattr(xp, 'clip') else xp.clamp(mu, min=_MU_LO_TWEEDIE, max=_MU_HI_TWEEDIE)
-    return -y * xp.exp((1 - power) * xp.log(mu_c)) / (1 - power) + xp.exp((2 - power) * xp.log(mu_c)) / (2 - power)
+    log_mu = xp.log(mu_c)
+    d1 = 1.0 - power
+    d2 = 2.0 - power
+    term1 = -y * xp.exp(d1 * log_mu) / d1 if abs(d1) > 1e-10 else -y * log_mu
+    term2 = xp.exp(d2 * log_mu) / d2 if abs(d2) > 1e-10 else log_mu
+    return term1 + term2
 
 
 def _get_xp(arr):
