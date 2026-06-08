@@ -121,10 +121,11 @@ def _ps_negative_binomial(eta, y, **_):
     one_plus = 1.0 + mu_c
     return -y * np.log(mu_c / one_plus) + np.log(one_plus)
 
-def _ps_tweedie(eta, y, **_):
+def _ps_tweedie(eta, y, power=1.5, **_):
     mu = np.exp(np.clip(eta, -50, 50))
     mu_c = np.clip(mu, 1e-3, 1e4)
-    return -y * np.exp(-0.5 * np.log(mu_c)) / 0.5 + np.exp(0.5 * np.log(mu_c)) / 0.5
+    # Tweedie loss: -y * mu^(1-p) / (1-p) + mu^(2-p) / (2-p)
+    return -y * np.exp((1 - power) * np.log(mu_c)) / (1 - power) + np.exp((2 - power) * np.log(mu_c)) / (2 - power)
 
 
 # loss_name -> (per_sample_fn, uses_design_matrix)
@@ -182,11 +183,9 @@ def _evaluate_loss_numpy(loss_name, loss_fn, X_val_np, y_val_np, coef_np, interc
     else:
         X_design = X_val_np
         coef_with_intercept = coef_np
-    val = float(loss_fn.value(X_design, y_val_np, coef_with_intercept))
-    if sw is not None:
-        # Scale: weighted_mean ≈ unweighted_mean * (sum(w) / n)
-        return val * float(np.sum(sw)) / float(len(sw))
-    return val
+    # Fallback: unweighted loss. Weighted mean cannot be derived from
+    # unweighted mean, so weights are ignored for unknown loss types.
+    return float(loss_fn.value(X_design, y_val_np, coef_with_intercept))
 
 
 def _ridge_eig_batch(X_train_np, y_train_np, X_val_np, y_val_np, alphas_np):
@@ -724,11 +723,13 @@ def _glm_sparse_cv_folds(
             if is_torch:
                 mu_v = torch.exp(torch.clamp(eta_val, -50.0, 50.0))
                 mu_c = torch.clamp(mu_v, min=1e-3, max=1e4)
-                val_loss = (-y_col * torch.exp(-0.5 * torch.log(mu_c)) / 0.5 + torch.exp(0.5 * torch.log(mu_c)) / 0.5) * val_mask
+                # Tweedie loss: -y * mu^(1-p)/(1-p) + mu^(2-p)/(2-p), p=1.5
+                val_loss = (y_col * 2.0 * torch.exp(-0.5 * torch.log(mu_c)) + 2.0 * torch.exp(0.5 * torch.log(mu_c))) * val_mask
             else:
                 mu_v = cp.exp(cp.clip(eta_val, -50.0, 50.0))
                 mu_c = cp.clip(mu_v, 1e-3, 1e4)
-                val_loss = (-y_col * cp.exp(-0.5 * cp.log(mu_c)) / 0.5 + cp.exp(0.5 * cp.log(mu_c)) / 0.5) * val_mask
+                # Tweedie loss: -y * mu^(1-p)/(1-p) + mu^(2-p)/(2-p), p=1.5
+                val_loss = (y_col * 2.0 * cp.exp(-0.5 * cp.log(mu_c)) + 2.0 * cp.exp(0.5 * cp.log(mu_c))) * val_mask
         elif loss_name == "poisson":
             if is_torch:
                 mu_v = torch.exp(torch.clamp(eta_val, -30.0, 30.0))
