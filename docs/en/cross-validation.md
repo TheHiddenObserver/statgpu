@@ -276,9 +276,9 @@ All penalties use `alpha` consistently across `PenalizedGeneralizedLinearModel` 
 |---------|--------------|---------------|---------------------|
 | L1 | `alpha` | `alpha` | `Lasso(a) == PGLM(a, penalty='l1')` |
 | ElasticNet | `alpha` | `alpha` | `ElasticNet(a) == PGLM(a, penalty='elasticnet')` |
-| L2 (Ridge) | `alpha` | `alpha * n` | `Ridge(a) == PGLM(a, penalty='l2')` |
+| L2 (Ridge) | `alpha` | `alpha / n` | `Ridge(a) == PGLM(a, penalty='l2')` |
 
-**sklearn mapping**: Ridge requires `statgpu_alpha = sklearn_alpha * n`. Lasso/ElasticNet use the same alpha directly.
+**sklearn mapping**: `sklearn_alpha = statgpu_alpha * n` for Ridge. Lasso/ElasticNet use the same alpha directly.
 
 Internal consistency is verified to machine precision (diff ~1e-16).
 

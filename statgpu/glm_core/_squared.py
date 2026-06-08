@@ -6,7 +6,7 @@ All penalties use alpha*n in the normal equations / CD updates,
 matching the PenalizedGeneralizedLinearModel convention and sklearn.
 
 sklearn compatibility mapping:
-  - Ridge:   statgpu alpha = sklearn alpha * n
+  - Ridge:   sklearn alpha = statgpu alpha * n  (statgpu alpha = sklearn alpha / n)
   - Lasso:   statgpu alpha = sklearn alpha
   - ElasticNet: statgpu alpha = sklearn alpha
 

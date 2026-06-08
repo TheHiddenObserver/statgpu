@@ -473,29 +473,31 @@ class LassoCV(CVEstimatorBase):
         n_alpha = int(alpha_grid.size)
         n_folds = int(len(folds))
 
-        # Cache handling
-        cache_key = _make_lasso_cv_auto_cache_key(
-            X_shape=(n_samples, X.shape[1] if len(X.shape) > 1 else 1),
-            y_shape=(n_samples,),
-            alphas=self.alphas,
-            n_alphas=self.n_alphas,
-            alpha_min_ratio=self.alpha_min_ratio,
-            folds=folds,
-            fit_intercept=self.fit_intercept,
-            use_gpu=use_gpu,
-            max_iter=self.max_iter,
-            tol=self.tol,
-            cpu_solver=effective_cpu_solver,
-            cv_method=cv_method,
-            cd_kkt_check_every=effective_cd_kkt_check_every,
-            sample_weight_shape=sample_weight.shape if sample_weight is not None else None,
-            data_digest=_hash_data(X, y, sample_weight),
-        )
+        # Cache handling — auto-cache disabled by default to prevent stale
+        # results across datasets.  Only use an explicit cache_key when the
+        # caller provides one (e.g. from the CV-cache helper).
+        cache_key_eff = None  # no explicit cache_key from caller
+        if cache_key_eff is None and False and _LASSO_CV_ALPHA_CACHE_MAXSIZE > 0:
+            cache_key_eff = _make_lasso_cv_auto_cache_key(
+                X_shape=(n_samples, X.shape[1] if len(X.shape) > 1 else 1),
+                y_shape=(n_samples,),
+                alphas=self.alphas,
+                n_alphas=self.n_alphas,
+                alpha_min_ratio=self.alpha_min_ratio,
+                folds=folds,
+                fit_intercept=self.fit_intercept,
+                use_gpu=use_gpu,
+                max_iter=self.max_iter,
+                tol=self.tol,
+                cpu_solver=effective_cpu_solver,
+                cv_method=cv_method,
+                cd_kkt_check_every=effective_cd_kkt_check_every,
+                sample_weight_shape=sample_weight.shape if sample_weight is not None else None,
+                data_digest=_hash_data(X, y, sample_weight),
+            )
 
-        # Auto-cache disabled by default to prevent stale results across datasets.
-        # Only use explicit cache_key if provided by the caller.
-        if cache_key is not None:
-            cached_details = _lasso_cv_cache_get(cache_key)
+        if cache_key_eff is not None:
+            cached_details = _lasso_cv_cache_get(cache_key_eff)
             if cached_details is not None:
                 return cached_details
 

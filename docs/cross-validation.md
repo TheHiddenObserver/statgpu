@@ -276,9 +276,9 @@ for alpha in alphas_descending:
 |------|--------------|---------------|-----------|
 | L1 | `alpha` | `alpha` | `Lasso(a) == PGLM(a, penalty='l1')` |
 | ElasticNet | `alpha` | `alpha` | `ElasticNet(a) == PGLM(a, penalty='elasticnet')` |
-| L2 (Ridge) | `alpha` | `alpha * n` | `Ridge(a) == PGLM(a, penalty='l2')` |
+| L2 (Ridge) | `alpha` | `alpha / n` | `Ridge(a) == PGLM(a, penalty='l2')` |
 
-**sklearn 映射**：Ridge 需要 `statgpu_alpha = sklearn_alpha * n`。Lasso/ElasticNet 直接使用相同的 alpha。
+**sklearn 映射**：Ridge 需要 `sklearn_alpha = statgpu_alpha * n`。Lasso/ElasticNet 直接使用相同的 alpha。
 
 内部一致性已验证到机器精度（diff ~1e-16）。
 
