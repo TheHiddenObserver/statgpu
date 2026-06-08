@@ -2334,9 +2334,7 @@ class PenalizedGLM_CV(CVEstimatorBase):
         max_iter = int(self.max_iter if max_iter is None else max_iter)
         tol = self.tol if tol is None else tol
 
-        # Fast path: squared_error + l2 uses eigendecomposition (CPU only).
-        # Skip when sample_weight is provided (weighted ridge needs different math).
-        # Skip when device is explicit GPU (fast path always runs on CPU).
+        # ── Fast path: Ridge eigendecomposition (CPU only, unweighted) ──
         _is_explicit_gpu = device_name in ("cuda", "torch")
         if loss_name == "squared_error" and penalty_name == "l2" and sample_weight is None and not _is_explicit_gpu:
             all_scores = np.full((self.cv, n_alphas), np.nan)
@@ -2358,36 +2356,15 @@ class PenalizedGLM_CV(CVEstimatorBase):
         alpha_sorted = alpha_grid[sort_idx]
         all_scores = np.full((self.cv, n_alphas), np.nan)
         cv_solver = self._solver_for_cv(cv_device, X=X)
-        use_warm_start = not (
-            loss_name != "squared_error" and penalty_name in ("scad", "mcp")
-        )
-        # GLM SCAD/MCP alpha-path warm starts are only allowed in approximate
-        # screening. Strict refinement keeps each alpha independent.
-        use_lla_path_cv = (
-            not strict and loss_name != "squared_error" and penalty_name in ("scad", "mcp")
-        )
-        use_scad_mcp_batch_cv = (
-            penalty_name in ("scad", "mcp")
-            and (loss_name == "squared_error" or not strict)
-        )
-        use_logistic_sparse_path_cv = (
-            loss_name == "logistic" and penalty_name in ("l1", "elasticnet", "en")
-        )
-        use_squared_sparse_path_cv = (
-            loss_name == "squared_error" and penalty_name in ("l1", "elasticnet", "en")
-        )
-        use_glm_sparse_path_cv = self._uses_glm_sparse_path(penalty_name, cv_solver)
 
-        # Unified fold-batched path for all GLM losses with l1/elasticnet.
-        # Only used for approximate/two-stage CV; strict CV must use the
-        # per-fold solver to match the refit path exactly.
-        use_fold_batch_cv = (
+        # ── Fast path: fold-batched CV (all folds at once, GPU only) ──
+        use_fold_batch = (
             not strict
             and loss_name in _FOLD_BATCH_CONFIGS
             and penalty_name in ("l1", "elasticnet", "en")
             and device_name in ("torch", "cuda")
         )
-        if use_fold_batch_cv:
+        if use_fold_batch:
             try:
                 path = _glm_sparse_cv_folds(
                     X, y, folds, alpha_sorted, penalty_name, self.l1_ratio,
@@ -2405,6 +2382,73 @@ class PenalizedGLM_CV(CVEstimatorBase):
                     stacklevel=2,
                 )
 
+        # ── Per-fold dispatch table ──
+        # Each entry: (condition_fn, path_fn)
+        # condition_fn(loss_name, penalty_name, cv_solver, strict) -> bool
+        # path_fn(X_train, y_train, alpha_sorted, ..., X_val, y_val, sw_train, sw_val) -> dict or None
+        _per_fold_paths = []
+
+        def _cond_scad_mcp(loss_name, penalty_name, cv_solver, strict):
+            return penalty_name in ("scad", "mcp") and (loss_name == "squared_error" or not strict)
+
+        def _path_scad_mcp(X_train, y_train, alpha_sorted, penalty_name, l1_ratio,
+                           max_iter, tol, cv_device, X_val, y_val, sw_train, sw_val, **kw):
+            return _scad_mcp_cv_path(
+                loss_name, X_train, y_train, alpha_sorted, penalty_name,
+                l1_ratio, max_iter, tol, cv_device,
+                X_val=X_val, y_val=y_val, sample_weight=sw_train,
+            )
+
+        def _cond_logistic(loss_name, penalty_name, cv_solver, strict):
+            return loss_name == "logistic" and penalty_name in ("l1", "elasticnet", "en")
+
+        def _path_logistic(X_train, y_train, alpha_sorted, penalty_name, l1_ratio,
+                           max_iter, tol, cv_device, X_val, y_val, sw_train, sw_val, **kw):
+            return _logistic_sparse_cv_path(
+                X_train, y_train, alpha_sorted, penalty_name, l1_ratio,
+                max_iter, tol, cv_device,
+                X_val=X_val, y_val=y_val, sample_weight=sw_train,
+                val_sample_weight=sw_val, return_path=False,
+            )
+
+        def _cond_squared(loss_name, penalty_name, cv_solver, strict):
+            return loss_name == "squared_error" and penalty_name in ("l1", "elasticnet", "en")
+
+        def _path_squared(X_train, y_train, alpha_sorted, penalty_name, l1_ratio,
+                          max_iter, tol, cv_device, X_val, y_val, sw_train, sw_val, **kw):
+            return _squared_error_sparse_cv_path(
+                X_train, y_train, alpha_sorted, penalty_name, l1_ratio,
+                max_iter, tol, cv_device,
+                X_val=X_val, y_val=y_val, sample_weight=sw_train,
+                val_sample_weight=sw_val, return_path=False,
+            )
+
+        def _cond_glm_sparse(loss_name, penalty_name, cv_solver, strict):
+            return self._uses_glm_sparse_path(penalty_name, cv_solver)
+
+        def _path_glm_sparse(X_train, y_train, alpha_sorted, penalty_name, l1_ratio,
+                             max_iter, tol, cv_device, X_val, y_val, sw_train, sw_val,
+                             cv_solver=cv_solver, strict=strict, **kw):
+            return _glm_sparse_cv_path(
+                loss_name, X_train, y_train, alpha_sorted, penalty_name,
+                l1_ratio, max_iter, tol, cv_device,
+                X_val=X_val, y_val=y_val, sample_weight=sw_train,
+                val_sample_weight=sw_val, return_path=False,
+                solver_name=cv_solver, cv_mode=not strict,
+            )
+
+        _per_fold_paths = [
+            (_cond_scad_mcp,    _path_scad_mcp),
+            (_cond_logistic,    _path_logistic),
+            (_cond_squared,     _path_squared),
+            (_cond_glm_sparse,  _path_glm_sparse),
+        ]
+
+        # Pre-check which paths are active for this loss/penalty combo
+        active_paths = [(cond, path_fn) for cond, path_fn in _per_fold_paths
+                        if cond(loss_name, penalty_name, cv_solver, strict)]
+
+        # ── Per-fold loop ──
         for fold_idx, (train_idx, val_idx) in enumerate(folds):
             X_train = _slice_rows(X, train_idx)
             y_train = _slice_rows(y, train_idx)
@@ -2413,286 +2457,191 @@ class PenalizedGLM_CV(CVEstimatorBase):
             sw_train = _slice_rows(sample_weight, train_idx) if sample_weight is not None else None
             sw_val = _slice_rows(sample_weight, val_idx) if sample_weight is not None else None
 
-            # SCAD/MCP batch path: strict only permits this for squared error.
-            if use_scad_mcp_batch_cv:
+            # Try each specialized path in order
+            fold_handled = False
+            for cond_fn, path_fn in active_paths:
                 try:
-                    path = _scad_mcp_cv_path(
-                        loss_name,
-                        X_train,
-                        y_train,
-                        alpha_sorted,
-                        penalty_name,
-                        self.l1_ratio,
-                        max_iter,
-                        tol,
-                        cv_device,
-                        X_val=X_val,
-                        y_val=y_val,
-                        sample_weight=sw_train,
+                    path = path_fn(
+                        X_train, y_train, alpha_sorted, penalty_name,
+                        self.l1_ratio, max_iter, tol, cv_device,
+                        X_val=X_val, y_val=y_val,
+                        sw_train=sw_train, sw_val=sw_val,
                     )
                     if path is not None and path["scores"] is not None:
                         all_scores[fold_idx, sort_idx] = path["scores"]
-                        continue
-                except Exception as e:
-                    warnings.warn(
-                        f"SCAD/MCP batch path failed for {loss_name}+{penalty_name} "
-                        f"on {cv_device}: {e}. Falling back to general path.",
-                        RuntimeWarning,
-                        stacklevel=2,
-                    )
-
-            if use_logistic_sparse_path_cv:
-                path = _logistic_sparse_cv_path(
-                    X_train,
-                    y_train,
-                    alpha_sorted,
-                    penalty_name,
-                    self.l1_ratio,
-                    max_iter,
-                    tol,
-                    cv_device,
-                    X_val=X_val,
-                    y_val=y_val,
-                    sample_weight=sw_train,
-                    val_sample_weight=sw_val,
-                    return_path=False,
-                )
-                if path is not None and path["scores"] is not None:
-                    all_scores[fold_idx, sort_idx] = path["scores"]
+                        fold_handled = True
+                        break
+                except Exception:
                     continue
 
-            if use_squared_sparse_path_cv:
-                path = _squared_error_sparse_cv_path(
-                    X_train,
-                    y_train,
-                    alpha_sorted,
-                    penalty_name,
-                    self.l1_ratio,
-                    max_iter,
-                    tol,
-                    cv_device,
-                    X_val=X_val,
-                    y_val=y_val,
-                    sample_weight=sw_train,
-                    val_sample_weight=sw_val,
-                    return_path=False,
-                )
-                if path is not None and path["scores"] is not None:
-                    all_scores[fold_idx, sort_idx] = path["scores"]
-                    continue
+            if fold_handled:
+                continue
 
-            if use_glm_sparse_path_cv:
-                path = _glm_sparse_cv_path(
-                    loss_name,
-                    X_train,
-                    y_train,
-                    alpha_sorted,
-                    penalty_name,
-                    self.l1_ratio,
-                    max_iter,
-                    tol,
-                    cv_device,
-                    X_val=X_val,
-                    y_val=y_val,
-                    sample_weight=sw_train,
-                    val_sample_weight=sw_val,
-                    return_path=False,
-                    solver_name=cv_solver,
-                    cv_mode=not strict,
-                )
-                if path is not None and path["scores"] is not None:
-                    all_scores[fold_idx, sort_idx] = path["scores"]
-                    continue
-
-            # Cache validation data in numpy once per fold (avoid repeated D2H).
-            X_val_np = _to_numpy(X_val).astype(np.float64)
-            y_val_np = _to_numpy(y_val).astype(np.float64).ravel()
-            n_val = X_val_np.shape[0]
-
-            from statgpu.linear_model._penalized import _resolve_loss_name
-            loss_fn = _resolve_loss_name(loss_name)
-
-            # For explicit GPU CV, avoid copying the same fold to the accelerator
-            # for every alpha in the warm-start path.
-            if device_name in ("cuda", "torch"):
-                fold_backend = _backend_name_for_cv_device(cv_device)
-                X_train_fit = _to_backend_float64(X_train, fold_backend)
-                y_train_fit = _to_backend_float64(y_train, fold_backend)
-                sw_train_fit = (
-                    _to_backend_float64(sw_train, fold_backend)
-                    if sw_train is not None
-                    else None
-                )
-            else:
-                X_train_fit = X_train
-                y_train_fit = y_train
-                sw_train_fit = sw_train
-
-            # Precompute XtX/Xty once per fold for squared-error GPU cache.
-            # When sample_weight is present, compute weighted Gram matrices.
-            if loss_name == "squared_error" and device_name in ("cuda", "torch"):
-                X_train_np = _to_numpy(X_train).astype(np.float64)
-                y_train_np = _to_numpy(y_train).astype(np.float64).ravel()
-                n_tr, _ = X_train_np.shape
-                sw_np = _to_numpy(sw_train).astype(np.float64).ravel() if sw_train is not None else None
-                if sw_np is not None:
-                    w_sum = float(sw_np.sum())
-                    X_mean_np = np.average(X_train_np, axis=0, weights=sw_np)
-                    y_mean_np = float(np.average(y_train_np, weights=sw_np))
-                    Xc_np = X_train_np - X_mean_np
-                    yc_np = y_train_np - y_mean_np
-                    sqrt_w = np.sqrt(sw_np)
-                    W_Xc = Xc_np * sqrt_w[:, None]
-                    XtX_np = W_Xc.T @ W_Xc
-                    Xty_np = (Xc_np * sw_np[:, None]).T @ yc_np
-                    L_np = float(np.max(np.linalg.eigvalsh(XtX_np))) / max(w_sum, 1.0)
-                    n_effective = w_sum
-                else:
-                    X_mean_np = np.mean(X_train_np, axis=0)
-                    y_mean_np = np.mean(y_train_np)
-                    Xc_np = X_train_np - X_mean_np
-                    yc_np = y_train_np - y_mean_np
-                    XtX_np = Xc_np.T @ Xc_np
-                    Xty_np = Xc_np.T @ yc_np
-                    L_np = float(np.max(np.linalg.eigvalsh(XtX_np))) / n_tr
-                    n_effective = float(n_tr)
-                if device_name == "cuda":
-                    import cupy as cp
-                    cv_cache = {
-                        "XtX": cp.asarray(XtX_np),
-                        "Xty": cp.asarray(Xty_np),
-                        "n_effective": n_effective,
-                    }
-                else:
-                    import torch
-                    cv_cache = {
-                        "XtX": torch.as_tensor(XtX_np, device="cuda", dtype=torch.float64),
-                        "Xty": torch.as_tensor(Xty_np, device="cuda", dtype=torch.float64),
-                        "n_effective": n_effective,
-                    }
-            else:
-                cv_cache = None
-                L_np = None
-
-            model = PenalizedGeneralizedLinearModel(
-                loss=loss_name,
-                penalty=self.penalty,
-                alpha=alpha_sorted[0],
-                l1_ratio=self.l1_ratio,
-                device=cv_device,
-                compute_inference=False,
-                max_iter=max_iter,
-                tol=tol,
-                solver=cv_solver,
+            # ── General fallback: model.fit() per alpha ──
+            self._cv_fold_general(
+                all_scores, fold_idx, sort_idx, alpha_sorted,
+                loss_name, cv_device, cv_solver, strict,
+                X_train, y_train, X_val, y_val,
+                sw_train, sw_val, max_iter, tol,
             )
 
-            if cv_cache is not None:
-                model._cv_cache = cv_cache
-                model._preserve_cv_cache = True
-            if L_np is not None and L_np > 0:
-                model.lipschitz_L = L_np
+        return all_scores
 
-            path_handled = False
-            if use_lla_path_cv:
-                try:
-                    model.alpha = float(alpha_sorted[-1])
-                    if hasattr(model, "_penalty") and model._penalty is not None:
-                        model._penalty.alpha = float(alpha_sorted[-1])
-                    model._cv_alpha_path = np.asarray(alpha_sorted, dtype=np.float64)
-                    model.fit(X_train_fit, y_train_fit, sample_weight=sw_train_fit)
-                    path = getattr(model, "_cv_path_results", None)
-                    if path is None:
-                        raise RuntimeError("GLM SCAD/MCP CV path was not produced")
+    def _cv_fold_general(
+        self, all_scores, fold_idx, sort_idx, alpha_sorted,
+        loss_name, cv_device, cv_solver, strict,
+        X_train, y_train, X_val, y_val,
+        sw_train, sw_val, max_iter, tol,
+    ):
+        """General per-fold CV path: model.fit() per alpha with warm-start."""
+        from statgpu.linear_model._penalized import PenalizedGeneralizedLinearModel, _resolve_loss_name
+
+        penalty_name = str(self.penalty).lower()
+        device_name = _device_to_name(cv_device)
+
+        X_val_np = _to_numpy(X_val).astype(np.float64)
+        y_val_np = _to_numpy(y_val).astype(np.float64).ravel()
+        n_val = X_val_np.shape[0]
+        loss_fn = _resolve_loss_name(loss_name)
+
+        use_warm_start = not (loss_name != "squared_error" and penalty_name in ("scad", "mcp"))
+        use_lla_path_cv = (
+            not strict and loss_name != "squared_error" and penalty_name in ("scad", "mcp")
+        )
+
+        # Transfer to GPU if needed
+        if device_name in ("cuda", "torch"):
+            fold_backend = _backend_name_for_cv_device(cv_device)
+            X_train_fit = _to_backend_float64(X_train, fold_backend)
+            y_train_fit = _to_backend_float64(y_train, fold_backend)
+            sw_train_fit = _to_backend_float64(sw_train, fold_backend) if sw_train is not None else None
+        else:
+            X_train_fit = X_train
+            y_train_fit = y_train
+            sw_train_fit = sw_train
+
+        # Precompute XtX/Xty for squared-error GPU cache
+        cv_cache, L_np = self._build_cv_cache(
+            loss_name, device_name, X_train, y_train, sw_train
+        )
+
+        model = PenalizedGeneralizedLinearModel(
+            loss=loss_name, penalty=self.penalty, alpha=alpha_sorted[0],
+            l1_ratio=self.l1_ratio, device=cv_device, compute_inference=False,
+            max_iter=max_iter, tol=tol, solver=cv_solver,
+        )
+        if cv_cache is not None:
+            model._cv_cache = cv_cache
+            model._preserve_cv_cache = True
+        if L_np is not None and L_np > 0:
+            model.lipschitz_L = L_np
+
+        # LLA path for SCAD/MCP
+        if use_lla_path_cv:
+            try:
+                model.alpha = float(alpha_sorted[-1])
+                if hasattr(model, "_penalty") and model._penalty is not None:
+                    model._penalty.alpha = float(alpha_sorted[-1])
+                model._cv_alpha_path = np.asarray(alpha_sorted, dtype=np.float64)
+                model.fit(X_train_fit, y_train_fit, sample_weight=sw_train_fit)
+                path = getattr(model, "_cv_path_results", None)
+                if path is not None:
                     path_alphas = np.asarray(path["alpha"], dtype=np.float64)
                     path_coefs = np.asarray(path["coef"], dtype=np.float64)
                     path_intercepts = np.asarray(path["intercept"], dtype=np.float64)
                     for alpha_idx_sorted, alpha in enumerate(alpha_sorted):
-                        matches = np.flatnonzero(
-                            np.isclose(path_alphas, float(alpha), rtol=1e-10, atol=1e-14)
-                        )
+                        matches = np.flatnonzero(np.isclose(path_alphas, float(alpha), rtol=1e-10, atol=1e-14))
                         if matches.size == 0:
                             continue
                         path_idx = int(matches[-1])
                         val_loss = _evaluate_loss_numpy(
-                            loss_name,
-                            loss_fn,
-                            X_val_np,
-                            y_val_np,
-                            path_coefs[path_idx],
-                            float(path_intercepts[path_idx]),
-                            True,
-                            sample_weight=sw_val,
+                            loss_name, loss_fn, X_val_np, y_val_np,
+                            path_coefs[path_idx], float(path_intercepts[path_idx]),
+                            True, sample_weight=sw_val,
                         )
                         all_scores[fold_idx, sort_idx[alpha_idx_sorted]] = val_loss
-                    path_handled = True
-                except Exception:
-                    path_handled = False
-                finally:
-                    if hasattr(model, "_cv_alpha_path"):
-                        del model._cv_alpha_path
-                    if hasattr(model, "_cv_path_results"):
-                        del model._cv_path_results
+                    if hasattr(model, "_cv_alpha_path"): del model._cv_alpha_path
+                    if hasattr(model, "_cv_path_results"): del model._cv_path_results
+                    if hasattr(model, "_cv_cache"): del model._cv_cache
+                    if hasattr(model, "_preserve_cv_cache"): del model._preserve_cv_cache
+                    return
+            except Exception:
+                if hasattr(model, "_cv_alpha_path"): del model._cv_alpha_path
+                if hasattr(model, "_cv_path_results"): del model._cv_path_results
 
-            if path_handled:
-                if hasattr(model, "_cv_cache"):
-                    del model._cv_cache
-                if hasattr(model, "_preserve_cv_cache"):
-                    del model._preserve_cv_cache
-                continue
+        # Warm-started alpha loop
+        prev_coef = None
+        prev_intercept = None
+        for alpha_idx_sorted, alpha in enumerate(alpha_sorted):
+            try:
+                if cv_cache is not None:
+                    model._cv_cache = cv_cache
+                model.alpha = alpha
+                if hasattr(model, "_penalty") and model._penalty is not None:
+                    model._penalty.alpha = alpha
+                if use_warm_start and prev_coef is not None:
+                    model._init_coef = np.asarray(prev_coef, dtype=np.float64)
+                    model._init_intercept = prev_intercept
+                else:
+                    model._init_coef = None
+                    model._init_intercept = None
+                model.fit(X_train_fit, y_train_fit, sample_weight=sw_train_fit)
 
-            prev_coef = None
-            prev_intercept = None
-            for alpha_idx_sorted, alpha in enumerate(alpha_sorted):
-                try:
-                    if cv_cache is not None:
-                        model._cv_cache = cv_cache
-                    model.alpha = alpha
-                    if hasattr(model, "_penalty") and model._penalty is not None:
-                        model._penalty.alpha = alpha
-                    if use_warm_start and prev_coef is not None:
-                        model._init_coef = np.asarray(prev_coef, dtype=np.float64)
-                        model._init_intercept = prev_intercept
-                    else:
-                        model._init_coef = None
-                        model._init_intercept = None
-                    model.fit(X_train_fit, y_train_fit, sample_weight=sw_train_fit)
+                coef_np = _to_numpy(model.coef_).ravel()
+                intercept = float(model.intercept_)
+                val_loss = _evaluate_loss_numpy(
+                    loss_name, loss_fn, X_val_np, y_val_np,
+                    coef_np, intercept, model.fit_intercept, sample_weight=sw_val,
+                )
+                orig_idx = sort_idx[alpha_idx_sorted]
+                all_scores[fold_idx, orig_idx] = val_loss
+                prev_coef = coef_np.copy()
+                prev_intercept = intercept
+            except Exception:
+                orig_idx = sort_idx[alpha_idx_sorted]
+                all_scores[fold_idx, orig_idx] = np.nan
 
-                    coef_np = _to_numpy(model.coef_).ravel()
-                    intercept = float(model.intercept_)
-                    try:
-                        val_loss = _evaluate_loss_numpy(
-                            loss_name,
-                            loss_fn,
-                            X_val_np,
-                            y_val_np,
-                            coef_np,
-                            intercept,
-                            model.fit_intercept,
-                            sample_weight=sw_val,
-                        )
-                    except Exception:
-                        if model.fit_intercept:
-                            X_design = np.column_stack([np.ones(n_val), X_val_np])
-                            coef_with_intercept = np.concatenate([[intercept], coef_np])
-                        else:
-                            X_design = X_val_np
-                            coef_with_intercept = coef_np
-                        y_pred = X_design @ coef_with_intercept
-                        val_loss = float(np.mean((y_val_np - y_pred) ** 2))
+        if hasattr(model, "_cv_cache"): del model._cv_cache
+        if hasattr(model, "_preserve_cv_cache"): del model._preserve_cv_cache
 
-                    orig_idx = sort_idx[alpha_idx_sorted]
-                    all_scores[fold_idx, orig_idx] = val_loss
-                    prev_coef = coef_np.copy()
-                    prev_intercept = intercept
-                except Exception:
-                    orig_idx = sort_idx[alpha_idx_sorted]
-                    all_scores[fold_idx, orig_idx] = np.nan
-            if hasattr(model, "_cv_cache"):
-                del model._cv_cache
-            if hasattr(model, "_preserve_cv_cache"):
-                del model._preserve_cv_cache
-
-        return all_scores
+    def _build_cv_cache(self, loss_name, device_name, X_train, y_train, sw_train):
+        """Precompute XtX/Xty for squared-error GPU cache. Returns (cache_dict, L_np)."""
+        if loss_name != "squared_error" or device_name not in ("cuda", "torch"):
+            return None, None
+        X_train_np = _to_numpy(X_train).astype(np.float64)
+        y_train_np = _to_numpy(y_train).astype(np.float64).ravel()
+        n_tr, _ = X_train_np.shape
+        sw_np = _to_numpy(sw_train).astype(np.float64).ravel() if sw_train is not None else None
+        if sw_np is not None:
+            w_sum = float(sw_np.sum())
+            X_mean_np = np.average(X_train_np, axis=0, weights=sw_np)
+            y_mean_np = float(np.average(y_train_np, weights=sw_np))
+            Xc_np = X_train_np - X_mean_np
+            yc_np = y_train_np - y_mean_np
+            sqrt_w = np.sqrt(sw_np)
+            W_Xc = Xc_np * sqrt_w[:, None]
+            XtX_np = W_Xc.T @ W_Xc
+            Xty_np = (Xc_np * sw_np[:, None]).T @ yc_np
+            L_np = float(np.max(np.linalg.eigvalsh(XtX_np))) / max(w_sum, 1.0)
+            n_effective = w_sum
+        else:
+            X_mean_np = np.mean(X_train_np, axis=0)
+            y_mean_np = np.mean(y_train_np)
+            Xc_np = X_train_np - X_mean_np
+            yc_np = y_train_np - y_mean_np
+            XtX_np = Xc_np.T @ Xc_np
+            Xty_np = Xc_np.T @ yc_np
+            L_np = float(np.max(np.linalg.eigvalsh(XtX_np))) / n_tr
+            n_effective = float(n_tr)
+        if device_name == "cuda":
+            import cupy as cp
+            cache = {"XtX": cp.asarray(XtX_np), "Xty": cp.asarray(Xty_np), "n_effective": n_effective}
+        else:
+            import torch
+            cache = {"XtX": torch.as_tensor(XtX_np, device="cuda", dtype=torch.float64),
+                     "Xty": torch.as_tensor(Xty_np, device="cuda", dtype=torch.float64),
+                     "n_effective": n_effective}
+        return cache, L_np
 
     def fit(self, X, y, sample_weight=None):
         """Fit the CV model with optimized strict or explicit two-stage CV."""
