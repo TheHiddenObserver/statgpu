@@ -739,6 +739,10 @@ def _glm_sparse_cv_folds(
     elif loss_name == "tweedie":
         _loss_kwargs["power"] = _tw_power
 
+    # Hoist function lookups outside hot loop (avoid dict lookup per iteration)
+    _resid_fn = _LOSS_RESIDUAL_FNS[loss_name]
+    _valloss_fn = _LOSS_VALLOSS_FNS[loss_name]
+
     # Precompute sw_val_mask/sw_val_vec once (val_mask is constant across alphas)
     if has_weights:
         sw_val_mask = sw_all.reshape(-1, 1) * val_mask
@@ -765,7 +769,7 @@ def _glm_sparse_cv_folds(
             eta = Xb @ y_coef + y_intercept
             # Compute per-sample residual via loss registry.
             # Each loss defines a backend-agnostic residual function.
-            resid = _LOSS_RESIDUAL_FNS[loss_name](eta, y_col, **_loss_kwargs) * train_mask
+            resid = _resid_fn(eta, y_col, **_loss_kwargs) * train_mask
             # Weighted gradient: multiply residual by sw_mask (includes train_mask)
             # and divide by sum of weights per fold
             grad_coef = (Xb.T @ (resid * sw_mask)) / sw_train_vec
@@ -815,7 +819,7 @@ def _glm_sparse_cv_folds(
 
         # Validation loss via loss registry (single call, backend-agnostic)
         eta_val = Xb @ coef + intercept
-        val_loss = _LOSS_VALLOSS_FNS[loss_name](eta_val, y_col, **_loss_kwargs) * val_mask
+        val_loss = _valloss_fn(eta_val, y_col, **_loss_kwargs) * val_mask
         if has_weights:
             scores_path.append(_fb_sum(val_loss * sw_val_mask, is_torch, axis=0, keepdims=True).reshape(-1) / sw_val_vec.reshape(-1))
         else:
@@ -1887,11 +1891,14 @@ def _scad_mcp_cv_path(
                 else:
                     per_sample = _LOSS_VALLOSS_FNS[loss_name](eta_v, yv, **_loss_params)
                 if backend == "torch":
-                    val_loss = float((swv * per_sample).sum().item() / swv.sum().item())
+                    sw_sum = float(swv.sum().item())
+                    val_loss = float((swv * per_sample).sum().item() / max(sw_sum, 1e-15))
                 elif backend == "cupy":
-                    val_loss = float(cp.sum(swv * per_sample) / cp.sum(swv))
+                    sw_sum = float(cp.sum(swv))
+                    val_loss = float(cp.sum(swv * per_sample) / max(sw_sum, 1e-15))
                 else:
-                    val_loss = float(np.sum(swv * per_sample) / np.sum(swv))
+                    sw_sum = float(np.sum(swv))
+                    val_loss = float(np.sum(swv * per_sample) / max(sw_sum, 1e-15))
             else:
                 val_loss = loss_fn.value(X_val_work, yv, coef)
             scores_dev.append(val_loss)
