@@ -1043,7 +1043,10 @@ def _logistic_sparse_cv_path(
             per_sample = -yv.reshape(-1, 1) * eta_v + _softplus(eta_v, backend)
             if swv is not None:
                 sw_sum = swv.sum()
-                scores_tensor = (swv.reshape(-1, 1) * per_sample).sum(dim=0) / sw_sum
+                if sw_sum > 0:
+                    scores_tensor = (swv.reshape(-1, 1) * per_sample).sum(dim=0) / sw_sum
+                else:
+                    scores_tensor = per_sample.mean(dim=0)
             else:
                 scores_tensor = per_sample.mean(dim=0)
             scores = _to_numpy(scores_tensor).tolist()
