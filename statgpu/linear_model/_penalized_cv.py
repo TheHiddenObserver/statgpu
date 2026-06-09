@@ -319,26 +319,6 @@ def _to_backend_float64(arr, backend):
     return np.asarray(arr, dtype=np.float64)
 
 
-def _stable_sigmoid(x, backend):
-    if backend == "torch":
-        import torch
-        return torch.sigmoid(torch.clamp(x, -_ETA_CLIP_LOGISTIC, _ETA_CLIP_LOGISTIC))
-    if backend == "cupy":
-        import cupy as cp
-        return 1.0 / (1.0 + cp.exp(-cp.clip(x, -_ETA_CLIP_LOGISTIC, _ETA_CLIP_LOGISTIC)))
-    return 1.0 / (1.0 + np.exp(-np.clip(x, -_ETA_CLIP_LOGISTIC, _ETA_CLIP_LOGISTIC)))
-
-
-def _softplus(x, backend):
-    if backend == "torch":
-        import torch
-        return torch.log1p(torch.exp(-torch.abs(x))) + torch.clamp(x, min=0.0)
-    if backend == "cupy":
-        import cupy as cp
-        return cp.log1p(cp.exp(-cp.abs(x))) + cp.maximum(x, 0.0)
-    return np.log1p(np.exp(-np.abs(x))) + np.maximum(x, 0.0)
-
-
 # ---------------------------------------------------------------------------
 # Unified fold-batched CV framework
 # ---------------------------------------------------------------------------
@@ -402,26 +382,20 @@ def _fb_stack(arrays, is_torch, dim=1):
 
 
 def _fold_batch_lipschitz_logistic(X_aug, y_train, n_train, is_torch):
-    if is_torch:
-        import torch
-        eig_max = float(torch.linalg.eigvalsh(X_aug.T @ X_aug).max().item())
-    else:
-        import cupy as cp
-        eig_max = float(cp.linalg.eigvalsh(X_aug.T @ X_aug).max())
+    eig_max = _max_eigval_power(X_aug.T @ X_aug)
     return max(eig_max / (4.0 * max(n_train, 1)), 1e-12)
 
 
 def _fold_batch_lipschitz_exp_link(X_aug, y_train, n_train, is_torch):
     """Lipschitz for log-link GLMs (Poisson, Gamma, NB, InvGauss, Tweedie).
     Uses y-scaling: max(1, y_mean, sqrt(y_mean * y_max))."""
+    eig_max = _max_eigval_power(X_aug.T @ X_aug)
     if is_torch:
         import torch
-        eig_max = float(torch.linalg.eigvalsh(X_aug.T @ X_aug).max().item())
         y_mean = float(y_train.mean().item())
         y_max = float(y_train.max().item())
     else:
         import cupy as cp
-        eig_max = float(cp.linalg.eigvalsh(X_aug.T @ X_aug).max())
         y_mean = float(y_train.mean())
         y_max = float(y_train.max())
     y_scale = max(1.0, y_mean, np.sqrt(y_mean * max(y_max, 1e-10)))
@@ -434,14 +408,13 @@ def _fold_batch_lipschitz_gamma(X_aug, y_train, n_train, is_torch):
     Differs from _fold_batch_lipschitz_exp_link because Gamma's Hessian
     weights are y/mu (not mu), so scaling uses y-ratio instead of y-moment.
     """
+    eig_max = _max_eigval_power(X_aug.T @ X_aug)
     if is_torch:
         import torch
-        eig_max = float(torch.linalg.eigvalsh(X_aug.T @ X_aug).max().item())
         y_mean = float(y_train.mean().item())
         y_ratio_max = float((y_train / y_mean).max().item()) if y_mean > 0 else 1.0
     else:
         import cupy as cp
-        eig_max = float(cp.linalg.eigvalsh(X_aug.T @ X_aug).max())
         y_mean = float(y_train.mean())
         y_ratio_max = float((y_train / y_mean).max()) if y_mean > 0 else 1.0
     return max(eig_max / max(n_train, 1), 1e-12) * max(1.0, y_ratio_max)
@@ -458,6 +431,20 @@ def _fold_batch_lipschitz_gamma(X_aug, y_train, n_train, is_torch):
 # Signature: fn(eta, y, **params) -> per_sample_loss_or_residual
 # `eta` and `y` are backend arrays; `params` carries loss-specific scalars.
 
+# Use backend-agnostic utilities from statgpu.backends._array_ops
+# Must be imported before loss function definitions so _res_logistic etc.
+# can use _sigmoid and _softplus.
+from statgpu.backends._array_ops import (
+    _clip as _safe_clip,
+    _xp as _get_xp,
+    _sigmoid,
+    _softplus,
+    _abs_sum_dev,
+    _device_gt,
+    _max_eigval_power,
+)
+
+
 _LOSS_RESIDUAL_FNS = {}
 _LOSS_VALLOSS_FNS = {}
 
@@ -469,16 +456,11 @@ def _register_loss_fns(loss_name, residual_fn, val_loss_fn):
 # --- Logistic ---
 def _res_logistic(eta, y, **_):
     # Gradient of logistic loss: sigmoid(eta) - y
-    xp = _get_xp(eta)
-    sig = 1.0 / (1.0 + xp.exp(-_safe_clip(eta, -_ETA_CLIP_LOGISTIC, _ETA_CLIP_LOGISTIC)))
-    return sig - y
+    return _sigmoid(eta) - y
 
 def _val_logistic(eta, y, **_):
     # Logistic loss: -y*eta + softplus(eta)
-    xp = _get_xp(eta)
-    # Use _safe_clip instead of xp.maximum to avoid torch.maximum scalar issue
-    log1pexp = xp.log1p(xp.exp(-xp.abs(eta))) + _safe_clip(eta, 0.0, None)
-    return -y * eta + log1pexp
+    return -y * eta + _softplus(eta)
 
 # --- Poisson ---
 def _res_poisson(eta, y, **_):
@@ -558,10 +540,6 @@ def _val_tweedie(eta, y, power=_TWEEDIE_POWER_DEFAULT, **_):
     term1 = -y * xp.exp(d1 * log_mu) / d1 if abs(d1) > 1e-10 else -y * log_mu
     term2 = xp.exp(d2 * log_mu) / d2 if abs(d2) > 1e-10 else log_mu
     return term1 + term2
-
-
-# Use backend-agnostic utilities from statgpu.backends._array_ops
-from statgpu.backends._array_ops import _clip as _safe_clip, _xp as _get_xp
 
 
 _register_loss_fns("logistic", _res_logistic, _val_logistic)
@@ -716,7 +694,8 @@ def _glm_sparse_cv_folds(
         if has_weights:
             sw_fold = sw_all[train_idx_dev]
             sw_col_fold = sw_fold.reshape(-1, 1)
-            Xw = X_aug * sw_col_fold.sqrt() if is_torch else X_aug * cp.sqrt(sw_col_fold)
+            _xp_sw = _get_xp(sw_col_fold)
+            Xw = X_aug * _xp_sw.sqrt(sw_col_fold)
             w_sum_fold = float(sw_fold.sum().item()) if is_torch else float(sw_fold.sum())
             L_loss = lipschitz_fn(Xw, y_train, max(w_sum_fold, 1.0), is_torch)
         else:
@@ -753,6 +732,13 @@ def _glm_sparse_cv_folds(
     scores_path = []
     iters_path = []
 
+    # Pre-build loss kwargs to avoid dict construction in hot loop
+    _loss_kwargs = {}
+    if loss_name == "negative_binomial":
+        _loss_kwargs["alpha"] = _nb_alpha
+    elif loss_name == "tweedie":
+        _loss_kwargs["power"] = _tw_power
+
     # Precompute sw_val_mask/sw_val_vec once (val_mask is constant across alphas)
     if has_weights:
         sw_val_mask = sw_all.reshape(-1, 1) * val_mask
@@ -779,7 +765,7 @@ def _glm_sparse_cv_folds(
             eta = Xb @ y_coef + y_intercept
             # Compute per-sample residual via loss registry.
             # Each loss defines a backend-agnostic residual function.
-            resid = _LOSS_RESIDUAL_FNS[loss_name](eta, y_col, alpha=_nb_alpha, power=_tw_power) * train_mask
+            resid = _LOSS_RESIDUAL_FNS[loss_name](eta, y_col, **_loss_kwargs) * train_mask
             # Weighted gradient: multiply residual by sw_mask (includes train_mask)
             # and divide by sum of weights per fold
             grad_coef = (Xb.T @ (resid * sw_mask)) / sw_train_vec
@@ -829,7 +815,7 @@ def _glm_sparse_cv_folds(
 
         # Validation loss via loss registry (single call, backend-agnostic)
         eta_val = Xb @ coef + intercept
-        val_loss = _LOSS_VALLOSS_FNS[loss_name](eta_val, y_col, alpha=_nb_alpha, power=_tw_power) * val_mask
+        val_loss = _LOSS_VALLOSS_FNS[loss_name](eta_val, y_col, **_loss_kwargs) * val_mask
         if has_weights:
             scores_path.append(_fb_sum(val_loss * sw_val_mask, is_torch, axis=0, keepdims=True).reshape(-1) / sw_val_vec.reshape(-1))
         else:
@@ -896,7 +882,6 @@ def _logistic_sparse_cv_path(
         xp = torch
         ones = torch.ones((n_samples, 1), dtype=Xb.dtype, device=Xb.device)
         X_aug = torch.cat([Xb, ones], dim=1)
-        eig_max = float(torch.linalg.eigvalsh(X_aug.T @ X_aug).max().item())
         y_mean = float(torch.mean(yb).item())
         coef = torch.zeros(n_features, dtype=Xb.dtype, device=Xb.device)
         intercept = torch.tensor(
@@ -909,7 +894,6 @@ def _logistic_sparse_cv_path(
         xp = cp
         ones = cp.ones((n_samples, 1), dtype=Xb.dtype)
         X_aug = cp.concatenate([Xb, ones], axis=1)
-        eig_max = float(cp.linalg.eigvalsh(X_aug.T @ X_aug).max())
         y_mean = float(cp.mean(yb))
         coef = cp.zeros(n_features, dtype=Xb.dtype)
         intercept = cp.asarray(
@@ -920,11 +904,11 @@ def _logistic_sparse_cv_path(
         xp = np
         ones = np.ones((n_samples, 1), dtype=Xb.dtype)
         X_aug = np.concatenate([Xb, ones], axis=1)
-        eig_max = float(np.linalg.eigvalsh(X_aug.T @ X_aug).max())
         y_mean = float(np.mean(yb))
         coef = np.zeros(n_features, dtype=np.float64)
         intercept = float(np.log(np.clip(y_mean, 1e-3, 1.0 - 1e-3) / (1.0 - np.clip(y_mean, 1e-3, 1.0 - 1e-3))))
 
+    eig_max = _max_eigval_power(X_aug.T @ X_aug)
     L_loss = max(eig_max / (4.0 * max(int(n_samples), 1)), 1e-12)
     step = 1.0 / L_loss
     conv_interval = 10 if backend == "numpy" else 50
@@ -955,7 +939,7 @@ def _logistic_sparse_cv_path(
             intercept_old = intercept.clone() if backend == "torch" else intercept.copy() if backend == "cupy" else float(intercept)
 
             eta = Xb @ y_coef + y_intercept
-            prob = _stable_sigmoid(eta, backend)
+            prob = _sigmoid(eta)
             resid = prob - yb
             grad_coef = Xb.T @ resid / n_samples
             grad_intercept = xp.mean(resid)
@@ -1002,7 +986,7 @@ def _logistic_sparse_cv_path(
                 score_intercept_path.append(intercept.clone())
             else:
                 eta_v = Xv @ coef + intercept
-                per_sample = -yv * eta_v + _softplus(eta_v, backend)
+                per_sample = -yv * eta_v + _softplus(eta_v)
                 if swv is not None:
                     val_loss = xp.sum(swv * per_sample) / xp.sum(swv)
                 else:
@@ -1021,7 +1005,7 @@ def _logistic_sparse_cv_path(
             coef_mat = torch.stack(score_coef_path, dim=1)
             intercept_vec = torch.stack(score_intercept_path).reshape(1, -1)
             eta_v = Xv @ coef_mat + intercept_vec
-            per_sample = -yv.reshape(-1, 1) * eta_v + _softplus(eta_v, backend)
+            per_sample = -yv.reshape(-1, 1) * eta_v + _softplus(eta_v)
             if swv is not None:
                 sw_sum = swv.sum()
                 if sw_sum > 0:
@@ -1099,7 +1083,6 @@ def _squared_error_sparse_cv_path(
         yc = yb - y_mean
         XtX = Xc.T @ Xc
         Xty = Xc.T @ yc
-        eig_max = float(torch.linalg.eigvalsh(XtX).max().item())
         coef = torch.zeros(n_features, dtype=Xb.dtype, device=Xb.device)
     elif backend == "cupy":
         import cupy as cp
@@ -1110,7 +1093,6 @@ def _squared_error_sparse_cv_path(
         yc = yb - y_mean
         XtX = Xc.T @ Xc
         Xty = Xc.T @ yc
-        eig_max = float(cp.linalg.eigvalsh(XtX).max())
         coef = cp.zeros(n_features, dtype=Xb.dtype)
     else:
         xp = np
@@ -1120,9 +1102,9 @@ def _squared_error_sparse_cv_path(
         yc = yb - y_mean
         XtX = Xc.T @ Xc
         Xty = Xc.T @ yc
-        eig_max = float(np.linalg.eigvalsh(XtX).max())
         coef = np.zeros(n_features, dtype=np.float64)
 
+    eig_max = _max_eigval_power(XtX)
     L = max(eig_max / max(int(n_samples), 1), 1e-12)
     step = 1.0 / L
     conv_interval = 10 if backend == "numpy" else 25
@@ -1176,7 +1158,7 @@ def _squared_error_sparse_cv_path(
                 coef_mat = xp.sign(w) * xp.maximum(xp.abs(w) - thresh, 0.0) / denom
 
             t_new = (1.0 + np.sqrt(1.0 + 4.0 * t_k * t_k)) / 2.0
-            beta = (t_k - 1.0) / t_new
+            beta = min((t_k - 1.0) / t_new, 0.5)
             y_mat = coef_mat + beta * (coef_mat - coef_old)
             t_k = t_new
             last_iter = iteration + 1
@@ -1236,7 +1218,7 @@ def _squared_error_sparse_cv_path(
                 coef = xp.sign(w) * xp.maximum(xp.abs(w) - thresh, 0.0) / denom
 
             t_new = (1.0 + np.sqrt(1.0 + 4.0 * t_k * t_k)) / 2.0
-            beta = (t_k - 1.0) / t_new
+            beta = min((t_k - 1.0) / t_new, 0.5)
             y_k = coef + beta * (coef - coef_old)
             t_k = t_new
             last_iter = iteration + 1
@@ -1293,6 +1275,11 @@ def _squared_error_sparse_cv_path(
     return out
 
 
+# Intercept clipping bound: exp(15) ≈ 3.3M, prevents overflow in link
+# functions while allowing a wide range of intercept values.
+_INTERCEPT_CLIP_BOUND = 15.0
+
+
 class _FeatureOnlySparsePenalty:
     """Wrap a sparse penalty so the final intercept coefficient is unpenalized."""
 
@@ -1324,17 +1311,17 @@ class _FeatureOnlySparsePenalty:
             import cupy as cp
             result = cp.empty(w.shape[0], dtype=w.dtype)
             result[: self.n_features] = result_feat
-            result[self.n_features] = cp.clip(w[self.n_features], -15.0, 15.0)
+            result[self.n_features] = cp.clip(w[self.n_features], -_INTERCEPT_CLIP_BOUND, _INTERCEPT_CLIP_BOUND)
             return result
         if backend == "torch":
             import torch
             result = torch.empty(w.shape[0], dtype=w.dtype, device=w.device)
             result[: self.n_features] = result_feat
-            result[self.n_features] = torch.clamp(w[self.n_features], -15.0, 15.0)
+            result[self.n_features] = torch.clamp(w[self.n_features], -_INTERCEPT_CLIP_BOUND, _INTERCEPT_CLIP_BOUND)
             return result
         result = np.empty(w.shape[0], dtype=w.dtype)
         result[: self.n_features] = result_feat
-        result[self.n_features] = np.clip(w[self.n_features], -15.0, 15.0)
+        result[self.n_features] = np.clip(w[self.n_features], -_INTERCEPT_CLIP_BOUND, _INTERCEPT_CLIP_BOUND)
         return result
 
 
@@ -1696,7 +1683,6 @@ def _scad_mcp_cv_path(
             yc = yb - y_mean
             XtX = Xc.T @ Xc / n_samples
             Xty = Xc.T @ yc / n_samples
-            eig_max = float(torch.linalg.eigvalsh(XtX).max().item())
         elif backend == "cupy":
             X_mean = cp.mean(X_work[:, :n_features], axis=0)
             y_mean = cp.mean(yb)
@@ -1704,7 +1690,6 @@ def _scad_mcp_cv_path(
             yc = yb - y_mean
             XtX = Xc.T @ Xc / n_samples
             Xty = Xc.T @ yc / n_samples
-            eig_max = float(cp.linalg.eigvalsh(XtX).max())
         else:
             X_mean = np.mean(X_work[:, :n_features], axis=0)
             y_mean = np.mean(yb)
@@ -1712,7 +1697,7 @@ def _scad_mcp_cv_path(
             yc = yb - y_mean
             XtX = Xc.T @ Xc / n_samples
             Xty = Xc.T @ yc / n_samples
-            eig_max = float(np.linalg.eigvalsh(XtX).max())
+        eig_max = _max_eigval_power(XtX)
         L_base = max(eig_max * 2.0, 1.0)  # safety factor
     else:
         # For GLM losses, compute Lipschitz from loss
@@ -1736,6 +1721,13 @@ def _scad_mcp_cv_path(
     iters = []
     L_glm = None  # Lipschitz constant for GLM losses (computed once)
 
+    # Pre-build loss-specific params (avoid dict construction in loop)
+    _loss_params = {}
+    if loss_name == "negative_binomial":
+        _loss_params["alpha"] = float(getattr(loss_fn, "alpha", _NB_ALPHA_DEFAULT))
+    elif loss_name == "tweedie":
+        _loss_params["power"] = float(getattr(loss_fn, "power", _TWEEDIE_POWER_DEFAULT))
+
     # Initialize coef (warm-start from zeros or previous fold)
     if backend == "torch":
         coef = torch.zeros(n_features + 1, dtype=Xb.dtype, device=Xb.device)
@@ -1746,9 +1738,6 @@ def _scad_mcp_cv_path(
 
     # Pre-create inner penalty object (reuse across LLA iterations)
     inner_pen = AdaptiveL1Penalty(alpha=1.0)
-    # Bind hot-loop helpers to local variables (avoid per-call backend dispatch)
-    _abs_sum_local = _abs_sum
-    _scalar_lt_local = _scalar_lt
 
     for alpha in alphas:
         scad_penalty.alpha = float(alpha)
@@ -1792,14 +1781,14 @@ def _scad_mcp_cv_path(
                     coef = inner_pen.proximal(w, step, backend=backend)
 
                     t_new = (1.0 + np.sqrt(1.0 + 4.0 * t_k * t_k)) / 2.0
-                    beta_mom = (t_k - 1.0) / t_new
+                    beta_mom = min((t_k - 1.0) / t_new, 0.5)
                     t_k = t_new
                     y_k = coef + beta_mom * (coef - coef_old)
 
                     # Convergence check (device-side, every 10 iters for CV)
                     if iteration % 10 == 0 and iteration > 0:
-                        delta = _abs_sum_local(coef - coef_old, backend)
-                        if _scalar_lt_local(delta, tol, backend):
+                        delta = _abs_sum_dev(coef - coef_old)
+                        if _device_gt(tol, delta):
                             break
             else:
                 # GLM loss: direct FISTA loop with device-side convergence.
@@ -1842,19 +1831,19 @@ def _scad_mcp_cv_path(
 
                     # Momentum
                     t_new = (1.0 + np.sqrt(1.0 + 4.0 * t_k * t_k)) / 2.0
-                    beta_mom = (t_k - 1.0) / t_new
+                    beta_mom = min((t_k - 1.0) / t_new, 0.5)
                     t_k = t_new
                     y_k = coef + beta_mom * (coef - coef_old)
 
                     # Convergence check (device-side, every 10 iters for CV)
                     if iteration % 10 == 0 and iteration > 0:
-                        delta = _abs_sum_local(coef - coef_old, backend)
-                        if _scalar_lt_local(delta, tol, backend):
+                        delta = _abs_sum_dev(coef - coef_old)
+                        if _device_gt(tol, delta):
                             break
 
             # LLA convergence check
-            delta = _abs_sum_local(coef - coef_before_lla, backend)
-            if _scalar_lt_local(delta, lla_tol, backend):
+            delta = _abs_sum_dev(coef - coef_before_lla)
+            if _device_gt(lla_tol, delta):
                 break
 
         # Extract coef and compute intercept from centered-data fit.
@@ -1896,11 +1885,6 @@ def _scad_mcp_cv_path(
                 if loss_name == "squared_error":
                     per_sample = (yv - eta_v) ** 2
                 else:
-                    _loss_params = {}
-                    if loss_name == "negative_binomial":
-                        _loss_params["alpha"] = float(getattr(loss_fn, "alpha", _NB_ALPHA_DEFAULT))
-                    elif loss_name == "tweedie":
-                        _loss_params["power"] = float(getattr(loss_fn, "power", _TWEEDIE_POWER_DEFAULT))
                     per_sample = _LOSS_VALLOSS_FNS[loss_name](eta_v, yv, **_loss_params)
                 if backend == "torch":
                     val_loss = float((swv * per_sample).sum().item() / swv.sum().item())
@@ -1938,26 +1922,6 @@ def _scad_mcp_cv_path(
         out["coef"] = np.vstack(coef_path).astype(np.float64, copy=False)
         out["intercept"] = np.asarray(intercept_path, dtype=np.float64)
     return out
-
-
-def _abs_sum(arr, backend):
-    """Device-side absolute sum."""
-    if backend == "torch":
-        import torch
-        return torch.sum(torch.abs(arr))
-    elif backend == "cupy":
-        import cupy as cp
-        return cp.sum(cp.abs(arr))
-    return np.sum(np.abs(arr))
-
-
-def _scalar_lt(a, b, backend):
-    """Device-side scalar comparison, returns Python bool."""
-    if backend == "torch":
-        return bool((a < b).item())
-    elif backend == "cupy":
-        return bool(a < b)
-    return float(a) < float(b)
 
 
 # ---------------------------------------------------------------------------
@@ -2647,6 +2611,13 @@ class PenalizedGLM_CV(CVEstimatorBase):
                 all_scores[fold_idx, orig_idx] = np.nan
 
         # Batch validation: one GEMM for all fitted alphas
+        # Pre-build loss-specific params
+        _loss_params = {}
+        if loss_name == "negative_binomial":
+            _loss_params["alpha"] = float(getattr(loss_fn, "alpha", _NB_ALPHA_DEFAULT))
+        elif loss_name == "tweedie":
+            _loss_params["power"] = float(getattr(loss_fn, "power", _TWEEDIE_POWER_DEFAULT))
+
         if fitted_coefs:
             idxs = np.array([fc[0] for fc in fitted_coefs])
             coef_mat = np.column_stack([fc[1] for fc in fitted_coefs])  # (n_features, n_fitted)
@@ -2664,11 +2635,6 @@ class PenalizedGLM_CV(CVEstimatorBase):
                 # GLM losses: use registry
                 entry = _LOSS_EVAL_DISPATCH.get(loss_name)
                 if entry is not None:
-                    _loss_params = {}
-                    if loss_name == "negative_binomial":
-                        _loss_params["alpha"] = float(getattr(loss_fn, "alpha", _NB_ALPHA_DEFAULT))
-                    elif loss_name == "tweedie":
-                        _loss_params["power"] = float(getattr(loss_fn, "power", _TWEEDIE_POWER_DEFAULT))
                     per_sample_fn, _ = entry
                     per_sample_loss = per_sample_fn(eta_mat, y_val_np[:, np.newaxis], **_loss_params)
 

@@ -702,15 +702,15 @@ class TestEvaluateLossFallback:
 
 
 # ---------------------------------------------------------------------------
-# 12. _stable_sigmoid uses _ETA_CLIP_LOGISTIC
+# 12. _sigmoid (from _array_ops) clips extreme values
 # ---------------------------------------------------------------------------
 
 class TestStableSigmoid:
     def test_extreme_values(self):
         """Sigmoid should return 0/1 for extreme inputs without overflow."""
-        from statgpu.linear_model._penalized_cv import _stable_sigmoid
+        from statgpu.backends._array_ops import _sigmoid
         x_np = np.array([-1000.0, -500.0, 0.0, 500.0, 1000.0])
-        result = _stable_sigmoid(x_np, "numpy")
+        result = _sigmoid(x_np)
         assert_allclose(result, [0.0, 0.0, 0.5, 1.0, 1.0], atol=1e-6)
 
 

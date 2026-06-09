@@ -60,7 +60,15 @@ def _sigmoid(arr):
     """Numerically stable sigmoid: 1 / (1 + exp(-x))."""
     xp = _xp(arr)
     z = _clip(arr, -500, 500)
+    if xp.__name__ == "torch":
+        return xp.sigmoid(z)
     return 1.0 / (1.0 + xp.exp(-z))
+
+
+def _softplus(x):
+    """Numerically stable softplus: log(1 + exp(x))."""
+    xp = _xp(x)
+    return xp.log1p(xp.exp(-xp.abs(x))) + _clip(x, 0.0, None)
 
 
 def _sum(arr):
