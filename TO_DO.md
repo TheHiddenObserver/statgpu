@@ -185,3 +185,26 @@ coef = where(active, coef_new, coef)
 
 **方案**：实现 debiased inference for L1/ElasticNet（Zhang-Zhang / Javanmard-Montanari 方法），或提供 bootstrap inference 接口。
 
+### P3: `_penalized_cv.py` 文件拆分
+
+**现状**：`_penalized_cv.py` 2800+ 行，包含数值常量、loss 函数、CV path 函数、PenalizedGLM_CV 类等。
+
+**方案**：拆分为 3 个文件：
+- `_cv_loss_registry.py` — 数值常量 + `_ps_squared_error` + `_LOSS_EVAL_DISPATCH` + `_LOSS_RESIDUAL_FNS`/`_LOSS_VALLOSS_FNS` + `_register_loss_fns` + `_weighted_mean` + `_evaluate_loss_numpy`
+- `_cv_paths.py` — `_logistic_sparse_cv_path`、`_squared_error_sparse_cv_path`、`_glm_sparse_cv_path`、`_scad_mcp_cv_path`、`_FeatureOnlySparsePenalty`
+- `_penalized_cv.py` — PenalizedGLM_CV 类 + dispatch table + `_glm_sparse_cv_folds` + fold-batch helpers
+
+**改动量**：~3 处 import 调整，无逻辑变更。
+**状态**：未实现，记录为后续 PR。
+
+### P3: CV path 函数 backend 重复代码消除
+
+**现状**：`_logistic_sparse_cv_path`、`_squared_error_sparse_cv_path`、`_glm_sparse_cv_path` 内部各有 3 路 backend 分支（torch/cupy/numpy），大量重复的 `if backend == "torch": ... elif backend == "cupy": ... else: ...` 代码。
+
+**方案**：
+1. 将热循环中的 backend 操作统一到 `_fb_*` helpers（已有 `_fb_ones`、`_fb_zeros`、`_fb_cat` 等）
+2. 对于 `sign`、`clamp`、`maximum` 等操作，扩展 `_array_ops.py` 的 `_xp` 分发（与 P3 Backend 可扩展性合并）
+3. 保留 `_glm_sparse_cv_folds` 的直接 API 调用（性能关键路径），但用 `_fb_*` 减少 boilerplate
+
+**状态**：未实现，记录为后续 PR。
+

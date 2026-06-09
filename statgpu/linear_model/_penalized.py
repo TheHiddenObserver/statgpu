@@ -2579,7 +2579,8 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
         if device == Device.CUDA:
             import cupy as cp
             yb = cp.asarray(self._to_array(y, Device.CUDA))
-            resid_sq = (yb - y_pred) ** 2
+            y_pred_dev = cp.asarray(y_pred) if isinstance(y_pred, cp.ndarray) else cp.asarray(_to_numpy(y_pred))
+            resid_sq = (yb - y_pred_dev) ** 2
             if sw is not None:
                 sw_dev = cp.asarray(sw, dtype=cp.float64)
                 w_sum = float(cp.sum(sw_dev).get())
@@ -2594,7 +2595,11 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
         if device == Device.TORCH:
             import torch
             yb = self._to_array(y, Device.TORCH, backend="torch").to(y_pred.dtype)
-            resid_sq = (yb - y_pred) ** 2
+            if isinstance(y_pred, torch.Tensor):
+                y_pred_dev = y_pred.to(dtype=yb.dtype, device=yb.device)
+            else:
+                y_pred_dev = torch.as_tensor(_to_numpy(y_pred), dtype=yb.dtype, device=yb.device)
+            resid_sq = (yb - y_pred_dev) ** 2
             if sw is not None:
                 sw_dev = torch.as_tensor(sw, dtype=yb.dtype, device=yb.device)
                 w_sum = float(sw_dev.sum().item())

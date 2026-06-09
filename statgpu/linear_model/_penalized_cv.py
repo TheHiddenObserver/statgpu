@@ -115,61 +115,17 @@ def _two_stage_candidate_mask(scores, refine_top_k=3):
 
 
 # ---------------------------------------------------------------------------
-# Per-sample loss/residual functions (numpy-only, for _evaluate_loss_numpy)
+# Per-sample loss function for squared_error (unique signature: needs X_design)
 # ---------------------------------------------------------------------------
-# These functions define the canonical per-sample loss formulas.
-# The inline code in _glm_sparse_cv_folds uses the same mathematical formulas
-# with torch/cupy operations for performance. When modifying a formula,
-# update BOTH this section AND the inline code in _glm_sparse_cv_folds.
-
-def _ps_logistic(eta, y, **_):
-    log1pexp = np.log1p(np.exp(-np.abs(eta))) + np.maximum(eta, 0.0)
-    return -y * eta + log1pexp
-
 def _ps_squared_error(eta, y, X_design=None, coef_with_intercept=None, **_):
     return (y - X_design @ coef_with_intercept) ** 2
-
-def _ps_poisson(eta, y, **_):
-    # loss = mu - y*log(mu), where mu = exp(eta)
-    mu = np.exp(np.clip(eta, -_ETA_CLIP_STANDARD, _ETA_CLIP_STANDARD))
-    return mu - y * np.log(np.clip(mu, _MU_LO, None))
-
-def _ps_gamma(eta, y, **_):
-    # loss = y/mu + log(mu), where mu = exp(eta)
-    mu = np.exp(np.clip(eta, -_ETA_CLIP_STANDARD, _ETA_CLIP_STANDARD))
-    return y / np.clip(mu, _MU_LO, None) + np.log(np.clip(mu, _MU_LO, None))
-
-def _ps_inverse_gaussian(eta, y, **_):
-    # loss = y/(2*mu^2) - 1/mu, where mu = exp(eta)
-    mu = np.exp(np.clip(eta, -_ETA_CLIP_STANDARD, _ETA_CLIP_STANDARD))
-    return y / (2.0 * np.clip(mu * mu, _MU_LO, None)) - 1.0 / np.clip(mu, _MU_LO, None)
-
-def _ps_negative_binomial(eta, y, alpha=_NB_ALPHA_DEFAULT, **_):
-    # loss = -y*log(mu/(1+alpha*mu)) + (1/alpha)*log(1+alpha*mu)
-    mu = np.exp(np.clip(eta, -_ETA_CLIP_STANDARD, _ETA_CLIP_STANDARD))
-    mu_c = np.clip(mu, _MU_LO, None)
-    one_plus = 1.0 + alpha * mu_c
-    return -y * np.log(mu_c / one_plus) + (1.0 / alpha) * np.log(one_plus)
-
-def _ps_tweedie(eta, y, power=_TWEEDIE_POWER_DEFAULT, **_):
-    # loss = -y*mu^(1-p)/(1-p) + mu^(2-p)/(2-p)
-    mu = np.exp(np.clip(eta, -_ETA_CLIP_TWEEDIE, _ETA_CLIP_TWEEDIE))
-    mu_c = np.clip(mu, _MU_LO_TWEEDIE, _MU_HI_TWEEDIE)
-    return -y * np.exp((1 - power) * np.log(mu_c)) / (1 - power) + np.exp((2 - power) * np.log(mu_c)) / (2 - power)
 
 
 # loss_name -> (per_sample_fn, uses_design)
 # uses_design=True: fn needs X_design and coef_with_intercept (squared_error)
 # uses_design=False: fn uses eta directly (all GLM losses)
-_LOSS_EVAL_DISPATCH = {
-    "logistic": (_ps_logistic, False),
-    "squared_error": (_ps_squared_error, True),
-    "poisson": (_ps_poisson, False),
-    "gamma": (_ps_gamma, False),
-    "inverse_gaussian": (_ps_inverse_gaussian, False),
-    "negative_binomial": (_ps_negative_binomial, False),
-    "tweedie": (_ps_tweedie, False),
-}
+# Populated below after the loss formula registry functions are defined.
+_LOSS_EVAL_DISPATCH = {}
 
 
 def _weighted_mean(per_sample, sw):
@@ -614,7 +570,22 @@ _register_loss_fns("negative_binomial", _res_nb, _val_nb)
 _register_loss_fns("tweedie", _res_tweedie, _val_tweedie)
 
 
-# Legacy fold-batch config (Lipschitz + intercept only; residual/val_loss now use registry)
+# Populate _LOSS_EVAL_DISPATCH using the backend-agnostic _val_* functions.
+# _val_* auto-detect numpy/cupy/torch via _get_xp; _evaluate_loss_numpy
+# always passes numpy arrays, so they behave identically to the old _ps_* fns.
+_LOSS_EVAL_DISPATCH.update({
+    "logistic": (_val_logistic, False),
+    "squared_error": (_ps_squared_error, True),
+    "poisson": (_val_poisson, False),
+    "gamma": (_val_gamma, False),
+    "inverse_gaussian": (_val_invgauss, False),
+    "negative_binomial": (_val_nb, False),
+    "tweedie": (_val_tweedie, False),
+})
+
+
+# Fold-batch config: Lipschitz function and intercept function per loss.
+# Residual and val_loss are handled by the loss formula registry above.
 _FOLD_BATCH_CONFIGS = {}
 
 
@@ -722,12 +693,10 @@ def _glm_sparse_cv_folds(
     val_mask = _fb_zeros((n_samples, n_folds), Xb.dtype, is_torch, dev)
 
     # Sample weight mask: per-fold weights (n_samples, n_folds)
+    # Deferred until after the fold loop when train_mask is finalized.
     has_weights = sample_weight is not None
     if has_weights:
         sw_all = _to_backend_float64(sample_weight, device_backend).reshape(-1)
-        sw_mask = sw_all.reshape(-1, 1) * train_mask  # (n_samples, n_folds)
-    else:
-        sw_mask = train_mask  # effectively all 1s for train, 0s for val
 
     step_values = []
     for fold_idx, (train_idx, val_idx) in enumerate(folds):
@@ -752,9 +721,11 @@ def _glm_sparse_cv_folds(
             L_loss = lipschitz_fn(X_aug, y_train, n_train, is_torch)
         step_values.append(1.0 / L_loss)
 
-    # Update sw_mask after train_mask has been modified
+    # Build sw_mask now that train_mask is finalized (val rows are 0)
     if has_weights:
         sw_mask = sw_all.reshape(-1, 1) * train_mask
+    else:
+        sw_mask = train_mask  # effectively all 1s for train, 0s for val
 
     # --- Initialize parameters ---
     sw_train_vec = _fb_sum(sw_mask, is_torch, axis=0, keepdims=True).reshape(1, n_folds)
@@ -779,6 +750,12 @@ def _glm_sparse_cv_folds(
     tol_float = float(tol)
     scores_path = []
     iters_path = []
+
+    # Precompute sw_val_mask/sw_val_vec once (val_mask is constant across alphas)
+    if has_weights:
+        sw_val_mask = sw_all.reshape(-1, 1) * val_mask
+        sw_val_vec = _fb_sum(sw_val_mask, is_torch, axis=0, keepdims=True).reshape(1, n_folds)
+        sw_val_vec = torch.clamp(sw_val_vec, min=1e-10) if is_torch else cp.clip(sw_val_vec, 1e-10, None)
 
     # --- FISTA loop over alphas ---
     # y_coef / y_intercept are the extrapolated iterates (standard FISTA notation).
@@ -851,11 +828,7 @@ def _glm_sparse_cv_folds(
         # Validation loss via loss registry (single call, backend-agnostic)
         eta_val = Xb @ coef + intercept
         val_loss = _LOSS_VALLOSS_FNS[loss_name](eta_val, y_col, alpha=_nb_alpha, power=_tw_power) * val_mask
-        # Weighted validation scoring: use sw_val_mask when weights present
         if has_weights:
-            sw_val_mask = sw_all.reshape(-1, 1) * val_mask
-            sw_val_vec = _fb_sum(sw_val_mask, is_torch, axis=0, keepdims=True).reshape(1, n_folds)
-            sw_val_vec = torch.clamp(sw_val_vec, min=1e-10) if is_torch else cp.clip(sw_val_vec, 1e-10, None)
             scores_path.append(_fb_sum(val_loss * sw_val_mask, is_torch, axis=0, keepdims=True).reshape(-1) / sw_val_vec.reshape(-1))
         else:
             scores_path.append(_fb_sum(val_loss, is_torch, axis=0, keepdims=True).reshape(-1) / n_val_vec.reshape(-1))
@@ -902,6 +875,12 @@ def _logistic_sparse_cv_path(
     if sample_weight is not None:
         sw_np = np.asarray(_to_numpy(sample_weight), dtype=np.float64).ravel()
         if sw_np.size and not np.allclose(sw_np, sw_np[0]):
+            warnings.warn(
+                "_logistic_sparse_cv_path: non-uniform sample_weight not supported, "
+                "falling back to general CV path.",
+                RuntimeWarning,
+                stacklevel=2,
+            )
             return None
 
     backend = _backend_name_for_cv_device(device)
@@ -1093,6 +1072,12 @@ def _squared_error_sparse_cv_path(
     if sample_weight is not None:
         sw_np = np.asarray(_to_numpy(sample_weight), dtype=np.float64).ravel()
         if sw_np.size and not np.allclose(sw_np, sw_np[0]):
+            warnings.warn(
+                "_squared_error_sparse_cv_path: non-uniform sample_weight not supported, "
+                "falling back to general CV path.",
+                RuntimeWarning,
+                stacklevel=2,
+            )
             return None
 
     backend = _backend_name_for_cv_device(device)
@@ -1388,6 +1373,12 @@ def _glm_sparse_cv_path(
     if sample_weight is not None:
         sw_np = np.asarray(_to_numpy(sample_weight), dtype=np.float64).ravel()
         if sw_np.size and not np.allclose(sw_np, sw_np[0]):
+            warnings.warn(
+                "_glm_sparse_cv_path: non-uniform sample_weight not supported, "
+                "falling back to general CV path.",
+                RuntimeWarning,
+                stacklevel=2,
+            )
             return None
 
     from statgpu.glm_core._solver import fista_solver, fista_bb_solver
@@ -1604,6 +1595,7 @@ def _scad_mcp_cv_path(
     X_val=None,
     y_val=None,
     sample_weight=None,
+    val_sample_weight=None,
     return_path=False,
     max_lla_per_step=3,
     lla_tol=1e-4,
@@ -1621,6 +1613,12 @@ def _scad_mcp_cv_path(
     if sample_weight is not None:
         sw_np = np.asarray(_to_numpy(sample_weight), dtype=np.float64).ravel()
         if sw_np.size and not np.allclose(sw_np, sw_np[0]):
+            warnings.warn(
+                "_scad_mcp_cv_path: non-uniform sample_weight not supported, "
+                "falling back to general CV path.",
+                RuntimeWarning,
+                stacklevel=2,
+            )
             return None
 
     from statgpu.glm_core._solver import fista_solver
@@ -1663,6 +1661,12 @@ def _scad_mcp_cv_path(
             X_val_work = np.concatenate([Xv, ones_v], axis=1)
     else:
         X_val_work = yv = None
+
+    # Validation sample weights
+    if val_sample_weight is not None and X_val_work is not None:
+        swv = _to_backend_float64(val_sample_weight, backend).reshape(-1)
+    else:
+        swv = None
 
     loss_fn = _resolve_loss_name(loss_name)
 
@@ -1732,6 +1736,9 @@ def _scad_mcp_cv_path(
 
     # Pre-create inner penalty object (reuse across LLA iterations)
     inner_pen = AdaptiveL1Penalty(alpha=1.0)
+    # Bind hot-loop helpers to local variables (avoid per-call backend dispatch)
+    _abs_sum_local = _abs_sum
+    _scalar_lt_local = _scalar_lt
 
     for alpha in alphas:
         scad_penalty.alpha = float(alpha)
@@ -1781,8 +1788,8 @@ def _scad_mcp_cv_path(
 
                     # Convergence check (device-side, every 10 iters for CV)
                     if iteration % 10 == 0 and iteration > 0:
-                        delta = _abs_sum(coef - coef_old, backend)
-                        if _scalar_lt(delta, tol, backend):
+                        delta = _abs_sum_local(coef - coef_old, backend)
+                        if _scalar_lt_local(delta, tol, backend):
                             break
             else:
                 # GLM loss: direct FISTA loop with device-side convergence.
@@ -1831,13 +1838,13 @@ def _scad_mcp_cv_path(
 
                     # Convergence check (device-side, every 10 iters for CV)
                     if iteration % 10 == 0 and iteration > 0:
-                        delta = _abs_sum(coef - coef_old, backend)
-                        if _scalar_lt(delta, tol, backend):
+                        delta = _abs_sum_local(coef - coef_old, backend)
+                        if _scalar_lt_local(delta, tol, backend):
                             break
 
             # LLA convergence check
-            delta = _abs_sum(coef - coef_before_lla, backend)
-            if _scalar_lt(delta, lla_tol, backend):
+            delta = _abs_sum_local(coef - coef_before_lla, backend)
+            if _scalar_lt_local(delta, lla_tol, backend):
                 break
 
         # Extract coef and compute intercept from centered-data fit.
@@ -1871,9 +1878,28 @@ def _scad_mcp_cv_path(
             else:
                 intercept = float(coef[n_features])
 
-        # Validation loss on device
+        # Validation loss on device (weighted if val_sample_weight provided)
         if X_val_work is not None:
-            val_loss = loss_fn.value(X_val_work, yv, coef)
+            if swv is not None:
+                # Per-sample weighted loss
+                eta_v = X_val_work @ coef
+                if loss_name == "squared_error":
+                    per_sample = (yv - eta_v) ** 2
+                else:
+                    _loss_params = {}
+                    if loss_name == "negative_binomial":
+                        _loss_params["alpha"] = float(getattr(loss_fn, "alpha", _NB_ALPHA_DEFAULT))
+                    elif loss_name == "tweedie":
+                        _loss_params["power"] = float(getattr(loss_fn, "power", _TWEEDIE_POWER_DEFAULT))
+                    per_sample = _LOSS_VALLOSS_FNS[loss_name](eta_v, yv, **_loss_params)
+                if backend == "torch":
+                    val_loss = float((swv * per_sample).sum().item() / swv.sum().item())
+                elif backend == "cupy":
+                    val_loss = float(cp.sum(swv * per_sample) / cp.sum(swv))
+                else:
+                    val_loss = float(np.sum(swv * per_sample) / np.sum(swv))
+            else:
+                val_loss = loss_fn.value(X_val_work, yv, coef)
             scores_dev.append(val_loss)
 
         if return_path:
@@ -1922,6 +1948,42 @@ def _scalar_lt(a, b, backend):
     elif backend == "cupy":
         return bool(a < b)
     return float(a) < float(b)
+
+
+# ---------------------------------------------------------------------------
+# Data-driven GPU device selection thresholds for CV
+# ---------------------------------------------------------------------------
+# Each entry: (loss, penalties, min_nx, min_features, reason, or_min_features)
+# - loss: loss name or None (matches any non-squared-error)
+# - penalties: tuple of penalty names that trigger GPU evaluation
+# - min_nx: minimum n_samples * n_features to consider GPU
+# - min_features: minimum n_features (0 = no feature threshold)
+# - reason: explanation string for the auto-selection decision
+# - or_min_features: if >0, also allow GPU when n_features >= or_min_features
+#                    AND n_samples*n_features >= 1_000_000 (OR with primary cond)
+# If the condition is met and torch.cuda is available → "torch", else → "cpu".
+_CV_DEVICE_THRESHOLDS = [
+    ("squared_error", ("l1", "elasticnet", "en"), 1_000_000, 256,
+     "medium squared-error sparse CV benefits from batched torch alpha path", 0),
+    (None, ("scad", "mcp"), 1_000_000, 0,
+     "large GLM SCAD/MCP CV benefits from torch async FISTA", 0),
+    ("logistic", ("l1", "elasticnet", "en"), 1_000_000, 500,
+     "high-dimensional logistic sparse CV benefits from torch", 0),
+    ("logistic", ("l1", "elasticnet", "en"), 500_000, 100,
+     "medium logistic sparse CV benefits from fold-batched torch path", 0),
+    ("poisson", ("l1", "elasticnet", "en"), 1_000_000, 500,
+     "high-dimensional poisson sparse CV benefits from torch", 0),
+    ("gamma", ("l1", "elasticnet", "en"), 2_000_000, 500,
+     "large high-dimensional gamma sparse CV benefits from torch", 0),
+    ("inverse_gaussian", ("l1", "elasticnet", "en"), 2_000_000, 500,
+     "large high-dimensional inverse-gaussian sparse CV benefits from torch", 0),
+    ("tweedie", ("l1", "elasticnet", "en"), 300_000, 0,
+     "medium tweedie sparse CV is faster on torch", 0),
+]
+# Special: always-CPU losses (regardless of problem size)
+_CV_DEVICE_ALWAYS_CPU = {
+    "negative_binomial": "negative-binomial CV is faster on CPU for current benchmarked sizes",
+}
 
 
 class PenalizedGLM_CV(CVEstimatorBase):
@@ -2002,90 +2064,40 @@ class PenalizedGLM_CV(CVEstimatorBase):
         n_samples, n_features = X.shape
         penalty_name = str(penalty_name).lower()
         loss_name = str(self.loss).lower()
-        continuation_factor = 20 if loss_name != "squared_error" and penalty_name in ("scad", "mcp") else 1
-        effective_work = int(n_samples) * int(n_features) * int(self.cv) * int(n_alphas) * continuation_factor
+        nx = int(n_samples) * int(n_features)
 
-        if int(n_samples) * int(n_features) < 200_000:
+        # Small problems: always CPU
+        if nx < 200_000:
             self._cv_selected_device_ = "cpu"
             self._cv_auto_reason_ = "small CV problem is faster on CPU"
             return "cpu"
-        if loss_name == "squared_error" and penalty_name in ("l1", "elasticnet", "en"):
-            if (
-                int(n_features) >= 256
-                and int(n_samples) * int(n_features) >= 1_000_000
-                and _torch_cuda_available()
-            ):
-                self._cv_selected_device_ = "torch"
-                self._cv_auto_reason_ = "medium squared-error sparse CV benefits from batched torch alpha path"
-                return "torch"
+
+        # Always-CPU losses
+        if loss_name in _CV_DEVICE_ALWAYS_CPU and penalty_name in ("l2", "l1", "elasticnet", "en"):
             self._cv_selected_device_ = "cpu"
-            self._cv_auto_reason_ = "squared-error sparse CV is faster on CPU below the benchmarked torch break-even"
+            self._cv_auto_reason_ = _CV_DEVICE_ALWAYS_CPU[loss_name]
             return "cpu"
-        if loss_name != "squared_error" and penalty_name in ("scad", "mcp"):
-            # GLM SCAD/MCP: allow GPU at large scale where LLA overhead is amortized
-            if int(n_samples) * int(n_features) >= 1_000_000 and _torch_cuda_available():
-                self._cv_selected_device_ = "torch"
-                self._cv_auto_reason_ = "large GLM SCAD/MCP CV benefits from torch async FISTA"
-                return "torch"
-            self._cv_selected_device_ = "cpu"
-            self._cv_auto_reason_ = "GLM SCAD/MCP CV continuation is faster on CPU for current benchmarked sizes"
-            return "cpu"
-        if loss_name == "logistic" and penalty_name in ("l1", "elasticnet", "en"):
-            # Logistic sparse: fold-batched Torch CV amortizes high-dimensional
-            # and large-n alpha paths, but low-dimensional small-n rows remain
-            # faster on CPU.
-            if (
-                (
-                    int(n_samples) >= 5_000
-                    and int(n_samples) * int(n_features) >= 500_000
-                )
-                or (
-                    int(n_features) >= 500
-                    and int(n_samples) * int(n_features) >= 1_000_000
-                )
-            ) and _torch_cuda_available():
-                self._cv_selected_device_ = "torch"
-                self._cv_auto_reason_ = "medium logistic sparse CV benefits from fold-batched torch path"
-                return "torch"
-            self._cv_selected_device_ = "cpu"
-            self._cv_auto_reason_ = "logistic sparse CV is faster on CPU for current benchmarked sizes"
-            return "cpu"
-        if loss_name == "poisson" and penalty_name in ("l1", "elasticnet", "en"):
-            if int(n_features) >= 500 and int(n_samples) * int(n_features) >= 1_000_000 and _torch_cuda_available():
-                self._cv_selected_device_ = "torch"
-                self._cv_auto_reason_ = "high-dimensional poisson sparse CV benefits from torch"
-                return "torch"
-            self._cv_selected_device_ = "cpu"
-            self._cv_auto_reason_ = "poisson sparse CV is faster on CPU below the benchmarked torch break-even"
-            return "cpu"
-        if loss_name == "gamma" and penalty_name in ("l1", "elasticnet", "en"):
-            if int(n_features) >= 500 and int(n_samples) * int(n_features) >= 2_000_000 and _torch_cuda_available():
-                self._cv_selected_device_ = "torch"
-                self._cv_auto_reason_ = "large high-dimensional gamma sparse CV benefits from torch"
-                return "torch"
-            self._cv_selected_device_ = "cpu"
-            self._cv_auto_reason_ = "gamma sparse CV is faster on CPU below the benchmarked torch break-even"
-            return "cpu"
-        if loss_name == "inverse_gaussian" and penalty_name in ("l1", "elasticnet", "en"):
-            if int(n_features) >= 500 and int(n_samples) * int(n_features) >= 2_000_000 and _torch_cuda_available():
-                self._cv_selected_device_ = "torch"
-                self._cv_auto_reason_ = "large high-dimensional inverse-gaussian sparse CV benefits from torch"
-                return "torch"
-            self._cv_selected_device_ = "cpu"
-            self._cv_auto_reason_ = "inverse-gaussian sparse CV is faster on CPU below the benchmarked torch break-even"
-            return "cpu"
-        if loss_name == "negative_binomial" and penalty_name in ("l2", "l1", "elasticnet", "en"):
-            self._cv_selected_device_ = "cpu"
-            self._cv_auto_reason_ = "negative-binomial CV is faster on CPU for current benchmarked sizes"
-            return "cpu"
-        if loss_name == "tweedie" and penalty_name in ("l1", "elasticnet", "en"):
-            if int(n_samples) * int(n_features) >= 300_000 and _torch_cuda_available():
-                self._cv_selected_device_ = "torch"
-                self._cv_auto_reason_ = f"medium tweedie {penalty_name} CV is faster on torch"
-                return "torch"
-            self._cv_selected_device_ = "cpu"
-            self._cv_auto_reason_ = f"small tweedie {penalty_name} CV is faster on CPU"
-            return "cpu"
+
+        # Data-driven threshold lookup
+        for rule_loss, rule_penalties, min_nx, min_features, reason, or_min_feat in _CV_DEVICE_THRESHOLDS:
+            loss_match = (rule_loss is None and loss_name != "squared_error") or rule_loss == loss_name
+            if loss_match and penalty_name in rule_penalties:
+                # Primary condition: nx >= min_nx AND n_features >= min_features
+                cond = nx >= min_nx and int(n_features) >= min_features
+                # OR condition: n_features >= or_min_feat AND nx >= 1_000_000
+                if not cond and or_min_feat > 0:
+                    cond = int(n_features) >= or_min_feat and nx >= 1_000_000
+                if cond and _torch_cuda_available():
+                    self._cv_selected_device_ = "torch"
+                    self._cv_auto_reason_ = reason
+                    return "torch"
+                self._cv_selected_device_ = "cpu"
+                self._cv_auto_reason_ = reason.replace("benefits from", "is faster on CPU below break-even for")
+                return "cpu"
+
+        # Fallback: large effective work → GPU
+        continuation_factor = 20 if loss_name != "squared_error" and penalty_name in ("scad", "mcp") else 1
+        effective_work = nx * int(self.cv) * int(n_alphas) * continuation_factor
         if effective_work < 100_000_000:
             self._cv_selected_device_ = "cpu"
             self._cv_auto_reason_ = "CV effective work is below GPU break-even"
@@ -2240,66 +2252,32 @@ class PenalizedGLM_CV(CVEstimatorBase):
 
         can_infer = (self.loss == 'squared_error' and self.penalty == 'l2')
         penalty_name = str(self.penalty).lower()
+        alpha_arr = np.asarray([best_alpha], dtype=np.float64)
 
+        # Try specialized refit paths (each returns model or None)
+        refit_paths = []
         if self.loss == "logistic" and penalty_name in ("l1", "elasticnet", "en"):
-            path = _logistic_sparse_cv_path(
-                X,
-                y,
-                np.asarray([best_alpha], dtype=np.float64),
-                penalty_name,
-                self.l1_ratio,
+            refit_paths.append(lambda: _logistic_sparse_cv_path(
+                X, y, alpha_arr, penalty_name, self.l1_ratio,
                 _logistic_sparse_effective_max_iter(self.max_iter, refit_device, penalty_name, refit=True),
-                self.tol,
-                refit_device,
-                sample_weight=sample_weight,
-            )
-            if path is not None:
-                model = PenalizedGeneralizedLinearModel(
-                    loss=self.loss, penalty=self.penalty, alpha=best_alpha,
-                    l1_ratio=self.l1_ratio, device=refit_device,
-                    compute_inference=False, max_iter=self.max_iter,
-                    tol=self.tol, solver=self._solver_for_cv(refit_device, X=X),
-                )
-                return self._populate_refit_model(
-                    model, path["coef"][-1], path["intercept"][-1],
-                    X, refit_device, n_iter=path["n_iter"][-1],
-                )
-
+                self.tol, refit_device, sample_weight=sample_weight,
+            ))
         if self.loss == "squared_error" and penalty_name in ("l1", "elasticnet", "en"):
-            path = _squared_error_sparse_cv_path(
-                X, y, np.asarray([best_alpha], dtype=np.float64),
-                penalty_name, self.l1_ratio, self.max_iter, self.tol,
-                refit_device, sample_weight=sample_weight,
-            )
-            if path is not None:
-                model = PenalizedGeneralizedLinearModel(
-                    loss=self.loss, penalty=self.penalty, alpha=best_alpha,
-                    l1_ratio=self.l1_ratio, device=refit_device,
-                    compute_inference=False, max_iter=self.max_iter,
-                    tol=self.tol, solver=self._solver_for_cv(refit_device, X=X),
-                )
-                return self._populate_refit_model(
-                    model, path["coef"][-1], path["intercept"][-1],
-                    X, refit_device, n_iter=path["n_iter"][-1],
-                )
-
+            refit_paths.append(lambda: _squared_error_sparse_cv_path(
+                X, y, alpha_arr, penalty_name, self.l1_ratio,
+                self.max_iter, self.tol, refit_device, sample_weight=sample_weight,
+            ))
         cv_solver = self._solver_for_cv(refit_device, X=X)
         if self._uses_glm_sparse_path(penalty_name, cv_solver):
-            path = _glm_sparse_cv_path(
-                self.loss,
-                X,
-                y,
-                np.asarray([best_alpha], dtype=np.float64),
-                penalty_name,
-                self.l1_ratio,
-                self.max_iter,
-                self.tol,
-                refit_device,
-                return_path=True,
-                solver_name=cv_solver,
-                cv_mode=False,
+            refit_paths.append(lambda: _glm_sparse_cv_path(
+                self.loss, X, y, alpha_arr, penalty_name, self.l1_ratio,
+                self.max_iter, self.tol, refit_device,
+                return_path=True, solver_name=cv_solver, cv_mode=False,
                 sample_weight=sample_weight,
-            )
+            ))
+
+        for get_path in refit_paths:
+            path = get_path()
             if path is not None:
                 model = PenalizedGeneralizedLinearModel(
                     loss=self.loss, penalty=self.penalty, alpha=best_alpha,
@@ -2312,16 +2290,12 @@ class PenalizedGLM_CV(CVEstimatorBase):
                     X, refit_device, n_iter=path["n_iter"][-1],
                 )
 
+        # General fallback: model.fit()
         model = PenalizedGeneralizedLinearModel(
-            loss=self.loss,
-            penalty=self.penalty,
-            alpha=best_alpha,
-            l1_ratio=self.l1_ratio,
-            device=refit_device,
-            compute_inference=can_infer,
-            max_iter=self.max_iter,
-            tol=self.tol,
-            solver=self._solver_for_cv(refit_device, X=X),
+            loss=self.loss, penalty=self.penalty, alpha=best_alpha,
+            l1_ratio=self.l1_ratio, device=refit_device,
+            compute_inference=can_infer, max_iter=self.max_iter,
+            tol=self.tol, solver=cv_solver,
         )
         model.fit(X, y, sample_weight=sample_weight)
         return model
@@ -2409,7 +2383,7 @@ class PenalizedGLM_CV(CVEstimatorBase):
 
         sort_idx = np.argsort(-alpha_grid)
         alpha_sorted = alpha_grid[sort_idx]
-        all_scores = np.full((self.cv, n_alphas), np.nan)
+        all_scores = np.full((len(folds), n_alphas), np.nan)
         cv_solver = self._solver_for_cv(cv_device, X=X)
 
         # ── Fast path: fold-batched CV (all folds at once, GPU only) ──
@@ -2441,7 +2415,6 @@ class PenalizedGLM_CV(CVEstimatorBase):
         # Each entry: (condition_fn, path_fn)
         # condition_fn(loss_name, penalty_name, cv_solver, strict) -> bool
         # path_fn(X_train, y_train, alpha_sorted, ..., X_val, y_val, sw_train, sw_val) -> dict or None
-        _per_fold_paths = []
 
         def _cond_scad_mcp(loss_name, penalty_name, cv_solver, strict):
             return penalty_name in ("scad", "mcp") and (loss_name == "squared_error" or not strict)
@@ -2452,6 +2425,7 @@ class PenalizedGLM_CV(CVEstimatorBase):
                 loss_name, X_train, y_train, alpha_sorted, penalty_name,
                 l1_ratio, max_iter, tol, cv_device,
                 X_val=X_val, y_val=y_val, sample_weight=sw_train,
+                val_sample_weight=sw_val,
             )
 
         def _cond_logistic(loss_name, penalty_name, cv_solver, strict):
@@ -2470,7 +2444,7 @@ class PenalizedGLM_CV(CVEstimatorBase):
             return loss_name == "squared_error" and penalty_name in ("l1", "elasticnet", "en")
 
         def _path_squared(X_train, y_train, alpha_sorted, penalty_name, l1_ratio,
-                          max_iter, tol, cv_device, X_val, y_val, sw_train, sw_val, **kw):
+                          max_iter, tol, cv_device, X_val, y_val, sw_train, sw_val):
             return _squared_error_sparse_cv_path(
                 X_train, y_train, alpha_sorted, penalty_name, l1_ratio,
                 max_iter, tol, cv_device,
@@ -2482,8 +2456,7 @@ class PenalizedGLM_CV(CVEstimatorBase):
             return self._uses_glm_sparse_path(penalty_name, cv_solver)
 
         def _path_glm_sparse(X_train, y_train, alpha_sorted, penalty_name, l1_ratio,
-                             max_iter, tol, cv_device, X_val, y_val, sw_train, sw_val,
-                             cv_solver=cv_solver, strict=strict):
+                             max_iter, tol, cv_device, X_val, y_val, sw_train, sw_val):
             return _glm_sparse_cv_path(
                 loss_name, X_train, y_train, alpha_sorted, penalty_name,
                 l1_ratio, max_iter, tol, cv_device,
@@ -2635,9 +2608,10 @@ class PenalizedGLM_CV(CVEstimatorBase):
                 for attr in ("_cv_alpha_path", "_cv_path_results"):
                     if hasattr(model, attr): delattr(model, attr)
 
-        # Warm-started alpha loop
+        # Warm-started alpha loop: fit per alpha, collect coefs for batch eval
         prev_coef = None
         prev_intercept = None
+        fitted_coefs = []  # (alpha_idx_sorted, coef_np, intercept)
         for alpha_idx_sorted, alpha in enumerate(alpha_sorted):
             try:
                 if cv_cache is not None:
@@ -2655,17 +2629,51 @@ class PenalizedGLM_CV(CVEstimatorBase):
 
                 coef_np = _to_numpy(model.coef_).ravel()
                 intercept = float(model.intercept_)
-                val_loss = _evaluate_loss_numpy(
-                    loss_name, loss_fn, X_val_np, y_val_np,
-                    coef_np, intercept, model.fit_intercept, sample_weight=sw_val,
-                )
-                orig_idx = sort_idx[alpha_idx_sorted]
-                all_scores[fold_idx, orig_idx] = val_loss
+                fitted_coefs.append((alpha_idx_sorted, coef_np.copy(), intercept))
                 prev_coef = coef_np.copy()
                 prev_intercept = intercept
             except Exception:
                 orig_idx = sort_idx[alpha_idx_sorted]
                 all_scores[fold_idx, orig_idx] = np.nan
+
+        # Batch validation: one GEMM for all fitted alphas
+        if fitted_coefs:
+            idxs = np.array([fc[0] for fc in fitted_coefs])
+            coef_mat = np.column_stack([fc[1] for fc in fitted_coefs])  # (n_features, n_fitted)
+            intercepts = np.array([fc[2] for fc in fitted_coefs])  # (n_fitted,)
+            eta_mat = X_val_np @ coef_mat + intercepts[np.newaxis, :]  # (n_val, n_fitted)
+
+            # Evaluate loss per alpha
+            sw = np.asarray(_to_numpy(sw_val), dtype=np.float64).ravel() if sw_val is not None else None
+            per_sample_loss = None
+
+            if loss_name == "squared_error":
+                # Direct batch computation: squared residual
+                per_sample_loss = (y_val_np[:, np.newaxis] - eta_mat) ** 2
+            else:
+                # GLM losses: use registry
+                entry = _LOSS_EVAL_DISPATCH.get(loss_name)
+                if entry is not None:
+                    _loss_params = {}
+                    if loss_name == "negative_binomial":
+                        _loss_params["alpha"] = float(getattr(loss_fn, "alpha", _NB_ALPHA_DEFAULT))
+                    elif loss_name == "tweedie":
+                        _loss_params["power"] = float(getattr(loss_fn, "power", _TWEEDIE_POWER_DEFAULT))
+                    per_sample_fn, _ = entry
+                    per_sample_loss = per_sample_fn(eta_mat, y_val_np[:, np.newaxis], **_loss_params)
+
+            if per_sample_loss is not None:
+                if sw is not None:
+                    w_sum = float(np.sum(sw))
+                    if w_sum > 0:
+                        scores_fitted = np.sum(sw[:, np.newaxis] * per_sample_loss, axis=0) / w_sum
+                    else:
+                        scores_fitted = np.mean(per_sample_loss, axis=0)
+                else:
+                    scores_fitted = np.mean(per_sample_loss, axis=0)
+                for i, alpha_idx_sorted in enumerate(idxs):
+                    orig_idx = sort_idx[alpha_idx_sorted]
+                    all_scores[fold_idx, orig_idx] = float(scores_fitted[i])
 
         if hasattr(model, "_cv_cache"): del model._cv_cache
         if hasattr(model, "_preserve_cv_cache"): del model._preserve_cv_cache

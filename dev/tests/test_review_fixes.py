@@ -163,20 +163,16 @@ class TestCumopFloat32:
 # ── 5. CUDA cummin/cummax None kernel guard ─────────────────────────────────
 
 class TestCumopNoneGuard:
-    """Verify _launch_cumop raises RuntimeError when kernels are None."""
+    """Verify _launch_cumop raises RuntimeError when arr/result is None."""
 
     def test_launch_1d_none_guard(self):
-        from statgpu.backends._cupy import _launch_cumop_1d, _cummin_1d_kernel
-        if _cummin_1d_kernel is not None:
-            pytest.skip("Kernels compiled successfully, cannot test None guard")
-        with pytest.raises(RuntimeError, match="failed to compile"):
+        from statgpu.backends._cupy import _launch_cumop_1d
+        with pytest.raises(RuntimeError, match="failed to compile|unavailable"):
             _launch_cumop_1d(None, None, 1, True)
 
     def test_launch_2d_none_guard(self):
-        from statgpu.backends._cupy import _launch_cumop_2d, _cummin_2d_kernel
-        if _cummin_2d_kernel is not None:
-            pytest.skip("Kernels compiled successfully, cannot test None guard")
-        with pytest.raises(RuntimeError, match="failed to compile"):
+        from statgpu.backends._cupy import _launch_cumop_2d
+        with pytest.raises(RuntimeError, match="failed to compile|unavailable"):
             _launch_cumop_2d(None, None, 1, 1, True)
 
 

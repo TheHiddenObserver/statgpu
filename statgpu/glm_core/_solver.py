@@ -266,10 +266,14 @@ def _smooth_penalty_gradient(penalty, coef):
 
 
 def _smooth_penalty_hessian(penalty, coef):
-    """Return smooth penalty Hessian on the same backend as coef."""
-    n = coef.shape[0]
+    """Return smooth penalty Hessian on the same backend as coef.
+
+    Returns scalar 0.0 when penalty is None/null (broadcasts correctly
+    when added to the loss Hessian matrix).
+    """
     if penalty is None or _penalty_name(penalty) in ("none", "null"):
-        return 0.0 * _eye_like(n, coef)
+        return 0.0
+    n = coef.shape[0]
     if hasattr(penalty, "smooth_hessian"):
         return penalty.smooth_hessian(coef)
     if _penalty_name(penalty) == "l2":
