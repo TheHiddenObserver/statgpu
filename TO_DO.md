@@ -152,16 +152,32 @@ NB alpha 和 Tweedie power 现在从 loss 对象默认值动态读取（`_resolv
 
 已添加 `cv_splits` 参数，支持自定义 fold 生成器（TimeSeriesSplit、StratifiedKFold 等）。
 
-### ~~P3: Backend 可扩展性~~ ✅ 大部分已完成
+### P3: Backend 可扩展性（方案 C：混合抽象）
 
-**已完成的抽象**：
-- residual/val_loss：`_LOSS_RESIDUAL_FNS` + `_xp`/`_safe_clip`（backends._array_ops）
-- 初始化：`_fb_*` helpers（ones/zeros/cat/sum/stack/copy）
-- 数据传输：`_to_backend_float64`
+**目标**：消除热循环中 ~12 处 `if is_torch` 分支，统一到 `_array_ops.py` 的 `_xp` 分发。
 
-**热循环中仍为 `if is_torch` 的操作**（~12 处）：proximal、where、full_like、convergence check。这些是性能取舍——Python 函数调用开销 ~100ns，12000 次调用总开销 ~1.2ms，相对 GPU 矩阵运算 ~200ms 可忽略。
+**方案**：简单操作（where、sign、clip、sum、any、full_like）扩展到 `_array_ops.py`，复杂操作（solve、lstsq、inference）留在 Backend 类。
 
-**添加新 backend 的改动量**：从 ~200 行减少到 ~12 行（只需在热循环的 `if is_torch` 分支添加 `elif`）。
+```python
+# _array_ops.py — 统一入口
+def where(cond, a, b):
+    return _xp(cond).where(cond, a, b)
+def sign(x):
+    return _xp(x).sign(x)
+def clip(arr, lo, hi):
+    xp = _xp(arr)
+    if xp.__name__ == "torch":
+        return xp.clamp(arr, min=lo, max=hi)
+    return xp.clip(arr, lo, hi)
+
+# 热循环中直接调用，无 if is_torch
+coef_new = sign(w) * clip(abs(w) - thresh, 0, None) / denom
+coef = where(active, coef_new, coef)
+```
+
+**添加新 backend 的改动量**：只需在 `_xp()` 中加一行检测，~1 处改动。
+
+**状态**：未实现，记录为后续 PR。
 
 ### P3: 非 Ridge 模型的 inference
 
