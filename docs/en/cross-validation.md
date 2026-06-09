@@ -1,7 +1,7 @@
 # Cross-Validation Implementation
 
 > Language: English  
-> Last updated: 2026-06-07  
+> Last updated: 2026-06-09  
 > This page: CV architecture, acceleration techniques, and GPU optimization  
 > Switch: [Chinese](../cross-validation.md)
 
@@ -203,6 +203,39 @@ for fold in folds:
 
 **Used for**: NB with l2, tweedie with l2, any case where specialized paths are unavailable.
 
+## Dispatch Table Pattern
+
+CV scoring uses a dispatch table pattern instead of cascading if/else blocks. Each path is a `(condition_fn, path_fn)` pair:
+
+```python
+_per_fold_paths = [
+    (_cond_scad_mcp,    _path_scad_mcp),     # SCAD/MCP LLA path
+    (_cond_logistic,    _path_logistic),       # Logistic specialized path
+    (_cond_squared,     _path_squared),        # Squared-error specialized path
+    (_cond_glm_sparse,  _path_glm_sparse),    # General GLM sparse path
+]
+```
+
+Adding a new path requires:
+1. Define `condition_fn` and `path_fn`
+2. Add entry to `_per_fold_paths`
+3. Done (1 touch point vs 4 before)
+
+## Loss Formula Registry
+
+All GLM loss functions are managed through a unified registry for residual (gradient) and validation loss computation:
+
+```python
+_register_loss_fns("logistic", _res_logistic, _val_logistic)
+_register_loss_fns("poisson", _res_poisson, _val_poisson)
+# ... all 6 losses registered
+```
+
+- `_LOSS_RESIDUAL_FNS[loss_name](eta, y)` → per-sample residual (gradient)
+- `_LOSS_VALLOSS_FNS[loss_name](eta, y)` → per-sample validation loss
+
+This eliminates inline if/elif chains in the FISTA hot loop and ensures a single source of truth for loss formulas.
+
 ## Two-Stage CV
 
 When `cv_strategy="two_stage"`:
@@ -315,23 +348,27 @@ Internal consistency is verified to machine precision (diff ~1e-16).
 
 ## Known Limitations
 
-### Non-uniform sample_weight with non-L2 penalties
+### Non-uniform sample_weight Support
 
-Non-uniform `sample_weight` is **not supported** for penalties other than L2:
+Non-uniform `sample_weight` support depends on the specific CV path:
 
-| Penalty | Solver | Non-uniform weights |
-|---------|--------|-------------------|
-| L2 | IRLS | ✅ Supported |
-| L1, ElasticNet | FISTA | ❌ Raises ValueError |
-| SCAD, MCP | FISTA | ❌ Raises ValueError |
-| Adaptive L1 | FISTA | ❌ Raises ValueError |
-| Group Lasso/MCP/SCAD | FISTA | ❌ Raises ValueError |
+| Penalty | CV Path | Non-uniform weights |
+|---------|---------|-------------------|
+| L2 | Ridge eigendecomposition | ✅ Supported (weighted eigensolve) |
+| L1, ElasticNet | Fold-batch GPU path | ✅ Supported (weighted grad + val) |
+| L1, ElasticNet | Per-fold specialized paths | ⚠️ Warns and falls back to general path |
+| L1, ElasticNet | General per-fold path | ✅ Supported (via model.fit) |
+| SCAD, MCP | LLA path | ⚠️ Warns and falls back to general path |
+| Adaptive L1 | FISTA | ❌ Solver rejects |
 
-The underlying solvers (`fista`, `fista_bb`) reject non-uniform `sample_weight`. This is a solver-level limitation, not a CV limitation. Passing non-uniform weights with these penalties raises a clear `ValueError`.
+The fold-batch GPU path (`_glm_sparse_cv_folds`) implements full weighted support:
+- Weighted Lipschitz: `L = eig_max(X'WX) / sum(w)`
+- Weighted gradient: `X' diag(w) residual / sum(w)`
+- Weighted validation: `sum(w * loss) / sum(w)`
 
-**Workaround**: Use `penalty='l2'` with `solver='irls'` for weighted GLM fits.
+Per-fold specialized paths (`_logistic_sparse_cv_path`, `_squared_error_sparse_cv_path`) emit a `RuntimeWarning` and fall back to the general path when non-uniform weights are detected.
 
-**Future work**: Implement weighted FISTA gradient computation (`X' diag(w) residual / sum(w)`) in `fista_solver` and `fista_bb_solver` to support non-uniform weights with all penalties.
+**Workaround**: For unsupported combinations, use `penalty='l2'` with `solver='irls'` for weighted GLM fits.
 
 ## Performance Characteristics
 

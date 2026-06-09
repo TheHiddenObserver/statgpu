@@ -15,6 +15,7 @@ Optimizations:
 from __future__ import annotations
 
 import warnings
+from collections import namedtuple
 from typing import Optional, Union
 
 import numpy as np
@@ -22,6 +23,7 @@ import numpy as np
 from statgpu._config import Device
 from statgpu.backends import _to_numpy
 from statgpu.linear_model._cv_base import CVEstimatorBase, kfold_indices
+from statgpu.linear_model._penalized import _INTERCEPT_CLIP_BOUND
 
 
 # ---------------------------------------------------------------------------
@@ -511,13 +513,13 @@ def _res_nb(eta, y, alpha=_NB_ALPHA_DEFAULT, **_):
     # Gradient of NB loss: d/deta L = (mu - y) / (1 + alpha*mu)
     xp = _get_xp(eta)
     mu = xp.exp(_safe_clip(eta, -_ETA_CLIP_STANDARD, _ETA_CLIP_STANDARD))
-    mu_c = _safe_clip(mu, _MU_LO, None)
+    mu_c = _safe_clip(mu, _MU_LO_NB, None)
     return (mu_c - y) / (1.0 + alpha * mu_c)
 
 def _val_nb(eta, y, alpha=_NB_ALPHA_DEFAULT, **_):
     xp = _get_xp(eta)
     mu = xp.exp(_safe_clip(eta, -_ETA_CLIP_STANDARD, _ETA_CLIP_STANDARD))
-    mu_c = _safe_clip(mu, _MU_LO, None)
+    mu_c = _safe_clip(mu, _MU_LO_NB, None)
     one_plus = 1.0 + alpha * mu_c
     return -y * xp.log(mu_c / one_plus) + (1.0 / alpha) * xp.log(one_plus)
 
@@ -1279,10 +1281,6 @@ def _squared_error_sparse_cv_path(
     return out
 
 
-# Intercept clipping bound: exp(15) ≈ 3.3M, prevents overflow in link
-# functions while allowing a wide range of intercept values.
-_INTERCEPT_CLIP_BOUND = 15.0
-
 
 class _FeatureOnlySparsePenalty:
     """Wrap a sparse penalty so the final intercept coefficient is unpenalized."""
@@ -1745,6 +1743,7 @@ def _scad_mcp_cv_path(
 
     for alpha in alphas:
         scad_penalty.alpha = float(alpha)
+        total_iters = 0  # accumulate FISTA iterations across LLA steps
 
         # LLA outer loop
         for lla_iter in range(max_lla_per_step):
@@ -1794,6 +1793,7 @@ def _scad_mcp_cv_path(
                         delta = _abs_sum_dev(coef - coef_old)
                         if _device_gt(tol, delta):
                             break
+                total_iters += iteration + 1
             else:
                 # GLM loss: direct FISTA loop with device-side convergence.
                 # Precompute Lipschitz constant once (reuse across alphas).
@@ -1844,6 +1844,7 @@ def _scad_mcp_cv_path(
                         delta = _abs_sum_dev(coef - coef_old)
                         if _device_gt(tol, delta):
                             break
+                total_iters += iteration + 1
 
             # LLA convergence check
             delta = _abs_sum_dev(coef - coef_before_lla)
@@ -1906,7 +1907,7 @@ def _scad_mcp_cv_path(
         if return_path:
             coef_path.append(coef_np)
             intercept_path.append(intercept)
-        iters.append(1)  # placeholder
+        iters.append(total_iters)
 
     # Batch sync validation scores
     if scores_dev:
@@ -1934,32 +1935,33 @@ def _scad_mcp_cv_path(
 # ---------------------------------------------------------------------------
 # Data-driven GPU device selection thresholds for CV
 # ---------------------------------------------------------------------------
-# Each entry: (loss, penalties, min_nx, min_features, reason, or_min_features)
-# - loss: loss name or None (matches any non-squared-error)
-# - penalties: tuple of penalty names that trigger GPU evaluation
-# - min_nx: minimum n_samples * n_features to consider GPU
-# - min_features: minimum n_features (0 = no feature threshold)
-# - reason: explanation string for the auto-selection decision
-# - or_min_features: if >0, also allow GPU when n_features >= or_min_features
-#                    AND n_samples*n_features >= 1_000_000 (OR with primary cond)
 # If the condition is met and torch.cuda is available → "torch", else → "cpu".
+_CVDeviceRule = namedtuple('_CVDeviceRule', [
+    'loss',           # loss name or None (matches any non-squared-error)
+    'penalties',      # tuple of penalty names that trigger GPU evaluation
+    'min_nx',         # minimum n_samples * n_features to consider GPU
+    'min_features',   # minimum n_features (0 = no feature threshold)
+    'reason',         # explanation string for the auto-selection decision
+    'or_min_features',# if >0, also allow GPU when n_features >= or_min_features
+                      # AND n_samples*n_features >= 1_000_000 (OR with primary)
+])
 _CV_DEVICE_THRESHOLDS = [
-    ("squared_error", ("l1", "elasticnet", "en"), 1_000_000, 256,
-     "medium squared-error sparse CV benefits from batched torch alpha path", 0),
-    (None, ("scad", "mcp"), 1_000_000, 0,
-     "large GLM SCAD/MCP CV benefits from torch async FISTA", 0),
-    ("logistic", ("l1", "elasticnet", "en"), 1_000_000, 500,
-     "high-dimensional logistic sparse CV benefits from torch", 0),
-    ("logistic", ("l1", "elasticnet", "en"), 500_000, 100,
-     "medium logistic sparse CV benefits from fold-batched torch path", 0),
-    ("poisson", ("l1", "elasticnet", "en"), 1_000_000, 500,
-     "high-dimensional poisson sparse CV benefits from torch", 0),
-    ("gamma", ("l1", "elasticnet", "en"), 2_000_000, 500,
-     "large high-dimensional gamma sparse CV benefits from torch", 0),
-    ("inverse_gaussian", ("l1", "elasticnet", "en"), 2_000_000, 500,
-     "large high-dimensional inverse-gaussian sparse CV benefits from torch", 0),
-    ("tweedie", ("l1", "elasticnet", "en"), 300_000, 0,
-     "medium tweedie sparse CV is faster on torch", 0),
+    _CVDeviceRule("squared_error", ("l1", "elasticnet", "en"), 1_000_000, 256,
+                  "medium squared-error sparse CV benefits from batched torch alpha path", 0),
+    _CVDeviceRule(None, ("scad", "mcp"), 1_000_000, 0,
+                  "large GLM SCAD/MCP CV benefits from torch async FISTA", 0),
+    _CVDeviceRule("logistic", ("l1", "elasticnet", "en"), 1_000_000, 500,
+                  "high-dimensional logistic sparse CV benefits from torch", 0),
+    _CVDeviceRule("logistic", ("l1", "elasticnet", "en"), 500_000, 100,
+                  "medium logistic sparse CV benefits from fold-batched torch path", 0),
+    _CVDeviceRule("poisson", ("l1", "elasticnet", "en"), 1_000_000, 500,
+                  "high-dimensional poisson sparse CV benefits from torch", 0),
+    _CVDeviceRule("gamma", ("l1", "elasticnet", "en"), 2_000_000, 500,
+                  "large high-dimensional gamma sparse CV benefits from torch", 0),
+    _CVDeviceRule("inverse_gaussian", ("l1", "elasticnet", "en"), 2_000_000, 500,
+                  "large high-dimensional inverse-gaussian sparse CV benefits from torch", 0),
+    _CVDeviceRule("tweedie", ("l1", "elasticnet", "en"), 300_000, 0,
+                  "medium tweedie sparse CV is faster on torch", 0),
 ]
 # Special: always-CPU losses (regardless of problem size)
 _CV_DEVICE_ALWAYS_CPU = {
@@ -2060,20 +2062,20 @@ class PenalizedGLM_CV(CVEstimatorBase):
             return "cpu"
 
         # Data-driven threshold lookup
-        for rule_loss, rule_penalties, min_nx, min_features, reason, or_min_feat in _CV_DEVICE_THRESHOLDS:
-            loss_match = (rule_loss is None and loss_name != "squared_error") or rule_loss == loss_name
-            if loss_match and penalty_name in rule_penalties:
+        for rule in _CV_DEVICE_THRESHOLDS:
+            loss_match = (rule.loss is None and loss_name != "squared_error") or rule.loss == loss_name
+            if loss_match and penalty_name in rule.penalties:
                 # Primary condition: nx >= min_nx AND n_features >= min_features
-                cond = nx >= min_nx and int(n_features) >= min_features
-                # OR condition: n_features >= or_min_feat AND nx >= 1_000_000
-                if not cond and or_min_feat > 0:
-                    cond = int(n_features) >= or_min_feat and nx >= 1_000_000
+                cond = nx >= rule.min_nx and int(n_features) >= rule.min_features
+                # OR condition: n_features >= or_min_features AND nx >= 1_000_000
+                if not cond and rule.or_min_features > 0:
+                    cond = int(n_features) >= rule.or_min_features and nx >= 1_000_000
                 if cond and _torch_cuda_available():
                     self._cv_selected_device_ = "torch"
-                    self._cv_auto_reason_ = reason
+                    self._cv_auto_reason_ = rule.reason
                     return "torch"
                 self._cv_selected_device_ = "cpu"
-                self._cv_auto_reason_ = reason.replace("benefits from", "is faster on CPU below break-even for")
+                self._cv_auto_reason_ = rule.reason.replace("benefits from", "is faster on CPU below break-even for")
                 return "cpu"
 
         # Fallback: large effective work → GPU
@@ -2400,7 +2402,7 @@ class PenalizedGLM_CV(CVEstimatorBase):
         def _cond_scad_mcp(loss_name, penalty_name, cv_solver, strict):
             return penalty_name in ("scad", "mcp") and (loss_name == "squared_error" or not strict)
 
-        def _path_scad_mcp(X_train, y_train, alpha_sorted, penalty_name, l1_ratio,
+        def _path_scad_mcp(loss_name, X_train, y_train, alpha_sorted, penalty_name, l1_ratio,
                            max_iter, tol, cv_device, X_val, y_val, sw_train, sw_val):
             return _scad_mcp_cv_path(
                 loss_name, X_train, y_train, alpha_sorted, penalty_name,
@@ -2412,7 +2414,7 @@ class PenalizedGLM_CV(CVEstimatorBase):
         def _cond_logistic(loss_name, penalty_name, cv_solver, strict):
             return loss_name == "logistic" and penalty_name in ("l1", "elasticnet", "en")
 
-        def _path_logistic(X_train, y_train, alpha_sorted, penalty_name, l1_ratio,
+        def _path_logistic(loss_name, X_train, y_train, alpha_sorted, penalty_name, l1_ratio,
                            max_iter, tol, cv_device, X_val, y_val, sw_train, sw_val):
             return _logistic_sparse_cv_path(
                 X_train, y_train, alpha_sorted, penalty_name, l1_ratio,
@@ -2424,7 +2426,7 @@ class PenalizedGLM_CV(CVEstimatorBase):
         def _cond_squared(loss_name, penalty_name, cv_solver, strict):
             return loss_name == "squared_error" and penalty_name in ("l1", "elasticnet", "en")
 
-        def _path_squared(X_train, y_train, alpha_sorted, penalty_name, l1_ratio,
+        def _path_squared(loss_name, X_train, y_train, alpha_sorted, penalty_name, l1_ratio,
                           max_iter, tol, cv_device, X_val, y_val, sw_train, sw_val):
             return _squared_error_sparse_cv_path(
                 X_train, y_train, alpha_sorted, penalty_name, l1_ratio,
@@ -2436,7 +2438,7 @@ class PenalizedGLM_CV(CVEstimatorBase):
         def _cond_glm_sparse(loss_name, penalty_name, cv_solver, strict):
             return self._uses_glm_sparse_path(penalty_name, cv_solver)
 
-        def _path_glm_sparse(X_train, y_train, alpha_sorted, penalty_name, l1_ratio,
+        def _path_glm_sparse(loss_name, X_train, y_train, alpha_sorted, penalty_name, l1_ratio,
                              max_iter, tol, cv_device, X_val, y_val, sw_train, sw_val):
             return _glm_sparse_cv_path(
                 loss_name, X_train, y_train, alpha_sorted, penalty_name,
@@ -2471,7 +2473,7 @@ class PenalizedGLM_CV(CVEstimatorBase):
             for cond_fn, path_fn in active_paths:
                 try:
                     path = path_fn(
-                        X_train, y_train, alpha_sorted, penalty_name,
+                        loss_name, X_train, y_train, alpha_sorted, penalty_name,
                         self.l1_ratio, max_iter, tol, cv_device,
                         X_val=X_val, y_val=y_val,
                         sw_train=sw_train, sw_val=sw_val,

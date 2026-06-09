@@ -1,7 +1,7 @@
 # 交叉验证实现
 
 > 语言: 中文  
-> 最后更新: 2026-06-07  
+> 最后更新: 2026-06-09  
 > 页面定位: CV 架构、加速技巧与 GPU 优化  
 > 切换: [English](en/cross-validation.md)
 
@@ -203,6 +203,39 @@ for fold in folds:
 
 **用于**：NB+l2、tweedie+l2、以及专门路径不可用的场景。
 
+## 调度表模式
+
+CV 评分使用调度表模式替代级联 if/else 块。每个路径是一个 `(condition_fn, path_fn)` 对：
+
+```python
+_per_fold_paths = [
+    (_cond_scad_mcp,    _path_scad_mcp),     # SCAD/MCP LLA 路径
+    (_cond_logistic,    _path_logistic),       # Logistic 专用路径
+    (_cond_squared,     _path_squared),        # Squared-error 专用路径
+    (_cond_glm_sparse,  _path_glm_sparse),    # 通用 GLM sparse 路径
+]
+```
+
+添加新路径只需：
+1. 定义 `condition_fn` 和 `path_fn`
+2. 添加到 `_per_fold_paths`
+3. 完成（1 个触点 vs 之前 4 个）
+
+## 损失函数注册表
+
+所有 GLM 损失函数通过注册表统一管理残差（梯度）和验证损失计算：
+
+```python
+_register_loss_fns("logistic", _res_logistic, _val_logistic)
+_register_loss_fns("poisson", _res_poisson, _val_poisson)
+# ... 6 种损失全部注册
+```
+
+- `_LOSS_RESIDUAL_FNS[loss_name](eta, y)` → 每样本残差（梯度）
+- `_LOSS_VALLOSS_FNS[loss_name](eta, y)` → 每样本验证损失
+
+这消除了 FISTA 热循环中的 inline if/elif 链，确保公式单一来源。
+
 ## 两阶段 CV
 
 当 `cv_strategy="two_stage"` 时：
@@ -315,23 +348,27 @@ for alpha in alphas_descending:
 
 ## 已知限制
 
-### 非均匀 sample_weight 与非 L2 惩罚不兼容
+### 非均匀 sample_weight 支持范围
 
-非均匀 `sample_weight` **不支持** L2 以外的惩罚：
+非均匀 `sample_weight` 的支持取决于具体的 CV 路径：
 
-| 惩罚 | 求解器 | 非均匀权重 |
+| 惩罚 | CV 路径 | 非均匀权重 |
 |------|--------|-----------|
-| L2 | IRLS | ✅ 支持 |
-| L1, ElasticNet | FISTA | ❌ 抛出 ValueError |
-| SCAD, MCP | FISTA | ❌ 抛出 ValueError |
-| Adaptive L1 | FISTA | ❌ 抛出 ValueError |
-| Group Lasso/MCP/SCAD | FISTA | ❌ 抛出 ValueError |
+| L2 | Ridge 特征分解 | ✅ 支持（加权特征分解） |
+| L1, ElasticNet | Fold-batch GPU 路径 | ✅ 支持（加权梯度 + 加权验证） |
+| L1, ElasticNet | Per-fold 专用路径 | ⚠️ 警告并回退到通用路径 |
+| L1, ElasticNet | 通用逐 fold 路径 | ✅ 支持（通过 model.fit） |
+| SCAD, MCP | LLA 路径 | ⚠️ 警告并回退到通用路径 |
+| Adaptive L1 | FISTA | ❌ 求解器拒绝 |
 
-底层求解器（`fista`, `fista_bb`）拒绝非均匀 `sample_weight`。这是求解器层面的限制，不是 CV 限制。
+Fold-batch GPU 路径（`_glm_sparse_cv_folds`）实现了完整的加权支持：
+- 加权 Lipschitz 常数：`L = eig_max(X'WX) / sum(w)`
+- 加权梯度：`X' diag(w) residual / sum(w)`
+- 加权验证评分：`sum(w * loss) / sum(w)`
 
-**临时方案**：使用 `penalty='l2'` + `solver='irls'` 进行加权 GLM 拟合。
+Per-fold 专用路径（`_logistic_sparse_cv_path`、`_squared_error_sparse_cv_path`）检测到非均匀权重时会发出 `RuntimeWarning` 并回退到通用路径。
 
-**后续工作**：在 `fista_solver` 和 `fista_bb_solver` 中实现加权梯度计算（`X' diag(w) residual / sum(w)`），以支持所有惩罚的非均匀权重。
+**临时方案**：对于不支持的组合，使用 `penalty='l2'` + `solver='irls'` 进行加权 GLM 拟合。
 
 ## 性能特征
 

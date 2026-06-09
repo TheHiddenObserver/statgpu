@@ -720,7 +720,7 @@ def fista_solver(
                     _all_finite = bool(torch.isfinite(_obj_dev).item())
                 else:
                     import cupy as cp
-                    _all_finite = bool(cp.isfinite(_obj_dev).item())
+                    _all_finite = bool(cp.isfinite(_obj_dev))
                 if not _all_finite:
                     if _coef_best_fista is not None:
                         coef = _copy_arr(_coef_best_fista)
@@ -886,7 +886,7 @@ def fista_solver(
                     if bool((_conv_dev < tol).item()):
                         break
                 else:
-                    if bool((_conv_dev < tol).item()):
+                    if float(_conv_dev) < tol:
                         break
         else:
             _conv_dev = _abs_sum_dev(coef - coef_old)
@@ -2193,7 +2193,7 @@ def fista_bb_solver(
                     _finite_ok2 = bool(torch.isfinite(_coef_norm_dev2).item())
                 elif backend == "cupy":
                     import cupy as cp
-                    _finite_ok2 = bool(cp.isfinite(_coef_norm_dev2).item())
+                    _finite_ok2 = bool(cp.isfinite(_coef_norm_dev2))
                 else:
                     _finite_ok2 = np.isfinite(float(_coef_norm_dev2))
             if not _finite_ok2:
@@ -2302,7 +2302,7 @@ def fista_bb_solver(
                         break
                 elif backend == "cupy":
                     import cupy as cp
-                    if bool((_conv_dev2 < tol).item()):
+                    if float(_conv_dev2) < tol:
                         break
         else:
             _conv_dev2 = _abs_sum_dev(coef - coef_old)

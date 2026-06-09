@@ -24,6 +24,10 @@ from statgpu.linear_model._gaussian_inference import (
 )
 from statgpu.inference._results import GaussianInferenceResult
 
+# Intercept clipping bound: exp(15) ≈ 3.3M, prevents overflow in link
+# functions while allowing a wide range of intercept values.
+_INTERCEPT_CLIP_BOUND = 15.0
+
 
 def _irls_ridge_init(X, y, loss_name, alpha=0.01, max_iter=100, tol=1e-4, loss_kwargs=None):
     """Compute ridge-penalized GLM coefficients for adaptive_l1 init.
@@ -2527,16 +2531,16 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
                     import cupy as cp
                     result = cp.empty(w.shape[0], dtype=w.dtype)
                     result[:-1] = result_feat
-                    result[-1] = cp.clip(w[-1], -15.0, 15.0)
+                    result[-1] = cp.clip(w[-1], -_INTERCEPT_CLIP_BOUND, _INTERCEPT_CLIP_BOUND)
                 elif backend_name == "torch":
                     import torch
                     result = torch.empty(w.shape[0], dtype=w.dtype, device=w.device)
                     result[:-1] = result_feat
-                    result[-1] = torch.clamp(w[-1], -15.0, 15.0)
+                    result[-1] = torch.clamp(w[-1], -_INTERCEPT_CLIP_BOUND, _INTERCEPT_CLIP_BOUND)
                 else:
                     result = np.empty(w.shape[0], dtype=w.dtype)
                     result[:-1] = result_feat
-                    result[-1] = np.clip(w[-1], -15.0, 15.0)
+                    result[-1] = np.clip(w[-1], -_INTERCEPT_CLIP_BOUND, _INTERCEPT_CLIP_BOUND)
                 return result
 
             def smooth_value(self, coef):
