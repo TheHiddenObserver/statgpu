@@ -502,7 +502,8 @@ def _fold_batch_lipschitz_gamma(X_aug, y_train, n_train, is_torch):
 _LOSS_RESIDUAL_FNS = {}
 _LOSS_VALLOSS_FNS = {}
 
-def _register_loss_fns(loss_name, residual_fn, val_loss_fn, params=None):
+def _register_loss_fns(loss_name, residual_fn, val_loss_fn):
+    """Register per-sample residual (gradient) and validation loss functions for a loss."""
     _LOSS_RESIDUAL_FNS[loss_name] = residual_fn
     _LOSS_VALLOSS_FNS[loss_name] = val_loss_fn
 
@@ -754,6 +755,11 @@ def _glm_sparse_cv_folds(
 
     # --- Initialize parameters ---
     sw_train_vec = _fb_sum(sw_mask, is_torch, axis=0, keepdims=True).reshape(1, n_folds)
+    # Guard against zero-weight folds (would cause division-by-zero)
+    if is_torch:
+        sw_train_vec = torch.clamp(sw_train_vec, min=1e-10)
+    else:
+        sw_train_vec = cp.clip(sw_train_vec, 1e-10, None)
     n_val_vec = _fb_sum(val_mask, is_torch, axis=0, keepdims=True).reshape(1, n_folds)
     y_col = yb.reshape(-1, 1)
     # Weighted mean of y per fold
@@ -2370,30 +2376,12 @@ class PenalizedGLM_CV(CVEstimatorBase):
         loss_name = str(self.loss).lower()
         device_name = _device_to_name(cv_device)
         max_iter = int(self.max_iter if max_iter is None else max_iter)
-
-        # Validate sample_weight compatibility with penalty.
-        # Only L2/IRLS supports non-uniform weights. All other penalties
-        # (L1, ElasticNet, SCAD, MCP, etc.) use FISTA which rejects
-        # non-uniform sample_weight.
-        _non_l2_penalties = ("l1", "elasticnet", "en", "scad", "mcp",
-                             "adaptive_l1", "adaptive_lasso",
-                             "group_lasso", "gl", "group_mcp", "gmcp",
-                             "group_scad", "gscad")
-        if sample_weight is not None and penalty_name in _non_l2_penalties:
-            sw_np = np.asarray(_to_numpy(sample_weight), dtype=np.float64).ravel()
-            if not np.allclose(sw_np, sw_np[0]):
-                raise ValueError(
-                    f"Non-uniform sample_weight is not supported for "
-                    f"penalty='{penalty_name}' with any current solver. "
-                    f"Use penalty='l2' with solver='irls' for weighted "
-                    f"GLM fits, or use uniform weights."
-                )
         tol = self.tol if tol is None else tol
 
         # ── Fast path: Ridge eigendecomposition (CPU only, unweighted) ──
         _is_explicit_gpu = device_name in ("cuda", "torch")
         if loss_name == "squared_error" and penalty_name == "l2" and sample_weight is None and not _is_explicit_gpu:
-            all_scores = np.full((self.cv, n_alphas), np.nan)
+            all_scores = np.full((len(folds), n_alphas), np.nan)
             for fold_idx, (train_idx, val_idx) in enumerate(folds):
                 X_train = _slice_rows(X, train_idx)
                 y_train = _slice_rows(y, train_idx)

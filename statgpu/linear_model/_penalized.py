@@ -2582,6 +2582,9 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
             resid_sq = (yb - y_pred) ** 2
             if sw is not None:
                 sw_dev = cp.asarray(sw, dtype=cp.float64)
+                w_sum = float(cp.sum(sw_dev).get())
+                if w_sum <= 0:
+                    return 0.0
                 ss_res = float(cp.sum(sw_dev * resid_sq).get())
                 ss_tot = float(cp.sum(sw_dev * (yb - cp.average(yb, weights=sw_dev)) ** 2).get())
             else:
@@ -2594,8 +2597,11 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
             resid_sq = (yb - y_pred) ** 2
             if sw is not None:
                 sw_dev = torch.as_tensor(sw, dtype=yb.dtype, device=yb.device)
+                w_sum = float(sw_dev.sum().item())
+                if w_sum <= 0:
+                    return 0.0
                 ss_res = float((sw_dev * resid_sq).sum().item())
-                y_wmean = float((sw_dev * yb).sum().item()) / float(sw_dev.sum().item())
+                y_wmean = float((sw_dev * yb).sum().item()) / w_sum
                 ss_tot = float((sw_dev * (yb - y_wmean) ** 2).sum().item())
             else:
                 ss_res = float(resid_sq.sum().item())
@@ -2605,6 +2611,9 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
         y_pred_np = np.asarray(_to_numpy(y_pred))
         resid_sq = (y - y_pred_np) ** 2
         if sw is not None:
+            w_sum = float(np.sum(sw))
+            if w_sum <= 0:
+                return 0.0
             ss_res = float(np.sum(sw * resid_sq))
             ss_tot = float(np.sum(sw * (y - np.average(y, weights=sw)) ** 2))
         else:
