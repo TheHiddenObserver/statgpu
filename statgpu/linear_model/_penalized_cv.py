@@ -175,7 +175,10 @@ _LOSS_EVAL_DISPATCH = {
 def _weighted_mean(per_sample, sw):
     """Compute weighted or unweighted mean of per-sample values."""
     if sw is not None:
-        return float(np.sum(sw * per_sample) / np.sum(sw))
+        w_sum = float(np.sum(sw))
+        if w_sum <= 0:
+            return float(np.mean(per_sample))
+        return float(np.sum(sw * per_sample) / w_sum)
     return float(np.mean(per_sample))
 
 
@@ -363,11 +366,11 @@ def _to_backend_float64(arr, backend):
 def _stable_sigmoid(x, backend):
     if backend == "torch":
         import torch
-        return torch.sigmoid(torch.clamp(x, -500.0, 500.0))
+        return torch.sigmoid(torch.clamp(x, -_ETA_CLIP_LOGISTIC, _ETA_CLIP_LOGISTIC))
     if backend == "cupy":
         import cupy as cp
-        return 1.0 / (1.0 + cp.exp(-cp.clip(x, -500.0, 500.0)))
-    return 1.0 / (1.0 + np.exp(-np.clip(x, -500.0, 500.0)))
+        return 1.0 / (1.0 + cp.exp(-cp.clip(x, -_ETA_CLIP_LOGISTIC, _ETA_CLIP_LOGISTIC)))
+    return 1.0 / (1.0 + np.exp(-np.clip(x, -_ETA_CLIP_LOGISTIC, _ETA_CLIP_LOGISTIC)))
 
 
 def _softplus(x, backend):
@@ -852,6 +855,7 @@ def _glm_sparse_cv_folds(
         if has_weights:
             sw_val_mask = sw_all.reshape(-1, 1) * val_mask
             sw_val_vec = _fb_sum(sw_val_mask, is_torch, axis=0, keepdims=True).reshape(1, n_folds)
+            sw_val_vec = torch.clamp(sw_val_vec, min=1e-10) if is_torch else cp.clip(sw_val_vec, 1e-10, None)
             scores_path.append(_fb_sum(val_loss * sw_val_mask, is_torch, axis=0, keepdims=True).reshape(-1) / sw_val_vec.reshape(-1))
         else:
             scores_path.append(_fb_sum(val_loss, is_torch, axis=0, keepdims=True).reshape(-1) / n_val_vec.reshape(-1))
