@@ -152,20 +152,16 @@ NB alpha 和 Tweedie power 现在从 loss 对象默认值动态读取（`_resolv
 
 已添加 `cv_splits` 参数，支持自定义 fold 生成器（TimeSeriesSplit、StratifiedKFold 等）。
 
-### P3: Backend 可扩展性
+### ~~P3: Backend 可扩展性~~ ✅ 大部分已完成
 
-**现状**：`_glm_sparse_cv_folds` 有 ~200 行 `if is_torch` 分支。添加新 backend（如 JAX）需要修改所有分支。
+**已完成的抽象**：
+- residual/val_loss：`_LOSS_RESIDUAL_FNS` + `_xp`/`_safe_clip`（backends._array_ops）
+- 初始化：`_fb_*` helpers（ones/zeros/cat/sum/stack/copy）
+- 数据传输：`_to_backend_float64`
 
-**方案**：创建 backend dispatch 对象：
-```python
-class _CVBackend:
-    def __init__(self, backend):
-        self.backend = backend
-    def exp(self, x): ...
-    def clamp(self, x, lo, hi): ...
-    # ...
-```
-**注意**：之前尝试过 `_BackendOps` 抽象，因函数调用开销被放弃。需要 benchmark 确认新方案无性能退化。
+**热循环中仍为 `if is_torch` 的操作**（~12 处）：proximal、where、full_like、convergence check。这些是性能取舍——Python 函数调用开销 ~100ns，12000 次调用总开销 ~1.2ms，相对 GPU 矩阵运算 ~200ms 可忽略。
+
+**添加新 backend 的改动量**：从 ~200 行减少到 ~12 行（只需在热循环的 `if is_torch` 分支添加 `elif`）。
 
 ### P3: 非 Ridge 模型的 inference
 
