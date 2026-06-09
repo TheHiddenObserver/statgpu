@@ -34,6 +34,37 @@ PenalizedGLM_CV.fit(X, y)
   └─ 5. 全数据重拟合 (_refit_best)
 ```
 
+## 自定义 Fold 分割
+
+`PenalizedGLM_CV` 通过 `cv_splits` 参数支持自定义 fold 生成器：
+
+```python
+from sklearn.model_selection import TimeSeriesSplit
+tscv = TimeSeriesSplit(n_splits=5)
+
+m = PenalizedGLM_CV(
+    loss='poisson', penalty='l1',
+    cv_splits=list(tscv.split(X)),  # 自定义分割
+)
+m.fit(X, y)
+```
+
+- `cv_splits=None`（默认）：使用 `kfold_indices(n, cv, random_state)` 生成
+- `cv_splits=[(train_idx, val_idx), ...]`：直接使用用户提供的分割
+
+支持 TimeSeriesSplit、StratifiedKFold、自定义分组分割，以及任何 (train_idx, val_idx) 元组的可迭代对象。
+
+## 评分
+
+拟合后，`PenalizedGLM_CV` 暴露 `predict()` 和 `score()` 方法，委托给重拟合估计器：
+
+```python
+m = PenalizedGLM_CV(loss='poisson', penalty='l1').fit(X, y)
+pred = m.predict(X_test)
+r2 = m.score(X_test, y_test)
+r2_weighted = m.score(X_test, y_test, sample_weight=w)  # 加权 R²
+```
+
 ## 自动设备选择
 
 当 `device="auto"` 时，CV 估计器根据问题规模和 loss×penalty 组合选择后端：

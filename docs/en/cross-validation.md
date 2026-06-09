@@ -34,6 +34,37 @@ PenalizedGLM_CV.fit(X, y)
   └─ 5. Refit on full data (_refit_best)
 ```
 
+## Custom Fold Splits
+
+`PenalizedGLM_CV` supports custom fold generators via the `cv_splits` parameter:
+
+```python
+from sklearn.model_selection import TimeSeriesSplit
+tscv = TimeSeriesSplit(n_splits=5)
+
+m = PenalizedGLM_CV(
+    loss='poisson', penalty='l1',
+    cv_splits=list(tscv.split(X)),  # custom splits
+)
+m.fit(X, y)
+```
+
+- `cv_splits=None` (default): uses `kfold_indices(n, cv, random_state)`
+- `cv_splits=[(train_idx, val_idx), ...]`: uses user-provided splits directly
+
+Supports TimeSeriesSplit, StratifiedKFold, custom group splits, and any iterable of (train_idx, val_idx) tuples.
+
+## Scoring
+
+After fitting, `PenalizedGLM_CV` exposes `predict()` and `score()` that delegate to the refit estimator:
+
+```python
+m = PenalizedGLM_CV(loss='poisson', penalty='l1').fit(X, y)
+pred = m.predict(X_test)
+r2 = m.score(X_test, y_test)
+r2_weighted = m.score(X_test, y_test, sample_weight=w)  # weighted R²
+```
+
 ## Device Auto-Selection
 
 When `device="auto"`, the CV estimator selects the backend based on problem size and loss×penalty combination:

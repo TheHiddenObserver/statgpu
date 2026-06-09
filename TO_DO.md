@@ -140,33 +140,17 @@
 2. Armijo 回溯使用加权 loss
 3. Lipschitz 使用加权 Hessian `X' diag(w) X`
 
-### P2: NB alpha / Tweedie power 参数化
+### ~~P2: NB alpha / Tweedie power 参数化~~ ✅ 已完成
 
-**现状**：`_glm_sparse_cv_folds` 内联代码硬编码 `NB alpha=1.0`、`Tweedie power=1.5`。如果用户自定义这些参数，内联代码会使用错误值。
+NB alpha 和 Tweedie power 现在从 loss 对象默认值动态读取（`_resolve_loss_name`），不再硬编码。
 
-**方案**：
-- 在 `_glm_sparse_cv_folds` 中从 loss 对象读取参数
-- 或在 `_FOLD_BATCH_CONFIGS` 中存储参数化 residual/val_loss 函数
-- 需要 `PenalizedGLM_CV` 暴露 `loss_kwargs` 参数
+### ~~P2: 添加新 loss 的改动点统一~~ ✅ 已完成
 
-### P2: 添加新 loss 的改动点统一
+已实现 loss formula registry（`_LOSS_RESIDUAL_FNS`、`_LOSS_VALLOSS_FNS`、`_FOLD_BATCH_CONFIGS`、`_LOSS_EVAL_DISPATCH`）。添加新 loss 只需 5 处改动（从 8-10 处减少）。
 
-**现状**：添加新 GLM loss 需要修改 8-10 处代码。
+### ~~P2: CV 策略可扩展性~~ ✅ 已完成
 
-**方案**：设计 loss registry + auto-dispatch：
-- Loss 对象定义 `residual(eta, y)`, `val_loss(eta, y)`, `lipschitz(X, y)`, `intercept(y_mean)`
-- `_FOLD_BATCH_CONFIGS` 从 loss 对象自动生成
-- `_LOSS_EVAL_DISPATCH` 从 loss 对象自动生成
-- `_effective_cv_device` 使用 loss 对象的 `preferred_device(n, p)` 方法
-
-### P2: CV 策略可扩展性
-
-**现状**：`PenalizedGLM_CV` 的 `cv` 参数只接受整数（K-fold），不支持自定义 fold 生成器。
-
-**方案**：添加 `cv_splits` 参数（类似 `RidgeCV.cv_splits`）：
-- `cv_splits=None` 时使用 `kfold_indices(n, cv)`
-- `cv_splits=[(train_idx, val_idx), ...]` 时直接使用
-- 支持 TimeSeriesSplit、StratifiedKFold 等
+已添加 `cv_splits` 参数，支持自定义 fold 生成器（TimeSeriesSplit、StratifiedKFold 等）。
 
 ### P3: Backend 可扩展性
 
