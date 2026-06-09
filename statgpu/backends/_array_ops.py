@@ -28,12 +28,13 @@ def _clip(arr, lo, hi):
     """Clip array values."""
     xp = _xp(arr)
     if xp.__name__ == "torch":
-        result = arr.clone()
+        if lo is not None and hi is not None:
+            return xp.clamp(arr, min=lo, max=hi)
         if lo is not None:
-            result = xp.clamp(result, min=lo)
+            return xp.clamp(arr, min=lo)
         if hi is not None:
-            result = xp.clamp(result, max=hi)
-        return result
+            return xp.clamp(arr, max=hi)
+        return arr
     return xp.clip(arr, lo, hi)
 
 

@@ -361,46 +361,31 @@ class TorchBackend(BackendBase):
     def zeros(self, shape, dtype=None):
         """Create array of zeros."""
         import torch
-        result = torch.zeros(shape, device=self._device)
-        if dtype is not None:
-            result = result.to(dtype)
-        return result
+        return torch.zeros(shape, device=self._device, dtype=dtype if dtype is not None else torch.float64)
 
     def ones(self, shape, dtype=None):
         """Create array of ones."""
         import torch
-        result = torch.ones(shape, device=self._device)
-        if dtype is not None:
-            result = result.to(dtype)
-        return result
+        return torch.ones(shape, device=self._device, dtype=dtype if dtype is not None else torch.float64)
 
     def eye(self, n, m=None, dtype=None):
         """Create identity matrix."""
         import torch
         if m is None:
             m = n
-        result = torch.eye(n, m, device=self._device)
-        if dtype is not None:
-            result = result.to(dtype)
-        return result
+        return torch.eye(n, m, device=self._device, dtype=dtype if dtype is not None else torch.float64)
 
     def full(self, shape, fill_value, dtype=None):
         """Create array filled with a constant value."""
         import torch
         if isinstance(shape, int):
             shape = (shape,)
-        result = torch.full(shape, fill_value, device=self._device)
-        if dtype is not None:
-            result = result.to(dtype)
-        return result
+        return torch.full(shape, fill_value, device=self._device, dtype=dtype if dtype is not None else torch.float64)
 
     def array(self, val, dtype=None):
         """Create a scalar or array from a value."""
         import torch
-        result = torch.tensor(val, device=self._device)
-        if dtype is not None:
-            result = result.to(dtype)
-        return result
+        return torch.tensor(val, device=self._device, dtype=dtype if dtype is not None else torch.float64)
 
     def isnan(self, x):
         """Element-wise isnan check."""

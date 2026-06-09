@@ -476,7 +476,8 @@ def _res_logistic(eta, y, **_):
 def _val_logistic(eta, y, **_):
     # Logistic loss: -y*eta + softplus(eta)
     xp = _get_xp(eta)
-    log1pexp = xp.log1p(xp.exp(-xp.abs(eta))) + xp.maximum(eta, 0.0)
+    # Use _safe_clip instead of xp.maximum to avoid torch.maximum scalar issue
+    log1pexp = xp.log1p(xp.exp(-xp.abs(eta))) + _safe_clip(eta, 0.0, None)
     return -y * eta + log1pexp
 
 # --- Poisson ---
@@ -510,8 +511,9 @@ def _val_gamma(eta, y, **_):
 def _res_invgauss(eta, y, **_):
     xp = _get_xp(eta)
     mu = xp.exp(_safe_clip(eta, -_ETA_CLIP_STANDARD, _ETA_CLIP_STANDARD))
-    mu_c = _safe_clip(mu, _MU_LO, None)
-    return (mu_c - y) / (mu_c * mu_c)
+    # Clip mu^2 (not mu) to avoid denom as small as 1e-20 when mu ~ 1e-10
+    mu_sq_c = _safe_clip(mu * mu, _MU_LO, None)
+    return (mu - y) / mu_sq_c
 
 def _val_invgauss(eta, y, **_):
     # Inverse Gaussian loss: y/(2*mu^2) - 1/mu
@@ -1553,7 +1555,11 @@ def _glm_sparse_cv_path(
             per_sample = _LOSS_VALLOSS_FNS[loss_name](eta, yy, **_loss_params)
             if swv is not None:
                 sw_col = swv.reshape(-1, 1)
-                scores_tensor = (sw_col * per_sample).sum(dim=0) / swv.sum()
+                sw_sum = swv.sum()
+                if sw_sum > 0:
+                    scores_tensor = (sw_col * per_sample).sum(dim=0) / sw_sum
+                else:
+                    scores_tensor = per_sample.mean(dim=0)
             else:
                 scores_tensor = per_sample.mean(dim=0)
             scores = _to_numpy(scores_tensor).tolist()
@@ -1565,7 +1571,11 @@ def _glm_sparse_cv_path(
             per_sample = _LOSS_VALLOSS_FNS[loss_name](eta, yy, **_loss_params)
             if swv is not None:
                 sw_col = swv.reshape(-1, 1)
-                scores_arr = (sw_col * per_sample).sum(axis=0) / swv.sum()
+                sw_sum = float(swv.sum())
+                if sw_sum > 0:
+                    scores_arr = (sw_col * per_sample).sum(axis=0) / sw_sum
+                else:
+                    scores_arr = per_sample.mean(axis=0)
             else:
                 scores_arr = per_sample.mean(axis=0)
             scores = _to_numpy(scores_arr).tolist()

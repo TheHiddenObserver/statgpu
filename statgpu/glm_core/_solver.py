@@ -577,7 +577,9 @@ def fista_solver(
     # Disable momentum entirely for inverse_gaussian (1/mu^3 scaling).
     # Use conservative momentum for Poisson and negative_binomial
     # (exp-link families where Nesterov can cause mu explosion).
-    _no_momentum = ()
+    # Losses that disable momentum entirely (empty = none currently).
+    # See _conservative_momentum below for the active momentum control.
+    _NO_MOMENTUM_LOSSES = frozenset()
     # Conservative momentum (cap beta at 0.5) for exp-link families and
     # for logistic/gamma with non-smooth penalties.  Logistic/gamma with
     # smooth penalties (none, l2) benefit from full Nesterov acceleration.
@@ -723,7 +725,7 @@ def fista_solver(
                     if _coef_best_fista is not None:
                         coef = _copy_arr(_coef_best_fista)
                     else:
-                        coef = _zeros(n_features, backend, ref_tensor=X)
+                        coef = _zeros(n_features, backend, ref_tensor=X_proc)
                     y_k = _copy_arr(coef)
                     t_k = 1.0
                     L = L * 2.0
@@ -825,7 +827,7 @@ def fista_solver(
                     if _coef_best_fista is not None:
                         coef = _copy_arr(_coef_best_fista)
                     else:
-                        coef = _zeros(n_features, backend, ref_tensor=X)
+                        coef = _zeros(n_features, backend, ref_tensor=X_proc)
                     y_k = _copy_arr(coef)
                     t_k = 1.0
                     L = L * 2.0
@@ -853,7 +855,7 @@ def fista_solver(
                         L = max(L * 0.8, L_new)
 
         # Momentum update — all backends
-        if _no_momentum:
+        if _loss_name in _NO_MOMENTUM_LOSSES:
             t_k = 1.0
             y_k = _copy_arr(coef)
         elif _conservative_momentum:
@@ -2034,8 +2036,7 @@ def fista_bb_solver(
                     if bool((_coef_norm_dev > 100.0).item()):
                         _diverged = True
                 else:
-                    import cupy as cp
-                    if bool((_coef_norm_dev > 100.0).item()):
+                    if bool(_coef_norm_dev > 100.0):
                         _diverged = True
             # Full objective check every 5 iterations
             if not _diverged:
@@ -2112,7 +2113,7 @@ def fista_bb_solver(
                     elif _loss_name == "tweedie":
                         L_new = L_new * 5.0
                     elif _loss_name == "gamma":
-                        L_new = L_new * 5.0
+                        L_new = L_new * 3.0
                     # Allow L to move toward L_new: full increase, gradual decrease
                     if L_new > L:
                         L = L_new
@@ -2280,8 +2281,7 @@ def fista_bb_solver(
                     import torch
                     _mc_positive = bool((_mc_dev > 0).item())
                 elif backend == "cupy":
-                    import cupy as cp
-                    _mc_positive = bool((_mc_dev > 0).item())
+                    _mc_positive = bool(_mc_dev > 0)
                 else:
                     _mc_positive = float(_mc_dev) > 0
                 if _mc_positive:
@@ -2720,6 +2720,8 @@ def admm_solver(
                 rho = min(rho * 2.0, 1e4)
             elif r_dual > 10.0 * rp:
                 rho = max(rho * 0.5, 1e-4)
+            # Recompute step size to match updated rho
+            lr_sub = 1.0 / (L_f + rho + 1e-8)
 
         if rp < tol and r_dual < tol:
             break
