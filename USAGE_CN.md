@@ -70,6 +70,8 @@
 
 当前导出的 CV 类：
 - `RidgeCV` ✅ (完整实现，支持 GPU 加速交叉验证)
+- `LassoCV` ✅ (完整实现，支持 GPU 加速交叉验证)
+- `PenalizedGLM_CV` ✅ (统一 CV，支持 7 种损失 × 10+ 种惩罚；支持 `cv_splits`、加权 R²、两阶段筛选)
 - `LogisticRegressionCV` ✅ (完整实现，支持 GPU 加速交叉验证)
 - `CoxPHCV` (骨架，待实现完整 CV 训练/搜索逻辑)
 

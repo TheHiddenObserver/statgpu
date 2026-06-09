@@ -37,11 +37,12 @@ Implemented estimators:
 - `LogisticRegression`
 - `CoxPH`
 
-Exported CV classes currently in skeleton state:
-- `RidgeCV`
-- `LogisticRegressionCV`
-- `CoxPHCV`
-- Current behavior: `fit()` raises `NotImplementedError`.
+Exported CV classes:
+- `RidgeCV` ✅ (Full implementation with GPU acceleration)
+- `LassoCV` ✅ (Full implementation with GPU acceleration)
+- `PenalizedGLM_CV` ✅ (Unified CV for all 7 loss families × 10+ penalties; supports `cv_splits`, weighted R², two-stage screening)
+- `LogisticRegressionCV` ✅ (Full implementation with GPU acceleration)
+- `CoxPHCV` (Skeleton, pending full CV training/search implementation)
 
 Implemented feature selection:
 - `knockoff_filter`
