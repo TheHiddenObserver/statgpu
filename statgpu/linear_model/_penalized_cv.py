@@ -2843,8 +2843,8 @@ class PenalizedGLM_CV(CVEstimatorBase):
             raise RuntimeError("PenalizedGLM_CV is not fitted yet. Call fit() first.")
         return self.estimator_.predict(X)
 
-    def score(self, X, y):
-        """Return the mean log-likelihood score on the given data."""
+    def score(self, X, y, sample_weight=None):
+        """Return the R² score on the given data."""
         if not getattr(self, '_fitted', False):
             raise RuntimeError("PenalizedGLM_CV is not fitted yet. Call fit() first.")
-        return self.estimator_.score(X, y)
+        return self.estimator_.score(X, y, sample_weight=sample_weight)
