@@ -184,6 +184,20 @@ fast_cv = PenalizedGLM_CV(
     refine_top_k=3,
     device="cuda",
 )
+
+# 自定义 fold 分割（如时间序列 CV）
+from sklearn.model_selection import TimeSeriesSplit
+tscv = TimeSeriesSplit(n_splits=5)
+custom_cv = PenalizedGLM_CV(
+    loss="logistic", penalty="l1",
+    cv_splits=list(tscv.split(X)),
+    device="cuda",
+)
+
+# 加权 R² 评分
+m = PenalizedGLM_CV(loss="poisson", penalty="l1", device="cuda").fit(X, y)
+r2 = m.score(X_test, y_test)                       # 未加权 R²
+r2_w = m.score(X_test, y_test, sample_weight=w)    # 加权 R²
 ```
 
 ## Outputs
@@ -196,7 +210,8 @@ fast_cv = PenalizedGLM_CV(
 - `fit`
 - `predict`
 - `predict_proba`，用于 logistic 模型
-- `score`，在对应模型中提供
+- `score(X, y, sample_weight=None)` — R² 评分（提供 `sample_weight` 时返回加权 R²）
+- `cv_results_`，用于 `PenalizedGLM_CV`，包含 `cv_strategy_`、`cv_selected_device_`、`refined_mask`，以及 two-stage 时的 stage-1 得分
 
 统一 `FitResult` 是未来预留，不属于本页当前 public contract。
 

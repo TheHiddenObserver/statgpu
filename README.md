@@ -80,6 +80,8 @@ GPU-accelerated statistical methods with sklearn-compatible API.
 
 ### CV Classes (✅ = implemented and trainable)
 - `statgpu.linear_model.RidgeCV` ✅ (GPU-accelerated cross-validation)
+- `statgpu.linear_model.LassoCV` ✅ (GPU-accelerated cross-validation)
+- `statgpu.linear_model.PenalizedGLM_CV` ✅ (unified CV for all 7 loss families × 10+ penalties; supports `cv_splits`, weighted R², two-stage screening)
 - `statgpu.linear_model.LogisticRegressionCV` ✅ (GPU-accelerated cross-validation)
 - `statgpu.survival.CoxPHCV` ✅ (CV penalty search + final refit; `entry`/`cluster` not yet supported)
 

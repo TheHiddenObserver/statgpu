@@ -184,6 +184,20 @@ fast_cv = PenalizedGLM_CV(
     refine_top_k=3,
     device="cuda",
 )
+
+# Custom fold splits (e.g., time series CV)
+from sklearn.model_selection import TimeSeriesSplit
+tscv = TimeSeriesSplit(n_splits=5)
+custom_cv = PenalizedGLM_CV(
+    loss="logistic", penalty="l1",
+    cv_splits=list(tscv.split(X)),
+    device="cuda",
+)
+
+# Weighted R² scoring
+m = PenalizedGLM_CV(loss="poisson", penalty="l1", device="cuda").fit(X, y)
+r2 = m.score(X_test, y_test)                       # unweighted R²
+r2_w = m.score(X_test, y_test, sample_weight=w)    # weighted R²
 ```
 
 ## Outputs
@@ -196,7 +210,7 @@ Common fitted attributes and methods include:
 - `fit`
 - `predict`
 - `predict_proba` for logistic models
-- `score` where implemented
+- `score(X, y, sample_weight=None)` — R² score (weighted when `sample_weight` is provided)
 - `cv_results_` for `PenalizedGLM_CV`, including `cv_strategy_`, `cv_selected_device_`, `refined_mask`, and stage-1 scores when two-stage screening is enabled
 
 Future unified result objects are reserved for later work and are not part of this page's public contract.
