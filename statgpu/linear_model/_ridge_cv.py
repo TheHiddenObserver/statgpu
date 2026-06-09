@@ -69,10 +69,10 @@ def _make_ridge_cv_auto_cache_key(X, y, alphas, folds, fit_intercept, use_gpu, s
     h.update(y_np[idx].tobytes())
     h.update(np.asarray([X_np.mean(), X_np.std()], dtype=np.float64).tobytes())
     h.update(np.asarray([y_np.mean(), y_np.std()], dtype=np.float64).tobytes())
-    # Hash fold indices
+    # Hash fold indices (all elements to avoid collisions)
     for train_idx, val_idx in folds:
-        h.update(train_idx[:5].tobytes())
-        h.update(val_idx[:5].tobytes())
+        h.update(train_idx.tobytes())
+        h.update(val_idx.tobytes())
     if sample_weight is not None:
         sw = np.asarray(_to_numpy(sample_weight), dtype=np.float64).ravel()
         h.update(sw[idx].tobytes())
@@ -242,6 +242,8 @@ def _solve_ridge_path_gpu_from_gram_eig(XtX_batch, Xty_batch, alphas, backend, f
     # Step 1: Eigendecomposition (done once per fold)
     # eigvals: (n_folds, n_features), Q: (n_folds, n_features, n_features)
     eigvals, Q = xp.linalg.eigh(XtX_batch)
+    # Clamp eigenvalues to avoid division by zero for rank-deficient X'X
+    eigvals = xp.maximum(eigvals, 1e-15)
 
     # Step 2: Project Xty into eigenbasis
     # QTXty = Q.T @ Xty_batch  -> (n_folds, n_features)

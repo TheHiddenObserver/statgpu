@@ -81,10 +81,10 @@ def _make_lasso_cv_auto_cache_key(
     h.update(str(cd_kkt_check_every).encode("utf-8"))
     if data_digest is not None:
         h.update(data_digest)
-    # Hash fold indices
+    # Hash fold indices (all elements to avoid collisions)
     for train_idx, val_idx in folds:
-        h.update(train_idx[:5].tobytes())
-        h.update(val_idx[:5].tobytes())
+        h.update(train_idx.tobytes())
+        h.update(val_idx.tobytes())
     if sample_weight_shape is not None:
         h.update(np.asarray(sample_weight_shape, dtype=np.int64).tobytes())
     return h.hexdigest()
@@ -724,7 +724,7 @@ class LassoCV(CVEstimatorBase):
             "mean_mse": mean_mse,
         }
 
-        _lasso_cv_cache_put(cache_key, details)
+        _lasso_cv_cache_put(cache_key_eff, details)
         return details
 
     def fit(self, X, y, sample_weight=None):

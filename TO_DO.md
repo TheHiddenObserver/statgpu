@@ -125,3 +125,86 @@
 - CoxPH：
   - 缺 strata/frailty/time-varying、robust/cluster、penalized Cox
 
+---
+
+## CV 框架后续改进项
+
+### P1: FISTA/BB solver 支持非均匀 sample_weight
+
+**现状**：`fista_solver` 和 `fista_bb_solver` 拒绝非均匀 `sample_weight`。只有 `irls` 支持，但 IRLS 仅适用于 L2 惩罚。
+
+**影响**：L1/ElasticNet/SCAD/MCP + 非均匀权重 → `ValueError`。
+
+**方案**：在 FISTA 梯度计算中改为 `X' diag(w) residual / sum(w)`，需要：
+1. `_solver.py` 的 `fista_solver` 和 `fista_bb_solver` 支持 `sample_weight`
+2. Armijo 回溯使用加权 loss
+3. Lipschitz 使用加权 Hessian `X' diag(w) X`
+
+### ~~P2: NB alpha / Tweedie power 参数化~~ ✅ 已完成
+
+NB alpha 和 Tweedie power 现在从 loss 对象默认值动态读取（`_resolve_loss_name`），不再硬编码。
+
+### ~~P2: 添加新 loss 的改动点统一~~ ✅ 已完成
+
+已实现 loss formula registry（`_LOSS_RESIDUAL_FNS`、`_LOSS_VALLOSS_FNS`、`_FOLD_BATCH_CONFIGS`、`_LOSS_EVAL_DISPATCH`）。添加新 loss 只需 5 处改动（从 8-10 处减少）。
+
+### ~~P2: CV 策略可扩展性~~ ✅ 已完成
+
+已添加 `cv_splits` 参数，支持自定义 fold 生成器（TimeSeriesSplit、StratifiedKFold 等）。
+
+### P3: Backend 可扩展性（方案 C：混合抽象）
+
+**目标**：消除热循环中 ~12 处 `if is_torch` 分支，统一到 `_array_ops.py` 的 `_xp` 分发。
+
+**方案**：简单操作（where、sign、clip、sum、any、full_like）扩展到 `_array_ops.py`，复杂操作（solve、lstsq、inference）留在 Backend 类。
+
+```python
+# _array_ops.py — 统一入口
+def where(cond, a, b):
+    return _xp(cond).where(cond, a, b)
+def sign(x):
+    return _xp(x).sign(x)
+def clip(arr, lo, hi):
+    xp = _xp(arr)
+    if xp.__name__ == "torch":
+        return xp.clamp(arr, min=lo, max=hi)
+    return xp.clip(arr, lo, hi)
+
+# 热循环中直接调用，无 if is_torch
+coef_new = sign(w) * clip(abs(w) - thresh, 0, None) / denom
+coef = where(active, coef_new, coef)
+```
+
+**添加新 backend 的改动量**：只需在 `_xp()` 中加一行检测，~1 处改动。
+
+**状态**：未实现，记录为后续 PR。
+
+### P3: 非 Ridge 模型的 inference
+
+**现状**：`_refit_best` 对非 Ridge 模型设置 `compute_inference=False`，用户无法直接获取标准误和 p 值。
+
+**方案**：实现 debiased inference for L1/ElasticNet（Zhang-Zhang / Javanmard-Montanari 方法），或提供 bootstrap inference 接口。
+
+### P3: `_penalized_cv.py` 文件拆分
+
+**现状**：`_penalized_cv.py` 2800+ 行，包含数值常量、loss 函数、CV path 函数、PenalizedGLM_CV 类等。
+
+**方案**：拆分为 3 个文件：
+- `_cv_loss_registry.py` — 数值常量 + `_ps_squared_error` + `_LOSS_EVAL_DISPATCH` + `_LOSS_RESIDUAL_FNS`/`_LOSS_VALLOSS_FNS` + `_register_loss_fns` + `_weighted_mean` + `_evaluate_loss_numpy`
+- `_cv_paths.py` — `_logistic_sparse_cv_path`、`_squared_error_sparse_cv_path`、`_glm_sparse_cv_path`、`_scad_mcp_cv_path`、`_FeatureOnlySparsePenalty`
+- `_penalized_cv.py` — PenalizedGLM_CV 类 + dispatch table + `_glm_sparse_cv_folds` + fold-batch helpers
+
+**改动量**：~3 处 import 调整，无逻辑变更。
+**状态**：未实现，记录为后续 PR。
+
+### P3: CV path 函数 backend 重复代码消除
+
+**现状**：`_logistic_sparse_cv_path`、`_squared_error_sparse_cv_path`、`_glm_sparse_cv_path` 内部各有 3 路 backend 分支（torch/cupy/numpy），大量重复的 `if backend == "torch": ... elif backend == "cupy": ... else: ...` 代码。
+
+**方案**：
+1. 将热循环中的 backend 操作统一到 `_fb_*` helpers（已有 `_fb_ones`、`_fb_zeros`、`_fb_cat` 等）
+2. 对于 `sign`、`clamp`、`maximum` 等操作，扩展 `_array_ops.py` 的 `_xp` 分发（与 P3 Backend 可扩展性合并）
+3. 保留 `_glm_sparse_cv_folds` 的直接 API 调用（性能关键路径），但用 `_fb_*` 减少 boilerplate
+
+**状态**：未实现，记录为后续 PR。
+

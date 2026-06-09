@@ -233,6 +233,9 @@ def irls_solver(
     else:
         params = init_coef
 
+    if max_iter <= 0:
+        return params, 0
+
     for iteration in range(max_iter):
         params_old = _copy_arr(params)
 

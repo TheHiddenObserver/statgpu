@@ -428,7 +428,6 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
         selected_solver = self._select_solver(
             self._loss, backend_name=backend_name, X=X
         )
-        selected_solver = self._validate_solver_for_penalty(selected_solver, backend_name)
         self._selected_solver = selected_solver
         self._selected_backend_name = backend_name
 
@@ -777,11 +776,6 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
 
         return backend_name
 
-    def _validate_solver_for_penalty(self, solver_name, backend_name):
-        if solver_name != "fista_bb":
-            return solver_name
-        return solver_name
-
     def _fit_initial(self, X, y):
         """Fit initial model for penalties requiring initialization.
 
@@ -1025,7 +1019,7 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
                 self.n_iter_ = n_iter
                 self._lla_n_iters_ = _n_cont * _max_lla_per_step
             else:
-             for _cont_step, _cont_alpha in enumerate(_alpha_path):
+                for _cont_step, _cont_alpha in enumerate(_alpha_path):
                     self._penalty.alpha = float(_cont_alpha)
 
                     _is_last_cont = (_cont_step == _n_cont - 1)
@@ -2007,174 +2001,6 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
 
         self._cleanup_torch_memory()
 
-    def _fit_gpu_loss(self, X, y, sample_weight=None):
-        """CuPy FISTA for non-squared-error losses (logistic, poisson).
-
-        Mirrors _fit_cpu_loss but keeps arrays on GPU during computation.
-        """
-        import cupy as cp
-        from statgpu.glm_core._solver import fista_solver, fista_bb_solver
-
-        solver_name = self._selected_solver or self._select_solver(
-            self._loss, backend_name="cupy"
-        )
-        # For smooth penalties (l2), fista_bb converges more reliably.
-        _pen_name = getattr(self._penalty, 'name', '')
-        _is_smooth = (_pen_name == "l2") or (
-            _pen_name == "elasticnet" and
-            float(getattr(self._penalty, 'l1_ratio', 1.0)) < 0.5
-        )
-        if solver_name == "fista_bb" or (solver_name == "auto" and _is_smooth):
-            _solver = fista_bb_solver
-        else:
-            _solver = fista_solver
-
-        X_arr = cp.asarray(X)
-        y_arr = cp.asarray(y)
-
-        if self.loss in ("logistic", "poisson") and self.fit_intercept:
-            X_aug = cp.column_stack([X_arr, cp.ones(X_arr.shape[0])])
-            p = X_arr.shape[1]
-            pen = self._penalty
-
-            class SelectivePenalty:
-                """Penalty wrapper: apply to first p entries, skip last (intercept)."""
-                def proximal(self, w, step, backend="cupy"):
-                    import cupy as cp
-                    w_feat = w[:-1]
-                    result_feat = pen.proximal(w_feat, step, backend=backend)
-                    result = cp.empty(w.shape[0], dtype=w.dtype)
-                    result[:-1] = result_feat
-                    result[-1] = cp.clip(w[-1], -15.0, 15.0)
-                    return result
-                def value(self, coef):
-                    return pen.value(coef[:-1])
-                name = pen.name
-
-            full_coef, n_iter = _solver(
-                self._loss, SelectivePenalty(), X_aug, y_arr,
-                max_iter=self.max_iter, tol=self.tol,
-                init_coef=None, sample_weight=sample_weight,
-            )
-
-            self.coef_ = full_coef.get()[:p]
-            self.intercept_ = float(full_coef.get()[p])
-            self.n_iter_ = n_iter
-        elif self.fit_intercept:
-            X_arr = X_arr - cp.mean(X_arr, axis=0)
-            y_arr = y_arr - cp.mean(y_arr)
-
-            coef, n_iter = _solver(
-                self._loss, self._penalty, X_arr, y_arr,
-                max_iter=self.max_iter, tol=self.tol,
-                init_coef=None, sample_weight=sample_weight,
-            )
-
-            self.coef_ = coef.get()
-            self.n_iter_ = n_iter
-            self.intercept_ = float(cp.mean(y_arr) - cp.mean(X_arr, axis=0) @ self.coef_)
-        else:
-            coef, n_iter = _solver(
-                self._loss, self._penalty, X_arr, y_arr,
-                max_iter=self.max_iter, tol=self.tol,
-                init_coef=None, sample_weight=sample_weight,
-            )
-
-            self.coef_ = coef.get()
-            self.n_iter_ = n_iter
-            self.intercept_ = 0.0
-
-        self._df_resid = self._nobs - (X.shape[1] + (1 if self.fit_intercept else 0))
-        self._cleanup_cuda_memory()
-
-    def _fit_torch_loss(self, X, y, sample_weight=None):
-        """Torch FISTA for non-squared-error losses (logistic, poisson).
-
-        Mirrors _fit_cpu_loss but keeps arrays on GPU during computation.
-        """
-        import torch
-        from statgpu.glm_core._solver import fista_solver, fista_bb_solver
-
-        solver_name = self._selected_solver or self._select_solver(
-            self._loss, backend_name="torch"
-        )
-        # For smooth penalties (l2), fista_bb converges more reliably.
-        _pen_name = getattr(self._penalty, 'name', '')
-        _is_smooth = (_pen_name == "l2") or (
-            _pen_name == "elasticnet" and
-            float(getattr(self._penalty, 'l1_ratio', 1.0)) < 0.5
-        )
-        if solver_name == "fista_bb" or (solver_name == "auto" and _is_smooth):
-            _solver = fista_bb_solver
-        else:
-            _solver = fista_solver
-
-        torch_device = _get_torch_device_str()
-
-        if not isinstance(X, torch.Tensor):
-            X = torch.from_numpy(X).to(torch_device).to(torch.float64)
-        if not isinstance(y, torch.Tensor):
-            y = torch.from_numpy(y).to(torch_device).to(torch.float64)
-
-        X_arr = X
-        y_arr = y
-
-        if self.loss in ("logistic", "poisson") and self.fit_intercept:
-            ones_col = torch.ones(X_arr.shape[0], dtype=torch.float64, device=torch_device)
-            X_aug = torch.column_stack([X_arr, ones_col])
-            p = X_arr.shape[1]
-            pen = self._penalty
-
-            class SelectivePenalty:
-                """Penalty wrapper: apply to first p entries, skip last (intercept)."""
-                def proximal(self, w, step, backend="torch"):
-                    w_feat = w[:-1]
-                    result_feat = pen.proximal(w_feat, step, backend=backend)
-                    result = torch.empty(w.shape[0], dtype=w.dtype, device=w.device)
-                    result[:-1] = result_feat
-                    result[-1] = torch.clamp(w[-1], -15.0, 15.0)
-                    return result
-                def value(self, coef):
-                    return pen.value(coef[:-1])
-                name = pen.name
-
-            full_coef, n_iter = _solver(
-                self._loss, SelectivePenalty(), X_aug, y_arr,
-                max_iter=self.max_iter, tol=self.tol,
-                init_coef=None, sample_weight=sample_weight,
-            )
-
-            full_np = full_coef.cpu().numpy()
-            self.coef_ = full_np[:p]
-            self.intercept_ = float(full_np[p])
-            self.n_iter_ = n_iter
-        elif self.fit_intercept:
-            X_arr = X_arr - torch.mean(X_arr, dim=0)
-            y_arr = y_arr - torch.mean(y_arr)
-
-            coef, n_iter = _solver(
-                self._loss, self._penalty, X_arr, y_arr,
-                max_iter=self.max_iter, tol=self.tol,
-                init_coef=None, sample_weight=sample_weight,
-            )
-
-            self.coef_ = coef.cpu().numpy()
-            self.n_iter_ = n_iter
-            self.intercept_ = float(torch.mean(y_arr) - torch.mean(X_arr, dim=0) @ self.coef_)
-        else:
-            coef, n_iter = _solver(
-                self._loss, self._penalty, X_arr, y_arr,
-                max_iter=self.max_iter, tol=self.tol,
-                init_coef=None, sample_weight=sample_weight,
-            )
-
-            self.coef_ = coef.cpu().numpy()
-            self.n_iter_ = n_iter
-            self.intercept_ = 0.0
-
-        self._df_resid = self._nobs - (X.shape[1] + (1 if self.fit_intercept else 0))
-        self._cleanup_torch_memory()
-
     def _ridge_alpha_for_exact(self) -> float:
         """Return L2 alpha for the exact Ridge normal equations."""
         return float(getattr(self._penalty, "alpha", self.alpha))
@@ -2554,7 +2380,7 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
             return self._family_for_loss().link.inverse(raw)
         return raw
 
-    def score(self, X, y):
+    def score(self, X, y, sample_weight=None):
         """
         Return R² score.
 
@@ -2564,6 +2390,8 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
             Test data.
         y : array-like of shape (n_samples,)
             True values.
+        sample_weight : array-like of shape (n_samples,), optional
+            Sample weights. When provided, returns weighted R².
 
         Returns
         -------
@@ -2572,21 +2400,56 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
         """
         y_pred = self.predict(X)
         device = self._get_compute_device()
+        sw = np.asarray(sample_weight, dtype=np.float64).ravel() if sample_weight is not None else None
+
         if device == Device.CUDA:
             import cupy as cp
             yb = cp.asarray(self._to_array(y, Device.CUDA))
-            ss_res = cp.sum((yb - y_pred) ** 2)
-            ss_tot = cp.sum((yb - cp.mean(yb)) ** 2)
-            return float((1 - ss_res / ss_tot).get()) if float(ss_tot.get()) > 0 else 0.0
+            y_pred_dev = cp.asarray(y_pred) if isinstance(y_pred, cp.ndarray) else cp.asarray(_to_numpy(y_pred))
+            resid_sq = (yb - y_pred_dev) ** 2
+            if sw is not None:
+                sw_dev = cp.asarray(sw, dtype=cp.float64)
+                w_sum = float(cp.sum(sw_dev).get())
+                if w_sum <= 0:
+                    return 0.0
+                ss_res = float(cp.sum(sw_dev * resid_sq).get())
+                ss_tot = float(cp.sum(sw_dev * (yb - cp.average(yb, weights=sw_dev)) ** 2).get())
+            else:
+                ss_res = float(cp.sum(resid_sq).get())
+                ss_tot = float(cp.sum((yb - cp.mean(yb)) ** 2).get())
+            return 1 - ss_res / ss_tot if ss_tot > 0 else 0.0
         if device == Device.TORCH:
             import torch
             yb = self._to_array(y, Device.TORCH, backend="torch").to(y_pred.dtype)
-            ss_res = torch.sum((yb - y_pred) ** 2)
-            ss_tot = torch.sum((yb - torch.mean(yb)) ** 2)
-            return float((1 - ss_res / ss_tot).item()) if float(ss_tot.item()) > 0 else 0.0
+            if isinstance(y_pred, torch.Tensor):
+                y_pred_dev = y_pred.to(dtype=yb.dtype, device=yb.device)
+            else:
+                y_pred_dev = torch.as_tensor(_to_numpy(y_pred), dtype=yb.dtype, device=yb.device)
+            resid_sq = (yb - y_pred_dev) ** 2
+            if sw is not None:
+                sw_dev = torch.as_tensor(sw, dtype=yb.dtype, device=yb.device)
+                w_sum = float(sw_dev.sum().item())
+                if w_sum <= 0:
+                    return 0.0
+                ss_res = float((sw_dev * resid_sq).sum().item())
+                y_wmean = float((sw_dev * yb).sum().item()) / w_sum
+                ss_tot = float((sw_dev * (yb - y_wmean) ** 2).sum().item())
+            else:
+                ss_res = float(resid_sq.sum().item())
+                ss_tot = float(((yb - yb.mean()) ** 2).sum().item())
+            return 1 - ss_res / ss_tot if ss_tot > 0 else 0.0
         y = np.asarray(y)
-        ss_res = np.sum((y - y_pred) ** 2)
-        ss_tot = np.sum((y - np.mean(y)) ** 2)
+        y_pred_np = np.asarray(_to_numpy(y_pred))
+        resid_sq = (y - y_pred_np) ** 2
+        if sw is not None:
+            w_sum = float(np.sum(sw))
+            if w_sum <= 0:
+                return 0.0
+            ss_res = float(np.sum(sw * resid_sq))
+            ss_tot = float(np.sum(sw * (y - np.average(y, weights=sw)) ** 2))
+        else:
+            ss_res = float(np.sum(resid_sq))
+            ss_tot = float(np.sum((y - np.mean(y)) ** 2))
         return 1 - ss_res / ss_tot if ss_tot > 0 else 0.0
 
     def _family_for_loss(self):
@@ -2772,6 +2635,22 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
         loss_name = self._loss.name
         _is_glm = (loss_name != "squared_error")
 
+        def _nonconvex_penalty_value(coef_slice, _pen_name, _alpha, _a_scad, _gamma_mcp):
+            """Compute SCAD/MCP penalty value for a coefficient vector."""
+            _abs_b = np.abs(coef_slice)
+            if _pen_name == "scad":
+                return float(np.sum(np.where(
+                    _abs_b <= _alpha, _alpha * _abs_b,
+                    np.where(_abs_b <= _a_scad * _alpha,
+                        (_a_scad * _alpha * _abs_b - 0.5 * (coef_slice**2 + _alpha**2)) / (_a_scad - 1.0),
+                        0.5 * (_a_scad + 1.0) * _alpha**2))))
+            if _pen_name == "mcp":
+                return float(np.sum(np.where(
+                    _abs_b <= _gamma_mcp * _alpha,
+                    _alpha * _abs_b - 0.5 * coef_slice**2 / _gamma_mcp,
+                    0.5 * _gamma_mcp * _alpha**2)))
+            return 0.0
+
         # Continuation path for SCAD/MCP: trace the solution from lambda_max
         # down to the target alpha, matching R ncvreg's pathwise approach.
         # Without this, solving directly at the target alpha can converge to
@@ -2855,6 +2734,8 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
                         d = np.ones(n)
                         z = eta + (y_arr - mu) / mu
                     elif loss_name == "inverse_gaussian":
+                        # V(mu) = mu^3, log link g'(mu) = 1/mu
+                        # d = 1/V(mu), working residual: eta + (y-mu)*g'(mu)
                         mu = np.exp(np.clip(eta, -500, 500))
                         mu = np.maximum(mu, 1e-15)
                         d = 1.0 / (mu ** 3)
@@ -2883,18 +2764,7 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
                 # Compute penalized objective before CD (for step-halving)
                 if _is_glm:
                     _obj_before = float(self._loss.value(X_work[:, :p], y_arr, beta[:p]))
-                    _abs_b = np.abs(beta[:p])
-                    if pen_name == "scad":
-                        _pen_val = np.where(_abs_b <= alpha, alpha * _abs_b,
-                                   np.where(_abs_b <= a_scad * alpha,
-                                       (a_scad * alpha * _abs_b - 0.5 * (beta[:p]**2 + alpha**2)) / (a_scad - 1.0),
-                                       0.5 * (a_scad + 1.0) * alpha**2))
-                        _obj_before += float(np.sum(_pen_val))
-                    elif pen_name == "mcp":
-                        _pen_val = np.where(_abs_b <= gamma_mcp * alpha,
-                                    alpha * _abs_b - 0.5 * beta[:p]**2 / gamma_mcp,
-                                    0.5 * gamma_mcp * alpha**2)
-                        _obj_before += float(np.sum(_pen_val))
+                    _obj_before += _nonconvex_penalty_value(beta[:p], pen_name, alpha, a_scad, gamma_mcp)
 
                 for _cd in range(_n_cd_sweeps):
                     _max_cd_change = 0.0
@@ -2964,21 +2834,15 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
                 # ncvreg uses step-halving to prevent IRLS overshooting.
                 if _is_glm:
                     _obj_after = float(self._loss.value(X_work[:, :p], y_arr, beta[:p]))
-                    _abs_b2 = np.abs(beta[:p])
-                    if pen_name == "scad":
-                        _pen_val2 = np.where(_abs_b2 <= alpha, alpha * _abs_b2,
-                                    np.where(_abs_b2 <= a_scad * alpha,
-                                        (a_scad * alpha * _abs_b2 - 0.5 * (beta[:p]**2 + alpha**2)) / (a_scad - 1.0),
-                                        0.5 * (a_scad + 1.0) * alpha**2))
-                        _obj_after += float(np.sum(_pen_val2))
-                    elif pen_name == "mcp":
-                        _pen_val2 = np.where(_abs_b2 <= gamma_mcp * alpha,
-                                     alpha * _abs_b2 - 0.5 * beta[:p]**2 / gamma_mcp,
-                                     0.5 * gamma_mcp * alpha**2)
-                        _obj_after += float(np.sum(_pen_val2))
+                    _obj_after += _nonconvex_penalty_value(beta[:p], pen_name, alpha, a_scad, gamma_mcp)
                     if _obj_after > _obj_before + 1e-10:
-                        # Step-halving: revert halfway toward beta_old
-                        beta[:] = 0.5 * (beta + beta_old)
+                        # Step-halving loop: keep halving until objective decreases
+                        for _sh in range(10):
+                            beta[:] = 0.5 * (beta + beta_old)
+                            _obj_after = float(self._loss.value(X_work[:, :p], y_arr, beta[:p]))
+                            _obj_after += _nonconvex_penalty_value(beta[:p], pen_name, alpha, a_scad, gamma_mcp)
+                            if _obj_after <= _obj_before + 1e-10:
+                                break
 
                 # IRLS-level convergence check.
                 _delta = np.max(np.abs(beta[:p] - beta_old[:p]))

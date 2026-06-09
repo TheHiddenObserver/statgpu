@@ -28,12 +28,13 @@ def _clip(arr, lo, hi):
     """Clip array values."""
     xp = _xp(arr)
     if xp.__name__ == "torch":
-        result = arr.clone()
+        if lo is not None and hi is not None:
+            return xp.clamp(arr, min=lo, max=hi)
         if lo is not None:
-            result = xp.clamp(result, min=lo)
+            return xp.clamp(arr, min=lo)
         if hi is not None:
-            result = xp.clamp(result, max=hi)
-        return result
+            return xp.clamp(arr, max=hi)
+        return arr
     return xp.clip(arr, lo, hi)
 
 
@@ -59,7 +60,15 @@ def _sigmoid(arr):
     """Numerically stable sigmoid: 1 / (1 + exp(-x))."""
     xp = _xp(arr)
     z = _clip(arr, -500, 500)
+    if xp.__name__ == "torch":
+        return xp.sigmoid(z)
     return 1.0 / (1.0 + xp.exp(-z))
+
+
+def _softplus(x):
+    """Numerically stable softplus: log(1 + exp(x))."""
+    xp = _xp(x)
+    return xp.log1p(xp.exp(-xp.abs(x))) + _clip(x, 0.0, None)
 
 
 def _sum(arr):

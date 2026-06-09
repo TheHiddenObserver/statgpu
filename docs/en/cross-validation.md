@@ -34,6 +34,37 @@ PenalizedGLM_CV.fit(X, y)
   └─ 5. Refit on full data (_refit_best)
 ```
 
+## Custom Fold Splits
+
+`PenalizedGLM_CV` supports custom fold generators via the `cv_splits` parameter:
+
+```python
+from sklearn.model_selection import TimeSeriesSplit
+tscv = TimeSeriesSplit(n_splits=5)
+
+m = PenalizedGLM_CV(
+    loss='poisson', penalty='l1',
+    cv_splits=list(tscv.split(X)),  # custom splits
+)
+m.fit(X, y)
+```
+
+- `cv_splits=None` (default): uses `kfold_indices(n, cv, random_state)`
+- `cv_splits=[(train_idx, val_idx), ...]`: uses user-provided splits directly
+
+Supports TimeSeriesSplit, StratifiedKFold, custom group splits, and any iterable of (train_idx, val_idx) tuples.
+
+## Scoring
+
+After fitting, `PenalizedGLM_CV` exposes `predict()` and `score()` that delegate to the refit estimator:
+
+```python
+m = PenalizedGLM_CV(loss='poisson', penalty='l1').fit(X, y)
+pred = m.predict(X_test)
+r2 = m.score(X_test, y_test)
+r2_weighted = m.score(X_test, y_test, sample_weight=w)  # weighted R²
+```
+
 ## Device Auto-Selection
 
 When `device="auto"`, the CV estimator selects the backend based on problem size and loss×penalty combination:
@@ -281,6 +312,26 @@ All penalties use `alpha` consistently across `PenalizedGeneralizedLinearModel` 
 **sklearn mapping**: `sklearn_alpha = statgpu_alpha * n` for Ridge. Lasso/ElasticNet use the same alpha directly.
 
 Internal consistency is verified to machine precision (diff ~1e-16).
+
+## Known Limitations
+
+### Non-uniform sample_weight with non-L2 penalties
+
+Non-uniform `sample_weight` is **not supported** for penalties other than L2:
+
+| Penalty | Solver | Non-uniform weights |
+|---------|--------|-------------------|
+| L2 | IRLS | ✅ Supported |
+| L1, ElasticNet | FISTA | ❌ Raises ValueError |
+| SCAD, MCP | FISTA | ❌ Raises ValueError |
+| Adaptive L1 | FISTA | ❌ Raises ValueError |
+| Group Lasso/MCP/SCAD | FISTA | ❌ Raises ValueError |
+
+The underlying solvers (`fista`, `fista_bb`) reject non-uniform `sample_weight`. This is a solver-level limitation, not a CV limitation. Passing non-uniform weights with these penalties raises a clear `ValueError`.
+
+**Workaround**: Use `penalty='l2'` with `solver='irls'` for weighted GLM fits.
+
+**Future work**: Implement weighted FISTA gradient computation (`X' diag(w) residual / sum(w)`) in `fista_solver` and `fista_bb_solver` to support non-uniform weights with all penalties.
 
 ## Performance Characteristics
 
