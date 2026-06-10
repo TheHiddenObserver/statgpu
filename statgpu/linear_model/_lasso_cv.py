@@ -17,26 +17,31 @@ from ._lasso import Lasso
 # CV Cache
 # =============================================================================
 
+import threading
+
 _LASSO_CV_ALPHA_CACHE_MAXSIZE = int(64)
 _LASSO_CV_ALPHA_CACHE: "OrderedDict[Tuple[Any, ...], Dict[str, Any]]" = OrderedDict()
+_LASSO_CV_CACHE_LOCK = threading.Lock()
 
 
 def _lasso_cv_cache_get(cache_key: Optional[Tuple[Any, ...]]) -> Optional[Dict[str, Any]]:
     """Get cached Lasso CV results."""
     if cache_key is None:
         return None
-    val = _LASSO_CV_ALPHA_CACHE.get(cache_key)
-    if val is not None:
-        _LASSO_CV_ALPHA_CACHE.move_to_end(cache_key)
-    return val
+    with _LASSO_CV_CACHE_LOCK:
+        val = _LASSO_CV_ALPHA_CACHE.get(cache_key)
+        if val is not None:
+            _LASSO_CV_ALPHA_CACHE.move_to_end(cache_key)
+        return val
 
 
 def _lasso_cv_cache_put(cache_key: Optional[Tuple[Any, ...]], value: Dict[str, Any]) -> None:
     """Put cached Lasso CV results."""
     if cache_key is None:
         return
-    _LASSO_CV_ALPHA_CACHE[cache_key] = value
-    _LASSO_CV_ALPHA_CACHE.move_to_end(cache_key)
+    with _LASSO_CV_CACHE_LOCK:
+        _LASSO_CV_ALPHA_CACHE[cache_key] = value
+        _LASSO_CV_ALPHA_CACHE.move_to_end(cache_key)
     while len(_LASSO_CV_ALPHA_CACHE) > _LASSO_CV_ALPHA_CACHE_MAXSIZE:
         _LASSO_CV_ALPHA_CACHE.popitem(last=False)
 
@@ -313,7 +318,7 @@ class LassoCV(CVEstimatorBase):
         alpha_min_ratio: float = 1e-3,
         cv: int = 5,
         cv_splits=None,
-        fit_intercept: bool = False,
+        fit_intercept: bool = True,
         device: Union[str, Device] = Device.AUTO,
         n_jobs: Optional[int] = None,
         compute_inference: bool = False,

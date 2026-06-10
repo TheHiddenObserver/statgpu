@@ -216,9 +216,12 @@ class PanelOLS(BaseEstimator):
                 time_np = self._time_ids_fit
                 unique_times = np.unique(time_np)
                 self._time_effects_ = {}
+                # For two-way FE: demean time effects to avoid double-counting grand mean
+                # (entity effects already absorb the grand mean)
+                grand_mean = float(np.mean(resid_fe)) if self.entity_effects else 0.0
                 for t in unique_times:
                     mask = time_np == t
-                    self._time_effects_[t] = float(np.mean(resid_fe[mask]))
+                    self._time_effects_[t] = float(np.mean(resid_fe[mask])) - grand_mean
 
         # Inference
         self._compute_inference(xp, cluster, backend_name)
@@ -247,20 +250,21 @@ class PanelOLS(BaseEstimator):
                 ols_inference_nonrobust(params, X, self._scale, df)
 
         elif self.cov_type == 'robust':
-            # HC1 sandwich
+            # HC1 sandwich: use df_resid for small-sample correction
             e2 = resid ** 2
             Xw = X * e2[:, np.newaxis]
             meat = X.T @ Xw
             cov_params = XtX_inv @ meat @ XtX_inv
-            if n > k:
-                cov_params *= (n / (n - k))
+            if self.df_resid > 0:
+                cov_params *= (n / self.df_resid)
             self.bse_ = np.sqrt(np.maximum(np.diag(cov_params), 0.0))
             self.tvalues_ = params / (self.bse_ + 1e-30)
-            self.pvalues_ = 2 * (1 - stats.norm.cdf(np.abs(self.tvalues_)))
-            z_crit = stats.norm.ppf(1 - alpha / 2)
+            # Use t-distribution for consistency with nonrobust path
+            self.pvalues_ = 2 * (1 - stats.t.cdf(np.abs(self.tvalues_), df=self.df_resid))
+            t_crit = stats.t.ppf(1 - alpha / 2, df=self.df_resid)
             self.conf_int_ = np.column_stack([
-                params - z_crit * self.bse_,
-                params + z_crit * self.bse_,
+                params - t_crit * self.bse_,
+                params + t_crit * self.bse_,
             ])
 
         else:  # clustered
@@ -277,12 +281,14 @@ class PanelOLS(BaseEstimator):
 
             self.bse_ = np.sqrt(np.maximum(np.diag(V), 0.0))
             self.tvalues_ = params / (self.bse_ + 1e-30)
-            # Cluster-robust uses normal reference distribution
-            self.pvalues_ = 2 * (1 - stats.norm.cdf(np.abs(self.tvalues_)))
-            z_crit = stats.norm.ppf(1 - alpha / 2)
+            # Cluster-robust: use t with min(n_clusters-1, df_resid) df
+            n_clusters = len(np.unique(cluster_np))
+            df_cluster = min(n_clusters - 1, self.df_resid)
+            self.pvalues_ = 2 * (1 - stats.t.cdf(np.abs(self.tvalues_), df=df_cluster))
+            t_crit = stats.t.ppf(1 - alpha / 2, df=df_cluster)
             self.conf_int_ = np.column_stack([
-                params - z_crit * self.bse_,
-                params + z_crit * self.bse_,
+                params - t_crit * self.bse_,
+                params + t_crit * self.bse_,
             ])
 
         # Within R-squared: ss_tot should be sum of squared demeaned y (not variance)
@@ -318,17 +324,15 @@ class PanelOLS(BaseEstimator):
             X_arr = X_arr.reshape(-1, 1)
         y_pred = X_arr @ self.coef_
 
-        # Add fixed effect intercepts
+        # Add fixed effect intercepts (vectorized)
         if hasattr(self, '_entity_effects_') and entity_ids is not None:
             entity_arr = np.asarray(entity_ids).ravel()
-            for i, ent in enumerate(entity_arr):
-                if ent in self._entity_effects_:
-                    y_pred[i] += self._entity_effects_[ent]
+            entity_vec = np.vectorize(lambda e: self._entity_effects_.get(e, 0.0))
+            y_pred += entity_vec(entity_arr)
         if hasattr(self, '_time_effects_') and time_ids is not None:
             time_arr = np.asarray(time_ids).ravel()
-            for i, t in enumerate(time_arr):
-                if t in self._time_effects_:
-                    y_pred[i] += self._time_effects_[t]
+            time_vec = np.vectorize(lambda t: self._time_effects_.get(t, 0.0))
+            y_pred += time_vec(time_arr)
 
         return y_pred
 

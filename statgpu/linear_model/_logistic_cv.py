@@ -417,7 +417,7 @@ def _select_logistic_c_cv(
         Full CV results including C grid, loss path, etc.
     """
     device_name = str(device).lower()
-    use_gpu = device_name == Device.CUDA.value
+    use_gpu = device_name in (Device.CUDA.value, Device.TORCH.value)
     gpu_requested = use_gpu
 
     gpu_input_cupy = False

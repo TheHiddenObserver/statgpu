@@ -267,7 +267,9 @@ def irls_solver(
                 return cp.sum(mu_arr - _y_backend * cp.log(mu_arr))
         else:
             import numpy as np
-            mu_arr = np.clip(mu_arr, 1e-10, None)
+            # Only clip mu for families that require positive mu
+            if _fname not in ("gaussian", "squared_error"):
+                mu_arr = np.clip(mu_arr, 1e-10, None)
             if _fname in ("gaussian", "squared_error"):
                 return float(np.sum((_y_backend - mu_arr) ** 2))
             elif _fname == "gamma":
@@ -443,7 +445,7 @@ def irls_solver(
                         _accepted = True
                         break
                     step *= 0.5
-                params = params_try if _accepted else params_old + 0.1 * _direction
+                params = params_try if _accepted else params_old
         else:
             # Variable weights: Armijo backtracking on deviance
             step = 1.0
@@ -465,7 +467,7 @@ def irls_solver(
             if _accepted:
                 params = params_try
             else:
-                params = params_old + 0.1 * _direction
+                params = params_old
 
         # Convergence: gradient norm check (most reliable for all families)
         if iteration % 5 == 4 or iteration == max_iter - 1:

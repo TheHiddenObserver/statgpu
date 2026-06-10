@@ -575,6 +575,7 @@ def _select_ridge_alpha_cv(
             n_val_folds = []
 
             fast_fold_stats = (sw_full is None) and bool(folds_are_complete)
+            sw_train = None  # initialized per-fold in slow path; None for fast path
             if fast_fold_stats:
                 n_total = int(X_full.shape[0])
                 XtX_full = X_full.T @ X_full
@@ -673,7 +674,8 @@ def _select_ridge_alpha_cv(
             # Batch solve for all alphas (Phase 1 optimization)
             XtX_batch = backend.stack(XtX_folds, axis=0)
             Xty_batch = backend.stack(Xty_folds, axis=0)
-            n_samples_vec = np.asarray(n_train_folds, dtype=np.int32)
+            # Use float64 to preserve fractional sum(sw) for weighted Ridge
+            n_samples_vec = np.asarray(n_train_folds, dtype=np.float64)
 
             coefs_batch = _solve_ridge_path_gpu_from_gram(
                 XtX_batch, Xty_batch, n_samples_vec, alpha_grid, backend, fit_intercept=bool(fit_intercept)

@@ -428,7 +428,7 @@ def _max_eigval_power(mat, n_iter=20, tol=1e-8):
         return lambda_new
 
     lambda_old = 0.0
-    lambda_new = None
+    lambda_val = 0.0
     for i in range(n_iter):
         v_new = mat @ v
         v_norm = _clip(xp.sqrt(xp.dot(v_new, v_new)), 1e-30, None)
@@ -439,4 +439,4 @@ def _max_eigval_power(mat, n_iter=20, tol=1e-8):
         if i > 0 and abs(lambda_val - lambda_old) < tol * abs(lambda_val):
             return lambda_val
         lambda_old = lambda_val
-    return lambda_old
+    return lambda_val

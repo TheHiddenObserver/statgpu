@@ -884,7 +884,8 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
         theta_db = coef + (M @ X_np.T @ resid) / n
         self._debiased_M_cpu = M
 
-        # Standard errors
+        # Standard errors: se_j = sigma * sqrt((M Sigma M')_jj / n)
+        # where Sigma = X'X/n (already normalized in Sigma_hat)
         V = M @ Sigma_hat @ M.T
         se = np.sqrt(sigma2 * np.diag(V) / n)
 

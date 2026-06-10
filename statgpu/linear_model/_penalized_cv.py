@@ -1948,7 +1948,7 @@ def _scad_mcp_cv_path(
         if return_path:
             coef_path.append(coef_np)
             intercept_path.append(intercept)
-        iters.append(1)  # placeholder
+        iters.append(iteration + 1)
 
     # Batch sync validation scores (all values are Python floats)
     if scores_dev:
@@ -2144,8 +2144,9 @@ class PenalizedGLM_CV(CVEstimatorBase):
         if self.loss == 'squared_error':
             alpha_max = float(np.max(np.abs(X_np.T @ y_np))) / n
         elif self.loss == 'logistic':
-            y_centered = y_np - 0.5
-            alpha_max = float(np.max(np.abs(X_np.T @ y_centered))) / n
+            # Null model prediction: mu_null = mean(y)
+            mu_null = np.mean(y_np)
+            alpha_max = float(np.max(np.abs(X_np.T @ (y_np - mu_null)))) / n
         else:
             try:
                 model = PenalizedGeneralizedLinearModel(
@@ -2171,7 +2172,7 @@ class PenalizedGLM_CV(CVEstimatorBase):
             )
             alpha_max = 1.0
 
-        if self.penalty in ('l1', 'elasticnet', 'scad', 'mcp', 'adaptive_l1'):
+        if self.penalty in ('l1', 'elasticnet', 'scad', 'mcp', 'adaptive_l1', 'group_lasso'):
             grid = np.geomspace(alpha_max, alpha_max * 1e-4, self.n_alphas)
         else:
             grid = np.logspace(
