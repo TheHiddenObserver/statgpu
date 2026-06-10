@@ -41,25 +41,7 @@ def _logistic_cv_cache_put(key, value):
         _LOGISTIC_CV_C_CACHE.popitem(last=False)
 
 
-def _hash_logistic_data(X, y, sample_weight=None):
-    """Compute a compact hash of X, y, and optionally sample_weight."""
-    from statgpu.backends import _to_numpy
-    h = hashlib.blake2b(digest_size=16)
-    X_np = np.asarray(_to_numpy(X), dtype=np.float64)
-    y_np = np.asarray(_to_numpy(y), dtype=np.float64).ravel()
-    n = X_np.shape[0]
-    h.update(np.asarray(X_np.shape, dtype=np.int64).tobytes())
-    step = max(1, n // 100)
-    idx = np.arange(0, n, step)[:100]
-    h.update(X_np[idx].tobytes())
-    h.update(y_np[idx].tobytes())
-    h.update(np.asarray([X_np.mean(), X_np.std()], dtype=np.float64).tobytes())
-    h.update(np.asarray([y_np.mean(), y_np.std()], dtype=np.float64).tobytes())
-    if sample_weight is not None:
-        sw_np = np.asarray(_to_numpy(sample_weight), dtype=np.float64).ravel()
-        h.update(sw_np[idx].tobytes())
-        h.update(np.asarray([sw_np.mean()], dtype=np.float64).tobytes())
-    return h.digest()
+from statgpu.linear_model._cv_base import hash_cv_data as _hash_logistic_data
 
 
 def _make_logistic_cv_auto_cache_key(X, y, Cs, folds, fit_intercept, max_iter, tol, use_gpu, sample_weight=None):
@@ -192,41 +174,24 @@ def _batch_log_loss(y_val, probs_desc, sample_weight=None):
     return log_loss
 
 
-# =============================================================================
-# GPU batch log-loss
-# =============================================================================
-
 def _batch_log_loss_backend(y_val, probs_desc, backend, sample_weight=None):
-    """
-    Compute log-loss for multiple probability vectors.
+    """Compute log-loss for multiple probability vectors (backend-aware).
 
-    Parameters
-    ----------
-    y_val : array-like
-        Validation labels (n_samples,).
-    probs_desc : array-like
-        Predicted probabilities (n_Cs, n_samples).
-    backend : BackendBase
-        Backend instance (CuPyBackend or TorchBackend).
-    sample_weight : array-like or None
-        Sample weights.
-
-    Returns
-    -------
-    log_loss : array-like
-        Log-loss for each C (n_Cs,).
+    Delegates to numpy version when backend is numpy, otherwise uses
+    backend methods for GPU arrays.
     """
+    xp = getattr(backend, 'xp', np)
     eps = 1e-15
-    probs_clipped = backend.clip(probs_desc, eps, 1 - eps)
+    probs_clipped = xp.clip(probs_desc, eps, 1 - eps) if hasattr(xp, 'clip') else np.clip(probs_desc, eps, 1 - eps)
 
-    ll = -(y_val.reshape(1, -1) * backend.log(probs_clipped) +
-           (1 - y_val.reshape(1, -1)) * backend.log(1 - probs_clipped))
+    ll = -(y_val.reshape(1, -1) * xp.log(probs_clipped) +
+           (1 - y_val.reshape(1, -1)) * xp.log(1 - probs_clipped))
 
     if sample_weight is not None:
         sw = sample_weight.reshape(1, -1)
-        log_loss = backend.sum(sw * ll, axis=1) / backend.sum(sw)
+        log_loss = xp.sum(sw * ll, axis=1) / xp.sum(sw)
     else:
-        log_loss = backend.mean(ll, axis=1)
+        log_loss = xp.mean(ll, axis=1)
 
     return log_loss
 

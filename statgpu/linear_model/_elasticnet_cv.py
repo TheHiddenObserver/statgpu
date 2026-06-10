@@ -90,28 +90,7 @@ def _make_elasticnet_cv_auto_cache_key(
     return h.hexdigest()
 
 
-def _hash_data(X, y, sample_weight=None) -> bytes:
-    """Compute a compact hash of X, y, and optionally sample_weight.
-
-    Samples evenly spaced rows to avoid collisions from different middle rows.
-    """
-    from statgpu.backends import _to_numpy
-    h = hashlib.blake2b(digest_size=16)
-    X_np = np.asarray(_to_numpy(X), dtype=np.float64)
-    y_np = np.asarray(_to_numpy(y), dtype=np.float64).ravel()
-    n = X_np.shape[0]
-    h.update(np.asarray(X_np.shape, dtype=np.int64).tobytes())
-    step = max(1, n // 100)
-    idx = np.arange(0, n, step)[:100]
-    h.update(X_np[idx].tobytes())
-    h.update(y_np[idx].tobytes())
-    h.update(np.asarray([X_np.mean(), X_np.std()], dtype=np.float64).tobytes())
-    h.update(np.asarray([y_np.mean(), y_np.std()], dtype=np.float64).tobytes())
-    if sample_weight is not None:
-        sw_np = np.asarray(_to_numpy(sample_weight), dtype=np.float64).ravel()
-        h.update(sw_np[idx].tobytes())
-        h.update(np.asarray([sw_np.mean()], dtype=np.float64).tobytes())
-    return h.digest()
+from statgpu.linear_model._cv_base import hash_cv_data as _hash_data
 
 
 # =============================================================================
@@ -166,22 +145,10 @@ def _default_elasticnet_alpha_grid(
 
     # Compute correlation for alpha_max
     Xty = X_centered.T @ y_centered
-    n = n_samples
 
-    # For ElasticNet, alpha_max depends on l1_ratio
-    # When l1_ratio > 0, use Lasso-like alpha_max
-    # When l1_ratio = 0, use Ridge-like alpha_max
-    if l1_ratio > 0:
-        # Lasso component: alpha_max = max(|Xty|) * 2 / n
-        alpha_max_lasso = np.max(np.abs(Xty)) * 2.0 / n
-    else:
-        alpha_max_lasso = 0.0
-
-    # Ridge component (for stability)
-    alpha_max_ridge = np.max(np.abs(Xty)) * 2.0 / n
-
-    # Combined: use the Lasso component as the primary driver
-    alpha_max = max(alpha_max_lasso, alpha_max_ridge, 1e-6)
+    # alpha_max = max(|X'c yc|) * 2 / n (works for all l1_ratio values)
+    alpha_max = float(np.max(np.abs(Xty))) * 2.0 / n_samples
+    alpha_max = max(alpha_max, 1e-6)
 
     if alpha_max <= 0:
         alpha_max = 1.0

@@ -76,6 +76,30 @@ def folds_are_complete(folds, n_samples: int) -> bool:
     return np.array_equal(np.sort(val_indices), np.arange(n_samples))
 
 
+def hash_cv_data(X, y, sample_weight=None) -> bytes:
+    """Compute a compact hash of X, y, and optionally sample_weight.
+
+    Samples evenly spaced rows to keep hashing fast for large datasets
+    while avoiding collisions from different middle rows.
+    """
+    h = hashlib.blake2b(digest_size=16)
+    X_np = np.asarray(_to_numpy(X), dtype=np.float64)
+    y_np = np.asarray(_to_numpy(y), dtype=np.float64).ravel()
+    n = X_np.shape[0]
+    h.update(np.asarray(X_np.shape, dtype=np.int64).tobytes())
+    step = max(1, n // 100)
+    idx = np.arange(0, n, step)[:100]
+    h.update(X_np[idx].tobytes())
+    h.update(y_np[idx].tobytes())
+    h.update(np.asarray([X_np.mean(), X_np.std()], dtype=np.float64).tobytes())
+    h.update(np.asarray([y_np.mean(), y_np.std()], dtype=np.float64).tobytes())
+    if sample_weight is not None:
+        sw_np = np.asarray(_to_numpy(sample_weight), dtype=np.float64).ravel()
+        h.update(sw_np[idx].tobytes())
+        h.update(np.asarray([sw_np.mean()], dtype=np.float64).tobytes())
+    return h.digest()
+
+
 def validate_cv_sample_weight(sample_weight, n_samples: int):
     """Validate sample_weight for CV: must be non-negative and finite.
 

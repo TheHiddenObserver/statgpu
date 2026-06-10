@@ -4590,21 +4590,12 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
             p = X_arr.shape[1]
             pen = self._penalty
 
-            class SelectivePenalty:
-                """Penalty wrapper: apply to first p entries, skip last (intercept)."""
-                def proximal(self, w, step, backend="numpy"):
-                    w_feat = w[:-1]
-                    result_feat = pen.proximal(w_feat, step, backend=backend)
-                    result = np.empty(w.shape[0], dtype=w.dtype)
-                    result[:-1] = result_feat
-                    result[-1] = np.clip(w[-1], -15.0, 15.0)
-                    return result
-                def value(self, coef):
-                    return pen.value(coef[:-1])
-                name = pen.name
+            # Reuse thread-local SelectivePenalty singleton
+            singleton = _get_selective_penalty_singleton()
+            singleton.configure(self._penalty, p, "numpy")
 
             full_coef, n_iter = fista_solver(
-                self._loss, SelectivePenalty(), X_aug, y_arr,
+                self._loss, singleton, X_aug, y_arr,
                 max_iter=self.max_iter, tol=self.tol,
                 init_coef=None, sample_weight=sample_weight,
             )
