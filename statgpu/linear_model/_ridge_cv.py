@@ -961,7 +961,9 @@ def _batch_mse_all_folds(X_val_batch, y_val_batch, coefs_batch, intercepts_batch
         sw = _expand(sample_weights_batch, 2)  # (n_folds, n_val_max, 1)
         ssr = xp.sum(sw * residuals ** 2, axis=1)  # (n_folds, n_alphas)
         sw_sum = xp.sum(sw, axis=1)  # (n_folds,)
-        mse = (ssr / sw_sum[:, None]).T  # (n_alphas, n_folds)
+        # Guard against zero weight sum (avoid division by zero)
+        sw_sum_safe = xp.where(sw_sum > 0, sw_sum, xp.ones_like(sw_sum))
+        mse = (ssr / sw_sum_safe[:, None]).T  # (n_alphas, n_folds)
     else:
         ssr = xp.sum(residuals ** 2, axis=1)  # (n_folds, n_alphas)
         if n_val_folds is not None:

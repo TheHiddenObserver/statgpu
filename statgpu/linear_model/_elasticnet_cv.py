@@ -502,7 +502,8 @@ def _select_elasticnet_params_cv(
 
     # Generate CV folds
     if cv_splits is not None:
-        folds = cv_splits
+        from statgpu.linear_model._lasso import _normalize_cv_splits
+        folds = _normalize_cv_splits(cv_splits, n_samples=int(n_samples))
     else:
         folds = _kfold_indices(n_samples=int(n_samples), n_splits=int(cv_folds), random_state=random_state)
 

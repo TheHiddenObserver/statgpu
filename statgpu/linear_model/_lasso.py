@@ -2102,6 +2102,11 @@ class LassoCV(CVEstimatorBase):
             estimator._scale = np.nan
             estimator._resid = None
             estimator._X_design = None
+            # Set inference attributes to None (compute_inference=False)
+            estimator._bse = None
+            estimator._pvalues = None
+            estimator._tvalues = None
+            estimator._conf_int = None
             estimator._fitted = True
         else:
             estimator.fit(X, y, sample_weight=sample_weight)

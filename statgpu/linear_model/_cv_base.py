@@ -90,20 +90,23 @@ def validate_cv_sample_weight(sample_weight, n_samples: int):
     """Validate sample_weight for CV: must be non-negative and finite.
 
     Returns None if sample_weight is None, otherwise returns validated array.
-    Raises ValueError for invalid weights.
+    Raises ValueError for invalid weights.  Preserves the original backend
+    (CuPy/Torch/numpy) — does not force conversion to numpy.
     """
     if sample_weight is None:
         return None
-    sw = np.asarray(sample_weight, dtype=np.float64).ravel()
-    if sw.shape[0] != n_samples:
+    # Validate on numpy (single D2H sync) but return original array
+    sw_np = _to_numpy(sample_weight).ravel().astype(np.float64)
+    if sw_np.shape[0] != n_samples:
         raise ValueError(
-            f"sample_weight length {sw.shape[0]} != n_samples {n_samples}"
+            f"sample_weight length {sw_np.shape[0]} != n_samples {n_samples}"
         )
-    if np.any(sw < 0):
+    if np.any(sw_np < 0):
         raise ValueError("sample_weight must be non-negative")
-    if not np.all(np.isfinite(sw)):
+    if not np.all(np.isfinite(sw_np)):
         raise ValueError("sample_weight must be finite")
-    return sw
+    # Return the original array (preserves CuPy/Torch backend)
+    return sample_weight
 
 
 # ---------------------------------------------------------------------------
@@ -139,10 +142,19 @@ class CVCache:
 
     @staticmethod
     def make_key(*args) -> str:
-        """Generate a blake2b hash key from arbitrary arguments."""
+        """Generate a blake2b hash key from arbitrary arguments.
+
+        Uses content-based hashing for arrays (tobytes) to avoid collisions
+        from str() truncation on large arrays.
+        """
         h = hashlib.blake2b(digest_size=32)
         for arg in args:
-            h.update(str(arg).encode())
+            if hasattr(arg, 'tobytes') and hasattr(arg, 'shape'):
+                # Array-like: hash shape + content bytes
+                h.update(str(arg.shape).encode())
+                h.update(np.ascontiguousarray(_to_numpy(arg)).tobytes())
+            else:
+                h.update(str(arg).encode())
         return h.hexdigest()
 
 
@@ -190,7 +202,10 @@ def detect_gpu_input(X, y) -> Tuple[str, Any, Any]:
             RuntimeWarning,
             stacklevel=2,
         )
-        return 'numpy', X, y
+        # Convert both arrays to numpy for consistent backend
+        X_np = _to_numpy(X)
+        y_np = _to_numpy(y)
+        return 'numpy', X_np, y_np
 
     if x_type == 'cupy' and y_type == 'cupy':
         return 'cupy', X, y

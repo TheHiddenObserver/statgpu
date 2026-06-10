@@ -37,6 +37,7 @@ def run_cv(
     cache: Optional[CVCache] = None,
     cache_key_fn: Optional[Callable] = None,
     sample_weight=None,
+    raise_on_error: bool = False,
 ) -> Tuple[float, np.ndarray, np.ndarray]:
     """Execute K-fold cross-validation.
 
@@ -65,6 +66,9 @@ def run_cv(
         Function ``(X, y, alpha_grid, folds) -> str`` for cache key.
     sample_weight : array or None
         Optional sample weights (passed through to evaluate_fold_fn).
+    raise_on_error : bool, default False
+        If True, re-raise exceptions from evaluate_fold_fn instead of
+        logging a warning and setting the score to NaN.
 
     Returns
     -------
@@ -75,9 +79,10 @@ def run_cv(
     all_scores : array, shape (n_folds, n_alphas,)
         Per-fold CV scores.
     """
+    # 0. Validate inputs
     n_samples = X.shape[0]
-
-    # 0. Validate alpha_grid
+    if y.shape[0] != n_samples:
+        raise ValueError(f"X and y have different number of samples: {n_samples} vs {y.shape[0]}")
     if len(alpha_grid) == 0:
         raise ValueError("alpha_grid must not be empty")
 
@@ -114,6 +119,8 @@ def run_cv(
                 )
                 all_scores[fold_idx, alpha_idx] = score
             except Exception as exc:
+                if raise_on_error:
+                    raise
                 all_scores[fold_idx, alpha_idx] = np.nan
                 logger.warning(
                     "CV fold %d, alpha_idx %d failed: %s",
@@ -122,6 +129,14 @@ def run_cv(
 
     # 4. Aggregate across folds
     mean_scores = np.nanmean(all_scores, axis=0)
+
+    # Guard against all-NaN slices (all folds failed for every alpha)
+    finite_mask = np.isfinite(mean_scores)
+    if not np.any(finite_mask):
+        raise ValueError(
+            "All CV scores are NaN — every fold failed for every alpha. "
+            "Check for data issues or increase max_iter."
+        )
 
     if minimize:
         best_idx = int(np.nanargmin(mean_scores))

@@ -81,7 +81,9 @@ def _nanargmin_prefer_larger_alpha(scores, alpha_grid, rel_tol=1e-10, abs_tol=1e
     alpha_grid = np.asarray(alpha_grid, dtype=np.float64)
     finite = np.isfinite(scores)
     if not np.any(finite):
-        return int(np.nanargmin(scores))
+        # All scores are NaN/Inf — fall back to first alpha (strongest regularization)
+        warnings.warn("All CV scores are NaN/Inf; returning first alpha.", stacklevel=2)
+        return 0
     best = float(np.nanmin(scores))
     tol = max(float(abs_tol), abs(best) * float(rel_tol))
     candidates = np.flatnonzero(finite & (scores <= best + tol))
@@ -97,6 +99,7 @@ def _two_stage_candidate_mask(scores, refine_top_k=3):
     if n_scores == 0:
         return mask
     if not np.any(finite):
+        warnings.warn("All approximate CV scores are NaN; refining all candidates.", stacklevel=2)
         mask[:] = True
         return mask
 
@@ -1913,25 +1916,17 @@ def _scad_mcp_cv_path(
                     val_loss = float(np.sum(swv * per_sample) / max(sw_sum, 1e-15))
             else:
                 val_loss = loss_fn.value(X_val_work, yv, coef)
-            scores_dev.append(val_loss)
+            # Normalize to Python float to avoid mixing types in scores_dev
+            scores_dev.append(float(val_loss) if not isinstance(val_loss, float) else val_loss)
 
         if return_path:
             coef_path.append(coef_np)
             intercept_path.append(intercept)
         iters.append(1)  # placeholder
 
-    # Batch sync validation scores
+    # Batch sync validation scores (all values are Python floats)
     if scores_dev:
-        if backend == "torch":
-            import torch
-            scores_tensor = torch.stack(scores_dev)
-            scores = _to_numpy(scores_tensor).tolist()
-        elif backend == "cupy":
-            import cupy as cp
-            scores_arr = cp.stack(scores_dev)
-            scores = _to_numpy(scores_arr).tolist()
-        else:
-            scores = [float(s) for s in scores_dev]
+        scores = [float(s) for s in scores_dev]
 
     out = {
         "scores": np.asarray(scores, dtype=np.float64) if scores else None,

@@ -465,7 +465,8 @@ class LassoCV(CVEstimatorBase):
 
         # Generate CV folds
         if self.cv_splits is not None:
-            folds = self.cv_splits
+            from statgpu.linear_model._lasso import _normalize_cv_splits
+            folds = _normalize_cv_splits(self.cv_splits, n_samples=int(n_samples))
         else:
             folds = _kfold_indices(n_samples=int(n_samples), n_splits=int(self.cv), random_state=self.random_state)
 
