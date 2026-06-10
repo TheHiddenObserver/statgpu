@@ -432,14 +432,12 @@ def _select_logistic_c_cv(
     if Cs is None:
         if gpu_input_cupy or gpu_input_torch:
             # GPU path for C grid generation
+            # Gradient of logistic loss at beta=0: X'(y - sigmoid(0)) = X'(y - 0.5)
+            # Do NOT center X/y — centering is incorrect for logistic regression
             backend = get_backend(backend='auto', device='cuda')
             X_temp = backend.asarray(X)
             y_temp = backend.asarray(y)
-            X_mean = backend.mean(X_temp, axis=0)
-            y_mean = backend.mean(y_temp)
-            X_centered = X_temp - X_mean
-            y_centered = y_temp - y_mean
-            grad = X_centered.T @ (y_centered - 0.5)
+            grad = X_temp.T @ (y_temp - 0.5)
             C_max = float(backend.max(backend.abs(grad)) * 2.0 / len(y_temp))
             if C_max == 0:
                 C_max = 1.0

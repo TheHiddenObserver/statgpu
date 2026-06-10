@@ -958,11 +958,26 @@ def _batch_mse_all_folds(X_val_batch, y_val_batch, coefs_batch, intercepts_batch
     y_val_expanded = _expand(y_val_batch, 2)  # (n_folds, n_val_max, 1)
     residuals = y_pred - y_val_expanded
 
+    # Zero out padded rows to prevent inflated MSE from intercept contribution
+    if n_val_folds is not None:
+        n_val_max = residuals.shape[1]
+        # Create mask: (n_folds, n_val_max) -> (n_folds, n_val_max, 1)
+        if _is_torch:
+            import torch
+            mask = torch.arange(n_val_max, device=residuals.device).unsqueeze(0) < \
+                   torch.tensor(n_val_folds, device=residuals.device).unsqueeze(1)
+            mask = mask.unsqueeze(2).to(residuals.dtype)
+        else:
+            mask = xp.arange(n_val_max).reshape(1, -1) < \
+                   xp.asarray(n_val_folds).reshape(-1, 1)
+            mask = mask[:, :, xp.newaxis].astype(residuals.dtype)
+        residuals = residuals * mask
+
     # Compute MSE — use per-fold n_val to exclude padded zeros
     if sample_weights_batch is not None:
         sw = _expand(sample_weights_batch, 2)  # (n_folds, n_val_max, 1)
         ssr = xp.sum(sw * residuals ** 2, axis=1)  # (n_folds, n_alphas)
-        sw_sum = xp.sum(sw, axis=1)  # (n_folds,)
+        sw_sum = xp.sum(sw * mask, axis=1) if n_val_folds is not None else xp.sum(sw, axis=1)
         # Guard against zero weight sum (avoid division by zero)
         sw_sum_safe = xp.where(sw_sum > 0, sw_sum, xp.ones_like(sw_sum))
         mse = (ssr / sw_sum_safe[:, None]).T  # (n_alphas, n_folds)

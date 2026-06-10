@@ -288,8 +288,14 @@ def _array_identity_token(x: Any) -> Tuple[Any, ...]:
         import cupy as cp
 
         if isinstance(x, cp.ndarray):
-            arr_np = cp.asnumpy(x).astype(np.float64)
-            h = _sample_and_hash(arr_np)
+            # Sample on GPU first, then transfer only sampled rows
+            n = x.shape[0]
+            if n <= 100:
+                arr_np = cp.asnumpy(x).astype(np.float64)
+            else:
+                idx = cp.linspace(0, n - 1, 100, dtype=cp.int64)
+                arr_np = cp.asnumpy(x[idx]).astype(np.float64)
+            h = _hash_bytes(np.ascontiguousarray(arr_np).tobytes())
             return ("cupy", h, tuple(int(v) for v in x.shape), str(x.dtype))
     except Exception:
         pass
@@ -299,8 +305,14 @@ def _array_identity_token(x: Any) -> Tuple[Any, ...]:
         import torch
 
         if isinstance(x, torch.Tensor):
-            arr_np = x.detach().cpu().numpy().astype(np.float64)
-            h = _sample_and_hash(arr_np)
+            # Sample on GPU first, then transfer only sampled rows
+            n = x.shape[0]
+            if n <= 100:
+                arr_np = x.detach().cpu().numpy().astype(np.float64)
+            else:
+                idx = torch.linspace(0, n - 1, 100, dtype=torch.long, device=x.device)
+                arr_np = x[idx].detach().cpu().numpy().astype(np.float64)
+            h = _hash_bytes(np.ascontiguousarray(arr_np).tobytes())
             return ("torch", h, tuple(int(v) for v in x.shape), str(x.dtype))
     except Exception:
         pass

@@ -1031,7 +1031,8 @@ def _logistic_sparse_cv_path(
                 eta_v = Xv @ coef + intercept
                 per_sample = -yv * eta_v + _softplus(eta_v)
                 if swv is not None:
-                    val_loss = xp.sum(swv * per_sample) / xp.sum(swv)
+                    sw_sum = xp.sum(swv)
+                    val_loss = xp.sum(swv * per_sample) / sw_sum if float(sw_sum) > 0 else xp.mean(per_sample)
                 else:
                     val_loss = xp.mean(per_sample)
                 score_coef_path.append(val_loss)
@@ -1802,6 +1803,7 @@ def _scad_mcp_cv_path(
             inner_pen._weights = lla_w
 
             coef_before_lla = coef.copy() if backend != "torch" else coef.clone()
+            iteration = -1  # default if max_iter=0
 
             # FISTA inner solve with warm-start
             if _is_quadratic:
@@ -2172,14 +2174,10 @@ class PenalizedGLM_CV(CVEstimatorBase):
             )
             alpha_max = 1.0
 
-        if self.penalty in ('l1', 'elasticnet', 'scad', 'mcp', 'adaptive_l1', 'group_lasso'):
-            grid = np.geomspace(alpha_max, alpha_max * 1e-4, self.n_alphas)
+        if self.penalty in ('l1', 'elasticnet', 'scad', 'mcp', 'adaptive_l1', 'group_lasso', 'l2'):
+            grid = np.geomspace(alpha_max, max(alpha_max * 1e-4, 1e-12), self.n_alphas)
         else:
-            grid = np.logspace(
-                np.log10(max(alpha_max * 1e-4, 1e-12)),
-                np.log10(alpha_max),
-                self.n_alphas,
-            )
+            grid = np.geomspace(alpha_max, max(alpha_max * 1e-4, 1e-12), self.n_alphas)
 
         return grid
 

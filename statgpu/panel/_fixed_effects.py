@@ -282,7 +282,13 @@ class PanelOLS(BaseEstimator):
             self.bse_ = np.sqrt(np.maximum(np.diag(V), 0.0))
             self.tvalues_ = params / (self.bse_ + 1e-30)
             # Cluster-robust: use t with min(n_clusters-1, df_resid) df
-            n_clusters = len(np.unique(cluster_np))
+            # For two-way clustering, use min across individual dimensions
+            if cluster_np.ndim == 2 and cluster_np.shape[1] == 2:
+                n_clust_1 = len(np.unique(cluster_np[:, 0]))
+                n_clust_2 = len(np.unique(cluster_np[:, 1]))
+                n_clusters = min(n_clust_1, n_clust_2)
+            else:
+                n_clusters = len(np.unique(cluster_np))
             df_cluster = min(n_clusters - 1, self.df_resid)
             self.pvalues_ = 2 * (1 - stats.t.cdf(np.abs(self.tvalues_), df=df_cluster))
             t_crit = stats.t.ppf(1 - alpha / 2, df=df_cluster)

@@ -3292,11 +3292,12 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
                         z = eta + (y_arr - mu) / mu
                     elif loss_name == "inverse_gaussian":
                         # V(mu) = mu^3, log link g'(mu) = 1/mu
-                        # d = 1/V(mu), working residual: eta + (y-mu)*g'(mu)
+                        # IRLS weight: w = 1/(V(mu) * [g'(mu)]^2) = 1/(mu^3 * 1/mu^2) = 1/mu
+                        # Working response: z = eta + (y - mu) * g'(mu) = eta + (y - mu)/mu
                         mu = np.exp(np.clip(eta, -500, 500))
                         mu = np.maximum(mu, 1e-15)
-                        d = 1.0 / (mu ** 3)
-                        z = eta + (y_arr - mu) / (d * mu ** 2)
+                        d = 1.0 / mu
+                        z = eta + (y_arr - mu) / mu
                     elif loss_name == "negative_binomial":
                         mu = np.exp(np.clip(eta, -500, 500))
                         mu = np.maximum(mu, 1e-15)
@@ -3520,10 +3521,11 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
                         d = xp.ones(n, dtype=X_work.dtype) if backend_name == "cupy" else torch.ones(n, dtype=X_work.dtype, device=X_work.device)
                         z = eta + (y_arr - mu) / mu
                     elif loss_name == "inverse_gaussian":
+                        # IRLS weight: w = 1/mu, Working response: z = eta + (y-mu)/mu
                         mu = xp.exp(xp.clip(eta, -500, 500)) if backend_name == "cupy" else torch.exp(torch.clamp(eta, -500, 500))
                         mu = xp.maximum(mu, 1e-15) if backend_name == "cupy" else torch.clamp(mu, min=1e-15)
-                        d = 1.0 / (mu ** 3)
-                        z = eta + (y_arr - mu) / (d * mu ** 2)
+                        d = 1.0 / mu
+                        z = eta + (y_arr - mu) / mu
                     elif loss_name == "negative_binomial":
                         mu = xp.exp(xp.clip(eta, -500, 500)) if backend_name == "cupy" else torch.exp(torch.clamp(eta, -500, 500))
                         mu = xp.maximum(mu, 1e-15) if backend_name == "cupy" else torch.clamp(mu, min=1e-15)

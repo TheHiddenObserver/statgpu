@@ -474,7 +474,9 @@ def irls_solver(
             try:
                 grad_f = family.gradient(X, y, params)
                 if ridge_alpha > 0:
-                    grad_f[1:] = grad_f[1:] + (ridge_alpha / X.shape[0]) * params[1:]
+                    # Match normal equations: XtWX + ridge_alpha*I, so penalty
+                    # gradient is ridge_alpha * params (not ridge_alpha/n)
+                    grad_f[1:] = grad_f[1:] + ridge_alpha * params[1:]
                 grad_norm = float(_norm(grad_f, backend))
             except Exception:
                 # No gradient method available — fall back to param change

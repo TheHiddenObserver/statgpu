@@ -249,12 +249,25 @@ def group_means(y, groups, xp=None):
     y = xp_asarray(y, dtype=xp.float64, xp=xp).ravel()
     groups = xp_asarray(groups, xp=xp, ref_arr=y).ravel()
 
-    result = xp.zeros_like(y)
-    # Batch-transfer unique group values to CPU (single sync)
-    unique_cpu = _to_numpy(xp.unique(groups)).tolist()
-    for g_val in unique_cpu:
-        mask = groups == g_val
-        result[mask] = xp.mean(y[mask])
+    # Vectorized group means using bincount (O(n), no per-group loop)
+    groups_np = _to_numpy(groups).astype(np.int64)
+    y_np = _to_numpy(y)
+    unique_labels, group_idx = np.unique(groups_np, return_inverse=True)
+    n_groups = len(unique_labels)
+    group_sum = np.bincount(group_idx, weights=y_np, minlength=n_groups)
+    group_count = np.bincount(group_idx, minlength=n_groups)
+    group_mean = group_sum / np.maximum(group_count, 1)
+    result_np = group_mean[group_idx]
+
+    # Convert back to original backend
+    if hasattr(y, 'clone'):  # torch
+        import torch
+        result = torch.from_numpy(result_np).to(dtype=y.dtype, device=y.device)
+    elif hasattr(y, 'get'):  # cupy
+        import cupy as cp
+        result = cp.asarray(result_np)
+    else:
+        result = result_np
 
     return result
 
@@ -281,13 +294,23 @@ def group_sizes(groups, xp=None):
         xp = np
 
     groups = xp_asarray(groups, xp=xp).ravel()
-    result = xp_zeros(len(groups), xp.float64, xp, groups)
-    # Batch-transfer unique group values to CPU (single sync)
-    unique_cpu = _to_numpy(xp.unique(groups)).tolist()
 
-    for g_val in unique_cpu:
-        mask = groups == g_val
-        result[mask] = float(xp.sum(mask))
+    # Vectorized group sizes using bincount (O(n), no per-group loop)
+    groups_np = _to_numpy(groups).astype(np.int64)
+    unique_labels, group_idx = np.unique(groups_np, return_inverse=True)
+    n_groups = len(unique_labels)
+    count = np.bincount(group_idx, minlength=n_groups)
+    result_np = count[group_idx].astype(np.float64)
+
+    # Convert back to original backend
+    if hasattr(groups, 'clone'):  # torch
+        import torch
+        result = torch.from_numpy(result_np).to(dtype=groups.dtype, device=groups.device)
+    elif hasattr(groups, 'get'):  # cupy
+        import cupy as cp
+        result = cp.asarray(result_np)
+    else:
+        result = result_np
 
     return result
 

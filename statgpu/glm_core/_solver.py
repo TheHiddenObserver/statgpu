@@ -360,8 +360,21 @@ def _objective_value_dev(loss, penalty, X, y, coef):
 def _fused_logistic(eta, X, y, n, loss):
     from statgpu.backends._array_ops import _sigmoid, _softplus, _clip, _sum
     p = _sigmoid(eta)
-    # Numerically stable: log(1+exp(-|eta|)) + max(eta,0) = softplus(-|eta|) + max(eta,0)
-    log1pexp = _softplus(-_clip(eta, None, 0)) + _clip(eta, 0, None)
+    # Numerically stable: log(1+exp(eta)) = softplus(-|eta|) + max(eta, 0)
+    # Using abs() not clip() to get the correct formula
+    xp = type(eta).__module__.split('.')[0]
+    if xp == 'torch':
+        import torch
+        abs_eta = torch.abs(eta)
+        max_eta = torch.clamp(eta, min=0)
+    elif xp == 'cupy':
+        import cupy as cp
+        abs_eta = cp.abs(eta)
+        max_eta = cp.maximum(eta, 0)
+    else:
+        abs_eta = np.abs(eta)
+        max_eta = np.maximum(eta, 0)
+    log1pexp = _softplus(-abs_eta) + max_eta
     val = _sum(-y * eta + log1pexp) / n
     grad = X.T @ (p - y) / n
     return val, grad
@@ -370,7 +383,9 @@ def _fused_logistic(eta, X, y, n, loss):
 def _fused_poisson(eta, X, y, n, loss):
     from statgpu.backends._array_ops import _exp, _log, _clip, _sum
     mu = _exp(_clip(eta, -30, 30))
-    val = _sum(mu - y * _log(mu + 1e-10)) / n
+    # Clip mu before log to match non-fused PoissonLoss.value() behavior
+    mu_c = _clip(mu, 1e-10, None)
+    val = _sum(mu - y * _log(mu_c)) / n
     grad = X.T @ (mu - y) / n
     return val, grad
 
@@ -390,8 +405,8 @@ def _fused_gamma(eta, X, y, n, loss):
     mu_c = _clip(mu, 1e-3, 1e4)
     val = _sum(y / mu_c + _log(mu_c)) / n
     # Chain rule: d/deta = d/dmu * dmu/deta = (-y/mu^2 + 1/mu) * mu = (mu - y)/mu
-    # But for the canonical log-link, the gradient simplifies to X'(mu - y)/n
-    grad = X.T @ (mu_c - y) / n
+    # Element-wise divide by mu before the matmul to avoid broadcast error
+    grad = X.T @ ((mu_c - y) / mu_c) / n
     return val, grad
 
 

@@ -42,8 +42,8 @@ def _lasso_cv_cache_put(cache_key: Optional[Tuple[Any, ...]], value: Dict[str, A
     with _LASSO_CV_CACHE_LOCK:
         _LASSO_CV_ALPHA_CACHE[cache_key] = value
         _LASSO_CV_ALPHA_CACHE.move_to_end(cache_key)
-    while len(_LASSO_CV_ALPHA_CACHE) > _LASSO_CV_ALPHA_CACHE_MAXSIZE:
-        _LASSO_CV_ALPHA_CACHE.popitem(last=False)
+        while len(_LASSO_CV_ALPHA_CACHE) > _LASSO_CV_ALPHA_CACHE_MAXSIZE:
+            _LASSO_CV_ALPHA_CACHE.popitem(last=False)
 
 
 def _make_lasso_cv_auto_cache_key(
