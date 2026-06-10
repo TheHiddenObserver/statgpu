@@ -1806,12 +1806,14 @@ def _scad_mcp_cv_path(
             iteration = -1  # default if max_iter=0
 
             # FISTA inner solve with warm-start
+            # Cap iterations for CV to keep SCAD/MCP paths fast
+            _inner_max_iter = min(int(max_iter), _FISTA_MAX_ITER_CV)
             if _is_quadratic:
                 # Squared error: use precomputed XtX
                 step = 1.0 / L_base
                 y_k = coef.copy() if backend != "torch" else coef.clone()
                 t_k = 1.0
-                for iteration in range(max_iter):
+                for iteration in range(_inner_max_iter):
                     coef_old = coef.copy() if backend != "torch" else coef.clone()
                     if backend == "torch":
                         grad = XtX @ y_k[:n_features] - Xty
@@ -1866,7 +1868,7 @@ def _scad_mcp_cv_path(
                 step = 1.0 / L_glm
                 y_k = coef.copy() if backend != "torch" else coef.clone()
                 t_k = 1.0
-                for iteration in range(max_iter):
+                for iteration in range(_inner_max_iter):
                     coef_old = coef.copy() if backend != "torch" else coef.clone()
 
                     # Gradient: loss.gradient(X, y, coef)

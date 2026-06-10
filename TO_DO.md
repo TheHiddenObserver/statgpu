@@ -210,145 +210,110 @@ coef = where(active, coef_new, coef)
 
 ---
 
-## PR #49 Code Review 剩余 P3 项 (2026-06-10)
+## PR #49 Code Review 剩余项 (2026-06-10，最后更新: 2026-06-11)
 
-> 所有 P1/P2 bug 已修复。以下为需要较大重构的 P3 改进项。
+> P1 全部修复（22 个）。P2 大部分修复。以下为剩余项。
 
-### P3: `_elasticnet_cv.py` Alpha Grid 函数合并
+### 已修复但 TO_DO.md 未更新的项 (20 项)
 
-**现状**：`_default_elasticnet_alpha_grid`（numpy）和 `_default_elasticnet_alpha_grid_backend`（GPU）功能重复。numpy 版本对 `l1_ratio=0` 有不同逻辑，可能导致 CPU/GPU 结果不一致。
-**方案**：合并为单一 backend-agnostic 函数，使用 `_xp()` helpers。
-**难度**：中 | **风险**：中 | **状态**：未实现
+- ✅ elasticnet alpha grid 合并（已简化）
+- ✅ logistic log-loss 合并（已合并）
+- ✅ hash_logistic_data 共享（已提取到 _cv_base.py）
+- ✅ solver loss name 硬编码（已改为 _GLM_FUSED_REGISTRY 检查）
+- ✅ SelectivePenalty 重复（已复用 singleton）
+- ✅ elasticnet XtX 按 l1_ratio 重复（已移到 fold 循环外）
+- ✅ _fit_initial GPU（已支持 backend_name）
+- ✅ logistic GPU 概率向量化（已用批量矩阵乘法）
+- ✅ folds_are_complements 死代码（已删除）
+- ✅ _cv_engine.py reference impl（已标记文档）
+- ✅ elasticnet predict/score（已委托给 estimator_）
+- ✅ 两个 LassoCV 类（已统一委托 _select_lasso_alpha_cv）
+- ✅ array_identity_token（已改为 GPU 端采样）
+- ✅ batch_mse 内存峰值（已改为分块计算 chunk_size=256）
+- ✅ sample_weight 检查重复（已提取 _is_uniform_weight）
+- ✅ populate_refit df_resid（已检查 fit_intercept）
+- ✅ Lasso **kwargs（已移除）
+- ✅ ddof=1 一致性（已统一）
+- ✅ dead code obj_old/yty（已删除）
+- ✅ n_cont SCAD/MCP（已统一为 20 步）
 
-### P3: `_logistic_cv.py` Log-Loss 函数合并
+---
 
-**现状**：`_batch_log_loss`（numpy）和 `_batch_log_loss_backend`（GPU）几乎相同。
-**方案**：使用 backend dispatch 合并。
-**难度**：中 | **风险**：中 | **状态**：未实现
+### 剩余 P2 (7 项，本轮 Code Review 新发现)
 
-### P3: `_hash_logistic_data` 共享
+### P2: `_solver.py` fista_bb BB state 用 backtracking 前的 coef_new
 
-**现状**：`_logistic_cv.py:44-62` 和 `_elasticnet_cv.py:93-114` 有近乎相同的 hash 函数。
-**方案**：提取到 `_cv_base.py` 作为共享工具函数。
+**现状**：`fista_bb_solver` 在 safeguarded backtracking 后，BB state 用 `coef_new`（backtracking 前的值）计算 `dw = coef_new - coef_old`，而非实际接受的迭代。
+**方案**：在 backtracking 循环后更新 `coef_new = coef`。
 **难度**：低 | **风险**：低 | **状态**：未实现
 
-### P3: `_solver.py` Loss Name 硬编码
+### P2: `_solver.py` admm_solver 计算 Cholesky 但用 `np.linalg.solve`
 
-**现状**：`_solver.py:626` 使用硬编码的 loss name 列表检查 fused 路径。新增 loss 时需手动更新。
-**方案**：改为 `if _loss_name in _GLM_FUSED_REGISTRY:`。
+**现状**：`use_cholesky=True` 时计算 `_L = np.linalg.cholesky(_A_mat)`，但 w-update 用 `np.linalg.solve(_A_mat, rhs)` 而非前向/回代。
+**方案**：用 `_L` 做前向/回代替换 `np.linalg.solve`。
 **难度**：低 | **风险**：低 | **状态**：未实现
 
-### P3: `_penalized.py` Local SelectivePenalty 重复
+### P2: `_penalized.py` `_irls_cd_gpu` 逐坐标 `float()` 调用
 
-**现状**：`_penalized.py:4558-4623` 在 `_fit_cpu_loss()` 内定义了本地 `SelectivePenalty` 类，与模块级类重复。
-**方案**：复用 `_get_selective_penalty_singleton().configure()`。
+**现状**：内层 CD 循环对每个坐标调用 `float(xp.dot(...))`，O(pp) 次 GPU sync。
+**方案**：批量计算所有坐标的梯度更新，减少 sync 次数。
+**难度**：高 | **风险**：中 | **状态**：未实现
+
+### P2: `_penalized_cv.py` SCAD/MCP 内层 FISTA 无 CV 迭代上限
+
+**现状**：`_scad_mcp_cv_path` 的内层 FISTA 使用完整的 `max_iter`，CV 时可能过慢。
+**方案**：添加 `_FISTA_MAX_ITER_CV` 上限。
 **难度**：低 | **风险**：低 | **状态**：未实现
 
-### P3: `_elasticnet_cv.py` XtX 按 l1_ratio 重复计算
+### P2: `_elasticnet_cv.py` alpha_max 公式未考虑 l1_ratio
 
-**现状**：`_elasticnet_cv.py:621-625` 中 `XtX_fold` 和特征值在每个 l1_ratio 循环内重新计算，但它们只依赖 fold。
-**方案**：将 XtX/特征值计算移到 l1_ratio 循环外。
-**难度**：中 | **风险**：中 | **状态**：未实现
+**现状**：`alpha_max = max(|X'y|) * 2 / n` 是 Lasso 的公式。对 l1_ratio < 1，真正的 alpha_max 是 `max(|X'y|) / (n * l1_ratio)`。
+**方案**：在 alpha_max 计算中除以 `l1_ratio`。
+**难度**：低 | **风险**：低 | **状态**：未实现
 
-### P3: `_penalized.py` `_fit_initial` 始终在 CPU
+### P2: `_lasso_cv.py` `_fit_cv` 方法 340 行死代码
 
-**现状**：`_fit_initial()` 始终转换为 numpy 在 CPU 运行，即使主 fit 在 GPU。
-**方案**：在相同 backend 上运行 init。
-**难度**：中 | **风险**：中 | **状态**：未实现
+**现状**：`fit()` 已委托给 `_select_lasso_alpha_cv`，`_fit_cv` 不再被调用。
+**方案**：删除 `_fit_cv` 及其辅助函数。
+**难度**：低 | **风险**：低 | **状态**：未实现
 
-### P3: `_logistic_cv.py` GPU 概率未跨 C 向量化
+### P2: `_fixed_effects.py` `xp.unique` GPU sync 优化
 
-**现状**：概率计算逐个 C 值循环，可通过堆叠 coef 做单次矩阵乘法。
-**方案**：类似 `_batch_mse_elasticnet` 的批量处理方式。
-**难度**：中 | **风险**：中 | **状态**：未实现
+**现状**：`len(xp.unique(entity_arr))` 和 `len(xp.unique(time_arr))` 各触发一次 GPU sync。数据随后转 numpy。
+**方案**：在 numpy 转换后计算 unique counts。
+**难度**：低 | **风险**：低 | **状态**：未实现
+
+---
+
+### 剩余 P3 (5 项，大规模重构)
+
+### P3: Backend 可扩展性（3-way 分支消除）
+
+**现状**：5+ 函数有 `if torch / elif cupy / else` 分支。
+**方案**：设计 backend 抽象层。
+**难度**：高 | **风险**：高 | **状态**：未实现
+
+### P3: `_penalized_cv.py` 文件拆分
+
+**现状**：2800+ 行。
+**方案**：拆为 3 个文件。
+**难度**：高 | **风险**：高 | **状态**：未实现
+
+### P3: CV path 函数 backend 重复代码消除
+
+**现状**：5+ 函数的后端分支重复。
+**方案**：扩展 `_fb_*` helpers。
+**难度**：高 | **风险**：高 | **状态**：未实现
 
 ### P3: `_penalized.py` Debiased Inference 代码重复
 
-**现状**：`_compute_inference_debiased_gpu()` 和 `_compute_inference_torch()` 约 280 行几乎相同代码。
+**现状**：~280 行 CuPy/Torch 几乎相同代码。
 **方案**：重构为单一 backend-agnostic 方法。
 **难度**：高 | **风险**：高 | **状态**：未实现
 
 ### P3: `_penalized.py` Node-wise Lasso 循环优化
 
-**现状**：debiased inference 的 node-wise Lasso 循环为每个特征创建新模型实例（最多 p 次）。
-**方案**：复用单个实例（`warm_start=True`）或使用底层 solver。
+**现状**：为每个特征创建新模型实例（最多 p 次）。
+**方案**：复用单个实例或使用底层 solver。
 **难度**：高 | **风险**：高 | **状态**：未实现
-
-### P3: `_cv_base.py` `folds_are_complements` 死代码
-
-**现状**：函数定义但未被任何生产代码导入。
-**方案**：删除或标记为测试工具。
-**难度**：低 | **风险**：无 | **状态**：未实现
-
-### P3: `_cv_engine.py` 为 Reference Implementation
-
-**现状**：`run_cv` 仅被测试文件调用。模块文档承认"The production CV paths use their own optimized loops"。
-**方案**：移至 `dev/` 或标记为 reference。
-**难度**：低 | **风险**：无 | **状态**：未实现
-
----
-
-## PR #49 第二轮 Code Review 剩余项 (2026-06-10)
-
-> 第二轮发现 7 P1 + 15 P2 + ~15 P3。P1 和大部分 P2 已修复。以下为剩余项。
-
-### P2: `_elasticnet_cv.py` predict()/score() 强制 numpy
-
-**现状**：`ElasticNetCV.predict()` 和 `score()` 始终用 `np.asarray()` 转换输入，忽略 GPU 设备。
-**方案**：委托给 `self.estimator_.predict()` 或保留原始 backend。
-**难度**：低 | **风险**：低 | **状态**：未实现
-
-### P2: `_lasso.py` 两个 LassoCV 类行为不同
-
-**现状**：`_lasso.py` 内部 LassoCV（fit_intercept=True, compute_inference=True）与导出的 `_lasso_cv.py` LassoCV（现已修复为 fit_intercept=True）行为仍有差异。
-**方案**：删除 `_lasso.py` 内部 LassoCV 或统一实现。
-**难度**：中 | **风险**：中 | **状态**：未实现
-
-### P2: `_lasso.py` `_array_identity_token` 全量哈希 O(np)
-
-**现状**：docstring 说采样但实际哈希整个数组。对大 GPU 数组（100K×100）会传输 80MB 数据。
-**方案**：实现真正的行采样哈希。
-**难度**：低 | **风险**：低 | **状态**：未实现
-
-### P2: `_cv_base.py` batch_mse 大矩阵内存峰值
-
-**现状**：`y_pred = coefs @ X_val.T` 创建 (n_models, n_val) 密集矩阵。
-**方案**：分块计算或 in-place 残差。
-**难度**：中 | **风险**：中 | **状态**：未实现
-
-### P2: `_penalized_cv.py` 非均匀 sample_weight 检查重复 4 次
-
-**现状**：`np.allclose(sw_np, sw_np[0])` 模式在 4 个 CV path 函数中重复。
-**方案**：提取为 `_check_uniform_weight()` 共享函数。
-**难度**：低 | **风险**：低 | **状态**：未实现
-
-### P2: `_penalized_cv.py` `_populate_refit_model` df_resid 假设 fit_intercept=True
-
-**现状**：`model._df_resid = n - p - 1` 始终减 1，即使 fit_intercept=False。
-**方案**：检查 `model.fit_intercept` 决定是否减 1。
-**难度**：低 | **风险**：低 | **状态**：未实现
-
-### P3: `_lasso.py` `**kwargs` 静默吞掉拼写错误
-
-**现状**：`Lasso(alph=0.1)` 不报错。
-**方案**：移除 `**kwargs` 或在 `__init__` 中验证。
-**难度**：低 | **风险**：低 | **状态**：未实现
-
-### P3: `_lasso.py` ddof=1 vs ddof=0 不一致
-
-**现状**：`_lasso_alpha_heuristic` 用 ddof=1，`_default_lasso_alpha_grid_backend` 用 ddof=0。
-**方案**：统一为 ddof=1。
-**难度**：低 | **风险**：低 | **状态**：未实现
-
-### P3: `_solver.py` 死代码 (obj_old, yty)
-
-**现状**：`newton_solver` 中 `obj_old` 同步但未使用；`fista_lla_path` 中 `yty` 计算但未使用。
-**方案**：删除死代码。
-**难度**：低 | **风险**：无 | **状态**：未实现
-
-### P3: `_penalized.py` `_n_cont` GLM+SCAD/MCP 用 100 步
-
-**现状**：GLM+SCAD/MCP 用 100 步 continuation，但 squared_error+SCAD/MCP 用 20 步。
-**方案**：统一为 20 步或使 GLM 路径也用 20 步。
-**难度**：低 | **风险**：低 | **状态**：未实现
 

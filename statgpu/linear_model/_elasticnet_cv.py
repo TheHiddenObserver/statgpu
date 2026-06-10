@@ -146,8 +146,11 @@ def _default_elasticnet_alpha_grid(
     # Compute correlation for alpha_max
     Xty = X_centered.T @ y_centered
 
-    # alpha_max = max(|X'c yc|) * 2 / n (works for all l1_ratio values)
-    alpha_max = float(np.max(np.abs(Xty))) * 2.0 / n_samples
+    # alpha_max = max(|X'c yc|) / (n * l1_ratio)
+    # For l1_ratio=1 (Lasso): max(|X'y|) / n
+    # For l1_ratio<1: larger because L2 penalty contributes less
+    _l1r = max(float(l1_ratio), 1e-6)
+    alpha_max = float(np.max(np.abs(Xty))) / (n_samples * _l1r)
     alpha_max = max(alpha_max, 1e-6)
 
     if alpha_max <= 0:
@@ -206,8 +209,9 @@ def _default_elasticnet_alpha_grid_backend(
     # Compute Xty
     Xty = X_centered.T @ y_centered
 
-    # Alpha max
-    alpha_max = float(backend.max(backend.abs(Xty))) * 2.0 / n_samples
+    # Alpha max: max(|X'y|) / (n * l1_ratio)
+    _l1r = max(float(l1_ratio), 1e-6)
+    alpha_max = float(backend.max(backend.abs(Xty))) / (n_samples * _l1r)
 
     if alpha_max <= 0:
         alpha_max = 1.0

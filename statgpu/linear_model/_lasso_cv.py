@@ -377,8 +377,18 @@ class LassoCV(CVEstimatorBase):
         """
         Fit Lasso regression with K-fold cross-validation.
 
-        This is the internal method that performs the actual CV fitting.
+        .. deprecated::
+            This method is dead code. ``fit()`` now delegates to
+            ``_select_lasso_alpha_cv`` from ``_lasso.py``.  Kept for
+            reference only — will be removed in a future version.
         """
+        import warnings
+        warnings.warn(
+            "LassoCV._fit_cv is deprecated and unused. "
+            "fit() delegates to _select_lasso_alpha_cv.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         device_name = self._get_compute_device().value
         use_gpu = device_name == Device.CUDA.value
         cv_method = str(self.method).lower()

@@ -2154,10 +2154,11 @@ def fista_bb_solver(
                     continue
 
         # --- Store BB step info for next iteration (non-quadratic only) ---
+        # Use accepted iterate (coef) not pre-backtracking (coef_new)
         if not _is_quadratic:
-            grad_new = loss.gradient(X_proc, y_proc, coef_new)
+            grad_new = loss.gradient(X_proc, y_proc, coef)
 
-            dw = coef_new - coef_old
+            dw = coef - coef_old
             dg = grad_new - grad_old
             # Batch two dot products into a single GPU→CPU sync.
             dot_dw_dw, dot_dw_dg = _sync_scalars(
@@ -2616,13 +2617,18 @@ def admm_solver(
         # --- w-update ---
         if use_cholesky:
             # Closed-form: (XtX/n + rho*I) w = Xty/n + rho*(z - u)
+            # Use precomputed Cholesky factor for forward/back substitution
             rhs = _neg_grad_zero + rho * (z - u)
             if backend == "numpy":
-                w = np.linalg.solve(_A_mat, rhs)
+                from scipy.linalg import solve_triangular
+                tmp = solve_triangular(_L, rhs, lower=True)
+                w = solve_triangular(_L.T, tmp, lower=False)
             elif backend == "cupy":
-                w = cp.linalg.solve(_A_mat, rhs)
+                tmp = cp.linalg.solve(_L, rhs)
+                w = cp.linalg.solve(_L.T, tmp)
             else:
-                w = torch.linalg.solve(_A_mat, rhs.unsqueeze(1)).squeeze(1)
+                tmp = torch.linalg.solve_triangular(_L, rhs.unsqueeze(1), upper=False)
+                w = torch.linalg.solve_triangular(_L.T, tmp, upper=True).squeeze(1)
         else:
             # Nesterov-accelerated gradient descent on the w-subproblem
             w_new = _copy_arr(w)

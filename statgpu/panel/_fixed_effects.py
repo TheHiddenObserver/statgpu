@@ -169,9 +169,11 @@ class PanelOLS(BaseEstimator):
         except _LINALG_ERRORS:
             coef = xp.linalg.solve(XtX, Xty)
 
-        # Degrees of freedom
-        n_entities = len(xp.unique(entity_arr)) if entity_arr is not None else 0
-        n_times = len(xp.unique(time_arr)) if time_arr is not None else 0
+        # Degrees of freedom (compute from numpy to avoid GPU sync)
+        entity_np_dof = _to_numpy(entity_arr) if entity_arr is not None else None
+        time_np_dof = _to_numpy(time_arr) if time_arr is not None else None
+        n_entities = len(np.unique(entity_np_dof)) if entity_np_dof is not None else 0
+        n_times = len(np.unique(time_np_dof)) if time_np_dof is not None else 0
         n_effects = 0
         if self.entity_effects:
             n_effects += n_entities - 1
