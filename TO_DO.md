@@ -208,3 +208,81 @@ coef = where(active, coef_new, coef)
 
 **状态**：未实现，记录为后续 PR。
 
+---
+
+## PR #49 Code Review 剩余 P3 项 (2026-06-10)
+
+> 所有 P1/P2 bug 已修复。以下为需要较大重构的 P3 改进项。
+
+### P3: `_elasticnet_cv.py` Alpha Grid 函数合并
+
+**现状**：`_default_elasticnet_alpha_grid`（numpy）和 `_default_elasticnet_alpha_grid_backend`（GPU）功能重复。numpy 版本对 `l1_ratio=0` 有不同逻辑，可能导致 CPU/GPU 结果不一致。
+**方案**：合并为单一 backend-agnostic 函数，使用 `_xp()` helpers。
+**难度**：中 | **风险**：中 | **状态**：未实现
+
+### P3: `_logistic_cv.py` Log-Loss 函数合并
+
+**现状**：`_batch_log_loss`（numpy）和 `_batch_log_loss_backend`（GPU）几乎相同。
+**方案**：使用 backend dispatch 合并。
+**难度**：中 | **风险**：中 | **状态**：未实现
+
+### P3: `_hash_logistic_data` 共享
+
+**现状**：`_logistic_cv.py:44-62` 和 `_elasticnet_cv.py:93-114` 有近乎相同的 hash 函数。
+**方案**：提取到 `_cv_base.py` 作为共享工具函数。
+**难度**：低 | **风险**：低 | **状态**：未实现
+
+### P3: `_solver.py` Loss Name 硬编码
+
+**现状**：`_solver.py:626` 使用硬编码的 loss name 列表检查 fused 路径。新增 loss 时需手动更新。
+**方案**：改为 `if _loss_name in _GLM_FUSED_REGISTRY:`。
+**难度**：低 | **风险**：低 | **状态**：未实现
+
+### P3: `_penalized.py` Local SelectivePenalty 重复
+
+**现状**：`_penalized.py:4558-4623` 在 `_fit_cpu_loss()` 内定义了本地 `SelectivePenalty` 类，与模块级类重复。
+**方案**：复用 `_get_selective_penalty_singleton().configure()`。
+**难度**：低 | **风险**：低 | **状态**：未实现
+
+### P3: `_elasticnet_cv.py` XtX 按 l1_ratio 重复计算
+
+**现状**：`_elasticnet_cv.py:621-625` 中 `XtX_fold` 和特征值在每个 l1_ratio 循环内重新计算，但它们只依赖 fold。
+**方案**：将 XtX/特征值计算移到 l1_ratio 循环外。
+**难度**：中 | **风险**：中 | **状态**：未实现
+
+### P3: `_penalized.py` `_fit_initial` 始终在 CPU
+
+**现状**：`_fit_initial()` 始终转换为 numpy 在 CPU 运行，即使主 fit 在 GPU。
+**方案**：在相同 backend 上运行 init。
+**难度**：中 | **风险**：中 | **状态**：未实现
+
+### P3: `_logistic_cv.py` GPU 概率未跨 C 向量化
+
+**现状**：概率计算逐个 C 值循环，可通过堆叠 coef 做单次矩阵乘法。
+**方案**：类似 `_batch_mse_elasticnet` 的批量处理方式。
+**难度**：中 | **风险**：中 | **状态**：未实现
+
+### P3: `_penalized.py` Debiased Inference 代码重复
+
+**现状**：`_compute_inference_debiased_gpu()` 和 `_compute_inference_torch()` 约 280 行几乎相同代码。
+**方案**：重构为单一 backend-agnostic 方法。
+**难度**：高 | **风险**：高 | **状态**：未实现
+
+### P3: `_penalized.py` Node-wise Lasso 循环优化
+
+**现状**：debiased inference 的 node-wise Lasso 循环为每个特征创建新模型实例（最多 p 次）。
+**方案**：复用单个实例（`warm_start=True`）或使用底层 solver。
+**难度**：高 | **风险**：高 | **状态**：未实现
+
+### P3: `_cv_base.py` `folds_are_complements` 死代码
+
+**现状**：函数定义但未被任何生产代码导入。
+**方案**：删除或标记为测试工具。
+**难度**：低 | **风险**：无 | **状态**：未实现
+
+### P3: `_cv_engine.py` 为 Reference Implementation
+
+**现状**：`run_cv` 仅被测试文件调用。模块文档承认"The production CV paths use their own optimized loops"。
+**方案**：移至 `dev/` 或标记为 reference。
+**难度**：低 | **风险**：无 | **状态**：未实现
+
