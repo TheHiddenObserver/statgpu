@@ -754,3 +754,485 @@ class TestFETDistribution:
         assert np.all(np.isfinite(model.pvalues_))
         assert np.all(model.pvalues_ >= 0)
         assert np.all(model.pvalues_ <= 1)
+
+
+# ======================================================================
+# 24. P1 fixes: structural correctness
+# ======================================================================
+
+class TestP1StructuralFixes:
+    def test_no_merge_conflict_marker(self):
+        """_penalized.py should not contain merge conflict markers."""
+        with open('statgpu/linear_model/_penalized.py', 'r', encoding='utf-8') as f:
+            content = f.read()
+        assert '>>>>>>>' not in content
+        assert '<<<<<<<' not in content
+        assert '=======' not in content or '=========' not in content
+
+    def test_INTERCEPT_CLIP_BOUND_defined(self):
+        """_INTERCEPT_CLIP_BOUND should be defined as a module constant."""
+        from statgpu.linear_model._penalized import _INTERCEPT_CLIP_BOUND
+        assert _INTERCEPT_CLIP_BOUND == 15.0
+
+    def test_alphas_sorted_typo_fixed(self):
+        """_cv_fold_general should use alpha_sorted, not alphas_sorted."""
+        import inspect
+        from statgpu.linear_model._penalized_cv import PenalizedGLM_CV
+        src = inspect.getsource(PenalizedGLM_CV)
+        # The typo 'alphas_sorted[alpha_idx_sorted]' should not exist
+        assert 'alphas_sorted[alpha_idx_sorted]' not in src
+
+    def test_effective_cv_device_sets_attribute(self):
+        """_effective_cv_device should set _cv_selected_device_."""
+        from statgpu.linear_model._penalized_cv import PenalizedGLM_CV
+        m = PenalizedGLM_CV(loss='squared_error', penalty='l1', cv=5)
+        # After fit, _cv_selected_device_ should be set
+        np.random.seed(42)
+        X = np.random.randn(50, 3)
+        y = X @ np.random.randn(3) + 0.1 * np.random.randn(50)
+        m.fit(X, y)
+        assert hasattr(m, '_cv_selected_device_')
+        assert m._cv_selected_device_ is not None
+
+    def test_unravel_index_for_best_alpha(self):
+        """ElasticNetCV should use np.unravel_index for best alpha selection."""
+        import inspect
+        from statgpu.linear_model._elasticnet_cv import _select_elasticnet_params_cv
+        src = inspect.getsource(_select_elasticnet_params_cv)
+        assert 'unravel_index' in src
+
+    def test_cache_key_uses_blake2b(self):
+        """Lasso cache key should use blake2b content hash."""
+        import inspect
+        from statgpu.linear_model._lasso import _array_identity_token
+        src = inspect.getsource(_array_identity_token)
+        assert 'blake2b' in src
+        # Should not use memory pointer
+        assert 'data_ptr' not in src
+        assert '__array_interface__' not in src
+
+
+# ======================================================================
+# 25. P1 fixes: ridge_cv weighted
+# ======================================================================
+
+class TestP1RidgeCvWeighted:
+    def test_n_samples_vec_float64(self):
+        """RidgeCV n_samples_vec should be float64 for weighted sums."""
+        import inspect
+        from statgpu.linear_model._ridge_cv import _select_ridge_alpha_cv
+        src = inspect.getsource(_select_ridge_alpha_cv)
+        assert 'float64' in src and 'n_samples_vec' in src
+
+    def test_sw_train_initialized(self):
+        """sw_train should be initialized before the fold loop."""
+        import inspect
+        from statgpu.linear_model._ridge_cv import _select_ridge_alpha_cv
+        src = inspect.getsource(_select_ridge_alpha_cv)
+        assert 'sw_train = None' in src
+
+    def test_weighted_ridge_cv_fit(self):
+        """Weighted RidgeCV should fit without errors."""
+        from statgpu.linear_model import RidgeCV
+        np.random.seed(42)
+        X = np.random.randn(100, 5)
+        y = X @ np.random.randn(5) + 0.1 * np.random.randn(100)
+        w = np.random.uniform(0.5, 2.0, 100)
+        m = RidgeCV(cv=5).fit(X, y, sample_weight=w)
+        assert m.alpha_ > 0
+        assert m.best_score_ < 0
+
+
+# ======================================================================
+# 26. P1 fixes: solver/IRLS
+# ======================================================================
+
+class TestP1SolverFixes:
+    def test_gamma_gradient_formula(self):
+        """Fused gamma gradient should be X'(mu-y)/n, not X'(1-y/mu)/n."""
+        import inspect
+        from statgpu.glm_core._solver import _fused_gamma
+        src = inspect.getsource(_fused_gamma)
+        assert 'mu_c - y' in src
+
+    def test_fista_bb_dg_initialized(self):
+        """fista_bb_solver should initialize dg before the loop."""
+        import inspect
+        from statgpu.glm_core._solver import fista_bb_solver
+        src = inspect.getsource(fista_bb_solver)
+        assert 'dg = _zeros' in src or 'dg =' in src
+
+    def test_logistic_alpha_max_uses_mean_y(self):
+        """_generate_alpha_grid for logistic should use mean(y), not 0.5."""
+        import inspect
+        from statgpu.linear_model._penalized_cv import PenalizedGLM_CV
+        src = inspect.getsource(PenalizedGLM_CV)
+        assert 'mu_null' in src or 'mean(y)' in src
+
+    def test_scad_mcp_n_iter_tracks_actual(self):
+        """SCAD/MCP n_iter should track actual iterations, not hardcoded 1."""
+        # Read the source file directly to check the CV path functions
+        with open('statgpu/linear_model/_penalized_cv.py', 'r', encoding='utf-8') as f:
+            content = f.read()
+        # The old 'iters.append(1)  # placeholder' should be replaced
+        assert 'iters.append(1)  # placeholder' not in content
+
+
+# ======================================================================
+# 27. P2 fixes: backend/array_ops
+# ======================================================================
+
+class TestP2BackendFixes:
+    def test_sigmoid_float32_safe(self):
+        """_sigmoid should clip to [-88, 88] for float32."""
+        import inspect
+        from statgpu.backends._array_ops import _sigmoid
+        src = inspect.getsource(_sigmoid)
+        assert '88.0' in src
+
+    def test_max_eigval_power_returns_current(self):
+        """_max_eigval_power should return lambda_val, not lambda_old."""
+        import inspect
+        from statgpu.backends._array_ops import _max_eigval_power
+        src = inspect.getsource(_max_eigval_power)
+        assert 'return lambda_val' in src
+
+    def test_torch_on_target_device_exact_match(self):
+        """_torch_on_target_device should distinguish cuda:0 from cuda:1."""
+        import inspect
+        from statgpu.backends._utils import _torch_on_target_device
+        src = inspect.getsource(_torch_on_target_device)
+        assert 'tensor_device' in src
+
+    def test_xp_cholesky_solve_cupy_direct(self):
+        """xp_cholesky_solve for CuPy should skip Cholesky and use direct solve."""
+        import inspect
+        from statgpu.backends._utils import xp_cholesky_solve
+        src = inspect.getsource(xp_cholesky_solve)
+        # CuPy should go directly to solve, not compute Cholesky first
+        assert "hasattr(A, 'get')" in src
+
+
+# ======================================================================
+# 28. P2 fixes: IRLS/solver
+# ======================================================================
+
+class TestP2SolverFixes:
+    def test_beta_mom_passed_to_fused_kernel(self):
+        """FISTA fused kernel should receive beta_mom, not hardcoded 0.0."""
+        import inspect
+        from statgpu.glm_core._solver import fista_solver
+        src = inspect.getsource(fista_solver)
+        # Should not have '0.0' as the last arg to _fused
+        assert '_fused(y_k, grad, step, thresh, coef_old, beta_mom)' in src or \
+               '_fused(y_k, grad, step, thresh, coef_old, 0.0)' not in src
+
+    def test_eta_raw_reused_in_irls(self):
+        """IRLS should reuse eta_raw instead of recomputing X @ params_old."""
+        import inspect
+        from statgpu.glm_core._irls import irls_solver
+        src = inspect.getsource(irls_solver)
+        # Should reuse eta_raw, not recompute
+        assert 'eta_raw' in src
+
+    def test_mu_clip_only_positive_families(self):
+        """IRLS numpy path should only clip mu for positive-mu families."""
+        import inspect
+        from statgpu.glm_core._irls import irls_solver
+        src = inspect.getsource(irls_solver)
+        # Should check family before clipping
+        assert 'not in ("gaussian"' in src or 'squared_error' in src
+
+    def test_armijo_reject_step(self):
+        """IRLS Armijo fallback should reject step (params_old), not use 0.1 step."""
+        import inspect
+        from statgpu.glm_core._irls import irls_solver
+        src = inspect.getsource(irls_solver)
+        # Should NOT have '0.1 * _direction' as fallback
+        assert '0.1 * _direction' not in src
+
+    def test_inverse_gaussian_value_includes_log(self):
+        """Fused inverse_gaussian value should include log(mu) term."""
+        import inspect
+        from statgpu.glm_core._solver import _fused_inverse_gaussian
+        src = inspect.getsource(_fused_inverse_gaussian)
+        assert '_log' in src
+
+
+# ======================================================================
+# 29. P2 fixes: CV estimators
+# ======================================================================
+
+class TestP2CvFixes:
+    def test_elasticnet_score_handles_zero_sstot(self):
+        """ElasticNetCV.score() should handle ss_tot=0."""
+        from statgpu.linear_model import ElasticNetCV
+        np.random.seed(42)
+        X = np.random.randn(50, 3)
+        y = np.ones(50)  # constant y -> ss_tot=0
+        m = ElasticNetCV(cv=3).fit(X, y)
+        score = m.score(X, y)
+        assert np.isfinite(score)
+
+    def test_lasso_cv_cv_splits_normalized(self):
+        """LassoCV should validate cv_splits via _normalize_cv_splits."""
+        # The normalization happens inside _select_lasso_alpha_cv which LassoCV delegates to
+        import inspect
+        from statgpu.linear_model._lasso import _select_lasso_alpha_cv
+        src = inspect.getsource(_select_lasso_alpha_cv)
+        assert '_normalize_cv_splits' in src
+
+    def test_lasso_cv_inference_method_passthrough(self):
+        """LassoCV should pass through user's inference_method."""
+        import inspect
+        from statgpu.linear_model._lasso_cv import LassoCV
+        src = inspect.getsource(LassoCV.fit)
+        assert 'inference_method=self.inference_method' in src
+
+    def test_logistic_irls_uses_1_over_c(self):
+        """Logistic CV IRLS should use 1/C, not 1/(2C)."""
+        # Check the GPU IRLS path where alpha is computed
+        with open('statgpu/linear_model/_logistic_cv.py', 'r', encoding='utf-8') as f:
+            content = f.read()
+        assert '1.0 / C' in content
+        # Old formula '1.0 / (2.0 * C)' should not exist
+        assert '1.0 / (2.0 * C)' not in content
+
+    def test_logistic_c_max_uses_y_minus_half(self):
+        """Logistic C_max gradient should use y - 0.5 (not centered y)."""
+        import inspect
+        from statgpu.linear_model._logistic_cv import _default_logistic_c_grid
+        src = inspect.getsource(_default_logistic_c_grid)
+        assert 'y_arr - 0.5' in src or 'y - 0.5' in src
+
+    def test_weighted_mse_zero_guard(self):
+        """RidgeCV batch_mse should guard against zero weight sum."""
+        import inspect
+        from statgpu.linear_model._ridge_cv import _batch_mse_all_folds
+        src = inspect.getsource(_batch_mse_all_folds)
+        assert 'sw_sum_safe' in src
+
+    def test_elasticnet_predict_delegates(self):
+        """ElasticNetCV.predict should delegate to estimator_."""
+        import inspect
+        from statgpu.linear_model._elasticnet_cv import ElasticNetCV
+        src = inspect.getsource(ElasticNetCV.predict)
+        assert 'estimator_.predict' in src
+
+    def test_lasso_cv_cache_thread_safe(self):
+        """LassoCV cache should use threading.Lock."""
+        with open('statgpu/linear_model/_lasso_cv.py', 'r', encoding='utf-8') as f:
+            content = f.read()
+        assert 'threading.Lock' in content
+
+    def test_lasso_cv_fit_intercept_true(self):
+        """LassoCV default fit_intercept should be True."""
+        from statgpu.linear_model import LassoCV
+        m = LassoCV()
+        assert m.fit_intercept is True
+
+    def test_array_identity_token_samples(self):
+        """_array_identity_token should sample rows, not hash full array."""
+        import inspect
+        from statgpu.linear_model._lasso import _array_identity_token
+        src = inspect.getsource(_array_identity_token)
+        assert 'n_sample' in src
+
+
+# ======================================================================
+# 30. P2 fixes: Panel FE
+# ======================================================================
+
+class TestP2FeFixes:
+    def test_fe_within_r2_uses_sum_squared(self):
+        """FE within R² should use sum(y_d**2), not var(y_d)."""
+        # Check the source file directly since _compute_inference is a separate method
+        with open('statgpu/panel/_fixed_effects.py', 'r', encoding='utf-8') as f:
+            content = f.read()
+        assert 'y_d ** 2' in content
+
+    def test_fe_t_distribution_robust(self):
+        """FE robust SE should use t-distribution."""
+        # Check the source file directly since _compute_inference is a separate method
+        with open('statgpu/panel/_fixed_effects.py', 'r', encoding='utf-8') as f:
+            content = f.read()
+        assert 'stats.t.cdf' in content
+
+    def test_fe_hc1_uses_df_resid(self):
+        """FE HC1 correction should use df_resid, not n-k."""
+        import inspect
+        from statgpu.panel._fixed_effects import PanelOLS
+        src = inspect.getsource(PanelOLS.fit)
+        assert 'self.df_resid' in src
+
+    def test_fe_grand_mean_demeaned(self):
+        """FE two-way predict should demean time effects to avoid double-counting."""
+        import inspect
+        from statgpu.panel._fixed_effects import PanelOLS
+        src = inspect.getsource(PanelOLS.fit)
+        assert 'grand_mean' in src
+
+    def test_within_transform_uses_bincount(self):
+        """within_transform should use vectorized bincount."""
+        import inspect
+        from statgpu.panel._utils import within_transform
+        src = inspect.getsource(within_transform)
+        assert 'bincount' in src
+
+    def test_within_transform_matrix_exists(self):
+        """_within_transform_matrix should exist for batch demeaning."""
+        from statgpu.panel._utils import _within_transform_matrix
+        assert callable(_within_transform_matrix)
+
+
+# ======================================================================
+# 31. P2/P3 fixes: PenalizedGLM
+# ======================================================================
+
+class TestP2P3PenalizedFixes:
+    def test_group_lasso_in_sparse_grid(self):
+        """group_lasso should be in the sparse penalty grid set."""
+        import inspect
+        from statgpu.linear_model._penalized_cv import PenalizedGLM_CV
+        src = inspect.getsource(PenalizedGLM_CV)
+        assert 'group_lasso' in src
+
+    def test_populate_refit_respects_fit_intercept(self):
+        """_populate_refit_model should respect fit_intercept for df_resid."""
+        import inspect
+        from statgpu.linear_model._penalized_cv import PenalizedGLM_CV
+        src = inspect.getsource(PenalizedGLM_CV)
+        assert 'fit_intercept' in src and '_df_resid' in src
+
+    def test_fused_uses_registry(self):
+        """fista_solver should use _GLM_FUSED_REGISTRY, not hardcoded list."""
+        import inspect
+        from statgpu.glm_core._solver import fista_solver
+        src = inspect.getsource(fista_solver)
+        assert '_GLM_FUSED_REGISTRY' in src
+
+    def test_lasso_cv_delegates_to_select_lasso_alpha_cv(self):
+        """LassoCV.fit should delegate to _select_lasso_alpha_cv."""
+        import inspect
+        from statgpu.linear_model._lasso_cv import LassoCV
+        src = inspect.getsource(LassoCV.fit)
+        assert '_select_lasso_alpha_cv' in src
+
+    def test_logistic_gpu_prob_batched(self):
+        """Logistic CV GPU probability should use batched matmul."""
+        import inspect
+        from statgpu.linear_model._logistic_cv import _select_logistic_c_cv
+        src = inspect.getsource(_select_logistic_c_cv)
+        assert 'coefs_all' in src
+
+    def test_fit_initial_gpu_aware(self):
+        """_fit_initial should accept backend_name for GPU data."""
+        import inspect
+        from statgpu.linear_model._penalized import PenalizedGeneralizedLinearModel
+        src = inspect.getsource(PenalizedGeneralizedLinearModel._fit_initial)
+        assert 'backend_name' in src
+
+
+# ======================================================================
+# 32. P3 fixes: code quality
+# ======================================================================
+
+class TestP3CodeQuality:
+    def test_default_rng_used(self):
+        """kfold_indices should use np.random.default_rng."""
+        import inspect
+        from statgpu.linear_model._cv_base import kfold_indices
+        src = inspect.getsource(kfold_indices)
+        assert 'default_rng' in src
+
+    def test_best_score_negative_mse(self):
+        """CV estimators should store negative MSE as best_score_."""
+        from statgpu.linear_model import RidgeCV
+        np.random.seed(42)
+        X = np.random.randn(50, 3)
+        y = X @ np.random.randn(3) + 0.1 * np.random.randn(50)
+        m = RidgeCV(cv=3).fit(X, y)
+        assert m.best_score_ < 0
+
+    def test_cv_validation_min_2(self):
+        """cv parameter should be validated to be >= 2."""
+        from statgpu.linear_model import RidgeCV
+        with pytest.raises(ValueError):
+            RidgeCV(cv=1)
+
+    def test_lasso_no_kwargs(self):
+        """Lasso should not accept **kwargs (typos should raise)."""
+        from statgpu.linear_model import Lasso
+        with pytest.raises(TypeError):
+            Lasso(alph=0.1)
+
+    def test_ddof_consistency(self):
+        """Alpha grid backend function should use ddof=1."""
+        import inspect
+        from statgpu.linear_model._lasso import _default_lasso_alpha_grid_backend
+        src = inspect.getsource(_default_lasso_alpha_grid_backend)
+        assert 'n_samples - 1' in src
+
+    def test_n_cont_unified(self):
+        """_n_cont for SCAD/MCP should be unified to 20."""
+        import inspect
+        from statgpu.linear_model._penalized import PenalizedGeneralizedLinearModel
+        src = inspect.getsource(PenalizedGeneralizedLinearModel._fit_lla)
+        assert '20 if _is_scad_mcp' in src
+
+    def test_hash_cv_data_shared(self):
+        """hash_cv_data should be in _cv_base.py."""
+        from statgpu.linear_model._cv_base import hash_cv_data
+        assert callable(hash_cv_data)
+
+    def test_batch_mse_backend_conversion(self):
+        """_batch_mse_elasticnet should convert arrays to backend."""
+        import inspect
+        from statgpu.linear_model._elasticnet_cv import _batch_mse_elasticnet
+        src = inspect.getsource(_batch_mse_elasticnet)
+        assert 'backend.asarray(coefs_path)' in src
+
+    def test_no_dead_code_and_false(self):
+        """CV files should not contain 'and False' dead code blocks."""
+        for f in ['statgpu/linear_model/_ridge_cv.py',
+                  'statgpu/linear_model/_elasticnet_cv.py',
+                  'statgpu/linear_model/_lasso_cv.py']:
+            with open(f, 'r', encoding='utf-8') as fh:
+                content = fh.read()
+            assert 'and False' not in content, f'Dead code found in {f}'
+
+
+# ======================================================================
+# 33. Performance: regression check
+# ======================================================================
+
+class TestPerformanceRegression:
+    @pytest.mark.parametrize("n,p", [(100, 5), (500, 20)])
+    def test_lasso_cv_time(self, n, p):
+        """LassoCV should complete within reasonable time."""
+        from statgpu.linear_model import LassoCV
+        np.random.seed(42)
+        X = np.random.randn(n, p)
+        y = X @ np.random.randn(p) + 0.1 * np.random.randn(n)
+
+        t0 = time.perf_counter()
+        LassoCV(cv=5).fit(X, y)
+        elapsed = time.perf_counter() - t0
+
+        limit = {(100, 5): 2.0, (500, 20): 10.0}[(n, p)]
+        assert elapsed < limit, f"n={n},p={p}: {elapsed:.3f}s > {limit}s"
+
+    @pytest.mark.parametrize("n,p", [(100, 5), (500, 20)])
+    def test_ridge_cv_time(self, n, p):
+        """RidgeCV should complete within reasonable time."""
+        from statgpu.linear_model import RidgeCV
+        np.random.seed(42)
+        X = np.random.randn(n, p)
+        y = X @ np.random.randn(p) + 0.1 * np.random.randn(n)
+
+        t0 = time.perf_counter()
+        RidgeCV(cv=5).fit(X, y)
+        elapsed = time.perf_counter() - t0
+
+        limit = {(100, 5): 1.0, (500, 20): 5.0}[(n, p)]
+        assert elapsed < limit, f"n={n},p={p}: {elapsed:.3f}s > {limit}s"

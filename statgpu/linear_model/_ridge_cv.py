@@ -637,7 +637,7 @@ def _select_ridge_alpha_cv(
                         if bool(fit_intercept):
                             w_sum = float(backend.sum(sw_train))
                             X_wmean = backend.sum(X_train * sw_col, axis=0) / w_sum
-                            y_wmean = float(backend.sum(y_train * sw_train)) / w_sum
+                            y_wmean = backend.sum(y_train * sw_train) / w_sum
                             XtX = (X_train * sw_col).T @ X_train - w_sum * backend.outer(X_wmean, X_wmean)
                             Xty = (X_train * sw_col).T @ y_train - w_sum * X_wmean * y_wmean
                             X_mean = X_wmean
