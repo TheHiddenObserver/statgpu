@@ -453,7 +453,8 @@ class LassoCV(CVEstimatorBase):
                     )
 
         # Handle degenerate cases
-        if int(n_samples) < 4 or int(alpha_grid.size) == 1 or int(self.cv) < 2:
+        effective_n_folds = len(self.cv_splits) if self.cv_splits is not None else int(self.cv)
+        if int(n_samples) < 4 or int(alpha_grid.size) == 1 or effective_n_folds < 2:
             alpha0 = float(alpha_grid[0])
             return {
                 "alpha": alpha0,
@@ -477,24 +478,6 @@ class LassoCV(CVEstimatorBase):
         # results across datasets.  Only use an explicit cache_key when the
         # caller provides one (e.g. from the CV-cache helper).
         cache_key_eff = None  # no explicit cache_key from caller
-        if cache_key_eff is None and False and _LASSO_CV_ALPHA_CACHE_MAXSIZE > 0:
-            cache_key_eff = _make_lasso_cv_auto_cache_key(
-                X_shape=(n_samples, X.shape[1] if len(X.shape) > 1 else 1),
-                y_shape=(n_samples,),
-                alphas=self.alphas,
-                n_alphas=self.n_alphas,
-                alpha_min_ratio=self.alpha_min_ratio,
-                folds=folds,
-                fit_intercept=self.fit_intercept,
-                use_gpu=use_gpu,
-                max_iter=self.max_iter,
-                tol=self.tol,
-                cpu_solver=effective_cpu_solver,
-                cv_method=cv_method,
-                cd_kkt_check_every=effective_cd_kkt_check_every,
-                sample_weight_shape=sample_weight.shape if sample_weight is not None else None,
-                data_digest=_hash_data(X, y, sample_weight),
-            )
 
         if cache_key_eff is not None:
             cached_details = _lasso_cv_cache_get(cache_key_eff)
@@ -776,9 +759,7 @@ class LassoCV(CVEstimatorBase):
             lipschitz_L=self.lipschitz_L,
             gpu_memory_cleanup=self.gpu_memory_cleanup,
             compute_inference=self.compute_inference,
-            inference_method=(
-                "debiased" if self.compute_inference else self.inference_method
-            ),
+            inference_method=self.inference_method,
             admm_rho=self.admm_rho,
         )
         estimator.fit(X, y, sample_weight=sample_weight)

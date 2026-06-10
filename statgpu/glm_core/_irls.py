@@ -367,7 +367,8 @@ def irls_solver(
 
         # Current loss — use only eta clipping (prevent exp overflow),
         # NOT mu clipping (which distorts the deviance landscape).
-        eta_cur = _clip(X @ params_old, -30, 30)
+        # Reuse eta_raw from the current iteration (same as X @ params_old).
+        eta_cur = _clip(eta_raw, -30, 30) if _link_name not in ('identity', 'Identity') else eta_raw
         mu_cur = family.link.inverse(eta_cur)
         try:
             dev_old_dev = _dev_val(mu_cur)

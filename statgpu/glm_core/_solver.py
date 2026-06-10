@@ -810,12 +810,8 @@ def fista_solver(
         if _is_gpu:
             if iteration < 20 or iteration % _conv_interval == 0:
                 _conv_dev = _abs_sum_dev(coef - coef_old)
-                if backend == "torch":
-                    if bool((_conv_dev < tol).item()):
-                        break
-                else:
-                    if bool((_conv_dev < tol).item()):
-                        break
+                if bool((_conv_dev < tol).item()):
+                    break
         else:
             _conv_dev = _abs_sum_dev(coef - coef_old)
             if float(_conv_dev) < tol:
@@ -1588,17 +1584,17 @@ def fista_sqerr_adaptive_l1_fused(
             grad = _clip_grad_on_device(grad, coef_old, backend)
 
         # Proximal gradient step (no backtracking — Lipschitz is exact for squared_error)
-        coef_new, y_k_new = _fused(y_k, grad, step, thresh, coef_old, 0.0)
-        coef = coef_new
-
-        # Momentum update
+        # Pre-compute momentum coefficient so the fused kernel can apply it in one pass.
         if no_momentum:
-            t_k = 1.0
-            y_k = coef
+            beta_mom = 0.0
         else:
             t_new = (1.0 + np.sqrt(1.0 + 4.0 * t_k * t_k)) / 2.0
             beta_mom = (t_k - 1.0) / t_new
-            y_k = coef + beta_mom * (coef - coef_old)
+        coef_new, y_k = _fused(y_k, grad, step, thresh, coef_old, beta_mom)
+        coef = coef_new
+
+        # Momentum state update
+        if not no_momentum:
             t_k = t_new
 
         # Convergence check (device-side, minimal sync)

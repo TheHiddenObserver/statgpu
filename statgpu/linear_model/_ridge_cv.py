@@ -508,12 +508,6 @@ def _select_ridge_alpha_cv(
     # Auto-cache disabled by default to prevent stale results across datasets.
     # Only use explicit cache_key if provided by the caller.
     cache_key_eff = cache_key
-    if cache_key_eff is None and False and _RIDGE_CV_ALPHA_CACHE_MAXSIZE > 0:
-        cache_key_eff = _make_ridge_cv_auto_cache_key(
-            X=X, y=y, alphas=alpha_grid, folds=folds,
-            fit_intercept=bool(fit_intercept), use_gpu=bool(use_gpu),
-            sample_weight=sample_weight,
-        )
 
     cached_details = _ridge_cv_cache_get(cache_key_eff)
     if cached_details is not None:
@@ -671,7 +665,8 @@ def _select_ridge_alpha_cv(
 
                 XtX_folds.append(XtX)
                 Xty_folds.append(Xty)
-                n_train_folds.append(int(n_train))
+                # For weighted Ridge, n_train is sum(sw) (float); for unweighted, it's the count (int)
+                n_train_folds.append(float(n_train) if sw_train is not None else int(n_train))
                 X_mean_folds.append(X_mean)
                 y_mean_folds.append(y_mean)
 
@@ -785,24 +780,37 @@ def _select_ridge_alpha_cv(
                 sw_train = None if sample_weight_np is None else sample_weight_np[train_idx]
 
                 if sw_train is not None:
-                    sqrt_sw = np.sqrt(sw_train)
-                    X_train = X_train * sqrt_sw[:, np.newaxis]
-                    y_train = y_train * sqrt_sw
-
-                if bool(fit_intercept):
-                    X_mean = np.mean(X_train, axis=0)
-                    y_mean = float(np.mean(y_train))
-                    X_centered = X_train - X_mean
-                    y_centered = y_train - y_mean
+                    # Weighted Ridge: use X'WX, X'Wy directly (matches GPU path)
+                    sw_col = sw_train[:, np.newaxis]
+                    if bool(fit_intercept):
+                        w_sum = float(np.sum(sw_train))
+                        X_wmean = np.sum(X_train * sw_col, axis=0) / w_sum
+                        y_wmean = float(np.sum(y_train * sw_train)) / w_sum
+                        XtX = (X_train * sw_col).T @ X_train - w_sum * np.outer(X_wmean, X_wmean)
+                        Xty = (X_train * sw_col).T @ y_train - w_sum * X_wmean * y_wmean
+                        X_mean = X_wmean
+                        y_mean = y_wmean
+                    else:
+                        XtX = (X_train * sw_col).T @ X_train
+                        Xty = (X_train * sw_col).T @ y_train
+                        X_mean = np.zeros((X_train.shape[1],), dtype=np.float64)
+                        y_mean = 0.0
+                    n_train = float(np.sum(sw_train))
                 else:
-                    X_mean = np.zeros((X_train.shape[1],), dtype=np.float64)
-                    y_mean = 0.0
-                    X_centered = X_train
-                    y_centered = y_train
+                    if bool(fit_intercept):
+                        X_mean = np.mean(X_train, axis=0)
+                        y_mean = float(np.mean(y_train))
+                        X_centered = X_train - X_mean
+                        y_centered = y_train - y_mean
+                    else:
+                        X_mean = np.zeros((X_train.shape[1],), dtype=np.float64)
+                        y_mean = 0.0
+                        X_centered = X_train
+                        y_centered = y_train
 
-                XtX = X_centered.T @ X_centered
-                Xty = X_centered.T @ y_centered
-                n_train = int(X_train.shape[0])
+                    XtX = X_centered.T @ X_centered
+                    Xty = X_centered.T @ y_centered
+                    n_train = int(X_train.shape[0])
 
             # Solve for all alphas: (XtX + n_eff*alpha*I)^-1 @ Xty
             # n_eff scaling matches Ridge.fit() and PGLM exact ridge.

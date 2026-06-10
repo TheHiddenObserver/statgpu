@@ -101,9 +101,11 @@ def _torch_on_target_device(tensor, device: Optional[str]) -> bool:
     if device is None:
         return True
     device = str(device)
+    tensor_device = str(getattr(tensor, "device", ""))
+    # "cuda" means any CUDA device; "cuda:0", "cuda:1" etc. require exact match
     if device == "cuda":
         return getattr(tensor, "device", None).type == "cuda"
-    return str(getattr(tensor, "device", "")) == device
+    return tensor_device == device
 
 
 def _move_torch_tensor(tensor, device: Optional[str] = None, dtype=None, pin_memory: bool = False):
@@ -303,16 +305,15 @@ def xp_cholesky_solve(A, b, xp):
 
     Works across numpy, cupy, and torch backends.  Handles the torch-specific
     argument difference for ``solve_triangular`` (``upper=False`` vs ``lower=True``).
-    For cupy, falls back to general solve (no solve_triangular in cupy).
+    For cupy, uses general solve (no solve_triangular in cupy).
     For numpy, uses scipy.linalg.solve_triangular.
     """
+    if hasattr(A, 'get'):  # CuPy: no solve_triangular, use general solve directly
+        return xp.linalg.solve(A, b)
     L = xp.linalg.cholesky(A)
     if _torch_dev(L) is not None:
         tmp = xp.linalg.solve_triangular(L, b, upper=False)
         return xp.linalg.solve_triangular(L.T, tmp, upper=True)
-    # CuPy: no solve_triangular, use general solve on the original matrix
-    if hasattr(A, 'get'):  # CuPy array
-        return xp.linalg.solve(A, b)
     # numpy: use scipy for solve_triangular
     from scipy.linalg import solve_triangular
     tmp = solve_triangular(L, b, lower=True)

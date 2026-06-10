@@ -197,6 +197,29 @@ class PanelOLS(BaseEstimator):
         self.coef_ = coef_np
         self._X_design = _to_numpy(X_d)
 
+        # Store fixed effect estimates for prediction
+        self._entity_ids_fit = _to_numpy(entity_arr) if entity_arr is not None else None
+        self._time_ids_fit = _to_numpy(time_arr) if time_arr is not None else None
+        if self.entity_effects or self.time_effects:
+            y_np = _to_numpy(y_arr)
+            X_np = _to_numpy(X_arr)
+            y_hat = X_np @ coef_np
+            resid_fe = y_np - y_hat
+            if self.entity_effects:
+                entity_np = self._entity_ids_fit
+                unique_entities = np.unique(entity_np)
+                self._entity_effects_ = {}
+                for ent in unique_entities:
+                    mask = entity_np == ent
+                    self._entity_effects_[ent] = float(np.mean(resid_fe[mask]))
+            if self.time_effects:
+                time_np = self._time_ids_fit
+                unique_times = np.unique(time_np)
+                self._time_effects_ = {}
+                for t in unique_times:
+                    mask = time_np == t
+                    self._time_effects_[t] = float(np.mean(resid_fe[mask]))
+
         # Inference
         self._compute_inference(xp, cluster, backend_name)
 
@@ -262,19 +285,27 @@ class PanelOLS(BaseEstimator):
                 params + z_crit * self.bse_,
             ])
 
-        # Within R-squared
+        # Within R-squared: ss_tot should be sum of squared demeaned y (not variance)
         y_d = self._y_demeaned
         ss_res = np.sum(resid ** 2)
-        ss_tot = np.sum((y_d - np.mean(y_d)) ** 2)
+        ss_tot = np.sum(y_d ** 2)
         self.rsquared_within = 1 - ss_res / ss_tot if ss_tot > 0 else 0.0
 
     def predict(self, X, entity_ids=None, time_ids=None):
         """Predict using the fitted model.
 
+        For models with fixed effects, the entity/time intercepts are added
+        back to the linear prediction.  If entity_ids/time_ids are not
+        provided, only the slope contribution is returned.
+
         Parameters
         ----------
         X : array-like, shape (n, k)
             Regressor matrix.
+        entity_ids : array-like, shape (n,), optional
+            Entity identifiers for entity fixed effects.
+        time_ids : array-like, shape (n,), optional
+            Time identifiers for time fixed effects.
 
         Returns
         -------
@@ -285,7 +316,21 @@ class PanelOLS(BaseEstimator):
         X_arr = np.asarray(X, dtype=np.float64)
         if X_arr.ndim == 1:
             X_arr = X_arr.reshape(-1, 1)
-        return X_arr @ self.coef_
+        y_pred = X_arr @ self.coef_
+
+        # Add fixed effect intercepts
+        if hasattr(self, '_entity_effects_') and entity_ids is not None:
+            entity_arr = np.asarray(entity_ids).ravel()
+            for i, ent in enumerate(entity_arr):
+                if ent in self._entity_effects_:
+                    y_pred[i] += self._entity_effects_[ent]
+        if hasattr(self, '_time_effects_') and time_ids is not None:
+            time_arr = np.asarray(time_ids).ravel()
+            for i, t in enumerate(time_arr):
+                if t in self._time_effects_:
+                    y_pred[i] += self._time_effects_[t]
+
+        return y_pred
 
     def summary(self):
         """Print a coefficient table with SE, t, p, and 95 % CI."""

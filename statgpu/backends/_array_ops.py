@@ -59,7 +59,10 @@ def _log1p(arr):
 def _sigmoid(arr):
     """Numerically stable sigmoid: 1 / (1 + exp(-x))."""
     xp = _xp(arr)
-    z = _clip(arr, -500, 500)
+    # float32 overflows exp() at ~89; float64 at ~709
+    dtype = getattr(arr, 'dtype', None)
+    max_val = 88.0 if dtype is not None and '32' in str(dtype) else 500.0
+    z = _clip(arr, -max_val, max_val)
     if xp.__name__ == "torch":
         return xp.sigmoid(z)
     return 1.0 / (1.0 + xp.exp(-z))
@@ -86,8 +89,6 @@ def _eigvalsh(arr):
 def _zeros_like(arr):
     """Create zeros array with same shape/type as arr."""
     xp = _xp(arr)
-    if xp.__name__ == "torch":
-        return xp.zeros_like(arr)
     return xp.zeros_like(arr)
 
 

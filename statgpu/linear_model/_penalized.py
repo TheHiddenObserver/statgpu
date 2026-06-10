@@ -203,6 +203,10 @@ def _irls_ridge_init_cd(X, y, alpha, max_iter, tol):
     return beta * scale
 
 
+# Intercept clipping bound for SelectivePenalty proximal operator
+_INTERCEPT_CLIP_BOUND = 15.0
+
+
 class SelectivePenalty:
     """Penalty wrapper that leaves the last intercept coefficient free.
 
@@ -297,8 +301,19 @@ class SelectivePenalty:
         return np.diag(diag)
 
 
-# Module-level singleton for _selective_penalty (avoids per-call class creation)
-_SELECTIVE_PENALTY_SINGLETON = SelectivePenalty()
+# Thread-local singleton for _selective_penalty (avoids per-call class creation
+# while remaining safe for concurrent CV folds via n_jobs > 1)
+import threading
+_SELECTIVE_PENALTY_LOCAL = threading.local()
+
+
+def _get_selective_penalty_singleton():
+    """Get or create a thread-local SelectivePenalty instance."""
+    obj = getattr(_SELECTIVE_PENALTY_LOCAL, 'instance', None)
+    if obj is None:
+        obj = SelectivePenalty()
+        _SELECTIVE_PENALTY_LOCAL.instance = obj
+    return obj
 
 
 class PenalizedGeneralizedLinearModel(BaseEstimator):
@@ -3112,11 +3127,12 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
     def _selective_penalty(self, p, backend_name):
         """Penalty wrapper that leaves the last intercept coefficient free.
 
-        Uses a module-level singleton to avoid per-call class creation.
+        Uses a thread-local singleton to avoid per-call class creation
+        while remaining safe for concurrent CV folds.
         """
-        _SELECTIVE_PENALTY_SINGLETON.configure(self._penalty, p, backend_name)
-        return _SELECTIVE_PENALTY_SINGLETON
->>>>>>> 7660845 (@)
+        singleton = _get_selective_penalty_singleton()
+        singleton.configure(self._penalty, p, backend_name)
+        return singleton
 
     def _irls_cd(self, pen, X_work, y_arr, init, _lla_continuation=False):
         """IRLS with coordinate descent for GLM + non-smooth penalties.

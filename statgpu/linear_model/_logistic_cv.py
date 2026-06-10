@@ -74,10 +74,19 @@ def _make_logistic_cv_auto_cache_key(X, y, Cs, folds, fit_intercept, max_iter, t
     h.update(str(use_gpu).encode("utf-8"))
     # Hash data content to avoid cross-dataset collisions
     h.update(_hash_logistic_data(X, y, sample_weight))
-    # Hash fold indices
+    # Hash fold indices (sample evenly to keep hash fast for large folds)
     for train_idx, val_idx in folds:
-        h.update(np.asarray(train_idx[:5], dtype=np.int64).tobytes())
-        h.update(np.asarray(val_idx[:5], dtype=np.int64).tobytes())
+        train_arr = np.asarray(train_idx, dtype=np.int64)
+        val_arr = np.asarray(val_idx, dtype=np.int64)
+        # Hash a representative sample: first 5, last 5, and length
+        n_sample = min(5, len(train_arr))
+        h.update(train_arr[:n_sample].tobytes())
+        h.update(train_arr[-n_sample:].tobytes())
+        h.update(np.int64(len(train_arr)).tobytes())
+        n_sample_v = min(5, len(val_arr))
+        h.update(val_arr[:n_sample_v].tobytes())
+        h.update(val_arr[-n_sample_v:].tobytes())
+        h.update(np.int64(len(val_arr)).tobytes())
     return h.hexdigest()
 
 
@@ -119,14 +128,9 @@ def _default_logistic_c_grid(X, y, n_Cs: int = 100, C_min_ratio: float = 1e-3):
 
     # Estimate C_max based on data
     # For logistic regression, C_max is where coefficients become very large
-    # We use a heuristic based on the gradient at zero coefficients
-    X_mean = np.mean(X_arr, axis=0)
-    y_mean = np.mean(y_arr)
-    X_centered = X_arr - X_mean
-    y_centered = y_arr - y_mean
-
-    # Gradient magnitude at beta=0
-    grad = X_centered.T @ (y_centered - 0.5)
+    # We use a heuristic based on the gradient at zero coefficients.
+    # Gradient of logistic loss at beta=0: X'(y - sigmoid(0)) = X'(y - 0.5)
+    grad = X_arr.T @ (y_arr - 0.5)
     C_max = np.max(np.abs(grad)) * 2.0 / len(y_arr)
 
     if C_max == 0:
@@ -293,7 +297,8 @@ def _solve_logistic_path_gpu_from_batch(X_batch, y_batch, n_train_vec, Cs, backe
                 X_design = X_fold
                 params = backend.zeros(X_fold.shape[1])
 
-            alpha = 1.0 / (2.0 * C) if C > 0 else 0.0
+            # sklearn convention: reg term = 1/(2C) * ||w||^2, Hessian contribution = 1/C * I
+            alpha = 1.0 / C if C > 0 else 0.0
 
             # IRLS
             for iteration in range(max_iter):
@@ -514,7 +519,6 @@ def _select_logistic_c_cv(
     else:
         folds = _kfold_indices(n_samples=int(n_samples), n_splits=int(cv_folds), random_state=random_state)
 
-    folds_are_complete = _folds_are_complete(folds, n_samples=int(n_samples))
 
     C_grid = C_grid.astype(np.float64, copy=False)
     n_C = int(C_grid.size)

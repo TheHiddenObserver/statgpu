@@ -1024,9 +1024,8 @@ def _logistic_sparse_cv_path(
                 scores_tensor = per_sample.mean(dim=0)
             scores = _to_numpy(scores_tensor).tolist()
         elif backend == "cupy":
-            import cupy as cp
-            scores_arr = cp.stack(score_coef_path)
-            scores = _to_numpy(scores_arr).tolist()
+            # CuPy path accumulates Python floats (scalar val_loss), not arrays
+            scores = [float(s) for s in score_coef_path]
         else:
             scores = [float(s) for s in score_coef_path]
 
@@ -2097,7 +2096,21 @@ class PenalizedGLM_CV(CVEstimatorBase):
             self._cv_auto_reason_ = "CV effective work is below GPU break-even"
             return "cpu"
 
-        return self.device
+        # Resolve device: if AUTO, prefer torch when CUDA available, else cpu
+        from statgpu.backends._utils import _torch_available, _cupy_available
+        if _torch_available():
+            import torch
+            if torch.cuda.is_available():
+                self._cv_selected_device_ = "torch"
+                self._cv_auto_reason_ = "GPU selected for large CV effective work"
+                return "torch"
+        if _cupy_available():
+            self._cv_selected_device_ = "cupy"
+            self._cv_auto_reason_ = "GPU selected for large CV effective work"
+            return "cupy"
+        self._cv_selected_device_ = "cpu"
+        self._cv_auto_reason_ = "No GPU available, falling back to CPU"
+        return "cpu"
 
     def _generate_alpha_grid(self, X, y):
         """Auto-generate alpha grid based on loss and penalty type."""
@@ -2631,7 +2644,7 @@ class PenalizedGLM_CV(CVEstimatorBase):
                 all_scores[fold_idx, orig_idx] = np.nan
                 logger.warning(
                     "CV fold %d, alpha_idx %d (alpha=%.6g) fit failed: %s",
-                    fold_idx, orig_idx, alphas_sorted[alpha_idx_sorted], exc,
+                    fold_idx, orig_idx, alpha_sorted[alpha_idx_sorted], exc,
                 )
 
         # Batch validation: one GEMM for all fitted alphas

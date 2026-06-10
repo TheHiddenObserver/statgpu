@@ -41,18 +41,84 @@ def within_transform(y, groups, xp=None):
     y = xp_asarray(y, dtype=xp.float64, xp=xp).ravel()
     groups = xp_asarray(groups, xp=xp, ref_arr=y).ravel()
 
-    unique_groups = xp.unique(groups)
-    # Batch-transfer unique group values to CPU (single sync, not per-group)
-    unique_cpu = _to_numpy(unique_groups).tolist()
-    result = xp.copy(y) if hasattr(xp, 'copy') else y.clone() if hasattr(y, 'clone') else y - 0.0
+    # Vectorized group demeaning — avoids per-group Python loop
+    # (O(n_groups) kernel launches → O(1) vectorized ops)
+    groups_np = _to_numpy(groups).astype(np.int64)
+    y_np = _to_numpy(y)
 
-    for g_val in unique_cpu:
-        mask = groups == g_val
-        group_mean = xp.mean(y[mask])
-        if hasattr(result, '__setitem__'):
-            result[mask] = y[mask] - group_mean
-        else:
-            result = xp.where(mask, y - group_mean, result)
+    # Map group labels to contiguous indices [0, n_groups)
+    unique_labels, group_idx = np.unique(groups_np, return_inverse=True)
+    n_groups = len(unique_labels)
+
+    # Compute group means via bincount (O(n), single pass)
+    group_sum = np.bincount(group_idx, weights=y_np, minlength=n_groups)
+    group_count = np.bincount(group_idx, minlength=n_groups)
+    group_mean = group_sum / np.maximum(group_count, 1)
+
+    # Subtract group means
+    result_np = y_np - group_mean[group_idx]
+
+    # Convert back to original backend
+    if hasattr(y, 'clone'):  # torch
+        import torch
+        result = torch.from_numpy(result_np).to(dtype=y.dtype, device=y.device)
+    elif hasattr(y, 'get'):  # cupy
+        import cupy as cp
+        result = cp.asarray(result_np)
+    else:
+        result = result_np
+
+    return result
+
+
+def _within_transform_matrix(X, groups, xp=None):
+    """Group-demean all columns of X at once (vectorized, no per-column loop).
+
+    Parameters
+    ----------
+    X : array-like, shape (n, k)
+        Regressor matrix.
+    groups : array-like, shape (n,)
+        Group labels.
+    xp : module, optional
+        Array module.  Defaults to numpy.
+
+    Returns
+    -------
+    X_demeaned : array, shape (n, k)
+        Group-demeaned regressors.
+    """
+    if xp is None:
+        xp = np
+
+    X = xp_asarray(X, dtype=xp.float64, xp=xp)
+    if X.ndim == 1:
+        X = X.reshape(-1, 1)
+
+    groups_np = _to_numpy(groups).astype(np.int64)
+    X_np = _to_numpy(X)
+
+    unique_labels, group_idx = np.unique(groups_np, return_inverse=True)
+    n_groups = len(unique_labels)
+
+    # Vectorized group means for all columns: (n_groups, k)
+    # group_idx is (n,), X_np is (n, k)
+    group_sum = np.zeros((n_groups, X_np.shape[1]), dtype=np.float64)
+    np.add.at(group_sum, group_idx, X_np)
+    group_count = np.bincount(group_idx, minlength=n_groups).reshape(-1, 1)
+    group_mean = group_sum / np.maximum(group_count, 1)
+
+    result_np = X_np - group_mean[group_idx]
+
+    # Convert back to original backend
+    if hasattr(X, 'clone'):  # torch
+        import torch
+        result = torch.from_numpy(result_np).to(dtype=X.dtype, device=X.device)
+    elif hasattr(X, 'get'):  # cupy
+        import cupy as cp
+        result = cp.asarray(result_np)
+    else:
+        result = result_np
 
     return result
 
@@ -136,12 +202,10 @@ def demean_variables(y, X, entity_ids, time_ids=None, xp=None):
             X_prev = X_d.copy() if hasattr(X_d, 'copy') else X_d - 0.0
             # Entity demean
             y_d = within_transform(y_d, entity_ids, xp)
-            for j in range(X_d.shape[1]):
-                X_d[:, j] = within_transform(X_d[:, j], entity_ids, xp)
+            X_d = _within_transform_matrix(X_d, entity_ids, xp)
             # Time demean
             y_d = within_transform(y_d, time_ids, xp)
-            for j in range(X_d.shape[1]):
-                X_d[:, j] = within_transform(X_d[:, j], time_ids, xp)
+            X_d = _within_transform_matrix(X_d, time_ids, xp)
             # Check convergence on both y and X
             delta_y = float(xp.max(xp.abs(y_d - y_prev)))
             delta_X = float(xp.max(xp.abs(X_d - X_prev)))
@@ -151,12 +215,10 @@ def demean_variables(y, X, entity_ids, time_ids=None, xp=None):
         # One-way FE: single pass
         if entity_ids is not None:
             y_d = within_transform(y_d, entity_ids, xp)
-            for j in range(X_d.shape[1]):
-                X_d[:, j] = within_transform(X_d[:, j], entity_ids, xp)
+            X_d = _within_transform_matrix(X_d, entity_ids, xp)
         if time_ids is not None:
             y_d = within_transform(y_d, time_ids, xp)
-            for j in range(X_d.shape[1]):
-                X_d[:, j] = within_transform(X_d[:, j], time_ids, xp)
+            X_d = _within_transform_matrix(X_d, time_ids, xp)
 
     return y_d, X_d
 

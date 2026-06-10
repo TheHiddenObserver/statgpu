@@ -490,7 +490,7 @@ def _select_elasticnet_params_cv(
         alpha0 = float(alpha_grids[l1r0][0])
         if not return_details:
             return alpha0, l1r0
-        return {
+        details = {
             "alpha": alpha0,
             "l1_ratio": l1r0,
             "alphas": alpha_grids[l1r0].astype(np.float64),
@@ -498,6 +498,7 @@ def _select_elasticnet_params_cv(
             "mse_path": np.full((int(n_l1_ratios), int(alpha_grids[l1r0].size), 1), np.nan, dtype=np.float64),
             "mean_mse": np.full((int(n_l1_ratios), int(alpha_grids[l1r0].size)), np.nan, dtype=np.float64),
         }
+        return alpha0, l1r0, details
 
     # Generate CV folds
     if cv_splits is not None:
@@ -505,28 +506,10 @@ def _select_elasticnet_params_cv(
     else:
         folds = _kfold_indices(n_samples=int(n_samples), n_splits=int(cv_folds), random_state=random_state)
 
-    folds_are_complements_flag = _folds_are_complete(folds, n_samples=int(n_samples))
-
     n_folds = int(len(folds))
 
     # Auto-cache disabled by default to prevent stale results across datasets.
     cache_key_eff = cache_key
-    if cache_key_eff is None and False and _ELASTICNET_CV_CACHE_MAXSIZE > 0:
-        cache_key_eff = _make_elasticnet_cv_auto_cache_key(
-            X_shape=X_np.shape if X_np is not None else tuple(X.shape),
-            y_shape=y_np.shape if y_np is not None else tuple(y.shape),
-            l1_ratios=tuple(l1_ratios_arr.tolist()),
-            alphas=alphas,
-            n_alphas=n_alphas,
-            alpha_min_ratio=alpha_min_ratio,
-            folds=folds,
-            fit_intercept=bool(fit_intercept),
-            use_gpu=use_gpu,
-            max_iter=max_iter,
-            tol=tol,
-            sample_weight_shape=sample_weight_np.shape if sample_weight_np is not None else None,
-            data_digest=_hash_data(X_np if X_np is not None else X, y_np if y_np is not None else y, sample_weight_np),
-        )
 
     cached_result = _elasticnet_cv_cache_get(cache_key_eff)
     if cached_result is not None:
@@ -692,9 +675,7 @@ def _select_elasticnet_params_cv(
     std_mse = np.nanstd(mse_path, axis=2)
 
     # Find best (l1_ratio, alpha) combination
-    best_flat_idx = np.nanargmin(mean_mse)
-    best_l1_idx = best_flat_idx // max_n_alphas
-    best_alpha_idx = best_flat_idx % max_n_alphas
+    best_l1_idx, best_alpha_idx = np.unravel_index(np.nanargmin(mean_mse), mean_mse.shape)
 
     best_l1_ratio = float(l1_ratios_arr[best_l1_idx])
     best_alpha_grid = alpha_grids[l1_ratios_arr[best_l1_idx]]
@@ -973,4 +954,6 @@ class ElasticNetCV(CVEstimatorBase):
         ss_res = np.sum((y_arr - y_pred) ** 2)
         ss_tot = np.sum((y_arr - np.mean(y_arr)) ** 2)
 
+        if ss_tot == 0.0:
+            return 0.0 if ss_res == 0.0 else float('-inf')
         return 1.0 - ss_res / ss_tot

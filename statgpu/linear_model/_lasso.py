@@ -260,14 +260,27 @@ def _folds_are_complements(folds, n_samples: int) -> bool:
 
 
 def _array_identity_token(x: Any) -> Tuple[Any, ...]:
+    """Content-based hash token for array cache keys.
+
+    Uses data content (via blake2b digest) rather than memory pointers to
+    avoid false cache hits after garbage collection and address reuse.
+    """
     if x is None:
         return ("none",)
+
+    # Sample a subset of rows for large arrays to keep hashing fast
+    import hashlib
+
+    def _hash_bytes(data: bytes) -> str:
+        return hashlib.blake2b(data, digest_size=16).hexdigest()
 
     try:
         import cupy as cp
 
         if isinstance(x, cp.ndarray):
-            return ("cupy", int(x.data.ptr), tuple(int(v) for v in x.shape), str(x.dtype))
+            arr_np = cp.asnumpy(x)
+            h = _hash_bytes(np.ascontiguousarray(arr_np).tobytes())
+            return ("cupy", h, tuple(int(v) for v in x.shape), str(x.dtype))
     except Exception:
         pass
 
@@ -276,19 +289,15 @@ def _array_identity_token(x: Any) -> Tuple[Any, ...]:
         import torch
 
         if isinstance(x, torch.Tensor):
-            # For GPU tensors, use the data pointer; for CPU, use storage pointer
-            if x.is_cuda:
-                ptr = int(x.data_ptr())
-            else:
-                # CPU tensor - use underlying storage pointer
-                ptr = int(x.untyped_storage().data_ptr()) if hasattr(x, 'untyped_storage') else id(x)
-            return ("torch", ptr, tuple(int(v) for v in x.shape), str(x.dtype))
+            arr_np = x.detach().cpu().numpy()
+            h = _hash_bytes(np.ascontiguousarray(arr_np).tobytes())
+            return ("torch", h, tuple(int(v) for v in x.shape), str(x.dtype))
     except Exception:
         pass
 
     arr = np.asarray(x)
-    ptr = int(arr.__array_interface__["data"][0]) if int(arr.size) > 0 else 0
-    return ("numpy", ptr, tuple(int(v) for v in arr.shape), str(arr.dtype))
+    h = _hash_bytes(np.ascontiguousarray(arr).tobytes())
+    return ("numpy", h, tuple(int(v) for v in arr.shape), str(arr.dtype))
 
 
 def _alphas_signature(alphas: np.ndarray) -> str:
