@@ -158,8 +158,9 @@ def _default_lasso_alpha_grid_backend(
     alpha_max = float(backend.to_numpy(backend.max(corr))) if corr_size > 0 else 1.0
 
     if n_samples > 1:
-        y_std = backend.sqrt(backend.mean((y_arr - backend.mean(y_arr)) ** 2))
-        sigma_hat = float(backend.to_numpy(y_std))
+        # Use ddof=1 (sample std) to match numpy _lasso_alpha_heuristic
+        y_var = backend.sum((y_arr - backend.mean(y_arr)) ** 2) / (n_samples - 1)
+        sigma_hat = float(backend.to_numpy(backend.sqrt(y_var)))
     else:
         sigma_hat = 0.0
 
@@ -262,24 +263,33 @@ def _folds_are_complements(folds, n_samples: int) -> bool:
 def _array_identity_token(x: Any) -> Tuple[Any, ...]:
     """Content-based hash token for array cache keys.
 
-    Uses data content (via blake2b digest) rather than memory pointers to
-    avoid false cache hits after garbage collection and address reuse.
+    Uses sampled rows (via blake2b digest) to keep hashing fast for large
+    arrays while avoiding false cache hits from memory pointer reuse.
     """
     if x is None:
         return ("none",)
 
-    # Sample a subset of rows for large arrays to keep hashing fast
     import hashlib
 
     def _hash_bytes(data: bytes) -> str:
         return hashlib.blake2b(data, digest_size=16).hexdigest()
 
+    def _sample_and_hash(arr_np, n_sample=100):
+        """Hash a representative sample of rows for large arrays."""
+        n = arr_np.shape[0]
+        if n <= n_sample:
+            sample = arr_np
+        else:
+            idx = np.linspace(0, n - 1, n_sample, dtype=int)
+            sample = arr_np[idx]
+        return _hash_bytes(np.ascontiguousarray(sample).tobytes())
+
     try:
         import cupy as cp
 
         if isinstance(x, cp.ndarray):
-            arr_np = cp.asnumpy(x)
-            h = _hash_bytes(np.ascontiguousarray(arr_np).tobytes())
+            arr_np = cp.asnumpy(x).astype(np.float64)
+            h = _sample_and_hash(arr_np)
             return ("cupy", h, tuple(int(v) for v in x.shape), str(x.dtype))
     except Exception:
         pass
@@ -289,14 +299,14 @@ def _array_identity_token(x: Any) -> Tuple[Any, ...]:
         import torch
 
         if isinstance(x, torch.Tensor):
-            arr_np = x.detach().cpu().numpy()
-            h = _hash_bytes(np.ascontiguousarray(arr_np).tobytes())
+            arr_np = x.detach().cpu().numpy().astype(np.float64)
+            h = _sample_and_hash(arr_np)
             return ("torch", h, tuple(int(v) for v in x.shape), str(x.dtype))
     except Exception:
         pass
 
-    arr = np.asarray(x)
-    h = _hash_bytes(np.ascontiguousarray(arr).tobytes())
+    arr = np.asarray(x, dtype=np.float64)
+    h = _sample_and_hash(arr)
     return ("numpy", h, tuple(int(v) for v in arr.shape), str(arr.dtype))
 
 
@@ -2377,7 +2387,6 @@ class Lasso(_PenalizedLinearRegression):
         lipschitz_L: Optional[float] = None,
         admm_rho: float = 1.0,
         gpu_memory_cleanup: bool = False,
-        **kwargs,
     ):
         self.stopping = str(stopping).lower()
         self.inference_method = str(inference_method).lower()
@@ -2390,7 +2399,6 @@ class Lasso(_PenalizedLinearRegression):
         self.simultaneous_random_state = simultaneous_random_state
         self.simultaneous_include_intercept = bool(simultaneous_include_intercept)
         self.admm_rho = float(admm_rho)
-        self._ignored_kwargs = dict(kwargs)
         super().__init__(
             penalty="l1",
             alpha=alpha,

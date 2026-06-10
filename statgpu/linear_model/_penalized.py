@@ -1569,7 +1569,7 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
         else:
             _lam_max = self.alpha * 15.0  # fallback
 
-        _n_cont = 20 if not _is_glm and _is_scad_mcp else (100 if _is_scad_mcp else 10)
+        _n_cont = 20 if _is_scad_mcp else 10
         # Start from lambda_max to match R ncvreg's pathwise approach.
         # lambda_max is the smallest penalty where all coefficients are zero.
         _alpha_start = float(_lam_max)

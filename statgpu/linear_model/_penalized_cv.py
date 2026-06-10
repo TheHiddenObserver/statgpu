@@ -80,6 +80,14 @@ class ApproximateCVWarning(UserWarning):
     """Warning emitted when approximate two-stage CV screening is enabled."""
 
 
+def _is_uniform_weight(sample_weight) -> bool:
+    """Check if sample_weight is uniform (all elements equal) or None."""
+    if sample_weight is None:
+        return True
+    sw_np = np.asarray(_to_numpy(sample_weight), dtype=np.float64).ravel()
+    return not sw_np.size or np.allclose(sw_np, sw_np[0])
+
+
 def _device_to_name(device):
     if isinstance(device, Device):
         return device.value
@@ -897,9 +905,7 @@ def _logistic_sparse_cv_path(
         Per-sample weights for validation scoring. When provided, validation
         loss is computed as weighted mean.
     """
-    if sample_weight is not None:
-        sw_np = np.asarray(_to_numpy(sample_weight), dtype=np.float64).ravel()
-        if sw_np.size and not np.allclose(sw_np, sw_np[0]):
+    if not _is_uniform_weight(sample_weight):
             warnings.warn(
                 "_logistic_sparse_cv_path: non-uniform sample_weight not supported, "
                 "falling back to general CV path.",
@@ -1091,9 +1097,7 @@ def _squared_error_sparse_cv_path(
     This is used by CV for l1/elasticnet penalties. It solves all alphas in one
     fold using a single Gram matrix and warm-started FISTA path.
     """
-    if sample_weight is not None:
-        sw_np = np.asarray(_to_numpy(sample_weight), dtype=np.float64).ravel()
-        if sw_np.size and not np.allclose(sw_np, sw_np[0]):
+    if not _is_uniform_weight(sample_weight):
             warnings.warn(
                 "_squared_error_sparse_cv_path: non-uniform sample_weight not supported, "
                 "falling back to general CV path.",
@@ -1395,9 +1399,7 @@ def _glm_sparse_cv_path(
         return None
     if penalty_name not in ("l1", "elasticnet", "en"):
         return None
-    if sample_weight is not None:
-        sw_np = np.asarray(_to_numpy(sample_weight), dtype=np.float64).ravel()
-        if sw_np.size and not np.allclose(sw_np, sw_np[0]):
+    if not _is_uniform_weight(sample_weight):
             warnings.warn(
                 "_glm_sparse_cv_path: non-uniform sample_weight not supported, "
                 "falling back to general CV path.",
@@ -1650,9 +1652,7 @@ def _scad_mcp_cv_path(
     penalty_name = str(penalty_name).lower()
     if penalty_name not in ("scad", "mcp"):
         return None
-    if sample_weight is not None:
-        sw_np = np.asarray(_to_numpy(sample_weight), dtype=np.float64).ravel()
-        if sw_np.size and not np.allclose(sw_np, sw_np[0]):
+    if not _is_uniform_weight(sample_weight):
             warnings.warn(
                 "_scad_mcp_cv_path: non-uniform sample_weight not supported, "
                 "falling back to general CV path.",
@@ -2247,7 +2247,8 @@ class PenalizedGLM_CV(CVEstimatorBase):
             model.n_iter_ = int(n_iter)
         model._params = np.concatenate([[float(intercept)], np.asarray(coef, dtype=np.float64)])
         model._nobs = int(X.shape[0])
-        model._df_resid = int(X.shape[0] - X.shape[1] - 1)
+        n_params = int(X.shape[1]) + (1 if bool(getattr(model, 'fit_intercept', True)) else 0)
+        model._df_resid = int(X.shape[0]) - n_params
         model._selected_backend_name = _backend_name_for_cv_device(device)
         model._fitted = True
         return model

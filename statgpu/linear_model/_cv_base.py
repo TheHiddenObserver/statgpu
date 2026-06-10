@@ -68,16 +68,6 @@ def kfold_indices(
     return folds
 
 
-def folds_are_complements(
-    train_idx: np.ndarray,
-    val_idx: np.ndarray,
-    n_samples: int,
-) -> bool:
-    """Check that train and val indices are complementary (no overlap, no gap)."""
-    combined = np.concatenate([train_idx, val_idx])
-    return len(combined) == n_samples and len(np.unique(combined)) == n_samples
-
-
 def folds_are_complete(folds, n_samples: int) -> bool:
     """Check that all folds together cover every sample exactly once."""
     val_indices = np.concatenate([f[1] for f in folds])

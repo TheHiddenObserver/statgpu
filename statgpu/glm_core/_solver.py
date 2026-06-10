@@ -1082,7 +1082,6 @@ def fista_lla_path(
     # Uses torch.compile for torch, ElementwiseKernel for cupy.
     if _is_quadratic and backend in ("torch", "cupy"):
         Xty = X_c.T @ y_c
-        yty = float(_to_numpy(y_c @ y_c)) if backend == "cupy" else float((y_c * y_c).sum().item())
 
         # Get fused proximal kernel
         if backend == "torch":
@@ -1708,7 +1707,8 @@ def newton_solver(
         else:
             obj_old_dev = _objective_value_dev(loss, penalty, X, y, params_old)
         gdd_dev = _dot_dev(grad, direction)
-        obj_old, gdd = _sync_scalars(obj_old_dev, gdd_dev, backend=backend)
+        # Only sync gdd (needed for Armijo threshold); obj_old stays device-side
+        gdd = float(gdd_dev.item() if hasattr(gdd_dev, "item") else gdd_dev)
 
         step = 1.0
         for _bt in range(20):

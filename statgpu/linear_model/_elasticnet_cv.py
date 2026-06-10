@@ -931,6 +931,9 @@ class ElasticNetCV(CVEstimatorBase):
         if self.coef_ is None:
             raise ValueError("Model not fitted. Call fit() first.")
 
+        # Delegate to fitted estimator for backend-aware prediction
+        if self.estimator_ is not None:
+            return self.estimator_.predict(X)
         X_arr = np.asarray(X, dtype=np.float64)
         return X_arr @ self.coef_ + self.intercept_
 
