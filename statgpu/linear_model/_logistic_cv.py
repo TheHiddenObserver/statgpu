@@ -867,7 +867,8 @@ class LogisticRegressionCV(CVEstimatorBase):
         self.mean_loss_ = mean_loss
 
         if np.any(np.isfinite(mean_loss)):
-            self.best_score_ = float(np.nanmin(mean_loss))
+            # sklearn convention: best_score_ is negative loss (higher is better)
+            self.best_score_ = -float(np.nanmin(mean_loss))
         else:
             self.best_score_ = np.nan
 

@@ -740,7 +740,8 @@ class LassoCV(CVEstimatorBase):
         self.cv_results_ = {"mse_path": mse_path}
         self.mse_path_ = mse_path
         self.mean_mse_ = mean_mse
-        self.best_score_ = float(np.nanmin(mean_mse)) if np.any(np.isfinite(mean_mse)) else np.nan
+        # sklearn convention: best_score_ is negative MSE (higher is better)
+        self.best_score_ = -float(np.nanmin(mean_mse)) if np.any(np.isfinite(mean_mse)) else np.nan
 
         # Fit final model with selected alpha
         estimator = Lasso(

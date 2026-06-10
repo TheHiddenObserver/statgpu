@@ -49,6 +49,32 @@ _MU_LO_NB = 1e-300              # Negative binomial lower bound
 _NB_ALPHA_DEFAULT = 1.0         # NegativeBinomialLoss default alpha
 _TWEEDIE_POWER_DEFAULT = 1.5    # TweedieLoss default power
 
+# ---------------------------------------------------------------------------
+# CV solver tuning constants
+# ---------------------------------------------------------------------------
+
+# Eigenvalue floor (prevents division by zero in Lipschitz computation)
+_EIGVAL_FLOOR = 1e-15
+
+# FISTA iteration caps for CV (lower than full fit to keep CV fast)
+_FISTA_MAX_ITER_CV = 400        # Default max FISTA iterations per alpha in CV
+_FISTA_MAX_ITER_CV_SMALL = 600  # For small problems (n*p < _SMALL_PROBLEM_THRESHOLD)
+
+# Convergence check intervals (sync cost vs responsiveness tradeoff)
+_CONV_INTERVAL_CV_DEFAULT = 200 # Default convergence check interval
+_CONV_INTERVAL_CV_TIGHT = 30   # Tighter interval for first few alphas
+_CONV_INTERVAL_CV_FOLD = 50    # Per-fold convergence interval
+_CONV_INTERVAL_CV_PATH = 25    # Path-based convergence interval
+_CONV_INTERVAL_CV_NUMPY = 10   # Numpy path (no sync cost)
+
+# Problem size thresholds
+_SMALL_PROBLEM_THRESHOLD = 200_000   # n*p below this = "small problem"
+_GPU_BREAK_EVEN_THRESHOLD = 100_000_000  # CV work below this = CPU faster
+
+# IRLS deviance tolerance constants
+_IRLS_DEV_TOL_REL = 1e-10      # Relative deviance tolerance
+_IRLS_DEV_TOL_ABS = 1e-6       # Absolute deviance tolerance floor
+
 
 class ApproximateCVWarning(UserWarning):
     """Warning emitted when approximate two-stage CV screening is enabled."""
@@ -215,7 +241,7 @@ def _ridge_eig_batch(X_train_np, y_train_np, X_val_np, y_val_np, alphas_np):
 
     XtX = Xc.T @ Xc
     eigvals, Q = np.linalg.eigh(XtX)
-    eigvals = np.maximum(eigvals, 1e-15)
+    eigvals = np.maximum(eigvals, _EIGVAL_FLOOR)
 
     QtXty = Q.T @ (Xc.T @ yc)
     n_alpha = n * alphas_np
@@ -250,7 +276,7 @@ def _ridge_eig_single(X_train_np, y_train_np, alpha, sample_weight=None):
         XtWX = W_sqrt_Xc.T @ W_sqrt_Xc
         XtWy = (Xc * w[:, None]).T @ yc
         eigvals, Q = np.linalg.eigh(XtWX)
-        eigvals = np.maximum(eigvals, 1e-15)
+        eigvals = np.maximum(eigvals, _EIGVAL_FLOOR)
         QtXtWy = Q.T @ XtWy
         inv_diag = 1.0 / (eigvals + w_sum * alpha)
         coef = Q @ (inv_diag * QtXtWy)
@@ -263,7 +289,7 @@ def _ridge_eig_single(X_train_np, y_train_np, alpha, sample_weight=None):
 
     XtX = Xc.T @ Xc
     eigvals, Q = np.linalg.eigh(XtX)
-    eigvals = np.maximum(eigvals, 1e-15)
+    eigvals = np.maximum(eigvals, _EIGVAL_FLOOR)
 
     QtXty = Q.T @ (Xc.T @ yc)
     inv_diag = 1.0 / (eigvals + n * alpha)
@@ -294,9 +320,9 @@ def _logistic_sparse_effective_max_iter(max_iter, device, penalty_name, refit=Fa
     penalty_name = str(penalty_name).lower()
     if backend in ("cupy", "torch") and not refit:
         if penalty_name == "l1":
-            return min(int(max_iter), 400)
+            return min(int(max_iter), _FISTA_MAX_ITER_CV)
         if penalty_name in ("elasticnet", "en"):
-            return min(int(max_iter), 600)
+            return min(int(max_iter), _FISTA_MAX_ITER_CV_SMALL)
     return int(max_iter)
 
 
@@ -922,7 +948,7 @@ def _logistic_sparse_cv_path(
     eig_max = _max_eigval_power(X_aug.T @ X_aug)
     L_loss = max(eig_max / (4.0 * max(int(n_samples), 1)), 1e-12)
     step = 1.0 / L_loss
-    conv_interval = 10 if backend == "numpy" else 50
+    conv_interval = _CONV_INTERVAL_CV_NUMPY if backend == "numpy" else _CONV_INTERVAL_CV_FOLD
     penalty_name = str(penalty_name).lower()
     is_enet = penalty_name in ("elasticnet", "en")
 
@@ -1117,7 +1143,7 @@ def _squared_error_sparse_cv_path(
     eig_max = _max_eigval_power(XtX)
     L = max(eig_max / max(int(n_samples), 1), 1e-12)
     step = 1.0 / L
-    conv_interval = 10 if backend == "numpy" else 25
+    conv_interval = _CONV_INTERVAL_CV_NUMPY if backend == "numpy" else _CONV_INTERVAL_CV_PATH
 
     if X_val is not None and y_val is not None:
         Xv = _to_backend_float64(X_val, backend)
@@ -2055,7 +2081,7 @@ class PenalizedGLM_CV(CVEstimatorBase):
         nx = int(n_samples) * int(n_features)
 
         # Small problems: always CPU
-        if nx < 200_000:
+        if nx < _SMALL_PROBLEM_THRESHOLD:
             self._cv_selected_device_ = "cpu"
             self._cv_auto_reason_ = "small CV problem is faster on CPU"
             return "cpu"
@@ -2086,7 +2112,7 @@ class PenalizedGLM_CV(CVEstimatorBase):
         # Fallback: large effective work → GPU
         continuation_factor = 20 if loss_name != "squared_error" and penalty_name in ("scad", "mcp") else 1
         effective_work = nx * int(self.cv) * int(n_alphas) * continuation_factor
-        if effective_work < 100_000_000:
+        if effective_work < _GPU_BREAK_EVEN_THRESHOLD:
             self._cv_selected_device_ = "cpu"
             self._cv_auto_reason_ = "CV effective work is below GPU break-even"
             return "cpu"
@@ -2829,7 +2855,8 @@ class PenalizedGLM_CV(CVEstimatorBase):
 
         best_alpha = float(alpha_grid[best_idx])
         self.alpha_ = best_alpha
-        self.best_score_ = float(mean_scores[best_idx])
+        # sklearn convention: best_score_ is negative loss (higher is better)
+        self.best_score_ = -float(mean_scores[best_idx])
         self.cv_results_ = {
             "alpha": alpha_grid,
             "mean_score": mean_scores,

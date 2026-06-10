@@ -874,7 +874,8 @@ class ElasticNetCV(CVEstimatorBase):
             "best_alpha": self.alpha_,
             "best_l1_ratio": self.l1_ratio_,
         }
-        self.best_score_ = details["best_mse"]
+        # sklearn convention: best_score_ is negative MSE (higher is better)
+        self.best_score_ = -float(details["best_mse"])
 
         # Fit final model on full data with best parameters
         final_model = ElasticNet(

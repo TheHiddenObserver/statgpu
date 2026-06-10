@@ -2040,7 +2040,8 @@ class LassoCV(CVEstimatorBase):
         self.mean_mse_ = np.asarray(details["mean_mse"], dtype=np.float64)
 
         if np.any(np.isfinite(self.mean_mse_)):
-            self.best_score_ = float(np.nanmin(self.mean_mse_))
+            # sklearn convention: best_score_ is negative MSE (higher is better)
+            self.best_score_ = -float(np.nanmin(self.mean_mse_))
         else:
             self.best_score_ = np.nan
 

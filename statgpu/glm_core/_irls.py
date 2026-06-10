@@ -20,6 +20,10 @@ from statgpu.backends._array_ops import (
     _zeros,
 )
 
+# IRLS deviance tolerance constants
+_IRLS_DEV_TOL_REL = 1e-10      # Relative deviance tolerance
+_IRLS_DEV_TOL_ABS = 1e-6       # Absolute deviance tolerance floor
+
 
 def _infer_backend(X):
     """Detect backend from array type."""
@@ -393,7 +397,7 @@ def irls_solver(
             dev_old_f = float(dev_old_dev)
         else:
             dev_old_f = float(dev_old_dev)
-        _dev_tol = max(abs(dev_old_f) * 1e-10, 1e-6)
+        _dev_tol = max(abs(dev_old_f) * _IRLS_DEV_TOL_REL, _IRLS_DEV_TOL_ABS)
 
         def _dev_accept(dev_try_dev):
             """Check if trial deviance is acceptable (device-side NaN + comparison)."""
