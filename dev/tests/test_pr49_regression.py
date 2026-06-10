@@ -1474,3 +1474,250 @@ class TestCvEngineReference:
         with open('statgpu/linear_model/_cv_engine.py', 'r', encoding='utf-8') as f:
             content = f.read()
         assert 'Reference Implementation' in content or 'reference implementation' in content
+
+
+# ======================================================================
+# 37. Panel group labels: float and string support
+# ======================================================================
+
+class TestPanelGroupLabels:
+    def test_float_group_labels(self):
+        """within_transform should handle float group labels without truncation."""
+        from statgpu.panel._utils import within_transform
+        np.random.seed(42)
+        y = np.random.randn(9)
+        groups = np.array([1.1, 1.1, 1.1, 2.5, 2.5, 2.5, 3.9, 3.9, 3.9])
+        result = within_transform(y, groups)
+        # Each group of 3 should be demeaned
+        for g in [1.1, 2.5, 3.9]:
+            mask = groups == g
+            assert abs(np.mean(result[mask])) < 1e-10
+        print('[OK] float group labels')
+
+    def test_string_group_labels(self):
+        """within_transform should handle string group labels."""
+        from statgpu.panel._utils import within_transform
+        np.random.seed(42)
+        y = np.random.randn(6)
+        groups = np.array(['A', 'A', 'A', 'B', 'B', 'B'])
+        result = within_transform(y, groups)
+        for g in ['A', 'B']:
+            mask = groups == g
+            assert abs(np.mean(result[mask])) < 1e-10
+        print('[OK] string group labels')
+
+    def test_integer_group_labels_still_work(self):
+        """within_transform should still handle integer labels correctly."""
+        from statgpu.panel._utils import within_transform
+        np.random.seed(42)
+        y = np.random.randn(6)
+        groups = np.array([0, 0, 0, 1, 1, 1])
+        result = within_transform(y, groups)
+        for g in [0, 1]:
+            mask = groups == g
+            assert abs(np.mean(result[mask])) < 1e-10
+        print('[OK] integer group labels')
+
+    def test_group_means_float_labels(self):
+        """group_means should handle float labels."""
+        from statgpu.panel._utils import group_means
+        y = np.array([1.0, 2.0, 3.0, 4.0, 5.0, 6.0])
+        groups = np.array([1.1, 1.1, 1.1, 2.5, 2.5, 2.5])
+        result = group_means(y, groups)
+        assert abs(result[0] - 2.0) < 1e-10  # mean of [1,2,3]
+        assert abs(result[3] - 5.0) < 1e-10  # mean of [4,5,6]
+        print('[OK] group_means float labels')
+
+    def test_group_sizes_float_labels(self):
+        """group_sizes should handle float labels."""
+        from statgpu.panel._utils import group_sizes
+        groups = np.array([1.1, 1.1, 1.1, 2.5, 2.5])
+        result = group_sizes(groups)
+        assert result[0] == 3.0
+        assert result[3] == 2.0
+        print('[OK] group_sizes float labels')
+
+
+# ======================================================================
+# 38. ElasticNetCV _fitted flag
+# ======================================================================
+
+class TestElasticNetCVFitted:
+    def test_fitted_flag_set(self):
+        """ElasticNetCV should set _fitted=True after fit."""
+        from statgpu.linear_model import ElasticNetCV
+        np.random.seed(42)
+        X = np.random.randn(50, 3)
+        y = X @ np.random.randn(3) + 0.1 * np.random.randn(50)
+        m = ElasticNetCV(cv=3).fit(X, y)
+        assert getattr(m, '_fitted', False) is True
+        print('[OK] ElasticNetCV _fitted flag')
+
+    def test_summary_after_fit(self):
+        """ElasticNetCV.summary() should not raise 'not fitted' error."""
+        from statgpu.linear_model import ElasticNetCV
+        np.random.seed(42)
+        X = np.random.randn(50, 3)
+        y = X @ np.random.randn(3) + 0.1 * np.random.randn(50)
+        m = ElasticNetCV(cv=3).fit(X, y)
+        # summary() may raise "compute_inference=False" (expected),
+        # but should NOT raise "not fitted yet" (that was the bug)
+        try:
+            m.summary()
+        except RuntimeError as e:
+            assert 'not fitted' not in str(e).lower(), f'Unexpected: {e}'
+        print('[OK] ElasticNetCV summary()')
+
+
+# ======================================================================
+# 39. Solver max_iter=0 safety
+# ======================================================================
+
+class TestSolverMaxIterZero:
+    def test_fista_max_iter_zero(self):
+        """fista_solver with max_iter=0 should not crash."""
+        from statgpu.glm_core._solver import fista_solver
+        from statgpu.glm_core._squared import SquaredErrorLoss
+        from statgpu.linear_model._lasso import Lasso
+        loss = SquaredErrorLoss()
+        pen = Lasso(alpha=0.1)
+        # Should not raise NameError
+        coef, n_iter = fista_solver(X=np.random.randn(20, 3), y=np.random.randn(20),
+                                     loss=loss, penalty=pen, max_iter=0)
+        assert n_iter == 0
+        print('[OK] fista max_iter=0')
+
+
+# ======================================================================
+# 40. ElasticNet alpha_grid l1_ratio scaling
+# ======================================================================
+
+class TestElasticnetAlphaGrid:
+    def test_alpha_grid_scales_with_l1_ratio(self):
+        """PenalizedGLM_CV elasticnet alpha_grid should scale with l1_ratio."""
+        from statgpu.linear_model._penalized_cv import PenalizedGLM_CV
+        np.random.seed(42)
+        X = np.random.randn(100, 5)
+        y = X @ np.random.randn(5) + 0.1 * np.random.randn(100)
+
+        # l1_ratio=0.1 should have larger alpha_max than l1_ratio=1.0
+        m1 = PenalizedGLM_CV(loss='squared_error', penalty='elasticnet',
+                              l1_ratio=0.1, n_alphas=10, cv=3)
+        m1.fit(X, y)
+        grid1 = m1.alpha_grid_
+
+        m2 = PenalizedGLM_CV(loss='squared_error', penalty='elasticnet',
+                              l1_ratio=1.0, n_alphas=10, cv=3)
+        m2.fit(X, y)
+        grid2 = m2.alpha_grid_
+
+        # l1_ratio=0.1 should have larger max alpha (divided by smaller l1_ratio)
+        assert grid1[0] > grid2[0], f'grid1[0]={grid1[0]} should > grid2[0]={grid2[0]}'
+        print('[OK] alpha_grid scales with l1_ratio')
+
+
+# ======================================================================
+# 41. Cache thread safety
+# ======================================================================
+
+class TestCacheThreadSafety:
+    def test_ridge_cache_has_lock(self):
+        """RidgeCV cache should have threading.Lock."""
+        with open('statgpu/linear_model/_ridge_cv.py', 'r', encoding='utf-8') as f:
+            content = f.read()
+        assert 'threading.Lock' in content
+        print('[OK] RidgeCV cache thread-safe')
+
+    def test_elasticnet_cache_has_lock(self):
+        """ElasticNetCV cache should have threading.Lock."""
+        with open('statgpu/linear_model/_elasticnet_cv.py', 'r', encoding='utf-8') as f:
+            content = f.read()
+        assert 'threading.Lock' in content
+        print('[OK] ElasticNetCV cache thread-safe')
+
+    def test_logistic_cache_has_lock(self):
+        """LogisticRegressionCV cache should have threading.Lock."""
+        with open('statgpu/linear_model/_logistic_cv.py', 'r', encoding='utf-8') as f:
+            content = f.read()
+        assert 'threading.Lock' in content
+        print('[OK] LogisticCV cache thread-safe')
+
+
+# ======================================================================
+# 42. CVEstimatorBase.get_params
+# ======================================================================
+
+class TestGetParams:
+    def test_get_params_includes_cv(self):
+        """get_params should include cv parameter."""
+        from statgpu.linear_model import RidgeCV
+        m = RidgeCV(cv=7)
+        params = m.get_params()
+        assert params['cv'] == 7
+        print('[OK] get_params includes cv')
+
+    def test_get_params_includes_random_state(self):
+        """get_params should include random_state parameter."""
+        from statgpu.linear_model import RidgeCV
+        m = RidgeCV(random_state=42)
+        params = m.get_params()
+        assert params['random_state'] == 42
+        print('[OK] get_params includes random_state')
+
+
+# ======================================================================
+# 43. Cluster length validation
+# ======================================================================
+
+class TestClusterValidation:
+    def test_cluster_length_mismatch_raises(self):
+        """PanelOLS should raise when cluster length != n."""
+        from statgpu.panel._fixed_effects import PanelOLS
+        np.random.seed(42)
+        X = np.random.randn(50, 2)
+        y = X @ np.random.randn(2) + 0.1 * np.random.randn(50)
+        cluster = np.repeat(np.arange(10), 3)[:30]  # Wrong length
+
+        model = PanelOLS(cov_type='clustered')
+        try:
+            model.fit(y, X, cluster=cluster)
+            assert False, 'Should have raised ValueError'
+        except ValueError as e:
+            assert 'cluster length' in str(e).lower()
+        print('[OK] cluster length validation')
+
+
+# ======================================================================
+# 44. LassoCV ddof consistency
+# ======================================================================
+
+class TestLassoCVDdof:
+    def test_gpu_alpha_grid_uses_ddof1(self):
+        """_default_lasso_alpha_grid_backend should use ddof=1."""
+        import inspect
+        from statgpu.linear_model._lasso_cv import _default_lasso_alpha_grid_backend
+        src = inspect.getsource(_default_lasso_alpha_grid_backend)
+        assert 'n_samples - 1' in src
+        print('[OK] LassoCV GPU alpha grid ddof=1')
+
+
+# ======================================================================
+# 45. Compiled FISTA step removed
+# ======================================================================
+
+class TestCompiledFistaStep:
+    def test_no_wrong_fista_step_call(self):
+        """fista_solver should not call compiled FISTA step with wrong args."""
+        import inspect
+        from statgpu.glm_core._solver import fista_solver
+        src = inspect.getsource(fista_solver)
+        # The old pattern: _fista_step_call(_fista_step, coef, coef, 0.0, ...)
+        # should not exist in the momentum update path
+        lines = src.split('\n')
+        for i, line in enumerate(lines):
+            if '_fista_step_call' in line and 'coef, coef, 0.0' in line:
+                # Check if this is in the momentum section (not the proximal section)
+                context = '\n'.join(lines[max(0,i-5):i+5])
+                if 'momentum' in context.lower() or 'Momentum' in context:
+                    assert False, f'Wrong FISTA step call at line {i}: {line.strip()}'
+        print('[OK] No wrong compiled FISTA step call')
