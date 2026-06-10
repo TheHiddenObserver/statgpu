@@ -286,3 +286,69 @@ coef = where(active, coef_new, coef)
 **方案**：移至 `dev/` 或标记为 reference。
 **难度**：低 | **风险**：无 | **状态**：未实现
 
+---
+
+## PR #49 第二轮 Code Review 剩余项 (2026-06-10)
+
+> 第二轮发现 7 P1 + 15 P2 + ~15 P3。P1 和大部分 P2 已修复。以下为剩余项。
+
+### P2: `_elasticnet_cv.py` predict()/score() 强制 numpy
+
+**现状**：`ElasticNetCV.predict()` 和 `score()` 始终用 `np.asarray()` 转换输入，忽略 GPU 设备。
+**方案**：委托给 `self.estimator_.predict()` 或保留原始 backend。
+**难度**：低 | **风险**：低 | **状态**：未实现
+
+### P2: `_lasso.py` 两个 LassoCV 类行为不同
+
+**现状**：`_lasso.py` 内部 LassoCV（fit_intercept=True, compute_inference=True）与导出的 `_lasso_cv.py` LassoCV（现已修复为 fit_intercept=True）行为仍有差异。
+**方案**：删除 `_lasso.py` 内部 LassoCV 或统一实现。
+**难度**：中 | **风险**：中 | **状态**：未实现
+
+### P2: `_lasso.py` `_array_identity_token` 全量哈希 O(np)
+
+**现状**：docstring 说采样但实际哈希整个数组。对大 GPU 数组（100K×100）会传输 80MB 数据。
+**方案**：实现真正的行采样哈希。
+**难度**：低 | **风险**：低 | **状态**：未实现
+
+### P2: `_cv_base.py` batch_mse 大矩阵内存峰值
+
+**现状**：`y_pred = coefs @ X_val.T` 创建 (n_models, n_val) 密集矩阵。
+**方案**：分块计算或 in-place 残差。
+**难度**：中 | **风险**：中 | **状态**：未实现
+
+### P2: `_penalized_cv.py` 非均匀 sample_weight 检查重复 4 次
+
+**现状**：`np.allclose(sw_np, sw_np[0])` 模式在 4 个 CV path 函数中重复。
+**方案**：提取为 `_check_uniform_weight()` 共享函数。
+**难度**：低 | **风险**：低 | **状态**：未实现
+
+### P2: `_penalized_cv.py` `_populate_refit_model` df_resid 假设 fit_intercept=True
+
+**现状**：`model._df_resid = n - p - 1` 始终减 1，即使 fit_intercept=False。
+**方案**：检查 `model.fit_intercept` 决定是否减 1。
+**难度**：低 | **风险**：低 | **状态**：未实现
+
+### P3: `_lasso.py` `**kwargs` 静默吞掉拼写错误
+
+**现状**：`Lasso(alph=0.1)` 不报错。
+**方案**：移除 `**kwargs` 或在 `__init__` 中验证。
+**难度**：低 | **风险**：低 | **状态**：未实现
+
+### P3: `_lasso.py` ddof=1 vs ddof=0 不一致
+
+**现状**：`_lasso_alpha_heuristic` 用 ddof=1，`_default_lasso_alpha_grid_backend` 用 ddof=0。
+**方案**：统一为 ddof=1。
+**难度**：低 | **风险**：低 | **状态**：未实现
+
+### P3: `_solver.py` 死代码 (obj_old, yty)
+
+**现状**：`newton_solver` 中 `obj_old` 同步但未使用；`fista_lla_path` 中 `yty` 计算但未使用。
+**方案**：删除死代码。
+**难度**：低 | **风险**：无 | **状态**：未实现
+
+### P3: `_penalized.py` `_n_cont` GLM+SCAD/MCP 用 100 步
+
+**现状**：GLM+SCAD/MCP 用 100 步 continuation，但 squared_error+SCAD/MCP 用 20 步。
+**方案**：统一为 20 步或使 GLM 路径也用 20 步。
+**难度**：低 | **风险**：低 | **状态**：未实现
+
