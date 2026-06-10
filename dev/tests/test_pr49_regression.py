@@ -1236,3 +1236,241 @@ class TestPerformanceRegression:
 
         limit = {(100, 5): 1.0, (500, 20): 5.0}[(n, p)]
         assert elapsed < limit, f"n={n},p={p}: {elapsed:.3f}s > {limit}s"
+
+
+# ======================================================================
+# 34. XtX precomputation optimization
+# ======================================================================
+
+class TestXtXPrecomputation:
+    def test_elasticnet_cv_multiple_l1_ratios(self):
+        """ElasticNetCV with multiple l1_ratios should produce correct results."""
+        from statgpu.linear_model import ElasticNetCV
+        np.random.seed(42)
+        X = np.random.randn(100, 5)
+        y = X @ np.random.randn(5) + 0.1 * np.random.randn(100)
+
+        m = ElasticNetCV(l1_ratio=[0.1, 0.5, 0.9], cv=3).fit(X, y)
+        assert m.alpha_ > 0
+        assert m.l1_ratio_ in [0.1, 0.5, 0.9]
+        assert m.best_score_ < 0
+
+    def test_elasticnet_cv_single_l1_ratio(self):
+        """ElasticNetCV with single l1_ratio should work."""
+        from statgpu.linear_model import ElasticNetCV
+        np.random.seed(42)
+        X = np.random.randn(100, 5)
+        y = X @ np.random.randn(5) + 0.1 * np.random.randn(100)
+
+        m = ElasticNetCV(l1_ratio=0.5, cv=3).fit(X, y)
+        assert m.alpha_ > 0
+        assert m.best_score_ < 0
+
+    def test_elasticnet_cv_weighted(self):
+        """ElasticNetCV with sample_weight should work."""
+        from statgpu.linear_model import ElasticNetCV
+        np.random.seed(42)
+        X = np.random.randn(100, 5)
+        y = X @ np.random.randn(5) + 0.1 * np.random.randn(100)
+        w = np.random.uniform(0.5, 2.0, 100)
+
+        m = ElasticNetCV(cv=3).fit(X, y, sample_weight=w)
+        assert m.alpha_ > 0
+
+    def test_elasticnet_cv_predict(self):
+        """ElasticNetCV predict should produce correct shape."""
+        from statgpu.linear_model import ElasticNetCV
+        np.random.seed(42)
+        X = np.random.randn(100, 5)
+        y = X @ np.random.randn(5) + 0.1 * np.random.randn(100)
+
+        m = ElasticNetCV(cv=3).fit(X, y)
+        y_pred = m.predict(X)
+        assert y_pred.shape == y.shape
+
+
+# ======================================================================
+# 35. batch_mse chunked computation
+# ======================================================================
+
+class TestBatchMseChunked:
+    def test_batch_mse_basic(self):
+        """batch_mse should compute correct MSE values."""
+        from statgpu.linear_model._cv_base import batch_mse
+        np.random.seed(42)
+        X = np.random.randn(50, 3)
+        y = X @ np.random.randn(3) + 0.1 * np.random.randn(50)
+        coefs = np.random.randn(10, 3)
+        intercepts = np.random.randn(10)
+
+        mse = batch_mse(X, y, coefs, intercepts)
+        assert mse.shape == (10,)
+        assert np.all(np.isfinite(mse))
+        assert np.all(mse >= 0)
+
+    def test_batch_mse_no_intercept(self):
+        """batch_mse without intercepts should work."""
+        from statgpu.linear_model._cv_base import batch_mse
+        np.random.seed(42)
+        X = np.random.randn(50, 3)
+        y = X @ np.random.randn(3) + 0.1 * np.random.randn(50)
+        coefs = np.random.randn(10, 3)
+
+        mse = batch_mse(X, y, coefs)
+        assert mse.shape == (10,)
+        assert np.all(np.isfinite(mse))
+
+    def test_batch_mse_with_sample_weight(self):
+        """batch_mse with sample_weight should work."""
+        from statgpu.linear_model._cv_base import batch_mse
+        np.random.seed(42)
+        X = np.random.randn(50, 3)
+        y = X @ np.random.randn(3) + 0.1 * np.random.randn(50)
+        coefs = np.random.randn(10, 3)
+        w = np.random.uniform(0.5, 2.0, 50)
+
+        mse = batch_mse(X, y, coefs, sample_weight=w)
+        assert mse.shape == (10,)
+        assert np.all(np.isfinite(mse))
+
+    def test_batch_mse_chunk_size(self):
+        """batch_mse with different chunk_sizes should produce same results."""
+        from statgpu.linear_model._cv_base import batch_mse
+        np.random.seed(42)
+        X = np.random.randn(50, 3)
+        y = X @ np.random.randn(3) + 0.1 * np.random.randn(50)
+        coefs = np.random.randn(20, 3)
+
+        mse_256 = batch_mse(X, y, coefs, chunk_size=256)
+        mse_8 = batch_mse(X, y, coefs, chunk_size=8)
+        mse_3 = batch_mse(X, y, coefs, chunk_size=3)
+
+        np.testing.assert_array_almost_equal(mse_256, mse_8)
+        np.testing.assert_array_almost_equal(mse_256, mse_3)
+
+    def test_batch_mse_single_model(self):
+        """batch_mse with single model should work."""
+        from statgpu.linear_model._cv_base import batch_mse
+        np.random.seed(42)
+        X = np.random.randn(50, 3)
+        y = X @ np.random.randn(3) + 0.1 * np.random.randn(50)
+        coefs = np.random.randn(1, 3)
+
+        mse = batch_mse(X, y, coefs)
+        assert mse.shape == (1,)
+
+    def test_batch_mse_zero_weights(self):
+        """batch_mse with zero weights should return NaN."""
+        from statgpu.linear_model._cv_base import batch_mse
+        np.random.seed(42)
+        X = np.random.randn(50, 3)
+        y = X @ np.random.randn(3) + 0.1 * np.random.randn(50)
+        coefs = np.random.randn(5, 3)
+        w = np.zeros(50)
+
+        mse = batch_mse(X, y, coefs, sample_weight=w)
+        assert np.all(np.isnan(mse))
+
+    def test_batch_mse_large_n_models(self):
+        """batch_mse with many models should work (tests chunking)."""
+        from statgpu.linear_model._cv_base import batch_mse
+        np.random.seed(42)
+        X = np.random.randn(50, 3)
+        y = X @ np.random.randn(3) + 0.1 * np.random.randn(50)
+        coefs = np.random.randn(500, 3)  # 500 models, chunk_size=256 -> 2 chunks
+
+        mse = batch_mse(X, y, coefs, chunk_size=256)
+        assert mse.shape == (500,)
+        assert np.all(np.isfinite(mse))
+
+
+# ======================================================================
+# 36. cv_engine reference implementation
+# ======================================================================
+
+class TestCvEngineReference:
+    def test_run_cv_basic(self):
+        """run_cv should work as a basic CV loop."""
+        from statgpu.linear_model._cv_engine import run_cv
+        np.random.seed(42)
+        X = np.random.randn(50, 3)
+        y = X @ np.random.randn(3) + 0.1 * np.random.randn(50)
+        alphas = np.array([0.01, 0.1, 1.0])
+
+        def eval_fold(X_train, y_train, X_val, y_val, alpha, **kw):
+            from statgpu.linear_model import Ridge
+            m = Ridge(alpha=alpha).fit(X_train, y_train)
+            return m.score(X_val, y_val)
+
+        best_alpha, mean_scores, all_scores = run_cv(
+            X, y, alphas, eval_fold, n_folds=3
+        )
+        assert best_alpha in alphas
+        assert mean_scores.shape == (3,)
+        assert all_scores.shape == (3, 3)
+
+    def test_run_cv_cache(self):
+        """run_cv with cache should return cached results."""
+        from statgpu.linear_model._cv_engine import run_cv, CVCache
+        np.random.seed(42)
+        X = np.random.randn(50, 3)
+        y = X @ np.random.randn(3) + 0.1 * np.random.randn(50)
+        alphas = np.array([0.01, 0.1])
+
+        call_count = [0]
+        def eval_fold(X_train, y_train, X_val, y_val, alpha, **kw):
+            call_count[0] += 1
+            from statgpu.linear_model import Ridge
+            m = Ridge(alpha=alpha).fit(X_train, y_train)
+            return m.score(X_val, y_val)
+
+        cache = CVCache(maxsize=10)
+        def cache_key_fn(X, y, alphas, folds):
+            return "test_key"
+
+        # First call
+        best1, _, _ = run_cv(X, y, alphas, eval_fold, n_folds=3,
+                             cache=cache, cache_key_fn=cache_key_fn)
+        count1 = call_count[0]
+
+        # Second call (should use cache)
+        best2, _, _ = run_cv(X, y, alphas, eval_fold, n_folds=3,
+                             cache=cache, cache_key_fn=cache_key_fn)
+        count2 = call_count[0]
+
+        assert best1 == best2
+        assert count2 == count1  # No additional calls
+
+    def test_run_cv_raise_on_error(self):
+        """run_cv with raise_on_error=True should re-raise exceptions."""
+        from statgpu.linear_model._cv_engine import run_cv
+        np.random.seed(42)
+        X = np.random.randn(50, 3)
+        y = X @ np.random.randn(3) + 0.1 * np.random.randn(50)
+        alphas = np.array([0.01])
+
+        def bad_eval(*args, **kwargs):
+            raise ValueError("test error")
+
+        with pytest.raises(ValueError, match="test error"):
+            run_cv(X, y, alphas, bad_eval, n_folds=3, raise_on_error=True)
+
+    def test_run_cv_shape_validation(self):
+        """run_cv should validate X/y shape consistency."""
+        from statgpu.linear_model._cv_engine import run_cv
+        np.random.seed(42)
+        X = np.random.randn(50, 3)
+        y = np.random.randn(30)  # Wrong shape
+        alphas = np.array([0.01])
+
+        def eval_fold(*args, **kwargs):
+            return 0.0
+
+        with pytest.raises(ValueError, match="different number of samples"):
+            run_cv(X, y, alphas, eval_fold, n_folds=3)
+
+    def test_cv_engine_docstring_is_reference(self):
+        """_cv_engine.py docstring should mention 'reference implementation'."""
+        with open('statgpu/linear_model/_cv_engine.py', 'r', encoding='utf-8') as f:
+            content = f.read()
+        assert 'Reference Implementation' in content or 'reference implementation' in content

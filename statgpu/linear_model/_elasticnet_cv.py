@@ -504,42 +504,69 @@ def _select_elasticnet_params_cv(
         and sample_weight_np is None
     )
 
-    # CV loop
+    # Precompute per-fold data and XtX (independent of l1_ratio)
+    fold_data = []  # (X_train, y_train, X_val, y_val, sw_train, sw_val)
+    fold_xtx = []   # (XtX_fold, L_fold) for warm-start path
+
+    for fold_idx, (train_idx, val_idx) in enumerate(folds):
+        train_idx_arr = backend.asarray(train_idx)
+        val_idx_arr = backend.asarray(val_idx)
+
+        # Split data
+        if gpu_input_cupy or gpu_input_torch:
+            X_train_raw = X[train_idx_arr]
+            y_train_raw = y[train_idx_arr]
+            X_val = X[val_idx_arr]
+            y_val = y[val_idx_arr]
+            if sample_weight is not None:
+                sw_train = sample_weight[train_idx_arr]
+                sw_val = sample_weight[val_idx_arr]
+            else:
+                sw_train = None
+                sw_val = None
+            X_train = X_train_raw
+            y_train = y_train_raw
+        else:
+            X_train_np = X_np[train_idx]
+            y_train_np = y_np[train_idx]
+            X_val = backend.asarray(X_np[val_idx])
+            y_val = backend.asarray(y_np[val_idx])
+            if sample_weight_np is not None:
+                sw_train = backend.asarray(sample_weight_np[train_idx])
+                sw_val = backend.asarray(sample_weight_np[val_idx])
+            else:
+                sw_train = None
+                sw_val = None
+            X_train = X_train_np
+            y_train = y_train_np
+
+        fold_data.append((X_train, y_train, X_val, y_val, sw_train, sw_val))
+
+        # Precompute XtX and Lipschitz for warm-start path (independent of l1_ratio)
+        if use_warm_start:
+            if fit_intercept:
+                X_mean_fold = np.mean(X_train_np, axis=0)
+                y_mean_fold = np.mean(y_train_np)
+                Xc = X_train_np - X_mean_fold
+                yc = y_train_np - y_mean_fold
+            else:
+                Xc = X_train_np
+                yc = y_train_np
+
+            XtX_fold = Xc.T @ Xc
+            eig_max = np.linalg.eigvalsh(XtX_fold)[-1]
+            L_fold = float(eig_max / len(train_idx))
+            fold_xtx.append((XtX_fold, L_fold))
+        else:
+            fold_xtx.append(None)
+
+    # CV loop: iterate over l1_ratio and folds
     for l1_idx, l1_ratio in enumerate(l1_ratios_arr):
         alpha_grid = alpha_grids[l1_ratio]
         n_alphas_this = len(alpha_grid)
 
         for fold_idx, (train_idx, val_idx) in enumerate(folds):
-            train_idx_arr = backend.asarray(train_idx)
-            val_idx_arr = backend.asarray(val_idx)
-
-            # Split data
-            if gpu_input_cupy or gpu_input_torch:
-                X_train_raw = X[train_idx_arr]
-                y_train_raw = y[train_idx_arr]
-                X_val = X[val_idx_arr]
-                y_val = y[val_idx_arr]
-                if sample_weight is not None:
-                    sw_train = sample_weight[train_idx_arr]
-                    sw_val = sample_weight[val_idx_arr]
-                else:
-                    sw_train = None
-                    sw_val = None
-                X_train = X_train_raw
-                y_train = y_train_raw
-            else:
-                X_train_np = X_np[train_idx]
-                y_train_np = y_np[train_idx]
-                X_val = backend.asarray(X_np[val_idx])
-                y_val = backend.asarray(y_np[val_idx])
-                if sample_weight_np is not None:
-                    sw_train = backend.asarray(sample_weight_np[train_idx])
-                    sw_val = backend.asarray(sample_weight_np[val_idx])
-                else:
-                    sw_train = None
-                    sw_val = None
-                X_train = X_train_np
-                y_train = y_train_np
+            X_train, y_train, X_val, y_val, sw_train, sw_val = fold_data[fold_idx]
 
             # For CPU warm-start path: precompute per-fold data to avoid redundant work
             if use_warm_start:
@@ -552,25 +579,8 @@ def _select_elasticnet_params_cv(
                 # Sort alpha_grid for warm-start path
                 alpha_grid_ws = alpha_grid_sorted
 
-                # Center data for this fold (only when fit_intercept=True)
-                if fit_intercept:
-                    X_mean_fold = np.mean(X_train_np, axis=0)
-                    y_mean_fold = np.mean(y_train_np)
-                    Xc = X_train_np - X_mean_fold
-                    yc = y_train_np - y_mean_fold
-                else:
-                    Xc = X_train_np
-                    yc = y_train_np
-                    X_mean_fold = np.zeros(X_train_np.shape[1])
-                    y_mean_fold = 0.0
-
-                # Precompute XtX, Xty for this fold
-                XtX_fold = Xc.T @ Xc
-                Xty_fold = Xc.T @ yc
-
-                # Precompute Lipschitz constant
-                eig_max = np.linalg.eigvalsh(XtX_fold)[-1]
-                L_fold = float(eig_max / len(train_idx))
+                # Reuse precomputed XtX and Lipschitz
+                XtX_fold, L_fold = fold_xtx[fold_idx]
 
                 # Fit alphas with warm-start (descending order)
                 prev_coef = None
@@ -588,7 +598,7 @@ def _select_elasticnet_params_cv(
                         lipschitz_L=L_fold,
                     )
 
-                    model.fit(X_train_np, y_train_np, initial_coef=prev_coef)
+                    model.fit(X_train, y_train, initial_coef=prev_coef)
 
                     # Store result
                     mse_val = _batch_mse_elasticnet(

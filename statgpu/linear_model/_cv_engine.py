@@ -6,9 +6,18 @@ Provides a reusable CV loop that can be parameterized by:
 - Any penalty type (l1, l2, elasticnet, scad, mcp, etc.)
 - Any backend (numpy, cupy, torch)
 
-Note: ``run_cv`` is a simple reference implementation for custom estimators.
-The production CV paths (PenalizedGLM_CV, LassoCV, RidgeCV, etc.) use their
-own optimized loops with warm-starting and fold batching.
+.. note::
+
+    **Reference Implementation**: ``run_cv`` is a simple, readable reference
+    implementation intended for:
+    - Custom estimators that need a basic CV loop
+    - Testing and prototyping new CV strategies
+    - Documentation of the CV algorithm
+
+    The production CV paths (PenalizedGLM_CV, LassoCV, RidgeCV, etc.) use
+    their own optimized loops with warm-starting, fold batching, and
+    backend-specific optimizations.  For production use, prefer those
+    estimators directly.
 """
 
 from __future__ import annotations

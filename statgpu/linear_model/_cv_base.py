@@ -239,8 +239,12 @@ def batch_mse(
     coefs: np.ndarray,
     intercepts: Optional[np.ndarray] = None,
     sample_weight=None,
+    chunk_size: int = 256,
 ) -> np.ndarray:
     """Compute MSE for multiple coefficient vectors on a validation set.
+
+    Processes models in chunks to limit peak memory to
+    O(chunk_size * n_val) instead of O(n_models * n_val).
 
     Parameters
     ----------
@@ -249,6 +253,8 @@ def batch_mse(
     coefs : array, shape (n_models, n_features)
     intercepts : array, shape (n_models,) or None
     sample_weight : array, shape (n_val,) or None
+    chunk_size : int
+        Number of models to process at once (default 256).
 
     Returns
     -------
@@ -257,25 +263,39 @@ def batch_mse(
     X_val = _to_numpy(X_val)
     y_val = _to_numpy(y_val).ravel()
     coefs = _to_numpy(coefs)
+    n_models = coefs.shape[0]
+
     if intercepts is not None:
         intercepts = _to_numpy(intercepts)
-
-    # y_pred shape: (n_models, n_val)
-    y_pred = coefs @ X_val.T
-    if intercepts is not None:
-        y_pred = y_pred + intercepts[:, None]
-
-    residuals = y_val[None, :] - y_pred  # (n_models, n_val)
 
     if sample_weight is not None:
         sw = _to_numpy(sample_weight).ravel()
         sw_sum = float(np.sum(sw))
-        if sw_sum > 0:
-            mse = np.sum(residuals ** 2 * sw[None, :], axis=1) / sw_sum
-        else:
-            mse = np.full(coefs.shape[0], np.nan)
     else:
-        mse = np.mean(residuals ** 2, axis=1)
+        sw = None
+        sw_sum = 0.0
+
+    mse = np.empty(n_models, dtype=np.float64)
+
+    # Process in chunks to limit peak memory
+    for start in range(0, n_models, chunk_size):
+        end = min(start + chunk_size, n_models)
+        coefs_chunk = coefs[start:end]
+
+        # y_pred shape: (chunk_size, n_val)
+        y_pred = coefs_chunk @ X_val.T
+        if intercepts is not None:
+            y_pred = y_pred + intercepts[start:end, None]
+
+        residuals = y_val[None, :] - y_pred  # (chunk_size, n_val)
+
+        if sw is not None:
+            if sw_sum > 0:
+                mse[start:end] = np.sum(residuals ** 2 * sw[None, :], axis=1) / sw_sum
+            else:
+                mse[start:end] = np.nan
+        else:
+            mse[start:end] = np.mean(residuals ** 2, axis=1)
 
     return mse
 
