@@ -141,7 +141,7 @@ def _normalize_cd_kkt_check_every(cd_kkt_check_every: Optional[int]) -> Optional
 # K-fold helpers
 # =============================================================================
 
-from statgpu.linear_model._cv_base import kfold_indices as _kfold_indices, folds_are_complete as _folds_are_complements
+from statgpu.linear_model._cv_base import kfold_indices as _kfold_indices, folds_are_complete as _folds_are_complete
 
 
 # =============================================================================
@@ -468,7 +468,7 @@ class LassoCV(CVEstimatorBase):
         else:
             folds = _kfold_indices(n_samples=int(n_samples), n_splits=int(self.cv), random_state=self.random_state)
 
-        folds_are_complements = _folds_are_complements(folds, n_samples=int(n_samples))
+        folds_are_complete = _folds_are_complete(folds, n_samples=int(n_samples))
         alpha_grid = alpha_grid.astype(np.float64, copy=False)
         n_alpha = int(alpha_grid.size)
         n_folds = int(len(folds))
@@ -537,7 +537,7 @@ class LassoCV(CVEstimatorBase):
                 y_mean_folds = []
                 fold_eval_payload = []
 
-                fast_fold_stats = (sw_full is None) and bool(folds_are_complements)
+                fast_fold_stats = (sw_full is None) and bool(folds_are_complete)
                 if fast_fold_stats:
                     n_total = int(X_full.shape[0])
                     XtX_full = X_full.T @ X_full

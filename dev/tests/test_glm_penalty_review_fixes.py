@@ -821,7 +821,7 @@ def test_logistic_sparse_fold_batched_torch_matches_per_fold_path():
 
     from statgpu.linear_model._cv_base import kfold_indices
     from statgpu.linear_model._penalized_cv import (
-        _logistic_sparse_cv_folds_torch,
+        _glm_sparse_cv_folds,
         _logistic_sparse_cv_path,
     )
 
@@ -848,7 +848,7 @@ def test_logistic_sparse_fold_batched_torch_matches_per_fold_path():
         )
         expected[fold_idx, :] = path["scores"]
 
-    got = _logistic_sparse_cv_folds_torch(
+    got = _glm_sparse_cv_folds(
         X,
         y,
         folds,
@@ -857,6 +857,8 @@ def test_logistic_sparse_fold_batched_torch_matches_per_fold_path():
         0.5,
         max_iter=80,
         tol=1e-4,
+        loss_name="logistic",
+        device_backend="torch",
     )
 
     assert got is not None
@@ -877,7 +879,7 @@ def test_logistic_sparse_fold_batched_cupy_matches_per_fold_path():
 
     from statgpu.linear_model._cv_base import kfold_indices
     from statgpu.linear_model._penalized_cv import (
-        _logistic_sparse_cv_folds_cupy,
+        _glm_sparse_cv_folds,
         _logistic_sparse_cv_path,
     )
 
@@ -904,7 +906,7 @@ def test_logistic_sparse_fold_batched_cupy_matches_per_fold_path():
         )
         expected[fold_idx, :] = path["scores"]
 
-    got = _logistic_sparse_cv_folds_cupy(
+    got = _glm_sparse_cv_folds(
         X,
         y,
         folds,
@@ -913,6 +915,8 @@ def test_logistic_sparse_fold_batched_cupy_matches_per_fold_path():
         0.5,
         max_iter=80,
         tol=1e-4,
+        loss_name="logistic",
+        device_backend="cupy",
     )
 
     assert got is not None

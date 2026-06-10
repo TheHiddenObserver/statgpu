@@ -42,6 +42,8 @@ def kfold_indices(
     -------
     folds : list of (train_idx, val_idx) tuples
     """
+    if n_splits < 2:
+        raise ValueError(f"n_splits={n_splits} must be at least 2")
     if n_splits > n_samples:
         raise ValueError(
             f"n_splits={n_splits} cannot be greater than n_samples={n_samples}"
@@ -158,19 +160,42 @@ def detect_gpu_input(X, y) -> Tuple[str, Any, Any]:
     X, y : arrays
         Original arrays (unchanged).
     """
+    import warnings as _warnings
+
+    x_type = None
+    y_type = None
+
     try:
         import cupy as cp
-        if isinstance(X, cp.ndarray) and isinstance(y, cp.ndarray):
-            return 'cupy', X, y
+        if isinstance(X, cp.ndarray):
+            x_type = 'cupy'
+        if isinstance(y, cp.ndarray):
+            y_type = 'cupy'
     except ImportError:
         pass
 
     try:
         import torch
-        if isinstance(X, torch.Tensor) and isinstance(y, torch.Tensor):
-            return 'torch', X, y
+        if isinstance(X, torch.Tensor):
+            x_type = 'torch'
+        if isinstance(y, torch.Tensor):
+            y_type = 'torch'
     except ImportError:
         pass
+
+    if x_type is not None and y_type is not None and x_type != y_type:
+        _warnings.warn(
+            f"Mixed backend detected: X is {x_type} but y is {y_type}. "
+            f"Both arrays should use the same backend. Falling back to numpy.",
+            RuntimeWarning,
+            stacklevel=2,
+        )
+        return 'numpy', X, y
+
+    if x_type == 'cupy' and y_type == 'cupy':
+        return 'cupy', X, y
+    if x_type == 'torch' and y_type == 'torch':
+        return 'torch', X, y
 
     return 'numpy', X, y
 

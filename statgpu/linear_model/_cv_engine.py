@@ -5,21 +5,25 @@ Provides a reusable CV loop that can be parameterized by:
 - Any loss function (squared_error, logistic, poisson, etc.)
 - Any penalty type (l1, l2, elasticnet, scad, mcp, etc.)
 - Any backend (numpy, cupy, torch)
+
+Note: ``run_cv`` is a simple reference implementation for custom estimators.
+The production CV paths (PenalizedGLM_CV, LassoCV, RidgeCV, etc.) use their
+own optimized loops with warm-starting and fold batching.
 """
 
 from __future__ import annotations
 
+import logging
 from typing import Any, Callable, List, Optional, Tuple
 
 import numpy as np
 
-from statgpu.backends import _to_numpy
 from statgpu.linear_model._cv_base import (
     CVCache,
-    batch_mse,
-    folds_are_complements,
     kfold_indices,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def run_cv(
@@ -45,7 +49,8 @@ def run_cv(
     alpha_grid : array, shape (n_alphas,)
         Regularization parameter grid.
     evaluate_fold_fn : callable
-        Function ``(X_train, y_train, X_val, y_val, alpha) -> score``
+        Function ``(X_train, y_train, X_val, y_val, alpha,
+        sample_weight_train=None, sample_weight_val=None) -> score``
         that trains on the training fold and returns a scalar score on
         the validation fold.
     n_folds : int
@@ -72,10 +77,15 @@ def run_cv(
     """
     n_samples = X.shape[0]
 
+    # 0. Validate alpha_grid
+    if len(alpha_grid) == 0:
+        raise ValueError("alpha_grid must not be empty")
+
     # 1. Generate folds
     folds = kfold_indices(n_samples, n_folds, random_state)
 
     # 2. Check cache
+    cache_key = None
     if cache is not None and cache_key_fn is not None:
         cache_key = cache_key_fn(X, y, alpha_grid, folds)
         cached = cache.get(cache_key)
@@ -103,8 +113,12 @@ def run_cv(
                     sample_weight_val=sw_val,
                 )
                 all_scores[fold_idx, alpha_idx] = score
-            except Exception:
+            except Exception as exc:
                 all_scores[fold_idx, alpha_idx] = np.nan
+                logger.warning(
+                    "CV fold %d, alpha_idx %d failed: %s",
+                    fold_idx, alpha_idx, exc,
+                )
 
     # 4. Aggregate across folds
     mean_scores = np.nanmean(all_scores, axis=0)

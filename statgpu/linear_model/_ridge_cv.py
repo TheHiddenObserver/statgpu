@@ -84,7 +84,7 @@ def _make_ridge_cv_auto_cache_key(X, y, alphas, folds, fit_intercept, use_gpu, s
 # K-fold helper
 # =============================================================================
 
-from statgpu.linear_model._cv_base import kfold_indices as _kfold_indices, folds_are_complete as _folds_are_complements
+from statgpu.linear_model._cv_base import kfold_indices as _kfold_indices, folds_are_complete as _folds_are_complete
 
 
 # =============================================================================
@@ -498,7 +498,7 @@ def _select_ridge_alpha_cv(
     else:
         folds = _kfold_indices(n_samples=int(n_samples), n_splits=int(cv_folds), random_state=random_state)
 
-    folds_are_complements = _folds_are_complements(folds, n_samples=int(n_samples))
+    folds_are_complete = _folds_are_complete(folds, n_samples=int(n_samples))
 
     alpha_grid = alpha_grid.astype(np.float64, copy=False)
     n_alpha = int(alpha_grid.size)
@@ -580,7 +580,7 @@ def _select_ridge_alpha_cv(
             sw_val_folds = []
             n_val_folds = []
 
-            fast_fold_stats = (sw_full is None) and bool(folds_are_complements)
+            fast_fold_stats = (sw_full is None) and bool(folds_are_complete)
             if fast_fold_stats:
                 n_total = int(X_full.shape[0])
                 XtX_full = X_full.T @ X_full
@@ -737,7 +737,7 @@ def _select_ridge_alpha_cv(
                 "CPU fallback is disabled for strict CUDA execution."
             )
 
-        fast_fold_stats = (sample_weight_np is None) and bool(folds_are_complements)
+        fast_fold_stats = (sample_weight_np is None) and bool(folds_are_complete)
         if fast_fold_stats:
             n_total = int(X_np.shape[0])
             XtX_full = X_np.T @ X_np

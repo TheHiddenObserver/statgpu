@@ -10,6 +10,16 @@ from typing import Optional
 
 import numpy as np
 
+from statgpu.backends._array_ops import (
+    _clip,
+    _copy_arr,
+    _diag,
+    _norm2,
+    _solve_linear_system,
+    _to_backend,
+    _zeros,
+)
+
 
 def _infer_backend(X):
     """Detect backend from array type."""
@@ -23,95 +33,12 @@ def _infer_backend(X):
 
 def _solve(A, b, backend="auto"):
     """Solve linear system, fallback to lstsq if singular."""
-    if backend == "auto":
-        backend = _infer_backend(A)
-
-    try:
-        if backend == "torch":
-            import torch
-            b_col = b.unsqueeze(1) if b.ndim == 1 else b
-            sol = torch.linalg.solve(A, b_col)
-            return sol.squeeze(1) if b.ndim == 1 else sol
-        elif backend == "cupy":
-            import cupy as cp
-            return cp.linalg.solve(A, b)
-        else:
-            return np.linalg.solve(A, b)
-    except (np.linalg.LinAlgError, Exception):
-        if backend == "torch":
-            import torch
-            b_col = b.unsqueeze(1) if b.ndim == 1 else b
-            sol = torch.linalg.lstsq(A, b_col).solution
-            return sol.squeeze(1) if b.ndim == 1 else sol
-        elif backend == "cupy":
-            import cupy as cp
-            return cp.linalg.lstsq(A, b)[0]
-        return np.linalg.lstsq(A, b, rcond=None)[0]
-
-
-def _clip(x, lo, hi, backend):
-    if backend == "torch":
-        import torch
-
-        if lo is not None:
-            x = torch.clamp(x, min=lo)
-        if hi is not None:
-            x = torch.clamp(x, max=hi)
-        return x
-    if backend == "cupy":
-        import cupy as cp
-        return cp.clip(x, lo, hi)
-    return np.clip(x, lo, hi)
+    return _solve_linear_system(A, b, backend=backend)
 
 
 def _norm(x, backend):
-    if backend == "torch":
-        import torch
-
-        return float(torch.linalg.norm(x).item())
-    return float(np.linalg.norm(x))
-
-
-def _zeros(n, backend, ref_tensor=None, dtype=np.float64):
-    if backend == "cupy":
-        import cupy as cp
-        return cp.zeros(n, dtype=cp.float64)
-    if backend == "torch":
-        import torch
-        device = ref_tensor.device if ref_tensor is not None else "cpu"
-        return torch.zeros(n, dtype=torch.float64, device=device)
-    return np.zeros(n, dtype=dtype)
-
-
-def _diag(reg, backend, ref_tensor=None):
-    """Create diagonal matrix from 1D array."""
-    if backend == "cupy":
-        import cupy as cp
-        return cp.diag(cp.asarray(reg, dtype=cp.float64))
-    if backend == "torch":
-        import torch
-        return torch.diag(
-            torch.tensor(reg, dtype=torch.float64, device=ref_tensor.device if ref_tensor is not None else "cpu")
-        )
-    return np.diag(reg)
-
-
-def _to_backend(arr, backend, ref_tensor):
-    """Convert numpy array to the target backend."""
-    if backend == "cupy":
-        import cupy as cp
-        return cp.asarray(arr, dtype=cp.float64)
-    if backend == "torch":
-        import torch
-        return torch.tensor(arr, dtype=torch.float64, device=ref_tensor.device if ref_tensor is not None else "cpu")
-    return np.asarray(arr, dtype=float)
-
-
-def _copy_arr(arr):
-    """Copy array: .clone() for torch, .copy() for numpy/cupy."""
-    if hasattr(arr, 'clone'):
-        return arr.clone()
-    return arr.copy()
+    """Compute L2 norm of array."""
+    return float(_norm2(x))
 
 
 # =============================================================================
@@ -227,11 +154,39 @@ def irls_solver(
     if backend == "auto":
         backend = _infer_backend(X)
 
+    # Ensure X and y have the same dtype (e.g. X=float32, y=float64 -> promote X)
+    if backend == "torch":
+        import torch
+        if isinstance(X, torch.Tensor) and isinstance(y, torch.Tensor):
+            if X.dtype != y.dtype:
+                target_dtype = torch.float64 if X.dtype == torch.float32 else X.dtype
+                X = X.to(dtype=target_dtype)
+                y = y.to(dtype=target_dtype)
+    elif backend == "cupy":
+        import cupy as cp
+        if isinstance(X, cp.ndarray) and isinstance(y, cp.ndarray):
+            if X.dtype != y.dtype:
+                target_dtype = cp.float64
+                X = X.astype(target_dtype)
+                y = y.astype(target_dtype)
+
     if init_coef is None:
         n_features = X.shape[1]
         params = _zeros(n_features, backend, ref_tensor=X)
     else:
         params = init_coef
+
+    # Ensure params dtype matches X to avoid torch matmul dtype errors
+    if backend == "torch":
+        import torch
+        if isinstance(X, torch.Tensor) and isinstance(params, torch.Tensor):
+            if params.dtype != X.dtype:
+                params = params.to(dtype=X.dtype)
+    elif backend == "cupy":
+        import cupy as cp
+        if isinstance(X, cp.ndarray) and isinstance(params, cp.ndarray):
+            if params.dtype != X.dtype:
+                params = params.astype(X.dtype)
 
     if max_iter <= 0:
         return params, 0
@@ -247,17 +202,17 @@ def irls_solver(
         if _link_name in ('identity', 'Identity'):
             eta = eta_raw
         else:
-            eta = _clip(eta_raw, -30, 30, backend)
+            eta = _clip(eta_raw, -30, 30)
 
         # Step 2: inverse link -> mean (clip mu to prevent extreme weights)
         # For identity link (squared_error), skip clipping — mu = eta.
         mu = family.link.inverse(eta)
         if _link_name not in ('identity', 'Identity'):
-            mu = _clip(mu, 1e-10, 1e6, backend)
+            mu = _clip(mu, 1e-10, 1e6)
 
         # Step 3: IRLS weights
         W = family.irls_weights(mu, y)
-        W = _clip(W, 1e-10, None, backend)
+        W = _clip(W, 1e-10, None)
 
         if sample_weight is not None:
             sw = _to_backend(sample_weight, backend, X)
@@ -265,6 +220,22 @@ def irls_solver(
 
         # Step 4: working response
         z = family.irls_working_response(mu, y, eta)
+
+        # Ensure W and z match X dtype (e.g. X=float32, y=float64 -> cast)
+        if backend == "torch":
+            import torch
+            if isinstance(X, torch.Tensor):
+                if isinstance(W, torch.Tensor) and W.dtype != X.dtype:
+                    W = W.to(dtype=X.dtype)
+                if isinstance(z, torch.Tensor) and z.dtype != X.dtype:
+                    z = z.to(dtype=X.dtype)
+        elif backend == "cupy":
+            import cupy as cp
+            if isinstance(X, cp.ndarray):
+                if isinstance(W, cp.ndarray) and W.dtype != X.dtype:
+                    W = W.astype(X.dtype)
+                if isinstance(z, cp.ndarray) and z.dtype != X.dtype:
+                    z = z.astype(X.dtype)
 
         # Step 5: weighted least squares (X'WX + lambda*I) params = X'Wz
         if backend == "torch":
@@ -396,7 +367,7 @@ def irls_solver(
 
         # Current loss — use only eta clipping (prevent exp overflow),
         # NOT mu clipping (which distorts the deviance landscape).
-        eta_cur = _clip(X @ params_old, -30, 30, backend)
+        eta_cur = _clip(X @ params_old, -30, 30)
         mu_cur = family.link.inverse(eta_cur)
         try:
             dev_old_dev = _dev_val(mu_cur)
@@ -441,7 +412,7 @@ def irls_solver(
         if _is_constant_W:
             # Constant weights: IRLS = Newton.  Try full step first;
             # if deviance increases significantly, fall back to Armijo.
-            eta_new = _clip(X @ params_new, -30, 30, backend)
+            eta_new = _clip(X @ params_new, -30, 30)
             mu_new = family.link.inverse(eta_new)
             try:
                 dev_new_dev = _dev_val(mu_new)
@@ -454,7 +425,7 @@ def irls_solver(
                 _accepted = False
                 for _bt in range(30):
                     params_try = params_old + step * _direction
-                    eta_try = _clip(X @ params_try, -30, 30, backend)
+                    eta_try = _clip(X @ params_try, -30, 30)
                     mu_try = family.link.inverse(eta_try)
                     try:
                         dev_try_dev = _dev_val(mu_try)
@@ -472,7 +443,7 @@ def irls_solver(
             _accepted = False
             for _bt in range(30):
                 params_try = params_old + step * _direction
-                eta_try = _clip(X @ params_try, -30, 30, backend)
+                eta_try = _clip(X @ params_try, -30, 30)
                 mu_try = family.link.inverse(eta_try)
                 try:
                     dev_try_dev = _dev_val(mu_try)
