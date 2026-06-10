@@ -427,10 +427,16 @@ def _max_eigval_power(mat, n_iter=20, tol=1e-8):
             lambda_old = lambda_new
         return lambda_new
 
+    lambda_old = 0.0
     lambda_new = None
-    for _ in range(n_iter):
+    for i in range(n_iter):
         v_new = mat @ v
         v_norm = _clip(xp.sqrt(xp.dot(v_new, v_new)), 1e-30, None)
         v = v_new / v_norm
         lambda_new = xp.dot(v, v_new)
-    return float(lambda_new.item() if hasattr(lambda_new, "item") else lambda_new)
+        # Early-stop check (sync once per iteration for scalar comparison)
+        lambda_val = float(lambda_new.item() if hasattr(lambda_new, "item") else lambda_new)
+        if i > 0 and abs(lambda_val - lambda_old) < tol * abs(lambda_val):
+            return lambda_val
+        lambda_old = lambda_val
+    return lambda_old

@@ -51,7 +51,7 @@ def kfold_indices(
 
     indices = np.arange(n_samples)
     if shuffle:
-        rng = np.random.RandomState(random_state)
+        rng = np.random.default_rng(random_state)
         rng.shuffle(indices)
 
     fold_sizes = np.full(n_splits, n_samples // n_splits, dtype=int)
@@ -288,6 +288,8 @@ class CVEstimatorBase(BaseEstimator):
     ):
         super().__init__(device=device, n_jobs=n_jobs)
         self.cv = int(cv)
+        if self.cv < 2:
+            raise ValueError(f"cv must be >= 2, got {self.cv}")
         self.random_state = random_state
 
         # Common fitted attributes for CV estimators.

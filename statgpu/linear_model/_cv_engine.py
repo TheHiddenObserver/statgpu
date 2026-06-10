@@ -145,8 +145,8 @@ def run_cv(
 
     best_alpha = float(alpha_grid[best_idx])
 
-    # 5. Cache results
+    # 5. Cache results (copy arrays to prevent mutation corruption)
     if cache is not None and cache_key_fn is not None:
-        cache.put(cache_key, (best_alpha, mean_scores, all_scores))
+        cache.put(cache_key, (best_alpha, mean_scores.copy(), all_scores.copy()))
 
     return best_alpha, mean_scores, all_scores

@@ -1189,7 +1189,8 @@ class RidgeCV(CVEstimatorBase):
         self.mean_mse_ = mean_mse
 
         if np.any(np.isfinite(mean_mse)):
-            self.best_score_ = float(np.nanmin(mean_mse))
+            # sklearn convention: best_score_ is negative MSE (higher is better)
+            self.best_score_ = -float(np.nanmin(mean_mse))
         else:
             self.best_score_ = np.nan
 
