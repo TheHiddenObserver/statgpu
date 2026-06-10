@@ -720,6 +720,9 @@ class LassoCV(CVEstimatorBase):
         """
         Fit Lasso regression with cross-validation to select alpha.
 
+        Delegates to ``_select_lasso_alpha_cv`` for CV with cache, fast-refit,
+        and backend-aware optimizations.
+
         Parameters
         ----------
         X : array-like
@@ -734,7 +737,35 @@ class LassoCV(CVEstimatorBase):
         self : LassoCV
             Fitted estimator.
         """
-        details = self._fit_cv(X, y, sample_weight=sample_weight)
+        from statgpu.linear_model._lasso import _select_lasso_alpha_cv, Lasso
+
+        device_name = self._get_compute_device().value
+        effective_cpu_solver = (
+            "coordinate_descent" if str(self.method).lower() == "glmnet" else str(self.cpu_solver)
+        )
+        effective_cd_kkt = self.cd_kkt_check_every
+        if effective_cd_kkt is None:
+            effective_cd_kkt = 4 if str(self.method).lower() == "glmnet" else 1
+
+        details = _select_lasso_alpha_cv(
+            X, y,
+            alphas=self.alphas,
+            n_alphas=self.n_alphas,
+            alpha_min_ratio=self.alpha_min_ratio,
+            cv_folds=self.cv,
+            cv_splits=self.cv_splits,
+            random_state=self.random_state,
+            sample_weight=sample_weight,
+            fit_intercept=self.fit_intercept,
+            device=device_name,
+            max_iter=self.max_iter,
+            tol=self.tol,
+            cpu_solver=effective_cpu_solver,
+            method=self.method,
+            cd_kkt_check_every=effective_cd_kkt,
+            gpu_cv_mixed_precision=self.gpu_cv_mixed_precision,
+            return_details=True,
+        )
 
         # Store CV results
         self.alpha_ = float(details["alpha"])
@@ -752,22 +783,18 @@ class LassoCV(CVEstimatorBase):
         estimator = Lasso(
             alpha=self.alpha_,
             fit_intercept=self.fit_intercept,
-            device=self.device,
-            n_jobs=self.n_jobs,
             max_iter=self.max_iter,
             tol=self.tol,
             stopping=self.stopping,
-            solver=self.solver,
-            cpu_solver=(
-                "coordinate_descent"
-                if str(self.method).lower() == "glmnet"
-                else str(self.cpu_solver)
-            ),
-            lipschitz_L=self.lipschitz_L,
-            gpu_memory_cleanup=self.gpu_memory_cleanup,
-            compute_inference=self.compute_inference,
             inference_method=self.inference_method,
+            device=self.device,
+            n_jobs=self.n_jobs,
+            compute_inference=self.compute_inference,
+            solver=self.solver,
+            cpu_solver=effective_cpu_solver,
+            lipschitz_L=self.lipschitz_L,
             admm_rho=self.admm_rho,
+            gpu_memory_cleanup=self.gpu_memory_cleanup,
         )
         estimator.fit(X, y, sample_weight=sample_weight)
 
@@ -777,16 +804,10 @@ class LassoCV(CVEstimatorBase):
         self.n_iter_ = getattr(estimator, 'n_iter_', None)
 
         # Copy inference attributes if available
-        _bse_exists = hasattr(estimator, '_bse') and estimator._bse is not None
-        _pvalues_exists = hasattr(estimator, '_pvalues') and estimator._pvalues is not None
-        if _bse_exists:
-            self.coef_std_ = np.asarray(estimator._bse)
-        if _pvalues_exists:
-            self.coef_pvalues_ = np.asarray(estimator._pvalues)
-        if hasattr(estimator, '_tvalues') and estimator._tvalues is not None:
-            self.coef_zscores_ = np.asarray(estimator._tvalues)
-        if hasattr(estimator, '_conf_int') and estimator._conf_int is not None:
-            self.coef_conf_int_ = np.asarray(estimator._conf_int)
+        for attr in ('_bse', '_pvalues', '_tvalues', '_conf_int'):
+            val = getattr(estimator, attr, None)
+            if val is not None:
+                setattr(self, attr.replace('_', '', 1) if attr.startswith('_') else attr, np.asarray(val))
 
         self._fitted = True
         return self

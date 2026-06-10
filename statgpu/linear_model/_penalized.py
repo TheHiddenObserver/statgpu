@@ -548,7 +548,7 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
 
         # Handle penalties requiring initialization (e.g., Adaptive Lasso)
         if self._penalty.requires_init:
-            init_coef = self._fit_initial(X, y)
+            init_coef = self._fit_initial(X, y, backend_name=backend_name)
             self._penalty.set_weights(init_coef)
 
         # Non-convex penalties (SCAD, MCP) for squared_error: use IRLS-CD
@@ -1378,8 +1378,17 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
 
         return backend_name
 
-    def _fit_initial(self, X, y):
+    def _fit_initial(self, X, y, backend_name="numpy"):
         """Fit initial model for penalties requiring initialization.
+
+        Parameters
+        ----------
+        X : array
+            Design matrix.
+        y : array
+            Target vector.
+        backend_name : str
+            Backend to use ('numpy', 'torch', 'cupy'). Default 'numpy'.
 
         Uses OLS when n_samples > n_features (well-determined, unbiased),
         and Ridge otherwise (works for any p, required when p > n).
@@ -1422,9 +1431,16 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
 
             l2_pen = get_penalty("l2", alpha=0.001)
             loss_obj = self._resolve_loss()
+            # Use matching backend for GPU data
+            if backend_name in ("torch", "cupy"):
+                backend = get_backend(backend=backend_name, device='cuda')
+                X_b = backend.asarray(X, dtype=backend.float64)
+                y_b = backend.asarray(y, dtype=backend.float64)
+            else:
+                X_b = np.asarray(X, dtype=np.float64)
+                y_b = np.asarray(y, dtype=np.float64)
             init_coef, _ = fista_solver(
-                loss_obj, l2_pen, np.asarray(X, dtype=np.float64),
-                np.asarray(y, dtype=np.float64),
+                loss_obj, l2_pen, X_b, y_b,
                 max_iter=500, tol=1e-4,
             )
             return init_coef
@@ -1436,9 +1452,16 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
             # which converges more tightly and gives larger coefficients
             # → smaller weights → too many features surviving.
             loss_name = getattr(self, 'loss', 'squared_error')
+            # Use matching backend for GPU data
+            if backend_name in ("torch", "cupy"):
+                backend = get_backend(backend=backend_name, device='cuda')
+                X_b = backend.asarray(X, dtype=backend.float64)
+                y_b = backend.asarray(y, dtype=backend.float64)
+            else:
+                X_b = np.asarray(X, dtype=np.float64)
+                y_b = np.asarray(y, dtype=np.float64)
             init_coef = _irls_ridge_init(
-                np.asarray(X, dtype=np.float64),
-                np.asarray(y, dtype=np.float64),
+                X_b, y_b,
                 loss_name=loss_name,
                 alpha=0.01,
                 max_iter=100,

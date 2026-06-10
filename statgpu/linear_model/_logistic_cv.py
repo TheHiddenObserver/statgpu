@@ -577,23 +577,22 @@ def _select_logistic_c_cv(
                 fit_intercept=bool(fit_intercept), max_iter=max_iter, tol=tol
             )
 
-            # Evaluate log-loss for each fold and C
+            # Evaluate log-loss for each fold and C (vectorized across C)
             for fold_idx in range(n_folds):
                 X_val, y_val, sw_val = fold_eval_payload[fold_idx]
                 n_val = int(X_val.shape[0])
 
-                # Compute probabilities for all Cs
-                probs_desc = []
-                for c_idx in range(n_C):
-                    coef = backend.asarray(coefs_batch[c_idx, fold_idx])
-                    intercept = backend.asarray(intercepts_batch[c_idx, fold_idx])
+                # Batched matmul: X_val @ coefs_all.T for all C at once
+                # coefs_batch shape: (n_C, n_folds, n_features)
+                coefs_all = backend.asarray(coefs_batch[:, fold_idx, :])  # (n_C, n_features)
+                intercepts_all = backend.asarray(intercepts_batch[:, fold_idx])  # (n_C,)
 
-                    eta = X_val @ coef + intercept
-                    probs = 1 / (1 + backend.exp(-backend.clip(eta, -500, 500)))
-                    probs_desc.append(probs)
+                # eta_all shape: (n_val, n_C)
+                eta_all = X_val @ coefs_all.T + intercepts_all.reshape(1, -1)
+                # probs_all shape: (n_C, n_val)
+                probs_all = (1 / (1 + backend.exp(-backend.clip(eta_all, -500, 500)))).T
 
-                probs_desc = backend.stack(probs_desc, axis=0)
-                loss_desc = _batch_log_loss_backend(y_val, probs_desc, backend, sw_val)
+                loss_desc = _batch_log_loss_backend(y_val, probs_all, backend, sw_val)
                 loss_path[:, fold_idx] = backend.to_numpy(loss_desc)
 
         except Exception as exc:
