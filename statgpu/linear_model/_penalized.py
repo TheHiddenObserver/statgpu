@@ -97,6 +97,61 @@ def _resolve_loss_name(loss_name, loss_kwargs=None):
         return SquaredErrorLoss()
 
 
+# ---------------------------------------------------------------------------
+# Solver dispatch table for solver='auto'
+# ---------------------------------------------------------------------------
+# Each entry is (solver, condition_fn). First match wins.
+# condition_fn takes (loss, penalty, backend, l1_ratio, cv_mode, problem_size).
+
+_SPARSE_PENALTIES = frozenset({
+    "l1", "elasticnet", "en",
+    "adaptive_l1", "adaptive_lasso",
+    "scad", "mcp",
+    "group_lasso", "gl", "group_mcp", "gmcp", "group_scad", "gscad",
+})
+_NONCONVEX_PENALTIES = frozenset({
+    "scad", "mcp", "group_mcp", "gmcp", "group_scad", "gscad",
+})
+_SMOOTH_PENALTIES = frozenset({"l2", "none", "null", ""})
+
+# (solver, condition)
+# condition = (loss, penalty, backend, l1_ratio, cv_mode, problem_size) -> bool
+_SOLVER_DISPATCH_TABLE = [
+    # 1. Exact Ridge
+    ("exact", lambda l, p, b, lr, cv, ps: l == "squared_error" and p == "l2"),
+    # 2. Nonconvex penalties always use FISTA (LLA wrapper)
+    ("fista", lambda l, p, b, lr, cv, ps: p in _NONCONVEX_PENALTIES),
+    # 3. Squared error + sparse → FISTA
+    ("fista", lambda l, p, b, lr, cv, ps: l == "squared_error" and p in _SPARSE_PENALTIES),
+    # 4. CV + Poisson + GPU + L1 → fista_bb (unless very large)
+    ("fista_bb", lambda l, p, b, lr, cv, ps: cv and l == "poisson" and b in ("cupy", "torch") and p == "l1" and (ps is None or ps < 2_000_000)),
+    # 5. CV + Poisson + GPU + ElasticNet → fista_bb
+    ("fista_bb", lambda l, p, b, lr, cv, ps: cv and l == "poisson" and b in ("cupy", "torch") and p in ("elasticnet", "en")),
+    # 6. CV + Poisson + CPU + sparse → FISTA
+    ("fista", lambda l, p, b, lr, cv, ps: cv and l == "poisson" and p in _SPARSE_PENALTIES),
+    # 7. CV + NB + GPU + sparse + L1 → fista_bb
+    ("fista_bb", lambda l, p, b, lr, cv, ps: cv and l == "negative_binomial" and b in ("cupy", "torch") and p == "l1"),
+    # 8. CV + NB + GPU + ElasticNet → fista (medium) or fista_bb
+    ("fista", lambda l, p, b, lr, cv, ps: cv and l == "negative_binomial" and b in ("cupy", "torch") and p in ("elasticnet", "en") and ps is not None and 200_000 <= ps < 1_000_000),
+    ("fista_bb", lambda l, p, b, lr, cv, ps: cv and l == "negative_binomial" and b in ("cupy", "torch") and p in ("elasticnet", "en")),
+    # 9. Gamma/IG + sparse → FISTA
+    ("fista", lambda l, p, b, lr, cv, ps: l in ("gamma", "inverse_gaussian") and p in _SPARSE_PENALTIES),
+    # 10. Tweedie + GPU + sparse → FISTA
+    ("fista", lambda l, p, b, lr, cv, ps: l == "tweedie" and b in ("cupy", "torch") and p in _SPARSE_PENALTIES),
+    # 11. CV + Logistic + sparse → FISTA
+    ("fista", lambda l, p, b, lr, cv, ps: cv and l == "logistic" and p in _SPARSE_PENALTIES),
+    # 12. Default sparse → fista_bb
+    ("fista_bb", lambda l, p, b, lr, cv, ps: p in _SPARSE_PENALTIES),
+    # 13. CV + L2: loss-specific smooth solvers
+    ("lbfgs", lambda l, p, b, lr, cv, ps: cv and p == "l2" and l == "negative_binomial"),
+    ("newton", lambda l, p, b, lr, cv, ps: cv and p == "l2" and l in ("poisson", "tweedie")),
+    ("lbfgs", lambda l, p, b, lr, cv, ps: cv and p == "l2" and l in ("gamma", "inverse_gaussian")),
+    # 14. Smooth penalties: loss-specific solvers
+    ("newton", lambda l, p, b, lr, cv, ps: p in _SMOOTH_PENALTIES and l in ("gamma", "tweedie", "inverse_gaussian")),
+    ("irls", lambda l, p, b, lr, cv, ps: p in _SMOOTH_PENALTIES and l in ("logistic", "poisson", "negative_binomial")),
+]
+
+
 def _preferred_penalized_glm_solver(
     loss_name,
     penalty_name,
@@ -109,77 +164,18 @@ def _preferred_penalized_glm_solver(
 
     This helper only chooses an internal solver.  It must never be used to
     override an explicitly requested solver or to change the selected device.
+
+    Dispatch is table-driven: first matching rule wins.
     """
     loss_name = str(loss_name or "").lower()
     penalty_name = str(penalty_name or "").lower()
     backend_name = str(backend_name or "").lower()
     if problem_size is not None:
         problem_size = int(problem_size)
-    sparse_penalties = {
-        "l1", "elasticnet", "en",
-        "adaptive_l1", "adaptive_lasso",
-        "scad", "mcp",
-        "group_lasso", "gl", "group_mcp", "gmcp", "group_scad", "gscad",
-    }
-    nonconvex_penalties = {
-        "scad", "mcp", "group_mcp", "gmcp", "group_scad", "gscad",
-    }
 
-    if loss_name == "squared_error" and penalty_name == "l2":
-        return "exact"
-
-    if penalty_name in sparse_penalties:
-        if penalty_name in nonconvex_penalties:
-            return "fista"
-        if loss_name == "squared_error":
-            return "fista"
-        if cv_mode and loss_name == "poisson" and backend_name in ("cupy", "torch"):
-            if penalty_name == "l1":
-                if problem_size is not None and problem_size >= 2_000_000:
-                    return "fista"
-                return "fista_bb"
-            if penalty_name in ("elasticnet", "en"):
-                return "fista_bb"
-        if cv_mode and loss_name == "poisson":
-            return "fista"
-        if (
-            cv_mode
-            and loss_name == "negative_binomial"
-            and backend_name in ("cupy", "torch")
-            and problem_size is not None
-        ):
-            # P100 targeted CV data shows NB L1 benefits from BB across the
-            # tested strict-CV scales; ElasticNet still has a medium-scale BB
-            # overhead pocket.
-            if penalty_name == "l1":
-                return "fista_bb"
-            if penalty_name in ("elasticnet", "en"):
-                return "fista" if 200_000 <= problem_size < 1_000_000 else "fista_bb"
-        if loss_name in ("gamma", "inverse_gaussian"):
-            return "fista"
-        if loss_name == "tweedie" and backend_name in ("cupy", "torch"):
-            return "fista"
-        if cv_mode and loss_name == "logistic":
-            return "fista"
-        return "fista_bb"
-
-    if cv_mode and penalty_name == "l2":
-        if loss_name == "negative_binomial":
-            return "lbfgs"
-        if loss_name == "poisson":
-            return "newton"
-        if loss_name == "gamma":
-            return "lbfgs"
-        if loss_name == "inverse_gaussian":
-            return "lbfgs"
-        if loss_name == "tweedie":
-            return "newton"
-
-    if penalty_name in ("l2", "none", "null", ""):
-        if loss_name in ("gamma", "tweedie", "inverse_gaussian"):
-            return "newton"
-        if loss_name in ("logistic", "poisson", "negative_binomial"):
-            return "irls"
+    for solver, cond in _SOLVER_DISPATCH_TABLE:
+        if cond(loss_name, penalty_name, backend_name, l1_ratio, cv_mode, problem_size):
+            return solver
 
     return "fista"
 
@@ -209,6 +205,104 @@ def _irls_ridge_init_cd(X, y, alpha, max_iter, tol):
             break
 
     return beta * scale
+
+
+class SelectivePenalty:
+    """Penalty wrapper that leaves the last intercept coefficient free.
+
+    Created once per fit and reused across iterations. The inner penalty,
+    feature count p, and backend are set via ``configure()``.
+    """
+
+    def __init__(self):
+        self._pen = None
+        self._p = 0
+        self._backend = "numpy"
+        self._alpha = 0.0
+        self._l1_ratio = 0.0
+
+    def configure(self, pen, p, backend):
+        self._pen = pen
+        self._p = p
+        self._backend = backend
+        self._alpha = float(getattr(pen, "alpha", 0.0))
+        self._l1_ratio = float(getattr(pen, "l1_ratio", 0.0))
+        self.name = pen.name
+
+    def value(self, coef):
+        return self._pen.value(coef[:self._p])
+
+    def proximal(self, w, step, backend=None):
+        b = backend or self._backend
+        w_feat = w[:self._p]
+        result_feat = self._pen.proximal(w_feat, step, backend=b)
+        if b == "cupy":
+            import cupy as cp
+            result = cp.empty(w.shape[0], dtype=w.dtype)
+            result[:self._p] = result_feat
+            result[-1] = cp.clip(w[-1], -_INTERCEPT_CLIP_BOUND, _INTERCEPT_CLIP_BOUND)
+        elif b == "torch":
+            import torch
+            result = torch.empty(w.shape[0], dtype=w.dtype, device=w.device)
+            result[:self._p] = result_feat
+            result[-1] = torch.clamp(w[-1], -_INTERCEPT_CLIP_BOUND, _INTERCEPT_CLIP_BOUND)
+        else:
+            result = np.empty(w.shape[0], dtype=w.dtype)
+            result[:self._p] = result_feat
+            result[-1] = np.clip(w[-1], -_INTERCEPT_CLIP_BOUND, _INTERCEPT_CLIP_BOUND)
+        return result
+
+    def _smooth_alpha(self):
+        pname = str(self._pen.name).lower()
+        if pname == "l2":
+            return self._alpha
+        if pname == "elasticnet":
+            return self._alpha * (1.0 - self._l1_ratio)
+        raise ValueError("smooth solvers only support L2/ElasticNet penalties.")
+
+    def smooth_value(self, coef):
+        sa = self._smooth_alpha()
+        active = coef[:self._p]
+        if self._backend == "cupy":
+            import cupy as cp
+            return 0.5 * sa * cp.sum(active * active)
+        if self._backend == "torch":
+            import torch
+            return 0.5 * sa * torch.sum(active * active)
+        return 0.5 * sa * np.sum(active * active)
+
+    def smooth_gradient(self, coef):
+        sa = self._smooth_alpha()
+        if self._backend == "cupy":
+            import cupy as cp
+            grad = cp.zeros_like(coef)
+        elif self._backend == "torch":
+            import torch
+            grad = torch.zeros_like(coef)
+        else:
+            grad = np.zeros_like(coef)
+        grad[:self._p] = sa * coef[:self._p]
+        return grad
+
+    def smooth_hessian(self, coef):
+        sa = self._smooth_alpha()
+        if self._backend == "cupy":
+            import cupy as cp
+            diag = cp.zeros(coef.shape[0], dtype=coef.dtype)
+            diag[:self._p] = sa
+            return cp.diag(diag)
+        if self._backend == "torch":
+            import torch
+            diag = torch.zeros(coef.shape[0], dtype=coef.dtype, device=coef.device)
+            diag[:self._p] = sa
+            return torch.diag(diag)
+        diag = np.zeros(coef.shape[0], dtype=coef.dtype)
+        diag[:self._p] = sa
+        return np.diag(diag)
+
+
+# Module-level singleton for _selective_penalty (avoids per-call class creation)
+_SELECTIVE_PENALTY_SINGLETON = SelectivePenalty()
 
 
 class PenalizedGeneralizedLinearModel(BaseEstimator):
@@ -284,6 +378,7 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
         lipschitz_L: Optional[float] = None,
         gpu_memory_cleanup: bool = False,
         compute_inference: bool = False,
+        inference_method: str = "debiased",
         cov_type: str = "nonrobust",
         hac_maxlags: Optional[int] = None,
         stopping: str = "coef_delta",
@@ -306,6 +401,7 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
         self.lipschitz_L = lipschitz_L
         self.gpu_memory_cleanup = gpu_memory_cleanup
         self.compute_inference = compute_inference
+        self.inference_method = inference_method.lower()
         self.cov_type = validate_cov_type(cov_type)
         self.hac_maxlags = validate_hac_maxlags(hac_maxlags)
         self.stopping = str(stopping).lower()
@@ -343,6 +439,10 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
         self._init_coef = None
         self._inference_precomputed = False
         self._precomputed_gaussian_state = None
+        # Simultaneous inference state
+        self._conf_int_simultaneous = None
+        self._simultaneous_enabled = False
+        self._debiased_M_cpu = None
 
     def _resolve_penalty(self) -> "Penalty":
         """Resolve penalty string or instance to a Penalty object."""
@@ -565,28 +665,15 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
 
         Currently supported:
         - squared_error + L2 (standard OLS inference)
-
-        Not yet fully implemented:
-        - L1/ElasticNet debiased inference (accepted but attributes stay None)
-        - Non-Gaussian penalized GLM inference
+        - squared_error + L1/ElasticNet (debiased Lasso inference)
         """
         if not self.compute_inference:
             return
         penalty_name = str(getattr(self._penalty, "name", self.penalty)).lower()
         if self.loss == "squared_error" and penalty_name == "l2":
             return
-        # Debiased inference for L1/ElasticNet: accepted but not yet populated
-        inference_method = str(getattr(self, "inference_method", "cpu_ols_inference")).lower()
+        inference_method = str(getattr(self, "inference_method", "debiased")).lower()
         if penalty_name in ("l1", "elasticnet", "en") and "debiased" in inference_method:
-            import warnings
-            warnings.warn(
-                f"compute_inference=True with inference_method='debiased' for "
-                f"penalty='{penalty_name}': debiased inference is accepted but "
-                f"not yet fully implemented. Inference attributes (bse, pvalues, "
-                f"conf_int) will be None.",
-                UserWarning,
-                stacklevel=3,
-            )
             return
         raise NotImplementedError(
             f"compute_inference=True with penalty='{penalty_name}' and "
@@ -622,12 +709,17 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
         return X_np * sqrt_sw[:, np.newaxis], y_np * sqrt_sw
 
     def _compute_post_fit_gaussian_inference(self, X, y, sample_weight=None):
-        """Populate shared Gaussian inference state for squared-error L2 fits."""
+        """Populate inference state after fit. Dispatches to debiased for L1/ElasticNet."""
         if not self.compute_inference:
             return
         if self.loss != "squared_error":
             return
         penalty_name = str(getattr(self._penalty, "name", self.penalty)).lower()
+        if penalty_name in ("l1", "elasticnet", "en"):
+            inference_method = str(getattr(self, "inference_method", "debiased")).lower()
+            if "debiased" in inference_method:
+                self._compute_post_fit_debiased_inference(X, y, sample_weight=sample_weight)
+            return
         if penalty_name != "l2":
             return
         if self._inference_precomputed:
@@ -695,6 +787,503 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
             return ["(Intercept)"] + [f"x{i+1}" for i in range(n_features)]
         return [f"x{i+1}" for i in range(n_features)]
 
+    # ----------------------------------------------------------------
+    # Debiased Lasso inference (CPU / CuPy / Torch)
+    # ----------------------------------------------------------------
+
+    def _compute_post_fit_debiased_inference(self, X, y, sample_weight=None):
+        """Debiased Lasso inference for squared_error + L1/ElasticNet (CPU path).
+
+        Constructs the decorrelation matrix M via node-wise Lasso,
+        then computes the debiased estimator, standard errors,
+        z-statistics, p-values, and confidence intervals.
+        """
+        from scipy.stats import norm as _norm_dist
+
+        X_np = np.asarray(_to_numpy(X), dtype=np.float64)
+        y_np = np.asarray(_to_numpy(y), dtype=np.float64).ravel()
+
+        if sample_weight is not None:
+            sw = np.asarray(_to_numpy(sample_weight), dtype=np.float64).ravel()
+            sqrt_sw = np.sqrt(sw)
+            X_np = X_np * sqrt_sw[:, None]
+            y_np = y_np * sqrt_sw
+
+        n, p = X_np.shape
+        coef = np.asarray(self.coef_, dtype=np.float64).copy()
+
+        Sigma_hat = X_np.T @ X_np / n
+
+        # Compute residuals
+        if self.fit_intercept:
+            resid = y_np - X_np @ coef - self.intercept_
+        else:
+            resid = y_np - X_np @ coef
+
+        # Noise variance estimate
+        s_hat = int(np.sum(np.abs(coef) > 0))
+        sigma2 = np.sum(resid ** 2) / max(n - s_hat, 1)
+
+        # Node-wise Lasso to build M matrix
+        from statgpu.linear_model._lasso import (
+            _debiased_m_cache_get,
+            _debiased_m_cache_put,
+            _debiased_m_key_from_numpy_design,
+        )
+
+        # Scale node-wise lambda by sigma_hat (van de Geer et al. 2014)
+        sigma_hat = np.sqrt(sigma2)
+        lam_nw = np.sqrt(2.0 * np.log(max(p, 2)) / n) * sigma_hat
+        m_cache_key = _debiased_m_key_from_numpy_design(
+            X_np, n=n, p=p, lam_nw=lam_nw, tol=float(self.tol),
+        )
+        M_cached = _debiased_m_cache_get(m_cache_key)
+        if M_cached is not None:
+            M = np.asarray(M_cached, dtype=np.float64)
+        else:
+            # Import here to avoid circular dependency at module level
+            from statgpu.linear_model._penalized import PenalizedLinearRegression as _PLR
+
+            M = np.zeros((p, p), dtype=np.float64)
+            for j in range(p):
+                cols = np.concatenate([np.arange(0, j), np.arange(j + 1, p)])
+                X_minus_j = X_np[:, cols]
+                x_j = X_np[:, j]
+
+                nw = _PLR(
+                    penalty="l1", alpha=lam_nw,
+                    fit_intercept=False, max_iter=500, tol=1e-5,
+                    device="cpu", cpu_solver="fista",
+                    compute_inference=False, inference_method="none",
+                )
+                nw.fit(X_minus_j, x_j)
+                gamma_j = np.asarray(nw.coef_, dtype=np.float64)
+
+                z_j = x_j - X_minus_j @ gamma_j
+                C_j = z_j @ x_j / n
+
+                if abs(C_j) < 1e-30:
+                    M[j, j] = 1.0
+                    continue
+                M[j, j] = 1.0 / C_j
+                M[j, cols] = -gamma_j / C_j
+            _debiased_m_cache_put(m_cache_key, M)
+
+        # Debiased estimates
+        theta_db = coef + (M @ X_np.T @ resid) / n
+        self._debiased_M_cpu = M
+
+        # Standard errors
+        V = M @ Sigma_hat @ M.T
+        se = np.sqrt(sigma2 * np.diag(V) / n)
+
+        z_stats = theta_db / (se + 1e-30)
+        pvalues = 2.0 * (1.0 - _norm_dist.cdf(np.abs(z_stats)))
+
+        alpha_ci = 0.05
+        z_crit = _norm_dist.ppf(1.0 - alpha_ci / 2.0)
+        ci = np.column_stack([theta_db - z_crit * se, theta_db + z_crit * se])
+
+        # Store residuals and design matrix for R² and simultaneous inference
+        self._y = y_np
+        self._resid = resid
+        self._nobs = n
+        self._scale = sigma2
+        if self.fit_intercept:
+            self._X_design = np.column_stack([np.ones(n), X_np])
+        else:
+            self._X_design = X_np.copy()
+
+        if self.fit_intercept:
+            X_full = self._X_design
+            try:
+                XtX_inv = np.linalg.inv(X_full.T @ X_full)
+            except np.linalg.LinAlgError:
+                XtX_inv = np.linalg.pinv(X_full.T @ X_full)
+            se_intercept = np.sqrt(sigma2 * XtX_inv[0, 0])
+            z_intercept = self.intercept_ / (se_intercept + 1e-30)
+            p_intercept = 2.0 * (1.0 - _norm_dist.cdf(np.abs(z_intercept)))
+            ci_intercept = np.array([
+                self.intercept_ - z_crit * se_intercept,
+                self.intercept_ + z_crit * se_intercept,
+            ])
+            self._bse = np.concatenate([[se_intercept], se])
+            self._tvalues = np.concatenate([[z_intercept], z_stats])
+            self._pvalues = np.concatenate([[p_intercept], pvalues])
+            self._conf_int = np.vstack([ci_intercept[np.newaxis, :], ci])
+            self._params = np.concatenate([[self.intercept_], theta_db])
+        else:
+            self._bse = se
+            self._tvalues = z_stats
+            self._pvalues = pvalues
+            self._conf_int = ci
+            self._params = theta_db
+            self._y = y_np
+            self._resid = resid
+            self._nobs = n
+            self._scale = sigma2
+            self._X_design = X_np.copy()
+
+        # Simultaneous inference (max-|Z| bootstrap) if requested
+        if getattr(self, 'enable_simultaneous_inference', False):
+            self._compute_simultaneous_ci_maxz_bootstrap()
+
+    def _compute_inference_debiased_gpu(self, X_gpu, y_gpu, coef_gpu):
+        """CuPy GPU path for debiased Lasso inference."""
+        import cupy as cp
+        from statgpu.inference._distributions_backend import norm as _gpu_norm
+
+        n, p = X_gpu.shape
+        Sigma_hat = X_gpu.T @ X_gpu / n
+
+        resid = y_gpu - X_gpu @ coef_gpu
+        if self.fit_intercept:
+            resid = resid - cp.mean(y_gpu) + cp.mean(X_gpu, axis=0) @ coef_gpu
+
+        s_hat = float(cp.sum(cp.abs(coef_gpu) > 0))
+        sigma2 = float(cp.sum(resid ** 2)) / max(n - s_hat, 1)
+
+        from statgpu.linear_model._lasso import (
+            _debiased_m_cache_get,
+            _debiased_m_cache_put,
+            _LASSO_DEBIASED_M_GPU_HASH_ROW_CHUNK,
+            _solve_lasso_path_gpu_fista_multi_fold_from_gram,
+        )
+
+        # Scale node-wise lambda by sigma_hat (van de Geer et al. 2014)
+        sigma_hat = np.sqrt(sigma2)
+        lam_nw = float(np.sqrt(2.0 * np.log(max(p, 2)) / n) * sigma_hat)
+        alpha_nw = np.asarray([lam_nw], dtype=np.float64)
+
+        # GPU-aware cache key
+        import hashlib
+        x_hasher = hashlib.blake2b(digest_size=32)
+        x_hasher.update(np.asarray([int(n), int(p)], dtype=np.int64).tobytes())
+        x_hasher.update(str(X_gpu.dtype).encode("utf-8"))
+        x_hasher.update(np.asarray([float(lam_nw), float(self.tol)], dtype=np.float64).tobytes())
+        row_chunk = max(1, min(int(n), _LASSO_DEBIASED_M_GPU_HASH_ROW_CHUNK))
+        for start in range(0, int(n), row_chunk):
+            stop = min(int(n), start + row_chunk)
+            x_hasher.update(cp.asnumpy(X_gpu[start:stop]).tobytes())
+        m_cache_key = x_hasher.hexdigest()
+
+        M_cached = _debiased_m_cache_get(m_cache_key)
+        if M_cached is not None:
+            M = cp.asarray(M_cached, dtype=X_gpu.dtype)
+        else:
+            M = cp.zeros((p, p), dtype=X_gpu.dtype)
+            # Reuse Sigma_hat * n instead of recomputing X'X
+            XtX_full = Sigma_hat * n
+            Sigma_diag = cp.diag(Sigma_hat)
+
+            # Precompute global Lipschitz constant once (avoids per-batch eigendecomposition)
+            eig_max = float(cp.linalg.eigvalsh(Sigma_hat)[-1])
+            L_global = max(eig_max, 1e-12)
+
+            # Adaptive chunk_size: use as much GPU memory as possible
+            # Memory per fold: (p-1)^2 * 8 (Gram) + (p-1)^2 * 8 * 3 (FISTA workspace)
+            try:
+                free_mem, _ = cp.cuda.Device().mem_info
+                bytes_per_fold = int((p - 1) * (p - 1) * 8 * 4)  # Gram + FISTA buffers
+                chunk_size = int(max(4, min(p, free_mem * 0.7 // max(bytes_per_fold, 1))))
+            except Exception:
+                chunk_size = 16
+            chunk_size = max(4, min(int(p), chunk_size))
+
+            for j0 in range(0, p, chunk_size):
+                j1 = min(p, j0 + chunk_size)
+                bsz = j1 - j0
+                j_batch = cp.arange(j0, j1, dtype=cp.int32)
+                if int(j_batch.size) == 0:
+                    continue
+
+                base = cp.arange(p - 1, dtype=cp.int32).reshape(1, -1)
+                cols_batch = base + (base >= j_batch.reshape(-1, 1))
+
+                XtX_batch = XtX_full[
+                    cols_batch[:, :, cp.newaxis],
+                    cols_batch[:, cp.newaxis, :],
+                ]
+                Xty_batch = XtX_full[cols_batch, j_batch.reshape(-1, 1)].reshape(bsz, p - 1)
+
+                coefs_batch_desc, _ = _solve_lasso_path_gpu_fista_multi_fold_from_gram(
+                    XtX_batch, Xty_batch,
+                    n_samples_vec=np.full((bsz,), float(n), dtype=np.float64),
+                    alphas_desc=alpha_nw,
+                    max_iter=500, tol=1e-5, stopping="coef_delta",
+                    lipschitz_L=L_global, check_every=8,
+                )
+                gamma_batch = cp.asarray(coefs_batch_desc[:, 0, :], dtype=X_gpu.dtype)
+
+                sigma_j_cols = Sigma_hat[j_batch[:, cp.newaxis], cols_batch]
+                C_batch = Sigma_diag[j_batch] - cp.sum(sigma_j_cols * gamma_batch, axis=1)
+
+                tiny = X_gpu.dtype.type(1e-30)
+                zero = X_gpu.dtype.type(0.0)
+                one = X_gpu.dtype.type(1.0)
+                small_c = cp.abs(C_batch) < tiny
+                inv_c = cp.where(small_c, zero, one / C_batch)
+                M[j_batch, j_batch] = cp.where(small_c, one, inv_c)
+                M[j_batch[:, cp.newaxis], cols_batch] = -gamma_batch * inv_c.reshape(-1, 1)
+
+                del XtX_batch, Xty_batch, coefs_batch_desc, gamma_batch, sigma_j_cols
+            _debiased_m_cache_put(m_cache_key, cp.asnumpy(M))
+
+        theta_db = coef_gpu + (M @ X_gpu.T @ resid) / n
+        V = M @ Sigma_hat @ M.T
+        se = cp.sqrt(sigma2 * cp.diag(V) / n)
+
+        z_stats = theta_db / (se + 1e-30)
+        pvalues = cp.minimum(1.0, 2.0 * _gpu_norm.sf(cp.abs(z_stats)))
+
+        z_crit = _gpu_norm.ppf(0.975)
+        ci = cp.stack([theta_db - z_crit * se, theta_db + z_crit * se], axis=1)
+
+        if self.fit_intercept:
+            X_full = cp.concatenate([cp.ones((n, 1), dtype=X_gpu.dtype), X_gpu], axis=1)
+            try:
+                XtX_inv = cp.linalg.inv(X_full.T @ X_full)
+            except Exception:
+                XtX_inv = cp.linalg.pinv(X_full.T @ X_full)
+            se_intercept = cp.sqrt(sigma2 * XtX_inv[0, 0])
+            intercept_gpu = cp.asarray(self.intercept_, dtype=cp.float64)
+            z_intercept = intercept_gpu / (se_intercept + 1e-30)
+            p_intercept = cp.minimum(1.0, 2.0 * _gpu_norm.sf(cp.abs(z_intercept).reshape(1)))
+            ci_intercept = cp.stack([
+                intercept_gpu - z_crit * se_intercept,
+                intercept_gpu + z_crit * se_intercept,
+            ]).reshape(1, 2)
+
+            self._bse = cp.asnumpy(cp.concatenate([se_intercept.reshape(1), se]))
+            self._tvalues = cp.asnumpy(cp.concatenate([z_intercept.reshape(1), z_stats]))
+            self._pvalues = cp.asnumpy(cp.concatenate([p_intercept.reshape(1), pvalues]))
+            self._conf_int = cp.asnumpy(cp.concatenate([ci_intercept, ci], axis=0))
+            self._params = cp.asnumpy(cp.concatenate([intercept_gpu.reshape(1), theta_db]))
+        else:
+            self._bse = cp.asnumpy(se)
+            self._tvalues = cp.asnumpy(z_stats)
+            self._pvalues = cp.asnumpy(pvalues)
+            self._conf_int = cp.asnumpy(ci)
+            self._params = cp.asnumpy(theta_db)
+
+    def _compute_inference_debiased_torch(self, X_torch, y_torch, coef_torch):
+        """Torch GPU path for debiased Lasso inference."""
+        import torch
+        from statgpu.inference._distributions_backend import norm as _gpu_norm
+
+        n, p = X_torch.shape
+        dtype = torch.float64
+        device = X_torch.device
+
+        if X_torch.dtype != dtype:
+            X_torch = X_torch.to(dtype)
+        if y_torch.dtype != dtype:
+            y_torch = y_torch.to(dtype)
+        if coef_torch.dtype != dtype:
+            coef_torch = coef_torch.to(dtype)
+
+        Sigma_hat = X_torch.T @ X_torch / n
+        resid = y_torch - X_torch @ coef_torch
+        if self.fit_intercept:
+            resid = resid - torch.mean(y_torch) + torch.mean(X_torch, dim=0) @ coef_torch
+
+        s_hat = float(torch.sum(torch.abs(coef_torch) > 0))
+        sigma2 = float(torch.sum(resid ** 2)) / max(n - s_hat, 1)
+
+        from statgpu.linear_model._lasso import (
+            _debiased_m_cache_get,
+            _debiased_m_cache_put,
+            _debiased_m_key_from_sample,
+            _solve_lasso_path_gpu_fista_multi_fold_from_gram_torch,
+        )
+
+        # Scale node-wise lambda by sigma_hat (van de Geer et al. 2014)
+        sigma_hat = np.sqrt(sigma2)
+        lam_nw = float(np.sqrt(2.0 * np.log(max(p, 2)) / n) * sigma_hat)
+        alpha_nw = np.asarray([lam_nw], dtype=np.float64)
+
+        X_sample = X_torch[: min(24, n), : min(24, p)].cpu().numpy()
+        m_cache_key = _debiased_m_key_from_sample(
+            n=n, p=p, dtype_name=str(dtype),
+            sample_block=X_sample, lam_nw=lam_nw, tol=float(self.tol),
+        )
+        M_cached = _debiased_m_cache_get(m_cache_key)
+
+        if M_cached is not None:
+            M = torch.from_numpy(M_cached).to(dtype).to(device)
+        else:
+            M = torch.zeros((p, p), dtype=dtype, device=device)
+            # Reuse Sigma_hat * n instead of recomputing X'X
+            XtX_full = Sigma_hat * n
+            Sigma_diag = torch.diag(Sigma_hat)
+
+            # Precompute global Lipschitz constant once (avoids per-batch eigendecomposition)
+            eig_max = float(torch.linalg.eigvalsh(Sigma_hat)[-1])
+            L_global = max(eig_max, 1e-12)
+
+            # Adaptive chunk_size: use as much GPU memory as possible
+            try:
+                if torch.cuda.is_available():
+                    free_mem = torch.cuda.mem_get_info(device)[0]
+                    bytes_per_fold = int((p - 1) * (p - 1) * 8 * 4)  # Gram + FISTA buffers
+                    chunk_size = int(max(4, min(p, free_mem * 0.7 // max(bytes_per_fold, 1))))
+                else:
+                    chunk_size = 16
+            except Exception:
+                chunk_size = 16
+            chunk_size = max(4, min(int(p), chunk_size))
+
+            for j0 in range(0, p, chunk_size):
+                j1 = min(p, j0 + chunk_size)
+                bsz = j1 - j0
+                j_batch = torch.arange(j0, j1, dtype=torch.int32, device=device)
+
+                base = torch.arange(p - 1, dtype=torch.int32, device=device).reshape(1, -1)
+                cols_batch = base + (base >= j_batch.reshape(-1, 1))
+
+                XtX_batch = XtX_full[
+                    cols_batch[:, :, None],
+                    cols_batch[:, None, :],
+                ]
+                Xty_batch = XtX_full[cols_batch, j_batch.reshape(-1, 1)].reshape(bsz, p - 1)
+
+                coefs_batch_desc, _ = _solve_lasso_path_gpu_fista_multi_fold_from_gram_torch(
+                    XtX_batch, Xty_batch,
+                    n_samples_vec=torch.full((bsz,), float(n), dtype=torch.float64, device=device),
+                    alphas_desc=alpha_nw,
+                    max_iter=500, tol=1e-5, stopping="coef_delta",
+                    lipschitz_L=L_global, check_every=8,
+                )
+                if isinstance(coefs_batch_desc, torch.Tensor):
+                    gamma_batch = coefs_batch_desc[:, 0, :].to(dtype).to(device)
+                else:
+                    gamma_batch = torch.from_numpy(
+                        np.asarray(coefs_batch_desc[:, 0, :], dtype=np.float64)
+                    ).to(dtype).to(device)
+
+                sigma_j_cols = Sigma_hat[j_batch[:, None], cols_batch]
+                C_batch = Sigma_diag[j_batch] - torch.sum(sigma_j_cols * gamma_batch, dim=1)
+
+                tiny = 1e-30
+                small_c = torch.abs(C_batch) < tiny
+                inv_c = torch.where(small_c, torch.tensor(0.0, dtype=dtype, device=device),
+                                    torch.tensor(1.0, dtype=dtype, device=device) / C_batch)
+                M[j_batch, j_batch] = torch.where(small_c, torch.tensor(1.0, dtype=dtype, device=device), inv_c)
+                M[j_batch[:, None], cols_batch] = -gamma_batch * inv_c.reshape(-1, 1)
+
+                del XtX_batch, Xty_batch, coefs_batch_desc, gamma_batch, sigma_j_cols
+            _debiased_m_cache_put(m_cache_key, M.cpu().numpy())
+
+        theta_db = coef_torch + (M @ X_torch.T @ resid) / n
+        V = M @ Sigma_hat @ M.T
+        se = torch.sqrt(sigma2 * torch.diag(V) / n)
+
+        z_stats = theta_db / (se + 1e-30)
+        pvalues = torch.minimum(torch.tensor(1.0, dtype=dtype, device=device),
+                                 2.0 * _gpu_norm.sf(torch.abs(z_stats)))
+
+        z_crit = _gpu_norm.ppf(0.975)
+        ci = torch.stack([theta_db - z_crit * se, theta_db + z_crit * se], dim=1)
+
+        if self.fit_intercept:
+            X_full = torch.cat([torch.ones((n, 1), dtype=dtype, device=device), X_torch], dim=1)
+            try:
+                XtX_inv = torch.linalg.inv(X_full.T @ X_full)
+            except Exception:
+                XtX_inv = torch.linalg.pinv(X_full.T @ X_full)
+            se_intercept = torch.sqrt(sigma2 * XtX_inv[0, 0])
+            intercept_t = torch.tensor(self.intercept_, dtype=dtype, device=device)
+            z_intercept = intercept_t / (se_intercept + 1e-30)
+            p_intercept = torch.minimum(torch.tensor(1.0, dtype=dtype, device=device),
+                                         2.0 * _gpu_norm.sf(torch.abs(z_intercept).reshape(1)))
+            ci_intercept = torch.stack([
+                intercept_t - z_crit * se_intercept,
+                intercept_t + z_crit * se_intercept,
+            ]).reshape(1, 2)
+
+            self._bse = torch.cat([se_intercept.reshape(1), se]).cpu().numpy()
+            self._tvalues = torch.cat([z_intercept.reshape(1), z_stats]).cpu().numpy()
+            self._pvalues = torch.cat([p_intercept.reshape(1), pvalues]).cpu().numpy()
+            self._conf_int = torch.cat([ci_intercept, ci], dim=0).cpu().numpy()
+            self._params = torch.cat([intercept_t.reshape(1), theta_db]).cpu().numpy()
+        else:
+            self._bse = se.cpu().numpy()
+            self._tvalues = z_stats.cpu().numpy()
+            self._pvalues = pvalues.cpu().numpy()
+            self._conf_int = ci.cpu().numpy()
+            self._params = theta_db.cpu().numpy()
+
+    def _compute_simultaneous_ci_maxz_bootstrap(self):
+        """Compute simultaneous CIs using max-|Z| multiplier bootstrap.
+
+        Requires debiased inference to have been run first (provides M matrix,
+        residuals, SEs). Uses the Zhang & Zhang (2014) max-|Z| procedure.
+        """
+        if self._debiased_M_cpu is None:
+            return
+        if self._y is None or self._resid is None or self._bse is None:
+            return
+
+        n = self._nobs
+        X = self._X_design
+        if X is None:
+            return
+        if self.fit_intercept:
+            X_feat = X[:, 1:]
+        else:
+            X_feat = X
+        _, p = X_feat.shape
+        M = self._debiased_M_cpu
+        resid = np.asarray(self._resid, dtype=float).reshape(-1)
+
+        # Target indices (exclude intercept unless requested)
+        include_intercept = getattr(self, 'simultaneous_include_intercept',
+                                    getattr(self, '_simultaneous_include_intercept', False))
+        if include_intercept and self.fit_intercept:
+            param_target_idx = np.arange(len(self._params), dtype=int)
+        elif self.fit_intercept:
+            param_target_idx = np.arange(1, len(self._params), dtype=int)
+        else:
+            param_target_idx = np.arange(len(self._params), dtype=int)
+
+        feature_target_idx = param_target_idx - (1 if self.fit_intercept else 0)
+        feature_target_idx = feature_target_idx[feature_target_idx >= 0]
+        if feature_target_idx.size == 0:
+            return
+
+        se_feat = np.asarray(self._bse[(1 if self.fit_intercept else 0):], dtype=float)
+        alpha_sim = float(getattr(self, 'simultaneous_alpha',
+                                  getattr(self, '_simultaneous_alpha', 0.05)))
+        B = int(getattr(self, 'simultaneous_n_bootstrap',
+                        getattr(self, '_simultaneous_n_bootstrap', 1000)))
+        rng = np.random.default_rng(getattr(self, 'simultaneous_random_state',
+                                            getattr(self, '_simultaneous_random_state', None)))
+
+        # Bootstrap max-|Z|
+        chunk = min(256, B)
+        max_stats = np.empty(B, dtype=float)
+        filled = 0
+        while filled < B:
+            bsz = min(chunk, B - filled)
+            xi = rng.standard_normal(size=(bsz, n))
+            weighted = xi * resid.reshape(1, -1)
+            score = (weighted @ X_feat) @ M.T / float(max(n, 1))
+            z_star = score / (se_feat.reshape(1, -1) + 1e-30)
+            max_stats[filled:filled + bsz] = np.max(
+                np.abs(z_star[:, feature_target_idx]), axis=1
+            )
+            filled += bsz
+
+        critical = float(np.quantile(max_stats, 1.0 - alpha_sim))
+        params = np.asarray(self._params, dtype=float)
+        bse = np.asarray(self._bse, dtype=float)
+        conf_sim = np.array(self._conf_int, copy=True, dtype=float)
+        conf_sim[param_target_idx, 0] = params[param_target_idx] - critical * bse[param_target_idx]
+        conf_sim[param_target_idx, 1] = params[param_target_idx] + critical * bse[param_target_idx]
+
+        self._conf_int_simultaneous = conf_sim
+        self._simultaneous_enabled = True
+
     def _select_solver(self, loss, backend_name=None, X=None):
         """Auto-select solver based on loss, penalty, and backend."""
         if self.solver != "auto":
@@ -724,6 +1313,24 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
         except Exception:
             return False
 
+    # Backend override rules for device='auto' at large scale (problem_size >= 1M).
+    # Each entry: (loss, penalties, target_backend, reason_template)
+    # First match wins. target_backend="numpy" means always CPU;
+    # target_backend="torch" means prefer torch over cupy.
+    _AUTO_BACKEND_CPU_OVERRIDES = [
+        ("squared_error", ("l2",), "numpy", "large squared-error exact solve is faster on CPU"),
+        ("squared_error", ("l1", "elasticnet", "en"), "numpy", "large squared-error l1/elasticnet is faster on CPU"),
+        ("negative_binomial", ("l1", "elasticnet", "en"), "numpy", "large negative-binomial l1/elasticnet is faster on CPU"),
+        ("logistic", ("l1", "elasticnet", "en"), "numpy", "large logistic {penalty} is faster on CPU"),
+        ("gamma", ("l2",), "numpy", "large gamma l2/newton is faster on CPU"),
+        ("tweedie", ("l1", "elasticnet", "en"), "numpy", "large tweedie {penalty} is faster on CPU"),
+    ]
+    _AUTO_BACKEND_CUPY_OVERRIDES = [
+        ("negative_binomial", ("l2",), "torch", "large negative-binomial l2 is faster on {target} than cupy"),
+        ("logistic", ("l1", "elasticnet", "en"), "torch", "large logistic {penalty} is faster on {target} than cupy"),
+        ("poisson", ("l1", "elasticnet", "en"), "torch", "large poisson {penalty} is faster on {target} than cupy"),
+    ]
+
     def _auto_backend_override(self, backend_name, X):
         """Benchmark-backed backend routing for device='auto' only."""
         self._auto_backend_reason = None
@@ -739,44 +1346,23 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
         penalty_name = str(getattr(self._penalty, "name", self.penalty)).lower()
         torch_ok = self._torch_cuda_available()
 
-        # CPU remains faster for these Gram/precompute-heavy proximal paths at
-        # benchmarked large scale.  This is auto-only; explicit GPU devices stay
-        # on the requested backend.
-        if loss_name == "squared_error" and penalty_name == "l2":
-            self._auto_backend_reason = "large squared-error exact solve is faster on CPU"
-            return "numpy"
-        if loss_name == "squared_error" and penalty_name in ("l1", "elasticnet", "en"):
-            self._auto_backend_reason = "large squared-error l1/elasticnet is faster on CPU"
-            return "numpy"
-        if loss_name == "negative_binomial" and penalty_name in ("l1", "elasticnet", "en"):
-            self._auto_backend_reason = "large negative-binomial l1/elasticnet is faster on CPU"
-            return "numpy"
-        if loss_name == "logistic" and penalty_name in ("l1", "elasticnet", "en"):
-            self._auto_backend_reason = f"large logistic {penalty_name} is faster on CPU"
-            return "numpy"
-        if loss_name == "gamma" and penalty_name == "l2":
-            self._auto_backend_reason = "large gamma l2/newton is faster on CPU"
-            return "numpy"
-        if loss_name == "tweedie" and penalty_name in ("l1", "elasticnet", "en"):
-            self._auto_backend_reason = f"large tweedie {penalty_name} is faster on CPU"
-            return "numpy"
+        # CPU overrides: always route to numpy
+        for loss, penalties, target, reason_tpl in self._AUTO_BACKEND_CPU_OVERRIDES:
+            if loss_name == loss and penalty_name in penalties:
+                self._auto_backend_reason = reason_tpl.format(penalty=penalty_name)
+                return target
 
-        # CuPy is consistently slower than Torch for these large-scale GLM
-        # paths in the full-matrix benchmark.  Prefer Torch when available,
-        # otherwise fall back to CPU only for the known slow NB IRLS path.
+        # CuPy→Torch overrides: prefer torch when available, else CPU
         if backend_name == "cupy":
-            if loss_name == "negative_binomial" and penalty_name == "l2":
-                if torch_ok:
-                    self._auto_backend_reason = "large negative-binomial l2 is faster on torch than cupy"
-                    return "torch"
-                self._auto_backend_reason = "large negative-binomial l2 is faster on CPU than cupy"
-                return "numpy"
-            if loss_name in ("logistic", "poisson") and penalty_name in ("l1", "elasticnet", "en"):
-                if torch_ok:
-                    self._auto_backend_reason = f"large {loss_name} {penalty_name} is faster on torch than cupy"
-                    return "torch"
-                self._auto_backend_reason = f"large {loss_name} {penalty_name} is faster on CPU than cupy"
-                return "numpy"
+            for loss, penalties, target, reason_tpl in self._AUTO_BACKEND_CUPY_OVERRIDES:
+                if loss_name == loss and penalty_name in penalties:
+                    if torch_ok:
+                        self._auto_backend_reason = reason_tpl.format(
+                            penalty=penalty_name, target="torch")
+                        return "torch"
+                    self._auto_backend_reason = reason_tpl.format(
+                        penalty=penalty_name, target="CPU")
+                    return "numpy"
 
         return backend_name
 
@@ -1113,6 +1699,7 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
             self._penalty.alpha = saved_penalty_alpha
             self.cpu_solver = saved_cpu_solver
             self._selected_solver = saved_selected_solver
+            self.max_iter = saved_max_iter
 
     def _fit_cpu(self, X, y, sample_weight=None):
         """Fit using CPU (FISTA or coordinate descent)."""
@@ -1684,6 +2271,12 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
 
         self._df_resid = n_samples - (n_features + (1 if self.fit_intercept else 0))
 
+        # Debiased inference on GPU (before cleanup, while arrays are in scope)
+        if self.compute_inference and "debiased" in str(getattr(self, "inference_method", "")).lower():
+            penalty_name = str(getattr(self._penalty, "name", self.penalty)).lower()
+            if penalty_name in ("l1", "elasticnet", "en"):
+                self._compute_inference_debiased_gpu(X, y, coef)
+
         # Cleanup
         self._cleanup_cuda_memory()
 
@@ -1777,6 +2370,11 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
                 self.coef_ = coef_np
                 self._params = coef_np.copy()
             self._df_resid = n_samples - (n_features + (1 if self.fit_intercept else 0))
+            # Debiased inference on Torch GPU (before cleanup)
+            if self.compute_inference and "debiased" in str(getattr(self, "inference_method", "")).lower():
+                penalty_name = str(getattr(self._penalty, "name", self.penalty)).lower()
+                if penalty_name in ("l1", "elasticnet", "en"):
+                    self._compute_inference_debiased_torch(X, y, coef)
             self._cleanup_torch_memory()
             return
 
@@ -2002,6 +2600,12 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
             self._params = coef_np.copy()
 
         self._df_resid = n_samples - (n_features + (1 if self.fit_intercept else 0))
+
+        # Debiased inference on Torch GPU (before cleanup)
+        if self.compute_inference and "debiased" in str(getattr(self, "inference_method", "")).lower():
+            penalty_name = str(getattr(self._penalty, "name", self.penalty)).lower()
+            if penalty_name in ("l1", "elasticnet", "en"):
+                self._compute_inference_debiased_torch(X, y, coef)
 
         self._cleanup_torch_memory()
 
@@ -2510,100 +3114,12 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
         return np.ones(n, dtype=getattr(ref, "dtype", np.float64))
 
     def _selective_penalty(self, p, backend_name):
-        """Penalty wrapper that leaves the last intercept coefficient free."""
-        pen = self._penalty
-        alpha = float(getattr(pen, "alpha", self.alpha))
-        l1_ratio = float(getattr(pen, "l1_ratio", 0.0))
+        """Penalty wrapper that leaves the last intercept coefficient free.
 
-        class SelectivePenalty:
-            name = pen.name
-            alpha = getattr(pen, 'alpha', 0.0)
-            l1_ratio = getattr(pen, 'l1_ratio', 0.0)
-
-            def value(self, coef):
-                return pen.value(coef[:-1])
-
-            def proximal(self, w, step, backend=backend_name):
-                # Always apply penalty only to features (skip intercept at position -1)
-                w_feat = w[:-1]
-                result_feat = pen.proximal(w_feat, step, backend=backend)
-                if backend_name == "cupy":
-                    import cupy as cp
-                    result = cp.empty(w.shape[0], dtype=w.dtype)
-                    result[:-1] = result_feat
-                    result[-1] = cp.clip(w[-1], -_INTERCEPT_CLIP_BOUND, _INTERCEPT_CLIP_BOUND)
-                elif backend_name == "torch":
-                    import torch
-                    result = torch.empty(w.shape[0], dtype=w.dtype, device=w.device)
-                    result[:-1] = result_feat
-                    result[-1] = torch.clamp(w[-1], -_INTERCEPT_CLIP_BOUND, _INTERCEPT_CLIP_BOUND)
-                else:
-                    result = np.empty(w.shape[0], dtype=w.dtype)
-                    result[:-1] = result_feat
-                    result[-1] = np.clip(w[-1], -_INTERCEPT_CLIP_BOUND, _INTERCEPT_CLIP_BOUND)
-                return result
-
-            def smooth_value(self, coef):
-                pname = str(pen.name).lower()
-                if pname == "l2":
-                    smooth_alpha = alpha
-                elif pname == "elasticnet":
-                    smooth_alpha = alpha * (1.0 - l1_ratio)
-                else:
-                    raise ValueError("smooth solvers only support L2/ElasticNet penalties.")
-                active = coef[:p]
-                if backend_name == "cupy":
-                    import cupy as cp
-                    return 0.5 * smooth_alpha * cp.sum(active * active)
-                if backend_name == "torch":
-                    import torch
-                    return 0.5 * smooth_alpha * torch.sum(active * active)
-                return 0.5 * smooth_alpha * np.sum(active * active)
-
-            def smooth_gradient(self, coef):
-                pname = str(pen.name).lower()
-                if pname == "l2":
-                    smooth_alpha = alpha
-                elif pname == "elasticnet":
-                    smooth_alpha = alpha * (1.0 - l1_ratio)
-                else:
-                    raise ValueError("smooth solvers only support L2/ElasticNet penalties.")
-                if backend_name == "cupy":
-                    import cupy as cp
-                    grad = cp.zeros_like(coef)
-                elif backend_name == "torch":
-                    import torch
-                    grad = torch.zeros_like(coef)
-                else:
-                    grad = np.zeros_like(coef)
-                grad[:p] = smooth_alpha * coef[:p]
-                return grad
-
-            def smooth_hessian(self, coef):
-                pname = str(pen.name).lower()
-                if pname == "l2":
-                    smooth_alpha = alpha
-                elif pname == "elasticnet":
-                    smooth_alpha = alpha * (1.0 - l1_ratio)
-                else:
-                    raise ValueError("smooth solvers only support L2/ElasticNet penalties.")
-                if backend_name == "cupy":
-                    import cupy as cp
-                    diag = cp.zeros(coef.shape[0], dtype=coef.dtype)
-                    diag[:p] = smooth_alpha
-                    return cp.diag(diag)
-                if backend_name == "torch":
-                    import torch
-                    diag = torch.zeros(
-                        coef.shape[0], dtype=coef.dtype, device=coef.device
-                    )
-                    diag[:p] = smooth_alpha
-                    return torch.diag(diag)
-                diag = np.zeros(coef.shape[0], dtype=coef.dtype)
-                diag[:p] = smooth_alpha
-                return np.diag(diag)
-
-        return SelectivePenalty()
+        Uses a module-level singleton to avoid per-call class creation.
+        """
+        _SELECTIVE_PENALTY_SINGLETON.configure(self._penalty, p, backend_name)
+        return _SELECTIVE_PENALTY_SINGLETON
 
     def _irls_cd(self, pen, X_work, y_arr, init, _lla_continuation=False):
         """IRLS with coordinate descent for GLM + non-smooth penalties.
@@ -4220,6 +4736,7 @@ class PenalizedLinearRegression(PenalizedGeneralizedLinearModel):
         lipschitz_L: Optional[float] = None,
         gpu_memory_cleanup: bool = False,
         compute_inference: bool = False,
+        inference_method: str = "debiased",
         cov_type: str = "nonrobust",
         hac_maxlags: Optional[int] = None,
         stopping: str = "coef_delta",
@@ -4243,6 +4760,7 @@ class PenalizedLinearRegression(PenalizedGeneralizedLinearModel):
             lipschitz_L=lipschitz_L,
             gpu_memory_cleanup=gpu_memory_cleanup,
             compute_inference=compute_inference,
+            inference_method=inference_method,
             cov_type=cov_type,
             hac_maxlags=hac_maxlags,
             stopping=stopping,
@@ -4262,23 +4780,23 @@ class PenalizedLinearRegression(PenalizedGeneralizedLinearModel):
 
     @property
     def rsquared_adj(self):
-        if self._nobs is None or self._X_design is None:
+        if self._nobs is None or self._resid is None:
             return None
         r2 = self.rsquared
         if r2 is None:
             return None
-        k = int(self._X_design.shape[1] - (1 if self.fit_intercept else 0))
+        k = len(self.coef_) if self.coef_ is not None else 0
         return 1 - (1 - r2) * (self._nobs - 1) / self._df_resid
 
     @property
     def fvalue(self):
-        if self._y is None or self._resid is None or self._X_design is None:
+        if self._y is None or self._resid is None:
             return None
         y_mean = np.mean(self._y)
         ss_tot = np.sum((self._y - y_mean) ** 2)
         ss_res = np.sum(self._resid ** 2)
         ss_reg = ss_tot - ss_res
-        k = int(self._X_design.shape[1] - (1 if self.fit_intercept else 0))
+        k = len(self.coef_) if self.coef_ is not None else 0
         if k == 0 or ss_res <= 0:
             return np.inf
         return (ss_reg / k) / (ss_res / self._df_resid)
@@ -4290,7 +4808,7 @@ class PenalizedLinearRegression(PenalizedGeneralizedLinearModel):
             return 1.0
         if np.isposinf(fv):
             return 0.0
-        k = int(self._X_design.shape[1] - (1 if self.fit_intercept else 0))
+        k = len(self.coef_) if self.coef_ is not None else 0
         return 1 - stats.f.cdf(fv, k, self._df_resid)
 
     @property
@@ -4339,30 +4857,64 @@ class PenalizedLinearRegression(PenalizedGeneralizedLinearModel):
         else:
             feature_names = [f"x{i+1}" for i in range(len(self.coef_))]
 
-        is_ridge = str(getattr(self._penalty, "name", self.penalty)).lower() == "l2"
-        title = "Ridge Regression Results" if is_ridge else "Penalized Linear Regression Results"
+        penalty_name = str(getattr(self._penalty, "name", self.penalty)).lower()
+        inference_method = str(getattr(self, "inference_method", "debiased")).lower()
+        is_debiased = penalty_name in ("l1", "elasticnet", "en") and "debiased" in inference_method
+
+        if is_debiased:
+            title = "Debiased Lasso Results"
+            stat_label = "z"
+            pval_label = "P>|z|"
+        elif penalty_name == "l2":
+            title = "Ridge Regression Results"
+            stat_label = "t"
+            pval_label = "P>|t|"
+        else:
+            title = "Penalized Linear Regression Results"
+            stat_label = "t"
+            pval_label = "P>|t|"
+
         print("=" * 80)
         print(f"{title:^80}")
         print("=" * 80)
-        print(f"Alpha (L2 penalty):         {float(self.alpha):>15.4f}")
-        print(f"Covariance Type:            {self.cov_type:>15}")
+        def _fmt(val, spec):
+            if val is None:
+                return f"{'N/A':>15}"
+            return format(val, spec)
+
+        print(f"Alpha:                      {float(self.alpha):>15.4f}")
+        if not is_debiased:
+            print(f"Covariance Type:            {self.cov_type:>15}")
         print(f"No. Observations:           {self._nobs:>15}")
         print(f"Degrees of Freedom:         {self._df_resid:>15}")
-        print(f"R-squared:                  {self.rsquared:>15.4f}")
-        print(f"Adj. R-squared:             {self.rsquared_adj:>15.4f}")
-        print(f"F-statistic:                {self.fvalue:>15.4f}")
-        print(f"Prob (F-statistic):         {self.f_pvalue:>15.4e}")
-        print(f"Log-Likelihood:             {self.llf:>15.4f}")
-        print(f"AIC:                        {self.aic:>15.4f}")
-        print(f"BIC:                        {self.bic:>15.4f}")
+        print(f"R-squared:                  {_fmt(self.rsquared, '>15.4f')}")
+        print(f"Adj. R-squared:             {_fmt(self.rsquared_adj, '>15.4f')}")
+        print(f"F-statistic:                {_fmt(self.fvalue, '>15.4f')}")
+        print(f"Prob (F-statistic):         {_fmt(self.f_pvalue, '>15.4e')}")
+        print(f"Log-Likelihood:             {_fmt(self.llf, '>15.4f')}")
+        print(f"AIC:                        {_fmt(self.aic, '>15.4f')}")
+        print(f"BIC:                        {_fmt(self.bic, '>15.4f')}")
         print("-" * 80)
-        print(f"{'':<15} {'coef':>12} {'std err':>12} {'t':>10} {'P>|t|':>10} {'[0.025':>12} {'0.975]':>12}")
+        print(f"{'':<15} {'coef':>12} {'std err':>12} {stat_label:>10} {pval_label:>10} {'[0.025':>12} {'0.975]':>12}")
         print("-" * 80)
 
         for i, name in enumerate(feature_names):
             print(f"{name:<15} {self._params[i]:>12.4f} {self._bse[i]:>12.4f} "
                   f"{self._tvalues[i]:>10.3f} {self._pvalues[i]:>10.4f} "
                   f"{self._conf_int[i, 0]:>12.4f} {self._conf_int[i, 1]:>12.4f}")
+
+        if getattr(self, '_simultaneous_enabled', False) and self._conf_int_simultaneous is not None:
+            alpha_sim = float(getattr(self, '_simultaneous_alpha', 0.05))
+            B = int(getattr(self, '_simultaneous_n_bootstrap', 1000))
+            print("-" * 80)
+            print("Simultaneous inference (max-|Z| bootstrap)")
+            print(f"  alpha:          {alpha_sim:.6f}")
+            print(f"  n_bootstrap:    {B}")
+            print("-" * 80)
+            for i, name in enumerate(feature_names):
+                lo = self._conf_int_simultaneous[i, 0]
+                hi = self._conf_int_simultaneous[i, 1]
+                print(f"{name:<15} {'':>12} {'':>12} {'':>10} {'':>10} {lo:>12.4f} {hi:>12.4f}")
 
         print("=" * 80)
 

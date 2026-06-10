@@ -118,7 +118,7 @@ def _hash_data(X, y, sample_weight=None) -> bytes:
 # K-fold helpers
 # =============================================================================
 
-from statgpu.linear_model._cv_base import kfold_indices as _kfold_indices, folds_are_complete as _folds_are_complements
+from statgpu.linear_model._cv_base import kfold_indices as _kfold_indices, folds_are_complete as _folds_are_complete
 
 
 # =============================================================================
@@ -505,7 +505,7 @@ def _select_elasticnet_params_cv(
     else:
         folds = _kfold_indices(n_samples=int(n_samples), n_splits=int(cv_folds), random_state=random_state)
 
-    folds_are_complements_flag = _folds_are_complements(folds, n_samples=int(n_samples))
+    folds_are_complements_flag = _folds_are_complete(folds, n_samples=int(n_samples))
 
     n_folds = int(len(folds))
 

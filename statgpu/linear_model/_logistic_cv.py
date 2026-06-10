@@ -85,7 +85,7 @@ def _make_logistic_cv_auto_cache_key(X, y, Cs, folds, fit_intercept, max_iter, t
 # K-fold helper (reuse from RidgeCV)
 # =============================================================================
 
-from statgpu.linear_model._cv_base import kfold_indices as _kfold_indices, folds_are_complete as _folds_are_complements
+from statgpu.linear_model._cv_base import kfold_indices as _kfold_indices, folds_are_complete as _folds_are_complete
 
 
 # =============================================================================
@@ -514,7 +514,7 @@ def _select_logistic_c_cv(
     else:
         folds = _kfold_indices(n_samples=int(n_samples), n_splits=int(cv_folds), random_state=random_state)
 
-    folds_are_complements = _folds_are_complements(folds, n_samples=int(n_samples))
+    folds_are_complete = _folds_are_complete(folds, n_samples=int(n_samples))
 
     C_grid = C_grid.astype(np.float64, copy=False)
     n_C = int(C_grid.size)

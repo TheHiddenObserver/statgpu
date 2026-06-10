@@ -14,8 +14,11 @@ Optimizations:
 
 from __future__ import annotations
 
+import logging
 import warnings
 from collections import namedtuple
+
+logger = logging.getLogger(__name__)
 from typing import Optional, Union
 
 import numpy as np
@@ -1463,7 +1466,14 @@ def _glm_sparse_cv_path(
         y_mean = max(float(cp.mean(yb)), 1e-3)
     else:
         y_mean = max(float(np.mean(yb)), 1e-3)
-    init_intercept = np.log(y_mean)
+    # Use the correct link-function inverse for intercept initialization:
+    #   logistic  -> logit link:  log(y_mean / (1 - y_mean))
+    #   poisson/gamma/tweedie/nb -> log link:  log(y_mean)
+    if loss_name == "logistic":
+        y_mean_clipped = np.clip(y_mean, 1e-7, 1.0 - 1e-7)
+        init_intercept = np.log(y_mean_clipped / (1.0 - y_mean_clipped))
+    else:
+        init_intercept = np.log(y_mean)
     if backend == "torch":
         import torch
         init = torch.zeros(n_features + 1, dtype=X_work.dtype, device=X_work.device)
@@ -1677,6 +1687,8 @@ def _scad_mcp_cv_path(
 
     # Precompute XtX and Lipschitz for squared_error
     _is_quadratic = (loss_name == "squared_error")
+    X_mean = None
+    y_mean = None
     if _is_quadratic:
         if backend == "torch":
             X_mean = torch.mean(X_work[:, :n_features], dim=0)
@@ -2615,9 +2627,13 @@ class PenalizedGLM_CV(CVEstimatorBase):
                 fitted_coefs.append((alpha_idx_sorted, coef_np.copy(), intercept))
                 prev_coef = coef_np.copy()
                 prev_intercept = intercept
-            except Exception:
+            except Exception as exc:
                 orig_idx = sort_idx[alpha_idx_sorted]
                 all_scores[fold_idx, orig_idx] = np.nan
+                logger.warning(
+                    "CV fold %d, alpha_idx %d (alpha=%.6g) fit failed: %s",
+                    fold_idx, orig_idx, alphas_sorted[alpha_idx_sorted], exc,
+                )
 
         # Batch validation: one GEMM for all fitted alphas
         # Pre-build loss-specific params

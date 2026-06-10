@@ -30,6 +30,20 @@ from statgpu.backends._array_ops import (
     _zeros_like,
 )
 
+# ---------------------------------------------------------------------------
+# Lipschitz safety factors for GLM losses (empirically determined)
+# ---------------------------------------------------------------------------
+# These multiply the estimated Lipschitz constant to ensure FISTA convergence
+# for each GLM family. The loss function curvature varies by family:
+#   - inverse_gaussian: gradient scales as 1/mu^3, extreme step sensitivity
+#   - tweedie: loss landscape steepens exponentially
+#   - gamma: Hessian ~y/mu^3 can be very large when mu is small
+#   - logistic CV: iterate-dependent Lipschitz (X'WX), needs fixed global bound
+_LIPSCHITZ_SAFETY_INVERSE_GAUSSIAN = 3.0
+_LIPSCHITZ_SAFETY_TWEEDIE = 5.0
+_LIPSCHITZ_SAFETY_GAMMA = 3.0
+_LIPSCHITZ_SAFETY_LOGISTIC_CV = 2.0
+
 
 class ConvergenceWarning(UserWarning):
     """Solver did not converge within the iteration limit."""
@@ -343,181 +357,103 @@ def _objective_value_dev(loss, penalty, X, y, coef):
 
 
 
+def _fused_logistic(eta, X, y, n, loss):
+    from statgpu.backends._array_ops import _sigmoid, _softplus, _clip, _sum
+    p = _sigmoid(eta)
+    # Numerically stable: log(1+exp(-|eta|)) + max(eta,0) = softplus(-|eta|) + max(eta,0)
+    log1pexp = _softplus(-_clip(eta, None, 0)) + _clip(eta, 0, None)
+    val = _sum(-y * eta + log1pexp) / n
+    grad = X.T @ (p - y) / n
+    return val, grad
+
+
+def _fused_poisson(eta, X, y, n, loss):
+    from statgpu.backends._array_ops import _exp, _log, _clip, _sum
+    mu = _exp(_clip(eta, -30, 30))
+    val = _sum(mu - y * _log(mu + 1e-10)) / n
+    grad = X.T @ (mu - y) / n
+    return val, grad
+
+
+def _fused_gamma(eta, X, y, n, loss):
+    from statgpu.backends._array_ops import _exp, _log, _clip, _sum
+    gamma_link = getattr(loss, 'link_name', getattr(loss, 'link', 'log'))
+    if gamma_link == 'inverse_power':
+        eta_lo = float(getattr(loss, '_ETA_LO', 1e-2))
+        eta_hi = float(getattr(loss, '_ETA_HI', 1e3))
+        eta_c = _clip(eta, eta_lo, eta_hi)
+        mu = 1.0 / eta_c
+        val = _sum(y * eta_c - _log(eta_c)) / n
+        grad = X.T @ (y - mu) / n
+        return val, grad
+    mu = _exp(_clip(eta, -30, 30))
+    mu_c = _clip(mu, 1e-3, 1e4)
+    val = _sum(y / mu_c + _log(mu_c)) / n
+    grad = X.T @ (1.0 - y / mu_c) / n
+    return val, grad
+
+
+def _fused_negative_binomial(eta, X, y, n, loss):
+    from statgpu.backends._array_ops import _exp, _log, _clip, _sum
+    a = float(getattr(loss, 'alpha', 1.0))
+    mu = _exp(_clip(eta, -30, 30))
+    mu_c = _clip(mu, 1e-300, None)
+    one_plus_a_mu = 1.0 + a * mu_c
+    val = _sum(-y * _log(mu_c / one_plus_a_mu) + (1.0 / a) * _log(one_plus_a_mu)) / n
+    grad = X.T @ ((mu_c - y) / one_plus_a_mu) / n
+    return val, grad
+
+
+def _fused_tweedie(eta, X, y, n, loss):
+    from statgpu.backends._array_ops import _exp, _clip, _sum
+    pw = float(getattr(loss, 'power', 1.5))
+    mu = _exp(_clip(eta, -50, 50))
+    mu_c = _clip(mu, 1e-3, 1e4)
+    val = _sum(-y * mu_c ** (1 - pw) / (1 - pw) + mu_c ** (2 - pw) / (2 - pw)) / n
+    grad = X.T @ (mu_c ** (1 - pw) * (mu_c - y)) / n
+    return val, grad
+
+
+def _fused_inverse_gaussian(eta, X, y, n, loss):
+    from statgpu.backends._array_ops import _exp, _clip, _sum
+    mu = _exp(_clip(eta, -30, 30))
+    mu_c = _clip(mu, 5e-2, 1e3)
+    val = _sum(y / (2 * mu_c ** 2) - 1.0 / mu_c) / n
+    grad = X.T @ ((mu_c - y) / (mu_c * mu_c)) / n
+    return val, grad
+
+
+# Registry: loss_name -> handler(eta, X, y, n, loss) -> (value, gradient)
+_GLM_FUSED_REGISTRY = {
+    'logistic': _fused_logistic,
+    'poisson': _fused_poisson,
+    'gamma': _fused_gamma,
+    'negative_binomial': _fused_negative_binomial,
+    'tweedie': _fused_tweedie,
+    'inverse_gaussian': _fused_inverse_gaussian,
+}
+
+
 def _fused_glm_value_and_gradient(loss, X, y, coef):
     """Compute GLM loss value and gradient in one pass, avoiding redundant X @ coef.
 
     For GLM losses, the value() and gradient() both need eta = X @ coef.
     This function computes eta once and reuses it for both.
     Returns (value, gradient) both on the same backend as coef.
+
+    Dispatch is registry-driven: each loss family has a handler that uses
+    backend-agnostic helpers from ``backends._array_ops``.
     """
     loss_name = getattr(loss, 'name', '')
     n = X.shape[0]
 
-    if loss_name == 'logistic':
-        import numpy as np
+    handler = _GLM_FUSED_REGISTRY.get(loss_name)
+    if handler is not None:
         eta = X @ coef
-        # Sigmoid: p = 1 / (1 + exp(-eta))
-        mod = type(eta).__module__
-        if mod.startswith('torch'):
-            import torch
-            p = torch.sigmoid(eta)
-            val = torch.sum(-y * eta + torch.log1p(torch.exp(-torch.abs(eta))) + torch.clamp(eta, min=0)) / n
-            grad = X.T @ (p - y) / n
-        elif mod.startswith('cupy'):
-            import cupy as cp
-            p = 1.0 / (1.0 + cp.exp(-cp.clip(eta, -500, 500)))
-            log1pexp = cp.log1p(cp.exp(-cp.abs(eta))) + cp.maximum(eta, 0)
-            val = cp.sum(-y * eta + log1pexp) / n
-            grad = X.T @ (p - y) / n
-        else:
-            p = 1.0 / (1.0 + np.exp(-np.clip(eta, -500, 500)))
-            log1pexp = np.log1p(np.exp(-np.abs(eta))) + np.maximum(eta, 0)
-            val = np.sum(-y * eta + log1pexp) / n
-            grad = X.T @ (p - y) / n
-        return val, grad
+        return handler(eta, X, y, n, loss)
 
-    elif loss_name == 'poisson':
-        import numpy as np
-        eta = X @ coef
-        mod = type(eta).__module__
-        if mod.startswith('torch'):
-            import torch
-            mu = torch.exp(torch.clamp(eta, -30, 30))
-            val = torch.sum(mu - y * torch.log(mu + 1e-10)) / n
-            grad = X.T @ (mu - y) / n
-        elif mod.startswith('cupy'):
-            import cupy as cp
-            mu = cp.exp(cp.clip(eta, -30, 30))
-            val = cp.sum(mu - y * cp.log(mu + 1e-10)) / n
-            grad = X.T @ (mu - y) / n
-        else:
-            mu = np.exp(np.clip(eta, -30, 30))
-            val = np.sum(mu - y * np.log(mu + 1e-10)) / n
-            grad = X.T @ (mu - y) / n
-        return val, grad
-
-    elif loss_name == 'gamma':
-        import numpy as np
-        eta = X @ coef
-        mod = type(eta).__module__
-        gamma_link = getattr(loss, 'link_name', getattr(loss, 'link', 'log'))
-        if gamma_link == 'inverse_power':
-            eta_lo = float(getattr(loss, '_ETA_LO', 1e-2))
-            eta_hi = float(getattr(loss, '_ETA_HI', 1e3))
-            if mod.startswith('torch'):
-                import torch
-                eta_c = torch.clamp(eta, min=eta_lo, max=eta_hi)
-                mu = 1.0 / eta_c
-                val = torch.sum(y * eta_c - torch.log(eta_c)) / n
-                grad = X.T @ (y - mu) / n
-            elif mod.startswith('cupy'):
-                import cupy as cp
-                eta_c = cp.clip(eta, eta_lo, eta_hi)
-                mu = 1.0 / eta_c
-                val = cp.sum(y * eta_c - cp.log(eta_c)) / n
-                grad = X.T @ (y - mu) / n
-            else:
-                eta_c = np.clip(eta, eta_lo, eta_hi)
-                mu = 1.0 / eta_c
-                val = np.sum(y * eta_c - np.log(eta_c)) / n
-                grad = X.T @ (y - mu) / n
-            return val, grad
-        if mod.startswith('torch'):
-            import torch
-            mu = torch.exp(torch.clamp(eta, -30, 30))
-            mu_c = torch.clamp(mu, min=1e-3, max=1e4)
-            val = torch.sum(y / mu_c + torch.log(mu_c)) / n
-            grad = X.T @ (1.0 - y / mu_c) / n
-        elif mod.startswith('cupy'):
-            import cupy as cp
-            mu = cp.exp(cp.clip(eta, -30, 30))
-            mu_c = cp.clip(mu, 1e-3, 1e4)
-            val = cp.sum(y / mu_c + cp.log(mu_c)) / n
-            grad = X.T @ (1.0 - y / mu_c) / n
-        else:
-            mu = np.exp(np.clip(eta, -30, 30))
-            mu_c = np.clip(mu, 1e-3, 1e4)
-            val = np.sum(y / mu_c + np.log(mu_c)) / n
-            grad = X.T @ (1.0 - y / mu_c) / n
-        return val, grad
-
-    elif loss_name == 'negative_binomial':
-        import numpy as np
-        eta = X @ coef
-        mod = type(eta).__module__
-        a = float(getattr(loss, 'alpha', 1.0))
-        if mod.startswith('torch'):
-            import torch
-            mu = torch.exp(torch.clamp(eta, -30, 30))
-            mu_c = torch.clamp(mu, min=1e-300)
-            one_plus_alpha_mu = 1.0 + a * mu_c
-            val = torch.sum(-y * torch.log(mu_c / one_plus_alpha_mu) + (1.0 / a) * torch.log(one_plus_alpha_mu)) / n
-            grad = X.T @ ((mu_c - y) / (1.0 + a * mu_c)) / n
-        elif mod.startswith('cupy'):
-            import cupy as cp
-            mu = cp.exp(cp.clip(eta, -30, 30))
-            mu_c = cp.clip(mu, 1e-300, None)
-            one_plus_alpha_mu = 1.0 + a * mu_c
-            val = cp.sum(-y * cp.log(mu_c / one_plus_alpha_mu) + (1.0 / a) * cp.log(one_plus_alpha_mu)) / n
-            grad = X.T @ ((mu_c - y) / (1.0 + a * mu_c)) / n
-        else:
-            mu = np.exp(np.clip(eta, -30, 30))
-            mu_c = np.clip(mu, 1e-300, None)
-            one_plus_alpha_mu = 1.0 + a * mu_c
-            val = np.sum(-y * np.log(mu_c / one_plus_alpha_mu) + (1.0 / a) * np.log(one_plus_alpha_mu)) / n
-            grad = X.T @ ((mu_c - y) / (1.0 + a * mu_c)) / n
-        return val, grad
-
-    elif loss_name == 'tweedie':
-        import numpy as np
-        eta = X @ coef
-        mod = type(eta).__module__
-        p = float(getattr(loss, 'power', 1.5))
-        if mod.startswith('torch'):
-            import torch
-            mu = torch.exp(torch.clamp(eta, -50, 50))
-            mu_c = torch.clamp(mu, min=1e-3, max=1e4)
-            val = torch.sum(-y * mu_c.pow(1 - p) / (1 - p) + mu_c.pow(2 - p) / (2 - p)) / n
-            grad = X.T @ (mu_c.pow(1 - p) * (mu_c - y)) / n
-        elif mod.startswith('cupy'):
-            import cupy as cp
-            mu = cp.exp(cp.clip(eta, -50, 50))
-            mu_c = cp.clip(mu, 1e-3, 1e4)
-            val = cp.sum(-y * mu_c ** (1 - p) / (1 - p) + mu_c ** (2 - p) / (2 - p)) / n
-            grad = X.T @ (mu_c ** (1 - p) * (mu_c - y)) / n
-        else:
-            mu = np.exp(np.clip(eta, -50, 50))
-            mu_c = np.clip(mu, 1e-3, 1e4)
-            val = np.sum(-y * mu_c ** (1 - p) / (1 - p) + mu_c ** (2 - p) / (2 - p)) / n
-            grad = X.T @ (mu_c ** (1 - p) * (mu_c - y)) / n
-        return val, grad
-
-    elif loss_name == 'inverse_gaussian':
-        import numpy as np
-        eta = X @ coef
-        mod = type(eta).__module__
-        if mod.startswith('torch'):
-            import torch
-            mu = torch.exp(torch.clamp(eta, -30, 30))
-            mu_c = torch.clamp(mu, min=5e-2, max=1e3)
-            val = torch.sum(y / (2 * mu_c.pow(2)) - 1.0 / mu_c) / n
-            grad = X.T @ ((mu_c - y) / (mu_c * mu_c)) / n
-        elif mod.startswith('cupy'):
-            import cupy as cp
-            mu = cp.exp(cp.clip(eta, -30, 30))
-            mu_c = cp.clip(mu, 5e-2, 1e3)
-            val = cp.sum(y / (2 * mu_c ** 2) - 1.0 / mu_c) / n
-            grad = X.T @ ((mu_c - y) / (mu_c * mu_c)) / n
-        else:
-            mu = np.exp(np.clip(eta, -30, 30))
-            mu_c = np.clip(mu, 5e-2, 1e3)
-            val = np.sum(y / (2 * mu_c ** 2) - 1.0 / mu_c) / n
-            grad = X.T @ ((mu_c - y) / (mu_c * mu_c)) / n
-        return val, grad
-
-    else:
-        # Fallback: call value() and gradient() separately
-        return loss.value(X, y, coef), loss.gradient(X, y, coef)
+    # Fallback: call value() and gradient() separately
+    return loss.value(X, y, coef), loss.gradient(X, y, coef)
 
 
 def fista_solver(
@@ -648,23 +584,15 @@ def fista_solver(
         if _y_scale > 1.0:
             L = L * _y_scale
 
-    # Inverse Gaussian: gradient scales as 1/mu^3, causing extreme
-    # sensitivity to step size.  Use a much more conservative Lipschitz.
+    # Loss-specific Lipschitz safety factors (see _LIPSCHITZ_SAFETY_* constants)
     if _loss_name == "inverse_gaussian":
-        L = L * 3.0
-    # Tweedie (p=1.5): loss landscape steepens exponentially — 5x safety.
+        L = L * _LIPSCHITZ_SAFETY_INVERSE_GAUSSIAN
     if _loss_name == "tweedie":
-        L = L * 5.0
-    # Gamma: loss = y/mu + log(mu), gradient = (1 - y/mu)/mu. When mu is small
-    # (large eta), the Hessian ~y/mu^3 can be very large, causing divergence.
-    # 3x safety to handle non-smooth (L1) proximal jumps.
+        L = L * _LIPSCHITZ_SAFETY_TWEEDIE
     if _loss_name == "gamma":
-        L = L * 3.0
-    # Logistic: iterate-dependent Lipschitz (X'WX).  In CV mode, use a fixed
-    # global bound with 2x safety to enable the async GPU loop (no Armijo).
-    # Non-CV mode keeps Armijo for CPU/GPU path parity.
+        L = L * _LIPSCHITZ_SAFETY_GAMMA
     if _loss_name == "logistic" and cv_mode:
-        L = L * 2.0
+        L = L * _LIPSCHITZ_SAFETY_LOGISTIC_CV
     # Async GPU loop: skip backtracking, deferred checks.
     # For non-smooth penalties (l1, elasticnet, scad, mcp, adaptive, group):
     #   - Quadratic losses (squared_error): Lipschitz is exact, fixed step is optimal
@@ -1966,15 +1894,11 @@ def fista_bb_solver(
     _invgauss_like = _loss_name in ("inverse_gaussian",)
     _tweedie_like = _loss_name == "tweedie"
     if _invgauss_like:
-        L = L * 3.0
-    # Tweedie (p=1.5): loss landscape steepens exponentially — 5x safety.
+        L = L * _LIPSCHITZ_SAFETY_INVERSE_GAUSSIAN
     if _loss_name == "tweedie":
-        L = L * 5.0
-    # Gamma: loss = y/mu + log(mu), gradient = (1 - y/mu)/mu. When mu is small
-    # (large eta), the Hessian ~y/mu^3 can be very large, causing divergence.
-    # 3x safety (up from 2x) to handle L1 proximal jumps better.
+        L = L * _LIPSCHITZ_SAFETY_TWEEDIE
     if _loss_name == "gamma":
-        L = L * 3.0
+        L = L * _LIPSCHITZ_SAFETY_GAMMA
     # Add smooth penalty Lipschitz contribution (e.g. l2 gradient alpha*coef
     # has Lipschitz alpha).  Without this the step 1/L is too large.
     _smooth_lip_bb = _smooth_penalty_lipschitz(penalty)
