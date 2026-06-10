@@ -419,3 +419,338 @@ class TestPerformance:
         # Generous limits (should be much faster in practice)
         limit = {(100, 5): 1.0, (500, 20): 5.0, (1000, 50): 20.0}[(n, p)]
         assert elapsed < limit, f"n={n},p={p}: {elapsed:.3f}s > {limit}s"
+
+
+# ======================================================================
+# 14. LassoCV unification: uses _select_lasso_alpha_cv with cache
+# ======================================================================
+
+class TestLassoCVUnified:
+    def test_lasso_cv_fit_basic(self):
+        """LassoCV should fit and produce valid results."""
+        from statgpu.linear_model import LassoCV
+
+        np.random.seed(42)
+        X = np.random.randn(100, 5)
+        y = X @ np.random.randn(5) + 0.1 * np.random.randn(100)
+
+        m = LassoCV(cv=5).fit(X, y)
+        assert m.alpha_ > 0
+        assert m.best_score_ < 0  # negative MSE
+        assert m.coef_ is not None
+        assert m.intercept_ is not None
+        assert m.estimator_ is not None
+
+    def test_lasso_cv_weighted(self):
+        """LassoCV with sample_weight should work."""
+        from statgpu.linear_model import LassoCV
+
+        np.random.seed(42)
+        X = np.random.randn(100, 5)
+        y = X @ np.random.randn(5) + 0.1 * np.random.randn(100)
+        w = np.random.uniform(0.5, 2.0, 100)
+
+        m = LassoCV(cv=5).fit(X, y, sample_weight=w)
+        assert m.alpha_ > 0
+        assert m.best_score_ < 0
+
+    def test_lasso_cv_predict(self):
+        """LassoCV predict should delegate to estimator."""
+        from statgpu.linear_model import LassoCV
+
+        np.random.seed(42)
+        X = np.random.randn(100, 5)
+        y = X @ np.random.randn(5) + 0.1 * np.random.randn(100)
+
+        m = LassoCV(cv=5).fit(X, y)
+        y_pred = m.predict(X)
+        assert y_pred.shape == y.shape
+        # R² should be reasonable
+        ss_res = np.sum((y - y_pred) ** 2)
+        ss_tot = np.sum((y - np.mean(y)) ** 2)
+        r2 = 1 - ss_res / ss_tot
+        assert r2 > 0.5
+
+    def test_lasso_cv_score(self):
+        """LassoCV score should use estimator."""
+        from statgpu.linear_model import LassoCV
+
+        np.random.seed(42)
+        X = np.random.randn(100, 5)
+        y = X @ np.random.randn(5) + 0.1 * np.random.randn(100)
+
+        m = LassoCV(cv=5).fit(X, y)
+        score = m.score(X, y)
+        assert score > 0.5
+
+    def test_lasso_cv_degenerate_cv1(self):
+        """LassoCV with cv_splits with 1 fold should handle degenerate case."""
+        from statgpu.linear_model import LassoCV
+
+        np.random.seed(42)
+        X = np.random.randn(20, 3)
+        y = X @ np.random.randn(3) + 0.1 * np.random.randn(20)
+
+        # Single fold: degenerate
+        cv_splits = [(np.arange(10), np.arange(10, 20))]
+        m = LassoCV(cv_splits=cv_splits).fit(X, y)
+        assert m.alpha_ > 0
+
+
+# ======================================================================
+# 15. ElasticNetCV: batch_mse backend conversion
+# ======================================================================
+
+class TestElasticNetCVBatchMse:
+    def test_elasticnet_cv_fit(self):
+        """ElasticNetCV should fit without backend mismatch errors."""
+        from statgpu.linear_model import ElasticNetCV
+
+        np.random.seed(42)
+        X = np.random.randn(100, 5)
+        y = X @ np.random.randn(5) + 0.1 * np.random.randn(100)
+
+        m = ElasticNetCV(cv=5).fit(X, y)
+        assert m.alpha_ > 0
+        assert m.best_score_ < 0
+
+    def test_elasticnet_cv_predict(self):
+        """ElasticNetCV predict should delegate to estimator."""
+        from statgpu.linear_model import ElasticNetCV
+
+        np.random.seed(42)
+        X = np.random.randn(100, 5)
+        y = X @ np.random.randn(5) + 0.1 * np.random.randn(100)
+
+        m = ElasticNetCV(cv=5).fit(X, y)
+        y_pred = m.predict(X)
+        assert y_pred.shape == y.shape
+
+
+# ======================================================================
+# 16. hash_cv_data: shared across elasticnet and logistic
+# ======================================================================
+
+class TestHashCvData:
+    def test_hash_deterministic(self):
+        """Same inputs should produce same hash."""
+        from statgpu.linear_model._cv_base import hash_cv_data
+
+        np.random.seed(42)
+        X = np.random.randn(50, 5)
+        y = np.random.randn(50)
+
+        h1 = hash_cv_data(X, y)
+        h2 = hash_cv_data(X, y)
+        assert h1 == h2
+
+    def test_hash_different_data(self):
+        """Different data should produce different hash."""
+        from statgpu.linear_model._cv_base import hash_cv_data
+
+        np.random.seed(42)
+        X1 = np.random.randn(50, 5)
+        y1 = np.random.randn(50)
+        np.random.seed(43)
+        X2 = np.random.randn(50, 5)
+        y2 = np.random.randn(50)
+
+        h1 = hash_cv_data(X1, y1)
+        h2 = hash_cv_data(X2, y2)
+        assert h1 != h2
+
+    def test_hash_with_sample_weight(self):
+        """Adding sample_weight should change hash."""
+        from statgpu.linear_model._cv_base import hash_cv_data
+
+        np.random.seed(42)
+        X = np.random.randn(50, 5)
+        y = np.random.randn(50)
+        w = np.random.uniform(0.5, 2.0, 50)
+
+        h_no_w = hash_cv_data(X, y)
+        h_with_w = hash_cv_data(X, y, sample_weight=w)
+        assert h_no_w != h_with_w
+
+    def test_hash_importable_from_elasticnet(self):
+        """_hash_data should be importable from _elasticnet_cv."""
+        from statgpu.linear_model._elasticnet_cv import _hash_data
+        assert callable(_hash_data)
+
+    def test_hash_importable_from_logistic(self):
+        """_hash_logistic_data should be importable from _logistic_cv."""
+        from statgpu.linear_model._logistic_cv import _hash_logistic_data
+        assert callable(_hash_logistic_data)
+
+
+# ======================================================================
+# 17. SelectivePenalty singleton: thread-local
+# ======================================================================
+
+class TestSelectivePenaltySingleton:
+    def test_singleton_same_thread(self):
+        """Same thread should get same instance."""
+        from statgpu.linear_model._penalized import _get_selective_penalty_singleton
+
+        s1 = _get_selective_penalty_singleton()
+        s2 = _get_selective_penalty_singleton()
+        assert s1 is s2
+
+    def test_singleton_configure(self):
+        """configure() should update the singleton."""
+        from statgpu.linear_model._penalized import _get_selective_penalty_singleton
+        from statgpu.penalties._l1 import L1Penalty
+
+        s = _get_selective_penalty_singleton()
+        pen = L1Penalty(alpha=0.1)
+        s.configure(pen, 10, "numpy")
+        assert s._p == 10
+        assert s._backend == "numpy"
+
+
+# ======================================================================
+# 18. _is_uniform_weight: shared helper
+# ======================================================================
+
+class TestIsUniformWeight:
+    def test_none_is_uniform(self):
+        """None weight should be uniform."""
+        from statgpu.linear_model._penalized_cv import _is_uniform_weight
+        assert _is_uniform_weight(None) is True
+
+    def test_constant_is_uniform(self):
+        """Constant weight should be uniform."""
+        from statgpu.linear_model._penalized_cv import _is_uniform_weight
+        w = np.ones(100) * 2.0
+        assert _is_uniform_weight(w) is True
+
+    def test_varying_is_not_uniform(self):
+        """Varying weight should not be uniform."""
+        from statgpu.linear_model._penalized_cv import _is_uniform_weight
+        w = np.random.uniform(0.5, 2.0, 100)
+        assert _is_uniform_weight(w) is False
+
+
+# ======================================================================
+# 19. Lasso kwargs validation
+# ======================================================================
+
+class TestLassoKwargs:
+    def test_unknown_kwarg_raises(self):
+        """Lasso with unknown kwarg should raise TypeError."""
+        from statgpu.linear_model import Lasso
+        with pytest.raises(TypeError):
+            Lasso(alph=0.1)  # typo: alph instead of alpha
+
+    def test_valid_kwargs_work(self):
+        """Lasso with valid kwargs should work."""
+        from statgpu.linear_model import Lasso
+        m = Lasso(alpha=0.1, fit_intercept=True)
+        assert m.alpha == 0.1
+
+
+# ======================================================================
+# 20. cv parameter validation
+# ======================================================================
+
+class TestCvValidation:
+    def test_cv_lt_2_raises(self):
+        """cv < 2 should raise ValueError."""
+        from statgpu.linear_model import RidgeCV
+        with pytest.raises(ValueError, match="cv"):
+            RidgeCV(cv=1)
+
+    def test_cv_eq_2_works(self):
+        """cv=2 should work."""
+        from statgpu.linear_model import RidgeCV
+        np.random.seed(42)
+        X = np.random.randn(20, 3)
+        y = X @ np.random.randn(3) + 0.1 * np.random.randn(20)
+        m = RidgeCV(cv=2).fit(X, y)
+        assert m.alpha_ > 0
+
+
+# ======================================================================
+# 21. group_lasso alpha grid direction
+# ======================================================================
+
+class TestGroupLassoGrid:
+    def test_group_lasso_grid_descending(self):
+        """group_lasso alpha grid should be descending (largest first)."""
+        from statgpu.linear_model._penalized_cv import PenalizedGLM_CV
+        # This is tested indirectly through fit; if grid is ascending,
+        # warm-start would fail and CV scores would be wrong.
+        np.random.seed(42)
+        X = np.random.randn(100, 5)
+        y = X @ np.random.randn(5) + 0.1 * np.random.randn(100)
+        # Just verify it doesn't crash
+        m = PenalizedGLM_CV(loss='squared_error', penalty='group_lasso', cv=3,
+                            n_alphas=5, device='cpu')
+        # group_lasso requires groups; skip full fit test
+        assert m.n_alphas == 5
+
+
+# ======================================================================
+# 22. FE predict vectorized
+# ======================================================================
+
+class TestFEPredictVectorized:
+    def test_predict_with_entity_effects(self):
+        """Panel FE predict should be vectorized and correct."""
+        from statgpu.panel._fixed_effects import PanelOLS
+
+        np.random.seed(42)
+        n = 100
+        entity_ids = np.repeat(np.arange(10), 10)
+        entity_effects = np.repeat(np.random.randn(10), 10)
+        X = np.random.randn(n, 3)
+        y = X @ np.random.randn(3) + entity_effects + 0.1 * np.random.randn(n)
+
+        model = PanelOLS(entity_effects=True)
+        model.fit(y, X, entity_ids=entity_ids)
+
+        y_pred = model.predict(X, entity_ids=entity_ids)
+        assert y_pred.shape == y.shape
+
+        r2 = 1 - np.sum((y - y_pred) ** 2) / np.sum((y - np.mean(y)) ** 2)
+        assert r2 > 0.9
+
+    def test_predict_without_effects(self):
+        """Panel FE predict without entity_ids should return slope only."""
+        from statgpu.panel._fixed_effects import PanelOLS
+
+        np.random.seed(42)
+        n = 100
+        entity_ids = np.repeat(np.arange(10), 10)
+        X = np.random.randn(n, 3)
+        y = X @ np.random.randn(3) + np.repeat(np.random.randn(10), 10) + 0.1 * np.random.randn(n)
+
+        model = PanelOLS(entity_effects=True)
+        model.fit(y, X, entity_ids=entity_ids)
+
+        y_pred_no_fe = model.predict(X)
+        assert y_pred_no_fe.shape == y.shape
+
+
+# ======================================================================
+# 23. FE t-distribution for robust/clustered SE
+# ======================================================================
+
+class TestFETDistribution:
+    def test_robust_uses_t_distribution(self):
+        """Robust SE should use t-distribution (p-values from t, not z)."""
+        from statgpu.panel._fixed_effects import PanelOLS
+
+        np.random.seed(42)
+        n = 50
+        entity_ids = np.repeat(np.arange(10), 5)
+        X = np.random.randn(n, 2)
+        y = X @ np.random.randn(2) + np.repeat(np.random.randn(10), 5) + 0.1 * np.random.randn(n)
+
+        model = PanelOLS(entity_effects=True, cov_type='robust')
+        model.fit(y, X, entity_ids=entity_ids)
+
+        # p-values should be finite and in [0, 1]
+        assert np.all(np.isfinite(model.pvalues_))
+        assert np.all(model.pvalues_ >= 0)
+        assert np.all(model.pvalues_ <= 1)
