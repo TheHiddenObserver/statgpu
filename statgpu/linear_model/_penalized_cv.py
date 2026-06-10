@@ -2168,6 +2168,12 @@ class PenalizedGLM_CV(CVEstimatorBase):
                 )
                 alpha_max = 1.0
 
+        # For elasticnet, the L1 component threshold is alpha*l1_ratio,
+        # so alpha_max should be scaled by 1/l1_ratio
+        if self.penalty == 'elasticnet' and hasattr(self, 'l1_ratio'):
+            _l1r = max(float(self.l1_ratio), 1e-10)
+            alpha_max = alpha_max / _l1r
+
         if alpha_max <= 0:
             warnings.warn(
                 f"Alpha grid estimation returned {alpha_max}, using alpha_max=1.0",

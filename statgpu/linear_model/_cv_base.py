@@ -331,6 +331,13 @@ class CVEstimatorBase(BaseEstimator):
         self.cv_results_ = None
         self.estimator_ = None
 
+    def get_params(self, deep=True):
+        """Return parameters including cv and random_state for sklearn compatibility."""
+        params = super().get_params(deep=deep)
+        params['cv'] = self.cv
+        params['random_state'] = self.random_state
+        return params
+
     def predict(self, X):
         self._check_is_fitted()
         if self.estimator_ is None:

@@ -17,28 +17,33 @@ from ._elasticnet import ElasticNet
 # CV Cache
 # =============================================================================
 
+import threading
+
 _ELASTICNET_CV_CACHE_MAXSIZE = int(64)
 _ELASTICNET_CV_CACHE: "OrderedDict[Tuple[Any, ...], Dict[str, Any]]" = OrderedDict()
+_ELASTICNET_CV_CACHE_LOCK = threading.Lock()
 
 
 def _elasticnet_cv_cache_get(cache_key: Optional[Tuple[Any, ...]]) -> Optional[Dict[str, Any]]:
     """Get cached ElasticNet CV results."""
     if cache_key is None:
         return None
-    val = _ELASTICNET_CV_CACHE.get(cache_key)
-    if val is not None:
-        _ELASTICNET_CV_CACHE.move_to_end(cache_key)
-    return val
+    with _ELASTICNET_CV_CACHE_LOCK:
+        val = _ELASTICNET_CV_CACHE.get(cache_key)
+        if val is not None:
+            _ELASTICNET_CV_CACHE.move_to_end(cache_key)
+        return val
 
 
 def _elasticnet_cv_cache_put(cache_key: Optional[Tuple[Any, ...]], value: Dict[str, Any]) -> None:
     """Put cached ElasticNet CV results."""
     if cache_key is None:
         return
-    _ELASTICNET_CV_CACHE[cache_key] = value
-    _ELASTICNET_CV_CACHE.move_to_end(cache_key)
-    while len(_ELASTICNET_CV_CACHE) > _ELASTICNET_CV_CACHE_MAXSIZE:
-        _ELASTICNET_CV_CACHE.popitem(last=False)
+    with _ELASTICNET_CV_CACHE_LOCK:
+        _ELASTICNET_CV_CACHE[cache_key] = value
+        _ELASTICNET_CV_CACHE.move_to_end(cache_key)
+        while len(_ELASTICNET_CV_CACHE) > _ELASTICNET_CV_CACHE_MAXSIZE:
+            _ELASTICNET_CV_CACHE.popitem(last=False)
 
 
 def _make_elasticnet_cv_auto_cache_key(
@@ -869,6 +874,7 @@ class ElasticNetCV(CVEstimatorBase):
         self.intercept_ = final_model.intercept_
         self.n_iter_ = final_model.n_iter_
         self.estimator_ = final_model
+        self._fitted = True
 
         return self
 

@@ -20,28 +20,33 @@ from ._ridge import Ridge
 # CV Cache for Ridge
 # =============================================================================
 
+import threading
+
 _RIDGE_CV_ALPHA_CACHE_MAXSIZE = int(64)
 _RIDGE_CV_ALPHA_CACHE: "OrderedDict[Tuple[Any, ...], Dict[str, Any]]" = OrderedDict()
+_RIDGE_CV_CACHE_LOCK = threading.Lock()
 
 
 def _ridge_cv_cache_get(key):
     """Get cached Ridge CV results."""
     if key is None:
         return None
-    val = _RIDGE_CV_ALPHA_CACHE.get(key)
-    if val is not None:
-        _RIDGE_CV_ALPHA_CACHE.move_to_end(key)
-    return val
+    with _RIDGE_CV_CACHE_LOCK:
+        val = _RIDGE_CV_ALPHA_CACHE.get(key)
+        if val is not None:
+            _RIDGE_CV_ALPHA_CACHE.move_to_end(key)
+        return val
 
 
 def _ridge_cv_cache_put(key, value):
     """Put cached Ridge CV results."""
     if key is None:
         return
-    _RIDGE_CV_ALPHA_CACHE[key] = value
-    _RIDGE_CV_ALPHA_CACHE.move_to_end(key)
-    while len(_RIDGE_CV_ALPHA_CACHE) > _RIDGE_CV_ALPHA_CACHE_MAXSIZE:
-        _RIDGE_CV_ALPHA_CACHE.popitem(last=False)
+    with _RIDGE_CV_CACHE_LOCK:
+        _RIDGE_CV_ALPHA_CACHE[key] = value
+        _RIDGE_CV_ALPHA_CACHE.move_to_end(key)
+        while len(_RIDGE_CV_ALPHA_CACHE) > _RIDGE_CV_ALPHA_CACHE_MAXSIZE:
+            _RIDGE_CV_ALPHA_CACHE.popitem(last=False)
 
 
 def _make_ridge_cv_auto_cache_key(X, y, alphas, folds, fit_intercept, use_gpu, sample_weight=None):

@@ -637,6 +637,7 @@ def fista_solver(
         _div_interval = 25
         _lip_interval = 25
     _validate_uniform_sample_weight(sample_weight, X_proc.shape[0], "fista_solver")
+    iteration = -1  # default if max_iter=0
 
     for iteration in range(max_iter):
         coef_old = _copy_arr(coef)
@@ -818,11 +819,7 @@ def fista_solver(
             elif backend == "cupy":
                 y_k = coef + beta * (coef - coef_old)
             else:
-                _fista_step = _get_fista_step_compiled() if backend == "torch" else None
-                if _fista_step is not None:
-                    _, y_k = _fista_step_call(_fista_step, coef, coef, 0.0, coef_old, coef, beta)
-                else:
-                    y_k = coef + beta * (coef - coef_old)
+                y_k = coef + beta * (coef - coef_old)
             t_k = t_new
 
         # Convergence check — deferred for GPU, every iteration for CPU
@@ -1416,10 +1413,7 @@ def fista_lla_path(
                     else:
                         t_new = (1.0 + np.sqrt(1.0 + 4.0 * t_k * t_k)) / 2.0
                         beta = (t_k - 1.0) / t_new
-                        if _fista_step is not None:
-                            _, y_k = _fista_step_call(_fista_step, coef, coef, 0.0, coef_old, coef, beta)
-                        else:
-                            y_k = coef + beta * (coef - coef_old)
+                        y_k = coef + beta * (coef - coef_old)
                         t_k = t_new
 
                     # Convergence (device-side comparison, only D2H 1 bool)
@@ -1686,6 +1680,7 @@ def newton_solver(
                                 'negative_binomial', 'tweedie', 'inverse_gaussian')
 
     _validate_uniform_sample_weight(sample_weight, X.shape[0], "newton_solver")
+    iteration = -1  # default if max_iter=0
 
     for iteration in range(max_iter):
         params_old = _copy_arr(params)
@@ -1929,6 +1924,7 @@ def fista_bb_solver(
     grad_old = loss.gradient(X_proc, y_proc, coef)
     # Initialize dg for BB step selection (used before first assignment in loop)
     dg = _zeros(n_features, backend, ref_tensor=X_proc)
+    iteration = -1  # default if max_iter=0
 
     for iteration in range(max_iter):
         coef_old = _copy_arr(coef)
@@ -2334,6 +2330,7 @@ def lbfgs_solver(
         tol_dev = torch.tensor(tol, dtype=torch.float64, device=params.device)
     else:
         tol_dev = tol
+    iteration = -1  # default if max_iter=0
 
     for iteration in range(max_iter):
         grad_norm_dev = _norm2_dev(grad)
@@ -2610,6 +2607,7 @@ def admm_solver(
         if L_f <= 0:
             L_f = 1.0
         lr_sub = 1.0 / (L_f + rho + 1e-8)
+    iteration = -1  # default if max_iter=0
 
     for iteration in range(max_iter):
         z_old = _copy_arr(z)

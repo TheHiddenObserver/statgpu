@@ -43,7 +43,10 @@ def within_transform(y, groups, xp=None):
 
     # Vectorized group demeaning — avoids per-group Python loop
     # (O(n_groups) kernel launches → O(1) vectorized ops)
-    groups_np = _to_numpy(groups).astype(np.int64)
+    # Do NOT cast to int64 before unique — float/string labels would be
+    # truncated/crashed.  np.unique(..., return_inverse=True) already returns
+    # contiguous integer indices regardless of the input dtype.
+    groups_np = _to_numpy(groups)
     y_np = _to_numpy(y)
 
     # Map group labels to contiguous indices [0, n_groups)
@@ -95,7 +98,7 @@ def _within_transform_matrix(X, groups, xp=None):
     if X.ndim == 1:
         X = X.reshape(-1, 1)
 
-    groups_np = _to_numpy(groups).astype(np.int64)
+    groups_np = _to_numpy(groups)
     X_np = _to_numpy(X)
 
     unique_labels, group_idx = np.unique(groups_np, return_inverse=True)
@@ -250,7 +253,7 @@ def group_means(y, groups, xp=None):
     groups = xp_asarray(groups, xp=xp, ref_arr=y).ravel()
 
     # Vectorized group means using bincount (O(n), no per-group loop)
-    groups_np = _to_numpy(groups).astype(np.int64)
+    groups_np = _to_numpy(groups)
     y_np = _to_numpy(y)
     unique_labels, group_idx = np.unique(groups_np, return_inverse=True)
     n_groups = len(unique_labels)
@@ -296,7 +299,7 @@ def group_sizes(groups, xp=None):
     groups = xp_asarray(groups, xp=xp).ravel()
 
     # Vectorized group sizes using bincount (O(n), no per-group loop)
-    groups_np = _to_numpy(groups).astype(np.int64)
+    groups_np = _to_numpy(groups)
     unique_labels, group_idx = np.unique(groups_np, return_inverse=True)
     n_groups = len(unique_labels)
     count = np.bincount(group_idx, minlength=n_groups)

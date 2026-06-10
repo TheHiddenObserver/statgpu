@@ -165,8 +165,9 @@ def _default_lasso_alpha_grid_backend(X, y, backend, n_alphas: int = 12, alpha_m
     alpha_max = float(backend.to_numpy(backend.max(corr))) if corr_size > 0 else 1.0
 
     if n_samples > 1:
-        y_std = backend.sqrt(backend.mean((y_arr - backend.mean(y_arr)) ** 2))
-        sigma_hat = float(backend.to_numpy(y_std))
+        # Use ddof=1 (sample std) to match CPU _lasso_alpha_heuristic
+        y_var = backend.sum((y_arr - backend.mean(y_arr)) ** 2) / (n_samples - 1)
+        sigma_hat = float(backend.to_numpy(backend.sqrt(y_var)))
     else:
         sigma_hat = 0.0
 

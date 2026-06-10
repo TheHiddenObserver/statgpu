@@ -17,28 +17,33 @@ from ._logistic import LogisticRegression
 # CV Cache for LogisticRegression
 # =============================================================================
 
+import threading
+
 _LOGISTIC_CV_C_CACHE_MAXSIZE = int(64)
 _LOGISTIC_CV_C_CACHE: "OrderedDict[Tuple[Any, ...], Dict[str, Any]]" = OrderedDict()
+_LOGISTIC_CV_CACHE_LOCK = threading.Lock()
 
 
 def _logistic_cv_cache_get(key):
     """Get cached LogisticRegression CV results."""
     if key is None:
         return None
-    val = _LOGISTIC_CV_C_CACHE.get(key)
-    if val is not None:
-        _LOGISTIC_CV_C_CACHE.move_to_end(key)
-    return val
+    with _LOGISTIC_CV_CACHE_LOCK:
+        val = _LOGISTIC_CV_C_CACHE.get(key)
+        if val is not None:
+            _LOGISTIC_CV_C_CACHE.move_to_end(key)
+        return val
 
 
 def _logistic_cv_cache_put(key, value):
     """Put cached LogisticRegression CV results."""
     if key is None:
         return
-    _LOGISTIC_CV_C_CACHE[key] = value
-    _LOGISTIC_CV_C_CACHE.move_to_end(key)
-    while len(_LOGISTIC_CV_C_CACHE) > _LOGISTIC_CV_C_CACHE_MAXSIZE:
-        _LOGISTIC_CV_C_CACHE.popitem(last=False)
+    with _LOGISTIC_CV_CACHE_LOCK:
+        _LOGISTIC_CV_C_CACHE[key] = value
+        _LOGISTIC_CV_C_CACHE.move_to_end(key)
+        while len(_LOGISTIC_CV_C_CACHE) > _LOGISTIC_CV_C_CACHE_MAXSIZE:
+            _LOGISTIC_CV_C_CACHE.popitem(last=False)
 
 
 from statgpu.linear_model._cv_base import hash_cv_data as _hash_logistic_data
