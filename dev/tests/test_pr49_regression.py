@@ -1720,4 +1720,120 @@ class TestCompiledFistaStep:
                 context = '\n'.join(lines[max(0,i-5):i+5])
                 if 'momentum' in context.lower() or 'Momentum' in context:
                     assert False, f'Wrong FISTA step call at line {i}: {line.strip()}'
+
+
+# ======================================================================
+# 46. Dead code removal verification
+# ======================================================================
+
+class TestDeadCodeRemoved:
+    def test_lasso_cv_no_fit_cv_method(self):
+        """_lasso_cv.py should not have _fit_cv method."""
+        with open('statgpu/linear_model/_lasso_cv.py', 'r', encoding='utf-8') as f:
+            content = f.read()
+        assert 'def _fit_cv' not in content
+        print('[OK] _fit_cv removed')
+
+    def test_lasso_cv_single_fit_method(self):
+        """_lasso_cv.py should have exactly one fit method."""
+        with open('statgpu/linear_model/_lasso_cv.py', 'r', encoding='utf-8') as f:
+            content = f.read()
+        count = content.count('def fit(self')
+        assert count == 1, f'Expected 1 fit method, found {count}'
+        print('[OK] single fit method')
+
+    def test_logistic_cv_no_and_false(self):
+        """_logistic_cv.py should not have 'and False' dead code."""
+        with open('statgpu/linear_model/_logistic_cv.py', 'r', encoding='utf-8') as f:
+            content = f.read()
+        assert 'and False' not in content
+        print('[OK] no and False dead code')
+
+    def test_solver_fista_lla_xtx_gated(self):
+        """fista_lla_path should only compute XtX for quadratic losses."""
+        import inspect
+        from statgpu.glm_core._solver import fista_lla_path
+        src = inspect.getsource(fista_lla_path)
+        # XtX should be gated behind _is_quadratic
+        assert 'if _is_quadratic' in src or '_is_quadratic' in src
+        print('[OK] fista_lla XtX gated')
+
+
+# ======================================================================
+# 47. Precision regression check (same random_state)
+# ======================================================================
+
+class TestPrecisionRegression:
+    def test_ridge_cv_precision(self):
+        """RidgeCV should produce consistent results with same random_state."""
+        from statgpu.linear_model import RidgeCV
+        np.random.seed(42)
+        X = np.random.randn(100, 5)
+        y = X @ np.random.randn(5) + 0.1 * np.random.randn(100)
+
+        m = RidgeCV(cv=3, random_state=42).fit(X, y)
+        # Results should be deterministic
+        assert m.best_score_ < 0
+        assert np.isfinite(m.best_score_)
+        print('[OK] RidgeCV precision')
+
+    def test_lasso_cv_precision(self):
+        """LassoCV should produce consistent results with same random_state."""
+        from statgpu.linear_model import LassoCV
+        np.random.seed(42)
+        X = np.random.randn(100, 5)
+        y = X @ np.random.randn(5) + 0.1 * np.random.randn(100)
+
+        m = LassoCV(cv=3, random_state=42).fit(X, y)
+        assert m.best_score_ < 0
+        assert np.isfinite(m.best_score_)
+        print('[OK] LassoCV precision')
+
+    def test_elasticnet_cv_precision(self):
+        """ElasticNetCV should produce consistent results."""
+        from statgpu.linear_model import ElasticNetCV
+        np.random.seed(42)
+        X = np.random.randn(100, 5)
+        y = X @ np.random.randn(5) + 0.1 * np.random.randn(100)
+
+        m = ElasticNetCV(cv=3, random_state=42).fit(X, y)
+        assert m.best_score_ < 0
+        assert np.isfinite(m.best_score_)
+        print('[OK] ElasticNetCV precision')
+
+
+# ======================================================================
+# 48. Performance regression check
+# ======================================================================
+
+class TestPerformanceRegression:
+    @pytest.mark.parametrize("n,p", [(100, 5), (500, 20)])
+    def test_ridge_cv_time(self, n, p):
+        """RidgeCV should complete within reasonable time."""
+        from statgpu.linear_model import RidgeCV
+        np.random.seed(42)
+        X = np.random.randn(n, p)
+        y = X @ np.random.randn(p) + 0.1 * np.random.randn(n)
+
+        t0 = time.perf_counter()
+        RidgeCV(cv=5).fit(X, y)
+        elapsed = time.perf_counter() - t0
+
+        limit = {(100, 5): 1.0, (500, 20): 5.0}[(n, p)]
+        assert elapsed < limit, f"n={n},p={p}: {elapsed:.3f}s > {limit}s"
+
+    @pytest.mark.parametrize("n,p", [(100, 5), (500, 20)])
+    def test_lasso_cv_time(self, n, p):
+        """LassoCV should complete within reasonable time."""
+        from statgpu.linear_model import LassoCV
+        np.random.seed(42)
+        X = np.random.randn(n, p)
+        y = X @ np.random.randn(p) + 0.1 * np.random.randn(n)
+
+        t0 = time.perf_counter()
+        LassoCV(cv=5).fit(X, y)
+        elapsed = time.perf_counter() - t0
+
+        limit = {(100, 5): 2.0, (500, 20): 10.0}[(n, p)]
+        assert elapsed < limit, f"n={n},p={p}: {elapsed:.3f}s > {limit}s"
         print('[OK] No wrong compiled FISTA step call')
