@@ -991,8 +991,8 @@ def fista_lla_path(
     else:
         _zero_coef_lla = np.zeros(n_aug)
     L_base = loss.lipschitz(X_c, _zero_coef_lla, y=y_c)
-    # Precompute XtX for squared_error fast path
-    XtX = X_c.T @ X_c
+    # Precompute XtX only for squared_error fast path (skip for GLM losses)
+    XtX = X_c.T @ X_c if _is_quadratic else None
     if L_base <= 0:
         L_base = 1.0
 
