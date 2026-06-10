@@ -254,13 +254,9 @@ def _batch_mse_elasticnet(
     mse : ndarray
         MSE values (n_alphas,).
     """
-    # Ensure coefs_path is backend array
-    if not hasattr(coefs_path, 'reshape'):
-        coefs_path = backend.asarray(coefs_path)
-
-    # Ensure intercepts_path is backend array and reshape correctly
-    if not hasattr(intercepts_path, 'reshape'):
-        intercepts_path = backend.asarray(intercepts_path)
+    # Ensure arrays are on the correct backend (convert numpy -> backend if needed)
+    coefs_path = backend.asarray(coefs_path)
+    intercepts_path = backend.asarray(intercepts_path)
     intercepts_reshaped = intercepts_path.reshape(1, -1)
 
     # Compute predictions and squared errors
