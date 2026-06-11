@@ -1772,7 +1772,8 @@ def test_poisson_sparse_penalty_matches_statsmodels_equivalent_alpha(
     assert np.allclose(statgpu_params, sm_res.params, rtol=2e-3, atol=5e-4)
 
 
-def test_fista_uniform_sample_weight_is_noop_and_nonuniform_raises():
+def test_fista_uniform_sample_weight_is_noop():
+    """Uniform sample_weight should produce same result as unweighted."""
     rng = np.random.default_rng(14)
     X = rng.normal(size=(40, 4))
     y = rng.normal(size=40)
@@ -1786,8 +1787,6 @@ def test_fista_uniform_sample_weight_is_noop_and_nonuniform_raises():
     )
 
     assert np.allclose(coef_uniform, coef_unweighted)
-    with pytest.raises(ValueError, match="non-uniform sample_weight"):
-        fista_solver(loss, penalty, X, y, sample_weight=np.linspace(0.5, 1.5, X.shape[0]))
 
 
 def test_fista_uniform_sample_weight_accepts_torch_tensor():
@@ -1827,7 +1826,7 @@ def test_fista_uniform_sample_weight_accepts_cupy_array():
     assert coef_uniform.shape == (X.shape[1],)
 
 
-@pytest.mark.parametrize("solver", [fista_bb_solver, newton_solver, admm_solver, lbfgs_solver])
+@pytest.mark.parametrize("solver", [newton_solver, admm_solver, lbfgs_solver])
 def test_non_irls_solvers_reject_nonuniform_sample_weight(solver):
     rng = np.random.default_rng(15)
     X = rng.normal(size=(24, 3))
@@ -1837,6 +1836,27 @@ def test_non_irls_solvers_reject_nonuniform_sample_weight(solver):
 
     with pytest.raises(ValueError, match="non-uniform sample_weight"):
         solver(loss, penalty, X, y, sample_weight=np.linspace(1.0, 2.0, X.shape[0]))
+
+
+def test_fista_accepts_nonuniform_sample_weight():
+    """FISTA solver should now accept non-uniform sample_weight."""
+    rng = np.random.default_rng(15)
+    X = rng.normal(size=(50, 3))
+    y = X @ np.array([1.0, -1.0, 0.5]) + 0.1 * rng.normal(size=50)
+    loss = SquaredErrorLoss()
+    penalty = L2Penalty(alpha=0.1)
+    w = np.linspace(0.5, 2.0, 50)
+
+    coef, n_iter = fista_solver(
+        loss, penalty, X, y, max_iter=200, tol=1e-6, sample_weight=w
+    )
+    assert coef.shape == (X.shape[1],)
+    assert all(np.isfinite(coef))
+    # Weighted coef should differ from unweighted
+    coef_unw, _ = fista_solver(
+        loss, penalty, X, y, max_iter=200, tol=1e-6
+    )
+    assert not np.allclose(coef, coef_unw, atol=1e-3), "Weighted and unweighted coefs should differ"
 
 
 @pytest.mark.parametrize(

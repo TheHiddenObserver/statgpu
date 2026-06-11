@@ -26,16 +26,27 @@ class SquaredErrorLoss(GLMLoss):
     smooth_gradient = True
     has_hessian = True
 
-    def value(self, X, y, coef):
+    def value(self, X, y, coef, sample_weight=None):
         resid = y - X @ coef
+        if sample_weight is not None:
+            return 0.5 * (sample_weight * resid * resid).sum() / sample_weight.sum()
         return 0.5 * (resid * resid).sum() / X.shape[0]
 
-    def gradient(self, X, y, coef):
-        return X.T @ (X @ coef - y) / X.shape[0]
+    def gradient(self, X, y, coef, sample_weight=None):
+        resid = X @ coef - y
+        if sample_weight is not None:
+            return X.T @ (sample_weight * resid) / sample_weight.sum()
+        return X.T @ resid / X.shape[0]
 
-    def hessian(self, X, y, coef):
+    def hessian(self, X, y, coef, sample_weight=None):
+        if sample_weight is not None:
+            return X.T @ (X * sample_weight[:, None]) / sample_weight.sum()
         return X.T @ X / X.shape[0]
 
-    def lipschitz(self, X, coef, y=None):
+    def lipschitz(self, X, coef, y=None, sample_weight=None):
+        if sample_weight is not None:
+            sw = sample_weight[:, None] if hasattr(sample_weight, '__len__') else sample_weight
+            XtWX = X.T @ (X * sw)
+            return _max_eigval_power(XtWX) / sample_weight.sum()
         XtX = X.T @ X
         return _max_eigval_power(XtX) / X.shape[0]

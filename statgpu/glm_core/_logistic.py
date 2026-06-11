@@ -18,7 +18,7 @@ class LogisticLoss(GLMLoss):
     smooth_gradient = True
     has_hessian = True
 
-    def value(self, X, y, coef):
+    def value(self, X, y, coef, sample_weight=None):
         """Negative Bernoulli log-likelihood (to minimize)."""
         z = X @ coef
         xp = __import__(type(z).__module__.split(".")[0])
@@ -26,23 +26,38 @@ class LogisticLoss(GLMLoss):
             log1pexp = _log1p(_exp(-xp.abs(z))) + xp.clamp(z, min=0)
         else:
             log1pexp = _log1p(_exp(-xp.abs(z))) + xp.maximum(z, 0)
-        return _sum(-y * z + log1pexp) / X.shape[0]
+        nll = -y * z + log1pexp
+        if sample_weight is not None:
+            return _sum(sample_weight * nll) / sample_weight.sum()
+        return _sum(nll) / X.shape[0]
 
-    def gradient(self, X, y, coef):
+    def gradient(self, X, y, coef, sample_weight=None):
         z = X @ coef
         p = _sigmoid(z)
-        return X.T @ (p - y) / X.shape[0]
+        resid = p - y
+        if sample_weight is not None:
+            return X.T @ (sample_weight * resid) / sample_weight.sum()
+        return X.T @ resid / X.shape[0]
 
-    def hessian(self, X, y, coef):
+    def hessian(self, X, y, coef, sample_weight=None):
         z = X @ coef
         p = _sigmoid(z)
         W = _clip(p * (1.0 - p), 1e-10, 1.0 - 1e-10)
+        if sample_weight is not None:
+            W = W * sample_weight
+            return X.T @ (X * W[:, None]) / sample_weight.sum()
         return X.T @ (X * W[:, None]) / X.shape[0]
 
-    def lipschitz(self, X, coef, y=None):
+    def lipschitz(self, X, coef, y=None, sample_weight=None):
         # Global bound: L_global = lambda_max(X'X) / (4n)
-        XtX = X.T @ X
-        L_global = _max_eigval_power(XtX) / (4.0 * X.shape[0])
+        n_eff = sample_weight.sum() if sample_weight is not None else X.shape[0]
+        if sample_weight is not None:
+            sw = sample_weight[:, None] if hasattr(sample_weight, '__len__') else sample_weight
+            XtWX = X.T @ (X * sw)
+            L_global = _max_eigval_power(XtWX) / (4.0 * n_eff)
+        else:
+            XtX = X.T @ X
+            L_global = _max_eigval_power(XtX) / (4.0 * n_eff)
         if coef is not None:
             z = X @ coef
             p = _sigmoid(z)

@@ -28,12 +28,12 @@ class GLMLoss(ABC):
     has_hessian: bool = False
 
     @abstractmethod
-    def value(self, X, y, coef) -> float:
+    def value(self, X, y, coef, sample_weight=None) -> float:
         """Loss value (不含 penalty)."""
         pass
 
     @abstractmethod
-    def gradient(self, X, y, coef) -> np.ndarray:
+    def gradient(self, X, y, coef, sample_weight=None) -> np.ndarray:
         """Gradient of loss w.r.t. w."""
         pass
 
