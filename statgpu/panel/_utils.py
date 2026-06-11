@@ -200,19 +200,23 @@ def demean_variables(y, X, entity_ids, time_ids=None, xp=None):
 
     if entity_ids is not None and time_ids is not None:
         # Two-way FE: iterate until convergence
+        # Convert groups to numpy once (avoid repeated conversion in within_transform)
+        entity_np = _to_numpy(entity_ids).ravel()
+        time_np = _to_numpy(time_ids).ravel()
         for _ in range(50):
             y_prev = y_d.copy() if hasattr(y_d, 'copy') else y_d - 0.0
             X_prev = X_d.copy() if hasattr(X_d, 'copy') else X_d - 0.0
             # Entity demean
-            y_d = within_transform(y_d, entity_ids, xp)
-            X_d = _within_transform_matrix(X_d, entity_ids, xp)
+            y_d = within_transform(y_d, entity_np, xp)
+            X_d = _within_transform_matrix(X_d, entity_np, xp)
             # Time demean
-            y_d = within_transform(y_d, time_ids, xp)
-            X_d = _within_transform_matrix(X_d, time_ids, xp)
-            # Check convergence on both y and X
-            delta_y = float(xp.max(xp.abs(y_d - y_prev)))
-            delta_X = float(xp.max(xp.abs(X_d - X_prev)))
-            if max(delta_y, delta_X) < 1e-10:
+            y_d = within_transform(y_d, time_np, xp)
+            X_d = _within_transform_matrix(X_d, time_np, xp)
+            # Check convergence: batch both deltas into a single GPU sync
+            diff_y = y_d - y_prev
+            diff_X = X_d - X_prev
+            max_diff = float(xp.max(xp.abs(xp.concatenate([diff_y.ravel(), diff_X.ravel()]))))
+            if max_diff < 1e-10:
                 break
     else:
         # One-way FE: single pass

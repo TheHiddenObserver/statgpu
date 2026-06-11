@@ -936,6 +936,9 @@ class ElasticNetCV(CVEstimatorBase):
         score : float
             R² score.
         """
+        # Delegate to fitted estimator for backend-aware scoring
+        if self.estimator_ is not None:
+            return self.estimator_.score(X, y)
         y_pred = self.predict(X)
         y_arr = np.asarray(y, dtype=np.float64).reshape(-1)
 

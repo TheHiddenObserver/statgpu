@@ -1238,10 +1238,20 @@ def _fit_lasso_single_alpha_fast(
             y_arr = y_arr * sqrt_sw
 
         if bool(fit_intercept):
-            X_mean = cp.mean(X_arr, axis=0)
-            y_mean = cp.mean(y_arr)
-            X_centered = X_arr - X_mean
-            y_centered = y_arr - y_mean
+            if sw is not None:
+                # Weighted mean on original (pre-sqrt) data
+                X_orig = X_arr / sqrt_sw[:, cp.newaxis]
+                y_orig = y_arr / sqrt_sw
+                w_sum = float(cp.sum(sw))
+                X_mean = cp.sum(X_orig * sw[:, cp.newaxis], axis=0) / w_sum
+                y_mean = float(cp.sum(y_orig * sw)) / w_sum
+                X_centered = X_arr - sqrt_sw[:, cp.newaxis] * X_mean
+                y_centered = y_arr - sqrt_sw * y_mean
+            else:
+                X_mean = cp.mean(X_arr, axis=0)
+                y_mean = cp.mean(y_arr)
+                X_centered = X_arr - X_mean
+                y_centered = y_arr - y_mean
         else:
             X_mean = cp.zeros((X_arr.shape[1],), dtype=X_arr.dtype)
             y_mean = cp.array(0.0, dtype=X_arr.dtype)
@@ -1297,10 +1307,23 @@ def _fit_lasso_single_alpha_fast(
             y_arr = y_arr * sqrt_sw
 
         if bool(fit_intercept):
-            X_mean = torch.mean(X_arr, dim=0)
-            y_mean = torch.mean(y_arr)
-            X_centered = X_arr - X_mean
-            y_centered = y_arr - y_mean
+            if sw is not None:
+                # Weighted mean: sum(w*X)/sum(w) on original (pre-sqrt) data
+                # But X_arr is already sqrt(w)*X, so mean of sqrt(w)*X is not
+                # the weighted mean. Use the original data for centering.
+                X_orig = X_arr / sqrt_sw[:, None]
+                y_orig = y_arr / sqrt_sw
+                w_sum = float(sw.sum())
+                X_mean = torch.sum(X_orig * sw[:, None], dim=0) / w_sum
+                y_mean = float(torch.sum(y_orig * sw)) / w_sum
+                # Re-center the sqrt-weighted data using the weighted mean
+                X_centered = X_arr - sqrt_sw[:, None] * X_mean
+                y_centered = y_arr - sqrt_sw * y_mean
+            else:
+                X_mean = torch.mean(X_arr, dim=0)
+                y_mean = torch.mean(y_arr)
+                X_centered = X_arr - X_mean
+                y_centered = y_arr - y_mean
         else:
             X_mean = torch.zeros((X_arr.shape[1],), dtype=X_arr.dtype, device=X_arr.device)
             y_mean = torch.tensor(0.0, dtype=X_arr.dtype, device=X_arr.device)
@@ -1675,6 +1698,7 @@ def _select_lasso_alpha_cv(
                 X_val = X_full[val_idx_gpu]
                 y_val = y_full[val_idx_gpu]
                 sw_val = None if sw_full is None else sw_full[val_idx_gpu]
+                sw_train = None  # initialized per-fold in slow path; None for fast path
 
                 if fast_fold_stats:
                     n_val = int(val_idx_gpu.shape[0])
@@ -1724,11 +1748,15 @@ def _select_lasso_alpha_cv(
 
                     XtX = X_centered.T @ X_centered
                     Xty = X_centered.T @ y_centered
-                    n_train = int(X_train.shape[0])
+                    # For weighted case, effective sample size is sum(weights)
+                    if sw_train is not None:
+                        n_train = float(backend.sum(sw_train))
+                    else:
+                        n_train = int(X_train.shape[0])
 
                 XtX_folds.append(XtX)
                 Xty_folds.append(Xty)
-                n_train_folds.append(int(n_train))
+                n_train_folds.append(float(n_train) if sw_train is not None else int(n_train))
                 X_mean_folds.append(X_mean)
                 y_mean_folds.append(y_mean)
                 fold_eval_payload.append((X_val, y_val, sw_val))

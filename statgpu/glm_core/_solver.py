@@ -2095,7 +2095,7 @@ def fista_bb_solver(
                 _new_obj, _new_norm = _sync_scalars(
                     loss.value(X_proc, y_proc, coef), _norm2_dev(coef), backend=backend)
                 try:
-                    _new_pen = float(_to_numpy(penalty.value(_to_numpy(coef))))
+                    _new_pen = float(_to_numpy(penalty.value(coef)))
                 except (AttributeError, Exception):
                     _new_pen = 0.0
                 _new_total = _new_obj + _new_pen

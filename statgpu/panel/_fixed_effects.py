@@ -138,10 +138,12 @@ class PanelOLS(BaseEstimator):
             raise ValueError("time_ids is required when time_effects=True")
         if self.cov_type == 'clustered' and cluster is None:
             raise ValueError("cluster is required when cov_type='clustered'")
-        if cluster is not None and len(np.asarray(cluster)) != n:
-            raise ValueError(
-                f"cluster length {len(np.asarray(cluster))} != n_samples {n}"
-            )
+        if cluster is not None:
+            cluster_len = len(_to_numpy(cluster).ravel())
+            if cluster_len != n:
+                raise ValueError(
+                    f"cluster length {cluster_len} != n_samples {n}"
+                )
 
         entity_arr = None
         time_arr = None
@@ -183,6 +185,10 @@ class PanelOLS(BaseEstimator):
             n_effects += n_entities - 1
         if self.time_effects:
             n_effects += n_times - 1
+        # When only time_effects (no entity_effects), the intercept is not
+        # absorbed by the FE, so subtract 1 for the implicit constant.
+        if self.time_effects and not self.entity_effects:
+            n_effects += 1
         self.df_resid = n - k - n_effects
 
         if self.df_resid <= 0:

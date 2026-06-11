@@ -3394,9 +3394,12 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
                     _obj_after = float(self._loss.value(X_work[:, :p], y_arr, beta[:p]))
                     _obj_after += _nonconvex_penalty_value(beta[:p], pen_name, alpha, a_scad, gamma_mcp)
                     if _obj_after > _obj_before + 1e-10:
-                        # Step-halving loop: keep halving until objective decreases
-                        for _sh in range(10):
-                            beta[:] = 0.5 * (beta + beta_old)
+                        # Step-halving: interpolate between old and new beta
+                        # beta_sh = beta_old + 0.5^k * (beta_new - beta_old)
+                        beta_new = beta.copy()
+                        for _sh in range(1, 11):
+                            _frac = 0.5 ** _sh
+                            beta[:] = beta_old + _frac * (beta_new - beta_old)
                             _obj_after = float(self._loss.value(X_work[:, :p], y_arr, beta[:p]))
                             _obj_after += _nonconvex_penalty_value(beta[:p], pen_name, alpha, a_scad, gamma_mcp)
                             if _obj_after <= _obj_before + 1e-10:

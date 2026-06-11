@@ -461,11 +461,11 @@ class LassoCV(CVEstimatorBase):
         self.intercept_ = estimator.intercept_
         self.n_iter_ = getattr(estimator, 'n_iter_', None)
 
-        # Copy inference attributes if available
+        # Copy inference attributes if available (preserve underscore prefix)
         for attr in ('_bse', '_pvalues', '_tvalues', '_conf_int'):
             val = getattr(estimator, attr, None)
             if val is not None:
-                setattr(self, attr.replace('_', '', 1) if attr.startswith('_') else attr, np.asarray(val))
+                setattr(self, attr, np.asarray(val))
 
         self._fitted = True
         return self
