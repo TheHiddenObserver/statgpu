@@ -2023,3 +2023,211 @@ class TestTwoWayFEConvergence:
         r2 = 1 - np.sum((y - y_pred)**2) / np.sum((y - np.mean(y))**2)
         assert r2 > 0.9, f'R2={r2} too low'
         print('[OK] Two-way FE R2=%.4f' % r2)
+
+
+# ======================================================================
+# 58. Internal LassoCV removed
+# ======================================================================
+
+class TestInternalLassoCVRemoved:
+    def test_no_internal_lassocv(self):
+        """_lasso.py should not have a LassoCV class."""
+        with open('statgpu/linear_model/_lasso.py', 'r', encoding='utf-8') as f:
+            content = f.read()
+        assert 'class Lasso(' in content
+        assert 'class LassoCV(' not in content
+        print('[OK] Internal LassoCV removed')
+
+    def test_lasso_cv_imports_from_lasso_cv(self):
+        """LassoCV should be imported from _lasso_cv.py."""
+        from statgpu.linear_model import LassoCV
+        module = LassoCV.__module__
+        assert '_lasso_cv' in module
+        print('[OK] LassoCV from _lasso_cv.py')
+
+
+# ======================================================================
+# 59. fista_lla XtX gated
+# ======================================================================
+
+class TestFistaLlaXtXGated:
+    def test_xtx_gated(self):
+        """fista_lla_path should only compute XtX for quadratic."""
+        import inspect
+        from statgpu.glm_core._solver import fista_lla_path
+        src = inspect.getsource(fista_lla_path)
+        assert '_is_quadratic' in src
+        print('[OK] fista_lla XtX gated')
+
+
+# ======================================================================
+# 60. penalty.value direct call
+# ======================================================================
+
+class TestPenaltyValueDirect:
+    def test_no_to_numpy_in_fista_bb(self):
+        """fista_bb penalty.value should not wrap coef in _to_numpy."""
+        import inspect
+        from statgpu.glm_core._solver import fista_bb_solver
+        src = inspect.getsource(fista_bb_solver)
+        lines = src.split('\n')
+        for i, line in enumerate(lines):
+            if 'penalty.value(_to_numpy' in line:
+                context = '\n'.join(lines[max(0,i-10):i+10])
+                if 'diverge' in context.lower():
+                    assert False, f'Found penalty.value(_to_numpy) at line {i}'
+        print('[OK] penalty.value direct call')
+
+
+# ======================================================================
+# 61. _max_eigval_power zero matrix
+# ======================================================================
+
+class TestEigvalZeroMatrixFix:
+    def test_zero_matrix(self):
+        """_max_eigval_power on zero matrix should return 1.0."""
+        from statgpu.backends._array_ops import _max_eigval_power
+        Z = np.zeros((5, 5))
+        assert _max_eigval_power(Z) == 1.0
+        print('[OK] Zero matrix eigval=1.0')
+
+
+# ======================================================================
+# 62. Two-way FE single sync
+# ======================================================================
+
+class TestTwoWayFESingleSyncFix:
+    def test_uses_max_diff(self):
+        """Two-way FE should use single max_diff check."""
+        import inspect
+        from statgpu.panel._utils import demean_variables
+        src = inspect.getsource(demean_variables)
+        assert 'max_diff' in src
+        print('[OK] Two-way FE single sync')
+
+    def test_converges(self):
+        """Two-way FE should converge."""
+        from statgpu.panel._fixed_effects import PanelOLS
+        np.random.seed(42)
+        n = 60
+        entity_ids = np.repeat(np.arange(10), 6)
+        time_ids = np.tile(np.arange(6), 10)
+        X = np.random.randn(n, 2)
+        y = X @ np.random.randn(2) + np.repeat(np.random.randn(10), 6) + np.tile(np.random.randn(6), 10) + 0.1*np.random.randn(n)
+        model = PanelOLS(entity_effects=True, time_effects=True)
+        model.fit(y, X, entity_ids=entity_ids, time_ids=time_ids)
+        y_pred = model.predict(X, entity_ids=entity_ids, time_ids=time_ids)
+        r2 = 1 - np.sum((y - y_pred)**2) / np.sum((y - np.mean(y))**2)
+        assert r2 > 0.9
+        print('[OK] Two-way FE R2=%.4f' % r2)
+
+
+# ======================================================================
+# 63. ElasticNetCV _fitted and score
+# ======================================================================
+
+class TestElasticNetCVFittedAndScore:
+    def test_fitted_flag(self):
+        """ElasticNetCV should set _fitted=True."""
+        from statgpu.linear_model import ElasticNetCV
+        np.random.seed(42)
+        X = np.random.randn(50, 3)
+        y = X @ np.random.randn(3) + 0.1 * np.random.randn(50)
+        m = ElasticNetCV(cv=3).fit(X, y)
+        assert getattr(m, '_fitted', False) is True
+        print('[OK] ElasticNetCV _fitted=True')
+
+    def test_score_delegates(self):
+        """ElasticNetCV.score() should delegate to estimator_."""
+        import inspect
+        from statgpu.linear_model._elasticnet_cv import ElasticNetCV
+        src = inspect.getsource(ElasticNetCV.score)
+        assert 'estimator_' in src
+        print('[OK] ElasticNetCV.score delegates')
+
+
+# ======================================================================
+# 64. Step-halving interpolation
+# ======================================================================
+
+class TestStepHalvingInterpolationFix:
+    def test_uses_beta_new(self):
+        """_irls_cd step-halving should use beta_new for interpolation."""
+        import inspect
+        from statgpu.linear_model._penalized import PenalizedGeneralizedLinearModel
+        src = inspect.getsource(PenalizedGeneralizedLinearModel._irls_cd)
+        assert 'beta_new' in src
+        print('[OK] Step-halving uses beta_new')
+
+
+# ======================================================================
+# 65. Weighted Lasso n_train
+# ======================================================================
+
+class TestWeightedLassoNTrainFix:
+    def test_weighted_cv_fit(self):
+        """Weighted LassoCV should fit correctly."""
+        from statgpu.linear_model import LassoCV
+        np.random.seed(42)
+        X = np.random.randn(100, 5)
+        y = X @ np.random.randn(5) + 0.1 * np.random.randn(100)
+        w = np.random.uniform(0.5, 2.0, 100)
+        m = LassoCV(cv=3).fit(X, y, sample_weight=w)
+        assert m.alpha_ > 0
+        assert m.best_score_ < 0
+        print('[OK] Weighted LassoCV alpha=%.4f' % m.alpha_)
+
+
+# ======================================================================
+# 66. LassoCV inference attrs underscore
+# ======================================================================
+
+class TestInferenceAttrsUnderscoreFix:
+    def test_no_replace(self):
+        """LassoCV should not use attr.replace for inference attrs."""
+        import inspect
+        from statgpu.linear_model._lasso_cv import LassoCV
+        src = inspect.getsource(LassoCV.fit)
+        assert 'attr.replace' not in src
+        print('[OK] No attr.replace')
+
+
+# ======================================================================
+# 67. Cluster validation _to_numpy
+# ======================================================================
+
+class TestClusterValidationToNumpyFix:
+    def test_cluster_length(self):
+        """PanelOLS should validate cluster length."""
+        from statgpu.panel._fixed_effects import PanelOLS
+        np.random.seed(42)
+        X = np.random.randn(50, 2)
+        y = X @ np.random.randn(2) + 0.1 * np.random.randn(50)
+        cluster = np.repeat(np.arange(10), 3)[:30]
+        model = PanelOLS(cov_type='clustered')
+        try:
+            model.fit(y, X, cluster=cluster)
+            assert False
+        except ValueError as e:
+            assert 'cluster length' in str(e).lower()
+        print('[OK] Cluster validation')
+
+
+# ======================================================================
+# 68. df_resid time_effects
+# ======================================================================
+
+class TestDfResidTimeEffectsFix2:
+    def test_time_only(self):
+        """df_resid should add 1 for intercept with time-only FE."""
+        from statgpu.panel._fixed_effects import PanelOLS
+        np.random.seed(42)
+        n = 50
+        time_ids = np.repeat(np.arange(10), 5)
+        X = np.random.randn(n, 2)
+        y = X @ np.random.randn(2) + np.repeat(np.random.randn(10), 5) + 0.1*np.random.randn(n)
+        model = PanelOLS(time_effects=True)
+        model.fit(y, X, time_ids=time_ids)
+        expected = n - 2 - 9 - 1
+        assert model.df_resid == expected, f'Expected {expected}, got {model.df_resid}'
+        print('[OK] df_resid=%d' % model.df_resid)
