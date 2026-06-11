@@ -220,6 +220,7 @@
 - `_squared.py`/`_logistic.py`：实现加权 value/gradient/hessian/lipschitz
 - `_solver.py`：添加 `_weighted_loss_and_grad` helper，修改 `fista_solver` 使用加权 loss/gradient/Lipschitz
 **状态**：✅ 已修复 (2026-06-11)。`fista_bb_solver` 和其他 solver 暂不支持（保留 ValueError）。
+**三端验证**：numpy ✅ cupy ✅ torch ✅（Tesla P100）
 
 ### ~~P2: NB alpha / Tweedie power 参数化~~ ✅ 已完成
 
