@@ -9,6 +9,19 @@ Language switch: [Chinese](../changelog.md)
 
 ## 2026-06
 
+### Fixed (2026-06-10 ~ 2026-06-12)
+
+- **PR #49 Code Review: 110+ fixes across 16 files**:
+  - Fixed 26 P1 bugs (merge conflict, NameError, numerical formula errors, GPU path crashes)
+  - Fixed 55 P2 bugs (cache thread safety, backend consistency, edge cases, API compatibility)
+  - Fixed ~30 P3 improvements (dead code cleanup, magic numbers, performance)
+  - Added 428 test cases (all passing on remote GPU Tesla P100)
+  - Cross-backend precision deviation < 0.02% (same random_state)
+  - No performance regression (RidgeCV CuPy 6.8x speedup, PenalizedGLM_CV Torch 3.1x)
+  - Removed ~1300 lines of dead code
+  - Unified `best_score_` to negative MSE (sklearn convention)
+  - Merged PLAN_UNIFIED.md gates + PR #49 coding conventions into TO_DO.md
+
 ### Optimized (2026-06-05)
 
 - **Strict sparse GLM CV GPU squeeze pass**:

@@ -9,6 +9,19 @@
 
 ## 2026-06
 
+### Fixed (2026-06-10 ~ 2026-06-12)
+
+- **PR #49 Code Review: 110+ fixes across 16 files**:
+  - 修复 26 个 P1 bug（merge conflict、NameError、数值公式错误、GPU 路径崩溃等）
+  - 修复 55 个 P2 bug（缓存线程安全、后端一致性、边界情况、接口兼容性等）
+  - 修复 ~30 个 P3 改进项（死代码清理、magic numbers、性能优化等）
+  - 新增 428 个测试用例（远程 GPU Tesla P100 全部通过）
+  - 三端精度偏差 < 0.02%（同一 random_state 下）
+  - 性能无回退（RidgeCV CuPy 6.8x 加速，PenalizedGLM_CV Torch 3.1x 加速）
+  - 删除 ~1300 行死代码
+  - 统一 `best_score_` 为负 MSE（sklearn 惯例）
+  - 合并 PLAN_UNIFIED.md 门禁与 PR #49 编码规范到 TO_DO.md
+
 ### Optimized (2026-06-05)
 
 - **Strict sparse GLM CV GPU squeeze pass, round 7**:
