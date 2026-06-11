@@ -431,7 +431,8 @@ def _max_eigval_power(mat, n_iter=20, tol=1e-8):
     lambda_val = 0.0
     for i in range(n_iter):
         v_new = mat @ v
-        v_norm_sq = float(xp.dot(v_new, v_new).item() if hasattr(xp.dot(v_new, v_new), "item") else xp.dot(v_new, v_new))
+        dot_vn_vn = xp.dot(v_new, v_new)
+        v_norm_sq = float(dot_vn_vn.item() if hasattr(dot_vn_vn, "item") else dot_vn_vn)
         if v_norm_sq < 1e-30:
             return 1.0  # Zero matrix — same fallback as numpy path
         v_norm = v_norm_sq ** 0.5

@@ -243,15 +243,13 @@ coef = where(active, coef_new, coef)
 
 ### P2: `_solver.py` fista_bb BB state 用 backtracking 前的 coef_new
 
-**现状**：`fista_bb_solver` 在 safeguarded backtracking 后，BB state 用 `coef_new`（backtracking 前的值）计算 `dw = coef_new - coef_old`，而非实际接受的迭代。
-**方案**：在 backtracking 循环后更新 `coef_new = coef`。
-**难度**：低 | **风险**：低 | **状态**：未实现
+**现状**：已修复。BB state 现在使用实际接受的迭代 `coef`。
+**状态**：✅ 已修复
 
 ### P2: `_solver.py` admm_solver 计算 Cholesky 但用 `np.linalg.solve`
 
-**现状**：`use_cholesky=True` 时计算 `_L = np.linalg.cholesky(_A_mat)`，但 w-update 用 `np.linalg.solve(_A_mat, rhs)` 而非前向/回代。
-**方案**：用 `_L` 做前向/回代替换 `np.linalg.solve`。
-**难度**：低 | **风险**：低 | **状态**：未实现
+**现状**：已修复。现在使用预计算的 `_L` 做前向/回代。
+**状态**：✅ 已修复
 
 ### P2: `_penalized.py` `_irls_cd_gpu` 逐坐标 `float()` 调用
 
@@ -261,27 +259,23 @@ coef = where(active, coef_new, coef)
 
 ### P2: `_penalized_cv.py` SCAD/MCP 内层 FISTA 无 CV 迭代上限
 
-**现状**：`_scad_mcp_cv_path` 的内层 FISTA 使用完整的 `max_iter`，CV 时可能过慢。
-**方案**：添加 `_FISTA_MAX_ITER_CV` 上限。
-**难度**：低 | **风险**：低 | **状态**：未实现
+**现状**：已修复。添加了 `_FISTA_MAX_ITER_CV` 上限。
+**状态**：✅ 已修复
 
 ### P2: `_elasticnet_cv.py` alpha_max 公式未考虑 l1_ratio
 
-**现状**：`alpha_max = max(|X'y|) * 2 / n` 是 Lasso 的公式。对 l1_ratio < 1，真正的 alpha_max 是 `max(|X'y|) / (n * l1_ratio)`。
-**方案**：在 alpha_max 计算中除以 `l1_ratio`。
-**难度**：低 | **风险**：低 | **状态**：未实现
+**现状**：已修复。公式改为 `max(|X'y|) / (n * l1_ratio)`。
+**状态**：✅ 已修复
 
 ### P2: `_lasso_cv.py` `_fit_cv` 方法 340 行死代码
 
-**现状**：`fit()` 已委托给 `_select_lasso_alpha_cv`，`_fit_cv` 不再被调用。
-**方案**：删除 `_fit_cv` 及其辅助函数。
-**难度**：低 | **风险**：低 | **状态**：未实现
+**现状**：已修复。标记为 deprecated 并添加警告。
+**状态**：✅ 已修复
 
 ### P2: `_fixed_effects.py` `xp.unique` GPU sync 优化
 
-**现状**：`len(xp.unique(entity_arr))` 和 `len(xp.unique(time_arr))` 各触发一次 GPU sync。数据随后转 numpy。
-**方案**：在 numpy 转换后计算 unique counts。
-**难度**：低 | **风险**：低 | **状态**：未实现
+**现状**：已修复。unique 计算移到 numpy 路径。
+**状态**：✅ 已修复
 
 ---
 
@@ -316,4 +310,28 @@ coef = where(active, coef_new, coef)
 **现状**：为每个特征创建新模型实例（最多 p 次）。
 **方案**：复用单个实例或使用底层 solver。
 **难度**：高 | **风险**：高 | **状态**：未实现
+
+---
+
+## 第九轮 Code Review 剩余项 (2026-06-11)
+
+> 以下为需要中等重构的项，不影响正确性。
+
+### P2: `_lasso.py` + `_lasso_cv.py` 重复缓存定义
+
+**现状**：两个文件各有自己的 `_lasso_cv_cache_get/put` 和 `_LASSO_CV_ALPHA_CACHE`。`_lasso_cv.py` 的缓存是死代码。
+**方案**：合并到 `_cv_base.py` 或共享缓存模块。
+**难度**：低 | **状态**：未实现
+
+### P2: 多文件重复 `_batch_mse` 实现
+
+**现状**：`_ridge_cv.py`、`_lasso.py`、`_lasso_cv.py`、`_elasticnet_cv.py`、`_cv_base.py` 各有自己的 `_batch_mse`。
+**方案**：统一到 `_cv_base.py` 的 `batch_mse`。
+**难度**：中 | **状态**：未实现
+
+### P2: `_irls.py` deviance 计算 3-way 后端重复
+
+**现状**：`_dev_val` 函数 ~95 行 torch/cupy/numpy 重复代码。
+**方案**：使用 `_xp()` helper 统一。
+**难度**：中 | **状态**：未实现
 

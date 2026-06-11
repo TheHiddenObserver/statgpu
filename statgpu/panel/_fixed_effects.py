@@ -64,6 +64,7 @@ class PanelOLS(BaseEstimator):
         entity_effects: bool = False,
         time_effects: bool = False,
         cov_type: str = 'nonrobust',
+        alpha: float = 0.05,
         device: Union[str, Device] = Device.AUTO,
         n_jobs: Optional[int] = None,
     ):
@@ -71,6 +72,7 @@ class PanelOLS(BaseEstimator):
         self.entity_effects = entity_effects
         self.time_effects = time_effects
         self.cov_type = cov_type.lower()
+        self.alpha = float(alpha)
         if self.cov_type not in ('nonrobust', 'robust', 'clustered'):
             raise ValueError(
                 "cov_type must be 'nonrobust', 'robust', or 'clustered'"
@@ -255,7 +257,7 @@ class PanelOLS(BaseEstimator):
         except np.linalg.LinAlgError:
             XtX_inv = np.linalg.pinv(XtX)
 
-        alpha = 0.05
+        alpha = self.alpha
 
         if self.cov_type == 'nonrobust':
             self.bse_, self.tvalues_, self.pvalues_, self.conf_int_ = \

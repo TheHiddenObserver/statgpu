@@ -778,7 +778,8 @@ class TestP1StructuralFixes:
         """_cv_fold_general should use alpha_sorted, not alphas_sorted."""
         import inspect
         from statgpu.linear_model._penalized_cv import PenalizedGLM_CV
-        src = inspect.getsource(PenalizedGLM_CV)
+        import statgpu.linear_model._penalized_cv as _mod
+        src = inspect.getsource(_mod)
         # The typo 'alphas_sorted[alpha_idx_sorted]' should not exist
         assert 'alphas_sorted[alpha_idx_sorted]' not in src
 
@@ -866,7 +867,8 @@ class TestP1SolverFixes:
         """_generate_alpha_grid for logistic should use mean(y), not 0.5."""
         import inspect
         from statgpu.linear_model._penalized_cv import PenalizedGLM_CV
-        src = inspect.getsource(PenalizedGLM_CV)
+        import statgpu.linear_model._penalized_cv as _mod
+        src = inspect.getsource(_mod)
         assert 'mu_null' in src or 'mean(y)' in src
 
     def test_scad_mcp_n_iter_tracks_actual(self):
@@ -1101,7 +1103,8 @@ class TestP2P3PenalizedFixes:
         """_populate_refit_model should respect fit_intercept for df_resid."""
         import inspect
         from statgpu.linear_model._penalized_cv import PenalizedGLM_CV
-        src = inspect.getsource(PenalizedGLM_CV)
+        import statgpu.linear_model._penalized_cv as _mod
+        src = inspect.getsource(_mod)
         assert 'fit_intercept' in src and '_df_resid' in src
 
     def test_fused_uses_registry(self):
@@ -2231,3 +2234,201 @@ class TestDfResidTimeEffectsFix2:
         expected = n - 2 - 9
         assert model.df_resid == expected, f'Expected {expected}, got {model.df_resid}'
         print('[OK] df_resid=%d' % model.df_resid)
+
+
+# ======================================================================
+# 69. cv_selected_device_ unified
+# ======================================================================
+
+class TestCvSelectedDeviceUnified:
+    def test_no_private_duplicate(self):
+        """PenalizedGLM_CV should not have _cv_selected_device_ in __init__."""
+        import inspect
+        from statgpu.linear_model._penalized_cv import PenalizedGLM_CV
+        src = inspect.getsource(PenalizedGLM_CV.__init__)
+        assert '_cv_selected_device_' not in src
+        print('[OK] No private _cv_selected_device_')
+
+    def test_public_attribute_set(self):
+        """cv_selected_device_ should be set after fit."""
+        from statgpu.linear_model._penalized_cv import PenalizedGLM_CV
+        np.random.seed(42)
+        X = np.random.randn(50, 3)
+        y = X @ np.random.randn(3) + 0.1 * np.random.randn(50)
+        m = PenalizedGLM_CV(loss='squared_error', penalty='l1', cv=3).fit(X, y)
+        assert hasattr(m, 'cv_selected_device_')
+        assert m.cv_selected_device_ is not None
+        print('[OK] cv_selected_device_=%s' % m.cv_selected_device_)
+
+
+# ======================================================================
+# 70. alpha_max squared_error subtracts y_mean
+# ======================================================================
+
+class TestAlphaMaxSquaredError:
+    def test_alpha_max_uses_centered_y(self):
+        """_generate_alpha_grid for squared_error should use X'(y-mean(y))."""
+        import inspect
+        from statgpu.linear_model._penalized_cv import PenalizedGLM_CV
+        src = inspect.getsource(PenalizedGLM_CV._generate_alpha_grid)
+        assert 'mean(y_np)' in src or 'y_np - np.mean' in src
+        print('[OK] alpha_max uses centered y')
+
+    def test_nonzero_mean_y(self):
+        """PenalizedGLM_CV should work with non-zero mean y."""
+        from statgpu.linear_model._penalized_cv import PenalizedGLM_CV
+        np.random.seed(42)
+        X = np.random.randn(50, 3)
+        y = X @ np.random.randn(3) + 100.0 + 0.1 * np.random.randn(50)
+        m = PenalizedGLM_CV(loss='squared_error', penalty='l1', cv=3, n_alphas=5).fit(X, y)
+        assert m.best_score_ < 0
+        print('[OK] Non-zero mean y: best_score_=%.6f' % m.best_score_)
+
+
+# ======================================================================
+# 71. Lipschitz safety factor
+# ======================================================================
+
+class TestLipschitzSafetyFactor:
+    def test_safety_factor_reduced(self):
+        """Lipschitz safety factor should be 1.01x, not 2.0x."""
+        import inspect
+        from statgpu.linear_model._penalized_cv import PenalizedGLM_CV
+        import statgpu.linear_model._penalized_cv as _mod
+        src = inspect.getsource(_mod)
+        assert '1.01' in src
+        print('[OK] Lipschitz safety factor 1.01x')
+
+
+# ======================================================================
+# 72. batch_mse dimension validation
+# ======================================================================
+
+class TestBatchMseValidation:
+    def test_feature_mismatch_raises(self):
+        """batch_mse should raise on feature dimension mismatch."""
+        from statgpu.linear_model._cv_base import batch_mse
+        X = np.random.randn(50, 3)
+        y = np.random.randn(50)
+        coefs = np.random.randn(5, 5)
+        try:
+            batch_mse(X, y, coefs)
+            assert False, 'Should have raised ValueError'
+        except ValueError as e:
+            assert 'Feature dimension mismatch' in str(e)
+        print('[OK] batch_mse dimension validation')
+
+    def test_sample_mismatch_raises(self):
+        """batch_mse should raise on sample count mismatch."""
+        from statgpu.linear_model._cv_base import batch_mse
+        X = np.random.randn(50, 3)
+        y = np.random.randn(30)
+        coefs = np.random.randn(5, 3)
+        try:
+            batch_mse(X, y, coefs)
+            assert False, 'Should have raised ValueError'
+        except ValueError as e:
+            assert 'Sample count mismatch' in str(e)
+        print('[OK] batch_mse sample validation')
+
+
+# ======================================================================
+# 73. cv_engine narrowed exceptions
+# ======================================================================
+
+class TestCvEngineException:
+    def test_numerical_errors_caught(self):
+        """run_cv should catch numerical errors, not bare Exception."""
+        import inspect
+        from statgpu.linear_model._cv_engine import run_cv
+        src = inspect.getsource(run_cv)
+        assert 'FloatingPointError' in src or 'LinAlgError' in src
+        assert 'except Exception' not in src
+        print('[OK] Narrowed exception handling')
+
+
+# ======================================================================
+# 74. predict() vectorized
+# ======================================================================
+
+class TestPredictVectorized:
+    def test_no_vectorize(self):
+        """PanelOLS predict should not use np.vectorize."""
+        import inspect
+        from statgpu.panel._fixed_effects import PanelOLS
+        src = inspect.getsource(PanelOLS.predict)
+        assert 'np.vectorize' not in src
+        print('[OK] No np.vectorize in predict')
+
+    def test_predict_correct(self):
+        """PanelOLS predict should produce correct results."""
+        from statgpu.panel._fixed_effects import PanelOLS
+        np.random.seed(42)
+        n = 60
+        entity_ids = np.repeat(np.arange(10), 6)
+        X = np.random.randn(n, 2)
+        y = X @ np.random.randn(2) + np.repeat(np.random.randn(10), 6) + 0.1 * np.random.randn(n)
+        model = PanelOLS(entity_effects=True)
+        model.fit(y, X, entity_ids=entity_ids)
+        y_pred = model.predict(X, entity_ids=entity_ids)
+        r2 = 1 - np.sum((y - y_pred)**2) / np.sum((y - np.mean(y))**2)
+        assert r2 > 0.9
+        print('[OK] Predict R2=%.4f' % r2)
+
+
+# ======================================================================
+# 75. y/X length validation
+# ======================================================================
+
+class TestYXLengthValidation:
+    def test_mismatch_raises(self):
+        """PanelOLS should raise when y and X have different lengths."""
+        from statgpu.panel._fixed_effects import PanelOLS
+        X = np.random.randn(50, 2)
+        y = np.random.randn(30)
+        model = PanelOLS()
+        try:
+            model.fit(y, X)
+            assert False
+        except ValueError as e:
+            assert 'length' in str(e).lower() or 'y' in str(e).lower()
+        print('[OK] y/X length validation')
+
+
+# ======================================================================
+# 76. make_group_dummies vectorized
+# ======================================================================
+
+class TestMakeGroupDummiesVectorized:
+    def test_correct_shape(self):
+        """make_group_dummies should return correct shape."""
+        from statgpu.panel._utils import make_group_dummies
+        groups = np.array([0, 0, 1, 1, 2, 2, 2])
+        D = make_group_dummies(groups)
+        assert D.shape == (7, 3)
+        assert np.all(D.sum(axis=1) == 1.0)
+        print('[OK] make_group_dummies shape=%s' % str(D.shape))
+
+    def test_correct_values(self):
+        """make_group_dummies should have correct values."""
+        from statgpu.panel._utils import make_group_dummies
+        groups = np.array([0, 0, 1, 1, 2])
+        D = make_group_dummies(groups)
+        assert D[0, 0] == 1.0 and D[1, 0] == 1.0
+        assert D[2, 1] == 1.0 and D[3, 1] == 1.0
+        assert D[4, 2] == 1.0
+        print('[OK] make_group_dummies values correct')
+
+
+# ======================================================================
+# 77. hash_cv_data shared
+# ======================================================================
+
+class TestHashCvDataShared:
+    def test_lasso_cv_uses_shared(self):
+        """_lasso_cv.py should import hash_cv_data from _cv_base."""
+        with open('statgpu/linear_model/_lasso_cv.py', 'r', encoding='utf-8') as f:
+            content = f.read()
+        assert 'hash_cv_data' in content
+        assert 'def _hash_data' not in content
+        print('[OK] _lasso_cv uses shared hash_cv_data')

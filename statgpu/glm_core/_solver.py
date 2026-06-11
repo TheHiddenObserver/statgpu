@@ -435,9 +435,10 @@ def _fused_inverse_gaussian(eta, X, y, n, loss):
     from statgpu.backends._array_ops import _exp, _log, _clip, _sum
     mu = _exp(_clip(eta, -30, 30))
     mu_c = _clip(mu, 5e-2, 1e3)
-    # Inverse Gaussian deviance: y/(2*mu^2) - 1/mu - 1.5*log(mu) + const
-    # The log(mu) term is coefficient-dependent and must be included.
-    val = _sum(y / (2 * mu_c ** 2) - 1.0 / mu_c - 1.5 * _log(mu_c)) / n
+    # Inverse Gaussian deviance: (y-mu)^2/(y*mu^2) = y/mu^2 - 2/mu + 1/y
+    # Up to y-only constants: y/mu^2 - 2/mu
+    # Include log(mu) term for proper objective tracking
+    val = _sum(y / (mu_c ** 2) - 2.0 / mu_c - _log(mu_c)) / n
     grad = X.T @ ((mu_c - y) / (mu_c * mu_c)) / n
     return val, grad
 

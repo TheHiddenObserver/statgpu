@@ -271,14 +271,15 @@ def _solve_logistic_path_gpu_from_batch(X_batch, y_batch, n_train_vec, Cs, backe
             alpha = 1.0 / C if C > 0 else 0.0
 
             # IRLS
+            xp = backend.xp
             for iteration in range(max_iter):
                 params_old = backend.copy(params)
 
                 eta = X_design @ params
-                p = 1 / (1 + backend.exp(-backend.clip(eta, -500, 500)))
+                p = 1 / (1 + xp.exp(-xp.clip(eta, -500, 500)))
 
                 W = p * (1 - p)
-                W = backend.clip(W, 1e-8, 1 - 1e-8)
+                W = xp.clip(W, 1e-8, 1 - 1e-8)
 
                 z = eta + (y_fold - p) / W
 
@@ -585,9 +586,10 @@ def _select_logistic_c_cv(
                 intercepts_all = backend.asarray(intercepts_batch[:, fold_idx])  # (n_C,)
 
                 # eta_all shape: (n_val, n_C)
+                xp = backend.xp
                 eta_all = X_val @ coefs_all.T + intercepts_all.reshape(1, -1)
                 # probs_all shape: (n_C, n_val)
-                probs_all = (1 / (1 + backend.exp(-backend.clip(eta_all, -500, 500)))).T
+                probs_all = (1 / (1 + xp.exp(-xp.clip(eta_all, -500, 500)))).T
 
                 loss_desc = _batch_log_loss_backend(y_val, probs_all, backend, sw_val)
                 loss_path[:, fold_idx] = backend.to_numpy(loss_desc)
@@ -797,6 +799,15 @@ class LogisticRegressionCV(CVEstimatorBase):
         self : LogisticRegressionCV
             Fitted estimator.
         """
+        # Validate y is binary
+        y_arr = np.asarray(y, dtype=np.float64).ravel()
+        unique_y = np.unique(y_arr)
+        if not np.all(np.isin(unique_y, [0.0, 1.0])):
+            raise ValueError(
+                f"LogisticRegressionCV requires binary y (0 or 1), "
+                f"got unique values: {unique_y[:10]}"
+            )
+
         device_name = self._get_compute_device().value
 
         # Run CV to select C

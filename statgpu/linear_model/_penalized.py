@@ -70,7 +70,10 @@ def _irls_ridge_init(X, y, loss_name, alpha=0.01, max_iter=100, tol=1e-4, loss_k
 def _resolve_loss_name(loss_name, loss_kwargs=None):
     """Resolve loss name string to loss object."""
     loss_kwargs = loss_kwargs or {}
-    if loss_name == "logistic":
+    if loss_name == "squared_error":
+        from statgpu.glm_core._squared import SquaredErrorLoss
+        return SquaredErrorLoss()
+    elif loss_name == "logistic":
         from statgpu.glm_core._logistic import LogisticLoss
         return LogisticLoss()
     elif loss_name == "poisson":
@@ -89,8 +92,11 @@ def _resolve_loss_name(loss_name, loss_kwargs=None):
         from statgpu.glm_core._tweedie import TweedieLoss
         return TweedieLoss(**loss_kwargs)
     else:
-        from statgpu.glm_core._squared import SquaredErrorLoss
-        return SquaredErrorLoss()
+        raise ValueError(
+            f"Unknown loss '{loss_name}'. Supported losses: "
+            "squared_error, logistic, poisson, gamma, inverse_gaussian, "
+            "negative_binomial, tweedie"
+        )
 
 
 # ---------------------------------------------------------------------------
