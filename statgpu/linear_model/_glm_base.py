@@ -1101,9 +1101,10 @@ class OrderedGeneralizedLinearModel(GeneralizedLinearModel):
         Both paths are backend-agnostic (numpy/cupy/torch).
         """
         if family.link.name == "probit":
-            from statgpu.backends._array_ops import _xp, _exp
+            from statgpu.backends._array_ops import _xp, _exp, _scalar_tensor
             xp = _xp(x)
-            return _exp(-0.5 * x * x) / xp.sqrt(xp.asarray(2.0 * np.pi, dtype=x.dtype))
+            two_pi = _scalar_tensor(2.0 * np.pi, x)
+            return _exp(-0.5 * x * x) / xp.sqrt(two_pi)
         # logit: F * (1 - F) — element-wise, works for any backend
         F = family.link.inverse(x)
         return F * (1.0 - F)
@@ -1119,9 +1120,10 @@ class OrderedGeneralizedLinearModel(GeneralizedLinearModel):
             return F * (1.0 - F) * (1.0 - 2.0 * F)
         elif family.link.name == "probit":
             # F''(x) = -x * φ(x) for standard normal PDF φ
-            from statgpu.backends._array_ops import _xp, _exp
+            from statgpu.backends._array_ops import _xp, _exp, _scalar_tensor
             xp = _xp(x)
-            phi = _exp(-0.5 * x * x) / xp.sqrt(xp.asarray(2.0 * np.pi, dtype=x.dtype))
+            two_pi = _scalar_tensor(2.0 * np.pi, x)
+            phi = _exp(-0.5 * x * x) / xp.sqrt(two_pi)
             return -x * phi
         F = family.link.inverse(x)
         return F * (1.0 - F) * (1.0 - 2.0 * F)

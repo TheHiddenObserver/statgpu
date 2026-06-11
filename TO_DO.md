@@ -422,3 +422,36 @@ coef = where(active, coef_new, coef)
 **现状**：`_dev_val` 中 2 个 `if backend == "torch"` 分支已替换为 `_clip()` helper。
 **状态**：✅ 已修复 (2026-06-11)
 
+---
+
+## Code Review 发现项 (2026-06-11)
+
+### 已修复的 Bug
+
+- ✅ `_penalized_cv.py` `_logistic_sparse_cv_path`：非 torch 后端 FISTA 循环缺少 soft-thresholding（coef 永不更新）
+- ✅ `_penalized_cv.py` `_glm_sparse_cv_folds`：使用未定义的 `xp` 变量
+- ✅ `_penalized_cv.py` `_scad_mcp_cv_path`：使用未定义的 `torch`/`cp` 变量
+- ✅ `_penalized_cv.py` `_squared_error_sparse_cv_path`：使用未定义的 `torch` 变量
+- ✅ `_glm_base.py` probit PDF：`xp.asarray(2π)` 在 torch+CUDA 上设备不匹配
+- ✅ `_irls.py` dtype promotion：逻辑反转，将 y downcast 到 X.dtype 而非 promote
+- ✅ `_array_ops.py` `_max_eigval_power`：numpy 路径 `n_iter=0` 时 `lambda_new` 未初始化
+- ✅ `_array_ops.py` `_max_eigval_power`：GPU 路径循环结束后缺少 `return`（返回 None）
+- ✅ `_solver.py` `_fused_inverse_gaussian`：value 公式与 `InverseGaussianLoss.value` 不一致
+- ✅ `_penalized.py` `_fit_initial`：缺少 `backend_name` 参数
+- ✅ `_penalized.py` `np.asarray(X)`：CuPy 数组在 `device="auto"` 时无法隐式转换
+- ✅ `_scad.py`/`_mcp.py` `lla_weights`：未使用的 `mod` 变量（死代码）
+- ✅ `_solver.py`：未使用的 `_abs_max` import（死代码）
+
+### 已知但未修复的问题（低优先级）
+
+- `_solver.py` `_NO_MOMENTUM_LOSSES = frozenset()` 及对应分支是死代码（保留为将来预留）
+- `_solver.py` Poisson 动量策略在 `fista_solver` vs `fista_lla_path` 中不一致
+- `_xp_copy` 与 `_copy_arr` 功能重复（命名不一致）
+- `_xp_zeros(...) + 1.0` 应改为 `_xp_ones`
+- `score()` 方法将数据不必要地传回 GPU 做简单比较
+- `_penalized_cv.py` 多处 `warnings.warn` 缩进不一致
+- `_penalized_cv.py` `_is_uniform_weight` 警告模式重复 4 次，应提取为 helper
+- `_penalized.py` `_use_fista` 条件可简化（两个分支覆盖所有情况）
+- `_penalized.py` `_use_irls_cd` 标志名与实际使用的 `fista_lla_path` 矛盾
+- `_solver.py` `_fused_logistic` 使用字符串模块检测而非 `_xp()`
+

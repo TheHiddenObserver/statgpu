@@ -411,6 +411,7 @@ def _max_eigval_power(mat, n_iter=20, tol=1e-8):
 
     if xp.__name__ == "numpy":
         lambda_old = 0.0
+        lambda_new = 0.0
         for _ in range(n_iter):
             v_new = mat @ v
             # Cache dot(v_new, v_new) to avoid recomputing mat @ v.

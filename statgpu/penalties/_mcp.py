@@ -215,7 +215,6 @@ class MCPPenalty(Penalty):
 
         Accepts numpy, cupy, or torch arrays. Returns same backend type.
         """
-        mod = type(coef).__module__
         alpha = self.alpha
         gamma = self.gamma
 

@@ -824,10 +824,8 @@ def _glm_sparse_cv_folds(
             else:
                 thresh = float(alpha) * step
                 denom = 1.0
-            if is_torch:
-                coef_new = torch.sign(w) * torch.clamp(torch.abs(w) - thresh, min=0.0) / denom
-            else:
-                coef_new = cp.sign(w) * cp.maximum(cp.abs(w) - thresh, 0.0) / denom
+            from statgpu.backends._array_ops import _soft_threshold
+            coef_new = _soft_threshold(w, thresh) / denom
             intercept_new = y_intercept - step * grad_intercept
 
             coef = torch.where(active, coef_new, coef) if is_torch else cp.where(active, coef_new, coef)
@@ -852,7 +850,8 @@ def _glm_sparse_cv_folds(
                 else:
                     delta = cp.sum(cp.abs(coef - coef_old), axis=0, keepdims=True) + cp.abs(intercept - intercept_old)
                 active = active & (delta >= tol_float)
-                if not _to_float_scalar(xp.any(active)):
+                _any_active = torch.any(active) if is_torch else cp.any(active)
+                if not _to_float_scalar(_any_active):
                     break
 
         # Validation loss via loss registry (single call, backend-agnostic)
@@ -971,10 +970,9 @@ def _logistic_sparse_cv_path(
                 thresh = float(alpha) * step
                 denom = 1.0
 
-            if backend == "torch":
-                from statgpu.backends._array_ops import _soft_threshold
-                coef = _soft_threshold(w, thresh) / denom
-                intercept = y_intercept - step * grad_intercept
+            from statgpu.backends._array_ops import _soft_threshold
+            coef = _soft_threshold(w, thresh) / denom
+            intercept = y_intercept - step * grad_intercept
 
             t_new = (1.0 + np.sqrt(1.0 + 4.0 * t_k * t_k)) / 2.0
             beta = min((t_k - 1.0) / t_new, 0.5)
@@ -1123,14 +1121,8 @@ def _squared_error_sparse_cv_path(
                 thresh = alpha_vec * step
                 denom = 1.0
 
-            if backend == "torch":
-                coef_mat = (
-                    torch.sign(w)
-                    * torch.clamp(torch.abs(w) - thresh, min=0.0)
-                    / denom
-                )
-            else:
-                coef_mat = xp.sign(w) * xp.maximum(xp.abs(w) - thresh, 0.0) / denom
+            from statgpu.backends._array_ops import _soft_threshold
+            coef_mat = _soft_threshold(w, thresh) / denom
 
             t_new = (1.0 + np.sqrt(1.0 + 4.0 * t_k * t_k)) / 2.0
             beta = min((t_k - 1.0) / t_new, 0.5)
@@ -1182,10 +1174,8 @@ def _squared_error_sparse_cv_path(
                 thresh = float(alpha) * step
                 denom = 1.0
 
-            if backend == "torch":
-                coef = torch.sign(w) * torch.clamp(torch.abs(w) - thresh, min=0.0) / denom
-            else:
-                coef = xp.sign(w) * xp.maximum(xp.abs(w) - thresh, 0.0) / denom
+            from statgpu.backends._array_ops import _soft_threshold
+            coef = _soft_threshold(w, thresh) / denom
 
             t_new = (1.0 + np.sqrt(1.0 + 4.0 * t_k * t_k)) / 2.0
             beta = min((t_k - 1.0) / t_new, 0.5)
@@ -1545,11 +1535,11 @@ def _scad_mcp_cv_path(
         yv = _to_backend_float64(y_val, backend).reshape(-1)
         n_val = Xv.shape[0]
         if backend == "torch":
-            ones_v = torch.ones((n_val, 1), dtype=Xv.dtype, device=Xv.device)
-            X_val_work = torch.cat([Xv, ones_v], dim=1)
+            ones_v = xp.ones((n_val, 1), dtype=Xv.dtype, device=Xv.device)
+            X_val_work = xp.concatenate([Xv, ones_v], axis=1)
         elif backend == "cupy":
-            ones_v = cp.ones((n_val, 1), dtype=Xv.dtype)
-            X_val_work = cp.concatenate([Xv, ones_v], axis=1)
+            ones_v = xp.ones((n_val, 1), dtype=Xv.dtype)
+            X_val_work = xp.concatenate([Xv, ones_v], axis=1)
         else:
             ones_v = np.ones((n_val, 1), dtype=Xv.dtype)
             X_val_work = np.concatenate([Xv, ones_v], axis=1)

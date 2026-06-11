@@ -170,11 +170,12 @@ def irls_solver(
     if backend == "auto":
         backend = _infer_backend(X)
 
-    # Ensure X and y have the same dtype (e.g. X=float32, y=float64 -> promote X)
+    # Ensure X and y have the same dtype — promote to higher precision
     from statgpu.backends._utils import xp_astype, _to_float_scalar
     _xp_mod = _to_backend_module(backend)
     if hasattr(X, 'dtype') and hasattr(y, 'dtype') and X.dtype != y.dtype:
-        target_dtype = X.dtype
+        # Promote to the higher-precision dtype (never downcast)
+        target_dtype = np.result_type(X.dtype, y.dtype)
         X = xp_astype(X, target_dtype, _xp_mod)
         y = xp_astype(y, target_dtype, _xp_mod)
 

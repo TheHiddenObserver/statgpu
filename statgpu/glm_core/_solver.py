@@ -12,7 +12,6 @@ import numpy as np
 from statgpu.backends import _resolve_backend, _to_numpy
 from statgpu.backends._utils import _to_float_scalar, _get_xp
 from statgpu.backends._array_ops import (
-    _abs_max,
     _abs_sum,
     _abs_sum_dev,
     _clip_grad_on_device,
