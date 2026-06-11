@@ -15,6 +15,8 @@ Supports both FISTA direct (proximal) and LLA (lla_weights) optimization.
 from typing import Optional
 import numpy as np
 from ._base import Penalty
+from statgpu.backends._array_ops import _xp
+from statgpu.backends._utils import _to_float_scalar
 
 # ---- torch.compile lazy-loader (fuses elementwise ops into 1 kernel) ---------
 _SCAD_PROXIMAL_TORCH_COMPILED = None
@@ -87,8 +89,6 @@ class SCADPenalty(Penalty):
     # ----------------------------------------------------------------
 
     def value(self, coef: np.ndarray) -> float:
-        from statgpu.backends._array_ops import _xp
-        from statgpu.backends._utils import _to_float_scalar
         xp = _xp(coef)
         a = self.a
         alpha = self.alpha
@@ -239,7 +239,6 @@ class SCADPenalty(Penalty):
         a = self.a
         alpha = self.alpha
 
-        from statgpu.backends._array_ops import _xp
         xp = _xp(coef)
         abs_w = xp.abs(coef)
         weights = xp.full_like(coef, alpha)
