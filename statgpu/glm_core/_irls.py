@@ -171,20 +171,12 @@ def irls_solver(
         backend = _infer_backend(X)
 
     # Ensure X and y have the same dtype (e.g. X=float32, y=float64 -> promote X)
-    if backend == "torch":
-        import torch
-        if isinstance(X, torch.Tensor) and isinstance(y, torch.Tensor):
-            if X.dtype != y.dtype:
-                target_dtype = torch.float64 if X.dtype == torch.float32 else X.dtype
-                X = X.to(dtype=target_dtype)
-                y = y.to(dtype=target_dtype)
-    elif backend == "cupy":
-        import cupy as cp
-        if isinstance(X, cp.ndarray) and isinstance(y, cp.ndarray):
-            if X.dtype != y.dtype:
-                target_dtype = cp.float64
-                X = X.astype(target_dtype)
-                y = y.astype(target_dtype)
+    from statgpu.backends._utils import xp_astype, _to_float_scalar
+    _xp_mod = _to_backend_module(backend)
+    if hasattr(X, 'dtype') and hasattr(y, 'dtype') and X.dtype != y.dtype:
+        target_dtype = X.dtype
+        X = xp_astype(X, target_dtype, _xp_mod)
+        y = xp_astype(y, target_dtype, _xp_mod)
 
     if init_coef is None:
         n_features = X.shape[1]
@@ -193,16 +185,8 @@ def irls_solver(
         params = init_coef
 
     # Ensure params dtype matches X to avoid torch matmul dtype errors
-    if backend == "torch":
-        import torch
-        if isinstance(X, torch.Tensor) and isinstance(params, torch.Tensor):
-            if params.dtype != X.dtype:
-                params = params.to(dtype=X.dtype)
-    elif backend == "cupy":
-        import cupy as cp
-        if isinstance(X, cp.ndarray) and isinstance(params, cp.ndarray):
-            if params.dtype != X.dtype:
-                params = params.astype(X.dtype)
+    if hasattr(X, 'dtype') and hasattr(params, 'dtype') and params.dtype != X.dtype:
+        params = xp_astype(params, X.dtype, _xp_mod)
 
     if max_iter <= 0:
         return params, 0
@@ -225,10 +209,7 @@ def irls_solver(
 
         # Clip mu for families that require positive mu
         if _fname not in ("gaussian", "squared_error"):
-            if backend == "torch":
-                mu_arr = xp.clamp(mu_arr, min=1e-10)
-            else:
-                mu_arr = xp.clip(mu_arr, 1e-10, None)
+            mu_arr = _clip(mu_arr, 1e-10, None)
 
         if _fname in ("gaussian", "squared_error"):
             return xp.sum((y - mu_arr) ** 2)
@@ -237,12 +218,8 @@ def irls_solver(
         elif _fname == "inverse_gaussian":
             return xp.sum((y - mu_arr) ** 2 / (y * mu_arr ** 2))
         elif _fname == "negative_binomial":
-            if backend == "torch":
-                _mu_c = xp.clamp(mu_arr, min=1e-10)
-                _y_c = xp.clamp(y, min=1e-10)
-            else:
-                _mu_c = xp.clip(mu_arr, 1e-10, None)
-                _y_c = xp.clip(y, 1e-10, None)
+            _mu_c = _clip(mu_arr, 1e-10, None)
+            _y_c = _clip(y, 1e-10, None)
             _a = _nb_alpha
             return xp.sum(
                 2.0 * (_y_c * xp.log(_y_c / _mu_c)
@@ -293,20 +270,11 @@ def irls_solver(
         z = family.irls_working_response(mu, y, eta)
 
         # Ensure W and z match X dtype (e.g. X=float32, y=float64 -> cast)
-        if backend == "torch":
-            import torch
-            if isinstance(X, torch.Tensor):
-                if isinstance(W, torch.Tensor) and W.dtype != X.dtype:
-                    W = W.to(dtype=X.dtype)
-                if isinstance(z, torch.Tensor) and z.dtype != X.dtype:
-                    z = z.to(dtype=X.dtype)
-        elif backend == "cupy":
-            import cupy as cp
-            if isinstance(X, cp.ndarray):
-                if isinstance(W, cp.ndarray) and W.dtype != X.dtype:
-                    W = W.astype(X.dtype)
-                if isinstance(z, cp.ndarray) and z.dtype != X.dtype:
-                    z = z.astype(X.dtype)
+        if hasattr(X, 'dtype'):
+            if hasattr(W, 'dtype') and W.dtype != X.dtype:
+                W = xp_astype(W, X.dtype, _xp_mod)
+            if hasattr(z, 'dtype') and z.dtype != X.dtype:
+                z = xp_astype(z, X.dtype, _xp_mod)
 
         # Step 5: weighted least squares (X'WX + lambda*I) params = X'Wz
         if backend == "torch":
@@ -357,30 +325,15 @@ def irls_solver(
 
         # Convert dev_old to Python float for tolerance computation
         # (single sync per iteration, not per line-search step)
-        if backend == "torch":
-            dev_old_f = float(dev_old_dev.item())
-        elif backend == "cupy":
-            dev_old_f = float(dev_old_dev)
-        else:
-            dev_old_f = float(dev_old_dev)
+        dev_old_f = _to_float_scalar(dev_old_dev)
         _dev_tol = max(abs(dev_old_f) * _IRLS_DEV_TOL_REL, _IRLS_DEV_TOL_ABS)
 
         def _dev_accept(dev_try_dev):
             """Check if trial deviance is acceptable (device-side NaN + comparison)."""
-            if backend == "torch":
-                import torch
-                if torch.isnan(dev_try_dev):
-                    return False
-                return bool((dev_try_dev <= dev_old_dev + _dev_tol).item())
-            elif backend == "cupy":
-                import cupy as cp
-                if cp.isnan(dev_try_dev):
-                    return False
-                return bool(dev_try_dev <= dev_old_dev + _dev_tol)
-            else:
-                if dev_try_dev != dev_try_dev:
-                    return False
-                return dev_try_dev <= dev_old_f + _dev_tol
+            _dev_f = _to_float_scalar(dev_try_dev)  # single GPU→CPU sync
+            if _dev_f != _dev_f:  # NaN check
+                return False
+            return _dev_f <= dev_old_f + _dev_tol
 
         if _is_constant_W:
             # Constant weights: IRLS = Newton.  Try full step first;

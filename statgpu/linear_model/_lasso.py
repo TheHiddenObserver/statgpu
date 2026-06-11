@@ -23,7 +23,7 @@ except Exception:
 from statgpu._base import BaseEstimator
 from statgpu.backends import _to_numpy
 from statgpu._config import Device
-from statgpu.linear_model._cv_base import CVEstimatorBase, kfold_indices as _kfold_indices
+from statgpu.linear_model._cv_base import CVEstimatorBase, kfold_indices as _kfold_indices, batch_mse as _batch_mse_cv
 from statgpu.backends import get_backend
 from statgpu.inference._distributions_backend import (
     norm,
@@ -1237,72 +1237,6 @@ def _solve_lasso_path_gpu_from_gram(
     )
 
 
-def _batch_mse_numpy(
-    X_val: np.ndarray,
-    y_val: np.ndarray,
-    coefs_path: np.ndarray,
-    intercepts_path: np.ndarray,
-    sample_weight_val: Optional[np.ndarray],
-) -> np.ndarray:
-    preds = X_val @ coefs_path.T + intercepts_path.reshape(1, -1)
-    sq_err = (y_val.reshape(-1, 1) - preds) ** 2
-
-    if sample_weight_val is None:
-        return np.mean(sq_err, axis=0)
-
-    denom = float(np.sum(sample_weight_val))
-    if denom <= 0.0:
-        return np.mean(sq_err, axis=0)
-
-    return np.sum(sample_weight_val.reshape(-1, 1) * sq_err, axis=0) / denom
-
-
-def _batch_mse(
-    X_val,
-    y_val,
-    coefs_path,
-    intercepts_path,
-    backend,
-    sample_weight_val,
-) -> np.ndarray:
-    """
-    Compute MSE for multiple coefficient vectors.
-
-    Parameters
-    ----------
-    X_val : array-like
-        Validation design matrix.
-    y_val : array-like
-        Validation response.
-    coefs_path : array-like
-        Coefficient matrix (n_alphas, n_features).
-    intercepts_path : array-like
-        Intercept vector (n_alphas,).
-    backend : BackendBase
-        Backend instance (CuPyBackend or TorchBackend).
-    sample_weight_val : array-like or None
-        Sample weights.
-
-    Returns
-    -------
-    mse : ndarray
-        MSE for each alpha.
-    """
-    preds = X_val @ coefs_path.T + intercepts_path.reshape(1, -1)
-    sq_err = (y_val.reshape(-1, 1) - preds) ** 2
-
-    if sample_weight_val is None:
-        mse = backend.mean(sq_err, axis=0)
-    else:
-        denom = backend.sum(sample_weight_val)
-        if float(backend.to_numpy(denom)) <= 0.0:
-            mse = backend.mean(sq_err, axis=0)
-        else:
-            mse = backend.sum(sample_weight_val.reshape(-1, 1) * sq_err, axis=0) / denom
-
-    return backend.to_numpy(mse)
-
-
 def _soft_threshold_torch(x, gamma):
     """Soft thresholding operator for Torch tensors."""
     import torch
@@ -1921,7 +1855,7 @@ def _select_lasso_alpha_cv(
                         coefs_desc_gpu = backend.asarray(coefs_desc_np)
 
                     X_val, y_val, sw_val = fold_eval_payload[fold_idx]
-                    mse_desc = _batch_mse(X_val, y_val, coefs_desc_gpu, intercepts_desc_gpu, backend, sw_val)
+                    mse_desc = _batch_mse_cv(X_val, y_val, coefs_desc_gpu, intercepts_desc_gpu, sample_weight=sw_val)
 
                     mse_path[alpha_order_desc, fold_idx] = mse_desc
             else:
@@ -1950,7 +1884,7 @@ def _select_lasso_alpha_cv(
                         intercepts_desc = backend.zeros((coefs_desc.shape[0],), dtype=coefs_desc.dtype)
 
                     X_val, y_val, sw_val = fold_eval_payload[fold_idx]
-                    mse_desc = _batch_mse(X_val, y_val, coefs_desc, intercepts_desc, backend, sw_val)
+                    mse_desc = _batch_mse_cv(X_val, y_val, coefs_desc, intercepts_desc, sample_weight=sw_val)
 
                     mse_path[alpha_order_desc, fold_idx] = mse_desc
 
@@ -2062,12 +1996,12 @@ def _select_lasso_alpha_cv(
             else:
                 intercepts_desc = np.zeros((coefs_desc.shape[0],), dtype=np.float64)
 
-            mse_desc = _batch_mse_numpy(
+            mse_desc = _batch_mse_cv(
                 X_val,
                 y_val,
                 coefs_desc,
                 intercepts_desc,
-                sw_val,
+                sample_weight=sw_val,
             )
 
             mse_path[alpha_order_desc, fold_idx] = np.asarray(mse_desc, dtype=np.float64)

@@ -442,4 +442,71 @@ def _max_eigval_power(mat, n_iter=20, tol=1e-8):
         if i > 0 and abs(lambda_val - lambda_old) < tol * abs(lambda_val):
             return lambda_val
         lambda_old = lambda_val
-    return max(lambda_val, 1.0)  # Ensure non-zero return
+
+
+def _soft_threshold(w, thresh):
+    """Soft-thresholding operator: sign(w) * max(|w| - thresh, 0).
+
+    Works across numpy/cupy/torch.  ``thresh`` may be a scalar or an
+    array with the same shape as ``w`` (adaptive weights).
+    """
+    xp = _xp(w)
+    return xp.sign(w) * _clip(xp.abs(w) - thresh, 0.0, None)
+
+
+def _scalar_tensor(val, ref_arr):
+    """Create a scalar value compatible with *ref_arr*'s backend/device.
+
+    For torch, returns a 0-d tensor on the same device and dtype.
+    For cupy/numpy, returns a plain Python float (scalars work directly).
+    """
+    xp = _xp(ref_arr)
+    if xp.__name__ == "torch":
+        import torch
+        return torch.tensor(val, dtype=ref_arr.dtype, device=ref_arr.device)
+    return float(val)
+
+
+def _xp_copy(arr):
+    """Copy array on the same backend.  `.clone()` for torch, `.copy()` for others."""
+    xp = _xp(arr)
+    if xp.__name__ == "torch":
+        return arr.clone()
+    return arr.copy()
+
+
+def _xp_zeros(shape, dtype, ref_arr):
+    """Create zeros array on the same device/dtype as *ref_arr*."""
+    xp = _xp(ref_arr)
+    if xp.__name__ == "torch":
+        import torch
+        return torch.zeros(shape, dtype=dtype or ref_arr.dtype, device=ref_arr.device)
+    return xp.zeros(shape, dtype=dtype or getattr(ref_arr, 'dtype', None))
+
+
+def _xp_asarray(arr, dtype, ref_arr):
+    """Convert array to the same backend/device as *ref_arr*.
+
+    Handles numpy→cupy, numpy→torch, and same-backend dtype casts.
+    """
+    xp = _xp(ref_arr)
+    if xp.__name__ == "torch":
+        import torch
+        if isinstance(arr, torch.Tensor):
+            out = arr.to(dtype=dtype, device=ref_arr.device)
+        else:
+            out = torch.as_tensor(np.asarray(arr, dtype=np.float64),
+                                  dtype=dtype, device=ref_arr.device)
+        return out
+    if xp.__name__ == "cupy":
+        return xp.asarray(arr, dtype=dtype)
+    return np.asarray(arr, dtype=dtype)
+
+
+def _xp_eye(n, dtype, ref_arr):
+    """Create identity matrix on the same device/dtype as *ref_arr*."""
+    xp = _xp(ref_arr)
+    if xp.__name__ == "torch":
+        import torch
+        return torch.eye(n, dtype=dtype or ref_arr.dtype, device=ref_arr.device)
+    return xp.eye(n, dtype=dtype or getattr(ref_arr, 'dtype', None))

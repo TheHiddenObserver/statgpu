@@ -10,6 +10,7 @@ import warnings
 import numpy as np
 
 from statgpu.backends import _resolve_backend, _to_numpy
+from statgpu.backends._utils import _to_float_scalar, _get_xp
 from statgpu.backends._array_ops import (
     _abs_max,
     _abs_sum,
@@ -171,15 +172,10 @@ def _validate_uniform_sample_weight(sample_weight, n_samples, solver_name):
 
 def _as_backend_vector(arr, backend, ref):
     """Convert an initial vector to the same backend/dtype/device as ref."""
-    if backend == "cupy":
-        import cupy as cp
-        return cp.asarray(arr, dtype=getattr(ref, "dtype", cp.float64)).copy()
-    if backend == "torch":
-        import torch
-        device = getattr(ref, "device", "cpu")
-        dtype = getattr(ref, "dtype", torch.float64)
-        return torch.as_tensor(arr, dtype=dtype, device=device).clone()
-    return np.asarray(arr, dtype=np.float64).copy()
+    from statgpu.backends._utils import xp_asarray
+    xp = _get_xp(backend)
+    dtype = getattr(ref, "dtype", np.float64)
+    return xp_asarray(arr, dtype=dtype, xp=xp, ref_arr=ref)
 
 
 
@@ -250,16 +246,9 @@ def _tracking_penalty_value(penalty, coef):
 def _abs_mean_max(y, backend):
     """Return mean(abs(y)) and max(abs(y)) with only scalar GPU transfers."""
     backend = _resolve_backend(backend, y)
-    if backend == "torch":
-        import torch
-        y_abs = torch.abs(y)
-        return _sync_scalars(torch.mean(y_abs), torch.max(y_abs), backend=backend)
-    if backend == "cupy":
-        import cupy as cp
-        y_abs = cp.abs(y)
-        return _sync_scalars(cp.mean(y_abs), cp.max(y_abs), backend=backend)
-    y_abs = np.abs(np.asarray(y))
-    return float(np.mean(y_abs)), float(np.max(y_abs))
+    xp = _get_xp(backend)
+    y_abs = xp.abs(y)
+    return _to_float_scalar(xp.mean(y_abs)), _to_float_scalar(xp.max(y_abs))
 
 
 def _smooth_penalty_gradient(penalty, coef):
@@ -432,13 +421,11 @@ def _fused_tweedie(eta, X, y, n, loss):
 
 
 def _fused_inverse_gaussian(eta, X, y, n, loss):
-    from statgpu.backends._array_ops import _exp, _log, _clip, _sum
+    from statgpu.backends._array_ops import _exp, _clip, _sum
     mu = _exp(_clip(eta, -30, 30))
     mu_c = _clip(mu, 5e-2, 1e3)
-    # Inverse Gaussian deviance: (y-mu)^2/(y*mu^2) = y/mu^2 - 2/mu + 1/y
-    # Up to y-only constants: y/mu^2 - 2/mu
-    # Include log(mu) term for proper objective tracking
-    val = _sum(y / (mu_c ** 2) - 2.0 / mu_c - _log(mu_c)) / n
+    # Must match InverseGaussianLoss.value: y/(2*mu^2) - 1/mu
+    val = _sum(y / (2.0 * mu_c * mu_c) - 1.0 / mu_c) / n
     grad = X.T @ ((mu_c - y) / (mu_c * mu_c)) / n
     return val, grad
 
@@ -550,16 +537,9 @@ def fista_solver(
 
     n_features = X_proc.shape[1]
     if init_coef is not None:
-        coef = _as_backend_vector(init_coef, backend, X_proc)
+        coef = _as_backend_vector(init_coef, backend, X)
     else:
-        if backend == "numpy":
-            coef = np.zeros(n_features)
-        elif backend == "cupy":
-            import cupy as cp
-            coef = cp.zeros(n_features, dtype=X.dtype if hasattr(X, 'dtype') else cp.float64)
-        else:
-            import torch
-            coef = torch.zeros(n_features, device=X.device if hasattr(X, 'device') else 'cpu', dtype=X.dtype if hasattr(X, 'dtype') else torch.float64)
+        coef = _zeros(n_features, backend, ref_tensor=X)
 
     y_k = _copy_arr(coef)
     t_k = 1.0
@@ -664,12 +644,7 @@ def fista_solver(
             # Finiteness + divergence + objective tracking batched together.
             if iteration > 0 and (iteration < 20 or iteration % _div_interval == 0):
                 _obj_dev = loss.value(X_proc, y_proc, coef)
-                if backend == "torch":
-                    import torch
-                    _all_finite = bool(torch.isfinite(_obj_dev).item())
-                else:
-                    import cupy as cp
-                    _all_finite = bool(cp.isfinite(_obj_dev).item())
+                _all_finite = np.isfinite(_to_numpy(_obj_dev))
                 if not _all_finite:
                     if _coef_best_fista is not None:
                         coef = _copy_arr(_coef_best_fista)
@@ -727,12 +702,7 @@ def fista_solver(
                 _q_new_dev_last = q_new_dev
                 bound_dev = q_yk_dev + _dot_dev(grad, diff) + 0.5 * L * _sum_sq_dev(diff)
                 slack_dev = bound_dev + 1e-14 - q_new_dev
-                if backend == "torch":
-                    _armijo_ok = bool((slack_dev >= 0).item())
-                elif backend == "cupy":
-                    _armijo_ok = bool(slack_dev >= 0)
-                else:
-                    _armijo_ok = float(_to_numpy(slack_dev)) >= 0
+                _armijo_ok = _to_float_scalar(slack_dev) >= 0
                 if _armijo_ok:
                     break
                 L *= 1.5
@@ -815,12 +785,7 @@ def fista_solver(
         else:
             t_new = (1.0 + np.sqrt(1.0 + 4.0 * t_k * t_k)) / 2.0
             beta = (t_k - 1.0) / t_new
-            if backend == "numpy":
-                y_k = coef + beta * (coef - coef_old)
-            elif backend == "cupy":
-                y_k = coef + beta * (coef - coef_old)
-            else:
-                y_k = coef + beta * (coef - coef_old)
+            y_k = coef + beta * (coef - coef_old)
             t_k = t_new
 
         # Convergence check — deferred for GPU, every iteration for CPU
@@ -942,37 +907,15 @@ def fista_lla_path(
     _augment_intercept = fit_intercept and not _is_quadratic
     if _augment_intercept:
         # Augment X with a column of ones
-        if backend == "torch":
-            import torch
-            x_dtype = X.dtype
-            X_float = X
-            ones_col = torch.ones(X.shape[0], 1, device=X.device, dtype=x_dtype)
-            X_c = torch.cat([X_float, ones_col], dim=1)
-        elif backend == "cupy":
-            import cupy as cp
-            x_dtype = X.dtype if getattr(X.dtype, "kind", "") == "f" else cp.float64
-            X_float = X.astype(x_dtype, copy=False)
-            ones_col = cp.ones((X.shape[0], 1), dtype=x_dtype)
-            X_c = cp.concatenate([X_float, ones_col], axis=1)
-        else:
-            x_dtype = X.dtype if np.issubdtype(X.dtype, np.floating) else np.float64
-            X_float = X.astype(x_dtype, copy=False)
-            ones_col = np.ones((X.shape[0], 1), dtype=x_dtype)
-            X_c = np.concatenate([X_float, ones_col], axis=1)
+        from statgpu.backends._utils import xp_ones
+        ones_col = xp_ones((X.shape[0], 1), dtype=X.dtype, xp=xp, ref_arr=X)
+        X_c = xp.concatenate([X, ones_col], axis=1)
         y_c = y
         n_aug = n_features + 1
     elif fit_intercept:
         # squared_error: centering is exact for identity link
-        if backend == "torch":
-            X_mean = X.mean(dim=0)
-            y_mean = y.mean()
-        elif backend == "cupy":
-            import cupy as cp
-            X_mean = cp.mean(X, axis=0)
-            y_mean = cp.mean(y)
-        else:
-            X_mean = np.mean(X, axis=0)
-            y_mean = np.mean(y)
+        X_mean = xp.mean(X, axis=0)
+        y_mean = xp.mean(y)
         X_c = X - X_mean
         y_c = y - y_mean
         n_aug = n_features
@@ -983,14 +926,7 @@ def fista_lla_path(
 
     # Precompute Lipschitz using loss-specific method.
     # Pass zero coef (global bound) — not all losses handle coef=None.
-    if backend == "torch":
-        import torch
-        _zero_coef_lla = torch.zeros(n_aug, device=X_c.device, dtype=X_c.dtype)
-    elif backend == "cupy":
-        import cupy as cp
-        _zero_coef_lla = cp.zeros(n_aug, dtype=X_c.dtype)
-    else:
-        _zero_coef_lla = np.zeros(n_aug)
+    _zero_coef_lla = _zeros(n_aug, backend, ref_tensor=X_c)
     L_base = loss.lipschitz(X_c, _zero_coef_lla, y=y_c)
     # Precompute XtX only for squared_error fast path (skip for GLM losses)
     XtX = X_c.T @ X_c if _is_quadratic else None
@@ -1019,13 +955,7 @@ def fista_lla_path(
             L_base = L_base * _y_lipschitz_scale
 
     def _zeros_coef():
-        if backend == "torch":
-            import torch
-            return torch.zeros(n_aug, device=X_c.device, dtype=X_c.dtype)
-        if backend == "cupy":
-            import cupy as cp
-            return cp.zeros(n_aug, dtype=X_c.dtype)
-        return np.zeros(n_aug)
+        return _zeros(n_aug, backend, ref_tensor=X_c)
 
     def _warm_start_coef():
         if init_coef is None:
@@ -1154,12 +1084,9 @@ def fista_lla_path(
                     # Convergence check (device-side, minimal sync)
                     if iteration < 20 or iteration % _conv_interval == 0:
                         coef_diff_dev = _abs_sum_dev(coef - coef_old)
-                        if backend == "torch":
-                            converged = bool((coef_diff_dev < tol).item())
-                            diverged = bool(torch.isnan(coef_diff_dev) | torch.isinf(coef_diff_dev))
-                        else:
-                            converged = bool(coef_diff_dev < tol)
-                            diverged = bool(cp.isnan(coef_diff_dev) | cp.isinf(coef_diff_dev))
+                        _cdf = _to_float_scalar(coef_diff_dev)
+                        converged = _cdf < tol
+                        diverged = (not np.isfinite(_cdf))
                         if converged:
                             break
                         if diverged:
@@ -1170,12 +1097,8 @@ def fista_lla_path(
 
                 # LLA convergence check (device-side, minimal sync)
                 delta_dev = _abs_sum_dev(coef - coef_before_lla)
-                if backend == "torch":
-                    if bool((delta_dev < lla_tol).item()):
-                        break
-                else:
-                    if bool(delta_dev < lla_tol):
-                        break
+                if _to_float_scalar(delta_dev) < lla_tol:
+                    break
             _record_path_alpha(cont_alpha)
     else:
         # Pre-compute XtX and Xty for squared_error (avoids redundant matmuls)
@@ -1194,14 +1117,8 @@ def fista_lla_path(
                 if _augment_intercept:
                     lla_w_feat = scad_penalty.lla_weights(coef[:n_features])
                     # Append 0.0 for intercept on device
-                    if backend == "torch":
-                        import torch
-                        lla_w = torch.cat([lla_w_feat, torch.zeros(1, device=coef.device, dtype=coef.dtype)])
-                    elif backend == "cupy":
-                        import cupy as cp
-                        lla_w = cp.concatenate([lla_w_feat, cp.zeros(1, dtype=coef.dtype)])
-                    else:
-                        lla_w = np.append(lla_w_feat, 0.0)
+                    _zero_append = _zeros(1, backend, ref_tensor=coef)
+                    lla_w = xp.concatenate([lla_w_feat, _zero_append])
                 else:
                     lla_w = scad_penalty.lla_weights(coef)
                 if lla_penalty_factory is not None:
@@ -1278,25 +1195,14 @@ def fista_lla_path(
 
                         # Skip loss.value() when bound is clearly too low
                         if _obj_best_lla_inner is not None:
-                            if backend == "torch":
-                                _bound_too_low = bool((bound_dev < _obj_best_lla_inner * 0.9).item())
-                            elif backend == "cupy":
-                                _bound_too_low = bool(bound_dev < _obj_best_lla_inner * 0.9)
-                            else:
-                                _bound_too_low = float(_to_numpy(bound_dev)) < _obj_best_lla_inner * 0.9
-                            if _bound_too_low:
+                            if _to_float_scalar(bound_dev) < _obj_best_lla_inner * 0.9:
                                 L *= 1.5
                                 step = 1.0 / L
                                 continue
 
                         q_new_dev = loss.value(X_c, y_c, coef_new)
                         slack_dev = bound_dev + 1e-14 - q_new_dev
-                        if backend == "torch":
-                            _armijo_ok = bool((slack_dev >= 0).item())
-                        elif backend == "cupy":
-                            _armijo_ok = bool(slack_dev >= 0)
-                        else:
-                            _armijo_ok = float(_to_numpy(slack_dev)) >= 0
+                        _armijo_ok = _to_float_scalar(slack_dev) >= 0
                         if _armijo_ok:
                             break
                         L *= 1.5
@@ -1614,14 +1520,10 @@ def fista_sqerr_adaptive_l1_fused(
         # Convergence check (device-side, minimal sync)
         if iteration < 20 or iteration % _sync_interval == 0:
             coef_diff_dev = _abs_sum_dev(coef - coef_old)
-            if backend == "torch":
-                converged = bool((coef_diff_dev < tol).item())
-            else:
-                converged = bool(coef_diff_dev < tol)
-            if converged:
+            if _to_float_scalar(coef_diff_dev) < tol:
                 break
 
-        coef_old = coef.clone() if backend == "torch" else coef.copy()
+        coef_old = _copy_arr(coef)
 
     return _to_numpy(coef), iteration + 1
 
@@ -1653,14 +1555,7 @@ def newton_solver(
     if init_coef is not None:
         params = _copy_arr(init_coef) if hasattr(init_coef, 'copy') or hasattr(init_coef, 'clone') else np.array(init_coef).copy()
     else:
-        if backend == "numpy":
-            params = np.zeros(n_features)
-        elif backend == "cupy":
-            import cupy as cp
-            params = cp.zeros(n_features, dtype=X.dtype if hasattr(X, 'dtype') else cp.float64)
-        else:
-            import torch
-            params = torch.zeros(n_features, device=X.device if hasattr(X, 'device') else 'cpu', dtype=X.dtype if hasattr(X, 'dtype') else torch.float64)
+        params = _zeros(n_features, backend, ref_tensor=X)
 
     # Detect constant-Hessian losses (Gamma log link: H=X'X/n, Tweedie power≈2).
     # For these, the Newton step is always valid — skip line search.
@@ -1807,18 +1702,9 @@ def fista_bb_solver(
 
     # --- Initialize coefficients ---
     if init_coef is not None:
-        coef = _as_backend_vector(init_coef, backend, X_proc)
+        coef = _as_backend_vector(init_coef, backend, X)
     else:
-        if backend == "numpy":
-            coef = np.zeros(n_features)
-        elif backend == "cupy":
-            import cupy as cp
-            coef = cp.zeros(n_features)
-        else:
-            import torch
-            coef = torch.zeros(
-                n_features, device=X.device, dtype=X.dtype
-            )
+        coef = _zeros(n_features, backend, ref_tensor=X)
 
     y_k = _copy_arr(coef)
     t_k = 1.0
@@ -1970,13 +1856,8 @@ def fista_bb_solver(
             # Coef norm check (GPU: piggyback on 5-iter sync)
             if not _diverged and iteration > 10 and _is_gpu:
                 _coef_norm_dev = _norm2_dev(coef)
-                if backend == "torch":
-                    import torch
-                    if bool((_coef_norm_dev > 100.0).item()):
-                        _diverged = True
-                else:
-                    if bool(_coef_norm_dev > 100.0):
-                        _diverged = True
+                if _to_float_scalar(_coef_norm_dev) > 100.0:
+                    _diverged = True
             # Full objective check every 5 iterations
             if not _diverged:
                 _obj_val = float(_to_numpy(loss.value(X_proc, y_proc, coef)))
@@ -2127,14 +2008,7 @@ def fista_bb_solver(
                 _finite_ok2 = np.isfinite(_last_coef_norm_f)
             else:
                 _coef_norm_dev2 = _norm2_dev(coef)
-                if backend == "torch":
-                    import torch
-                    _finite_ok2 = bool(torch.isfinite(_coef_norm_dev2).item())
-                elif backend == "cupy":
-                    import cupy as cp
-                    _finite_ok2 = bool(cp.isfinite(_coef_norm_dev2).item())
-                else:
-                    _finite_ok2 = np.isfinite(float(_coef_norm_dev2))
+                _finite_ok2 = np.isfinite(_to_float_scalar(_coef_norm_dev2))
             if not _finite_ok2:
                 _diverge_count += 1
                 if _coef_best is not None:
@@ -2217,14 +2091,7 @@ def fista_bb_solver(
             if use_restart and iteration > 0:
                 # GPU-side comparison, only sync bool.
                 _mc_dev = _dot_dev(y_k - coef_new, coef_new - coef_old)
-                if backend == "torch":
-                    import torch
-                    _mc_positive = bool((_mc_dev > 0).item())
-                elif backend == "cupy":
-                    _mc_positive = bool(_mc_dev > 0)
-                else:
-                    _mc_positive = float(_mc_dev) > 0
-                if _mc_positive:
+                if _to_float_scalar(_mc_dev) > 0:
                     t_k = 1.0
                     t_new = 1.0
                     beta = 0.0
@@ -2236,16 +2103,11 @@ def fista_bb_solver(
         if _is_gpu:
             if iteration < 20 or iteration % _conv_check_interval == 0:
                 _conv_dev2 = _abs_sum_dev(coef - coef_old)
-                if backend == "torch":
-                    import torch
-                    if bool((_conv_dev2 < tol).item()):
-                        break
-                elif backend == "cupy":
-                    if float(_conv_dev2) < tol:
-                        break
+                if _to_float_scalar(_conv_dev2) < tol:
+                    break
         else:
             _conv_dev2 = _abs_sum_dev(coef - coef_old)
-            if float(_conv_dev2) < tol:
+            if _to_float_scalar(_conv_dev2) < tol:
                 break
 
     # Return best iterate if divergence was detected
@@ -2296,20 +2158,7 @@ def lbfgs_solver(
             else np.array(init_coef).copy()
         )
     else:
-        if backend == "numpy":
-            params = np.zeros(n_features)
-        elif backend == "cupy":
-            import cupy as cp
-            params = cp.zeros(
-                n_features, dtype=X.dtype if hasattr(X, "dtype") else cp.float64
-            )
-        else:
-            import torch
-            params = torch.zeros(
-                n_features,
-                device=X.device if hasattr(X, "device") else "cpu",
-                dtype=X.dtype if hasattr(X, "dtype") else torch.float64,
-            )
+        params = _zeros(n_features, backend, ref_tensor=X)
 
     s_hist = []
     y_hist = []
@@ -2548,16 +2397,7 @@ def admm_solver(
             else np.array(init_coef).copy()
         )
     else:
-        if backend == "numpy":
-            w = np.zeros(n_features)
-        elif backend == "cupy":
-            import cupy as cp
-            w = cp.zeros(n_features)
-        else:
-            import torch
-            w = torch.zeros(
-                n_features, device=X.device, dtype=X.dtype
-            )
+        w = _zeros(n_features, backend, ref_tensor=X)
 
     z = _copy_arr(w)
     u = _zeros_like(w)

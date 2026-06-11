@@ -86,35 +86,18 @@ class MCPPenalty(Penalty):
     # ----------------------------------------------------------------
 
     def value(self, coef: np.ndarray) -> float:
-        # Backend-aware: compute on device, only transfer final scalar.
-        mod = type(coef).__module__
+        from statgpu.backends._array_ops import _xp
+        from statgpu.backends._utils import _to_float_scalar
+        xp = _xp(coef)
         alpha = self.alpha
         gamma = self.gamma
 
-        if mod.startswith("torch"):
-            import torch
-            abs_w = torch.abs(coef)
-            region1 = abs_w <= gamma * alpha
-            region2 = ~region1
-            total = (alpha * abs_w[region1] - abs_w[region1] ** 2 / (2.0 * gamma)).sum()
-            total += 0.5 * gamma * alpha ** 2 * region2.sum()
-            return float(total.item())
-        if mod.startswith("cupy"):
-            import cupy as cp
-            abs_w = cp.abs(coef)
-            region1 = abs_w <= gamma * alpha
-            region2 = ~region1
-            total = cp.sum(alpha * abs_w[region1] - abs_w[region1] ** 2 / (2.0 * gamma))
-            total += 0.5 * gamma * alpha ** 2 * cp.sum(region2)
-            return float(total)
-
-        abs_w = np.abs(coef)
+        abs_w = xp.abs(coef)
         region1 = abs_w <= gamma * alpha
         region2 = ~region1
-        total = 0.0
-        total += np.sum(alpha * abs_w[region1] - abs_w[region1] ** 2 / (2.0 * gamma))
-        total += 0.5 * gamma * alpha ** 2 * np.sum(region2)
-        return total
+        total = xp.sum(alpha * abs_w[region1] - abs_w[region1] ** 2 / (2.0 * gamma))
+        total = total + 0.5 * gamma * alpha ** 2 * xp.sum(region2)
+        return _to_float_scalar(total)
 
     # ----------------------------------------------------------------
     # Gradient
@@ -236,26 +219,13 @@ class MCPPenalty(Penalty):
         alpha = self.alpha
         gamma = self.gamma
 
-        if mod.startswith("torch"):
-            import torch
-            abs_w = torch.abs(coef)
-            weights = torch.zeros_like(coef)
-            mask = abs_w <= gamma * alpha
-            weights[mask] = alpha - abs_w[mask] / gamma
-            return weights
-        elif mod.startswith("cupy"):
-            import cupy as cp
-            abs_w = cp.abs(coef)
-            weights = cp.zeros_like(coef)
-            mask = abs_w <= gamma * alpha
-            weights[mask] = alpha - abs_w[mask] / gamma
-            return weights
-        else:
-            abs_w = np.abs(coef)
-            weights = np.zeros_like(coef, dtype=float)
-            mask = abs_w <= gamma * alpha
-            weights[mask] = alpha - abs_w[mask] / gamma
-            return weights
+        from statgpu.backends._array_ops import _xp
+        xp = _xp(coef)
+        abs_w = xp.abs(coef)
+        weights = xp.zeros_like(coef)
+        mask = abs_w <= gamma * alpha
+        weights[mask] = alpha - abs_w[mask] / gamma
+        return weights
 
     # ----------------------------------------------------------------
 

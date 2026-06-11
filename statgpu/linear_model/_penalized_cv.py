@@ -24,6 +24,8 @@ import numpy as np
 
 from statgpu._config import Device
 from statgpu.backends import _to_numpy
+from statgpu.backends._array_ops import _copy_arr, _zeros, _xp_zeros
+from statgpu.backends._utils import _to_float_scalar
 from statgpu.linear_model._cv_base import CVEstimatorBase, kfold_indices
 
 
@@ -850,12 +852,8 @@ def _glm_sparse_cv_folds(
                 else:
                     delta = cp.sum(cp.abs(coef - coef_old), axis=0, keepdims=True) + cp.abs(intercept - intercept_old)
                 active = active & (delta >= tol_float)
-                if is_torch:
-                    if not bool(torch.any(active).item()):
-                        break
-                else:
-                    if not bool(cp.any(active)):
-                        break
+                if not _to_float_scalar(xp.any(active)):
+                    break
 
         # Validation loss via loss registry (single call, backend-agnostic)
         eta_val = Xb @ coef + intercept
@@ -919,36 +917,15 @@ def _logistic_sparse_cv_path(
     alphas = np.asarray(alpha_sorted, dtype=np.float64).ravel()
     n_samples, n_features = Xb.shape
 
-    if backend == "torch":
-        import torch
-        xp = torch
-        ones = torch.ones((n_samples, 1), dtype=Xb.dtype, device=Xb.device)
-        X_aug = torch.cat([Xb, ones], dim=1)
-        y_mean = float(torch.mean(yb).item())
-        coef = torch.zeros(n_features, dtype=Xb.dtype, device=Xb.device)
-        intercept = torch.tensor(
-            np.log(np.clip(y_mean, 1e-3, 1.0 - 1e-3) / (1.0 - np.clip(y_mean, 1e-3, 1.0 - 1e-3))),
-            dtype=Xb.dtype,
-            device=Xb.device,
-        )
-    elif backend == "cupy":
-        import cupy as cp
-        xp = cp
-        ones = cp.ones((n_samples, 1), dtype=Xb.dtype)
-        X_aug = cp.concatenate([Xb, ones], axis=1)
-        y_mean = float(cp.mean(yb))
-        coef = cp.zeros(n_features, dtype=Xb.dtype)
-        intercept = cp.asarray(
-            np.log(np.clip(y_mean, 1e-3, 1.0 - 1e-3) / (1.0 - np.clip(y_mean, 1e-3, 1.0 - 1e-3))),
-            dtype=Xb.dtype,
-        )
-    else:
-        xp = np
-        ones = np.ones((n_samples, 1), dtype=Xb.dtype)
-        X_aug = np.concatenate([Xb, ones], axis=1)
-        y_mean = float(np.mean(yb))
-        coef = np.zeros(n_features, dtype=np.float64)
-        intercept = float(np.log(np.clip(y_mean, 1e-3, 1.0 - 1e-3) / (1.0 - np.clip(y_mean, 1e-3, 1.0 - 1e-3))))
+    from statgpu.backends._utils import _get_xp, xp_ones
+    xp = _get_xp(backend)
+    ones = xp_ones((n_samples, 1), dtype=Xb.dtype, xp=xp, ref_arr=Xb)
+    X_aug = xp.concatenate([Xb, ones], axis=1)
+    y_mean = _to_float_scalar(xp.mean(yb))
+    coef = _zeros(n_features, backend, ref_tensor=Xb)
+    _int_val = np.log(np.clip(y_mean, 1e-3, 1.0 - 1e-3) / (1.0 - np.clip(y_mean, 1e-3, 1.0 - 1e-3)))
+    from statgpu.backends._array_ops import _scalar_tensor
+    intercept = _scalar_tensor(_int_val, Xb)
 
     eig_max = _max_eigval_power(X_aug.T @ X_aug)
     L_loss = max(eig_max / (4.0 * max(int(n_samples), 1)), 1e-12)
@@ -972,13 +949,13 @@ def _logistic_sparse_cv_path(
     iters = []
 
     for alpha in alphas:
-        y_coef = coef.copy() if backend != "torch" else coef.clone()
-        y_intercept = intercept.clone() if backend == "torch" else intercept.copy() if backend == "cupy" else float(intercept)
+        y_coef = _copy_arr(coef)
+        y_intercept = _copy_arr(intercept) if hasattr(intercept, 'clone') else float(intercept)
         t_k = 1.0
         last_iter = 0
         for iteration in range(int(max_iter)):
-            coef_old = coef.copy() if backend != "torch" else coef.clone()
-            intercept_old = intercept.clone() if backend == "torch" else intercept.copy() if backend == "cupy" else float(intercept)
+            coef_old = _copy_arr(coef)
+            intercept_old = _copy_arr(intercept) if hasattr(intercept, 'clone') else float(intercept)
 
             eta = Xb @ y_coef + y_intercept
             prob = _sigmoid(eta)
@@ -995,13 +972,8 @@ def _logistic_sparse_cv_path(
                 denom = 1.0
 
             if backend == "torch":
-                coef = torch.sign(w) * torch.clamp(torch.abs(w) - thresh, min=0.0) / denom
-                intercept = y_intercept - step * grad_intercept
-            elif backend == "cupy":
-                coef = xp.sign(w) * xp.maximum(xp.abs(w) - thresh, 0.0) / denom
-                intercept = y_intercept - step * grad_intercept
-            else:
-                coef = np.sign(w) * np.maximum(np.abs(w) - thresh, 0.0) / denom
+                from statgpu.backends._array_ops import _soft_threshold
+                coef = _soft_threshold(w, thresh) / denom
                 intercept = y_intercept - step * grad_intercept
 
             t_new = (1.0 + np.sqrt(1.0 + 4.0 * t_k * t_k)) / 2.0
@@ -1013,12 +985,7 @@ def _logistic_sparse_cv_path(
 
             if iteration < 20 or iteration % conv_interval == 0:
                 delta = xp.sum(xp.abs(coef - coef_old)) + xp.abs(intercept - intercept_old)
-                if backend == "torch":
-                    converged = bool((delta < tol).item())
-                elif backend == "cupy":
-                    converged = bool(delta < tol)
-                else:
-                    converged = float(delta) < tol
+                converged = _to_float_scalar(delta) < tol
                 if converged:
                     break
 
@@ -1058,10 +1025,8 @@ def _logistic_sparse_cv_path(
             else:
                 scores_tensor = per_sample.mean(dim=0)
             scores = _to_numpy(scores_tensor).tolist()
-        elif backend == "cupy":
-            # CuPy path accumulates Python floats (scalar val_loss), not arrays
-            scores = [float(s) for s in score_coef_path]
         else:
+            # cupy/numpy path accumulates Python floats (scalar val_loss)
             scores = [float(s) for s in score_coef_path]
 
     out = {
@@ -1114,35 +1079,15 @@ def _squared_error_sparse_cv_path(
     penalty_name = str(penalty_name).lower()
     is_enet = penalty_name in ("elasticnet", "en")
 
-    if backend == "torch":
-        import torch
-        xp = torch
-        X_mean = torch.mean(Xb, dim=0)
-        y_mean = torch.mean(yb)
-        Xc = Xb - X_mean
-        yc = yb - y_mean
-        XtX = Xc.T @ Xc
-        Xty = Xc.T @ yc
-        coef = torch.zeros(n_features, dtype=Xb.dtype, device=Xb.device)
-    elif backend == "cupy":
-        import cupy as cp
-        xp = cp
-        X_mean = cp.mean(Xb, axis=0)
-        y_mean = cp.mean(yb)
-        Xc = Xb - X_mean
-        yc = yb - y_mean
-        XtX = Xc.T @ Xc
-        Xty = Xc.T @ yc
-        coef = cp.zeros(n_features, dtype=Xb.dtype)
-    else:
-        xp = np
-        X_mean = np.mean(Xb, axis=0)
-        y_mean = np.mean(yb)
-        Xc = Xb - X_mean
-        yc = yb - y_mean
-        XtX = Xc.T @ Xc
-        Xty = Xc.T @ yc
-        coef = np.zeros(n_features, dtype=np.float64)
+    from statgpu.backends._utils import _get_xp
+    xp = _get_xp(backend)
+    X_mean = xp.mean(Xb, axis=0)
+    y_mean = xp.mean(yb)
+    Xc = Xb - X_mean
+    yc = yb - y_mean
+    XtX = Xc.T @ Xc
+    Xty = Xc.T @ yc
+    coef = _zeros(n_features, backend, ref_tensor=Xb)
 
     eig_max = _max_eigval_power(XtX)
     L = max(eig_max / max(int(n_samples), 1), 1e-12)
@@ -1159,26 +1104,16 @@ def _squared_error_sparse_cv_path(
 
     if backend in ("torch", "cupy") and not return_path and Xv_centered is not None:
         n_alpha = int(alphas.size)
-        if backend == "torch":
-            import torch
-            alpha_vec = torch.as_tensor(
-                alphas, dtype=Xb.dtype, device=Xb.device
-            ).reshape(1, -1)
-            coef_mat = torch.zeros(
-                (n_features, n_alpha), dtype=Xb.dtype, device=Xb.device
-            )
-            y_mat = coef_mat.clone()
-        else:
-            import cupy as cp
-            alpha_vec = cp.asarray(alphas, dtype=Xb.dtype).reshape(1, -1)
-            coef_mat = cp.zeros((n_features, n_alpha), dtype=Xb.dtype)
-            y_mat = coef_mat.copy()
+        from statgpu.backends._utils import xp_asarray
+        alpha_vec = xp_asarray(alphas, Xb.dtype, Xb).reshape(1, -1)
+        coef_mat = _xp_zeros((n_features, n_alpha), Xb.dtype, Xb)
+        y_mat = _copy_arr(coef_mat)
 
         t_k = 1.0
         last_iter = 0
         x_ty = Xty.reshape(-1, 1)
         for iteration in range(int(max_iter)):
-            coef_old = coef_mat.clone() if backend == "torch" else coef_mat.copy()
+            coef_old = _copy_arr(coef_mat)
             grad = (XtX @ y_mat - x_ty) / n_samples
             w = y_mat - step * grad
             if is_enet:
@@ -1204,13 +1139,8 @@ def _squared_error_sparse_cv_path(
             last_iter = iteration + 1
 
             if iteration < 20 or iteration % conv_interval == 0:
-                if backend == "torch":
-                    delta = torch.sum(torch.abs(coef_mat - coef_old), dim=0)
-                    converged = bool(torch.all(delta < tol).item())
-                else:
-                    delta = cp.sum(cp.abs(coef_mat - coef_old), axis=0)
-                    converged = bool(cp.all(delta < tol))
-                if converged:
+                delta = xp.sum(xp.abs(coef_mat - coef_old), axis=0)
+                if _to_float_scalar(xp.all(delta < tol)):
                     break
 
         pred = Xv_centered @ coef_mat + y_mean
@@ -1238,11 +1168,11 @@ def _squared_error_sparse_cv_path(
     iters = []
 
     for alpha in alphas:
-        y_k = coef.copy() if backend != "torch" else coef.clone()
+        y_k = _copy_arr(coef)
         t_k = 1.0
         last_iter = 0
         for iteration in range(int(max_iter)):
-            coef_old = coef.copy() if backend != "torch" else coef.clone()
+            coef_old = _copy_arr(coef)
             grad = (XtX @ y_k - Xty) / n_samples
             w = y_k - step * grad
             if is_enet:
@@ -1269,13 +1199,7 @@ def _squared_error_sparse_cv_path(
                 check_convergence = iteration % conv_interval == 0
             if check_convergence:
                 delta = xp.sum(xp.abs(coef - coef_old))
-                if backend == "torch":
-                    converged = bool((delta < tol).item())
-                elif backend == "cupy":
-                    converged = bool(delta < tol)
-                else:
-                    converged = float(delta) < tol
-                if converged:
+                if _to_float_scalar(delta) < tol:
                     break
 
         intercept = y_mean - X_mean @ coef
@@ -1344,24 +1268,14 @@ class _FeatureOnlySparsePenalty:
         return self.base_penalty.value(coef[: self.n_features])
 
     def proximal(self, w, step, backend=None):
+        from statgpu.backends._array_ops import _xp, _clip, _xp_zeros
         backend = backend or self.backend
+        xp = _xp(w)
         w_feat = w[: self.n_features]
         result_feat = self.base_penalty.proximal(w_feat, step, backend=backend)
-        if backend == "cupy":
-            import cupy as cp
-            result = cp.empty(w.shape[0], dtype=w.dtype)
-            result[: self.n_features] = result_feat
-            result[self.n_features] = cp.clip(w[self.n_features], -_INTERCEPT_CLIP_BOUND, _INTERCEPT_CLIP_BOUND)
-            return result
-        if backend == "torch":
-            import torch
-            result = torch.empty(w.shape[0], dtype=w.dtype, device=w.device)
-            result[: self.n_features] = result_feat
-            result[self.n_features] = torch.clamp(w[self.n_features], -_INTERCEPT_CLIP_BOUND, _INTERCEPT_CLIP_BOUND)
-            return result
-        result = np.empty(w.shape[0], dtype=w.dtype)
+        result = xp.empty(w.shape[0], dtype=w.dtype) if hasattr(xp, 'empty') else _xp_zeros(w.shape, w.dtype, w)
         result[: self.n_features] = result_feat
-        result[self.n_features] = np.clip(w[self.n_features], -_INTERCEPT_CLIP_BOUND, _INTERCEPT_CLIP_BOUND)
+        result[self.n_features] = _clip(w[self.n_features], -_INTERCEPT_CLIP_BOUND, _INTERCEPT_CLIP_BOUND)
         return result
 
 
@@ -1413,38 +1327,23 @@ def _glm_sparse_cv_path(
     from statgpu.penalties import get_penalty
 
     backend = _backend_name_for_cv_device(device)
+    from statgpu.backends._utils import _get_xp
+    xp = _get_xp(backend)
     Xb = _to_backend_float64(X_train, backend)
     yb = _to_backend_float64(y_train, backend).reshape(-1)
     alphas = np.asarray(alpha_sorted, dtype=np.float64).ravel()
     n_samples, n_features = Xb.shape
 
-    if backend == "torch":
-        import torch
-        ones = torch.ones((n_samples, 1), dtype=Xb.dtype, device=Xb.device)
-        X_work = torch.cat([Xb, ones], dim=1)
-    elif backend == "cupy":
-        import cupy as cp
-        ones = cp.ones((n_samples, 1), dtype=Xb.dtype)
-        X_work = cp.concatenate([Xb, ones], axis=1)
-    else:
-        ones = np.ones((n_samples, 1), dtype=Xb.dtype)
-        X_work = np.concatenate([Xb, ones], axis=1)
+    from statgpu.backends._utils import xp_ones as _xp_ones_fn
+    _ones = _xp_ones_fn((n_samples, 1), dtype=Xb.dtype, xp=xp, ref_arr=Xb)
+    X_work = xp.concatenate([Xb, _ones], axis=1)
 
     if X_val is not None and y_val is not None:
         Xv = _to_backend_float64(X_val, backend)
         yv = _to_backend_float64(y_val, backend).reshape(-1)
         n_val = Xv.shape[0]
-        if backend == "torch":
-            import torch
-            ones_v = torch.ones((n_val, 1), dtype=Xv.dtype, device=Xv.device)
-            X_val_work = torch.cat([Xv, ones_v], dim=1)
-        elif backend == "cupy":
-            import cupy as cp
-            ones_v = cp.ones((n_val, 1), dtype=Xv.dtype)
-            X_val_work = cp.concatenate([Xv, ones_v], axis=1)
-        else:
-            ones_v = np.ones((n_val, 1), dtype=Xv.dtype)
-            X_val_work = np.concatenate([Xv, ones_v], axis=1)
+        _ones_v = _xp_ones_fn((n_val, 1), dtype=Xv.dtype, xp=xp, ref_arr=Xv)
+        X_val_work = xp.concatenate([Xv, _ones_v], axis=1)
     else:
         X_val_work = yv = swv = None
 
@@ -1468,18 +1367,7 @@ def _glm_sparse_cv_path(
     lipschitz_L = None
     if not getattr(loss_fn, "_lipschitz_at_init", False):
         try:
-            if backend == "torch":
-                import torch
-                zero_lip = torch.zeros(
-                    n_features + 1,
-                    dtype=X_work.dtype,
-                    device=X_work.device,
-                )
-            elif backend == "cupy":
-                import cupy as cp
-                zero_lip = cp.zeros(n_features + 1, dtype=X_work.dtype)
-            else:
-                zero_lip = np.zeros(n_features + 1, dtype=np.float64)
+            zero_lip = _zeros(n_features + 1, backend, ref_tensor=X_work)
             lipschitz_L = float(_to_numpy(loss_fn.lipschitz(X_work, zero_lip, y=yb)))
             if not np.isfinite(lipschitz_L) or lipschitz_L <= 0.0:
                 lipschitz_L = None
@@ -1507,17 +1395,8 @@ def _glm_sparse_cv_path(
         init_intercept = np.log(y_mean_clipped / (1.0 - y_mean_clipped))
     else:
         init_intercept = np.log(y_mean)
-    if backend == "torch":
-        import torch
-        init = torch.zeros(n_features + 1, dtype=X_work.dtype, device=X_work.device)
-        init[-1] = init_intercept
-    elif backend == "cupy":
-        import cupy as cp
-        init = cp.zeros(n_features + 1, dtype=X_work.dtype)
-        init[-1] = init_intercept
-    else:
-        init = np.zeros(n_features + 1, dtype=np.float64)
-        init[-1] = init_intercept
+    init = _zeros(n_features + 1, backend, ref_tensor=X_work)
+    init[-1] = init_intercept
     solver_name = str(solver_name).lower()
     solver_fn = fista_bb_solver if solver_name == "fista_bb" else fista_solver
     for alpha in alphas:
@@ -1577,37 +1456,20 @@ def _glm_sparse_cv_path(
         elif loss_name == "tweedie":
             _loss_params["power"] = float(getattr(loss_fn, "power", _TWEEDIE_POWER_DEFAULT))
 
-        if backend == "torch":
-            import torch
-            params_mat = torch.stack(score_params_path, dim=1)
+        if backend in ("torch", "cupy"):
+            params_mat = xp.stack(score_params_path, axis=1)
             eta = X_val_work @ params_mat  # (n_val, n_alphas)
             yy = yv.reshape(-1, 1)
             per_sample = _LOSS_VALLOSS_FNS[loss_name](eta, yy, **_loss_params)
             if swv is not None:
                 sw_col = swv.reshape(-1, 1)
-                sw_sum = swv.sum()
+                sw_sum = _to_float_scalar(xp.sum(swv))
                 if sw_sum > 0:
-                    scores_tensor = (sw_col * per_sample).sum(dim=0) / sw_sum
+                    scores_arr = xp.sum(sw_col * per_sample, axis=0) / sw_sum
                 else:
-                    scores_tensor = per_sample.mean(dim=0)
+                    scores_arr = xp.mean(per_sample, axis=0)
             else:
-                scores_tensor = per_sample.mean(dim=0)
-            scores = _to_numpy(scores_tensor).tolist()
-        elif backend == "cupy":
-            import cupy as cp
-            params_mat = cp.stack(score_params_path, axis=1)
-            eta = X_val_work @ params_mat  # (n_val, n_alphas)
-            yy = yv.reshape(-1, 1)
-            per_sample = _LOSS_VALLOSS_FNS[loss_name](eta, yy, **_loss_params)
-            if swv is not None:
-                sw_col = swv.reshape(-1, 1)
-                sw_sum = float(swv.sum())
-                if sw_sum > 0:
-                    scores_arr = (sw_col * per_sample).sum(axis=0) / sw_sum
-                else:
-                    scores_arr = per_sample.mean(axis=0)
-            else:
-                scores_arr = per_sample.mean(axis=0)
+                scores_arr = xp.mean(per_sample, axis=0)
             scores = _to_numpy(scores_arr).tolist()
         else:
             scores = [_scalar_to_float(s) for s in score_params_path]
@@ -1665,23 +1527,17 @@ def _scad_mcp_cv_path(
     from statgpu.penalties._adaptive_l1 import AdaptiveL1Penalty
 
     backend = _backend_name_for_cv_device(device)
+    from statgpu.backends._utils import _get_xp
+    xp = _get_xp(backend)
     Xb = _to_backend_float64(X_train, backend)
     yb = _to_backend_float64(y_train, backend).reshape(-1)
     alphas = np.asarray(alpha_sorted, dtype=np.float64).ravel()
     n_samples, n_features = Xb.shape
 
     # Augment X with intercept column
-    if backend == "torch":
-        import torch
-        ones = torch.ones((n_samples, 1), dtype=Xb.dtype, device=Xb.device)
-        X_work = torch.cat([Xb, ones], dim=1)
-    elif backend == "cupy":
-        import cupy as cp
-        ones = cp.ones((n_samples, 1), dtype=Xb.dtype)
-        X_work = cp.concatenate([Xb, ones], axis=1)
-    else:
-        ones = np.ones((n_samples, 1), dtype=Xb.dtype)
-        X_work = np.concatenate([Xb, ones], axis=1)
+    from statgpu.backends._utils import xp_ones as _xp_ones_fn
+    _ones = _xp_ones_fn((n_samples, 1), dtype=Xb.dtype, xp=xp, ref_arr=Xb)
+    X_work = xp.concatenate([Xb, _ones], axis=1)
 
     # Validation data
     if X_val is not None and y_val is not None:
@@ -1719,39 +1575,17 @@ def _scad_mcp_cv_path(
     X_mean = None
     y_mean = None
     if _is_quadratic:
-        if backend == "torch":
-            X_mean = torch.mean(X_work[:, :n_features], dim=0)
-            y_mean = torch.mean(yb)
-            Xc = X_work[:, :n_features] - X_mean
-            yc = yb - y_mean
-            XtX = Xc.T @ Xc / n_samples
-            Xty = Xc.T @ yc / n_samples
-        elif backend == "cupy":
-            X_mean = cp.mean(X_work[:, :n_features], axis=0)
-            y_mean = cp.mean(yb)
-            Xc = X_work[:, :n_features] - X_mean
-            yc = yb - y_mean
-            XtX = Xc.T @ Xc / n_samples
-            Xty = Xc.T @ yc / n_samples
-        else:
-            X_mean = np.mean(X_work[:, :n_features], axis=0)
-            y_mean = np.mean(yb)
-            Xc = X_work[:, :n_features] - X_mean
-            yc = yb - y_mean
-            XtX = Xc.T @ Xc / n_samples
-            Xty = Xc.T @ yc / n_samples
+        X_mean = xp.mean(X_work[:, :n_features], axis=0)
+        y_mean = xp.mean(yb)
+        Xc = X_work[:, :n_features] - X_mean
+        yc = yb - y_mean
+        XtX = Xc.T @ Xc / n_samples
+        Xty = Xc.T @ yc / n_samples
         eig_max = _max_eigval_power(XtX)
         L_base = max(eig_max * 1.01, 1.0)  # small safety factor for numerical stability
     else:
         # For GLM losses, compute Lipschitz from loss
-        if backend == "torch":
-            import torch
-            _zero = torch.zeros(n_features + 1, dtype=Xb.dtype, device=Xb.device)
-        elif backend == "cupy":
-            import cupy as cp
-            _zero = cp.zeros(n_features + 1, dtype=Xb.dtype)
-        else:
-            _zero = np.zeros(n_features + 1)
+        _zero = _zeros(n_features + 1, backend, ref_tensor=Xb)
         L_base = float(_to_numpy(loss_fn.lipschitz(X_work, _zero, y=yb)))
         _safety = getattr(loss_fn, '_lipschitz_safety', 1.0)
         if _safety > 1.0:
@@ -1772,12 +1606,7 @@ def _scad_mcp_cv_path(
         _loss_params["power"] = float(getattr(loss_fn, "power", _TWEEDIE_POWER_DEFAULT))
 
     # Initialize coef (warm-start from zeros or previous fold)
-    if backend == "torch":
-        coef = torch.zeros(n_features + 1, dtype=Xb.dtype, device=Xb.device)
-    elif backend == "cupy":
-        coef = cp.zeros(n_features + 1, dtype=Xb.dtype)
-    else:
-        coef = np.zeros(n_features + 1)
+    coef = _zeros(n_features + 1, backend, ref_tensor=Xb)
 
     # Pre-create inner penalty object (reuse across LLA iterations)
     inner_pen = AdaptiveL1Penalty(alpha=1.0)
@@ -1789,17 +1618,13 @@ def _scad_mcp_cv_path(
         for lla_iter in range(max_lla_per_step):
             # Compute LLA weights from current coef (features only, intercept gets 0)
             lla_w_feat = scad_penalty.lla_weights(coef[:n_features])
-            if backend == "torch":
-                lla_w = torch.cat([lla_w_feat, torch.zeros(1, device=coef.device, dtype=coef.dtype)])
-            elif backend == "cupy":
-                lla_w = cp.concatenate([lla_w_feat, cp.zeros(1, dtype=coef.dtype)])
-            else:
-                lla_w = np.append(lla_w_feat, 0.0)
+            _zero_scalar = _zeros(1, backend, ref_tensor=coef)
+            lla_w = xp.concatenate([lla_w_feat, _zero_scalar])
 
             # Update weights in-place (avoid object creation overhead)
             inner_pen._weights = lla_w
 
-            coef_before_lla = coef.copy() if backend != "torch" else coef.clone()
+            coef_before_lla = _copy_arr(coef)
             iteration = -1  # default if max_iter=0
 
             # FISTA inner solve with warm-start
@@ -1808,20 +1633,12 @@ def _scad_mcp_cv_path(
             if _is_quadratic:
                 # Squared error: use precomputed XtX
                 step = 1.0 / L_base
-                y_k = coef.copy() if backend != "torch" else coef.clone()
+                y_k = _copy_arr(coef)
                 t_k = 1.0
                 for iteration in range(_inner_max_iter):
-                    coef_old = coef.copy() if backend != "torch" else coef.clone()
-                    if backend == "torch":
-                        grad = XtX @ y_k[:n_features] - Xty
-                        # Extend grad to include intercept dimension
-                        grad_full = torch.cat([grad, torch.zeros(1, device=grad.device, dtype=grad.dtype)])
-                    elif backend == "cupy":
-                        grad = XtX @ y_k[:n_features] - Xty
-                        grad_full = cp.concatenate([grad, cp.zeros(1, dtype=grad.dtype)])
-                    else:
-                        grad = XtX @ y_k[:n_features] - Xty
-                        grad_full = np.concatenate([grad, [0.0]])
+                    coef_old = _copy_arr(coef)
+                    grad = XtX @ y_k[:n_features] - Xty
+                    grad_full = xp.concatenate([grad, _zeros(1, backend, ref_tensor=grad)])
 
                     w = y_k - step * grad_full
                     coef = inner_pen.proximal(w, step, backend=backend)
@@ -1840,12 +1657,7 @@ def _scad_mcp_cv_path(
                 # GLM loss: direct FISTA loop with device-side convergence.
                 # Precompute Lipschitz constant once (reuse across alphas).
                 if L_glm is None:
-                    if backend == "torch":
-                        _zero = torch.zeros(n_features + 1, dtype=Xb.dtype, device=Xb.device)
-                    elif backend == "cupy":
-                        _zero = cp.zeros(n_features + 1, dtype=Xb.dtype)
-                    else:
-                        _zero = np.zeros(n_features + 1)
+                    _zero = _zeros(n_features + 1, backend, ref_tensor=Xb)
                     L_glm = float(_to_numpy(loss_fn.lipschitz(X_work, _zero, y=yb)))
                     _safety = getattr(loss_fn, '_lipschitz_safety', 1.0)
                     if _safety > 1.0:
@@ -1863,10 +1675,10 @@ def _scad_mcp_cv_path(
                     L_glm = max(L_glm, 1.0)
 
                 step = 1.0 / L_glm
-                y_k = coef.copy() if backend != "torch" else coef.clone()
+                y_k = _copy_arr(coef)
                 t_k = 1.0
                 for iteration in range(_inner_max_iter):
-                    coef_old = coef.copy() if backend != "torch" else coef.clone()
+                    coef_old = _copy_arr(coef)
 
                     # Gradient: loss.gradient(X, y, coef)
                     grad = loss_fn.gradient(X_work, yb, y_k)
@@ -1932,15 +1744,8 @@ def _scad_mcp_cv_path(
                     per_sample = (yv - eta_v) ** 2
                 else:
                     per_sample = _LOSS_VALLOSS_FNS[loss_name](eta_v, yv, **_loss_params)
-                if backend == "torch":
-                    sw_sum = float(swv.sum().item())
-                    val_loss = float((swv * per_sample).sum().item() / max(sw_sum, 1e-15))
-                elif backend == "cupy":
-                    sw_sum = float(cp.sum(swv))
-                    val_loss = float(cp.sum(swv * per_sample) / max(sw_sum, 1e-15))
-                else:
-                    sw_sum = float(np.sum(swv))
-                    val_loss = float(np.sum(swv * per_sample) / max(sw_sum, 1e-15))
+                sw_sum = _to_float_scalar(xp.sum(swv))
+                val_loss = _to_float_scalar(xp.sum(swv * per_sample)) / max(sw_sum, 1e-15)
             else:
                 val_loss = loss_fn.value(X_val_work, yv, coef)
             # Normalize to Python float to avoid mixing types in scores_dev

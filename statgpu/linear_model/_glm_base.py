@@ -59,6 +59,15 @@ def _torch_promoted_float_dtype(X, y):
     return torch.promote_types(x_dtype, y_dtype)
 
 
+def _add_intercept_column(X, backend_name):
+    """Prepend an intercept column of ones to X.  Works for numpy/cupy/torch."""
+    from statgpu.backends._utils import _get_xp, xp_ones
+    xp = _get_xp(backend_name)
+    n = X.shape[0]
+    ones = xp_ones((n, 1), dtype=X.dtype, xp=xp, ref_arr=X)
+    return xp.column_stack([ones, X])
+
+
 class GeneralizedLinearModel(BaseEstimator):
     """GLM base class with shared IRLS + FISTA paths.
 
@@ -251,14 +260,7 @@ class GeneralizedLinearModel(BaseEstimator):
         ridge_alpha = X.shape[0] * self._get_penalty_alpha()
 
         if self.fit_intercept:
-            if backend_name == "cupy":
-                import cupy as cp
-                X_design = cp.column_stack([cp.ones(X.shape[0]), X])
-            elif backend_name == "torch":
-                import torch
-                X_design = torch.column_stack([torch.ones(X.shape[0], dtype=torch.float64, device=X.device), X])
-            else:
-                X_design = np.column_stack([np.ones(X.shape[0]), X])
+            X_design = _add_intercept_column(X, backend_name)
         else:
             X_design = X
 
@@ -596,34 +598,26 @@ class GeneralizedLinearModel(BaseEstimator):
 
         device = self._get_compute_device()
         family = self._get_family()
-        if device == Device.CUDA:
-            import cupy as cp
-            Xb = cp.asarray(self._to_array(X, Device.CUDA))
-            coef = cp.asarray(self.coef_)
+        from statgpu.backends._utils import _get_xp, xp_asarray
+        if device in (Device.CUDA, Device.TORCH):
+            backend_name = "cupy" if device == Device.CUDA else "torch"
+            xp = _get_xp(backend_name)
+            Xb = xp_asarray(self._to_array(X, device), xp=xp)
+            coef = xp_asarray(self.coef_, xp=xp, ref_arr=Xb)
             raw = Xb @ coef
             if self.fit_intercept:
-                raw += cp.asarray(self.intercept_, dtype=raw.dtype)
+                raw = raw + xp_asarray(self.intercept_, xp=xp, ref_arr=Xb)
             out = family.link.inverse(raw)
-            self._cleanup_cuda_memory()
-            return out
-        if device == Device.TORCH:
-            import torch
-            Xb = self._to_array(X, Device.TORCH, backend="torch").to(torch.float64)
-            coef = torch.as_tensor(self.coef_, dtype=Xb.dtype, device=Xb.device)
-            raw = Xb @ coef
-            if self.fit_intercept:
-                raw = raw + torch.as_tensor(
-                    self.intercept_, dtype=raw.dtype, device=raw.device
-                )
-            out = family.link.inverse(raw)
-            self._cleanup_torch_memory()
+            if device == Device.CUDA:
+                self._cleanup_cuda_memory()
+            else:
+                self._cleanup_torch_memory()
             return out
 
         X = np.asarray(X)
         raw = X @ self.coef_
         if self.fit_intercept:
             raw += self.intercept_
-
         return family.link.inverse(raw)
 
 
@@ -1107,16 +1101,9 @@ class OrderedGeneralizedLinearModel(GeneralizedLinearModel):
         Both paths are backend-agnostic (numpy/cupy/torch).
         """
         if family.link.name == "probit":
-            mod = type(x).__module__
-            if mod.startswith('cupy'):
-                from statgpu.inference._distributions_backend import get_distribution
-                norm_dist = get_distribution("norm", backend="cupy")
-                return norm_dist.pdf(x)
-            elif mod.startswith('torch'):
-                import torch
-                return torch.exp(-0.5 * x.square()) / torch.sqrt(2.0 * torch.pi)
-            from scipy.stats import norm
-            return norm.pdf(x)
+            from statgpu.backends._array_ops import _xp, _exp
+            xp = _xp(x)
+            return _exp(-0.5 * x * x) / xp.sqrt(xp.asarray(2.0 * np.pi, dtype=x.dtype))
         # logit: F * (1 - F) — element-wise, works for any backend
         F = family.link.inverse(x)
         return F * (1.0 - F)
@@ -1132,15 +1119,10 @@ class OrderedGeneralizedLinearModel(GeneralizedLinearModel):
             return F * (1.0 - F) * (1.0 - 2.0 * F)
         elif family.link.name == "probit":
             # F''(x) = -x * φ(x) for standard normal PDF φ
-            if is_cupy:
-                from statgpu.inference._distributions_backend import get_distribution
-                norm_dist = get_distribution("norm", backend="cupy")
-                return -x * norm_dist.pdf(x)
-            elif is_torch:
-                import torch
-                return -x * torch.exp(-0.5 * x.square()) / torch.sqrt(2.0 * torch.pi)
-            from scipy.stats import norm
-            return -x * norm.pdf(x)
+            from statgpu.backends._array_ops import _xp, _exp
+            xp = _xp(x)
+            phi = _exp(-0.5 * x * x) / xp.sqrt(xp.asarray(2.0 * np.pi, dtype=x.dtype))
+            return -x * phi
         F = family.link.inverse(x)
         return F * (1.0 - F) * (1.0 - 2.0 * F)
 
@@ -1159,24 +1141,12 @@ class OrderedGeneralizedLinearModel(GeneralizedLinearModel):
         backend_name = backend.name
         X_arr = self._to_array(X, backend=backend_name)
 
-        if backend_name == "cupy":
-            import cupy as cp
-            coef = cp.asarray(self.coef_)
-            X_mean = cp.asarray(self._X_mean)
-            X_std = cp.asarray(self._X_std)
-            thresholds = cp.asarray(self.thresholds_)
-        elif backend_name == "torch":
-            import torch
-            torch_device = X_arr.device if hasattr(X_arr, 'device') else torch.device('cuda')
-            coef = torch.from_numpy(np.asarray(self.coef_)).to(torch_device)
-            X_mean = torch.from_numpy(np.asarray(self._X_mean)).to(torch_device)
-            X_std = torch.from_numpy(np.asarray(self._X_std)).to(torch_device)
-            thresholds = torch.from_numpy(np.asarray(self.thresholds_)).to(torch_device)
-        else:
-            coef = self.coef_
-            X_mean = self._X_mean
-            X_std = self._X_std
-            thresholds = self.thresholds_
+        from statgpu.backends._utils import _get_xp, xp_asarray
+        xp = _get_xp(backend_name)
+        coef = xp_asarray(self.coef_, xp=xp, ref_arr=X_arr)
+        X_mean = xp_asarray(self._X_mean, xp=xp, ref_arr=X_arr)
+        X_std = xp_asarray(self._X_std, xp=xp, ref_arr=X_arr)
+        thresholds = xp_asarray(self.thresholds_, xp=xp, ref_arr=X_arr)
 
         X_scaled = (X_arr - X_mean) / X_std
         eta = X_scaled @ coef
@@ -1184,20 +1154,12 @@ class OrderedGeneralizedLinearModel(GeneralizedLinearModel):
         diff = thresholds[:, None] - eta[None, :]
         pi = family.link.inverse(diff)  # (K+1, n) with -inf/+inf thresholds
 
-        if backend_name == "torch":
-            import torch
-            proba = torch.diff(pi, dim=0).T  # (n, K)
+        proba = xp.diff(pi, axis=0).T  # (n, K)
+        if backend_name != "numpy":
             out = _to_numpy(proba)
-            self._cleanup_torch_memory()
+            self._cleanup_backend_memory(backend_name)
             return out
-        elif backend_name == "cupy":
-            import cupy as cp
-            proba = cp.diff(pi, axis=0).T  # (n, K)
-            out = _to_numpy(proba)
-            self._cleanup_cuda_memory()
-            return out
-        else:
-            return np.diff(pi, axis=0).T  # (n, K)
+        return proba
 
     def predict(self, X):
         """Predict class labels.
@@ -1208,44 +1170,8 @@ class OrderedGeneralizedLinearModel(GeneralizedLinearModel):
 
         backend = self._get_backend(backend="auto")
         backend_name = backend.name
-        X_arr = self._to_array(X, backend=backend_name)
-
-        # Inline the prediction path to avoid double GPU→CPU round-trip
-        K = self.n_categories
-        if backend_name == "cupy":
-            import cupy as cp
-            coef = cp.asarray(self.coef_)
-            X_mean = cp.asarray(self._X_mean)
-            X_std = cp.asarray(self._X_std)
-            thresholds = cp.asarray(self.thresholds_)
-            X_scaled = (X_arr - X_mean) / X_std
-            eta = X_scaled @ coef
-            family = self._get_family()
-            diff = thresholds[:, None] - eta[None, :]
-            pi = family.link.inverse(diff)
-            proba = cp.diff(pi, axis=0).T
-            out = _to_numpy(cp.argmax(proba, axis=1))
-            self._cleanup_cuda_memory()
-            return out
-        elif backend_name == "torch":
-            import torch
-            torch_device = X_arr.device if hasattr(X_arr, 'device') else torch.device('cuda')
-            coef = torch.from_numpy(np.asarray(self.coef_)).to(torch_device)
-            X_mean = torch.from_numpy(np.asarray(self._X_mean)).to(torch_device)
-            X_std = torch.from_numpy(np.asarray(self._X_std)).to(torch_device)
-            thresholds = torch.from_numpy(np.asarray(self.thresholds_)).to(torch_device)
-            X_scaled = (X_arr - X_mean) / X_std
-            eta = X_scaled @ coef
-            family = self._get_family()
-            diff = thresholds[:, None] - eta[None, :]
-            pi = family.link.inverse(diff)
-            proba = torch.diff(pi, dim=0).T
-            out = _to_numpy(torch.argmax(proba, dim=1))
-            self._cleanup_torch_memory()
-            return out
-        else:
-            proba = self.predict_proba(X)
-            return np.argmax(proba, axis=1)
+        proba = self.predict_proba(X)
+        return np.argmax(proba, axis=1)
 
     def score(self, X, y):
         """Return mean accuracy on the given test data and labels.
@@ -1260,17 +1186,10 @@ class OrderedGeneralizedLinearModel(GeneralizedLinearModel):
         y_pred = self.predict(X)
         y_pred_arr = self._to_array(y_pred, backend=backend_name)
 
-        if backend_name == "cupy":
-            import cupy as cp
-            out = float(cp.mean(y_pred_arr == y_true).item())
-            self._cleanup_cuda_memory()
-            return out
-        elif backend_name == "torch":
-            import torch
-            y_pred_t = y_pred_arr.to(torch.int64) if hasattr(y_pred_arr, 'to') else y_pred_arr
-            y_true_t = y_true.to(torch.int64) if hasattr(y_true, 'to') else y_true
-            out = float(torch.mean((y_pred_t == y_true_t).to(torch.float64)).item())
-            self._cleanup_torch_memory()
-            return out
-        else:
-            return float(np.mean(np.asarray(y_pred) == np.asarray(y_true)))
+        from statgpu.backends._utils import _get_xp, _to_float_scalar
+        xp = _get_xp(backend_name)
+        matches = xp.asarray(y_pred_arr == y_true, dtype=xp.float64)
+        out = _to_float_scalar(xp.mean(matches))
+        if backend_name != "numpy":
+            self._cleanup_backend_memory(backend_name)
+        return out

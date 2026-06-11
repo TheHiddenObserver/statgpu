@@ -8,7 +8,7 @@ import hashlib
 import numpy as np
 
 from statgpu._config import Device, cuda_available
-from statgpu.linear_model._cv_base import CVEstimatorBase
+from statgpu.linear_model._cv_base import CVEstimatorBase, batch_mse as _batch_mse_cv
 from statgpu.backends import get_backend
 from ._elasticnet import ElasticNet
 
@@ -226,62 +226,6 @@ def _default_elasticnet_alpha_grid_backend(
 
     alpha_min = max(float(alpha_min_ratio) * alpha_max, 1e-6)
     return np.geomspace(alpha_max, alpha_min, num=int(n_alphas)).astype(np.float64)
-
-
-# =============================================================================
-# Batch MSE helper
-# =============================================================================
-
-def _batch_mse_elasticnet(
-    X_val,
-    y_val,
-    coefs_path,
-    intercepts_path,
-    backend,
-    sample_weight_val=None,
-) -> np.ndarray:
-    """
-    Compute MSE for multiple coefficient vectors.
-
-    Parameters
-    ----------
-    X_val : array-like
-        Validation features.
-    y_val : array-like
-        Validation targets.
-    coefs_path : array-like
-        Coefficient paths (n_alphas, n_features).
-    intercepts_path : array-like
-        Intercept values (n_alphas,).
-    backend : BackendBase
-        Backend instance.
-    sample_weight_val : array-like, optional
-        Sample weights for validation set.
-
-    Returns
-    -------
-    mse : ndarray
-        MSE values (n_alphas,).
-    """
-    # Ensure arrays are on the correct backend (convert numpy -> backend if needed)
-    coefs_path = backend.asarray(coefs_path)
-    intercepts_path = backend.asarray(intercepts_path)
-    intercepts_reshaped = intercepts_path.reshape(1, -1)
-
-    # Compute predictions and squared errors
-    preds = X_val @ coefs_path.T + intercepts_reshaped
-    sq_err = (y_val.reshape(-1, 1) - preds) ** 2
-
-    if sample_weight_val is None:
-        mse = backend.mean(sq_err, axis=0)
-    else:
-        denom = backend.sum(sample_weight_val)
-        if float(backend.to_numpy(denom)) <= 0.0:
-            mse = backend.mean(sq_err, axis=0)
-        else:
-            mse = backend.sum(sample_weight_val.reshape(-1, 1) * sq_err, axis=0) / denom
-
-    return backend.to_numpy(mse)
 
 
 # =============================================================================
@@ -610,12 +554,10 @@ def _select_elasticnet_params_cv(
                     model.fit(X_train, y_train, initial_coef=prev_coef)
 
                     # Store result
-                    mse_val = _batch_mse_elasticnet(
+                    mse_val = _batch_mse_cv(
                         X_val, y_val,
                         model.coef_.reshape(1, -1),
                         np.array([model.intercept_]),
-                        backend,
-                        None,
                     )
                     mse_path[l1_idx, orig_idx, fold_idx] = float(mse_val[0])
                     prev_coef = model.coef_.copy()
@@ -643,12 +585,11 @@ def _select_elasticnet_params_cv(
                     model.fit(X_train, y_train, sample_weight=sw_train)
 
                     # Compute validation MSE
-                    mse_val = _batch_mse_elasticnet(
+                    mse_val = _batch_mse_cv(
                         X_val, y_val,
                         model.coef_.reshape(1, -1),
                         np.array([model.intercept_]),
-                        backend,
-                        sw_val,
+                        sample_weight=sw_val,
                     )
 
                     mse_path[l1_idx, alpha_idx, fold_idx] = float(mse_val[0])

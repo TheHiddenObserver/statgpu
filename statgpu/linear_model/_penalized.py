@@ -23,6 +23,7 @@ from statgpu.linear_model._gaussian_inference import (
     validate_hac_maxlags,
 )
 from statgpu.inference._results import GaussianInferenceResult
+from statgpu.backends._array_ops import _clip, _exp
 
 
 def _irls_ridge_init(X, y, loss_name, alpha=0.01, max_iter=100, tol=1e-4, loss_kwargs=None):
@@ -1443,8 +1444,8 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
                 X_b = backend.asarray(X, dtype=backend.float64)
                 y_b = backend.asarray(y, dtype=backend.float64)
             else:
-                X_b = np.asarray(X, dtype=np.float64)
-                y_b = np.asarray(y, dtype=np.float64)
+                X_b = np.asarray(_to_numpy(X), dtype=np.float64)
+                y_b = np.asarray(_to_numpy(y), dtype=np.float64)
             init_coef, _ = fista_solver(
                 loss_obj, l2_pen, X_b, y_b,
                 max_iter=500, tol=1e-4,
@@ -1464,8 +1465,8 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
                 X_b = backend.asarray(X, dtype=backend.float64)
                 y_b = backend.asarray(y, dtype=backend.float64)
             else:
-                X_b = np.asarray(X, dtype=np.float64)
-                y_b = np.asarray(y, dtype=np.float64)
+                X_b = np.asarray(_to_numpy(X), dtype=np.float64)
+                y_b = np.asarray(_to_numpy(y), dtype=np.float64)
             init_coef = _irls_ridge_init(
                 X_b, y_b,
                 loss_name=loss_name,
@@ -1513,7 +1514,7 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
         elif self._penalty.requires_init:
             coef_lla = np.zeros(n_features)
         else:
-            coef_lla = self._fit_initial(X, y)
+            coef_lla = self._fit_initial(X, y, backend_name=backend_name)
 
         # For GLM + SCAD/MCP direct IRLS-CD path, override init to zeros.
         # R's ncvreg starts from lambda_max with all-zero coefficients and
@@ -3430,13 +3431,9 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
         Same algorithm as _irls_cd but keeps all arrays on GPU to avoid
         CPU-GPU transfer overhead.  Supports cupy and torch backends.
         """
-        if backend_name == "cupy":
-            import cupy as xp
-        elif backend_name == "torch":
-            import torch
-            xp = torch
-        else:
-            raise ValueError(f"GPU backend required, got {backend_name}")
+        from statgpu.backends._array_ops import _xp_copy, _xp_zeros, _xp_asarray
+        from statgpu.backends._utils import _get_xp
+        xp = _get_xp(backend_name)
 
         n, pp = X_work.shape
         p = pp - 1 if self.fit_intercept else pp
@@ -3444,7 +3441,7 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
         # Access weights from the original penalty
         _inner = getattr(self, '_penalty', pen)
         _w_np = np.asarray(getattr(_inner, '_weights', np.ones(p)), dtype=float)
-        _w = xp.asarray(_w_np) if backend_name == "cupy" else torch.from_numpy(_w_np).to(X_work.device)
+        _w = _xp_asarray(_w_np, X_work.dtype, X_work)
         alpha = float(getattr(_inner, 'alpha', self.alpha))
         pen_name = getattr(pen, 'name', '') or getattr(_inner, 'name', '')
 
@@ -3454,11 +3451,11 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
 
         if init is not None:
             if isinstance(init, np.ndarray):
-                beta = xp.asarray(init) if backend_name == "cupy" else torch.from_numpy(init).to(X_work.device)
+                beta = _xp_asarray(init, X_work.dtype, X_work)
             else:
-                beta = init.clone() if backend_name == "torch" else init.copy()
+                beta = _xp_copy(init)
         else:
-            beta = xp.zeros(pp, dtype=X_work.dtype) if backend_name == "cupy" else torch.zeros(pp, dtype=X_work.dtype, device=X_work.device)
+            beta = _xp_zeros(pp, X_work.dtype, X_work)
 
         loss_name = self._loss.name
         _is_glm = (loss_name != "squared_error")
@@ -3492,9 +3489,9 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
 
         # Precompute X^T X diagonal for squared_error
         if not _is_glm:
-            d = xp.ones(n, dtype=X_work.dtype) if backend_name == "cupy" else torch.ones(n, dtype=X_work.dtype, device=X_work.device)
+            d = _xp_zeros((n,), X_work.dtype, X_work) + 1.0  # ones on correct device
             z = y_arr
-            XDX_diag = xp.sum(d[:, None] * X_work ** 2, axis=0) if backend_name == "cupy" else torch.sum(d[:, None] * X_work ** 2, dim=0)
+            XDX_diag = xp.sum(d[:, None] * X_work ** 2, axis=0)
 
         for _cont_idx, _cont_alpha in enumerate(_cont_path):
             if len(_cont_path) > 1:
@@ -3515,112 +3512,115 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
                 if _is_glm:
                     eta = X_work @ beta
                     if loss_name == "logistic":
-                        mu = 1.0 / (1.0 + xp.exp(-xp.clip(eta, -500, 500)))
-                        mu = xp.clip(mu, 1e-15, 1.0 - 1e-15) if backend_name == "cupy" else torch.clamp(mu, 1e-15, 1.0 - 1e-15)
+                        mu = 1.0 / (1.0 + _exp(-_clip(eta, -500, 500)))
+                        mu = _clip(mu, 1e-15, 1.0 - 1e-15)
                         d = mu * (1.0 - mu)
                         z = eta + (y_arr - mu) / d
                     elif loss_name == "poisson":
-                        mu = xp.exp(xp.clip(eta, -500, 500)) if backend_name == "cupy" else torch.exp(torch.clamp(eta, -500, 500))
-                        mu = xp.maximum(mu, 1e-15) if backend_name == "cupy" else torch.clamp(mu, min=1e-15)
+                        mu = _clip(_exp(_clip(eta, -500, 500)), 1e-15, None)
                         d = mu
                         z = eta + (y_arr - mu) / d
                     elif loss_name == "gamma":
-                        mu = xp.exp(xp.clip(eta, -500, 500)) if backend_name == "cupy" else torch.exp(torch.clamp(eta, -500, 500))
-                        mu = xp.maximum(mu, 1e-15) if backend_name == "cupy" else torch.clamp(mu, min=1e-15)
-                        d = xp.ones(n, dtype=X_work.dtype) if backend_name == "cupy" else torch.ones(n, dtype=X_work.dtype, device=X_work.device)
+                        mu = _clip(_exp(_clip(eta, -500, 500)), 1e-15, None)
+                        d = _xp_zeros((n,), X_work.dtype, X_work) + 1.0
                         z = eta + (y_arr - mu) / mu
                     elif loss_name == "inverse_gaussian":
-                        # IRLS weight: w = 1/mu, Working response: z = eta + (y-mu)/mu
-                        mu = xp.exp(xp.clip(eta, -500, 500)) if backend_name == "cupy" else torch.exp(torch.clamp(eta, -500, 500))
-                        mu = xp.maximum(mu, 1e-15) if backend_name == "cupy" else torch.clamp(mu, min=1e-15)
+                        mu = _clip(_exp(_clip(eta, -500, 500)), 1e-15, None)
                         d = 1.0 / mu
                         z = eta + (y_arr - mu) / mu
                     elif loss_name == "negative_binomial":
-                        mu = xp.exp(xp.clip(eta, -500, 500)) if backend_name == "cupy" else torch.exp(torch.clamp(eta, -500, 500))
-                        mu = xp.maximum(mu, 1e-15) if backend_name == "cupy" else torch.clamp(mu, min=1e-15)
+                        mu = _clip(_exp(_clip(eta, -500, 500)), 1e-15, None)
                         theta_nb = float(getattr(self._loss, 'alpha', 1.0))
                         d = mu / (1.0 + mu / theta_nb)
                         z = eta + (y_arr - mu) / d
                     elif loss_name == "tweedie":
-                        mu = xp.exp(xp.clip(eta, -500, 500)) if backend_name == "cupy" else torch.exp(torch.clamp(eta, -500, 500))
-                        mu = xp.maximum(mu, 1e-15) if backend_name == "cupy" else torch.clamp(mu, min=1e-15)
+                        mu = _clip(_exp(_clip(eta, -500, 500)), 1e-15, None)
                         tweedie_p = float(getattr(self._loss, 'power', 1.5))
                         d = mu ** tweedie_p
-                        d = xp.maximum(d, 1e-15) if backend_name == "cupy" else torch.clamp(d, min=1e-15)
+                        d = _clip(d, 1e-15, None)
                         z = eta + (y_arr - mu) / (d * mu)
                     else:
                         grad = self._loss.gradient(X_work, y_arr, beta)
-                        d = xp.ones(n, dtype=X_work.dtype) if backend_name == "cupy" else torch.ones(n, dtype=X_work.dtype, device=X_work.device)
+                        d = _xp_zeros((n,), X_work.dtype, X_work) + 1.0
                         z = eta - grad * n
-                    XDX_diag = xp.sum(d[:, None] * X_work ** 2, axis=0) if backend_name == "cupy" else torch.sum(d[:, None] * X_work ** 2, dim=0)
+                    XDX_diag = xp.sum(d[:, None] * X_work ** 2, axis=0)
 
                 r = z - X_work @ beta
 
+                # Precompute active mask and vectorized penalty weights
+                _active = XDX_diag >= 1e-20
+                _v_all = XDX_diag / n
+                _v_safe = xp.where(_active, _v_all, 1.0)  # avoid division by zero
+                if pen_name in ("adaptive_l1", "adaptive_lasso"):
+                    _l1_all = alpha * _w  # shape (p,)
+
                 for _cd in range(_n_cd_sweeps):
-                    _max_cd_change = 0.0
-                    for j in range(pp):
-                        if float(XDX_diag[j]) < 1e-20:
-                            beta[j] = 0.0
-                            continue
+                    # --- Vectorized block coordinate descent ---
+                    # 1. Batch gradient: rho_all = X' (d * r) + XDX_diag * beta
+                    rho_all = X_work.T @ (d * r) + XDX_diag * beta
+                    w_all = rho_all / (n * _v_safe)  # un-penalized solution
 
-                        rho_j = float(xp.dot(d * X_work[:, j], r)) + float(XDX_diag[j]) * float(beta[j])
-                        old_bj = float(beta[j])
+                    # 2. Save old beta for residual update
+                    old_beta = beta
 
-                        u_j = rho_j / n
-                        v_j = float(XDX_diag[j]) / n
+                    # 3. Vectorized thresholding (penalty-specific)
+                    if self.fit_intercept:
+                        new_beta = xp.zeros_like(beta)
+                        w_feat = w_all[:p]
+                    else:
+                        w_feat = w_all
+                        new_beta = xp.zeros_like(beta)
 
-                        if j >= p:
-                            beta[j] = u_j / v_j
-                        elif pen_name in ("adaptive_l1", "adaptive_lasso"):
-                            l1 = alpha * float(_w[j])
-                            w_j = u_j / v_j
-                            if w_j > l1:
-                                beta[j] = (w_j - l1)
-                            elif w_j < -l1:
-                                beta[j] = (w_j + l1)
-                            else:
-                                beta[j] = 0.0
-                        elif pen_name == "scad":
-                            l1 = alpha
-                            w_j = u_j / v_j
-                            aw = abs(w_j)
-                            if aw > a_scad * l1:
-                                beta[j] = w_j
-                            elif aw > l1:
-                                beta[j] = np.sign(w_j) * ((a_scad - 1.0) * aw - a_scad * l1) / (a_scad - 2.0)
-                            else:
-                                beta[j] = 0.0
-                        elif pen_name == "mcp":
-                            l1 = alpha
-                            w_j = u_j / v_j
-                            aw = abs(w_j)
-                            if aw > gamma_mcp * l1:
-                                beta[j] = w_j
-                            elif aw > l1:
-                                beta[j] = np.sign(w_j) * (aw - l1) / (1.0 - 1.0 / gamma_mcp)
-                            else:
-                                beta[j] = 0.0
-                        else:
-                            l1 = alpha
-                            w_j = u_j / v_j
-                            if w_j > l1:
-                                beta[j] = (w_j - l1)
-                            elif w_j < -l1:
-                                beta[j] = (w_j + l1)
-                            else:
-                                beta[j] = 0.0
+                    if pen_name in ("adaptive_l1", "adaptive_lasso"):
+                        aw = xp.abs(w_feat)
+                        new_beta_feat = xp.sign(w_feat) * xp.maximum(aw - _l1_all, 0.0)
+                    elif pen_name == "scad":
+                        aw = xp.abs(w_feat)
+                        l1 = alpha
+                        new_beta_feat = xp.where(
+                            aw > a_scad * l1, w_feat,
+                            xp.where(
+                                aw > l1,
+                                xp.sign(w_feat) * ((a_scad - 1.0) * aw - a_scad * l1) / (a_scad - 2.0),
+                                0.0,
+                            ),
+                        )
+                    elif pen_name == "mcp":
+                        aw = xp.abs(w_feat)
+                        l1 = alpha
+                        new_beta_feat = xp.where(
+                            aw > gamma_mcp * l1, w_feat,
+                            xp.where(
+                                aw > l1,
+                                xp.sign(w_feat) * (aw - l1) / (1.0 - 1.0 / gamma_mcp),
+                                0.0,
+                            ),
+                        )
+                    else:
+                        # lasso / elasticnet (pure L1)
+                        aw = xp.abs(w_feat)
+                        new_beta_feat = xp.sign(w_feat) * xp.maximum(aw - alpha, 0.0)
 
-                        if float(beta[j]) != old_bj:
-                            r = r + X_work[:, j] * (old_bj - float(beta[j]))
-                            _cd_change = abs(float(beta[j]) - old_bj)
-                            if _cd_change > _max_cd_change:
-                                _max_cd_change = _cd_change
+                    # Zero out degenerate columns
+                    if self.fit_intercept:
+                        new_beta[:p] = new_beta_feat * _active[:p]
+                        new_beta[p:] = w_all[p:]  # intercept: no penalty
+                    else:
+                        new_beta = new_beta_feat * _active
+
+                    # 4. Residual update (single matvec instead of p dot products)
+                    delta = new_beta - old_beta
+                    r = r - X_work @ delta
+                    beta = new_beta
+
+                    # 5. Convergence check (single GPU reduction + one sync)
+                    _max_cd_change = float(xp.max(xp.abs(delta)))
 
                     if not _is_glm and _max_cd_change < self.tol:
                         break
 
                 # IRLS-level convergence check
-                _delta = float(xp.max(xp.abs(beta[:p] - beta_old[:p]))) if backend_name == "cupy" else float(torch.max(torch.abs(beta[:p] - beta_old[:p])))
+                _delta = float(xp.max(xp.abs(beta[:p] - beta_old[:p])))
                 if not _is_glm and _delta < self.tol:
                     break
                 if _is_glm and len(_cont_path) > 1 and not _is_last:
@@ -3705,21 +3705,13 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
         Same algorithm as _block_cd_group_lasso but keeps all arrays on GPU.
         Enforces float64 precision to avoid NaN from float32 conditioning issues.
         """
-        if backend_name == "cupy":
-            import cupy as xp
-        elif backend_name == "torch":
-            import torch
-            xp = torch
-        else:
-            raise ValueError(f"GPU backend required, got {backend_name}")
+        from statgpu.backends._array_ops import _xp_copy, _xp_zeros, _xp_asarray, _xp_eye
+        from statgpu.backends._utils import _get_xp, xp_astype
+        xp = _get_xp(backend_name)
 
         # Enforce float64 precision for numerical stability
-        if backend_name == "cupy":
-            X_work = xp.asarray(X_work, dtype=xp.float64)
-            y_arr = xp.asarray(y_arr, dtype=xp.float64)
-        else:
-            X_work = X_work.to(dtype=torch.float64)
-            y_arr = y_arr.to(dtype=torch.float64)
+        X_work = xp_astype(X_work, xp.float64, xp)
+        y_arr = xp_astype(y_arr, xp.float64, xp)
 
         n, pp = X_work.shape
         p = pp - 1 if self.fit_intercept else pp
@@ -3741,45 +3733,33 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
 
         # Pre-compute XtX blocks with diagonal ridge for conditioning
         _XtX_blocks = []
-        _ridge = 1e-10 if backend_name == "cupy" else torch.tensor(1e-10, dtype=torch.float64, device=X_work.device)
+        _ridge = _scalar_tensor(1e-10, X_work)
         for g_idx in _g_indices:
             block = XtX[g_idx][:, g_idx]
-            # Add diagonal ridge to ensure positive definiteness
-            if backend_name == "cupy":
-                block = block + _ridge * xp.eye(block.shape[0], dtype=block.dtype)
-            else:
-                block = block + _ridge * torch.eye(block.shape[0], dtype=block.dtype, device=block.device)
+            block = block + _ridge * _xp_eye(block.shape[0], block.dtype, block)
             _XtX_blocks.append(block)
 
         if init is not None:
             if isinstance(init, np.ndarray):
-                coef = xp.asarray(init, dtype=X_work.dtype) if backend_name == "cupy" else torch.from_numpy(init).to(dtype=torch.float64, device=X_work.device)
+                coef = _xp_asarray(init, X_work.dtype, X_work)
             else:
-                coef = init.clone() if backend_name == "torch" else init.copy()
+                coef = _xp_copy(init)
         else:
-            coef = xp.zeros(pp, dtype=X_work.dtype) if backend_name == "cupy" else torch.zeros(pp, dtype=torch.float64, device=X_work.device)
+            coef = _xp_zeros(pp, X_work.dtype, X_work)
 
         for iteration in range(self.max_iter):
-            coef_old = coef.clone() if backend_name == "torch" else coef.copy()
+            coef_old = _xp_copy(coef)
 
             for g in range(_n_groups):
                 g_idx = _g_indices[g]
                 rho_g = Xty[g_idx] - XtX[g_idx, :] @ coef + _XtX_blocks[g] @ coef[g_idx]
                 try:
-                    if backend_name == "cupy":
-                        w_g = xp.linalg.solve(_XtX_blocks[g], rho_g)
-                    else:
-                        w_g = torch.linalg.solve(_XtX_blocks[g], rho_g)
-                    # Check for NaN/Inf in solution
-                    if backend_name == "cupy":
-                        if xp.any(xp.isnan(w_g)) or xp.any(xp.isinf(w_g)):
-                            w_g = xp.zeros(len(g_idx), dtype=X_work.dtype)
-                    else:
-                        if torch.any(torch.isnan(w_g)) or torch.any(torch.isinf(w_g)):
-                            w_g = torch.zeros(len(g_idx), dtype=torch.float64, device=X_work.device)
+                    w_g = xp.linalg.solve(_XtX_blocks[g], rho_g)
+                    if xp.any(xp.isnan(w_g)) or xp.any(xp.isinf(w_g)):
+                        w_g = _xp_zeros(len(g_idx), X_work.dtype, X_work)
                 except Exception:
-                    w_g = xp.zeros(len(g_idx), dtype=X_work.dtype) if backend_name == "cupy" else torch.zeros(len(g_idx), dtype=torch.float64, device=X_work.device)
-                norm_w = float(xp.linalg.norm(w_g)) if backend_name == "cupy" else float(torch.linalg.norm(w_g))
+                    w_g = _xp_zeros(len(g_idx), X_work.dtype, X_work)
+                norm_w = float(xp.linalg.norm(w_g))
                 thresh_g = alpha * _sqrt_pg[g]
                 if norm_w > thresh_g:
                     coef[g_idx] = w_g * (1.0 - thresh_g / norm_w)
@@ -3787,9 +3767,9 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
                     coef[g_idx] = 0.0
 
             if self.fit_intercept:
-                coef[pp - 1] = float(xp.mean(y_arr - X_work[:, :p] @ coef[:p])) if backend_name == "cupy" else float(torch.mean(y_arr - X_work[:, :p] @ coef[:p]))
+                coef[pp - 1] = float(xp.mean(y_arr - X_work[:, :p] @ coef[:p]))
 
-            _max_change = float(xp.max(xp.abs(coef - coef_old))) if backend_name == "cupy" else float(torch.max(torch.abs(coef - coef_old)))
+            _max_change = float(xp.max(xp.abs(coef - coef_old)))
             if _max_change < self.tol:
                 break
 
@@ -3811,13 +3791,9 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
         kernel launch overhead. Groups of the same size are batched together
         for efficient linear solves.
         """
-        if backend_name == "cupy":
-            import cupy as xp
-        elif backend_name == "torch":
-            import torch
-            xp = torch
-        else:
-            raise ValueError(f"GPU backend required, got {backend_name}")
+        from statgpu.backends._array_ops import _xp_copy, _xp_zeros, _xp_asarray, _scalar_tensor
+        from statgpu.backends._utils import _get_xp
+        xp = _get_xp(backend_name)
 
         n, pp = X_work.shape
         p = pp - 1 if self.fit_intercept else pp
@@ -3853,14 +3829,14 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
 
         if init is not None:
             if isinstance(init, np.ndarray):
-                coef = xp.asarray(init) if backend_name == "cupy" else torch.from_numpy(init).to(X_work.device)
+                coef = _xp_asarray(init, X_work.dtype, X_work)
             else:
-                coef = init.clone() if backend_name == "torch" else init.copy()
+                coef = _xp_copy(init)
         else:
-            coef = xp.zeros(pp, dtype=X_work.dtype) if backend_name == "cupy" else torch.zeros(pp, dtype=X_work.dtype, device=X_work.device)
+            coef = _xp_zeros(pp, X_work.dtype, X_work)
 
         for iteration in range(self.max_iter):
-            coef_old = coef.clone() if backend_name == "torch" else coef.copy()
+            coef_old = _xp_copy(coef)
 
             # Process groups by size for batched solving
             for sz, size_groups in _size_groups.items():
@@ -3877,79 +3853,45 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
 
                 # Compute rho_g for all groups of this size in one shot
                 # rho_g = Xty[g_idx] - XtX[g_idx, :] @ coef + XtX_block[g] @ coef[g_idx]
-                if backend_name == "cupy":
-                    import cupy as cp
-                    # Stack all indices for batched indexing
-                    idx_arr = cp.array(all_indices, dtype=cp.int32)
-                    # Compute XtX[g_idx, :] @ coef for all groups at once
-                    XtX_coef = XtX[idx_arr, :] @ coef  # shape: (n_batch * sz,)
-                    # Compute Xty for all groups
-                    Xty_all = Xty[idx_arr]
-                    # Compute block diagonal contributions
-                    block_contrib = xp.zeros_like(Xty_all)
-                    for i, (g, g_idx) in enumerate(size_groups):
-                        block_contrib[i*sz:(i+1)*sz] = _XtX_blocks[g] @ coef[g_idx]
-                    # rho_g = Xty - XtX_coef + block_contrib
-                    rho_all = Xty_all - XtX_coef + block_contrib
+                # Stack all indices for batched indexing
+                idx_arr = _xp_asarray(all_indices, xp.int32 if backend_name == "cupy" else None, X_work)
+                # Compute XtX[g_idx, :] @ coef for all groups at once
+                XtX_coef = XtX[idx_arr, :] @ coef  # shape: (n_batch * sz,)
+                # Compute Xty for all groups
+                Xty_all = Xty[idx_arr]
+                # Compute block diagonal contributions
+                block_contrib = _xp_zeros(Xty_all.shape, Xty_all.dtype, Xty_all)
+                for i, (g, g_idx) in enumerate(size_groups):
+                    block_contrib[i*sz:(i+1)*sz] = _XtX_blocks[g] @ coef[g_idx]
+                # rho_g = Xty - XtX_coef + block_contrib
+                rho_all = Xty_all - XtX_coef + block_contrib
 
-                    # Solve all group systems in one batched call
-                    # Reshape to (n_batch, sz, 1) for batched solve
-                    rho_mat = rho_all.reshape(n_batch, sz, 1)
-                    # Stack all XtX blocks into a single (n_batch, sz, sz) tensor
-                    XtX_batch = xp.stack([_XtX_blocks[g] for g in batch_g_indices])
-                    try:
-                        w_all = xp.linalg.solve(XtX_batch, rho_mat)  # (n_batch, sz, 1)
-                        w_all = w_all.reshape(n_batch, sz)
-                    except Exception:
-                        w_all = xp.zeros((n_batch, sz), dtype=X_work.dtype)
+                # Solve all group systems in one batched call
+                rho_mat = rho_all.reshape(n_batch, sz, 1)
+                XtX_batch = xp.stack([_XtX_blocks[g] for g in batch_g_indices])
+                try:
+                    w_all = xp.linalg.solve(XtX_batch, rho_mat)  # (n_batch, sz, 1)
+                    w_all = w_all.reshape(n_batch, sz)
+                except Exception:
+                    w_all = _xp_zeros((n_batch, sz), X_work.dtype, X_work)
 
-                    # Apply soft-thresholding to all groups at once
-                    norms = xp.linalg.norm(w_all, axis=1)  # (n_batch,)
-                    thresh = xp.array([alpha * _sqrt_pg[g] for g in batch_g_indices])
-                    scale = xp.where(norms > thresh, 1.0 - thresh / (norms + 1e-12), 0.0)
+                # Apply soft-thresholding to all groups at once
+                _norm_dim = 1  # axis for numpy/cupy, dim for torch (both use 1)
+                norms = xp.linalg.norm(w_all, axis=_norm_dim)  # (n_batch,)
+                thresh = _xp_asarray(
+                    [alpha * _sqrt_pg[g] for g in batch_g_indices],
+                    X_work.dtype, X_work,
+                )
+                scale = xp.where(norms > thresh, 1.0 - thresh / (norms + 1e-12), 0.0)
 
-                    # Write back coefficients
-                    for i, (g, g_idx) in enumerate(size_groups):
-                        coef[g_idx] = w_all[i] * scale[i]
-
-                else:  # torch
-                    import torch
-                    # Stack all indices for batched indexing
-                    idx_arr = torch.tensor(all_indices, dtype=torch.long, device=X_work.device)
-                    # Compute XtX[g_idx, :] @ coef for all groups at once
-                    XtX_coef = XtX[idx_arr, :] @ coef  # shape: (n_batch * sz,)
-                    # Compute Xty for all groups
-                    Xty_all = Xty[idx_arr]
-                    # Compute block diagonal contributions
-                    block_contrib = torch.zeros_like(Xty_all)
-                    for i, (g, g_idx) in enumerate(size_groups):
-                        block_contrib[i*sz:(i+1)*sz] = _XtX_blocks[g] @ coef[g_idx]
-                    # rho_g = Xty - XtX_coef + block_contrib
-                    rho_all = Xty_all - XtX_coef + block_contrib
-
-                    # Solve all group systems in one batched call
-                    rho_mat = rho_all.reshape(n_batch, sz, 1)
-                    XtX_batch = torch.stack([_XtX_blocks[g] for g in batch_g_indices])
-                    try:
-                        w_all = torch.linalg.solve(XtX_batch, rho_mat)  # (n_batch, sz, 1)
-                        w_all = w_all.reshape(n_batch, sz)
-                    except Exception:
-                        w_all = torch.zeros((n_batch, sz), dtype=X_work.dtype, device=X_work.device)
-
-                    # Apply soft-thresholding to all groups at once
-                    norms = torch.linalg.norm(w_all, dim=1)  # (n_batch,)
-                    thresh = torch.tensor([alpha * _sqrt_pg[g] for g in batch_g_indices],
-                                         dtype=X_work.dtype, device=X_work.device)
-                    scale = torch.where(norms > thresh, 1.0 - thresh / (norms + 1e-12), torch.tensor(0.0, dtype=X_work.dtype, device=X_work.device))
-
-                    # Write back coefficients
-                    for i, (g, g_idx) in enumerate(size_groups):
-                        coef[g_idx] = w_all[i] * scale[i]
+                # Write back coefficients
+                for i, (g, g_idx) in enumerate(size_groups):
+                    coef[g_idx] = w_all[i] * scale[i]
 
             if self.fit_intercept:
-                coef[pp - 1] = float(xp.mean(y_arr - X_work[:, :p] @ coef[:p])) if backend_name == "cupy" else float(torch.mean(y_arr - X_work[:, :p] @ coef[:p]))
+                coef[pp - 1] = float(xp.mean(y_arr - X_work[:, :p] @ coef[:p]))
 
-            _max_change = float(xp.max(xp.abs(coef - coef_old))) if backend_name == "cupy" else float(torch.max(torch.abs(coef - coef_old)))
+            _max_change = float(xp.max(xp.abs(coef - coef_old)))
             if _max_change < self.tol:
                 break
 
@@ -4077,23 +4019,11 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
         )
 
         # Convert to target backend with float64 precision for numerical stability
-        if backend_name == "cupy":
-            import cupy as cp
-            X_arr = cp.asarray(X, dtype=cp.float64) if not isinstance(X, cp.ndarray) else cp.asarray(X, dtype=cp.float64)
-            y_arr = cp.asarray(y, dtype=cp.float64) if not isinstance(y, cp.ndarray) else cp.asarray(y, dtype=cp.float64)
-        elif backend_name == "torch":
-            import torch
-            if not isinstance(X, torch.Tensor):
-                X_arr = torch.from_numpy(np.asarray(X, dtype=np.float64)).to(_get_torch_device_str())
-            else:
-                X_arr = X.to(dtype=torch.float64)
-            if not isinstance(y, torch.Tensor):
-                y_arr = torch.from_numpy(np.asarray(y, dtype=np.float64)).to(_get_torch_device_str())
-            else:
-                y_arr = y.to(dtype=torch.float64)
-        else:
-            X_arr = np.asarray(X, dtype=np.float64)
-            y_arr = np.asarray(y, dtype=np.float64)
+        from statgpu.backends._array_ops import _xp_asarray
+        from statgpu.backends._utils import _get_xp
+        _xp = _get_xp(backend_name)
+        X_arr = _xp_asarray(X, _xp.float64, X if not isinstance(X, np.ndarray) else np.zeros(1))
+        y_arr = _xp_asarray(y, _xp.float64, X_arr)
         if self.fit_intercept:
             p = X_arr.shape[1]
             X_work = self._column_stack(
@@ -4105,10 +4035,7 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
             if self._init_coef is not None:
                 init_intercept = float(getattr(self, '_init_intercept', 0.0) or 0.0)
                 init = np.append(self._init_coef, init_intercept)
-                if backend_name == "cupy":
-                    init = cp.asarray(init)
-                elif backend_name == "torch":
-                    init = torch.from_numpy(init).to(X_arr.device)
+                init = _xp_asarray(init, X_arr.dtype, X_arr)
             else:
                 # Warm-start intercept for GLM losses (prevents divergence
                 # of the unpenalized intercept toward -inf for zero-heavy data).
@@ -4126,10 +4053,7 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
                     _int_init = _y_mean  # identity link (squared_error)
                 init = np.zeros(p + 1)
                 init[-1] = _int_init
-                if backend_name == "cupy":
-                    init = cp.asarray(init)
-                elif backend_name == "torch":
-                    init = torch.from_numpy(init).to(X_arr.device)
+                init = _xp_asarray(init, X_arr.dtype, X_arr)
         else:
             p = X_arr.shape[1]
             X_work = X_arr
@@ -4137,10 +4061,7 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
             init = None
             if self._init_coef is not None:
                 init = np.asarray(self._init_coef, dtype=np.float64)
-                if backend_name == "cupy":
-                    init = cp.asarray(init)
-                elif backend_name == "torch":
-                    init = torch.from_numpy(init).to(X_arr.device)
+                init = _xp_asarray(init, X_arr.dtype, X_arr)
 
         # SCAD/MCP and adaptive_l1 use IRLS-CD (matching R ncvreg's
         # per-coordinate algorithm).  GLM+SCAD/MCP uses 1 CD sweep per
@@ -4388,12 +4309,11 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
                     pen, X_work, y_arr, init, backend_name,
                 )
                 if self.fit_intercept:
-                    if backend_name == "cupy":
-                        import cupy as cp
-                        params = cp.concatenate([coef_gpu, cp.array([intercept])])
-                    elif backend_name == "torch":
-                        import torch
-                        params = torch.cat([coef_gpu, torch.tensor([intercept], device=coef_gpu.device)])
+                    from statgpu.backends._utils import _get_xp as _get_xp_fn
+                    from statgpu.backends._array_ops import _xp_asarray as _xp_asarray_fn
+                    _xp = _get_xp_fn(backend_name)
+                    _int_arr = _xp_asarray_fn([intercept], coef_gpu.dtype, coef_gpu)
+                    params = _xp.concatenate([coef_gpu, _int_arr])
                 else:
                     params = coef_gpu
             else:
@@ -4483,31 +4403,10 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
         if str(getattr(self._penalty, "name", self.penalty)).lower() != "l2":
             raise ValueError("solver='irls' only supports L2 penalties.")
 
-        if backend_name == "cupy":
-            import cupy as cp
-            X_arr = cp.asarray(X, dtype=cp.float64)
-            y_arr = cp.asarray(y, dtype=cp.float64)
-        elif backend_name == "torch":
-            import torch
-            if isinstance(X, torch.Tensor):
-                X_arr = X.to(dtype=torch.float64)
-            else:
-                X_arr = torch.as_tensor(
-                    np.asarray(X, dtype=np.float64),
-                    dtype=torch.float64,
-                    device=_get_torch_device_str(),
-                )
-            if isinstance(y, torch.Tensor):
-                y_arr = y.to(dtype=torch.float64, device=X_arr.device)
-            else:
-                y_arr = torch.as_tensor(
-                    np.asarray(y, dtype=np.float64),
-                    dtype=torch.float64,
-                    device=X_arr.device,
-                )
-        else:
-            X_arr = np.asarray(X, dtype=np.float64)
-            y_arr = np.asarray(y, dtype=np.float64)
+        from statgpu.backends._utils import _get_xp, xp_asarray
+        _xp = _get_xp(backend_name)
+        X_arr = xp_asarray(X, dtype=_xp.float64, xp=_xp, ref_arr=X if not isinstance(X, np.ndarray) else np.zeros(1))
+        y_arr = xp_asarray(y, dtype=_xp.float64, xp=_xp, ref_arr=X_arr)
         n_samples = X_arr.shape[0]
         if self.fit_intercept:
             X_work = self._column_stack(

@@ -62,14 +62,7 @@ class L2Penalty(Penalty):
         """
         scale = 1.0 / (1.0 + self.alpha * step)
 
-        if backend == "cupy":
-            import cupy as cp
-            return scale * cp.asarray(w)
-        elif backend == "torch":
-            import torch
-            return scale * torch.as_tensor(w)
-        else:
-            return scale * np.asarray(w)
+        return scale * w
 
     def get_params(self) -> dict:
         params = super().get_params()

@@ -953,12 +953,19 @@ class TestP2SolverFixes:
         # Should NOT have '0.1 * _direction' as fallback
         assert '0.1 * _direction' not in src
 
-    def test_inverse_gaussian_value_includes_log(self):
-        """Fused inverse_gaussian value should include log(mu) term."""
-        import inspect
-        from statgpu.glm_core._solver import _fused_inverse_gaussian
-        src = inspect.getsource(_fused_inverse_gaussian)
-        assert '_log' in src
+    def test_inverse_gaussian_fused_matches_loss(self):
+        """Fused inverse_gaussian value should match loss.value exactly."""
+        from statgpu.glm_core import get_glm_loss
+        from statgpu.glm_core._solver import _fused_glm_value_and_gradient
+        loss = get_glm_loss('inverse_gaussian')
+        np.random.seed(42)
+        X = np.random.randn(50, 5)
+        X_aug = np.column_stack([X, np.ones(50)])
+        y = np.abs(np.random.randn(50)) + 0.1
+        coef = np.random.randn(6)
+        v_loss = loss.value(X_aug, y, coef)
+        v_fused, _ = _fused_glm_value_and_gradient(loss, X_aug, y, coef)
+        assert abs(v_loss - v_fused) < 1e-10, f"Value mismatch: {v_loss} vs {v_fused}"
 
 
 # ======================================================================
@@ -1189,11 +1196,16 @@ class TestP3CodeQuality:
         assert callable(hash_cv_data)
 
     def test_batch_mse_backend_conversion(self):
-        """_batch_mse_elasticnet should convert arrays to backend."""
-        import inspect
-        from statgpu.linear_model._elasticnet_cv import _batch_mse_elasticnet
-        src = inspect.getsource(_batch_mse_elasticnet)
-        assert 'backend.asarray(coefs_path)' in src
+        """batch_mse from _cv_base should accept any backend arrays."""
+        from statgpu.linear_model._cv_base import batch_mse
+        # Verify it works with numpy arrays (the canonical path)
+        X = np.random.randn(20, 5)
+        y = np.random.randn(20)
+        coefs = np.random.randn(3, 5)
+        intercepts = np.random.randn(3)
+        mse = batch_mse(X, y, coefs, intercepts)
+        assert mse.shape == (3,)
+        assert np.all(np.isfinite(mse))
 
     def test_no_dead_code_and_false(self):
         """CV files should not contain 'and False' dead code blocks."""

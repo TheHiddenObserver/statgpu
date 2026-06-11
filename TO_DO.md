@@ -336,9 +336,9 @@ coef = where(active, coef_new, coef)
 
 ### P2: `_penalized.py` `_irls_cd_gpu` 逐坐标 `float()` 调用
 
-**现状**：内层 CD 循环对每个坐标调用 `float(xp.dot(...))`，O(pp) 次 GPU sync。
-**方案**：批量计算所有坐标的梯度更新，减少 sync 次数。
-**难度**：高 | **风险**：中 | **状态**：未实现
+**现状**：已修复。CD 循环从逐坐标 `for j` 改为向量化 block CD，GPU sync 从 O(pp) 降为 O(1)/sweep。
+**方案**：`rho_all = X_work.T @ (d * r) + XDX_diag * beta` 批量梯度 + `xp.where` 向量化 thresholding。
+**状态**：✅ 已修复 (2026-06-11)
 
 ### P2: `_penalized_cv.py` SCAD/MCP 内层 FISTA 无 CV 迭代上限
 
@@ -366,9 +366,16 @@ coef = where(active, coef_new, coef)
 
 ### P3: Backend 可扩展性（3-way 分支消除）
 
-**现状**：5+ 函数有 `if torch / elif cupy / else` 分支。
-**方案**：设计 backend 抽象层。
-**难度**：高 | **风险**：高 | **状态**：未实现
+**现状**：从原始 ~241 个分支消除到 ~153 个（消除 88 个，37%）。
+- `_penalized.py`：61→20（消除 41）
+- `_solver.py`：58→10（消除 48）
+- `_irls.py`：12→4（消除 8）
+- `_glm_base.py`：24→15（消除 9）
+- `_penalized_cv.py`：69→11（消除 58）
+- penalties：17→14（消除 3）
+
+**剩余分支构成**：fused kernel 路径（~15）、torch dtype promotion（~10）、linalg API 差异（~10）、GPU cleanup dispatch（~10）、OrderedGLM 3 个独立 solver（~30）、debiased inference（~30）、其他（~48）。大部分为 intentionally separate 设计。
+**状态**：基本完成，剩余分支多为性能关键路径或 API 差异，强行统一会损害性能或引入 bug
 
 ### P3: `_penalized_cv.py` 文件拆分
 
@@ -400,21 +407,18 @@ coef = where(active, coef_new, coef)
 
 > 以下为需要中等重构的项，不影响正确性。
 
-### P2: `_lasso.py` + `_lasso_cv.py` 重复缓存定义
+### ~~P2: `_lasso.py` + `_lasso_cv.py` 重复缓存定义~~ ✅ 已解决
 
-**现状**：两个文件各有自己的 `_lasso_cv_cache_get/put` 和 `_LASSO_CV_ALPHA_CACHE`。`_lasso_cv.py` 的缓存是死代码。
-**方案**：合并到 `_cv_base.py` 或共享缓存模块。
-**难度**：低 | **状态**：未实现
+**现状**：`_lasso_cv.py` 不再包含缓存定义，已统一到 `_lasso.py`。
+**状态**：✅ 已解决
 
-### P2: 多文件重复 `_batch_mse` 实现
+### ~~P2: 多文件重复 `_batch_mse` 实现~~ ✅ 已修复
 
-**现状**：`_ridge_cv.py`、`_lasso.py`、`_lasso_cv.py`、`_elasticnet_cv.py`、`_cv_base.py` 各有自己的 `_batch_mse`。
-**方案**：统一到 `_cv_base.py` 的 `batch_mse`。
-**难度**：中 | **状态**：未实现
+**现状**：已统一到 `_cv_base.py` 的 `batch_mse`。删除 5 个重复定义（~200 行），5 个调用点改为 `batch_mse`。
+**状态**：✅ 已修复 (2026-06-11)
 
-### P2: `_irls.py` deviance 计算 3-way 后端重复
+### ~~P2: `_irls.py` deviance 计算 3-way 后端重复~~ ✅ 已修复
 
-**现状**：`_dev_val` 函数 ~95 行 torch/cupy/numpy 重复代码。
-**方案**：使用 `_xp()` helper 统一。
-**难度**：中 | **状态**：未实现
+**现状**：`_dev_val` 中 2 个 `if backend == "torch"` 分支已替换为 `_clip()` helper。
+**状态**：✅ 已修复 (2026-06-11)
 

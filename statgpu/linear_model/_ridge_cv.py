@@ -89,7 +89,7 @@ def _make_ridge_cv_auto_cache_key(X, y, alphas, folds, fit_intercept, use_gpu, s
 # K-fold helper
 # =============================================================================
 
-from statgpu.linear_model._cv_base import kfold_indices as _kfold_indices, folds_are_complete as _folds_are_complete
+from statgpu.linear_model._cv_base import kfold_indices as _kfold_indices, folds_are_complete as _folds_are_complete, batch_mse as _batch_mse_cv
 
 
 # =============================================================================
@@ -158,50 +158,6 @@ def _default_ridge_alpha_grid(X, y, n_alphas: int = 100, alpha_min_ratio: float 
 # =============================================================================
 # Batch MSE computation
 # =============================================================================
-
-def _batch_mse_numpy(X_val, y_val, coefs_desc, intercepts_desc, sample_weight=None):
-    """
-    Compute MSE for multiple coefficient vectors efficiently.
-
-    Parameters
-    ----------
-    X_val : ndarray
-        Validation design matrix.
-    y_val : ndarray
-        Validation response.
-    coefs_desc : ndarray
-        Coefficient matrix (n_alphas, n_features).
-    intercepts_desc : ndarray
-        Intercept vector (n_alphas,).
-    sample_weight : ndarray or None
-        Sample weights.
-
-    Returns
-    -------
-    mse : ndarray
-        MSE for each alpha (n_alphas,).
-    """
-    n_alphas = coefs_desc.shape[0]
-    n_samples = X_val.shape[0]
-
-    # Ensure intercepts_desc is 1D array of shape (n_alphas,)
-    intercepts_desc = np.atleast_1d(np.asarray(intercepts_desc, dtype=np.float64))
-
-    # Predictions: (n_alphas, n_samples)
-    # coefs_desc: (n_alphas, n_features), X_val: (n_samples, n_features)
-    # coefs_desc @ X_val.T = (n_alphas, n_samples)
-    y_pred = coefs_desc @ X_val.T + intercepts_desc[:, np.newaxis]
-
-    # Residuals: (n_alphas, n_samples)
-    residuals = y_pred - y_val.reshape(1, -1)
-
-    if sample_weight is not None:
-        sw = np.asarray(sample_weight).reshape(1, -1)
-        mse = np.sum(sw * residuals ** 2, axis=1) / np.sum(sw)
-    else:
-        mse = np.mean(residuals ** 2, axis=1)
-
-    return mse
 
 
 # =============================================================================
@@ -841,7 +797,7 @@ def _select_ridge_alpha_cv(
                 intercepts_desc = np.zeros((coefs_desc.shape[0],))
 
             # Compute MSE
-            mse_desc = _batch_mse_numpy(X_val, y_val, coefs_desc, intercepts_desc, sw_val)
+            mse_desc = _batch_mse_cv(X_val, y_val, coefs_desc, intercepts_desc, sample_weight=sw_val)
             mse_path[:, fold_idx] = mse_desc
 
     # Compute mean MSE across folds
@@ -866,51 +822,8 @@ def _select_ridge_alpha_cv(
 
 
 # =============================================================================
-# GPU MSE helper
+# GPU MSE helper — batched across folds
 # =============================================================================
-
-def _batch_mse(X_val, y_val, coefs_desc, intercepts_desc, backend, sample_weight=None):
-    """
-    Compute MSE for multiple coefficient vectors.
-
-    Parameters
-    ----------
-    X_val : array-like
-        Validation design matrix (n_samples, n_features).
-    y_val : array-like
-        Validation response (n_samples,).
-    coefs_desc : array-like
-        Coefficient matrix (n_alphas, n_features).
-    intercepts_desc : array-like
-        Intercept vector (n_alphas,).
-    backend : BackendBase
-        Backend instance (CuPyBackend or TorchBackend).
-    sample_weight : array-like or None
-        Sample weights.
-
-    Returns
-    -------
-    mse : array-like
-        MSE for each alpha (n_alphas,).
-    """
-    # Ensure intercepts_desc is 1D array of shape (n_alphas,)
-    intercepts_desc = backend.atleast_1d(backend.asarray(intercepts_desc, dtype=backend.float64))
-
-    # Predictions: (n_alphas, n_samples)
-    # coefs_desc: (n_alphas, n_features), X_val: (n_samples, n_features)
-    y_pred = coefs_desc @ X_val.T + intercepts_desc[:, None]
-
-    # Residuals: (n_alphas, n_samples)
-    residuals = y_pred - y_val.reshape(1, -1)
-
-    if sample_weight is not None:
-        sw = sample_weight.reshape(1, -1)
-        mse = backend.sum(sw * residuals ** 2, axis=1) / backend.sum(sw)
-    else:
-        mse = backend.mean(residuals ** 2, axis=1)
-
-    return mse
-
 
 def _batch_mse_all_folds(X_val_batch, y_val_batch, coefs_batch, intercepts_batch, backend, sample_weights_batch=None, n_val_folds=None):
     """
