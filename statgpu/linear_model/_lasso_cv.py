@@ -1,225 +1,25 @@
 """
 LassoCV: Cross-validated Lasso regression with GPU support.
+
+This module exports LassoCV which delegates to _select_lasso_alpha_cv
+from _lasso.py for all CV logic (cache, fast-refit, backend-aware).
 """
 
-from typing import Any, Dict, List, Optional, Tuple, Union
-from collections import OrderedDict
-import hashlib
+from typing import Optional, Union
+
 import numpy as np
 
 from statgpu._config import Device
 from statgpu.linear_model._cv_base import CVEstimatorBase
-from statgpu.backends import get_backend
-from ._lasso import Lasso
-
-
-# =============================================================================
-# CV Cache
-# =============================================================================
-
-import threading
-
-_LASSO_CV_ALPHA_CACHE_MAXSIZE = int(64)
-_LASSO_CV_ALPHA_CACHE: "OrderedDict[Tuple[Any, ...], Dict[str, Any]]" = OrderedDict()
-_LASSO_CV_CACHE_LOCK = threading.Lock()
-
-
-def _lasso_cv_cache_get(cache_key: Optional[Tuple[Any, ...]]) -> Optional[Dict[str, Any]]:
-    """Get cached Lasso CV results."""
-    if cache_key is None:
-        return None
-    with _LASSO_CV_CACHE_LOCK:
-        val = _LASSO_CV_ALPHA_CACHE.get(cache_key)
-        if val is not None:
-            _LASSO_CV_ALPHA_CACHE.move_to_end(cache_key)
-        return val
-
-
-def _lasso_cv_cache_put(cache_key: Optional[Tuple[Any, ...]], value: Dict[str, Any]) -> None:
-    """Put cached Lasso CV results."""
-    if cache_key is None:
-        return
-    with _LASSO_CV_CACHE_LOCK:
-        _LASSO_CV_ALPHA_CACHE[cache_key] = value
-        _LASSO_CV_ALPHA_CACHE.move_to_end(cache_key)
-        while len(_LASSO_CV_ALPHA_CACHE) > _LASSO_CV_ALPHA_CACHE_MAXSIZE:
-            _LASSO_CV_ALPHA_CACHE.popitem(last=False)
-
-
-def _make_lasso_cv_auto_cache_key(
-    X_shape: Tuple[int, ...],
-    y_shape: Tuple[int, ...],
-    alphas: Optional[np.ndarray],
-    n_alphas: int,
-    alpha_min_ratio: float,
-    folds: List[Tuple[np.ndarray, np.ndarray]],
-    fit_intercept: bool,
-    use_gpu: bool,
-    max_iter: int,
-    tol: float,
-    cpu_solver: str = "coordinate_descent",
-    cv_method: str = "standard",
-    cd_kkt_check_every: Optional[int] = None,
-    sample_weight_shape: Optional[Tuple[int, ...]] = None,
-    data_digest: Optional[bytes] = None,
-) -> Tuple[Any, ...]:
-    """Generate automatic cache key for Lasso CV.
-
-    Parameters
-    ----------
-    data_digest : bytes or None
-        Pre-computed hash of X and y content to avoid cross-dataset
-        cache collisions. Call ``_hash_data(X, y)`` to compute.
-    """
-    h = hashlib.blake2b(digest_size=32)
-    h.update(np.asarray(X_shape, dtype=np.int64).tobytes())
-    if alphas is not None:
-        h.update(np.asarray(alphas, dtype=np.float64).tobytes())
-    h.update(str(n_alphas).encode("utf-8"))
-    h.update(str(alpha_min_ratio).encode("utf-8"))
-    h.update(str(fit_intercept).encode("utf-8"))
-    h.update(str(use_gpu).encode("utf-8"))
-    h.update(str(max_iter).encode("utf-8"))
-    h.update(str(tol).encode("utf-8"))
-    h.update(str(cpu_solver).lower().encode("utf-8"))
-    h.update(str(cv_method).lower().encode("utf-8"))
-    h.update(str(cd_kkt_check_every).encode("utf-8"))
-    if data_digest is not None:
-        h.update(data_digest)
-    # Hash fold indices (all elements to avoid collisions)
-    for train_idx, val_idx in folds:
-        h.update(train_idx.tobytes())
-        h.update(val_idx.tobytes())
-    if sample_weight_shape is not None:
-        h.update(np.asarray(sample_weight_shape, dtype=np.int64).tobytes())
-    return h.hexdigest()
+from ._lasso import (
+    Lasso,
+    _normalize_lassocv_method,
+    _normalize_cd_kkt_check_every,
+)
 
 
 # Shared hash function from _cv_base.py
 from statgpu.linear_model._cv_base import hash_cv_data as _hash_data
-
-
-def _normalize_lassocv_method(method: str) -> str:
-    key = str(method).strip().lower()
-    if key in ("standard", "default"):
-        return "standard"
-    if key in ("glmnet", "cd_path", "coordinate_descent_path"):
-        return "glmnet"
-    raise ValueError("method must be one of: 'standard', 'glmnet'")
-
-
-def _normalize_cd_kkt_check_every(cd_kkt_check_every: Optional[int]) -> Optional[int]:
-    if cd_kkt_check_every is None:
-        return None
-    value = int(cd_kkt_check_every)
-    if value < 1:
-        raise ValueError("cd_kkt_check_every must be a positive integer or None")
-    return value
-
-
-# =============================================================================
-# K-fold helpers
-# =============================================================================
-
-from statgpu.linear_model._cv_base import kfold_indices as _kfold_indices, folds_are_complete as _folds_are_complete
-
-
-# =============================================================================
-# Alpha grid generation
-# =============================================================================
-
-def _default_lasso_alpha_grid_backend(X, y, backend, n_alphas: int = 12, alpha_min_ratio: float = 1e-3) -> np.ndarray:
-    """Generate default alpha grid for Lasso using backend abstraction."""
-    X_arr = backend.asarray(X, dtype=backend.float64)
-    y_arr = backend.asarray(y, dtype=backend.float64).reshape(-1)
-
-    n_samples = int(X_arr.shape[0])
-    corr = backend.abs(X_arr.T @ y_arr) / float(max(1, n_samples))
-    # Use shape to check size - works for both numpy and torch
-    corr_size = int(corr.shape[0]) if hasattr(corr, 'shape') else len(corr)
-    alpha_max = float(backend.to_numpy(backend.max(corr))) if corr_size > 0 else 1.0
-
-    if n_samples > 1:
-        # Use ddof=1 (sample std) to match CPU _lasso_alpha_heuristic
-        y_var = backend.sum((y_arr - backend.mean(y_arr)) ** 2) / (n_samples - 1)
-        sigma_hat = float(backend.to_numpy(backend.sqrt(y_var)))
-    else:
-        sigma_hat = 0.0
-
-    sigma_hat = max(sigma_hat, 1e-8)
-    penalty_scale = np.sqrt(2.0 * np.log(max(2, int(X_arr.shape[1]))) / max(1, n_samples))
-    alpha_max = max(alpha_max, float(sigma_hat * penalty_scale), 1e-6)
-
-    if int(n_alphas) <= 1:
-        return np.asarray([alpha_max], dtype=np.float64)
-
-    alpha_min = max(float(alpha_min_ratio) * alpha_max, 1e-6)
-    return np.geomspace(alpha_max, alpha_min, num=int(n_alphas)).astype(np.float64)
-
-
-def _default_lasso_alpha_grid(X, y, n_alphas: int = 12, alpha_min_ratio: float = 1e-3) -> np.ndarray:
-    """Generate default alpha grid for Lasso (CPU)."""
-    X_arr = np.asarray(X, dtype=np.float64)
-    y_arr = np.asarray(y, dtype=np.float64).reshape(-1)
-
-    n_samples = int(X_arr.shape[0])
-    corr = np.abs(X_arr.T @ y_arr) / float(max(1, n_samples))
-    alpha_max = float(np.max(corr)) if int(corr.size) > 0 else 1.0
-
-    if n_samples > 1:
-        sigma_hat = float(np.std(y_arr, ddof=1))
-    else:
-        sigma_hat = 0.0
-
-    sigma_hat = max(sigma_hat, 1e-8)
-    penalty_scale = np.sqrt(2.0 * np.log(max(2, int(X_arr.shape[1]))) / max(1, n_samples))
-    alpha_max = max(alpha_max, float(sigma_hat * penalty_scale), 1e-6)
-
-    if int(n_alphas) <= 1:
-        return np.asarray([alpha_max], dtype=np.float64)
-
-    alpha_min = max(float(alpha_min_ratio) * alpha_max, 1e-6)
-    return np.geomspace(alpha_max, alpha_min, num=int(n_alphas)).astype(np.float64)
-
-
-# =============================================================================
-# Batch MSE helper
-# =============================================================================
-
-def _batch_mse(X_val, y_val, coefs_path, intercepts_path, backend, sample_weight_val, return_backend_array=False):
-    """Compute MSE for multiple coefficient vectors.
-
-    Parameters
-    ----------
-    return_backend_array : bool
-        If True, return result as backend array (for Torch GPU backend).
-        If False, return as numpy array (default behavior).
-    """
-    # Ensure coefs_path is backend array
-    if not hasattr(coefs_path, 'reshape'):
-        coefs_path = backend.asarray(coefs_path)
-
-    # Ensure intercepts_path is backend array and reshape correctly
-    if not hasattr(intercepts_path, 'reshape'):
-        intercepts_path = backend.asarray(intercepts_path)
-    intercepts_reshaped = intercepts_path.reshape(1, -1)
-
-    # Compute predictions and squared errors
-    preds = X_val @ coefs_path.T + intercepts_reshaped
-    sq_err = (y_val.reshape(-1, 1) - preds) ** 2
-
-    if sample_weight_val is None:
-        mse = backend.mean(sq_err, axis=0)
-    else:
-        denom = backend.sum(sample_weight_val)
-        if float(backend.to_numpy(denom)) <= 0.0:
-            mse = backend.mean(sq_err, axis=0)
-        else:
-            mse = backend.sum(sample_weight_val.reshape(-1, 1) * sq_err, axis=0) / denom
-
-    if return_backend_array:
-        return mse
-    return backend.to_numpy(mse)
 
 
 # =============================================================================

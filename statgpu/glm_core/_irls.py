@@ -25,6 +25,18 @@ _IRLS_DEV_TOL_REL = 1e-10      # Relative deviance tolerance
 _IRLS_DEV_TOL_ABS = 1e-6       # Absolute deviance tolerance floor
 
 
+def _to_backend_module(backend):
+    """Return the array module (numpy/cupy/torch) for the given backend string."""
+    if backend == "torch":
+        import torch
+        return torch
+    elif backend == "cupy":
+        import cupy as cp
+        return cp
+    else:
+        return np
+
+
 def _infer_backend(X):
     """Detect backend from array type."""
     mod = type(X).__module__
@@ -206,97 +218,49 @@ def irls_solver(
         """Compute family-specific deviance (lower is better).
 
         Returns device-side value (no GPU→CPU sync) for torch/cupy.
+        Uses backend-agnostic operations to avoid triplicated code.
         """
-        if backend == "torch":
-            import torch
-            if _fname in ("gaussian", "squared_error"):
-                return torch.sum((_y_backend - mu_arr) ** 2)
-            elif _fname == "gamma":
-                return torch.sum(_y_backend / mu_arr - torch.log(_y_backend / mu_arr) - 1.0)
-            elif _fname == "inverse_gaussian":
-                return torch.sum((_y_backend - mu_arr) ** 2 / (_y_backend * mu_arr ** 2))
-            elif _fname == "negative_binomial":
-                _mu_c = torch.clamp(mu_arr, min=1e-10)
-                _y_c = torch.clamp(_y_backend, min=1e-10)
-                _a = _nb_alpha
-                return torch.sum(
-                    2.0 * (_y_c * torch.log(_y_c / _mu_c)
-                           - (_y_c + 1.0 / _a) * torch.log((1.0 + _a * _y_c) / (1.0 + _a * _mu_c)))
-                )
-            elif _fname == "tweedie":
-                p = _tweedie_power
-                if abs(p - 1.0) < 0.01:
-                    return torch.sum(mu_arr - _y_backend * torch.log(mu_arr))
-                elif abs(p - 2.0) < 0.01:
-                    return torch.sum(_y_backend / mu_arr - torch.log(_y_backend / mu_arr) - 1.0)
-                else:
-                    return torch.sum(
-                        _y_backend * (torch.pow(_y_backend, 1.0 - p) - torch.pow(mu_arr, 1.0 - p)) / (1.0 - p)
-                        - (torch.pow(_y_backend, 2.0 - p) - torch.pow(mu_arr, 2.0 - p)) / (2.0 - p)
-                    )
+        xp = _to_backend_module(backend)
+        y = _y_backend
+
+        # Clip mu for families that require positive mu
+        if _fname not in ("gaussian", "squared_error"):
+            if backend == "torch":
+                mu_arr = xp.clamp(mu_arr, min=1e-10)
             else:
-                return torch.sum(mu_arr - _y_backend * torch.log(mu_arr))
-        elif backend == "cupy":
-            import cupy as cp
-            if _fname in ("gaussian", "squared_error"):
-                return cp.sum((_y_backend - mu_arr) ** 2)
-            elif _fname == "gamma":
-                return cp.sum(_y_backend / mu_arr - cp.log(_y_backend / mu_arr) - 1.0)
-            elif _fname == "inverse_gaussian":
-                return cp.sum((_y_backend - mu_arr) ** 2 / (_y_backend * mu_arr ** 2))
-            elif _fname == "negative_binomial":
-                _mu_c = cp.clip(mu_arr, 1e-10)
-                _y_c = cp.clip(_y_backend, 1e-10)
-                _a = _nb_alpha
-                return cp.sum(
-                    2.0 * (_y_c * cp.log(_y_c / _mu_c)
-                           - (_y_c + 1.0 / _a) * cp.log((1.0 + _a * _y_c) / (1.0 + _a * _mu_c)))
-                )
-            elif _fname == "tweedie":
-                p = _tweedie_power
-                if abs(p - 1.0) < 0.01:
-                    return cp.sum(mu_arr - _y_backend * cp.log(mu_arr))
-                elif abs(p - 2.0) < 0.01:
-                    return cp.sum(_y_backend / mu_arr - cp.log(_y_backend / mu_arr) - 1.0)
-                else:
-                    return cp.sum(
-                        _y_backend * (cp.power(_y_backend, 1.0 - p) - cp.power(mu_arr, 1.0 - p)) / (1.0 - p)
-                        - (cp.power(_y_backend, 2.0 - p) - cp.power(mu_arr, 2.0 - p)) / (2.0 - p)
-                    )
+                mu_arr = xp.clip(mu_arr, 1e-10, None)
+
+        if _fname in ("gaussian", "squared_error"):
+            return xp.sum((y - mu_arr) ** 2)
+        elif _fname == "gamma":
+            return xp.sum(y / mu_arr - xp.log(y / mu_arr) - 1.0)
+        elif _fname == "inverse_gaussian":
+            return xp.sum((y - mu_arr) ** 2 / (y * mu_arr ** 2))
+        elif _fname == "negative_binomial":
+            if backend == "torch":
+                _mu_c = xp.clamp(mu_arr, min=1e-10)
+                _y_c = xp.clamp(y, min=1e-10)
             else:
-                return cp.sum(mu_arr - _y_backend * cp.log(mu_arr))
+                _mu_c = xp.clip(mu_arr, 1e-10, None)
+                _y_c = xp.clip(y, 1e-10, None)
+            _a = _nb_alpha
+            return xp.sum(
+                2.0 * (_y_c * xp.log(_y_c / _mu_c)
+                       - (_y_c + 1.0 / _a) * xp.log((1.0 + _a * _y_c) / (1.0 + _a * _mu_c)))
+            )
+        elif _fname == "tweedie":
+            p = _tweedie_power
+            if abs(p - 1.0) < 0.01:
+                return xp.sum(mu_arr - y * xp.log(mu_arr))
+            elif abs(p - 2.0) < 0.01:
+                return xp.sum(y / mu_arr - xp.log(y / mu_arr) - 1.0)
+            else:
+                return xp.sum(
+                    y * (xp.power(y, 1.0 - p) - xp.power(mu_arr, 1.0 - p)) / (1.0 - p)
+                    - (xp.power(y, 2.0 - p) - xp.power(mu_arr, 2.0 - p)) / (2.0 - p)
+                )
         else:
-            import numpy as np
-            # Only clip mu for families that require positive mu
-            if _fname not in ("gaussian", "squared_error"):
-                mu_arr = np.clip(mu_arr, 1e-10, None)
-            if _fname in ("gaussian", "squared_error"):
-                return float(np.sum((_y_backend - mu_arr) ** 2))
-            elif _fname == "gamma":
-                return float(np.sum(_y_backend / mu_arr - np.log(_y_backend / mu_arr) - 1.0))
-            elif _fname == "inverse_gaussian":
-                return float(np.sum((_y_backend - mu_arr) ** 2 / (_y_backend * mu_arr ** 2)))
-            elif _fname == "negative_binomial":
-                _mu_c = np.clip(mu_arr, 1e-10, None)
-                _y_c = np.clip(_y_backend, 1e-10, None)
-                _a = _nb_alpha
-                return float(np.sum(
-                    2.0 * (_y_c * np.log(_y_c / _mu_c)
-                           - (_y_c + 1.0 / _a) * np.log((1.0 + _a * _y_c) / (1.0 + _a * _mu_c)))
-                ))
-            elif _fname == "tweedie":
-                p = _tweedie_power
-                if abs(p - 1.0) < 0.01:
-                    return float(np.sum(mu_arr - _y_backend * np.log(mu_arr)))
-                elif abs(p - 2.0) < 0.01:
-                    return float(np.sum(_y_backend / mu_arr - np.log(_y_backend / mu_arr) - 1.0))
-                else:
-                    return float(np.sum(
-                        _y_backend * (np.power(_y_backend, 1.0 - p) - np.power(mu_arr, 1.0 - p)) / (1.0 - p)
-                        - (np.power(_y_backend, 2.0 - p) - np.power(mu_arr, 2.0 - p)) / (2.0 - p)
-                    ))
-            else:
-                return float(np.sum(mu_arr - _y_backend * np.log(mu_arr)))
+            return xp.sum(mu_arr - y * xp.log(mu_arr))
 
     for iteration in range(max_iter):
         params_old = _copy_arr(params)
