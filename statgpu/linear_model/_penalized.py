@@ -3415,7 +3415,7 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
                     if _delta < self.tol * 10:
                         break
 
-        n_iter = it + 1
+        n_iter = (it + 1) if _n_outer > 0 else 0
         return beta, n_iter
 
     def _irls_cd_gpu(self, pen, X_work, y_arr, init, backend_name, _lla_continuation=False):

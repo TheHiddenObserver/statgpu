@@ -131,6 +131,10 @@ class PanelOLS(BaseEstimator):
         n, k = X_arr.shape
         self.nobs = n
 
+        # Validate y/X length consistency
+        if len(y_arr) != n:
+            raise ValueError(f"y length {len(y_arr)} != X rows {n}")
+
         # Validate
         if self.entity_effects and entity_ids is None:
             raise ValueError("entity_ids is required when entity_effects=True")
@@ -185,10 +189,6 @@ class PanelOLS(BaseEstimator):
             n_effects += n_entities - 1
         if self.time_effects:
             n_effects += n_times - 1
-        # When only time_effects (no entity_effects), the intercept is not
-        # absorbed by the FE, so subtract 1 for the implicit constant.
-        if self.time_effects and not self.entity_effects:
-            n_effects += 1
         self.df_resid = n - k - n_effects
 
         if self.df_resid <= 0:
@@ -342,15 +342,26 @@ class PanelOLS(BaseEstimator):
             X_arr = X_arr.reshape(-1, 1)
         y_pred = X_arr @ self.coef_
 
-        # Add fixed effect intercepts (vectorized)
+        # Add fixed effect intercepts (vectorized lookup)
         if hasattr(self, '_entity_effects_') and entity_ids is not None:
             entity_arr = np.asarray(entity_ids).ravel()
-            entity_vec = np.vectorize(lambda e: self._entity_effects_.get(e, 0.0))
-            y_pred += entity_vec(entity_arr)
+            # Build mapping array for O(n) lookup
+            unique_ents = np.array(list(self._entity_effects_.keys()))
+            ent_values = np.array([self._entity_effects_[e] for e in unique_ents])
+            _, ent_idx = np.unique(entity_arr, return_inverse=True)
+            # Map observed entities to effects (0 for unseen)
+            ent_map = np.zeros(len(unique_ents), dtype=np.float64)
+            for i, e in enumerate(unique_ents):
+                ent_map[i] = self._entity_effects_[e]
+            y_pred += ent_map[ent_idx]
         if hasattr(self, '_time_effects_') and time_ids is not None:
             time_arr = np.asarray(time_ids).ravel()
-            time_vec = np.vectorize(lambda t: self._time_effects_.get(t, 0.0))
-            y_pred += time_vec(time_arr)
+            unique_times = np.array(list(self._time_effects_.keys()))
+            _, time_idx = np.unique(time_arr, return_inverse=True)
+            time_map = np.zeros(len(unique_times), dtype=np.float64)
+            for i, t in enumerate(unique_times):
+                time_map[i] = self._time_effects_[t]
+            y_pred += time_map[time_idx]
 
         return y_pred
 

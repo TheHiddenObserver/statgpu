@@ -127,7 +127,7 @@ def run_cv(
                     sample_weight_val=sw_val,
                 )
                 all_scores[fold_idx, alpha_idx] = score
-            except Exception as exc:
+            except (ValueError, FloatingPointError, np.linalg.LinAlgError, RuntimeError) as exc:
                 if raise_on_error:
                     raise
                 all_scores[fold_idx, alpha_idx] = np.nan

@@ -791,8 +791,8 @@ class TestP1StructuralFixes:
         X = np.random.randn(50, 3)
         y = X @ np.random.randn(3) + 0.1 * np.random.randn(50)
         m.fit(X, y)
-        assert hasattr(m, '_cv_selected_device_')
-        assert m._cv_selected_device_ is not None
+        assert hasattr(m, 'cv_selected_device_')
+        assert m.cv_selected_device_ is not None
 
     def test_unravel_index_for_best_alpha(self):
         """ElasticNetCV should use np.unravel_index for best alpha selection."""
@@ -1093,8 +1093,8 @@ class TestP2P3PenalizedFixes:
     def test_group_lasso_in_sparse_grid(self):
         """group_lasso should be in the sparse penalty grid set."""
         import inspect
-        from statgpu.linear_model._penalized_cv import PenalizedGLM_CV
-        src = inspect.getsource(PenalizedGLM_CV)
+        import statgpu.linear_model._penalized_cv as mod
+        src = inspect.getsource(mod)
         assert 'group_lasso' in src
 
     def test_populate_refit_respects_fit_intercept(self):
@@ -1876,7 +1876,7 @@ class TestDfResidTimeEffects:
         model = PanelOLS(time_effects=True)
         model.fit(y, X, time_ids=time_ids)
 
-        expected_df = n - X.shape[1] - (10 - 1) - 1
+        expected_df = n - X.shape[1] - (10 - 1)
         assert model.df_resid == expected_df, f'Expected {expected_df}, got {model.df_resid}'
         print('[OK] df_resid time_effects=%d' % model.df_resid)
 
@@ -2228,6 +2228,6 @@ class TestDfResidTimeEffectsFix2:
         y = X @ np.random.randn(2) + np.repeat(np.random.randn(10), 5) + 0.1*np.random.randn(n)
         model = PanelOLS(time_effects=True)
         model.fit(y, X, time_ids=time_ids)
-        expected = n - 2 - 9 - 1
+        expected = n - 2 - 9
         assert model.df_resid == expected, f'Expected {expected}, got {model.df_resid}'
         print('[OK] df_resid=%d' % model.df_resid)

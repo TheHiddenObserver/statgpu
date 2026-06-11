@@ -16,7 +16,6 @@ from __future__ import annotations
 
 import logging
 import warnings
-from collections import namedtuple
 
 logger = logging.getLogger(__name__)
 from typing import Optional, Union
@@ -1547,13 +1546,9 @@ def _glm_sparse_cv_path(
             elif backend == "cupy":
                 score_params_path.append(params.copy())
             else:
-                # NumPy path: use loss_fn.value() for consistency with GPU paths.
-                # loss_fn handles all loss-specific parameters (NB alpha, Tweedie power, etc.)
-                val = float(loss_fn.value(X_val_work, yv, params))
+                # NumPy path: compute validation loss
                 if swv is not None:
-                    # Compute per-sample weighted loss.
-                    # Use Xv (without intercept column) since _evaluate_loss_numpy
-                    # adds its own intercept column when fit_intercept=True.
+                    # Weighted loss path
                     yv_np = np.asarray(_to_numpy(yv), dtype=np.float64).ravel()
                     sw_np = np.asarray(_to_numpy(swv), dtype=np.float64).ravel()
                     Xv_np = np.asarray(_to_numpy(Xv), dtype=np.float64) if Xv is not None else None
@@ -1563,6 +1558,8 @@ def _glm_sparse_cv_path(
                                                params_np[:n_features],
                                                float(params_np[n_features]),
                                                True, sample_weight=sw_np)
+                else:
+                    val = float(loss_fn.value(X_val_work, yv, params))
                 score_params_path.append(val)
         if return_path:
             params_np = np.asarray(_to_numpy(params), dtype=np.float64).ravel()
@@ -1744,7 +1741,7 @@ def _scad_mcp_cv_path(
             XtX = Xc.T @ Xc / n_samples
             Xty = Xc.T @ yc / n_samples
         eig_max = _max_eigval_power(XtX)
-        L_base = max(eig_max * 2.0, 1.0)  # safety factor
+        L_base = max(eig_max * 1.01, 1.0)  # small safety factor for numerical stability
     else:
         # For GLM losses, compute Lipschitz from loss
         if backend == "torch":
@@ -2051,7 +2048,6 @@ class PenalizedGLM_CV(CVEstimatorBase):
         self.alpha_grid_ = None
         self.cv_strategy_ = None
         self.cv_selected_device_ = None
-        self._cv_selected_device_ = None
         self._cv_auto_reason_ = None
 
     def _solver_for_cv(self, cv_device=None, X=None):
@@ -2074,7 +2070,7 @@ class PenalizedGLM_CV(CVEstimatorBase):
 
     def _effective_cv_device(self, X, penalty_name, n_alphas):
         """Resolve device for CV-level work; explicit devices are untouched."""
-        self._cv_selected_device_ = self.device
+        self.cv_selected_device_ = self.device
         self._cv_auto_reason_ = None
         if _device_to_name(self.device) != "auto":
             return self.device
@@ -2086,13 +2082,13 @@ class PenalizedGLM_CV(CVEstimatorBase):
 
         # Small problems: always CPU
         if nx < _SMALL_PROBLEM_THRESHOLD:
-            self._cv_selected_device_ = "cpu"
+            self.cv_selected_device_ = "cpu"
             self._cv_auto_reason_ = "small CV problem is faster on CPU"
             return "cpu"
 
         # Always-CPU losses
         if loss_name in _CV_DEVICE_ALWAYS_CPU and penalty_name in ("l2", "l1", "elasticnet", "en"):
-            self._cv_selected_device_ = "cpu"
+            self.cv_selected_device_ = "cpu"
             self._cv_auto_reason_ = _CV_DEVICE_ALWAYS_CPU[loss_name]
             return "cpu"
 
@@ -2106,10 +2102,10 @@ class PenalizedGLM_CV(CVEstimatorBase):
                 if not cond and or_min_feat > 0:
                     cond = int(n_features) >= or_min_feat and nx >= 1_000_000
                 if cond and _torch_cuda_available():
-                    self._cv_selected_device_ = "torch"
+                    self.cv_selected_device_ = "torch"
                     self._cv_auto_reason_ = reason
                     return "torch"
-                self._cv_selected_device_ = "cpu"
+                self.cv_selected_device_ = "cpu"
                 self._cv_auto_reason_ = reason.replace("benefits from", "is faster on CPU below break-even for")
                 return "cpu"
 
@@ -2117,7 +2113,7 @@ class PenalizedGLM_CV(CVEstimatorBase):
         continuation_factor = 20 if loss_name != "squared_error" and penalty_name in ("scad", "mcp") else 1
         effective_work = nx * int(self.cv) * int(n_alphas) * continuation_factor
         if effective_work < _GPU_BREAK_EVEN_THRESHOLD:
-            self._cv_selected_device_ = "cpu"
+            self.cv_selected_device_ = "cpu"
             self._cv_auto_reason_ = "CV effective work is below GPU break-even"
             return "cpu"
 
@@ -2126,14 +2122,14 @@ class PenalizedGLM_CV(CVEstimatorBase):
         if _torch_available():
             import torch
             if torch.cuda.is_available():
-                self._cv_selected_device_ = "torch"
+                self.cv_selected_device_ = "torch"
                 self._cv_auto_reason_ = "GPU selected for large CV effective work"
                 return "torch"
         if _cupy_available():
-            self._cv_selected_device_ = "cupy"
+            self.cv_selected_device_ = "cupy"
             self._cv_auto_reason_ = "GPU selected for large CV effective work"
             return "cupy"
-        self._cv_selected_device_ = "cpu"
+        self.cv_selected_device_ = "cpu"
         self._cv_auto_reason_ = "No GPU available, falling back to CPU"
         return "cpu"
 
@@ -2146,7 +2142,8 @@ class PenalizedGLM_CV(CVEstimatorBase):
         n = X_np.shape[0]
 
         if self.loss == 'squared_error':
-            alpha_max = float(np.max(np.abs(X_np.T @ y_np))) / n
+            # Gradient at null model (intercept = mean(y)): X'(y - mean(y)) / n
+            alpha_max = float(np.max(np.abs(X_np.T @ (y_np - np.mean(y_np))))) / n
         elif self.loss == 'logistic':
             # Null model prediction: mu_null = mean(y)
             mu_null = np.mean(y_np)
@@ -2182,11 +2179,7 @@ class PenalizedGLM_CV(CVEstimatorBase):
             )
             alpha_max = 1.0
 
-        if self.penalty in ('l1', 'elasticnet', 'scad', 'mcp', 'adaptive_l1', 'group_lasso', 'l2'):
-            grid = np.geomspace(alpha_max, max(alpha_max * 1e-4, 1e-12), self.n_alphas)
-        else:
-            grid = np.geomspace(alpha_max, max(alpha_max * 1e-4, 1e-12), self.n_alphas)
-
+        grid = np.geomspace(alpha_max, max(alpha_max * 1e-4, 1e-12), self.n_alphas)
         return grid
 
     def _solve_ridge_fold_batch(self, X_train, y_train, X_val, y_val, alphas):

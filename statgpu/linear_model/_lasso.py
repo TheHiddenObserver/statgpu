@@ -1402,10 +1402,22 @@ def _fit_lasso_single_alpha_fast(
         y_arr = y_arr * sqrt_sw
 
     if bool(fit_intercept):
-        X_mean = np.mean(X_arr, axis=0)
-        y_mean = float(np.mean(y_arr))
-        X_centered = X_arr - X_mean
-        y_centered = y_arr - y_mean
+        if sample_weight is not None:
+            # Weighted mean on original (pre-sqrt) data
+            sw = np.asarray(sample_weight)
+            w_sum = float(np.sum(sw))
+            X_orig = X_arr / sqrt_sw[:, np.newaxis]
+            y_orig = y_arr / sqrt_sw
+            X_mean = np.sum(X_orig * sw[:, np.newaxis], axis=0) / w_sum
+            y_mean = float(np.sum(y_orig * sw)) / w_sum
+            # Center the sqrt-weighted data using the weighted mean
+            X_centered = X_arr - sqrt_sw[:, np.newaxis] * X_mean
+            y_centered = y_arr - sqrt_sw * y_mean
+        else:
+            X_mean = np.mean(X_arr, axis=0)
+            y_mean = float(np.mean(y_arr))
+            X_centered = X_arr - X_mean
+            y_centered = y_arr - y_mean
     else:
         X_mean = np.zeros((X_arr.shape[1],), dtype=np.float64)
         y_mean = 0.0

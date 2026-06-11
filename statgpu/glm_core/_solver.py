@@ -2239,8 +2239,7 @@ def fista_bb_solver(
                     if bool((_conv_dev2 < tol).item()):
                         break
                 elif backend == "cupy":
-                    import cupy as cp
-                    if bool((_conv_dev2 < tol).item()):
+                    if float(_conv_dev2) < tol:
                         break
         else:
             _conv_dev2 = _abs_sum_dev(coef - coef_old)

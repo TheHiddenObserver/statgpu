@@ -263,6 +263,22 @@ def batch_mse(
     X_val = _to_numpy(X_val)
     y_val = _to_numpy(y_val).ravel()
     coefs = _to_numpy(coefs)
+
+    # Validate dimensions
+    if coefs.ndim != 2:
+        raise ValueError(f"coefs must be 2D (n_models, n_features), got shape {coefs.shape}")
+    if X_val.ndim != 2:
+        raise ValueError(f"X_val must be 2D (n_samples, n_features), got shape {X_val.shape}")
+    if coefs.shape[1] != X_val.shape[1]:
+        raise ValueError(
+            f"Feature dimension mismatch: coefs has {coefs.shape[1]} features, "
+            f"X_val has {X_val.shape[1]} features"
+        )
+    if y_val.shape[0] != X_val.shape[0]:
+        raise ValueError(
+            f"Sample count mismatch: y has {y_val.shape[0]} samples, "
+            f"X_val has {X_val.shape[0]} samples"
+        )
     n_models = coefs.shape[0]
 
     if intercepts is not None:

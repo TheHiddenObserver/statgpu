@@ -145,16 +145,23 @@ def make_group_dummies(groups, xp=None):
         xp = np
 
     groups = xp_asarray(groups, xp=xp).ravel()
-    unique = xp.unique(groups)
     n = len(groups)
-    n_groups = len(unique)
-    # Batch-transfer unique group values to CPU (single sync)
-    unique_cpu = _to_numpy(unique).tolist()
 
-    D = xp_zeros((n, n_groups), xp.float64, xp, groups)
-    for i, g_val in enumerate(unique_cpu):
-        mask = groups == g_val
-        D[mask, i] = 1.0
+    # Vectorized: use np.unique return_inverse for O(n) dummy construction
+    groups_np = _to_numpy(groups)
+    unique_labels, group_idx = np.unique(groups_np, return_inverse=True)
+    n_groups = len(unique_labels)
+
+    D = np.zeros((n, n_groups), dtype=np.float64)
+    D[np.arange(n), group_idx] = 1.0
+
+    # Convert back to original backend
+    if hasattr(groups, 'clone'):  # torch
+        import torch
+        D = torch.from_numpy(D).to(device=groups.device)
+    elif hasattr(groups, 'get'):  # cupy
+        import cupy as cp
+        D = cp.asarray(D)
 
     return D
 

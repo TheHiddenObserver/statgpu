@@ -95,33 +95,8 @@ def _make_lasso_cv_auto_cache_key(
     return h.hexdigest()
 
 
-def _hash_data(X, y, sample_weight=None) -> bytes:
-    """Compute a compact hash of X, y, and optionally sample_weight.
-
-    Samples evenly spaced rows to avoid collisions from different middle rows
-    while keeping the hash cost proportional to sqrt(n) rather than full data.
-    """
-    from statgpu.backends import _to_numpy
-    h = hashlib.blake2b(digest_size=16)
-    X_np = np.asarray(_to_numpy(X), dtype=np.float64)
-    y_np = np.asarray(_to_numpy(y), dtype=np.float64).ravel()
-    n = X_np.shape[0]
-    # Hash shape and dtype
-    h.update(np.asarray(X_np.shape, dtype=np.int64).tobytes())
-    # Sample up to 100 evenly spaced rows from X and y
-    step = max(1, n // 100)
-    idx = np.arange(0, n, step)[:100]
-    h.update(X_np[idx].tobytes())
-    h.update(y_np[idx].tobytes())
-    # Hash summary stats as fallback uniqueness
-    h.update(np.asarray([X_np.mean(), X_np.std()], dtype=np.float64).tobytes())
-    h.update(np.asarray([y_np.mean(), y_np.std()], dtype=np.float64).tobytes())
-    # Hash sample_weight if provided
-    if sample_weight is not None:
-        sw_np = np.asarray(_to_numpy(sample_weight), dtype=np.float64).ravel()
-        h.update(sw_np[idx].tobytes())
-        h.update(np.asarray([sw_np.mean()], dtype=np.float64).tobytes())
-    return h.digest()
+# Shared hash function from _cv_base.py
+from statgpu.linear_model._cv_base import hash_cv_data as _hash_data
 
 
 def _normalize_lassocv_method(method: str) -> str:
