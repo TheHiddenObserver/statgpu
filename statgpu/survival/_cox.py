@@ -3381,10 +3381,10 @@ class CoxPH(BaseEstimator):
                     self._var_matrix = self._var_matrix * (n / (n - k))
         
         # Standard errors
-        self._bse = np.sqrt(np.diag(self._var_matrix))
-        
-        # z-values
-        self._zvalues = self.coef_ / self._bse
+        self._bse = np.sqrt(np.maximum(np.diag(self._var_matrix), 0.0))
+
+        # z-values (add epsilon to avoid division by zero)
+        self._zvalues = self.coef_ / (self._bse + 1e-30)
         
         # p-values (two-sided)
         self._pvalues = 2 * (1 - stats.norm.cdf(np.abs(self._zvalues)))
