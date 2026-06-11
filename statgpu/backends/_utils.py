@@ -230,9 +230,29 @@ def xp_full(shape, fill_value, dtype, xp, ref_arr=None):
     return xp.full(shape, fill_value, dtype=dtype)
 
 
+def _np_dtype_to_torch(dtype):
+    """Convert a numpy dtype to the equivalent torch dtype."""
+    import torch
+    _MAP = {
+        'float32': torch.float32,
+        'float64': torch.float64,
+        'float16': torch.float16,
+        'int32': torch.int32,
+        'int64': torch.int64,
+        'int16': torch.int16,
+        'int8': torch.int8,
+        'uint8': torch.uint8,
+        'bool': torch.bool,
+    }
+    return _MAP.get(str(np.dtype(dtype)).split('.')[-1], torch.float64)
+
+
 def xp_astype(arr, dtype, xp):
     """Backend-safe type cast (``.to()`` for torch, ``.astype()`` otherwise)."""
     if _torch_dev(arr) is not None:
+        import torch
+        if not isinstance(dtype, torch.dtype):
+            dtype = _np_dtype_to_torch(dtype)
         return arr.to(dtype)
     return arr.astype(dtype)
 

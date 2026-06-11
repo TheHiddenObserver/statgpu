@@ -174,8 +174,10 @@ def irls_solver(
     from statgpu.backends._utils import xp_astype, _to_float_scalar
     _xp_mod = _to_backend_module(backend)
     if hasattr(X, 'dtype') and hasattr(y, 'dtype') and X.dtype != y.dtype:
-        # Promote to the higher-precision dtype (never downcast)
-        target_dtype = np.result_type(X.dtype, y.dtype)
+        # Convert to numpy-compatible dtype strings for result_type
+        _xd = str(X.dtype).replace('torch.', '') if 'torch' in str(type(X.dtype)) else X.dtype
+        _yd = str(y.dtype).replace('torch.', '') if 'torch' in str(type(y.dtype)) else y.dtype
+        target_dtype = np.result_type(_xd, _yd)
         X = xp_astype(X, target_dtype, _xp_mod)
         y = xp_astype(y, target_dtype, _xp_mod)
 

@@ -1103,7 +1103,7 @@ def _squared_error_sparse_cv_path(
     if backend in ("torch", "cupy") and not return_path and Xv_centered is not None:
         n_alpha = int(alphas.size)
         from statgpu.backends._utils import xp_asarray
-        alpha_vec = xp_asarray(alphas, Xb.dtype, Xb).reshape(1, -1)
+        alpha_vec = xp_asarray(alphas, dtype=Xb.dtype, xp=xp, ref_arr=Xb).reshape(1, -1)
         coef_mat = _xp_zeros((n_features, n_alpha), Xb.dtype, Xb)
         y_mat = _copy_arr(coef_mat)
 
