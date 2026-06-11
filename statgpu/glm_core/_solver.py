@@ -1588,6 +1588,7 @@ def fista_sqerr_adaptive_l1_fused(
     t_k = 1.0
     _sync_interval = 10  # Only check convergence every N iterations
 
+    iteration = -1  # default if max_iter=0
     for iteration in range(max_iter):
         # Gradient: grad = (XtX @ y_k - Xty) / n
         grad = (XtX @ y_k - Xty) / n_samples

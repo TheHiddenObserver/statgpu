@@ -1072,7 +1072,7 @@ class TestP2FeFixes:
         import inspect
         from statgpu.panel._fixed_effects import PanelOLS
         src = inspect.getsource(PanelOLS.fit)
-        assert 'grand_mean' in src
+        assert 'resid_after_entity' in src
 
     def test_within_transform_uses_bincount(self):
         """within_transform should use vectorized bincount."""

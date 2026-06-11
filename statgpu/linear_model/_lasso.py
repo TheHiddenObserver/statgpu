@@ -21,6 +21,7 @@ except Exception:
     _NUMBA_AVAILABLE = False
 
 from statgpu._base import BaseEstimator
+from statgpu.backends import _to_numpy
 from statgpu._config import Device
 from statgpu.linear_model._cv_base import CVEstimatorBase, kfold_indices as _kfold_indices
 from statgpu.backends import get_backend
@@ -1340,6 +1341,7 @@ def _fit_lasso_single_alpha_fast(
 
         X_arr = cp.asarray(X)
         y_arr = cp.asarray(y).reshape(-1)
+        sw = None
 
         if sample_weight is not None:
             sw = cp.asarray(sample_weight)
@@ -1407,6 +1409,7 @@ def _fit_lasso_single_alpha_fast(
         y_arr = y.reshape(-1) if isinstance(y, torch.Tensor) else torch.as_tensor(
             y, dtype=X_arr.dtype, device=X_arr.device
         ).reshape(-1)
+        sw = None
 
         if sample_weight is not None:
             sw = sample_weight if isinstance(sample_weight, torch.Tensor) else torch.as_tensor(

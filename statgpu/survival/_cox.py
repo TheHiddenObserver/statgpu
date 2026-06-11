@@ -437,6 +437,7 @@ class CoxPH(BaseEstimator):
         use_penalty = penalty > 0.0
         # Preferred Newton direction for CPU path; updated adaptively.
         preferred_direction = -1.0
+        iteration = -1  # default if max_iter=0
 
         for iteration in range(self.max_iter):
             # Compute gradient and Hessian
@@ -817,6 +818,7 @@ class CoxPH(BaseEstimator):
         # Newton-Raphson optimization on GPU
         loglik_gpu = None
         current_obj = None
+        iteration = -1  # default if max_iter=0
         for iteration in range(self.max_iter):
             # Compute gradient and Hessian on GPU
             grad, hess, aux_stats = self._compute_gradient_hessian_gpu(

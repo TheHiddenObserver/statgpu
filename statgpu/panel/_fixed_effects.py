@@ -230,12 +230,20 @@ class PanelOLS(BaseEstimator):
                 time_np = self._time_ids_fit
                 unique_times = np.unique(time_np)
                 self._time_effects_ = {}
-                # For two-way FE: demean time effects to avoid double-counting grand mean
-                # (entity effects already absorb the grand mean)
-                grand_mean = float(np.mean(resid_fe)) if self.entity_effects else 0.0
-                for t in unique_times:
-                    mask = time_np == t
-                    self._time_effects_[t] = float(np.mean(resid_fe[mask])) - grand_mean
+                if self.entity_effects:
+                    # Two-way FE: compute time effects from residuals after
+                    # subtracting entity effects (standard identification strategy)
+                    resid_after_entity = resid_fe.copy()
+                    for i, ent in enumerate(entity_np):
+                        resid_after_entity[i] -= self._entity_effects_.get(ent, 0.0)
+                    for t in unique_times:
+                        mask = time_np == t
+                        self._time_effects_[t] = float(np.mean(resid_after_entity[mask]))
+                else:
+                    # One-way time FE
+                    for t in unique_times:
+                        mask = time_np == t
+                        self._time_effects_[t] = float(np.mean(resid_fe[mask]))
 
         # Inference
         self._compute_inference(xp, cluster, backend_name)
@@ -344,26 +352,15 @@ class PanelOLS(BaseEstimator):
             X_arr = X_arr.reshape(-1, 1)
         y_pred = X_arr @ self.coef_
 
-        # Add fixed effect intercepts (vectorized lookup)
+        # Add fixed effect intercepts (vectorized lookup, unseen entities get 0)
         if hasattr(self, '_entity_effects_') and entity_ids is not None:
             entity_arr = np.asarray(entity_ids).ravel()
-            # Build mapping array for O(n) lookup
-            unique_ents = np.array(list(self._entity_effects_.keys()))
-            ent_values = np.array([self._entity_effects_[e] for e in unique_ents])
-            _, ent_idx = np.unique(entity_arr, return_inverse=True)
-            # Map observed entities to effects (0 for unseen)
-            ent_map = np.zeros(len(unique_ents), dtype=np.float64)
-            for i, e in enumerate(unique_ents):
-                ent_map[i] = self._entity_effects_[e]
-            y_pred += ent_map[ent_idx]
+            ent_effects = np.array([self._entity_effects_.get(e, 0.0) for e in entity_arr])
+            y_pred += ent_effects
         if hasattr(self, '_time_effects_') and time_ids is not None:
             time_arr = np.asarray(time_ids).ravel()
-            unique_times = np.array(list(self._time_effects_.keys()))
-            _, time_idx = np.unique(time_arr, return_inverse=True)
-            time_map = np.zeros(len(unique_times), dtype=np.float64)
-            for i, t in enumerate(unique_times):
-                time_map[i] = self._time_effects_[t]
-            y_pred += time_map[time_idx]
+            time_effects = np.array([self._time_effects_.get(t, 0.0) for t in time_arr])
+            y_pred += time_effects
 
         return y_pred
 

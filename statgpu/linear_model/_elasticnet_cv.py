@@ -425,17 +425,17 @@ def _select_elasticnet_params_cv(
 
     n_l1_ratios = int(l1_ratios_arr.size)
 
-    # Generate alpha grids for each l1_ratio
+    # Generate alpha grids for each l1_ratio (use integer index as key)
     alpha_grids = {}
-    for l1r in l1_ratios_arr:
+    for l1_idx, l1r in enumerate(l1_ratios_arr):
         if alphas is None:
             if gpu_input_cupy or gpu_input_torch:
                 backend = get_backend(backend='torch' if gpu_input_torch else 'cupy', device='cuda')
-                alpha_grids[l1r] = _default_elasticnet_alpha_grid_backend(
+                alpha_grids[l1_idx] = _default_elasticnet_alpha_grid_backend(
                     X, y, backend, l1_ratio=l1r, n_alphas=n_alphas, alpha_min_ratio=alpha_min_ratio
                 )
             else:
-                alpha_grids[l1r] = _default_elasticnet_alpha_grid(
+                alpha_grids[l1_idx] = _default_elasticnet_alpha_grid(
                     X_np, y_np, l1_ratio=l1r, n_alphas=n_alphas, alpha_min_ratio=alpha_min_ratio
                 )
         else:
@@ -445,30 +445,30 @@ def _select_elasticnet_params_cv(
             if alpha_grid.size == 0:
                 if gpu_input_cupy or gpu_input_torch:
                     backend = get_backend(backend='torch' if gpu_input_torch else 'cupy', device='cuda')
-                    alpha_grids[l1r] = _default_elasticnet_alpha_grid_backend(
+                    alpha_grids[l1_idx] = _default_elasticnet_alpha_grid_backend(
                         X, y, backend, l1_ratio=l1r, n_alphas=n_alphas, alpha_min_ratio=alpha_min_ratio
                     )
                 else:
-                    alpha_grids[l1r] = _default_elasticnet_alpha_grid(
+                    alpha_grids[l1_idx] = _default_elasticnet_alpha_grid(
                         X_np, y_np, l1_ratio=l1r, n_alphas=n_alphas, alpha_min_ratio=alpha_min_ratio
                     )
             else:
-                alpha_grids[l1r] = alpha_grid
+                alpha_grids[l1_idx] = alpha_grid
 
     # Handle degenerate cases
     if int(n_samples) < 4 or int(cv_folds) < 2:
         # Use first l1_ratio and first alpha
         l1r0 = float(l1_ratios_arr[0])
-        alpha0 = float(alpha_grids[l1r0][0])
+        alpha0 = float(alpha_grids[0][0])
         if not return_details:
             return alpha0, l1r0
         details = {
             "alpha": alpha0,
             "l1_ratio": l1r0,
-            "alphas": alpha_grids[l1r0].astype(np.float64),
+            "alphas": alpha_grids[0].astype(np.float64),
             "l1_ratios": l1_ratios_arr.astype(np.float64),
-            "mse_path": np.full((int(n_l1_ratios), int(alpha_grids[l1r0].size), 1), np.nan, dtype=np.float64),
-            "mean_mse": np.full((int(n_l1_ratios), int(alpha_grids[l1r0].size)), np.nan, dtype=np.float64),
+            "mse_path": np.full((int(n_l1_ratios), int(alpha_grids[0].size), 1), np.nan, dtype=np.float64),
+            "mean_mse": np.full((int(n_l1_ratios), int(alpha_grids[0].size)), np.nan, dtype=np.float64),
         }
         return alpha0, l1r0, details
 
@@ -571,7 +571,7 @@ def _select_elasticnet_params_cv(
 
     # CV loop: iterate over l1_ratio and folds
     for l1_idx, l1_ratio in enumerate(l1_ratios_arr):
-        alpha_grid = alpha_grids[l1_ratio]
+        alpha_grid = alpha_grids[l1_idx]
         n_alphas_this = len(alpha_grid)
 
         for fold_idx, (train_idx, val_idx) in enumerate(folds):
@@ -661,7 +661,7 @@ def _select_elasticnet_params_cv(
     best_l1_idx, best_alpha_idx = np.unravel_index(np.nanargmin(mean_mse), mean_mse.shape)
 
     best_l1_ratio = float(l1_ratios_arr[best_l1_idx])
-    best_alpha_grid = alpha_grids[l1_ratios_arr[best_l1_idx]]
+    best_alpha_grid = alpha_grids[best_l1_idx]
     best_alpha = float(best_alpha_grid[best_alpha_idx])
     best_mse = float(mean_mse[best_l1_idx, best_alpha_idx])
 
