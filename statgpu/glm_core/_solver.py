@@ -1979,7 +1979,7 @@ def fista_bb_solver(
             if not _diverged:
                 _obj_val = float(_to_numpy(loss.value(X_proc, y_proc, coef)))
                 try:
-                    _pen_val = float(_to_numpy(penalty.value(_to_numpy(coef))))
+                    _pen_val = float(_to_numpy(penalty.value(coef)))
                 except (AttributeError, Exception):
                     _pen_val = 0.0
                 _obj_total = _obj_val + _pen_val
