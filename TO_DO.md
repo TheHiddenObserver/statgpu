@@ -5,6 +5,10 @@
 
 ## 开发门禁（必须遵守）
 
+> 来源：PLAN_UNIFIED.md §1 Hard Gates + PR #49 Code Review 经验总结
+
+### 功能门禁
+
 - 每次新增功能，必须同时提供：
   - 全 CPU 实现
   - 全 GPU 实现
@@ -17,6 +21,84 @@
   - 同一特征集合（禁止隐式 `y ~ .` 把目标列带入特征）
   - 同一 `ties/solver` 配置
   - 同一正则与收敛设置（`alpha/C/max_iter/tol`）
+
+### 推断门禁
+
+- Ridge/Lasso strict 模式必须通过外部对齐阈值：
+  - coef: `1e-6`
+  - bse: `1e-3`
+  - p-value: `5e-2`
+- strict 失败策略：默认 raise error，仅在显式启用时降级
+
+### 设备一致性门禁
+
+- strict 模式输出在 CPU/GPU 上对齐
+- CUDA 使用分层规则：model 层不应散布直接 cupy import
+
+### 工程门禁
+
+- 每次提交：lint + type + test
+- 每月稳定版：外部矩阵 + benchmark 非回退 + 文档同步
+- 性能敏感推断方法必须包含远程 CUDA 重跑产物
+
+---
+
+## 编码规范（PR #49 总结）
+
+### 数值正确性
+
+- 浮点比较不用 `==`，用容差：`abs(a - b) < 1e-10`
+- 除法前检查分母：`sw_sum = max(sw_sum, 1e-15)` 或 `if sw_sum > 0`
+- sqrt 前检查非负：`np.sqrt(max(x, 0.0))`
+- log 前检查正数：`np.log(max(x, 1e-10))`
+- 统一 ddof：全部用 `ddof=1`（样本标准差）
+- alpha_max 考虑 l1_ratio：`max(|X'y|) / (n * l1_ratio)`
+- 初始化循环变量：`iteration = -1` 在 `for` 循环前（防止 `max_iter=0` 时 NameError）
+- 未知参数抛 TypeError：移除 `**kwargs` 或验证
+
+### 后端一致性
+
+- 三端公式必须一致：检查 numpy/cupy/torch 路径的数学公式
+- 不用 `backend.exp()`，用 `xp.exp()`：BackendBase 无 exp 方法
+- `_to_numpy()` 用于验证，保留原数组：避免破坏 GPU 流水线
+- `float()` 调用是 GPU sync：批量 sync，避免逐坐标调用
+- `np.asarray()` 强制转 CPU：用 `_to_numpy()` 或保留原 backend
+
+### 缓存与线程安全
+
+- 缓存键用内容哈希，不用内存指针：`blake2b(tobytes())` 而非 `data_ptr`
+- 缓存存副本，不存引用：`cache.put(key, (val.copy(),))`
+- 共享缓存加 `threading.Lock`：多线程数据竞争
+- eviction 在锁内：锁外 eviction 是竞态条件
+
+### 接口设计
+
+- `get_params` 包含所有构造参数：sklearn clone/GridSearchCV 丢失参数
+- `_fitted` 在 `fit()` 末尾设置：`summary()` 等方法提前调用报错
+- `best_score_` 用负 MSE：sklearn 惯例 higher=better
+- `cv >= 2` 验证：单折 CV 无意义
+
+### 代码组织
+
+- 共享函数放 `_cv_base.py`：避免多文件重复
+- Magic numbers 用命名常量：`_EIGVAL_FLOOR = 1e-15` 而非 `1e-15`
+- 死代码及时删除：删除 `and False`、未使用的 import
+- backend 分支用 helper：`_xp()`, `_clip()`, `_sigmoid()`
+- 单一职责：大文件应拆分
+
+### 测试规范
+
+- 每个修复对应测试：回归无法检测
+- 三端精度对比：同一 `random_state`，比较 `best_score_`
+- 性能基准测试：记录 before/after 耗时
+- 远程 GPU 测试：本地无 GPU 无法验证
+- 边界情况测试：空输入、零权重、max_iter=0
+
+### 提交规范
+
+- 每个 fix 单独 commit：方便 revert 和 review
+- commit message 包含测试结果：`Tested: 428 passed, 0 failed on Tesla P100`
+- TO_DO.md 同步更新：修复后标记 ✅，新发现后添加
 
 ---
 
