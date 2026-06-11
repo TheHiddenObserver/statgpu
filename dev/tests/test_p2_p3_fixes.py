@@ -720,5 +720,153 @@ class TestBackendBranchCleanup:
         assert eig_max > 0, f"_max_eigval_power returned {eig_max} on {backend}"
 
 
+# ============================================================================
+# Performance & Readability regression tests
+# ============================================================================
+
+class TestSoftThreshold:
+    """Test _soft_threshold correctness and consistency."""
+
+    def test_basic_soft_threshold(self):
+        """_soft_threshold should produce correct values."""
+        from statgpu.backends._array_ops import _soft_threshold
+        w = np.array([0.5, -0.3, 0.1, -0.8, 0.0])
+        thresh = 0.2
+        result = _soft_threshold(w, thresh)
+        expected = np.sign(w) * np.maximum(np.abs(w) - thresh, 0.0)
+        assert_allclose(result, expected)
+
+    def test_zero_threshold(self):
+        """_soft_threshold with thresh=0 should return input unchanged."""
+        from statgpu.backends._array_ops import _soft_threshold
+        w = np.array([1.0, -2.0, 0.0, 3.0])
+        result = _soft_threshold(w, 0.0)
+        assert_allclose(result, w)
+
+    def test_large_threshold(self):
+        """_soft_threshold with large thresh should zero everything."""
+        from statgpu.backends._array_ops import _soft_threshold
+        w = np.array([0.1, -0.2, 0.3])
+        result = _soft_threshold(w, 100.0)
+        assert_allclose(result, np.zeros(3))
+
+    def test_adaptive_weights(self):
+        """_soft_threshold with per-coordinate weights should work."""
+        from statgpu.backends._array_ops import _soft_threshold
+        w = np.array([1.0, -1.0, 0.5])
+        thresh = np.array([0.1, 0.5, 0.8])
+        result = _soft_threshold(w, thresh)
+        expected = np.sign(w) * np.maximum(np.abs(w) - thresh, 0.0)
+        assert_allclose(result, expected)
+
+    @pytest.mark.parametrize("backend", ["numpy", "cupy", "torch"])
+    def test_soft_threshold_all_backends(self, backend):
+        """_soft_threshold should work on all backends."""
+        from statgpu.backends._array_ops import _soft_threshold
+        if backend == "torch":
+            torch = pytest.importorskip("torch")
+            if not torch.cuda.is_available():
+                pytest.skip("torch CUDA not available")
+        elif backend == "cupy":
+            pytest.importorskip("cupy")
+        w_np = np.array([0.5, -0.3, 0.1, -0.8, 0.0])
+        w_b, _ = _to_backend(w_np, np.zeros(5), backend)
+        result = _soft_threshold(w_b, 0.2)
+        result_np = _to_numpy(result)
+        expected = np.sign(w_np) * np.maximum(np.abs(w_np) - 0.2, 0.0)
+        assert_allclose(result_np, expected, atol=1e-10)
+
+
+class TestScadMcpModuleImports:
+    """Test that SCAD/MCP module-level imports work correctly."""
+
+    def test_scad_value_no_inline_import(self):
+        """SCAD value() should work with module-level imports."""
+        from statgpu.penalties._scad import SCADPenalty
+        coef = np.array([0.1, 0.5, 1.5, 3.0, 0.0])
+        pen = SCADPenalty(alpha=1.0, a=3.7)
+        val = pen.value(coef)
+        assert np.isfinite(val)
+        assert val > 0
+
+    def test_scad_lla_weights_no_inline_import(self):
+        """SCAD lla_weights() should work with module-level imports."""
+        from statgpu.penalties._scad import SCADPenalty
+        coef = np.array([0.1, 0.5, 1.5, 3.0, 0.0])
+        pen = SCADPenalty(alpha=1.0, a=3.7)
+        weights = pen.lla_weights(coef)
+        assert weights.shape == coef.shape
+        assert all(np.isfinite(weights))
+
+    def test_mcp_value_no_inline_import(self):
+        """MCP value() should work with module-level imports."""
+        from statgpu.penalties._mcp import MCPPenalty
+        coef = np.array([0.1, 0.5, 1.5, 3.0, 0.0])
+        pen = MCPPenalty(alpha=1.0, gamma=3.0)
+        val = pen.value(coef)
+        assert np.isfinite(val)
+        assert val > 0
+
+    def test_mcp_lla_weights_no_inline_import(self):
+        """MCP lla_weights() should work with module-level imports."""
+        from statgpu.penalties._mcp import MCPPenalty
+        coef = np.array([0.1, 0.5, 1.5, 3.0, 0.0])
+        pen = MCPPenalty(alpha=1.0, gamma=3.0)
+        weights = pen.lla_weights(coef)
+        assert weights.shape == coef.shape
+        assert all(np.isfinite(weights))
+
+
+class TestDtypeConversion:
+    """Test _np_dtype_to_torch and xp_astype dtype conversion."""
+
+    def test_np_dtype_to_torch_float64(self):
+        """_np_dtype_to_torch should convert float64 correctly."""
+        from statgpu.backends._utils import _np_dtype_to_torch
+        import torch
+        result = _np_dtype_to_torch(np.float64)
+        assert result == torch.float64
+
+    def test_np_dtype_to_torch_float32(self):
+        """_np_dtype_to_torch should convert float32 correctly."""
+        from statgpu.backends._utils import _np_dtype_to_torch
+        import torch
+        result = _np_dtype_to_torch(np.float32)
+        assert result == torch.float32
+
+    def test_xp_astype_torch_with_numpy_dtype(self):
+        """xp_astype should handle numpy dtypes for torch tensors."""
+        from statgpu.backends._utils import xp_astype
+        import torch
+        t = torch.tensor([1.0, 2.0], dtype=torch.float32)
+        result = xp_astype(t, np.float64, torch)
+        assert result.dtype == torch.float64
+
+    def test_xp_astype_numpy(self):
+        """xp_astype should work for numpy arrays."""
+        from statgpu.backends._utils import xp_astype
+        arr = np.array([1.0, 2.0], dtype=np.float32)
+        result = xp_astype(arr, np.float64, np)
+        assert result.dtype == np.float64
+
+
+class TestEffectiveCvDevice:
+    """Test _effective_cv_device fallback path."""
+
+    def test_effective_cv_device_import_fix(self):
+        """_effective_cv_device should not raise ImportError for missing symbols."""
+        # The fix replaced _torch_available/_cupy_available with try/except imports.
+        # Verify the module imports correctly and the method exists.
+        from statgpu.linear_model._penalized_cv import PenalizedGLM_CV
+        assert hasattr(PenalizedGLM_CV, '_effective_cv_device')
+        # Verify the method source doesn't reference undefined names
+        import inspect
+        src = inspect.getsource(PenalizedGLM_CV._effective_cv_device)
+        assert '_torch_available' not in src
+        assert '_cupy_available' not in src
+        assert 'import torch' in src
+        assert 'import cupy' in src
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v", "--tb=short"])
