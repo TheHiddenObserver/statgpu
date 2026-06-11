@@ -24,7 +24,7 @@ import numpy as np
 
 from statgpu._config import Device
 from statgpu.backends import _to_numpy
-from statgpu.backends._array_ops import _copy_arr, _zeros, _xp_zeros
+from statgpu.backends._array_ops import _copy_arr, _zeros, _xp_zeros, _soft_threshold
 from statgpu.backends._utils import _to_float_scalar
 from statgpu.linear_model._cv_base import CVEstimatorBase, kfold_indices
 
@@ -824,7 +824,6 @@ def _glm_sparse_cv_folds(
             else:
                 thresh = float(alpha) * step
                 denom = 1.0
-            from statgpu.backends._array_ops import _soft_threshold
             coef_new = _soft_threshold(w, thresh) / denom
             intercept_new = y_intercept - step * grad_intercept
 
@@ -970,7 +969,6 @@ def _logistic_sparse_cv_path(
                 thresh = float(alpha) * step
                 denom = 1.0
 
-            from statgpu.backends._array_ops import _soft_threshold
             coef = _soft_threshold(w, thresh) / denom
             intercept = y_intercept - step * grad_intercept
 
@@ -1121,7 +1119,6 @@ def _squared_error_sparse_cv_path(
                 thresh = alpha_vec * step
                 denom = 1.0
 
-            from statgpu.backends._array_ops import _soft_threshold
             coef_mat = _soft_threshold(w, thresh) / denom
 
             t_new = (1.0 + np.sqrt(1.0 + 4.0 * t_k * t_k)) / 2.0
@@ -1174,7 +1171,6 @@ def _squared_error_sparse_cv_path(
                 thresh = float(alpha) * step
                 denom = 1.0
 
-            from statgpu.backends._array_ops import _soft_threshold
             coef = _soft_threshold(w, thresh) / denom
 
             t_new = (1.0 + np.sqrt(1.0 + 4.0 * t_k * t_k)) / 2.0
@@ -1913,17 +1909,21 @@ class PenalizedGLM_CV(CVEstimatorBase):
             return "cpu"
 
         # Resolve device: if AUTO, prefer torch when CUDA available, else cpu
-        from statgpu.backends._utils import _torch_available, _cupy_available
-        if _torch_available():
+        try:
             import torch
             if torch.cuda.is_available():
                 self.cv_selected_device_ = "torch"
                 self._cv_auto_reason_ = "GPU selected for large CV effective work"
                 return "torch"
-        if _cupy_available():
+        except ImportError:
+            pass
+        try:
+            import cupy
             self.cv_selected_device_ = "cupy"
             self._cv_auto_reason_ = "GPU selected for large CV effective work"
             return "cupy"
+        except ImportError:
+            pass
         self.cv_selected_device_ = "cpu"
         self._cv_auto_reason_ = "No GPU available, falling back to CPU"
         return "cpu"

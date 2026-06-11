@@ -441,6 +441,11 @@ coef = where(active, coef_new, coef)
 - ✅ `_penalized.py` `np.asarray(X)`：CuPy 数组在 `device="auto"` 时无法隐式转换
 - ✅ `_scad.py`/`_mcp.py` `lla_weights`：未使用的 `mod` 变量（死代码）
 - ✅ `_solver.py`：未使用的 `_abs_max` import（死代码）
+- ✅ `_penalized_cv.py`：`_torch_available`/`_cupy_available` 不存在（ImportError）
+- ✅ `_penalized_cv.py`：`_soft_threshold` 在 4 个热循环内 import（移至模块顶部）
+- ✅ `_utils.py`：`xp_astype` 传 numpy dtype 给 torch `.to()` 失败（添加 `_np_dtype_to_torch`）
+- ✅ `_penalized_cv.py`：`xp_asarray` 参数顺序错误（`Xb` 被传为 `xp`）
+- ✅ `_irls.py`：`np.result_type` 无法处理 torch dtype（转为字符串）
 
 ### 已知但未修复的问题（低优先级）
 
@@ -454,4 +459,25 @@ coef = where(active, coef_new, coef)
 - `_penalized.py` `_use_fista` 条件可简化（两个分支覆盖所有情况）
 - `_penalized.py` `_use_irls_cd` 标志名与实际使用的 `fista_lla_path` 矛盾
 - `_solver.py` `_fused_logistic` 使用字符串模块检测而非 `_xp()`
+
+### 可读性/可维护性问题（Code Review Round 2）
+
+- `_array_ops.py`：`_copy_arr`/`_xp_copy`、`_zeros`/`_xp_zeros`、`_eye_like`/`_xp_eye` 命名重复，应统一
+- `_solver.py`：4 种不同的标量提取模式（`float()`、`.item()`、`_to_float_scalar`、`_to_numpy`），应统一为 `_to_float_scalar`
+- `_solver.py`：`fista_bb_solver`（470 行）、`fista_lla_path`（560 行）过长，需拆分
+- `_penalized.py`：`_fit_cpu`（260 行）、`_fit_lla`（255 行）过长，需拆分
+- `_penalized_cv.py`：6 个几乎相同的 FISTA 循环实现，应提取为共享 `_fista_cv_step`
+- `_penalized_cv.py`：`_FeatureOnlySparsePenalty` 与 `_penalized.py` 的 `SelectivePenalty` 功能重复
+- `_glm_base.py`：3 种不同的 `_xp` 解析函数（`_xp_arr`、`_xp`、`_get_xp`），语义不同
+- `_family.py`：第 3 个独立的 `_xp` 实现，应统一
+- `_scad.py`/`_mcp.py`：`_xp` 和 `_to_float_scalar` 在方法内 import（应移至模块级）
+- `_solver.py`：`_fused_logistic` 等函数在热循环内 import `_sigmoid`/`_clip`（应移至模块级）
+
+### 性能优化项（Code Review Round 2）
+
+- `_penalized.py` `_irls_cd_gpu`：`_to_numpy` 在 GPU 方法中传输完整 X 矩阵（应改为 GPU 端计算 lambda_max）
+- `_penalized_cv.py` `_scad_mcp_cv_path`：每 alpha 一次 D2H transfer（应改为批量 sync）
+- `_penalized_cv.py`：FISTA 循环中 `_copy_arr` 每次迭代分配新内存（应改为交替缓冲区）
+- `_solver.py` `fista_bb_solver`：每迭代 2 次梯度计算（应使用 `_fused_glm_value_and_gradient`）
+- `_array_ops.py` `_soft_threshold`：创建 3 个中间数组（应使用 `xp.where` 融合）
 
