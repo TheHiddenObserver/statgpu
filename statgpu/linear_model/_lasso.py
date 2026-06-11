@@ -962,6 +962,116 @@ def _solve_lasso_path_gpu_fista_multi_fold_from_gram(
     return cp.transpose(coefs, (0, 2, 1)), cp.asnumpy(n_iters_gpu)
 
 
+def _solve_lasso_path_gpu_fista_multi_fold_from_gram_torch(
+    XtX_batch,
+    Xty_batch,
+    *,
+    n_samples_vec,
+    alphas_desc,
+    max_iter: int,
+    tol: float,
+    stopping: str,
+    lipschitz_L: Optional[float] = None,
+    check_every: int = 8,
+):
+    """Solve descending-alpha Lasso paths for all folds together on Torch GPU.
+
+    Mirror of _solve_lasso_path_gpu_fista_multi_fold_from_gram for Torch backend.
+    """
+    import torch
+
+    n_folds = int(XtX_batch.shape[0])
+    n_features = int(XtX_batch.shape[1])
+    n_alphas = int(alphas_desc.shape[0])
+
+    coefs = torch.zeros((n_folds, n_features, n_alphas), dtype=XtX_batch.dtype, device=XtX_batch.device)
+    yk = coefs.clone()
+    tk = torch.ones((n_folds, n_alphas), dtype=XtX_batch.dtype, device=XtX_batch.device)
+    n_iters_gpu = torch.zeros((n_folds, n_alphas), dtype=torch.int32, device=XtX_batch.device)
+
+    n_vec_cpu = np.asarray(_to_numpy(n_samples_vec), dtype=np.float64).reshape(-1)
+    if n_vec_cpu.size != n_folds:
+        raise ValueError("n_samples_vec must have one entry per fold")
+    n_vec = torch.from_numpy(n_vec_cpu).to(dtype=XtX_batch.dtype, device=XtX_batch.device)
+
+    if lipschitz_L is not None:
+        L = torch.full((n_folds,), float(lipschitz_L), dtype=XtX_batch.dtype, device=XtX_batch.device)
+    else:
+        try:
+            eigvals = torch.linalg.eigvalsh(XtX_batch)
+            L = eigvals[:, -1] / n_vec
+        except Exception:
+            row_sum_bound = torch.max(torch.sum(torch.abs(XtX_batch), dim=2), dim=1).values / n_vec
+            L = torch.maximum(row_sum_bound, torch.tensor(1e-12, dtype=XtX_batch.dtype, device=XtX_batch.device))
+
+    step = 1.0 / L.reshape(n_folds, 1, 1)
+    alphas_cpu = np.asarray(_to_numpy(alphas_desc), dtype=np.float64)
+    alpha_gpu = torch.from_numpy(alphas_cpu).to(dtype=XtX_batch.dtype, device=XtX_batch.device).reshape(1, 1, n_alphas)
+    thresholds = alpha_gpu * step
+
+    Xty_expanded = Xty_batch.reshape(n_folds, n_features, 1)
+    n_vec_expanded = n_vec.reshape(n_folds, 1, 1)
+    stopping_name = str(stopping).lower()
+    check_every = max(1, int(check_every))
+
+    active_gpu = torch.ones((n_folds, n_alphas), dtype=torch.bool, device=XtX_batch.device)
+    active_count = int(n_folds * n_alphas)
+
+    for iteration in range(int(max_iter)):
+        if active_count == 0:
+            break
+
+        active_expanded = active_gpu.unsqueeze(1)
+
+        coef_old = coefs.clone()
+        grad = (torch.matmul(XtX_batch, yk) - Xty_expanded) / n_vec_expanded
+
+        # Proximal step: soft thresholding
+        yk_step = yk - step * grad
+        coef_candidate = torch.sign(yk_step) * torch.maximum(torch.abs(yk_step) - thresholds, torch.tensor(0.0, device=XtX_batch.device))
+        coefs = torch.where(active_expanded, coef_candidate, coefs)
+
+        t_old = tk
+        t_new = (1.0 + torch.sqrt(1.0 + 4.0 * (t_old ** 2))) / 2.0
+        beta = (t_old - 1.0) / t_new
+        y_candidate = coefs + beta.unsqueeze(1) * (coefs - coef_old)
+        yk = torch.where(active_expanded, y_candidate, yk)
+        tk = torch.where(active_gpu, t_new, tk)
+
+        active_ratio = float(active_count) / float(max(1, n_folds * n_alphas))
+        check_every_eff = _adaptive_gpu_check_every(
+            base_check_every=check_every,
+            iteration=iteration,
+            max_iter=int(max_iter),
+            active_ratio=active_ratio,
+        )
+        should_check = ((iteration + 1) % check_every_eff == 0) or (iteration + 1 == int(max_iter))
+        if not should_check:
+            continue
+
+        if stopping_name == "kkt":
+            grad_sse = (torch.matmul(XtX_batch, coefs) - Xty_expanded) / n_vec_expanded
+            violation = torch.max(torch.maximum(torch.abs(grad_sse) - alpha_gpu, torch.tensor(0.0, device=XtX_batch.device)), dim=1).values
+            converged_local_gpu = violation < float(tol)
+        else:
+            delta = torch.sum(torch.abs(coefs - coef_old), dim=1)
+            converged_local_gpu = delta < float(tol)
+
+        newly_done_gpu = active_gpu & converged_local_gpu
+        done_count = int(torch.count_nonzero(newly_done_gpu).item())
+        if done_count == 0:
+            continue
+
+        n_iters_gpu[newly_done_gpu] = int(iteration) + 1
+        yk = torch.where(newly_done_gpu.unsqueeze(1), coefs, yk)
+        active_gpu = active_gpu & (~converged_local_gpu)
+        active_count -= done_count
+
+    n_iters_gpu[active_gpu] = int(max_iter)
+
+    return coefs.permute(0, 2, 1), n_iters_gpu.cpu().numpy()
+
+
 def _solve_lasso_path_cpu_from_gram(
     XtX: np.ndarray,
     Xty: np.ndarray,
