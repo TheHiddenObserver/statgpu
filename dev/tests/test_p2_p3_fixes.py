@@ -518,12 +518,7 @@ class TestThreeBackendSolver:
         X_b, y_b = _to_backend(X, y, backend)
         loss = get_glm_loss("squared_error")
         penalty = L1Penalty(alpha=0.1)
-        try:
-            coef, n_iter = fista_solver(loss, penalty, X_b, y_b, max_iter=100, tol=1e-6)
-        except TypeError as e:
-            if "NoneType" in str(e):
-                pytest.skip(f"_max_eigval_power not supported on {backend}")
-            raise
+        coef, n_iter = fista_solver(loss, penalty, X_b, y_b, max_iter=100, tol=1e-6)
         coef_np = _to_numpy(coef)
         assert all(np.isfinite(coef_np))
 
@@ -703,6 +698,26 @@ class TestBackendBranchCleanup:
         v_loss = loss.value(X, y, coef)
         v_fused, _ = _fused_glm_value_and_gradient(loss, X, y, coef)
         assert abs(v_loss - v_fused) < 1e-10
+
+    @pytest.mark.parametrize("backend", ["numpy", "cupy", "torch"])
+    def test_max_eigval_power(self, backend):
+        """_max_eigval_power should return a finite positive value on all backends."""
+        from statgpu.backends._array_ops import _max_eigval_power
+        if backend == "torch":
+            torch = pytest.importorskip("torch")
+            if not torch.cuda.is_available():
+                pytest.skip("torch CUDA not available")
+        elif backend == "cupy":
+            pytest.importorskip("cupy")
+        # Create a known PSD matrix
+        np.random.seed(42)
+        A = np.random.randn(10, 10)
+        M = A.T @ A  # PSD, eigenvalues > 0
+        M_b, _ = _to_backend(M, np.zeros(1), backend)
+        eig_max = _max_eigval_power(M_b)
+        assert eig_max is not None, f"_max_eigval_power returned None on {backend}"
+        assert np.isfinite(eig_max), f"_max_eigval_power returned {eig_max} on {backend}"
+        assert eig_max > 0, f"_max_eigval_power returned {eig_max} on {backend}"
 
 
 if __name__ == "__main__":

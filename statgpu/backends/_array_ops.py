@@ -442,6 +442,7 @@ def _max_eigval_power(mat, n_iter=20, tol=1e-8):
         if i > 0 and abs(lambda_val - lambda_old) < tol * abs(lambda_val):
             return lambda_val
         lambda_old = lambda_val
+    return lambda_val
 
 
 def _soft_threshold(w, thresh):
