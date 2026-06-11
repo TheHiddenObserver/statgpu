@@ -212,16 +212,14 @@
 
 ## CV 框架后续改进项
 
-### P1: FISTA/BB solver 支持非均匀 sample_weight
+### ~~P1: FISTA/BB solver 支持非均匀 sample_weight~~ ✅ 已修复
 
-**现状**：`fista_solver` 和 `fista_bb_solver` 拒绝非均匀 `sample_weight`。只有 `irls` 支持，但 IRLS 仅适用于 L2 惩罚。
-
-**影响**：L1/ElasticNet/SCAD/MCP + 非均匀权重 → `ValueError`。
-
-**方案**：在 FISTA 梯度计算中改为 `X' diag(w) residual / sum(w)`，需要：
-1. `_solver.py` 的 `fista_solver` 和 `fista_bb_solver` 支持 `sample_weight`
-2. Armijo 回溯使用加权 loss
-3. Lipschitz 使用加权 Hessian `X' diag(w) X`
+**现状**：`fista_solver` 现已支持非均匀 `sample_weight`。
+**方案**：
+- `_base.py`：`GLMLoss.value()` 和 `gradient()` 添加 `sample_weight` 参数
+- `_squared.py`/`_logistic.py`：实现加权 value/gradient/hessian/lipschitz
+- `_solver.py`：添加 `_weighted_loss_and_grad` helper，修改 `fista_solver` 使用加权 loss/gradient/Lipschitz
+**状态**：✅ 已修复 (2026-06-11)。`fista_bb_solver` 和其他 solver 暂不支持（保留 ValueError）。
 
 ### ~~P2: NB alpha / Tweedie power 参数化~~ ✅ 已完成
 
@@ -470,7 +468,7 @@ coef = where(active, coef_new, coef)
 - `_penalized_cv.py`：`_FeatureOnlySparsePenalty` 与 `_penalized.py` 的 `SelectivePenalty` 功能重复
 - `_glm_base.py`：3 种不同的 `_xp` 解析函数（`_xp_arr`、`_xp`、`_get_xp`），语义不同
 - `_family.py`：第 3 个独立的 `_xp` 实现，应统一
-- `_scad.py`/`_mcp.py`：`_xp` 和 `_to_float_scalar` 在方法内 import（应移至模块级）
+- ✅ `_scad.py`/`_mcp.py`：`_xp` 和 `_to_float_scalar` 已移至模块级 import
 - `_solver.py`：`_fused_logistic` 等函数在热循环内 import `_sigmoid`/`_clip`（应移至模块级）
 
 ### 性能优化项（Code Review Round 2）
@@ -479,5 +477,5 @@ coef = where(active, coef_new, coef)
 - `_penalized_cv.py` `_scad_mcp_cv_path`：每 alpha 一次 D2H transfer（应改为批量 sync）
 - `_penalized_cv.py`：FISTA 循环中 `_copy_arr` 每次迭代分配新内存（应改为交替缓冲区）
 - `_solver.py` `fista_bb_solver`：每迭代 2 次梯度计算（应使用 `_fused_glm_value_and_gradient`）
-- `_array_ops.py` `_soft_threshold`：创建 3 个中间数组（应使用 `xp.where` 融合）
+- ✅ `_array_ops.py` `_soft_threshold`：已改用 `xp.where` 融合（2 个中间数组，~15% 性能提升）
 

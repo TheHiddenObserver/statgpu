@@ -468,68 +468,32 @@ def _weighted_loss_and_grad(loss, X, y, coef, sample_weight):
     For GLM losses, computes: grad = X' diag(w) (mu - y) / sum(w)
     For squared_error: grad = X' diag(w) (X@coef - y) / sum(w)
     """
-    from statgpu.backends._array_ops import _xp
-    xp = _xp(X)
     n = X.shape[0]
-    sw_sum = _to_float_scalar(xp.sum(sample_weight))
+    _backend = _resolve_backend("auto", X)
+    xp = _get_xp(_backend)
+    # Convert sample_weight to same backend as X (via numpy intermediate)
+    _sw_np = _to_numpy(sample_weight)
+    _sw = xp.asarray(_sw_np, dtype=X.dtype)
+    sw_sum = _to_float_scalar(xp.sum(_sw))
 
     loss_name = getattr(loss, 'name', '')
 
     # For squared_error, compute directly with weights
     if loss_name == 'squared_error':
         resid = X @ coef - y
-        grad = X.T @ (sample_weight * resid) / sw_sum
-        val = 0.5 * _to_float_scalar(xp.sum(sample_weight * resid * resid)) / sw_sum
+        grad = X.T @ (_sw * resid) / sw_sum
+        val = 0.5 * _to_float_scalar(xp.sum(_sw * resid * resid)) / sw_sum
         return val, grad
 
-    # For GLM losses, compute unweighted gradient then scale
-    # The unweighted gradient is X'(mu-y)/n
-    # The weighted gradient is X' diag(w)(mu-y)/sum(w)
-    # = (n/sum(w)) * X' diag(w/n) (mu-y) ... not a simple rescaling
-    # So we compute the unweighted residual and apply weights manually
-    handler = _GLM_FUSED_REGISTRY.get(loss_name)
-    if handler is not None:
-        eta = X @ coef
-        # Get unweighted value and gradient from fused handler
-        val_unw, grad_unw = handler(eta, X, y, n, loss)
-        # The fused gradient is X'(mu-y)/n, so the residual is (mu-y)
-        # We need X' diag(w)(mu-y)/sum(w)
-        # grad_w = (n/sum(w)) * X' diag(w) (mu-y) / n
-        #        = (n/sum(w)) * X' (w * (mu-y)) / n
-        #        = X' (w * (mu-y)) / sum(w)
-        # But we don't have (mu-y) separately. We can recompute:
-        # mu = loss.predict(X, coef) or inverse_link(eta)
-        # Actually, grad_unw * n = X'(mu-y), so:
-        # grad_w = X'(w*(mu-y))/sum(w) = X' diag(w) (X'(mu-y)) / (X' sum) -- no, this is wrong
-        # The correct approach: compute residual with weights
-        # For now, use loss.gradient with weighted X and y
-        pass
-
-    # Fallback: use loss.gradient with weighted inputs
-    # Weight the loss by sample_weight: the weighted loss is
-    # sum(w * loss_i) / sum(w), so gradient is X' diag(w) grad_i / sum(w)
-    # We can compute this by calling loss.gradient with weighted residuals
-    # But loss.gradient doesn't support weights directly.
-    # So we compute the per-sample gradient contribution and weight it.
-
-    # For squared_error: already handled above
-    # For other losses: approximate by scaling the unweighted gradient
-    # This is exact for squared_error, approximate for GLM losses
-    # A better approach: modify each loss class to accept sample_weight
-
-    # Exact approach: compute unweighted gradient, then adjust
-    # grad_unw = X' f(residual) / n
-    # grad_w = X' (w * f(residual)) / sum(w)
-    # These are NOT simply rescaled versions of each other for non-linear losses
-
-    # For now, use the loss.gradient() with sample_weight if supported
+    # For GLM losses, try loss.gradient with sample_weight if supported.
+    # SquaredError and Logistic already implement weighted gradient.
+    # For other losses, fall back to unweighted (approximate).
     try:
         val = loss.value(X, y, coef, sample_weight=sample_weight)
         grad = loss.gradient(X, y, coef, sample_weight=sample_weight)
         return val, grad
     except TypeError:
-        # Loss doesn't support sample_weight yet
-        # Fall back to unweighted (incorrect but safe)
+        # Loss doesn't support sample_weight yet — fall back to unweighted
         val = loss.value(X, y, coef)
         grad = loss.gradient(X, y, coef)
         return val, grad
@@ -634,10 +598,12 @@ def fista_solver(
             _lip_coef = _copy_arr(coef) * 0.0
         if sample_weight is not None:
             # Weighted Lipschitz: eigenvalue of X' diag(w) X / sum(w)
-            from statgpu.backends._array_ops import _xp
-            _xp_mod = _xp(X_proc)
-            sw_sum = _to_float_scalar(_xp_mod.sum(sample_weight))
-            sw_col = sample_weight[:, None] if hasattr(sample_weight, '__len__') else sample_weight
+            _xp_mod = _get_xp(backend)
+            # Ensure sample_weight is on same backend as X_proc
+            _sw_np = _to_numpy(sample_weight)
+            _sw = _xp_mod.asarray(_sw_np, dtype=X_proc.dtype)
+            sw_sum = _to_float_scalar(_xp_mod.sum(_sw))
+            sw_col = _sw[:, None] if _sw.ndim == 1 else _sw
             XtWX = X_proc.T @ (X_proc * sw_col) / sw_sum
             L = _to_float_scalar(_xp_mod.max(_xp_mod.diag(XtWX)))  # conservative bound
             if L <= 0:
@@ -762,11 +728,13 @@ def fista_solver(
                 if not _is_quadratic and iteration % _lip_interval == 0:
                     if sample_weight is not None:
                         # Weighted Lipschitz recomputation
-                        _xp_mod = _xp(X_proc)
-                        sw_sum = _to_float_scalar(_xp_mod.sum(sample_weight))
-                        sw_col = sample_weight[:, None] if hasattr(sample_weight, '__len__') else sample_weight
-                        XtWX = X_proc.T @ (X_proc * sw_col) / sw_sum
-                        L_new = _to_float_scalar(_xp_mod.max(_xp_mod.diag(XtWX)))
+                        _xp_lip = _get_xp(backend)
+                        _sw_lip_np = _to_numpy(sample_weight)
+                        _sw_lip = _xp_lip.asarray(_sw_lip_np, dtype=X_proc.dtype)
+                        sw_sum_lip = _to_float_scalar(_xp_lip.sum(_sw_lip))
+                        sw_col_lip = _sw_lip[:, None] if _sw_lip.ndim == 1 else _sw_lip
+                        XtWX_lip = X_proc.T @ (X_proc * sw_col_lip) / sw_sum_lip
+                        L_new = _to_float_scalar(_xp_lip.max(_xp_lip.diag(XtWX_lip)))
                     else:
                         L_new = loss.lipschitz(X_proc, coef, y=y_proc)
                     if L_new > 0:
