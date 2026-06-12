@@ -496,7 +496,7 @@ coef = where(active, coef_new, coef)
 
 - `_fit_cpu`/`_fit_gpu`/`_fit_torch` 代码重复（~80% 逻辑相同）：需提取共享 FISTA 循环逻辑
 - `_irls_cd` 和 `_irls_cd_gpu` 近似重复（同一算法的 CPU/GPU 版本）：需统一为 backend-agnostic 实现
-- 添加新 loss 需改 6+ 文件（loss class + registry + fused handler + CV loss functions + solver dispatch + IRLS working response）：需统一 loss registry
+- ✅ 添加新 loss 已简化：只需实现 loss class 的 3 个 per-sample 方法 + 注册到 `_base.py` registry。solver 和 CV 自动派生。
 - `fista_solver` 400 行、`fista_lla_path` 550 行、`fista_bb_solver` 470 行：需拆分为小函数
-- loss formula 在 `_solver.py` `_fused_*` 和 `_penalized_cv.py` `_LOSS_*` 中重复：需统一为单一 registry
+- ✅ loss formula 已统一为单一 registry：每个 loss 类实现 `per_sample_value`/`per_sample_gradient`/`_mu_from_eta`，base class 派生 `value()`/`gradient()`/`fused_value_and_gradient()`。添加新 loss 只需实现 3 个 per-sample 方法 + 注册。
 
