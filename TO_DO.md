@@ -169,8 +169,8 @@
 
 - Lasso：`ElasticNet(l1_ratio)`、`positive`、`warm_start`、alpha path
 - Ridge：~~`warm_start`、path、更完整推断输出~~ 推断体系已完成；待补 `warm_start`、path
-- LogisticRegression：multinomial/softmax、L1/elastic-net、更完整诊断
-- CoxPH：strata、frailty、time-varying covariates、penalized Cox
+- LogisticRegression：multinomial/softmax（未实现）、L1/elastic-net（未实现，仅支持 L2 via C）、更完整诊断
+- CoxPH：strata（未实现）、frailty（未实现）、time-varying covariates（未实现）、penalized Cox（✅ 已实现 L2 penalty）
 - 稀疏输入支持：CSR/CSC
 - CV 估计器：
   - ~~`RidgeCV`~~ ✅ 已完成 (2026-04-21)
@@ -206,7 +206,7 @@
 - LogisticRegression：
   - 缺多分类与 L1/elastic-net 路径
 - CoxPH：
-  - 缺 strata/frailty/time-varying、robust/cluster、penalized Cox
+  - 缺 strata/frailty/time-varying（未实现）、robust/cluster（✅ 已实现 CPU 路径）、penalized Cox（✅ 已实现 L2）
 
 ---
 
@@ -396,15 +396,15 @@ coef = where(active, coef_new, coef)
 
 ### P3: `_penalized.py` Debiased Inference 代码重复
 
-**现状**：~280 行 CuPy/Torch 几乎相同代码。
+**现状**：~280 行 CuPy/Torch 几乎相同代码。CPU/CuPy/Torch 三条路径已实现，M 矩阵缓存已实现。
 **方案**：重构为单一 backend-agnostic 方法。
-**难度**：高 | **风险**：高 | **状态**：未实现
+**难度**：高 | **风险**：高 | **状态**：已实现但未去重
 
 ### P3: `_penalized.py` Node-wise Lasso 循环优化
 
-**现状**：为每个特征创建新模型实例（最多 p 次）。
-**方案**：复用单个实例或使用底层 solver。
-**难度**：高 | **风险**：高 | **状态**：未实现
+**现状**：CPU 路径为每个特征创建新模型实例（最多 p 次）。GPU 路径已使用 Gram-matrix FISTA 批量求解。
+**方案**：CPU 路径复用单个实例或使用底层 solver。
+**难度**：高 | **风险**：高 | **状态**：CPU 未优化，GPU 已优化
 
 ---
 

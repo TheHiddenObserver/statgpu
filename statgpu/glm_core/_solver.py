@@ -1105,6 +1105,9 @@ def fista_lla_path(
             "n_iter": int(total_iter),
         })
 
+    # Save original alpha for thread-safe restoration at function exit
+    _saved_alpha = scad_penalty.alpha
+
     # For squared_error + GPU: fully inlined fused loop.
     # Uses torch.compile for torch, ElementwiseKernel for cupy.
     if _is_quadratic and backend in ("torch", "cupy"):
@@ -1437,6 +1440,9 @@ def fista_lla_path(
 
     # Extract coef and intercept
     coef_np, intercept = _split_current_coef(coef)
+
+    # Restore original alpha for thread safety
+    scad_penalty.alpha = _saved_alpha
 
     if return_path:
         if path_records:

@@ -197,7 +197,9 @@ def _solve_linear_system(A, b, backend="auto"):
             import cupy as cp
             return cp.linalg.solve(A, b)
         return np.linalg.solve(A, b)
-    except (np.linalg.LinAlgError, Exception):
+    except (np.linalg.LinAlgError, RuntimeError):
+        # LinAlgError for numpy/cupy singular matrices
+        # RuntimeError for torch singular matrices
         if backend == "torch":
             import torch
             b_col = b.unsqueeze(1) if b.ndim == 1 else b

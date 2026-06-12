@@ -36,11 +36,11 @@ from statgpu.glm_core._family import (
 )
 
 
-def _xp_arr(arr):
-    """Get the array module (numpy/cupy) from array type.
+def _np_compat_xp(arr):
+    """Get numpy-compatible array module from array type.
 
-    Unlike glm_core._family._xp, this does NOT return torch — it returns
-    numpy for torch tensors since we need numpy-compatible indexing ops.
+    Returns cupy for cupy arrays, numpy for everything else (including torch).
+    Used for operations that need numpy-style indexing (e.g., ordered model).
     """
     mod = type(arr).__module__
     if mod.startswith('cupy'):
@@ -1034,7 +1034,7 @@ class OrderedGeneralizedLinearModel(GeneralizedLinearModel):
         eta = X @ beta  # (n,)
         pi = family.link.inverse(thresh[:, None] - eta[None, :])  # (K-1, n)
 
-        xp = _xp_arr(X)
+        xp = _np_compat_xp(X)
         prob = xp.zeros((K, X.shape[0]), dtype=getattr(X, 'dtype', None))
         prob[0] = pi[0]
         for j in range(1, K - 1):
@@ -1044,7 +1044,7 @@ class OrderedGeneralizedLinearModel(GeneralizedLinearModel):
 
     def _ordered_gradient(self, X, y, beta, thresh, prob, prob_clipped, family, K, n):
         """Compute analytical gradient of the negative log-likelihood (vectorized)."""
-        xp = _xp_arr(X)
+        xp = _np_compat_xp(X)
         p = X.shape[1]
         n_thresh = K - 1
         dim = p + n_thresh
