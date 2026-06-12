@@ -836,7 +836,10 @@ def fista_solver(
 
             # Periodic Lipschitz recomputation
             if not _is_quadratic and iteration > 0 and iteration % 5 == 0:
-                L_new = loss.lipschitz(X_proc, coef, y=y_proc)
+                try:
+                    L_new = loss.lipschitz(X_proc, coef, y=y_proc, sample_weight=sample_weight)
+                except TypeError:
+                    L_new = loss.lipschitz(X_proc, coef, y=y_proc)
                 if L_new > 0:
                     if _loss_name == "tweedie":
                         L_new *= 5.0

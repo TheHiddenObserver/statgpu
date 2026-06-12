@@ -62,8 +62,10 @@ class LogisticLoss(GLMLoss):
             z = X @ coef
             p = _sigmoid(z)
             W = _clip(p * (1.0 - p), 1e-10, 0.25)
+            if sample_weight is not None:
+                W = W * (sample_weight if sample_weight.ndim == 1 else sample_weight.ravel())
             XtWX = X.T @ (X * W[:, None])
-            L_iter = _max_eigval_power(XtWX) / X.shape[0]
+            L_iter = _max_eigval_power(XtWX) / n_eff
             # Floor at 10% of global bound to prevent overshoot near optimum
             return max(L_iter, L_global * 0.1)
         return L_global
