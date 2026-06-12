@@ -986,7 +986,17 @@ def fista_lla_path(
     )
 
     n_samples, n_features = X_proc.shape
-    _validate_uniform_sample_weight(sample_weight, n_samples, "fista_lla_path")
+    # Validate sample_weight (supports non-uniform weights)
+    if sample_weight is not None:
+        _sw_np = _to_numpy(sample_weight) if hasattr(sample_weight, 'get') or hasattr(sample_weight, 'cpu') else np.asarray(sample_weight)
+        if _sw_np.ndim != 1 or _sw_np.shape[0] != n_samples:
+            raise ValueError("sample_weight must be 1D with length n_samples")
+        if not np.all(np.isfinite(_sw_np)):
+            raise ValueError("sample_weight must contain only finite values")
+        if np.any(_sw_np < 0):
+            raise ValueError("sample_weight must be non-negative")
+        if np.sum(_sw_np) <= 0:
+            raise ValueError("sample_weight must contain at least one positive value")
 
     # --- Intercept handling ---
     # For squared_error (identity link): centering X, y is exact.
@@ -1247,7 +1257,10 @@ def fista_lla_path(
                         q_yk_dev = float(_sum_sq_dev(y_c - X_c @ y_k)) * 0.5 / n_samples
                         grad = (XtX @ y_k - Xty) / n_samples
                     else:
-                        q_yk_dev, grad = _fused_glm_value_and_gradient(loss, X_c, y_c, y_k)
+                        if sample_weight is not None:
+                            q_yk_dev, grad = _weighted_loss_and_grad(loss, X_c, y_c, y_k, sample_weight)
+                        else:
+                            q_yk_dev, grad = _fused_glm_value_and_gradient(loss, X_c, y_c, y_k)
 
                     # Clip gradients (device-side, every 10 iterations)
                     if backend == "numpy" or iteration % 10 == 0:
@@ -1281,7 +1294,10 @@ def fista_lla_path(
                                 step = 1.0 / L
                                 continue
 
-                        q_new_dev = loss.value(X_c, y_c, coef_new)
+                        try:
+                            q_new_dev = loss.value(X_c, y_c, coef_new, sample_weight=sample_weight)
+                        except TypeError:
+                            q_new_dev = loss.value(X_c, y_c, coef_new)
                         slack_dev = bound_dev + _SLACK_TOLERANCE - q_new_dev
                         _armijo_ok = _to_float_scalar(slack_dev) >= 0
                         if _armijo_ok:
@@ -1848,7 +1864,10 @@ def fista_bb_solver(
         L = _cached_lipschitz_L
     else:
         _cached_lipschitz_L = None
-        L = loss.lipschitz(X_proc, _zero_coef_bb, y=y_proc)
+        try:
+            L = loss.lipschitz(X_proc, _zero_coef_bb, y=y_proc, sample_weight=sample_weight)
+        except TypeError:
+            L = loss.lipschitz(X_proc, _zero_coef_bb, y=y_proc)
     if L <= 0:
         L = 1.0
     # For GLM losses with exp link (Poisson, etc.), mu at coef=0
@@ -1884,10 +1903,23 @@ def fista_bb_solver(
     step_k = step_L
     step_max = step_L * step_max_factor
     step_min = step_L * step_min_factor
-    _validate_uniform_sample_weight(sample_weight, X_proc.shape[0], "fista_bb_solver")
+    # Validate sample_weight (supports non-uniform weights)
+    if sample_weight is not None:
+        _sw_np = _to_numpy(sample_weight) if hasattr(sample_weight, 'get') or hasattr(sample_weight, 'cpu') else np.asarray(sample_weight)
+        if _sw_np.ndim != 1 or _sw_np.shape[0] != X_proc.shape[0]:
+            raise ValueError("sample_weight must be 1D with length n_samples")
+        if not np.all(np.isfinite(_sw_np)):
+            raise ValueError("sample_weight must contain only finite values")
+        if np.any(_sw_np < 0):
+            raise ValueError("sample_weight must be non-negative")
+        if np.sum(_sw_np) <= 0:
+            raise ValueError("sample_weight must contain at least one positive value")
 
     # Gradient at initial point for first BB difference
-    grad_old = loss.gradient(X_proc, y_proc, coef)
+    try:
+        grad_old = loss.gradient(X_proc, y_proc, coef, sample_weight=sample_weight)
+    except TypeError:
+        grad_old = loss.gradient(X_proc, y_proc, coef)
     # Initialize dg for BB step selection (used before first assignment in loop)
     dg = _zeros(n_features, backend, ref_tensor=X_proc)
     iteration = -1  # default if max_iter=0
@@ -1896,7 +1928,10 @@ def fista_bb_solver(
         coef_old = _copy_arr(coef)
 
         # Gradient at extrapolated point
-        grad = loss.gradient(X_proc, y_proc, y_k)
+        try:
+            grad = loss.gradient(X_proc, y_proc, y_k, sample_weight=sample_weight)
+        except TypeError:
+            grad = loss.gradient(X_proc, y_proc, y_k)
 
         # Clip extreme gradients — every iteration, all backends.
         # Skip for inverse_gaussian: 1/mu^3 gradient scaling produces large but
@@ -1938,7 +1973,10 @@ def fista_bb_solver(
                     _diverged = True
             # Full objective check every 5 iterations
             if not _diverged:
-                _obj_val = float(_to_numpy(loss.value(X_proc, y_proc, coef)))
+                try:
+                    _obj_val = float(_to_numpy(loss.value(X_proc, y_proc, coef, sample_weight=sample_weight)))
+                except TypeError:
+                    _obj_val = float(_to_numpy(loss.value(X_proc, y_proc, coef)))
                 try:
                     _pen_val = float(_to_numpy(penalty.value(coef)))
                 except (AttributeError, Exception):
@@ -1966,7 +2004,10 @@ def fista_bb_solver(
                     coef = _zeros(n_features, backend, ref_tensor=X_proc)
                 y_k = _copy_arr(coef)
                 t_k = 1.0
-                grad_old = loss.gradient(X_proc, y_proc, coef)
+                try:
+                    grad_old = loss.gradient(X_proc, y_proc, coef, sample_weight=sample_weight)
+                except TypeError:
+                    grad_old = loss.gradient(X_proc, y_proc, coef)
                 # Halve step size bounds
                 step_L = step_L * 0.5
                 step_k = step_L
