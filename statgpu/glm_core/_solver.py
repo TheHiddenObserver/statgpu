@@ -246,7 +246,9 @@ def _abs_mean_max(y, backend):
     backend = _resolve_backend(backend, y)
     xp = _get_xp(backend)
     y_abs = xp.abs(y)
-    return _to_float_scalar(xp.mean(y_abs)), _to_float_scalar(xp.max(y_abs))
+    # Batch two scalar transfers into one GPU→CPU sync
+    mean_val, max_val = _sync_scalars(xp.mean(y_abs), xp.max(y_abs), backend=backend)
+    return mean_val, max_val
 
 
 def _smooth_penalty_gradient(penalty, coef):
@@ -555,7 +557,7 @@ def fista_solver(
     # (exp-link families where Nesterov can cause mu explosion).
     # Losses that disable momentum entirely (empty = none currently).
     # See _conservative_momentum below for the active momentum control.
-    _NO_MOMENTUM_LOSSES = frozenset()
+    # _NO_MOMENTUM_LOSSES removed — momentum control via _conservative_momentum
     # Conservative momentum (cap beta at 0.5) for exp-link families and
     # for logistic/gamma with non-smooth penalties.  Logistic/gamma with
     # smooth penalties (none, l2) benefit from full Nesterov acceleration.
@@ -849,10 +851,7 @@ def fista_solver(
                         L = max(L * 0.8, L_new)
 
         # Momentum update — all backends
-        if _loss_name in _NO_MOMENTUM_LOSSES:
-            t_k = 1.0
-            y_k = _copy_arr(coef)
-        elif _conservative_momentum:
+        if _conservative_momentum:
             t_new = (1.0 + np.sqrt(1.0 + 4.0 * t_k * t_k)) / 2.0
             beta = min((t_k - 1.0) / t_new, 0.5)
             y_k = coef + beta * (coef - coef_old)

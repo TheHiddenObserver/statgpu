@@ -61,7 +61,7 @@ def _sigmoid(arr):
     xp = _xp(arr)
     # float32 overflows exp() at ~89; float64 at ~709
     dtype = getattr(arr, 'dtype', None)
-    max_val = 88.0 if dtype is not None and '32' in str(dtype) else 500.0
+    max_val = 88.0 if dtype is not None and '32' in str(dtype) else 700.0
     z = _clip(arr, -max_val, max_val)
     if xp.__name__ == "torch":
         return xp.sigmoid(z)
