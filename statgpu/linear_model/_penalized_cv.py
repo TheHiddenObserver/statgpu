@@ -901,13 +901,13 @@ def _logistic_sparse_cv_path(
         loss is computed as weighted mean.
     """
     if not _is_uniform_weight(sample_weight):
-            warnings.warn(
-                "_logistic_sparse_cv_path: non-uniform sample_weight not supported, "
-                "falling back to general CV path.",
-                RuntimeWarning,
-                stacklevel=2,
-            )
-            return None
+        warnings.warn(
+            "_logistic_sparse_cv_path: non-uniform sample_weight not supported, "
+            "falling back to general CV path.",
+            RuntimeWarning,
+            stacklevel=2,
+        )
+        return None
 
     backend = _backend_name_for_cv_device(device)
     Xb = _to_backend_float64(X_train, backend)
@@ -1059,13 +1059,13 @@ def _squared_error_sparse_cv_path(
     fold using a single Gram matrix and warm-started FISTA path.
     """
     if not _is_uniform_weight(sample_weight):
-            warnings.warn(
-                "_squared_error_sparse_cv_path: non-uniform sample_weight not supported, "
-                "falling back to general CV path.",
-                RuntimeWarning,
-                stacklevel=2,
-            )
-            return None
+        warnings.warn(
+            "_squared_error_sparse_cv_path: non-uniform sample_weight not supported, "
+            "falling back to general CV path.",
+            RuntimeWarning,
+            stacklevel=2,
+        )
+        return None
 
     backend = _backend_name_for_cv_device(device)
     Xb = _to_backend_float64(X_train, backend)
@@ -1300,13 +1300,13 @@ def _glm_sparse_cv_path(
     if penalty_name not in ("l1", "elasticnet", "en"):
         return None
     if not _is_uniform_weight(sample_weight):
-            warnings.warn(
-                "_glm_sparse_cv_path: non-uniform sample_weight not supported, "
-                "falling back to general CV path.",
-                RuntimeWarning,
-                stacklevel=2,
-            )
-            return None
+        warnings.warn(
+            "_glm_sparse_cv_path: non-uniform sample_weight not supported, "
+            "falling back to general CV path.",
+            RuntimeWarning,
+            stacklevel=2,
+        )
+        return None
 
     from statgpu.glm_core._solver import fista_solver, fista_bb_solver
     from statgpu.linear_model._penalized import _resolve_loss_name
@@ -1499,13 +1499,13 @@ def _scad_mcp_cv_path(
     if penalty_name not in ("scad", "mcp"):
         return None
     if not _is_uniform_weight(sample_weight):
-            warnings.warn(
-                "_scad_mcp_cv_path: non-uniform sample_weight not supported, "
-                "falling back to general CV path.",
-                RuntimeWarning,
-                stacklevel=2,
-            )
-            return None
+        warnings.warn(
+            "_scad_mcp_cv_path: non-uniform sample_weight not supported, "
+            "falling back to general CV path.",
+            RuntimeWarning,
+            stacklevel=2,
+        )
+        return None
 
     from statgpu.glm_core._solver import fista_solver
     from statgpu.linear_model._penalized import _resolve_loss_name
