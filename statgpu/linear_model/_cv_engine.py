@@ -94,6 +94,10 @@ def run_cv(
         raise ValueError(f"X and y have different number of samples: {n_samples} vs {y.shape[0]}")
     if len(alpha_grid) == 0:
         raise ValueError("alpha_grid must not be empty")
+    if sample_weight is not None and len(sample_weight) != n_samples:
+        raise ValueError(
+            f"sample_weight length {len(sample_weight)} != n_samples {n_samples}"
+        )
 
     # 1. Generate folds
     folds = kfold_indices(n_samples, n_folds, random_state)

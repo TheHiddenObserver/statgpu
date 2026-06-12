@@ -7,6 +7,7 @@ from __future__ import annotations
 from typing import Any, Dict, Optional, Tuple, Union
 from collections import OrderedDict
 import hashlib
+import warnings
 import numpy as np
 
 from statgpu._config import Device
@@ -52,36 +53,23 @@ def _ridge_cv_cache_put(key, value):
 def _make_ridge_cv_auto_cache_key(X, y, alphas, folds, fit_intercept, use_gpu, sample_weight=None):
     """Generate automatic cache key for Ridge CV.
 
-    Includes a digest of X and y content (first/last rows + summary stats)
-    to avoid cross-dataset cache collisions.
+    Delegates data hashing to shared hash_cv_data() (10M threshold,
+    row-index aware), then appends Ridge-specific parameters.
     """
+    from statgpu.linear_model._cv_base import hash_cv_data
+    # Shared data hash (10M threshold, row indices for large datasets)
+    data_hash = hash_cv_data(X, y, sample_weight)
+    # Ridge-specific parameters
     h = hashlib.blake2b(digest_size=32)
-    h.update(np.asarray(X.shape, dtype=np.int64).tobytes())
+    h.update(data_hash)
     h.update(str(X.dtype).encode("utf-8"))
     h.update(np.asarray(alphas, dtype=np.float64).tobytes())
     h.update(str(fit_intercept).encode("utf-8"))
     h.update(str(use_gpu).encode("utf-8"))
-    # Hash data content: first row, last row, mean, std
-    from statgpu.backends import _to_numpy
-    X_np = np.asarray(_to_numpy(X), dtype=np.float64)
-    y_np = np.asarray(_to_numpy(y), dtype=np.float64).ravel()
-    n = X_np.shape[0]
-    h.update(np.asarray(X_np.shape, dtype=np.int64).tobytes())
-    # Sample up to 100 evenly spaced rows for robust hashing
-    step = max(1, n // 100)
-    idx = np.arange(0, n, step)[:100]
-    h.update(X_np[idx].tobytes())
-    h.update(y_np[idx].tobytes())
-    h.update(np.asarray([X_np.mean(), X_np.std()], dtype=np.float64).tobytes())
-    h.update(np.asarray([y_np.mean(), y_np.std()], dtype=np.float64).tobytes())
     # Hash fold indices (all elements to avoid collisions)
     for train_idx, val_idx in folds:
         h.update(train_idx.tobytes())
         h.update(val_idx.tobytes())
-    if sample_weight is not None:
-        sw = np.asarray(_to_numpy(sample_weight), dtype=np.float64).ravel()
-        h.update(sw[idx].tobytes())
-        h.update(np.asarray([sw.mean()], dtype=np.float64).tobytes())
     return h.hexdigest()
 
 
@@ -132,8 +120,10 @@ def _default_ridge_alpha_grid(X, y, n_alphas: int = 100, alpha_min_ratio: float 
     XtX = X_centered.T @ X_centered
     Xty = X_centered.T @ y_centered
 
-    # alpha_max: smallest alpha where all coefficients become zero
-    # For Ridge: alpha_max = max(|Xty|) * 2 / n (approximately)
+    # alpha_max: heuristic upper bound for the alpha grid.
+    # The *2.0 factor is a conservative heuristic to ensure the grid covers
+    # a wide enough range; CV selects the best alpha empirically regardless.
+    # (Exact L1 alpha_max = max(|X'y|)/n; Ridge has no exact sparsity threshold.)
     n_samples = X_arr.shape[0]
     alpha_max = np.max(np.abs(Xty)) * 2.0 / n_samples
 
@@ -204,7 +194,12 @@ def _solve_ridge_path_gpu_from_gram_eig(XtX_batch, Xty_batch, alphas, backend, f
     # eigvals: (n_folds, n_features), Q: (n_folds, n_features, n_features)
     eigvals, Q = xp.linalg.eigh(XtX_batch)
     # Clamp eigenvalues to avoid division by zero for rank-deficient X'X
-    eigvals = xp.maximum(eigvals, 1e-15)
+    # Use dtype-relative floor: float32 tiny ≈ 1.2e-38, float64 tiny ≈ 2.2e-308
+    try:
+        _eig_floor = max(float(xp.finfo(eigvals.dtype).tiny), 1e-15)
+    except (AttributeError, TypeError):
+        _eig_floor = 1e-15
+    eigvals = xp.maximum(eigvals, _eig_floor)
 
     # Step 2: Project Xty into eigenbasis
     # QTXty = Q.T @ Xty_batch  -> (n_folds, n_features)
@@ -331,6 +326,8 @@ def _select_ridge_alpha_cv(
     details : dict (if return_details=True)
         Full CV results including alpha grid, MSE path, etc.
     """
+    if isinstance(device, Device):
+        device = device.value
     device_name = str(device).lower()
     use_gpu = device_name in (Device.CUDA.value, Device.TORCH.value, "torch")
     gpu_requested = use_gpu
@@ -393,7 +390,7 @@ def _select_ridge_alpha_cv(
 
     # Generate alpha grid
     if alphas is None:
-        if gpu_input_cupy or (use_gpu and hasattr(X, 'device') and str(X.device) != 'cpu'):
+        if gpu_input_cupy or gpu_input_torch or (use_gpu and hasattr(X, 'device') and str(X.device) != 'cpu'):
             # GPU path for alpha grid generation
             if gpu_input_torch:
                 backend = get_backend(backend='torch', device='cuda')
@@ -421,7 +418,8 @@ def _select_ridge_alpha_cv(
         alpha_grid = alpha_grid[np.isfinite(alpha_grid)]
         alpha_grid = alpha_grid[alpha_grid > 0.0]
         if alpha_grid.size == 0:
-            if gpu_input_cupy or (use_gpu and hasattr(X, 'device') and str(X.device) != 'cpu'):
+            warnings.warn("All provided alphas were filtered; using default grid.", RuntimeWarning)
+            if gpu_input_cupy or gpu_input_torch or (use_gpu and hasattr(X, 'device') and str(X.device) != 'cpu'):
                 # GPU path for alpha grid generation
                 backend = get_backend(Device.CUDA)
                 X_temp = backend.asarray(X)
@@ -505,7 +503,7 @@ def _select_ridge_alpha_cv(
             cv_dtype = backend.float32 if bool(gpu_cv_mixed_precision) else backend.float64
 
             # Convert inputs to backend arrays
-            if gpu_input_cupy or (hasattr(X, 'device') and str(X.device) != 'cpu'):
+            if gpu_input_cupy or gpu_input_torch or (hasattr(X, 'device') and str(X.device) != 'cpu'):
                 # Already on GPU (CuPy or Torch)
                 X_full = backend.asarray(X, dtype=cv_dtype)
                 y_full = backend.asarray(y, dtype=cv_dtype).reshape(-1)
@@ -596,7 +594,7 @@ def _select_ridge_alpha_cv(
                         # Weighted Ridge: use X'WX, X'Wy directly
                         sw_col = sw_train[:, None]
                         if bool(fit_intercept):
-                            w_sum = float(backend.sum(sw_train))
+                            w_sum = max(float(backend.sum(sw_train)), 1e-15)
                             X_wmean = backend.sum(X_train * sw_col, axis=0) / w_sum
                             y_wmean = backend.sum(y_train * sw_train) / w_sum
                             XtX = (X_train * sw_col).T @ X_train - w_sum * backend.outer(X_wmean, X_wmean)
@@ -608,7 +606,7 @@ def _select_ridge_alpha_cv(
                             Xty = (X_train * sw_col).T @ y_train
                             X_mean = backend.zeros((X_train.shape[1],), dtype=X_train.dtype)
                             y_mean = backend.array(0.0, dtype=X_train.dtype)
-                        n_train = float(sw_train.sum()) if bool(fit_intercept) else int(X_train.shape[0])
+                        n_train = float(sw_train.sum())  # Use weight sum for regularization consistency
                     else:
                         if bool(fit_intercept):
                             X_mean = backend.mean(X_train, axis=0)
@@ -746,7 +744,7 @@ def _select_ridge_alpha_cv(
                     # Weighted Ridge: use X'WX, X'Wy directly (matches GPU path)
                     sw_col = sw_train[:, np.newaxis]
                     if bool(fit_intercept):
-                        w_sum = float(np.sum(sw_train))
+                        w_sum = max(float(np.sum(sw_train)), 1e-15)
                         X_wmean = np.sum(X_train * sw_col, axis=0) / w_sum
                         y_wmean = float(np.sum(y_train * sw_train)) / w_sum
                         XtX = (X_train * sw_col).T @ X_train - w_sum * np.outer(X_wmean, X_wmean)
@@ -935,7 +933,7 @@ def _compute_intercepts_batch(coefs_batch, X_mean_batch, y_mean_batch, backend, 
     xp = backend.xp
 
     if not fit_intercept:
-        return backend.zeros((coefs_batch.shape[0], coefs_batch.shape[1]), dtype=backend.float64)
+        return backend.zeros((coefs_batch.shape[0], coefs_batch.shape[1]), dtype=coefs_batch.dtype)
 
     n_alphas = coefs_batch.shape[0]
     n_folds = coefs_batch.shape[1]

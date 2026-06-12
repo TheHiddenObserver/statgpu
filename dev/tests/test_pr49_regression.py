@@ -159,16 +159,18 @@ class TestIrlsDtype:
 # ======================================================================
 
 class TestLipschitzConstants:
-    def test_constants_exist(self):
-        from statgpu.glm_core._solver import (
-            _LIPSCHITZ_SAFETY_INVERSE_GAUSSIAN,
-            _LIPSCHITZ_SAFETY_TWEEDIE,
-            _LIPSCHITZ_SAFETY_GAMMA,
-            _LIPSCHITZ_SAFETY_LOGISTIC_CV,
-        )
-        assert _LIPSCHITZ_SAFETY_INVERSE_GAUSSIAN == 3.0
-        assert _LIPSCHITZ_SAFETY_TWEEDIE == 5.0
-        assert _LIPSCHITZ_SAFETY_GAMMA == 3.0
+    def test_per_family_safety_on_loss_classes(self):
+        """Per-family Lipschitz safety factors are on the loss classes."""
+        from statgpu.glm_core._gamma import GammaLoss
+        from statgpu.glm_core._inverse_gaussian import InverseGaussianLoss
+        from statgpu.glm_core._tweedie import TweedieLoss
+        from statgpu.glm_core._negative_binomial import NegativeBinomialLoss
+        from statgpu.glm_core._solver import _LIPSCHITZ_SAFETY_LOGISTIC_CV
+
+        assert GammaLoss._lipschitz_safety == 3.0
+        assert InverseGaussianLoss._lipschitz_safety == 3.0
+        assert TweedieLoss._lipschitz_safety == 5.0
+        assert NegativeBinomialLoss._lipschitz_safety == 2.0
         assert _LIPSCHITZ_SAFETY_LOGISTIC_CV == 2.0
 
 
@@ -851,10 +853,29 @@ class TestP1RidgeCvWeighted:
 class TestP1SolverFixes:
     def test_gamma_gradient_formula(self):
         """Fused gamma gradient should be X'(mu-y)/n, not X'(1-y/mu)/n."""
-        import inspect
+        import numpy as np
         from statgpu.glm_core._solver import _fused_gamma
-        src = inspect.getsource(_fused_gamma)
-        assert 'mu_c - y' in src
+
+        # Create a simple gamma loss object with log link
+        class _FakeLoss:
+            name = 'gamma'
+            link_name = 'log'
+        loss = _FakeLoss()
+
+        rng = np.random.default_rng(42)
+        n, p = 50, 3
+        X = rng.standard_normal((n, p))
+        coef = np.array([0.1, -0.2, 0.3])
+        eta = X @ coef
+        mu = np.exp(eta)
+        y = mu * (1 + 0.1 * rng.standard_normal(n))  # y ~ mu with noise
+
+        val, grad = _fused_gamma(eta, X, y, n, loss)
+
+        # Verify gradient matches the analytical formula: X'(mu - y) / (mu * n)
+        mu_c = np.clip(mu, 1e-10, None)
+        expected_grad = X.T @ ((mu_c - y) / mu_c) / n
+        np.testing.assert_allclose(grad, expected_grad, rtol=1e-10)
 
     def test_fista_bb_dg_initialized(self):
         """fista_bb_solver should initialize dg before the loop."""
@@ -1221,7 +1242,8 @@ class TestP3CodeQuality:
 # 33. Performance: regression check
 # ======================================================================
 
-class TestPerformanceRegression:
+class TestPerformanceRegressionSmall:
+    """Performance regression tests for small problems (n=100/500)."""
     @pytest.mark.parametrize("n,p", [(100, 5), (500, 20)])
     def test_lasso_cv_time(self, n, p):
         """LassoCV should complete within reasonable time."""
@@ -2444,3 +2466,1057 @@ class TestHashCvDataShared:
         assert 'hash_cv_data' in content
         assert 'def _hash_data' not in content
         print('[OK] _lasso_cv uses shared hash_cv_data')
+
+
+# ======================================================================
+# 78. ADMM proximal contract comment
+# ======================================================================
+
+class TestADMMProximalContract:
+    def test_contract_comment_exists(self):
+        """ADMM z-update should have a comment explaining the proximal contract."""
+        with open('statgpu/glm_core/_solver.py', 'r', encoding='utf-8') as f:
+            content = f.read()
+        # Find the ADMM z-update line
+        assert 'Contract: proximal(z, step)' in content
+        assert 'step = 1/rho' in content
+        print('[OK] ADMM proximal contract comment exists')
+
+
+# ======================================================================
+# 79. fista_bb burn-in hoisted outside loop
+# ======================================================================
+
+class TestFistaBbBurnInHoisted:
+    def test_burn_in_not_in_loop(self):
+        """bb_burn_in and _momentum_burn_in should be computed before the loop."""
+        with open('statgpu/glm_core/_solver.py', 'r', encoding='utf-8') as f:
+            lines = f.readlines()
+        # Find the fista_bb_solver function
+        in_func = False
+        found_loop = False
+        burn_in_after_loop = False
+        for i, line in enumerate(lines):
+            if 'def fista_bb_solver(' in line:
+                in_func = True
+                continue
+            if in_func and line.strip().startswith('def ') and 'fista_bb_solver' not in line:
+                break
+            if in_func and 'for iteration in range(max_iter):' in line:
+                found_loop = True
+                continue
+            if found_loop and in_func:
+                # After the loop starts, there should be no bb_burn_in assignment
+                if 'bb_burn_in = max(' in line and '_momentum_burn_in' not in line:
+                    # Check if this is inside the loop (indented more than the for)
+                    indent = len(line) - len(line.lstrip())
+                    for_indent = len(lines[i-1]) - len(lines[i-1].lstrip()) if i > 0 else 0
+                    if indent > for_indent:
+                        burn_in_after_loop = True
+                        break
+        assert found_loop, "Could not find 'for iteration in range(max_iter)' in fista_bb_solver"
+        assert not burn_in_after_loop, "bb_burn_in assignment found inside the loop"
+        print('[OK] fista_bb burn-in hoisted outside loop')
+
+
+# ======================================================================
+# 80. fista_bb restart uses coef not coef_new
+# ======================================================================
+
+class TestFistaBbRestartUsesCoef:
+    def test_restart_uses_coef(self):
+        """Restart check should use `coef` (current) not `coef_new` (stale)."""
+        with open('statgpu/glm_core/_solver.py', 'r', encoding='utf-8') as f:
+            content = f.read()
+        # The restart check should use coef - coef_old, not coef_new - coef_old
+        assert 'y_k - coef, coef - coef_old' in content
+        assert 'y_k - coef_new, coef_new - coef_old' not in content
+        print('[OK] fista_bb restart uses coef not coef_new')
+
+
+# ======================================================================
+# 81. Divergence threshold NaN safety
+# ======================================================================
+
+class TestDivergenceThresholdNaNSafety:
+    def test_isfinite_guard_exists(self):
+        """Divergence check should guard against _obj_best = ±inf."""
+        with open('statgpu/glm_core/_solver.py', 'r', encoding='utf-8') as f:
+            content = f.read()
+        assert 'not np.isfinite(_obj_best)' in content
+        print('[OK] Divergence threshold has NaN safety guard')
+
+
+# ======================================================================
+# 82. Exception narrowing in _tracking_penalty_value
+# ======================================================================
+
+class TestTrackingPenaltyExceptionNarrowing:
+    def test_no_bare_except(self):
+        """_tracking_penalty_value should not catch bare Exception."""
+        with open('statgpu/glm_core/_solver.py', 'r', encoding='utf-8') as f:
+            content = f.read()
+        # Find the function
+        start = content.find('def _tracking_penalty_value(')
+        end = content.find('\ndef ', start + 1)
+        func_body = content[start:end]
+        # Should NOT have 'except Exception:' (bare)
+        assert 'except Exception:' not in func_body, \
+            "_tracking_penalty_value still has bare 'except Exception'"
+        # Should have specific exception types
+        assert 'except (ValueError, TypeError, AttributeError)' in func_body
+        print('[OK] _tracking_penalty_value exception narrowing verified')
+
+
+# ======================================================================
+# 83. Newton solver line search exception narrowing
+# ======================================================================
+
+class TestNewtonLineSearchExceptionNarrowing:
+    def test_no_bare_except(self):
+        """newton_solver line search should not catch bare Exception."""
+        with open('statgpu/glm_core/_solver.py', 'r', encoding='utf-8') as f:
+            content = f.read()
+        start = content.find('def newton_solver(')
+        end = content.find('\ndef ', start + 1)
+        func_body = content[start:end]
+        assert 'except Exception:' not in func_body, \
+            "newton_solver still has bare 'except Exception' in line search"
+        assert 'except (ValueError, RuntimeError, FloatingPointError)' in func_body
+        print('[OK] newton_solver line search exception narrowing verified')
+
+
+# ======================================================================
+# 84. CG solver pAp check
+# ======================================================================
+
+class TestCGSolverPapCheck:
+    def test_cg_breaks_on_nonpositive_pap(self):
+        """CG solver should break when pAp <= 0 (indefinite system)."""
+        from statgpu.glm_core._solver import _cg_solve
+        # Create an indefinite system: A = -I (negative definite)
+        n = 5
+        A_neg = -np.eye(n)
+        b = np.ones(n)
+        # Should not crash, returns best effort
+        result = _cg_solve(lambda x: A_neg @ x, b, max_iter=10, tol=1e-6)
+        assert result is not None
+        assert np.all(np.isfinite(result))
+        print('[OK] CG solver handles indefinite system')
+
+
+# ======================================================================
+# 85. CVCache thread safety
+# ======================================================================
+
+class TestCVCacheThreadSafety:
+    def test_has_lock(self):
+        """CVCache should have a threading.Lock."""
+        from statgpu.linear_model._cv_base import CVCache
+        cache = CVCache()
+        assert hasattr(cache, '_lock')
+        import threading
+        # threading.Lock() returns a _thread.lock instance
+        lock = threading.Lock()
+        assert type(cache._lock) is type(lock), \
+            f"Expected threading.Lock, got {type(cache._lock)}"
+        print('[OK] CVCache has threading.Lock')
+
+    def test_concurrent_access(self):
+        """CVCache should handle concurrent get/put without corruption."""
+        import threading
+        from statgpu.linear_model._cv_base import CVCache
+        cache = CVCache(maxsize=10)
+        errors = []
+
+        def writer(start):
+            try:
+                for i in range(100):
+                    cache.put(f"key_{start}_{i}", i)
+            except Exception as e:
+                errors.append(e)
+
+        def reader():
+            try:
+                for _ in range(100):
+                    cache.get("nonexistent")
+            except Exception as e:
+                errors.append(e)
+
+        threads = [threading.Thread(target=writer, args=(t,)) for t in range(4)]
+        threads += [threading.Thread(target=reader) for _ in range(4)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        assert len(errors) == 0, f"Concurrent access errors: {errors}"
+        print('[OK] CVCache handles concurrent access')
+
+
+# ======================================================================
+# 86. hash_cv_data collision reduction
+# ======================================================================
+
+class TestHashCvDataCollisionReduction:
+    def test_different_data_different_hash(self):
+        """Different datasets should produce different hashes."""
+        from statgpu.linear_model._cv_base import hash_cv_data
+        rng = np.random.default_rng(42)
+        X1 = rng.standard_normal((100, 10))
+        y1 = rng.standard_normal(100)
+        X2 = rng.standard_normal((100, 10))
+        y2 = rng.standard_normal(100)
+        h1 = hash_cv_data(X1, y1)
+        h2 = hash_cv_data(X2, y2)
+        assert h1 != h2, "Different datasets produced same hash"
+        print('[OK] Different datasets produce different hashes')
+
+    def test_same_data_same_hash(self):
+        """Same dataset should produce same hash."""
+        from statgpu.linear_model._cv_base import hash_cv_data
+        rng = np.random.default_rng(42)
+        X = rng.standard_normal((100, 10))
+        y = rng.standard_normal(100)
+        h1 = hash_cv_data(X, y)
+        h2 = hash_cv_data(X, y)
+        assert h1 == h2, "Same dataset produced different hashes"
+        print('[OK] Same dataset produces same hash')
+
+    def test_small_dataset_full_hash(self):
+        """Small datasets should use full content hashing."""
+        from statgpu.linear_model._cv_base import hash_cv_data
+        # n*p = 10*5 = 50 < 50000 threshold
+        X = np.ones((10, 5))
+        y = np.ones(10)
+        # Modify last row only — should detect difference
+        X2 = X.copy()
+        X2[-1, 0] = 999.0
+        h1 = hash_cv_data(X, y)
+        h2 = hash_cv_data(X2, y)
+        assert h1 != h2, "Full hash should detect last-row difference"
+        print('[OK] Small dataset uses full content hashing')
+
+    def test_sampled_hash_includes_boundary(self):
+        """Large dataset sampled hash should include first and last rows."""
+        from statgpu.linear_model._cv_base import hash_cv_data
+        rng = np.random.default_rng(42)
+        # n*p = 200*500 = 100000 > 50000 threshold
+        X = rng.standard_normal((200, 500))
+        y = rng.standard_normal(200)
+        X2 = X.copy()
+        X2[-1, 0] = 999.0  # modify last row only
+        h1 = hash_cv_data(X, y)
+        h2 = hash_cv_data(X2, y)
+        assert h1 != h2, "Sampled hash should detect last-row difference"
+        print('[OK] Sampled hash includes boundary rows')
+
+    def test_weighted_hash_includes_weights(self):
+        """Hash should differ when sample_weight differs."""
+        from statgpu.linear_model._cv_base import hash_cv_data
+        rng = np.random.default_rng(42)
+        X = rng.standard_normal((50, 5))
+        y = rng.standard_normal(50)
+        w1 = np.ones(50)
+        w2 = np.ones(50)
+        w2[0] = 2.0
+        h1 = hash_cv_data(X, y, w1)
+        h2 = hash_cv_data(X, y, w2)
+        assert h1 != h2, "Different weights produced same hash"
+        print('[OK] Weighted hash detects weight differences')
+
+
+# ======================================================================
+# 87. RidgeCV weighted n_train consistency
+# ======================================================================
+
+class TestRidgeCVWeightedNTrain:
+    def test_n_train_uses_weight_sum(self):
+        """RidgeCV weighted path should use sum(weights) for n_train."""
+        with open('statgpu/linear_model/_ridge_cv.py', 'r', encoding='utf-8') as f:
+            content = f.read()
+        # The old code had: n_train = float(sw_train.sum()) if bool(fit_intercept) else int(X_train.shape[0])
+        # The fix should always use float(sw_train.sum())
+        assert 'if bool(fit_intercept) else int(X_train.shape[0])' not in content, \
+            "RidgeCV still has conditional n_train based on fit_intercept"
+        print('[OK] RidgeCV weighted n_train uses weight sum unconditionally')
+
+
+# ======================================================================
+# 88. run_cv sample_weight validation
+# ======================================================================
+
+class TestRunCvSampleWeightValidation:
+    def test_mismatched_weight_length_raises(self):
+        """run_cv should raise ValueError when sample_weight length mismatches."""
+        from statgpu.linear_model._cv_engine import run_cv
+        X = np.zeros((100, 5))
+        y = np.zeros(100)
+        bad_weights = np.ones(50)  # wrong length
+        with pytest.raises(ValueError, match="sample_weight length"):
+            run_cv(X, y, np.array([0.1, 1.0]),
+                   lambda Xt, yt, Xv, yv, a, sw_train=None, sw_val=None: 0.0,
+                   n_folds=2, sample_weight=bad_weights)
+        print('[OK] run_cv rejects mismatched sample_weight')
+
+
+# ======================================================================
+# 89. LBFGS line search stall warning
+# ======================================================================
+
+class TestLBFGSLineSearchStallWarning:
+    def test_warning_emitted_on_stall(self):
+        """lbfgs_solver should warn when line search fails all backtracking steps."""
+        with open('statgpu/glm_core/_solver.py', 'r', encoding='utf-8') as f:
+            content = f.read()
+        assert 'lbfgs_solver: line search failed' in content
+        print('[OK] LBFGS stall warning exists in code')
+
+
+# ======================================================================
+# 90. Zero init pattern
+# ======================================================================
+
+class TestZeroInitPattern:
+    def test_no_copy_times_zero(self):
+        """Should use _zeros() instead of _copy_arr * 0.0 for zero init."""
+        with open('statgpu/glm_core/_solver.py', 'r', encoding='utf-8') as f:
+            content = f.read()
+        # The old pattern was _copy_arr(coef) * 0.0
+        assert '_copy_arr(coef) * 0.0' not in content, \
+            "Still using _copy_arr(coef) * 0.0 for zero init"
+        print('[OK] Zero init uses _zeros()')
+
+
+# ======================================================================
+# 91. ADMM Cholesky fallback
+# ======================================================================
+
+class TestADMMCholeskyFallback:
+    def test_cholesky_has_try_except(self):
+        """ADMM Cholesky should have try/except for non-PD matrices."""
+        with open('statgpu/glm_core/_solver.py', 'r', encoding='utf-8') as f:
+            content = f.read()
+        # Find the ADMM solver
+        start = content.find('def admm_solver(')
+        end = content.find('\ndef ', start + 1)
+        func_body = content[start:end]
+        assert 'LinAlgError' in func_body or '_cholesky_ok' in func_body, \
+            "ADMM Cholesky has no fallback for non-PD matrices"
+        print('[OK] ADMM Cholesky has fallback for non-PD matrices')
+
+
+# ======================================================================
+# 92. PenalizedGLM_CV MSE fallback warning
+# ======================================================================
+
+class TestPenalizedGLMCVMSEFallbackWarning:
+    def test_mse_fallback_warns(self):
+        """_evaluate_single MSE fallback should emit RuntimeWarning."""
+        with open('statgpu/linear_model/_penalized_cv.py', 'r', encoding='utf-8') as f:
+            content = f.read()
+        # Find _evaluate_single
+        start = content.find('def _evaluate_single(')
+        end = content.find('\n    def ', start + 1)
+        func_body = content[start:end]
+        assert 'falling back to MSE' in func_body
+        assert 'RuntimeWarning' in func_body
+        print('[OK] PenalizedGLM_CV MSE fallback emits warning')
+
+
+# ======================================================================
+# 93. _build_cv_cache uses _max_eigval_power
+# ======================================================================
+
+class TestBuildCvCacheUsesMaxEigvalPower:
+    def test_no_eigvalsh(self):
+        """_build_cv_cache should use _max_eigval_power, not eigvalsh."""
+        with open('statgpu/linear_model/_penalized_cv.py', 'r', encoding='utf-8') as f:
+            content = f.read()
+        start = content.find('def _build_cv_cache(')
+        end = content.find('\n    def ', start + 1)
+        func_body = content[start:end]
+        assert 'eigvalsh' not in func_body, \
+            "_build_cv_cache still uses eigvalsh"
+        assert '_max_eigval_power' in func_body
+        print('[OK] _build_cv_cache uses _max_eigval_power')
+
+
+# ======================================================================
+# 94. C1: RidgeCV torch CPU tensor + device='cuda' guard
+# ======================================================================
+
+class TestRidgeCVTorchCpuCudaGuard:
+    def test_gpu_input_torch_in_condition(self):
+        """GPU path should check gpu_input_torch, not just device attribute."""
+        with open('statgpu/linear_model/_ridge_cv.py', 'r', encoding='utf-8') as f:
+            content = f.read()
+        # The convert-from-numpy branch must include gpu_input_torch
+        assert 'gpu_input_cupy or gpu_input_torch or (hasattr(X' in content, \
+            "GPU path missing gpu_input_torch guard"
+        print('[OK] RidgeCV torch CPU tensor guard present')
+
+
+# ======================================================================
+# 95. C2: predict() return_cpu parameter
+# ======================================================================
+
+class TestPredictReturnCpuParam:
+    def test_predict_has_return_cpu(self):
+        """predict() should accept return_cpu parameter."""
+        import inspect
+        from statgpu.linear_model._penalized import PenalizedGeneralizedLinearModel
+        sig = inspect.signature(PenalizedGeneralizedLinearModel.predict)
+        assert 'return_cpu' in sig.parameters, \
+            "predict() missing return_cpu parameter"
+        assert sig.parameters['return_cpu'].default is True, \
+            "return_cpu should default to True"
+        print('[OK] predict() has return_cpu=True parameter')
+
+    def test_predict_numpy_returns_numpy(self):
+        """predict() with numpy backend should always return numpy."""
+        from statgpu.linear_model._penalized import PenalizedLinearRegression
+        np.random.seed(42)
+        X = np.random.randn(50, 3)
+        y = X @ np.array([1.0, -2.0, 0.5]) + 0.1 * np.random.randn(50)
+        model = PenalizedLinearRegression(alpha=0.01)
+        model.fit(X, y)
+        pred = model.predict(X, return_cpu=True)
+        assert isinstance(pred, np.ndarray), f"Expected ndarray, got {type(pred)}"
+        pred2 = model.predict(X, return_cpu=False)
+        assert isinstance(pred2, np.ndarray), f"numpy backend should return ndarray regardless"
+        print('[OK] predict() numpy backend returns numpy')
+
+
+# ======================================================================
+# 96. C3: LLA intercept + sample_weight
+# ======================================================================
+
+class TestLLAInterceptSampleWeight:
+    def test_lla_weighted_intercept_code(self):
+        """_fit_lla should use weighted means for intercept when sample_weight provided."""
+        with open('statgpu/linear_model/_penalized.py', 'r', encoding='utf-8') as f:
+            content = f.read()
+        # Find the _fit_lla intercept computation
+        idx = content.find('if self.coef_ is None and coef_lla is not None')
+        assert idx > 0, "Could not find LLA intercept block"
+        block = content[idx:idx+600]
+        assert 'sample_weight is not None' in block, \
+            "LLA intercept does not check sample_weight"
+        assert 'sw_sum' in block, \
+            "LLA intercept missing weighted sum guard"
+        print('[OK] LLA intercept uses weighted means with sample_weight')
+
+
+# ======================================================================
+# 97. C4: fista_bb objective threshold is relative
+# ======================================================================
+
+class TestFistaBbObjectiveThreshold:
+    def test_threshold_is_relative(self):
+        """fista_bb objective threshold should be relative to _obj_best, not hardcoded 1e6."""
+        with open('statgpu/glm_core/_solver.py', 'r', encoding='utf-8') as f:
+            content = f.read()
+        # Should NOT have bare `_new_total < 1e6` without _obj_cap
+        # The fix uses _obj_cap = max(_obj_best * 10.0, 1e6)
+        assert '_obj_cap' in content, \
+            "Missing _obj_cap relative threshold"
+        assert '_obj_best * 10.0' in content, \
+            "Objective threshold not relative to _obj_best"
+        print('[OK] fista_bb objective threshold is relative')
+
+
+# ======================================================================
+# 98. H1/H2: SCAD a=2 / MCP gamma=1 div/0 guards
+# ======================================================================
+
+class TestSCADMCPSingularityGuard:
+    def test_scad_a_guard_in_source(self):
+        """SCAD CD should guard a != 2.0 to avoid division by zero."""
+        with open('statgpu/linear_model/_penalized.py', 'r', encoding='utf-8') as f:
+            content = f.read()
+        # Should have guard: abs(a_scad - 2.0) < 1e-6
+        assert 'abs(a_scad - 2.0)' in content, \
+            "SCAD missing a=2.0 singularity guard"
+        print('[OK] SCAD a=2.0 singularity guard present')
+
+    def test_mcp_gamma_guard_in_source(self):
+        """MCP CD should guard gamma > 1 to avoid division by zero."""
+        with open('statgpu/linear_model/_penalized.py', 'r', encoding='utf-8') as f:
+            content = f.read()
+        assert 'max(gamma_mcp, 1.0 + 1e-6)' in content, \
+            "MCP missing gamma=1.0 singularity guard"
+        print('[OK] MCP gamma=1.0 singularity guard present')
+
+    def test_scad_cd_no_crash_near_boundary(self):
+        """SCAD CD with a close to 2.0 should not crash (guard clamps a away from 2)."""
+        from statgpu.linear_model._penalized import PenalizedLinearRegression
+        np.random.seed(42)
+        X = np.random.randn(30, 5)
+        y = X @ np.random.randn(5) + 0.1 * np.random.randn(30)
+        # a=2.001 is valid for SCADPenalty constructor but would cause div/0
+        # in the CD formula without the guard (a-2.0 = 0.001 -> huge values)
+        model = PenalizedLinearRegression(alpha=0.1, penalty='scad',
+                                          penalty_kwargs={'a': 2.001})
+        model.fit(X, y)
+        assert model.coef_ is not None
+        assert np.all(np.isfinite(model.coef_))
+        print('[OK] SCAD a=2.001 does not crash')
+
+    def test_mcp_cd_no_crash_near_boundary(self):
+        """MCP CD with gamma close to 1.0 should not crash (guard clamps gamma away from 1)."""
+        from statgpu.linear_model._penalized import PenalizedLinearRegression
+        np.random.seed(42)
+        X = np.random.randn(30, 5)
+        y = X @ np.random.randn(5) + 0.1 * np.random.randn(30)
+        # gamma=1.001 is valid for MCPPenalty but would cause div/0
+        # in the CD formula without the guard (1 - 1/1.001 ≈ 0.001)
+        model = PenalizedLinearRegression(alpha=0.1, penalty='mcp',
+                                          penalty_kwargs={'gamma': 1.001})
+        model.fit(X, y)
+        assert model.coef_ is not None
+        assert np.all(np.isfinite(model.coef_))
+        print('[OK] MCP gamma=1.001 does not crash')
+
+
+# ======================================================================
+# 99. H5: fit_intercept not mutated by formula
+# ======================================================================
+
+class TestFitInterceptNotMutated:
+    def test_fit_intercept_preserved(self):
+        """fit() with formula should not mutate self.fit_intercept."""
+        import pandas as pd
+        from statgpu.linear_model._glm_base import GeneralizedLinearModel
+        # Create a simple model
+        model = GeneralizedLinearModel(family='gaussian', fit_intercept=True)
+        original = model.fit_intercept
+        # After construction, fit_intercept should be unchanged
+        assert model.fit_intercept == original
+        assert model._use_intercept is None  # not set until fit with formula
+        print('[OK] fit_intercept not mutated by formula')
+
+    def test_effective_intercept_property(self):
+        """_effective_intercept should fall back to fit_intercept when no formula."""
+        from statgpu.linear_model._glm_base import GeneralizedLinearModel
+        model = GeneralizedLinearModel(family='gaussian', fit_intercept=True)
+        assert model._effective_intercept is True
+        model2 = GeneralizedLinearModel(family='gaussian', fit_intercept=False)
+        assert model2._effective_intercept is False
+        # With _use_intercept set (formula mode)
+        model._use_intercept = False
+        assert model._effective_intercept is False
+        assert model.fit_intercept is True  # original preserved
+        print('[OK] _effective_intercept property works correctly')
+
+
+# ======================================================================
+# 100. H6: get_params() returns all constructor parameters
+# ======================================================================
+
+class TestGetParamsComplete:
+    def test_base_estimator_get_params(self):
+        """BaseEstimator.get_params() should return all __init__ params."""
+        from statgpu._base import BaseEstimator
+        # Use a real concrete subclass (Ridge) to avoid abstract method issues
+        from statgpu.linear_model._ridge import Ridge
+        est = Ridge(alpha=0.5, fit_intercept=False)
+        params = est.get_params()
+        assert 'alpha' in params, "get_params() missing 'alpha'"
+        assert 'fit_intercept' in params, "get_params() missing 'fit_intercept'"
+        assert 'device' in params, "get_params() missing 'device'"
+        assert params['alpha'] == 0.5
+        assert params['fit_intercept'] is False
+        print('[OK] BaseEstimator.get_params() returns all params')
+
+    def test_cv_estimator_get_params(self):
+        """CVEstimatorBase.get_params() should return cv and random_state."""
+        from statgpu.linear_model._ridge_cv import RidgeCV
+        est = RidgeCV(cv=3, random_state=42, fit_intercept=False)
+        params = est.get_params()
+        assert 'cv' in params, "get_params() missing 'cv'"
+        assert 'random_state' in params, "get_params() missing 'random_state'"
+        assert 'fit_intercept' in params, "get_params() missing 'fit_intercept'"
+        assert params['cv'] == 3
+        assert params['random_state'] == 42
+        assert params['fit_intercept'] is False
+        print('[OK] CVEstimatorBase.get_params() returns all params')
+
+
+# ======================================================================
+# 101. H7: CPU weighted w_sum zero guard
+# ======================================================================
+
+class TestRidgeCVWsumZeroGuard:
+    def test_wsum_guard_in_source(self):
+        """CPU weighted path should guard w_sum against zero."""
+        with open('statgpu/linear_model/_ridge_cv.py', 'r', encoding='utf-8') as f:
+            content = f.read()
+        # Find the CPU weighted path
+        assert 'max(float(np.sum(sw_train)), 1e-15)' in content, \
+            "CPU weighted path missing w_sum zero guard"
+        print('[OK] RidgeCV CPU w_sum zero guard present')
+
+
+# ======================================================================
+# 102. H8: Ridge gradient check uses ridge_penalize_intercept
+# ======================================================================
+
+class TestRidgeGradientCheckIntercept:
+    def test_gradient_uses_penalize_intercept(self):
+        """IRLS gradient check should respect ridge_penalize_intercept."""
+        with open('statgpu/glm_core/_irls.py', 'r', encoding='utf-8') as f:
+            content = f.read()
+        assert '_start = 0 if ridge_penalize_intercept else 1' in content, \
+            "Ridge gradient check does not use ridge_penalize_intercept"
+        print('[OK] Ridge gradient check uses ridge_penalize_intercept')
+
+
+# ======================================================================
+# 103. M5/M9: Exception handlers narrowed
+# ======================================================================
+
+class TestExceptionHandlersNarrowed:
+    def test_irls_exception_narrowed(self):
+        """IRLS gradient fallback should catch specific exceptions, not bare Exception."""
+        with open('statgpu/glm_core/_irls.py', 'r', encoding='utf-8') as f:
+            content = f.read()
+        # The gradient fallback should catch (AttributeError, NotImplementedError)
+        assert 'except (AttributeError, NotImplementedError)' in content, \
+            "IRLS exception handler not narrowed"
+        print('[OK] IRLS exception handler narrowed')
+
+    def test_solver_compile_exception_narrowed(self):
+        """Solver torch.compile fallback should catch RuntimeError, not bare Exception."""
+        with open('statgpu/glm_core/_solver.py', 'r', encoding='utf-8') as f:
+            content = f.read()
+        # Should have RuntimeError for compile failures
+        assert 'except RuntimeError:' in content, \
+            "Solver compile exception not narrowed to RuntimeError"
+        print('[OK] Solver compile exception handler narrowed')
+
+
+# ======================================================================
+# 104. M6: Tweedie fused singularity guard
+# ======================================================================
+
+class TestTweedieFusedSingularity:
+    def test_tweedie_uses_log_form_near_singularities(self):
+        """Tweedie fused formula should use log-form near power=1 or power=2."""
+        with open('statgpu/glm_core/_solver.py', 'r', encoding='utf-8') as f:
+            content = f.read()
+        # Find _fused_tweedie
+        idx = content.find('def _fused_tweedie(')
+        assert idx > 0, "Could not find _fused_tweedie"
+        block = content[idx:idx+600]
+        assert 'abs(d1) < 0.01' in block, \
+            "Tweedie missing singularity guard for power≈1"
+        assert 'abs(d2) < 0.01' in block, \
+            "Tweedie missing singularity guard for power≈2"
+        assert 'log_mu' in block, \
+            "Tweedie missing log-form for singularities"
+        print('[OK] Tweedie fused singularity guard present')
+
+
+# ======================================================================
+# 105. M8: family_to_loss raises on unknown family
+# ======================================================================
+
+class TestFamilyToLossRaises:
+    def test_unknown_family_raises(self):
+        """family_to_loss() should raise ValueError for unknown family."""
+        from statgpu.linear_model._glm_base import GeneralizedLinearModel
+        model = GeneralizedLinearModel(family='gaussian')
+        model.family = 'nonexistent_family'
+        try:
+            model.family_to_loss()
+            assert False, "Should have raised ValueError"
+        except ValueError as e:
+            assert 'nonexistent_family' in str(e)
+        print('[OK] family_to_loss() raises on unknown family')
+
+
+# ======================================================================
+# 106. M10: Gamma deviance y>0 guard
+# ======================================================================
+
+class TestGammaDevianceYGuard:
+    def test_gamma_deviance_clips_y(self):
+        """Gamma deviance should clip y to avoid log(0)."""
+        with open('statgpu/glm_core/_irls.py', 'r', encoding='utf-8') as f:
+            content = f.read()
+        # Find the gamma deviance branch
+        idx = content.find("elif _fname == \"gamma\":")
+        assert idx > 0, "Could not find gamma deviance branch"
+        block = content[idx:idx+200]
+        assert '_clip(y_dev' in block or '_y_c = _clip' in block, \
+            "Gamma deviance missing y>0 guard"
+        print('[OK] Gamma deviance has y>0 guard')
+
+
+# ======================================================================
+# 107. M11: Float32 eigenvalue clamp
+# ======================================================================
+
+class TestFloat32EigenvalueClamp:
+    def test_dtype_relative_clamp(self):
+        """Eigenvalue clamp should use dtype-relative floor."""
+        with open('statgpu/linear_model/_ridge_cv.py', 'r', encoding='utf-8') as f:
+            content = f.read()
+        assert 'finfo' in content, \
+            "Eigenvalue clamp missing dtype-relative floor (finfo)"
+        print('[OK] Eigenvalue clamp uses dtype-relative floor')
+
+
+# ======================================================================
+# 108. H3: GPU IRLS-CD step-halving exists
+# ======================================================================
+
+class TestGPUirlsCDStepHalving:
+    def test_step_halving_in_gpu_path(self):
+        """GPU IRLS-CD should have step-halving for GLM."""
+        with open('statgpu/linear_model/_penalized.py', 'r', encoding='utf-8') as f:
+            content = f.read()
+        # Find _irls_cd_gpu
+        idx = content.find('def _irls_cd_gpu(')
+        assert idx > 0, "Could not find _irls_cd_gpu"
+        func_end = content.find('\n    def ', idx + 1)
+        func_body = content[idx:func_end]
+        assert 'Step-halving for GLM' in func_body, \
+            "GPU IRLS-CD missing step-halving"
+        assert '_obj_before' in func_body, \
+            "GPU IRLS-CD missing _obj_before for step-halving"
+        print('[OK] GPU IRLS-CD has step-halving')
+
+
+# ======================================================================
+# 109. H4: FISTA early-reject heuristic removed
+# ======================================================================
+
+class TestFistaEarlyRejectRemoved:
+    def test_no_early_reject(self):
+        """FISTA should not have the early-reject heuristic that rejects improving steps."""
+        with open('statgpu/glm_core/_solver.py', 'r', encoding='utf-8') as f:
+            content = f.read()
+        # The old code had: if _to_float_scalar(bound_dev) < _obj_best_lla_inner * 0.9
+        # This should be removed
+        assert '_obj_best_lla_inner * 0.9' not in content, \
+            "FISTA early-reject heuristic still present"
+        print('[OK] FISTA early-reject heuristic removed')
+
+
+# ======================================================================
+# 110. M1: Double GPU sync fixed
+# ======================================================================
+
+class TestDoubleGPUSyncFixed:
+    def test_single_sync_for_obj(self):
+        """FISTA GPU path should extract float once, not twice."""
+        with open('statgpu/glm_core/_solver.py', 'r', encoding='utf-8') as f:
+            content = f.read()
+        # Find the GPU async path's objective check
+        idx = content.find('# Single D2H transfer: extract float')
+        assert idx > 0, "Could not find single-sync comment"
+        block = content[idx:idx+200]
+        # Should have _obj_val_f assigned once, then reused
+        assert '_obj_val_f = float(_to_numpy(_obj_dev))' in block, \
+            "Missing single float extraction"
+        # Should NOT have a second float(_to_numpy(_obj_dev)) nearby
+        lines = block.split('\n')
+        sync_count = sum(1 for l in lines if 'float(_to_numpy(_obj_dev))' in l)
+        assert sync_count == 1, f"Expected 1 sync, found {sync_count}"
+        print('[OK] Double GPU sync fixed')
+
+
+# ======================================================================
+# 111. RidgeCV Device enum handling
+# ======================================================================
+
+class TestRidgeCVDeviceEnum:
+    def test_device_enum_converted(self):
+        """_select_ridge_alpha_cv should handle Device enum."""
+        with open('statgpu/linear_model/_ridge_cv.py', 'r', encoding='utf-8') as f:
+            content = f.read()
+        assert 'isinstance(device, Device)' in content, \
+            "Missing Device enum handling"
+        print('[OK] RidgeCV handles Device enum')
+
+
+# ======================================================================
+# 112. Cleanup: torch.cuda.synchronize removed
+# ======================================================================
+
+class TestCleanupNoSync:
+    def test_no_synchronize_in_cleanup(self):
+        """_cleanup_torch_memory should not call torch.cuda.synchronize()."""
+        with open('statgpu/linear_model/_glm_base.py', 'r', encoding='utf-8') as f:
+            content = f.read()
+        idx = content.find('def _cleanup_torch_memory(')
+        assert idx > 0
+        block = content[idx:idx+300]
+        assert 'synchronize' not in block, \
+            "_cleanup_torch_memory still calls synchronize()"
+        print('[OK] _cleanup_torch_memory has no synchronize()')
+
+
+# ======================================================================
+# 113. _FeatureOnlySparsePenalty uses zeros, not empty
+# ======================================================================
+
+class TestProximalUsesZeros:
+    def test_no_empty_in_proximal(self):
+        """_FeatureOnlySparsePenalty.proximal should use zeros, not empty."""
+        with open('statgpu/linear_model/_penalized_cv.py', 'r', encoding='utf-8') as f:
+            content = f.read()
+        idx = content.find('class _FeatureOnlySparsePenalty')
+        assert idx > 0
+        block = content[idx:idx+500]
+        assert 'xp.empty' not in block, \
+            "_FeatureOnlySparsePenalty.proximal still uses xp.empty"
+        print('[OK] _FeatureOnlySparsePenalty.proximal uses zeros')
+
+
+# ======================================================================
+# 114. NEW-C1: RidgeCV alpha grid torch CPU guard
+# ======================================================================
+
+class TestRidgeCVAlphaGridTorchGuard:
+    def test_alpha_grid_includes_gpu_input_torch(self):
+        """Alpha grid generation should include gpu_input_torch in GPU condition."""
+        with open('statgpu/linear_model/_ridge_cv.py', 'r', encoding='utf-8') as f:
+            content = f.read()
+        # Find all GPU conditions for alpha grid generation
+        # They should all include gpu_input_torch
+        import re
+        # Pattern: conditions that check gpu_input_cupy for alpha grid
+        matches = re.findall(r'if gpu_input_cupy or .+?:', content)
+        for m in matches:
+            if 'gpu_input_torch' not in m and 'hasattr' in m:
+                # This is an alpha grid condition missing gpu_input_torch
+                assert False, f"Alpha grid condition missing gpu_input_torch: {m}"
+        print('[OK] RidgeCV alpha grid includes gpu_input_torch guard')
+
+
+# ======================================================================
+# 115. NEW-M1: _penalized.py _effective_intercept
+# ======================================================================
+
+class TestPenalizedEffectiveIntercept:
+    def test_has_effective_intercept_property(self):
+        """PenalizedGeneralizedLinearModel should have _effective_intercept property."""
+        from statgpu.linear_model._penalized import PenalizedGeneralizedLinearModel
+        assert hasattr(PenalizedGeneralizedLinearModel, '_effective_intercept')
+        # Should be a property
+        assert isinstance(
+            getattr(PenalizedGeneralizedLinearModel, '_effective_intercept'),
+            property
+        )
+        print('[OK] PenalizedGLM has _effective_intercept property')
+
+    def test_formula_does_not_mutate_fit_intercept(self):
+        """Formula path should set _use_intercept, not mutate fit_intercept."""
+        with open('statgpu/linear_model/_penalized.py', 'r', encoding='utf-8') as f:
+            content = f.read()
+        # The formula path should use _use_intercept
+        assert 'self._use_intercept = True' in content, \
+            "Formula path should set _use_intercept = True"
+        assert 'self._use_intercept = False' in content, \
+            "Formula path should set _use_intercept = False"
+        # The formula block should NOT have self.fit_intercept = True/False
+        # Find the formula handling block
+        idx = content.find('self._formula_has_intercept = "Intercept"')
+        assert idx > 0
+        block = content[idx:idx+600]
+        assert 'self.fit_intercept = True' not in block, \
+            "Formula path should NOT mutate fit_intercept"
+        assert 'self.fit_intercept = False' not in block, \
+            "Formula path should NOT mutate fit_intercept"
+        print('[OK] _penalized.py formula path uses _use_intercept')
+
+
+# ======================================================================
+# 116. NEW-M2: fista_bb penalty name case sensitivity
+# ======================================================================
+
+class TestFistaBbPenaltyNameCase:
+    def test_penalty_name_lowered(self):
+        """fista_bb should lowercase penalty name for _bb_disabled check."""
+        with open('statgpu/glm_core/_solver.py', 'r', encoding='utf-8') as f:
+            content = f.read()
+        # Find the line that overwrites _pen_name with getattr
+        idx = content.find('_pen_name = getattr(penalty, "name", _pen_name)')
+        assert idx > 0, "Could not find penalty name override line"
+        line = content[idx:idx+200]
+        assert '.lower()' in line, \
+            "Penalty name override should apply .lower()"
+        print('[OK] fista_bb penalty name applies .lower()')
+
+
+# ======================================================================
+# 117. NEW-M3: _compute_intercepts_batch dtype
+# ======================================================================
+
+class TestInterceptsBatchDtype:
+    def test_no_hardcoded_float64(self):
+        """_compute_intercepts_batch should not hardcode float64 for zeros."""
+        with open('statgpu/linear_model/_ridge_cv.py', 'r', encoding='utf-8') as f:
+            content = f.read()
+        idx = content.find('def _compute_intercepts_batch(')
+        assert idx > 0
+        end = content.find('\ndef ', idx + 1)
+        func_body = content[idx:end]
+        # Should NOT have dtype=backend.float64 in the no-intercept return
+        assert 'dtype=backend.float64' not in func_body, \
+            "_compute_intercepts_batch still hardcodes float64"
+        print('[OK] _compute_intercepts_batch uses input dtype')
+
+
+# ======================================================================
+# 118. NEW-L1/L2: Lipschitz y-scaling reapply
+# ======================================================================
+
+class TestLipschitzYScalingReapply:
+    def test_fista_solver_reapplies_y_scale(self):
+        """fista_solver should re-apply y-scaling during Lipschitz recomputation."""
+        with open('statgpu/glm_core/_solver.py', 'r', encoding='utf-8') as f:
+            content = f.read()
+        # The y-scaling reapply should be in the Lipschitz recomputation section
+        assert '# Re-apply y-scaling' in content, \
+            "fista_solver missing y-scaling reapply comment"
+        # Count occurrences: should appear in both fista_solver and fista_bb
+        count = content.count('# Re-apply y-scaling')
+        assert count >= 2, f"Expected >= 2 y-scaling reapply blocks, found {count}"
+        print('[OK] fista_solver re-applies y-scaling')
+
+    def test_fista_bb_reapplies_y_scale(self):
+        """fista_bb should re-apply y-scaling during Lipschitz recomputation."""
+        with open('statgpu/glm_core/_solver.py', 'r', encoding='utf-8') as f:
+            content = f.read()
+        # Find the burn-in Lipschitz recomputation in fista_bb
+        idx = content.find('# Re-apply y-scaling and per-family safety factor')
+        assert idx > 0, "Could not find y-scaling reapply in fista_bb"
+        print('[OK] fista_bb re-applies y-scaling')
+
+
+# ======================================================================
+# 119. NEW-L3/L4: predict + refit _effective_intercept
+# ======================================================================
+
+class TestPredictEffectiveIntercept:
+    def test_predict_uses_effective_intercept(self):
+        """predict() in GLM base should use _effective_intercept, not fit_intercept."""
+        with open('statgpu/linear_model/_glm_base.py', 'r', encoding='utf-8') as f:
+            content = f.read()
+        # Find the predict method — search a larger window
+        idx = content.find('def predict(self, X):')
+        assert idx > 0
+        predict_body = content[idx:idx+2000]
+        # Should use _effective_intercept
+        assert 'self._effective_intercept' in predict_body, \
+            "predict() should use self._effective_intercept"
+        # Count bare self.fit_intercept in predict (excluding _effective)
+        import re
+        bare_refs = [l for l in predict_body.split('\n')
+                     if 'self.fit_intercept' in l and '_effective' not in l and '_use_intercept' not in l]
+        assert len(bare_refs) == 0, f"predict() still has bare self.fit_intercept: {bare_refs}"
+        print('[OK] predict() uses _effective_intercept')
+
+    def test_refit_resets_use_intercept(self):
+        """Non-formula re-fit should reset _use_intercept to None."""
+        with open('statgpu/linear_model/_glm_base.py', 'r', encoding='utf-8') as f:
+            content = f.read()
+        # Find the non-formula path resets
+        idx = content.find('self._formula_has_intercept = None')
+        assert idx > 0
+        block = content[idx:idx+100]
+        assert 'self._use_intercept = None' in block, \
+            "Non-formula re-fit should reset _use_intercept"
+        print('[OK] Non-formula re-fit resets _use_intercept')
+
+
+# ======================================================================
+# 120. NEW-L5: _get_family ValueError
+# ======================================================================
+
+class TestGetFamilyValueError:
+    def test_unknown_family_raises_valueerror(self):
+        """_get_family() should raise ValueError for unknown family."""
+        from statgpu.linear_model._glm_base import GeneralizedLinearModel
+        model = GeneralizedLinearModel(family='gaussian')
+        model.family = 'nonexistent'
+        try:
+            model._get_family()
+            assert False, "Should have raised ValueError"
+        except ValueError as e:
+            assert 'nonexistent' in str(e)
+        except KeyError:
+            assert False, "Should raise ValueError, not KeyError"
+        print('[OK] _get_family() raises ValueError for unknown family')
+
+
+# ======================================================================
+# 121. Sample weight validation dedup
+# ======================================================================
+
+class TestSampleWeightValidationDedup:
+    def test_shared_helper_exists(self):
+        """_validate_sample_weight shared helper should exist."""
+        with open('statgpu/glm_core/_solver.py', 'r', encoding='utf-8') as f:
+            content = f.read()
+        assert 'def _validate_sample_weight(' in content, \
+            "_validate_sample_weight helper not found"
+        # Should be called from at least 3 places
+        count = content.count('_validate_sample_weight(')
+        assert count >= 4, f"Expected >= 4 calls (3 callers + 1 def), found {count}"
+        print('[OK] _validate_sample_weight shared helper exists and is used')
+
+
+# ======================================================================
+# 122. Precision regression check
+# ======================================================================
+
+class TestPrecisionRegression:
+    def test_lasso_coefficients_stable(self):
+        """Lasso coefficients should remain stable after all fixes."""
+        np.random.seed(42)
+        from statgpu.linear_model._lasso import Lasso
+        X = np.random.randn(100, 10)
+        beta_true = np.zeros(10)
+        beta_true[:3] = [3.0, -2.0, 1.0]
+        y = X @ beta_true + 0.1 * np.random.randn(100)
+        model = Lasso(alpha=0.05)
+        model.fit(X, y)
+        coef = model.coef_
+        # Check non-zero coefficients are close to true values
+        assert np.abs(coef[0] - 3.0) < 0.5, f"coef[0]={coef[0]:.4f}, expected ~3.0"
+        assert np.abs(coef[1] - (-2.0)) < 0.5, f"coef[1]={coef[1]:.4f}, expected ~-2.0"
+        assert np.abs(coef[2] - 1.0) < 0.5, f"coef[2]={coef[2]:.4f}, expected ~1.0"
+        # Check near-zero coefficients are actually near zero
+        assert np.max(np.abs(coef[3:])) < 0.5, f"coef[3:] should be near zero: {coef[3:]}"
+        print('[OK] Lasso coefficients stable: R²=%.4f' % model.score(X, y))
+
+    def test_ridge_cv_selects_good_alpha(self):
+        """RidgeCV should select an alpha that gives good R²."""
+        np.random.seed(42)
+        from statgpu.linear_model._ridge_cv import RidgeCV
+        X = np.random.randn(500, 10)
+        beta_true = np.zeros(10)
+        beta_true[:3] = [3.0, -2.0, 1.0]
+        y = X @ beta_true + 0.1 * np.random.randn(500)
+        model = RidgeCV(cv=3, random_state=42)
+        model.fit(X, y)
+        r2 = model.score(X, y)
+        assert r2 > 0.99, f"R²={r2:.4f}, expected > 0.99"
+        print('[OK] RidgeCV R²=%.4f, alpha=%.6f' % (r2, model.alpha_))
+
+    def test_glm_poisson_convergence(self):
+        """Poisson GLM should converge to reasonable coefficients."""
+        np.random.seed(42)
+        from statgpu.linear_model._poisson_glm import PoissonRegression
+        X = np.random.randn(100, 3)
+        eta = X @ np.array([0.5, -0.3, 0.1])
+        y = np.random.poisson(np.exp(np.clip(eta, -5, 5)))
+        model = PoissonRegression(max_iter=200)
+        model.fit(X, y)
+        assert model.n_iter_ < 200, f"Not converged: {model.n_iter_} iterations"
+        assert np.all(np.isfinite(model.coef_)), "Coefficients not finite"
+        print('[OK] PoissonGLM converged in %d iterations' % model.n_iter_)

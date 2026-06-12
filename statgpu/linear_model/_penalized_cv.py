@@ -358,8 +358,9 @@ def _to_backend_float64(arr, backend):
         if isinstance(arr, torch.Tensor):
             # Preserve existing device, just cast dtype
             return arr.to(dtype=torch.float64)
-        # Numpy -> torch on default CUDA device
-        return torch.as_tensor(np.asarray(arr, dtype=np.float64), dtype=torch.float64, device="cuda")
+        # Numpy -> torch on current CUDA device
+        _dev = f"cuda:{torch.cuda.current_device()}" if torch.cuda.is_available() else "cpu"
+        return torch.as_tensor(np.asarray(arr, dtype=np.float64), dtype=torch.float64, device=_dev)
     return np.asarray(arr, dtype=np.float64)
 
 
@@ -1261,7 +1262,7 @@ class _FeatureOnlySparsePenalty:
         xp = _xp(w)
         w_feat = w[: self.n_features]
         result_feat = self.base_penalty.proximal(w_feat, step, backend=backend)
-        result = xp.empty(w.shape[0], dtype=w.dtype) if hasattr(xp, 'empty') else _xp_zeros(w.shape, w.dtype, w)
+        result = _xp_zeros(w.shape, w.dtype, w)
         result[: self.n_features] = result_feat
         result[self.n_features] = _clip(w[self.n_features], -_INTERCEPT_CLIP_BOUND, _INTERCEPT_CLIP_BOUND)
         return result
@@ -2026,6 +2027,12 @@ class PenalizedGLM_CV(CVEstimatorBase):
             except Exception:
                 y_pred_np = _to_numpy(model.predict(X_val_np)).ravel()
                 val_loss = float(np.mean((y_val_np - y_pred_np) ** 2))
+                warnings.warn(
+                    f"_evaluate_single: loss evaluation failed for '{self.loss}', "
+                    f"falling back to MSE. CV scores may be inaccurate for non-Gaussian losses.",
+                    RuntimeWarning,
+                    stacklevel=2,
+                )
 
         return val_loss
 
@@ -2523,7 +2530,7 @@ class PenalizedGLM_CV(CVEstimatorBase):
             W_Xc = Xc_np * sqrt_w[:, None]
             XtX_np = W_Xc.T @ W_Xc
             Xty_np = (Xc_np * sw_np[:, None]).T @ yc_np
-            L_np = float(np.max(np.linalg.eigvalsh(XtX_np))) / max(w_sum, 1.0)
+            L_np = float(_max_eigval_power(XtX_np)) / max(w_sum, 1.0)
             n_effective = w_sum
         else:
             X_mean_np = np.mean(X_train_np, axis=0)
@@ -2532,7 +2539,7 @@ class PenalizedGLM_CV(CVEstimatorBase):
             yc_np = y_train_np - y_mean_np
             XtX_np = Xc_np.T @ Xc_np
             Xty_np = Xc_np.T @ yc_np
-            L_np = float(np.max(np.linalg.eigvalsh(XtX_np))) / n_tr
+            L_np = float(_max_eigval_power(XtX_np)) / n_tr
             n_effective = float(n_tr)
         if device_name == "cuda":
             import cupy as cp

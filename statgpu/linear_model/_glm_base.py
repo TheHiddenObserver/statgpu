@@ -108,8 +108,8 @@ class GeneralizedLinearModel(BaseEstimator):
         self.max_iter = max_iter
         self.tol = tol
         self.C = C
-        self.solver = solver.lower()
-        self.gpu_memory_cleanup = bool(gpu_memory_cleanup)
+        self.solver = solver
+        self.gpu_memory_cleanup = gpu_memory_cleanup
 
         self.coef_ = None
         self.intercept_ = None
@@ -120,6 +120,19 @@ class GeneralizedLinearModel(BaseEstimator):
         self._feature_names = None
         self._design_info = None
         self._formula_has_intercept = None
+        self._use_intercept = None  # formula-derived override; None = use fit_intercept
+
+    @property
+    def _effective_intercept(self):
+        """Return the effective intercept flag.
+
+        When formula is used, the formula's intercept semantics take priority
+        (stored in ``_use_intercept``).  Otherwise, ``fit_intercept`` is used.
+        This avoids mutating ``fit_intercept`` which would break ``sklearn.clone``.
+        """
+        if self._use_intercept is not None:
+            return self._use_intercept
+        return self.fit_intercept
 
     def _get_family(self):
         """Return the GLM Family instance. Override in subclass."""
@@ -132,6 +145,11 @@ class GeneralizedLinearModel(BaseEstimator):
             "negative_binomial": NegativeBinomial,
             "tweedie": Tweedie,
         }
+        if self.family not in family_map:
+            raise ValueError(
+                f"Unknown family '{self.family}'. "
+                f"Supported families: {list(family_map.keys())}"
+            )
         kwargs = self._get_loss_kwargs()
         return family_map[self.family](**kwargs)
 
@@ -141,7 +159,7 @@ class GeneralizedLinearModel(BaseEstimator):
 
     def _cleanup_cuda_memory(self):
         """Best-effort CuPy memory pool cleanup."""
-        if not self.gpu_memory_cleanup:
+        if not bool(self.gpu_memory_cleanup):
             return
         try:
             import cupy as cp
@@ -152,13 +170,12 @@ class GeneralizedLinearModel(BaseEstimator):
 
     def _cleanup_torch_memory(self):
         """Best-effort Torch CUDA memory cleanup."""
-        if not self.gpu_memory_cleanup:
+        if not bool(self.gpu_memory_cleanup):
             return
         try:
             import torch
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
-                torch.cuda.synchronize()
         except Exception:
             pass
 
@@ -208,10 +225,12 @@ class GeneralizedLinearModel(BaseEstimator):
             if self._formula_has_intercept:
                 intercept_idx = formula_column_names.index("Intercept")
                 X_arr = np.delete(X_arr, intercept_idx, axis=1)
-                self.fit_intercept = True
+                # Store formula-derived intercept decision in internal attribute
+                # to avoid mutating self.fit_intercept (breaks sklearn clone).
+                self._use_intercept = True
             else:
                 # Formula syntax owns intercept semantics, matching statsmodels/R.
-                self.fit_intercept = False
+                self._use_intercept = False
         else:
             if X is None or y is None:
                 raise ValueError(
@@ -220,6 +239,7 @@ class GeneralizedLinearModel(BaseEstimator):
             self._feature_names = None
             self._design_info = None
             self._formula_has_intercept = None
+            self._use_intercept = None
             y_arr = np.asarray(y)
             if y_arr.ndim == 2 and y_arr.shape[1] == 1:
                 y_arr = y_arr.ravel()
@@ -233,7 +253,8 @@ class GeneralizedLinearModel(BaseEstimator):
         self._nobs = X_arr.shape[0]
 
         family = self._get_family()
-        solver_name = self.solver if self.solver != "auto" else "irls"
+        _solver_lower = self.solver.lower() if isinstance(self.solver, str) else self.solver
+        solver_name = _solver_lower if _solver_lower != "auto" else "irls"
 
         if solver_name == "irls":
             self._fit_irls(X_arr, y_arr, sample_weight, family, backend_name)
@@ -259,7 +280,7 @@ class GeneralizedLinearModel(BaseEstimator):
         # objective penalty.  Scale by n to keep C semantics consistent.
         ridge_alpha = X.shape[0] * self._get_penalty_alpha()
 
-        if self.fit_intercept:
+        if self._effective_intercept:
             X_design = _add_intercept_column(X, backend_name)
         else:
             X_design = X
@@ -269,7 +290,7 @@ class GeneralizedLinearModel(BaseEstimator):
             X_design, y,
             sample_weight=sample_weight,
             ridge_alpha=ridge_alpha,
-            ridge_penalize_intercept=not self.fit_intercept,
+            ridge_penalize_intercept=not self._effective_intercept,
             backend=backend_name,
         )
 
@@ -279,14 +300,14 @@ class GeneralizedLinearModel(BaseEstimator):
         # Convert to numpy (params may be cupy/torch array)
         params_np = _to_numpy(params)
 
-        if self.fit_intercept:
+        if self._effective_intercept:
             self.intercept_ = float(params_np[0])
             self.coef_ = params_np[1:]
         else:
             self.intercept_ = 0.0
             self.coef_ = params_np.copy()
 
-        self._df_resid = self._nobs - (X.shape[1] + (1 if self.fit_intercept else 0))
+        self._df_resid = self._nobs - (X.shape[1] + (1 if self._effective_intercept else 0))
 
     def _fit_fista(self, X, y, sample_weight, family, backend_name="numpy"):
         """Fit using FISTA (no penalty; pure loss minimization).
@@ -300,7 +321,7 @@ class GeneralizedLinearModel(BaseEstimator):
         loss_kwargs = self._get_loss_kwargs()
         loss = get_glm_loss(self.family_to_loss(), **loss_kwargs)
 
-        if not self.fit_intercept:
+        if not self._effective_intercept:
             X_centered = X
             if backend_name == "torch":
                 dtype = _torch_promoted_float_dtype(X_centered, y)
@@ -408,6 +429,7 @@ class GeneralizedLinearModel(BaseEstimator):
             self.coef_ = _to_numpy(coef)
             self.n_iter_ = n_iter
             self.intercept_ = 0.0
+            self._params = self.coef_.copy()
             self._df_resid = self._nobs - X.shape[1]
             return
 
@@ -456,6 +478,7 @@ class GeneralizedLinearModel(BaseEstimator):
             self.coef_ = full_np[:p]
             self.intercept_ = float(full_np[p])
             self.n_iter_ = n_iter
+            self._params = np.concatenate([[self.intercept_], self.coef_])
         else:
             # Squared error: centering X and y preserves the objective.
             if backend_name == "cupy":
@@ -484,6 +507,7 @@ class GeneralizedLinearModel(BaseEstimator):
             self.coef_ = _to_numpy(coef)
             self.intercept_ = float(y_mean - X_mean @ self.coef_)
             self.n_iter_ = n_iter
+            self._params = np.concatenate([[self.intercept_], self.coef_])
 
         self._df_resid = self._nobs - (X.shape[1] + 1)
 
@@ -503,7 +527,7 @@ class GeneralizedLinearModel(BaseEstimator):
         if not getattr(loss, "has_hessian", False):
             raise ValueError(f"solver='{solver_name}' requires a Hessian.")
 
-        if self.fit_intercept:
+        if self._effective_intercept:
             if backend_name == "cupy":
                 import cupy as cp
                 x_dtype = X.dtype if getattr(X.dtype, "kind", "") == "f" else cp.float64
@@ -543,7 +567,7 @@ class GeneralizedLinearModel(BaseEstimator):
 
         params_np = _to_numpy(params)
         self.n_iter_ = n_iter
-        if self.fit_intercept:
+        if self._effective_intercept:
             self.coef_ = params_np[:p]
             self.intercept_ = float(params_np[p])
         else:
@@ -551,11 +575,11 @@ class GeneralizedLinearModel(BaseEstimator):
             self.intercept_ = 0.0
         self._params = (
             np.concatenate([[self.intercept_], self.coef_])
-            if self.fit_intercept
+            if self._effective_intercept
             else self.coef_.copy()
         )
         self._df_resid = self._nobs - (
-            X.shape[1] + (1 if self.fit_intercept else 0)
+            X.shape[1] + (1 if self._effective_intercept else 0)
         )
 
     def _get_loss_kwargs(self):
@@ -573,7 +597,12 @@ class GeneralizedLinearModel(BaseEstimator):
             "negative_binomial": "negative_binomial",
             "tweedie": "tweedie",
         }
-        return mapping.get(self.family, "squared_error")
+        if self.family not in mapping:
+            raise ValueError(
+                f"Unknown family '{self.family}'. "
+                f"Supported families: {list(mapping.keys())}"
+            )
+        return mapping[self.family]
 
     def predict(self, X):
         """Predict using fitted model."""
@@ -605,7 +634,7 @@ class GeneralizedLinearModel(BaseEstimator):
             Xb = xp_asarray(self._to_array(X, device), xp=xp)
             coef = xp_asarray(self.coef_, xp=xp, ref_arr=Xb)
             raw = Xb @ coef
-            if self.fit_intercept:
+            if self._effective_intercept:
                 raw = raw + xp_asarray(self.intercept_, xp=xp, ref_arr=Xb)
             out = family.link.inverse(raw)
             if device == Device.CUDA:
@@ -616,7 +645,7 @@ class GeneralizedLinearModel(BaseEstimator):
 
         X = np.asarray(X)
         raw = X @ self.coef_
-        if self.fit_intercept:
+        if self._effective_intercept:
             raw += self.intercept_
         return family.link.inverse(raw)
 

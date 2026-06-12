@@ -82,24 +82,45 @@ def folds_are_complete(folds, n_samples: int) -> bool:
 def hash_cv_data(X, y, sample_weight=None) -> bytes:
     """Compute a compact hash of X, y, and optionally sample_weight.
 
-    Samples evenly spaced rows to keep hashing fast for large datasets
-    while avoiding collisions from different middle rows.
+    For small datasets (n * p <= 10,000,000), hashes full content for zero
+    collision risk.  For very large datasets, samples evenly spaced rows plus
+    first/last rows, row indices, and aggregate statistics to keep hashing fast
+    while minimizing collision probability.
     """
     h = hashlib.blake2b(digest_size=16)
     X_np = np.asarray(_to_numpy(X), dtype=np.float64)
     y_np = np.asarray(_to_numpy(y), dtype=np.float64).ravel()
-    n = X_np.shape[0]
-    h.update(np.asarray(X_np.shape, dtype=np.int64).tobytes())
-    step = max(1, n // 100)
-    idx = np.arange(0, n, step)[:100]
-    h.update(X_np[idx].tobytes())
-    h.update(y_np[idx].tobytes())
-    h.update(np.asarray([X_np.mean(), X_np.std()], dtype=np.float64).tobytes())
-    h.update(np.asarray([y_np.mean(), y_np.std()], dtype=np.float64).tobytes())
-    if sample_weight is not None:
-        sw_np = np.asarray(_to_numpy(sample_weight), dtype=np.float64).ravel()
-        h.update(sw_np[idx].tobytes())
-        h.update(np.asarray([sw_np.mean()], dtype=np.float64).tobytes())
+    n, p = X_np.shape
+    h.update(np.asarray([n, p], dtype=np.int64).tobytes())
+
+    _FULL_HASH_THRESHOLD = 10_000_000  # n * p threshold for full hashing
+    if n * p <= _FULL_HASH_THRESHOLD:
+        # Small dataset: hash full content (zero collision risk)
+        h.update(X_np.tobytes())
+        h.update(y_np.tobytes())
+        if sample_weight is not None:
+            sw_np = np.asarray(_to_numpy(sample_weight), dtype=np.float64).ravel()
+            h.update(sw_np.tobytes())
+    else:
+        # Very large dataset: sample rows + indices + aggregate statistics
+        # Include first and last rows (boundary) plus evenly spaced interior
+        step = max(1, n // 100)
+        idx = np.arange(0, n, step)[:100]
+        # Ensure first and last rows are always included
+        if idx[0] != 0:
+            idx = np.concatenate([[0], idx])
+        if idx[-1] != n - 1:
+            idx = np.concatenate([idx, [n - 1]])
+        # Hash row indices to prevent collision from reordered data
+        h.update(idx.astype(np.int64).tobytes())
+        h.update(X_np[idx].tobytes())
+        h.update(y_np[idx].tobytes())
+        h.update(np.asarray([X_np.mean(), X_np.std()], dtype=np.float64).tobytes())
+        h.update(np.asarray([y_np.mean(), y_np.std()], dtype=np.float64).tobytes())
+        if sample_weight is not None:
+            sw_np = np.asarray(_to_numpy(sample_weight), dtype=np.float64).ravel()
+            h.update(sw_np[idx].tobytes())
+            h.update(np.asarray([sw_np.mean(), sw_np.std()], dtype=np.float64).tobytes())
     return h.digest()
 
 
@@ -133,6 +154,8 @@ def validate_cv_sample_weight(sample_weight, n_samples: int):
 class CVCache:
     """Simple LRU cache for cross-validation results.
 
+    Thread-safe: all mutations are protected by a lock.
+
     Parameters
     ----------
     maxsize : int
@@ -142,20 +165,23 @@ class CVCache:
     def __init__(self, maxsize: int = 64):
         self._cache: OrderedDict = OrderedDict()
         self._maxsize = maxsize
+        self._lock = __import__('threading').Lock()
 
     def get(self, key: str):
         """Retrieve cached result, or None if not found."""
-        if key in self._cache:
-            self._cache.move_to_end(key)
-            return self._cache[key]
-        return None
+        with self._lock:
+            if key in self._cache:
+                self._cache.move_to_end(key)
+                return self._cache[key]
+            return None
 
     def put(self, key: str, value):
         """Store a result in the cache."""
-        self._cache[key] = value
-        self._cache.move_to_end(key)
-        while len(self._cache) > self._maxsize:
-            self._cache.popitem(last=False)
+        with self._lock:
+            self._cache[key] = value
+            self._cache.move_to_end(key)
+            while len(self._cache) > self._maxsize:
+                self._cache.popitem(last=False)
 
     @staticmethod
     def make_key(*args) -> str:
@@ -349,13 +375,6 @@ class CVEstimatorBase(BaseEstimator):
         self.best_score_ = None
         self.cv_results_ = None
         self.estimator_ = None
-
-    def get_params(self, deep=True):
-        """Return parameters including cv and random_state for sklearn compatibility."""
-        params = super().get_params(deep=deep)
-        params['cv'] = self.cv
-        params['random_state'] = self.random_state
-        return params
 
     def predict(self, X):
         self._check_is_fitted()

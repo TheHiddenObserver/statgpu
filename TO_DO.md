@@ -539,3 +539,62 @@ coef = where(active, coef_new, coef)
 - ✅ **`_fused_*` 函数清理**：已简化 dispatch 逻辑，`fista_solver` 和 `fista_lla_path` 统一使用 `_fused_glm_value_and_gradient`，legacy registry 函数保留为 fallback
 - ✅ **Lipschitz 缓存**：已添加相对系数变化检测，变化 <0.1% 时跳过 eigvalsh 重计算
 
+---
+
+## PR #49 Code Review 修复项 (2026-06-12)
+
+> 本轮修复了 18 个问题（1 Critical + 2 High + 8 Medium + 7 Low）。
+
+### 已修复
+
+- ✅ **C1**: ADMM `proximal(w, 1.0/rho)` contract 添加注释说明
+- ✅ **H1**: `fista_bb_solver` 的 `bb_burn_in`/`_momentum_burn_in`/`_conservative_bb` 从循环内移到循环外
+- ✅ **H2**: `fista_bb_solver` 重启检查使用 `coef` 替代过期的 `coef_new`
+- ✅ **M1**: `_tracking_penalty_value` 异常捕获收窄为 `(ValueError, TypeError, AttributeError)`
+- ✅ **M3**: ADMM Cholesky 分解添加 try/except 回退到 CG
+- ✅ **M4**: `fista_solver` 加权 Lipschitz 缓存 `XtWX` 避免每 5 次迭代重算
+- ✅ **M5**: `lbfgs_solver` 线搜索 25 步全失败时添加 RuntimeWarning
+- ✅ **M6**: `newton_solver` 线搜索异常收窄为 `(ValueError, RuntimeError, FloatingPointError)`
+- ✅ **M7**: `fista_bb_solver` 发散阈值在 `_obj_best = ±inf` 时跳过 ratio 检查
+- ✅ **M8**: CG solver 添加 `pAp <= 0` 检查（不定系统时 break 而非发散）
+- ✅ **M10**: `CVCache` 添加 `threading.Lock` 确保线程安全
+- ✅ **M11**: RidgeCV 加权路径 `n_train` 统一使用 `float(sw_train.sum())`
+- ✅ **CV3**: `_evaluate_single` MSE fallback 添加 RuntimeWarning
+- ✅ **CV4**: `_build_cv_cache` 使用 `_max_eigval_power` 替代 `eigvalsh`（O(p²) vs O(p³)）
+- ✅ **L1**: `fista_bb_solver` 零初始化使用 `_zeros()` 替代 `_copy_arr * 0.0`
+- ✅ **L9**: RidgeCV 加权中心化添加 `max(w_sum, 1e-15)` 零权重保护
+- ✅ **L10**: `run_cv` 添加 `sample_weight` 长度验证
+- ✅ **L11**: RidgeCV `alpha_max` 的 `*2.0` 因子添加文档说明
+
+### 待后续 PR 的大规模重构项
+
+### P3: `_solver.py` 异常捕获统一
+
+**现状**：多处 `except (AttributeError, Exception)` 等价于 `except Exception`，应收窄。
+**方案**：统一为 `(ValueError, TypeError, RuntimeError, FloatingPointError)`，对 CUDA OOM 等严重错误不捕获。
+**难度**：低 | **风险**：中 | **状态**：部分修复（已修复 `_tracking_penalty_value` 和 `newton_solver`）
+
+### P3: `_penalized_cv.py` 文件拆分 (2800+ 行)
+
+**现状**：包含数值常量、loss 公式、CV path 函数、PenalizedGLM_CV 类等。
+**方案**：拆为 `_cv_loss_registry.py` + `_cv_paths.py` + `_penalized_cv.py`。
+**难度**：高 | **风险**：高 | **状态**：未实现
+
+### P3: 缓存键全内容哈希
+
+**现状**：`hash_cv_data` 采样 100 行 + 聚合统计量，存在碰撞风险。
+**方案**：对小数据集使用全量哈希，大数据集保持采样。
+**难度**：低 | **风险**：低 | **状态**：未实现
+
+### P3: 加权 CV 快速路径
+
+**现状**：所有非均匀权重都回退到 `_cv_fold_general`（性能差）。
+**方案**：为 `_logistic_sparse_cv_path` 和 `_squared_error_sparse_cv_path` 实现加权版本。
+**难度**：高 | **风险**：高 | **状态**：未实现
+
+### P3: `fista_bb_solver` 函数拆分 (470 行)
+
+**现状**：包含初始化、发散检测、BB 步选择、动量、重启、收敛检查等。
+**方案**：拆分为 `_bb_init()`、`_bb_divergence_check()`、`_bb_step_select()`、`_bb_momentum()` 等。
+**难度**：高 | **风险**：高 | **状态**：未实现
+

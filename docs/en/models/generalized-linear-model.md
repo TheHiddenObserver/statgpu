@@ -201,6 +201,10 @@ Common fitted attributes and methods include:
 
 Future unified result objects are reserved for later work and are not part of this page's public contract.
 
+## See Also
+
+- [Solver × Penalty Compatibility Matrix](../guides/solver-penalty-matrix.md) — full dispatch table for loss × penalty × solver combinations, CV fast paths, and inference support status.
+
 ## FAQ
 
 - Why is `statgpu.losses` not kept as a compatibility namespace? The uncommitted `losses` layer was GLM-specific, so it was renamed to `glm_core` to avoid implying a project-wide objective system.

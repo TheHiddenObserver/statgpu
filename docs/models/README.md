@@ -35,8 +35,8 @@
 ## 非参数方法
 
 - [核密度估计与核回归](nonparametric.md)
-- [核岭回归 (KernelRidge / KernelRidgeCV)](nonparametric/kernel-methods.md)
-- [样条基函数](nonparametric/splines.md)
+- [核岭回归 (KernelRidge / KernelRidgeCV)](kernel-methods.md)
+- [样条基函数](splines.md)
 
 ## 半参数模型
 
@@ -57,7 +57,7 @@
 1. 创建 `docs/models/<model-name>.md`
 2. 将新页面加入本索引
 3. 将入口链接加入 `USAGE_CN.md` 与 `USAGE.md`
-4. 若包含基准测试，同步在 `docs/benchmarks.md` 添加脚本引用
+4. 若包含基准测试，同步在 `docs/guides/benchmarks.md` 添加脚本引用
 
 ## 当前覆盖说明
 

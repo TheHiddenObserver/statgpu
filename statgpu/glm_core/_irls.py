@@ -208,7 +208,8 @@ def irls_solver(
         if _fname in ("gaussian", "squared_error"):
             return xp.sum((y_dev - mu_arr) ** 2)
         elif _fname == "gamma":
-            return xp.sum(y_dev / mu_arr - xp.log(y_dev / mu_arr) - 1.0)
+            _y_c = _clip(y_dev, 1e-10, None)
+            return xp.sum(_y_c / mu_arr - xp.log(_y_c / mu_arr) - 1.0)
         elif _fname == "inverse_gaussian":
             _y_c = _clip(y_dev, 1e-10, None)
             return xp.sum((y_dev - mu_arr) ** 2 / (_y_c * mu_arr ** 2))
@@ -251,7 +252,7 @@ def irls_solver(
         # For identity link (squared_error), skip clipping — mu = eta.
         mu = family.link.inverse(eta)
         if _link_name not in ('identity', 'Identity'):
-            mu = _clip(mu, 1e-10, 1e6)
+            mu = _clip(mu, 1e-10, None)
 
         # Step 3: IRLS weights
         W = family.irls_weights(mu, y)
@@ -274,7 +275,6 @@ def irls_solver(
         # Step 5: weighted least squares (X'WX + lambda*I) params = X'Wz
         if backend == "torch":
             import torch
-            W_col = W.unsqueeze(1)
             _compiled_step = _get_irls_step_compiled()
             XtWX, Xtz = _irls_step_call(_compiled_step, X, W, z)
         else:
@@ -387,10 +387,13 @@ def irls_solver(
                 grad_f = family.gradient(X, y, params)
                 if ridge_alpha > 0:
                     # Match normal equations: XtWX + ridge_alpha*I, so penalty
-                    # gradient is ridge_alpha * params (not ridge_alpha/n)
-                    grad_f[1:] = grad_f[1:] + ridge_alpha * params[1:]
+                    # gradient is ridge_alpha * params (not ridge_alpha/n).
+                    # When fit_intercept=False (ridge_penalize_intercept=True),
+                    # index 0 is a regular coefficient and must be penalized.
+                    _start = 0 if ridge_penalize_intercept else 1
+                    grad_f[_start:] = grad_f[_start:] + ridge_alpha * params[_start:]
                 grad_norm = float(_norm(grad_f, backend))
-            except Exception:
+            except (AttributeError, NotImplementedError):
                 # No gradient method available — fall back to param change
                 _param_change = float(_norm(params - params_old, backend))
                 _param_norm = max(float(_norm(params, backend)), 1.0)

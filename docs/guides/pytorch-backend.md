@@ -389,5 +389,5 @@ pip install --upgrade torch
 
 **另见**:
 - [设备与内存管理](device-and-memory.md)
-- [快速入门指南](quickstart.md)
+- [快速入门指南](../getting-started/quickstart.md)
 - [模型概览](../models/README.md)

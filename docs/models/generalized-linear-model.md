@@ -197,8 +197,13 @@ fast_cv = PenalizedGLM_CV(
 - `predict`
 - `predict_proba`，用于 logistic 模型
 - `score`，在对应模型中提供
+- `cv_results_`，用于 `PenalizedGLM_CV`，包含 `cv_strategy_`、`cv_selected_device_`、`refined_mask`，以及两阶段筛选启用时的 stage-1 scores
 
 统一 `FitResult` 是未来预留，不属于本页当前 public contract。
+
+## 参见
+
+- [Solver × Penalty 兼容性矩阵](../guides/solver-penalty-matrix.md) — loss × penalty × solver 完整分发表、CV 快速路径、推断支持状态。
 
 ## FAQ
 

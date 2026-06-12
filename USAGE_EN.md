@@ -61,7 +61,7 @@ Inference highlights:
 
 ## 3) Benchmarks and Validation
 
-- [Benchmark Index](docs/en/benchmarks.md)
+- [Benchmark Index](docs/en/guides/benchmarks.md)
 
 Primary scripts:
 - `dev/benchmarks/benchmark_lasso_inference_gpu_vs_cpu.py`
@@ -94,5 +94,5 @@ python dev/benchmarks/benchmark_all_methods_large_scale.py \
 - For performance reports, include: device info, data shape, `repeats/warmup`, and whether inference is timed.
 - If you add new features, also update:
   - `docs/en/models/*.md`
-  - `docs/en/benchmarks.md`
+  - `docs/en/guides/benchmarks.md`
   - `docs/en/changelog.md`

@@ -1,7 +1,7 @@
 # Changelog
 
 > Language: English  
-> Last updated: 2026-06-05
+> Last updated: 2026-06-12
 > This page: Changelog  
 > Switch: [Chinese](../changelog.md)
 

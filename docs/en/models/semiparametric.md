@@ -17,7 +17,7 @@ y = \alpha + \sum_j f_j(x_j) + \epsilon
 
 where each $f_j$ is represented as a penalized B-spline. GAM is a semiparametric model: it has a parametric intercept and nonparametric smooth functions for each feature.
 
-For the underlying B-spline basis utilities, see [Spline Basis Functions](nonparametric/splines.md).
+For the underlying B-spline basis utilities, see [Spline Basis Functions](splines.md).
 
 ## Path
 

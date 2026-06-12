@@ -33,8 +33,8 @@ Language switch: [Chinese](../../models/README.md)
 ## Nonparametric Methods
 
 - [Kernel Density Estimation and Kernel Regression](nonparametric.md)
-- [Kernel Ridge Regression](nonparametric/kernel-methods.md)
-- [Spline Basis Functions](nonparametric/splines.md)
+- [Kernel Ridge Regression](kernel-methods.md)
+- [Spline Basis Functions](splines.md)
 
 ## Semiparametric Models
 

@@ -17,7 +17,7 @@ y = \alpha + \sum_j f_j(x_j) + \epsilon
 
 其中每个 $f_j$ 表示为惩罚 B 样条。GAM 是半参数模型：具有参数化的截距和每个特征的非参数光滑函数。
 
-底层 B 样条基工具请参见 [样条基函数](nonparametric/splines.md)。
+底层 B 样条基工具请参见 [样条基函数](splines.md)。
 
 ## 路径（Path）
 

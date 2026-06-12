@@ -510,11 +510,28 @@ class BaseEstimator(ABC):
             )
     
     def get_params(self, deep=True):
-        """Get parameters for this estimator."""
-        return {
-            'device': self.device.value,
-            'n_jobs': self.n_jobs
-        }
+        """Get parameters for this estimator.
+
+        Uses ``inspect.signature`` to introspect ``__init__`` across the full
+        MRO, so every constructor parameter is returned regardless of how many
+        levels of inheritance exist.  This matches sklearn's ``BaseEstimator``
+        contract and ensures ``sklearn.base.clone()`` works correctly.
+        """
+        import inspect
+        params = {}
+        for cls in type(self).__mro__:
+            if cls is object:
+                continue
+            sig = inspect.signature(cls.__init__)
+            for name in sig.parameters:
+                if name == "self":
+                    continue
+                if name in params:
+                    continue  # already captured from a more specific class
+                # Prefer the current attribute value over the default
+                if hasattr(self, name):
+                    params[name] = getattr(self, name)
+        return params
     
     def set_params(self, **params):
         """Set parameters for this estimator."""

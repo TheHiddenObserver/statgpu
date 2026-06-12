@@ -3,15 +3,15 @@
 > 语言: 中文
 > 最后更新: 2026-05-28
 > 页面定位: 模型文档
-> 切换: [English](../../en/models/nonparametric/splines.md)
+> 切换: [English](../en/models/splines.md)
 
-语言切换：[English](../../en/models/nonparametric/splines.md)
+语言切换：[English](../en/models/splines.md)
 
 ## 概览（Overview）
 
 样条模块提供样条基函数构造工具。`bspline_basis` 使用 De Boor 递归算法评估 B 样条基矩阵。`natural_cubic_spline_basis` 构造带边界约束（边界节点处二阶导数为零）的自然三次样条基。两者均支持 CPU、CuPy 和 Torch 后端。
 
-使用这些基函数的广义可加模型（GAM）请参见 [GAM](../semiparametric.md)。
+使用这些基函数的广义可加模型（GAM）请参见 [GAM](semiparametric.md)。
 
 ## 路径（Path）
 
