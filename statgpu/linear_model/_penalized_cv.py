@@ -1007,7 +1007,7 @@ def _logistic_sparse_cv_path(
 
     # Torch benefits from one alpha-path GEMM for validation.  For NumPy/CuPy
     # at these small alpha-grid widths, per-alpha GEMV is consistently steadier.
-    if score_coef_path:
+    if score_coef_path and Xv is not None:
         if backend == "torch":
             import torch
             coef_mat = torch.stack(score_coef_path, dim=1)

@@ -18,6 +18,7 @@ class TweedieLoss(GLMLoss):
     smooth_gradient = True
     has_hessian = True
     _lipschitz_uses_y = True
+    _lipschitz_safety = 5.0  # Tweedie variance function requires large safety
 
     # Clip z to [-50, 50] instead of [-500, 500] to prevent
     # mu^(-0.5) explosion: mu >= exp(-50) ~ 1.9e-22 -> mu^(-0.5) <= 2.3e10.

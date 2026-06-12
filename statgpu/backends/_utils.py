@@ -364,6 +364,8 @@ def torch_compile_supported():
         if torch.cuda.is_available():
             cap = torch.cuda.get_device_capability()
             return cap[0] >= 7
+    except ImportError:
+        return False  # torch not installed
     except Exception:
         pass
-    return True  # Assume supported if we can't check
+    return False  # Can't verify — assume not supported

@@ -18,6 +18,7 @@ class InverseGaussianLoss(GLMLoss):
     smooth_gradient = True
     has_hessian = True
     _lipschitz_uses_y = True
+    _lipschitz_safety = 3.0  # 1/mu^3 gradient scaling requires safety factor
 
     _MU_LO = 5e-2
     _MU_HI = 1e3

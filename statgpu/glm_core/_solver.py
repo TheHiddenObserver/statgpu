@@ -644,13 +644,11 @@ def fista_solver(
         if _y_scale > 1.0:
             L = L * _y_scale
 
-    # Loss-specific Lipschitz safety factors (see _LIPSCHITZ_SAFETY_* constants)
-    if _loss_name == "inverse_gaussian":
-        L = L * _LIPSCHITZ_SAFETY_INVERSE_GAUSSIAN
-    if _loss_name == "tweedie":
-        L = L * _LIPSCHITZ_SAFETY_TWEEDIE
-    if _loss_name == "gamma":
-        L = L * _LIPSCHITZ_SAFETY_GAMMA
+    # Loss-specific Lipschitz safety factors (from loss class attributes)
+    _lip_safety = getattr(loss, '_lipschitz_safety', 1.0)
+    if _lip_safety > 1.0:
+        L = L * _lip_safety
+    # Additional safety for CV mode with logistic
     if _loss_name == "logistic" and cv_mode:
         L = L * _LIPSCHITZ_SAFETY_LOGISTIC_CV
     # Async GPU loop: skip backtracking, deferred checks.
@@ -1878,12 +1876,9 @@ def fista_bb_solver(
     # to prevent catastrophic divergence.
     _invgauss_like = _loss_name in ("inverse_gaussian",)
     _tweedie_like = _loss_name == "tweedie"
-    if _invgauss_like:
-        L = L * _LIPSCHITZ_SAFETY_INVERSE_GAUSSIAN
-    if _loss_name == "tweedie":
-        L = L * _LIPSCHITZ_SAFETY_TWEEDIE
-    if _loss_name == "gamma":
-        L = L * _LIPSCHITZ_SAFETY_GAMMA
+    _lip_safety_bb = getattr(loss, '_lipschitz_safety', 1.0)
+    if _lip_safety_bb > 1.0:
+        L = L * _lip_safety_bb
     # Add smooth penalty Lipschitz contribution (e.g. l2 gradient alpha*coef
     # has Lipschitz alpha).  Without this the step 1/L is too large.
     _smooth_lip_bb = _smooth_penalty_lipschitz(penalty)

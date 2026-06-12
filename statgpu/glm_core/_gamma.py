@@ -20,6 +20,7 @@ class GammaLoss(GLMLoss):
     smooth_gradient = True
     has_hessian = True
     _lipschitz_uses_y = True
+    _lipschitz_safety = 3.0  # Gamma Hessian varies with mu
 
     _MU_LO = 1e-3
     _MU_HI = 1e4
