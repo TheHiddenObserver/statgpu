@@ -199,22 +199,22 @@ def irls_solver(
         Uses backend-agnostic operations to avoid triplicated code.
         """
         xp = _to_backend_module(backend)
-        y = _y_backend
+        y_dev = _y_backend
 
         # Clip mu for families that require positive mu
         if _fname not in ("gaussian", "squared_error"):
             mu_arr = _clip(mu_arr, 1e-10, None)
 
         if _fname in ("gaussian", "squared_error"):
-            return xp.sum((y - mu_arr) ** 2)
+            return xp.sum((y_dev - mu_arr) ** 2)
         elif _fname == "gamma":
-            return xp.sum(y / mu_arr - xp.log(y / mu_arr) - 1.0)
+            return xp.sum(y_dev / mu_arr - xp.log(y_dev / mu_arr) - 1.0)
         elif _fname == "inverse_gaussian":
-            _y_c = _clip(y, 1e-10, None)
-            return xp.sum((y - mu_arr) ** 2 / (_y_c * mu_arr ** 2))
+            _y_c = _clip(y_dev, 1e-10, None)
+            return xp.sum((y_dev - mu_arr) ** 2 / (_y_c * mu_arr ** 2))
         elif _fname == "negative_binomial":
             _mu_c = _clip(mu_arr, 1e-10, None)
-            _y_c = _clip(y, 1e-10, None)
+            _y_c = _clip(y_dev, 1e-10, None)
             _a = _nb_alpha
             return xp.sum(
                 2.0 * (_y_c * xp.log(_y_c / _mu_c)
@@ -223,16 +223,16 @@ def irls_solver(
         elif _fname == "tweedie":
             p = _tweedie_power
             if abs(p - 1.0) < 0.01:
-                return xp.sum(mu_arr - y * xp.log(mu_arr))
+                return xp.sum(mu_arr - y_dev * xp.log(mu_arr))
             elif abs(p - 2.0) < 0.01:
-                return xp.sum(y / mu_arr - xp.log(y / mu_arr) - 1.0)
+                return xp.sum(y_dev / mu_arr - xp.log(y_dev / mu_arr) - 1.0)
             else:
                 return xp.sum(
-                    y * (xp.power(y, 1.0 - p) - xp.power(mu_arr, 1.0 - p)) / (1.0 - p)
-                    - (xp.power(y, 2.0 - p) - xp.power(mu_arr, 2.0 - p)) / (2.0 - p)
+                    y_dev * (xp.power(y_dev, 1.0 - p) - xp.power(mu_arr, 1.0 - p)) / (1.0 - p)
+                    - (xp.power(y_dev, 2.0 - p) - xp.power(mu_arr, 2.0 - p)) / (2.0 - p)
                 )
         else:
-            return xp.sum(mu_arr - y * xp.log(mu_arr))
+            return xp.sum(mu_arr - y_dev * xp.log(mu_arr))
 
     for iteration in range(max_iter):
         params_old = _copy_arr(params)
