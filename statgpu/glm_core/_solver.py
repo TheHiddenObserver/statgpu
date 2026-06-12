@@ -695,11 +695,8 @@ def fista_solver(
         # Compute gradient (fused value+gradient for GLM losses)
         if sample_weight is not None:
             q_yk_dev, grad = _weighted_loss_and_grad(loss, X_proc, y_proc, y_k, sample_weight)
-        elif _loss_name in _GLM_FUSED_REGISTRY:
-            q_yk_dev, grad = _fused_glm_value_and_gradient(loss, X_proc, y_proc, y_k)
         else:
-            q_yk_dev = loss.value(X_proc, y_proc, y_k)
-            grad = loss.gradient(X_proc, y_proc, y_k)
+            q_yk_dev, grad = _fused_glm_value_and_gradient(loss, X_proc, y_proc, y_k)
 
         if _use_gpu_loop:
             # ── GPU async path: all ops stay on device ──
@@ -1247,11 +1244,8 @@ def fista_lla_path(
                         # Fast path: pre-computed XtX for squared_error
                         q_yk_dev = float(_sum_sq_dev(y_c - X_c @ y_k)) * 0.5 / n_samples
                         grad = (XtX @ y_k - Xty) / n_samples
-                    elif _loss_name in _GLM_FUSED_REGISTRY:
-                        q_yk_dev, grad = _fused_glm_value_and_gradient(loss, X_c, y_c, y_k)
                     else:
-                        q_yk_dev = loss.value(X_c, y_c, y_k)
-                        grad = loss.gradient(X_c, y_c, y_k)
+                        q_yk_dev, grad = _fused_glm_value_and_gradient(loss, X_c, y_c, y_k)
 
                     # Clip gradients (device-side, every 10 iterations)
                     if backend == "numpy" or iteration % 10 == 0:

@@ -1114,12 +1114,12 @@ class TestP2P3PenalizedFixes:
         src = inspect.getsource(_mod)
         assert 'fit_intercept' in src and '_df_resid' in src
 
-    def test_fused_uses_registry(self):
-        """fista_solver should use _GLM_FUSED_REGISTRY, not hardcoded list."""
+    def test_fused_uses_loss_class_method(self):
+        """fista_solver should use _fused_glm_value_and_gradient which delegates to loss class."""
         import inspect
         from statgpu.glm_core._solver import fista_solver
         src = inspect.getsource(fista_solver)
-        assert '_GLM_FUSED_REGISTRY' in src
+        assert '_fused_glm_value_and_gradient' in src
 
     def test_lasso_cv_delegates_to_select_lasso_alpha_cv(self):
         """LassoCV.fit should delegate to _select_lasso_alpha_cv."""
