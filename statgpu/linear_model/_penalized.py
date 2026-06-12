@@ -3328,7 +3328,8 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
 
                 # Compute penalized objective before CD (for step-halving)
                 if _is_glm:
-                    _obj_before = float(self._loss.value(X_work[:, :p], y_arr, beta[:p]))
+                    # Use full design matrix (including intercept) for correct objective
+                    _obj_before = float(self._loss.value(X_work, y_arr, beta))
                     _obj_before += _nonconvex_penalty_value(beta[:p], pen_name, alpha, a_scad, gamma_mcp)
 
                 for _cd in range(_n_cd_sweeps):
@@ -3398,7 +3399,7 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
                 # Step-halving for GLM: ensure penalized objective decreases.
                 # ncvreg uses step-halving to prevent IRLS overshooting.
                 if _is_glm:
-                    _obj_after = float(self._loss.value(X_work[:, :p], y_arr, beta[:p]))
+                    _obj_after = float(self._loss.value(X_work, y_arr, beta))
                     _obj_after += _nonconvex_penalty_value(beta[:p], pen_name, alpha, a_scad, gamma_mcp)
                     if _obj_after > _obj_before + 1e-10:
                         # Step-halving: interpolate between old and new beta
@@ -3407,7 +3408,7 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
                         for _sh in range(1, 11):
                             _frac = 0.5 ** _sh
                             beta[:] = beta_old + _frac * (beta_new - beta_old)
-                            _obj_after = float(self._loss.value(X_work[:, :p], y_arr, beta[:p]))
+                            _obj_after = float(self._loss.value(X_work, y_arr, beta))
                             _obj_after += _nonconvex_penalty_value(beta[:p], pen_name, alpha, a_scad, gamma_mcp)
                             if _obj_after <= _obj_before + 1e-10:
                                 break
@@ -3627,7 +3628,7 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
                     if _delta < self.tol * 10:
                         break
 
-        n_iter = it + 1
+        n_iter = it + 1 if _n_outer > 0 else 0
         return beta, n_iter
 
     def _block_cd_group_lasso(self, pen, X_work, y_arr, init):

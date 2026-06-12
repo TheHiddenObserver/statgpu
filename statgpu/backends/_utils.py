@@ -355,3 +355,15 @@ def xp_cholesky_solve(A, b, xp):
     from scipy.linalg import solve_triangular
     tmp = solve_triangular(L, b, lower=True)
     return solve_triangular(L.T, tmp, lower=False)
+
+
+def torch_compile_supported():
+    """Check if torch.compile is safe to use (CUDA Capability >= 7.0)."""
+    try:
+        import torch
+        if torch.cuda.is_available():
+            cap = torch.cuda.get_device_capability()
+            return cap[0] >= 7
+    except Exception:
+        pass
+    return True  # Assume supported if we can't check

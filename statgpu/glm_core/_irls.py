@@ -67,16 +67,7 @@ def _norm(x, backend):
 _IRLS_STEP_COMPILED = None
 
 
-def _torch_compile_supported():
-    """Check if torch.compile is safe (CUDA Capability >= 7.0)."""
-    try:
-        import torch
-        if torch.cuda.is_available():
-            cap = torch.cuda.get_device_capability()
-            return cap[0] >= 7
-    except Exception:
-        pass
-    return True
+from statgpu.backends._utils import torch_compile_supported as _torch_compile_supported
 
 
 def _get_irls_step_compiled():
