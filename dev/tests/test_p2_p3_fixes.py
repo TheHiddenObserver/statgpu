@@ -868,5 +868,132 @@ class TestEffectiveCvDevice:
         assert 'import cupy' in src
 
 
+# ============================================================================
+# Weighted lipschitz/hessian tests for all GLM loss classes
+# ============================================================================
+
+class TestWeightedLipschitzHessian:
+    """Verify all GLM loss classes support sample_weight in hessian/lipschitz."""
+
+    @pytest.mark.parametrize("loss_name,kwargs", [
+        ("squared_error", {}),
+        ("logistic", {}),
+        ("poisson", {}),
+        ("gamma", {"link": "log"}),
+        ("gamma", {"link": "inverse_power"}),
+        ("inverse_gaussian", {}),
+        ("negative_binomial", {"alpha": 1.0}),
+        ("tweedie", {"power": 1.5}),
+    ])
+    def test_hessian_with_sample_weight(self, loss_name, kwargs):
+        """hessian() should accept sample_weight and return correct shape."""
+        from statgpu.glm_core import get_glm_loss
+        loss = get_glm_loss(loss_name, **kwargs)
+        np.random.seed(42)
+        X = np.column_stack([np.random.randn(50, 5), np.ones(50)])
+        y = np.abs(np.random.randn(50)) + 0.1
+        coef = np.random.randn(6)
+        sw = np.random.rand(50) + 0.1  # non-uniform weights
+
+        # Unweighted
+        H = loss.hessian(X, y, coef)
+        assert H.shape == (6, 6)
+        assert all(np.isfinite(H.ravel()))
+
+        # Weighted
+        H_w = loss.hessian(X, y, coef, sample_weight=sw)
+        assert H_w.shape == (6, 6)
+        assert all(np.isfinite(H_w.ravel()))
+        # Weighted should differ from unweighted
+        assert not np.allclose(H, H_w, atol=1e-10)
+
+    @pytest.mark.parametrize("loss_name,kwargs", [
+        ("squared_error", {}),
+        ("logistic", {}),
+        ("poisson", {}),
+        ("gamma", {"link": "log"}),
+        ("gamma", {"link": "inverse_power"}),
+        ("inverse_gaussian", {}),
+        ("negative_binomial", {"alpha": 1.0}),
+        ("tweedie", {"power": 1.5}),
+    ])
+    def test_lipschitz_with_sample_weight(self, loss_name, kwargs):
+        """lipschitz() should accept sample_weight and return positive float."""
+        from statgpu.glm_core import get_glm_loss
+        loss = get_glm_loss(loss_name, **kwargs)
+        np.random.seed(42)
+        X = np.column_stack([np.random.randn(50, 5), np.ones(50)])
+        y = np.abs(np.random.randn(50)) + 0.1
+        coef = np.random.randn(6)
+        sw = np.random.rand(50) + 0.1
+
+        # Unweighted
+        L = loss.lipschitz(X, coef, y=y)
+        assert L > 0
+        assert np.isfinite(L)
+
+        # Weighted
+        L_w = loss.lipschitz(X, coef, y=y, sample_weight=sw)
+        assert L_w > 0
+        assert np.isfinite(L_w)
+
+    def test_uniform_weight_lipschitz_matches_unweighted(self):
+        """Uniform sample_weight should produce same lipschitz as unweighted."""
+        from statgpu.glm_core import get_glm_loss
+        loss = get_glm_loss("poisson")
+        np.random.seed(42)
+        X = np.column_stack([np.random.randn(50, 5), np.ones(50)])
+        y = np.abs(np.random.randn(50)) + 0.1
+        coef = np.random.randn(6)
+        sw = np.full(50, 3.0)  # uniform weight
+
+        L_unw = loss.lipschitz(X, coef, y=y)
+        L_unif = loss.lipschitz(X, coef, y=y, sample_weight=sw)
+        # Uniform weight should scale Lipschitz by w (since n_eff = n*w, but
+        # Hessian also scales by w, so L = eigmax(X'WX)/sum(w) = w*eigmax(X'X)/(n*w) = eigmax(X'X)/n)
+        assert abs(L_unw - L_unif) < 1e-6
+
+
+# ============================================================================
+# fista_bb_solver sample_weight tests
+# ============================================================================
+
+class TestFistaBbSampleWeight:
+    """Verify fista_bb_solver supports non-uniform sample_weight."""
+
+    def test_fista_bb_accepts_nonuniform_weight(self):
+        """fista_bb_solver should accept non-uniform sample_weight."""
+        from statgpu.glm_core._solver import fista_bb_solver
+        from statgpu.glm_core import get_glm_loss
+        from statgpu.penalties._l1 import L1Penalty
+        np.random.seed(42)
+        X = np.random.randn(100, 5)
+        y = X @ np.array([2, -1, 0, 0, 0]) + 0.1 * np.random.randn(100)
+        w = np.linspace(0.5, 2.0, 100)
+
+        loss = get_glm_loss("squared_error")
+        penalty = L1Penalty(alpha=0.1)
+        coef, n_iter = fista_bb_solver(loss, penalty, X, y, max_iter=100, tol=1e-6, sample_weight=w)
+        assert coef.shape == (5,)
+        assert all(np.isfinite(coef))
+
+    def test_fista_bb_weighted_produces_different_coefs(self):
+        """fista_bb_solver with non-uniform weights should produce different coefs."""
+        from statgpu.glm_core._solver import fista_bb_solver
+        from statgpu.glm_core import get_glm_loss
+        from statgpu.penalties._l1 import L1Penalty
+        np.random.seed(42)
+        X = np.random.randn(100, 5)
+        y = X @ np.array([2, -1, 0, 0, 0]) + 0.1 * np.random.randn(100)
+        w = np.linspace(0.5, 2.0, 100)
+
+        loss = get_glm_loss("squared_error")
+        penalty = L1Penalty(alpha=0.1)
+        coef_unw, _ = fista_bb_solver(loss, penalty, X, y, max_iter=100, tol=1e-6)
+        coef_w, _ = fista_bb_solver(loss, penalty, X, y, max_iter=100, tol=1e-6, sample_weight=w)
+        # Coefficients should differ when weights are non-uniform
+        assert not np.allclose(coef_unw, coef_w, atol=1e-6)
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v", "--tb=short"])
