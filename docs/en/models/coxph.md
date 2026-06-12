@@ -1,7 +1,7 @@
 # CoxPH
 
 > Language: English  
-> Last updated: 2026-04-22  
+> Last updated: 2026-06-01
 > This page: Model documentation  
 > Switch: [Chinese](../../models/coxph.md)
 
@@ -16,6 +16,7 @@ Notes:
 - Delayed entry (`entry`) is available in `CoxPH` on `cpu/cuda/torch`.
 - `ties='efron' + entry` is implemented in `CoxPH` on `cpu/cuda/torch` and validated against lifelines.
 - `CoxPHCV` is trainable (penalty search + final refit), but for GPU paths `entry` currently supports only `ties='breslow'`, and `cluster` remains unsupported.
+- Explicit `device='cuda'` and `device='torch'` do not silently fall back to CPU. Use `device='auto'` when automatic CPU fallback is desired.
 
 ## Path
 
@@ -48,7 +49,7 @@ Solve score equations \(\partial \ell(\beta)/\partial \beta = 0\) using Newton-R
 | `ties` | `"breslow"` | Tie handling: `breslow` / `efron` |
 | `tol` | `1e-9` | Newton-Raphson convergence tolerance |
 | `max_iter` | `100` | Max iterations |
-| `device` | `"auto"` | `cpu` / `cuda` / `auto` |
+| `device` | `"auto"` | `cpu` / `cuda` / `torch` / `auto` |
 | `compute_inference` | `True` | Whether to compute inference and diagnostics |
 | `cov_type` | `"nonrobust"` | `nonrobust` / `hc0` / `hc1` / `cluster` |
 | `gpu_memory_cleanup` | `False` | Best-effort CuPy pool cleanup after each fit |
@@ -58,8 +59,11 @@ Solve score equations \(\partial \ell(\beta)/\partial \beta = 0\) using Newton-R
 - `CoxPH`:
   - `entry + breslow`: supported on CPU/CUDA/Torch
   - `entry + efron`: supported on CPU/CUDA/Torch (since 2026-04-22)
+  - `device='cuda'`: requires a working CuPy CUDA backend
+  - `device='torch'`: requires `torch.cuda.is_available() == True`
 - `CoxPHCV`:
   - GPU `entry` currently supports `ties='breslow'` only
+  - `gpu_memory_cleanup=True` forwards cleanup to the final `CoxPH` estimator and exposes best-effort CuPy/Torch cleanup hooks
 - `torch.compile` (if enabled) requires Triton-capable GPUs (Compute Capability >= 7.0), e.g., A30/RTX 4090. Tesla P100 (CC 6.0) is not supported.
 
 ## CPU+GPU Examples

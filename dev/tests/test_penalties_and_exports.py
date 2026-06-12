@@ -12,6 +12,8 @@ from statgpu.linear_model import (
     LassoCV,
     ElasticNetCV,
     LogisticRegressionCV,
+    PenalizedGLM_CV,
+    ApproximateCVWarning,
 )
 from statgpu.linear_model._elasticnet_cv import _make_elasticnet_cv_auto_cache_key, _kfold_indices
 from statgpu.survival import CoxPHCV
@@ -35,6 +37,14 @@ def test_top_level_knockoff_exports():
 def test_top_level_lasso_cv_export():
     """Top-level package should expose LassoCV."""
     assert hasattr(statgpu, "LassoCV")
+
+
+def test_top_level_penalized_glm_cv_exports():
+    """Top-level package should expose PenalizedGLM_CV and its warning type."""
+    assert hasattr(statgpu, "PenalizedGLM_CV")
+    assert hasattr(statgpu, "ApproximateCVWarning")
+    assert statgpu.PenalizedGLM_CV is PenalizedGLM_CV
+    assert statgpu.ApproximateCVWarning is ApproximateCVWarning
 
 
 def test_inference_r_style_distribution_quartets_exports():
@@ -310,11 +320,14 @@ def test_penalty_models_gpu_cpu_prediction_consistency(model_cls):
     beta = rng.normal(size=16)
     y = X @ beta + rng.normal(scale=0.3, size=256)
 
-    cpu_model = model_cls(device="cpu")
+    # Use a tight, explicit convergence target for backend-consistency checks.
+    # The public default tol=1e-4 is an estimator stopping tolerance, not a
+    # guarantee that CPU/GPU predictions are allclose at 1e-4 for sparse paths.
+    cpu_model = model_cls(device="cpu", max_iter=3000, tol=1e-6)
     cpu_model.fit(X, y)
     cpu_pred = cpu_model.predict(X)
 
-    gpu_model = model_cls(device="cuda")
+    gpu_model = model_cls(device="cuda", max_iter=3000, tol=1e-6)
     gpu_model.fit(X, y)
     gpu_pred = gpu_model.predict(X)
     # CuPy arrays require .get() to transfer data back to host memory.

@@ -12,13 +12,15 @@ import types
 # Ensure we can import statgpu
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 
-# Mock cupy if not installed (needed because _cupy.py has top-level imports)
+# Mock cupy if not installed (needed because _cupy.py has top-level imports).
+# Use a context manager pattern so the mock is removed after import,
+# preventing pollution of sys.modules for other tests.
+_CUPY_MOCKED = False
 if 'cupy' not in sys.modules:
     try:
         import cupy  # noqa: F401
     except ImportError:
         _cupy_mock = types.ModuleType('cupy')
-        # Use a distinct subclass so isinstance checks don't match numpy arrays
         _cupy_mock.ndarray = type('ndarray', (np.ndarray,), {})
         _cupy_mock.float64 = np.float64
 
@@ -33,7 +35,18 @@ if 'cupy' not in sys.modules:
         _cupy_mock.RawKernel = type('RawKernel', (), {
             '__init__': lambda self, *a, **kw: None,
         })
+        # Add minimal attrs needed for import without error
+        _cupy_mock.asarray = np.asarray
+        _cupy_mock.array = np.array
+        _cupy_mock.zeros = np.zeros
+        _cupy_mock.ones = np.ones
+        _cupy_mock.float32 = np.float32
+        _cupy_mock.int32 = np.int32
+        _cupy_mock.int64 = np.int64
+        _cupy_mock.bool_ = np.bool_
+        _cupy_mock.newaxis = np.newaxis
         sys.modules['cupy'] = _cupy_mock
+        _CUPY_MOCKED = True
 
 
 def test_kernel_imports():

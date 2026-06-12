@@ -162,6 +162,30 @@ For the current GLM refactor, strict numerical validation is performed through r
 
 `solver="auto"` is device-aware for penalized GLMs. It picks exact Ridge for Gaussian L2, IRLS for smooth CPU logistic/poisson L2, and FISTA for CuPy/Torch GPU logistic/poisson L2. Explicit `irls`, `newton`, and `lbfgs` run on the selected backend when mathematically valid.
 
+`PenalizedGLM_CV` defaults to `cv_strategy="strict"`. In strict mode every fold/alpha is evaluated with the requested `max_iter` and `tol`, and GPU optimizations are limited to caching, fused kernels, and batched validation-score transfers. The optional `cv_strategy="two_stage"` mode first screens the alpha grid with relaxed CV solves, then strictly refines the candidate alphas and performs a strict final refit. Because the screening step can change alpha ranking on close CV curves, two-stage mode emits `ApproximateCVWarning` unless `acknowledge_approx=True` is passed.
+
+```python
+from statgpu.linear_model import PenalizedGLM_CV
+
+# Default: strict CV.
+strict_cv = PenalizedGLM_CV(
+    loss="poisson",
+    penalty="elasticnet",
+    cv_strategy="strict",
+    device="cuda",
+)
+
+# Opt-in approximate screening, strict candidate refinement and final refit.
+fast_cv = PenalizedGLM_CV(
+    loss="poisson",
+    penalty="elasticnet",
+    cv_strategy="two_stage",
+    acknowledge_approx=True,
+    refine_top_k=3,
+    device="cuda",
+)
+```
+
 ## Outputs
 
 Common fitted attributes and methods include:
@@ -173,8 +197,13 @@ Common fitted attributes and methods include:
 - `predict`
 - `predict_proba` for logistic models
 - `score` where implemented
+- `cv_results_` for `PenalizedGLM_CV`, including `cv_strategy_`, `cv_selected_device_`, `refined_mask`, and stage-1 scores when two-stage screening is enabled
 
 Future unified result objects are reserved for later work and are not part of this page's public contract.
+
+## See Also
+
+- [Solver × Penalty Compatibility Matrix](../guides/solver-penalty-matrix.md) — full dispatch table for loss × penalty × solver combinations, CV fast paths, and inference support status.
 
 ## FAQ
 

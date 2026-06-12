@@ -28,6 +28,23 @@ Elastic Net 优化问题为：
 
 **正则化缩放说明**：当 `l1_ratio=0` 时，`ElasticNet(alpha)` 等价于 `Ridge(n_samples * alpha)`，这是由于损失函数的缩放约定。
 
+## 估计方程
+
+Elastic Net 估计量求解以下一阶最优性（KKT）条件：
+
+\[
+\frac{1}{n} X^\top (X\hat{\beta} - y) + \alpha(1-\lambda)\hat{\beta} + \alpha\lambda \cdot \partial\|\hat{\beta}\|_1 = 0
+\]
+
+其中 $\partial\|\hat{\beta}\|_1$ 是 L1 范数的次微分：
+- 当 $\hat{\beta}_j \neq 0$ 时：$\text{sign}(\hat{\beta}_j)$
+- 当 $\hat{\beta}_j = 0$ 时：$[-1, 1]$ 中的任意值
+
+收敛时，KKT 残差（次梯度违反）满足：
+\[
+\left| \frac{1}{n} X_j^\top(y - X\hat{\beta}) - \alpha(1-\lambda)\hat{\beta}_j \right| \leq \alpha\lambda \quad \forall j
+\]
+
 ## 估计算法
 
 Elastic Net 通过 **FISTA**（快速迭代收缩阈值算法）求解，这是一种带有 Nesterov 动量加速的 proximal gradient 方法。
@@ -109,6 +126,26 @@ model_gpu_torch.fit(X, y)
 | 1,000 ≤ n < 10,000 | CPU (NumPy) | 1.5x - 4x |
 | 10,000 ≤ n < 50,000 | GPU (Torch) | 2x - 3x |
 | n ≥ 50,000 | GPU (Torch) | 3x - 4.4x |
+
+## 协方差/推断
+
+ElasticNet 不提供内置推断（标准误、p 值、置信区间），因为 L1 惩罚会引入系数估计的偏误，使基于 OLS 的标准推断无效。
+
+**计划中的推断支持**：
+
+| 方法 | 说明 | 状态 |
+|------|------|------|
+| Debiased Lasso | 通过 nodewise 回归进行偏误校正推断 | 待实现 — `PenalizedGeneralizedLinearModel` with `compute_inference=True` |
+| Bootstrap | 通过重抽样获得经验置信区间 | 待实现 |
+| Selection inference | 选择后条件推断 | 待实现 |
+
+如需 ElasticNet 惩罚的 debiased 推断，请使用 `PenalizedGeneralizedLinearModel(loss='squared_error', penalty='elasticnet')`，实现后将支持 debiased Lasso 路径。
+
+## strict/approx 区别
+
+ElasticNet 使用 **approximate**（默认）求解路径：
+- **approx**：固定 Lipschitz 常数的 FISTA，通过系数变化检查收敛。快速但无推断保证。
+- **strict**：不适用于独立 ElasticNet。如需 debiased 推断，请使用 `PenalizedGeneralizedLinearModel` 并设置 `compute_inference=True`，该方法运行 nodewise Lasso 构建 debiasing 矩阵 M。
 
 ## 输出属性
 

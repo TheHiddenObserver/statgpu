@@ -92,7 +92,7 @@
 
 ## 3) 基准与验证
 
-- [基准脚本索引](docs/benchmarks.md)
+- [基准脚本索引](docs/guides/benchmarks.md)
 
 当前重点脚本：
 - `dev/benchmarks/_bench_inference_timing.py`（多重检验计时, p=100-10k）
@@ -127,5 +127,5 @@ python dev/benchmarks/benchmark_all_methods_large_scale.py \
 - 报告结果时至少包含：设备信息、数据规模、`repeats/warmup`、是否包含 inference
 - 若新增功能，请同步更新：
   - `docs/models/*.md`
-  - `docs/benchmarks.md`（如新增脚本）
+  - `docs/guides/benchmarks.md`（如新增脚本）
   - `docs/changelog.md`

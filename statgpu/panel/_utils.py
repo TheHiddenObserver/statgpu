@@ -41,18 +41,87 @@ def within_transform(y, groups, xp=None):
     y = xp_asarray(y, dtype=xp.float64, xp=xp).ravel()
     groups = xp_asarray(groups, xp=xp, ref_arr=y).ravel()
 
-    unique_groups = xp.unique(groups)
-    # Batch-transfer unique group values to CPU (single sync, not per-group)
-    unique_cpu = _to_numpy(unique_groups).tolist()
-    result = xp.copy(y) if hasattr(xp, 'copy') else y.clone() if hasattr(y, 'clone') else y - 0.0
+    # Vectorized group demeaning — avoids per-group Python loop
+    # (O(n_groups) kernel launches → O(1) vectorized ops)
+    # Do NOT cast to int64 before unique — float/string labels would be
+    # truncated/crashed.  np.unique(..., return_inverse=True) already returns
+    # contiguous integer indices regardless of the input dtype.
+    groups_np = _to_numpy(groups)
+    y_np = _to_numpy(y)
 
-    for g_val in unique_cpu:
-        mask = groups == g_val
-        group_mean = xp.mean(y[mask])
-        if hasattr(result, '__setitem__'):
-            result[mask] = y[mask] - group_mean
-        else:
-            result = xp.where(mask, y - group_mean, result)
+    # Map group labels to contiguous indices [0, n_groups)
+    unique_labels, group_idx = np.unique(groups_np, return_inverse=True)
+    n_groups = len(unique_labels)
+
+    # Compute group means via bincount (O(n), single pass)
+    group_sum = np.bincount(group_idx, weights=y_np, minlength=n_groups)
+    group_count = np.bincount(group_idx, minlength=n_groups)
+    group_mean = group_sum / np.maximum(group_count, 1)
+
+    # Subtract group means
+    result_np = y_np - group_mean[group_idx]
+
+    # Convert back to original backend
+    if hasattr(y, 'clone'):  # torch
+        import torch
+        result = torch.from_numpy(result_np).to(dtype=y.dtype, device=y.device)
+    elif hasattr(y, 'get'):  # cupy
+        import cupy as cp
+        result = cp.asarray(result_np)
+    else:
+        result = result_np
+
+    return result
+
+
+def _within_transform_matrix(X, groups, xp=None):
+    """Group-demean all columns of X at once (vectorized, no per-column loop).
+
+    Parameters
+    ----------
+    X : array-like, shape (n, k)
+        Regressor matrix.
+    groups : array-like, shape (n,)
+        Group labels.
+    xp : module, optional
+        Array module.  Defaults to numpy.
+
+    Returns
+    -------
+    X_demeaned : array, shape (n, k)
+        Group-demeaned regressors.
+    """
+    if xp is None:
+        xp = np
+
+    X = xp_asarray(X, dtype=xp.float64, xp=xp)
+    if X.ndim == 1:
+        X = X.reshape(-1, 1)
+
+    groups_np = _to_numpy(groups)
+    X_np = _to_numpy(X)
+
+    unique_labels, group_idx = np.unique(groups_np, return_inverse=True)
+    n_groups = len(unique_labels)
+
+    # Vectorized group means for all columns: (n_groups, k)
+    # group_idx is (n,), X_np is (n, k)
+    group_sum = np.zeros((n_groups, X_np.shape[1]), dtype=np.float64)
+    np.add.at(group_sum, group_idx, X_np)
+    group_count = np.bincount(group_idx, minlength=n_groups).reshape(-1, 1)
+    group_mean = group_sum / np.maximum(group_count, 1)
+
+    result_np = X_np - group_mean[group_idx]
+
+    # Convert back to original backend
+    if hasattr(X, 'clone'):  # torch
+        import torch
+        result = torch.from_numpy(result_np).to(dtype=X.dtype, device=X.device)
+    elif hasattr(X, 'get'):  # cupy
+        import cupy as cp
+        result = cp.asarray(result_np)
+    else:
+        result = result_np
 
     return result
 
@@ -76,16 +145,23 @@ def make_group_dummies(groups, xp=None):
         xp = np
 
     groups = xp_asarray(groups, xp=xp).ravel()
-    unique = xp.unique(groups)
     n = len(groups)
-    n_groups = len(unique)
-    # Batch-transfer unique group values to CPU (single sync)
-    unique_cpu = _to_numpy(unique).tolist()
 
-    D = xp_zeros((n, n_groups), xp.float64, xp, groups)
-    for i, g_val in enumerate(unique_cpu):
-        mask = groups == g_val
-        D[mask, i] = 1.0
+    # Vectorized: use np.unique return_inverse for O(n) dummy construction
+    groups_np = _to_numpy(groups)
+    unique_labels, group_idx = np.unique(groups_np, return_inverse=True)
+    n_groups = len(unique_labels)
+
+    D = np.zeros((n, n_groups), dtype=np.float64)
+    D[np.arange(n), group_idx] = 1.0
+
+    # Convert back to original backend
+    if hasattr(groups, 'clone'):  # torch
+        import torch
+        D = torch.from_numpy(D).to(device=groups.device)
+    elif hasattr(groups, 'get'):  # cupy
+        import cupy as cp
+        D = cp.asarray(D)
 
     return D
 
@@ -123,17 +199,40 @@ def demean_variables(y, X, entity_ids, time_ids=None, xp=None):
     if X.ndim == 1:
         X = X.reshape(-1, 1)
 
-    # Entity demeaning
-    y_d = within_transform(y, entity_ids, xp)
-    X_d = xp.zeros_like(X)
-    for j in range(X.shape[1]):
-        X_d[:, j] = within_transform(X[:, j], entity_ids, xp)
+    # Demean: for two-way FE with unbalanced panels, use iterative
+    # alternating demeaning (entity then time) until convergence.
+    # For one-way FE or balanced panels, a single pass suffices.
+    y_d = y.copy() if hasattr(y, 'copy') else y - 0.0
+    X_d = X.copy() if hasattr(X, 'copy') else X - 0.0
 
-    # Time demeaning (two-way FE)
-    if time_ids is not None:
-        y_d = within_transform(y_d, time_ids, xp)
-        for j in range(X.shape[1]):
-            X_d[:, j] = within_transform(X_d[:, j], time_ids, xp)
+    if entity_ids is not None and time_ids is not None:
+        # Two-way FE: iterate until convergence
+        # Convert groups to numpy once (avoid repeated conversion in within_transform)
+        entity_np = _to_numpy(entity_ids).ravel()
+        time_np = _to_numpy(time_ids).ravel()
+        for _ in range(50):
+            y_prev = y_d.copy() if hasattr(y_d, 'copy') else y_d - 0.0
+            X_prev = X_d.copy() if hasattr(X_d, 'copy') else X_d - 0.0
+            # Entity demean
+            y_d = within_transform(y_d, entity_np, xp)
+            X_d = _within_transform_matrix(X_d, entity_np, xp)
+            # Time demean
+            y_d = within_transform(y_d, time_np, xp)
+            X_d = _within_transform_matrix(X_d, time_np, xp)
+            # Check convergence: batch both deltas into a single GPU sync
+            diff_y = y_d - y_prev
+            diff_X = X_d - X_prev
+            max_diff = float(xp.max(xp.abs(xp.concatenate([diff_y.ravel(), diff_X.ravel()]))))
+            if max_diff < 1e-10:
+                break
+    else:
+        # One-way FE: single pass
+        if entity_ids is not None:
+            y_d = within_transform(y_d, entity_ids, xp)
+            X_d = _within_transform_matrix(X_d, entity_ids, xp)
+        if time_ids is not None:
+            y_d = within_transform(y_d, time_ids, xp)
+            X_d = _within_transform_matrix(X_d, time_ids, xp)
 
     return y_d, X_d
 
@@ -164,12 +263,25 @@ def group_means(y, groups, xp=None):
     y = xp_asarray(y, dtype=xp.float64, xp=xp).ravel()
     groups = xp_asarray(groups, xp=xp, ref_arr=y).ravel()
 
-    result = xp.zeros_like(y)
-    # Batch-transfer unique group values to CPU (single sync)
-    unique_cpu = _to_numpy(xp.unique(groups)).tolist()
-    for g_val in unique_cpu:
-        mask = groups == g_val
-        result[mask] = xp.mean(y[mask])
+    # Vectorized group means using bincount (O(n), no per-group loop)
+    groups_np = _to_numpy(groups)
+    y_np = _to_numpy(y)
+    unique_labels, group_idx = np.unique(groups_np, return_inverse=True)
+    n_groups = len(unique_labels)
+    group_sum = np.bincount(group_idx, weights=y_np, minlength=n_groups)
+    group_count = np.bincount(group_idx, minlength=n_groups)
+    group_mean = group_sum / np.maximum(group_count, 1)
+    result_np = group_mean[group_idx]
+
+    # Convert back to original backend
+    if hasattr(y, 'clone'):  # torch
+        import torch
+        result = torch.from_numpy(result_np).to(dtype=y.dtype, device=y.device)
+    elif hasattr(y, 'get'):  # cupy
+        import cupy as cp
+        result = cp.asarray(result_np)
+    else:
+        result = result_np
 
     return result
 
@@ -196,13 +308,23 @@ def group_sizes(groups, xp=None):
         xp = np
 
     groups = xp_asarray(groups, xp=xp).ravel()
-    result = xp_zeros(len(groups), xp.float64, xp, groups)
-    # Batch-transfer unique group values to CPU (single sync)
-    unique_cpu = _to_numpy(xp.unique(groups)).tolist()
 
-    for g_val in unique_cpu:
-        mask = groups == g_val
-        result[mask] = float(xp.sum(mask))
+    # Vectorized group sizes using bincount (O(n), no per-group loop)
+    groups_np = _to_numpy(groups)
+    unique_labels, group_idx = np.unique(groups_np, return_inverse=True)
+    n_groups = len(unique_labels)
+    count = np.bincount(group_idx, minlength=n_groups)
+    result_np = count[group_idx].astype(np.float64)
+
+    # Convert back to original backend
+    if hasattr(groups, 'clone'):  # torch
+        import torch
+        result = torch.from_numpy(result_np).to(dtype=groups.dtype, device=groups.device)
+    elif hasattr(groups, 'get'):  # cupy
+        import cupy as cp
+        result = cp.asarray(result_np)
+    else:
+        result = result_np
 
     return result
 

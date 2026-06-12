@@ -145,6 +145,7 @@ def main() -> None:
             "numpy_vs_scipy": {
                 "max_abs_diff": float(np.max(np.abs(np_out - scipy_out))),
                 "mean_abs_diff": float(np.mean(np.abs(np_out - scipy_out))),
+                "mse": float(np.mean((np_out - scipy_out) ** 2)),
                 "l2_rel_diff": _l2_rel(np_out, scipy_out),
             }
         },

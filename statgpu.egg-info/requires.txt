@@ -8,6 +8,10 @@ black
 flake8
 mypy
 
+[formula]
+patsy>=0.5.3
+pandas>=1.5
+
 [gpu11]
 cupy-cuda11x>=13.0
 
@@ -15,7 +19,8 @@ cupy-cuda11x>=13.0
 cupy-cuda12x>=13.0
 
 [torch]
-torch>=1.8
+torch>=2.0
+scipy>=1.7
 
 [validation]
 pytest>=6.0

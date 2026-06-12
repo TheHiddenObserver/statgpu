@@ -47,4 +47,4 @@ print(sg.get_device().value)   # 当前解析后的设备（如 cuda / cpu）
 ## 推荐下一步
 
 - 想看完整方法文档：进入 [Models Overview](../models/README.md)
-- 想跑性能测试：进入 [基准脚本索引](../benchmarks.md)
+- 想跑性能测试：进入 [基准脚本索引](../guides/benchmarks.md)

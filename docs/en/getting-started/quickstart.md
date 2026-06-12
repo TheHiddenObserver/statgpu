@@ -43,4 +43,4 @@ See also:
 - [Device and GPU Memory](../guides/device-and-memory.md)
 - [Inference Modes (Lasso)](../guides/inference-modes.md)
 - [Models Overview](../models/README.md)
-- [Benchmark Index](../benchmarks.md)
+- [Benchmark Index](../guides/benchmarks.md)

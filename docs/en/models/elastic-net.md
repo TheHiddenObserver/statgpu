@@ -28,6 +28,23 @@ where:
 
 **Note on regularization scaling**: With `l1_ratio=0`, `ElasticNet(alpha)` is equivalent to `Ridge(n_samples * alpha)` due to the loss scaling convention.
 
+## Estimating Equation
+
+The Elastic Net estimator solves the following first-order optimality (KKT) condition:
+
+\[
+\frac{1}{n} X^\top (X\hat{\beta} - y) + \alpha(1-\lambda)\hat{\beta} + \alpha\lambda \cdot \partial\|\hat{\beta}\|_1 = 0
+\]
+
+where $\partial\|\hat{\beta}\|_1$ is the subdifferential of the L1 norm:
+- For $\hat{\beta}_j \neq 0$: $\text{sign}(\hat{\beta}_j)$
+- For $\hat{\beta}_j = 0$: any value in $[-1, 1]$
+
+At convergence, the KKT residual (subgradient violation) satisfies:
+\[
+\left| \frac{1}{n} X_j^\top(y - X\hat{\beta}) - \alpha(1-\lambda)\hat{\beta}_j \right| \leq \alpha\lambda \quad \forall j
+\]
+
 ## Estimation Algorithm
 
 Elastic Net is solved via **FISTA** (Fast Iterative Shrinkage-Thresholding Algorithm), a proximal gradient method with Nesterov momentum acceleration.
@@ -109,6 +126,26 @@ model_gpu_torch.fit(X, y)
 | 1,000 ≤ n < 10,000 | CPU (NumPy) | 1.5x - 4x |
 | 10,000 ≤ n < 50,000 | GPU (Torch) | 2x - 3x |
 | n ≥ 50,000 | GPU (Torch) | 3x - 4.4x |
+
+## Covariance/Inference
+
+ElasticNet does not provide built-in inference (standard errors, p-values, confidence intervals) because the L1 penalty introduces bias in the coefficient estimates, making standard OLS-based inference invalid.
+
+**Planned inference support**:
+
+| Method | Description | Status |
+|--------|-------------|--------|
+| Debiased Lasso | Bias-corrected inference via nodewise regression | 待实现 — `PenalizedGeneralizedLinearModel` with `compute_inference=True` |
+| Bootstrap | Empirical confidence intervals via resampling | 待实现 |
+| Selection inference | Post-selection conditional inference | 待实现 |
+
+For debiased inference with ElasticNet penalties, use `PenalizedGeneralizedLinearModel(loss='squared_error', penalty='elasticnet')` which will support the debiased Lasso path once implemented.
+
+## strict/approx difference
+
+ElasticNet uses the **approximate** (default) solver path:
+- **approx**: FISTA with fixed Lipschitz constant, convergence checked via coefficient delta. Fast but no inference guarantees.
+- **strict**: Not applicable for standalone ElasticNet. For debiased inference, use `PenalizedGeneralizedLinearModel` with `compute_inference=True`, which runs nodewise Lasso to construct the debiasing matrix M.
 
 ## Outputs
 

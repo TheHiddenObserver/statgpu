@@ -64,6 +64,7 @@ class PanelOLS(BaseEstimator):
         entity_effects: bool = False,
         time_effects: bool = False,
         cov_type: str = 'nonrobust',
+        alpha: float = 0.05,
         device: Union[str, Device] = Device.AUTO,
         n_jobs: Optional[int] = None,
     ):
@@ -71,6 +72,7 @@ class PanelOLS(BaseEstimator):
         self.entity_effects = entity_effects
         self.time_effects = time_effects
         self.cov_type = cov_type.lower()
+        self.alpha = float(alpha)
         if self.cov_type not in ('nonrobust', 'robust', 'clustered'):
             raise ValueError(
                 "cov_type must be 'nonrobust', 'robust', or 'clustered'"
@@ -101,8 +103,9 @@ class PanelOLS(BaseEstimator):
         y : array-like, shape (n,)
             Outcome vector.
         X : array-like, shape (n, k)
-            Regressor matrix. Include a constant column if you want an
-            intercept (the model does not add one automatically).
+            Regressor matrix. Do NOT include a constant column when using
+            entity_effects or time_effects (it would be collinear with the
+            dummies and cause a singular matrix error).
         entity_ids : array-like, shape (n,), optional
             Entity (individual) identifiers.  Required when
             ``entity_effects=True``.
@@ -130,6 +133,10 @@ class PanelOLS(BaseEstimator):
         n, k = X_arr.shape
         self.nobs = n
 
+        # Validate y/X length consistency
+        if len(y_arr) != n:
+            raise ValueError(f"y length {len(y_arr)} != X rows {n}")
+
         # Validate
         if self.entity_effects and entity_ids is None:
             raise ValueError("entity_ids is required when entity_effects=True")
@@ -137,6 +144,12 @@ class PanelOLS(BaseEstimator):
             raise ValueError("time_ids is required when time_effects=True")
         if self.cov_type == 'clustered' and cluster is None:
             raise ValueError("cluster is required when cov_type='clustered'")
+        if cluster is not None:
+            cluster_len = len(_to_numpy(cluster).ravel())
+            if cluster_len != n:
+                raise ValueError(
+                    f"cluster length {cluster_len} != n_samples {n}"
+                )
 
         entity_arr = None
         time_arr = None
@@ -168,9 +181,11 @@ class PanelOLS(BaseEstimator):
         except _LINALG_ERRORS:
             coef = xp.linalg.solve(XtX, Xty)
 
-        # Degrees of freedom
-        n_entities = len(xp.unique(entity_arr)) if entity_arr is not None else 0
-        n_times = len(xp.unique(time_arr)) if time_arr is not None else 0
+        # Degrees of freedom (compute from numpy to avoid GPU sync)
+        entity_np_dof = _to_numpy(entity_arr) if entity_arr is not None else None
+        time_np_dof = _to_numpy(time_arr) if time_arr is not None else None
+        n_entities = len(np.unique(entity_np_dof)) if entity_np_dof is not None else 0
+        n_times = len(np.unique(time_np_dof)) if time_np_dof is not None else 0
         n_effects = 0
         if self.entity_effects:
             n_effects += n_entities - 1
@@ -196,6 +211,40 @@ class PanelOLS(BaseEstimator):
         self.coef_ = coef_np
         self._X_design = _to_numpy(X_d)
 
+        # Store fixed effect estimates for prediction
+        self._entity_ids_fit = _to_numpy(entity_arr) if entity_arr is not None else None
+        self._time_ids_fit = _to_numpy(time_arr) if time_arr is not None else None
+        if self.entity_effects or self.time_effects:
+            y_np = _to_numpy(y_arr)
+            X_np = _to_numpy(X_arr)
+            y_hat = X_np @ coef_np
+            resid_fe = y_np - y_hat
+            if self.entity_effects:
+                entity_np = self._entity_ids_fit
+                unique_entities = np.unique(entity_np)
+                self._entity_effects_ = {}
+                for ent in unique_entities:
+                    mask = entity_np == ent
+                    self._entity_effects_[ent] = float(np.mean(resid_fe[mask]))
+            if self.time_effects:
+                time_np = self._time_ids_fit
+                unique_times = np.unique(time_np)
+                self._time_effects_ = {}
+                if self.entity_effects:
+                    # Two-way FE: compute time effects from residuals after
+                    # subtracting entity effects (standard identification strategy)
+                    resid_after_entity = resid_fe.copy()
+                    for i, ent in enumerate(entity_np):
+                        resid_after_entity[i] -= self._entity_effects_.get(ent, 0.0)
+                    for t in unique_times:
+                        mask = time_np == t
+                        self._time_effects_[t] = float(np.mean(resid_after_entity[mask]))
+                else:
+                    # One-way time FE
+                    for t in unique_times:
+                        mask = time_np == t
+                        self._time_effects_[t] = float(np.mean(resid_fe[mask]))
+
         # Inference
         self._compute_inference(xp, cluster, backend_name)
 
@@ -216,27 +265,28 @@ class PanelOLS(BaseEstimator):
         except np.linalg.LinAlgError:
             XtX_inv = np.linalg.pinv(XtX)
 
-        alpha = 0.05
+        alpha = self.alpha
 
         if self.cov_type == 'nonrobust':
             self.bse_, self.tvalues_, self.pvalues_, self.conf_int_ = \
                 ols_inference_nonrobust(params, X, self._scale, df)
 
         elif self.cov_type == 'robust':
-            # HC1 sandwich
+            # HC1 sandwich: use df_resid for small-sample correction
             e2 = resid ** 2
             Xw = X * e2[:, np.newaxis]
             meat = X.T @ Xw
             cov_params = XtX_inv @ meat @ XtX_inv
-            if n > k:
-                cov_params *= (n / (n - k))
+            if self.df_resid > 0:
+                cov_params *= (n / self.df_resid)
             self.bse_ = np.sqrt(np.maximum(np.diag(cov_params), 0.0))
             self.tvalues_ = params / (self.bse_ + 1e-30)
-            self.pvalues_ = 2 * (1 - stats.norm.cdf(np.abs(self.tvalues_)))
-            z_crit = stats.norm.ppf(1 - alpha / 2)
+            # Use t-distribution for consistency with nonrobust path
+            self.pvalues_ = 2 * (1 - stats.t.cdf(np.abs(self.tvalues_), df=self.df_resid))
+            t_crit = stats.t.ppf(1 - alpha / 2, df=self.df_resid)
             self.conf_int_ = np.column_stack([
-                params - z_crit * self.bse_,
-                params + z_crit * self.bse_,
+                params - t_crit * self.bse_,
+                params + t_crit * self.bse_,
             ])
 
         else:  # clustered
@@ -253,27 +303,43 @@ class PanelOLS(BaseEstimator):
 
             self.bse_ = np.sqrt(np.maximum(np.diag(V), 0.0))
             self.tvalues_ = params / (self.bse_ + 1e-30)
-            # Cluster-robust uses normal reference distribution
-            self.pvalues_ = 2 * (1 - stats.norm.cdf(np.abs(self.tvalues_)))
-            z_crit = stats.norm.ppf(1 - alpha / 2)
+            # Cluster-robust: use t with min(n_clusters-1, df_resid) df
+            # For two-way clustering, use min across individual dimensions
+            if cluster_np.ndim == 2 and cluster_np.shape[1] == 2:
+                n_clust_1 = len(np.unique(cluster_np[:, 0]))
+                n_clust_2 = len(np.unique(cluster_np[:, 1]))
+                n_clusters = min(n_clust_1, n_clust_2)
+            else:
+                n_clusters = len(np.unique(cluster_np))
+            df_cluster = min(n_clusters - 1, self.df_resid)
+            self.pvalues_ = 2 * (1 - stats.t.cdf(np.abs(self.tvalues_), df=df_cluster))
+            t_crit = stats.t.ppf(1 - alpha / 2, df=df_cluster)
             self.conf_int_ = np.column_stack([
-                params - z_crit * self.bse_,
-                params + z_crit * self.bse_,
+                params - t_crit * self.bse_,
+                params + t_crit * self.bse_,
             ])
 
-        # Within R-squared
+        # Within R-squared: ss_tot should be sum of squared demeaned y (not variance)
         y_d = self._y_demeaned
         ss_res = np.sum(resid ** 2)
-        ss_tot = np.sum((y_d - np.mean(y_d)) ** 2)
+        ss_tot = np.sum(y_d ** 2)
         self.rsquared_within = 1 - ss_res / ss_tot if ss_tot > 0 else 0.0
 
     def predict(self, X, entity_ids=None, time_ids=None):
         """Predict using the fitted model.
 
+        For models with fixed effects, the entity/time intercepts are added
+        back to the linear prediction.  If entity_ids/time_ids are not
+        provided, only the slope contribution is returned.
+
         Parameters
         ----------
         X : array-like, shape (n, k)
             Regressor matrix.
+        entity_ids : array-like, shape (n,), optional
+            Entity identifiers for entity fixed effects.
+        time_ids : array-like, shape (n,), optional
+            Time identifiers for time fixed effects.
 
         Returns
         -------
@@ -284,7 +350,19 @@ class PanelOLS(BaseEstimator):
         X_arr = np.asarray(X, dtype=np.float64)
         if X_arr.ndim == 1:
             X_arr = X_arr.reshape(-1, 1)
-        return X_arr @ self.coef_
+        y_pred = X_arr @ self.coef_
+
+        # Add fixed effect intercepts (vectorized lookup, unseen entities get 0)
+        if hasattr(self, '_entity_effects_') and entity_ids is not None:
+            entity_arr = np.asarray(entity_ids).ravel()
+            ent_effects = np.array([self._entity_effects_.get(e, 0.0) for e in entity_arr])
+            y_pred += ent_effects
+        if hasattr(self, '_time_effects_') and time_ids is not None:
+            time_arr = np.asarray(time_ids).ravel()
+            time_effects = np.array([self._time_effects_.get(t, 0.0) for t in time_arr])
+            y_pred += time_effects
+
+        return y_pred
 
     def summary(self):
         """Print a coefficient table with SE, t, p, and 95 % CI."""

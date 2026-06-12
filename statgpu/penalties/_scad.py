@@ -15,6 +15,8 @@ Supports both FISTA direct (proximal) and LLA (lla_weights) optimization.
 from typing import Optional
 import numpy as np
 from ._base import Penalty
+from statgpu.backends._array_ops import _xp
+from statgpu.backends._utils import _to_float_scalar
 
 # ---- torch.compile lazy-loader (fuses elementwise ops into 1 kernel) ---------
 _SCAD_PROXIMAL_TORCH_COMPILED = None
@@ -87,48 +89,21 @@ class SCADPenalty(Penalty):
     # ----------------------------------------------------------------
 
     def value(self, coef: np.ndarray) -> float:
-        # Backend-aware: compute on device, only transfer final scalar.
-        mod = type(coef).__module__
+        xp = _xp(coef)
         a = self.a
         alpha = self.alpha
 
-        if mod.startswith("torch"):
-            import torch
-            abs_w = torch.abs(coef)
-            region1 = abs_w <= alpha
-            region2 = (abs_w > alpha) & (abs_w <= a * alpha)
-            region3 = abs_w > a * alpha
-            total = alpha * abs_w[region1].sum()
-            total += (-(abs_w[region2] ** 2 - 2 * a * alpha * abs_w[region2] + alpha ** 2)
-                      / (2.0 * (a - 1.0))).sum()
-            total += (a + 1.0) * alpha ** 2 / 2.0 * region3.sum()
-            return float(total.item())
-        if mod.startswith("cupy"):
-            import cupy as cp
-            abs_w = cp.abs(coef)
-            region1 = abs_w <= alpha
-            region2 = (abs_w > alpha) & (abs_w <= a * alpha)
-            region3 = abs_w > a * alpha
-            total = alpha * cp.sum(abs_w[region1])
-            total += cp.sum(
-                -(abs_w[region2] ** 2 - 2 * a * alpha * abs_w[region2] + alpha ** 2)
-                / (2.0 * (a - 1.0))
-            )
-            total += (a + 1.0) * alpha ** 2 / 2.0 * cp.sum(region3)
-            return float(total)
-
-        abs_w = np.abs(coef)
+        abs_w = xp.abs(coef)
         region1 = abs_w <= alpha
         region2 = (abs_w > alpha) & (abs_w <= a * alpha)
         region3 = abs_w > a * alpha
-        total = 0.0
-        total += alpha * np.sum(abs_w[region1])
-        total += np.sum(
+        total = alpha * xp.sum(abs_w[region1])
+        total = total + xp.sum(
             -(abs_w[region2] ** 2 - 2 * a * alpha * abs_w[region2] + alpha ** 2)
             / (2.0 * (a - 1.0))
         )
-        total += (a + 1.0) * alpha ** 2 / 2.0 * np.sum(region3)
-        return total
+        total = total + (a + 1.0) * alpha ** 2 / 2.0 * xp.sum(region3)
+        return _to_float_scalar(total)
 
     # ----------------------------------------------------------------
     # Gradient
@@ -261,36 +236,17 @@ class SCADPenalty(Penalty):
 
         Accepts numpy, cupy, or torch arrays. Returns same backend type.
         """
-        mod = type(coef).__module__
         a = self.a
         alpha = self.alpha
 
-        if mod.startswith("torch"):
-            import torch
-            abs_w = torch.abs(coef)
-            weights = torch.full_like(coef, alpha)
-            mask2 = (abs_w > alpha) & (abs_w <= a * alpha)
-            weights[mask2] = (a * alpha - abs_w[mask2]) / (a - 1.0)
-            mask3 = abs_w > a * alpha
-            weights[mask3] = 0.0
-            return weights
-        elif mod.startswith("cupy"):
-            import cupy as cp
-            abs_w = cp.abs(coef)
-            weights = cp.full_like(coef, alpha)
-            mask2 = (abs_w > alpha) & (abs_w <= a * alpha)
-            weights[mask2] = (a * alpha - abs_w[mask2]) / (a - 1.0)
-            mask3 = abs_w > a * alpha
-            weights[mask3] = 0.0
-            return weights
-        else:
-            abs_w = np.abs(coef)
-            weights = np.full_like(coef, alpha, dtype=float)
-            mask2 = (abs_w > alpha) & (abs_w <= a * alpha)
-            weights[mask2] = (a * alpha - abs_w[mask2]) / (a - 1.0)
-            mask3 = abs_w > a * alpha
-            weights[mask3] = 0.0
-            return weights
+        xp = _xp(coef)
+        abs_w = xp.abs(coef)
+        weights = xp.full_like(coef, alpha)
+        mask2 = (abs_w > alpha) & (abs_w <= a * alpha)
+        weights[mask2] = (a * alpha - abs_w[mask2]) / (a - 1.0)
+        mask3 = abs_w > a * alpha
+        weights[mask3] = 0.0
+        return weights
 
     # ----------------------------------------------------------------
 

@@ -9,7 +9,8 @@ where mu is determined by the configured link:
 
 Supports numpy / cupy / torch backends via _array_ops helpers.
 """
-from statgpu.backends._array_ops import _clip, _exp, _log, _sum, _max_eigval_power
+import numpy as np
+from statgpu.backends._array_ops import _clip, _exp, _log, _sum, _max_eigval_power, _xp
 from ._base import GLMLoss, register_glm_loss
 
 
@@ -20,6 +21,7 @@ class GammaLoss(GLMLoss):
     smooth_gradient = True
     has_hessian = True
     _lipschitz_uses_y = True
+    _lipschitz_safety = 3.0  # Gamma Hessian varies with mu
 
     _MU_LO = 1e-3
     _MU_HI = 1e4
@@ -34,9 +36,6 @@ class GammaLoss(GLMLoss):
             )
         self.link = link
         self.link_name = link
-        # The inverse-power objective has a finite, safe intercept start;
-        # using it for the initial Lipschitz estimate avoids the huge
-        # curvature produced by eta=0 clipping.
         self._lipschitz_at_init = link == "inverse_power"
 
     def _eta_mu(self, X, coef):
@@ -47,42 +46,56 @@ class GammaLoss(GLMLoss):
         z = _clip(eta, -30, 30)
         return z, _clip(_exp(z), self._MU_LO, self._MU_HI)
 
-    def value(self, X, y, coef):
-        eta, mu = self._eta_mu(X, coef)
+    def _mu_from_eta(self, eta):
         if self.link == "inverse_power":
-            return _sum(y * eta - _log(eta)) / X.shape[0]
-        return _sum(y / mu + _log(mu)) / X.shape[0]
+            eta_c = _clip(eta, self._ETA_LO, self._ETA_HI)
+            return 1.0 / eta_c
+        return _clip(_exp(_clip(eta, -30, 30)), self._MU_LO, self._MU_HI)
 
-    def gradient(self, X, y, coef):
-        eta, mu = self._eta_mu(X, coef)
+    # ── Per-sample formulas (single source of truth) ──────────────────
+
+    def per_sample_value(self, eta, y):
         if self.link == "inverse_power":
-            return X.T @ (y - mu) / X.shape[0]
-        return X.T @ (1.0 - y / mu) / X.shape[0]
+            eta_c = _clip(eta, self._ETA_LO, self._ETA_HI)
+            return y * eta_c - _log(eta_c)
+        mu = self._mu_from_eta(eta)
+        return y / mu + _log(mu)
 
-    def hessian(self, X, y, coef):
+    def per_sample_gradient(self, eta, y):
+        if self.link == "inverse_power":
+            mu = self._mu_from_eta(eta)
+            return y - mu
+        mu = self._mu_from_eta(eta)
+        return 1.0 - y / mu
+
+    def hessian(self, X, y, coef, sample_weight=None):
+        n_eff = float(sample_weight.sum()) if sample_weight is not None else X.shape[0]
         if self.link == "inverse_power":
             eta, _ = self._eta_mu(X, coef)
             W = 1.0 / (eta * eta)
-            return X.T @ (X * W[:, None]) / X.shape[0]
-        # Expected Fisher: W(mu) = 1 for Gamma with log link.
-        return X.T @ X / X.shape[0]
+        else:
+            # Expected Fisher: W(mu) = 1 for Gamma with log link
+            W = np.ones(X.shape[0]) if not hasattr(X, 'device') else _xp(X).ones(X.shape[0], dtype=X.dtype, device=X.device)
+        if sample_weight is not None:
+            W = W * sample_weight
+        return X.T @ (X * W[:, None]) / n_eff
 
-    def lipschitz(self, X, coef, y=None):
+    def lipschitz(self, X, coef, y=None, sample_weight=None):
+        n_eff = float(sample_weight.sum()) if sample_weight is not None else X.shape[0]
         if self.link == "inverse_power":
             eta, _ = self._eta_mu(X, coef)
             W = 1.0 / (eta * eta)
-            XtWX = X.T @ (X * W[:, None])
-            L = _max_eigval_power(XtWX) / X.shape[0]
-            return max(L, 1e-8)
-        if y is not None:
+        elif y is not None:
             z = _clip(X @ coef, -30, 30)
             mu = _clip(_exp(z), self._MU_LO, self._MU_HI)
             W = y / mu
-            XtWX = X.T @ (X * W[:, None])
-            L = _max_eigval_power(XtWX) / X.shape[0]
         else:
             XtX = X.T @ X
-            L = _max_eigval_power(XtX) / X.shape[0]
+            return max(_max_eigval_power(XtX) / n_eff, 1e-8)
+        if sample_weight is not None:
+            W = W * sample_weight
+        XtWX = X.T @ (X * W[:, None])
+        L = _max_eigval_power(XtWX) / n_eff
         return max(L, 1e-8)
 
     def predict(self, X, coef):

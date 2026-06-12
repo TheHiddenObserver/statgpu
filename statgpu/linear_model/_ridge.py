@@ -38,7 +38,6 @@ class Ridge(_PenalizedLinearRegression):
         cpu_solver: str = "fista",
         lipschitz_L: Optional[float] = None,
     ):
-        self.compute_inference = compute_inference
         self.cov_type = str(cov_type).lower()
         self.hac_maxlags = hac_maxlags
         super().__init__(
@@ -50,12 +49,12 @@ class Ridge(_PenalizedLinearRegression):
             device=device,
             n_jobs=n_jobs,
             gpu_memory_cleanup=gpu_memory_cleanup,
-            solver=solver,
-            cpu_solver=cpu_solver,
-            lipschitz_L=lipschitz_L,
             compute_inference=compute_inference,
             cov_type=cov_type,
             hac_maxlags=hac_maxlags,
+            solver=solver,
+            cpu_solver=cpu_solver,
+            lipschitz_L=lipschitz_L,
         )
 
     def fit(self, X=None, y=None, sample_weight=None, formula=None, data=None):
@@ -77,41 +76,60 @@ class Ridge(_PenalizedLinearRegression):
         self._nobs = n_samples
         self._fitted = False
 
-        if sample_weight is not None:
-            sample_weight = np.asarray(sample_weight, dtype=np.float64)
-            sqrt_sw = np.sqrt(sample_weight)
-            X_np = X_np * sqrt_sw[:, np.newaxis]
-            y_np = y_np * sqrt_sw
+        sw = np.asarray(sample_weight, dtype=np.float64).ravel() if sample_weight is not None else None
 
-        # Memory-efficient centering: avoid creating full X_centered (n×p) matrix.
-        # Use: XtX = X.T@X - n*outer(mean), Xty = X.T@y - n*mean_x*mean_y
         if self.fit_intercept:
-            X_mean = np.mean(X_np, axis=0)
-            y_mean = np.mean(y_np)
-            XtX = X_np.T @ X_np
-            XtX -= n_samples * np.outer(X_mean, X_mean)
-            Xty = X_np.T @ y_np
-            Xty -= n_samples * X_mean * y_mean
+            if sw is not None:
+                w_sum = float(sw.sum())
+                X_wmean = np.average(X_np, axis=0, weights=sw)
+                y_wmean = float(np.average(y_np, weights=sw))
+            else:
+                X_wmean = np.mean(X_np, axis=0)
+                y_wmean = np.mean(y_np)
+
+        # Build Gram matrix and RHS.
+        # Weighted: X'WX, X'Wy.  Unweighted: X'X, X'y.
+        # Centering for intercept: subtract weighted/unweighted outer product.
+        if sw is not None:
+            # Weighted normal equations: (X'WX + alpha*I) coef = X'Wy
+            sw_col = sw[:, None]
+            XtX = (X_np * sw_col).T @ X_np
+            Xty = (X_np * sw_col).T @ y_np
+            if self.fit_intercept:
+                XtX -= w_sum * np.outer(X_wmean, X_wmean)
+                Xty -= w_sum * X_wmean * y_wmean
+                n_eff = w_sum
+            else:
+                n_eff = float(sw.sum())
         else:
-            y_mean = 0.0
-            XtX = X_np.T @ X_np
-            Xty = X_np.T @ y_np
+            if self.fit_intercept:
+                X_mean = np.mean(X_np, axis=0)
+                y_mean = np.mean(y_np)
+                XtX = X_np.T @ X_np
+                XtX -= n_samples * np.outer(X_mean, X_mean)
+                Xty = X_np.T @ y_np
+                Xty -= n_samples * X_mean * y_mean
+            else:
+                XtX = X_np.T @ X_np
+                Xty = X_np.T @ y_np
+            n_eff = float(n_samples)
 
         if Xty.ndim == 0:
             Xty = Xty.reshape(1)
         if Xty.ndim == 1:
             Xty = Xty.reshape(-1, 1)
 
-        # Solve (XtX + alpha*n*I) @ coef = Xty
-        alpha_scaled = float(self.alpha) * n_samples
-        A = XtX + alpha_scaled * np.eye(n_features, dtype=np.float64)
+        # Solve (XtX + n_eff*alpha*I) @ coef = Xty
+        # n_eff scaling matches PenalizedGeneralizedLinearModel exact ridge
+        # and sklearn Ridge convention.
+        A = XtX + float(self.alpha) * n_eff * np.eye(n_features, dtype=np.float64)
         try:
             coef = np.linalg.solve(A, Xty).flatten()
         except np.linalg.LinAlgError:
             coef = np.linalg.lstsq(A, Xty, rcond=None)[0].flatten()
 
         if self.fit_intercept:
-            self.intercept_ = float(y_mean - X_mean @ coef)
+            self.intercept_ = float(y_wmean - X_wmean @ coef)
             self.coef_ = coef
             self._params = np.concatenate([[self.intercept_], self.coef_])
         else:
@@ -134,8 +152,12 @@ class Ridge(_PenalizedLinearRegression):
             y_pred = self._X_design @ self._params
             self._resid = y_np - y_pred
             if self._df_resid > 0:
-                self._scale = np.sum(self._resid ** 2) / self._df_resid
-            # Compute inference statistics (bse, tvalues, pvalues, conf_int)
+                resid_sq = self._resid ** 2
+                self._scale = float(np.sum(resid_sq)) / self._df_resid
+            # Compute inference statistics (bse, tvalues, pvalues, conf_int).
+            # For weighted fits, _compute_post_fit_gaussian_inference uses
+            # sqrt(w)*X internally, producing correct weighted scale and
+            # consistent inference attributes.
             self._compute_post_fit_gaussian_inference(X_np, y_np, sample_weight=sample_weight)
 
         self._fitted = True

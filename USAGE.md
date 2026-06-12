@@ -83,7 +83,7 @@ Inference highlights:
 
 ## 3) Benchmarks and Validation
 
-- [Benchmark Index](docs/en/benchmarks.md)
+- [Benchmark Index](docs/en/guides/benchmarks.md)
 
 Primary scripts:
 - `dev/benchmarks/_bench_inference_timing.py` (multiple-testing, p=100-10k)
@@ -117,5 +117,5 @@ python dev/benchmarks/benchmark_all_methods_large_scale.py \
 - For performance reports, include: device info, data shape, `repeats/warmup`, and whether inference is timed.
 - If you add new features, also update:
   - `docs/en/models/*.md`
-  - `docs/en/benchmarks.md`
+  - `docs/en/guides/benchmarks.md`
   - `docs/en/changelog.md`

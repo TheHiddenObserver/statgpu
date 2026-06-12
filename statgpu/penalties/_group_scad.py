@@ -34,9 +34,11 @@ def _get_group_scad_torch_compiled():
             a_alpha_g = a * alpha_g
             norms = torch.linalg.norm(w_mat, dim=1)
             mask_r1 = norms <= alpha_g + t_g
-            scale_r1 = torch.clamp(1.0 - t_g / (norms + 1e-12), min=0.0)
+            safe_norms = torch.where(norms > 0.0, norms, torch.ones_like(norms))
+            scale_r1 = torch.clamp((norms - t_g) / safe_norms, min=0.0)
             mask_r2 = (norms > alpha_g + t_g) & (norms <= a_alpha_g)
-            denom = norms * (a - 1.0 - step) + 1e-12
+            denom = norms * (a - 1.0 - step)
+            denom = torch.where(mask_r2, denom, torch.ones_like(denom))
             scale_r2 = ((a - 1.0) * norms - a * t_g) / denom
             scale = torch.where(mask_r1, scale_r1, 1.0)
             scale = torch.where(mask_r2, scale_r2, scale)
@@ -242,7 +244,8 @@ class GroupSCADPenalty(Penalty):
         if self._is_contiguous:
             result[:p_total] = flat_vals
         else:
-            result[:p_total][self._flat_indices] = flat_vals
+            flat_idx = self._get_flat_indices(xp, result)
+            result[flat_idx] = flat_vals
 
     # ----------------------------------------------------------------
     # Value
@@ -434,11 +437,13 @@ class GroupSCADPenalty(Penalty):
 
         # Region 1: soft-threshold  ng <= alpha_g + t_g
         mask_r1 = norms <= alpha_g + t_g
-        scale_r1 = xp.clip(1.0 - t_g / (norms + 1e-12), 0.0, None)
+        safe_norms = xp.where(norms > 0.0, norms, xp.ones_like(norms))
+        scale_r1 = xp.clip((norms - t_g) / safe_norms, 0.0, None)
 
         # Region 2: SCAD intermediate  alpha_g + t_g < ng <= a_alpha_g
         mask_r2 = (norms > alpha_g + t_g) & (norms <= a_alpha_g)
-        denom = norms * (self.a - 1.0 - step) + 1e-12
+        denom = norms * (self.a - 1.0 - step)
+        denom = xp.where(mask_r2, denom, xp.ones_like(denom))
         scale_r2 = ((self.a - 1.0) * norms - self.a * t_g) / denom
 
         # Region 3: no shrinkage  ng > a_alpha_g
@@ -474,10 +479,12 @@ class GroupSCADPenalty(Penalty):
         a_alpha_g = self.a * alpha_g
 
         mask_r1 = norms <= alpha_g + t_g
-        scale_r1 = xp.clip(1.0 - t_g / (norms + 1e-12), 0.0, None)
+        safe_norms = xp.where(norms > 0.0, norms, xp.ones_like(norms))
+        scale_r1 = xp.clip((norms - t_g) / safe_norms, 0.0, None)
 
         mask_r2 = (norms > alpha_g + t_g) & (norms <= a_alpha_g)
-        denom = norms * (self.a - 1.0 - step) + 1e-12
+        denom = norms * (self.a - 1.0 - step)
+        denom = xp.where(mask_r2, denom, xp.ones_like(denom))
         scale_r2 = ((self.a - 1.0) * norms - self.a * t_g) / denom
 
         scale = xp.where(mask_r1, scale_r1, 1.0)
@@ -490,7 +497,7 @@ class GroupSCADPenalty(Penalty):
         if self._is_contiguous:
             result[:p_total] = padded_scaled[row_idx_dev, col_idx_dev]
         else:
-            result[:p_total][flat_idx_dev] = padded_scaled[row_idx_dev, col_idx_dev]
+            result[flat_idx_dev] = padded_scaled[row_idx_dev, col_idx_dev]
         return result
 
     # ----------------------------------------------------------------

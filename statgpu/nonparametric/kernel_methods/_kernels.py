@@ -227,7 +227,14 @@ def pairwise_kernels(X, Y=None, metric="rbf", xp=None, **params):
     K : array of shape (n_samples_X, n_samples_Y)
     """
     if callable(metric):
-        return metric(X, Y, xp=xp, **params)
+        # Try calling with xp parameter first; fall back without it
+        # for user-defined callables that don't accept xp.
+        # Pass Y as-is (including None) so callables can distinguish
+        # self-kernel (Y=None) from cross-kernel.
+        try:
+            return metric(X, Y, xp=xp, **params)
+        except TypeError:
+            return metric(X, Y, **params)
 
     key = str(metric).strip().lower()
     func = KERNEL_REGISTRY.get(key)

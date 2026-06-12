@@ -6,12 +6,13 @@ minimize: loss(X, y, w) + penalty(w)
 Supports numpy / cupy / torch backends via auto-detection.
 """
 
+import copy
 import warnings
 import numpy as np
 
 from statgpu.backends import _resolve_backend, _to_numpy
+from statgpu.backends._utils import _to_float_scalar, _get_xp
 from statgpu.backends._array_ops import (
-    _abs_max,
     _abs_sum,
     _abs_sum_dev,
     _clip_grad_on_device,
@@ -30,6 +31,26 @@ from statgpu.backends._array_ops import (
     _zeros_like,
 )
 
+# ---------------------------------------------------------------------------
+# Lipschitz safety factors for GLM losses (empirically determined)
+# ---------------------------------------------------------------------------
+# Per-family safety factors are now on the loss classes themselves
+# (_lipschitz_safety attribute): gamma=3.0, inverse_gaussian=3.0,
+# tweedie=5.0, negative_binomial=2.0.  The solver reads them via
+# getattr(loss, '_lipschitz_safety', 1.0).
+#
+# Logistic CV needs an additional global safety factor because its
+# Lipschitz is iterate-dependent (X'WX).
+_LIPSCHITZ_SAFETY_LOGISTIC_CV = 2.0
+
+# Numerical constants for solver convergence/divergence
+_SLACK_TOLERANCE = 1e-14          # Armijo slack tolerance
+_DIVERGE_COEF_NORM_CAP = 100.0    # Coefficient norm above which divergence is suspected
+_DIVERGE_OBJ_RATIO = 100.0        # Objective ratio for divergence detection
+_DIVERGE_OBJ_ABS = 10.0           # Absolute objective threshold for divergence
+_BB_RESTART_DOT_TOL = 1e-14       # BB restart dot product tolerance
+_LIPSCHITZ_FLOOR = 1e-30          # Minimum Lipschitz constant
+
 
 class ConvergenceWarning(UserWarning):
     """Solver did not converge within the iteration limit."""
@@ -45,16 +66,7 @@ _FISTA_STEP_COMPILED = None
 _NEWTON_STEP_COMPILED = None
 
 
-def _torch_compile_supported():
-    """Check if torch.compile is safe to use (CUDA Capability >= 7.0)."""
-    try:
-        import torch
-        if torch.cuda.is_available():
-            cap = torch.cuda.get_device_capability()
-            return cap[0] >= 7
-    except Exception:
-        pass
-    return True  # Assume supported if we can't check
+from statgpu.backends._utils import torch_compile_supported as _torch_compile_supported
 
 
 def _get_fista_step_compiled():
@@ -70,7 +82,7 @@ def _get_fista_step_compiled():
     if _torch_compile_supported():
         try:
             _FISTA_STEP_COMPILED = torch.compile(_fista_step, dynamic=True, fullgraph=False)
-        except Exception:
+        except RuntimeError:
             _FISTA_STEP_COMPILED = _fista_step
     else:
         _FISTA_STEP_COMPILED = _fista_step
@@ -81,7 +93,7 @@ def _fista_step_call(compiled_fn, *args):
     """Call compiled FISTA step, falling back to eager on GPU arch mismatch."""
     try:
         return compiled_fn(*args)
-    except Exception:
+    except (RuntimeError, TypeError):
         # Runtime fallback (shouldn't happen if pre-check passed)
         def _fista_eager(y_k, grad, step, coef_old, coef, beta_t):
             w_tilde = y_k - step * grad
@@ -103,7 +115,7 @@ def _get_newton_step_compiled():
     if _torch_compile_supported():
         try:
             _NEWTON_STEP_COMPILED = torch.compile(_newton_step, dynamic=True, fullgraph=False)
-        except Exception:
+        except RuntimeError:
             _NEWTON_STEP_COMPILED = _newton_step
     else:
         _NEWTON_STEP_COMPILED = _newton_step
@@ -114,7 +126,7 @@ def _newton_step_call(compiled_fn, *args):
     """Call compiled Newton step, falling back to eager on GPU arch mismatch."""
     try:
         return compiled_fn(*args)
-    except Exception:
+    except (RuntimeError, TypeError):
         def _newton_eager(params, direction, params_old):
             params_new = params - direction
             diff_norm = torch.linalg.norm(params_new - params_old)
@@ -155,6 +167,32 @@ def _validate_uniform_sample_weight(sample_weight, n_samples, solver_name):
         )
 
 
+def _validate_sample_weight(sample_weight, n_samples):
+    """Validate non-uniform sample_weight (ndim, finite, non-negative, positive sum).
+
+    Shared by fista_solver, fista_lla_path, and fista_bb_solver.
+    """
+    if sample_weight is None:
+        return
+    _sw = _to_numpy(sample_weight) if hasattr(sample_weight, 'get') or hasattr(sample_weight, 'cpu') else np.asarray(sample_weight)
+    if _sw.ndim != 1 or _sw.shape[0] != n_samples:
+        raise ValueError("sample_weight must be 1D with length n_samples")
+    if not np.all(np.isfinite(_sw)):
+        raise ValueError("sample_weight must contain only finite values")
+    if np.any(_sw < 0):
+        raise ValueError("sample_weight must be non-negative")
+    if np.sum(_sw) <= 0:
+        raise ValueError("sample_weight must contain at least one positive value")
+
+
+def _as_backend_vector(arr, backend, ref):
+    """Convert an initial vector to the same backend/dtype/device as ref."""
+    from statgpu.backends._utils import xp_asarray
+    xp = _get_xp(backend)
+    dtype = getattr(ref, "dtype", np.float64)
+    return xp_asarray(arr, dtype=dtype, xp=xp, ref_arr=ref)
+
+
 
 def _penalty_name(penalty):
     return str(getattr(penalty, "name", "none")).lower()
@@ -179,6 +217,57 @@ def _smooth_penalty_value(penalty, coef):
     )
 
 
+def _tracking_penalty_value(penalty, coef):
+    """Return full penalty value for objective tracking."""
+    pen_name = _penalty_name(penalty)
+    if penalty is None or pen_name in ("none", "null"):
+        return 0.0
+    n_features = getattr(penalty, "n_features", None)
+    if n_features is not None:
+        coef_eval = coef[: int(n_features)]
+        backend = _resolve_backend("auto", coef_eval)
+        if pen_name == "l1":
+            if backend in ("torch", "cupy"):
+                abs_sum, = _sync_scalars(_abs_sum_dev(coef_eval), backend=backend)
+            else:
+                abs_sum = _abs_sum(coef_eval)
+            return float(getattr(penalty, "alpha", 0.0)) * abs_sum
+        if pen_name in ("elasticnet", "en"):
+            alpha = float(getattr(penalty, "alpha", 0.0))
+            l1_ratio = float(getattr(penalty, "l1_ratio", 1.0))
+            if backend in ("torch", "cupy"):
+                abs_sum, sum_sq = _sync_scalars(
+                    _abs_sum_dev(coef_eval),
+                    _sum_sq_dev(coef_eval),
+                    backend=backend,
+                )
+            else:
+                abs_sum = _abs_sum(coef_eval)
+                sum_sq = _sum_sq(coef_eval)
+            return alpha * (
+                l1_ratio * abs_sum
+                + 0.5 * (1.0 - l1_ratio) * sum_sq
+            )
+    try:
+        return float(penalty.value(coef))
+    except (ValueError, TypeError, AttributeError):
+        pass
+    try:
+        return float(penalty.value(_to_numpy(coef)))
+    except (ValueError, TypeError, AttributeError):
+        return _smooth_penalty_value(penalty, coef)
+
+
+def _abs_mean_max(y, backend):
+    """Return mean(abs(y)) and max(abs(y)) with only scalar GPU transfers."""
+    backend = _resolve_backend(backend, y)
+    xp = _get_xp(backend)
+    y_abs = xp.abs(y)
+    # Batch two scalar transfers into one GPU→CPU sync
+    mean_val, max_val = _sync_scalars(xp.mean(y_abs), xp.max(y_abs), backend=backend)
+    return mean_val, max_val
+
+
 def _smooth_penalty_gradient(penalty, coef):
     """Return smooth penalty gradient on the same backend as coef."""
     if penalty is None or _penalty_name(penalty) in ("none", "null"):
@@ -197,10 +286,14 @@ def _smooth_penalty_gradient(penalty, coef):
 
 
 def _smooth_penalty_hessian(penalty, coef):
-    """Return smooth penalty Hessian on the same backend as coef."""
-    n = coef.shape[0]
+    """Return smooth penalty Hessian on the same backend as coef.
+
+    Returns scalar 0.0 when penalty is None/null (broadcasts correctly
+    when added to the loss Hessian matrix).
+    """
     if penalty is None or _penalty_name(penalty) in ("none", "null"):
-        return 0.0 * _eye_like(n, coef)
+        return 0.0
+    n = coef.shape[0]
     if hasattr(penalty, "smooth_hessian"):
         return penalty.smooth_hessian(coef)
     if _penalty_name(penalty) == "l2":
@@ -270,181 +363,150 @@ def _objective_value_dev(loss, penalty, X, y, coef):
 
 
 
+def _fused_logistic(eta, X, y, n, loss):
+    from statgpu.backends._array_ops import _sigmoid, _softplus, _sum
+    p = _sigmoid(eta)
+    log1pexp = _softplus(eta)
+    val = _sum(-y * eta + log1pexp) / n
+    grad = X.T @ (p - y) / n
+    return val, grad
+
+
+def _fused_poisson(eta, X, y, n, loss):
+    from statgpu.backends._array_ops import _exp, _log, _clip, _sum
+    mu = _exp(_clip(eta, -30, 30))
+    # Clip mu before log to match non-fused PoissonLoss.value() behavior
+    mu_c = _clip(mu, 1e-10, None)
+    val = _sum(mu - y * _log(mu_c)) / n
+    grad = X.T @ (mu - y) / n
+    return val, grad
+
+
+def _fused_gamma(eta, X, y, n, loss):
+    from statgpu.backends._array_ops import _exp, _log, _clip, _sum
+    gamma_link = getattr(loss, 'link_name', getattr(loss, 'link', 'log'))
+    if gamma_link == 'inverse_power':
+        eta_lo = float(getattr(loss, '_ETA_LO', 1e-2))
+        eta_hi = float(getattr(loss, '_ETA_HI', 1e3))
+        eta_c = _clip(eta, eta_lo, eta_hi)
+        mu = 1.0 / eta_c
+        val = _sum(y * eta_c - _log(eta_c)) / n
+        grad = X.T @ (y - mu) / n
+        return val, grad
+    mu = _exp(_clip(eta, -30, 30))
+    # Use same mu floor as IRLS path (1e-10) for consistency in Armijo checks
+    mu_c = _clip(mu, 1e-10, None)
+    val = _sum(y / mu_c + _log(mu_c)) / n
+    # Chain rule: d/deta = d/dmu * dmu/deta = (-y/mu^2 + 1/mu) * mu = (mu - y)/mu
+    # Element-wise divide by mu before the matmul to avoid broadcast error
+    grad = X.T @ ((mu_c - y) / mu_c) / n
+    return val, grad
+
+
+def _fused_negative_binomial(eta, X, y, n, loss):
+    from statgpu.backends._array_ops import _exp, _log, _clip, _sum
+    a = float(getattr(loss, 'alpha', 1.0))
+    mu = _exp(_clip(eta, -30, 30))
+    mu_c = _clip(mu, 1e-300, None)
+    one_plus_a_mu = 1.0 + a * mu_c
+    val = _sum(-y * _log(mu_c / one_plus_a_mu) + (1.0 / a) * _log(one_plus_a_mu)) / n
+    grad = X.T @ ((mu_c - y) / one_plus_a_mu) / n
+    return val, grad
+
+
+def _fused_tweedie(eta, X, y, n, loss):
+    from statgpu.backends._array_ops import _exp, _clip, _sum, _log
+    pw = float(getattr(loss, 'power', 1.5))
+    mu = _exp(_clip(eta, -50, 50))
+    # Use same mu floor as IRLS path (1e-10) for consistency
+    mu_c = _clip(mu, 1e-10, 1e6)
+    log_mu = _log(mu_c)
+    d1 = 1.0 - pw
+    d2 = 2.0 - pw
+    # Use log-form near singularities (power ≈ 1 or ≈ 2) to avoid div/0.
+    if abs(d1) < 0.01:
+        term1 = -y * log_mu
+    else:
+        term1 = -y * mu_c ** d1 / d1
+    if abs(d2) < 0.01:
+        term2 = log_mu
+    else:
+        term2 = mu_c ** d2 / d2
+    val = _sum(term1 + term2) / n
+    grad = X.T @ (mu_c ** d1 * (mu_c - y)) / n
+    return val, grad
+
+
+def _fused_inverse_gaussian(eta, X, y, n, loss):
+    from statgpu.backends._array_ops import _exp, _clip, _sum
+    mu = _exp(_clip(eta, -30, 30))
+    mu_c = _clip(mu, 5e-2, 1e3)
+    # Must match InverseGaussianLoss.value: y/(2*mu^2) - 1/mu
+    val = _sum(y / (2.0 * mu_c * mu_c) - 1.0 / mu_c) / n
+    grad = X.T @ ((mu_c - y) / (mu_c * mu_c)) / n
+    return val, grad
+
+
+
+# Note: legacy _GLM_FUSED_REGISTRY removed — all GLMLoss subclasses now
+# inherit fused_value_and_gradient() from the base class (single source of truth).
+# Standalone _fused_* functions are retained for reference and testing.
+
 def _fused_glm_value_and_gradient(loss, X, y, coef):
     """Compute GLM loss value and gradient in one pass, avoiding redundant X @ coef.
 
     For GLM losses, the value() and gradient() both need eta = X @ coef.
     This function computes eta once and reuses it for both.
     Returns (value, gradient) both on the same backend as coef.
+
+    Dispatch uses the loss class's fused_value_and_gradient method
+    (single source of truth, inherited from GLMLoss base class).
     """
-    loss_name = getattr(loss, 'name', '')
+    return loss.fused_value_and_gradient(X, y, coef)
+
+
+def _weighted_loss_and_grad(loss, X, y, coef, sample_weight):
+    """Compute weighted loss value and gradient.
+
+    For GLM losses, computes: grad = X' diag(w) (mu - y) / sum(w)
+    For squared_error: grad = X' diag(w) (X@coef - y) / sum(w)
+    """
     n = X.shape[0]
+    _backend = _resolve_backend("auto", X)
+    xp = _get_xp(_backend)
+    # Convert sample_weight to same backend as X (via numpy intermediate)
+    _sw_np = _to_numpy(sample_weight)
+    _sw = xp.asarray(_sw_np, dtype=X.dtype)
+    sw_sum = _to_float_scalar(xp.sum(_sw))
 
-    if loss_name == 'logistic':
-        import numpy as np
-        eta = X @ coef
-        # Sigmoid: p = 1 / (1 + exp(-eta))
-        mod = type(eta).__module__
-        if mod.startswith('torch'):
-            import torch
-            p = torch.sigmoid(eta)
-            val = torch.sum(-y * eta + torch.log1p(torch.exp(-torch.abs(eta))) + torch.clamp(eta, min=0)) / n
-            grad = X.T @ (p - y) / n
-        elif mod.startswith('cupy'):
-            import cupy as cp
-            p = 1.0 / (1.0 + cp.exp(-cp.clip(eta, -500, 500)))
-            log1pexp = cp.log1p(cp.exp(-cp.abs(eta))) + cp.maximum(eta, 0)
-            val = cp.sum(-y * eta + log1pexp) / n
-            grad = X.T @ (p - y) / n
-        else:
-            p = 1.0 / (1.0 + np.exp(-np.clip(eta, -500, 500)))
-            log1pexp = np.log1p(np.exp(-np.abs(eta))) + np.maximum(eta, 0)
-            val = np.sum(-y * eta + log1pexp) / n
-            grad = X.T @ (p - y) / n
+    loss_name = getattr(loss, 'name', '')
+
+    # For squared_error, compute directly with weights
+    if loss_name == 'squared_error':
+        resid = X @ coef - y
+        grad = X.T @ (_sw * resid) / sw_sum
+        val = 0.5 * _to_float_scalar(xp.sum(_sw * resid * resid)) / sw_sum
         return val, grad
 
-    elif loss_name == 'poisson':
-        import numpy as np
-        eta = X @ coef
-        mod = type(eta).__module__
-        if mod.startswith('torch'):
-            import torch
-            mu = torch.exp(torch.clamp(eta, -30, 30))
-            val = torch.sum(mu - y * torch.log(mu + 1e-10)) / n
-            grad = X.T @ (mu - y) / n
-        elif mod.startswith('cupy'):
-            import cupy as cp
-            mu = cp.exp(cp.clip(eta, -30, 30))
-            val = cp.sum(mu - y * cp.log(mu + 1e-10)) / n
-            grad = X.T @ (mu - y) / n
-        else:
-            mu = np.exp(np.clip(eta, -30, 30))
-            val = np.sum(mu - y * np.log(mu + 1e-10)) / n
-            grad = X.T @ (mu - y) / n
-        return val, grad
+    # Prefer fused method if available (avoids redundant X @ coef)
+    if hasattr(loss, 'fused_value_and_gradient'):
+        try:
+            return loss.fused_value_and_gradient(X, y, coef, sample_weight=sample_weight)
+        except TypeError:
+            pass  # method doesn't accept sample_weight
 
-    elif loss_name == 'gamma':
-        import numpy as np
-        eta = X @ coef
-        mod = type(eta).__module__
-        gamma_link = getattr(loss, 'link_name', getattr(loss, 'link', 'log'))
-        if gamma_link == 'inverse_power':
-            eta_lo = float(getattr(loss, '_ETA_LO', 1e-2))
-            eta_hi = float(getattr(loss, '_ETA_HI', 1e3))
-            if mod.startswith('torch'):
-                import torch
-                eta_c = torch.clamp(eta, min=eta_lo, max=eta_hi)
-                mu = 1.0 / eta_c
-                val = torch.sum(y * eta_c - torch.log(eta_c)) / n
-                grad = X.T @ (y - mu) / n
-            elif mod.startswith('cupy'):
-                import cupy as cp
-                eta_c = cp.clip(eta, eta_lo, eta_hi)
-                mu = 1.0 / eta_c
-                val = cp.sum(y * eta_c - cp.log(eta_c)) / n
-                grad = X.T @ (y - mu) / n
-            else:
-                eta_c = np.clip(eta, eta_lo, eta_hi)
-                mu = 1.0 / eta_c
-                val = np.sum(y * eta_c - np.log(eta_c)) / n
-                grad = X.T @ (y - mu) / n
-            return val, grad
-        if mod.startswith('torch'):
-            import torch
-            mu = torch.exp(torch.clamp(eta, -30, 30))
-            mu_c = torch.clamp(mu, min=1e-3, max=1e4)
-            val = torch.sum(y / mu_c + torch.log(mu_c)) / n
-            grad = X.T @ (1.0 - y / mu_c) / n
-        elif mod.startswith('cupy'):
-            import cupy as cp
-            mu = cp.exp(cp.clip(eta, -30, 30))
-            mu_c = cp.clip(mu, 1e-3, 1e4)
-            val = cp.sum(y / mu_c + cp.log(mu_c)) / n
-            grad = X.T @ (1.0 - y / mu_c) / n
-        else:
-            mu = np.exp(np.clip(eta, -30, 30))
-            mu_c = np.clip(mu, 1e-3, 1e4)
-            val = np.sum(y / mu_c + np.log(mu_c)) / n
-            grad = X.T @ (1.0 - y / mu_c) / n
+    # For GLM losses, try loss.gradient with sample_weight if supported.
+    # SquaredError and Logistic already implement weighted gradient.
+    # For other losses, fall back to unweighted (approximate).
+    try:
+        val = loss.value(X, y, coef, sample_weight=sample_weight)
+        grad = loss.gradient(X, y, coef, sample_weight=sample_weight)
         return val, grad
-
-    elif loss_name == 'negative_binomial':
-        import numpy as np
-        eta = X @ coef
-        mod = type(eta).__module__
-        a = float(getattr(loss, 'alpha', 1.0))
-        if mod.startswith('torch'):
-            import torch
-            mu = torch.exp(torch.clamp(eta, -30, 30))
-            mu_c = torch.clamp(mu, min=1e-300)
-            one_plus_alpha_mu = 1.0 + a * mu_c
-            val = torch.sum(-y * torch.log(mu_c / one_plus_alpha_mu) + (1.0 / a) * torch.log(one_plus_alpha_mu)) / n
-            grad = X.T @ ((mu_c - y) / (1.0 + a * mu_c)) / n
-        elif mod.startswith('cupy'):
-            import cupy as cp
-            mu = cp.exp(cp.clip(eta, -30, 30))
-            mu_c = cp.clip(mu, 1e-300, None)
-            one_plus_alpha_mu = 1.0 + a * mu_c
-            val = cp.sum(-y * cp.log(mu_c / one_plus_alpha_mu) + (1.0 / a) * cp.log(one_plus_alpha_mu)) / n
-            grad = X.T @ ((mu_c - y) / (1.0 + a * mu_c)) / n
-        else:
-            mu = np.exp(np.clip(eta, -30, 30))
-            mu_c = np.clip(mu, 1e-300, None)
-            one_plus_alpha_mu = 1.0 + a * mu_c
-            val = np.sum(-y * np.log(mu_c / one_plus_alpha_mu) + (1.0 / a) * np.log(one_plus_alpha_mu)) / n
-            grad = X.T @ ((mu_c - y) / (1.0 + a * mu_c)) / n
+    except TypeError:
+        # Loss doesn't support sample_weight yet — fall back to unweighted
+        val = loss.value(X, y, coef)
+        grad = loss.gradient(X, y, coef)
         return val, grad
-
-    elif loss_name == 'tweedie':
-        import numpy as np
-        eta = X @ coef
-        mod = type(eta).__module__
-        p = float(getattr(loss, 'power', 1.5))
-        if mod.startswith('torch'):
-            import torch
-            mu = torch.exp(torch.clamp(eta, -50, 50))
-            mu_c = torch.clamp(mu, min=1e-3, max=1e4)
-            val = torch.sum(-y * mu_c.pow(1 - p) / (1 - p) + mu_c.pow(2 - p) / (2 - p)) / n
-            grad = X.T @ (mu_c.pow(1 - p) * (mu_c - y)) / n
-        elif mod.startswith('cupy'):
-            import cupy as cp
-            mu = cp.exp(cp.clip(eta, -50, 50))
-            mu_c = cp.clip(mu, 1e-3, 1e4)
-            val = cp.sum(-y * mu_c ** (1 - p) / (1 - p) + mu_c ** (2 - p) / (2 - p)) / n
-            grad = X.T @ (mu_c ** (1 - p) * (mu_c - y)) / n
-        else:
-            mu = np.exp(np.clip(eta, -50, 50))
-            mu_c = np.clip(mu, 1e-3, 1e4)
-            val = np.sum(-y * mu_c ** (1 - p) / (1 - p) + mu_c ** (2 - p) / (2 - p)) / n
-            grad = X.T @ (mu_c ** (1 - p) * (mu_c - y)) / n
-        return val, grad
-
-    elif loss_name == 'inverse_gaussian':
-        import numpy as np
-        eta = X @ coef
-        mod = type(eta).__module__
-        if mod.startswith('torch'):
-            import torch
-            mu = torch.exp(torch.clamp(eta, -30, 30))
-            mu_c = torch.clamp(mu, min=5e-2, max=1e3)
-            val = torch.sum(y / (2 * mu_c.pow(2)) - 1.0 / mu_c) / n
-            grad = X.T @ ((mu_c - y) / (mu_c * mu_c)) / n
-        elif mod.startswith('cupy'):
-            import cupy as cp
-            mu = cp.exp(cp.clip(eta, -30, 30))
-            mu_c = cp.clip(mu, 5e-2, 1e3)
-            val = cp.sum(y / (2 * mu_c ** 2) - 1.0 / mu_c) / n
-            grad = X.T @ ((mu_c - y) / (mu_c * mu_c)) / n
-        else:
-            mu = np.exp(np.clip(eta, -30, 30))
-            mu_c = np.clip(mu, 5e-2, 1e3)
-            val = np.sum(y / (2 * mu_c ** 2) - 1.0 / mu_c) / n
-            grad = X.T @ ((mu_c - y) / (mu_c * mu_c)) / n
-        return val, grad
-
-    else:
-        # Fallback: call value() and gradient() separately
-        return loss.value(X, y, coef), loss.gradient(X, y, coef)
 
 
 def fista_solver(
@@ -457,6 +519,7 @@ def fista_solver(
     init_coef=None,
     sample_weight=None,
     lipschitz_L=None,
+    cv_mode=False,
 ):
     """General FISTA solver with backtracking line search.
 
@@ -481,6 +544,9 @@ def fista_solver(
     sample_weight : array, optional
         Per-sample weights. Non-uniform weights are currently rejected in this
         solver path to avoid silently running an incorrect unweighted update.
+    cv_mode : bool, default=False
+        Private CV fast path: keeps the same update rule but checks objective
+        and convergence less often on GPU non-smooth GLM paths.
 
     Returns
     -------
@@ -500,7 +566,9 @@ def fista_solver(
     # Disable momentum entirely for inverse_gaussian (1/mu^3 scaling).
     # Use conservative momentum for Poisson and negative_binomial
     # (exp-link families where Nesterov can cause mu explosion).
-    _no_momentum = ()
+    # Losses that disable momentum entirely (empty = none currently).
+    # See _conservative_momentum below for the active momentum control.
+    # _NO_MOMENTUM_LOSSES removed — momentum control via _conservative_momentum
     # Conservative momentum (cap beta at 0.5) for exp-link families and
     # for logistic/gamma with non-smooth penalties.  Logistic/gamma with
     # smooth penalties (none, l2) benefit from full Nesterov acceleration.
@@ -515,16 +583,9 @@ def fista_solver(
 
     n_features = X_proc.shape[1]
     if init_coef is not None:
-        coef = _copy_arr(init_coef) if hasattr(init_coef, 'copy') or hasattr(init_coef, 'clone') else np.array(init_coef).copy()
+        coef = _as_backend_vector(init_coef, backend, X)
     else:
-        if backend == "numpy":
-            coef = np.zeros(n_features)
-        elif backend == "cupy":
-            import cupy as cp
-            coef = cp.zeros(n_features, dtype=X.dtype if hasattr(X, 'dtype') else cp.float64)
-        else:
-            import torch
-            coef = torch.zeros(n_features, device=X.device if hasattr(X, 'device') else 'cpu', dtype=X.dtype if hasattr(X, 'dtype') else torch.float64)
+        coef = _zeros(n_features, backend, ref_tensor=X)
 
     y_k = _copy_arr(coef)
     t_k = 1.0
@@ -532,8 +593,6 @@ def fista_solver(
     # Divergence detection: track best objective for recovery
     _obj_best_fista = float('inf')
     _coef_best_fista = None
-    # Objective-based restart for Nesterov momentum
-    _prev_obj_fista = None
 
     # Initial Lipschitz: default to zero (safe for exp-link warm starts),
     # but allow losses to request evaluation at the provided init to avoid
@@ -544,8 +603,24 @@ def fista_solver(
         if getattr(loss, '_lipschitz_at_init', False):
             _lip_coef = _copy_arr(coef)
         else:
-            _lip_coef = _copy_arr(coef) * 0.0
-        L = loss.lipschitz(X_proc, _lip_coef, y=y_proc)
+            _lip_coef = _zeros(n_features, backend, ref_tensor=X)
+        if sample_weight is not None:
+            # Weighted Lipschitz: eigenvalue of X' diag(w) X / sum(w)
+            _xp_mod = _get_xp(backend)
+            # Ensure sample_weight is on same backend as X_proc
+            _sw_np = _to_numpy(sample_weight)
+            _sw = _xp_mod.asarray(_sw_np, dtype=X_proc.dtype)
+            sw_sum = _to_float_scalar(_xp_mod.sum(_sw))
+            sw_col = _sw[:, None] if _sw.ndim == 1 else _sw
+            XtWX = X_proc.T @ (X_proc * sw_col) / sw_sum
+            L = _to_float_scalar(_xp_mod.max(_xp_mod.diag(XtWX)))  # conservative bound
+            if L <= 0:
+                L = 1.0
+            # Cache for periodic recomputation in the loop (X and weights are constant)
+            _cached_XtWX_weighted = XtWX
+        else:
+            L = loss.lipschitz(X_proc, _lip_coef, y=y_proc)
+            _cached_XtWX_weighted = None
     if L <= 0:
         L = 1.0
     # Add smooth penalty Lipschitz contribution (e.g. l2 penalty gradient
@@ -561,29 +636,20 @@ def fista_solver(
     # Logistic now uses iterate-dependent Lipschitz, so y-scaling applies.
     # Gamma's expected Fisher Hessian X'X/n underestimates
     # true curvature by ~mean(y), so y-scaling IS needed.
-    _loss_global_lip = False
     _skip_y_scaling = getattr(loss, '_lipschitz_uses_y', False)
-    if not _is_quadratic and not _loss_global_lip and not _skip_y_scaling:
-        _y_arr = _to_numpy(y_proc)
-        _y_abs = np.abs(_y_arr)
-        _y_mean = float(np.mean(_y_abs))
-        _y_max = float(np.max(_y_abs))
+    if not _is_quadratic and not _skip_y_scaling:
+        _y_mean, _y_max = _abs_mean_max(y_proc, backend)
         _y_scale = max(1.0, _y_mean, np.sqrt(_y_mean * _y_max))
         if _y_scale > 1.0:
             L = L * _y_scale
 
-    # Inverse Gaussian: gradient scales as 1/mu^3, causing extreme
-    # sensitivity to step size.  Use a much more conservative Lipschitz.
-    if _loss_name == "inverse_gaussian":
-        L = L * 3.0
-    # Tweedie (p=1.5): loss landscape steepens exponentially — 5x safety.
-    if _loss_name == "tweedie":
-        L = L * 5.0
-    # Gamma: loss = y/mu + log(mu), gradient = (1 - y/mu)/mu. When mu is small
-    # (large eta), the Hessian ~y/mu^3 can be very large, causing divergence.
-    # 3x safety to handle non-smooth (L1) proximal jumps.
-    if _loss_name == "gamma":
-        L = L * 3.0
+    # Loss-specific Lipschitz safety factors (from loss class attributes)
+    _lip_safety = getattr(loss, '_lipschitz_safety', 1.0)
+    if _lip_safety > 1.0:
+        L = L * _lip_safety
+    # Additional safety for CV mode with logistic
+    if _loss_name == "logistic" and cv_mode:
+        L = L * _LIPSCHITZ_SAFETY_LOGISTIC_CV
     # Async GPU loop: skip backtracking, deferred checks.
     # For non-smooth penalties (l1, elasticnet, scad, mcp, adaptive, group):
     #   - Quadratic losses (squared_error): Lipschitz is exact, fixed step is optimal
@@ -591,21 +657,35 @@ def fista_solver(
     # Smooth penalties (l2, none) need backtracking for GLM losses.
     _pen_name_lower = _penalty_name(penalty)
     _non_smooth = _pen_name_lower not in ("none", "null", "l2", "")
-    _use_gpu_loop = backend in ("torch", "cupy") and _non_smooth
+    # Logistic: keep Armijo for non-CV mode (CPU/GPU path parity).
+    # In CV mode, allow async GPU loop with conservative Lipschitz.
+    _logistic_excluded = _loss_name == "logistic" and not cv_mode
+    _use_gpu_loop = (
+        backend in ("torch", "cupy")
+        and cv_mode
+        and _non_smooth
+        and not _logistic_excluded
+    )
     _is_gpu = backend in ("torch", "cupy")
-    _conv_interval = 3  # check convergence every N iterations (GPU path)
+    _conv_interval = 1 if _loss_name == "logistic" and not _use_gpu_loop else 3
     _div_interval = 5   # check divergence every N iterations (GPU path)
-    _validate_uniform_sample_weight(sample_weight, X_proc.shape[0], "fista_solver")
+    _lip_interval = 5
+    if cv_mode and _use_gpu_loop:
+        _conv_interval = max(_conv_interval, 10)
+        _div_interval = 25
+        _lip_interval = 25
+    _validate_sample_weight(sample_weight, X_proc.shape[0])
+
+    iteration = -1  # default if max_iter=0
 
     for iteration in range(max_iter):
         coef_old = _copy_arr(coef)
 
         # Compute gradient (fused value+gradient for GLM losses)
-        if _loss_name in ('logistic', 'poisson', 'gamma', 'negative_binomial', 'tweedie', 'inverse_gaussian'):
-            q_yk_dev, grad = _fused_glm_value_and_gradient(loss, X_proc, y_proc, y_k)
+        if sample_weight is not None:
+            q_yk_dev, grad = _weighted_loss_and_grad(loss, X_proc, y_proc, y_k, sample_weight)
         else:
-            q_yk_dev = loss.value(X_proc, y_proc, y_k)
-            grad = loss.gradient(X_proc, y_proc, y_k)
+            q_yk_dev, grad = _fused_glm_value_and_gradient(loss, X_proc, y_proc, y_k)
 
         if _use_gpu_loop:
             # ── GPU async path: all ops stay on device ──
@@ -621,34 +701,38 @@ def fista_solver(
             # Finiteness + divergence + objective tracking batched together.
             if iteration > 0 and (iteration < 20 or iteration % _div_interval == 0):
                 _obj_dev = loss.value(X_proc, y_proc, coef)
-                if backend == "torch":
-                    import torch
-                    _all_finite = bool(torch.isfinite(_obj_dev).item())
-                else:
-                    import cupy as cp
-                    _all_finite = bool(cp.isfinite(_obj_dev).item())
+                # Single D2H transfer: extract float, then check finiteness.
+                _obj_val_f = float(_to_numpy(_obj_dev))
+                _all_finite = np.isfinite(_obj_val_f)
                 if not _all_finite:
                     if _coef_best_fista is not None:
                         coef = _copy_arr(_coef_best_fista)
                     else:
-                        coef = _zeros(n_features, backend, ref_tensor=X)
+                        coef = _zeros(n_features, backend, ref_tensor=X_proc)
                     y_k = _copy_arr(coef)
                     t_k = 1.0
                     L = L * 2.0
                     continue
-                # Track best objective
-                _obj_val_f = float(_to_numpy(_obj_dev))
-                if _smooth_lip > 0:
-                    _obj_val_f += _smooth_penalty_value(penalty, coef)
+                # Track best objective (reuse _obj_val_f from finiteness check above)
+                _obj_val_f += _tracking_penalty_value(penalty, coef)
                 if _obj_val_f < _obj_best_fista:
                     _obj_best_fista = _obj_val_f
                     _coef_best_fista = _copy_arr(coef)
                 # Periodic Lipschitz recomputation (piggyback on same sync)
                 # Skip for quadratic losses — Lipschitz is constant (spectral norm of X^T X).
                 # Interval matches CPU path (line 929) for trajectory consistency.
-                if not _is_quadratic and iteration % 5 == 0:
-                    L_new = loss.lipschitz(X_proc, coef, y=y_proc)
+                if not _is_quadratic and iteration % _lip_interval == 0:
+                    if sample_weight is not None and _cached_XtWX_weighted is not None:
+                        # Use cached weighted Gram matrix (X and weights are constant)
+                        _xp_lip = _get_xp(backend)
+                        L_new = _to_float_scalar(_xp_lip.max(_xp_lip.diag(_cached_XtWX_weighted)))
+                    else:
+                        L_new = loss.lipschitz(X_proc, coef, y=y_proc)
                     if L_new > 0:
+                        # Re-apply y-scaling (Lipschitz at current coef may not
+                        # capture the y-dependent curvature scaling applied at init)
+                        if _y_scale > 1.0:
+                            L_new = L_new * _y_scale
                         if _loss_name == "tweedie":
                             L_new *= 5.0
                         elif _loss_name == "gamma":
@@ -681,11 +765,15 @@ def fista_solver(
                 coef_new = penalty.proximal(w_tilde, step, backend=backend)
 
                 diff = coef_new - y_k
-                q_new_dev = loss.value(X_proc, y_proc, coef_new)
+                if sample_weight is not None:
+                    q_new_dev, _ = _weighted_loss_and_grad(loss, X_proc, y_proc, coef_new, sample_weight)
+                else:
+                    q_new_dev = loss.value(X_proc, y_proc, coef_new)
                 _q_new_dev_last = q_new_dev
                 bound_dev = q_yk_dev + _dot_dev(grad, diff) + 0.5 * L * _sum_sq_dev(diff)
-                slack = float(_to_numpy(bound_dev + 1e-14 - q_new_dev))
-                if slack >= 0:
+                slack_dev = bound_dev + _SLACK_TOLERANCE - q_new_dev
+                _armijo_ok = _to_float_scalar(slack_dev) >= 0
+                if _armijo_ok:
                     break
                 L *= 1.5
                 step = 1.0 / L
@@ -711,10 +799,12 @@ def fista_solver(
                     _obj_dev = _q_new_dev_last
                     _q_new_dev_last = None
                 else:
-                    _obj_dev = loss.value(X_proc, y_proc, coef)
+                    if sample_weight is not None:
+                        _obj_dev, _ = _weighted_loss_and_grad(loss, X_proc, y_proc, coef, sample_weight)
+                    else:
+                        _obj_dev = loss.value(X_proc, y_proc, coef)
                 _obj_val_f = float(_to_numpy(_obj_dev))
-                if _smooth_lip > 0:
-                    _obj_val_f += _smooth_penalty_value(penalty, coef)
+                _obj_val_f += _tracking_penalty_value(penalty, coef)
                 _diverged_f = False
                 if not np.isfinite(_obj_val_f):
                     _diverged_f = True
@@ -723,13 +813,13 @@ def fista_solver(
                 else:
                     _diverged_f = _obj_val_f > _obj_best_fista + max(abs(_obj_best_fista) * 10.0, 1.0)
                 if not _diverged_f and _need_norm_check:
-                    if float(_to_numpy(_norm2_dev(coef))) > 100.0:
+                    if float(_to_numpy(_norm2_dev(coef))) > _DIVERGE_COEF_NORM_CAP:
                         _diverged_f = True
                 if _diverged_f:
                     if _coef_best_fista is not None:
                         coef = _copy_arr(_coef_best_fista)
                     else:
-                        coef = _zeros(n_features, backend, ref_tensor=X)
+                        coef = _zeros(n_features, backend, ref_tensor=X_proc)
                     y_k = _copy_arr(coef)
                     t_k = 1.0
                     L = L * 2.0
@@ -737,18 +827,23 @@ def fista_solver(
                 elif _obj_val_f < _obj_best_fista:
                     _obj_best_fista = _obj_val_f
                     _coef_best_fista = _copy_arr(coef)
-                _prev_obj_fista = _obj_val_f
 
             # Periodic Lipschitz recomputation
+            # Skip if coefficients haven't changed much (Lipschitz is stable)
             if not _is_quadratic and iteration > 0 and iteration % 5 == 0:
-                L_new = loss.lipschitz(X_proc, coef, y=y_proc)
-                if L_new > 0:
-                    if _loss_name == "tweedie":
-                        L_new *= 5.0
-                    elif _loss_name == "gamma":
-                        L_new *= 3.0
-                    elif _loss_name == "inverse_gaussian":
-                        L_new *= 3.0
+                # Batch both norms into a single GPU→CPU transfer
+                _coef_change, _coef_norm = _sync_scalars(
+                    _norm2_dev(coef - coef_old), _norm2_dev(coef), backend=backend)
+                _relative_change = _coef_change / max(_coef_norm, 1e-10)
+                if _relative_change > 1e-3:  # Only recompute if coefficients changed significantly
+                    try:
+                        L_new = loss.lipschitz(X_proc, coef, y=y_proc, sample_weight=sample_weight)
+                    except TypeError:
+                        L_new = loss.lipschitz(X_proc, coef, y=y_proc)
+                    # Safety factors from loss class
+                    _lip_safety_recomp = getattr(loss, '_lipschitz_safety', 1.0)
+                    if _lip_safety_recomp > 1.0:
+                        L_new = L_new * _lip_safety_recomp
                     if _smooth_lip > 0:
                         L_new = L_new + _smooth_lip
                     if L_new > L:
@@ -757,10 +852,7 @@ def fista_solver(
                         L = max(L * 0.8, L_new)
 
         # Momentum update — all backends
-        if _no_momentum:
-            t_k = 1.0
-            y_k = _copy_arr(coef)
-        elif _conservative_momentum:
+        if _conservative_momentum:
             t_new = (1.0 + np.sqrt(1.0 + 4.0 * t_k * t_k)) / 2.0
             beta = min((t_k - 1.0) / t_new, 0.5)
             y_k = coef + beta * (coef - coef_old)
@@ -768,28 +860,15 @@ def fista_solver(
         else:
             t_new = (1.0 + np.sqrt(1.0 + 4.0 * t_k * t_k)) / 2.0
             beta = (t_k - 1.0) / t_new
-            if backend == "numpy":
-                y_k = coef + beta * (coef - coef_old)
-            elif backend == "cupy":
-                y_k = coef + beta * (coef - coef_old)
-            else:
-                _fista_step = _get_fista_step_compiled() if backend == "torch" else None
-                if _fista_step is not None:
-                    _, y_k = _fista_step_call(_fista_step, coef, coef, 0.0, coef_old, coef, beta)
-                else:
-                    y_k = coef + beta * (coef - coef_old)
+            y_k = coef + beta * (coef - coef_old)
             t_k = t_new
 
         # Convergence check — deferred for GPU, every iteration for CPU
         if _is_gpu:
             if iteration < 20 or iteration % _conv_interval == 0:
                 _conv_dev = _abs_sum_dev(coef - coef_old)
-                if backend == "torch":
-                    if bool((_conv_dev < tol).item()):
-                        break
-                else:
-                    if bool((_conv_dev < tol).item()):
-                        break
+                if _to_float_scalar(_conv_dev) < tol:
+                    break
         else:
             _conv_dev = _abs_sum_dev(coef - coef_old)
             if float(_conv_dev) < tol:
@@ -797,7 +876,7 @@ def fista_solver(
 
     # Return best iterate if available
     if _coef_best_fista is not None:
-        coef = _coef_best_fista
+        coef = _copy_arr(_coef_best_fista)
 
     n_iter = iteration + 1
     if n_iter >= max_iter:
@@ -824,6 +903,9 @@ def fista_lla_path(
     fit_intercept=True,
     sample_weight=None,
     lla_penalty_factory=None,
+    init_coef=None,
+    init_intercept=None,
+    return_path=False,
 ):
     """Fused LLA+FISTA solver for SCAD/MCP over a continuation path.
 
@@ -845,6 +927,14 @@ def fista_lla_path(
     tol : float
     fit_intercept : bool
     sample_weight : array or None
+    init_coef : array or None
+        Warm-start coefficients (without intercept). If provided, they are
+        injected only at the final target-alpha continuation step.
+    init_intercept : float or None
+        Warm-start intercept value.
+    return_path : bool, default=False
+        When True, also return coefficients/intercepts after each continuation
+        alpha. The default keeps the historical 3-tuple return value.
 
     Returns
     -------
@@ -882,7 +972,7 @@ def fista_lla_path(
     )
 
     n_samples, n_features = X_proc.shape
-    _validate_uniform_sample_weight(sample_weight, n_samples, "fista_lla_path")
+    _validate_sample_weight(sample_weight, n_samples)
 
     # --- Intercept handling ---
     # For squared_error (identity link): centering X, y is exact.
@@ -892,37 +982,15 @@ def fista_lla_path(
     _augment_intercept = fit_intercept and not _is_quadratic
     if _augment_intercept:
         # Augment X with a column of ones
-        if backend == "torch":
-            import torch
-            x_dtype = X.dtype
-            X_float = X
-            ones_col = torch.ones(X.shape[0], 1, device=X.device, dtype=x_dtype)
-            X_c = torch.cat([X_float, ones_col], dim=1)
-        elif backend == "cupy":
-            import cupy as cp
-            x_dtype = X.dtype if getattr(X.dtype, "kind", "") == "f" else cp.float64
-            X_float = X.astype(x_dtype, copy=False)
-            ones_col = cp.ones((X.shape[0], 1), dtype=x_dtype)
-            X_c = cp.concatenate([X_float, ones_col], axis=1)
-        else:
-            x_dtype = X.dtype if np.issubdtype(X.dtype, np.floating) else np.float64
-            X_float = X.astype(x_dtype, copy=False)
-            ones_col = np.ones((X.shape[0], 1), dtype=x_dtype)
-            X_c = np.concatenate([X_float, ones_col], axis=1)
+        from statgpu.backends._utils import xp_ones
+        ones_col = xp_ones((X.shape[0], 1), dtype=X.dtype, xp=xp, ref_arr=X)
+        X_c = xp.concatenate([X, ones_col], axis=1)
         y_c = y
         n_aug = n_features + 1
     elif fit_intercept:
         # squared_error: centering is exact for identity link
-        if backend == "torch":
-            X_mean = X.mean(dim=0)
-            y_mean = y.mean()
-        elif backend == "cupy":
-            import cupy as cp
-            X_mean = cp.mean(X, axis=0)
-            y_mean = cp.mean(y)
-        else:
-            X_mean = np.mean(X, axis=0)
-            y_mean = np.mean(y)
+        X_mean = xp.mean(X, axis=0)
+        y_mean = xp.mean(y)
         X_c = X - X_mean
         y_c = y - y_mean
         n_aug = n_features
@@ -933,17 +1001,10 @@ def fista_lla_path(
 
     # Precompute Lipschitz using loss-specific method.
     # Pass zero coef (global bound) — not all losses handle coef=None.
-    if backend == "torch":
-        import torch
-        _zero_coef_lla = torch.zeros(n_aug, device=X_c.device, dtype=X_c.dtype)
-    elif backend == "cupy":
-        import cupy as cp
-        _zero_coef_lla = cp.zeros(n_aug, dtype=X_c.dtype)
-    else:
-        _zero_coef_lla = np.zeros(n_aug)
+    _zero_coef_lla = _zeros(n_aug, backend, ref_tensor=X_c)
     L_base = loss.lipschitz(X_c, _zero_coef_lla, y=y_c)
-    # Precompute XtX for squared_error fast path
-    XtX = X_c.T @ X_c
+    # Precompute XtX only for squared_error fast path (skip for GLM losses)
+    XtX = X_c.T @ X_c if _is_quadratic else None
     if L_base <= 0:
         L_base = 1.0
 
@@ -958,33 +1019,87 @@ def fista_lla_path(
     # Cap at 10x — periodic Lipschitz recomputation corrects any remaining
     # underestimate during the FISTA inner loop.
     _skip_y_scaling = getattr(loss, '_lipschitz_uses_y', False)
+    _y_lipschitz_scale = 1.0
     if not _is_quadratic and not _skip_y_scaling:
         _y_arr = _to_numpy(y_c)
         _y_abs = np.abs(_y_arr)
         _y_mean = float(np.mean(_y_abs))
         _y_max = float(np.max(_y_abs))
-        _y_scale = min(10.0, max(1.0, np.sqrt(_y_mean * _y_max)))
-        if _y_scale > 1.0:
-            L_base = L_base * _y_scale
+        _y_lipschitz_scale = min(10.0, max(1.0, np.sqrt(_y_mean * _y_max)))
+        if _y_lipschitz_scale > 1.0:
+            L_base = L_base * _y_lipschitz_scale
 
-    # Init coef
-    if backend == "torch":
-        import torch
-        coef = torch.zeros(n_aug, device=X_c.device, dtype=X_c.dtype)
-    elif backend == "cupy":
-        import cupy as cp
-        coef = cp.zeros(n_aug, dtype=X_c.dtype)
-    else:
-        coef = np.zeros(n_aug)
+    def _zeros_coef():
+        return _zeros(n_aug, backend, ref_tensor=X_c)
+
+    def _warm_start_coef():
+        if init_coef is None:
+            return None
+        if backend == "torch":
+            import torch
+            _init = torch.as_tensor(init_coef, device=X_c.device, dtype=X_c.dtype)
+            if _augment_intercept and _init.shape[0] == n_features:
+                return torch.cat([
+                    _init,
+                    torch.tensor(
+                        [0.0 if init_intercept is None else init_intercept],
+                        device=X_c.device,
+                        dtype=X_c.dtype,
+                    ),
+                ])
+            return _init.clone()
+        if backend == "cupy":
+            import cupy as cp
+            _init = cp.asarray(init_coef, dtype=X_c.dtype)
+            if _augment_intercept and _init.shape[0] == n_features:
+                return cp.concatenate([
+                    _init,
+                    cp.array([0.0 if init_intercept is None else init_intercept], dtype=X_c.dtype),
+                ])
+            return _init.copy()
+        _init = np.asarray(init_coef, dtype=np.float64)
+        if _augment_intercept and _init.shape[0] == n_features:
+            return np.concatenate([
+                _init,
+                [0.0 if init_intercept is None else float(init_intercept)],
+            ])
+        return _init.copy()
+
+    # Keep the continuation path deterministic from zero. CV warm-starts are
+    # injected only at the target-alpha step, otherwise SCAD/MCP LLA weights can
+    # follow a different local trajectory for NB/Tweedie-like losses.
+    coef = _zeros_coef()
+    warm_coef = _warm_start_coef()
 
     total_iter = 0
     inner_pen = AdaptiveL1Penalty(alpha=1.0)
+    path_records = [] if return_path else None
 
-    # For squared_error + GPU: fully inlined fused loop
-    # Keeps coef on GPU throughout entire continuation+LLA loop
+    def _split_current_coef(current_coef):
+        coef_all = np.asarray(_to_numpy(current_coef), dtype=np.float64).ravel()
+        if _augment_intercept:
+            return coef_all[:n_features].copy(), float(coef_all[n_features])
+        if fit_intercept:
+            X_mean_np = np.asarray(_to_numpy(X_mean), dtype=np.float64).ravel()
+            y_mean_np = float(_to_numpy(y_mean))
+            return coef_all.copy(), float(y_mean_np - X_mean_np @ coef_all)
+        return coef_all.copy(), 0.0
+
+    def _record_path_alpha(alpha_value):
+        if path_records is None:
+            return
+        coef_rec, intercept_rec = _split_current_coef(coef)
+        path_records.append({
+            "alpha": float(alpha_value),
+            "coef": coef_rec,
+            "intercept": float(intercept_rec),
+            "n_iter": int(total_iter),
+        })
+
+    # For squared_error + GPU: fully inlined fused loop.
+    # Uses torch.compile for torch, ElementwiseKernel for cupy.
     if _is_quadratic and backend in ("torch", "cupy"):
         Xty = X_c.T @ y_c
-        yty = float(_to_numpy(y_c @ y_c)) if backend == "cupy" else float((y_c * y_c).sum().item())
 
         # Get fused proximal kernel
         if backend == "torch":
@@ -1000,11 +1115,16 @@ def fista_lla_path(
         t_k = 1.0
 
         for _cont_i, cont_alpha in enumerate(alpha_path):
-            scad_penalty.alpha = float(cont_alpha)
+            # Create a copy with the continuation alpha to avoid mutating
+            # the shared penalty object (thread-safety for future parallel CV).
+            _pen_step = copy.copy(scad_penalty)
+            _pen_step.alpha = float(cont_alpha)
             _mi = max_iter[_cont_i] if isinstance(max_iter, (list, tuple)) else max_iter
+            if warm_coef is not None and _cont_i == len(alpha_path) - 1:
+                coef = _copy_arr(warm_coef)
             for _lla_i in range(max_lla_per_step):
                 # lla_weights() is now backend-aware — stays on device
-                lla_w = scad_penalty.lla_weights(coef)
+                lla_w = _pen_step.lla_weights(coef)
                 thresh = lla_w * step  # stays on device
 
                 # Save coef for LLA convergence check (on device)
@@ -1016,7 +1136,8 @@ def fista_lla_path(
                 y_k = _copy_arr(coef)
 
                 # FISTA inner solve (inlined, fused proximal+momentum)
-                _conv_interval = 5  # check convergence every N iters
+                _conv_interval = 20  # check convergence every N iters (reduced GPU sync)
+                iteration = -1  # guard against _mi=0 causing UnboundLocalError
                 for iteration in range(_mi):
                     coef_old = _copy_arr(coef)
 
@@ -1025,13 +1146,7 @@ def fista_lla_path(
 
                     # Clip gradients
                     if iteration % 10 == 0:
-                        gn_sq = _sum_sq_dev(grad)
-                        gmax = max(float(_to_numpy(_abs_sum_dev(coef_old))) * 10.0 + 1e3, 1e4)
-                        if backend == "torch":
-                            scale = torch.where(gn_sq > gmax * gmax, gmax / torch.sqrt(gn_sq + 1e-30), torch.ones_like(gn_sq))
-                        else:
-                            scale = cp.where(gn_sq > gmax * gmax, gmax / cp.sqrt(gn_sq + 1e-30), cp.ones_like(gn_sq))
-                        grad = grad * scale
+                        grad = _clip_grad_on_device(grad, coef_old, backend)
 
                     # Compute momentum beta BEFORE proximal so fused kernel does both
                     if _no_momentum:
@@ -1041,20 +1156,29 @@ def fista_lla_path(
                         beta_mom = (t_k - 1.0) / t_new
                         t_k = t_new
 
-                    # Fused proximal + momentum in one kernel call
-                    coef, y_k = _fused(coef, grad, step, thresh, coef_old, beta_mom)
+                    # Fused proximal + momentum in one kernel call. The gradient
+                    # is evaluated at y_k, so y_k is the proximal center.
+                    coef, y_k = _fused(y_k, grad, step, thresh, coef_old, beta_mom)
 
-                    # Convergence check (deferred sync)
+                    # Convergence check (device-side, minimal sync)
                     if iteration < 20 or iteration % _conv_interval == 0:
-                        if float(_to_numpy(_abs_sum_dev(coef - coef_old))) < tol:
+                        coef_diff_dev = _abs_sum_dev(coef - coef_old)
+                        _cdf = _to_float_scalar(coef_diff_dev)
+                        converged = _cdf < tol
+                        diverged = (not np.isfinite(_cdf))
+                        if converged:
+                            break
+                        if diverged:
+                            coef = _copy_arr(coef_old)
                             break
 
                 total_iter += iteration + 1
 
-                # LLA convergence check (on device, single sync for scalar)
-                delta = float(_to_numpy(_abs_sum_dev(coef - coef_before_lla)))
-                if delta < lla_tol:
+                # LLA convergence check (device-side, minimal sync)
+                delta_dev = _abs_sum_dev(coef - coef_before_lla)
+                if _to_float_scalar(delta_dev) < lla_tol:
                     break
+            _record_path_alpha(cont_alpha)
     else:
         # Pre-compute XtX and Xty for squared_error (avoids redundant matmuls)
         _use_xtx = _is_quadratic and backend == "numpy"
@@ -1062,24 +1186,23 @@ def fista_lla_path(
             Xty = X_c.T @ y_c
 
         for _cont_i, cont_alpha in enumerate(alpha_path):
-            scad_penalty.alpha = float(cont_alpha)
+            # Create a copy with the continuation alpha to avoid mutating
+            # the shared penalty object (thread-safety for future parallel CV).
+            _pen_step = copy.copy(scad_penalty)
+            _pen_step.alpha = float(cont_alpha)
             _mi = max_iter[_cont_i] if isinstance(max_iter, (list, tuple)) else max_iter
+            if warm_coef is not None and _cont_i == len(alpha_path) - 1:
+                coef = _copy_arr(warm_coef)
 
             for _lla_i in range(max_lla_per_step):
                 # lla_weights() is now backend-aware — stays on device
                 if _augment_intercept:
-                    lla_w_feat = scad_penalty.lla_weights(coef[:n_features])
+                    lla_w_feat = _pen_step.lla_weights(coef[:n_features])
                     # Append 0.0 for intercept on device
-                    if backend == "torch":
-                        import torch
-                        lla_w = torch.cat([lla_w_feat, torch.zeros(1, device=coef.device, dtype=coef.dtype)])
-                    elif backend == "cupy":
-                        import cupy as cp
-                        lla_w = cp.concatenate([lla_w_feat, cp.zeros(1, dtype=coef.dtype)])
-                    else:
-                        lla_w = np.append(lla_w_feat, 0.0)
+                    _zero_append = _zeros(1, backend, ref_tensor=coef)
+                    lla_w = xp.concatenate([lla_w_feat, _zero_append])
                 else:
-                    lla_w = scad_penalty.lla_weights(coef)
+                    lla_w = _pen_step.lla_weights(coef)
                 if lla_penalty_factory is not None:
                     # lla_penalty_factory expects numpy; convert only if needed
                     lla_w_np = _to_numpy(lla_w) if type(lla_w).__module__ != "numpy" else lla_w
@@ -1116,11 +1239,11 @@ def fista_lla_path(
                         # Fast path: pre-computed XtX for squared_error
                         q_yk_dev = float(_sum_sq_dev(y_c - X_c @ y_k)) * 0.5 / n_samples
                         grad = (XtX @ y_k - Xty) / n_samples
-                    elif _loss_name in ('logistic', 'poisson', 'gamma', 'negative_binomial', 'tweedie', 'inverse_gaussian'):
-                        q_yk_dev, grad = _fused_glm_value_and_gradient(loss, X_c, y_c, y_k)
                     else:
-                        q_yk_dev = loss.value(X_c, y_c, y_k)
-                        grad = loss.gradient(X_c, y_c, y_k)
+                        if sample_weight is not None:
+                            q_yk_dev, grad = _weighted_loss_and_grad(loss, X_c, y_c, y_k, sample_weight)
+                        else:
+                            q_yk_dev, grad = _fused_glm_value_and_gradient(loss, X_c, y_c, y_k)
 
                     # Clip gradients (device-side, every 10 iterations)
                     if backend == "numpy" or iteration % 10 == 0:
@@ -1130,10 +1253,9 @@ def fista_lla_path(
                             _gmax_dev = xp.clamp(_gsum, min=1e4)
                         else:
                             _gmax_dev = xp.maximum(_gsum, 1e4)
-                        if backend != "numpy":
-                            _clip_needed = bool(_to_numpy(_gn_dev > _gmax_dev))
-                        else:
-                            _clip_needed = float(_to_numpy(_gn_dev)) > float(_to_numpy(_gmax_dev))
+                        # Batch both norms into a single GPU→CPU transfer
+                        _gn_f, _gmax_f = _sync_scalars(_gn_dev, _gmax_dev, backend=backend)
+                        _clip_needed = _gn_f > _gmax_f
                         if _clip_needed:
                             grad = grad * (_gmax_dev / _gn_dev)
 
@@ -1150,20 +1272,12 @@ def fista_lla_path(
                         diff = coef_new - y_k
                         bound_dev = q_yk_dev + _dot_dev(grad, diff) + 0.5 * L * _sum_sq_dev(diff)
 
-                        # Skip loss.value() when bound is clearly too low
-                        if _obj_best_lla_inner is not None:
-                            _bound_f = float(_to_numpy(bound_dev))
-                            if _bound_f < _obj_best_lla_inner * 0.9:
-                                L *= 1.5
-                                step = 1.0 / L
-                                continue
-
-                        q_new_dev = loss.value(X_c, y_c, coef_new)
-                        slack_dev = bound_dev + 1e-14 - q_new_dev
-                        if backend != "numpy":
-                            _armijo_ok = bool(_to_numpy(slack_dev >= 0))
-                        else:
-                            _armijo_ok = float(_to_numpy(slack_dev)) >= 0
+                        try:
+                            q_new_dev = loss.value(X_c, y_c, coef_new, sample_weight=sample_weight)
+                        except TypeError:
+                            q_new_dev = loss.value(X_c, y_c, coef_new)
+                        slack_dev = bound_dev + _SLACK_TOLERANCE - q_new_dev
+                        _armijo_ok = _to_float_scalar(slack_dev) >= 0
                         if _armijo_ok:
                             break
                         L *= 1.5
@@ -1184,17 +1298,17 @@ def fista_lla_path(
                         if backend == "torch":
                             _finite_dev = xp.isfinite(_cn_dev)
                             _cap_needed_dev = _cn_dev > 5.0
-                            _diverge_norm_dev = _cn_dev > 100.0 if iteration > 10 else xp.tensor(False, device=coef.device)
+                            _diverge_norm_dev = _cn_dev > _DIVERGE_COEF_NORM_CAP if iteration > 10 else xp.tensor(False, device=coef.device)
                             _obj_finite_dev = xp.isfinite(q_new_dev) if iteration > 0 else xp.tensor(True, device=coef.device)
                         elif backend == "cupy":
                             _finite_dev = xp.isfinite(_cn_dev)
                             _cap_needed_dev = _cn_dev > 5.0
-                            _diverge_norm_dev = _cn_dev > 100.0 if iteration > 10 else xp.asarray(False)
+                            _diverge_norm_dev = _cn_dev > _DIVERGE_COEF_NORM_CAP if iteration > 10 else xp.asarray(False)
                             _obj_finite_dev = xp.isfinite(q_new_dev) if iteration > 0 else xp.asarray(True)
                         else:
                             _finite_dev = np.isfinite(float(_to_numpy(_cn_dev)))
                             _cap_needed_dev = float(_to_numpy(_cn_dev)) > 5.0
-                            _diverge_norm_dev = float(_to_numpy(_cn_dev)) > 100.0 if iteration > 10 else False
+                            _diverge_norm_dev = float(_to_numpy(_cn_dev)) > _DIVERGE_COEF_NORM_CAP if iteration > 10 else False
                             _obj_finite_dev = np.isfinite(float(_to_numpy(q_new_dev))) if iteration > 0 else True
 
                         # Single D2H transfer: pack booleans
@@ -1281,10 +1395,7 @@ def fista_lla_path(
                     else:
                         t_new = (1.0 + np.sqrt(1.0 + 4.0 * t_k * t_k)) / 2.0
                         beta = (t_k - 1.0) / t_new
-                        if _fista_step is not None:
-                            _, y_k = _fista_step_call(_fista_step, coef, coef, 0.0, coef_old, coef, beta)
-                        else:
-                            y_k = coef + beta * (coef - coef_old)
+                        y_k = coef + beta * (coef - coef_old)
                         t_k = t_new
 
                     # Convergence (device-side comparison, only D2H 1 bool)
@@ -1302,14 +1413,8 @@ def fista_lla_path(
                     # sync (convergence check already syncs every 5 iters).
                     if not _is_quadratic and iteration > 0 and iteration % _L_recompute_interval == 0:
                         L_new = loss.lipschitz(X_c, coef, y=y_c)
-                        if not _skip_y_scaling:
-                            _y_arr_cur = _to_numpy(y_c)
-                            _y_abs_cur = np.abs(_y_arr_cur)
-                            _y_mean_cur = float(np.mean(_y_abs_cur))
-                            _y_max_cur = float(np.max(_y_abs_cur))
-                            _y_scale_cur = min(10.0, max(1.0, np.sqrt(_y_mean_cur * _y_max_cur)))
-                            if _y_scale_cur > 1.0:
-                                L_new = L_new * _y_scale_cur
+                        if _y_lipschitz_scale > 1.0:
+                            L_new = L_new * _y_lipschitz_scale
                         if L_new > L * 1.5 or L_new < L / 1.5:
                             L = max(L_new, L_base * 0.1)
                             step = 1.0 / L
@@ -1321,23 +1426,27 @@ def fista_lla_path(
                 delta = float(_to_numpy(_abs_sum_dev(coef - coef_before_lla)))
                 if delta < lla_tol:
                     break
+            _record_path_alpha(cont_alpha)
 
     # Extract coef and intercept
-    coef_all_np = _to_numpy(coef)
-    if _augment_intercept:
-        # Intercept was part of the augmented coef vector (last element)
-        coef_np = coef_all_np[:n_features]
-        intercept = float(coef_all_np[n_features])
-    elif fit_intercept:
-        # squared_error: recover intercept from centering
-        X_mean_np = _to_numpy(X_mean)
-        y_mean_np = _to_numpy(y_mean)
-        coef_np = coef_all_np
-        intercept = float(y_mean_np - X_mean_np @ coef_np)
-    else:
-        coef_np = coef_all_np
-        intercept = 0.0
+    coef_np, intercept = _split_current_coef(coef)
 
+    if return_path:
+        if path_records:
+            path = {
+                "alpha": np.asarray([r["alpha"] for r in path_records], dtype=np.float64),
+                "coef": np.vstack([r["coef"] for r in path_records]).astype(np.float64, copy=False),
+                "intercept": np.asarray([r["intercept"] for r in path_records], dtype=np.float64),
+                "n_iter": np.asarray([r["n_iter"] for r in path_records], dtype=np.int64),
+            }
+        else:
+            path = {
+                "alpha": np.empty(0, dtype=np.float64),
+                "coef": np.empty((0, n_features), dtype=np.float64),
+                "intercept": np.empty(0, dtype=np.float64),
+                "n_iter": np.empty(0, dtype=np.int64),
+            }
+        return coef_np, intercept, total_iter, path
     return coef_np, intercept, total_iter
 
 
@@ -1361,19 +1470,19 @@ def _get_sqerr_proximal_torch():
         if _cap >= 7:
             try:
                 @torch.compile(mode='reduce-overhead', backend='inductor')
-                def _fused_update(coef, grad, step, thresh, coef_old, beta):
-                    w = coef - step * grad
+                def _fused_update(y_current, grad, step, thresh, coef_old, beta):
+                    w = y_current - step * grad
                     abs_w = w.abs()
                     sign_w = w.sign()
                     coef_new = sign_w * (abs_w - thresh).clamp(min=0.0)
                     y_k = coef_new + beta * (coef_new - coef_old)
                     return coef_new, y_k
                 _SQERR_PROXIMAL_TORCH = _fused_update
-            except Exception:
+            except (RuntimeError, TypeError):
                 pass
         if _SQERR_PROXIMAL_TORCH is None:
-            def _fused_update_eager(coef, grad, step, thresh, coef_old, beta):
-                w = coef - step * grad
+            def _fused_update_eager(y_current, grad, step, thresh, coef_old, beta):
+                w = y_current - step * grad
                 abs_w = w.abs()
                 sign_w = w.sign()
                 coef_new = sign_w * (abs_w - thresh).clamp(min=0.0)
@@ -1388,10 +1497,10 @@ def _get_sqerr_proximal_cupy():
     if _SQERR_PROXIMAL_CUPY is None:
         import cupy as cp
         _SQERR_PROXIMAL_CUPY = cp.ElementwiseKernel(
-            'T coef, T grad, T step, T thresh, T coef_old, T beta',
+            'T y_current, T grad, T step, T thresh, T coef_old, T beta',
             'T coef_new, T y_k',
             '''
-            T w = coef - step * grad;
+            T w = y_current - step * grad;
             T abs_w = abs(w);
             T sign_w = (w > 0) ? 1 : ((w < 0) ? -1 : 0);
             coef_new = (abs_w > thresh) ? sign_w * (abs_w - thresh) : 0;
@@ -1460,44 +1569,36 @@ def fista_sqerr_adaptive_l1_fused(
     t_k = 1.0
     _sync_interval = 10  # Only check convergence every N iterations
 
+    iteration = -1  # default if max_iter=0
     for iteration in range(max_iter):
         # Gradient: grad = (XtX @ y_k - Xty) / n
         grad = (XtX @ y_k - Xty) / n_samples
 
         # Clip gradients (avoid sync — do it on GPU)
         if iteration % 10 == 0:
-            gn_sq = _sum_sq_dev(grad)
-            gmax = max(float(_to_numpy(_abs_sum_dev(coef_old))) * 10.0 + 1e3, 1e4)
-            # Scale if ||grad||^2 > gmax^2
-            if backend == "torch":
-                import torch
-                scale = torch.where(gn_sq > gmax * gmax, gmax / torch.sqrt(gn_sq + 1e-30), torch.ones_like(gn_sq))
-                grad = grad * scale
-            else:
-                import cupy as cp
-                scale = cp.where(gn_sq > gmax * gmax, gmax / cp.sqrt(gn_sq + 1e-30), cp.ones_like(gn_sq))
-                grad = grad * scale
+            grad = _clip_grad_on_device(grad, coef_old, backend)
 
         # Proximal gradient step (no backtracking — Lipschitz is exact for squared_error)
-        coef_new, y_k_new = _fused(coef, grad, step, thresh, coef_old, 0.0)
-        coef = coef_new
-
-        # Momentum update
+        # Pre-compute momentum coefficient so the fused kernel can apply it in one pass.
         if no_momentum:
-            t_k = 1.0
-            y_k = coef
+            beta_mom = 0.0
         else:
             t_new = (1.0 + np.sqrt(1.0 + 4.0 * t_k * t_k)) / 2.0
             beta_mom = (t_k - 1.0) / t_new
-            y_k = coef + beta_mom * (coef - coef_old)
+        coef_new, y_k = _fused(y_k, grad, step, thresh, coef_old, beta_mom)
+        coef = coef_new
+
+        # Momentum state update
+        if not no_momentum:
             t_k = t_new
 
-        # Convergence check (deferred sync)
+        # Convergence check (device-side, minimal sync)
         if iteration < 20 or iteration % _sync_interval == 0:
-            if float(_to_numpy(_abs_sum_dev(coef - coef_old))) < tol:
+            coef_diff_dev = _abs_sum_dev(coef - coef_old)
+            if _to_float_scalar(coef_diff_dev) < tol:
                 break
 
-        coef_old = coef.clone() if backend == "torch" else coef.copy()
+        coef_old = _copy_arr(coef)
 
     return _to_numpy(coef), iteration + 1
 
@@ -1529,14 +1630,7 @@ def newton_solver(
     if init_coef is not None:
         params = _copy_arr(init_coef) if hasattr(init_coef, 'copy') or hasattr(init_coef, 'clone') else np.array(init_coef).copy()
     else:
-        if backend == "numpy":
-            params = np.zeros(n_features)
-        elif backend == "cupy":
-            import cupy as cp
-            params = cp.zeros(n_features, dtype=X.dtype if hasattr(X, 'dtype') else cp.float64)
-        else:
-            import torch
-            params = torch.zeros(n_features, device=X.device if hasattr(X, 'device') else 'cpu', dtype=X.dtype if hasattr(X, 'dtype') else torch.float64)
+        params = _zeros(n_features, backend, ref_tensor=X)
 
     # Detect constant-Hessian losses (Gamma log link: H=X'X/n, Tweedie power≈2).
     # For these, the Newton step is always valid — skip line search.
@@ -1558,6 +1652,7 @@ def newton_solver(
                                 'negative_binomial', 'tweedie', 'inverse_gaussian')
 
     _validate_uniform_sample_weight(sample_weight, X.shape[0], "newton_solver")
+    iteration = -1  # default if max_iter=0
 
     for iteration in range(max_iter):
         params_old = _copy_arr(params)
@@ -1576,7 +1671,7 @@ def newton_solver(
                 import torch
                 direction = torch.linalg.solve(hess, grad.unsqueeze(1))
                 direction = direction.squeeze(1)
-        except Exception:
+        except (np.linalg.LinAlgError, ValueError, RuntimeError):
             if backend == "numpy":
                 direction = np.linalg.lstsq(hess, grad, rcond=None)[0]
             elif backend == "cupy":
@@ -1594,7 +1689,8 @@ def newton_solver(
         else:
             obj_old_dev = _objective_value_dev(loss, penalty, X, y, params_old)
         gdd_dev = _dot_dev(grad, direction)
-        obj_old, gdd = _sync_scalars(obj_old_dev, gdd_dev, backend=backend)
+        # Only sync gdd (needed for Armijo threshold); obj_old stays device-side
+        gdd = _to_float_scalar(gdd_dev)
 
         step = 1.0
         for _bt in range(20):
@@ -1608,7 +1704,7 @@ def newton_solver(
                 if _device_leq(obj_try_dev, obj_old_dev + 1e-4 * step * gdd):
                     params = params_try
                     break
-            except Exception:
+            except (ValueError, RuntimeError, FloatingPointError):
                 pass
             step *= 0.5
         else:
@@ -1643,6 +1739,8 @@ def fista_bb_solver(
     step_max_factor=1e3,
     step_min_factor=1e-3,
     bb_burn_in=20,
+    cv_mode=False,
+    lipschitz_L=None,
 ):
     """FISTA with Barzilai-Borwein step sizes and adaptive restart.
 
@@ -1658,25 +1756,30 @@ def fista_bb_solver(
     _is_gpu = backend in ("torch", "cupy")
     X_proc, y_proc = loss.preprocess(X, y)
     n_features = X_proc.shape[1]
+    _loss_name = getattr(loss, 'name', '')
+    _pen_name = _penalty_name(penalty)
+
+    # Smooth logistic objectives are better handled by the Armijo-backed FISTA
+    # path.  This keeps explicit fista_bb numerically aligned across CPU/CuPy/
+    # Torch for logistic+none/l2 Section A checks.
+    if _loss_name == "logistic" and _pen_name in ("l2", "none", "null", ""):
+        return fista_solver(
+            loss,
+            penalty,
+            X,
+            y,
+            max_iter=max_iter,
+            tol=tol,
+            init_coef=init_coef,
+            sample_weight=sample_weight,
+            cv_mode=cv_mode,
+        )
 
     # --- Initialize coefficients ---
     if init_coef is not None:
-        coef = (
-            _copy_arr(init_coef)
-            if hasattr(init_coef, "copy") or hasattr(init_coef, "clone")
-            else np.array(init_coef).copy()
-        )
+        coef = _as_backend_vector(init_coef, backend, X)
     else:
-        if backend == "numpy":
-            coef = np.zeros(n_features)
-        elif backend == "cupy":
-            import cupy as cp
-            coef = cp.zeros(n_features)
-        else:
-            import torch
-            coef = torch.zeros(
-                n_features, device=X.device, dtype=X.dtype
-            )
+        coef = _zeros(n_features, backend, ref_tensor=X)
 
     y_k = _copy_arr(coef)
     t_k = 1.0
@@ -1687,7 +1790,11 @@ def fista_bb_solver(
     _diverge_count = 0
 
     _bb_use_long = True     # alternate BB1 / BB2
-    _loss_name = getattr(loss, 'name', '')
+    dot_dw_dg = 0.0         # BB step numerator (initialized for bb_burn_in=0)
+    dot_dw_dw = 1.0         # BB step denominator
+    _div_check_interval = 25 if cv_mode and _is_gpu else 5
+    _lip_check_interval = 25 if cv_mode and _is_gpu else 5
+    _conv_check_interval = 10 if cv_mode and _is_gpu else 3
     # For quadratic losses (squared_error) the gradient is linear in coef,
     # so dg = H @ dw and BB1 = BB2 = 1 / Rayleigh_quotient(H, dw).  The BB
     # step gives zero adaptation and the algorithm degenerates to ISTA
@@ -1713,7 +1820,7 @@ def fista_bb_solver(
     # subgradient can change abruptly (reweighting, folding points),
     # amplifying noise through the non-linear link and causing catastrophic
     # divergence.  Disable BB entirely for these.
-    _pen_name = getattr(penalty, "name", "")
+    _pen_name = getattr(penalty, "name", _pen_name).lower() if hasattr(getattr(penalty, "name", _pen_name), 'lower') else _pen_name
     _bb_disabled = {
         "scad", "mcp",
         "group_lasso", "gl", "group_mcp", "gmcp", "group_scad", "gscad",
@@ -1726,8 +1833,21 @@ def fista_bb_solver(
     # Initial Lipschitz at zero (safe for all losses).  Computing L at
     # init_coef can produce enormous values for exp-link families (mu =
     # exp(X@coef) explodes for warm-start coefs from OLS).
-    _zero_coef_bb = _copy_arr(coef) * 0.0
-    L = loss.lipschitz(X_proc, _zero_coef_bb, y=y_proc)
+    _zero_coef_bb = _zeros(n_features, backend, ref_tensor=X)
+    _cached_lipschitz_L = None
+    if lipschitz_L is not None:
+        try:
+            _cached_lipschitz_L = float(_to_numpy(lipschitz_L))
+        except (ValueError, TypeError):
+            _cached_lipschitz_L = None
+    if _cached_lipschitz_L is not None and _cached_lipschitz_L > 0:
+        L = _cached_lipschitz_L
+    else:
+        _cached_lipschitz_L = None
+        try:
+            L = loss.lipschitz(X_proc, _zero_coef_bb, y=y_proc, sample_weight=sample_weight)
+        except TypeError:
+            L = loss.lipschitz(X_proc, _zero_coef_bb, y=y_proc)
     if L <= 0:
         L = 1.0
     # For GLM losses with exp link (Poisson, etc.), mu at coef=0
@@ -1742,10 +1862,7 @@ def fista_bb_solver(
     _loss_global_lip_bb = _loss_name in ("logistic",)
     _skip_y_scaling_bb = getattr(loss, '_lipschitz_uses_y', False)
     if not _is_quadratic and not _loss_global_lip_bb and not _skip_y_scaling_bb:
-        _y_arr = _to_numpy(y_proc)
-        _y_abs = np.abs(_y_arr)
-        _y_mean = float(np.mean(_y_abs))
-        _y_max = float(np.max(_y_abs))
+        _y_mean, _y_max = _abs_mean_max(y_proc, backend)
         _y_scale = max(1.0, _y_mean, np.sqrt(_y_mean * _y_max))
         if _y_scale > 1.0:
             L = L * _y_scale
@@ -1754,16 +1871,9 @@ def fista_bb_solver(
     # to prevent catastrophic divergence.
     _invgauss_like = _loss_name in ("inverse_gaussian",)
     _tweedie_like = _loss_name == "tweedie"
-    if _invgauss_like:
-        L = L * 3.0
-    # Tweedie (p=1.5): loss landscape steepens exponentially — 5x safety.
-    if _loss_name == "tweedie":
-        L = L * 5.0
-    # Gamma: loss = y/mu + log(mu), gradient = (1 - y/mu)/mu. When mu is small
-    # (large eta), the Hessian ~y/mu^3 can be very large, causing divergence.
-    # 3x safety (up from 2x) to handle L1 proximal jumps better.
-    if _loss_name == "gamma":
-        L = L * 3.0
+    _lip_safety_bb = getattr(loss, '_lipschitz_safety', 1.0)
+    if _lip_safety_bb > 1.0:
+        L = L * _lip_safety_bb
     # Add smooth penalty Lipschitz contribution (e.g. l2 gradient alpha*coef
     # has Lipschitz alpha).  Without this the step 1/L is too large.
     _smooth_lip_bb = _smooth_penalty_lipschitz(penalty)
@@ -1773,16 +1883,57 @@ def fista_bb_solver(
     step_k = step_L
     step_max = step_L * step_max_factor
     step_min = step_L * step_min_factor
-    _validate_uniform_sample_weight(sample_weight, X_proc.shape[0], "fista_bb_solver")
+    _validate_sample_weight(sample_weight, X_proc.shape[0])
 
     # Gradient at initial point for first BB difference
-    grad_old = loss.gradient(X_proc, y_proc, coef)
+    try:
+        grad_old = loss.gradient(X_proc, y_proc, coef, sample_weight=sample_weight)
+    except TypeError:
+        grad_old = loss.gradient(X_proc, y_proc, coef)
+    # Initialize dg for BB step selection (used before first assignment in loop)
+    dg = _zeros(n_features, backend, ref_tensor=X_proc)
+    iteration = -1  # default if max_iter=0
+
+    # Loop-invariant constants for momentum/BB decisions
+    _poisson_like = _loss_name in ("poisson",)
+    _gamma_like = _loss_name in ("gamma",)
+
+    # --- Pre-compute loop-invariant burn-in and momentum parameters ---
+    # These depend only on loss/penalty type, not on iterates.
+    if _invgauss_like:
+        bb_burn_in = max_iter + 1   # never switch to BB
+    elif _tweedie_like:
+        bb_burn_in = max(200, max_iter // 2)
+    elif _gamma_like:
+        bb_burn_in = max(50, max_iter // 8)
+
+    if _poisson_like or _invgauss_like:
+        _momentum_burn_in = max_iter + 1   # never use momentum
+    elif _tweedie_like:
+        _momentum_burn_in = max(100, max_iter // 4)
+    elif _gamma_like:
+        _momentum_burn_in = max(30, max_iter // 10)
+    else:
+        _momentum_burn_in = 0  # momentum from the start
+
+    # Conservative momentum for specific loss+penalty combos
+    _conservative_bb = False
+    if _poisson_like and not _invgauss_like:
+        _pen_name_bb = getattr(penalty, 'name', '')
+        if _pen_name_bb in ("l2", "none", "", None):
+            _momentum_burn_in = min(100, max_iter)
+            _conservative_bb = True
+    if _tweedie_like or _gamma_like:
+        _conservative_bb = True
 
     for iteration in range(max_iter):
         coef_old = _copy_arr(coef)
 
         # Gradient at extrapolated point
-        grad = loss.gradient(X_proc, y_proc, y_k)
+        try:
+            grad = loss.gradient(X_proc, y_proc, y_k, sample_weight=sample_weight)
+        except TypeError:
+            grad = loss.gradient(X_proc, y_proc, y_k)
 
         # Clip extreme gradients — every iteration, all backends.
         # Skip for inverse_gaussian: 1/mu^3 gradient scaling produces large but
@@ -1790,58 +1941,59 @@ def fista_bb_solver(
         # Use identical sync-based clipping for both CPU and GPU to ensure
         # consistent trajectories (backtracking already syncs for non-quadratic).
         if not _invgauss_like:
-            _gn_f, _coef_abs_f = _sync_scalars(
-                _norm2_dev(grad), _abs_sum_dev(coef_old), backend=backend)
-            _gmax = max(_coef_abs_f * 10.0 + 1e3, 1e4)
-            if _gn_f > _gmax:
-                grad = grad * (_gmax / _gn_f)
+            if cv_mode and _is_gpu:
+                grad = _clip_grad_on_device(grad, coef_old, backend)
+            else:
+                _gn_f, _coef_abs_f = _sync_scalars(
+                    _norm2_dev(grad), _abs_sum_dev(coef_old), backend=backend)
+                _gmax = max(_coef_abs_f * 10.0 + 1e3, 1e4)
+                if _gn_f > _gmax:
+                    grad = grad * (_gmax / _gn_f)
 
         # --- Divergence detection ---
         # Full objective check every 5 iterations (GPU optimization: reduces
         # expensive loss.value() calls). Coefficient norm check every iteration
         # (cheap) catches catastrophic explosion early.
         # Batch obj + coef-norm into a single sync when both are needed.
-        _do_full_div_check = (iteration % 5 == 0 or iteration <= 5)
+        _do_full_div_check = (
+            iteration % _div_check_interval == 0 or iteration <= 5
+        )
         # GPU: defer ALL divergence checks to every 5 iterations (no per-iter sync)
         _do_div_check = (not _is_quadratic and iteration > 0 and
                          (not _is_gpu or _do_full_div_check))
         if _do_div_check:
             _diverged = False
-            # Cheap norm check (CPU every iter after 10; GPU piggybacks on 5-iter check)
-            if iteration > 10 and not _is_gpu:
+            # Coef norm divergence check (works for both CPU and GPU)
+            if iteration > 10 and not _diverged:
                 _coef_norm_dev = _norm2_dev(coef)
-                if float(_coef_norm_dev) > 100.0:
+                if _to_float_scalar(_coef_norm_dev) > _DIVERGE_COEF_NORM_CAP:
                     _diverged = True
-            # Coef norm check (GPU: piggyback on 5-iter sync)
-            if not _diverged and iteration > 10 and _is_gpu:
-                _coef_norm_dev = _norm2_dev(coef)
-                if backend == "torch":
-                    import torch
-                    if bool((_coef_norm_dev > 100.0).item()):
-                        _diverged = True
-                else:
-                    import cupy as cp
-                    if bool((_coef_norm_dev > 100.0).item()):
-                        _diverged = True
             # Full objective check every 5 iterations
             if not _diverged:
-                _obj_val = float(_to_numpy(loss.value(X_proc, y_proc, coef)))
                 try:
-                    _pen_val = float(_to_numpy(penalty.value(_to_numpy(coef))))
-                except (AttributeError, Exception):
+                    _obj_val = float(_to_numpy(loss.value(X_proc, y_proc, coef, sample_weight=sample_weight)))
+                except TypeError:
+                    _obj_val = float(_to_numpy(loss.value(X_proc, y_proc, coef)))
+                try:
+                    _pen_val = float(_to_numpy(penalty.value(coef)))
+                except (AttributeError, ValueError, TypeError):
                     _pen_val = 0.0
                 _obj_total = _obj_val + _pen_val
                 if not np.isfinite(_obj_total):
                     _diverged = True
+                elif not np.isfinite(_obj_best):
+                    # _obj_best is inf/-inf (first valid iter or degenerate loss):
+                    # skip ratio-based check, rely on norm check above.
+                    pass
                 elif _obj_best > 1e-8:
                     _diverge_threshold = _obj_best * 10.0 + 1e-8
                     if _invgauss_like or _tweedie_like:
-                        _diverge_threshold = _obj_best * 100.0 + 10.0
+                        _diverge_threshold = _obj_best * _DIVERGE_OBJ_RATIO + _DIVERGE_OBJ_ABS
                     _diverged = _obj_total > _diverge_threshold
                 else:
                     _diverge_threshold = _obj_best + max(abs(_obj_best) * 10.0, 1.0)
                     if _invgauss_like or _tweedie_like:
-                        _diverge_threshold = _obj_best + max(abs(_obj_best) * 100.0, 10.0)
+                        _diverge_threshold = _obj_best + max(abs(_obj_best) * _DIVERGE_OBJ_RATIO, _DIVERGE_OBJ_ABS)
                     _diverged = _obj_total > _diverge_threshold
             if _diverged:
                 # Diverged: reset to best known iterate (or zeros) and halve step
@@ -1853,7 +2005,10 @@ def fista_bb_solver(
                     coef = _zeros(n_features, backend, ref_tensor=X_proc)
                 y_k = _copy_arr(coef)
                 t_k = 1.0
-                grad_old = loss.gradient(X_proc, y_proc, coef)
+                try:
+                    grad_old = loss.gradient(X_proc, y_proc, coef, sample_weight=sample_weight)
+                except TypeError:
+                    grad_old = loss.gradient(X_proc, y_proc, coef)
                 # Halve step size bounds
                 step_L = step_L * 0.5
                 step_k = step_L
@@ -1878,20 +2033,26 @@ def fista_bb_solver(
             step_k = step_L
             # Recompute Lipschitz periodically during burn-in since mu
             # (and therefore the Hessian scale) changes rapidly.
-            if not _is_quadratic and iteration > 0 and iteration % 5 == 0:
+            if (
+                not _is_quadratic
+                and iteration > 0
+                and iteration % _lip_check_interval == 0
+            ):
                 # Use global Lipschitz (coef=zero) during burn-in to prevent
                 # iterate-dependent Lipschitz from shrinking too fast.
                 # BB steps handle adaptation after burn-in.
                 # Pass zero coef — not all losses handle coef=None.
-                L_new = loss.lipschitz(X_proc, _zero_coef_bb, y=y_proc)
+                if _cached_lipschitz_L is not None:
+                    L_new = _cached_lipschitz_L
+                else:
+                    L_new = loss.lipschitz(X_proc, _zero_coef_bb, y=y_proc)
                 if L_new > 0:
-                    # Re-apply safety factor for steep losses
-                    if _loss_name in ("inverse_gaussian",):
-                        L_new = L_new * 3.0
-                    elif _loss_name == "tweedie":
-                        L_new = L_new * 5.0
-                    elif _loss_name == "gamma":
-                        L_new = L_new * 5.0
+                    # Re-apply y-scaling and per-family safety factor
+                    if _y_scale > 1.0:
+                        L_new = L_new * _y_scale
+                    _lip_safety_bt = getattr(loss, '_lipschitz_safety', 1.0)
+                    if _lip_safety_bt > 1.0:
+                        L_new = L_new * _lip_safety_bt
                     # Allow L to move toward L_new: full increase, gradual decrease
                     if L_new > L:
                         L = L_new
@@ -1904,7 +2065,7 @@ def fista_bb_solver(
         else:
             # Nonlinear GLM loss, post-burn-in: use BB step when valid,
             # fall back to Lipschitz step otherwise.
-            if dot_dw_dg > 1e-14:
+            if dot_dw_dg > _BB_RESTART_DOT_TOL:
                 if _bb_use_long:
                     step_k = dot_dw_dw / dot_dw_dg       # BB1: long
                 else:
@@ -1922,59 +2083,69 @@ def fista_bb_solver(
         coef_new = penalty.proximal(w_tilde, step_k, backend=backend)
         coef = coef_new
 
-        # Safeguarded backtracking for all GLM losses:
+        # Safeguarded backtracking for GLM losses:
         # After proximal, verify the objective didn't explode.  If it did,
         # halve step and recompute.  This catches cases where the BB step
         # or Lipschitz estimate was too optimistic for the new coef region.
-        # Particularly important for torch backend where BB steps can differ
-        # from CPU due to floating-point precision in dot products.
+        # Interval-based: full objective check every 5 iterations (expensive
+        # loss.value() call), cheap norm check every iteration.
+        _last_coef_norm_f = None
         if not _is_quadratic:
             _steep_loss = _loss_name in ("tweedie", "negative_binomial")
-            for _bt in range(15):
-                # Batch obj + coef-norm into a single sync.
-                _new_obj, _new_norm = _sync_scalars(
-                    loss.value(X_proc, y_proc, coef), _norm2_dev(coef), backend=backend)
-                try:
-                    _new_pen = float(_to_numpy(penalty.value(_to_numpy(coef))))
-                except (AttributeError, Exception):
-                    _new_pen = 0.0
-                _new_total = _new_obj + _new_pen
-                # Accept if: finite, reasonable norm, and objective not exploded
-                if _steep_loss:
-                    _obj_acceptable = (np.isfinite(_new_total) and _new_norm < 100.0 and
-                                       _new_total < 1e6)
-                else:
-                    # For logistic/gamma/poisson: accept if finite, reasonable
-                    # norm, and objective not significantly worse than best known.
-                    _obj_acceptable = (np.isfinite(_new_total) and _new_norm < 100.0 and
-                                       _new_total < max(_obj_best * 1.5 + 1.0, 1e3))
-                if _obj_acceptable:
-                    break
-                # Step too large — halve and retry
-                step_k = step_k * 0.5
-                L = L * 2.0
-                w_tilde = y_k - step_k * grad
-                coef = penalty.proximal(w_tilde, step_k, backend=backend)
+            # Interval-based: only run expensive objective check every 5 iters
+            # (divergence detection above also checks every 5 iters)
+            _do_bt_check = (iteration % 5 == 0 or iteration <= 5)
+            if _do_bt_check:
+                for _bt in range(15):
+                    # Batch obj + coef-norm into a single sync.
+                    _new_obj, _new_norm = _sync_scalars(
+                        loss.value(X_proc, y_proc, coef), _norm2_dev(coef), backend=backend)
+                    try:
+                        _new_pen = float(_to_numpy(penalty.value(coef)))
+                    except (AttributeError, ValueError, TypeError):
+                        _new_pen = 0.0
+                    _new_total = _new_obj + _new_pen
+                    # Accept if: finite, reasonable norm, and objective not exploded.
+                    # Use relative threshold (10x initial objective) instead of
+                    # absolute 1e6 — NB/Tweedie with large counts can have
+                    # legitimate loss > 1e6.
+                    _obj_cap = max(_obj_best * 10.0, 1e6) if np.isfinite(_obj_best) else 1e6
+                    if _steep_loss:
+                        _obj_acceptable = (np.isfinite(_new_total) and _new_norm < _DIVERGE_COEF_NORM_CAP and
+                                           _new_total < _obj_cap)
+                    else:
+                        # For logistic/gamma/poisson: accept if finite, reasonable
+                        # norm, and objective not significantly worse than best known.
+                        _obj_acceptable = (np.isfinite(_new_total) and _new_norm < _DIVERGE_COEF_NORM_CAP and
+                                           _new_total < max(_obj_best * 1.5 + 1.0, 1e3))
+                    if _obj_acceptable:
+                        _last_coef_norm_f = _new_norm
+                        break
+                    # Step too large — halve and retry
+                    step_k = step_k * 0.5
+                    L = L * 2.0
+                    w_tilde = y_k - step_k * grad
+                    coef = penalty.proximal(w_tilde, step_k, backend=backend)
+                    _last_coef_norm_f = None
 
         # Finiteness check: if coef is non-finite after proximal, reset.
-        # Do isfinite on GPU, only sync bool.
+        # Reuse the norm already synchronized by safeguarded backtracking.
         if not _is_quadratic:
-            _coef_norm_dev2 = _norm2_dev(coef)
-            if backend == "torch":
-                import torch
-                _finite_ok2 = bool(torch.isfinite(_coef_norm_dev2).item())
-            elif backend == "cupy":
-                import cupy as cp
-                _finite_ok2 = bool(cp.isfinite(_coef_norm_dev2).item())
+            if _last_coef_norm_f is not None:
+                _finite_ok2 = np.isfinite(_last_coef_norm_f)
             else:
-                _finite_ok2 = np.isfinite(float(_coef_norm_dev2))
+                _coef_norm_dev2 = _norm2_dev(coef)
+                _finite_ok2 = np.isfinite(_to_float_scalar(_coef_norm_dev2))
             if not _finite_ok2:
                 _diverge_count += 1
                 if _coef_best is not None:
                     coef = _copy_arr(_coef_best)
                     y_k = _copy_arr(coef)
                     t_k = 1.0
-                    grad_old = loss.gradient(X_proc, y_proc, coef)
+                    try:
+                        grad_old = loss.gradient(X_proc, y_proc, coef, sample_weight=sample_weight)
+                    except TypeError:
+                        grad_old = loss.gradient(X_proc, y_proc, coef)
                     step_L = step_L * 0.5
                     step_k = step_L
                     step_max = step_max * 0.5
@@ -1985,10 +2156,14 @@ def fista_bb_solver(
                     continue
 
         # --- Store BB step info for next iteration (non-quadratic only) ---
+        # Use accepted iterate (coef) not pre-backtracking (coef_new)
         if not _is_quadratic:
-            grad_new = loss.gradient(X_proc, y_proc, coef_new)
+            try:
+                grad_new = loss.gradient(X_proc, y_proc, coef, sample_weight=sample_weight)
+            except TypeError:
+                grad_new = loss.gradient(X_proc, y_proc, coef)
 
-            dw = coef_new - coef_old
+            dw = coef - coef_old
             dg = grad_new - grad_old
             # Batch two dot products into a single GPU→CPU sync.
             dot_dw_dw, dot_dw_dg = _sync_scalars(
@@ -1996,43 +2171,8 @@ def fista_bb_solver(
             grad_old = grad_new
 
         # --- Nesterov momentum with adaptive restart ---
-        # Exp-link losses (Poisson) can cause mu = exp(X@w) to explode when
-        # the extrapolated point overshoots. Disable momentum entirely for them.
-        # Other GLM losses (logistic) have bounded predictions and benefit from
-        # O(1/k^2) convergence via Nesterov momentum after a short burn-in.
-        _poisson_like = _loss_name in ("poisson",)
-        # Inverse Gaussian: 1/mu^2 gradient scaling causes Nesterov momentum
-        # (and BB steps) to oscillate wildly (1.34e+04 diffs observed).
-        # Disable both BB and momentum — use plain ISTA with fixed Lipschitz step.
-        # _invgauss_like and _tweedie_like defined at top of loop body
-        _gamma_like = _loss_name in ("gamma",)
-        if _invgauss_like:
-            bb_burn_in = max_iter + 1   # never switch to BB
-        elif _tweedie_like:
-            bb_burn_in = max(200, max_iter // 2)  # longer burn-in for Tweedie
-        elif _gamma_like:
-            bb_burn_in = max(50, max_iter // 8)  # short burn-in for gamma
-        if _poisson_like or _invgauss_like:
-            _momentum_burn_in = max_iter + 1   # never use momentum
-        elif _tweedie_like:
-            _momentum_burn_in = max(100, max_iter // 4)  # delayed momentum for Tweedie
-        elif _gamma_like:
-            _momentum_burn_in = max(30, max_iter // 10)  # delayed momentum for gamma
-        else:
-            _momentum_burn_in = 0  # momentum from the start (like standard FISTA)
-
-        # For smooth penalties (L2/none) with Poisson, allow conservative
-        # momentum after burn-in to improve convergence speed.
-        _conservative_bb = False
-        if _poisson_like and not _invgauss_like:
-            _pen_name_bb = getattr(penalty, 'name', '')
-            if _pen_name_bb in ("l2", "none", "", None):
-                _momentum_burn_in = min(100, max_iter)
-                _conservative_bb = True
-        # Tweedie/gamma: use conservative momentum after burn-in
-        if _tweedie_like or _gamma_like:
-            _conservative_bb = True
-
+        # bb_burn_in, _momentum_burn_in, _conservative_bb are loop-invariant
+        # and computed once before the loop.
         if iteration < _momentum_burn_in:
             t_k = 1.0
             beta = 0.0
@@ -2048,16 +2188,9 @@ def fista_bb_solver(
 
             if use_restart and iteration > 0:
                 # GPU-side comparison, only sync bool.
-                _mc_dev = _dot_dev(y_k - coef_new, coef_new - coef_old)
-                if backend == "torch":
-                    import torch
-                    _mc_positive = bool((_mc_dev > 0).item())
-                elif backend == "cupy":
-                    import cupy as cp
-                    _mc_positive = bool((_mc_dev > 0).item())
-                else:
-                    _mc_positive = float(_mc_dev) > 0
-                if _mc_positive:
+                # Use `coef` (always current) not `coef_new` (stale after reset).
+                _mc_dev = _dot_dev(y_k - coef, coef - coef_old)
+                if _to_float_scalar(_mc_dev) > 0:
                     t_k = 1.0
                     t_new = 1.0
                     beta = 0.0
@@ -2067,19 +2200,13 @@ def fista_bb_solver(
 
         # --- Convergence check — deferred for GPU, every iteration for CPU. ---
         if _is_gpu:
-            if iteration < 20 or iteration % 3 == 0:
+            if iteration < 20 or iteration % _conv_check_interval == 0:
                 _conv_dev2 = _abs_sum_dev(coef - coef_old)
-                if backend == "torch":
-                    import torch
-                    if bool((_conv_dev2 < tol).item()):
-                        break
-                elif backend == "cupy":
-                    import cupy as cp
-                    if bool((_conv_dev2 < tol).item()):
-                        break
+                if _to_float_scalar(_conv_dev2) < tol:
+                    break
         else:
             _conv_dev2 = _abs_sum_dev(coef - coef_old)
-            if float(_conv_dev2) < tol:
+            if _to_float_scalar(_conv_dev2) < tol:
                 break
 
     # Return best iterate if divergence was detected
@@ -2130,20 +2257,7 @@ def lbfgs_solver(
             else np.array(init_coef).copy()
         )
     else:
-        if backend == "numpy":
-            params = np.zeros(n_features)
-        elif backend == "cupy":
-            import cupy as cp
-            params = cp.zeros(
-                n_features, dtype=X.dtype if hasattr(X, "dtype") else cp.float64
-            )
-        else:
-            import torch
-            params = torch.zeros(
-                n_features,
-                device=X.device if hasattr(X, "device") else "cpu",
-                dtype=X.dtype if hasattr(X, "dtype") else torch.float64,
-            )
+        params = _zeros(n_features, backend, ref_tensor=X)
 
     s_hist = []
     y_hist = []
@@ -2165,6 +2279,7 @@ def lbfgs_solver(
         tol_dev = torch.tensor(tol, dtype=torch.float64, device=params.device)
     else:
         tol_dev = tol
+    iteration = -1  # default if max_iter=0
 
     for iteration in range(max_iter):
         grad_norm_dev = _norm2_dev(grad)
@@ -2211,6 +2326,7 @@ def lbfgs_solver(
 
         step = 1.0
         params_new = params
+        _ls_accepted = False
         for _ in range(25):
             candidate = params + step * direction
             if _use_fused:
@@ -2221,8 +2337,18 @@ def lbfgs_solver(
             # Device-side comparison — single sync for the bool
             if _device_leq(cand_val_dev, old_val_dev + 1e-4 * step * gdd):
                 params_new = candidate
+                _ls_accepted = True
                 break
             step *= 0.5
+        if not _ls_accepted:
+            import warnings
+            warnings.warn(
+                "lbfgs_solver: line search failed to find a descent step "
+                f"after 25 backtracking steps (iteration {iteration}). "
+                "Solver may stagnate.",
+                RuntimeWarning,
+                stacklevel=2,
+            )
 
         # Update gradient (fused)
         if _use_fused:
@@ -2293,10 +2419,16 @@ def _cg_solve(A_op, b, x0=None, max_iter=30, tol=1e-6):
     for _ in range(max_iter):
         Ap = A_op(p)
         pAp = _dot_dev(p, Ap)
+        # Guard against indefinite system: pAp <= 0 means A is not PD.
+        # Return current x (best effort) rather than diverge silently.
         if backend != "numpy":
-            alpha = rsold / pAp if _device_gt(pAp, 1e-30) else 0.0
+            if not _device_gt(pAp, 1e-30):
+                break
+            alpha = rsold / pAp
         else:
-            alpha = rsold / pAp if pAp > 1e-30 else 0.0
+            if pAp <= 1e-30:
+                break
+            alpha = rsold / pAp
         x = x + alpha * p
         r = r - alpha * Ap
         rsnew = _dot_dev(r, r)
@@ -2381,16 +2513,7 @@ def admm_solver(
             else np.array(init_coef).copy()
         )
     else:
-        if backend == "numpy":
-            w = np.zeros(n_features)
-        elif backend == "cupy":
-            import cupy as cp
-            w = cp.zeros(n_features)
-        else:
-            import torch
-            w = torch.zeros(
-                n_features, device=X.device, dtype=X.dtype
-            )
+        w = _zeros(n_features, backend, ref_tensor=X)
 
     z = _copy_arr(w)
     u = _zeros_like(w)
@@ -2416,19 +2539,26 @@ def admm_solver(
     if use_cholesky:
         _hess_const = loss.hessian(X_proc, y_proc, w)          # XtX / n
         _A_mat = _hess_const
+        _cholesky_ok = False
         if hasattr(_hess_const, 'shape'):
-            if backend == "numpy":
-                _A_mat = _hess_const + rho * np.eye(n_features, dtype=_hess_const.dtype)
-                _L = np.linalg.cholesky(_A_mat)
-            elif backend == "cupy":
-                import cupy as cp
-                _A_mat = _hess_const + rho * cp.eye(n_features, dtype=_hess_const.dtype)
-                _L = cp.linalg.cholesky(_A_mat)
-            else:
-                import torch
-                _A_mat = _hess_const + rho * torch.eye(n_features, dtype=_hess_const.dtype, device=_hess_const.device)
-                _L = torch.linalg.cholesky(_A_mat)
-        else:
+            try:
+                if backend == "numpy":
+                    _A_mat = _hess_const + rho * np.eye(n_features, dtype=_hess_const.dtype)
+                    _L = np.linalg.cholesky(_A_mat)
+                elif backend == "cupy":
+                    import cupy as cp
+                    _A_mat = _hess_const + rho * cp.eye(n_features, dtype=_hess_const.dtype)
+                    _L = cp.linalg.cholesky(_A_mat)
+                else:
+                    import torch
+                    _A_mat = _hess_const + rho * torch.eye(n_features, dtype=_hess_const.dtype, device=_hess_const.device)
+                    _L = torch.linalg.cholesky(_A_mat)
+                _cholesky_ok = True
+            except (np.linalg.LinAlgError, Exception):
+                # Matrix not positive-definite (numerical issues, collinear features)
+                # Fall back to CG solver below
+                _cholesky_ok = False
+        if not _cholesky_ok:
             use_cholesky = False
 
         # Precompute -grad_f(0) = Xty/n for squared_error (the constant part)
@@ -2441,6 +2571,7 @@ def admm_solver(
         if L_f <= 0:
             L_f = 1.0
         lr_sub = 1.0 / (L_f + rho + 1e-8)
+    iteration = -1  # default if max_iter=0
 
     for iteration in range(max_iter):
         z_old = _copy_arr(z)
@@ -2448,13 +2579,24 @@ def admm_solver(
         # --- w-update ---
         if use_cholesky:
             # Closed-form: (XtX/n + rho*I) w = Xty/n + rho*(z - u)
+            # Use precomputed Cholesky factor for forward/back substitution
             rhs = _neg_grad_zero + rho * (z - u)
             if backend == "numpy":
-                w = np.linalg.solve(_A_mat, rhs)
+                from scipy.linalg import solve_triangular
+                tmp = solve_triangular(_L, rhs, lower=True)
+                w = solve_triangular(_L.T, tmp, lower=False)
             elif backend == "cupy":
-                w = cp.linalg.solve(_A_mat, rhs)
+                # Use triangular solve when available (O(n³/6) vs O(n³/3) for LU)
+                try:
+                    from cupyx.scipy.linalg import solve_triangular
+                    tmp = solve_triangular(_L, rhs, lower=True)
+                    w = solve_triangular(_L.T, tmp, lower=False)
+                except ImportError:
+                    tmp = cp.linalg.solve(_L, rhs)
+                    w = cp.linalg.solve(_L.T, tmp)
             else:
-                w = torch.linalg.solve(_A_mat, rhs.unsqueeze(1)).squeeze(1)
+                tmp = torch.linalg.solve_triangular(_L, rhs.unsqueeze(1), upper=False)
+                w = torch.linalg.solve_triangular(_L.T, tmp, upper=True).squeeze(1)
         else:
             # Nesterov-accelerated gradient descent on the w-subproblem
             w_new = _copy_arr(w)
@@ -2477,6 +2619,9 @@ def admm_solver(
             w = w_new
 
         # --- z-update: proximal operator ---
+        # Contract: proximal(z, step) = argmin_x step*P(x) + (1/2)||x - z||²
+        # ADMM z-update needs argmin_z P(z)/rho + (1/2)||z - (w+u)||²
+        #   = proximal(w + u, 1/rho)  with step = 1/rho
         z = penalty.proximal(w + u, 1.0 / rho, backend=backend)
 
         # --- u-update: dual ascent ---
@@ -2493,6 +2638,8 @@ def admm_solver(
                 rho = min(rho * 2.0, 1e4)
             elif r_dual > 10.0 * rp:
                 rho = max(rho * 0.5, 1e-4)
+            # Recompute step size to match updated rho
+            lr_sub = 1.0 / (L_f + rho + 1e-8)
 
         if rp < tol and r_dual < tol:
             break

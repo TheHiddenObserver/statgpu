@@ -9,8 +9,8 @@
 
 ## 相关页面
 
-- [核岭回归](nonparametric/kernel-methods.md) — KernelRidge, KernelRidgeCV
-- [样条基函数](nonparametric/splines.md) — bspline_basis, natural_cubic_spline_basis
+- [核岭回归](kernel-methods.md) — KernelRidge, KernelRidgeCV
+- [样条基函数](splines.md) — bspline_basis, natural_cubic_spline_basis
 - [GAM（半参数）](semiparametric.md) — 广义可加模型
 
 ## 概览（Overview）

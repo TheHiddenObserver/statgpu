@@ -3,15 +3,15 @@
 > Language: English  
 > Last updated: 2026-05-28  
 > This page: Model documentation  
-> Switch: [Chinese](../../../models/nonparametric/splines.md)
+> Switch: [Chinese](../../models/splines.md)
 
-Language switch: [Chinese](../../../models/nonparametric/splines.md)
+Language switch: [Chinese](../../models/splines.md)
 
 ## Overview
 
 The splines module provides spline basis construction utilities. `bspline_basis` evaluates B-spline basis matrices using De Boor's recursive algorithm. `natural_cubic_spline_basis` constructs natural cubic spline bases with boundary constraints (zero second derivative at boundary knots). Both support CPU, CuPy, and Torch backends.
 
-For the Generalized Additive Model (GAM) which uses these basis functions, see [GAM](../semiparametric.md).
+For the Generalized Additive Model (GAM) which uses these basis functions, see [GAM](semiparametric.md).
 
 ## Path
 

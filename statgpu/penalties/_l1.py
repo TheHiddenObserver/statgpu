@@ -83,18 +83,15 @@ class L1Penalty(Penalty):
         """
         thresh = self.alpha * step
 
-        if backend == "cupy":
-            import cupy as cp
-            return cp.sign(w) * cp.maximum(cp.abs(w) - thresh, 0.0)
-        elif backend == "torch":
-            import torch
+        # torch.compile fast path (performance optimization)
+        if backend == "torch":
             compiled_fn = _get_l1_torch_compiled()
             if compiled_fn is not None:
                 return compiled_fn(w, thresh)
-            return torch.sign(w) * torch.relu(torch.abs(w) - thresh)
-        else:
-            # numpy
-            return np.sign(w) * np.maximum(np.abs(w) - thresh, 0.0)
+
+        # Unified fallback across numpy/cupy/torch
+        from statgpu.backends._array_ops import _soft_threshold
+        return _soft_threshold(w, thresh)
 
     def get_params(self) -> dict:
         params = super().get_params()

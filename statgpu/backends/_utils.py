@@ -6,7 +6,7 @@ array-library detection, module resolution, and scalar conversion logic.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Optional
 
 import numpy as np
 
@@ -96,6 +96,99 @@ def _get_torch_device_str() -> str:
         return "cpu"
 
 
+def _torch_on_target_device(tensor, device: Optional[str]) -> bool:
+    """Return True when a torch tensor is already on the requested device."""
+    if device is None:
+        return True
+    device = str(device)
+    tensor_device = str(getattr(tensor, "device", ""))
+    # "cuda" means any CUDA device; "cuda:0", "cuda:1" etc. require exact match
+    if device == "cuda":
+        return getattr(tensor, "device", None).type == "cuda"
+    return tensor_device == device
+
+
+def _move_torch_tensor(tensor, device: Optional[str] = None, dtype=None, pin_memory: bool = False):
+    """Move/cast a torch tensor, using pinned non-blocking H2D when useful."""
+    import torch
+
+    if dtype is not None and not isinstance(dtype, torch.dtype):
+        try:
+            dtype = getattr(torch, np.dtype(dtype).name)
+        except Exception:
+            pass
+
+    target = device or _get_torch_device_str()
+    needs_move = not _torch_on_target_device(tensor, target)
+    needs_dtype = dtype is not None and tensor.dtype != dtype
+    if not needs_move and not needs_dtype:
+        return tensor
+
+    if pin_memory and str(target).startswith("cuda") and tensor.device.type == "cpu":
+        try:
+            pinned = tensor.pin_memory() if not tensor.is_pinned() else tensor
+            kwargs = {"device": target, "non_blocking": True}
+            if dtype is not None:
+                kwargs["dtype"] = dtype
+            return pinned.to(**kwargs)
+        except Exception:
+            pass
+
+    kwargs = {}
+    if device is not None:
+        kwargs["device"] = target
+    if dtype is not None:
+        kwargs["dtype"] = dtype
+    return tensor.to(**kwargs) if kwargs else tensor
+
+
+def _numpy_to_torch_tensor(x, device: Optional[str] = None, dtype=None, pin_memory: bool = False):
+    """Convert NumPy-like input to torch, preserving contiguous fast paths."""
+    import torch
+
+    arr = np.asarray(x)
+    if not arr.flags["C_CONTIGUOUS"]:
+        arr = np.ascontiguousarray(arr)
+    tensor = torch.from_numpy(arr)
+    return _move_torch_tensor(tensor, device=device, dtype=dtype, pin_memory=pin_memory)
+
+
+def _cupy_to_torch_dlpack(x, device: Optional[str] = None):
+    """Convert a CuPy array to torch through DLPack, returning None if unsupported."""
+    try:
+        import cupy as cp
+        import torch
+
+        if not isinstance(x, cp.ndarray):
+            return None
+        try:
+            tensor = torch.utils.dlpack.from_dlpack(x)
+        except TypeError:
+            tensor = torch.utils.dlpack.from_dlpack(x.toDlpack())
+        return _move_torch_tensor(tensor, device=device)
+    except Exception:
+        return None
+
+
+def _torch_to_cupy_dlpack(x):
+    """Convert a CUDA torch tensor to CuPy through DLPack, returning None if unsupported."""
+    try:
+        import cupy as cp
+        import torch
+
+        if not isinstance(x, torch.Tensor) or not x.is_cuda:
+            return None
+        tensor = x.detach()
+        if not tensor.is_contiguous():
+            tensor = tensor.contiguous()
+        try:
+            return cp.from_dlpack(tensor)
+        except Exception:
+            return cp.fromDlpack(torch.utils.dlpack.to_dlpack(tensor))
+    except Exception:
+        return None
+
+
 # ---------------------------------------------------------------------------
 # Device-aware array creation helpers
 # ---------------------------------------------------------------------------
@@ -137,9 +230,46 @@ def xp_full(shape, fill_value, dtype, xp, ref_arr=None):
     return xp.full(shape, fill_value, dtype=dtype)
 
 
+def _np_dtype_to_torch(dtype):
+    """Convert a numpy dtype to the equivalent torch dtype."""
+    import torch
+    _MAP = {
+        'float32': torch.float32,
+        'float64': torch.float64,
+        'float16': torch.float16,
+        'int32': torch.int32,
+        'int64': torch.int64,
+        'int16': torch.int16,
+        'int8': torch.int8,
+        'uint8': torch.uint8,
+        'bool': torch.bool,
+    }
+    return _MAP.get(str(np.dtype(dtype)).split('.')[-1], torch.float64)
+
+
+def _torch_dtype_to_np(dtype):
+    """Convert a torch dtype to the equivalent numpy dtype."""
+    import torch
+    _MAP = {
+        torch.float32: np.dtype('float32'),
+        torch.float64: np.dtype('float64'),
+        torch.float16: np.dtype('float16'),
+        torch.int32: np.dtype('int32'),
+        torch.int64: np.dtype('int64'),
+        torch.int16: np.dtype('int16'),
+        torch.int8: np.dtype('int8'),
+        torch.uint8: np.dtype('uint8'),
+        torch.bool: np.dtype('bool'),
+    }
+    return _MAP.get(dtype, np.dtype('float64'))
+
+
 def xp_astype(arr, dtype, xp):
     """Backend-safe type cast (``.to()`` for torch, ``.astype()`` otherwise)."""
     if _torch_dev(arr) is not None:
+        import torch
+        if not isinstance(dtype, torch.dtype):
+            dtype = _np_dtype_to_torch(dtype)
         return arr.to(dtype)
     return arr.astype(dtype)
 
@@ -212,17 +342,30 @@ def xp_cholesky_solve(A, b, xp):
 
     Works across numpy, cupy, and torch backends.  Handles the torch-specific
     argument difference for ``solve_triangular`` (``upper=False`` vs ``lower=True``).
-    For cupy, falls back to general solve (no solve_triangular in cupy).
+    For cupy, uses general solve (no solve_triangular in cupy).
     For numpy, uses scipy.linalg.solve_triangular.
     """
+    if hasattr(A, 'get'):  # CuPy: no solve_triangular, use general solve directly
+        return xp.linalg.solve(A, b)
     L = xp.linalg.cholesky(A)
     if _torch_dev(L) is not None:
         tmp = xp.linalg.solve_triangular(L, b, upper=False)
         return xp.linalg.solve_triangular(L.T, tmp, upper=True)
-    # CuPy: no solve_triangular, use general solve on the original matrix
-    if hasattr(A, 'get'):  # CuPy array
-        return xp.linalg.solve(A, b)
     # numpy: use scipy for solve_triangular
     from scipy.linalg import solve_triangular
     tmp = solve_triangular(L, b, lower=True)
     return solve_triangular(L.T, tmp, lower=False)
+
+
+def torch_compile_supported():
+    """Check if torch.compile is safe to use (CUDA Capability >= 7.0)."""
+    try:
+        import torch
+        if torch.cuda.is_available():
+            cap = torch.cuda.get_device_capability()
+            return cap[0] >= 7
+    except ImportError:
+        return False  # torch not installed
+    except Exception:
+        pass
+    return False  # Can't verify — assume not supported

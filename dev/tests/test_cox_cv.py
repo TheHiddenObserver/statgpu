@@ -42,6 +42,14 @@ def test_coxphcv_supports_entry_and_cluster_cpu():
     assert model.cv_results_["pl_path"].shape[0] == model.penalties_.shape[0]
 
 
+def test_coxphcv_exposes_gpu_cleanup_hooks():
+    model = CoxPHCV(device="cpu", gpu_memory_cleanup=True)
+
+    assert callable(model._cleanup_cuda_memory)
+    assert callable(model._cleanup_torch_memory)
+    assert callable(model.__del__)
+
+
 def test_coxphcv_env_toggles_do_not_change_cpu_penalty_selection(monkeypatch):
     """Two-stage/halving env toggles should not affect CPU full-grid selection."""
     invalid_value = "invalid"

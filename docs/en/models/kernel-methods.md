@@ -3,9 +3,9 @@
 > Language: English
 > Last updated: 2026-05-28
 > This page: Model documentation
-> Switch: [Chinese](../../../models/nonparametric/kernel-methods.md)
+> Switch: [Chinese](../../models/kernel-methods.md)
 
-Language switch: [Chinese](../../../models/nonparametric/kernel-methods.md)
+Language switch: [Chinese](../../models/kernel-methods.md)
 
 ## Overview
 

@@ -33,8 +33,8 @@ Language switch: [Chinese](../../models/README.md)
 ## Nonparametric Methods
 
 - [Kernel Density Estimation and Kernel Regression](nonparametric.md)
-- [Kernel Ridge Regression](nonparametric/kernel-methods.md)
-- [Spline Basis Functions](nonparametric/splines.md)
+- [Kernel Ridge Regression](kernel-methods.md)
+- [Spline Basis Functions](splines.md)
 
 ## Semiparametric Models
 
@@ -50,7 +50,8 @@ Language switch: [Chinese](../../models/README.md)
 
 ## Current Coverage Notes
 
-- All current models support `device="cpu"` / `device="cuda"` / `device="auto"`.
+- All current models support `device="cpu"` / `device="cuda"` / `device="torch"` / `device="auto"` where the documented backend implementation is available.
+- Explicit `device="cuda"` and `device="torch"` raise when their matching CUDA backend is unavailable; only `device="auto"` may choose another backend.
 - All current models support `gpu_memory_cleanup`.
 - `GeneralizedLinearModel` and typed penalized GLMs are documented in [GeneralizedLinearModel and Penalized GLM](generalized-linear-model.md).
 - `PoissonRegression` is documented separately as the ordinary Poisson GLM estimator.

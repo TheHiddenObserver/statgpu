@@ -9,8 +9,8 @@ Language switch: [Chinese](../../models/nonparametric.md)
 
 ## Related Pages
 
-- [Kernel Ridge Regression](nonparametric/kernel-methods.md) — KernelRidge, KernelRidgeCV
-- [Spline Basis Functions](nonparametric/splines.md) — bspline_basis, natural_cubic_spline_basis
+- [Kernel Ridge Regression](kernel-methods.md) — KernelRidge, KernelRidgeCV
+- [Spline Basis Functions](splines.md) — bspline_basis, natural_cubic_spline_basis
 - [GAM (Semiparametric)](semiparametric.md) — Generalized Additive Model
 
 ## Overview
