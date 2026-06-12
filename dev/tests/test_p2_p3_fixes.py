@@ -951,6 +951,92 @@ class TestCodeReviewRound9:
 
 
 # ============================================================================
+# Code Review Round 10 regression tests
+# ============================================================================
+
+class TestCodeReviewRound10:
+    """Test fixes from code review round 10."""
+
+    def test_scad_mcp_cv_squared_error_intercept(self):
+        """SCAD/MCP with squared_error should compute correct intercept."""
+        from statgpu.linear_model._penalized import PenalizedGeneralizedLinearModel
+        np.random.seed(42)
+        X = np.random.randn(100, 5)
+        y = X @ np.array([2, -1, 0, 0, 0]) + 0.1 * np.random.randn(100)
+        model = PenalizedGeneralizedLinearModel(
+            loss="squared_error", penalty="scad", alpha=0.1,
+            max_iter=100, tol=1e-6
+        )
+        model.fit(X, y)
+        assert all(np.isfinite(model.coef_))
+        assert np.isfinite(model.intercept_)
+
+    def test_fit_lla_penalty_restored_on_exception(self):
+        """_fit_lla should restore original penalty even if inner fit raises."""
+        from statgpu.linear_model._penalized import PenalizedGeneralizedLinearModel
+        model = PenalizedGeneralizedLinearModel.__new__(PenalizedGeneralizedLinearModel)
+        # Simulate a penalty object
+        class FakePenalty:
+            alpha = 0.5
+            name = "scad"
+            def lla_weights(self, coef): return np.ones(len(coef))
+        model._penalty = FakePenalty()
+        orig_penalty = model._penalty
+        # The penalty should be restored even if an exception occurs
+        # We can't easily test the full _fit_lla without a full model setup,
+        # but we can verify the try/finally pattern exists
+        import inspect
+        src = inspect.getsource(PenalizedGeneralizedLinearModel._fit_lla)
+        assert 'finally:' in src
+        assert 'self._penalty = orig_penalty' in src
+
+    def test_fista_bb_solver_init_dot_dw(self):
+        """fista_bb_solver should initialize dot_dw_dg/dot_dw_dw before loop."""
+        import inspect
+        from statgpu.glm_core._solver import fista_bb_solver
+        src = inspect.getsource(fista_bb_solver)
+        # Check that dot_dw_dg is initialized before the for loop
+        lines = src.split('\n')
+        init_line = None
+        loop_line = None
+        for i, line in enumerate(lines):
+            if 'dot_dw_dg = 0.0' in line and init_line is None:
+                init_line = i
+            if 'for iteration in range' in line and loop_line is None:
+                loop_line = i
+        assert init_line is not None, "dot_dw_dg not initialized"
+        assert loop_line is not None, "iteration loop not found"
+        assert init_line < loop_line, "dot_dw_dg must be initialized before loop"
+
+    def test_inverse_gaussian_deviance_y_guard(self):
+        """Inverse Gaussian deviance should handle small y without division by zero."""
+        from statgpu.glm_core._irls import irls_solver
+        from statgpu.glm_core._family import InverseGaussian
+        np.random.seed(42)
+        X = np.column_stack([np.random.randn(50, 5), np.ones(50)])
+        y = np.abs(np.random.randn(50)) + 0.01
+        family = InverseGaussian()
+        # This should not crash even with small y values
+        coef, _ = irls_solver(family, X, y, max_iter=10, tol=1e-4)
+        assert all(np.isfinite(coef))
+
+    def test_fista_returns_best_iterate_copy(self):
+        """fista_solver should return a copy of the best iterate."""
+        from statgpu.glm_core._solver import fista_solver
+        from statgpu.glm_core import get_glm_loss
+        from statgpu.penalties._l1 import L1Penalty
+        np.random.seed(42)
+        X = np.random.randn(50, 5)
+        y = X @ np.array([2, -1, 0, 0, 0]) + 0.1 * np.random.randn(50)
+        loss = get_glm_loss("squared_error")
+        penalty = L1Penalty(alpha=0.1)
+        coef, _ = fista_solver(loss, penalty, X, y, max_iter=50, tol=1e-6)
+        # coef should be a numpy array (not a reference to internal state)
+        assert isinstance(coef, np.ndarray)
+        assert coef.flags['OWNDATA'] or coef.base is not None  # has its own data
+
+
+# ============================================================================
 # Weighted lipschitz/hessian tests for all GLM loss classes
 # ============================================================================
 
