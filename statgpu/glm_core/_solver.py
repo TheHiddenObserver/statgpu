@@ -44,6 +44,14 @@ _LIPSCHITZ_SAFETY_TWEEDIE = 5.0
 _LIPSCHITZ_SAFETY_GAMMA = 3.0
 _LIPSCHITZ_SAFETY_LOGISTIC_CV = 2.0
 
+# Numerical constants for solver convergence/divergence
+_SLACK_TOLERANCE = 1e-14          # Armijo slack tolerance
+_DIVERGE_COEF_NORM_CAP = 100.0    # Coefficient norm above which divergence is suspected
+_DIVERGE_OBJ_RATIO = 100.0        # Objective ratio for divergence detection
+_DIVERGE_OBJ_ABS = 10.0           # Absolute objective threshold for divergence
+_BB_RESTART_DOT_TOL = 1e-14       # BB restart dot product tolerance
+_LIPSCHITZ_FLOOR = 1e-30          # Minimum Lipschitz constant
+
 
 class ConvergenceWarning(UserWarning):
     """Solver did not converge within the iteration limit."""
@@ -767,7 +775,7 @@ def fista_solver(
                     q_new_dev = loss.value(X_proc, y_proc, coef_new)
                 _q_new_dev_last = q_new_dev
                 bound_dev = q_yk_dev + _dot_dev(grad, diff) + 0.5 * L * _sum_sq_dev(diff)
-                slack_dev = bound_dev + 1e-14 - q_new_dev
+                slack_dev = bound_dev + _SLACK_TOLERANCE - q_new_dev
                 _armijo_ok = _to_float_scalar(slack_dev) >= 0
                 if _armijo_ok:
                     break
@@ -809,7 +817,7 @@ def fista_solver(
                 else:
                     _diverged_f = _obj_val_f > _obj_best_fista + max(abs(_obj_best_fista) * 10.0, 1.0)
                 if not _diverged_f and _need_norm_check:
-                    if float(_to_numpy(_norm2_dev(coef))) > 100.0:
+                    if float(_to_numpy(_norm2_dev(coef))) > _DIVERGE_COEF_NORM_CAP:
                         _diverged_f = True
                 if _diverged_f:
                     if _coef_best_fista is not None:
@@ -1273,7 +1281,7 @@ def fista_lla_path(
                                 continue
 
                         q_new_dev = loss.value(X_c, y_c, coef_new)
-                        slack_dev = bound_dev + 1e-14 - q_new_dev
+                        slack_dev = bound_dev + _SLACK_TOLERANCE - q_new_dev
                         _armijo_ok = _to_float_scalar(slack_dev) >= 0
                         if _armijo_ok:
                             break
@@ -1295,17 +1303,17 @@ def fista_lla_path(
                         if backend == "torch":
                             _finite_dev = xp.isfinite(_cn_dev)
                             _cap_needed_dev = _cn_dev > 5.0
-                            _diverge_norm_dev = _cn_dev > 100.0 if iteration > 10 else xp.tensor(False, device=coef.device)
+                            _diverge_norm_dev = _cn_dev > _DIVERGE_COEF_NORM_CAP if iteration > 10 else xp.tensor(False, device=coef.device)
                             _obj_finite_dev = xp.isfinite(q_new_dev) if iteration > 0 else xp.tensor(True, device=coef.device)
                         elif backend == "cupy":
                             _finite_dev = xp.isfinite(_cn_dev)
                             _cap_needed_dev = _cn_dev > 5.0
-                            _diverge_norm_dev = _cn_dev > 100.0 if iteration > 10 else xp.asarray(False)
+                            _diverge_norm_dev = _cn_dev > _DIVERGE_COEF_NORM_CAP if iteration > 10 else xp.asarray(False)
                             _obj_finite_dev = xp.isfinite(q_new_dev) if iteration > 0 else xp.asarray(True)
                         else:
                             _finite_dev = np.isfinite(float(_to_numpy(_cn_dev)))
                             _cap_needed_dev = float(_to_numpy(_cn_dev)) > 5.0
-                            _diverge_norm_dev = float(_to_numpy(_cn_dev)) > 100.0 if iteration > 10 else False
+                            _diverge_norm_dev = float(_to_numpy(_cn_dev)) > _DIVERGE_COEF_NORM_CAP if iteration > 10 else False
                             _obj_finite_dev = np.isfinite(float(_to_numpy(q_new_dev))) if iteration > 0 else True
 
                         # Single D2H transfer: pack booleans
@@ -1923,12 +1931,12 @@ def fista_bb_solver(
             # Cheap norm check (CPU every iter after 10; GPU piggybacks on 5-iter check)
             if iteration > 10 and not _is_gpu:
                 _coef_norm_dev = _norm2_dev(coef)
-                if float(_coef_norm_dev) > 100.0:
+                if float(_coef_norm_dev) > _DIVERGE_COEF_NORM_CAP:
                     _diverged = True
             # Coef norm check (GPU: piggyback on 5-iter sync)
             if not _diverged and iteration > 10 and _is_gpu:
                 _coef_norm_dev = _norm2_dev(coef)
-                if _to_float_scalar(_coef_norm_dev) > 100.0:
+                if _to_float_scalar(_coef_norm_dev) > _DIVERGE_COEF_NORM_CAP:
                     _diverged = True
             # Full objective check every 5 iterations
             if not _diverged:
@@ -1943,12 +1951,12 @@ def fista_bb_solver(
                 elif _obj_best > 1e-8:
                     _diverge_threshold = _obj_best * 10.0 + 1e-8
                     if _invgauss_like or _tweedie_like:
-                        _diverge_threshold = _obj_best * 100.0 + 10.0
+                        _diverge_threshold = _obj_best * _DIVERGE_OBJ_RATIO + _DIVERGE_OBJ_ABS
                     _diverged = _obj_total > _diverge_threshold
                 else:
                     _diverge_threshold = _obj_best + max(abs(_obj_best) * 10.0, 1.0)
                     if _invgauss_like or _tweedie_like:
-                        _diverge_threshold = _obj_best + max(abs(_obj_best) * 100.0, 10.0)
+                        _diverge_threshold = _obj_best + max(abs(_obj_best) * _DIVERGE_OBJ_RATIO, _DIVERGE_OBJ_ABS)
                     _diverged = _obj_total > _diverge_threshold
             if _diverged:
                 # Diverged: reset to best known iterate (or zeros) and halve step
@@ -2018,7 +2026,7 @@ def fista_bb_solver(
         else:
             # Nonlinear GLM loss, post-burn-in: use BB step when valid,
             # fall back to Lipschitz step otherwise.
-            if dot_dw_dg > 1e-14:
+            if dot_dw_dg > _BB_RESTART_DOT_TOL:
                 if _bb_use_long:
                     step_k = dot_dw_dw / dot_dw_dg       # BB1: long
                 else:
@@ -2056,12 +2064,12 @@ def fista_bb_solver(
                 _new_total = _new_obj + _new_pen
                 # Accept if: finite, reasonable norm, and objective not exploded
                 if _steep_loss:
-                    _obj_acceptable = (np.isfinite(_new_total) and _new_norm < 100.0 and
+                    _obj_acceptable = (np.isfinite(_new_total) and _new_norm < _DIVERGE_COEF_NORM_CAP and
                                        _new_total < 1e6)
                 else:
                     # For logistic/gamma/poisson: accept if finite, reasonable
                     # norm, and objective not significantly worse than best known.
-                    _obj_acceptable = (np.isfinite(_new_total) and _new_norm < 100.0 and
+                    _obj_acceptable = (np.isfinite(_new_total) and _new_norm < _DIVERGE_COEF_NORM_CAP and
                                        _new_total < max(_obj_best * 1.5 + 1.0, 1e3))
                 if _obj_acceptable:
                     _last_coef_norm_f = _new_norm

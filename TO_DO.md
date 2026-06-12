@@ -481,3 +481,22 @@ coef = where(active, coef_new, coef)
 - ✅ `_array_ops.py` `_soft_threshold`：已改用 `xp.where` 融合（2 个中间数组，~15% 性能提升）
 - `_array_ops.py` 与 `_utils.py` helper 重复：`_xp_copy`/`_xp_zeros`/`_xp_asarray`/`_xp_eye`（自动推断 backend）与 `xp_copy`/`xp_zeros`/`xp_asarray`/`xp_eye`（显式传 `xp`）功能重叠，应统一为一套 API
 
+---
+
+## Code Review Round 4 建议项（2026-06-11，最后更新: 2026-06-11）
+
+### 已修复
+
+- ✅ `_irls_cd` step-halving 目标函数漏掉 intercept（`X_work[:, :p]` → `X_work`）
+- ✅ `_irls_cd_gpu` `n_iter = it + 1` 未定义 guard
+- ✅ `_torch_compile_supported()` 重复（移到 `_utils.py`）
+- ✅ `_solver.py` 魔法数字提取为命名常量（`_SLACK_TOLERANCE`、`_DIVERGE_COEF_NORM_CAP` 等）
+
+### 需大重构的项（后续 PR）
+
+- `_fit_cpu`/`_fit_gpu`/`_fit_torch` 代码重复（~80% 逻辑相同）：需提取共享 FISTA 循环逻辑
+- `_irls_cd` 和 `_irls_cd_gpu` 近似重复（同一算法的 CPU/GPU 版本）：需统一为 backend-agnostic 实现
+- 添加新 loss 需改 6+ 文件（loss class + registry + fused handler + CV loss functions + solver dispatch + IRLS working response）：需统一 loss registry
+- `fista_solver` 400 行、`fista_lla_path` 550 行、`fista_bb_solver` 470 行：需拆分为小函数
+- loss formula 在 `_solver.py` `_fused_*` 和 `_penalized_cv.py` `_LOSS_*` 中重复：需统一为单一 registry
+
