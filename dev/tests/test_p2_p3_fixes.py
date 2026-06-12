@@ -869,6 +869,88 @@ class TestEffectiveCvDevice:
 
 
 # ============================================================================
+# Code Review Round 9 regression tests
+# ============================================================================
+
+class TestCodeReviewRound9:
+    """Test fixes from code review round 9."""
+
+    def test_solve_linear_system_singular_fallback(self):
+        """_solve_linear_system should fall back to lstsq for singular matrices."""
+        from statgpu.backends._array_ops import _solve_linear_system
+        # Singular matrix: rank 1
+        A = np.array([[1.0, 2.0], [2.0, 4.0]])
+        b = np.array([3.0, 6.0])
+        result = _solve_linear_system(A, b, backend="numpy")
+        assert result.shape == (2,)
+        assert all(np.isfinite(result))
+
+    def test_solve_linear_system_nonsingular(self):
+        """_solve_linear_system should solve non-singular systems exactly."""
+        from statgpu.backends._array_ops import _solve_linear_system
+        A = np.array([[2.0, 1.0], [1.0, 3.0]])
+        b = np.array([5.0, 7.0])
+        result = _solve_linear_system(A, b, backend="numpy")
+        expected = np.linalg.solve(A, b)
+        assert_allclose(result, expected, atol=1e-10)
+
+    def test_solve_linear_system_narrow_except(self):
+        """_solve_linear_system should only catch LinAlgError/RuntimeError, not all exceptions."""
+        from statgpu.backends._array_ops import _solve_linear_system
+        # Passing incompatible shapes should raise, not be silently caught
+        A = np.array([[1.0, 2.0], [3.0, 4.0]])
+        b = np.array([1.0, 2.0, 3.0])  # Wrong shape
+        try:
+            _solve_linear_system(A, b, backend="numpy")
+            assert False, "Should have raised an error"
+        except (ValueError, np.linalg.LinAlgError):
+            pass  # Expected
+
+    def test_fista_lla_preserves_alpha(self):
+        """fista_lla_path should preserve scad_penalty.alpha after call."""
+        from statgpu.glm_core._solver import fista_lla_path
+        from statgpu.penalties._scad import SCADPenalty
+        from statgpu.glm_core import get_glm_loss
+        np.random.seed(42)
+        X = np.random.randn(50, 5)
+        y = X @ np.random.randn(5) + 0.1 * np.random.randn(50)
+        scad = SCADPenalty(alpha=0.5)
+        original_alpha = scad.alpha
+        loss = get_glm_loss("squared_error")
+        fista_lla_path(loss, scad, X, y, alpha_path=[0.3, 0.2], max_iter=10, tol=1e-4)
+        assert scad.alpha == original_alpha, f"alpha changed from {original_alpha} to {scad.alpha}"
+
+    def test_np_compat_xp_returns_numpy_for_numpy(self):
+        """_np_compat_xp should return numpy for numpy arrays."""
+        from statgpu.linear_model._glm_base import _np_compat_xp
+        arr = np.array([1.0, 2.0])
+        xp = _np_compat_xp(arr)
+        assert xp is np
+
+    def test_np_compat_xp_returns_numpy_for_torch(self):
+        """_np_compat_xp should return numpy for torch tensors (not torch)."""
+        from statgpu.linear_model._glm_base import _np_compat_xp
+        torch = pytest.importorskip("torch")
+        arr = torch.tensor([1.0, 2.0])
+        xp = _np_compat_xp(arr)
+        assert xp is np
+
+    def test_irls_mixed_dtype_promotion(self):
+        """IRLS should handle mixed float32/float64 inputs without error."""
+        from statgpu.linear_model._penalized import PenalizedGeneralizedLinearModel
+        np.random.seed(42)
+        X = np.random.randn(50, 5).astype(np.float32)
+        y = np.random.randn(50).astype(np.float64)
+        model = PenalizedGeneralizedLinearModel(
+            loss="squared_error", penalty="l2", alpha=0.01,
+            max_iter=50, tol=1e-6, fit_intercept=True
+        )
+        model.fit(X, y)
+        assert all(np.isfinite(model.coef_))
+        assert np.isfinite(model.intercept_)
+
+
+# ============================================================================
 # Weighted lipschitz/hessian tests for all GLM loss classes
 # ============================================================================
 
