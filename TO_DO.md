@@ -214,12 +214,13 @@
 
 ### ~~P1: FISTA/BB solver 支持非均匀 sample_weight~~ ✅ 已修复
 
-**现状**：`fista_solver` 现已支持非均匀 `sample_weight`。
+**现状**：`fista_solver`、`fista_bb_solver`、`fista_lla_path` 现已支持非均匀 `sample_weight`。
 **方案**：
 - `_base.py`：`GLMLoss.value()` 和 `gradient()` 添加 `sample_weight` 参数
 - `_squared.py`/`_logistic.py`：实现加权 value/gradient/hessian/lipschitz
-- `_solver.py`：添加 `_weighted_loss_and_grad` helper，修改 `fista_solver` 使用加权 loss/gradient/Lipschitz
-**状态**：✅ 已修复 (2026-06-11)。`fista_bb_solver` 和其他 solver 暂不支持（保留 ValueError）。
+- `_solver.py`：添加 `_weighted_loss_and_grad` helper，修改 solver 使用加权 loss/gradient/Lipschitz
+- `fista_bb_solver`/`fista_lla_path`：替换 `_validate_uniform_sample_weight` 为基本验证，传递 `sample_weight` 到 loss 函数
+**状态**：✅ 已修复 (2026-06-11)。`newton_solver`/`lbfgs_solver`/`admm_solver` 暂不支持（保留 ValueError）。
 **三端验证**：numpy ✅ cupy ✅ torch ✅（Tesla P100）
 
 ### ~~P2: NB alpha / Tweedie power 参数化~~ ✅ 已完成
@@ -527,5 +528,6 @@ coef = where(active, coef_new, coef)
 
 - **Lipschitz 缓存**：当 IRLS 权重 W 变化小于阈值时跳过重计算。当前每 5 次迭代强制重计算，可改为变化检测
 - **GPU 加速**：matvec 是 BLAS-2 操作，GPU 上 O(n*p) 的 matvec 比 CPU 快 10-100x。当前 FISTA solver 在 CPU 上运行，GPU 路径使用 `_use_gpu_loop` 但仅限 non-smooth penalties
-- **`_fused_*` 函数清理**：所有 loss 已实现 `fused_value_and_gradient`，`_GLM_FUSED_REGISTRY` 中的 legacy 函数可删除（当前是死代码）
+- ✅ **`_fused_*` 函数清理**：已简化 dispatch 逻辑，`fista_solver` 和 `fista_lla_path` 统一使用 `_fused_glm_value_and_gradient`，legacy registry 函数保留为 fallback
+- ✅ **Lipschitz 缓存**：已添加相对系数变化检测，变化 <0.1% 时跳过 eigvalsh 重计算
 
