@@ -1693,25 +1693,25 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
                             inner_pen = AdaptiveL1Penalty(alpha=1.0)
                             inner_pen._weights = lla_w
 
-                            # Swap penalty
+                            # Swap penalty (protected by try/finally)
                             orig_penalty = self._penalty
                             self._penalty = inner_pen
+                            try:
+                                # Run inner FISTA with warm-start from previous LLA estimate
+                                # Use cached arrays to avoid repeated GPU transfers
+                                self._init_coef = coef_lla.copy()
 
-                            # Run inner FISTA with warm-start from previous LLA estimate
-                            # Use cached arrays to avoid repeated GPU transfers
-                            self._init_coef = coef_lla.copy()
+                                if backend_name == "torch":
+                                    self._fit_torch(X_cached, y_cached, sample_weight)
+                                elif backend_name == "cupy":
+                                    self._fit_gpu(X_cached, y_cached, sample_weight)
+                                else:
+                                    self._fit_cpu(X_cached, y_cached, sample_weight)
 
-                            if backend_name == "torch":
-                                self._fit_torch(X_cached, y_cached, sample_weight)
-                            elif backend_name == "cupy":
-                                self._fit_gpu(X_cached, y_cached, sample_weight)
-                            else:
-                                self._fit_cpu(X_cached, y_cached, sample_weight)
-
-                            self._init_coef = None
-
-                            # Restore original penalty
-                            self._penalty = orig_penalty
+                                self._init_coef = None
+                            finally:
+                                # Restore original penalty even if inner fit raises
+                                self._penalty = orig_penalty
 
                             # LLA convergence
                             coef_new = self.coef_.copy()

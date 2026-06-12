@@ -210,7 +210,8 @@ def irls_solver(
         elif _fname == "gamma":
             return xp.sum(y / mu_arr - xp.log(y / mu_arr) - 1.0)
         elif _fname == "inverse_gaussian":
-            return xp.sum((y - mu_arr) ** 2 / (y * mu_arr ** 2))
+            _y_c = _clip(y, 1e-10, None)
+            return xp.sum((y - mu_arr) ** 2 / (_y_c * mu_arr ** 2))
         elif _fname == "negative_binomial":
             _mu_c = _clip(mu_arr, 1e-10, None)
             _y_c = _clip(y, 1e-10, None)

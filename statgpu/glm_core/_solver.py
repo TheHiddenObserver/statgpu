@@ -582,8 +582,6 @@ def fista_solver(
     # Divergence detection: track best objective for recovery
     _obj_best_fista = float('inf')
     _coef_best_fista = None
-    # Objective-based restart for Nesterov momentum
-    _prev_obj_fista = None
 
     # Initial Lipschitz: default to zero (safe for exp-link warm starts),
     # but allow losses to request evaluation at the provided init to avoid
@@ -826,7 +824,6 @@ def fista_solver(
                 elif _obj_val_f < _obj_best_fista:
                     _obj_best_fista = _obj_val_f
                     _coef_best_fista = _copy_arr(coef)
-                _prev_obj_fista = _obj_val_f
 
             # Periodic Lipschitz recomputation
             # Skip if coefficients haven't changed much (Lipschitz is stable)
@@ -875,7 +872,7 @@ def fista_solver(
 
     # Return best iterate if available
     if _coef_best_fista is not None:
-        coef = _coef_best_fista
+        coef = _copy_arr(_coef_best_fista)
 
     n_iter = iteration + 1
     if n_iter >= max_iter:
@@ -1803,6 +1800,8 @@ def fista_bb_solver(
     _diverge_count = 0
 
     _bb_use_long = True     # alternate BB1 / BB2
+    dot_dw_dg = 0.0         # BB step numerator (initialized for bb_burn_in=0)
+    dot_dw_dw = 1.0         # BB step denominator
     _div_check_interval = 25 if cv_mode and _is_gpu else 5
     _lip_check_interval = 25 if cv_mode and _is_gpu else 5
     _conv_check_interval = 10 if cv_mode and _is_gpu else 3

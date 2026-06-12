@@ -1707,12 +1707,7 @@ def _scad_mcp_cv_path(
 
         if _is_quadratic and X_mean is not None:
             # intercept = y_mean - X_mean @ coef_features (from centering)
-            if backend == "torch":
-                intercept = float((y_mean - (torch.as_tensor(X_mean, device=coef.device, dtype=coef.dtype) @ coef_feat).item()))
-            elif backend == "cupy":
-                intercept = float(y_mean - float((cp.asarray(X_mean) @ coef_feat).item()))
-            else:
-                intercept = float(y_mean - X_mean @ coef_feat)
+            intercept = float(y_mean - float(_to_numpy(xp.dot(X_mean, coef_feat))))
             # Update coef[n_features] so validation uses correct intercept
             coef[n_features] = intercept
         else:
