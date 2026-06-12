@@ -485,6 +485,10 @@ coef = where(active, coef_new, coef)
 - `_penalized_cv.py`：FISTA 循环中 `_copy_arr` 每次迭代分配新内存（应改为交替缓冲区）
 - ✅ `_solver.py` `fista_bb_solver`：已通过 `fused_value_and_gradient` 统一，`_fused_*` 函数变为死代码
 - ✅ `_array_ops.py` `_soft_threshold`：已改用 `xp.where` 融合（2 个中间数组，~15% 性能提升）
+- ✅ `fista_bb_solver`：修复 post-divergence reset 缺失 sample_weight
+- ✅ `NegativeBinomialLoss.lipschitz`：修复双重 safety factor（2.0×2.0=4.0x → 2.0x）
+- ✅ `_fused_logistic`：用 `_softplus(eta)` 替代 15 行重复代码
+- ✅ `fista_bb_solver`：循环内常量提升到循环外
 - ✅ Lipschitz safety factor 已统一到 loss 类属性（`_lipschitz_safety`），solver 通过 `getattr(loss, '_lipschitz_safety', 1.0)` 读取
 - ✅ `torch_compile_supported()` 失败时返回 `False`（避免不必要的编译尝试）
 - ✅ `_logistic_sparse_cv_path` 验证路径添加 `Xv is not None` guard
