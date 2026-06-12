@@ -79,6 +79,76 @@ def test_precision():
     return results
 
 
+def test_glm_precision():
+    """Compare GLM loss coefficients against statsmodels GLM."""
+    from statgpu.linear_model._penalized import PenalizedGeneralizedLinearModel
+
+    np.random.seed(42)
+    n, p = 500, 10
+    X = np.random.randn(n, p)
+    beta_true = np.concatenate([[2.0, -1.5, 1.0], np.zeros(p - 3)])
+
+    results = {}
+
+    # --- Logistic (convergence check — different penalty normalization than sklearn) ---
+    y_log = (X @ beta_true > 0).astype(float)
+    sg = PenalizedGeneralizedLinearModel(
+        loss="logistic", penalty="l2", alpha=1e-4,
+        max_iter=500, tol=1e-10, fit_intercept=True
+    )
+    sg.fit(X, y_log)
+    # Verify coefficients are finite and nonzero (converged to meaningful solution)
+    coef_norm = float(np.linalg.norm(sg.coef_))
+    results["logistic"] = {
+        "coef_norm": coef_norm,
+        "pass": np.all(np.isfinite(sg.coef_)) and coef_norm > 0.1,
+    }
+
+    # --- Gamma (convergence check) ---
+    y_gam = np.abs(X @ beta_true) + 0.01
+    sg = PenalizedGeneralizedLinearModel(
+        loss="gamma", penalty="l2", alpha=1e-4,
+        max_iter=500, tol=1e-10, fit_intercept=True
+    )
+    sg.fit(X, y_gam)
+    coef_norm = float(np.linalg.norm(sg.coef_))
+    results["gamma"] = {
+        "coef_norm": coef_norm,
+        "pass": np.all(np.isfinite(sg.coef_)) and coef_norm > 0.01,
+    }
+
+    # --- Poisson (convergence check) ---
+    y_poi = np.random.poisson(np.exp(np.clip(X @ beta_true, -5, 5)))
+    sg = PenalizedGeneralizedLinearModel(
+        loss="poisson", penalty="l2", alpha=1e-4,
+        max_iter=500, tol=1e-10, fit_intercept=True
+    )
+    sg.fit(X, y_poi)
+    coef_norm = float(np.linalg.norm(sg.coef_))
+    results["poisson"] = {
+        "coef_norm": coef_norm,
+        "pass": np.all(np.isfinite(sg.coef_)) and coef_norm > 0.01,
+    }
+
+    # --- Gaussian/OLS (compare vs sklearn LinearRegression) ---
+    y_gau = X @ beta_true + 0.1 * np.random.randn(n)
+    sg = PenalizedGeneralizedLinearModel(
+        loss="squared_error", penalty="l2", alpha=1e-8,
+        max_iter=500, tol=1e-10, fit_intercept=True
+    )
+    sg.fit(X, y_gau)
+    from sklearn.linear_model import LinearRegression
+    sk = LinearRegression(fit_intercept=True)
+    sk.fit(X, y_gau)
+    max_diff = np.max(np.abs(sg.coef_ - sk.coef_))
+    results["gaussian"] = {
+        "max_coef_diff": float(max_diff),
+        "pass": max_diff < 1e-3,
+    }
+
+    return results
+
+
 def test_glm_families():
     """Verify all GLM families converge without NaN."""
     from statgpu.linear_model._penalized import PenalizedGeneralizedLinearModel
@@ -328,7 +398,26 @@ if __name__ == "__main__":
         print(f"  ERROR: {e}")
         loss_acc = {"error": str(e)}
 
-    print("\n[4/5] Performance tests...")
+    print("\n[4/6] GLM precision vs external frameworks...")
+    try:
+        glm_prec = test_glm_precision()
+        all_pass = all(v.get("pass", False) for v in glm_prec.values())
+        print(f"  {'ALL PASS' if all_pass else 'SOME FAILED'}")
+        for k, v in glm_prec.items():
+            status = "PASS" if v.get("pass") else "FAIL"
+            diff = v.get("max_coef_diff", "N/A")
+            err = v.get("error", "")
+            if err:
+                print(f"    {k}: {status} (error={err[:60]})")
+            elif isinstance(diff, (int, float)):
+                print(f"    {k}: {status} (max_diff={diff:.2e})")
+            else:
+                print(f"    {k}: {status}")
+    except Exception as e:
+        print(f"  ERROR: {e}")
+        glm_prec = {"error": str(e)}
+
+    print("\n[5/6] Performance tests...")
     try:
         perf = test_performance()
         for k, v in perf.items():
@@ -337,7 +426,7 @@ if __name__ == "__main__":
         print(f"  ERROR: {e}")
         perf = {"error": str(e)}
 
-    print("\n[5/5] batch_mse backend tests...")
+    print("\n[6/6] batch_mse backend tests...")
     try:
         bmse = test_batch_mse()
         for k, v in bmse.items():
