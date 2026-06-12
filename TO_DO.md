@@ -482,8 +482,11 @@ coef = where(active, coef_new, coef)
 - `_penalized.py` `_irls_cd_gpu`：`_to_numpy` 在 GPU 方法中传输完整 X 矩阵（应改为 GPU 端计算 lambda_max）
 - `_penalized_cv.py` `_scad_mcp_cv_path`：每 alpha 一次 D2H transfer（应改为批量 sync）
 - `_penalized_cv.py`：FISTA 循环中 `_copy_arr` 每次迭代分配新内存（应改为交替缓冲区）
-- `_solver.py` `fista_bb_solver`：每迭代 2 次梯度计算（应使用 `_fused_glm_value_and_gradient`）
+- ✅ `_solver.py` `fista_bb_solver`：已通过 `fused_value_and_gradient` 统一，`_fused_*` 函数变为死代码
 - ✅ `_array_ops.py` `_soft_threshold`：已改用 `xp.where` 融合（2 个中间数组，~15% 性能提升）
+- ✅ Lipschitz safety factor 已统一到 loss 类属性（`_lipschitz_safety`），solver 通过 `getattr(loss, '_lipschitz_safety', 1.0)` 读取
+- ✅ `torch_compile_supported()` 失败时返回 `False`（避免不必要的编译尝试）
+- ✅ `_logistic_sparse_cv_path` 验证路径添加 `Xv is not None` guard
 - `_array_ops.py` 与 `_utils.py` helper 重复：`_xp_copy`/`_xp_zeros`/`_xp_asarray`/`_xp_eye`（自动推断 backend）与 `xp_copy`/`xp_zeros`/`xp_asarray`/`xp_eye`（显式传 `xp`）功能重叠，应统一为一套 API
 
 ---
