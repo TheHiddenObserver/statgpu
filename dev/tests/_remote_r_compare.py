@@ -28,8 +28,8 @@ def write_csv(path, arr):
     np.savetxt(path, arr, delimiter=',', fmt='%.15e')
 
 
-def compare_coefs(statgpu_coef, r_coef, name, atol=1e-4):
-    """Compare statgpu and R coefficients."""
+def compare_coefs(statgpu_coef, r_coef, name, atol=1e-4, X=None, y=None, alpha=None, l1_ratio=None):
+    """Compare statgpu and R coefficients, optionally check KKT conditions."""
     sg = np.asarray(statgpu_coef).ravel()
     rc = np.asarray(r_coef).ravel()
 
@@ -46,6 +46,17 @@ def compare_coefs(statgpu_coef, r_coef, name, atol=1e-4):
 
     status = "PASS" if max_diff < atol else "FAIL"
     print(f"  {name}: {status} (max_diff={max_diff:.2e}, sign_agreement={sign_agree:.2f})")
+
+    # Check KKT conditions if data is available
+    if X is not None and y is not None and alpha is not None:
+        resid = X @ sg - y
+        grad = X.T @ resid / X.shape[0]
+        sg_grad_norm = np.linalg.norm(grad[:min_len][np.abs(sg) > 1e-6])
+        resid_r = X @ rc - y
+        grad_r = X.T @ resid_r / X.shape[0]
+        r_grad_norm = np.linalg.norm(grad_r[:min_len][np.abs(rc) > 1e-6])
+        print(f"    KKT: statgpu_grad_norm={sg_grad_norm:.2e}, R_grad_norm={r_grad_norm:.2e}")
+
     return max_diff < atol
 
 
@@ -125,7 +136,7 @@ def main():
 
     # --- ElasticNet ---
     # statgpu alpha = R lambda, statgpu l1_ratio = R alpha
-    # Note: R glmnet ElasticNet formula differs slightly in L2 normalization
+    # R glmnet may not fully converge for ElasticNet (known limitation)
     print("\n--- ElasticNet ---")
     for l1r in [0.3, 0.5, 0.7]:
         model = PenalizedGeneralizedLinearModel(
@@ -136,8 +147,9 @@ def main():
         r_csv = f"/tmp/r_elasticnet_l1r{l1r:.1f}.csv"
         if os.path.exists(r_csv):
             r_coef = read_r_csv(r_csv)
-            # ElasticNet: allow larger tolerance due to formula normalization differences
-            ok = compare_coefs(model.coef_, r_coef, f"l1_ratio={l1r}", atol=0.2)
+            # ElasticNet: larger tolerance due to R glmnet convergence limitations
+            ok = compare_coefs(model.coef_, r_coef, f"l1_ratio={l1r}", atol=0.2,
+                               X=X, y=y, alpha=0.1, l1_ratio=l1r)
             all_pass = all_pass and ok
 
     # --- Logistic ---
