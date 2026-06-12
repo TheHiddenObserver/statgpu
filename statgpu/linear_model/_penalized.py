@@ -211,7 +211,7 @@ def _irls_ridge_init_cd(X, y, alpha, max_iter, tol):
 
 
 # Intercept clipping bound for SelectivePenalty proximal operator
-_INTERCEPT_CLIP_BOUND = 15.0
+from statgpu.linear_model._cv_base import INTERCEPT_CLIP_BOUND as _INTERCEPT_CLIP_BOUND
 
 
 class SelectivePenalty:

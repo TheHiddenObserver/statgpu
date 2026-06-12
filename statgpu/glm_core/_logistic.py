@@ -50,7 +50,7 @@ class LogisticLoss(GLMLoss):
 
     def lipschitz(self, X, coef, y=None, sample_weight=None):
         # Global bound: L_global = lambda_max(X'X) / (4n)
-        n_eff = sample_weight.sum() if sample_weight is not None else X.shape[0]
+        n_eff = float(sample_weight.sum()) if sample_weight is not None else X.shape[0]
         if sample_weight is not None:
             sw = sample_weight[:, None] if hasattr(sample_weight, '__len__') else sample_weight
             XtWX = X.T @ (X * sw)

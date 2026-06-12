@@ -247,6 +247,23 @@ def _np_dtype_to_torch(dtype):
     return _MAP.get(str(np.dtype(dtype)).split('.')[-1], torch.float64)
 
 
+def _torch_dtype_to_np(dtype):
+    """Convert a torch dtype to the equivalent numpy dtype."""
+    import torch
+    _MAP = {
+        torch.float32: np.dtype('float32'),
+        torch.float64: np.dtype('float64'),
+        torch.float16: np.dtype('float16'),
+        torch.int32: np.dtype('int32'),
+        torch.int64: np.dtype('int64'),
+        torch.int16: np.dtype('int16'),
+        torch.int8: np.dtype('int8'),
+        torch.uint8: np.dtype('uint8'),
+        torch.bool: np.dtype('bool'),
+    }
+    return _MAP.get(dtype, np.dtype('float64'))
+
+
 def xp_astype(arr, dtype, xp):
     """Backend-safe type cast (``.to()`` for torch, ``.astype()`` otherwise)."""
     if _torch_dev(arr) is not None:

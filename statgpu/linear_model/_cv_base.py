@@ -11,6 +11,9 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 import numpy as np
 
 from statgpu._base import BaseEstimator
+
+# Shared constant: intercept clipping bound for CV proximal operators
+INTERCEPT_CLIP_BOUND = 15.0
 from statgpu._config import Device
 from statgpu.backends import _to_numpy
 

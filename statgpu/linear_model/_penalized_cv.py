@@ -1227,7 +1227,7 @@ def _squared_error_sparse_cv_path(
 
 # Intercept clipping bound: exp(15) ≈ 3.3M, prevents overflow in link
 # functions while allowing a wide range of intercept values.
-_INTERCEPT_CLIP_BOUND = 15.0
+from statgpu.linear_model._cv_base import INTERCEPT_CLIP_BOUND as _INTERCEPT_CLIP_BOUND
 
 
 class _FeatureOnlySparsePenalty:

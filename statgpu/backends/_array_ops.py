@@ -507,7 +507,8 @@ def _xp_asarray(arr, dtype, ref_arr):
     if xp.__name__ == "cupy":
         # Convert torch dtypes to numpy for cupy compatibility
         if hasattr(dtype, '__module__') and 'torch' in str(getattr(dtype, '__module__', '')):
-            dtype = np.dtype(str(dtype).replace('torch.', ''))
+            from statgpu.backends._utils import _torch_dtype_to_np
+            dtype = _torch_dtype_to_np(dtype)
         return xp.asarray(arr, dtype=dtype)
     return np.asarray(arr, dtype=dtype)
 

@@ -479,4 +479,5 @@ coef = where(active, coef_new, coef)
 - `_penalized_cv.py`：FISTA 循环中 `_copy_arr` 每次迭代分配新内存（应改为交替缓冲区）
 - `_solver.py` `fista_bb_solver`：每迭代 2 次梯度计算（应使用 `_fused_glm_value_and_gradient`）
 - ✅ `_array_ops.py` `_soft_threshold`：已改用 `xp.where` 融合（2 个中间数组，~15% 性能提升）
+- `_array_ops.py` 与 `_utils.py` helper 重复：`_xp_copy`/`_xp_zeros`/`_xp_asarray`/`_xp_eye`（自动推断 backend）与 `xp_copy`/`xp_zeros`/`xp_asarray`/`xp_eye`（显式传 `xp`）功能重叠，应统一为一套 API
 
