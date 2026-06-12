@@ -42,14 +42,6 @@ class NegativeBinomialLoss(GLMLoss):
         mu = self._mu_from_eta(eta)
         return (mu - y) / (1.0 + self.alpha * mu)
 
-    def value(self, X, y, coef):
-        ps = self.per_sample_value(X @ coef, y)
-        return _sum(ps) / X.shape[0]
-
-    def gradient(self, X, y, coef):
-        resid = self.per_sample_gradient(X @ coef, y)
-        return X.T @ resid / X.shape[0]
-
     def hessian(self, X, y, coef):
         z = _clip(X @ coef, -30, 30)
         mu = _exp(z)

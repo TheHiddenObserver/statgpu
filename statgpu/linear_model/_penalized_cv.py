@@ -356,7 +356,9 @@ def _to_backend_float64(arr, backend):
     if backend == "torch":
         import torch
         if isinstance(arr, torch.Tensor):
-            return arr.to(dtype=torch.float64, device="cuda")
+            # Preserve existing device, just cast dtype
+            return arr.to(dtype=torch.float64)
+        # Numpy -> torch on default CUDA device
         return torch.as_tensor(np.asarray(arr, dtype=np.float64), dtype=torch.float64, device="cuda")
     return np.asarray(arr, dtype=np.float64)
 

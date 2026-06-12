@@ -376,6 +376,11 @@ coef = where(active, coef_new, coef)
 **剩余分支构成**：fused kernel 路径（~15）、torch dtype promotion（~10）、linalg API 差异（~10）、GPU cleanup dispatch（~10）、OrderedGLM 3 个独立 solver（~30）、debiased inference（~30）、其他（~48）。大部分为 intentionally separate 设计。
 **状态**：基本完成，剩余分支多为性能关键路径或 API 差异，强行统一会损害性能或引入 bug
 
+### P3: 添加新 loss 需改 6+ 文件
+
+**现状**：✅ 已修复。每个 loss 类实现 `per_sample_value`/`per_sample_gradient`/`_mu_from_eta` 作为单一真实来源，base class 自动派生 `value()`/`gradient()`/`fused_value_and_gradient()`。添加新 loss 只需 2 步。
+**状态**：✅ 已修复 (2026-06-11)
+
 ### P3: `_penalized_cv.py` 文件拆分
 
 **现状**：2800+ 行。

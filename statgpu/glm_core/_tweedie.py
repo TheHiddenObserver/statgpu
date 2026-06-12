@@ -46,14 +46,6 @@ class TweedieLoss(GLMLoss):
         p = self.power
         return mu ** (1.0 - p) * (mu - y)
 
-    def value(self, X, y, coef):
-        ps = self.per_sample_value(X @ coef, y)
-        return _sum(ps) / X.shape[0]
-
-    def gradient(self, X, y, coef):
-        resid = self.per_sample_gradient(X @ coef, y)
-        return X.T @ resid / X.shape[0]
-
     def hessian(self, X, y, coef):
         z = _clip(X @ coef, -self._Z_CLIP, self._Z_CLIP)
         mu = _clip(_exp(z), 1e-3, 1e4)

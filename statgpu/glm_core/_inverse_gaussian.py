@@ -35,14 +35,6 @@ class InverseGaussianLoss(GLMLoss):
         mu = self._mu_from_eta(eta)
         return (mu - y) / (mu * mu)
 
-    def value(self, X, y, coef):
-        ps = self.per_sample_value(X @ coef, y)
-        return _sum(ps) / X.shape[0]
-
-    def gradient(self, X, y, coef):
-        resid = self.per_sample_gradient(X @ coef, y)
-        return X.T @ resid / X.shape[0]
-
     def hessian(self, X, y, coef):
         z = _clip(X @ coef, -30, 30)
         mu = _clip(_exp(z), 5e-2, 1e3)
