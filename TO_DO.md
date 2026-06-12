@@ -508,3 +508,24 @@ coef = where(active, coef_new, coef)
 - `fista_solver` 400 行、`fista_lla_path` 550 行、`fista_bb_solver` 470 行：需拆分为小函数
 - ✅ loss formula 已统一为单一 registry：每个 loss 类实现 `per_sample_value`/`per_sample_gradient`/`_mu_from_eta`，base class 派生 `value()`/`gradient()`/`fused_value_and_gradient()`。添加新 loss 只需实现 3 个 per-sample 方法 + 注册。
 
+---
+
+## 性能优化项（2026-06-11）
+
+> 基于 n=1000 p=500 的 profiling 数据（Tesla P100 CPU 路径）
+
+### 瓶颈分析
+
+| 组件 | 耗时/iter | 占比 | 说明 |
+|------|----------|------|------|
+| matvec (X@coef + X'@resid) | ~1.3ms | 85% | BLAS-2 操作，CPU 已优化 |
+| Lipschitz 重计算 | ~0.8ms (amortized) | 5% | `_max_eigval_power` 每 5 iter 调用 |
+| per_sample loss/grad | <0.2ms | <5% | sigmoid/exp 已优化 |
+| penalty proximal | <0.05ms | <5% | `_soft_threshold` 已融合 |
+
+### 可优化项
+
+- **Lipschitz 缓存**：当 IRLS 权重 W 变化小于阈值时跳过重计算。当前每 5 次迭代强制重计算，可改为变化检测
+- **GPU 加速**：matvec 是 BLAS-2 操作，GPU 上 O(n*p) 的 matvec 比 CPU 快 10-100x。当前 FISTA solver 在 CPU 上运行，GPU 路径使用 `_use_gpu_loop` 但仅限 non-smooth penalties
+- **`_fused_*` 函数清理**：所有 loss 已实现 `fused_value_and_gradient`，`_GLM_FUSED_REGISTRY` 中的 legacy 函数可删除（当前是死代码）
+
