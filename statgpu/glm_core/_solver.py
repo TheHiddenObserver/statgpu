@@ -841,18 +841,20 @@ def fista_solver(
                 _prev_obj_fista = _obj_val_f
 
             # Periodic Lipschitz recomputation
+            # Skip if coefficients haven't changed much (Lipschitz is stable)
             if not _is_quadratic and iteration > 0 and iteration % 5 == 0:
-                try:
-                    L_new = loss.lipschitz(X_proc, coef, y=y_proc, sample_weight=sample_weight)
-                except TypeError:
-                    L_new = loss.lipschitz(X_proc, coef, y=y_proc)
-                if L_new > 0:
-                    if _loss_name == "tweedie":
-                        L_new *= 5.0
-                    elif _loss_name == "gamma":
-                        L_new *= 3.0
-                    elif _loss_name == "inverse_gaussian":
-                        L_new *= 3.0
+                _coef_change = _to_float_scalar(_norm2_dev(coef - coef_old))
+                _coef_norm = _to_float_scalar(_norm2_dev(coef))
+                _relative_change = _coef_change / max(_coef_norm, 1e-10)
+                if _relative_change > 1e-3:  # Only recompute if coefficients changed significantly
+                    try:
+                        L_new = loss.lipschitz(X_proc, coef, y=y_proc, sample_weight=sample_weight)
+                    except TypeError:
+                        L_new = loss.lipschitz(X_proc, coef, y=y_proc)
+                    # Safety factors from loss class
+                    _lip_safety_recomp = getattr(loss, '_lipschitz_safety', 1.0)
+                    if _lip_safety_recomp > 1.0:
+                        L_new = L_new * _lip_safety_recomp
                     if _smooth_lip > 0:
                         L_new = L_new + _smooth_lip
                     if L_new > L:
