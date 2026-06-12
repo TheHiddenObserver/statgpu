@@ -153,6 +153,57 @@ def test_glm_families():
     return results
 
 
+def test_loss_class_accuracy():
+    """Verify loss.value()/gradient()/fused_value_and_gradient() are consistent."""
+    from statgpu.glm_core import get_glm_loss
+
+    np.random.seed(42)
+    n, p = 200, 10
+    X = np.column_stack([np.random.randn(n, p), np.ones(n)])
+    coef = np.random.randn(p + 1)
+
+    losses = [
+        ("squared_error", {}),
+        ("logistic", {}),
+        ("poisson", {}),
+        ("gamma", {"link": "log"}),
+        ("gamma", {"link": "inverse_power"}),
+        ("inverse_gaussian", {}),
+        ("negative_binomial", {"alpha": 1.0}),
+        ("tweedie", {"power": 1.5}),
+    ]
+
+    results = {}
+    for name, kwargs in losses:
+        loss = get_glm_loss(name, **kwargs)
+        y = np.abs(np.random.randn(n)) + 0.1
+
+        # value() vs fused
+        val = loss.value(X, y, coef)
+        val_f, grad_f = loss.fused_value_and_gradient(X, y, coef)
+        val_diff = abs(val - val_f)
+
+        # gradient() vs fused
+        grad = loss.gradient(X, y, coef)
+        grad_diff = float(np.max(np.abs(grad - grad_f)))
+
+        # per_sample finite check
+        eta = X @ coef
+        ps_val = loss.per_sample_value(eta, y)
+        ps_grad = loss.per_sample_gradient(eta, y)
+        ps_finite = bool(np.all(np.isfinite(ps_val))) and bool(np.all(np.isfinite(ps_grad)))
+
+        label = f"{name}({kwargs})" if kwargs else name
+        results[label] = {
+            "val_diff": val_diff,
+            "grad_diff": grad_diff,
+            "per_sample_finite": ps_finite,
+            "pass": val_diff < 1e-10 and grad_diff < 1e-10 and ps_finite,
+        }
+
+    return results
+
+
 def test_performance():
     """Measure CD performance for different p values."""
     from statgpu.linear_model._penalized import PenalizedGeneralizedLinearModel
@@ -238,7 +289,7 @@ if __name__ == "__main__":
     print("P2-1/P2-2/P3-1 Remote GPU Precision & Performance Test")
     print("=" * 60)
 
-    print("\n[1/4] Precision tests (vs sklearn)...")
+    print("\n[1/5] Precision tests (vs sklearn)...")
     try:
         prec = test_precision()
         all_pass = all(v.get("pass", False) for v in prec.values())
@@ -251,7 +302,7 @@ if __name__ == "__main__":
         print(f"  ERROR: {e}")
         prec = {"error": str(e)}
 
-    print("\n[2/4] GLM family convergence tests...")
+    print("\n[2/5] GLM family convergence tests...")
     try:
         glm = test_glm_families()
         all_finite = all(
@@ -265,7 +316,19 @@ if __name__ == "__main__":
         print(f"  ERROR: {e}")
         glm = {"error": str(e)}
 
-    print("\n[3/4] Performance tests...")
+    print("\n[3/5] Loss class accuracy (value/gradient/fused consistency)...")
+    try:
+        loss_acc = test_loss_class_accuracy()
+        all_pass = all(v.get("pass", False) for v in loss_acc.values())
+        print(f"  {'ALL PASS' if all_pass else 'SOME FAILED'}")
+        for k, v in loss_acc.items():
+            status = "PASS" if v.get("pass") else "FAIL"
+            print(f"    {k}: {status} (val_diff={v['val_diff']:.2e}, grad_diff={v['grad_diff']:.2e})")
+    except Exception as e:
+        print(f"  ERROR: {e}")
+        loss_acc = {"error": str(e)}
+
+    print("\n[4/5] Performance tests...")
     try:
         perf = test_performance()
         for k, v in perf.items():
@@ -274,7 +337,7 @@ if __name__ == "__main__":
         print(f"  ERROR: {e}")
         perf = {"error": str(e)}
 
-    print("\n[4/4] batch_mse backend tests...")
+    print("\n[5/5] batch_mse backend tests...")
     try:
         bmse = test_batch_mse()
         for k, v in bmse.items():
