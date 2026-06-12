@@ -22,7 +22,8 @@ class LogisticLoss(GLMLoss):
 
     def per_sample_value(self, eta, y):
         """Negative Bernoulli log-likelihood per sample."""
-        xp = __import__(type(eta).__module__.split(".")[0])
+        from statgpu.backends._array_ops import _xp
+        xp = _xp(eta)
         if xp.__name__ == "torch":
             max_eta = xp.clamp(eta, min=0)
         else:

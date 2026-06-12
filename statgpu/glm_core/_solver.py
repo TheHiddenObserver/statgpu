@@ -884,7 +884,7 @@ def fista_solver(
         if _is_gpu:
             if iteration < 20 or iteration % _conv_interval == 0:
                 _conv_dev = _abs_sum_dev(coef - coef_old)
-                if bool((_conv_dev < tol).item()):
+                if _to_float_scalar(_conv_dev) < tol:
                     break
         else:
             _conv_dev = _abs_sum_dev(coef - coef_old)
@@ -1263,12 +1263,7 @@ def fista_lla_path(
                             _gmax_dev = xp.clamp(_gsum, min=1e4)
                         else:
                             _gmax_dev = xp.maximum(_gsum, 1e4)
-                        if backend == "torch":
-                            _clip_needed = bool((_gn_dev > _gmax_dev).item())
-                        elif backend == "cupy":
-                            _clip_needed = bool(_gn_dev > _gmax_dev)
-                        else:
-                            _clip_needed = float(_to_numpy(_gn_dev)) > float(_to_numpy(_gmax_dev))
+                        _clip_needed = _to_float_scalar(_gn_dev) > _to_float_scalar(_gmax_dev)
                         if _clip_needed:
                             grad = grad * (_gmax_dev / _gn_dev)
 
@@ -1707,7 +1702,7 @@ def newton_solver(
             obj_old_dev = _objective_value_dev(loss, penalty, X, y, params_old)
         gdd_dev = _dot_dev(grad, direction)
         # Only sync gdd (needed for Armijo threshold); obj_old stays device-side
-        gdd = float(gdd_dev.item() if hasattr(gdd_dev, "item") else gdd_dev)
+        gdd = _to_float_scalar(gdd_dev)
 
         step = 1.0
         for _bt in range(20):

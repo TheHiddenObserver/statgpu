@@ -14,6 +14,8 @@ from abc import ABC, abstractmethod
 from typing import Optional
 
 import numpy as np
+from statgpu.backends._array_ops import _xp as _get_xp_mod
+from statgpu.backends._utils import _to_float_scalar
 
 
 class GLMLoss(ABC):
@@ -54,7 +56,6 @@ class GLMLoss(ABC):
 
     def value(self, X, y, coef, sample_weight=None) -> float:
         """Loss value: (1/n) Σ ℓ(ηᵢ, yᵢ)."""
-        from statgpu.backends._array_ops import _xp as _get_xp_mod
         xp = _get_xp_mod(X)
         eta = X @ coef
         ps = self.per_sample_value(eta, y)
@@ -64,7 +65,6 @@ class GLMLoss(ABC):
 
     def gradient(self, X, y, coef, sample_weight=None) -> np.ndarray:
         """Gradient: X' ∂ℓ/∂η / n."""
-        from statgpu.backends._array_ops import _xp as _get_xp_mod
         xp = _get_xp_mod(X)
         eta = X @ coef
         resid = self.per_sample_gradient(eta, y)
@@ -77,7 +77,6 @@ class GLMLoss(ABC):
 
         Returns (value, gradient) tuple.
         """
-        from statgpu.backends._array_ops import _xp as _get_xp_mod
         xp = _get_xp_mod(X)
         eta = X @ coef
         ps = self.per_sample_value(eta, y)
@@ -103,8 +102,9 @@ class GLMLoss(ABC):
 
     def lipschitz(self, X, coef, y=None) -> float:
         """Lipschitz constant (for FISTA step size step=1/L)."""
+        from statgpu.backends._array_ops import _max_eigval_power
         XtX = X.T @ X
-        return float(np.linalg.eigvalsh(XtX)[-1]) / X.shape[0]
+        return _max_eigval_power(XtX) / X.shape[0]
 
     def preprocess(self, X, y):
         """Preprocess y. Default returns as-is."""
