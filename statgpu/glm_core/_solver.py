@@ -345,23 +345,9 @@ def _objective_value_dev(loss, penalty, X, y, coef):
 
 
 def _fused_logistic(eta, X, y, n, loss):
-    from statgpu.backends._array_ops import _sigmoid, _softplus, _clip, _sum
+    from statgpu.backends._array_ops import _sigmoid, _softplus, _sum
     p = _sigmoid(eta)
-    # Numerically stable: log(1+exp(eta)) = softplus(-|eta|) + max(eta, 0)
-    # Using abs() not clip() to get the correct formula
-    xp = type(eta).__module__.split('.')[0]
-    if xp == 'torch':
-        import torch
-        abs_eta = torch.abs(eta)
-        max_eta = torch.clamp(eta, min=0)
-    elif xp == 'cupy':
-        import cupy as cp
-        abs_eta = cp.abs(eta)
-        max_eta = cp.maximum(eta, 0)
-    else:
-        abs_eta = np.abs(eta)
-        max_eta = np.maximum(eta, 0)
-    log1pexp = _softplus(-abs_eta) + max_eta
+    log1pexp = _softplus(eta)
     val = _sum(-y * eta + log1pexp) / n
     grad = X.T @ (p - y) / n
     return val, grad
@@ -1924,6 +1910,10 @@ def fista_bb_solver(
     dg = _zeros(n_features, backend, ref_tensor=X_proc)
     iteration = -1  # default if max_iter=0
 
+    # Loop-invariant constants for momentum/BB decisions
+    _poisson_like = _loss_name in ("poisson",)
+    _gamma_like = _loss_name in ("gamma",)
+
     for iteration in range(max_iter):
         coef_old = _copy_arr(coef)
 
@@ -2134,7 +2124,10 @@ def fista_bb_solver(
                     coef = _copy_arr(_coef_best)
                     y_k = _copy_arr(coef)
                     t_k = 1.0
-                    grad_old = loss.gradient(X_proc, y_proc, coef)
+                    try:
+                        grad_old = loss.gradient(X_proc, y_proc, coef, sample_weight=sample_weight)
+                    except TypeError:
+                        grad_old = loss.gradient(X_proc, y_proc, coef)
                     step_L = step_L * 0.5
                     step_k = step_L
                     step_max = step_max * 0.5
@@ -2147,7 +2140,10 @@ def fista_bb_solver(
         # --- Store BB step info for next iteration (non-quadratic only) ---
         # Use accepted iterate (coef) not pre-backtracking (coef_new)
         if not _is_quadratic:
-            grad_new = loss.gradient(X_proc, y_proc, coef)
+            try:
+                grad_new = loss.gradient(X_proc, y_proc, coef, sample_weight=sample_weight)
+            except TypeError:
+                grad_new = loss.gradient(X_proc, y_proc, coef)
 
             dw = coef - coef_old
             dg = grad_new - grad_old
@@ -2157,16 +2153,8 @@ def fista_bb_solver(
             grad_old = grad_new
 
         # --- Nesterov momentum with adaptive restart ---
-        # Exp-link losses (Poisson) can cause mu = exp(X@w) to explode when
-        # the extrapolated point overshoots. Disable momentum entirely for them.
-        # Other GLM losses (logistic) have bounded predictions and benefit from
-        # O(1/k^2) convergence via Nesterov momentum after a short burn-in.
-        _poisson_like = _loss_name in ("poisson",)
-        # Inverse Gaussian: 1/mu^2 gradient scaling causes Nesterov momentum
-        # (and BB steps) to oscillate wildly (1.34e+04 diffs observed).
-        # Disable both BB and momentum — use plain ISTA with fixed Lipschitz step.
-        # _invgauss_like and _tweedie_like defined at top of loop body
-        _gamma_like = _loss_name in ("gamma",)
+        # _invgauss_like, _tweedie_like, _poisson_like, _gamma_like
+        # are loop-invariant and computed before the loop.
         if _invgauss_like:
             bb_burn_in = max_iter + 1   # never switch to BB
         elif _tweedie_like:
