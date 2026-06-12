@@ -452,12 +452,17 @@ def _fused_glm_value_and_gradient(loss, X, y, coef):
     loss_name = getattr(loss, 'name', '')
     n = X.shape[0]
 
+    # Prefer the loss class's fused method (single source of truth)
+    if hasattr(loss, 'fused_value_and_gradient'):
+        return loss.fused_value_and_gradient(X, y, coef)
+
+    # Fallback to legacy fused registry
     handler = _GLM_FUSED_REGISTRY.get(loss_name)
     if handler is not None:
         eta = X @ coef
         return handler(eta, X, y, n, loss)
 
-    # Fallback: call value() and gradient() separately
+    # Last resort: call value() and gradient() separately
     return loss.value(X, y, coef), loss.gradient(X, y, coef)
 
 
@@ -483,6 +488,13 @@ def _weighted_loss_and_grad(loss, X, y, coef, sample_weight):
         grad = X.T @ (_sw * resid) / sw_sum
         val = 0.5 * _to_float_scalar(xp.sum(_sw * resid * resid)) / sw_sum
         return val, grad
+
+    # Prefer fused method if available (avoids redundant X @ coef)
+    if hasattr(loss, 'fused_value_and_gradient'):
+        try:
+            return loss.fused_value_and_gradient(X, y, coef, sample_weight=sample_weight)
+        except TypeError:
+            pass  # method doesn't accept sample_weight
 
     # For GLM losses, try loss.gradient with sample_weight if supported.
     # SquaredError and Logistic already implement weighted gradient.

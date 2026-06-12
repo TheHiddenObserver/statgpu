@@ -34,9 +34,6 @@ class GammaLoss(GLMLoss):
             )
         self.link = link
         self.link_name = link
-        # The inverse-power objective has a finite, safe intercept start;
-        # using it for the initial Lipschitz estimate avoids the huge
-        # curvature produced by eta=0 clipping.
         self._lipschitz_at_init = link == "inverse_power"
 
     def _eta_mu(self, X, coef):
@@ -47,17 +44,35 @@ class GammaLoss(GLMLoss):
         z = _clip(eta, -30, 30)
         return z, _clip(_exp(z), self._MU_LO, self._MU_HI)
 
-    def value(self, X, y, coef):
-        eta, mu = self._eta_mu(X, coef)
+    def _mu_from_eta(self, eta):
         if self.link == "inverse_power":
-            return _sum(y * eta - _log(eta)) / X.shape[0]
-        return _sum(y / mu + _log(mu)) / X.shape[0]
+            eta_c = _clip(eta, self._ETA_LO, self._ETA_HI)
+            return 1.0 / eta_c
+        return _clip(_exp(_clip(eta, -30, 30)), self._MU_LO, self._MU_HI)
+
+    # ── Per-sample formulas (single source of truth) ──────────────────
+
+    def per_sample_value(self, eta, y):
+        if self.link == "inverse_power":
+            eta_c = _clip(eta, self._ETA_LO, self._ETA_HI)
+            return y * eta_c - _log(eta_c)
+        mu = self._mu_from_eta(eta)
+        return y / mu + _log(mu)
+
+    def per_sample_gradient(self, eta, y):
+        if self.link == "inverse_power":
+            mu = self._mu_from_eta(eta)
+            return y - mu
+        mu = self._mu_from_eta(eta)
+        return 1.0 - y / mu
+
+    def value(self, X, y, coef):
+        ps = self.per_sample_value(X @ coef, y)
+        return _sum(ps) / X.shape[0]
 
     def gradient(self, X, y, coef):
-        eta, mu = self._eta_mu(X, coef)
-        if self.link == "inverse_power":
-            return X.T @ (y - mu) / X.shape[0]
-        return X.T @ (1.0 - y / mu) / X.shape[0]
+        resid = self.per_sample_gradient(X @ coef, y)
+        return X.T @ resid / X.shape[0]
 
     def hessian(self, X, y, coef):
         if self.link == "inverse_power":

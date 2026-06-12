@@ -18,26 +18,22 @@ class LogisticLoss(GLMLoss):
     smooth_gradient = True
     has_hessian = True
 
-    def value(self, X, y, coef, sample_weight=None):
-        """Negative Bernoulli log-likelihood (to minimize)."""
-        z = X @ coef
-        xp = __import__(type(z).__module__.split(".")[0])
-        if xp.__name__ == "torch":
-            log1pexp = _log1p(_exp(-xp.abs(z))) + xp.clamp(z, min=0)
-        else:
-            log1pexp = _log1p(_exp(-xp.abs(z))) + xp.maximum(z, 0)
-        nll = -y * z + log1pexp
-        if sample_weight is not None:
-            return _sum(sample_weight * nll) / sample_weight.sum()
-        return _sum(nll) / X.shape[0]
+    # ── Per-sample formulas (single source of truth) ──────────────────
 
-    def gradient(self, X, y, coef, sample_weight=None):
-        z = X @ coef
-        p = _sigmoid(z)
-        resid = p - y
-        if sample_weight is not None:
-            return X.T @ (sample_weight * resid) / sample_weight.sum()
-        return X.T @ resid / X.shape[0]
+    def per_sample_value(self, eta, y):
+        """Negative Bernoulli log-likelihood per sample."""
+        xp = __import__(type(eta).__module__.split(".")[0])
+        if xp.__name__ == "torch":
+            max_eta = xp.clamp(eta, min=0)
+        else:
+            max_eta = xp.maximum(eta, 0)
+        log1pexp = _log1p(_exp(-xp.abs(eta))) + max_eta
+        return -y * eta + log1pexp
+
+    def per_sample_gradient(self, eta, y):
+        return _sigmoid(eta) - y
+
+    # ── Hessian / Lipschitz (override for weighted support) ───────────
 
     def hessian(self, X, y, coef, sample_weight=None):
         z = X @ coef

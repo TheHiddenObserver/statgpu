@@ -26,17 +26,16 @@ class SquaredErrorLoss(GLMLoss):
     smooth_gradient = True
     has_hessian = True
 
-    def value(self, X, y, coef, sample_weight=None):
-        resid = y - X @ coef
-        if sample_weight is not None:
-            return 0.5 * (sample_weight * resid * resid).sum() / sample_weight.sum()
-        return 0.5 * (resid * resid).sum() / X.shape[0]
+    # ── Per-sample formulas (single source of truth) ──────────────────
 
-    def gradient(self, X, y, coef, sample_weight=None):
-        resid = X @ coef - y
-        if sample_weight is not None:
-            return X.T @ (sample_weight * resid) / sample_weight.sum()
-        return X.T @ resid / X.shape[0]
+    def per_sample_value(self, eta, y):
+        resid = y - eta
+        return 0.5 * resid * resid
+
+    def per_sample_gradient(self, eta, y):
+        return eta - y
+
+    # ── Hessian / Lipschitz (override for weighted support) ───────────
 
     def hessian(self, X, y, coef, sample_weight=None):
         if sample_weight is not None:

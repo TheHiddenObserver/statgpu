@@ -19,15 +19,29 @@ class InverseGaussianLoss(GLMLoss):
     has_hessian = True
     _lipschitz_uses_y = True
 
+    _MU_LO = 5e-2
+    _MU_HI = 1e3
+
+    def _mu_from_eta(self, eta):
+        return _clip(_exp(_clip(eta, -30, 30)), self._MU_LO, self._MU_HI)
+
+    # ── Per-sample formulas (single source of truth) ──────────────────
+
+    def per_sample_value(self, eta, y):
+        mu = self._mu_from_eta(eta)
+        return y / (2.0 * mu * mu) - 1.0 / mu
+
+    def per_sample_gradient(self, eta, y):
+        mu = self._mu_from_eta(eta)
+        return (mu - y) / (mu * mu)
+
     def value(self, X, y, coef):
-        z = _clip(X @ coef, -30, 30)
-        mu = _clip(_exp(z), 5e-2, 1e3)
-        return _sum(y / (2.0 * mu * mu) - 1.0 / mu) / X.shape[0]
+        ps = self.per_sample_value(X @ coef, y)
+        return _sum(ps) / X.shape[0]
 
     def gradient(self, X, y, coef):
-        z = _clip(X @ coef, -30, 30)
-        mu = _clip(_exp(z), 5e-2, 1e3)
-        return X.T @ ((mu - y) / (mu * mu)) / X.shape[0]
+        resid = self.per_sample_gradient(X @ coef, y)
+        return X.T @ resid / X.shape[0]
 
     def hessian(self, X, y, coef):
         z = _clip(X @ coef, -30, 30)

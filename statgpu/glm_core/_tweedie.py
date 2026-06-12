@@ -23,25 +23,36 @@ class TweedieLoss(GLMLoss):
     # mu^(-0.5) explosion: mu >= exp(-50) ~ 1.9e-22 -> mu^(-0.5) <= 2.3e10.
     _Z_CLIP = 50.0
 
+    _MU_LO = 1e-3
+    _MU_HI = 1e4
+
     def __init__(self, power=1.5):
         if not 1.0 < power < 2.0:
             raise ValueError(f"Tweedie power must be in (1, 2), got {power}")
         self.power = power
 
-    def value(self, X, y, coef):
-        z = _clip(X @ coef, -self._Z_CLIP, self._Z_CLIP)
-        mu = _clip(_exp(z), 1e-3, 1e4)
+    def _mu_from_eta(self, eta):
+        return _clip(_exp(_clip(eta, -self._Z_CLIP, self._Z_CLIP)), self._MU_LO, self._MU_HI)
+
+    # ── Per-sample formulas (single source of truth) ──────────────────
+
+    def per_sample_value(self, eta, y):
+        mu = self._mu_from_eta(eta)
         p = self.power
-        return _sum(
-            -y * mu ** (1.0 - p) / (1.0 - p)
-            + mu ** (2.0 - p) / (2.0 - p)
-        ) / X.shape[0]
+        return -y * mu ** (1.0 - p) / (1.0 - p) + mu ** (2.0 - p) / (2.0 - p)
+
+    def per_sample_gradient(self, eta, y):
+        mu = self._mu_from_eta(eta)
+        p = self.power
+        return mu ** (1.0 - p) * (mu - y)
+
+    def value(self, X, y, coef):
+        ps = self.per_sample_value(X @ coef, y)
+        return _sum(ps) / X.shape[0]
 
     def gradient(self, X, y, coef):
-        z = _clip(X @ coef, -self._Z_CLIP, self._Z_CLIP)
-        mu = _clip(_exp(z), 1e-3, 1e4)
-        p = self.power
-        return X.T @ (mu ** (1.0 - p) * (mu - y)) / X.shape[0]
+        resid = self.per_sample_gradient(X @ coef, y)
+        return X.T @ resid / X.shape[0]
 
     def hessian(self, X, y, coef):
         z = _clip(X @ coef, -self._Z_CLIP, self._Z_CLIP)

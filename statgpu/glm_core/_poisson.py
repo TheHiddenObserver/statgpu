@@ -20,16 +20,23 @@ class PoissonLoss(GLMLoss):
 
     _MU_LO = 1e-10
     _MU_HI = 1e6  # must exceed typical max(y); clip prevents extreme weights
+    _ETA_LO = -30
+    _ETA_HI = 30
 
-    def value(self, X, y, coef):
-        z = _clip(X @ coef, -30, 30)
-        mu = _clip(_exp(z), self._MU_LO, self._MU_HI)
-        return _sum(mu - y * _log(mu)) / X.shape[0]
+    # ── Per-sample formulas (single source of truth) ──────────────────
 
-    def gradient(self, X, y, coef):
-        z = _clip(X @ coef, -30, 30)
-        mu = _clip(_exp(z), self._MU_LO, self._MU_HI)
-        return X.T @ (mu - y) / X.shape[0]
+    def _mu_from_eta(self, eta):
+        return _clip(_exp(_clip(eta, self._ETA_LO, self._ETA_HI)), self._MU_LO, self._MU_HI)
+
+    def per_sample_value(self, eta, y):
+        mu = self._mu_from_eta(eta)
+        return mu - y * _log(mu)
+
+    def per_sample_gradient(self, eta, y):
+        mu = self._mu_from_eta(eta)
+        return mu - y
+
+    # ── Hessian / Lipschitz ───────────────────────────────────────────
 
     def hessian(self, X, y, coef):
         z = _clip(X @ coef, -30, 30)
