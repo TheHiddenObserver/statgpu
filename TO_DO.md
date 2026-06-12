@@ -489,6 +489,10 @@ coef = where(active, coef_new, coef)
 - ✅ `NegativeBinomialLoss.lipschitz`：修复双重 safety factor（2.0×2.0=4.0x → 2.0x）
 - ✅ `_fused_logistic`：用 `_softplus(eta)` 替代 15 行重复代码
 - ✅ `fista_bb_solver`：循环内常量提升到循环外
+- ✅ 5 个 loss 类 lipschitz/hessian 实现 sample_weight（Poisson/Gamma/IG/NB/Tweedie）
+- ✅ `_abs_mean_max`：两次 GPU transfer 合并为一次 `_sync_scalars`
+- ✅ `_sigmoid`：float64 阈值从 500 提升到 700
+- ✅ `_NO_MOMENTUM_LOSSES`：删除空 frozenset 死代码
 - ✅ Lipschitz safety factor 已统一到 loss 类属性（`_lipschitz_safety`），solver 通过 `getattr(loss, '_lipschitz_safety', 1.0)` 读取
 - ✅ `torch_compile_supported()` 失败时返回 `False`（避免不必要的编译尝试）
 - ✅ `_logistic_sparse_cv_path` 验证路径添加 `Xv is not None` guard
