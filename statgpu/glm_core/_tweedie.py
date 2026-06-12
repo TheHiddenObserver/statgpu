@@ -47,31 +47,27 @@ class TweedieLoss(GLMLoss):
         p = self.power
         return mu ** (1.0 - p) * (mu - y)
 
-    def hessian(self, X, y, coef):
+    def hessian(self, X, y, coef, sample_weight=None):
         z = _clip(X @ coef, -self._Z_CLIP, self._Z_CLIP)
-        mu = _clip(_exp(z), 1e-3, 1e4)
+        mu = _clip(_exp(z), self._MU_LO, self._MU_HI)
         p = self.power
         W = mu ** (2.0 - p)
-        return X.T @ (X * W[:, None]) / X.shape[0]
+        if sample_weight is not None:
+            W = W * sample_weight
+        n_eff = float(sample_weight.sum()) if sample_weight is not None else X.shape[0]
+        return X.T @ (X * W[:, None]) / n_eff
 
-    def lipschitz(self, X, coef, y=None):
+    def lipschitz(self, X, coef, y=None, sample_weight=None):
         z = _clip(X @ coef, -self._Z_CLIP, self._Z_CLIP)
-        mu = _clip(_exp(z), 1e-3, 1e4)
+        mu = _clip(_exp(z), self._MU_LO, self._MU_HI)
         p = self.power
         W = mu ** (2.0 - p)
+        if sample_weight is not None:
+            W = W * sample_weight
+        n_eff = float(sample_weight.sum()) if sample_weight is not None else X.shape[0]
         XtWX = X.T @ (X * W[:, None])
-        L = _max_eigval_power(XtWX) / X.shape[0]
-        # Dynamic upper bound: scale with data to avoid underestimating
-        # curvature for large y values.
-        import numpy as np
-        _y_np = y if y is not None else None
-        if _y_np is not None:
-            from statgpu.backends import _to_numpy
-            _y_abs_mean = float(np.mean(np.abs(_to_numpy(_y_np))))
-            upper = max(1e6, 100.0 * _y_abs_mean)
-        else:
-            upper = 1e6
-        return max(min(L, upper), 1e-8)
+        L = _max_eigval_power(XtWX) / n_eff
+        return max(L, 1e-8)
 
     def predict(self, X, coef):
         return _exp(X @ coef)

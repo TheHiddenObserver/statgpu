@@ -42,20 +42,26 @@ class NegativeBinomialLoss(GLMLoss):
         mu = self._mu_from_eta(eta)
         return (mu - y) / (1.0 + self.alpha * mu)
 
-    def hessian(self, X, y, coef):
+    def hessian(self, X, y, coef, sample_weight=None):
         z = _clip(X @ coef, -30, 30)
         mu = _exp(z)
         W = _clip(mu, 1e-10, None) / (1.0 + self.alpha * _clip(mu, 1e-10, None))
-        return X.T @ (X * W[:, None]) / X.shape[0]
+        if sample_weight is not None:
+            W = W * sample_weight
+        n_eff = float(sample_weight.sum()) if sample_weight is not None else X.shape[0]
+        return X.T @ (X * W[:, None]) / n_eff
 
     _lipschitz_safety = 2.0  # NB Hessian varies moderately with mu
 
-    def lipschitz(self, X, coef, y=None):
+    def lipschitz(self, X, coef, y=None, sample_weight=None):
         z = _clip(X @ coef, -30, 30)
         mu = _exp(z)
         W = _clip(mu, 1e-10, 1e6) / (1.0 + self.alpha * _clip(mu, 1e-10, 1e6))
+        if sample_weight is not None:
+            W = W * sample_weight
+        n_eff = float(sample_weight.sum()) if sample_weight is not None else X.shape[0]
         XtWX = X.T @ (X * W[:, None])
-        L = _max_eigval_power(XtWX) / X.shape[0]
+        L = _max_eigval_power(XtWX) / n_eff
         return max(L, 1e-8)  # Safety factor applied by solver via _lipschitz_safety
 
     def predict(self, X, coef):

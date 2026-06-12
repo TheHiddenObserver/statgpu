@@ -38,16 +38,20 @@ class PoissonLoss(GLMLoss):
 
     # ── Hessian / Lipschitz ───────────────────────────────────────────
 
-    def hessian(self, X, y, coef):
+    def hessian(self, X, y, coef, sample_weight=None):
         z = _clip(X @ coef, -30, 30)
         mu = _clip(_exp(z), self._MU_LO, self._MU_HI)
-        return X.T @ (X * mu[:, None]) / X.shape[0]
+        W = mu if sample_weight is None else mu * sample_weight
+        n_eff = float(sample_weight.sum()) if sample_weight is not None else X.shape[0]
+        return X.T @ (X * W[:, None]) / n_eff
 
-    def lipschitz(self, X, coef, y=None):
+    def lipschitz(self, X, coef, y=None, sample_weight=None):
         z = _clip(X @ coef, -30, 30)
         mu = _clip(_exp(z), self._MU_LO, self._MU_HI)
-        XtWX = X.T @ (X * mu[:, None])
-        L = _max_eigval_power(XtWX) / X.shape[0]
+        W = mu if sample_weight is None else mu * sample_weight
+        n_eff = float(sample_weight.sum()) if sample_weight is not None else X.shape[0]
+        XtWX = X.T @ (X * W[:, None])
+        L = _max_eigval_power(XtWX) / n_eff
         return max(L, 1e-8)
 
     def predict(self, X, coef):
