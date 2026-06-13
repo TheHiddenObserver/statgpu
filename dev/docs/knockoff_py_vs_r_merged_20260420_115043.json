@@ -1,0 +1,105 @@
+{
+  "timestamp": "2026-04-20T11:50:43.806357",
+  "python_results": {
+    "numpy": {
+      "n_runs": 50,
+      "selected_mean": 13.06,
+      "selected_std": 1.9016834647227705,
+      "tp_mean": 12.0,
+      "fp_mean": 1.06,
+      "power_mean": 1.0,
+      "fdr_mean": 0.06696703296703296,
+      "separation_mean": 88.86925105440255,
+      "time_mean": 0.11325359344482422,
+      "time_std": 0.04549582541420034,
+      "weak_rates": [
+        100.0,
+        100.0,
+        100.0,
+        100.0
+      ]
+    },
+    "torch": {
+      "n_runs": 50,
+      "selected_mean": 12.76,
+      "selected_std": 0.8380930735902785,
+      "tp_mean": 12.0,
+      "fp_mean": 0.76,
+      "power_mean": 1.0,
+      "fdr_mean": 0.0556923076923077,
+      "separation_mean": 119.6952515925357,
+      "time_mean": 0.2920787525177002,
+      "time_std": 0.36020329114884864,
+      "weak_rates": [
+        100.0,
+        100.0,
+        100.0,
+        100.0
+      ]
+    }
+  },
+  "r_results": {
+    "r_sdp": {
+      "n_runs": 50,
+      "selected_mean": 13.52,
+      "selected_std": 1.7348198753761153,
+      "tp_mean": 12.0,
+      "fp_mean": 1.52,
+      "power_mean": 1.0,
+      "fdr_mean": 0.09993421336145794,
+      "separation_mean": 5.555972626049139,
+      "time_mean": 0.5192400000000005,
+      "time_std": 0.05741970393514778,
+      "weak_rates": [
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    "r_equi": {
+      "n_runs": 50,
+      "selected_mean": 13.2,
+      "selected_std": 1.4000000000000001,
+      "tp_mean": 12.0,
+      "fp_mean": 1.2,
+      "power_mean": 1.0,
+      "fdr_mean": 0.08166580478345184,
+      "separation_mean": 5.114356848856054,
+      "time_mean": 0.44855999999999985,
+      "time_std": 0.054134706058128756,
+      "weak_rates": [
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    }
+  },
+  "comparisons": {
+    "numpy_vs_r_sdp": {
+      "power_diff": 0.0,
+      "fdr_diff": -0.03296718039442498,
+      "time_ratio": 4.584755187065812,
+      "separation_diff": 83.31327842835341
+    },
+    "numpy_vs_r_equi": {
+      "power_diff": 0.0,
+      "fdr_diff": -0.014698771816418876,
+      "time_ratio": 3.9606690291777173,
+      "separation_diff": 83.7548942055465
+    },
+    "torch_vs_r_sdp": {
+      "power_diff": 0.0,
+      "fdr_diff": -0.04424190566915024,
+      "time_ratio": 1.7777397209628731,
+      "separation_diff": 114.13927896648656
+    },
+    "torch_vs_r_equi": {
+      "power_diff": 0.0,
+      "fdr_diff": -0.02597349709114414,
+      "time_ratio": 1.5357501911160647,
+      "separation_diff": 114.58089474367965
+    }
+  }
+}

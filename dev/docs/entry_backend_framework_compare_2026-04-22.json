@@ -1,0 +1,39 @@
+{
+  "meta": {
+    "n_train": 1440,
+    "n_test": 360,
+    "p": 60,
+    "with_entry": true,
+    "ties": "breslow",
+    "cv_folds": 3,
+    "penalties": "geomspace(1.0, 0.01, 8)",
+    "note": "Delayed-entry benchmark from remote myconda environment."
+  },
+  "statgpu": {
+    "cpu": {
+      "fit_time_s": 350.2136862576008,
+      "test_cindex": 0.8267066267066268,
+      "best_penalty": 1.0
+    },
+    "cuda": {
+      "fit_time_s": 324.037071198225,
+      "test_cindex": 0.8267066267066268,
+      "best_penalty": 1.0
+    },
+    "torch": {
+      "fit_time_s": 166.9082854092121,
+      "test_cindex": 0.8267066267066268,
+      "best_penalty": 1.0
+    }
+  },
+  "frameworks": {
+    "lifelines": {
+      "fit_time_s": 29.612877368927002,
+      "test_cindex": 0.8265234765234766,
+      "best_penalty": 0.01
+    },
+    "scikit_survival_coxnet": {
+      "unavailable": "Delayed entry not supported by CoxnetSurvivalAnalysis"
+    }
+  }
+}

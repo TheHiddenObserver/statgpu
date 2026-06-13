@@ -380,5 +380,5 @@ pip install --upgrade torch
 
 **See also**:
 - [Device and Memory Management](device-and-memory.md)
-- [Quickstart Guide](quickstart.md)
+- [Quickstart Guide](../getting-started/quickstart.md)
 - [Models Overview](../models/README.md)

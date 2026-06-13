@@ -1,0 +1,43 @@
+{
+  "timestamp": "2026-04-19T22:34:34.361604",
+  "python_results": {
+    "numpy": {
+      "n_runs": 50,
+      "selected_mean": 12.68,
+      "selected_std": 1.0665833300778707,
+      "tp_mean": 12.0,
+      "fp_mean": 0.68,
+      "power_mean": 1.0,
+      "fdr_mean": 0.04777246283128636,
+      "separation_mean": 116.88357837139496,
+      "time_mean": 0.5743495893478393,
+      "time_std": 0.05271689699864712,
+      "weak_rates": [
+        100.0,
+        100.0,
+        100.0,
+        100.0
+      ]
+    },
+    "cupy": {
+      "n_runs": 50,
+      "selected_mean": 13.22,
+      "selected_std": 1.446236495183274,
+      "tp_mean": 12.0,
+      "fp_mean": 1.22,
+      "power_mean": 1.0,
+      "fdr_mean": 0.08250420168067225,
+      "separation_mean": 113.05828337895645,
+      "time_mean": 0.18508543491363524,
+      "time_std": 0.16862314844735812,
+      "weak_rates": [
+        100.0,
+        100.0,
+        100.0,
+        100.0
+      ]
+    }
+  },
+  "r_results": {},
+  "comparisons": {}
+}

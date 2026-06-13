@@ -1,7 +1,7 @@
 # LogisticRegression
 
 > Language: English  
-> Last updated: 2026-04-17  
+> Last updated: 2026-05-20  
 > This page: Model documentation  
 > Switch: [Chinese](../../models/logistic-regression.md)
 
@@ -25,11 +25,11 @@ where \(p_i = \sigma(x_i^\top\beta)\) and larger `C` means weaker regularization
 
 ## Estimating Equation
 
-The model is solved by IRLS/Newton-style updates to satisfy score equations:
+The model is solved by IRLS/Newton/L-BFGS-style updates to satisfy score equations:
 \[
 \sum_i x_i(y_i - p_i)=0
 \]
-under convergence controls `max_iter` and `tol`.
+under convergence controls `max_iter` and `tol`. As of v23c (2026-05), `solver="lbfgs"` correctly handles L2 penalties across all backends.
 
 ## Covariance/Inference
 

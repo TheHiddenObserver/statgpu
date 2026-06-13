@@ -1,7 +1,7 @@
 # Ridge
 
 > Language: English  
-> Last updated: 2026-04-25  
+> Last updated: 2026-05-20  
 > This page: Model documentation  
 > Switch: [Chinese](../../models/ridge.md)
 

@@ -36,7 +36,6 @@ Install note:
 - [Knockoff Feature Selection](docs/en/models/knockoff.md)
 - [Ordered Generalized Linear Models (Logit/Probit)](docs/en/models/ordered.md)
 - [Nonparametric Methods](docs/en/models/nonparametric.md)
-- [Unsupervised Learning](docs/en/unsupervised/README.md)
 
 Implemented estimators:
 - `LinearRegression`
@@ -59,22 +58,6 @@ Implemented estimators:
 - `OrderedLogitRegression` / `OrderedProbitRegression` ✅ (3 backends)
   - Ordered response models with cumulative logit/probit link
   - Cross-backend precision fix (2026-04-26): coef diff < 1e-2 across backends
-- `PCA` / `KMeans` / `DBSCAN` / `GaussianMixture` / `NMF` / `TruncatedSVD` / `MiniBatchKMeans` / `IncrementalPCA` / `MiniBatchNMF` / `UMAP` / `TSNE` ✅ (3 backends)
-  - Unsupervised estimators under `statgpu.unsupervised`
-  - Detailed per-model loss/objective and estimating-equation docs: [docs/en/unsupervised/](docs/en/unsupervised/README.md)
-  - PCA supports full SVD, covariance/eigh, and randomized solvers
-  - KMeans supports Lloyd iterations with random or greedy k-means++ initialization
-  - DBSCAN supports dense Euclidean clustering with an optional statgpu-owned Cython CPU fast path for compact dense inputs
-  - GaussianMixture supports diagonal, spherical, tied, and full covariance EM
-  - NMF supports MU with Frobenius loss
-  - TruncatedSVD supports dense uncentered full or randomized SVD
-  - MiniBatchKMeans supports dense Euclidean mini-batch center updates
-  - IncrementalPCA supports dense batch-wise PCA updates
-  - MiniBatchNMF supports dense non-negative mini-batch MU updates
-  - UMAP and TSNE are dense exact Euclidean v1 implementations; approximate neighbor search, Barnes-Hut, FFT/FIt-SNE, and new-data transform are future work
-- `AgglomerativeClustering` ✅ (3 backends)
-  - Exact single, complete, average, and ward linkage for dense Euclidean input
-  - `device="auto"` keeps the CPU default; explicit CuPy/Torch paths use dense exact v1 execution
 
 Exported CV classes:
 - `RidgeCV` ✅ (Full implementation with GPU acceleration)
@@ -100,7 +83,7 @@ Inference highlights:
 
 ## 3) Benchmarks and Validation
 
-- [Benchmark Index](docs/en/benchmarks.md)
+- [Benchmark Index](docs/en/guides/benchmarks.md)
 
 Primary scripts:
 - `dev/benchmarks/_bench_inference_timing.py` (multiple-testing, p=100-10k)
@@ -134,5 +117,5 @@ python dev/benchmarks/benchmark_all_methods_large_scale.py \
 - For performance reports, include: device info, data shape, `repeats/warmup`, and whether inference is timed.
 - If you add new features, also update:
   - `docs/en/models/*.md`
-  - `docs/en/benchmarks.md`
+  - `docs/en/guides/benchmarks.md`
   - `docs/en/changelog.md`

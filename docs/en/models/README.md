@@ -1,7 +1,7 @@
 # Models Overview
 
 > Language: English  
-> Last updated: 2026-05-08
+> Last updated: 2026-05-28  
 > This page: Model index  
 > Switch: [Chinese](../../models/README.md)
 
@@ -18,6 +18,28 @@ Language switch: [Chinese](../../models/README.md)
 - [LogisticRegression](logistic-regression.md)
 - [Ordered Generalized Linear Models (Logit/Probit)](ordered.md)
 
+## ANOVA
+
+- [One-Way ANOVA](anova.md)
+
+## Covariance Estimation
+
+- [EmpiricalCovariance, LedoitWolf, OAS](covariance.md)
+
+## Panel Data
+
+- [PanelOLS and RandomEffects](panel.md)
+
+## Nonparametric Methods
+
+- [Kernel Density Estimation and Kernel Regression](nonparametric.md)
+- [Kernel Ridge Regression](kernel-methods.md)
+- [Spline Basis Functions](splines.md)
+
+## Semiparametric Models
+
+- [GAM (Generalized Additive Model)](semiparametric.md)
+
 ## Survival
 
 - [CoxPH](coxph.md)
@@ -26,25 +48,13 @@ Language switch: [Chinese](../../models/README.md)
 
 - [Knockoff](knockoff.md)
 
-## Nonparametric
-
-- [Nonparametric](nonparametric.md)
-
-## Unsupervised Learning
-
-- [Unsupervised learning compatibility entry](unsupervised.md)
-- [Detailed unsupervised docs](../unsupervised/README.md)
-- Dimensionality and factorization: [PCA](../unsupervised/pca.md), [TruncatedSVD](../unsupervised/truncated-svd.md), [IncrementalPCA](../unsupervised/incremental-pca.md), [NMF](../unsupervised/nmf.md), [MiniBatchNMF](../unsupervised/minibatch-nmf.md)
-- Clustering and mixtures: [KMeans](../unsupervised/kmeans.md), [MiniBatchKMeans](../unsupervised/minibatch-kmeans.md), [DBSCAN](../unsupervised/dbscan.md), [GaussianMixture](../unsupervised/gaussian-mixture.md), [AgglomerativeClustering](../unsupervised/agglomerative-clustering.md)
-- Manifold embeddings: [UMAP](../unsupervised/umap.md), [TSNE](../unsupervised/tsne.md)
-
 ## Current Coverage Notes
 
-- Device support is model-specific. Explicit `device="cuda"` and `device="torch"` must raise when unavailable or unsupported; they must not silently fall back to CPU.
-- GPU memory cleanup support is model-specific and documented on pages where it affects behavior.
+- All current models support `device="cpu"` / `device="cuda"` / `device="torch"` / `device="auto"` where the documented backend implementation is available.
+- Explicit `device="cuda"` and `device="torch"` raise when their matching CUDA backend is unavailable; only `device="auto"` may choose another backend.
+- All current models support `gpu_memory_cleanup`.
 - `GeneralizedLinearModel` and typed penalized GLMs are documented in [GeneralizedLinearModel and Penalized GLM](generalized-linear-model.md).
 - `PoissonRegression` is documented separately as the ordinary Poisson GLM estimator.
-- `statgpu.unsupervised` includes dimensionality reduction, clustering, mixture, factorization, and manifold estimators. Current public estimators expose CPU/CuPy/Torch paths, with model-specific dense/exact or iterative limits documented per page. See [Detailed unsupervised docs](../unsupervised/README.md) for objectives, estimating procedures, device notes, examples, and external validation artifacts.
 - Inference-rich models:
   - `LinearRegression`: classical + `HC0/HC1/HC2/HC3/HAC`
   - `Ridge`: classical + `HC0/HC1/HC2/HC3/HAC`
@@ -61,3 +71,9 @@ Language switch: [Chinese](../../models/README.md)
 - Exported CV classes status:
   - `RidgeCV`, `LogisticRegressionCV`, and `CoxPHCV` are implemented and trainable.
   - Current `CoxPHCV` boundary: on GPU paths, `entry` currently supports only `ties='breslow'`; `cluster`-robust CV is not yet supported and raises `NotImplementedError`.
+- New modules (validated 38/38 ALL PASS on Tesla P100):
+  - `ANOVA`: `f_oneway` — drop-in replacement for `scipy.stats.f_oneway`
+  - `Covariance`: `EmpiricalCovariance`, `LedoitWolf`, `OAS` — equivalent to `sklearn.covariance`
+  - `KernelMethods`: `KernelRidge`, `KernelRidgeCV` — equivalent to `sklearn.kernel_ridge`
+  - `Panel`: `PanelOLS`, `RandomEffects` — equivalent to `linearmodels.panel`
+  - `Splines`: `bspline_basis`, `natural_cubic_spline_basis`, `GAM` — penalized B-spline GAM with GCV

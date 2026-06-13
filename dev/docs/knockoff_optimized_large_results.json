@@ -1,0 +1,658 @@
+{
+  "config": {
+    "n_experiments": 20,
+    "config_name": "large",
+    "n_samples": 1000,
+    "n_features": 200,
+    "beta_scale": 0.5,
+    "n_signals": 12
+  },
+  "results": {
+    "numpy": [
+      {
+        "backend": "numpy",
+        "seed": 20260406,
+        "selected": 12,
+        "tp": 12,
+        "fp": 0,
+        "power": 1.0,
+        "fdr": 0.0,
+        "separation": 118.02295817896683,
+        "time": 0.46468663215637207
+      },
+      {
+        "backend": "numpy",
+        "seed": 20260407,
+        "selected": 16,
+        "tp": 12,
+        "fp": 4,
+        "power": 1.0,
+        "fdr": 0.25,
+        "separation": 130.33913459922698,
+        "time": 0.266216516494751
+      },
+      {
+        "backend": "numpy",
+        "seed": 20260408,
+        "selected": 14,
+        "tp": 12,
+        "fp": 2,
+        "power": 1.0,
+        "fdr": 0.14285714285714285,
+        "separation": 143.89632373098573,
+        "time": 0.2643249034881592
+      },
+      {
+        "backend": "numpy",
+        "seed": 20260409,
+        "selected": 14,
+        "tp": 12,
+        "fp": 2,
+        "power": 1.0,
+        "fdr": 0.14285714285714285,
+        "separation": 239.2117717373524,
+        "time": 0.26612424850463867
+      },
+      {
+        "backend": "numpy",
+        "seed": 20260410,
+        "selected": 12,
+        "tp": 12,
+        "fp": 0,
+        "power": 1.0,
+        "fdr": 0.0,
+        "separation": 131.66660204004123,
+        "time": 0.2666313648223877
+      },
+      {
+        "backend": "numpy",
+        "seed": 20260411,
+        "selected": 14,
+        "tp": 12,
+        "fp": 2,
+        "power": 1.0,
+        "fdr": 0.14285714285714285,
+        "separation": 167.7267138069302,
+        "time": 0.2642948627471924
+      },
+      {
+        "backend": "numpy",
+        "seed": 20260412,
+        "selected": 13,
+        "tp": 12,
+        "fp": 1,
+        "power": 1.0,
+        "fdr": 0.07692307692307693,
+        "separation": 183.4942788638701,
+        "time": 0.26360130310058594
+      },
+      {
+        "backend": "numpy",
+        "seed": 20260413,
+        "selected": 13,
+        "tp": 12,
+        "fp": 1,
+        "power": 1.0,
+        "fdr": 0.07692307692307693,
+        "separation": 156.7326372189471,
+        "time": 0.2656874656677246
+      },
+      {
+        "backend": "numpy",
+        "seed": 20260414,
+        "selected": 13,
+        "tp": 12,
+        "fp": 1,
+        "power": 1.0,
+        "fdr": 0.07692307692307693,
+        "separation": 123.87736369725567,
+        "time": 0.2661592960357666
+      },
+      {
+        "backend": "numpy",
+        "seed": 20260415,
+        "selected": 13,
+        "tp": 12,
+        "fp": 1,
+        "power": 1.0,
+        "fdr": 0.07692307692307693,
+        "separation": 130.6615373196853,
+        "time": 0.26883387565612793
+      },
+      {
+        "backend": "numpy",
+        "seed": 20260416,
+        "selected": 14,
+        "tp": 12,
+        "fp": 2,
+        "power": 1.0,
+        "fdr": 0.14285714285714285,
+        "separation": 118.6062162684242,
+        "time": 0.2705507278442383
+      },
+      {
+        "backend": "numpy",
+        "seed": 20260417,
+        "selected": 13,
+        "tp": 12,
+        "fp": 1,
+        "power": 1.0,
+        "fdr": 0.07692307692307693,
+        "separation": 188.13785233027542,
+        "time": 0.2766685485839844
+      },
+      {
+        "backend": "numpy",
+        "seed": 20260418,
+        "selected": 12,
+        "tp": 12,
+        "fp": 0,
+        "power": 1.0,
+        "fdr": 0.0,
+        "separation": 175.5729688508978,
+        "time": 0.29493045806884766
+      },
+      {
+        "backend": "numpy",
+        "seed": 20260419,
+        "selected": 12,
+        "tp": 12,
+        "fp": 0,
+        "power": 1.0,
+        "fdr": 0.0,
+        "separation": 148.06763617636668,
+        "time": 0.2691357135772705
+      },
+      {
+        "backend": "numpy",
+        "seed": 20260420,
+        "selected": 13,
+        "tp": 12,
+        "fp": 1,
+        "power": 1.0,
+        "fdr": 0.07692307692307693,
+        "separation": 117.98275212889877,
+        "time": 0.2728285789489746
+      },
+      {
+        "backend": "numpy",
+        "seed": 20260421,
+        "selected": 13,
+        "tp": 12,
+        "fp": 1,
+        "power": 1.0,
+        "fdr": 0.07692307692307693,
+        "separation": 153.78707064560012,
+        "time": 0.27766942977905273
+      },
+      {
+        "backend": "numpy",
+        "seed": 20260422,
+        "selected": 13,
+        "tp": 12,
+        "fp": 1,
+        "power": 1.0,
+        "fdr": 0.07692307692307693,
+        "separation": 133.08443516253664,
+        "time": 0.28136277198791504
+      },
+      {
+        "backend": "numpy",
+        "seed": 20260423,
+        "selected": 13,
+        "tp": 12,
+        "fp": 1,
+        "power": 1.0,
+        "fdr": 0.07692307692307693,
+        "separation": 120.99919616197158,
+        "time": 0.2700998783111572
+      },
+      {
+        "backend": "numpy",
+        "seed": 20260424,
+        "selected": 14,
+        "tp": 12,
+        "fp": 2,
+        "power": 1.0,
+        "fdr": 0.14285714285714285,
+        "separation": 113.02858483163907,
+        "time": 0.2682812213897705
+      },
+      {
+        "backend": "numpy",
+        "seed": 20260425,
+        "selected": 13,
+        "tp": 12,
+        "fp": 1,
+        "power": 1.0,
+        "fdr": 0.07692307692307693,
+        "separation": 150.03738101162065,
+        "time": 0.2670450210571289
+      }
+    ],
+    "cupy": [
+      {
+        "backend": "cupy",
+        "seed": 20260406,
+        "selected": 12,
+        "tp": 12,
+        "fp": 0,
+        "power": 1.0,
+        "fdr": 0.0,
+        "separation": 147.22858447489625,
+        "time": 0.4140646457672119
+      },
+      {
+        "backend": "cupy",
+        "seed": 20260407,
+        "selected": 12,
+        "tp": 12,
+        "fp": 0,
+        "power": 1.0,
+        "fdr": 0.0,
+        "separation": 102.0439540375157,
+        "time": 0.2707202434539795
+      },
+      {
+        "backend": "cupy",
+        "seed": 20260408,
+        "selected": 14,
+        "tp": 12,
+        "fp": 2,
+        "power": 1.0,
+        "fdr": 0.14285714285714285,
+        "separation": 182.32212841861292,
+        "time": 0.25478386878967285
+      },
+      {
+        "backend": "cupy",
+        "seed": 20260409,
+        "selected": 13,
+        "tp": 12,
+        "fp": 1,
+        "power": 1.0,
+        "fdr": 0.07692307692307693,
+        "separation": 332.17794707217547,
+        "time": 0.2575342655181885
+      },
+      {
+        "backend": "cupy",
+        "seed": 20260410,
+        "selected": 14,
+        "tp": 12,
+        "fp": 2,
+        "power": 1.0,
+        "fdr": 0.14285714285714285,
+        "separation": 120.4006447012322,
+        "time": 0.2653374671936035
+      },
+      {
+        "backend": "cupy",
+        "seed": 20260411,
+        "selected": 12,
+        "tp": 12,
+        "fp": 0,
+        "power": 1.0,
+        "fdr": 0.0,
+        "separation": 107.44090790491344,
+        "time": 0.2605259418487549
+      },
+      {
+        "backend": "cupy",
+        "seed": 20260412,
+        "selected": 13,
+        "tp": 12,
+        "fp": 1,
+        "power": 1.0,
+        "fdr": 0.07692307692307693,
+        "separation": 182.42029411520676,
+        "time": 0.2548544406890869
+      },
+      {
+        "backend": "cupy",
+        "seed": 20260413,
+        "selected": 13,
+        "tp": 12,
+        "fp": 1,
+        "power": 1.0,
+        "fdr": 0.07692307692307693,
+        "separation": 135.22390220832335,
+        "time": 0.25811195373535156
+      },
+      {
+        "backend": "cupy",
+        "seed": 20260414,
+        "selected": 15,
+        "tp": 12,
+        "fp": 3,
+        "power": 1.0,
+        "fdr": 0.2,
+        "separation": 120.16233943622215,
+        "time": 0.25752806663513184
+      },
+      {
+        "backend": "cupy",
+        "seed": 20260415,
+        "selected": 12,
+        "tp": 12,
+        "fp": 0,
+        "power": 1.0,
+        "fdr": 0.0,
+        "separation": 110.59507339479882,
+        "time": 0.2556180953979492
+      },
+      {
+        "backend": "cupy",
+        "seed": 20260416,
+        "selected": 13,
+        "tp": 12,
+        "fp": 1,
+        "power": 1.0,
+        "fdr": 0.07692307692307693,
+        "separation": 114.57946391961728,
+        "time": 0.2603428363800049
+      },
+      {
+        "backend": "cupy",
+        "seed": 20260417,
+        "selected": 12,
+        "tp": 12,
+        "fp": 0,
+        "power": 1.0,
+        "fdr": 0.0,
+        "separation": 252.15490311794636,
+        "time": 0.25565004348754883
+      },
+      {
+        "backend": "cupy",
+        "seed": 20260418,
+        "selected": 12,
+        "tp": 12,
+        "fp": 0,
+        "power": 1.0,
+        "fdr": 0.0,
+        "separation": 126.03129267595412,
+        "time": 0.26127052307128906
+      },
+      {
+        "backend": "cupy",
+        "seed": 20260419,
+        "selected": 12,
+        "tp": 12,
+        "fp": 0,
+        "power": 1.0,
+        "fdr": 0.0,
+        "separation": 110.09342997677194,
+        "time": 0.25925111770629883
+      },
+      {
+        "backend": "cupy",
+        "seed": 20260420,
+        "selected": 22,
+        "tp": 12,
+        "fp": 10,
+        "power": 1.0,
+        "fdr": 0.45454545454545453,
+        "separation": 182.60567564790483,
+        "time": 0.2635831832885742
+      },
+      {
+        "backend": "cupy",
+        "seed": 20260421,
+        "selected": 12,
+        "tp": 12,
+        "fp": 0,
+        "power": 1.0,
+        "fdr": 0.0,
+        "separation": 156.79303780059365,
+        "time": 0.26385021209716797
+      },
+      {
+        "backend": "cupy",
+        "seed": 20260422,
+        "selected": 16,
+        "tp": 12,
+        "fp": 4,
+        "power": 1.0,
+        "fdr": 0.25,
+        "separation": 122.74936085501528,
+        "time": 0.2579514980316162
+      },
+      {
+        "backend": "cupy",
+        "seed": 20260423,
+        "selected": 12,
+        "tp": 12,
+        "fp": 0,
+        "power": 1.0,
+        "fdr": 0.0,
+        "separation": 132.0041544303035,
+        "time": 0.25663137435913086
+      },
+      {
+        "backend": "cupy",
+        "seed": 20260424,
+        "selected": 12,
+        "tp": 12,
+        "fp": 0,
+        "power": 1.0,
+        "fdr": 0.0,
+        "separation": 143.3617870627904,
+        "time": 0.2585153579711914
+      },
+      {
+        "backend": "cupy",
+        "seed": 20260425,
+        "selected": 19,
+        "tp": 12,
+        "fp": 7,
+        "power": 1.0,
+        "fdr": 0.3684210526315789,
+        "separation": 192.40595881429184,
+        "time": 0.2546062469482422
+      }
+    ],
+    "torch": [
+      {
+        "backend": "torch",
+        "seed": 20260406,
+        "error": "operands could not be broadcast together with shapes (200,) (0,) ",
+        "selected": 0,
+        "tp": 0,
+        "fp": 0,
+        "power": 0,
+        "fdr": 0
+      },
+      {
+        "backend": "torch",
+        "seed": 20260407,
+        "error": "operands could not be broadcast together with shapes (200,) (0,) ",
+        "selected": 0,
+        "tp": 0,
+        "fp": 0,
+        "power": 0,
+        "fdr": 0
+      },
+      {
+        "backend": "torch",
+        "seed": 20260408,
+        "error": "operands could not be broadcast together with shapes (200,) (0,) ",
+        "selected": 0,
+        "tp": 0,
+        "fp": 0,
+        "power": 0,
+        "fdr": 0
+      },
+      {
+        "backend": "torch",
+        "seed": 20260409,
+        "error": "operands could not be broadcast together with shapes (200,) (0,) ",
+        "selected": 0,
+        "tp": 0,
+        "fp": 0,
+        "power": 0,
+        "fdr": 0
+      },
+      {
+        "backend": "torch",
+        "seed": 20260410,
+        "error": "operands could not be broadcast together with shapes (200,) (0,) ",
+        "selected": 0,
+        "tp": 0,
+        "fp": 0,
+        "power": 0,
+        "fdr": 0
+      },
+      {
+        "backend": "torch",
+        "seed": 20260411,
+        "error": "operands could not be broadcast together with shapes (200,) (0,) ",
+        "selected": 0,
+        "tp": 0,
+        "fp": 0,
+        "power": 0,
+        "fdr": 0
+      },
+      {
+        "backend": "torch",
+        "seed": 20260412,
+        "error": "operands could not be broadcast together with shapes (200,) (0,) ",
+        "selected": 0,
+        "tp": 0,
+        "fp": 0,
+        "power": 0,
+        "fdr": 0
+      },
+      {
+        "backend": "torch",
+        "seed": 20260413,
+        "error": "operands could not be broadcast together with shapes (200,) (0,) ",
+        "selected": 0,
+        "tp": 0,
+        "fp": 0,
+        "power": 0,
+        "fdr": 0
+      },
+      {
+        "backend": "torch",
+        "seed": 20260414,
+        "error": "operands could not be broadcast together with shapes (200,) (0,) ",
+        "selected": 0,
+        "tp": 0,
+        "fp": 0,
+        "power": 0,
+        "fdr": 0
+      },
+      {
+        "backend": "torch",
+        "seed": 20260415,
+        "error": "operands could not be broadcast together with shapes (200,) (0,) ",
+        "selected": 0,
+        "tp": 0,
+        "fp": 0,
+        "power": 0,
+        "fdr": 0
+      },
+      {
+        "backend": "torch",
+        "seed": 20260416,
+        "error": "operands could not be broadcast together with shapes (200,) (0,) ",
+        "selected": 0,
+        "tp": 0,
+        "fp": 0,
+        "power": 0,
+        "fdr": 0
+      },
+      {
+        "backend": "torch",
+        "seed": 20260417,
+        "error": "operands could not be broadcast together with shapes (200,) (0,) ",
+        "selected": 0,
+        "tp": 0,
+        "fp": 0,
+        "power": 0,
+        "fdr": 0
+      },
+      {
+        "backend": "torch",
+        "seed": 20260418,
+        "error": "operands could not be broadcast together with shapes (200,) (0,) ",
+        "selected": 0,
+        "tp": 0,
+        "fp": 0,
+        "power": 0,
+        "fdr": 0
+      },
+      {
+        "backend": "torch",
+        "seed": 20260419,
+        "error": "operands could not be broadcast together with shapes (200,) (0,) ",
+        "selected": 0,
+        "tp": 0,
+        "fp": 0,
+        "power": 0,
+        "fdr": 0
+      },
+      {
+        "backend": "torch",
+        "seed": 20260420,
+        "error": "operands could not be broadcast together with shapes (200,) (0,) ",
+        "selected": 0,
+        "tp": 0,
+        "fp": 0,
+        "power": 0,
+        "fdr": 0
+      },
+      {
+        "backend": "torch",
+        "seed": 20260421,
+        "error": "operands could not be broadcast together with shapes (200,) (0,) ",
+        "selected": 0,
+        "tp": 0,
+        "fp": 0,
+        "power": 0,
+        "fdr": 0
+      },
+      {
+        "backend": "torch",
+        "seed": 20260422,
+        "error": "operands could not be broadcast together with shapes (200,) (0,) ",
+        "selected": 0,
+        "tp": 0,
+        "fp": 0,
+        "power": 0,
+        "fdr": 0
+      },
+      {
+        "backend": "torch",
+        "seed": 20260423,
+        "error": "operands could not be broadcast together with shapes (200,) (0,) ",
+        "selected": 0,
+        "tp": 0,
+        "fp": 0,
+        "power": 0,
+        "fdr": 0
+      },
+      {
+        "backend": "torch",
+        "seed": 20260424,
+        "error": "operands could not be broadcast together with shapes (200,) (0,) ",
+        "selected": 0,
+        "tp": 0,
+        "fp": 0,
+        "power": 0,
+        "fdr": 0
+      },
+      {
+        "backend": "torch",
+        "seed": 20260425,
+        "error": "operands could not be broadcast together with shapes (200,) (0,) ",
+        "selected": 0,
+        "tp": 0,
+        "fp": 0,
+        "power": 0,
+        "fdr": 0
+      }
+    ]
+  }
+}

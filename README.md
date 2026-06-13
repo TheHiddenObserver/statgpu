@@ -2,171 +2,172 @@
 
 GPU-accelerated statistical methods with sklearn-compatible API.
 
+## Documentation
+
+- Primary usage portal (English): `USAGE.md`
+- Chinese usage portal: `USAGE_CN.md`
+- English docs root: `docs/en/`
+- Chinese docs root: `docs/`
+- GLM and penalized GLM model docs: `docs/en/models/generalized-linear-model.md` / `docs/models/generalized-linear-model.md`
+- Repo development layout: `dev/` (`tests/`, `benchmarks/`, `comparisons/`, `validation/`, `manual/`, `scripts/` for Cox data + R bench helpers)
+
 ## Features
 
-- 🚀 **GPU Acceleration**: CUDA acceleration for supported estimators
+- 🚀 **GPU Acceleration**: Automatic CUDA support via CuPy and PyTorch
 - 🔧 **sklearn-compatible**: Familiar `fit`/`predict` API
-- 🔄 **Auto Device Selection**: `device="auto"` can choose an available backend; explicit devices never silently fall back
+- 🔄 **Auto Device Selection**: `device="auto"` can choose an available backend; explicit `cuda`/`torch` never silently falls back to CPU
 - 📊 **Statistical Focus**: Methods from R that Python lacks
-- 🧪 **Multiple Testing**: `adjust_pvalues` (`bh`/`by`/`holm`/`bonferroni`/`hochberg`) + `combine_pvalues` (`fisher`/`cauchy`/`stouffer`)
+- 🧪 **Multiple Testing**: `adjust_pvalues` (`bh`/`by`/`holm`/`bonferroni`/`hochberg`) + `combine_pvalues` (`fisher`/`cauchy`/`stouffer`) across 3 backends (numpy/cupy/torch)
 - 🧮 **Inference Support**:
   - `LinearRegression`: `nonrobust` / `hc0` / `hc1` / `hc2` / `hc3` / `hac`
-  - `Ridge`: `nonrobust` / `hc0` / `hc1` / `hc2` / `hc3` / `hac`
-  - `Lasso`: `debiased` / `cpu_ols_inference` / `gpu_ols_inference` / `bootstrap`
-  - `LogisticRegression`: `nonrobust` / `hc0` / `hc1` / `hc2` / `hc3` / `hac`
+  - `Ridge`: `nonrobust` / `hc0` / `hc1` / `hc2` / `hc3` / `hac` ✅ (Torch backend)
+  - `Lasso`: `cpu_ols_inference` / `gpu_ols_inference` / `bootstrap` ✅ (Torch backend)
+  - `LogisticRegression`: `nonrobust` / `hc0` / `hc1` / `hc2` / `hc3` / `hac` ✅ (Torch backend)
 - 📈 **Nonparametric Support**:
   - KDE: `fit_kde` / `kde_pdf` / `kde_bootstrap_confidence_interval`
   - KDE kernel options: `gaussian` / `rectangular` / `triangular` / `epanechnikov` / `biweight` / `triweight` / `cosine` / `optcosine`
   - Kernel regression: `fit_kernel_regression` / `kernel_regression_predict`
-- 🧬 **Feature Selection**: Stepwise regression plus fixed-X and model-X knockoff filters
-- 🧭 **Unsupervised Learning**:
-  - Dimensionality and factorization: `PCA`, `TruncatedSVD`, `IncrementalPCA`, `NMF`, `MiniBatchNMF`
-  - Clustering and mixtures: `KMeans`, `MiniBatchKMeans`, `DBSCAN`, `GaussianMixture`, `AgglomerativeClustering`
-  - Manifold embeddings: `UMAP`, `TSNE`
 - 🧹 **GPU Memory Control**: `gpu_memory_cleanup` for all current models
-- 🔥 **PyTorch Backend**: Optional Torch execution path for supported estimators
-- 📐 **Unified Distribution Backend**: 15 distributions (norm, t, f, chi2, gamma, beta, uniform, expon, cauchy, laplace, logistic, weibull_min, lognorm, poisson, binom) via `get_distribution()`
+- 🔥 **PyTorch Backend**: Optional Torch backend for GPU acceleration (PyTorch 2.0+)
+  - Supported models: `Ridge`, `LogisticRegression`, `Lasso`, `LassoCV`, `CoxPH`
+  - **Knockoff filter**: `fixed_x_knockoff_filter`, `model_x_knockoff_filter` with `backend='torch'`
+- 📐 **Unified Distribution Backend**: 15 distributions (norm, t, f, chi2, gamma, beta, uniform, expon, cauchy, laplace, logistic, weibull_min, lognorm, poisson, binom) across 3 backends (numpy/cupy/torch) via `get_distribution()`. GPU speedup 10-500x at 1M points. [API docs](docs/en/guides/distribution-api.md)
 
 ## Implemented Methods (Current)
 
-### Linear / Gaussian Regression
-
+### Linear and GLM Models
 - `statgpu.linear_model.LinearRegression`
-- `statgpu.linear_model.PenalizedLinearRegression`
-- `statgpu.linear_model.Ridge`
-- `statgpu.linear_model.Lasso`
-- `statgpu.linear_model.ElasticNet`
-
-### Generalized Linear Models (GLM)
-
 - `statgpu.linear_model.GeneralizedLinearModel`
 - `statgpu.linear_model.PoissonRegression`
-- `statgpu.linear_model.LogisticRegression`
+- `statgpu.linear_model.PenalizedLinearRegression`
 - `statgpu.linear_model.PenalizedLogisticRegression`
 - `statgpu.linear_model.PenalizedPoissonRegression`
+- `statgpu.linear_model.Ridge` ✅ (Torch backend)
+- `statgpu.linear_model.Lasso` ✅ (Torch backend)
+- `statgpu.linear_model.ElasticNet`
+- `statgpu.linear_model.LassoCV`
+- `statgpu.linear_model.LogisticRegression` ✅ (Torch backend)
+- `statgpu.linear_model.OrderedLogitRegression` ✅ (3 backends)
+- `statgpu.linear_model.OrderedProbitRegression` ✅ (3 backends)
 
-### Ordered / Survival Models
+### ANOVA
+- `statgpu.anova.f_oneway` — GPU-accelerated one-way ANOVA (drop-in for `scipy.stats.f_oneway`)
 
-- `statgpu.linear_model.OrderedLogitRegression`
-- `statgpu.linear_model.OrderedProbitRegression`
-- `statgpu.survival.CoxPH`
+### Covariance Estimation
+- `statgpu.covariance.EmpiricalCovariance` — sample covariance with jitter-stabilized inversion
+- `statgpu.covariance.LedoitWolf` — Ledoit-Wolf shrinkage estimator
+- `statgpu.covariance.OAS` — Oracle Approximating Shrinkage estimator
 
-### Unsupervised Learning
+### Panel Data
+- `statgpu.panel.PanelOLS` — fixed effects with nonrobust/robust/clustered SE
+- `statgpu.panel.RandomEffects` — Swamy-Arora feasible GLS random effects
 
-- `statgpu.unsupervised.PCA`
-- `statgpu.unsupervised.KMeans`
-- `statgpu.unsupervised.DBSCAN`
-- `statgpu.unsupervised.GaussianMixture`
-- `statgpu.unsupervised.NMF`
-- `statgpu.unsupervised.AgglomerativeClustering`
-- `statgpu.unsupervised.TruncatedSVD`
-- `statgpu.unsupervised.MiniBatchKMeans`
-- `statgpu.unsupervised.IncrementalPCA`
-- `statgpu.unsupervised.MiniBatchNMF`
-- `statgpu.unsupervised.UMAP`
-- `statgpu.unsupervised.TSNE`
+### Nonparametric Methods
+- `statgpu.nonparametric.kernel_methods.KernelRidge` — kernel ridge regression
+- `statgpu.nonparametric.kernel_methods.KernelRidgeCV` — cross-validated kernel ridge regression (GPU-accelerated CV)
+- `statgpu.nonparametric.kernel_methods.pairwise_kernels` — 6 kernel functions (RBF, polynomial, linear, Laplacian, sigmoid, cosine)
+- `statgpu.nonparametric.splines.bspline_basis` — B-spline basis (De Boor algorithm, vectorized on GPU)
+- `statgpu.nonparametric.splines.natural_cubic_spline_basis` — natural cubic spline basis
 
-Exported CV classes:
+### Semiparametric Models
+- `statgpu.semiparametric.GAM` — generalized additive model with penalized B-splines + GCV
 
-- `statgpu.linear_model.RidgeCV`
-- `statgpu.linear_model.LogisticRegressionCV`
-- `statgpu.survival.CoxPHCV`
+### Survival
+- `statgpu.survival.CoxPH` ✅ (Torch backend)
 
-Backend support and feature parity are documented per model in the Model Docs Index below.
+### Feature Selection
+- `statgpu.feature_selection.Knockoff` — fixed-X/model-X knockoff filter
 
-## Model Docs Index
-
-General documentation:
-
-- Primary usage portal: [English](USAGE.md) / [Chinese](USAGE_CN.md)
-- Documentation root: [English](docs/en/) / [Chinese](docs/)
-- Repo development layout: [dev/](dev/) (`tests/`, `benchmarks/`, `comparisons/`, `validation/`, `manual/`, `scripts/`)
-
-Model documentation:
-
-- Linear regression: [EN](docs/en/models/linear-regression.md) / [CN](docs/models/linear-regression.md)
-- Logistic regression: [EN](docs/en/models/logistic-regression.md) / [CN](docs/models/logistic-regression.md)
-- Poisson regression: [EN](docs/en/models/poisson-regression.md) / [CN](docs/models/poisson-regression.md)
-- Generalized linear model: [EN](docs/en/models/generalized-linear-model.md) / [CN](docs/models/generalized-linear-model.md)
-- Ridge: [EN](docs/en/models/ridge.md) / [CN](docs/models/ridge.md)
-- Lasso: [EN](docs/en/models/lasso.md) / [CN](docs/models/lasso.md)
-- Elastic Net: [EN](docs/en/models/elastic-net.md) / [CN](docs/models/elastic-net.md)
-- Ordered regression: [EN](docs/en/models/ordered.md) / [CN](docs/models/ordered.md)
-- Cox proportional hazards: [EN](docs/en/models/coxph.md) / [CN](docs/models/coxph.md)
-- Nonparametric methods: [EN](docs/en/models/nonparametric.md) / [CN](docs/models/nonparametric.md)
-- Knockoff filter: [EN](docs/en/models/knockoff.md) / [CN](docs/models/knockoff.md)
-- Unsupervised models: [EN](docs/en/models/unsupervised.md) / [CN](docs/models/unsupervised.md)
+### CV Classes (✅ = implemented and trainable)
+- `statgpu.linear_model.RidgeCV` ✅ (GPU-accelerated cross-validation)
+- `statgpu.linear_model.LogisticRegressionCV` ✅ (GPU-accelerated cross-validation)
+- `statgpu.survival.CoxPHCV` ✅ (CV penalty search + final refit; `entry`/`cluster` not yet supported)
 
 ## Installation
 
-`statgpu` is currently installed from source or directly from GitHub. Start with the CPU-only install, then add the optional backend extras you need.
+```bash
+# CPU only
+pip install statgpu
 
-### 1. Create an environment
+# With GPU support (choose by CUDA major version)
+# CUDA 11.x runtime:
+pip install statgpu[gpu11]
+
+# CUDA 12.x runtime:
+pip install statgpu[gpu12]
+
+# With PyTorch backend (CUDA 11.x)
+pip install statgpu[torch]
+
+# Development
+pip install statgpu[dev]
+
+# Formula interface
+pip install statgpu[formula]
+```
+
+## GLM and Penalized GLM Notes
+
+- Full model documentation: `docs/en/models/generalized-linear-model.md` / `docs/models/generalized-linear-model.md`
+- `statgpu.glm_core` is the GLM-specific core layer; `statgpu.losses` is not a compatibility namespace.
+- `Ridge`, `Lasso`, and `ElasticNet` are thin sklearn-style wrappers over typed penalized gaussian regression.
+- `Ridge` supports `solver="exact"` for the closed-form L2 solution.
+- Use `PenalizedLogisticRegression` and `PenalizedPoissonRegression` for typed penalized GLMs.
+- For L2 logistic/poisson, `solver="auto"` is device-aware: CPU uses IRLS, while CuPy/Torch GPU uses FISTA; explicit `irls`/`newton`/`lbfgs` stay on the selected backend when valid.
+- Explicit `device="cuda"` or `device="torch"` never silently falls back to CPU; unavailable GPU dependencies raise clear errors.
+- Formula fitting is optional and uses patsy, for example `model.fit(formula="y ~ x1 + C(group)", data=df)`.
+- Local checks are import/smoke only; CPU/GPU accuracy and runtime comparisons run on the remote `myconda` environment.
+
+### PyTorch Backend Requirements
+
+- PyTorch 2.0+ (for `torch.special` functions)
+- CUDA 11.x or 12.x driver
+- Recommended: Use conda environment with pre-configured CUDA toolkit
 
 ```bash
+# Example conda setup
 conda create -n statgpu python=3.10
 conda activate statgpu
-python -m pip install --upgrade pip
+conda install pytorch cudatoolkit=11.7 -c pytorch
+pip install statgpu
 ```
 
-### 2. Install the package
+**Torch Backend Usage**:
 
-```bash
-# Local editable install from a cloned checkout
-pip install -e .
+```python
+from statgpu.linear_model import Ridge, LogisticRegression, Lasso
 
-# Or install directly from GitHub
-pip install "git+https://github.com/TheHiddenObserver/statgpu.git"
+# Torch GPU backend
+model = Ridge(alpha=1.0, device='torch')  # Force Torch backend
+
+# GPU auto mode (prefers CuPy when available)
+model = Ridge(alpha=1.0, device='cuda')
+
+# Torch CPU backend (useful for debugging)
+model = Ridge(alpha=1.0, device='cpu')
+
+# All covariance types supported
+model = LogisticRegression(device='torch', cov_type='hc3')
+model.fit(X, y)
+print(f"Std Errors: {model._bse}")
 ```
 
-### 3. Add optional extras
-
-Choose only the extras that match your environment:
-
-| Use case | Command | Notes |
-| --- | --- | --- |
-| CUDA 11.x via CuPy | `pip install -e ".[gpu11]"` | Installs `cupy-cuda11x`; do not combine with `gpu12`. |
-| CUDA 12.x via CuPy | `pip install -e ".[gpu12]"` | Installs `cupy-cuda12x`; do not combine with `gpu11`. |
-| PyTorch CUDA backend | `pip install -e ".[torch]"` | Installs PyTorch from PyPI. If you need a specific CUDA wheel, install PyTorch from the official PyTorch index first, then install `statgpu`. |
-| Optional CPU extension build deps | `pip install -e ".[cpu_ext]"` | Adds `Cython>=3.0` for optional Cython CPU extensions. |
-| Formula/dataframe interface | `pip install -e ".[formula]"` | Adds `patsy` and `pandas`. |
-| Development tools | `pip install -e ".[dev]"` | Adds pytest, black, flake8, and mypy. |
-| External validation | `pip install -e ".[validation]"` | Adds scikit-learn and statsmodels for comparison tests. |
-
-For a non-editable GitHub install with extras, append the extra to the package name:
-
-```bash
-pip install "statgpu[gpu12] @ git+https://github.com/TheHiddenObserver/statgpu.git"
-```
-
-## Requirements
-
-### Core requirements
-
-- Python >= 3.8
-- NumPy >= 1.20
-- SciPy >= 1.7
-- joblib >= 1.0
-
-### Optional backend requirements
-
-- **CPU (`device="cpu"`)**: no optional GPU dependency required.
-- **CuPy CUDA (`device="cuda"`)**: install exactly one CuPy wheel that matches your CUDA major version:
-  - CUDA 11.x: `cupy-cuda11x>=13.0` via `statgpu[gpu11]`
-  - CUDA 12.x: `cupy-cuda12x>=13.0` via `statgpu[gpu12]`
-- **PyTorch CUDA (`device="torch"`)**: PyTorch >= 2.0 with CUDA support is recommended. Explicit `device="torch"` requires Torch CUDA to be available; it does not silently fall back to Torch CPU.
-- **Formula interface**: `patsy>=0.5.3` and `pandas>=1.5` via `statgpu[formula]`.
+**Performance Notes**:
+- **Small datasets (<10K)**: CuPy faster due to lower overhead
+- **Moderate-large datasets (20K-100K)**: Torch GPU competitive with CuPy
+- **Robust covariance (HC2/HC3)**: Torch GPU within 4-30% of CuPy, 60x faster than CPU
+- See `dev/docs/torch_backend_full_feature_report.md` for detailed benchmarks
 
 ## Quick Start
 
 ```python
 import numpy as np
 from statgpu.linear_model import LinearRegression, Lasso
-from statgpu import adjust_pvalues, combine_pvalues, permutation_test
+from statgpu import adjust_pvalues, permutation_test
 
 # Generate data
 X = np.random.randn(10000, 100)
-y = X @ np.random.randn(100) + np.random.randn(10000) * 0.5 + 5
+y = X @ np.random.randn(100) + 5
 
 # Fit with GPU
 model = LinearRegression(device='cuda')
@@ -221,35 +222,17 @@ print(f"Selected features: {result.selected_features}")
 
 ## Device Control
 
-Use this section for runtime backend behavior. The requirements table above only lists which optional packages to install.
-
-### Selection rules
-
-- `device="cpu"` uses NumPy.
-- `device="cuda"` uses CuPy and raises an error if CuPy/CUDA is unavailable.
-- `device="torch"` uses Torch CUDA and raises an error if Torch CUDA is unavailable; it does not silently fall back to Torch CPU.
-- `device="auto"` is the only mode that automatically chooses an available backend, usually preferring CuPy, then Torch CUDA, then NumPy.
-
-### Global and per-model settings
-
 ```python
 import statgpu as sg
-from statgpu.linear_model import Ridge
 
-# Global default for estimators that do not receive an explicit device
-sg.set_device("cuda")  # Force CuPy CUDA
-sg.set_device("torch") # Force Torch CUDA
-sg.set_device("cpu")   # Force NumPy CPU
-sg.set_device("auto")  # Auto-detect (default)
+# Global setting
+sg.set_device('cuda')  # Force GPU
+sg.set_device('cpu')   # Force CPU
+sg.set_device('auto')  # Auto-detect (default)
 
-# Explicit per-model settings override the global default
-cpu_model = Ridge(alpha=1.0, device="cpu")
-cupy_model = Ridge(alpha=1.0, device="cuda")
-torch_model = Ridge(alpha=1.0, device="torch")
-
-# device="auto" follows the current global setting/policy
-# (it does not independently override the global choice)
-auto_model = Ridge(alpha=1.0, device="auto")
+# Per-model setting
+from statgpu.linear_model import LinearRegression
+model = LinearRegression(device='cuda', n_jobs=4)
 ```
 
 ## Benchmark Scripts
@@ -265,6 +248,42 @@ auto_model = Ridge(alpha=1.0, device="auto")
   - `dev/benchmarks/benchmark_lasso_inference_gpu_vs_cpu.py`
 - GPU memory cleanup effect:
   - `dev/benchmarks/benchmark_gpu_memory_cleanup.py`
+
+## Benchmark Results (RTX 4090)
+
+Full report: `dev/tests/_bench_realdata_report.md`
+
+Test environment: RTX 4090 (24GB), CuPy 14.1.0, PyTorch 2.8.0+cu128, scikit-learn 1.8.0, statsmodels 0.14.6, lifelines 0.30.3
+
+### Real-Data Performance
+
+| Module | Dataset | n | p | Best Speedup | Precision |
+|--------|---------|---|---|-------------|-----------|
+| Poisson GLM | freMTPL2 | 678K | 42 | 196.9x vs sklearn | coef_corr=1.000000 |
+| Gamma GLM | synthetic | 678K | 42 | 97.9x vs sklearn | coef_corr=0.9995 |
+| CoxPH | synthetic | 1.9K | 500 | 1.2x vs CPU | coef_corr=1.000 |
+| adjust_pvalues (BH) | synthetic | — | 1M | 0.55x | 100% agreement |
+| PenalizedPoisson(L1) | freMTPL2 | 678K | 42 | — | OK |
+| PenalizedCoxPH(L2) | synthetic | 1.9K | 500 | — | C-index match |
+
+### Precision Summary
+
+| Module | Metric | Result |
+|--------|--------|--------|
+| Poisson GLM | coef correlation vs sklearn | 1.000000 (full freMTPL2) |
+| Gamma GLM | coef correlation vs sklearn | 0.9995 |
+| CoxPH | coef correlation vs lifelines | 1.000 |
+| adjust_pvalues (BH) | reject agreement vs statsmodels | 100% (100K to 5M p-values) |
+| Penalized (L1/L2) | self-consistency | C-index match across penalties |
+
+## Requirements
+
+- Python >= 3.8
+- NumPy >= 1.20
+- CuPy (optional, for GPU; choose wheel matching CUDA major version)
+  - CUDA 11.x: `cupy-cuda11x`
+  - CUDA 12.x: `cupy-cuda12x`
+- CUDA runtime compatible with selected CuPy wheel
 
 ## License
 

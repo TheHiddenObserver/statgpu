@@ -33,7 +33,6 @@
 - [Knockoff 特征选择](docs/models/knockoff.md)
 - [有序广义线性模型 (Logit/Probit)](docs/models/ordered.md)
 - [非参数方法](docs/models/nonparametric.md)
-- [无监督学习](docs/unsupervised/README.md)
 
 ### 线性模型 `statgpu.linear_model`
 - [LinearRegression](docs/models/linear-regression.md)
@@ -68,23 +67,6 @@
 - `OrderedLogitRegression` / `OrderedProbitRegression` ✅ (三后端)
   - 有序响应模型（累积 logit/probit 链接函数）
   - 跨后端精度修复 (2026-04-26)：coef 最大差异 < 1e-2
-- `PCA` / `KMeans` / `DBSCAN` / `GaussianMixture` / `NMF` / `TruncatedSVD` / `MiniBatchKMeans` / `IncrementalPCA` / `MiniBatchNMF` / `UMAP` / `TSNE` ✅ (三后端)
-  - 位于 `statgpu.unsupervised`
-  - 逐模型 loss/objective 与估计方程文档：[docs/unsupervised/](docs/unsupervised/README.md)
-  - PCA 支持 full SVD、covariance/eigh 与 randomized 求解
-  - KMeans 支持 Lloyd 迭代、random 与 k-means++ 初始化
-  - DBSCAN 支持 dense Euclidean 聚类；CPU 可选 statgpu 自有 Cython fast path，生产代码内部不调用 sklearn
-  - GaussianMixture 支持 diagonal、spherical、tied、full covariance EM
-  - NMF 支持 Frobenius loss 下的 multiplicative update
-  - TruncatedSVD 支持 dense 不中心化 full/randomized SVD
-  - MiniBatchKMeans 支持 dense Euclidean mini-batch 中心更新
-  - IncrementalPCA 支持 dense batch-wise PCA 更新
-  - MiniBatchNMF 支持 dense 非负 mini-batch MU 更新
-  - UMAP 与 TSNE 是 dense exact Euclidean v1 实现；approximate neighbor search、Barnes-Hut、FFT/FIt-SNE 和新样本 transform 留到后续阶段
-- `AgglomerativeClustering` ✅ (三后端)
-  - 位于 `statgpu.unsupervised`
-  - 支持 single、complete、average、ward linkage 与 Euclidean 距离
-  - `device="auto"` 仍默认 CPU；显式 CuPy/Torch 路径使用 dense exact v1 execution
 
 当前导出的 CV 类：
 - `RidgeCV` ✅ (完整实现，支持 GPU 加速交叉验证)
@@ -110,7 +92,7 @@
 
 ## 3) 基准与验证
 
-- [基准脚本索引](docs/benchmarks.md)
+- [基准脚本索引](docs/guides/benchmarks.md)
 
 当前重点脚本：
 - `dev/benchmarks/_bench_inference_timing.py`（多重检验计时, p=100-10k）
@@ -145,5 +127,5 @@ python dev/benchmarks/benchmark_all_methods_large_scale.py \
 - 报告结果时至少包含：设备信息、数据规模、`repeats/warmup`、是否包含 inference
 - 若新增功能，请同步更新：
   - `docs/models/*.md`
-  - `docs/benchmarks.md`（如新增脚本）
+  - `docs/guides/benchmarks.md`（如新增脚本）
   - `docs/changelog.md`

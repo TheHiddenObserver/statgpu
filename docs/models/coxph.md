@@ -16,6 +16,7 @@
 - `CoxPH` 的 `entry`（delayed entry）路径在 `cpu/cuda/torch` 均可用。
 - `ties='efron' + entry` 已在 `CoxPH` 的 `cpu/cuda/torch` 路径落地，并完成与 lifelines 的精度对标。
 - `CoxPHCV`（交叉验证版本）当前已可用，支持 penalty 网格搜索 + 全量重训；GPU 场景下 `entry` 目前仅支持 `ties='breslow'`，`cluster` 口径仍未开放。
+- 显式 `device='cuda'` 和 `device='torch'` 不会静默回退到 CPU；需要自动选择后端时使用 `device='auto'`。
 
 ## 路径（Path）
 
@@ -47,18 +48,21 @@
 | `ties` | `"breslow"` | ties 处理：`breslow` / `efron` |
 | `tol` | `1e-9` | Newton-Raphson 收敛阈值 |
 | `max_iter` | `100` | 最大迭代数 |
-| `device` | `"auto"` | `cpu` / `cuda` / `auto` |
+| `device` | `"auto"` | `cpu` / `cuda` / `torch` / `auto` |
 | `compute_inference` | `True` | 是否计算推断与部分诊断 |
 | `cov_type` | `"nonrobust"` | `nonrobust` / `hc0` / `hc1` / `cluster` |
-| `gpu_memory_cleanup` | `False` | `fit` 后尝试释放 CuPy memory pool |
+| `gpu_memory_cleanup` | `False` | GPU 路径后尝试释放 CuPy/Torch CUDA 缓存 |
 
 ## Entry 与设备约束（Entry & Device Notes）
 
 - `CoxPH`：
   - `entry + breslow`：CPU/CUDA/Torch 支持
   - `entry + efron`：CPU/CUDA/Torch 支持（2026-04-22）
+  - `device='cuda'`：要求可用的 CuPy CUDA 后端
+  - `device='torch'`：要求 `torch.cuda.is_available() == True`
 - `CoxPHCV`：
   - GPU 下 `entry` 目前仅支持 `ties='breslow'`
+  - `gpu_memory_cleanup=True` 会传递给最终 `CoxPH` estimator，并暴露 CuPy/Torch 清理钩子
 - `torch.compile`（若启用）需要 Triton 支持的 GPU（Compute Capability >= 7.0），如 A30/RTX 4090；P100（CC 6.0）不支持。
 
 ## CPU+GPU 示例（CPU+GPU Examples）

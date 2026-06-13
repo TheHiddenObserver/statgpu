@@ -22,6 +22,11 @@
 - `device="auto"`：唯一允许自动选择其它可用后端的模式。
 - Formula/DataFrame 解析可以作为 CPU 预处理，但模型核心计算必须转换到所选后端。
 
+实现说明（2026-06-01）：CuPy <-> Torch CUDA 转换会优先使用 DLPack
+零拷贝共享，NumPy -> Torch CUDA 传输会在 PyTorch 接受时尝试 pinned memory
+和 `non_blocking=True`。这些只是内部传输优化；显式 `device="cuda"` /
+`device="torch"` 仍然要求对应 CUDA 后端可用。
+
 GLM 类 estimator 的 solver 覆盖矩阵：
 
 | Solver | NumPy | CuPy | Torch |
