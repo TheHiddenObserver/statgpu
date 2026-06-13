@@ -113,7 +113,7 @@ class Penalty(ABC):
         For a penalty P(w), the LLA approximates:
             P(w) ≈ P(coef) + Σ w_j * |w_j - coef_j|
 
-        where w_j = P'(|coef_j|) / |coef_j| for coef_j ≠ 0.
+        where w_j = P'(|coef_j|) for coef_j ≠ 0.
 
         This is used to solve non-convex penalties via iteratively
         reweighted L1.

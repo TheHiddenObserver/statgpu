@@ -156,12 +156,9 @@ def _to_backend(arr, backend="auto", ref_tensor=None, dtype=None):
         out_dtype = dtype
         if out_dtype is None:
             ref_dtype = getattr(ref_tensor, "dtype", None)
-            try:
-                if ref_dtype is not None and np.issubdtype(ref_dtype, np.floating):
-                    out_dtype = ref_dtype
-                else:
-                    out_dtype = cp.float64
-            except TypeError:
+            if ref_dtype is not None and 'float' in str(ref_dtype):
+                out_dtype = ref_dtype
+            else:
                 out_dtype = cp.float64
         return cp.asarray(arr, dtype=out_dtype)
     if backend == "torch":
@@ -400,10 +397,10 @@ def _max_eigval_power(mat, n_iter=20, tol=1e-8):
     # eigenspace (e.g., [[1,-1],[-1,1]]).
     if xp.__name__ == "torch":
         v = xp.arange(1, p + 1, dtype=dtype, device=mat.device)
+    elif dtype is not None:
+        v = xp.arange(1, p + 1, dtype=dtype)
     else:
-        v = xp.arange(1, p + 1)
-        if dtype is not None and hasattr(v, 'astype'):
-            v = v.astype(dtype)
+        v = xp.arange(1, p + 1, dtype=xp.float64)
 
     v_norm = xp.sqrt(xp.dot(v, v))
     v_norm_val = float(v_norm)

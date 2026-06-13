@@ -13,7 +13,9 @@ from typing import Any, Optional
 import numpy as np
 
 # Exception types raised by linalg operations on singular/ill-conditioned matrices.
-# numpy raises LinAlgError; torch raises RuntimeError.
+# numpy raises LinAlgError; torch raises RuntimeError for linalg failures.
+# NOTE: torch RuntimeError is overly broad (also catches OOM, autograd errors).
+# Callers should re-raise if the error message doesn't match linalg patterns.
 _LINALG_ERRORS: tuple = (np.linalg.LinAlgError,)
 try:
     import torch  # noqa: F811
@@ -266,8 +268,12 @@ def _torch_dtype_to_np(dtype):
     return _MAP.get(dtype, np.dtype('float64'))
 
 
-def xp_astype(arr, dtype, xp):
-    """Backend-safe type cast (``.to()`` for torch, ``.astype()`` otherwise)."""
+def xp_astype(arr, dtype, xp=None):
+    """Backend-safe type cast (``.to()`` for torch, ``.astype()`` otherwise).
+
+    Note: ``xp`` parameter is unused — backend is detected from ``arr`` directly.
+    Kept for backward compatibility with existing callers.
+    """
     if _torch_dev(arr) is not None:
         import torch
         if not isinstance(dtype, torch.dtype):

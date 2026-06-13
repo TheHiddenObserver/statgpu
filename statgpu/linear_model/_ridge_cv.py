@@ -392,7 +392,7 @@ def _select_ridge_alpha_cv(
 
     # Generate alpha grid
     if alphas is None:
-        if gpu_input_cupy or gpu_input_torch or (use_gpu and hasattr(X, 'device') and str(X.device) != 'cpu'):
+        if gpu_input_cupy or gpu_input_torch or use_gpu:
             # GPU path for alpha grid generation
             if gpu_input_torch:
                 backend = get_backend(backend='torch', device='cuda')
@@ -421,7 +421,7 @@ def _select_ridge_alpha_cv(
         alpha_grid = alpha_grid[alpha_grid > 0.0]
         if alpha_grid.size == 0:
             warnings.warn("All provided alphas were filtered; using default grid.", RuntimeWarning)
-            if gpu_input_cupy or gpu_input_torch or (use_gpu and hasattr(X, 'device') and str(X.device) != 'cpu'):
+            if gpu_input_cupy or gpu_input_torch or use_gpu:
                 # GPU path for alpha grid generation
                 backend = get_backend(Device.CUDA)
                 X_temp = backend.asarray(X)
@@ -505,7 +505,7 @@ def _select_ridge_alpha_cv(
             cv_dtype = backend.float32 if bool(gpu_cv_mixed_precision) else backend.float64
 
             # Convert inputs to backend arrays
-            if gpu_input_cupy or gpu_input_torch or (hasattr(X, 'device') and str(X.device) != 'cpu'):
+            if gpu_input_cupy or gpu_input_torch:
                 # Already on GPU (CuPy or Torch)
                 X_full = backend.asarray(X, dtype=cv_dtype)
                 y_full = backend.asarray(y, dtype=cv_dtype).reshape(-1)

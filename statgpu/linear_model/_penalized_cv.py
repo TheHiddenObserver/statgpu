@@ -2697,6 +2697,9 @@ class PenalizedGLM_CV(CVEstimatorBase):
 
         For squared_error loss, returns R². For GLM losses, returns
         the deviance-based pseudo-R² (1 - deviance/null_deviance).
+
+        Note: ``best_score_`` is negative CV loss (sklearn convention),
+        while ``score()`` returns R² or accuracy. These are different metrics.
         """
         if not getattr(self, '_fitted', False):
             raise RuntimeError("PenalizedGLM_CV is not fitted yet. Call fit() first.")
