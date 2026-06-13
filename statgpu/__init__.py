@@ -95,6 +95,7 @@ __all__ = [
     "LassoCV",
     "ElasticNet",
     "ElasticNetCV",
+    "PenalizedGLM_CV",
     "CoxPH",
     "CoxPHCV",
     "PCA",

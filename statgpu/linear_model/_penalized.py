@@ -89,7 +89,6 @@ from statgpu.penalties._categories import (
     NONSMOOTH as _NONSMOOTH_PENALTIES,
     NONCONVEX as _NONCONVEX_PENALTIES,
     SPARSE as _SPARSE_PENALTIES,
-    SMOOTH_PENALTIES as _SMOOTH_PENALTIES_SET,
 )
 _SMOOTH_PENALTIES = frozenset({"l2", "none", "null", ""})
 
@@ -1839,271 +1838,6 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
         init_model.fit(X, y)
         return init_model.coef_
 
-    def _fit_lla(self, X, y, sample_weight, backend_name, init_coef=None):
-        """Fit non-convex penalty via Local Linear Approximation.
-
-        Outer loop reweights the non-convex penalty as per-coordinate
-        weighted L1.  Each inner iteration solves a convex problem
-        (ADMM for squared-error, FISTA for GLM) with the current weights.
-
-        A **continuation path** is used for all losses: alpha is stepped
-        down geometrically from 15× the target to the target (8 steps).
-        Without this, small coefficients from the init receive weak L1
-        weights (= P'(|coef|) ≈ alpha) and survive the inner solve,
-        producing too many non-zeros.  Starting from a larger alpha and
-        stepping down forces coefficients to cross the SCAD/MCP transition
-        region (alpha .. a·alpha) where the two penalties differ — the
-        same strategy used internally by R's ncvreg.
-
-        For the inner loop the penalty is temporarily swapped for an
-        ``AdaptiveL1Penalty`` whose per-coordinate weights are set from
-        ``penalty.lla_weights(coef)``.
-        """
-        n_features = X.shape[1]
-
-        if init_coef is not None:
-            coef_lla = np.asarray(init_coef, dtype=float).copy()
-        elif self._penalty.requires_init:
-            coef_lla = np.zeros(n_features)
-        else:
-            coef_lla = self._fit_initial(X, y, backend_name=backend_name)
-
-        # For GLM + SCAD/MCP direct IRLS-CD path, override init to zeros.
-        # R's ncvreg starts from lambda_max with all-zero coefficients and
-        # warm-starts down the continuation path.  The L2-penalized GLM
-        # init gives large coefficients that cause numerical overflow in
-        # the IRLS working response when eta is extreme.
-        _pen_name_init = str(getattr(self._penalty, 'name', '')).lower()
-        _is_glm_scad_mcp = (self.loss != "squared_error") and _pen_name_init in ("scad", "mcp")
-        _is_scad_mcp = _pen_name_init in ("scad", "mcp")
-        if _is_scad_mcp:
-            coef_lla = np.zeros(n_features)
-
-        from statgpu.penalties._adaptive_l1 import AdaptiveL1Penalty
-
-        # ADMM inner solver was used for squared_error CPU path for cross-backend
-        # consistency, but on CPU it is 4000× slower than FISTA (admm_solver
-        # recomputes X@w and X.T@g per CG iteration instead of precomputing XtX
-        # once).  On GPU the cuBLAS matmuls are fast enough that ADMM is
-        # competitive.  Use fista_bb for CPU (O(p²) gradient with XtX precompute)
-        # GLM losses: use fista_bb for early continuation steps (large alpha,
-        # small coef — exp(X@coef) ≈ 1, BB steps are safe and 3-10× faster),
-        # then switch to fista (backtracking) only for the final step where
-        # coefficients may grow large enough to cause exp-link explosion.
-        # Gamma is excluded — its gradient scale (1/mu) makes BB step estimates
-        # unreliable even at small coefficients.
-        saved_cpu_solver = self.cpu_solver
-        saved_selected_solver = self._selected_solver
-        _is_glm = (self.loss != "squared_error")
-        _glm_bb_safe = _is_glm and self.loss in ("poisson", "logistic")
-        if _is_glm and not _glm_bb_safe:
-            self.cpu_solver = "fista"
-            self._selected_solver = "fista"
-        elif not _is_glm:
-            if _is_scad_mcp:
-                # SCAD/MCP uses direct FISTA+proximal (not ADMM)
-                self.cpu_solver = "fista_bb"
-                self._selected_solver = "fista_bb"
-            else:
-                # CPU: use fista_bb (precomputes XtX, O(p²) per iter, ~9ms total)
-                # GPU: use admm (cuBLAS matmuls, ~40ms total with perfect x-backend consistency)
-                if backend_name == "numpy":
-                    self.cpu_solver = "fista_bb"
-                    self._selected_solver = "fista_bb"
-                else:
-                    self.cpu_solver = "admm"
-                    self._selected_solver = "admm"
-
-        # Continuation path for all losses: start from a larger alpha and
-        # step down geometrically to the target.  This forces coefficients
-        # to cross the SCAD/MCP transition region (alpha .. a·alpha).
-        # Squared-error + ADMM uses a wider path (20× / 8 steps) because
-        # the OLS init produces many small but non-zero coefficients that
-        # need stronger initial shrinkage to match R's ncvreg.  GLM losses
-        # use a moderate path (10× / 5 steps) to balance sparsity and
-        # convergence — larger paths cause FISTA to overshoot.
-        import numpy as _np
-
-        # Compute lambda_max — the smallest penalty where all coefficients are zero.
-        # Matches R ncvreg: lambda_max = max_j |sum(x_s_j * resid)| / n
-        # on standardized X (||X_j|| = sqrt(n)).  The IRLS-CD gradient
-        # u_j = rho_j/n equals this at the null model, and the SCAD/MCP
-        # threshold is l1 = alpha on u_j.
-        _X_np = _np.asarray(X, dtype=float)
-        _y_np = _np.asarray(y, dtype=float)
-        _n = _X_np.shape[0]
-        # Standardize X to match ncvreg: ||X_j|| = sqrt(n), i.e. mean(x^2) = 1
-        _col_norms = _np.sqrt(_np.sum(_X_np ** 2, axis=0))
-        _col_norms = _np.maximum(_col_norms, 1e-20)
-        _X_s = _X_np * (_np.sqrt(_n) / _col_norms)
-        if self.loss == "logistic":
-            _p0 = _np.clip(_np.mean(_y_np), 1e-3, 1-1e-3)
-            _lam_max = float(_np.max(_np.abs(_X_s.T @ (_y_np - _p0) / _n)))
-        elif self.loss == "poisson":
-            _mu0 = max(float(_np.mean(_y_np)), 1e-3)
-            _lam_max = float(_np.max(_np.abs(_X_s.T @ (_y_np - _mu0) / _n)))
-        elif self.loss == "gamma":
-            _mu0 = max(float(_np.mean(_y_np)), 1e-3)
-            _lam_max = float(_np.max(_np.abs(_X_s.T @ ((_y_np - _mu0) / _mu0) / _n)))
-        elif self.loss == "squared_error":
-            _y_centered = _y_np - _np.mean(_y_np)
-            _lam_max = float(_np.max(_np.abs(_X_s.T @ _y_centered / _n)))
-        else:
-            _lam_max = self.alpha * 15.0  # fallback
-
-        _n_cont = 20 if _is_scad_mcp else 10
-        # Start from lambda_max to match R ncvreg's pathwise approach.
-        # lambda_max is the smallest penalty where all coefficients are zero.
-        _alpha_start = float(_lam_max)
-        _alpha_end = float(self.alpha)
-        if _alpha_start <= 0.0 or _alpha_end <= 0.0:
-            _lo = max(min(_alpha_start, _alpha_end), 1e-12)
-            _hi = max(_alpha_start, _alpha_end, 1e-12)
-            if _hi <= _lo:
-                _alpha_path = _np.full(_n_cont, _hi, dtype=float)
-            else:
-                _alpha_path = _np.linspace(_hi, _lo, _n_cont, dtype=float)
-                _alpha_path[-1] = max(_alpha_end, 1e-12)
-        else:
-            _alpha_path = _np.geomspace(_alpha_start, _alpha_end, _n_cont)
-        _max_lla_per_step = max(6, self._max_lla_iters // _n_cont)
-
-        saved_max_iter = self.max_iter
-
-        try:
-            # squared_error+SCAD/MCP: fused LLA+FISTA path.
-            # Runs entire continuation+LLA+FISTA loop in one tight function
-            # to eliminate per-call overhead (300+ fista_solver calls).
-            if _is_scad_mcp and not _is_glm:
-                from statgpu.glm_core._solver import fista_lla_path
-                X_cached = self._to_array(X, backend=backend_name)
-                y_cached = self._to_array(y, backend=backend_name)
-
-                # Build max_iter schedule: early steps need fewer iterations
-                _mi_path = []
-                for _i in range(_n_cont):
-                    _is_last = (_i == _n_cont - 1)
-                    _mi_path.append(saved_max_iter if _is_last else max(100, saved_max_iter // 10))
-
-                coef_np, intercept, n_iter = fista_lla_path(
-                    self._loss, self._penalty,
-                    X_cached, y_cached,
-                    alpha_path=_alpha_path,
-                    max_lla_per_step=_max_lla_per_step,
-                    lla_tol=self._lla_tol,
-                    max_iter=_mi_path,
-                    tol=self.tol,
-                    fit_intercept=self._effective_intercept,
-                    sample_weight=sample_weight,
-                )
-                coef_lla = coef_np
-                self.coef_ = coef_np
-                self.intercept_ = intercept
-                self.n_iter_ = n_iter
-                self._lla_n_iters_ = _n_cont * _max_lla_per_step
-            else:
-                # Cache GPU arrays once outside the continuation loop
-                X_cached = self._to_array(X, backend=backend_name)
-                y_cached = self._to_array(y, backend=backend_name)
-
-                for _cont_step, _cont_alpha in enumerate(_alpha_path):
-                    # Create a copy with the continuation alpha to avoid
-                    # mutating the shared penalty object (thread-safety).
-                    _pen_step = copy.copy(self._penalty)
-                    _pen_step.alpha = float(_cont_alpha)
-
-                    _is_last_cont = (_cont_step == _n_cont - 1)
-                    if _is_glm_scad_mcp:
-                        self.max_iter = 500 if _is_last_cont else 100
-                    elif _is_last_cont:
-                        self.max_iter = saved_max_iter
-                    else:
-                        self.max_iter = max(200, saved_max_iter // 3)
-                    _is_gamma = (self.loss == "gamma")
-                    if _is_gamma:
-                        self.max_iter = max(300, self.max_iter // 2)
-                    if _glm_bb_safe:
-                        self.cpu_solver = "fista_bb"
-                        self._selected_solver = "fista_bb"
-
-                    if _is_scad_mcp and not _is_glm:
-                        # This branch is now handled above by fista_lla_path
-                        pass
-                    else:
-                        for _lla_local in range(_max_lla_per_step):
-                            # Compute LLA weights from current estimate
-                            lla_w = _pen_step.lla_weights(coef_lla)
-
-                            # SelectivePenalty wrapper handles intercept separately
-                            # (clips to [-15,15] then sets penalty gradient to 0).
-                            # Weights stay at p entries — no intercept padding needed.
-                            # lla_weights() already returns alpha-scaled derivative
-                            # weights (e.g. SCAD: alpha for |coef| <= alpha).
-                            # AdaptiveL1Penalty applies: alpha_inner * weight_j * |coef_j|,
-                            # so with alpha_inner=1 and weight=lla_w we get exactly
-                            # the LLA penalty: sum_j lla_w_j * |coef_j|.
-                            #
-                            inner_pen = AdaptiveL1Penalty(alpha=1.0)
-                            inner_pen._weights = lla_w
-
-                            # Swap penalty (protected by try/finally)
-                            # Use copy to avoid thread-safety issues with shared instances
-                            import copy
-                            orig_penalty = copy.copy(self._penalty)
-                            self._penalty = inner_pen
-                            try:
-                                # Run inner FISTA with warm-start from previous LLA estimate
-                                # Use cached arrays to avoid repeated GPU transfers
-                                self._init_coef = coef_lla.copy()
-
-                                if backend_name == "torch":
-                                    self._fit_torch(X_cached, y_cached, sample_weight)
-                                elif backend_name == "cupy":
-                                    self._fit_gpu(X_cached, y_cached, sample_weight)
-                                else:
-                                    self._fit_cpu(X_cached, y_cached, sample_weight)
-
-                                self._init_coef = None
-                            finally:
-                                # Restore original penalty even if inner fit raises
-                                self._penalty = orig_penalty
-
-                            # LLA convergence
-                            coef_new = self.coef_.copy()
-                            delta = float(np.sum(np.abs(coef_new - coef_lla)))
-                            self._lla_n_iters_ = getattr(self, '_lla_n_iters_', 0) + 1
-
-                            if delta < self._lla_tol:
-                                coef_lla = coef_new
-                                break
-
-                            coef_lla = coef_new
-
-        # Store final results.  For GLM+SCAD/MCP, _fit_cpu/_fit_gpu/_fit_torch
-        # already set self.coef_ and self.intercept_.  For squared_error+SCAD/MCP,
-        # _irls_cd returned params but didn't set them on self.
-            if self.coef_ is None and coef_lla is not None:
-                self.coef_ = np.asarray(coef_lla[:X.shape[1]], dtype=float)
-                if self._effective_intercept:
-                    X_np = np.asarray(X, dtype=float)
-                    y_np = np.asarray(y, dtype=float)
-                    if sample_weight is not None:
-                        sw_np = np.asarray(sample_weight, dtype=float).ravel()
-                        sw_sum = max(float(np.sum(sw_np)), 1e-15)
-                        X_wmean = np.sum(X_np * sw_np[:, None], axis=0) / sw_sum
-                        y_wmean = float(np.sum(y_np * sw_np)) / sw_sum
-                        self.intercept_ = float(y_wmean - X_wmean @ self.coef_)
-                    else:
-                        self.intercept_ = float(np.mean(y_np) - np.mean(X_np, axis=0) @ self.coef_)
-                else:
-                    self.intercept_ = 0.0
-                self._params = np.concatenate([[self.intercept_], self.coef_])
-                self._df_resid = X.shape[0] - (X.shape[1] + (1 if self._effective_intercept else 0))
-        finally:
-            self.cpu_solver = saved_cpu_solver
-            self._selected_solver = saved_selected_solver
-            self.max_iter = saved_max_iter
-
     def _fit_cpu(self, X, y, sample_weight=None):
         """Fit using CPU (FISTA or coordinate descent)."""
         X = np.asarray(X)
@@ -3373,7 +3107,7 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
             if self._effective_intercept:
                 raw += cp.asarray(self.intercept_, dtype=raw.dtype)
             if self.loss == "logistic":
-                p = 1.0 / (1.0 + cp.exp(-cp.clip(raw, -500, 500)))
+                p = 1.0 / (1.0 + cp.exp(-cp.clip(raw, -_ETA_CLIP, _ETA_CLIP)))
                 result = (p > 0.5).astype(float)
             elif self.loss != "squared_error":
                 result = self._family_for_loss().link.inverse(raw)
@@ -3390,7 +3124,7 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
                     self.intercept_, dtype=raw.dtype, device=raw.device
                 )
             if self.loss == "logistic":
-                p = 1.0 / (1.0 + torch.exp(-torch.clamp(raw, -500, 500)))
+                p = 1.0 / (1.0 + torch.exp(-torch.clamp(raw, -_ETA_CLIP, _ETA_CLIP)))
                 result = (p > 0.5).to(raw.dtype)
             elif self.loss != "squared_error":
                 result = self._family_for_loss().link.inverse(raw)
@@ -3404,7 +3138,7 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
 
         # Apply link inverse for GLM losses
         if self.loss == "logistic":
-            p = 1.0 / (1.0 + np.exp(-np.clip(raw, -500, 500)))
+            p = 1.0 / (1.0 + np.exp(-np.clip(raw, -_ETA_CLIP, _ETA_CLIP)))
             return (p > 0.5).astype(float)
         elif self.loss != "squared_error":
             return self._family_for_loss().link.inverse(raw)
@@ -4511,7 +4245,7 @@ class PenalizedLogisticRegression(PenalizedGeneralizedLinearModel):
             raw = Xb @ coef
             if self._effective_intercept:
                 raw += cp.asarray(self.intercept_, dtype=raw.dtype)
-            p1 = 1.0 / (1.0 + cp.exp(-cp.clip(raw, -500, 500)))
+            p1 = 1.0 / (1.0 + cp.exp(-cp.clip(raw, -_ETA_CLIP, _ETA_CLIP)))
             return cp.column_stack([1.0 - p1, p1])
         if backend_name == "torch":
             import torch
@@ -4522,12 +4256,12 @@ class PenalizedLogisticRegression(PenalizedGeneralizedLinearModel):
                 raw = raw + torch.as_tensor(
                     self.intercept_, dtype=raw.dtype, device=raw.device
                 )
-            p1 = 1.0 / (1.0 + torch.exp(-torch.clamp(raw, -500, 500)))
+            p1 = 1.0 / (1.0 + torch.exp(-torch.clamp(raw, -_ETA_CLIP, _ETA_CLIP)))
             return torch.column_stack([1.0 - p1, p1])
         raw = X @ self.coef_
         if self._effective_intercept:
             raw += self.intercept_
-        p1 = 1.0 / (1.0 + np.exp(-np.clip(raw, -500, 500)))
+        p1 = 1.0 / (1.0 + np.exp(-np.clip(raw, -_ETA_CLIP, _ETA_CLIP)))
         return np.column_stack([1.0 - p1, p1])
 
 
