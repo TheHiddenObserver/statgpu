@@ -196,25 +196,29 @@ class PanelOLS(BaseEstimator):
         self._scale = scale
 
         # Compute entity/time effects for predict()
+        # Subtract grand mean to avoid double-counting in two-way FE
         self._entity_effects_map = {}
         self._time_effects_map = {}
+        resid_orig = y_arr - X_arr @ coef
+        grand_mean = float(xp.mean(resid_orig))
+        resid_centered = resid_orig - grand_mean
+        self._grand_mean = grand_mean
+
         if self.entity_effects and entity_arr is not None:
-            resid_orig = y_arr - X_arr @ coef  # residuals on original data
             ent_np = _to_numpy(entity_arr).ravel()
             unique_ent, idx_np = np.unique(ent_np, return_inverse=True)
             idx_dev = xp.asarray(idx_np, dtype=xp.int64)
-            ent_sums = _scatter_add(xp, idx_dev, resid_orig, len(unique_ent))
-            ent_counts = _scatter_add(xp, idx_dev, xp.ones_like(resid_orig), len(unique_ent))
+            ent_sums = _scatter_add(xp, idx_dev, resid_centered, len(unique_ent))
+            ent_counts = _scatter_add(xp, idx_dev, xp.ones_like(resid_centered), len(unique_ent))
             ent_effects = _to_numpy(ent_sums / xp.maximum(ent_counts, 1.0)).ravel()
             for i, eid in enumerate(unique_ent):
                 self._entity_effects_map[eid] = float(ent_effects[i])
         if self.time_effects and time_arr is not None:
-            resid_orig = y_arr - X_arr @ coef
             time_np = _to_numpy(time_arr).ravel()
             unique_time, idx_np = np.unique(time_np, return_inverse=True)
             idx_dev = xp.asarray(idx_np, dtype=xp.int64)
-            time_sums = _scatter_add(xp, idx_dev, resid_orig, len(unique_time))
-            time_counts = _scatter_add(xp, idx_dev, xp.ones_like(resid_orig), len(unique_time))
+            time_sums = _scatter_add(xp, idx_dev, resid_centered, len(unique_time))
+            time_counts = _scatter_add(xp, idx_dev, xp.ones_like(resid_centered), len(unique_time))
             time_effects = _to_numpy(time_sums / xp.maximum(time_counts, 1.0)).ravel()
             for i, tid in enumerate(unique_time):
                 self._time_effects_map[tid] = float(time_effects[i])

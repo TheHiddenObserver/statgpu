@@ -234,10 +234,13 @@ class GAM(BaseEstimator):
         # Convert to arrays on the correct device
         # For torch backend, ensure arrays land on CUDA (not CPU)
         _ref = None
-        if xp.__name__ == "torch" and hasattr(self, '_device') and self._device:
+        if xp.__name__ == "torch":
             import torch
-            if 'cuda' in str(self._device):
-                _ref = torch.empty(0, device=self._device)
+            _dev = getattr(self, 'device', None)
+            if _dev is not None and hasattr(_dev, 'value') and _dev.value in ('cuda', 'torch'):
+                _ref = torch.empty(0, device="cuda")
+            elif torch.cuda.is_available():
+                _ref = torch.empty(0, device="cuda")
         X = xp_asarray(X, dtype=xp.float64, xp=xp, ref_arr=_ref)
         y = xp_asarray(y, dtype=xp.float64, xp=xp, ref_arr=X).ravel()
 
@@ -275,7 +278,7 @@ class GAM(BaseEstimator):
         # Store results
         self.coef_ = beta
         self.intercept_ = float(beta[0])
-        self.edf_ = edf
+        self.edf_ = float(edf) if not isinstance(edf, float) else edf
         self._fitted = True
 
         # Store training data info for prediction

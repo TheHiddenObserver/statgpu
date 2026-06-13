@@ -233,11 +233,16 @@ def natural_cubic_spline_basis(x, knots, xp=None):
         n_rank = int(xp.sum(S_vals > max(C.shape) * S_vals[0] * xp.finfo(xp.float64).eps))
         null_space = Vh[n_rank:].T  # shape: (n_basis, n_basis - n_rank)
     except _LINALG_ERRORS:
-        # Fallback: use QR with mode='reduced' and manual extension
-        Q_full, _ = xp.linalg.qr(xp_eye(n_basis, xp.float64, xp, x))
-        Q_c, _ = xp.linalg.qr(C.T)
-        # Orthogonal complement of column space of C.T
-        null_space = Q_full[:, C.shape[0]:]
+        # Fallback: compute null space of C via QR
+        Q_c, R_c = xp.linalg.qr(C.T, mode='reduced')
+        # Null space is the complement of column space of C.T
+        # Build full QR of identity and project out C's column space
+        Q_full, _ = xp.linalg.qr(xp.eye(n_basis, dtype=xp.float64))
+        # Remove components in C's column space
+        proj = Q_full - Q_c @ (Q_c.T @ Q_full)
+        # Re-orthogonalize to get clean null space basis
+        Q_null, _ = xp.linalg.qr(proj, mode='reduced')
+        null_space = Q_null[:, C.shape[0]:] if Q_null.shape[1] > C.shape[0] else Q_null
 
     # Project the B-spline basis onto the null space
     # B_natural = B_cubic @ null_space
@@ -288,14 +293,21 @@ def _bspline_basis_derivative(x, knots, degree=3, deriv_order=1, xp=None):
 
     x_min = float(xp.min(x))
     x_max = float(xp.max(x))
+    knot_min = float(xp.min(knots))
+    knot_max = float(xp.max(knots))
 
-    left_pad = xp_full(degree + 1, x_min, xp.float64, xp, x)
-    right_pad = xp_full(degree + 1, x_max, xp.float64, xp, x)
+    # Use same boundary logic as bspline_basis
+    boundary_lo = min(x_min, knot_min)
+    boundary_hi = max(x_max, knot_max)
+
+    left_pad = xp_full(degree + 1, boundary_lo, xp.float64, xp, x)
+    right_pad = xp_full(degree + 1, boundary_hi, xp.float64, xp, x)
     t = xp.concatenate([left_pad, knots, right_pad])
 
-    # Get B-spline basis of degree (degree - deriv_order)
+    # Get B-spline basis of degree (degree - deriv_order) with SAME knot vector
     reduced_degree = degree - deriv_order
-    B_reduced = bspline_basis(x, knots, degree=reduced_degree, xp=xp)
+    B_reduced = bspline_basis(x, knots, degree=reduced_degree, xp=xp,
+                              boundary_lo=boundary_lo, boundary_hi=boundary_hi)
 
     n_basis = len(t) - degree - 1
     n_basis_reduced = len(t) - reduced_degree - 1

@@ -139,17 +139,25 @@ class RandomEffects(BaseEstimator):
         for j in range(k):
             X_bar_i[:, j] = group_means(X_arr[:, j], entity_arr, xp=xp)
 
+        # Extract unique group means for between estimation
+        # (avoid T_i-weighting in normal equations)
+        unique_entities = xp.unique(entity_arr)
+        n_groups = len(unique_entities)
+        y_bar_unique = group_means(y_arr, entity_arr, xp=xp)[:n_groups]
+        X_bar_unique = xp.zeros((n_groups, k), dtype=X_arr.dtype)
+        for j in range(k):
+            X_bar_unique[:, j] = group_means(X_arr[:, j], entity_arr, xp=xp)[:n_groups]
+
         # Between OLS: beta_between = (X_bar'X_bar)^{-1} X_bar' y_bar
-        # (Only need group-level data, but the aligned arrays work too.)
-        XtX_b = X_bar_i.T @ X_bar_i
-        Xty_b = X_bar_i.T @ y_bar_i
+        XtX_b = X_bar_unique.T @ X_bar_unique
+        Xty_b = X_bar_unique.T @ y_bar_unique
         try:
             beta_between = xp.linalg.solve(XtX_b, Xty_b)
         except _LINALG_ERRORS:
             beta_between = xp.linalg.pinv(XtX_b) @ Xty_b
 
-        # Between residuals
-        resid_between = y_bar_i - X_bar_i @ beta_between
+        # Between residuals (using unique group means for correct RSS)
+        resid_between = y_bar_unique - X_bar_unique @ beta_between
         rss_between = float(xp.sum(resid_between ** 2))
 
         # --- Step 2: Within estimation (entity demeaning) ---

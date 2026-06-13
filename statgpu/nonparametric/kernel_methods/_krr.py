@@ -198,8 +198,9 @@ class KernelRidge(BaseEstimator):
 
         y_pred = self.predict(X)
         y_arr = xp_astype(self._to_array(y), xp.float64, xp)
-        if y_arr.ndim == 1:
-            y_arr = y_arr.ravel()
+        # Ensure 1D to avoid broadcasting issues
+        y_arr = y_arr.ravel()
+        y_pred = y_pred.ravel()
 
         ss_res = xp.sum((y_arr - y_pred) ** 2)
         ss_tot = xp.sum((y_arr - xp.mean(y_arr)) ** 2)

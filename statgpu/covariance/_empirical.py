@@ -116,7 +116,7 @@ class EmpiricalCovariance(BaseEstimator):
         if backend_name == "torch":
             import torch
             _dev = self._get_compute_device()
-            _cuda_dev = "cuda" if str(_dev).lower() in ("torch", "cuda", "gpu") else "cpu"
+            _cuda_dev = "cuda" if _dev.value in ("torch", "cuda") else "cpu"
             _ref = torch.empty(0, dtype=torch.float64, device=_cuda_dev)
 
         X_arr = xp_asarray(X, dtype=xp.float64, xp=xp, ref_arr=_ref)
