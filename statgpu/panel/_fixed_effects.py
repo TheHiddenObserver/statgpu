@@ -234,11 +234,11 @@ class PanelOLS(BaseEstimator):
                            X_d, coef, resid, y_d):
         """Compute SE, t-values, p-values, and CIs — all on device.
 
-        Heavy matrix ops (XtX, inv, sandwich) stay on GPU.  Only the
-        final k-length result vectors are transferred to CPU for
-        scipy.stats p-value computation.
+        Uses statgpu's backend-agnostic inference framework for p-values,
+        so no GPU→CPU transfer is needed for the computation.  Only the
+        final numpy result vectors are stored for the user API.
         """
-        from scipy import stats as sp_stats
+        from statgpu.inference._distributions_backend import get_distribution
 
         n, k = X_d.shape
         df = self.df_resid
@@ -247,15 +247,11 @@ class PanelOLS(BaseEstimator):
         # XtX and its inverse — on device
         XtX = X_d.T @ X_d
         try:
-            if backend_name == "torch":
-                XtX_inv = xp.linalg.inv(XtX)
-            else:
-                XtX_inv = xp.linalg.inv(XtX)
+            XtX_inv = xp.linalg.inv(XtX)
         except _LINALG_ERRORS:
             XtX_inv = xp.linalg.pinv(XtX)
 
         if self.cov_type == 'nonrobust':
-            # cov_params = scale * (X'X)^{-1}  — on device
             cov_params = self._scale * XtX_inv
             bse_dev = xp.sqrt(xp.maximum(xp.diag(cov_params), 0.0))
 
@@ -271,7 +267,6 @@ class PanelOLS(BaseEstimator):
 
         else:  # clustered
             cluster_np = _to_numpy(cluster)
-            # Keep X and resid on device — only cluster labels go to CPU
             if cluster_np.ndim == 2 and cluster_np.shape[1] == 2:
                 V = two_way_clustered_covariance(
                     X_d, resid, cluster_np[:, 0], cluster_np[:, 1], xp=xp
@@ -283,28 +278,28 @@ class PanelOLS(BaseEstimator):
         # t-values — on device
         _eps = xp.finfo(xp.float64).tiny if hasattr(xp, 'finfo') else 2.2e-308
         tvalues_dev = coef / xp.maximum(bse_dev, _eps)
+        abs_t = xp.abs(tvalues_dev)
 
-        # Transfer only k-length vectors to CPU for scipy p-values
-        bse_np = _to_numpy(bse_dev).ravel()
-        tvalues_np = _to_numpy(tvalues_dev).ravel()
-
+        # p-values via backend-agnostic inference framework — on device
         if self.cov_type in ('nonrobust',):
-            pvalues_np = 2 * (1 - sp_stats.t.cdf(np.abs(tvalues_np), df))
-            t_crit = sp_stats.t.ppf(1 - alpha / 2, df)
+            t_dist = get_distribution("t", backend=backend_name)
+            pvalues_dev = 2.0 * t_dist.sf(abs_t, float(df))
+            t_crit = float(t_dist.isf(xp.asarray([alpha / 2.0]), float(df))[0])
         else:
-            pvalues_np = 2 * (1 - sp_stats.norm.cdf(np.abs(tvalues_np)))
-            t_crit = sp_stats.norm.ppf(1 - alpha / 2)
+            norm_dist = get_distribution("norm", backend=backend_name)
+            pvalues_dev = 2.0 * norm_dist.sf(abs_t)
+            t_crit = float(norm_dist.isf(xp.asarray([alpha / 2.0]))[0])
+
+        # Final transfer: only k-length vectors to CPU for storage
+        self.bse_ = _to_numpy(bse_dev).ravel()
+        self.tvalues_ = _to_numpy(tvalues_dev).ravel()
+        self.pvalues_ = _to_numpy(pvalues_dev).ravel()
 
         coef_np = _to_numpy(coef).ravel()
-        conf_int_np = np.column_stack([
-            coef_np - t_crit * bse_np,
-            coef_np + t_crit * bse_np,
+        self.conf_int_ = np.column_stack([
+            coef_np - t_crit * self.bse_,
+            coef_np + t_crit * self.bse_,
         ])
-
-        self.bse_ = bse_np
-        self.tvalues_ = tvalues_np
-        self.pvalues_ = pvalues_np
-        self.conf_int_ = conf_int_np
 
         # Within R-squared — on device, single sync
         ss_res = _to_float_scalar(xp.sum(resid ** 2))

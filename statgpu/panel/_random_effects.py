@@ -268,7 +268,7 @@ class RandomEffects(BaseEstimator):
 
     def _compute_inference_on_device(self, xp, X, coef, resid):
         """Compute SE/t/p/CI with matrix ops on device, only final vectors to CPU."""
-        from scipy import stats as sp_stats
+        from statgpu.inference._distributions_backend import get_distribution
 
         n, k = X.shape
         df = self.df_resid
@@ -288,23 +288,26 @@ class RandomEffects(BaseEstimator):
         # t-values on device
         _eps = xp.finfo(xp.float64).tiny if hasattr(xp, 'finfo') else 2.2e-308
         tvalues_dev = coef / xp.maximum(bse_dev, _eps)
+        abs_t = xp.abs(tvalues_dev)
 
-        # Transfer only k-length vectors to CPU for scipy p-values
+        # p-values via backend-agnostic inference framework — on device
+        t_dist = get_distribution("t", backend="auto")
+        pvalues_dev = 2.0 * t_dist.sf(abs_t, float(df))
+        t_crit = float(t_dist.isf(xp.asarray([alpha / 2.0]), float(df))[0])
+
+        # Final transfer: only k-length vectors to CPU for storage
         bse_np = _to_numpy(bse_dev).ravel()
         tvalues_np = _to_numpy(tvalues_dev).ravel()
         coef_np = _to_numpy(coef).ravel()
-
-        pvalues_np = 2 * (1 - sp_stats.t.cdf(np.abs(tvalues_np), df))
-        t_crit = sp_stats.t.ppf(1 - alpha / 2, df)
-        conf_int_np = np.column_stack([
-            coef_np - t_crit * bse_np,
-            coef_np + t_crit * bse_np,
-        ])
+        pvalues_np = _to_numpy(pvalues_dev).ravel()
 
         self.bse_ = bse_np
         self.tvalues_ = tvalues_np
         self.pvalues_ = pvalues_np
-        self.conf_int_ = conf_int_np
+        self.conf_int_ = np.column_stack([
+            coef_np - t_crit * bse_np,
+            coef_np + t_crit * bse_np,
+        ])
 
     def predict(self, X):
         """Predict using the fitted model.
