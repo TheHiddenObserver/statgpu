@@ -222,7 +222,10 @@ def _tracking_penalty_value(penalty, coef):
     try:
         return float(penalty.value(_to_numpy(coef)))
     except (ValueError, TypeError, AttributeError):
-        return _smooth_penalty_value(penalty, coef)
+        pass
+    # SelectivePenalty or other wrappers without value() — return 0
+    # (the penalty effect is captured in the proximal operator, not the value)
+    return 0.0
 
 
 def _abs_mean_max(y, backend):

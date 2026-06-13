@@ -97,16 +97,8 @@ def _batched_group_norms(coef, group_indices, xp):
     return np.array(norms_list)
 
 
-def _get_xp(coef):
-    """Return the correct module (numpy/torch/cupy) for a given array."""
-    mod = type(coef).__module__
-    if mod.startswith("torch"):
-        import torch
-        return torch
-    elif mod.startswith("cupy"):
-        import cupy
-        return cupy
-    return np
+# Use canonical _xp from backends (replaces local _get_xp)
+from statgpu.backends._array_ops import _xp as _get_xp
 
 
 class GroupLassoPenalty(Penalty):
@@ -219,9 +211,21 @@ class GroupLassoPenalty(Penalty):
         if unique_idx.size != flat_indices.size:
             raise ValueError("groups contain duplicate feature indices")
         if unique_idx.size != expected:
-            raise ValueError(
-                "groups must cover a dense range of feature indices [0..max_index]"
-            )
+            # Auto-fill missing indices as single-feature groups
+            import warnings
+            all_indices = set(range(expected))
+            covered = set(unique_idx.tolist())
+            missing = sorted(all_indices - covered)
+            if missing:
+                warnings.warn(
+                    f"Groups do not cover features {missing}. "
+                    f"Auto-adding {len(missing)} single-feature groups.",
+                    UserWarning, stacklevel=2,
+                )
+                for idx in missing:
+                    self._group_indices.append([idx])
+                flat_indices = np.concatenate(self._group_indices)
+                unique_idx = np.unique(flat_indices)
         self._group_feat_idx = np.empty(expected, dtype=np.int64)
         for g, idx in enumerate(self._group_indices):
             self._group_feat_idx[idx] = g

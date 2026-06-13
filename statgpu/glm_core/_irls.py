@@ -204,54 +204,58 @@ def irls_solver(
         Returns device-side value (no GPU→CPU sync) for torch/cupy.
         Uses backend-agnostic operations to avoid triplicated code.
         """
-        _y = y
-        _xpm = _xp(mu_arr) if backend != "numpy" else np
+        return _compute_deviance(mu_arr, y, _fname, _nb_alpha, _tweedie_power, backend)
 
-        if _fname in ("gaussian", "squared_error"):
-            return _xpm.sum((_y - mu_arr) ** 2)
-        elif _fname == "gamma":
+
+def _compute_deviance(mu_arr, y, family_name, nb_alpha, tweedie_power, backend="numpy"):
+    """Compute family-specific deviance. Standalone for testability."""
+    _xpm = _xp(mu_arr) if backend != "numpy" else np
+
+    if family_name in ("gaussian", "squared_error"):
+        return _xpm.sum((y - mu_arr) ** 2)
+    elif family_name == "gamma":
+        _mu_c = _clip(mu_arr, 1e-10, None)
+        return _xpm.sum(y / _mu_c - _xpm.log(y / _mu_c) - 1.0)
+    elif family_name == "inverse_gaussian":
+        _mu_c = _clip(mu_arr, 1e-10, None)
+        return _xpm.sum((y - _mu_c) ** 2 / (y * _mu_c ** 2))
+    elif family_name == "negative_binomial":
+        _mu_c = _clip(mu_arr, 1e-10, None)
+        _y_c = _clip(y, 1e-10, None)
+        _a = nb_alpha
+        return _xpm.sum(
+            2.0 * (_y_c * _xpm.log(_y_c / _mu_c)
+                   - (_y_c + 1.0 / _a) * _xpm.log((1.0 + _a * _y_c) / (1.0 + _a * _mu_c)))
+        )
+    elif family_name == "tweedie":
+        p = tweedie_power
+        if abs(p - 1.0) < 0.01:
             _mu_c = _clip(mu_arr, 1e-10, None)
-            return _xpm.sum(_y / _mu_c - _xpm.log(_y / _mu_c) - 1.0)
-        elif _fname == "inverse_gaussian":
+            return _xpm.sum(_mu_c - y * _xpm.log(_mu_c))
+        elif abs(p - 2.0) < 0.01:
             _mu_c = _clip(mu_arr, 1e-10, None)
-            return _xpm.sum((_y - _mu_c) ** 2 / (_y * _mu_c ** 2))
-        elif _fname == "negative_binomial":
-            _mu_c = _clip(mu_arr, 1e-10, None)
-            _y_c = _clip(_y, 1e-10, None)
-            _a = _nb_alpha
-            return _xpm.sum(
-                2.0 * (_y_c * _xpm.log(_y_c / _mu_c)
-                       - (_y_c + 1.0 / _a) * _xpm.log((1.0 + _a * _y_c) / (1.0 + _a * _mu_c)))
-            )
-        elif _fname == "tweedie":
-            p = _tweedie_power
-            if abs(p - 1.0) < 0.01:
-                _mu_c = _clip(mu_arr, 1e-10, None)
-                return _xpm.sum(_mu_c - _y * _xpm.log(_mu_c))
-            elif abs(p - 2.0) < 0.01:
-                _mu_c = _clip(mu_arr, 1e-10, None)
-                return _xpm.sum(_y / _mu_c - _xpm.log(_y / _mu_c) - 1.0)
-            else:
-                _mu_c = _clip(mu_arr, 1e-10, None)
-                _y_pow_1mp = _xpm.zeros_like(_y)
-                _y_pow_2mp = _xpm.zeros_like(_y)
-                _mask = _y > 0.0
-                if bool(_xpm.any(_mask)):
-                    _y_pos = _y[_mask]
-                    _y_pow_1mp[_mask] = _xpm.power(_y_pos, 1.0 - p)
-                    _y_pow_2mp[_mask] = _xpm.power(_y_pos, 2.0 - p)
-                return _xpm.sum(
-                    _y * (_y_pow_1mp - _xpm.power(_mu_c, 1.0 - p)) / (1.0 - p)
-                    - (_y_pow_2mp - _xpm.power(_mu_c, 2.0 - p)) / (2.0 - p)
-                )
-        elif _fname in ("binomial", "logistic"):
-            _mu_c = _clip(mu_arr, 1e-10, 1.0 - 1e-10)
-            return -2.0 * _xpm.sum(
-                _y * _xpm.log(_mu_c) + (1.0 - _y) * _xpm.log(1.0 - _mu_c)
-            )
+            return _xpm.sum(y / _mu_c - _xpm.log(y / _mu_c) - 1.0)
         else:
             _mu_c = _clip(mu_arr, 1e-10, None)
-            return _xpm.sum(_mu_c - _y * _xpm.log(_mu_c))
+            _y_pow_1mp = _xpm.zeros_like(y)
+            _y_pow_2mp = _xpm.zeros_like(y)
+            _mask = y > 0.0
+            if bool(_xpm.any(_mask)):
+                _y_pos = y[_mask]
+                _y_pow_1mp[_mask] = _xpm.power(_y_pos, 1.0 - p)
+                _y_pow_2mp[_mask] = _xpm.power(_y_pos, 2.0 - p)
+            return _xpm.sum(
+                y * (_y_pow_1mp - _xpm.power(_mu_c, 1.0 - p)) / (1.0 - p)
+                - (_y_pow_2mp - _xpm.power(_mu_c, 2.0 - p)) / (2.0 - p)
+            )
+    elif family_name in ("binomial", "logistic"):
+        _mu_c = _clip(mu_arr, 1e-10, 1.0 - 1e-10)
+        return -2.0 * _xpm.sum(
+            y * _xpm.log(_mu_c) + (1.0 - y) * _xpm.log(1.0 - _mu_c)
+        )
+    else:
+        _mu_c = _clip(mu_arr, 1e-10, None)
+        return _xpm.sum(_mu_c - y * _xpm.log(_mu_c))
 
     iteration = -1  # ensure defined when max_iter=0
     for iteration in range(max_iter):

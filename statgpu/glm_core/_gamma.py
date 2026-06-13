@@ -75,7 +75,11 @@ class GammaLoss(GLMLoss):
             W = 1.0 / (eta * eta)
         else:
             # Expected Fisher: W(mu) = 1 for Gamma with log link
-            W = np.ones(X.shape[0]) if not hasattr(X, 'device') else _xp(X).ones(X.shape[0], dtype=X.dtype, device=X.device)
+            xp = _xp(X)
+            if xp.__name__ == "torch":
+                W = xp.ones(X.shape[0], dtype=X.dtype, device=X.device)
+            else:
+                W = xp.ones(X.shape[0], dtype=X.dtype)
         if sample_weight is not None:
             W = W * sample_weight
         return X.T @ (X * W[:, None]) / n_eff

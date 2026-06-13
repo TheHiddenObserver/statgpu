@@ -164,6 +164,21 @@ class BackendBase(ABC):
         """Reverse the order of elements along *axis*."""
         return self.xp.flip(arr, axis=axis)
 
+    def copy(self, arr):
+        """Return a copy of *arr*."""
+        return arr.copy()
+
+    def reshape(self, arr, shape):
+        """Reshape *arr* to *shape*."""
+        return arr.reshape(shape)
+
+    def logsumexp(self, arr, axis=None):
+        """Log-sum-exp along *axis*."""
+        import numpy as np
+        xp = self.xp
+        m = xp.max(arr, axis=axis, keepdims=True)
+        return xp.squeeze(m, axis=axis) + xp.log(xp.sum(xp.exp(arr - m), axis=axis))
+
     def __repr__(self) -> str:
         available = "available" if self.is_available() else "unavailable"
         return f"{self.__class__.__name__}(name={self.name!r}, {available})"

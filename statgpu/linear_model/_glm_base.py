@@ -251,15 +251,21 @@ class GeneralizedLinearModel(BaseEstimator):
         # Convert to backend arrays using xp_asarray for proper device placement
         from statgpu.backends._utils import _get_xp, xp_asarray
         xp = _get_xp(backend_name)
-        X_arr = xp_asarray(X_arr, dtype=xp.float64, xp=xp)
-        y_arr = xp_asarray(y_arr, dtype=xp.float64, xp=xp)
+        # For torch backend, ensure arrays land on CUDA (not CPU)
+        _ref = None
+        if backend_name == "torch":
+            import torch
+            _ref = torch.empty(0, dtype=torch.float64, device="cuda")
+        X_arr = xp_asarray(X_arr, dtype=xp.float64, xp=xp, ref_arr=_ref)
+        y_arr = xp_asarray(y_arr, dtype=xp.float64, xp=xp, ref_arr=_ref)
         self._nobs = X_arr.shape[0]
 
         family = self._get_family()
         _solver_lower = self.solver.lower() if isinstance(self.solver, str) else self.solver
         if _solver_lower == "auto":
-            # Heuristic: IRLS for smooth penalties, FISTA for non-smooth
-            _pname = str(getattr(self._penalty, "name", "none")).lower()
+            # Heuristic: IRLS for smooth/no penalties, FISTA for non-smooth
+            _pen = getattr(self, "_penalty", None)
+            _pname = str(getattr(_pen, "name", "none")).lower() if _pen is not None else "none"
             if _pname in ("l1", "scad", "mcp", "adaptive_l1", "adaptive_lasso",
                           "group_lasso", "group_mcp", "group_scad"):
                 solver_name = "fista"
@@ -479,7 +485,7 @@ class GeneralizedLinearModel(BaseEstimator):
             ):
                 init[-1] = np.log(y_mean)
             if backend_name == "cupy":
-                init = cp.asarray(init, dtype=x_dtype)
+                init = _xp_mod.asarray(init, dtype=x_dtype)
             elif backend_name == "torch":
                 init = torch.from_numpy(init).to(X.device).to(x_dtype)
 
@@ -1211,7 +1217,10 @@ class OrderedGeneralizedLinearModel(GeneralizedLinearModel):
         diff = thresholds[:, None] - eta[None, :]
         pi = family.link.inverse(diff)  # (K+1, n) with -inf/+inf thresholds
 
-        proba = xp.diff(pi, axis=0).T  # (n, K)
+        if hasattr(xp, '__name__') and xp.__name__ == "torch":
+            proba = xp.diff(pi, dim=0).T  # (n, K)
+        else:
+            proba = xp.diff(pi, axis=0).T  # (n, K)
         if backend_name != "numpy":
             out = _to_numpy(proba)
             self._cleanup_backend_memory(backend_name)

@@ -266,7 +266,10 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
             return self.solver
         if self.loss == "squared_error" and self._penalty.name == "l2":
             return "exact"
-        if self._penalty.name in ("l1", "elasticnet"):
+        _non_smooth = {"l1", "elasticnet", "en", "scad", "mcp", "adaptive_l1",
+                       "adaptive_lasso", "group_lasso", "gl", "group_mcp",
+                       "gmcp", "group_scad", "gscad"}
+        if self._penalty.name in _non_smooth:
             return "fista"
         if backend_name in ("cupy", "torch"):
             return "fista"
