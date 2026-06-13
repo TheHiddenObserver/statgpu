@@ -44,7 +44,7 @@ class AdaptiveL1Penalty(Penalty):
         Regularization strength.
     nu : float, default=1.0
         Exponent for weight computation (1 or 2, per Zou 2006).
-    eps : float, default=1e-4
+    eps : float, default=1e-8
         Small constant to avoid division by zero.
     init_method : str, default='auto'
         Method for initial coefficient estimates:

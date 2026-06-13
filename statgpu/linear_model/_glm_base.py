@@ -988,7 +988,7 @@ class OrderedGeneralizedLinearModel(GeneralizedLinearModel):
 
         X_mean = X.mean(dim=0)
         X_std = X.std(dim=0)
-        X_std = torch.clamp(X_std, 1e-10)
+        X_std = torch.where(X_std < 1e-10, torch.ones_like(X_std), X_std)
         Xs = (X - X_mean) / X_std
 
         # Parameters: [beta (p), thresholds (K-1)]

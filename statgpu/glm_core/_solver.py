@@ -733,12 +733,8 @@ def fista_solver(
                         # capture the y-dependent curvature scaling applied at init)
                         if _y_scale > 1.0:
                             L_new = L_new * _y_scale
-                        if _loss_name == "tweedie":
-                            L_new *= 5.0
-                        elif _loss_name == "gamma":
-                            L_new *= 3.0
-                        elif _loss_name == "inverse_gaussian":
-                            L_new *= 3.0
+                        _safety = getattr(loss, '_lipschitz_safety', 1.0)
+                        L_new *= _safety
                         if _smooth_lip > 0:
                             L_new = L_new + _smooth_lip
                         if L_new > L:
