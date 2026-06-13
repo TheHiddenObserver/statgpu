@@ -239,6 +239,10 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
             "adaptive_lasso",
             "group_lasso",
             "gl",
+            "group_mcp",
+            "gmcp",
+            "group_scad",
+            "gscad",
             "scad",
             "mcp",
         }
