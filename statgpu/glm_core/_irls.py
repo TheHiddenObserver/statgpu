@@ -206,6 +206,162 @@ def irls_solver(
         """
         return _compute_deviance(mu_arr, y, _fname, _nb_alpha, _tweedie_power, backend)
 
+    iteration = -1  # ensure defined when max_iter=0
+    for iteration in range(max_iter):
+        params_old = _copy_arr(params)
+
+        # Step 1: linear predictor (clip eta to prevent exp overflow)
+        eta_raw = X @ params
+        _link_name = getattr(family.link, 'name', '')
+        if _link_name in ('identity', 'Identity'):
+            eta = eta_raw
+        else:
+            eta = _clip(eta_raw, -30, 30)
+
+        # Step 2: inverse link -> mean
+        mu = family.link.inverse(eta)
+        if _link_name not in ('identity', 'Identity'):
+            mu = _clip(mu, 1e-10, 1e6)
+
+        # Step 3: IRLS weights
+        W = family.irls_weights(mu, y)
+        W = _clip(W, 1e-10, None)
+        if sample_weight is not None:
+            W = W * sample_weight
+
+        # Step 4: working response
+        z = family.irls_working_response(mu, y, eta)
+
+        # Step 5: weighted least squares
+        if backend == "torch":
+            import torch
+            _compiled_step = _get_irls_step_compiled()
+            XtWX, Xtz = _irls_step_call(_compiled_step, X, W, z)
+        else:
+            if backend == "cupy":
+                import cupy as cp
+                W_col = W[:, cp.newaxis]
+            else:
+                W_col = W[:, np.newaxis]
+            XtWX = X.T @ (X * W_col)
+            Xtz = X.T @ (W * z)
+
+        if ridge_alpha > 0:
+            reg = np.full(XtWX.shape[0], ridge_alpha)
+            if not ridge_penalize_intercept:
+                reg[0] = 0.0
+            XtWX = XtWX + _diag(reg, backend, ref_tensor=X)
+
+        params_new = _solve_linear_system(XtWX, Xtz, backend)
+
+        # Line search with deviance check
+        eta_cur = _clip(X @ params_old, -30, 30)
+        mu_cur = family.link.inverse(eta_cur)
+        try:
+            dev_old_dev = _dev_val(mu_cur)
+        except Exception:
+            dev_old_dev = float('inf')
+
+        _direction = params_new - params_old
+        _gamma_link = getattr(family, 'link_name', getattr(getattr(family, 'link', None), 'name', ''))
+        _is_constant_W = (
+            _fname in ("gaussian", "squared_error")
+            or (_fname == "gamma" and _gamma_link in ("log", "LogLink"))
+        )
+
+        if backend == "torch":
+            dev_old_f = float(dev_old_dev.item())
+        elif backend == "cupy":
+            dev_old_f = float(dev_old_dev)
+        else:
+            dev_old_f = float(dev_old_dev)
+        if backend == "cupy" and _fname == "negative_binomial":
+            _dev_tol = max(abs(dev_old_f) * 1e-6, 1e-4)
+        else:
+            _dev_tol = max(abs(dev_old_f) * 1e-10, 1e-6)
+
+        def _dev_accept(dev_try_dev):
+            if backend == "torch":
+                import torch
+                if torch.isnan(dev_try_dev):
+                    return False
+                return bool((dev_try_dev <= dev_old_dev + _dev_tol).item())
+            elif backend == "cupy":
+                import cupy as cp
+                if cp.isnan(dev_try_dev):
+                    return False
+                return bool(dev_try_dev <= dev_old_dev + _dev_tol)
+            else:
+                if dev_try_dev != dev_try_dev:
+                    return False
+                return dev_try_dev <= dev_old_f + _dev_tol
+
+        if _is_constant_W:
+            eta_new = _clip(X @ params_new, -30, 30)
+            mu_new = family.link.inverse(eta_new)
+            try:
+                dev_new_dev = _dev_val(mu_new)
+            except Exception:
+                dev_new_dev = float('inf')
+            if _dev_accept(dev_new_dev):
+                params = params_new
+            else:
+                step = 1.0
+                _accepted = False
+                for _bt in range(30):
+                    params_try = params_old + step * _direction
+                    eta_try = _clip(X @ params_try, -30, 30)
+                    mu_try = family.link.inverse(eta_try)
+                    try:
+                        dev_try_dev = _dev_val(mu_try)
+                    except Exception:
+                        step *= 0.5
+                        continue
+                    if _dev_accept(dev_try_dev):
+                        _accepted = True
+                        break
+                    step *= 0.5
+                params = params_try if _accepted else params_old + 0.1 * _direction
+        else:
+            step = 1.0
+            _accepted = False
+            for _bt in range(30):
+                params_try = params_old + step * _direction
+                eta_try = _clip(X @ params_try, -30, 30)
+                mu_try = family.link.inverse(eta_try)
+                try:
+                    dev_try_dev = _dev_val(mu_try)
+                except Exception:
+                    step *= 0.5
+                    continue
+                if _dev_accept(dev_try_dev):
+                    _accepted = True
+                    break
+                step *= 0.5
+            if _accepted:
+                params = params_try
+            else:
+                params = params_old + 0.1 * _direction
+
+        # Convergence check
+        if iteration % 5 == 4 or iteration == max_iter - 1:
+            _param_change = float(_norm2(params - params_old))
+            _param_norm = max(float(_norm2(params)), 1.0)
+            grad_norm = _param_change / _param_norm
+            if grad_norm < tol:
+                break
+
+    n_iter = iteration + 1
+    if n_iter >= max_iter:
+        from statgpu.glm_core._solver_utils import ConvergenceWarning
+        warnings.warn(
+            f"irls did not converge within {max_iter} iterations "
+            f"(family={getattr(family, 'name', '?')}).",
+            ConvergenceWarning,
+            stacklevel=2,
+        )
+    return params, n_iter
+
 
 def _compute_deviance(mu_arr, y, family_name, nb_alpha, tweedie_power, backend="numpy"):
     """Compute family-specific deviance. Standalone for testability."""
