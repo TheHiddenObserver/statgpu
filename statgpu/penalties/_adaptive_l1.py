@@ -193,10 +193,11 @@ class AdaptiveL1Penalty(Penalty):
     # Gradient
     # ----------------------------------------------------------------
 
-    def gradient(self, coef: np.ndarray) -> np.ndarray:
+    def gradient(self, coef):
+        xp = _xp(coef)
         if not hasattr(self, "_weights"):
-            self._weights = np.ones_like(coef)
-        return self.alpha * self._weights * np.sign(coef)
+            self._weights = xp.ones_like(coef)
+        return self.alpha * self._weights * xp.sign(coef)
 
     # ----------------------------------------------------------------
     # Proximal operator (FISTA path)

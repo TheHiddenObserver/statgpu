@@ -3510,10 +3510,7 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
         #     for both GLM and squared_error; avoids slow sequential CD)
         #   squared_error + SCAD/MCP → IRLS-CD (matching R ncvreg)
         #   GLM + SCAD/MCP → IRLS-CD (matching R ncvreg's IRLS+CD algorithm)
-        _use_fista = (
-            (_pen_name in ("adaptive_l1", "adaptive_lasso") and _is_glm_loss)
-            or (_pen_name in ("adaptive_l1", "adaptive_lasso") and not _is_glm_loss)
-        )
+        _use_fista = _pen_name in ("adaptive_l1", "adaptive_lasso")
         _use_irls_cd = (
             (_pen_name in ("scad", "mcp") and not _is_glm_loss)
         )

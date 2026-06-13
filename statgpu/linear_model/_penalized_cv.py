@@ -1289,6 +1289,7 @@ def _glm_sparse_cv_path(
     return_path=False,
     solver_name="fista",
     cv_mode=True,
+    loss_kwargs=None,
 ):
     """Warm-started sparse GLM alpha path for CV.
 
@@ -1350,7 +1351,7 @@ def _glm_sparse_cv_path(
         if sample_weight is not None
         else None
     )
-    loss_fn = _resolve_loss_name(loss_name)
+    loss_fn = _resolve_loss_name(loss_name, loss_kwargs=loss_kwargs)
     if penalty_name in ("elasticnet", "en"):
         base_penalty = get_penalty("elasticnet", alpha=float(alphas[0]), l1_ratio=float(l1_ratio))
     else:
@@ -1494,6 +1495,7 @@ def _scad_mcp_cv_path(
     return_path=False,
     max_lla_per_step=3,
     lla_tol=1e-4,
+    loss_kwargs=None,
 ):
     """Warm-started SCAD/MCP alpha path for CV.
 
@@ -1555,7 +1557,7 @@ def _scad_mcp_cv_path(
     else:
         swv = None
 
-    loss_fn = _resolve_loss_name(loss_name)
+    loss_fn = _resolve_loss_name(loss_name, loss_kwargs=loss_kwargs)
 
     # Create SCAD/MCP penalty object
     if penalty_name == "scad":

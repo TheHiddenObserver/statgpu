@@ -423,7 +423,7 @@ def _select_ridge_alpha_cv(
             warnings.warn("All provided alphas were filtered; using default grid.", RuntimeWarning)
             if gpu_input_cupy or gpu_input_torch or use_gpu:
                 # GPU path for alpha grid generation
-                backend = get_backend(Device.CUDA)
+                backend = get_backend(backend="auto", device="cuda")
                 X_temp = backend.asarray(X)
                 y_temp = backend.asarray(y)
                 X_mean = backend.mean(X_temp, axis=0)

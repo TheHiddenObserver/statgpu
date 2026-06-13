@@ -234,16 +234,17 @@ class CompositePenalty(Penalty):
             result = pen.proximal(result, step * weight, backend)
         return result
 
-    def lla_weights(self, coef: np.ndarray) -> np.ndarray:
+    def lla_weights(self, coef):
         """LLA weights: weighted sum of individual LLA weights.
 
         For composite penalty P(w) = sum_i w_i * P_i(w),
         the LLA weight is sum_i w_i * P_i'(|coef|).
         """
+        xp = _xp(coef)
         if not any(not p.is_convex for p in self.penalties):
-            return np.ones_like(coef)
+            return xp.ones_like(coef)
 
-        result = np.zeros_like(coef)
+        result = xp.zeros_like(coef)
         for weight, pen in zip(self.weights, self.penalties):
             if not pen.is_convex:
                 result = result + weight * pen.lla_weights(coef)
