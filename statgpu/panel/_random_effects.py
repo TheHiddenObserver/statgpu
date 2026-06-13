@@ -243,8 +243,6 @@ class RandomEffects(BaseEstimator):
         for j in range(k):
             X_star[:, j] = X_arr[:, j] - theta_arr * X_bar_i[:, j]
 
-        self._y_transformed = _to_numpy(y_star)
-
         # --- Step 5: OLS on transformed data ---
         XtX_s = X_star.T @ X_star
         Xty_s = X_star.T @ y_star

@@ -271,16 +271,14 @@ class PanelOLS(BaseEstimator):
 
         else:  # clustered
             cluster_np = _to_numpy(cluster)
-            X_np = _to_numpy(X_d)
-            resid_np = _to_numpy(resid)
+            # Keep X and resid on device — only cluster labels go to CPU
             if cluster_np.ndim == 2 and cluster_np.shape[1] == 2:
                 V = two_way_clustered_covariance(
-                    X_np, resid_np, cluster_np[:, 0], cluster_np[:, 1], xp=np
+                    X_d, resid, cluster_np[:, 0], cluster_np[:, 1], xp=xp
                 )
             else:
-                V = clustered_covariance(X_np, resid_np, cluster_np, xp=np)
-            bse_dev = xp.asarray(np.sqrt(np.maximum(np.diag(V), 0.0)),
-                                 dtype=xp.float64)
+                V = clustered_covariance(X_d, resid, cluster_np, xp=xp)
+            bse_dev = xp.sqrt(xp.maximum(xp.diag(V), 0.0))
 
         # t-values — on device
         _eps = xp.finfo(xp.float64).tiny if hasattr(xp, 'finfo') else 2.2e-308
