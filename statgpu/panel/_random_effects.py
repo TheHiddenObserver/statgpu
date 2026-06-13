@@ -25,7 +25,7 @@ from statgpu._base import BaseEstimator
 from statgpu._config import Device
 from statgpu.backends import _LINALG_ERRORS, _get_torch_device_str, _torch_dev, _to_float_scalar, _to_numpy, xp_astype, xp_zeros, xp_cholesky_solve
 
-from ._utils import PanelSummary, within_transform, group_means, group_sizes, ols_inference_nonrobust
+from ._utils import PanelSummary, within_transform, group_means, group_sizes
 
 
 class RandomEffects(BaseEstimator):
@@ -358,3 +358,18 @@ class RandomEffects(BaseEstimator):
         )
         print(s)
         return s
+
+    def get_params(self, deep=True):
+        """Get parameters for this estimator."""
+        params = super().get_params(deep)
+        params.update({
+            'alpha': self.alpha,
+        })
+        return params
+
+    def set_params(self, **params):
+        """Set parameters for this estimator."""
+        if 'alpha' in params:
+            self.alpha = params.pop('alpha')
+        super().set_params(**params)
+        return self

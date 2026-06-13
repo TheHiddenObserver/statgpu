@@ -17,7 +17,7 @@ from statgpu._base import BaseEstimator
 from statgpu._config import Device
 from statgpu.backends import _LINALG_ERRORS, _get_torch_device_str, _torch_dev, _to_float_scalar, _to_numpy, xp_astype, xp_cholesky_solve
 
-from ._utils import PanelSummary, _scatter_add, demean_variables, ols_inference_nonrobust
+from ._utils import PanelSummary, _scatter_add, demean_variables
 from ._covariance import clustered_covariance, two_way_clustered_covariance
 
 
@@ -336,17 +336,21 @@ class PanelOLS(BaseEstimator):
             X_arr = X_arr.reshape(-1, 1)
         y_pred = X_arr @ self.coef_
 
-        # Add entity effects if available
+        # Add entity effects via vectorized lookup
         if self._entity_effects_map and entity_ids is not None:
             ent_arr = np.asarray(entity_ids).ravel()
-            for i, eid in enumerate(ent_arr):
-                y_pred[i] += self._entity_effects_map.get(eid, 0.0)
+            ent_effects = np.vectorize(
+                self._entity_effects_map.get, otypes=[np.float64]
+            )(ent_arr, 0.0)
+            y_pred = y_pred + ent_effects
 
-        # Add time effects if available
+        # Add time effects via vectorized lookup
         if self._time_effects_map and time_ids is not None:
             time_arr = np.asarray(time_ids).ravel()
-            for i, tid in enumerate(time_arr):
-                y_pred[i] += self._time_effects_map.get(tid, 0.0)
+            time_effects = np.vectorize(
+                self._time_effects_map.get, otypes=[np.float64]
+            )(time_arr, 0.0)
+            y_pred = y_pred + time_effects
 
         return y_pred
 
@@ -382,3 +386,22 @@ class PanelOLS(BaseEstimator):
         )
         print(s)
         return s
+
+    def get_params(self, deep=True):
+        """Get parameters for this estimator."""
+        params = super().get_params(deep)
+        params.update({
+            'entity_effects': self.entity_effects,
+            'time_effects': self.time_effects,
+            'cov_type': self.cov_type,
+            'alpha': self.alpha,
+        })
+        return params
+
+    def set_params(self, **params):
+        """Set parameters for this estimator."""
+        for key in ('entity_effects', 'time_effects', 'cov_type', 'alpha'):
+            if key in params:
+                setattr(self, key, params.pop(key))
+        super().set_params(**params)
+        return self

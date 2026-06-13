@@ -154,13 +154,16 @@ def _scatter_add(xp, indices, values, n_groups):
         return out
     elif hasattr(xp, 'add') and hasattr(xp, 'zeros') and xp.__name__ == 'cupy':
         # CuPy: use cupyx.scatter_add or cp.add.at
-        out = xp.zeros(n_groups, dtype=values.dtype)
         try:
+            out = xp.zeros(n_groups, dtype=values.dtype)
             from cupyx import scatter_add as _scatter_add_cu
             _scatter_add_cu(out, indices, values)
+            return out
         except ImportError:
-            np.add.at(out, _to_numpy(indices), _to_numpy(values))
-        return out
+            # Fallback: compute on CPU then transfer back to GPU
+            out_np = np.zeros(n_groups, dtype=values.dtype)
+            np.add.at(out_np, _to_numpy(indices), _to_numpy(values))
+            return xp.asarray(out_np)
     else:
         # NumPy: np.add.at
         out = np.zeros(n_groups, dtype=values.dtype)
