@@ -72,35 +72,10 @@ def _irls_ridge_init(X, y, loss_name, alpha=0.01, max_iter=100, tol=1e-4, loss_k
 
 
 def _resolve_loss_name(loss_name, loss_kwargs=None):
-    """Resolve loss name string to loss object."""
+    """Resolve loss name string to loss object via the GLM loss registry."""
+    from statgpu.glm_core._base import get_glm_loss
     loss_kwargs = loss_kwargs or {}
-    if loss_name == "squared_error":
-        from statgpu.glm_core._squared import SquaredErrorLoss
-        return SquaredErrorLoss()
-    elif loss_name == "logistic":
-        from statgpu.glm_core._logistic import LogisticLoss
-        return LogisticLoss()
-    elif loss_name == "poisson":
-        from statgpu.glm_core._poisson import PoissonLoss
-        return PoissonLoss()
-    elif loss_name == "gamma":
-        from statgpu.glm_core._gamma import GammaLoss
-        return GammaLoss(**loss_kwargs)
-    elif loss_name == "inverse_gaussian":
-        from statgpu.glm_core._inverse_gaussian import InverseGaussianLoss
-        return InverseGaussianLoss()
-    elif loss_name == "negative_binomial":
-        from statgpu.glm_core._negative_binomial import NegativeBinomialLoss
-        return NegativeBinomialLoss(**loss_kwargs)
-    elif loss_name == "tweedie":
-        from statgpu.glm_core._tweedie import TweedieLoss
-        return TweedieLoss(**loss_kwargs)
-    else:
-        raise ValueError(
-            f"Unknown loss '{loss_name}'. Supported losses: "
-            "squared_error, logistic, poisson, gamma, inverse_gaussian, "
-            "negative_binomial, tweedie"
-        )
+    return get_glm_loss(loss_name, **loss_kwargs)
 
 
 # ---------------------------------------------------------------------------

@@ -8,6 +8,9 @@ Supports numpy / cupy / torch backends via auto-detection.
 
 __all__ = ["ConvergenceWarning", "fista_solver", "fista_lla_path", "fista_bb_solver", "newton_solver", "lbfgs_solver", "admm_solver"]
 
+# Import shared penalty categories
+from statgpu.penalties._categories import NONSMOOTH as _NONSMOOTH_ALL, BB_DISABLED as _BB_DISABLED
+
 
 import copy
 import warnings
@@ -142,10 +145,7 @@ def fista_solver(
     # Conservative momentum (cap beta at 0.5) for exp-link families and
     # for logistic/gamma with non-smooth penalties.  Logistic/gamma with
     # smooth penalties (none, l2) benefit from full Nesterov acceleration.
-    _non_smooth_pen = getattr(penalty, 'name', '') in (
-        "l1", "elasticnet", "en", "scad", "mcp", "adaptive_l1", "adaptive_lasso",
-        "group_lasso", "gl", "group_mcp", "gmcp", "group_scad", "gscad",
-    )
+    _non_smooth_pen = getattr(penalty, 'name', '') in _NONSMOOTH_ALL
     _conservative_momentum = (
         _loss_name in ("poisson", "negative_binomial", "tweedie", "inverse_gaussian")
         or (_loss_name in ("logistic", "gamma") and _non_smooth_pen)
@@ -536,10 +536,7 @@ def fista_lla_path(
     _loss_name = getattr(loss, 'name', '')
     _is_quadratic = (_loss_name == "squared_error")
     _no_momentum = _loss_name in ("poisson",)
-    _non_smooth_pen_lla = getattr(scad_penalty, 'name', '') in (
-        "l1", "elasticnet", "en", "scad", "mcp", "adaptive_l1", "adaptive_lasso",
-        "group_lasso", "gl", "group_mcp", "gmcp", "group_scad", "gscad",
-    )
+    _non_smooth_pen_lla = getattr(scad_penalty, 'name', '') in _NONSMOOTH_ALL
     _conservative_momentum_lla = (
         _loss_name in ("poisson", "negative_binomial", "tweedie", "inverse_gaussian")
         or (_loss_name in ("logistic", "gamma") and _non_smooth_pen_lla)
@@ -1309,11 +1306,7 @@ def fista_bb_solver(
     # amplifying noise through the non-linear link and causing catastrophic
     # divergence.  Disable BB entirely for these.
     _pen_name = getattr(penalty, "name", _pen_name).lower() if hasattr(getattr(penalty, "name", _pen_name), 'lower') else _pen_name
-    _bb_disabled = {
-        "scad", "mcp",
-        "group_lasso", "gl", "group_mcp", "gmcp", "group_scad", "gscad",
-    }
-    if _pen_name in _bb_disabled:
+    if _pen_name in _BB_DISABLED:
         bb_burn_in = max_iter + 1  # never switch to BB
     elif _pen_name in {"l1", "elasticnet", "en", "adaptive_l1", "adaptive_lasso"}:
         bb_burn_in = max(bb_burn_in, 50)  # longer burn-in for non-smooth
