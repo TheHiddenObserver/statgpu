@@ -1158,17 +1158,3 @@ class RidgeCV(CVEstimatorBase):
         """Predict using the fitted Ridge model."""
         self._check_is_fitted()
         return self.estimator_.predict(X)
-
-    def score(self, X, y):
-        """Return R² score."""
-        self._check_is_fitted()
-        return self.estimator_.score(X, y)
-
-    def summary(self):
-        """Return summary of the fitted model."""
-        self._check_is_fitted()
-        if self.estimator_ is None:
-            raise RuntimeError("No fitted estimator available.")
-        if not hasattr(self.estimator_, "summary"):
-            raise RuntimeError(f"{self.estimator_.__class__.__name__} does not implement summary().")
-        return self.estimator_.summary()

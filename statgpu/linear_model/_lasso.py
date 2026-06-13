@@ -1,4 +1,4 @@
-﻿"""
+"""
 Lasso regression with full statistical inference and GPU support.
 """
 

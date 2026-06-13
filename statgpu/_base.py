@@ -2,6 +2,8 @@
 Base classes for statgpu estimators.
 """
 
+__all__ = ["BaseEstimator"]
+
 from abc import ABC, abstractmethod
 from typing import Optional, Union, Any
 import numpy as np

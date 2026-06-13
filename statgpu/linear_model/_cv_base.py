@@ -20,6 +20,15 @@ from statgpu._config import Device
 from statgpu.backends import _to_numpy
 
 
+def _torch_cuda_available():
+    """Check if torch CUDA is available (shared utility)."""
+    try:
+        import torch
+        return torch.cuda.is_available()
+    except Exception:
+        return False
+
+
 # ---------------------------------------------------------------------------
 # K-fold splitting
 # ---------------------------------------------------------------------------

@@ -318,12 +318,8 @@ def _backend_name_for_cv_device(device):
     return "numpy"
 
 
-def _torch_cuda_available():
-    try:
-        import torch
-        return torch.cuda.is_available()
-    except Exception:
-        return False
+# Import shared utility from _cv_base
+from statgpu.linear_model._cv_base import _torch_cuda_available
 
 
 def _logistic_sparse_effective_max_iter(max_iter, device, penalty_name, refit=False):
