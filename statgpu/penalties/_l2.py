@@ -8,6 +8,7 @@ __all__ = ["L2Penalty"]
 
 
 from typing import Optional
+from statgpu.backends._array_ops import _xp
 import numpy as np
 from statgpu.penalties._base import Penalty
 
@@ -30,13 +31,16 @@ class L2Penalty(Penalty):
         alpha : float, default=1.0
             Regularization strength.
         """
+        if alpha < 0:
+            raise ValueError(f"alpha must be non-negative, got {alpha}")
         self.alpha = alpha
 
-    def value(self, coef: np.ndarray) -> float:
+    def value(self, coef):
         """P(w) = (α/2) * Σw_j²"""
-        return 0.5 * self.alpha * np.sum(coef ** 2)
+        xp = _xp(coef)
+        return 0.5 * self.alpha * float(xp.sum(coef ** 2))
 
-    def gradient(self, coef: np.ndarray) -> np.ndarray:
+    def gradient(self, coef):
         """∇P(w) = α * w"""
         return self.alpha * coef
 

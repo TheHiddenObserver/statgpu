@@ -71,6 +71,9 @@ def _sigmoid(arr):
 def _softplus(x):
     """Numerically stable softplus: log(1 + exp(x))."""
     xp = _xp(x)
+    if xp.__name__ == "torch":
+        import torch.nn.functional as F
+        return F.softplus(x)
     return xp.log1p(xp.exp(-xp.abs(x))) + _clip(x, 0.0, None)
 
 
@@ -156,12 +159,9 @@ def _to_backend(arr, backend="auto", ref_tensor=None, dtype=None):
         out_dtype = dtype
         if out_dtype is None:
             ref_dtype = getattr(ref_tensor, "dtype", None)
-            try:
-                if ref_dtype is not None and np.issubdtype(ref_dtype, np.floating):
-                    out_dtype = ref_dtype
-                else:
-                    out_dtype = cp.float64
-            except TypeError:
+            if ref_dtype is not None and 'float' in str(ref_dtype):
+                out_dtype = ref_dtype
+            else:
                 out_dtype = cp.float64
         return cp.asarray(arr, dtype=out_dtype)
     if backend == "torch":
@@ -400,10 +400,10 @@ def _max_eigval_power(mat, n_iter=20, tol=1e-8):
     # eigenspace (e.g., [[1,-1],[-1,1]]).
     if xp.__name__ == "torch":
         v = xp.arange(1, p + 1, dtype=dtype, device=mat.device)
+    elif dtype is not None:
+        v = xp.arange(1, p + 1, dtype=dtype)
     else:
-        v = xp.arange(1, p + 1)
-        if dtype is not None and hasattr(v, 'astype'):
-            v = v.astype(dtype)
+        v = xp.arange(1, p + 1, dtype=xp.float64)
 
     v_norm = xp.sqrt(xp.dot(v, v))
     v_norm_val = float(v_norm)
@@ -425,7 +425,7 @@ def _max_eigval_power(mat, n_iter=20, tol=1e-8):
             v = v_new / v_norm
             # lambda = v^T A v = v^T v_new (v_new = A v, already computed)
             lambda_new = float(xp.dot(v, v_new))
-            if abs(lambda_new - lambda_old) < tol * abs(lambda_new):
+            if lambda_old > 0 and abs(lambda_new - lambda_old) < tol * abs(lambda_new):
                 break
             lambda_old = lambda_new
         return lambda_new
@@ -459,7 +459,8 @@ def _soft_threshold(w, thresh):
     """
     xp = _xp(w)
     abs_w = xp.abs(w)
-    return xp.where(abs_w > thresh, abs_w - thresh, 0.0) * xp.sign(w)
+    # +0.0 eliminates negative zeros from sign(w)
+    return (xp.where(abs_w > thresh, abs_w - thresh, 0.0) * xp.sign(w)) + 0.0
 
 
 def _scalar_tensor(val, ref_arr):

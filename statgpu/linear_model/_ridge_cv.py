@@ -2,14 +2,19 @@
 RidgeCV: Cross-validated Ridge regression with GPU support.
 """
 
+from __future__ import annotations
+
+__all__ = ["RidgeCV"]
+
 from typing import Any, Dict, Optional, Tuple, Union
 from collections import OrderedDict
 import hashlib
+import warnings
 import numpy as np
 
 from statgpu._config import Device
 from statgpu.linear_model._cv_base import CVEstimatorBase
-from statgpu.backends import get_backend
+from statgpu.backends import get_backend, _torch_dev
 from statgpu.backends._factory import _cupy_backend, _torch_backend
 from statgpu.linear_model._ridge import Ridge
 
@@ -18,41 +23,55 @@ from statgpu.linear_model._ridge import Ridge
 # CV Cache for Ridge
 # =============================================================================
 
+import threading
+
 _RIDGE_CV_ALPHA_CACHE_MAXSIZE = int(64)
 _RIDGE_CV_ALPHA_CACHE: "OrderedDict[Tuple[Any, ...], Dict[str, Any]]" = OrderedDict()
+_RIDGE_CV_CACHE_LOCK = threading.Lock()
 
 
 def _ridge_cv_cache_get(key):
     """Get cached Ridge CV results."""
     if key is None:
         return None
-    val = _RIDGE_CV_ALPHA_CACHE.get(key)
-    if val is not None:
-        _RIDGE_CV_ALPHA_CACHE.move_to_end(key)
-    return val
+    with _RIDGE_CV_CACHE_LOCK:
+        val = _RIDGE_CV_ALPHA_CACHE.get(key)
+        if val is not None:
+            _RIDGE_CV_ALPHA_CACHE.move_to_end(key)
+        return val
 
 
 def _ridge_cv_cache_put(key, value):
     """Put cached Ridge CV results."""
     if key is None:
         return
-    _RIDGE_CV_ALPHA_CACHE[key] = value
-    _RIDGE_CV_ALPHA_CACHE.move_to_end(key)
-    while len(_RIDGE_CV_ALPHA_CACHE) > _RIDGE_CV_ALPHA_CACHE_MAXSIZE:
-        _RIDGE_CV_ALPHA_CACHE.popitem(last=False)
+    with _RIDGE_CV_CACHE_LOCK:
+        _RIDGE_CV_ALPHA_CACHE[key] = value
+        _RIDGE_CV_ALPHA_CACHE.move_to_end(key)
+        while len(_RIDGE_CV_ALPHA_CACHE) > _RIDGE_CV_ALPHA_CACHE_MAXSIZE:
+            _RIDGE_CV_ALPHA_CACHE.popitem(last=False)
 
 
 def _make_ridge_cv_auto_cache_key(X, y, alphas, folds, fit_intercept, use_gpu, sample_weight=None):
-    """Generate automatic cache key for Ridge CV."""
+    """Generate automatic cache key for Ridge CV.
+
+    Delegates data hashing to shared hash_cv_data() (10M threshold,
+    row-index aware), then appends Ridge-specific parameters.
+    """
+    from statgpu.linear_model._cv_base import hash_cv_data
+    # Shared data hash (10M threshold, row indices for large datasets)
+    data_hash = hash_cv_data(X, y, sample_weight)
+    # Ridge-specific parameters
     h = hashlib.blake2b(digest_size=32)
-    h.update(np.asarray(X.shape, dtype=np.int64).tobytes())
-    h.update(np.asarray(y.shape, dtype=np.int64).tobytes())
+    h.update(data_hash)
     h.update(str(X.dtype).encode("utf-8"))
     h.update(np.asarray(alphas, dtype=np.float64).tobytes())
     h.update(str(fit_intercept).encode("utf-8"))
     h.update(str(use_gpu).encode("utf-8"))
-    if sample_weight is not None:
-        h.update(np.asarray(sample_weight.shape, dtype=np.int64).tobytes())
+    # Hash fold indices (all elements to avoid collisions)
+    for train_idx, val_idx in folds:
+        h.update(train_idx.tobytes())
+        h.update(val_idx.tobytes())
     return h.hexdigest()
 
 
@@ -60,30 +79,7 @@ def _make_ridge_cv_auto_cache_key(X, y, alphas, folds, fit_intercept, use_gpu, s
 # K-fold helper
 # =============================================================================
 
-def _kfold_indices(n_samples: int, n_splits: int, random_state: Optional[int] = None):
-    """Generate K-fold train/test indices."""
-    rng = np.random.RandomState(random_state)
-    indices = np.arange(n_samples)
-    rng.shuffle(indices)
-    fold_sizes = np.full(n_splits, n_samples // n_splits, dtype=np.int64)
-    fold_sizes[: n_samples % n_splits] += 1
-    current = 0
-    folds = []
-    for fold_size in fold_sizes:
-        start, stop = current, current + fold_size
-        test_idx = indices[start:stop]
-        train_idx = np.concatenate([indices[:start], indices[stop:]])
-        folds.append((train_idx, test_idx))
-        current = stop
-    return folds
-
-
-def _folds_are_complements(folds, n_samples: int) -> bool:
-    """Check if folds are complementary (each sample appears exactly once in test)."""
-    test_indices = np.concatenate([f[1] for f in folds])
-    if len(test_indices) != n_samples:
-        return False
-    return np.array_equal(np.sort(test_indices), np.arange(n_samples))
+from statgpu.linear_model._cv_base import kfold_indices as _kfold_indices, folds_are_complete as _folds_are_complete, batch_mse as _batch_mse_cv
 
 
 # =============================================================================
@@ -126,8 +122,10 @@ def _default_ridge_alpha_grid(X, y, n_alphas: int = 100, alpha_min_ratio: float 
     XtX = X_centered.T @ X_centered
     Xty = X_centered.T @ y_centered
 
-    # alpha_max: smallest alpha where all coefficients become zero
-    # For Ridge: alpha_max = max(|Xty|) * 2 / n (approximately)
+    # alpha_max: heuristic upper bound for the alpha grid.
+    # The *2.0 factor is a conservative heuristic to ensure the grid covers
+    # a wide enough range; CV selects the best alpha empirically regardless.
+    # (Exact L1 alpha_max = max(|X'y|)/n; Ridge has no exact sparsity threshold.)
     n_samples = X_arr.shape[0]
     alpha_max = np.max(np.abs(Xty)) * 2.0 / n_samples
 
@@ -153,56 +151,12 @@ def _default_ridge_alpha_grid(X, y, n_alphas: int = 100, alpha_min_ratio: float 
 # Batch MSE computation
 # =============================================================================
 
-def _batch_mse_numpy(X_val, y_val, coefs_desc, intercepts_desc, sample_weight=None):
-    """
-    Compute MSE for multiple coefficient vectors efficiently.
-
-    Parameters
-    ----------
-    X_val : ndarray
-        Validation design matrix.
-    y_val : ndarray
-        Validation response.
-    coefs_desc : ndarray
-        Coefficient matrix (n_alphas, n_features).
-    intercepts_desc : ndarray
-        Intercept vector (n_alphas,).
-    sample_weight : ndarray or None
-        Sample weights.
-
-    Returns
-    -------
-    mse : ndarray
-        MSE for each alpha (n_alphas,).
-    """
-    n_alphas = coefs_desc.shape[0]
-    n_samples = X_val.shape[0]
-
-    # Ensure intercepts_desc is 1D array of shape (n_alphas,)
-    intercepts_desc = np.atleast_1d(np.asarray(intercepts_desc, dtype=np.float64))
-
-    # Predictions: (n_alphas, n_samples)
-    # coefs_desc: (n_alphas, n_features), X_val: (n_samples, n_features)
-    # coefs_desc @ X_val.T = (n_alphas, n_samples)
-    y_pred = coefs_desc @ X_val.T + intercepts_desc[:, np.newaxis]
-
-    # Residuals: (n_alphas, n_samples)
-    residuals = y_pred - y_val.reshape(1, -1)
-
-    if sample_weight is not None:
-        sw = np.asarray(sample_weight).reshape(1, -1)
-        mse = np.sum(sw * residuals ** 2, axis=1) / np.sum(sw)
-    else:
-        mse = np.mean(residuals ** 2, axis=1)
-
-    return mse
-
 
 # =============================================================================
 # GPU batch solver for Ridge
 # =============================================================================
 
-def _solve_ridge_path_gpu_from_gram_eig(XtX_batch, Xty_batch, alphas, backend, fit_intercept=True):
+def _solve_ridge_path_gpu_from_gram_eig(XtX_batch, Xty_batch, alphas, backend, fit_intercept=True, n_samples_vec=None):
     """
     Solve Ridge path for multiple folds using eigendecomposition (vectorized over alphas).
 
@@ -241,16 +195,28 @@ def _solve_ridge_path_gpu_from_gram_eig(XtX_batch, Xty_batch, alphas, backend, f
     # Step 1: Eigendecomposition (done once per fold)
     # eigvals: (n_folds, n_features), Q: (n_folds, n_features, n_features)
     eigvals, Q = xp.linalg.eigh(XtX_batch)
+    # Clamp eigenvalues to avoid division by zero for rank-deficient X'X
+    # Use dtype-relative floor: float32 tiny ≈ 1.2e-38, float64 tiny ≈ 2.2e-308
+    try:
+        _eig_floor = max(float(xp.finfo(eigvals.dtype).tiny), 1e-15)
+    except (AttributeError, TypeError):
+        _eig_floor = 1e-15
+    eigvals = xp.maximum(eigvals, _eig_floor)
 
     # Step 2: Project Xty into eigenbasis
     # QTXty = Q.T @ Xty_batch  -> (n_folds, n_features)
     Q_T = backend.transpose(Q, (0, 2, 1))
-    QTXty = xp.matmul(Q_T, Xty_batch[:, :, xp.newaxis])[:, :, 0]
+    QTXty = xp.matmul(Q_T, Xty_batch[:, :, None])[:, :, 0]
 
     # Step 3: Convert alphas to backend array and compute inverse diagonal
     # inv_diag: (n_folds, n_features, n_alphas)
-    alphas_arr = backend.asarray(alphas, dtype=backend.float64)
-    inv_diag = 1.0 / (eigvals[:, :, None] + alphas_arr[None, None, :])
+    # Scale alpha by n_samples to match Ridge.fit() convention.
+    alphas_arr = backend.asarray(alphas, dtype=eigvals.dtype)
+    if n_samples_vec is not None:
+        n_arr = backend.asarray(n_samples_vec, dtype=eigvals.dtype).reshape(-1, 1, 1)
+        inv_diag = 1.0 / (eigvals[:, :, None] + alphas_arr[None, None, :] * n_arr)
+    else:
+        inv_diag = 1.0 / (eigvals[:, :, None] + alphas_arr[None, None, :])
 
     # Step 4: Scale projected Xty by inverse diagonal
     # scaled: (n_folds, n_features, n_alphas)
@@ -297,7 +263,7 @@ def _solve_ridge_path_gpu_from_gram(XtX_batch, Xty_batch, n_samples_vec, alphas,
         Coefficients for each alpha and fold (n_alphas, n_folds, n_features).
     """
     # Use eigendecomposition-based solver (vectorized over alphas)
-    return _solve_ridge_path_gpu_from_gram_eig(XtX_batch, Xty_batch, alphas, backend, fit_intercept)
+    return _solve_ridge_path_gpu_from_gram_eig(XtX_batch, Xty_batch, alphas, backend, fit_intercept, n_samples_vec=n_samples_vec)
 
 
 # =============================================================================
@@ -362,8 +328,10 @@ def _select_ridge_alpha_cv(
     details : dict (if return_details=True)
         Full CV results including alpha grid, MSE path, etc.
     """
+    if isinstance(device, Device):
+        device = device.value
     device_name = str(device).lower()
-    use_gpu = device_name == Device.CUDA.value
+    use_gpu = device_name in (Device.CUDA.value, Device.TORCH.value, "torch")
     gpu_requested = use_gpu
 
     gpu_input_cupy = False
@@ -394,7 +362,11 @@ def _select_ridge_alpha_cv(
 
     if gpu_input_cupy or gpu_input_torch:
         # GPU inputs - get backend for validation
-        backend = get_backend(backend='auto', device='cuda')
+        # Use torch backend for torch tensors, cupy for cupy arrays
+        if gpu_input_torch:
+            backend = get_backend(backend='torch', device='cuda')
+        else:
+            backend = get_backend(backend='cupy', device='cuda')
         if len(tuple(X.shape)) != 2:
             raise ValueError("X must be a 2D array")
         n_samples = int(X.shape[0])
@@ -420,9 +392,12 @@ def _select_ridge_alpha_cv(
 
     # Generate alpha grid
     if alphas is None:
-        if gpu_input_cupy or (use_gpu and hasattr(X, 'device') and str(X.device) != 'cpu'):
+        if gpu_input_cupy or gpu_input_torch or use_gpu:
             # GPU path for alpha grid generation
-            backend = get_backend(backend='auto', device='cuda')
+            if gpu_input_torch:
+                backend = get_backend(backend='torch', device='cuda')
+            else:
+                backend = get_backend(backend='cupy', device='cuda')
             X_temp = backend.asarray(X)
             y_temp = backend.asarray(y)
             X_mean = backend.mean(X_temp, axis=0)
@@ -445,9 +420,10 @@ def _select_ridge_alpha_cv(
         alpha_grid = alpha_grid[np.isfinite(alpha_grid)]
         alpha_grid = alpha_grid[alpha_grid > 0.0]
         if alpha_grid.size == 0:
-            if gpu_input_cupy or (use_gpu and hasattr(X, 'device') and str(X.device) != 'cpu'):
+            warnings.warn("All provided alphas were filtered; using default grid.", RuntimeWarning)
+            if gpu_input_cupy or gpu_input_torch or use_gpu:
                 # GPU path for alpha grid generation
-                backend = get_backend(Device.CUDA)
+                backend = get_backend(backend="auto", device="cuda")
                 X_temp = backend.asarray(X)
                 y_temp = backend.asarray(y)
                 X_mean = backend.mean(X_temp, axis=0)
@@ -483,20 +459,16 @@ def _select_ridge_alpha_cv(
     else:
         folds = _kfold_indices(n_samples=int(n_samples), n_splits=int(cv_folds), random_state=random_state)
 
-    folds_are_complements = _folds_are_complements(folds, n_samples=int(n_samples))
+    folds_are_complete = _folds_are_complete(folds, n_samples=int(n_samples))
 
     alpha_grid = alpha_grid.astype(np.float64, copy=False)
     n_alpha = int(alpha_grid.size)
     n_folds = int(len(folds))
 
     # Cache handling
+    # Auto-cache disabled by default to prevent stale results across datasets.
+    # Only use explicit cache_key if provided by the caller.
     cache_key_eff = cache_key
-    if cache_key_eff is None and _RIDGE_CV_ALPHA_CACHE_MAXSIZE > 0:
-        cache_key_eff = _make_ridge_cv_auto_cache_key(
-            X=X, y=y, alphas=alpha_grid, folds=folds,
-            fit_intercept=bool(fit_intercept), use_gpu=bool(use_gpu),
-            sample_weight=sample_weight,
-        )
 
     cached_details = _ridge_cv_cache_get(cache_key_eff)
     if cached_details is not None:
@@ -533,7 +505,7 @@ def _select_ridge_alpha_cv(
             cv_dtype = backend.float32 if bool(gpu_cv_mixed_precision) else backend.float64
 
             # Convert inputs to backend arrays
-            if gpu_input_cupy or (hasattr(X, 'device') and str(X.device) != 'cpu'):
+            if gpu_input_cupy or gpu_input_torch:
                 # Already on GPU (CuPy or Torch)
                 X_full = backend.asarray(X, dtype=cv_dtype)
                 y_full = backend.asarray(y, dtype=cv_dtype).reshape(-1)
@@ -563,7 +535,8 @@ def _select_ridge_alpha_cv(
             sw_val_folds = []
             n_val_folds = []
 
-            fast_fold_stats = (sw_full is None) and bool(folds_are_complements)
+            fast_fold_stats = (sw_full is None) and bool(folds_are_complete)
+            sw_train = None  # initialized per-fold in slow path; None for fast path
             if fast_fold_stats:
                 n_total = int(X_full.shape[0])
                 XtX_full = X_full.T @ X_full
@@ -620,35 +593,50 @@ def _select_ridge_alpha_cv(
                     sw_train = None if sw_full is None else sw_full[train_idx_gpu]
 
                     if sw_train is not None:
-                        sqrt_sw = backend.sqrt(sw_train)
-                        X_train = X_train * sqrt_sw[:, backend.newaxis]
-                        y_train = y_train * sqrt_sw
-
-                    if bool(fit_intercept):
-                        X_mean = backend.mean(X_train, axis=0)
-                        y_mean = backend.mean(y_train)
-                        X_centered = X_train - X_mean
-                        y_centered = y_train - y_mean
+                        # Weighted Ridge: use X'WX, X'Wy directly
+                        sw_col = sw_train[:, None]
+                        if bool(fit_intercept):
+                            w_sum = max(float(backend.sum(sw_train)), 1e-15)
+                            X_wmean = backend.sum(X_train * sw_col, axis=0) / w_sum
+                            y_wmean = backend.sum(y_train * sw_train) / w_sum
+                            XtX = (X_train * sw_col).T @ X_train - w_sum * backend.outer(X_wmean, X_wmean)
+                            Xty = (X_train * sw_col).T @ y_train - w_sum * X_wmean * y_wmean
+                            X_mean = X_wmean
+                            y_mean = y_wmean
+                        else:
+                            XtX = (X_train * sw_col).T @ X_train
+                            Xty = (X_train * sw_col).T @ y_train
+                            X_mean = backend.zeros((X_train.shape[1],), dtype=X_train.dtype)
+                            y_mean = backend.array(0.0, dtype=X_train.dtype)
+                        n_train = float(sw_train.sum())  # Use weight sum for regularization consistency
                     else:
-                        X_mean = backend.zeros((X_train.shape[1],), dtype=X_train.dtype)
-                        y_mean = backend.array(0.0, dtype=X_train.dtype)
-                        X_centered = X_train
-                        y_centered = y_train
+                        if bool(fit_intercept):
+                            X_mean = backend.mean(X_train, axis=0)
+                            y_mean = backend.mean(y_train)
+                            X_centered = X_train - X_mean
+                            y_centered = y_train - y_mean
+                        else:
+                            X_mean = backend.zeros((X_train.shape[1],), dtype=X_train.dtype)
+                            y_mean = backend.array(0.0, dtype=X_train.dtype)
+                            X_centered = X_train
+                            y_centered = y_train
 
-                    XtX = X_centered.T @ X_centered
-                    Xty = X_centered.T @ y_centered
-                    n_train = int(X_train.shape[0])
+                        XtX = X_centered.T @ X_centered
+                        Xty = X_centered.T @ y_centered
+                        n_train = int(X_train.shape[0])
 
                 XtX_folds.append(XtX)
                 Xty_folds.append(Xty)
-                n_train_folds.append(int(n_train))
+                # For weighted Ridge, n_train is sum(sw) (float); for unweighted, it's the count (int)
+                n_train_folds.append(float(n_train) if sw_train is not None else int(n_train))
                 X_mean_folds.append(X_mean)
                 y_mean_folds.append(y_mean)
 
             # Batch solve for all alphas (Phase 1 optimization)
             XtX_batch = backend.stack(XtX_folds, axis=0)
             Xty_batch = backend.stack(Xty_folds, axis=0)
-            n_samples_vec = np.asarray(n_train_folds, dtype=np.int32)
+            # Use float64 to preserve fractional sum(sw) for weighted Ridge
+            n_samples_vec = np.asarray(n_train_folds, dtype=np.float64)
 
             coefs_batch = _solve_ridge_path_gpu_from_gram(
                 XtX_batch, Xty_batch, n_samples_vec, alpha_grid, backend, fit_intercept=bool(fit_intercept)
@@ -686,7 +674,8 @@ def _select_ridge_alpha_cv(
 
             # Batched MSE computation (fully vectorized)
             mse_path_gpu = _batch_mse_all_folds(
-                X_val_batch, y_val_batch, coefs_batch, intercepts_batch, backend, sw_val_batch
+                X_val_batch, y_val_batch, coefs_batch, intercepts_batch, backend, sw_val_batch,
+                n_val_folds=n_val_folds,
             )
 
             # Convert to numpy
@@ -706,7 +695,7 @@ def _select_ridge_alpha_cv(
                 "CPU fallback is disabled for strict CUDA execution."
             )
 
-        fast_fold_stats = (sample_weight_np is None) and bool(folds_are_complements)
+        fast_fold_stats = (sample_weight_np is None) and bool(folds_are_complete)
         if fast_fold_stats:
             n_total = int(X_np.shape[0])
             XtX_full = X_np.T @ X_np
@@ -754,30 +743,44 @@ def _select_ridge_alpha_cv(
                 sw_train = None if sample_weight_np is None else sample_weight_np[train_idx]
 
                 if sw_train is not None:
-                    sqrt_sw = np.sqrt(sw_train)
-                    X_train = X_train * sqrt_sw[:, np.newaxis]
-                    y_train = y_train * sqrt_sw
-
-                if bool(fit_intercept):
-                    X_mean = np.mean(X_train, axis=0)
-                    y_mean = float(np.mean(y_train))
-                    X_centered = X_train - X_mean
-                    y_centered = y_train - y_mean
+                    # Weighted Ridge: use X'WX, X'Wy directly (matches GPU path)
+                    sw_col = sw_train[:, np.newaxis]
+                    if bool(fit_intercept):
+                        w_sum = max(float(np.sum(sw_train)), 1e-15)
+                        X_wmean = np.sum(X_train * sw_col, axis=0) / w_sum
+                        y_wmean = float(np.sum(y_train * sw_train)) / w_sum
+                        XtX = (X_train * sw_col).T @ X_train - w_sum * np.outer(X_wmean, X_wmean)
+                        Xty = (X_train * sw_col).T @ y_train - w_sum * X_wmean * y_wmean
+                        X_mean = X_wmean
+                        y_mean = y_wmean
+                    else:
+                        XtX = (X_train * sw_col).T @ X_train
+                        Xty = (X_train * sw_col).T @ y_train
+                        X_mean = np.zeros((X_train.shape[1],), dtype=np.float64)
+                        y_mean = 0.0
+                    n_train = float(np.sum(sw_train))
                 else:
-                    X_mean = np.zeros((X_train.shape[1],), dtype=np.float64)
-                    y_mean = 0.0
-                    X_centered = X_train
-                    y_centered = y_train
+                    if bool(fit_intercept):
+                        X_mean = np.mean(X_train, axis=0)
+                        y_mean = float(np.mean(y_train))
+                        X_centered = X_train - X_mean
+                        y_centered = y_train - y_mean
+                    else:
+                        X_mean = np.zeros((X_train.shape[1],), dtype=np.float64)
+                        y_mean = 0.0
+                        X_centered = X_train
+                        y_centered = y_train
 
-                XtX = X_centered.T @ X_centered
-                Xty = X_centered.T @ y_centered
-                n_train = int(X_train.shape[0])
+                    XtX = X_centered.T @ X_centered
+                    Xty = X_centered.T @ y_centered
+                    n_train = int(X_train.shape[0])
 
-            # Solve for all alphas: (XtX + alpha*I)^-1 @ Xty
+            # Solve for all alphas: (XtX + n_eff*alpha*I)^-1 @ Xty
+            # n_eff scaling matches Ridge.fit() and PGLM exact ridge.
             I = np.eye(XtX.shape[0])
             coefs_desc = []
             for alpha in alpha_grid:
-                XtX_reg = XtX + alpha * I
+                XtX_reg = XtX + alpha * float(n_train) * I
                 try:
                     coef = np.linalg.solve(XtX_reg, Xty)
                 except np.linalg.LinAlgError:
@@ -794,7 +797,7 @@ def _select_ridge_alpha_cv(
                 intercepts_desc = np.zeros((coefs_desc.shape[0],))
 
             # Compute MSE
-            mse_desc = _batch_mse_numpy(X_val, y_val, coefs_desc, intercepts_desc, sw_val)
+            mse_desc = _batch_mse_cv(X_val, y_val, coefs_desc, intercepts_desc, sample_weight=sw_val)
             mse_path[:, fold_idx] = mse_desc
 
     # Compute mean MSE across folds
@@ -819,53 +822,10 @@ def _select_ridge_alpha_cv(
 
 
 # =============================================================================
-# GPU MSE helper
+# GPU MSE helper — batched across folds
 # =============================================================================
 
-def _batch_mse(X_val, y_val, coefs_desc, intercepts_desc, backend, sample_weight=None):
-    """
-    Compute MSE for multiple coefficient vectors.
-
-    Parameters
-    ----------
-    X_val : array-like
-        Validation design matrix (n_samples, n_features).
-    y_val : array-like
-        Validation response (n_samples,).
-    coefs_desc : array-like
-        Coefficient matrix (n_alphas, n_features).
-    intercepts_desc : array-like
-        Intercept vector (n_alphas,).
-    backend : BackendBase
-        Backend instance (CuPyBackend or TorchBackend).
-    sample_weight : array-like or None
-        Sample weights.
-
-    Returns
-    -------
-    mse : array-like
-        MSE for each alpha (n_alphas,).
-    """
-    # Ensure intercepts_desc is 1D array of shape (n_alphas,)
-    intercepts_desc = backend.atleast_1d(backend.asarray(intercepts_desc, dtype=backend.float64))
-
-    # Predictions: (n_alphas, n_samples)
-    # coefs_desc: (n_alphas, n_features), X_val: (n_samples, n_features)
-    y_pred = coefs_desc @ X_val.T + intercepts_desc[:, backend.newaxis]
-
-    # Residuals: (n_alphas, n_samples)
-    residuals = y_pred - y_val.reshape(1, -1)
-
-    if sample_weight is not None:
-        sw = sample_weight.reshape(1, -1)
-        mse = backend.sum(sw * residuals ** 2, axis=1) / backend.sum(sw)
-    else:
-        mse = backend.mean(residuals ** 2, axis=1)
-
-    return mse
-
-
-def _batch_mse_all_folds(X_val_batch, y_val_batch, coefs_batch, intercepts_batch, backend, sample_weights_batch=None):
+def _batch_mse_all_folds(X_val_batch, y_val_batch, coefs_batch, intercepts_batch, backend, sample_weights_batch=None, n_val_folds=None):
     """
     Compute MSE for all folds and all alphas simultaneously (fully vectorized).
 
@@ -901,28 +861,52 @@ def _batch_mse_all_folds(X_val_batch, y_val_batch, coefs_batch, intercepts_batch
     # Compute predictions: (n_folds, n_val_max, n_alphas)
     # X_val_batch: (n_folds, n_val_max, n_features)
     # coefs_batch: (n_alphas, n_folds, n_features) -> transpose to (n_folds, n_features, n_alphas)
-    coefs_T = coefs_batch.transpose(1, 2, 0)  # (n_folds, n_features, n_alphas)
+    coefs_T = backend.transpose(coefs_batch, (1, 2, 0))  # (n_folds, n_features, n_alphas)
     y_pred = xp.matmul(X_val_batch, coefs_T)  # (n_folds, n_val_max, n_alphas)
 
     # Add intercepts: (n_alphas, n_folds) -> (n_folds, 1, n_alphas) broadcasts
     # intercepts_batch.T: (n_folds, n_alphas) -> expand_dims to (1, n_folds, n_alphas)
-    intercepts_expanded = xp.expand_dims(intercepts_batch.T, axis=1)  # (1, n_folds, n_alphas)
+    _is_torch = _torch_dev(coefs_batch) is not None
+    _expand = lambda a, dim: a.unsqueeze(dim) if _is_torch else xp.expand_dims(a, axis=dim)
+
+    intercepts_expanded = _expand(intercepts_batch.T, 1)  # (1, n_folds, n_alphas)
     y_pred = y_pred + intercepts_expanded  # broadcasts to (n_folds, n_val_max, n_alphas)
 
     # Residuals: (n_folds, n_val_max, n_alphas)
-    y_val_expanded = xp.expand_dims(y_val_batch, axis=2)  # (n_folds, n_val_max, 1)
+    y_val_expanded = _expand(y_val_batch, 2)  # (n_folds, n_val_max, 1)
     residuals = y_pred - y_val_expanded
 
-    # Compute MSE
+    # Zero out padded rows to prevent inflated MSE from intercept contribution
+    if n_val_folds is not None:
+        n_val_max = residuals.shape[1]
+        # Create mask: (n_folds, n_val_max) -> (n_folds, n_val_max, 1)
+        if _is_torch:
+            import torch
+            mask = torch.arange(n_val_max, device=residuals.device).unsqueeze(0) < \
+                   torch.tensor(n_val_folds, device=residuals.device).unsqueeze(1)
+            mask = mask.unsqueeze(2).to(residuals.dtype)
+        else:
+            mask = xp.arange(n_val_max).reshape(1, -1) < \
+                   xp.asarray(n_val_folds).reshape(-1, 1)
+            mask = mask[:, :, xp.newaxis].astype(residuals.dtype)
+        residuals = residuals * mask
+
+    # Compute MSE — use per-fold n_val to exclude padded zeros
     if sample_weights_batch is not None:
-        sw = xp.expand_dims(sample_weights_batch, axis=2)  # (n_folds, n_val_max, 1)
+        sw = _expand(sample_weights_batch, 2)  # (n_folds, n_val_max, 1)
         ssr = xp.sum(sw * residuals ** 2, axis=1)  # (n_folds, n_alphas)
-        sw_sum = xp.sum(sw, axis=1)  # (n_folds,)
-        mse = (ssr / sw_sum[:, None]).T  # (n_alphas, n_folds)
+        sw_sum = xp.sum(sw * mask, axis=1) if n_val_folds is not None else xp.sum(sw, axis=1)
+        # Guard against zero weight sum (avoid division by zero)
+        sw_sum_safe = xp.where(sw_sum > 0, sw_sum, xp.ones_like(sw_sum))
+        # sw_sum_safe already has shape (n_folds, 1) — no extra axis needed
+        mse = (ssr / sw_sum_safe).T  # (n_alphas, n_folds)
     else:
-        # Mean over validation samples
-        mse = xp.mean(residuals ** 2, axis=1)  # (n_folds, n_alphas)
-        mse = mse.T  # (n_alphas, n_folds)
+        ssr = xp.sum(residuals ** 2, axis=1)  # (n_folds, n_alphas)
+        if n_val_folds is not None:
+            n_val_vec = backend.asarray(n_val_folds, dtype=ssr.dtype).reshape(-1, 1)
+            mse = (ssr / n_val_vec).T  # (n_alphas, n_folds)
+        else:
+            mse = xp.mean(residuals ** 2, axis=1).T
 
     return mse
 
@@ -952,7 +936,7 @@ def _compute_intercepts_batch(coefs_batch, X_mean_batch, y_mean_batch, backend, 
     xp = backend.xp
 
     if not fit_intercept:
-        return backend.zeros((coefs_batch.shape[0], coefs_batch.shape[1]), dtype=backend.float64)
+        return backend.zeros((coefs_batch.shape[0], coefs_batch.shape[1]), dtype=coefs_batch.dtype)
 
     n_alphas = coefs_batch.shape[0]
     n_folds = coefs_batch.shape[1]
@@ -970,7 +954,10 @@ def _compute_intercepts_batch(coefs_batch, X_mean_batch, y_mean_batch, backend, 
     coefs_dot_sum = coefs_dot_sum.reshape((n_alphas, n_folds))     # (n_alphas, n_folds)
 
     # y_mean_batch: (n_folds,) -> (1, n_folds) broadcasts to (n_alphas, n_folds)
-    y_mean_expanded = xp.expand_dims(y_mean_batch, axis=0)
+    if _torch_dev(coefs_batch) is not None:
+        y_mean_expanded = y_mean_batch.unsqueeze(0)
+    else:
+        y_mean_expanded = xp.expand_dims(y_mean_batch, axis=0)
     intercepts = y_mean_expanded - coefs_dot_sum
 
     return intercepts
@@ -1105,6 +1092,10 @@ class RidgeCV(CVEstimatorBase):
         self : RidgeCV
             Fitted estimator.
         """
+        from statgpu.linear_model._cv_base import validate_cv_sample_weight
+        n_samples = int(X.shape[0]) if hasattr(X, 'shape') else len(X)
+        sample_weight = validate_cv_sample_weight(sample_weight, n_samples)
+
         device_name = self._get_compute_device().value
 
         # Run CV to select alpha
@@ -1134,11 +1125,15 @@ class RidgeCV(CVEstimatorBase):
         self.mean_mse_ = mean_mse
 
         if np.any(np.isfinite(mean_mse)):
-            self.best_score_ = float(np.nanmin(mean_mse))
+            # sklearn convention: best_score_ is negative MSE (higher is better)
+            self.best_score_ = -float(np.nanmin(mean_mse))
         else:
             self.best_score_ = np.nan
 
-        # Fit final model with selected alpha
+        # Fit final model with selected alpha.
+        # Exact solve uses n*alpha on unnormalized X'X, matching the
+        # per-sample convention (loss/n + alpha*||w||^2) used by all paths.
+        # alpha_ stores the CV-selected value; pass it directly to Ridge.
         estimator = Ridge(
             alpha=self.alpha_,
             fit_intercept=self.fit_intercept,
@@ -1163,17 +1158,3 @@ class RidgeCV(CVEstimatorBase):
         """Predict using the fitted Ridge model."""
         self._check_is_fitted()
         return self.estimator_.predict(X)
-
-    def score(self, X, y):
-        """Return R² score."""
-        self._check_is_fitted()
-        return self.estimator_.score(X, y)
-
-    def summary(self):
-        """Return summary of the fitted model."""
-        self._check_is_fitted()
-        if self.estimator_ is None:
-            raise RuntimeError("No fitted estimator available.")
-        if not hasattr(self.estimator_, "summary"):
-            raise RuntimeError(f"{self.estimator_.__class__.__name__} does not implement summary().")
-        return self.estimator_.summary()

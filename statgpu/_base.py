@@ -2,6 +2,8 @@
 Base classes for statgpu estimators.
 """
 
+__all__ = ["BaseEstimator"]
+
 from abc import ABC, abstractmethod
 from typing import Optional, Union, Any
 import numpy as np
@@ -481,11 +483,24 @@ class BaseEstimator(ABC):
             )
     
     def get_params(self, deep=True):
-        """Get parameters for this estimator."""
-        return {
-            'device': self.device.value,
-            'n_jobs': self.n_jobs
-        }
+        """Get parameters for this estimator (sklearn-compatible)."""
+        import inspect
+        params = {}
+        for cls in type(self).__mro__:
+            if cls is object:
+                continue
+            try:
+                sig = inspect.signature(cls.__init__)
+                for name in sig.parameters:
+                    if name == 'self':
+                        continue
+                    if hasattr(self, name):
+                        params[name] = getattr(self, name)
+                    elif hasattr(self, f'_{name}'):
+                        params[name] = getattr(self, f'_{name}')
+            except (ValueError, TypeError):
+                continue
+        return params
     
     def set_params(self, **params):
         """Set parameters for this estimator."""

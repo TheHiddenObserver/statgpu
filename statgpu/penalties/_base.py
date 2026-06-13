@@ -113,7 +113,7 @@ class Penalty(ABC):
         For a penalty P(w), the LLA approximates:
             P(w) ≈ P(coef) + Σ w_j * |w_j - coef_j|
 
-        where w_j = P'(|coef_j|) / |coef_j| for coef_j ≠ 0.
+        where w_j = P'(|coef_j|) for coef_j ≠ 0.
 
         This is used to solve non-convex penalties via iteratively
         reweighted L1.
@@ -229,22 +229,26 @@ class CompositePenalty(Penalty):
         """
         # Sequential application of proximal operators
         # (Dykstra-like splitting, simplified)
-        result = w.copy()
+        result = w.clone() if hasattr(w, 'clone') else w.copy()
         for weight, pen in zip(self.weights, self.penalties):
             result = pen.proximal(result, step * weight, backend)
         return result
 
-    def lla_weights(self, coef: np.ndarray) -> np.ndarray:
-        """LLA weights: product of individual LLA weights."""
-        if not any(not p.is_convex for p in self.penalties):
-            # All convex: return ones
-            return np.ones_like(coef)
+    def lla_weights(self, coef):
+        """LLA weights: weighted sum of individual LLA weights.
 
-        weights = np.ones_like(coef)
-        for pen in self.penalties:
+        For composite penalty P(w) = sum_i w_i * P_i(w),
+        the LLA weight is sum_i w_i * P_i'(|coef|).
+        """
+        xp = _xp(coef)
+        if not any(not p.is_convex for p in self.penalties):
+            return xp.ones_like(coef)
+
+        result = xp.zeros_like(coef)
+        for weight, pen in zip(self.weights, self.penalties):
             if not pen.is_convex:
-                weights = weights * pen.lla_weights(coef)
-        return weights
+                result = result + weight * pen.lla_weights(coef)
+        return result
 
     def get_params(self) -> dict:
         params = {

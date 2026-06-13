@@ -8,6 +8,7 @@ __all__ = ["ElasticNetPenalty"]
 
 
 from typing import Optional
+from statgpu.backends._array_ops import _xp
 import numpy as np
 from statgpu.penalties._base import Penalty
 
@@ -45,15 +46,17 @@ class ElasticNetPenalty(Penalty):
             raise ValueError(f"l1_ratio must be in [0, 1], got {l1_ratio}")
         self.l1_ratio = l1_ratio
 
-    def value(self, coef: np.ndarray) -> float:
+    def value(self, coef):
         """P(w) = α*l1_ratio*||w||₁ + (α/2)*(1-l1_ratio)*||w||²₂"""
-        l1 = self.alpha * self.l1_ratio * np.sum(np.abs(coef))
-        l2 = 0.5 * self.alpha * (1 - self.l1_ratio) * np.sum(coef ** 2)
+        xp = _xp(coef)
+        l1 = self.alpha * self.l1_ratio * float(xp.sum(xp.abs(coef)))
+        l2 = 0.5 * self.alpha * (1 - self.l1_ratio) * float(xp.sum(coef ** 2))
         return l1 + l2
 
-    def gradient(self, coef: np.ndarray) -> np.ndarray:
+    def gradient(self, coef):
         """∇P(w) = α*l1_ratio*sign(w) + α*(1-l1_ratio)*w"""
-        grad_l1 = self.alpha * self.l1_ratio * np.sign(coef)
+        xp = _xp(coef)
+        grad_l1 = self.alpha * self.l1_ratio * xp.sign(coef)
         grad_l2 = self.alpha * (1 - self.l1_ratio) * coef
         return grad_l1 + grad_l2
 

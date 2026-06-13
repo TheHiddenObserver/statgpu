@@ -8,6 +8,9 @@ Supports numpy / cupy / torch backends via auto-detection.
 
 __all__ = ["ConvergenceWarning", "fista_solver", "fista_lla_path", "fista_bb_solver", "newton_solver", "lbfgs_solver", "admm_solver"]
 
+# Import shared penalty categories
+from statgpu.penalties._categories import NONSMOOTH as _NONSMOOTH_ALL, BB_DISABLED as _BB_DISABLED
+
 
 import copy
 import warnings
@@ -142,10 +145,7 @@ def fista_solver(
     # Conservative momentum (cap beta at 0.5) for exp-link families and
     # for logistic/gamma with non-smooth penalties.  Logistic/gamma with
     # smooth penalties (none, l2) benefit from full Nesterov acceleration.
-    _non_smooth_pen = getattr(penalty, 'name', '') in (
-        "l1", "elasticnet", "en", "scad", "mcp", "adaptive_l1", "adaptive_lasso",
-        "group_lasso", "gl", "group_mcp", "gmcp", "group_scad", "gscad",
-    )
+    _non_smooth_pen = getattr(penalty, 'name', '') in _NONSMOOTH_ALL
     _conservative_momentum = (
         _loss_name in ("poisson", "negative_binomial", "tweedie", "inverse_gaussian")
         or (_loss_name in ("logistic", "gamma") and _non_smooth_pen)
@@ -167,6 +167,7 @@ def fista_solver(
     # Initial Lipschitz: default to zero (safe for exp-link warm starts),
     # but allow losses to request evaluation at the provided init to avoid
     # degenerate curvature from eta=0 clipping.
+    _cached_XtWX_weighted = None  # populated in Lipschitz block, used in GPU loop
     if lipschitz_L is not None and lipschitz_L > 0:
         L = lipschitz_L
     else:
@@ -370,7 +371,14 @@ def fista_solver(
                         _obj_dev, _ = _weighted_loss_and_grad(loss, X_proc, y_proc, coef, sample_weight)
                     else:
                         _obj_dev = loss.value(X_proc, y_proc, coef)
-                _obj_val_f = float(_to_numpy(_obj_dev))
+                # Batched sync: objective + coef norm in one transfer
+                if _need_norm_check:
+                    _obj_val_f, _coef_norm_f = _sync_scalars(
+                        _obj_dev, _norm2_dev(coef), backend=backend
+                    )
+                else:
+                    _obj_val_f = float(_to_numpy(_obj_dev))
+                    _coef_norm_f = 0.0
                 _obj_val_f += _tracking_penalty_value(penalty, coef)
                 _diverged_f = False
                 if not np.isfinite(_obj_val_f):
@@ -380,7 +388,7 @@ def fista_solver(
                 else:
                     _diverged_f = _obj_val_f > _obj_best_fista + max(abs(_obj_best_fista) * 10.0, 1.0)
                 if not _diverged_f and _need_norm_check:
-                    if float(_to_numpy(_norm2_dev(coef))) > _DIVERGE_COEF_NORM_CAP:
+                    if _coef_norm_f > _DIVERGE_COEF_NORM_CAP:
                         _diverged_f = True
                 if _diverged_f:
                     if _coef_best_fista is not None:
@@ -529,10 +537,7 @@ def fista_lla_path(
     _loss_name = getattr(loss, 'name', '')
     _is_quadratic = (_loss_name == "squared_error")
     _no_momentum = _loss_name in ("poisson",)
-    _non_smooth_pen_lla = getattr(scad_penalty, 'name', '') in (
-        "l1", "elasticnet", "en", "scad", "mcp", "adaptive_l1", "adaptive_lasso",
-        "group_lasso", "gl", "group_mcp", "gmcp", "group_scad", "gscad",
-    )
+    _non_smooth_pen_lla = getattr(scad_penalty, 'name', '') in _NONSMOOTH_ALL
     _conservative_momentum_lla = (
         _loss_name in ("poisson", "negative_binomial", "tweedie", "inverse_gaussian")
         or (_loss_name in ("logistic", "gamma") and _non_smooth_pen_lla)
@@ -871,7 +876,9 @@ def fista_lla_path(
                             _finite_dev = xp.isfinite(_cn_dev)
                             _cap_needed_dev = _cn_dev > 5.0
                             _diverge_norm_dev = _cn_dev > _DIVERGE_COEF_NORM_CAP if iteration > 10 else xp.tensor(False, device=coef.device)
-                            _obj_finite_dev = xp.isfinite(q_new_dev) if iteration > 0 else xp.tensor(True, device=coef.device)
+                            # Wrap scalar as tensor for torch stack compatibility
+                            _q_dev = xp.tensor(float(q_new_dev), device=coef.device) if iteration > 0 else xp.tensor(0.0, device=coef.device)
+                            _obj_finite_dev = xp.isfinite(_q_dev) if iteration > 0 else xp.tensor(True, device=coef.device)
                         elif backend == "cupy":
                             _finite_dev = xp.isfinite(_cn_dev)
                             _cap_needed_dev = _cn_dev > 5.0
@@ -1082,98 +1089,6 @@ def _get_sqerr_proximal_cupy():
             'sqerr_proximal_fused',
         )
     return _SQERR_PROXIMAL_CUPY
-
-
-def fista_sqerr_adaptive_l1_fused(
-    X, y, penalty_weights, alpha,
-    XtX, Xty, yty, n_samples,
-    L_init, max_iter, tol,
-    backend, no_momentum=False,
-):
-    """Fused FISTA for squared_error + AdaptiveL1 with pre-computed XtX/Xty.
-
-    Eliminates:
-    - Redundant X@coef matmul (uses XtX instead)
-    - GPU→CPU syncs (convergence check deferred)
-    - Element-wise kernel overhead (fused update+proximal+momentum)
-
-    Parameters
-    ----------
-    X, y : array (centered)
-    penalty_weights : array (p,) — LLA weights
-    alpha : float — penalty alpha
-    XtX, Xty, yty : pre-computed
-    n_samples : int
-    L_init : float — initial Lipschitz
-    max_iter, tol : FISTA params
-    backend : 'torch' or 'cupy'
-    no_momentum : bool
-
-    Returns
-    -------
-    coef : array (p,)
-    n_iter : int
-    """
-    p = XtX.shape[0]
-    step = 1.0 / L_init
-    L = L_init
-
-    if backend == "torch":
-        import torch
-        thresh = torch.tensor(
-            alpha * penalty_weights * step,
-            device=XtX.device, dtype=XtX.dtype,
-        )
-        coef = torch.zeros(p, device=XtX.device, dtype=XtX.dtype)
-        coef_old = coef.clone()
-        y_k = coef.clone()
-        _fused = _get_sqerr_proximal_torch()
-        # Pre-allocate for momentum-free case
-        _zero_beta = 0.0
-    else:
-        import cupy as cp
-        thresh = cp.asarray(alpha * penalty_weights * step, dtype=cp.float64)
-        coef = cp.zeros(p, dtype=cp.float64)
-        coef_old = coef.copy()
-        y_k = coef.copy()
-        _fused = _get_sqerr_proximal_cupy()
-        _zero_beta = 0.0
-
-    t_k = 1.0
-    _sync_interval = 10  # Only check convergence every N iterations
-
-    iteration = -1  # default if max_iter=0
-    for iteration in range(max_iter):
-        # Gradient: grad = (XtX @ y_k - Xty) / n
-        grad = (XtX @ y_k - Xty) / n_samples
-
-        # Clip gradients (avoid sync — do it on GPU)
-        if iteration % 10 == 0:
-            grad = _clip_grad_on_device(grad, coef_old, backend)
-
-        # Proximal gradient step (no backtracking — Lipschitz is exact for squared_error)
-        # Pre-compute momentum coefficient so the fused kernel can apply it in one pass.
-        if no_momentum:
-            beta_mom = 0.0
-        else:
-            t_new = (1.0 + np.sqrt(1.0 + 4.0 * t_k * t_k)) / 2.0
-            beta_mom = (t_k - 1.0) / t_new
-        coef_new, y_k = _fused(y_k, grad, step, thresh, coef_old, beta_mom)
-        coef = coef_new
-
-        # Momentum state update
-        if not no_momentum:
-            t_k = t_new
-
-        # Convergence check (device-side, minimal sync)
-        if iteration < 20 or iteration % _sync_interval == 0:
-            coef_diff_dev = _abs_sum_dev(coef - coef_old)
-            if _to_float_scalar(coef_diff_dev) < tol:
-                break
-
-        coef_old = _copy_arr(coef)
-
-    return _to_numpy(coef), iteration + 1
 
 
 def newton_solver(
@@ -1394,11 +1309,7 @@ def fista_bb_solver(
     # amplifying noise through the non-linear link and causing catastrophic
     # divergence.  Disable BB entirely for these.
     _pen_name = getattr(penalty, "name", _pen_name).lower() if hasattr(getattr(penalty, "name", _pen_name), 'lower') else _pen_name
-    _bb_disabled = {
-        "scad", "mcp",
-        "group_lasso", "gl", "group_mcp", "gmcp", "group_scad", "gscad",
-    }
-    if _pen_name in _bb_disabled:
+    if _pen_name in _BB_DISABLED:
         bb_burn_in = max_iter + 1  # never switch to BB
     elif _pen_name in {"l1", "elasticnet", "en", "adaptive_l1", "adaptive_lasso"}:
         bb_burn_in = max(bb_burn_in, 50)  # longer burn-in for non-smooth
@@ -1548,10 +1459,7 @@ def fista_bb_solver(
                     _obj_val = float(_to_numpy(loss.value(X_proc, y_proc, coef, sample_weight=sample_weight)))
                 except TypeError:
                     _obj_val = float(_to_numpy(loss.value(X_proc, y_proc, coef)))
-                try:
-                    _pen_val = float(_to_numpy(penalty.value(coef)))
-                except (AttributeError, ValueError, TypeError):
-                    _pen_val = 0.0
+                _pen_val = _tracking_penalty_value(penalty, coef)
                 _obj_total = _obj_val + _pen_val
                 if not np.isfinite(_obj_total):
                     _diverged = True
@@ -1674,10 +1582,7 @@ def fista_bb_solver(
                     # Batch obj + coef-norm into a single sync.
                     _new_obj, _new_norm = _sync_scalars(
                         loss.value(X_proc, y_proc, coef), _norm2_dev(coef), backend=backend)
-                    try:
-                        _new_pen = float(_to_numpy(penalty.value(coef)))
-                    except (AttributeError, ValueError, TypeError):
-                        _new_pen = 0.0
+                    _new_pen = _tracking_penalty_value(penalty, coef)
                     _new_total = _new_obj + _new_pen
                     # Accept if: finite, reasonable norm, and objective not exploded.
                     # Use relative threshold (10x initial objective) instead of

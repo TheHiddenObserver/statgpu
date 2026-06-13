@@ -147,7 +147,6 @@ def test_penalty_models_basic_predict_shape(model_cls):
     assert np.all(np.isfinite(pred))
 
 
-@pytest.mark.xfail(reason="LassoCV API (mse_path_, cpu_solver) is in PR-B branch", strict=False)
 def test_lasso_cv_basic_interface_cpu():
     """LassoCV should expose sklearn-like fitted attributes and prediction API."""
     set_device("cpu")
@@ -180,7 +179,6 @@ def test_lasso_cv_basic_interface_cpu():
     assert np.isfinite(model.score(X, y))
 
 
-@pytest.mark.xfail(reason="LassoCV method param is in PR-B branch", strict=False)
 def test_lasso_cv_glmnet_method_cpu():
     """LassoCV method='glmnet' should run and use coordinate-descent profile."""
     set_device("cpu")
@@ -211,7 +209,6 @@ def test_lasso_cv_glmnet_method_cpu():
     assert model.alpha_ > 0.0
 
 
-@pytest.mark.xfail(reason="LassoCV fast fold stats is in PR-B branch", strict=False)
 def test_lasso_cv_fast_fold_stats_matches_weighted_fallback_cpu():
     """Fast fold-statistics CV path should match weighted fallback when weights are all ones."""
     set_device("cpu")
@@ -253,7 +250,6 @@ def test_lasso_cv_fast_fold_stats_matches_weighted_fallback_cpu():
     assert np.isclose(fast_model.intercept_, fallback_model.intercept_, rtol=1e-6, atol=1e-8)
 
 
-@pytest.mark.xfail(reason="LassoCV cd_kkt_check_every is in PR-B branch", strict=False)
 def test_lasso_cv_cd_kkt_check_every_validation():
     """cd_kkt_check_every must be None or a positive integer."""
     with pytest.raises(ValueError, match="cd_kkt_check_every"):
@@ -336,11 +332,11 @@ def test_penalty_models_gpu_cpu_prediction_consistency(model_cls):
     beta = rng.normal(size=16)
     y = X @ beta + rng.normal(scale=0.3, size=256)
 
-    cpu_model = model_cls(device="cpu")
+    cpu_model = model_cls(device="cpu", max_iter=2000, tol=1e-10)
     cpu_model.fit(X, y)
     cpu_pred = cpu_model.predict(X)
 
-    gpu_model = model_cls(device="cuda")
+    gpu_model = model_cls(device="cuda", max_iter=2000, tol=1e-10)
     gpu_model.fit(X, y)
     gpu_pred = gpu_model.predict(X)
     # CuPy arrays require .get() to transfer data back to host memory.
@@ -348,4 +344,5 @@ def test_penalty_models_gpu_cpu_prediction_consistency(model_cls):
         gpu_pred = gpu_pred.get()
     gpu_pred = np.asarray(gpu_pred)
 
+    # With tight convergence (tol=1e-10), CPU and GPU should agree closely
     assert np.allclose(cpu_pred, gpu_pred, rtol=1e-4, atol=1e-4)

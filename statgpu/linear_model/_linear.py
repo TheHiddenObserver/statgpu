@@ -2,6 +2,8 @@
 Linear regression with full statistical inference and GPU support.
 """
 
+__all__ = ["LinearRegression"]
+
 from typing import Optional, Union
 import numpy as np
 from scipy import stats
@@ -10,6 +12,12 @@ from time import perf_counter
 from statgpu._base import BaseEstimator
 from statgpu._config import Device
 from statgpu.backends import _get_torch_device_str
+from statgpu.inference._results import GaussianInferenceResult
+from statgpu.linear_model._gaussian_inference import (
+    compute_gaussian_inference,
+    validate_cov_type,
+    validate_hac_maxlags,
+)
 
 
 def _parse_formula_if_provided(formula, data, X, y):
@@ -57,14 +65,8 @@ class LinearRegression(BaseEstimator):
         self.fit_intercept = fit_intercept
         self.compute_inference = compute_inference
         self.gpu_memory_cleanup = bool(gpu_memory_cleanup)
-        self.cov_type = cov_type.lower()
-        if self.cov_type not in ("nonrobust", "hc0", "hc1", "hc2", "hc3", "hac"):
-            raise ValueError(
-                "cov_type must be one of: 'nonrobust', 'hc0', 'hc1', 'hc2', 'hc3', 'hac'"
-            )
-        if hac_maxlags is not None and int(hac_maxlags) < 0:
-            raise ValueError("hac_maxlags must be a non-negative integer or None")
-        self.hac_maxlags = None if hac_maxlags is None else int(hac_maxlags)
+        self.cov_type = validate_cov_type(cov_type)
+        self.hac_maxlags = validate_hac_maxlags(hac_maxlags)
         self.coef_ = None
         self.intercept_ = None
         
@@ -80,11 +82,19 @@ class LinearRegression(BaseEstimator):
         self._tvalues = None
         self._pvalues = None
         self._conf_int = None
+        self._inference_result = None
         self._is_multi_output = False
         self._hac_mixed_precision_preference = {}
         self._feature_names = None
         self._design_info = None
         self._formula_has_intercept = None
+
+    def _clear_inference_result(self):
+        self._bse = None
+        self._tvalues = None
+        self._pvalues = None
+        self._conf_int = None
+        self._inference_result = None
 
     def _cleanup_cuda_memory(self):
         """Best-effort CuPy memory pool cleanup."""
@@ -295,6 +305,8 @@ class LinearRegression(BaseEstimator):
         data : pd.DataFrame or None
             DataFrame used with ``formula`` for column lookup.
         """
+        self._clear_inference_result()
+
         # Handle formula interface
         _orig_fit_intercept = self.fit_intercept
         if formula is not None:
@@ -569,6 +581,8 @@ class LinearRegression(BaseEstimator):
             self._resid = resid_np
         self._df_resid = df_resid
         self._scale = scale_np
+        if self.compute_inference and not self._is_multi_output:
+            self._wrap_gaussian_inference_result()
 
         # Release large temporary GPU tensors early.
         try:
@@ -804,6 +818,8 @@ class LinearRegression(BaseEstimator):
             self._resid = resid_np
         self._df_resid = df_resid
         self._scale = scale_np
+        if self.compute_inference and not self._is_multi_output:
+            self._wrap_gaussian_inference_result()
 
         # Release large temporary Torch tensors early.
         try:
@@ -830,82 +846,51 @@ class LinearRegression(BaseEstimator):
     
     def _compute_inference(self):
         """Compute standard errors, t-stats, p-values."""
-        if self._X_design is None or self._scale is None:
+        result = compute_gaussian_inference(
+            self._X_design,
+            self._params,
+            self._resid,
+            self._scale,
+            self._df_resid,
+            self.cov_type,
+            hac_maxlags=self.hac_maxlags,
+        )
+        if result is None:
+            self._clear_inference_result()
             return
-        if np.any(np.isnan(np.asarray(self._scale, dtype=float))):
-            return
+        result.feature_names = self._inference_feature_names()
+        result.apply_to(self)
 
-        X = self._X_design
-        n = X.shape[0]
-        k = X.shape[1]
-        XtX = X.T @ X
-        try:
-            XtX_inv = np.linalg.inv(XtX)
-        except np.linalg.LinAlgError:
-            XtX_inv = np.linalg.pinv(XtX)
+    def _inference_feature_names(self):
+        if self._feature_names is not None:
+            names = list(self._feature_names)
+            if self.fit_intercept:
+                names.insert(0, "(Intercept)")
+            return names
+        if self.coef_ is None:
+            return None
+        n_features = int(np.asarray(self.coef_).shape[-1])
+        if self.fit_intercept:
+            return ["(Intercept)"] + [f"x{i+1}" for i in range(n_features)]
+        return [f"x{i+1}" for i in range(n_features)]
 
-        if np.asarray(self._params).ndim == 2:
-            params = np.asarray(self._params, dtype=float)
-            resid = np.asarray(self._resid, dtype=float)
-            scale = np.asarray(self._scale, dtype=float).reshape(-1)
-            n_targets = params.shape[1]
-            self._bse = np.empty_like(params)
-            self._tvalues = np.empty_like(params)
-            self._pvalues = np.empty_like(params)
-            self._conf_int = np.empty((params.shape[0], n_targets, 2), dtype=float)
-            alpha = 0.05
-
-            for j in range(n_targets):
-                if self.cov_type == "nonrobust":
-                    cov_params = scale[j] * XtX_inv
-                    bse = np.sqrt(np.diag(cov_params))
-                    tvalues = params[:, j] / (bse + 1e-30)
-                    pvalues = 2 * (1 - stats.t.cdf(np.abs(tvalues), self._df_resid))
-                    t_crit = stats.t.ppf(1 - alpha / 2, self._df_resid)
-                    conf_int = np.column_stack([
-                        params[:, j] - t_crit * bse,
-                        params[:, j] + t_crit * bse,
-                    ])
-                else:
-                    cov_params = self._robust_covariance_numpy(X, resid[:, j], XtX_inv)
-                    bse = np.sqrt(np.maximum(np.diag(cov_params), 0.0))
-                    tvalues = params[:, j] / (bse + 1e-30)
-                    pvalues = 2 * (1 - stats.norm.cdf(np.abs(tvalues)))
-                    z_crit = stats.norm.ppf(1 - alpha / 2)
-                    conf_int = np.column_stack([
-                        params[:, j] - z_crit * bse,
-                        params[:, j] + z_crit * bse,
-                    ])
-
-                self._bse[:, j] = bse
-                self._tvalues[:, j] = tvalues
-                self._pvalues[:, j] = pvalues
-                self._conf_int[:, j, :] = conf_int
-            return
-
-        alpha = 0.05
-        if self.cov_type == "nonrobust":
-            cov_params = self._scale * XtX_inv
-            self._bse = np.sqrt(np.diag(cov_params))
-            self._tvalues = self._params / self._bse
-            self._pvalues = 2 * (1 - stats.t.cdf(np.abs(self._tvalues), self._df_resid))
-            t_crit = stats.t.ppf(1 - alpha / 2, self._df_resid)
-            self._conf_int = np.column_stack([
-                self._params - t_crit * self._bse,
-                self._params + t_crit * self._bse,
-            ])
-            return
-
-        cov_params = self._robust_covariance_numpy(X, self._resid, XtX_inv)
-        self._bse = np.sqrt(np.maximum(np.diag(cov_params), 0.0))
-        self._tvalues = self._params / (self._bse + 1e-30)
-        # Robust path uses large-sample normal approximation.
-        self._pvalues = 2 * (1 - stats.norm.cdf(np.abs(self._tvalues)))
-        z_crit = stats.norm.ppf(1 - alpha / 2)
-        self._conf_int = np.column_stack([
-            self._params - z_crit * self._bse,
-            self._params + z_crit * self._bse,
-        ])
+    def _wrap_gaussian_inference_result(self):
+        method = "classical" if self.cov_type == "nonrobust" else "sandwich"
+        distribution = "t" if self.cov_type == "nonrobust" else "normal"
+        result = GaussianInferenceResult(
+            params=self._params,
+            bse=self._bse,
+            statistic=self._tvalues,
+            pvalues=self._pvalues,
+            conf_int=self._conf_int,
+            cov_type=self.cov_type,
+            distribution=distribution,
+            df=self._df_resid,
+            method=method,
+            feature_names=self._inference_feature_names(),
+            metadata={"alpha": 0.05},
+        )
+        result.apply_to(self)
 
     @property
     def rsquared(self):
@@ -998,6 +983,11 @@ class LinearRegression(BaseEstimator):
             )
         if self._is_multi_output:
             raise RuntimeError("summary() is only available for single-output linear regression.")
+        if self._bse is None or self._pvalues is None or self._conf_int is None:
+            raise RuntimeError(
+                "Inference statistics are not available for the current fit. "
+                "This can happen when residual degrees of freedom are non-positive."
+            )
         
         # Build feature names
         if self._feature_names is not None:

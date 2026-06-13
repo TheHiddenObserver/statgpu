@@ -384,6 +384,7 @@ class GroupSCADPenalty(Penalty):
             return self._proximal_loop(w, step, np)
 
     def _proximal_loop(self, w, step, xp):
+        step = min(float(step), 0.9 * (self.a - 1.0))  # defense-in-depth clamping
         result = w.copy() if hasattr(w, 'copy') else w.clone()
         for g, idx in enumerate(self._group_indices):
             w_g = w[idx]

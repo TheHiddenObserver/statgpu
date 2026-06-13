@@ -20,7 +20,7 @@ from ._elasticnet import ElasticNetPenalty
 from ._scad import SCADPenalty
 from ._mcp import MCPPenalty
 from ._adaptive_l1 import AdaptiveL1Penalty
-from ._group_lasso import GroupLassoPenalty
+from ._group_lasso import GroupLassoPenalty, AdaptiveGroupLassoPenalty
 from ._group_mcp import GroupMCPPenalty
 from ._group_scad import GroupSCADPenalty
 
@@ -47,6 +47,7 @@ __all__ = [
     "MCPPenalty",
     "AdaptiveL1Penalty",
     "GroupLassoPenalty",
+    "AdaptiveGroupLassoPenalty",
     "GroupMCPPenalty",
     "GroupSCADPenalty",
     "get_penalty",

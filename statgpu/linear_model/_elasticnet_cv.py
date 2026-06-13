@@ -2,13 +2,15 @@
 ElasticNetCV: Cross-validated Elastic Net regression with GPU support.
 """
 
+__all__ = ["ElasticNetCV"]
+
 from typing import Any, Dict, List, Optional, Tuple, Union
 from collections import OrderedDict
 import hashlib
 import numpy as np
 
 from statgpu._config import Device, cuda_available
-from statgpu.linear_model._cv_base import CVEstimatorBase
+from statgpu.linear_model._cv_base import CVEstimatorBase, batch_mse as _batch_mse_cv
 from statgpu.backends import get_backend
 from statgpu.linear_model._elasticnet import ElasticNet
 
@@ -17,28 +19,33 @@ from statgpu.linear_model._elasticnet import ElasticNet
 # CV Cache
 # =============================================================================
 
+import threading
+
 _ELASTICNET_CV_CACHE_MAXSIZE = int(64)
 _ELASTICNET_CV_CACHE: "OrderedDict[Tuple[Any, ...], Dict[str, Any]]" = OrderedDict()
+_ELASTICNET_CV_CACHE_LOCK = threading.Lock()
 
 
 def _elasticnet_cv_cache_get(cache_key: Optional[Tuple[Any, ...]]) -> Optional[Dict[str, Any]]:
     """Get cached ElasticNet CV results."""
     if cache_key is None:
         return None
-    val = _ELASTICNET_CV_CACHE.get(cache_key)
-    if val is not None:
-        _ELASTICNET_CV_CACHE.move_to_end(cache_key)
-    return val
+    with _ELASTICNET_CV_CACHE_LOCK:
+        val = _ELASTICNET_CV_CACHE.get(cache_key)
+        if val is not None:
+            _ELASTICNET_CV_CACHE.move_to_end(cache_key)
+        return val
 
 
 def _elasticnet_cv_cache_put(cache_key: Optional[Tuple[Any, ...]], value: Dict[str, Any]) -> None:
     """Put cached ElasticNet CV results."""
     if cache_key is None:
         return
-    _ELASTICNET_CV_CACHE[cache_key] = value
-    _ELASTICNET_CV_CACHE.move_to_end(cache_key)
-    while len(_ELASTICNET_CV_CACHE) > _ELASTICNET_CV_CACHE_MAXSIZE:
-        _ELASTICNET_CV_CACHE.popitem(last=False)
+    with _ELASTICNET_CV_CACHE_LOCK:
+        _ELASTICNET_CV_CACHE[cache_key] = value
+        _ELASTICNET_CV_CACHE.move_to_end(cache_key)
+        while len(_ELASTICNET_CV_CACHE) > _ELASTICNET_CV_CACHE_MAXSIZE:
+            _ELASTICNET_CV_CACHE.popitem(last=False)
 
 
 def _make_elasticnet_cv_auto_cache_key(
@@ -54,11 +61,14 @@ def _make_elasticnet_cv_auto_cache_key(
     max_iter: int,
     tol: float,
     sample_weight_shape: Optional[Tuple[int, ...]] = None,
+    data_digest: Optional[bytes] = None,
 ) -> Tuple[Any, ...]:
     """Generate automatic cache key for ElasticNet CV."""
     h = hashlib.blake2b(digest_size=32)
     h.update(np.asarray(X_shape, dtype=np.int64).tobytes())
     h.update(np.asarray(y_shape, dtype=np.int64).tobytes())
+    if data_digest is not None:
+        h.update(data_digest)
     h.update(np.asarray(l1_ratios, dtype=np.float64).tobytes())
     if alphas is not None:
         h.update(np.asarray(alphas, dtype=np.float64).tobytes())
@@ -87,34 +97,14 @@ def _make_elasticnet_cv_auto_cache_key(
     return h.hexdigest()
 
 
+from statgpu.linear_model._cv_base import hash_cv_data as _hash_data
+
+
 # =============================================================================
 # K-fold helpers
 # =============================================================================
 
-def _kfold_indices(n_samples: int, n_splits: int, random_state: Optional[int] = None):
-    """Generate K-fold train/test indices."""
-    rng = np.random.RandomState(random_state)
-    indices = np.arange(n_samples)
-    rng.shuffle(indices)
-    fold_sizes = np.full(n_splits, n_samples // n_splits, dtype=np.int64)
-    fold_sizes[: n_samples % n_splits] += 1
-    current = 0
-    folds = []
-    for fold_size in fold_sizes:
-        start, stop = current, current + fold_size
-        test_idx = indices[start:stop]
-        train_idx = np.concatenate([indices[:start], indices[stop:]])
-        folds.append((train_idx, test_idx))
-        current = stop
-    return folds
-
-
-def _folds_are_complements(folds, n_samples: int) -> bool:
-    """Check if folds are complementary."""
-    test_indices = np.concatenate([f[1] for f in folds])
-    if len(test_indices) != n_samples:
-        return False
-    return np.array_equal(np.sort(test_indices), np.arange(n_samples))
+from statgpu.linear_model._cv_base import kfold_indices as _kfold_indices, folds_are_complete as _folds_are_complete
 
 
 # =============================================================================
@@ -162,22 +152,13 @@ def _default_elasticnet_alpha_grid(
 
     # Compute correlation for alpha_max
     Xty = X_centered.T @ y_centered
-    n = n_samples
 
-    # For ElasticNet, alpha_max depends on l1_ratio
-    # When l1_ratio > 0, use Lasso-like alpha_max
-    # When l1_ratio = 0, use Ridge-like alpha_max
-    if l1_ratio > 0:
-        # Lasso component: alpha_max = max(|Xty|) * 2 / n
-        alpha_max_lasso = np.max(np.abs(Xty)) * 2.0 / n
-    else:
-        alpha_max_lasso = 0.0
-
-    # Ridge component (for stability)
-    alpha_max_ridge = np.max(np.abs(Xty)) * 2.0 / n
-
-    # Combined: use the Lasso component as the primary driver
-    alpha_max = max(alpha_max_lasso, alpha_max_ridge, 1e-6)
+    # alpha_max = max(|X'c yc|) / (n * l1_ratio)
+    # For l1_ratio=1 (Lasso): max(|X'y|) / n
+    # For l1_ratio<1: larger because L2 penalty contributes less
+    _l1r = max(float(l1_ratio), 1e-6)
+    alpha_max = float(np.max(np.abs(Xty))) / (n_samples * _l1r)
+    alpha_max = max(alpha_max, 1e-6)
 
     if alpha_max <= 0:
         alpha_max = 1.0
@@ -235,8 +216,9 @@ def _default_elasticnet_alpha_grid_backend(
     # Compute Xty
     Xty = X_centered.T @ y_centered
 
-    # Alpha max
-    alpha_max = float(backend.max(backend.abs(Xty))) * 2.0 / n_samples
+    # Alpha max: max(|X'y|) / (n * l1_ratio)
+    _l1r = max(float(l1_ratio), 1e-6)
+    alpha_max = float(backend.max(backend.abs(Xty))) / (n_samples * _l1r)
 
     if alpha_max <= 0:
         alpha_max = 1.0
@@ -246,66 +228,6 @@ def _default_elasticnet_alpha_grid_backend(
 
     alpha_min = max(float(alpha_min_ratio) * alpha_max, 1e-6)
     return np.geomspace(alpha_max, alpha_min, num=int(n_alphas)).astype(np.float64)
-
-
-# =============================================================================
-# Batch MSE helper
-# =============================================================================
-
-def _batch_mse_elasticnet(
-    X_val,
-    y_val,
-    coefs_path,
-    intercepts_path,
-    backend,
-    sample_weight_val=None,
-) -> np.ndarray:
-    """
-    Compute MSE for multiple coefficient vectors.
-
-    Parameters
-    ----------
-    X_val : array-like
-        Validation features.
-    y_val : array-like
-        Validation targets.
-    coefs_path : array-like
-        Coefficient paths (n_alphas, n_features).
-    intercepts_path : array-like
-        Intercept values (n_alphas,).
-    backend : BackendBase
-        Backend instance.
-    sample_weight_val : array-like, optional
-        Sample weights for validation set.
-
-    Returns
-    -------
-    mse : ndarray
-        MSE values (n_alphas,).
-    """
-    # Ensure coefs_path is backend array
-    if not hasattr(coefs_path, 'reshape'):
-        coefs_path = backend.asarray(coefs_path)
-
-    # Ensure intercepts_path is backend array and reshape correctly
-    if not hasattr(intercepts_path, 'reshape'):
-        intercepts_path = backend.asarray(intercepts_path)
-    intercepts_reshaped = intercepts_path.reshape(1, -1)
-
-    # Compute predictions and squared errors
-    preds = X_val @ coefs_path.T + intercepts_reshaped
-    sq_err = (y_val.reshape(-1, 1) - preds) ** 2
-
-    if sample_weight_val is None:
-        mse = backend.mean(sq_err, axis=0)
-    else:
-        denom = backend.sum(sample_weight_val)
-        if float(backend.to_numpy(denom)) <= 0.0:
-            mse = backend.mean(sq_err, axis=0)
-        else:
-            mse = backend.sum(sample_weight_val.reshape(-1, 1) * sq_err, axis=0) / denom
-
-    return backend.to_numpy(mse)
 
 
 # =============================================================================
@@ -449,17 +371,17 @@ def _select_elasticnet_params_cv(
 
     n_l1_ratios = int(l1_ratios_arr.size)
 
-    # Generate alpha grids for each l1_ratio
+    # Generate alpha grids for each l1_ratio (use integer index as key)
     alpha_grids = {}
-    for l1r in l1_ratios_arr:
+    for l1_idx, l1r in enumerate(l1_ratios_arr):
         if alphas is None:
             if gpu_input_cupy or gpu_input_torch:
                 backend = get_backend(backend='torch' if gpu_input_torch else 'cupy', device='cuda')
-                alpha_grids[l1r] = _default_elasticnet_alpha_grid_backend(
+                alpha_grids[l1_idx] = _default_elasticnet_alpha_grid_backend(
                     X, y, backend, l1_ratio=l1r, n_alphas=n_alphas, alpha_min_ratio=alpha_min_ratio
                 )
             else:
-                alpha_grids[l1r] = _default_elasticnet_alpha_grid(
+                alpha_grids[l1_idx] = _default_elasticnet_alpha_grid(
                     X_np, y_np, l1_ratio=l1r, n_alphas=n_alphas, alpha_min_ratio=alpha_min_ratio
                 )
         else:
@@ -469,59 +391,44 @@ def _select_elasticnet_params_cv(
             if alpha_grid.size == 0:
                 if gpu_input_cupy or gpu_input_torch:
                     backend = get_backend(backend='torch' if gpu_input_torch else 'cupy', device='cuda')
-                    alpha_grids[l1r] = _default_elasticnet_alpha_grid_backend(
+                    alpha_grids[l1_idx] = _default_elasticnet_alpha_grid_backend(
                         X, y, backend, l1_ratio=l1r, n_alphas=n_alphas, alpha_min_ratio=alpha_min_ratio
                     )
                 else:
-                    alpha_grids[l1r] = _default_elasticnet_alpha_grid(
+                    alpha_grids[l1_idx] = _default_elasticnet_alpha_grid(
                         X_np, y_np, l1_ratio=l1r, n_alphas=n_alphas, alpha_min_ratio=alpha_min_ratio
                     )
             else:
-                alpha_grids[l1r] = alpha_grid
+                alpha_grids[l1_idx] = alpha_grid
 
     # Handle degenerate cases
     if int(n_samples) < 4 or int(cv_folds) < 2:
         # Use first l1_ratio and first alpha
         l1r0 = float(l1_ratios_arr[0])
-        alpha0 = float(alpha_grids[l1r0][0])
+        alpha0 = float(alpha_grids[0][0])
         if not return_details:
             return alpha0, l1r0
-        return {
+        details = {
             "alpha": alpha0,
             "l1_ratio": l1r0,
-            "alphas": alpha_grids[l1r0].astype(np.float64),
+            "alphas": alpha_grids[0].astype(np.float64),
             "l1_ratios": l1_ratios_arr.astype(np.float64),
-            "mse_path": np.full((int(n_l1_ratios), int(alpha_grids[l1r0].size), 1), np.nan, dtype=np.float64),
-            "mean_mse": np.full((int(n_l1_ratios), int(alpha_grids[l1r0].size)), np.nan, dtype=np.float64),
+            "mse_path": np.full((int(n_l1_ratios), int(alpha_grids[0].size), 1), np.nan, dtype=np.float64),
+            "mean_mse": np.full((int(n_l1_ratios), int(alpha_grids[0].size)), np.nan, dtype=np.float64),
         }
+        return alpha0, l1r0, details
 
     # Generate CV folds
     if cv_splits is not None:
-        folds = cv_splits
+        from statgpu.linear_model._lasso import _normalize_cv_splits
+        folds = _normalize_cv_splits(cv_splits, n_samples=int(n_samples))
     else:
         folds = _kfold_indices(n_samples=int(n_samples), n_splits=int(cv_folds), random_state=random_state)
 
-    folds_are_complements_flag = _folds_are_complements(folds, n_samples=int(n_samples))
-
     n_folds = int(len(folds))
 
-    # Cache handling
+    # Auto-cache disabled by default to prevent stale results across datasets.
     cache_key_eff = cache_key
-    if cache_key_eff is None and _ELASTICNET_CV_CACHE_MAXSIZE > 0:
-        cache_key_eff = _make_elasticnet_cv_auto_cache_key(
-            X_shape=X_np.shape if X_np is not None else tuple(X.shape),
-            y_shape=y_np.shape if y_np is not None else tuple(y.shape),
-            l1_ratios=tuple(l1_ratios_arr.tolist()),
-            alphas=alphas,
-            n_alphas=n_alphas,
-            alpha_min_ratio=alpha_min_ratio,
-            folds=folds,
-            fit_intercept=bool(fit_intercept),
-            use_gpu=use_gpu,
-            max_iter=max_iter,
-            tol=tol,
-            sample_weight_shape=sample_weight_np.shape if sample_weight_np is not None else None,
-        )
 
     cached_result = _elasticnet_cv_cache_get(cache_key_eff)
     if cached_result is not None:
@@ -544,83 +451,159 @@ def _select_elasticnet_params_cv(
 
     xp = backend.xp
 
-    # CV loop
+    # Check if we should use warm-start path optimization
+    # Warm-start works when: CPU backend, no sample_weight, fit_intercept handled by centering
+    use_warm_start = (
+        backend.name == 'numpy'
+        and not use_gpu
+        and sample_weight_np is None
+    )
+
+    # Precompute per-fold data and XtX (independent of l1_ratio)
+    fold_data = []  # (X_train, y_train, X_val, y_val, sw_train, sw_val)
+    fold_xtx = []   # (XtX_fold, L_fold) for warm-start path
+
+    for fold_idx, (train_idx, val_idx) in enumerate(folds):
+        train_idx_arr = backend.asarray(train_idx)
+        val_idx_arr = backend.asarray(val_idx)
+
+        # Split data
+        if gpu_input_cupy or gpu_input_torch:
+            X_train_raw = X[train_idx_arr]
+            y_train_raw = y[train_idx_arr]
+            X_val = X[val_idx_arr]
+            y_val = y[val_idx_arr]
+            if sample_weight is not None:
+                sw_train = sample_weight[train_idx_arr]
+                sw_val = sample_weight[val_idx_arr]
+            else:
+                sw_train = None
+                sw_val = None
+            X_train = X_train_raw
+            y_train = y_train_raw
+        else:
+            X_train_np = X_np[train_idx]
+            y_train_np = y_np[train_idx]
+            X_val = backend.asarray(X_np[val_idx])
+            y_val = backend.asarray(y_np[val_idx])
+            if sample_weight_np is not None:
+                sw_train = backend.asarray(sample_weight_np[train_idx])
+                sw_val = backend.asarray(sample_weight_np[val_idx])
+            else:
+                sw_train = None
+                sw_val = None
+            X_train = X_train_np
+            y_train = y_train_np
+
+        fold_data.append((X_train, y_train, X_val, y_val, sw_train, sw_val))
+
+        # Precompute XtX and Lipschitz for warm-start path (independent of l1_ratio)
+        if use_warm_start:
+            if fit_intercept:
+                X_mean_fold = np.mean(X_train_np, axis=0)
+                y_mean_fold = np.mean(y_train_np)
+                Xc = X_train_np - X_mean_fold
+                yc = y_train_np - y_mean_fold
+            else:
+                Xc = X_train_np
+                yc = y_train_np
+
+            XtX_fold = Xc.T @ Xc
+            eig_max = np.linalg.eigvalsh(XtX_fold)[-1]
+            L_fold = float(eig_max / len(train_idx))
+            fold_xtx.append((XtX_fold, L_fold))
+        else:
+            fold_xtx.append(None)
+
+    # CV loop: iterate over l1_ratio and folds
     for l1_idx, l1_ratio in enumerate(l1_ratios_arr):
-        alpha_grid = alpha_grids[l1_ratio]
+        alpha_grid = alpha_grids[l1_idx]
         n_alphas_this = len(alpha_grid)
 
         for fold_idx, (train_idx, val_idx) in enumerate(folds):
-            train_idx_arr = backend.asarray(train_idx)
-            val_idx_arr = backend.asarray(val_idx)
+            X_train, y_train, X_val, y_val, sw_train, sw_val = fold_data[fold_idx]
 
-            # Split data
-            if gpu_input_cupy or gpu_input_torch:
-                X_train = X[train_idx_arr]
-                y_train = y[train_idx_arr]
-                X_val = X[val_idx_arr]
-                y_val = y[val_idx_arr]
-                if sample_weight is not None:
-                    sw_train = sample_weight[train_idx_arr]
-                    sw_val = sample_weight[val_idx_arr]
-                else:
-                    sw_train = None
-                    sw_val = None
+            # For CPU warm-start path: precompute per-fold data to avoid redundant work
+            if use_warm_start:
+                # The alpha grid should be sorted descending for warm-start to work well
+                # (largest alpha first -> sparsest solution -> warm-start to smaller alpha)
+                alpha_grid_sorted = np.sort(alpha_grid)[::-1]
+                sort_indices = np.argsort(alpha_grid)[::-1]
+
+                # Sort alpha_grid for warm-start path
+                alpha_grid_ws = alpha_grid_sorted
+
+                # Reuse precomputed XtX and Lipschitz
+                XtX_fold, L_fold = fold_xtx[fold_idx]
+
+                # Fit alphas with warm-start (descending order)
+                prev_coef = None
+                for alpha_idx_ws, alpha in enumerate(alpha_grid_ws):
+                    orig_idx = sort_indices[alpha_idx_ws]
+
+                    # Create model with known L to avoid recomputation
+                    model = ElasticNet(
+                        alpha=alpha,
+                        l1_ratio=l1_ratio,
+                        max_iter=max_iter,
+                        tol=tol,
+                        fit_intercept=fit_intercept,
+                        device='cpu',
+                        lipschitz_L=L_fold,
+                    )
+
+                    model.fit(X_train, y_train, initial_coef=prev_coef)
+
+                    # Store result
+                    mse_val = _batch_mse_cv(
+                        X_val, y_val,
+                        model.coef_.reshape(1, -1),
+                        np.array([model.intercept_]),
+                    )
+                    mse_path[l1_idx, orig_idx, fold_idx] = float(mse_val[0])
+                    prev_coef = model.coef_.copy()
             else:
-                X_train = backend.asarray(X_np[train_idx])
-                y_train = backend.asarray(y_np[train_idx])
-                X_val = backend.asarray(X_np[val_idx])
-                y_val = backend.asarray(y_np[val_idx])
-                if sample_weight_np is not None:
-                    sw_train = backend.asarray(sample_weight_np[train_idx])
-                    sw_val = backend.asarray(sample_weight_np[val_idx])
-                else:
-                    sw_train = None
-                    sw_val = None
+                # Original approach for GPU or with sample weights
+                for alpha_idx, alpha in enumerate(alpha_grid):
+                    # Convert backend to device string that ElasticNet understands
+                    if backend.name == 'numpy':
+                        enet_device = 'cpu'
+                    elif backend.name == 'cupy':
+                        enet_device = 'cuda'
+                    elif backend.name == 'torch':
+                        enet_device = 'torch'
+                    else:
+                        enet_device = 'cpu'
 
-            # Fit ElasticNet for each alpha
-            for alpha_idx, alpha in enumerate(alpha_grid):
-                # Convert backend to device string that ElasticNet understands
-                if backend.name == 'numpy':
-                    enet_device = 'cpu'
-                elif backend.name == 'cupy':
-                    enet_device = 'cuda'
-                elif backend.name == 'torch':
-                    enet_device = 'torch'
-                else:
-                    enet_device = 'cpu'
+                    model = ElasticNet(
+                        alpha=alpha,
+                        l1_ratio=l1_ratio,
+                        max_iter=max_iter,
+                        tol=tol,
+                        fit_intercept=fit_intercept,
+                        device=enet_device,
+                    )
+                    model.fit(X_train, y_train, sample_weight=sw_train)
 
-                model = ElasticNet(
-                    alpha=alpha,
-                    l1_ratio=l1_ratio,
-                    max_iter=max_iter,
-                    tol=tol,
-                    fit_intercept=fit_intercept,
-                    device=enet_device,
-                )
-                model.fit(X_train, y_train, sample_weight=sw_train)
+                    # Compute validation MSE
+                    mse_val = _batch_mse_cv(
+                        X_val, y_val,
+                        model.coef_.reshape(1, -1),
+                        np.array([model.intercept_]),
+                        sample_weight=sw_val,
+                    )
 
-                # Compute validation MSE
-                mse_val = _batch_mse_elasticnet(
-                    X_val, y_val,
-                    model.coef_.reshape(1, -1),
-                    np.array([model.intercept_]),
-                    backend,
-                    sw_val,
-                )
-
-                mse_path[l1_idx, alpha_idx, fold_idx] = float(mse_val[0])
+                    mse_path[l1_idx, alpha_idx, fold_idx] = float(mse_val[0])
 
     # Compute mean and std MSE across folds
     mean_mse = np.nanmean(mse_path, axis=2)  # (n_l1_ratios, n_alphas)
     std_mse = np.nanstd(mse_path, axis=2)
 
     # Find best (l1_ratio, alpha) combination
-    best_flat_idx = np.nanargmin(mean_mse)
-    best_l1_idx = best_flat_idx // max_n_alphas
-    best_alpha_idx = best_flat_idx % max_n_alphas
+    best_l1_idx, best_alpha_idx = np.unravel_index(np.nanargmin(mean_mse), mean_mse.shape)
 
     best_l1_ratio = float(l1_ratios_arr[best_l1_idx])
-    best_alpha_grid = alpha_grids[l1_ratios_arr[best_l1_idx]]
+    best_alpha_grid = alpha_grids[best_l1_idx]
     best_alpha = float(best_alpha_grid[best_alpha_idx])
     best_mse = float(mean_mse[best_l1_idx, best_alpha_idx])
 
@@ -815,7 +798,8 @@ class ElasticNetCV(CVEstimatorBase):
             "best_alpha": self.alpha_,
             "best_l1_ratio": self.l1_ratio_,
         }
-        self.best_score_ = details["best_mse"]
+        # sklearn convention: best_score_ is negative MSE (higher is better)
+        self.best_score_ = -float(details["best_mse"])
 
         # Fit final model on full data with best parameters
         final_model = ElasticNet(
@@ -832,6 +816,7 @@ class ElasticNetCV(CVEstimatorBase):
         self.intercept_ = final_model.intercept_
         self.n_iter_ = final_model.n_iter_
         self.estimator_ = final_model
+        self._fitted = True
 
         return self
 
@@ -871,6 +856,9 @@ class ElasticNetCV(CVEstimatorBase):
         if self.coef_ is None:
             raise ValueError("Model not fitted. Call fit() first.")
 
+        # Delegate to fitted estimator for backend-aware prediction
+        if self.estimator_ is not None:
+            return self.estimator_.predict(X)
         X_arr = np.asarray(X, dtype=np.float64)
         return X_arr @ self.coef_ + self.intercept_
 
@@ -890,10 +878,15 @@ class ElasticNetCV(CVEstimatorBase):
         score : float
             R² score.
         """
+        # Delegate to fitted estimator for backend-aware scoring
+        if self.estimator_ is not None:
+            return self.estimator_.score(X, y)
         y_pred = self.predict(X)
         y_arr = np.asarray(y, dtype=np.float64).reshape(-1)
 
         ss_res = np.sum((y_arr - y_pred) ** 2)
         ss_tot = np.sum((y_arr - np.mean(y_arr)) ** 2)
 
+        if ss_tot == 0.0:
+            return 0.0 if ss_res == 0.0 else float('-inf')
         return 1.0 - ss_res / ss_tot

@@ -13,7 +13,9 @@ from typing import Any, Optional
 import numpy as np
 
 # Exception types raised by linalg operations on singular/ill-conditioned matrices.
-# numpy raises LinAlgError; torch raises RuntimeError.
+# numpy raises LinAlgError; torch raises RuntimeError for linalg failures.
+# NOTE: torch RuntimeError is overly broad (also catches OOM, autograd errors).
+# Callers should re-raise if the error message doesn't match linalg patterns.
 _LINALG_ERRORS: tuple = (np.linalg.LinAlgError,)
 try:
     import torch  # noqa: F811
@@ -246,7 +248,13 @@ def _np_dtype_to_torch(dtype):
         'uint8': torch.uint8,
         'bool': torch.bool,
     }
-    return _MAP.get(str(np.dtype(dtype)).split('.')[-1], torch.float64)
+    key = str(np.dtype(dtype)).split('.')[-1]
+    result = _MAP.get(key)
+    if result is None:
+        import warnings
+        warnings.warn(f"Unknown numpy dtype '{dtype}' for torch conversion, falling back to float64", stacklevel=2)
+        return torch.float64
+    return result
 
 
 def _torch_dtype_to_np(dtype):
@@ -266,8 +274,12 @@ def _torch_dtype_to_np(dtype):
     return _MAP.get(dtype, np.dtype('float64'))
 
 
-def xp_astype(arr, dtype, xp):
-    """Backend-safe type cast (``.to()`` for torch, ``.astype()`` otherwise)."""
+def xp_astype(arr, dtype, xp=None):
+    """Backend-safe type cast (``.to()`` for torch, ``.astype()`` otherwise).
+
+    Note: ``xp`` parameter is unused — backend is detected from ``arr`` directly.
+    Kept for backward compatibility with existing callers.
+    """
     if _torch_dev(arr) is not None:
         import torch
         if not isinstance(dtype, torch.dtype):

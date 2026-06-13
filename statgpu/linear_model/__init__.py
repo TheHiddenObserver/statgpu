@@ -12,10 +12,6 @@ from ._logistic_cv import LogisticRegressionCV
 from ._elasticnet import ElasticNet
 from ._elasticnet_cv import ElasticNetCV
 from ._glm_base import GeneralizedLinearModel, OrderedGeneralizedLinearModel
-from ._gamma_glm import GammaRegression
-from ._inverse_gaussian_glm import InverseGaussianRegression
-from ._negative_binomial_glm import NegativeBinomialRegression
-from ._tweedie_glm import TweedieRegression
 from ._penalized import (
     PenalizedGeneralizedLinearModel,
     PenalizedLinearRegression,
@@ -23,17 +19,27 @@ from ._penalized import (
     PenalizedPoissonRegression,
 )
 from ._poisson_glm import PoissonRegression
+from ._gamma_glm import GammaRegression
+from ._inverse_gaussian_glm import InverseGaussianRegression
+from ._negative_binomial_glm import NegativeBinomialRegression
+from ._tweedie_glm import TweedieRegression
 from ._ordered_logit import OrderedLogitRegression
 from ._ordered_probit import OrderedProbitRegression
+from ._penalized_cv import PenalizedGLM_CV, ApproximateCVWarning
 
 __all__ = [
     'LinearRegression',
     'LogisticRegression',
     'LogisticRegressionCV',
     'PoissonRegression',
+    'GammaRegression',
+    'InverseGaussianRegression',
+    'NegativeBinomialRegression',
+    'TweedieRegression',
     'GeneralizedLinearModel',
     'OrderedGeneralizedLinearModel',
     'PenalizedGeneralizedLinearModel',
+    'PenalizedGLM_CV',
     'PenalizedLinearRegression',
     'PenalizedLogisticRegression',
     'PenalizedPoissonRegression',
@@ -45,4 +51,5 @@ __all__ = [
     'ElasticNetCV',
     'OrderedLogitRegression',
     'OrderedProbitRegression',
+    'ApproximateCVWarning',
 ]
