@@ -123,10 +123,17 @@ def two_way_clustered_covariance(X, resid, cluster1, cluster2, xp=None):
     c2_raw = _to_numpy(xp_asarray(cluster2, xp=xp, ref_arr=V1).ravel())
     _, c1 = np.unique(c1_raw, return_inverse=True)
     _, c2 = np.unique(c2_raw, return_inverse=True)
-    c1 = xp_asarray(c1, dtype=xp.int64, xp=xp, ref_arr=V1)
-    c2 = xp_asarray(c2, dtype=xp.int64, xp=xp, ref_arr=V1)
-    s = c1 + c2
-    combined = s * (s + 1) // 2 + c2
+    # Use Python int for Cantor-pair to avoid int64 overflow with
+    # large cluster counts (>~3 billion unique combinations).
+    c1_int = [int(x) for x in c1]
+    c2_int = [int(x) for x in c2]
+    combined_np = np.array(
+        [s * (s + 1) // 2 + c2i for s, c2i in zip(
+            [a + b for a, b in zip(c1_int, c2_int)], c2_int
+        )],
+        dtype=np.int64,
+    )
+    combined = xp_asarray(combined_np, dtype=xp.int64, xp=xp, ref_arr=V1)
 
     V12 = clustered_covariance(X, resid, combined, xp)
     return V1 + V2 - V12

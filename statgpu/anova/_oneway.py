@@ -50,6 +50,7 @@ class AnovaResult:
 def f_oneway(
     *groups: Any,
     backend: str = "auto",
+    dtype: Any = None,
 ) -> AnovaResult:
     """Perform a one-way ANOVA.
 
@@ -61,6 +62,9 @@ def f_oneway(
     backend : {'auto', 'numpy', 'cupy', 'torch'}, default='auto'
         Compute backend.  ``'auto'`` inspects the input arrays and picks the
         best match.
+    dtype : dtype or None, default=None
+        Float dtype for computation.  ``None`` uses ``float64``.
+        Pass ``float32`` for faster GPU computation on consumer GPUs.
 
     Returns
     -------
@@ -92,10 +96,13 @@ def f_oneway(
     resolved = _resolve_backend(backend, *groups)
     xp = _get_xp(resolved)
 
+    # Resolve dtype
+    float_dtype = dtype if dtype is not None else xp.float64
+
     # Convert groups to flat arrays in the target backend
     flat_groups = []
     for g in groups:
-        arr = xp.asarray(g, dtype=xp.float64).ravel()
+        arr = xp.asarray(g, dtype=float_dtype).ravel()
         n_i = int(arr.shape[0])
         if n_i < 1:
             raise ValueError("each group must contain at least 1 observation")
@@ -104,7 +111,7 @@ def f_oneway(
     k = len(flat_groups)
     # Use first group as device reference for torch
     ref = flat_groups[0]
-    group_sizes = xp.asarray([int(g.shape[0]) for g in flat_groups], dtype=xp.float64)
+    group_sizes = xp.asarray([int(g.shape[0]) for g in flat_groups], dtype=float_dtype)
     # Ensure group_sizes is on same device as groups (torch CUDA)
     if hasattr(group_sizes, 'to') and hasattr(ref, 'device'):
         group_sizes = group_sizes.to(device=ref.device)
@@ -116,7 +123,7 @@ def f_oneway(
         )
 
     # Group means — computed on device, single sync at the end
-    group_means = xp.empty(k, dtype=xp.float64)
+    group_means = xp.empty(k, dtype=float_dtype)
     if hasattr(group_means, 'to') and hasattr(ref, 'device'):
         group_means = group_means.to(device=ref.device)
     for i, g in enumerate(flat_groups):
@@ -129,7 +136,7 @@ def f_oneway(
     ssb = xp.sum(group_sizes * (group_means - grand_mean) ** 2)
 
     # SSW (within-group sum of squares)
-    ssw = xp.zeros(1, dtype=xp.float64)
+    ssw = xp.zeros(1, dtype=float_dtype)
     if hasattr(ssw, 'to') and hasattr(ref, 'device'):
         ssw = ssw.to(device=ref.device)
     for i, g in enumerate(flat_groups):

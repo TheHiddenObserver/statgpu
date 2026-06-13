@@ -25,7 +25,7 @@ from statgpu._base import BaseEstimator
 from statgpu._config import Device
 from statgpu.backends import _LINALG_ERRORS, _get_torch_device_str, _torch_dev, _to_float_scalar, _to_numpy, xp_astype, xp_zeros, xp_cholesky_solve
 
-from ._utils import within_transform, group_means, group_sizes, ols_inference_nonrobust
+from ._utils import PanelSummary, within_transform, group_means, group_sizes, ols_inference_nonrobust
 
 
 class RandomEffects(BaseEstimator):
@@ -328,29 +328,32 @@ class RandomEffects(BaseEstimator):
         return X_arr @ self.coef_
 
     def summary(self):
-        """Print a coefficient table with SE, t, p, and 95 % CI."""
+        """Print and return a structured coefficient summary.
+
+        Returns
+        -------
+        PanelSummary
+            Dataclass with all model results.  Also prints a formatted
+            table to stdout for interactive use.
+        """
         self._check_is_fitted()
 
         k = len(self._params)
         feat_names = [f'x{i+1}' for i in range(k)]
 
-        print("=" * 72)
-        print("                      Random Effects Results")
-        print("=" * 72)
-        print(f"No. Observations:   {self.nobs:>10}")
-        print(f"Degrees of Freedom: {self.df_resid:>10}")
-        if self.variance_components_:
-            print(f"sigma2_e:           {self.variance_components_['sigma2_e']:>10.6f}")
-            print(f"sigma2_a:           {self.variance_components_['sigma2_a']:>10.6f}")
-        print(f"theta (avg):        {self.theta_:>10.4f}")
-        print("-" * 72)
-        header = f"{'':<12} {'coef':>10} {'std err':>10} {'t':>8} {'P>|t|':>10} {'[0.025':>10} {'0.975]':>10}"
-        print(header)
-        print("-" * 72)
-        for i, name in enumerate(feat_names):
-            print(
-                f"{name:<12} {self._params[i]:>10.4f} {self.bse_[i]:>10.4f} "
-                f"{self.tvalues_[i]:>8.3f} {self.pvalues_[i]:>10.4f} "
-                f"{self.conf_int_[i, 0]:>10.4f} {self.conf_int_[i, 1]:>10.4f}"
-            )
-        print("=" * 72)
+        s = PanelSummary(
+            model_type='RandomEffects',
+            nobs=self.nobs,
+            df_resid=self.df_resid,
+            coef=self._params,
+            bse=self.bse_,
+            tvalues=self.tvalues_,
+            pvalues=self.pvalues_,
+            conf_int=self.conf_int_,
+            feature_names=feat_names,
+            variance_components=self.variance_components_,
+            theta=self.theta_,
+            alpha=self.alpha,
+        )
+        print(s)
+        return s

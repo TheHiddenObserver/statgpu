@@ -12,11 +12,131 @@ Python loops and their associated GPU-CPU synchronization overhead.
 
 from __future__ import annotations
 
-from typing import Optional
+from dataclasses import dataclass, field
+from typing import Dict, List, Optional
 
 import numpy as np
 
 from statgpu.backends import xp_asarray, xp_copy, xp_ones, xp_zeros, _to_float_scalar, _to_numpy
+
+
+@dataclass
+class PanelSummary:
+    """Structured result container for panel model summaries.
+
+    Attributes
+    ----------
+    model_type : str
+        ``'PanelOLS'`` or ``'RandomEffects'``.
+    nobs : int
+        Number of observations.
+    df_resid : int
+        Residual degrees of freedom.
+    coef : ndarray, shape (k,)
+        Estimated coefficients.
+    bse : ndarray, shape (k,)
+        Standard errors.
+    tvalues : ndarray, shape (k,)
+        t-statistics.
+    pvalues : ndarray, shape (k,)
+        Two-sided p-values.
+    conf_int : ndarray, shape (k, 2)
+        Confidence intervals.
+    feature_names : list of str
+        Feature names (auto-generated as ``x1, x2, ...`` if not provided).
+    rsquared_within : float or None
+        Within R-squared (PanelOLS only).
+    cov_type : str or None
+        Covariance type (PanelOLS only).
+    entity_effects : bool or None
+        Whether entity effects were included (PanelOLS only).
+    time_effects : bool or None
+        Whether time effects were included (PanelOLS only).
+    variance_components : dict or None
+        ``{'sigma2_e': float, 'sigma2_a': float}`` (RandomEffects only).
+    theta : float or None
+        GLS transformation parameter (RandomEffects only).
+    alpha : float
+        Significance level for confidence intervals.
+    extra : dict
+        Additional model-specific metadata.
+    """
+
+    model_type: str
+    nobs: int
+    df_resid: int
+    coef: np.ndarray
+    bse: np.ndarray
+    tvalues: np.ndarray
+    pvalues: np.ndarray
+    conf_int: np.ndarray
+    feature_names: List[str]
+    rsquared_within: Optional[float] = None
+    cov_type: Optional[str] = None
+    entity_effects: Optional[bool] = None
+    time_effects: Optional[bool] = None
+    variance_components: Optional[Dict[str, float]] = None
+    theta: Optional[float] = None
+    alpha: float = 0.05
+    extra: Dict = field(default_factory=dict)
+
+    def __str__(self) -> str:
+        """Formatted text table."""
+        lines = []
+        lines.append("=" * 72)
+        lines.append(f"{'':>20}{self.model_type} Results")
+        lines.append("=" * 72)
+
+        if self.entity_effects is not None:
+            lines.append(f"Entity effects:     {str(self.entity_effects):>10}")
+        if self.time_effects is not None:
+            lines.append(f"Time effects:       {str(self.time_effects):>10}")
+        if self.cov_type is not None:
+            lines.append(f"Covariance type:    {self.cov_type:>10}")
+        lines.append(f"No. Observations:   {self.nobs:>10}")
+        lines.append(f"Degrees of Freedom: {self.df_resid:>10}")
+        if self.rsquared_within is not None:
+            lines.append(f"Within R-squared:   {self.rsquared_within:>10.4f}")
+        if self.variance_components is not None:
+            lines.append(f"sigma2_e:           {self.variance_components['sigma2_e']:>10.6f}")
+            lines.append(f"sigma2_a:           {self.variance_components['sigma2_a']:>10.6f}")
+        if self.theta is not None:
+            lines.append(f"theta (avg):        {self.theta:>10.4f}")
+
+        ci_label = f"[{self.alpha/2:.3f}" if self.alpha != 0.05 else "[0.025"
+        ci_label2 = f"{1-self.alpha/2:.3f}]" if self.alpha != 0.05 else "0.975]"
+        lines.append("-" * 72)
+        lines.append(f"{'':<12} {'coef':>10} {'std err':>10} {'t':>8} {'P>|t|':>10} {ci_label:>10} {ci_label2:>10}")
+        lines.append("-" * 72)
+        for i, name in enumerate(self.feature_names):
+            lines.append(
+                f"{name:<12} {self.coef[i]:>10.4f} {self.bse[i]:>10.4f} "
+                f"{self.tvalues[i]:>8.3f} {self.pvalues[i]:>10.4f} "
+                f"{self.conf_int[i, 0]:>10.4f} {self.conf_int[i, 1]:>10.4f}"
+            )
+        lines.append("=" * 72)
+        return "\n".join(lines)
+
+    def to_dict(self) -> Dict:
+        """Return a JSON-serializable dictionary."""
+        return {
+            'model_type': self.model_type,
+            'nobs': self.nobs,
+            'df_resid': self.df_resid,
+            'coef': self.coef.tolist(),
+            'bse': self.bse.tolist(),
+            'tvalues': self.tvalues.tolist(),
+            'pvalues': self.pvalues.tolist(),
+            'conf_int': self.conf_int.tolist(),
+            'feature_names': self.feature_names,
+            'rsquared_within': self.rsquared_within,
+            'cov_type': self.cov_type,
+            'entity_effects': self.entity_effects,
+            'time_effects': self.time_effects,
+            'variance_components': self.variance_components,
+            'theta': self.theta,
+            'alpha': self.alpha,
+        }
 
 
 def _scatter_add(xp, indices, values, n_groups):

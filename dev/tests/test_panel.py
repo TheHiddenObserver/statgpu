@@ -223,7 +223,7 @@ class TestPanelOLS:
         model.fit(X, y, entity_ids=eids)
         model.summary()
         out = capsys.readouterr().out
-        assert 'Panel OLS' in out
+        assert 'PanelOLS' in out
 
     def test_cluster_2d_two_way(self):
         """Passing 2-column cluster should trigger two-way clustering."""
@@ -309,7 +309,7 @@ class TestRandomEffects:
         model.fit(X, y, entity_ids=eids)
         model.summary()
         out = capsys.readouterr().out
-        assert 'Random Effects' in out
+        assert 'RandomEffects' in out
 
     def test_unbalanced_panel(self):
         """Should work on unbalanced panels."""

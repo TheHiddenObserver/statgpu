@@ -17,7 +17,7 @@ from statgpu._base import BaseEstimator
 from statgpu._config import Device
 from statgpu.backends import _LINALG_ERRORS, _get_torch_device_str, _torch_dev, _to_float_scalar, _to_numpy, xp_astype, xp_cholesky_solve
 
-from ._utils import demean_variables, ols_inference_nonrobust
+from ._utils import PanelSummary, _scatter_add, demean_variables, ols_inference_nonrobust
 from ._covariance import clustered_covariance, two_way_clustered_covariance
 
 
@@ -91,6 +91,8 @@ class PanelOLS(BaseEstimator):
         # Internal storage
         self._params = None
         self._scale = None
+        self._entity_effects_map = {}
+        self._time_effects_map = {}
 
     def fit(self, X, y, entity_ids=None, time_ids=None, cluster=None):
         """Fit the fixed effects model.
@@ -193,6 +195,30 @@ class PanelOLS(BaseEstimator):
         scale = _to_float_scalar(xp.sum(resid ** 2)) / self.df_resid
         self._scale = scale
 
+        # Compute entity/time effects for predict()
+        self._entity_effects_map = {}
+        self._time_effects_map = {}
+        if self.entity_effects and entity_arr is not None:
+            resid_orig = y_arr - X_arr @ coef  # residuals on original data
+            ent_np = _to_numpy(entity_arr).ravel()
+            unique_ent, idx_np = np.unique(ent_np, return_inverse=True)
+            idx_dev = xp.asarray(idx_np, dtype=xp.int64)
+            ent_sums = _scatter_add(xp, idx_dev, resid_orig, len(unique_ent))
+            ent_counts = _scatter_add(xp, idx_dev, xp.ones_like(resid_orig), len(unique_ent))
+            ent_effects = _to_numpy(ent_sums / xp.maximum(ent_counts, 1.0)).ravel()
+            for i, eid in enumerate(unique_ent):
+                self._entity_effects_map[eid] = float(ent_effects[i])
+        if self.time_effects and time_arr is not None:
+            resid_orig = y_arr - X_arr @ coef
+            time_np = _to_numpy(time_arr).ravel()
+            unique_time, idx_np = np.unique(time_np, return_inverse=True)
+            idx_dev = xp.asarray(idx_np, dtype=xp.int64)
+            time_sums = _scatter_add(xp, idx_dev, resid_orig, len(unique_time))
+            time_counts = _scatter_add(xp, idx_dev, xp.ones_like(resid_orig), len(unique_time))
+            time_effects = _to_numpy(time_sums / xp.maximum(time_counts, 1.0)).ravel()
+            for i, tid in enumerate(unique_time):
+                self._time_effects_map[tid] = float(time_effects[i])
+
         # Keep arrays on device for inference — only transfer final results
         self._compute_inference(xp, cluster, backend_name,
                                 X_d, coef, resid, y_d)
@@ -291,10 +317,20 @@ class PanelOLS(BaseEstimator):
     def predict(self, X, entity_ids=None, time_ids=None):
         """Predict using the fitted model.
 
+        If the model was fitted with entity/time effects and the
+        corresponding identifiers are provided, the predictions include
+        the estimated fixed effects.
+
         Parameters
         ----------
         X : array-like, shape (n, k)
             Regressor matrix.
+        entity_ids : array-like, shape (n,), optional
+            Entity identifiers.  Required to include entity effects in
+            the prediction.
+        time_ids : array-like, shape (n,), optional
+            Time-period identifiers.  Required to include time effects
+            in the prediction.
 
         Returns
         -------
@@ -305,32 +341,51 @@ class PanelOLS(BaseEstimator):
         X_arr = np.asarray(X, dtype=np.float64)
         if X_arr.ndim == 1:
             X_arr = X_arr.reshape(-1, 1)
-        return X_arr @ self.coef_
+        y_pred = X_arr @ self.coef_
+
+        # Add entity effects if available
+        if self._entity_effects_map and entity_ids is not None:
+            ent_arr = np.asarray(entity_ids).ravel()
+            for i, eid in enumerate(ent_arr):
+                y_pred[i] += self._entity_effects_map.get(eid, 0.0)
+
+        # Add time effects if available
+        if self._time_effects_map and time_ids is not None:
+            time_arr = np.asarray(time_ids).ravel()
+            for i, tid in enumerate(time_arr):
+                y_pred[i] += self._time_effects_map.get(tid, 0.0)
+
+        return y_pred
 
     def summary(self):
-        """Print a coefficient table with SE, t, p, and 95 % CI."""
+        """Print and return a structured coefficient summary.
+
+        Returns
+        -------
+        PanelSummary
+            Dataclass with all model results.  Also prints a formatted
+            table to stdout for interactive use.
+        """
         self._check_is_fitted()
 
         k = len(self._params)
         feat_names = [f'x{i+1}' for i in range(k)]
 
-        print("=" * 72)
-        print("                        Panel OLS Results")
-        print("=" * 72)
-        print(f"Entity effects:     {str(self.entity_effects):>10}")
-        print(f"Time effects:       {str(self.time_effects):>10}")
-        print(f"Covariance type:    {self.cov_type:>10}")
-        print(f"No. Observations:   {self.nobs:>10}")
-        print(f"Degrees of Freedom: {self.df_resid:>10}")
-        print(f"Within R-squared:   {self.rsquared_within:>10.4f}")
-        print("-" * 72)
-        header = f"{'':<12} {'coef':>10} {'std err':>10} {'t':>8} {'P>|t|':>10} {'[0.025':>10} {'0.975]':>10}"
-        print(header)
-        print("-" * 72)
-        for i, name in enumerate(feat_names):
-            print(
-                f"{name:<12} {self._params[i]:>10.4f} {self.bse_[i]:>10.4f} "
-                f"{self.tvalues_[i]:>8.3f} {self.pvalues_[i]:>10.4f} "
-                f"{self.conf_int_[i, 0]:>10.4f} {self.conf_int_[i, 1]:>10.4f}"
-            )
-        print("=" * 72)
+        s = PanelSummary(
+            model_type='PanelOLS',
+            nobs=self.nobs,
+            df_resid=self.df_resid,
+            coef=self._params,
+            bse=self.bse_,
+            tvalues=self.tvalues_,
+            pvalues=self.pvalues_,
+            conf_int=self.conf_int_,
+            feature_names=feat_names,
+            rsquared_within=self.rsquared_within,
+            cov_type=self.cov_type,
+            entity_effects=self.entity_effects,
+            time_effects=self.time_effects,
+            alpha=self.alpha,
+        )
+        print(s)
+        return s
