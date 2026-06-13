@@ -161,11 +161,12 @@ def compute_inference_torch(X_design, resid, scale, df_resid, params_torch, cov_
 
     # Handle HC2/HC3 leverage adjustment
     if cov_type in ("hc2", "hc3"):
-        # Compute leverage values: diag(X @ (X'X)^-1 @ X.T)
-        # More efficient: diag(X @ (X'X)^-1 @ X.T) = sum((X @ (X'X)^-1) * X, axis=1)
+        # Compute leverage values: h_ii = diag(X @ (X'X)^-1 @ X')
+        # Using Cholesky L where L @ L' = (X'X)^-1:
+        # h_ii = sum((X @ L) * (X @ L), dim=1) = diag(X @ L @ L' @ X')
         XtX_inv_half = torch.linalg.cholesky(XtX_inv)
         X_white = torch.matmul(X_design, XtX_inv_half)
-        leverage = torch.sum(X_white * X_design, dim=1)
+        leverage = torch.sum(X_white * X_white, dim=1)
         leverage = torch.clamp(leverage, 0.0, 1.0 - 1e-12)
 
         if cov_type == "hc2":

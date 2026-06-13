@@ -406,7 +406,10 @@ def _weighted_loss_and_grad(loss, X, y, coef, sample_weight):
     _backend = _resolve_backend("auto", X)
     xp = _get_xp(_backend)
     _sw_np = _to_numpy(sample_weight)
-    _sw = xp.asarray(_sw_np, dtype=X.dtype)
+    if hasattr(X, 'device'):
+        _sw = xp.asarray(_sw_np, dtype=X.dtype, device=X.device)
+    else:
+        _sw = xp.asarray(_sw_np, dtype=X.dtype)
     sw_sum = _to_float_scalar(xp.sum(_sw))
 
     loss_name = getattr(loss, 'name', '')
