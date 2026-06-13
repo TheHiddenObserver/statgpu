@@ -248,8 +248,11 @@ class GeneralizedLinearModel(BaseEstimator):
         backend = self._get_backend(backend="auto")
         backend_name = backend.name
 
-        X_arr = self._to_array(X_arr, backend=backend_name)
-        y_arr = self._to_array(y_arr, backend=backend_name)
+        # Convert to backend arrays using xp_asarray for proper device placement
+        from statgpu.backends._utils import _get_xp, xp_asarray
+        xp = _get_xp(backend_name)
+        X_arr = xp_asarray(X_arr, dtype=xp.float64, xp=xp)
+        y_arr = xp_asarray(y_arr, dtype=xp.float64, xp=xp)
         self._nobs = X_arr.shape[0]
 
         family = self._get_family()

@@ -181,13 +181,15 @@ def compute_inference_torch(X_design, resid, scale, df_resid, params_torch, cov_
         cov_params = torch.matmul(XtX_inv, torch.matmul(meat, XtX_inv))
         bse_torch = torch.sqrt(torch.clamp(torch.diag(cov_params), 0.0))
     elif cov_type == "hc1":
-        # HC1: scale adjustment
+        # HC1: sandwich with finite-sample correction
+        # meat = X' @ diag(resid^2) @ X * n/(n-k)
         n, k = X_design.shape
-        if n > k:
-            scale_factor = n / (n - k)
-        else:
-            scale_factor = 1.0
-        bse_torch = torch.sqrt(scale_factor * scale * torch.clamp(torch.diag(XtX_inv), 0.0))
+        df_scale = n / (n - k) if n > k else 1.0
+        e2 = torch.square(resid) * df_scale
+        Xw = X_design * e2[:, None]
+        meat = torch.matmul(X_design.T, Xw)
+        cov_params = torch.matmul(XtX_inv, torch.matmul(meat, XtX_inv))
+        bse_torch = torch.sqrt(torch.clamp(torch.diag(cov_params), 0.0))
     else:
         # Nonrobust (HC0-style): scale * diag((X'X)^-1)
         bse_torch = torch.sqrt(scale * torch.clamp(torch.diag(XtX_inv), 0.0))
