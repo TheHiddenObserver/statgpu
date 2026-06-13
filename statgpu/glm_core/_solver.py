@@ -31,482 +31,49 @@ from statgpu.backends._array_ops import (
     _zeros_like,
 )
 
-# ---------------------------------------------------------------------------
-# Lipschitz safety factors for GLM losses (empirically determined)
-# ---------------------------------------------------------------------------
-# Per-family safety factors are now on the loss classes themselves
-# (_lipschitz_safety attribute): gamma=3.0, inverse_gaussian=3.0,
-# tweedie=5.0, negative_binomial=2.0.  The solver reads them via
-# getattr(loss, '_lipschitz_safety', 1.0).
-#
-# Logistic CV needs an additional global safety factor because its
-# Lipschitz is iterate-dependent (X'WX).
-_LIPSCHITZ_SAFETY_LOGISTIC_CV = 2.0
-
-# Numerical constants for solver convergence/divergence
-_SLACK_TOLERANCE = 1e-14          # Armijo slack tolerance
-_DIVERGE_COEF_NORM_CAP = 100.0    # Coefficient norm above which divergence is suspected
-_DIVERGE_OBJ_RATIO = 100.0        # Objective ratio for divergence detection
-_DIVERGE_OBJ_ABS = 10.0           # Absolute objective threshold for divergence
-_BB_RESTART_DOT_TOL = 1e-14       # BB restart dot product tolerance
-_LIPSCHITZ_FLOOR = 1e-30          # Minimum Lipschitz constant
-
-
-class ConvergenceWarning(UserWarning):
-    """Solver did not converge within the iteration limit."""
-    pass
+# Import shared helpers from _solver_utils
+from statgpu.glm_core._solver_utils import (
+    ConvergenceWarning,
+    _LIPSCHITZ_SAFETY_LOGISTIC_CV,
+    _SLACK_TOLERANCE,
+    _DIVERGE_COEF_NORM_CAP,
+    _DIVERGE_OBJ_RATIO,
+    _DIVERGE_OBJ_ABS,
+    _BB_RESTART_DOT_TOL,
+    _LIPSCHITZ_FLOOR,
+    _get_fista_step_compiled,
+    _fista_step_call,
+    _get_newton_step_compiled,
+    _newton_step_call,
+    _validate_uniform_sample_weight,
+    _validate_sample_weight,
+    _as_backend_vector,
+    _penalty_name,
+    _smooth_penalty_value,
+    _tracking_penalty_value,
+    _abs_mean_max,
+    _smooth_penalty_gradient,
+    _smooth_penalty_hessian,
+    _objective_value,
+    _objective_gradient,
+    _smooth_penalty_lipschitz,
+    _smooth_penalty_value_dev,
+    _objective_value_dev,
+    _fused_logistic,
+    _fused_poisson,
+    _fused_gamma,
+    _fused_negative_binomial,
+    _fused_tweedie,
+    _fused_inverse_gaussian,
+    _fused_glm_value_and_gradient,
+    _weighted_loss_and_grad,
+)
 
 
 # =============================================================================
 # torch.compile for FISTA/Newton elementwise ops
 # Falls back to eager mode on GPUs with CUDA capability < 7.0
 # =============================================================================
-
-_FISTA_STEP_COMPILED = None
-_NEWTON_STEP_COMPILED = None
-
-
-from statgpu.backends._utils import torch_compile_supported as _torch_compile_supported
-
-
-def _get_fista_step_compiled():
-    """Lazily create a torch.compile'd FISTA step function."""
-    global _FISTA_STEP_COMPILED
-    if _FISTA_STEP_COMPILED is not None:
-        return _FISTA_STEP_COMPILED
-    import torch
-    def _fista_step(y_k, grad, step, coef_old, coef, beta_t):
-        w_tilde = y_k - step * grad
-        y_k_new = coef + beta_t * (coef - coef_old)
-        return w_tilde, y_k_new
-    if _torch_compile_supported():
-        try:
-            _FISTA_STEP_COMPILED = torch.compile(_fista_step, dynamic=True, fullgraph=False)
-        except RuntimeError:
-            _FISTA_STEP_COMPILED = _fista_step
-    else:
-        _FISTA_STEP_COMPILED = _fista_step
-    return _FISTA_STEP_COMPILED
-
-
-def _fista_step_call(compiled_fn, *args):
-    """Call compiled FISTA step, falling back to eager on GPU arch mismatch."""
-    try:
-        return compiled_fn(*args)
-    except (RuntimeError, TypeError):
-        # Runtime fallback (shouldn't happen if pre-check passed)
-        def _fista_eager(y_k, grad, step, coef_old, coef, beta_t):
-            w_tilde = y_k - step * grad
-            y_k_new = coef + beta_t * (coef - coef_old)
-            return w_tilde, y_k_new
-        return _fista_eager(*args)
-
-
-def _get_newton_step_compiled():
-    """Lazily create a torch.compile'd Newton step function."""
-    global _NEWTON_STEP_COMPILED
-    if _NEWTON_STEP_COMPILED is not None:
-        return _NEWTON_STEP_COMPILED
-    import torch
-    def _newton_step(params, direction, params_old):
-        params_new = params - direction
-        diff_norm = torch.linalg.norm(params_new - params_old)
-        return params_new, diff_norm
-    if _torch_compile_supported():
-        try:
-            _NEWTON_STEP_COMPILED = torch.compile(_newton_step, dynamic=True, fullgraph=False)
-        except RuntimeError:
-            _NEWTON_STEP_COMPILED = _newton_step
-    else:
-        _NEWTON_STEP_COMPILED = _newton_step
-    return _NEWTON_STEP_COMPILED
-
-
-def _newton_step_call(compiled_fn, *args):
-    """Call compiled Newton step, falling back to eager on GPU arch mismatch."""
-    try:
-        return compiled_fn(*args)
-    except (RuntimeError, TypeError):
-        def _newton_eager(params, direction, params_old):
-            params_new = params - direction
-            diff_norm = torch.linalg.norm(params_new - params_old)
-            return params_new, diff_norm
-        return _newton_eager(*args)
-
-
-
-def _validate_uniform_sample_weight(sample_weight, n_samples, solver_name):
-    """Validate solver paths that only support unweighted semantics."""
-    if sample_weight is None:
-        return
-    mod = type(sample_weight).__module__
-    if mod.startswith("cupy"):
-        import cupy as cp
-        sw_np = cp.asnumpy(sample_weight)
-    elif mod.startswith("torch"):
-        import torch
-        sw_tensor = sample_weight.detach()
-        if sw_tensor.is_cuda:
-            sw_tensor = sw_tensor.cpu()
-        sw_np = sw_tensor.numpy()
-    else:
-        sw_np = sample_weight
-    sw_np = np.asarray(sw_np, dtype=np.float64)
-    if sw_np.ndim != 1 or sw_np.shape[0] != n_samples:
-        raise ValueError("sample_weight must be a 1D array with length n_samples")
-    if not np.all(np.isfinite(sw_np)):
-        raise ValueError("sample_weight must contain only finite values")
-    if np.any(sw_np < 0):
-        raise ValueError("sample_weight must be non-negative")
-    if np.sum(sw_np) <= 0.0:
-        raise ValueError("sample_weight must contain at least one positive value")
-    if not np.allclose(sw_np, sw_np[0]):
-        raise ValueError(
-            f"{solver_name} does not support non-uniform sample_weight yet; "
-            "use solver='irls' for weighted GLM fits."
-        )
-
-
-def _validate_sample_weight(sample_weight, n_samples):
-    """Validate non-uniform sample_weight (ndim, finite, non-negative, positive sum).
-
-    Shared by fista_solver, fista_lla_path, and fista_bb_solver.
-    """
-    if sample_weight is None:
-        return
-    _sw = _to_numpy(sample_weight) if hasattr(sample_weight, 'get') or hasattr(sample_weight, 'cpu') else np.asarray(sample_weight)
-    if _sw.ndim != 1 or _sw.shape[0] != n_samples:
-        raise ValueError("sample_weight must be 1D with length n_samples")
-    if not np.all(np.isfinite(_sw)):
-        raise ValueError("sample_weight must contain only finite values")
-    if np.any(_sw < 0):
-        raise ValueError("sample_weight must be non-negative")
-    if np.sum(_sw) <= 0:
-        raise ValueError("sample_weight must contain at least one positive value")
-
-
-def _as_backend_vector(arr, backend, ref):
-    """Convert an initial vector to the same backend/dtype/device as ref."""
-    from statgpu.backends._utils import xp_asarray
-    xp = _get_xp(backend)
-    dtype = getattr(ref, "dtype", np.float64)
-    return xp_asarray(arr, dtype=dtype, xp=xp, ref_arr=ref)
-
-
-
-def _penalty_name(penalty):
-    return str(getattr(penalty, "name", "none")).lower()
-
-
-def _smooth_penalty_value(penalty, coef):
-    """Return smooth penalty value without moving the full vector to CPU."""
-    if penalty is None:
-        return 0.0
-    if hasattr(penalty, "smooth_value"):
-        return float(_to_numpy(penalty.smooth_value(coef)))
-    if _penalty_name(penalty) in ("none", "null"):
-        return 0.0
-    if _penalty_name(penalty) == "l2":
-        return 0.5 * float(getattr(penalty, "alpha", 0.0)) * _sum_sq(coef)
-    if _penalty_name(penalty) == "elasticnet":
-        alpha = float(getattr(penalty, "alpha", 0.0))
-        l1_ratio = float(getattr(penalty, "l1_ratio", 1.0))
-        return 0.5 * alpha * (1.0 - l1_ratio) * _sum_sq(coef)
-    raise ValueError(
-        f"solver requires a smooth penalty, got penalty='{_penalty_name(penalty)}'."
-    )
-
-
-def _tracking_penalty_value(penalty, coef):
-    """Return full penalty value for objective tracking."""
-    pen_name = _penalty_name(penalty)
-    if penalty is None or pen_name in ("none", "null"):
-        return 0.0
-    n_features = getattr(penalty, "n_features", None)
-    if n_features is not None:
-        coef_eval = coef[: int(n_features)]
-        backend = _resolve_backend("auto", coef_eval)
-        if pen_name == "l1":
-            if backend in ("torch", "cupy"):
-                abs_sum, = _sync_scalars(_abs_sum_dev(coef_eval), backend=backend)
-            else:
-                abs_sum = _abs_sum(coef_eval)
-            return float(getattr(penalty, "alpha", 0.0)) * abs_sum
-        if pen_name in ("elasticnet", "en"):
-            alpha = float(getattr(penalty, "alpha", 0.0))
-            l1_ratio = float(getattr(penalty, "l1_ratio", 1.0))
-            if backend in ("torch", "cupy"):
-                abs_sum, sum_sq = _sync_scalars(
-                    _abs_sum_dev(coef_eval),
-                    _sum_sq_dev(coef_eval),
-                    backend=backend,
-                )
-            else:
-                abs_sum = _abs_sum(coef_eval)
-                sum_sq = _sum_sq(coef_eval)
-            return alpha * (
-                l1_ratio * abs_sum
-                + 0.5 * (1.0 - l1_ratio) * sum_sq
-            )
-    try:
-        return float(penalty.value(coef))
-    except (ValueError, TypeError, AttributeError):
-        pass
-    try:
-        return float(penalty.value(_to_numpy(coef)))
-    except (ValueError, TypeError, AttributeError):
-        return _smooth_penalty_value(penalty, coef)
-
-
-def _abs_mean_max(y, backend):
-    """Return mean(abs(y)) and max(abs(y)) with only scalar GPU transfers."""
-    backend = _resolve_backend(backend, y)
-    xp = _get_xp(backend)
-    y_abs = xp.abs(y)
-    # Batch two scalar transfers into one GPU→CPU sync
-    mean_val, max_val = _sync_scalars(xp.mean(y_abs), xp.max(y_abs), backend=backend)
-    return mean_val, max_val
-
-
-def _smooth_penalty_gradient(penalty, coef):
-    """Return smooth penalty gradient on the same backend as coef."""
-    if penalty is None or _penalty_name(penalty) in ("none", "null"):
-        return _zeros_like(coef)
-    if hasattr(penalty, "smooth_gradient"):
-        return penalty.smooth_gradient(coef)
-    if _penalty_name(penalty) == "l2":
-        return float(getattr(penalty, "alpha", 0.0)) * coef
-    if _penalty_name(penalty) == "elasticnet":
-        alpha = float(getattr(penalty, "alpha", 0.0))
-        l1_ratio = float(getattr(penalty, "l1_ratio", 1.0))
-        return alpha * (1.0 - l1_ratio) * coef
-    raise ValueError(
-        f"solver requires a smooth penalty, got penalty='{_penalty_name(penalty)}'."
-    )
-
-
-def _smooth_penalty_hessian(penalty, coef):
-    """Return smooth penalty Hessian on the same backend as coef.
-
-    Returns scalar 0.0 when penalty is None/null (broadcasts correctly
-    when added to the loss Hessian matrix).
-    """
-    if penalty is None or _penalty_name(penalty) in ("none", "null"):
-        return 0.0
-    n = coef.shape[0]
-    if hasattr(penalty, "smooth_hessian"):
-        return penalty.smooth_hessian(coef)
-    if _penalty_name(penalty) == "l2":
-        return float(getattr(penalty, "alpha", 0.0)) * _eye_like(n, coef)
-    raise ValueError(
-        f"solver requires a smooth penalty, got penalty='{_penalty_name(penalty)}'."
-    )
-
-
-def _objective_value(loss, penalty, X, y, coef):
-    return float(_to_numpy(loss.value(X, y, coef))) + _smooth_penalty_value(
-        penalty, coef
-    )
-
-
-def _objective_gradient(loss, penalty, X, y, coef):
-    return loss.gradient(X, y, coef) + _smooth_penalty_gradient(penalty, coef)
-
-
-def _smooth_penalty_lipschitz(penalty):
-    """Return the Lipschitz constant of the smooth penalty gradient.
-
-    For l2: gradient = alpha * coef → Lipschitz = alpha.
-    For ElasticNet: smooth part gradient = alpha*(1-l1_ratio)*coef → Lipschitz = alpha*(1-l1_ratio).
-    For pure L1: no smooth part → Lipschitz = 0.
-    """
-    if penalty is None:
-        return 0.0
-    _pname = _penalty_name(penalty)
-    if _pname in ("none", "null", "l1", "scad", "mcp", "adaptive_l1", "adaptive_lasso",
-                  "group_lasso", "group_mcp", "group_scad", "gl", "gmcp", "gscad"):
-        return 0.0
-    alpha = float(getattr(penalty, 'alpha', 0.0))
-    l1_ratio = float(getattr(penalty, 'l1_ratio', 0.0))
-    return alpha * (1.0 - l1_ratio)
-
-
-# =============================================================================
-# Device-side helpers (no GPU→CPU sync)
-# =============================================================================
-
-def _smooth_penalty_value_dev(penalty, coef):
-    """Smooth penalty value staying on device (no GPU→CPU sync)."""
-    if penalty is None:
-        return 0.0
-    pname = _penalty_name(penalty)
-    if pname in ("none", "null"):
-        return 0.0
-    if pname == "l2":
-        return 0.5 * float(getattr(penalty, "alpha", 0.0)) * _sum_sq_dev(coef)
-    if pname == "elasticnet":
-        alpha = float(getattr(penalty, "alpha", 0.0))
-        l1_ratio = float(getattr(penalty, "l1_ratio", 1.0))
-        return 0.5 * alpha * (1.0 - l1_ratio) * _sum_sq_dev(coef)
-    raise ValueError(
-        f"smooth_penalty_value_dev requires a smooth penalty, got '{pname}'."
-    )
-
-
-def _objective_value_dev(loss, penalty, X, y, coef):
-    """Objective value staying on device (no GPU→CPU sync)."""
-    val = loss.value(X, y, coef)
-    pen_val = _smooth_penalty_value_dev(penalty, coef)
-    if isinstance(pen_val, (int, float)) and pen_val == 0.0:
-        return val
-    return val + pen_val
-
-
-
-def _fused_logistic(eta, X, y, n, loss):
-    from statgpu.backends._array_ops import _sigmoid, _softplus, _sum
-    p = _sigmoid(eta)
-    log1pexp = _softplus(eta)
-    val = _sum(-y * eta + log1pexp) / n
-    grad = X.T @ (p - y) / n
-    return val, grad
-
-
-def _fused_poisson(eta, X, y, n, loss):
-    from statgpu.backends._array_ops import _exp, _log, _clip, _sum
-    mu = _exp(_clip(eta, -30, 30))
-    # Clip mu before log to match non-fused PoissonLoss.value() behavior
-    mu_c = _clip(mu, 1e-10, None)
-    val = _sum(mu - y * _log(mu_c)) / n
-    grad = X.T @ (mu - y) / n
-    return val, grad
-
-
-def _fused_gamma(eta, X, y, n, loss):
-    from statgpu.backends._array_ops import _exp, _log, _clip, _sum
-    gamma_link = getattr(loss, 'link_name', getattr(loss, 'link', 'log'))
-    if gamma_link == 'inverse_power':
-        eta_lo = float(getattr(loss, '_ETA_LO', 1e-2))
-        eta_hi = float(getattr(loss, '_ETA_HI', 1e3))
-        eta_c = _clip(eta, eta_lo, eta_hi)
-        mu = 1.0 / eta_c
-        val = _sum(y * eta_c - _log(eta_c)) / n
-        grad = X.T @ (y - mu) / n
-        return val, grad
-    mu = _exp(_clip(eta, -30, 30))
-    # Use same mu floor as IRLS path (1e-10) for consistency in Armijo checks
-    mu_c = _clip(mu, 1e-10, None)
-    val = _sum(y / mu_c + _log(mu_c)) / n
-    # Chain rule: d/deta = d/dmu * dmu/deta = (-y/mu^2 + 1/mu) * mu = (mu - y)/mu
-    # Element-wise divide by mu before the matmul to avoid broadcast error
-    grad = X.T @ ((mu_c - y) / mu_c) / n
-    return val, grad
-
-
-def _fused_negative_binomial(eta, X, y, n, loss):
-    from statgpu.backends._array_ops import _exp, _log, _clip, _sum
-    a = float(getattr(loss, 'alpha', 1.0))
-    mu = _exp(_clip(eta, -30, 30))
-    mu_c = _clip(mu, 1e-300, None)
-    one_plus_a_mu = 1.0 + a * mu_c
-    val = _sum(-y * _log(mu_c / one_plus_a_mu) + (1.0 / a) * _log(one_plus_a_mu)) / n
-    grad = X.T @ ((mu_c - y) / one_plus_a_mu) / n
-    return val, grad
-
-
-def _fused_tweedie(eta, X, y, n, loss):
-    from statgpu.backends._array_ops import _exp, _clip, _sum, _log
-    pw = float(getattr(loss, 'power', 1.5))
-    mu = _exp(_clip(eta, -50, 50))
-    # Use same mu floor as IRLS path (1e-10) for consistency
-    mu_c = _clip(mu, 1e-10, 1e6)
-    log_mu = _log(mu_c)
-    d1 = 1.0 - pw
-    d2 = 2.0 - pw
-    # Use log-form near singularities (power ≈ 1 or ≈ 2) to avoid div/0.
-    if abs(d1) < 0.01:
-        term1 = -y * log_mu
-    else:
-        term1 = -y * mu_c ** d1 / d1
-    if abs(d2) < 0.01:
-        term2 = log_mu
-    else:
-        term2 = mu_c ** d2 / d2
-    val = _sum(term1 + term2) / n
-    grad = X.T @ (mu_c ** d1 * (mu_c - y)) / n
-    return val, grad
-
-
-def _fused_inverse_gaussian(eta, X, y, n, loss):
-    from statgpu.backends._array_ops import _exp, _clip, _sum
-    mu = _exp(_clip(eta, -30, 30))
-    mu_c = _clip(mu, 5e-2, 1e3)
-    # Must match InverseGaussianLoss.value: y/(2*mu^2) - 1/mu
-    val = _sum(y / (2.0 * mu_c * mu_c) - 1.0 / mu_c) / n
-    grad = X.T @ ((mu_c - y) / (mu_c * mu_c)) / n
-    return val, grad
-
-
-
-# Note: legacy _GLM_FUSED_REGISTRY removed — all GLMLoss subclasses now
-# inherit fused_value_and_gradient() from the base class (single source of truth).
-# Standalone _fused_* functions are retained for reference and testing.
-
-def _fused_glm_value_and_gradient(loss, X, y, coef):
-    """Compute GLM loss value and gradient in one pass, avoiding redundant X @ coef.
-
-    For GLM losses, the value() and gradient() both need eta = X @ coef.
-    This function computes eta once and reuses it for both.
-    Returns (value, gradient) both on the same backend as coef.
-
-    Dispatch uses the loss class's fused_value_and_gradient method
-    (single source of truth, inherited from GLMLoss base class).
-    """
-    return loss.fused_value_and_gradient(X, y, coef)
-
-
-def _weighted_loss_and_grad(loss, X, y, coef, sample_weight):
-    """Compute weighted loss value and gradient.
-
-    For GLM losses, computes: grad = X' diag(w) (mu - y) / sum(w)
-    For squared_error: grad = X' diag(w) (X@coef - y) / sum(w)
-    """
-    n = X.shape[0]
-    _backend = _resolve_backend("auto", X)
-    xp = _get_xp(_backend)
-    # Convert sample_weight to same backend as X (via numpy intermediate)
-    _sw_np = _to_numpy(sample_weight)
-    _sw = xp.asarray(_sw_np, dtype=X.dtype)
-    sw_sum = _to_float_scalar(xp.sum(_sw))
-
-    loss_name = getattr(loss, 'name', '')
-
-    # For squared_error, compute directly with weights
-    if loss_name == 'squared_error':
-        resid = X @ coef - y
-        grad = X.T @ (_sw * resid) / sw_sum
-        val = 0.5 * _to_float_scalar(xp.sum(_sw * resid * resid)) / sw_sum
-        return val, grad
-
-    # Prefer fused method if available (avoids redundant X @ coef)
-    if hasattr(loss, 'fused_value_and_gradient'):
-        try:
-            return loss.fused_value_and_gradient(X, y, coef, sample_weight=sample_weight)
-        except TypeError:
-            pass  # method doesn't accept sample_weight
-
-    # For GLM losses, try loss.gradient with sample_weight if supported.
-    # SquaredError and Logistic already implement weighted gradient.
-    # For other losses, fall back to unweighted (approximate).
-    try:
-        val = loss.value(X, y, coef, sample_weight=sample_weight)
-        grad = loss.gradient(X, y, coef, sample_weight=sample_weight)
-        return val, grad
-    except TypeError:
-        # Loss doesn't support sample_weight yet — fall back to unweighted
-        val = loss.value(X, y, coef)
-        grad = loss.gradient(X, y, coef)
-        return val, grad
 
 
 def fista_solver(
@@ -1308,10 +875,12 @@ def fista_lla_path(
                             _diverge_norm_dev = _cn_dev > _DIVERGE_COEF_NORM_CAP if iteration > 10 else xp.asarray(False)
                             _obj_finite_dev = xp.isfinite(q_new_dev) if iteration > 0 else xp.asarray(True)
                         else:
-                            _finite_dev = np.isfinite(float(_to_numpy(_cn_dev)))
-                            _cap_needed_dev = float(_to_numpy(_cn_dev)) > 5.0
-                            _diverge_norm_dev = float(_to_numpy(_cn_dev)) > _DIVERGE_COEF_NORM_CAP if iteration > 10 else False
-                            _obj_finite_dev = np.isfinite(float(_to_numpy(q_new_dev))) if iteration > 0 else True
+                            # Batch GPU→CPU sync: transfer 2 scalars instead of 4
+                            _cn_f, _obj_f = _sync_scalars(_cn_dev, q_new_dev, backend=backend)
+                            _finite_dev = np.isfinite(_cn_f)
+                            _cap_needed_dev = _cn_f > 5.0
+                            _diverge_norm_dev = _cn_f > _DIVERGE_COEF_NORM_CAP if iteration > 10 else False
+                            _obj_finite_dev = np.isfinite(_obj_f) if iteration > 0 else True
 
                         # Single D2H transfer: pack booleans
                         if backend == "numpy":
@@ -1343,9 +912,12 @@ def fista_lla_path(
                             step = 1.0 / L
                             continue
 
+                        # Batch sync: coef norm + objective (1 GPU→CPU transfer)
+                        if iteration > 0 or _cap_needed:
+                            _cn_f, _obj_val_f = _sync_scalars(_cn_dev, q_new_dev, backend=backend)
+
                         # Coef norm capping
                         if _cap_needed:
-                            _cn_f = float(_to_numpy(_cn_dev))
                             _scale = 5.0 / _cn_f
                             if _augment_intercept:
                                 coef = _copy_arr(coef)
@@ -1357,7 +929,6 @@ def fista_lla_path(
 
                         # Divergence detection
                         if iteration > 0:
-                            _obj_val_f = float(_to_numpy(q_new_dev))
                             _diverged_f = not _obj_finite
                             if not _diverged_f and _obj_best_lla_inner is not None:
                                 if _obj_best_lla_inner > 1e-8:
