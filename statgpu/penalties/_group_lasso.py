@@ -226,6 +226,31 @@ class GroupLassoPenalty(Penalty):
                     self._group_indices.append([idx])
                 flat_indices = np.concatenate(self._group_indices)
                 unique_idx = np.unique(flat_indices)
+                # Update derived attributes after auto-fill
+                self._n_groups = len(self._group_indices)
+                self._group_sizes = np.array([len(g) for g in self._group_indices], dtype=np.int64)
+                sizes = self._group_sizes
+                unique_sizes = np.unique(sizes)
+                self._all_equal_size = len(unique_sizes) == 1
+                if self._all_equal_size:
+                    self._group_size_uniform = int(sizes[0])
+                # Recompute contiguity
+                self._is_contiguous = True
+                pos = 0
+                for g in range(self._n_groups):
+                    sz = sizes[g]
+                    if not np.array_equal(self._group_indices[g], np.arange(pos, pos + sz)):
+                        self._is_contiguous = False
+                        break
+                    pos += sz
+                if not self._is_contiguous:
+                    self._flat_indices = np.concatenate(
+                        [np.asarray(g, dtype=np.int64) for g in self._group_indices]
+                    )
+                # Recompute padded indices for unequal groups
+                if not self._all_equal_size:
+                    self._padded_row_idx = np.repeat(np.arange(self._n_groups), self._group_sizes).astype(np.int64)
+                    self._padded_col_idx = np.concatenate([np.arange(sz) for sz in self._group_sizes]).astype(np.int64)
         self._group_feat_idx = np.empty(expected, dtype=np.int64)
         for g, idx in enumerate(self._group_indices):
             self._group_feat_idx[idx] = g
