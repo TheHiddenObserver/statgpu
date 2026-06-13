@@ -36,11 +36,11 @@ from statgpu.glm_core._family import (
 )
 
 
-def _xp_arr(arr):
-    """Get the array module (numpy/cupy) from array type.
+def _np_compat_xp(arr):
+    """Get numpy-compatible array module from array type.
 
-    Unlike glm_core._family._xp, this does NOT return torch — it returns
-    numpy for torch tensors since we need numpy-compatible indexing ops.
+    Returns cupy for cupy arrays, numpy for everything else (including torch).
+    Used for operations that need numpy-style indexing (e.g., ordered model).
     """
     mod = type(arr).__module__
     if mod.startswith('cupy'):
@@ -57,6 +57,15 @@ def _torch_promoted_float_dtype(X, y):
     y_is_float = getattr(y, "is_floating_point", lambda: False)()
     y_dtype = y.dtype if y_is_float else torch.float64
     return torch.promote_types(x_dtype, y_dtype)
+
+
+def _add_intercept_column(X, backend_name):
+    """Prepend an intercept column of ones to X.  Works for numpy/cupy/torch."""
+    from statgpu.backends._utils import _get_xp, xp_ones
+    xp = _get_xp(backend_name)
+    n = X.shape[0]
+    ones = xp_ones((n, 1), dtype=X.dtype, xp=xp, ref_arr=X)
+    return xp.column_stack([ones, X])
 
 
 class GeneralizedLinearModel(BaseEstimator):
@@ -99,8 +108,8 @@ class GeneralizedLinearModel(BaseEstimator):
         self.max_iter = max_iter
         self.tol = tol
         self.C = C
-        self.solver = solver.lower()
-        self.gpu_memory_cleanup = bool(gpu_memory_cleanup)
+        self.solver = solver
+        self.gpu_memory_cleanup = gpu_memory_cleanup
 
         self.coef_ = None
         self.intercept_ = None
@@ -111,6 +120,19 @@ class GeneralizedLinearModel(BaseEstimator):
         self._feature_names = None
         self._design_info = None
         self._formula_has_intercept = None
+        self._use_intercept = None  # formula-derived override; None = use fit_intercept
+
+    @property
+    def _effective_intercept(self):
+        """Return the effective intercept flag.
+
+        When formula is used, the formula's intercept semantics take priority
+        (stored in ``_use_intercept``).  Otherwise, ``fit_intercept`` is used.
+        This avoids mutating ``fit_intercept`` which would break ``sklearn.clone``.
+        """
+        if self._use_intercept is not None:
+            return self._use_intercept
+        return self.fit_intercept
 
     def _get_family(self):
         """Return the GLM Family instance. Override in subclass."""
@@ -123,6 +145,11 @@ class GeneralizedLinearModel(BaseEstimator):
             "negative_binomial": NegativeBinomial,
             "tweedie": Tweedie,
         }
+        if self.family not in family_map:
+            raise ValueError(
+                f"Unknown family '{self.family}'. "
+                f"Supported families: {list(family_map.keys())}"
+            )
         kwargs = self._get_loss_kwargs()
         return family_map[self.family](**kwargs)
 
@@ -132,7 +159,7 @@ class GeneralizedLinearModel(BaseEstimator):
 
     def _cleanup_cuda_memory(self):
         """Best-effort CuPy memory pool cleanup."""
-        if not self.gpu_memory_cleanup:
+        if not bool(self.gpu_memory_cleanup):
             return
         try:
             import cupy as cp
@@ -143,13 +170,12 @@ class GeneralizedLinearModel(BaseEstimator):
 
     def _cleanup_torch_memory(self):
         """Best-effort Torch CUDA memory cleanup."""
-        if not self.gpu_memory_cleanup:
+        if not bool(self.gpu_memory_cleanup):
             return
         try:
             import torch
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
-                torch.cuda.synchronize()
         except Exception:
             pass
 
@@ -199,10 +225,12 @@ class GeneralizedLinearModel(BaseEstimator):
             if self._formula_has_intercept:
                 intercept_idx = formula_column_names.index("Intercept")
                 X_arr = np.delete(X_arr, intercept_idx, axis=1)
-                self.fit_intercept = True
+                # Store formula-derived intercept decision in internal attribute
+                # to avoid mutating self.fit_intercept (breaks sklearn clone).
+                self._use_intercept = True
             else:
                 # Formula syntax owns intercept semantics, matching statsmodels/R.
-                self.fit_intercept = False
+                self._use_intercept = False
         else:
             if X is None or y is None:
                 raise ValueError(
@@ -211,6 +239,7 @@ class GeneralizedLinearModel(BaseEstimator):
             self._feature_names = None
             self._design_info = None
             self._formula_has_intercept = None
+            self._use_intercept = None
             y_arr = np.asarray(y)
             if y_arr.ndim == 2 and y_arr.shape[1] == 1:
                 y_arr = y_arr.ravel()
@@ -224,7 +253,8 @@ class GeneralizedLinearModel(BaseEstimator):
         self._nobs = X_arr.shape[0]
 
         family = self._get_family()
-        solver_name = self.solver if self.solver != "auto" else "irls"
+        _solver_lower = self.solver.lower() if isinstance(self.solver, str) else self.solver
+        solver_name = _solver_lower if _solver_lower != "auto" else "irls"
 
         if solver_name == "irls":
             self._fit_irls(X_arr, y_arr, sample_weight, family, backend_name)
@@ -250,15 +280,8 @@ class GeneralizedLinearModel(BaseEstimator):
         # objective penalty.  Scale by n to keep C semantics consistent.
         ridge_alpha = X.shape[0] * self._get_penalty_alpha()
 
-        if self.fit_intercept:
-            if backend_name == "cupy":
-                import cupy as cp
-                X_design = cp.column_stack([cp.ones(X.shape[0]), X])
-            elif backend_name == "torch":
-                import torch
-                X_design = torch.column_stack([torch.ones(X.shape[0], dtype=torch.float64, device=X.device), X])
-            else:
-                X_design = np.column_stack([np.ones(X.shape[0]), X])
+        if self._effective_intercept:
+            X_design = _add_intercept_column(X, backend_name)
         else:
             X_design = X
 
@@ -267,7 +290,7 @@ class GeneralizedLinearModel(BaseEstimator):
             X_design, y,
             sample_weight=sample_weight,
             ridge_alpha=ridge_alpha,
-            ridge_penalize_intercept=not self.fit_intercept,
+            ridge_penalize_intercept=not self._effective_intercept,
             backend=backend_name,
         )
 
@@ -277,14 +300,14 @@ class GeneralizedLinearModel(BaseEstimator):
         # Convert to numpy (params may be cupy/torch array)
         params_np = _to_numpy(params)
 
-        if self.fit_intercept:
+        if self._effective_intercept:
             self.intercept_ = float(params_np[0])
             self.coef_ = params_np[1:]
         else:
             self.intercept_ = 0.0
             self.coef_ = params_np.copy()
 
-        self._df_resid = self._nobs - (X.shape[1] + (1 if self.fit_intercept else 0))
+        self._df_resid = self._nobs - (X.shape[1] + (1 if self._effective_intercept else 0))
 
     def _fit_fista(self, X, y, sample_weight, family, backend_name="numpy"):
         """Fit using FISTA (no penalty; pure loss minimization).
@@ -298,7 +321,7 @@ class GeneralizedLinearModel(BaseEstimator):
         loss_kwargs = self._get_loss_kwargs()
         loss = get_glm_loss(self.family_to_loss(), **loss_kwargs)
 
-        if not self.fit_intercept:
+        if not self._effective_intercept:
             X_centered = X
             if backend_name == "torch":
                 dtype = _torch_promoted_float_dtype(X_centered, y)
@@ -406,6 +429,7 @@ class GeneralizedLinearModel(BaseEstimator):
             self.coef_ = _to_numpy(coef)
             self.n_iter_ = n_iter
             self.intercept_ = 0.0
+            self._params = self.coef_.copy()
             self._df_resid = self._nobs - X.shape[1]
             return
 
@@ -454,6 +478,7 @@ class GeneralizedLinearModel(BaseEstimator):
             self.coef_ = full_np[:p]
             self.intercept_ = float(full_np[p])
             self.n_iter_ = n_iter
+            self._params = np.concatenate([[self.intercept_], self.coef_])
         else:
             # Squared error: centering X and y preserves the objective.
             if backend_name == "cupy":
@@ -482,6 +507,7 @@ class GeneralizedLinearModel(BaseEstimator):
             self.coef_ = _to_numpy(coef)
             self.intercept_ = float(y_mean - X_mean @ self.coef_)
             self.n_iter_ = n_iter
+            self._params = np.concatenate([[self.intercept_], self.coef_])
 
         self._df_resid = self._nobs - (X.shape[1] + 1)
 
@@ -501,7 +527,7 @@ class GeneralizedLinearModel(BaseEstimator):
         if not getattr(loss, "has_hessian", False):
             raise ValueError(f"solver='{solver_name}' requires a Hessian.")
 
-        if self.fit_intercept:
+        if self._effective_intercept:
             if backend_name == "cupy":
                 import cupy as cp
                 x_dtype = X.dtype if getattr(X.dtype, "kind", "") == "f" else cp.float64
@@ -541,7 +567,7 @@ class GeneralizedLinearModel(BaseEstimator):
 
         params_np = _to_numpy(params)
         self.n_iter_ = n_iter
-        if self.fit_intercept:
+        if self._effective_intercept:
             self.coef_ = params_np[:p]
             self.intercept_ = float(params_np[p])
         else:
@@ -549,11 +575,11 @@ class GeneralizedLinearModel(BaseEstimator):
             self.intercept_ = 0.0
         self._params = (
             np.concatenate([[self.intercept_], self.coef_])
-            if self.fit_intercept
+            if self._effective_intercept
             else self.coef_.copy()
         )
         self._df_resid = self._nobs - (
-            X.shape[1] + (1 if self.fit_intercept else 0)
+            X.shape[1] + (1 if self._effective_intercept else 0)
         )
 
     def _get_loss_kwargs(self):
@@ -571,7 +597,12 @@ class GeneralizedLinearModel(BaseEstimator):
             "negative_binomial": "negative_binomial",
             "tweedie": "tweedie",
         }
-        return mapping.get(self.family, "squared_error")
+        if self.family not in mapping:
+            raise ValueError(
+                f"Unknown family '{self.family}'. "
+                f"Supported families: {list(mapping.keys())}"
+            )
+        return mapping[self.family]
 
     def predict(self, X):
         """Predict using fitted model."""
@@ -596,34 +627,26 @@ class GeneralizedLinearModel(BaseEstimator):
 
         device = self._get_compute_device()
         family = self._get_family()
-        if device == Device.CUDA:
-            import cupy as cp
-            Xb = cp.asarray(self._to_array(X, Device.CUDA))
-            coef = cp.asarray(self.coef_)
+        from statgpu.backends._utils import _get_xp, xp_asarray
+        if device in (Device.CUDA, Device.TORCH):
+            backend_name = "cupy" if device == Device.CUDA else "torch"
+            xp = _get_xp(backend_name)
+            Xb = xp_asarray(self._to_array(X, device), xp=xp)
+            coef = xp_asarray(self.coef_, xp=xp, ref_arr=Xb)
             raw = Xb @ coef
-            if self.fit_intercept:
-                raw += cp.asarray(self.intercept_, dtype=raw.dtype)
+            if self._effective_intercept:
+                raw = raw + xp_asarray(self.intercept_, xp=xp, ref_arr=Xb)
             out = family.link.inverse(raw)
-            self._cleanup_cuda_memory()
-            return out
-        if device == Device.TORCH:
-            import torch
-            Xb = self._to_array(X, Device.TORCH, backend="torch").to(torch.float64)
-            coef = torch.as_tensor(self.coef_, dtype=Xb.dtype, device=Xb.device)
-            raw = Xb @ coef
-            if self.fit_intercept:
-                raw = raw + torch.as_tensor(
-                    self.intercept_, dtype=raw.dtype, device=raw.device
-                )
-            out = family.link.inverse(raw)
-            self._cleanup_torch_memory()
+            if device == Device.CUDA:
+                self._cleanup_cuda_memory()
+            else:
+                self._cleanup_torch_memory()
             return out
 
         X = np.asarray(X)
         raw = X @ self.coef_
-        if self.fit_intercept:
+        if self._effective_intercept:
             raw += self.intercept_
-
         return family.link.inverse(raw)
 
 
@@ -1040,7 +1063,7 @@ class OrderedGeneralizedLinearModel(GeneralizedLinearModel):
         eta = X @ beta  # (n,)
         pi = family.link.inverse(thresh[:, None] - eta[None, :])  # (K-1, n)
 
-        xp = _xp_arr(X)
+        xp = _np_compat_xp(X)
         prob = xp.zeros((K, X.shape[0]), dtype=getattr(X, 'dtype', None))
         prob[0] = pi[0]
         for j in range(1, K - 1):
@@ -1050,7 +1073,7 @@ class OrderedGeneralizedLinearModel(GeneralizedLinearModel):
 
     def _ordered_gradient(self, X, y, beta, thresh, prob, prob_clipped, family, K, n):
         """Compute analytical gradient of the negative log-likelihood (vectorized)."""
-        xp = _xp_arr(X)
+        xp = _np_compat_xp(X)
         p = X.shape[1]
         n_thresh = K - 1
         dim = p + n_thresh
@@ -1107,16 +1130,10 @@ class OrderedGeneralizedLinearModel(GeneralizedLinearModel):
         Both paths are backend-agnostic (numpy/cupy/torch).
         """
         if family.link.name == "probit":
-            mod = type(x).__module__
-            if mod.startswith('cupy'):
-                from statgpu.inference._distributions_backend import get_distribution
-                norm_dist = get_distribution("norm", backend="cupy")
-                return norm_dist.pdf(x)
-            elif mod.startswith('torch'):
-                import torch
-                return torch.exp(-0.5 * x.square()) / torch.sqrt(2.0 * torch.pi)
-            from scipy.stats import norm
-            return norm.pdf(x)
+            from statgpu.backends._array_ops import _xp, _exp, _scalar_tensor
+            xp = _xp(x)
+            two_pi = _scalar_tensor(2.0 * np.pi, x)
+            return _exp(-0.5 * x * x) / xp.sqrt(two_pi)
         # logit: F * (1 - F) — element-wise, works for any backend
         F = family.link.inverse(x)
         return F * (1.0 - F)
@@ -1132,15 +1149,11 @@ class OrderedGeneralizedLinearModel(GeneralizedLinearModel):
             return F * (1.0 - F) * (1.0 - 2.0 * F)
         elif family.link.name == "probit":
             # F''(x) = -x * φ(x) for standard normal PDF φ
-            if is_cupy:
-                from statgpu.inference._distributions_backend import get_distribution
-                norm_dist = get_distribution("norm", backend="cupy")
-                return -x * norm_dist.pdf(x)
-            elif is_torch:
-                import torch
-                return -x * torch.exp(-0.5 * x.square()) / torch.sqrt(2.0 * torch.pi)
-            from scipy.stats import norm
-            return -x * norm.pdf(x)
+            from statgpu.backends._array_ops import _xp, _exp, _scalar_tensor
+            xp = _xp(x)
+            two_pi = _scalar_tensor(2.0 * np.pi, x)
+            phi = _exp(-0.5 * x * x) / xp.sqrt(two_pi)
+            return -x * phi
         F = family.link.inverse(x)
         return F * (1.0 - F) * (1.0 - 2.0 * F)
 
@@ -1159,24 +1172,12 @@ class OrderedGeneralizedLinearModel(GeneralizedLinearModel):
         backend_name = backend.name
         X_arr = self._to_array(X, backend=backend_name)
 
-        if backend_name == "cupy":
-            import cupy as cp
-            coef = cp.asarray(self.coef_)
-            X_mean = cp.asarray(self._X_mean)
-            X_std = cp.asarray(self._X_std)
-            thresholds = cp.asarray(self.thresholds_)
-        elif backend_name == "torch":
-            import torch
-            torch_device = X_arr.device if hasattr(X_arr, 'device') else torch.device('cuda')
-            coef = torch.from_numpy(np.asarray(self.coef_)).to(torch_device)
-            X_mean = torch.from_numpy(np.asarray(self._X_mean)).to(torch_device)
-            X_std = torch.from_numpy(np.asarray(self._X_std)).to(torch_device)
-            thresholds = torch.from_numpy(np.asarray(self.thresholds_)).to(torch_device)
-        else:
-            coef = self.coef_
-            X_mean = self._X_mean
-            X_std = self._X_std
-            thresholds = self.thresholds_
+        from statgpu.backends._utils import _get_xp, xp_asarray
+        xp = _get_xp(backend_name)
+        coef = xp_asarray(self.coef_, xp=xp, ref_arr=X_arr)
+        X_mean = xp_asarray(self._X_mean, xp=xp, ref_arr=X_arr)
+        X_std = xp_asarray(self._X_std, xp=xp, ref_arr=X_arr)
+        thresholds = xp_asarray(self.thresholds_, xp=xp, ref_arr=X_arr)
 
         X_scaled = (X_arr - X_mean) / X_std
         eta = X_scaled @ coef
@@ -1184,20 +1185,12 @@ class OrderedGeneralizedLinearModel(GeneralizedLinearModel):
         diff = thresholds[:, None] - eta[None, :]
         pi = family.link.inverse(diff)  # (K+1, n) with -inf/+inf thresholds
 
-        if backend_name == "torch":
-            import torch
-            proba = torch.diff(pi, dim=0).T  # (n, K)
+        proba = xp.diff(pi, axis=0).T  # (n, K)
+        if backend_name != "numpy":
             out = _to_numpy(proba)
-            self._cleanup_torch_memory()
+            self._cleanup_backend_memory(backend_name)
             return out
-        elif backend_name == "cupy":
-            import cupy as cp
-            proba = cp.diff(pi, axis=0).T  # (n, K)
-            out = _to_numpy(proba)
-            self._cleanup_cuda_memory()
-            return out
-        else:
-            return np.diff(pi, axis=0).T  # (n, K)
+        return proba
 
     def predict(self, X):
         """Predict class labels.
@@ -1208,44 +1201,8 @@ class OrderedGeneralizedLinearModel(GeneralizedLinearModel):
 
         backend = self._get_backend(backend="auto")
         backend_name = backend.name
-        X_arr = self._to_array(X, backend=backend_name)
-
-        # Inline the prediction path to avoid double GPU→CPU round-trip
-        K = self.n_categories
-        if backend_name == "cupy":
-            import cupy as cp
-            coef = cp.asarray(self.coef_)
-            X_mean = cp.asarray(self._X_mean)
-            X_std = cp.asarray(self._X_std)
-            thresholds = cp.asarray(self.thresholds_)
-            X_scaled = (X_arr - X_mean) / X_std
-            eta = X_scaled @ coef
-            family = self._get_family()
-            diff = thresholds[:, None] - eta[None, :]
-            pi = family.link.inverse(diff)
-            proba = cp.diff(pi, axis=0).T
-            out = _to_numpy(cp.argmax(proba, axis=1))
-            self._cleanup_cuda_memory()
-            return out
-        elif backend_name == "torch":
-            import torch
-            torch_device = X_arr.device if hasattr(X_arr, 'device') else torch.device('cuda')
-            coef = torch.from_numpy(np.asarray(self.coef_)).to(torch_device)
-            X_mean = torch.from_numpy(np.asarray(self._X_mean)).to(torch_device)
-            X_std = torch.from_numpy(np.asarray(self._X_std)).to(torch_device)
-            thresholds = torch.from_numpy(np.asarray(self.thresholds_)).to(torch_device)
-            X_scaled = (X_arr - X_mean) / X_std
-            eta = X_scaled @ coef
-            family = self._get_family()
-            diff = thresholds[:, None] - eta[None, :]
-            pi = family.link.inverse(diff)
-            proba = torch.diff(pi, dim=0).T
-            out = _to_numpy(torch.argmax(proba, dim=1))
-            self._cleanup_torch_memory()
-            return out
-        else:
-            proba = self.predict_proba(X)
-            return np.argmax(proba, axis=1)
+        proba = self.predict_proba(X)
+        return np.argmax(proba, axis=1)
 
     def score(self, X, y):
         """Return mean accuracy on the given test data and labels.
@@ -1260,17 +1217,10 @@ class OrderedGeneralizedLinearModel(GeneralizedLinearModel):
         y_pred = self.predict(X)
         y_pred_arr = self._to_array(y_pred, backend=backend_name)
 
-        if backend_name == "cupy":
-            import cupy as cp
-            out = float(cp.mean(y_pred_arr == y_true).item())
-            self._cleanup_cuda_memory()
-            return out
-        elif backend_name == "torch":
-            import torch
-            y_pred_t = y_pred_arr.to(torch.int64) if hasattr(y_pred_arr, 'to') else y_pred_arr
-            y_true_t = y_true.to(torch.int64) if hasattr(y_true, 'to') else y_true
-            out = float(torch.mean((y_pred_t == y_true_t).to(torch.float64)).item())
-            self._cleanup_torch_memory()
-            return out
-        else:
-            return float(np.mean(np.asarray(y_pred) == np.asarray(y_true)))
+        from statgpu.backends._utils import _get_xp, _to_float_scalar
+        xp = _get_xp(backend_name)
+        matches = xp.asarray(y_pred_arr == y_true, dtype=xp.float64)
+        out = _to_float_scalar(xp.mean(matches))
+        if backend_name != "numpy":
+            self._cleanup_backend_memory(backend_name)
+        return out

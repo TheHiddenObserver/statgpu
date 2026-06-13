@@ -47,6 +47,24 @@ class TestCoxPH:
         assert model._baseline_hazard is None
         assert np.isfinite(model._log_likelihood)
 
+    def test_explicit_torch_without_cuda_raises(self, monkeypatch):
+        """device='torch' should require Torch CUDA, not fall back to Torch CPU."""
+        torch = pytest.importorskip("torch")
+        monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
+        X, time, event = _make_survival_data(n_samples=40, n_features=3, seed=12)
+
+        model = CoxPH(device="torch", compute_inference=False, max_iter=1)
+
+        with pytest.raises(RuntimeError, match="device='torch'"):
+            model.fit(X, time, event)
+
+    def test_coxph_exposes_torch_cleanup_hook(self):
+        """CoxPH follows the shared GPU cleanup hook contract."""
+        model = CoxPH(gpu_memory_cleanup=True)
+
+        assert callable(model._cleanup_torch_memory)
+        assert callable(model.__del__)
+
     @pytest.mark.parametrize("cov_type", ["nonrobust", "hc0", "hc1"])
     def test_cov_type_inference_cpu(self, cov_type):
         """CoxPH supports nonrobust/hc0/hc1 covariance on CPU."""

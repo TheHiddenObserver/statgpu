@@ -7,13 +7,16 @@ gaussian, logistic, and poisson models without the old ``loss=...`` switch on
 ``PenalizedLinearRegression``.
 """
 
+from __future__ import annotations
+
+import copy
 from typing import Optional, Union, Any, Dict, List
 import numpy as np
 from scipy import stats
 
 from statgpu._base import BaseEstimator
 from statgpu._config import Device
-from statgpu.backends import get_backend, _get_torch_device_str, _to_numpy
+from statgpu.backends import get_backend, _get_torch_device_str, _to_numpy, _LINALG_ERRORS
 from statgpu.linear_model._gaussian_inference import (
     build_gaussian_fit_state,
     compute_gaussian_inference,
@@ -21,6 +24,7 @@ from statgpu.linear_model._gaussian_inference import (
     validate_hac_maxlags,
 )
 from statgpu.inference._results import GaussianInferenceResult
+from statgpu.backends._array_ops import _clip, _exp
 
 
 def _irls_ridge_init(X, y, loss_name, alpha=0.01, max_iter=100, tol=1e-4, loss_kwargs=None):
@@ -68,7 +72,10 @@ def _irls_ridge_init(X, y, loss_name, alpha=0.01, max_iter=100, tol=1e-4, loss_k
 def _resolve_loss_name(loss_name, loss_kwargs=None):
     """Resolve loss name string to loss object."""
     loss_kwargs = loss_kwargs or {}
-    if loss_name == "logistic":
+    if loss_name == "squared_error":
+        from statgpu.glm_core._squared import SquaredErrorLoss
+        return SquaredErrorLoss()
+    elif loss_name == "logistic":
         from statgpu.glm_core._logistic import LogisticLoss
         return LogisticLoss()
     elif loss_name == "poisson":
@@ -87,8 +94,113 @@ def _resolve_loss_name(loss_name, loss_kwargs=None):
         from statgpu.glm_core._tweedie import TweedieLoss
         return TweedieLoss(**loss_kwargs)
     else:
-        from statgpu.glm_core._squared import SquaredErrorLoss
-        return SquaredErrorLoss()
+        raise ValueError(
+            f"Unknown loss '{loss_name}'. Supported losses: "
+            "squared_error, logistic, poisson, gamma, inverse_gaussian, "
+            "negative_binomial, tweedie"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Solver dispatch table for solver='auto'
+# ---------------------------------------------------------------------------
+# Each entry is (solver, condition_fn). First match wins.
+# condition_fn takes (loss, penalty, backend, l1_ratio, cv_mode, problem_size).
+
+_SPARSE_PENALTIES = frozenset({
+    "l1", "elasticnet", "en",
+    "adaptive_l1", "adaptive_lasso",
+    "scad", "mcp",
+    "group_lasso", "gl", "group_mcp", "gmcp", "group_scad", "gscad",
+})
+_NONCONVEX_PENALTIES = frozenset({
+    "scad", "mcp", "group_mcp", "gmcp", "group_scad", "gscad",
+})
+_SMOOTH_PENALTIES = frozenset({"l2", "none", "null", ""})
+
+# (solver, condition)
+# condition = (loss, penalty, backend, l1_ratio, cv_mode, problem_size) -> bool
+_SOLVER_DISPATCH_TABLE = [
+    # ── Priority 1: Exact closed-form solutions (highest priority) ──
+    # Ridge + squared_error has an exact eigendecomposition solver.
+    ("exact", lambda l, p, b, lr, cv, ps: l == "squared_error" and p == "l2"),
+
+    # ── Priority 2: Nonconvex penalties always use FISTA+LLA wrapper ──
+    # SCAD/MCP/adaptive_l1 require iteratively reweighted L1 (LLA approximation).
+    ("fista", lambda l, p, b, lr, cv, ps: p in _NONCONVEX_PENALTIES),
+
+    # ── Priority 3: Squared error + sparse penalties → FISTA ──
+    # Quadratic loss + L1/ElasticNet: FISTA with exact line search.
+    ("fista", lambda l, p, b, lr, cv, ps: l == "squared_error" and p in _SPARSE_PENALTIES),
+
+    # ── Priority 4: GLM + GPU + sparse penalties (size-gated) ──
+    # Poisson + GPU + L1: fista_bb for small/medium problems (< 2M elements).
+    ("fista_bb", lambda l, p, b, lr, cv, ps: cv and l == "poisson" and b in ("cupy", "torch") and p == "l1" and (ps is None or ps < 2_000_000)),
+    # Poisson + GPU + ElasticNet: fista_bb (BB step adapts well to EN geometry).
+    ("fista_bb", lambda l, p, b, lr, cv, ps: cv and l == "poisson" and b in ("cupy", "torch") and p in ("elasticnet", "en")),
+    # Poisson + CPU + sparse: FISTA (CPU backtracking is cheap).
+    ("fista", lambda l, p, b, lr, cv, ps: cv and l == "poisson" and p in _SPARSE_PENALTIES),
+
+    # ── Priority 5: NB + GPU + sparse penalties ──
+    # NB + GPU + L1: fista_bb (NB gradient is well-behaved for BB steps).
+    ("fista_bb", lambda l, p, b, lr, cv, ps: cv and l == "negative_binomial" and b in ("cupy", "torch") and p == "l1"),
+    # NB + GPU + ElasticNet: FISTA for medium problems (200K-1M), fista_bb otherwise.
+    ("fista", lambda l, p, b, lr, cv, ps: cv and l == "negative_binomial" and b in ("cupy", "torch") and p in ("elasticnet", "en") and ps is not None and 200_000 <= ps < 1_000_000),
+    ("fista_bb", lambda l, p, b, lr, cv, ps: cv and l == "negative_binomial" and b in ("cupy", "torch") and p in ("elasticnet", "en")),
+
+    # ── Priority 6: Gamma/IG/Tweedie + sparse → FISTA ──
+    # These families have steep loss landscapes; FISTA with backtracking is safer.
+    ("fista", lambda l, p, b, lr, cv, ps: l in ("gamma", "inverse_gaussian") and p in _SPARSE_PENALTIES),
+    ("fista", lambda l, p, b, lr, cv, ps: l == "tweedie" and b in ("cupy", "torch") and p in _SPARSE_PENALTIES),
+
+    # ── Priority 7: Logistic + sparse → FISTA ──
+    # Logistic has iterate-dependent Lipschitz; FISTA with fixed global bound.
+    ("fista", lambda l, p, b, lr, cv, ps: cv and l == "logistic" and p in _SPARSE_PENALTIES),
+
+    # ── Priority 8: Default sparse → fista_bb ──
+    # Catch-all for remaining sparse penalty cases.
+    ("fista_bb", lambda l, p, b, lr, cv, ps: p in _SPARSE_PENALTIES),
+
+    # ── Priority 9: CV + L2: loss-specific smooth solvers ──
+    # NB needs L-BFGS (non-canonical link issues with IRLS).
+    ("lbfgs", lambda l, p, b, lr, cv, ps: cv and p == "l2" and l == "negative_binomial"),
+    # Poisson/Tweedie: Newton (canonical link, well-conditioned).
+    ("newton", lambda l, p, b, lr, cv, ps: cv and p == "l2" and l in ("poisson", "tweedie")),
+    # Gamma/IG: L-BFGS (non-canonical link, better convergence).
+    ("lbfgs", lambda l, p, b, lr, cv, ps: cv and p == "l2" and l in ("gamma", "inverse_gaussian")),
+
+    # ── Priority 10: Smooth penalties (L2/none) with loss-specific solvers ──
+    ("newton", lambda l, p, b, lr, cv, ps: p in _SMOOTH_PENALTIES and l in ("gamma", "tweedie", "inverse_gaussian")),
+    ("irls", lambda l, p, b, lr, cv, ps: p in _SMOOTH_PENALTIES and l in ("logistic", "poisson", "negative_binomial")),
+]
+
+
+def _preferred_penalized_glm_solver(
+    loss_name,
+    penalty_name,
+    backend_name=None,
+    l1_ratio=0.5,
+    cv_mode=False,
+    problem_size=None,
+):
+    """Private benchmark-backed solver policy for solver='auto'.
+
+    This helper only chooses an internal solver.  It must never be used to
+    override an explicitly requested solver or to change the selected device.
+
+    Dispatch is table-driven: first matching rule wins.
+    """
+    loss_name = str(loss_name or "").lower()
+    penalty_name = str(penalty_name or "").lower()
+    backend_name = str(backend_name or "").lower()
+    if problem_size is not None:
+        problem_size = int(problem_size)
+
+    for solver, cond in _SOLVER_DISPATCH_TABLE:
+        if cond(loss_name, penalty_name, backend_name, l1_ratio, cv_mode, problem_size):
+            return solver
+
+    return "fista"
 
 
 def _irls_ridge_init_cd(X, y, alpha, max_iter, tol):
@@ -118,6 +230,119 @@ def _irls_ridge_init_cd(X, y, alpha, max_iter, tol):
     return beta * scale
 
 
+# Intercept clipping bound for SelectivePenalty proximal operator
+from statgpu.linear_model._cv_base import INTERCEPT_CLIP_BOUND as _INTERCEPT_CLIP_BOUND
+
+
+class SelectivePenalty:
+    """Penalty wrapper that leaves the last intercept coefficient free.
+
+    Created once per fit and reused across iterations. The inner penalty,
+    feature count p, and backend are set via ``configure()``.
+    """
+
+    def __init__(self):
+        self._pen = None
+        self._p = 0
+        self._backend = "numpy"
+        self._alpha = 0.0
+        self._l1_ratio = 0.0
+
+    def configure(self, pen, p, backend):
+        self._pen = pen
+        self._p = p
+        self._backend = backend
+        self._alpha = float(getattr(pen, "alpha", 0.0))
+        self._l1_ratio = float(getattr(pen, "l1_ratio", 0.0))
+        self.name = pen.name
+
+    def value(self, coef):
+        return self._pen.value(coef[:self._p])
+
+    def proximal(self, w, step, backend=None):
+        b = backend or self._backend
+        w_feat = w[:self._p]
+        result_feat = self._pen.proximal(w_feat, step, backend=b)
+        if b == "cupy":
+            import cupy as cp
+            result = cp.empty(w.shape[0], dtype=w.dtype)
+            result[:self._p] = result_feat
+            result[-1] = cp.clip(w[-1], -_INTERCEPT_CLIP_BOUND, _INTERCEPT_CLIP_BOUND)
+        elif b == "torch":
+            import torch
+            result = torch.empty(w.shape[0], dtype=w.dtype, device=w.device)
+            result[:self._p] = result_feat
+            result[-1] = torch.clamp(w[-1], -_INTERCEPT_CLIP_BOUND, _INTERCEPT_CLIP_BOUND)
+        else:
+            result = np.empty(w.shape[0], dtype=w.dtype)
+            result[:self._p] = result_feat
+            result[-1] = np.clip(w[-1], -_INTERCEPT_CLIP_BOUND, _INTERCEPT_CLIP_BOUND)
+        return result
+
+    def _smooth_alpha(self):
+        pname = str(self._pen.name).lower()
+        if pname == "l2":
+            return self._alpha
+        if pname == "elasticnet":
+            return self._alpha * (1.0 - self._l1_ratio)
+        raise ValueError("smooth solvers only support L2/ElasticNet penalties.")
+
+    def smooth_value(self, coef):
+        sa = self._smooth_alpha()
+        active = coef[:self._p]
+        if self._backend == "cupy":
+            import cupy as cp
+            return 0.5 * sa * cp.sum(active * active)
+        if self._backend == "torch":
+            import torch
+            return 0.5 * sa * torch.sum(active * active)
+        return 0.5 * sa * np.sum(active * active)
+
+    def smooth_gradient(self, coef):
+        sa = self._smooth_alpha()
+        if self._backend == "cupy":
+            import cupy as cp
+            grad = cp.zeros_like(coef)
+        elif self._backend == "torch":
+            import torch
+            grad = torch.zeros_like(coef)
+        else:
+            grad = np.zeros_like(coef)
+        grad[:self._p] = sa * coef[:self._p]
+        return grad
+
+    def smooth_hessian(self, coef):
+        sa = self._smooth_alpha()
+        if self._backend == "cupy":
+            import cupy as cp
+            diag = cp.zeros(coef.shape[0], dtype=coef.dtype)
+            diag[:self._p] = sa
+            return cp.diag(diag)
+        if self._backend == "torch":
+            import torch
+            diag = torch.zeros(coef.shape[0], dtype=coef.dtype, device=coef.device)
+            diag[:self._p] = sa
+            return torch.diag(diag)
+        diag = np.zeros(coef.shape[0], dtype=coef.dtype)
+        diag[:self._p] = sa
+        return np.diag(diag)
+
+
+# Thread-local singleton for _selective_penalty (avoids per-call class creation
+# while remaining safe for concurrent CV folds via n_jobs > 1)
+import threading
+_SELECTIVE_PENALTY_LOCAL = threading.local()
+
+
+def _get_selective_penalty_singleton():
+    """Get or create a thread-local SelectivePenalty instance."""
+    obj = getattr(_SELECTIVE_PENALTY_LOCAL, 'instance', None)
+    if obj is None:
+        obj = SelectivePenalty()
+        _SELECTIVE_PENALTY_LOCAL.instance = obj
+    return obj
+
+
 class PenalizedGeneralizedLinearModel(BaseEstimator):
     """
     Penalized generalized linear model with pluggable GLM loss and penalty.
@@ -127,16 +352,15 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
     Parameters
     ----------
     loss : str, default='squared_error'
-        Loss function: 'squared_error', 'logistic', 'poisson'.
+        Loss function: 'squared_error', 'logistic', 'poisson', 'gamma',
+        'negative_binomial', 'tweedie', 'inverse_gaussian'.
     penalty : str or Penalty
-        Penalty type: 'l1', 'l2', 'elasticnet', or a Penalty instance.
-    loss : str, default='squared_error'
-        Loss function: 'squared_error', 'logistic', 'poisson'.
+        Penalty type: 'l1', 'l2', 'elasticnet', 'scad', 'mcp', 'adaptive_l1',
+        'group_lasso', 'group_scad', 'group_mcp', or a Penalty instance.
     solver : str, default='auto'
-        Solver: 'auto', 'fista', 'irls', 'newton'.
-        'auto' selects the current best path for the resolved backend:
-        exact for Gaussian L2, CPU IRLS for smooth logistic/poisson L2, and
-        GPU/Torch FISTA for GPU-backed penalized GLMs.
+        Solver: 'auto', 'fista', 'fista_bb', 'irls', 'newton', 'lbfgs', 'exact'.
+        'auto' selects the best path for the resolved backend and loss/penalty
+        combination (see _SOLVER_DISPATCH_TABLE).
     alpha : float, default=1.0
         Regularization strength.
     l1_ratio : float, default=0.5
@@ -152,9 +376,7 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
     device : str or Device, default='auto'
         Computation device: 'cpu', 'cuda', or 'auto'.
     cpu_solver : str, default='fista'
-        CPU solver: 'fista' or 'coordinate_descent'.
-    solver : str, default='fista'
-        GPU solver: 'fista'.
+        CPU solver: 'fista', 'fista_bb', or 'coordinate_descent'.
     lipschitz_L : float, optional
         Pre-computed Lipschitz constant.
     gpu_memory_cleanup : bool, default=False
@@ -191,6 +413,7 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
         lipschitz_L: Optional[float] = None,
         gpu_memory_cleanup: bool = False,
         compute_inference: bool = False,
+        inference_method: str = "debiased",
         cov_type: str = "nonrobust",
         hac_maxlags: Optional[int] = None,
         stopping: str = "coef_delta",
@@ -213,6 +436,7 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
         self.lipschitz_L = lipschitz_L
         self.gpu_memory_cleanup = gpu_memory_cleanup
         self.compute_inference = compute_inference
+        self.inference_method = inference_method.lower()
         self.cov_type = validate_cov_type(cov_type)
         self.hac_maxlags = validate_hac_maxlags(hac_maxlags)
         self.stopping = str(stopping).lower()
@@ -250,6 +474,18 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
         self._init_coef = None
         self._inference_precomputed = False
         self._precomputed_gaussian_state = None
+        # Simultaneous inference state
+        self._conf_int_simultaneous = None
+        self._simultaneous_enabled = False
+        self._debiased_M_cpu = None
+        self._use_intercept = None  # formula-derived override; None = use fit_intercept
+
+    @property
+    def _effective_intercept(self):
+        """Return effective intercept flag. Formula path overrides via _use_intercept."""
+        if self._use_intercept is not None:
+            return self._use_intercept
+        return self.fit_intercept
 
     def _resolve_penalty(self) -> "Penalty":
         """Resolve penalty string or instance to a Penalty object."""
@@ -303,16 +539,17 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
             self._feature_names = [name for name in formula_column_names if name != "Intercept"]
             if self._formula_has_intercept:
                 X = np.delete(X, formula_column_names.index("Intercept"), axis=1)
-                self.fit_intercept = True
+                self._use_intercept = True
             else:
                 # Formula syntax owns intercept semantics, matching statsmodels/R.
-                self.fit_intercept = False
+                self._use_intercept = False
         else:
             if X is None or y is None:
                 raise ValueError("Either formula+data or X+y must be provided.")
             self._feature_names = None
             self._design_info = None
             self._formula_has_intercept = None
+            self._use_intercept = None
 
         self._penalty = self._resolve_penalty()
         self._validate_solver_penalty()
@@ -336,14 +573,15 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
                 backend_name = "numpy"
 
         backend_name = self._auto_backend_override(backend_name, X)
-        selected_solver = self._select_solver(self._loss, backend_name=backend_name)
-        selected_solver = self._validate_solver_for_penalty(selected_solver, backend_name)
+        selected_solver = self._select_solver(
+            self._loss, backend_name=backend_name, X=X
+        )
         self._selected_solver = selected_solver
         self._selected_backend_name = backend_name
 
         # Handle penalties requiring initialization (e.g., Adaptive Lasso)
         if self._penalty.requires_init:
-            init_coef = self._fit_initial(X, y)
+            init_coef = self._fit_initial(X, y, backend_name=backend_name)
             self._penalty.set_weights(init_coef)
 
         # Non-convex penalties (SCAD, MCP) for squared_error: use IRLS-CD
@@ -391,17 +629,17 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
                 lla_tol=getattr(self, '_lla_tol', 1e-6),
                 max_iter=_mi_path,
                 tol=self.tol,
-                fit_intercept=self.fit_intercept,
+                fit_intercept=self._effective_intercept,
                 sample_weight=sample_weight,
             )
             self.coef_ = coef_np
             self.intercept_ = intercept
             self.n_iter_ = n_iter
-            if self.fit_intercept:
+            if self._effective_intercept:
                 self._params = np.concatenate([[self.intercept_], np.asarray(self.coef_)])
             else:
                 self._params = np.asarray(self.coef_).copy()
-            self._df_resid = X.shape[0] - (X.shape[1] + (1 if self.fit_intercept else 0))
+            self._df_resid = X.shape[0] - (X.shape[1] + (1 if self._effective_intercept else 0))
             self._compute_post_fit_gaussian_inference(X, y, sample_weight=sample_weight)
             if backend_name == "cupy":
                 self._cleanup_cuda_memory()
@@ -422,6 +660,10 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
 
         self._compute_post_fit_gaussian_inference(X, y, sample_weight=sample_weight)
         self._fitted = True
+        # Clean up CV cache unless a caller is intentionally reusing one
+        # across repeated fits, as PenalizedGLM_CV does within a fold.
+        if hasattr(self, '_cv_cache') and not getattr(self, '_preserve_cv_cache', False):
+            del self._cv_cache
         return self
 
     def _resolve_loss(self):
@@ -463,17 +705,24 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
             return
 
     def _validate_inference_request(self):
-        """Reject unsupported penalized inference paths with a clear error."""
+        """Reject unsupported penalized inference paths with a clear error.
+
+        Currently supported:
+        - squared_error + L2 (standard OLS inference)
+        - squared_error + L1/ElasticNet (debiased Lasso inference)
+        """
         if not self.compute_inference:
             return
         penalty_name = str(getattr(self._penalty, "name", self.penalty)).lower()
         if self.loss == "squared_error" and penalty_name == "l2":
             return
+        inference_method = str(getattr(self, "inference_method", "debiased")).lower()
+        if penalty_name in ("l1", "elasticnet", "en") and "debiased" in inference_method:
+            return
         raise NotImplementedError(
-            "compute_inference=True is currently supported only for "
-            "squared-error L2/Ridge penalized models. L1/ElasticNet and "
-            "non-Gaussian penalized GLM inference require an explicit "
-            "post-selection or GLM covariance method."
+            f"compute_inference=True with penalty='{penalty_name}' and "
+            f"loss='{self.loss}' is not supported. Use inference_method='debiased' "
+            f"for L1/ElasticNet, or compute_inference=False to skip inference."
         )
 
     def _clear_inference_state(self):
@@ -504,12 +753,17 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
         return X_np * sqrt_sw[:, np.newaxis], y_np * sqrt_sw
 
     def _compute_post_fit_gaussian_inference(self, X, y, sample_weight=None):
-        """Populate shared Gaussian inference state for squared-error L2 fits."""
+        """Populate inference state after fit. Dispatches to debiased for L1/ElasticNet."""
         if not self.compute_inference:
             return
         if self.loss != "squared_error":
             return
         penalty_name = str(getattr(self._penalty, "name", self.penalty)).lower()
+        if penalty_name in ("l1", "elasticnet", "en"):
+            inference_method = str(getattr(self, "inference_method", "debiased")).lower()
+            if "debiased" in inference_method:
+                self._compute_post_fit_debiased_inference(X, y, sample_weight=sample_weight)
+            return
         if penalty_name != "l2":
             return
         if self._inference_precomputed:
@@ -533,7 +787,7 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
             y_fit,
             self.coef_,
             self.intercept_,
-            self.fit_intercept,
+            self._effective_intercept,
         )
         self._X_design = state.X_design
         self._y = state.y
@@ -552,7 +806,7 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
             self.cov_type,
             hac_maxlags=self.hac_maxlags,
             ridge_alpha=ridge_alpha,
-            ridge_penalize_intercept=False if self.fit_intercept else True,
+            ridge_penalize_intercept=False if self._effective_intercept else True,
         )
         if result is None:
             self._inference_result = None
@@ -567,45 +821,557 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
     def _inference_feature_names(self):
         if self._feature_names is not None:
             names = list(self._feature_names)
-            if self.fit_intercept:
+            if self._effective_intercept:
                 names.insert(0, "(Intercept)")
             return names
         if self.coef_ is None:
             return None
         n_features = int(np.asarray(self.coef_).shape[-1])
-        if self.fit_intercept:
+        if self._effective_intercept:
             return ["(Intercept)"] + [f"x{i+1}" for i in range(n_features)]
         return [f"x{i+1}" for i in range(n_features)]
 
-    def _select_solver(self, loss, backend_name=None):
-        """Auto-select solver based on loss and penalty (same across all backends)."""
+    # ----------------------------------------------------------------
+    # Debiased Lasso inference (CPU / CuPy / Torch)
+    # ----------------------------------------------------------------
+
+    @staticmethod
+    def _debiased_stats_from_M(M, Sigma_hat, sigma2, coef, X, y,
+                               intercept, fit_intercept, n, xp, arr_norm):
+        """Shared post-M computation for debiased Lasso inference.
+
+        Works with any backend (numpy/cupy/torch) via xp module and
+        arr_norm function.  Returns (theta_db, se, z_stats, V_diag) for
+        coefficient inference, plus intercept SE if fit_intercept.
+
+        Parameters
+        ----------
+        M : array (p, p) — decorrelation matrix
+        Sigma_hat : array (p, p) — X'X / n
+        sigma2 : float — noise variance estimate
+        coef : array (p,) — Lasso coefficients
+        X, y : arrays — design matrix and response
+        intercept : float — fitted intercept
+        fit_intercept : bool
+        n : int — number of observations
+        xp : module — numpy/cupy/torch for array ops
+        arr_norm : callable — norm function (np.linalg.norm / cp.linalg.norm / torch.linalg.norm)
+        """
+        resid = y - X @ coef
+        if fit_intercept:
+            resid = resid - intercept
+
+        theta_db = coef + (M @ X.T @ resid) / n
+
+        V = M @ Sigma_hat @ M.T
+        V_diag = xp.diag(V)
+        se = xp.sqrt(xp.abs(sigma2 * V_diag / n))
+
+        z_stats = theta_db / (se + 1e-30)
+
+        # Intercept inference
+        se_intercept = None
+        z_intercept = None
+        if fit_intercept:
+            X_full = xp.concatenate([xp.ones((n, 1), dtype=X.dtype), X], axis=1)
+            try:
+                XtX_inv = xp.linalg.inv(X_full.T @ X_full)
+            except Exception:
+                XtX_inv = xp.linalg.pinv(X_full.T @ X_full)
+            se_intercept = float(xp.sqrt(sigma2 * XtX_inv[0, 0]))
+            z_intercept = float(intercept) / (se_intercept + 1e-30)
+
+        return theta_db, se, z_stats, V_diag, se_intercept, z_intercept
+
+    def _compute_post_fit_debiased_inference(self, X, y, sample_weight=None):
+        """Debiased Lasso inference for squared_error + L1/ElasticNet (CPU path).
+
+        Constructs the decorrelation matrix M via node-wise Lasso,
+        then computes the debiased estimator, standard errors,
+        z-statistics, p-values, and confidence intervals.
+        """
+        from scipy.stats import norm as _norm_dist
+
+        X_np = np.asarray(_to_numpy(X), dtype=np.float64)
+        y_np = np.asarray(_to_numpy(y), dtype=np.float64).ravel()
+
+        if sample_weight is not None:
+            sw = np.asarray(_to_numpy(sample_weight), dtype=np.float64).ravel()
+            sqrt_sw = np.sqrt(sw)
+            X_np = X_np * sqrt_sw[:, None]
+            y_np = y_np * sqrt_sw
+
+        n, p = X_np.shape
+        coef = np.asarray(self.coef_, dtype=np.float64).copy()
+
+        Sigma_hat = X_np.T @ X_np / n
+
+        # Compute residuals
+        if self._effective_intercept:
+            resid = y_np - X_np @ coef - self.intercept_
+        else:
+            resid = y_np - X_np @ coef
+
+        # Noise variance estimate
+        s_hat = int(np.sum(np.abs(coef) > 0))
+        sigma2 = np.sum(resid ** 2) / max(n - s_hat, 1)
+
+        # Node-wise Lasso to build M matrix
+        from statgpu.linear_model._lasso import (
+            _debiased_m_cache_get,
+            _debiased_m_cache_put,
+            _debiased_m_key_from_numpy_design,
+        )
+
+        # Scale node-wise lambda by sigma_hat (van de Geer et al. 2014)
+        sigma_hat = np.sqrt(sigma2)
+        lam_nw = np.sqrt(2.0 * np.log(max(p, 2)) / n) * sigma_hat
+        m_cache_key = _debiased_m_key_from_numpy_design(
+            X_np, n=n, p=p, lam_nw=lam_nw, tol=float(self.tol),
+        )
+        M_cached = _debiased_m_cache_get(m_cache_key)
+        if M_cached is not None:
+            M = np.asarray(M_cached, dtype=np.float64)
+        else:
+            # Import here to avoid circular dependency at module level
+            from statgpu.linear_model._penalized import PenalizedLinearRegression as _PLR
+
+            M = np.zeros((p, p), dtype=np.float64)
+            for j in range(p):
+                cols = np.concatenate([np.arange(0, j), np.arange(j + 1, p)])
+                X_minus_j = X_np[:, cols]
+                x_j = X_np[:, j]
+
+                nw = _PLR(
+                    penalty="l1", alpha=lam_nw,
+                    fit_intercept=False, max_iter=500, tol=1e-5,
+                    device="cpu", cpu_solver="fista",
+                    compute_inference=False, inference_method="none",
+                )
+                nw.fit(X_minus_j, x_j)
+                gamma_j = np.asarray(nw.coef_, dtype=np.float64)
+
+                z_j = x_j - X_minus_j @ gamma_j
+                C_j = z_j @ x_j / n
+
+                if abs(C_j) < 1e-30:
+                    M[j, j] = 1.0
+                    continue
+                M[j, j] = 1.0 / C_j
+                M[j, cols] = -gamma_j / C_j
+            _debiased_m_cache_put(m_cache_key, M)
+
+        # Shared post-M computation: debiased estimates, SE, z-stats, intercept
+        theta_db, se, z_stats, _, se_intercept, z_intercept = self._debiased_stats_from_M(
+            M, Sigma_hat, sigma2, coef, X_np, y_np,
+            self.intercept_, self._effective_intercept, n, np, np.linalg.norm,
+        )
+        self._debiased_M_cpu = M
+
+        # p-values and CIs (scipy.stats for CPU path)
+        pvalues = 2.0 * (1.0 - _norm_dist.cdf(np.abs(z_stats)))
+        alpha_ci = 0.05
+        z_crit = _norm_dist.ppf(1.0 - alpha_ci / 2.0)
+        ci = np.column_stack([theta_db - z_crit * se, theta_db + z_crit * se])
+
+        # Store residuals and design matrix for R² and simultaneous inference
+        self._y = y_np
+        self._resid = y_np - X_np @ coef - (self.intercept_ if self._effective_intercept else 0)
+        self._nobs = n
+        self._scale = sigma2
+        if self._effective_intercept:
+            self._X_design = np.column_stack([np.ones(n), X_np])
+        else:
+            self._X_design = X_np.copy()
+
+        if self._effective_intercept:
+            p_intercept = 2.0 * (1.0 - _norm_dist.cdf(np.abs(z_intercept)))
+            ci_intercept = np.array([
+                self.intercept_ - z_crit * se_intercept,
+                self.intercept_ + z_crit * se_intercept,
+            ])
+            self._bse = np.concatenate([[se_intercept], se])
+            self._tvalues = np.concatenate([[z_intercept], z_stats])
+            self._pvalues = np.concatenate([[p_intercept], pvalues])
+            self._conf_int = np.vstack([ci_intercept[np.newaxis, :], ci])
+            self._params = np.concatenate([[self.intercept_], theta_db])
+        else:
+            self._bse = se
+            self._tvalues = z_stats
+            self._pvalues = pvalues
+            self._conf_int = ci
+            self._params = theta_db
+            self._y = y_np
+            self._resid = resid
+            self._nobs = n
+            self._scale = sigma2
+            self._X_design = X_np.copy()
+
+        # Simultaneous inference (max-|Z| bootstrap) if requested
+        if getattr(self, 'enable_simultaneous_inference', False):
+            self._compute_simultaneous_ci_maxz_bootstrap()
+
+    def _compute_inference_debiased_gpu(self, X_gpu, y_gpu, coef_gpu):
+        """CuPy GPU path for debiased Lasso inference."""
+        import cupy as cp
+        from statgpu.inference._distributions_backend import norm as _gpu_norm
+
+        n, p = X_gpu.shape
+        Sigma_hat = X_gpu.T @ X_gpu / n
+
+        resid = y_gpu - X_gpu @ coef_gpu
+        if self._effective_intercept:
+            resid = resid - cp.mean(y_gpu) + cp.mean(X_gpu, axis=0) @ coef_gpu
+
+        s_hat = float(cp.sum(cp.abs(coef_gpu) > 0))
+        sigma2 = float(cp.sum(resid ** 2)) / max(n - s_hat, 1)
+
+        from statgpu.linear_model._lasso import (
+            _debiased_m_cache_get,
+            _debiased_m_cache_put,
+            _LASSO_DEBIASED_M_GPU_HASH_ROW_CHUNK,
+            _solve_lasso_path_gpu_fista_multi_fold_from_gram,
+        )
+
+        # Scale node-wise lambda by sigma_hat (van de Geer et al. 2014)
+        sigma_hat = np.sqrt(sigma2)
+        lam_nw = float(np.sqrt(2.0 * np.log(max(p, 2)) / n) * sigma_hat)
+        alpha_nw = np.asarray([lam_nw], dtype=np.float64)
+
+        # GPU-aware cache key
+        import hashlib
+        x_hasher = hashlib.blake2b(digest_size=32)
+        x_hasher.update(np.asarray([int(n), int(p)], dtype=np.int64).tobytes())
+        x_hasher.update(str(X_gpu.dtype).encode("utf-8"))
+        x_hasher.update(np.asarray([float(lam_nw), float(self.tol)], dtype=np.float64).tobytes())
+        row_chunk = max(1, min(int(n), _LASSO_DEBIASED_M_GPU_HASH_ROW_CHUNK))
+        for start in range(0, int(n), row_chunk):
+            stop = min(int(n), start + row_chunk)
+            x_hasher.update(cp.asnumpy(X_gpu[start:stop]).tobytes())
+        m_cache_key = x_hasher.hexdigest()
+
+        M_cached = _debiased_m_cache_get(m_cache_key)
+        if M_cached is not None:
+            M = cp.asarray(M_cached, dtype=X_gpu.dtype)
+        else:
+            M = cp.zeros((p, p), dtype=X_gpu.dtype)
+            # Reuse Sigma_hat * n instead of recomputing X'X
+            XtX_full = Sigma_hat * n
+            Sigma_diag = cp.diag(Sigma_hat)
+
+            # Precompute global Lipschitz constant once (avoids per-batch eigendecomposition)
+            eig_max = float(cp.linalg.eigvalsh(Sigma_hat)[-1])
+            L_global = max(eig_max, 1e-12)
+
+            # Adaptive chunk_size: use as much GPU memory as possible
+            # Memory per fold: (p-1)^2 * 8 (Gram) + (p-1)^2 * 8 * 3 (FISTA workspace)
+            try:
+                free_mem, _ = cp.cuda.Device().mem_info
+                bytes_per_fold = int((p - 1) * (p - 1) * 8 * 4)  # Gram + FISTA buffers
+                chunk_size = int(max(4, min(p, free_mem * 0.7 // max(bytes_per_fold, 1))))
+            except Exception:
+                chunk_size = 16
+            chunk_size = max(4, min(int(p), chunk_size))
+
+            for j0 in range(0, p, chunk_size):
+                j1 = min(p, j0 + chunk_size)
+                bsz = j1 - j0
+                j_batch = cp.arange(j0, j1, dtype=cp.int32)
+                if int(j_batch.size) == 0:
+                    continue
+
+                base = cp.arange(p - 1, dtype=cp.int32).reshape(1, -1)
+                cols_batch = base + (base >= j_batch.reshape(-1, 1))
+
+                XtX_batch = XtX_full[
+                    cols_batch[:, :, cp.newaxis],
+                    cols_batch[:, cp.newaxis, :],
+                ]
+                Xty_batch = XtX_full[cols_batch, j_batch.reshape(-1, 1)].reshape(bsz, p - 1)
+
+                coefs_batch_desc, _ = _solve_lasso_path_gpu_fista_multi_fold_from_gram(
+                    XtX_batch, Xty_batch,
+                    n_samples_vec=np.full((bsz,), float(n), dtype=np.float64),
+                    alphas_desc=alpha_nw,
+                    max_iter=500, tol=1e-5, stopping="coef_delta",
+                    lipschitz_L=L_global, check_every=8,
+                )
+                gamma_batch = cp.asarray(coefs_batch_desc[:, 0, :], dtype=X_gpu.dtype)
+
+                sigma_j_cols = Sigma_hat[j_batch[:, cp.newaxis], cols_batch]
+                C_batch = Sigma_diag[j_batch] - cp.sum(sigma_j_cols * gamma_batch, axis=1)
+
+                tiny = X_gpu.dtype.type(1e-30)
+                zero = X_gpu.dtype.type(0.0)
+                one = X_gpu.dtype.type(1.0)
+                small_c = cp.abs(C_batch) < tiny
+                inv_c = cp.where(small_c, zero, one / C_batch)
+                M[j_batch, j_batch] = cp.where(small_c, one, inv_c)
+                M[j_batch[:, cp.newaxis], cols_batch] = -gamma_batch * inv_c.reshape(-1, 1)
+
+                del XtX_batch, Xty_batch, coefs_batch_desc, gamma_batch, sigma_j_cols
+            _debiased_m_cache_put(m_cache_key, cp.asnumpy(M))
+
+        # Shared post-M computation
+        intercept_val = float(self.intercept_) if self._effective_intercept else 0.0
+        theta_db, se, z_stats, _, se_intercept, z_intercept = self._debiased_stats_from_M(
+            M, Sigma_hat, sigma2, coef_gpu, X_gpu, y_gpu,
+            intercept_val, self._effective_intercept, n, cp, cp.linalg.norm,
+        )
+
+        # p-values and CIs (CuPy GPU norm distribution)
+        pvalues = cp.minimum(1.0, 2.0 * _gpu_norm.sf(cp.abs(z_stats)))
+        z_crit = _gpu_norm.ppf(0.975)
+        ci = cp.stack([theta_db - z_crit * se, theta_db + z_crit * se], axis=1)
+
+        if self._effective_intercept:
+            intercept_gpu = cp.asarray(self.intercept_, dtype=cp.float64)
+            p_intercept = cp.minimum(1.0, 2.0 * _gpu_norm.sf(
+                cp.abs(cp.asarray(z_intercept)).reshape(1)))
+            ci_intercept = cp.stack([
+                intercept_gpu - z_crit * cp.asarray(se_intercept),
+                intercept_gpu + z_crit * cp.asarray(se_intercept),
+            ]).reshape(1, 2)
+
+            self._bse = cp.asnumpy(cp.concatenate([cp.asarray(se_intercept).reshape(1), se]))
+            self._tvalues = cp.asnumpy(cp.concatenate([
+                cp.asarray(z_intercept).reshape(1), z_stats]))
+            self._pvalues = cp.asnumpy(cp.concatenate([p_intercept.reshape(1), pvalues]))
+            self._conf_int = cp.asnumpy(cp.concatenate([ci_intercept, ci], axis=0))
+            self._params = cp.asnumpy(cp.concatenate([intercept_gpu.reshape(1), theta_db]))
+        else:
+            self._bse = cp.asnumpy(se)
+            self._tvalues = cp.asnumpy(z_stats)
+            self._pvalues = cp.asnumpy(pvalues)
+            self._conf_int = cp.asnumpy(ci)
+            self._params = cp.asnumpy(theta_db)
+
+    def _compute_inference_debiased_torch(self, X_torch, y_torch, coef_torch):
+        """Torch GPU path for debiased Lasso inference."""
+        import torch
+        from statgpu.inference._distributions_backend import norm as _gpu_norm
+
+        n, p = X_torch.shape
+        dtype = torch.float64
+        device = X_torch.device
+
+        if X_torch.dtype != dtype:
+            X_torch = X_torch.to(dtype)
+        if y_torch.dtype != dtype:
+            y_torch = y_torch.to(dtype)
+        if coef_torch.dtype != dtype:
+            coef_torch = coef_torch.to(dtype)
+
+        Sigma_hat = X_torch.T @ X_torch / n
+        resid = y_torch - X_torch @ coef_torch
+        if self._effective_intercept:
+            resid = resid - torch.mean(y_torch) + torch.mean(X_torch, dim=0) @ coef_torch
+
+        s_hat = float(torch.sum(torch.abs(coef_torch) > 0))
+        sigma2 = float(torch.sum(resid ** 2)) / max(n - s_hat, 1)
+
+        from statgpu.linear_model._lasso import (
+            _debiased_m_cache_get,
+            _debiased_m_cache_put,
+            _debiased_m_key_from_sample,
+            _solve_lasso_path_gpu_fista_multi_fold_from_gram_torch,
+        )
+
+        # Scale node-wise lambda by sigma_hat (van de Geer et al. 2014)
+        sigma_hat = np.sqrt(sigma2)
+        lam_nw = float(np.sqrt(2.0 * np.log(max(p, 2)) / n) * sigma_hat)
+        alpha_nw = np.asarray([lam_nw], dtype=np.float64)
+
+        X_sample = X_torch[: min(24, n), : min(24, p)].cpu().numpy()
+        m_cache_key = _debiased_m_key_from_sample(
+            n=n, p=p, dtype_name=str(dtype),
+            sample_block=X_sample, lam_nw=lam_nw, tol=float(self.tol),
+        )
+        M_cached = _debiased_m_cache_get(m_cache_key)
+
+        if M_cached is not None:
+            M = torch.from_numpy(M_cached).to(dtype).to(device)
+        else:
+            M = torch.zeros((p, p), dtype=dtype, device=device)
+            # Reuse Sigma_hat * n instead of recomputing X'X
+            XtX_full = Sigma_hat * n
+            Sigma_diag = torch.diag(Sigma_hat)
+
+            # Precompute global Lipschitz constant once (avoids per-batch eigendecomposition)
+            eig_max = float(torch.linalg.eigvalsh(Sigma_hat)[-1])
+            L_global = max(eig_max, 1e-12)
+
+            # Adaptive chunk_size: use as much GPU memory as possible
+            try:
+                if torch.cuda.is_available():
+                    free_mem = torch.cuda.mem_get_info(device)[0]
+                    bytes_per_fold = int((p - 1) * (p - 1) * 8 * 4)  # Gram + FISTA buffers
+                    chunk_size = int(max(4, min(p, free_mem * 0.7 // max(bytes_per_fold, 1))))
+                else:
+                    chunk_size = 16
+            except Exception:
+                chunk_size = 16
+            chunk_size = max(4, min(int(p), chunk_size))
+
+            for j0 in range(0, p, chunk_size):
+                j1 = min(p, j0 + chunk_size)
+                bsz = j1 - j0
+                j_batch = torch.arange(j0, j1, dtype=torch.int32, device=device)
+
+                base = torch.arange(p - 1, dtype=torch.int32, device=device).reshape(1, -1)
+                cols_batch = base + (base >= j_batch.reshape(-1, 1))
+
+                XtX_batch = XtX_full[
+                    cols_batch[:, :, None],
+                    cols_batch[:, None, :],
+                ]
+                Xty_batch = XtX_full[cols_batch, j_batch.reshape(-1, 1)].reshape(bsz, p - 1)
+
+                coefs_batch_desc, _ = _solve_lasso_path_gpu_fista_multi_fold_from_gram_torch(
+                    XtX_batch, Xty_batch,
+                    n_samples_vec=torch.full((bsz,), float(n), dtype=torch.float64, device=device),
+                    alphas_desc=alpha_nw,
+                    max_iter=500, tol=1e-5, stopping="coef_delta",
+                    lipschitz_L=L_global, check_every=8,
+                )
+                if isinstance(coefs_batch_desc, torch.Tensor):
+                    gamma_batch = coefs_batch_desc[:, 0, :].to(dtype).to(device)
+                else:
+                    gamma_batch = torch.from_numpy(
+                        np.asarray(coefs_batch_desc[:, 0, :], dtype=np.float64)
+                    ).to(dtype).to(device)
+
+                sigma_j_cols = Sigma_hat[j_batch[:, None], cols_batch]
+                C_batch = Sigma_diag[j_batch] - torch.sum(sigma_j_cols * gamma_batch, dim=1)
+
+                tiny = 1e-30
+                small_c = torch.abs(C_batch) < tiny
+                inv_c = torch.where(small_c, torch.tensor(0.0, dtype=dtype, device=device),
+                                    torch.tensor(1.0, dtype=dtype, device=device) / C_batch)
+                M[j_batch, j_batch] = torch.where(small_c, torch.tensor(1.0, dtype=dtype, device=device), inv_c)
+                M[j_batch[:, None], cols_batch] = -gamma_batch * inv_c.reshape(-1, 1)
+
+                del XtX_batch, Xty_batch, coefs_batch_desc, gamma_batch, sigma_j_cols
+            _debiased_m_cache_put(m_cache_key, M.cpu().numpy())
+
+        # Shared post-M computation
+        intercept_val = float(self.intercept_) if self._effective_intercept else 0.0
+        theta_db, se, z_stats, _, se_intercept, z_intercept = self._debiased_stats_from_M(
+            M, Sigma_hat, sigma2, coef_torch, X_torch, y_torch,
+            intercept_val, self._effective_intercept, n, torch, torch.linalg.norm,
+        )
+
+        # p-values and CIs (Torch GPU norm distribution)
+        pvalues = torch.minimum(torch.tensor(1.0, dtype=dtype, device=device),
+                                 2.0 * _gpu_norm.sf(torch.abs(z_stats)))
+        z_crit = _gpu_norm.ppf(0.975)
+        ci = torch.stack([theta_db - z_crit * se, theta_db + z_crit * se], dim=1)
+
+        if self._effective_intercept:
+            intercept_t = torch.tensor(self.intercept_, dtype=dtype, device=device)
+            p_intercept = torch.minimum(torch.tensor(1.0, dtype=dtype, device=device),
+                                         2.0 * _gpu_norm.sf(
+                                             torch.abs(torch.tensor(z_intercept, dtype=dtype, device=device)).reshape(1)))
+            ci_intercept = torch.stack([
+                intercept_t - z_crit * torch.tensor(se_intercept, dtype=dtype, device=device),
+                intercept_t + z_crit * torch.tensor(se_intercept, dtype=dtype, device=device),
+            ]).reshape(1, 2)
+
+            self._bse = torch.cat([torch.tensor(se_intercept, dtype=dtype, device=device).reshape(1), se]).cpu().numpy()
+            self._tvalues = torch.cat([torch.tensor(z_intercept, dtype=dtype, device=device).reshape(1), z_stats]).cpu().numpy()
+            self._pvalues = torch.cat([p_intercept.reshape(1), pvalues]).cpu().numpy()
+            self._conf_int = torch.cat([ci_intercept, ci], dim=0).cpu().numpy()
+            self._params = torch.cat([intercept_t.reshape(1), theta_db]).cpu().numpy()
+        else:
+            self._bse = se.cpu().numpy()
+            self._tvalues = z_stats.cpu().numpy()
+            self._pvalues = pvalues.cpu().numpy()
+            self._conf_int = ci.cpu().numpy()
+            self._params = theta_db.cpu().numpy()
+
+    def _compute_simultaneous_ci_maxz_bootstrap(self):
+        """Compute simultaneous CIs using max-|Z| multiplier bootstrap.
+
+        Requires debiased inference to have been run first (provides M matrix,
+        residuals, SEs). Uses the Zhang & Zhang (2014) max-|Z| procedure.
+        """
+        if self._debiased_M_cpu is None:
+            return
+        if self._y is None or self._resid is None or self._bse is None:
+            return
+
+        n = self._nobs
+        X = self._X_design
+        if X is None:
+            return
+        if self._effective_intercept:
+            X_feat = X[:, 1:]
+        else:
+            X_feat = X
+        _, p = X_feat.shape
+        M = self._debiased_M_cpu
+        resid = np.asarray(self._resid, dtype=float).reshape(-1)
+
+        # Target indices (exclude intercept unless requested)
+        include_intercept = getattr(self, 'simultaneous_include_intercept',
+                                    getattr(self, '_simultaneous_include_intercept', False))
+        if include_intercept and self._effective_intercept:
+            param_target_idx = np.arange(len(self._params), dtype=int)
+        elif self._effective_intercept:
+            param_target_idx = np.arange(1, len(self._params), dtype=int)
+        else:
+            param_target_idx = np.arange(len(self._params), dtype=int)
+
+        feature_target_idx = param_target_idx - (1 if self._effective_intercept else 0)
+        feature_target_idx = feature_target_idx[feature_target_idx >= 0]
+        if feature_target_idx.size == 0:
+            return
+
+        se_feat = np.asarray(self._bse[(1 if self._effective_intercept else 0):], dtype=float)
+        alpha_sim = float(getattr(self, 'simultaneous_alpha',
+                                  getattr(self, '_simultaneous_alpha', 0.05)))
+        B = int(getattr(self, 'simultaneous_n_bootstrap',
+                        getattr(self, '_simultaneous_n_bootstrap', 1000)))
+        rng = np.random.default_rng(getattr(self, 'simultaneous_random_state',
+                                            getattr(self, '_simultaneous_random_state', None)))
+
+        # Bootstrap max-|Z|
+        chunk = min(256, B)
+        max_stats = np.empty(B, dtype=float)
+        filled = 0
+        while filled < B:
+            bsz = min(chunk, B - filled)
+            xi = rng.standard_normal(size=(bsz, n))
+            weighted = xi * resid.reshape(1, -1)
+            score = (weighted @ X_feat) @ M.T / float(max(n, 1))
+            z_star = score / (se_feat.reshape(1, -1) + 1e-30)
+            max_stats[filled:filled + bsz] = np.max(
+                np.abs(z_star[:, feature_target_idx]), axis=1
+            )
+            filled += bsz
+
+        critical = float(np.quantile(max_stats, 1.0 - alpha_sim))
+        params = np.asarray(self._params, dtype=float)
+        bse = np.asarray(self._bse, dtype=float)
+        conf_sim = np.array(self._conf_int, copy=True, dtype=float)
+        conf_sim[param_target_idx, 0] = params[param_target_idx] - critical * bse[param_target_idx]
+        conf_sim[param_target_idx, 1] = params[param_target_idx] + critical * bse[param_target_idx]
+
+        self._conf_int_simultaneous = conf_sim
+        self._simultaneous_enabled = True
+
+    def _select_solver(self, loss, backend_name=None, X=None):
+        """Auto-select solver based on loss, penalty, and backend."""
         if self.solver != "auto":
             return self.solver
-        if self.loss == "squared_error" and self._penalty.name == "l2":
-            return "exact"
-        _non_smooth = {
-            "l1", "elasticnet", "en",
-            "scad", "mcp", "adaptive_l1", "adaptive_lasso",
-            "group_lasso", "gl", "group_mcp", "gmcp", "group_scad", "gscad",
-        }
-        if self._penalty.name in _non_smooth:
-            # Gamma and InverseGaussian with L1/elasticnet: Lipschitz varies
-            # with y and iterate, fista_bb burn-in (no backtracking) can't
-            # handle the curvature changes.  fista's line search compensates.
-            _loss_name = getattr(loss, 'name', '')
-            if _loss_name in ("gamma", "inverse_gaussian"):
-                return "fista"
-            return "fista_bb"  # fista_bb auto-disables BB for non-smooth penalties
-        if getattr(loss, "has_hessian", False):
-            # For log-link families (gamma, tweedie, inverse_gaussian),
-            # IRLS weights are constant or near-constant, making IRLS a
-            # slow fixed-point iteration.  Newton with line search converges
-            # much faster for these families.
-            _loss_name = getattr(loss, 'name', '')
-            if _loss_name in ("gamma", "tweedie", "inverse_gaussian"):
-                return "newton"
-            return "irls"
-        return "fista"
+        return _preferred_penalized_glm_solver(
+            getattr(loss, "name", self.loss),
+            getattr(self._penalty, "name", self.penalty),
+            backend_name=backend_name,
+            l1_ratio=getattr(self._penalty, "l1_ratio", self.l1_ratio),
+            cv_mode=False,
+            problem_size=None if X is None else int(X.shape[0]) * int(X.shape[1]),
+        )
 
     @staticmethod
     def _torch_cuda_available():
@@ -623,6 +1389,24 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
         except Exception:
             return False
 
+    # Backend override rules for device='auto' at large scale (problem_size >= 1M).
+    # Each entry: (loss, penalties, target_backend, reason_template)
+    # First match wins. target_backend="numpy" means always CPU;
+    # target_backend="torch" means prefer torch over cupy.
+    _AUTO_BACKEND_CPU_OVERRIDES = [
+        ("squared_error", ("l2",), "numpy", "large squared-error exact solve is faster on CPU"),
+        ("squared_error", ("l1", "elasticnet", "en"), "numpy", "large squared-error l1/elasticnet is faster on CPU"),
+        ("negative_binomial", ("l1", "elasticnet", "en"), "numpy", "large negative-binomial l1/elasticnet is faster on CPU"),
+        ("logistic", ("l1", "elasticnet", "en"), "numpy", "large logistic {penalty} is faster on CPU"),
+        ("gamma", ("l2",), "numpy", "large gamma l2/newton is faster on CPU"),
+        ("tweedie", ("l1", "elasticnet", "en"), "numpy", "large tweedie {penalty} is faster on CPU"),
+    ]
+    _AUTO_BACKEND_CUPY_OVERRIDES = [
+        ("negative_binomial", ("l2",), "torch", "large negative-binomial l2 is faster on {target} than cupy"),
+        ("logistic", ("l1", "elasticnet", "en"), "torch", "large logistic {penalty} is faster on {target} than cupy"),
+        ("poisson", ("l1", "elasticnet", "en"), "torch", "large poisson {penalty} is faster on {target} than cupy"),
+    ]
+
     def _auto_backend_override(self, backend_name, X):
         """Benchmark-backed backend routing for device='auto' only."""
         self._auto_backend_reason = None
@@ -638,54 +1422,37 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
         penalty_name = str(getattr(self._penalty, "name", self.penalty)).lower()
         torch_ok = self._torch_cuda_available()
 
-        # CPU remains faster for these Gram/precompute-heavy proximal paths at
-        # benchmarked large scale.  This is auto-only; explicit GPU devices stay
-        # on the requested backend.
-        if loss_name == "squared_error" and penalty_name == "l2":
-            self._auto_backend_reason = "large squared-error exact solve is faster on CPU"
-            return "numpy"
-        if loss_name == "squared_error" and penalty_name in ("l1", "elasticnet", "en"):
-            self._auto_backend_reason = "large squared-error l1/elasticnet is faster on CPU"
-            return "numpy"
-        if loss_name == "negative_binomial" and penalty_name in ("l1", "elasticnet", "en"):
-            self._auto_backend_reason = "large negative-binomial l1/elasticnet is faster on CPU"
-            return "numpy"
-        if loss_name == "logistic" and penalty_name in ("l1", "elasticnet", "en"):
-            self._auto_backend_reason = f"large logistic {penalty_name} is faster on CPU"
-            return "numpy"
-        if loss_name == "gamma" and penalty_name == "l2":
-            self._auto_backend_reason = "large gamma l2/newton is faster on CPU"
-            return "numpy"
-        if loss_name == "tweedie" and penalty_name in ("l1", "elasticnet", "en"):
-            self._auto_backend_reason = f"large tweedie {penalty_name} is faster on CPU"
-            return "numpy"
+        # CPU overrides: always route to numpy
+        for loss, penalties, target, reason_tpl in self._AUTO_BACKEND_CPU_OVERRIDES:
+            if loss_name == loss and penalty_name in penalties:
+                self._auto_backend_reason = reason_tpl.format(penalty=penalty_name)
+                return target
 
-        # CuPy is consistently slower than Torch for these large-scale GLM
-        # paths in the full-matrix benchmark.  Prefer Torch when available,
-        # otherwise fall back to CPU only for the known slow NB IRLS path.
+        # CuPy→Torch overrides: prefer torch when available, else CPU
         if backend_name == "cupy":
-            if loss_name == "negative_binomial" and penalty_name == "l2":
-                if torch_ok:
-                    self._auto_backend_reason = "large negative-binomial l2 is faster on torch than cupy"
-                    return "torch"
-                self._auto_backend_reason = "large negative-binomial l2 is faster on CPU than cupy"
-                return "numpy"
-            if loss_name in ("logistic", "poisson") and penalty_name in ("l1", "elasticnet", "en"):
-                if torch_ok:
-                    self._auto_backend_reason = f"large {loss_name} {penalty_name} is faster on torch than cupy"
-                    return "torch"
-                self._auto_backend_reason = f"large {loss_name} {penalty_name} is faster on CPU than cupy"
-                return "numpy"
+            for loss, penalties, target, reason_tpl in self._AUTO_BACKEND_CUPY_OVERRIDES:
+                if loss_name == loss and penalty_name in penalties:
+                    if torch_ok:
+                        self._auto_backend_reason = reason_tpl.format(
+                            penalty=penalty_name, target="torch")
+                        return "torch"
+                    self._auto_backend_reason = reason_tpl.format(
+                        penalty=penalty_name, target="CPU")
+                    return "numpy"
 
         return backend_name
 
-    def _validate_solver_for_penalty(self, solver_name, backend_name):
-        if solver_name != "fista_bb":
-            return solver_name
-        return solver_name
-
-    def _fit_initial(self, X, y):
+    def _fit_initial(self, X, y, backend_name="numpy"):
         """Fit initial model for penalties requiring initialization.
+
+        Parameters
+        ----------
+        X : array
+            Design matrix.
+        y : array
+            Target vector.
+        backend_name : str
+            Backend to use ('numpy', 'torch', 'cupy'). Default 'numpy'.
 
         Uses OLS when n_samples > n_features (well-determined, unbiased),
         and Ridge otherwise (works for any p, required when p > n).
@@ -728,9 +1495,16 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
 
             l2_pen = get_penalty("l2", alpha=0.001)
             loss_obj = self._resolve_loss()
+            # Use matching backend for GPU data
+            if backend_name in ("torch", "cupy"):
+                backend = get_backend(backend=backend_name, device='cuda')
+                X_b = backend.asarray(X, dtype=backend.float64)
+                y_b = backend.asarray(y, dtype=backend.float64)
+            else:
+                X_b = np.asarray(_to_numpy(X), dtype=np.float64)
+                y_b = np.asarray(_to_numpy(y), dtype=np.float64)
             init_coef, _ = fista_solver(
-                loss_obj, l2_pen, np.asarray(X, dtype=np.float64),
-                np.asarray(y, dtype=np.float64),
+                loss_obj, l2_pen, X_b, y_b,
                 max_iter=500, tol=1e-4,
             )
             return init_coef
@@ -742,9 +1516,16 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
             # which converges more tightly and gives larger coefficients
             # → smaller weights → too many features surviving.
             loss_name = getattr(self, 'loss', 'squared_error')
+            # Use matching backend for GPU data
+            if backend_name in ("torch", "cupy"):
+                backend = get_backend(backend=backend_name, device='cuda')
+                X_b = backend.asarray(X, dtype=backend.float64)
+                y_b = backend.asarray(y, dtype=backend.float64)
+            else:
+                X_b = np.asarray(_to_numpy(X), dtype=np.float64)
+                y_b = np.asarray(_to_numpy(y), dtype=np.float64)
             init_coef = _irls_ridge_init(
-                np.asarray(X, dtype=np.float64),
-                np.asarray(y, dtype=np.float64),
+                X_b, y_b,
                 loss_name=loss_name,
                 alpha=0.01,
                 max_iter=100,
@@ -757,7 +1538,7 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
 
         init_model = Ridge(
             alpha=0.1,
-            fit_intercept=self.fit_intercept,
+            fit_intercept=self._effective_intercept,
             device=self.device,
         )
         init_model.fit(X, y)
@@ -790,7 +1571,7 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
         elif self._penalty.requires_init:
             coef_lla = np.zeros(n_features)
         else:
-            coef_lla = self._fit_initial(X, y)
+            coef_lla = self._fit_initial(X, y, backend_name=backend_name)
 
         # For GLM + SCAD/MCP direct IRLS-CD path, override init to zeros.
         # R's ncvreg starts from lambda_max with all-zero coefficients and
@@ -875,7 +1656,7 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
         else:
             _lam_max = self.alpha * 15.0  # fallback
 
-        _n_cont = 20 if not _is_glm and _is_scad_mcp else (100 if _is_scad_mcp else 10)
+        _n_cont = 20 if _is_scad_mcp else 10
         # Start from lambda_max to match R ncvreg's pathwise approach.
         # lambda_max is the smallest penalty where all coefficients are zero.
         _alpha_start = float(_lam_max)
@@ -892,7 +1673,6 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
             _alpha_path = _np.geomspace(_alpha_start, _alpha_end, _n_cont)
         _max_lla_per_step = max(6, self._max_lla_iters // _n_cont)
 
-        saved_penalty_alpha = self._penalty.alpha
         saved_max_iter = self.max_iter
 
         try:
@@ -918,7 +1698,7 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
                     lla_tol=self._lla_tol,
                     max_iter=_mi_path,
                     tol=self.tol,
-                    fit_intercept=self.fit_intercept,
+                    fit_intercept=self._effective_intercept,
                     sample_weight=sample_weight,
                 )
                 coef_lla = coef_np
@@ -927,8 +1707,15 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
                 self.n_iter_ = n_iter
                 self._lla_n_iters_ = _n_cont * _max_lla_per_step
             else:
-             for _cont_step, _cont_alpha in enumerate(_alpha_path):
-                    self._penalty.alpha = float(_cont_alpha)
+                # Cache GPU arrays once outside the continuation loop
+                X_cached = self._to_array(X, backend=backend_name)
+                y_cached = self._to_array(y, backend=backend_name)
+
+                for _cont_step, _cont_alpha in enumerate(_alpha_path):
+                    # Create a copy with the continuation alpha to avoid
+                    # mutating the shared penalty object (thread-safety).
+                    _pen_step = copy.copy(self._penalty)
+                    _pen_step.alpha = float(_cont_alpha)
 
                     _is_last_cont = (_cont_step == _n_cont - 1)
                     if _is_glm_scad_mcp:
@@ -948,14 +1735,9 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
                         # This branch is now handled above by fista_lla_path
                         pass
                     else:
-                        # Cache GPU arrays outside the LLA inner loop to avoid
-                        # repeated CPU->GPU transfers (major overhead for small datasets)
-                        X_cached = self._to_array(X, backend=backend_name)
-                        y_cached = self._to_array(y, backend=backend_name)
-
                         for _lla_local in range(_max_lla_per_step):
                             # Compute LLA weights from current estimate
-                            lla_w = self._penalty.lla_weights(coef_lla)
+                            lla_w = _pen_step.lla_weights(coef_lla)
 
                             # SelectivePenalty wrapper handles intercept separately
                             # (clips to [-15,15] then sets penalty gradient to 0).
@@ -969,25 +1751,25 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
                             inner_pen = AdaptiveL1Penalty(alpha=1.0)
                             inner_pen._weights = lla_w
 
-                            # Swap penalty
+                            # Swap penalty (protected by try/finally)
                             orig_penalty = self._penalty
                             self._penalty = inner_pen
+                            try:
+                                # Run inner FISTA with warm-start from previous LLA estimate
+                                # Use cached arrays to avoid repeated GPU transfers
+                                self._init_coef = coef_lla.copy()
 
-                            # Run inner FISTA with warm-start from previous LLA estimate
-                            # Use cached arrays to avoid repeated GPU transfers
-                            self._init_coef = coef_lla.copy()
+                                if backend_name == "torch":
+                                    self._fit_torch(X_cached, y_cached, sample_weight)
+                                elif backend_name == "cupy":
+                                    self._fit_gpu(X_cached, y_cached, sample_weight)
+                                else:
+                                    self._fit_cpu(X_cached, y_cached, sample_weight)
 
-                            if backend_name == "torch":
-                                self._fit_torch(X_cached, y_cached, sample_weight)
-                            elif backend_name == "cupy":
-                                self._fit_gpu(X_cached, y_cached, sample_weight)
-                            else:
-                                self._fit_cpu(X_cached, y_cached, sample_weight)
-
-                            self._init_coef = None
-
-                            # Restore original penalty
-                            self._penalty = orig_penalty
+                                self._init_coef = None
+                            finally:
+                                # Restore original penalty even if inner fit raises
+                                self._penalty = orig_penalty
 
                             # LLA convergence
                             coef_new = self.coef_.copy()
@@ -1005,18 +1787,25 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
         # _irls_cd returned params but didn't set them on self.
             if self.coef_ is None and coef_lla is not None:
                 self.coef_ = np.asarray(coef_lla[:X.shape[1]], dtype=float)
-                if self.fit_intercept:
+                if self._effective_intercept:
                     X_np = np.asarray(X, dtype=float)
                     y_np = np.asarray(y, dtype=float)
-                    self.intercept_ = float(np.mean(y_np) - np.mean(X_np, axis=0) @ self.coef_)
+                    if sample_weight is not None:
+                        sw_np = np.asarray(sample_weight, dtype=float).ravel()
+                        sw_sum = max(float(np.sum(sw_np)), 1e-15)
+                        X_wmean = np.sum(X_np * sw_np[:, None], axis=0) / sw_sum
+                        y_wmean = float(np.sum(y_np * sw_np)) / sw_sum
+                        self.intercept_ = float(y_wmean - X_wmean @ self.coef_)
+                    else:
+                        self.intercept_ = float(np.mean(y_np) - np.mean(X_np, axis=0) @ self.coef_)
                 else:
                     self.intercept_ = 0.0
                 self._params = np.concatenate([[self.intercept_], self.coef_])
-                self._df_resid = X.shape[0] - (X.shape[1] + (1 if self.fit_intercept else 0))
+                self._df_resid = X.shape[0] - (X.shape[1] + (1 if self._effective_intercept else 0))
         finally:
-            self._penalty.alpha = saved_penalty_alpha
             self.cpu_solver = saved_cpu_solver
             self._selected_solver = saved_selected_solver
+            self.max_iter = saved_max_iter
 
     def _fit_cpu(self, X, y, sample_weight=None):
         """Fit using CPU (FISTA or coordinate descent)."""
@@ -1060,7 +1849,7 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
 
         pen = self._penalty
 
-        if self.fit_intercept:
+        if self._effective_intercept:
             X_mean = np.mean(X, axis=0)
             y_mean = np.mean(y)
             X_centered = X - X_mean
@@ -1073,9 +1862,14 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
         if y_centered.ndim == 1:
             y_centered = y_centered.reshape(-1, 1)
 
-        # Precompute for gradient
-        XtX = X_centered.T @ X_centered
-        Xty = X_centered.T @ y_centered.flatten()
+        # Precompute for gradient (use CV cache if available)
+        _cv = getattr(self, '_cv_cache', None)
+        if _cv is not None and 'XtX' in _cv:
+            XtX = _cv['XtX']
+            Xty = _cv['Xty']
+        else:
+            XtX = X_centered.T @ X_centered
+            Xty = X_centered.T @ y_centered.flatten()
 
         pen = self._penalty
         if solver_name == "exact":
@@ -1083,13 +1877,13 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
                 raise ValueError("solver='exact' is only supported for L2/Ridge penalty.")
             self.coef_ = self._solve_exact_numpy(XtX, Xty, n_samples)
             self.n_iter_ = 1
-            if self.fit_intercept:
+            if self._effective_intercept:
                 self.intercept_ = float(y_mean - X_mean @ self.coef_)
                 self._params = np.concatenate([[self.intercept_], self.coef_])
             else:
                 self.intercept_ = 0.0
                 self._params = self.coef_.copy()
-            self._df_resid = n_samples - (n_features + (1 if self.fit_intercept else 0))
+            self._df_resid = n_samples - (n_features + (1 if self._effective_intercept else 0))
             return
 
         # Lipschitz constant: L = λ_max(XtX) / n
@@ -1110,7 +1904,10 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
                 # FISTA with XtX precomputation.
                 # BB step (fista_bb) provides no benefit for quadratic losses
                 # (BB1=BB2=1/R_H(dw)), so both use the fixed Lipschitz step.
-                coef = np.zeros(n_features)
+                if hasattr(self, '_init_coef') and self._init_coef is not None:
+                    coef = np.asarray(self._init_coef, dtype=np.float64).copy()
+                else:
+                    coef = np.zeros(n_features)
                 y_k = coef.copy()
                 t_k = 1.0
 
@@ -1139,7 +1936,10 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
             else:
                 # Coordinate descent (for L1-type penalties)
                 X_sq_norms = np.diag(XtX)
-                coef = np.zeros(n_features)
+                if hasattr(self, '_init_coef') and self._init_coef is not None:
+                    coef = np.asarray(self._init_coef, dtype=np.float64).copy()
+                else:
+                    coef = np.zeros(n_features)
 
                 # Precompute per-coordinate thresholds for adaptive penalties.
                 # The penalty object stores mean-normalized weights (w = pf / mean(pf))
@@ -1150,6 +1950,10 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
                 if pen.name in ("adaptive_l1", "adaptive_lasso"):
                     _w = np.asarray(getattr(pen, '_weights', np.ones(n_features)), dtype=float)
                     _adaptive_thresh = self.alpha * _w * n_samples
+
+                # Precompute SCAD/MCP constants (hoisted out of inner loop)
+                _a_scad = float(getattr(pen, 'a', 3.7)) if pen.name == "scad" else 0.0
+                _gamma_mcp = float(getattr(pen, 'gamma', 3.0)) if pen.name == "mcp" else 0.0
 
                 # Precompute group info for group_lasso block CD
                 _is_group = pen.name == "group_lasso"
@@ -1218,7 +2022,10 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
                                     coef[j] = 0.0
                             elif pen.name == "scad":
                                 # SCAD CD matching R ncvreg: threshold = alpha * n
-                                a_scad = float(getattr(pen, 'a', 3.7))
+                                # Guard: a_scad must be > 1 and != 2 to avoid div/0.
+                                a_scad = max(float(_a_scad), 1.0 + 1e-6)
+                                if abs(a_scad - 2.0) < 1e-6:
+                                    a_scad = 2.0 + 1e-6
                                 if X_sq_norms[j] > 1e-10:
                                     w_j = rho_j / X_sq_norms[j]
                                     aw = np.abs(w_j)
@@ -1233,7 +2040,8 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
                                     coef[j] = 0.0
                             elif pen.name == "mcp":
                                 # MCP CD matching R ncvreg: threshold = alpha * n
-                                gamma_mcp = float(getattr(pen, 'gamma', 3.0))
+                                # Guard: gamma_mcp must be > 1 to avoid div/0.
+                                gamma_mcp = max(float(_gamma_mcp), 1.0 + 1e-6)
                                 if X_sq_norms[j] > 1e-10:
                                     w_j = rho_j / X_sq_norms[j]
                                     aw = np.abs(w_j)
@@ -1261,14 +2069,14 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
         if L > 0:
             self.coef_ = coef
 
-        if self.fit_intercept:
+        if self._effective_intercept:
             self.intercept_ = float(y_mean - X_mean @ self.coef_)
             self._params = np.concatenate([[self.intercept_], self.coef_])
         else:
             self.intercept_ = 0.0
             self._params = self.coef_.copy()
 
-        self._df_resid = n_samples - (n_features + (1 if self.fit_intercept else 0))
+        self._df_resid = n_samples - (n_features + (1 if self._effective_intercept else 0))
 
     def _fit_gpu(self, X, y, sample_weight=None):
         """Fit using GPU (CuPy) with FISTA."""
@@ -1297,7 +2105,7 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
                 sqrt_sw = cp.sqrt(sw)
                 X = X * sqrt_sw[:, cp.newaxis]
                 y = y * sqrt_sw
-            if self.fit_intercept:
+            if self._effective_intercept:
                 X_mean = cp.mean(X, axis=0)
                 y_mean = cp.mean(y)
                 X_centered = X - X_mean
@@ -1308,12 +2116,17 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
                 y_centered = y
             if y_centered.ndim == 1:
                 y_centered = y_centered.reshape(-1)
-            XtX = X_centered.T @ X_centered
-            Xty = X_centered.T @ y_centered
+            _cv = getattr(self, '_cv_cache', None)
+            if _cv is not None and 'XtX' in _cv:
+                XtX = _cv['XtX']
+                Xty = _cv['Xty']
+            else:
+                XtX = X_centered.T @ X_centered
+                Xty = X_centered.T @ y_centered
             coef = self._solve_exact_cupy(XtX, Xty, n_samples)
             self.n_iter_ = 1
-            if self.compute_inference and self.cov_type == "nonrobust":
-                if self.fit_intercept:
+            if self.compute_inference:
+                if self._effective_intercept:
                     intercept_gpu = (y_mean.reshape(1) - X_mean.reshape(1, -1) @ coef.reshape(-1, 1)).reshape(-1)
                     coef_full_gpu = cp.concatenate([intercept_gpu, coef.reshape(-1)])
                     self._precompute_exact_l2_inference_cupy(
@@ -1334,7 +2147,7 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
                         n_samples,
                     )
             coef_np = coef.get()
-            if self.fit_intercept:
+            if self._effective_intercept:
                 self.intercept_ = float(y_mean.get() - X_mean.get() @ coef_np)
                 self.coef_ = coef_np
                 self._params = np.concatenate([[self.intercept_], self.coef_])
@@ -1342,7 +2155,7 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
                 self.intercept_ = 0.0
                 self.coef_ = coef_np
                 self._params = coef_np.copy()
-            self._df_resid = n_samples - (n_features + (1 if self.fit_intercept else 0))
+            self._df_resid = n_samples - (n_features + (1 if self._effective_intercept else 0))
             self._cleanup_cuda_memory()
             return
 
@@ -1370,7 +2183,7 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
             X = X * sqrt_sw[:, cp.newaxis]
             y = y * sqrt_sw
 
-        if self.fit_intercept:
+        if self._effective_intercept:
             X_mean = cp.mean(X, axis=0)
             y_mean = cp.mean(y)
             X_centered = X - X_mean
@@ -1383,24 +2196,33 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
         if y_centered.ndim == 1:
             y_centered = y_centered.reshape(-1)
 
-        # Precompute
-        XtX = X_centered.T @ X_centered
-        Xty = X_centered.T @ y_centered
+        # Precompute (use CV cache if available)
+        _cv = getattr(self, '_cv_cache', None)
+        if _cv is not None and 'XtX' in _cv:
+            XtX = _cv['XtX']
+            Xty = _cv['Xty']
+        else:
+            XtX = X_centered.T @ X_centered
+            Xty = X_centered.T @ y_centered
 
-        # Lipschitz constant via power iteration (O(p^2) vs O(p^3) for eigvalsh)
+        # Lipschitz constant: L = lambda_max(XtX) / n
         if self.lipschitz_L is not None:
             L = float(self.lipschitz_L)
         else:
-            # Deterministic init to avoid different L for same X across calls
-            v = cp.ones(n_features, dtype=X.dtype)
-            v /= cp.linalg.norm(v)
-            for _ in range(50):
-                v_new = XtX @ v
-                v_norm = cp.linalg.norm(v_new)
-                if v_norm < 1e-15:
-                    break
-                v = v_new / v_norm
-            L = float((v @ (XtX @ v)) / n_samples)
+            # eigvalsh is faster for p < ~1000 (single cuBLAS call);
+            # power iteration only wins for very large p.
+            if n_features < 1000:
+                L = float(cp.linalg.eigvalsh(XtX)[-1]) / n_samples
+            else:
+                v = cp.ones(n_features, dtype=X.dtype)
+                v /= cp.linalg.norm(v)
+                for _ in range(50):
+                    v_new = XtX @ v
+                    v_norm = cp.linalg.norm(v_new)
+                    if v_norm < 1e-15:
+                        break
+                    v = v_new / v_norm
+                L = float((v @ (XtX @ v)) / n_samples)
 
         if L <= 0:
             coef = cp.zeros(n_features, dtype=X.dtype)
@@ -1425,7 +2247,10 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
             # and more iterations to converge.
             _use_l2 = abs(l2_scale - 1.0) > 1e-12
 
-            coef = cp.zeros(n_features, dtype=X.dtype)
+            if hasattr(self, '_init_coef') and self._init_coef is not None:
+                coef = cp.asarray(self._init_coef, dtype=X.dtype)
+            else:
+                coef = cp.zeros(n_features, dtype=X.dtype)
             y_k = coef.copy()
             t_k = 1.0
             beta = 0.0  # first iteration: y_k = coef (no momentum)
@@ -1433,6 +2258,42 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
             # Lazy-compile the fused element-wise step (first call triggers JIT)
             _fused_step = None
             _fused_step_l2 = None
+
+            # Warm-up: compile fused kernel BEFORE the loop to avoid
+            # first-iteration JIT compilation overhead.
+            if _use_l2:
+                try:
+                    @cp.fuse()
+                    def _fista_elementwise_l2(
+                        _y_k, _xtx_y, _step_over_n_Xty, _step_over_n,
+                        _thresh, _l2_scale, _coef_old, _beta,
+                    ):
+                        w = (_y_k - _step_over_n * _xtx_y + _step_over_n_Xty)
+                        c = (cp.sign(w) * cp.maximum(cp.abs(w) - _thresh, 0.0) / _l2_scale)
+                        y = c + _beta * (c - _coef_old)
+                        return c, y
+                    _fused_step_l2 = _fista_elementwise_l2
+                    # Trigger JIT compilation with dummy data
+                    _dummy = cp.zeros(1, dtype=X.dtype)
+                    _fused_step_l2(_dummy, _dummy, _dummy, 0.0, 0.0, 1.0, _dummy, 0.0)
+                except Exception:
+                    _fused_step_l2 = None
+            else:
+                try:
+                    @cp.fuse()
+                    def _fista_elementwise(
+                        _y_k, _xtx_y, _step_over_n_Xty, _step_over_n,
+                        _thresh, _coef_old, _beta,
+                    ):
+                        w = (_y_k - _step_over_n * _xtx_y + _step_over_n_Xty)
+                        c = (cp.sign(w) * cp.maximum(cp.abs(w) - _thresh, 0.0))
+                        y = c + _beta * (c - _coef_old)
+                        return c, y
+                    _fused_step = _fista_elementwise
+                    _dummy = cp.zeros(1, dtype=X.dtype)
+                    _fused_step(_dummy, _dummy, _dummy, 0.0, 0.0, _dummy, 0.0)
+                except Exception:
+                    _fused_step = None
 
             for iteration in range(self.max_iter):
                 coef_old = coef.copy()
@@ -1447,34 +2308,12 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
                             thresh, l2_scale, coef_old, beta,
                         )
                     else:
-                        try:
-                            @cp.fuse()
-                            def _fista_elementwise_l2(
-                                _y_k, _xtx_y, _step_over_n_Xty, _step_over_n,
-                                _thresh, _l2_scale, _coef_old, _beta,
-                            ):
-                                w = (_y_k - _step_over_n * _xtx_y
-                                     + _step_over_n_Xty)
-                                c = (cp.sign(w)
-                                     * cp.maximum(cp.abs(w) - _thresh, 0.0)
-                                     / _l2_scale)
-                                y = c + _beta * (c - _coef_old)
-                                return c, y
-                            _fused_step_l2 = _fista_elementwise_l2
-                        except Exception:
-                            _fused_step_l2 = None
-                        if _fused_step_l2 is not None:
-                            coef, y_k = _fused_step_l2(
-                                y_k, xtx_y, step_over_n_Xty, step_over_n,
-                                thresh, l2_scale, coef_old, beta,
-                            )
-                        else:
-                            w_tilde = (y_k - step_over_n * xtx_y
-                                       + step_over_n_Xty)
-                            coef = (cp.sign(w_tilde)
-                                    * cp.maximum(cp.abs(w_tilde) - thresh, 0.0)
-                                    / l2_scale)
-                            y_k = coef + beta * (coef - coef_old)
+                        w_tilde = (y_k - step_over_n * xtx_y
+                                   + step_over_n_Xty)
+                        coef = (cp.sign(w_tilde)
+                                * cp.maximum(cp.abs(w_tilde) - thresh, 0.0)
+                                / l2_scale)
+                        y_k = coef + beta * (coef - coef_old)
                 else:
                     if _fused_step is not None:
                         coef, y_k = _fused_step(
@@ -1482,32 +2321,11 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
                             thresh, coef_old, beta,
                         )
                     else:
-                        try:
-                            @cp.fuse()
-                            def _fista_elementwise(
-                                _y_k, _xtx_y, _step_over_n_Xty,
-                                _step_over_n, _thresh, _coef_old, _beta,
-                            ):
-                                w = (_y_k - _step_over_n * _xtx_y
-                                     + _step_over_n_Xty)
-                                c = (cp.sign(w)
-                                     * cp.maximum(cp.abs(w) - _thresh, 0.0))
-                                y = c + _beta * (c - _coef_old)
-                                return c, y
-                            _fused_step = _fista_elementwise
-                        except Exception:
-                            _fused_step = None
-                        if _fused_step is not None:
-                            coef, y_k = _fused_step(
-                                y_k, xtx_y, step_over_n_Xty, step_over_n,
-                                thresh, coef_old, beta,
-                            )
-                        else:
-                            w_tilde = (y_k - step_over_n * xtx_y
-                                       + step_over_n_Xty)
-                            coef = (cp.sign(w_tilde)
-                                    * cp.maximum(cp.abs(w_tilde) - thresh, 0.0))
-                            y_k = coef + beta * (coef - coef_old)
+                        w_tilde = (y_k - step_over_n * xtx_y
+                                   + step_over_n_Xty)
+                        coef = (cp.sign(w_tilde)
+                                * cp.maximum(cp.abs(w_tilde) - thresh, 0.0))
+                        y_k = coef + beta * (coef - coef_old)
 
                 # Scheduled momentum restart (zero sync overhead)
                 if iteration > 0 and iteration % 50 == 0:
@@ -1524,7 +2342,10 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
                     break
         else:
             step = 1.0 / L
-            coef = cp.zeros(n_features, dtype=X.dtype)
+            if hasattr(self, '_init_coef') and self._init_coef is not None:
+                coef = cp.asarray(self._init_coef, dtype=X.dtype)
+            else:
+                coef = cp.zeros(n_features, dtype=X.dtype)
             y_k = coef.copy()
             t_k = cp.array(1.0, dtype=X.dtype)
 
@@ -1553,7 +2374,7 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
         # Transfer to CPU
         coef_np = coef.get()
 
-        if self.fit_intercept:
+        if self._effective_intercept:
             self.intercept_ = float(y_mean.get() - X_mean.get() @ coef_np)
             self.coef_ = coef_np
             self._params = np.concatenate([[self.intercept_], self.coef_])
@@ -1562,7 +2383,13 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
             self.coef_ = coef_np
             self._params = coef_np.copy()
 
-        self._df_resid = n_samples - (n_features + (1 if self.fit_intercept else 0))
+        self._df_resid = n_samples - (n_features + (1 if self._effective_intercept else 0))
+
+        # Debiased inference on GPU (before cleanup, while arrays are in scope)
+        if self.compute_inference and "debiased" in str(getattr(self, "inference_method", "")).lower():
+            penalty_name = str(getattr(self._penalty, "name", self.penalty)).lower()
+            if penalty_name in ("l1", "elasticnet", "en"):
+                self._compute_inference_debiased_gpu(X, y, coef)
 
         # Cleanup
         self._cleanup_cuda_memory()
@@ -1604,7 +2431,7 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
                 sqrt_sw = torch.sqrt(sample_weight)
                 X = X * sqrt_sw[:, None]
                 y = y * sqrt_sw
-            if self.fit_intercept:
+            if self._effective_intercept:
                 X_mean = torch.mean(X, dim=0)
                 y_mean = torch.mean(y)
                 X_centered = X - X_mean
@@ -1615,12 +2442,17 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
                 y_centered = y
             if y_centered.ndim == 1:
                 y_centered = y_centered.reshape(-1)
-            XtX = X_centered.T @ X_centered
-            Xty = X_centered.T @ y_centered
+            _cv = getattr(self, '_cv_cache', None)
+            if _cv is not None and 'XtX' in _cv:
+                XtX = _cv['XtX']
+                Xty = _cv['Xty']
+            else:
+                XtX = X_centered.T @ X_centered
+                Xty = X_centered.T @ y_centered
             coef = self._solve_exact_torch(XtX, Xty, n_samples)
             self.n_iter_ = 1
-            if self.compute_inference and self.cov_type == "nonrobust":
-                if self.fit_intercept:
+            if self.compute_inference:
+                if self._effective_intercept:
                     coef_full_torch = torch.cat([
                         (y_mean.reshape(1) - X_mean.reshape(1, -1) @ coef.reshape(-1, 1)).reshape(-1),
                         coef.reshape(-1),
@@ -1643,7 +2475,7 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
                         n_samples,
                     )
             coef_np = coef.cpu().numpy()
-            if self.fit_intercept:
+            if self._effective_intercept:
                 self.intercept_ = float(y_mean.cpu().numpy() - X_mean.cpu().numpy() @ coef_np)
                 self.coef_ = coef_np
                 self._params = np.concatenate([[self.intercept_], self.coef_])
@@ -1651,7 +2483,12 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
                 self.intercept_ = 0.0
                 self.coef_ = coef_np
                 self._params = coef_np.copy()
-            self._df_resid = n_samples - (n_features + (1 if self.fit_intercept else 0))
+            self._df_resid = n_samples - (n_features + (1 if self._effective_intercept else 0))
+            # Debiased inference on Torch GPU (before cleanup)
+            if self.compute_inference and "debiased" in str(getattr(self, "inference_method", "")).lower():
+                penalty_name = str(getattr(self._penalty, "name", self.penalty)).lower()
+                if penalty_name in ("l1", "elasticnet", "en"):
+                    self._compute_inference_debiased_torch(X, y, coef)
             self._cleanup_torch_memory()
             return
 
@@ -1686,7 +2523,7 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
             X = X * sqrt_sw[:, None]
             y = y * sqrt_sw
 
-        if self.fit_intercept:
+        if self._effective_intercept:
             X_mean = torch.mean(X, dim=0)
             y_mean = torch.mean(y)
             X_centered = X - X_mean
@@ -1699,24 +2536,31 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
         if y_centered.ndim == 1:
             y_centered = y_centered.reshape(-1)
 
-        # Precompute
-        XtX = X_centered.T @ X_centered
-        Xty = X_centered.T @ y_centered
+        # Precompute (use CV cache if available)
+        _cv = getattr(self, '_cv_cache', None)
+        if _cv is not None and 'XtX' in _cv:
+            XtX = _cv['XtX']
+            Xty = _cv['Xty']
+        else:
+            XtX = X_centered.T @ X_centered
+            Xty = X_centered.T @ y_centered
 
-        # Lipschitz constant via power iteration (O(p^2) vs O(p^3) for eigvalsh)
+        # Lipschitz constant: L = lambda_max(XtX) / n
         if self.lipschitz_L is not None:
             L = float(self.lipschitz_L)
         else:
-            # Deterministic init to avoid different L for same X across calls
-            v = torch.ones(n_features, dtype=X.dtype, device=X.device)
-            v /= torch.linalg.norm(v)
-            for _ in range(50):
-                v_new = XtX @ v
-                v_norm = torch.linalg.norm(v_new)
-                if v_norm < 1e-15:
-                    break
-                v = v_new / v_norm
-            L = float((v @ (XtX @ v)) / n_samples)
+            if n_features < 1000:
+                L = float(torch.linalg.eigvalsh(XtX)[-1]) / n_samples
+            else:
+                v = torch.ones(n_features, dtype=X.dtype, device=X.device)
+                v /= torch.linalg.norm(v)
+                for _ in range(50):
+                    v_new = XtX @ v
+                    v_norm = torch.linalg.norm(v_new)
+                    if v_norm < 1e-15:
+                        break
+                    v = v_new / v_norm
+                L = float((v @ (XtX @ v)) / n_samples)
 
         if L <= 0:
             coef = torch.zeros(n_features, dtype=X.dtype, device=X.device)
@@ -1737,18 +2581,49 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
                 l2_scale = 1.0
             _use_l2 = abs(l2_scale - 1.0) > 1e-12
 
-            coef = torch.zeros(n_features, dtype=X.dtype, device=X.device)
+            if hasattr(self, '_init_coef') and self._init_coef is not None:
+                coef = torch.tensor(self._init_coef, dtype=X.dtype, device=X.device)
+            else:
+                coef = torch.zeros(n_features, dtype=X.dtype, device=X.device)
             y_k = coef.clone()
             t_k = 1.0
             beta = 0.0
 
-            # Lazy-compile the fused element-wise step.
-            # torch.compile JIT is lazy — triggers on first CALL.
-            # Both phases are wrapped so old GPUs (P100 SM 6.0) fall back.
+            # Warm-up: compile fused kernel BEFORE the loop to avoid
+            # first-iteration JIT compilation overhead.
             _fused_step = None
             _fused_step_l2 = None
-            _compile_tried = False
-            _compile_tried_l2 = False
+            from statgpu.penalties import _torch_compile_ok as _tc_ok
+            if _tc_ok():
+                try:
+                    def _fista_elementwise_l2(
+                        _y_k, _xtx_y, _step_over_n_Xty,
+                        _step_over_n, _thresh, _l2_scale,
+                        _coef_old, _beta,
+                    ):
+                        w = (_y_k - _step_over_n * _xtx_y + _step_over_n_Xty)
+                        c = (torch.sign(w) * torch.relu(torch.abs(w) - _thresh) / _l2_scale)
+                        y = c + _beta * (c - _coef_old)
+                        return c, y
+                    _fused_step_l2 = torch.compile(_fista_elementwise_l2, mode='reduce-overhead')
+                    _dummy = torch.zeros(1, dtype=X.dtype, device=X.device)
+                    _fused_step_l2(_dummy, _dummy, _dummy, 0.0, 0.0, 1.0, _dummy, 0.0)
+                except Exception:
+                    _fused_step_l2 = None
+                try:
+                    def _fista_elementwise(
+                        _y_k, _xtx_y, _step_over_n_Xty,
+                        _step_over_n, _thresh, _coef_old, _beta,
+                    ):
+                        w = (_y_k - _step_over_n * _xtx_y + _step_over_n_Xty)
+                        c = (torch.sign(w) * torch.relu(torch.abs(w) - _thresh))
+                        y = c + _beta * (c - _coef_old)
+                        return c, y
+                    _fused_step = torch.compile(_fista_elementwise, mode='reduce-overhead')
+                    _dummy = torch.zeros(1, dtype=X.dtype, device=X.device)
+                    _fused_step(_dummy, _dummy, _dummy, 0.0, 0.0, _dummy, 0.0)
+                except Exception:
+                    _fused_step = None
 
             for iteration in range(self.max_iter):
                 coef_old = coef.clone()
@@ -1763,33 +2638,6 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
                             thresh, l2_scale, coef_old, beta,
                         )
                     else:
-                        if not _compile_tried_l2:
-                            _compile_tried_l2 = True
-                            from statgpu.penalties import _torch_compile_ok as _tc_ok
-                            if _tc_ok():
-                                try:
-                                    def _fista_elementwise_l2(
-                                        _y_k, _xtx_y, _step_over_n_Xty,
-                                        _step_over_n, _thresh, _l2_scale,
-                                        _coef_old, _beta,
-                                    ):
-                                        w = (_y_k - _step_over_n * _xtx_y
-                                             + _step_over_n_Xty)
-                                        c = (torch.sign(w)
-                                             * torch.relu(torch.abs(w) - _thresh)
-                                             / _l2_scale)
-                                        y = c + _beta * (c - _coef_old)
-                                        return c, y
-                                    _fused_step_l2 = torch.compile(
-                                        _fista_elementwise_l2, mode='reduce-overhead',
-                                    )
-                                    coef, y_k = _fused_step_l2(
-                                        y_k, xtx_y, step_over_n_Xty, step_over_n,
-                                        thresh, l2_scale, coef_old, beta,
-                                    )
-                                    continue
-                                except Exception:
-                                    _fused_step_l2 = None
                         w_tilde = (y_k - step_over_n * xtx_y
                                    + step_over_n_Xty)
                         coef = (torch.sign(w_tilde)
@@ -1803,32 +2651,6 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
                             thresh, coef_old, beta,
                         )
                     else:
-                        if not _compile_tried:
-                            _compile_tried = True
-                            from statgpu.penalties import _torch_compile_ok as _tc_ok
-                            if _tc_ok():
-                                try:
-                                    def _fista_elementwise(
-                                        _y_k, _xtx_y, _step_over_n_Xty,
-                                        _step_over_n, _thresh,
-                                        _coef_old, _beta,
-                                    ):
-                                        w = (_y_k - _step_over_n * _xtx_y
-                                             + _step_over_n_Xty)
-                                        c = (torch.sign(w)
-                                             * torch.relu(torch.abs(w) - _thresh))
-                                        y = c + _beta * (c - _coef_old)
-                                        return c, y
-                                    _fused_step = torch.compile(
-                                        _fista_elementwise, mode='reduce-overhead',
-                                    )
-                                    coef, y_k = _fused_step(
-                                        y_k, xtx_y, step_over_n_Xty, step_over_n,
-                                        thresh, coef_old, beta,
-                                    )
-                                    continue
-                                except Exception:
-                                    _fused_step = None
                         w_tilde = (y_k - step_over_n * xtx_y
                                    + step_over_n_Xty)
                         coef = (torch.sign(w_tilde)
@@ -1850,7 +2672,10 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
                     break
         else:
             step = 1.0 / L
-            coef = torch.zeros(n_features, dtype=X.dtype, device=X.device)
+            if hasattr(self, '_init_coef') and self._init_coef is not None:
+                coef = torch.tensor(self._init_coef, dtype=X.dtype, device=X.device)
+            else:
+                coef = torch.zeros(n_features, dtype=X.dtype, device=X.device)
             y_k = coef.clone()
             t_k = torch.tensor(1.0, dtype=X.dtype, device=X.device)
 
@@ -1879,7 +2704,7 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
         # Transfer to CPU
         coef_np = coef.cpu().numpy()
 
-        if self.fit_intercept:
+        if self._effective_intercept:
             self.intercept_ = float(y_mean.cpu().numpy() - X_mean.cpu().numpy() @ coef_np)
             self.coef_ = coef_np
             self._params = np.concatenate([[self.intercept_], self.coef_])
@@ -1888,176 +2713,14 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
             self.coef_ = coef_np
             self._params = coef_np.copy()
 
-        self._df_resid = n_samples - (n_features + (1 if self.fit_intercept else 0))
+        self._df_resid = n_samples - (n_features + (1 if self._effective_intercept else 0))
 
-        self._cleanup_torch_memory()
+        # Debiased inference on Torch GPU (before cleanup)
+        if self.compute_inference and "debiased" in str(getattr(self, "inference_method", "")).lower():
+            penalty_name = str(getattr(self._penalty, "name", self.penalty)).lower()
+            if penalty_name in ("l1", "elasticnet", "en"):
+                self._compute_inference_debiased_torch(X, y, coef)
 
-    def _fit_gpu_loss(self, X, y, sample_weight=None):
-        """CuPy FISTA for non-squared-error losses (logistic, poisson).
-
-        Mirrors _fit_cpu_loss but keeps arrays on GPU during computation.
-        """
-        import cupy as cp
-        from statgpu.glm_core._solver import fista_solver, fista_bb_solver
-
-        solver_name = self._selected_solver or self._select_solver(
-            self._loss, backend_name="cupy"
-        )
-        # For smooth penalties (l2), fista_bb converges more reliably.
-        _pen_name = getattr(self._penalty, 'name', '')
-        _is_smooth = (_pen_name == "l2") or (
-            _pen_name == "elasticnet" and
-            float(getattr(self._penalty, 'l1_ratio', 1.0)) < 0.5
-        )
-        if solver_name == "fista_bb" or (solver_name in ("fista", "auto") and _is_smooth):
-            _solver = fista_bb_solver
-        else:
-            _solver = fista_solver
-
-        X_arr = cp.asarray(X)
-        y_arr = cp.asarray(y)
-
-        if self.loss in ("logistic", "poisson") and self.fit_intercept:
-            X_aug = cp.column_stack([X_arr, cp.ones(X_arr.shape[0])])
-            p = X_arr.shape[1]
-            pen = self._penalty
-
-            class SelectivePenalty:
-                """Penalty wrapper: apply to first p entries, skip last (intercept)."""
-                def proximal(self, w, step, backend="cupy"):
-                    import cupy as cp
-                    w_feat = w[:-1]
-                    result_feat = pen.proximal(w_feat, step, backend=backend)
-                    result = cp.empty(w.shape[0], dtype=w.dtype)
-                    result[:-1] = result_feat
-                    result[-1] = cp.clip(w[-1], -15.0, 15.0)
-                    return result
-                def value(self, coef):
-                    return pen.value(coef[:-1])
-                name = pen.name
-
-            full_coef, n_iter = _solver(
-                self._loss, SelectivePenalty(), X_aug, y_arr,
-                max_iter=self.max_iter, tol=self.tol,
-                init_coef=None, sample_weight=sample_weight,
-            )
-
-            self.coef_ = full_coef.get()[:p]
-            self.intercept_ = float(full_coef.get()[p])
-            self.n_iter_ = n_iter
-        elif self.fit_intercept:
-            X_arr = X_arr - cp.mean(X_arr, axis=0)
-            y_arr = y_arr - cp.mean(y_arr)
-
-            coef, n_iter = _solver(
-                self._loss, self._penalty, X_arr, y_arr,
-                max_iter=self.max_iter, tol=self.tol,
-                init_coef=None, sample_weight=sample_weight,
-            )
-
-            self.coef_ = coef.get()
-            self.n_iter_ = n_iter
-            self.intercept_ = float(cp.mean(y_arr) - cp.mean(X_arr, axis=0) @ self.coef_)
-        else:
-            coef, n_iter = _solver(
-                self._loss, self._penalty, X_arr, y_arr,
-                max_iter=self.max_iter, tol=self.tol,
-                init_coef=None, sample_weight=sample_weight,
-            )
-
-            self.coef_ = coef.get()
-            self.n_iter_ = n_iter
-            self.intercept_ = 0.0
-
-        self._df_resid = self._nobs - (X.shape[1] + (1 if self.fit_intercept else 0))
-        self._cleanup_cuda_memory()
-
-    def _fit_torch_loss(self, X, y, sample_weight=None):
-        """Torch FISTA for non-squared-error losses (logistic, poisson).
-
-        Mirrors _fit_cpu_loss but keeps arrays on GPU during computation.
-        """
-        import torch
-        from statgpu.glm_core._solver import fista_solver, fista_bb_solver
-
-        solver_name = self._selected_solver or self._select_solver(
-            self._loss, backend_name="torch"
-        )
-        # For smooth penalties (l2), fista_bb converges more reliably.
-        _pen_name = getattr(self._penalty, 'name', '')
-        _is_smooth = (_pen_name == "l2") or (
-            _pen_name == "elasticnet" and
-            float(getattr(self._penalty, 'l1_ratio', 1.0)) < 0.5
-        )
-        if solver_name == "fista_bb" or (solver_name in ("fista", "auto") and _is_smooth):
-            _solver = fista_bb_solver
-        else:
-            _solver = fista_solver
-
-        torch_device = _get_torch_device_str()
-
-        if not isinstance(X, torch.Tensor):
-            X = torch.from_numpy(X).to(torch_device).to(torch.float64)
-        if not isinstance(y, torch.Tensor):
-            y = torch.from_numpy(y).to(torch_device).to(torch.float64)
-
-        X_arr = X
-        y_arr = y
-
-        if self.loss in ("logistic", "poisson") and self.fit_intercept:
-            ones_col = torch.ones(X_arr.shape[0], dtype=torch.float64, device=torch_device)
-            X_aug = torch.column_stack([X_arr, ones_col])
-            p = X_arr.shape[1]
-            pen = self._penalty
-
-            class SelectivePenalty:
-                """Penalty wrapper: apply to first p entries, skip last (intercept)."""
-                def proximal(self, w, step, backend="torch"):
-                    w_feat = w[:-1]
-                    result_feat = pen.proximal(w_feat, step, backend=backend)
-                    result = torch.empty(w.shape[0], dtype=w.dtype, device=w.device)
-                    result[:-1] = result_feat
-                    result[-1] = torch.clamp(w[-1], -15.0, 15.0)
-                    return result
-                def value(self, coef):
-                    return pen.value(coef[:-1])
-                name = pen.name
-
-            full_coef, n_iter = _solver(
-                self._loss, SelectivePenalty(), X_aug, y_arr,
-                max_iter=self.max_iter, tol=self.tol,
-                init_coef=None, sample_weight=sample_weight,
-            )
-
-            full_np = full_coef.cpu().numpy()
-            self.coef_ = full_np[:p]
-            self.intercept_ = float(full_np[p])
-            self.n_iter_ = n_iter
-        elif self.fit_intercept:
-            X_arr = X_arr - torch.mean(X_arr, dim=0)
-            y_arr = y_arr - torch.mean(y_arr)
-
-            coef, n_iter = _solver(
-                self._loss, self._penalty, X_arr, y_arr,
-                max_iter=self.max_iter, tol=self.tol,
-                init_coef=None, sample_weight=sample_weight,
-            )
-
-            self.coef_ = coef.cpu().numpy()
-            self.n_iter_ = n_iter
-            self.intercept_ = float(torch.mean(y_arr) - torch.mean(X_arr, dim=0) @ self.coef_)
-        else:
-            coef, n_iter = _solver(
-                self._loss, self._penalty, X_arr, y_arr,
-                max_iter=self.max_iter, tol=self.tol,
-                init_coef=None, sample_weight=sample_weight,
-            )
-
-            self.coef_ = coef.cpu().numpy()
-            self.n_iter_ = n_iter
-            self.intercept_ = 0.0
-
-        self._df_resid = self._nobs - (X.shape[1] + (1 if self.fit_intercept else 0))
         self._cleanup_torch_memory()
 
     def _ridge_alpha_for_exact(self) -> float:
@@ -2067,6 +2730,8 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
     def _solve_exact_numpy(self, XtX, Xty, n_samples):
         alpha = self._ridge_alpha_for_exact()
         p = XtX.shape[0]
+        # Per-sample convention: XtX is unnormalized (X'X), so we need
+        # n*alpha to match loss/n + alpha*||w||^2 used by all other paths.
         A = XtX + (float(n_samples) * alpha) * np.eye(p, dtype=XtX.dtype)
         try:
             return np.linalg.solve(A, Xty)
@@ -2075,14 +2740,22 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
 
     def _solve_exact_cupy(self, XtX, Xty, n_samples):
         import cupy as cp
+        from cupyx.scipy.linalg import solve_triangular as cp_solve_triangular
 
         alpha = self._ridge_alpha_for_exact()
         p = XtX.shape[0]
         A = XtX + (float(n_samples) * alpha) * cp.eye(p, dtype=XtX.dtype)
         try:
-            return cp.linalg.solve(A, Xty)
-        except Exception:
-            return cp.linalg.pinv(A) @ Xty
+            # Cholesky + triangular solve is faster than general solve
+            # for positive-definite matrices (Ridge penalty guarantees PD)
+            L = cp.linalg.cholesky(A)
+            tmp = cp_solve_triangular(L, Xty, lower=True)
+            return cp_solve_triangular(L.T, tmp, lower=False)
+        except _LINALG_ERRORS:
+            try:
+                return cp.linalg.solve(A, Xty)
+            except _LINALG_ERRORS:
+                return cp.linalg.pinv(A) @ Xty
 
     def _solve_exact_torch(self, XtX, Xty, n_samples):
         import torch
@@ -2093,6 +2766,8 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
             p, dtype=XtX.dtype, device=XtX.device
         )
         try:
+            # torch.linalg.solve is faster than Cholesky + solve_triangular
+            # on PyTorch due to kernel launch overhead for small matrices
             return torch.linalg.solve(A, Xty)
         except RuntimeError:
             return torch.linalg.pinv(A) @ Xty
@@ -2147,11 +2822,36 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
             }
             return
         scale = cp.sum(resid ** 2) / df_resid if df_resid > 0 else cp.asarray(cp.nan, dtype=X.dtype)
-        cov_params = scale * (bread_inv @ xtx_full @ bread_inv)
+
+        # Compute covariance matrix
+        if self.cov_type == "nonrobust":
+            cov_params = scale * (bread_inv @ xtx_full @ bread_inv)
+            distribution = "t"
+            method = "classical"
+        else:
+            # GPU-native robust/HAC covariance
+            from statgpu.linear_model._gaussian_inference import robust_covariance_gpu
+            if X_mean is None:
+                X_design_gpu = X
+            else:
+                X_design_gpu = cp.column_stack([cp.ones(int(n_samples), dtype=X.dtype), X])
+            cov_params = robust_covariance_gpu(
+                X_design_gpu, resid, bread_inv, self.cov_type, cp,
+                hac_maxlags=self.hac_maxlags,
+            )
+            distribution = "normal"
+            method = "sandwich"
+
         bse = cp.sqrt(cp.maximum(cp.diag(cov_params), 0.0))
         tvalues = coef_full / (bse + 1e-30)
-        pvalues = t.two_sided_pvalue(tvalues, df=df_resid)
-        t_crit = cp.asarray(t.two_sided_critical_value(0.05, df=df_resid), dtype=bse.dtype)
+        if distribution == "t":
+            pvalues = t.two_sided_pvalue(tvalues, df=df_resid)
+            t_crit = cp.asarray(t.two_sided_critical_value(0.05, df=df_resid), dtype=bse.dtype)
+        else:
+            from statgpu.inference._distributions_backend import norm
+            pvalues = 2.0 * norm.sf(cp.abs(tvalues))
+            z_crit = cp.asarray(norm.ppf(0.975), dtype=bse.dtype)
+            t_crit = z_crit
         conf_int = cp.stack([coef_full - t_crit * bse, coef_full + t_crit * bse], axis=1)
         result = GaussianInferenceResult(
             params=coef_full.get(),
@@ -2159,10 +2859,10 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
             statistic=tvalues.get(),
             pvalues=pvalues.get(),
             conf_int=conf_int.get(),
-            cov_type="nonrobust",
-            distribution="t",
+            cov_type=self.cov_type,
+            distribution=distribution,
             df=df_resid,
-            method="classical",
+            method=method,
             metadata={"ridge_alpha": ridge_alpha, "alpha": 0.05},
         )
         result.apply_to(self)
@@ -2233,12 +2933,37 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
             }
             return
         scale = torch.sum(resid ** 2) / df_resid if df_resid > 0 else torch.tensor(float("nan"), dtype=X.dtype, device=X.device)
-        cov_params = scale * (bread_inv @ xtx_full @ bread_inv)
+
+        # Compute covariance matrix
+        if self.cov_type == "nonrobust":
+            cov_params = scale * (bread_inv @ xtx_full @ bread_inv)
+            distribution = "t"
+            method = "classical"
+        else:
+            # GPU-native robust/HAC covariance
+            from statgpu.linear_model._gaussian_inference import robust_covariance_gpu
+            if X_mean is None:
+                X_design_gpu = X
+            else:
+                X_design_gpu = torch.cat([torch.ones(int(n_samples), 1, dtype=X.dtype, device=X.device), X], dim=1)
+            cov_params = robust_covariance_gpu(
+                X_design_gpu, resid, bread_inv, self.cov_type, torch,
+                hac_maxlags=self.hac_maxlags,
+            )
+            distribution = "normal"
+            method = "sandwich"
+
         bse = torch.sqrt(torch.clamp(torch.diag(cov_params), min=0.0))
         tvalues = coef_full / (bse + 1e-30)
-        t_dist = get_distribution("t", backend="torch", device=X.device)
-        pvalues = t_dist.two_sided_pvalue(tvalues, df=df_resid)
-        t_crit = t_dist.two_sided_critical_value(0.05, df=df_resid)
+        if distribution == "t":
+            t_dist = get_distribution("t", backend="torch", device=X.device)
+            pvalues = t_dist.two_sided_pvalue(tvalues, df=df_resid)
+            t_crit = t_dist.two_sided_critical_value(0.05, df=df_resid)
+        else:
+            norm_dist = get_distribution("norm", backend="torch", device=X.device)
+            pvalues = 2.0 * norm_dist.sf(torch.abs(tvalues))
+            z_crit = norm_dist.ppf(0.975)
+            t_crit = z_crit
         conf_int = torch.stack([coef_full - t_crit * bse, coef_full + t_crit * bse], dim=1)
         result = GaussianInferenceResult(
             params=coef_full.detach().cpu().numpy(),
@@ -2246,10 +2971,10 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
             statistic=tvalues.detach().cpu().numpy(),
             pvalues=pvalues.detach().cpu().numpy(),
             conf_int=conf_int.detach().cpu().numpy(),
-            cov_type="nonrobust",
-            distribution="t",
+            cov_type=self.cov_type,
+            distribution=distribution,
             df=df_resid,
-            method="classical",
+            method=method,
             metadata={"ridge_alpha": ridge_alpha, "alpha": 0.05},
         )
         result.apply_to(self)
@@ -2313,7 +3038,7 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
             )
         return "numpy"
 
-    def predict(self, X):
+    def predict(self, X, return_cpu=True):
         """
         Predict using fitted model.
 
@@ -2325,6 +3050,13 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
         ----------
         X : array-like of shape (n_samples, n_features)
             Test data.
+        return_cpu : bool, default=True
+            If True, always return a numpy ndarray (GPU→CPU transfer happens
+            automatically when the model was fitted on GPU).  If False, return
+            the result in the same backend as the fitted coefficients (cupy/
+            torch when fitted on GPU, numpy when fitted on CPU).  Setting to
+            False avoids an unnecessary D→H transfer when chaining GPU
+            operations (e.g., ``model.predict(X_gpu) - y_gpu``).
 
         Returns
         -------
@@ -2341,32 +3073,36 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
             Xb = cp.asarray(self._to_array(X, Device.CUDA))
             coef = cp.asarray(self.coef_)
             raw = Xb @ coef
-            if self.fit_intercept:
+            if self._effective_intercept:
                 raw += cp.asarray(self.intercept_, dtype=raw.dtype)
             if self.loss == "logistic":
                 p = 1.0 / (1.0 + cp.exp(-cp.clip(raw, -500, 500)))
-                return (p > 0.5).astype(float)
-            if self.loss != "squared_error":
-                return self._family_for_loss().link.inverse(raw)
-            return raw
+                result = (p > 0.5).astype(float)
+            elif self.loss != "squared_error":
+                result = self._family_for_loss().link.inverse(raw)
+            else:
+                result = raw
+            return _to_numpy(result) if return_cpu else result
         if backend_name == "torch":
             import torch
             Xb = self._to_array(X, Device.TORCH, backend="torch").to(torch.float64)
             coef = torch.as_tensor(self.coef_, dtype=Xb.dtype, device=Xb.device)
             raw = Xb @ coef
-            if self.fit_intercept:
+            if self._effective_intercept:
                 raw = raw + torch.as_tensor(
                     self.intercept_, dtype=raw.dtype, device=raw.device
                 )
             if self.loss == "logistic":
                 p = 1.0 / (1.0 + torch.exp(-torch.clamp(raw, -500, 500)))
-                return (p > 0.5).to(raw.dtype)
-            if self.loss != "squared_error":
-                return self._family_for_loss().link.inverse(raw)
-            return raw
+                result = (p > 0.5).to(raw.dtype)
+            elif self.loss != "squared_error":
+                result = self._family_for_loss().link.inverse(raw)
+            else:
+                result = raw
+            return _to_numpy(result) if return_cpu else result
 
         raw = X @ self.coef_
-        if self.fit_intercept:
+        if self._effective_intercept:
             raw += self.intercept_
 
         # Apply link inverse for GLM losses
@@ -2377,7 +3113,7 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
             return self._family_for_loss().link.inverse(raw)
         return raw
 
-    def score(self, X, y):
+    def score(self, X, y, sample_weight=None):
         """
         Return R² score.
 
@@ -2387,29 +3123,66 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
             Test data.
         y : array-like of shape (n_samples,)
             True values.
+        sample_weight : array-like of shape (n_samples,), optional
+            Sample weights. When provided, returns weighted R².
 
         Returns
         -------
         r2 : float
             R² score.
         """
-        y_pred = self.predict(X)
+        y_pred = self.predict(X, return_cpu=False)
         device = self._get_compute_device()
+        sw = np.asarray(sample_weight, dtype=np.float64).ravel() if sample_weight is not None else None
+
         if device == Device.CUDA:
             import cupy as cp
             yb = cp.asarray(self._to_array(y, Device.CUDA))
-            ss_res = cp.sum((yb - y_pred) ** 2)
-            ss_tot = cp.sum((yb - cp.mean(yb)) ** 2)
-            return float((1 - ss_res / ss_tot).get()) if float(ss_tot.get()) > 0 else 0.0
+            y_pred_dev = cp.asarray(y_pred) if isinstance(y_pred, cp.ndarray) else cp.asarray(_to_numpy(y_pred))
+            resid_sq = (yb - y_pred_dev) ** 2
+            if sw is not None:
+                sw_dev = cp.asarray(sw, dtype=cp.float64)
+                w_sum = float(cp.sum(sw_dev).get())
+                if w_sum <= 0:
+                    return 0.0
+                ss_res = float(cp.sum(sw_dev * resid_sq).get())
+                ss_tot = float(cp.sum(sw_dev * (yb - cp.average(yb, weights=sw_dev)) ** 2).get())
+            else:
+                ss_res = float(cp.sum(resid_sq).get())
+                ss_tot = float(cp.sum((yb - cp.mean(yb)) ** 2).get())
+            return 1 - ss_res / ss_tot if ss_tot > 0 else 0.0
         if device == Device.TORCH:
             import torch
             yb = self._to_array(y, Device.TORCH, backend="torch").to(y_pred.dtype)
-            ss_res = torch.sum((yb - y_pred) ** 2)
-            ss_tot = torch.sum((yb - torch.mean(yb)) ** 2)
-            return float((1 - ss_res / ss_tot).item()) if float(ss_tot.item()) > 0 else 0.0
+            if isinstance(y_pred, torch.Tensor):
+                y_pred_dev = y_pred.to(dtype=yb.dtype, device=yb.device)
+            else:
+                y_pred_dev = torch.as_tensor(_to_numpy(y_pred), dtype=yb.dtype, device=yb.device)
+            resid_sq = (yb - y_pred_dev) ** 2
+            if sw is not None:
+                sw_dev = torch.as_tensor(sw, dtype=yb.dtype, device=yb.device)
+                w_sum = float(sw_dev.sum().item())
+                if w_sum <= 0:
+                    return 0.0
+                ss_res = float((sw_dev * resid_sq).sum().item())
+                y_wmean = float((sw_dev * yb).sum().item()) / w_sum
+                ss_tot = float((sw_dev * (yb - y_wmean) ** 2).sum().item())
+            else:
+                ss_res = float(resid_sq.sum().item())
+                ss_tot = float(((yb - yb.mean()) ** 2).sum().item())
+            return 1 - ss_res / ss_tot if ss_tot > 0 else 0.0
         y = np.asarray(y)
-        ss_res = np.sum((y - y_pred) ** 2)
-        ss_tot = np.sum((y - np.mean(y)) ** 2)
+        y_pred_np = np.asarray(_to_numpy(y_pred))
+        resid_sq = (y - y_pred_np) ** 2
+        if sw is not None:
+            w_sum = float(np.sum(sw))
+            if w_sum <= 0:
+                return 0.0
+            ss_res = float(np.sum(sw * resid_sq))
+            ss_tot = float(np.sum(sw * (y - np.average(y, weights=sw)) ** 2))
+        else:
+            ss_res = float(np.sum(resid_sq))
+            ss_tot = float(np.sum((y - np.mean(y)) ** 2))
         return 1 - ss_res / ss_tot if ss_tot > 0 else 0.0
 
     def _family_for_loss(self):
@@ -2466,100 +3239,14 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
         return np.ones(n, dtype=getattr(ref, "dtype", np.float64))
 
     def _selective_penalty(self, p, backend_name):
-        """Penalty wrapper that leaves the last intercept coefficient free."""
-        pen = self._penalty
-        alpha = float(getattr(pen, "alpha", self.alpha))
-        l1_ratio = float(getattr(pen, "l1_ratio", 0.0))
+        """Penalty wrapper that leaves the last intercept coefficient free.
 
-        class SelectivePenalty:
-            name = pen.name
-            alpha = getattr(pen, 'alpha', 0.0)
-            l1_ratio = getattr(pen, 'l1_ratio', 0.0)
-
-            def value(self, coef):
-                return pen.value(coef[:-1])
-
-            def proximal(self, w, step, backend=backend_name):
-                # Always apply penalty only to features (skip intercept at position -1)
-                w_feat = w[:-1]
-                result_feat = pen.proximal(w_feat, step, backend=backend)
-                if backend_name == "cupy":
-                    import cupy as cp
-                    result = cp.empty(w.shape[0], dtype=w.dtype)
-                    result[:-1] = result_feat
-                    result[-1] = cp.clip(w[-1], -15.0, 15.0)
-                elif backend_name == "torch":
-                    import torch
-                    result = torch.empty(w.shape[0], dtype=w.dtype, device=w.device)
-                    result[:-1] = result_feat
-                    result[-1] = torch.clamp(w[-1], -15.0, 15.0)
-                else:
-                    result = np.empty(w.shape[0], dtype=w.dtype)
-                    result[:-1] = result_feat
-                    result[-1] = np.clip(w[-1], -15.0, 15.0)
-                return result
-
-            def smooth_value(self, coef):
-                pname = str(pen.name).lower()
-                if pname == "l2":
-                    smooth_alpha = alpha
-                elif pname == "elasticnet":
-                    smooth_alpha = alpha * (1.0 - l1_ratio)
-                else:
-                    raise ValueError("smooth solvers only support L2/ElasticNet penalties.")
-                active = coef[:p]
-                if backend_name == "cupy":
-                    import cupy as cp
-                    return 0.5 * smooth_alpha * cp.sum(active * active)
-                if backend_name == "torch":
-                    import torch
-                    return 0.5 * smooth_alpha * torch.sum(active * active)
-                return 0.5 * smooth_alpha * np.sum(active * active)
-
-            def smooth_gradient(self, coef):
-                pname = str(pen.name).lower()
-                if pname == "l2":
-                    smooth_alpha = alpha
-                elif pname == "elasticnet":
-                    smooth_alpha = alpha * (1.0 - l1_ratio)
-                else:
-                    raise ValueError("smooth solvers only support L2/ElasticNet penalties.")
-                if backend_name == "cupy":
-                    import cupy as cp
-                    grad = cp.zeros_like(coef)
-                elif backend_name == "torch":
-                    import torch
-                    grad = torch.zeros_like(coef)
-                else:
-                    grad = np.zeros_like(coef)
-                grad[:p] = smooth_alpha * coef[:p]
-                return grad
-
-            def smooth_hessian(self, coef):
-                pname = str(pen.name).lower()
-                if pname == "l2":
-                    smooth_alpha = alpha
-                elif pname == "elasticnet":
-                    smooth_alpha = alpha * (1.0 - l1_ratio)
-                else:
-                    raise ValueError("smooth solvers only support L2/ElasticNet penalties.")
-                if backend_name == "cupy":
-                    import cupy as cp
-                    diag = cp.zeros(coef.shape[0], dtype=coef.dtype)
-                    diag[:p] = smooth_alpha
-                    return cp.diag(diag)
-                if backend_name == "torch":
-                    import torch
-                    diag = torch.zeros(
-                        coef.shape[0], dtype=coef.dtype, device=coef.device
-                    )
-                    diag[:p] = smooth_alpha
-                    return torch.diag(diag)
-                diag = np.zeros(coef.shape[0], dtype=coef.dtype)
-                diag[:p] = smooth_alpha
-                return np.diag(diag)
-
-        return SelectivePenalty()
+        Uses a thread-local singleton to avoid per-call class creation
+        while remaining safe for concurrent CV folds.
+        """
+        singleton = _get_selective_penalty_singleton()
+        singleton.configure(self._penalty, p, backend_name)
+        return singleton
 
     def _irls_cd(self, pen, X_work, y_arr, init, _lla_continuation=False):
         """IRLS with coordinate descent for GLM + non-smooth penalties.
@@ -2572,7 +3259,7 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
         import numpy as np
 
         n, pp = X_work.shape
-        p = pp - 1 if self.fit_intercept else pp
+        p = pp - 1 if self._effective_intercept else pp
 
         # Access weights from the original penalty (not the SelectivePenalty wrapper)
         _inner = getattr(self, '_penalty', pen)
@@ -2583,9 +3270,15 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
         _nf = float(getattr(_inner, '_norm_factor', 1.0))
         pen_name = getattr(pen, 'name', '') or getattr(_inner, 'name', '')
 
-        # SCAD/MCP parameters
+        # SCAD/MCP parameters (guard against division-by-zero)
         a_scad = float(getattr(_inner, 'a', 3.7)) if pen_name == "scad" else 0.0
+        if pen_name == "scad":
+            a_scad = max(a_scad, 1.0 + 1e-6)
+            if abs(a_scad - 2.0) < 1e-6:
+                a_scad = 2.0 + 1e-6
         gamma_mcp = float(getattr(_inner, 'gamma', 3.0)) if pen_name == "mcp" else 0.0
+        if pen_name == "mcp":
+            gamma_mcp = max(gamma_mcp, 1.0 + 1e-6)
 
         if init is not None:
             beta = np.asarray(init, dtype=float).copy()
@@ -2594,6 +3287,22 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
 
         loss_name = self._loss.name
         _is_glm = (loss_name != "squared_error")
+
+        def _nonconvex_penalty_value(coef_slice, _pen_name, _alpha, _a_scad, _gamma_mcp):
+            """Compute SCAD/MCP penalty value for a coefficient vector."""
+            _abs_b = np.abs(coef_slice)
+            if _pen_name == "scad":
+                return float(np.sum(np.where(
+                    _abs_b <= _alpha, _alpha * _abs_b,
+                    np.where(_abs_b <= _a_scad * _alpha,
+                        (_a_scad * _alpha * _abs_b - 0.5 * (coef_slice**2 + _alpha**2)) / (_a_scad - 1.0),
+                        0.5 * (_a_scad + 1.0) * _alpha**2))))
+            if _pen_name == "mcp":
+                return float(np.sum(np.where(
+                    _abs_b <= _gamma_mcp * _alpha,
+                    _alpha * _abs_b - 0.5 * coef_slice**2 / _gamma_mcp,
+                    0.5 * _gamma_mcp * _alpha**2)))
+            return 0.0
 
         # Continuation path for SCAD/MCP: trace the solution from lambda_max
         # down to the target alpha, matching R ncvreg's pathwise approach.
@@ -2657,6 +3366,7 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
                 _n_cd_sweeps = _n_cd_sweeps_base
                 _n_outer = _n_outer_base
 
+            it = -1
             for it in range(_n_outer):
                 beta_old = beta.copy()
 
@@ -2678,10 +3388,13 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
                         d = np.ones(n)
                         z = eta + (y_arr - mu) / mu
                     elif loss_name == "inverse_gaussian":
+                        # V(mu) = mu^3, log link g'(mu) = 1/mu
+                        # IRLS weight: w = 1/(V(mu) * [g'(mu)]^2) = 1/(mu^3 * 1/mu^2) = 1/mu
+                        # Working response: z = eta + (y - mu) * g'(mu) = eta + (y - mu)/mu
                         mu = np.exp(np.clip(eta, -500, 500))
                         mu = np.maximum(mu, 1e-15)
-                        d = 1.0 / (mu ** 3)
-                        z = eta + (y_arr - mu) / (d * mu ** 2)
+                        d = 1.0 / mu
+                        z = eta + (y_arr - mu) / mu
                     elif loss_name == "negative_binomial":
                         mu = np.exp(np.clip(eta, -500, 500))
                         mu = np.maximum(mu, 1e-15)
@@ -2705,19 +3418,9 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
 
                 # Compute penalized objective before CD (for step-halving)
                 if _is_glm:
-                    _obj_before = float(self._loss.value(X_work[:, :p], y_arr, beta[:p]))
-                    _abs_b = np.abs(beta[:p])
-                    if pen_name == "scad":
-                        _pen_val = np.where(_abs_b <= alpha, alpha * _abs_b,
-                                   np.where(_abs_b <= a_scad * alpha,
-                                       (a_scad * alpha * _abs_b - 0.5 * (beta[:p]**2 + alpha**2)) / (a_scad - 1.0),
-                                       0.5 * (a_scad + 1.0) * alpha**2))
-                        _obj_before += float(np.sum(_pen_val))
-                    elif pen_name == "mcp":
-                        _pen_val = np.where(_abs_b <= gamma_mcp * alpha,
-                                    alpha * _abs_b - 0.5 * beta[:p]**2 / gamma_mcp,
-                                    0.5 * gamma_mcp * alpha**2)
-                        _obj_before += float(np.sum(_pen_val))
+                    # Use full design matrix (including intercept) for correct objective
+                    _obj_before = float(self._loss.value(X_work, y_arr, beta))
+                    _obj_before += _nonconvex_penalty_value(beta[:p], pen_name, alpha, a_scad, gamma_mcp)
 
                 for _cd in range(_n_cd_sweeps):
                     _max_cd_change = 0.0
@@ -2786,22 +3489,19 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
                 # Step-halving for GLM: ensure penalized objective decreases.
                 # ncvreg uses step-halving to prevent IRLS overshooting.
                 if _is_glm:
-                    _obj_after = float(self._loss.value(X_work[:, :p], y_arr, beta[:p]))
-                    _abs_b2 = np.abs(beta[:p])
-                    if pen_name == "scad":
-                        _pen_val2 = np.where(_abs_b2 <= alpha, alpha * _abs_b2,
-                                    np.where(_abs_b2 <= a_scad * alpha,
-                                        (a_scad * alpha * _abs_b2 - 0.5 * (beta[:p]**2 + alpha**2)) / (a_scad - 1.0),
-                                        0.5 * (a_scad + 1.0) * alpha**2))
-                        _obj_after += float(np.sum(_pen_val2))
-                    elif pen_name == "mcp":
-                        _pen_val2 = np.where(_abs_b2 <= gamma_mcp * alpha,
-                                     alpha * _abs_b2 - 0.5 * beta[:p]**2 / gamma_mcp,
-                                     0.5 * gamma_mcp * alpha**2)
-                        _obj_after += float(np.sum(_pen_val2))
+                    _obj_after = float(self._loss.value(X_work, y_arr, beta))
+                    _obj_after += _nonconvex_penalty_value(beta[:p], pen_name, alpha, a_scad, gamma_mcp)
                     if _obj_after > _obj_before + 1e-10:
-                        # Step-halving: revert halfway toward beta_old
-                        beta[:] = 0.5 * (beta + beta_old)
+                        # Step-halving: interpolate between old and new beta
+                        # beta_sh = beta_old + 0.5^k * (beta_new - beta_old)
+                        beta_new = beta.copy()
+                        for _sh in range(1, 11):
+                            _frac = 0.5 ** _sh
+                            beta[:] = beta_old + _frac * (beta_new - beta_old)
+                            _obj_after = float(self._loss.value(X_work, y_arr, beta))
+                            _obj_after += _nonconvex_penalty_value(beta[:p], pen_name, alpha, a_scad, gamma_mcp)
+                            if _obj_after <= _obj_before + 1e-10:
+                                break
 
                 # IRLS-level convergence check.
                 _delta = np.max(np.abs(beta[:p] - beta_old[:p]))
@@ -2813,7 +3513,7 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
                     if _delta < self.tol * 10:
                         break
 
-        n_iter = it + 1
+        n_iter = (it + 1) if _n_outer > 0 else 0
         return beta, n_iter
 
     def _irls_cd_gpu(self, pen, X_work, y_arr, init, backend_name, _lla_continuation=False):
@@ -2822,35 +3522,53 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
         Same algorithm as _irls_cd but keeps all arrays on GPU to avoid
         CPU-GPU transfer overhead.  Supports cupy and torch backends.
         """
-        if backend_name == "cupy":
-            import cupy as xp
-        elif backend_name == "torch":
-            import torch
-            xp = torch
-        else:
-            raise ValueError(f"GPU backend required, got {backend_name}")
+        from statgpu.backends._array_ops import _xp_copy, _xp_zeros, _xp_asarray
+        from statgpu.backends._utils import _get_xp
+        xp = _get_xp(backend_name)
 
         n, pp = X_work.shape
-        p = pp - 1 if self.fit_intercept else pp
+        p = pp - 1 if self._effective_intercept else pp
 
         # Access weights from the original penalty
         _inner = getattr(self, '_penalty', pen)
         _w_np = np.asarray(getattr(_inner, '_weights', np.ones(p)), dtype=float)
-        _w = xp.asarray(_w_np) if backend_name == "cupy" else torch.from_numpy(_w_np).to(X_work.device)
+        _w = _xp_asarray(_w_np, X_work.dtype, X_work)
         alpha = float(getattr(_inner, 'alpha', self.alpha))
         pen_name = getattr(pen, 'name', '') or getattr(_inner, 'name', '')
 
-        # SCAD/MCP parameters
+        # SCAD/MCP parameters (guard against division-by-zero)
         a_scad = float(getattr(_inner, 'a', 3.7)) if pen_name == "scad" else 0.0
+        if pen_name == "scad":
+            a_scad = max(a_scad, 1.0 + 1e-6)
+            if abs(a_scad - 2.0) < 1e-6:
+                a_scad = 2.0 + 1e-6
         gamma_mcp = float(getattr(_inner, 'gamma', 3.0)) if pen_name == "mcp" else 0.0
+        if pen_name == "mcp":
+            gamma_mcp = max(gamma_mcp, 1.0 + 1e-6)
+
+        # Penalty value helper (uses numpy for portability; coef_slice is numpy)
+        def _nonconvex_penalty_value(coef_slice, _pen_name, _alpha, _a_scad, _gamma_mcp):
+            _abs_b = np.abs(coef_slice)
+            if _pen_name == "scad":
+                return float(np.sum(np.where(
+                    _abs_b <= _alpha, _alpha * _abs_b,
+                    np.where(_abs_b <= _a_scad * _alpha,
+                        (_a_scad * _alpha * _abs_b - 0.5 * (coef_slice**2 + _alpha**2)) / (_a_scad - 1.0),
+                        0.5 * (_a_scad + 1.0) * _alpha**2))))
+            if _pen_name == "mcp":
+                return float(np.sum(np.where(
+                    _abs_b <= _gamma_mcp * _alpha,
+                    _alpha * _abs_b - 0.5 * coef_slice**2 / _gamma_mcp,
+                    0.5 * _gamma_mcp * _alpha**2)))
+            return 0.0
 
         if init is not None:
             if isinstance(init, np.ndarray):
-                beta = xp.asarray(init) if backend_name == "cupy" else torch.from_numpy(init).to(X_work.device)
+                beta = _xp_asarray(init, X_work.dtype, X_work)
             else:
-                beta = init.clone() if backend_name == "torch" else init.copy()
+                beta = _xp_copy(init)
         else:
-            beta = xp.zeros(pp, dtype=X_work.dtype) if backend_name == "cupy" else torch.zeros(pp, dtype=X_work.dtype, device=X_work.device)
+            beta = _xp_zeros(pp, X_work.dtype, X_work)
 
         loss_name = self._loss.name
         _is_glm = (loss_name != "squared_error")
@@ -2884,9 +3602,9 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
 
         # Precompute X^T X diagonal for squared_error
         if not _is_glm:
-            d = xp.ones(n, dtype=X_work.dtype) if backend_name == "cupy" else torch.ones(n, dtype=X_work.dtype, device=X_work.device)
+            d = _xp_zeros((n,), X_work.dtype, X_work) + 1.0  # ones on correct device
             z = y_arr
-            XDX_diag = xp.sum(d[:, None] * X_work ** 2, axis=0) if backend_name == "cupy" else torch.sum(d[:, None] * X_work ** 2, dim=0)
+            XDX_diag = xp.sum(d[:, None] * X_work ** 2, axis=0)
 
         for _cont_idx, _cont_alpha in enumerate(_cont_path):
             if len(_cont_path) > 1:
@@ -2901,124 +3619,160 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
                 _n_cd_sweeps = _n_cd_sweeps_base
                 _n_outer = _n_outer_base
 
+            it = -1
             for it in range(_n_outer):
                 beta_old = beta.clone() if backend_name == "torch" else beta.copy()
+
+                # Compute objective before CD for step-halving (GLM only)
+                _obj_before = None
+                if _is_glm:
+                    try:
+                        _obj_before = float(xp.sum(self._loss.per_sample_value(X_work, y_arr, beta_old)))
+                        _obj_before += _nonconvex_penalty_value(
+                            _to_numpy(beta_old[:p]) if backend_name != "numpy" else beta_old[:p],
+                            pen_name, alpha, a_scad, gamma_mcp)
+                    except Exception:
+                        _obj_before = None
 
                 if _is_glm:
                     eta = X_work @ beta
                     if loss_name == "logistic":
-                        mu = 1.0 / (1.0 + xp.exp(-xp.clip(eta, -500, 500)))
-                        mu = xp.clip(mu, 1e-15, 1.0 - 1e-15) if backend_name == "cupy" else torch.clamp(mu, 1e-15, 1.0 - 1e-15)
+                        mu = 1.0 / (1.0 + _exp(-_clip(eta, -500, 500)))
+                        mu = _clip(mu, 1e-15, 1.0 - 1e-15)
                         d = mu * (1.0 - mu)
                         z = eta + (y_arr - mu) / d
                     elif loss_name == "poisson":
-                        mu = xp.exp(xp.clip(eta, -500, 500)) if backend_name == "cupy" else torch.exp(torch.clamp(eta, -500, 500))
-                        mu = xp.maximum(mu, 1e-15) if backend_name == "cupy" else torch.clamp(mu, min=1e-15)
+                        mu = _clip(_exp(_clip(eta, -500, 500)), 1e-15, None)
                         d = mu
                         z = eta + (y_arr - mu) / d
                     elif loss_name == "gamma":
-                        mu = xp.exp(xp.clip(eta, -500, 500)) if backend_name == "cupy" else torch.exp(torch.clamp(eta, -500, 500))
-                        mu = xp.maximum(mu, 1e-15) if backend_name == "cupy" else torch.clamp(mu, min=1e-15)
-                        d = xp.ones(n, dtype=X_work.dtype) if backend_name == "cupy" else torch.ones(n, dtype=X_work.dtype, device=X_work.device)
+                        mu = _clip(_exp(_clip(eta, -500, 500)), 1e-15, None)
+                        d = _xp_zeros((n,), X_work.dtype, X_work) + 1.0
                         z = eta + (y_arr - mu) / mu
                     elif loss_name == "inverse_gaussian":
-                        mu = xp.exp(xp.clip(eta, -500, 500)) if backend_name == "cupy" else torch.exp(torch.clamp(eta, -500, 500))
-                        mu = xp.maximum(mu, 1e-15) if backend_name == "cupy" else torch.clamp(mu, min=1e-15)
-                        d = 1.0 / (mu ** 3)
-                        z = eta + (y_arr - mu) / (d * mu ** 2)
+                        mu = _clip(_exp(_clip(eta, -500, 500)), 1e-15, None)
+                        d = 1.0 / mu
+                        z = eta + (y_arr - mu) / mu
                     elif loss_name == "negative_binomial":
-                        mu = xp.exp(xp.clip(eta, -500, 500)) if backend_name == "cupy" else torch.exp(torch.clamp(eta, -500, 500))
-                        mu = xp.maximum(mu, 1e-15) if backend_name == "cupy" else torch.clamp(mu, min=1e-15)
+                        mu = _clip(_exp(_clip(eta, -500, 500)), 1e-15, None)
                         theta_nb = float(getattr(self._loss, 'alpha', 1.0))
                         d = mu / (1.0 + mu / theta_nb)
                         z = eta + (y_arr - mu) / d
                     elif loss_name == "tweedie":
-                        mu = xp.exp(xp.clip(eta, -500, 500)) if backend_name == "cupy" else torch.exp(torch.clamp(eta, -500, 500))
-                        mu = xp.maximum(mu, 1e-15) if backend_name == "cupy" else torch.clamp(mu, min=1e-15)
+                        mu = _clip(_exp(_clip(eta, -500, 500)), 1e-15, None)
                         tweedie_p = float(getattr(self._loss, 'power', 1.5))
                         d = mu ** tweedie_p
-                        d = xp.maximum(d, 1e-15) if backend_name == "cupy" else torch.clamp(d, min=1e-15)
+                        d = _clip(d, 1e-15, None)
                         z = eta + (y_arr - mu) / (d * mu)
                     else:
                         grad = self._loss.gradient(X_work, y_arr, beta)
-                        d = xp.ones(n, dtype=X_work.dtype) if backend_name == "cupy" else torch.ones(n, dtype=X_work.dtype, device=X_work.device)
+                        d = _xp_zeros((n,), X_work.dtype, X_work) + 1.0
                         z = eta - grad * n
-                    XDX_diag = xp.sum(d[:, None] * X_work ** 2, axis=0) if backend_name == "cupy" else torch.sum(d[:, None] * X_work ** 2, dim=0)
+                    XDX_diag = xp.sum(d[:, None] * X_work ** 2, axis=0)
 
                 r = z - X_work @ beta
 
+                # Precompute active mask and vectorized penalty weights
+                _active = XDX_diag >= 1e-20
+                _v_all = XDX_diag / n
+                _v_safe = xp.where(_active, _v_all, 1.0)  # avoid division by zero
+                if pen_name in ("adaptive_l1", "adaptive_lasso"):
+                    _l1_all = alpha * _w  # shape (p,)
+
                 for _cd in range(_n_cd_sweeps):
-                    _max_cd_change = 0.0
-                    for j in range(pp):
-                        if float(XDX_diag[j]) < 1e-20:
-                            beta[j] = 0.0
-                            continue
+                    # --- Vectorized block coordinate descent ---
+                    # 1. Batch gradient: rho_all = X' (d * r) + XDX_diag * beta
+                    rho_all = X_work.T @ (d * r) + XDX_diag * beta
+                    w_all = rho_all / (n * _v_safe)  # un-penalized solution
 
-                        rho_j = float(xp.dot(d * X_work[:, j], r)) + float(XDX_diag[j]) * float(beta[j])
-                        old_bj = float(beta[j])
+                    # 2. Save old beta for residual update
+                    old_beta = beta
 
-                        u_j = rho_j / n
-                        v_j = float(XDX_diag[j]) / n
+                    # 3. Vectorized thresholding (penalty-specific)
+                    if self._effective_intercept:
+                        new_beta = xp.zeros_like(beta)
+                        w_feat = w_all[:p]
+                    else:
+                        w_feat = w_all
+                        new_beta = xp.zeros_like(beta)
 
-                        if j >= p:
-                            beta[j] = u_j / v_j
-                        elif pen_name in ("adaptive_l1", "adaptive_lasso"):
-                            l1 = alpha * float(_w[j])
-                            w_j = u_j / v_j
-                            if w_j > l1:
-                                beta[j] = (w_j - l1)
-                            elif w_j < -l1:
-                                beta[j] = (w_j + l1)
-                            else:
-                                beta[j] = 0.0
-                        elif pen_name == "scad":
-                            l1 = alpha
-                            w_j = u_j / v_j
-                            aw = abs(w_j)
-                            if aw > a_scad * l1:
-                                beta[j] = w_j
-                            elif aw > l1:
-                                beta[j] = np.sign(w_j) * ((a_scad - 1.0) * aw - a_scad * l1) / (a_scad - 2.0)
-                            else:
-                                beta[j] = 0.0
-                        elif pen_name == "mcp":
-                            l1 = alpha
-                            w_j = u_j / v_j
-                            aw = abs(w_j)
-                            if aw > gamma_mcp * l1:
-                                beta[j] = w_j
-                            elif aw > l1:
-                                beta[j] = np.sign(w_j) * (aw - l1) / (1.0 - 1.0 / gamma_mcp)
-                            else:
-                                beta[j] = 0.0
-                        else:
-                            l1 = alpha
-                            w_j = u_j / v_j
-                            if w_j > l1:
-                                beta[j] = (w_j - l1)
-                            elif w_j < -l1:
-                                beta[j] = (w_j + l1)
-                            else:
-                                beta[j] = 0.0
+                    if pen_name in ("adaptive_l1", "adaptive_lasso"):
+                        aw = xp.abs(w_feat)
+                        new_beta_feat = xp.sign(w_feat) * xp.maximum(aw - _l1_all, 0.0)
+                    elif pen_name == "scad":
+                        aw = xp.abs(w_feat)
+                        l1 = alpha
+                        new_beta_feat = xp.where(
+                            aw > a_scad * l1, w_feat,
+                            xp.where(
+                                aw > l1,
+                                xp.sign(w_feat) * ((a_scad - 1.0) * aw - a_scad * l1) / (a_scad - 2.0),
+                                0.0,
+                            ),
+                        )
+                    elif pen_name == "mcp":
+                        aw = xp.abs(w_feat)
+                        l1 = alpha
+                        new_beta_feat = xp.where(
+                            aw > gamma_mcp * l1, w_feat,
+                            xp.where(
+                                aw > l1,
+                                xp.sign(w_feat) * (aw - l1) / (1.0 - 1.0 / gamma_mcp),
+                                0.0,
+                            ),
+                        )
+                    else:
+                        # lasso / elasticnet (pure L1)
+                        aw = xp.abs(w_feat)
+                        new_beta_feat = xp.sign(w_feat) * xp.maximum(aw - alpha, 0.0)
 
-                        if float(beta[j]) != old_bj:
-                            r = r + X_work[:, j] * (old_bj - float(beta[j]))
-                            _cd_change = abs(float(beta[j]) - old_bj)
-                            if _cd_change > _max_cd_change:
-                                _max_cd_change = _cd_change
+                    # Zero out degenerate columns
+                    if self._effective_intercept:
+                        new_beta[:p] = new_beta_feat * _active[:p]
+                        new_beta[p:] = w_all[p:]  # intercept: no penalty
+                    else:
+                        new_beta = new_beta_feat * _active
+
+                    # 4. Residual update (single matvec instead of p dot products)
+                    delta = new_beta - old_beta
+                    r = r - X_work @ delta
+                    beta = new_beta
+
+                    # 5. Convergence check (single GPU reduction + one sync)
+                    _max_cd_change = float(xp.max(xp.abs(delta)))
 
                     if not _is_glm and _max_cd_change < self.tol:
                         break
 
+                # Step-halving for GLM: ensure penalized objective decreases.
+                # Mirrors the CPU path (_irls_cd) to prevent IRLS overshooting.
+                if _is_glm:
+                    _obj_after = float(xp.sum(self._loss.per_sample_value(X_work, y_arr, beta)))
+                    _obj_after += _nonconvex_penalty_value(
+                        _to_numpy(beta[:p]) if backend_name != "numpy" else beta[:p],
+                        pen_name, alpha, a_scad, gamma_mcp)
+                    if _obj_before is not None and _obj_after > _obj_before + 1e-10:
+                        beta_new_gpu = beta.clone() if backend_name == "torch" else beta.copy()
+                        for _sh in range(1, 11):
+                            _frac = 0.5 ** _sh
+                            beta_sh = beta_old + _frac * (beta_new_gpu - beta_old)
+                            _obj_sh = float(xp.sum(self._loss.per_sample_value(X_work, y_arr, beta_sh)))
+                            _obj_sh += _nonconvex_penalty_value(
+                                _to_numpy(beta_sh[:p]) if backend_name != "numpy" else beta_sh[:p],
+                                pen_name, alpha, a_scad, gamma_mcp)
+                            if _obj_sh <= _obj_before + 1e-10:
+                                beta = beta_sh
+                                break
+
                 # IRLS-level convergence check
-                _delta = float(xp.max(xp.abs(beta[:p] - beta_old[:p]))) if backend_name == "cupy" else float(torch.max(torch.abs(beta[:p] - beta_old[:p])))
+                _delta = float(xp.max(xp.abs(beta[:p] - beta_old[:p])))
                 if not _is_glm and _delta < self.tol:
                     break
                 if _is_glm and len(_cont_path) > 1 and not _is_last:
                     if _delta < self.tol * 10:
                         break
 
-        n_iter = it + 1
+        n_iter = it + 1 if _n_outer > 0 else 0
         return beta, n_iter
 
     def _block_cd_group_lasso(self, pen, X_work, y_arr, init):
@@ -3031,7 +3785,7 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
         import numpy as np
 
         n, pp = X_work.shape
-        p = pp - 1 if self.fit_intercept else pp
+        p = pp - 1 if self._effective_intercept else pp
         alpha = self.alpha
 
         _inner = getattr(self, '_penalty', pen)
@@ -3073,7 +3827,7 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
                 else:
                     coef[g_idx] = 0.0
 
-            if self.fit_intercept:
+            if self._effective_intercept:
                 coef[pp - 1] = np.mean(y_arr - X_work[:, :p] @ coef[:p])
 
             if np.max(np.abs(coef - coef_old)) < self.tol:
@@ -3081,7 +3835,7 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
 
         n_iter = iteration + 1
 
-        if self.fit_intercept:
+        if self._effective_intercept:
             beta = coef[:p]
             intercept = float(coef[p])
         else:
@@ -3096,24 +3850,16 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
         Same algorithm as _block_cd_group_lasso but keeps all arrays on GPU.
         Enforces float64 precision to avoid NaN from float32 conditioning issues.
         """
-        if backend_name == "cupy":
-            import cupy as xp
-        elif backend_name == "torch":
-            import torch
-            xp = torch
-        else:
-            raise ValueError(f"GPU backend required, got {backend_name}")
+        from statgpu.backends._array_ops import _xp_copy, _xp_zeros, _xp_asarray, _xp_eye
+        from statgpu.backends._utils import _get_xp, xp_astype
+        xp = _get_xp(backend_name)
 
         # Enforce float64 precision for numerical stability
-        if backend_name == "cupy":
-            X_work = xp.asarray(X_work, dtype=xp.float64)
-            y_arr = xp.asarray(y_arr, dtype=xp.float64)
-        else:
-            X_work = X_work.to(dtype=torch.float64)
-            y_arr = y_arr.to(dtype=torch.float64)
+        X_work = xp_astype(X_work, xp.float64, xp)
+        y_arr = xp_astype(y_arr, xp.float64, xp)
 
         n, pp = X_work.shape
-        p = pp - 1 if self.fit_intercept else pp
+        p = pp - 1 if self._effective_intercept else pp
         alpha = self.alpha
 
         _inner = getattr(self, '_penalty', pen)
@@ -3132,61 +3878,49 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
 
         # Pre-compute XtX blocks with diagonal ridge for conditioning
         _XtX_blocks = []
-        _ridge = 1e-10 if backend_name == "cupy" else torch.tensor(1e-10, dtype=torch.float64, device=X_work.device)
+        _ridge = _scalar_tensor(1e-10, X_work)
         for g_idx in _g_indices:
             block = XtX[g_idx][:, g_idx]
-            # Add diagonal ridge to ensure positive definiteness
-            if backend_name == "cupy":
-                block = block + _ridge * xp.eye(block.shape[0], dtype=block.dtype)
-            else:
-                block = block + _ridge * torch.eye(block.shape[0], dtype=block.dtype, device=block.device)
+            block = block + _ridge * _xp_eye(block.shape[0], block.dtype, block)
             _XtX_blocks.append(block)
 
         if init is not None:
             if isinstance(init, np.ndarray):
-                coef = xp.asarray(init, dtype=X_work.dtype) if backend_name == "cupy" else torch.from_numpy(init).to(dtype=torch.float64, device=X_work.device)
+                coef = _xp_asarray(init, X_work.dtype, X_work)
             else:
-                coef = init.clone() if backend_name == "torch" else init.copy()
+                coef = _xp_copy(init)
         else:
-            coef = xp.zeros(pp, dtype=X_work.dtype) if backend_name == "cupy" else torch.zeros(pp, dtype=torch.float64, device=X_work.device)
+            coef = _xp_zeros(pp, X_work.dtype, X_work)
 
         for iteration in range(self.max_iter):
-            coef_old = coef.clone() if backend_name == "torch" else coef.copy()
+            coef_old = _xp_copy(coef)
 
             for g in range(_n_groups):
                 g_idx = _g_indices[g]
                 rho_g = Xty[g_idx] - XtX[g_idx, :] @ coef + _XtX_blocks[g] @ coef[g_idx]
                 try:
-                    if backend_name == "cupy":
-                        w_g = xp.linalg.solve(_XtX_blocks[g], rho_g)
-                    else:
-                        w_g = torch.linalg.solve(_XtX_blocks[g], rho_g)
-                    # Check for NaN/Inf in solution
-                    if backend_name == "cupy":
-                        if xp.any(xp.isnan(w_g)) or xp.any(xp.isinf(w_g)):
-                            w_g = xp.zeros(len(g_idx), dtype=X_work.dtype)
-                    else:
-                        if torch.any(torch.isnan(w_g)) or torch.any(torch.isinf(w_g)):
-                            w_g = torch.zeros(len(g_idx), dtype=torch.float64, device=X_work.device)
+                    w_g = xp.linalg.solve(_XtX_blocks[g], rho_g)
+                    if xp.any(xp.isnan(w_g)) or xp.any(xp.isinf(w_g)):
+                        w_g = _xp_zeros(len(g_idx), X_work.dtype, X_work)
                 except Exception:
-                    w_g = xp.zeros(len(g_idx), dtype=X_work.dtype) if backend_name == "cupy" else torch.zeros(len(g_idx), dtype=torch.float64, device=X_work.device)
-                norm_w = float(xp.linalg.norm(w_g)) if backend_name == "cupy" else float(torch.linalg.norm(w_g))
+                    w_g = _xp_zeros(len(g_idx), X_work.dtype, X_work)
+                norm_w = float(xp.linalg.norm(w_g))
                 thresh_g = alpha * _sqrt_pg[g]
                 if norm_w > thresh_g:
                     coef[g_idx] = w_g * (1.0 - thresh_g / norm_w)
                 else:
                     coef[g_idx] = 0.0
 
-            if self.fit_intercept:
-                coef[pp - 1] = float(xp.mean(y_arr - X_work[:, :p] @ coef[:p])) if backend_name == "cupy" else float(torch.mean(y_arr - X_work[:, :p] @ coef[:p]))
+            if self._effective_intercept:
+                coef[pp - 1] = float(xp.mean(y_arr - X_work[:, :p] @ coef[:p]))
 
-            _max_change = float(xp.max(xp.abs(coef - coef_old))) if backend_name == "cupy" else float(torch.max(torch.abs(coef - coef_old)))
+            _max_change = float(xp.max(xp.abs(coef - coef_old)))
             if _max_change < self.tol:
                 break
 
         n_iter = iteration + 1
 
-        if self.fit_intercept:
+        if self._effective_intercept:
             beta = coef[:p]
             intercept = float(coef[p])
         else:
@@ -3202,16 +3936,12 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
         kernel launch overhead. Groups of the same size are batched together
         for efficient linear solves.
         """
-        if backend_name == "cupy":
-            import cupy as xp
-        elif backend_name == "torch":
-            import torch
-            xp = torch
-        else:
-            raise ValueError(f"GPU backend required, got {backend_name}")
+        from statgpu.backends._array_ops import _xp_copy, _xp_zeros, _xp_asarray, _scalar_tensor
+        from statgpu.backends._utils import _get_xp
+        xp = _get_xp(backend_name)
 
         n, pp = X_work.shape
-        p = pp - 1 if self.fit_intercept else pp
+        p = pp - 1 if self._effective_intercept else pp
         alpha = self.alpha
 
         _inner = getattr(self, '_penalty', pen)
@@ -3244,14 +3974,14 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
 
         if init is not None:
             if isinstance(init, np.ndarray):
-                coef = xp.asarray(init) if backend_name == "cupy" else torch.from_numpy(init).to(X_work.device)
+                coef = _xp_asarray(init, X_work.dtype, X_work)
             else:
-                coef = init.clone() if backend_name == "torch" else init.copy()
+                coef = _xp_copy(init)
         else:
-            coef = xp.zeros(pp, dtype=X_work.dtype) if backend_name == "cupy" else torch.zeros(pp, dtype=X_work.dtype, device=X_work.device)
+            coef = _xp_zeros(pp, X_work.dtype, X_work)
 
         for iteration in range(self.max_iter):
-            coef_old = coef.clone() if backend_name == "torch" else coef.copy()
+            coef_old = _xp_copy(coef)
 
             # Process groups by size for batched solving
             for sz, size_groups in _size_groups.items():
@@ -3268,85 +3998,51 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
 
                 # Compute rho_g for all groups of this size in one shot
                 # rho_g = Xty[g_idx] - XtX[g_idx, :] @ coef + XtX_block[g] @ coef[g_idx]
-                if backend_name == "cupy":
-                    import cupy as cp
-                    # Stack all indices for batched indexing
-                    idx_arr = cp.array(all_indices, dtype=cp.int32)
-                    # Compute XtX[g_idx, :] @ coef for all groups at once
-                    XtX_coef = XtX[idx_arr, :] @ coef  # shape: (n_batch * sz,)
-                    # Compute Xty for all groups
-                    Xty_all = Xty[idx_arr]
-                    # Compute block diagonal contributions
-                    block_contrib = xp.zeros_like(Xty_all)
-                    for i, (g, g_idx) in enumerate(size_groups):
-                        block_contrib[i*sz:(i+1)*sz] = _XtX_blocks[g] @ coef[g_idx]
-                    # rho_g = Xty - XtX_coef + block_contrib
-                    rho_all = Xty_all - XtX_coef + block_contrib
+                # Stack all indices for batched indexing
+                idx_arr = _xp_asarray(all_indices, xp.int32 if backend_name == "cupy" else None, X_work)
+                # Compute XtX[g_idx, :] @ coef for all groups at once
+                XtX_coef = XtX[idx_arr, :] @ coef  # shape: (n_batch * sz,)
+                # Compute Xty for all groups
+                Xty_all = Xty[idx_arr]
+                # Compute block diagonal contributions
+                block_contrib = _xp_zeros(Xty_all.shape, Xty_all.dtype, Xty_all)
+                for i, (g, g_idx) in enumerate(size_groups):
+                    block_contrib[i*sz:(i+1)*sz] = _XtX_blocks[g] @ coef[g_idx]
+                # rho_g = Xty - XtX_coef + block_contrib
+                rho_all = Xty_all - XtX_coef + block_contrib
 
-                    # Solve all group systems in one batched call
-                    # Reshape to (n_batch, sz, 1) for batched solve
-                    rho_mat = rho_all.reshape(n_batch, sz, 1)
-                    # Stack all XtX blocks into a single (n_batch, sz, sz) tensor
-                    XtX_batch = xp.stack([_XtX_blocks[g] for g in batch_g_indices])
-                    try:
-                        w_all = xp.linalg.solve(XtX_batch, rho_mat)  # (n_batch, sz, 1)
-                        w_all = w_all.reshape(n_batch, sz)
-                    except Exception:
-                        w_all = xp.zeros((n_batch, sz), dtype=X_work.dtype)
+                # Solve all group systems in one batched call
+                rho_mat = rho_all.reshape(n_batch, sz, 1)
+                XtX_batch = xp.stack([_XtX_blocks[g] for g in batch_g_indices])
+                try:
+                    w_all = xp.linalg.solve(XtX_batch, rho_mat)  # (n_batch, sz, 1)
+                    w_all = w_all.reshape(n_batch, sz)
+                except Exception:
+                    w_all = _xp_zeros((n_batch, sz), X_work.dtype, X_work)
 
-                    # Apply soft-thresholding to all groups at once
-                    norms = xp.linalg.norm(w_all, axis=1)  # (n_batch,)
-                    thresh = xp.array([alpha * _sqrt_pg[g] for g in batch_g_indices])
-                    scale = xp.where(norms > thresh, 1.0 - thresh / (norms + 1e-12), 0.0)
+                # Apply soft-thresholding to all groups at once
+                _norm_dim = 1  # axis for numpy/cupy, dim for torch (both use 1)
+                norms = xp.linalg.norm(w_all, axis=_norm_dim)  # (n_batch,)
+                thresh = _xp_asarray(
+                    [alpha * _sqrt_pg[g] for g in batch_g_indices],
+                    X_work.dtype, X_work,
+                )
+                scale = xp.where(norms > thresh, 1.0 - thresh / (norms + 1e-12), 0.0)
 
-                    # Write back coefficients
-                    for i, (g, g_idx) in enumerate(size_groups):
-                        coef[g_idx] = w_all[i] * scale[i]
+                # Write back coefficients
+                for i, (g, g_idx) in enumerate(size_groups):
+                    coef[g_idx] = w_all[i] * scale[i]
 
-                else:  # torch
-                    import torch
-                    # Stack all indices for batched indexing
-                    idx_arr = torch.tensor(all_indices, dtype=torch.long, device=X_work.device)
-                    # Compute XtX[g_idx, :] @ coef for all groups at once
-                    XtX_coef = XtX[idx_arr, :] @ coef  # shape: (n_batch * sz,)
-                    # Compute Xty for all groups
-                    Xty_all = Xty[idx_arr]
-                    # Compute block diagonal contributions
-                    block_contrib = torch.zeros_like(Xty_all)
-                    for i, (g, g_idx) in enumerate(size_groups):
-                        block_contrib[i*sz:(i+1)*sz] = _XtX_blocks[g] @ coef[g_idx]
-                    # rho_g = Xty - XtX_coef + block_contrib
-                    rho_all = Xty_all - XtX_coef + block_contrib
+            if self._effective_intercept:
+                coef[pp - 1] = float(xp.mean(y_arr - X_work[:, :p] @ coef[:p]))
 
-                    # Solve all group systems in one batched call
-                    rho_mat = rho_all.reshape(n_batch, sz, 1)
-                    XtX_batch = torch.stack([_XtX_blocks[g] for g in batch_g_indices])
-                    try:
-                        w_all = torch.linalg.solve(XtX_batch, rho_mat)  # (n_batch, sz, 1)
-                        w_all = w_all.reshape(n_batch, sz)
-                    except Exception:
-                        w_all = torch.zeros((n_batch, sz), dtype=X_work.dtype, device=X_work.device)
-
-                    # Apply soft-thresholding to all groups at once
-                    norms = torch.linalg.norm(w_all, dim=1)  # (n_batch,)
-                    thresh = torch.tensor([alpha * _sqrt_pg[g] for g in batch_g_indices],
-                                         dtype=X_work.dtype, device=X_work.device)
-                    scale = torch.where(norms > thresh, 1.0 - thresh / (norms + 1e-12), torch.tensor(0.0, dtype=X_work.dtype, device=X_work.device))
-
-                    # Write back coefficients
-                    for i, (g, g_idx) in enumerate(size_groups):
-                        coef[g_idx] = w_all[i] * scale[i]
-
-            if self.fit_intercept:
-                coef[pp - 1] = float(xp.mean(y_arr - X_work[:, :p] @ coef[:p])) if backend_name == "cupy" else float(torch.mean(y_arr - X_work[:, :p] @ coef[:p]))
-
-            _max_change = float(xp.max(xp.abs(coef - coef_old))) if backend_name == "cupy" else float(torch.max(torch.abs(coef - coef_old)))
+            _max_change = float(xp.max(xp.abs(coef - coef_old)))
             if _max_change < self.tol:
                 break
 
         n_iter = iteration + 1
 
-        if self.fit_intercept:
+        if self._effective_intercept:
             beta = coef[:p]
             intercept = float(coef[p])
         else:
@@ -3364,7 +4060,7 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
         import numpy as np
 
         n, pp = X_work.shape
-        p = pp - 1 if self.fit_intercept else pp
+        p = pp - 1 if self._effective_intercept else pp
         alpha = self.alpha
         l1_ratio = getattr(pen, 'l1_ratio', getattr(self, 'l1_ratio', 0.5))
 
@@ -3390,7 +4086,7 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
                 else:
                     coef[j] = 0.0
 
-            if self.fit_intercept:
+            if self._effective_intercept:
                 coef[pp - 1] = np.mean(y_arr - X_work[:, :p] @ coef[:p])
 
             if np.max(np.abs(coef - coef_old)) < self.tol:
@@ -3398,7 +4094,7 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
 
         n_iter = iteration + 1
 
-        if self.fit_intercept:
+        if self._effective_intercept:
             beta = coef[:p]
             intercept = float(coef[p])
         else:
@@ -3416,7 +4112,7 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
         import numpy as np
 
         n, pp = X_work.shape
-        p = pp - 1 if self.fit_intercept else pp
+        p = pp - 1 if self._effective_intercept else pp
         alpha = self.alpha
 
         XtX = X_work.T @ X_work
@@ -3440,7 +4136,7 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
                 else:
                     coef[j] = 0.0
 
-            if self.fit_intercept:
+            if self._effective_intercept:
                 coef[pp - 1] = np.mean(y_arr - X_work[:, :p] @ coef[:p])
 
             if np.max(np.abs(coef - coef_old)) < self.tol:
@@ -3448,7 +4144,7 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
 
         n_iter = iteration + 1
 
-        if self.fit_intercept:
+        if self._effective_intercept:
             beta = coef[:p]
             intercept = float(coef[p])
         else:
@@ -3468,24 +4164,12 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
         )
 
         # Convert to target backend with float64 precision for numerical stability
-        if backend_name == "cupy":
-            import cupy as cp
-            X_arr = cp.asarray(X, dtype=cp.float64) if not isinstance(X, cp.ndarray) else cp.asarray(X, dtype=cp.float64)
-            y_arr = cp.asarray(y, dtype=cp.float64) if not isinstance(y, cp.ndarray) else cp.asarray(y, dtype=cp.float64)
-        elif backend_name == "torch":
-            import torch
-            if not isinstance(X, torch.Tensor):
-                X_arr = torch.from_numpy(np.asarray(X, dtype=np.float64)).to(_get_torch_device_str())
-            else:
-                X_arr = X.to(dtype=torch.float64)
-            if not isinstance(y, torch.Tensor):
-                y_arr = torch.from_numpy(np.asarray(y, dtype=np.float64)).to(_get_torch_device_str())
-            else:
-                y_arr = y.to(dtype=torch.float64)
-        else:
-            X_arr = np.asarray(X, dtype=np.float64)
-            y_arr = np.asarray(y, dtype=np.float64)
-        if self.fit_intercept:
+        from statgpu.backends._array_ops import _xp_asarray
+        from statgpu.backends._utils import _get_xp
+        _xp = _get_xp(backend_name)
+        X_arr = _xp_asarray(X, _xp.float64, X if not isinstance(X, np.ndarray) else np.zeros(1))
+        y_arr = _xp_asarray(y, _xp.float64, X_arr)
+        if self._effective_intercept:
             p = X_arr.shape[1]
             X_work = self._column_stack(
                 [X_arr, self._ones(X_arr.shape[0], backend_name, X_arr)],
@@ -3494,11 +4178,9 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
             pen = self._selective_penalty(p, backend_name)
             init = None
             if self._init_coef is not None:
-                init = np.append(self._init_coef, 0.0)
-                if backend_name == "cupy":
-                    init = cp.asarray(init)
-                elif backend_name == "torch":
-                    init = torch.from_numpy(init).to(X_arr.device)
+                init_intercept = float(getattr(self, '_init_intercept', 0.0) or 0.0)
+                init = np.append(self._init_coef, init_intercept)
+                init = _xp_asarray(init, X_arr.dtype, X_arr)
             else:
                 # Warm-start intercept for GLM losses (prevents divergence
                 # of the unpenalized intercept toward -inf for zero-heavy data).
@@ -3516,10 +4198,7 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
                     _int_init = _y_mean  # identity link (squared_error)
                 init = np.zeros(p + 1)
                 init[-1] = _int_init
-                if backend_name == "cupy":
-                    init = cp.asarray(init)
-                elif backend_name == "torch":
-                    init = torch.from_numpy(init).to(X_arr.device)
+                init = _xp_asarray(init, X_arr.dtype, X_arr)
         else:
             p = X_arr.shape[1]
             X_work = X_arr
@@ -3527,10 +4206,7 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
             init = None
             if self._init_coef is not None:
                 init = np.asarray(self._init_coef, dtype=np.float64)
-                if backend_name == "cupy":
-                    init = cp.asarray(init)
-                elif backend_name == "torch":
-                    init = torch.from_numpy(init).to(X_arr.device)
+                init = _xp_asarray(init, X_arr.dtype, X_arr)
 
         # SCAD/MCP and adaptive_l1 use IRLS-CD (matching R ncvreg's
         # per-coordinate algorithm).  GLM+SCAD/MCP uses 1 CD sweep per
@@ -3577,7 +4253,7 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
             import numpy as _np
 
             # Compute continuation path (lambda_max → target alpha)
-            _X_feat = _to_numpy(X_work[:, :p] if self.fit_intercept else X_work)
+            _X_feat = _to_numpy(X_work[:, :p] if self._effective_intercept else X_work)
             _y_feat = _to_numpy(y_arr)
             _n = _X_feat.shape[0]
             _col_norms = _np.sqrt(_np.sum(_X_feat ** 2, axis=0))
@@ -3597,7 +4273,7 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
                 _is_last = (_i == _n_cont - 1)
                 _mi_path.append(_saved_mi if _is_last else max(100, _saved_mi // 10))
 
-            X_orig = X_work[:, :p] if self.fit_intercept else X_work
+            X_orig = X_work[:, :p] if self._effective_intercept else X_work
             coef_np, intercept, n_iter = fista_lla_path(
                 self._loss, self._penalty,
                 X_orig, y_arr,
@@ -3606,10 +4282,10 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
                 lla_tol=getattr(self, '_lla_tol', 1e-6),
                 max_iter=_mi_path,
                 tol=self.tol,
-                fit_intercept=self.fit_intercept,
+                fit_intercept=self._effective_intercept,
                 sample_weight=sample_weight,
             )
-            if self.fit_intercept:
+            if self._effective_intercept:
                 params_np = np.concatenate([coef_np, [intercept]])
             else:
                 params_np = coef_np
@@ -3622,7 +4298,7 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
             xp = get_backend(backend_name).xp
 
             # lambda_max with backend-native arrays (no CPU-GPU transfer)
-            X_feat = X_work[:, :p] if self.fit_intercept else X_work
+            X_feat = X_work[:, :p] if self._effective_intercept else X_work
             _n = X_feat.shape[0]
             _col_norms = xp.sqrt(xp.sum(X_feat ** 2, axis=0))
             if backend_name == "torch":
@@ -3633,19 +4309,54 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
             X_s = X_feat * (float(_n) ** 0.5 / _col_norms)
             y_c = y_arr - xp.mean(y_arr)
             _lam_max = float(xp.max(xp.abs(X_s.T @ y_c / _n)))
-            _target_alpha = float(getattr(self._penalty, 'alpha', self.alpha))
+            _cv_alpha_path = getattr(self, '_cv_alpha_path', None)
+            _cv_return_path = _cv_alpha_path is not None
+            if _cv_return_path:
+                _targets = _np.asarray(_cv_alpha_path, dtype=float).ravel()
+                _targets = _targets[_np.isfinite(_targets) & (_targets > 0.0)]
+                if _targets.size == 0:
+                    _targets = _np.asarray([float(getattr(self._penalty, 'alpha', self.alpha))])
+                _targets = _np.sort(_targets)[::-1]
+                _target_alpha = float(_targets[-1])
+                _alpha_start = max(_lam_max, float(_targets[0]) * 1.1)
+                if _alpha_start > float(_targets[0]) * (1.0 + 1e-10):
+                    _alpha_path = _np.concatenate([[_alpha_start], _targets])
+                else:
+                    _alpha_path = _targets
+                _n_cont = int(_alpha_path.size)
+            else:
+                _target_alpha = float(getattr(self._penalty, 'alpha', self.alpha))
+                _n_cont = 20
+                _alpha_path = _np.geomspace(
+                    max(_lam_max, _target_alpha * 1.1), _target_alpha, _n_cont,
+                )
 
-            _n_cont = 20
-            _alpha_path = _np.geomspace(
-                max(_lam_max, _target_alpha * 1.1), _target_alpha, _n_cont,
-            )
-            _max_lla_per_step = max(6, getattr(self, '_max_lla_iters', 50) // _n_cont)
+            _max_lla_per_step = max(6, getattr(self, '_max_lla_iters', 50) // max(_n_cont, 1))
             _saved_mi = self.max_iter
-            _mi_path = [_saved_mi if i == _n_cont - 1 else max(100, _saved_mi // 10)
-                        for i in range(_n_cont)]
+            if _cv_return_path:
+                _mi_path = [max(200, _saved_mi // 2)] * max(_n_cont - 1, 0) + [_saved_mi]
+            else:
+                _mi_path = [_saved_mi if i == _n_cont - 1 else max(100, _saved_mi // 10)
+                            for i in range(_n_cont)]
 
-            X_orig = X_work[:, :p] if self.fit_intercept else X_work
-            coef_np, intercept, n_iter = fista_lla_path(
+            X_orig = X_work[:, :p] if self._effective_intercept else X_work
+
+            _warm_coef = None
+            _warm_intercept = None
+            _init = getattr(self, '_init_coef', None)
+            if _init is not None:
+                _init_np = np.asarray(_to_numpy(_init), dtype=np.float64).ravel()
+                if self._effective_intercept and _init_np.size == p + 1:
+                    _warm_coef = _init_np[:p]
+                    _warm_intercept = float(_init_np[p])
+                elif _init_np.size == p:
+                    _warm_coef = _init_np
+                    if self._effective_intercept:
+                        _warm_intercept = float(
+                            getattr(self, '_init_intercept', 0.0) or 0.0
+                        )
+
+            _lla_result = fista_lla_path(
                 self._loss, self._penalty,
                 X_orig, y_arr,
                 alpha_path=_alpha_path,
@@ -3653,11 +4364,19 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
                 lla_tol=getattr(self, '_lla_tol', 1e-6),
                 max_iter=_mi_path,
                 tol=self.tol,
-                fit_intercept=self.fit_intercept,
+                fit_intercept=self._effective_intercept,
                 sample_weight=sample_weight,
+                init_coef=_warm_coef,
+                init_intercept=_warm_intercept,
+                return_path=_cv_return_path,
             )
+            if _cv_return_path:
+                coef_np, intercept, n_iter, _path_results = _lla_result
+                self._cv_path_results = _path_results
+            else:
+                coef_np, intercept, n_iter = _lla_result
             # fista_lla_path returns numpy, convert back to backend-native
-            if self.fit_intercept:
+            if self._effective_intercept:
                 params = xp.concatenate([xp.asarray(coef_np), xp.asarray([intercept])])
             else:
                 params = xp.asarray(coef_np)
@@ -3671,7 +4390,7 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
             xp = get_backend(backend_name).xp
 
             # lambda_max with backend-native arrays
-            X_feat = X_work[:, :p] if self.fit_intercept else X_work
+            X_feat = X_work[:, :p] if self._effective_intercept else X_work
             _n = X_feat.shape[0]
             _col_norms = xp.sqrt(xp.sum(X_feat ** 2, axis=0))
             if backend_name == "torch":
@@ -3710,7 +4429,7 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
                 _adaptive_pen.set_weights(_gw)
                 return _adaptive_pen
 
-            X_orig = X_work[:, :p] if self.fit_intercept else X_work
+            X_orig = X_work[:, :p] if self._effective_intercept else X_work
             coef_np, intercept, n_iter = fista_lla_path(
                 self._loss, self._penalty,
                 X_orig, y_arr,
@@ -3719,12 +4438,12 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
                 lla_tol=getattr(self, '_lla_tol', 1e-6),
                 max_iter=_mi_path,
                 tol=self.tol,
-                fit_intercept=self.fit_intercept,
+                fit_intercept=self._effective_intercept,
                 sample_weight=sample_weight,
                 lla_penalty_factory=_group_lla_factory,
             )
             # fista_lla_path returns numpy, convert back to backend-native
-            if self.fit_intercept:
+            if self._effective_intercept:
                 params = xp.concatenate([xp.asarray(coef_np), xp.asarray([intercept])])
             else:
                 params = xp.asarray(coef_np)
@@ -3734,24 +4453,23 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
                 coef_gpu, intercept, n_iter = self._block_cd_group_lasso_gpu(
                     pen, X_work, y_arr, init, backend_name,
                 )
-                if self.fit_intercept:
-                    if backend_name == "cupy":
-                        import cupy as cp
-                        params = cp.concatenate([coef_gpu, cp.array([intercept])])
-                    elif backend_name == "torch":
-                        import torch
-                        params = torch.cat([coef_gpu, torch.tensor([intercept], device=coef_gpu.device)])
+                if self._effective_intercept:
+                    from statgpu.backends._utils import _get_xp as _get_xp_fn
+                    from statgpu.backends._array_ops import _xp_asarray as _xp_asarray_fn
+                    _xp = _get_xp_fn(backend_name)
+                    _int_arr = _xp_asarray_fn([intercept], coef_gpu.dtype, coef_gpu)
+                    params = _xp.concatenate([coef_gpu, _int_arr])
                 else:
                     params = coef_gpu
             else:
                 coef_np, intercept, n_iter = self._block_cd_group_lasso(
                     pen, X_work, y_arr, init,
                 )
-                if self.fit_intercept:
+                if self._effective_intercept:
                     params = np.concatenate([coef_np, [intercept]])
                 else:
                     params = coef_np
-        elif solver_name in ("auto", "fista"):
+        elif solver_name == "auto":
             # For smooth penalties (l2, elasticnet with low l1_ratio),
             # fista_bb with BB step sizes converges much more reliably
             # than standard FISTA with Nesterov momentum + proximal l2.
@@ -3771,6 +4489,12 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
                     max_iter=self.max_iter, tol=self.tol,
                     init_coef=init, sample_weight=sample_weight,
                 )
+        elif solver_name == "fista":
+            params, n_iter = fista_solver(
+                self._loss, pen, X_work, y_arr,
+                max_iter=self.max_iter, tol=self.tol,
+                init_coef=init, sample_weight=sample_weight,
+            )
         elif solver_name == "fista_bb":
             params, n_iter = fista_bb_solver(
                 self._loss, pen, X_work, y_arr,
@@ -3801,7 +4525,7 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
 
         params_np = _to_numpy(params)
         self.n_iter_ = n_iter
-        if self.fit_intercept:
+        if self._effective_intercept:
             self.coef_ = params_np[:p]
             self.intercept_ = float(params_np[p])
             self._params = np.concatenate([[self.intercept_], self.coef_])
@@ -3810,7 +4534,7 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
             self.intercept_ = 0.0
             self._params = self.coef_.copy()
         self._df_resid = self._nobs - (
-            X_arr.shape[1] + (1 if self.fit_intercept else 0)
+            X_arr.shape[1] + (1 if self._effective_intercept else 0)
         )
         if backend_name == "cupy":
             self._cleanup_cuda_memory()
@@ -3824,10 +4548,12 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
         if str(getattr(self._penalty, "name", self.penalty)).lower() != "l2":
             raise ValueError("solver='irls' only supports L2 penalties.")
 
-        X_arr = X
-        y_arr = y
+        from statgpu.backends._utils import _get_xp, xp_asarray
+        _xp = _get_xp(backend_name)
+        X_arr = xp_asarray(X, dtype=_xp.float64, xp=_xp, ref_arr=X if not isinstance(X, np.ndarray) else np.zeros(1))
+        y_arr = xp_asarray(y, dtype=_xp.float64, xp=_xp, ref_arr=X_arr)
         n_samples = X_arr.shape[0]
-        if self.fit_intercept:
+        if self._effective_intercept:
             X_work = self._column_stack(
                 [self._ones(X_arr.shape[0], backend_name, X_arr), X_arr],
                 backend_name,
@@ -3835,17 +4561,47 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
         else:
             X_work = X_arr
 
-        # Warm-start intercept for log-link models to prevent divergence.
-        # Starting from mu=1 (eta=0) is disastrous when y is far from 1.
+        # Respect CV warm starts first.  IRLS uses [intercept, coef...] while
+        # the FISTA design stores the intercept as the final column.
         _loss_name = getattr(self._loss, 'name', '')
+        init_coef = None
+        init_features = getattr(self, '_init_coef', None)
+        if init_features is not None:
+            init_features_np = np.asarray(init_features, dtype=np.float64).ravel()
+            if self._effective_intercept:
+                init_intercept = float(getattr(self, '_init_intercept', 0.0) or 0.0)
+                init_coef_np = np.concatenate([[init_intercept], init_features_np])
+            else:
+                init_coef_np = init_features_np
+            if backend_name == "cupy":
+                import cupy as cp
+                init_coef = cp.asarray(init_coef_np, dtype=cp.float64)
+            elif backend_name == "torch":
+                import torch
+                init_coef = torch.as_tensor(
+                    init_coef_np,
+                    dtype=torch.float64,
+                    device=X_work.device,
+                )
+            else:
+                init_coef = init_coef_np
+
+        # Otherwise warm-start intercept for GLM losses whose default eta=0
+        # can be far from the intercept-only optimum.
         _log_link_losses = ("gamma", "poisson", "inverse_gaussian",
                             "negative_binomial", "tweedie")
-        if self.fit_intercept and _loss_name in _log_link_losses:
+        if init_coef is None and self._effective_intercept and (
+            _loss_name in _log_link_losses or _loss_name == "logistic"
+        ):
             _y_mean = float(np.mean(_to_numpy(y_arr)))
-            _int_init = np.log(max(_y_mean, 1e-3))
+            if _loss_name == "logistic":
+                _y_mean = float(np.clip(_y_mean, 1e-3, 1.0 - 1e-3))
+                _int_init = np.log(_y_mean / (1.0 - _y_mean))
+            else:
+                _int_init = np.log(max(_y_mean, 1e-3))
             n_feat = X_work.shape[1]
             if backend_name == "numpy":
-                init_coef = np.zeros(n_feat)
+                init_coef = np.zeros(n_feat, dtype=np.float64)
             elif backend_name == "cupy":
                 import cupy as cp
                 init_coef = cp.zeros(n_feat, dtype=cp.float64)
@@ -3863,8 +4619,6 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
                 init_coef = torch.from_numpy(init_coef_np).to(X_work.device)
             else:
                 init_coef = init_coef_np
-        else:
-            init_coef = None
 
         solver = IRLSSolver(
             self._family_for_loss(), max_iter=self.max_iter, tol=self.tol
@@ -3873,14 +4627,14 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
             X_work, y_arr,
             sample_weight=sample_weight,
             ridge_alpha=float(n_samples * self.alpha),
-            ridge_penalize_intercept=False if self.fit_intercept else True,
+            ridge_penalize_intercept=False if self._effective_intercept else True,
             backend=backend_name,
             init_coef=init_coef,
         )
 
         params_np = _to_numpy(params)
         self.n_iter_ = n_iter
-        if self.fit_intercept:
+        if self._effective_intercept:
             self.intercept_ = float(params_np[0])
             self.coef_ = params_np[1:]
             self._params = np.concatenate([[self.intercept_], self.coef_])
@@ -3889,7 +4643,7 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
             self.coef_ = params_np.copy()
             self._params = self.coef_.copy()
         self._df_resid = self._nobs - (
-            X_arr.shape[1] + (1 if self.fit_intercept else 0)
+            X_arr.shape[1] + (1 if self._effective_intercept else 0)
         )
         if backend_name == "cupy":
             self._cleanup_cuda_memory()
@@ -3908,27 +4662,18 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
         X_arr = np.asarray(X)
         y_arr = np.asarray(y)
 
-        if self.loss in ("logistic", "poisson") and self.fit_intercept:
+        if self.loss in ("logistic", "poisson") and self._effective_intercept:
             # Augment X with intercept column
             X_aug = np.column_stack([X_arr, np.ones(X_arr.shape[0])])
             p = X_arr.shape[1]
             pen = self._penalty
 
-            class SelectivePenalty:
-                """Penalty wrapper: apply to first p entries, skip last (intercept)."""
-                def proximal(self, w, step, backend="numpy"):
-                    w_feat = w[:-1]
-                    result_feat = pen.proximal(w_feat, step, backend=backend)
-                    result = np.empty(w.shape[0], dtype=w.dtype)
-                    result[:-1] = result_feat
-                    result[-1] = np.clip(w[-1], -15.0, 15.0)
-                    return result
-                def value(self, coef):
-                    return pen.value(coef[:-1])
-                name = pen.name
+            # Reuse thread-local SelectivePenalty singleton
+            singleton = _get_selective_penalty_singleton()
+            singleton.configure(self._penalty, p, "numpy")
 
             full_coef, n_iter = fista_solver(
-                self._loss, SelectivePenalty(), X_aug, y_arr,
+                self._loss, singleton, X_aug, y_arr,
                 max_iter=self.max_iter, tol=self.tol,
                 init_coef=None, sample_weight=sample_weight,
             )
@@ -3936,7 +4681,7 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
             self.coef_ = full_coef[:p]
             self.intercept_ = float(full_coef[p])
             self.n_iter_ = n_iter
-        elif self.fit_intercept:
+        elif self._effective_intercept:
             # Squared error: center X and y, fit once
             X_arr = X_arr - X_arr.mean(axis=0)
             y_arr = y_arr - y_arr.mean()
@@ -3961,7 +4706,7 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
             self.n_iter_ = n_iter
             self.intercept_ = 0.0
 
-        self._df_resid = self._nobs - (X.shape[1] + (1 if self.fit_intercept else 0))
+        self._df_resid = self._nobs - (X.shape[1] + (1 if self._effective_intercept else 0))
 
     def _fit_cpu_irls(self, X, y, sample_weight=None):
         """Fit using IRLS for smooth penalty + smooth loss (e.g., Logistic/Poisson + L2).
@@ -3981,14 +4726,14 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
         n_samples = X_arr.shape[0]
 
         # Add intercept column if needed
-        if self.fit_intercept:
+        if self._effective_intercept:
             X_arr = np.column_stack([np.ones(X_arr.shape[0]), X_arr])
 
         # L2 penalty: for objective min loss/n + alpha*0.5*||w||^2,
         # IRLS uses unnormalized X'WX, so ridge = n * alpha.
         # Don't penalize the intercept column (matches sklearn/FISTA behavior).
         ridge_alpha = float(n_samples * self.alpha)
-        ridge_penalize_intercept = False if self.fit_intercept else True
+        ridge_penalize_intercept = False if self._effective_intercept else True
 
         # Select family
         if self.loss == "logistic":
@@ -4016,7 +4761,7 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
 
         self.n_iter_ = n_iter
 
-        if self.fit_intercept:
+        if self._effective_intercept:
             self.intercept_ = float(params[0])
             self.coef_ = params[1:]
             self._params = np.concatenate([[self.intercept_], np.asarray(self.coef_)])
@@ -4025,7 +4770,7 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
             self.coef_ = params.copy()
             self._params = np.asarray(self.coef_).copy()
 
-        self._df_resid = self._nobs - (X.shape[1] + (1 if self.fit_intercept else 0))
+        self._df_resid = self._nobs - (X.shape[1] + (1 if self._effective_intercept else 0))
 
     def _cleanup_cuda_memory(self):
         """Free CuPy memory pool."""
@@ -4074,6 +4819,7 @@ class PenalizedLinearRegression(PenalizedGeneralizedLinearModel):
         lipschitz_L: Optional[float] = None,
         gpu_memory_cleanup: bool = False,
         compute_inference: bool = False,
+        inference_method: str = "debiased",
         cov_type: str = "nonrobust",
         hac_maxlags: Optional[int] = None,
         stopping: str = "coef_delta",
@@ -4097,6 +4843,7 @@ class PenalizedLinearRegression(PenalizedGeneralizedLinearModel):
             lipschitz_L=lipschitz_L,
             gpu_memory_cleanup=gpu_memory_cleanup,
             compute_inference=compute_inference,
+            inference_method=inference_method,
             cov_type=cov_type,
             hac_maxlags=hac_maxlags,
             stopping=stopping,
@@ -4116,23 +4863,23 @@ class PenalizedLinearRegression(PenalizedGeneralizedLinearModel):
 
     @property
     def rsquared_adj(self):
-        if self._nobs is None or self._X_design is None:
+        if self._nobs is None or self._resid is None:
             return None
         r2 = self.rsquared
         if r2 is None:
             return None
-        k = int(self._X_design.shape[1] - (1 if self.fit_intercept else 0))
+        k = len(self.coef_) if self.coef_ is not None else 0
         return 1 - (1 - r2) * (self._nobs - 1) / self._df_resid
 
     @property
     def fvalue(self):
-        if self._y is None or self._resid is None or self._X_design is None:
+        if self._y is None or self._resid is None:
             return None
         y_mean = np.mean(self._y)
         ss_tot = np.sum((self._y - y_mean) ** 2)
         ss_res = np.sum(self._resid ** 2)
         ss_reg = ss_tot - ss_res
-        k = int(self._X_design.shape[1] - (1 if self.fit_intercept else 0))
+        k = len(self.coef_) if self.coef_ is not None else 0
         if k == 0 or ss_res <= 0:
             return np.inf
         return (ss_reg / k) / (ss_res / self._df_resid)
@@ -4144,7 +4891,7 @@ class PenalizedLinearRegression(PenalizedGeneralizedLinearModel):
             return 1.0
         if np.isposinf(fv):
             return 0.0
-        k = int(self._X_design.shape[1] - (1 if self.fit_intercept else 0))
+        k = len(self.coef_) if self.coef_ is not None else 0
         return 1 - stats.f.cdf(fv, k, self._df_resid)
 
     @property
@@ -4186,37 +4933,71 @@ class PenalizedLinearRegression(PenalizedGeneralizedLinearModel):
 
         if self._feature_names is not None:
             feature_names = list(self._feature_names)
-            if self.fit_intercept:
+            if self._effective_intercept:
                 feature_names.insert(0, "(Intercept)")
-        elif self.fit_intercept:
+        elif self._effective_intercept:
             feature_names = ["(Intercept)"] + [f"x{i+1}" for i in range(len(self.coef_))]
         else:
             feature_names = [f"x{i+1}" for i in range(len(self.coef_))]
 
-        is_ridge = str(getattr(self._penalty, "name", self.penalty)).lower() == "l2"
-        title = "Ridge Regression Results" if is_ridge else "Penalized Linear Regression Results"
+        penalty_name = str(getattr(self._penalty, "name", self.penalty)).lower()
+        inference_method = str(getattr(self, "inference_method", "debiased")).lower()
+        is_debiased = penalty_name in ("l1", "elasticnet", "en") and "debiased" in inference_method
+
+        if is_debiased:
+            title = "Debiased Lasso Results"
+            stat_label = "z"
+            pval_label = "P>|z|"
+        elif penalty_name == "l2":
+            title = "Ridge Regression Results"
+            stat_label = "t"
+            pval_label = "P>|t|"
+        else:
+            title = "Penalized Linear Regression Results"
+            stat_label = "t"
+            pval_label = "P>|t|"
+
         print("=" * 80)
         print(f"{title:^80}")
         print("=" * 80)
-        print(f"Alpha (L2 penalty):         {float(self.alpha):>15.4f}")
-        print(f"Covariance Type:            {self.cov_type:>15}")
+        def _fmt(val, spec):
+            if val is None:
+                return f"{'N/A':>15}"
+            return format(val, spec)
+
+        print(f"Alpha:                      {float(self.alpha):>15.4f}")
+        if not is_debiased:
+            print(f"Covariance Type:            {self.cov_type:>15}")
         print(f"No. Observations:           {self._nobs:>15}")
         print(f"Degrees of Freedom:         {self._df_resid:>15}")
-        print(f"R-squared:                  {self.rsquared:>15.4f}")
-        print(f"Adj. R-squared:             {self.rsquared_adj:>15.4f}")
-        print(f"F-statistic:                {self.fvalue:>15.4f}")
-        print(f"Prob (F-statistic):         {self.f_pvalue:>15.4e}")
-        print(f"Log-Likelihood:             {self.llf:>15.4f}")
-        print(f"AIC:                        {self.aic:>15.4f}")
-        print(f"BIC:                        {self.bic:>15.4f}")
+        print(f"R-squared:                  {_fmt(self.rsquared, '>15.4f')}")
+        print(f"Adj. R-squared:             {_fmt(self.rsquared_adj, '>15.4f')}")
+        print(f"F-statistic:                {_fmt(self.fvalue, '>15.4f')}")
+        print(f"Prob (F-statistic):         {_fmt(self.f_pvalue, '>15.4e')}")
+        print(f"Log-Likelihood:             {_fmt(self.llf, '>15.4f')}")
+        print(f"AIC:                        {_fmt(self.aic, '>15.4f')}")
+        print(f"BIC:                        {_fmt(self.bic, '>15.4f')}")
         print("-" * 80)
-        print(f"{'':<15} {'coef':>12} {'std err':>12} {'t':>10} {'P>|t|':>10} {'[0.025':>12} {'0.975]':>12}")
+        print(f"{'':<15} {'coef':>12} {'std err':>12} {stat_label:>10} {pval_label:>10} {'[0.025':>12} {'0.975]':>12}")
         print("-" * 80)
 
         for i, name in enumerate(feature_names):
             print(f"{name:<15} {self._params[i]:>12.4f} {self._bse[i]:>12.4f} "
                   f"{self._tvalues[i]:>10.3f} {self._pvalues[i]:>10.4f} "
                   f"{self._conf_int[i, 0]:>12.4f} {self._conf_int[i, 1]:>12.4f}")
+
+        if getattr(self, '_simultaneous_enabled', False) and self._conf_int_simultaneous is not None:
+            alpha_sim = float(getattr(self, '_simultaneous_alpha', 0.05))
+            B = int(getattr(self, '_simultaneous_n_bootstrap', 1000))
+            print("-" * 80)
+            print("Simultaneous inference (max-|Z| bootstrap)")
+            print(f"  alpha:          {alpha_sim:.6f}")
+            print(f"  n_bootstrap:    {B}")
+            print("-" * 80)
+            for i, name in enumerate(feature_names):
+                lo = self._conf_int_simultaneous[i, 0]
+                hi = self._conf_int_simultaneous[i, 1]
+                print(f"{name:<15} {'':>12} {'':>12} {'':>10} {'':>10} {lo:>12.4f} {hi:>12.4f}")
 
         print("=" * 80)
 
@@ -4281,7 +5062,7 @@ class PenalizedLogisticRegression(PenalizedGeneralizedLinearModel):
             Xb = cp.asarray(self._to_array(X, Device.CUDA))
             coef = cp.asarray(self.coef_)
             raw = Xb @ coef
-            if self.fit_intercept:
+            if self._effective_intercept:
                 raw += cp.asarray(self.intercept_, dtype=raw.dtype)
             p1 = 1.0 / (1.0 + cp.exp(-cp.clip(raw, -500, 500)))
             return cp.column_stack([1.0 - p1, p1])
@@ -4290,14 +5071,14 @@ class PenalizedLogisticRegression(PenalizedGeneralizedLinearModel):
             Xb = self._to_array(X, Device.TORCH, backend="torch").to(torch.float64)
             coef = torch.as_tensor(self.coef_, dtype=Xb.dtype, device=Xb.device)
             raw = Xb @ coef
-            if self.fit_intercept:
+            if self._effective_intercept:
                 raw = raw + torch.as_tensor(
                     self.intercept_, dtype=raw.dtype, device=raw.device
                 )
             p1 = 1.0 / (1.0 + torch.exp(-torch.clamp(raw, -500, 500)))
             return torch.column_stack([1.0 - p1, p1])
         raw = X @ self.coef_
-        if self.fit_intercept:
+        if self._effective_intercept:
             raw += self.intercept_
         p1 = 1.0 / (1.0 + np.exp(-np.clip(raw, -500, 500)))
         return np.column_stack([1.0 - p1, p1])

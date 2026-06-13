@@ -5,6 +5,7 @@ CuPy GPU backend.
 import numpy as np
 
 from ._base import BackendBase
+from ._utils import _torch_to_cupy_dlpack
 
 
 class CuPyBackend(BackendBase):
@@ -25,6 +26,9 @@ class CuPyBackend(BackendBase):
     def asarray(self, x, dtype=None):
         import cupy as cp
         if hasattr(x, "cpu"):
+            arr = _torch_to_cupy_dlpack(x)
+            if arr is not None:
+                return arr.astype(dtype, copy=False) if dtype is not None else arr
             # PyTorch tensors expose a .cpu() method that moves the tensor to
             # CPU memory before converting to NumPy.  Duck-typing avoids a
             # mandatory torch import.
@@ -309,10 +313,10 @@ void {name}(const {dtype}* __restrict__ x,
             {dtype}* __restrict__ out, int n) {{
     {dtype} cur = x[0];
     out[0] = cur;
-    for (int j = 1; j < n; j++) {
+    for (int j = 1; j < n; j++) {{
         if ({cmp}) cur = x[j];
         out[j] = cur;
-    }
+    }}
 }}
 '''
 
@@ -326,10 +330,10 @@ void {name}(const {dtype}* __restrict__ x,
     {dtype}* orow = out + tid * K;
     {dtype} cur = row[0];
     orow[0] = cur;
-    for (int j = 1; j < K; j++) {
+    for (int j = 1; j < K; j++) {{
         if ({cmp}) cur = row[j];
         orow[j] = cur;
-    }
+    }}
 }}
 '''
 _CUPY_CUMOP_DTYPES = {
@@ -365,13 +369,32 @@ def _get_cumop_kernels(dtype):
     return kernels
 
 
+def _cumop_kernels_available(dtype=None):
+    """Check if CuPy cumop kernels can be compiled (lazy, caches on first call)."""
+    try:
+        _get_cumop_kernels(dtype or "float64")
+        return True
+    except Exception:
+        return False
+
+
 def _launch_cumop_1d(arr, result, n, is_min):
+    if arr is None or result is None:
+        raise RuntimeError(
+            "CuPy cumop kernels failed to compile or unavailable. "
+            "Cannot run cummin/cummax on this device."
+        )
     kmin1, kmax1, _, _ = _get_cumop_kernels(arr.dtype)
     kernel = kmin1 if is_min else kmax1
     kernel((1,), (1,), (arr, result, n))
 
 
 def _launch_cumop_2d(arr, result, N, K, is_min):
+    if arr is None or result is None:
+        raise RuntimeError(
+            "CuPy cumop kernels failed to compile or unavailable. "
+            "Cannot run cummin/cummax on this device."
+        )
     _, _, kmin2, kmax2 = _get_cumop_kernels(arr.dtype)
     kernel = kmin2 if is_min else kmax2
     block = min(N, 256)

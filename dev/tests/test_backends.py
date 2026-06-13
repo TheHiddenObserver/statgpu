@@ -176,6 +176,44 @@ class TestTorchBackend:
         assert isinstance(result, np.ndarray)
         np.testing.assert_array_equal(result, arr_np)
 
+    @pytest.mark.skipif(not _torch_importable, reason="PyTorch not installed")
+    def test_asarray_reuses_torch_tensor_when_device_matches(self):
+        import torch
+        backend = TorchBackend(device="cpu")
+        arr = torch.arange(4.0)
+
+        result = backend.asarray(arr)
+
+        assert result.data_ptr() == arr.data_ptr()
+
+    @pytest.mark.skipif(
+        not (_cupy_available and _torch_cuda_available),
+        reason="CuPy and Torch CUDA are required for DLPack sharing",
+    )
+    def test_cupy_to_torch_uses_dlpack_shared_memory(self):
+        import cupy as cp
+        backend = TorchBackend(device="cuda")
+        arr = cp.arange(4, dtype=cp.float64)
+
+        tensor = backend.asarray(arr)
+        tensor.add_(1.0)
+
+        np.testing.assert_allclose(cp.asnumpy(arr), np.arange(1.0, 5.0))
+
+    @pytest.mark.skipif(
+        not (_cupy_available and _torch_cuda_available),
+        reason="CuPy and Torch CUDA are required for DLPack sharing",
+    )
+    def test_torch_to_cupy_uses_dlpack_shared_memory(self):
+        import torch
+        backend = CuPyBackend()
+        tensor = torch.arange(4, dtype=torch.float64, device="cuda")
+
+        arr = backend.asarray(tensor)
+        arr += 2.0
+
+        np.testing.assert_allclose(tensor.detach().cpu().numpy(), np.arange(2.0, 6.0))
+
 
 # ---------------------------------------------------------------------------
 # get_backend() factory tests
@@ -251,3 +289,13 @@ class TestBaseEstimatorBackend:
         xp = backend.xp
         arr = xp.zeros(5)
         assert arr.shape == (5,)
+
+    @pytest.mark.skipif(not _torch_importable, reason="PyTorch not installed")
+    def test_to_torch_preserves_tensor_when_no_target_device(self):
+        import torch
+        est = _DummyEstimator(device="cpu")
+        arr = torch.arange(3.0)
+
+        result = est._to_torch(arr)
+
+        assert result.data_ptr() == arr.data_ptr()

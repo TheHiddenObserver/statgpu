@@ -34,7 +34,8 @@ def _get_group_mcp_torch_compiled():
             norms = torch.linalg.norm(w_mat, dim=1)
             mask_zero = norms <= t_g
             mask_shrink = (norms > t_g) & (norms <= gamma_alpha_g)
-            denom = norms * (1.0 - step / gamma) + 1e-12
+            denom = norms * (1.0 - step / gamma)
+            denom = torch.where(mask_shrink, denom, torch.ones_like(denom))
             scale_shrink = (norms - t_g) / denom
             scale = torch.where(mask_shrink, scale_shrink, 1.0)
             scale = torch.where(mask_zero, 0.0, scale)
@@ -243,7 +244,8 @@ class GroupMCPPenalty(Penalty):
         if self._is_contiguous:
             result[:p_total] = flat_vals
         else:
-            result[:p_total][self._flat_indices] = flat_vals
+            flat_idx = self._get_flat_indices(xp, result)
+            result[flat_idx] = flat_vals
 
     # ----------------------------------------------------------------
     # Value
@@ -410,7 +412,8 @@ class GroupMCPPenalty(Penalty):
         mask_shrink = (norms > t_g) & (norms <= gamma_alpha_g)
         # Region 3: norm > gamma_alpha_g  → no shrinkage (identity)
 
-        denom = norms * (1.0 - step / self.gamma) + 1e-12
+        denom = norms * (1.0 - step / self.gamma)
+        denom = xp.where(mask_shrink, denom, xp.ones_like(denom))
         scale_shrink = (norms - t_g) / denom                    # (G,)
         scale = xp.where(mask_shrink, scale_shrink, 1.0)        # (G,)
         scale = xp.where(mask_zero, 0.0, scale)
@@ -442,7 +445,8 @@ class GroupMCPPenalty(Penalty):
 
         mask_zero = norms <= t_g
         mask_shrink = (norms > t_g) & (norms <= gamma_alpha_g)
-        denom = norms * (1.0 - step / self.gamma) + 1e-12
+        denom = norms * (1.0 - step / self.gamma)
+        denom = xp.where(mask_shrink, denom, xp.ones_like(denom))
         scale_shrink = (norms - t_g) / denom
         scale = xp.where(mask_shrink, scale_shrink, 1.0)
         scale = xp.where(mask_zero, 0.0, scale)
@@ -454,7 +458,7 @@ class GroupMCPPenalty(Penalty):
         if self._is_contiguous:
             result[:p_total] = padded_scaled[row_idx_dev, col_idx_dev]
         else:
-            result[:p_total][flat_idx_dev] = padded_scaled[row_idx_dev, col_idx_dev]
+            result[flat_idx_dev] = padded_scaled[row_idx_dev, col_idx_dev]
         return result
 
     # ----------------------------------------------------------------

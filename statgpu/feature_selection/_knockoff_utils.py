@@ -13,6 +13,7 @@ import numpy as np
 
 from statgpu.backends import (
     _get_torch_device_str,
+    _torch_dev,
     _get_xp,
     _resolve_backend,
     _to_float_scalar,
@@ -378,7 +379,10 @@ def _standardize_features_unit_variance(X, xp):
         raise ValueError("model-X knockoff requires at least 2 samples")
 
     X_centered = X_arr - xp.mean(X_arr, axis=0, keepdims=True)
-    scale = xp.std(X_centered, axis=0, ddof=1)
+    if _torch_dev(X_centered) is not None:
+        scale = xp.std(X_centered, axis=0, correction=1)
+    else:
+        scale = xp.std(X_centered, axis=0, ddof=1)
     if bool(xp.any(scale <= 1e-12)):
         raise ValueError("X contains near-constant columns; model-X knockoff is unstable")
 

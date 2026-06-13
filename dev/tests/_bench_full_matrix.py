@@ -3,7 +3,7 @@ Includes precision comparison vs sklearn, R ncvreg/grpreg/glmnet, and statsmodel
 Sections A-H independently selectable via --section.
 Designed to run on remote GPU server via nohup.
 """
-import time, sys, os, warnings, tempfile, subprocess, shutil, argparse, traceback
+import time, sys, os, warnings, tempfile, subprocess, shutil, argparse, traceback, json
 import numpy as np
 warnings.filterwarnings("ignore")
 sys.path.insert(0, "/root")
@@ -22,9 +22,42 @@ def _parse_args():
     p.add_argument("--max-iter", type=int, default=2000)
     p.add_argument("--tol", type=float, default=1e-6)
     p.add_argument("--seed", type=int, default=42)
+    p.add_argument("--losses", "--families", dest="losses", default=None,
+                   help="comma-separated families/losses for Section A/G")
+    p.add_argument("--penalties", default=None,
+                   help="comma-separated penalties for Section A/G")
+    p.add_argument("--devices", default=None,
+                   help="comma-separated devices for Section A; cpu is always run as baseline")
+    p.add_argument("--sizes", default=None,
+                   help="comma-separated sizes like 500x50,2000x200")
+    p.add_argument("--solvers", default=None,
+                   help="comma-separated solvers for Section A")
+    p.add_argument("--output-json", default=None,
+                   help="write Section A records to JSON")
     p.add_argument("--diagnose-slow", action="store_true",
                    help="include explicit GPU slow-path diagnostics with Section G")
     return p.parse_args()
+
+
+def _parse_csv(value, default):
+    if value is None or str(value).strip().lower() in ("", "all"):
+        return list(default)
+    return [x.strip() for x in str(value).split(",") if x.strip()]
+
+
+def _parse_size_filter(value, default):
+    if value is None or str(value).strip().lower() in ("", "all"):
+        return list(default)
+    sizes = []
+    for item in _parse_csv(value, []):
+        if "x" in item:
+            n_str, p_str = item.lower().split("x", 1)
+        elif ":" in item:
+            n_str, p_str = item.split(":", 1)
+        else:
+            raise ValueError(f"bad size '{item}', expected NxP")
+        sizes.append((int(n_str), int(p_str)))
+    return sizes
 
 # ── Utility ──────────────────────────────────────────────────────────────────
 
@@ -296,36 +329,48 @@ def _all_solvers(family, penalty):
     return solvers
 
 def _run_gpu_variants(X, y, loss, penalty, solvers, alpha=0.01, l1_ratio=0.5,
-                      max_iter=2000, tol=1e-6, penalty_kwargs=None):
+                      max_iter=2000, tol=1e-6, penalty_kwargs=None,
+                      devices=None):
     """Run on CPU + CuPy + Torch for each solver, return dict of results.
     Returns: {solver: {"cpu": ..., "cupy": ..., "torch": ...}}
     """
     pk = dict(penalty_kwargs or {})
+    devices = set(devices or ["cpu", "cupy", "torch"])
+    if "cuda" in devices:
+        devices.add("cupy")
+    if "cpu" not in devices:
+        devices.add("cpu")
     all_results = {}
     for solver in solvers:
         results = {}
         c, ic, ni, t = _run_statgpu(X, y, loss, penalty, solver, "cpu", alpha, l1_ratio, max_iter, tol, pk)
         results["cpu"] = (c, ic, ni, t)
-        try:
-            import cupy
-            c2, ic2, ni2, t2 = _run_statgpu(X, y, loss, penalty, solver, "cuda", alpha, l1_ratio, max_iter, tol, pk)
-            results["cupy"] = (c2, ic2, ni2, t2)
-        except Exception as e:
-            import traceback
-            print(f"  [WARN] cupy/{solver} failed: {e}")
-            traceback.print_exc()
+        if "cupy" in devices:
+            try:
+                import cupy
+                c2, ic2, ni2, t2 = _run_statgpu(X, y, loss, penalty, solver, "cuda", alpha, l1_ratio, max_iter, tol, pk)
+                results["cupy"] = (c2, ic2, ni2, t2)
+            except Exception as e:
+                import traceback
+                print(f"  [WARN] cupy/{solver} failed: {e}")
+                traceback.print_exc()
+                results["cupy"] = None
+        else:
             results["cupy"] = None
-        try:
-            import torch
-            if torch.cuda.is_available():
-                c3, ic3, ni3, t3 = _run_statgpu(X, y, loss, penalty, solver, "torch", alpha, l1_ratio, max_iter, tol, pk)
-                results["torch"] = (c3, ic3, ni3, t3)
-            else:
+        if "torch" in devices:
+            try:
+                import torch
+                if torch.cuda.is_available():
+                    c3, ic3, ni3, t3 = _run_statgpu(X, y, loss, penalty, solver, "torch", alpha, l1_ratio, max_iter, tol, pk)
+                    results["torch"] = (c3, ic3, ni3, t3)
+                else:
+                    results["torch"] = None
+            except Exception as e:
+                import traceback
+                print(f"  [WARN] torch/{solver} failed: {e}")
+                traceback.print_exc()
                 results["torch"] = None
-        except Exception as e:
-            import traceback
-            print(f"  [WARN] torch/{solver} failed: {e}")
-            traceback.print_exc()
+        else:
             results["torch"] = None
         all_results[solver] = results
     return all_results
@@ -1390,13 +1435,20 @@ def main():
     TOL = args.tol
     sections = set(s.strip().upper() for s in args.section.split(","))
     run_all = "ALL" in sections
+    selected_families = _parse_csv(args.losses, ALL_FAMILIES)
+    selected_penalties = _parse_csv(args.penalties, ALL_PENALTIES)
+    selected_scales = _parse_size_filter(args.sizes, ALL_SCALES)
+    selected_devices = _parse_csv(args.devices, ["cpu", "cupy", "torch"])
+    selected_solvers = None if args.solvers is None else set(_parse_csv(args.solvers, []))
 
     print(SEP)
     print("  FULL MATRIX BENCHMARK: ALL Families x ALL Penalties (incl. none) x ALL Solvers x ALL Backends x ALL Scales")
     print(SEP)
-    print(f"  Families: {ALL_FAMILIES}")
-    print(f"  Penalties: {ALL_PENALTIES}")
-    print(f"  Scales: {ALL_SCALES}")
+    print(f"  Families: {selected_families if args.losses else ALL_FAMILIES}")
+    print(f"  Penalties: {selected_penalties if args.penalties else ALL_PENALTIES}")
+    print(f"  Scales: {selected_scales if args.sizes else ALL_SCALES}")
+    print(f"  Devices: {selected_devices if args.devices else ['cpu', 'cupy', 'torch']}")
+    print(f"  Solvers: {sorted(selected_solvers) if selected_solvers else 'all'}")
     print(f"  Alpha: {ALPHA}  Max-iter: {MAX_ITER}  Tol: {TOL}")
     print(f"  Sections: {'all' if run_all else args.section}")
     print()
@@ -1419,8 +1471,10 @@ def main():
     if needs_matrix_data:
         print("  Generating datasets...")
         seed = args.seed
-        for family in ALL_FAMILIES:
-            for n, p in ALL_SCALES:
+        data_families = selected_families if args.losses else ALL_FAMILIES
+        data_scales = selected_scales if args.sizes else ALL_SCALES
+        for family in data_families:
+            for n, p in data_scales:
                 X, y, true = _gen_data(family, n, p, seed)
                 Xy_data[(family, n, p)] = (X, y, true)
                 seed += 1
@@ -1447,12 +1501,12 @@ def main():
 
         a_total = 0; a_ok = 0; a_max_diff = 0.0
 
-        for n, p in ALL_SCALES:
-            for family in ALL_FAMILIES:
+        for n, p in selected_scales:
+            for family in selected_families:
                 if (family, n, p) not in Xy_data:
                     continue
                 X, y, _ = Xy_data[(family, n, p)]
-                for penalty in ALL_PENALTIES:
+                for penalty in selected_penalties:
                     # Skip slow penalties at large scale
                     if penalty in _SLOW_PENALTIES and n > 2000:
                         continue
@@ -1463,6 +1517,10 @@ def main():
                         mi = max(mi, 5000)
 
                     solvers = _all_solvers(family, penalty)
+                    if selected_solvers is not None:
+                        solvers = [s for s in solvers if s in selected_solvers]
+                    if not solvers:
+                        continue
 
                     print(f"\n  [{family}+{penalty} | n={n},p={p} | solvers={','.join(solvers)}]")
                     print(f"  {'Solver':<14} {'Backend':<8} {'Time(ms)':>10}  {'Iters':>7}  {'NNZ':>5}  {'||coef||':>12}  {'vs_CPU':>14}  {'spd':>8}")
@@ -1470,7 +1528,8 @@ def main():
 
                     try:
                         all_res = _run_gpu_variants(X, y, family, penalty, solvers, ALPHA,
-                                                    max_iter=mi, tol=TOL, penalty_kwargs=pk)
+                                                    max_iter=mi, tol=TOL, penalty_kwargs=pk,
+                                                    devices=selected_devices)
                     except Exception as e:
                         import traceback
                         print(f"  ERROR: {e}")
@@ -1509,6 +1568,8 @@ def main():
                         print(f"  {solver:<14} {'CPU':<8} {cpu_t:>10.1f}  {cpu_ni:>7}  {cpu_nnz:>5}  {cpu_norm:>12.6f}  {'—':>14}  {'—':>8}")
 
                         for be_name in ["cupy", "torch"]:
+                            if be_name not in set(selected_devices) and not (be_name == "cupy" and "cuda" in set(selected_devices)):
+                                continue
                             be = res.get(be_name)
                             if be is None:
                                 print(f"  {solver:<14} {be_name:<8} {'--':>10}  {'--':>7}  {'--':>5}  {'--':>12}  {'--':>14}  {'--':>8}")
@@ -1956,6 +2017,16 @@ def main():
     total_all = sum(t for _, t, _ in section_stats.values())
     all_pass = total_ok == total_all
     print(f"\n  TOTAL: {total_ok}/{total_all} passed  [{'ALL PASS' if all_pass else 'HAS FAILURES'}]")
+    if args.output_json:
+        with open(args.output_json, "w", encoding="utf-8") as f:
+            json.dump({
+                "section_stats": {
+                    sec: {"ok": ok, "total": total, "max_diff": max_d}
+                    for sec, (ok, total, max_d) in section_stats.items()
+                },
+                "section_a_records": section_a_records,
+            }, f, indent=2, sort_keys=True, default=lambda x: float(x) if hasattr(x, "__float__") else str(x))
+        print(f"  Wrote JSON: {args.output_json}")
     print(SEP)
     sys.stdout.flush()
 

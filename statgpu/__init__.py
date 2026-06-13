@@ -22,9 +22,11 @@ from .linear_model import (
     OrderedLogitRegression,
     OrderedProbitRegression,
     PenalizedGeneralizedLinearModel,
+    PenalizedGLM_CV,
     PenalizedLinearRegression,
     PenalizedLogisticRegression,
     PenalizedPoissonRegression,
+    ApproximateCVWarning,
     Ridge,
     RidgeCV,
     Lasso,
@@ -33,6 +35,7 @@ from .linear_model import (
     ElasticNetCV,
 )
 from .survival import CoxPH, CoxPHCV
+from .panel import PanelOLS, RandomEffects
 from .backends import get_backend, NumpyBackend, CuPyBackend, TorchBackend
 from .metrics import evaluate_binary_classification
 from .feature_selection import (
@@ -44,6 +47,7 @@ from .feature_selection import (
 )
 from .inference import adjust_pvalues, combine_pvalues, multipletests
 from .inference import bootstrap_statistic, permutation_test
+from .anova import f_oneway
 from .nonparametric import (
     BandwidthSelectionResult,
     KernelDensityEstimator,
@@ -51,6 +55,8 @@ from .nonparametric import (
     KDEBootstrapResult,
     KernelRegression,
     KernelRegressionRegressor,
+    KernelRidge,
+    KernelRidgeCV,
     fit_kde,
     fit_kernel_regression,
     kde_pdf,
@@ -59,7 +65,11 @@ from .nonparametric import (
     kde_bootstrap_confidence_interval,
     select_bandwidth,
     select_bandwidth_factor,
+    bspline_basis,
+    natural_cubic_spline_basis,
 )
+from .semiparametric import GAM
+from .covariance import EmpiricalCovariance, LedoitWolf, OAS
 
 __all__ = [
     "get_device",
@@ -79,9 +89,11 @@ __all__ = [
     "OrderedLogitRegression",
     "OrderedProbitRegression",
     "PenalizedGeneralizedLinearModel",
+    "PenalizedGLM_CV",
     "PenalizedLinearRegression",
     "PenalizedLogisticRegression",
     "PenalizedPoissonRegression",
+    "ApproximateCVWarning",
     "Ridge",
     "RidgeCV",
     "Lasso",
@@ -90,6 +102,10 @@ __all__ = [
     "ElasticNetCV",
     "CoxPH",
     "CoxPHCV",
+    "PanelOLS",
+    "RandomEffects",
+    "KernelRidge",
+    "KernelRidgeCV",
     "get_backend",
     "NumpyBackend",
     "CuPyBackend",
@@ -105,6 +121,7 @@ __all__ = [
     "multipletests",
     "bootstrap_statistic",
     "permutation_test",
+    "f_oneway",
     "BandwidthSelectionResult",
     "KernelDensityEstimator",
     "KDE",
@@ -119,4 +136,10 @@ __all__ = [
     "kde_bootstrap_confidence_interval",
     "select_bandwidth",
     "select_bandwidth_factor",
+    "GAM",
+    "bspline_basis",
+    "natural_cubic_spline_basis",
+    "EmpiricalCovariance",
+    "LedoitWolf",
+    "OAS",
 ]

@@ -28,12 +28,13 @@ def _clip(arr, lo, hi):
     """Clip array values."""
     xp = _xp(arr)
     if xp.__name__ == "torch":
-        result = arr.clone()
+        if lo is not None and hi is not None:
+            return xp.clamp(arr, min=lo, max=hi)
         if lo is not None:
-            result = xp.clamp(result, min=lo)
+            return xp.clamp(arr, min=lo)
         if hi is not None:
-            result = xp.clamp(result, max=hi)
-        return result
+            return xp.clamp(arr, max=hi)
+        return arr
     return xp.clip(arr, lo, hi)
 
 
@@ -58,8 +59,19 @@ def _log1p(arr):
 def _sigmoid(arr):
     """Numerically stable sigmoid: 1 / (1 + exp(-x))."""
     xp = _xp(arr)
-    z = _clip(arr, -500, 500)
+    # float32 overflows exp() at ~89; float64 at ~709
+    dtype = getattr(arr, 'dtype', None)
+    max_val = 88.0 if dtype is not None and '32' in str(dtype) else 700.0
+    z = _clip(arr, -max_val, max_val)
+    if xp.__name__ == "torch":
+        return xp.sigmoid(z)
     return 1.0 / (1.0 + xp.exp(-z))
+
+
+def _softplus(x):
+    """Numerically stable softplus: log(1 + exp(x))."""
+    xp = _xp(x)
+    return xp.log1p(xp.exp(-xp.abs(x))) + _clip(x, 0.0, None)
 
 
 def _sum(arr):
@@ -77,8 +89,6 @@ def _eigvalsh(arr):
 def _zeros_like(arr):
     """Create zeros array with same shape/type as arr."""
     xp = _xp(arr)
-    if xp.__name__ == "torch":
-        return xp.zeros_like(arr)
     return xp.zeros_like(arr)
 
 
@@ -187,7 +197,9 @@ def _solve_linear_system(A, b, backend="auto"):
             import cupy as cp
             return cp.linalg.solve(A, b)
         return np.linalg.solve(A, b)
-    except (np.linalg.LinAlgError, Exception):
+    except (np.linalg.LinAlgError, RuntimeError):
+        # LinAlgError for numpy/cupy singular matrices
+        # RuntimeError for torch singular matrices
         if backend == "torch":
             import torch
             b_col = b.unsqueeze(1) if b.ndim == 1 else b
@@ -401,6 +413,7 @@ def _max_eigval_power(mat, n_iter=20, tol=1e-8):
 
     if xp.__name__ == "numpy":
         lambda_old = 0.0
+        lambda_new = 0.0
         for _ in range(n_iter):
             v_new = mat @ v
             # Cache dot(v_new, v_new) to avoid recomputing mat @ v.
@@ -417,10 +430,95 @@ def _max_eigval_power(mat, n_iter=20, tol=1e-8):
             lambda_old = lambda_new
         return lambda_new
 
-    lambda_new = None
-    for _ in range(n_iter):
+    lambda_old = 0.0
+    lambda_val = 0.0
+    for i in range(n_iter):
         v_new = mat @ v
-        v_norm = _clip(xp.sqrt(xp.dot(v_new, v_new)), 1e-30, None)
+        dot_vn_vn = xp.dot(v_new, v_new)
+        v_norm_sq = float(dot_vn_vn.item() if hasattr(dot_vn_vn, "item") else dot_vn_vn)
+        if v_norm_sq < 1e-30:
+            return 1.0  # Zero matrix — same fallback as numpy path
+        v_norm = v_norm_sq ** 0.5
         v = v_new / v_norm
         lambda_new = xp.dot(v, v_new)
-    return float(lambda_new.item() if hasattr(lambda_new, "item") else lambda_new)
+        lambda_val = float(lambda_new.item() if hasattr(lambda_new, "item") else lambda_new)
+        if i > 0 and abs(lambda_val - lambda_old) < tol * abs(lambda_val):
+            return lambda_val
+        lambda_old = lambda_val
+    return lambda_val
+
+
+def _soft_threshold(w, thresh):
+    """Soft-thresholding operator: sign(w) * max(|w| - thresh, 0).
+
+    Works across numpy/cupy/torch.  ``thresh`` may be a scalar or an
+    array with the same shape as ``w`` (adaptive weights).
+
+    Uses ``xp.where`` for fewer intermediate arrays (2 vs 4 with
+    sign*clip formulation).
+    """
+    xp = _xp(w)
+    abs_w = xp.abs(w)
+    return xp.where(abs_w > thresh, abs_w - thresh, 0.0) * xp.sign(w)
+
+
+def _scalar_tensor(val, ref_arr):
+    """Create a scalar value compatible with *ref_arr*'s backend/device.
+
+    For torch, returns a 0-d tensor on the same device and dtype.
+    For cupy/numpy, returns a plain Python float (scalars work directly).
+    """
+    xp = _xp(ref_arr)
+    if xp.__name__ == "torch":
+        import torch
+        return torch.tensor(val, dtype=ref_arr.dtype, device=ref_arr.device)
+    return float(val)
+
+
+def _xp_copy(arr):
+    """Copy array on the same backend.  `.clone()` for torch, `.copy()` for others."""
+    xp = _xp(arr)
+    if xp.__name__ == "torch":
+        return arr.clone()
+    return arr.copy()
+
+
+def _xp_zeros(shape, dtype, ref_arr):
+    """Create zeros array on the same device/dtype as *ref_arr*."""
+    xp = _xp(ref_arr)
+    if xp.__name__ == "torch":
+        import torch
+        return torch.zeros(shape, dtype=dtype or ref_arr.dtype, device=ref_arr.device)
+    return xp.zeros(shape, dtype=dtype or getattr(ref_arr, 'dtype', None))
+
+
+def _xp_asarray(arr, dtype, ref_arr):
+    """Convert array to the same backend/device as *ref_arr*.
+
+    Handles numpy→cupy, numpy→torch, and same-backend dtype casts.
+    """
+    xp = _xp(ref_arr)
+    if xp.__name__ == "torch":
+        import torch
+        if isinstance(arr, torch.Tensor):
+            out = arr.to(dtype=dtype, device=ref_arr.device)
+        else:
+            out = torch.as_tensor(np.asarray(arr, dtype=np.float64),
+                                  dtype=dtype, device=ref_arr.device)
+        return out
+    if xp.__name__ == "cupy":
+        # Convert torch dtypes to numpy for cupy compatibility
+        if hasattr(dtype, '__module__') and 'torch' in str(getattr(dtype, '__module__', '')):
+            from statgpu.backends._utils import _torch_dtype_to_np
+            dtype = _torch_dtype_to_np(dtype)
+        return xp.asarray(arr, dtype=dtype)
+    return np.asarray(arr, dtype=dtype)
+
+
+def _xp_eye(n, dtype, ref_arr):
+    """Create identity matrix on the same device/dtype as *ref_arr*."""
+    xp = _xp(ref_arr)
+    if xp.__name__ == "torch":
+        import torch
+        return torch.eye(n, dtype=dtype or ref_arr.dtype, device=ref_arr.device)
+    return xp.eye(n, dtype=dtype or getattr(ref_arr, 'dtype', None))

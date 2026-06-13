@@ -132,6 +132,45 @@ def robust_covariance_numpy(
     return bread_inv @ meat @ bread_inv
 
 
+def robust_covariance_gpu(X, resid, bread_inv, cov_type, xp, hac_maxlags=None):
+    """GPU-native robust/HAC covariance (CuPy or Torch)."""
+    cov_type = validate_cov_type(cov_type)
+    n, k = X.shape
+
+    if cov_type == "hac":
+        scores = X * resid[:, None]
+        maxlags = resolve_hac_maxlags(n, hac_maxlags)
+        meat = _hac_meat_gpu(scores, maxlags, xp)
+        return bread_inv @ meat @ bread_inv
+
+    leverage = None
+    if cov_type in ("hc2", "hc3"):
+        leverage = xp.sum(X * (X @ bread_inv), axis=1)
+        leverage = xp.clip(leverage, 0.0, 1.0 - 1e-12)
+
+    if cov_type == "hc2":
+        omega = resid ** 2 / xp.clip(1.0 - leverage, 1e-12, None)
+    elif cov_type == "hc3":
+        omega = resid ** 2 / xp.clip((1.0 - leverage) ** 2, 1e-12, None)
+    else:
+        omega = resid ** 2
+
+    meat = X.T @ (X * omega[:, None])
+    if cov_type == "hc1" and n > k:
+        meat = meat * (n / (n - k))
+    return bread_inv @ meat @ bread_inv
+
+
+def _hac_meat_gpu(scores, maxlags, xp):
+    """GPU-native Bartlett-kernel HAC meat."""
+    meat = scores.T @ scores
+    for lag in range(1, maxlags + 1):
+        weight = 1.0 - lag / (maxlags + 1.0)
+        gamma = scores[lag:].T @ scores[:-lag]
+        meat = meat + weight * (gamma + gamma.T)
+    return meat
+
+
 def compute_gaussian_inference(
     X_design,
     params,

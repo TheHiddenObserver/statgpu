@@ -786,10 +786,10 @@ class LogisticRegression(BaseEstimator):
                     cov_params = cov_params * (n / (n - k))
         
         # Standard errors
-        self._bse = np.sqrt(np.diag(cov_params))
-        
-        # z-values (asymptotic normal)
-        self._zvalues = self._params / self._bse
+        self._bse = np.sqrt(np.maximum(np.diag(cov_params), 0.0))
+
+        # z-values (asymptotic normal, add epsilon to avoid division by zero)
+        self._zvalues = self._params / (self._bse + 1e-30)
         
         # p-values (two-tailed)
         self._pvalues = 2 * (1 - stats.norm.cdf(np.abs(self._zvalues)))

@@ -3,9 +3,9 @@
 > 语言: 中文  
 > 最后更新: 2026-04-16  
 > 页面定位: 基准脚本索引  
-> 切换: [English](en/benchmarks.md)
+> 切换: [English](../en/guides/benchmarks.md)
 
-语言切换：[English](en/benchmarks.md)
+语言切换：[English](../en/guides/benchmarks.md)
 
 ## 推断相关
 
@@ -223,6 +223,21 @@ python dev/benchmarks/benchmark_external_frameworks.py \
   - Penalties: none, l1, l2, elasticnet, scad, mcp, adaptive_l1, group_lasso, group_mcp, group_scad
   - 规模: n=500/p=50, n=2000/p=200, n=5000/p=500
   - Backends: CPU (NumPy), CuPy, PyTorch
+
+- `dev/tests/_bench_report_parser.py`
+  - 将 full-matrix 文本日志汇总为 JSON 和 Markdown，不导入 `statgpu`，适合远程 benchmark 后处理。
+  - 输出 row 数、backend/family/penalty 分布、精度告警、慢 GPU 行、最快 GPU 行、warning 和 error。
+  - 支持 `--fail-on-alerts`，可在出现精度告警、section/TOTAL 未通过或 error 时返回非零退出码。
+
+示例：
+
+```bash
+python dev/tests/_bench_report_parser.py \
+  dev/tests/_bench_full_matrix_output_section_A.txt \
+  --summary-json tmp/bench_summary.json \
+  --summary-md tmp/bench_summary.md \
+  --fail-on-alerts
+```
 
 Sections:
 - **Section A** (816 tests): 跨后端时间 + 精度

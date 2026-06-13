@@ -9,7 +9,7 @@ import numpy as np
 
 from statgpu._config import Device
 from statgpu.linear_model._cv_base import CVEstimatorBase
-from statgpu.backends import get_backend
+from statgpu.backends import get_backend, _torch_dev
 from ._logistic import LogisticRegression
 
 
@@ -17,42 +17,63 @@ from ._logistic import LogisticRegression
 # CV Cache for LogisticRegression
 # =============================================================================
 
+import threading
+
 _LOGISTIC_CV_C_CACHE_MAXSIZE = int(64)
 _LOGISTIC_CV_C_CACHE: "OrderedDict[Tuple[Any, ...], Dict[str, Any]]" = OrderedDict()
+_LOGISTIC_CV_CACHE_LOCK = threading.Lock()
 
 
 def _logistic_cv_cache_get(key):
     """Get cached LogisticRegression CV results."""
     if key is None:
         return None
-    val = _LOGISTIC_CV_C_CACHE.get(key)
-    if val is not None:
-        _LOGISTIC_CV_C_CACHE.move_to_end(key)
-    return val
+    with _LOGISTIC_CV_CACHE_LOCK:
+        val = _LOGISTIC_CV_C_CACHE.get(key)
+        if val is not None:
+            _LOGISTIC_CV_C_CACHE.move_to_end(key)
+        return val
 
 
 def _logistic_cv_cache_put(key, value):
     """Put cached LogisticRegression CV results."""
     if key is None:
         return
-    _LOGISTIC_CV_C_CACHE[key] = value
-    _LOGISTIC_CV_C_CACHE.move_to_end(key)
-    while len(_LOGISTIC_CV_C_CACHE) > _LOGISTIC_CV_C_CACHE_MAXSIZE:
-        _LOGISTIC_CV_C_CACHE.popitem(last=False)
+    with _LOGISTIC_CV_CACHE_LOCK:
+        _LOGISTIC_CV_C_CACHE[key] = value
+        _LOGISTIC_CV_C_CACHE.move_to_end(key)
+        while len(_LOGISTIC_CV_C_CACHE) > _LOGISTIC_CV_C_CACHE_MAXSIZE:
+            _LOGISTIC_CV_C_CACHE.popitem(last=False)
 
 
-def _make_logistic_cv_auto_cache_key(X, y, Cs, folds, fit_intercept, max_iter, use_gpu, sample_weight=None):
+from statgpu.linear_model._cv_base import hash_cv_data as _hash_logistic_data
+
+
+def _make_logistic_cv_auto_cache_key(X, y, Cs, folds, fit_intercept, max_iter, tol, use_gpu, sample_weight=None):
     """Generate automatic cache key for LogisticRegression CV."""
     h = hashlib.blake2b(digest_size=32)
     h.update(np.asarray(X.shape, dtype=np.int64).tobytes())
-    h.update(np.asarray(y.shape, dtype=np.int64).tobytes())
     h.update(str(X.dtype).encode("utf-8"))
     h.update(np.asarray(Cs, dtype=np.float64).tobytes())
     h.update(str(fit_intercept).encode("utf-8"))
     h.update(str(max_iter).encode("utf-8"))
+    h.update(str(tol).encode("utf-8"))
     h.update(str(use_gpu).encode("utf-8"))
-    if sample_weight is not None:
-        h.update(np.asarray(sample_weight.shape, dtype=np.int64).tobytes())
+    # Hash data content to avoid cross-dataset collisions
+    h.update(_hash_logistic_data(X, y, sample_weight))
+    # Hash fold indices (sample evenly to keep hash fast for large folds)
+    for train_idx, val_idx in folds:
+        train_arr = np.asarray(train_idx, dtype=np.int64)
+        val_arr = np.asarray(val_idx, dtype=np.int64)
+        # Hash a representative sample: first 5, last 5, and length
+        n_sample = min(5, len(train_arr))
+        h.update(train_arr[:n_sample].tobytes())
+        h.update(train_arr[-n_sample:].tobytes())
+        h.update(np.int64(len(train_arr)).tobytes())
+        n_sample_v = min(5, len(val_arr))
+        h.update(val_arr[:n_sample_v].tobytes())
+        h.update(val_arr[-n_sample_v:].tobytes())
+        h.update(np.int64(len(val_arr)).tobytes())
     return h.hexdigest()
 
 
@@ -60,30 +81,7 @@ def _make_logistic_cv_auto_cache_key(X, y, Cs, folds, fit_intercept, max_iter, u
 # K-fold helper (reuse from RidgeCV)
 # =============================================================================
 
-def _kfold_indices(n_samples: int, n_splits: int, random_state: Optional[int] = None):
-    """Generate K-fold train/test indices."""
-    rng = np.random.RandomState(random_state)
-    indices = np.arange(n_samples)
-    rng.shuffle(indices)
-    fold_sizes = np.full(n_splits, n_samples // n_splits, dtype=np.int64)
-    fold_sizes[: n_samples % n_splits] += 1
-    current = 0
-    folds = []
-    for fold_size in fold_sizes:
-        start, stop = current, current + fold_size
-        test_idx = indices[start:stop]
-        train_idx = np.concatenate([indices[:start], indices[stop:]])
-        folds.append((train_idx, test_idx))
-        current = stop
-    return folds
-
-
-def _folds_are_complements(folds, n_samples: int) -> bool:
-    """Check if folds are complementary (each sample appears exactly once in test)."""
-    test_indices = np.concatenate([f[1] for f in folds])
-    if len(test_indices) != n_samples:
-        return False
-    return np.array_equal(np.sort(test_indices), np.arange(n_samples))
+from statgpu.linear_model._cv_base import kfold_indices as _kfold_indices, folds_are_complete as _folds_are_complete
 
 
 # =============================================================================
@@ -117,14 +115,9 @@ def _default_logistic_c_grid(X, y, n_Cs: int = 100, C_min_ratio: float = 1e-3):
 
     # Estimate C_max based on data
     # For logistic regression, C_max is where coefficients become very large
-    # We use a heuristic based on the gradient at zero coefficients
-    X_mean = np.mean(X_arr, axis=0)
-    y_mean = np.mean(y_arr)
-    X_centered = X_arr - X_mean
-    y_centered = y_arr - y_mean
-
-    # Gradient magnitude at beta=0
-    grad = X_centered.T @ (y_centered - 0.5)
+    # We use a heuristic based on the gradient at zero coefficients.
+    # Gradient of logistic loss at beta=0: X'(y - sigmoid(0)) = X'(y - 0.5)
+    grad = X_arr.T @ (y_arr - 0.5)
     C_max = np.max(np.abs(grad)) * 2.0 / len(y_arr)
 
     if C_max == 0:
@@ -186,41 +179,24 @@ def _batch_log_loss(y_val, probs_desc, sample_weight=None):
     return log_loss
 
 
-# =============================================================================
-# GPU batch log-loss
-# =============================================================================
-
 def _batch_log_loss_backend(y_val, probs_desc, backend, sample_weight=None):
-    """
-    Compute log-loss for multiple probability vectors.
+    """Compute log-loss for multiple probability vectors (backend-aware).
 
-    Parameters
-    ----------
-    y_val : array-like
-        Validation labels (n_samples,).
-    probs_desc : array-like
-        Predicted probabilities (n_Cs, n_samples).
-    backend : BackendBase
-        Backend instance (CuPyBackend or TorchBackend).
-    sample_weight : array-like or None
-        Sample weights.
-
-    Returns
-    -------
-    log_loss : array-like
-        Log-loss for each C (n_Cs,).
+    Delegates to numpy version when backend is numpy, otherwise uses
+    backend methods for GPU arrays.
     """
+    xp = getattr(backend, 'xp', np)
     eps = 1e-15
-    probs_clipped = backend.clip(probs_desc, eps, 1 - eps)
+    probs_clipped = xp.clip(probs_desc, eps, 1 - eps) if hasattr(xp, 'clip') else np.clip(probs_desc, eps, 1 - eps)
 
-    ll = -(y_val.reshape(1, -1) * backend.log(probs_clipped) +
-           (1 - y_val.reshape(1, -1)) * backend.log(1 - probs_clipped))
+    ll = -(y_val.reshape(1, -1) * xp.log(probs_clipped) +
+           (1 - y_val.reshape(1, -1)) * xp.log(1 - probs_clipped))
 
     if sample_weight is not None:
         sw = sample_weight.reshape(1, -1)
-        log_loss = backend.sum(sw * ll, axis=1) / backend.sum(sw)
+        log_loss = xp.sum(sw * ll, axis=1) / xp.sum(sw)
     else:
-        log_loss = backend.mean(ll, axis=1)
+        log_loss = xp.mean(ll, axis=1)
 
     return log_loss
 
@@ -279,27 +255,35 @@ def _solve_logistic_path_gpu_from_batch(X_batch, y_batch, n_train_vec, Cs, backe
         for C in Cs:
             # Initialize
             if fit_intercept:
-                X_design = xp.column_stack([backend.ones(n_train, dtype=X_fold.dtype), X_fold])
+                ones_col = backend.ones(n_train, dtype=X_fold.dtype)
+                if _torch_dev(X_fold) is not None:
+                    if ones_col.ndim == 1:
+                        ones_col = ones_col.unsqueeze(1)
+                    X_design = xp.cat([ones_col, X_fold], dim=1)
+                else:
+                    X_design = xp.column_stack([ones_col, X_fold])
                 params = backend.zeros(X_design.shape[1])
             else:
                 X_design = X_fold
                 params = backend.zeros(X_fold.shape[1])
 
-            alpha = 1.0 / (2.0 * C) if C > 0 else 0.0
+            # sklearn convention: reg term = 1/(2C) * ||w||^2, Hessian contribution = 1/C * I
+            alpha = 1.0 / C if C > 0 else 0.0
 
             # IRLS
+            xp = backend.xp
             for iteration in range(max_iter):
                 params_old = backend.copy(params)
 
                 eta = X_design @ params
-                p = 1 / (1 + backend.exp(-backend.clip(eta, -500, 500)))
+                p = 1 / (1 + xp.exp(-xp.clip(eta, -500, 500)))
 
                 W = p * (1 - p)
-                W = backend.clip(W, 1e-8, 1 - 1e-8)
+                W = xp.clip(W, 1e-8, 1 - 1e-8)
 
                 z = eta + (y_fold - p) / W
 
-                XtWX = X_design.T @ (X_design * W[:, backend.newaxis])
+                XtWX = X_design.T @ (X_design * W[:, None])
 
                 if alpha > 0:
                     reg_diag = backend.full(XtWX.shape[0], alpha)
@@ -404,7 +388,7 @@ def _select_logistic_c_cv(
         Full CV results including C grid, loss path, etc.
     """
     device_name = str(device).lower()
-    use_gpu = device_name == Device.CUDA.value
+    use_gpu = device_name in (Device.CUDA.value, Device.TORCH.value)
     gpu_requested = use_gpu
 
     gpu_input_cupy = False
@@ -454,14 +438,12 @@ def _select_logistic_c_cv(
     if Cs is None:
         if gpu_input_cupy or gpu_input_torch:
             # GPU path for C grid generation
+            # Gradient of logistic loss at beta=0: X'(y - sigmoid(0)) = X'(y - 0.5)
+            # Do NOT center X/y — centering is incorrect for logistic regression
             backend = get_backend(backend='auto', device='cuda')
             X_temp = backend.asarray(X)
             y_temp = backend.asarray(y)
-            X_mean = backend.mean(X_temp, axis=0)
-            y_mean = backend.mean(y_temp)
-            X_centered = X_temp - X_mean
-            y_centered = y_temp - y_mean
-            grad = X_centered.T @ (y_centered - 0.5)
+            grad = X_temp.T @ (y_temp - 0.5)
             C_max = float(backend.max(backend.abs(grad)) * 2.0 / len(y_temp))
             if C_max == 0:
                 C_max = 1.0
@@ -502,24 +484,19 @@ def _select_logistic_c_cv(
 
     # Generate CV folds
     if cv_splits is not None:
-        folds = cv_splits
+        from statgpu.linear_model._lasso import _normalize_cv_splits
+        folds = _normalize_cv_splits(cv_splits, n_samples=int(n_samples))
     else:
         folds = _kfold_indices(n_samples=int(n_samples), n_splits=int(cv_folds), random_state=random_state)
 
-    folds_are_complements = _folds_are_complements(folds, n_samples=int(n_samples))
 
     C_grid = C_grid.astype(np.float64, copy=False)
     n_C = int(C_grid.size)
     n_folds = int(len(folds))
 
     # Cache handling
+    # Auto-cache disabled by default to prevent stale results across datasets.
     cache_key_eff = cache_key
-    if cache_key_eff is None and _LOGISTIC_CV_C_CACHE_MAXSIZE > 0:
-        cache_key_eff = _make_logistic_cv_auto_cache_key(
-            X=X, y=y, Cs=C_grid, folds=folds,
-            fit_intercept=bool(fit_intercept), max_iter=max_iter, use_gpu=bool(use_gpu),
-            sample_weight=sample_weight,
-        )
 
     cached_details = _logistic_cv_cache_get(cache_key_eff)
     if cached_details is not None:
@@ -598,23 +575,23 @@ def _select_logistic_c_cv(
                 fit_intercept=bool(fit_intercept), max_iter=max_iter, tol=tol
             )
 
-            # Evaluate log-loss for each fold and C
+            # Evaluate log-loss for each fold and C (vectorized across C)
             for fold_idx in range(n_folds):
                 X_val, y_val, sw_val = fold_eval_payload[fold_idx]
                 n_val = int(X_val.shape[0])
 
-                # Compute probabilities for all Cs
-                probs_desc = []
-                for c_idx in range(n_C):
-                    coef = backend.asarray(coefs_batch[c_idx, fold_idx])
-                    intercept = backend.asarray(intercepts_batch[c_idx, fold_idx])
+                # Batched matmul: X_val @ coefs_all.T for all C at once
+                # coefs_batch shape: (n_C, n_folds, n_features)
+                coefs_all = backend.asarray(coefs_batch[:, fold_idx, :])  # (n_C, n_features)
+                intercepts_all = backend.asarray(intercepts_batch[:, fold_idx])  # (n_C,)
 
-                    eta = X_val @ coef + intercept
-                    probs = 1 / (1 + backend.exp(-backend.clip(eta, -500, 500)))
-                    probs_desc.append(probs)
+                # eta_all shape: (n_val, n_C)
+                xp = backend.xp
+                eta_all = X_val @ coefs_all.T + intercepts_all.reshape(1, -1)
+                # probs_all shape: (n_C, n_val)
+                probs_all = (1 / (1 + xp.exp(-xp.clip(eta_all, -500, 500)))).T
 
-                probs_desc = backend.stack(probs_desc, axis=0)
-                loss_desc = _batch_log_loss_backend(y_val, probs_desc, backend, sw_val)
+                loss_desc = _batch_log_loss_backend(y_val, probs_all, backend, sw_val)
                 loss_path[:, fold_idx] = backend.to_numpy(loss_desc)
 
         except Exception as exc:
@@ -822,6 +799,15 @@ class LogisticRegressionCV(CVEstimatorBase):
         self : LogisticRegressionCV
             Fitted estimator.
         """
+        # Validate y is binary
+        y_arr = np.asarray(y, dtype=np.float64).ravel()
+        unique_y = np.unique(y_arr)
+        if not np.all(np.isin(unique_y, [0.0, 1.0])):
+            raise ValueError(
+                f"LogisticRegressionCV requires binary y (0 or 1), "
+                f"got unique values: {unique_y[:10]}"
+            )
+
         device_name = self._get_compute_device().value
 
         # Run CV to select C
@@ -853,7 +839,8 @@ class LogisticRegressionCV(CVEstimatorBase):
         self.mean_loss_ = mean_loss
 
         if np.any(np.isfinite(mean_loss)):
-            self.best_score_ = float(np.nanmin(mean_loss))
+            # sklearn convention: best_score_ is negative loss (higher is better)
+            self.best_score_ = -float(np.nanmin(mean_loss))
         else:
             self.best_score_ = np.nan
 
