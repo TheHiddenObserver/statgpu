@@ -1456,10 +1456,7 @@ def fista_bb_solver(
                     _obj_val = float(_to_numpy(loss.value(X_proc, y_proc, coef, sample_weight=sample_weight)))
                 except TypeError:
                     _obj_val = float(_to_numpy(loss.value(X_proc, y_proc, coef)))
-                try:
-                    _pen_val = float(_to_numpy(penalty.value(coef)))
-                except (AttributeError, ValueError, TypeError):
-                    _pen_val = 0.0
+                _pen_val = _tracking_penalty_value(penalty, coef)
                 _obj_total = _obj_val + _pen_val
                 if not np.isfinite(_obj_total):
                     _diverged = True
@@ -1582,10 +1579,7 @@ def fista_bb_solver(
                     # Batch obj + coef-norm into a single sync.
                     _new_obj, _new_norm = _sync_scalars(
                         loss.value(X_proc, y_proc, coef), _norm2_dev(coef), backend=backend)
-                    try:
-                        _new_pen = float(_to_numpy(penalty.value(coef)))
-                    except (AttributeError, ValueError, TypeError):
-                        _new_pen = 0.0
+                    _new_pen = _tracking_penalty_value(penalty, coef)
                     _new_total = _new_obj + _new_pen
                     # Accept if: finite, reasonable norm, and objective not exploded.
                     # Use relative threshold (10x initial objective) instead of

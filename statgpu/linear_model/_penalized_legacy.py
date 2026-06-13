@@ -11,7 +11,7 @@ from __future__ import annotations
 import numpy as np
 
 # Methods extracted from PenalizedGeneralizedLinearModel:
-    def _irls_cd_gpu(self, pen, X_work, y_arr, init, backend_name, _lla_continuation=False):
+def _irls_cd_gpu(self, pen, X_work, y_arr, init, backend_name, _lla_continuation=False):
         """GPU-native IRLS with coordinate descent for GLM + non-smooth penalties.
 
         Same algorithm as _irls_cd but keeps all arrays on GPU to avoid
@@ -277,7 +277,7 @@ import numpy as np
         return beta, n_iter
 
 
-    def _block_cd_group_lasso_gpu_batched(self, pen, X_work, y_arr, init, backend_name):
+def _block_cd_group_lasso_gpu_batched(self, pen, X_work, y_arr, init, backend_name):
         """Batched GPU block coordinate descent for group_lasso penalty.
 
         Processes all groups in parallel within each iteration to minimize
@@ -401,7 +401,7 @@ import numpy as np
         return beta, intercept, n_iter
 
 
-    def _cd_elasticnet(self, pen, X_work, y_arr, init):
+def _cd_elasticnet(self, pen, X_work, y_arr, init):
         """Coordinate descent for elasticnet penalty (squared_error loss).
 
         Matches R glmnet's CD algorithm for elasticnet:
@@ -455,7 +455,7 @@ import numpy as np
         return beta, intercept, n_iter
 
 
-    def _cd_l1(self, pen, X_work, y_arr, init):
+def _cd_l1(self, pen, X_work, y_arr, init):
         """Coordinate descent for L1 (lasso) penalty (squared_error loss).
 
         Matches R glmnet's CD algorithm:
@@ -507,7 +507,7 @@ import numpy as np
         return beta, intercept, n_iter
 
 
-    def _fit_cpu_loss(self, X, y, sample_weight=None, solver="fista"):
+def _fit_cpu_loss(self, X, y, sample_weight=None, solver="fista"):
         """Fit using loss-aware solver (FISTA with arbitrary loss).
 
         For GLM losses (logistic, poisson) with intercept, augments X with
@@ -566,7 +566,7 @@ import numpy as np
         self._df_resid = self._nobs - (X.shape[1] + (1 if self._effective_intercept else 0))
 
 
-    def _fit_cpu_irls(self, X, y, sample_weight=None):
+def _fit_cpu_irls(self, X, y, sample_weight=None):
         """Fit using IRLS for smooth penalty + smooth loss (e.g., Logistic/Poisson + L2).
 
         Each IRLS iteration:

@@ -47,6 +47,7 @@ __all__ = [
     "MCPPenalty",
     "AdaptiveL1Penalty",
     "GroupLassoPenalty",
+    "AdaptiveGroupLassoPenalty",
     "GroupMCPPenalty",
     "GroupSCADPenalty",
     "get_penalty",

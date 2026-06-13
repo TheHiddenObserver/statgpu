@@ -529,7 +529,6 @@ def _select_elasticnet_params_cv(
                 # (largest alpha first -> sparsest solution -> warm-start to smaller alpha)
                 alpha_grid_sorted = np.sort(alpha_grid)[::-1]
                 sort_indices = np.argsort(alpha_grid)[::-1]
-                inv_sort = np.argsort(sort_indices)
 
                 # Sort alpha_grid for warm-start path
                 alpha_grid_ws = alpha_grid_sorted

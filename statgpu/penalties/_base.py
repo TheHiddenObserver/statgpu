@@ -241,7 +241,7 @@ class CompositePenalty(Penalty):
         the LLA weight is sum_i w_i * P_i'(|coef|).
         """
         if not any(not p.is_convex for p in self.penalties):
-            return np.zeros_like(coef)
+            return np.ones_like(coef)
 
         result = np.zeros_like(coef)
         for weight, pen in zip(self.weights, self.penalties):

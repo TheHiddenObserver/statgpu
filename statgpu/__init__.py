@@ -27,6 +27,7 @@ from .linear_model import (
     LassoCV,
     ElasticNet,
     ElasticNetCV,
+    PenalizedGLM_CV,
 )
 from .survival import CoxPH, CoxPHCV
 from .unsupervised import (
