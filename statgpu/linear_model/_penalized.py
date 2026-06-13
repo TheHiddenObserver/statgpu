@@ -563,6 +563,11 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
             self._formula_has_intercept = None
             self._use_intercept = None
 
+        # Record number of features for sklearn compatibility
+        if X is not None:
+            X_arr = np.asarray(X) if not hasattr(X, 'shape') else X
+            self.n_features_in_ = X_arr.shape[1] if X_arr.ndim >= 2 else 1
+
         self._penalty = self._resolve_penalty()
         self._validate_solver_penalty()
         self._loss = self._resolve_loss()

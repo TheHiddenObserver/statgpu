@@ -207,7 +207,7 @@ def _batch_log_loss_backend(y_val, probs_desc, backend, sample_weight=None):
 # GPU batch solver for Logistic (IRLS)
 # =============================================================================
 
-def _solve_logistic_path_gpu_from_batch(X_batch, y_batch, n_train_vec, Cs, backend, fit_intercept=True, max_iter=100, tol=1e-4):
+def _solve_logistic_path_gpu_from_batch(X_batch, y_batch, n_train_vec, Cs, backend, fit_intercept=True, max_iter=100, tol=1e-4, sw_batch=None):
     """
     Solve logistic regression path for multiple folds using batched IRLS.
 
@@ -229,6 +229,8 @@ def _solve_logistic_path_gpu_from_batch(X_batch, y_batch, n_train_vec, Cs, backe
         Maximum iterations for IRLS.
     tol : float
         Convergence tolerance.
+    sw_batch : array-like, optional
+        Batch of sample weights (n_folds, n_train_max).
 
     Returns
     -------
@@ -249,6 +251,7 @@ def _solve_logistic_path_gpu_from_batch(X_batch, y_batch, n_train_vec, Cs, backe
     for fold_idx in range(n_folds):
         X_fold = X_batch[fold_idx][:n_train_vec[fold_idx]]
         y_fold = y_batch[fold_idx][:n_train_vec[fold_idx]]
+        sw_fold = sw_batch[fold_idx][:n_train_vec[fold_idx]] if sw_batch is not None else None
         n_train = n_train_vec[fold_idx]
 
         fold_coefs = []
@@ -284,6 +287,10 @@ def _solve_logistic_path_gpu_from_batch(X_batch, y_batch, n_train_vec, Cs, backe
                 W = xp.clip(W, 1e-8, 1 - 1e-8)
 
                 z = eta + (y_fold - p) / W
+
+                # Apply sample weights to W for weighted IRLS
+                if sw_fold is not None:
+                    W = W * sw_fold
 
                 XtWX = X_design.T @ (X_design * W[:, None])
 
@@ -539,6 +546,7 @@ def _select_logistic_c_cv(
             # Prepare batch data
             X_batch_list = []
             y_batch_list = []
+            sw_batch_list = []
             n_train_folds = []
             fold_eval_payload = []
 
@@ -551,9 +559,11 @@ def _select_logistic_c_cv(
                 X_val = X_full[val_idx_gpu]
                 y_val = y_full[val_idx_gpu]
                 sw_val = None if sw_full is None else sw_full[val_idx_gpu]
+                sw_train = None if sw_full is None else sw_full[train_idx_gpu]
 
                 X_batch_list.append(X_train)
                 y_batch_list.append(y_train)
+                sw_batch_list.append(sw_train)
                 n_train_folds.append(int(X_train.shape[0]))
                 fold_eval_payload.append((X_val, y_val, sw_val))
 
@@ -563,18 +573,23 @@ def _select_logistic_c_cv(
 
             X_batch = backend.zeros((n_folds, n_train_max, n_features), dtype=cv_dtype)
             y_batch = backend.zeros((n_folds, n_train_max), dtype=cv_dtype)
+            has_sw = sw_batch_list[0] is not None
+            sw_batch = backend.zeros((n_folds, n_train_max), dtype=cv_dtype) if has_sw else None
 
             for fold_idx in range(n_folds):
                 n_train = n_train_folds[fold_idx]
                 X_batch[fold_idx, :n_train] = X_batch_list[fold_idx]
                 y_batch[fold_idx, :n_train] = y_batch_list[fold_idx]
+                if sw_batch is not None and sw_batch_list[fold_idx] is not None:
+                    sw_batch[fold_idx, :n_train] = sw_batch_list[fold_idx]
 
             n_train_vec = np.asarray(n_train_folds, dtype=np.int32)
 
             # Solve for all Cs
             coefs_batch, intercepts_batch = _solve_logistic_path_gpu_from_batch(
                 X_batch, y_batch, n_train_vec, C_grid, backend,
-                fit_intercept=bool(fit_intercept), max_iter=max_iter, tol=tol
+                fit_intercept=bool(fit_intercept), max_iter=max_iter, tol=tol,
+                sw_batch=sw_batch
             )
 
             # Evaluate log-loss for each fold and C (vectorized across C)
