@@ -167,6 +167,7 @@ def fista_solver(
     # Initial Lipschitz: default to zero (safe for exp-link warm starts),
     # but allow losses to request evaluation at the provided init to avoid
     # degenerate curvature from eta=0 clipping.
+    _cached_XtWX_weighted = None  # populated in Lipschitz block, used in GPU loop
     if lipschitz_L is not None and lipschitz_L > 0:
         L = lipschitz_L
     else:
@@ -875,7 +876,9 @@ def fista_lla_path(
                             _finite_dev = xp.isfinite(_cn_dev)
                             _cap_needed_dev = _cn_dev > 5.0
                             _diverge_norm_dev = _cn_dev > _DIVERGE_COEF_NORM_CAP if iteration > 10 else xp.tensor(False, device=coef.device)
-                            _obj_finite_dev = xp.isfinite(q_new_dev) if iteration > 0 else xp.tensor(True, device=coef.device)
+                            # Wrap scalar as tensor for torch stack compatibility
+                            _q_dev = xp.tensor(float(q_new_dev), device=coef.device) if iteration > 0 else xp.tensor(0.0, device=coef.device)
+                            _obj_finite_dev = xp.isfinite(_q_dev) if iteration > 0 else xp.tensor(True, device=coef.device)
                         elif backend == "cupy":
                             _finite_dev = xp.isfinite(_cn_dev)
                             _cap_needed_dev = _cn_dev > 5.0

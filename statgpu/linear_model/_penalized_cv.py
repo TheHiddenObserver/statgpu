@@ -674,7 +674,7 @@ def _glm_sparse_cv_folds(
     # Resolve loss-specific parameters: user-specified kwargs override defaults
     _lk = loss_kwargs or {}
     from statgpu.linear_model._penalized import _resolve_loss_name
-    _loss_obj = _resolve_loss_name(loss_name)
+    _loss_obj = _resolve_loss_name(loss_name, loss_kwargs=_lk)
     _nb_alpha = float(_lk.get('alpha', getattr(_loss_obj, 'alpha', _NB_ALPHA_DEFAULT)))
     _tw_power = float(_lk.get('power', getattr(_loss_obj, 'power', _TWEEDIE_POWER_DEFAULT)))
 
