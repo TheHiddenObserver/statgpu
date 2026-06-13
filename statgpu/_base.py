@@ -2,14 +2,22 @@
 Base classes for statgpu estimators.
 """
 
-__all__ = ["BaseEstimator"]
+from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from typing import Optional, Union, Any
 import numpy as np
 
 from statgpu._config import Device, get_device
-from statgpu.backends import get_backend, BackendBase, _get_torch_device_str
+from statgpu.backends import (
+    get_backend,
+    BackendBase,
+    _get_torch_device_str,
+    _cupy_to_torch_dlpack,
+    _torch_to_cupy_dlpack,
+    _numpy_to_torch_tensor,
+    _move_torch_tensor,
+)
 
 
 class BaseEstimator(ABC):
@@ -121,6 +129,11 @@ class BaseEstimator(ABC):
         elif backend == "cupy":
             return self._to_cupy(X)
         elif backend == "numpy":
+            if hasattr(X, "get"):
+                return X.get()
+            # Handle torch tensors that may be on CUDA — must move to CPU first
+            if hasattr(X, 'cpu') and hasattr(X, 'numpy'):
+                return X.detach().cpu().numpy()
             return np.asarray(X)
 
         # Otherwise, use device-based default
@@ -141,7 +154,8 @@ class BaseEstimator(ABC):
         if hasattr(X, "get"):  # CuPy-like array
             X_np = X.get()
         elif hasattr(X, "cpu"):  # PyTorch tensor
-            X_np = X.cpu().numpy()
+            X_cpu = X.detach().cpu() if hasattr(X, "detach") else X.cpu()
+            X_np = X_cpu.numpy() if hasattr(X_cpu, "numpy") else np.asarray(X_cpu)
         else:
             X_np = np.asarray(X)
 
@@ -168,20 +182,30 @@ class BaseEstimator(ABC):
             )
 
         if isinstance(X, torch.Tensor):
-            if device and X.device.type != device:
-                return X.to(device)
-            return X
+            return _move_torch_tensor(X, device=device) if device else X
 
         if hasattr(X, "get"):  # CuPy
+            tensor = _cupy_to_torch_dlpack(X, device=device)
+            if tensor is not None:
+                return tensor
             X_np = X.get()
         elif hasattr(X, "cpu"):  # Tensor-like
-            X_cpu = X.cpu()
+            X_cpu = X.detach().cpu() if hasattr(X, "detach") else X.cpu()
             X_np = X_cpu.numpy() if hasattr(X_cpu, "numpy") else np.asarray(X_cpu)
         else:
-            X_np = np.asarray(X)
+            target_device = device or _get_torch_device_str()
+            return _numpy_to_torch_tensor(
+                X,
+                device=target_device,
+                pin_memory=str(target_device).startswith("cuda"),
+            )
 
         target_device = device or _get_torch_device_str()
-        return torch.from_numpy(X_np).to(target_device)
+        return _numpy_to_torch_tensor(
+            X_np,
+            device=target_device,
+            pin_memory=str(target_device).startswith("cuda"),
+        )
 
     def _to_cupy(self, X):
         """Convert input to CuPy array."""
@@ -191,6 +215,9 @@ class BaseEstimator(ABC):
             return X
 
         if hasattr(X, "cpu"):  # PyTorch
+            arr = _torch_to_cupy_dlpack(X)
+            if arr is not None:
+                return arr
             X_np = X.detach().cpu().numpy()
         elif hasattr(X, "get"):  # CuPy (shouldn't happen, but handle it)
             X_np = X.get()
@@ -204,7 +231,7 @@ class BaseEstimator(ABC):
         if hasattr(X, 'get'):  # CuPy
             return X.get()
         elif hasattr(X, 'cpu'):  # PyTorch
-            return X.cpu().numpy()
+            return X.detach().cpu().numpy()
         return np.asarray(X)
 
     def adjust_pvalues(
@@ -483,23 +510,27 @@ class BaseEstimator(ABC):
             )
     
     def get_params(self, deep=True):
-        """Get parameters for this estimator (sklearn-compatible)."""
+        """Get parameters for this estimator.
+
+        Uses ``inspect.signature`` to introspect ``__init__`` across the full
+        MRO, so every constructor parameter is returned regardless of how many
+        levels of inheritance exist.  This matches sklearn's ``BaseEstimator``
+        contract and ensures ``sklearn.base.clone()`` works correctly.
+        """
         import inspect
         params = {}
         for cls in type(self).__mro__:
             if cls is object:
                 continue
-            try:
-                sig = inspect.signature(cls.__init__)
-                for name in sig.parameters:
-                    if name == 'self':
-                        continue
-                    if hasattr(self, name):
-                        params[name] = getattr(self, name)
-                    elif hasattr(self, f'_{name}'):
-                        params[name] = getattr(self, f'_{name}')
-            except (ValueError, TypeError):
-                continue
+            sig = inspect.signature(cls.__init__)
+            for name in sig.parameters:
+                if name == "self":
+                    continue
+                if name in params:
+                    continue  # already captured from a more specific class
+                # Prefer the current attribute value over the default
+                if hasattr(self, name):
+                    params[name] = getattr(self, name)
         return params
     
     def set_params(self, **params):

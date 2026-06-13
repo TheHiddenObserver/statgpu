@@ -14,7 +14,7 @@ import numpy as np
 from statgpu._config import Device
 from statgpu.backends import _get_torch_device_str
 from statgpu.linear_model._cv_base import CVEstimatorBase
-from statgpu.survival._cox import CoxPH
+from ._cox import CoxPH
 
 
 # =============================================================================
@@ -874,6 +874,37 @@ class CoxPHCV(CVEstimatorBase):
         self.hazard_ratios_ = None
         self.estimator_ = None
 
+    def _cleanup_cuda_memory(self):
+        """Best-effort CuPy memory pool cleanup."""
+        if not self.gpu_memory_cleanup:
+            return
+        try:
+            import cupy as cp
+
+            cp.get_default_memory_pool().free_all_blocks()
+            cp.get_default_pinned_memory_pool().free_all_blocks()
+        except Exception:
+            pass
+
+    def _cleanup_torch_memory(self):
+        """Best-effort Torch CUDA cache cleanup."""
+        if not self.gpu_memory_cleanup:
+            return
+        try:
+            import torch
+
+            torch.cuda.empty_cache()
+            torch.cuda.synchronize()
+        except Exception:
+            pass
+
+    def __del__(self):
+        try:
+            self._cleanup_cuda_memory()
+            self._cleanup_torch_memory()
+        except Exception:
+            pass
+
     def _fit_cv(self, X, time, event, entry=None, cluster=None):
         """
         Fit CoxPH with K-fold cross-validation.
@@ -963,6 +994,8 @@ class CoxPHCV(CVEstimatorBase):
         self.estimator_ = final_model
         self.coef_ = final_model.coef_.copy()
         self.hazard_ratios_ = final_model.hazard_ratios_.copy()
+        self._cleanup_cuda_memory()
+        self._cleanup_torch_memory()
 
         return self
 
