@@ -22,7 +22,7 @@ def _parse_formula_if_provided(formula, data, X, y):
 
 from statgpu._base import BaseEstimator
 from statgpu._config import Device
-from statgpu.backends import _to_numpy
+from statgpu.backends import _to_numpy, _resolve_backend
 from statgpu.glm_core._irls import IRLSSolver
 from statgpu.glm_core._solver import fista_solver
 from statgpu.glm_core._family import (
@@ -496,6 +496,8 @@ class GeneralizedLinearModel(BaseEstimator):
             self._params = np.concatenate([[self.intercept_], self.coef_])
         else:
             # Squared error: centering X and y preserves the objective.
+            from statgpu.backends._utils import _get_xp
+            xp = _get_xp(backend_name)
             if backend_name == "cupy":
                 X_centered = X - xp.mean(X, axis=0)
                 y_centered = y - xp.mean(y)
@@ -543,6 +545,8 @@ class GeneralizedLinearModel(BaseEstimator):
             raise ValueError(f"solver='{solver_name}' requires a Hessian.")
 
         if self._effective_intercept:
+            from statgpu.backends._utils import _get_xp
+            xp = _get_xp(backend_name)
             if backend_name == "cupy":
                 x_dtype = X.dtype if getattr(X.dtype, "kind", "") == "f" else xp.float64
                 X_float = X.astype(x_dtype, copy=False)

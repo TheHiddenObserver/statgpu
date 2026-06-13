@@ -424,7 +424,7 @@ def irls_solver(
 
     n_iter = iteration + 1
     if n_iter >= max_iter:
-        from statgpu.glm_core._solver import ConvergenceWarning
+        from statgpu.glm_core._solver_utils import ConvergenceWarning
         warnings.warn(
             f"irls did not converge within {max_iter} iterations "
             f"(family={getattr(family, 'name', '?')}).",
