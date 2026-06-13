@@ -9,7 +9,7 @@ import numpy as np
 from statgpu._config import Device
 from statgpu.backends import _get_xp, _to_float_scalar, _torch_dev, xp_zeros, xp_eye
 
-from ._empirical import EmpiricalCovariance, _detect_backend, _stable_inv
+from statgpu.covariance._empirical import EmpiricalCovariance, _detect_backend, _stable_inv
 
 
 class LedoitWolf(EmpiricalCovariance):

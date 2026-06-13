@@ -25,7 +25,7 @@ from statgpu._base import BaseEstimator
 from statgpu._config import Device
 from statgpu.backends import _LINALG_ERRORS, _get_torch_device_str, _torch_dev, _to_float_scalar, _to_numpy, xp_astype, xp_zeros, xp_cholesky_solve
 
-from ._utils import PanelSummary, within_transform, group_means, group_sizes
+from statgpu.panel._utils import PanelSummary, within_transform, group_means, group_sizes
 
 
 class RandomEffects(BaseEstimator):
@@ -140,13 +140,13 @@ class RandomEffects(BaseEstimator):
             X_bar_i[:, j] = group_means(X_arr[:, j], entity_arr, xp=xp)
 
         # Extract unique group means for between estimation
-        # (avoid T_i-weighting in normal equations)
-        unique_entities = xp.unique(entity_arr)
+        # Use first occurrence index to get one row per entity
+        entity_np = _to_numpy(entity_arr).ravel()
+        unique_entities, first_idx = np.unique(entity_np, return_index=True)
         n_groups = len(unique_entities)
-        y_bar_unique = group_means(y_arr, entity_arr, xp=xp)[:n_groups]
-        X_bar_unique = xp.zeros((n_groups, k), dtype=X_arr.dtype)
-        for j in range(k):
-            X_bar_unique[:, j] = group_means(X_arr[:, j], entity_arr, xp=xp)[:n_groups]
+        first_idx_dev = xp.asarray(first_idx, dtype=xp.int64)
+        y_bar_unique = y_bar_i[first_idx_dev]
+        X_bar_unique = X_bar_i[first_idx_dev]
 
         # Between OLS: beta_between = (X_bar'X_bar)^{-1} X_bar' y_bar
         XtX_b = X_bar_unique.T @ X_bar_unique

@@ -16,9 +16,9 @@ from statgpu.backends import (
     xp_maximum,
     xp_ones,
 )
-from ._bandwidth_selection import select_bandwidth
+from statgpu.nonparametric.kernel_smoothing._bandwidth_selection import select_bandwidth
 
-from ._kernel_common import (
+from statgpu.nonparametric.kernel_smoothing._kernel_common import (
     _auto_backend_from_device,
     _as_points_2d,
     _as_samples_2d,

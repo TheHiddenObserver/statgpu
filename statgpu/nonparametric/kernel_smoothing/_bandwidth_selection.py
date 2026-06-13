@@ -10,7 +10,7 @@ import numpy as np
 
 from statgpu.backends import _torch_dev, xp_eye, xp_arange, xp_asarray, xp_astype, xp_maximum
 
-from ._kernel_common import (
+from statgpu.nonparametric.kernel_smoothing._kernel_common import (
     _bandwidth_factor,
     _bandwidth_factor_1d_nrd,
     _kernel_values_from_quad,

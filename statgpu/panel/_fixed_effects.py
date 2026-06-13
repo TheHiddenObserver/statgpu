@@ -17,8 +17,8 @@ from statgpu._base import BaseEstimator
 from statgpu._config import Device
 from statgpu.backends import _LINALG_ERRORS, _get_torch_device_str, _torch_dev, _to_float_scalar, _to_numpy, xp_astype, xp_cholesky_solve
 
-from ._utils import PanelSummary, _scatter_add, demean_variables
-from ._covariance import clustered_covariance, two_way_clustered_covariance
+from statgpu.panel._utils import PanelSummary, _scatter_add, demean_variables
+from statgpu.panel._covariance import clustered_covariance, two_way_clustered_covariance
 
 
 class PanelOLS(BaseEstimator):

@@ -12,7 +12,7 @@ from statgpu._base import BaseEstimator
 from statgpu._config import Device
 from statgpu.backends import _LINALG_ERRORS, _to_numpy, _torch_dev, xp_eye, xp_astype
 
-from ._kernels import pairwise_kernels
+from statgpu.nonparametric.kernel_methods._kernels import pairwise_kernels
 
 
 class KernelRidge(BaseEstimator):

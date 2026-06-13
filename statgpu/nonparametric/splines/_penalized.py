@@ -284,7 +284,7 @@ def fit_penalized_spline(x, y, knots, degree=3, penalty_order=2,
     S : array, shape (n_basis, n_basis)
         Penalty matrix.
     """
-    from ._bspline_basis import bspline_basis
+    from statgpu.nonparametric.splines._bspline_basis import bspline_basis
 
     xp = _get_xp(xp)
 
@@ -331,7 +331,7 @@ def predict_penalized_spline(x_new, beta, knots, degree=3, xp=None,
     y_pred : array, shape (n_new,)
         Predicted values.
     """
-    from ._bspline_basis import bspline_basis
+    from statgpu.nonparametric.splines._bspline_basis import bspline_basis
 
     xp = _get_xp(xp)
 

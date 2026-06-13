@@ -12,8 +12,8 @@ from statgpu._base import BaseEstimator
 from statgpu._config import Device
 from statgpu.backends import _to_numpy, _torch_dev, xp_zeros, xp_astype
 
-from ._kernels import pairwise_kernels
-from ._krr import KernelRidge
+from statgpu.nonparametric.kernel_methods._kernels import pairwise_kernels
+from statgpu.nonparametric.kernel_methods._krr import KernelRidge
 
 
 def _kfold_indices(n_samples: int, n_splits: int, random_state: Optional[int] = None):
