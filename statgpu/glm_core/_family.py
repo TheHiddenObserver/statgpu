@@ -12,8 +12,14 @@ from typing import Any
 
 import numpy as np
 
-from statgpu.backends._utils import _get_xp
+from statgpu.backends._array_ops import _clip, _log, _xp
 from statgpu.inference._distributions_backend import get_distribution
+
+__all__ = [
+    "Link", "IdentityLink", "LogLink", "InversePowerLink", "InverseSquaredLink",
+    "GLMFamily", "Gaussian", "Binomial", "Poisson", "Gamma",
+    "InverseGaussian", "NegativeBinomial", "Tweedie",
+]
 
 
 def _backend_name(arr):
@@ -26,43 +32,18 @@ def _backend_name(arr):
     return "numpy"
 
 
-def _xp(arr):
-    """Get the array module (numpy/cupy/torch) from array type."""
-    return _get_xp(_backend_name(arr))
-
-
-def _clip(arr, lo, hi):
-    xp = _xp(arr)
-    if xp.__name__ == "torch":
-        import torch
-        result = arr.clone()
-        if lo is not None:
-            result = torch.clamp(result, min=lo)
-        if hi is not None:
-            result = torch.clamp(result, max=hi)
-        return result
-    return xp.clip(arr, lo, hi)
+# _exp with overflow protection (clips input to [-500, 500])
+_ETA_CLIP_EXP = 500.0
 
 
 def _exp(arr):
-    xp = _xp(arr)
-    # Clip to prevent overflow in exp (matching backend conventions)
-    if xp.__name__ == "torch":
-        import torch
-        return torch.exp(torch.clamp(arr, min=-500, max=500))
-    return xp.exp(xp.clip(arr, -500, 500))
-
-
-def _log(arr):
-    return _xp(arr).log(arr)
+    """Exponential with overflow protection."""
+    return _xp(arr).exp(_clip(arr, -_ETA_CLIP_EXP, _ETA_CLIP_EXP))
 
 
 def _sqrt(arr):
-    xp = _xp(arr)
-    if xp.__name__ == "torch":
-        import torch
-        return torch.sqrt(torch.clamp(arr, min=0))
-    return xp.sqrt(arr)
+    """Square root with clamp to prevent NaN from negative values."""
+    return _xp(arr).sqrt(_clip(arr, 0, None))
 
 
 def _ones_like(arr):
@@ -75,7 +56,7 @@ def _cdf(arr):
     return get_distribution("norm", backend=backend).cdf(arr)
 
 
-def _ppd(arr):
+def _ppf(arr):
     """Standard normal PPF (inverse CDF, Phi^{-1})."""
     backend = _backend_name(arr)
     return get_distribution("norm", backend=backend).ppf(arr)
@@ -135,14 +116,14 @@ class ProbitLink(Link):
     name = "probit"
 
     def link(self, mu):
-        return _ppd(_clip(mu, 1e-10, 1 - 1e-10))
+        return _ppf(_clip(mu, 1e-10, 1 - 1e-10))
 
     def inverse(self, eta):
         return _cdf(eta)
 
     def derivative(self, mu):
         return 1.0 / _pdf(
-            _ppd(_clip(mu, 1e-10, 1 - 1e-10))
+            _ppf(_clip(mu, 1e-10, 1 - 1e-10))
         )
 
 
@@ -336,7 +317,6 @@ class NegativeBinomial(GLMFamily):
     link = LogLink()
 
     def __init__(self, alpha=1.0):
-        self.link = self.__class__.link  # use class-level link
         if not np.isfinite(alpha) or alpha <= 0.0:
             raise ValueError("alpha must be a finite positive scalar for negative binomial family")
         self.alpha = alpha
@@ -367,7 +347,6 @@ class Tweedie(GLMFamily):
     link = LogLink()
 
     def __init__(self, power=1.5):
-        self.link = self.__class__.link
         self.power = power
 
     def variance(self, mu):

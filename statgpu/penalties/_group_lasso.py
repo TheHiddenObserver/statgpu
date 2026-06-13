@@ -378,7 +378,9 @@ class GroupLassoPenalty(Penalty):
         return self._proximal_padded(w, step, xp, G, max_sz)
 
     def _gather(self, w, xp):
-        """Permute w so groups are contiguous. Identity if already contiguous."""
+        """Permute w so groups are contiguous. Only valid for equal-size groups."""
+        if not self._all_equal_size:
+            raise ValueError("_gather requires equal-size groups; use _proximal_padded instead")
         if self._is_contiguous:
             return w.reshape(self._n_groups, self._group_size_uniform)
         return w[self._flat_indices].reshape(self._n_groups, self._group_size_uniform)

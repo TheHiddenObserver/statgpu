@@ -257,7 +257,16 @@ class GeneralizedLinearModel(BaseEstimator):
 
         family = self._get_family()
         _solver_lower = self.solver.lower() if isinstance(self.solver, str) else self.solver
-        solver_name = _solver_lower if _solver_lower != "auto" else "irls"
+        if _solver_lower == "auto":
+            # Heuristic: IRLS for smooth penalties, FISTA for non-smooth
+            _pname = str(getattr(self._penalty, "name", "none")).lower()
+            if _pname in ("l1", "scad", "mcp", "adaptive_l1", "adaptive_lasso",
+                          "group_lasso", "group_mcp", "group_scad"):
+                solver_name = "fista"
+            else:
+                solver_name = "irls"
+        else:
+            solver_name = _solver_lower
 
         if solver_name == "irls":
             self._fit_irls(X_arr, y_arr, sample_weight, family, backend_name)
@@ -454,7 +463,9 @@ class GeneralizedLinearModel(BaseEstimator):
             else:
                 X_aug = np.column_stack([X, np.ones(X.shape[0])])
             p = X.shape[1]
-            y_mean = max(float(np.mean(_to_numpy(y))), 1e-3)
+            # Compute mean on native backend to avoid GPU→CPU transfer
+            _xp_mod = _get_xp(backend_name) if backend_name != "numpy" else np
+            y_mean = max(float(_xp_mod.mean(y)), 1e-3)
             init = np.zeros(p + 1, dtype=np.float64)
             if self.family == "binomial":
                 p_mean = np.clip(y_mean, 1e-3, 1.0 - 1e-3)
@@ -505,8 +516,9 @@ class GeneralizedLinearModel(BaseEstimator):
                 init_coef=None, sample_weight=sample_weight,
             )
 
-            X_mean = np.mean(_to_numpy(X), axis=0)
-            y_mean = float(np.mean(_to_numpy(y)))
+            _xp_mod = _get_xp(backend_name) if backend_name != "numpy" else np
+            X_mean = _to_numpy(_xp_mod.mean(X, axis=0))
+            y_mean = float(_xp_mod.mean(y))
             self.coef_ = _to_numpy(coef)
             self.intercept_ = float(y_mean - X_mean @ self.coef_)
             self.n_iter_ = n_iter
