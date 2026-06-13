@@ -9,7 +9,7 @@ __all__ = ["L1Penalty"]
 
 from typing import Optional
 import numpy as np
-from ._base import Penalty
+from statgpu.penalties._base import Penalty
 
 # ---- torch.compile lazy-loader (fuses elementwise ops into 1 kernel) ---------
 _L1_PROXIMAL_TORCH_COMPILED = None

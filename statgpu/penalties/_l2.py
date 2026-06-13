@@ -9,7 +9,7 @@ __all__ = ["L2Penalty"]
 
 from typing import Optional
 import numpy as np
-from ._base import Penalty
+from statgpu.penalties._base import Penalty
 
 
 class L2Penalty(Penalty):

@@ -14,8 +14,8 @@ __all__ = ["GroupMCPPenalty"]
 
 from typing import Optional, List, Union
 import numpy as np
-from ._base import Penalty
-from ._group_lasso import _vector_norm, _to_backend_array, _backend_zeros, _batched_group_norms, _get_xp
+from statgpu.penalties._base import Penalty
+from statgpu.penalties._group_lasso import _vector_norm, _to_backend_array, _backend_zeros, _batched_group_norms, _get_xp
 
 # ---- torch.compile lazy-loader for vectorized MCP proximal ---------
 _GROUP_MCP_PROXIMAL_TORCH_COMPILED = None

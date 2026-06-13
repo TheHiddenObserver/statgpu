@@ -10,7 +10,7 @@ import numpy as np
 from statgpu._config import Device
 from statgpu.linear_model._cv_base import CVEstimatorBase
 from statgpu.backends import get_backend
-from ._logistic import LogisticRegression
+from statgpu.linear_model._logistic import LogisticRegression
 
 
 # =============================================================================

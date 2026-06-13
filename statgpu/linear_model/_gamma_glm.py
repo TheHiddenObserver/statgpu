@@ -4,7 +4,7 @@ from typing import Optional
 
 from statgpu._config import Device
 from statgpu.glm_core._family import Gamma, LogLink, InversePowerLink
-from ._glm_base import GeneralizedLinearModel
+from statgpu.linear_model._glm_base import GeneralizedLinearModel
 
 
 _LINK_MAP = {

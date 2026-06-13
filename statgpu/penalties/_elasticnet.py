@@ -9,7 +9,7 @@ __all__ = ["ElasticNetPenalty"]
 
 from typing import Optional
 import numpy as np
-from ._base import Penalty
+from statgpu.penalties._base import Penalty
 
 
 class ElasticNetPenalty(Penalty):

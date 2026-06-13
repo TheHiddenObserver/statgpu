@@ -10,7 +10,7 @@ Supports numpy / cupy / torch backends via _array_ops helpers.
 import numpy as np
 
 from statgpu.backends._array_ops import _clip, _exp, _log, _sum, _max_eigval_power
-from ._base import GLMLoss, register_glm_loss
+from statgpu.glm_core._base import GLMLoss, register_glm_loss
 
 
 @register_glm_loss('negative_binomial')

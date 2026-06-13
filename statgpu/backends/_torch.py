@@ -18,8 +18,8 @@ methods on this backend class.
 
 import numpy as np
 
-from ._base import BackendBase
-from ._utils import (
+from statgpu.backends._base import BackendBase
+from statgpu.backends._utils import (
     _cupy_to_torch_dlpack,
     _move_torch_tensor,
     _numpy_to_torch_tensor,

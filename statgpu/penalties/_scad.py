@@ -17,7 +17,7 @@ __all__ = ["SCADPenalty"]
 
 from typing import Optional
 import numpy as np
-from ._base import Penalty
+from statgpu.penalties._base import Penalty
 from statgpu.backends._array_ops import _xp
 from statgpu.backends._utils import _to_float_scalar
 

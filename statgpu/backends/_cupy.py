@@ -4,8 +4,8 @@ CuPy GPU backend.
 
 import numpy as np
 
-from ._base import BackendBase
-from ._utils import _torch_to_cupy_dlpack
+from statgpu.backends._base import BackendBase
+from statgpu.backends._utils import _torch_to_cupy_dlpack
 
 
 class CuPyBackend(BackendBase):

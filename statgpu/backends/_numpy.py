@@ -4,7 +4,7 @@ NumPy / SciPy CPU backend.
 
 import numpy as np
 
-from ._base import BackendBase
+from statgpu.backends._base import BackendBase
 
 
 class NumpyBackend(BackendBase):

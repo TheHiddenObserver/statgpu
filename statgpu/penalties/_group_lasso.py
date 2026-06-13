@@ -13,7 +13,7 @@ __all__ = ["GroupLassoPenalty", "AdaptiveGroupLassoPenalty"]
 
 from typing import Optional, List, Union
 import numpy as np
-from ._base import Penalty
+from statgpu.penalties._base import Penalty
 
 # ---- torch.compile lazy-loader for vectorized proximal on GPU ---------
 _GROUP_LASSO_PROXIMAL_TORCH_COMPILED_EQUAL = None

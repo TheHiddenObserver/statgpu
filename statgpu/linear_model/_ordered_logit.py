@@ -4,7 +4,7 @@ import numpy as np
 
 from statgpu._config import Device
 from statgpu.glm_core._family import Binomial, LogitLink
-from ._glm_base import OrderedGeneralizedLinearModel
+from statgpu.linear_model._glm_base import OrderedGeneralizedLinearModel
 
 
 class OrderedLogitRegression(OrderedGeneralizedLinearModel):

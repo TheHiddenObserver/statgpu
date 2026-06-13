@@ -10,7 +10,7 @@ import numpy as np
 from statgpu._config import Device, cuda_available
 from statgpu.linear_model._cv_base import CVEstimatorBase
 from statgpu.backends import get_backend
-from ._elasticnet import ElasticNet
+from statgpu.linear_model._elasticnet import ElasticNet
 
 
 # =============================================================================

@@ -8,7 +8,7 @@ where z = X @ coef.
 Supports numpy / cupy / torch backends via _backend helpers.
 """
 from statgpu.backends._array_ops import _clip, _log1p, _exp, _sigmoid, _sum, _max_eigval_power
-from ._base import GLMLoss, register_glm_loss
+from statgpu.glm_core._base import GLMLoss, register_glm_loss
 
 
 @register_glm_loss('logistic')
