@@ -662,6 +662,7 @@ def _glm_sparse_cv_folds(
     loss_name,
     device_backend,
     sample_weight=None,
+    loss_kwargs=None,
 ):
     """Unified fold-batched sparse GLM CV path for all losses and backends.
 
@@ -672,12 +673,12 @@ def _glm_sparse_cv_folds(
     if cfg is None:
         return None
 
-    # Resolve loss-specific parameters from the loss object defaults.
-    # This ensures inline code stays in sync with loss class defaults.
+    # Resolve loss-specific parameters: user-specified kwargs override defaults
+    _lk = loss_kwargs or {}
     from statgpu.linear_model._penalized import _resolve_loss_name
     _loss_obj = _resolve_loss_name(loss_name)
-    _nb_alpha = float(getattr(_loss_obj, 'alpha', _NB_ALPHA_DEFAULT))
-    _tw_power = float(getattr(_loss_obj, 'power', _TWEEDIE_POWER_DEFAULT))
+    _nb_alpha = float(_lk.get('alpha', getattr(_loss_obj, 'alpha', _NB_ALPHA_DEFAULT)))
+    _tw_power = float(_lk.get('power', getattr(_loss_obj, 'power', _TWEEDIE_POWER_DEFAULT)))
 
     is_torch = (device_backend == "torch")
     if is_torch:
@@ -1815,6 +1816,7 @@ class PenalizedGLM_CV(CVEstimatorBase):
         cv_strategy: str = "strict",
         acknowledge_approx: bool = False,
         refine_top_k: int = 3,
+        loss_kwargs: Optional[dict] = None,
     ):
         super().__init__(cv=cv, random_state=random_state, device=device)
         self.cv_splits = cv_splits
@@ -1827,6 +1829,7 @@ class PenalizedGLM_CV(CVEstimatorBase):
         if int(refine_top_k) < 1:
             raise ValueError("refine_top_k must be a positive integer")
         self.loss = loss
+        self._loss_kwargs = loss_kwargs or {}
         self.penalty = penalty
         self._alpha_grid_input = alpha_grid
         self.n_alphas = n_alphas
@@ -2232,6 +2235,7 @@ class PenalizedGLM_CV(CVEstimatorBase):
                     X, y, folds, alpha_sorted, penalty_name, self.l1_ratio,
                     max_iter, tol, loss_name, device_name,
                     sample_weight=sample_weight,
+                    loss_kwargs=getattr(self, '_loss_kwargs', None),
                 )
                 if path is not None and path["scores"] is not None:
                     all_scores[:, sort_idx] = path["scores"]
@@ -2687,7 +2691,11 @@ class PenalizedGLM_CV(CVEstimatorBase):
         return self.estimator_.predict(X)
 
     def score(self, X, y, sample_weight=None):
-        """Return the R² score on the given data."""
+        """Return the score on the given data.
+
+        For squared_error loss, returns R². For GLM losses, returns
+        the deviance-based pseudo-R² (1 - deviance/null_deviance).
+        """
         if not getattr(self, '_fitted', False):
             raise RuntimeError("PenalizedGLM_CV is not fitted yet. Call fit() first.")
         return self.estimator_.score(X, y, sample_weight=sample_weight)

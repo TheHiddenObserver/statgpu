@@ -2038,7 +2038,7 @@ def _select_lasso_alpha_cv(
     return float(details["alpha"])
 
 
-from ._penalized import PenalizedLinearRegression as _PenalizedLinearRegression
+from statgpu.linear_model._penalized import PenalizedLinearRegression as _PenalizedLinearRegression
 
 
 class Lasso(_PenalizedLinearRegression):

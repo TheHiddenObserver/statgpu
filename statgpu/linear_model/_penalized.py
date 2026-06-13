@@ -693,6 +693,10 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
             "adaptive_lasso",
             "group_lasso",
             "gl",
+            "group_mcp",
+            "gmcp",
+            "group_scad",
+            "gscad",
             "scad",
             "mcp",
         }
@@ -962,16 +966,13 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
         if M_cached is not None:
             M = np.asarray(M_cached, dtype=np.float64)
         else:
-            # Import here to avoid circular dependency at module level
-            from statgpu.linear_model._penalized import PenalizedLinearRegression as _PLR
-
             M = np.zeros((p, p), dtype=np.float64)
             for j in range(p):
                 cols = np.concatenate([np.arange(0, j), np.arange(j + 1, p)])
                 X_minus_j = X_np[:, cols]
                 x_j = X_np[:, j]
 
-                nw = _PLR(
+                nw = PenalizedLinearRegression(
                     penalty="l1", alpha=lam_nw,
                     fit_intercept=False, max_iter=500, tol=1e-5,
                     device="cpu", cpu_solver="fista",
@@ -1206,8 +1207,7 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
             y_star = y_pred + eps_star
 
             # Refit on bootstrap sample using current penalty
-            from statgpu.linear_model._penalized import PenalizedLinearRegression as _PLR
-            refit = _PLR(
+            refit = PenalizedLinearRegression(
                 penalty="l1", alpha=float(self.alpha),
                 fit_intercept=self._effective_intercept,
                 max_iter=self.max_iter, tol=self.tol,

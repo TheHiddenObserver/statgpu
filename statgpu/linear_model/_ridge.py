@@ -15,8 +15,8 @@ import numpy as np
 
 from statgpu._config import Device
 
-from ._penalized import PenalizedLinearRegression as _PenalizedLinearRegression
-from ._ridge_legacy import _RidgeLegacy  # noqa: F401 — backward compat
+from statgpu.linear_model._penalized import PenalizedLinearRegression as _PenalizedLinearRegression
+from statgpu.linear_model._ridge_legacy import _RidgeLegacy  # noqa: F401 — backward compat
 
 
 class Ridge(_PenalizedLinearRegression):

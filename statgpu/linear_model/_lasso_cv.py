@@ -11,7 +11,7 @@ import numpy as np
 
 from statgpu._config import Device
 from statgpu.linear_model._cv_base import CVEstimatorBase
-from ._lasso import (
+from statgpu.linear_model._lasso import (
     Lasso,
     _normalize_lassocv_method,
     _normalize_cd_kkt_check_every,
