@@ -332,11 +332,11 @@ def test_penalty_models_gpu_cpu_prediction_consistency(model_cls):
     beta = rng.normal(size=16)
     y = X @ beta + rng.normal(scale=0.3, size=256)
 
-    cpu_model = model_cls(device="cpu")
+    cpu_model = model_cls(device="cpu", max_iter=2000, tol=1e-10)
     cpu_model.fit(X, y)
     cpu_pred = cpu_model.predict(X)
 
-    gpu_model = model_cls(device="cuda")
+    gpu_model = model_cls(device="cuda", max_iter=2000, tol=1e-10)
     gpu_model.fit(X, y)
     gpu_pred = gpu_model.predict(X)
     # CuPy arrays require .get() to transfer data back to host memory.
@@ -344,6 +344,5 @@ def test_penalty_models_gpu_cpu_prediction_consistency(model_cls):
         gpu_pred = gpu_pred.get()
     gpu_pred = np.asarray(gpu_pred)
 
-    # Tolerance accounts for CPU/GPU floating-point precision differences
-    # in coordinate descent convergence (different iteration trajectories)
-    assert np.allclose(cpu_pred, gpu_pred, rtol=5e-4, atol=5e-4)
+    # With tight convergence (tol=1e-10), CPU and GPU should agree closely
+    assert np.allclose(cpu_pred, gpu_pred, rtol=1e-4, atol=1e-4)
