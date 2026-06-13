@@ -6,6 +6,8 @@ for non-robust, HC1 robust, and clustered standard errors.  GPU
 acceleration is provided transparently via the statgpu backend system.
 """
 
+__all__ = ["PanelOLS"]
+
 from __future__ import annotations
 
 from typing import Optional, Union
@@ -261,12 +263,13 @@ class PanelOLS(BaseEstimator):
 
         elif self.cov_type == 'robust':
             # HC1 sandwich — on device
+            # Use df_resid (not n-k) to account for absorbed fixed effects
             e2 = resid ** 2
             Xw = X_d * e2[:, None]
             meat = X_d.T @ Xw
             cov_params = XtX_inv @ meat @ XtX_inv
-            if n > k:
-                cov_params = cov_params * (n / (n - k))
+            if self.df_resid > 0:
+                cov_params = cov_params * (n / self.df_resid)
             bse_dev = xp.sqrt(xp.maximum(xp.diag(cov_params), 0.0))
 
         else:  # clustered

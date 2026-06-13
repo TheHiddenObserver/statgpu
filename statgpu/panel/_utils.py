@@ -10,6 +10,8 @@ group sums and counts in a single kernel launch, avoiding per-group
 Python loops and their associated GPU-CPU synchronization overhead.
 """
 
+__all__ = ["demean", "within_transform", "group_means"]
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field

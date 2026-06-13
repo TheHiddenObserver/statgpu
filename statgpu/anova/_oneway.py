@@ -4,6 +4,8 @@ Provides :func:`f_oneway`, a backend-agnostic replacement for
 ``scipy.stats.f_oneway`` that can run on NumPy, CuPy, or PyTorch arrays.
 """
 
+__all__ = ["f_oneway"]
+
 from __future__ import annotations
 
 from dataclasses import dataclass

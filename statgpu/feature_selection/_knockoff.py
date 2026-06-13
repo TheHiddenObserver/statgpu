@@ -77,7 +77,7 @@ def knockpy_gaussian_mvr_sampler(
     random_state: Optional[int] = None,
 ):
     """Interface placeholder for knockpy GaussianSampler(method='mvr')."""
-    pass
+    raise NotImplementedError("knockpy_gaussian_mvr_sampler is not yet implemented")
 
 
 def knockpy_gaussian_sdp_sampler(
@@ -89,7 +89,7 @@ def knockpy_gaussian_sdp_sampler(
     random_state: Optional[int] = None,
 ):
     """Interface placeholder for knockpy GaussianSampler(method='sdp')."""
-    pass
+    raise NotImplementedError("knockpy_gaussian_sdp_sampler is not yet implemented")
 
 
 def knockpy_gaussian_maxent_sampler(
@@ -101,7 +101,7 @@ def knockpy_gaussian_maxent_sampler(
     random_state: Optional[int] = None,
 ):
     """Interface placeholder for knockpy GaussianSampler(method='maxent')."""
-    pass
+    raise NotImplementedError("knockpy_gaussian_maxent_sampler is not yet implemented")
 
 
 def knockpy_gaussian_equi_sampler(
@@ -113,7 +113,7 @@ def knockpy_gaussian_equi_sampler(
     random_state: Optional[int] = None,
 ):
     """Interface placeholder for knockpy GaussianSampler(method='equi')."""
-    pass
+    raise NotImplementedError("knockpy_gaussian_equi_sampler is not yet implemented")
 
 
 def knockpy_gaussian_ci_sampler(
@@ -125,7 +125,7 @@ def knockpy_gaussian_ci_sampler(
     random_state: Optional[int] = None,
 ):
     """Interface placeholder for knockpy GaussianSampler(method='ci')."""
-    pass
+    raise NotImplementedError("knockpy_gaussian_ci_sampler is not yet implemented")
 
 
 def knockpy_fx_sampler(
@@ -136,7 +136,7 @@ def knockpy_fx_sampler(
     random_state: Optional[int] = None,
 ):
     """Interface placeholder for knockpy FXSampler."""
-    pass
+    raise NotImplementedError("knockpy_fx_sampler is not yet implemented")
 
 
 def knockpy_metro_sampler(
@@ -147,7 +147,7 @@ def knockpy_metro_sampler(
     random_state: Optional[int] = None,
 ):
     """Interface placeholder for knockpy MetroSampler."""
-    pass
+    raise NotImplementedError("knockpy_metro_sampler is not yet implemented")
 
 
 def knockpy_artk_sampler(
@@ -158,7 +158,7 @@ def knockpy_artk_sampler(
     random_state: Optional[int] = None,
 ):
     """Interface placeholder for knockpy ARTKSampler."""
-    pass
+    raise NotImplementedError("knockpy_artk_sampler is not yet implemented")
 
 
 def knockpy_sampler_dispatch(
@@ -609,13 +609,14 @@ def model_x_knockoff_filter(
         model_meta: Dict[str, Any] = {"xk_source": "generated_model_x"}
         for draw_idx in range(n_modelx_draws):
             draw_seed = _model_x_draw_seed(random_state, draw_idx)
-            X_knock, model_meta = _build_model_x_knockoffs(
+            X_knock, _draw_meta = _build_model_x_knockoffs(
                 X_std,
                 random_state=draw_seed,
                 xp=xp,
                 covariance_shrinkage=float(modelx_covariance_shrinkage),
                 s_scale=float(modelx_s_scale),
             )
+            model_meta.update(_draw_meta)
             W_draw, method_n = _compute_w_statistics(
                 X_std,
                 X_knock,

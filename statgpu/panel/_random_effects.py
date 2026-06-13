@@ -13,6 +13,8 @@ Note: ``X`` should include a constant column if an intercept is desired;
 the model does not add one automatically.
 """
 
+__all__ = ["RandomEffects"]
+
 from __future__ import annotations
 
 import warnings
