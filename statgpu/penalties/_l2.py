@@ -4,9 +4,12 @@ L2 penalty (Ridge) implementation.
 P(w) = (α/2) * ||w||²₂
 """
 
+__all__ = ["L2Penalty"]
+
+
 from typing import Optional
 import numpy as np
-from ._base import Penalty
+from statgpu.penalties._base import Penalty
 
 
 class L2Penalty(Penalty):
@@ -62,14 +65,7 @@ class L2Penalty(Penalty):
         """
         scale = 1.0 / (1.0 + self.alpha * step)
 
-        if backend == "cupy":
-            import cupy as cp
-            return scale * cp.asarray(w)
-        elif backend == "torch":
-            import torch
-            return scale * torch.as_tensor(w)
-        else:
-            return scale * np.asarray(w)
+        return scale * w
 
     def get_params(self) -> dict:
         params = super().get_params()

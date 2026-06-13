@@ -4,9 +4,12 @@ Elastic Net penalty implementation.
 P(w) = α * l1_ratio * ||w||₁ + (α/2) * (1 - l1_ratio) * ||w||²₂
 """
 
+__all__ = ["ElasticNetPenalty"]
+
+
 from typing import Optional
 import numpy as np
-from ._base import Penalty
+from statgpu.penalties._base import Penalty
 
 
 class ElasticNetPenalty(Penalty):
@@ -82,20 +85,8 @@ class ElasticNetPenalty(Penalty):
         thresh = self.alpha * self.l1_ratio * step
         l2_scale = 1.0 + self.alpha * (1 - self.l1_ratio) * step
 
-        if backend == "cupy":
-            import cupy as cp
-            result = cp.sign(w) * cp.maximum(cp.abs(w) - thresh, 0.0)
-            return result / l2_scale
-        elif backend == "torch":
-            import torch
-            result = torch.sign(w) * torch.maximum(
-                torch.abs(w) - thresh,
-                torch.tensor(0.0, device=w.device, dtype=w.dtype)
-            )
-            return result / l2_scale
-        else:
-            result = np.sign(w) * np.maximum(np.abs(w) - thresh, 0.0)
-            return result / l2_scale
+        from statgpu.backends._array_ops import _soft_threshold
+        return _soft_threshold(w, thresh) / l2_scale
 
     def get_params(self) -> dict:
         params = super().get_params()

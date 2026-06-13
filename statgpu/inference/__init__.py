@@ -99,24 +99,46 @@ from ._distributions_legacy_gpu import (
     t_two_sided_pvalue_gpu,
 )
 from ._multiple_testing import adjust_pvalues, combine_pvalues, multipletests
+from ._results import (
+    BaseInferenceResult,
+    DebiasedInferenceResult,
+    GaussianInferenceResult,
+    OracleActiveSetInferenceResult,
+    ParameterInferenceResult,
+    ResamplingInferenceResult,
+)
 from ._resampling import (
     BootstrapResult,
     PermutationTestResult,
     bootstrap_statistic,
     permutation_test,
 )
-from statgpu.nonparametric._kde import (
-    KDE,
-    KDEBootstrapResult,
-    fit_kde,
-    kde_pdf,
-    kde_bootstrap_confidence_interval,
-)
+try:
+    from statgpu.nonparametric._kde import (
+        KDE,
+        KDEBootstrapResult,
+        fit_kde,
+        kde_pdf,
+        kde_bootstrap_confidence_interval,
+    )
+except ImportError:
+    KDE = None
+    KDEBootstrapResult = None
+    fit_kde = None
+    kde_pdf = None
+    kde_bootstrap_confidence_interval = None
 
 __all__ = [
     "adjust_pvalues",
     "combine_pvalues",
     "multipletests",
+    # Inference results
+    "BaseInferenceResult",
+    "ParameterInferenceResult",
+    "GaussianInferenceResult",
+    "DebiasedInferenceResult",
+    "OracleActiveSetInferenceResult",
+    "ResamplingInferenceResult",
     # Distribution base classes
     "NormDistributionBase",
     "TDistributionBase",

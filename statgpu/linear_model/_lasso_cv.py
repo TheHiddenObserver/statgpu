@@ -10,7 +10,7 @@ import numpy as np
 from statgpu._config import Device
 from statgpu.linear_model._cv_base import CVEstimatorBase
 from statgpu.backends import get_backend
-from ._lasso import Lasso
+from statgpu.linear_model._lasso import Lasso
 
 
 # =============================================================================
@@ -535,7 +535,7 @@ class LassoCV(CVEstimatorBase):
 
                 # Solve using Lasso's GPU solver
                 # Import both CuPy and Torch solvers
-                from ._lasso import (
+                from statgpu.linear_model._lasso import (
                     _solve_lasso_path_gpu_fista_multi_fold_from_gram,
                     _solve_lasso_path_gpu_fista_multi_fold_from_gram_torch,
                 )
@@ -602,7 +602,7 @@ class LassoCV(CVEstimatorBase):
 
         # CPU path
         else:
-            from ._lasso import _fit_lasso_single_alpha_fast
+            from statgpu.linear_model._lasso import _fit_lasso_single_alpha_fast
 
             for fold_idx, (train_idx, val_idx) in enumerate(folds):
                 X_train = X_np[train_idx]

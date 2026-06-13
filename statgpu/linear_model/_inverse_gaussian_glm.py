@@ -1,19 +1,17 @@
-"""Ordered probit regression."""
+"""Inverse Gaussian regression (GLM, log link)."""
 
-import numpy as np
+from typing import Optional
 
 from statgpu._config import Device
-from statgpu.glm_core._family import Binomial, ProbitLink
-from statgpu.linear_model._glm_base import OrderedGeneralizedLinearModel
+from statgpu.glm_core._family import InverseGaussian
+from statgpu.linear_model._glm_base import GeneralizedLinearModel
 
 
-class OrderedProbitRegression(OrderedGeneralizedLinearModel):
-    """Ordered probit regression.
+class InverseGaussianRegression(GeneralizedLinearModel):
+    """Inverse Gaussian regression for positive right-skewed outcomes.
 
     Parameters
     ----------
-    n_categories : int, default=3
-        Number of ordinal categories.
     fit_intercept : bool, default=True
     max_iter : int, default=100
     tol : float, default=1e-4
@@ -24,27 +22,26 @@ class OrderedProbitRegression(OrderedGeneralizedLinearModel):
 
     def __init__(
         self,
-        n_categories: int = 3,
         fit_intercept: bool = True,
         max_iter: int = 100,
         tol: float = 1e-4,
         C: float = 1.0,
         device: Device = Device.AUTO,
-        n_jobs: int = None,
+        n_jobs: Optional[int] = None,
+        solver: str = "auto",
         gpu_memory_cleanup: bool = False,
     ):
         super().__init__(
-            n_categories=n_categories,
-            family="binomial",
+            family="inverse_gaussian",
             fit_intercept=fit_intercept,
             max_iter=max_iter,
             tol=tol,
             C=C,
             device=device,
             n_jobs=n_jobs,
-            solver="auto",
+            solver=solver,
             gpu_memory_cleanup=gpu_memory_cleanup,
         )
 
     def _get_family(self):
-        return Binomial(link=ProbitLink())
+        return InverseGaussian()

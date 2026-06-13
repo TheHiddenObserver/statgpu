@@ -13,19 +13,45 @@ Usage:
         ...
 """
 
-from ._base import Penalty
+from ._base import Penalty, CompositePenalty
 from ._l1 import L1Penalty
 from ._l2 import L2Penalty
 from ._elasticnet import ElasticNetPenalty
+from ._scad import SCADPenalty
+from ._mcp import MCPPenalty
+from ._adaptive_l1 import AdaptiveL1Penalty
+from ._group_lasso import GroupLassoPenalty
+from ._group_mcp import GroupMCPPenalty
+from ._group_scad import GroupSCADPenalty
 
-# Lazy loading for non-convex penalties to avoid circular imports
+
+def _torch_compile_ok():
+    """Check if torch.compile is usable (CUDA capability >= 7.0 required)."""
+    try:
+        import torch
+        if torch.cuda.is_available():
+            cap = torch.cuda.get_device_capability()
+            return cap[0] >= 7
+        return True  # CPU-only torch can compile
+    except Exception:
+        return False
+
+
 __all__ = [
     "Penalty",
+    "CompositePenalty",
     "L1Penalty",
     "L2Penalty",
     "ElasticNetPenalty",
+    "SCADPenalty",
+    "MCPPenalty",
+    "AdaptiveL1Penalty",
+    "GroupLassoPenalty",
+    "GroupMCPPenalty",
+    "GroupSCADPenalty",
     "get_penalty",
     "register_penalty",
+    "list_penalties",
 ]
 
 _PENALTY_REGISTRY = {
@@ -35,14 +61,16 @@ _PENALTY_REGISTRY = {
     "ridge": L2Penalty,
     "elasticnet": ElasticNetPenalty,
     "en": ElasticNetPenalty,
-    # Non-convex penalties (loaded lazily)
-    # "scad": SCADPenalty,
-    # "mcp": MCPPenalty,
-    # Adaptive and group penalties
-    # "adaptive_l1": AdaptiveL1Penalty,
-    # "adaptive_lasso": AdaptiveL1Penalty,
-    # "group_lasso": GroupLassoPenalty,
-    # "gl": GroupLassoPenalty,
+    "scad": SCADPenalty,
+    "mcp": MCPPenalty,
+    "adaptive_l1": AdaptiveL1Penalty,
+    "adaptive_lasso": AdaptiveL1Penalty,
+    "group_lasso": GroupLassoPenalty,
+    "gl": GroupLassoPenalty,
+    "group_mcp": GroupMCPPenalty,
+    "gmcp": GroupMCPPenalty,
+    "group_scad": GroupSCADPenalty,
+    "gscad": GroupSCADPenalty,
 }
 
 

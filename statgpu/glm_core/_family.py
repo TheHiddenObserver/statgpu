@@ -12,8 +12,14 @@ from typing import Any
 
 import numpy as np
 
-from statgpu.backends._utils import _get_xp
+from statgpu.backends._array_ops import _clip, _log, _xp
 from statgpu.inference._distributions_backend import get_distribution
+
+__all__ = [
+    "Link", "IdentityLink", "LogLink", "InversePowerLink", "InverseSquaredLink",
+    "GLMFamily", "Gaussian", "Binomial", "Poisson", "Gamma",
+    "InverseGaussian", "NegativeBinomial", "Tweedie",
+]
 
 
 def _backend_name(arr):
@@ -26,35 +32,18 @@ def _backend_name(arr):
     return "numpy"
 
 
-def _xp(arr):
-    """Get the array module (numpy/cupy/torch) from array type."""
-    return _get_xp(_backend_name(arr))
-
-
-def _clip(arr, lo, hi):
-    xp = _xp(arr)
-    if xp.__name__ == "torch":
-        import torch
-        result = arr.clone()
-        if lo is not None:
-            result = torch.clamp(result, min=lo)
-        if hi is not None:
-            result = torch.clamp(result, max=hi)
-        return result
-    return xp.clip(arr, lo, hi)
+# _exp with overflow protection (clips input to [-500, 500])
+_ETA_CLIP_EXP = 500.0
 
 
 def _exp(arr):
-    xp = _xp(arr)
-    # Clip to prevent overflow in exp (matching backend conventions)
-    if xp.__name__ == "torch":
-        import torch
-        return torch.exp(torch.clamp(arr, min=-500, max=500))
-    return xp.exp(xp.clip(arr, -500, 500))
+    """Exponential with overflow protection."""
+    return _xp(arr).exp(_clip(arr, -_ETA_CLIP_EXP, _ETA_CLIP_EXP))
 
 
-def _log(arr):
-    return _xp(arr).log(arr)
+def _sqrt(arr):
+    """Square root with clamp to prevent NaN from negative values."""
+    return _xp(arr).sqrt(_clip(arr, 0, None))
 
 
 def _ones_like(arr):
@@ -67,7 +56,7 @@ def _cdf(arr):
     return get_distribution("norm", backend=backend).cdf(arr)
 
 
-def _ppd(arr):
+def _ppf(arr):
     """Standard normal PPF (inverse CDF, Phi^{-1})."""
     backend = _backend_name(arr)
     return get_distribution("norm", backend=backend).ppf(arr)
@@ -127,14 +116,14 @@ class ProbitLink(Link):
     name = "probit"
 
     def link(self, mu):
-        return _ppd(_clip(mu, 1e-10, 1 - 1e-10))
+        return _ppf(_clip(mu, 1e-10, 1 - 1e-10))
 
     def inverse(self, eta):
         return _cdf(eta)
 
     def derivative(self, mu):
         return 1.0 / _pdf(
-            _ppd(_clip(mu, 1e-10, 1 - 1e-10))
+            _ppf(_clip(mu, 1e-10, 1 - 1e-10))
         )
 
 
@@ -164,6 +153,39 @@ class IdentityLink(Link):
         return _ones_like(mu)
 
 
+class InversePowerLink(Link):
+    """Inverse power link: eta = 1/mu (canonical for Gamma)."""
+
+    name = "inverse_power"
+    _ETA_LO = 1e-4
+    _ETA_HI = 1e3
+
+    def link(self, mu):
+        return 1.0 / _clip(mu, 1e-10, None)
+
+    def inverse(self, eta):
+        return 1.0 / _clip(eta, self._ETA_LO, self._ETA_HI)
+
+    def derivative(self, mu):
+        return -1.0 / (mu * mu)
+
+
+class InverseSquaredLink(Link):
+    """Inverse squared link: eta = 1/mu^2 (canonical for InverseGaussian)."""
+
+    name = "inverse_squared"
+
+    def link(self, mu):
+        return 1.0 / _clip(mu * mu, 1e-10, None)
+
+    def inverse(self, eta):
+        eta_c = _clip(eta, 1e-20, None)
+        return 1.0 / _clip(_sqrt(eta_c), 1e-10, None)
+
+    def derivative(self, mu):
+        return -2.0 / (mu * mu * mu)
+
+
 # ─── Families ──────────────────────────────────────────────────────────────
 
 
@@ -187,12 +209,13 @@ class GLMFamily(ABC):
     def irls_weights(self, mu, y):
         """IRLS working weights.
 
-        W = V(mu) * (g'(mu))^2
+        W = 1 / (V(mu) * (g'(mu))^2)
 
-        Default uses W = V(mu) * (link'(mu))^2.
+        Default uses the inverse Fisher weights for the WLS step in IRLS.
         Subclasses can override for more efficient implementations.
         """
-        return self.variance(mu) * self.link.derivative(mu) ** 2
+        denom = self.variance(mu) * self.link.derivative(mu) ** 2
+        return 1.0 / _clip(denom, 1e-10, None)
 
     def irls_working_response(self, mu, y, eta):
         """Working response z = eta + (y - mu) * link'(mu)."""
@@ -244,3 +267,96 @@ class Poisson(GLMFamily):
 
     def irls_working_response(self, mu, y, eta):
         return eta + (y - mu) / _clip(mu, 1e-10, None)
+
+
+class Gamma(GLMFamily):
+    """Gamma family (positive continuous outcomes).
+
+    Default link is log for numerical stability. Canonical link is inverse_power.
+    """
+
+    name = "gamma"
+
+    def __init__(self, link=None):
+        self.link = link if link is not None else LogLink()
+
+    def variance(self, mu):
+        return mu * mu
+
+
+class InverseGaussian(GLMFamily):
+    """Inverse Gaussian family (positive continuous, right-skewed).
+
+    Default link is log for numerical stability.
+    """
+
+    name = "inverse_gaussian"
+    link = LogLink()
+
+    def variance(self, mu):
+        return mu * mu * mu
+
+    def irls_weights(self, mu, y):
+        mu_c = _clip(mu, 1e-10, None)
+        return _ones_like(mu) / mu_c
+
+    def irls_working_response(self, mu, y, eta):
+        mu_c = _clip(mu, 1e-10, None)
+        # z = eta + (y - mu) * g'(mu) = eta + (y - mu) / mu  (log link)
+        return eta + (y - mu_c) / mu_c
+
+
+class NegativeBinomial(GLMFamily):
+    """Negative Binomial family (overdispersed count data).
+
+    Uses log link. Dispersion parameter ``alpha`` controls overdispersion:
+    Var(Y) = mu + alpha * mu^2. When alpha -> 0, approaches Poisson.
+    """
+
+    name = "negative_binomial"
+    link = LogLink()
+
+    def __init__(self, alpha=1.0):
+        if not np.isfinite(alpha) or alpha <= 0.0:
+            raise ValueError("alpha must be a finite positive scalar for negative binomial family")
+        self.alpha = alpha
+
+    def variance(self, mu):
+        return mu + self.alpha * mu * mu
+
+    def irls_weights(self, mu, y):
+        mu_c = _clip(mu, 1e-10, None)
+        return mu_c / (1.0 + self.alpha * mu_c)
+
+    def irls_working_response(self, mu, y, eta):
+        mu_c = _clip(mu, 1e-10, None)
+        return eta + (y - mu_c) / mu_c
+
+
+class Tweedie(GLMFamily):
+    """Tweedie family (power variance function).
+
+    Variance function: V(mu) = mu^power.
+    - power=0: Gaussian
+    - power=1: Poisson
+    - power=2: Gamma
+    - 1 < power < 2: compound Poisson-Gamma (most common usage)
+    """
+
+    name = "tweedie"
+    link = LogLink()
+
+    def __init__(self, power=1.5):
+        self.power = power
+
+    def variance(self, mu):
+        return _clip(mu, 1e-10, None) ** self.power
+
+    def irls_weights(self, mu, y):
+        mu_c = _clip(mu, 1e-10, None)
+        # w = 1 / (V(mu) * g'(mu)^2) = 1 / (mu^p * (1/mu)^2) = mu^(2-p)
+        return mu_c ** (2.0 - self.power)
+
+    def irls_working_response(self, mu, y, eta):
+        mu_c = _clip(mu, 1e-10, None)
+        return eta + (y - mu_c) / mu_c

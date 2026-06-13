@@ -12,6 +12,10 @@ from ._logistic_cv import LogisticRegressionCV
 from ._elasticnet import ElasticNet
 from ._elasticnet_cv import ElasticNetCV
 from ._glm_base import GeneralizedLinearModel, OrderedGeneralizedLinearModel
+from ._gamma_glm import GammaRegression
+from ._inverse_gaussian_glm import InverseGaussianRegression
+from ._negative_binomial_glm import NegativeBinomialRegression
+from ._tweedie_glm import TweedieRegression
 from ._penalized import (
     PenalizedGeneralizedLinearModel,
     PenalizedLinearRegression,

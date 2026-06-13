@@ -4816,7 +4816,7 @@ def _solve_lasso_path_gpu_fista_multi_fold_from_gram_torch(
 # V9 thin wrapper
 # =============================================================================
 
-from ._penalized import PenalizedLinearRegression as _PenalizedLinearRegression
+from statgpu.linear_model._penalized import PenalizedLinearRegression as _PenalizedLinearRegression
 
 
 class Lasso(_PenalizedLinearRegression):

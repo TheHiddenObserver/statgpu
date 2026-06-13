@@ -856,7 +856,7 @@ class Ridge(BaseEstimator):
 # V9 thin wrapper
 # =============================================================================
 
-from ._penalized import PenalizedLinearRegression as _PenalizedLinearRegression
+from statgpu.linear_model._penalized import PenalizedLinearRegression as _PenalizedLinearRegression
 
 
 class Ridge(_PenalizedLinearRegression):

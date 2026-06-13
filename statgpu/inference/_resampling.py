@@ -7,7 +7,7 @@ from typing import Any, Callable, Dict, Optional, Sequence, Tuple
 
 import numpy as np
 
-from statgpu.backends import get_backend, _resolve_backend, _to_float_scalar, _to_numpy
+from statgpu.backends import get_backend, _resolve_backend, _to_float_scalar, _to_numpy, _torch_dev, xp_empty
 import operator
 from functools import reduce
 
@@ -333,7 +333,7 @@ def _iter_stratified_bootstrap_index_batches(
             strata_ids = backend.arange(n_strata, dtype=backend.int64).reshape(1, n_strata, 1)
             idx_batch = strata_rows_matrix[strata_ids, sampled_local].reshape(cur, -1)
         else:
-            idx_batch = backend.xp.empty((cur, n), dtype=backend.int64)
+            idx_batch = xp_empty((cur, n), backend.int64, backend.xp, strata_rows[0])
             offset = 0
             for pos in strata_rows:
                 m = int(_count_elts(pos))
@@ -530,7 +530,7 @@ def _iter_labelwise_permuted_y_batches(
 
     for start in range(0, n_resamples, batch_size):
         cur = min(batch_size, n_resamples - start)
-        y_batch = backend.xp.empty((cur, n), dtype=y_arr.dtype)
+        y_batch = xp_empty((cur, n), y_arr.dtype, backend.xp, y_arr)
 
         if use_dense:
             keys = _rng_random(
@@ -782,7 +782,7 @@ def _bootstrap_indices_stratified(
         chunks.append(pos[sampled_local])
         n += pos_n
 
-    idx = backend.concatenate(chunks) if chunks else backend.xp.empty((0,), dtype=backend.int64)
+    idx = backend.concatenate(chunks) if chunks else xp_empty((0,), backend.int64, backend.xp, state["strata_rows"][0])
     if int(_count_elts(idx)) != int(n):
         raise RuntimeError("Stratified bootstrap produced invalid sample size")
 
@@ -826,7 +826,8 @@ def _bootstrap_indices_cluster(
         if filled >= n:
             break
 
-    idx = backend.concatenate(chunks)[:n] if chunks else backend.xp.empty((0,), dtype=backend.int64)
+    _ref = next(iter(cluster_rows.values()))
+    idx = backend.concatenate(chunks)[:n] if chunks else xp_empty((0,), backend.int64, backend.xp, _ref)
     return backend.astype(idx, backend.int64)
 
 
@@ -953,7 +954,7 @@ def bootstrap_statistic(
         rng_device = "cuda"
 
     rng = _rng_default(backend_name, random_state, device=rng_device)
-    samples = backend.xp.empty(n_boot, dtype=backend.float64)
+    samples = xp_empty(n_boot, backend.float64, backend.xp, arrays_xp[0])
     strategy_n = bootstrap_state["strategy"]
 
     if strategy_n == "iid":
@@ -1283,7 +1284,7 @@ def permutation_test(
         rng_device = "cuda"
 
     rng = _rng_default(backend_name, random_state, device=rng_device)
-    samples = backend.xp.empty(n_perm, dtype=backend.float64)
+    samples = xp_empty(n_perm, backend.float64, backend.xp, y_arr)
     strategy_n = permutation_state["strategy"]
 
     x_vec_fast = None

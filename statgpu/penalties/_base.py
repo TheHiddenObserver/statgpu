@@ -8,9 +8,14 @@ The penalty framework supports:
 - Adaptive/weighted penalties
 """
 
+__all__ = ["Penalty", "CompositePenalty"]
+
+
 from abc import ABC, abstractmethod
 from typing import Optional, Union, Any
 import numpy as np
+
+from statgpu.backends._array_ops import _xp
 
 
 class Penalty(ABC):
@@ -200,11 +205,12 @@ class CompositePenalty(Penalty):
             total += w * pen.value(coef)
         return total
 
-    def gradient(self, coef: np.ndarray) -> np.ndarray:
+    def gradient(self, coef):
         """Sum of weighted penalty gradients."""
-        total = np.zeros_like(coef)
+        xp = _xp(coef)
+        total = xp.zeros_like(coef)
         for w, pen in zip(self.weights, self.penalties):
-            total += w * pen.gradient(coef)
+            total = total + w * pen.gradient(coef)
         return total
 
     def proximal(

@@ -3,10 +3,10 @@ Backend factory: select the appropriate compute backend automatically or
 explicitly by name.
 """
 
-from ._base import BackendBase
-from ._numpy import NumpyBackend
-from ._cupy import CuPyBackend
-from ._torch import TorchBackend
+from statgpu.backends._base import BackendBase
+from statgpu.backends._numpy import NumpyBackend
+from statgpu.backends._cupy import CuPyBackend
+from statgpu.backends._torch import TorchBackend
 
 # Module-level singletons (one instance per library, shared across calls).
 _numpy_backend = NumpyBackend()

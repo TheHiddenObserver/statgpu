@@ -4,7 +4,7 @@ NumPy / SciPy CPU backend.
 
 import numpy as np
 
-from ._base import BackendBase
+from statgpu.backends._base import BackendBase
 
 
 class NumpyBackend(BackendBase):
@@ -79,10 +79,6 @@ class NumpyBackend(BackendBase):
         """Create array of zeros."""
         return np.zeros(shape, dtype=dtype)
 
-    def ones(self, shape, dtype=None):
-        """Create array of ones."""
-        return np.ones(shape, dtype=dtype)
-
     def array(self, val, dtype=None):
         """Create a scalar or array from a value."""
         return np.array(val, dtype=dtype)
@@ -145,30 +141,3 @@ class NumpyBackend(BackendBase):
     def clip(self, x, min_val, max_val):
         """Clip values to [min_val, max_val]."""
         return np.clip(x, min_val, max_val)
-
-    def logsumexp(self, x, axis=None, keepdims=False):
-        """Stable logsumexp reduction."""
-        from scipy.special import logsumexp
-
-        return logsumexp(x, axis=axis, keepdims=keepdims)
-
-    def where(self, cond, x, y):
-        """Element-wise selection based on condition."""
-        return np.where(cond, x, y)
-
-    def bincount(self, x, weights=None, minlength=0):
-        """Count non-negative integer labels."""
-        return np.bincount(x, weights=weights, minlength=minlength)
-
-    def zeros_like(self, x, dtype=None):
-        """Create zeros with the same shape as x."""
-        return np.zeros_like(x, dtype=dtype)
-
-    def ones_like(self, x, dtype=None):
-        """Create ones with the same shape as x."""
-        return np.ones_like(x, dtype=dtype)
-
-    @property
-    def bool(self):
-        """Boolean dtype."""
-        return np.bool_
