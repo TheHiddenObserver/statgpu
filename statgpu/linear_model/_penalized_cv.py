@@ -1956,6 +1956,7 @@ class PenalizedGLM_CV(CVEstimatorBase):
                 model = PenalizedGeneralizedLinearModel(
                     loss=self.loss, penalty='l2', alpha=0.0,
                     device='cpu', compute_inference=False, max_iter=5,
+                    loss_kwargs=getattr(self, '_loss_kwargs', None),
                 )
                 model.fit(X_np, y_np)
                 grad = X_np.T @ (y_np - _to_numpy(model.predict(X_np))) / n
@@ -2085,6 +2086,7 @@ class PenalizedGLM_CV(CVEstimatorBase):
                 loss='squared_error', penalty='l2', alpha=best_alpha,
                 device=refit_device, compute_inference=False,
                 max_iter=self.max_iter, tol=self.tol,
+                loss_kwargs=getattr(self, '_loss_kwargs', None),
             )
             return self._populate_refit_model(model, coef, intercept, X, refit_device)
 
@@ -2122,6 +2124,7 @@ class PenalizedGLM_CV(CVEstimatorBase):
                     l1_ratio=self.l1_ratio, device=refit_device,
                     compute_inference=False, max_iter=self.max_iter,
                     tol=self.tol, solver=cv_solver,
+                    loss_kwargs=getattr(self, '_loss_kwargs', None),
                 )
                 return self._populate_refit_model(
                     model, path["coef"][-1], path["intercept"][-1],
@@ -2134,6 +2137,7 @@ class PenalizedGLM_CV(CVEstimatorBase):
             l1_ratio=self.l1_ratio, device=refit_device,
             compute_inference=can_infer, max_iter=self.max_iter,
             tol=self.tol, solver=cv_solver,
+            loss_kwargs=getattr(self, '_loss_kwargs', None),
         )
         model.fit(X, y, sample_weight=sample_weight)
         return model
@@ -2557,8 +2561,9 @@ class PenalizedGLM_CV(CVEstimatorBase):
             cache = {"XtX": cp.asarray(XtX_np), "Xty": cp.asarray(Xty_np), "n_effective": n_effective}
         else:
             import torch
-            cache = {"XtX": torch.as_tensor(XtX_np, device="cuda", dtype=torch.float64),
-                     "Xty": torch.as_tensor(Xty_np, device="cuda", dtype=torch.float64),
+            _torch_dev = "cuda" if torch.cuda.is_available() else "cpu"
+            cache = {"XtX": torch.as_tensor(XtX_np, device=_torch_dev, dtype=torch.float64),
+                     "Xty": torch.as_tensor(Xty_np, device=_torch_dev, dtype=torch.float64),
                      "n_effective": n_effective}
         return cache, L_np
 

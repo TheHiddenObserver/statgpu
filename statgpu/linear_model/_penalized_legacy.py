@@ -631,3 +631,277 @@ def _fit_cpu_irls(self, X, y, sample_weight=None):
         self._df_resid = self._nobs - (X.shape[1] + (1 if self._effective_intercept else 0))
 
 
+
+# --- _irls_cd (dead code, moved from _penalized.py) ---
+    def _irls_cd(self, pen, X_work, y_arr, init, _lla_continuation=False):
+        """IRLS with coordinate descent for GLM + non-smooth penalties.
+
+        Matches R glmnet/ncvreg algorithm: outer IRLS loop computes working
+        response and weights, inner CD loop solves the weighted penalized
+        least squares subproblem with per-coordinate thresholds.
+        Supports: adaptive_l1, scad, mcp.
+        """
+        import numpy as np
+
+        n, pp = X_work.shape
+        p = pp - 1 if self._effective_intercept else pp
+
+        # Access weights from the original penalty (not the SelectivePenalty wrapper)
+        _inner = getattr(self, '_penalty', pen)
+        _w = np.asarray(getattr(_inner, '_weights', np.ones(p)), dtype=float)
+        # Read alpha from the penalty object.  The threshold per coordinate
+        # is alpha * _w[j] where _w has mean=1 (matching R glmnet convention).
+        alpha = float(getattr(_inner, 'alpha', self.alpha))
+        _nf = float(getattr(_inner, '_norm_factor', 1.0))
+        pen_name = getattr(pen, 'name', '') or getattr(_inner, 'name', '')
+
+        # SCAD/MCP parameters (guard against division-by-zero)
+        a_scad = float(getattr(_inner, 'a', 3.7)) if pen_name == "scad" else 0.0
+        if pen_name == "scad":
+            a_scad = max(a_scad, 1.0 + 1e-6)
+            if abs(a_scad - 2.0) < 1e-6:
+                a_scad = 2.0 + 1e-6
+        gamma_mcp = float(getattr(_inner, 'gamma', 3.0)) if pen_name == "mcp" else 0.0
+        if pen_name == "mcp":
+            gamma_mcp = max(gamma_mcp, 1.0 + 1e-6)
+
+        if init is not None:
+            beta = np.asarray(init, dtype=float).copy()
+        else:
+            beta = np.zeros(pp)
+
+        loss_name = self._loss.name
+        _is_glm = (loss_name != "squared_error")
+
+        def _nonconvex_penalty_value(coef_slice, _pen_name, _alpha, _a_scad, _gamma_mcp):
+            """Compute SCAD/MCP penalty value for a coefficient vector."""
+            _abs_b = np.abs(coef_slice)
+            if _pen_name == "scad":
+                return float(np.sum(np.where(
+                    _abs_b <= _alpha, _alpha * _abs_b,
+                    np.where(_abs_b <= _a_scad * _alpha,
+                        (_a_scad * _alpha * _abs_b - 0.5 * (coef_slice**2 + _alpha**2)) / (_a_scad - 1.0),
+                        0.5 * (_a_scad + 1.0) * _alpha**2))))
+            if _pen_name == "mcp":
+                return float(np.sum(np.where(
+                    _abs_b <= _gamma_mcp * _alpha,
+                    _alpha * _abs_b - 0.5 * coef_slice**2 / _gamma_mcp,
+                    0.5 * _gamma_mcp * _alpha**2)))
+            return 0.0
+
+        # Continuation path for SCAD/MCP: trace the solution from lambda_max
+        # down to the target alpha, matching R ncvreg's pathwise approach.
+        # Without this, solving directly at the target alpha can converge to
+        # a different local minimum than ncvreg (non-convex penalties have
+        # multiple local minima that depend on the starting point).
+        # Skip when _lla_continuation=True (outer _fit_lla handles the path).
+        _cont_path = [alpha]
+        if pen_name in ("scad", "mcp") and not _lla_continuation:
+            # lambda_max = max(|X_j^T resid| / ||X_j||^2) at the null model.
+            # For squared_error: resid = y - mean(y)
+            # For GLM: resid = (y - mu0) / mu0 (working residual at null)
+            if loss_name == "logistic":
+                _p0 = np.clip(np.mean(y_arr), 1e-3, 1 - 1e-3)
+                _resid = y_arr - _p0
+            elif loss_name == "poisson":
+                _mu0 = max(float(np.mean(y_arr)), 1e-3)
+                _resid = y_arr - _mu0
+            elif loss_name == "gamma":
+                _mu0 = max(float(np.mean(y_arr)), 1e-3)
+                _resid = (y_arr - _mu0) / _mu0
+            else:
+                _resid = y_arr - np.mean(y_arr)
+            _xty = np.abs(X_work[:, :p].T @ _resid)
+            _xnorm_sq = np.sum(X_work[:, :p] ** 2, axis=0)
+            _xnorm_sq = np.maximum(_xnorm_sq, 1e-20)
+            _lam_max = float(np.max(_xty / _xnorm_sq))
+            if _lam_max > alpha * 1.1:
+                _n_cont = 100  # match ncvreg's default nlambda
+                _cont_path = np.geomspace(_lam_max, alpha, _n_cont)
+
+        # For GLM losses, do ONE CD sweep per IRLS iteration (matching
+        # R ncvreg/glmnet).  The IRLS outer loop handles convergence.
+        # For squared_error, use the convergence-based CD loop since
+        # there is no outer IRLS loop.
+        _n_cd_sweeps_base = 1 if _is_glm else min(self.max_iter, 200)
+        # For squared_error, the outer IRLS loop is redundant (d=1, z=y
+        # are constant).  Run the outer loop only once.
+        _n_outer_base = self.max_iter if _is_glm else 1
+
+        # For squared_error, d/z/XDX_diag are constant across continuation
+        # steps — compute once before the loop.
+        if not _is_glm:
+            d = np.ones(n)
+            z = y_arr
+            XDX_diag = np.sum(d[:, None] * X_work ** 2, axis=0)
+
+        for _cont_idx, _cont_alpha in enumerate(_cont_path):
+            # Update alpha for this continuation step
+            if len(_cont_path) > 1:
+                alpha = float(_cont_alpha)
+                _is_last = (_cont_idx == len(_cont_path) - 1)
+                _n_cd_sweeps = _n_cd_sweeps_base if _is_last else 20
+                # For GLM with continuation: limit IRLS iterations on
+                # non-final steps.  ncvreg does ~10 IRLS per lambda value.
+                if _is_glm:
+                    _n_outer = _n_outer_base if _is_last else min(20, _n_outer_base)
+                else:
+                    _n_outer = _n_outer_base
+            else:
+                _n_cd_sweeps = _n_cd_sweeps_base
+                _n_outer = _n_outer_base
+
+            it = -1
+            for it in range(_n_outer):
+                beta_old = beta.copy()
+
+                if _is_glm:
+                    eta = X_work @ beta
+                    if loss_name == "logistic":
+                        mu = 1.0 / (1.0 + np.exp(-np.clip(eta, -500, 500)))
+                        mu = np.clip(mu, 1e-15, 1.0 - 1e-15)
+                        d = mu * (1.0 - mu)
+                        z = eta + (y_arr - mu) / d
+                    elif loss_name == "poisson":
+                        mu = np.exp(np.clip(eta, -500, 500))
+                        mu = np.maximum(mu, 1e-15)
+                        d = mu
+                        z = eta + (y_arr - mu) / d
+                    elif loss_name == "gamma":
+                        mu = np.exp(np.clip(eta, -500, 500))
+                        mu = np.maximum(mu, 1e-15)
+                        d = np.ones(n)
+                        z = eta + (y_arr - mu) / mu
+                    elif loss_name == "inverse_gaussian":
+                        # V(mu) = mu^3, log link g'(mu) = 1/mu
+                        # IRLS weight: w = 1/(V(mu) * [g'(mu)]^2) = 1/(mu^3 * 1/mu^2) = 1/mu
+                        # Working response: z = eta + (y - mu) * g'(mu) = eta + (y - mu)/mu
+                        mu = np.exp(np.clip(eta, -500, 500))
+                        mu = np.maximum(mu, 1e-15)
+                        d = 1.0 / mu
+                        z = eta + (y_arr - mu) / mu
+                    elif loss_name == "negative_binomial":
+                        mu = np.exp(np.clip(eta, -500, 500))
+                        mu = np.maximum(mu, 1e-15)
+                        theta_nb = float(getattr(self._loss, 'alpha', 1.0))
+                        d = mu / (1.0 + mu / theta_nb)
+                        z = eta + (y_arr - mu) / d
+                    elif loss_name == "tweedie":
+                        mu = np.exp(np.clip(eta, -500, 500))
+                        mu = np.maximum(mu, 1e-15)
+                        tweedie_p = float(getattr(self._loss, 'power', 1.5))
+                        d = mu ** tweedie_p
+                        d = np.maximum(d, 1e-15)
+                        z = eta + (y_arr - mu) / (d * mu)
+                    else:
+                        grad = self._loss.gradient(X_work, y_arr, beta)
+                        d = np.ones(n)
+                        z = eta - grad * n
+                    XDX_diag = np.sum(d[:, None] * X_work ** 2, axis=0)
+
+                # Effective sample size: use sum(d) for correct normalization
+                # when sample weights are present (d already includes sw scaling).
+                n_eff = float(np.sum(d))
+
+                r = z - X_work @ beta
+
+                # Compute penalized objective before CD (for step-halving)
+                if _is_glm:
+                    # Use full design matrix (including intercept) for correct objective
+                    _obj_before = float(self._loss.value(X_work, y_arr, beta))
+                    _obj_before += _nonconvex_penalty_value(beta[:p], pen_name, alpha, a_scad, gamma_mcp)
+
+                for _cd in range(_n_cd_sweeps):
+                    _max_cd_change = 0.0
+                    for j in range(pp):
+                        if XDX_diag[j] < 1e-20:
+                            beta[j] = 0.0
+                            continue
+
+                        rho_j = np.dot(d * X_work[:, j], r) + XDX_diag[j] * beta[j]
+                        old_bj = beta[j]
+
+                        u_j = rho_j / n_eff
+                        v_j = XDX_diag[j] / n_eff
+
+                        if j >= p:
+                            beta[j] = u_j / v_j
+                        elif pen_name in ("adaptive_l1", "adaptive_lasso"):
+                            l1 = alpha * _w[j]
+                            w_j = u_j / v_j
+                            if w_j > l1:
+                                beta[j] = (w_j - l1)
+                            elif w_j < -l1:
+                                beta[j] = (w_j + l1)
+                            else:
+                                beta[j] = 0.0
+                        elif pen_name == "scad":
+                            l1 = alpha
+                            w_j = u_j / v_j
+                            aw = np.abs(w_j)
+                            if aw > a_scad * l1:
+                                beta[j] = w_j
+                            elif aw > l1:
+                                beta[j] = np.sign(w_j) * ((a_scad - 1.0) * aw - a_scad * l1) / (a_scad - 2.0)
+                            else:
+                                beta[j] = 0.0
+                        elif pen_name == "mcp":
+                            l1 = alpha
+                            w_j = u_j / v_j
+                            aw = np.abs(w_j)
+                            if aw > gamma_mcp * l1:
+                                beta[j] = w_j
+                            elif aw > l1:
+                                beta[j] = np.sign(w_j) * (aw - l1) / (1.0 - 1.0 / gamma_mcp)
+                            else:
+                                beta[j] = 0.0
+                        else:
+                            l1 = alpha
+                            w_j = u_j / v_j
+                            if w_j > l1:
+                                beta[j] = (w_j - l1)
+                            elif w_j < -l1:
+                                beta[j] = (w_j + l1)
+                            else:
+                                beta[j] = 0.0
+
+                        if beta[j] != old_bj:
+                            r += X_work[:, j] * (old_bj - beta[j])
+                            _cd_change = abs(beta[j] - old_bj)
+                            if _cd_change > _max_cd_change:
+                                _max_cd_change = _cd_change
+
+                    # Inner CD convergence check (only for squared_error)
+                    if not _is_glm and _max_cd_change < self.tol:
+                        break
+
+                # Step-halving for GLM: ensure penalized objective decreases.
+                # ncvreg uses step-halving to prevent IRLS overshooting.
+                if _is_glm:
+                    _obj_after = float(self._loss.value(X_work, y_arr, beta))
+                    _obj_after += _nonconvex_penalty_value(beta[:p], pen_name, alpha, a_scad, gamma_mcp)
+                    if _obj_after > _obj_before + 1e-10:
+                        # Step-halving: interpolate between old and new beta
+                        # beta_sh = beta_old + 0.5^k * (beta_new - beta_old)
+                        beta_new = beta.copy()
+                        for _sh in range(1, 11):
+                            _frac = 0.5 ** _sh
+                            beta[:] = beta_old + _frac * (beta_new - beta_old)
+                            _obj_after = float(self._loss.value(X_work, y_arr, beta))
+                            _obj_after += _nonconvex_penalty_value(beta[:p], pen_name, alpha, a_scad, gamma_mcp)
+                            if _obj_after <= _obj_before + 1e-10:
+                                break
+
+                # IRLS-level convergence check.
+                _delta = np.max(np.abs(beta[:p] - beta_old[:p]))
+                if not _is_glm and _delta < self.tol:
+                    break
+                # For GLM with continuation: early exit on convergence
+                # for non-final steps (avoids wasting iterations).
+                if _is_glm and len(_cont_path) > 1 and not _is_last:
+                    if _delta < self.tol * 10:
+                        break
+
+        n_iter = (it + 1) if _n_outer > 0 else 0
+        return beta, n_iter
+
