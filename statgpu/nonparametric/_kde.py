@@ -10,9 +10,9 @@ from typing import Any, Dict, Optional, Union
 import numpy as np
 
 from statgpu._base import BaseEstimator
-from ._bandwidth_selection import select_bandwidth
+from statgpu.nonparametric._bandwidth_selection import select_bandwidth
 
-from ._kernel_common import (
+from statgpu.nonparametric._kernel_common import (
     _auto_backend_from_device,
     _as_points_2d,
     _as_samples_2d,

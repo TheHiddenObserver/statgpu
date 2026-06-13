@@ -7,8 +7,8 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 
-from . import _knockoff_utils as _kutils
-from ._knockoff_utils import (
+from statgpu.feature_selection import _knockoff_utils as _kutils
+from statgpu.feature_selection._knockoff_utils import (
     _build_fixed_x_knockoffs,
     _build_model_x_knockoffs,
     _build_model_x_knockoffs_knockpy_compat,

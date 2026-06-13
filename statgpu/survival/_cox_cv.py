@@ -14,7 +14,7 @@ import numpy as np
 from statgpu._config import Device
 from statgpu.backends import _get_torch_device_str
 from statgpu.linear_model._cv_base import CVEstimatorBase
-from ._cox import CoxPH
+from statgpu.survival._cox import CoxPH
 
 
 # =============================================================================

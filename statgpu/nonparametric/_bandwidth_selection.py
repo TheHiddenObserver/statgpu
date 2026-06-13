@@ -8,7 +8,7 @@ from typing import Any, Dict, Optional, Union
 
 import numpy as np
 
-from ._kernel_common import (
+from statgpu.nonparametric._kernel_common import (
     _bandwidth_factor,
     _bandwidth_factor_1d_nrd,
     _kernel_values_from_quad,
