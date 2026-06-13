@@ -225,50 +225,58 @@ class KernelRidgeCV(BaseEstimator):
             n_test = len(test_idx)
 
             K_train = K[train_idx][:, train_idx]
+            y_train = y_arr[train_idx]
+            y_test = y_arr[test_idx]
+            K_test = K[test_idx][:, train_idx]
 
             if _is_torch and K.is_cuda:
                 import torch
                 # Full GPU path: eigendecomposition + batched alpha sweep
-                y_train_t = y_arr[train_idx]
-                y_test_t = y_arr[test_idx]
-                K_test_t = K[test_idx][:, train_idx]
-
                 fold_eigvals, fold_Q = torch.linalg.eigh(K_train)
-                Qt_y_fold = fold_Q.T @ y_train_t  # (n_train, n_targets)
+                Qt_y_fold = fold_Q.T @ y_train  # (n_train, n_targets)
 
                 # Vectorized alpha sweep: (n_alphas, n_train)
                 alphas_t = torch.asarray(alphas_np, dtype=torch.float64, device=K.device)
                 inv_diag = 1.0 / (fold_eigvals[None, :] + alphas_t[:, None])  # (n_alphas, n_train)
 
                 # dual_coefs: (n_alphas, n_train, n_targets)
-                # Qt_y_fold: (n_train, n_targets) -> (1, n_train, n_targets)
                 weighted = inv_diag[:, :, None] * Qt_y_fold[None, :, :]  # (n_alphas, n_train, n_targets)
                 dual_coefs = fold_Q @ weighted  # (n_alphas, n_train, n_targets)
 
                 # Predict: K_test @ dual_coefs -> (n_alphas, n_test, n_targets)
-                y_pred = torch.matmul(K_test_t.unsqueeze(0), dual_coefs)  # (n_alphas, n_test, n_targets)
-                residuals = y_pred - y_test_t[None, :, :]
+                y_pred = torch.matmul(K_test.unsqueeze(0), dual_coefs)  # (n_alphas, n_test, n_targets)
+                residuals = y_pred - y_test[None, :, :]
                 mse_vals = torch.mean(residuals ** 2, dim=1)  # (n_alphas, n_targets)
 
                 mse_table[:, fi, :] = mse_vals
             else:
-                # Numpy/CuPy path
-                K_train_np = _to_numpy(K_train)
-                y_train_np = _to_numpy(y_arr[train_idx])
-                y_test_np = _to_numpy(y_arr[test_idx])
-                K_test_np = _to_numpy(K[test_idx][:, train_idx])
+                # NumPy and CuPy path: vectorized alpha sweep on device
+                fold_eigvals, fold_Q = xp.linalg.eigh(K_train)
+                Qt_y_fold = fold_Q.T @ y_train  # (n_train, n_targets)
 
-                fold_eigvals, fold_Q = np.linalg.eigh(K_train_np)
-                Qt_y_fold = fold_Q.T @ y_train_np
+                # Vectorized alpha sweep: (n_alphas, n_train)
+                alphas_dev = xp.asarray(alphas_np, dtype=xp.float64)
+                inv_diag = 1.0 / (fold_eigvals[None, :] + alphas_dev[:, None])  # (n_alphas, n_train)
 
-                for ai, alpha_val in enumerate(alphas_np):
-                    inv_diag = 1.0 / (fold_eigvals + alpha_val)
-                    dual_coef = fold_Q @ (inv_diag[:, None] * Qt_y_fold)
-                    y_pred = K_test_np @ dual_coef
-                    residuals = y_pred - y_test_np
-                    mse_np = np.mean(residuals ** 2, axis=0)
-                    for ti in range(n_targets):
-                        mse_table[ai, fi, ti] = float(mse_np[ti])
+                # dual_coefs: (n_alphas, n_train, n_targets)
+                weighted = inv_diag[:, :, None] * Qt_y_fold[None, :, :]  # (a, n, t)
+
+                # Q @ weighted for each alpha: (a, m, t) = sum_n Q[m,n] * weighted[a,n,t]
+                dual_coefs = xp.einsum('mn,ant->amt', fold_Q, weighted)  # (a, m, t)
+
+                # Predict: K_test @ dual_coefs for each alpha
+                # K_test[t,m] @ dual_coefs[a,m,tgt] -> y_pred[a,t,tgt]
+                if n_targets == 1:
+                    # Faster path for single target
+                    y_pred = (K_test @ dual_coefs[:, :, 0].T).T  # (a, n_test)
+                    residuals = y_pred - y_test.ravel()[None, :]
+                    mse_vals = xp.mean(residuals ** 2, axis=1, keepdims=True)  # (a, 1)
+                else:
+                    y_pred = xp.einsum('tm,amt->atk', K_test, dual_coefs)  # (a, n_test, n_targets)
+                    residuals = y_pred - y_test[None, :, :]
+                    mse_vals = xp.mean(residuals ** 2, axis=1)  # (a, n_targets)
+
+                mse_table[:, fi, :] = mse_vals
 
         # Mean MSE across folds: (n_alphas, n_targets)
         mean_mse = xp.mean(mse_table, axis=1)
