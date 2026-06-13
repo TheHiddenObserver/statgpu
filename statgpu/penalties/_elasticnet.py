@@ -4,6 +4,9 @@ Elastic Net penalty implementation.
 P(w) = α * l1_ratio * ||w||₁ + (α/2) * (1 - l1_ratio) * ||w||²₂
 """
 
+__all__ = ["ElasticNetPenalty"]
+
+
 from typing import Optional
 import numpy as np
 from ._base import Penalty

@@ -4,6 +4,9 @@ L2 penalty (Ridge) implementation.
 P(w) = (α/2) * ||w||²₂
 """
 
+__all__ = ["L2Penalty"]
+
+
 from typing import Optional
 import numpy as np
 from ._base import Penalty

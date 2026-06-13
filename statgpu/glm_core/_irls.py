@@ -7,10 +7,13 @@ Single implementation works on numpy/cupy/torch backends via auto detection.
 
 from __future__ import annotations
 
+__all__ = ["irls_solver", "IRLSSolver"]
+
 import warnings
 from typing import Optional
 
 import numpy as np
+
 
 
 from statgpu.backends import _resolve_backend

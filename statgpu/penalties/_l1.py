@@ -4,6 +4,9 @@ L1 penalty (Lasso) implementation.
 P(w) = α * ||w||₁
 """
 
+__all__ = ["L1Penalty"]
+
+
 from typing import Optional
 import numpy as np
 from ._base import Penalty

@@ -6,6 +6,9 @@ minimize: loss(X, y, w) + penalty(w)
 Supports numpy / cupy / torch backends via auto-detection.
 """
 
+__all__ = ["ConvergenceWarning", "fista_solver", "fista_lla_path", "fista_bb_solver", "newton_solver", "lbfgs_solver", "admm_solver"]
+
+
 import copy
 import warnings
 import numpy as np

@@ -9,6 +9,9 @@ Penalty:
 
 where MCP(t; lambda, gamma) is the element-wise MCP penalty.
 """
+
+__all__ = ["GroupMCPPenalty"]
+
 from typing import Optional, List, Union
 import numpy as np
 from ._base import Penalty

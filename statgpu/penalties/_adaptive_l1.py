@@ -9,6 +9,9 @@ where weights_j = 1 / (|init_coef_j| + eps)^nu.
 
 The weights are set via set_weights() using an initial OLS or Ridge estimate.
 """
+
+__all__ = ["AdaptiveL1Penalty"]
+
 from typing import Optional
 import numpy as np
 from ._base import Penalty

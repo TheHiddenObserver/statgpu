@@ -42,10 +42,10 @@ def _np_compat_xp(arr):
     Returns cupy for cupy arrays, numpy for everything else (including torch).
     Used for operations that need numpy-style indexing (e.g., ordered model).
     """
-    mod = type(arr).__module__
-    if mod.startswith('cupy'):
-        import cupy
-        return cupy
+    from statgpu.backends._utils import _get_xp
+    backend = _resolve_backend("auto", arr)
+    if backend == "cupy":
+        return _get_xp("cupy")
     return np
 
 
@@ -449,11 +449,12 @@ class GeneralizedLinearModel(BaseEstimator):
             # All non-Gaussian GLM losses must optimize intercept jointly with
             # coefficients. Centering y is only valid for squared-error loss.
             # Augment X with intercept column (no penalty in _fit_fista).
+            from statgpu.backends._utils import _get_xp
+            xp = _get_xp(backend_name)
             if backend_name == "cupy":
-                import cupy as cp
-                x_dtype = X.dtype if cp.issubdtype(X.dtype, cp.floating) else cp.float64
+                x_dtype = X.dtype if xp.issubdtype(X.dtype, xp.floating) else xp.float64
                 X_float = X.astype(x_dtype, copy=False)
-                X_aug = cp.column_stack([X_float, cp.ones(X.shape[0], dtype=x_dtype)])
+                X_aug = xp.column_stack([X_float, xp.ones(X.shape[0], dtype=x_dtype)])
             elif backend_name == "torch":
                 import torch
                 x_dtype = _torch_promoted_float_dtype(X, y)
@@ -496,9 +497,8 @@ class GeneralizedLinearModel(BaseEstimator):
         else:
             # Squared error: centering X and y preserves the objective.
             if backend_name == "cupy":
-                import cupy as cp
-                X_centered = X - cp.mean(X, axis=0)
-                y_centered = y - cp.mean(y)
+                X_centered = X - xp.mean(X, axis=0)
+                y_centered = y - xp.mean(y)
             elif backend_name == "torch":
                 import torch
                 x_dtype = _torch_promoted_float_dtype(X, y)
@@ -544,10 +544,9 @@ class GeneralizedLinearModel(BaseEstimator):
 
         if self._effective_intercept:
             if backend_name == "cupy":
-                import cupy as cp
-                x_dtype = X.dtype if getattr(X.dtype, "kind", "") == "f" else cp.float64
+                x_dtype = X.dtype if getattr(X.dtype, "kind", "") == "f" else xp.float64
                 X_float = X.astype(x_dtype, copy=False)
-                X_work = cp.column_stack([X_float, cp.ones(X.shape[0], dtype=x_dtype)])
+                X_work = xp.column_stack([X_float, xp.ones(X.shape[0], dtype=x_dtype)])
             elif backend_name == "torch":
                 import torch
                 x_dtype = _torch_promoted_float_dtype(X, y)

@@ -10,6 +10,9 @@ Structured models such as Cox, panel, and time-series models should use a
 future objective layer rather than this GLM-specific interface.
 """
 
+__all__ = ["GLMLoss", "get_glm_loss", "register_glm_loss", "list_glm_losses"]
+
+
 from abc import ABC, abstractmethod
 from typing import Optional
 

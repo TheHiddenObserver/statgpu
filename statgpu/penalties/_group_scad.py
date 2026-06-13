@@ -9,6 +9,9 @@ Penalty:
 
 where SCAD(t; lambda, a) is the element-wise SCAD penalty.
 """
+
+__all__ = ["GroupSCADPenalty"]
+
 from typing import Optional, List, Union
 import numpy as np
 from ._base import Penalty

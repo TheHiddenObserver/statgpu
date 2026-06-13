@@ -8,6 +8,9 @@ The penalty is:
 
 where w_g is the subvector of w for group g, and p_g is the size of group g.
 """
+
+__all__ = ["GroupLassoPenalty", "AdaptiveGroupLassoPenalty"]
+
 from typing import Optional, List, Union
 import numpy as np
 from ._base import Penalty

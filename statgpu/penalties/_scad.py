@@ -12,6 +12,9 @@ Element-wise:
 
 Supports both FISTA direct (proximal) and LLA (lla_weights) optimization.
 """
+
+__all__ = ["SCADPenalty"]
+
 from typing import Optional
 import numpy as np
 from ._base import Penalty

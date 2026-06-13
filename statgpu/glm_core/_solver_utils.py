@@ -9,6 +9,9 @@ Extracted from _solver.py to improve maintainability. Contains:
 - Fused GLM loss+gradient functions
 """
 
+__all__ = ["ConvergenceWarning"]
+
+
 import warnings
 import numpy as np
 
