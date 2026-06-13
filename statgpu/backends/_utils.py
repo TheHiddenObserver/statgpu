@@ -248,7 +248,13 @@ def _np_dtype_to_torch(dtype):
         'uint8': torch.uint8,
         'bool': torch.bool,
     }
-    return _MAP.get(str(np.dtype(dtype)).split('.')[-1], torch.float64)
+    key = str(np.dtype(dtype)).split('.')[-1]
+    result = _MAP.get(key)
+    if result is None:
+        import warnings
+        warnings.warn(f"Unknown numpy dtype '{dtype}' for torch conversion, falling back to float64", stacklevel=2)
+        return torch.float64
+    return result
 
 
 def _torch_dtype_to_np(dtype):

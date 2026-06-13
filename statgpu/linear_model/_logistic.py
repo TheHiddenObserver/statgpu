@@ -946,7 +946,7 @@ class LogisticRegression(BaseEstimator):
             Predicted class labels.
         """
         proba = self.predict_proba(X)
-        if hasattr(proba, "to") and hasattr(proba, "dtype"):
+        if hasattr(proba, 'is_floating_point'):  # torch tensor
             return (proba[:, 1] >= 0.5).to(dtype=proba.dtype)
         return (proba[:, 1] >= 0.5).astype(int)
 

@@ -2079,8 +2079,7 @@ class Lasso(_PenalizedLinearRegression):
         admm_rho: float = 1.0,
         gpu_memory_cleanup: bool = False,
     ):
-        self.stopping = str(stopping).lower()
-        self.inference_method = str(inference_method).lower()
+        # Lasso-specific attributes (set before super().__init__ which doesn't know them)
         self.n_bootstrap = int(n_bootstrap)
         self.bootstrap_random_state = bootstrap_random_state
         self.enable_simultaneous_inference = bool(enable_simultaneous_inference)

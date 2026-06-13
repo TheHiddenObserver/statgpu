@@ -71,6 +71,9 @@ def _sigmoid(arr):
 def _softplus(x):
     """Numerically stable softplus: log(1 + exp(x))."""
     xp = _xp(x)
+    if xp.__name__ == "torch":
+        import torch.nn.functional as F
+        return F.softplus(x)
     return xp.log1p(xp.exp(-xp.abs(x))) + _clip(x, 0.0, None)
 
 
@@ -422,7 +425,7 @@ def _max_eigval_power(mat, n_iter=20, tol=1e-8):
             v = v_new / v_norm
             # lambda = v^T A v = v^T v_new (v_new = A v, already computed)
             lambda_new = float(xp.dot(v, v_new))
-            if abs(lambda_new - lambda_old) < tol * abs(lambda_new):
+            if lambda_old > 0 and abs(lambda_new - lambda_old) < tol * abs(lambda_new):
                 break
             lambda_old = lambda_new
         return lambda_new
@@ -456,7 +459,8 @@ def _soft_threshold(w, thresh):
     """
     xp = _xp(w)
     abs_w = xp.abs(w)
-    return xp.where(abs_w > thresh, abs_w - thresh, 0.0) * xp.sign(w)
+    # +0.0 eliminates negative zeros from sign(w)
+    return (xp.where(abs_w > thresh, abs_w - thresh, 0.0) * xp.sign(w)) + 0.0
 
 
 def _scalar_tensor(val, ref_arr):
