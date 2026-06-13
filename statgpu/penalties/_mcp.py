@@ -103,13 +103,14 @@ class MCPPenalty(Penalty):
     # Gradient
     # ----------------------------------------------------------------
 
-    def gradient(self, coef: np.ndarray) -> np.ndarray:
-        abs_w = np.abs(coef)
-        sign_w = np.sign(coef)
+    def gradient(self, coef):
+        xp = _xp(coef)
+        abs_w = xp.abs(coef)
+        sign_w = xp.sign(coef)
         alpha = self.alpha
         gamma = self.gamma
 
-        grad = np.zeros_like(coef, dtype=float)
+        grad = xp.zeros_like(coef, dtype=coef.dtype if hasattr(coef, 'dtype') else float)
 
         mask1 = abs_w <= gamma * alpha
         grad[mask1] = sign_w[mask1] * (alpha - abs_w[mask1] / gamma)

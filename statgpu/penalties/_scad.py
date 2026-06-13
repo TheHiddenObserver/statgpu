@@ -109,13 +109,14 @@ class SCADPenalty(Penalty):
     # Gradient
     # ----------------------------------------------------------------
 
-    def gradient(self, coef: np.ndarray) -> np.ndarray:
-        abs_w = np.abs(coef)
-        sign_w = np.sign(coef)
+    def gradient(self, coef):
+        xp = _xp(coef)
+        abs_w = xp.abs(coef)
+        sign_w = xp.sign(coef)
         a = self.a
         alpha = self.alpha
 
-        grad = np.zeros_like(coef, dtype=float)
+        grad = xp.zeros_like(coef, dtype=coef.dtype if hasattr(coef, 'dtype') else float)
 
         # Region 1: |w| <= alpha → alpha * sign(w)
         mask1 = abs_w <= alpha

@@ -135,17 +135,21 @@ class ParameterInferenceResult(BaseInferenceResult):
             if self.feature_names is not None
             else [f"param_{i}" for i in range(params.shape[0])]
         )
-        return pd.DataFrame(
-            {
-                "term": names,
-                "estimate": params,
-                "std_error": np.asarray(self.bse),
-                self.statistic_name: np.asarray(self.statistic),
-                "pvalue": np.asarray(self.pvalues),
-                "conf_low": np.asarray(self.conf_int)[:, 0],
-                "conf_high": np.asarray(self.conf_int)[:, 1],
-            }
-        )
+        data = {
+            "term": names,
+            "estimate": params,
+        }
+        if self.bse is not None:
+            data["std_error"] = np.asarray(self.bse)
+        if self.statistic is not None:
+            data[self.statistic_name] = np.asarray(self.statistic)
+        if self.pvalues is not None:
+            data["pvalue"] = np.asarray(self.pvalues)
+        if self.conf_int is not None:
+            ci = np.asarray(self.conf_int)
+            data["conf_low"] = ci[:, 0]
+            data["conf_high"] = ci[:, 1]
+        return pd.DataFrame(data)
 
 
 @dataclass

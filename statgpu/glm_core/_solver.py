@@ -1965,57 +1965,6 @@ def lbfgs_solver(
 # =============================================================================
 
 
-def _cg_solve(A_op, b, x0=None, max_iter=30, tol=1e-6):
-    """Conjugate gradient for solving (A + rho*I)x = b.
-
-    A_op(x) returns A(x) — used for the augmented Lagrangian subproblem.
-    GPU-optimised: all dot products stay on device via _dot_dev.
-    """
-    backend = _resolve_backend("auto", b)
-    if x0 is not None:
-        x = _copy_arr(x0)
-    else:
-        x = _zeros_like(b)
-
-    r = b - A_op(x)
-    p = _copy_arr(r)
-    rsold = _dot_dev(r, r)
-
-    tol_sq = tol * tol
-    if backend != "numpy" and _device_leq(rsold, tol_sq):
-        return x
-    if backend == "numpy" and rsold < tol_sq:
-        return x
-
-    for _ in range(max_iter):
-        Ap = A_op(p)
-        pAp = _dot_dev(p, Ap)
-        # Guard against indefinite system: pAp <= 0 means A is not PD.
-        # Return current x (best effort) rather than diverge silently.
-        if backend != "numpy":
-            if not _device_gt(pAp, 1e-30):
-                break
-            alpha = rsold / pAp
-        else:
-            if pAp <= 1e-30:
-                break
-            alpha = rsold / pAp
-        x = x + alpha * p
-        r = r - alpha * Ap
-        rsnew = _dot_dev(r, r)
-        if backend != "numpy":
-            if _device_leq(rsnew, tol_sq):
-                break
-            beta = rsnew / rsold if _device_gt(rsold, 1e-30) else 0.0
-        else:
-            if rsnew < tol_sq:
-                break
-            beta = rsnew / rsold if rsold > 1e-30 else 0.0
-        p = r + beta * p
-        rsold = rsnew
-
-    return x
-
 
 def admm_solver(
     loss,

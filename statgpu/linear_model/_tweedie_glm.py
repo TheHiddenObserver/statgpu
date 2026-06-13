@@ -1,5 +1,7 @@
 """Tweedie regression (GLM, log link, power parameter)."""
 
+from typing import Optional
+
 from statgpu._config import Device
 from statgpu.glm_core._family import Tweedie
 from ._glm_base import GeneralizedLinearModel
@@ -29,7 +31,7 @@ class TweedieRegression(GeneralizedLinearModel):
         tol: float = 1e-4,
         C: float = 1.0,
         device: Device = Device.AUTO,
-        n_jobs: int = None,
+        n_jobs: Optional[int] = None,
         solver: str = "auto",
         gpu_memory_cleanup: bool = False,
     ):
