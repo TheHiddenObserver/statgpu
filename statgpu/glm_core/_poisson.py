@@ -7,7 +7,7 @@ where mu = exp(X @ coef).
 
 Supports numpy / cupy / torch backends via _backend helpers.
 """
-from statgpu.backends._array_ops import _clip, _exp, _log, _eigvalsh, _sum
+from statgpu.backends._array_ops import _clip, _exp, _log, _sum, _max_eigval_power
 from ._base import GLMLoss, register_glm_loss
 
 
@@ -18,32 +18,40 @@ class PoissonLoss(GLMLoss):
     smooth_gradient = True
     has_hessian = True
 
-    def value(self, X, y, coef):
-        """Negative Poisson log-likelihood (to minimize)."""
-        z = _clip(X @ coef, -500, 500)
-        mu = _exp(z)
-        return _sum(mu - y * _log(_clip(mu, 1e-300, None))) / X.shape[0]
+    _MU_LO = 1e-10
+    _MU_HI = 1e6  # must exceed typical max(y); clip prevents extreme weights
+    _ETA_LO = -30
+    _ETA_HI = 30
 
-    def gradient(self, X, y, coef):
-        """Gradient = X'(mu - y) / n."""
-        z = _clip(X @ coef, -500, 500)
-        mu = _exp(z)
-        return X.T @ (mu - y) / X.shape[0]
+    # ── Per-sample formulas (single source of truth) ──────────────────
 
-    def hessian(self, X, y, coef):
-        """Hessian = X'WX / n, W = diag(mu)."""
-        z = _clip(X @ coef, -500, 500)
-        mu = _exp(z)
-        W = _clip(mu, 1e-10, None)
-        return X.T @ (X * W[:, None]) / X.shape[0]
+    def _mu_from_eta(self, eta):
+        return _clip(_exp(_clip(eta, self._ETA_LO, self._ETA_HI)), self._MU_LO, self._MU_HI)
 
-    def lipschitz(self, X, coef):
-        z = _clip(X @ coef, -500, 500)
-        mu = _exp(z)
-        # Cap mu to prevent explosion
-        W = _clip(mu, 1e-10, 1e6)
+    def per_sample_value(self, eta, y):
+        mu = self._mu_from_eta(eta)
+        return mu - y * _log(mu)
+
+    def per_sample_gradient(self, eta, y):
+        mu = self._mu_from_eta(eta)
+        return mu - y
+
+    # ── Hessian / Lipschitz ───────────────────────────────────────────
+
+    def hessian(self, X, y, coef, sample_weight=None):
+        z = _clip(X @ coef, -30, 30)
+        mu = _clip(_exp(z), self._MU_LO, self._MU_HI)
+        W = mu if sample_weight is None else mu * sample_weight
+        n_eff = float(sample_weight.sum()) if sample_weight is not None else X.shape[0]
+        return X.T @ (X * W[:, None]) / n_eff
+
+    def lipschitz(self, X, coef, y=None, sample_weight=None):
+        z = _clip(X @ coef, -30, 30)
+        mu = _clip(_exp(z), self._MU_LO, self._MU_HI)
+        W = mu if sample_weight is None else mu * sample_weight
+        n_eff = float(sample_weight.sum()) if sample_weight is not None else X.shape[0]
         XtWX = X.T @ (X * W[:, None])
-        L = float(_eigvalsh(XtWX)[-1]) / X.shape[0]
+        L = _max_eigval_power(XtWX) / n_eff
         return max(L, 1e-8)
 
     def predict(self, X, coef):

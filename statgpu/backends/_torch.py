@@ -19,6 +19,11 @@ methods on this backend class.
 import numpy as np
 
 from ._base import BackendBase
+from ._utils import (
+    _cupy_to_torch_dlpack,
+    _move_torch_tensor,
+    _numpy_to_torch_tensor,
+)
 
 # Default CUDA device string used when moving tensors to GPU.
 _DEFAULT_TORCH_DEVICE = "cuda"
@@ -86,22 +91,29 @@ class TorchBackend(BackendBase):
         import torch
         self._ensure_initialized()  # Warmup on first use to avoid lazy CUDA init
         if isinstance(x, torch.Tensor):
-            t = x.to(self._device)
+            t = _move_torch_tensor(x, device=self._device, dtype=dtype)
         elif hasattr(x, "get"):
             # CuPy arrays expose a .get() method that transfers the array from
             # GPU memory to a NumPy ndarray on the host.  Duck-typing avoids a
             # mandatory cupy import here.
-            t = torch.from_numpy(x.get()).to(self._device)
+            t = _cupy_to_torch_dlpack(x, device=self._device)
+            if t is None:
+                t = _numpy_to_torch_tensor(
+                    x.get(),
+                    device=self._device,
+                    dtype=dtype,
+                    pin_memory=self._device.startswith("cuda"),
+                )
+            elif dtype is not None:
+                t = _move_torch_tensor(t, dtype=dtype)
         else:
             # Use torch.from_numpy for numpy arrays, then ensure contiguous memory
-            arr = np.asarray(x)
-            if arr.flags['C_CONTIGUOUS']:
-                t = torch.from_numpy(arr).to(self._device)
-            else:
-                # Non-contiguous arrays need explicit contiguous copy
-                t = torch.from_numpy(np.ascontiguousarray(arr)).to(self._device)
-        if dtype is not None:
-            t = t.to(dtype)
+            t = _numpy_to_torch_tensor(
+                x,
+                device=self._device,
+                dtype=dtype,
+                pin_memory=self._device.startswith("cuda"),
+            )
         # Ensure result is contiguous for optimal performance
         if not t.is_contiguous():
             t = t.contiguous()
@@ -264,19 +276,6 @@ class TorchBackend(BackendBase):
             x = result.values if hasattr(result, 'values') else result[0]
         return x
 
-    def min(self, x, axis=None, keepdims=False):
-        """Minimum value along axis."""
-        import torch
-        if axis is None:
-            return torch.min(x)
-        if isinstance(axis, int):
-            result = torch.min(x, dim=axis, keepdim=keepdims)
-            return result.values if hasattr(result, 'values') else result[0]
-        for ax in sorted(axis, reverse=True):
-            result = torch.min(x, dim=ax, keepdim=keepdims)
-            x = result.values if hasattr(result, 'values') else result[0]
-        return x
-
     def square(self, x):
         """Element-wise square."""
         import torch
@@ -296,13 +295,6 @@ class TorchBackend(BackendBase):
         """Element-wise log(1 + x)."""
         import torch
         return torch.log1p(x)
-
-    def logsumexp(self, x, axis=None, keepdims=False):
-        """Stable logsumexp reduction."""
-        import torch
-        if axis is None:
-            return torch.logsumexp(x.reshape(-1), dim=0)
-        return torch.logsumexp(x, dim=axis, keepdim=keepdims)
 
     def maximum(self, x, y):
         """Element-wise maximum of two arrays."""
@@ -369,46 +361,31 @@ class TorchBackend(BackendBase):
     def zeros(self, shape, dtype=None):
         """Create array of zeros."""
         import torch
-        result = torch.zeros(shape, device=self._device)
-        if dtype is not None:
-            result = result.to(dtype)
-        return result
+        return torch.zeros(shape, device=self._device, dtype=dtype if dtype is not None else torch.float64)
 
     def ones(self, shape, dtype=None):
         """Create array of ones."""
         import torch
-        result = torch.ones(shape, device=self._device)
-        if dtype is not None:
-            result = result.to(dtype)
-        return result
+        return torch.ones(shape, device=self._device, dtype=dtype if dtype is not None else torch.float64)
 
     def eye(self, n, m=None, dtype=None):
         """Create identity matrix."""
         import torch
         if m is None:
             m = n
-        result = torch.eye(n, m, device=self._device)
-        if dtype is not None:
-            result = result.to(dtype)
-        return result
+        return torch.eye(n, m, device=self._device, dtype=dtype if dtype is not None else torch.float64)
 
     def full(self, shape, fill_value, dtype=None):
         """Create array filled with a constant value."""
         import torch
         if isinstance(shape, int):
             shape = (shape,)
-        result = torch.full(shape, fill_value, device=self._device)
-        if dtype is not None:
-            result = result.to(dtype)
-        return result
+        return torch.full(shape, fill_value, device=self._device, dtype=dtype if dtype is not None else torch.float64)
 
     def array(self, val, dtype=None):
         """Create a scalar or array from a value."""
         import torch
-        result = torch.tensor(val, device=self._device)
-        if dtype is not None:
-            result = result.to(dtype)
-        return result
+        return torch.tensor(val, device=self._device, dtype=dtype if dtype is not None else torch.float64)
 
     def isnan(self, x):
         """Element-wise isnan check."""
@@ -479,11 +456,6 @@ class TorchBackend(BackendBase):
         if return_counts:
             return torch.unique(x, return_counts=return_counts)
         return torch.unique(x)
-
-    def bincount(self, x, weights=None, minlength=0):
-        """Count non-negative integer labels."""
-        import torch
-        return torch.bincount(x, weights=weights, minlength=minlength)
 
     def any(self, x, axis=None):
         """Check if any element is true."""
@@ -653,12 +625,3 @@ class TorchBackend(BackendBase):
         """Element-wise sign."""
         import torch
         return torch.sign(x)
-
-    def norm(self, x, axis=None, keepdims=False):
-        """Euclidean norm."""
-        import torch
-        return torch.sqrt(self.sum(x * x, axis=axis, keepdims=keepdims))
-
-    def item(self, x):
-        """Convert a scalar tensor to a Python scalar."""
-        return x.detach().cpu().item() if hasattr(x, "detach") else x

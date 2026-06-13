@@ -5,6 +5,7 @@ CuPy GPU backend.
 import numpy as np
 
 from ._base import BackendBase
+from ._utils import _torch_to_cupy_dlpack
 
 
 class CuPyBackend(BackendBase):
@@ -25,6 +26,9 @@ class CuPyBackend(BackendBase):
     def asarray(self, x, dtype=None):
         import cupy as cp
         if hasattr(x, "cpu"):
+            arr = _torch_to_cupy_dlpack(x)
+            if arr is not None:
+                return arr.astype(dtype, copy=False) if dtype is not None else arr
             # PyTorch tensors expose a .cpu() method that moves the tensor to
             # CPU memory before converting to NumPy.  Duck-typing avoids a
             # mandatory torch import.
@@ -238,43 +242,167 @@ class CuPyBackend(BackendBase):
         return cp.eye(n, m, dtype=dtype)
 
     def cummin(self, arr, axis=0):
-        """Cumulative minimum along *axis* (CuPy fallback via CPU)."""
+        """Cumulative minimum along *axis* (GPU-native for small arrays)."""
         import cupy as cp
-        return cp.asarray(np.minimum.accumulate(cp.asnumpy(arr), axis=axis))
+        if arr.size == 0 or arr.shape[axis] == 0:
+            return arr.copy()
+        if str(arr.dtype) not in _CUPY_CUMOP_DTYPES:
+            return cp.minimum.accumulate(arr, axis=axis)
+        if arr.ndim == 1:
+            return self._cumop_1d(arr, cp.minimum)
+        # Multi-dim: transpose target axis to last, scan, transpose back
+        if axis != arr.ndim - 1:
+            axes = list(range(arr.ndim))
+            axes[axis], axes[-1] = axes[-1], axes[axis]
+            arr = cp.transpose(arr, axes)
+            return cp.transpose(self._cumop_last_axis(arr, cp.minimum), axes)
+        return self._cumop_last_axis(arr, cp.minimum)
 
     def cummax(self, arr, axis=0):
-        """Cumulative maximum along *axis* (CuPy fallback via CPU)."""
+        """Cumulative maximum along *axis* (GPU-native for small arrays)."""
         import cupy as cp
-        return cp.asarray(np.maximum.accumulate(cp.asnumpy(arr), axis=axis))
+        if arr.size == 0 or arr.shape[axis] == 0:
+            return arr.copy()
+        if str(arr.dtype) not in _CUPY_CUMOP_DTYPES:
+            return cp.maximum.accumulate(arr, axis=axis)
+        if arr.ndim == 1:
+            return self._cumop_1d(arr, cp.maximum)
+        if axis != arr.ndim - 1:
+            axes = list(range(arr.ndim))
+            axes[axis], axes[-1] = axes[-1], axes[axis]
+            arr = cp.transpose(arr, axes)
+            return cp.transpose(self._cumop_last_axis(arr, cp.maximum), axes)
+        return self._cumop_last_axis(arr, cp.maximum)
 
-    def where(self, cond, x, y):
-        """Element-wise selection based on condition."""
+    @staticmethod
+    def _cumop_1d(arr, op):
+        """1D cumulative op using sequential write."""
         import cupy as cp
-        return cp.where(cond, x, y)
+        # Ensure contiguous for CUDA kernel compatibility
+        if not arr.flags.c_contiguous:
+            arr = cp.ascontiguousarray(arr)
+        n = len(arr)
+        if n == 0:
+            return cp.empty_like(arr)
+        result = cp.empty_like(arr)
+        result[0] = arr[0]
+        if n > 1:
+            _launch_cumop_1d(arr, result, n, op is cp.minimum)
+        return result
 
-    def bincount(self, x, weights=None, minlength=0):
-        """Count non-negative integer labels."""
+    @staticmethod
+    def _cumop_last_axis(arr, op):
+        """Cumulative op along last axis for N-D arrays."""
         import cupy as cp
-        return cp.bincount(x, weights=weights, minlength=minlength)
+        # Ensure contiguous for CUDA kernel compatibility
+        if not arr.flags.c_contiguous:
+            arr = cp.ascontiguousarray(arr)
+        shape = arr.shape
+        K = shape[-1]
+        if K == 0:
+            return cp.empty_like(arr)
+        flat = arr.reshape(-1, K)
+        N = flat.shape[0]
+        if N == 0:
+            return cp.empty_like(arr)
+        result = cp.empty_like(flat)
+        result[:, 0] = flat[:, 0]
+        if K > 1:
+            _launch_cumop_2d(flat, result, N, K, op is cp.minimum)
+        return result.reshape(shape)
 
-    def logsumexp(self, x, axis=None, keepdims=False):
-        """Stable logsumexp reduction."""
-        import cupy as cp
-        from cupyx.scipy.special import logsumexp
-        return logsumexp(x, axis=axis, keepdims=keepdims)
 
-    def zeros_like(self, x, dtype=None):
-        """Create zeros with the same shape as x."""
-        import cupy as cp
-        return cp.zeros_like(x, dtype=dtype)
+# ── Raw CUDA kernels for cumulative scan ──
+_cumop_1d_template = r'''
+extern "C" __global__
+void {name}(const {dtype}* __restrict__ x,
+            {dtype}* __restrict__ out, int n) {{
+    {dtype} cur = x[0];
+    out[0] = cur;
+    for (int j = 1; j < n; j++) {{
+        if ({cmp}) cur = x[j];
+        out[j] = cur;
+    }}
+}}
+'''
 
-    def ones_like(self, x, dtype=None):
-        """Create ones with the same shape as x."""
-        import cupy as cp
-        return cp.ones_like(x, dtype=dtype)
+_cumop_2d_template = r'''
+extern "C" __global__
+void {name}(const {dtype}* __restrict__ x,
+            {dtype}* __restrict__ out, int N, int K) {{
+    int tid = blockIdx.x * blockDim.x + threadIdx.x;
+    if (tid >= N) return;
+    const {dtype}* row = x + tid * K;
+    {dtype}* orow = out + tid * K;
+    {dtype} cur = row[0];
+    orow[0] = cur;
+    for (int j = 1; j < K; j++) {{
+        if ({cmp}) cur = row[j];
+        orow[j] = cur;
+    }}
+}}
+'''
+_CUPY_CUMOP_DTYPES = {
+    "float64": "double",
+    "float32": "float",
+    "int64": "long long",
+    "int32": "int",
+}
+_cumop_kernels = {}
 
-    @property
-    def bool(self):
-        """Boolean dtype."""
-        import cupy as cp
-        return cp.bool_
+
+def _get_cumop_kernels(dtype):
+    dtype = str(dtype)
+    if dtype not in _CUPY_CUMOP_DTYPES:
+        raise TypeError(f"Unsupported dtype for CuPy cumop kernels: {dtype}")
+    if dtype in _cumop_kernels:
+        return _cumop_kernels[dtype]
+    import cupy as cp
+    ctype = _CUPY_CUMOP_DTYPES[dtype]
+
+    kmin1_mod = cp.RawModule(code=_cumop_1d_template.format(name="cummin_1d", dtype=ctype, cmp="x[j] < cur"))
+    kmax1_mod = cp.RawModule(code=_cumop_1d_template.format(name="cummax_1d", dtype=ctype, cmp="x[j] > cur"))
+    kmin2_mod = cp.RawModule(code=_cumop_2d_template.format(name="cummin_2d", dtype=ctype, cmp="row[j] < cur"))
+    kmax2_mod = cp.RawModule(code=_cumop_2d_template.format(name="cummax_2d", dtype=ctype, cmp="row[j] > cur"))
+
+    kernels = (
+        kmin1_mod.get_function('cummin_1d'),
+        kmax1_mod.get_function('cummax_1d'),
+        kmin2_mod.get_function('cummin_2d'),
+        kmax2_mod.get_function('cummax_2d'),
+    )
+    _cumop_kernels[dtype] = kernels
+    return kernels
+
+
+def _cumop_kernels_available(dtype=None):
+    """Check if CuPy cumop kernels can be compiled (lazy, caches on first call)."""
+    try:
+        _get_cumop_kernels(dtype or "float64")
+        return True
+    except Exception:
+        return False
+
+
+def _launch_cumop_1d(arr, result, n, is_min):
+    if arr is None or result is None:
+        raise RuntimeError(
+            "CuPy cumop kernels failed to compile or unavailable. "
+            "Cannot run cummin/cummax on this device."
+        )
+    kmin1, kmax1, _, _ = _get_cumop_kernels(arr.dtype)
+    kernel = kmin1 if is_min else kmax1
+    kernel((1,), (1,), (arr, result, n))
+
+
+def _launch_cumop_2d(arr, result, N, K, is_min):
+    if arr is None or result is None:
+        raise RuntimeError(
+            "CuPy cumop kernels failed to compile or unavailable. "
+            "Cannot run cummin/cummax on this device."
+        )
+    _, _, kmin2, kmax2 = _get_cumop_kernels(arr.dtype)
+    kernel = kmin2 if is_min else kmax2
+    block = min(N, 256)
+    grid = (N + block - 1) // block
+    kernel((grid,), (block,), (arr, result, N, K))

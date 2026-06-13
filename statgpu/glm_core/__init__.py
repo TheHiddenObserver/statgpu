@@ -22,24 +22,49 @@ from ._base import (
 from ._squared import SquaredErrorLoss
 from ._logistic import LogisticLoss
 from ._poisson import PoissonLoss
-from ._family import GLMFamily, Link, Gaussian, Binomial, Poisson
+from ._gamma import GammaLoss
+from ._inverse_gaussian import InverseGaussianLoss
+from ._negative_binomial import NegativeBinomialLoss
+from ._tweedie import TweedieLoss
+from ._family import (
+    GLMFamily,
+    Link,
+    Gaussian,
+    Binomial,
+    Poisson,
+    Gamma,
+    InverseGaussian,
+    NegativeBinomial,
+    Tweedie,
+)
 from ._irls import IRLSSolver
-from ._solver import fista_solver, lbfgs_solver, newton_solver
+from ._solver import fista_solver, fista_bb_solver, admm_solver, lbfgs_solver, newton_solver, ConvergenceWarning
 
 __all__ = [
     "GLMLoss",
     "SquaredErrorLoss",
     "LogisticLoss",
     "PoissonLoss",
+    "GammaLoss",
+    "InverseGaussianLoss",
+    "NegativeBinomialLoss",
+    "TweedieLoss",
     "GLMFamily",
     "Link",
     "Gaussian",
     "Binomial",
     "Poisson",
+    "Gamma",
+    "InverseGaussian",
+    "NegativeBinomial",
+    "Tweedie",
     "IRLSSolver",
     "fista_solver",
+    "fista_bb_solver",
+    "admm_solver",
     "newton_solver",
     "lbfgs_solver",
+    "ConvergenceWarning",
     "get_glm_loss",
     "register_glm_loss",
     "list_glm_losses",
