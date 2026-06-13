@@ -2850,7 +2850,7 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
 
         if sample_weight is not None:
             if not isinstance(sample_weight, torch.Tensor):
-                sample_weight = torch.from_numpy(sample_weight).to(torch_device)
+                sample_weight = torch.as_tensor(np.asarray(sample_weight, dtype=np.float64), device=torch_device)
             sqrt_sw = torch.sqrt(sample_weight)
             X = X * sqrt_sw[:, None]
             y = y * sqrt_sw
@@ -4102,6 +4102,9 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
                             if _obj_sh <= _obj_before + 1e-10:
                                 beta = beta_sh
                                 break
+                        else:
+                            # All step-halving attempts failed — revert to previous iterate
+                            beta = beta_old
 
                 # IRLS-level convergence check
                 _delta = float(xp.max(xp.abs(beta[:p] - beta_old[:p])))
@@ -4149,6 +4152,7 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
         else:
             coef = np.zeros(pp, dtype=np.float64)
 
+        iteration = -1  # ensure defined when max_iter=0
         for iteration in range(self.max_iter):
             coef_old = coef.copy()
 
@@ -4232,6 +4236,7 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
         else:
             coef = _xp_zeros(pp, X_work.dtype, X_work)
 
+        iteration = -1  # ensure defined when max_iter=0
         for iteration in range(self.max_iter):
             coef_old = _xp_copy(coef)
 
@@ -4320,6 +4325,7 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
         else:
             coef = _xp_zeros(pp, X_work.dtype, X_work)
 
+        iteration = -1  # ensure defined when max_iter=0
         for iteration in range(self.max_iter):
             coef_old = _xp_copy(coef)
 
@@ -4415,6 +4421,7 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
 
         thresh = alpha * l1_ratio * n
 
+        iteration = -1  # ensure defined when max_iter=0
         for iteration in range(self.max_iter):
             coef_old = coef.copy()
 
@@ -4466,6 +4473,7 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
 
         thresh = alpha * n
 
+        iteration = -1  # ensure defined when max_iter=0
         for iteration in range(self.max_iter):
             coef_old = coef.copy()
 
@@ -4507,7 +4515,8 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
         from statgpu.backends._array_ops import _xp_asarray
         from statgpu.backends._utils import _get_xp
         _xp = _get_xp(backend_name)
-        X_arr = _xp_asarray(X, _xp.float64, X if not isinstance(X, np.ndarray) else np.zeros(1))
+        _ref = X if not isinstance(X, np.ndarray) else _xp.zeros(1, dtype=_xp.float64)
+        X_arr = _xp_asarray(X, _xp.float64, _ref)
         y_arr = _xp_asarray(y, _xp.float64, X_arr)
         if self._effective_intercept:
             p = X_arr.shape[1]
@@ -4763,9 +4772,12 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
                 groups=_groups, alpha=_pen_alpha,
             )
             def _group_lla_factory(weights_np):
-                # lla_weights returns per-coordinate; extract per-group weights
-                _gw = np.array([float(weights_np[idx[0]]) if len(idx) > 0 else 0.0
-                                for idx in _groups])
+                # lla_weights returns per-coordinate; compute per-group weights
+                # as the norm of the per-coordinate weights within each group
+                _gw = np.array([
+                    float(np.sqrt(np.sum(weights_np[idx] ** 2))) if len(idx) > 0 else 0.0
+                    for idx in _groups
+                ])
                 _adaptive_pen.set_weights(_gw)
                 return _adaptive_pen
 
