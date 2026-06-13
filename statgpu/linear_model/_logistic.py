@@ -3,6 +3,8 @@ Logistic regression with full statistical inference and GPU support.
 Uses IRLS (Iteratively Reweighted Least Squares) algorithm.
 """
 
+__all__ = ["LogisticRegression"]
+
 from typing import Any, Dict, Optional, Union, Tuple
 import numpy as np
 from scipy import stats

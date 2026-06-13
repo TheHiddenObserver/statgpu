@@ -2,6 +2,8 @@
 ElasticNetCV: Cross-validated Elastic Net regression with GPU support.
 """
 
+__all__ = ["ElasticNetCV"]
+
 from typing import Any, Dict, List, Optional, Tuple, Union
 from collections import OrderedDict
 import hashlib
@@ -538,7 +540,7 @@ def _select_elasticnet_params_cv(
                 # Fit alphas with warm-start (descending order)
                 prev_coef = None
                 for alpha_idx_ws, alpha in enumerate(alpha_grid_ws):
-                    orig_idx = inv_sort[alpha_idx_ws]
+                    orig_idx = sort_indices[alpha_idx_ws]
 
                     # Create model with known L to avoid recomputation
                     model = ElasticNet(

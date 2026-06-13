@@ -5,6 +5,8 @@ This module exports LassoCV which delegates to _select_lasso_alpha_cv
 from _lasso.py for all CV logic (cache, fast-refit, backend-aware).
 """
 
+__all__ = ["LassoCV"]
+
 from typing import Optional, Union
 
 import numpy as np

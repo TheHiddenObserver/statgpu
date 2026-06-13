@@ -9,6 +9,8 @@ gaussian, logistic, and poisson models without the old ``loss=...`` switch on
 
 from __future__ import annotations
 
+__all__ = ["PenalizedGeneralizedLinearModel", "PenalizedLinearRegression", "PenalizedLogisticRegression", "PenalizedPoissonRegression"]
+
 import copy
 from typing import Optional, Union, Any, Dict, List
 import numpy as np
@@ -1031,11 +1033,6 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
             self._pvalues = pvalues
             self._conf_int = ci
             self._params = theta_db
-            self._y = y_np
-            self._resid = resid
-            self._nobs = n
-            self._scale = sigma2
-            self._X_design = X_np.copy()
 
         # Simultaneous inference (max-|Z| bootstrap) if requested
         if getattr(self, 'enable_simultaneous_inference', False):
@@ -4219,6 +4216,7 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
         Xty = (X_work.T @ y_arr.flatten()) / n
 
         # Pre-compute XtX blocks with diagonal ridge for conditioning
+        from statgpu.backends._array_ops import _scalar_tensor
         _XtX_blocks = []
         _ridge = _scalar_tensor(1e-10, X_work)
         for g_idx in _g_indices:

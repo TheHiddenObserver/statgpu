@@ -22,6 +22,8 @@ Provides a reusable CV loop that can be parameterized by:
 
 from __future__ import annotations
 
+__all__ = ["CVEngine"]
+
 import logging
 from typing import Any, Callable, List, Optional, Tuple
 

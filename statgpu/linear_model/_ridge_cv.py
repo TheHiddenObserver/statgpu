@@ -4,6 +4,8 @@ RidgeCV: Cross-validated Ridge regression with GPU support.
 
 from __future__ import annotations
 
+__all__ = ["RidgeCV"]
+
 from typing import Any, Dict, Optional, Tuple, Union
 from collections import OrderedDict
 import hashlib
@@ -896,7 +898,8 @@ def _batch_mse_all_folds(X_val_batch, y_val_batch, coefs_batch, intercepts_batch
         sw_sum = xp.sum(sw * mask, axis=1) if n_val_folds is not None else xp.sum(sw, axis=1)
         # Guard against zero weight sum (avoid division by zero)
         sw_sum_safe = xp.where(sw_sum > 0, sw_sum, xp.ones_like(sw_sum))
-        mse = (ssr / sw_sum_safe[:, None]).T  # (n_alphas, n_folds)
+        # sw_sum_safe already has shape (n_folds, 1) — no extra axis needed
+        mse = (ssr / sw_sum_safe).T  # (n_alphas, n_folds)
     else:
         ssr = xp.sum(residuals ** 2, axis=1)  # (n_folds, n_alphas)
         if n_val_folds is not None:

@@ -2,6 +2,8 @@
 Lasso regression with full statistical inference and GPU support.
 """
 
+__all__ = ["Lasso"]
+
 from collections import OrderedDict
 import hashlib
 import threading
@@ -1958,14 +1960,15 @@ def _select_lasso_alpha_cv(
                 y_train = y_np[train_idx]
                 sw_train = None if sample_weight_np is None else sample_weight_np[train_idx]
 
-                if sw_train is not None:
-                    sqrt_sw = np.sqrt(sw_train)
-                    X_train = X_train * sqrt_sw[:, np.newaxis]
-                    y_train = y_train * sqrt_sw
-
                 if bool(fit_intercept):
-                    X_mean = np.mean(X_train, axis=0)
-                    y_mean = float(np.mean(y_train))
+                    # Compute weighted means on ORIGINAL data (before sqrt-weighting)
+                    if sw_train is not None:
+                        sw_sum = float(np.sum(sw_train))
+                        X_mean = np.sum(X_train * sw_train[:, np.newaxis], axis=0) / sw_sum
+                        y_mean = float(np.sum(y_train * sw_train)) / sw_sum
+                    else:
+                        X_mean = np.mean(X_train, axis=0)
+                        y_mean = float(np.mean(y_train))
                     X_centered = X_train - X_mean
                     y_centered = y_train - y_mean
                 else:
@@ -1974,9 +1977,16 @@ def _select_lasso_alpha_cv(
                     X_centered = X_train
                     y_centered = y_train
 
+                # Apply sqrt-weighting after centering
+                if sw_train is not None:
+                    sqrt_sw = np.sqrt(sw_train)
+                    X_centered = X_centered * sqrt_sw[:, np.newaxis]
+                    y_centered = y_centered * sqrt_sw
+
                 XtX = X_centered.T @ X_centered
                 Xty = X_centered.T @ y_centered
-                n_train = int(X_train.shape[0])
+                # Use weight sum as effective sample size for proper alpha scaling
+                n_train = float(np.sum(sw_train)) if sw_train is not None else int(X_train.shape[0])
 
             coefs_desc, _ = _solve_lasso_path_cpu_from_gram(
                 XtX,

@@ -2,6 +2,8 @@
 LogisticRegressionCV: Cross-validated Logistic regression with GPU support.
 """
 
+__all__ = ["LogisticRegressionCV"]
+
 from typing import Any, Dict, Optional, Tuple, Union
 from collections import OrderedDict
 import hashlib

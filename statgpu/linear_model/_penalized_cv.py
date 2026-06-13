@@ -14,6 +14,8 @@ Optimizations:
 
 from __future__ import annotations
 
+__all__ = ["PenalizedGLM_CV"]
+
 import logging
 import warnings
 

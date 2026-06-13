@@ -2,6 +2,8 @@
 Linear regression with full statistical inference and GPU support.
 """
 
+__all__ = ["LinearRegression"]
+
 from typing import Optional, Union
 import numpy as np
 from scipy import stats

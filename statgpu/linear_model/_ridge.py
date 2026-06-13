@@ -9,6 +9,8 @@ The legacy standalone implementation has been moved to ``_ridge_legacy.py``.
 
 from __future__ import annotations
 
+__all__ = ["Ridge"]
+
 from typing import Optional, Union
 
 import numpy as np

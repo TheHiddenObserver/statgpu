@@ -9,6 +9,8 @@ The legacy standalone implementation has been moved to _elasticnet_legacy.py.
 
 from __future__ import annotations
 
+__all__ = ["ElasticNet"]
+
 from typing import Optional, Union
 
 import numpy as np

@@ -4,6 +4,8 @@ Shared base class and utilities for cross-validated estimators.
 
 from __future__ import annotations
 
+__all__ = ["CVEstimatorBase", "folds_are_complete", "INTERCEPT_CLIP_BOUND"]
+
 import hashlib
 from collections import OrderedDict
 from typing import Any, Dict, List, Optional, Tuple, Union
