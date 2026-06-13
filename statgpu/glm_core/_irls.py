@@ -22,7 +22,9 @@ from statgpu.backends._array_ops import (
     _copy_arr,
     _diag,
     _norm2,
+    _norm2_dev,
     _solve_linear_system,
+    _sync_scalars,
     _to_backend,
     _xp,
     _zeros,
@@ -341,10 +343,13 @@ def irls_solver(
             else:
                 params = params_old + 0.1 * _direction
 
-        # Convergence check
+        # Convergence check (batched GPU→CPU sync)
         if iteration % 5 == 4 or iteration == max_iter - 1:
-            _param_change = float(_norm2(params - params_old))
-            _param_norm = max(float(_norm2(params)), 1.0)
+            _change_dev, _norm_dev = _sync_scalars(
+                _norm2_dev(params - params_old), _norm2_dev(params), backend=backend
+            )
+            _param_change = float(_change_dev)
+            _param_norm = max(float(_norm_dev), 1.0)
             grad_norm = _param_change / _param_norm
             if grad_norm < tol:
                 break

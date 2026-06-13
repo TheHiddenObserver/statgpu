@@ -109,15 +109,13 @@ def _resolve_loss_name(loss_name, loss_kwargs=None):
 # Each entry is (solver, condition_fn). First match wins.
 # condition_fn takes (loss, penalty, backend, l1_ratio, cv_mode, problem_size).
 
-_SPARSE_PENALTIES = frozenset({
-    "l1", "elasticnet", "en",
-    "adaptive_l1", "adaptive_lasso",
-    "scad", "mcp",
-    "group_lasso", "gl", "group_mcp", "gmcp", "group_scad", "gscad",
-})
-_NONCONVEX_PENALTIES = frozenset({
-    "scad", "mcp", "group_mcp", "gmcp", "group_scad", "gscad",
-})
+# Import shared penalty categories (single source of truth)
+from statgpu.penalties._categories import (
+    NONSMOOTH as _NONSMOOTH_PENALTIES,
+    NONCONVEX as _NONCONVEX_PENALTIES,
+    SPARSE as _SPARSE_PENALTIES,
+    SMOOTH_PENALTIES as _SMOOTH_PENALTIES_SET,
+)
 _SMOOTH_PENALTIES = frozenset({"l2", "none", "null", ""})
 
 # (solver, condition)
@@ -693,20 +691,7 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
         """Validate solver/penalty combinations before backend dispatch."""
         solver_name = self.solver
         penalty_name = str(getattr(self._penalty, "name", self.penalty)).lower()
-        non_smooth = {
-            "l1",
-            "elasticnet",
-            "adaptive_l1",
-            "adaptive_lasso",
-            "group_lasso",
-            "gl",
-            "group_mcp",
-            "gmcp",
-            "group_scad",
-            "gscad",
-            "scad",
-            "mcp",
-        }
+        non_smooth = _NONSMOOTH_PENALTIES
         if self.solver == "exact":
             if self.loss != "squared_error" or penalty_name != "l2":
                 raise ValueError(

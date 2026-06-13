@@ -370,7 +370,14 @@ def fista_solver(
                         _obj_dev, _ = _weighted_loss_and_grad(loss, X_proc, y_proc, coef, sample_weight)
                     else:
                         _obj_dev = loss.value(X_proc, y_proc, coef)
-                _obj_val_f = float(_to_numpy(_obj_dev))
+                # Batched sync: objective + coef norm in one transfer
+                if _need_norm_check:
+                    _obj_val_f, _coef_norm_f = _sync_scalars(
+                        _obj_dev, _norm2_dev(coef), backend=backend
+                    )
+                else:
+                    _obj_val_f = float(_to_numpy(_obj_dev))
+                    _coef_norm_f = 0.0
                 _obj_val_f += _tracking_penalty_value(penalty, coef)
                 _diverged_f = False
                 if not np.isfinite(_obj_val_f):
@@ -380,7 +387,7 @@ def fista_solver(
                 else:
                     _diverged_f = _obj_val_f > _obj_best_fista + max(abs(_obj_best_fista) * 10.0, 1.0)
                 if not _diverged_f and _need_norm_check:
-                    if float(_to_numpy(_norm2_dev(coef))) > _DIVERGE_COEF_NORM_CAP:
+                    if _coef_norm_f > _DIVERGE_COEF_NORM_CAP:
                         _diverged_f = True
                 if _diverged_f:
                     if _coef_best_fista is not None:
