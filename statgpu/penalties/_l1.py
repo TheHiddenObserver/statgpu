@@ -45,6 +45,8 @@ class L1Penalty(Penalty):
     is_convex = True
 
     def __init__(self, alpha: float = 1.0):
+        if alpha < 0:
+            raise ValueError(f"alpha must be non-negative, got {alpha}")
         """
         Parameters
         ----------

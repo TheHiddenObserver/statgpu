@@ -39,10 +39,10 @@ class ElasticNet(_PenalizedLinearRegression):
         cpu_solver: str = "fista",
         lipschitz_L: Optional[float] = None,
         gpu_memory_cleanup: bool = False,
-        **kwargs,
     ):
+        if alpha < 0:
+            raise ValueError(f"alpha must be non-negative, got {alpha}")
         self.stopping = str(stopping).lower()
-        self._ignored_kwargs = dict(kwargs)
         super().__init__(
             penalty="elasticnet",
             alpha=alpha,

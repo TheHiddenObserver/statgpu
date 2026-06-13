@@ -229,22 +229,25 @@ class CompositePenalty(Penalty):
         """
         # Sequential application of proximal operators
         # (Dykstra-like splitting, simplified)
-        result = w.copy()
+        result = w.clone() if hasattr(w, 'clone') else w.copy()
         for weight, pen in zip(self.weights, self.penalties):
             result = pen.proximal(result, step * weight, backend)
         return result
 
     def lla_weights(self, coef: np.ndarray) -> np.ndarray:
-        """LLA weights: product of individual LLA weights."""
-        if not any(not p.is_convex for p in self.penalties):
-            # All convex: return ones
-            return np.ones_like(coef)
+        """LLA weights: weighted sum of individual LLA weights.
 
-        weights = np.ones_like(coef)
-        for pen in self.penalties:
+        For composite penalty P(w) = sum_i w_i * P_i(w),
+        the LLA weight is sum_i w_i * P_i'(|coef|).
+        """
+        if not any(not p.is_convex for p in self.penalties):
+            return np.zeros_like(coef)
+
+        result = np.zeros_like(coef)
+        for weight, pen in zip(self.weights, self.penalties):
             if not pen.is_convex:
-                weights = weights * pen.lla_weights(coef)
-        return weights
+                result = result + weight * pen.lla_weights(coef)
+        return result
 
     def get_params(self) -> dict:
         params = {

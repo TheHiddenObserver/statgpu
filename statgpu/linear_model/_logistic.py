@@ -259,7 +259,7 @@ class LogisticRegression(BaseEstimator):
         params = np.zeros(self._X_design.shape[1])
         
         # Regularization parameter (lambda = 1 / (2*C))
-        alpha = 1.0 / (2.0 * self.C) if self.C > 0 else 0.0
+        alpha = 1.0 / self.C if self.C > 0 else 0.0
         
         # IRLS iteration
         for iteration in range(self.max_iter):
@@ -332,7 +332,7 @@ class LogisticRegression(BaseEstimator):
         params = cp.zeros(X_design.shape[1])
         
         # Regularization parameter
-        alpha = 1.0 / (2.0 * self.C) if self.C > 0 else 0.0
+        alpha = 1.0 / self.C if self.C > 0 else 0.0
         
         # IRLS iteration
         for iteration in range(self.max_iter):
@@ -545,7 +545,7 @@ class LogisticRegression(BaseEstimator):
         params = torch.zeros(X_design.shape[1], dtype=torch.float64, device=torch_device)
 
         # Regularization parameter (lambda = 1 / (2*C))
-        alpha = 1.0 / (2.0 * self.C) if self.C > 0 else 0.0
+        alpha = 1.0 / self.C if self.C > 0 else 0.0
 
         # IRLS iteration
         iteration = 0
@@ -750,7 +750,7 @@ class LogisticRegression(BaseEstimator):
         XtWX = self._X_design.T @ (self._X_design * W[:, np.newaxis])
         
         # Add regularization to Hessian
-        alpha = 1.0 / (2.0 * self.C) if self.C > 0 else 0.0
+        alpha = 1.0 / self.C if self.C > 0 else 0.0
         if alpha > 0:
             reg_diag = np.full(XtWX.shape[0], alpha)
             if self.fit_intercept:
