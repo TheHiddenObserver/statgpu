@@ -113,13 +113,20 @@ from ._resampling import (
     bootstrap_statistic,
     permutation_test,
 )
-from statgpu.nonparametric._kde import (
-    KDE,
-    KDEBootstrapResult,
-    fit_kde,
-    kde_pdf,
-    kde_bootstrap_confidence_interval,
-)
+try:
+    from statgpu.nonparametric._kde import (
+        KDE,
+        KDEBootstrapResult,
+        fit_kde,
+        kde_pdf,
+        kde_bootstrap_confidence_interval,
+    )
+except ImportError:
+    KDE = None
+    KDEBootstrapResult = None
+    fit_kde = None
+    kde_pdf = None
+    kde_bootstrap_confidence_interval = None
 
 __all__ = [
     "adjust_pvalues",
