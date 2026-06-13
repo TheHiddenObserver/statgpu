@@ -28,9 +28,9 @@ class AnovaResult:
         The F-statistic.
     pvalue : float
         P-value from the F-distribution survival function.
-    df_between : float
+    df_between : int
         Degrees of freedom between groups (k - 1).
-    df_within : float
+    df_within : int
         Degrees of freedom within groups (N - k).
     eta_squared : float
         Effect size: SSB / (SSB + SSW).
@@ -38,8 +38,8 @@ class AnovaResult:
 
     statistic: float
     pvalue: float
-    df_between: float
-    df_within: float
+    df_between: int
+    df_within: int
     eta_squared: float
 
 
@@ -115,31 +115,33 @@ def f_oneway(
             f"total observations ({int(N)}) must exceed number of groups ({k})"
         )
 
-    # Group means — computed per-group, kept on device
-    group_means = xp.asarray(
-        [float(_to_float_scalar(xp.sum(g) / g.shape[0])) for g in flat_groups],
-        dtype=xp.float64,
-    )
-    # Ensure group_means is on same device as groups (torch CUDA)
+    # Group means — computed on device, single sync at the end
+    group_means = xp.empty(k, dtype=xp.float64)
     if hasattr(group_means, 'to') and hasattr(ref, 'device'):
         group_means = group_means.to(device=ref.device)
+    for i, g in enumerate(flat_groups):
+        group_means[i] = xp.sum(g) / g.shape[0]
 
     # Grand mean (weighted by group sizes)
-    grand_mean = _to_float_scalar(xp.sum(group_means * group_sizes) / N)
+    grand_mean = xp.sum(group_means * group_sizes) / N
 
     # SSB (between-group sum of squares)
-    ssb = _to_float_scalar(
-        xp.sum(group_sizes * (group_means - grand_mean) ** 2)
-    )
+    ssb = xp.sum(group_sizes * (group_means - grand_mean) ** 2)
 
     # SSW (within-group sum of squares)
-    ssw = 0.0
+    ssw = xp.zeros(1, dtype=xp.float64)
+    if hasattr(ssw, 'to') and hasattr(ref, 'device'):
+        ssw = ssw.to(device=ref.device)
     for i, g in enumerate(flat_groups):
         diff = g - group_means[i]
-        ssw += _to_float_scalar(xp.sum(diff * diff))
+        ssw = ssw + xp.sum(diff * diff)
 
-    df_between = float(k - 1)
-    df_within = float(N - k)
+    # Single sync to CPU
+    ssb = _to_float_scalar(ssb)
+    ssw = _to_float_scalar(ssw)
+
+    df_between = k - 1
+    df_within = int(N) - k
 
     # Edge case: no within-group variance
     if ssw == 0.0:

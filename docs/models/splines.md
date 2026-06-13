@@ -45,6 +45,14 @@ w_1 = \frac{x - t_i}{t_{i+k} - t_i}, \qquad w_2 = \frac{x - t_{i+1}}{t_{i+k+1} -
 
 评估是直接的递归计算，无需求解线性系统。
 
+## 协方差 / 推断（Covariance / Inference）
+
+样条基函数是确定性计算工具，不产生推断输出（无标准误、p 值或置信区间）。如需使用样条进行统计推断，请参见 [GAM](../semiparametric.md) 模型，该模型将惩罚样条与 GCV 平滑参数选择相结合。
+
+## strict / approx 区别
+
+样条基计算没有 strict/approx 模式区分。De Boor 递归是确定性算法，在所有后端（NumPy、CuPy、Torch）上产生相同结果（浮点精度范围内）。
+
 ## 参数（Parameters）
 
 **bspline_basis**：
@@ -80,6 +88,33 @@ print(f"基矩阵形状: {B.shape}")  # (500, 14)
 # CPU：自然三次样条基
 B_nat = natural_cubic_spline_basis(x, knots, xp=np)
 print(f"自然样条基形状: {B_nat.shape}")  # (500, 12)
+```
+
+**CuPy（GPU）**：
+
+```python
+import cupy as cp
+
+x_gpu = cp.asarray(x)
+knots_gpu = cp.asarray(knots)
+
+B_gpu = bspline_basis(x_gpu, knots_gpu, degree=3, xp=cp)
+print(f"GPU 基矩阵形状: {B_gpu.shape}")  # (500, 14)
+
+B_nat_gpu = natural_cubic_spline_basis(x_gpu, knots_gpu, xp=cp)
+print(f"GPU 自然样条基形状: {B_nat_gpu.shape}")  # (500, 12)
+```
+
+**PyTorch（GPU）**：
+
+```python
+import torch
+
+x_t = torch.tensor(x, device='cuda')
+knots_t = torch.tensor(knots, device='cuda')
+
+B_t = bspline_basis(x_t, knots_t, degree=3, xp=torch)
+print(f"Torch 基矩阵形状: {B_t.shape}")  # (500, 14)
 ```
 
 ## 输出（Outputs）

@@ -45,6 +45,14 @@ with the convention $0/0 = 0$.
 
 Evaluation is a direct recursive computation; no linear system is solved.
 
+## Covariance / Inference
+
+Spline basis functions are deterministic computational utilities. They do not produce inference outputs (no standard errors, p-values, or confidence intervals). For statistical inference using splines, see the [GAM](../semiparametric.md) model which wraps penalized splines with GCV-based smoothing parameter selection.
+
+## strict / approx Difference
+
+Spline basis computation has no strict/approx mode distinction. The De Boor recursion is a deterministic algorithm that produces identical results across all backends (NumPy, CuPy, Torch) up to floating-point precision.
+
 ## Parameters
 
 **bspline_basis**:
@@ -80,6 +88,33 @@ print(f"Basis shape: {B.shape}")  # (500, 14)
 # CPU: Natural cubic spline basis
 B_nat = natural_cubic_spline_basis(x, knots, xp=np)
 print(f"Natural basis shape: {B_nat.shape}")  # (500, 12)
+```
+
+**CuPy (GPU)**:
+
+```python
+import cupy as cp
+
+x_gpu = cp.asarray(x)
+knots_gpu = cp.asarray(knots)
+
+B_gpu = bspline_basis(x_gpu, knots_gpu, degree=3, xp=cp)
+print(f"GPU basis shape: {B_gpu.shape}")  # (500, 14)
+
+B_nat_gpu = natural_cubic_spline_basis(x_gpu, knots_gpu, xp=cp)
+print(f"GPU natural basis shape: {B_nat_gpu.shape}")  # (500, 12)
+```
+
+**PyTorch (GPU)**:
+
+```python
+import torch
+
+x_t = torch.tensor(x, device='cuda')
+knots_t = torch.tensor(knots, device='cuda')
+
+B_t = bspline_basis(x_t, knots_t, degree=3, xp=torch)
+print(f"Torch basis shape: {B_t.shape}")  # (500, 14)
 ```
 
 ## Outputs

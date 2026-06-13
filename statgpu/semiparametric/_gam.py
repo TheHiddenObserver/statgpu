@@ -69,7 +69,7 @@ class GAM(BaseEstimator):
     Examples
     --------
     >>> import numpy as np
-    >>> from statgpu.splines import GAM
+    >>> from statgpu.semiparametric import GAM
     >>> X = np.random.randn(100, 3)
     >>> y = np.sin(X[:, 0]) + 0.5 * X[:, 1] ** 2 + np.random.randn(100) * 0.1
     >>> gam = GAM(n_splines=15, lam=1.0)
@@ -101,7 +101,7 @@ class GAM(BaseEstimator):
         self.knots_ = None
         self.n_features_ = None
 
-    def _get_backend(self):
+    def _get_xp(self):
         """Get the array module for computation.
 
         Returns ``backend.xp`` (the raw array module) so callers can use
@@ -229,7 +229,7 @@ class GAM(BaseEstimator):
         self : GAM
             Fitted model.
         """
-        xp = self._get_backend()
+        xp = self._get_xp()
 
         # Convert to arrays
         X = xp_asarray(X, dtype=xp.float64, xp=xp)
@@ -294,7 +294,8 @@ class GAM(BaseEstimator):
         """
         self._check_is_fitted()
 
-        xp = self._xp
+        # Re-resolve backend to handle device changes since fit()
+        xp = self._get_xp()
         X = xp_asarray(X, dtype=xp.float64, xp=xp, ref_arr=self._xp_asarray_ref_)
 
         n, p = X.shape

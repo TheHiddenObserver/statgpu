@@ -10,7 +10,7 @@ import numpy as np
 
 from statgpu._base import BaseEstimator
 from statgpu._config import Device
-from statgpu.backends import _to_numpy, _torch_dev, xp_eye, xp_astype
+from statgpu.backends import _LINALG_ERRORS, _to_numpy, _torch_dev, xp_eye, xp_astype
 
 from ._kernels import pairwise_kernels
 
@@ -133,8 +133,24 @@ class KernelRidge(BaseEstimator):
         # Regularize: K + alpha * I
         K_reg = K + alpha * xp_eye(n_samples, K.dtype, xp, K)
 
-        # Solve (K + alpha I) * dual_coef = y
-        self.dual_coef_ = xp.linalg.solve(K_reg, y_arr)
+        # Solve (K + alpha I) * dual_coef = y with jitter fallback
+        try:
+            self.dual_coef_ = xp.linalg.solve(K_reg, y_arr)
+        except _LINALG_ERRORS:
+            # Matrix may be ill-conditioned; add jitter and retry
+            jitter = float(xp.max(xp.abs(xp.diag(K)))) * 1e-10
+            for _ in range(6):
+                K_reg = K_reg + jitter * xp_eye(n_samples, K.dtype, xp, K)
+                try:
+                    self.dual_coef_ = xp.linalg.solve(K_reg, y_arr)
+                    break
+                except _LINALG_ERRORS:
+                    jitter *= 10
+            else:
+                raise ValueError(
+                    "KernelRidge: regularized kernel matrix is singular "
+                    "even after jitter escalation. Try increasing alpha."
+                )
 
         self.X_fit_ = X_arr
         self._fitted = True

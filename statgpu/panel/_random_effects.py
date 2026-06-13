@@ -15,6 +15,7 @@ the model does not add one automatically.
 
 from __future__ import annotations
 
+import warnings
 from typing import Optional, Union
 
 import numpy as np
@@ -62,10 +63,12 @@ class RandomEffects(BaseEstimator):
 
     def __init__(
         self,
+        alpha: float = 0.05,
         device: Union[str, Device] = Device.AUTO,
         n_jobs: Optional[int] = None,
     ):
         super().__init__(device=device, n_jobs=n_jobs)
+        self.alpha = alpha
 
         # Public attributes
         self.coef_ = None
@@ -80,20 +83,17 @@ class RandomEffects(BaseEstimator):
 
         # Internal
         self._params = None
-        self._resid = None
         self._scale = None
-        self._X_design = None
-        self._y_transformed = None
 
-    def fit(self, y, X, entity_ids=None, time_ids=None):
+    def fit(self, X, y, entity_ids=None, time_ids=None):
         """Fit the random effects model.
 
         Parameters
         ----------
-        y : array-like, shape (n,)
-            Outcome vector.
         X : array-like, shape (n, k)
             Regressor matrix.
+        y : array-like, shape (n,)
+            Outcome vector.
         entity_ids : array-like, shape (n,)
             Entity (individual) identifiers.  **Required.**
         time_ids : array-like, shape (n,), optional
@@ -121,6 +121,16 @@ class RandomEffects(BaseEstimator):
         entity_arr = self._to_array(entity_ids, backend=backend_name).ravel()
         n, k = X_arr.shape
         self.nobs = n
+
+        # Validate shapes
+        if y_arr.shape[0] != n:
+            raise ValueError(
+                f"y has {y_arr.shape[0]} observations but X has {n} rows"
+            )
+        if entity_arr.shape[0] != n:
+            raise ValueError(
+                f"entity_ids has {entity_arr.shape[0]} observations but X has {n} rows"
+            )
 
         # --- Step 1: Between estimation (group means) ---
         y_bar_i = group_means(y_arr, entity_arr, xp=xp)
@@ -180,7 +190,19 @@ class RandomEffects(BaseEstimator):
             )
 
         sigma2_e = rss_within / df_within
-        sigma2_a_raw = rss_between / n_entities - sigma2_e / T_bar
+        # Swamy-Arora: sigma2_a = max(0, (s_b^2 - sigma2_e) / T_bar)
+        # where s_b^2 = RSS_between / (G - k) and T_bar is harmonic mean
+        df_between = n_entities - k
+        if df_between <= 0:
+            warnings.warn(
+                f"Between estimator under-identified: n_entities={n_entities} <= k={k}. "
+                f"Variance component sigma2_a may be unreliable.",
+                UserWarning,
+                stacklevel=2,
+            )
+            df_between = max(df_between, 1)
+        s_b_sq = rss_between / df_between
+        sigma2_a_raw = (s_b_sq - sigma2_e) / T_bar
         sigma2_a = max(0.0, sigma2_a_raw)
 
         self.variance_components_ = {
@@ -205,7 +227,15 @@ class RandomEffects(BaseEstimator):
             mask = T_i == Ti
             theta_arr[mask] = th
 
-        self.theta_ = float(np.mean(list(theta_map.values())))
+        # Weighted average of theta by number of entities at each group size
+        entity_counts = {}
+        for Ti in T_i_unique:
+            entity_counts[Ti] = int(np.sum(T_i_np[first_idx] == Ti))
+        total_entities = sum(entity_counts.values())
+        self.theta_ = sum(
+            theta_map[Ti] * entity_counts[Ti] / total_entities
+            for Ti in T_i_unique
+        )
 
         # Transformed variables: y* = y - theta * y_bar
         y_star = y_arr - theta_arr * y_bar_i
@@ -226,25 +256,57 @@ class RandomEffects(BaseEstimator):
         resid_gls = y_star - X_star @ beta_gls
         df_resid = n - k
         self.df_resid = df_resid
-        self._scale = float(xp.sum(resid_gls ** 2)) / df_resid
+        self._scale = _to_float_scalar(xp.sum(resid_gls ** 2)) / df_resid
 
-        # Store coefficients
-        coef_np = _to_numpy(beta_gls).ravel()
-        self._params = coef_np
-        self.coef_ = coef_np
-        self._X_design = _to_numpy(X_star)
-        self._resid = _to_numpy(resid_gls).ravel()
+        # --- Step 6: Inference — all on device ---
+        self._compute_inference_on_device(xp, X_star, beta_gls, resid_gls)
 
-        # --- Step 6: Inference ---
-        self._compute_inference()
+        # Single transfer of final results
+        self._params = _to_numpy(beta_gls).ravel()
+        self.coef_ = self._params
 
         self._fitted = True
         return self
 
-    def _compute_inference(self):
-        """Compute SE, t-values, p-values, and confidence intervals."""
-        self.bse_, self.tvalues_, self.pvalues_, self.conf_int_ = \
-            ols_inference_nonrobust(self._params, self._X_design, self._scale, self.df_resid)
+    def _compute_inference_on_device(self, xp, X, coef, resid):
+        """Compute SE/t/p/CI with matrix ops on device, only final vectors to CPU."""
+        from scipy import stats as sp_stats
+
+        n, k = X.shape
+        df = self.df_resid
+        alpha = self.alpha
+
+        # XtX_inv on device
+        XtX = X.T @ X
+        try:
+            XtX_inv = xp.linalg.inv(XtX)
+        except _LINALG_ERRORS:
+            XtX_inv = xp.linalg.pinv(XtX)
+
+        # cov_params = scale * (X'X)^{-1} on device
+        cov_params = self._scale * XtX_inv
+        bse_dev = xp.sqrt(xp.maximum(xp.diag(cov_params), 0.0))
+
+        # t-values on device
+        _eps = xp.finfo(xp.float64).tiny if hasattr(xp, 'finfo') else 2.2e-308
+        tvalues_dev = coef / xp.maximum(bse_dev, _eps)
+
+        # Transfer only k-length vectors to CPU for scipy p-values
+        bse_np = _to_numpy(bse_dev).ravel()
+        tvalues_np = _to_numpy(tvalues_dev).ravel()
+        coef_np = _to_numpy(coef).ravel()
+
+        pvalues_np = 2 * (1 - sp_stats.t.cdf(np.abs(tvalues_np), df))
+        t_crit = sp_stats.t.ppf(1 - alpha / 2, df)
+        conf_int_np = np.column_stack([
+            coef_np - t_crit * bse_np,
+            coef_np + t_crit * bse_np,
+        ])
+
+        self.bse_ = bse_np
+        self.tvalues_ = tvalues_np
+        self.pvalues_ = pvalues_np
+        self.conf_int_ = conf_int_np
 
     def predict(self, X):
         """Predict using the fitted model.

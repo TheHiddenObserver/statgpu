@@ -269,14 +269,16 @@ def _stable_inv(S, xp, backend_name: str):
         except (ImportError, AttributeError):
             pass
 
+    # Pre-allocate identity matrix once
+    if torch_dev is not None:
+        eye = xp.eye(p, dtype=xp.float64, device=torch_dev)
+    else:
+        eye = xp.eye(p, dtype=xp.float64)
+
     jitter = base
     for _ in range(12):
         try:
             if jitter > 0:
-                if torch_dev is not None:
-                    eye = xp.eye(p, dtype=xp.float64, device=torch_dev)
-                else:
-                    eye = xp.eye(p, dtype=xp.float64)
                 S_work = S + jitter * eye
             else:
                 S_work = S

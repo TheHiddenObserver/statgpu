@@ -118,7 +118,7 @@ class TestPanelOLS:
         y, X, eids, tids, beta = _make_panel()
         model = PanelOLS(entity_effects=True, cov_type='nonrobust',
                          device=_DEVICE)
-        model.fit(y, X, entity_ids=eids)
+        model.fit(X, y, entity_ids=eids)
         np.testing.assert_allclose(model.coef_, beta, atol=0.1)
 
     def test_two_way_fe_coef(self):
@@ -128,7 +128,7 @@ class TestPanelOLS:
             entity_effects=True, time_effects=True, cov_type='nonrobust',
             device=_DEVICE,
         )
-        model.fit(y, X, entity_ids=eids, time_ids=tids)
+        model.fit(X, y, entity_ids=eids, time_ids=tids)
         np.testing.assert_allclose(model.coef_, beta, atol=0.15)
 
     def test_no_fe_ols(self):
@@ -139,7 +139,7 @@ class TestPanelOLS:
         y = X @ beta + 0.1 * rng.randn(200)
 
         model = PanelOLS(device=_DEVICE)
-        model.fit(y, X)
+        model.fit(X, y)
         np.testing.assert_allclose(model.coef_, beta, atol=0.05)
 
     def test_robust_se(self):
@@ -147,11 +147,11 @@ class TestPanelOLS:
         y, X, eids, _, _ = _make_panel()
         m1 = PanelOLS(entity_effects=True, cov_type='nonrobust',
                        device=_DEVICE)
-        m1.fit(y, X, entity_ids=eids)
+        m1.fit(X, y, entity_ids=eids)
 
         m2 = PanelOLS(entity_effects=True, cov_type='robust',
                        device=_DEVICE)
-        m2.fit(y, X, entity_ids=eids)
+        m2.fit(X, y, entity_ids=eids)
 
         # SEs should generally differ
         assert not np.allclose(m1.bse_, m2.bse_, rtol=1e-3)
@@ -161,18 +161,18 @@ class TestPanelOLS:
         y, X, eids, _, _ = _make_panel()
         m1 = PanelOLS(entity_effects=True, cov_type='nonrobust',
                        device=_DEVICE)
-        m1.fit(y, X, entity_ids=eids)
+        m1.fit(X, y, entity_ids=eids)
 
         m2 = PanelOLS(entity_effects=True, cov_type='clustered',
                        device=_DEVICE)
-        m2.fit(y, X, entity_ids=eids, cluster=eids)
+        m2.fit(X, y, entity_ids=eids, cluster=eids)
 
         assert not np.allclose(m1.bse_, m2.bse_, rtol=1e-3)
 
     def test_predict(self):
         y, X, eids, _, beta = _make_panel()
         model = PanelOLS(entity_effects=True, device=_DEVICE)
-        model.fit(y, X, entity_ids=eids)
+        model.fit(X, y, entity_ids=eids)
         y_hat = model.predict(X)
         assert y_hat.shape == (len(y),)
 
@@ -181,7 +181,7 @@ class TestPanelOLS:
         y, X, eids, _, beta = _make_panel(n_entities=200, n_periods=20)
         model = PanelOLS(entity_effects=True, cov_type='nonrobust',
                          device=_DEVICE)
-        model.fit(y, X, entity_ids=eids)
+        model.fit(X, y, entity_ids=eids)
         for i in range(len(beta)):
             assert model.conf_int_[i, 0] <= beta[i] <= model.conf_int_[i, 1]
 
@@ -189,20 +189,20 @@ class TestPanelOLS:
         """Within R-squared should be between 0 and 1."""
         y, X, eids, _, _ = _make_panel()
         model = PanelOLS(entity_effects=True, device=_DEVICE)
-        model.fit(y, X, entity_ids=eids)
+        model.fit(X, y, entity_ids=eids)
         assert 0.0 <= model.rsquared_within <= 1.0
 
     def test_unbalanced_panel(self):
         """Should work on unbalanced panels."""
         y, X, eids, _, beta = _make_unbalanced_panel()
         model = PanelOLS(entity_effects=True, device=_DEVICE)
-        model.fit(y, X, entity_ids=eids)
+        model.fit(X, y, entity_ids=eids)
         np.testing.assert_allclose(model.coef_, beta, atol=0.15)
 
     def test_pvalues_in_range(self):
         y, X, eids, _, _ = _make_panel()
         model = PanelOLS(entity_effects=True, device=_DEVICE)
-        model.fit(y, X, entity_ids=eids)
+        model.fit(X, y, entity_ids=eids)
         assert np.all(model.pvalues_ >= 0)
         assert np.all(model.pvalues_ <= 1)
 
@@ -210,7 +210,7 @@ class TestPanelOLS:
         """For well-powered data, true coefficients should be significant."""
         y, X, eids, _, beta = _make_panel(n_entities=100, n_periods=20)
         model = PanelOLS(entity_effects=True, device=_DEVICE)
-        model.fit(y, X, entity_ids=eids)
+        model.fit(X, y, entity_ids=eids)
         # |t| > 2 for true non-zero coefficients
         for i in range(len(beta)):
             if abs(beta[i]) > 0.1:
@@ -220,7 +220,7 @@ class TestPanelOLS:
         """summary() should not raise."""
         y, X, eids, _, _ = _make_panel(n_entities=20, n_periods=5)
         model = PanelOLS(entity_effects=True, device=_DEVICE)
-        model.fit(y, X, entity_ids=eids)
+        model.fit(X, y, entity_ids=eids)
         model.summary()
         out = capsys.readouterr().out
         assert 'Panel OLS' in out
@@ -231,7 +231,7 @@ class TestPanelOLS:
         model = PanelOLS(entity_effects=True, cov_type='clustered',
                          device=_DEVICE)
         cluster_2d = np.column_stack([eids, tids])
-        model.fit(y, X, entity_ids=eids, cluster=cluster_2d)
+        model.fit(X, y, entity_ids=eids, cluster=cluster_2d)
         assert model.bse_ is not None
         assert len(model.bse_) == X.shape[1]
 
@@ -241,7 +241,7 @@ class TestPanelOLS:
         X = np.random.randn(50, 2)
         model = PanelOLS(entity_effects=True, device=_DEVICE)
         with pytest.raises(ValueError, match="entity_ids is required"):
-            model.fit(y, X)
+            model.fit(X, y)
 
     def test_clustered_missing_cluster_raises(self):
         """cov_type='clustered' without cluster should raise."""
@@ -251,7 +251,7 @@ class TestPanelOLS:
         model = PanelOLS(entity_effects=True, cov_type='clustered',
                          device=_DEVICE)
         with pytest.raises(ValueError, match="cluster is required"):
-            model.fit(y, X, entity_ids=eids)
+            model.fit(X, y, entity_ids=eids)
 
 
 # ---------------------------------------------------------------------------
@@ -263,14 +263,14 @@ class TestRandomEffects:
         """RE should recover true slopes."""
         y, X, eids, _, beta = _make_panel(n_entities=100, n_periods=20)
         model = RandomEffects(device=_DEVICE)
-        model.fit(y, X, entity_ids=eids)
+        model.fit(X, y, entity_ids=eids)
         np.testing.assert_allclose(model.coef_, beta, atol=0.15)
 
     def test_variance_components(self):
         """sigma2_e and sigma2_a should be non-negative."""
         y, X, eids, _, _ = _make_panel()
         model = RandomEffects(device=_DEVICE)
-        model.fit(y, X, entity_ids=eids)
+        model.fit(X, y, entity_ids=eids)
         assert model.variance_components_['sigma2_e'] >= 0
         assert model.variance_components_['sigma2_a'] >= 0
 
@@ -278,20 +278,20 @@ class TestRandomEffects:
         """theta should be in [0, 1)."""
         y, X, eids, _, _ = _make_panel()
         model = RandomEffects(device=_DEVICE)
-        model.fit(y, X, entity_ids=eids)
+        model.fit(X, y, entity_ids=eids)
         assert 0.0 <= model.theta_ < 1.0
 
     def test_predict(self):
         y, X, eids, _, _ = _make_panel()
         model = RandomEffects(device=_DEVICE)
-        model.fit(y, X, entity_ids=eids)
+        model.fit(X, y, entity_ids=eids)
         y_hat = model.predict(X)
         assert y_hat.shape == (len(y),)
 
     def test_pvalues_in_range(self):
         y, X, eids, _, _ = _make_panel()
         model = RandomEffects(device=_DEVICE)
-        model.fit(y, X, entity_ids=eids)
+        model.fit(X, y, entity_ids=eids)
         assert np.all(model.pvalues_ >= 0)
         assert np.all(model.pvalues_ <= 1)
 
@@ -299,14 +299,14 @@ class TestRandomEffects:
         """95% CI should contain true parameter for large samples."""
         y, X, eids, _, beta = _make_panel(n_entities=200, n_periods=20)
         model = RandomEffects(device=_DEVICE)
-        model.fit(y, X, entity_ids=eids)
+        model.fit(X, y, entity_ids=eids)
         for i in range(len(beta)):
             assert model.conf_int_[i, 0] <= beta[i] <= model.conf_int_[i, 1]
 
     def test_summary_runs(self, capsys):
         y, X, eids, _, _ = _make_panel(n_entities=20, n_periods=5)
         model = RandomEffects(device=_DEVICE)
-        model.fit(y, X, entity_ids=eids)
+        model.fit(X, y, entity_ids=eids)
         model.summary()
         out = capsys.readouterr().out
         assert 'Random Effects' in out
@@ -315,7 +315,7 @@ class TestRandomEffects:
         """Should work on unbalanced panels."""
         y, X, eids, _, beta = _make_unbalanced_panel()
         model = RandomEffects(device=_DEVICE)
-        model.fit(y, X, entity_ids=eids)
+        model.fit(X, y, entity_ids=eids)
         np.testing.assert_allclose(model.coef_, beta, atol=0.3)
 
     def test_missing_entity_ids_raises(self):
@@ -324,7 +324,7 @@ class TestRandomEffects:
         X = np.random.randn(50, 2)
         model = RandomEffects(device=_DEVICE)
         with pytest.raises(ValueError, match="entity_ids is required"):
-            model.fit(y, X)
+            model.fit(X, y)
 
 
 # ---------------------------------------------------------------------------
@@ -391,7 +391,7 @@ class TestLinearmodelsComparison:
         # statgpu
         sg_model = PanelOLS(entity_effects=True, cov_type='nonrobust',
                             device=_DEVICE)
-        sg_model.fit(y, X, entity_ids=eids)
+        sg_model.fit(X, y, entity_ids=eids)
 
         # Coefficients should match closely
         np.testing.assert_allclose(
@@ -424,7 +424,7 @@ class TestLinearmodelsComparison:
 
         # statgpu
         sg_model = RandomEffects(device=_DEVICE)
-        sg_model.fit(y, X, entity_ids=eids)
+        sg_model.fit(X, y, entity_ids=eids)
 
         # Coefficients should match closely (numerical precision varies)
         np.testing.assert_allclose(

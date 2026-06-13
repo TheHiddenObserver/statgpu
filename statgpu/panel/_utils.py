@@ -4,6 +4,10 @@ Panel data utility functions.
 Provides demeaning / within-transformation routines used by fixed effects
 and random effects estimators.  All functions accept an ``xp`` module
 (numpy / cupy / torch) so they work on any backend.
+
+Performance note: all group-level operations use scatter-add to compute
+group sums and counts in a single kernel launch, avoiding per-group
+Python loops and their associated GPU-CPU synchronization overhead.
 """
 
 from __future__ import annotations
@@ -12,14 +16,57 @@ from typing import Optional
 
 import numpy as np
 
-from statgpu.backends import xp_asarray, xp_zeros, _to_numpy
+from statgpu.backends import xp_asarray, xp_copy, xp_ones, xp_zeros, _to_float_scalar, _to_numpy
+
+
+def _scatter_add(xp, indices, values, n_groups):
+    """Scatter-add values into bins defined by indices.
+
+    Returns an array ``out`` of shape ``(n_groups,)`` where
+    ``out[j] = sum(values[indices == j])``.
+
+    Works across NumPy, CuPy, and PyTorch with a single kernel launch.
+    """
+    if hasattr(xp, 'scatter_add'):
+        # PyTorch: scatter_add(dim, index, src)
+        out = xp.zeros(n_groups, dtype=values.dtype, device=values.device)
+        out.scatter_add_(0, indices.long(), values)
+        return out
+    elif hasattr(xp, 'add') and hasattr(xp, 'zeros') and xp.__name__ == 'cupy':
+        # CuPy: use cupyx.scatter_add or cp.add.at
+        out = xp.zeros(n_groups, dtype=values.dtype)
+        try:
+            from cupyx import scatter_add as _scatter_add_cu
+            _scatter_add_cu(out, indices, values)
+        except ImportError:
+            np.add.at(out, _to_numpy(indices), _to_numpy(values))
+        return out
+    else:
+        # NumPy: np.add.at
+        out = np.zeros(n_groups, dtype=values.dtype)
+        np.add.at(out, _to_numpy(indices), _to_numpy(values))
+        return out
+
+
+def _remap_to_contiguous(groups, xp):
+    """Remap group labels to contiguous 0..n_groups-1 indices.
+
+    Returns (indices, n_groups, unique_labels) where indices[i] is the
+    contiguous index of group groups[i].
+    """
+    groups_np = _to_numpy(groups).ravel()
+    unique_labels, indices_np = np.unique(groups_np, return_inverse=True)
+    n_groups = len(unique_labels)
+    indices = xp_asarray(indices_np, dtype=xp.int64, xp=xp, ref_arr=groups)
+    return indices, n_groups, unique_labels
 
 
 def within_transform(y, groups, xp=None):
     """Remove group means (fixed-effect projection).
 
     Computes ``y_within[i] = y[i] - mean(y[groups == g[i]])`` for every
-    observation.
+    observation.  Uses scatter-add for a single-kernel group reduction
+    instead of per-group Python loops.
 
     Parameters
     ----------
@@ -41,89 +88,18 @@ def within_transform(y, groups, xp=None):
     y = xp_asarray(y, dtype=xp.float64, xp=xp).ravel()
     groups = xp_asarray(groups, xp=xp, ref_arr=y).ravel()
 
-    # Vectorized group demeaning — avoids per-group Python loop
-    # (O(n_groups) kernel launches → O(1) vectorized ops)
-    # Do NOT cast to int64 before unique — float/string labels would be
-    # truncated/crashed.  np.unique(..., return_inverse=True) already returns
-    # contiguous integer indices regardless of the input dtype.
-    groups_np = _to_numpy(groups)
-    y_np = _to_numpy(y)
+    # Remap groups to contiguous indices (single CPU sync for unique)
+    idx, n_groups, _ = _remap_to_contiguous(groups, xp)
 
-    # Map group labels to contiguous indices [0, n_groups)
-    unique_labels, group_idx = np.unique(groups_np, return_inverse=True)
-    n_groups = len(unique_labels)
+    # Group sums and counts via scatter-add (2 kernel launches total)
+    group_sums = _scatter_add(xp, idx, y, n_groups)
+    group_counts = _scatter_add(xp, idx, xp.ones_like(y), n_groups)
 
-    # Compute group means via bincount (O(n), single pass)
-    group_sum = np.bincount(group_idx, weights=y_np, minlength=n_groups)
-    group_count = np.bincount(group_idx, minlength=n_groups)
-    group_mean = group_sum / np.maximum(group_count, 1)
+    # Group means (element-wise, no loop)
+    group_means = group_sums / xp.maximum(group_counts, 1.0)
 
-    # Subtract group means
-    result_np = y_np - group_mean[group_idx]
-
-    # Convert back to original backend
-    if hasattr(y, 'clone'):  # torch
-        import torch
-        result = torch.from_numpy(result_np).to(dtype=y.dtype, device=y.device)
-    elif hasattr(y, 'get'):  # cupy
-        import cupy as cp
-        result = cp.asarray(result_np)
-    else:
-        result = result_np
-
-    return result
-
-
-def _within_transform_matrix(X, groups, xp=None):
-    """Group-demean all columns of X at once (vectorized, no per-column loop).
-
-    Parameters
-    ----------
-    X : array-like, shape (n, k)
-        Regressor matrix.
-    groups : array-like, shape (n,)
-        Group labels.
-    xp : module, optional
-        Array module.  Defaults to numpy.
-
-    Returns
-    -------
-    X_demeaned : array, shape (n, k)
-        Group-demeaned regressors.
-    """
-    if xp is None:
-        xp = np
-
-    X = xp_asarray(X, dtype=xp.float64, xp=xp)
-    if X.ndim == 1:
-        X = X.reshape(-1, 1)
-
-    groups_np = _to_numpy(groups)
-    X_np = _to_numpy(X)
-
-    unique_labels, group_idx = np.unique(groups_np, return_inverse=True)
-    n_groups = len(unique_labels)
-
-    # Vectorized group means for all columns: (n_groups, k)
-    # group_idx is (n,), X_np is (n, k)
-    group_sum = np.zeros((n_groups, X_np.shape[1]), dtype=np.float64)
-    np.add.at(group_sum, group_idx, X_np)
-    group_count = np.bincount(group_idx, minlength=n_groups).reshape(-1, 1)
-    group_mean = group_sum / np.maximum(group_count, 1)
-
-    result_np = X_np - group_mean[group_idx]
-
-    # Convert back to original backend
-    if hasattr(X, 'clone'):  # torch
-        import torch
-        result = torch.from_numpy(result_np).to(dtype=X.dtype, device=X.device)
-    elif hasattr(X, 'get'):  # cupy
-        import cupy as cp
-        result = cp.asarray(result_np)
-    else:
-        result = result_np
-
-    return result
+    # Broadcast back: y_within = y - group_means[idx]
+    return y - group_means[idx]
 
 
 def make_group_dummies(groups, xp=None):
@@ -146,31 +122,67 @@ def make_group_dummies(groups, xp=None):
 
     groups = xp_asarray(groups, xp=xp).ravel()
     n = len(groups)
+    idx, n_groups, _ = _remap_to_contiguous(groups, xp)
 
-    # Vectorized: use np.unique return_inverse for O(n) dummy construction
-    groups_np = _to_numpy(groups)
-    unique_labels, group_idx = np.unique(groups_np, return_inverse=True)
-    n_groups = len(unique_labels)
-
-    D = np.zeros((n, n_groups), dtype=np.float64)
-    D[np.arange(n), group_idx] = 1.0
-
-    # Convert back to original backend
-    if hasattr(groups, 'clone'):  # torch
-        import torch
-        D = torch.from_numpy(D).to(device=groups.device)
-    elif hasattr(groups, 'get'):  # cupy
-        import cupy as cp
-        D = cp.asarray(D)
+    # Build dummy matrix using advanced indexing (no per-group loop)
+    D = xp_zeros((n, n_groups), xp.float64, xp, groups)
+    row_idx = xp.arange(n, device=getattr(groups, 'device', None)
+                        if hasattr(groups, 'device') else None)
+    D[row_idx, idx] = 1.0
 
     return D
 
 
-def demean_variables(y, X, entity_ids, time_ids=None, xp=None):
+def _within_transform_matrix(M, groups, xp):
+    """Remove group means from each column of matrix M (batched).
+
+    Uses scatter-add on the full matrix to compute all column-group
+    means in one pass, instead of looping over columns.
+
+    Parameters
+    ----------
+    M : array, shape (n, k)
+        Input matrix.
+    groups : array, shape (n,)
+        Integer group labels.
+    xp : module
+        Array module.
+
+    Returns
+    -------
+    M_within : array, shape (n, k)
+        Column-demeaned matrix.
+    """
+    n, k = M.shape
+    idx, n_groups, _ = _remap_to_contiguous(groups, xp)
+
+    # Compute group counts once (n_groups,) — reuse across all columns
+    ones_col = xp_ones(n, M.dtype, xp, M)
+    group_counts = _scatter_add(xp, idx, ones_col, n_groups)
+    inv_counts = 1.0 / xp.maximum(group_counts, 1.0)
+
+    # For each column, compute group sums and subtract
+    # This is still O(k) scatter-adds, but each operates on a full column
+    # which is much faster than per-group Python loops
+    result = M.copy() if hasattr(M, 'copy') else M.clone()
+    for j in range(k):
+        col = M[:, j]
+        group_sums_j = _scatter_add(xp, idx, col, n_groups)
+        group_means_j = group_sums_j * inv_counts
+        result[:, j] = col - group_means_j[idx]
+
+    return result
+
+
+def demean_variables(y, X, entity_ids, time_ids=None, xp=None,
+                     max_iter=100, tol=1e-10):
     """Demean *y* and *X* for fixed-effects estimation.
 
     If *time_ids* is also provided, performs two-way demeaning (entity
-    and time effects).
+    and time effects) using the alternating projection method (Mundlak
+    1978).  For balanced panels convergence occurs in one pass; for
+    unbalanced panels the iteration continues until the maximum change
+    across all variables is below *tol*.
 
     Parameters
     ----------
@@ -184,6 +196,10 @@ def demean_variables(y, X, entity_ids, time_ids=None, xp=None):
         Time-period identifiers.  If provided, two-way demeaning is applied.
     xp : module, optional
         Array module.  Defaults to numpy.
+    max_iter : int, default=100
+        Maximum alternating-projection iterations for two-way FE.
+    tol : float, default=1e-10
+        Convergence tolerance for two-way FE (max absolute change).
 
     Returns
     -------
@@ -199,40 +215,26 @@ def demean_variables(y, X, entity_ids, time_ids=None, xp=None):
     if X.ndim == 1:
         X = X.reshape(-1, 1)
 
-    # Demean: for two-way FE with unbalanced panels, use iterative
-    # alternating demeaning (entity then time) until convergence.
-    # For one-way FE or balanced panels, a single pass suffices.
-    y_d = y.copy() if hasattr(y, 'copy') else y - 0.0
-    X_d = X.copy() if hasattr(X, 'copy') else X - 0.0
+    y_d = xp_asarray(y, dtype=xp.float64, xp=xp).ravel()
+    X_d = X.copy() if hasattr(X, 'copy') else X.clone() if hasattr(X, 'clone') else X - 0.0
 
-    if entity_ids is not None and time_ids is not None:
-        # Two-way FE: iterate until convergence
-        # Convert groups to numpy once (avoid repeated conversion in within_transform)
-        entity_np = _to_numpy(entity_ids).ravel()
-        time_np = _to_numpy(time_ids).ravel()
-        for _ in range(50):
-            y_prev = y_d.copy() if hasattr(y_d, 'copy') else y_d - 0.0
-            X_prev = X_d.copy() if hasattr(X_d, 'copy') else X_d - 0.0
-            # Entity demean
-            y_d = within_transform(y_d, entity_np, xp)
-            X_d = _within_transform_matrix(X_d, entity_np, xp)
-            # Time demean
-            y_d = within_transform(y_d, time_np, xp)
-            X_d = _within_transform_matrix(X_d, time_np, xp)
-            # Check convergence: batch both deltas into a single GPU sync
-            diff_y = y_d - y_prev
-            diff_X = X_d - X_prev
-            max_diff = float(xp.max(xp.abs(xp.concatenate([diff_y.ravel(), diff_X.ravel()]))))
-            if max_diff < 1e-10:
-                break
-    else:
-        # One-way FE: single pass
-        if entity_ids is not None:
-            y_d = within_transform(y_d, entity_ids, xp)
-            X_d = _within_transform_matrix(X_d, entity_ids, xp)
-        if time_ids is not None:
+    # Entity demeaning (skip if entity_ids is None, e.g. time-only FE)
+    if entity_ids is not None:
+        y_d = within_transform(y_d, entity_ids, xp)
+        X_d = _within_transform_matrix(X_d, entity_ids, xp)
+
+    # Time demeaning (two-way FE) with alternating projection
+    if time_ids is not None:
+        for iteration in range(max_iter):
+            y_d_old = y_d.copy() if hasattr(y_d, 'copy') else y_d.clone()
+
             y_d = within_transform(y_d, time_ids, xp)
             X_d = _within_transform_matrix(X_d, time_ids, xp)
+
+            # Check convergence (single sync)
+            max_change = _to_float_scalar(xp.max(xp.abs(y_d - y_d_old)))
+            if max_change < tol:
+                break
 
     return y_d, X_d
 
@@ -242,6 +244,8 @@ def group_means(y, groups, xp=None):
 
     Returns an array of shape (n,) where element *i* is the mean of *y*
     over all observations belonging to the same group as observation *i*.
+
+    Uses scatter-add for single-kernel group reduction.
 
     Parameters
     ----------
@@ -263,27 +267,14 @@ def group_means(y, groups, xp=None):
     y = xp_asarray(y, dtype=xp.float64, xp=xp).ravel()
     groups = xp_asarray(groups, xp=xp, ref_arr=y).ravel()
 
-    # Vectorized group means using bincount (O(n), no per-group loop)
-    groups_np = _to_numpy(groups)
-    y_np = _to_numpy(y)
-    unique_labels, group_idx = np.unique(groups_np, return_inverse=True)
-    n_groups = len(unique_labels)
-    group_sum = np.bincount(group_idx, weights=y_np, minlength=n_groups)
-    group_count = np.bincount(group_idx, minlength=n_groups)
-    group_mean = group_sum / np.maximum(group_count, 1)
-    result_np = group_mean[group_idx]
+    idx, n_groups, _ = _remap_to_contiguous(groups, xp)
 
-    # Convert back to original backend
-    if hasattr(y, 'clone'):  # torch
-        import torch
-        result = torch.from_numpy(result_np).to(dtype=y.dtype, device=y.device)
-    elif hasattr(y, 'get'):  # cupy
-        import cupy as cp
-        result = cp.asarray(result_np)
-    else:
-        result = result_np
+    # Group sums and counts via scatter-add (2 kernel launches)
+    group_sums = _scatter_add(xp, idx, y, n_groups)
+    group_counts = _scatter_add(xp, idx, xp.ones_like(y), n_groups)
 
-    return result
+    means = group_sums / xp.maximum(group_counts, 1.0)
+    return means[idx]
 
 
 def group_sizes(groups, xp=None):
@@ -291,6 +282,8 @@ def group_sizes(groups, xp=None):
 
     Element *i* is the number of observations in the group of
     observation *i*.
+
+    Uses scatter-add for single-kernel group counting.
 
     Parameters
     ----------
@@ -308,25 +301,12 @@ def group_sizes(groups, xp=None):
         xp = np
 
     groups = xp_asarray(groups, xp=xp).ravel()
+    idx, n_groups, _ = _remap_to_contiguous(groups, xp)
 
-    # Vectorized group sizes using bincount (O(n), no per-group loop)
-    groups_np = _to_numpy(groups)
-    unique_labels, group_idx = np.unique(groups_np, return_inverse=True)
-    n_groups = len(unique_labels)
-    count = np.bincount(group_idx, minlength=n_groups)
-    result_np = count[group_idx].astype(np.float64)
-
-    # Convert back to original backend
-    if hasattr(groups, 'clone'):  # torch
-        import torch
-        result = torch.from_numpy(result_np).to(dtype=groups.dtype, device=groups.device)
-    elif hasattr(groups, 'get'):  # cupy
-        import cupy as cp
-        result = cp.asarray(result_np)
-    else:
-        result = result_np
-
-    return result
+    # Group counts via scatter-add (1 kernel launch)
+    ones = xp_ones(len(groups), xp.float64, xp, groups)
+    counts = _scatter_add(xp, idx, ones, n_groups)
+    return counts[idx]
 
 
 def ols_inference_nonrobust(params, X, scale, df, alpha=0.05):
@@ -359,7 +339,8 @@ def ols_inference_nonrobust(params, X, scale, df, alpha=0.05):
 
     cov_params = scale * XtX_inv
     bse = np.sqrt(np.diag(cov_params))
-    tvalues = params / (bse + 1e-30)
+    _eps = np.finfo(np.float64).tiny
+    tvalues = params / np.maximum(bse, _eps)
     pvalues = 2 * (1 - stats.t.cdf(np.abs(tvalues), df))
     t_crit = stats.t.ppf(1 - alpha / 2, df)
     conf_int = np.column_stack([

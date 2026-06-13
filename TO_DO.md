@@ -598,3 +598,80 @@ coef = where(active, coef_new, coef)
 **方案**：拆分为 `_bb_init()`、`_bb_divergence_check()`、`_bb_step_select()`、`_bb_momentum()` 等。
 **难度**：高 | **风险**：高 | **状态**：未实现
 
+---
+
+## PR48 Code Review 大规模重构项（2026-06-13）
+
+以下问题因涉及较大范围的架构调整或性能优化，记录为后续重构任务：
+
+### R1. Panel 双向 demeaning 逐列循环优化（性能）
+
+**文件**: `statgpu/panel/_utils.py`, `statgpu/panel/_random_effects.py`
+
+**问题**: `within_transform` 逐列调用，k 个特征需要 2*k 次 GPU kernel launch。`RandomEffects.fit()` 中也有同样的逐列循环（between/within/GLS transformation 各一次）。
+
+**方案**: 实现批量 group-demean 操作，使用 scatter/gather 或矩阵操作一次性处理所有列。需要：
+1. 实现 `batch_within_transform(Y, groups, xp)` 支持 2D 输入
+2. 更新 `demean_variables` 和 `RandomEffects.fit` 使用批量版本
+3. 添加 k=1/10/100 的性能对比测试
+
+**估计工作量**: 中等（2-3 小时）
+
+### R2. Panel summary() 返回结构化对象（可维护性）
+
+**文件**: `statgpu/panel/_fixed_effects.py`, `statgpu/panel/_random_effects.py`
+
+**问题**: `summary()` 直接 print 到 stdout，不可测试、不可序列化。GAM 的 `summary()` 同时 print 和返回 dict，不一致。
+
+**方案**:
+1. 创建 `PanelSummary` dataclass 包含所有统计量
+2. `summary()` 返回 `PanelSummary`，添加 `__str__` 方法用于 print
+3. 更新 GAM 的 `summary()` 使用相同模式
+4. 更新测试验证返回值而非 stdout
+
+**估计工作量**: 小（1-2 小时）
+
+### R3. PanelOLS.predict() 未包含固定效应（正确性）
+
+**文件**: `statgpu/panel/_fixed_effects.py`
+
+**问题**: `predict()` 只计算 `X @ coef_`，不包含 entity/time 固定效应。对于带固定效应的模型，预测值会遗漏 entity-specific intercept。
+
+**方案**:
+1. 在 `fit()` 中存储 entity/time 效应的估计值
+2. `predict()` 接受 `entity_ids`/`time_ids` 参数
+3. 预测公式: `y_pred = X @ coef_ + entity_effect[entity_ids] + time_effect[time_ids]`
+4. 添加文档说明无固定效应时的 predict 行为
+
+**估计工作量**: 中等（2-3 小时）
+
+### R4. ANOVA 强制 float64 灵活性（性能）
+
+**文件**: `statgpu/anova/_oneway.py`
+
+**问题**: 所有输入强制转为 float64。在 torch CUDA 上，float32 运算速度显著更快（尤其在消费级 GPU 上）。
+
+**方案**: 添加 `dtype` 参数，默认 `None`（使用输入的 native dtype），可选 `float32`/`float64`。需要验证 F 分布计算在 float32 下的精度。
+
+**估计工作量**: 小（1 小时）
+
+### R5. Cantor-pair hash 溢出保护（健壮性）
+
+**文件**: `statgpu/panel/_covariance.py`
+
+**问题**: `combined = s * (s + 1) // 2 + c2` 在 cluster 组合数超过 ~30 亿时可能 int64 溢出。
+
+**方案**: 添加溢出检查或使用 Python 任意精度整数（性能影响可忽略，因为只在 cluster 标签上操作）。
+
+**估计工作量**: 小（30 分钟）
+
+### R6. KernelRidgeCV CuPy 路径回退到 NumPy（性能）
+
+**文件**: `statgpu/nonparametric/kernel_methods/_krr_cv.py`
+
+**问题**: CuPy CV 路径将所有数据转回 NumPy，在 CPU 上做 eigendecomposition 和 alpha sweep。虽然功能正确，但失去了 GPU 加速。
+
+**方案**: 实现 CuPy 版本的批量 alpha sweep（类似 torch 路径的实现）。
+
+**估计工作量**: 中等（2-3 小时）
+
