@@ -230,7 +230,7 @@ class _PenalizedInferenceMixin:
                 X_minus_j = X_np[:, cols]
                 x_j = X_np[:, j]
 
-                from statgpu.linear_model._penalized_linear import PenalizedLinearRegression
+                from statgpu.linear_model.penalized._penalized_linear import PenalizedLinearRegression
                 nw = PenalizedLinearRegression(
                     penalty="l1", alpha=lam_nw,
                     fit_intercept=False, max_iter=500, tol=1e-5,
@@ -461,7 +461,7 @@ class _PenalizedInferenceMixin:
             y_star = y_pred + eps_star
 
             # Refit on bootstrap sample using current penalty
-            from statgpu.linear_model._penalized_linear import PenalizedLinearRegression
+            from statgpu.linear_model.penalized._penalized_linear import PenalizedLinearRegression
             refit = PenalizedLinearRegression(
                 penalty="l1", alpha=float(self.alpha),
                 fit_intercept=self._effective_intercept,
