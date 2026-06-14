@@ -187,4 +187,4 @@ Test environment: RTX 4090 (24GB), CuPy 14.1.0, PyTorch 2.8.0+cu128, scikit-lear
 
 ## License
 
-MIT
+Apache License 2.0 — see [LICENSE](LICENSE) for details.
