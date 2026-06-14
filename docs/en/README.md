@@ -10,6 +10,7 @@
 ## Guides
 
 - [Inference API](guides/inference-api.md) — distributions, multiple testing, permutation test, bootstrap
+- [Implemented Methods](guides/implemented-methods.md) — full method list with solvers, penalties, link functions
 - [Cross-Validation](guides/cross-validation.md) — CV API, architecture, GPU acceleration, caching
 - [Solver × Penalty Matrix](guides/solver-penalty-matrix.md) — loss × penalty × solver compatibility
 - [Device and GPU Memory](guides/device-and-memory.md) — device selection, memory cleanup

@@ -16,7 +16,6 @@
 - [Solver × Penalty 矩阵](guides/solver-penalty-matrix.md) — loss × penalty × solver 兼容性
 - [设备与 GPU 内存](guides/device-and-memory.md) — 设备选择、内存清理
 - [PyTorch 后端](guides/pytorch-backend.md) — torch 后端指南、torch.compile
-- [分布 API](guides/distribution-api.md) — 统计分布函数
 - [推断模式](guides/inference-modes.md) — Lasso 推断（debiased、bootstrap）
 - [多重检验](guides/multiple-testing-combine-pvalues.md) — p 值校正与合并
 - [基准测试](guides/benchmarks.md) — 性能基准与对比
