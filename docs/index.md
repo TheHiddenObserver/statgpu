@@ -6,23 +6,23 @@
 > Switch: [Chinese](USAGE_CN.md)
 
 Language switch:
-- Chinese: [USAGE_CN.md](USAGE_CN.md)
-- Legacy alias: [USAGE_EN.md](USAGE_EN.md)
+- Chinese: [cn/usage.md](cn/usage.md)
+- English: [en/usage.md](en/usage.md)
 
-`USAGE.md` is the primary (English) documentation entrypoint. Detailed docs are organized in `docs/en/`.
+Detailed docs are organized in `en/` and `cn/`.
 
 ## 1) Getting Started
 
-- [Quickstart](docs/en/getting-started/quickstart.md)
-- [Device and GPU Memory](docs/en/guides/device-and-memory.md)
-- [PyTorch Backend](docs/en/guides/pytorch-backend.md)
-- [Inference Modes (Lasso)](docs/en/guides/inference-modes.md)
-- [Distribution API (GPU Native + Explicit Fallback)](docs/en/guides/distribution-api.md)
-- [Multiple Testing: Adjust & Combine P-values (BH/BY/Holm/Bonferroni/Hochberg + Fisher/Cauchy/Stouffer)](docs/en/guides/multiple-testing-combine-pvalues.md)
-- [GLM + Penalty Module](docs/en/models/generalized-linear-model.md) — 7 families × 10 penalties × 3 backends
-- [Solver-Penalty Matrix](docs/en/guides/solver-penalty-matrix.md) — solver dispatch and penalty routing
-- [Cross-Validation Guide](docs/en/guides/cross-validation.md) — PenalizedGLM_CV, LassoCV, RidgeCV
-- [Changelog](docs/en/changelog.md)
+- [Quickstart](en/getting-started/quickstart.md)
+- [Device and GPU Memory](en/guides/device-and-memory.md)
+- [PyTorch Backend](en/guides/pytorch-backend.md)
+- [Inference Modes (Lasso)](en/guides/inference-modes.md)
+- [Distribution API (GPU Native + Explicit Fallback)](en/guides/distribution-api.md)
+- [Multiple Testing: Adjust & Combine P-values (BH/BY/Holm/Bonferroni/Hochberg + Fisher/Cauchy/Stouffer)](en/guides/multiple-testing-combine-pvalues.md)
+- [GLM + Penalty Module](en/models/generalized-linear-model.md) — 7 families × 10 penalties × 3 backends
+- [Solver-Penalty Matrix](en/guides/solver-penalty-matrix.md) — solver dispatch and penalty routing
+- [Cross-Validation Guide](en/guides/cross-validation.md) — PenalizedGLM_CV, LassoCV, RidgeCV
+- [Changelog](en/changelog.md)
 
 Install note:
 - Choose CuPy wheel by CUDA major version:
@@ -33,12 +33,12 @@ Install note:
 
 ## 2) Model Docs
 
-- [Models Overview](docs/en/models/README.md)
-- [GeneralizedLinearModel and Penalized GLM](docs/en/models/generalized-linear-model.md)
-- [PoissonRegression](docs/en/models/poisson-regression.md)
-- [Knockoff Feature Selection](docs/en/models/knockoff.md)
-- [Ordered Generalized Linear Models (Logit/Probit)](docs/en/models/ordered.md)
-- [Nonparametric Methods](docs/en/models/nonparametric.md)
+- [Models Overview](en/models/README.md)
+- [GeneralizedLinearModel and Penalized GLM](en/models/generalized-linear-model.md)
+- [PoissonRegression](en/models/poisson-regression.md)
+- [Knockoff Feature Selection](en/models/knockoff.md)
+- [Ordered Generalized Linear Models (Logit/Probit)](en/models/ordered.md)
+- [Nonparametric Methods](en/models/nonparametric.md)
 
 Implemented estimators:
 - `LinearRegression`
@@ -86,7 +86,7 @@ Inference highlights:
 
 ## 3) Benchmarks and Validation
 
-- [Benchmark Index](docs/en/guides/benchmarks.md)
+- [Benchmark Index](en/guides/benchmarks.md)
 
 Primary scripts:
 - `dev/benchmarks/_bench_inference_timing.py` (multiple-testing, p=100-10k)
