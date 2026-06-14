@@ -36,16 +36,21 @@ For Gamma, InverseGaussian, NegativeBinomial, and Tweedie with penalties, use `P
 
 ```python
 import numpy as np
-from statgpu.inference import norm, poisson, uniform, get_distribution
+from statgpu.inference import norm, poisson, uniform
 from statgpu.linear_model import PenalizedGeneralizedLinearModel
 
-# Direct imports — numpy backend (scipy-compatible: rvs, cdf, sf, ppf)
+# Default: numpy backend (scipy-compatible: rvs, cdf, sf, ppf)
 X = norm.rvs(size=(2000, 20))
 y = poisson.rvs(mu=3.0, size=2000).astype(float)
 
-# GPU-accelerated distributions (CuPy or Torch backend)
-norm_gpu = get_distribution("norm", backend="torch")
-X_gpu = norm_gpu.rvs(size=(2000, 20))  # returns torch tensor on CUDA
+# GPU backend via backend= keyword
+X_torch = norm.rvs(size=(2000, 20), backend="torch")   # torch tensor on CUDA
+X_cupy = norm.rvs(size=(2000, 20), backend="cupy")     # CuPy array on GPU
+
+# Auto-detect from input type
+import torch
+x = torch.tensor([0.0, 1.96]).cuda()
+p = norm.cdf(x)  # automatically uses torch backend
 
 # Gamma + SCAD with auto solver selection
 model = PenalizedGeneralizedLinearModel(loss="gamma", penalty="scad", alpha=0.1, solver="auto")
