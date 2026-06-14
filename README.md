@@ -78,62 +78,22 @@ pip install statgpu[dev]
 pip install statgpu[formula]
 ```
 
-## GLM and Penalized GLM Notes
+## GLM Architecture
 
-- Full model documentation: `docs/en/models/generalized-linear-model.md` / `docs/models/generalized-linear-model.md`
-- `statgpu.glm_core` is the GLM-specific core layer; `statgpu.losses` is not a compatibility namespace.
-- **7 GLM families**: squared_error, logistic, poisson, gamma, inverse_gaussian, negative_binomial, tweedie
-- **10 penalties**: none, l1, l2, elasticnet, scad, mcp, adaptive_l1, group_lasso, group_mcp, group_scad
-- **6 solvers**: exact, newton, lbfgs, irls, fista, fista_bb
-- **3 backends**: CPU (NumPy), CuPy (CUDA), PyTorch (CUDA)
-- `PenalizedGLM_CV` provides unified cross-validation for all loss × penalty combinations.
-- `Ridge`, `Lasso`, and `ElasticNet` are thin sklearn-style wrappers over typed penalized gaussian regression.
-- `Ridge` supports `solver="exact"` for the closed-form L2 solution.
-- `solver="auto"` routes: smooth penalties → IRLS, non-smooth → FISTA, non-convex → LLA+FISTA.
-- Explicit `device="cuda"` or `device="torch"` never silently falls back to CPU.
-- `sklearn.base.clone()` is supported for all estimators (verified via `get_params` round-trip).
-- Formula fitting is optional and uses patsy, for example `model.fit(formula="y ~ x1 + C(group)", data=df)`.
-- Benchmark: **1043/1043 ALL PASS** (v23c full matrix, 7 families × 10 penalties × 3 backends).
+> **7 families × 10 penalties × 6 solvers × 3 backends** — [Full details →](docs/en/guides/implemented-methods.md)
 
-### PyTorch Backend Requirements
+`solver="auto"` routes: smooth penalties → IRLS, non-smooth → FISTA, non-convex → LLA+FISTA. Explicit `device="cuda"/"torch"` never silently falls back to CPU. `sklearn.base.clone()` supported for all estimators.
 
-- PyTorch 2.0+ (for `torch.special` functions)
-- CUDA 11.x or 12.x driver
-- Recommended: Use conda environment with pre-configured CUDA toolkit
-
-```bash
-# Example conda setup
-conda create -n statgpu python=3.10
-conda activate statgpu
-conda install pytorch cudatoolkit=11.7 -c pytorch
-pip install statgpu
-```
-
-**Torch Backend Usage**:
+### PyTorch Backend
 
 ```python
-from statgpu.linear_model import Ridge, LogisticRegression, Lasso
-
-# Torch GPU backend
-model = Ridge(alpha=1.0, device='torch')  # Force Torch backend
-
-# GPU auto mode (prefers CuPy when available)
-model = Ridge(alpha=1.0, device='cuda')
-
-# Torch CPU backend (useful for debugging)
-model = Ridge(alpha=1.0, device='cpu')
-
-# All covariance types supported
-model = LogisticRegression(device='torch', cov_type='hc3')
-model.fit(X, y)
-print(f"Std Errors: {model._bse}")
+model = Ridge(alpha=1.0, device='torch')   # Torch GPU
+model = Ridge(alpha=1.0, device='cuda')     # Auto GPU (prefers CuPy)
+model = Ridge(alpha=1.0, device='cpu')      # CPU
 ```
 
-**Performance Notes**:
-- **Small datasets (<10K)**: CuPy faster due to lower overhead
-- **Moderate-large datasets (20K-100K)**: Torch GPU competitive with CuPy
-- **Robust covariance (HC2/HC3)**: Torch GPU within 4-30% of CuPy, 60x faster than CPU
-- See `dev/docs/torch_backend_full_feature_report.md` for detailed benchmarks
+- PyTorch 2.0+ required. CUDA 11.x or 12.x driver.
+- **Performance**: CuPy faster for <10K samples; Torch competitive at 20K-100K; HC2/HC3 Torch 60x faster than CPU.
 
 ## Quick Start
 
