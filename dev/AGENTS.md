@@ -14,12 +14,14 @@
 - `statgpu/_base.py`: estimator 基类，包含设备解析、后端获取和数组转换逻辑。
 - `statgpu/_config.py`: 全局设备管理，支持 `cpu`、`cuda`、`torch`、`auto`。
 - `statgpu/backends/`: NumPy、CuPy、Torch 后端抽象和自动选择逻辑。
-- `statgpu/linear_model/`: 线性模型、GLM、惩罚模型、CV 模型、有序 logit/probit 等。
-- `statgpu/glm_core/`: GLM loss、family/link、IRLS、FISTA、ADMM、Newton、L-BFGS 等核心求解器。
+- `statgpu/solvers/`: 通用优化求解器（FISTA、FISTA-BB、FISTA-LLA、Newton、L-BFGS、ADMM）。
 - `statgpu/penalties/`: L1、L2、ElasticNet、SCAD、MCP、adaptive/group penalty 注册表。
+- `statgpu/glm_core/`: GLM loss、family/link、IRLS、融合 kernel。
+- `statgpu/cross_validation/`: 通用 CV 框架（CVEstimatorBase、kfold_indices、hash_cv_data）。
+- `statgpu/linear_model/`: 线性模型 API 层，含 `wrappers/`（13 个模型）、`penalized/`（mixin 架构）、`cv/`（CV wrappers）、`legacy/`。
 - `statgpu/survival/`: CoxPH 和 CoxPHCV，含 Breslow/Efron ties 及 GPU 相关实现。
 - `statgpu/inference/`: 分布 API、多重检验、p 值合并、bootstrap、permutation test。
-- `statgpu/nonparametric/`: KDE、核回归、带宽选择。
+- `statgpu/nonparametric/`: KDE、核回归、带宽选择、核岭回归、样条。
 - `statgpu/feature_selection/`: knockoff 特征选择相关实现。
 - `statgpu/core/formula/`: 可选 formula/dataframe 接口，依赖 `patsy`/`pandas` extra。
 
