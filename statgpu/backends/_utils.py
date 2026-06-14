@@ -20,7 +20,10 @@ _LINALG_ERRORS: tuple = (np.linalg.LinAlgError,)
 try:
     import torch  # noqa: F811
     _LINALG_ERRORS = _LINALG_ERRORS + (RuntimeError,)
-except ImportError:
+except (ImportError, RuntimeError):
+    # RuntimeError: Torch 2.8+ may fail on import due to TORCH_LIBRARY
+    # registration conflict in some environments. The error is non-fatal
+    # for CPU-only paths; torch will be re-imported lazily when needed.
     pass
 
 
