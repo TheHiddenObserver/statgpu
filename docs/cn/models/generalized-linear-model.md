@@ -42,15 +42,15 @@ from statgpu.linear_model import (
 
 普通 GLM 最小化对应 family 的平均负对数似然：
 
-\[
+$$
 \min_\beta \frac{1}{n}\sum_{i=1}^n \ell(y_i, x_i^\top\beta)
-\]
+$$
 
 Penalized GLM 在此基础上加入惩罚项：
 
-\[
+$$
 \min_\beta \frac{1}{n}\sum_{i=1}^n \ell(y_i, x_i^\top\beta) + \alpha P(\beta)
-\]
+$$
 
 截距项不惩罚。`statgpu.glm_core` 只表示 GLM 专用核心层；Cox partial likelihood、panel objective、time-series likelihood、zero-inflated composite likelihood 不应强行塞入 `glm_core`，后续应通过更通用的 objective 层共享底层能力。
 

@@ -42,15 +42,15 @@ from statgpu.linear_model import (
 
 Ordinary GLM fits minimize the average negative log-likelihood for the selected family:
 
-\[
+$$
 \min_\beta \frac{1}{n}\sum_{i=1}^n \ell(y_i, x_i^\top\beta)
-\]
+$$
 
 Penalized GLM adds a penalty term:
 
-\[
+$$
 \min_\beta \frac{1}{n}\sum_{i=1}^n \ell(y_i, x_i^\top\beta) + \alpha P(\beta)
-\]
+$$
 
 The intercept is not penalized. `statgpu.glm_core` is intentionally GLM-specific; Cox partial likelihood, panel objectives, time-series likelihoods, and zero-inflated composite likelihoods should use future objective layers rather than being forced into `glm_core`.
 

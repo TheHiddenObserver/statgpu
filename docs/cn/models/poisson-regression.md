@@ -27,15 +27,15 @@ from statgpu import PoissonRegression
 
 在 log link 下：
 
-\[
+$$
 \mu_i = \exp(x_i^\top\beta)
-\]
+$$
 
 模型最小化平均 Poisson negative log-likelihood，忽略与参数无关的常数项：
 
-\[
+$$
 \min_\beta \frac{1}{n}\sum_i \left[\mu_i - y_i \log(\mu_i)\right]
-\]
+$$
 
 当 `C` 为有限值时，继承的 GLM IRLS 路径可以通过内部机制加入 L2 风格 ridge 项。
 
@@ -43,9 +43,9 @@ from statgpu import PoissonRegression
 
 非惩罚 Poisson GLM 的 score equation 为：
 
-\[
+$$
 \sum_i x_i(y_i - \mu_i)=0
-\]
+$$
 
 `PoissonRegression` 默认使用 `solver="auto"`，当前会调度到 IRLS。smooth Poisson GLM 也支持显式 `solver="newton"` 和 `solver="lbfgs"`，并运行在用户选择的后端。v23c 起，`solver="lbfgs"` 正确支持 L2 惩罚。该模型继承 GLM formula 接口，因此 formula 中的截距语义遵循 patsy/R 习惯。
 

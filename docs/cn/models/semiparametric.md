@@ -11,9 +11,9 @@
 
 `GAM` 使用惩罚 B 样条拟合广义可加模型，通过广义交叉验证（GCV）自动选择平滑参数。模型为：
 
-\[
+$$
 y = \alpha + \sum_j f_j(x_j) + \epsilon
-\]
+$$
 
 其中每个 $f_j$ 表示为惩罚 B 样条。GAM 是半参数模型：具有参数化的截距和每个特征的非参数光滑函数。
 
@@ -27,9 +27,9 @@ y = \alpha + \sum_j f_j(x_j) + \epsilon
 
 GAM 拟合惩罚最小二乘模型：
 
-\[
+$$
 \min_{\beta} \|y - B\beta\|_2^2 + \lambda \, \beta^\top S \, \beta
-\]
+$$
 
 其中 $B$ 为各特征样条基矩阵的列拼接（加一列截距），$S$ 为块对角差分惩罚矩阵，$\lambda$ 为平滑参数。默认惩罚阶数为 2（二阶差分），惩罚曲率。
 
@@ -37,23 +37,23 @@ GAM 拟合惩罚最小二乘模型：
 
 惩罚目标的一阶条件给出如下系统：
 
-\[
+$$
 (B^\top B + \lambda S) \, \hat\beta = B^\top y
-\]
+$$
 
 通过 Cholesky 分解求解。
 
 **GCV 选择 lambda**（当 `lam=None` 时）：
 
-\[
+$$
 \text{GCV} = \frac{n \cdot \text{RSS}}{(n - \text{edf})^2}
-\]
+$$
 
 其中有效自由度为：
 
-\[
+$$
 \text{edf} = \text{tr}\!\left((B^\top B + \lambda S)^{-1} B^\top B\right)
-\]
+$$
 
 通过对数间隔网格搜索最小化 GCV 来选择 lambda。
 

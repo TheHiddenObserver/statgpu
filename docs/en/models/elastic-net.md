@@ -17,9 +17,9 @@
 
 The Elastic Net optimization problem is:
 
-\[
+$$
 \min_{\beta} \frac{1}{2n}\|y - X\beta\|_2^2 + \alpha \cdot \lambda \cdot \|\beta\|_1 + \frac{\alpha}{2} \cdot (1 - \lambda) \cdot \|\beta\|_2^2
-\]
+$$
 
 where:
 - `alpha` (α) controls overall regularization strength
@@ -32,18 +32,18 @@ where:
 
 The Elastic Net estimator solves the following first-order optimality (KKT) condition:
 
-\[
+$$
 \frac{1}{n} X^\top (X\hat{\beta} - y) + \alpha(1-\lambda)\hat{\beta} + \alpha\lambda \cdot \partial\|\hat{\beta}\|_1 = 0
-\]
+$$
 
 where $\partial\|\hat{\beta}\|_1$ is the subdifferential of the L1 norm:
 - For $\hat{\beta}_j \neq 0$: $\text{sign}(\hat{\beta}_j)$
 - For $\hat{\beta}_j = 0$: any value in $[-1, 1]$
 
 At convergence, the KKT residual (subgradient violation) satisfies:
-\[
+$$
 \left| \frac{1}{n} X_j^\top(y - X\hat{\beta}) - \alpha(1-\lambda)\hat{\beta}_j \right| \leq \alpha\lambda \quad \forall j
-\]
+$$
 
 ## Estimation Algorithm
 

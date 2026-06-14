@@ -19,9 +19,9 @@
 
 最小化残差平方和：
 
-\[
+$$
 \min_{\beta, b} \|y - X\beta - b\|_2^2
-\]
+$$
 
 其中 `fit_intercept=True` 时同时估计截距项 `b`。
 

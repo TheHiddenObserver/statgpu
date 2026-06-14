@@ -21,38 +21,38 @@ The `covariance` module provides covariance matrix estimation with three estimat
 
 **EmpiricalCovariance** computes the maximum-likelihood sample covariance:
 
-\[
+$$
 \hat{S} = \frac{1}{n} X^\top X
-\]
+$$
 
 where \(X\) is the centered data matrix (mean subtracted column-wise unless `assume_centered=True`).
 
 **LedoitWolf** and **OAS** both produce a shrunk covariance of the form:
 
-\[
+$$
 \hat{\Sigma} = (1 - \alpha)\,\hat{S} + \alpha\,\mu\,I
-\]
+$$
 
 where \(\mu = \operatorname{tr}(\hat{S})/p\) is the average eigenvalue of the sample covariance. The two estimators differ only in how they compute the optimal shrinkage intensity \(\alpha\).
 
 **Ledoit-Wolf shrinkage intensity** (Ledoit & Wolf 2004):
 
-\[
+$$
 \alpha = \operatorname{clip}\!\left(\frac{\beta}{\delta},\; 0,\; 1\right)
-\]
+$$
 
 with
 
-\[
+$$
 \beta = \frac{1}{n^2}\left[\sum_{k=1}^{n} \|x_k\|_2^4 - n\,\|\hat{S}\|_F^2\right], \qquad
 \delta = \|\hat{S} - \mu I\|_F^2 = \|\hat{S}\|_F^2 - \frac{\operatorname{tr}(\hat{S})^2}{p}
-\]
+$$
 
 **OAS shrinkage intensity** (Chen et al. 2010):
 
-\[
+$$
 \alpha = \operatorname{clip}\!\left(\frac{\overline{S^2} + \mu^2}{(n+1)\!\left(\overline{S^2} - \mu^2/p\right)},\; 0,\; 1\right)
-\]
+$$
 
 where \(\overline{S^2} = \frac{1}{p^2}\sum_{i,j} S_{ij}^2\) is the mean of the squared elements of \(\hat{S}\).
 
@@ -75,9 +75,9 @@ All estimators produce the following fitted attributes after `fit()`:
 
 The `score()` method computes the average Gaussian log-likelihood per observation:
 
-\[
+$$
 \ell = -\frac{1}{2}\!\left(p \log(2\pi) + \log\det(\hat{\Sigma}) + \frac{1}{n}\sum_{k=1}^{n}(x_k - \hat{\mu})^\top \hat{\Sigma}^{-1}(x_k - \hat{\mu})\right)
-\]
+$$
 
 ## Parameters
 

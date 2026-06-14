@@ -18,24 +18,24 @@ Language switch: [Chinese](../../models/anova.md)
 ## Objective Function
 
 Grand mean:
-\[
+$$
 \bar{y} = \frac{\sum_i n_i \bar{y}_i}{\sum_i n_i}
-\]
+$$
 
 Between-group sum of squares:
-\[
+$$
 SSB = \sum_{i=1}^k n_i (\bar{y}_i - \bar{y})^2
-\]
+$$
 
 Within-group sum of squares:
-\[
+$$
 SSW = \sum_{i=1}^k \sum_{j=1}^{n_i} (y_{ij} - \bar{y}_i)^2
-\]
+$$
 
 F-statistic:
-\[
+$$
 F = \frac{SSB / (k-1)}{SSW / (N-k)}
-\]
+$$
 
 where $k$ is the number of groups, $n_i$ is the size of group $i$, and $N = \sum_i n_i$ is the total number of observations.
 
@@ -46,9 +46,9 @@ Direct computation, no iterative solver needed. The F-statistic is computed in a
 ## Covariance/Inference
 
 P-value is obtained from the F-distribution survival function $1 - F_{k-1,\,N-k}(F)$. Effect size is reported as:
-\[
+$$
 \eta^2 = \frac{SSB}{SSB + SSW}
-\]
+$$
 
 ## Parameters
 

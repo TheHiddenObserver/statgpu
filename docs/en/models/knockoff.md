@@ -36,9 +36,9 @@ Control false discovery rate at target `q` while maximizing stable power:
 ## Estimating Equation
 
 The decision rule follows knockoff thresholding:
-\[
+$$
 T = \min \left\{ t>0 : \frac{1+\#\{j:W_j\le -t\}}{\max(1,\#\{j:W_j\ge t\})}\le q \right\}
-\]
+$$
 for knockoff+ (`fdr_control="knockoff_plus"`), with the standard knockoff variant available via `fdr_control="knockoff"`.
 
 ## Covariance/Inference

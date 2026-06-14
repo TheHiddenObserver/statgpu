@@ -22,23 +22,23 @@
 
 **PanelOLS** 求解组内变换 OLS。对因变量和回归变量进行去均值处理以消除固定效应。对于个体效应，变换为：
 
-\[
+$$
 y_{it}^{within} = y_{it} - \bar{y}_{i\cdot}
-\]
+$$
 
 对于双向（个体 + 时间）固定效应，双重去均值残差为：
 
-\[
+$$
 y_{it}^{within} = y_{it} - \bar{y}_{i\cdot} - \bar{y}_{\cdot t} + \bar{y}_{\cdot\cdot}
-\]
+$$
 
 其中 \(\bar{y}_{i\cdot}\) 为个体均值，\(\bar{y}_{\cdot t}\) 为时间均值，\(\bar{y}_{\cdot\cdot}\) 为总均值。对 \(X\) 逐列施加相同变换。
 
 **RandomEffects** 估计方差分量模型：
 
-\[
+$$
 y_{it} = \alpha + X_{it}'\beta + a_i + \epsilon_{it}
-\]
+$$
 
 其中 \(a_i \sim \text{iid}(0, \sigma^2_a)\) 为个体随机效应，\(\epsilon_{it} \sim \text{iid}(0, \sigma^2_e)\) 为特异性误差。Swamy-Arora 估计器从组内估计器获得 \(\hat{\sigma}^2_e\)，从组间估计器获得 \(\hat{\sigma}^2_a\)，然后应用可行 GLS。
 
@@ -46,9 +46,9 @@ y_{it} = \alpha + X_{it}'\beta + a_i + \epsilon_{it}
 
 **PanelOLS** 在去均值数据上拟合 OLS：
 
-\[
+$$
 \hat{\beta} = (X_d^\top X_d)^{-1} X_d^\top y_d
-\]
+$$
 
 其中 \(X_d\) 和 \(y_d\) 为个体（可选加上时间）去均值后的回归变量和因变量。
 

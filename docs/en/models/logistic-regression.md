@@ -18,17 +18,17 @@ Language switch: [Chinese](../../models/logistic-regression.md)
 ## Objective Function
 
 Estimate binary log-likelihood (with L2 penalty controlled by `C`):
-\[
+$$
 \max_\beta \sum_i \left[y_i\log p_i + (1-y_i)\log(1-p_i)\right] - \lambda\|\beta\|_2^2
-\]
+$$
 where \(p_i = \sigma(x_i^\top\beta)\) and larger `C` means weaker regularization.
 
 ## Estimating Equation
 
 The model is solved by IRLS/Newton/L-BFGS-style updates to satisfy score equations:
-\[
+$$
 \sum_i x_i(y_i - p_i)=0
-\]
+$$
 under convergence controls `max_iter` and `tol`. As of v23c (2026-05), `solver="lbfgs"` correctly handles L2 penalties across all backends.
 
 ## Covariance/Inference

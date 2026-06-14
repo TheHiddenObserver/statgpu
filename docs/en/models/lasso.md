@@ -18,9 +18,9 @@ Language switch: [Chinese](../../models/lasso.md)
 ## Objective Function
 
 Estimate
-\[
+$$
 \min_{\beta}\frac{1}{2n}\|y - X\beta\|_2^2 + \alpha\|\beta\|_1
-\]
+$$
 with iterative optimization (`fista`, `admm`, or coordinate descent depending on backend configuration).
 
 ## Estimating Equation

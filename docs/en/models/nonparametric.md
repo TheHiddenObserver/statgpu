@@ -42,14 +42,14 @@ Kernel Regression:
 ## Estimating Equation
 
 - KDE:
-\[
+$$
 \hat f(x)=\frac{1}{nh}\sum_{i=1}^n K\left(\frac{x-X_i}{h}\right)
-\]
+$$
 with selected kernel and bandwidth policy.
 - Kernel regression (`nw`):
-\[
+$$
 \hat m(x)=\frac{\sum_i K_h(x-X_i)Y_i}{\sum_i K_h(x-X_i)}
-\]
+$$
 with optional diagonal/full kernel metric behavior.
 
 ## Covariance/Inference
