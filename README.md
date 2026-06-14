@@ -18,23 +18,17 @@ GPU-accelerated statistical methods with sklearn-compatible API.
 
 ## Features
 
-- 🚀 **GPU Acceleration**: Automatic CUDA support via CuPy and PyTorch
-- 🔧 **sklearn-compatible**: Familiar `fit`/`predict` API
-- 🔄 **Auto Device Selection**: `device="auto"` can choose an available backend; explicit `cuda`/`torch` never silently falls back to CPU
-- 📊 **Statistical Focus**: Methods from R that Python lacks
-- 🧪 **Multiple Testing**: `adjust_pvalues` (`bh`/`by`/`holm`/`bonferroni`/`hochberg`) + `combine_pvalues` (`fisher`/`cauchy`/`stouffer`) across 3 backends (numpy/cupy/torch)
-- 🧮 **Inference Support**:
-  - `LinearRegression`, `Ridge`, `LogisticRegression`: `nonrobust` / `hc0` / `hc1` / `hc2` / `hc3` / `hac`
-  - `Lasso`: `debiased` / `cpu_ols_inference` / `bootstrap` inference methods
-- 📈 **Nonparametric Support**:
-  - KDE: `fit_kde` / `kde_pdf` / `kde_bootstrap_confidence_interval`
-  - KDE kernel options: `gaussian` / `rectangular` / `triangular` / `epanechnikov` / `biweight` / `triweight` / `cosine` / `optcosine`
-  - Kernel regression: `fit_kernel_regression` / `kernel_regression_predict`
-- 🧹 **GPU Memory Control**: `gpu_memory_cleanup` for all current models
-- 🔥 **PyTorch Backend**: Optional Torch backend for GPU acceleration (PyTorch 2.0+)
-  - All models support `device='torch'` for CUDA-accelerated PyTorch backend
-  - **Knockoff filter**: `fixed_x_knockoff_filter`, `model_x_knockoff_filter` with `backend='torch'`
-- 📐 **Unified Distribution Backend**: 15 distributions (norm, t, f, chi2, gamma, beta, uniform, expon, cauchy, laplace, logistic, weibull_min, lognorm, poisson, binom) across 3 backends (numpy/cupy/torch) via `get_distribution()`. GPU speedup 10-500x at 1M points. [API docs](docs/en/guides/distribution-api.md)
+- 🚀 **3 Backends**: NumPy (CPU), CuPy (CUDA), PyTorch (CUDA) — automatic device selection
+- 🔧 **sklearn-compatible**: `fit`/`predict`/`score` API, `sklearn.base.clone()` supported
+- 📊 **7 GLM Families**: squared_error, logistic, poisson, gamma, inverse_gaussian, negative_binomial, tweedie
+- 🔥 **10 Penalties**: l1, l2, elasticnet, scad, mcp, adaptive_l1, group_lasso, group_mcp, group_scad
+- ⚡ **6 Solvers**: exact, newton, lbfgs, irls, fista, fista_bb — `solver="auto"` selects optimal
+- 🧮 **Inference**: HC0-HC3/HAC robust SE, debiased Lasso, bootstrap, simultaneous CI
+- 📈 **Nonparametric**: KDE, kernel regression, B-splines, GAM
+- 🧬 **Unsupervised**: PCA, KMeans, DBSCAN, GMM, UMAP, t-SNE (12 classes)
+- 📐 **Distributions**: 15 distributions across 3 backends via `get_distribution()` — [API docs](docs/en/guides/distribution-api.md)
+- 🧪 **Multiple Testing**: `adjust_pvalues` + `combine_pvalues` + `permutation_test`
+- 🔥 **Cross-Validation**: PenalizedGLM_CV (all 7 losses × 10 penalties), RidgeCV, LassoCV, ElasticNetCV
 
 ## Implemented Methods
 
@@ -77,23 +71,6 @@ pip install statgpu[dev]
 # Formula interface
 pip install statgpu[formula]
 ```
-
-## GLM Architecture
-
-> **7 families × 10 penalties × 6 solvers × 3 backends** — [Full details →](docs/en/guides/implemented-methods.md)
-
-`solver="auto"` routes: smooth penalties → IRLS, non-smooth → FISTA, non-convex → LLA+FISTA. Explicit `device="cuda"/"torch"` never silently falls back to CPU. `sklearn.base.clone()` supported for all estimators.
-
-### PyTorch Backend
-
-```python
-model = Ridge(alpha=1.0, device='torch')   # Torch GPU
-model = Ridge(alpha=1.0, device='cuda')     # Auto GPU (prefers CuPy)
-model = Ridge(alpha=1.0, device='cpu')      # CPU
-```
-
-- PyTorch 2.0+ required. CUDA 11.x or 12.x driver.
-- **Performance**: CuPy faster for <10K samples; Torch competitive at 20K-100K; HC2/HC3 Torch 60x faster than CPU.
 
 ## Quick Start
 
@@ -157,59 +134,6 @@ result = fixed_x_knockoff_filter(
 print(f"Selected features: {result.selected_features}")
 ```
 
-## GLM + Penalty Example
-
-```python
-from statgpu.linear_model import (
-    PenalizedGLM_CV,
-    PenalizedGeneralizedLinearModel,
-    PoissonRegression,
-    GammaRegression,
-)
-from statgpu.inference import get_distribution
-
-# Generate Poisson data using statgpu distributions
-norm = get_distribution("norm", backend="numpy")
-pois = get_distribution("poisson", backend="numpy")
-
-X = norm.rvs(size=(2000, 20))
-y = pois.rvs(mu=3.0, size=2000).astype(float)
-
-# PenalizedGLM_CV: unified CV for any loss × penalty
-model = PenalizedGLM_CV(
-    loss="poisson",
-    penalty="elasticnet",
-    l1_ratio=0.5,
-    n_alphas=50,
-    cv=5,
-    device="cpu",  # or "cuda" for GPU
-)
-model.fit(X, y)
-print(f"Best alpha: {model.alpha_:.4f}")
-print(f"Non-zero coefficients: {sum(abs(model.coef_) > 1e-6)}")
-print(f"Score: {model.score(X, y):.4f}")
-
-# Negative Binomial with custom dispersion + sample_weight
-uniform = get_distribution("uniform", backend="numpy")
-sw = uniform.rvs(size=len(y)) * 0.5 + 0.5
-nb_model = PenalizedGLM_CV(
-    loss="negative_binomial",
-    penalty="l1",
-    loss_kwargs={"alpha": 2.0},
-    device="cpu",
-)
-nb_model.fit(X, y, sample_weight=sw)
-
-# Direct model usage (no CV)
-poisson_model = PoissonRegression(alpha=0.1, device="cpu")
-poisson_model.fit(X, y)
-print(f"Poisson coef[:3]: {poisson_model.coef_[:3]}")
-
-gamma_model = GammaRegression(alpha=0.05, device="cpu")
-gamma_model.fit(X, abs(y) + 1)
-print(f"Gamma coef[:3]: {gamma_model.coef_[:3]}")
-```
-
 ## Device Control
 
 ```python
@@ -224,20 +148,6 @@ sg.set_device('auto')  # Auto-detect (default)
 from statgpu.linear_model import LinearRegression
 model = LinearRegression(device='cuda', n_jobs=4)
 ```
-
-## Benchmark Scripts
-
-- Multiple-testing timing benchmarks (3 backends + statsmodels/scipy):
-  - `dev/benchmarks/_bench_inference_timing.py` (p=100-10k)
-  - `dev/benchmarks/_bench_inference_timing_large.py` (p=50k-1M)
-- Large-scale all-method runtime benchmark:
-  - `dev/benchmarks/benchmark_all_methods_large_scale.py`
-- Multi-target LinearRegression benchmark (statgpu vs sklearn vs R):
-  - `dev/benchmarks/benchmark_multitarget_sklearn_r.py`
-- Lasso inference CPU/GPU comparison:
-  - `dev/benchmarks/benchmark_lasso_inference_gpu_vs_cpu.py`
-- GPU memory cleanup effect:
-  - `dev/benchmarks/benchmark_gpu_memory_cleanup.py`
 
 ## Benchmark Results (RTX 4090)
 
