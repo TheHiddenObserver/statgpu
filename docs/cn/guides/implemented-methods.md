@@ -36,21 +36,54 @@ statgpu 已实现的所有模型、函数和类的完整列表。
 
 ```python
 from statgpu.linear_model import PenalizedGeneralizedLinearModel
+import numpy as np
 
-# Gamma + SCAD
-model = PenalizedGeneralizedLinearModel(loss="gamma", penalty="scad", alpha=0.1)
+rng = np.random.default_rng(42)
+X = rng.standard_normal((2000, 20))
+y = rng.poisson(np.exp(X @ np.ones(20) * 0.1))
+
+# Gamma + SCAD，自动选择 solver
+model = PenalizedGeneralizedLinearModel(loss="gamma", penalty="scad", alpha=0.1, solver="auto")
 model.fit(X, y)
 
-# NegativeBinomial + ElasticNet
-model = PenalizedGeneralizedLinearModel(loss="negative_binomial", penalty="elasticnet",
-                                        loss_kwargs={"alpha": 2.0}, alpha=0.1)
+# NegativeBinomial + ElasticNet，自定义离散参数
+model = PenalizedGeneralizedLinearModel(
+    loss="negative_binomial", penalty="elasticnet",
+    loss_kwargs={"alpha": 2.0},  # 自定义离散参数
+    alpha=0.1, l1_ratio=0.5,
+    solver="fista",  # 显式指定 solver
+)
 model.fit(X, y)
 
-# Tweedie + group_lasso
-model = PenalizedGeneralizedLinearModel(loss="tweedie", penalty="group_lasso",
-                                        loss_kwargs={"power": 1.5}, alpha=0.1)
+# Tweedie + group_lasso，带 sample_weight
+sw = rng.uniform(0.5, 1.5, size=len(y))
+model = PenalizedGeneralizedLinearModel(
+    loss="tweedie", penalty="group_lasso",
+    loss_kwargs={"power": 1.5},
+    alpha=0.1, solver="fista",
+)
+model.fit(X, y, sample_weight=sw)
+
+# Poisson + L1，使用 IRLS solver（光滑惩罚）
+model = PenalizedGeneralizedLinearModel(
+    loss="poisson", penalty="l1", alpha=0.05,
+    solver="irls",  # IRLS 用于光滑惩罚
+)
 model.fit(X, y)
 ```
+
+**Solver 选择指南：**
+
+| Solver | 使用场景 | 支持的 Penalties |
+|---|---|---|
+| `exact` | squared_error + L2（闭式解） | 仅 l2 |
+| `irls` | 光滑惩罚（L2、ElasticNet） | l2, elasticnet |
+| `newton` / `lbfgs` | 需要 Hessian 的光滑惩罚 | l2, elasticnet |
+| `fista` | 非光滑惩罚（L1、SCAD、MCP） | l1, scad, mcp, adaptive_l1 |
+| `fista_bb` | BB 步加速的非光滑惩罚 | l1, elasticnet |
+| `auto` | 根据 penalty 自动选择 | 所有 |
+
+**`sample_weight` 支持：** 所有 GLM family 和 solver 都支持 `sample_weight` 参数。传入 1D 权重数组即可：`fit(X, y, sample_weight=sw)`。
 
 ## 交叉验证
 

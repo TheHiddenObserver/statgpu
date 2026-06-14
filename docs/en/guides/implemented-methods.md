@@ -36,21 +36,54 @@ For Gamma, InverseGaussian, NegativeBinomial, and Tweedie with penalties, use `P
 
 ```python
 from statgpu.linear_model import PenalizedGeneralizedLinearModel
+import numpy as np
 
-# Gamma + SCAD
-model = PenalizedGeneralizedLinearModel(loss="gamma", penalty="scad", alpha=0.1)
+rng = np.random.default_rng(42)
+X = rng.standard_normal((2000, 20))
+y = rng.poisson(np.exp(X @ np.ones(20) * 0.1))
+
+# Gamma + SCAD with auto solver selection
+model = PenalizedGeneralizedLinearModel(loss="gamma", penalty="scad", alpha=0.1, solver="auto")
 model.fit(X, y)
 
-# NegativeBinomial + ElasticNet
-model = PenalizedGeneralizedLinearModel(loss="negative_binomial", penalty="elasticnet",
-                                        loss_kwargs={"alpha": 2.0}, alpha=0.1)
+# NegativeBinomial + ElasticNet with custom dispersion
+model = PenalizedGeneralizedLinearModel(
+    loss="negative_binomial", penalty="elasticnet",
+    loss_kwargs={"alpha": 2.0},  # custom dispersion parameter
+    alpha=0.1, l1_ratio=0.5,
+    solver="fista",  # explicit solver choice
+)
 model.fit(X, y)
 
-# Tweedie + group_lasso
-model = PenalizedGeneralizedLinearModel(loss="tweedie", penalty="group_lasso",
-                                        loss_kwargs={"power": 1.5}, alpha=0.1)
+# Tweedie + group_lasso with sample_weight
+sw = rng.uniform(0.5, 1.5, size=len(y))
+model = PenalizedGeneralizedLinearModel(
+    loss="tweedie", penalty="group_lasso",
+    loss_kwargs={"power": 1.5},
+    alpha=0.1, solver="fista",
+)
+model.fit(X, y, sample_weight=sw)
+
+# Poisson + L1 with IRLS solver (smooth penalty)
+model = PenalizedGeneralizedLinearModel(
+    loss="poisson", penalty="l1", alpha=0.05,
+    solver="irls",  # IRLS for smooth penalties
+)
 model.fit(X, y)
 ```
+
+**Solver selection guide:**
+
+| Solver | When to use | Penalties |
+|---|---|---|
+| `exact` | squared_error + L2 (closed-form) | l2 only |
+| `irls` | Smooth penalties (L2, ElasticNet) | l2, elasticnet |
+| `newton` / `lbfgs` | Smooth penalties with Hessian | l2, elasticnet |
+| `fista` | Non-smooth penalties (L1, SCAD, MCP) | l1, scad, mcp, adaptive_l1 |
+| `fista_bb` | Non-smooth with BB step acceleration | l1, elasticnet |
+| `auto` | Automatic selection based on penalty | all |
+
+**`sample_weight` support:** All GLM families and solvers support `sample_weight` parameter for weighted regression. Pass a 1D array of weights to `fit(X, y, sample_weight=sw)`.
 
 ## Cross-Validation
 
