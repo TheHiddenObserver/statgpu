@@ -48,6 +48,7 @@
 ### Inference
 - [ANOVA](models/anova.md) — analysis of variance
 - [Covariance](models/covariance.md) — covariance estimation, shrinkage
+- [Multiple Testing](models/multiple-testing.md) — p-value adjustment (BH, Holm, Bonferroni) and combination (Fisher, Cauchy, Stouffer)
 - [Knockoff](models/knockoff.md) — knockoff feature selection
 
 ## Reference

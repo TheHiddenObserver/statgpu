@@ -50,6 +50,7 @@
 ### 推断
 - [ANOVA](models/anova.md) — 方差分析
 - [Covariance](models/covariance.md) — 协方差估计、收缩
+- [多重检验](models/multiple-testing.md) — P 值校正（BH、Holm、Bonferroni）和合并（Fisher、Cauchy、Stouffer）
 - [Knockoff](models/knockoff.md) — knockoff 特征选择
 
 ## 参考
