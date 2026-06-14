@@ -482,6 +482,7 @@ def fista_lla_path(
                         slack_dev = bound_dev + _SLACK_TOLERANCE - q_new_dev
                         _armijo_ok = _to_float_scalar(slack_dev) >= 0
                         if _armijo_ok:
+                            coef = coef_new
                             break
                         L *= 1.5
                         step = 1.0 / L

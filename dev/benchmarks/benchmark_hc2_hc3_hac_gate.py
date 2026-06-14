@@ -98,7 +98,7 @@ def _run_statsmodels_linear(X: np.ndarray, y: np.ndarray, cov_type: str, hac_max
 
     t0 = time.perf_counter()
     if cov_type == "hac":
-        model = sm.OLS(y, X_design).fit(cov_type=cov_type, cov_kwargs={"maxlags": hac_maxlags})
+        model = sm.OLS(y, X_design).fit(cov_type=cov_type, cov_kwds={"maxlags": hac_maxlags})
     else:
         model = sm.OLS(y, X_design).fit(cov_type=cov_type)
     elapsed_ms = (time.perf_counter() - t0) * 1000.0
@@ -118,7 +118,7 @@ def _run_statsmodels_logistic(X: np.ndarray, y: np.ndarray, cov_type: str, hac_m
 
     t0 = time.perf_counter()
     if cov_type == "hac":
-        model = sm.Logit(y, X_design).fit(cov_type=cov_type, cov_kwargs={"maxlags": hac_maxlags}, disp=0)
+        model = sm.Logit(y, X_design).fit(cov_type=cov_type, cov_kwds={"maxlags": hac_maxlags}, disp=0)
     else:
         model = sm.Logit(y, X_design).fit(cov_type=cov_type, disp=0)
     elapsed_ms = (time.perf_counter() - t0) * 1000.0
@@ -471,12 +471,12 @@ def print_summary(output: Dict[str, Any]) -> None:
     print("=" * 80)
 
     summary = output["summary"]
-    print(f"\nOverall: {'✅ PASS' if summary['overall_passed'] else '❌ FAIL'}")
+    print(f"\nOverall: {'[PASS]' if summary['overall_passed'] else '[FAIL]'}")
 
     for cov_type, cov_summary in summary["covariance_types"].items():
         print(f"\n{cov_type}:")
         for backend, b_summary in cov_summary["backends"].items():
-            status = "✅" if b_summary.get("passed", True) else "❌"
+            status = "[PASS]" if b_summary.get("passed", True) else "[FAIL]"
             print(f"  {backend}: time={b_summary['time_ms']:.2f}ms {status}")
             if b_summary.get("failure_reasons"):
                 for reason in b_summary["failure_reasons"]:
