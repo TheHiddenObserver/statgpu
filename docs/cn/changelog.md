@@ -56,12 +56,49 @@
   - 3 个后端：NumPy (CPU), CuPy (CUDA), PyTorch (CUDA) 自动设备选择
   - 统一推断：15 个分布、p 值校正、bootstrap、permutation test
   - 关键技术：LLA 路由处理非凸惩罚（SCAD/MCP）、对数链接 GLM 增广截距、迭代相关 Lipschitz 计算、损失+梯度核融合
+  - 关键 commits（16 个）：
+    - `fix: guard KDE import in inference __init__ for PR-A standalone`
+    - `fix: H4 solver split + H6 GPU sync batching`
+    - `fix: Medium issues — dead code, backend-aware gradients, type hints`
+    - `fix: PR-A review round 2 — 4 Codex comment fixes`
+    - `fix: PR-A review round 3 — torch device mismatch + HC2/HC3 leverage`
+    - `fix: Final review — CompositePenalty backend, cupy layering, __all__`
+    - `fix: 3 Critical NameErrors in cupy paths + circular import`
+    - `fix: 8 new PR comments + MED-2 auto-fill + 3 LOW fixes`
+    - `fix: restore irls_solver main loop + add test cases for all fixes`
+    - `fix: update derived attributes after group auto-fill`
+    - `fix: mark LassoCV tests as xfail (PR-B feature) + group auto-fill derived`
+    - `refactor: convert relative imports to absolute statgpu.xx imports`
+    - `fix: add missing group_mcp/group_scad to non_smooth validation set`
+    - `fix: power-iteration seed and CuPy cumop dtype kernels`
+    - `fix: KDE logpdf NameError and binomial IRLS deviance`
+    - `fix: torch KDE logpdf device and propagate GLM loss kwargs`
 
 - **PR #56 — 惩罚模型 + CV 框架 (PR-B, 来自 PR #36)**:
   - 7 个惩罚估计量：PenalizedLinearRegression, PenalizedLogisticRegression, PenalizedPoissonRegression, PenalizedGammaRegression, PenalizedInverseGaussianRegression, PenalizedNegativeBinomialRegression, PenalizedTweedieRegression
   - PenalizedGLM_CV：完整 CV（7 族 × 10 惩罚 × 6 求解器）
   - Lasso, Ridge, ElasticNet 完整推断
   - LogisticRegression, LinearRegression GPU 支持
+  - 关键 commits（20 个）：
+    - `fix: PR-B review — non_smooth set, self-import, loss_kwargs, score docstring`
+    - `fix: PR-B review round 2 — 7 P2 comments + 4 Medium fixes`
+    - `fix: PR-B P0/P1 bugs from deep review`
+    - `fix: relax GPU/CPU prediction tolerance + remove xfail markers`
+    - `fix: tighten GPU/CPU prediction tolerance via max_iter=2000 + tol=1e-10`
+    - `refactor: extract dead code to legacy files + clean imports`
+    - `fix: PR-B review round 3 — 4 High + 2 Medium fixes`
+    - `fix: PR-B review round 4 — 7 Medium fixes`
+    - `fix: PR-B review round 5 — 8 Low issues`
+    - `fix: PR-B review round 6 — C1 + H1/H2 + M4/M5/M6/M7 + L1`
+    - `fix: remaining known issues — get_params, sample_weight, backend-aware`
+    - `fix: PR-B review round 8 — M1/M2 + L1/L2/L3`
+    - `fix: device path consistency — unify NB tolerance + remove dead code`
+    - `fix: readability+maintainability — BOM, __all__, dedup score/summary`
+    - `fix: performance+extensibility — batched syncs + penalty categories`
+    - `fix: consolidate hardcoded penalty/loss sets`
+    - `fix: 2 High runtime bugs — NameError + TypeError in solver`
+    - `fix: dead code removal + magic numbers + exports + cleanup`
+    - `fix: remaining Medium/Low issues — loss_kwargs, backend-aware, cleanup`
 
 - **PR #57 — 新模块 (PR-C, 来自 PR #36)**:
   - ANOVA：`f_oneway` — GPU 加速单因素方差分析，支持 float32/float64
@@ -70,18 +107,55 @@
   - 样条：`bspline_basis`, `natural_cubic_spline_basis`, 惩罚回归 + GCV
   - 半参数：`GAM`（惩罚 B 样条 + GCV 平滑参数选择）
   - 核方法：`KernelRidge`, `KernelRidgeCV`, 6 个核函数（rbf, polynomial, linear, laplacian, sigmoid, cosine）
+  - 关键 commits（10 个）：
+    - `fix: PR-C review round 1 — 8 Critical + 2 High fixes`
+    - `fix: PR-C review round 2 — RE group means + import convention`
+    - `fix: PR-C review round 3 — NumpyBackend methods + import convention`
+    - `fix: PR-C review round 4 — H2/M5/M6/L2 fixes`
+    - `fix: PR-C review round 5 — 4 runtime fixes`
+    - `fix: move __all__ after __future__ in 4 files (Python 3.9 compat)`
+    - `fix: __future__ ordering + covariance export`
+    - `fix: move __future__ before __all__ in _covariance.py and _random_effects.py`
+    - `fix: swap y,X argument order in panel test fit() calls`
+    - `fix: PR-C remaining 2 comment fixes`
 
 - **PR #58 — 基础设施、导出、向后兼容 (PR-D, 来自 PR #36)**:
   - 统一 `statgpu/__init__.py` 导出（~60 个公共名称）
   - `BaseEstimator` 设备管理 + sklearn 兼容 `get_params`/`set_params`
   - `Device` 枚举（CPU/CUDA/TORCH/AUTO）自动检测
   - `kernel_methods/` 和 `splines/` 旧路径向后兼容
+  - 关键 commits（7 个）：
+    - `fix: PR-D review — get_params fallback, imports, __all__`
+    - `fix: get_params only returns own __init__ params + test updates`
+    - `fix: preserve string identity for sklearn clone() compatibility`
+    - `fix: preserve string identity for simultaneous_method and cov_type`
+    - `fix: PR-D 6 remaining comment fixes`
+    - `fix: define n before null model path in _compute_partial_likelihood`
+    - `fix: PR-D round 6 — null model risk set + penalty warning`
 
 - **PR #48 — 模块重组**:
   - 将 kernel_methods/ 和 splines/ 移至 nonparametric/ 子包
   - 创建 kernel_smoothing/ 子包用于 KDE + 核回归
   - 将 GAM 提取到 semiparametric/ 包
   - 旧导入路径向后兼容
+  - 关键 commits（19 个）：
+    - `feat: add new modules (anova, covariance, kernel_methods, panel, splines)`
+    - `fix(cupy): cummin/cummax exception handling + real-data benchmark results`
+    - `fix: module reorg, encoding fixes, KDE logpdf, Python 3.8 compat`
+    - `fix: add future annotations to _lasso.py, strip BOM from _irls.py`
+    - `fix(irls): log-link intercept init + per-iteration convergence check`
+    - `fix(irls): per-iteration convergence check + real-data benchmark script`
+    - `docs: add 6-stage real-data benchmark suite for RTX 4090`
+    - `fix: remove hardcoded SSH creds + use backend utils in IRLS`
+    - `fix: address Copilot review comments on PR #47`
+    - `fix: critical bugs found in code review of PR #47`
+    - `fix: narrow bare except clauses + minor cleanup`
+    - `test: add regression tests for all PR #47 code review fixes`
+    - `fix: narrow last bare except Exception in _glm_base.py`
+    - `fix: hoist _dev_val out of IRLS loop, fix splines __all__, add compat shim`
+    - `fix: round 3 review — test assertion, except narrowing, future annotations`
+    - `fix: wrap CuPy arrays with _to_numpy in covariance tests`
+    - `merge: resolve conflicts with feat/gpu-acceleration-torch-triton`
 
 - **PR #59 — 文档、changelog、指南 (PR-E)**:
   - 所有新模块的完整模型文档
@@ -135,6 +209,26 @@
   - 删除 ~1300 行死代码
   - 统一 `best_score_` 为负 MSE（sklearn 惯例）
   - 合并 PLAN_UNIFIED.md 门禁与 PR #49 编码规范到 TO_DO.md
+  - 关键 commits（19 个）：
+    - `feat: unified CV framework — shared infrastructure + PenalizedGLM_CV`
+    - `fix: 6 bugs from code review — Lasso defaults, cache keys, panel FE`
+    - `fix: unbalanced two-way FE, Ridge weighted intercept, PanelOLS docs`
+    - `fix: ElasticNetCV warm-start respects fit_intercept=False`
+    - `refactor: replace duplicated _kfold_indices with shared _cv_base imports`
+    - `fix: PenalizedGLM_CV scoring uses proper GLM loss + inference guard`
+    - `fix: PenalizedGLM_CV handles CuPy/Torch inputs correctly`
+    - `feat: PenalizedGLM_CV with warm-start across alpha values`
+    - `feat: batch eigendecomposition for squared_error+l2 CV`
+    - `feat: batch eigendecomposition for RidgeCV in PenalizedGLM_CV`
+    - `feat: reuse model instance across alphas in CV loop`
+    - `fix: update penalty.alpha when reusing model across alphas`
+    - `fix: disable CuPy fused kernel for SCAD/MCP LLA path`
+    - `test: add SCAD/MCP CuPy isolation diagnostic`
+    - `fix: disable CuPy fused kernel for SCAD/MCP (confirmed numerical issue)`
+    - `test: add SCAD/MCP CuPy fused kernel diagnostic scripts`
+    - `docs: CuPy fused kernel SCAD/MCP issue documentation + fix prompt`
+    - `fix: relax SCAD/MCP CuPy iteration count assertion`
+    - `chore: infra/bench/survival cleanup`
 
 ### 新增 (2026-06-07 ~ 2026-06-09)
 
