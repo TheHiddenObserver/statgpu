@@ -191,3 +191,28 @@ from statgpu.inference import dnorm_gpu, pnorm_gpu, qnorm_gpu, rnorm_gpu
 
 # 这些是 R 的 dnorm/pnorm/qnorm/rnorm 的 GPU 加速等价物
 ```
+
+---
+
+## 常见问题
+
+**Q: 什么时候用 `get_distribution()` vs 直接导入？**  
+A: numpy 后端用直接导入（`from statgpu.inference import norm`）。需要控制后端时用 `get_distribution("norm", backend="torch")`。
+
+**Q: 可以用 statgpu 分布替代 scipy 吗？**  
+A: 可以。API 与 scipy 兼容：`rvs`, `cdf`, `sf`, `ppf`, `isf`, `pdf`/`pmf` 签名相同。将 `scipy.stats.norm` 替换为 `statgpu.inference.norm` 即可。
+
+**Q: 如何使用 GPU 加速的分布？**  
+A: 给任何分布方法传 `backend="torch"` 或 `backend="cupy"`：`norm.rvs(size=1000, backend="torch")`。
+
+**Q: `sf` 和 `1 - cdf` 有什么区别？**  
+A: `sf(x)` 是生存函数（1 - CDF）。当 CDF 接近 1 时，`sf` 数值更稳定。
+
+---
+
+## 参考文献
+
+- **scipy.stats**: [https://docs.scipy.org/doc/scipy/reference/stats.html](https://docs.scipy.org/doc/scipy/reference/stats.html)
+- **R 分布**: [https://stat.ethz.ch/R-manual/R-patched/library/stats/html/Distributions.html](https://stat.ethz.ch/R-manual/R-patched/library/stats/html/Distributions.html)
+- **多重检验**: Benjamini & Hochberg (1995), "Controlling the False Discovery Rate"
+- **Cauchy 合并**: Liu & Xie (2020), "Cauchy Combination Test"
