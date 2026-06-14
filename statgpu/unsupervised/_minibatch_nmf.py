@@ -182,7 +182,7 @@ class MiniBatchNMF(BaseEstimator):
             new_components = self._update_h_from_stats_steps(
                 backend, old_components, A_epoch, B_epoch, eps, n_steps=3
             )
-            delta = scalar_to_float(backend.norm(new_components - old_components) / (backend.norm(old_components) + eps))
+            delta = scalar_to_float(backend.xp.linalg.norm(new_components - old_components) / (backend.xp.linalg.norm(old_components) + eps))
             self.components_ = new_components
             self.n_iter_ = int(epoch)
             last_A = A_epoch

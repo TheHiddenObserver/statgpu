@@ -346,9 +346,7 @@ class KernelDensityEstimator(BaseEstimator):
 
             if is_gaussian:
                 log_kernels = -0.5 * quad
-                # Use amax (values only) — torch.max returns (values, indices)
-                _max_fn = getattr(xp, 'amax', None) or (lambda x, **kw: xp.max(x, **kw)[0] if hasattr(xp.max(x, **kw), 'values') else xp.max(x, **kw))
-                log_kernels_max = _max_fn(log_kernels, axis=1, keepdims=True)
+                log_kernels_max = _xp_max(log_kernels, axis=1, keepdims=True)
                 log_kernels_shifted = log_kernels - log_kernels_max
                 log_sum = log_kernels_max[:, 0] + xp.log(
                     xp.sum(xp.exp(log_kernels_shifted) * self.weights_[None, :], axis=1)

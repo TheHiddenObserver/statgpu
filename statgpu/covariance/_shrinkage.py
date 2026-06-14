@@ -64,7 +64,15 @@ class LedoitWolf(EmpiricalCovariance):
         backend_name = _detect_backend(X, self._get_compute_device())
         xp = _get_xp(backend_name)
 
-        X_arr = xp.asarray(X, dtype=xp.float64)
+        # Ensure torch tensors land on CUDA
+        _ref = None
+        if backend_name == "torch":
+            import torch
+            _ref = torch.empty(0, dtype=torch.float64, device="cuda")
+        if _ref is not None:
+            X_arr = xp.asarray(X, dtype=xp.float64, device=_ref.device)
+        else:
+            X_arr = xp.asarray(X, dtype=xp.float64)
         if X_arr.ndim == 1:
             X_arr = X_arr.reshape(-1, 1)
 
@@ -175,7 +183,15 @@ class OAS(EmpiricalCovariance):
         backend_name = _detect_backend(X, self._get_compute_device())
         xp = _get_xp(backend_name)
 
-        X_arr = xp.asarray(X, dtype=xp.float64)
+        # Ensure torch tensors land on CUDA
+        _ref = None
+        if backend_name == "torch":
+            import torch
+            _ref = torch.empty(0, dtype=torch.float64, device="cuda")
+        if _ref is not None:
+            X_arr = xp.asarray(X, dtype=xp.float64, device=_ref.device)
+        else:
+            X_arr = xp.asarray(X, dtype=xp.float64)
         if X_arr.ndim == 1:
             X_arr = X_arr.reshape(-1, 1)
 
