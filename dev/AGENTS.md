@@ -69,7 +69,7 @@ def _cleanup_torch_memory(self):
 
 ## 通用开发硬规则
 
-以下规则来自 `PLAN_UNIFIED.md` 中较稳定的项目约束，适用于后续功能开发和重构：
+以下规则来自 `dev/plans/PLAN_UNIFIED.md` 中较稳定的项目约束，适用于后续功能开发和重构：
 
 - 新增统计功能默认要求 CPU、CuPy、Torch 三端同时实现；若某端暂不可行，必须明确记录原因、限制和后续补齐路径，且已有端要能独立验证。
 - 新增 inference、stopping rule、影响数值的 memory behavior 或 estimator 行为时，外部基线检查应尽可能全面：推断/统计优先对齐 `statsmodels`，估计器和预测一致性优先对齐 `sklearn`，关键统计方法补充 R 基线；能覆盖 coef/bse/p/CI/AIC/BIC/LLF、预测、目标函数或 KKT 的场景应尽量覆盖。
@@ -85,9 +85,9 @@ def _cleanup_torch_memory(self):
 
 ## 文档写作约束
 
-`PLAN_UNIFIED.md` 对文档有硬要求。新增或修改用户可见能力时，文档不能只写一句 API 说明，应按能力范围补齐以下内容：
+`dev/plans/PLAN_UNIFIED.md` 对文档有硬要求。新增或修改用户可见能力时，文档不能只写一句 API 说明，应按能力范围补齐以下内容：
 
-- 文档更新顺序默认 EN-first、CN-follow：先更新 `docs/en/` 和英文入口，再同步 `docs/` 中文页、`USAGE_CN.md` 或中文相关入口。
+- 文档更新顺序默认 EN-first、CN-follow：先更新 `docs/en/` 和英文入口，再同步 `docs/cn/` 中文页或中文相关入口。
 - README、USAGE、EN/CN docs、changelog 中的能力声明必须一致，不能出现某处宣称支持、另一处仍写未支持的状态。
 - 模型页应尽量包含：Overview、Path、Objective Function、Estimating Equation、Covariance/Inference、Parameters、CPU+GPU Examples、strict/approx difference、Outputs、FAQ、External Validation、References。
 - 涉及 strict/approx 两条路径时，必须明确默认策略、fallback 条件、数值阈值或适用边界，避免让用户误以为 approximate 是默认严格推断。
@@ -106,8 +106,8 @@ def _cleanup_torch_memory(self):
 ## 文档入口
 
 - `README.md`: 项目总体说明、安装方式、快速示例和功能概览。
-- `USAGE.md`: 英文使用入口。
-- `USAGE_CN.md`: 中文使用入口；当前本地显示可能有编码问题，必要时优先参考英文文档和源码。
+- `docs/en/usage.md`: 英文使用入口。
+- `docs/cn/usage.md`: 中文使用入口。
 - `docs/en/`: 英文文档，包括 quickstart、guides 和各模型说明。
 - `docs/`: 中文文档目录。
 - `docs/en/models/README.md`: 模型覆盖范围和当前限制的较新摘要。
