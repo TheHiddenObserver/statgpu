@@ -36,12 +36,16 @@ statgpu 已实现的所有模型、函数和类的完整列表。
 
 ```python
 import numpy as np
-from statgpu.inference import norm, poisson, uniform
+from statgpu.inference import norm, poisson, uniform, get_distribution
 from statgpu.linear_model import PenalizedGeneralizedLinearModel
 
-# 直接导入 — 与 scipy 兼容的 API（rvs, cdf, sf, ppf）
+# 直接导入 — numpy 后端（与 scipy 兼容：rvs, cdf, sf, ppf）
 X = norm.rvs(size=(2000, 20))
 y = poisson.rvs(mu=3.0, size=2000).astype(float)
+
+# GPU 加速分布（CuPy 或 Torch 后端）
+norm_gpu = get_distribution("norm", backend="torch")
+X_gpu = norm_gpu.rvs(size=(2000, 20))  # 返回 CUDA 上的 torch tensor
 
 # Gamma + SCAD，自动选择 solver
 model = PenalizedGeneralizedLinearModel(loss="gamma", penalty="scad", alpha=0.1, solver="auto")
