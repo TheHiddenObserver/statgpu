@@ -52,12 +52,12 @@ GPU-accelerated statistical methods with sklearn-compatible API.
 
 ### Penalized GLM
 
-| Class | Description | Backends |
-|---|---|---|
-| `PenalizedGeneralizedLinearModel` | 7 families × 10 penalties × 3 backends | CPU, CuPy, Torch |
-| `PenalizedLinearRegression` | squared_error + penalty | CPU, CuPy, Torch |
-| `PenalizedLogisticRegression` | logistic + penalty | CPU, CuPy, Torch |
-| `PenalizedPoissonRegression` | poisson + penalty | CPU, CuPy, Torch |
+| Class | Description | Solvers | Penalties | Backends |
+|---|---|---|---|---|
+| `PenalizedGeneralizedLinearModel` | Unified penalized GLM (7 families) | exact, irls, newton, lbfgs, fista, fista_bb | l1, l2, elasticnet, scad, mcp, adaptive_l1, group_lasso, group_mcp, group_scad | CPU, CuPy, Torch |
+| `PenalizedLinearRegression` | squared_error + penalty | exact, fista | l1, l2, elasticnet, scad, mcp, adaptive_l1 | CPU, CuPy, Torch |
+| `PenalizedLogisticRegression` | logistic + penalty | irls, fista | l1, l2, elasticnet, scad, mcp, adaptive_l1 | CPU, CuPy, Torch |
+| `PenalizedPoissonRegression` | poisson + penalty | irls, fista | l1, l2, elasticnet, scad, mcp, adaptive_l1 | CPU, CuPy, Torch |
 
 ### Cross-Validation
 
