@@ -415,15 +415,21 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
         self.fit_intercept = fit_intercept
         self.max_iter = max_iter
         self.tol = tol
-        self.cpu_solver = cpu_solver.lower()
-        self.solver = solver.lower()
+        # Preserve original string identity for sklearn clone() compatibility
+        _cpu_solver = cpu_solver.lower()
+        self.cpu_solver = cpu_solver if cpu_solver == _cpu_solver else _cpu_solver
+        _solver = solver.lower()
+        self.solver = solver if solver == _solver else _solver
         self.lipschitz_L = lipschitz_L
         self.gpu_memory_cleanup = gpu_memory_cleanup
         self.compute_inference = compute_inference
-        self.inference_method = inference_method.lower()
+        _inference_method = inference_method.lower()
+        self.inference_method = inference_method if inference_method == _inference_method else _inference_method
         self.cov_type = validate_cov_type(cov_type)
         self.hac_maxlags = validate_hac_maxlags(hac_maxlags)
-        self.stopping = str(stopping).lower()
+        # Preserve original object identity for sklearn clone() compatibility
+        _stopping = str(stopping).lower()
+        self.stopping = stopping if stopping == _stopping else _stopping
         self.lla = lla
         self.max_lla_iters = max_lla_iters
         self.lla_tol = lla_tol

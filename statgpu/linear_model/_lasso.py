@@ -2105,7 +2105,8 @@ class Lasso(_PenalizedLinearRegression):
             stopping=stopping,
         )
         # Re-set after super().__init__() which overwrites with parent default
-        self.inference_method = str(inference_method).lower()
+        _im = str(inference_method).lower()
+        self.inference_method = inference_method if inference_method == _im else _im
 
         # Validate simultaneous inference settings
         if self.enable_simultaneous_inference:
