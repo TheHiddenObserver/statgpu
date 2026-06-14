@@ -79,7 +79,7 @@ PenalizedGLM_CV
     │   ├── L1, L2, ElasticNet
     │   ├── SCAD, MCP (non-convex)
     │   ├── Adaptive L1
-    │   └── Group Lasso, Group SCAD/MCP
+    │   └── Group Lasso, Adaptive Group Lasso, Group SCAD/MCP
     │
     └── Solver (optimization)
         ├── IRLS (iteratively reweighted least squares)
@@ -95,14 +95,38 @@ Each solver handles smooth + non-smooth terms differently:
 - **L-BFGS**: Fused penalty gradient (v23c fix)
 - **ADMM**: Dual decomposition with penalty splitting
 
-### 4. Survival Analysis
+### 4. linear_model Estimator Hierarchy
+
+```
+BaseEstimator
+    │
+    ├── LinearRegression, Ridge, RidgeCV, Lasso, LassoCV, ElasticNet, ElasticNetCV
+    │
+    ├── GeneralizedLinearModel (base for all GLMs)
+    │   ├── LogisticRegression, LogisticRegressionCV
+    │   ├── PoissonRegression, GammaRegression
+    │   ├── InverseGaussianRegression, NegativeBinomialRegression, TweedieRegression
+    │   └── PenalizedGeneralizedLinearModel (base for penalized GLMs)
+    │       ├── PenalizedLinearRegression
+    │       ├── PenalizedLogisticRegression
+    │       ├── PenalizedPoissonRegression, PenalizedGammaRegression
+    │       ├── PenalizedInverseGaussianRegression
+    │       ├── PenalizedNegativeBinomialRegression, PenalizedTweedieRegression
+    │       └── PenalizedGLM_CV (full CV over families × penalties × solvers)
+    │
+    └── OrderedGeneralizedLinearModel (base for ordered models)
+        ├── OrderedLogitRegression
+        └── OrderedProbitRegression
+```
+
+### 5. Survival Analysis
 
 Cox PH uses custom CUDA kernels for Efron's method:
 - `_cox_efron_cuda.py`: CuPy RawKernel for tied failure times
 - `_cox_efron_triton.py`: Triton kernel alternative
 - CPU fallback uses scipy
 
-### 5. Inference Module
+### 6. Inference Module
 
 Shared across all estimators:
 - Distribution backends (norm, t, chi2, F, beta, gamma)
@@ -142,8 +166,10 @@ statgpu/
 │   ├── _torch.py       # TorchBackend (GPU/CPU)
 │   ├── _factory.py     # get_backend() factory
 │   ├── _utils.py       # Cross-backend helpers (DLPack, etc.)
-│   └── _array_ops.py   # Functional dispatch (_xp, _sigmoid, etc.)
-├── linear_model/       # Ridge, Lasso, ElasticNet, Logistic, GLM, Ordered
+│   ├── _array_ops.py   # Functional dispatch (_xp, _sigmoid, etc.)
+│   ├── _gpu_inference_cupy.py  # CuPy-specific inference acceleration
+│   └── _gpu_inference_torch.py # Torch-specific inference acceleration
+├── linear_model/       # Ridge, Lasso, ElasticNet, Logistic, GLM, Penalized, Ordered
 ├── glm_core/           # Families, links, solvers
 ├── penalties/          # Penalty registry + implementations
 ├── survival/           # CoxPH + CUDA kernels
@@ -151,11 +177,17 @@ statgpu/
 ├── unsupervised/       # PCA, KMeans, DBSCAN, tSNE, UMAP, NMF, GMM
 ├── panel/              # PanelOLS, RandomEffects
 ├── nonparametric/      # KDE, kernel regression, splines
-├── feature_selection/  # Knockoff, stepwise
+│   ├── kernel_smoothing/   # KDE, bandwidth selection
+│   ├── kernel_methods/     # KernelRidge, KernelRidgeCV, pairwise_kernels
+│   └── splines/            # B-spline, natural cubic spline basis
+├── feature_selection/  # KnockoffSelector, FixedXKnockoffSelector, StepwiseSelector
 ├── covariance/         # LedoitWolf, OAS
 ├── anova/              # f_oneway
 ├── metrics/            # ROC, AUC, confusion matrix
 ├── diagnostics/        # Regression diagnostics
 ├── semiparametric/     # GAM
-└── core/               # Formula parser, design matrix
+├── core/
+│   └── formula/        # R-style formula parser, design matrix, terms
+├── kernel_methods/     # Backward-compat shim → nonparametric.kernel_methods
+└── splines/            # Backward-compat shim → nonparametric.splines + GAM
 ```
