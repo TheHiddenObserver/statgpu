@@ -9,12 +9,13 @@
 
 ## 指南
 
+- [推断 API](guides/inference-api.md) — 分布函数、多重检验、排列检验、自助法
+- [分布 API](guides/distribution-api.md) — 详细分布后端参考
 - [已实现方法](guides/implemented-methods.md) — 完整方法列表（solver、penalty、link function）
 - [交叉验证](guides/cross-validation.md) — CV API、架构、GPU 加速、缓存
 - [Solver × Penalty 矩阵](guides/solver-penalty-matrix.md) — loss × penalty × solver 兼容性
 - [设备与 GPU 内存](guides/device-and-memory.md) — 设备选择、内存清理
 - [PyTorch 后端](guides/pytorch-backend.md) — torch 后端指南、torch.compile
-- [分布 API](guides/distribution-api.md) — 统计分布函数
 - [推断模式](guides/inference-modes.md) — Lasso 推断（debiased、bootstrap）
 - [多重检验](guides/multiple-testing-combine-pvalues.md) — p 值校正与合并
 - [基准测试](guides/benchmarks.md) — 性能基准与对比
@@ -48,6 +49,7 @@
 ### 推断
 - [ANOVA](models/anova.md) — 方差分析
 - [Covariance](models/covariance.md) — 协方差估计、收缩
+- [多重检验](models/multiple-testing.md) — P 值校正（BH、Holm、Bonferroni）和合并（Fisher、Cauchy、Stouffer）
 - [Knockoff](models/knockoff.md) — knockoff 特征选择
 
 ## 参考
