@@ -213,7 +213,7 @@ norm = get_distribution("norm", backend="numpy")
 pois = get_distribution("poisson", backend="numpy")
 
 X = norm.rvs(size=(2000, 20))
-y = pois.rvs(lam=3.0, size=2000).astype(float)
+y = pois.rvs(mu=3.0, size=2000).astype(float)
 
 # PenalizedGLM_CV: unified CV for any loss × penalty
 model = PenalizedGLM_CV(

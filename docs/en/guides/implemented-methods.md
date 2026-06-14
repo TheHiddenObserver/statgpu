@@ -43,7 +43,7 @@ norm = get_distribution("norm", backend="numpy")
 pois = get_distribution("poisson", backend="numpy")
 
 X = norm.rvs(size=(2000, 20))
-y = pois.rvs(lam=3.0, size=2000).astype(float)
+y = pois.rvs(mu=3.0, size=2000).astype(float)
 
 # Gamma + SCAD with auto solver selection
 model = PenalizedGeneralizedLinearModel(loss="gamma", penalty="scad", alpha=0.1, solver="auto")
