@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Optional, Union
 from statgpu._config import Device
-from statgpu.linear_model._penalized import PenalizedGeneralizedLinearModel
+from statgpu.linear_model.penalized._base import PenalizedGeneralizedLinearModel
 
 
 class PenalizedLinearRegression(PenalizedGeneralizedLinearModel):

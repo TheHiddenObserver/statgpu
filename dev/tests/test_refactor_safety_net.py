@@ -35,7 +35,7 @@ class TestSolverImports:
         assert callable(admm_solver)
 
     def test_import_fista_lla_path(self):
-        from statgpu.glm_core._solver import fista_lla_path
+        from statgpu.solvers import fista_lla_path
         assert callable(fista_lla_path)
 
 
@@ -155,7 +155,7 @@ class TestCVBase:
     """Utility functions from _cv_base.py."""
 
     def test_kfold_indices_shape(self):
-        from statgpu.linear_model._cv_base import kfold_indices
+        from statgpu.cross_validation import kfold_indices
         folds = kfold_indices(100, n_splits=5, random_state=42)
         assert len(folds) == 5
         for train_idx, val_idx in folds:
@@ -163,13 +163,13 @@ class TestCVBase:
             assert len(set(train_idx) & set(val_idx)) == 0
 
     def test_kfold_indices_disjoint(self):
-        from statgpu.linear_model._cv_base import kfold_indices
+        from statgpu.cross_validation import kfold_indices
         folds = kfold_indices(50, n_splits=5, random_state=0)
         all_val = np.concatenate([v for _, v in folds])
         assert len(np.unique(all_val)) == 50
 
     def test_hash_cv_data_deterministic(self):
-        from statgpu.linear_model._cv_base import hash_cv_data
+        from statgpu.cross_validation import hash_cv_data
         rng = np.random.RandomState(42)
         X = rng.randn(50, 5)
         y = rng.randn(50)
@@ -178,7 +178,7 @@ class TestCVBase:
         assert h1 == h2
 
     def test_hash_cv_data_different_on_data_change(self):
-        from statgpu.linear_model._cv_base import hash_cv_data
+        from statgpu.cross_validation import hash_cv_data
         rng = np.random.RandomState(42)
         X = rng.randn(50, 5)
         y = rng.randn(50)
@@ -188,7 +188,7 @@ class TestCVBase:
         assert h1 != h2
 
     def test_batch_mse_basic(self):
-        from statgpu.linear_model._cv_base import batch_mse
+        from statgpu.cross_validation import batch_mse
         rng = np.random.RandomState(42)
         X_val = rng.randn(20, 3)
         y_val = X_val @ np.array([1.0, -1.0, 0.5]) + rng.randn(20) * 0.1
@@ -202,7 +202,7 @@ class TestCVEngine:
     """run_cv from _cv_engine.py."""
 
     def test_run_cv_basic(self):
-        from statgpu.linear_model._cv_engine import run_cv
+        from statgpu.cross_validation import run_cv
         rng = np.random.RandomState(42)
         X = rng.randn(100, 3)
         y = X @ np.array([1.0, -1.0, 0.5]) + rng.randn(100) * 0.1
@@ -227,29 +227,25 @@ class TestCVEngine:
 # ══════════════════════════════════════════════════════════════════════
 
 class TestImportPaths:
-    """Test all public import paths. After refactor, old paths via shim."""
+    """Test all public import paths."""
 
-    # --- Old paths (pre-refactor: sole path; post-refactor: via shim) ---
-    def test_old_path_glm_core_solver(self):
-        from statgpu.glm_core._solver import fista_solver  # noqa: F401
+    def test_solvers_path(self):
+        from statgpu.solvers import fista_solver  # noqa: F401
 
-    def test_old_path_cv_base(self):
-        from statgpu.linear_model._cv_base import CVEstimatorBase  # noqa: F401
+    def test_cross_validation_path(self):
+        from statgpu.cross_validation import CVEstimatorBase  # noqa: F401
 
-    def test_old_path_cv_engine(self):
-        from statgpu.linear_model._cv_engine import run_cv  # noqa: F401
+    def test_penalized_path(self):
+        from statgpu.linear_model.penalized import PenalizedGeneralizedLinearModel  # noqa: F401
 
-    def test_old_path_penalized(self):
-        from statgpu.linear_model._penalized import PenalizedGeneralizedLinearModel  # noqa: F401
+    def test_wrappers_path(self):
+        from statgpu.linear_model.wrappers._gamma import GammaRegression  # noqa: F401
 
-    def test_old_path_gamma_glm(self):
-        from statgpu.linear_model._gamma_glm import GammaRegression  # noqa: F401
+    def test_kernel_methods_path(self):
+        from statgpu.nonparametric.kernel_methods import KernelRidge  # noqa: F401
 
-    def test_old_path_kernel_methods_shim(self):
-        from statgpu.kernel_methods import KernelRidge  # noqa: F401
-
-    def test_old_path_splines_shim(self):
-        from statgpu.splines import bspline_basis  # noqa: F401
+    def test_splines_path(self):
+        from statgpu.nonparametric.splines import bspline_basis  # noqa: F401
 
     # --- Top-level API unchanged ---
     def test_top_level_linear_model_exports(self):

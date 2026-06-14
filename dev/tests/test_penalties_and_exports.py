@@ -13,7 +13,7 @@ from statgpu.linear_model import (
     ElasticNetCV,
     LogisticRegressionCV,
 )
-from statgpu.linear_model._elasticnet_cv import _make_elasticnet_cv_auto_cache_key, _kfold_indices
+from statgpu.linear_model.cv._elasticnet_cv import _make_elasticnet_cv_auto_cache_key, _kfold_indices
 from statgpu.survival import CoxPHCV
 from statgpu._config import set_device, Device
 

@@ -1,21 +1,21 @@
-"""Penalized Negative Binomial regression wrapper."""
+"""Penalized Tweedie regression wrapper."""
 
 from __future__ import annotations
 
 from typing import Optional, Union
 from statgpu._config import Device
-from statgpu.linear_model._penalized import PenalizedGeneralizedLinearModel
+from statgpu.linear_model.penalized._base import PenalizedGeneralizedLinearModel
 
 
-class PenalizedNegativeBinomialRegression(PenalizedGeneralizedLinearModel):
-    """Penalized Negative Binomial regression with configurable dispersion.
+class PenalizedTweedieRegression(PenalizedGeneralizedLinearModel):
+    """Penalized Tweedie regression with configurable power.
 
-    Thin wrapper over ``PenalizedGeneralizedLinearModel(loss="negative_binomial", ...)``.
+    Thin wrapper over ``PenalizedGeneralizedLinearModel(loss="tweedie", ...)``.
 
     Parameters
     ----------
-    alpha_nb : float, default=1.0
-        NB dispersion parameter (larger = less overdispersion).
+    power : float, default=1.5
+        Tweedie power parameter (1=Poisson, 2=Gamma, 1.5=compound Poisson-Gamma).
     """
 
     def __init__(
@@ -29,13 +29,13 @@ class PenalizedNegativeBinomialRegression(PenalizedGeneralizedLinearModel):
         solver: str = "auto",
         device: Union[str, Device] = Device.AUTO,
         n_jobs: Optional[int] = None,
-        alpha_nb: float = 1.0,
+        power: float = 1.5,
         loss_kwargs: Optional[dict] = None,
     ):
         _lk = loss_kwargs or {}
-        _lk["alpha"] = alpha_nb
+        _lk["power"] = power
         super().__init__(
-            loss="negative_binomial",
+            loss="tweedie",
             penalty=penalty,
             alpha=alpha,
             l1_ratio=l1_ratio,

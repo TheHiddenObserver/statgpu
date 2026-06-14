@@ -20,18 +20,18 @@ from .wrappers import (
 from ._glm_base import GeneralizedLinearModel, OrderedGeneralizedLinearModel
 
 # Penalized models
-from ._penalized import PenalizedGeneralizedLinearModel
-from ._penalized_linear import PenalizedLinearRegression
-from ._penalized_logistic import PenalizedLogisticRegression
-from ._penalized_poisson import PenalizedPoissonRegression
-from ._penalized_gamma import PenalizedGammaRegression
-from ._penalized_inverse_gaussian import PenalizedInverseGaussianRegression
-from ._penalized_negative_binomial import PenalizedNegativeBinomialRegression
-from ._penalized_tweedie import PenalizedTweedieRegression
+from .penalized import PenalizedGeneralizedLinearModel
+from .penalized._penalized_linear import PenalizedLinearRegression
+from .penalized._penalized_logistic import PenalizedLogisticRegression
+from .penalized._penalized_poisson import PenalizedPoissonRegression
+from .penalized._penalized_gamma import PenalizedGammaRegression
+from .penalized._penalized_inverse_gaussian import PenalizedInverseGaussianRegression
+from .penalized._penalized_negative_binomial import PenalizedNegativeBinomialRegression
+from .penalized._penalized_tweedie import PenalizedTweedieRegression
 
 # CV models
 from .cv import LassoCV, RidgeCV, ElasticNetCV, LogisticRegressionCV
-from ._penalized_cv import PenalizedGLM_CV, ApproximateCVWarning
+from .penalized._penalized_cv import PenalizedGLM_CV, ApproximateCVWarning
 
 # Ordered models
 from ._ordered_logit import OrderedLogitRegression

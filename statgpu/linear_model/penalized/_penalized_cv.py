@@ -673,7 +673,7 @@ def _glm_sparse_cv_folds(
 
     # Resolve loss-specific parameters: user-specified kwargs override defaults
     _lk = loss_kwargs or {}
-    from statgpu.linear_model._penalized import _resolve_loss_name
+    from statgpu.linear_model.penalized._fit_mixin import _resolve_loss_name
     _loss_obj = _resolve_loss_name(loss_name, loss_kwargs=_lk)
     _nb_alpha = float(_lk.get('alpha', getattr(_loss_obj, 'alpha', _NB_ALPHA_DEFAULT)))
     _tw_power = float(_lk.get('power', getattr(_loss_obj, 'power', _TWEEDIE_POWER_DEFAULT)))
@@ -1317,7 +1317,7 @@ def _glm_sparse_cv_path(
         return None
 
     from statgpu.solvers import fista_solver, fista_bb_solver
-    from statgpu.linear_model._penalized import _resolve_loss_name
+    from statgpu.linear_model.penalized._fit_mixin import _resolve_loss_name
     from statgpu.penalties import get_penalty
 
     backend = _backend_name_for_cv_device(device)
@@ -1517,7 +1517,7 @@ def _scad_mcp_cv_path(
         return None
 
     from statgpu.solvers import fista_solver
-    from statgpu.linear_model._penalized import _resolve_loss_name
+    from statgpu.linear_model.penalized._fit_mixin import _resolve_loss_name
     from statgpu.penalties import get_penalty, SCADPenalty, MCPPenalty
     from statgpu.penalties._adaptive_l1 import AdaptiveL1Penalty
 
@@ -1852,7 +1852,7 @@ class PenalizedGLM_CV(CVEstimatorBase):
         solver = str(self.solver).lower()
         if solver != "auto":
             return solver
-        from statgpu.linear_model._penalized import _preferred_penalized_glm_solver
+        from statgpu.linear_model.penalized._fit_mixin import _preferred_penalized_glm_solver
 
         return _preferred_penalized_glm_solver(
             self.loss,
@@ -1936,7 +1936,7 @@ class PenalizedGLM_CV(CVEstimatorBase):
 
     def _generate_alpha_grid(self, X, y):
         """Auto-generate alpha grid based on loss and penalty type."""
-        from statgpu.linear_model._penalized import PenalizedGeneralizedLinearModel
+        from statgpu.linear_model.penalized._base import PenalizedGeneralizedLinearModel
 
         X_np = _to_numpy(X).astype(np.float64)
         y_np = _to_numpy(y).astype(np.float64).ravel()
@@ -2002,7 +2002,7 @@ class PenalizedGLM_CV(CVEstimatorBase):
         X_val_np, y_val_np : optional, pre-cached numpy validation data (avoids D2H)
         sample_weight : optional, per-sample weights for weighted validation loss
         """
-        from statgpu.linear_model._penalized import _resolve_loss_name
+        from statgpu.linear_model.penalized._fit_mixin import _resolve_loss_name
 
         if loss_fn is None:
             loss_fn = _resolve_loss_name(self.loss)
@@ -2066,7 +2066,7 @@ class PenalizedGLM_CV(CVEstimatorBase):
         For squared_error + l2, uses eigendecomposition to match the CV path
         exactly, avoiding precision mismatch between CV and refit solvers.
         """
-        from statgpu.linear_model._penalized import PenalizedGeneralizedLinearModel
+        from statgpu.linear_model.penalized._base import PenalizedGeneralizedLinearModel
 
         # Resolve refit device (used by Ridge and general paths)
         refit_device = self.device
@@ -2189,7 +2189,7 @@ class PenalizedGLM_CV(CVEstimatorBase):
         strict=True,
     ):
         """Compute CV scores for exactly the supplied alpha grid."""
-        from statgpu.linear_model._penalized import PenalizedGeneralizedLinearModel
+        from statgpu.linear_model.penalized._base import PenalizedGeneralizedLinearModel
 
         alpha_grid = np.asarray(alpha_grid, dtype=np.float64).ravel()
         n_alphas = len(alpha_grid)
@@ -2369,7 +2369,7 @@ class PenalizedGLM_CV(CVEstimatorBase):
         sw_train, sw_val, max_iter, tol,
     ):
         """General per-fold CV path: model.fit() per alpha with warm-start."""
-        from statgpu.linear_model._penalized import PenalizedGeneralizedLinearModel, _resolve_loss_name
+        from statgpu.linear_model.penalized._base import PenalizedGeneralizedLinearModel, _resolve_loss_name
 
         penalty_name = str(self.penalty).lower()
         device_name = _device_to_name(cv_device)
