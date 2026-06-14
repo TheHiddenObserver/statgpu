@@ -298,6 +298,7 @@ def _compute_partial_likelihood(
     log_pl : float
         Log partial likelihood value.
     """
+    n = len(time)
     if coef is None or np.all(coef == 0):
         # Null model: compute log partial likelihood at beta=0
         # L(0) = sum_events[0 - log(sum_{j in R(t_i)} exp(0))] = sum_events[-log(|R(t_i)|)]
@@ -361,7 +362,6 @@ def _compute_partial_likelihood(
     risk_sorted = risk_scores[order]
     exp_risk_sorted = exp_risk[order]
 
-    n = len(time)
     log_pl = 0.0
 
     # With delayed entry, risk set is:
