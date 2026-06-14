@@ -56,49 +56,49 @@ Language switch: [Chinese](../changelog.md)
   - 3 backends: NumPy (CPU), CuPy (CUDA), PyTorch (CUDA) with auto device selection
   - Unified inference: 15 distributions, p-value adjustment, bootstrap, permutation test
   - Key technical features: LLA routing for non-convex penalties (SCAD/MCP), augmented intercept for log-link GLMs, iterate-dependent Lipschitz computation, kernel fusion for loss+gradient
-  - Key commits (16 commits):
-    - `fix: guard KDE import in inference __init__ for PR-A standalone`
-    - `fix: H4 solver split + H6 GPU sync batching`
-    - `fix: Medium issues — dead code, backend-aware gradients, type hints`
-    - `fix: PR-A review round 2 — 4 Codex comment fixes`
-    - `fix: PR-A review round 3 — torch device mismatch + HC2/HC3 leverage`
-    - `fix: Final review — CompositePenalty backend, cupy layering, __all__`
-    - `fix: 3 Critical NameErrors in cupy paths + circular import`
-    - `fix: 8 new PR comments + MED-2 auto-fill + 3 LOW fixes`
-    - `fix: restore irls_solver main loop + add test cases for all fixes`
-    - `fix: update derived attributes after group auto-fill`
-    - `fix: mark LassoCV tests as xfail (PR-B feature) + group auto-fill derived`
-    - `refactor: convert relative imports to absolute statgpu.xx imports`
-    - `fix: add missing group_mcp/group_scad to non_smooth validation set`
-    - `fix: power-iteration seed and CuPy cumop dtype kernels`
-    - `fix: KDE logpdf NameError and binomial IRLS deviance`
-    - `fix: torch KDE logpdf device and propagate GLM loss kwargs`
+  - Stability fixes:
+    - Fixed 3 Critical NameErrors in CuPy paths and circular import issues
+    - Fixed torch device mismatch for HC2/HC3 leverage computation
+    - Fixed power-iteration seed for reproducible Lipschitz computation
+    - Fixed CuPy cumop dtype kernels for empty inputs
+    - Fixed KDE logpdf NameError and binomial IRLS deviance calculation
+    - Restored irls_solver main loop after accidental deletion
+  - Backend improvements:
+    - Added GPU sync batching for solver operations (H6 fix)
+    - Split solver into modular components (H4 fix)
+    - Converted relative imports to absolute `statgpu.xx` imports
+    - Added backend-aware gradient computation
+  - Penalty fixes:
+    - Added missing group_mcp/group_scad to non_smooth validation set
+    - Updated derived attributes after group auto-fill
+    - Fixed CompositePenalty backend handling
+  - Testing:
+    - Added regression tests for all fixes
+    - Marked LassoCV tests as xfail (PR-B feature)
 
 - **PR #56 — Penalized models + CV framework (PR-B, from PR #36)**:
   - 7 Penalized estimators: PenalizedLinearRegression, PenalizedLogisticRegression, PenalizedPoissonRegression, PenalizedGammaRegression, PenalizedInverseGaussianRegression, PenalizedNegativeBinomialRegression, PenalizedTweedieRegression
   - PenalizedGLM_CV: full CV over families x penalties x solvers
   - Lasso, Ridge, ElasticNet with full inference
   - LogisticRegression, LinearRegression with GPU
-  - Key commits (20 commits):
-    - `fix: PR-B review — non_smooth set, self-import, loss_kwargs, score docstring`
-    - `fix: PR-B review round 2 — 7 P2 comments + 4 Medium fixes`
-    - `fix: PR-B P0/P1 bugs from deep review`
-    - `fix: relax GPU/CPU prediction tolerance + remove xfail markers`
-    - `fix: tighten GPU/CPU prediction tolerance via max_iter=2000 + tol=1e-10`
-    - `refactor: extract dead code to legacy files + clean imports`
-    - `fix: PR-B review round 3 — 4 High + 2 Medium fixes`
-    - `fix: PR-B review round 4 — 7 Medium fixes`
-    - `fix: PR-B review round 5 — 8 Low issues`
-    - `fix: PR-B review round 6 — C1 + H1/H2 + M4/M5/M6/M7 + L1`
-    - `fix: remaining known issues — get_params, sample_weight, backend-aware`
-    - `fix: PR-B review round 8 — M1/M2 + L1/L2/L3`
-    - `fix: device path consistency — unify NB tolerance + remove dead code`
-    - `fix: readability+maintainability — BOM, __all__, dedup score/summary`
-    - `fix: performance+extensibility — batched syncs + penalty categories`
-    - `fix: consolidate hardcoded penalty/loss sets`
-    - `fix: 2 High runtime bugs — NameError + TypeError in solver`
-    - `fix: dead code removal + magic numbers + exports + cleanup`
-    - `fix: remaining Medium/Low issues — loss_kwargs, backend-aware, cleanup`
+  - Stability fixes (8 rounds of code review):
+    - Fixed P0/P1 bugs: NameError + TypeError in solver runtime
+    - Fixed GPU/CPU prediction tolerance (relaxed then tightened to max_iter=2000 + tol=1e-10)
+    - Unified NB tolerance across device paths
+    - Fixed get_params, sample_weight, backend-aware issues
+    - Consolidated hardcoded penalty/loss sets into shared constants
+  - Code quality:
+    - Extracted ~500 lines of dead code to legacy files
+    - Removed magic numbers, added named constants
+    - Deduplicated score/summary methods across estimators
+    - Fixed BOM encoding issues and __all__ exports
+    - Cleaned up imports and removed self-imports
+  - Performance:
+    - Added batched GPU syncs for penalty operations
+    - Optimized penalty category detection
+  - Testing:
+    - Relaxed then tightened GPU/CPU prediction tolerance
+    - Removed xfail markers after fixes
 
 - **PR #57 — New modules (PR-C, from PR #36)**:
   - ANOVA: `f_oneway` — GPU-accelerated one-way ANOVA, float32/float64 support
@@ -107,55 +107,58 @@ Language switch: [Chinese](../changelog.md)
   - Splines: `bspline_basis`, `natural_cubic_spline_basis`, penalized regression with GCV
   - Semiparametric: `GAM` (penalized B-splines + GCV smoothing parameter selection)
   - Kernel Methods: `KernelRidge`, `KernelRidgeCV`, 6 kernel functions (rbf, polynomial, linear, laplacian, sigmoid, cosine)
-  - Key commits (10 commits):
-    - `fix: PR-C review round 1 — 8 Critical + 2 High fixes`
-    - `fix: PR-C review round 2 — RE group means + import convention`
-    - `fix: PR-C review round 3 — NumpyBackend methods + import convention`
-    - `fix: PR-C review round 4 — H2/M5/M6/L2 fixes`
-    - `fix: PR-C review round 5 — 4 runtime fixes`
-    - `fix: move __all__ after __future__ in 4 files (Python 3.9 compat)`
-    - `fix: __future__ ordering + covariance export`
-    - `fix: move __future__ before __all__ in _covariance.py and _random_effects.py`
-    - `fix: swap y,X argument order in panel test fit() calls`
-    - `fix: PR-C remaining 2 comment fixes`
+  - Python compatibility:
+    - Fixed `__future__` import ordering for Python 3.9 compatibility
+    - Moved `__all__` after `__future__` in 4 files
+    - Fixed covariance module exports
+  - Runtime fixes:
+    - Fixed RandomEffects group means calculation
+    - Added missing NumpyBackend methods for new modules
+    - Fixed panel test fit() argument order (y, X → X, y)
+  - Code review fixes:
+    - Fixed 8 Critical + 2 High issues in round 1
+    - Fixed import conventions across all new modules
+    - Fixed H2/M5/M6/L2 issues in subsequent rounds
 
 - **PR #58 — Infrastructure, exports, backward compatibility (PR-D, from PR #36)**:
   - Unified `statgpu/__init__.py` exports (~60 public names)
   - `BaseEstimator` with device management and sklearn-compatible `get_params`/`set_params`
   - `Device` enum (CPU/CUDA/TORCH/AUTO) with auto-detection
   - Backward-compat shims for `kernel_methods/` and `splines/` old import paths
-  - Key commits (7 commits):
-    - `fix: PR-D review — get_params fallback, imports, __all__`
-    - `fix: get_params only returns own __init__ params + test updates`
-    - `fix: preserve string identity for sklearn clone() compatibility`
-    - `fix: preserve string identity for simultaneous_method and cov_type`
-    - `fix: PR-D 6 remaining comment fixes`
-    - `fix: define n before null model path in _compute_partial_likelihood`
-    - `fix: PR-D round 6 — null model risk set + penalty warning`
+  - sklearn compatibility:
+    - Fixed `get_params` to only return own `__init__` params (not parent class)
+    - Preserved string identity for `simultaneous_method` and `cov_type` (sklearn clone() requirement)
+  - CoxPH fixes:
+    - Defined `n` before null model path in `_compute_partial_likelihood`
+    - Added penalty warning for null model risk set
+  - Code review:
+    - Fixed `__all__` exports and import fallbacks
+    - Fixed 6 remaining comment issues
 
 - **PR #48 — Module reorganization**:
   - Moved kernel_methods/ and splines/ under nonparametric/ subpackage
   - Created kernel_smoothing/ subpackage for KDE + kernel regression
   - Extracted GAM to semiparametric/ package for future extensibility
   - Backward-compat shims for old import paths
-  - Key commits (19 commits):
-    - `feat: add new modules (anova, covariance, kernel_methods, panel, splines)`
-    - `fix(cupy): cummin/cummax exception handling + real-data benchmark results`
-    - `fix: module reorg, encoding fixes, KDE logpdf, Python 3.8 compat`
-    - `fix: add future annotations to _lasso.py, strip BOM from _irls.py`
-    - `fix(irls): log-link intercept init + per-iteration convergence check`
-    - `fix(irls): per-iteration convergence check + real-data benchmark script`
-    - `docs: add 6-stage real-data benchmark suite for RTX 4090`
-    - `fix: remove hardcoded SSH creds + use backend utils in IRLS`
-    - `fix: address Copilot review comments on PR #47`
-    - `fix: critical bugs found in code review of PR #47`
-    - `fix: narrow bare except clauses + minor cleanup`
-    - `test: add regression tests for all PR #47 code review fixes`
-    - `fix: narrow last bare except Exception in _glm_base.py`
-    - `fix: hoist _dev_val out of IRLS loop, fix splines __all__, add compat shim`
-    - `fix: round 3 review — test assertion, except narrowing, future annotations`
-    - `fix: wrap CuPy arrays with _to_numpy in covariance tests`
-    - `merge: resolve conflicts with feat/gpu-acceleration-torch-triton`
+  - IRLS solver improvements:
+    - Fixed log-link intercept initialization (was using wrong starting values)
+    - Added per-iteration convergence check (was only checking at end)
+    - Hoisted `_dev_val` computation out of IRLS loop (performance)
+  - CuPy fixes:
+    - Fixed cummin/cummax exception handling for empty inputs
+    - Fixed cumop dtype kernels for non-contiguous arrays
+    - Wrapped CuPy arrays with `_to_numpy` in covariance tests
+  - Code quality:
+    - Stripped BOM from `_irls.py` encoding
+    - Added `from __future__ import annotations` to `_lasso.py`
+    - Narrowed bare `except Exception` clauses to specific exceptions
+    - Fixed splines `__all__` exports
+  - Security:
+    - Removed hardcoded SSH credentials from remote config
+  - Testing:
+    - Added 6-stage real-data benchmark suite for RTX 4090
+    - Added regression tests for all PR #47 code review fixes
+  - Python 3.8 compatibility fixes
 
 - **PR #59 — Documentation, changelog, guides (PR-E)**:
   - Complete model documentation for all new modules
@@ -209,26 +212,26 @@ Language switch: [Chinese](../changelog.md)
   - Removed ~1300 lines of dead code
   - Unified `best_score_` to negative MSE (sklearn convention)
   - Merged PLAN_UNIFIED.md gates + PR #49 coding conventions into TO_DO.md
-  - Key commits (19 commits):
-    - `feat: unified CV framework — shared infrastructure + PenalizedGLM_CV`
-    - `fix: 6 bugs from code review — Lasso defaults, cache keys, panel FE`
-    - `fix: unbalanced two-way FE, Ridge weighted intercept, PanelOLS docs`
-    - `fix: ElasticNetCV warm-start respects fit_intercept=False`
-    - `refactor: replace duplicated _kfold_indices with shared _cv_base imports`
-    - `fix: PenalizedGLM_CV scoring uses proper GLM loss + inference guard`
-    - `fix: PenalizedGLM_CV handles CuPy/Torch inputs correctly`
-    - `feat: PenalizedGLM_CV with warm-start across alpha values`
-    - `feat: batch eigendecomposition for squared_error+l2 CV`
-    - `feat: batch eigendecomposition for RidgeCV in PenalizedGLM_CV`
-    - `feat: reuse model instance across alphas in CV loop`
-    - `fix: update penalty.alpha when reusing model across alphas`
-    - `fix: disable CuPy fused kernel for SCAD/MCP LLA path`
-    - `test: add SCAD/MCP CuPy isolation diagnostic`
-    - `fix: disable CuPy fused kernel for SCAD/MCP (confirmed numerical issue)`
-    - `test: add SCAD/MCP CuPy fused kernel diagnostic scripts`
-    - `docs: CuPy fused kernel SCAD/MCP issue documentation + fix prompt`
-    - `fix: relax SCAD/MCP CuPy iteration count assertion`
-    - `chore: infra/bench/survival cleanup`
+  - Unified CV framework:
+    - Created `_cv_base.py` with shared `kfold_indices`, `CVCache`, `batch_mse`
+    - Created `_cv_engine.py` with generic CV loop engine
+    - Implemented `PenalizedGLM_CV` with full family × penalty × solver matrix
+    - Added warm-start across alpha values (reuse model instance)
+    - Added batch eigendecomposition for RidgeCV (avoids per-alpha solve)
+  - CuPy fused kernel issue:
+    - Discovered numerical issue with SCAD/MCP CuPy fused kernel
+    - Disabled fused kernel for SCAD/MCP LLA path
+    - Added diagnostic scripts and documentation
+  - Panel fixes:
+    - Fixed unbalanced two-way fixed effects
+    - Fixed PanelOLS documentation
+  - Ridge fixes:
+    - Fixed weighted intercept calculation
+    - Fixed ElasticNetCV warm-start with `fit_intercept=False`
+  - Code quality:
+    - Replaced duplicated `_kfold_indices` with shared imports
+    - Fixed Lasso defaults and cache keys
+    - Added inference guard for PenalizedGLM_CV scoring
 
 ### Added (2026-06-07 ~ 2026-06-09)
 
