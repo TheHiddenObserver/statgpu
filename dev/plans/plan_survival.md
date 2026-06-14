@@ -2,7 +2,10 @@
 
 **创建日期**: 2026-04-19  
 **作者**: TheHiddenObserver  
-**状态**: 规划阶段
+**状态**: 🔶 部分实现
+
+> 已实现: `CoxPH` (Breslow/Efron, robust SE, cluster), `CoxPHCV` (骨架)
+> 未实现: strata, frailty, time-varying covariates
 
 ---
 

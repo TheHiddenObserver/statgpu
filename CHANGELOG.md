@@ -1,79 +1,111 @@
 # Changelog
 
-## [Unreleased] - 2026-06-14
+## 2026-06-14
 
-### GPU Performance: Async FISTA (v22e)
+### Documentation & Infrastructure
 
-- **Major speedup**: Eliminated per-iteration GPU→CPU synchronization in FISTA loop.
-- Activates for all non-smooth penalties (L1, ElasticNet, SCAD, MCP, Adaptive L1, Group) on GPU.
-- **Key results** (n=5000, p=500, vs CPU):
-  - logistic + L1: 2.22x → **5.41x** (2.45x improvement)
-  - logistic + ElasticNet: 2.18x → **5.17x** (2.50x improvement)
-  - Poisson + L1: 1.90x → **4.55x**
-  - Gamma + L1: 1.95x → **4.32x**
-- **Smaller scale** (n=2000, p=200): logistic + Adaptive L1 now beats CPU (0.56x → **1.12x**).
-- Optimizations: fixed step + on-device gradient clipping + deferred convergence checks (every 5 iters).
+- **PR #63**: Add dev/ workspace guide, testing guide, benchmark results, architecture overview
+- **PR #62**: Reorganize dev/ folder — archive 241 old scripts, update remote config
+- **PR #61**: Compress README GLM section + remove redundancy
+- **PR #60**: Clean up README Implemented Methods with tables
+- **PR #59**: Documentation, changelog, and guides (PR-E)
+- Root files reorganized: USAGE.md → docs/index.md, AGENTS.md → dev/, plans → dev/plans/
 
-### Precision Fixes (v22f)
+## 2026-06-13
 
-- Fixed `_clip_grad_on_device` missing `max(gmax, 1e4)` floor for torch/cupy (caused logistic+none divergence).
-- Lipschitz recomputation interval 50→10 (reduces trajectory divergence).
-- Convergence check interval 5→3 (reduces overshoot).
-- Smart pass criterion: relax objective tolerance to 1e-3 when both CPU/GPU hit max_iter.
+### Major Release: Module Reorganization + New Modules
 
-### L-BFGS Fused Penalty Gradient Fix (v23c)
-
-- **1043/1043 ALL PASS (100%)** — full matrix: 7 families × 13 penalties × 5 solvers × 3 backends.
-- Added `_smooth_penalty_gradient(penalty, params)` to lbfgs fused path gradient.
-- Without it, lbfgs converged to `loss_grad=0` instead of `loss_grad + alpha*coef = 0`.
-
-### Other Optimizations
-
-- Kernel fusion + D2H batching (v20b): reduced kernel launch overhead.
-- Torch CUDA warmup: first-use matmul to avoid lazy initialization.
-- Small problem auto-dispatch: n×p < 200k → CPU (avoid GPU overhead).
-- CuPy GPU-native cummin/cummax via custom CUDA RawKernel.
-
-## [Previous] - 2026-05-28
-
-### Module Reorganization
-
-- **Nonparametric subpackages**: `kernel_methods/` and `splines/` moved under `statgpu.nonparametric/`. KDE files moved to `nonparametric/kernel_smoothing/`. Old import paths preserved via backward-compat shims.
-- **Semiparametric package**: GAM extracted from `splines/` into new top-level `statgpu.semiparametric/` package for future extensibility.
-- New paths: `statgpu.nonparametric.kernel_smoothing`, `statgpu.nonparametric.kernel_methods`, `statgpu.nonparametric.splines`, `statgpu.semiparametric`
-- Old paths (`statgpu.kernel_methods`, `statgpu.splines`, `statgpu.nonparametric._kde`) still work via shims.
+- **PR #58**: Infrastructure, exports, backward compatibility (PR-D)
+- **PR #57**: New modules — ANOVA, Covariance, Panel, Splines, Semiparametric, Kernel Methods (PR-C)
+- **PR #56**: Penalized models + CV framework (PR-B)
+- **PR #55**: Core GLM solver, backends, penalties, inference (PR-A)
 
 ### New Modules
 
-- **ANOVA**: `statgpu.anova.f_oneway` — one-way ANOVA, drop-in replacement for `scipy.stats.f_oneway`. Supports numpy/cupy/torch backends.
-- **Covariance**: `statgpu.covariance.EmpiricalCovariance`, `LedoitWolf`, `OAS` — covariance estimation with shrinkage. Equivalent to `sklearn.covariance`.
-- **Kernel Methods**: `statgpu.nonparametric.kernel_methods.KernelRidge`, `KernelRidgeCV` — kernel ridge regression with 6 kernel functions. Equivalent to `sklearn.kernel_ridge`.
-- **Panel Data**: `statgpu.panel.PanelOLS`, `RandomEffects` — fixed effects and random effects panel data models with clustered standard errors. Equivalent to `linearmodels.panel`.
-- **Splines/GAM**: `statgpu.nonparametric.splines.bspline_basis`, `natural_cubic_spline_basis` + `statgpu.semiparametric.GAM` — B-spline basis construction and generalized additive models with GCV smoothing parameter selection.
+- **ANOVA**: `f_oneway` — GPU-accelerated one-way ANOVA, supports float32/float64
+- **Covariance**: `EmpiricalCovariance`, `LedoitWolf`, `OAS` — covariance estimation with shrinkage
+- **Panel Data**: `PanelOLS`, `RandomEffects` — fixed/random effects with clustered SE
+- **Splines**: `bspline_basis`, `natural_cubic_spline_basis` — B-spline basis construction
+- **Semiparametric**: `GAM` — generalized additive models with GCV smoothing
+- **Kernel Methods**: `KernelRidge`, `KernelRidgeCV` — kernel ridge regression
 
-### GPU Optimizations
+### Penalized GLM
 
-- Splines De Boor recursion: vectorized inner loop eliminates ~180 GPU syncs per call, 3x speedup on GPU.
-- KRR CV: fully vectorized GPU path for eigendecomposition + batched alpha sweep (eliminates Python loop over 100 alphas).
-- Panel: extracted shared `xp_cholesky_solve` utility to backends, eliminating duplicated torch/numpy branching.
-- Panel: extracted shared `ols_inference_nonrobust` to `_utils.py`.
-- Removed duplicated `_to_numpy()` definitions from panel modules (3 files), using shared `statgpu.backends._to_numpy`.
-- Cantor-pair hash in `two_way_clustered_covariance` now computed on-GPU instead of round-tripping through CPU.
+- 7 Penalized estimators: `PenalizedLinearRegression`, `PenalizedLogisticRegression`, `PenalizedPoissonRegression`, `PenalizedGammaRegression`, `PenalizedInverseGaussianRegression`, `PenalizedNegativeBinomialRegression`, `PenalizedTweedieRegression`
+- `PenalizedGLM_CV`: full CV over families × penalties × solvers
+- 10 penalties: L1, L2, ElasticNet, SCAD, MCP, Adaptive L1, Group Lasso, Adaptive Group Lasso, Group SCAD, Group MCP
+- 6 solvers: IRLS, FISTA, FISTA-BB, ADMM, L-BFGS, Newton
 
-### Bug Fixes
+### Bug Fixes (PR #49, #48)
 
-- RidgeCV alpha scaling: CV-selected alpha now correctly divided by `n_samples` before passing to V9 Ridge wrapper.
-- PenalizedGLM predict: fixed device round-trip issue.
-- ~100+ torch-cuda device awareness fixes across 22+ files.
+- 110+ bug fixes across 16 files
+- 428 test cases added (all passing)
+- Cross-backend precision < 0.02%
+- Unified `best_score_` to negative MSE (sklearn convention)
 
-### Documentation
+## 2026-06-07 ~ 2026-06-09
 
-- Added complete model documentation (14 sections each) for all 5 new modules in `docs/en/models/` and `docs/models/`.
-- Updated `docs/en/models/README.md` and `docs/models/README.md` model indexes.
-- Added `EmpiricalCovariance` Attributes docstring.
+- **PR #54**: Refactor dispatch table for CV scores
+- **PR #53**: Fix weighted Ridge inference — correct scale, preserve bse/pvalues/conf_int
+- **PR #50**: Add val_sample_weight to GLM sparse CV path
 
-### Benchmark Results (Tesla P100-SXM2-16GB)
+## 2026-05-29
 
-- 38/38 ALL PASS (cross-backend + sklearn/scipy comparisons)
-- Cross-backend accuracy: 37/38 OK (< 1e-10), 1/38 FAIR (natural spline n=5000, ~1.5e-6)
-- External baselines: scipy f_oneway (< 1e-15), sklearn covariance (< 1e-15), sklearn RidgeCV (< 1e-4), sklearn Lasso (< 1e-6), scipy KDE (< 1e-13)
+- **PR #47**: Fix CuPy cummin/cummax contiguous array bug + Poisson IRLS precision
+
+## 2026-05-27
+
+- **PR #44**: Merge linear inference result fixes into GPU feature branch
+- **PR #43**: Refactor linear inference result containers
+
+## 2026-05-25 ~ 2026-05-26
+
+- **PR #42**: Test IRLS solve backend aliases
+- **PR #41**: Restore IRLS solve helper compatibility
+- **PR #40**: Refactor GLM solver backend helpers
+- **PR #39**: Fix GLM GPU dtype and review regressions
+
+## 2026-05-24
+
+- **PR #38**: Implement gamma inverse-power FISTA
+- **PR #37**: Fix GLM penalty correctness and auto GPU routing
+
+## 2026-05-15
+
+- **PR #35**: Clarify runtime device selection and add explicit Torch backend docs
+- **PR #34**: Clarify README installation and requirements
+
+## 2026-05-10 ~ 2026-05-11
+
+- **PR #33**: Nonparametric module review — GPU memory, bandwidth GPU化, log-sum-exp
+- **PR #32**: Add agglomerative GPU exact paths
+
+## GPU Performance (v22e ~ v23c)
+
+### Async FISTA (v22e)
+
+- Eliminated per-iteration GPU→CPU synchronization in FISTA loop
+- Key results (n=5000, p=500):
+  - logistic + L1: 2.22x → **5.41x**
+  - logistic + ElasticNet: 2.18x → **5.17x**
+  - Poisson + L1: 1.90x → **4.55x**
+- Smaller scale (n=2000, p=200): logistic + Adaptive L1 now beats CPU (0.56x → **1.12x**)
+
+### Precision Fixes (v22f)
+
+- Fixed gradient clipping, Lipschitz recomputation, convergence check intervals
+
+### L-BFGS Fix (v23c)
+
+- **1043/1043 ALL PASS** — full matrix: 7 families × 13 penalties × 5 solvers × 3 backends
+
+### Other Optimizations
+
+- Kernel fusion + D2H batching (v20b)
+- Torch CUDA warmup
+- Small problem auto-dispatch (n×p < 200k → CPU)
+- CuPy GPU-native cummin/cummax
+
+## Earlier History
+
+See `dev/plans/archive/PLAN_UNIFIED.md` and git log for details before 2026-05.
