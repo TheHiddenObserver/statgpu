@@ -826,7 +826,7 @@ def _bootstrap_indices_cluster(
         if filled >= n:
             break
 
-    _ref = next(iter(cluster_rows.values()))
+    _ref = cluster_rows[0] if len(cluster_rows) > 0 else None
     idx = backend.concatenate(chunks)[:n] if chunks else xp_empty((0,), backend.int64, backend.xp, _ref)
     return backend.astype(idx, backend.int64)
 

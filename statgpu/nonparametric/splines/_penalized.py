@@ -187,7 +187,8 @@ def generalized_cross_validation(B, y, penalty_matrix, lambda_, xp=None):
     denom = 1.0 - edf / n
     # Keep denom as GPU scalar for xp.where compatibility
     if hasattr(denom, 'item'):  # torch/cupy scalar
-        gcv = xp.where(denom > 1e-10, rss / n / (denom ** 2), xp.tensor(float('inf')) if hasattr(xp, 'tensor') else float('inf'))
+        _inf = xp.tensor(float('inf'), dtype=denom.dtype, device=denom.device) if hasattr(xp, 'tensor') else float('inf')
+        gcv = xp.where(denom > 1e-10, rss / n / (denom ** 2), _inf)
     else:
         gcv = rss / n / (denom ** 2) if denom > 1e-10 else float('inf')
 
