@@ -933,4 +933,4 @@ class ElasticNet(BaseEstimator):
 # V9 thin wrapper
 # =============================================================================
 
-from statgpu.linear_model._penalized import PenalizedLinearRegression as _PenalizedLinearRegression
+from statgpu.linear_model._penalized_linear import PenalizedLinearRegression as _PenalizedLinearRegression

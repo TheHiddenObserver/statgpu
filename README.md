@@ -4,12 +4,17 @@ GPU-accelerated statistical methods with sklearn-compatible API.
 
 ## Documentation
 
-- Primary usage portal (English): `USAGE.md`
-- Chinese usage portal: `USAGE_CN.md`
-- English docs root: `docs/en/`
-- Chinese docs root: `docs/`
-- GLM and penalized GLM model docs: `docs/en/models/generalized-linear-model.md` / `docs/models/generalized-linear-model.md`
-- Repo development layout: `dev/` (`tests/`, `benchmarks/`, `comparisons/`, `validation/`, `manual/`, `scripts/` for Cox data + R bench helpers)
+- **English docs**: [docs/en/](docs/en/) — full documentation index
+- **Chinese docs**: [docs/](docs/) — 中文文档
+- **Quickstart**: [Quickstart](docs/en/getting-started/quickstart.md)
+- **GLM + Penalty**: [Generalized Linear Model](docs/en/models/generalized-linear-model.md) — 7 families × 10 penalties × 3 backends
+- **Cross-Validation**: [Cross-Validation Guide](docs/en/guides/cross-validation.md) — PenalizedGLM_CV, LassoCV, RidgeCV
+- **Solver-Penalty Matrix**: [Solver × Penalty](docs/en/guides/solver-penalty-matrix.md) — solver dispatch and penalty routing
+- **Device & Memory**: [Device and GPU Memory](docs/en/guides/device-and-memory.md)
+- **PyTorch Backend**: [PyTorch Backend](docs/en/guides/pytorch-backend.md)
+- **Distribution API**: [Distribution API](docs/en/guides/distribution-api.md) — 15 distributions across 3 backends
+- **Multiple Testing**: [Multiple Testing](docs/en/guides/multiple-testing-combine-pvalues.md) — p-value adjustment and combination
+- **Changelog**: [Changelog](docs/en/changelog.md)
 
 ## Features
 
@@ -19,76 +24,36 @@ GPU-accelerated statistical methods with sklearn-compatible API.
 - 📊 **Statistical Focus**: Methods from R that Python lacks
 - 🧪 **Multiple Testing**: `adjust_pvalues` (`bh`/`by`/`holm`/`bonferroni`/`hochberg`) + `combine_pvalues` (`fisher`/`cauchy`/`stouffer`) across 3 backends (numpy/cupy/torch)
 - 🧮 **Inference Support**:
-  - `LinearRegression`: `nonrobust` / `hc0` / `hc1` / `hc2` / `hc3` / `hac`
-  - `Ridge`: `nonrobust` / `hc0` / `hc1` / `hc2` / `hc3` / `hac` ✅ (Torch backend)
-  - `Lasso`: `cpu_ols_inference` / `gpu_ols_inference` / `bootstrap` ✅ (Torch backend)
-  - `LogisticRegression`: `nonrobust` / `hc0` / `hc1` / `hc2` / `hc3` / `hac` ✅ (Torch backend)
+  - `LinearRegression`, `Ridge`, `LogisticRegression`: `nonrobust` / `hc0` / `hc1` / `hc2` / `hc3` / `hac`
+  - `Lasso`: `debiased` / `cpu_ols_inference` / `bootstrap` inference methods
 - 📈 **Nonparametric Support**:
   - KDE: `fit_kde` / `kde_pdf` / `kde_bootstrap_confidence_interval`
   - KDE kernel options: `gaussian` / `rectangular` / `triangular` / `epanechnikov` / `biweight` / `triweight` / `cosine` / `optcosine`
   - Kernel regression: `fit_kernel_regression` / `kernel_regression_predict`
 - 🧹 **GPU Memory Control**: `gpu_memory_cleanup` for all current models
 - 🔥 **PyTorch Backend**: Optional Torch backend for GPU acceleration (PyTorch 2.0+)
-  - Supported models: `Ridge`, `LogisticRegression`, `Lasso`, `LassoCV`, `CoxPH`
+  - All models support `device='torch'` for CUDA-accelerated PyTorch backend
   - **Knockoff filter**: `fixed_x_knockoff_filter`, `model_x_knockoff_filter` with `backend='torch'`
 - 📐 **Unified Distribution Backend**: 15 distributions (norm, t, f, chi2, gamma, beta, uniform, expon, cauchy, laplace, logistic, weibull_min, lognorm, poisson, binom) across 3 backends (numpy/cupy/torch) via `get_distribution()`. GPU speedup 10-500x at 1M points. [API docs](docs/en/guides/distribution-api.md)
 
-## Implemented Methods (Current)
+## Implemented Methods
 
-### Linear and GLM Models
-- `statgpu.linear_model.LinearRegression`
-- `statgpu.linear_model.GeneralizedLinearModel` — base class for all GLM families
-- `statgpu.linear_model.PoissonRegression`
-- `statgpu.linear_model.GammaRegression` — Gamma GLM with log/inverse-power links
-- `statgpu.linear_model.InverseGaussianRegression` — Inverse Gaussian GLM
-- `statgpu.linear_model.NegativeBinomialRegression` — Negative Binomial GLM (configurable dispersion α)
-- `statgpu.linear_model.TweedieRegression` — Tweedie GLM (configurable power p)
-- `statgpu.linear_model.PenalizedGeneralizedLinearModel` — 7 families × 10 penalties × 3 backends
-- `statgpu.linear_model.PenalizedLinearRegression` — squared_error + penalty
-- `statgpu.linear_model.PenalizedLogisticRegression` — logistic + penalty
-- `statgpu.linear_model.PenalizedPoissonRegression` — poisson + penalty
-- `statgpu.linear_model.Ridge` ✅ (Torch backend)
-- `statgpu.linear_model.Lasso` ✅ (Torch backend)
-- `statgpu.linear_model.ElasticNet`
-- `statgpu.linear_model.LogisticRegression` ✅ (Torch backend)
-- `statgpu.linear_model.OrderedLogitRegression` ✅ (3 backends)
-- `statgpu.linear_model.OrderedProbitRegression` ✅ (3 backends)
+> **[Full method list with solvers, penalties, link functions →](docs/en/guides/implemented-methods.md)**
 
-### ANOVA
-- `statgpu.anova.f_oneway` — GPU-accelerated one-way ANOVA (drop-in for `scipy.stats.f_oneway`)
-
-### Covariance Estimation
-- `statgpu.covariance.EmpiricalCovariance` — sample covariance with jitter-stabilized inversion
-- `statgpu.covariance.LedoitWolf` — Ledoit-Wolf shrinkage estimator
-- `statgpu.covariance.OAS` — Oracle Approximating Shrinkage estimator
-
-### Panel Data
-- `statgpu.panel.PanelOLS` — fixed effects with nonrobust/robust/clustered SE
-- `statgpu.panel.RandomEffects` — Swamy-Arora feasible GLS random effects
-
-### Nonparametric Methods
-- `statgpu.nonparametric.kernel_methods.KernelRidge` — kernel ridge regression
-- `statgpu.nonparametric.kernel_methods.KernelRidgeCV` — cross-validated kernel ridge regression (GPU-accelerated CV)
-- `statgpu.nonparametric.kernel_methods.pairwise_kernels` — 6 kernel functions (RBF, polynomial, linear, Laplacian, sigmoid, cosine)
-- `statgpu.nonparametric.splines.bspline_basis` — B-spline basis (De Boor algorithm, vectorized on GPU)
-- `statgpu.nonparametric.splines.natural_cubic_spline_basis` — natural cubic spline basis
-
-### Semiparametric Models
-- `statgpu.semiparametric.GAM` — generalized additive model with penalized B-splines + GCV
-
-### Survival
-- `statgpu.survival.CoxPH` ✅ (Torch backend)
-
-### Feature Selection
-- `statgpu.feature_selection.Knockoff` — fixed-X/model-X knockoff filter
-
-### CV Classes (✅ = implemented and trainable)
-- `statgpu.linear_model.RidgeCV` ✅ (GPU-accelerated cross-validation)
-- `statgpu.linear_model.LassoCV` ✅ (warm-start alpha path)
-- `statgpu.linear_model.ElasticNetCV` ✅ (l1_ratio + alpha grid)
-- `statgpu.linear_model.LogisticRegressionCV` ✅ (GPU-accelerated cross-validation)
-- `statgpu.linear_model.PenalizedGLM_CV` ✅ (unified CV for all 7 GLM losses × 10 penalties)
-- `statgpu.survival.CoxPHCV` ✅ (CV penalty search + final refit; `entry`/`cluster` not yet supported)
+| Category | Classes | Highlights |
+|---|---|---|
+| **Regression & GLM** | 12 classes | LinearRegression, Ridge, Lasso, ElasticNet, Logistic, Poisson, Gamma, InvGauss, NB, Tweedie, Ordered models |
+| **Penalized GLM** | 8 classes | PenalizedGLM + 7 family wrappers (Linear, Logistic, Poisson, Gamma, InvGauss, NB, Tweedie) × 10 penalties × 6 solvers |
+| **Cross-Validation** | 6 classes | RidgeCV, LassoCV, ElasticNetCV, LogisticCV, PenalizedGLM_CV, CoxPHCV |
+| **ANOVA** | 1 function | `f_oneway` — GPU-accelerated |
+| **Covariance** | 3 classes | EmpiricalCovariance, LedoitWolf, OAS |
+| **Panel Data** | 2 classes | PanelOLS, RandomEffects |
+| **Nonparametric** | 5 classes | KernelRidge, KernelRidgeCV, pairwise_kernels, bspline_basis, natural_cubic_spline_basis |
+| **Semiparametric** | 1 class | GAM (penalized B-splines + GCV) |
+| **Unsupervised** | 12 classes | PCA, SVD, NMF, UMAP, t-SNE, KMeans, DBSCAN, GMM, AgglomerativeClustering |
+| **Survival** | 1 class | CoxPH (Breslow/Efron ties, robust SE) |
+| **Feature Selection** | 2 functions | fixed-X / model-X knockoff filters |
+| **Multiple Testing** | 3 functions | adjust_pvalues, combine_pvalues, permutation_test |
 
 ## Installation
 
@@ -235,20 +200,20 @@ print(f"Selected features: {result.selected_features}")
 ## GLM + Penalty Example
 
 ```python
-import numpy as np
 from statgpu.linear_model import (
     PenalizedGLM_CV,
-    PenalizedLogisticRegression,
+    PenalizedGeneralizedLinearModel,
     PoissonRegression,
     GammaRegression,
-    NegativeBinomialRegression,
 )
+from statgpu.inference import get_distribution
 
-# Generate Poisson data
-rng = np.random.default_rng(42)
-X = rng.standard_normal((2000, 20))
-beta = np.zeros(20); beta[:5] = [2, -1.5, 1, -0.5, 0.3]
-y = rng.poisson(np.exp(X @ beta))
+# Generate Poisson data using statgpu distributions
+norm = get_distribution("norm", backend="numpy")
+pois = get_distribution("poisson", backend="numpy")
+
+X = norm.rvs(size=(2000, 20))
+y = pois.rvs(mu=3.0, size=2000).astype(float)
 
 # PenalizedGLM_CV: unified CV for any loss × penalty
 model = PenalizedGLM_CV(
@@ -261,26 +226,28 @@ model = PenalizedGLM_CV(
 )
 model.fit(X, y)
 print(f"Best alpha: {model.alpha_:.4f}")
-print(f"Non-zero coefficients: {np.sum(np.abs(model.coef_) > 1e-6)}")
+print(f"Non-zero coefficients: {sum(abs(model.coef_) > 1e-6)}")
 print(f"Score: {model.score(X, y):.4f}")
 
-# Negative Binomial with custom dispersion
+# Negative Binomial with custom dispersion + sample_weight
+uniform = get_distribution("uniform", backend="numpy")
+sw = uniform.rvs(size=len(y)) * 0.5 + 0.5
 nb_model = PenalizedGLM_CV(
     loss="negative_binomial",
     penalty="l1",
-    loss_kwargs={"alpha": 2.0},  # custom dispersion
+    loss_kwargs={"alpha": 2.0},
     device="cpu",
 )
-nb_model.fit(X, y)
+nb_model.fit(X, y, sample_weight=sw)
 
 # Direct model usage (no CV)
-poisson = PoissonRegression(alpha=0.1, device="cpu")
-poisson.fit(X, y)
-print(f"Poisson coef[:3]: {poisson.coef_[:3]}")
+poisson_model = PoissonRegression(alpha=0.1, device="cpu")
+poisson_model.fit(X, y)
+print(f"Poisson coef[:3]: {poisson_model.coef_[:3]}")
 
-gamma = GammaRegression(alpha=0.05, device="cpu")
-gamma.fit(X, np.abs(y) + 1)
-print(f"Gamma coef[:3]: {gamma.coef_[:3]}")
+gamma_model = GammaRegression(alpha=0.05, device="cpu")
+gamma_model.fit(X, abs(y) + 1)
+print(f"Gamma coef[:3]: {gamma_model.coef_[:3]}")
 ```
 
 ## Device Control
