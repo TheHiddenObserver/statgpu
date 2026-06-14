@@ -35,20 +35,20 @@ GPU-accelerated statistical methods with sklearn-compatible API.
 
 ### Regression & GLM
 
-| Class | Description | Backends |
-|---|---|---|
-| `LinearRegression` | OLS with HC0-HC3/HAC inference | CPU, CuPy, Torch |
-| `Ridge` | L2 penalty, exact/irls solver | CPU, CuPy, Torch |
-| `Lasso` | L1 penalty, debiased inference | CPU, CuPy, Torch |
-| `ElasticNet` | L1+L2 penalty | CPU, CuPy, Torch |
-| `LogisticRegression` | Binary logistic, L2 penalty | CPU, CuPy, Torch |
-| `PoissonRegression` | Poisson GLM | CPU, CuPy, Torch |
-| `GammaRegression` | Gamma GLM (log/inverse-power links) | CPU, CuPy, Torch |
-| `InverseGaussianRegression` | Inverse Gaussian GLM | CPU, CuPy, Torch |
-| `NegativeBinomialRegression` | NB GLM (configurable dispersion α) | CPU, CuPy, Torch |
-| `TweedieRegression` | Tweedie GLM (configurable power p) | CPU, CuPy, Torch |
-| `OrderedLogitRegression` | Ordered logit model | CPU, CuPy, Torch |
-| `OrderedProbitRegression` | Ordered probit model | CPU, CuPy, Torch |
+| Class | Description | Link Functions | Backends |
+|---|---|---|---|
+| `LinearRegression` | OLS with HC0-HC3/HAC inference | identity | CPU, CuPy, Torch |
+| `Ridge` | L2 penalty, exact/irls solver | identity | CPU, CuPy, Torch |
+| `Lasso` | L1 penalty, debiased inference | identity | CPU, CuPy, Torch |
+| `ElasticNet` | L1+L2 penalty | identity | CPU, CuPy, Torch |
+| `LogisticRegression` | Binary logistic, L2 penalty | logit, probit | CPU, CuPy, Torch |
+| `PoissonRegression` | Poisson GLM | log | CPU, CuPy, Torch |
+| `GammaRegression` | Gamma GLM | log, inverse_power | CPU, CuPy, Torch |
+| `InverseGaussianRegression` | Inverse Gaussian GLM | log, inverse_squared | CPU, CuPy, Torch |
+| `NegativeBinomialRegression` | NB GLM (configurable α) | log | CPU, CuPy, Torch |
+| `TweedieRegression` | Tweedie GLM (configurable p) | log | CPU, CuPy, Torch |
+| `OrderedLogitRegression` | Ordered logit model | logit | CPU, CuPy, Torch |
+| `OrderedProbitRegression` | Ordered probit model | probit | CPU, CuPy, Torch |
 
 ### Penalized GLM
 
