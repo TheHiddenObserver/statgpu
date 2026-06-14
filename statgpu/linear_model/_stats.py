@@ -4,7 +4,7 @@ Computes standard errors, t-statistics, p-values, etc.
 """
 
 import numpy as np
-from scipy import stats
+from statgpu.inference import t as t_dist, f as f_dist
 
 
 class RegressionResults:
@@ -60,11 +60,11 @@ class RegressionResults:
         self.tvalues = self.params / self.bse
         
         # p-values: two-tailed t-test
-        self.pvalues = 2 * (1 - stats.t.cdf(np.abs(self.tvalues), self.df_resid))
-        
+        self.pvalues = 2 * (1 - t_dist.cdf(np.abs(self.tvalues), df=self.df_resid))
+
         # Confidence intervals (95%)
         alpha = 0.05
-        t_crit = stats.t.ppf(1 - alpha/2, self.df_resid)
+        t_crit = float(t_dist.ppf(1 - alpha/2, df=self.df_resid))
         self.conf_int = np.column_stack([
             self.params - t_crit * self.bse,
             self.params + t_crit * self.bse
@@ -107,7 +107,7 @@ class RegressionResults:
         k = len(self.params) - 1
         if k == 0:
             return 1.0
-        return 1 - stats.f.cdf(self.fvalue, k, self.df_resid)
+        return 1 - float(f_dist.cdf(self.fvalue, dfn=k, dfd=self.df_resid))
     
     @property
     def aic(self):
@@ -163,7 +163,7 @@ class RegressionResults:
     
     def conf_int(self, alpha=0.05):
         """Confidence intervals for parameters."""
-        t_crit = stats.t.ppf(1 - alpha/2, self.df_resid)
+        t_crit = float(t_dist.ppf(1 - alpha/2, df=self.df_resid))
         return np.column_stack([
             self.params - t_crit * self.bse,
             self.params + t_crit * self.bse
