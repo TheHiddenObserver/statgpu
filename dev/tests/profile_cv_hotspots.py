@@ -13,7 +13,22 @@ from pathlib import Path
 
 import numpy as np
 
-from benchmark_cv_full import make_data
+
+def make_data(n=200, p=20, family="gaussian", seed=42):
+    """Generate synthetic data for CV profiling."""
+    rng = np.random.default_rng(seed)
+    X = rng.standard_normal((n, p))
+    beta = rng.standard_normal(p)
+    eta = X @ beta
+    if family == "gaussian":
+        y = eta + rng.standard_normal(n) * 0.1
+    elif family == "logistic":
+        y = (eta > 0).astype(float)
+    elif family == "poisson":
+        y = np.random.poisson(np.exp(np.clip(eta, -10, 10))).astype(float)
+    else:
+        y = eta + rng.standard_normal(n) * 0.1
+    return X, y
 
 
 ALL_LOSSES = [

@@ -4,6 +4,8 @@ Base classes for statgpu estimators.
 
 from __future__ import annotations
 
+__all__ = ["BaseEstimator"]
+
 from abc import ABC, abstractmethod
 from typing import Optional, Union, Any
 import numpy as np
@@ -522,7 +524,10 @@ class BaseEstimator(ABC):
         for cls in type(self).__mro__:
             if cls is object:
                 continue
-            sig = inspect.signature(cls.__init__)
+            try:
+                sig = inspect.signature(cls.__init__)
+            except (ValueError, TypeError):
+                continue
             for name in sig.parameters:
                 if name == "self":
                     continue
@@ -531,6 +536,8 @@ class BaseEstimator(ABC):
                 # Prefer the current attribute value over the default
                 if hasattr(self, name):
                     params[name] = getattr(self, name)
+                elif hasattr(self, f'_{name}'):
+                    params[name] = getattr(self, f'_{name}')
         return params
     
     def set_params(self, **params):
