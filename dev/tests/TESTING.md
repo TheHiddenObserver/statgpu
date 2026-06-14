@@ -68,9 +68,9 @@ sftp = ssh.open_sftp()
 sftp.put('local_file.py', REMOTE_WORK_DIR + '/dev/tests/remote_test.py')
 sftp.close()
 
-# Run test
+# Run test (adjust conda path for your environment)
 cmd = (
-    'source /root/miniconda3/etc/profile.d/conda.sh && '
+    'source <conda-path>/etc/profile.d/conda.sh && '
     'conda activate myconda && '
     f'cd {REMOTE_WORK_DIR} && python dev/tests/remote_test.py'
 )
@@ -82,7 +82,7 @@ print(stdout.read().decode())
 
 - **Never pip install** on remote — `myconda` env has all dependencies
 - **Clear `__pycache__`** before running benchmarks: `find . -name __pycache__ -exec rm -rf {} +`
-- **Source upload path**: `statgpu/` → `/root/statgpu/` (NOT nested `statgpu/statgpu/statgpu/`)
+- **Source upload path**: local `statgpu/` → remote `REMOTE_WORK_DIR` (see `remote_config.py`)
 
 ## Benchmark Tests
 

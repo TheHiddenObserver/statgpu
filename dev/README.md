@@ -41,27 +41,29 @@ Remote testing uses SSH to a GPU server. Configuration is loaded from (in priori
 
 1. **Environment variables** (recommended for CI):
    ```bash
-   export STATGPU_REMOTE_HOST="hz-4.matpool.com"
-   export STATGPU_REMOTE_PORT="28838"
-   export STATGPU_REMOTE_USER="root"
-   export STATGPU_REMOTE_PASSWORD="your_password"
+   export STATGPU_REMOTE_HOST="<your-gpu-server>"
+   export STATGPU_REMOTE_PORT="<ssh-port>"
+   export STATGPU_REMOTE_USER="<username>"
+   export STATGPU_REMOTE_PASSWORD="<password>"
    ```
 
 2. **Local config file** (`dev/scripts/remote_config_local.py`, gitignored):
    ```python
-   HOST = "hz-4.matpool.com"
-   PORT = 28838
-   USERNAME = "root"
+   HOST = "<your-gpu-server>"
+   PORT = <ssh-port>
+   USERNAME = "<username>"
    # Password should be set via STATGPU_REMOTE_PASSWORD env var
    ```
+
+See `dev/scripts/remote_config_local.example.py` for a template.
 
 ### Remote Environment
 
 - **Conda env**: `myconda` — all dependencies pre-installed, **do not use pip install**
-- **Python**: `/root/miniconda3/envs/myconda/bin/python`
-- **Activate**: `source /root/miniconda3/etc/profile.d/conda.sh && conda activate myconda`
-- **GPU**: Tesla P100-SXM2-16GB (or check current instance)
-- **Source upload**: `statgpu/` package → `/root/statgpu/`
+- **Python**: conda env Python (see `remote_config.py` for paths)
+- **Activate**: `source <conda-path>/etc/profile.d/conda.sh && conda activate myconda`
+- **GPU**: Check current instance (nvidia-smi)
+- **Source upload**: local `statgpu/` package → remote work directory
 
 ### Typical Remote Workflow
 
@@ -78,9 +80,9 @@ ssh.connect(config['host'], port=config['port'],
 
 # Run commands
 stdin, stdout, stderr = ssh.exec_command(
-    'source /root/miniconda3/etc/profile.d/conda.sh && '
+    'source <conda-path>/etc/profile.d/conda.sh && '
     'conda activate myconda && '
-    'cd /root/statgpu && python -m pytest tests/'
+    f'cd {REMOTE_WORK_DIR} && python -m pytest tests/'
 )
 ```
 

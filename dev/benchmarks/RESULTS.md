@@ -1,6 +1,6 @@
 # Benchmark Results
 
-GPU performance data for statgpu. Results are from remote testing on Tesla P100-SXM2-16GB unless noted otherwise.
+GPU performance data for statgpu. Results are from remote GPU testing unless noted otherwise.
 
 ## Test Coverage (v23c — Latest)
 

@@ -8,13 +8,13 @@ The actual credentials should be kept secret and never committed.
 """
 
 # Remote server configuration
-HOST = "hz-4.matpool.com"
-PORT = 27609
-USERNAME = "root"
-PASSWORD = "YOUR_PASSWORD_HERE"  # Replace with your actual password
+HOST = "<your-gpu-server-hostname>"
+PORT = <ssh-port>
+USERNAME = "<username>"
+PASSWORD = "<your-password>"  # Or use STATGPU_REMOTE_PASSWORD env var
 
 # Or use SSH key authentication (recommended)
 # SSH_KEY_PATH = "/path/to/your/ssh_private_key"
 
-# Remote work directory
-REMOTE_WORK_DIR = "/root/statgpu"
+# Remote work directory (where statgpu source is uploaded)
+REMOTE_WORK_DIR = "/path/to/statgpu"
