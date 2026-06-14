@@ -238,14 +238,35 @@
 - **PR #50 — GLM 稀疏 CV 路径添加 val_sample_weight**:
   - 稀疏 GLM 交叉验证的验证样本权重支持
   - 支持不平衡数据集的加权 CV 折
+  - 移除多余的 cupy 行
+  - 使用 loss_fn.value 用于 numpy 路径
+  - 传递未增强的 Xv 到 _evaluate_loss_numpy 用于加权评分
 
 - **PR #53 — 修复加权 Ridge 推断**:
   - 修复加权 Ridge 回归的尺度计算
   - 保留 sample weights 下的 bse/pvalues/conf_int
 
 - **PR #54 — 重构 CV 调度表**:
-  - _compute_cv_scores 调度表
-  - 更清晰的 CV 评分散逻辑分离
+  - 为 _compute_cv_scores 创建调度表
+  - 提取 _cv_fold_general 以更清晰分离
+  - 添加路径失败警告和 LLA 清理
+  - 修复 Tweedie per-sample loss 符号错误
+  - 移除不正确的回退权重
+  - 移除死代码和自导入
+  - 添加回退警告
+  - 优化 Ridge CV 评分
+  - 提取硬编码常量为模块级命名变量
+  - 添加静默回退警告
+  - 修复非高斯 MSE 回退
+  - 为非均匀权重与非 L2 惩罚引发清晰错误
+  - 添加 loss 公式注释并收窄异常捕获
+  - 为 PenalizedGLM_CV 添加 cv_splits 参数以支持自定义折生成器
+  - 从 loss 对象默认值参数化 NB alpha 和 Tweedie power
+  - 创建统一 loss 公式注册表（替换内联 if/elif 链）
+  - 修复 LassoCV cache_key 变量名（缓存重构后）
+  - 修复 _res_logistic 返回梯度（sigmoid(eta)-y）而非 loss
+  - 修复 Poisson 残差返回梯度、NB 分母、InvGauss clipping
+  - 修复加权 Lipschitz 使用 sum(w)、cv_splits 规范化生成器
 
 ### Optimized (2026-06-05)
 
@@ -311,24 +332,48 @@
 - **PR #37 — GLM 惩罚正确性 + 自动 GPU 路由**:
   - 修复惩罚 GLM predict() 返回逆链接均值尺度预测
   - 基于问题规模的惩罚模型自动 GPU 路由
+  - 修复 GPU 后端不可用时的 predict 后端回退
+  - 强制显式 GPU 预测后端契约
+  - 处理 GPU sample_weight 转换
 
 - **PR #38 — Gamma 逆幂 FISTA**:
   - 链接感知 Gamma FISTA 支持（CPU/CuPy/Torch）
   - 修复逆幂链接函数的目标不匹配
+  - 修复逆幂 Gamma FISTA 初始化和 torch dtype 对齐
+  - 使用后端原生逆幂 FISTA warm start
+  - 修复逆幂 gamma FISTA 初始化和 clipping 一致性
+  - 修复 torch FISTA 非高斯截距路径的 dtype
+  - 修复整数设计 dtype 提升（跨 GLM 截距路径）
+  - 修复 CuPy FISTA 初始化 dtype
 
 - **PR #39~#42 — GLM 求解器重构**:
   - 修复 GLM GPU dtype 和审查回归
   - 重构 GLM 求解器后端 helper
   - IRLS 求解器后端别名和兼容性
+  - 测试 IRLS 求解器后端别名
 
 - **PR #43, #44 — 线性推断结果修复**:
-  - 重构线性推断结果容器
-  - 合并修复到 GPU 功能分支
+  - 重构高斯线性推断 helper
+  - 修复 CuPy 推断临界值 dtype
+  - 添加共享推断结果容器
+  - 完成线性推断结果连接
+  - 修复加权惩罚推断状态
+  - 清除过时线性推断结果
+  - 修复推断边界情况清理
+  - 清除 z 结果的过时 t 统计量
+  - 清除不可用的 GPU 推断预计算缓存
+  - 使用 ridge sandwich 协方差处理惩罚
 
 - **PR #47 — CuPy cummin/cummax 修复**:
   - 修复 CuPy cummin/cummax CUDA 核在非连续数组上的问题
   - adjust_pvalues BH/BY/Hochberg 现在返回正确结果（之前与 statsmodels 0% 一致）
   - 根因：CUDA 核读取顺序内存，但 flip() 返回负步长视图
+  - 修复 IRLS log-link 截距初始化
+  - 添加每次迭代收敛检查
+  - 添加 RTX 4090 的 6 阶段真实数据基准测试套件
+  - 从 IRLS 中移除硬编码 SSH 凭据 + 使用后端工具
+  - 收窄裸 except 子句
+  - 为所有代码审查修复添加回归测试
 
 ### 修复 (2026-05-20)
 
@@ -386,6 +431,12 @@
 
 - **PR #24 — 精度修复、hochberg/stouffer、包重组**:
   - Phase 1: Ordered 模型跨后端精度修复
+  - 使用 torch.compile 和 Triton 核进行 GPU 加速
+  - 统一跨包导入为绝对形式（PEP 8）
+  - 解决 8 个 Codex 审查评论（shared_mem、lazy pandas、fit_intercept）
+  - 添加 CuPy/Numpy 后端缺失的转置
+  - 修复 cv_results_ 键命名
+  - 在 fit 期间保留公式截距语义
 
 - **PR #26 — README 刷新**:
   - 重组功能、添加模型、推荐可编辑安装
@@ -433,10 +484,19 @@
 - **PR #19 — Cython Efron 优化**:
   - Cython 优化 Efron 梯度和 Hessian 计算
   - CoxPH 精度和运行时综合基准测试
+  - 更新 RidgeCV、LogisticRegressionCV 和 CoxPHCV 文档
+  - 修复 logistic cv 重复的 batch log-loss helper 名称
+  - 修复 cox cv 缓存键类型和 CUDA 核启动错误暴露
+  - 跨文档对齐 CoxPHCV 状态
+  - 更新 RidgeCV 和 LogisticRegressionCV 状态为完整实现
 
 - **PR #21 — 分布后端统一**:
   - 将 `_distributions_gpu.py`, `_distributions_torch.py` 合并为单一 `_distributions_backend.py`
   - 通过 `SpecialFunctions` 协议和工厂模式覆盖 3 后端 15 个分布
+  - 修复分布后端路由和 torch 设备传播
+  - 修复代理 resolve args（rvs 和双侧 critical）
+  - 精简代理后端自动解析参数
+  - 更新分布 API 文档为统一 3 后端架构
 
 - **PR #22 — 后端工具整合**:
   - 整合重复的后端工具函数
@@ -480,12 +540,21 @@
 ### 新增 (2026-04-20)
 
 - **PR #18 — 远程配置 + 后端增强**:
-  - 移除硬编码 SSH 凭据
-  - 新增远程配置模块
-  - 后端增强
+  - 移除硬编码 SSH 凭据（安全修复）
+  - 添加支持环境变量的远程配置模块
+  - 为 knockoff filter 添加 Torch GPU 后端支持
+  - 添加优化 GPU 实现的 Elastic Net
+  - 添加 LassoCV 交叉验证 Lasso 实现
+  - 修复远程配置、lasso/elasticnet cv 的审查问题
+  - 修复基准测试配置错误消息的环境变量名
 
 - **PR #20 — CoxPHCV CuPy 优化**:
   - 优化 CoxPHCV CuPy Hessian 路径和默认值
+  - 加固 coxphcv 环境解析默认值缓存键
+  - 添加 CoxPHCV 的 cv 测试
+  - 明确 coxcv 默认值和环境回退断言
+  - 更新 Cox GPU entry+efron 路径并记录安全推出
+  - 同步 Cox 模型文档的 entry+efron GPU 状态
 
 - **CoxPH Efron 实现修复与性能优化**:
   - 修复 Cython Efron 梯度/海森矩阵计算中的数值溢出问题，添加 clipping 保护 (`MAX_LINPRED=700`, `MIN_LINPRED=-700`)
@@ -509,13 +578,21 @@
 ### 新增 (2026-04-18)
 
 - **PR #16 — Torch 后端支持**:
-  - 全面 PyTorch 后端集成
-  - 与 NumPy 和 CuPy 后端功能对齐
-  - 内存管理改进
+  - 增强 Ridge 和 CoxPH 模型的 Torch 支持
+  - 添加内存管理改进
+  - 修复 torch 后端/设备问题
+  - 修复可复现性问题
+  - 避免 Cox torch 路径中的循环同步
+  - 收紧验证容差
 
 - **PR #17 — Elastic Net 实现**:
-  - 优化 Elastic Net + 基准测试
-  - statgpu vs sklearn 比较
+  - 添加 Elastic Net（优化 GPU 实现）
+  - 将优化代码集成到核心实现
+  - 添加 Elastic Net 文档和 changelog 更新
+  - 添加基准测试和测试脚本
+  - 从大规模基准运行器中移除硬编码 SSH 凭据
+  - 收紧基于环境变量的远程基准运行器的 SSH 认证逻辑
+  - 允许使用发现的默认 SSH 密钥的密码短语
 
 - **Elastic Net 实现与基准测试**:
   - 新增 `ElasticNet` 类，结合 L1 和 L2 正则化，使用 FISTA 求解器
@@ -640,28 +717,39 @@
 - **PR #10 — HAC 协方差支持**:
   - LinearRegression 和 LogisticRegression 的 HAC 协方差
   - Newey-West 带宽选择
+  - 修复 Ridge 推断的 penalized bread
+  - 为 CV 骨架添加 NotImplementedError
+  - 明确 CV 类的已实现 vs 仅接口范围
 
 - **PR #11 — 新模型文档**:
   - Knockoff 特征选择文档
   - 新模型文档
 
 - **PR #12 — 分布兼容层**:
-  - 旧版分布函数兼容
-  - 重构推断方法
+  - 添加旧版分布函数兼容层
+  - 重构推断方法以统一后端访问
+  - 修复 Lasso GPU sync 开销（移除不必要的传输）
+  - 修复分布代理 resolve args（rvs 和双侧 critical）
+  - 预计算 Lasso 排除索引（性能优化）
+  - 明确 t-ppf 二分边界文档
 
 - **PR #13 — F 检验 p 值处理**:
-  - 完美拟合 F 检验 p 值处理
-  - Lasso p 值计算边界情况
+  - 完美拟合 F 检验 p 值处理（返回接近零的 p 值）
+  - 优化 Lasso p 值计算边界情况
 
 - **PR #14 — 核回归 + Lasso GPU 优化**:
-  - 非参数核方法：KDE, 核回归
-  - Lasso GPU 计算优化
-  - 广泛验证和基准测试
+  - 添加核回归实现（NumPy/CuPy 支持）
+  - 优化 Lasso GPU 计算逻辑
+  - 修复完美拟合情况下的 F 统计量 p 值
+  - 减少非参数 API 中的 GPU 索引内存使用
+  - 修复非参数 API 命名
 
 - **PR #15 — Lasso 推断 GPU 支持**:
-  - Lasso 去偏推断 GPU 支持
-  - Ridge 推断 GPU/CPU 比较容差放宽
-  - 增强 CoxPH 和 Knockoff 文档
+  - 添加去偏 Lasso 同时推断（GPU nodewise 瓶颈）
+  - 优化 CN/EN 模型文档结构和引用
+  - 修复 API 命名、全设计缓存键
+  - 移除冗余数组转换
+  - 避免去偏矩阵哈希路径中的不必要复制
 
 ### 新增 (2026-04-03 ~ 2026-04-07)
 
@@ -672,14 +760,21 @@
 
 - **PR #2 — 运行时比较表**:
   - 跨 CPU/GPU 和外部框架的可复现运行时比较表
+  - 添加多目标线性回归形状处理
+  - 添加多目标 sklearn 和 R 基准测试脚本
+  - 修复 Ridge.score CUDA 预测的主机转换
+  - 优化诊断和逐步选择
+  - 改进 Cox 推断路径
+  - 修复跨模型的缓存/收敛处理
 
 - **PR #3 — 基准测试结构重构**:
   - 重构基准测试结构并更新文档
 
 - **PR #4 — 可插拔后端抽象**:
-  - BackendBase ABC + NumPy/CuPy/Torch 实现
+  - 创建 BackendBase ABC + NumPy/CuPy/Torch 实现
   - 移除冗余模型实现（两个 LinearRegression 类、三个 Ridge 变体）
   - 多后端支持的清晰路径
+  - 用后端抽象层规范化代码库
 
 - **PR #5 — Ridge 推断支持**:
   - 与 LinearRegression 完整推断对齐
@@ -689,6 +784,11 @@
 - **PR #6 — Logistic Regression 评估指标**:
   - 综合评估指标：ROC, AUC, 混淆矩阵
   - `evaluate_binary_classification` 函数
+  - 修复 CuPy 在 logistic 评估方法中的安全性
+  - 添加 y_score 的有限性检查
+  - 对齐 CuPy/Torch 精度回退与 NumPy
+  - 通过委托消除指标重复
+  - 缓存训练评估指标以供复用
 
 - **PR #7, #8 — Bug 修复和实验结果**:
   - 各种 bug 修复

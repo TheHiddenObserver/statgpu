@@ -238,14 +238,35 @@ Language switch: [Chinese](../changelog.md)
 - **PR #50 — Add val_sample_weight to GLM sparse CV path**:
   - Validation sample weight support for sparse GLM cross-validation
   - Enables weighted CV folds for imbalanced datasets
+  - Removed stray CuPy line
+  - Used loss_fn.value for numpy path
+  - Passed unaugmented Xv to _evaluate_loss_numpy for weighted scoring
 
 - **PR #53 — Fix weighted Ridge inference**:
   - Correct scale calculation for weighted Ridge regression
   - Preserve bse/pvalues/conf_int with sample weights
 
 - **PR #54 — Refactor CV dispatch table**:
-  - Dispatch table for _compute_cv_scores
-  - Cleaner separation of CV scoring logic
+  - Created dispatch table for _compute_cv_scores
+  - Extracted _cv_fold_general for cleaner separation
+  - Added path failure warnings and LLA cleanup
+  - Fixed Tweedie per-sample loss sign error
+  - Removed incorrect fallback weights
+  - Removed dead code and self-import
+  - Added fallback warning
+  - Optimized Ridge CV scoring
+  - Extracted hardcoded constants to module-level named variables
+  - Added warnings for silent fallbacks
+  - Fixed non-Gaussian MSE fallback
+  - Raised clear error for non-uniform weights with non-L2 penalties
+  - Added loss formula comments and narrowed exception catches
+  - Added cv_splits parameter to PenalizedGLM_CV for custom fold generators
+  - Parameterized NB alpha and Tweedie power from loss object defaults
+  - Created unified loss formula registry (replaced inline if/elif chains)
+  - Fixed LassoCV cache_key variable name after cache refactor
+  - Fixed _res_logistic returns gradient (sigmoid(eta)-y) not loss
+  - Fixed Poisson residual returns gradient, NB denominator, InvGauss clipping
+  - Fixed weighted Lipschitz uses sum(w), cv_splits normalizes generator
 
 ### Optimized (2026-06-05)
 
@@ -319,24 +340,48 @@ Language switch: [Chinese](../changelog.md)
 - **PR #37 — GLM penalty correctness + auto GPU routing**:
   - Fixed penalized GLM predict() to return inverse-link mean-scale predictions
   - Auto GPU routing for penalized models based on problem size
+  - Fixed predict backend fallback when GPU backend unavailable
+  - Enforced explicit GPU prediction backend contract
+  - Handled GPU sample_weight conversion
 
 - **PR #38 — Gamma inverse-power FISTA**:
   - Link-aware Gamma FISTA support across CPU/CuPy/Torch
   - Fixed objective mismatch for inverse-power link function
+  - Fixed inverse-power Gamma FISTA init and torch dtype alignment
+  - Used backend-native inverse-power FISTA warm start
+  - Fixed inverse-power gamma FISTA init and clipping consistency
+  - Fixed torch FISTA dtype for non-Gaussian intercept path
+  - Fixed integer design dtype promotion across GLM intercept paths
+  - Fixed CuPy FISTA init dtype
 
 - **PR #39~#42 — GLM solver refactoring**:
   - Fixed GLM GPU dtype and review regressions
   - Refactored GLM solver backend helpers
   - IRLS solve backend aliases and compatibility
+  - Tested IRLS solve backend aliases
 
 - **PR #43, #44 — Linear inference result fixes**:
-  - Refactored linear inference result containers
-  - Merged fixes into GPU feature branch
+  - Refactored Gaussian linear inference helpers
+  - Fixed CuPy inference critical value dtype
+  - Added shared inference result containers
+  - Completed linear inference result wiring
+  - Fixed weighted penalized inference state
+  - Cleared stale linear inference results
+  - Fixed inference edge case cleanup
+  - Cleared stale t-statistics for z results
+  - Cleared unavailable GPU inference precompute cache
+  - Used ridge sandwich covariance for penalties
 
 - **PR #47 — CuPy cummin/cummax fix**:
   - Fixed CuPy cummin/cummax CUDA kernels on non-contiguous arrays
   - adjust_pvalues BH/BY/Hochberg now returns correct results (was 0% agreement with statsmodels)
   - Root cause: CUDA kernel reads sequential memory, but flip() returns negative-stride view
+  - Fixed IRLS log-link intercept initialization
+  - Added per-iteration convergence check
+  - Added 6-stage real-data benchmark suite for RTX 4090
+  - Removed hardcoded SSH creds + used backend utils in IRLS
+  - Narrowed bare except clauses
+  - Added regression tests for all code review fixes
 
 ### Fixed (2026-05-20)
 
@@ -394,6 +439,12 @@ Language switch: [Chinese](../changelog.md)
 
 - **PR #24 — Precision fixes, hochberg/stouffer, package restructure**:
   - Phase 1: Ordered Model Cross-Backend Precision Fixes
+  - GPU acceleration with torch.compile and Triton kernels
+  - Unified cross-package imports to absolute form (PEP 8)
+  - Resolved 8 Codex review comments (shared_mem, lazy pandas, fit_intercept)
+  - Added missing transpose to CuPy/Numpy backends
+  - Fixed cv_results_ key naming
+  - Preserved formula intercept semantics during fit
 
 - **PR #26 — README refresh**:
   - Reorganized features, added models, recommended editable install
@@ -441,10 +492,19 @@ Language switch: [Chinese](../changelog.md)
 - **PR #19 — Cython Efron optimization**:
   - Cython-optimized Efron gradient and Hessian computation
   - Comprehensive CoxPH accuracy and runtime benchmarks
+  - Updated documentation for RidgeCV, LogisticRegressionCV and CoxPHCV
+  - Fixed logistic cv duplicate batch log-loss helper names
+  - Fixed cox cv cache key typing and CUDA kernel launch error surfacing
+  - Aligned CoxPHCV status across docs
+  - Updated RidgeCV and LogisticRegressionCV status to full implementation
 
 - **PR #21 — Distribution backends unification**:
   - Consolidated `_distributions_gpu.py`, `_distributions_torch.py` into single `_distributions_backend.py`
   - 15 distributions across 3 backends via `SpecialFunctions` protocol and factory pattern
+  - Fixed distribution backend routing and torch device propagation
+  - Fixed proxy resolve args for rvs and two-sided critical
+  - Streamlined proxy backend auto resolution args
+  - Updated distribution API docs for unified 3-backend architecture
 
 - **PR #22 — Backend utility consolidation**:
   - Consolidated duplicated backend utility functions
@@ -488,12 +548,21 @@ Language switch: [Chinese](../changelog.md)
 ### Added (2026-04-20)
 
 - **PR #18 — Remote config + backend enhancements**:
-  - Removed hardcoded SSH credentials
-  - Added remote config module
-  - Backend enhancements
+  - Removed hardcoded SSH credentials (security fix)
+  - Added remote config module with env var support
+  - Added Torch GPU backend support for knockoff filter
+  - Added Elastic Net with optimized GPU implementations
+  - Added LassoCV cross-validated Lasso implementation
+  - Fixed review-thread issues in remote config, lasso/elasticnet cv
+  - Fixed benchmark config error message env var name
 
 - **PR #20 — CoxPHCV CuPy optimization**:
   - Optimized CoxPHCV CuPy Hessian path and defaults
+  - Hardened coxphcv env parsing defaults cache key
+  - Added cv tests for CoxPHCV
+  - Clarified coxcv defaults and env fallback assertions
+  - Updated Cox GPU entry+efron path and documented safe rollout
+  - Synced Cox model docs for entry+efron GPU status
 
 - **CoxPH Efron Implementation Fix and Performance Optimization**:
   - Fixed numerical overflow in Cython Efron gradient/Hessian computation with clipping protection (`MAX_LINPRED=700`, `MIN_LINPRED=-700`)
@@ -517,13 +586,21 @@ Language switch: [Chinese](../changelog.md)
 ### Added (2026-04-18)
 
 - **PR #16 — Torch backend support**:
-  - Comprehensive PyTorch backend integration
-  - Feature parity with NumPy and CuPy backends
-  - Memory management improvements
+  - Enhanced Ridge and CoxPH models with Torch support
+  - Added memory management improvements
+  - Fixed torch backend/device issues from review
+  - Fixed reproducibility concerns
+  - Avoided loop sync in Cox torch path
+  - Tightened tolerance for validation
 
 - **PR #17 — Elastic Net implementation**:
-  - Optimized Elastic Net with benchmarks
-  - statgpu vs sklearn comparison
+  - Added Elastic Net with optimized GPU implementations
+  - Integrated optimized code into core implementation
+  - Added Elastic Net documentation and changelog updates
+  - Added benchmarks and test scripts
+  - Removed hardcoded SSH credentials from large-scale benchmark runner
+  - Tightened SSH auth logic for env-based remote benchmark runner
+  - Allowed passphrase usage with discovered default SSH keys
 
 - **Elastic Net Implementation and Benchmarks**:
   - New `ElasticNet` class combining L1 and L2 regularization with FISTA solver
@@ -641,28 +718,39 @@ Language switch: [Chinese](../changelog.md)
 - **PR #10 — HAC covariance support**:
   - HAC covariance for LinearRegression and LogisticRegression
   - Newey-West bandwidth selection
+  - Fixed penalized bread for Ridge inference
+  - Added NotImplementedError in CV scaffolding for unsupported features
+  - Clarified implemented vs interface-only scope for CV classes
 
 - **PR #11 — Documentation for new models**:
   - Knockoff feature selection documentation
   - New model documentation
 
 - **PR #12 — Distribution compatibility layer**:
-  - Legacy distribution function compatibility
-  - Refactored inference methods
+  - Added compatibility layer for legacy distribution functions
+  - Refactored inference methods for unified backend access
+  - Fixed Lasso GPU sync overhead (removed unnecessary transfers)
+  - Fixed distribution proxy resolve args for rvs and two-sided critical
+  - Precomputed Lasso exclusion indices for performance
+  - Clarified t-ppf bisection bounds in documentation
 
 - **PR #13 — F-test p-value handling**:
-  - Perfect fit F-test p-value handling
-  - Lasso p-value calculation edge cases
+  - Perfect fit F-test p-value handling (returns near-zero p-value)
+  - Optimized Lasso p-value calculation for edge cases
 
 - **PR #14 — Kernel regression + Lasso GPU optimization**:
-  - Nonparametric kernel methods: KDE, kernel regression
-  - Lasso GPU computation optimization
-  - Extensive validation and benchmarks
+  - Added kernel regression implementation with NumPy/CuPy support
+  - Optimized Lasso GPU computation logic
+  - Fixed F-statistic p-value for perfect fit cases
+  - Reduced GPU index memory usage in nonparametric API
+  - Addressed PR review: fixed nonparametric API naming
 
 - **PR #15 — Lasso inference GPU support**:
-  - Lasso debiased inference with GPU support
-  - Ridge inference GPU/CPU comparison tolerance relaxed
-  - Enhanced CoxPH and Knockoff documentation
+  - Added debiased Lasso simultaneous inference with GPU nodewise bottleneck
+  - Refined CN/EN model documentation structure and references
+  - Fixed API naming, full-design cache keys
+  - Removed redundant array casts
+  - Avoided unnecessary copies in debiased matrix hashing paths
 
 ### Added (2026-04-03 ~ 2026-04-07)
 
@@ -673,14 +761,21 @@ Language switch: [Chinese](../changelog.md)
 
 - **PR #2 — Runtime comparison tables**:
   - Reproducible runtime comparison tables across CPU/GPU and external frameworks
+  - Added multi-target linear regression shape handling
+  - Added multi-target sklearn and R benchmark scripts
+  - Fixed Ridge.score host conversion for CUDA predictions
+  - Optimized diagnostics and stepwise selection
+  - Improved Cox inference paths
+  - Fixed cache/convergence handling across models
 
 - **PR #3 — Benchmark structure refactor**:
   - Refactored benchmark structure and updated documentation
 
 - **PR #4 — Pluggable backends abstraction**:
-  - BackendBase ABC with NumPy/CuPy/Torch implementations
+  - Created BackendBase ABC with NumPy/CuPy/Torch implementations
   - Removed redundant model implementations (two LinearRegression classes, three Ridge variants)
   - Clean path for multi-backend support
+  - Normalized codebase with backend abstraction layer
 
 - **PR #5 — Ridge inference support**:
   - Full inference parity with LinearRegression
@@ -690,6 +785,11 @@ Language switch: [Chinese](../changelog.md)
 - **PR #6 — Logistic Regression evaluation metrics**:
   - Comprehensive evaluation metrics: ROC, AUC, confusion matrix
   - `evaluate_binary_classification` function
+  - Fixed CuPy safety in logistic eval methods
+  - Added finiteness checks for y_score validation
+  - Aligned CuPy/Torch precision fallback with NumPy
+  - Eliminated metrics duplication via delegation
+  - Cached training evaluation metrics for reuse
 
 - **PR #7, #8 — Bug fixes and experiment results**:
   - Various bug fixes
