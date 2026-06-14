@@ -23,7 +23,7 @@ class TestRandomEffectsGroupMeans:
         y = X @ beta + rng.standard_normal(n) * 0.1
 
         m = RandomEffects(device='cpu')
-        m.fit(y, X, entity_ids=entity_ids)
+        m.fit(X, y, entity_ids=entity_ids)
         # Coefficients should be close to true beta
         assert np.allclose(m.coef_, beta, atol=0.3)
 
@@ -44,7 +44,7 @@ class TestTwoWayFEPredict:
         y = X @ beta + rng.standard_normal(n) * 0.1
 
         m = PanelOLS(device='cpu', entity_effects=True, time_effects=True)
-        m.fit(y, X, entity_ids=entity_ids, time_ids=time_ids)
+        m.fit(X, y, entity_ids=entity_ids, time_ids=time_ids)
         y_pred = m.predict(X, entity_ids=entity_ids, time_ids=time_ids)
         # Predictions should be reasonable (not NaN/Inf)
         assert np.all(np.isfinite(y_pred))
