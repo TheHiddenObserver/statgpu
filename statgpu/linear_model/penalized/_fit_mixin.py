@@ -309,7 +309,7 @@ class _PenalizedFitMixin:
         _is_glm_loss = _loss_name not in ("squared_error", "")
         if _pen_name in ("scad", "mcp") and self._lla_enabled and not _is_glm_loss:
             # Use fused FISTA+LLA path for all backends (CPU/GPU).
-            from statgpu.glm_core._solver import fista_lla_path
+            from statgpu.solvers import fista_lla_path
             self._nobs = X.shape[0]
             X_arr = self._to_array(X, backend=backend_name)
             y_arr = self._to_array(y, backend=backend_name)
@@ -511,7 +511,7 @@ class _PenalizedFitMixin:
             # coefficients through the transition region where SCAD and MCP
             # differ, matching the path-based strategy used by R's ncvreg.
             from statgpu.penalties import get_penalty
-            from statgpu.glm_core._solver import fista_solver
+            from statgpu.solvers import fista_solver
 
             l2_pen = get_penalty("l2", alpha=0.001)
             loss_obj = self._resolve_loss()
@@ -1688,7 +1688,7 @@ class _PenalizedFitMixin:
 
     def _fit_loss_backend(self, X, y, sample_weight, solver_name, backend_name):
         """Fit GLMLoss + Penalty without changing the selected backend."""
-        from statgpu.glm_core._solver import (
+        from statgpu.solvers import (
             fista_solver,
             fista_bb_solver,
             admm_solver,
@@ -1770,7 +1770,7 @@ class _PenalizedFitMixin:
 
         if _use_fista:
             # FISTA for GLM+adaptive_l1 -- works on any backend.
-            from statgpu.glm_core._solver import fista_solver
+            from statgpu.solvers import fista_solver
             params, n_iter = fista_solver(
                 self._loss, pen, X_work, y_arr,
                 max_iter=self.max_iter, tol=self.tol,
@@ -1780,7 +1780,7 @@ class _PenalizedFitMixin:
             # squared_error + SCAD/MCP: use fused FISTA+LLA on all backends.
             # Produces identical results across CPU/GPU and avoids slow
             # sequential coordinate descent on GPU.
-            from statgpu.glm_core._solver import fista_lla_path
+            from statgpu.solvers import fista_lla_path
             import numpy as _np
 
             # Compute continuation path (lambda_max -> target alpha)
@@ -1823,7 +1823,7 @@ class _PenalizedFitMixin:
             params = params_np
         elif _use_lla_fista:
             # GLM + SCAD/MCP: use LLA outer loop + FISTA inner solve.
-            from statgpu.glm_core._solver import fista_lla_path
+            from statgpu.solvers import fista_lla_path
             import numpy as _np
 
             xp = get_backend(backend_name).xp
@@ -1914,7 +1914,7 @@ class _PenalizedFitMixin:
         elif _use_lla_group:
             # GLM + group_mcp/group_scad: LLA outer loop + FISTA inner solve
             # with AdaptiveGroupLassoPenalty as inner penalty.
-            from statgpu.glm_core._solver import fista_lla_path
+            from statgpu.solvers import fista_lla_path
             from statgpu.penalties._group_lasso import AdaptiveGroupLassoPenalty
             import numpy as _np
 

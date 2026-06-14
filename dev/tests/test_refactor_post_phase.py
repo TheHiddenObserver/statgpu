@@ -149,11 +149,6 @@ class TestPhase6Cleanup:
         import importlib.util
         assert importlib.util.find_spec("statgpu.nonparametric._kde") is None
 
-    def test_kernel_methods_shim_has_deprecation(self):
-        """kernel_methods shim should emit DeprecationWarning."""
-        import warnings
-        with warnings.catch_warnings(record=True) as w:
-            warnings.simplefilter("always")
-            from statgpu.kernel_methods import KernelRidge  # noqa: F401
-            dep_warnings = [x for x in w if issubclass(x.category, DeprecationWarning)]
-            # Not强制要求 (may not have it), but record
+    def test_kernel_methods_shim_works(self):
+        """kernel_methods shim still importable."""
+        from statgpu.kernel_methods import KernelRidge  # noqa: F401

@@ -514,7 +514,7 @@ def _fit_cpu_loss(self, X, y, sample_weight=None, solver="fista"):
     a column of ones and uses a selective penalty (no penalty on intercept)
     to converge to the correct joint optimum.
     """
-    from statgpu.glm_core._solver import fista_solver
+    from statgpu.solvers import fista_solver
 
     X_arr = np.asarray(X)
     y_arr = np.asarray(y)
@@ -1043,7 +1043,7 @@ def _fit_lla(self, X, y, sample_weight, backend_name, init_coef=None):
         # Runs entire continuation+LLA+FISTA loop in one tight function
         # to eliminate per-call overhead (300+ fista_solver calls).
         if _is_scad_mcp and not _is_glm:
-            from statgpu.glm_core._solver import fista_lla_path
+            from statgpu.solvers import fista_lla_path
             X_cached = self._to_array(X, backend=backend_name)
             y_cached = self._to_array(y, backend=backend_name)
 

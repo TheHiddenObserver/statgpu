@@ -1316,7 +1316,7 @@ def _glm_sparse_cv_path(
         )
         return None
 
-    from statgpu.glm_core._solver import fista_solver, fista_bb_solver
+    from statgpu.solvers import fista_solver, fista_bb_solver
     from statgpu.linear_model._penalized import _resolve_loss_name
     from statgpu.penalties import get_penalty
 
@@ -1516,7 +1516,7 @@ def _scad_mcp_cv_path(
         )
         return None
 
-    from statgpu.glm_core._solver import fista_solver
+    from statgpu.solvers import fista_solver
     from statgpu.linear_model._penalized import _resolve_loss_name
     from statgpu.penalties import get_penalty, SCADPenalty, MCPPenalty
     from statgpu.penalties._adaptive_l1 import AdaptiveL1Penalty
