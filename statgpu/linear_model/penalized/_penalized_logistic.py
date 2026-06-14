@@ -3,8 +3,12 @@
 from __future__ import annotations
 
 from typing import Optional, Union
+
+import numpy as np
+
 from statgpu._config import Device
 from statgpu.linear_model.penalized._base import PenalizedGeneralizedLinearModel
+from statgpu.linear_model.penalized._predict_mixin import _ETA_CLIP
 
 
 class PenalizedLogisticRegression(PenalizedGeneralizedLinearModel):
@@ -15,7 +19,7 @@ class PenalizedLogisticRegression(PenalizedGeneralizedLinearModel):
         penalty: Union[str, "Penalty"] = "l2",
         alpha: float = 1.0,
         l1_ratio: float = 0.5,
-        penalty_kwargs: Optional[Dict] = None,
+        penalty_kwargs: Optional[dict] = None,
         fit_intercept: bool = True,
         max_iter: int = 1000,
         tol: float = 1e-4,

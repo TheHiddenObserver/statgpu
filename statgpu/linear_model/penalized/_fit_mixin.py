@@ -208,7 +208,6 @@ def _irls_ridge_init_cd(X, y, alpha, max_iter, tol):
 
 
 class _PenalizedFitMixin:
-    pass
 
     def fit(self, X=None, y=None, sample_weight=None, formula=None, data=None):
         """

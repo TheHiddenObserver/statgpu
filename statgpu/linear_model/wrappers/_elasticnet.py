@@ -19,8 +19,6 @@ from statgpu._config import Device
 from statgpu._base import BaseEstimator
 from statgpu.linear_model.penalized._penalized_linear import PenalizedLinearRegression as _PenalizedLinearRegression
 
-# Backward-compat import for legacy implementation
-from statgpu.linear_model.legacy._elasticnet_legacy import ElasticNet as _ElasticNetLegacy  # noqa: F401
 
 class ElasticNet(_PenalizedLinearRegression):
     """Thin sklearn-style wrapper over ``PenalizedLinearRegression`` with Elastic Net penalty."""

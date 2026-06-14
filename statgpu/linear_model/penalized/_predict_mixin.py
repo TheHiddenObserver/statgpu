@@ -18,7 +18,6 @@ if TYPE_CHECKING:
 
 
 class _PenalizedPredictMixin:
-    pass
 
     def _prepare_predict_X(self, X):
         """Apply stored formula design metadata to DataFrame inputs."""

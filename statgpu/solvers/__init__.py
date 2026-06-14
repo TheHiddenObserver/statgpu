@@ -16,26 +16,9 @@ __all__ = [
 ]
 
 from ._convergence import ConvergenceWarning
+from ._fista import fista_solver
+from ._fista_bb import fista_bb_solver
+from ._fista_lla import fista_lla_path
 from ._newton import newton_solver
-
-# Import remaining solvers as they are implemented
-try:
-    from ._fista import fista_solver
-except ImportError:
-    pass
-try:
-    from ._fista_bb import fista_bb_solver
-except ImportError:
-    pass
-try:
-    from ._fista_lla import fista_lla_path
-except ImportError:
-    pass
-try:
-    from ._lbfgs import lbfgs_solver
-except ImportError:
-    pass
-try:
-    from ._admm import admm_solver
-except ImportError:
-    pass
+from ._lbfgs import lbfgs_solver
+from ._admm import admm_solver

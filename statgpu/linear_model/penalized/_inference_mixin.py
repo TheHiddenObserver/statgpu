@@ -16,7 +16,6 @@ if TYPE_CHECKING:
 
 
 class _PenalizedInferenceMixin:
-    pass
 
     def _weighted_gaussian_fit_inputs(self, X, y, sample_weight=None):
         X_np = np.asarray(_to_numpy(X), dtype=float)
