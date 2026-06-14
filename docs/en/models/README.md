@@ -15,6 +15,9 @@ Language switch: [Chinese](../../models/README.md)
 - [Ridge](ridge.md)
 - [Lasso](lasso.md)
 - [ElasticNet](elastic-net.md)
+- [AdaptiveLasso](adaptive-lasso.md) — adaptive L1 penalty with oracle property
+- [SCAD](scad.md) — non-convex penalty with oracle property
+- [MCP](mcp.md) — non-convex penalty with oracle property
 - [LogisticRegression](logistic-regression.md)
 - [Ordered Generalized Linear Models (Logit/Probit)](ordered.md)
 
