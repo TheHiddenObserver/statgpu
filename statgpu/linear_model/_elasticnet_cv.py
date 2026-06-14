@@ -10,7 +10,7 @@ import hashlib
 import numpy as np
 
 from statgpu._config import Device, cuda_available
-from statgpu.linear_model._cv_base import CVEstimatorBase, batch_mse as _batch_mse_cv
+from statgpu.cross_validation._base import CVEstimatorBase, batch_mse as _batch_mse_cv
 from statgpu.backends import get_backend
 from statgpu.linear_model._elasticnet import ElasticNet
 
@@ -97,14 +97,14 @@ def _make_elasticnet_cv_auto_cache_key(
     return h.hexdigest()
 
 
-from statgpu.linear_model._cv_base import hash_cv_data as _hash_data
+from statgpu.cross_validation._base import hash_cv_data as _hash_data
 
 
 # =============================================================================
 # K-fold helpers
 # =============================================================================
 
-from statgpu.linear_model._cv_base import kfold_indices as _kfold_indices, folds_are_complete as _folds_are_complete
+from statgpu.cross_validation._base import kfold_indices as _kfold_indices, folds_are_complete as _folds_are_complete
 
 
 # =============================================================================

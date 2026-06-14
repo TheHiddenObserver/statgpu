@@ -12,7 +12,7 @@ from typing import Optional, Union
 import numpy as np
 
 from statgpu._config import Device
-from statgpu.linear_model._cv_base import CVEstimatorBase
+from statgpu.cross_validation._base import CVEstimatorBase
 from statgpu.linear_model._lasso import (
     Lasso,
     _normalize_lassocv_method,
@@ -21,7 +21,7 @@ from statgpu.linear_model._lasso import (
 
 
 # Shared hash function from _cv_base.py
-from statgpu.linear_model._cv_base import hash_cv_data as _hash_data
+from statgpu.cross_validation._base import hash_cv_data as _hash_data
 
 
 # =============================================================================

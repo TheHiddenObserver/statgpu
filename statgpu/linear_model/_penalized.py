@@ -205,7 +205,7 @@ def _irls_ridge_init_cd(X, y, alpha, max_iter, tol):
 
 
 # Intercept clipping bound for SelectivePenalty proximal operator
-from statgpu.linear_model._cv_base import INTERCEPT_CLIP_BOUND as _INTERCEPT_CLIP_BOUND
+from statgpu.cross_validation._base import INTERCEPT_CLIP_BOUND as _INTERCEPT_CLIP_BOUND
 
 # Eta (linear predictor) clipping bound for numerical stability in GLM link functions.
 # Prevents overflow in exp(eta) for log-link families and sigmoid(eta) for logistic.

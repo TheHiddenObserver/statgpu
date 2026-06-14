@@ -271,7 +271,6 @@ class TestImportPaths:
     def test_new_path_solvers(self):
         from statgpu.solvers import fista_solver, newton_solver  # noqa: F401
 
-    @pytest.mark.xfail(reason="cross_validation/ module created in Phase 2", strict=True)
     def test_new_path_cross_validation(self):
         from statgpu.cross_validation import CVEstimatorBase, kfold_indices  # noqa: F401
 

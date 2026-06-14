@@ -25,7 +25,7 @@ except Exception:
 from statgpu._base import BaseEstimator
 from statgpu.backends import _to_numpy
 from statgpu._config import Device
-from statgpu.linear_model._cv_base import CVEstimatorBase, kfold_indices as _kfold_indices, batch_mse as _batch_mse_cv
+from statgpu.cross_validation._base import CVEstimatorBase, kfold_indices as _kfold_indices, batch_mse as _batch_mse_cv
 from statgpu.backends import get_backend
 from statgpu.inference._distributions_backend import (
     norm,

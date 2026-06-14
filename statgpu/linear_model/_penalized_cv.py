@@ -28,7 +28,7 @@ from statgpu._config import Device
 from statgpu.backends import _to_numpy
 from statgpu.backends._array_ops import _copy_arr, _zeros, _xp_zeros, _soft_threshold
 from statgpu.backends._utils import _to_float_scalar
-from statgpu.linear_model._cv_base import CVEstimatorBase, kfold_indices
+from statgpu.cross_validation._base import CVEstimatorBase, kfold_indices
 
 
 # ---------------------------------------------------------------------------
@@ -319,7 +319,7 @@ def _backend_name_for_cv_device(device):
 
 
 # Import shared utility from _cv_base
-from statgpu.linear_model._cv_base import _torch_cuda_available
+from statgpu.cross_validation._base import _torch_cuda_available
 
 
 def _logistic_sparse_effective_max_iter(max_iter, device, penalty_name, refit=False):
@@ -1234,7 +1234,7 @@ def _squared_error_sparse_cv_path(
 
 # Intercept clipping bound: exp(15) ≈ 3.3M, prevents overflow in link
 # functions while allowing a wide range of intercept values.
-from statgpu.linear_model._cv_base import INTERCEPT_CLIP_BOUND as _INTERCEPT_CLIP_BOUND
+from statgpu.cross_validation._base import INTERCEPT_CLIP_BOUND as _INTERCEPT_CLIP_BOUND
 
 
 class _FeatureOnlySparsePenalty:

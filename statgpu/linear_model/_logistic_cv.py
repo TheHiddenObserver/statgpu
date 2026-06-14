@@ -10,7 +10,7 @@ import hashlib
 import numpy as np
 
 from statgpu._config import Device
-from statgpu.linear_model._cv_base import CVEstimatorBase
+from statgpu.cross_validation._base import CVEstimatorBase
 from statgpu.backends import get_backend, _torch_dev
 from statgpu.linear_model._logistic import LogisticRegression
 
@@ -48,7 +48,7 @@ def _logistic_cv_cache_put(key, value):
             _LOGISTIC_CV_C_CACHE.popitem(last=False)
 
 
-from statgpu.linear_model._cv_base import hash_cv_data as _hash_logistic_data
+from statgpu.cross_validation._base import hash_cv_data as _hash_logistic_data
 
 
 def _make_logistic_cv_auto_cache_key(X, y, Cs, folds, fit_intercept, max_iter, tol, use_gpu, sample_weight=None):
@@ -83,7 +83,7 @@ def _make_logistic_cv_auto_cache_key(X, y, Cs, folds, fit_intercept, max_iter, t
 # K-fold helper (reuse from RidgeCV)
 # =============================================================================
 
-from statgpu.linear_model._cv_base import kfold_indices as _kfold_indices, folds_are_complete as _folds_are_complete
+from statgpu.cross_validation._base import kfold_indices as _kfold_indices, folds_are_complete as _folds_are_complete
 
 
 # =============================================================================

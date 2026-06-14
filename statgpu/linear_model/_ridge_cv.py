@@ -13,7 +13,7 @@ import warnings
 import numpy as np
 
 from statgpu._config import Device
-from statgpu.linear_model._cv_base import CVEstimatorBase
+from statgpu.cross_validation._base import CVEstimatorBase
 from statgpu.backends import get_backend, _torch_dev
 from statgpu.backends._factory import _cupy_backend, _torch_backend
 from statgpu.linear_model._ridge import Ridge
@@ -58,7 +58,7 @@ def _make_ridge_cv_auto_cache_key(X, y, alphas, folds, fit_intercept, use_gpu, s
     Delegates data hashing to shared hash_cv_data() (10M threshold,
     row-index aware), then appends Ridge-specific parameters.
     """
-    from statgpu.linear_model._cv_base import hash_cv_data
+    from statgpu.cross_validation._base import hash_cv_data
     # Shared data hash (10M threshold, row indices for large datasets)
     data_hash = hash_cv_data(X, y, sample_weight)
     # Ridge-specific parameters
@@ -79,7 +79,7 @@ def _make_ridge_cv_auto_cache_key(X, y, alphas, folds, fit_intercept, use_gpu, s
 # K-fold helper
 # =============================================================================
 
-from statgpu.linear_model._cv_base import kfold_indices as _kfold_indices, folds_are_complete as _folds_are_complete, batch_mse as _batch_mse_cv
+from statgpu.cross_validation._base import kfold_indices as _kfold_indices, folds_are_complete as _folds_are_complete, batch_mse as _batch_mse_cv
 
 
 # =============================================================================
@@ -1092,7 +1092,7 @@ class RidgeCV(CVEstimatorBase):
         self : RidgeCV
             Fitted estimator.
         """
-        from statgpu.linear_model._cv_base import validate_cv_sample_weight
+        from statgpu.cross_validation._base import validate_cv_sample_weight
         n_samples = int(X.shape[0]) if hasattr(X, 'shape') else len(X)
         sample_weight = validate_cv_sample_weight(sample_weight, n_samples)
 
