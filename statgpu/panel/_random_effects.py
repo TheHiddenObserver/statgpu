@@ -12,10 +12,9 @@ where ``a_i ~ iid(0, sigma2_a)`` is the individual random effect and
 Note: ``X`` should include a constant column if an intercept is desired;
 the model does not add one automatically.
 """
+from __future__ import annotations
 
 __all__ = ["RandomEffects"]
-
-from __future__ import annotations
 
 import warnings
 from typing import Optional, Union

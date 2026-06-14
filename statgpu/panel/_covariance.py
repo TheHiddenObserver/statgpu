@@ -4,10 +4,9 @@ Clustered covariance estimators for panel data models.
 Implements one-way and two-way clustered standard errors following
 Cameron & Miller (2015) and Cameron, Gelbach & Miller (2011).
 """
+from __future__ import annotations
 
 __all__ = ["clustered_covariance", "two_way_clustered_covariance"]
-
-from __future__ import annotations
 
 from typing import Optional
 
