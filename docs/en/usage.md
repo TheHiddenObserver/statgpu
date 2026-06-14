@@ -1,22 +1,19 @@
-# statgpu Documentation Portal (English Alias)
+# statgpu Documentation Portal (English)
 
 > Language: English  
 > Last updated: 2026-04-15  
-> This page: Compatibility alias  
-> Switch: [Chinese](USAGE_CN.md)
+> Switch: [Chinese](../cn/usage.md)
 
-This file is kept as an alias for compatibility.
-Primary English entrypoint: [USAGE.md](USAGE.md)
-Chinese entrypoint: [USAGE_CN.md](USAGE_CN.md)
+Primary English entrypoint. See also: [Documentation Index](../index.md)
 
 ## 1) Getting Started
 
-- [Quickstart](docs/en/getting-started/quickstart.md)
-- [Device and GPU Memory](docs/en/guides/device-and-memory.md)
-- [Inference Modes (Lasso)](docs/en/guides/inference-modes.md)
-- [Distribution API (GPU Native + Explicit Fallback)](docs/en/guides/distribution-api.md)
-- [Global P-value Combination (Fisher/Cauchy/ACAT)](docs/en/guides/multiple-testing-combine-pvalues.md)
-- [Changelog](docs/en/changelog.md)
+- [Quickstart](getting-started/quickstart.md)
+- [Device and GPU Memory](guides/device-and-memory.md)
+- [Inference Modes (Lasso)](guides/inference-modes.md)
+- [Distribution API (GPU Native + Explicit Fallback)](guides/distribution-api.md)
+- [Global P-value Combination (Fisher/Cauchy/ACAT)](guides/multiple-testing-combine-pvalues.md)
+- [Changelog](changelog.md)
 
 Install note:
 - Choose CuPy wheel by CUDA major version:
@@ -25,9 +22,9 @@ Install note:
 
 ## 2) Model Docs
 
-- [Models Overview](docs/en/models/README.md)
-- [Knockoff Feature Selection](docs/en/models/knockoff.md)
-- [Nonparametric Methods](docs/en/models/nonparametric.md)
+- [Models Overview](models/README.md)
+- [Knockoff Feature Selection](models/knockoff.md)
+- [Nonparametric Methods](models/nonparametric.md)
 
 Implemented estimators:
 - `LinearRegression`
@@ -61,7 +58,7 @@ Inference highlights:
 
 ## 3) Benchmarks and Validation
 
-- [Benchmark Index](docs/en/guides/benchmarks.md)
+- [Benchmark Index](guides/benchmarks.md)
 
 Primary scripts:
 - `dev/benchmarks/benchmark_lasso_inference_gpu_vs_cpu.py`
@@ -93,6 +90,6 @@ python dev/benchmarks/benchmark_all_methods_large_scale.py \
 
 - For performance reports, include: device info, data shape, `repeats/warmup`, and whether inference is timed.
 - If you add new features, also update:
-  - `docs/en/models/*.md`
-  - `docs/en/guides/benchmarks.md`
-  - `docs/en/changelog.md`
+  - `models/*.md`
+  - `guides/benchmarks.md`
+  - `changelog.md`

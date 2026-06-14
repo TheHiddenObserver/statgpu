@@ -2,7 +2,10 @@
 
 **创建日期**: 2026-04-19  
 **作者**: TheHiddenObserver  
-**状态**: 规划阶段
+**状态**: 🔶 核心实现 (~40%)
+
+> 已实现: `CoxPH` (Breslow/Efron ties, robust SE HC0-HC1, cluster-robust, C-index, baseline hazard, AIC/BIC), `CoxPHCV` (骨架)
+> 缺失: strata, frailty, time-varying covariates, Cox 回报 (CoxBoost), 竞争风险 (Fine-Gray)
 
 ---
 
