@@ -35,15 +35,14 @@ All 7 GLM families support penalties through `PenalizedGeneralizedLinearModel` o
 For Gamma, InverseGaussian, NegativeBinomial, and Tweedie with penalties, use `PenalizedGeneralizedLinearModel(loss=..., penalty=...)`:
 
 ```python
+import numpy as np
+from scipy import stats
 from statgpu.linear_model import PenalizedGeneralizedLinearModel
-from statgpu.inference import get_distribution
 
-# Use statgpu's distribution API for data generation
-norm = get_distribution("norm", backend="numpy")
-pois = get_distribution("poisson", backend="numpy")
-
-X = norm.rvs(size=(2000, 20))
-y = pois.rvs(mu=3.0, size=2000).astype(float)
+# Generate data using scipy (compatible with statgpu's distribution API)
+rng = np.random.default_rng(42)
+X = rng.standard_normal((2000, 20))
+y = stats.poisson.rvs(mu=3.0, size=2000).astype(float)
 
 # Gamma + SCAD with auto solver selection
 model = PenalizedGeneralizedLinearModel(loss="gamma", penalty="scad", alpha=0.1, solver="auto")
@@ -59,8 +58,7 @@ model = PenalizedGeneralizedLinearModel(
 model.fit(X, y)
 
 # Tweedie + group_lasso with sample_weight
-uniform = get_distribution("uniform", backend="numpy")
-sw = uniform.rvs(size=len(y)) * 0.5 + 0.5  # uniform(0.5, 1.5)
+sw = rng.uniform(0.5, 1.5, size=len(y))
 model = PenalizedGeneralizedLinearModel(
     loss="tweedie", penalty="group_lasso",
     loss_kwargs={"power": 1.5},

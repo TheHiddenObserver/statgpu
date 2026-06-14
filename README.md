@@ -76,62 +76,34 @@ pip install statgpu[formula]
 
 ```python
 import numpy as np
-from statgpu.linear_model import LinearRegression, Lasso
-from statgpu import adjust_pvalues, combine_pvalues, permutation_test
+from scipy import stats
+from statgpu.linear_model import LinearRegression, Lasso, PenalizedGLM_CV
+from statgpu import adjust_pvalues, combine_pvalues
 
 # Generate data
-X = np.random.randn(10000, 100)
-y = X @ np.random.randn(100) + 5
+rng = np.random.default_rng(42)
+X = rng.standard_normal((10000, 100))
+y = X @ rng.standard_normal(100) + rng.standard_normal(10000) * 0.5
 
-# Fit with GPU
+# Linear regression with GPU
 model = LinearRegression(device='cuda')
 model.fit(X, y)
+print(f"R²: {model.score(X, y):.4f}")
 
-# Predict
-y_pred = model.predict(X)
-print(f"R² score: {model.score(X, y):.4f}")
-
-# Lasso with GPU-side inference and optional VRAM cleanup
-lasso = Lasso(
-    alpha=0.1,
-    device='cuda',
-    inference_method='gpu_ols_inference',
-    gpu_memory_cleanup=True,
+# Penalized GLM with cross-validation
+cv_model = PenalizedGLM_CV(
+    loss="poisson", penalty="elasticnet", l1_ratio=0.5,
+    cv=5, device="cpu",
 )
-lasso.fit(X, y)
+y_pois = stats.poisson.rvs(mu=np.exp(X[:, :5] @ np.ones(5) * 0.1))
+cv_model.fit(X[:, :5], y_pois)
+print(f"Best alpha: {cv_model.alpha_:.4f}")
 
-# Multiple-testing adjustment (BH/BY/Holm/Bonferroni/Hochberg)
+# Multiple-testing correction
 reject, pvals_adj = adjust_pvalues(np.array([0.003, 0.02, 0.5]), method='bh')
 
-# Global p-value combination (Fisher/Cauchy/Stouffer)
+# Global p-value combination
 stat, p_global = combine_pvalues(np.array([0.01, 0.07, 0.03, 0.40]), method='fisher')
-
-# Permutation test helper
-p = permutation_test(
-  lambda X_, y_: np.corrcoef(X_[:, 0], y_)[0, 1],
-  X[:, :1],
-  y,
-  n_resamples=200,
-  random_state=0,
-).pvalue
-
-# Knockoff feature selection with Torch GPU
-from statgpu import fixed_x_knockoff_filter
-import torch
-
-X_knock = np.random.randn(1000, 50)
-y_knock = X_knock[:, :10] @ np.ones(10) + np.random.randn(1000)
-
-# Torch GPU backend for knockoff (faster on large datasets)
-X_torch = torch.from_numpy(X_knock).to('cuda')
-y_torch = torch.from_numpy(y_knock).to('cuda')
-
-result = fixed_x_knockoff_filter(
-    X_torch, y_torch,
-    q=0.1, method='lasso_coef_diff',
-    backend='torch', random_state=42
-)
-print(f"Selected features: {result.selected_features}")
 ```
 
 ## Device Control
