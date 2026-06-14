@@ -1,8 +1,8 @@
 """Ledoit-Wolf and Oracle Approximating Shrinkage (OAS) covariance estimators."""
 
-__all__ = ["LedoitWolf", "OAS"]
-
 from __future__ import annotations
+
+__all__ = ["LedoitWolf", "OAS"]
 
 from typing import Optional, Union
 
