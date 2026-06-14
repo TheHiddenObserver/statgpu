@@ -43,7 +43,7 @@ GPU-accelerated statistical methods with sklearn-compatible API.
 | Category | Classes | Highlights |
 |---|---|---|
 | **Regression & GLM** | 12 classes | LinearRegression, Ridge, Lasso, ElasticNet, Logistic, Poisson, Gamma, InvGauss, NB, Tweedie, Ordered models |
-| **Penalized GLM** | 4 classes | 7 families × 10 penalties × 6 solvers × 3 backends |
+| **Penalized GLM** | 8 classes | PenalizedGLM + 7 family wrappers (Linear, Logistic, Poisson, Gamma, InvGauss, NB, Tweedie) × 10 penalties × 6 solvers |
 | **Cross-Validation** | 6 classes | RidgeCV, LassoCV, ElasticNetCV, LogisticCV, PenalizedGLM_CV, CoxPHCV |
 | **ANOVA** | 1 function | `f_oneway` — GPU-accelerated |
 | **Covariance** | 3 classes | EmpiricalCovariance, LedoitWolf, OAS |
