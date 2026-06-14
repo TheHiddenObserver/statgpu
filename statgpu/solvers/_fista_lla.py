@@ -12,12 +12,14 @@ import warnings
 import numpy as np
 
 from statgpu.backends import _resolve_backend, _to_numpy
-from statgpu.backends._utils import _to_float_scalar, xp_ones
+from statgpu.backends._utils import _to_float_scalar, _get_xp, xp_ones
 from statgpu.backends._array_ops import (
     _abs_sum_dev,
     _clip_grad_on_device,
     _copy_arr,
+    _dot_dev,
     _norm2_dev,
+    _sum_sq_dev,
     _sync_scalars,
     _zeros,
 )
