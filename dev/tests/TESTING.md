@@ -6,7 +6,7 @@
 
 ```bash
 # From project root
-python -m pytest statgpu/tests/ -v
+python -m pytest dev/tests -v
 
 # Run specific module tests
 python dev/tests/test_ridge_cv.py
@@ -23,29 +23,30 @@ Remote tests require SSH access to a GPU server. See `dev/README.md` for connect
 python dev/tests/test_v10_import_smoke.py
 
 # Full backend comparison
-python dev/tests/test_backend_comparison.py
+python dev/tests/test_backends.py
 
 # Specific feature tests
-python dev/tests/test_coxph_cv.py
+python dev/tests/test_cox_cv.py
 python dev/tests/test_elasticnet_cv.py
 ```
 
 ### Test Categories
 
+Files marked with * are git-tracked and available in a clean checkout. Others are local-only (gitignored).
+
 | Category | Files | Description |
 |----------|-------|-------------|
-| Core models | `test_ridge_cv.py`, `test_logistic.py`, `test_linear.py` | Basic model correctness |
-| GLM family | `test_cox.py`, `test_cox_cv.py`, `test_coxph_cv.py` | Cox proportional hazards |
-| Penalties | `test_penalties_and_exports.py`, `test_penalties_phase1.py` | L1/L2/SCAD/MCP/Group |
-| Inference | `test_inference_*.py` (4 files) | KDE, multiple testing, resampling, performance guard |
-| Unsupervised | `test_unsupervised_*.py` (11 files) | PCA, KMeans, DBSCAN, tSNE, UMAP, NMF, GMM, etc. |
-| Backend | `test_backend_comparison.py`, `test_backends.py` | CuPy/Torch/NumPy parity |
-| Feature selection | `test_feature_selection_knockoff.py` | Knockoff FDR control |
-| Nonparametric | `test_nonparametric_kernel_regression.py` | Kernel regression |
-| External consistency | `test_external_consistency.py` | sklearn/statsmodels compatibility |
-| Torch backend | `test_torch_backend_cv.py`, `test_torch_backend_full.py` | Torch-specific tests |
-| Cross-backend | `test_ordered_cross_backend.py` | Ordered logit across backends |
-| Smoke | `test_v10_import_smoke.py` | Quick import sanity check |
+| Core models | `test_ridge_cv.py`*, `test_logistic.py`*, `test_linear.py`* | Basic model correctness |
+| GLM family | `test_cox.py`*, `test_cox_cv.py`* | Cox proportional hazards |
+| Penalties | `test_penalties_and_exports.py`* | L1/L2/SCAD/MCP/Group |
+| Inference | `test_inference_*.py`* (4 files) | KDE, multiple testing, resampling, performance guard |
+| Unsupervised | `test_unsupervised_*.py`* (11 files) | PCA, KMeans, DBSCAN, tSNE, UMAP, NMF, GMM, etc. |
+| Backend | `test_backends.py`* | CuPy/Torch/NumPy parity |
+| Feature selection | `test_feature_selection_knockoff.py`* | Knockoff FDR control |
+| Nonparametric | `test_nonparametric_kernel_regression.py`* | Kernel regression |
+| External consistency | `test_external_consistency.py`* | sklearn/statsmodels compatibility |
+| Cross-backend | `test_ordered_cross_backend.py`* | Ordered logit across backends |
+| Smoke | `test_v10_import_smoke.py`* | Quick import sanity check |
 
 ## Remote Testing Workflow
 

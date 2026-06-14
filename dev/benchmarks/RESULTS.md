@@ -61,8 +61,7 @@ Eliminated per-iteration GPU→CPU synchronization in FISTA loop. Activates for 
 
 ## Data Files
 
-- `dev/results/` — Knockoff benchmark results (JSON)
-- `dev/benchmarks/results.json` — General benchmark results
-- `dev/benchmarks/results_glm_gpu.json` — GLM GPU benchmarks
-- `dev/benchmarks/results_knockoff.json` — Knockoff benchmarks
+- `results/` — Tracked benchmark results (JSON, Markdown)
+- `dev/results/` — Additional benchmark data (local only, gitignored)
+- `dev/benchmarks/*.json` — Detailed benchmark data (local only, gitignored)
 - `dev/comparisons/` — R vs Python comparison scripts and data
