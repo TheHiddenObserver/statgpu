@@ -110,9 +110,73 @@
 
 ## 2026-04
 
+### 新增 (2026-04-03 ~ 2026-04-07)
+
+- **PR #1 — CoxPH 聚类稳健协方差**:
+  - 新增 `cov_type="cluster"` 用于分组 sandwich 协方差估计
+  - Breslow tie 处理改进
+  - 新增 CoxPH 基准测试脚本
+
+- **PR #2 — 运行时比较表**:
+  - 跨 CPU/GPU 和外部框架的可复现运行时比较表
+
+- **PR #3 — 基准测试结构重构**:
+  - 重构基准测试结构并更新文档
+
+- **PR #4 — 可插拔后端抽象**:
+  - BackendBase ABC + NumPy/CuPy/Torch 实现
+  - 移除冗余模型实现（两个 LinearRegression 类、三个 Ridge 变体）
+  - 多后端支持的清晰路径
+
+- **PR #5 — Ridge 推断支持**:
+  - 与 LinearRegression 完整推断对齐
+  - `cov_type`: nonrobust/hc0/hc1 (CPU + GPU)
+  - `summary()`, `rsquared_adj`, `fvalue`, `f_pvalue`, `llf`, `aic`, `bic`
+
+- **PR #6 — Logistic Regression 评估指标**:
+  - 综合评估指标：ROC, AUC, 混淆矩阵
+  - `evaluate_binary_classification` 函数
+
+- **PR #7, #8 — Bug 修复和实验结果**:
+  - 各种 bug 修复
+  - 更新实验结果
+
+### 新增 (2026-04-11 ~ 2026-04-15)
+
+- **PR #10 — HAC 协方差支持**:
+  - LinearRegression 和 LogisticRegression 的 HAC 协方差
+  - Newey-West 带宽选择
+
+- **PR #11 — 新模型文档**:
+  - Knockoff 特征选择文档
+  - 新模型文档
+
+- **PR #12 — 分布兼容层**:
+  - 旧版分布函数兼容
+  - 重构推断方法
+
+- **PR #13 — F 检验 p 值处理**:
+  - 完美拟合 F 检验 p 值处理
+  - Lasso p 值计算边界情况
+
+- **PR #14 — 核回归 + Lasso GPU 优化**:
+  - 非参数核方法：KDE, 核回归
+  - Lasso GPU 计算优化
+  - 广泛验证和基准测试
+
+- **PR #15 — Lasso 推断 GPU 支持**:
+  - Lasso 去偏推断 GPU 支持
+  - Ridge 推断 GPU/CPU 比较容差放宽
+  - 增强 CoxPH 和 Knockoff 文档
+
 ### 新增 (2026-04-26)
 
-- **Phase 1: Ordered 模型跨后端精度修复**:
+- **PR #24 — 精度修复、hochberg/stouffer、包重组**:
+  - Phase 1: Ordered 模型跨后端精度修复
+
+- **PR #26 — README 刷新**:
+  - 重组功能、添加模型、推荐可编辑安装
+  - 导出 combine_pvalues
   - CuPy 收敛容差对齐：`gtol = 1e-6` → `gtol = self.tol`（与 scipy 一致）
   - CuPy 最小迭代次数从 30 降到 5（小样本下不再被迫多跑无用迭代）
   - 移除 CuPy warm-start 分支，始终从零初始化（与 scipy/torch 一致）
@@ -153,6 +217,18 @@
 
 ### 新增 (2026-04-21)
 
+- **PR #19 — Cython Efron 优化**:
+  - Cython 优化 Efron 梯度和 Hessian 计算
+  - CoxPH 精度和运行时综合基准测试
+
+- **PR #21 — 分布后端统一**:
+  - 将 `_distributions_gpu.py`, `_distributions_torch.py` 合并为单一 `_distributions_backend.py`
+  - 通过 `SpecialFunctions` 协议和工厂模式覆盖 3 后端 15 个分布
+
+- **PR #22 — 后端工具整合**:
+  - 整合重复的后端工具函数
+  - 更清晰的后端抽象层
+
 - **CoxPHCV 从接口骨架升级为可训练版本**:
   - 已实现 penalty 网格搜索（K-fold）与最佳 penalty 全量重训流程
   - 支持 `ties='breslow'/'efron'` 与现有 `device` 路径（通过 `CoxPH` 后端执行）
@@ -190,6 +266,14 @@
 
 ### 新增 (2026-04-20)
 
+- **PR #18 — 远程配置 + 后端增强**:
+  - 移除硬编码 SSH 凭据
+  - 新增远程配置模块
+  - 后端增强
+
+- **PR #20 — CoxPHCV CuPy 优化**:
+  - 优化 CoxPHCV CuPy Hessian 路径和默认值
+
 - **CoxPH Efron 实现修复与性能优化**:
   - 修复 Cython Efron 梯度/海森矩阵计算中的数值溢出问题，添加 clipping 保护 (`MAX_LINPRED=700`, `MIN_LINPRED=-700`)
   - 发现 Cython 编译版本存在正确性问题，暂时使用 Python fallback 实现（已验证与数值梯度一致）
@@ -210,6 +294,15 @@
     - `results/coxph_benchmark_report_2026-04-20.md` - 综合性能对比报告
 
 ### 新增 (2026-04-18)
+
+- **PR #16 — Torch 后端支持**:
+  - 全面 PyTorch 后端集成
+  - 与 NumPy 和 CuPy 后端功能对齐
+  - 内存管理改进
+
+- **PR #17 — Elastic Net 实现**:
+  - 优化 Elastic Net + 基准测试
+  - statgpu vs sklearn 比较
 
 - **Elastic Net 实现与基准测试**:
   - 新增 `ElasticNet` 类，结合 L1 和 L2 正则化，使用 FISTA 求解器

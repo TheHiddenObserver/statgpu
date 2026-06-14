@@ -118,9 +118,73 @@ Language switch: [Chinese](../changelog.md)
 
 ## 2026-04
 
+### Added (2026-04-03 ~ 2026-04-07)
+
+- **PR #1 — CoxPH cluster-robust covariance**:
+  - Added `cov_type="cluster"` for grouped sandwich covariance estimation
+  - Breslow tie handling improvements
+  - New benchmarking scripts for CoxPH
+
+- **PR #2 — Runtime comparison tables**:
+  - Reproducible runtime comparison tables across CPU/GPU and external frameworks
+
+- **PR #3 — Benchmark structure refactor**:
+  - Refactored benchmark structure and updated documentation
+
+- **PR #4 — Pluggable backends abstraction**:
+  - BackendBase ABC with NumPy/CuPy/Torch implementations
+  - Removed redundant model implementations (two LinearRegression classes, three Ridge variants)
+  - Clean path for multi-backend support
+
+- **PR #5 — Ridge inference support**:
+  - Full inference parity with LinearRegression
+  - `cov_type`: nonrobust/hc0/hc1 (CPU + GPU)
+  - `summary()`, `rsquared_adj`, `fvalue`, `f_pvalue`, `llf`, `aic`, `bic`
+
+- **PR #6 — Logistic Regression evaluation metrics**:
+  - Comprehensive evaluation metrics: ROC, AUC, confusion matrix
+  - `evaluate_binary_classification` function
+
+- **PR #7, #8 — Bug fixes and experiment results**:
+  - Various bug fixes
+  - Updated experiment results
+
+### Added (2026-04-11 ~ 2026-04-15)
+
+- **PR #10 — HAC covariance support**:
+  - HAC covariance for LinearRegression and LogisticRegression
+  - Newey-West bandwidth selection
+
+- **PR #11 — Documentation for new models**:
+  - Knockoff feature selection documentation
+  - New model documentation
+
+- **PR #12 — Distribution compatibility layer**:
+  - Legacy distribution function compatibility
+  - Refactored inference methods
+
+- **PR #13 — F-test p-value handling**:
+  - Perfect fit F-test p-value handling
+  - Lasso p-value calculation edge cases
+
+- **PR #14 — Kernel regression + Lasso GPU optimization**:
+  - Nonparametric kernel methods: KDE, kernel regression
+  - Lasso GPU computation optimization
+  - Extensive validation and benchmarks
+
+- **PR #15 — Lasso inference GPU support**:
+  - Lasso debiased inference with GPU support
+  - Ridge inference GPU/CPU comparison tolerance relaxed
+  - Enhanced CoxPH and Knockoff documentation
+
 ### Added (2026-04-26)
 
-- **Phase 1: Ordered Model Cross-Backend Precision Fixes**:
+- **PR #24 — Precision fixes, hochberg/stouffer, package restructure**:
+  - Phase 1: Ordered Model Cross-Backend Precision Fixes
+
+- **PR #26 — README refresh**:
+  - Reorganized features, added models, recommended editable install
+  - Exported combine_pvalues
   - CuPy convergence tolerance aligned: `gtol = 1e-6` → `gtol = self.tol` (matches scipy)
   - CuPy min iterations reduced from 30 to 5 (avoids forced extra iterations on small samples)
   - Removed CuPy warm-start branch, always initialize from zero (matches scipy/torch)
@@ -161,6 +225,18 @@ Language switch: [Chinese](../changelog.md)
 
 ### Added (2026-04-21)
 
+- **PR #19 — Cython Efron optimization**:
+  - Cython-optimized Efron gradient and Hessian computation
+  - Comprehensive CoxPH accuracy and runtime benchmarks
+
+- **PR #21 — Distribution backends unification**:
+  - Consolidated `_distributions_gpu.py`, `_distributions_torch.py` into single `_distributions_backend.py`
+  - 15 distributions across 3 backends via `SpecialFunctions` protocol and factory pattern
+
+- **PR #22 — Backend utility consolidation**:
+  - Consolidated duplicated backend utility functions
+  - Cleaner backend abstraction layer
+
 - **CoxPHCV upgraded from skeleton to trainable implementation**:
   - Implemented K-fold penalty search and final refit on full data
   - Supports `ties='breslow'/'efron'` with existing `device` paths (executed via `CoxPH` backends)
@@ -198,6 +274,14 @@ Language switch: [Chinese](../changelog.md)
 
 ### Added (2026-04-20)
 
+- **PR #18 — Remote config + backend enhancements**:
+  - Removed hardcoded SSH credentials
+  - Added remote config module
+  - Backend enhancements
+
+- **PR #20 — CoxPHCV CuPy optimization**:
+  - Optimized CoxPHCV CuPy Hessian path and defaults
+
 - **CoxPH Efron Implementation Fix and Performance Optimization**:
   - Fixed numerical overflow in Cython Efron gradient/Hessian computation with clipping protection (`MAX_LINPRED=700`, `MIN_LINPRED=-700`)
   - Identified correctness issues in compiled Cython version, temporarily using Python fallback (verified against numeric gradient)
@@ -218,6 +302,15 @@ Language switch: [Chinese](../changelog.md)
     - `results/coxph_benchmark_report_2026-04-20.md` - Comprehensive benchmark report
 
 ### Added (2026-04-18)
+
+- **PR #16 — Torch backend support**:
+  - Comprehensive PyTorch backend integration
+  - Feature parity with NumPy and CuPy backends
+  - Memory management improvements
+
+- **PR #17 — Elastic Net implementation**:
+  - Optimized Elastic Net with benchmarks
+  - statgpu vs sklearn comparison
 
 - **Elastic Net Implementation and Benchmarks**:
   - New `ElasticNet` class combining L1 and L2 regularization with FISTA solver
