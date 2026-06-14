@@ -37,15 +37,19 @@ GPU-accelerated statistical methods with sklearn-compatible API.
 
 ### Linear and GLM Models
 - `statgpu.linear_model.LinearRegression`
-- `statgpu.linear_model.GeneralizedLinearModel`
+- `statgpu.linear_model.GeneralizedLinearModel` — base class for all GLM families
 - `statgpu.linear_model.PoissonRegression`
-- `statgpu.linear_model.PenalizedLinearRegression`
-- `statgpu.linear_model.PenalizedLogisticRegression`
-- `statgpu.linear_model.PenalizedPoissonRegression`
+- `statgpu.linear_model.GammaRegression` — Gamma GLM with log/inverse-power links
+- `statgpu.linear_model.InverseGaussianRegression` — Inverse Gaussian GLM
+- `statgpu.linear_model.NegativeBinomialRegression` — Negative Binomial GLM (configurable dispersion α)
+- `statgpu.linear_model.TweedieRegression` — Tweedie GLM (configurable power p)
+- `statgpu.linear_model.PenalizedGeneralizedLinearModel` — 7 families × 10 penalties × 3 backends
+- `statgpu.linear_model.PenalizedLinearRegression` — squared_error + penalty
+- `statgpu.linear_model.PenalizedLogisticRegression` — logistic + penalty
+- `statgpu.linear_model.PenalizedPoissonRegression` — poisson + penalty
 - `statgpu.linear_model.Ridge` ✅ (Torch backend)
 - `statgpu.linear_model.Lasso` ✅ (Torch backend)
 - `statgpu.linear_model.ElasticNet`
-- `statgpu.linear_model.LassoCV`
 - `statgpu.linear_model.LogisticRegression` ✅ (Torch backend)
 - `statgpu.linear_model.OrderedLogitRegression` ✅ (3 backends)
 - `statgpu.linear_model.OrderedProbitRegression` ✅ (3 backends)
@@ -80,7 +84,10 @@ GPU-accelerated statistical methods with sklearn-compatible API.
 
 ### CV Classes (✅ = implemented and trainable)
 - `statgpu.linear_model.RidgeCV` ✅ (GPU-accelerated cross-validation)
+- `statgpu.linear_model.LassoCV` ✅ (warm-start alpha path)
+- `statgpu.linear_model.ElasticNetCV` ✅ (l1_ratio + alpha grid)
 - `statgpu.linear_model.LogisticRegressionCV` ✅ (GPU-accelerated cross-validation)
+- `statgpu.linear_model.PenalizedGLM_CV` ✅ (unified CV for all 7 GLM losses × 10 penalties)
 - `statgpu.survival.CoxPHCV` ✅ (CV penalty search + final refit; `entry`/`cluster` not yet supported)
 
 ## Installation
@@ -110,13 +117,18 @@ pip install statgpu[formula]
 
 - Full model documentation: `docs/en/models/generalized-linear-model.md` / `docs/models/generalized-linear-model.md`
 - `statgpu.glm_core` is the GLM-specific core layer; `statgpu.losses` is not a compatibility namespace.
+- **7 GLM families**: squared_error, logistic, poisson, gamma, inverse_gaussian, negative_binomial, tweedie
+- **10 penalties**: none, l1, l2, elasticnet, scad, mcp, adaptive_l1, group_lasso, group_mcp, group_scad
+- **6 solvers**: exact, newton, lbfgs, irls, fista, fista_bb
+- **3 backends**: CPU (NumPy), CuPy (CUDA), PyTorch (CUDA)
+- `PenalizedGLM_CV` provides unified cross-validation for all loss × penalty combinations.
 - `Ridge`, `Lasso`, and `ElasticNet` are thin sklearn-style wrappers over typed penalized gaussian regression.
 - `Ridge` supports `solver="exact"` for the closed-form L2 solution.
-- Use `PenalizedLogisticRegression` and `PenalizedPoissonRegression` for typed penalized GLMs.
-- For L2 logistic/poisson, `solver="auto"` is device-aware: CPU uses IRLS, while CuPy/Torch GPU uses FISTA; explicit `irls`/`newton`/`lbfgs` stay on the selected backend when valid.
-- Explicit `device="cuda"` or `device="torch"` never silently falls back to CPU; unavailable GPU dependencies raise clear errors.
+- `solver="auto"` routes: smooth penalties → IRLS, non-smooth → FISTA, non-convex → LLA+FISTA.
+- Explicit `device="cuda"` or `device="torch"` never silently falls back to CPU.
+- `sklearn.base.clone()` is supported for all estimators (verified via `get_params` round-trip).
 - Formula fitting is optional and uses patsy, for example `model.fit(formula="y ~ x1 + C(group)", data=df)`.
-- Local checks are import/smoke only; CPU/GPU accuracy and runtime comparisons run on the remote `myconda` environment.
+- Benchmark: **1043/1043 ALL PASS** (v23c full matrix, 7 families × 10 penalties × 3 backends).
 
 ### PyTorch Backend Requirements
 
@@ -218,6 +230,57 @@ result = fixed_x_knockoff_filter(
     backend='torch', random_state=42
 )
 print(f"Selected features: {result.selected_features}")
+```
+
+## GLM + Penalty Example
+
+```python
+import numpy as np
+from statgpu.linear_model import (
+    PenalizedGLM_CV,
+    PenalizedLogisticRegression,
+    PoissonRegression,
+    GammaRegression,
+    NegativeBinomialRegression,
+)
+
+# Generate Poisson data
+rng = np.random.default_rng(42)
+X = rng.standard_normal((2000, 20))
+beta = np.zeros(20); beta[:5] = [2, -1.5, 1, -0.5, 0.3]
+y = rng.poisson(np.exp(X @ beta))
+
+# PenalizedGLM_CV: unified CV for any loss × penalty
+model = PenalizedGLM_CV(
+    loss="poisson",
+    penalty="elasticnet",
+    l1_ratio=0.5,
+    n_alphas=50,
+    cv=5,
+    device="cpu",  # or "cuda" for GPU
+)
+model.fit(X, y)
+print(f"Best alpha: {model.alpha_:.4f}")
+print(f"Non-zero coefficients: {np.sum(np.abs(model.coef_) > 1e-6)}")
+print(f"Score: {model.score(X, y):.4f}")
+
+# Negative Binomial with custom dispersion
+nb_model = PenalizedGLM_CV(
+    loss="negative_binomial",
+    penalty="l1",
+    loss_kwargs={"alpha": 2.0},  # custom dispersion
+    device="cpu",
+)
+nb_model.fit(X, y)
+
+# Direct model usage (no CV)
+poisson = PoissonRegression(alpha=0.1, device="cpu")
+poisson.fit(X, y)
+print(f"Poisson coef[:3]: {poisson.coef_[:3]}")
+
+gamma = GammaRegression(alpha=0.05, device="cpu")
+gamma.fit(X, np.abs(y) + 1)
+print(f"Gamma coef[:3]: {gamma.coef_[:3]}")
 ```
 
 ## Device Control
