@@ -97,6 +97,18 @@ def _coxcv_cache_put(cache_key: Optional[str], value: Dict[str, Any]) -> None:
         _COXPH_CV_CACHE.popitem(last=False)
 
 
+def _sample_hash(h, arr, max_rows=50):
+    """Hash a sampled subset of an array for cache key generation."""
+    arr_np = np.asarray(arr, dtype=np.float64).ravel()
+    n = arr_np.shape[0]
+    if n <= max_rows:
+        h.update(arr_np.tobytes())
+    else:
+        # Sample first, middle, and last rows
+        indices = np.concatenate([np.arange(max_rows//2), np.arange(n-max_rows//2, n)])
+        h.update(arr_np[indices].tobytes())
+
+
 def _make_coxph_cv_auto_cache_key(
     X_shape: Tuple[int, ...],
     time_shape: Tuple[int, ...],
@@ -120,6 +132,9 @@ def _make_coxph_cv_auto_cache_key(
     fast_tol: float,
     max_iter: int,
     tol: float,
+    X_data=None,
+    time_data=None,
+    event_data=None,
 ) -> str:
     """
     Generate automatic cache key for CoxPH CV.
@@ -132,6 +147,13 @@ def _make_coxph_cv_auto_cache_key(
     h.update(np.asarray(X_shape, dtype=np.int64).tobytes())
     h.update(np.asarray(time_shape, dtype=np.int64).tobytes())
     h.update(np.asarray(event_shape, dtype=np.int64).tobytes())
+    # Include sampled data content to avoid collisions across datasets with same shape
+    if X_data is not None:
+        _sample_hash(h, X_data, max_rows=50)
+    if time_data is not None:
+        _sample_hash(h, time_data, max_rows=50)
+    if event_data is not None:
+        _sample_hash(h, event_data, max_rows=50)
     if penalties is not None:
         h.update(np.asarray(penalties, dtype=np.float64).tobytes())
     h.update(str(n_penalties).encode("utf-8"))
@@ -277,7 +299,20 @@ def _compute_partial_likelihood(
         Log partial likelihood value.
     """
     if coef is None or np.all(coef == 0):
-        return 0.0
+        # Null model: compute log partial likelihood at beta=0
+        # L(0) = sum_events[0 - log(sum_{j in R(t_i)} exp(0))] = sum_events[-log(|R(t_i)|)]
+        order = np.argsort(time)
+        time_sorted = time[order]
+        event_sorted = event[order]
+        risk_scores = np.zeros(n)
+        exp_risk = np.ones(n)
+        null_ll = 0.0
+        for i in range(n):
+            if event_sorted[i]:
+                risk_set_size = np.sum(np.exp(risk_scores[order[i]:]))
+                if risk_set_size > 0:
+                    null_ll -= np.log(risk_set_size)
+        return null_ll
 
     risk_scores = X @ coef
     exp_risk = np.exp(risk_scores)
@@ -545,6 +580,9 @@ def _select_coxph_penalty_cv(
             X_shape=X_np.shape,
             time_shape=time_np.shape,
             event_shape=event_np.shape,
+            X_data=X_np,
+            time_data=time_np,
+            event_data=event_np,
             penalties=penalties,
             n_penalties=n_penalties,
             penalty_min_ratio=penalty_min_ratio,

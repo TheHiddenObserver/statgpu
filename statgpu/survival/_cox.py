@@ -21,7 +21,12 @@ except ImportError:
     HAS_CYTHON_EFRON = False
     _efron_grad_hess_cython = None
 
-from statgpu.survival._cox_efron_triton import _find_p_ce
+try:
+    from statgpu.survival._cox_efron_triton import _find_p_ce
+    HAS_TRITON_EFRON = True
+except ImportError:
+    HAS_TRITON_EFRON = False
+    _find_p_ce = None
 
 
 def _unpack_efron_pre6(efron_pre):
@@ -584,7 +589,20 @@ class CoxPH(BaseEstimator):
             self._cindex = None
 
     def _fit_cpu_with_entry(self, X, time, event, entry, cluster=None):
-        """Fit using statsmodels PHReg when delayed entry is provided."""
+        """Fit using statsmodels PHReg when delayed entry is provided.
+
+        Note: L2 penalty is not applied in this path (statsmodels PHReg
+        does not support penalized fitting). A warning is emitted when
+        penalty is specified.
+        """
+        if self.penalty is not None and str(getattr(self.penalty, 'name', 'none')).lower() not in ('none', 'null', ''):
+            import warnings
+            warnings.warn(
+                "CoxPH with entry (delayed entry) does not support penalties via "
+                "statsmodels PHReg. The penalty will be ignored. "
+                "Use the GPU/torch path for penalized Cox with delayed entry.",
+                UserWarning, stacklevel=3,
+            )
         import statsmodels.duration.api as smd
 
         n_samples, n_features = X.shape
