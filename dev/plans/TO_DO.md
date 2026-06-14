@@ -104,6 +104,15 @@
 2. Oracle 推断（对选中变量做 unpenalized refit，实现简单）
 3. Debiased 推断（high-dimensional 场景，实现复杂度高）
 
+### P2: Penalized 子类 API 完善
+
+- [ ] `_penalized_poisson.py` / `_penalized_gamma.py` / `_penalized_inverse_gaussian.py` / `_penalized_negative_binomial.py` / `_penalized_tweedie.py`：补充缺失的构造函数参数（`cpu_solver`, `lipschitz_L`, `gpu_memory_cleanup`, `inference_method`, `stopping`, `lla`, `max_lla_iters`, `lla_tol`），当前这些参数只能通过父类默认值使用
+- [ ] `_penalized_logistic.py`：补充 `inference_method` 参数（当前只有 `compute_inference`，无法选择 debiased/bootstrap）
+- [ ] `_predict_mixin.py` `score()` 与 `predict()` 的设备解析逻辑不一致：`score()` 用 `_get_compute_device()`，`predict()` 用 `_prediction_backend_name()`，应统一
+- [ ] `_predict_mixin.py` `_prepare_predict_X()` 强制转 numpy 导致 GPU→CPU→GPU 不必要的往返
+- [ ] `_fit_mixin.py` `_fit_irls_backend()` 中首次 `init_coef` 创建后立即被覆盖（dead allocation）
+- [ ] `_fit_mixin.py` `_fit_cpu()` 中 `solver_name == "admm"` 分支存在 dead code
+
 ### P2: 新模块扩展
 
 **anova/** (15% → 目标 60%):

@@ -36,7 +36,10 @@ class _PenalizedPredictMixin:
                 col_names = list(self._design_info.column_names)
                 if self._formula_has_intercept and "Intercept" in col_names:
                     X = np.delete(X, col_names.index("Intercept"), axis=1)
-        return np.asarray(X)
+            # Formula processing produces numpy arrays
+            return np.asarray(X)
+        # No formula: return X as-is to avoid unnecessary GPU→CPU→GPU round-trip
+        return X
 
     def _prediction_backend_name(self):
         backend_name = getattr(self, "_selected_backend_name", None)
@@ -159,48 +162,11 @@ class _PenalizedPredictMixin:
         score : float
             R² or pseudo-R² score.
         """
-        y_pred = self.predict(X, return_cpu=False)
-        device = self._get_compute_device()
-        sw = np.asarray(sample_weight, dtype=np.float64).ravel() if sample_weight is not None else None
-
-        if device == Device.CUDA:
-            import cupy as cp
-            yb = cp.asarray(self._to_array(y, Device.CUDA))
-            y_pred_dev = cp.asarray(y_pred) if isinstance(y_pred, cp.ndarray) else cp.asarray(_to_numpy(y_pred))
-            resid_sq = (yb - y_pred_dev) ** 2
-            if sw is not None:
-                sw_dev = cp.asarray(sw, dtype=cp.float64)
-                w_sum = float(cp.sum(sw_dev).get())
-                if w_sum <= 0:
-                    return 0.0
-                ss_res = float(cp.sum(sw_dev * resid_sq).get())
-                ss_tot = float(cp.sum(sw_dev * (yb - cp.average(yb, weights=sw_dev)) ** 2).get())
-            else:
-                ss_res = float(cp.sum(resid_sq).get())
-                ss_tot = float(cp.sum((yb - cp.mean(yb)) ** 2).get())
-            return 1 - ss_res / ss_tot if ss_tot > 0 else 0.0
-        if device == Device.TORCH:
-            import torch
-            yb = self._to_array(y, Device.TORCH, backend="torch").to(y_pred.dtype)
-            if isinstance(y_pred, torch.Tensor):
-                y_pred_dev = y_pred.to(dtype=yb.dtype, device=yb.device)
-            else:
-                y_pred_dev = torch.as_tensor(_to_numpy(y_pred), dtype=yb.dtype, device=yb.device)
-            resid_sq = (yb - y_pred_dev) ** 2
-            if sw is not None:
-                sw_dev = torch.as_tensor(sw, dtype=yb.dtype, device=yb.device)
-                w_sum = float(sw_dev.sum().item())
-                if w_sum <= 0:
-                    return 0.0
-                ss_res = float((sw_dev * resid_sq).sum().item())
-                y_wmean = float((sw_dev * yb).sum().item()) / w_sum
-                ss_tot = float((sw_dev * (yb - y_wmean) ** 2).sum().item())
-            else:
-                ss_res = float(resid_sq.sum().item())
-                ss_tot = float(((yb - yb.mean()) ** 2).sum().item())
-            return 1 - ss_res / ss_tot if ss_tot > 0 else 0.0
+        # Use predict(return_cpu=True) to avoid device mismatch between
+        # predict() and score() backend resolution logic.
+        y_pred_np = np.asarray(_to_numpy(self.predict(X, return_cpu=True)))
         y = np.asarray(y)
-        y_pred_np = np.asarray(_to_numpy(y_pred))
+        sw = np.asarray(sample_weight, dtype=np.float64).ravel() if sample_weight is not None else None
         resid_sq = (y - y_pred_np) ** 2
         if sw is not None:
             w_sum = float(np.sum(sw))

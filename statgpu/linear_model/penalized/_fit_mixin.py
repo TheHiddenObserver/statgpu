@@ -575,13 +575,7 @@ class _PenalizedFitMixin:
         solver_name = self._selected_solver or self._select_solver(
             self._loss, backend_name="numpy"
         )
-        if self.loss != "squared_error" or solver_name == "admm":
-            if solver_name == "irls":
-                self._fit_irls_backend(X, y, sample_weight, "numpy")
-            else:
-                self._fit_loss_backend(X, y, sample_weight, solver_name, "numpy")
-            return
-        if solver_name in ("irls", "newton", "lbfgs", "admm"):
+        if self.loss != "squared_error" or solver_name in ("irls", "newton", "lbfgs", "admm"):
             if solver_name == "irls":
                 self._fit_irls_backend(X, y, sample_weight, "numpy")
             else:
@@ -2133,15 +2127,6 @@ class _PenalizedFitMixin:
             else:
                 _int_init = np.log(max(_y_mean, 1e-3))
             n_feat = X_work.shape[1]
-            if backend_name == "numpy":
-                init_coef = np.zeros(n_feat, dtype=np.float64)
-            elif backend_name == "cupy":
-                import cupy as cp
-                init_coef = cp.zeros(n_feat, dtype=cp.float64)
-            else:
-                import torch
-                init_coef = torch.zeros(n_feat, dtype=torch.float64,
-                                        device=X_work.device)
             init_coef_np = np.zeros(n_feat)
             init_coef_np[0] = _int_init
             if backend_name == "cupy":
