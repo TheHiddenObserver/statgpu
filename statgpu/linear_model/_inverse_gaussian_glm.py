@@ -1,47 +1,18 @@
-"""Inverse Gaussian regression (GLM, log link)."""
+"""Backward-compatibility shim. Use statgpu.linear_model.wrappers instead.
 
-from typing import Optional
+.. deprecated::
+    This module is deprecated. Import from statgpu.linear_model.wrappers instead.
+    Will be removed in v0.3.0.
+"""
 
-from statgpu._config import Device
-from statgpu.glm_core._family import InverseGaussian
-from statgpu.linear_model._glm_base import GeneralizedLinearModel
+import warnings
 
+warnings.warn(
+    "statgpu.linear_model._inverse_gaussian_glm.py is deprecated. "
+    "Use statgpu.linear_model.wrappers._inverse_gaussian instead.",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
-class InverseGaussianRegression(GeneralizedLinearModel):
-    """Inverse Gaussian regression for positive right-skewed outcomes.
-
-    Parameters
-    ----------
-    fit_intercept : bool, default=True
-    max_iter : int, default=100
-    tol : float, default=1e-4
-    C : float, default=1.0
-        Inverse regularization strength.
-    device : str or Device, default='auto'
-    """
-
-    def __init__(
-        self,
-        fit_intercept: bool = True,
-        max_iter: int = 100,
-        tol: float = 1e-4,
-        C: float = 1.0,
-        device: Device = Device.AUTO,
-        n_jobs: Optional[int] = None,
-        solver: str = "auto",
-        gpu_memory_cleanup: bool = False,
-    ):
-        super().__init__(
-            family="inverse_gaussian",
-            fit_intercept=fit_intercept,
-            max_iter=max_iter,
-            tol=tol,
-            C=C,
-            device=device,
-            n_jobs=n_jobs,
-            solver=solver,
-            gpu_memory_cleanup=gpu_memory_cleanup,
-        )
-
-    def _get_family(self):
-        return InverseGaussian()
+from statgpu.linear_model.wrappers._inverse_gaussian import *  # noqa: F401,F403
+from statgpu.linear_model.wrappers._inverse_gaussian import InverseGaussianRegression  # noqa: F401

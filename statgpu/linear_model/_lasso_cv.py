@@ -13,7 +13,7 @@ import numpy as np
 
 from statgpu._config import Device
 from statgpu.cross_validation._base import CVEstimatorBase
-from statgpu.linear_model._lasso import (
+from statgpu.linear_model.wrappers._lasso import (
     Lasso,
     _normalize_lassocv_method,
     _normalize_cd_kkt_check_every,
@@ -172,7 +172,7 @@ class LassoCV(CVEstimatorBase):
         self : LassoCV
             Fitted estimator.
         """
-        from statgpu.linear_model._lasso import _select_lasso_alpha_cv, Lasso
+        from statgpu.linear_model.wrappers._lasso import _select_lasso_alpha_cv, Lasso
 
         device_name = self._get_compute_device().value
         effective_cpu_solver = (

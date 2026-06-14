@@ -1,47 +1,18 @@
-"""Poisson regression (GLM version, no inference)."""
+"""Backward-compatibility shim. Use statgpu.linear_model.wrappers instead.
 
-from statgpu._config import Device
-from statgpu.glm_core._family import Poisson
-from statgpu.linear_model._glm_base import GeneralizedLinearModel
+.. deprecated::
+    This module is deprecated. Import from statgpu.linear_model.wrappers instead.
+    Will be removed in v0.3.0.
+"""
 
+import warnings
 
-class PoissonRegression(GeneralizedLinearModel):
-    """Poisson regression with GPU support.
+warnings.warn(
+    "statgpu.linear_model._poisson_glm.py is deprecated. "
+    "Use statgpu.linear_model.wrappers._poisson instead.",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
-    Uses IRLS for fitting. No inference/summary (use statgpu's
-    existing GLM for inference).
-
-    Parameters
-    ----------
-    fit_intercept : bool, default=True
-    max_iter : int, default=100
-    tol : float, default=1e-4
-    C : float, default=1.0
-        Inverse regularization strength.
-    device : str or Device, default='auto'
-    """
-
-    def __init__(
-        self,
-        fit_intercept: bool = True,
-        max_iter: int = 100,
-        tol: float = 1e-4,
-        C: float = 1.0,
-        device: Device = Device.AUTO,
-        n_jobs: int = None,
-        gpu_memory_cleanup: bool = False,
-    ):
-        super().__init__(
-            family="poisson",
-            fit_intercept=fit_intercept,
-            max_iter=max_iter,
-            tol=tol,
-            C=C,
-            device=device,
-            n_jobs=n_jobs,
-            solver="auto",
-            gpu_memory_cleanup=gpu_memory_cleanup,
-        )
-
-    def _get_family(self):
-        return Poisson()
+from statgpu.linear_model.wrappers._poisson import *  # noqa: F401,F403
+from statgpu.linear_model.wrappers._poisson import PoissonRegression  # noqa: F401

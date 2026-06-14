@@ -20,7 +20,7 @@ from statgpu._base import BaseEstimator
 from statgpu._config import Device
 from statgpu.inference._distributions_backend import norm, t
 
-from statgpu.linear_model._lasso import (
+from statgpu.linear_model.wrappers._lasso import (
     _debiased_m_cache_get,
     _debiased_m_cache_put,
     _debiased_m_key_from_numpy_design,

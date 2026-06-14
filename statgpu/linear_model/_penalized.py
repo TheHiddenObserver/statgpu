@@ -922,7 +922,7 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
         sigma2 = np.sum(resid ** 2) / max(n - s_hat, 1)
 
         # Node-wise Lasso to build M matrix
-        from statgpu.linear_model._lasso import (
+        from statgpu.linear_model.wrappers._lasso import (
             _debiased_m_cache_get,
             _debiased_m_cache_put,
             _debiased_m_key_from_numpy_design,
@@ -1244,7 +1244,7 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
         s_hat = float(cp.sum(cp.abs(coef_gpu) > 0))
         sigma2 = float(cp.sum(resid ** 2)) / max(n - s_hat, 1)
 
-        from statgpu.linear_model._lasso import (
+        from statgpu.linear_model.wrappers._lasso import (
             _debiased_m_cache_get,
             _debiased_m_cache_put,
             _LASSO_DEBIASED_M_GPU_HASH_ROW_CHUNK,
@@ -1427,7 +1427,7 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
         s_hat = float(torch.sum(torch.abs(coef_torch) > 0))
         sigma2 = float(torch.sum(resid ** 2)) / max(n - s_hat, 1)
 
-        from statgpu.linear_model._lasso import (
+        from statgpu.linear_model.wrappers._lasso import (
             _debiased_m_cache_get,
             _debiased_m_cache_put,
             _debiased_m_key_from_sample,
@@ -1834,7 +1834,7 @@ class PenalizedGeneralizedLinearModel(BaseEstimator):
             )
             return init_coef
 
-        from statgpu.linear_model._ridge import Ridge
+        from statgpu.linear_model.wrappers._ridge import Ridge
 
         init_model = Ridge(
             alpha=0.1,

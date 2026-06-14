@@ -12,7 +12,7 @@ import numpy as np
 from statgpu._config import Device, cuda_available
 from statgpu.cross_validation._base import CVEstimatorBase, batch_mse as _batch_mse_cv
 from statgpu.backends import get_backend
-from statgpu.linear_model._elasticnet import ElasticNet
+from statgpu.linear_model.wrappers._elasticnet import ElasticNet
 
 
 # =============================================================================
@@ -420,7 +420,7 @@ def _select_elasticnet_params_cv(
 
     # Generate CV folds
     if cv_splits is not None:
-        from statgpu.linear_model._lasso import _normalize_cv_splits
+        from statgpu.linear_model.wrappers._lasso import _normalize_cv_splits
         folds = _normalize_cv_splits(cv_splits, n_samples=int(n_samples))
     else:
         folds = _kfold_indices(n_samples=int(n_samples), n_splits=int(cv_folds), random_state=random_state)

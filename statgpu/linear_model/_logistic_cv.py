@@ -12,7 +12,7 @@ import numpy as np
 from statgpu._config import Device
 from statgpu.cross_validation._base import CVEstimatorBase
 from statgpu.backends import get_backend, _torch_dev
-from statgpu.linear_model._logistic import LogisticRegression
+from statgpu.linear_model.wrappers._logistic import LogisticRegression
 
 
 # =============================================================================
@@ -493,7 +493,7 @@ def _select_logistic_c_cv(
 
     # Generate CV folds
     if cv_splits is not None:
-        from statgpu.linear_model._lasso import _normalize_cv_splits
+        from statgpu.linear_model.wrappers._lasso import _normalize_cv_splits
         folds = _normalize_cv_splits(cv_splits, n_samples=int(n_samples))
     else:
         folds = _kfold_indices(n_samples=int(n_samples), n_splits=int(cv_folds), random_state=random_state)
