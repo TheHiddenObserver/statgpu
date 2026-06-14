@@ -9,6 +9,8 @@
 
 ## 指南
 
+- [推断 API](guides/inference-api.md) — 分布函数、多重检验、排列检验、自助法
+- [分布 API](guides/distribution-api.md) — 详细分布后端参考
 - [已实现方法](guides/implemented-methods.md) — 完整方法列表（solver、penalty、link function）
 - [交叉验证](guides/cross-validation.md) — CV API、架构、GPU 加速、缓存
 - [Solver × Penalty 矩阵](guides/solver-penalty-matrix.md) — loss × penalty × solver 兼容性
