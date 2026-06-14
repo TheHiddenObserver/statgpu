@@ -8,15 +8,7 @@ from statgpu.linear_model.penalized._base import PenalizedGeneralizedLinearModel
 
 
 class PenalizedTweedieRegression(PenalizedGeneralizedLinearModel):
-    """Penalized Tweedie regression with configurable power.
-
-    Thin wrapper over ``PenalizedGeneralizedLinearModel(loss="tweedie", ...)``.
-
-    Parameters
-    ----------
-    power : float, default=1.5
-        Tweedie power parameter (1=Poisson, 2=Gamma, 1.5=compound Poisson-Gamma).
-    """
+    """Penalized Tweedie regression with configurable power."""
 
     def __init__(
         self,
@@ -42,8 +34,10 @@ class PenalizedTweedieRegression(PenalizedGeneralizedLinearModel):
         max_lla_iters: int = 50,
         lla_tol: float = 1e-6,
         power: float = 1.5,
+        loss_kwargs: Optional[dict] = None,
     ):
-        super().__init__(
+        _loss_kwargs = dict(loss_kwargs) if loss_kwargs else {}
+        _loss_kwargs.setdefault("power", power)
         super().__init__(
             loss="tweedie",
             penalty=penalty,
@@ -67,5 +61,5 @@ class PenalizedTweedieRegression(PenalizedGeneralizedLinearModel):
             lla=lla,
             max_lla_iters=max_lla_iters,
             lla_tol=lla_tol,
+            loss_kwargs=_loss_kwargs,
         )
-            )

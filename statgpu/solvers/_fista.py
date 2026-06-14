@@ -85,7 +85,6 @@ def fista_solver(
     """
     backend = _resolve_backend("auto", X)
     X_proc, y_proc = loss.preprocess(X, y)
-    _loss_name = getattr(loss, 'name', '')
     _is_quadratic = getattr(loss, '_is_quadratic', False)
     # Momentum control via loss class attributes:
     #   _momentum_beta_cap: if set, cap Nesterov beta at this value

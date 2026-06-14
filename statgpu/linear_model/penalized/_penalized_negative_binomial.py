@@ -8,15 +8,7 @@ from statgpu.linear_model.penalized._base import PenalizedGeneralizedLinearModel
 
 
 class PenalizedNegativeBinomialRegression(PenalizedGeneralizedLinearModel):
-    """Penalized Negative Binomial regression with configurable dispersion.
-
-    Thin wrapper over ``PenalizedGeneralizedLinearModel(loss="negative_binomial", ...)``.
-
-    Parameters
-    ----------
-    alpha_nb : float, default=1.0
-        NB dispersion parameter (larger = less overdispersion).
-    """
+    """Penalized Negative Binomial regression with configurable dispersion."""
 
     def __init__(
         self,
@@ -42,8 +34,10 @@ class PenalizedNegativeBinomialRegression(PenalizedGeneralizedLinearModel):
         max_lla_iters: int = 50,
         lla_tol: float = 1e-6,
         alpha_nb: float = 1.0,
+        loss_kwargs: Optional[dict] = None,
     ):
-        super().__init__(
+        _loss_kwargs = dict(loss_kwargs) if loss_kwargs else {}
+        _loss_kwargs.setdefault("alpha", alpha_nb)
         super().__init__(
             loss="negative_binomial",
             penalty=penalty,
@@ -67,5 +61,5 @@ class PenalizedNegativeBinomialRegression(PenalizedGeneralizedLinearModel):
             lla=lla,
             max_lla_iters=max_lla_iters,
             lla_tol=lla_tol,
+            loss_kwargs=_loss_kwargs,
         )
-            )

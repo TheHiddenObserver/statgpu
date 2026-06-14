@@ -42,6 +42,7 @@ class PenalizedLinearRegression(PenalizedGeneralizedLinearModel):
         lla: bool = True,
         max_lla_iters: int = 50,
         lla_tol: float = 1e-6,
+        loss_kwargs: Optional[dict] = None,
     ):
         super().__init__(
             loss="squared_error",
@@ -66,6 +67,7 @@ class PenalizedLinearRegression(PenalizedGeneralizedLinearModel):
             lla=lla,
             max_lla_iters=max_lla_iters,
             lla_tol=lla_tol,
+            loss_kwargs=loss_kwargs,
         )
 
     @property

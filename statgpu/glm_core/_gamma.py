@@ -23,6 +23,7 @@ class GammaLoss(GLMLoss):
     _lipschitz_uses_y = True
     _lipschitz_safety = 3.0  # Gamma Hessian varies with mu
     _conservative_momentum_with_nonsmooth = True
+    _gamma_like = True
 
     _MU_LO = 1e-3
     _MU_HI = 1e4

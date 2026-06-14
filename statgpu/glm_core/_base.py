@@ -53,6 +53,10 @@ class GLMLoss(ABC):
     _supports_cholesky: bool = False     # True for squared_error (ADMM can use Cholesky)
     _gpu_loop_excluded: bool = False     # True for logistic (async GPU loop not suitable)
     _conservative_momentum_with_nonsmooth: bool = False  # Cap momentum when penalty is non-smooth
+    _inverse_gaussian: bool = False      # True for inverse Gaussian (special BB handling)
+    _tweedie: bool = False               # True for Tweedie (special BB handling)
+    _poisson_like: bool = False          # True for Poisson (conservative momentum burn-in)
+    _gamma_like: bool = False            # True for Gamma (adjusted BB/momentum params)
 
     # ── Per-sample formulas (single source of truth) ──────────────────
 
