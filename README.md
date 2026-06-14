@@ -200,20 +200,20 @@ print(f"Selected features: {result.selected_features}")
 ## GLM + Penalty Example
 
 ```python
-import numpy as np
 from statgpu.linear_model import (
     PenalizedGLM_CV,
-    PenalizedLogisticRegression,
+    PenalizedGeneralizedLinearModel,
     PoissonRegression,
     GammaRegression,
-    NegativeBinomialRegression,
 )
+from statgpu.inference import get_distribution
 
-# Generate Poisson data
-rng = np.random.default_rng(42)
-X = rng.standard_normal((2000, 20))
-beta = np.zeros(20); beta[:5] = [2, -1.5, 1, -0.5, 0.3]
-y = rng.poisson(np.exp(X @ beta))
+# Generate Poisson data using statgpu distributions
+norm = get_distribution("norm", backend="numpy")
+pois = get_distribution("poisson", backend="numpy")
+
+X = norm.rvs(size=(2000, 20))
+y = pois.rvs(lam=3.0, size=2000).astype(float)
 
 # PenalizedGLM_CV: unified CV for any loss × penalty
 model = PenalizedGLM_CV(
@@ -226,26 +226,28 @@ model = PenalizedGLM_CV(
 )
 model.fit(X, y)
 print(f"Best alpha: {model.alpha_:.4f}")
-print(f"Non-zero coefficients: {np.sum(np.abs(model.coef_) > 1e-6)}")
+print(f"Non-zero coefficients: {sum(abs(model.coef_) > 1e-6)}")
 print(f"Score: {model.score(X, y):.4f}")
 
-# Negative Binomial with custom dispersion
+# Negative Binomial with custom dispersion + sample_weight
+uniform = get_distribution("uniform", backend="numpy")
+sw = uniform.rvs(size=len(y)) * 0.5 + 0.5
 nb_model = PenalizedGLM_CV(
     loss="negative_binomial",
     penalty="l1",
-    loss_kwargs={"alpha": 2.0},  # custom dispersion
+    loss_kwargs={"alpha": 2.0},
     device="cpu",
 )
-nb_model.fit(X, y)
+nb_model.fit(X, y, sample_weight=sw)
 
 # Direct model usage (no CV)
-poisson = PoissonRegression(alpha=0.1, device="cpu")
-poisson.fit(X, y)
-print(f"Poisson coef[:3]: {poisson.coef_[:3]}")
+poisson_model = PoissonRegression(alpha=0.1, device="cpu")
+poisson_model.fit(X, y)
+print(f"Poisson coef[:3]: {poisson_model.coef_[:3]}")
 
-gamma = GammaRegression(alpha=0.05, device="cpu")
-gamma.fit(X, np.abs(y) + 1)
-print(f"Gamma coef[:3]: {gamma.coef_[:3]}")
+gamma_model = GammaRegression(alpha=0.05, device="cpu")
+gamma_model.fit(X, abs(y) + 1)
+print(f"Gamma coef[:3]: {gamma_model.coef_[:3]}")
 ```
 
 ## Device Control

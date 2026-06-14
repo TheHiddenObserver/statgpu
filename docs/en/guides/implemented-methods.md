@@ -36,11 +36,14 @@ For Gamma, InverseGaussian, NegativeBinomial, and Tweedie with penalties, use `P
 
 ```python
 from statgpu.linear_model import PenalizedGeneralizedLinearModel
-import numpy as np
+from statgpu.inference import get_distribution
 
-rng = np.random.default_rng(42)
-X = rng.standard_normal((2000, 20))
-y = rng.poisson(np.exp(X @ np.ones(20) * 0.1))
+# Use statgpu's distribution API for data generation
+norm = get_distribution("norm", backend="numpy")
+pois = get_distribution("poisson", backend="numpy")
+
+X = norm.rvs(size=(2000, 20))
+y = pois.rvs(lam=3.0, size=2000).astype(float)
 
 # Gamma + SCAD with auto solver selection
 model = PenalizedGeneralizedLinearModel(loss="gamma", penalty="scad", alpha=0.1, solver="auto")
@@ -56,7 +59,8 @@ model = PenalizedGeneralizedLinearModel(
 model.fit(X, y)
 
 # Tweedie + group_lasso with sample_weight
-sw = rng.uniform(0.5, 1.5, size=len(y))
+uniform = get_distribution("uniform", backend="numpy")
+sw = uniform.rvs(size=len(y)) * 0.5 + 0.5  # uniform(0.5, 1.5)
 model = PenalizedGeneralizedLinearModel(
     loss="tweedie", penalty="group_lasso",
     loss_kwargs={"power": 1.5},
