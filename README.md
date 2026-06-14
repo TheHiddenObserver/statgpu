@@ -4,12 +4,17 @@ GPU-accelerated statistical methods with sklearn-compatible API.
 
 ## Documentation
 
-- Primary usage portal (English): `USAGE.md`
-- Chinese usage portal: `USAGE_CN.md`
-- English docs root: `docs/en/`
-- Chinese docs root: `docs/`
-- GLM and penalized GLM model docs: `docs/en/models/generalized-linear-model.md` / `docs/models/generalized-linear-model.md`
-- Repo development layout: `dev/` (`tests/`, `benchmarks/`, `comparisons/`, `validation/`, `manual/`, `scripts/` for Cox data + R bench helpers)
+- **English docs**: [docs/en/](docs/en/) — full documentation index
+- **Chinese docs**: [docs/](docs/) — 中文文档
+- **Quickstart**: [Quickstart](docs/en/getting-started/quickstart.md)
+- **GLM + Penalty**: [Generalized Linear Model](docs/en/models/generalized-linear-model.md) — 7 families × 10 penalties × 3 backends
+- **Cross-Validation**: [Cross-Validation Guide](docs/en/guides/cross-validation.md) — PenalizedGLM_CV, LassoCV, RidgeCV
+- **Solver-Penalty Matrix**: [Solver × Penalty](docs/en/guides/solver-penalty-matrix.md) — solver dispatch and penalty routing
+- **Device & Memory**: [Device and GPU Memory](docs/en/guides/device-and-memory.md)
+- **PyTorch Backend**: [PyTorch Backend](docs/en/guides/pytorch-backend.md)
+- **Distribution API**: [Distribution API](docs/en/guides/distribution-api.md) — 15 distributions across 3 backends
+- **Multiple Testing**: [Multiple Testing](docs/en/guides/multiple-testing-combine-pvalues.md) — p-value adjustment and combination
+- **Changelog**: [Changelog](docs/en/changelog.md)
 
 ## Features
 
