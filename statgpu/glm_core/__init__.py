@@ -38,7 +38,17 @@ from ._family import (
     Tweedie,
 )
 from ._irls import IRLSSolver
-from ._solver import fista_solver, fista_bb_solver, admm_solver, lbfgs_solver, newton_solver, ConvergenceWarning
+
+# Solvers: re-export from solvers/ (generic)
+from statgpu.solvers import (
+    fista_solver,
+    fista_bb_solver,
+    fista_lla_path,
+    newton_solver,
+    lbfgs_solver,
+    admm_solver,
+    ConvergenceWarning,
+)
 
 __all__ = [
     "GLMLoss",

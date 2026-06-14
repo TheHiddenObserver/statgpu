@@ -4,6 +4,15 @@ All notable changes to statgpu are documented here, organized by date and PR.
 
 ## 2026-06-14
 
+### Refactor Phase 1 — Extract solvers/ as top-level generic module
+- **refactor**: Extracted 6 solvers (fista, fista_bb, fista_lla, newton, lbfgs, admm) from `glm_core/_solver.py` into `statgpu/solvers/`
+- **refactor**: Moved GLM-specific fused functions to `glm_core/_fused.py`
+- **refactor**: Added optimization hint attributes to GLMLoss base class (`_lipschitz_safety`, `_momentum_beta_cap`, `_has_constant_hessian`, etc.)
+- **refactor**: Converted `glm_core/_solver.py` to backward-compatible shim with DeprecationWarning
+- **refactor**: Updated `glm_core/_irls.py` to import ConvergenceWarning from `solvers/`
+- **test**: Added `test_refactor_safety_net.py` (42 tests) and `test_refactor_post_phase.py` (Phase 1-6 verification stubs)
+- New files: `solvers/__init__.py`, `_fista.py`, `_fista_bb.py`, `_fista_lla.py`, `_newton.py`, `_lbfgs.py`, `_admm.py`, `_convergence.py`, `_constants.py`, `_linesearch.py`, `_utils.py`, `_legacy.py`, `glm_core/_fused.py`
+
 ### PR #63 — Dev workspace documentation
 - Added dev/README.md (directory structure, remote GPU setup, archive policy)
 - Added dev/tests/TESTING.md (test categories, remote workflow)

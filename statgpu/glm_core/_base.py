@@ -41,6 +41,15 @@ class GLMLoss(ABC):
     smooth_gradient: bool = True
     has_hessian: bool = False
 
+    # ── Optimization hints (solvers read these, subclasses can override) ──
+    _lipschitz_safety: float = 1.0       # Lipschitz safety factor
+    _lipschitz_safety_cv: float = 1.0    # Extra safety factor in CV mode
+    _lipschitz_uses_y: bool = False      # Whether Lipschitz needs y-scaling
+    _momentum_beta_cap: Optional[float] = None  # Nesterov momentum cap (None=unlimited)
+    _skip_momentum: bool = False         # Disable momentum entirely
+    _has_constant_hessian: bool = False  # Hessian is constant (Newton fast path)
+    _prefer_fista_over_bb: bool = False  # Prefer FISTA over FISTA-BB for smooth penalties
+
     # ── Per-sample formulas (single source of truth) ──────────────────
 
     def per_sample_value(self, eta, y):

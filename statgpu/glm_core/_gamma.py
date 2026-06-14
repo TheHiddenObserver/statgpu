@@ -37,6 +37,7 @@ class GammaLoss(GLMLoss):
         self.link = link
         self.link_name = link
         self._lipschitz_at_init = link == "inverse_power"
+        self._has_constant_hessian = (link == "log")
 
     def _eta_mu(self, X, coef):
         eta = X @ coef
