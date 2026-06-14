@@ -9,6 +9,7 @@
 
 ## 指南
 
+- [已实现方法](guides/implemented-methods.md) — 完整方法列表（solver、penalty、link function）
 - [交叉验证](guides/cross-validation.md) — CV API、架构、GPU 加速、缓存
 - [Solver × Penalty 矩阵](guides/solver-penalty-matrix.md) — loss × penalty × solver 兼容性
 - [设备与 GPU 内存](guides/device-and-memory.md) — 设备选择、内存清理

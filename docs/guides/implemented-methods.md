@@ -1,0 +1,124 @@
+# 已实现方法
+
+> 最后更新：2026-06-14
+
+statgpu 已实现的所有模型、函数和类的完整列表。
+
+## 回归与广义线性模型
+
+| Class | Description | Link Functions | Backends |
+|---|---|---|---|
+| `LinearRegression` | OLS with HC0-HC3/HAC inference | identity | CPU, CuPy, Torch |
+| `Ridge` | L2 penalty, exact/irls solver | identity | CPU, CuPy, Torch |
+| `Lasso` | L1 penalty, debiased inference | identity | CPU, CuPy, Torch |
+| `ElasticNet` | L1+L2 penalty | identity | CPU, CuPy, Torch |
+| `LogisticRegression` | Binary logistic, L2 penalty | logit, probit | CPU, CuPy, Torch |
+| `PoissonRegression` | Poisson GLM | log | CPU, CuPy, Torch |
+| `GammaRegression` | Gamma GLM | log, inverse_power | CPU, CuPy, Torch |
+| `InverseGaussianRegression` | Inverse Gaussian GLM | log, inverse_squared | CPU, CuPy, Torch |
+| `NegativeBinomialRegression` | NB GLM (configurable α) | log | CPU, CuPy, Torch |
+| `TweedieRegression` | Tweedie GLM (configurable p) | log | CPU, CuPy, Torch |
+| `OrderedLogitRegression` | Ordered logit model | logit | CPU, CuPy, Torch |
+| `OrderedProbitRegression` | Ordered probit model | probit | CPU, CuPy, Torch |
+
+## 惩罚 GLM
+
+| Class | Description | Solvers | Penalties | Backends |
+|---|---|---|---|---|
+| `PenalizedGeneralizedLinearModel` | Unified penalized GLM (7 families) | exact, irls, newton, lbfgs, fista, fista_bb | l1, l2, elasticnet, scad, mcp, adaptive_l1, group_lasso, group_mcp, group_scad | CPU, CuPy, Torch |
+| `PenalizedLinearRegression` | squared_error + penalty | exact, fista | l1, l2, elasticnet, scad, mcp, adaptive_l1 | CPU, CuPy, Torch |
+| `PenalizedLogisticRegression` | logistic + penalty | irls, fista | l1, l2, elasticnet, scad, mcp, adaptive_l1 | CPU, CuPy, Torch |
+| `PenalizedPoissonRegression` | poisson + penalty | irls, fista | l1, l2, elasticnet, scad, mcp, adaptive_l1 | CPU, CuPy, Torch |
+
+## 交叉验证
+
+| Class | Description | Backends |
+|---|---|---|
+| `RidgeCV` | GPU-accelerated Ridge CV | CPU, CuPy, Torch |
+| `LassoCV` | Warm-start alpha path | CPU, CuPy, Torch |
+| `ElasticNetCV` | l1_ratio + alpha grid | CPU, CuPy, Torch |
+| `LogisticRegressionCV` | GPU-accelerated logistic CV | CPU, CuPy, Torch |
+| `PenalizedGLM_CV` | Unified CV for all 7 losses × 10 penalties | CPU, CuPy, Torch |
+| `CoxPHCV` | CV penalty search + refit | CPU, CuPy |
+
+## 方差分析
+
+| Function | Description |
+|---|---|
+| `f_oneway` | GPU-accelerated one-way ANOVA |
+
+## 协方差估计
+
+| Class | Description | Backends |
+|---|---|---|
+| `EmpiricalCovariance` | Sample covariance with jitter-stabilized inversion | CPU, CuPy, Torch |
+| `LedoitWolf` | Ledoit-Wolf shrinkage estimator | CPU, CuPy, Torch |
+| `OAS` | Oracle Approximating Shrinkage estimator | CPU, CuPy, Torch |
+
+## 面板数据
+
+| Class | Description | Backends |
+|---|---|---|
+| `PanelOLS` | Fixed effects with nonrobust/robust/clustered SE | CPU, CuPy, Torch |
+| `RandomEffects` | Swamy-Arora feasible GLS random effects | CPU, CuPy, Torch |
+
+## 非参数方法
+
+| Class/Function | Description |
+|---|---|
+| `KernelRidge` | Kernel ridge regression |
+| `KernelRidgeCV` | Cross-validated kernel ridge regression |
+| `pairwise_kernels` | 6 kernel functions (RBF, polynomial, linear, Laplacian, sigmoid, cosine) |
+| `bspline_basis` | B-spline basis (De Boor algorithm, vectorized on GPU) |
+| `natural_cubic_spline_basis` | Natural cubic spline basis |
+
+## 半参数模型
+
+| Class | Description | Backends |
+|---|---|---|
+| `GAM` | Generalized additive model with penalized B-splines + GCV | CPU, CuPy, Torch |
+
+## 无监督学习
+
+**降维与分解：**
+
+| Class | Description | Backends |
+|---|---|---|
+| `PCA` | Principal component analysis | CPU, CuPy, Torch |
+| `TruncatedSVD` | Dense truncated SVD | CPU, CuPy, Torch |
+| `IncrementalPCA` | Incremental PCA for large datasets | CPU, CuPy, Torch |
+| `NMF` | Non-negative matrix factorization (multiplicative updates) | CPU, CuPy, Torch |
+| `MiniBatchNMF` | Mini-batch NMF for large datasets | CPU, CuPy, Torch |
+| `UMAP` | Uniform Manifold Approximation and Projection | CPU, CuPy, Torch |
+| `TSNE` | t-distributed Stochastic Neighbor Embedding | CPU, CuPy, Torch |
+
+**聚类与混合模型：**
+
+| Class | Description | Backends |
+|---|---|---|
+| `KMeans` | Lloyd K-Means clustering (k-means++ init) | CPU, CuPy, Torch |
+| `MiniBatchKMeans` | Mini-batch K-Means for large datasets | CPU, CuPy, Torch |
+| `DBSCAN` | Density-based spatial clustering | CPU, CuPy, Torch |
+| `GaussianMixture` | Gaussian mixture model (log-domain EM) | CPU, CuPy, Torch |
+| `AgglomerativeClustering` | Exact agglomerative hierarchical clustering | CPU, CuPy, Torch |
+
+## 生存分析
+
+| Class | Description | Backends |
+|---|---|---|
+| `CoxPH` | Cox proportional hazards | CPU, CuPy, Torch |
+
+## 特征选择
+
+| Function | Description |
+|---|---|
+| `fixed_x_knockoff_filter` | Fixed-X knockoff filter |
+| `model_x_knockoff_filter` | Model-X knockoff filter |
+
+## 多重检验
+
+| Function | Description |
+|---|---|
+| `adjust_pvalues` | BH/BY/Holm/Bonferroni/Hochberg correction |
+| `combine_pvalues` | Fisher/Cauchy/Stouffer combination |
+| `permutation_test` | Permutation-based hypothesis testing |
