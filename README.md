@@ -112,6 +112,30 @@ GPU-accelerated statistical methods with sklearn-compatible API.
 |---|---|---|
 | `GAM` | Generalized additive model with penalized B-splines + GCV | CPU, CuPy, Torch |
 
+### Unsupervised Learning
+
+**Dimensionality Reduction & Factorization:**
+
+| Class | Description | Backends |
+|---|---|---|
+| `PCA` | Principal component analysis | CPU, CuPy, Torch |
+| `TruncatedSVD` | Dense truncated SVD | CPU, CuPy, Torch |
+| `IncrementalPCA` | Incremental PCA for large datasets | CPU, CuPy, Torch |
+| `NMF` | Non-negative matrix factorization (multiplicative updates) | CPU, CuPy, Torch |
+| `MiniBatchNMF` | Mini-batch NMF for large datasets | CPU, CuPy, Torch |
+| `UMAP` | Uniform Manifold Approximation and Projection | CPU, CuPy, Torch |
+| `TSNE` | t-distributed Stochastic Neighbor Embedding | CPU, CuPy, Torch |
+
+**Clustering & Mixture Models:**
+
+| Class | Description | Backends |
+|---|---|---|
+| `KMeans` | Lloyd K-Means clustering (k-means++ init) | CPU, CuPy, Torch |
+| `MiniBatchKMeans` | Mini-batch K-Means for large datasets | CPU, CuPy, Torch |
+| `DBSCAN` | Density-based spatial clustering | CPU, CuPy, Torch |
+| `GaussianMixture` | Gaussian mixture model (log-domain EM) | CPU, CuPy, Torch |
+| `AgglomerativeClustering` | Exact agglomerative hierarchical clustering | CPU, CuPy, Torch |
+
 ### Survival
 
 | Class | Description | Backends |
