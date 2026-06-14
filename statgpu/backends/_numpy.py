@@ -183,6 +183,10 @@ class NumpyBackend(BackendBase):
         """Return indices of minimum values."""
         return np.argmin(x, axis=axis)
 
+    def argmax(self, x, axis=None):
+        """Return indices of maximum values."""
+        return np.argmax(x, axis=axis)
+
     def argsort(self, x, axis=-1):
         """Return indices that would sort the array."""
         return np.argsort(x, axis=axis)
