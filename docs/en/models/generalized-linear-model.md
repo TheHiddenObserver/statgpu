@@ -1,7 +1,7 @@
 # GeneralizedLinearModel and Penalized GLM
 
 > Language: English  
-> Last updated: 2026-04-25  
+> Last updated: 2026-05-20  
 > This page: Model documentation  
 > Switch: [Chinese](../../models/generalized-linear-model.md)
 
@@ -70,7 +70,7 @@ Current solver behavior:
 | `PenalizedPoissonRegression(penalty="l2")` on CuPy/Torch GPU | FISTA |
 | explicit `solver="irls"` | backend-native IRLS on NumPy/CuPy/Torch |
 | explicit `solver="newton"` | backend-native Newton on smooth objectives |
-| explicit `solver="lbfgs"` | backend-native L-BFGS on smooth objectives |
+| explicit `solver="lbfgs"` | backend-native L-BFGS on smooth objectives (all GLM families + L2/ElasticNet) |
 | non-smooth penalty with `solver="newton"` or `solver="lbfgs"` | raises `ValueError` |
 
 Important device rule: explicit `device="cuda"` stays on CuPy, explicit `device="torch"` stays on Torch CUDA, and explicit solver choices do not silently fall back to CPU. Formula parsing may run on CPU, but the core fit/predict path is converted to the selected backend.
@@ -162,6 +162,30 @@ For the current GLM refactor, strict numerical validation is performed through r
 
 `solver="auto"` is device-aware for penalized GLMs. It picks exact Ridge for Gaussian L2, IRLS for smooth CPU logistic/poisson L2, and FISTA for CuPy/Torch GPU logistic/poisson L2. Explicit `irls`, `newton`, and `lbfgs` run on the selected backend when mathematically valid.
 
+`PenalizedGLM_CV` defaults to `cv_strategy="strict"`. In strict mode every fold/alpha is evaluated with the requested `max_iter` and `tol`, and GPU optimizations are limited to caching, fused kernels, and batched validation-score transfers. The optional `cv_strategy="two_stage"` mode first screens the alpha grid with relaxed CV solves, then strictly refines the candidate alphas and performs a strict final refit. Because the screening step can change alpha ranking on close CV curves, two-stage mode emits `ApproximateCVWarning` unless `acknowledge_approx=True` is passed.
+
+```python
+from statgpu.linear_model import PenalizedGLM_CV
+
+# Default: strict CV.
+strict_cv = PenalizedGLM_CV(
+    loss="poisson",
+    penalty="elasticnet",
+    cv_strategy="strict",
+    device="cuda",
+)
+
+# Opt-in approximate screening, strict candidate refinement and final refit.
+fast_cv = PenalizedGLM_CV(
+    loss="poisson",
+    penalty="elasticnet",
+    cv_strategy="two_stage",
+    acknowledge_approx=True,
+    refine_top_k=3,
+    device="cuda",
+)
+```
+
 ## Outputs
 
 Common fitted attributes and methods include:
@@ -173,8 +197,13 @@ Common fitted attributes and methods include:
 - `predict`
 - `predict_proba` for logistic models
 - `score` where implemented
+- `cv_results_` for `PenalizedGLM_CV`, including `cv_strategy_`, `cv_selected_device_`, `refined_mask`, and stage-1 scores when two-stage screening is enabled
 
 Future unified result objects are reserved for later work and are not part of this page's public contract.
+
+## See Also
+
+- [Solver × Penalty Compatibility Matrix](../guides/solver-penalty-matrix.md) — full dispatch table for loss × penalty × solver combinations, CV fast paths, and inference support status.
 
 ## FAQ
 
@@ -187,12 +216,7 @@ Future unified result objects are reserved for later work and are not part of th
 
 Local checks cover imports and smoke tests only. Accuracy, runtime, GPU behavior, and external-framework comparisons run on the remote `myconda` environment.
 
-Remote entry points:
-
-```bash
-python dev/tests/run_remote_v10_accuracy.py
-python dev/benchmarks/run_remote_v10_benchmark.py
-```
+**v23c full matrix benchmark (2026-05-20):** 1043/1043 ALL PASS across 7 families x 10 penalties x 3 scales x 3 backends, validated against sklearn and statsmodels. See `dev/tests/_bench_v23c_report.md` and `dev/tests/_bench_full_matrix.py`.
 
 Validation coverage includes:
 

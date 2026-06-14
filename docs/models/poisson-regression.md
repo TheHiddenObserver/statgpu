@@ -1,7 +1,7 @@
 # PoissonRegression
 
 > 语言: 中文  
-> 最后更新: 2026-04-25  
+> 最后更新: 2026-05-20  
 > 页面定位: 模型文档  
 > 切换: [English](../en/models/poisson-regression.md)
 
@@ -47,7 +47,7 @@ from statgpu import PoissonRegression
 \sum_i x_i(y_i - \mu_i)=0
 \]
 
-`PoissonRegression` 默认使用 `solver="auto"`，当前会调度到 IRLS。smooth Poisson GLM 也支持显式 `solver="newton"` 和 `solver="lbfgs"`，并运行在用户选择的后端。该模型继承 GLM formula 接口，因此 formula 中的截距语义遵循 patsy/R 习惯。
+`PoissonRegression` 默认使用 `solver="auto"`，当前会调度到 IRLS。smooth Poisson GLM 也支持显式 `solver="newton"` 和 `solver="lbfgs"`，并运行在用户选择的后端。v23c 起，`solver="lbfgs"` 正确支持 L2 惩罚。该模型继承 GLM formula 接口，因此 formula 中的截距语义遵循 patsy/R 习惯。
 
 ## Covariance/Inference
 

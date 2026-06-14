@@ -1,47 +1,114 @@
 # Changelog
 
-## 2026-05
-
-- **Unsupervised learning Phase 3C / large-data variants**:
-  - Added `IncrementalPCA` and `MiniBatchNMF` to `statgpu.unsupervised` and top-level `statgpu`.
-  - Implemented dense CPU/CuPy/Torch paths, with sparse/out-of-core file streaming left for later work.
-  - Added Phase 3C tests, per-model documentation, and a benchmark script for statgpu three-backend validation against available sklearn baselines.
-
-- **Unsupervised learning Phase 3B / GMM covariance and hierarchical linkage parity**:
-  - Extended `GaussianMixture` beyond diagonal covariance to support `diag`, `spherical`, `tied`, and `full` covariance types on CPU/CuPy/Torch.
-  - Extended `AgglomerativeClustering` to CPU/CuPy/Torch dense exact support for `single`, `complete`, `average`, and `ward`; `device="auto"` keeps the CPU default while explicit GPU paths no longer fall back.
-  - Added Phase 3B validation coverage for GMM covariance variants and agglomerative linkage variants, with sklearn/SciPy/R baselines used only in tests and benchmarks.
-  - Rewrote `dev/plans/plan_unsupervised.md` as a UTF-8 Chinese roadmap aligned with current Phase 3 capabilities.
-
-- **Unsupervised learning Phase 3A / scalable decomposition and manifold APIs**:
-  - Added `TruncatedSVD`, `MiniBatchKMeans`, `UMAP`, and `TSNE` to `statgpu.unsupervised` and top-level `statgpu`.
-  - Implemented dense CPU/CuPy/Torch paths for the new estimators, with explicit GPU devices preserving no-silent-fallback behavior.
-  - Added Phase 3 tests and a remote benchmark matrix script for statgpu CPU/CuPy/Torch plus available sklearn, statsmodels, R, umap-learn, openTSNE, and cuML baselines.
-  - Phase 3 UMAP/t-SNE are dense exact v1 implementations; sparse input, approximate neighbor search, Barnes-Hut, FFT/FIt-SNE, and new-data transform remain future work.
-
-- **Unsupervised learning Phase 2 / DBSCAN Cython CPU path**:
-  - Added optional statgpu-owned `_dbscan_cpu` Cython fast path for compact dense CPU DBSCAN.
-  - No sklearn acceleration is used inside production DBSCAN code; sklearn remains an external test/benchmark baseline.
-  - Added remote artifacts under `results/` for Phase 2 and DBSCAN Cython validation.
-
 > 语言：中文  
-> 最后更新：2026-04-18  
+> 最后更新：2026-06-12  
 > 页面定位：变更记录  
 > 切换：[English](en/changelog.md)
 
 语言切换：[English](en/changelog.md)
 
+## 2026-06
+
+### Fixed (2026-06-10 ~ 2026-06-12)
+
+- **PR #49 Code Review: 110+ fixes across 16 files**:
+  - 修复 26 个 P1 bug（merge conflict、NameError、数值公式错误、GPU 路径崩溃等）
+  - 修复 55 个 P2 bug（缓存线程安全、后端一致性、边界情况、接口兼容性等）
+  - 修复 ~30 个 P3 改进项（死代码清理、magic numbers、性能优化等）
+  - 新增 428 个测试用例（远程 GPU Tesla P100 全部通过）
+  - 三端精度偏差 < 0.02%（同一 random_state 下）
+  - 性能无回退（RidgeCV CuPy 6.8x 加速，PenalizedGLM_CV Torch 3.1x 加速）
+  - 删除 ~1300 行死代码
+  - 统一 `best_score_` 为负 MSE（sklearn 惯例）
+  - 合并 PLAN_UNIFIED.md 门禁与 PR #49 编码规范到 TO_DO.md
+
+### Optimized (2026-06-05)
+
+- **Strict sparse GLM CV GPU squeeze pass, round 7**:
+  - Reused fold-level initial Lipschitz estimates across sparse GLM alpha paths, including `fista_bb_solver` burn-in checks.
+  - Batched CuPy validation scoring for sparse GLM CV; solver trajectories and strict final refits are unchanged.
+  - Added a Torch fold-batched strict logistic sparse CV path with per-fold Lipschitz constants and equivalent validation scores.
+  - Strict CV still preserves the requested `max_iter` and `tol`; the logistic GPU iteration cap is not applied to strict CV.
+  - Matpool P100 strict matrix (`cv=3`, `n_alphas=8`, `max_iter=1000`, `tol=1e-4`) kept all CPU/CuPy/Torch alpha selections matching. Torch was faster than CPU in 18/32 mid/high rows after fold-batched logistic CV; logistic Torch runtimes improved to about `0.46x`-`0.53x` of round-6 timings.
+  - `device="auto"` selected CPU for 14 rows and Torch for 18 rows on the same matrix; it was faster than explicit CPU in 27/32 rows, with all alpha selections matching CPU.
+  - A follow-up auto-routing pass keeps low-dimensional squared-error sparse CV (`p<256`) on CPU, avoiding the Torch cold-start outlier while preserving high-dimensional Torch acceleration.
+  - Round 9 adds CuPy fold-batched strict logistic sparse CV. It keeps explicit `device="cuda"` on the CuPy backend and falls back only to the previous CuPy per-fold path if the helper fails.
+  - Round 9 Matpool P100 strict matrix (`warmup=1`, `cv=3`, `n_alphas=8`, `max_iter=1000`, `tol=1e-4`) kept all CPU/CuPy/Torch/auto alpha selections matching CPU. Explicit Torch was faster than CPU in 18/32 rows, explicit CuPy in 8/32 rows, and `device="auto"` in 27/32 rows while selecting CPU for 16 rows and Torch for 16 rows.
+  - Targeted logistic CuPy validation matched the previous CuPy per-fold scores to numerical precision and made CuPy faster than CPU on larger `10000x100` and `5000x500` logistic rows; `2000x100` and `2000x500` remain explicit-CuPy hotspots.
+  - Validation artifacts: `results/cv_poisson_gamma_lipcache_round5.json`, `results/cv_poisson_gamma_cupy_score_batch_round6.json`, `results/cv_mid_high_after_lipcache_scorebatch_round6.json`, `results/cv_auto_after_lipcache_scorebatch_round6.json`, `results/cv_logistic_foldbatch_round7.json`, `results/cv_mid_high_after_logistic_foldbatch_round7.json`, `results/cv_auto_after_logistic_foldbatch_round7.json`, `results/cv_auto_lowp_sqerr_cpu_round8.json`, `results/cv_logistic_cupy_foldbatch_round9.json`, `results/cv_mid_high_after_cupy_foldbatch_round9.json`.
+
+### 优化 (2026-06-04)
+
+- **小规模 sparse CV GPU 传输优化**:
+  - squared-error sparse CV 在只需要 validation score 时不再把 coefficient path 传回主机。
+  - Matpool P100 小规模 strict CV (`n=500`, `p=20`, `cv=3`, `n_alphas=8`) 中，`squared_error+l1` 从 CuPy `820ms` 降到 `190ms`，Torch 从 `266ms` 降到 `97ms`；alpha 选择不变，GPU vs CPU 系数 L2 约 `6.9e-06`。
+  - logistic sparse CV 仍是 strict 模式热点；为保持 strict 的 `max_iter`/`tol` 语义，未把现有 iteration cap 接入 strict CV。
+  - 新增 `dev/tests/benchmark_glm_penalty_external_small.py`，用于小规模 sklearn/statsmodels/R 外部精度与运行时间比较，并显式记录等价惩罚参数映射。
+  - 验证产物：`results/cv_strict_sparse_sync_opt_v2_500x20.json` 和 `results/external_glm_penalty_small_gpu_sync_opt_v2.json`。
+
+### 新增 (2026-06-04)
+
+- **Strict-first PenalizedGLM_CV 策略控制**:
+  - `PenalizedGLM_CV` 默认保持 `cv_strategy="strict"`，并新增显式 opt-in 的 `cv_strategy="two_stage"` alpha screening。
+  - two-stage CV 使用放松的 screening 求解、strict 候选复核，以及 strict 最终 refit。
+  - 新增 `ApproximateCVWarning`、`acknowledge_approx`、`refine_top_k`，以及 CV 诊断字段 `cv_strategy_`、`cv_selected_device_`、`refined_mask` 和 stage-1 score 数组。
+  - benchmark 脚本可通过 `--cv-strategy` 运行 strict 或 two-stage CV。
+
+### 优化 (2026-06-01)
+
+- **后端传输 helper 与 benchmark parser**:
+  - CuPy <-> Torch CUDA 转换优先使用 DLPack 零拷贝共享，失败时回退到原安全路径。
+  - NumPy -> Torch CUDA 传输在可用时尝试 pinned memory 与 `non_blocking=True`。
+  - 新增 `dev/tests/_bench_report_parser.py`，可将 full-matrix benchmark 文本日志汇总为 JSON/Markdown。
+  - Benchmark summary 现在包含 backend/family/penalty 行数统计，并支持 `--fail-on-alerts` 作为脚本化 gate。
+  - CoxPH/CoxPHCV 统一暴露 Torch CUDA 清理钩子，补齐 GPU memory cleanup 约束。
+
+### 修复 (2026-06-04)
+
+- **Poisson sparse `PenalizedGLM_CV` 跨后端精度**:
+  - strict GPU FISTA 不再使用仅供近似筛选的异步 CV 更新路径。
+  - Poisson L1/ElasticNet CV 对几乎平坦的 CV 曲线使用稳定 near-tie 规则；当后端分数差异处于数值噪声量级时，确定性选择更强正则化的 alpha。
+  - Matpool P100 远程验证中，`poisson+l1/elasticnet`、`n=500`、`p=20`、`cv=3`、`n_alphas=8` 在 CPU、CuPy、Torch 上选出相同 alpha，系数 L2 差异约 `1.6e-05`。
+
+### 优化 (2026-06-04)
+
+- **GPU sparse GLM CV solver policy**:
+  - `solver="auto"` 现在按后端选择 strict-CV sparse GLM 求解器：GPU `poisson+l1` 和 `negative_binomial+l1` 使用 `fista_bb`，Torch `gamma+l1/elasticnet` 使用 `fista_bb`；用户显式指定的 solver 不变。
+  - sparse GLM CV path 的首个截距初始化改为 `log(mean(y))`，与 positive-family 常规 fit 初始化一致。
+  - Matpool P100 strict 矩阵 (`n=500`, `p=20`, `cv=3`, `n_alphas=8`) 保持 CPU、CuPy、Torch 的 90/90 alpha 一致；相对上一版 strict baseline，targeted speedup 包括 `negative_binomial+l1` Torch `0.37x`、CuPy `0.55x`，`poisson+l1` Torch `0.57x`、CuPy `0.83x`。
+  - 验证产物：`results/cv_strict_500x20_gpu_policy_opt_v3.json` 和 `results/cv_two_stage_sparse_auto_policy_opt_500x20.json`。
+
+## 2026-05
+
+### 修复 (2026-05-20)
+
+- **v23c: L-BFGS fused penalty gradient 修复**:
+  - 根因: `lbfgs_solver` fused GLM 路径只计算 loss 梯度, 遗漏 penalty 梯度
+  - L-BFGS 收敛到无正则化解 (`loss_grad ≈ 0`) 而非正确的 `loss_grad + α·coef = 0`
+  - 修复: 在 `_fused_glm_value_and_gradient` 调用后添加 `_smooth_penalty_gradient`
+  - 影响: 所有 GLM family + smooth penalty (L2, ElasticNet)
+  - 修复 9 个 MISMATCH (max|diff| 从 1e-01~1e-02 降至 1e-04~1e-08)
+  - 完整基准测试: 1043/1043 ALL PASS
+  - 修改文件: `statgpu/glm_core/_solver.py`
+
+### 优化 (2026-05-20)
+
+- **v22g: Async FISTA 与 GPU 优化**:
+  - Async FISTA: GLM+非光滑惩罚在 n=5000 时 2-5.5x 加速
+  - Lipschitz 重算、y-scaling cap、NB momentum cap、gamma 保守 momentum
+  - 回溯优化、梯度裁剪统一
+  - CuPy/Torch 后端 GPU sync 优化
+  - 修改文件: `statgpu/glm_core/_solver.py`、`statgpu/glm_core/_negative_binomial.py`、`statgpu/backends/_array_ops.py`
+
+- **v23c: 完整矩阵基准测试 (1043 tests)**:
+  - 7 families x 10 penalties x 3 scales x 多求解器 x 3 backends
+  - Section A 时间: CPU 平均 953ms/3995ms/2875ms, Torch n=5000: 2.19x 加速
+  - Section B: 13/13 vs sklearn ALL PASS
+  - Section D: 68/68 vs statsmodels ALL PASS
+  - Section E: 146/146 跨求解器 ALL PASS
+  - 报告: `dev/tests/_bench_v23c_report.md`
+
 ## 2026-04
-
-### 新增 (2026-04-30)
-
-- **无监督学习 v1**:
-  - 新增 `statgpu.unsupervised.PCA`，支持 CPU/CuPy/Torch 路径、full SVD 与 covariance/eigh 求解。
-  - 新增 `statgpu.unsupervised.KMeans`，支持 CPU/CuPy/Torch 路径、Lloyd 迭代、random 与 k-means++ 初始化。
-  - 优化 exact covariance PCA：使用 Gram 协方差恒等式，避免物化中心化训练矩阵。
-  - 新增 `svd_solver="randomized"`，用于近似截断 PCA。
-  - 顶层 `statgpu` 命名空间导出 `PCA` 与 `KMeans`。
-  - 新增 sklearn 对齐测试与 `dev/benchmarks/benchmark_unsupervised.py`。
 
 ### 新增 (2026-04-26)
 

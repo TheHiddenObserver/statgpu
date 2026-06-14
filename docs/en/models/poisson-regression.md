@@ -1,7 +1,7 @@
 # PoissonRegression
 
 > Language: English  
-> Last updated: 2026-04-25  
+> Last updated: 2026-05-20  
 > This page: Model documentation  
 > Switch: [Chinese](../../models/poisson-regression.md)
 
@@ -47,7 +47,7 @@ The score equation for the unpenalized Poisson GLM is:
 \sum_i x_i(y_i - \mu_i)=0
 \]
 
-`PoissonRegression` defaults to `solver="auto"`, which currently dispatches to IRLS. Explicit `solver="newton"` and `solver="lbfgs"` are also available for smooth Poisson GLM objectives and run on the selected backend. The model inherits the GLM formula interface, so formula intercept semantics follow patsy/R conventions.
+`PoissonRegression` defaults to `solver="auto"`, which currently dispatches to IRLS. Explicit `solver="newton"` and `solver="lbfgs"` are also available for smooth Poisson GLM objectives and run on the selected backend. As of v23c, `solver="lbfgs"` correctly handles L2 penalties. The model inherits the GLM formula interface, so formula intercept semantics follow patsy/R conventions.
 
 ## Covariance/Inference
 

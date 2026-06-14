@@ -33,6 +33,12 @@ from .linear_model import (
     LassoCV,
     ElasticNet,
     ElasticNetCV,
+    PenalizedGLM_CV,
+    ApproximateCVWarning,
+    GammaRegression,
+    InverseGaussianRegression,
+    NegativeBinomialRegression,
+    TweedieRegression,
 )
 from .survival import CoxPH, CoxPHCV
 from .panel import PanelOLS, RandomEffects
@@ -100,6 +106,15 @@ __all__ = [
     "LassoCV",
     "ElasticNet",
     "ElasticNetCV",
+    "PenalizedGLM_CV",
+    "ApproximateCVWarning",
+    "GammaRegression",
+    "InverseGaussianRegression",
+    "NegativeBinomialRegression",
+    "TweedieRegression",
+    "EmpiricalCovariance",
+    "LedoitWolf",
+    "OAS",
     "CoxPH",
     "CoxPHCV",
     "PanelOLS",
