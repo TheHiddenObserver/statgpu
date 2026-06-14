@@ -36,15 +36,12 @@ statgpu 已实现的所有模型、函数和类的完整列表。
 
 ```python
 import numpy as np
-from statgpu.inference import get_distribution
+from statgpu.inference import norm, poisson, uniform
 from statgpu.linear_model import PenalizedGeneralizedLinearModel
 
-# 使用 statgpu 分布 API（与 scipy 兼容：rvs, cdf, sf, ppf）
-norm = get_distribution("norm", backend="numpy")
-pois = get_distribution("poisson", backend="numpy")
-
+# 直接导入 — 与 scipy 兼容的 API（rvs, cdf, sf, ppf）
 X = norm.rvs(size=(2000, 20))
-y = pois.rvs(mu=3.0, size=2000).astype(float)
+y = poisson.rvs(mu=3.0, size=2000).astype(float)
 
 # Gamma + SCAD，自动选择 solver
 model = PenalizedGeneralizedLinearModel(loss="gamma", penalty="scad", alpha=0.1, solver="auto")
@@ -60,7 +57,6 @@ model = PenalizedGeneralizedLinearModel(
 model.fit(X, y)
 
 # Tweedie + group_lasso，带 sample_weight
-uniform = get_distribution("uniform", backend="numpy")
 sw = uniform.rvs(size=len(y)) * 0.5 + 0.5  # uniform(0.5, 1.5)
 model = PenalizedGeneralizedLinearModel(
     loss="tweedie", penalty="group_lasso",

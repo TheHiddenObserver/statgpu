@@ -76,14 +76,11 @@ pip install statgpu[formula]
 
 ```python
 import numpy as np
-from statgpu.inference import get_distribution
+from statgpu.inference import norm, poisson
 from statgpu.linear_model import LinearRegression, PenalizedGLM_CV
 from statgpu import adjust_pvalues, combine_pvalues
 
-# Generate data using statgpu's distribution API (scipy-compatible interface)
-norm = get_distribution("norm", backend="numpy")
-pois = get_distribution("poisson", backend="numpy")
-
+# Generate data using statgpu distributions (scipy-compatible API)
 X = norm.rvs(size=(10000, 100))
 y = X @ norm.rvs(size=100) + norm.rvs(size=10000) * 0.5
 
@@ -93,7 +90,7 @@ model.fit(X, y)
 print(f"R²: {model.score(X, y):.4f}")
 
 # Penalized GLM with cross-validation
-y_pois = pois.rvs(mu=np.exp(X[:, :5] @ np.ones(5) * 0.1), size=X.shape[0])
+y_pois = poisson.rvs(mu=np.exp(X[:, :5] @ np.ones(5) * 0.1), size=X.shape[0])
 cv_model = PenalizedGLM_CV(
     loss="poisson", penalty="elasticnet", l1_ratio=0.5,
     cv=5, device="cpu",
