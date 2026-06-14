@@ -2083,7 +2083,8 @@ class Lasso(_PenalizedLinearRegression):
         self.n_bootstrap = int(n_bootstrap)
         self.bootstrap_random_state = bootstrap_random_state
         self.enable_simultaneous_inference = bool(enable_simultaneous_inference)
-        self.simultaneous_method = str(simultaneous_method).lower()
+        _sm = str(simultaneous_method).lower()
+        self.simultaneous_method = simultaneous_method if simultaneous_method == _sm else _sm
         self.simultaneous_alpha = float(simultaneous_alpha)
         self.simultaneous_n_bootstrap = int(simultaneous_n_bootstrap)
         self.simultaneous_random_state = simultaneous_random_state

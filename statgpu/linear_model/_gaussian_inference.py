@@ -24,12 +24,13 @@ class GaussianFitState:
 
 
 def validate_cov_type(cov_type: str) -> str:
-    cov_type = str(cov_type).lower()
-    if cov_type not in ("nonrobust", "hc0", "hc1", "hc2", "hc3", "hac"):
+    """Validate and normalize cov_type. Preserves string identity for sklearn clone()."""
+    _ct = str(cov_type).lower()
+    if _ct not in ("nonrobust", "hc0", "hc1", "hc2", "hc3", "hac"):
         raise ValueError(
             "cov_type must be one of: 'nonrobust', 'hc0', 'hc1', 'hc2', 'hc3', 'hac'"
         )
-    return cov_type
+    return cov_type if str(cov_type) == _ct else _ct
 
 
 def validate_hac_maxlags(hac_maxlags: Optional[int]) -> Optional[int]:

@@ -40,7 +40,8 @@ class Ridge(_PenalizedLinearRegression):
         cpu_solver: str = "fista",
         lipschitz_L: Optional[float] = None,
     ):
-        self.cov_type = str(cov_type).lower()
+        _ct = str(cov_type).lower()
+        self.cov_type = cov_type if cov_type == _ct else _ct
         self.hac_maxlags = hac_maxlags
         super().__init__(
             penalty="l2",
