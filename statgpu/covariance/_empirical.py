@@ -1,8 +1,8 @@
 """Empirical covariance estimation with GPU support."""
 
-__all__ = ["EmpiricalCovariance"]
-
 from __future__ import annotations
+
+__all__ = ["EmpiricalCovariance"]
 
 from typing import Optional, Union
 

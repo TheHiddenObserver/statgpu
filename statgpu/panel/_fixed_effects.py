@@ -6,9 +6,9 @@ for non-robust, HC1 robust, and clustered standard errors.  GPU
 acceleration is provided transparently via the statgpu backend system.
 """
 
-__all__ = ["PanelOLS"]
-
 from __future__ import annotations
+
+__all__ = ["PanelOLS"]
 
 from typing import Optional, Union
 
