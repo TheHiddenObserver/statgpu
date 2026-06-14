@@ -1,13 +1,204 @@
 # Changelog
 
 > 语言：中文  
-> 最后更新：2026-06-12  
+> 最后更新：2026-06-14  
 > 页面定位：变更记录  
 > 切换：[English](en/changelog.md)
 
 语言切换：[English](en/changelog.md)
 
 ## 2026-06
+
+### 新增 (2026-06-13 ~ 2026-06-14)
+
+> PR #55~#58 由原始 PR #36（GLM+Penalty 完整模块）拆分而来。PR #36 实现了完整的 GLM + 惩罚系统，在完整矩阵基准测试中达到 1043/1043 ALL PASS (100%)。
+
+- **PR #36 — GLM+Penalty 完整模块（原始，拆分为 PR-A~D）**:
+  - 7 个 GLM 族：`squared_error`, `logistic`, `poisson`, `gamma`, `inverse_gaussian`, `negative_binomial`, `tweedie`
+  - 10 个惩罚：`none`, `l1`, `l2`, `elasticnet`, `scad`, `mcp`, `adaptive_l1`, `group_lasso`, `group_mcp`, `group_scad`
+  - 6 个求解器：`exact`, `newton`, `lbfgs`, `irls`, `fista`, `fista_bb` — 按族+惩罚组合调度
+  - 3 个后端：CPU (NumPy), CuPy, PyTorch — 自动设备选择
+  - 关键技术特性：
+    - LLA 路由处理非凸惩罚（SCAD, MCP, group 变体）
+    - 对数链接 GLM 增广截距处理（Poisson, gamma 等）
+    - 迭代相关 Lipschitz 计算
+    - Async FISTA 处理 GLM+非光滑惩罚（n=5000 时 2-5.5x 加速）
+    - L-BFGS 融合惩罚梯度修复 — 正确收敛到 `loss_grad + α·coef = 0`
+    - CuPy/Torch 后端 GPU sync 批处理优化
+    - GLM loss+gradient 核融合
+  - 基准测试结果 (v23c)：
+    | Section | 描述 | 测试数 | 状态 |
+    |---------|------|--------|------|
+    | A | 跨后端计时+精度 | 816 | 全通过 |
+    | B | vs sklearn | 13 | 全通过 |
+    | D | vs statsmodels | 68 | 全通过 |
+    | E | 跨求解器一致性 | 146 | 全通过 |
+    | **总计** | | **1043** | **全通过** |
+  - GPU 加速 (Section A)：
+    | 规模 | CPU 平均 | Torch 平均 | 加速 |
+    |------|----------|-----------|------|
+    | n=500, p=50 | 953ms | 954ms | 1.00x |
+    | n=2000, p=200 | 3995ms | 9108ms | 0.44x |
+    | n=5000, p=500 | 2875ms | 1313ms | **2.19x** |
+  - n=5000 求解器级别：fista-Torch 2.56x, newton-Torch 2.10x, irls-Torch 2.40x
+  - 文件：
+    - 核心求解器 & GLM：`statgpu/glm_core/_solver.py`, `_negative_binomial.py`, `_irls.py`, `_gamma.py`, `_inverse_gaussian.py`, `_tweedie.py`
+    - 惩罚模型：`statgpu/linear_model/_penalized.py`, `_gamma_glm.py`, `_inverse_gaussian_glm.py`, `_negative_binomial_glm.py`, `_tweedie_glm.py`
+    - 惩罚：`statgpu/penalties/_adaptive_l1.py`, `_mcp.py`, `_scad.py`, `_group_lasso.py`, `_group_mcp.py`, `_group_scad.py`
+    - 后端：`statgpu/backends/_array_ops.py`, `_cupy.py`
+    - 文档：changelog (EN+CN), benchmarks (EN+CN), model docs (GLM, Logistic, Poisson, Ridge; EN+CN), `dev/tests/_bench_v23c_report.md`
+  - 完整报告：`dev/tests/_bench_v23c_report.md`
+
+- **PR #55 — 核心 GLM 求解器、后端、惩罚、推断 (PR-A, 来自 PR #36)**:
+  - 7 个 GLM 族：squared_error, logistic, poisson, gamma, inverse_gaussian, negative_binomial, tweedie
+  - 10 个惩罚：none, l1, l2, elasticnet, scad, mcp, adaptive_l1, group_lasso, group_mcp, group_scad
+  - 6 个求解器：irls, fista, fista_bb, admm, lbfgs, newton — 按族+惩罚组合调度
+  - 3 个后端：NumPy (CPU), CuPy (CUDA), PyTorch (CUDA) 自动设备选择
+  - 统一推断：15 个分布、p 值校正、bootstrap、permutation test
+  - 关键技术：LLA 路由处理非凸惩罚（SCAD/MCP）、对数链接 GLM 增广截距、迭代相关 Lipschitz 计算、损失+梯度核融合
+  - 稳定性修复：
+    - 修复 3 个 Critical NameError（CuPy 路径和循环导入）
+    - 修复 torch 设备不匹配（HC2/HC3 leverage 计算）
+    - 修复 power-iteration 种子（Lipschitz 计算可复现性）
+    - 修复 CuPy cumop dtype 核（空输入处理）
+    - 修复 KDE logpdf NameError 和 binomial IRLS deviance 计算
+    - 恢复 irls_solver 主循环（意外删除后恢复）
+  - 后端改进：
+    - 添加 GPU sync 批处理（solver 操作，H6 修复）
+    - 拆分 solver 为模块化组件（H4 修复）
+    - 相对导入转为绝对导入 `statgpu.xx`
+    - 添加后端感知梯度计算
+  - 惩罚修复：
+    - 添加缺失的 group_mcp/group_scad 到 non_smooth 验证集
+    - 更新 group auto-fill 后的派生属性
+    - 修复 CompositePenalty 后端处理
+  - 测试：
+    - 为所有修复添加回归测试
+    - 标记 LassoCV 测试为 xfail（PR-B 功能）
+
+- **PR #56 — 惩罚模型 + CV 框架 (PR-B, 来自 PR #36)**:
+  - 7 个惩罚估计量：PenalizedLinearRegression, PenalizedLogisticRegression, PenalizedPoissonRegression, PenalizedGammaRegression, PenalizedInverseGaussianRegression, PenalizedNegativeBinomialRegression, PenalizedTweedieRegression
+  - PenalizedGLM_CV：完整 CV（7 族 × 10 惩罚 × 6 求解器）
+  - Lasso, Ridge, ElasticNet 完整推断
+  - LogisticRegression, LinearRegression GPU 支持
+  - 稳定性修复（8 轮代码审查）：
+    - 修复 P0/P1 bug：solver 运行时 NameError + TypeError
+    - 修复 GPU/CPU 预测容差（先放宽后收紧到 max_iter=2000 + tol=1e-10）
+    - 统一 NB 跨设备路径容差
+    - 修复 get_params、sample_weight、backend-aware 问题
+    - 将硬编码 penalty/loss 集合合并为共享常量
+  - 代码质量：
+    - 提取 ~500 行死代码到 legacy 文件
+    - 移除 magic numbers，添加命名常量
+    - 去重 score/summary 方法（跨估计量）
+    - 修复 BOM 编码问题和 __all__ 导出
+    - 清理导入，移除自导入
+  - 性能：
+    - 添加 penalty 操作的批量 GPU sync
+    - 优化 penalty 类别检测
+  - 测试：
+    - 放松后收紧 GPU/CPU 预测容差
+    - 修复后移除 xfail 标记
+
+- **PR #57 — 新模块 (PR-C, 来自 PR #36)**:
+  - ANOVA：`f_oneway` — GPU 加速单因素方差分析，支持 float32/float64
+  - 协方差：`EmpiricalCovariance`, `LedoitWolf`, `OAS` — 收缩协方差估计
+  - 面板数据：`PanelOLS`（单/双向固定效应）, `RandomEffects`（Swamy-Arora）, `PanelSummary`, 聚类协方差
+  - 样条：`bspline_basis`, `natural_cubic_spline_basis`, 惩罚回归 + GCV
+  - 半参数：`GAM`（惩罚 B 样条 + GCV 平滑参数选择）
+  - 核方法：`KernelRidge`, `KernelRidgeCV`, 6 个核函数（rbf, polynomial, linear, laplacian, sigmoid, cosine）
+  - Python 兼容性：
+    - 修复 `__future__` 导入顺序（Python 3.9 兼容）
+    - 在 4 个文件中移动 `__all__` 到 `__future__` 之后
+    - 修复协方差模块导出
+  - 运行时修复：
+    - 修复 RandomEffects 组均值计算
+    - 添加新模块缺失的 NumpyBackend 方法
+    - 修复 panel 测试 fit() 参数顺序（y, X → X, y）
+  - 代码审查修复：
+    - 第 1 轮修复 8 个 Critical + 2 个 High 问题
+    - 修复所有新模块的导入约定
+    - 后续轮次修复 H2/M5/M6/L2 问题
+
+- **PR #58 — 基础设施、导出、向后兼容 (PR-D, 来自 PR #36)**:
+  - 统一 `statgpu/__init__.py` 导出（~60 个公共名称）
+  - `BaseEstimator` 设备管理 + sklearn 兼容 `get_params`/`set_params`
+  - `Device` 枚举（CPU/CUDA/TORCH/AUTO）自动检测
+  - `kernel_methods/` 和 `splines/` 旧路径向后兼容
+  - sklearn 兼容性：
+    - 修复 `get_params` 只返回自身 `__init__` 参数（不含父类）
+    - 保留 `simultaneous_method` 和 `cov_type` 的字符串标识（sklearn clone() 要求）
+  - CoxPH 修复：
+    - 在 `_compute_partial_likelihood` 中 null model 路径前定义 `n`
+    - 为 null model risk set 添加惩罚警告
+  - 代码审查：
+    - 修复 `__all__` 导出和导入回退
+    - 修复 6 个剩余评论问题
+
+- **PR #48 — 模块重组**:
+  - 将 kernel_methods/ 和 splines/ 移至 nonparametric/ 子包
+  - 创建 kernel_smoothing/ 子包用于 KDE + 核回归
+  - 将 GAM 提取到 semiparametric/ 包
+  - 旧导入路径向后兼容
+  - IRLS 求解器改进：
+    - 修复 log-link 截距初始化（之前使用错误的起始值）
+    - 添加每次迭代收敛检查（之前只在结束时检查）
+    - 将 `_dev_val` 计算移出 IRLS 循环（性能优化）
+  - CuPy 修复：
+    - 修复 cummin/cummax 空输入异常处理
+    - 修复 cumop dtype 核（非连续数组）
+    - 在协方差测试中用 `_to_numpy` 包装 CuPy 数组
+  - 代码质量：
+    - 从 `_irls.py` 中剥离 BOM 编码
+    - 为 `_lasso.py` 添加 `from __future__ import annotations`
+    - 将裸 `except Exception` 子句收窄为特定异常
+    - 修复 splines `__all__` 导出
+  - 安全：
+    - 从远程配置中移除硬编码 SSH 凭据
+  - 测试：
+    - 添加 RTX 4090 的 6 阶段真实数据基准测试套件
+    - 为所有 PR #47 代码审查修复添加回归测试
+  - Python 3.8 兼容性修复
+
+- **PR #59 — 文档、changelog、指南 (PR-E)**:
+  - 所有新模块的完整模型文档
+  - 更新 docs/en/ 和 docs/cn/ 索引
+
+- **PR #60, #61 — README 清理**:
+  - 用表格清理 README 实现方法
+  - 压缩 README GLM 部分 + 去除冗余
+
+- **PR #62 — Dev 文件夹重组**:
+  - 归档 241 个旧/临时文件到 _archive/
+  - 更新 remote_config.py：环境变量优先于本地配置
+
+- **PR #63 — Dev 工作区文档**:
+  - 新增 dev/README.md（目录结构、远程 GPU 测试配置）
+  - 新增 dev/tests/TESTING.md（测试分类、远程工作流）
+  - 新增 dev/benchmarks/RESULTS.md（GPU 加速数据、版本历史）
+  - 新增 dev/design/ARCHITECTURE.md（后端抽象、GLM 求解器架构）
+
+- **PR #64 — 计划和 changelog 更新**:
+  - 重组根文件（USAGE.md → docs/, AGENTS.md → dev/, plans → dev/plans/）
+  - TO_DO.md 添加模块完成度百分比
+  - 更新 plan 文件实现状态
+  - 包含 PR #1 到 #64 的完整 CHANGELOG
+
+- **GPU 性能：Async FISTA (v22e)**:
+  - 消除 FISTA 循环中每次迭代的 GPU->CPU 同步
+  - logistic + L1: 2.22x → **5.41x**（n=5000, p=500）
+  - logistic + ElasticNet: 2.18x → **5.17x**
+  - Poisson + L1: 1.90x → **4.55x**
+  - 小规模：logistic + Adaptive L1 现在超过 CPU（0.56x → **1.12x**）
+
+- **GPU 性能：v23c 完整矩阵（1043/1043 全通过）**:
+  - 7 族 × 13 惩罚 × 5 求解器 × 3 后端
+  - L-BFGS 融合惩罚梯度修复
+  - Section A 计时：CPU 平均 953ms/3995ms/2875ms，Torch n=5000: **2.19x** 加速
+  - Section B: 13/13 vs sklearn 全通过
+  - Section D: 68/68 vs statsmodels 全通过
+  - Section E: 146/146 跨求解器全通过
+  - 报告：`dev/tests/_bench_v23c_report.md`
 
 ### Fixed (2026-06-10 ~ 2026-06-12)
 
@@ -21,6 +212,61 @@
   - 删除 ~1300 行死代码
   - 统一 `best_score_` 为负 MSE（sklearn 惯例）
   - 合并 PLAN_UNIFIED.md 门禁与 PR #49 编码规范到 TO_DO.md
+  - 统一 CV 框架：
+    - 创建 `_cv_base.py`：共享 `kfold_indices`、`CVCache`、`batch_mse`
+    - 创建 `_cv_engine.py`：通用 CV 循环引擎
+    - 实现 `PenalizedGLM_CV`：完整 family × penalty × solver 矩阵
+    - 添加 alpha 值间 warm-start（复用模型实例）
+    - 为 RidgeCV 添加批量特征分解（避免逐 alpha 求解）
+  - CuPy fused kernel 问题：
+    - 发现 SCAD/MCP CuPy fused kernel 数值问题
+    - 禁用 SCAD/MCP LLA 路径的 fused kernel
+    - 添加诊断脚本和文档
+  - Panel 修复：
+    - 修复非平衡双向固定效应
+    - 修复 PanelOLS 文档
+  - Ridge 修复：
+    - 修复加权截距计算
+    - 修复 ElasticNetCV warm-start（`fit_intercept=False` 时）
+  - 代码质量：
+    - 用共享导入替换重复的 `_kfold_indices`
+    - 修复 Lasso 默认值和缓存键
+    - 为 PenalizedGLM_CV 评分添加推断保护
+
+### 新增 (2026-06-07 ~ 2026-06-09)
+
+- **PR #50 — GLM 稀疏 CV 路径添加 val_sample_weight**:
+  - 稀疏 GLM 交叉验证的验证样本权重支持
+  - 支持不平衡数据集的加权 CV 折
+  - 移除多余的 cupy 行
+  - 使用 loss_fn.value 用于 numpy 路径
+  - 传递未增强的 Xv 到 _evaluate_loss_numpy 用于加权评分
+
+- **PR #53 — 修复加权 Ridge 推断**:
+  - 修复加权 Ridge 回归的尺度计算
+  - 保留 sample weights 下的 bse/pvalues/conf_int
+
+- **PR #54 — 重构 CV 调度表**:
+  - 为 _compute_cv_scores 创建调度表
+  - 提取 _cv_fold_general 以更清晰分离
+  - 添加路径失败警告和 LLA 清理
+  - 修复 Tweedie per-sample loss 符号错误
+  - 移除不正确的回退权重
+  - 移除死代码和自导入
+  - 添加回退警告
+  - 优化 Ridge CV 评分
+  - 提取硬编码常量为模块级命名变量
+  - 添加静默回退警告
+  - 修复非高斯 MSE 回退
+  - 为非均匀权重与非 L2 惩罚引发清晰错误
+  - 添加 loss 公式注释并收窄异常捕获
+  - 为 PenalizedGLM_CV 添加 cv_splits 参数以支持自定义折生成器
+  - 从 loss 对象默认值参数化 NB alpha 和 Tweedie power
+  - 创建统一 loss 公式注册表（替换内联 if/elif 链）
+  - 修复 LassoCV cache_key 变量名（缓存重构后）
+  - 修复 _res_logistic 返回梯度（sigmoid(eta)-y）而非 loss
+  - 修复 Poisson 残差返回梯度、NB 分母、InvGauss clipping
+  - 修复加权 Lipschitz 使用 sum(w)、cv_splits 规范化生成器
 
 ### Optimized (2026-06-05)
 
@@ -54,15 +300,6 @@
   - 新增 `ApproximateCVWarning`、`acknowledge_approx`、`refine_top_k`，以及 CV 诊断字段 `cv_strategy_`、`cv_selected_device_`、`refined_mask` 和 stage-1 score 数组。
   - benchmark 脚本可通过 `--cv-strategy` 运行 strict 或 two-stage CV。
 
-### 优化 (2026-06-01)
-
-- **后端传输 helper 与 benchmark parser**:
-  - CuPy <-> Torch CUDA 转换优先使用 DLPack 零拷贝共享，失败时回退到原安全路径。
-  - NumPy -> Torch CUDA 传输在可用时尝试 pinned memory 与 `non_blocking=True`。
-  - 新增 `dev/tests/_bench_report_parser.py`，可将 full-matrix benchmark 文本日志汇总为 JSON/Markdown。
-  - Benchmark summary 现在包含 backend/family/penalty 行数统计，并支持 `--fail-on-alerts` 作为脚本化 gate。
-  - CoxPH/CoxPHCV 统一暴露 Torch CUDA 清理钩子，补齐 GPU memory cleanup 约束。
-
 ### 修复 (2026-06-04)
 
 - **Poisson sparse `PenalizedGLM_CV` 跨后端精度**:
@@ -78,7 +315,65 @@
   - Matpool P100 strict 矩阵 (`n=500`, `p=20`, `cv=3`, `n_alphas=8`) 保持 CPU、CuPy、Torch 的 90/90 alpha 一致；相对上一版 strict baseline，targeted speedup 包括 `negative_binomial+l1` Torch `0.37x`、CuPy `0.55x`，`poisson+l1` Torch `0.57x`、CuPy `0.83x`。
   - 验证产物：`results/cv_strict_500x20_gpu_policy_opt_v3.json` 和 `results/cv_two_stage_sparse_auto_policy_opt_500x20.json`。
 
+
+### 优化 (2026-06-01)
+
+- **后端传输 helper 与 benchmark parser**:
+  - CuPy <-> Torch CUDA 转换优先使用 DLPack 零拷贝共享，失败时回退到原安全路径。
+  - NumPy -> Torch CUDA 传输在可用时尝试 pinned memory 与 `non_blocking=True`。
+  - 新增 `dev/tests/_bench_report_parser.py`，可将 full-matrix benchmark 文本日志汇总为 JSON/Markdown。
+  - Benchmark summary 现在包含 backend/family/penalty 行数统计，并支持 `--fail-on-alerts` 作为脚本化 gate。
+  - CoxPH/CoxPHCV 统一暴露 Torch CUDA 清理钩子，补齐 GPU memory cleanup 约束。
+
 ## 2026-05
+
+### 新增 (2026-05-24 ~ 2026-05-29)
+
+- **PR #37 — GLM 惩罚正确性 + 自动 GPU 路由**:
+  - 修复惩罚 GLM predict() 返回逆链接均值尺度预测
+  - 基于问题规模的惩罚模型自动 GPU 路由
+  - 修复 GPU 后端不可用时的 predict 后端回退
+  - 强制显式 GPU 预测后端契约
+  - 处理 GPU sample_weight 转换
+
+- **PR #38 — Gamma 逆幂 FISTA**:
+  - 链接感知 Gamma FISTA 支持（CPU/CuPy/Torch）
+  - 修复逆幂链接函数的目标不匹配
+  - 修复逆幂 Gamma FISTA 初始化和 torch dtype 对齐
+  - 使用后端原生逆幂 FISTA warm start
+  - 修复逆幂 gamma FISTA 初始化和 clipping 一致性
+  - 修复 torch FISTA 非高斯截距路径的 dtype
+  - 修复整数设计 dtype 提升（跨 GLM 截距路径）
+  - 修复 CuPy FISTA 初始化 dtype
+
+- **PR #39~#42 — GLM 求解器重构**:
+  - 修复 GLM GPU dtype 和审查回归
+  - 重构 GLM 求解器后端 helper
+  - IRLS 求解器后端别名和兼容性
+  - 测试 IRLS 求解器后端别名
+
+- **PR #43, #44 — 线性推断结果修复**:
+  - 重构高斯线性推断 helper
+  - 修复 CuPy 推断临界值 dtype
+  - 添加共享推断结果容器
+  - 完成线性推断结果连接
+  - 修复加权惩罚推断状态
+  - 清除过时线性推断结果
+  - 修复推断边界情况清理
+  - 清除 z 结果的过时 t 统计量
+  - 清除不可用的 GPU 推断预计算缓存
+  - 使用 ridge sandwich 协方差处理惩罚
+
+- **PR #47 — CuPy cummin/cummax 修复**:
+  - 修复 CuPy cummin/cummax CUDA 核在非连续数组上的问题
+  - adjust_pvalues BH/BY/Hochberg 现在返回正确结果（之前与 statsmodels 0% 一致）
+  - 根因：CUDA 核读取顺序内存，但 flip() 返回负步长视图
+  - 修复 IRLS log-link 截距初始化
+  - 添加每次迭代收敛检查
+  - 添加 RTX 4090 的 6 阶段真实数据基准测试套件
+  - 从 IRLS 中移除硬编码 SSH 凭据 + 使用后端工具
+  - 收窄裸 except 子句
+  - 为所有代码审查修复添加回归测试
 
 ### 修复 (2026-05-20)
 
@@ -108,11 +403,44 @@
   - Section E: 146/146 跨求解器 ALL PASS
   - 报告: `dev/tests/_bench_v23c_report.md`
 
+
+### 新增 (2026-05-03 ~ 2026-05-11)
+
+- **PR #27~#29 — 无监督学习 Phase 3/3B/3C**:
+  - 新增 12 个估计量：PCA, KMeans, DBSCAN, GaussianMixture, NMF, AgglomerativeClustering, UMAP, TSNE, MiniBatchKMeans, MiniBatchNMF, IncrementalPCA, TruncatedSVD
+  - 凝聚聚类 GPU 精确路径（single/complete/average/ward linkage）
+  - 所有估计量的文档和验证基准测试
+
+- **PR #30, #32 — 凝聚聚类 GPU 精确路径**:
+  - GPU 加速精确 linkage（所有距离度量）
+  - 支持 single, complete, average, ward linkage
+
+- **PR #33 — 非参数模块审查**:
+  - KDE GPU 内存修复
+  - 带宽选择 GPU 化
+  - Log-sum-exp 数值稳定性修复
+
+- **PR #34, #35 — 文档**:
+  - 明确运行时设备选择
+  - 明确 Torch 后端文档
+  - README 安装和要求更新
+
 ## 2026-04
 
 ### 新增 (2026-04-26)
 
-- **Phase 1: Ordered 模型跨后端精度修复**:
+- **PR #24 — 精度修复、hochberg/stouffer、包重组**:
+  - Phase 1: Ordered 模型跨后端精度修复
+  - 使用 torch.compile 和 Triton 核进行 GPU 加速
+  - 统一跨包导入为绝对形式（PEP 8）
+  - 解决 8 个 Codex 审查评论（shared_mem、lazy pandas、fit_intercept）
+  - 添加 CuPy/Numpy 后端缺失的转置
+  - 修复 cv_results_ 键命名
+  - 在 fit 期间保留公式截距语义
+
+- **PR #26 — README 刷新**:
+  - 重组功能、添加模型、推荐可编辑安装
+  - 导出 combine_pvalues
   - CuPy 收敛容差对齐：`gtol = 1e-6` → `gtol = self.tol`（与 scipy 一致）
   - CuPy 最小迭代次数从 30 降到 5（小样本下不再被迫多跑无用迭代）
   - 移除 CuPy warm-start 分支，始终从零初始化（与 scipy/torch 一致）
@@ -153,6 +481,27 @@
 
 ### 新增 (2026-04-21)
 
+- **PR #19 — Cython Efron 优化**:
+  - Cython 优化 Efron 梯度和 Hessian 计算
+  - CoxPH 精度和运行时综合基准测试
+  - 更新 RidgeCV、LogisticRegressionCV 和 CoxPHCV 文档
+  - 修复 logistic cv 重复的 batch log-loss helper 名称
+  - 修复 cox cv 缓存键类型和 CUDA 核启动错误暴露
+  - 跨文档对齐 CoxPHCV 状态
+  - 更新 RidgeCV 和 LogisticRegressionCV 状态为完整实现
+
+- **PR #21 — 分布后端统一**:
+  - 将 `_distributions_gpu.py`, `_distributions_torch.py` 合并为单一 `_distributions_backend.py`
+  - 通过 `SpecialFunctions` 协议和工厂模式覆盖 3 后端 15 个分布
+  - 修复分布后端路由和 torch 设备传播
+  - 修复代理 resolve args（rvs 和双侧 critical）
+  - 精简代理后端自动解析参数
+  - 更新分布 API 文档为统一 3 后端架构
+
+- **PR #22 — 后端工具整合**:
+  - 整合重复的后端工具函数
+  - 更清晰的后端抽象层
+
 - **CoxPHCV 从接口骨架升级为可训练版本**:
   - 已实现 penalty 网格搜索（K-fold）与最佳 penalty 全量重训流程
   - 支持 `ties='breslow'/'efron'` 与现有 `device` 路径（通过 `CoxPH` 后端执行）
@@ -190,6 +539,23 @@
 
 ### 新增 (2026-04-20)
 
+- **PR #18 — 远程配置 + 后端增强**:
+  - 移除硬编码 SSH 凭据（安全修复）
+  - 添加支持环境变量的远程配置模块
+  - 为 knockoff filter 添加 Torch GPU 后端支持
+  - 添加优化 GPU 实现的 Elastic Net
+  - 添加 LassoCV 交叉验证 Lasso 实现
+  - 修复远程配置、lasso/elasticnet cv 的审查问题
+  - 修复基准测试配置错误消息的环境变量名
+
+- **PR #20 — CoxPHCV CuPy 优化**:
+  - 优化 CoxPHCV CuPy Hessian 路径和默认值
+  - 加固 coxphcv 环境解析默认值缓存键
+  - 添加 CoxPHCV 的 cv 测试
+  - 明确 coxcv 默认值和环境回退断言
+  - 更新 Cox GPU entry+efron 路径并记录安全推出
+  - 同步 Cox 模型文档的 entry+efron GPU 状态
+
 - **CoxPH Efron 实现修复与性能优化**:
   - 修复 Cython Efron 梯度/海森矩阵计算中的数值溢出问题，添加 clipping 保护 (`MAX_LINPRED=700`, `MIN_LINPRED=-700`)
   - 发现 Cython 编译版本存在正确性问题，暂时使用 Python fallback 实现（已验证与数值梯度一致）
@@ -210,6 +576,23 @@
     - `results/coxph_benchmark_report_2026-04-20.md` - 综合性能对比报告
 
 ### 新增 (2026-04-18)
+
+- **PR #16 — Torch 后端支持**:
+  - 增强 Ridge 和 CoxPH 模型的 Torch 支持
+  - 添加内存管理改进
+  - 修复 torch 后端/设备问题
+  - 修复可复现性问题
+  - 避免 Cox torch 路径中的循环同步
+  - 收紧验证容差
+
+- **PR #17 — Elastic Net 实现**:
+  - 添加 Elastic Net（优化 GPU 实现）
+  - 将优化代码集成到核心实现
+  - 添加 Elastic Net 文档和 changelog 更新
+  - 添加基准测试和测试脚本
+  - 从大规模基准运行器中移除硬编码 SSH 凭据
+  - 收紧基于环境变量的远程基准运行器的 SSH 认证逻辑
+  - 允许使用发现的默认 SSH 密钥的密码短语
 
 - **Elastic Net 实现与基准测试**:
   - 新增 `ElasticNet` 类，结合 L1 和 L2 正则化，使用 FISTA 求解器
@@ -328,6 +711,88 @@
   - 安装：`pip install statgpu[torch]`
 
 ### 新增 (2026-04-15)
+
+### 新增 (2026-04-11 ~ 2026-04-15)
+
+- **PR #10 — HAC 协方差支持**:
+  - LinearRegression 和 LogisticRegression 的 HAC 协方差
+  - Newey-West 带宽选择
+  - 修复 Ridge 推断的 penalized bread
+  - 为 CV 骨架添加 NotImplementedError
+  - 明确 CV 类的已实现 vs 仅接口范围
+
+- **PR #11 — 新模型文档**:
+  - Knockoff 特征选择文档
+  - 新模型文档
+
+- **PR #12 — 分布兼容层**:
+  - 添加旧版分布函数兼容层
+  - 重构推断方法以统一后端访问
+  - 修复 Lasso GPU sync 开销（移除不必要的传输）
+  - 修复分布代理 resolve args（rvs 和双侧 critical）
+  - 预计算 Lasso 排除索引（性能优化）
+  - 明确 t-ppf 二分边界文档
+
+- **PR #13 — F 检验 p 值处理**:
+  - 完美拟合 F 检验 p 值处理（返回接近零的 p 值）
+  - 优化 Lasso p 值计算边界情况
+
+- **PR #14 — 核回归 + Lasso GPU 优化**:
+  - 添加核回归实现（NumPy/CuPy 支持）
+  - 优化 Lasso GPU 计算逻辑
+  - 修复完美拟合情况下的 F 统计量 p 值
+  - 减少非参数 API 中的 GPU 索引内存使用
+  - 修复非参数 API 命名
+
+- **PR #15 — Lasso 推断 GPU 支持**:
+  - 添加去偏 Lasso 同时推断（GPU nodewise 瓶颈）
+  - 优化 CN/EN 模型文档结构和引用
+  - 修复 API 命名、全设计缓存键
+  - 移除冗余数组转换
+  - 避免去偏矩阵哈希路径中的不必要复制
+
+### 新增 (2026-04-03 ~ 2026-04-07)
+
+- **PR #1 — CoxPH 聚类稳健协方差**:
+  - 新增 `cov_type="cluster"` 用于分组 sandwich 协方差估计
+  - Breslow tie 处理改进
+  - 新增 CoxPH 基准测试脚本
+
+- **PR #2 — 运行时比较表**:
+  - 跨 CPU/GPU 和外部框架的可复现运行时比较表
+  - 添加多目标线性回归形状处理
+  - 添加多目标 sklearn 和 R 基准测试脚本
+  - 修复 Ridge.score CUDA 预测的主机转换
+  - 优化诊断和逐步选择
+  - 改进 Cox 推断路径
+  - 修复跨模型的缓存/收敛处理
+
+- **PR #3 — 基准测试结构重构**:
+  - 重构基准测试结构并更新文档
+
+- **PR #4 — 可插拔后端抽象**:
+  - 创建 BackendBase ABC + NumPy/CuPy/Torch 实现
+  - 移除冗余模型实现（两个 LinearRegression 类、三个 Ridge 变体）
+  - 多后端支持的清晰路径
+  - 用后端抽象层规范化代码库
+
+- **PR #5 — Ridge 推断支持**:
+  - 与 LinearRegression 完整推断对齐
+  - `cov_type`: nonrobust/hc0/hc1 (CPU + GPU)
+  - `summary()`, `rsquared_adj`, `fvalue`, `f_pvalue`, `llf`, `aic`, `bic`
+
+- **PR #6 — Logistic Regression 评估指标**:
+  - 综合评估指标：ROC, AUC, 混淆矩阵
+  - `evaluate_binary_classification` 函数
+  - 修复 CuPy 在 logistic 评估方法中的安全性
+  - 添加 y_score 的有限性检查
+  - 对齐 CuPy/Torch 精度回退与 NumPy
+  - 通过委托消除指标重复
+  - 缓存训练评估指标以供复用
+
+- **PR #7, #8 — Bug 修复和实验结果**:
+  - 各种 bug 修复
+  - 更新实验结果
 
 ### 新增
 
