@@ -144,42 +144,64 @@ def _irls_ridge_init(X, y, loss_name, alpha=0.01, max_iter=100, tol=1e-4, loss_k
         Ridge-penalized coefficient estimates (no intercept).
     """
     if loss_name in ("squared_error", ""):
-        return _irls_ridge_init_cd(X, y, alpha, max_iter, tol)
-    # For GLM losses, use FISTA with L2 penalty (robust line search)
-    from statgpu.glm_core._solver import fista_solver
-    from statgpu.penalties import get_penalty
-    l2_pen = get_penalty("l2", alpha=alpha)
-    loss_obj = _resolve_loss_name(loss_name, loss_kwargs=loss_kwargs)
-    coef, _ = fista_solver(
-        loss_obj, l2_pen, np.asarray(X, dtype=np.float64),
-        np.asarray(y, dtype=np.float64),
-        max_iter=max_iter, tol=tol,
-    )
-    return np.asarray(coef, dtype=np.float64)
+        coef = _irls_ridge_init_cd(X, y, alpha, max_iter, tol)
+    else:
+        # For GLM losses, use FISTA with L2 penalty (robust line search)
+        # Pass arrays directly — solver handles backend detection internally
+        from statgpu.solvers import fista_solver
+        from statgpu.penalties import get_penalty
+        l2_pen = get_penalty("l2", alpha=alpha)
+        loss_obj = _resolve_loss_name(loss_name, loss_kwargs=loss_kwargs)
+        coef, _ = fista_solver(loss_obj, l2_pen, X, y, max_iter=max_iter, tol=tol)
+    # Return as numpy array (caller expects numpy for penalty.set_weights)
+    from statgpu.backends import _to_numpy
+    return np.asarray(_to_numpy(coef), dtype=np.float64)
 
 
 def _irls_ridge_init_cd(X, y, alpha, max_iter, tol):
-    """CD ridge for squared_error (matching R glmnet's ridge solver)."""
+    """CD ridge for squared_error (matching R glmnet's ridge solver).
+
+    Uses backend-agnostic operations (xp) to stay on device —
+    no CPU↔GPU transfers.
+    """
+    from statgpu.backends import _resolve_backend
+    from statgpu.backends._utils import _get_xp, xp_asarray
+    from statgpu.backends._array_ops import _copy_arr
+
+    backend = _resolve_backend("auto", X)
+    xp = _get_xp(backend)
+
+    def _scalar(val, ref):
+        """Create a scalar on the same device/dtype as ref."""
+        if backend == "torch":
+            import torch
+            return torch.tensor(val, dtype=ref.dtype, device=ref.device)
+        return xp.asarray(val, dtype=ref.dtype)
+
     n, p = X.shape
-    feat_norms = np.sqrt(np.sum(X ** 2, axis=0))
-    feat_norms = np.maximum(feat_norms, 1e-20)
-    scale = np.sqrt(n) / feat_norms
+    feat_norms = xp.sqrt(xp.sum(X ** 2, axis=0))
+    feat_norms = xp.maximum(feat_norms, _scalar(1e-20, feat_norms))
+    scale = _scalar(float(n) ** 0.5, X) / feat_norms
     X_work = X * scale
 
-    beta = np.zeros(p)
-    XDX_diag = np.sum(X_work ** 2, axis=0)
+    if backend == "torch":
+        import torch
+        beta = xp.zeros(p, dtype=X.dtype, device=X.device)
+    else:
+        beta = xp.zeros(p, dtype=X.dtype)
+    XDX_diag = xp.sum(X_work ** 2, axis=0)
 
     for it in range(max_iter):
-        beta_old = beta.copy()
+        beta_old = _copy_arr(beta)
         r = y - X_work @ beta
         for j in range(p):
-            rho_j = np.dot(X_work[:, j], r) + XDX_diag[j] * beta[j]
+            rho_j = float(X_work[:, j] @ r) + float(XDX_diag[j]) * float(beta[j])
             u_j = rho_j / n
-            v_j = XDX_diag[j] / n
+            v_j = float(XDX_diag[j]) / n
             beta[j] = u_j / (v_j + alpha)
-            r += X_work[:, j] * (beta_old[j] - beta[j])
+            r = r + X_work[:, j] * (float(beta_old[j]) - float(beta[j]))
 
-        if np.max(np.abs(beta - beta_old)) < tol:
+        if float(xp.max(xp.abs(beta - beta_old))) < tol:
             break
 
     return beta * scale

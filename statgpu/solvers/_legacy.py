@@ -1,10 +1,14 @@
 """Legacy solver methods from _solver.py.
 
-DO NOT import in production code."""
+DO NOT import in production code. Kept for reference only.
+"""
 
 from __future__ import annotations
 
 import numpy as np
+from statgpu.backends import _to_numpy
+from statgpu.backends._utils import _to_float_scalar
+from statgpu.backends._array_ops import _abs_sum_dev, _clip_grad_on_device, _copy_arr
 
 def fista_sqerr_adaptive_l1_fused(
     X, y, penalty_weights, alpha,
