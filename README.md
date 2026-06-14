@@ -163,7 +163,7 @@ print(f"Std Errors: {model._bse}")
 ```python
 import numpy as np
 from statgpu.linear_model import LinearRegression, Lasso
-from statgpu import adjust_pvalues, permutation_test
+from statgpu import adjust_pvalues, combine_pvalues, permutation_test
 
 # Generate data
 X = np.random.randn(10000, 100)

@@ -1,4 +1,4 @@
-﻿"""
+"""
 Legacy Lasso implementation (pre-unified PenalizedGLM).
 
 This module preserves the original standalone Lasso class that was replaced
