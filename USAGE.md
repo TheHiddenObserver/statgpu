@@ -19,6 +19,9 @@ Language switch:
 - [Inference Modes (Lasso)](docs/en/guides/inference-modes.md)
 - [Distribution API (GPU Native + Explicit Fallback)](docs/en/guides/distribution-api.md)
 - [Multiple Testing: Adjust & Combine P-values (BH/BY/Holm/Bonferroni/Hochberg + Fisher/Cauchy/Stouffer)](docs/en/guides/multiple-testing-combine-pvalues.md)
+- [GLM + Penalty Module](docs/en/models/generalized-linear-model.md) — 7 families × 10 penalties × 3 backends
+- [Solver-Penalty Matrix](docs/en/guides/solver-penalty-matrix.md) — solver dispatch and penalty routing
+- [Cross-Validation Guide](docs/en/guides/cross-validation.md) — PenalizedGLM_CV, LassoCV, RidgeCV
 - [Changelog](docs/en/changelog.md)
 
 Install note:
