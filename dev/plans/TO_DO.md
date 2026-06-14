@@ -27,18 +27,25 @@
 
 ---
 
-## 当前状态 (2026-06-14)
+## 模块完成度 (2026-06-14)
 
-### 已完成的重大里程碑
-
-- ✅ **v23c**: 1043/1043 ALL PASS (100%) — 7 families × 13 penalties × 5 solvers × 3 backends
-- ✅ **v22e**: Async FISTA — 最高 5.41x GPU 加速 (logistic+l1, n=5000)
-- ✅ **v20b**: Kernel fusion + D2H batching
-- ✅ **v17f**: Torch SCAD/MCP fix, GPU sync optimizations
-- ✅ **PR #49**: 110+ bug fixes, 428 test cases
-- ✅ RidgeCV / LogisticRegressionCV 完整实现
-- ✅ 推断体系：LinearRegression / Ridge / Logistic / CoxPH 全部支持 HC0-HC3/HAC
-- ✅ Unsupervised 模块：12 个 estimator 全部实现
+| 模块 | 完成度 | 已实现 | 关键缺失 |
+|------|--------|--------|----------|
+| **linear_model/** | ~90% | Ridge, Lasso, ElasticNet, Logistic, 7 GLM, Penalized, Ordered, CV | multinomial, sparse input |
+| **glm_core/** | ~85% | 6 solvers, 7 families, 5 links | solver 拆分优化 |
+| **penalties/** | ~95% | 12 penalties (L1/L2/EN/SCAD/MCP/Adaptive/Group) | — |
+| **survival/** | ~40% | CoxPH (Breslow/Efron, robust SE, cluster) | strata, frailty, time-varying |
+| **inference/** | ~80% | 15 distributions, p-value adjustment, bootstrap, permutation | — |
+| **unsupervised/** | ~95% | 12 estimators (PCA, KMeans, DBSCAN, tSNE, UMAP, NMF, GMM...) | — |
+| **kernel_methods/** | ~60% | 6 kernels, KernelRidge, KernelRidgeCV | Nystroem, KernelPCA, chi2 |
+| **panel/** | ~45% | PanelOLS, RandomEffects, clustered SE | FamaMacBeth, HAC, IV |
+| **splines/** | ~35% | bspline, natural_cubic, penalized regression, GAM | SplineTransformer API |
+| **covariance/** | ~30% | EmpiricalCovariance, LedoitWolf, OAS | GraphicalLasso, MinCovDet |
+| **anova/** | ~15% | f_oneway (单因素) | 二因素, 重复测量, 事后检验 |
+| **nonparametric/** | ~70% | KDE, kernel regression, bandwidth selection | — |
+| **feature_selection/** | ~80% | KnockoffSelector, StepwiseSelector | — |
+| **metrics/** | ~60% | ROC, AUC, confusion matrix | — |
+| **diagnostics/** | ~50% | RegressionDiagnostics | — |
 
 ---
 
@@ -57,10 +64,33 @@
 - [ ] CoxPHCV 完整实现（当前为骨架）
 - [ ] Ridge: warm_start, alpha path
 
-### P2: 模型选择与预处理
+### P2: 新模块扩展
 
-- [ ] path / cv / grid-search / warm_start
-- [ ] center/standardize/normalize 预处理开关
+**anova/** (15% → 目标 60%):
+- [ ] 二因素 ANOVA (with/without interaction)
+- [ ] Welch ANOVA (unequal variances)
+- [ ] 事后检验: Tukey HSD, Bonferroni
+- [ ] 效果量: Cohen's f, partial eta-squared
+
+**covariance/** (30% → 目标 60%):
+- [ ] GraphicalLasso / GraphicalLassoCV (稀疏逆协方差)
+- [ ] MinCovDet (稳健估计)
+- [ ] ShrunkCovariance (通用收缩)
+
+**panel/** (45% → 目标 70%):
+- [ ] FamaMacBeth
+- [ ] HAC/Newey-West 协方差
+- [ ] PooledOLS, BetweenOLS, FirstDifferenceOLS
+
+**splines/** (35% → 目标 60%):
+- [ ] sklearn SplineTransformer API (fit/transform)
+- [ ] 循环样条 (cyclic cubic)
+- [ ] 薄板样条 (thin plate)
+
+**kernel_methods/** (60% → 目标 80%):
+- [ ] Nystroem 近似
+- [ ] KernelPCA
+- [ ] chi2_kernel
 
 ### P3: 大规模重构
 
@@ -74,7 +104,6 @@
 
 - [ ] Panel 双向 demeaning 批量化（减少 GPU kernel launch）
 - [ ] KernelRidgeCV CuPy 路径实现（当前回退到 NumPy）
-- [ ] ANOVA float32 支持
 - [ ] 加权 CV 快速路径
 
 ### P3: 代码质量

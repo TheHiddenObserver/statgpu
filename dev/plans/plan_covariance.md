@@ -1,8 +1,9 @@
 # 协方差估计 GPU 实现计划
 
-**状态**: ✅ 已实现 (2026-06-13, PR #57)
+**状态**: 🔶 基础实现 (~30%) (2026-06-13, PR #57)
 
-> 实现: `EmpiricalCovariance`, `LedoitWolf`, `OAS`
+> 已实现: `EmpiricalCovariance`, `LedoitWolf`, `OAS`
+> 缺失: GraphicalLasso, MinCovDet, ShrunkCovariance, EllipticEnvelope
 
 ## 1. 现有包调研总结
 
