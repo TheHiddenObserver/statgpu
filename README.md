@@ -38,7 +38,7 @@ GPU-accelerated statistical methods with sklearn-compatible API.
 
 ## Implemented Methods
 
-> **[Full method list with solvers, penalties, link functions →](docs/en/models/implemented-methods.md)**
+> **[Full method list with solvers, penalties, link functions →](docs/en/guides/implemented-methods.md)**
 
 | Category | Classes | Highlights |
 |---|---|---|
