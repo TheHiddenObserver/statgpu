@@ -8,16 +8,16 @@ config file that is NOT committed to git.
 Usage:
 ------
 1. Set environment variables:
-   export STATGPU_REMOTE_HOST="hz-4.matpool.com"
-   export STATGPU_REMOTE_PORT="27609"
-   export STATGPU_REMOTE_USER="root"
-   export STATGPU_REMOTE_PASSWORD="your_password_here"
+   export STATGPU_REMOTE_HOST="<your-gpu-server>"
+   export STATGPU_REMOTE_PORT="<ssh-port>"
+   export STATGPU_REMOTE_USER="<username>"
+   export STATGPU_REMOTE_PASSWORD="<password>"
 
 2. Or create a local config file (dev/scripts/remote_config_local.py):
-   HOST = "hz-4.matpool.com"
-   PORT = 27609
-   USERNAME = "root"
-   PASSWORD = "your_password_here"
+   HOST = "<your-gpu-server>"
+   PORT = <ssh-port>
+   USERNAME = "<username>"
+   # Password via env var STATGPU_REMOTE_PASSWORD
 
 3. Or use SSH key authentication (recommended):
    export STATGPU_SSH_KEY_PATH="/path/to/your/ssh_key"
@@ -52,8 +52,8 @@ def get_remote_config():
                 remote_config_local = importlib.util.module_from_spec(spec)
                 spec.loader.exec_module(remote_config_local)
                 config = {
-                    'host': getattr(remote_config_local, 'HOST', 'hz-4.matpool.com'),
-                    'port': getattr(remote_config_local, 'PORT', 27609),
+                    'host': getattr(remote_config_local, 'HOST', 'localhost'),
+                    'port': getattr(remote_config_local, 'PORT', 22),
                     'username': getattr(remote_config_local, 'USERNAME', 'root'),
                     'password': getattr(remote_config_local, 'PASSWORD', None),
                     'ssh_key_path': getattr(remote_config_local, 'SSH_KEY_PATH', None),
@@ -89,5 +89,5 @@ def get_remote_config():
     )
 
 
-# Default remote work directory
+# Default remote work directory (override in remote_config_local.py if needed)
 REMOTE_WORK_DIR = "/root/statgpu"
