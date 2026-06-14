@@ -14,15 +14,14 @@ __all__ = ["fista_bb_solver"]
 import warnings
 import numpy as np
 from statgpu.backends import _resolve_backend, _to_numpy
-from statgpu.backends._utils import _to_float_scalar, _get_xp
+from statgpu.backends._utils import _to_float_scalar
 from statgpu.backends._array_ops import (
-    _abs_sum, _abs_sum_dev, _clip_grad_on_device, _copy_arr, _dot, _dot_dev,
-    _norm2, _norm2_dev, _sum_sq, _sum_sq_dev, _sync_scalars, _zeros, _zeros_like, _device_gt,
+    _abs_sum_dev, _clip_grad_on_device, _copy_arr, _dot_dev,
+    _norm2_dev, _sync_scalars, _zeros,
 )
-from statgpu.penalties._categories import NONSMOOTH as _NONSMOOTH_ALL, BB_DISABLED as _BB_DISABLED
+from statgpu.penalties._categories import BB_DISABLED as _BB_DISABLED
 from ._convergence import ConvergenceWarning
 from ._constants import (
-    _SLACK_TOLERANCE,
     _DIVERGE_COEF_NORM_CAP,
     _BB_RESTART_DOT_TOL,
     _DIVERGE_OBJ_RATIO,
@@ -33,12 +32,9 @@ from ._utils import (
     _validate_sample_weight,
     _as_backend_vector,
     _penalty_name,
-    _smooth_penalty_value,
-    _smooth_penalty_gradient,
     _smooth_penalty_lipschitz,
     _tracking_penalty_value,
     _abs_mean_max,
-    _smooth_penalty_value_dev,
 )
 
 
@@ -116,7 +112,7 @@ def fista_bb_solver(
     # (O(1/k) convergence), too slow to reach the true sparse solution
     # within max_iter.  Use standard FISTA (fixed Lipschitz step + Nesterov
     # momentum, O(1/k^2)) instead.
-    _is_quadratic = (getattr(loss, 'name', '') == "squared_error")
+    _is_quadratic = getattr(loss, '_is_quadratic', False)
 
     # BB steps estimate local curvature from smooth-gradient differences.
     # For non-smooth penalties the proximal operator introduces a

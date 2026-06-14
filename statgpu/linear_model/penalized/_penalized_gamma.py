@@ -55,8 +55,10 @@ class PenalizedGammaRegression(PenalizedGeneralizedLinearModel):
         max_lla_iters: int = 50,
         lla_tol: float = 1e-6,
         link: str = "log",
+        loss_kwargs: Optional[dict] = None,
     ):
-        super().__init__(
+        _loss_kwargs = dict(loss_kwargs) if loss_kwargs else {}
+        _loss_kwargs.setdefault("link", link)
         super().__init__(
             loss="gamma",
             penalty=penalty,
@@ -80,5 +82,5 @@ class PenalizedGammaRegression(PenalizedGeneralizedLinearModel):
             lla=lla,
             max_lla_iters=max_lla_iters,
             lla_tol=lla_tol,
+            loss_kwargs=_loss_kwargs,
         )
-            )

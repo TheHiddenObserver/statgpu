@@ -20,7 +20,6 @@ from statgpu.backends._array_ops import (
 from statgpu.backends._utils import _to_float_scalar
 
 from ._convergence import ConvergenceWarning
-from ._linesearch import _get_newton_step_compiled
 from ._utils import (
     _validate_uniform_sample_weight,
     _smooth_penalty_gradient,
@@ -70,8 +69,6 @@ def newton_solver(
         _fixed_hess = loss.hessian(X_proc, y_proc, params) + _smooth_penalty_hessian(
             penalty, params
         )
-
-    _newton_step = _get_newton_step_compiled() if backend == "torch" else None
 
     _validate_uniform_sample_weight(sample_weight, X_proc.shape[0], "newton_solver")
     iteration = -1

@@ -24,8 +24,6 @@ from statgpu.backends._array_ops import (
 from ._convergence import ConvergenceWarning
 from ._utils import (
     _validate_uniform_sample_weight,
-    _smooth_penalty_gradient,
-    _smooth_penalty_lipschitz,
 )
 
 __all__ = ["admm_solver"]
@@ -112,12 +110,11 @@ def admm_solver(
         g = g + rho * (w_vec - z_cur + u_cur)
         return g
 
-    # Detect if loss has a constant Hessian (squared_error) — use Cholesky.
+    # Detect if loss supports Cholesky (constant Hessian, e.g. squared_error).
     # For GLM losses, use Nesterov-accelerated gradient descent.
     # When using Cholesky we pin rho (disable adaptive_rho) because the
     # precomputed _A_mat = XtX/n + rho*I would become stale if rho changed.
-    loss_name = getattr(loss, 'name', '')
-    use_cholesky = loss_name == "squared_error" and n_features <= 2000
+    use_cholesky = getattr(loss, '_supports_cholesky', False) and n_features <= 2000
     if use_cholesky:
         adaptive_rho = False
 

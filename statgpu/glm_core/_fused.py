@@ -11,7 +11,7 @@ import numpy as np
 
 from statgpu.backends import _resolve_backend
 from statgpu.backends._utils import _to_float_scalar, _get_xp
-from statgpu.backends._utils import _to_numpy
+from statgpu.backends import _to_numpy
 
 
 def _fused_logistic(eta, X, y, n, loss):

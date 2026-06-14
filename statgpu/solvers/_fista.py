@@ -20,22 +20,17 @@ from statgpu.backends._array_ops import (
     _sum_sq_dev,
     _sync_scalars,
     _zeros,
-    _zeros_like,
 )
 from ._convergence import ConvergenceWarning
 from ._constants import (
     _SLACK_TOLERANCE,
     _DIVERGE_COEF_NORM_CAP,
-    _LIPSCHITZ_FLOOR,
     _LIPSCHITZ_SAFETY_LOGISTIC_CV,
 )
-from ._linesearch import _get_fista_step_compiled, _fista_step_call
 from ._utils import (
     _validate_sample_weight,
     _as_backend_vector,
     _penalty_name,
-    _smooth_penalty_value,
-    _smooth_penalty_gradient,
     _smooth_penalty_lipschitz,
     _abs_mean_max,
     _tracking_penalty_value,
@@ -91,7 +86,7 @@ def fista_solver(
     backend = _resolve_backend("auto", X)
     X_proc, y_proc = loss.preprocess(X, y)
     _loss_name = getattr(loss, 'name', '')
-    _is_quadratic = (_loss_name == "squared_error")
+    _is_quadratic = getattr(loss, '_is_quadratic', False)
     # Momentum control via loss class attributes:
     #   _momentum_beta_cap: if set, cap Nesterov beta at this value
     #   _skip_momentum: if True, disable momentum entirely
@@ -180,18 +175,16 @@ def fista_solver(
     # Smooth penalties (l2, none) need backtracking for GLM losses.
     _pen_name_lower = _penalty_name(penalty)
     _non_smooth = _pen_name_lower not in ("none", "null", "l2", "")
-    # Logistic: keep Armijo for non-CV mode (CPU/GPU path parity).
-    # In CV mode, allow async GPU loop with conservative Lipschitz.
-    _logistic_excluded = _loss_name == "logistic" and not cv_mode
+    # Some losses (e.g. logistic) are excluded from async GPU loop in non-CV mode.
+    _gpu_excluded = getattr(loss, '_gpu_loop_excluded', False) and not cv_mode
     _use_gpu_loop = (
         backend in ("torch", "cupy")
         and cv_mode
         and _non_smooth
-        and not _logistic_excluded
+        and not _gpu_excluded
     )
     _is_gpu = backend in ("torch", "cupy")
-    _conv_interval = 1 if _loss_name == "logistic" and not _use_gpu_loop else 3
-    _div_interval = 5   # check divergence every N iterations (GPU path)
+    _conv_interval = 3
     _lip_interval = 5
     if cv_mode and _use_gpu_loop:
         _conv_interval = max(_conv_interval, 10)

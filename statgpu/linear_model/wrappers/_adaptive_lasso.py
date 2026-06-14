@@ -28,7 +28,7 @@ class AdaptiveLasso(PenalizedLinearRegression):
         Tolerance for convergence.
     device : str or Device, default='auto'
         Computation device.
-    compute_inference : bool, default=True
+    compute_inference : bool, default=False
         Whether to compute post-fit inference.
     inference_method : str, default='debiased'
         Inference method.

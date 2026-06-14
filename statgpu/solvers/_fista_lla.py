@@ -12,7 +12,7 @@ import warnings
 import numpy as np
 
 from statgpu.backends import _resolve_backend, _to_numpy
-from statgpu.backends._utils import _to_float_scalar, _get_xp, xp_ones
+from statgpu.backends._utils import _to_float_scalar, xp_ones
 from statgpu.backends._array_ops import (
     _abs_sum_dev,
     _clip_grad_on_device,
@@ -163,14 +163,14 @@ def fista_lla_path(
     else:
         xp = np
     X_proc, y_proc = loss.preprocess(X, y)
-    _is_quadratic = getattr(loss, 'name', '') == 'squared_error'
+    _is_quadratic = getattr(loss, '_is_quadratic', False)
     _no_momentum = getattr(loss, '_skip_momentum', False)
     _non_smooth_pen_lla = getattr(scad_penalty, 'name', '') in _NONSMOOTH_ALL
     _momentum_beta_cap = getattr(loss, '_momentum_beta_cap', None)
     _conservative_momentum_lla = (
         _momentum_beta_cap is not None
-        or (_is_quadratic is False and _non_smooth_pen_lla
-            and getattr(loss, 'name', '') in ("logistic", "gamma"))
+        or (getattr(loss, '_conservative_momentum_with_nonsmooth', False)
+            and _non_smooth_pen_lla)
     )
 
     n_samples, n_features = X_proc.shape

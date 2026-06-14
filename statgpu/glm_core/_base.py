@@ -49,6 +49,10 @@ class GLMLoss(ABC):
     _skip_momentum: bool = False         # Disable momentum entirely
     _has_constant_hessian: bool = False  # Hessian is constant (Newton fast path)
     _prefer_fista_over_bb: bool = False  # Prefer FISTA over FISTA-BB for smooth penalties
+    _is_quadratic: bool = False          # True for squared_error (XtX constant, no y-scaling)
+    _supports_cholesky: bool = False     # True for squared_error (ADMM can use Cholesky)
+    _gpu_loop_excluded: bool = False     # True for logistic (async GPU loop not suitable)
+    _conservative_momentum_with_nonsmooth: bool = False  # Cap momentum when penalty is non-smooth
 
     # ── Per-sample formulas (single source of truth) ──────────────────
 
