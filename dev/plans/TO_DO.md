@@ -81,9 +81,10 @@
 
 - [ ] `_array_ops.py` 与 `_utils.py` helper 统一（`_xp_copy`/`xp_copy` 等重复）
 - [ ] `_solver.py` 标量提取模式统一（4 种不同方式）
-- [ ] `_solver.py` 异常捕获收窄
-- [ ] Panel summary() 返回结构化对象（当前直接 print）
-- [ ] PanelOLS.predict() 包含固定效应
+- [ ] `_solver.py` 异常捕获收窄（已部分完成）
+- [x] Panel summary() 返回 PanelSummary 结构化对象 ✅
+- [x] PanelOLS.predict() 包含固定效应 (entity_ids/time_ids) ✅
+- [x] ANOVA float32 支持 (dtype 参数) ✅
 
 ---
 
