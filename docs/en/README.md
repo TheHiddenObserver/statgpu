@@ -1,7 +1,7 @@
 # StatGPU Documentation
 
 > Language: English  
-> Switch: [Chinese](../README.md)
+> Switch: [Chinese](../cn/README.md)
 
 ## Getting Started
 

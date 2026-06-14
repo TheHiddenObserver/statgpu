@@ -12,12 +12,12 @@
 
 ## 1) 快速开始
 
-- [快速上手](docs/getting-started/quickstart.md)
-- [设备与显存管理](docs/guides/device-and-memory.md)
-- [推断配置（Lasso）](docs/guides/inference-modes.md)
-- [Distribution API 使用指南（原生 GPU + 显式 Fallback）](docs/guides/distribution-api.md)
-- [多重检验：P值校正与合并（BH/BY/Holm/Bonferroni/Hochberg + Fisher/Cauchy/Stouffer）](docs/guides/multiple-testing-combine-pvalues.md)
-- [变更记录](docs/changelog.md)
+- [快速上手](docs/cn/getting-started/quickstart.md)
+- [设备与显存管理](docs/cn/guides/device-and-memory.md)
+- [推断配置（Lasso）](docs/cn/guides/inference-modes.md)
+- [Distribution API 使用指南（原生 GPU + 显式 Fallback）](docs/cn/guides/distribution-api.md)
+- [多重检验：P值校正与合并（BH/BY/Holm/Bonferroni/Hochberg + Fisher/Cauchy/Stouffer）](docs/cn/guides/multiple-testing-combine-pvalues.md)
+- [变更记录](docs/cn/changelog.md)
 
 安装提示：
 - GPU 环境请按 CUDA 主版本选择 CuPy wheel：
@@ -27,24 +27,24 @@
 ## 2) 方法文档（按模块扩展）
 
 总览索引：
-- [模型总览](docs/models/README.md)
-- [GeneralizedLinearModel 与 Penalized GLM](docs/models/generalized-linear-model.md)
-- [PoissonRegression](docs/models/poisson-regression.md)
-- [Knockoff 特征选择](docs/models/knockoff.md)
-- [有序广义线性模型 (Logit/Probit)](docs/models/ordered.md)
-- [非参数方法](docs/models/nonparametric.md)
+- [模型总览](docs/cn/models/README.md)
+- [GeneralizedLinearModel 与 Penalized GLM](docs/cn/models/generalized-linear-model.md)
+- [PoissonRegression](docs/cn/models/poisson-regression.md)
+- [Knockoff 特征选择](docs/cn/models/knockoff.md)
+- [有序广义线性模型 (Logit/Probit)](docs/cn/models/ordered.md)
+- [非参数方法](docs/cn/models/nonparametric.md)
 
 ### 线性模型 `statgpu.linear_model`
-- [LinearRegression](docs/models/linear-regression.md)
-- [GeneralizedLinearModel 与 Penalized GLM](docs/models/generalized-linear-model.md)
-- [PoissonRegression](docs/models/poisson-regression.md)
-- [Ridge](docs/models/ridge.md)
-- [Lasso](docs/models/lasso.md)
-- [ElasticNet](docs/models/elastic-net.md)
-- [LogisticRegression](docs/models/logistic-regression.md)
+- [LinearRegression](docs/cn/models/linear-regression.md)
+- [GeneralizedLinearModel 与 Penalized GLM](docs/cn/models/generalized-linear-model.md)
+- [PoissonRegression](docs/cn/models/poisson-regression.md)
+- [Ridge](docs/cn/models/ridge.md)
+- [Lasso](docs/cn/models/lasso.md)
+- [ElasticNet](docs/cn/models/elastic-net.md)
+- [LogisticRegression](docs/cn/models/logistic-regression.md)
 
 ### 生存分析 `statgpu.survival`
-- [CoxPH](docs/models/coxph.md)
+- [CoxPH](docs/cn/models/coxph.md)
 
 当前已实现方法：
 - `LinearRegression`
@@ -92,7 +92,7 @@
 
 ## 3) 基准与验证
 
-- [基准脚本索引](docs/guides/benchmarks.md)
+- [基准脚本索引](docs/cn/guides/benchmarks.md)
 
 当前重点脚本：
 - `dev/benchmarks/_bench_inference_timing.py`（多重检验计时, p=100-10k）
