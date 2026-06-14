@@ -301,18 +301,13 @@ def _compute_partial_likelihood(
     n = len(time)
     if coef is None or np.all(coef == 0):
         # Null model: compute log partial likelihood at beta=0
-        # L(0) = sum_events[0 - log(sum_{j in R(t_i)} exp(0))] = sum_events[-log(|R(t_i)|)]
+        # L(0) = sum_events[-log(|R(t_i)|)] where |R(t_i)| = n - i (sorted)
         order = np.argsort(time)
-        time_sorted = time[order]
         event_sorted = event[order]
-        risk_scores = np.zeros(n)
-        exp_risk = np.ones(n)
-        null_ll = 0.0
-        for i in range(n):
-            if event_sorted[i]:
-                risk_set_size = np.sum(np.exp(risk_scores[order[i]:]))
-                if risk_set_size > 0:
-                    null_ll -= np.log(risk_set_size)
+        # Risk set size at sorted position i is (n - i)
+        risk_set_sizes = n - np.arange(n)
+        event_mask = event_sorted.astype(bool)
+        null_ll = -np.sum(np.log(risk_set_sizes[event_mask].astype(float)))
         return null_ll
 
     risk_scores = X @ coef

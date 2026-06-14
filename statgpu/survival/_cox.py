@@ -595,7 +595,7 @@ class CoxPH(BaseEstimator):
         does not support penalized fitting). A warning is emitted when
         penalty is specified.
         """
-        if self.penalty is not None and str(getattr(self.penalty, 'name', 'none')).lower() not in ('none', 'null', ''):
+        if float(self.penalty) > 0:
             import warnings
             warnings.warn(
                 "CoxPH with entry (delayed entry) does not support penalties via "
