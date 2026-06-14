@@ -143,10 +143,10 @@ class AgglomerativeClustering(BaseEstimator):
         edge_weights = np.empty(n_samples - 1, dtype=np.float64)
 
         for step in range(n_samples - 1):
-            child = int(backend.item(backend.argmin(min_dist)))
+            child = int(float(backend.argmin(min_dist)))
             edge_children[step] = child
-            edge_parents[step] = int(backend.item(nearest_parent[child]))
-            edge_weights[step] = float(backend.item(min_dist[child]))
+            edge_parents[step] = int(float(nearest_parent[child]))
+            edge_weights[step] = float(min_dist[child])
 
             selected[child] = True
             candidate = D[child, :]
@@ -201,13 +201,13 @@ class AgglomerativeClustering(BaseEstimator):
         )
 
         for step in range(n_samples - 1):
-            flat_idx = int(backend.item(backend.argmin(D)))
+            flat_idx = int(float(backend.argmin(D)))
             a = flat_idx // n_samples
             b = flat_idx % n_samples
             if b < a:
                 a, b = b, a
 
-            merge_value = float(backend.item(D[a, b]))
+            merge_value = float(D[a, b])
             children[step] = (cluster_ids[a], cluster_ids[b])
             distances[step] = np.sqrt(max(merge_value, 0.0)) if self.linkage == "ward" else merge_value
 

@@ -30,6 +30,7 @@ from .linear_model import (
     PenalizedGLM_CV,
 )
 from .survival import CoxPH, CoxPHCV
+from .covariance import EmpiricalCovariance, LedoitWolf, OAS
 from .unsupervised import (
     PCA,
     KMeans,

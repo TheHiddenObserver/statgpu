@@ -10,9 +10,22 @@ from typing import Any, Dict, Optional, Union
 import numpy as np
 
 from statgpu._base import BaseEstimator
-from statgpu.nonparametric._bandwidth_selection import select_bandwidth
+from statgpu.backends import xp_asarray, xp_empty, xp_maximum
 
-from statgpu.nonparametric._kernel_common import (
+
+def _xp_max(x, **kwargs):
+    """Backend-safe max that returns values only (torch.max returns (values, indices))."""
+    # Use amax if available (returns values only, works for torch/cupy/numpy)
+    if hasattr(x, 'amax'):
+        return x.amax(**kwargs)
+    # Fallback: check if max returns (values, indices) tuple
+    result = x.max(**kwargs)
+    if hasattr(result, 'values'):
+        return result.values
+    return result
+from statgpu.nonparametric.kernel_smoothing._bandwidth_selection import select_bandwidth
+
+from statgpu.nonparametric.kernel_smoothing._kernel_common import (
     _auto_backend_from_device,
     _as_points_2d,
     _as_samples_2d,
@@ -24,6 +37,7 @@ from statgpu.nonparametric._kernel_common import (
     _stable_inv_and_det,
     _to_float_scalar,
     _to_numpy,
+    _torch_device_from_data,
     _weighted_covariance,
 )
 
@@ -97,7 +111,9 @@ class KernelDensityEstimator(BaseEstimator):
         samples_2d = _as_samples_2d(X, xp)
         n_samples, n_features = int(samples_2d.shape[0]), int(samples_2d.shape[1])
 
-        weights_1d = _normalize_weights(self.weights, n_samples, xp)
+        device = _torch_device_from_data(samples_2d)
+        self._torch_device = device
+        weights_1d = _normalize_weights(self.weights, n_samples, xp, device=device, ref_arr=samples_2d)
         n_eff = _effective_sample_size(weights_1d, xp)
         kernel_name = _normalize_kernel_name(self.kernel)
 
@@ -189,7 +205,7 @@ class KernelDensityEstimator(BaseEstimator):
         if batch_size <= 0:
             raise ValueError("batch_size must be a positive integer")
 
-        out = xp.empty((n_points,), dtype=xp.float64)
+        out = xp_empty((n_points,), xp.float64, xp, ref_arr=points_2d)
 
         if n_features == 1:
             samples_1d = self.samples_[:, 0]
@@ -239,12 +255,12 @@ class KernelDensityEstimator(BaseEstimator):
             q_quad = xp.sum(q_proj * q, axis=1)
             cross = q_proj @ self.samples_.T
             quad = q_quad[:, None] + s_quad[None, :] - 2.0 * cross
-            quad = xp.maximum(quad, 0.0)
+            quad = xp_maximum(quad, 0.0, xp)
 
             if use_log_sum_exp:
                 if is_gaussian:
                     log_kernels = -0.5 * quad
-                    log_kernels_max = xp.max(log_kernels, axis=1, keepdims=True)
+                    log_kernels_max = _xp_max(log_kernels, axis=1, keepdims=True)
                     log_sum = log_kernels_max[:, 0] + xp.log(
                         xp.sum(xp.exp(log_kernels - log_kernels_max) * self.weights_[None, :], axis=1)
                     )
@@ -287,7 +303,7 @@ class KernelDensityEstimator(BaseEstimator):
             xp.log(safe_kernels) + xp.log(safe_weights),
             float("-inf"),
         )
-        log_terms_max = xp.max(log_terms, axis=1, keepdims=True)
+        log_terms_max = _xp_max(log_terms, axis=1, keepdims=True)
         finite_rows = xp.isfinite(log_terms_max[:, 0])
         shifted = xp.where(finite_rows[:, None], log_terms - log_terms_max, float("-inf"))
         return xp.where(
@@ -299,7 +315,7 @@ class KernelDensityEstimator(BaseEstimator):
     def pdf(self, points, *, batch_size: int = 1024):
         self._require_fitted()
         xp = _get_xp(self.backend_)
-        points_2d = _as_points_2d(points, self.n_features_, xp)
+        points_2d = _as_points_2d(points, self.n_features_, xp, ref_arr=self.samples_)
         result = self._evaluate_density(points_2d, batch_size=int(batch_size), xp=xp)
         self._cleanup_cuda_memory()
         self._cleanup_torch_memory()
@@ -310,11 +326,13 @@ class KernelDensityEstimator(BaseEstimator):
         if batch_size <= 0:
             raise ValueError("batch_size must be a positive integer")
 
+        n_points = int(points_2d.shape[0])
+
         s_quad = self._samples_quad_
         log_norm = math.log(self.inv_norm_const_) if self.inv_norm_const_ > 0.0 else float("-inf")
         is_gaussian = self.kernel_ == "gaussian"
 
-        out = xp.empty((points_2d.shape[0],), dtype=xp.float64)
+        out = xp_empty((n_points,), xp.float64, xp, ref_arr=points_2d)
 
         for start in range(0, points_2d.shape[0], int(batch_size)):
             stop = min(start + int(batch_size), points_2d.shape[0])
@@ -324,11 +342,11 @@ class KernelDensityEstimator(BaseEstimator):
             q_quad = xp.sum(q_proj * q, axis=1)
             cross = q_proj @ self.samples_.T
             quad = q_quad[:, None] + s_quad[None, :] - 2.0 * cross
-            quad = xp.maximum(quad, 0.0)
+            quad = xp_maximum(quad, 0.0, xp)
 
             if is_gaussian:
                 log_kernels = -0.5 * quad
-                log_kernels_max = xp.max(log_kernels, axis=1, keepdims=True)
+                log_kernels_max = _xp_max(log_kernels, axis=1, keepdims=True)
                 log_kernels_shifted = log_kernels - log_kernels_max
                 log_sum = log_kernels_max[:, 0] + xp.log(
                     xp.sum(xp.exp(log_kernels_shifted) * self.weights_[None, :], axis=1)
@@ -348,7 +366,7 @@ class KernelDensityEstimator(BaseEstimator):
     def logpdf(self, points, *, batch_size: int = 1024):
         self._require_fitted()
         xp = _get_xp(self.backend_)
-        points_2d = _as_points_2d(points, self.n_features_, xp)
+        points_2d = _as_points_2d(points, self.n_features_, xp, ref_arr=self.samples_)
         result = self._evaluate_log_density(points_2d, batch_size=int(batch_size), xp=xp)
         self._cleanup_cuda_memory()
         self._cleanup_torch_memory()
@@ -695,8 +713,8 @@ def kde_confidence_interval(
                 raise ValueError("bootstrap weights must sum to a positive value")
             sampled_weights = sampled_weights / sampled_weight_sum
 
-            sampled_data_backend = sampled_data if xp is np else xp.asarray(sampled_data, dtype=xp.float64)
-            sampled_weights_backend = sampled_weights if xp is np else xp.asarray(sampled_weights, dtype=xp.float64)
+            sampled_data_backend = sampled_data if xp is np else xp_asarray(sampled_data, dtype=xp.float64, xp=xp, ref_arr=points_2d)
+            sampled_weights_backend = sampled_weights if xp is np else xp_asarray(sampled_weights, dtype=xp.float64, xp=xp, ref_arr=points_2d)
 
             boot_model = fit_kde(
                 sampled_data_backend,
