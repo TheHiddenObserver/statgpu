@@ -23,12 +23,34 @@ Complete list of all implemented models, functions, and classes in statgpu.
 
 ## Penalized GLM
 
-| Class | Description | Solvers | Penalties | Backends |
+All 7 GLM families support penalties through `PenalizedGeneralizedLinearModel` or typed wrappers:
+
+| Class | Loss | Solvers | Penalties | Backends |
 |---|---|---|---|---|
-| `PenalizedGeneralizedLinearModel` | Unified penalized GLM (7 families) | exact, irls, newton, lbfgs, fista, fista_bb | l1, l2, elasticnet, scad, mcp, adaptive_l1, group_lasso, group_mcp, group_scad | CPU, CuPy, Torch |
-| `PenalizedLinearRegression` | squared_error + penalty | exact, fista | l1, l2, elasticnet, scad, mcp, adaptive_l1 | CPU, CuPy, Torch |
-| `PenalizedLogisticRegression` | logistic + penalty | irls, fista | l1, l2, elasticnet, scad, mcp, adaptive_l1 | CPU, CuPy, Torch |
-| `PenalizedPoissonRegression` | poisson + penalty | irls, fista | l1, l2, elasticnet, scad, mcp, adaptive_l1 | CPU, CuPy, Torch |
+| `PenalizedGeneralizedLinearModel` | Any of 7 families | exact, irls, newton, lbfgs, fista, fista_bb | l1, l2, elasticnet, scad, mcp, adaptive_l1, group_lasso, group_mcp, group_scad | CPU, CuPy, Torch |
+| `PenalizedLinearRegression` | squared_error | exact, fista | l1, l2, elasticnet, scad, mcp, adaptive_l1 | CPU, CuPy, Torch |
+| `PenalizedLogisticRegression` | logistic | irls, fista | l1, l2, elasticnet, scad, mcp, adaptive_l1 | CPU, CuPy, Torch |
+| `PenalizedPoissonRegression` | poisson | irls, fista | l1, l2, elasticnet, scad, mcp, adaptive_l1 | CPU, CuPy, Torch |
+
+For Gamma, InverseGaussian, NegativeBinomial, and Tweedie with penalties, use `PenalizedGeneralizedLinearModel(loss=..., penalty=...)`:
+
+```python
+from statgpu.linear_model import PenalizedGeneralizedLinearModel
+
+# Gamma + SCAD
+model = PenalizedGeneralizedLinearModel(loss="gamma", penalty="scad", alpha=0.1)
+model.fit(X, y)
+
+# NegativeBinomial + ElasticNet
+model = PenalizedGeneralizedLinearModel(loss="negative_binomial", penalty="elasticnet",
+                                        loss_kwargs={"alpha": 2.0}, alpha=0.1)
+model.fit(X, y)
+
+# Tweedie + group_lasso
+model = PenalizedGeneralizedLinearModel(loss="tweedie", penalty="group_lasso",
+                                        loss_kwargs={"power": 1.5}, alpha=0.1)
+model.fit(X, y)
+```
 
 ## Cross-Validation
 

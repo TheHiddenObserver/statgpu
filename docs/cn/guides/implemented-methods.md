@@ -23,12 +23,34 @@ statgpu 已实现的所有模型、函数和类的完整列表。
 
 ## 惩罚 GLM
 
-| Class | Description | Solvers | Penalties | Backends |
+所有 7 个 GLM family 都支持惩罚，通过 `PenalizedGeneralizedLinearModel` 或类型化 wrapper：
+
+| Class | Loss | Solvers | Penalties | Backends |
 |---|---|---|---|---|
-| `PenalizedGeneralizedLinearModel` | Unified penalized GLM (7 families) | exact, irls, newton, lbfgs, fista, fista_bb | l1, l2, elasticnet, scad, mcp, adaptive_l1, group_lasso, group_mcp, group_scad | CPU, CuPy, Torch |
-| `PenalizedLinearRegression` | squared_error + penalty | exact, fista | l1, l2, elasticnet, scad, mcp, adaptive_l1 | CPU, CuPy, Torch |
-| `PenalizedLogisticRegression` | logistic + penalty | irls, fista | l1, l2, elasticnet, scad, mcp, adaptive_l1 | CPU, CuPy, Torch |
-| `PenalizedPoissonRegression` | poisson + penalty | irls, fista | l1, l2, elasticnet, scad, mcp, adaptive_l1 | CPU, CuPy, Torch |
+| `PenalizedGeneralizedLinearModel` | 7 个 family 通用 | exact, irls, newton, lbfgs, fista, fista_bb | l1, l2, elasticnet, scad, mcp, adaptive_l1, group_lasso, group_mcp, group_scad | CPU, CuPy, Torch |
+| `PenalizedLinearRegression` | squared_error | exact, fista | l1, l2, elasticnet, scad, mcp, adaptive_l1 | CPU, CuPy, Torch |
+| `PenalizedLogisticRegression` | logistic | irls, fista | l1, l2, elasticnet, scad, mcp, adaptive_l1 | CPU, CuPy, Torch |
+| `PenalizedPoissonRegression` | poisson | irls, fista | l1, l2, elasticnet, scad, mcp, adaptive_l1 | CPU, CuPy, Torch |
+
+对于 Gamma、InverseGaussian、NegativeBinomial 和 Tweedie 的惩罚，使用 `PenalizedGeneralizedLinearModel(loss=..., penalty=...)`：
+
+```python
+from statgpu.linear_model import PenalizedGeneralizedLinearModel
+
+# Gamma + SCAD
+model = PenalizedGeneralizedLinearModel(loss="gamma", penalty="scad", alpha=0.1)
+model.fit(X, y)
+
+# NegativeBinomial + ElasticNet
+model = PenalizedGeneralizedLinearModel(loss="negative_binomial", penalty="elasticnet",
+                                        loss_kwargs={"alpha": 2.0}, alpha=0.1)
+model.fit(X, y)
+
+# Tweedie + group_lasso
+model = PenalizedGeneralizedLinearModel(loss="tweedie", penalty="group_lasso",
+                                        loss_kwargs={"power": 1.5}, alpha=0.1)
+model.fit(X, y)
+```
 
 ## 交叉验证
 
