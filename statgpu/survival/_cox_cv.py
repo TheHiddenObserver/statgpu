@@ -97,6 +97,18 @@ def _coxcv_cache_put(cache_key: Optional[str], value: Dict[str, Any]) -> None:
         _COXPH_CV_CACHE.popitem(last=False)
 
 
+def _sample_hash(h, arr, max_rows=50):
+    """Hash a sampled subset of an array for cache key generation."""
+    arr_np = np.asarray(arr, dtype=np.float64).ravel()
+    n = arr_np.shape[0]
+    if n <= max_rows:
+        h.update(arr_np.tobytes())
+    else:
+        # Sample first, middle, and last rows
+        indices = np.concatenate([np.arange(max_rows//2), np.arange(n-max_rows//2, n)])
+        h.update(arr_np[indices].tobytes())
+
+
 def _make_coxph_cv_auto_cache_key(
     X_shape: Tuple[int, ...],
     time_shape: Tuple[int, ...],
@@ -120,6 +132,9 @@ def _make_coxph_cv_auto_cache_key(
     fast_tol: float,
     max_iter: int,
     tol: float,
+    X_data=None,
+    time_data=None,
+    event_data=None,
 ) -> str:
     """
     Generate automatic cache key for CoxPH CV.
@@ -132,6 +147,13 @@ def _make_coxph_cv_auto_cache_key(
     h.update(np.asarray(X_shape, dtype=np.int64).tobytes())
     h.update(np.asarray(time_shape, dtype=np.int64).tobytes())
     h.update(np.asarray(event_shape, dtype=np.int64).tobytes())
+    # Include sampled data content to avoid collisions across datasets with same shape
+    if X_data is not None:
+        _sample_hash(h, X_data, max_rows=50)
+    if time_data is not None:
+        _sample_hash(h, time_data, max_rows=50)
+    if event_data is not None:
+        _sample_hash(h, event_data, max_rows=50)
     if penalties is not None:
         h.update(np.asarray(penalties, dtype=np.float64).tobytes())
     h.update(str(n_penalties).encode("utf-8"))
@@ -276,8 +298,17 @@ def _compute_partial_likelihood(
     log_pl : float
         Log partial likelihood value.
     """
+    n = len(time)
     if coef is None or np.all(coef == 0):
-        return 0.0
+        # Null model: compute log partial likelihood at beta=0
+        # L(0) = sum_events[-log(|R(t_i)|)] where |R(t_i)| = n - i (sorted)
+        order = np.argsort(time)
+        event_sorted = event[order]
+        # Risk set size at sorted position i is (n - i)
+        risk_set_sizes = n - np.arange(n)
+        event_mask = event_sorted.astype(bool)
+        null_ll = -np.sum(np.log(risk_set_sizes[event_mask].astype(float)))
+        return null_ll
 
     risk_scores = X @ coef
     exp_risk = np.exp(risk_scores)
@@ -326,7 +357,6 @@ def _compute_partial_likelihood(
     risk_sorted = risk_scores[order]
     exp_risk_sorted = exp_risk[order]
 
-    n = len(time)
     log_pl = 0.0
 
     # With delayed entry, risk set is:
@@ -545,6 +575,9 @@ def _select_coxph_penalty_cv(
             X_shape=X_np.shape,
             time_shape=time_np.shape,
             event_shape=event_np.shape,
+            X_data=X_np,
+            time_data=time_np,
+            event_data=event_np,
             penalties=penalties,
             n_penalties=n_penalties,
             penalty_min_ratio=penalty_min_ratio,
@@ -874,6 +907,37 @@ class CoxPHCV(CVEstimatorBase):
         self.hazard_ratios_ = None
         self.estimator_ = None
 
+    def _cleanup_cuda_memory(self):
+        """Best-effort CuPy memory pool cleanup."""
+        if not self.gpu_memory_cleanup:
+            return
+        try:
+            import cupy as cp
+
+            cp.get_default_memory_pool().free_all_blocks()
+            cp.get_default_pinned_memory_pool().free_all_blocks()
+        except Exception:
+            pass
+
+    def _cleanup_torch_memory(self):
+        """Best-effort Torch CUDA cache cleanup."""
+        if not self.gpu_memory_cleanup:
+            return
+        try:
+            import torch
+
+            torch.cuda.empty_cache()
+            torch.cuda.synchronize()
+        except Exception:
+            pass
+
+    def __del__(self):
+        try:
+            self._cleanup_cuda_memory()
+            self._cleanup_torch_memory()
+        except Exception:
+            pass
+
     def _fit_cv(self, X, time, event, entry=None, cluster=None):
         """
         Fit CoxPH with K-fold cross-validation.
@@ -963,6 +1027,8 @@ class CoxPHCV(CVEstimatorBase):
         self.estimator_ = final_model
         self.coef_ = final_model.coef_.copy()
         self.hazard_ratios_ = final_model.hazard_ratios_.copy()
+        self._cleanup_cuda_memory()
+        self._cleanup_torch_memory()
 
         return self
 

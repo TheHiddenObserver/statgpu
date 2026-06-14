@@ -1535,7 +1535,7 @@ def _select_lasso_alpha_cv(
     - Supports GPU path by setting ``device='cuda'``.
     """
     device_name = str(device).lower()
-    use_gpu = device_name == Device.CUDA.value
+    use_gpu = device_name in (Device.CUDA.value, Device.TORCH.value)
     gpu_requested = use_gpu
 
     gpu_input_cupy = False
@@ -2083,7 +2083,8 @@ class Lasso(_PenalizedLinearRegression):
         self.n_bootstrap = int(n_bootstrap)
         self.bootstrap_random_state = bootstrap_random_state
         self.enable_simultaneous_inference = bool(enable_simultaneous_inference)
-        self.simultaneous_method = str(simultaneous_method).lower()
+        _sm = str(simultaneous_method).lower()
+        self.simultaneous_method = simultaneous_method if simultaneous_method == _sm else _sm
         self.simultaneous_alpha = float(simultaneous_alpha)
         self.simultaneous_n_bootstrap = int(simultaneous_n_bootstrap)
         self.simultaneous_random_state = simultaneous_random_state
@@ -2105,7 +2106,8 @@ class Lasso(_PenalizedLinearRegression):
             stopping=stopping,
         )
         # Re-set after super().__init__() which overwrites with parent default
-        self.inference_method = str(inference_method).lower()
+        _im = str(inference_method).lower()
+        self.inference_method = inference_method if inference_method == _im else _im
 
         # Validate simultaneous inference settings
         if self.enable_simultaneous_inference:

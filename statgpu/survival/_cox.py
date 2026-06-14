@@ -21,7 +21,12 @@ except ImportError:
     HAS_CYTHON_EFRON = False
     _efron_grad_hess_cython = None
 
-from statgpu.survival._cox_efron_triton import _find_p_ce
+try:
+    from statgpu.survival._cox_efron_triton import _find_p_ce
+    HAS_TRITON_EFRON = True
+except ImportError:
+    HAS_TRITON_EFRON = False
+    _find_p_ce = None
 
 
 def _unpack_efron_pre6(efron_pre):
@@ -144,6 +149,25 @@ class CoxPH(BaseEstimator):
             import cupy as cp
             cp.get_default_memory_pool().free_all_blocks()
             cp.get_default_pinned_memory_pool().free_all_blocks()
+        except Exception:
+            pass
+
+    def _cleanup_torch_memory(self):
+        """Best-effort Torch CUDA cache cleanup."""
+        if not self.gpu_memory_cleanup:
+            return
+        try:
+            import torch
+
+            torch.cuda.empty_cache()
+            torch.cuda.synchronize()
+        except Exception:
+            pass
+
+    def __del__(self):
+        try:
+            self._cleanup_cuda_memory()
+            self._cleanup_torch_memory()
         except Exception:
             pass
 
@@ -273,15 +297,14 @@ class CoxPH(BaseEstimator):
         elif device == Device.TORCH:
             import torch
 
-            # Determine torch device (cuda if available, else cpu)
-            torch_device = "cuda" if torch.cuda.is_available() else "cpu"
+            torch_device = "cuda"
 
-            X_torch = torch.as_tensor(self._to_array(X), dtype=torch.float64, device=torch_device)
-            time_torch = torch.as_tensor(self._to_array(time), dtype=torch.float64, device=torch_device)
-            event_torch = torch.as_tensor(self._to_array(event), dtype=torch.int32, device=torch_device)
-            entry_torch = None if entry is None else torch.as_tensor(
-                self._to_array(entry), dtype=torch.float64, device=torch_device
-            )
+            X_torch = self._to_array(X, Device.TORCH, backend="torch").to(dtype=torch.float64)
+            time_torch = self._to_array(time, Device.TORCH, backend="torch").to(dtype=torch.float64)
+            event_torch = self._to_array(event, Device.TORCH, backend="torch").to(dtype=torch.int32)
+            entry_torch = None if entry is None else self._to_array(
+                entry, Device.TORCH, backend="torch"
+            ).to(dtype=torch.float64)
 
             if X_torch.ndim == 1:
                 X_torch = X_torch.reshape(-1, 1)
@@ -305,9 +328,9 @@ class CoxPH(BaseEstimator):
                 self._event = None
                 self._entry = None
 
-            cluster_torch = None if cluster is None else torch.as_tensor(
-                self._to_array(cluster), dtype=torch.int64, device=torch_device
-            )
+            cluster_torch = None if cluster is None else self._to_array(
+                cluster, Device.TORCH, backend="torch"
+            ).to(dtype=torch.int64)
             self._fit_torch(
                 X_torch,
                 time_torch,
@@ -419,6 +442,7 @@ class CoxPH(BaseEstimator):
         use_penalty = penalty > 0.0
         # Preferred Newton direction for CPU path; updated adaptively.
         preferred_direction = -1.0
+        iteration = -1  # default if max_iter=0
 
         for iteration in range(self.max_iter):
             # Compute gradient and Hessian
@@ -565,7 +589,20 @@ class CoxPH(BaseEstimator):
             self._cindex = None
 
     def _fit_cpu_with_entry(self, X, time, event, entry, cluster=None):
-        """Fit using statsmodels PHReg when delayed entry is provided."""
+        """Fit using statsmodels PHReg when delayed entry is provided.
+
+        Note: L2 penalty is not applied in this path (statsmodels PHReg
+        does not support penalized fitting). A warning is emitted when
+        penalty is specified.
+        """
+        if float(self.penalty) > 0:
+            import warnings
+            warnings.warn(
+                "CoxPH with entry (delayed entry) does not support penalties via "
+                "statsmodels PHReg. The penalty will be ignored. "
+                "Use the GPU/torch path for penalized Cox with delayed entry.",
+                UserWarning, stacklevel=3,
+            )
         import statsmodels.duration.api as smd
 
         n_samples, n_features = X.shape
@@ -799,6 +836,7 @@ class CoxPH(BaseEstimator):
         # Newton-Raphson optimization on GPU
         loglik_gpu = None
         current_obj = None
+        iteration = -1  # default if max_iter=0
         for iteration in range(self.max_iter):
             # Compute gradient and Hessian on GPU
             grad, hess, aux_stats = self._compute_gradient_hessian_gpu(
@@ -1297,6 +1335,7 @@ class CoxPH(BaseEstimator):
             self._baseline_hazard = None
             self._baseline_cumulative_hazard = None
             self._unique_times = None
+        self._cleanup_torch_memory()
 
     def _compute_log_likelihood(self, beta, X, time, event, efron_pre=None, entry=None):
         """Compute log partial likelihood (Breslow/Efron tie handling)."""
@@ -3362,10 +3401,10 @@ class CoxPH(BaseEstimator):
                     self._var_matrix = self._var_matrix * (n / (n - k))
         
         # Standard errors
-        self._bse = np.sqrt(np.diag(self._var_matrix))
-        
-        # z-values
-        self._zvalues = self.coef_ / self._bse
+        self._bse = np.sqrt(np.maximum(np.diag(self._var_matrix), 0.0))
+
+        # z-values (add epsilon to avoid division by zero)
+        self._zvalues = self.coef_ / (self._bse + 1e-30)
         
         # p-values (two-sided)
         self._pvalues = 2 * (1 - stats.norm.cdf(np.abs(self._zvalues)))
