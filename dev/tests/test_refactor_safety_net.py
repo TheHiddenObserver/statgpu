@@ -404,6 +404,7 @@ class TestNonparametricImports:
             KernelRidge, KernelRidgeCV, bspline_basis,
         )
 
-    def test_old_kde_path_still_works(self):
-        """Before Phase 6 deletes old files, old path should work."""
-        from statgpu.nonparametric._kde import KernelDensityEstimator  # noqa: F401
+    def test_old_kde_path_removed(self):
+        """After Phase 6, old duplicate file should not exist."""
+        import importlib.util
+        assert importlib.util.find_spec("statgpu.nonparametric._kde") is None

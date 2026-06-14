@@ -114,7 +114,7 @@ from ._resampling import (
     permutation_test,
 )
 try:
-    from statgpu.nonparametric._kde import (
+    from statgpu.nonparametric.kernel_smoothing._kde import (
         KDE,
         KDEBootstrapResult,
         fit_kde,
