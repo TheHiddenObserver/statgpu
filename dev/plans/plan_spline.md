@@ -1,8 +1,9 @@
 # Spline 模型 GPU 实现计划
 
-**状态**: ✅ 已实现 (2026-06-13, PR #57)
+**状态**: 🔶 核心实现 (~35%) (2026-06-13, PR #57)
 
-> 实现: `bspline_basis`, `natural_cubic_spline_basis`, `GAM`
+> 已实现: `bspline_basis`, `natural_cubic_spline_basis`, 惩罚回归 (GCV), `GAM`
+> 缺失: sklearn SplineTransformer API, 循环样条, 薄板样条, M/I-splines, 张量积样条
 
 ## 一、Python 和 R 中 Spline 包的功能调研
 

@@ -1,8 +1,9 @@
 # Kernel Ridge Regression GPU 实现计划
 
-**状态**: ✅ 已实现 (2026-06-13, PR #57)
+**状态**: ✅ 接近完整 (~60%) (2026-06-13, PR #57)
 
-> 实现: `KernelRidge`, `KernelRidgeCV`, `pairwise_kernels` — 6 核函数, CPU/CuPy/Torch
+> 已实现: `KernelRidge`, `KernelRidgeCV`, `pairwise_kernels` — 6 核函数 (rbf/polynomial/linear/laplacian/sigmoid/cosine), CPU/CuPy/Torch
+> 缺失: chi2 核, Nystroem 近似, KernelPCA, sample_weight 支持
 
 ## 1. 背景与目标
 

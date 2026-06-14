@@ -2,14 +2,15 @@
 name: ANOVA GPU 实现计划
 description: Python 和 R 中方差分析 (ANOVA) 功能调研及 GPU 实现路线图
 type: project
-status: ✅ 已实现 (2026-06-13, PR #57)
+status: 🔶 基础实现 (~15%) (2026-06-13, PR #57)
 ---
 
 # 方差分析 (ANOVA) GPU 实现计划
 
-**状态**: ✅ 已实现
+**状态**: 🔶 基础实现 (~15%)
 
-> 实现: `f_oneway`, `AnovaResult` — 支持 float32/float64, CPU/CuPy/Torch
+> 已实现: `f_oneway` (单因素), `AnovaResult` — 支持 float32/float64, CPU/CuPy/Torch
+> 缺失: 二因素/N因素 ANOVA, 重复测量, Welch ANOVA, 事后检验 (Tukey HSD), 效果量 (Cohen's f)
 
 ## 一、现有实现调研
 

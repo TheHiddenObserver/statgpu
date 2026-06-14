@@ -2,9 +2,10 @@
 
 **创建日期**: 2026-04-19  
 **版本**: 0.1.0  
-**状态**: ✅ 已实现 (2026-06-13, PR #57)
+**状态**: 🔶 核心实现 (~45%) (2026-06-13, PR #57)
 
-> 实现: `PanelOLS`, `RandomEffects`, `PanelSummary`, `clustered_covariance`, `two_way_clustered_covariance`
+> 已实现: `PanelOLS` (单/双向固定效应), `RandomEffects` (Swamy-Arora), `PanelSummary`, `clustered_covariance`, `two_way_clustered_covariance`
+> 缺失: PooledOLS, FamaMacBeth, BetweenOLS, FirstDifferenceOLS, IV 模型, HAC/Newey-West, Driscoll-Kraay
 
 ---
 
