@@ -16,7 +16,6 @@ from statgpu.backends._array_ops import (
     _clip_grad_on_device,
     _copy_arr,
     _dot_dev,
-    _eye_like,
     _norm2_dev,
     _sum_sq_dev,
     _sync_scalars,
@@ -38,11 +37,9 @@ from ._utils import (
     _smooth_penalty_value,
     _smooth_penalty_gradient,
     _smooth_penalty_lipschitz,
-    _smooth_penalty_value_dev,
     _abs_mean_max,
     _tracking_penalty_value,
 )
-from statgpu.penalties._categories import NONSMOOTH as _NONSMOOTH_ALL, BB_DISABLED as _BB_DISABLED
 
 
 def fista_solver(

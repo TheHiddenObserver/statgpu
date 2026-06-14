@@ -11,8 +11,6 @@ from typing import Any, Dict, Optional, Tuple, Union
 import os
 import warnings
 import numpy as np
-from scipy import stats
-from scipy.stats import norm as _norm_dist
 
 try:
     from numba import njit

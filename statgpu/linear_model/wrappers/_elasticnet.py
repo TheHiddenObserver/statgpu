@@ -16,7 +16,6 @@ from typing import Optional, Union
 import numpy as np
 
 from statgpu._config import Device
-from statgpu._base import BaseEstimator
 from statgpu.linear_model.penalized._penalized_linear import PenalizedLinearRegression as _PenalizedLinearRegression
 
 

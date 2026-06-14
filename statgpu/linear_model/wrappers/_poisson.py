@@ -1,5 +1,6 @@
 """Poisson regression (GLM version, no inference)."""
 
+from typing import Optional
 from statgpu._config import Device
 from statgpu.glm_core._family import Poisson
 from statgpu.linear_model._glm_base import GeneralizedLinearModel
@@ -28,7 +29,7 @@ class PoissonRegression(GeneralizedLinearModel):
         tol: float = 1e-4,
         C: float = 1.0,
         device: Device = Device.AUTO,
-        n_jobs: int = None,
+        n_jobs: Optional[int] = None,
         gpu_memory_cleanup: bool = False,
     ):
         super().__init__(

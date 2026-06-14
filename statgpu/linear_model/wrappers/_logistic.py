@@ -262,6 +262,7 @@ class LogisticRegression(BaseEstimator):
         alpha = 1.0 / self.C if self.C > 0 else 0.0
         
         # IRLS iteration
+        iteration = 0
         for iteration in range(self.max_iter):
             params_old = params.copy()
             
@@ -335,6 +336,7 @@ class LogisticRegression(BaseEstimator):
         alpha = 1.0 / self.C if self.C > 0 else 0.0
         
         # IRLS iteration
+        iteration = 0
         for iteration in range(self.max_iter):
             params_old = params.copy()
             

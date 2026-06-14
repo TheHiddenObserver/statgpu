@@ -23,6 +23,7 @@ from ._convergence import ConvergenceWarning
 from ._linesearch import _get_newton_step_compiled
 from ._utils import (
     _validate_uniform_sample_weight,
+    _smooth_penalty_gradient,
     _smooth_penalty_hessian,
     _smooth_penalty_value_dev,
 )
@@ -49,7 +50,8 @@ def newton_solver(
     Requires: loss has hessian() and penalty is smooth.
     """
     backend = _resolve_backend("auto", X)
-    n_features = X.shape[1]
+    X_proc, y_proc = loss.preprocess(X, y)
+    n_features = X_proc.shape[1]
 
     if init_coef is not None:
         params = (
@@ -58,29 +60,29 @@ def newton_solver(
             else np.array(init_coef).copy()
         )
     else:
-        params = _zeros(n_features, backend, ref_tensor=X)
+        params = _zeros(n_features, backend, ref_tensor=X_proc)
 
     # Constant-Hessian detection via loss attribute (generic, not loss-name based)
     _const_hessian = getattr(loss, "_has_constant_hessian", False)
 
     _fixed_hess = None
     if _const_hessian:
-        _fixed_hess = loss.hessian(X, y, params) + _smooth_penalty_hessian(
+        _fixed_hess = loss.hessian(X_proc, y_proc, params) + _smooth_penalty_hessian(
             penalty, params
         )
 
     _newton_step = _get_newton_step_compiled() if backend == "torch" else None
 
-    _validate_uniform_sample_weight(sample_weight, X.shape[0], "newton_solver")
+    _validate_uniform_sample_weight(sample_weight, X_proc.shape[0], "newton_solver")
     iteration = -1
 
     for iteration in range(max_iter):
         params_old = _copy_arr(params)
-        grad = loss.gradient(X, y, params) + _smooth_penalty_gradient_fn(
+        grad = loss.gradient(X_proc, y_proc, params) + _smooth_penalty_gradient(
             penalty, params
         )
         hess = _fixed_hess if _fixed_hess is not None else (
-            loss.hessian(X, y, params) + _smooth_penalty_hessian(penalty, params)
+            loss.hessian(X_proc, y_proc, params) + _smooth_penalty_hessian(penalty, params)
         )
 
         try:
@@ -109,7 +111,7 @@ def newton_solver(
                 direction = direction.squeeze(1)
 
         # Armijo backtracking — use loss.fused_value_and_gradient (generic interface)
-        obj_old_dev, _ = loss.fused_value_and_gradient(X, y, params_old)
+        obj_old_dev, _ = loss.fused_value_and_gradient(X_proc, y_proc, params_old)
         obj_old_dev = obj_old_dev + _smooth_penalty_value_dev(penalty, params_old)
         gdd_dev = _dot_dev(grad, direction)
         gdd = _to_float_scalar(gdd_dev)
@@ -118,7 +120,7 @@ def newton_solver(
         for _bt in range(20):
             params_try = params_old - step * direction
             try:
-                obj_try_dev, _ = loss.fused_value_and_gradient(X, y, params_try)
+                obj_try_dev, _ = loss.fused_value_and_gradient(X_proc, y_proc, params_try)
                 obj_try_dev = obj_try_dev + _smooth_penalty_value_dev(
                     penalty, params_try
                 )
@@ -146,10 +148,3 @@ def newton_solver(
             stacklevel=2,
         )
     return params, n_iter
-
-
-def _smooth_penalty_gradient_fn(penalty, coef):
-    """Smooth penalty gradient (thin wrapper for readability)."""
-    from ._utils import _smooth_penalty_gradient
-
-    return _smooth_penalty_gradient(penalty, coef)

@@ -12,34 +12,21 @@ import warnings
 import numpy as np
 
 from statgpu.backends import _resolve_backend, _to_numpy
-from statgpu.backends._utils import _to_float_scalar, _get_xp, xp_ones
+from statgpu.backends._utils import _to_float_scalar, xp_ones
 from statgpu.backends._array_ops import (
     _abs_sum_dev,
     _clip_grad_on_device,
     _copy_arr,
-    _dot_dev,
     _norm2_dev,
-    _sum_sq_dev,
     _sync_scalars,
     _zeros,
-    _zeros_like,
-    _device_leq,
 )
 from statgpu.penalties._categories import NONSMOOTH as _NONSMOOTH_ALL
 from statgpu.penalties._adaptive_l1 import AdaptiveL1Penalty
-from ._convergence import ConvergenceWarning
-from ._constants import _SLACK_TOLERANCE, _DIVERGE_COEF_NORM_CAP, _LIPSCHITZ_FLOOR
+from ._constants import _SLACK_TOLERANCE, _DIVERGE_COEF_NORM_CAP
 from ._linesearch import _get_fista_step_compiled, _fista_step_call
 from ._utils import (
     _validate_sample_weight,
-    _as_backend_vector,
-    _penalty_name,
-    _smooth_penalty_value,
-    _smooth_penalty_gradient,
-    _smooth_penalty_lipschitz,
-    _tracking_penalty_value,
-    _abs_mean_max,
-    _smooth_penalty_value_dev,
 )
 
 # ---------------------------------------------------------------------------
@@ -499,10 +486,11 @@ def fista_lla_path(
 
                     # If all backtracking steps failed, fall back to best known
                     # iterate instead of accepting a potentially worse point.
-                    if not _armijo_ok and _coef_best_lla_inner is not None:
-                        coef = _copy_arr(_coef_best_lla_inner)
-                    else:
-                        coef = coef_new
+                    if not _armijo_ok:
+                        if _coef_best_lla_inner is not None:
+                            coef = _copy_arr(_coef_best_lla_inner)
+                        else:
+                            coef = _copy_arr(coef_old)  # reject the failed step
 
                     # Batched safety checks: coef norm capping + finiteness + divergence
                     # All comparisons done on device, single D2H transfer for booleans

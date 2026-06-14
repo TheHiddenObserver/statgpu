@@ -11,29 +11,21 @@ import warnings
 
 import numpy as np
 
-from statgpu.backends import _resolve_backend, _to_numpy
-from statgpu.backends._utils import _to_float_scalar, _get_xp
+from statgpu.backends import _resolve_backend
 from statgpu.backends._array_ops import (
     _abs_sum_dev,
     _copy_arr,
     _device_leq,
-    _dot_dev,
-    _norm2,
     _norm2_dev,
     _sync_scalars,
     _zeros,
     _zeros_like,
-    _sum_sq_dev,
 )
 from ._convergence import ConvergenceWarning
 from ._utils import (
-    _validate_sample_weight,
     _validate_uniform_sample_weight,
-    _as_backend_vector,
     _smooth_penalty_gradient,
     _smooth_penalty_lipschitz,
-    _smooth_penalty_value_dev,
-    _objective_value_dev,
 )
 
 __all__ = ["admm_solver"]
@@ -116,7 +108,7 @@ def admm_solver(
 
     def _grad_w(w_vec, z_cur, u_cur):
         """Gradient of f(w) + (rho/2)||w - z_cur + u_cur||^2 w.r.t. w."""
-        g = loss.gradient(X_proc, y_proc, w_vec)
+        g = loss.gradient(X_proc, y_proc, w_vec, sample_weight=sample_weight)
         g = g + rho * (w_vec - z_cur + u_cur)
         return g
 
@@ -130,7 +122,7 @@ def admm_solver(
         adaptive_rho = False
 
     if use_cholesky:
-        _hess_const = loss.hessian(X_proc, y_proc, w)          # XtX / n
+        _hess_const = loss.hessian(X_proc, y_proc, w)  # XtX / n
         _A_mat = _hess_const
         _cholesky_ok = False
         if hasattr(_hess_const, 'shape'):
@@ -147,7 +139,7 @@ def admm_solver(
                     _A_mat = _hess_const + rho * torch.eye(n_features, dtype=_hess_const.dtype, device=_hess_const.device)
                     _L = torch.linalg.cholesky(_A_mat)
                 _cholesky_ok = True
-            except (np.linalg.LinAlgError, Exception):
+            except (np.linalg.LinAlgError, ValueError, RuntimeError):
                 # Matrix not positive-definite (numerical issues, collinear features)
                 # Fall back to CG solver below
                 _cholesky_ok = False
@@ -156,7 +148,7 @@ def admm_solver(
 
         # Precompute -grad_f(0) = Xty/n for squared_error (the constant part)
         _zero_coef = _zeros_like(w)
-        _neg_grad_zero = -loss.gradient(X_proc, y_proc, _zero_coef)  # Xty/n
+        _neg_grad_zero = -loss.gradient(X_proc, y_proc, _zero_coef, sample_weight=sample_weight)  # Xty/n
 
     else:
         # Gradient descent step: 1/(L_f + rho)
