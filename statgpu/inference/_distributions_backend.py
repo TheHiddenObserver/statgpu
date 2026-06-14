@@ -2556,7 +2556,7 @@ def __getattr__(name):
     if name.startswith("_"):
         raise AttributeError(f"module {__name__} has no attribute {name}")
     if name in _LEGACY_DISTRIBUTION_FUNCTION_NAMES:
-        from . import _distributions_legacy_gpu as legacy
+        from statgpu.linear_model.legacy import _distributions_legacy_gpu as legacy
         return getattr(legacy, name)
     try:
         return get_distribution_gpu(name)

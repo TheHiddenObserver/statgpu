@@ -4,6 +4,9 @@ from ._linear import LinearRegression
 from ._ridge import Ridge
 from ._lasso import Lasso
 from ._elasticnet import ElasticNet
+from ._adaptive_lasso import AdaptiveLasso
+from ._scad import SCADRegression
+from ._mcp import MCPRegression
 from ._logistic import LogisticRegression
 from ._gamma import GammaRegression
 from ._poisson import PoissonRegression
@@ -16,6 +19,9 @@ __all__ = [
     "Ridge",
     "Lasso",
     "ElasticNet",
+    "AdaptiveLasso",
+    "SCADRegression",
+    "MCPRegression",
     "LogisticRegression",
     "GammaRegression",
     "PoissonRegression",

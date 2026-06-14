@@ -53,7 +53,7 @@ from ._distributions_backend import (
     uniform,
     weibull_min,
 )
-from ._distributions_legacy_gpu import (
+from statgpu.linear_model.legacy._distributions_legacy_gpu import (
     dbeta_gpu,
     dbinom_gpu,
     dchisq_gpu,
