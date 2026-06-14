@@ -12,12 +12,14 @@ from ._logistic_cv import LogisticRegressionCV
 from ._elasticnet import ElasticNet
 from ._elasticnet_cv import ElasticNetCV
 from ._glm_base import GeneralizedLinearModel, OrderedGeneralizedLinearModel
-from ._penalized import (
-    PenalizedGeneralizedLinearModel,
-    PenalizedLinearRegression,
-    PenalizedLogisticRegression,
-    PenalizedPoissonRegression,
-)
+from ._penalized import PenalizedGeneralizedLinearModel
+from ._penalized_linear import PenalizedLinearRegression
+from ._penalized_logistic import PenalizedLogisticRegression
+from ._penalized_poisson import PenalizedPoissonRegression
+from ._penalized_gamma import PenalizedGammaRegression
+from ._penalized_inverse_gaussian import PenalizedInverseGaussianRegression
+from ._penalized_negative_binomial import PenalizedNegativeBinomialRegression
+from ._penalized_tweedie import PenalizedTweedieRegression
 from ._poisson_glm import PoissonRegression
 from ._gamma_glm import GammaRegression
 from ._inverse_gaussian_glm import InverseGaussianRegression
@@ -43,6 +45,10 @@ __all__ = [
     'PenalizedLinearRegression',
     'PenalizedLogisticRegression',
     'PenalizedPoissonRegression',
+    'PenalizedGammaRegression',
+    'PenalizedInverseGaussianRegression',
+    'PenalizedNegativeBinomialRegression',
+    'PenalizedTweedieRegression',
     'Ridge',
     'RidgeCV',
     'Lasso',

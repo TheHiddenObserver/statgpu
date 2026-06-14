@@ -17,7 +17,7 @@ import numpy as np
 
 from statgpu._config import Device
 from statgpu._base import BaseEstimator
-from statgpu.linear_model._penalized import PenalizedLinearRegression as _PenalizedLinearRegression
+from statgpu.linear_model._penalized_linear import PenalizedLinearRegression as _PenalizedLinearRegression
 
 # Backward-compat import for legacy implementation
 from statgpu.linear_model._elasticnet_legacy import ElasticNet as _ElasticNetLegacy  # noqa: F401
