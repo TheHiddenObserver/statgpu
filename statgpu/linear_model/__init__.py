@@ -30,10 +30,7 @@ from ._penalized_negative_binomial import PenalizedNegativeBinomialRegression
 from ._penalized_tweedie import PenalizedTweedieRegression
 
 # CV models
-from ._lasso_cv import LassoCV
-from ._ridge_cv import RidgeCV
-from ._elasticnet_cv import ElasticNetCV
-from ._logistic_cv import LogisticRegressionCV
+from .cv import LassoCV, RidgeCV, ElasticNetCV, LogisticRegressionCV
 from ._penalized_cv import PenalizedGLM_CV, ApproximateCVWarning
 
 # Ordered models
