@@ -2,6 +2,64 @@
 
 All notable changes to statgpu are documented here, organized by date and PR.
 
+## 2026-06-15
+
+### PR #66 — Code review round 10: final bug fixes
+
+**Bug fixes:**
+- **`fista_lla_path` ignored `sample_weight` in XtX fast paths**: both the fused GPU path and the numpy path used unweighted Gram matrix for squared_error gradient, silently ignoring sample_weight — fixed by gating on `sample_weight is None`
+- **Missing `xp_ones` import in `_fit_gpu_backend`**: NameError when `n_features >= 1000` on GPU (power-iteration Lipschitz path)
+- **Removed stale `t_k = t_new` after Nesterov refactor**: `t_new` was undefined after `_nesterov_momentum` already updates `t_k` via tuple unpacking
+- **Removed dead debiased inference block in torch exact solver**: exact solver = L2 only, debiased = L1/ElasticNet only, mutually exclusive
+
+**Tests added:**
+- `TestWeightedSCADMCP`: verifies weighted SCAD produces different coefficients than unweighted (regression for XtX sample_weight bug)
+- `TestFitGpuBackendImports`: verifies `_fit_gpu_backend` imports `xp_ones` (regression for large-feature GPU path)
+
+**Review coverage:**
+- Round 10a: solvers, penalized mixin, CV, glm_core, backends (found 1 bug)
+- Round 10b: inference, predict, penalties, cross_validation (found 1 bug)
+- Round 10c: wrappers, glm_base, metrics, feature_selection, nonparametric, panel, survival (no bugs)
+
+### PR #66 — Code review round 9: bug fixes, performance, cleanup
+
+**Critical bug fixes:**
+- **Newton solver convergence**: `_norm2_dev` returns L2 norm, not squared norm — convergence check was 10,000x too strict (`tol²` instead of `tol`), causing excessive iterations
+- **Import path crash**: `_resolve_loss_name` imported from `_base.py` where it doesn't exist — CV fold pipeline (`_cv_fold_general`) would crash with `ImportError`
+
+**High-severity bug fixes:**
+- **ElasticNet Lipschitz**: `_smooth_penalty_lipschitz` returned 0 for the `"en"` alias (missing smooth L2 component), causing incorrect FISTA step sizes for ElasticNet via alias
+- **Inference attribute cleanup**: Debiased inference cleared `_resid`, `_X_design`, `_y` after completion, breaking downstream properties (`rsquared`, `rsquared_adj`, `fvalue`, `aic`, `bic`) — now preserved
+- **Missing `_df_resid`**: Debiased inference paths never set `_df_resid`, breaking `rsquared_adj` and `fvalue` — now set as fallback
+
+**Medium bug fixes:**
+- **FISTA-BB divergence return**: `_coef_best` returned without `_copy_arr()`, inconsistent with all other return paths
+
+**Performance fixes:**
+- **Deleted `_solver_utils.py`** (442 lines): complete duplicate of `solvers/_utils.py` + `_linesearch.py` + `_fused.py` — no imports referenced it
+- **IRLS `_to_backend(y)` recomputation**: hoisted outside `_dev_val` closure — was called on every Armijo backtracking step (up to 30x per iteration)
+- **IRLS redundant `X @ params_old`**: reuse `eta_raw` computed at top of iteration instead of recomputing O(n*p) matmul
+- **Fused dispatch dict**: promoted from per-call construction to module-level `_FUSED_DISPATCH` constant
+
+**Cleanup:**
+- Removed unused `import numpy as np` from `_fused.py`
+- Moved `_resolve_backend` import inside the function that uses it (consistent lazy import pattern)
+- Removed dead `if solver_name != "lbfgs": return` code in `_validate_solver_penalty`
+- Removed duplicate entries in top-level `__init__.py` (PenalizedGLM_CV, ApproximateCVWarning, Gamma/Tweedie/InvGauss/NegBin imported twice)
+- Deleted dead `_linesearch.py` (compiled step functions never imported by any solver)
+- Fixed legacy `_penalized_legacy.py` crash: referenced `_get_selective_penalty_singleton()` without importing it
+- Replaced `SelectivePenalty` thread-local singleton with fresh-per-call instance (avoids same-thread conflicts in nested CV)
+- Cached `_family_for_loss()` result (avoids re-creating Family objects on every `predict()`/`score()`)
+- Replaced `xp.sum(sw * ps)` with `xp.dot(sw, ps)` in `GLMLoss.value()`/`fused_value_and_gradient()` and `_weighted_mean()` (avoids O(n) temporary allocation)
+- Replaced 8x `try/except TypeError` blocks in `_fista_bb.py` and `_fista.py` with `_call_with_weight()` helper (DRY, no longer swallows internal TypeErrors)
+
+**Refactoring:**
+- **Unified `_fit_gpu`/`_fit_torch` into single `_fit_gpu_backend` method** (-468 lines): uses `_get_xp()`, `xp_asarray`, `xp_zeros`, `xp_copy`, `_to_numpy` for backend-agnostic operations; `getattr` dispatch for backend-specific exact solver and cleanup methods
+- Extracted `_nesterov_momentum(t_k, beta_cap)` and `_nesterov_update(coef, coef_old, t_k, beta_cap)` helpers — replaced 12 duplicated Nesterov momentum sites across 6 files
+- Extracted gradient clipping constants (`_GRAD_CLIP_COEF_FACTOR`, `_GRAD_CLIP_ABS_FLOOR`, `_GRAD_CLIP_MAX`) to `solvers/_constants.py` — replaced magic numbers in 4 files
+- Added `_soft_threshold_gpu(w, thresh, xp)` static method for backend-agnostic soft-thresholding
+- Added type hints to all public solver function signatures (`fista_solver`, `fista_bb_solver`, `newton_solver`, `lbfgs_solver`, `admm_solver`)
+
 ## 2026-06-14
 
 ### Refactor: Top-level structure reorganization (Phases 0-6)

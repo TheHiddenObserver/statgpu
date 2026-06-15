@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 
 from statgpu._config import Device
 from statgpu.backends import get_backend, _get_torch_device_str, _to_numpy, _LINALG_ERRORS
+from statgpu.solvers._utils import _nesterov_momentum, _nesterov_update
 
 if TYPE_CHECKING:
     from ._base import PenalizedGeneralizedLinearModel as _Self
@@ -668,10 +669,7 @@ class _PenalizedFitMixin:
                         t_k = 1.0
 
                     # Nesterov momentum
-                    t_new = (1.0 + np.sqrt(1.0 + 4.0 * t_k * t_k)) / 2.0
-                    beta = (t_k - 1.0) / t_new
-                    y_k = coef + beta * (coef - coef_old)
-                    t_k = t_new
+                    y_k, t_k = _nesterov_update(coef, coef_old, t_k)
 
                     self.n_iter_ = iteration + 1
 
@@ -825,365 +823,73 @@ class _PenalizedFitMixin:
 
     def _fit_gpu(self, X, y, sample_weight=None):
         """Fit using GPU (CuPy) with FISTA."""
-        import cupy as cp
-
-        solver_name = self._selected_solver or self._select_solver(
-            self._loss, backend_name="cupy"
-        )
-        if solver_name not in ("fista", "fista_bb", "admm", "auto", "exact", "irls", "newton", "lbfgs"):
-            raise ValueError(
-                "CuPy backend supports solver='fista', 'fista_bb', 'admm', "
-                "'exact', 'irls', 'newton', and 'lbfgs'."
-            )
-
-        n_samples, n_features = X.shape
-        self._nobs = n_samples
-
-        # Exact solver (closed-form Ridge) -- handle before generic routing
-        if solver_name == "exact":
-            if self._penalty.name != "l2":
-                raise ValueError("solver='exact' is only supported for L2/Ridge penalty.")
-            X = cp.asarray(X)
-            y = cp.asarray(y)
-            if sample_weight is not None:
-                sw = cp.asarray(sample_weight, dtype=X.dtype)
-                sqrt_sw = cp.sqrt(sw)
-                X = X * sqrt_sw[:, cp.newaxis]
-                y = y * sqrt_sw
-            if self._effective_intercept:
-                X_mean = cp.mean(X, axis=0)
-                y_mean = cp.mean(y)
-                X_centered = X - X_mean
-                y_centered = y - y_mean
-            else:
-                X_centered = X
-                y_mean = cp.array(0.0, dtype=X.dtype)
-                y_centered = y
-            if y_centered.ndim == 1:
-                y_centered = y_centered.reshape(-1)
-            _cv = getattr(self, '_cv_cache', None)
-            if _cv is not None and 'XtX' in _cv:
-                XtX = _cv['XtX']
-                Xty = _cv['Xty']
-            else:
-                XtX = X_centered.T @ X_centered
-                Xty = X_centered.T @ y_centered
-            coef = self._solve_exact_cupy(XtX, Xty, n_samples)
-            self.n_iter_ = 1
-            if self.compute_inference:
-                if self._effective_intercept:
-                    intercept_gpu = (y_mean.reshape(1) - X_mean.reshape(1, -1) @ coef.reshape(-1, 1)).reshape(-1)
-                    coef_full_gpu = cp.concatenate([intercept_gpu, coef.reshape(-1)])
-                    self._precompute_exact_l2_inference_cupy(
-                        X,
-                        y,
-                        XtX,
-                        X_mean,
-                        coef_full_gpu.reshape(-1),
-                        n_samples,
-                    )
-                else:
-                    self._precompute_exact_l2_inference_cupy(
-                        X,
-                        y,
-                        XtX,
-                        None,
-                        coef.reshape(-1),
-                        n_samples,
-                    )
-            coef_np = coef.get()
-            if self._effective_intercept:
-                self.intercept_ = float(y_mean.get() - X_mean.get() @ coef_np)
-                self.coef_ = coef_np
-                self._params = np.concatenate([[self.intercept_], self.coef_])
-            else:
-                self.intercept_ = 0.0
-                self.coef_ = coef_np
-                self._params = coef_np.copy()
-            self._df_resid = n_samples - (n_features + (1 if self._effective_intercept else 0))
-            self._cleanup_cuda_memory()
-            return
-
-        # Route IRLS/newton/lbfgs through their dedicated backends.
-        if solver_name in ("irls", "newton", "lbfgs"):
-            if solver_name == "irls":
-                self._fit_irls_backend(X, y, sample_weight, "cupy")
-            else:
-                self._fit_loss_backend(X, y, sample_weight, solver_name, "cupy")
-            return
-
-        # Route non-L1 and non-squared-error through the generic loss backend.
-        # The inline XtX path below is an optimized fast-path for L1+squared_error
-        # where the proximal is simple element-wise soft-thresholding.
-        if self.loss != "squared_error" or solver_name == "admm" or self._penalty.name not in ("l1", "elasticnet", "en"):
-            self._fit_loss_backend(X, y, sample_weight, solver_name, "cupy")
-            return
-
-        X = cp.asarray(X)
-        y = cp.asarray(y)
-
-        if sample_weight is not None:
-            sample_weight = cp.asarray(sample_weight)
-            sqrt_sw = cp.sqrt(sample_weight)
-            X = X * sqrt_sw[:, cp.newaxis]
-            y = y * sqrt_sw
-
-        if self._effective_intercept:
-            X_mean = cp.mean(X, axis=0)
-            y_mean = cp.mean(y)
-            X_centered = X - X_mean
-            y_centered = y - y_mean
-        else:
-            X_centered = X
-            y_mean = cp.array(0.0, dtype=X.dtype)
-            y_centered = y
-
-        if y_centered.ndim == 1:
-            y_centered = y_centered.reshape(-1)
-
-        # Precompute (use CV cache if available)
-        _cv = getattr(self, '_cv_cache', None)
-        if _cv is not None and 'XtX' in _cv:
-            XtX = _cv['XtX']
-            Xty = _cv['Xty']
-        else:
-            XtX = X_centered.T @ X_centered
-            Xty = X_centered.T @ y_centered
-
-        # Lipschitz constant: L = lambda_max(XtX) / n
-        if self.lipschitz_L is not None:
-            L = float(self.lipschitz_L)
-        else:
-            # eigvalsh is faster for p < ~1000 (single cuBLAS call);
-            # power iteration only wins for very large p.
-            if n_features < 1000:
-                L = float(cp.linalg.eigvalsh(XtX)[-1]) / n_samples
-            else:
-                v = cp.ones(n_features, dtype=X.dtype)
-                v /= cp.linalg.norm(v)
-                for _ in range(50):
-                    v_new = XtX @ v
-                    v_norm = cp.linalg.norm(v_new)
-                    if v_norm < 1e-15:
-                        break
-                    v = v_new / v_norm
-                L = float((v @ (XtX @ v)) / n_samples)
-
-        if L <= 0:
-            coef = cp.zeros(n_features, dtype=X.dtype)
-            self.n_iter_ = 0
-        elif solver_name in ("fista_bb", "fista"):
-            # Standard FISTA with XtX precomputation.
-            # All element-wise ops (gradient finish + proximal + momentum) are
-            # fused into a single GPU kernel, reducing ~9 launches to 1.
-            step = 1.0 / L
-            step_over_n = step / n_samples
-            step_over_n_Xty = step_over_n * Xty   # (p,) -- precompute once
-            if self._penalty.name in ("elasticnet", "en"):
-                thresh = self.alpha * self._penalty.l1_ratio * step
-                l2_scale = 1.0 + self.alpha * (1.0 - self._penalty.l1_ratio) * step
-            else:
-                thresh = self.alpha * step
-                l2_scale = 1.0
-            # When l2_scale ~ 1.0 (pure L1 or l1_ratio=1), use the simpler
-            # kernel without division -- CuPy's @cp.fuse treats the constant
-            # at compile time, and the division changes the generated code
-            # even when the divisor is 1.0, causing different float rounding
-            # and more iterations to converge.
-            _use_l2 = abs(l2_scale - 1.0) > 1e-12
-
-            if hasattr(self, '_init_coef') and self._init_coef is not None:
-                coef = cp.asarray(self._init_coef, dtype=X.dtype)
-            else:
-                coef = cp.zeros(n_features, dtype=X.dtype)
-            y_k = coef.copy()
-            t_k = 1.0
-            beta = 0.0  # first iteration: y_k = coef (no momentum)
-
-            # Lazy-compile the fused element-wise step (first call triggers JIT)
-            _fused_step = None
-            _fused_step_l2 = None
-
-            # Warm-up: compile fused kernel BEFORE the loop to avoid
-            # first-iteration JIT compilation overhead.
-            if _use_l2:
-                try:
-                    @cp.fuse()
-                    def _fista_elementwise_l2(
-                        _y_k, _xtx_y, _step_over_n_Xty, _step_over_n,
-                        _thresh, _l2_scale, _coef_old, _beta,
-                    ):
-                        w = (_y_k - _step_over_n * _xtx_y + _step_over_n_Xty)
-                        c = (cp.sign(w) * cp.maximum(cp.abs(w) - _thresh, 0.0) / _l2_scale)
-                        y = c + _beta * (c - _coef_old)
-                        return c, y
-                    _fused_step_l2 = _fista_elementwise_l2
-                    # Trigger JIT compilation with dummy data
-                    _dummy = cp.zeros(1, dtype=X.dtype)
-                    _fused_step_l2(_dummy, _dummy, _dummy, 0.0, 0.0, 1.0, _dummy, 0.0)
-                except Exception:
-                    _fused_step_l2 = None
-            else:
-                try:
-                    @cp.fuse()
-                    def _fista_elementwise(
-                        _y_k, _xtx_y, _step_over_n_Xty, _step_over_n,
-                        _thresh, _coef_old, _beta,
-                    ):
-                        w = (_y_k - _step_over_n * _xtx_y + _step_over_n_Xty)
-                        c = (cp.sign(w) * cp.maximum(cp.abs(w) - _thresh, 0.0))
-                        y = c + _beta * (c - _coef_old)
-                        return c, y
-                    _fused_step = _fista_elementwise
-                    _dummy = cp.zeros(1, dtype=X.dtype)
-                    _fused_step(_dummy, _dummy, _dummy, 0.0, 0.0, _dummy, 0.0)
-                except Exception:
-                    _fused_step = None
-
-            for iteration in range(self.max_iter):
-                coef_old = coef.copy()
-
-                # cuBLAS matvec (cannot fuse with element-wise ops)
-                xtx_y = XtX @ y_k   # (p,)
-
-                if _use_l2:
-                    if _fused_step_l2 is not None:
-                        coef, y_k = _fused_step_l2(
-                            y_k, xtx_y, step_over_n_Xty, step_over_n,
-                            thresh, l2_scale, coef_old, beta,
-                        )
-                    else:
-                        w_tilde = (y_k - step_over_n * xtx_y
-                                   + step_over_n_Xty)
-                        coef = (cp.sign(w_tilde)
-                                * cp.maximum(cp.abs(w_tilde) - thresh, 0.0)
-                                / l2_scale)
-                        y_k = coef + beta * (coef - coef_old)
-                else:
-                    if _fused_step is not None:
-                        coef, y_k = _fused_step(
-                            y_k, xtx_y, step_over_n_Xty, step_over_n,
-                            thresh, coef_old, beta,
-                        )
-                    else:
-                        w_tilde = (y_k - step_over_n * xtx_y
-                                   + step_over_n_Xty)
-                        coef = (cp.sign(w_tilde)
-                                * cp.maximum(cp.abs(w_tilde) - thresh, 0.0))
-                        y_k = coef + beta * (coef - coef_old)
-
-                # Scheduled momentum restart (zero sync overhead)
-                if iteration > 0 and iteration % 50 == 0:
-                    t_k = 1.0
-
-                # Nesterov momentum (beta for next iteration)
-                t_new = (1.0 + np.sqrt(1.0 + 4.0 * t_k * t_k)) / 2.0
-                beta = (t_k - 1.0) / t_new
-                t_k = t_new
-
-                self.n_iter_ = iteration + 1
-
-                if iteration % 5 == 4 and float(cp.sum(cp.abs(coef - coef_old))) < self.tol:
-                    break
-        else:
-            step = 1.0 / L
-            if hasattr(self, '_init_coef') and self._init_coef is not None:
-                coef = cp.asarray(self._init_coef, dtype=X.dtype)
-            else:
-                coef = cp.zeros(n_features, dtype=X.dtype)
-            y_k = coef.copy()
-            t_k = cp.array(1.0, dtype=X.dtype)
-
-            for iteration in range(self.max_iter):
-                coef_old = coef.copy()
-
-                grad = (XtX @ y_k - Xty) / n_samples
-                w_tilde = y_k - step * grad
-
-                coef = self._penalty.proximal(w_tilde, step, backend="cupy")
-
-                # Scheduled momentum restart (BEFORE momentum update)
-                if iteration > 0 and iteration % 50 == 0:
-                    t_k = cp.array(1.0, dtype=X.dtype)
-
-                t_new = (1.0 + cp.sqrt(1.0 + 4.0 * t_k * t_k)) / 2.0
-                beta = (t_k - 1.0) / t_new
-                y_k = coef + beta * (coef - coef_old)
-                t_k = t_new
-
-                self.n_iter_ = iteration + 1
-
-                if iteration % 5 == 4 and float(cp.sum(cp.abs(coef - coef_old))) < self.tol:
-                    break
-
-        # Transfer to CPU
-        coef_np = coef.get()
-
-        if self._effective_intercept:
-            self.intercept_ = float(y_mean.get() - X_mean.get() @ coef_np)
-            self.coef_ = coef_np
-            self._params = np.concatenate([[self.intercept_], self.coef_])
-        else:
-            self.intercept_ = 0.0
-            self.coef_ = coef_np
-            self._params = coef_np.copy()
-
-        self._df_resid = n_samples - (n_features + (1 if self._effective_intercept else 0))
-
-        # Debiased inference on GPU (before cleanup, while arrays are in scope)
-        if self.compute_inference and "debiased" in str(getattr(self, "inference_method", "")).lower():
-            penalty_name = str(getattr(self._penalty, "name", self.penalty)).lower()
-            if penalty_name in ("l1", "elasticnet", "en"):
-                self._compute_inference_debiased_gpu(X, y, coef)
-
-        # Cleanup
-        self._cleanup_cuda_memory()
+        self._fit_gpu_backend(X, y, sample_weight, backend_name="cupy")
 
     def _fit_torch(self, X, y, sample_weight=None):
-        """Fit using Torch GPU with FISTA."""
-        import torch
+        """Fit using Torch GPU with FISTA. Delegates to unified backend."""
+        self._fit_gpu_backend(X, y, sample_weight, backend_name="torch")
+
+    # ------------------------------------------------------------------
+    # Unified GPU backend (replaces _fit_gpu + _fit_torch)
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _soft_threshold_gpu(w, thresh, xp):
+        """Backend-agnostic soft-thresholding on GPU."""
+        if xp.__name__ == "torch":
+            import torch
+            return torch.sign(w) * torch.relu(torch.abs(w) - thresh)
+        return xp.sign(w) * xp.maximum(xp.abs(w) - thresh, 0.0)
+
+    def _fit_gpu_backend(self, X, y, sample_weight=None, backend_name="cupy"):
+        """Unified GPU fit method for both CuPy and Torch backends.
+
+        Handles exact (L2), FISTA, and FISTA-BE solvers with inline
+        XtX precomputation and fused element-wise kernels.
+        """
+        from statgpu.backends._utils import _get_xp, xp_asarray, xp_zeros, xp_copy, xp_ones
+        from statgpu.backends import _to_numpy
+        from statgpu.backends._array_ops import _abs_sum_dev
+
+        xp = _get_xp(backend_name)
+        is_torch = (backend_name == "torch")
 
         solver_name = self._selected_solver or self._select_solver(
-            self._loss, backend_name="torch"
+            self._loss, backend_name=backend_name
         )
+        _backend_label = "Torch" if is_torch else "CuPy"
         if solver_name not in ("fista", "fista_bb", "admm", "auto", "exact", "irls", "newton", "lbfgs"):
             raise ValueError(
-                "Torch backend supports solver='fista', 'fista_bb', 'admm', "
-                f"'exact', 'irls', 'newton', and 'lbfgs', got '{self.solver}'."
+                f"{_backend_label} backend supports solver='fista', 'fista_bb', 'admm', "
+                f"'exact', 'irls', 'newton', and 'lbfgs', got '{solver_name}'."
             )
 
         n_samples, n_features = X.shape
         self._nobs = n_samples
 
-        # Exact solver (closed-form Ridge) -- handle before generic routing
+        # --- Exact solver (closed-form Ridge) ---
         if solver_name == "exact":
             if self._penalty.name != "l2":
                 raise ValueError("solver='exact' is only supported for L2/Ridge penalty.")
-            torch_device = _get_torch_device_str()
-            if not isinstance(X, torch.Tensor):
-                X = torch.from_numpy(np.asarray(X, dtype=np.float64)).to(torch_device)
-            if not isinstance(y, torch.Tensor):
-                y = torch.from_numpy(np.asarray(y, dtype=np.float64)).to(torch_device)
-            if X.dtype != torch.float64:
-                X = X.to(torch.float64)
-            if y.dtype != torch.float64:
-                y = y.to(torch.float64)
+            X = xp_asarray(X, dtype=np.float64, xp=xp, ref_arr=X)
+            y = xp_asarray(y, dtype=np.float64, xp=xp, ref_arr=y)
+            if is_torch:
+                import torch
+                if X.dtype != torch.float64:
+                    X = X.to(torch.float64)
             if sample_weight is not None:
-                if not isinstance(sample_weight, torch.Tensor):
-                    sample_weight = torch.as_tensor(sample_weight, dtype=X.dtype, device=X.device)
-                else:
-                    sample_weight = sample_weight.to(dtype=X.dtype, device=X.device)
-                sqrt_sw = torch.sqrt(sample_weight)
+                sw = xp_asarray(sample_weight, dtype=X.dtype, xp=xp, ref_arr=X)
+                sqrt_sw = xp.sqrt(sw)
                 X = X * sqrt_sw[:, None]
                 y = y * sqrt_sw
             if self._effective_intercept:
-                X_mean = torch.mean(X, dim=0)
-                y_mean = torch.mean(y)
+                X_mean = xp.mean(X, axis=0)
+                y_mean = xp.mean(y)
                 X_centered = X - X_mean
                 y_centered = y - y_mean
             else:
                 X_centered = X
-                y_mean = torch.tensor(0.0, dtype=X.dtype, device=X.device)
+                y_mean = xp_zeros((), X.dtype, xp, ref_arr=X) if is_torch else xp.array(0.0, dtype=X.dtype)
                 y_centered = y
             if y_centered.ndim == 1:
                 y_centered = y_centered.reshape(-1)
@@ -1194,34 +900,22 @@ class _PenalizedFitMixin:
             else:
                 XtX = X_centered.T @ X_centered
                 Xty = X_centered.T @ y_centered
-            coef = self._solve_exact_torch(XtX, Xty, n_samples)
+
+            # Dispatch to backend-specific exact solver
+            solve_fn = getattr(self, f'_solve_exact_{"torch" if is_torch else "cupy"}')
+            coef = solve_fn(XtX, Xty, n_samples)
             self.n_iter_ = 1
             if self.compute_inference:
+                infer_fn = getattr(self, f'_precompute_exact_l2_inference_{"torch" if is_torch else "cupy"}')
                 if self._effective_intercept:
-                    coef_full_torch = torch.cat([
-                        (y_mean.reshape(1) - X_mean.reshape(1, -1) @ coef.reshape(-1, 1)).reshape(-1),
-                        coef.reshape(-1),
-                    ])
-                    self._precompute_exact_l2_inference_torch(
-                        X,
-                        y,
-                        XtX,
-                        X_mean,
-                        coef_full_torch.reshape(-1),
-                        n_samples,
-                    )
+                    intercept_gpu = (y_mean.reshape(1) - X_mean.reshape(1, -1) @ coef.reshape(-1, 1)).reshape(-1)
+                    coef_full_gpu = xp.concatenate([intercept_gpu, coef.reshape(-1)])
+                    infer_fn(X, y, XtX, X_mean, coef_full_gpu.reshape(-1), n_samples)
                 else:
-                    self._precompute_exact_l2_inference_torch(
-                        X,
-                        y,
-                        XtX,
-                        None,
-                        coef.reshape(-1),
-                        n_samples,
-                    )
-            coef_np = coef.cpu().numpy()
+                    infer_fn(X, y, XtX, None, coef.reshape(-1), n_samples)
+            coef_np = _to_numpy(coef)
             if self._effective_intercept:
-                self.intercept_ = float(y_mean.cpu().numpy() - X_mean.cpu().numpy() @ coef_np)
+                self.intercept_ = float(_to_numpy(y_mean) - _to_numpy(X_mean) @ coef_np)
                 self.coef_ = coef_np
                 self._params = np.concatenate([[self.intercept_], self.coef_])
             else:
@@ -1229,59 +923,52 @@ class _PenalizedFitMixin:
                 self.coef_ = coef_np
                 self._params = coef_np.copy()
             self._df_resid = n_samples - (n_features + (1 if self._effective_intercept else 0))
-            # Debiased inference on Torch GPU (before cleanup)
-            if self.compute_inference and "debiased" in str(getattr(self, "inference_method", "")).lower():
-                penalty_name = str(getattr(self._penalty, "name", self.penalty)).lower()
-                if penalty_name in ("l1", "elasticnet", "en"):
-                    self._compute_inference_debiased_torch(X, y, coef)
-            self._cleanup_torch_memory()
+            if is_torch:
+                self._cleanup_torch_memory()
+            else:
+                self._cleanup_cuda_memory()
             return
 
         # Route IRLS/newton/lbfgs through their dedicated backends.
         if solver_name in ("irls", "newton", "lbfgs"):
             if solver_name == "irls":
-                self._fit_irls_backend(X, y, sample_weight, "torch")
+                self._fit_irls_backend(X, y, sample_weight, backend_name)
             else:
-                self._fit_loss_backend(X, y, sample_weight, solver_name, "torch")
+                self._fit_loss_backend(X, y, sample_weight, solver_name, backend_name)
             return
 
         # Route non-L1 and non-squared-error through the generic loss backend.
         if self.loss != "squared_error" or solver_name == "admm" or self._penalty.name not in ("l1", "elasticnet", "en"):
-            self._fit_loss_backend(X, y, sample_weight, solver_name, "torch")
+            self._fit_loss_backend(X, y, sample_weight, solver_name, backend_name)
             return
 
-        torch_device = _get_torch_device_str()
-
-        if not isinstance(X, torch.Tensor):
-            X = torch.from_numpy(X).to(torch_device)
-        if not isinstance(y, torch.Tensor):
-            y = torch.from_numpy(y).to(torch_device)
-        if X.dtype != torch.float64:
-            X = X.to(torch.float64)
-        if y.dtype != torch.float64:
-            y = y.to(torch.float64)
+        # --- Inline FISTA fast-path for L1 + squared_error ---
+        X = xp_asarray(X, dtype=np.float64, xp=xp, ref_arr=X)
+        y = xp_asarray(y, dtype=np.float64, xp=xp, ref_arr=y)
+        if is_torch:
+            import torch
+            if X.dtype != torch.float64:
+                X = X.to(torch.float64)
 
         if sample_weight is not None:
-            if not isinstance(sample_weight, torch.Tensor):
-                sample_weight = torch.as_tensor(np.asarray(sample_weight, dtype=np.float64), device=torch_device)
-            sqrt_sw = torch.sqrt(sample_weight)
+            sample_weight = xp_asarray(sample_weight, dtype=X.dtype, xp=xp, ref_arr=X)
+            sqrt_sw = xp.sqrt(sample_weight)
             X = X * sqrt_sw[:, None]
             y = y * sqrt_sw
 
         if self._effective_intercept:
-            X_mean = torch.mean(X, dim=0)
-            y_mean = torch.mean(y)
+            X_mean = xp.mean(X, axis=0)
+            y_mean = xp.mean(y)
             X_centered = X - X_mean
             y_centered = y - y_mean
         else:
             X_centered = X
-            y_mean = torch.tensor(0.0, dtype=torch.float64, device=torch_device)
+            y_mean = xp_zeros((), X.dtype, xp, ref_arr=X) if is_torch else xp.array(0.0, dtype=X.dtype)
             y_centered = y
 
         if y_centered.ndim == 1:
             y_centered = y_centered.reshape(-1)
 
-        # Precompute (use CV cache if available)
         _cv = getattr(self, '_cv_cache', None)
         if _cv is not None and 'XtX' in _cv:
             XtX = _cv['XtX']
@@ -1295,29 +982,25 @@ class _PenalizedFitMixin:
             L = float(self.lipschitz_L)
         else:
             if n_features < 1000:
-                L = float(torch.linalg.eigvalsh(XtX)[-1]) / n_samples
+                L = float(xp.linalg.eigvalsh(XtX)[-1]) / n_samples
             else:
-                v = torch.ones(n_features, dtype=X.dtype, device=X.device)
-                v /= torch.linalg.norm(v)
+                v = xp_ones(n_features, X.dtype, xp, ref_arr=X)
+                v = v / xp.linalg.norm(v)
                 for _ in range(50):
                     v_new = XtX @ v
-                    v_norm = torch.linalg.norm(v_new)
+                    v_norm = xp.linalg.norm(v_new)
                     if v_norm < 1e-15:
                         break
                     v = v_new / v_norm
-                L = float((v @ (XtX @ v)) / n_samples)
+                L = float(_to_numpy(v @ (XtX @ v))) / n_samples
 
         if L <= 0:
-            coef = torch.zeros(n_features, dtype=X.dtype, device=X.device)
+            coef = xp_zeros(n_features, X.dtype, xp, ref_arr=X)
             self.n_iter_ = 0
         elif solver_name in ("fista_bb", "fista"):
-            # Standard FISTA with XtX precomputation.
-            # BB step provides no benefit for quadratic losses (BB1=BB2).
-            # All element-wise ops (gradient finish + proximal + momentum) are
-            # fused via torch.compile into fewer CUDA kernels, matching cupy's @cp.fuse().
             step = 1.0 / L
             step_over_n = step / n_samples
-            step_over_n_Xty = step_over_n * Xty  # (p,) -- precompute once
+            step_over_n_Xty = step_over_n * Xty
             if self._penalty.name in ("elasticnet", "en"):
                 thresh = self.alpha * self._penalty.l1_ratio * step
                 l2_scale = 1.0 + self.alpha * (1.0 - self._penalty.l1_ratio) * step
@@ -1327,54 +1010,76 @@ class _PenalizedFitMixin:
             _use_l2 = abs(l2_scale - 1.0) > 1e-12
 
             if hasattr(self, '_init_coef') and self._init_coef is not None:
-                coef = torch.tensor(self._init_coef, dtype=X.dtype, device=X.device)
+                coef = xp_asarray(self._init_coef, dtype=X.dtype, xp=xp, ref_arr=X)
             else:
-                coef = torch.zeros(n_features, dtype=X.dtype, device=X.device)
-            y_k = coef.clone()
+                coef = xp_zeros(n_features, X.dtype, xp, ref_arr=X)
+            y_k = xp_copy(coef)
             t_k = 1.0
             beta = 0.0
 
-            # Warm-up: compile fused kernel BEFORE the loop to avoid
-            # first-iteration JIT compilation overhead.
+            # Build fused element-wise kernel (backend-specific JIT)
             _fused_step = None
             _fused_step_l2 = None
-            from statgpu.penalties import _torch_compile_ok as _tc_ok
-            if _tc_ok():
-                try:
-                    def _fista_elementwise_l2(
-                        _y_k, _xtx_y, _step_over_n_Xty,
-                        _step_over_n, _thresh, _l2_scale,
-                        _coef_old, _beta,
-                    ):
-                        w = (_y_k - _step_over_n * _xtx_y + _step_over_n_Xty)
-                        c = (torch.sign(w) * torch.relu(torch.abs(w) - _thresh) / _l2_scale)
-                        y = c + _beta * (c - _coef_old)
-                        return c, y
-                    _fused_step_l2 = torch.compile(_fista_elementwise_l2, mode='reduce-overhead')
-                    _dummy = torch.zeros(1, dtype=X.dtype, device=X.device)
-                    _fused_step_l2(_dummy, _dummy, _dummy, 0.0, 0.0, 1.0, _dummy, 0.0)
-                except Exception:
-                    _fused_step_l2 = None
-                try:
-                    def _fista_elementwise(
-                        _y_k, _xtx_y, _step_over_n_Xty,
-                        _step_over_n, _thresh, _coef_old, _beta,
-                    ):
-                        w = (_y_k - _step_over_n * _xtx_y + _step_over_n_Xty)
-                        c = (torch.sign(w) * torch.relu(torch.abs(w) - _thresh))
-                        y = c + _beta * (c - _coef_old)
-                        return c, y
-                    _fused_step = torch.compile(_fista_elementwise, mode='reduce-overhead')
-                    _dummy = torch.zeros(1, dtype=X.dtype, device=X.device)
-                    _fused_step(_dummy, _dummy, _dummy, 0.0, 0.0, _dummy, 0.0)
-                except Exception:
-                    _fused_step = None
+            _st_fn = self._soft_threshold_gpu
+
+            if is_torch:
+                import torch
+                if _use_l2:
+                    try:
+                        def _fista_elementwise_l2(_y_k, _xtx_y, _step_over_n_Xty, _step_over_n,
+                                                  _thresh, _l2_scale, _coef_old, _beta):
+                            w = _y_k - _step_over_n * _xtx_y + _step_over_n_Xty
+                            c = _st_fn(w, _thresh, xp) / _l2_scale
+                            y = c + _beta * (c - _coef_old)
+                            return c, y
+                        _fused_step_l2 = torch.compile(_fista_elementwise_l2, mode='reduce-overhead')
+                    except Exception:
+                        _fused_step_l2 = None
+                else:
+                    try:
+                        def _fista_elementwise(_y_k, _xtx_y, _step_over_n_Xty, _step_over_n,
+                                               _thresh, _coef_old, _beta):
+                            w = _y_k - _step_over_n * _xtx_y + _step_over_n_Xty
+                            c = _st_fn(w, _thresh, xp)
+                            y = c + _beta * (c - _coef_old)
+                            return c, y
+                        _fused_step = torch.compile(_fista_elementwise, mode='reduce-overhead')
+                    except Exception:
+                        _fused_step = None
+            else:
+                import cupy as cp
+                if _use_l2:
+                    try:
+                        @cp.fuse()
+                        def _fista_elementwise_l2(_y_k, _xtx_y, _step_over_n_Xty, _step_over_n,
+                                                  _thresh, _l2_scale, _coef_old, _beta):
+                            w = _y_k - _step_over_n * _xtx_y + _step_over_n_Xty
+                            c = (cp.sign(w) * cp.maximum(cp.abs(w) - _thresh, 0.0) / _l2_scale)
+                            y = c + _beta * (c - _coef_old)
+                            return c, y
+                        _fused_step_l2 = _fista_elementwise_l2
+                        _dummy = cp.zeros(1, dtype=X.dtype)
+                        _fused_step_l2(_dummy, _dummy, _dummy, 0.0, 0.0, 1.0, _dummy, 0.0)
+                    except Exception:
+                        _fused_step_l2 = None
+                else:
+                    try:
+                        @cp.fuse()
+                        def _fista_elementwise(_y_k, _xtx_y, _step_over_n_Xty, _step_over_n,
+                                               _thresh, _coef_old, _beta):
+                            w = _y_k - _step_over_n * _xtx_y + _step_over_n_Xty
+                            c = (cp.sign(w) * cp.maximum(cp.abs(w) - _thresh, 0.0))
+                            y = c + _beta * (c - _coef_old)
+                            return c, y
+                        _fused_step = _fista_elementwise
+                        _dummy = cp.zeros(1, dtype=X.dtype)
+                        _fused_step(_dummy, _dummy, _dummy, 0.0, 0.0, _dummy, 0.0)
+                    except Exception:
+                        _fused_step = None
 
             for iteration in range(self.max_iter):
-                coef_old = coef.clone()
-
-                # cuBLAS matvec via ATen (cannot fuse with element-wise ops)
-                xtx_y = XtX @ y_k  # (p,)
+                coef_old = xp_copy(coef)
+                xtx_y = XtX @ y_k
 
                 if _use_l2:
                     if _fused_step_l2 is not None:
@@ -1383,11 +1088,8 @@ class _PenalizedFitMixin:
                             thresh, l2_scale, coef_old, beta,
                         )
                     else:
-                        w_tilde = (y_k - step_over_n * xtx_y
-                                   + step_over_n_Xty)
-                        coef = (torch.sign(w_tilde)
-                                * torch.relu(torch.abs(w_tilde) - thresh)
-                                / l2_scale)
+                        w_tilde = y_k - step_over_n * xtx_y + step_over_n_Xty
+                        coef = _st_fn(w_tilde, thresh, xp) / l2_scale
                         y_k = coef + beta * (coef - coef_old)
                 else:
                     if _fused_step is not None:
@@ -1396,61 +1098,46 @@ class _PenalizedFitMixin:
                             thresh, coef_old, beta,
                         )
                     else:
-                        w_tilde = (y_k - step_over_n * xtx_y
-                                   + step_over_n_Xty)
-                        coef = (torch.sign(w_tilde)
-                                * torch.relu(torch.abs(w_tilde) - thresh))
+                        w_tilde = y_k - step_over_n * xtx_y + step_over_n_Xty
+                        coef = _st_fn(w_tilde, thresh, xp)
                         y_k = coef + beta * (coef - coef_old)
 
-                # Scheduled momentum restart (zero sync overhead)
                 if iteration > 0 and iteration % 50 == 0:
                     t_k = 1.0
 
-                # Nesterov momentum (beta for next iteration)
-                t_new = (1.0 + np.sqrt(1.0 + 4.0 * t_k * t_k)) / 2.0
-                beta = (t_k - 1.0) / t_new
-                t_k = t_new
+                beta, t_k = _nesterov_momentum(t_k)
 
                 self.n_iter_ = iteration + 1
-
-                if iteration % 5 == 4 and float(torch.sum(torch.abs(coef - coef_old)).item()) < self.tol:
+                if iteration % 5 == 4 and float(_to_numpy(_abs_sum_dev(coef - coef_old))) < self.tol:
                     break
         else:
             step = 1.0 / L
             if hasattr(self, '_init_coef') and self._init_coef is not None:
-                coef = torch.tensor(self._init_coef, dtype=X.dtype, device=X.device)
+                coef = xp_asarray(self._init_coef, dtype=X.dtype, xp=xp, ref_arr=X)
             else:
-                coef = torch.zeros(n_features, dtype=X.dtype, device=X.device)
-            y_k = coef.clone()
-            t_k = torch.tensor(1.0, dtype=X.dtype, device=X.device)
+                coef = xp_zeros(n_features, X.dtype, xp, ref_arr=X)
+            y_k = xp_copy(coef)
+            t_k = 1.0
 
             for iteration in range(self.max_iter):
-                coef_old = coef.clone()
-
+                coef_old = xp_copy(coef)
                 grad = (XtX @ y_k - Xty) / n_samples
                 w_tilde = y_k - step * grad
+                coef = self._penalty.proximal(w_tilde, step, backend=backend_name)
 
-                coef = self._penalty.proximal(w_tilde, step, backend="torch")
-
-                # Scheduled momentum restart (BEFORE momentum update)
                 if iteration > 0 and iteration % 50 == 0:
-                    t_k = torch.tensor(1.0, dtype=X.dtype, device=X.device)
+                    t_k = 1.0
 
-                t_new = (1.0 + torch.sqrt(1.0 + 4.0 * t_k * t_k)) / 2.0
-                beta = (t_k - 1.0) / t_new
-                y_k = coef + beta * (coef - coef_old)
-                t_k = t_new
+                y_k, t_k = _nesterov_update(coef, coef_old, t_k)
 
                 self.n_iter_ = iteration + 1
-
-                if iteration % 5 == 4 and float(torch.sum(torch.abs(coef - coef_old)).item()) < self.tol:
+                if iteration % 5 == 4 and float(_to_numpy(_abs_sum_dev(coef - coef_old))) < self.tol:
                     break
 
         # Transfer to CPU
-        coef_np = coef.cpu().numpy()
-
+        coef_np = _to_numpy(coef)
         if self._effective_intercept:
-            self.intercept_ = float(y_mean.cpu().numpy() - X_mean.cpu().numpy() @ coef_np)
+            self.intercept_ = float(_to_numpy(y_mean) - _to_numpy(X_mean) @ coef_np)
             self.coef_ = coef_np
             self._params = np.concatenate([[self.intercept_], self.coef_])
         else:
@@ -1460,13 +1147,17 @@ class _PenalizedFitMixin:
 
         self._df_resid = n_samples - (n_features + (1 if self._effective_intercept else 0))
 
-        # Debiased inference on Torch GPU (before cleanup)
+        # Debiased inference on GPU (before cleanup)
         if self.compute_inference and "debiased" in str(getattr(self, "inference_method", "")).lower():
             penalty_name = str(getattr(self._penalty, "name", self.penalty)).lower()
             if penalty_name in ("l1", "elasticnet", "en"):
-                self._compute_inference_debiased_torch(X, y, coef)
+                infer_fn = getattr(self, f'_compute_inference_debiased_{"torch" if is_torch else "gpu"}')
+                infer_fn(X, y, coef)
 
-        self._cleanup_torch_memory()
+        if is_torch:
+            self._cleanup_torch_memory()
+        else:
+            self._cleanup_cuda_memory()
 
     def _ridge_alpha_for_exact(self) -> float:
         """Return L2 alpha for the exact Ridge normal equations."""

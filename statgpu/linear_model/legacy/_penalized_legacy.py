@@ -525,8 +525,8 @@ def _fit_cpu_loss(self, X, y, sample_weight=None, solver="fista"):
         p = X_arr.shape[1]
         pen = self._penalty
 
-        # Reuse thread-local SelectivePenalty singleton
-        singleton = _get_selective_penalty_singleton()
+        from statgpu.linear_model.penalized._base import SelectivePenalty
+        singleton = SelectivePenalty()
         singleton.configure(self._penalty, p, "numpy")
 
         full_coef, n_iter = fista_solver(

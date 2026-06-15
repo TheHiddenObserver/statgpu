@@ -381,8 +381,10 @@ class TestDebiasedInferenceGPU:
         m.fit(self.X, self.y)
         assert m._conf_int_simultaneous is not None
         assert m._conf_int_simultaneous.shape == m._conf_int.shape
-        assert m._resid is None
-        assert m._X_design is None
+        # After debiased inference, _resid and _X_design are preserved
+        # for downstream properties (rsquared, aic, bic, etc.)
+        assert m._resid is not None
+        assert m._X_design is not None
         idx = np.arange(1, m._conf_int.shape[0])
         width_m = m._conf_int[idx, 1] - m._conf_int[idx, 0]
         width_s = m._conf_int_simultaneous[idx, 1] - m._conf_int_simultaneous[idx, 0]

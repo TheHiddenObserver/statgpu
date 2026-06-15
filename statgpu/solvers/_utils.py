@@ -65,6 +65,73 @@ def _as_backend_vector(arr, backend, ref):
     return xp_asarray(arr, dtype=dtype, xp=xp, ref_arr=ref)
 
 
+def _call_with_weight(fn, *args, sample_weight=None, **kwargs):
+    """Call fn with sample_weight if it accepts it, without otherwise.
+
+    Avoids the repeated try/except TypeError pattern. Inspects the
+    function signature once to decide whether to pass sample_weight.
+    """
+    import inspect
+    try:
+        sig = inspect.signature(fn)
+        if 'sample_weight' in sig.parameters:
+            return fn(*args, sample_weight=sample_weight, **kwargs)
+    except (ValueError, TypeError):
+        pass
+    return fn(*args, **kwargs)
+
+
+def _nesterov_momentum(t_k, beta_cap=None):
+    """Compute Nesterov momentum parameters.
+
+    Parameters
+    ----------
+    t_k : float
+        Current momentum parameter.
+    beta_cap : float, optional
+        Maximum allowed momentum (e.g. 0.5 for CV stability).
+
+    Returns
+    -------
+    beta : float
+        Momentum coefficient.
+    t_new : float
+        Updated momentum parameter.
+    """
+    import math
+    t_new = (1.0 + math.sqrt(1.0 + 4.0 * t_k * t_k)) / 2.0
+    beta = (t_k - 1.0) / t_new
+    if beta_cap is not None:
+        beta = min(beta, beta_cap)
+    return beta, t_new
+
+
+def _nesterov_update(coef, coef_old, t_k, beta_cap=None):
+    """Nesterov momentum update: compute extrapolated point y_k and new t.
+
+    Parameters
+    ----------
+    coef : array
+        Current iterate.
+    coef_old : array
+        Previous iterate.
+    t_k : float
+        Current momentum parameter.
+    beta_cap : float, optional
+        Maximum allowed momentum (e.g. 0.5 for CV stability).
+
+    Returns
+    -------
+    y_k : array
+        Extrapolated point: coef + beta * (coef - coef_old).
+    t_new : float
+        Updated momentum parameter.
+    """
+    beta, t_new = _nesterov_momentum(t_k, beta_cap)
+    y_k = coef + beta * (coef - coef_old)
+    return y_k, t_new
+
+
 def _penalty_name(penalty):
     return str(getattr(penalty, "name", "none")).lower()
 

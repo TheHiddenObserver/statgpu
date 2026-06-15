@@ -7,6 +7,8 @@ moderate dimensionality) or Nesterov-accelerated gradient descent. The z-update
 reuses the penalty proximal operator and is element-wise / GPU-friendly.
 """
 
+from __future__ import annotations
+
 import warnings
 
 import numpy as np
@@ -23,6 +25,7 @@ from statgpu.backends._array_ops import (
 )
 from ._convergence import ConvergenceWarning
 from ._utils import (
+    _nesterov_momentum,
     _validate_uniform_sample_weight,
 )
 
@@ -30,19 +33,19 @@ __all__ = ["admm_solver"]
 
 
 def admm_solver(
-    loss,
-    penalty,
+    loss: "GLMLoss",
+    penalty: "Penalty | None",
     X,
     y,
-    max_iter=200,
-    tol=1e-4,
-    rho=1.0,
-    adaptive_rho=True,
-    cg_max_iter=30,
-    cg_tol=1e-6,
+    max_iter: int = 200,
+    tol: float = 1e-4,
+    rho: float = 1.0,
+    adaptive_rho: bool = True,
+    cg_max_iter: int = 30,
+    cg_tol: float = 1e-6,
     init_coef=None,
     sample_weight=None,
-):
+) -> tuple:
     """ADMM solver for penalized GLM optimization.
 
     Reformulates min_w f(Xw; y) + p(w) as:
@@ -188,10 +191,9 @@ def admm_solver(
                 w_old_mom = _copy_arr(w_new)
                 g_sub = _grad_w(w_mom, z, u)
                 w_next = w_mom - lr_sub * g_sub
-                t_new = (1.0 + np.sqrt(1.0 + 4.0 * t_mom * t_mom)) / 2.0
-                w_mom = w_next + ((t_mom - 1.0) / t_new) * (w_next - w_new)
+                beta_mom, t_mom = _nesterov_momentum(t_mom)
+                w_mom = w_next + beta_mom * (w_next - w_new)
                 w_new = w_next
-                t_mom = t_new
                 diff_dev = _abs_sum_dev(w_next - w_old_mom)
                 if backend != "numpy":
                     if _device_leq(diff_dev, cg_tol * n_features):

@@ -9,6 +9,8 @@ momentum when it opposes the descent direction.
 Supports numpy / cupy / torch backends via auto-detection of X.
 """
 
+from __future__ import annotations
+
 __all__ = ["fista_bb_solver"]
 
 import warnings
@@ -26,11 +28,16 @@ from ._constants import (
     _BB_RESTART_DOT_TOL,
     _DIVERGE_OBJ_RATIO,
     _DIVERGE_OBJ_ABS,
+    _GRAD_CLIP_COEF_FACTOR,
+    _GRAD_CLIP_ABS_FLOOR,
+    _GRAD_CLIP_MAX,
 )
 from ._fista import fista_solver
 from ._utils import (
     _validate_sample_weight,
     _as_backend_vector,
+    _call_with_weight,
+    _nesterov_update,
     _penalty_name,
     _smooth_penalty_lipschitz,
     _tracking_penalty_value,
@@ -40,20 +47,20 @@ from ._utils import (
 
 def fista_bb_solver(
     loss,
-    penalty,
+    penalty: "Penalty | None",
     X,
     y,
-    max_iter=1000,
-    tol=1e-4,
+    max_iter: int = 1000,
+    tol: float = 1e-4,
     init_coef=None,
     sample_weight=None,
-    use_restart=True,
-    step_max_factor=1e3,
-    step_min_factor=1e-3,
-    bb_burn_in=20,
-    cv_mode=False,
-    lipschitz_L=None,
-):
+    use_restart: bool = True,
+    step_max_factor: float = 1e3,
+    step_min_factor: float = 1e-3,
+    bb_burn_in: int = 20,
+    cv_mode: bool = False,
+    lipschitz_L: float | None = None,
+) -> tuple:
     """FISTA with Barzilai-Borwein step sizes and adaptive restart.
 
     Uses alternating BB1/BB2 steps (Barzilai & Borwein 1988) that adapt to
@@ -151,10 +158,7 @@ def fista_bb_solver(
         L = _cached_lipschitz_L
     else:
         _cached_lipschitz_L = None
-        try:
-            L = loss.lipschitz(X_proc, _zero_coef_bb, y=y_proc, sample_weight=sample_weight)
-        except TypeError:
-            L = loss.lipschitz(X_proc, _zero_coef_bb, y=y_proc)
+        L = _call_with_weight(loss.lipschitz, X_proc, _zero_coef_bb, y=y_proc, sample_weight=sample_weight)
     if L <= 0:
         L = 1.0
     # For GLM losses with exp link (Poisson, etc.), mu at coef=0
@@ -193,10 +197,7 @@ def fista_bb_solver(
     _validate_sample_weight(sample_weight, X_proc.shape[0])
 
     # Gradient at initial point for first BB difference
-    try:
-        grad_old = loss.gradient(X_proc, y_proc, coef, sample_weight=sample_weight)
-    except TypeError:
-        grad_old = loss.gradient(X_proc, y_proc, coef)
+    grad_old = _call_with_weight(loss.gradient, X_proc, y_proc, coef, sample_weight=sample_weight)
     # Initialize dg for BB step selection (used before first assignment in loop)
     dg = _zeros(n_features, backend, ref_tensor=X_proc)
     iteration = -1  # default if max_iter=0
@@ -238,10 +239,7 @@ def fista_bb_solver(
         coef_old = _copy_arr(coef)
 
         # Gradient at extrapolated point
-        try:
-            grad = loss.gradient(X_proc, y_proc, y_k, sample_weight=sample_weight)
-        except TypeError:
-            grad = loss.gradient(X_proc, y_proc, y_k)
+        grad = _call_with_weight(loss.gradient, X_proc, y_proc, y_k, sample_weight=sample_weight)
 
         # Clip extreme gradients -- every iteration, all backends.
         # Skip for inverse_gaussian: 1/mu^3 gradient scaling produces large but
@@ -254,7 +252,7 @@ def fista_bb_solver(
             else:
                 _gn_f, _coef_abs_f = _sync_scalars(
                     _norm2_dev(grad), _abs_sum_dev(coef_old), backend=backend)
-                _gmax = max(_coef_abs_f * 10.0 + 1e3, 1e4)
+                _gmax = max(_coef_abs_f * _GRAD_CLIP_COEF_FACTOR + _GRAD_CLIP_ABS_FLOOR, _GRAD_CLIP_MAX)
                 if _gn_f > _gmax:
                     grad = grad * (_gmax / _gn_f)
 
@@ -278,10 +276,7 @@ def fista_bb_solver(
                     _diverged = True
             # Full objective check every 5 iterations
             if not _diverged:
-                try:
-                    _obj_val = float(_to_numpy(loss.value(X_proc, y_proc, coef, sample_weight=sample_weight)))
-                except TypeError:
-                    _obj_val = float(_to_numpy(loss.value(X_proc, y_proc, coef)))
+                _obj_val = float(_to_numpy(_call_with_weight(loss.value, X_proc, y_proc, coef, sample_weight=sample_weight)))
                 _pen_val = _tracking_penalty_value(penalty, coef)
                 _obj_total = _obj_val + _pen_val
                 if not np.isfinite(_obj_total):
@@ -310,10 +305,7 @@ def fista_bb_solver(
                     coef = _zeros(n_features, backend, ref_tensor=X_proc)
                 y_k = _copy_arr(coef)
                 t_k = 1.0
-                try:
-                    grad_old = loss.gradient(X_proc, y_proc, coef, sample_weight=sample_weight)
-                except TypeError:
-                    grad_old = loss.gradient(X_proc, y_proc, coef)
+                grad_old = _call_with_weight(loss.gradient, X_proc, y_proc, coef, sample_weight=sample_weight)
                 # Halve step size bounds
                 step_L = step_L * 0.5
                 step_k = step_L
@@ -444,10 +436,7 @@ def fista_bb_solver(
                     coef = _copy_arr(_coef_best)
                     y_k = _copy_arr(coef)
                     t_k = 1.0
-                    try:
-                        grad_old = loss.gradient(X_proc, y_proc, coef, sample_weight=sample_weight)
-                    except TypeError:
-                        grad_old = loss.gradient(X_proc, y_proc, coef)
+                    grad_old = _call_with_weight(loss.gradient, X_proc, y_proc, coef, sample_weight=sample_weight)
                     step_L = step_L * 0.5
                     step_k = step_L
                     step_max = step_max * 0.5
@@ -460,10 +449,7 @@ def fista_bb_solver(
         # --- Store BB step info for next iteration (non-quadratic only) ---
         # Use accepted iterate (coef) not pre-backtracking (coef_new)
         if not _is_quadratic:
-            try:
-                grad_new = loss.gradient(X_proc, y_proc, coef, sample_weight=sample_weight)
-            except TypeError:
-                grad_new = loss.gradient(X_proc, y_proc, coef)
+            grad_new = _call_with_weight(loss.gradient, X_proc, y_proc, coef, sample_weight=sample_weight)
 
             dw = coef - coef_old
             dg = grad_new - grad_old
@@ -485,7 +471,7 @@ def fista_bb_solver(
             y_k = coef + beta * (coef - coef_old)
             t_k = 1.0
         else:
-            t_new = (1.0 + np.sqrt(1.0 + 4.0 * t_k * t_k)) / 2.0
+            y_k, t_new = _nesterov_update(coef, coef_old, t_k)
             beta = (t_k - 1.0) / t_new
 
             if use_restart and iteration > 0:
@@ -496,8 +482,8 @@ def fista_bb_solver(
                     t_k = 1.0
                     t_new = 1.0
                     beta = 0.0
+                    y_k = coef + beta * (coef - coef_old)
 
-            y_k = coef + beta * (coef - coef_old)
             t_k = t_new
 
         # --- Convergence check -- deferred for GPU, every iteration for CPU. ---

@@ -407,6 +407,64 @@ class TorchBackend(BackendBase):
         import torch
         return torch.matmul(a, b)
 
+    def min(self, x, axis=None, keepdims=False):
+        """Minimum value along axis."""
+        import torch
+        if axis is None:
+            return torch.min(x)
+        result = torch.min(x, dim=axis)
+        if keepdims:
+            return result.values.unsqueeze(axis)
+        return result.values
+
+    def expand_dims(self, x, axis):
+        """Expand array dimensions."""
+        import torch
+        return torch.unsqueeze(x, axis)
+
+    def eigh(self, a):
+        """Eigenvalue decomposition for symmetric/Hermitian matrices."""
+        import torch
+        return torch.linalg.eigh(a)
+
+    def argmin(self, x, axis=None):
+        """Indices of minimum values along axis."""
+        import torch
+        return torch.argmin(x, dim=axis)
+
+    def argmax(self, x, axis=None):
+        """Indices of maximum values along axis."""
+        import torch
+        return torch.argmax(x, dim=axis)
+
+    def argsort(self, x, axis=-1):
+        """Indices that would sort the array."""
+        import torch
+        return torch.argsort(x, dim=axis)
+
+    def flip(self, x, axis=None):
+        """Reverse array order along axis."""
+        import torch
+        if axis is None:
+            return torch.flip(x, list(range(x.ndim)))
+        if isinstance(axis, int):
+            axis = [axis]
+        return torch.flip(x, axis)
+
+    def logsumexp(self, arr, axis=None):
+        """Log-sum-exp along axis (torch-compatible)."""
+        import torch
+        if axis is None:
+            m = torch.max(arr)
+        else:
+            m = torch.max(arr, dim=axis, keepdim=True).values
+        # squeeze m to match arr shape after reduction
+        if axis is not None:
+            m_squeezed = torch.squeeze(m, dim=axis)
+        else:
+            m_squeezed = m
+        return m_squeezed + torch.log(torch.sum(torch.exp(arr - m), dim=axis))
+
     def tensordot(self, a, b, axes=2):
         """Tensor dot product."""
         import torch

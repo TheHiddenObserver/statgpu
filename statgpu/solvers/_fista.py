@@ -5,6 +5,8 @@ minimize: loss(X, y, w) + penalty(w)
 Supports numpy / cupy / torch backends via auto-detection.
 """
 
+from __future__ import annotations
+
 __all__ = ["fista_solver"]
 
 import warnings
@@ -26,10 +28,15 @@ from ._constants import (
     _SLACK_TOLERANCE,
     _DIVERGE_COEF_NORM_CAP,
     _LIPSCHITZ_SAFETY_LOGISTIC_CV,
+    _GRAD_CLIP_COEF_FACTOR,
+    _GRAD_CLIP_ABS_FLOOR,
+    _GRAD_CLIP_MAX,
 )
 from ._utils import (
     _validate_sample_weight,
     _as_backend_vector,
+    _call_with_weight,
+    _nesterov_update,
     _penalty_name,
     _smooth_penalty_lipschitz,
     _abs_mean_max,
@@ -38,17 +45,17 @@ from ._utils import (
 
 
 def fista_solver(
-    loss,
-    penalty,
+    loss: "GLMLoss",
+    penalty: "Penalty | None",
     X,
     y,
-    max_iter=1000,
-    tol=1e-4,
+    max_iter: int = 1000,
+    tol: float = 1e-4,
     init_coef=None,
     sample_weight=None,
-    lipschitz_L=None,
-    cv_mode=False,
-):
+    lipschitz_L: float | None = None,
+    cv_mode: bool = False,
+) -> tuple:
     """General FISTA solver with backtracking line search.
 
     Supports numpy / cupy / torch backends via auto-detection of X.
@@ -287,7 +294,7 @@ def fista_solver(
             #  so on-device clipping has no performance benefit here.)
             _gn_f, _coef_abs_f = _sync_scalars(
                 _norm2_dev(grad), _abs_sum_dev(coef_old), backend=backend)
-            _gmax = max(_coef_abs_f * 10.0 + 1e3, 1e4)
+            _gmax = max(_coef_abs_f * _GRAD_CLIP_COEF_FACTOR + _GRAD_CLIP_ABS_FLOOR, _GRAD_CLIP_MAX)
             if _gn_f > _gmax:
                 grad = grad * (_gmax / _gn_f)
 
@@ -380,10 +387,7 @@ def fista_solver(
                     _norm2_dev(coef - coef_old), _norm2_dev(coef), backend=backend)
                 _relative_change = _coef_change / max(_coef_norm, 1e-10)
                 if _relative_change > 1e-3:  # Only recompute if coefficients changed significantly
-                    try:
-                        L_new = loss.lipschitz(X_proc, coef, y=y_proc, sample_weight=sample_weight)
-                    except TypeError:
-                        L_new = loss.lipschitz(X_proc, coef, y=y_proc)
+                    L_new = _call_with_weight(loss.lipschitz, X_proc, coef, y=y_proc, sample_weight=sample_weight)
                     # Safety factors from loss class
                     _lip_safety_recomp = getattr(loss, '_lipschitz_safety', 1.0)
                     if _lip_safety_recomp > 1.0:
@@ -401,15 +405,9 @@ def fista_solver(
             y_k = _copy_arr(coef)
         elif _momentum_beta_cap is not None:
             # Conservative momentum with capped beta
-            t_new = (1.0 + np.sqrt(1.0 + 4.0 * t_k * t_k)) / 2.0
-            beta = min((t_k - 1.0) / t_new, _momentum_beta_cap)
-            y_k = coef + beta * (coef - coef_old)
-            t_k = t_new
+            y_k, t_k = _nesterov_update(coef, coef_old, t_k, beta_cap=_momentum_beta_cap)
         else:
-            t_new = (1.0 + np.sqrt(1.0 + 4.0 * t_k * t_k)) / 2.0
-            beta = (t_k - 1.0) / t_new
-            y_k = coef + beta * (coef - coef_old)
-            t_k = t_new
+            y_k, t_k = _nesterov_update(coef, coef_old, t_k)
 
         # Convergence check -- deferred for GPU, every iteration for CPU
         if _is_gpu:

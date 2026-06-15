@@ -3,6 +3,8 @@
 Generic solver — works with any loss that implements hessian() and gradient().
 """
 
+from __future__ import annotations
+
 __all__ = ["newton_solver"]
 
 import warnings
@@ -29,15 +31,15 @@ from ._utils import (
 
 
 def newton_solver(
-    loss,
-    penalty,
+    loss: "GLMLoss",
+    penalty: "Penalty | None",
     X,
     y,
-    max_iter=100,
-    tol=1e-4,
+    max_iter: int = 100,
+    tol: float = 1e-4,
     init_coef=None,
     sample_weight=None,
-):
+) -> tuple:
     """Newton-Raphson solver with Armijo backtracking line search.
 
     Supports numpy / cupy / torch backends via auto-detection of X.

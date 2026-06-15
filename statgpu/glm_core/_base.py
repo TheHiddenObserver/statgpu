@@ -84,7 +84,7 @@ class GLMLoss(ABC):
         eta = X @ coef
         ps = self.per_sample_value(eta, y)
         if sample_weight is not None:
-            return float(xp.sum(sample_weight * ps)) / float(sample_weight.sum())
+            return float(xp.dot(sample_weight, ps)) / float(sample_weight.sum())
         return float(xp.sum(ps)) / X.shape[0]
 
     def gradient(self, X, y, coef, sample_weight=None) -> np.ndarray:
@@ -107,7 +107,7 @@ class GLMLoss(ABC):
         resid = self.per_sample_gradient(eta, y)
         if sample_weight is not None:
             sw_sum = float(sample_weight.sum())
-            val = float(xp.sum(sample_weight * ps)) / sw_sum
+            val = float(xp.dot(sample_weight, ps)) / sw_sum
             grad = X.T @ (sample_weight * resid) / sw_sum
         else:
             n = X.shape[0]

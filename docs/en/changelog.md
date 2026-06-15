@@ -1,13 +1,39 @@
 # Changelog
 
 > Language: English  
-> Last updated: 2026-06-14
+> Last updated: 2026-06-15
 > This page: Changelog  
 > Switch: [Chinese](../changelog.md)
 
 Language switch: [Chinese](../changelog.md)
 
 ## 2026-06
+
+### Code Review Rounds 9-10 (2026-06-15)
+
+**Bug fixes:**
+- Newton solver convergence check was 10,000x too strict (`_norm2_dev` returns L2 norm, not squared)
+- `_resolve_loss_name` imported from wrong module — CV pipeline would crash with `ImportError`
+- ElasticNet Lipschitz returned 0 for the `"en"` alias
+- Debiased inference cleared `_resid`/`_X_design`/`_y`, breaking `rsquared`/`aic`/`bic`
+- `fista_lla_path` ignored `sample_weight` in XtX fast paths (both GPU and numpy)
+- Missing `xp_ones` import in `_fit_gpu_backend` — NameError for large-feature GPU fits
+
+**Performance:**
+- Deleted `_solver_utils.py` (442-line duplicate of solvers/ modules)
+- IRLS: hoisted `_to_backend(y)` outside closure (was 30x/iter), reused `eta_raw` matmul
+- Fused dispatch dict promoted to module-level constant
+- `xp.sum(sw*ps)` → `xp.dot(sw,ps)` — avoids O(n) temporary allocation
+
+**Refactoring:**
+- Unified `_fit_gpu`/`_fit_torch` into single `_fit_gpu_backend` method (-468 lines)
+- Extracted `_nesterov_momentum`/`_nesterov_update` helpers (12 sites across 6 files)
+- Extracted gradient clipping constants to `solvers/_constants.py`
+- Added type hints to all public solver function signatures
+- Added `_call_with_weight` helper replacing 8 `try/except TypeError` blocks
+- Removed duplicate entries in top-level `__init__.py`
+- Replaced `SelectivePenalty` thread-local singleton with fresh-per-call instance
+- Cached `_family_for_loss()` result
 
 ### Refactored (2026-06-14)
 

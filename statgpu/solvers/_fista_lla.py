@@ -22,8 +22,14 @@ from statgpu.backends._array_ops import (
 )
 from statgpu.penalties._categories import NONSMOOTH as _NONSMOOTH_ALL
 from statgpu.penalties._adaptive_l1 import AdaptiveL1Penalty
-from ._constants import _DIVERGE_COEF_NORM_CAP
+from ._constants import (
+    _DIVERGE_COEF_NORM_CAP,
+    _GRAD_CLIP_COEF_FACTOR,
+    _GRAD_CLIP_ABS_FLOOR,
+    _GRAD_CLIP_MAX,
+)
 from ._utils import (
+    _nesterov_momentum,
     _validate_sample_weight,
 )
 
@@ -295,7 +301,9 @@ def fista_lla_path(
 
     # For squared_error + GPU: fully inlined fused loop.
     # Uses torch.compile for torch, ElementwiseKernel for cupy.
-    if _is_quadratic and backend in ("torch", "cupy"):
+    # Must gate on sample_weight is None because the fused path uses
+    # unweighted Gram matrix (XtX, Xty) which is incorrect for weighted data.
+    if _is_quadratic and backend in ("torch", "cupy") and sample_weight is None:
         Xty = X_c.T @ y_c
 
         # Get fused proximal kernel
@@ -349,9 +357,7 @@ def fista_lla_path(
                     if _no_momentum:
                         beta_mom = 0.0
                     else:
-                        t_new = (1.0 + np.sqrt(1.0 + 4.0 * t_k * t_k)) / 2.0
-                        beta_mom = (t_k - 1.0) / t_new
-                        t_k = t_new
+                        beta_mom, t_k = _nesterov_momentum(t_k)
 
                     # Fused proximal + momentum in one kernel call. The gradient
                     # is evaluated at y_k, so y_k is the proximal center.
@@ -377,8 +383,9 @@ def fista_lla_path(
                     break
             _record_path_alpha(cont_alpha)
     else:
-        # Pre-compute XtX and Xty for squared_error (avoids redundant matmuls)
-        _use_xtx = _is_quadratic and backend == "numpy"
+        # Pre-compute XtX and Xty for squared_error (avoids redundant matmuls).
+        # Must gate on sample_weight is None because XtX/Xty are unweighted.
+        _use_xtx = _is_quadratic and backend == "numpy" and sample_weight is None
         if _use_xtx:
             Xty = X_c.T @ y_c
 
@@ -448,11 +455,11 @@ def fista_lla_path(
                     # Clip gradients (device-side, every 10 iterations)
                     if backend == "numpy" or iteration % 10 == 0:
                         _gn_dev = _norm2_dev(grad)
-                        _gsum = _abs_sum_dev(coef_old) * 10.0 + 1e3
+                        _gsum = _abs_sum_dev(coef_old) * _GRAD_CLIP_COEF_FACTOR + _GRAD_CLIP_ABS_FLOOR
                         if backend == "torch":
-                            _gmax_dev = xp.clamp(_gsum, min=1e4)
+                            _gmax_dev = xp.clamp(_gsum, min=_GRAD_CLIP_MAX)
                         else:
-                            _gmax_dev = xp.maximum(_gsum, 1e4)
+                            _gmax_dev = xp.maximum(_gsum, _GRAD_CLIP_MAX)
                         _gn_f, _gmax_f = _sync_scalars(_gn_dev, _gmax_dev, backend=backend)
                         if _gn_f > _gmax_f:
                             grad = grad * (_gmax_dev / _gn_dev)
@@ -462,13 +469,9 @@ def fista_lla_path(
                     if _no_momentum:
                         beta_mom = 0.0
                     elif _conservative_momentum_lla:
-                        t_new = (1.0 + np.sqrt(1.0 + 4.0 * t_k * t_k)) / 2.0
-                        beta_mom = min((t_k - 1.0) / t_new, 0.5)
-                        t_k = t_new
+                        beta_mom, t_k = _nesterov_momentum(t_k, beta_cap=0.5)
                     else:
-                        t_new = (1.0 + np.sqrt(1.0 + 4.0 * t_k * t_k)) / 2.0
-                        beta_mom = (t_k - 1.0) / t_new
-                        t_k = t_new
+                        beta_mom, t_k = _nesterov_momentum(t_k)
 
                     # Fused proximal + momentum: single kernel launch on GPU
                     # Combines: w_tilde = y_k - step*grad

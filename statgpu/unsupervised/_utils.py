@@ -47,9 +47,9 @@ def draw_random_seed(random_state) -> int:
     if random_state is None:
         return int(np.random.SeedSequence().generate_state(1, dtype=np.uint64)[0])
     if isinstance(random_state, np.random.Generator):
-        return int(random_state.integers(0, np.iinfo(np.int64).max))
+        return int(random_state.integers(0, np.iinfo(np.int32).max))
     if isinstance(random_state, np.random.RandomState):
-        return int(random_state.randint(0, np.iinfo(np.int64).max))
+        return int(random_state.randint(0, np.iinfo(np.int32).max))
     return int(random_state)
 
 
