@@ -4,6 +4,23 @@ All notable changes to statgpu are documented here, organized by date and PR.
 
 ## 2026-06-15
 
+### PR #66 — Code review round 10: final bug fixes
+
+**Bug fixes:**
+- **`fista_lla_path` ignored `sample_weight` in XtX fast paths**: both the fused GPU path and the numpy path used unweighted Gram matrix for squared_error gradient, silently ignoring sample_weight — fixed by gating on `sample_weight is None`
+- **Missing `xp_ones` import in `_fit_gpu_backend`**: NameError when `n_features >= 1000` on GPU (power-iteration Lipschitz path)
+- **Removed stale `t_k = t_new` after Nesterov refactor**: `t_new` was undefined after `_nesterov_momentum` already updates `t_k` via tuple unpacking
+- **Removed dead debiased inference block in torch exact solver**: exact solver = L2 only, debiased = L1/ElasticNet only, mutually exclusive
+
+**Tests added:**
+- `TestWeightedSCADMCP`: verifies weighted SCAD produces different coefficients than unweighted (regression for XtX sample_weight bug)
+- `TestFitGpuBackendImports`: verifies `_fit_gpu_backend` imports `xp_ones` (regression for large-feature GPU path)
+
+**Review coverage:**
+- Round 10a: solvers, penalized mixin, CV, glm_core, backends (found 1 bug)
+- Round 10b: inference, predict, penalties, cross_validation (found 1 bug)
+- Round 10c: wrappers, glm_base, metrics, feature_selection, nonparametric, panel, survival (no bugs)
+
 ### PR #66 — Code review round 9: bug fixes, performance, cleanup
 
 **Critical bug fixes:**
