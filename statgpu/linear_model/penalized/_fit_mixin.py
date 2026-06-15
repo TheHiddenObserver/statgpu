@@ -847,7 +847,7 @@ class _PenalizedFitMixin:
         Handles exact (L2), FISTA, and FISTA-BE solvers with inline
         XtX precomputation and fused element-wise kernels.
         """
-        from statgpu.backends._utils import _get_xp, xp_asarray, xp_zeros, xp_copy
+        from statgpu.backends._utils import _get_xp, xp_asarray, xp_zeros, xp_copy, xp_ones
         from statgpu.backends import _to_numpy
         from statgpu.backends._array_ops import _abs_sum_dev
 

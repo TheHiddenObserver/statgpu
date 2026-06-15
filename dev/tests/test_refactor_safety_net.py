@@ -448,3 +448,16 @@ class TestWeightedSCADMCP:
             f"Weighted SCAD coefs should differ from unweighted: "
             f"unweighted={m1.coef_}, weighted={m2.coef_}"
         )
+
+
+class TestFitGpuBackendImports:
+    """Regression: _fit_gpu_backend must import xp_ones for power-iteration Lipschitz."""
+
+    def test_xp_ones_imported(self):
+        """_fit_gpu_backend must import xp_ones (used when n_features >= 1000)."""
+        import inspect
+        from statgpu.linear_model.penalized._fit_mixin import _PenalizedFitMixin
+        src = inspect.getsource(_PenalizedFitMixin._fit_gpu_backend)
+        assert "xp_ones" in src, (
+            "_fit_gpu_backend must import xp_ones for power-iteration Lipschitz path"
+        )
