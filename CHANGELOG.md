@@ -36,6 +36,10 @@ All notable changes to statgpu are documented here, organized by date and PR.
 - Replaced `xp.sum(sw * ps)` with `xp.dot(sw, ps)` in `GLMLoss.value()`/`fused_value_and_gradient()` and `_weighted_mean()` (avoids O(n) temporary allocation)
 - Replaced 8x `try/except TypeError` blocks in `_fista_bb.py` and `_fista.py` with `_call_with_weight()` helper (DRY, no longer swallows internal TypeErrors)
 
+**Refactoring:**
+- Extracted `_nesterov_momentum(t_k, beta_cap)` and `_nesterov_update(coef, coef_old, t_k, beta_cap)` helpers — replaced 12 duplicated Nesterov momentum sites across 6 files
+- Extracted gradient clipping constants (`_GRAD_CLIP_COEF_FACTOR`, `_GRAD_CLIP_ABS_FLOOR`, `_GRAD_CLIP_MAX`) to `solvers/_constants.py` — replaced magic numbers in 4 files
+
 ## 2026-06-14
 
 ### Refactor: Top-level structure reorganization (Phases 0-6)
