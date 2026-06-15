@@ -9,6 +9,8 @@ GPU-optimised path uses:
 - _device_leq for device-side line search
 """
 
+from __future__ import annotations
+
 __all__ = ["lbfgs_solver"]
 
 import warnings

@@ -7,6 +7,8 @@ moderate dimensionality) or Nesterov-accelerated gradient descent. The z-update
 reuses the penalty proximal operator and is element-wise / GPU-friendly.
 """
 
+from __future__ import annotations
+
 import warnings
 
 import numpy as np

@@ -5,6 +5,8 @@ minimize: loss(X, y, w) + penalty(w)
 Supports numpy / cupy / torch backends via auto-detection.
 """
 
+from __future__ import annotations
+
 __all__ = ["fista_solver"]
 
 import warnings

@@ -3,6 +3,8 @@
 Generic solver — works with any loss that implements hessian() and gradient().
 """
 
+from __future__ import annotations
+
 __all__ = ["newton_solver"]
 
 import warnings

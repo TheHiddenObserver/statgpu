@@ -9,6 +9,8 @@ momentum when it opposes the descent direction.
 Supports numpy / cupy / torch backends via auto-detection of X.
 """
 
+from __future__ import annotations
+
 __all__ = ["fista_bb_solver"]
 
 import warnings
