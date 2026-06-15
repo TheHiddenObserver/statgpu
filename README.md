@@ -1,6 +1,40 @@
 # statgpu
 
+[![PyPI version](https://img.shields.io/pypi/v/statgpu.svg)](https://pypi.org/project/statgpu/)
+[![Python versions](https://img.shields.io/pypi/pyversions/statgpu.svg)](https://pypi.org/project/statgpu/)
+[![License](https://img.shields.io/github/license/TheHiddenObserver/statgpu.svg)](https://github.com/TheHiddenObserver/statgpu/blob/master/LICENSE)
+[![GitHub stars](https://img.shields.io/github/stars/TheHiddenObserver/statgpu.svg)](https://github.com/TheHiddenObserver/statgpu/stargazers)
+[![Downloads](https://img.shields.io/pypi/dm/statgpu.svg)](https://pypi.org/project/statgpu/)
+
 GPU-accelerated statistical methods with sklearn-compatible API.
+
+## Why statgpu?
+
+| Feature | statgpu | sklearn | glmnet (R) |
+|---------|---------|---------|------------|
+| GPU acceleration | ✅ CuPy + PyTorch | ❌ | ❌ |
+| 7 GLM families | ✅ | Partial | ✅ |
+| 10 penalty types | ✅ (SCAD, MCP, Group) | L1/L2 only | L1/L2 only |
+| sklearn API | ✅ | ✅ | ❌ |
+| Debiased Lasso inference | ✅ | ❌ | ❌ |
+| Cross-backend | ✅ NumPy/CuPy/Torch | NumPy only | R only |
+
+## Quick Start
+
+```python
+import numpy as np
+from statgpu.linear_model import Lasso, LassoCV, PenalizedGLM_CV
+
+# Lasso with cross-validation
+X, y = np.random.randn(1000, 50), np.random.randn(1000)
+model = LassoCV(cv=5).fit(X, y)
+print(f"Optimal alpha: {model.alpha_:.4f}")
+
+# Penalized GLM: Poisson + SCAD on GPU
+model = PenalizedGLM_CV(
+    loss="poisson", penalty="scad", cv=5, device="cuda"
+).fit(X, y_counts)
+```
 
 ## Documentation
 

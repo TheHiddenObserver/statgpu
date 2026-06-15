@@ -78,3 +78,8 @@ dev/tests/test_v10_import_smoke.py
 dev/tests/verify_*.py
 dev/tests/REMOTE_GPU_TEST_GUIDE.md
 dev/tests/TORCH_BACKEND_CV_TESTING.md
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
