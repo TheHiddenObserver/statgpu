@@ -513,9 +513,8 @@ def fista_lla_path(
                                 break
 
                     # Periodic Lipschitz recomputation -- corrects stale L
-                    # as coef moves away from zero. Piggybacked on existing
-                    # sync (convergence check already syncs every 5 iters).
-                    if not _is_quadratic and iteration > 0 and iteration % _L_recompute_interval == 0:
+                    # as coef moves away from zero.
+                    if not _is_quadratic and iteration > 0 and iteration % 20 == 0:
                         L_new = loss.lipschitz(X_c, coef, y=y_c)
                         if _y_lipschitz_scale > 1.0:
                             L_new = L_new * _y_lipschitz_scale
