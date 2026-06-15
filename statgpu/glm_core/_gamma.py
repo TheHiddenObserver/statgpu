@@ -9,7 +9,6 @@ where mu is determined by the configured link:
 
 Supports numpy / cupy / torch backends via _array_ops helpers.
 """
-import numpy as np
 from statgpu.backends._array_ops import _clip, _exp, _log, _sum, _max_eigval_power, _xp
 from statgpu.glm_core._base import GLMLoss, register_glm_loss
 

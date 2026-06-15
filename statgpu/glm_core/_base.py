@@ -1,10 +1,14 @@
 """
 Base class for GLM loss functions in statgpu.
 
-The GLM core loss framework supports:
+The GLM core loss framework supports 7 families:
 - Squared error (linear regression)
-- Logistic loss (logistic regression)
+- Logistic loss (binary classification)
 - Poisson loss (count data)
+- Gamma loss (positive continuous)
+- Inverse Gaussian loss (positive continuous)
+- Negative Binomial loss (overdispersed count data)
+- Tweedie loss (generalized GLM family)
 
 Structured models such as Cox, panel, and time-series models should use a
 future objective layer rather than this GLM-specific interface.

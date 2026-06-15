@@ -37,7 +37,7 @@ def _solve(A, b, backend="auto"):
             return cp.linalg.solve(A, b)
         else:
             return np.linalg.solve(A, b)
-    except (np.linalg.LinAlgError, Exception):
+    except (np.linalg.LinAlgError, ValueError, RuntimeError):
         if backend == "torch":
             import torch
             b_col = b.unsqueeze(1) if b.ndim == 1 else b
@@ -52,12 +52,9 @@ def _solve(A, b, backend="auto"):
 def _clip(x, lo, hi, backend):
     if backend == "torch":
         import torch
-
-        if lo is not None:
-            x = torch.clamp(x, min=lo)
-        if hi is not None:
-            x = torch.clamp(x, max=hi)
-        return x
+        lo_val = lo if lo is not None else float('-inf')
+        hi_val = hi if hi is not None else float('inf')
+        return torch.clamp(x, min=lo_val, max=hi_val)
     if backend == "cupy":
         import cupy as cp
         return cp.clip(x, lo, hi)
@@ -233,6 +230,7 @@ def irls_solver(
     else:
         params = init_coef
 
+    iteration = 0
     for iteration in range(max_iter):
         params_old = _copy_arr(params)
 
@@ -503,7 +501,7 @@ def irls_solver(
 
     n_iter = iteration + 1
     if n_iter >= max_iter:
-        from statgpu.glm_core._solver import ConvergenceWarning
+        from statgpu.solvers._convergence import ConvergenceWarning
         warnings.warn(
             f"irls did not converge within {max_iter} iterations "
             f"(family={getattr(family, 'name', '?')}).",
