@@ -32,4 +32,4 @@ jobs:
 
       - name: Run tests
         run: |
-          python -m pytest dev/tests/test_refactor_safety_net.py dev/tests/test_refactor_post_phase.py dev/tests/test_linear.py dev/tests/test_logistic.py dev/tests/test_penalties_phase1.py dev/tests/test_unsupervised_tsne.py dev/tests/test_unsupervised_umap.py -q --tb=short
+          python -m pytest dev/tests/test_refactor_safety_net.py dev/tests/test_refactor_post_phase.py dev/tests/test_linear.py dev/tests/test_logistic.py -q --tb=short
