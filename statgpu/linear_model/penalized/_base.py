@@ -121,20 +121,6 @@ class SelectivePenalty:
         return np.diag(diag)
 
 
-# Thread-local singleton for _selective_penalty (avoids per-call class creation
-# while remaining safe for concurrent CV folds via n_jobs > 1)
-import threading
-_SELECTIVE_PENALTY_LOCAL = threading.local()
-
-
-def _get_selective_penalty_singleton():
-    """Get or create a thread-local SelectivePenalty instance."""
-    obj = getattr(_SELECTIVE_PENALTY_LOCAL, 'instance', None)
-    if obj is None:
-        obj = SelectivePenalty()
-        _SELECTIVE_PENALTY_LOCAL.instance = obj
-    return obj
-
 
 class PenalizedGeneralizedLinearModel(
     _PenalizedFitMixin,
@@ -381,6 +367,11 @@ class PenalizedGeneralizedLinearModel(
         self._inference_result = None
 
     def _family_for_loss(self):
+        # Cache on first call (avoid re-creating on every predict/score)
+        cached = getattr(self, '_family_cache', None)
+        if cached is not None:
+            return cached
+
         from statgpu.glm_core._family import (
             Binomial,
             Gaussian,
@@ -392,28 +383,32 @@ class PenalizedGeneralizedLinearModel(
         )
 
         if self.loss == "logistic":
-            return Binomial()
-        if self.loss == "poisson":
-            return Poisson()
-        if self.loss == "gamma":
-            return Gamma()
-        if self.loss == "inverse_gaussian":
-            return InverseGaussian()
-        if self.loss == "negative_binomial":
+            fam = Binomial()
+        elif self.loss == "poisson":
+            fam = Poisson()
+        elif self.loss == "gamma":
+            fam = Gamma()
+        elif self.loss == "inverse_gaussian":
+            fam = InverseGaussian()
+        elif self.loss == "negative_binomial":
             alpha = getattr(
                 getattr(self, "_loss", None),
                 "alpha",
                 getattr(self, "loss_kwargs", {}).get("alpha", 1.0),
             )
-            return NegativeBinomial(alpha=alpha)
-        if self.loss == "tweedie":
+            fam = NegativeBinomial(alpha=alpha)
+        elif self.loss == "tweedie":
             power = getattr(
                 getattr(self, "_loss", None),
                 "power",
                 getattr(self, "loss_kwargs", {}).get("power", 1.5),
             )
-            return Tweedie(power=power)
-        return Gaussian()
+            fam = Tweedie(power=power)
+        else:
+            fam = Gaussian()
+
+        self._family_cache = fam
+        return fam
 
     def _column_stack(self, arrays, backend_name):
         if backend_name == "cupy":
@@ -436,9 +431,9 @@ class PenalizedGeneralizedLinearModel(
     def _selective_penalty(self, p, backend_name):
         """Penalty wrapper that leaves the last intercept coefficient free.
 
-        Uses a thread-local singleton to avoid per-call class creation
-        while remaining safe for concurrent CV folds.
+        Creates a fresh instance per call to avoid thread-local singleton
+        conflicts in nested CV within the same thread.
         """
-        singleton = _get_selective_penalty_singleton()
-        singleton.configure(self._penalty, p, backend_name)
-        return singleton
+        sp = SelectivePenalty()
+        sp.configure(self._penalty, p, backend_name)
+        return sp

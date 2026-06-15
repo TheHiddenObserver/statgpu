@@ -178,7 +178,7 @@ def _weighted_mean(per_sample, sw):
         w_sum = float(np.sum(sw))
         if w_sum <= 0:
             return float(np.mean(per_sample))
-        return float(np.sum(sw * per_sample) / w_sum)
+        return float(np.dot(sw, per_sample) / w_sum)
     return float(np.mean(per_sample))
 
 
