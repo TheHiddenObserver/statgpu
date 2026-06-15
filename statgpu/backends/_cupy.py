@@ -199,6 +199,36 @@ class CuPyBackend(BackendBase):
         import cupy as cp
         return cp.maximum(x, y)
 
+    def matmul(self, a, b):
+        """Matrix multiplication."""
+        import cupy as cp
+        return cp.matmul(a, b)
+
+    def min(self, x, axis=None, keepdims=False):
+        """Minimum value along axis."""
+        import cupy as cp
+        return cp.min(x, axis=axis, keepdims=keepdims)
+
+    def expand_dims(self, x, axis):
+        """Expand array dimensions."""
+        import cupy as cp
+        return cp.expand_dims(x, axis)
+
+    def eigh(self, a):
+        """Eigenvalue decomposition for symmetric/Hermitian matrices."""
+        import cupy as cp
+        return cp.linalg.eigh(a)
+
+    def argmin(self, x, axis=None):
+        """Indices of minimum values along axis."""
+        import cupy as cp
+        return cp.argmin(x, axis=axis)
+
+    def argsort(self, x, axis=-1):
+        """Indices that would sort the array."""
+        import cupy as cp
+        return cp.argsort(x, axis=axis)
+
     def exp(self, x):
         """Element-wise exponential."""
         import cupy as cp
