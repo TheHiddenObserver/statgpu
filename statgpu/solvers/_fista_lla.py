@@ -478,7 +478,11 @@ def fista_lla_path(
                     #           y_k = coef + beta * (coef - coef_old)
                     # Reduces 3 kernel launches to 1.
                     if _fused_update is not None and backend != "numpy":
-                        thresh = inner_pen._weights * inner_pen.alpha * step
+                        # Ensure thresh is on the correct device
+                        _w = inner_pen._weights
+                        if isinstance(_w, np.ndarray):
+                            _w = xp.asarray(_w, dtype=coef.dtype)
+                        thresh = _w * inner_pen.alpha * step
                         coef, y_k = _fused_update(y_k, grad, step, thresh, coef_old, beta_mom)
                     else:
                         w_tilde = y_k - step * grad
