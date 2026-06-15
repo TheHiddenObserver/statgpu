@@ -30,6 +30,7 @@ from ._constants import (
 from ._utils import (
     _validate_sample_weight,
     _as_backend_vector,
+    _call_with_weight,
     _penalty_name,
     _smooth_penalty_lipschitz,
     _abs_mean_max,
@@ -380,10 +381,7 @@ def fista_solver(
                     _norm2_dev(coef - coef_old), _norm2_dev(coef), backend=backend)
                 _relative_change = _coef_change / max(_coef_norm, 1e-10)
                 if _relative_change > 1e-3:  # Only recompute if coefficients changed significantly
-                    try:
-                        L_new = loss.lipschitz(X_proc, coef, y=y_proc, sample_weight=sample_weight)
-                    except TypeError:
-                        L_new = loss.lipschitz(X_proc, coef, y=y_proc)
+                    L_new = _call_with_weight(loss.lipschitz, X_proc, coef, y=y_proc, sample_weight=sample_weight)
                     # Safety factors from loss class
                     _lip_safety_recomp = getattr(loss, '_lipschitz_safety', 1.0)
                     if _lip_safety_recomp > 1.0:

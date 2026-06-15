@@ -65,6 +65,22 @@ def _as_backend_vector(arr, backend, ref):
     return xp_asarray(arr, dtype=dtype, xp=xp, ref_arr=ref)
 
 
+def _call_with_weight(fn, *args, sample_weight=None, **kwargs):
+    """Call fn with sample_weight if it accepts it, without otherwise.
+
+    Avoids the repeated try/except TypeError pattern. Inspects the
+    function signature once to decide whether to pass sample_weight.
+    """
+    import inspect
+    try:
+        sig = inspect.signature(fn)
+        if 'sample_weight' in sig.parameters:
+            return fn(*args, sample_weight=sample_weight, **kwargs)
+    except (ValueError, TypeError):
+        pass
+    return fn(*args, **kwargs)
+
+
 def _penalty_name(penalty):
     return str(getattr(penalty, "name", "none")).lower()
 

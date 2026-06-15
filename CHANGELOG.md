@@ -34,6 +34,7 @@ All notable changes to statgpu are documented here, organized by date and PR.
 - Replaced `SelectivePenalty` thread-local singleton with fresh-per-call instance (avoids same-thread conflicts in nested CV)
 - Cached `_family_for_loss()` result (avoids re-creating Family objects on every `predict()`/`score()`)
 - Replaced `xp.sum(sw * ps)` with `xp.dot(sw, ps)` in `GLMLoss.value()`/`fused_value_and_gradient()` and `_weighted_mean()` (avoids O(n) temporary allocation)
+- Replaced 8x `try/except TypeError` blocks in `_fista_bb.py` and `_fista.py` with `_call_with_weight()` helper (DRY, no longer swallows internal TypeErrors)
 
 ## 2026-06-14
 
