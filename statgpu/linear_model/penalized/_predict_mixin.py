@@ -143,10 +143,12 @@ class _PenalizedPredictMixin:
 
     def score(self, X, y, sample_weight=None):
         """
-        Return goodness-of-fit score.
+        Return goodness-of-fit score (R² = 1 - SS_res/SS_tot).
 
-        For squared_error loss, returns R² (1 - SS_res/SS_tot).
-        For GLM losses, returns 1 - deviance/null_deviance (pseudo-R²).
+        For all loss types, computes the standard R² metric on the response
+        scale. For squared_error this is the classical R². For GLM losses
+        (logistic, Poisson, Gamma, etc.) this is R² on the original y scale,
+        not the deviance-based pseudo-R².
 
         Parameters
         ----------
@@ -155,7 +157,7 @@ class _PenalizedPredictMixin:
         y : array-like of shape (n_samples,)
             True values.
         sample_weight : array-like of shape (n_samples,), optional
-            Sample weights. When provided, returns weighted score.
+            Sample weights. When provided, returns weighted R².
 
         Returns
         -------

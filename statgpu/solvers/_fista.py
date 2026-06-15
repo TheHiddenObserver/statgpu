@@ -257,7 +257,7 @@ def fista_solver(
                     _coef_best_fista = _copy_arr(coef)
                 # Periodic Lipschitz recomputation (piggyback on same sync)
                 # Skip for quadratic losses -- Lipschitz is constant (spectral norm of X^T X).
-                # Interval matches CPU path (line 929) for trajectory consistency.
+                # Interval matches CPU path for trajectory consistency.
                 if not _is_quadratic and iteration % _lip_interval == 0:
                     if sample_weight is not None and _cached_XtWX_weighted is not None:
                         # Use cached weighted Gram matrix (X and weights are constant)

@@ -132,7 +132,7 @@ def newton_solver(
 
         norm_diff_dev = _norm2_dev(params - params_old)
         (nd,) = _sync_scalars(norm_diff_dev, backend=backend)
-        if nd < tol:
+        if nd < tol * tol:  # _norm2_dev returns squared norm
             break
 
     n_iter = iteration + 1

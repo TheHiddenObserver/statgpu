@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Optional, Union
+from typing import Union
 
 from statgpu._config import Device
 from statgpu.linear_model.penalized._penalized_linear import PenalizedLinearRegression
@@ -59,4 +59,5 @@ class AdaptiveLasso(PenalizedLinearRegression):
             inference_method=inference_method,
             solver=solver,
             gpu_memory_cleanup=gpu_memory_cleanup,
+            penalty_kwargs={"nu": nu},
         )

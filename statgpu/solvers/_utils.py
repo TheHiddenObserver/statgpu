@@ -155,6 +155,11 @@ def _smooth_penalty_hessian(penalty, coef):
         return penalty.smooth_hessian(coef)
     if _penalty_name(penalty) == "l2":
         return float(getattr(penalty, "alpha", 0.0)) * _eye_like(n, coef)
+    if _penalty_name(penalty) in ("elasticnet", "en"):
+        # ElasticNet Hessian is the L2 component only (L1 is non-smooth)
+        alpha = float(getattr(penalty, "alpha", 0.0))
+        l1_ratio = float(getattr(penalty, "l1_ratio", 0.5))
+        return alpha * (1.0 - l1_ratio) * _eye_like(n, coef)
     raise ValueError(
         f"solver requires a smooth penalty, got penalty='{_penalty_name(penalty)}'."
     )
@@ -173,7 +178,7 @@ def _smooth_penalty_lipschitz(penalty):
         return 0.0
     _pname = _penalty_name(penalty)
     if _pname in ("none", "null", "l1", "scad", "mcp", "adaptive_l1", "adaptive_lasso",
-                  "group_lasso", "group_mcp", "group_scad", "gl", "gmcp", "gscad"):
+                  "group_lasso", "group_mcp", "group_scad", "gl", "gmcp", "gscad", "en"):
         return 0.0
     alpha = float(getattr(penalty, 'alpha', 0.0))
     l1_ratio = float(getattr(penalty, 'l1_ratio', 0.0))
