@@ -172,21 +172,35 @@ def fista_solver(
     #   - Quadratic losses (squared_error): Lipschitz is exact, fixed step is optimal
     #   - GLM losses: use 3x safety factor on Lipschitz, no backtracking
     # Smooth penalties (l2, none) need backtracking for GLM losses.
+    n_samples = X_proc.shape[0]
+    # Gram matrix for squared_error + async GPU: avoids redundant X@coef per iteration
+    _use_xtx = _is_quadratic and sample_weight is None and backend in ("torch", "cupy")
+    if _use_xtx:
+        _xp_mod = _get_xp(backend)
+        XtX = X_proc.T @ X_proc / n_samples
+        Xty = X_proc.T @ y_proc / n_samples
+    else:
+        XtX = None
+        Xty = None
+
     _pen_name_lower = _penalty_name(penalty)
     _non_smooth = _pen_name_lower not in ("none", "null", "l2", "")
-    # Some losses (e.g. logistic) are excluded from async GPU loop in non-CV mode.
     _gpu_excluded = getattr(loss, '_gpu_loop_excluded', False) and not cv_mode
+    # Async GPU loop: skip backtracking, use fixed step size.
+    # For squared_error + non-smooth penalties, Lipschitz is exact → no backtracking needed.
+    # For GLM losses, only enabled in CV mode (backtracking needed for safety).
     _use_gpu_loop = (
         backend in ("torch", "cupy")
-        and cv_mode
         and _non_smooth
+        and (cv_mode or _is_quadratic)
         and not _gpu_excluded
     )
     _is_gpu = backend in ("torch", "cupy")
     _conv_interval = 3
+    _div_interval = 5
     _lip_interval = 5
-    if cv_mode and _use_gpu_loop:
-        _conv_interval = max(_conv_interval, 10)
+    if _use_gpu_loop:
+        _conv_interval = 10
         _div_interval = 25
         _lip_interval = 25
     _validate_sample_weight(sample_weight, X_proc.shape[0])
@@ -196,8 +210,12 @@ def fista_solver(
     for iteration in range(max_iter):
         coef_old = _copy_arr(coef)
 
-        # Compute gradient (fused value+gradient for GLM losses)
-        if sample_weight is not None:
+        # Compute gradient
+        if _use_xtx and XtX is not None:
+            # Gram matrix path: single matmul instead of X@coef + X.T@resid
+            grad = (XtX @ y_k - Xty) * n_samples
+            q_yk_dev = loss.value(X_proc, y_proc, y_k)
+        elif sample_weight is not None:
             q_yk_dev, grad = loss.fused_value_and_gradient(
                 X_proc, y_proc, y_k, sample_weight=sample_weight
             )

@@ -104,6 +104,12 @@
 2. Oracle 推断（对选中变量做 unpenalized refit，实现简单）
 3. Debiased 推断（high-dimensional 场景，实现复杂度高）
 
+### P2: SCAD/MCP GPU 性能优化
+
+- [ ] LLA 内层循环 fused kernel：将 `fused_value_and_gradient + proximal + momentum` 合并为单个 kernel，减少 kernel launch 次数
+- [ ] 参考 skglm 的 working set 策略：只优化活跃特征子集，减少计算量
+- [ ] 参考 skglm 的 Anderson 加速：加速不动点迭代收敛
+
 ### P2: Penalized 子类 API 完善
 
 - [ ] `_penalized_poisson.py` / `_penalized_gamma.py` / `_penalized_inverse_gaussian.py` / `_penalized_negative_binomial.py` / `_penalized_tweedie.py`：补充缺失的构造函数参数（`cpu_solver`, `lipschitz_L`, `gpu_memory_cleanup`, `inference_method`, `stopping`, `lla`, `max_lla_iters`, `lla_tol`），当前这些参数只能通过父类默认值使用
