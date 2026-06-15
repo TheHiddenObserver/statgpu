@@ -404,3 +404,47 @@ class TestNonparametricImports:
         """After Phase 6, old duplicate file should not exist."""
         import importlib.util
         assert importlib.util.find_spec("statgpu.nonparametric._kde") is None
+
+
+# ══════════════════════════════════════════════════════════════════════
+# Regression tests for specific bugs found during code review
+# ══════════════════════════════════════════════════════════════════════
+
+class TestWeightedSCADMCP:
+    """Regression: fista_lla_path must respect sample_weight for squared_error + SCAD/MCP.
+
+    The bug was in the fused GPU path which used unweighted Gram matrix.
+    The fix gates the fused path on sample_weight is None.
+    """
+
+    def test_fista_lla_fused_path_gated_on_sample_weight(self):
+        """Verify the fused GPU path condition includes sample_weight check."""
+        import inspect
+        from statgpu.solvers._fista_lla import fista_lla_path
+        src = inspect.getsource(fista_lla_path)
+        # The fused path must check sample_weight is None
+        assert "sample_weight is None" in src, (
+            "fista_lla_path fused GPU path must be gated on sample_weight is None"
+        )
+
+    def test_weighted_scad_cpu_produces_different_coefs(self):
+        """Weighted and unweighted SCAD fits must differ on CPU (numpy)."""
+        np.random.seed(42)
+        n, p = 100, 5
+        X = np.random.randn(n, p)
+        beta_true = np.array([3.0, -2.0, 0.0, 0.0, 0.0])
+        y = X @ beta_true + 0.1 * np.random.randn(n)
+        # Non-uniform weights: first 50 samples weighted 10x
+        sw = np.ones(n)
+        sw[:50] = 10.0
+
+        from statgpu.linear_model import PenalizedLinearRegression
+        m1 = PenalizedLinearRegression(penalty="scad", alpha=0.1, max_iter=200, tol=1e-8)
+        m1.fit(X, y)
+        m2 = PenalizedLinearRegression(penalty="scad", alpha=0.1, max_iter=200, tol=1e-8)
+        m2.fit(X, y, sample_weight=sw)
+        # On CPU the non-fused path handles weights correctly
+        assert not np.allclose(m1.coef_, m2.coef_, atol=1e-3), (
+            f"Weighted SCAD coefs should differ from unweighted: "
+            f"unweighted={m1.coef_}, weighted={m2.coef_}"
+        )

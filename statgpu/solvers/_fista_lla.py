@@ -301,7 +301,9 @@ def fista_lla_path(
 
     # For squared_error + GPU: fully inlined fused loop.
     # Uses torch.compile for torch, ElementwiseKernel for cupy.
-    if _is_quadratic and backend in ("torch", "cupy"):
+    # Must gate on sample_weight is None because the fused path uses
+    # unweighted Gram matrix (XtX, Xty) which is incorrect for weighted data.
+    if _is_quadratic and backend in ("torch", "cupy") and sample_weight is None:
         Xty = X_c.T @ y_c
 
         # Get fused proximal kernel
@@ -381,8 +383,9 @@ def fista_lla_path(
                     break
             _record_path_alpha(cont_alpha)
     else:
-        # Pre-compute XtX and Xty for squared_error (avoids redundant matmuls)
-        _use_xtx = _is_quadratic and backend == "numpy"
+        # Pre-compute XtX and Xty for squared_error (avoids redundant matmuls).
+        # Must gate on sample_weight is None because XtX/Xty are unweighted.
+        _use_xtx = _is_quadratic and backend == "numpy" and sample_weight is None
         if _use_xtx:
             Xty = X_c.T @ y_c
 
