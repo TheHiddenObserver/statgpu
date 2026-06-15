@@ -173,16 +173,6 @@ def fista_solver(
     #   - GLM losses: use 3x safety factor on Lipschitz, no backtracking
     # Smooth penalties (l2, none) need backtracking for GLM losses.
     n_samples = X_proc.shape[0]
-    # Gram matrix for squared_error + async GPU: avoids redundant X@coef per iteration
-    _use_xtx = _is_quadratic and sample_weight is None and backend in ("torch", "cupy")
-    if _use_xtx:
-        _xp_mod = _get_xp(backend)
-        XtX = X_proc.T @ X_proc / n_samples
-        Xty = X_proc.T @ y_proc / n_samples
-    else:
-        XtX = None
-        Xty = None
-
     _pen_name_lower = _penalty_name(penalty)
     _non_smooth = _pen_name_lower not in ("none", "null", "l2", "")
     _gpu_excluded = getattr(loss, '_gpu_loop_excluded', False) and not cv_mode
@@ -205,6 +195,17 @@ def fista_solver(
         _lip_interval = 25
     _validate_sample_weight(sample_weight, X_proc.shape[0])
 
+    # Gram matrix optimization for squared_error on async GPU path only.
+    # Precompute X'X/n and X'y/n to avoid redundant X@coef per iteration.
+    _use_xtx = _is_quadratic and sample_weight is None and _use_gpu_loop
+    if _use_xtx:
+        _xp_mod = _get_xp(backend)
+        XtX = X_proc.T @ X_proc / n_samples
+        Xty = X_proc.T @ y_proc / n_samples
+    else:
+        XtX = None
+        Xty = None
+
     iteration = -1  # default if max_iter=0
 
     for iteration in range(max_iter):
@@ -213,7 +214,8 @@ def fista_solver(
         # Compute gradient
         if _use_xtx and XtX is not None:
             # Gram matrix path: single matmul instead of X@coef + X.T@resid
-            grad = (XtX @ y_k - Xty) * n_samples
+            # XtX = X'X/n, Xty = X'y/n, so grad = XtX @ w - Xty = X'(Xw-y)/n
+            grad = XtX @ y_k - Xty
             q_yk_dev = loss.value(X_proc, y_proc, y_k)
         elif sample_weight is not None:
             q_yk_dev, grad = loss.fused_value_and_gradient(

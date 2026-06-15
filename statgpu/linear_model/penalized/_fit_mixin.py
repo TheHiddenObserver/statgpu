@@ -159,50 +159,45 @@ def _irls_ridge_init(X, y, loss_name, alpha=0.01, max_iter=100, tol=1e-4, loss_k
 
 
 def _irls_ridge_init_cd(X, y, alpha, max_iter, tol):
-    """CD ridge for squared_error (matching R glmnet's ridge solver).
+    """Ridge regression initialization for adaptive L1 weights.
 
-    Uses backend-agnostic operations (xp) to stay on device —
-    no CPU↔GPU transfers.
+    Uses closed-form solution: beta = (X'X + alpha*I)^-1 X'y
+    which is O(p^3) but fully parallelizable on GPU (single matmul + solve).
+    Much faster than sequential coordinate descent on GPU.
     """
     from statgpu.backends import _resolve_backend
-    from statgpu.backends._utils import _get_xp, xp_asarray
-    from statgpu.backends._array_ops import _copy_arr
+    from statgpu.backends._utils import _get_xp
 
     backend = _resolve_backend("auto", X)
     xp = _get_xp(backend)
 
-    def _scalar(val, ref):
-        """Create a scalar on the same device/dtype as ref."""
-        if backend == "torch":
-            import torch
-            return torch.tensor(val, dtype=ref.dtype, device=ref.device)
-        return xp.asarray(val, dtype=ref.dtype)
-
     n, p = X.shape
+    # Normalize features
     feat_norms = xp.sqrt(xp.sum(X ** 2, axis=0))
-    feat_norms = xp.maximum(feat_norms, _scalar(1e-20, feat_norms))
-    scale = _scalar(float(n) ** 0.5, X) / feat_norms
+    if backend == "torch":
+        import torch
+        feat_norms = xp.maximum(feat_norms, torch.tensor(1e-20, dtype=feat_norms.dtype, device=feat_norms.device))
+        scale = torch.tensor(float(n) ** 0.5, dtype=X.dtype, device=X.device) / feat_norms
+    else:
+        feat_norms = xp.maximum(feat_norms, 1e-20)
+        scale = xp.asarray(float(n) ** 0.5, dtype=X.dtype) / feat_norms
     X_work = X * scale
+
+    # Closed-form Ridge: (X'X + alpha*I)^-1 X'y
+    XtX = X_work.T @ X_work / n
+    Xty = X_work.T @ y / n
 
     if backend == "torch":
         import torch
-        beta = xp.zeros(p, dtype=X.dtype, device=X.device)
+        I_mat = torch.eye(p, dtype=X.dtype, device=X.device)
+        beta = torch.linalg.solve(XtX + alpha * I_mat, Xty)
+    elif backend == "cupy":
+        import cupy as cp
+        I_mat = cp.eye(p, dtype=X.dtype)
+        beta = cp.linalg.solve(XtX + alpha * I_mat, Xty)
     else:
-        beta = xp.zeros(p, dtype=X.dtype)
-    XDX_diag = xp.sum(X_work ** 2, axis=0)
-
-    for it in range(max_iter):
-        beta_old = _copy_arr(beta)
-        r = y - X_work @ beta
-        for j in range(p):
-            rho_j = float(X_work[:, j] @ r) + float(XDX_diag[j]) * float(beta[j])
-            u_j = rho_j / n
-            v_j = float(XDX_diag[j]) / n
-            beta[j] = u_j / (v_j + alpha)
-            r = r + X_work[:, j] * (float(beta_old[j]) - float(beta[j]))
-
-        if float(xp.max(xp.abs(beta - beta_old))) < tol:
-            break
+        I_mat = np.eye(p, dtype=X.dtype)
+        beta = np.linalg.solve(XtX + alpha * I_mat, Xty)
 
     return beta * scale
 
