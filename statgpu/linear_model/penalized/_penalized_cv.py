@@ -29,6 +29,7 @@ from statgpu.backends import _to_numpy
 from statgpu.backends._array_ops import _copy_arr, _zeros, _xp_zeros, _soft_threshold
 from statgpu.backends._utils import _to_float_scalar
 from statgpu.cross_validation._base import CVEstimatorBase, kfold_indices
+from statgpu.solvers._utils import _nesterov_momentum
 
 
 # ---------------------------------------------------------------------------
@@ -837,8 +838,7 @@ def _glm_sparse_cv_folds(
             coef = torch.where(active, coef_new, coef) if is_torch else cp.where(active, coef_new, coef)
             intercept = torch.where(active, intercept_new, intercept) if is_torch else cp.where(active, intercept_new, intercept)
 
-            t_new = (1.0 + np.sqrt(1.0 + 4.0 * t_k * t_k)) / 2.0
-            beta = min((t_k - 1.0) / t_new, 0.5)
+            beta, t_k = _nesterov_momentum(t_k, beta_cap=0.5)
             y_coef_new = coef + beta * (coef - coef_old)
             y_intercept_new = intercept + beta * (intercept - intercept_old)
             y_coef = torch.where(active, y_coef_new, coef) if is_torch else cp.where(active, y_coef_new, coef)
@@ -979,11 +979,9 @@ def _logistic_sparse_cv_path(
             coef = _soft_threshold(w, thresh) / denom
             intercept = y_intercept - step * grad_intercept
 
-            t_new = (1.0 + np.sqrt(1.0 + 4.0 * t_k * t_k)) / 2.0
-            beta = min((t_k - 1.0) / t_new, 0.5)
+            beta, t_k = _nesterov_momentum(t_k, beta_cap=0.5)
             y_coef = coef + beta * (coef - coef_old)
             y_intercept = intercept + beta * (intercept - intercept_old)
-            t_k = t_new
             last_iter = iteration + 1
 
             if iteration < 20 or iteration % conv_interval == 0:
@@ -1128,10 +1126,8 @@ def _squared_error_sparse_cv_path(
 
             coef_mat = _soft_threshold(w, thresh) / denom
 
-            t_new = (1.0 + np.sqrt(1.0 + 4.0 * t_k * t_k)) / 2.0
-            beta = min((t_k - 1.0) / t_new, 0.5)
+            beta, t_k = _nesterov_momentum(t_k, beta_cap=0.5)
             y_mat = coef_mat + beta * (coef_mat - coef_old)
-            t_k = t_new
             last_iter = iteration + 1
 
             if iteration < 20 or iteration % conv_interval == 0:
@@ -1180,10 +1176,8 @@ def _squared_error_sparse_cv_path(
 
             coef = _soft_threshold(w, thresh) / denom
 
-            t_new = (1.0 + np.sqrt(1.0 + 4.0 * t_k * t_k)) / 2.0
-            beta = min((t_k - 1.0) / t_new, 0.5)
+            beta, t_k = _nesterov_momentum(t_k, beta_cap=0.5)
             y_k = coef + beta * (coef - coef_old)
-            t_k = t_new
             last_iter = iteration + 1
 
             if backend == "numpy" or int(n_features) <= 128:
@@ -1638,9 +1632,7 @@ def _scad_mcp_cv_path(
                     w = y_k - step * grad_full
                     coef = inner_pen.proximal(w, step, backend=backend)
 
-                    t_new = (1.0 + np.sqrt(1.0 + 4.0 * t_k * t_k)) / 2.0
-                    beta_mom = min((t_k - 1.0) / t_new, 0.5)
-                    t_k = t_new
+                    beta_mom, t_k = _nesterov_momentum(t_k, beta_cap=0.5)
                     y_k = coef + beta_mom * (coef - coef_old)
 
                     # Convergence check (device-side, every 10 iters for CV)
@@ -1683,9 +1675,7 @@ def _scad_mcp_cv_path(
                     coef = inner_pen.proximal(w, step, backend=backend)
 
                     # Momentum
-                    t_new = (1.0 + np.sqrt(1.0 + 4.0 * t_k * t_k)) / 2.0
-                    beta_mom = min((t_k - 1.0) / t_new, 0.5)
-                    t_k = t_new
+                    beta_mom, t_k = _nesterov_momentum(t_k, beta_cap=0.5)
                     y_k = coef + beta_mom * (coef - coef_old)
 
                     # Convergence check (device-side, every 10 iters for CV)

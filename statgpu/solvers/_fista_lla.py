@@ -24,6 +24,7 @@ from statgpu.penalties._categories import NONSMOOTH as _NONSMOOTH_ALL
 from statgpu.penalties._adaptive_l1 import AdaptiveL1Penalty
 from ._constants import _DIVERGE_COEF_NORM_CAP
 from ._utils import (
+    _nesterov_momentum,
     _validate_sample_weight,
 )
 
@@ -349,9 +350,7 @@ def fista_lla_path(
                     if _no_momentum:
                         beta_mom = 0.0
                     else:
-                        t_new = (1.0 + np.sqrt(1.0 + 4.0 * t_k * t_k)) / 2.0
-                        beta_mom = (t_k - 1.0) / t_new
-                        t_k = t_new
+                        beta_mom, t_k = _nesterov_momentum(t_k)
 
                     # Fused proximal + momentum in one kernel call. The gradient
                     # is evaluated at y_k, so y_k is the proximal center.
@@ -462,13 +461,9 @@ def fista_lla_path(
                     if _no_momentum:
                         beta_mom = 0.0
                     elif _conservative_momentum_lla:
-                        t_new = (1.0 + np.sqrt(1.0 + 4.0 * t_k * t_k)) / 2.0
-                        beta_mom = min((t_k - 1.0) / t_new, 0.5)
-                        t_k = t_new
+                        beta_mom, t_k = _nesterov_momentum(t_k, beta_cap=0.5)
                     else:
-                        t_new = (1.0 + np.sqrt(1.0 + 4.0 * t_k * t_k)) / 2.0
-                        beta_mom = (t_k - 1.0) / t_new
-                        t_k = t_new
+                        beta_mom, t_k = _nesterov_momentum(t_k)
 
                     # Fused proximal + momentum: single kernel launch on GPU
                     # Combines: w_tilde = y_k - step*grad

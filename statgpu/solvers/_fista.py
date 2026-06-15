@@ -31,6 +31,7 @@ from ._utils import (
     _validate_sample_weight,
     _as_backend_vector,
     _call_with_weight,
+    _nesterov_update,
     _penalty_name,
     _smooth_penalty_lipschitz,
     _abs_mean_max,
@@ -399,15 +400,9 @@ def fista_solver(
             y_k = _copy_arr(coef)
         elif _momentum_beta_cap is not None:
             # Conservative momentum with capped beta
-            t_new = (1.0 + np.sqrt(1.0 + 4.0 * t_k * t_k)) / 2.0
-            beta = min((t_k - 1.0) / t_new, _momentum_beta_cap)
-            y_k = coef + beta * (coef - coef_old)
-            t_k = t_new
+            y_k, t_k = _nesterov_update(coef, coef_old, t_k, beta_cap=_momentum_beta_cap)
         else:
-            t_new = (1.0 + np.sqrt(1.0 + 4.0 * t_k * t_k)) / 2.0
-            beta = (t_k - 1.0) / t_new
-            y_k = coef + beta * (coef - coef_old)
-            t_k = t_new
+            y_k, t_k = _nesterov_update(coef, coef_old, t_k)
 
         # Convergence check -- deferred for GPU, every iteration for CPU
         if _is_gpu:

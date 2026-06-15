@@ -32,6 +32,7 @@ from ._utils import (
     _validate_sample_weight,
     _as_backend_vector,
     _call_with_weight,
+    _nesterov_update,
     _penalty_name,
     _smooth_penalty_lipschitz,
     _tracking_penalty_value,
@@ -465,7 +466,7 @@ def fista_bb_solver(
             y_k = coef + beta * (coef - coef_old)
             t_k = 1.0
         else:
-            t_new = (1.0 + np.sqrt(1.0 + 4.0 * t_k * t_k)) / 2.0
+            y_k, t_new = _nesterov_update(coef, coef_old, t_k)
             beta = (t_k - 1.0) / t_new
 
             if use_restart and iteration > 0:
@@ -476,8 +477,8 @@ def fista_bb_solver(
                     t_k = 1.0
                     t_new = 1.0
                     beta = 0.0
+                    y_k = coef + beta * (coef - coef_old)
 
-            y_k = coef + beta * (coef - coef_old)
             t_k = t_new
 
         # --- Convergence check -- deferred for GPU, every iteration for CPU. ---

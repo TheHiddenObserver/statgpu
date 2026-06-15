@@ -23,6 +23,7 @@ from statgpu.backends._array_ops import (
 )
 from ._convergence import ConvergenceWarning
 from ._utils import (
+    _nesterov_momentum,
     _validate_uniform_sample_weight,
 )
 
@@ -188,10 +189,9 @@ def admm_solver(
                 w_old_mom = _copy_arr(w_new)
                 g_sub = _grad_w(w_mom, z, u)
                 w_next = w_mom - lr_sub * g_sub
-                t_new = (1.0 + np.sqrt(1.0 + 4.0 * t_mom * t_mom)) / 2.0
-                w_mom = w_next + ((t_mom - 1.0) / t_new) * (w_next - w_new)
+                beta_mom, t_mom = _nesterov_momentum(t_mom)
+                w_mom = w_next + beta_mom * (w_next - w_new)
                 w_new = w_next
-                t_mom = t_new
                 diff_dev = _abs_sum_dev(w_next - w_old_mom)
                 if backend != "numpy":
                     if _device_leq(diff_dev, cg_tol * n_features):

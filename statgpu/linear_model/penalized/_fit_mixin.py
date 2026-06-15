@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 
 from statgpu._config import Device
 from statgpu.backends import get_backend, _get_torch_device_str, _to_numpy, _LINALG_ERRORS
+from statgpu.solvers._utils import _nesterov_momentum, _nesterov_update
 
 if TYPE_CHECKING:
     from ._base import PenalizedGeneralizedLinearModel as _Self
@@ -668,10 +669,7 @@ class _PenalizedFitMixin:
                         t_k = 1.0
 
                     # Nesterov momentum
-                    t_new = (1.0 + np.sqrt(1.0 + 4.0 * t_k * t_k)) / 2.0
-                    beta = (t_k - 1.0) / t_new
-                    y_k = coef + beta * (coef - coef_old)
-                    t_k = t_new
+                    y_k, t_k = _nesterov_update(coef, coef_old, t_k)
 
                     self.n_iter_ = iteration + 1
 
@@ -1077,7 +1075,8 @@ class _PenalizedFitMixin:
                     t_k = 1.0
 
                 # Nesterov momentum (beta for next iteration)
-                t_new = (1.0 + np.sqrt(1.0 + 4.0 * t_k * t_k)) / 2.0
+                import math
+                t_new = (1.0 + math.sqrt(1.0 + 4.0 * t_k * t_k)) / 2.0
                 beta = (t_k - 1.0) / t_new
                 t_k = t_new
 
@@ -1407,9 +1406,7 @@ class _PenalizedFitMixin:
                     t_k = 1.0
 
                 # Nesterov momentum (beta for next iteration)
-                t_new = (1.0 + np.sqrt(1.0 + 4.0 * t_k * t_k)) / 2.0
-                beta = (t_k - 1.0) / t_new
-                t_k = t_new
+                beta, t_k = _nesterov_momentum(t_k)
 
                 self.n_iter_ = iteration + 1
 
