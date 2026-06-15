@@ -26,6 +26,9 @@ from ._constants import (
     _SLACK_TOLERANCE,
     _DIVERGE_COEF_NORM_CAP,
     _LIPSCHITZ_SAFETY_LOGISTIC_CV,
+    _GRAD_CLIP_COEF_FACTOR,
+    _GRAD_CLIP_ABS_FLOOR,
+    _GRAD_CLIP_MAX,
 )
 from ._utils import (
     _validate_sample_weight,
@@ -289,7 +292,7 @@ def fista_solver(
             #  so on-device clipping has no performance benefit here.)
             _gn_f, _coef_abs_f = _sync_scalars(
                 _norm2_dev(grad), _abs_sum_dev(coef_old), backend=backend)
-            _gmax = max(_coef_abs_f * 10.0 + 1e3, 1e4)
+            _gmax = max(_coef_abs_f * _GRAD_CLIP_COEF_FACTOR + _GRAD_CLIP_ABS_FLOOR, _GRAD_CLIP_MAX)
             if _gn_f > _gmax:
                 grad = grad * (_gmax / _gn_f)
 

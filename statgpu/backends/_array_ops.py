@@ -342,10 +342,14 @@ def _device_gt(a, b):
 
 def _clip_grad_on_device(grad, coef_old, backend):
     """Clip gradient entirely on the selected backend."""
+    # Lazy import to avoid circular dependency (backends <-> solvers)
+    from statgpu.solvers._constants import (
+        _GRAD_CLIP_COEF_FACTOR, _GRAD_CLIP_ABS_FLOOR, _GRAD_CLIP_MAX,
+    )
     if backend == "numpy":
         gn = float(np.linalg.norm(grad))
         ca = float(np.sum(np.abs(coef_old)))
-        gmax = max(ca * 10.0 + 1e3, 1e4)
+        gmax = max(ca * _GRAD_CLIP_COEF_FACTOR + _GRAD_CLIP_ABS_FLOOR, _GRAD_CLIP_MAX)
         if gn > gmax:
             return grad * (gmax / gn)
         return grad
@@ -353,8 +357,8 @@ def _clip_grad_on_device(grad, coef_old, backend):
         import torch
         gn_sq = torch.sum(grad ** 2)
         coef_abs = torch.sum(torch.abs(coef_old))
-        gmax = coef_abs * 10.0 + 1e3
-        gmax = torch.clamp(gmax, min=1e4)
+        gmax = coef_abs * _GRAD_CLIP_COEF_FACTOR + _GRAD_CLIP_ABS_FLOOR
+        gmax = torch.clamp(gmax, min=_GRAD_CLIP_MAX)
         scale = torch.where(
             gn_sq > gmax * gmax,
             gmax / torch.sqrt(gn_sq + 1e-30),
@@ -364,7 +368,7 @@ def _clip_grad_on_device(grad, coef_old, backend):
     import cupy as cp
     gn_sq = cp.sum(grad ** 2)
     coef_abs = cp.sum(cp.abs(coef_old))
-    gmax = cp.maximum(coef_abs * 10.0 + 1e3, 1e4)
+    gmax = cp.maximum(coef_abs * _GRAD_CLIP_COEF_FACTOR + _GRAD_CLIP_ABS_FLOOR, _GRAD_CLIP_MAX)
     scale = cp.where(
         gn_sq > gmax * gmax,
         gmax / cp.sqrt(gn_sq + 1e-30),

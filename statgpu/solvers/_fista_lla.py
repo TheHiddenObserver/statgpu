@@ -22,7 +22,12 @@ from statgpu.backends._array_ops import (
 )
 from statgpu.penalties._categories import NONSMOOTH as _NONSMOOTH_ALL
 from statgpu.penalties._adaptive_l1 import AdaptiveL1Penalty
-from ._constants import _DIVERGE_COEF_NORM_CAP
+from ._constants import (
+    _DIVERGE_COEF_NORM_CAP,
+    _GRAD_CLIP_COEF_FACTOR,
+    _GRAD_CLIP_ABS_FLOOR,
+    _GRAD_CLIP_MAX,
+)
 from ._utils import (
     _nesterov_momentum,
     _validate_sample_weight,
@@ -447,11 +452,11 @@ def fista_lla_path(
                     # Clip gradients (device-side, every 10 iterations)
                     if backend == "numpy" or iteration % 10 == 0:
                         _gn_dev = _norm2_dev(grad)
-                        _gsum = _abs_sum_dev(coef_old) * 10.0 + 1e3
+                        _gsum = _abs_sum_dev(coef_old) * _GRAD_CLIP_COEF_FACTOR + _GRAD_CLIP_ABS_FLOOR
                         if backend == "torch":
-                            _gmax_dev = xp.clamp(_gsum, min=1e4)
+                            _gmax_dev = xp.clamp(_gsum, min=_GRAD_CLIP_MAX)
                         else:
-                            _gmax_dev = xp.maximum(_gsum, 1e4)
+                            _gmax_dev = xp.maximum(_gsum, _GRAD_CLIP_MAX)
                         _gn_f, _gmax_f = _sync_scalars(_gn_dev, _gmax_dev, backend=backend)
                         if _gn_f > _gmax_f:
                             grad = grad * (_gmax_dev / _gn_dev)

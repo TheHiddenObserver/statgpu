@@ -26,6 +26,9 @@ from ._constants import (
     _BB_RESTART_DOT_TOL,
     _DIVERGE_OBJ_RATIO,
     _DIVERGE_OBJ_ABS,
+    _GRAD_CLIP_COEF_FACTOR,
+    _GRAD_CLIP_ABS_FLOOR,
+    _GRAD_CLIP_MAX,
 )
 from ._fista import fista_solver
 from ._utils import (
@@ -247,7 +250,7 @@ def fista_bb_solver(
             else:
                 _gn_f, _coef_abs_f = _sync_scalars(
                     _norm2_dev(grad), _abs_sum_dev(coef_old), backend=backend)
-                _gmax = max(_coef_abs_f * 10.0 + 1e3, 1e4)
+                _gmax = max(_coef_abs_f * _GRAD_CLIP_COEF_FACTOR + _GRAD_CLIP_ABS_FLOOR, _GRAD_CLIP_MAX)
                 if _gn_f > _gmax:
                     grad = grad * (_gmax / _gn_f)
 
