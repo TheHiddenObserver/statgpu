@@ -8,7 +8,6 @@ recompute, array allocation) that accumulates over 300+ fista_solver calls.
 __all__ = ["fista_lla_path"]
 
 import copy
-import warnings
 import numpy as np
 
 from statgpu.backends import _resolve_backend, _to_numpy
@@ -17,15 +16,13 @@ from statgpu.backends._array_ops import (
     _abs_sum_dev,
     _clip_grad_on_device,
     _copy_arr,
-    _dot_dev,
     _norm2_dev,
-    _sum_sq_dev,
     _sync_scalars,
     _zeros,
 )
 from statgpu.penalties._categories import NONSMOOTH as _NONSMOOTH_ALL
 from statgpu.penalties._adaptive_l1 import AdaptiveL1Penalty
-from ._constants import _SLACK_TOLERANCE, _DIVERGE_COEF_NORM_CAP
+from ._constants import _DIVERGE_COEF_NORM_CAP
 from ._utils import (
     _validate_sample_weight,
 )
