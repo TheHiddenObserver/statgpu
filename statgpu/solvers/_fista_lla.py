@@ -460,6 +460,7 @@ def fista_lla_path(
                         if _gn_f > _gmax_f:
                             grad = grad * (_gmax_dev / _gn_dev)
 
+
                     # Compute momentum beta before fused update
                     if _no_momentum:
                         beta_mom = 0.0
