@@ -37,8 +37,11 @@ All notable changes to statgpu are documented here, organized by date and PR.
 - Replaced 8x `try/except TypeError` blocks in `_fista_bb.py` and `_fista.py` with `_call_with_weight()` helper (DRY, no longer swallows internal TypeErrors)
 
 **Refactoring:**
+- **Unified `_fit_gpu`/`_fit_torch` into single `_fit_gpu_backend` method** (-468 lines): uses `_get_xp()`, `xp_asarray`, `xp_zeros`, `xp_copy`, `_to_numpy` for backend-agnostic operations; `getattr` dispatch for backend-specific exact solver and cleanup methods
 - Extracted `_nesterov_momentum(t_k, beta_cap)` and `_nesterov_update(coef, coef_old, t_k, beta_cap)` helpers — replaced 12 duplicated Nesterov momentum sites across 6 files
 - Extracted gradient clipping constants (`_GRAD_CLIP_COEF_FACTOR`, `_GRAD_CLIP_ABS_FLOOR`, `_GRAD_CLIP_MAX`) to `solvers/_constants.py` — replaced magic numbers in 4 files
+- Added `_soft_threshold_gpu(w, thresh, xp)` static method for backend-agnostic soft-thresholding
+- Added type hints to all public solver function signatures (`fista_solver`, `fista_bb_solver`, `newton_solver`, `lbfgs_solver`, `admm_solver`)
 
 ## 2026-06-14
 

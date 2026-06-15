@@ -843,7 +843,6 @@ def _glm_sparse_cv_folds(
             y_intercept_new = intercept + beta * (intercept - intercept_old)
             y_coef = torch.where(active, y_coef_new, coef) if is_torch else cp.where(active, y_coef_new, coef)
             y_intercept = torch.where(active, y_intercept_new, intercept) if is_torch else cp.where(active, y_intercept_new, intercept)
-            t_k = t_new
             if is_torch:
                 last_iter = torch.where(active.reshape(-1), torch.full_like(last_iter, iteration + 1), last_iter)
             else:
