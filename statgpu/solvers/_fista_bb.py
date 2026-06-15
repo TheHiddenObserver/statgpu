@@ -45,20 +45,20 @@ from ._utils import (
 
 def fista_bb_solver(
     loss,
-    penalty,
+    penalty: "Penalty | None",
     X,
     y,
-    max_iter=1000,
-    tol=1e-4,
+    max_iter: int = 1000,
+    tol: float = 1e-4,
     init_coef=None,
     sample_weight=None,
-    use_restart=True,
-    step_max_factor=1e3,
-    step_min_factor=1e-3,
-    bb_burn_in=20,
-    cv_mode=False,
-    lipschitz_L=None,
-):
+    use_restart: bool = True,
+    step_max_factor: float = 1e3,
+    step_min_factor: float = 1e-3,
+    bb_burn_in: int = 20,
+    cv_mode: bool = False,
+    lipschitz_L: float | None = None,
+) -> tuple:
     """FISTA with Barzilai-Borwein step sizes and adaptive restart.
 
     Uses alternating BB1/BB2 steps (Barzilai & Borwein 1988) that adapt to

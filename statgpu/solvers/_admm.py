@@ -31,19 +31,19 @@ __all__ = ["admm_solver"]
 
 
 def admm_solver(
-    loss,
-    penalty,
+    loss: "GLMLoss",
+    penalty: "Penalty | None",
     X,
     y,
-    max_iter=200,
-    tol=1e-4,
-    rho=1.0,
-    adaptive_rho=True,
-    cg_max_iter=30,
-    cg_tol=1e-6,
+    max_iter: int = 200,
+    tol: float = 1e-4,
+    rho: float = 1.0,
+    adaptive_rho: bool = True,
+    cg_max_iter: int = 30,
+    cg_tol: float = 1e-6,
     init_coef=None,
     sample_weight=None,
-):
+) -> tuple:
     """ADMM solver for penalized GLM optimization.
 
     Reformulates min_w f(Xw; y) + p(w) as:

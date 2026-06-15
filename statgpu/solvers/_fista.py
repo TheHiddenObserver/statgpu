@@ -43,17 +43,17 @@ from ._utils import (
 
 
 def fista_solver(
-    loss,
-    penalty,
+    loss: "GLMLoss",
+    penalty: "Penalty | None",
     X,
     y,
-    max_iter=1000,
-    tol=1e-4,
+    max_iter: int = 1000,
+    tol: float = 1e-4,
     init_coef=None,
     sample_weight=None,
-    lipschitz_L=None,
-    cv_mode=False,
-):
+    lipschitz_L: float | None = None,
+    cv_mode: bool = False,
+) -> tuple:
     """General FISTA solver with backtracking line search.
 
     Supports numpy / cupy / torch backends via auto-detection of X.

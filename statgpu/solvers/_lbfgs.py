@@ -34,16 +34,16 @@ from ._utils import (
 
 
 def lbfgs_solver(
-    loss,
-    penalty,
+    loss: "GLMLoss",
+    penalty: "Penalty | None",
     X,
     y,
-    max_iter=100,
-    tol=1e-4,
+    max_iter: int = 100,
+    tol: float = 1e-4,
     init_coef=None,
-    history_size=10,
+    history_size: int = 10,
     sample_weight=None,
-):
+) -> tuple:
     """Limited-memory BFGS for smooth objectives.
 
     Works with any loss that implements ``fused_value_and_gradient(X, y, coef)``
