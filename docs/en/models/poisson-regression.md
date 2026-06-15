@@ -27,15 +27,15 @@ from statgpu import PoissonRegression
 
 With log link, the model assumes:
 
-\[
+$$
 \mu_i = \exp(x_i^\top\beta)
-\]
+$$
 
 and minimizes the average Poisson negative log-likelihood, up to constants independent of the parameters:
 
-\[
+$$
 \min_\beta \frac{1}{n}\sum_i \left[\mu_i - y_i \log(\mu_i)\right]
-\]
+$$
 
 When `C` is finite, the shared IRLS path can include an L2-style ridge term controlled through the inherited GLM machinery.
 
@@ -43,9 +43,9 @@ When `C` is finite, the shared IRLS path can include an L2-style ridge term cont
 
 The score equation for the unpenalized Poisson GLM is:
 
-\[
+$$
 \sum_i x_i(y_i - \mu_i)=0
-\]
+$$
 
 `PoissonRegression` defaults to `solver="auto"`, which currently dispatches to IRLS. Explicit `solver="newton"` and `solver="lbfgs"` are also available for smooth Poisson GLM objectives and run on the selected backend. As of v23c, `solver="lbfgs"` correctly handles L2 penalties. The model inherits the GLM formula interface, so formula intercept semantics follow patsy/R conventions.
 

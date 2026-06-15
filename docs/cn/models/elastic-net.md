@@ -17,9 +17,9 @@
 
 Elastic Net 优化问题为：
 
-\[
+$$
 \min_{\beta} \frac{1}{2n}\|y - X\beta\|_2^2 + \alpha \cdot \lambda \cdot \|\beta\|_1 + \frac{\alpha}{2} \cdot (1 - \lambda) \cdot \|\beta\|_2^2
-\]
+$$
 
 其中：
 - `alpha` (α) 控制整体正则化强度
@@ -32,18 +32,18 @@ Elastic Net 优化问题为：
 
 Elastic Net 估计量求解以下一阶最优性（KKT）条件：
 
-\[
+$$
 \frac{1}{n} X^\top (X\hat{\beta} - y) + \alpha(1-\lambda)\hat{\beta} + \alpha\lambda \cdot \partial\|\hat{\beta}\|_1 = 0
-\]
+$$
 
 其中 $\partial\|\hat{\beta}\|_1$ 是 L1 范数的次微分：
 - 当 $\hat{\beta}_j \neq 0$ 时：$\text{sign}(\hat{\beta}_j)$
 - 当 $\hat{\beta}_j = 0$ 时：$[-1, 1]$ 中的任意值
 
 收敛时，KKT 残差（次梯度违反）满足：
-\[
+$$
 \left| \frac{1}{n} X_j^\top(y - X\hat{\beta}) - \alpha(1-\lambda)\hat{\beta}_j \right| \leq \alpha\lambda \quad \forall j
-\]
+$$
 
 ## 估计算法
 

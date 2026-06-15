@@ -1,10 +1,14 @@
 """
 Base class for GLM loss functions in statgpu.
 
-The GLM core loss framework supports:
+The GLM core loss framework supports 7 families:
 - Squared error (linear regression)
-- Logistic loss (logistic regression)
+- Logistic loss (binary classification)
 - Poisson loss (count data)
+- Gamma loss (positive continuous)
+- Inverse Gaussian loss (positive continuous)
+- Negative Binomial loss (overdispersed count data)
+- Tweedie loss (generalized GLM family)
 
 Structured models such as Cox, panel, and time-series models should use a
 future objective layer rather than this GLM-specific interface.
@@ -40,6 +44,23 @@ class GLMLoss(ABC):
     y_type: str = "continuous"
     smooth_gradient: bool = True
     has_hessian: bool = False
+
+    # ── Optimization hints (solvers read these, subclasses can override) ──
+    _lipschitz_safety: float = 1.0       # Lipschitz safety factor
+    _lipschitz_safety_cv: float = 1.0    # Extra safety factor in CV mode
+    _lipschitz_uses_y: bool = False      # Whether Lipschitz needs y-scaling
+    _momentum_beta_cap: Optional[float] = None  # Nesterov momentum cap (None=unlimited)
+    _skip_momentum: bool = False         # Disable momentum entirely
+    _has_constant_hessian: bool = False  # Hessian is constant (Newton fast path)
+    _prefer_fista_over_bb: bool = False  # Prefer FISTA over FISTA-BB for smooth penalties
+    _is_quadratic: bool = False          # True for squared_error (XtX constant, no y-scaling)
+    _supports_cholesky: bool = False     # True for squared_error (ADMM can use Cholesky)
+    _gpu_loop_excluded: bool = False     # True for logistic (async GPU loop not suitable)
+    _conservative_momentum_with_nonsmooth: bool = False  # Cap momentum when penalty is non-smooth
+    _inverse_gaussian: bool = False      # True for inverse Gaussian (special BB handling)
+    _tweedie: bool = False               # True for Tweedie (special BB handling)
+    _poisson_like: bool = False          # True for Poisson (conservative momentum burn-in)
+    _gamma_like: bool = False            # True for Gamma (adjusted BB/momentum params)
 
     # ── Per-sample formulas (single source of truth) ──────────────────
 

@@ -21,38 +21,38 @@
 
 **EmpiricalCovariance** 计算最大似然样本协方差：
 
-\[
+$$
 \hat{S} = \frac{1}{n} X^\top X
-\]
+$$
 
 其中 \(X\) 为中心化数据矩阵（按列减去均值，除非设置 `assume_centered=True`）。
 
 **LedoitWolf** 和 **OAS** 均产生如下形式的收缩协方差：
 
-\[
+$$
 \hat{\Sigma} = (1 - \alpha)\,\hat{S} + \alpha\,\mu\,I
-\]
+$$
 
 其中 \(\mu = \operatorname{tr}(\hat{S})/p\) 为样本协方差的平均特征值。两种估计器的差异仅在于最优收缩强度 \(\alpha\) 的计算方式。
 
 **Ledoit-Wolf 收缩强度**（Ledoit & Wolf 2004）：
 
-\[
+$$
 \alpha = \operatorname{clip}\!\left(\frac{\beta}{\delta},\; 0,\; 1\right)
-\]
+$$
 
 其中
 
-\[
+$$
 \beta = \frac{1}{n^2}\left[\sum_{k=1}^{n} \|x_k\|_2^4 - n\,\|\hat{S}\|_F^2\right], \qquad
 \delta = \|\hat{S} - \mu I\|_F^2 = \|\hat{S}\|_F^2 - \frac{\operatorname{tr}(\hat{S})^2}{p}
-\]
+$$
 
 **OAS 收缩强度**（Chen et al. 2010）：
 
-\[
+$$
 \alpha = \operatorname{clip}\!\left(\frac{\overline{S^2} + \mu^2}{(n+1)\!\left(\overline{S^2} - \mu^2/p\right)},\; 0,\; 1\right)
-\]
+$$
 
 其中 \(\overline{S^2} = \frac{1}{p^2}\sum_{i,j} S_{ij}^2\) 为 \(\hat{S}\) 元素平方的均值。
 
@@ -75,9 +75,9 @@
 
 `score()` 方法计算每个观测的平均高斯对数似然：
 
-\[
+$$
 \ell = -\frac{1}{2}\!\left(p \log(2\pi) + \log\det(\hat{\Sigma}) + \frac{1}{n}\sum_{k=1}^{n}(x_k - \hat{\mu})^\top \hat{\Sigma}^{-1}(x_k - \hat{\mu})\right)
-\]
+$$
 
 ## 参数（Parameters）
 

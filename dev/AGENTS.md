@@ -14,12 +14,14 @@
 - `statgpu/_base.py`: estimator 基类，包含设备解析、后端获取和数组转换逻辑。
 - `statgpu/_config.py`: 全局设备管理，支持 `cpu`、`cuda`、`torch`、`auto`。
 - `statgpu/backends/`: NumPy、CuPy、Torch 后端抽象和自动选择逻辑。
-- `statgpu/linear_model/`: 线性模型、GLM、惩罚模型、CV 模型、有序 logit/probit 等。
-- `statgpu/glm_core/`: GLM loss、family/link、IRLS、FISTA、ADMM、Newton、L-BFGS 等核心求解器。
+- `statgpu/solvers/`: 通用优化求解器（FISTA、FISTA-BB、FISTA-LLA、Newton、L-BFGS、ADMM）。
 - `statgpu/penalties/`: L1、L2、ElasticNet、SCAD、MCP、adaptive/group penalty 注册表。
+- `statgpu/glm_core/`: GLM loss、family/link、IRLS、融合 kernel。
+- `statgpu/cross_validation/`: 通用 CV 框架（CVEstimatorBase、kfold_indices、hash_cv_data）。
+- `statgpu/linear_model/`: 线性模型 API 层，含 `wrappers/`（13 个模型）、`penalized/`（mixin 架构）、`cv/`（CV wrappers）、`legacy/`。
 - `statgpu/survival/`: CoxPH 和 CoxPHCV，含 Breslow/Efron ties 及 GPU 相关实现。
 - `statgpu/inference/`: 分布 API、多重检验、p 值合并、bootstrap、permutation test。
-- `statgpu/nonparametric/`: KDE、核回归、带宽选择。
+- `statgpu/nonparametric/`: KDE、核回归、带宽选择、核岭回归、样条。
 - `statgpu/feature_selection/`: knockoff 特征选择相关实现。
 - `statgpu/core/formula/`: 可选 formula/dataframe 接口，依赖 `patsy`/`pandas` extra。
 
@@ -114,6 +116,174 @@ def _cleanup_torch_memory(self):
 - `docs/en/guides/device-and-memory.md`: 设备选择、GPU 内存和后端规则。
 
 新增或修改用户可见能力时，通常需要同步更新相关 `docs/en/models/*.md`、`docs/models/*.md`、`docs/changelog.md` 或入口文档。
+
+## Changelog 写作规范
+
+项目有两份 changelog，定位不同：
+
+| 文件 | 定位 | 读者 | 详细程度 |
+|---|---|---|---|
+| `CHANGELOG.md`（根目录） | PR 级摘要 | 开发者、贡献者 | 简洁，每个 PR 1-5 行 |
+| `docs/en/changelog.md` | 用户级详述 | 用户、研究者 | 详细，含性能数据、代码示例、验证产物 |
+
+两份文件**都需要更新**，内容不重复但互相引用。
+
+### 根目录 `CHANGELOG.md` 格式
+
+```markdown
+# Changelog
+
+All notable changes to statgpu are documented here, organized by date and PR.
+
+## YYYY-MM-DD
+
+### PR #NN — 简短标题（不超过 60 字符）
+- 变更描述 1（英文，句首动词过去式）
+- 变更描述 2
+
+### PR #MM, #LL — 合并标题
+- 变更描述
+
+---
+
+## GPU Performance Milestones
+
+### vX.X — 标题
+- 关键指标
+```
+
+**规则**：
+- 按日期分组，同一日期多个 PR 按编号倒序（最新在前）
+- 每个 PR 1-5 行描述，只写"做了什么"，不写"为什么"和"怎么做"
+- 合并相关 PR：`PR #61, #60, #59 — 标题`
+- GPU Performance Milestones 单独 section，记录重大性能版本
+
+### 详细版 `docs/en/changelog.md` 格式
+
+采用 [Keep a Changelog](https://keepachangelog.com/) 风格，按**类别**组织：
+
+```markdown
+# Changelog
+
+> Language: English
+> Last updated: YYYY-MM-DD
+> Switch: [Chinese](../changelog.md)
+
+## YYYY-MM
+
+### Added (YYYY-MM-DD)
+
+- **功能标题**:
+  - 详细描述（what + why）
+  - 支持的后端/场景
+  - 文件变更列表
+  - 代码示例（如适用）
+
+### Fixed (YYYY-MM-DD ~ YYYY-MM-DD)
+
+- **Bug 标题**:
+  - Root cause 分析
+  - 影响范围
+  - 修复方式
+  - 验证结果
+
+### Optimized (YYYY-MM-DD)
+
+- **优化标题**:
+  - 优化内容
+  - 性能数据（硬件型号、数据规模、提速倍数）
+  - 验证产物路径（`results/*.json`）
+
+### Improved (YYYY-MM-DD)
+
+- **改进标题**:
+  - 改进内容
+  - 对比数据
+
+### Validation (YYYY-MM-DD)
+
+- 验证覆盖范围
+- 测试结果（X/Y passed）
+- 远程环境信息
+```
+
+**规则**：
+- 按月份分组（`## YYYY-MM`），月内按日期和类别分
+- 五个类别：`Added`、`Fixed`、`Optimized`、`Improved`、`Validation`
+- `Added`：新功能、新模型、新 API。必须包含：功能描述、支持的后端、文件列表、代码示例
+- `Fixed`：Bug 修复。必须包含：root cause、影响范围、修复方式、验证结果
+- `Optimized`：性能优化。必须包含：优化内容、性能数据（含硬件型号和数据规模）、验证产物路径
+- `Improved`：非功能性改进（代码质量、文档、测试覆盖等）
+- `Validation`：验证覆盖范围扩展（新测试、新 benchmark、远程验证）
+- 性能数据必须附硬件信息（如 `Tesla P100`、`n=5000, p=500`）
+- 验证产物路径用 `results/*.json` 或 `dev/tests/*.py` 格式
+- 破坏性变更在 `Fixed` 或 `Added` 中用 `**breaking**` 前缀标注
+
+### 中文版 `docs/cn/changelog.md` 格式
+
+结构与英文版完全相同，类别名使用中文：
+
+| 英文 | 中文 |
+|---|---|
+| `### Added` | `### 新增` |
+| `### Fixed` | `### 修复` |
+| `### Optimized` | `### 优化` |
+| `### Improved` | `### 改进` |
+| `### Validation` | `### 验证` |
+
+**规则**：
+- 类别名**统一用中文**，不要出现 `### Fixed` 和 `### 修复` 混用的情况
+- 技术术语保持英文（如 `FISTA`、`CuPy`、`L-BFGS`、`PenalizedGLM_CV`）
+- 文件路径、代码、数值、硬件型号保持英文
+- 描述用中文，句式自然，不要逐字翻译英文版
+- 头部元信息使用中文：
+  ```markdown
+  > 语言：中文
+  > 最后更新：YYYY-MM-DD
+  > 切换：[English](en/changelog.md)
+  ```
+
+### 三份文件的同步规则
+
+| 变更类型 | `CHANGELOG.md` | `docs/en/changelog.md` | `docs/cn/changelog.md` |
+|---|---|---|---|
+| 新功能 | 1 行 PR 标题 + 1-2 行描述 | `Added` 下完整描述 + 代码示例 + 文件列表 | `新增` 下对应内容（中文描述） |
+| Bug 修复 | 1 行 PR 标题 + 1 行描述 | `Fixed` 下 root cause + 影响 + 修复 + 验证 | `修复` 下对应内容（中文描述） |
+| 性能优化 | 1 行 PR 标题 + 提速倍数 | `Optimized` 下完整数据 + 硬件 + 产物路径 | `优化` 下对应内容（中文描述） |
+| 重构 | 1 行 PR 标题 | `Improved` 下简述（或不写） | `改进` 下对应内容（或不写） |
+| 文档 | 1 行 PR 标题 | `Improved` 或不写 | `改进` 或不写 |
+| 破坏性变更 | `**breaking**` 前缀 + 迁移路径 | `Fixed` 或 `Added` 中标注 + 迁移路径 | `修复` 或 `新增` 中标注 + 迁移路径 |
+
+### 更新时机
+
+- **PR 合并时**：立即更新 `CHANGELOG.md`（根目录）
+- **版本发布前**：从 `CHANGELOG.md` 汇总到 `docs/en/changelog.md`（英文详细版），同步更新 `docs/cn/changelog.md`（中文详细版）
+- **性能里程碑**：benchmark 全量通过后，同步更新三份文件的 GPU Performance Milestones
+- **中文版更新顺序**：先写英文版，再写中文版（避免翻译返工）
+
+### 示例对比
+
+**根目录 `CHANGELOG.md`**（简洁）：
+```markdown
+### PR #55 — Core GLM solver, backends, penalties, inference (PR-A)
+- 7 GLM families: squared_error, logistic, poisson, gamma, inverse_gaussian, negative_binomial, tweedie
+- 10 penalties: none, l1, l2, elasticnet, scad, mcp, adaptive_l1, group_lasso, group_mcp, group_scad
+- 6 solvers: irls, fista, fista_bb, admm, lbfgs, newton
+```
+
+**详细版 `docs/en/changelog.md`**（完整）：
+```markdown
+### Fixed (2026-05-20)
+
+- **v23c: L-BFGS fused penalty gradient fix**:
+  - Root cause: `lbfgs_solver` fused GLM path computed loss-only gradient, missing penalty gradient
+  - L-BFGS converged to unregularized solution (`loss_grad ≈ 0`) instead of `loss_grad + α·coef = 0`
+  - Fix: add `_smooth_penalty_gradient(penalty, coef)` after each `_fused_glm_value_and_gradient` call
+  - Affected: all GLM families + smooth penalties (L2, ElasticNet)
+  - Impact: 9 MISMATCH cases fixed (max|diff| from 1e-01~1e-02 down to 1e-04~1e-08)
+  - Full benchmark: 1043/1043 ALL PASS
+  - Files modified: `statgpu/glm_core/_solver.py`
+```
 
 ## 测试和验证
 

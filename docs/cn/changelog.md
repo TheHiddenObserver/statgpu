@@ -9,6 +9,32 @@
 
 ## 2026-06
 
+### 重构 (2026-06-14)
+
+- **顶层模块重组（Phase 0-6）**：
+  - 提取 `statgpu/solvers/` 为通用顶级模块，包含 6 个求解器（FISTA、FISTA-BB、FISTA-LLA、Newton、L-BFGS、ADMM）。求解器现在与 loss 无关——适用于任何实现 `GLMLoss` 接口的 loss。
+  - 提取 `statgpu/cross_validation/`，包含 `CVEstimatorBase`、`kfold_indices`、`hash_cv_data`、`batch_mse`、`run_cv`。被 `linear_model` 和 `survival` 共用。
+  - 将 `PenalizedGeneralizedLinearModel`（3968 行）拆分为 mixin 架构：`_base.py` + `_fit_mixin.py`（2185 行）+ `_inference_mixin.py`（1174 行）+ `_predict_mixin.py`（215 行）。
+  - 重组 `linear_model/` 为 `wrappers/`（13 个模型）、`penalized/`（mixin + 9 个子类 + CV）、`cv/`（4 个 CV wrapper）、`legacy/`（6 个文件）。
+  - 将 GLM 特有融合函数移至 `glm_core/_fused.py`。
+  - 在 `GLMLoss` 基类中添加优化提示属性（`_lipschitz_safety`、`_momentum_beta_cap`、`_has_constant_hessian` 等）——solver 读取这些属性而非硬编码 loss 名称。
+  - 清理 `nonparametric/` 中 4 个重复文件。
+  - 62 个安全网测试 + 远程 GPU 验证（Tesla P100）：51/51 精度基准测试全部通过。
+
+- **新增 wrapper**：
+  - `AdaptiveLasso` — adaptive L1 惩罚（Zou 2006）
+  - `SCADRegression` — SCAD 惩罚（Fan & Li 2001）
+  - `MCPRegression` — MCP 惩罚（Zhang 2010）
+
+- **修复：adaptive_l1/scad GPU 后端兼容性**：
+  - `_irls_ridge_init_cd` 现在使用后端无关的 `xp` 操作，而非仅 numpy 代码。之前在 CuPy/Torch 上会报 `TypeError`。
+  - 无 CPU↔GPU 传输——计算保持在原始设备上。
+
+- **文档**：
+  - 修复 28 个模型文档的数学公式显示分隔符（`\[ \]` → `$$ $$`）。
+  - 更新 AGENTS.md 的模块结构描述。
+  - 在 AGENTS.md 中添加 changelog 写作规范。
+
 ### 新增 (2026-06-13 ~ 2026-06-14)
 
 > PR #55~#58 由原始 PR #36（GLM+Penalty 完整模块）拆分而来。PR #36 实现了完整的 GLM + 惩罚系统，在完整矩阵基准测试中达到 1043/1043 ALL PASS (100%)。

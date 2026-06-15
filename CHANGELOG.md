@@ -4,6 +4,19 @@ All notable changes to statgpu are documented here, organized by date and PR.
 
 ## 2026-06-14
 
+### Refactor: Top-level structure reorganization (Phases 0-6)
+- **Phase 1**: Extracted `solvers/` as top-level generic module (6 solvers: fista, fista_bb, fista_lla, newton, lbfgs, admm)
+- **Phase 2**: Extracted `cross_validation/` module (CVEstimatorBase, kfold_indices, hash_cv_data, run_cv)
+- **Phase 3**: Moved wrappers into `linear_model/wrappers/` (10 model files, renamed _gamma_glm → _gamma etc.)
+- **Phase 4**: Split `_penalized.py` (3968 lines) into mixin architecture (_base + _fit_mixin + _inference_mixin + _predict_mixin)
+- **Phase 5**: Moved CV wrappers into `linear_model/cv/` (LassoCV, RidgeCV, ElasticNetCV, LogisticRegressionCV)
+- **Phase 6**: Cleaned up nonparametric/ duplicate files, added DeprecationWarning to kernel_methods/ and splines/ shims
+- **refactor**: Moved GLM-specific fused functions to `glm_core/_fused.py`
+- **refactor**: Added optimization hint attributes to GLMLoss base class
+- **refactor**: All old import paths preserved as backward-compatible shims (DeprecationWarning, remove in v0.3.0)
+- **test**: Added 45 safety net tests + Phase 1-6 verification stubs
+- New modules: `solvers/`, `cross_validation/`, `linear_model/wrappers/`, `linear_model/penalized/`, `linear_model/cv/`
+
 ### PR #63 — Dev workspace documentation
 - Added dev/README.md (directory structure, remote GPU setup, archive policy)
 - Added dev/tests/TESTING.md (test categories, remote workflow)

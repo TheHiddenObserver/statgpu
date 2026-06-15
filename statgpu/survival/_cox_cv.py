@@ -13,7 +13,7 @@ import numpy as np
 
 from statgpu._config import Device
 from statgpu.backends import _get_torch_device_str
-from statgpu.linear_model._cv_base import CVEstimatorBase
+from statgpu.cross_validation._base import CVEstimatorBase
 from statgpu.survival._cox import CoxPH
 
 

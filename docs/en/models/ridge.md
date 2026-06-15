@@ -18,17 +18,17 @@ Language switch: [Chinese](../../models/ridge.md)
 ## Objective Function
 
 Estimate
-\[
+$$
 \min_{\beta} \|y - X\beta\|_2^2 + \alpha\|\beta\|_2^2
-\]
+$$
 with optional intercept handling.
 
 ## Estimating Equation
 
 The ridge first-order condition is
-\[
+$$
 (X^\top X + \alpha I)\hat\beta = X^\top y
-\]
+$$
 solved by stable linear algebra routines on CPU/GPU backends.
 
 `Ridge` now defaults to `solver="exact"`, which uses the closed-form normal-equation solution.  The exact path is available on CPU, CuPy, and Torch backends.  For objective-scale comparisons with sklearn, use `sklearn_alpha = n_samples * statgpu_alpha`.

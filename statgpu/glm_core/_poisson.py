@@ -17,6 +17,8 @@ class PoissonLoss(GLMLoss):
     y_type = "count"
     smooth_gradient = True
     has_hessian = True
+    _momentum_beta_cap = 0.5
+    _poisson_like = True
 
     _MU_LO = 1e-10
     _MU_HI = 1e6  # must exceed typical max(y); clip prevents extreme weights

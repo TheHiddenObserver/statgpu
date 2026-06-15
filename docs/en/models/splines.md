@@ -21,21 +21,21 @@ For the Generalized Additive Model (GAM) which uses these basis functions, see [
 
 **B-spline basis** is computed via the De Boor recursion. The degree-0 basis functions are
 
-\[
+$$
 B_{i,0}(x) = \begin{cases} 1 & \text{if } t_i \le x < t_{i+1} \\ 0 & \text{otherwise} \end{cases}
-\]
+$$
 
 For degree $k \ge 1$:
 
-\[
+$$
 B_{i,k}(x) = w_1 \, B_{i,k-1}(x) + (1 - w_2) \, B_{i+1,k-1}(x)
-\]
+$$
 
 where
 
-\[
+$$
 w_1 = \frac{x - t_i}{t_{i+k} - t_i}, \qquad w_2 = \frac{x - t_{i+1}}{t_{i+k+1} - t_{i+1}}
-\]
+$$
 
 with the convention $0/0 = 0$.
 

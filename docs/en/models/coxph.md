@@ -25,9 +25,9 @@ Notes:
 ## Objective Function
 
 Estimate coefficients by maximizing the Cox partial log-likelihood:
-\[
+$$
 \ell(\beta)=\sum_{i:\delta_i=1}\left(x_i^\top\beta-\log\sum_{j\in R_i}\exp(x_j^\top\beta)\right)
-\]
+$$
 with tie handling determined by `ties`.
 
 ## Estimating Equation

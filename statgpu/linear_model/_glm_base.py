@@ -24,7 +24,7 @@ from statgpu._base import BaseEstimator
 from statgpu._config import Device
 from statgpu.backends import _to_numpy, _resolve_backend
 from statgpu.glm_core._irls import IRLSSolver
-from statgpu.glm_core._solver import fista_solver
+from statgpu.solvers import fista_solver
 from statgpu.glm_core._family import (
     Gaussian,
     Binomial,
@@ -537,7 +537,7 @@ class GeneralizedLinearModel(BaseEstimator):
     def _fit_smooth_solver(self, X, y, sample_weight, solver_name, backend_name):
         """Fit ordinary GLM with backend-native Newton or L-BFGS."""
         from statgpu.glm_core import get_glm_loss
-        from statgpu.glm_core._solver import lbfgs_solver, newton_solver
+        from statgpu.solvers import lbfgs_solver, newton_solver
 
         if sample_weight is not None:
             raise ValueError(

@@ -120,13 +120,16 @@ class AdaptiveL1Penalty(Penalty):
         """
         if self._weights is not None:
             return
+        # Convert to numpy for weight computation (weights are always stored as numpy)
+        from statgpu.backends._utils import _to_numpy
+        coef_np = np.asarray(_to_numpy(coef), dtype=np.float64).ravel()
         # If the init coef is all-zero (e.g., ridge init diverged),
         # fall back to uniform weights so adaptive_l1 reduces to L1.
-        if not np.any(np.abs(coef) > 1e-12):
-            self._weights = np.ones_like(coef)
+        if not np.any(np.abs(coef_np) > 1e-12):
+            self._weights = np.ones_like(coef_np)
             self._norm_factor = 1.0
             return
-        raw = 1.0 / (np.abs(coef) + self.eps) ** self.nu
+        raw = 1.0 / (np.abs(coef_np) + self.eps) ** self.nu
         self._norm_factor = 1.0
         if self.normalize:
             mean_w = float(np.mean(raw))
@@ -288,10 +291,16 @@ class AdaptiveL1Penalty(Penalty):
     # LLA weights (identity: this is already a weighted L1 penalty)
     # ----------------------------------------------------------------
 
-    def lla_weights(self, coef: np.ndarray) -> np.ndarray:
+    def lla_weights(self, coef):
+        """Return LLA weights, converted to the same backend as coef."""
         if not hasattr(self, "_weights"):
-            self._weights = np.ones_like(coef)
-        return self._weights.copy()
+            self._weights = np.ones_like(np.asarray(coef))
+        # Convert weights to the same backend as coef to avoid device-to-host transfer
+        from statgpu.backends._array_ops import _xp
+        xp = _xp(coef)
+        if xp is np:
+            return self._weights.copy()
+        return xp.asarray(self._weights, dtype=coef.dtype)
 
     # ----------------------------------------------------------------
 

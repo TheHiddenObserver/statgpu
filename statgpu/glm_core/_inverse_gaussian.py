@@ -19,6 +19,8 @@ class InverseGaussianLoss(GLMLoss):
     has_hessian = True
     _lipschitz_uses_y = True
     _lipschitz_safety = 3.0  # 1/mu^3 gradient scaling requires safety factor
+    _skip_momentum = True
+    _inverse_gaussian = True  # 1/mu^3 scaling causes Nesterov oscillation
 
     _MU_LO = 5e-2
     _MU_HI = 1e3

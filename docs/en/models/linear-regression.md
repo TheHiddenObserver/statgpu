@@ -18,17 +18,17 @@ Language switch: [Chinese](../../models/linear-regression.md)
 ## Objective Function
 
 Estimate
-\[
+$$
 \min_{\beta} \|y - X\beta\|_2^2
-\]
+$$
 with optional intercept handling, then compute diagnostics and inference from residual-based covariance estimators.
 
 ## Estimating Equation
 
 The estimator solves the normal equations:
-\[
+$$
 X^\top(y - X\hat\beta)=0
-\]
+$$
 equivalently \(\hat\beta=(X^\top X)^{-1}X^\top y\) when the inverse exists (or numerically stable equivalent linear algebra in implementation).
 
 ## Covariance/Inference

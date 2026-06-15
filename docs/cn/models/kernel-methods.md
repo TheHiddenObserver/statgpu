@@ -34,21 +34,21 @@ statgpu.nonparametric.kernel_methods.cosine_kernel
 
 **KernelRidge** 求解核岭回归对偶问题。给定从训练数据计算的 \(n \times n\) 核矩阵 \(K\)，对偶空间的目标函数为：
 
-\[
+$$
 \min_{\boldsymbol{\alpha}} \| \mathbf{y} - K \boldsymbol{\alpha} \|_2^2 + \lambda \| \boldsymbol{\alpha} \|_2^2
-\]
+$$
 
 其中 \(\lambda\) 为正则化强度（`alpha`）。闭式解为：
 
-\[
+$$
 \boldsymbol{\alpha} = (K + \lambda I)^{-1} \mathbf{y}
-\]
+$$
 
 **KernelRidgeCV** 利用核矩阵的特征分解 \(K = Q \Lambda Q^\top\) 高效地在一系列正则化参数上求解，无需为每个参数值重新求解线性系统。对任意 \(\lambda\) 的解为：
 
-\[
+$$
 \boldsymbol{\alpha}(\lambda) = Q \, \text{diag}\!\left(\frac{1}{\lambda_i + \lambda}\right) Q^\top \mathbf{y}
-\]
+$$
 
 其中 \(\lambda_i\) 为 \(K\) 的特征值。对网格中每个 \(\lambda\) 计算交叉验证 MSE，选择使平均 CV MSE 最小的值。
 
@@ -56,23 +56,23 @@ statgpu.nonparametric.kernel_methods.cosine_kernel
 
 **KernelRidge**：对偶问题的一阶条件导出线性系统
 
-\[
+$$
 (K + \lambda I) \boldsymbol{\alpha} = \mathbf{y}
-\]
+$$
 
 通过 `xp.linalg.solve` 直接求解。对新数据 \(X_{\text{test}}\) 的预测计算为：
 
-\[
+$$
 \hat{\mathbf{y}} = K_{\text{test}} \boldsymbol{\alpha}
-\]
+$$
 
 其中 \(K_{\text{test}}\) 为测试数据与训练数据之间的核矩阵。
 
 **KernelRidgeCV**：对每个交叉验证折叠，训练核矩阵仅需特征分解一次。所有 alpha 值的对偶系数随后通过单次向量化操作完成计算：
 
-\[
+$$
 \boldsymbol{\alpha}(\lambda) = Q \, \text{diag}\!\left(\frac{1}{\lambda_i + \lambda}\right) Q^\top \mathbf{y}_{\text{train}}
-\]
+$$
 
 在 torch CUDA 后端上，该 alpha 扫描通过批量矩阵操作在所有 alpha 值上完全向量化，避免了对 alpha 网格的 Python 级循环。
 

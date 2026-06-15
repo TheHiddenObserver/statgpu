@@ -16,12 +16,50 @@ import numpy as np
 # numpy raises LinAlgError; torch raises RuntimeError for linalg failures.
 # NOTE: torch RuntimeError is overly broad (also catches OOM, autograd errors).
 # Callers should re-raise if the error message doesn't match linalg patterns.
+# NOTE: We do NOT import torch at module level to avoid TORCH_LIBRARY
+# registration conflicts on Torch 2.8+. Torch is imported lazily via _safe_import_torch().
 _LINALG_ERRORS: tuple = (np.linalg.LinAlgError,)
-try:
-    import torch  # noqa: F811
-    _LINALG_ERRORS = _LINALG_ERRORS + (RuntimeError,)
-except ImportError:
-    pass
+
+
+def _safe_import_torch():
+    """Import torch safely, catching TORCH_LIBRARY registration conflicts.
+
+    Torch 2.8+ may raise RuntimeError when imported in environments where
+    torch has already been loaded (Jupyter kernels, other processes).
+    Returns the torch module, or None if import fails.
+    """
+    try:
+        import torch
+        return torch
+    except (ImportError, RuntimeError):
+        return None
+
+
+# Module-level check: is torch available?
+_TORCH_AVAILABLE = None  # None = not checked yet
+_TORCH_MODULE = None
+
+
+def _ensure_torch():
+    """Ensure torch is imported and available. Returns torch module or None."""
+    global _TORCH_AVAILABLE, _TORCH_MODULE, _LINALG_ERRORS
+    if _TORCH_AVAILABLE is None:
+        _TORCH_MODULE = _safe_import_torch()
+        _TORCH_AVAILABLE = _TORCH_MODULE is not None
+        if _TORCH_AVAILABLE:
+            _LINALG_ERRORS = (np.linalg.LinAlgError, RuntimeError)
+    return _TORCH_MODULE
+
+
+def _require_torch():
+    """Import torch or raise ImportError with clear message."""
+    torch = _ensure_torch()
+    if torch is None:
+        raise ImportError(
+            "Torch is not available. This may be due to a TORCH_LIBRARY "
+            "registration conflict (Torch 2.8+) or missing installation."
+        )
+    return torch
 
 
 def _get_xp(backend_name: str):
@@ -57,7 +95,7 @@ def _get_xp(backend_name: str):
             ) from exc
     if backend_name == "torch":
         try:
-            import torch
+            torch = _require_torch()
 
             return torch
         except ImportError as exc:
@@ -89,7 +127,7 @@ def _to_float_scalar(x: Any) -> float:
 def _get_torch_device_str() -> str:
     """Return ``'cuda'`` if PyTorch CUDA is available, else ``'cpu'``."""
     try:
-        import torch
+        torch = _require_torch()
 
         return "cuda" if torch.cuda.is_available() else "cpu"
     except ImportError:
@@ -114,7 +152,7 @@ def _torch_on_target_device(tensor, device: Optional[str]) -> bool:
 
 def _move_torch_tensor(tensor, device: Optional[str] = None, dtype=None, pin_memory: bool = False):
     """Move/cast a torch tensor, using pinned non-blocking H2D when useful."""
-    import torch
+    torch = _require_torch()
 
     if dtype is not None and not isinstance(dtype, torch.dtype):
         try:
@@ -148,7 +186,7 @@ def _move_torch_tensor(tensor, device: Optional[str] = None, dtype=None, pin_mem
 
 def _numpy_to_torch_tensor(x, device: Optional[str] = None, dtype=None, pin_memory: bool = False):
     """Convert NumPy-like input to torch, preserving contiguous fast paths."""
-    import torch
+    torch = _require_torch()
 
     arr = np.asarray(x)
     if not arr.flags["C_CONTIGUOUS"]:
@@ -161,7 +199,7 @@ def _cupy_to_torch_dlpack(x, device: Optional[str] = None):
     """Convert a CuPy array to torch through DLPack, returning None if unsupported."""
     try:
         import cupy as cp
-        import torch
+        torch = _require_torch()
 
         if not isinstance(x, cp.ndarray):
             return None
@@ -178,7 +216,7 @@ def _torch_to_cupy_dlpack(x):
     """Convert a CUDA torch tensor to CuPy through DLPack, returning None if unsupported."""
     try:
         import cupy as cp
-        import torch
+        torch = _require_torch()
 
         if not isinstance(x, torch.Tensor) or not x.is_cuda:
             return None
@@ -200,7 +238,7 @@ def _torch_to_cupy_dlpack(x):
 def _torch_dev(arr):
     """Extract device from a torch tensor, or ``None`` for non-torch arrays."""
     try:
-        import torch
+        torch = _require_torch()
         if isinstance(arr, torch.Tensor):
             return arr.device
     except (ImportError, AttributeError):
@@ -236,7 +274,7 @@ def xp_full(shape, fill_value, dtype, xp, ref_arr=None):
 
 def _np_dtype_to_torch(dtype):
     """Convert a numpy dtype to the equivalent torch dtype."""
-    import torch
+    torch = _require_torch()
     _MAP = {
         'float32': torch.float32,
         'float64': torch.float64,
@@ -259,7 +297,7 @@ def _np_dtype_to_torch(dtype):
 
 def _torch_dtype_to_np(dtype):
     """Convert a torch dtype to the equivalent numpy dtype."""
-    import torch
+    torch = _require_torch()
     _MAP = {
         torch.float32: np.dtype('float32'),
         torch.float64: np.dtype('float64'),
@@ -281,7 +319,7 @@ def xp_astype(arr, dtype, xp=None):
     Kept for backward compatibility with existing callers.
     """
     if _torch_dev(arr) is not None:
-        import torch
+        torch = _require_torch()
         if not isinstance(dtype, torch.dtype):
             dtype = _np_dtype_to_torch(dtype)
         return arr.to(dtype)
@@ -337,7 +375,7 @@ def xp_maximum(arr, value, xp=None):
     scalars.  This helper wraps *value* as needed.
     """
     if _torch_dev(arr) is not None:
-        import torch
+        torch = _require_torch()
         if not isinstance(value, torch.Tensor):
             value = torch.tensor(value, dtype=arr.dtype, device=arr.device)
         return torch.maximum(arr, value)
@@ -374,7 +412,7 @@ def xp_cholesky_solve(A, b, xp):
 def torch_compile_supported():
     """Check if torch.compile is safe to use (CUDA Capability >= 7.0)."""
     try:
-        import torch
+        torch = _require_torch()
         if torch.cuda.is_available():
             cap = torch.cuda.get_device_capability()
             return cap[0] >= 7

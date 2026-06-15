@@ -827,7 +827,7 @@ def _lasso_coef_diff_statistics(
             ).fit(Z_perm, y_np)
         coef_perm = np.asarray(model.coef_, dtype=np.float64).reshape(-1)
     else:
-        from statgpu.linear_model._lasso import _fit_lasso_single_alpha_fast, _select_lasso_alpha_cv
+        from statgpu.linear_model.wrappers._lasso import _fit_lasso_single_alpha_fast, _select_lasso_alpha_cv
 
         use_cupy_native = str(backend_name).lower() == "cupy" and _is_cupy_array(Z)
         use_torch_native = str(backend_name).lower() == "torch" and hasattr(Z, 'shape')

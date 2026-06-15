@@ -34,21 +34,21 @@ statgpu.nonparametric.kernel_methods.cosine_kernel
 
 **KernelRidge** solves the kernel ridge regression dual problem. Given an \(n \times n\) kernel matrix \(K\) computed from the training data, the objective in the dual space is:
 
-\[
+$$
 \min_{\boldsymbol{\alpha}} \| \mathbf{y} - K \boldsymbol{\alpha} \|_2^2 + \lambda \| \boldsymbol{\alpha} \|_2^2
-\]
+$$
 
 where \(\lambda\) is the regularization strength (`alpha`). The closed-form solution is:
 
-\[
+$$
 \boldsymbol{\alpha} = (K + \lambda I)^{-1} \mathbf{y}
-\]
+$$
 
 **KernelRidgeCV** uses eigendecomposition \(K = Q \Lambda Q^\top\) of the kernel matrix to efficiently evaluate the solution across a grid of regularization parameters without re-solving the linear system for each value. The solution for any \(\lambda\) is:
 
-\[
+$$
 \boldsymbol{\alpha}(\lambda) = Q \, \text{diag}\!\left(\frac{1}{\lambda_i + \lambda}\right) Q^\top \mathbf{y}
-\]
+$$
 
 where \(\lambda_i\) are the eigenvalues of \(K\). Cross-validation MSE is computed for each \(\lambda\) in the grid and the value that minimizes the mean CV MSE is selected.
 
@@ -56,23 +56,23 @@ where \(\lambda_i\) are the eigenvalues of \(K\). Cross-validation MSE is comput
 
 **KernelRidge**: The first-order condition of the dual problem yields the linear system
 
-\[
+$$
 (K + \lambda I) \boldsymbol{\alpha} = \mathbf{y}
-\]
+$$
 
 which is solved directly via `xp.linalg.solve`. Predictions for new data \(X_{\text{test}}\) are computed as:
 
-\[
+$$
 \hat{\mathbf{y}} = K_{\text{test}} \boldsymbol{\alpha}
-\]
+$$
 
 where \(K_{\text{test}}\) is the kernel matrix between the test and training data.
 
 **KernelRidgeCV**: For each cross-validation fold, the training kernel matrix is eigendecomposed once. The dual coefficients for all alpha values are then computed in a single vectorized operation:
 
-\[
+$$
 \boldsymbol{\alpha}(\lambda) = Q \, \text{diag}\!\left(\frac{1}{\lambda_i + \lambda}\right) Q^\top \mathbf{y}_{\text{train}}
-\]
+$$
 
 On the torch CUDA backend, this alpha sweep is fully vectorized across all alpha values using batched matrix operations, avoiding any Python-level loop over the alpha grid.
 

@@ -34,10 +34,6 @@ GROUP = frozenset({
     "group_lasso", "gl", "group_mcp", "gmcp", "group_scad", "gscad",
 })
 
-# Penalties that require FISTA (cannot use IRLS/Newton/L-BFGS)
-REQUIRES_FISTA = NONSMOOTH
-
 # Penalties that disable BB step (use standard FISTA instead)
-BB_DISABLED = frozenset({
-    "group_lasso", "gl", "group_mcp", "gmcp", "group_scad", "gscad",
-})
+# Same as GROUP: BB step doesn't work well with group structure
+BB_DISABLED = GROUP

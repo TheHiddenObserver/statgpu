@@ -9,6 +9,32 @@ Language switch: [Chinese](../changelog.md)
 
 ## 2026-06
 
+### Refactored (2026-06-14)
+
+- **Top-level module reorganization (Phases 0-6)**:
+  - Extracted `statgpu/solvers/` as a generic top-level module with 6 solvers (FISTA, FISTA-BB, FISTA-LLA, Newton, L-BFGS, ADMM). Solvers are now loss-agnostic — they work with any loss implementing the `GLMLoss` interface.
+  - Extracted `statgpu/cross_validation/` with `CVEstimatorBase`, `kfold_indices`, `hash_cv_data`, `batch_mse`, `run_cv`. Shared by `linear_model` and `survival`.
+  - Split `PenalizedGeneralizedLinearModel` (3968 lines) into mixin architecture: `_base.py` + `_fit_mixin.py` (2185 lines) + `_inference_mixin.py` (1174 lines) + `_predict_mixin.py` (215 lines).
+  - Reorganized `linear_model/` into `wrappers/` (13 models), `penalized/` (mixin + 9 subclasses + CV), `cv/` (4 CV wrappers), `legacy/` (6 files).
+  - Moved GLM-specific fused functions to `glm_core/_fused.py`.
+  - Added optimization hint attributes to `GLMLoss` base class (`_lipschitz_safety`, `_momentum_beta_cap`, `_has_constant_hessian`, etc.) — solvers read these instead of hardcoding loss names.
+  - Cleaned up 4 duplicate files in `nonparametric/` (old `_kde.py`, `_kernel_regression.py`, `_bandwidth_selection.py`, `_kernel_common.py`).
+  - 62 safety net tests + remote GPU verification (Tesla P100): 51/51 precision benchmarks PASS.
+
+- **New wrappers**:
+  - `AdaptiveLasso` — adaptive L1 penalty (Zou 2006)
+  - `SCADRegression` — SCAD penalty (Fan & Li 2001)
+  - `MCPRegression` — MCP penalty (Zhang 2010)
+
+- **Bug fix: adaptive_l1/scad GPU backend compatibility**:
+  - `_irls_ridge_init_cd` now uses backend-agnostic `xp` operations instead of numpy-only code. Previously failed on CuPy/Torch with `TypeError`.
+  - No CPU↔GPU transfers — computation stays on the original device.
+
+- **Documentation**:
+  - Fixed math formula display delimiters in 28 model docs (`\[ \]` → `$$ $$`).
+  - Updated AGENTS.md with new module structure.
+  - Added changelog writing conventions to AGENTS.md.
+
 ### Added (2026-06-13 ~ 2026-06-14)
 
 > PR #55~#58 were split from the original PR #36 (GLM+Penalty full module). PR #36 delivered the complete GLM + Penalty system achieving 1043/1043 ALL PASS (100%) in full-matrix benchmark.

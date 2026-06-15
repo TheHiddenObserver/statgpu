@@ -18,24 +18,24 @@
 ## 目标函数（Objective Function）
 
 总均值：
-\[
+$$
 \bar{y} = \frac{\sum_i n_i \bar{y}_i}{\sum_i n_i}
-\]
+$$
 
 组间平方和：
-\[
+$$
 SSB = \sum_{i=1}^k n_i (\bar{y}_i - \bar{y})^2
-\]
+$$
 
 组内平方和：
-\[
+$$
 SSW = \sum_{i=1}^k \sum_{j=1}^{n_i} (y_{ij} - \bar{y}_i)^2
-\]
+$$
 
 F 统计量：
-\[
+$$
 F = \frac{SSB / (k-1)}{SSW / (N-k)}
-\]
+$$
 
 其中 $k$ 为组数，$n_i$ 为第 $i$ 组的样本量，$N = \sum_i n_i$ 为总观测数。
 
@@ -46,9 +46,9 @@ F = \frac{SSB / (k-1)}{SSW / (N-k)}
 ## 协方差与推断（Covariance/Inference）
 
 p 值由 F 分布的生存函数 $1 - F_{k-1,\,N-k}(F)$ 得到。效应量报告为：
-\[
+$$
 \eta^2 = \frac{SSB}{SSB + SSW}
-\]
+$$
 
 ## 参数（Parameters）
 

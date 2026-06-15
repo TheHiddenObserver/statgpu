@@ -17,6 +17,11 @@ class LogisticLoss(GLMLoss):
     y_type = "binary"
     smooth_gradient = True
     has_hessian = True
+    _lipschitz_safety = 1.5
+    _lipschitz_safety_cv = 2.0
+    _prefer_fista_over_bb = True
+    _gpu_loop_excluded = True
+    _conservative_momentum_with_nonsmooth = True
 
     # ── Per-sample formulas (single source of truth) ──────────────────
 

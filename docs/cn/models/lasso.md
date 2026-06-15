@@ -19,9 +19,9 @@
 
 优化目标为：
 
-\[
+$$
 \min_{\beta, b}\ \frac{1}{2n}\|y - X\beta - b\|_2^2 + \alpha\|\beta\|_1
-\]
+$$
 
 其中 `alpha` 控制稀疏化强度。
 

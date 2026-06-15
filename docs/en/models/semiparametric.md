@@ -11,9 +11,9 @@ Language switch: [Chinese](../models/semiparametric.md)
 
 `GAM` fits a Generalized Additive Model using penalized B-splines with automatic smoothing parameter selection via Generalized Cross-Validation (GCV). The model is:
 
-\[
+$$
 y = \alpha + \sum_j f_j(x_j) + \epsilon
-\]
+$$
 
 where each $f_j$ is represented as a penalized B-spline. GAM is a semiparametric model: it has a parametric intercept and nonparametric smooth functions for each feature.
 
@@ -27,9 +27,9 @@ For the underlying B-spline basis utilities, see [Spline Basis Functions](spline
 
 GAM fits a penalized least-squares model:
 
-\[
+$$
 \min_{\beta} \|y - B\beta\|_2^2 + \lambda \, \beta^\top S \, \beta
-\]
+$$
 
 where $B$ is the column-wise concatenation of spline basis matrices for each feature (plus an intercept column), $S$ is a block-diagonal difference penalty matrix, and $\lambda$ is the smoothing parameter. The default penalty order is 2 (second differences), which penalizes curvature.
 
@@ -37,23 +37,23 @@ where $B$ is the column-wise concatenation of spline basis matrices for each fea
 
 The first-order condition of the penalized objective yields the system
 
-\[
+$$
 (B^\top B + \lambda S) \, \hat\beta = B^\top y
-\]
+$$
 
 solved via Cholesky factorization.
 
 **GCV for lambda selection** (when `lam=None`):
 
-\[
+$$
 \text{GCV} = \frac{n \cdot \text{RSS}}{(n - \text{edf})^2}
-\]
+$$
 
 where the effective degrees of freedom is
 
-\[
+$$
 \text{edf} = \text{tr}\!\left((B^\top B + \lambda S)^{-1} B^\top B\right)
-\]
+$$
 
 Lambda is selected by minimizing GCV over a log-spaced grid.
 

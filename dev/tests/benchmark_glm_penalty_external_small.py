@@ -29,7 +29,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from statgpu.backends import _to_numpy
-from statgpu.linear_model._penalized import PenalizedGeneralizedLinearModel
+from statgpu.linear_model.penalized._base import PenalizedGeneralizedLinearModel
 
 
 @dataclass(frozen=True)

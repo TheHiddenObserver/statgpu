@@ -22,23 +22,23 @@ The `panel` module provides panel data models for longitudinal/panel data. `Pane
 
 **PanelOLS** solves within-transformation OLS. The dependent variable and regressors are demeaned to sweep out fixed effects. For entity effects the transformation is:
 
-\[
+$$
 y_{it}^{within} = y_{it} - \bar{y}_{i\cdot}
-\]
+$$
 
 For two-way (entity + time) fixed effects the double-demeaned residual is:
 
-\[
+$$
 y_{it}^{within} = y_{it} - \bar{y}_{i\cdot} - \bar{y}_{\cdot t} + \bar{y}_{\cdot\cdot}
-\]
+$$
 
 where \(\bar{y}_{i\cdot}\) is the entity mean, \(\bar{y}_{\cdot t}\) is the time mean, and \(\bar{y}_{\cdot\cdot}\) is the grand mean. The same transformation is applied column-by-column to \(X\).
 
 **RandomEffects** estimates a variance-components model:
 
-\[
+$$
 y_{it} = \alpha + X_{it}'\beta + a_i + \epsilon_{it}
-\]
+$$
 
 where \(a_i \sim \text{iid}(0, \sigma^2_a)\) is the individual random effect and \(\epsilon_{it} \sim \text{iid}(0, \sigma^2_e)\) is the idiosyncratic error. The Swamy-Arora estimator obtains \(\hat{\sigma}^2_e\) from the within estimator and \(\hat{\sigma}^2_a\) from the between estimator, then applies feasible GLS.
 
@@ -46,9 +46,9 @@ where \(a_i \sim \text{iid}(0, \sigma^2_a)\) is the individual random effect and
 
 **PanelOLS** fits OLS on the demeaned data:
 
-\[
+$$
 \hat{\beta} = (X_d^\top X_d)^{-1} X_d^\top y_d
-\]
+$$
 
 where \(X_d\) and \(y_d\) are the entity- (and optionally time-) demeaned regressors and dependent variable.
 

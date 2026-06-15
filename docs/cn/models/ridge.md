@@ -19,9 +19,9 @@
 
 估计目标为：
 
-\[
+$$
 \min_{\beta} \|y - X\beta\|_2^2 + \alpha\|\beta\|_2^2
-\]
+$$
 
 其中截距项按当前实现单独处理，不作为 L2 惩罚对象。
 
@@ -29,9 +29,9 @@
 
 Ridge 的一阶条件为：
 
-\[
+$$
 (X^\top X + \alpha I)\hat\beta = X^\top y
-\]
+$$
 
 当前 `Ridge` 默认使用 `solver="exact"`，即闭式 normal-equation 路径。该路径支持 CPU、CuPy 和 Torch 后端。与 sklearn 做目标函数尺度对齐时，请使用 `sklearn_alpha = n_samples * statgpu_alpha`。
 

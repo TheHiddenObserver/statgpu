@@ -17,6 +17,9 @@
 - [Ridge](ridge.md)
 - [Lasso](lasso.md)
 - [ElasticNet](elastic-net.md)
+- [AdaptiveLasso](adaptive-lasso.md) — 自适应 L1 惩罚，具有 oracle property
+- [SCAD](scad.md) — 非凸惩罚，具有 oracle property
+- [MCP](mcp.md) — 非凸惩罚，具有 oracle property
 - [LogisticRegression](logistic-regression.md)
 - [Ordered Generalized Linear Models (Logit/Probit)](ordered.md)
 

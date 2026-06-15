@@ -9,7 +9,6 @@ where mu is determined by the configured link:
 
 Supports numpy / cupy / torch backends via _array_ops helpers.
 """
-import numpy as np
 from statgpu.backends._array_ops import _clip, _exp, _log, _sum, _max_eigval_power, _xp
 from statgpu.glm_core._base import GLMLoss, register_glm_loss
 
@@ -22,6 +21,8 @@ class GammaLoss(GLMLoss):
     has_hessian = True
     _lipschitz_uses_y = True
     _lipschitz_safety = 3.0  # Gamma Hessian varies with mu
+    _conservative_momentum_with_nonsmooth = True
+    _gamma_like = True
 
     _MU_LO = 1e-3
     _MU_HI = 1e4
@@ -37,6 +38,7 @@ class GammaLoss(GLMLoss):
         self.link = link
         self.link_name = link
         self._lipschitz_at_init = link == "inverse_power"
+        self._has_constant_hessian = (link == "log")
 
     def _eta_mu(self, X, coef):
         eta = X @ coef

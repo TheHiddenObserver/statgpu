@@ -25,6 +25,8 @@ class SquaredErrorLoss(GLMLoss):
     y_type = "continuous"
     smooth_gradient = True
     has_hessian = True
+    _is_quadratic = True
+    _supports_cholesky = True
 
     # ── Per-sample formulas (single source of truth) ──────────────────
 
