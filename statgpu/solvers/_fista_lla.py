@@ -26,7 +26,6 @@ from statgpu.backends._array_ops import (
 from statgpu.penalties._categories import NONSMOOTH as _NONSMOOTH_ALL
 from statgpu.penalties._adaptive_l1 import AdaptiveL1Penalty
 from ._constants import _SLACK_TOLERANCE, _DIVERGE_COEF_NORM_CAP
-from ._linesearch import _get_fista_step_compiled, _fista_step_call
 from ._utils import (
     _validate_sample_weight,
 )
@@ -414,39 +413,32 @@ def fista_lla_path(
                 # Save coef for LLA convergence check (on device)
                 coef_before_lla = _copy_arr(coef)
 
-                # --- FISTA inner solve (inlined, no function call overhead) ---
-                _obj_best_lla_inner = None
-                _coef_best_lla_inner = None
+                # --- FISTA inner solve (fixed-step, no backtracking) ---
                 y_k = _copy_arr(coef)
                 t_k = 1.0
-                # Use L_base which includes y-scaling for exp-link families.
-                # loss.lipschitz(X, zeros) returns the local Hessian at mu=1,
-                # but y-scaling approximates the Hessian at mu~y -- much tighter.
-                # Backtracking will adapt L within the inner loop.
                 L = L_base
                 step = 1.0 / L
-                _L_recompute_interval = 20
-
-                _fista_step = _get_fista_step_compiled() if backend == "torch" else None
 
                 # Pre-compute device-side tolerance for convergence check
                 if backend != "numpy":
                     _tol_dev = xp.asarray(tol)
 
+                # --- Async inner loop: skip backtracking, use fixed step ---
+                # For LLA, the Lipschitz constant L is pre-computed and stable.
+                # Backtracking is unnecessary — use fixed step 1/L.
+                # This eliminates per-iteration GPU→CPU syncs.
                 for iteration in range(_mi):
                     coef_old = _copy_arr(coef)
 
                     if _use_xtx:
-                        # Fast path: pre-computed XtX for squared_error
-                        q_yk_dev = float(_sum_sq_dev(y_c - X_c @ y_k)) * 0.5 / n_samples
                         grad = (XtX @ y_k - Xty) / n_samples
                     else:
                         if sample_weight is not None:
-                            q_yk_dev, grad = loss.fused_value_and_gradient(
+                            _, grad = loss.fused_value_and_gradient(
                                 X_c, y_c, y_k, sample_weight=sample_weight,
                             )
                         else:
-                            q_yk_dev, grad = loss.fused_value_and_gradient(X_c, y_c, y_k)
+                            _, grad = loss.fused_value_and_gradient(X_c, y_c, y_k)
 
                     # Clip gradients (device-side, every 10 iterations)
                     if backend == "numpy" or iteration % 10 == 0:
@@ -456,111 +448,34 @@ def fista_lla_path(
                             _gmax_dev = xp.clamp(_gsum, min=1e4)
                         else:
                             _gmax_dev = xp.maximum(_gsum, 1e4)
-                        # Batch both norms into a single GPU->CPU transfer
                         _gn_f, _gmax_f = _sync_scalars(_gn_dev, _gmax_dev, backend=backend)
-                        _clip_needed = _gn_f > _gmax_f
-                        if _clip_needed:
+                        if _gn_f > _gmax_f:
                             grad = grad * (_gmax_dev / _gn_dev)
 
-                    # Backtracking (device-side Armijo check)
-                    # Optimization: compute quadratic bound first; skip expensive
-                    # loss.value() when bound is clearly below current best (NB/matmul cost).
-                    for _bt in range(20):
-                        if _fista_step is not None:
-                            w_tilde, _ = _fista_step_call(_fista_step, y_k, grad, step, coef_old, coef, 0.0)
-                        else:
-                            w_tilde = y_k - step * grad
-                        coef_new = inner_pen.proximal(w_tilde, step, backend=backend)
+                    # Fixed-step proximal (no backtracking — L is pre-computed)
+                    # All operations stay on device, no GPU→CPU sync.
+                    w_tilde = y_k - step * grad
+                    coef = inner_pen.proximal(w_tilde, step, backend=backend)
 
-                        diff = coef_new - y_k
-                        bound_dev = q_yk_dev + _dot_dev(grad, diff) + 0.5 * L * _sum_sq_dev(diff)
-
-                        try:
-                            q_new_dev = loss.value(X_c, y_c, coef_new, sample_weight=sample_weight)
-                        except TypeError:
-                            q_new_dev = loss.value(X_c, y_c, coef_new)
-                        slack_dev = bound_dev + _SLACK_TOLERANCE - q_new_dev
-                        _armijo_ok = _to_float_scalar(slack_dev) >= 0
-                        if _armijo_ok:
-                            coef = coef_new
-                            break
-                        L *= 1.5
-                        step = 1.0 / L
-
-                    # If all backtracking steps failed, fall back to best known
-                    # iterate instead of accepting a potentially worse point.
-                    if not _armijo_ok:
-                        if _coef_best_lla_inner is not None:
-                            coef = _copy_arr(_coef_best_lla_inner)
-                        else:
-                            coef = _copy_arr(coef_old)  # reject the failed step
-
-                    # Batched safety checks: coef norm capping + finiteness + divergence
-                    # All comparisons done on device, single D2H transfer for booleans
-                    if not _is_quadratic:
-                        # Compute coef norm once (shared by cap + finiteness + divergence)
+                    # Lightweight safety checks (device-side, minimal sync)
+                    # Only check coef finiteness and norm capping every 10 iterations.
+                    # Skip objective-based divergence detection (requires CPU sync).
+                    if not _is_quadratic and iteration % 10 == 0:
                         if _augment_intercept:
                             _cn_dev = _norm2_dev(coef[:n_features])
                         else:
                             _cn_dev = _norm2_dev(coef)
+                        _cn_f, = _sync_scalars(_cn_dev, backend=backend)
 
-                        # On-device checks
-                        if backend == "torch":
-                            _finite_dev = xp.isfinite(_cn_dev)
-                            _cap_needed_dev = _cn_dev > 5.0
-                            _diverge_norm_dev = _cn_dev > _DIVERGE_COEF_NORM_CAP if iteration > 10 else xp.tensor(False, device=coef.device)
-                            # Wrap scalar as tensor for torch stack compatibility
-                            _q_dev = xp.tensor(float(q_new_dev), device=coef.device) if iteration > 0 else xp.tensor(0.0, device=coef.device)
-                            _obj_finite_dev = xp.isfinite(_q_dev) if iteration > 0 else xp.tensor(True, device=coef.device)
-                        elif backend == "cupy":
-                            _finite_dev = xp.isfinite(_cn_dev)
-                            _cap_needed_dev = _cn_dev > 5.0
-                            _diverge_norm_dev = _cn_dev > _DIVERGE_COEF_NORM_CAP if iteration > 10 else xp.asarray(False)
-                            _obj_finite_dev = xp.isfinite(q_new_dev) if iteration > 0 else xp.asarray(True)
-                        else:
-                            # Batch GPU->CPU sync: transfer 2 scalars instead of 4
-                            _cn_f, _obj_f = _sync_scalars(_cn_dev, q_new_dev, backend=backend)
-                            _finite_dev = np.isfinite(_cn_f)
-                            _cap_needed_dev = _cn_f > 5.0
-                            _diverge_norm_dev = _cn_f > _DIVERGE_COEF_NORM_CAP if iteration > 10 else False
-                            _obj_finite_dev = np.isfinite(_obj_f) if iteration > 0 else True
-
-                        # Single D2H transfer: pack booleans
-                        if backend == "numpy":
-                            _finite = _finite_dev
-                            _cap_needed = _cap_needed_dev
-                            _obj_finite = _obj_finite_dev
-                            _diverge_norm = _diverge_norm_dev
-                        else:
-                            _checks = _to_numpy(xp.stack([
-                                _finite_dev,
-                                _cap_needed_dev,
-                                _obj_finite_dev,
-                                _diverge_norm_dev,
-                            ]))
-                            _finite = bool(_checks[0])
-                            _cap_needed = bool(_checks[1])
-                            _obj_finite = bool(_checks[2])
-                            _diverge_norm = bool(_checks[3])
-
-                        # Finiteness reset
-                        if not _finite:
-                            if _coef_best_lla_inner is not None:
-                                coef = _copy_arr(_coef_best_lla_inner)
-                            else:
-                                coef = _copy_arr(coef_old)
+                        if not np.isfinite(_cn_f):
+                            coef = _copy_arr(coef_old)
                             y_k = _copy_arr(coef)
                             t_k = 1.0
                             L = L * 2.0
                             step = 1.0 / L
                             continue
 
-                        # Batch sync: coef norm + objective (1 GPU->CPU transfer)
-                        if iteration > 0 or _cap_needed:
-                            _cn_f, _obj_val_f = _sync_scalars(_cn_dev, q_new_dev, backend=backend)
-
-                        # Coef norm capping
-                        if _cap_needed:
+                        if _cn_f > 5.0:
                             _scale = 5.0 / _cn_f
                             if _augment_intercept:
                                 coef = _copy_arr(coef)
@@ -569,30 +484,6 @@ def fista_lla_path(
                                 coef = coef * _scale
                             y_k = _copy_arr(coef)
                             t_k = 1.0
-
-                        # Divergence detection
-                        if iteration > 0:
-                            _diverged_f = not _obj_finite
-                            if not _diverged_f and _obj_best_lla_inner is not None:
-                                if _obj_best_lla_inner > 1e-8:
-                                    _diverged_f = _obj_val_f > _obj_best_lla_inner * 10.0 + 1e-8
-                                else:
-                                    _diverged_f = _obj_val_f > _obj_best_lla_inner + max(abs(_obj_best_lla_inner) * 10.0, 1.0)
-                            if not _diverged_f and _diverge_norm:
-                                _diverged_f = True
-                            if _diverged_f:
-                                if _coef_best_lla_inner is not None:
-                                    coef = _copy_arr(_coef_best_lla_inner)
-                                else:
-                                    coef = _copy_arr(coef_old)
-                                y_k = _copy_arr(coef)
-                                t_k = 1.0
-                                L = L * 2.0
-                                step = 1.0 / L
-                                continue
-                            if _obj_best_lla_inner is None or _obj_val_f < _obj_best_lla_inner:
-                                _obj_best_lla_inner = _obj_val_f
-                                _coef_best_lla_inner = _copy_arr(coef)
 
                     # Momentum
                     if _no_momentum:

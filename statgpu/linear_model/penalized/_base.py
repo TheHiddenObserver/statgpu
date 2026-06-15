@@ -299,11 +299,16 @@ class PenalizedGeneralizedLinearModel(
         if isinstance(self.penalty, Penalty):
             return self.penalty
 
+        # Map "none"/"null" to l2 with alpha=0 (no regularization)
+        pen_name = str(self.penalty).lower().strip()
+        if pen_name in ("none", "null", ""):
+            return get_penalty("l2", alpha=0.0)
+
         kwargs = {**self.penalty_kwargs, "alpha": self.alpha}
-        if self.penalty == "elasticnet":
+        if pen_name in ("elasticnet", "en"):
             kwargs["l1_ratio"] = self.l1_ratio
 
-        return get_penalty(self.penalty, **kwargs)
+        return get_penalty(pen_name, **kwargs)
 
     def _resolve_loss(self):
         """Resolve loss string to a GLMLoss object."""
