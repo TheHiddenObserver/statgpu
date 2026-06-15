@@ -1,13 +1,39 @@
 # Changelog
 
 > 语言：中文  
-> 最后更新：2026-06-14  
+> 最后更新：2026-06-15  
 > 页面定位：变更记录  
 > 切换：[English](en/changelog.md)
 
 语言切换：[English](en/changelog.md)
 
 ## 2026-06
+
+### Code Review 第 9-10 轮 (2026-06-15)
+
+**Bug 修复：**
+- Newton 求解器收敛条件过严 10000 倍（`_norm2_dev` 返回 L2 范数而非平方范数）
+- `_resolve_loss_name` 从错误模块导入——CV 流水线会抛出 `ImportError`
+- ElasticNet Lipschitz 对 `"en"` 别名返回 0
+- Debiased inference 清除了 `_resid`/`_X_design`/`_y`，导致 `rsquared`/`aic`/`bic` 失效
+- `fista_lla_path` 在 XtX 快速路径中忽略 `sample_weight`（GPU 和 numpy 均受影响）
+- `_fit_gpu_backend` 缺少 `xp_ones` 导入——大特征 GPU 拟合会 NameError
+
+**性能优化：**
+- 删除 `_solver_utils.py`（442 行重复代码）
+- IRLS：将 `_to_backend(y)` 提升到闭包外（原来每迭代调用 30 次），复用 `eta_raw` 矩阵乘法
+- Fused dispatch 字典提升为模块级常量
+- `xp.sum(sw*ps)` → `xp.dot(sw,ps)`——避免 O(n) 临时分配
+
+**重构：**
+- 统一 `_fit_gpu`/`_fit_torch` 为单一 `_fit_gpu_backend` 方法（-468 行）
+- 提取 `_nesterov_momentum`/`_nesterov_update` 辅助函数（6 个文件 12 处）
+- 提取梯度裁剪常量到 `solvers/_constants.py`
+- 为所有公共求解器函数添加类型注解
+- 添加 `_call_with_weight` 辅助函数替代 8 个 `try/except TypeError` 块
+- 修复顶层 `__init__.py` 重复导入
+- 将 `SelectivePenalty` 线程局部单例改为每次调用新建实例
+- 缓存 `_family_for_loss()` 结果
 
 ### 重构 (2026-06-14)
 
