@@ -417,6 +417,14 @@ def fista_lla_path(
                 y_k = _copy_arr(coef)
                 t_k = 1.0
                 L = L_base
+
+                # Get fused proximal+momentum kernel for GPU paths
+                if backend == "torch":
+                    _fused_update = _get_sqerr_proximal_torch()
+                elif backend == "cupy":
+                    _fused_update = _get_sqerr_proximal_cupy()
+                else:
+                    _fused_update = None
                 step = 1.0 / L
 
                 # Pre-compute device-side tolerance for convergence check
@@ -452,55 +460,30 @@ def fista_lla_path(
                         if _gn_f > _gmax_f:
                             grad = grad * (_gmax_dev / _gn_dev)
 
-                    # Fixed-step proximal (no backtracking — L is pre-computed)
-                    # All operations stay on device, no GPU→CPU sync.
-                    w_tilde = y_k - step * grad
-                    coef = inner_pen.proximal(w_tilde, step, backend=backend)
-
-                    # Lightweight safety checks (device-side, minimal sync)
-                    # Only check coef finiteness and norm capping every 10 iterations.
-                    # Skip objective-based divergence detection (requires CPU sync).
-                    if not _is_quadratic and iteration % 10 == 0:
-                        if _augment_intercept:
-                            _cn_dev = _norm2_dev(coef[:n_features])
-                        else:
-                            _cn_dev = _norm2_dev(coef)
-                        _cn_f, = _sync_scalars(_cn_dev, backend=backend)
-
-                        if not np.isfinite(_cn_f):
-                            coef = _copy_arr(coef_old)
-                            y_k = _copy_arr(coef)
-                            t_k = 1.0
-                            L = L * 2.0
-                            step = 1.0 / L
-                            continue
-
-                        if _cn_f > 5.0:
-                            _scale = 5.0 / _cn_f
-                            if _augment_intercept:
-                                coef = _copy_arr(coef)
-                                coef[:n_features] = coef[:n_features] * _scale
-                            else:
-                                coef = coef * _scale
-                            y_k = _copy_arr(coef)
-                            t_k = 1.0
-
-                    # Momentum
+                    # Compute momentum beta before fused update
                     if _no_momentum:
-                        t_k = 1.0
-                        y_k = _copy_arr(coef)
+                        beta_mom = 0.0
                     elif _conservative_momentum_lla:
-                        # Conservative Nesterov for exp-link families: cap beta to avoid explosion
                         t_new = (1.0 + np.sqrt(1.0 + 4.0 * t_k * t_k)) / 2.0
-                        beta_raw = (t_k - 1.0) / t_new
-                        beta = min(beta_raw, 0.5)  # uniform cap matching fista_solver
-                        y_k = coef + beta * (coef - coef_old)
+                        beta_mom = min((t_k - 1.0) / t_new, 0.5)
                         t_k = t_new
                     else:
                         t_new = (1.0 + np.sqrt(1.0 + 4.0 * t_k * t_k)) / 2.0
-                        beta = (t_k - 1.0) / t_new
-                        y_k = coef + beta * (coef - coef_old)
+                        beta_mom = (t_k - 1.0) / t_new
                         t_k = t_new
+
+                    # Fused proximal + momentum: single kernel launch on GPU
+                    # Combines: w_tilde = y_k - step*grad
+                    #           coef = proximal(w_tilde, step)  [weighted soft-threshold]
+                    #           y_k = coef + beta * (coef - coef_old)
+                    # Reduces 3 kernel launches to 1.
+                    if _fused_update is not None and backend != "numpy":
+                        thresh = inner_pen._weights * inner_pen.alpha * step
+                        coef, y_k = _fused_update(y_k, grad, step, thresh, coef_old, beta_mom)
+                    else:
+                        w_tilde = y_k - step * grad
+                        coef = inner_pen.proximal(w_tilde, step, backend=backend)
+                        y_k = coef + beta_mom * (coef - coef_old)
 
                     # Convergence (device-side comparison, only D2H 1 bool)
                     if backend == "numpy" or iteration < 20 or iteration % 5 == 0:
