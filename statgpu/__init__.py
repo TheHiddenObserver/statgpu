@@ -70,6 +70,20 @@ from .nonparametric import (
 )
 from .semiparametric import GAM
 from .covariance import EmpiricalCovariance, LedoitWolf, OAS
+from .unsupervised import (
+    PCA,
+    IncrementalPCA,
+    TruncatedSVD,
+    KMeans,
+    MiniBatchKMeans,
+    DBSCAN,
+    GaussianMixture,
+    NMF,
+    MiniBatchNMF,
+    AgglomerativeClustering,
+    UMAP,
+    TSNE,
+)
 
 __all__ = [
     "get_device",
@@ -142,6 +156,18 @@ __all__ = [
     "GAM",
     "bspline_basis",
     "natural_cubic_spline_basis",
+    "PCA",
+    "IncrementalPCA",
+    "TruncatedSVD",
+    "KMeans",
+    "MiniBatchKMeans",
+    "DBSCAN",
+    "GaussianMixture",
+    "NMF",
+    "MiniBatchNMF",
+    "AgglomerativeClustering",
+    "UMAP",
+    "TSNE",
     "EmpiricalCovariance",
     "LedoitWolf",
     "OAS",
