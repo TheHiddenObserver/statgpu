@@ -125,10 +125,11 @@ class Penalty(ABC):
 
         Returns
         -------
-        np.ndarray
+        array
             LLA weights (default: ones for convex L1).
         """
-        return np.ones_like(coef)
+        xp = _xp(coef)
+        return xp.ones_like(coef)
 
     def get_params(self) -> dict:
         """
