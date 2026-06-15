@@ -224,10 +224,25 @@ class CuPyBackend(BackendBase):
         import cupy as cp
         return cp.argmin(x, axis=axis)
 
+    def argmax(self, x, axis=None):
+        """Indices of maximum values along axis."""
+        import cupy as cp
+        return cp.argmax(x, axis=axis)
+
     def argsort(self, x, axis=-1):
         """Indices that would sort the array."""
         import cupy as cp
         return cp.argsort(x, axis=axis)
+
+    def where(self, condition, x, y):
+        """Element-wise conditional selection."""
+        import cupy as cp
+        return cp.where(condition, x, y)
+
+    def flip(self, x, axis=None):
+        """Reverse array order along axis."""
+        import cupy as cp
+        return cp.flip(x, axis=axis)
 
     def exp(self, x):
         """Element-wise exponential."""
