@@ -7,10 +7,13 @@ from ._kernels import (
     laplacian_kernel,
     sigmoid_kernel,
     cosine_kernel,
+    chi2_kernel,
     pairwise_kernels,
 )
 from ._krr import KernelRidge
 from ._krr_cv import KernelRidgeCV
+from ._nystroem import Nystroem
+from ._kpca import KernelPCA
 
 __all__ = [
     "rbf_kernel",
@@ -19,7 +22,10 @@ __all__ = [
     "laplacian_kernel",
     "sigmoid_kernel",
     "cosine_kernel",
+    "chi2_kernel",
     "pairwise_kernels",
     "KernelRidge",
     "KernelRidgeCV",
+    "Nystroem",
+    "KernelPCA",
 ]
