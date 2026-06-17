@@ -73,29 +73,38 @@ class PooledOLS(BaseEstimator):
         if self.cov_type not in ("nonrobust", "robust", "clustered", "hac"):
             raise ValueError("cov_type must be 'nonrobust', 'robust', 'clustered', or 'hac'")
 
-    def fit(self, X, y, cluster=None, time_index=None):
+    def fit(self, X=None, y=None, cluster=None, time_index=None, formula=None, data=None):
         """Fit the pooled OLS model.
 
         Parameters
         ----------
-        X : array-like, shape (n, k)
+        X : array-like, shape (n, k), optional
             Design matrix (an intercept is added automatically).
-        y : array-like, shape (n,)
-            Dependent variable.
+            Required if ``formula`` is None.
+        y : array-like, shape (n,), optional
+            Dependent variable.  Required if ``formula`` is None.
         cluster : array-like, shape (n,), optional
             Cluster labels (required when ``cov_type='clustered'``).
         time_index : array-like, shape (n,), optional
             Time index for HAC estimation.  Data should be sorted by time.
+        formula : str, optional
+            R-style formula string (e.g. ``"y ~ x1 + x2"``).
+        data : DataFrame, optional
+            DataFrame for formula parsing.
 
         Returns
         -------
         self
         """
+        from statgpu.panel._formula import _prepare_formula_fit, _get_feature_names
+        y_arr, X_arr, self._design_info, self._feature_names, self._formula_has_intercept = \
+            _prepare_formula_fit(formula, data, X, y, model_has_intercept=True)
+
         backend = self._get_backend(backend="auto")
         xp = backend.xp
 
-        X_arr = xp_asarray(X, dtype=xp.float64, xp=xp)
-        y_arr = xp_asarray(y, dtype=xp.float64, xp=xp, ref_arr=X_arr).ravel()
+        X_arr = xp_asarray(X_arr, dtype=xp.float64, xp=xp)
+        y_arr = xp_asarray(y_arr, dtype=xp.float64, xp=xp, ref_arr=X_arr).ravel()
         if X_arr.ndim == 1:
             X_arr = X_arr.reshape(-1, 1)
 
@@ -139,16 +148,22 @@ class PooledOLS(BaseEstimator):
 
         Parameters
         ----------
-        X : array-like, shape (n, k)
+        X : array-like, shape (n, k) or DataFrame
+            If the model was fitted with a formula, pass a DataFrame.
 
         Returns
         -------
         y_pred : ndarray, shape (n,)
         """
         self._check_is_fitted()
+        from statgpu.panel._formula import _formula_predict
+        X_arr = _formula_predict(X, getattr(self, '_design_info', None),
+                                 getattr(self, '_formula_has_intercept', None),
+                                 model_has_intercept=True)
+
         backend = self._get_backend(backend="auto")
         xp = backend.xp
-        X_arr = xp_asarray(X, dtype=xp.float64, xp=xp)
+        X_arr = xp_asarray(X_arr, dtype=xp.float64, xp=xp)
         if X_arr.ndim == 1:
             X_arr = X_arr.reshape(-1, 1)
         ones = xp.ones((X_arr.shape[0], 1), dtype=xp.float64)
@@ -161,6 +176,12 @@ class PooledOLS(BaseEstimator):
     def summary(self):
         """Return a summary object."""
         self._check_is_fitted()
+        from statgpu.panel._formula import _get_feature_names
+        feature_names = _get_feature_names(
+            getattr(self, '_feature_names', None),
+            len(self.coef_),
+            prefix="x"
+        )
         return PanelSummary(
             model_type="PooledOLS",
             cov_type=self.cov_type,
@@ -172,6 +193,7 @@ class PooledOLS(BaseEstimator):
             nobs=self.nobs,
             df_resid=self.df_resid,
             alpha=self.alpha,
+            feature_names=feature_names,
         )
 
     def _compute_inference(self, X, resid, params, scale, n, k, xp, backend_name, cluster=None):

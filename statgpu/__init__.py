@@ -37,6 +37,7 @@ from .linear_model import (
 from .survival import CoxPH, CoxPHCV
 from .panel import (
     PanelOLS,
+    FixedEffects,
     RandomEffects,
     RandomEffectsOLS,
     PooledOLS,
@@ -149,6 +150,7 @@ __all__ = [
     "CoxPHCV",
     # Panel
     "PanelOLS",
+    "FixedEffects",
     "RandomEffects",
     "RandomEffectsOLS",
     "PooledOLS",

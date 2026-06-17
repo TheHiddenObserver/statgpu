@@ -418,3 +418,7 @@ class PanelOLS(BaseEstimator):
                 setattr(self, key, params.pop(key))
         super().set_params(**params)
         return self
+
+
+# Alias for naming consistency with RandomEffects, PooledOLS, etc.
+FixedEffects = PanelOLS

@@ -77,17 +77,21 @@ class FamaMacBeth(BaseEstimator):
         if self.cov_type not in ("nonrobust", "newey-west"):
             raise ValueError("cov_type must be 'nonrobust' or 'newey-west'")
 
-    def fit(self, X, y, time_ids=None):
+    def fit(self, X=None, y=None, time_ids=None, formula=None, data=None):
         """Fit the Fama-MacBeth model.
 
         Parameters
         ----------
-        X : array-like, shape (n, k)
+        X : array-like, shape (n, k), optional
             Design matrix (an intercept is added automatically).
-        y : array-like, shape (n,)
+        y : array-like, shape (n,), optional
             Dependent variable.
         time_ids : array-like, shape (n,)
             Time period identifiers.
+        formula : str, optional
+            R-style formula string (e.g. ``"y ~ x1 + x2"``).
+        data : DataFrame, optional
+            DataFrame for formula parsing.
 
         Returns
         -------
@@ -96,11 +100,12 @@ class FamaMacBeth(BaseEstimator):
         if time_ids is None:
             raise ValueError("time_ids is required for FamaMacBeth")
 
-        backend = self._get_backend(backend="auto")
-        xp = backend.xp
+        from statgpu.panel._formula import _prepare_formula_fit
+        y_np, X_np, self._design_info, self._feature_names, self._formula_has_intercept = \
+            _prepare_formula_fit(formula, data, X, y, model_has_intercept=True)
 
-        X_np = np.asarray(X, dtype=np.float64)
-        y_np = np.asarray(y, dtype=np.float64).ravel()
+        backend = self._get_backend(backend="auto")
+        y_np = np.asarray(y_np, dtype=np.float64).ravel()
         tids_np = np.asarray(time_ids).ravel()
 
         if X_np.ndim == 1:
@@ -200,7 +205,11 @@ class FamaMacBeth(BaseEstimator):
     def predict(self, X):
         """Predict using the fitted model."""
         self._check_is_fitted()
-        X_np = np.asarray(X, dtype=np.float64)
+        from statgpu.panel._formula import _formula_predict
+        X_np = _formula_predict(X, getattr(self, '_design_info', None),
+                                getattr(self, '_formula_has_intercept', None),
+                                model_has_intercept=True)
+        X_np = np.asarray(X_np, dtype=np.float64)
         if X_np.ndim == 1:
             X_np = X_np.reshape(-1, 1)
         X_np = np.column_stack([np.ones(X_np.shape[0]), X_np])
@@ -209,6 +218,10 @@ class FamaMacBeth(BaseEstimator):
     def summary(self):
         """Return a summary object."""
         self._check_is_fitted()
+        from statgpu.panel._formula import _get_feature_names
+        feature_names = _get_feature_names(
+            getattr(self, '_feature_names', None), len(self.coef_), prefix="x"
+        )
         return PanelSummary(
             model_type="FamaMacBeth",
             cov_type=self.cov_type,
@@ -220,6 +233,7 @@ class FamaMacBeth(BaseEstimator):
             nobs=self.nobs,
             df_resid=self.df_resid,
             alpha=self.alpha,
+            feature_names=feature_names,
         )
 
     def get_params(self, deep=True):

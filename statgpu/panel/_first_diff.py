@@ -65,20 +65,24 @@ class FirstDifferenceOLS(BaseEstimator):
         if self.cov_type not in ("nonrobust", "robust"):
             raise ValueError("cov_type must be 'nonrobust' or 'robust'")
 
-    def fit(self, X, y, entity_ids=None, time_ids=None):
+    def fit(self, X=None, y=None, entity_ids=None, time_ids=None, formula=None, data=None):
         """Fit the first-difference OLS model.
 
         Parameters
         ----------
-        X : array-like, shape (n, k)
+        X : array-like, shape (n, k), optional
             Design matrix (without intercept -- it is removed by differencing).
-        y : array-like, shape (n,)
+        y : array-like, shape (n,), optional
             Dependent variable.
         entity_ids : array-like, shape (n,)
             Entity identifiers.
         time_ids : array-like, shape (n,), optional
             Time identifiers.  If None, assumes data is already sorted by
             time within each entity.
+        formula : str, optional
+            R-style formula string (e.g. ``"y ~ x1 + x2 - 1"``).
+        data : DataFrame, optional
+            DataFrame for formula parsing.
 
         Returns
         -------
@@ -87,11 +91,15 @@ class FirstDifferenceOLS(BaseEstimator):
         if entity_ids is None:
             raise ValueError("entity_ids is required for FirstDifferenceOLS")
 
+        from statgpu.panel._formula import _prepare_formula_fit
+        y_arr, X_arr, self._design_info, self._feature_names, self._formula_has_intercept = \
+            _prepare_formula_fit(formula, data, X, y, model_has_intercept=False)
+
         backend = self._get_backend(backend="auto")
         xp = backend.xp
 
-        X_arr = xp_asarray(X, dtype=xp.float64, xp=xp)
-        y_arr = xp_asarray(y, dtype=xp.float64, xp=xp, ref_arr=X_arr).ravel()
+        X_arr = xp_asarray(X_arr, dtype=xp.float64, xp=xp)
+        y_arr = xp_asarray(y_arr, dtype=xp.float64, xp=xp, ref_arr=X_arr).ravel()
         eids = xp_asarray(entity_ids, xp=xp, ref_arr=X_arr).ravel()
 
         if X_arr.ndim == 1:
@@ -131,9 +139,13 @@ class FirstDifferenceOLS(BaseEstimator):
     def predict(self, X):
         """Predict using the fitted model."""
         self._check_is_fitted()
+        from statgpu.panel._formula import _formula_predict
+        X_arr = _formula_predict(X, getattr(self, '_design_info', None),
+                                 getattr(self, '_formula_has_intercept', None),
+                                 model_has_intercept=False)
         backend = self._get_backend(backend="auto")
         xp = backend.xp
-        X_arr = xp_asarray(X, dtype=xp.float64, xp=xp)
+        X_arr = xp_asarray(X_arr, dtype=xp.float64, xp=xp)
         if X_arr.ndim == 1:
             X_arr = X_arr.reshape(-1, 1)
         params = xp_asarray(self.coef_, dtype=xp.float64, xp=xp, ref_arr=X_arr)
@@ -142,6 +154,10 @@ class FirstDifferenceOLS(BaseEstimator):
     def summary(self):
         """Return a summary object."""
         self._check_is_fitted()
+        from statgpu.panel._formula import _get_feature_names
+        feature_names = _get_feature_names(
+            getattr(self, '_feature_names', None), len(self.coef_), prefix="x"
+        )
         return PanelSummary(
             model_type="FirstDifferenceOLS",
             cov_type=self.cov_type,
@@ -153,6 +169,7 @@ class FirstDifferenceOLS(BaseEstimator):
             nobs=self.nobs,
             df_resid=self.df_resid,
             alpha=self.alpha,
+            feature_names=feature_names,
         )
 
     def get_params(self, deep=True):

@@ -6,7 +6,7 @@ and Fama-MacBeth estimators for panel/longitudinal data, along with
 clustered and HAC covariance estimators.
 """
 
-from ._fixed_effects import PanelOLS
+from ._fixed_effects import PanelOLS, FixedEffects
 from ._random_effects import RandomEffects, RandomEffectsOLS
 from ._covariance import clustered_covariance, two_way_clustered_covariance, hac_covariance
 from ._utils import PanelSummary
@@ -17,6 +17,7 @@ from ._fama_macbeth import FamaMacBeth
 
 __all__ = [
     'PanelOLS',
+    'FixedEffects',
     'RandomEffects',
     'RandomEffectsOLS',
     'PooledOLS',
