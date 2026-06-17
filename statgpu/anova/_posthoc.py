@@ -22,7 +22,26 @@ from statgpu.backends import _get_xp, _resolve_backend, _to_float_scalar
 
 @dataclass
 class PairwiseComparison:
-    """A single pairwise comparison."""
+    """A single pairwise comparison.
+
+    Attributes
+    ----------
+    group_i : int
+        Index of the first group.
+    group_j : int
+        Index of the second group.
+    mean_diff : float
+        Difference in group means (mean_i - mean_j).
+    pvalue : float
+        Two-sided p-value for the comparison.
+    ci_lower : float
+        Lower bound of the confidence interval for mean_diff.
+    ci_upper : float
+        Upper bound of the confidence interval for mean_diff.
+    reject : bool
+        True if the null hypothesis (equal means) is rejected at the
+        given significance level.
+    """
     group_i: int
     group_j: int
     mean_diff: float

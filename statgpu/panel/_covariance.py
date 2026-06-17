@@ -68,15 +68,31 @@ def clustered_covariance(X, resid, clusters, xp=None):
         bread = xp.linalg.pinv(XtX)
 
     # Meat: sum over clusters of (X_g' e_g)(X_g' e_g)'
-    # Batch-transfer unique cluster values to CPU (single sync, not per-cluster)
-    unique_clusters_cpu = _to_numpy(xp.unique(clusters)).tolist()
-    meat = xp_zeros((k, k), xp.float64, xp, X)
-    for g_val in unique_clusters_cpu:
-        mask = clusters == g_val
-        Xg = X[mask]
-        eg = resid[mask]
-        Xe = Xg.T @ eg  # shape (k,)
-        meat = meat + xp.outer(Xe, Xe)
+    # Vectorized: scores = X * e, then scatter_add per cluster, then S'@S
+    scores = X * resid[:, None]  # (n, k)
+
+    # Factorize cluster labels to contiguous indices
+    clusters_np = _to_numpy(clusters)
+    unique_labels, cluster_idx = np.unique(clusters_np, return_inverse=True)
+    n_clusters = len(unique_labels)
+    cluster_idx_xp = xp_asarray(cluster_idx, dtype=xp.int64, xp=xp, ref_arr=X)
+
+    # Scatter-add: sum scores per cluster → S shape (n_clusters, k)
+    S = xp_zeros((n_clusters, k), dtype=xp.float64, xp=xp, ref_arr=X)
+    if hasattr(S, 'scatter_add_'):
+        # torch
+        S.scatter_add_(0, cluster_idx_xp.unsqueeze(1).expand_as(scores), scores)
+    elif hasattr(S, 'device') and not hasattr(S, 'get'):
+        # cupy — fall back to numpy loop
+        S_np = np.zeros((n_clusters, k), dtype=np.float64)
+        np.add.at(S_np, cluster_idx, _to_numpy(scores))
+        S = xp_asarray(S_np, dtype=xp.float64, xp=xp, ref_arr=X)
+    else:
+        # numpy
+        np.add.at(S, cluster_idx, scores)
+
+    # meat = S' @ S  (k, k)
+    meat = S.T @ S
 
     # Sandwich: V = bread @ meat @ bread / n^2
     V = bread @ meat @ bread / (n * n)
@@ -124,16 +140,9 @@ def two_way_clustered_covariance(X, resid, cluster1, cluster2, xp=None):
     c2_raw = _to_numpy(xp_asarray(cluster2, xp=xp, ref_arr=V1).ravel())
     _, c1 = np.unique(c1_raw, return_inverse=True)
     _, c2 = np.unique(c2_raw, return_inverse=True)
-    # Use Python int for Cantor-pair to avoid int64 overflow with
-    # large cluster counts (>~3 billion unique combinations).
-    c1_int = [int(x) for x in c1]
-    c2_int = [int(x) for x in c2]
-    combined_np = np.array(
-        [s * (s + 1) // 2 + c2i for s, c2i in zip(
-            [a + b for a, b in zip(c1_int, c2_int)], c2_int
-        )],
-        dtype=np.int64,
-    )
+    # Vectorized Cantor-pair hash: s = c1 + c2, hash = s*(s+1)/2 + c2
+    s = c1.astype(np.int64) + c2.astype(np.int64)
+    combined_np = s * (s + 1) // 2 + c2.astype(np.int64)
     combined = xp_asarray(combined_np, dtype=xp.int64, xp=xp, ref_arr=V1)
 
     V12 = clustered_covariance(X, resid, combined, xp)

@@ -55,7 +55,6 @@ def cohens_f(
 def partial_eta_squared(
     ss_effect: float,
     ss_error: float,
-    backend: str = "auto",
 ) -> float:
     """Compute partial eta-squared from sum of squares.
 
@@ -65,8 +64,6 @@ def partial_eta_squared(
         Sum of squares for the effect of interest.
     ss_error : float
         Sum of squares for the error term.
-    backend : str, default='auto'
-        Not used (kept for API consistency).
 
     Returns
     -------

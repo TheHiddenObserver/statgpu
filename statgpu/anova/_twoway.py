@@ -183,7 +183,7 @@ def f_twoway(
     else:
         df_ab = 0
         ss_ab = 0.0
-    df_w = int(N) - (df_a + df_b + df_ab + 1)
+    df_w = N - (df_a + df_b + df_ab + 1)
 
     if df_w <= 0:
         raise ValueError(
@@ -257,7 +257,7 @@ def _parse_cells(data, xp, float_dtype):
     cell_ss = {}
 
     # data is expected to be a list of lists (or array of arrays)
-    data_list = _to_numpy(np.asarray(data, dtype=object)) if not isinstance(data, list) else data
+    data_list = list(data) if not isinstance(data, list) else data
 
     n_a = len(data_list)
     if n_a < 1:

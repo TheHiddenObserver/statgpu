@@ -480,3 +480,84 @@ def ols_inference_nonrobust(params, X, scale, df, alpha=0.05):
         params + t_crit * bse,
     ])
     return bse, tvalues, pvalues, conf_int
+
+
+def compute_panel_inference(model, X, resid, params, scale, n, k, xp, backend_name,
+                            cov_type, alpha, dist_df=None):
+    """Shared OLS inference for panel models.
+
+    Computes standard errors, t-statistics, p-values, and confidence
+    intervals.  Sets ``coef_``, ``bse_``, ``tvalues_``, ``pvalues_``,
+    and ``conf_int_`` on *model*.
+
+    Parameters
+    ----------
+    model : object
+        Model instance to receive fitted attributes.
+    X : array, shape (n, k)
+        Design matrix (on device).
+    resid : array, shape (n,)
+        Residuals (on device).
+    params : array, shape (k,)
+        Estimated coefficients (on device).
+    scale : float
+        Residual variance (sigma^2).
+    n : int
+        Number of observations.
+    k : int
+        Number of parameters.
+    xp : module
+        Array module.
+    backend_name : str
+        Backend name (``'numpy'``, ``'cupy'``, ``'torch'``).
+    cov_type : str
+        Covariance type: ``'nonrobust'``, ``'robust'``, ``'clustered'``, ``'hac'``.
+    alpha : float
+        Significance level for confidence intervals.
+    dist_df : int or None
+        Degrees of freedom for the t-distribution.  Defaults to ``n - k``.
+    """
+    from statgpu.backends import _LINALG_ERRORS, _to_numpy
+
+    XtX = X.T @ X / n
+    try:
+        XtX_inv = xp.linalg.inv(XtX)
+    except _LINALG_ERRORS:
+        XtX_inv = xp.linalg.pinv(XtX)
+
+    if cov_type == "nonrobust":
+        cov_params = scale * XtX_inv / n
+    elif cov_type == "robust":
+        scores = X * resid[:, None]
+        meat = scores.T @ scores
+        cov_params = XtX_inv @ meat @ XtX_inv / (n * n) * n / (n - k)
+    elif cov_type == "clustered":
+        raise ValueError(
+            "cov_type='clustered' requires cluster labels. "
+            "Use PooledOLS which accepts a 'cluster' parameter."
+        )
+    else:
+        cov_params = scale * XtX_inv / n
+
+    bse_dev = xp.sqrt(xp.diag(cov_params))
+    tvalues_dev = params / bse_dev
+
+    df = dist_df if dist_df is not None else n - k
+    from statgpu.inference._distributions_backend import get_distribution
+    dist_name = "norm" if cov_type in ("robust", "clustered", "hac") else "t"
+    t_dist = get_distribution(dist_name, backend=backend_name)
+    if dist_name == "t":
+        pvalues_dev = 2 * t_dist.sf(xp.abs(tvalues_dev), df)
+        t_crit = t_dist.isf(alpha / 2, df)
+    else:
+        pvalues_dev = 2 * t_dist.sf(xp.abs(tvalues_dev))
+        t_crit = t_dist.isf(alpha / 2)
+
+    conf_low = params - t_crit * bse_dev
+    conf_high = params + t_crit * bse_dev
+
+    model.coef_ = _to_numpy(params)
+    model.bse_ = _to_numpy(bse_dev)
+    model.tvalues_ = _to_numpy(tvalues_dev)
+    model.pvalues_ = _to_numpy(pvalues_dev)
+    model.conf_int_ = _to_numpy(xp.stack([conf_low, conf_high], axis=1))

@@ -113,7 +113,8 @@ def f_welch(
     f_dist = get_distribution("f", backend=resolved)
     pvalue = _to_float_scalar(f_dist.sf(f_stat, df1, df2))
 
-    # eta_squared is not standard for Welch; return NaN
+    # Welch's ANOVA does not assume equal variances, so a pooled
+    # eta-squared is not well-defined.  Return NaN.
     return AnovaResult(
         statistic=float(f_stat),
         pvalue=float(pvalue),

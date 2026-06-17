@@ -13,7 +13,7 @@ from statgpu._config import Device
 from statgpu.backends import _LINALG_ERRORS, _to_float_scalar, _to_numpy, xp_asarray
 
 from statgpu.panel._utils import PanelSummary
-from statgpu.panel._between import _compute_ols_inference
+from statgpu.panel._utils import compute_panel_inference as _compute_ols_inference
 
 
 class FirstDifferenceOLS(BaseEstimator):
