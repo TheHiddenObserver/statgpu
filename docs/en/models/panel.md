@@ -1,7 +1,7 @@
 # Panel
 
 > Language: English  
-> Last updated: 2026-05-28  
+> Last updated: 2026-06-17  
 > This page: Model documentation  
 > Switch: [Chinese](../../models/panel.md)
 
@@ -9,14 +9,19 @@ Language switch: [Chinese](../../models/panel.md)
 
 ## Overview
 
-The `panel` module provides panel data models for longitudinal/panel data. `PanelOLS` estimates fixed effects (entity and/or time effects) with non-robust, HC1 robust, and clustered standard errors. `RandomEffects` implements feasible GLS random effects using the Swamy-Arora variance component estimator. Both classes support CPU, CuPy, and PyTorch backends with automatic device detection.
+The `panel` module provides panel data models for longitudinal/panel data. `PanelOLS` estimates fixed effects (entity and/or time effects) with non-robust, HC1 robust, and clustered standard errors. `RandomEffects` implements feasible GLS random effects using the Swamy-Arora variance component estimator. `PooledOLS` runs OLS on the stacked panel without demeaning. `BetweenOLS` collapses to group means and runs OLS on the between data. `FirstDifferenceOLS` takes first differences within entities to remove fixed effects. `FamaMacBeth` implements the two-pass cross-sectional regression approach common in asset pricing. All classes support CPU, CuPy, and PyTorch backends with automatic device detection.
 
 ## Path
 
 - `statgpu.panel.PanelOLS`
 - `statgpu.panel.RandomEffects`
+- `statgpu.panel.PooledOLS`
+- `statgpu.panel.BetweenOLS`
+- `statgpu.panel.FirstDifferenceOLS`
+- `statgpu.panel.FamaMacBeth`
 - `statgpu.panel.clustered_covariance`
 - `statgpu.panel.two_way_clustered_covariance`
+- `statgpu.panel.hac_covariance`
 
 ## Objective Function
 
@@ -41,6 +46,35 @@ y_{it} = \alpha + X_{it}'\beta + a_i + \epsilon_{it}
 $$
 
 where \(a_i \sim \text{iid}(0, \sigma^2_a)\) is the individual random effect and \(\epsilon_{it} \sim \text{iid}(0, \sigma^2_e)\) is the idiosyncratic error. The Swamy-Arora estimator obtains \(\hat{\sigma}^2_e\) from the within estimator and \(\hat{\sigma}^2_a\) from the between estimator, then applies feasible GLS.
+
+**PooledOLS** runs standard OLS on the stacked panel data without any transformation:
+
+$$
+y_{it} = \alpha + X_{it}'\beta + u_{it}
+$$
+
+All observations are pooled together and OLS is applied directly. An intercept is added automatically.
+
+**BetweenOLS** collapses the data to group (entity) means and runs OLS on the reduced dataset:
+
+$$
+\bar{y}_{i\cdot} = \alpha + \bar{X}_{i\cdot}'\beta + \bar{u}_{i\cdot}
+$$
+
+where \(\bar{y}_{i\cdot} = T_i^{-1} \sum_t y_{it}\) and \(\bar{X}_{i\cdot} = T_i^{-1} \sum_t X_{it}\). The effective sample size is the number of entities \(n_{entities}\).
+
+**FirstDifferenceOLS** removes entity fixed effects by taking first differences within each entity:
+
+$$
+\Delta y_{it} = \Delta X_{it}'\beta + \Delta u_{it}, \qquad \Delta y_{it} = y_{it} - y_{i,t-1}
+$$
+
+The intercept is eliminated by differencing. Data must be sorted by entity and time; entities with fewer than two observations are dropped.
+
+**FamaMacBeth** implements the two-pass regression (Fama & MacBeth 1973):
+
+1. **Step 1**: For each time period \(t\), run a cross-sectional OLS regression to obtain a coefficient vector \(\hat{\beta}_t\).
+2. **Step 2**: Average the time-series of coefficients \(\bar{\beta} = T^{-1} \sum_t \hat{\beta}_t\) and compute standard errors from the time-series variation of \(\hat{\beta}_t\), optionally with a Newey-West HAC correction for serial correlation.
 
 ## Estimating Equation
 
@@ -79,17 +113,60 @@ where \(X_d\) and \(y_d\) are the entity- (and optionally time-) demeaned regres
 
 6. **Inference**: compute the OLS covariance on the quasi-demeaned data.
 
+**PooledOLS** fits OLS on the raw (stacked) data:
+
+$$
+\hat{\beta} = (X^\top X)^{-1} X^\top y
+$$
+
+where \(X\) includes an automatically added intercept column.
+
+**BetweenOLS** collapses to entity means then runs OLS:
+
+$$
+\hat{\beta} = (\bar{X}^\top \bar{X})^{-1} \bar{X}^\top \bar{y}
+$$
+
+where \(\bar{X}\) and \(\bar{y}\) are the entity-mean matrices of dimension \((n_{entities}, k)\).
+
+**FirstDifferenceOLS** applies first differencing within each entity and runs OLS:
+
+$$
+\hat{\beta} = (\Delta X^\top \Delta X)^{-1} \Delta X^\top \Delta y
+$$
+
+where \(\Delta X\) and \(\Delta y\) are the first-differenced regressors and dependent variable (no intercept).
+
+**FamaMacBeth** runs two passes:
+
+1. For each period \(t\): \(\hat{\beta}_t = (X_t^\top X_t)^{-1} X_t^\top y_t\)
+2. Average: \(\bar{\beta} = \frac{1}{T} \sum_{t=1}^{T} \hat{\beta}_t\)
+
+Standard errors are computed from the time-series of \(\hat{\beta}_t\). With `cov_type='newey-west'`, the Newey-West HAC estimator with Bartlett kernel is applied to the \(\hat{\beta}_t\) series to correct for serial correlation.
+
 ## Covariance/Inference
 
-The `cov_type` parameter on `PanelOLS` selects the inference method:
+The `cov_type` parameter selects the inference method:
 
-- **`nonrobust`**: classical OLS covariance \(\hat{\sigma}^2 (X_d^\top X_d)^{-1}\). P-values from the \(t\)-distribution with \(df_{resid}\) degrees of freedom.
+- **`nonrobust`**: classical OLS covariance \(\hat{\sigma}^2 (X^\top X)^{-1}\). P-values from the \(t\)-distribution with \(df_{resid}\) degrees of freedom.
 - **`robust`**: HC1 sandwich estimator (White 1980, with finite-sample \(n/(n-k)\) correction). P-values from the standard normal.
 - **`clustered`**: cluster-robust sandwich estimator (Cameron & Miller 2015). P-values from the standard normal. For two-way clustering, pass a 2-column cluster array; the variance is computed via the Cameron, Gelbach & Miller (2011) method.
+- **`hac`**: Newey-West HAC estimator (Newey & West 1987) with Bartlett kernel. P-values from the standard normal. Automatic bandwidth selection via the Newey-West (1994) rule: \(bw = \lfloor 4 (n/100)^{2/9} \rfloor\). Used with `PooledOLS` (via `time_index`) and `FamaMacBeth` (applied to the \(\hat{\beta}_t\) time-series).
+
+Supported `cov_type` values by model:
+
+| Model | nonrobust | robust | clustered | hac / newey-west |
+|---|---|---|---|---|
+| PanelOLS | yes | yes | yes | -- |
+| RandomEffects | yes | -- | -- | -- |
+| PooledOLS | yes | yes | yes | yes |
+| BetweenOLS | yes | yes | yes | -- |
+| FirstDifferenceOLS | yes | yes | -- | -- |
+| FamaMacBeth | yes | -- | -- | yes (`newey-west`) |
 
 `RandomEffects` uses nonrobust OLS inference on the quasi-demeaned data by default.
 
-Outputs after `fit()`: `coef_`, `bse_`, `tvalues_`, `pvalues_`, `conf_int_`, `rsquared_within` (PanelOLS).
+Outputs after `fit()`: `coef_`, `bse_`, `tvalues_`, `pvalues_`, `conf_int_`, `rsquared_within` (PanelOLS). `FamaMacBeth` additionally stores `betas_` (the T-by-k matrix of per-period coefficients) and `n_periods`.
 
 ## Parameters
 
@@ -108,10 +185,55 @@ Outputs after `fit()`: `coef_`, `bse_`, `tvalues_`, `pvalues_`, `conf_int_`, `rs
 |---|---:|---|
 | `device` | `"auto"` | Computation device: `"cpu"`, `"cuda"`, or `"auto"` |
 
+### PooledOLS
+
+| Parameter | Default | Description |
+|---|---:|---|
+| `cov_type` | `'nonrobust'` | Covariance type: `'nonrobust'`, `'robust'`, `'clustered'`, or `'hac'` |
+| `alpha` | `0.05` | Significance level for confidence intervals |
+| `bandwidth` | `None` | HAC bandwidth; `None` uses Newey-West (1994) rule |
+| `kernel` | `'bartlett'` | HAC kernel function |
+| `device` | `"auto"` | Computation device: `"cpu"`, `"cuda"`, or `"auto"` |
+
+**fit()**: `fit(X, y, cluster=None, time_index=None)`. An intercept is added automatically. `cluster` is required for `cov_type='clustered'`. `time_index` is used for HAC estimation.
+
+### BetweenOLS
+
+| Parameter | Default | Description |
+|---|---:|---|
+| `cov_type` | `'nonrobust'` | Covariance type: `'nonrobust'`, `'robust'`, or `'clustered'` |
+| `alpha` | `0.05` | Significance level for confidence intervals |
+| `device` | `"auto"` | Computation device: `"cpu"`, `"cuda"`, or `"auto"` |
+
+**fit()**: `fit(X, y, entity_ids)`. An intercept is added automatically. `entity_ids` is required.
+
+### FirstDifferenceOLS
+
+| Parameter | Default | Description |
+|---|---:|---|
+| `cov_type` | `'nonrobust'` | Covariance type: `'nonrobust'` or `'robust'` |
+| `alpha` | `0.05` | Significance level for confidence intervals |
+| `device` | `"auto"` | Computation device: `"cpu"`, `"cuda"`, or `"auto"` |
+
+**fit()**: `fit(X, y, entity_ids, time_ids=None)`. No intercept is added (differencing removes it). `entity_ids` is required. `time_ids` is optional; if omitted, data is assumed sorted by time within each entity.
+
+### FamaMacBeth
+
+| Parameter | Default | Description |
+|---|---:|---|
+| `cov_type` | `'newey-west'` | Covariance type: `'nonrobust'` or `'newey-west'` |
+| `bandwidth` | `None` | Newey-West bandwidth; `None` uses Newey-West (1994) rule |
+| `alpha` | `0.05` | Significance level for confidence intervals |
+| `min_obs_per_period` | `1` | Minimum observations per time period to include |
+| `device` | `"auto"` | Computation device: `"cpu"`, `"cuda"`, or `"auto"` |
+
+**fit()**: `fit(X, y, time_ids)`. An intercept is added automatically. `time_ids` is required.
+
 ## CPU+GPU Examples
 
 ```python
-from statgpu.panel import PanelOLS, RandomEffects
+from statgpu.panel import (PanelOLS, RandomEffects, PooledOLS,
+                            BetweenOLS, FirstDifferenceOLS, FamaMacBeth)
 import numpy as np
 
 # Generate panel data
@@ -157,6 +279,36 @@ X_torch = torch.from_numpy(X).cuda().float()
 fe_torch = PanelOLS(entity_effects=True, cov_type='robust', device='cuda')
 fe_torch.fit(y_torch, X_torch, entity_ids=entity_ids)
 print(f"Torch FE coef: {fe_torch.coef_}")
+
+# --- PooledOLS ---
+
+pooled = PooledOLS(cov_type='clustered', device='cpu')
+pooled.fit(X, y, cluster=entity_ids)
+print(f"Pooled coef: {pooled.coef_}, R-squared: {pooled.rsquared:.4f}")
+
+# PooledOLS with HAC standard errors
+pooled_hac = PooledOLS(cov_type='hac', device='cpu')
+pooled_hac.fit(X, y, time_index=time_ids)
+print(f"Pooled HAC coef: {pooled_hac.coef_}, SE: {pooled_hac.bse_}")
+
+# --- BetweenOLS ---
+
+between = BetweenOLS(cov_type='robust', device='cpu')
+between.fit(X, y, entity_ids=entity_ids)
+print(f"Between coef: {between.coef_}, nobs: {between.nobs}")
+
+# --- FirstDifferenceOLS ---
+
+fd = FirstDifferenceOLS(cov_type='robust', device='cpu')
+fd.fit(X, y, entity_ids=entity_ids, time_ids=time_ids)
+print(f"FD coef: {fd.coef_}, R-squared: {fd.rsquared:.4f}")
+
+# --- FamaMacBeth ---
+
+fm = FamaMacBeth(cov_type='newey-west', device='cpu')
+fm.fit(X, y, time_ids=time_ids)
+print(f"FM coef: {fm.coef_}, SE: {fm.bse_}")
+print(f"FM periods: {fm.n_periods}, betas shape: {fm.betas_.shape}")
 ```
 
 ## strict/approx difference
@@ -166,6 +318,7 @@ There is no strict/approx mode for panel models. The `cov_type` parameter contro
 - `'nonrobust'`: classical OLS standard errors, assumes homoskedasticity and no within-cluster correlation. Uses the \(t\)-distribution for p-values.
 - `'robust'`: HC1 heteroskedasticity-robust standard errors (White sandwich). Uses the normal distribution for p-values.
 - `'clustered'`: cluster-robust standard errors allowing arbitrary within-cluster correlation. Uses the normal distribution for p-values. Supports one-way and two-way clustering.
+- `'hac'` / `'newey-west'`: Newey-West HAC standard errors with Bartlett kernel, robust to heteroskedasticity and autocorrelation. Uses the normal distribution for p-values. Automatic bandwidth via the Newey-West (1994) rule: \(bw = \lfloor 4 (n/100)^{2/9} \rfloor\).
 
 ## Outputs
 
@@ -179,8 +332,11 @@ There is no strict/approx mode for panel models. The `cov_type` parameter contro
 | `pvalues_` | `(k,)` | P-values |
 | `conf_int_` | `(k, 2)` | 95% confidence intervals |
 | `rsquared_within` | scalar | Within R-squared (PanelOLS only) |
+| `rsquared` | scalar | R-squared (PooledOLS, BetweenOLS, FirstDifferenceOLS, FamaMacBeth) |
 | `theta_` | scalar | GLS transformation weight (RandomEffects only) |
 | `variance_components_` | dict | `{'sigma2_e': float, 'sigma2_a': float}` (RandomEffects only) |
+| `betas_` | `(T, k)` | Time-series of per-period coefficients from Step 1 (FamaMacBeth only) |
+| `n_periods` | int | Number of time periods used (FamaMacBeth only) |
 | `nobs` | int | Number of observations |
 | `df_resid` | int | Residual degrees of freedom |
 
@@ -189,6 +345,7 @@ There is no strict/approx mode for panel models. The `cov_type` parameter contro
 | Method | Returns | Description |
 |---|---|---|
 | `fit(y, X, entity_ids, ...)` | `self` | Fit the panel model. Requires `entity_ids` (1-D array of entity labels). Optional: `time_ids`, `cluster`. |
+| `fit(X, y, ...)` | `self` | Fit PooledOLS/BetweenOLS/FirstDifferenceOLS/FamaMacBeth. Arguments differ by model (see Parameters above). |
 | `predict(X, entity_ids)` | `ndarray` | Predicted values |
 | `summary()` | str | Formatted summary table |
 
@@ -207,11 +364,20 @@ The statistical methods are the same as `linearmodels.panel.PanelOLS` and `linea
 Yes. Pass a CuPy ndarray or PyTorch tensor as `y` or `X` and the backend is auto-detected from the input type. You can also set `device="cuda"` explicitly with NumPy input to force GPU computation.
 
 **What happens with unbalanced panels?**
-Both `PanelOLS` and `RandomEffects` handle unbalanced panels. Entity and time identifiers define the structure; each entity can have a different number of observations \(T_i\). The GLS weight \(\theta_i\) in RandomEffects varies by entity to account for differing \(T_i\).
+Both `PanelOLS` and `RandomEffects` handle unbalanced panels. Entity and time identifiers define the structure; each entity can have a different number of observations \(T_i\). The GLS weight \(\theta_i\) in RandomEffects varies by entity to account for differing \(T_i\). `BetweenOLS` and `FirstDifferenceOLS` also handle unbalanced panels naturally: `BetweenOLS` computes entity means over whatever observations each entity has, and `FirstDifferenceOLS` drops single-observation entities.
+
+**When should I use FamaMacBeth vs PanelOLS?**
+`FamaMacBeth` is the standard approach in asset pricing and factor model research. It runs cross-sectional regressions per period and averages the coefficients, which is intuitive when the cross-section is the dimension of interest. `PanelOLS` with fixed effects is preferred when you want to control for unobserved heterogeneity. Use `FamaMacBeth` with `cov_type='newey-west'` to correct for serial correlation in the coefficient estimates.
+
+**When is HAC inference appropriate?**
+Use `cov_type='hac'` (PooledOLS) or `cov_type='newey-west'` (FamaMacBeth) when residuals exhibit autocorrelation -- for example, in time-series or panel data with persistent shocks. The Bartlett kernel downweights higher-order autocovariances, and the Newey-West (1994) bandwidth rule provides a data-driven lag length.
+
+**What is the hac_covariance function?**
+`hac_covariance` is a standalone function that computes the Newey-West HAC covariance matrix for OLS estimates. It is used internally by `PooledOLS` (when `cov_type='hac'`) and `FamaMacBeth` (when `cov_type='newey-west'`), but can also be called directly on any OLS design matrix and residuals.
 
 ## External Validation
 
-Validated against `linearmodels.panel.PanelOLS` and `linearmodels.panel.RandomEffects` (from the `linearmodels` package). Coefficient estimates, standard errors, and variance components match to relative error < 1e-12 on test datasets. Consistency checks are maintained in `dev/tests/test_external_consistency.py`.
+Validated against `linearmodels.panel.PanelOLS`, `linearmodels.panel.RandomEffects`, `linearmodels.panel.PooledOLS`, `linearmodels.panel.BetweenOLS`, `linearmodels.panel.FirstDifferenceOLS`, and `linearmodels.panel.FamaMacBeth` (from the `linearmodels` package). Coefficient estimates, standard errors, and variance components match to relative error < 1e-12 on test datasets. The `hac_covariance` function is validated against `statsmodels` Newey-West standard errors. Consistency checks are maintained in `dev/tests/test_panel_p2.py`.
 
 ## References
 
