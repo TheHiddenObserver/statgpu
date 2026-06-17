@@ -9,7 +9,7 @@ from __future__ import annotations
 __all__ = ["f_twoway", "TwoWayAnovaResult"]
 
 from dataclasses import dataclass
-from typing import Any, List, Optional, Union
+from typing import Any, Optional
 
 import numpy as np
 
@@ -169,29 +169,10 @@ def f_twoway(
         cell_mean = cell_sums[(i, j)] / cell_sizes[(i, j)]
         ssw += cell_ss[(i, j)] - cell_sizes[(i, j)] * cell_mean ** 2
 
-    # SS_AB (interaction) -- by subtraction
-    ss_total = sum(
-        cell_ss[(i, j)]
-        - cell_sizes[(i, j)] * (cell_sums[(i, j)] / cell_sizes[(i, j)]) ** 2
-        + cell_sizes[(i, j)] * (cell_sums[(i, j)] / cell_sizes[(i, j)] - grand_mean) ** 2
-        for i in range(n_a)
-        for j in range(n_b)
-        if (i, j) in cells
-    )
-    # More correct: SST = sum of (x - grand_mean)^2 over all obs
-    # SST = SSA + SSB + SSAB + SSW
-    # SSAB = SST - SSA - SSB - SSW
-    sst = sum(
-        cell_ss[(i, j)] + cell_sizes[(i, j)] * (
-            cell_sums[(i, j)] / cell_sizes[(i, j)] - grand_mean
-        ) ** 2
-        for i in range(n_a)
-        for j in range(n_b)
-        if (i, j) in cells
-    )
     # SST = sum(x^2) - N * grand_mean^2
     total_ss_raw = sum(cell_ss[(i, j)] for (i, j) in cells)
     sst = total_ss_raw - N * grand_mean ** 2
+    # SS_AB = SST - SSA - SSB - SSW
     ss_ab = sst - ss_a - ss_b - ssw
 
     # Degrees of freedom
@@ -231,10 +212,11 @@ def f_twoway(
     p_ab = _to_float_scalar(f_dist.sf(f_ab, df_ab, df_w)) if f_ab is not None else None
 
     # Eta-squared
-    ss_total_effects = ss_a + ss_b + ss_ab + ssw
-    eta_a = ss_a / ss_total_effects if ss_total_effects > 0 else float("nan")
-    eta_b = ss_b / ss_total_effects if ss_total_effects > 0 else float("nan")
-    eta_ab = ss_ab / ss_total_effects if ss_total_effects > 0 and interaction else None
+    # Eta-squared: use sst (total SS) as denominator
+    sst_denom = max(sst, ss_a + ss_b + ss_ab + ssw)  # handle numerical issues
+    eta_a = ss_a / sst_denom if sst_denom > 0 else float("nan")
+    eta_b = ss_b / sst_denom if sst_denom > 0 else float("nan")
+    eta_ab = ss_ab / sst_denom if sst_denom > 0 and interaction else None
 
     return TwoWayAnovaResult(
         factor_a_statistic=f_a,
@@ -291,7 +273,7 @@ def _parse_cells(data, xp, float_dtype):
             raise ValueError(f"All rows must have the same number of columns. "
                              f"Row 0 has {n_b}, row {i} has {len(row)}.")
         for j, cell_data in enumerate(row):
-            arr = np.asarray(cell_data, dtype=np.float64).ravel()
+            arr = np.asarray(cell_data, dtype=float_dtype).ravel()
             if arr.size == 0:
                 raise ValueError(f"Cell ({i}, {j}) is empty.")
             cells[(i, j)] = arr

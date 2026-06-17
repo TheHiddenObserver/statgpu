@@ -212,8 +212,10 @@ def _compute_ols_inference(model, X, resid, params, scale, n, k, xp, backend_nam
         meat = scores.T @ scores
         cov_params = XtX_inv @ meat @ XtX_inv / (n * n) * n / (n - k)
     elif cov_type == "clustered":
-        # Not supported without cluster labels
-        cov_params = scale * XtX_inv / n
+        raise ValueError(
+            "cov_type='clustered' requires cluster labels. "
+            "Use PooledOLS which accepts a 'cluster' parameter."
+        )
 
     bse_dev = xp.sqrt(xp.diag(cov_params))
     tvalues_dev = params / bse_dev

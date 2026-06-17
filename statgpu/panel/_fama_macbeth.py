@@ -173,11 +173,12 @@ class FamaMacBeth(BaseEstimator):
         from statgpu.inference._distributions_backend import get_distribution
         dist_name = "norm" if self.cov_type == "newey-west" else "t"
         t_dist = get_distribution(dist_name, backend=backend.name)
+        abs_t = np.abs(tvalues)
         if dist_name == "t":
-            pvalues = np.asarray([_to_float_scalar(t_dist.sf(abs(t), df)) * 2 for t in tvalues])
+            pvalues = np.asarray([_to_float_scalar(t_dist.sf(t, df)) * 2 for t in abs_t])
             t_crit = _to_float_scalar(t_dist.isf(self.alpha / 2, df))
         else:
-            pvalues = np.asarray([_to_float_scalar(t_dist.sf(abs(t))) * 2 for t in tvalues])
+            pvalues = np.asarray([_to_float_scalar(t_dist.sf(t)) * 2 for t in abs_t])
             t_crit = _to_float_scalar(t_dist.isf(self.alpha / 2))
 
         conf_int = np.column_stack([avg_beta - t_crit * bse, avg_beta + t_crit * bse])

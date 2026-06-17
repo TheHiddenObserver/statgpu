@@ -327,11 +327,32 @@ A: When `gamma` is `None`, the kernel functions default to `1 / n_features`, fol
 **Q: Does KernelRidge support multi-output targets?**
 A: Yes. If `y` has shape `(n_samples, n_targets)`, both `KernelRidge` and `KernelRidgeCV` fit all targets simultaneously. The dual coefficients will have shape `(n_samples, n_targets)`.
 
+**Q: When should I use chi2_kernel?**
+A: The chi-squared kernel is designed for non-negative feature vectors, particularly histogram data (e.g., color histograms, bag-of-visual-words). It measures similarity based on the normalized difference between feature bins. Input features must be non-negative.
+
+**Q: How does Nystroem differ from KernelPCA?**
+A: `Nystroem` approximates the kernel feature map itself, producing explicit feature vectors of dimension `n_components` that can be fed to any linear method. `KernelPCA` performs eigendecomposition of the full centered kernel matrix and projects data into the principal component space. Use `Nystroem` when you need explicit features for large datasets (cost \(O(nm)\)); use `KernelPCA` when you need the exact kernel PCA projection (cost \(O(n^2)\)).
+
+**Q: How many landmarks should I use for Nystroem?**
+A: `n_components` controls the approximation quality. More landmarks give a better approximation but increase memory and computation. Typical values range from 50 to 500. The approximation error decreases as \(O(1/\sqrt{m})\) where \(m\) is the number of landmarks.
+
+**Q: What does the `alpha` parameter do in KernelPCA?**
+A: `alpha` adds a regularization term \(\alpha I\) to the centered kernel matrix before eigendecomposition. This improves numerical stability when the kernel matrix is near-singular or ill-conditioned. Larger values increase regularization.
+
 ## External Validation
 
-KernelRidge results are validated against `sklearn.kernel_ridge.KernelRidge` with relative error below \(10^{-10}\) for all supported kernel types. Consistency checks are maintained in the test suite covering RBF, polynomial, linear, Laplacian, sigmoid, and cosine kernels across both CPU and GPU backends.
+KernelRidge results are validated against `sklearn.kernel_ridge.KernelRidge` with relative error below \(10^{-10}\) for all supported kernel types. Consistency checks are maintained in the test suite covering RBF, polynomial, linear, Laplacian, sigmoid, cosine, and chi-squared kernels across both CPU and GPU backends.
+
+`KernelPCA` output validated against `sklearn.decomposition.KernelPCA`; eigenvectors agree up to sign with relative eigenvalue error below \(10^{-8}\).
+
+`Nystroem` output validated against `sklearn.kernel_approximation.Nystroem`; feature map approximation error decreases as expected with increasing `n_components`.
+
+`chi2_kernel` validated against `sklearn.metrics.pairwise.chi2_kernel`; relative error below \(10^{-12}\).
 
 ## References
 
 - Hastie, T., Tibshirani, R., & Friedman, J. (2009). *The Elements of Statistical Learning* (2nd ed.). Springer. Chapter 6. [https://hastie.su.domains/ElemStatLearn/](https://hastie.su.domains/ElemStatLearn/)
 - Saunders, C., Gammerman, A., & Vovk, V. (1998). Ridge regression learning algorithm in dual variables. *Proceedings of the 15th International Conference on Machine Learning (ICML)*, 515-521.
+- Scholkopf, B., Smola, A., & Muller, K.-R. (1998). Nonlinear component analysis as a kernel eigenvalue problem. *Neural Computation*, 10(5), 1299-1319.
+- Williams, C. K. I., & Seeger, M. (2001). Using the Nystroem method to speed up kernel machines. *Advances in Neural Information Processing Systems (NeurIPS)*, 13, 682-688.
+- Vedaldi, A., & Zisserman, A. (2012). Efficient additive kernels via explicit feature maps. *IEEE Transactions on Pattern Analysis and Machine Intelligence*, 34(3), 480-492.

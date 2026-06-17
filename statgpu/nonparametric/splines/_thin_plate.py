@@ -88,9 +88,11 @@ def thin_plate_spline_basis(x, knots, penalty_order=2, xp=None):
         # For d=1, m=1: φ(r) = r
         exponent = 2 * penalty_order - d
         if exponent <= 0:
-            phi = xp.ones_like(r)
-        else:
-            phi = xp.power(r, exponent)
+            raise ValueError(
+                f"penalty_order={penalty_order} too small for d={d} dimensions; "
+                f"need 2*penalty_order > d (got {2*penalty_order} <= {d})"
+            )
+        phi = xp.power(r, exponent)
 
     # Polynomial terms: [1, x_1, ..., x_d]
     poly = xp.ones((n, d + 1), dtype=xp.float64)

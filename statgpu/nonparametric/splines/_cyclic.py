@@ -6,7 +6,7 @@ __all__ = ["cyclic_cubic_spline_basis"]
 
 import numpy as np
 
-from statgpu.backends import _LINALG_ERRORS, xp_asarray
+from statgpu.backends import _LINALG_ERRORS, _to_numpy
 from statgpu.nonparametric.splines._bspline_basis import bspline_basis, _get_xp
 
 

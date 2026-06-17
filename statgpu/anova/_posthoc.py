@@ -118,8 +118,8 @@ def tukey_hsd(
     # Convert to numpy for statistics
     flat_groups = [np.asarray(g, dtype=np.float64).ravel() for g in groups]
     for i, g in enumerate(flat_groups):
-        if g.size < 1:
-            raise ValueError(f"Group {i} must have at least 1 observation")
+        if g.size < 2:
+            raise ValueError(f"Group {i} must have at least 2 observations for Tukey HSD")
 
     k = len(flat_groups)
     n_k = np.array([g.size for g in flat_groups], dtype=np.float64)
@@ -139,13 +139,17 @@ def tukey_hsd(
     except ImportError:
         _has_scipy_srange = False
 
+    # Pre-compute F distribution fallback (outside loop)
+    if not _has_scipy_srange:
+        from statgpu.inference._distributions_backend import get_distribution
+        _f_dist = get_distribution("f", backend=resolved)
+
     comparisons = []
     for i in range(k):
         for j in range(i + 1, k):
             mean_diff = means[i] - means[j]
 
-            # Standard error for the difference
-            # For unequal sample sizes, use the harmonic mean approach
+            # Standard error for the difference (harmonic mean for unequal sizes)
             n_harmonic = 2.0 / (1.0 / n_k[i] + 1.0 / n_k[j])
             se = np.sqrt(mse / n_harmonic) if mse < float("inf") else float("inf")
 
@@ -156,19 +160,13 @@ def tukey_hsd(
             if _has_scipy_srange:
                 pvalue = float(_srange.sf(q_stat, k, df_within))
             else:
-                # Approximation using F distribution
-                # q^2 / 2 approx F(k-1, df) -- very rough
-                from statgpu.inference._distributions_backend import get_distribution
-                f_dist = get_distribution("f", backend=resolved)
-                pvalue = _to_float_scalar(f_dist.sf(q_stat ** 2 / 2, k - 1, df_within))
+                pvalue = _to_float_scalar(_f_dist.sf(q_stat ** 2 / 2, k - 1, df_within))
 
             # Critical value for CI
             if _has_scipy_srange:
                 q_crit = float(_srange.ppf(1 - alpha, k, df_within))
             else:
-                from statgpu.inference._distributions_backend import get_distribution
-                f_dist = get_distribution("f", backend=resolved)
-                q_crit = np.sqrt(_to_float_scalar(f_dist.isf(alpha, k - 1, df_within)) * 2)
+                q_crit = np.sqrt(_to_float_scalar(_f_dist.isf(alpha, k - 1, df_within)) * 2)
 
             margin = q_crit * se
             ci_lower = mean_diff - margin

@@ -10,7 +10,7 @@ import numpy as np
 from scipy.stats import chi2 as _chi2
 
 from statgpu._config import Device
-from statgpu.backends import _get_xp, _to_float_scalar, _to_numpy, xp_zeros, xp_eye
+from statgpu.backends import _get_xp, _to_numpy
 
 from statgpu.covariance._empirical import (
     EmpiricalCovariance,
@@ -218,7 +218,7 @@ class MinCovDet(EmpiricalCovariance):
         self.support_ = support_mask
         self.raw_covariance_ = raw_cov_arr
         self.raw_location_ = raw_loc_arr
-        self.dist_ = dist_final
+        self.dist_ = xp.asarray(dist_final, dtype=xp.float64, **kw)
         self.n_samples_ = n
         self.n_features_ = p
         self._backend_name = backend_name

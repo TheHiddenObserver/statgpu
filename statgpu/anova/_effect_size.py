@@ -7,7 +7,7 @@ from __future__ import annotations
 
 __all__ = ["cohens_f", "partial_eta_squared"]
 
-from typing import Any, Optional, Union
+from typing import Any
 
 import numpy as np
 

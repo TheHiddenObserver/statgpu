@@ -10,7 +10,7 @@ import numpy as np
 
 from statgpu._base import BaseEstimator
 from statgpu._config import Device
-from statgpu.backends import _LINALG_ERRORS, _to_numpy, xp_asarray, xp_zeros, xp_eye
+from statgpu.backends import _to_numpy, xp_asarray
 from statgpu.nonparametric.kernel_methods._kernels import pairwise_kernels
 
 
@@ -166,41 +166,6 @@ class Nystroem(BaseEstimator):
                                        device=X_arr.device)
 
         K_nm = pairwise_kernels(X_arr, landmarks, metric=self.kernel,
-                                xp=xp, **self._kernel_params)
-
-        # Apply normalization
-        norm = xp.asarray(self.normalization_, dtype=xp.float64)
-        if hasattr(K_nm, 'is_cuda'):
-            norm = norm.to(device=K_nm.device)
-
-        Z = K_nm @ norm
-
-        # GPU in → GPU out, CPU in → CPU out
-        return Z
-
-    def transform(self, X):
-        """Approximate feature map for X.
-
-        Parameters
-        ----------
-        X : array-like, shape (n_samples, n_features)
-
-        Returns
-        -------
-        X_transformed : ndarray, shape (n_samples, n_components_out)
-            Approximate feature map.  n_components_out is the number of
-            positive eigenvalues found.
-        """
-        self._check_is_fitted()
-        backend = self._get_backend(backend="auto")
-        xp = backend.xp
-
-        X_arr = xp_asarray(X, dtype=xp.float64, xp=xp)
-        if X_arr.ndim == 1:
-            X_arr = X_arr.reshape(-1, 1)
-
-        # Compute K_nm: kernel between X and landmarks
-        K_nm = pairwise_kernels(X_arr, self._landmarks, metric=self.kernel,
                                 xp=xp, **self._kernel_params)
 
         # Apply normalization

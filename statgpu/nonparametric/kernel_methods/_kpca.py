@@ -211,7 +211,10 @@ class KernelPCA(BaseEstimator):
         """Fit and transform in one step."""
         self.fit(X, y)
         # For training data, the projection is just sqrt(lambda) * alpha
-        return np.asarray(self.alphas_) * np.sqrt(np.maximum(self.lambdas_, 0))[None, :]
+        backend = self._get_backend(backend="auto")
+        xp = backend.xp
+        result = np.asarray(self.alphas_) * np.sqrt(np.maximum(self.lambdas_, 0))[None, :]
+        return xp.asarray(result, dtype=xp.float64)
 
     def predict(self, X):
         """Alias for transform (required by BaseEstimator)."""

@@ -9,7 +9,7 @@ from typing import Optional, Union
 import numpy as np
 
 from statgpu._config import Device
-from statgpu.backends import _get_xp, _to_float_scalar, _to_numpy, xp_zeros, xp_eye
+from statgpu.backends import _get_xp
 
 from statgpu.covariance._empirical import (
     EmpiricalCovariance,
@@ -153,8 +153,8 @@ class GraphicalLasso(EmpiricalCovariance):
                 theta[j, :] = theta_j
                 theta[:, j] = theta_j
 
-            # Check convergence via dual gap
-            gap = np.abs(np.trace(W @ theta) - p)
+            # Check convergence via dual gap (use element-wise sum instead of trace)
+            gap = np.abs(np.sum(W * theta) - p)
             if gap < self.tol:
                 break
             if np.max(np.abs(W - W_old)) < self.tol:
@@ -342,7 +342,7 @@ class GraphicalLassoCV(EmpiricalCovariance):
             assume_centered=self.assume_centered,
             device="cpu",
         )
-        gl_final.fit(X_np if self.assume_centered else X_np - X_np.mean(axis=0))
+        gl_final.fit(X_np)  # GraphicalLasso handles centering internally
 
         # Convert to target backend
         backend_name = _detect_backend(X, self._get_compute_device())
@@ -382,9 +382,5 @@ class GraphicalLassoCV(EmpiricalCovariance):
 
 
 def _soft_threshold(x, threshold):
-    """Soft thresholding operator."""
-    if x > threshold:
-        return x - threshold
-    elif x < -threshold:
-        return x + threshold
-    return 0.0
+    """Soft thresholding operator (vectorized)."""
+    return np.sign(x) * np.maximum(np.abs(x) - threshold, 0.0)

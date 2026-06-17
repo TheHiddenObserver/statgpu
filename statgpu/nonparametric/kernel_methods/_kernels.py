@@ -85,12 +85,8 @@ def rbf_kernel(X, Y=None, gamma=None, xp=None):
     K = X @ Y.T                     # (n, m) — BLAS gemm
     K *= -2.0                       # in-place
     # norms — avoid n×n temporary via row-wise sum
-    if xp is np:
-        K += np.sum(X * X, axis=1)[:, None]
-        K += np.sum(Y * Y, axis=1)[None, :]
-    else:
-        K += xp.sum(X * X, axis=1)[:, None]
-        K += xp.sum(Y * Y, axis=1)[None, :]
+    K += xp.sum(X * X, axis=1)[:, None]
+    K += xp.sum(Y * Y, axis=1)[None, :]
     xp.maximum(K, 0.0, out=K)      # clamp negatives
     K *= -gamma
     if hasattr(K, 'exp_'):
