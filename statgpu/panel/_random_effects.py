@@ -383,3 +383,7 @@ class RandomEffects(BaseEstimator):
             self.alpha = params.pop('alpha')
         super().set_params(**params)
         return self
+
+
+# Alias for naming consistency with PanelOLS, PooledOLS, BetweenOLS, etc.
+RandomEffectsOLS = RandomEffects

@@ -38,6 +38,7 @@ from .survival import CoxPH, CoxPHCV
 from .panel import (
     PanelOLS,
     RandomEffects,
+    RandomEffectsOLS,
     PooledOLS,
     BetweenOLS,
     FirstDifferenceOLS,
@@ -149,6 +150,7 @@ __all__ = [
     # Panel
     "PanelOLS",
     "RandomEffects",
+    "RandomEffectsOLS",
     "PooledOLS",
     "BetweenOLS",
     "FirstDifferenceOLS",
