@@ -1,13 +1,90 @@
 # Changelog
 
 > 语言：中文  
-> 最后更新：2026-06-15  
+> 最后更新：2026-06-17  
 > 页面定位：变更记录  
 > 切换：[English](en/changelog.md)
 
 语言切换：[English](en/changelog.md)
 
 ## 2026-06
+
+### 新增 (2026-06-17)
+
+- **P2 模块拓展** (PR #72)：
+  - 5 个模块升级：ANOVA (15%→60%)、Covariance (30%→60%)、Panel (45%→70%)、Splines (35%→60%)、Kernel Methods (60%→80%)
+  - 所有新功能支持 numpy/cupy/torch 三端计算
+  - 17 个新源文件，112 个新测试（全部通过）
+  - 外部对标验证：scipy、sklearn、statsmodels（精度：coef diff ≤ 1e-14）
+
+- **ANOVA**：
+  - `f_twoway`：二因素 ANOVA（支持/不支持交互项，Type I SS 分解）
+  - `f_welch`：方差不齐的 Welch ANOVA（Welch 1951，Welch-Satterthwaite df）
+  - `tukey_hsd`：Tukey HSD 事后检验（studentized range 分布）
+  - `bonferroni`：Bonferroni 校正的两两 t 检验
+  - `cohens_f`：Cohen's f 效果量
+  - `partial_eta_squared`：偏 eta 平方
+  - 文件：`_twoway.py`、`_welch.py`、`_posthoc.py`、`_effect_size.py`
+
+- **Covariance**：
+  - `ShrunkCovariance`：通用收缩估计器（匹配 sklearn）
+  - `MinCovDet`：稳健 MCD 估计（FAST-MCD，Rousseeuw & Van Driessen 1999）
+    - 多阶段算法：30 次随机启动 → top 10 → 完整 C-steps
+    - 一致性校正因子（Croux & Haesbroeck 1999）
+    - 匹配 sklearn MinCovDet，correlation = 1.000000
+  - `GraphicalLasso`：稀疏逆协方差估计（Friedman et al. 2008）
+  - `GraphicalLassoCV`：交叉验证的 graphical lasso
+  - 文件：`_robust.py`、`_graphical_lasso.py`、`_shrinkage.py`（扩展）
+
+- **Panel**：
+  - `PooledOLS`：混合 OLS（支持 nonrobust/robust/clustered/HAC）
+  - `BetweenOLS`：实体均值 OLS
+  - `FirstDifferenceOLS`：一阶差分 OLS
+  - `FamaMacBeth`：两步法回归（截面 OLS → 时间序列均值 + NW SE）
+  - `hac_covariance`：Newey-West HAC 估计器（Bartlett 核，自动带宽）
+  - 文件：`_pooled.py`、`_between.py`、`_first_diff.py`、`_fama_macbeth.py`、`_covariance.py`（扩展）
+
+- **Splines**：
+  - `SplineTransformer`：sklearn 兼容的 fit/transform API
+  - `cyclic_cubic_spline_basis`：周期性三次样条（零空间投影法）
+  - `thin_plate_spline_basis`：多维平滑样条（φ(r) = r²log(r)）
+  - 文件：`_transformer.py`、`_cyclic.py`、`_thin_plate.py`
+
+- **Kernel Methods**：
+  - `chi2_kernel`：指数化卡方核（numpy 后端使用 sklearn Cython 加速）
+  - `Nystroem`：核近似（SVD 归一化，匹配 sklearn）
+  - `KernelPCA`：核主成分分析
+  - RBF kernel 优化：float32 分块计算，CPU 上比 sklearn 快 3.5-13x
+  - 文件：`_nystroem.py`、`_kpca.py`、`_kernels.py`（扩展 + 优化）
+
+### 优化 (2026-06-17)
+
+- **RBF kernel numpy 性能**：
+  - 大矩阵（n>2000）自动使用 float32（内存带宽减半）
+  - 分块计算避免 OOM（n=50000 不再崩溃）
+  - 所有运算复用同一 buffer（峰值内存 = 1 个 n×m 矩阵）
+  - 性能：n=5000 快 3.8x，n=10000 快 3.5x，n=50000 快 13.4x
+
+- **Nystroem GPU 优化**：
+  - K_mm 特征分解移至 CPU（避免小矩阵的 GPU kernel launch 开销）
+  - 归一化矩阵存储在 CPU，仅在需要时转到 GPU
+  - 输出与 sklearn 完全一致（correlation = 1.000000）
+
+- **数据一致性**：
+  - GPU 输入 → GPU 输出（不再自动转 numpy）
+  - float64 输入小矩阵 → float64 输出
+  - float64 输入大矩阵 → float32 输出（避免 OOM）
+
+### 验证 (2026-06-17)
+
+- **三端基准测试**（Tesla P100-16GB，n=5000-100000）：
+  - LedoitWolf：torch 比 sklearn 快 44.8x（n=100000）
+  - Nystroem：cupy 比 sklearn 快 43.7x（n=100000）
+  - RBF Kernel：cupy 快 797x，torch 快 929x（n=10000）
+  - ANOVA：torch 比 scipy 快 2.1x（n=100000）
+- **精度**：所有模块与外部框架差异 ≤ 1e-14（float64）
+- **112 个测试**：5 个测试文件覆盖所有 P2 模块，全部通过
+- **Benchmark JSON**：`results/p2_benchmark_final.json`（含 GPU warmup）
 
 ### Code Review 第 9-10 轮 (2026-06-15)
 

@@ -1,13 +1,91 @@
 # Changelog
 
 > Language: English  
-> Last updated: 2026-06-15
+> Last updated: 2026-06-17
 > This page: Changelog  
 > Switch: [Chinese](../changelog.md)
 
 Language switch: [Chinese](../changelog.md)
 
 ## 2026-06
+
+### Added (2026-06-17)
+
+- **P2 Module Expansion** (PR #72):
+  - 5 modules upgraded: ANOVA (15%→60%), Covariance (30%→60%), Panel (45%→70%), Splines (35%→60%), Kernel Methods (60%→80%)
+  - All new functions support numpy/cupy/torch three-backend computation
+  - 17 new source files, 112 new tests (all passing)
+  - External validation against scipy, sklearn, statsmodels (precision: coef diff ≤ 1e-14)
+
+- **ANOVA**:
+  - `f_twoway`: Two-way ANOVA with/without interaction term (Type I SS decomposition)
+  - `f_welch`: Welch ANOVA for unequal variances (Welch 1951, Welch-Satterthwaite df)
+  - `tukey_hsd`: Tukey HSD post-hoc test with studentized range distribution
+  - `bonferroni`: Bonferroni-corrected pairwise t-tests (uses `statgpu.inference.adjust_pvalues`)
+  - `cohens_f`: Cohen's f effect size (sqrt(eta²/(1-eta²)))
+  - `partial_eta_squared`: Partial eta-squared from sum of squares
+  - Files: `_twoway.py`, `_welch.py`, `_posthoc.py`, `_effect_size.py`
+
+- **Covariance**:
+  - `ShrunkCovariance`: Generic shrinkage estimator with user-specified intensity (matches sklearn)
+  - `MinCovDet`: Robust Minimum Covariance Determinant (FAST-MCD, Rousseeuw & Van Driessen 1999)
+    - Multi-stage algorithm: 30 random starts → top 10 → full C-steps
+    - Consistency correction factor (Croux & Haesbroeck 1999)
+    - Log-determinant for numerical stability
+    - Matches sklearn MinCovDet with correlation = 1.000000
+  - `GraphicalLasso`: Sparse inverse covariance via graphical lasso (Friedman et al. 2008)
+  - `GraphicalLassoCV`: Cross-validated graphical lasso with log-likelihood scoring
+  - Files: `_robust.py`, `_graphical_lasso.py`, `_shrinkage.py` (extended)
+
+- **Panel**:
+  - `PooledOLS`: Pooled OLS without demeaning (supports nonrobust/robust/clustered/HAC)
+  - `BetweenOLS`: OLS on entity-level group means
+  - `FirstDifferenceOLS`: OLS on first-differenced data (Δy_t = y_t - y_{t-1})
+  - `FamaMacBeth`: Two-pass regression (cross-sectional OLS → time-series average with NW SE)
+  - `hac_covariance`: Newey-West HAC estimator with Bartlett kernel (auto bandwidth, NW 1994 rule)
+  - Files: `_pooled.py`, `_between.py`, `_first_diff.py`, `_fama_macbeth.py`, `_covariance.py` (extended)
+
+- **Splines**:
+  - `SplineTransformer`: sklearn-compatible fit/transform API (n_knots, degree, knots, extrapolation)
+  - `cyclic_cubic_spline_basis`: Periodic cubic splines (null-space projection, 3 periodicity constraints)
+  - `thin_plate_spline_basis`: Multi-dimensional smoothing splines (φ(r) = r²log(r) for d=1, m=2)
+  - Files: `_transformer.py`, `_cyclic.py`, `_thin_plate.py`
+
+- **Kernel Methods**:
+  - `chi2_kernel`: Exponentiated chi-squared kernel (uses sklearn Cython for numpy backend)
+  - `Nystroem`: Kernel approximation via random landmark sampling (SVD-based normalization, matches sklearn)
+  - `KernelPCA`: Kernel PCA via eigendecomposition of centered kernel matrix
+  - RBF kernel optimized: float32 chunked computation, 3.5-13x faster than sklearn on CPU
+  - Files: `_nystroem.py`, `_kpca.py`, `_kernels.py` (extended + optimized)
+
+### Optimized (2026-06-17)
+
+- **RBF kernel numpy performance**:
+  - Large matrices (n>2000) automatically use float32 (halves memory bandwidth)
+  - Chunked computation for very large matrices (avoids OOM at n=50000)
+  - All in-place operations on single buffer (peak memory = 1 n×m matrix)
+  - Performance: n=5000 3.8x, n=10000 3.5x, n=50000 13.4x faster than sklearn
+
+- **Nystroem GPU optimization**:
+  - K_mm eigendecomposition moved to CPU (avoids GPU kernel launch overhead for small matrices)
+  - Landmark normalization stored on CPU, converted to GPU only when needed
+  - Matches sklearn output with correlation = 1.000000
+
+- **Data consistency**:
+  - GPU input → GPU output (no automatic numpy conversion)
+  - Float64 input small matrices → float64 output
+  - Float64 input large matrices → float32 output (avoids OOM)
+
+### Validation (2026-06-17)
+
+- **Three-backend benchmark** (Tesla P100-16GB, n=5000-100000):
+  - LedoitWolf: torch 44.8x faster than sklearn at n=100000
+  - Nystroem: cupy 43.7x faster than sklearn at n=100000
+  - RBF Kernel: cupy 797x, torch 929x faster than sklearn at n=10000
+  - ANOVA: torch 2.1x faster than scipy at n=100000
+- **Precision**: All modules match external frameworks within 1e-14 (float64)
+- **112 tests**: 5 test files covering all P2 modules, all passing
+- **Benchmark JSON**: `results/p2_benchmark_final.json` (with GPU warmup)
 
 ### Code Review Rounds 9-10 (2026-06-15)
 
