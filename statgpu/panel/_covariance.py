@@ -6,7 +6,7 @@ Cameron & Miller (2015) and Cameron, Gelbach & Miller (2011).
 """
 from __future__ import annotations
 
-__all__ = ["clustered_covariance", "two_way_clustered_covariance"]
+__all__ = ["clustered_covariance", "two_way_clustered_covariance", "hac_covariance"]
 
 from typing import Optional
 
@@ -138,3 +138,79 @@ def two_way_clustered_covariance(X, resid, cluster1, cluster2, xp=None):
 
     V12 = clustered_covariance(X, resid, combined, xp)
     return V1 + V2 - V12
+
+
+def hac_covariance(X, resid, bandwidth=None, kernel="bartlett", xp=None):
+    """Heteroskedasticity and Autocorrelation Consistent (HAC) covariance.
+
+    Implements the Newey-West (1987) HAC estimator with Bartlett kernel:
+
+        V = (X'X/n)^{-1} @ Omega_hat @ (X'X/n)^{-1}
+
+    where ``Omega_hat = Gamma_0 + sum_{h=1}^{bw} w(h) (Gamma_h + Gamma_h')``
+    and ``Gamma_h = (1/n) sum_i (x_i e_i)(x_{i-h} e_{i-h})'``.
+
+    Parameters
+    ----------
+    X : array-like, shape (n, k)
+        Design matrix (must be sorted by time within each entity).
+    resid : array-like, shape (n,)
+        OLS residuals.
+    bandwidth : int or None, default=None
+        Bandwidth (number of lags).  If None, uses ``floor(4 * (n/100)^{2/9})``
+        (Newey-West 1994 rule of thumb).
+    kernel : str, default='bartlett'
+        Kernel function.  Currently only ``'bartlett'`` is supported.
+    xp : module, optional
+        Array module (numpy / cupy / torch).  Defaults to numpy.
+
+    Returns
+    -------
+    V : array, shape (k, k)
+        HAC covariance matrix of the coefficient estimates.
+
+    References
+    ----------
+    Newey, W. K., & West, K. D. (1987). A simple, positive semi-definite,
+    heteroskedasticity and autocorrelation consistent covariance matrix.
+    *Econometrica*, 55(3), 703-708.
+    """
+    xp = _ensure_xp(xp)
+
+    X = xp_asarray(X, dtype=xp.float64, xp=xp)
+    resid = xp_asarray(resid, dtype=xp.float64, xp=xp, ref_arr=X).ravel()
+
+    n, k = X.shape
+
+    # Default bandwidth: Newey-West (1994) rule
+    if bandwidth is None:
+        bandwidth = int(np.floor(4.0 * (n / 100.0) ** (2.0 / 9.0)))
+    bandwidth = max(0, min(bandwidth, n - 1))
+
+    # Bread: (X'X / n)^{-1}
+    XtX = X.T @ X / n
+    try:
+        bread = xp.linalg.inv(XtX)
+    except _LINALG_ERRORS:
+        bread = xp.linalg.pinv(XtX)
+
+    # Meat: Omega_hat
+    # Score matrix: s_i = x_i * e_i, shape (n, k)
+    scores = X * resid[:, None]  # (n, k)
+
+    # Gamma_0 = (1/n) * sum_i s_i s_i' = scores' @ scores / n
+    meat = scores.T @ scores / n
+
+    # Gamma_h for h = 1..bandwidth
+    for h in range(1, bandwidth + 1):
+        # Bartlett kernel weight: w(h) = 1 - h/(bandwidth+1)
+        w = 1.0 - h / (bandwidth + 1.0)
+
+        # Gamma_h = (1/n) * sum_{i=h}^{n-1} s_i s_{i-h}'
+        Gamma_h = scores[h:].T @ scores[:n - h] / n
+
+        meat = meat + w * (Gamma_h + Gamma_h.T)
+
+    # Sandwich: V = bread @ meat @ bread / n
+    V = bread @ meat @ bread / n
+    return V
