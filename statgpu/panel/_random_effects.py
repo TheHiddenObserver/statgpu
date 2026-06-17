@@ -86,25 +86,53 @@ class RandomEffects(BaseEstimator):
         self._params = None
         self._scale = None
 
-    def fit(self, X, y, entity_ids=None, time_ids=None):
+    def fit(self, X=None, y=None, entity_ids=None, time_ids=None,
+            formula=None, data=None):
         """Fit the random effects model.
 
         Parameters
         ----------
-        X : array-like, shape (n, k)
-            Regressor matrix.
-        y : array-like, shape (n,)
-            Outcome vector.
+        X : array-like, shape (n, k), optional
+            Regressor matrix.  Required if ``formula`` is None.
+        y : array-like, shape (n,), optional
+            Outcome vector.  Required if ``formula`` is None.
         entity_ids : array-like, shape (n,)
-            Entity (individual) identifiers.  **Required.**
+            Entity (individual) identifiers.  **Required** (or provided
+            via formula pipe syntax).
         time_ids : array-like, shape (n,), optional
             Time-period identifiers (currently unused but reserved for
             future extensions).
+        formula : str, optional
+            Formula string.  Supports fixest pipe syntax:
+            ``"y ~ x1 + x2 | entity"``.
+        data : DataFrame, optional
+            DataFrame for formula parsing.
 
         Returns
         -------
         self
         """
+        # Handle formula interface
+        if formula is not None:
+            from statgpu.panel._formula import _prepare_formula_fit
+            (y_raw, X_raw, self._design_info, self._feature_names,
+             self._formula_has_intercept,
+             fe_entity_ids, fe_time_ids,
+             _fe_entity, _fe_time) = \
+                _prepare_formula_fit(formula, data, X, y,
+                                     model_has_intercept=False,
+                                     support_pipe=True)
+            if fe_entity_ids is not None and entity_ids is None:
+                entity_ids = fe_entity_ids
+            if fe_time_ids is not None and time_ids is None:
+                time_ids = fe_time_ids
+            X = X_raw
+            y = y_raw
+        else:
+            self._design_info = None
+            self._feature_names = None
+            self._formula_has_intercept = None
+
         if entity_ids is None:
             raise ValueError("entity_ids is required for RandomEffects")
 
@@ -333,9 +361,19 @@ class RandomEffects(BaseEstimator):
             Predicted values.
         """
         self._check_is_fitted()
-        X_arr = np.asarray(X, dtype=np.float64)
+        # Formula-aware prediction
+        if getattr(self, '_design_info', None) is not None and hasattr(X, 'columns'):
+            from statgpu.panel._formula import _formula_predict
+            X_arr = _formula_predict(X, self._design_info,
+                                     self._formula_has_intercept,
+                                     model_has_intercept=False)
+        else:
+            X_arr = np.asarray(X, dtype=np.float64)
         if X_arr.ndim == 1:
             X_arr = X_arr.reshape(-1, 1)
+        # Add intercept if model expects it
+        if X_arr.shape[1] + 1 == self.coef_.shape[0]:
+            X_arr = np.column_stack([np.ones(X_arr.shape[0]), X_arr])
         return X_arr @ self.coef_
 
     def summary(self):

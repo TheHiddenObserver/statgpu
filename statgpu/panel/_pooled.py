@@ -97,7 +97,8 @@ class PooledOLS(BaseEstimator):
         self
         """
         from statgpu.panel._formula import _prepare_formula_fit, _get_feature_names
-        y_arr, X_arr, self._design_info, self._feature_names, self._formula_has_intercept = \
+        (y_arr, X_arr, self._design_info, self._feature_names, self._formula_has_intercept,
+         _fe_eids, _fe_tids, _fe_entity, _fe_time) = \
             _prepare_formula_fit(formula, data, X, y, model_has_intercept=True)
 
         backend = self._get_backend(backend="auto")

@@ -101,7 +101,8 @@ class FamaMacBeth(BaseEstimator):
             raise ValueError("time_ids is required for FamaMacBeth")
 
         from statgpu.panel._formula import _prepare_formula_fit
-        y_np, X_np, self._design_info, self._feature_names, self._formula_has_intercept = \
+        (y_np, X_np, self._design_info, self._feature_names, self._formula_has_intercept,
+         _fe_eids, _fe_tids, _fe_entity, _fe_time) = \
             _prepare_formula_fit(formula, data, X, y, model_has_intercept=True)
 
         backend = self._get_backend(backend="auto")

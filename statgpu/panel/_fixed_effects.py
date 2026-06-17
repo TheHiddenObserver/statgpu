@@ -96,29 +96,65 @@ class PanelOLS(BaseEstimator):
         self._entity_effects_map = {}
         self._time_effects_map = {}
 
-    def fit(self, X, y, entity_ids=None, time_ids=None, cluster=None):
+    def fit(self, X=None, y=None, entity_ids=None, time_ids=None, cluster=None,
+            formula=None, data=None):
         """Fit the fixed effects model.
 
         Parameters
         ----------
-        X : array-like, shape (n, k)
+        X : array-like, shape (n, k), optional
             Regressor matrix. Include a constant column if you want an
             intercept (the model does not add one automatically).
-        y : array-like, shape (n,)
-            Outcome vector.
+            Required if ``formula`` is None.
+        y : array-like, shape (n,), optional
+            Outcome vector.  Required if ``formula`` is None.
         entity_ids : array-like, shape (n,), optional
             Entity (individual) identifiers.  Required when
-            ``entity_effects=True``.
+            ``entity_effects=True`` and ``formula`` is None.
         time_ids : array-like, shape (n,), optional
-            Time-period identifiers.  Required when ``time_effects=True``.
+            Time-period identifiers.  Required when ``time_effects=True``
+            and ``formula`` is None.
         cluster : array-like, shape (n,), optional
             Cluster labels for clustered standard errors.  Required when
             ``cov_type='clustered'``.
+        formula : str, optional
+            Formula string.  Supports fixest pipe syntax:
+            ``"y ~ x1 + x2 | entity + time"``.
+            Also supports linearmodels tokens:
+            ``"y ~ x1 + EntityEffects + TimeEffects"``.
+        data : DataFrame, optional
+            DataFrame for formula parsing.
 
         Returns
         -------
         self
         """
+        # Handle formula interface
+        if formula is not None:
+            from statgpu.panel._formula import _prepare_formula_fit
+            (y_raw, X_raw, self._design_info, self._feature_names,
+             self._formula_has_intercept,
+             fe_entity_ids, fe_time_ids,
+             fe_entity_effects, fe_time_effects) = \
+                _prepare_formula_fit(formula, data, X, y,
+                                     model_has_intercept=False,
+                                     support_pipe=True)
+            # Formula-extracted FE overrides constructor settings
+            if fe_entity_effects:
+                self.entity_effects = True
+            if fe_time_effects:
+                self.time_effects = True
+            if fe_entity_ids is not None and entity_ids is None:
+                entity_ids = fe_entity_ids
+            if fe_time_ids is not None and time_ids is None:
+                time_ids = fe_time_ids
+            X = X_raw
+            y = y_raw
+        else:
+            self._design_info = None
+            self._feature_names = None
+            self._formula_has_intercept = None
+
         # Resolve backend
         backend = self._get_backend(backend='auto')
         backend_name = backend.name
@@ -344,9 +380,19 @@ class PanelOLS(BaseEstimator):
             Predicted values.
         """
         self._check_is_fitted()
-        X_arr = np.asarray(X, dtype=np.float64)
+        # Formula-aware prediction
+        if getattr(self, '_design_info', None) is not None and hasattr(X, 'columns'):
+            from statgpu.panel._formula import _formula_predict
+            X_arr = _formula_predict(X, self._design_info,
+                                     self._formula_has_intercept,
+                                     model_has_intercept=False)
+        else:
+            X_arr = np.asarray(X, dtype=np.float64)
         if X_arr.ndim == 1:
             X_arr = X_arr.reshape(-1, 1)
+        # Add intercept if model expects it (coef_ includes intercept)
+        if X_arr.shape[1] + 1 == self.coef_.shape[0]:
+            X_arr = np.column_stack([np.ones(X_arr.shape[0]), X_arr])
         y_pred = X_arr @ self.coef_
 
         # Add entity effects via vectorized lookup
