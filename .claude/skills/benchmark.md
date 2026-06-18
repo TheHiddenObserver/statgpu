@@ -106,6 +106,39 @@ Save JSON results to `results/bench_<module>.json` for frontend use.
 | `max_diff` | `max(abs(ours - theirs))` for precision |
 | `corr` | Correlation between result matrices |
 
+## R comparison
+
+For statistical methods where R is the gold standard, include R comparison via `rpy2`:
+
+```python
+# Example: ANOVA comparison with R
+try:
+    import rpy2.robjects as ro
+    from rpy2.robjects import numpy2ri
+    numpy2ri.activate()
+    
+    # R aov()
+    ro.globalenv['y'] = y
+    ro.globalenv['group'] = group
+    r_result = ro.r('summary(aov(y ~ factor(group)))')
+    r_F = float(ro.r('summary(aov(y ~ factor(group)))[[1]]$F[1]')[0])
+    r_p = float(ro.r('summary(aov(y ~ factor(group)))[[1]]$Pr[1]')[0])
+    
+    results["R_aov"] = {"F": r_F, "p": r_p}
+except ImportError:
+    results["R_aov"] = {"error": "rpy2 not installed"}
+```
+
+R comparison targets by module:
+| Module | R package | R function | What to compare |
+|--------|-----------|------------|-----------------|
+| ANOVA | stats | `aov()` | F-statistic, p-value |
+| ANOVA | stats | `oneway.test()` | Welch F, p-value |
+| Panel | plm | `plm()` | coefficients, SE |
+| Panel | fixest | `feols()` | coefficients, SE |
+| Covariance | MASS | `cov.rob()` | covariance matrix |
+| Covariance | glasso | `glasso()` | precision matrix |
+
 ## Remote server notes
 
 - Server: hz-4.matpool.com:28838

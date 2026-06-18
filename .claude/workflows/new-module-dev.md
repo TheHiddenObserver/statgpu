@@ -144,7 +144,7 @@ Follow existing format (Overview, Path, Objective Function, Parameters, Examples
 - `docs/en/changelog.md` — English detailed (Added/Optimized/Validation)
 - `docs/cn/changelog.md` — Chinese detailed
 
-## Phase 6: Benchmark
+## Phase 6: Benchmark (with R comparison)
 
 ### Script: `dev/tests/bench_<module>.py`
 
@@ -162,6 +162,16 @@ for n in [5000, 20000, 50000]:
     # sklearn/scipy
     _, t_sk = timeit(lambda: sk_func(X))
     print(f"n={n}: numpy={t_np:.0f}ms cupy={t_cp:.0f}ms torch={t_t:.0f}ms sklearn={t_sk:.0f}ms")
+
+# R comparison (via rpy2)
+try:
+    import rpy2.robjects as ro
+    from rpy2.robjects import numpy2ri
+    numpy2ri.activate()
+    r_result = ro.r('aov(y ~ factor(group))')
+    # ... extract F-statistic and p-value ...
+except ImportError:
+    print("rpy2 not available, skipping R comparison")
 ```
 
 ### Remote execution
@@ -171,7 +181,7 @@ scp -P 28838 dev/tests/bench_<module>.py root@hz-4.matpool.com:/root/statgpu/dev
 ssh -p 28838 root@hz-4.matpool.com "cd /root/statgpu && conda activate myconda && python dev/tests/bench_<module>.py"
 ```
 
-## Phase 7: Release
+## Phase 7: Commit and PR (NO AUTO-MERGE)
 
 ```bash
 # 1. Create feature branch
@@ -184,16 +194,24 @@ git add -A && git commit -m "feat(<module>): <description>"
 git push -u origin feature/<module>
 gh pr create --title "feat: <module>" --body "..."
 
-# 4. After PR approval, merge to master
+# DO NOT merge - wait for user approval
+```
+
+**IMPORTANT**: Never merge PRs or push to master without explicit user approval.
+
+## Phase 8: Release (only after user approval)
+
+```bash
+# 1. Merge PR (after user approval)
 git checkout master && git merge feature/<module>
 
-# 5. Bump version
+# 2. Bump version
 # Edit statgpu/__init__.py and pyproject.toml
 
-# 6. Tag and push
+# 3. Tag and push
 git tag v<version> && git push origin master --tags
 
-# 7. Build and upload to PyPI
+# 4. Build and upload to PyPI
 python -m build
 python -m twine upload dist/statgpu-<version>*
 ```

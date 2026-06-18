@@ -58,19 +58,36 @@ Fix issues, re-run tests, repeat until clean.
 - Update `docs/en/models/<module>.md`
 - Update `CHANGELOG.md`, `docs/en/changelog.md`, `docs/cn/changelog.md`
 
-### Step 6: Benchmark
+### Step 6: Benchmark (with R comparison)
 
-Create `dev/tests/bench_<module>.py` with three-backend timing at n=5000/20000/50000.
+Create `dev/tests/bench_<module>.py` with:
+- Three-backend timing at n=5000/20000/50000
+- External framework comparison (sklearn, scipy, statsmodels)
+- **R comparison** via `rpy2` or subprocess (for statistical methods where R is gold standard)
+
+R comparison targets:
+| Module | R package | R function |
+|--------|-----------|------------|
+| ANOVA | stats | `aov()`, `oneway.test()` |
+| Panel | plm | `plm(model="within"/"random"/"pooling")` |
+| Panel | fixest | `feols(y ~ x1 \| entity + time)` |
+| Covariance | MASS | `cov.rob()`, `cov.mve()` |
+| Covariance | glasso | `glasso()` |
+| Survival | survival | `coxph()` |
+
 Upload to remote server and execute.
 
-### Step 7: Commit and PR
+### Step 7: Commit and PR (NO AUTO-MERGE)
 
 ```bash
 git checkout -b feature/<module>
 git add -A && git commit -m "feat(<module>): <description>"
 git push -u origin feature/<module>
 gh pr create --title "feat: <module>" --body "..."
+# DO NOT merge - wait for user approval
 ```
+
+**IMPORTANT**: Never merge PRs without explicit user approval. Only create the branch and PR.
 
 ## Key patterns to follow
 
