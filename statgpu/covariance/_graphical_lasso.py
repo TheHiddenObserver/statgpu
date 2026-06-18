@@ -122,33 +122,31 @@ class GraphicalLasso(EmpiricalCovariance):
 
             for j in range(p):
                 # Partition: solve the L1-regularized regression for feature j
-                # Using the cyclical coordinate descent approach
+                # Using the block coordinate descent (Friedman et al. 2008)
                 not_j = list(range(j)) + list(range(j + 1, p))
-                S_11 = S[np.ix_(not_j, not_j)]
                 W_11 = W[np.ix_(not_j, not_j)]
 
-                # Solve: beta = argmin ||S_11^{1/2} beta - s_12||^2 + alpha * ||beta||_1
-                # Using coordinate descent
+                # Solve: beta = argmin (1/2) beta^T W_11 beta - s_12^T beta + alpha ||beta||_1
                 s_12 = S[not_j, j]
                 beta = theta[not_j, j] * W[j, j]  # warm start
 
                 for _ in range(100):  # inner CD iterations
                     beta_old = beta.copy()
                     for k_idx in range(p - 1):
-                        # Partial residual
-                        residual = s_12[k_idx] - S_11[k_idx, :].dot(beta) + S_11[k_idx, k_idx] * beta[k_idx]
+                        # Partial residual using W_11 (current iterate)
+                        residual = s_12[k_idx] - W_11[k_idx, :].dot(beta) + W_11[k_idx, k_idx] * beta[k_idx]
                         # Soft thresholding
-                        beta[k_idx] = _soft_threshold(residual / S_11[k_idx, k_idx], self.alpha / S_11[k_idx, k_idx])
+                        beta[k_idx] = _soft_threshold(residual / W_11[k_idx, k_idx], self.alpha / W_11[k_idx, k_idx])
                     if np.max(np.abs(beta - beta_old)) < 1e-6:
                         break
 
                 # Update W and theta for feature j (Friedman et al. 2008)
-                # Schur complement: c = S_jj + alpha - s_12^T beta
-                c = S[j, j] + self.alpha - s_12.dot(beta)
+                # Schur complement: c = W_jj + alpha - s_12^T beta
+                c = W[j, j] + self.alpha - s_12.dot(beta)
                 theta_j = np.zeros(p)
                 theta_j[not_j] = -beta / c
                 theta_j[j] = 1.0 / c
-                w_12 = S_11 @ beta  # W_{12} = S_{11} @ beta
+                w_12 = W_11 @ beta  # W_{12} = W_{11} @ beta
 
                 W[j, not_j] = w_12
                 W[not_j, j] = w_12
