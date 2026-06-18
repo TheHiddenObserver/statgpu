@@ -83,3 +83,4 @@ dev/tests/TORCH_BACKEND_CV_TESTING.md
 build/
 dist/
 *.egg-info/
+.pypirc
