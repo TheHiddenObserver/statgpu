@@ -15,47 +15,47 @@ The user provides:
 
 ## Review checklist
 
-### 1. Bug 检查 (Correctness)
-- [ ] 公式正确性（对标论文、sklearn、R）
-- [ ] 边界情况处理（空输入、单观测、奇异矩阵）
-- [ ] 自由度计算正确
-- [ ] 数值稳定性（除零、溢出、下溢）
-- [ ] 后端一致性：GPU 输入 → GPU 输出，无静默 numpy 转换
-- [ ] `hasattr(x, 'is_cuda')` 检测 torch（不用 `hasattr(x, 'device')`）
-- [ ] API 契约：方法与文档一致，`fit()` 设置 `_fitted = True`
-- [ ] 错误处理：异常信息清晰，不静默失败
+### 1. Correctness (Bug check)
+- [ ] Formulas match reference (paper, sklearn, R)
+- [ ] Edge cases handled (empty input, single observation, singular matrix)
+- [ ] Degrees of freedom correct
+- [ ] Numerical stability (division by zero, overflow, underflow)
+- [ ] Backend consistency: GPU input -> GPU output, no silent numpy conversion
+- [ ] `hasattr(x, 'is_cuda')` for torch detection (not `hasattr(x, 'device')`)
+- [ ] API contract: methods match docstrings, `fit()` sets `_fitted = True`
+- [ ] Error handling: clear error messages, no silent failures
 
-### 2. 可读性 (Readability)
-- [ ] 无魔法数字（使用命名常量）
-- [ ] 文档完整（Parameters, Returns, Raises, Examples）
-- [ ] 注释解释"为什么"，而非"是什么"
-- [ ] 命名一致（函数/变量/类遵循项目惯例）
-- [ ] 代码结构清晰（函数长度合理，职责单一）
-- [ ] 缩进和格式一致
+### 2. Readability
+- [ ] No magic numbers (use named constants)
+- [ ] Docstrings complete (Parameters, Returns, Raises, Examples)
+- [ ] Comments explain "why", not "what"
+- [ ] Consistent naming conventions (functions/variables/classes follow project conventions)
+- [ ] Clear code structure (reasonable function length, single responsibility)
+- [ ] Consistent indentation and formatting
 
-### 3. 可维护性 (Maintainability)
-- [ ] 无代码重复（提取共享函数/基类）
-- [ ] 修改一处不需要改多处（DRY 原则）
-- [ ] 错误处理不依赖隐式行为
-- [ ] 硬编码值提取为常量或参数
-- [ ] 依赖关系清晰（导入不循环，不引入不必要的依赖）
-- [ ] 向后兼容：已有 API 不被破坏
+### 3. Maintainability
+- [ ] No code duplication (extract shared functions/base classes)
+- [ ] Changing one place does not require changing multiple places (DRY principle)
+- [ ] Error handling does not rely on implicit behavior
+- [ ] Hardcoded values extracted as constants or parameters
+- [ ] Clear dependencies (no circular imports, no unnecessary dependencies)
+- [ ] Backward compatibility: existing APIs not broken
 
-### 4. 可拓展性 (Extensibility)
-- [ ] 新增参数不影响已有调用（默认值兼容）
-- [ ] 抽象层次合适（基类/接口可复用）
-- [ ] 注册表/工厂模式便于扩展（如 kernel registry, covariance registry）
-- [ ] 钩子/回调点设计合理（如 `_transform_data`, `_estimate`）
-- [ ] 配置可外部化（不硬编码设备、阈值等）
+### 4. Extensibility
+- [ ] New parameters do not affect existing calls (default values compatible)
+- [ ] Appropriate abstraction level (base classes/interfaces reusable)
+- [ ] Registry/factory patterns for easy extension (e.g., kernel registry, covariance registry)
+- [ ] Hook/callback points well designed (e.g., `_transform_data`, `_estimate`)
+- [ ] Configuration can be externalized (no hardcoded devices, thresholds, etc.)
 
-### 5. 性能优化 (Performance)
-- [ ] 无不必要的 n×n 临时数组
-- [ ] 使用 in-place 操作减少内存分配
-- [ ] Python 循环向量化（用 numpy/cupy 操作替代）
-- [ ] 大矩阵使用 float32 降低内存带宽
-- [ ] 分块计算避免 OOM（chunked computation）
-- [ ] 缓存避免重复计算（如 KPCA 缓存训练核统计）
-- [ ] 小矩阵避免 GPU kernel launch 开销
+### 5. Performance
+- [ ] No unnecessary n x n temporary arrays
+- [ ] In-place operations to reduce memory allocation
+- [ ] Python loops vectorized (use numpy/cupy operations instead)
+- [ ] Float32 for large matrices to reduce memory bandwidth
+- [ ] Chunked computation to avoid OOM
+- [ ] Caching to avoid recomputation (e.g., KPCA caching training kernel statistics)
+- [ ] Small matrices avoid GPU kernel launch overhead
 
 ## Output format
 
@@ -70,11 +70,11 @@ Severity levels:
 - **LOW**: Style, documentation, minor improvements
 
 Dimensions:
-- `BUG` — correctness issue
-- `READ` — readability issue
-- `MAINT` — maintainability issue
-- `EXT` — extensibility issue
-- `PERF` — performance issue
+- `BUG` -- correctness issue
+- `READ` -- readability issue
+- `MAINT` -- maintainability issue
+- `EXT` -- extensibility issue
+- `PERF` -- performance issue
 
 ## Review loop
 
