@@ -115,9 +115,10 @@ class GraphicalLasso(EmpiricalCovariance):
         np.fill_diagonal(W, W.diagonal() + self.alpha)
         theta = np.linalg.inv(W)
 
-        iteration = 0
+        self.n_iter_ = 0
         for iteration in range(self.max_iter):
             W_old = W.copy()
+            self.n_iter_ = iteration + 1
 
             for j in range(p):
                 # Partition: solve the L1-regularized regression for feature j
@@ -142,10 +143,12 @@ class GraphicalLasso(EmpiricalCovariance):
                         break
 
                 # Update W and theta for feature j (Friedman et al. 2008)
+                # Schur complement: c = S_jj + alpha - s_12^T beta
+                c = S[j, j] + self.alpha - s_12.dot(beta)
                 theta_j = np.zeros(p)
-                theta_j[not_j] = -beta  # negative sign per GLasso algorithm
-                theta_j[j] = 1.0 / (S[j, j] + self.alpha - s_12.dot(beta))
-                w_12 = S[not_j, not_j] @ beta  # W_{12} = S_{11} @ beta
+                theta_j[not_j] = -beta / c
+                theta_j[j] = 1.0 / c
+                w_12 = S_11 @ beta  # W_{12} = S_{11} @ beta
 
                 W[j, not_j] = w_12
                 W[not_j, j] = w_12
@@ -153,7 +156,7 @@ class GraphicalLasso(EmpiricalCovariance):
                 theta[j, :] = theta_j
                 theta[:, j] = theta_j
 
-            # Check convergence via dual gap (use element-wise sum instead of trace)
+            # Check convergence via dual gap
             gap = np.abs(np.sum(W * theta) - p)
             if gap < self.tol:
                 break
@@ -174,7 +177,6 @@ class GraphicalLasso(EmpiricalCovariance):
         self.covariance_ = xp.asarray(W, dtype=xp.float64, **kw)
         self.precision_ = xp.asarray(theta, dtype=xp.float64, **kw)
         self.location_ = xp.asarray(location_np, dtype=xp.float64, **kw)
-        self.n_iter_ = iteration + 1
         self.n_samples_ = n
         self.n_features_ = p
         self._backend_name = backend_name

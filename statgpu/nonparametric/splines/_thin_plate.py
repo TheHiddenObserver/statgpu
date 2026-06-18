@@ -17,7 +17,8 @@ def thin_plate_spline_basis(x, knots, penalty_order=2, xp=None):
     φ(r) = r^{2m-d} log(r) for even d, or r^{2m-d} for odd d,
     where m is the penalty order and d is the input dimensionality.
 
-    For 1-D data (d=1) with m=2: φ(r) = r^2 log(r) (where r = |x - knot|).
+    For 1-D data (d=1, odd) with m=2: φ(r) = r^3 (where r = |x - knot|).
+    For 2-D data (d=2, even) with m=2: φ(r) = r^2 log(r).
 
     Parameters
     ----------
@@ -74,14 +75,14 @@ def thin_plate_spline_basis(x, knots, penalty_order=2, xp=None):
     # Radial basis functions
     if d % 2 == 0:
         # Even dimension: φ(r) = r^{2m-d} log(r)
-        # For d=1, m=2: φ(r) = r^3 log(r) (but d=1 is odd, see below)
         # For d=2, m=2: φ(r) = r^2 log(r)
         exponent = 2 * penalty_order - d
         if exponent <= 0:
-            # Use log(r) * r^0 = log(r) as limiting case
-            phi = xp.log(xp.maximum(r, 1e-300))
-        else:
-            phi = xp.power(r, exponent) * xp.log(xp.maximum(r, 1e-300))
+            raise ValueError(
+                f"penalty_order={penalty_order} too small for d={d} dimensions; "
+                f"need 2*penalty_order > d (got {2*penalty_order} <= {d})"
+            )
+        phi = xp.power(r, exponent) * xp.log(xp.maximum(r, 1e-30))
     else:
         # Odd dimension: φ(r) = r^{2m-d}
         # For d=1, m=2: φ(r) = r^3

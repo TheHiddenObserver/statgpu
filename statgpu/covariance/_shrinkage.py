@@ -219,15 +219,13 @@ class OAS(EmpiricalCovariance):
 
         # ---- OAS shrinkage intensity ----
         # Follows sklearn's implementation of the OAS formula (Chen et al. 2010).
-        # Note: sklearn omits the 2/p factor from Eq. 23 in the original paper
-        # because it negligibly affects the estimator for large p.
         tr_S = _to_float_scalar(xp.trace(S))
         alpha_mean = _to_float_scalar(xp.mean(S * S))  # mean of squared elements
         mu = tr_S / float(p)
         mu_squared = mu * mu
 
         numerator = alpha_mean + mu_squared
-        denominator = (float(n) + 1.0) * (alpha_mean - mu_squared / float(p))
+        denominator = (float(n) + 1.0 - 2.0 / float(p)) * (alpha_mean - mu_squared / float(p))
 
         if denominator <= 0.0:
             alpha = 1.0
