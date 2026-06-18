@@ -27,7 +27,7 @@
 
 ---
 
-## 模块完成度 (2026-06-15)
+## 模块完成度 (2026-06-17, P2 完成后)
 
 | 模块 | 完成度 | 已实现 | 关键缺失 |
 |------|--------|--------|----------|
@@ -37,15 +37,15 @@
 | **survival/** | ~45% | CoxPH, CoxPHCV, Breslow/Efron, robust SE, cluster, delayed entry | strata, frailty, time-varying |
 | **inference/** | ~80% | 15 distributions, p-value adjustment, bootstrap, permutation | 无 |
 | **unsupervised/** | ~95% | 12 estimators (PCA, KMeans, DBSCAN, tSNE, UMAP, NMF, GMM...) | sparse input |
-| **nonparametric/kernel_methods/** (`kernel_methods/` shim) | ~60% | 6 kernels, KernelRidge, KernelRidgeCV | Nystroem, KernelPCA, chi2 |
-| **panel/** | ~45% | PanelOLS, RandomEffects, clustered SE | FamaMacBeth, HAC, IV |
-| **nonparametric/splines/** + **semiparametric/** (`splines/` shim) | ~35% | bspline, natural_cubic, penalized regression, GAM | SplineTransformer API |
-| **covariance/** | ~30% | EmpiricalCovariance, LedoitWolf, OAS | GraphicalLasso, MinCovDet |
-| **anova/** | ~15% | f_oneway (单因素), eta_squared | 二因素, 重复测量, 事后检验 |
+| **nonparametric/kernel_methods/** | ~80% | 7 kernels, KernelRidge, KernelRidgeCV, Nystroem, KernelPCA | SVM |
+| **panel/** | ~70% | PanelOLS, RE, PooledOLS, BetweenOLS, FDO, FMB, HAC, formula | IV, tests, R² variants |
+| **nonparametric/splines/** + **semiparametric/** | ~60% | bspline, natural_cubic, SplineTransformer, cyclic, thin plate, GAM | tensor product, adaptive |
+| **covariance/** | ~60% | EmpiricalCovariance, LedoitWolf, OAS, ShrunkCov, MinCovDet, GraphicalLasso | OGK, M-estimator |
+| **anova/** | ~60% | f_oneway, f_twoway, f_welch, tukey_hsd, bonferroni, effect sizes | repeated measures, Type II/III |
 | **nonparametric/** | ~70% | KDE, kernel regression, bandwidth selection | 无 |
 | **feature_selection/** | ~80% | KnockoffSelector, StepwiseSelector | 无 |
-| **metrics/** | ~60% | ROC, AUC, confusion matrix | 无 |
-| **diagnostics/** | ~50% | RegressionDiagnostics | 无 |
+| **metrics/** | ~60% | ROC, AUC, confusion matrix | VIF, influence |
+| **diagnostics/** | ~50% | RegressionDiagnostics | BP test, DW test |
 
 ---
 
