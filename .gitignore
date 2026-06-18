@@ -83,4 +83,14 @@ dev/tests/TORCH_BACKEND_CV_TESTING.md
 build/
 dist/
 *.egg-info/
+
+# Credentials and secrets (prevent accidental commits)
 .pypirc
+.env
+.env.*
+*.pem
+*.key
+*.p12
+*.pfx
+**/secrets.json
+**/credentials.json
