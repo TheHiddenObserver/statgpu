@@ -13,7 +13,6 @@ from statgpu._config import Device
 from statgpu.backends import _LINALG_ERRORS, _to_float_scalar, _to_numpy, xp_asarray
 
 from statgpu.panel._utils import PanelSummary, group_means
-from statgpu.panel._covariance import clustered_covariance
 
 
 class BetweenOLS(BaseEstimator):
