@@ -60,8 +60,8 @@ class BetweenOLS(BaseEstimator):
         super().__init__(device=device, n_jobs=n_jobs)
         self.cov_type = cov_type.lower()
         self.alpha = alpha
-        if self.cov_type not in ("nonrobust", "robust", "clustered"):
-            raise ValueError("cov_type must be 'nonrobust', 'robust', or 'clustered'")
+        if self.cov_type not in ("nonrobust", "robust"):
+            raise ValueError("cov_type must be 'nonrobust' or 'robust'")
 
     def fit(self, X=None, y=None, entity_ids=None, formula=None, data=None):
         """Fit the between OLS model.

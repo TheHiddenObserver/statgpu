@@ -111,6 +111,16 @@ def _strip_panel_tokens(formula: str) -> Tuple[str, bool, bool]:
 
     # Clean up whitespace
     clean = ' '.join(clean.split())
+
+    # Validate that formula has at least one predictor after token removal
+    if '~' in clean:
+        rhs = clean.split('~', 1)[1].strip()
+        if not rhs or rhs in ('+', '-', '*', '/'):
+            raise ValueError(
+                f"Formula has no predictors after removing panel tokens. "
+                f"Original: '{formula}', cleaned: '{clean}'"
+            )
+
     return clean, entity_effects, time_effects
 
 

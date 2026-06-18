@@ -216,7 +216,7 @@ class PooledOLS(BaseEstimator):
         elif self.cov_type == "clustered":
             if cluster is None:
                 raise ValueError("cluster is required for cov_type='clustered'")
-            cluster_arr = xp.asarray(cluster, xp=xp, ref_arr=X).ravel()
+            cluster_arr = xp_asarray(cluster, xp=xp, ref_arr=X).ravel()
             cov_params = clustered_covariance(X, resid, cluster_arr, xp)
         elif self.cov_type == "hac":
             cov_params = hac_covariance(X, resid, bandwidth=self.bandwidth,

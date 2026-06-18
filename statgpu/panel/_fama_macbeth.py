@@ -181,10 +181,10 @@ class FamaMacBeth(BaseEstimator):
         t_dist = get_distribution(dist_name, backend=backend.name)
         abs_t = np.abs(tvalues)
         if dist_name == "t":
-            pvalues = np.asarray([_to_float_scalar(t_dist.sf(t, df)) * 2 for t in abs_t])
+            pvalues = np.asarray([_to_float_scalar(t_dist.sf(float(t), df)) * 2 for t in abs_t])
             t_crit = _to_float_scalar(t_dist.isf(self.alpha / 2, df))
         else:
-            pvalues = np.asarray([_to_float_scalar(t_dist.sf(t)) * 2 for t in abs_t])
+            pvalues = np.asarray([_to_float_scalar(t_dist.sf(float(t))) * 2 for t in abs_t])
             t_crit = _to_float_scalar(t_dist.isf(self.alpha / 2))
 
         conf_int = np.column_stack([avg_beta - t_crit * bse, avg_beta + t_crit * bse])

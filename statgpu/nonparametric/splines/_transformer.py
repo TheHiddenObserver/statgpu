@@ -92,8 +92,8 @@ class SplineTransformer(BaseEstimator):
         n_samples, n_features = X_np.shape
         self.n_features_in_ = n_features
 
-        if self.n_knots < 2:
-            raise ValueError("n_knots must be at least 2")
+        if self.n_knots < 3:
+            raise ValueError("n_knots must be at least 3 (boundary + at least 1 interior knot)")
 
         # Determine knots per feature
         if isinstance(self.knots, str):
@@ -120,16 +120,21 @@ class SplineTransformer(BaseEstimator):
         self.boundary_lo_ = np.array([kts[0] for kts in knots_list])
         self.boundary_hi_ = np.array([kts[-1] for kts in knots_list])
 
-        # Compute output dimension
-        # For each feature: n_knots + degree - 1 basis functions (Eilers & Marx)
-        # or n_knots - 1 for periodic (not implemented here)
-        n_splines_per_feature = self.n_knots + self.degree - 1
-        if self.include_bias:
-            self.n_features_out_ = n_features * n_splines_per_feature
-        else:
-            self.n_features_out_ = n_features * (n_splines_per_feature - 1)
+        # Compute output dimension based on actual knot counts (handles ties)
+        self._n_splines_per_feature = []
+        for kts in knots_list:
+            n_int = len(kts) - 2  # interior knots
+            if n_int < 1:
+                n_int = max(len(kts), 1)
+            self._n_splines_per_feature.append(n_int + self.degree)
 
-        self._n_splines_per_feature = n_splines_per_feature
+        # Use the minimum for consistent output dimension
+        min_splines = min(self._n_splines_per_feature)
+        if self.include_bias:
+            self.n_features_out_ = n_features * min_splines
+        else:
+            self.n_features_out_ = n_features * (min_splines - 1)
+        self._n_splines_per_feature = min_splines
         self._fitted = True
         return self
 

@@ -536,6 +536,11 @@ def compute_panel_inference(model, X, resid, params, scale, n, k, xp, backend_na
             "cov_type='clustered' requires cluster labels. "
             "Use PooledOLS which accepts a 'cluster' parameter."
         )
+    elif cov_type == "hac":
+        raise NotImplementedError(
+            "cov_type='hac' is not supported in compute_panel_inference. "
+            "Use PooledOLS or FamaMacBeth which have native HAC support."
+        )
     else:
         cov_params = scale * XtX_inv / n
 

@@ -68,7 +68,9 @@ class LedoitWolf(EmpiricalCovariance):
         _ref = None
         if backend_name == "torch":
             import torch
-            _ref = torch.empty(0, dtype=torch.float64, device="cuda")
+            _dev = self._get_compute_device()
+            _cuda_dev = "cuda" if _dev.value in ("torch", "cuda") else "cpu"
+            _ref = torch.empty(0, dtype=torch.float64, device=_cuda_dev)
         if _ref is not None:
             X_arr = xp.asarray(X, dtype=xp.float64, device=_ref.device)
         else:
@@ -187,7 +189,9 @@ class OAS(EmpiricalCovariance):
         _ref = None
         if backend_name == "torch":
             import torch
-            _ref = torch.empty(0, dtype=torch.float64, device="cuda")
+            _dev = self._get_compute_device()
+            _cuda_dev = "cuda" if _dev.value in ("torch", "cuda") else "cpu"
+            _ref = torch.empty(0, dtype=torch.float64, device=_cuda_dev)
         if _ref is not None:
             X_arr = xp.asarray(X, dtype=xp.float64, device=_ref.device)
         else:
@@ -308,7 +312,9 @@ class ShrunkCovariance(EmpiricalCovariance):
         _ref = None
         if backend_name == "torch":
             import torch
-            _ref = torch.empty(0, dtype=torch.float64, device="cuda")
+            _dev = self._get_compute_device()
+            _cuda_dev = "cuda" if _dev.value in ("torch", "cuda") else "cpu"
+            _ref = torch.empty(0, dtype=torch.float64, device=_cuda_dev)
         X_arr = xp.asarray(X, dtype=xp.float64, device=_ref.device) if _ref else xp.asarray(X, dtype=xp.float64)
         if X_arr.ndim == 1:
             X_arr = X_arr.reshape(-1, 1)

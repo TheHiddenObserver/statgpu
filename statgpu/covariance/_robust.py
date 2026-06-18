@@ -202,7 +202,9 @@ class MinCovDet(EmpiricalCovariance):
         _ref = None
         if backend_name == "torch":
             import torch
-            _ref = torch.empty(0, dtype=torch.float64, device="cuda")
+            _dev = self._get_compute_device()
+            _cuda_dev = "cuda" if _dev.value in ("torch", "cuda") else "cpu"
+            _ref = torch.empty(0, dtype=torch.float64, device=_cuda_dev)
 
         kw = {"device": _ref.device} if _ref else {}
         cov_arr = xp.asarray(final_cov, dtype=xp.float64, **kw)

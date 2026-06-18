@@ -74,8 +74,11 @@ def cyclic_cubic_spline_basis(x, knots, xp=None):
     B_b = bspline_basis(b_arr, knots, degree=3, xp=xp,
                         boundary_lo=boundary_lo, boundary_hi=boundary_hi)
 
-    # For derivatives, use finite differences
-    eps = 1e-6
+    # Finite difference step size (relative to boundary range)
+    rng = boundary_hi - boundary_lo
+    eps = max(1e-6 * rng, 1e-10)
+
+    # First derivatives: central difference f'(x) ≈ (f(x+h) - f(x-h)) / 2h
     a_lo = xp.asarray([boundary_lo - eps], dtype=xp.float64)
     a_hi = xp.asarray([boundary_lo + eps], dtype=xp.float64)
     b_lo = xp.asarray([boundary_hi - eps], dtype=xp.float64)
@@ -90,31 +93,12 @@ def cyclic_cubic_spline_basis(x, knots, xp=None):
     B_b_hi = bspline_basis(b_hi, knots, degree=3, xp=xp,
                            boundary_lo=boundary_lo, boundary_hi=boundary_hi)
 
-    # First derivatives at boundaries
     dB_a = (B_a_hi - B_a_lo) / (2 * eps)  # (1, n_basis)
     dB_b = (B_b_hi - B_b_lo) / (2 * eps)
 
-    # Second derivatives via central differences on first derivatives
-    eps2 = 1e-4
-    a_lo2 = xp.asarray([boundary_lo - eps2], dtype=xp.float64)
-    a_hi2 = xp.asarray([boundary_lo + eps2], dtype=xp.float64)
-    b_lo2 = xp.asarray([boundary_hi - eps2], dtype=xp.float64)
-    b_hi2 = xp.asarray([boundary_hi + eps2], dtype=xp.float64)
-
-    B_a_lo2 = bspline_basis(a_lo2, knots, degree=3, xp=xp,
-                            boundary_lo=boundary_lo, boundary_hi=boundary_hi)
-    B_a_hi2 = bspline_basis(a_hi2, knots, degree=3, xp=xp,
-                            boundary_lo=boundary_lo, boundary_hi=boundary_hi)
-    B_b_lo2 = bspline_basis(b_lo2, knots, degree=3, xp=xp,
-                            boundary_lo=boundary_lo, boundary_hi=boundary_hi)
-    B_b_hi2 = bspline_basis(b_hi2, knots, degree=3, xp=xp,
-                            boundary_lo=boundary_lo, boundary_hi=boundary_hi)
-
-    dB_a2 = (B_a_hi2 - B_a_lo2) / (2 * eps2)
-    dB_b2 = (B_b_hi2 - B_b_lo2) / (2 * eps2)
-
-    ddB_a = (dB_a2 - dB_a) / (eps2 - eps)  # approximate second derivative
-    ddB_b = (dB_b2 - dB_b) / (eps2 - eps)
+    # Second derivatives: central difference f''(x) ≈ (f(x+h) - 2f(x) + f(x-h)) / h^2
+    ddB_a = (B_a_hi - 2 * B_a + B_a_lo) / (eps ** 2)
+    ddB_b = (B_b_hi - 2 * B_b + B_b_lo) / (eps ** 2)
 
     # Constraint matrix C: shape (3, n_basis)
     C = xp.zeros((3, n_basis), dtype=xp.float64)

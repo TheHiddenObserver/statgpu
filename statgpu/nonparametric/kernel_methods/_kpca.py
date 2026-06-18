@@ -10,7 +10,7 @@ import numpy as np
 
 from statgpu._base import BaseEstimator
 from statgpu._config import Device
-from statgpu.backends import _LINALG_ERRORS, _to_numpy, xp_asarray
+from statgpu.backends import _LINALG_ERRORS, _to_float_scalar, _to_numpy, xp_asarray
 from statgpu.nonparametric.kernel_methods._kernels import pairwise_kernels
 
 
@@ -107,12 +107,15 @@ class KernelPCA(BaseEstimator):
         # Compute kernel matrix K
         K = pairwise_kernels(X_arr, metric=self.kernel, xp=xp, **kernel_params)
 
-        # Center the kernel matrix
-        # K_centered = K - 1_n K - K 1_n + 1_n K 1_n
-        one_n = xp.ones((n_samples, n_samples), dtype=xp.float64) / n_samples
-        if hasattr(K, 'is_cuda'):
-            one_n = one_n.to(device=K.device)
-        K_centered = K - one_n @ K - K @ one_n + one_n @ K @ one_n
+        # Center the kernel matrix efficiently using row/column means
+        K_col_means = xp.mean(K, axis=0)  # (n,)
+        K_row_means = xp.mean(K, axis=1, keepdims=True)  # (n, 1)
+        K_mean = _to_float_scalar(xp.mean(K))
+        K_centered = K - K_col_means[None, :] - K_row_means + K_mean
+
+        # Cache training kernel statistics for transform()
+        self._K_train_col_means_ = _to_numpy(K_col_means)
+        self._K_train_mean_ = float(K_mean)
 
         # Add regularization
         if self.alpha > 0:
@@ -178,24 +181,20 @@ class KernelPCA(BaseEstimator):
         K_test = pairwise_kernels(X_arr, X_fit_arr, metric=self.kernel,
                                   xp=xp, **self._kernel_params)
 
-        # Center the test kernel
-        n_train = self.n_samples_
-        one_n_train = xp.ones((1, n_train), dtype=xp.float64) / n_train
-        K_train = pairwise_kernels(X_fit_arr, metric=self.kernel,
-                                   xp=xp, **self._kernel_params)
-        one_n_full = xp.ones((n_train, n_train), dtype=xp.float64) / n_train
-        K_train_col_means = xp.mean(K_train, axis=0)  # (n_train,)
-        K_train_mean = xp.mean(K_train)
+        # Center the test kernel using cached training kernel statistics
+        K_train_col_means = xp.asarray(self._K_train_col_means_, dtype=xp.float64)
+        K_train_mean = self._K_train_mean_
+        if hasattr(X_arr, 'is_cuda'):
+            K_train_col_means = K_train_col_means.to(device=X_arr.device)
 
-        # K_test_centered = K_test - 1_m @ K_train - K_test @ 1_n + 1_m @ K_train @ 1_n
+        # Correct out-of-sample centering:
+        # K_test_centered = K_test - mean(K_train, axis=0) - mean(K_test, axis=1) + mean(K_train)
         K_test_centered = (
             K_test
-            - xp.ones((K_test.shape[0], 1), dtype=xp.float64) @ K_train_col_means[None, :]
-            - K_test @ one_n_full
-            + K_test.shape[0] * K_train_mean * xp.ones((K_test.shape[0], n_train), dtype=xp.float64) / n_train
+            - K_train_col_means[None, :]
+            - xp.mean(K_test, axis=1, keepdims=True)
+            + K_train_mean
         )
-        # Simplified centering
-        K_test_centered = K_test - xp.mean(K_test, axis=1, keepdims=True)
 
         # Project
         alphas = xp.asarray(self.alphas_, dtype=xp.float64)

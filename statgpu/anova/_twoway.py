@@ -172,8 +172,8 @@ def f_twoway(
     # SST = sum(x^2) - N * grand_mean^2
     total_ss_raw = sum(cell_ss[(i, j)] for (i, j) in cells)
     sst = total_ss_raw - N * grand_mean ** 2
-    # SS_AB = SST - SSA - SSB - SSW
-    ss_ab = sst - ss_a - ss_b - ssw
+    # SS_AB = SST - SSA - SSB - SSW (clamp to 0 for floating-point rounding)
+    ss_ab = max(sst - ss_a - ss_b - ssw, 0.0)
 
     # Degrees of freedom
     df_a = n_a - 1
@@ -211,9 +211,13 @@ def f_twoway(
     p_b = _to_float_scalar(f_dist.sf(f_b, df_b, df_w))
     p_ab = _to_float_scalar(f_dist.sf(f_ab, df_ab, df_w)) if f_ab is not None else None
 
-    # Eta-squared
-    # Eta-squared: use sst (total SS) as denominator
-    sst_denom = max(sst, ss_a + ss_b + ss_ab + ssw)  # handle numerical issues
+    # Eta-squared: use appropriate denominator
+    # For interaction model: ss_a + ss_b + ss_ab + ssw
+    # For additive model: ss_a + ss_b + ssw (exclude interaction SS)
+    if interaction:
+        sst_denom = ss_a + ss_b + ss_ab + ssw
+    else:
+        sst_denom = ss_a + ss_b + ssw
     eta_a = ss_a / sst_denom if sst_denom > 0 else float("nan")
     eta_b = ss_b / sst_denom if sst_denom > 0 else float("nan")
     eta_ab = ss_ab / sst_denom if sst_denom > 0 and interaction else None

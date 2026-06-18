@@ -115,6 +115,7 @@ class GraphicalLasso(EmpiricalCovariance):
         np.fill_diagonal(W, W.diagonal() + self.alpha)
         theta = np.linalg.inv(W)
 
+        iteration = 0
         for iteration in range(self.max_iter):
             W_old = W.copy()
 
@@ -140,12 +141,11 @@ class GraphicalLasso(EmpiricalCovariance):
                     if np.max(np.abs(beta - beta_old)) < 1e-6:
                         break
 
-                # Update W and theta for feature j
+                # Update W and theta for feature j (Friedman et al. 2008)
                 theta_j = np.zeros(p)
-                theta_j[not_j] = beta
-                w_j = S_11 @ beta
-                theta_j[j] = 1.0 / (S[j, j] + self.alpha + beta.dot(w_j))
-                w_12 = w_j * theta_j[j]
+                theta_j[not_j] = -beta  # negative sign per GLasso algorithm
+                theta_j[j] = 1.0 / (S[j, j] + self.alpha - s_12.dot(beta))
+                w_12 = S[not_j, not_j] @ beta  # W_{12} = S_{11} @ beta
 
                 W[j, not_j] = w_12
                 W[not_j, j] = w_12
@@ -244,6 +244,7 @@ class GraphicalLassoCV(EmpiricalCovariance):
         cv: int = 5,
         max_iter: int = 100,
         tol: float = 1e-4,
+        random_state: Optional[int] = None,
         assume_centered: bool = False,
         device: Union[str, Device] = Device.AUTO,
         n_jobs: Optional[int] = None,
@@ -253,6 +254,7 @@ class GraphicalLassoCV(EmpiricalCovariance):
         self.cv = cv
         self.max_iter = max_iter
         self.tol = tol
+        self.random_state = random_state
 
     def fit(self, X, y=None):
         """Fit the graphical lasso model with cross-validated alpha.
@@ -280,7 +282,7 @@ class GraphicalLassoCV(EmpiricalCovariance):
             alpha_grid = np.asarray(self.alphas, dtype=np.float64)
 
         # K-fold CV
-        rng = np.random.RandomState(42)
+        rng = np.random.RandomState(self.random_state)
         indices = rng.permutation(n)
         fold_size = n // self.cv
         folds = []

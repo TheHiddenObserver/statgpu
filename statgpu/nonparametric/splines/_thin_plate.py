@@ -69,7 +69,7 @@ def thin_plate_spline_basis(x, knots, penalty_order=2, xp=None):
     diff = x[:, None, :] - knots[None, :, :]
     # r: (n, m)
     r_sq = xp.sum(diff * diff, axis=2)
-    r = xp.sqrt(xp.maximum(r_sq, 1e-300))  # avoid log(0)
+    r = xp.sqrt(xp.maximum(r_sq, 1e-30))  # avoid log(0); 1e-30 safe for log
 
     # Radial basis functions
     if d % 2 == 0:

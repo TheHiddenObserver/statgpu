@@ -85,6 +85,23 @@ def f_welch(
     xbar_k = np.array([g.mean() for g in flat_groups], dtype=np.float64)
     s2_k = np.array([g.var(ddof=1) for g in flat_groups], dtype=np.float64)
 
+    # Guard against zero variance groups
+    if np.any(s2_k == 0):
+        # If all groups have zero variance and same mean, F=NaN
+        # If means differ, F=inf (perfect separation)
+        if np.all(s2_k == 0):
+            if np.allclose(xbar_k, xbar_k[0]):
+                return AnovaResult(float("nan"), float("nan"), k - 1, int(sum(n_k)) - k, float("nan"))
+            else:
+                return AnovaResult(float("inf"), 0.0, k - 1, int(sum(n_k)) - k, float("nan"))
+        # Some but not all zero: filter to non-zero variance groups
+        mask = s2_k > 0
+        flat_groups = [g for g, m in zip(flat_groups, mask) if m]
+        n_k = n_k[mask]
+        xbar_k = xbar_k[mask]
+        s2_k = s2_k[mask]
+        k = len(flat_groups)
+
     # Weights (inverse variance)
     w_k = n_k / s2_k
     W = w_k.sum()
