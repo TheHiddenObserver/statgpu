@@ -25,10 +25,27 @@ This workflow implements the full lifecycle of a new statgpu module:
 Before writing code, clarify:
 
 1. **What statistical method?** (e.g., "Welch ANOVA", "GraphicalLasso")
-2. **What's the sklearn/R equivalent?** (for API design and comparison)
-3. **What's the formula?** (reference paper or textbook)
-4. **Which backends?** (numpy always; cupy/torch if GPU benefits expected)
-5. **What parameters?** (match sklearn's API where possible)
+2. **What's the reference?** (paper, textbook, or existing implementation)
+3. **Which backends?** (numpy always; cupy/torch if GPU benefits expected)
+4. **What parameters?** (match sklearn's API where possible)
+
+### Find external equivalents for comparison
+
+Before implementing, identify all comparison targets:
+
+**Python equivalents:**
+- Search sklearn, scipy, statsmodels for the same method
+- If not found, check linearmodels, pyGAM, or other specialized packages
+
+**R equivalents:**
+- Check the reference paper — it often cites the R package
+- Search CRAN for the method name
+- If no direct equivalent, check if a combination of R functions achieves the same result
+- Record the R package and function name for use in benchmark
+
+**Comparison output:**
+- Document which statistics to compare (coefficients, SE, p-values, etc.)
+- Document the expected tolerance (e.g., coef diff < 1e-6)
 
 Check existing code for reusable components:
 - `statgpu/backends/_utils.py` — `xp_*` helpers, `_to_numpy`, `_to_float_scalar`

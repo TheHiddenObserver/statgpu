@@ -138,11 +138,12 @@ except ImportError:
 
 ### How to find the R equivalent
 
-When benchmarking a statgpu method, find the R equivalent by:
+The R equivalent should be identified during the **design phase** (Phase 1 of `new-module-dev`), not at benchmark time. If not already known:
 
 1. **Check the method's docstring or model doc** — references often cite the R package
-2. **Search CRAN** for the statistical method name
-3. **Common mappings** (use as starting point, verify at benchmark time):
+2. **Check the reference paper** — it usually names the R implementation
+3. **Search CRAN** for the statistical method name
+4. **Common mappings** (for reference, verify at benchmark time):
 
 | statgpu pattern | Likely R equivalent |
 |----------------|-------------------|
