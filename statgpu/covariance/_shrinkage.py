@@ -1,15 +1,15 @@
-"""Ledoit-Wolf and Oracle Approximating Shrinkage (OAS) covariance estimators."""
+"""Shrinkage covariance estimators: Ledoit-Wolf, OAS, and generic ShrunkCovariance."""
 
 from __future__ import annotations
 
-__all__ = ["LedoitWolf", "OAS"]
+__all__ = ["LedoitWolf", "OAS", "ShrunkCovariance"]
 
 from typing import Optional, Union
 
 import numpy as np
 
 from statgpu._config import Device
-from statgpu.backends import _get_xp, _to_float_scalar, _torch_dev, xp_zeros, xp_eye
+from statgpu.backends import _get_xp, _to_float_scalar, xp_zeros, xp_eye
 
 from statgpu.covariance._empirical import EmpiricalCovariance, _detect_backend, _stable_inv
 
@@ -68,7 +68,9 @@ class LedoitWolf(EmpiricalCovariance):
         _ref = None
         if backend_name == "torch":
             import torch
-            _ref = torch.empty(0, dtype=torch.float64, device="cuda")
+            _dev = self._get_compute_device()
+            _cuda_dev = "cuda" if _dev.value in ("torch", "cuda") else "cpu"
+            _ref = torch.empty(0, dtype=torch.float64, device=_cuda_dev)
         if _ref is not None:
             X_arr = xp.asarray(X, dtype=xp.float64, device=_ref.device)
         else:
@@ -187,7 +189,9 @@ class OAS(EmpiricalCovariance):
         _ref = None
         if backend_name == "torch":
             import torch
-            _ref = torch.empty(0, dtype=torch.float64, device="cuda")
+            _dev = self._get_compute_device()
+            _cuda_dev = "cuda" if _dev.value in ("torch", "cuda") else "cpu"
+            _ref = torch.empty(0, dtype=torch.float64, device=_cuda_dev)
         if _ref is not None:
             X_arr = xp.asarray(X, dtype=xp.float64, device=_ref.device)
         else:
@@ -215,8 +219,9 @@ class OAS(EmpiricalCovariance):
 
         # ---- OAS shrinkage intensity ----
         # Follows sklearn's implementation of the OAS formula (Chen et al. 2010).
-        # Note: sklearn omits the 2/p factor from Eq. 23 in the original paper
-        # because it negligibly affects the estimator for large p.
+        # Note: the original paper (Eq. 23) includes a 2/p correction term,
+        # but sklearn omits it as it negligibly affects the estimator for large p.
+        # We match sklearn's behavior for compatibility.
         tr_S = _to_float_scalar(xp.trace(S))
         alpha_mean = _to_float_scalar(xp.mean(S * S))  # mean of squared elements
         mu = tr_S / float(p)
@@ -245,4 +250,111 @@ class OAS(EmpiricalCovariance):
         self.n_features_ = p
         self._backend_name = backend_name
         self._fitted = True
+        return self
+
+
+class ShrunkCovariance(EmpiricalCovariance):
+    """
+    Generic shrinkage covariance estimator with GPU support.
+
+    Computes a shrunk covariance matrix as a convex combination of the
+    sample covariance and a scaled identity matrix:
+
+        covariance = (1 - shrinkage) * S + shrinkage * mu * I
+
+    where ``mu = trace(S) / n_features`` and ``shrinkage`` is a
+    user-specified parameter in [0, 1].
+
+    Parameters
+    ----------
+    shrinkage : float, default=0.1
+        Shrinkage intensity in [0, 1].
+    assume_centered : bool, default=False
+        If True, data is assumed to be already centered.
+    device : str or Device, default='auto'
+        Computation device: ``'cpu'``, ``'cuda'``, ``'torch'``, or ``'auto'``.
+    n_jobs : int or None, default=None
+        Number of parallel jobs (reserved for future use).
+
+    Attributes
+    ----------
+    covariance_ : ndarray of shape (n_features, n_features)
+        Estimated shrunk covariance matrix.
+    location_ : ndarray of shape (n_features,)
+        Estimated mean (zero if *assume_centered* is True).
+    precision_ : ndarray of shape (n_features, n_features)
+        Estimated pseudo-inverse of the covariance (precision matrix).
+    shrinkage_ : float
+        Shrinkage intensity used.
+    n_samples_ : int
+        Number of training samples.
+    n_features_ : int
+        Number of features.
+    """
+
+    def __init__(
+        self,
+        shrinkage: float = 0.1,
+        assume_centered: bool = False,
+        device: Union[str, Device] = Device.AUTO,
+        n_jobs: Optional[int] = None,
+    ):
+        super().__init__(assume_centered=assume_centered, device=device, n_jobs=n_jobs)
+        self.shrinkage = shrinkage
+
+    def fit(self, X, y=None):
+        """Fit the shrunk covariance model to *X*."""
+        if not 0 <= self.shrinkage <= 1:
+            raise ValueError(f"shrinkage must be in [0, 1], got {self.shrinkage}")
+
+        backend_name = _detect_backend(X, self._get_compute_device())
+        xp = _get_xp(backend_name)
+
+        _ref = None
+        if backend_name == "torch":
+            import torch
+            _dev = self._get_compute_device()
+            _cuda_dev = "cuda" if _dev.value in ("torch", "cuda") else "cpu"
+            _ref = torch.empty(0, dtype=torch.float64, device=_cuda_dev)
+        X_arr = xp.asarray(X, dtype=xp.float64, device=_ref.device) if _ref else xp.asarray(X, dtype=xp.float64)
+        if X_arr.ndim == 1:
+            X_arr = X_arr.reshape(-1, 1)
+
+        n, p = int(X_arr.shape[0]), int(X_arr.shape[1])
+        if n < 2:
+            raise ValueError(f"Need at least 2 samples, got {n}")
+
+        if self.assume_centered:
+            location = xp_zeros(p, xp.float64, xp, X_arr)
+        else:
+            location = xp.mean(X_arr, axis=0)
+            X_arr = X_arr - location
+
+        S = (X_arr.T @ X_arr) / float(n)
+        mu = _to_float_scalar(xp.trace(S)) / p
+        shrunk_S = (1.0 - self.shrinkage) * S + self.shrinkage * mu * xp_eye(p, xp.float64, xp, S)
+        precision = _stable_inv(shrunk_S, xp, backend_name)
+
+        self.covariance_ = shrunk_S
+        self.location_ = location
+        self.precision_ = precision
+        self.shrinkage_ = self.shrinkage
+        self.n_samples_ = n
+        self.n_features_ = p
+        self._backend_name = backend_name
+        self._fitted = True
+        return self
+
+    def get_params(self, deep=True):
+        params = super().get_params(deep=deep)
+        params["shrinkage"] = self.shrinkage
+        return params
+
+    def set_params(self, **params):
+        for key, value in list(params.items()):
+            if key == "shrinkage":
+                self.shrinkage = value
+                del params[key]
+        if params:
+            super().set_params(**params)
         return self

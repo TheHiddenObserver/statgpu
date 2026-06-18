@@ -35,7 +35,17 @@ from .linear_model import (
     ElasticNetCV,
 )
 from .survival import CoxPH, CoxPHCV
-from .panel import PanelOLS, RandomEffects
+from .panel import (
+    PanelOLS,
+    FixedEffects,
+    RandomEffects,
+    RandomEffectsOLS,
+    PooledOLS,
+    BetweenOLS,
+    FirstDifferenceOLS,
+    FamaMacBeth,
+    hac_covariance,
+)
 from .backends import get_backend, NumpyBackend, CuPyBackend, TorchBackend
 from .metrics import evaluate_binary_classification
 from .feature_selection import (
@@ -47,7 +57,15 @@ from .feature_selection import (
 )
 from .inference import adjust_pvalues, combine_pvalues, multipletests
 from .inference import bootstrap_statistic, permutation_test
-from .anova import f_oneway
+from .anova import (
+    f_oneway,
+    f_twoway,
+    f_welch,
+    tukey_hsd,
+    bonferroni,
+    cohens_f,
+    partial_eta_squared,
+)
 from .nonparametric import (
     BandwidthSelectionResult,
     KernelDensityEstimator,
@@ -67,9 +85,23 @@ from .nonparametric import (
     select_bandwidth_factor,
     bspline_basis,
     natural_cubic_spline_basis,
+    SplineTransformer,
+    cyclic_cubic_spline_basis,
+    thin_plate_spline_basis,
+    chi2_kernel,
+    Nystroem,
+    KernelPCA,
 )
 from .semiparametric import GAM
-from .covariance import EmpiricalCovariance, LedoitWolf, OAS
+from .covariance import (
+    EmpiricalCovariance,
+    LedoitWolf,
+    OAS,
+    ShrunkCovariance,
+    MinCovDet,
+    GraphicalLasso,
+    GraphicalLassoCV,
+)
 from .unsupervised import (
     PCA,
     IncrementalPCA,
@@ -114,37 +146,53 @@ __all__ = [
     "LassoCV",
     "ElasticNet",
     "ElasticNetCV",
-    "EmpiricalCovariance",
-    "LedoitWolf",
-    "OAS",
     "CoxPH",
     "CoxPHCV",
+    # Panel
     "PanelOLS",
+    "FixedEffects",
     "RandomEffects",
-    "KernelRidge",
-    "KernelRidgeCV",
+    "RandomEffectsOLS",
+    "PooledOLS",
+    "BetweenOLS",
+    "FirstDifferenceOLS",
+    "FamaMacBeth",
+    "hac_covariance",
+    # Backends
     "get_backend",
     "NumpyBackend",
     "CuPyBackend",
     "TorchBackend",
     "evaluate_binary_classification",
-    "knockoff_filter",
-    "fixed_x_knockoff_filter",
-    "model_x_knockoff_filter",
-    "KnockoffSelector",
+    # Feature selection
     "FixedXKnockoffSelector",
+    "KnockoffSelector",
+    "fixed_x_knockoff_filter",
+    "knockoff_filter",
+    "model_x_knockoff_filter",
+    # Inference
     "adjust_pvalues",
     "combine_pvalues",
     "multipletests",
     "bootstrap_statistic",
     "permutation_test",
+    # ANOVA
     "f_oneway",
+    "f_twoway",
+    "f_welch",
+    "tukey_hsd",
+    "bonferroni",
+    "cohens_f",
+    "partial_eta_squared",
+    # Nonparametric
     "BandwidthSelectionResult",
     "KernelDensityEstimator",
     "KDE",
     "KDEBootstrapResult",
     "KernelRegression",
     "KernelRegressionRegressor",
+    "KernelRidge",
+    "KernelRidgeCV",
     "fit_kde",
     "fit_kernel_regression",
     "kde_pdf",
@@ -153,9 +201,25 @@ __all__ = [
     "kde_bootstrap_confidence_interval",
     "select_bandwidth",
     "select_bandwidth_factor",
-    "GAM",
     "bspline_basis",
     "natural_cubic_spline_basis",
+    "SplineTransformer",
+    "cyclic_cubic_spline_basis",
+    "thin_plate_spline_basis",
+    "chi2_kernel",
+    "Nystroem",
+    "KernelPCA",
+    # Semiparametric
+    "GAM",
+    # Covariance
+    "EmpiricalCovariance",
+    "LedoitWolf",
+    "OAS",
+    "ShrunkCovariance",
+    "MinCovDet",
+    "GraphicalLasso",
+    "GraphicalLassoCV",
+    # Unsupervised
     "PCA",
     "IncrementalPCA",
     "TruncatedSVD",
@@ -168,7 +232,4 @@ __all__ = [
     "AgglomerativeClustering",
     "UMAP",
     "TSNE",
-    "EmpiricalCovariance",
-    "LedoitWolf",
-    "OAS",
 ]

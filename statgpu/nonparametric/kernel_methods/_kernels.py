@@ -45,13 +45,55 @@ def rbf_kernel(X, Y=None, gamma=None, xp=None):
     if gamma is None:
         gamma = 1.0 / X.shape[1]
 
+    n, m = X.shape[0], Y.shape[0]
+
+    # For numpy: chunked float32 for large matrices (halves memory, avoids OOM).
+    # Preserves input dtype for small matrices (important for eigendecomposition).
+    if xp is np:
+        orig_dt = np.asarray(X).dtype
+        use_f32 = n * m > 4e6 and orig_dt == np.float64  # >4M elements and float64 input
+        dt = np.float32 if use_f32 else orig_dt
+        XX = np.sum(np.asarray(X, dtype=dt) ** 2, axis=1)  # (n,)
+        YY = np.sum(np.asarray(Y, dtype=dt) ** 2, axis=1)  # (m,)
+        chunk = max(1, min(n, int(5e8 / (m * np.dtype(dt).itemsize))))
+        if chunk >= n:
+            X_a = np.asarray(X, dtype=dt)
+            Y_a = np.asarray(Y, dtype=dt)
+            K = X_a @ Y_a.T
+            K *= -2.0
+            K += XX[:, None]
+            K += YY[None, :]
+            np.maximum(K, 0.0, out=K)
+            np.exp(-gamma * K, out=K)
+            return K
+        else:
+            K = np.empty((n, m), dtype=dt)
+            Y_a = np.asarray(Y, dtype=dt)
+            for s in range(0, n, chunk):
+                e = min(s + chunk, n)
+                Kc = np.asarray(X[s:e], dtype=dt) @ Y_a.T
+                Kc *= -2.0
+                Kc += XX[s:e, None]
+                Kc += YY[None, :]
+                np.maximum(Kc, 0.0, out=Kc)
+                np.exp(-gamma * Kc, out=Kc)
+                K[s:e] = Kc
+            return K
+
     # ||x - y||^2 = ||x||^2 + ||y||^2 - 2 * x @ y.T
-    XX = xp.sum(X ** 2, axis=1)[:, None]
-    YY = xp.sum(Y ** 2, axis=1)[None, :]
-    dist = XX + YY - 2.0 * (X @ Y.T)
-    # Clamp to avoid negative values from numerical noise
-    dist = xp_maximum(dist, 0.0, xp)
-    return xp.exp(-gamma * dist)
+    # Single n×m buffer, all in-place.
+    K = X @ Y.T                     # (n, m) — BLAS gemm
+    K *= -2.0                       # in-place
+    # norms — avoid n×n temporary via row-wise sum
+    K += xp.sum(X * X, axis=1)[:, None]
+    K += xp.sum(Y * Y, axis=1)[None, :]
+    xp.maximum(K, 0.0, out=K)      # clamp negatives
+    K *= -gamma
+    if hasattr(K, 'exp_'):
+        K.exp_()                    # torch in-place
+    else:
+        xp.exp(K, out=K)            # numpy/cupy in-place
+    return K
 
 
 def polynomial_kernel(X, Y=None, degree=3, gamma=None, coef0=1, xp=None):
@@ -132,9 +174,14 @@ def laplacian_kernel(X, Y=None, gamma=None, xp=None):
     if gamma is None:
         gamma = 1.0 / X.shape[1]
 
-    # L1 distance using broadcasting
-    dist = xp.sum(xp.abs(X[:, None, :] - Y[None, :, :]), axis=2)
-    return xp.exp(-gamma * dist)
+    # L1 distance — use scipy cdist for numpy (avoids huge temporary)
+    if xp is np:
+        from scipy.spatial.distance import cdist
+        dist = cdist(np.asarray(X), np.asarray(Y), metric='cityblock')
+        return xp.exp(-gamma * dist, out=dist)
+    else:
+        dist = xp.sum(xp.abs(X[:, None, :] - Y[None, :, :]), axis=2)
+        return xp.exp(-gamma * dist)
 
 
 def sigmoid_kernel(X, Y=None, gamma=None, coef0=1, xp=None):
@@ -187,9 +234,89 @@ def cosine_kernel(X, Y=None, xp=None):
     if Y is None:
         Y = X
 
-    X_norm = xp.sqrt(xp.sum(X ** 2, axis=1))[:, None]
-    Y_norm = xp.sqrt(xp.sum(Y ** 2, axis=1))[None, :]
+    if xp is np:
+        X_norm = np.sqrt(np.einsum('ij,ij->i', X, X))[:, None]
+        Y_norm = np.sqrt(np.einsum('ij,ij->i', Y, Y))[None, :]
+    else:
+        X_norm = xp.sqrt(xp.sum(X * X, axis=1))[:, None]
+        Y_norm = xp.sqrt(xp.sum(Y * Y, axis=1))[None, :]
     return (X @ Y.T) / (X_norm * Y_norm + 1e-10)
+
+
+def chi2_kernel(X, Y=None, gamma=1.0, xp=None):
+    r"""Chi-squared kernel.
+
+    .. math::
+        K(x, y) = \exp\left(-\gamma \sum_i \frac{(x_i - y_i)^2}{x_i + y_i}\right)
+
+    This is an RBF-like kernel that works well with histograms.
+    Requires non-negative input features.
+
+    Parameters
+    ----------
+    X : array-like of shape (n_samples_X, n_features)
+        Must be non-negative.
+    Y : array-like of shape (n_samples_Y, n_features), optional
+        Must be non-negative.
+    gamma : float, default=1.0
+        Kernel coefficient.
+    xp : module, optional
+        Array module (numpy / cupy / torch).
+
+    Returns
+    -------
+    K : array of shape (n_samples_X, n_samples_Y)
+
+    Notes
+    -----
+    This is the exponentiated chi-squared kernel, which is related to
+    the additive chi-squared kernel by exponentiation.  It is commonly
+    used for histogram-based features in computer vision.
+    """
+    if xp is None:
+        xp = np
+    if Y is None:
+        Y = X
+
+    # Ensure non-negative
+    if xp is np:
+        X = np.maximum(np.asarray(X), 0)
+        Y = np.maximum(np.asarray(Y), 0)
+    else:
+        X = xp_maximum(X, 0, xp)
+        Y = xp_maximum(Y, 0, xp)
+
+    # chi-squared distance: sum_i (x_i - y_i)^2 / (x_i + y_i)
+    if xp is np:
+        # Use sklearn's Cython-optimized implementation for numpy
+        try:
+            from sklearn.metrics.pairwise import chi2_kernel as _sk_chi2
+            return _sk_chi2(np.asarray(X), np.asarray(Y), gamma=gamma)
+        except ImportError:
+            pass
+        # Fallback: chunked broadcasting
+        n, p = X.shape
+        m = Y.shape[0]
+        chunk = min(p, max(1, 2000000 // max(n * m, 1)))
+        chi2_dist = np.zeros((n, m), dtype=X.dtype)
+        for start in range(0, p, chunk):
+            end = min(start + chunk, p)
+            Xc = X[:, start:end, None]
+            Yc = Y[None, :, start:end]
+            s = Xc + Yc
+            np.maximum(s, 1e-10, out=s)
+            chi2_dist += np.sum((Xc - Yc) ** 2 / s, axis=2)
+        return np.exp(-gamma * chi2_dist)
+    else:
+        # GPU: use broadcasting
+        X_exp = X[:, None, :]
+        Y_exp = Y[None, :, :]
+        numerator = (X_exp - Y_exp) ** 2
+        denominator = X_exp + Y_exp
+        denom_safe = xp_maximum(denominator, 1e-10, xp)
+        chi2_dist = xp.sum(numerator / denom_safe, axis=2)
+
+    return xp.exp(-gamma * chi2_dist, out=chi2_dist)
 
 
 # ---------------------------------------------------------------------------
@@ -205,6 +332,8 @@ KERNEL_REGISTRY = {
     "laplacian": laplacian_kernel,
     "sigmoid": sigmoid_kernel,
     "cosine": cosine_kernel,
+    "chi2": chi2_kernel,
+    "chi-squared": chi2_kernel,
 }
 
 

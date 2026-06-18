@@ -18,11 +18,24 @@ from .kernel_smoothing import (
     kernel_regression_predict,
 )
 
-# Kernel ridge regression
-from .kernel_methods import KernelRidge, KernelRidgeCV, pairwise_kernels
+# Kernel ridge regression + approximation
+from .kernel_methods import (
+    KernelRidge,
+    KernelRidgeCV,
+    pairwise_kernels,
+    chi2_kernel,
+    Nystroem,
+    KernelPCA,
+)
 
-# Spline basis functions
-from .splines import bspline_basis, natural_cubic_spline_basis
+# Spline basis functions + transformers
+from .splines import (
+    bspline_basis,
+    natural_cubic_spline_basis,
+    SplineTransformer,
+    cyclic_cubic_spline_basis,
+    thin_plate_spline_basis,
+)
 
 __all__ = [
     # Kernel smoothing
@@ -44,7 +57,13 @@ __all__ = [
     "KernelRidge",
     "KernelRidgeCV",
     "pairwise_kernels",
+    "chi2_kernel",
+    "Nystroem",
+    "KernelPCA",
     # Splines
     "bspline_basis",
     "natural_cubic_spline_basis",
+    "SplineTransformer",
+    "cyclic_cubic_spline_basis",
+    "thin_plate_spline_basis",
 ]

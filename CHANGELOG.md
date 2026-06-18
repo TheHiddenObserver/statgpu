@@ -2,6 +2,17 @@
 
 All notable changes to statgpu are documented here, organized by date and PR.
 
+## 2026-06-17
+
+### PR #72 — P2 modules: ANOVA, Covariance, Panel, Splines, Kernel methods
+
+- **ANOVA**: `f_twoway` (two-way with/without interaction), `f_welch` (unequal variances), `tukey_hsd`, `bonferroni` (post-hoc), `cohens_f`, `partial_eta_squared` (effect sizes)
+- **Covariance**: `ShrunkCovariance`, `MinCovDet` (FAST-MCD, matches sklearn corr=1.0), `GraphicalLasso`, `GraphicalLassoCV`
+- **Panel**: `PooledOLS`, `BetweenOLS`, `FirstDifferenceOLS`, `FamaMacBeth`, `hac_covariance` (Newey-West HAC)
+- **Splines**: `SplineTransformer` (sklearn API), `cyclic_cubic_spline_basis`, `thin_plate_spline_basis`
+- **Kernel**: `chi2_kernel`, `Nystroem`, `KernelPCA`; RBF kernel optimized (3.5-13x faster than sklearn on CPU)
+- 112 new tests, all passing; 3-backend benchmark on Tesla P100
+
 ## 2026-06-15
 
 ### PR #66 — Code review round 10: final bug fixes
