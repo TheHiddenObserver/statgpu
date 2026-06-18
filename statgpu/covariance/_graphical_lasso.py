@@ -141,8 +141,9 @@ class GraphicalLasso(EmpiricalCovariance):
                         break
 
                 # Update W and theta for feature j (Friedman et al. 2008)
-                # Schur complement: c = W_jj + alpha - s_12^T beta
-                c = W[j, j] + self.alpha - s_12.dot(beta)
+                # Schur complement: c = S_jj + alpha - s_12^T beta
+                # (W[j,j] already includes alpha, so use S[j,j] + alpha)
+                c = S[j, j] + self.alpha - s_12.dot(beta)
                 theta_j = np.zeros(p)
                 theta_j[not_j] = -beta / c
                 theta_j[j] = 1.0 / c
