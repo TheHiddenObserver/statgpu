@@ -108,36 +108,35 @@ Save JSON results to `results/bench_<module>.json` for frontend use.
 
 ## R comparison
 
-For statistical methods where R is the gold standard, include R comparison via `rpy2`:
+For statistical methods where R is the gold standard, include R comparison via `rpy2`.
+
+When benchmarking a specific module, determine the appropriate R equivalent dynamically:
+- Search for the closest R package/function that implements the same method
+- Compare the same output statistics (coefficients, SE, p-values, etc.)
+- Use `rpy2.robjects` to call R from Python
+
+Example pattern:
 
 ```python
-# Example: ANOVA comparison with R
 try:
     import rpy2.robjects as ro
     from rpy2.robjects import numpy2ri
     numpy2ri.activate()
-    
-    # R aov()
+
+    # Pass data to R
     ro.globalenv['y'] = y
     ro.globalenv['group'] = group
-    r_result = ro.r('summary(aov(y ~ factor(group)))')
-    r_F = float(ro.r('summary(aov(y ~ factor(group)))[[1]]$F[1]')[0])
-    r_p = float(ro.r('summary(aov(y ~ factor(group)))[[1]]$Pr[1]')[0])
-    
-    results["R_aov"] = {"F": r_F, "p": r_p}
+
+    # Call the R equivalent of the method being benchmarked
+    r_result = ro.r('<R code for the equivalent method>')
+
+    # Extract comparable statistics
+    results["R"] = {"statistic": float(r_result[0])}
 except ImportError:
-    results["R_aov"] = {"error": "rpy2 not installed"}
+    results["R"] = {"error": "rpy2 not installed"}
 ```
 
-R comparison targets by module:
-| Module | R package | R function | What to compare |
-|--------|-----------|------------|-----------------|
-| ANOVA | stats | `aov()` | F-statistic, p-value |
-| ANOVA | stats | `oneway.test()` | Welch F, p-value |
-| Panel | plm | `plm()` | coefficients, SE |
-| Panel | fixest | `feols()` | coefficients, SE |
-| Covariance | MASS | `cov.rob()` | covariance matrix |
-| Covariance | glasso | `glasso()` | precision matrix |
+The specific R function to use depends on what is being benchmarked. Find the closest R equivalent at benchmark time.
 
 ## Remote server notes
 
