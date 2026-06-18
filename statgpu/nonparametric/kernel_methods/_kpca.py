@@ -209,10 +209,11 @@ class KernelPCA(BaseEstimator):
     def fit_transform(self, X, y=None):
         """Fit and transform in one step."""
         self.fit(X, y)
-        # For training data, the projection is just sqrt(lambda) * alpha
+        # For training data: K_centered @ alphas_ = V * sqrt(lambda)
+        # alphas_ = V / sqrt(lambda), so alphas_ * lambda = V * sqrt(lambda)
         backend = self._get_backend(backend="auto")
         xp = backend.xp
-        result = np.asarray(self.alphas_) * np.sqrt(np.maximum(self.lambdas_, 0))[None, :]
+        result = np.asarray(self.alphas_) * np.maximum(self.lambdas_, 0)[None, :]
         return xp.asarray(result, dtype=xp.float64)
 
     def predict(self, X):

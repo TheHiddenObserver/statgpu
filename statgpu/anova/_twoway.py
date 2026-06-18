@@ -106,7 +106,9 @@ def f_twoway(
         If False, fit an additive model (no interaction).
 
     backend : {'auto', 'numpy', 'cupy', 'torch'}, default='auto'
-        Compute backend.
+        Compute backend.  **Note:** computation currently runs on CPU
+        regardless of backend selection.  This parameter is reserved for
+        future GPU acceleration.
 
     dtype : dtype or None, default=None
         Float dtype for computation.  ``None`` uses ``float64``.

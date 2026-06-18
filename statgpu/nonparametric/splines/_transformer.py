@@ -126,7 +126,7 @@ class SplineTransformer(BaseEstimator):
             n_int = len(kts) - 2  # interior knots
             if n_int < 1:
                 n_int = max(len(kts), 1)
-            self._n_splines_per_feature.append(n_int + self.degree)
+            self._n_splines_per_feature.append(n_int + self.degree + 1)
 
         # Use the minimum for consistent output dimension
         min_splines = min(self._n_splines_per_feature)

@@ -302,7 +302,7 @@ def bonferroni(
                 pvalue=pvalue,
                 ci_lower=ci_lower,
                 ci_upper=ci_upper,
-                reject=pvalue < alpha,
+                reject=pvalue < alpha_bonf,
             ))
 
     return PosthocResult(

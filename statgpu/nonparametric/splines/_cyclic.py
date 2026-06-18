@@ -116,8 +116,12 @@ def cyclic_cubic_spline_basis(x, knots, xp=None):
         Vt = xp.asarray(Vt_np, dtype=xp.float64)
 
     # Null space = rows of Vt corresponding to zero singular values
-    # For a 3 x n_basis matrix, null space has n_basis - rank(C) columns
-    rank = 3  # expected rank
+    # Determine rank from singular values (not hardcoded)
+    if S_vec.shape[0] > 0:
+        tol = max(C.shape) * float(_to_scalar(S_vec[0])) * np.finfo(np.float64).eps
+        rank = int(np.sum(np.abs(_to_numpy(S_vec)) > tol))
+    else:
+        rank = 0
     null_space = Vt[rank:].T  # (n_basis, n_basis - rank)
 
     # Project B-spline basis onto null space

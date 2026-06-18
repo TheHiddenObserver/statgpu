@@ -115,16 +115,17 @@ class Nystroem(BaseEstimator):
         kernel_params = self._get_kernel_params()
 
         # ---- K_mm decomposition on CPU (small matrix, avoid GPU overhead) ----
-        # Use SVD: K_mm = U @ diag(S) @ V, then K_mm^{-1/2} = U @ diag(1/sqrt(S)) @ V
+        # Use eigendecomposition for PSD kernel matrix: K = V diag(λ) V^T
+        # K^{-1/2} = V diag(1/sqrt(λ)) V^T
         landmarks_np = _to_numpy(landmarks)
         K_mm_np = pairwise_kernels(landmarks_np, metric=self.kernel, xp=np, **kernel_params)
 
-        U, S, V = np.linalg.svd(K_mm_np)
-        S = np.maximum(S, 1e-12)
+        eigvals, eigvecs = np.linalg.eigh(K_mm_np)
+        eigvals = np.maximum(eigvals, 1e-12)
 
-        # Normalization: K_mm^{-1/2} = U @ diag(1/sqrt(S)) @ V
-        self.normalization_ = np.dot(U / np.sqrt(S), V)
-        self.eigenvalues_ = S
+        # Normalization: K_mm^{-1/2} = V @ diag(1/sqrt(λ)) @ V^T
+        self.normalization_ = (eigvecs * (1.0 / np.sqrt(eigvals))[None, :]) @ eigvecs.T
+        self.eigenvalues_ = eigvals
         self._landmarks = landmarks
         self._landmarks_np = landmarks_np
         self._kernel_params = kernel_params

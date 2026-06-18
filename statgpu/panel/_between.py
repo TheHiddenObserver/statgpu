@@ -24,7 +24,7 @@ class BetweenOLS(BaseEstimator):
     Parameters
     ----------
     cov_type : str, default='nonrobust'
-        Covariance estimator: ``'nonrobust'``, ``'robust'``, or ``'clustered'``.
+        Covariance estimator: ``'nonrobust'`` or ``'robust'`` (HC1).
     alpha : float, default=0.05
         Significance level for confidence intervals.
     device : str or Device, default='auto'

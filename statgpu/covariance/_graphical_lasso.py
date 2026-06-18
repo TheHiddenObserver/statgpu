@@ -166,7 +166,9 @@ class GraphicalLasso(EmpiricalCovariance):
         _ref = None
         if backend_name == "torch":
             import torch
-            _ref = torch.empty(0, dtype=torch.float64, device="cuda")
+            _dev = self._get_compute_device()
+            _cuda_dev = "cuda" if _dev.value in ("torch", "cuda") else "cpu"
+            _ref = torch.empty(0, dtype=torch.float64, device=_cuda_dev)
         kw = {"device": _ref.device} if _ref else {}
 
         self.covariance_ = xp.asarray(W, dtype=xp.float64, **kw)
@@ -352,7 +354,9 @@ class GraphicalLassoCV(EmpiricalCovariance):
         _ref = None
         if backend_name == "torch":
             import torch
-            _ref = torch.empty(0, dtype=torch.float64, device="cuda")
+            _dev = self._get_compute_device()
+            _cuda_dev = "cuda" if _dev.value in ("torch", "cuda") else "cpu"
+            _ref = torch.empty(0, dtype=torch.float64, device=_cuda_dev)
         kw = {"device": _ref.device} if _ref else {}
 
         self.covariance_ = xp.asarray(np.asarray(gl_final.covariance_), dtype=xp.float64, **kw)

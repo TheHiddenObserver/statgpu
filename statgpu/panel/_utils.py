@@ -12,7 +12,15 @@ Python loops and their associated GPU-CPU synchronization overhead.
 
 from __future__ import annotations
 
-__all__ = ["demean", "within_transform", "group_means"]
+__all__ = [
+    "PanelSummary",
+    "demean_variables",
+    "within_transform",
+    "group_means",
+    "group_sizes",
+    "make_group_dummies",
+    "compute_panel_inference",
+]
 
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional
@@ -544,7 +552,10 @@ def compute_panel_inference(model, X, resid, params, scale, n, k, xp, backend_na
     else:
         cov_params = scale * XtX_inv / n
 
-    bse_dev = xp.sqrt(xp.diag(cov_params))
+    diag_cov = xp.diag(cov_params)
+    # Guard against zero/negative diagonal (ill-conditioned matrices)
+    diag_cov = xp.maximum(diag_cov, 1e-30)
+    bse_dev = xp.sqrt(diag_cov)
     tvalues_dev = params / bse_dev
 
     df = dist_df if dist_df is not None else n - k

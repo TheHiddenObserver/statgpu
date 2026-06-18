@@ -29,7 +29,8 @@ def f_welch(
     *groups : array-like
         Two or more sample arrays, one per group.  Each must be 1-D.
     backend : {'auto', 'numpy', 'cupy', 'torch'}, default='auto'
-        Compute backend.
+        Compute backend.  **Note:** computation currently runs on CPU
+        regardless of backend selection.
     dtype : dtype or None, default=None
         Float dtype for computation.  ``None`` uses ``float64``.
 
@@ -101,6 +102,8 @@ def f_welch(
         xbar_k = xbar_k[mask]
         s2_k = s2_k[mask]
         k = len(flat_groups)
+        if k < 2:
+            raise ValueError("After filtering zero-variance groups, fewer than 2 groups remain")
 
     # Weights (inverse variance)
     w_k = n_k / s2_k
