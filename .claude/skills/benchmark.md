@@ -136,7 +136,33 @@ except ImportError:
     results["R"] = {"error": "rpy2 not installed"}
 ```
 
-The specific R function to use depends on what is being benchmarked. Find the closest R equivalent at benchmark time.
+### How to find the R equivalent
+
+When benchmarking a statgpu method, find the R equivalent by:
+
+1. **Check the method's docstring or model doc** — references often cite the R package
+2. **Search CRAN** for the statistical method name
+3. **Common mappings** (use as starting point, verify at benchmark time):
+
+| statgpu pattern | Likely R equivalent |
+|----------------|-------------------|
+| `f_oneway` / `f_twoway` | `stats::aov()` |
+| `f_welch` | `stats::oneway.test()` |
+| `tukey_hsd` | `stats::TukeyHSD()` |
+| `bonferroni` | `stats::pairwise.t.test(p.adjust.method="bonferroni")` |
+| Any panel estimator | `plm::plm()` or `fixest::feols()` |
+| `EmpiricalCovariance` | `stats::cov()` |
+| `LedoitWolf` / `OAS` | `stats::cov()` (no direct R equivalent, compare with sample cov) |
+| `MinCovDet` | `MASS::cov.mve()` or `MASS::cov.rob()` |
+| `GraphicalLasso` | `glasso::glasso()` |
+| `bspline_basis` | `splines::bs()` |
+| `natural_cubic_spline_basis` | `splines::ns()` |
+| `SplineTransformer` | `splines::bs()` (same output format) |
+| Kernel methods | `kernlab::` or base R |
+| `GAM` | `mgcv::gam()` |
+| `CoxPH` | `survival::coxph()` |
+
+If no direct R equivalent exists, skip R comparison and note why in the benchmark output.
 
 ## Remote server notes
 
