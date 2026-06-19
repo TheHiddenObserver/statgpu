@@ -46,18 +46,16 @@ class HuberLoss(LossBase):
 
         rho_delta(u) = 0.5 * u^2                  if |u| <= delta
                      = delta * (|u| - 0.5 * delta)  otherwise
-
-        Computed as: 0.5 * min(u^2, delta*(2*|u| - delta))
         """
         u = y - eta
         xp = _get_xp(u)
         d = self.delta
-        abs_u = xp.abs(u)
-        quad = u * u
-        linear = d * (2.0 * abs_u - d)
+        in_quad = (xp.abs(u) <= d)
         if xp.__name__ == "torch":
-            return 0.5 * xp.minimum(quad, linear)
-        return 0.5 * xp.minimum(quad, linear)
+            in_quad = in_quad.to(u.dtype)
+        else:
+            in_quad = in_quad.astype(u.dtype)
+        return in_quad * 0.5 * u * u + (1.0 - in_quad) * d * (xp.abs(u) - 0.5 * d)
 
     def per_sample_gradient(self, eta, y):
         """Gradient w.r.t. eta: -u if |u|<=delta, -delta*sign(u) otherwise.
