@@ -1,13 +1,44 @@
 # Changelog
 
 > Language: English  
-> Last updated: 2026-06-17
+> Last updated: 2026-06-19
 > This page: Changelog  
 > Switch: [Chinese](../changelog.md)
 
 Language switch: [Chinese](../changelog.md)
 
 ## 2026-06
+
+### Added (2026-06-19)
+
+- **LossBase Architecture** (Phase 1):
+  - Extracted `LossBase` from `GLMLoss` as generic base class for all loss functions
+  - `GLMLoss` now inherits from `LossBase` (backward compatible)
+  - New loss types automatically get all 10 penalties and 6 solvers
+  - Solver type hints updated from `GLMLoss` to duck-typed `LossBase` (fista, newton, lbfgs, admm)
+
+- **New Loss Types**:
+  - `QuantileLoss`: Pinball loss for quantile regression (matches R `quantreg::rq()`)
+    - `smooth_gradient=False` for FISTA proximal handling
+    - Supports all quantiles in (0, 1)
+  - `HuberLoss`: Robust M-estimator loss (matches R `MASS::rlm()`)
+    - `smooth_gradient=True`, `has_hessian=False`
+    - Recovers OLS for large delta; robust to outliers for small delta
+  - `CoxPartialLikelihoodLoss`: Cox PH negative log partial likelihood (matches R `survival::coxph()`)
+    - Breslow and Efron tie handling
+    - `has_hessian=True` for Newton solver
+    - CPU-only (numpy); for GPU use `statgpu.survival.CoxPH` directly
+    - Fused `fused_value_and_gradient()` avoids redundant X @ beta computation
+
+- **Loss Registry** (`statgpu.losses._registry`):
+  - `register_loss(name)`: Decorator to register custom loss classes
+  - `get_loss(name, **kwargs)`: Factory function for loss instantiation
+  - `list_losses()`: Lists all registered losses (GLM + non-GLM)
+  - GLM losses auto-registered via `register_glm_loss` cross-registration
+
+- **Files Created**: `statgpu/losses/__init__.py`, `_base.py`, `_registry.py`, `_quantile.py`, `_huber.py`, `_cox_ph.py`
+- **Files Modified**: `statgpu/glm_core/_base.py`, `statgpu/solvers/_fista.py`, `_newton.py`, `_lbfgs.py`, `_admm.py`, `statgpu/__init__.py`
+- **Tests**: 64 tests in `dev/tests/test_losses.py` (all passing)
 
 ### Added (2026-06-17)
 

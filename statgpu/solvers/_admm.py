@@ -33,8 +33,8 @@ __all__ = ["admm_solver"]
 
 
 def admm_solver(
-    loss: "GLMLoss",
-    penalty: "Penalty | None",
+    loss,
+    penalty,
     X,
     y,
     max_iter: int = 200,

@@ -36,8 +36,8 @@ from ._utils import (
 
 
 def lbfgs_solver(
-    loss: "GLMLoss",
-    penalty: "Penalty | None",
+    loss,
+    penalty,
     X,
     y,
     max_iter: int = 100,

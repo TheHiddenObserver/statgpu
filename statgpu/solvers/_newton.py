@@ -31,8 +31,8 @@ from ._utils import (
 
 
 def newton_solver(
-    loss: "GLMLoss",
-    penalty: "Penalty | None",
+    loss,
+    penalty,
     X,
     y,
     max_iter: int = 100,

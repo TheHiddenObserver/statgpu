@@ -1,13 +1,36 @@
 # Changelog
 
 > 语言：中文  
-> 最后更新：2026-06-17  
+> 最后更新：2026-06-19  
 > 页面定位：变更记录  
 > 切换：[English](en/changelog.md)
 
 语言切换：[English](en/changelog.md)
 
 ## 2026-06
+
+### 新增 (2026-06-19)
+
+- **LossBase 架构** (Phase 1):
+  - 从 `GLMLoss` 提取 `LossBase` 作为所有损失函数的通用基类
+  - `GLMLoss` 现继承自 `LossBase`（向后兼容）
+  - 新损失类型自动继承全部 10 种惩罚和 6 种求解器
+  - 求解器类型注解从 `GLMLoss` 更新为 duck-typed `LossBase`
+
+- **新损失类型**:
+  - `QuantileLoss`: 分位数回归的 pinball 损失（对应 R `quantreg::rq()`）
+  - `HuberLoss`: 稳健 M-估计器损失（对应 R `MASS::rlm()`）
+  - `CoxPartialLikelihoodLoss`: Cox PH 负对数偏似然（对应 R `survival::coxph()`）
+    - 支持 Breslow 和 Efron tie 处理
+    - CPU-only (numpy)；GPU 加速请用 `statgpu.survival.CoxPH`
+
+- **损失注册表** (`statgpu.losses._registry`):
+  - `register_loss(name)`: 注册自定义损失类的装饰器
+  - `get_loss(name, **kwargs)`: 损失实例化工厂函数
+  - `list_losses()`: 列出所有已注册损失（GLM + 非 GLM）
+
+- **新增文件**: `statgpu/losses/__init__.py`, `_base.py`, `_registry.py`, `_quantile.py`, `_huber.py`, `_cox_ph.py`
+- **测试**: `dev/tests/test_losses.py` 64 个测试全部通过
 
 ### 新增 (2026-06-17)
 

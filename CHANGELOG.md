@@ -2,6 +2,18 @@
 
 All notable changes to statgpu are documented here, organized by date and PR.
 
+## 2026-06-19
+
+### LossBase Architecture — Phase 1
+
+- **LossBase**: Extracted generic base class from `GLMLoss`; all loss types share penalty/solver infrastructure
+- **QuantileLoss**: Pinball loss for quantile regression (R `quantreg::rq()`)
+- **HuberLoss**: Robust M-estimator loss (R `MASS::rlm()`)
+- **CoxPartialLikelihoodLoss**: Cox PH negative log partial likelihood (R `survival::coxph()`), Breslow+Efron ties
+- **Loss Registry**: `register_loss()`, `get_loss()`, `list_losses()` — 10 total losses registered
+- `GLMLoss` inherits `LossBase` (backward compatible); solver type hints updated
+- 64 tests, all passing; model docs in English + Chinese
+
 ## 2026-06-17
 
 ### PR #72 — P2 modules: ANOVA, Covariance, Panel, Splines, Kernel methods

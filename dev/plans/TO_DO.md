@@ -46,6 +46,13 @@
 | **feature_selection/** | ~80% | KnockoffSelector, StepwiseSelector | 无 |
 | **metrics/** | ~60% | ROC, AUC, confusion matrix | VIF, influence |
 | **diagnostics/** | ~50% | RegressionDiagnostics | BP test, DW test |
+| **mixed_model/** | 0% | ❌ | lme4/nlme 等效 (LMM, GLMM, GEE) |
+| **meta_analysis/** | 0% | ❌ | metafor 等效 (rma, meta-regression, NMA) |
+| **changepoint/** | 0% | ❌ | changepoint 等效 (PELT, Bayesian, batch) |
+| **multivariate/** | 0% | ❌ | MASS/candisc 等效 (LDA, QDA, MANOVA, CCA, FA) |
+| **copula/** | 0% | ❌ | copula 等效 (Gaussian, t, Vine copula) |
+| **imputation/** | 0% | ❌ | mice 等效 (MICE, RF imputation, MI pooling) |
+| **nonlinear/** | 0% | ❌ | minpack.lm 等效 (NLS, Levenberg-Marquardt) |
 
 ---
 
@@ -116,6 +123,51 @@
 - [x] Panel summary() 返回 PanelSummary 结构化对象 ✅
 - [x] PanelOLS.predict() 包含固定效应 (entity_ids/time_ids) ✅
 - [x] ANOVA float32 支持 (dtype 参数) ✅
+
+### P6: Loss-as-Plugin 扩展 (详见 `development_priority.md`)
+
+**核心策略:** 将新方法实现为 `GLMLoss` 子类，接入现有 PenalizedGLM 框架，零改动 solver/penalty 代码。
+
+**Phase 1: 新 Loss 函数 (最高 ROI，2026 Q3)**
+- [ ] **QuantileLoss** — `quantreg::rq()` — 2-3 周 — 分位数回归 + 所有 penalty
+- [ ] **HuberLoss** — `MASS::rlm()` — 2-3 周 — 稳健 M-estimator + 所有 penalty
+- [ ] **CoxPH refactor** — `survival::coxph()` — 3-4 周 — 将现有 CoxPH 接入 loss 框架
+- [ ] **BisquareLoss** — `robustbase::lmrob()` — 1 周 — MM-estimator 的 S 步
+
+**Phase 2: 推断统一 (2026 Q3-Q4)**
+- [ ] 统一 `summary()` 支持所有 loss 类型
+- [ ] 稳健标准误 (HC0-HC3/HAC/cluster) 适用于所有 loss
+- [ ] Model selection (AIC/BIC/CV) 适用于所有 loss
+
+**Phase 3: 新模块 (2026 Q4-2027 Q1)**
+- [ ] **混合效应模型** — `lme4::lmer()` — 8-12 周 — 新模块，需稀疏矩阵
+- [ ] **元分析** — `metafor::rma()` — 4-6 周 — 新模块
+- [ ] **GEE** — `geepack::geeglm()` — 3-4 周 — 新模块
+- [ ] **变点检测** — `changepoint::cpt.mean()` — 4-6 周 — 新模块
+
+**Phase 4: 高级方法 (2027+)**
+- [ ] **多元统计** — `MASS::lda()`, `candisc::cancor()` — 6-8 周
+- [ ] **Copula** — `copula::fitCopula()` — 4-6 周
+- [ ] **SEM** — `lavaan::sem()` — 8-10 周
+
+**已有计划扩展:**
+- [ ] GAMM (扩展 plan_spline.md) — `mgcv::gamm()` — 广义可加混合模型
+- [ ] 竞争风险 (扩展 plan_survival.md) — `cmprsk::crr()` — Fine-Gray 模型
+- [ ] 变异函数/克里金 (扩展 plan_spatial.md) — `gstat::variogram()` — 空间插值
+
+---
+
+### CRAN Task View 覆盖审计 (35 个 Task View)
+
+| 状态 | 数量 | 说明 |
+|------|------|------|
+| ✅ 已实现 | 3 | Cluster, Distributions, HPC |
+| 🟡 部分实现/已有计划 | 20 | Econometrics, Finance, FDA, GraphicalModels, ML, MetaAnalysis, Missing, MixedModels, Multivariate, NumericalMath, Optimization, Psychometrics, Robust, Spatial, SpatioTemporal, Survival, TimeSeries, Causal, ExperimentalDesign(partial) |
+| ❌ 缺失但应覆盖 | 2 | DoE(实验设计), DifferentialEquations(ODE求解) |
+| ❌ 战略排除 | 1 | Bayesian — Python已有成熟GPU方案(PyMC/NumPyro/Pyro/TFP)，不竞争，提供桥接 |
+| ❌ 不适用 | 9 | ChemPhys, MedicalImaging, ModelDeployment, NLP, Phylogenetics, ReproducibleResearch, TeachingStatistics, Tracking, WebTech |
+
+详见 `cran_r_package_supplement.md` Part F/G。
 
 ---
 

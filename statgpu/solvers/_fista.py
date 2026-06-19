@@ -45,8 +45,8 @@ from ._utils import (
 
 
 def fista_solver(
-    loss: "GLMLoss",
-    penalty: "Penalty | None",
+    loss,
+    penalty,
     X,
     y,
     max_iter: int = 1000,
@@ -62,8 +62,8 @@ def fista_solver(
 
     Parameters
     ----------
-    loss : GLMLoss
-        GLM loss function with gradient(), lipschitz(), preprocess(), value().
+    loss : LossBase
+        Loss function with gradient(), lipschitz(), preprocess(), value().
     penalty : Penalty
         Penalty with proximal().
     X : array

@@ -35,6 +35,12 @@ from .linear_model import (
     ElasticNetCV,
 )
 from .survival import CoxPH, CoxPHCV
+from .losses import (
+    LossBase,
+    QuantileLoss,
+    HuberLoss,
+    CoxPartialLikelihoodLoss,
+)
 from .panel import (
     PanelOLS,
     FixedEffects,
@@ -148,6 +154,11 @@ __all__ = [
     "ElasticNetCV",
     "CoxPH",
     "CoxPHCV",
+    # Losses (LossBase subclasses)
+    "LossBase",
+    "QuantileLoss",
+    "HuberLoss",
+    "CoxPartialLikelihoodLoss",
     # Panel
     "PanelOLS",
     "FixedEffects",
