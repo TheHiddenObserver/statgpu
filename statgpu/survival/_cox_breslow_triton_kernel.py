@@ -1,9 +1,7 @@
-"""Breslow Hessian computation via PyTorch GPU operations (cuBLAS + vectorized).
+"""Breslow gradient/Hessian computation via PyTorch GPU operations.
 
-Originally attempted a Triton serial-scan kernel, but Triton 2.0 has a compiler
-bug that produces non-deterministic wrong code for kernels with runtime-bounded
-loops (while/for with >= 3 iterations). The PyTorch approach is only marginally
-slower since each GPU operation (matmul, outer) is highly optimized by cuBLAS.
+Fully vectorized: no Python loops over failure groups.
+Uses prefix sums of X_exp^T @ X to compute risk_X2 at all failure times in one shot.
 """
 from __future__ import annotations
 
@@ -11,12 +9,10 @@ from typing import Any, Optional, Tuple
 
 import torch
 
-# Supported padded feature dimensions (next power of 2)
 _SUPPORTED_P: Tuple[int, ...] = (8, 16, 32, 64, 128)
 
 
 def _find_p_ce(p: int) -> Optional[int]:
-    """Find the smallest supported padded feature dimension >= p."""
     for sp in _SUPPORTED_P:
         if sp >= p:
             return sp
@@ -29,11 +25,10 @@ def compute_breslow_grad_hess_triton(
     time: Any,
     event: Any,
 ) -> Optional[Tuple[Any, Any]]:
-    """Compute Breslow gradient/Hessian via PyTorch GPU operations.
+    """Compute Breslow gradient/Hessian via PyTorch GPU — fully vectorized.
 
-    Uses the same algorithm as _cox.py Breslow path: vectorized gradient,
-    then serial Python loop over unique failure times with async PyTorch
-    GPU operations for the Hessian.
+    No Python loops over failure groups. Uses prefix sums of rank-1
+    outer products to compute risk_X2 at all failure times in one batch.
     """
     if not isinstance(X, torch.Tensor) or not isinstance(beta, torch.Tensor):
         return None
@@ -63,7 +58,7 @@ def compute_breslow_grad_hess_triton(
     # Reverse cumsum for risk sets
     rev_idx = torch.arange(n - 1, -1, -1, device=device)
     risk_sum = torch.cumsum(exp_eta[rev_idx], dim=0)[rev_idx]
-    risk_X_sum = torch.cumsum((X * exp_eta[:, None])[rev_idx], dim=0)[rev_idx]
+    risk_X_sum = torch.cumsum(X_exp[rev_idx], dim=0)[rev_idx]
 
     # Unique failure times
     event_times = time[event_mask]
@@ -75,7 +70,7 @@ def compute_breslow_grad_hess_triton(
     first_in_sorted = torch.searchsorted(sorted_times, uft, side="left")
     first_idx = sort_idx[first_in_sorted]
 
-    # Precompute risk values at unique times
+    # Risk values at failure times
     risk_at_uft = risk_sum[first_idx]
     risk_X_at_uft = risk_X_sum[first_idx]
     E_X_at_uft = risk_X_at_uft / risk_at_uft[:, None]
@@ -88,19 +83,30 @@ def compute_breslow_grad_hess_triton(
     # Gradient: Breslow closed-form
     grad = torch.sum(sum_X_per_uft - counts[:, None] * E_X_at_uft, dim=0)
 
-    # Hessian: PyTorch GPU operations (same algorithm as _cox.py)
-    risk_X2 = X_exp.T @ X
-    hess = torch.zeros((p, p), dtype=torch.float64, device=device)
-    pidx = 0
-    for g in range(n_uft):
-        idx = int(first_idx[g].item())
-        if idx > pidx:
-            risk_X2 -= X_exp[pidx:idx].T @ X[pidx:idx]
-            pidx = idx
-        rs = risk_at_uft[g]
-        w = counts[g]
-        ex = E_X_at_uft[g]
-        hess -= risk_X2 * (w / rs)
-        hess += torch.outer(ex, ex) * w
+    # Hessian: fully vectorized using prefix sums
+    # risk_X2[g] = total_X2 - prefix_X2[first_idx[g]]
+    # prefix_X2[i] = sum_{k=0}^{i-1} X_exp[k]^T @ X[k]
+    # Use rank-1 outer products + cumsum on flattened (n, p*p) tensor.
+
+    # Compute all rank-1 outer products: (n, p, p) -> (n, p*p)
+    outer_flat = (X_exp[:, :, None] * X[:, None, :]).reshape(n, p * p)  # (n, p*p)
+    # Prefix sum: prefix_flat[i] = sum_{k=0}^{i-1} outer_flat[k]
+    prefix_flat = torch.cat([
+        torch.zeros(1, p * p, dtype=torch.float64, device=device),
+        torch.cumsum(outer_flat[:-1], dim=0)
+    ], dim=0)  # (n, p*p)
+
+    # Gather prefix sums at failure group boundaries
+    prefix_at_fidx = prefix_flat[first_idx].reshape(n_uft, p, p)  # (n_uft, p, p)
+    total_X2 = prefix_flat[-1].reshape(p, p) + outer_flat[-1].reshape(p, p)
+
+    # risk_X2[g] = total_X2 - prefix_at_fidx[g]
+    risk_X2_all = total_X2.unsqueeze(0) - prefix_at_fidx  # (n_uft, p, p)
+
+    # Vectorized Hessian:
+    # H = -sum_g (counts[g] / risk_at[g]) * risk_X2[g] + sum_g counts[g] * outer(E_X[g], E_X[g])
+    weights = counts / risk_at_uft  # (n_uft,)
+    hess = -torch.sum(risk_X2_all * weights[:, None, None], dim=0)
+    hess += torch.einsum("g,gi,gj->ij", counts, E_X_at_uft, E_X_at_uft)
 
     return grad, hess
