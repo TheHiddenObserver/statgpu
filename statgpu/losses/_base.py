@@ -20,7 +20,7 @@ from abc import ABC
 from typing import Optional
 
 import numpy as np
-from statgpu.backends._array_ops import _xp as _get_xp_mod
+from statgpu.backends._array_ops import _xp as _get_xp
 
 
 class LossBase(ABC):
@@ -72,7 +72,7 @@ class LossBase(ABC):
 
     def value(self, X, y, coef, sample_weight=None) -> float:
         """Loss value: (1/n) Σ ℓ(ηᵢ, yᵢ)."""
-        xp = _get_xp_mod(X)
+        xp = _get_xp(X)
         eta = X @ coef
         ps = self.per_sample_value(eta, y)
         if sample_weight is not None:
@@ -81,7 +81,7 @@ class LossBase(ABC):
 
     def gradient(self, X, y, coef, sample_weight=None) -> np.ndarray:
         """Gradient: X' ∂ℓ/∂η / n."""
-        xp = _get_xp_mod(X)
+        xp = _get_xp(X)
         eta = X @ coef
         resid = self.per_sample_gradient(eta, y)
         if sample_weight is not None:
@@ -93,7 +93,7 @@ class LossBase(ABC):
 
         Returns (value, gradient) tuple.
         """
-        xp = _get_xp_mod(X)
+        xp = _get_xp(X)
         eta = X @ coef
         ps = self.per_sample_value(eta, y)
         resid = self.per_sample_gradient(eta, y)
