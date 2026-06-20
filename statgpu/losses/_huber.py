@@ -29,7 +29,7 @@ class HuberLoss(LossBase):
     name = "huber"
     y_type = "continuous"
     smooth_gradient = True    # gradient is continuous everywhere
-    has_hessian = False       # Hessian is discontinuous at |u|=delta
+    has_hessian = True        # Piecewise Hessian (discontinuous at |u|=delta, works in practice)
 
     # Optimization hints
     _lipschitz_safety = 1.0
@@ -69,3 +69,24 @@ class HuberLoss(LossBase):
         if xp.__name__ == "torch":
             return -xp.sign(u) * xp.minimum(abs_u, xp.tensor(d, dtype=u.dtype, device=u.device))
         return -xp.sign(u) * xp.minimum(abs_u, d)
+
+    def hessian(self, X, y, coef, sample_weight=None):
+        """Hessian: X' W X / n, where w_i = 1 if |u_i| <= delta else 0.
+
+        Piecewise constant — discontinuous at |u|=delta but works
+        well in practice for Newton-type solvers.
+        """
+        xp = _get_xp(X)
+        eta = X @ coef
+        u = y - eta
+        d = self.delta
+        # Weight: 1 in quadratic region, 0 in linear region
+        in_quad = (xp.abs(u) <= d)
+        if xp.__name__ == "torch":
+            w = in_quad.to(u.dtype)
+        else:
+            w = in_quad.astype(u.dtype)
+        if sample_weight is not None:
+            w = w * sample_weight
+            return X.T @ (X * w[:, None]) / float(sample_weight.sum())
+        return X.T @ (X * w[:, None]) / X.shape[0]
