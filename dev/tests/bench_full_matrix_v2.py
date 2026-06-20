@@ -124,23 +124,40 @@ def compute_reference(loss_name, X, y):
 # ── Optimality check ─────────────────────────────────────────────────
 
 def check_optimality(loss, penalty, coef, X, y):
-    """Check KKT conditions."""
+    """Check KKT conditions: grad_loss + subgrad_penalty ≈ 0.
+
+    For smooth penalties: grad_loss + grad_penalty ≈ 0
+    For non-smooth penalties: check prox_fixed_point condition
+        coef ≈ prox(coef - step * grad_loss, step)
+    """
     coef_arr = coef_np(coef)
     grad = loss.gradient(X, y, coef_arr)
-    grad_norm = np.linalg.norm(grad)
 
     if penalty is None:
-        return grad_norm
+        return np.linalg.norm(grad)
 
-    pen_name = type(penalty).__name__
-    if hasattr(penalty, 'smooth_gradient'):
+    # For smooth penalties (L2, ElasticNet): grad_loss + grad_penalty = 0
+    if hasattr(penalty, 'gradient'):
         try:
-            pen_grad = penalty.smooth_gradient(coef_arr)
+            pen_grad = penalty.gradient(coef_arr)
             return np.linalg.norm(grad + pen_grad)
         except Exception:
             pass
 
-    return grad_norm
+    # For all penalties with proximal: check fixed-point condition
+    # At optimum: coef = prox(coef - step * grad_loss, step)
+    # residual = coef - prox(coef - step * grad, step)
+    if hasattr(penalty, 'proximal'):
+        try:
+            L = loss.lipschitz(X, coef_arr, y) if hasattr(loss, 'lipschitz') else 1.0
+            step = 1.0 / max(L, 1e-8)
+            w_tilde = coef_arr - step * grad
+            prox_result = penalty.proximal(w_tilde, step, backend="numpy")
+            return np.linalg.norm(coef_arr - prox_result)
+        except Exception:
+            pass
+
+    return np.linalg.norm(grad)
 
 
 # ── Solver config ────────────────────────────────────────────────────
