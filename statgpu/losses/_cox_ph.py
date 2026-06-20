@@ -236,7 +236,17 @@ class CoxPartialLikelihoodLoss(LossBase):
             if result is not None:
                 return result
 
-        # CPU fallback
+        # Backend-aware Efron fallback (stays on device, no GPU→CPU transfer)
+        if self.ties == 'efron' and self._efron_pre_np is not None:
+            eta = X_s @ coef_dev
+            eta_shifted = eta - (xp.max(eta) if xp.__name__ != "torch" else xp.max(eta))
+            try:
+                grad, hess = self._efron_grad_hess_backend(eta_shifted, X_s, xp)
+                return grad, hess
+            except Exception:
+                pass
+
+        # CPU fallback (numpy)
         eta_np = _to_numpy(X_s @ coef_dev)
         grad_np, hess_np = self._cpu_grad_hess(eta_np, self._time_np, self._event_np)
         return (
@@ -386,6 +396,84 @@ class CoxPartialLikelihoodLoss(LossBase):
 
         return 0.0
 
+    def _efron_grad_hess_backend(self, eta, X, xp):
+        """Efron gradient/Hessian — backend-aware (works with cupy/torch).
+
+        Same algorithm as _efron_grad_hess_np but uses xp operations
+        to stay on the input device (no GPU→CPU transfer).
+        """
+        n, p = int(X.shape[0]), int(X.shape[1])
+        exp_eta = xp.exp(eta)
+        X_exp = X * exp_eta[:, None]
+
+        _, uft_ix, risk_enter, _, nuft, _ = self._efron_pre_np
+
+        # Suffix sums
+        if xp.__name__ == "torch":
+            risk_sum = xp.cumsum(exp_eta.flip(0), dim=0).flip(0)
+            risk_X_sum = xp.cumsum(X_exp.flip(0), dim=0).flip(0)
+        else:
+            risk_sum = xp.cumsum(exp_eta[::-1])[::-1]
+            risk_X_sum = xp.cumsum(X_exp[::-1], axis=0)[::-1]
+
+        # Prefix sum of rank-1 outer products
+        outer_flat = (X_exp[:, :, None] * X[:, None, :]).reshape(n, p * p)
+        if xp.__name__ == "torch":
+            prefix_flat = xp.cat([
+                xp.zeros(1, p * p, dtype=xp.float64, device=X.device),
+                xp.cumsum(outer_flat[:-1], dim=0)
+            ], dim=0)
+        else:
+            prefix_flat = xp.concatenate([
+                xp.zeros((1, p * p), dtype=xp.float64),
+                xp.cumsum(outer_flat[:-1], axis=0)
+            ], axis=0)
+        total_X2 = prefix_flat[-1].reshape(p, p) + outer_flat[-1].reshape(p, p)
+
+        # Collect per-group quantities
+        s0_list, s1_list, sum_ev_exp_list, sum_ev_X_list, risk_X2_list, d_list = [], [], [], [], [], []
+        for g in range(nuft):
+            ix_ev = uft_ix[g]
+            d = len(ix_ev)
+            d_list.append(d)
+            if d == 0:
+                continue
+            re_val = risk_enter[g]
+            re = int(re_val[0]) if isinstance(re_val, (list, np.ndarray)) else int(re_val)
+            s0_list.append(float(risk_sum[re]))
+            s1_list.append(risk_X_sum[re])
+            sum_ev_exp_list.append(float(xp.sum(exp_eta[ix_ev])))
+            sum_ev_X_list.append(xp.sum(X[ix_ev], axis=0))
+            risk_X2_list.append(total_X2 - prefix_flat[re].reshape(p, p))
+
+        # Vectorized gradient and Hessian
+        grad = _xp_zeros(p, dtype=xp.float64, ref_arr=X)
+        hess = _xp_zeros((p, p), dtype=xp.float64, ref_arr=X)
+
+        for i in range(len(s0_list)):
+            d = d_list[i] if i < len(d_list) else 0
+            if d == 0:
+                continue
+            s0 = float(s0_list[i])
+            s1 = s1_list[i]
+            sum_ev_exp = float(sum_ev_exp_list[i])
+            sum_ev_X = sum_ev_X_list[i]
+            risk_X2 = risk_X2_list[i]
+
+            if xp.__name__ == "torch":
+                k_vals = xp.arange(d, dtype=xp.float64, device=X.device)
+            else:
+                k_vals = xp.arange(d, dtype=xp.float64)
+            denom = s0 - (k_vals / d) * sum_ev_exp
+            safe_denom = xp.maximum(denom, xp.float64(1e-300)) if xp.__name__ == "torch" else xp.maximum(denom, 1e-300)
+            sum_inv = float(xp.sum(1.0 / safe_denom))
+            sum_inv2 = float(xp.sum(1.0 / (safe_denom * safe_denom)))
+
+            grad = grad + sum_ev_X - s1 * sum_inv * d
+            hess = hess - (risk_X2 * sum_inv - xp.outer(s1, s1) * sum_inv2 * d)
+
+        return grad, hess
+
     def _cpu_grad_hess(self, eta_np, time_np, event_np):
         """Compute gradient and Hessian in numpy."""
         X_np = _to_numpy(self._X_sorted)
@@ -431,32 +519,78 @@ class CoxPartialLikelihoodLoss(LossBase):
 
     @staticmethod
     def _efron_grad_hess_np(eta, X, efron_pre):
-        """Efron gradient/Hessian in numpy."""
+        """Efron gradient/Hessian — vectorized via prefix sums.
+
+        Computes risk set quantities at each failure time using suffix sums,
+        then uses vectorized arithmetic for the Efron adjustment.
+        The outer loop over groups is kept (nuft iterations), but the inner
+        loop over tied events (k=0..d-1) is fully vectorized using arithmetic
+        series formulas.
+        """
         n, p = X.shape
-        exp_eta = np.exp(eta)
-        grad = np.zeros(p, dtype=np.float64)
-        hess = np.zeros((p, p), dtype=np.float64)
+        xp = np
+        exp_eta = xp.exp(eta)
         X_exp = X * exp_eta[:, None]
-        _, uft_ix, risk_enter, risk_exit, nuft, _ = efron_pre
+
+        _, uft_ix, risk_enter, _, nuft, _ = efron_pre
+
+        # Suffix sums for risk set quantities
+        risk_sum = xp.cumsum(exp_eta[::-1])[::-1]
+        risk_X_sum = xp.cumsum(X_exp[::-1], axis=0)[::-1]
+
+        # Prefix sum of X_exp^T @ X for risk_X2 at failure times
+        outer_flat = (X_exp[:, :, None] * X[:, None, :]).reshape(n, p * p)
+        prefix_flat = xp.concatenate([
+            xp.zeros((1, p * p), dtype=xp.float64),
+            xp.cumsum(outer_flat[:-1], axis=0)
+        ], axis=0)
+        total_X2 = prefix_flat[-1].reshape(p, p) + outer_flat[-1].reshape(p, p)
+
+        # Collect per-group quantities (loop over nuft, but each group is O(1))
+        s0_list = []
+        s1_list = []
+        sum_ev_exp_list = []
+        sum_ev_X_list = []
+        risk_X2_list = []
+        d_list = []
 
         for g in range(nuft):
             ix_ev = uft_ix[g]
             d = len(ix_ev)
+            d_list.append(d)
             if d == 0:
                 continue
             re_val = risk_enter[g]
-            re = int(re_val[0]) if isinstance(re_val, (list, np.ndarray)) else int(re_val)
-            s0 = float(np.sum(exp_eta[re:]))
-            s1 = np.sum(X_exp[re:], axis=0)
-            sum_ev_exp = float(np.sum(exp_eta[ix_ev]))
-            sum_ev_X = np.sum(X[ix_ev], axis=0)
-            for k in range(d):
-                denom = s0 - (float(k) / float(d)) * sum_ev_exp
-                if denom <= 1e-300:
-                    continue
-                E_X = s1 / denom
-                grad += (sum_ev_X / d) - E_X
-                E_XX = X_exp[re:].T @ X[re:] / denom
-                hess -= E_XX - np.outer(E_X, E_X)
+            re = int(re_val[0]) if isinstance(re_val, (list, xp.ndarray)) else int(re_val)
+            s0_list.append(risk_sum[re])
+            s1_list.append(risk_X_sum[re])
+            sum_ev_exp_list.append(float(xp.sum(exp_eta[ix_ev])))
+            sum_ev_X_list.append(xp.sum(X[ix_ev], axis=0))
+            risk_X2_list.append(total_X2 - prefix_flat[re].reshape(p, p))
+
+        # Vectorized gradient and Hessian (loop over groups with vectorized k-summation)
+        grad = xp.zeros(p, dtype=xp.float64)
+        hess = xp.zeros((p, p), dtype=xp.float64)
+
+        for i in range(len(s0_list)):
+            d = d_list[i] if i < len(d_list) else 0
+            if d == 0:
+                continue
+            s0 = float(s0_list[i])
+            s1 = s1_list[i]
+            sum_ev_exp = float(sum_ev_exp_list[i])
+            sum_ev_X = sum_ev_X_list[i]
+            risk_X2 = risk_X2_list[i]
+
+            # Arithmetic series: denom_k = s0 - (k/d)*sum_ev_exp for k=0..d-1
+            # sum(1/denom_k) and sum(1/denom_k^2) computed analytically
+            k_vals = xp.arange(d, dtype=xp.float64)
+            denom = s0 - (k_vals / d) * sum_ev_exp
+            safe_denom = xp.maximum(denom, 1e-300)
+            sum_inv = xp.sum(1.0 / safe_denom)
+            sum_inv2 = xp.sum(1.0 / (safe_denom * safe_denom))
+
+            grad += sum_ev_X - s1 * sum_inv * d
+            hess -= risk_X2 * sum_inv - xp.outer(s1, s1) * sum_inv2 * d
 
         return grad, hess
