@@ -215,6 +215,24 @@ class TestQuantileLoss:
         L = loss.lipschitz(X, np.zeros(X.shape[1]), y)
         assert L > 0
 
+    def test_irls_convergence(self, regression_data):
+        """IRLS should converge and produce good estimates."""
+        from statgpu.losses import QuantileLoss
+        X, y, true_coef = regression_data
+        loss = QuantileLoss(quantile=0.5)
+        coef_est, n_iter = loss.irls(X, y, max_iter=100, tol=1e-8)
+        assert_allclose(coef_est, true_coef, atol=0.2)
+        assert n_iter < 100
+
+    def test_irls_all_quantiles(self, regression_data):
+        """IRLS should work for all quantiles."""
+        from statgpu.losses import QuantileLoss
+        X, y, _ = regression_data
+        for tau in [0.1, 0.25, 0.5, 0.75, 0.9]:
+            loss = QuantileLoss(quantile=tau)
+            coef_est, n_iter = loss.irls(X, y, max_iter=100, tol=1e-8)
+            assert np.all(np.isfinite(coef_est)), f"Non-finite at tau={tau}"
+
     def test_value_at_optimum_less_than_at_zero(self, regression_data):
         """Loss at fitted coef should be less than at zero."""
         from statgpu.losses import QuantileLoss
