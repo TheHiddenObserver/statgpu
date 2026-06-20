@@ -73,7 +73,47 @@ class QuantileLoss(LossBase):
             neg_mask = (u < 0).astype(u.dtype)
         return -tau + (1.0 - tau) * neg_mask
 
-    def irls(self, X, y, max_iter=100, tol=1e-6, init_coef=None, eps=1e-8):
+    def fused_value_and_gradient(self, X, y, coef, sample_weight=None):
+        """Fused value+gradient: single X@coef, shared intermediate results.
+
+        Reduces kernel launches vs separate value() + gradient() calls.
+        """
+        xp = _get_xp(X)
+        eta = X @ coef
+        u = y - eta
+        tau = self._tau
+
+        # Value: tau * max(u,0) + (1-tau) * max(-u,0)
+        if xp.__name__ == "torch":
+            pos = xp.clamp(u, min=0)
+            neg = xp.clamp(-u, min=0)
+        else:
+            pos = xp.maximum(u, 0)
+            neg = xp.maximum(-u, 0)
+        ps = tau * pos + (1.0 - tau) * neg
+
+        # Gradient: -tau + (1-tau) * (u < 0)
+        if xp.__name__ == "torch":
+            neg_mask = (u < 0).to(u.dtype)
+        else:
+            neg_mask = (u < 0).astype(u.dtype)
+        resid = -tau + (1.0 - tau) * neg_mask
+
+        # Aggregate
+        if sample_weight is not None:
+            sw_sum = float(xp.dot(sample_weight, ps).item()) if xp.__name__ == "torch" else float(xp.dot(sample_weight, ps))
+            val = sw_sum / float(sample_weight.sum())
+            grad = X.T @ (sample_weight * resid) / float(sample_weight.sum())
+        else:
+            n = X.shape[0]
+            if xp.__name__ == "torch":
+                val = float(xp.sum(ps).item()) / n
+            else:
+                val = float(xp.sum(ps)) / n
+            grad = X.T @ resid / n
+        return val, grad
+
+    def irls(self, X, y, penalty=None, max_iter=100, tol=1e-6, init_coef=None, eps=1e-8):
         """IRLS (Iteratively Reweighted Least Squares) for quantile regression.
 
         Same algorithm as statsmodels QuantReg (Frisch-Newton variant).
@@ -84,6 +124,9 @@ class QuantileLoss(LossBase):
         ----------
         X : array of shape (n, p)
         y : array of shape (n,)
+        penalty : Penalty, optional
+            Smooth penalty (L2, ElasticNet). Non-smooth penalties (L1, SCAD, MCP)
+            are not supported — use FISTA instead.
         max_iter : int
         tol : float
         init_coef : array of shape (p,), optional
@@ -100,6 +143,18 @@ class QuantileLoss(LossBase):
         y_dev = xp.asarray(y, dtype=xp.float64)
         n, p = int(X_dev.shape[0]), int(X_dev.shape[1])
         tau = self._tau
+
+        # Check penalty compatibility
+        if penalty is not None:
+            pen_name = type(penalty).__name__.lower()
+            if 'l1' in pen_name and 'elastic' not in pen_name and 'adaptive' not in pen_name:
+                raise NotImplementedError(
+                    "IRLS does not support L1 penalty. Use FISTA instead."
+                )
+            if 'scad' in pen_name or 'mcp' in pen_name or 'group' in pen_name:
+                raise NotImplementedError(
+                    "IRLS does not support non-smooth penalties. Use FISTA instead."
+                )
 
         if init_coef is not None:
             beta = xp.asarray(init_coef, dtype=xp.float64).copy()
@@ -124,18 +179,27 @@ class QuantileLoss(LossBase):
                 neg_mask = (r < 0).astype(abs_r.dtype)
             w = (tau + (1.0 - 2.0 * tau) * neg_mask) / abs_r_safe
 
-            # Weighted least squares: beta = (X'WX + ridge)^{-1} X'Wy
+            # Weighted least squares + penalty
             WX = X_dev * w[:, None]
             XtWX = X_dev.T @ WX
             XtWy = X_dev.T @ (w * y_dev)
 
-            # Ridge for numerical stability
-            if xp.__name__ == "torch":
-                ridge = eps * xp.eye(p, dtype=xp.float64, device=X_dev.device)
-            else:
-                ridge = eps * xp.eye(p)
+            # Add penalty contribution to XtWX
+            ridge = eps * xp.eye(p, dtype=xp.float64) if xp.__name__ != "torch" else eps * xp.eye(p, dtype=xp.float64, device=X_dev.device)
+            A = XtWX + ridge
 
-            beta_new = xp.linalg.solve(XtWX + ridge, XtWy)
+            if penalty is not None:
+                # For L2: A += n * alpha * I, b += 0
+                # For ElasticNet: A += n * alpha * (1-l1_ratio) * I
+                if hasattr(penalty, 'alpha'):
+                    alpha = float(penalty.alpha)
+                    if hasattr(penalty, 'l1_ratio'):
+                        l1r = float(penalty.l1_ratio)
+                        A = A + n * alpha * (1.0 - l1r) * (xp.eye(p, dtype=xp.float64) if xp.__name__ != "torch" else xp.eye(p, dtype=xp.float64, device=X_dev.device))
+                    else:
+                        A = A + n * alpha * (xp.eye(p, dtype=xp.float64) if xp.__name__ != "torch" else xp.eye(p, dtype=xp.float64, device=X_dev.device))
+
+            beta_new = xp.linalg.solve(A, XtWy)
 
             # Convergence check
             diff = beta_new - beta

@@ -70,6 +70,41 @@ class HuberLoss(LossBase):
             return -xp.sign(u) * xp.minimum(abs_u, xp.tensor(d, dtype=u.dtype, device=u.device))
         return -xp.sign(u) * xp.minimum(abs_u, d)
 
+    def fused_value_and_gradient(self, X, y, coef, sample_weight=None):
+        """Fused value+gradient: single X@coef, shared intermediate results."""
+        xp = _get_xp(X)
+        eta = X @ coef
+        u = y - eta
+        d = self.delta
+        abs_u = xp.abs(u)
+
+        # Value
+        in_quad = (abs_u <= d)
+        if xp.__name__ == "torch":
+            in_quad_f = in_quad.to(u.dtype)
+            min_abs_d = xp.tensor(d, dtype=u.dtype, device=u.device)
+        else:
+            in_quad_f = in_quad.astype(u.dtype)
+            min_abs_d = d
+        ps = in_quad_f * 0.5 * u * u + (1.0 - in_quad_f) * d * (abs_u - 0.5 * d)
+
+        # Gradient
+        resid = -xp.sign(u) * xp.minimum(abs_u, min_abs_d)
+
+        # Aggregate
+        if sample_weight is not None:
+            sw_sum = float(xp.dot(sample_weight, ps).item()) if xp.__name__ == "torch" else float(xp.dot(sample_weight, ps))
+            val = sw_sum / float(sample_weight.sum())
+            grad = X.T @ (sample_weight * resid) / float(sample_weight.sum())
+        else:
+            n = X.shape[0]
+            if xp.__name__ == "torch":
+                val = float(xp.sum(ps).item()) / n
+            else:
+                val = float(xp.sum(ps)) / n
+            grad = X.T @ resid / n
+        return val, grad
+
     def hessian(self, X, y, coef, sample_weight=None):
         """Hessian: X' W X / n, where w_i = 1 if |u_i| <= delta else 0.
 
