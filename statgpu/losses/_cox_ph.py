@@ -432,7 +432,8 @@ class CoxPartialLikelihoodLoss(LossBase):
             d = len(ix_ev)
             if d == 0:
                 continue
-            re = int(risk_enter[g])
+            re_val = risk_enter[g]
+            re = int(re_val[0]) if isinstance(re_val, (list, np.ndarray)) else int(re_val)
             s0 = float(np.sum(exp_eta[re:]))
             s1 = np.sum(X_exp[re:], axis=0)
             sum_ev_exp = float(np.sum(exp_eta[ix_ev]))
