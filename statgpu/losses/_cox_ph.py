@@ -124,8 +124,10 @@ class CoxPartialLikelihoodLoss(LossBase):
             self._breslow_pre_np = None
             try:
                 from statgpu.survival._cox_efron_cuda import efron_indices_to_csr
-                _, uft_ix, risk_enter, risk_exit, nuft, _ = self._efron_pre_np
-                self._efron_csr = efron_indices_to_csr(uft_ix, risk_enter, risk_exit, nuft)
+                _, uft_ix, risk_enter, risk_exit, nuft, first_idx_uft = self._efron_pre_np
+                csr6 = efron_indices_to_csr(uft_ix, risk_enter, risk_exit, nuft)
+                # Pack as 8-tuple for compute_efron_grad_hess_raw
+                self._efron_csr = csr6 + (first_idx_uft.astype(np.int32), int(nuft))
             except ImportError:
                 self._efron_csr = None
         else:
@@ -274,8 +276,11 @@ class CoxPartialLikelihoodLoss(LossBase):
 
         efron_csr = self._efron_csr
         if efron_csr is None:
-            _, uft_ix, risk_enter, risk_exit, nuft, _ = self._efron_pre_np
-            efron_csr = efron_indices_to_csr(uft_ix, risk_enter, risk_exit, nuft)
+            _, uft_ix, risk_enter, risk_exit, nuft, first_idx_uft = self._efron_pre_np
+            csr6 = efron_indices_to_csr(uft_ix, risk_enter, risk_exit, nuft)
+            # Extend to 8-tuple: add first_idx_uft and nuft
+            efron_csr = csr6 + (first_idx_uft.astype(np.int32), int(nuft))
+            self._efron_csr = efron_csr
 
         grad, hess = compute_efron_grad_hess_raw(
             X_s, coef_dev, self._efron_pre_np, cupy_module=cp, efron_csr=efron_csr
