@@ -1,17 +1,18 @@
 """
 Full loss x penalty x solver x backend benchmark v2.
 
-Improvements over v1:
-- Larger data scales: n=5000, 50000 (show GPU advantage)
-- Convergence-based stopping (increase max_iter until converge)
-- Precision: compare against statsmodels/scipy reference solutions
-- Optimality check: verify KKT conditions at solution
+Precision metrics:
+- |ours-ref|: statgpu coef vs statsmodels coef
+- our_loss: loss value at statgpu solution
+- ref_loss: loss value at statsmodels solution
+- loss_diff: our_loss - ref_loss (negative = statgpu is better)
+- kkt_err: optimality condition residual
 """
 
 import time
 import numpy as np
 import warnings
-warnings.filterwarnings("ignore")  # suppress convergence warnings for clean output
+warnings.filterwarnings("ignore")
 
 
 def timer(func, *a, n=3, **kw):
@@ -72,6 +73,7 @@ from statgpu.penalties import (
     GroupLassoPenalty,
 )
 
+
 # ── Backend conversion ───────────────────────────────────────────────
 
 def to_backend_X(X_np, backend):
@@ -96,21 +98,18 @@ def to_backend_y(y, backend):
 
 # ── Reference solutions ──────────────────────────────────────────────
 
-def compute_reference(loss_name, X, y, p):
-    """Compute reference solution using statsmodels/scipy."""
+def compute_reference(loss_name, X, y):
+    """Compute reference solution using statsmodels."""
     import statsmodels.api as sm
 
     if loss_name == "squared":
-        # OLS
         return np.linalg.lstsq(X, y, rcond=None)[0]
 
     elif loss_name == "huber":
-        # statsmodels RLM
         rlm = sm.RLM(y, X, M=sm.robust.norms.HuberT())
         return rlm.fit().params
 
     elif loss_name == "quantile":
-        # statsmodels QuantReg
         model = sm.QuantReg(y, X)
         return model.fit(q=0.5).params
 
@@ -125,25 +124,22 @@ def compute_reference(loss_name, X, y, p):
 # ── Optimality check ─────────────────────────────────────────────────
 
 def check_optimality(loss, penalty, coef, X, y):
-    """Check KKT conditions: grad_loss + subgrad_penalty ≈ 0."""
-    coef_np_arr = coef_np(coef)
-    grad = loss.gradient(X, y, coef_np_arr)
+    """Check KKT conditions."""
+    coef_arr = coef_np(coef)
+    grad = loss.gradient(X, y, coef_arr)
     grad_norm = np.linalg.norm(grad)
 
     if penalty is None:
         return grad_norm
 
-    # For smooth penalties, check grad + penalty_grad ≈ 0
     pen_name = type(penalty).__name__
     if hasattr(penalty, 'smooth_gradient'):
         try:
-            pen_grad = penalty.smooth_gradient(coef_np_arr)
-            residual = grad + pen_grad
-            return np.linalg.norm(residual)
+            pen_grad = penalty.smooth_gradient(coef_arr)
+            return np.linalg.norm(grad + pen_grad)
         except Exception:
             pass
 
-    # For non-smooth, just check loss gradient magnitude
     return grad_norm
 
 
@@ -177,10 +173,10 @@ def make_penalties(p):
 
 # ── Main benchmark ───────────────────────────────────────────────────
 
-print("=" * 130)
+print("=" * 140)
 print("Full Loss x Penalty x Solver x Backend Benchmark v2")
-print("Larger scales, convergence-based, precision vs external frameworks")
-print("=" * 130)
+print("Precision: |ours-ref|, our_loss, ref_loss, loss_diff, kkt_err")
+print("=" * 140)
 
 backends = ["numpy", "torch"]
 if HAS_CUPY:
@@ -189,8 +185,6 @@ if HAS_CUDA:
     backends.append("torch-cuda")
 
 print("Backends: %s | CUDA: %s" % (", ".join(backends), HAS_CUDA))
-
-# ── Reference solutions ──────────────────────────────────────────────
 
 SCALES = [
     ("small",  500,   5),
@@ -204,43 +198,50 @@ LOSS_CONFIGS_CONT = [
     ("quantile",  lambda: QuantileLoss(quantile=0.5)),
 ]
 
-LOSS_CONFIGS_SURV = [
-    ("cox_ph",    lambda: CoxPartialLikelihoodLoss(ties="breslow")),
-]
+# ── Reference solutions ──────────────────────────────────────────────
 
-print("\n--- Reference solutions (statsmodels) — |ref-true| = statsmodels error vs true coef ---")
+print("\n--- Reference solutions (statsmodels) ---")
+ref_solutions = {}
 for scale_name, n, p in SCALES:
     X, y, true = make_data(n, p)
-    for loss_name, _ in LOSS_CONFIGS_CONT:
-        ref = compute_reference(loss_name, X, y, p)
+    for loss_name, loss_fn in LOSS_CONFIGS_CONT:
+        ref = compute_reference(loss_name, X, y)
         if ref is not None:
-            err = np.linalg.norm(ref - true)
-            print("  %s n=%d p=%d: statsmodels |ref-true|=%.4f" % (loss_name, n, p, err))
+            ref_solutions[(loss_name, scale_name)] = ref
+            loss_obj = loss_fn()
+            ref_loss = loss_obj.value(X, y, ref)
+            true_loss = loss_obj.value(X, y, true)
+            print("  %s n=%6d: |ref-true|=%.4f  ref_loss=%.6f  true_loss=%.6f" % (
+                loss_name, n, np.linalg.norm(ref - true), ref_loss, true_loss))
 
 X_cox, y_cox, true_cox = make_survival_data(5000, 5)
-ref_cox = compute_reference("cox_ph", X_cox, y_cox, 5)
-print("  cox_ph n=5000 p=5: statsmodels |ref-true|=%.4f" % np.linalg.norm(ref_cox - true_cox))
+ref_cox = compute_reference("cox_ph", X_cox, y_cox)
+cox_loss_obj = CoxPartialLikelihoodLoss(ties="breslow")
+ref_cox_loss = cox_loss_obj.value(X_cox, y_cox, ref_cox)
+true_cox_loss = cox_loss_obj.value(X_cox, y_cox, true_cox)
+ref_solutions[("cox_ph", "medium")] = ref_cox
+print("  cox_ph  n= 5000: |ref-true|=%.4f  ref_loss=%.6f  true_loss=%.6f" % (
+    np.linalg.norm(ref_cox - true_cox), ref_cox_loss, true_cox_loss))
 
 # ── Full matrix ──────────────────────────────────────────────────────
 
-print("\n" + "-" * 130)
-print("%-8s %-6s %-10s %-12s %-10s %8s %8s %10s %10s %8s" % (
-    "loss", "scale", "penalty", "solver", "backend", "time_ms", "iter", "|ours-ref|", "kkt_err", "status"))
-print("-" * 130)
+print("\n" + "-" * 140)
+print("%-8s %-6s %-10s %-12s %-10s %7s %5s %9s %9s %9s %9s %6s" % (
+    "loss", "scale", "penalty", "solver", "backend",
+    "time", "iter", "|ours-ref|", "our_loss", "ref_loss", "loss_diff", "status"))
+print("-" * 140)
 
 for scale_name, n, p in SCALES:
     X_np, y_np, true_coef = make_data(n, p)
     penalties = make_penalties(p)
 
-    # Reference
-    refs = {}
-    for loss_name, _ in LOSS_CONFIGS_CONT:
-        refs[loss_name] = compute_reference(loss_name, X_np, y_np, p)
-
     for loss_name, loss_fn in LOSS_CONFIGS_CONT:
+        ref_coef = ref_solutions.get((loss_name, scale_name))
+        loss_obj = loss_fn()
+        ref_loss_val = loss_obj.value(X_np, y_np, ref_coef) if ref_coef is not None else None
+
         for pen_name, penalty in penalties.items():
             for solver_name, solver_info in SOLVERS.items():
-                # Skip incompatible
                 if solver_info["smooth_only"] and pen_name in NON_SMOOTH_PENALTIES:
                     continue
                 if solver_info["needs_hessian"] and loss_name == "quantile":
@@ -258,31 +259,34 @@ for scale_name, n, p in SCALES:
 
                     try:
                         (coef, n_iter), t_ms = timer(fn, loss, penalty, X_b, y_b, **kwargs)
-                    except (ValueError, NotImplementedError, TypeError, RuntimeError, np.linalg.LinAlgError) as e:
-                        print("%-8s %-6s %-10s %-12s %-10s %8s %8s %10s %10s %8s" % (
+                    except (ValueError, NotImplementedError, TypeError, RuntimeError, np.linalg.LinAlgError):
+                        print("%-8s %-6s %-10s %-12s %-10s %7s %5s %9s %9s %9s %9s %6s" % (
                             loss_name, scale_name, pen_name, solver_name, backend,
-                            "-", "-", "-", "-", "ERR"))
+                            "-", "-", "-", "-", "-", "-", "ERR"))
                         continue
 
                     coef_arr = coef_np(coef)
-                    ref = refs.get(loss_name)
-                    ref_err = np.linalg.norm(coef_arr - ref) if ref is not None else 0.0
+                    ours_ref = np.linalg.norm(coef_arr - ref_coef) if ref_coef is not None else 0.0
+                    our_loss_val = loss_obj.value(X_np, y_np, coef_arr)
+                    loss_diff = our_loss_val - ref_loss_val if ref_loss_val is not None else 0.0
                     kkt_err = check_optimality(loss, penalty, coef_arr, X_np, y_np)
                     finite = np.all(np.isfinite(coef_arr))
                     status = "OK" if finite else "NaN"
                     if n_iter >= solver_info["max_iter"]:
-                        status = "NC"  # not converged
+                        status = "NC"
 
-                    print("%-8s %-6s %-10s %-12s %-10s %7.0fms %8d %10.4f %10.6f %8s" % (
+                    print("%-8s %-6s %-10s %-12s %-10s %6.0fms %5d %9.4f %9.5f %9.5f %+9.5f %6s" % (
                         loss_name, scale_name, pen_name, solver_name, backend,
-                        t_ms, n_iter, ref_err, kkt_err, status))
+                        t_ms, n_iter, ours_ref, our_loss_val, ref_loss_val, loss_diff, status))
 
-# ── Survival (CoxPH) ────────────────────────────────────────────────
+# ── CoxPH ────────────────────────────────────────────────────────────
 
 for scale_name, n, p in [("small", 500, 5), ("medium", 5000, 5)]:
     X_np, y_np, true_coef = make_survival_data(n, p)
     penalties = make_penalties(p)
-    ref_cox = compute_reference("cox_ph", X_np, y_np, p)
+    ref_coef = ref_solutions.get(("cox_ph", scale_name))
+    cox_loss_obj = CoxPartialLikelihoodLoss(ties="breslow")
+    ref_loss_val = cox_loss_obj.value(X_np, y_np, ref_coef) if ref_coef is not None else None
 
     for pen_name, penalty in penalties.items():
         for solver_name, solver_info in SOLVERS.items():
@@ -301,26 +305,32 @@ for scale_name, n, p in [("small", 500, 5), ("medium", 5000, 5)]:
 
                 try:
                     (coef, n_iter), t_ms = timer(fn, loss, penalty, X_b, y_b, **kwargs)
-                except (ValueError, NotImplementedError, TypeError, RuntimeError, np.linalg.LinAlgError) as e:
-                    print("%-8s %-6s %-10s %-12s %-10s %8s %8s %10s %10s %8s" % (
+                except (ValueError, NotImplementedError, TypeError, RuntimeError, np.linalg.LinAlgError):
+                    print("%-8s %-6s %-10s %-12s %-10s %7s %5s %9s %9s %9s %9s %6s" % (
                         "cox_ph", scale_name, pen_name, solver_name, backend,
-                        "-", "-", "-", "-", "ERR"))
+                        "-", "-", "-", "-", "-", "-", "ERR"))
                     continue
 
                 coef_arr = coef_np(coef)
-                ref_err = np.linalg.norm(coef_arr - ref_cox) if ref_cox is not None else 0.0
+                ours_ref = np.linalg.norm(coef_arr - ref_coef) if ref_coef is not None else 0.0
+                our_loss_val = cox_loss_obj.value(X_np, y_np, coef_arr)
+                loss_diff = our_loss_val - ref_loss_val if ref_loss_val is not None else 0.0
                 kkt_err = check_optimality(loss, penalty, coef_arr, X_np, y_np)
                 finite = np.all(np.isfinite(coef_arr))
                 status = "OK" if finite else "NaN"
                 if n_iter >= solver_info["max_iter"]:
                     status = "NC"
 
-                print("%-8s %-6s %-10s %-12s %-10s %7.0fms %8d %10.4f %10.6f %8s" % (
+                print("%-8s %-6s %-10s %-12s %-10s %6.0fms %5d %9.4f %9.5f %9.5f %+9.5f %6s" % (
                     "cox_ph", scale_name, pen_name, solver_name, backend,
-                    t_ms, n_iter, ref_err, kkt_err, status))
+                    t_ms, n_iter, ours_ref, our_loss_val, ref_loss_val, loss_diff, status))
 
-print("\n" + "=" * 130)
-print("Legend: |ours-ref| = |statgpu_coef - statsmodels_coef|; kkt_err = optimality residual")
-print("        OK = converged and finite; NC = not converged (hit max_iter); ERR = error")
-print("=" * 130)
+print("\n" + "=" * 140)
+print("Legend:")
+print("  |ours-ref| = |statgpu_coef - statsmodels_coef|")
+print("  our_loss   = loss value at statgpu solution (lower is better)")
+print("  ref_loss   = loss value at statsmodels solution")
+print("  loss_diff  = our_loss - ref_loss (negative = statgpu found better solution)")
+print("  OK = converged; NC = not converged; ERR = error")
+print("=" * 140)
 print("Done.")
