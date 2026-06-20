@@ -32,19 +32,31 @@ LOSSES = {
 
 # ── Penalties ────────────────────────────────────────────────────────
 
-from statgpu.penalties import L1Penalty, L2Penalty, ElasticNetPenalty, SCADPenalty, MCPPenalty
+from statgpu.penalties import (
+    L1Penalty, L2Penalty, ElasticNetPenalty, SCADPenalty, MCPPenalty,
+    AdaptiveL1Penalty, GroupLassoPenalty, GroupMCPPenalty, GroupSCADPenalty,
+)
 
-PENALTIES = {
-    "none":      L2Penalty(0.0),  # FISTA/FISTA-BB require a penalty object
-    "l1":        L1Penalty(0.01),
-    "l2":        L2Penalty(0.01),
-    "elasticnet": ElasticNetPenalty(alpha=0.01, l1_ratio=0.5),
-    "scad":      SCADPenalty(alpha=0.01, a=3.7),
-    "mcp":       MCPPenalty(alpha=0.01, gamma=3.0),
-}
+def _make_penalties(p):
+    """Create penalties with groups matching the feature dimension p."""
+    half = p // 2
+    groups = [list(range(0, half)), list(range(half, p))]
+    return {
+        "none":       L2Penalty(0.0),
+        "l1":         L1Penalty(0.01),
+        "l2":         L2Penalty(0.01),
+        "elasticnet": ElasticNetPenalty(alpha=0.01, l1_ratio=0.5),
+        "scad":       SCADPenalty(alpha=0.01, a=3.7),
+        "mcp":        MCPPenalty(alpha=0.01, gamma=3.0),
+        "adaptive_l1": AdaptiveL1Penalty(alpha=0.01),
+        "group_lasso": GroupLassoPenalty(alpha=0.01, groups=groups),
+        "group_mcp":   GroupMCPPenalty(alpha=0.01, groups=groups),
+        "group_scad":  GroupSCADPenalty(alpha=0.01, groups=groups),
+    }
 
 # Penalties that are non-smooth (L-BFGS/Newton can't handle)
-NON_SMOOTH_PENALTIES = {"l1", "scad", "mcp", "elasticnet"}
+# ElasticNet has a smooth L2 component, so L-BFGS/Newton handle it via the smooth part
+NON_SMOOTH_PENALTIES = {"l1", "scad", "mcp", "adaptive_l1", "group_lasso", "group_mcp", "group_scad"}
 
 
 # ── Solvers ──────────────────────────────────────────────────────────
@@ -109,14 +121,18 @@ class TestLossPenaltySolverMatrix:
     """Test all loss × penalty × solver combinations."""
 
     @pytest.mark.parametrize("loss_name", list(LOSSES.keys()))
-    @pytest.mark.parametrize("penalty_name", list(PENALTIES.keys()))
+    @pytest.mark.parametrize("penalty_name", ["none", "l1", "l2", "elasticnet", "scad", "mcp", "adaptive_l1", "group_lasso", "group_mcp", "group_scad"])
     @pytest.mark.parametrize("solver_name", list(SOLVERS.keys()))
     def test_combination(self, loss_name, penalty_name, solver_name,
                          continuous_data, survival_data):
         """Test that each loss × penalty × solver combination runs and produces finite results."""
         loss_info = LOSSES[loss_name]
         solver_info = SOLVERS[solver_name]
-        penalty = PENALTIES[penalty_name]
+
+        # Get data to determine p
+        X, y, _ = _get_data(loss_info["y_type"], continuous_data, survival_data)
+        penalties = _make_penalties(X.shape[1])
+        penalty = penalties[penalty_name]
 
         # Skip incompatible combinations
         if solver_info["needs_hessian"] and loss_name in ("quantile", "huber"):
@@ -125,8 +141,8 @@ class TestLossPenaltySolverMatrix:
         if solver_info["needs_smooth_penalty"] and penalty_name in NON_SMOOTH_PENALTIES:
             pytest.skip(f"{solver_name} needs smooth penalty, {penalty_name} is non-smooth")
 
-        # Get data
-        X, y, _ = _get_data(loss_info["y_type"], continuous_data, survival_data)
+        if penalty_name == "adaptive_l1":
+            pytest.skip("AdaptiveL1 needs warm-start; tested separately in test_penalties_phase1.py")
 
         # Create loss
         if callable(loss_info["cls"]) and not isinstance(loss_info["cls"], type):
