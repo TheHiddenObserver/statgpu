@@ -197,7 +197,7 @@ class GroupSCADPenalty(Penalty):
     def _get_sqrt_pg(self, xp, w):
         """Cached device tensor for _sqrt_pg."""
         if xp.__name__ == "torch":
-            if self._sqrt_pg_torch is None:
+            if self._sqrt_pg_torch is None or self._sqrt_pg_torch.device != w.device:
                 self._sqrt_pg_torch = _to_backend_array(self._sqrt_pg, xp, w)
             return self._sqrt_pg_torch
         else:
@@ -211,6 +211,9 @@ class GroupSCADPenalty(Penalty):
         cache_attr = f"_{attr_name}_{backend}"
         cached = getattr(self, cache_attr, None)
         if cached is None:
+            cached = _to_backend_array(getattr(self, attr_name), xp, w)
+            setattr(self, cache_attr, cached)
+        elif xp.__name__ == "torch" and hasattr(cached, 'device') and cached.device != w.device:
             cached = _to_backend_array(getattr(self, attr_name), xp, w)
             setattr(self, cache_attr, cached)
         return cached
