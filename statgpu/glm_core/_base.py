@@ -58,6 +58,20 @@ class GLMLoss(LossBase):
         """Link inverse: μ = g⁻¹(η). Override for clipping."""
         return eta  # default: identity link
 
+    def fused_value_and_gradient(self, X, y, coef, sample_weight=None):
+        """Fused value+gradient using GLM-specific optimized kernels.
+
+        Dispatches to family-specific fused implementations (logistic, poisson,
+        gamma, etc.) that compute eta = X @ coef once and derive both value
+        and gradient from it, avoiding redundant matmul.
+        """
+        if sample_weight is not None:
+            from statgpu.glm_core._fused import _weighted_loss_and_grad
+            return _weighted_loss_and_grad(self, X, y, coef, sample_weight)
+
+        from statgpu.glm_core._fused import _fused_glm_value_and_gradient
+        return _fused_glm_value_and_gradient(self, X, y, coef)
+
 
 # ─── Registry ──────────────────────────────────────────────────────────────
 
