@@ -306,7 +306,7 @@ class CoxPartialLikelihoodLoss(LossBase):
         prefix_flat = cp.concatenate([
             cp.zeros((1, p * p), dtype=cp.float64),
             cp.cumsum(outer_flat[:-1], axis=0)
-        ], dim=0)
+        ], axis=0)
         total_X2 = prefix_flat[-1].reshape(p, p) + outer_flat[-1].reshape(p, p)
 
         # Collect per-group quantities (loop over nuft, but each is O(1))
