@@ -135,7 +135,7 @@ class TestLossPenaltySolverMatrix:
         penalty = penalties[penalty_name]
 
         # Skip incompatible combinations
-        if solver_info["needs_hessian"] and loss_name in ("quantile", "huber"):
+        if solver_info["needs_hessian"] and loss_name == "quantile":
             pytest.skip(f"{solver_name} needs Hessian, {loss_name} has none")
 
         if solver_info["needs_smooth_penalty"] and penalty_name in NON_SMOOTH_PENALTIES:

@@ -263,10 +263,10 @@ class TestHuberLoss:
         loss = HuberLoss(delta=1.0)
         assert loss.smooth_gradient is True
 
-    def test_has_hessian_false(self):
+    def test_has_hessian_true(self):
         from statgpu.losses import HuberLoss
         loss = HuberLoss(delta=1.0)
-        assert loss.has_hessian is False
+        assert loss.has_hessian is True
 
     def test_invalid_delta_raises(self):
         from statgpu.losses import HuberLoss
@@ -464,15 +464,16 @@ class TestSolverIntegration:
         coef_est, n_iter = lbfgs_solver(loss, None, X, y, max_iter=200, tol=1e-6)
         assert_allclose(coef_est, true_coef, atol=0.15)
 
-    def test_huber_with_newton_raises(self, regression_data):
-        """HuberLoss has_hessian=False, Newton should raise."""
+    def test_huber_with_newton(self, regression_data):
+        """HuberLoss now has Hessian, Newton should work."""
         from statgpu.losses import HuberLoss
         from statgpu.solvers import newton_solver
         from statgpu.penalties import L2Penalty
-        X, y, _ = regression_data
+        X, y, true_coef = regression_data
         loss = HuberLoss(delta=1.0)
-        with pytest.raises(NotImplementedError):
-            newton_solver(loss, L2Penalty(0.0), X, y, max_iter=10)
+        coef_est, n_iter = newton_solver(loss, L2Penalty(0.0), X, y, max_iter=50, tol=1e-8)
+        assert_allclose(coef_est, true_coef, atol=0.15)
+        assert n_iter < 10  # Newton should converge fast
 
     def test_cox_with_newton(self, survival_data):
         from statgpu.losses import CoxPartialLikelihoodLoss
