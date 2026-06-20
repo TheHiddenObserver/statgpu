@@ -76,8 +76,9 @@ class QuantileLoss(LossBase):
     def irls(self, X, y, max_iter=100, tol=1e-6, init_coef=None, eps=1e-8):
         """IRLS (Iteratively Reweighted Least Squares) for quantile regression.
 
-        This is the same algorithm used by statsmodels QuantReg (Frisch-Newton
-        variant). Much faster convergence than FISTA for quantile loss.
+        Same algorithm as statsmodels QuantReg (Frisch-Newton variant).
+        Much faster convergence than FISTA for quantile loss.
+        Supports numpy / cupy / torch backends.
 
         Parameters
         ----------
@@ -94,40 +95,55 @@ class QuantileLoss(LossBase):
         coef : array of shape (p,)
         n_iter : int
         """
-        import numpy as np
-
-        X_np = np.asarray(X, dtype=np.float64)
-        y_np = np.asarray(y, dtype=np.float64)
-        n, p = X_np.shape
+        xp = _get_xp(X)
+        X_dev = xp.asarray(X, dtype=xp.float64)
+        y_dev = xp.asarray(y, dtype=xp.float64)
+        n, p = int(X_dev.shape[0]), int(X_dev.shape[1])
         tau = self._tau
 
         if init_coef is not None:
-            beta = np.asarray(init_coef, dtype=np.float64).copy()
+            beta = xp.asarray(init_coef, dtype=xp.float64).copy()
         else:
-            beta = np.linalg.lstsq(X_np, y_np, rcond=None)[0]
+            # OLS initial estimate
+            if xp.__name__ == "torch":
+                beta = xp.linalg.lstsq(X_dev, y_dev).solution
+            else:
+                beta = xp.linalg.lstsq(X_dev, y_dev, rcond=None)[0]
 
         for iteration in range(max_iter):
-            eta = X_np @ beta
-            r = y_np - eta
+            eta = X_dev @ beta
+            r = y_dev - eta
 
-            # IRLS weights: w_i = max(tau, 1-tau) / max(|r_i|, eps)
-            # For r_i > 0: w_i = tau / max(r_i, eps)
-            # For r_i < 0: w_i = (1-tau) / max(-r_i, eps)
-            abs_r = np.abs(r)
-            abs_r_safe = np.maximum(abs_r, eps)
-            w = np.where(r >= 0, tau, 1.0 - tau) / abs_r_safe
+            # IRLS weights
+            abs_r = xp.abs(r)
+            if xp.__name__ == "torch":
+                abs_r_safe = xp.maximum(abs_r, xp.tensor(eps, dtype=abs_r.dtype, device=abs_r.device))
+                neg_mask = (r < 0).to(abs_r.dtype)
+            else:
+                abs_r_safe = xp.maximum(abs_r, eps)
+                neg_mask = (r < 0).astype(abs_r.dtype)
+            w = (tau + (1.0 - 2.0 * tau) * neg_mask) / abs_r_safe
 
-            # Weighted least squares: beta = (X'WX)^{-1} X'Wy
-            WX = X_np * w[:, None]
-            XtWX = X_np.T @ WX
-            XtWy = X_np.T @ (w * y_np)
+            # Weighted least squares: beta = (X'WX + ridge)^{-1} X'Wy
+            WX = X_dev * w[:, None]
+            XtWX = X_dev.T @ WX
+            XtWy = X_dev.T @ (w * y_dev)
 
-            # Add small ridge for numerical stability
-            ridge = eps * np.eye(p)
-            beta_new = np.linalg.solve(XtWX + ridge, XtWy)
+            # Ridge for numerical stability
+            if xp.__name__ == "torch":
+                ridge = eps * xp.eye(p, dtype=xp.float64, device=X_dev.device)
+            else:
+                ridge = eps * xp.eye(p)
 
-            # Check convergence
-            delta = np.linalg.norm(beta_new - beta)
+            beta_new = xp.linalg.solve(XtWX + ridge, XtWy)
+
+            # Convergence check
+            diff = beta_new - beta
+            if xp.__name__ == "torch":
+                delta = float(xp.linalg.norm(diff).item())
+            else:
+                delta = float(xp.linalg.norm(diff))
+
             if delta < tol:
                 return beta_new, iteration + 1
 
