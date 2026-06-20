@@ -274,17 +274,24 @@ class CoxPartialLikelihoodLoss(LossBase):
         if self._efron_pre_np is None:
             return None
 
+        _, _, _, _, nuft, _ = self._efron_pre_np
+        # CuPy kernel fails for nuft > 512 (kernel config limitation)
+        if nuft > 512:
+            return None
+
         efron_csr = self._efron_csr
         if efron_csr is None:
-            _, uft_ix, risk_enter, risk_exit, nuft, first_idx_uft = self._efron_pre_np
-            csr6 = efron_indices_to_csr(uft_ix, risk_enter, risk_exit, nuft)
-            # Extend to 8-tuple: add first_idx_uft and nuft
-            efron_csr = csr6 + (first_idx_uft.astype(np.int32), int(nuft))
+            _, uft_ix, risk_enter, risk_exit, nuft_val, first_idx_uft = self._efron_pre_np
+            csr6 = efron_indices_to_csr(uft_ix, risk_enter, risk_exit, nuft_val)
+            efron_csr = csr6 + (first_idx_uft.astype(np.int32), int(nuft_val))
             self._efron_csr = efron_csr
 
-        grad, hess = compute_efron_grad_hess_raw(
+        result = compute_efron_grad_hess_raw(
             X_s, coef_dev, self._efron_pre_np, cupy_module=cp, efron_csr=efron_csr
         )
+        if result is None:
+            return None
+        grad, hess = result
         return (grad, hess) if grad is not None else None
 
     def _gpu_loglik(self, coef_dev, X_s):
