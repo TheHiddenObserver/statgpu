@@ -32,7 +32,7 @@ class HuberLoss(LossBase):
     has_hessian = True        # Piecewise Hessian (discontinuous at |u|=delta, works in practice)
 
     # Optimization hints
-    _lipschitz_safety = 1.0
+    _lipschitz_safety = 1.5  # Huber gradient is piecewise; extra safety for BB step
 
     def __init__(self, delta: float = 1.0):
         if delta <= 0:
@@ -104,6 +104,24 @@ class HuberLoss(LossBase):
                 val = float(xp.sum(ps)) / n
             grad = X.T @ resid / n
         return val, grad
+
+    def lipschitz(self, X, coef, y=None, sample_weight=None):
+        """Lipschitz constant: lambda_max(X'X) / n.
+
+        Cached — X'X and its max eigenvalue are computed once and reused.
+        """
+        from statgpu.backends._array_ops import _max_eigval_power
+        xp = _get_xp(X)
+        # Cache key: use X's identity (same object = same lipschitz)
+        cache_key = id(X)
+        if not hasattr(self, '_lipschitz_cache'):
+            self._lipschitz_cache = {}
+        if cache_key in self._lipschitz_cache:
+            return self._lipschitz_cache[cache_key]
+        XtX = X.T @ X
+        L = _max_eigval_power(XtX) / X.shape[0]
+        self._lipschitz_cache[cache_key] = L
+        return L
 
     def hessian(self, X, y, coef, sample_weight=None):
         """Hessian: X' W X / n, where w_i = 1 if |u_i| <= delta else 0.

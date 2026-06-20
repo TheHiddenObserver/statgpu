@@ -41,6 +41,19 @@ class QuantileLoss(LossBase):
         self.quantile = float(quantile)
         self._tau = self.quantile
 
+    def lipschitz(self, X, coef, y=None, sample_weight=None):
+        """Lipschitz constant: lambda_max(X'X) / n. Cached."""
+        from statgpu.backends._array_ops import _max_eigval_power
+        cache_key = id(X)
+        if not hasattr(self, '_lipschitz_cache'):
+            self._lipschitz_cache = {}
+        if cache_key in self._lipschitz_cache:
+            return self._lipschitz_cache[cache_key]
+        XtX = X.T @ X
+        L = _max_eigval_power(XtX) / X.shape[0]
+        self._lipschitz_cache[cache_key] = L
+        return L
+
     # ── Per-sample formulas (backend-aware, dtype-safe) ──────────────
 
     def per_sample_value(self, eta, y):
