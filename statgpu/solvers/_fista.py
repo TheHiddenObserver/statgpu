@@ -289,17 +289,13 @@ def fista_solver(
 
         else:
             # -- CPU/GPU path with backtracking (smooth penalties) --
-            # Use identical sync-based clipping for both CPU and GPU.
-            # (Backtracking already syncs every iteration for slack check,
-            #  so on-device clipping has no performance benefit here.)
-            _gn_f, _coef_abs_f = _sync_scalars(
-                _norm2_dev(grad), _abs_sum_dev(coef_old), backend=backend)
-            _gmax = max(_coef_abs_f * _GRAD_CLIP_COEF_FACTOR + _GRAD_CLIP_ABS_FLOOR, _GRAD_CLIP_MAX)
-            if _gn_f > _gmax:
-                grad = grad * (_gmax / _gn_f)
+            # GPU optimization: minimize syncs by deferring checks.
 
             step = 1.0 / L
             _q_new_dev_last = None
+
+            # Backtracking line search — stay on device, sync only at end
+            _bt_accepted = False
             for _bt in range(20):
                 w_tilde = y_k - step * grad
                 coef_new = penalty.proximal(w_tilde, step, backend=backend)
@@ -314,27 +310,26 @@ def fista_solver(
                 _q_new_dev_last = q_new_dev
                 bound_dev = q_yk_dev + _dot_dev(grad, diff) + 0.5 * L * _sum_sq_dev(diff)
                 slack_dev = bound_dev + _SLACK_TOLERANCE - q_new_dev
-                _armijo_ok = _to_float_scalar(slack_dev) >= 0
+
+                # On GPU: check Armijo on device, sync only when accepted
+                if _is_gpu:
+                    _armijo_ok = bool(slack_dev >= 0) if hasattr(slack_dev, '__ge__') else _to_float_scalar(slack_dev) >= 0
+                else:
+                    _armijo_ok = _to_float_scalar(slack_dev) >= 0
+
                 if _armijo_ok:
+                    _bt_accepted = True
                     break
                 L *= 1.5
                 step = 1.0 / L
 
-            coef = coef_new
+            if not _bt_accepted:
+                # All backtracking steps failed — use last result
+                coef = coef_new
+            else:
+                coef = coef_new
 
-            # Finiteness check
-            if not _is_quadratic:
-                _coef_norm_dev = _norm2_dev(coef)
-                _finite_ok = np.isfinite(float(_coef_norm_dev))
-                if not _finite_ok:
-                    if _coef_best_fista is not None:
-                        coef = _copy_arr(_coef_best_fista)
-                        y_k = _copy_arr(coef)
-                        t_k = 1.0
-                        L = L * 2.0
-                        continue
-
-            # Divergence detection
+            # Batched sync: objective + coef norm + finiteness — ONE transfer per iteration
             if not _is_quadratic and iteration > 0:
                 _need_norm_check = (iteration > 10)
                 if _q_new_dev_last is not None:
@@ -347,14 +342,28 @@ def fista_solver(
                         )
                     else:
                         _obj_dev = loss.value(X_proc, y_proc, coef)
-                # Batched sync: objective + coef norm in one transfer
+
+                # Single batched sync: objective + coef_norm + finiteness
                 if _need_norm_check:
                     _obj_val_f, _coef_norm_f = _sync_scalars(
                         _obj_dev, _norm2_dev(coef), backend=backend
                     )
+                    _finite_ok = np.isfinite(_obj_val_f) and np.isfinite(_coef_norm_f)
                 else:
-                    _obj_val_f = float(_to_numpy(_obj_dev))
+                    _obj_val_f = _to_float_scalar(_obj_dev)
                     _coef_norm_f = 0.0
+                    _finite_ok = np.isfinite(_obj_val_f)
+
+                # Finiteness check (reuses the sync we already did)
+                if not _finite_ok:
+                    if _coef_best_fista is not None:
+                        coef = _copy_arr(_coef_best_fista)
+                        y_k = _copy_arr(coef)
+                        t_k = 1.0
+                        L = L * 2.0
+                        continue
+
+                # Divergence detection (reuses the same sync)
                 _obj_val_f += _tracking_penalty_value(penalty, coef)
                 _diverged_f = False
                 if not np.isfinite(_obj_val_f):
@@ -379,25 +388,25 @@ def fista_solver(
                     _obj_best_fista = _obj_val_f
                     _coef_best_fista = _copy_arr(coef)
 
-            # Periodic Lipschitz recomputation
-            # Skip if coefficients haven't changed much (Lipschitz is stable)
+            # Periodic Lipschitz recomputation (deferred on GPU)
             if not _is_quadratic and iteration > 0 and iteration % 5 == 0:
-                # Batch both norms into a single GPU->CPU transfer
-                _coef_change, _coef_norm = _sync_scalars(
-                    _norm2_dev(coef - coef_old), _norm2_dev(coef), backend=backend)
-                _relative_change = _coef_change / max(_coef_norm, 1e-10)
-                if _relative_change > 1e-3:  # Only recompute if coefficients changed significantly
-                    L_new = _call_with_weight(loss.lipschitz, X_proc, coef, y=y_proc, sample_weight=sample_weight)
-                    # Safety factors from loss class
-                    _lip_safety_recomp = getattr(loss, '_lipschitz_safety', 1.0)
-                    if _lip_safety_recomp > 1.0:
-                        L_new = L_new * _lip_safety_recomp
-                    if _smooth_lip > 0:
-                        L_new = L_new + _smooth_lip
-                    if L_new > L:
-                        L = L_new
-                    else:
-                        L = max(L * 0.8, L_new)
+                if _is_gpu and iteration % _conv_interval != 0:
+                    pass  # Skip Lipschitz recompute between sync intervals
+                else:
+                    _coef_change, _coef_norm = _sync_scalars(
+                        _norm2_dev(coef - coef_old), _norm2_dev(coef), backend=backend)
+                    _relative_change = _coef_change / max(_coef_norm, 1e-10)
+                    if _relative_change > 1e-3:
+                        L_new = _call_with_weight(loss.lipschitz, X_proc, coef, y=y_proc, sample_weight=sample_weight)
+                        _lip_safety_recomp = getattr(loss, '_lipschitz_safety', 1.0)
+                        if _lip_safety_recomp > 1.0:
+                            L_new = L_new * _lip_safety_recomp
+                        if _smooth_lip > 0:
+                            L_new = L_new + _smooth_lip
+                        if L_new > L:
+                            L = L_new
+                        else:
+                            L = max(L * 0.8, L_new)
 
         # Momentum update -- all backends
         if _skip_momentum:
