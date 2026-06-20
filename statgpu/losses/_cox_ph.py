@@ -304,7 +304,7 @@ class CoxPartialLikelihoodLoss(LossBase):
         # Prefix sum of rank-1 outer products for risk_X2
         outer_flat = (X_exp[:, :, None] * X_s[:, None, :]).reshape(n, p * p)
         prefix_flat = cp.concatenate([
-            cp.zeros(1, p * p, dtype=cp.float64),
+            cp.zeros((1, p * p), dtype=cp.float64),
             cp.cumsum(outer_flat[:-1], dim=0)
         ], dim=0)
         total_X2 = prefix_flat[-1].reshape(p, p) + outer_flat[-1].reshape(p, p)
