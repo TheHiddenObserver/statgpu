@@ -277,8 +277,8 @@ class CoxPartialLikelihoodLoss(LossBase):
     def _cupy_grad_hess(self, coef_dev, X_s):
         """Efron gradient/Hessian on CuPy.
 
-        Tries multi-block CUDA kernel first (one block per group, fully parallel).
-        Falls back to prefix-sum Python loop if kernel not available.
+        Tries existing CUDA kernel (nuft<=512), falls back to prefix-sum
+        loop for larger nuft.
         """
         try:
             import cupy as cp
@@ -288,53 +288,44 @@ class CoxPartialLikelihoodLoss(LossBase):
         if self._efron_pre_np is None:
             return None
 
-        _, uft_ix, risk_enter, _, nuft, first_idx_uft = self._efron_pre_np
+        # Try existing CUDA kernel (fast, but limited to nuft<=512)
+        _, _, _, _, nuft, _ = self._efron_pre_np
+        if nuft <= 512:
+            try:
+                from statgpu.survival._cox_efron_cuda import compute_efron_grad_hess_raw, efron_indices_to_csr
+                efron_csr = self._efron_csr
+                if efron_csr is None:
+                    _, uft_ix, risk_enter, risk_exit, nuft_val, first_idx_uft = self._efron_pre_np
+                    csr6 = efron_indices_to_csr(uft_ix, risk_enter, risk_exit, nuft_val)
+                    efron_csr = csr6 + (first_idx_uft.astype(np.int32), int(nuft_val))
+                    self._efron_csr = efron_csr
+                result = compute_efron_grad_hess_raw(
+                    X_s, coef_dev, self._efron_pre_np, cupy_module=cp, efron_csr=efron_csr
+                )
+                if result is not None and result[0] is not None:
+                    return result
+            except Exception:
+                pass
+
+        # Fallback: prefix-sum approach (works for any nuft)
+        _, uft_ix, risk_enter, _, _, _ = self._efron_pre_np
         n, p = int(X_s.shape[0]), int(X_s.shape[1])
 
-        # Compute eta, exp_eta on GPU
         eta = X_s @ coef_dev
         eta = eta - cp.max(eta)
         exp_eta = cp.exp(eta)
         X_exp = X_s * exp_eta[:, None]
 
-        # Suffix sums
         risk_sum = cp.cumsum(exp_eta[::-1])[::-1]
         risk_X_sum = cp.cumsum(X_exp[::-1], axis=0)[::-1]
 
-        # Prefix sum for risk_X2
         outer_flat = (X_exp[:, :, None] * X_s[:, None, :]).reshape(n, p * p)
         prefix_flat = cp.concatenate([
             cp.zeros((1, p * p), dtype=cp.float64),
             cp.cumsum(outer_flat[:-1], axis=0)
         ], axis=0)
         total_X2 = prefix_flat[-1].reshape(p, p) + outer_flat[-1].reshape(p, p)
-        risk_X2_sum = prefix_flat  # (n, p*p)
 
-        # Prepare CSR arrays for kernel
-        if self._efron_csr is None:
-            from statgpu.survival._cox_efron_cuda import efron_indices_to_csr
-            csr6 = efron_indices_to_csr(uft_ix, risk_enter, risk_exit, nuft)
-            self._efron_csr = csr6 + (first_idx_uft.astype(np.int32), int(nuft))
-        _, _, _, _, fail_ptr, fail_ind, _, _ = self._efron_csr
-
-        fail_ptr_g = cp.asarray(fail_ptr, dtype=cp.int32)
-        fail_ind_g = cp.asarray(fail_ind, dtype=cp.int32)
-        first_idx_uft_g = cp.asarray(first_idx_uft.astype(np.int32), dtype=cp.int32)
-
-        # Try multi-block kernel
-        try:
-            from statgpu.survival._cox_efron_grad_hess_kernel import compute_efron_grad_hess_multiblock
-            result = compute_efron_grad_hess_multiblock(
-                X_s, exp_eta, risk_sum, risk_X_sum, risk_X2_sum, total_X2,
-                fail_ptr_g, fail_ind_g, first_idx_uft_g, nuft, p,
-                cupy_module=cp,
-            )
-            if result is not None:
-                return result
-        except Exception:
-            pass
-
-        # Fallback: Python loop (same as before)
         grad = cp.zeros(p, dtype=cp.float64)
         hess = cp.zeros((p, p), dtype=cp.float64)
 
@@ -349,7 +340,7 @@ class CoxPartialLikelihoodLoss(LossBase):
             s1 = risk_X_sum[re]
             sum_ev_exp = float(cp.sum(exp_eta[ix_ev]))
             sum_ev_X = cp.sum(X_s[ix_ev], axis=0)
-            risk_X2 = total_X2 - risk_X2_sum[re].reshape(p, p)
+            risk_X2 = total_X2 - prefix_flat[re].reshape(p, p)
 
             k_vals = cp.arange(d, dtype=cp.float64)
             denom = s0 - (k_vals / d) * sum_ev_exp
