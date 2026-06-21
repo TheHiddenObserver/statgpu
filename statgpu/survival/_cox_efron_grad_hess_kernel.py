@@ -160,6 +160,17 @@ def compute_efron_grad_hess_multiblock(
     out_grad = cp.zeros((nuft, p), dtype=cp.float64)
     out_hess = cp.zeros((nuft, p * p), dtype=cp.float64)
 
+    # Ensure all arrays are contiguous (CUDA kernels require it)
+    X = cp.ascontiguousarray(X)
+    exp_eta = cp.ascontiguousarray(exp_eta)
+    risk_sum = cp.ascontiguousarray(risk_sum)
+    risk_X_sum = cp.ascontiguousarray(risk_X_sum)
+    risk_X2_sum = cp.ascontiguousarray(risk_X2_sum)
+    total_X2 = cp.ascontiguousarray(total_X2)
+    fail_ptr = cp.ascontiguousarray(fail_ptr)
+    fail_ind = cp.ascontiguousarray(fail_ind)
+    first_idx_uft = cp.ascontiguousarray(first_idx_uft)
+
     kernel = get_efron_grad_hess_kernel(cp)
     try:
         kernel(

@@ -307,7 +307,46 @@ class CoxPartialLikelihoodLoss(LossBase):
             except Exception:
                 pass
 
-        # Fallback: prefix-sum approach (works for any nuft)
+        # Try multi-block CUDA kernel (works for any nuft)
+        try:
+            from statgpu.survival._cox_efron_cuda import efron_indices_to_csr
+            from statgpu.survival._cox_efron_grad_hess_kernel import compute_efron_grad_hess_multiblock
+
+            _, uft_ix, risk_enter, risk_exit, _, first_idx_uft = self._efron_pre_np
+            if self._efron_csr is None:
+                csr6 = efron_indices_to_csr(uft_ix, risk_enter, risk_exit, nuft)
+                self._efron_csr = csr6 + (first_idx_uft.astype(np.int32), int(nuft))
+            _, _, _, _, fail_ptr, fail_ind, _, _ = self._efron_csr
+
+            # Prepare arrays (must be contiguous for CUDA kernels)
+            n, p = int(X_s.shape[0]), int(X_s.shape[1])
+            eta = X_s @ coef_dev
+            eta = eta - cp.max(eta)
+            exp_eta = cp.exp(eta)
+            X_exp = X_s * exp_eta[:, None]
+
+            risk_sum = cp.cumsum(exp_eta[::-1])[::-1]
+            risk_X_sum = cp.cumsum(X_exp[::-1], axis=0)[::-1]
+            outer_flat = (X_exp[:, :, None] * X_s[:, None, :]).reshape(n, p * p)
+            prefix_flat = cp.concatenate([
+                cp.zeros((1, p * p), dtype=cp.float64),
+                cp.cumsum(outer_flat[:-1], axis=0)
+            ], axis=0)
+            total_X2 = prefix_flat[-1].reshape(p, p) + outer_flat[-1].reshape(p, p)
+
+            result = compute_efron_grad_hess_multiblock(
+                X_s, exp_eta, risk_sum, risk_X_sum, prefix_flat, total_X2,
+                cp.asarray(fail_ptr, dtype=cp.int32),
+                cp.asarray(fail_ind, dtype=cp.int32),
+                cp.asarray(first_idx_uft.astype(np.int32), dtype=cp.int32),
+                nuft, p, cupy_module=cp,
+            )
+            if result is not None:
+                return result
+        except Exception:
+            pass
+
+        # Fallback: Python loop
         _, uft_ix, risk_enter, _, _, _ = self._efron_pre_np
         n, p = int(X_s.shape[0]), int(X_s.shape[1])
 
