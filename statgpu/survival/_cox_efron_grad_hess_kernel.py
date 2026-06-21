@@ -39,11 +39,11 @@ void efron_grad_hess_by_group(
 
     // Shared memory for reductions
     __shared__ double sh_exp[THREADS];
-    __shared__ double sh_X[THREADS * 8]; // up to p=8 in shared
+    __shared__ double sh_X[THREADS * 16]; // up to p=16 in shared
 
     // Step 1: Compute sum_ev_exp and sum_ev_X for tied events
     double local_exp = 0.0;
-    double local_X[8] = {0}; // max p=8
+    double local_X[16] = {0}; // max p=16
     for (int i = start + tid; i < end; i += THREADS) {
         int idx = fail_ind[i];
         double ex = exp_eta[idx];
@@ -71,13 +71,13 @@ void efron_grad_hess_by_group(
     }
 
     double sum_ev_exp = sh_exp[0];
-    double sum_ev_X[8];
+    double sum_ev_X[16];
     for (int j = 0; j < p; j++) sum_ev_X[j] = sh_X[j];
 
     // Step 2: Risk set quantities
     int re = first_idx_uft[g];
     double s0 = risk_sum[re];
-    double s1[8], risk_X2[64]; // p=8 max
+    double s1[16], risk_X2[256]; // p=8 max
     for (int j = 0; j < p; j++) s1[j] = risk_X_sum[re * p + j];
     for (int j = 0; j < p * p; j++) risk_X2[j] = total_X2[j] - risk_X2_sum[re * p * p + j];
 
