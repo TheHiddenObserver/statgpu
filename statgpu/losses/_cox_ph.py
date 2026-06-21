@@ -221,15 +221,30 @@ class CoxPartialLikelihoodLoss(LossBase):
         is_cupy = xp.__name__ == "cupy"
         is_torch_cuda = xp.__name__ == "torch" and X_s.is_cuda
 
-        if is_cupy and self.ties == 'efron':
-            result = self._cupy_grad_hess(coef_dev, X_s)
+        # Efron: try CuPy kernel (works for both cupy and torch-CUDA via DLPack)
+        if (is_cupy or is_torch_cuda) and self.ties == 'efron':
+            if is_torch_cuda:
+                # Convert torch tensors to cupy for kernel
+                import cupy as cp
+                X_cp = cupy.from_dlpack(X_s.__dlpack__())
+                coef_cp = cupy.from_dlpack(coef_dev.__dlpack__())
+                result = self._cupy_grad_hess(coef_cp, X_cp)
+            else:
+                result = self._cupy_grad_hess(coef_dev, X_s)
             if result is not None:
+                if is_torch_cuda:
+                    # Convert cupy results back to torch
+                    return (
+                        torch.from_dlpack(result[0].__dlpack__()),
+                        torch.from_dlpack(result[1].__dlpack__()),
+                    )
                 return result
 
-        if is_torch_cuda and self.ties == 'efron':
-            result = self._triton_grad_hess(coef_dev, X_s)
-            if result is not None:
-                return result
+            # Fallback: Triton kernel
+            if is_torch_cuda:
+                result = self._triton_grad_hess(coef_dev, X_s)
+                if result is not None:
+                    return result
 
         if is_torch_cuda and self.ties == 'breslow':
             result = self._torch_breslow_grad_hess(coef_dev, X_s)
