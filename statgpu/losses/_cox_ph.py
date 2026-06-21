@@ -726,7 +726,7 @@ class CoxPartialLikelihoodLoss(LossBase):
         Shares suffix sums and per-group quantities between loglik and gradient.
         ~2x faster than separate calls.
         """
-        p = X_np.shape[1]
+        n, p = X_np.shape
         exp_eta = np.exp(eta_np)
         X_exp = X_np * exp_eta[:, None]
         risk_sum = np.cumsum(exp_eta[::-1])[::-1]
