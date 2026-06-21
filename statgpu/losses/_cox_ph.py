@@ -401,29 +401,66 @@ class CoxPartialLikelihoodLoss(LossBase):
         return self._gpu_loglik_from_eta(eta, X_s)
 
     def _gpu_loglik_from_eta(self, eta, X_s):
-        """Compute log-likelihood from precomputed eta on GPU."""
+        """Compute log-likelihood from precomputed eta on GPU.
+
+        Supports cupy and torch-CUDA (via DLPack conversion).
+        """
         xp = _get_xp(X_s)
         is_cupy = xp.__name__ == "cupy"
+        is_torch_cuda = xp.__name__ == "torch" and X_s.is_cuda
 
         if self.ties == 'efron' and self._efron_pre_np is not None:
             try:
-                if is_cupy:
+                if is_cupy or is_torch_cuda:
                     import cupy as cp
                     from statgpu.survival._cox_efron_cuda import compute_efron_loglik_raw_csr
-                    exp_eta = cp.exp(eta)
+
+                    if is_torch_cuda:
+                        eta_cp = cp.from_dlpack(eta.__dlpack__())
+                    else:
+                        eta_cp = eta
+
+                    exp_eta = cp.exp(eta_cp)
                     risk_sum = cp.cumsum(exp_eta[::-1])[::-1]
                     _, _, _, _, nuft, first_idx_uft = self._efron_pre_np
                     first_idx_uft_dev = cp.asarray(first_idx_uft, dtype=cp.int32)
                     if self._efron_csr is not None:
-                        return compute_efron_loglik_raw_csr(
-                            eta, exp_eta, risk_sum, self._efron_csr[4], self._efron_csr[5],
+                        result = compute_efron_loglik_raw_csr(
+                            eta_cp, exp_eta, risk_sum,
+                            self._efron_csr[4], self._efron_csr[5],
                             first_idx_uft_dev, nuft, cupy_module=cp
                         )
-                # Torch-CUDA Efron: fall through to CPU
+                        return result
             except (ImportError, RuntimeError):
                 pass
 
-        # CPU fallback (no GPU→CPU transfer of eta; recompute from coef)
+        # Breslow: can compute directly on any backend
+        if self.ties == 'breslow' and self._breslow_pre_np is not None:
+            exp_eta = xp.exp(eta)
+            risk_sum = _xp_cumsum_flip(exp_eta, xp)
+            first_idx, counts_np = self._breslow_pre_np
+            if xp.__name__ == "torch":
+                import torch
+                first_idx_dev = torch.from_numpy(first_idx).long().to(eta.device)
+                counts = torch.from_numpy(counts_np).to(eta.device)
+            elif xp.__name__ == "cupy":
+                import cupy
+                first_idx_dev = cupy.asarray(first_idx)
+                counts = cupy.asarray(counts_np)
+            else:
+                first_idx_dev = first_idx
+                counts = counts_np
+            risk_at = risk_sum[first_idx_dev]
+            event_mask = (self._event_sorted == 1) if hasattr(self, '_event_sorted') else (self._event_np == 1)
+            if xp.__name__ == "torch":
+                event_mask_dev = torch.from_numpy(self._event_np).bool().to(eta.device) if hasattr(self, '_event_np') else event_mask
+            else:
+                event_mask_dev = event_mask
+            event_eta = eta[event_mask_dev]
+            if xp.__name__ == "torch":
+                return xp.sum(event_eta) - xp.sum(counts * xp.log(risk_at))
+            return float(xp.sum(event_eta) - xp.sum(counts * xp.log(risk_at)))
+
         return None
 
     # ── Triton/Torch kernel paths ────────────────────────────────────
