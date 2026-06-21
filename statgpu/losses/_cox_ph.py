@@ -183,9 +183,16 @@ class CoxPartialLikelihoodLoss(LossBase):
         coef_dev = _xp_asarray(coef, dtype=xp.float64, ref_arr=X_s)
         n = X_s.shape[0]
 
+        # Gradient via GPU dispatch
+        grad, _ = self._compute_grad_hess(coef_dev, X_s)
+
+        # Value via GPU dispatch
         eta = X_s @ coef_dev
         loglik = self._loglik_from_eta(eta, X_s)
-        grad = self._grad_from_eta(eta, X_s)
+        if loglik is None:
+            # CPU fallback
+            loglik = self._cpu_loglik(_to_numpy(eta), self._time_np, self._event_np)
+
         return -_to_float_scalar(loglik) / n, -grad / n
 
     def hessian(self, X, y, coef, sample_weight=None):
