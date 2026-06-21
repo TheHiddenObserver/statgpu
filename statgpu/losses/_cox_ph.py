@@ -195,11 +195,14 @@ class CoxPartialLikelihoodLoss(LossBase):
                 loglik = self._cpu_loglik(_to_numpy(eta), self._time_np, self._event_np)
             return -_to_float_scalar(loglik) / n, -grad / n
 
-        # CPU path: fused loglik + gradient in one pass (avoids double loop)
+        # CPU path: fused loglik + gradient + hessian in one pass
         X_np = _to_numpy(X_s)
         eta_np = _to_numpy(X_s @ coef_dev)
         if self.ties == 'efron' and self._efron_pre_np is not None:
-            loglik, grad_np, _ = self._cpu_fused_loglik_grad(eta_np, X_np, self._time_np, self._event_np)
+            loglik, grad_np, hess_np = self._cpu_fused_loglik_grad_hess(eta_np, X_np, self._time_np, self._event_np)
+            # Cache hessian for Newton solver
+            if hess_np is not None:
+                self._cached_hess = hess_np
             return -loglik / n, _xp_asarray(-grad_np / n, dtype=xp.float64, ref_arr=X_s)
         else:
             loglik = self._cpu_loglik(eta_np, self._time_np, self._event_np)
@@ -213,8 +216,15 @@ class CoxPartialLikelihoodLoss(LossBase):
 
         X_s = self._X_sorted
         xp = _get_xp(X_s)
-        coef_dev = _xp_asarray(coef, dtype=xp.float64, ref_arr=X_s)
         n = X_s.shape[0]
+
+        # Use cached Hessian from fused_value_and_gradient if available
+        if hasattr(self, '_cached_hess') and self._cached_hess is not None:
+            hess = self._cached_hess
+            self._cached_hess = None  # Clear cache
+            return _xp_asarray(-hess / n, dtype=xp.float64, ref_arr=X_s)
+
+        coef_dev = _xp_asarray(coef, dtype=xp.float64, ref_arr=X_s)
         _, hess = self._compute_grad_hess(coef_dev, X_s)
         return -hess / n
 
@@ -719,9 +729,9 @@ class CoxPartialLikelihoodLoss(LossBase):
         return grad, hess
 
     def _cpu_fused_loglik_grad(self, eta_np, X_np, time_np, event_np):
-        """Fused loglik + gradient for Efron — prefix sum approach.
+        """Fused loglik + gradient for Efron — single pass.
 
-        Single pass over failure groups computing both loglik and gradient.
+        Shares suffix sums across loglik and gradient computation.
         """
         n, p = X_np.shape
         exp_eta = np.exp(eta_np)
@@ -756,4 +766,57 @@ class CoxPartialLikelihoodLoss(LossBase):
             grad += sx - s1 * si * d
 
         return ll, grad, None
+
+    def _cpu_fused_loglik_grad_hess(self, eta_np, X_np, time_np, event_np):
+        """Fused loglik + gradient + Hessian for Efron — single pass.
+
+        Shares suffix sums and risk_X2 across all three computations.
+        Avoids redundant O(n*p*p) prefix sum computation.
+        """
+        n, p = X_np.shape
+        exp_eta = np.exp(eta_np)
+        X_exp = X_np * exp_eta[:, None]
+
+        efron_pre = self._efron_pre_np
+        _, uft_ix, risk_enter, _, nuft, _ = efron_pre
+
+        # Suffix sums (shared across loglik, gradient, Hessian)
+        risk_sum = np.cumsum(exp_eta[::-1])[::-1]
+        risk_X_sum = np.cumsum(X_exp[::-1], axis=0)[::-1]
+
+        # Suffix sum of outer products for risk_X2
+        suffix_outer = np.zeros((n + 1, p, p), dtype=np.float64)
+        for i in range(n - 1, -1, -1):
+            suffix_outer[i] = suffix_outer[i + 1] + np.outer(X_exp[i], X_np[i])
+
+        ll = 0.0
+        grad = np.zeros(p, dtype=np.float64)
+        hess = np.zeros((p, p), dtype=np.float64)
+
+        for g in range(nuft):
+            ix_ev = uft_ix[g]
+            d = len(ix_ev)
+            if d == 0:
+                continue
+            re_val = risk_enter[g]
+            re = int(re_val[0]) if isinstance(re_val, (list, np.ndarray)) else int(re_val)
+            s0 = risk_sum[re]
+            s1 = risk_X_sum[re]
+            risk_X2 = suffix_outer[re]
+            se = float(np.sum(exp_eta[ix_ev]))
+            sx = np.sum(X_np[ix_ev], axis=0)
+            k = np.arange(d, dtype=np.float64)
+            denom = s0 - (k / d) * se
+            safe = np.maximum(denom, 1e-300)
+            si = np.sum(1.0 / safe)
+            si2 = np.sum(1.0 / (safe * safe))
+
+            # Loglik
+            ll += float(np.sum(eta_np[ix_ev])) - float(np.sum(np.log(safe)))
+            # Gradient
+            grad += sx - s1 * si * d
+            # Hessian
+            hess -= risk_X2 * si - np.outer(s1, s1) * si2 * d
+
+        return ll, grad, hess
 
