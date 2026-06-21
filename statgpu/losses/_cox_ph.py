@@ -437,7 +437,10 @@ class CoxPartialLikelihoodLoss(LossBase):
         # Breslow: can compute directly on any backend
         if self.ties == 'breslow' and self._breslow_pre_np is not None:
             exp_eta = xp.exp(eta)
-            risk_sum = _xp_cumsum_flip(exp_eta, xp)
+            if xp.__name__ == "torch":
+                risk_sum = xp.cumsum(exp_eta.flip(0), dim=0).flip(0)
+            else:
+                risk_sum = xp.cumsum(exp_eta[::-1])[::-1]
             first_idx, counts_np = self._breslow_pre_np
             if xp.__name__ == "torch":
                 import torch
