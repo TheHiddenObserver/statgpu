@@ -666,10 +666,10 @@ class CoxPartialLikelihoodLoss(LossBase):
 
     @staticmethod
     def _efron_grad_hess_np(eta, X, efron_pre):
-        """Efron gradient/Hessian — prefix sum approach.
+        """Efron gradient/Hessian — suffix sum approach (no prefix allocation).
 
-        Computes risk set quantities via suffix sums, then iterates
-        over failure groups with vectorized Efron adjustment.
+        Computes risk_X2 via suffix sums of outer products, avoiding
+        the O(n*p*p) prefix sum array allocation.
         """
         n, p = X.shape
         exp_eta = np.exp(eta)
@@ -677,17 +677,15 @@ class CoxPartialLikelihoodLoss(LossBase):
 
         _, uft_ix, risk_enter, _, nuft, _ = efron_pre
 
-        # Suffix sums
+        # Suffix sums for risk set quantities
         risk_sum = np.cumsum(exp_eta[::-1])[::-1]
         risk_X_sum = np.cumsum(X_exp[::-1], axis=0)[::-1]
 
-        # Prefix sum for risk_X2 at failure times
-        outer_flat = (X_exp[:, :, None] * X[:, None, :]).reshape(n, p * p)
-        prefix_flat = np.concatenate([
-            np.zeros((1, p * p), dtype=np.float64),
-            np.cumsum(outer_flat[:-1], axis=0)
-        ], axis=0)
-        total_X2 = prefix_flat[-1].reshape(p, p) + outer_flat[-1].reshape(p, p)
+        # Suffix sum of outer products: suffix_outer[i] = sum_{j>=i} X_exp[j]^T X[j]
+        # This gives risk_X2 at each failure time directly.
+        suffix_outer = np.zeros((n + 1, p, p), dtype=np.float64)
+        for i in range(n - 1, -1, -1):
+            suffix_outer[i] = suffix_outer[i + 1] + np.outer(X_exp[i], X[i])
 
         # Collect per-group quantities
         re_arr = np.zeros(nuft, dtype=np.int64)
@@ -708,7 +706,7 @@ class CoxPartialLikelihoodLoss(LossBase):
             re = int(re_arr[g])
             s0 = risk_sum[re]
             s1 = risk_X_sum[re]
-            risk_X2 = total_X2 - prefix_flat[re].reshape(p, p)
+            risk_X2 = suffix_outer[re]
             se = float(np.sum(exp_eta[ix_ev]))
             sx = np.sum(X[ix_ev], axis=0)
             k = np.arange(d, dtype=np.float64)
