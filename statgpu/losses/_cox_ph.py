@@ -784,10 +784,13 @@ class CoxPartialLikelihoodLoss(LossBase):
         risk_sum = np.cumsum(exp_eta[::-1])[::-1]
         risk_X_sum = np.cumsum(X_exp[::-1], axis=0)[::-1]
 
-        # Suffix sum of outer products for risk_X2
-        suffix_outer = np.zeros((n + 1, p, p), dtype=np.float64)
-        for i in range(n - 1, -1, -1):
-            suffix_outer[i] = suffix_outer[i + 1] + np.outer(X_exp[i], X_np[i])
+        # Suffix sum of outer products for risk_X2 (vectorized)
+        outer_flat = (X_exp[:, :, None] * X_np[:, None, :]).reshape(n, p * p)
+        suffix_flat = np.concatenate([
+            np.cumsum(outer_flat[::-1], axis=0)[::-1],
+            np.zeros((1, p * p), dtype=np.float64)
+        ], axis=0)
+        suffix_outer = suffix_flat.reshape(n + 1, p, p)
 
         ll = 0.0
         grad = np.zeros(p, dtype=np.float64)
