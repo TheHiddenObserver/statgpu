@@ -666,10 +666,10 @@ class CoxPartialLikelihoodLoss(LossBase):
 
     @staticmethod
     def _efron_grad_hess_np(eta, X, efron_pre):
-        """Efron gradient/Hessian — incremental risk set (no prefix sum).
+        """Efron gradient/Hessian — prefix sum approach.
 
-        Processes failure groups in order, maintaining the risk set
-        incrementally. Avoids O(n*p*p) prefix sum memory allocation.
+        Computes risk set quantities via suffix sums, then iterates
+        over failure groups with vectorized Efron adjustment.
         """
         n, p = X.shape
         exp_eta = np.exp(eta)
@@ -677,54 +677,53 @@ class CoxPartialLikelihoodLoss(LossBase):
 
         _, uft_ix, risk_enter, _, nuft, _ = efron_pre
 
-        # Initial risk set: all observations
-        risk_X2 = X_exp.T @ X  # (p, p)
-        risk_sum_val = float(np.sum(exp_eta))
-        risk_X_sum = np.sum(X_exp, axis=0)  # (p,)
+        # Suffix sums
+        risk_sum = np.cumsum(exp_eta[::-1])[::-1]
+        risk_X_sum = np.cumsum(X_exp[::-1], axis=0)[::-1]
 
+        # Prefix sum for risk_X2 at failure times
+        outer_flat = (X_exp[:, :, None] * X[:, None, :]).reshape(n, p * p)
+        prefix_flat = np.concatenate([
+            np.zeros((1, p * p), dtype=np.float64),
+            np.cumsum(outer_flat[:-1], axis=0)
+        ], axis=0)
+        total_X2 = prefix_flat[-1].reshape(p, p) + outer_flat[-1].reshape(p, p)
+
+        # Collect per-group quantities
+        re_arr = np.zeros(nuft, dtype=np.int64)
+        d_arr = np.zeros(nuft, dtype=np.int64)
+        for g in range(nuft):
+            re_val = risk_enter[g]
+            re_arr[g] = int(re_val[0]) if isinstance(re_val, (list, np.ndarray)) else int(re_val)
+            d_arr[g] = len(uft_ix[g])
+
+        # Gradient and Hessian
         grad = np.zeros(p, dtype=np.float64)
         hess = np.zeros((p, p), dtype=np.float64)
-
-        # Process failure groups in order, removing from risk set
-        prev_re = 0
         for g in range(nuft):
             ix_ev = uft_ix[g]
-            d = len(ix_ev)
+            d = int(d_arr[g])
             if d == 0:
                 continue
-            re_val = risk_enter[g]
-            re = int(re_val[0]) if isinstance(re_val, (list, np.ndarray)) else int(re_val)
-
-            # Remove observations [prev_re, re) from risk set
-            if re > prev_re:
-                removed = slice(prev_re, re)
-                X_rem = X_exp[removed]
-                risk_X2 -= X_rem.T @ X[removed]
-                risk_sum_val -= float(np.sum(exp_eta[removed]))
-                risk_X_sum -= np.sum(X_rem, axis=0)
-                prev_re = re
-
-            s0 = risk_sum_val
-            s1 = risk_X_sum.copy()
+            re = int(re_arr[g])
+            s0 = risk_sum[re]
+            s1 = risk_X_sum[re]
+            risk_X2 = total_X2 - prefix_flat[re].reshape(p, p)
             se = float(np.sum(exp_eta[ix_ev]))
             sx = np.sum(X[ix_ev], axis=0)
-
             k = np.arange(d, dtype=np.float64)
             denom = s0 - (k / d) * se
             safe = np.maximum(denom, 1e-300)
             si = np.sum(1.0 / safe)
             si2 = np.sum(1.0 / (safe * safe))
-
             grad += sx - s1 * si * d
             hess -= risk_X2 * si - np.outer(s1, s1) * si2 * d
-
         return grad, hess
 
     def _cpu_fused_loglik_grad(self, eta_np, X_np, time_np, event_np):
-        """Fused loglik + gradient for Efron — incremental risk set.
+        """Fused loglik + gradient for Efron — prefix sum approach.
 
-        Processes failure groups in order, maintaining risk set incrementally.
-        No O(n*p*p) prefix sum allocation.
+        Single pass over failure groups computing both loglik and gradient.
         """
         n, p = X_np.shape
         exp_eta = np.exp(eta_np)
@@ -733,15 +732,12 @@ class CoxPartialLikelihoodLoss(LossBase):
         efron_pre = self._efron_pre_np
         _, uft_ix, risk_enter, _, nuft, _ = efron_pre
 
-        # Initial risk set
-        risk_X2 = X_exp.T @ X_np
-        risk_sum_val = float(np.sum(exp_eta))
-        risk_X_sum = np.sum(X_exp, axis=0)
+        risk_sum = np.cumsum(exp_eta[::-1])[::-1]
+        risk_X_sum = np.cumsum(X_exp[::-1], axis=0)[::-1]
 
         ll = 0.0
         grad = np.zeros(p, dtype=np.float64)
 
-        prev_re = 0
         for g in range(nuft):
             ix_ev = uft_ix[g]
             d = len(ix_ev)
@@ -749,16 +745,8 @@ class CoxPartialLikelihoodLoss(LossBase):
                 continue
             re_val = risk_enter[g]
             re = int(re_val[0]) if isinstance(re_val, (list, np.ndarray)) else int(re_val)
-
-            # Remove [prev_re, re) from risk set
-            if re > prev_re:
-                X_rem = X_exp[prev_re:re]
-                risk_X2 -= X_rem.T @ X_np[prev_re:re]
-                risk_sum_val -= float(np.sum(exp_eta[prev_re:re]))
-                risk_X_sum -= np.sum(X_rem, axis=0)
-                prev_re = re
-
-            s0 = risk_sum_val
+            s0 = risk_sum[re]
+            s1 = risk_X_sum[re]
             se = float(np.sum(exp_eta[ix_ev]))
             sx = np.sum(X_np[ix_ev], axis=0)
             k = np.arange(d, dtype=np.float64)
@@ -767,7 +755,7 @@ class CoxPartialLikelihoodLoss(LossBase):
             si = np.sum(1.0 / safe)
 
             ll += float(np.sum(eta_np[ix_ev])) - float(np.sum(np.log(safe)))
-            grad += sx - risk_X_sum * si * d
+            grad += sx - s1 * si * d
 
         return ll, grad, None
 
