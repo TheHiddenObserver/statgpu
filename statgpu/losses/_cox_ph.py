@@ -288,24 +288,7 @@ class CoxPartialLikelihoodLoss(LossBase):
         if self._efron_pre_np is None:
             return None
 
-        # Try existing CUDA kernel (fast, but limited to nuft<=512)
         _, _, _, _, nuft, _ = self._efron_pre_np
-        if nuft <= 512:
-            try:
-                from statgpu.survival._cox_efron_cuda import compute_efron_grad_hess_raw, efron_indices_to_csr
-                efron_csr = self._efron_csr
-                if efron_csr is None:
-                    _, uft_ix, risk_enter, risk_exit, nuft_val, first_idx_uft = self._efron_pre_np
-                    csr6 = efron_indices_to_csr(uft_ix, risk_enter, risk_exit, nuft_val)
-                    efron_csr = csr6 + (first_idx_uft.astype(np.int32), int(nuft_val))
-                    self._efron_csr = efron_csr
-                result = compute_efron_grad_hess_raw(
-                    X_s, coef_dev, self._efron_pre_np, cupy_module=cp, efron_csr=efron_csr
-                )
-                if result is not None and result[0] is not None:
-                    return result
-            except Exception:
-                pass
 
         # Try multi-block CUDA kernel (works for any nuft)
         try:
