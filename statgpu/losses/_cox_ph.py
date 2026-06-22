@@ -771,6 +771,7 @@ class CoxPartialLikelihoodLoss(LossBase):
             risk_X2_d1 = suffix_flat[re_d1].reshape(-1, p, p)  # (G1, p, p)
 
             hess -= np.sum(risk_X2_d1 * inv_d1[:, None, None], axis=0)
+            inv_d1_sq = np.minimum(inv_d1 * inv_d1, 1e30)
             hess += np.einsum("g,gi,gj->ij", inv_d1_sq, s1_d1, s1_d1)
 
         # ── Loop path for d>1 groups (tied events) ──
