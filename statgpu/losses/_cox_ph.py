@@ -845,7 +845,9 @@ class CoxPartialLikelihoodLoss(LossBase):
         Only groups with d>1 use a Python loop.
         """
         n, p = X_np.shape
-        exp_eta = np.exp(eta_np)
+        # Numerical stability: shift eta to prevent exp overflow
+        eta_shift = eta_np - np.max(eta_np)
+        exp_eta = np.exp(eta_shift)
         X_exp = X_np * exp_eta[:, None]
 
         efron_pre = self._efron_pre_np
@@ -884,8 +886,8 @@ class CoxPartialLikelihoodLoss(LossBase):
             safe_d1 = np.maximum(denom_d1, 1e-300)
             inv_d1 = 1.0 / safe_d1
 
-            # Loglik
-            ll += float(np.sum(eta_np[ev_indices])) - float(np.sum(np.log(safe_d1)))
+            # Loglik (use shifted eta for numerical stability)
+            ll += float(np.sum(eta_shift[ev_indices])) - float(np.sum(np.log(safe_d1)))
             # Gradient
             grad += np.sum(sx_d1 - s1_d1 * inv_d1[:, None], axis=0)
             # Hessian via suffix outer
@@ -897,6 +899,11 @@ class CoxPartialLikelihoodLoss(LossBase):
             hess += np.einsum("g,gi,gj->ij", inv_d1_sq, s1_d1, s1_d1)
 
         # ── Loop for d>1 groups (tied events) ──
+        # Precompute suffix outer for all groups (shared)
+        if len(dgt1_indices) > 0:
+            outer_flat = (X_exp[:, :, None] * X_np[:, None, :]).reshape(n, p * p)
+            suffix_flat = np.cumsum(outer_flat[::-1], axis=0)[::-1]
+
         for g in dgt1_indices:
             ix_ev = uft_ix[g]
             d = int(d_arr[g])
@@ -911,13 +918,12 @@ class CoxPartialLikelihoodLoss(LossBase):
             si = np.sum(1.0 / safe)
             si2 = np.sum(1.0 / (safe * safe))
 
-            outer_flat_g = (X_exp[:, :, None] * X_np[:, None, :]).reshape(n, p * p)
-            suffix_flat_g = np.cumsum(outer_flat_g[::-1], axis=0)[::-1]
-            risk_X2 = suffix_flat_g[re].reshape(p, p)
+            risk_X2 = suffix_flat[re].reshape(p, p)
 
-            ll += float(np.sum(eta_np[ix_ev])) - float(np.sum(np.log(safe)))
+            ll += float(np.sum(eta_shift[ix_ev])) - float(np.sum(np.log(safe)))
             grad += sx - s1 * si * d
-            hess -= risk_X2 * si - np.outer(s1, s1) * si2 * d
+            inv_sq = np.minimum(si2, 1e30)
+            hess -= risk_X2 * si - np.outer(s1, s1) * inv_sq
 
         return ll, grad, hess
 
