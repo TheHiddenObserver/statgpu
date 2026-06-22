@@ -712,10 +712,10 @@ class CoxPartialLikelihoodLoss(LossBase):
 
     @staticmethod
     def _efron_grad_hess_np(eta, X, efron_pre):
-        """Efron gradient/Hessian — suffix sum approach (no prefix allocation).
+        """Efron gradient/Hessian — vectorized for d=1 groups, loop for ties.
 
-        Computes risk_X2 via suffix sums of outer products, avoiding
-        the O(n*p*p) prefix sum array allocation.
+        Most groups have d=1 (no ties) and are processed via vectorized ops.
+        Only groups with d>1 (tied events) use a Python loop.
         """
         n, p = X.shape
         exp_eta = np.exp(eta)
@@ -723,17 +723,11 @@ class CoxPartialLikelihoodLoss(LossBase):
 
         _, uft_ix, risk_enter, _, nuft, _ = efron_pre
 
-        # Suffix sums for risk set quantities
+        # Suffix sums
         risk_sum = np.cumsum(exp_eta[::-1])[::-1]
         risk_X_sum = np.cumsum(X_exp[::-1], axis=0)[::-1]
 
-        # Suffix sum of outer products: suffix_outer[i] = sum_{j>=i} X_exp[j]^T X[j]
-        # This gives risk_X2 at each failure time directly.
-        suffix_outer = np.zeros((n + 1, p, p), dtype=np.float64)
-        for i in range(n - 1, -1, -1):
-            suffix_outer[i] = suffix_outer[i + 1] + np.outer(X_exp[i], X[i])
-
-        # Collect per-group quantities
+        # Collect per-group data
         re_arr = np.zeros(nuft, dtype=np.int64)
         d_arr = np.zeros(nuft, dtype=np.int64)
         for g in range(nuft):
@@ -741,18 +735,51 @@ class CoxPartialLikelihoodLoss(LossBase):
             re_arr[g] = int(re_val[0]) if isinstance(re_val, (list, np.ndarray)) else int(re_val)
             d_arr[g] = len(uft_ix[g])
 
-        # Gradient and Hessian
+        # Separate d=1 groups (vectorizable) from d>1 groups (loop)
+        d1_mask = d_arr == 1
+        d1_indices = np.where(d1_mask)[0]
+        dgt1_indices = np.where(~d1_mask)[0]
+
         grad = np.zeros(p, dtype=np.float64)
         hess = np.zeros((p, p), dtype=np.float64)
-        for g in range(nuft):
+
+        # ── Vectorized path for d=1 groups (no ties) ──
+        if len(d1_indices) > 0:
+            re_d1 = re_arr[d1_indices]
+            s0_d1 = risk_sum[re_d1]                    # (G1,)
+            s1_d1 = risk_X_sum[re_d1]                  # (G1, p)
+
+            # For d=1: sum_ev_exp = exp_eta[event_idx], denom = s0 - sum_ev_exp
+            # Need event indices for each group
+            ev_indices = np.array([uft_ix[g][0] for g in d1_indices], dtype=np.int64)
+            se_d1 = exp_eta[ev_indices]                # (G1,)
+            sx_d1 = X[ev_indices]                      # (G1, p)
+
+            denom_d1 = s0_d1 - se_d1                   # (G1,)
+            safe_d1 = np.maximum(denom_d1, 1e-300)
+            inv_d1 = 1.0 / safe_d1                     # (G1,)
+
+            # grad += sum(sx_d1 - s1_d1 * inv_d1, axis=0)
+            grad_contrib = sx_d1 - s1_d1 * inv_d1[:, None]  # (G1, p)
+            grad += np.sum(grad_contrib, axis=0)
+
+            # hess -= sum(risk_X2[g] * inv_d1[g] - outer(s1[g], s1[g]) * inv_d1[g]^2)
+            # risk_X2[g] = suffix_outer[re_d1[g]]
+            # Compute suffix outer at re_d1 indices
+            outer_flat = (X_exp[:, :, None] * X[:, None, :]).reshape(n, p * p)
+            suffix_flat = np.cumsum(outer_flat[::-1], axis=0)[::-1]
+            risk_X2_d1 = suffix_flat[re_d1].reshape(-1, p, p)  # (G1, p, p)
+
+            hess -= np.sum(risk_X2_d1 * inv_d1[:, None, None], axis=0)
+            hess += np.einsum("g,gi,gj->ij", inv_d1 ** 2, s1_d1, s1_d1)
+
+        # ── Loop path for d>1 groups (tied events) ──
+        for g in dgt1_indices:
             ix_ev = uft_ix[g]
             d = int(d_arr[g])
-            if d == 0:
-                continue
             re = int(re_arr[g])
             s0 = risk_sum[re]
             s1 = risk_X_sum[re]
-            risk_X2 = suffix_outer[re]
             se = float(np.sum(exp_eta[ix_ev]))
             sx = np.sum(X[ix_ev], axis=0)
             k = np.arange(d, dtype=np.float64)
@@ -760,8 +787,15 @@ class CoxPartialLikelihoodLoss(LossBase):
             safe = np.maximum(denom, 1e-300)
             si = np.sum(1.0 / safe)
             si2 = np.sum(1.0 / (safe * safe))
+
+            # risk_X2 via suffix outer
+            outer_flat_g = (X_exp[:, :, None] * X[:, None, :]).reshape(n, p * p)
+            suffix_flat_g = np.cumsum(outer_flat_g[::-1], axis=0)[::-1]
+            risk_X2 = suffix_flat_g[re].reshape(p, p)
+
             grad += sx - s1 * si * d
             hess -= risk_X2 * si - np.outer(s1, s1) * si2 * d
+
         return grad, hess
 
     def _cpu_fused_loglik_grad(self, eta_np, X_np, time_np, event_np):
@@ -804,10 +838,10 @@ class CoxPartialLikelihoodLoss(LossBase):
         return ll, grad, None
 
     def _cpu_fused_loglik_grad_hess(self, eta_np, X_np, time_np, event_np):
-        """Fused loglik + gradient + Hessian for Efron — single pass.
+        """Fused loglik + gradient + Hessian for Efron — vectorized for d=1.
 
-        Shares suffix sums and risk_X2 across all three computations.
-        Caches suffix sums for reuse by value() during line search.
+        Most groups have d=1 (no ties) and are processed via vectorized ops.
+        Only groups with d>1 use a Python loop.
         """
         n, p = X_np.shape
         exp_eta = np.exp(eta_np)
@@ -816,38 +850,57 @@ class CoxPartialLikelihoodLoss(LossBase):
         efron_pre = self._efron_pre_np
         _, uft_ix, risk_enter, _, nuft, _ = efron_pre
 
-        # Suffix sums (shared across loglik, gradient, Hessian)
+        # Suffix sums
         risk_sum = np.cumsum(exp_eta[::-1])[::-1]
         risk_X_sum = np.cumsum(X_exp[::-1], axis=0)[::-1]
 
-        # Suffix sum of outer products for risk_X2 (vectorized)
-        outer_flat = (X_exp[:, :, None] * X_np[:, None, :]).reshape(n, p * p)
-        suffix_flat = np.concatenate([
-            np.cumsum(outer_flat[::-1], axis=0)[::-1],
-            np.zeros((1, p * p), dtype=np.float64)
-        ], axis=0)
-        suffix_outer = suffix_flat.reshape(n + 1, p, p)
+        # Collect per-group data
+        re_arr = np.zeros(nuft, dtype=np.int64)
+        d_arr = np.zeros(nuft, dtype=np.int64)
+        for g in range(nuft):
+            re_val = risk_enter[g]
+            re_arr[g] = int(re_val[0]) if isinstance(re_val, (list, np.ndarray)) else int(re_val)
+            d_arr[g] = len(uft_ix[g])
 
-        # Cache for reuse by value() during line search
-        self._cached_suffix = {
-            'risk_sum': risk_sum, 'risk_X_sum': risk_X_sum,
-            'suffix_outer': suffix_outer, 'exp_eta': exp_eta,
-        }
+        # Separate d=1 from d>1
+        d1_indices = np.where(d_arr == 1)[0]
+        dgt1_indices = np.where(d_arr > 1)[0]
 
         ll = 0.0
         grad = np.zeros(p, dtype=np.float64)
         hess = np.zeros((p, p), dtype=np.float64)
 
-        for g in range(nuft):
+        # ── Vectorized path for d=1 groups ──
+        if len(d1_indices) > 0:
+            re_d1 = re_arr[d1_indices]
+            s0_d1 = risk_sum[re_d1]
+            s1_d1 = risk_X_sum[re_d1]
+            ev_indices = np.array([uft_ix[g][0] for g in d1_indices], dtype=np.int64)
+            se_d1 = exp_eta[ev_indices]
+            sx_d1 = X_np[ev_indices]
+
+            denom_d1 = s0_d1 - se_d1
+            safe_d1 = np.maximum(denom_d1, 1e-300)
+            inv_d1 = 1.0 / safe_d1
+
+            # Loglik
+            ll += float(np.sum(eta_np[ev_indices])) - float(np.sum(np.log(safe_d1)))
+            # Gradient
+            grad += np.sum(sx_d1 - s1_d1 * inv_d1[:, None], axis=0)
+            # Hessian via suffix outer
+            outer_flat = (X_exp[:, :, None] * X_np[:, None, :]).reshape(n, p * p)
+            suffix_flat = np.cumsum(outer_flat[::-1], axis=0)[::-1]
+            risk_X2_d1 = suffix_flat[re_d1].reshape(-1, p, p)
+            hess -= np.sum(risk_X2_d1 * inv_d1[:, None, None], axis=0)
+            hess += np.einsum("g,gi,gj->ij", inv_d1 ** 2, s1_d1, s1_d1)
+
+        # ── Loop for d>1 groups (tied events) ──
+        for g in dgt1_indices:
             ix_ev = uft_ix[g]
-            d = len(ix_ev)
-            if d == 0:
-                continue
-            re_val = risk_enter[g]
-            re = int(re_val[0]) if isinstance(re_val, (list, np.ndarray)) else int(re_val)
+            d = int(d_arr[g])
+            re = int(re_arr[g])
             s0 = risk_sum[re]
             s1 = risk_X_sum[re]
-            risk_X2 = suffix_outer[re]
             se = float(np.sum(exp_eta[ix_ev]))
             sx = np.sum(X_np[ix_ev], axis=0)
             k = np.arange(d, dtype=np.float64)
@@ -855,6 +908,10 @@ class CoxPartialLikelihoodLoss(LossBase):
             safe = np.maximum(denom, 1e-300)
             si = np.sum(1.0 / safe)
             si2 = np.sum(1.0 / (safe * safe))
+
+            outer_flat_g = (X_exp[:, :, None] * X_np[:, None, :]).reshape(n, p * p)
+            suffix_flat_g = np.cumsum(outer_flat_g[::-1], axis=0)[::-1]
+            risk_X2 = suffix_flat_g[re].reshape(p, p)
 
             ll += float(np.sum(eta_np[ix_ev])) - float(np.sum(np.log(safe)))
             grad += sx - s1 * si * d
