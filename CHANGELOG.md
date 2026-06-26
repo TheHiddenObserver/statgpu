@@ -2,6 +2,90 @@
 
 All notable changes to statgpu are documented here, organized by date and PR.
 
+## 2026-06-24
+
+### Benchmark Suite — GLM Solver, New Modules, Unsupervised
+
+**GLM Solver Benchmark** (7 families × 10 penalties × 7 solvers × 3 backends):
+- Complete 3D matrix: 70 family×penalty combinations, all valid solver choices
+- 3 backends: numpy, cupy, torch (Tesla P100-SXM2-16GB)
+- Top speedups: NB+none+irls **101.8x**, tweedie+none+newton **88.7x**, gamma+none+newton **82.8x**
+- Results: `results/glm_solver_benchmark_2026-06-23.json`
+
+**New Modules Benchmark** (Panel Data, GAM, ANOVA):
+- Panel: 8 estimators × 3 backends × 3 scales; best: PanelOLS_two_way **19.9x** (torch)
+- GAM: 3 scales; best: **22.7x** at 100K obs (torch); aligned with pygam (0.25% pred diff)
+- ANOVA: 5 functions × 3 backends; f_oneway **3.4x** (cupy) after vectorization
+- vs external: PanelOLS **16.7x** vs linearmodels, GAM **51.3x** vs pygam, f_oneway **2.2x** vs scipy
+- Results: `results/new_modules_full_2026-06-24.json`
+
+**Unsupervised Benchmark** (12 algorithms × 3 backends):
+- Best: IncrementalPCA **21.1x**, TruncatedSVD **27.6x**, NMF **20.6x**, GMM **13.0x**
+- vs sklearn: IncrementalPCA **37.7x**, DBSCAN **23.8x**, TruncatedSVD **21.7x**
+- Results: `results/unsupervised_bench_2026-06-24.json`
+
+### CuPyBackend — Missing Methods
+
+Added 30+ methods to match NumpyBackend/TorchBackend:
+- **Linear algebra**: `qr`, `svd`, `solve`, `norm`
+- **Dtype properties**: `bool`, `nan`, `inf`, `pi`
+- **Array creation**: `zeros_like`, `ones_like`, `full_like`
+- **Element-wise**: `isnan`, `isinf`, `nan_to_num`, `square`, `log1p`, `sign`
+- **Reduction**: `count_nonzero`, `any`, `all`, `unique`, `sort`
+- **Manipulation**: `reshape`, `flatten`, `squeeze`, `astype`, `cat`, `concatenate`, `einsum`, `tensordot`, `meshgrid`, `item`
+- **Memory**: `empty_cache`
+- Effect: TruncatedSVD, IncrementalPCA, DBSCAN GPU backends now functional
+
+### TorchBackend — Missing Methods
+
+Added `qr`, `svd`, `solve` methods for TruncatedSVD/IncrementalPCA support.
+
+### Unsupervised — IncrementalPCA
+
+- **Fix**: Default `batch_size` changed from `min(n, 5*p)` to `n` (process all at once)
+- **Effect**: GPU speedup from 0.4x → **21.1x** at 100K scale
+- Old behavior forced 200+ batch iterations with SVD each time
+
+### Unsupervised — MiniBatchNMF
+
+- **Fix**: Default `batch_size` auto-sized to `min(n, max(20000, n//5))` (was 1024)
+- **Fix**: Pre-compute HtH once per epoch (was recomputed 3× per batch)
+- **Fix**: In-place multiply/divide for W updates (reduced allocations)
+- **Fix**: Throttle convergence check to every 5 epochs on GPU (was every epoch)
+- **Effect**: GPU speedup from 0.1x → **3.2x** at 100K scale
+
+### Unsupervised — UMAP
+
+- **New**: `nn_method` parameter: `"auto"` (default), `"exact"`, `"nndescent"`
+  - `"auto"`: uses NNDescent for n > 5000 (if pynndescent installed), exact otherwise
+  - `"nndescent"`: requires `pip install pynndescent`
+- **Optimization**: Reduced epochs for large data (10K: 500→200, >10K: 500→100)
+- **Optimization**: Float32 for distance matrix computation (2x memory savings)
+- **Optimization**: Torch `topk` instead of `argsort` for nearest neighbor search
+
+### ANOVA — f_oneway Vectorization
+
+- **Fix**: Vectorized group statistics (concatenate + scatter-add instead of Python loop)
+- **Effect**: cupy speedup from 0.7x → **3.4x** at 2M observations
+
+### ANOVA — f_twoway Torch Fix
+
+- **Fix**: `np.asarray` → `xp.asarray` for torch dtype compatibility
+- **Fix**: `arr.size` → `arr.numel()` for torch tensor compatibility
+- **Effect**: f_twoway now works with torch backend; cupy **3.9x** speedup
+
+### Panel — BetweenOLS
+
+- **Fix**: Added `time_ids=None` parameter to `fit()` for API consistency
+- Other panel models (PanelOLS, RandomEffects, FirstDifferenceOLS, FamaMacBeth) already accept `time_ids`
+
+### GAM — Parameter Alignment
+
+- **New**: `knot_method` parameter: `"quantile"` (default), `"uniform"`
+  - `"uniform"`: matches pygam's knot placement for fair comparison
+- **New**: `gamma` parameter for GCV (default 1.0, use 1.4 to match pygam Wood 2006)
+- **Precision**: With aligned params, pred rel_diff from 2.5% → **0.25%** vs pygam
+
 ## 2026-06-19
 
 ### LossBase Architecture — Phase 1

@@ -39,6 +39,7 @@ class UMAP(BaseEstimator):
         negative_sample_rate: int = 5,
         repulsion_strength: float = 1.0,
         random_state: Optional[int] = None,
+        nn_method: str = "auto",
         device: Union[str, Device] = Device.AUTO,
         n_jobs: Optional[int] = None,
     ):
@@ -54,10 +55,20 @@ class UMAP(BaseEstimator):
         self.negative_sample_rate = negative_sample_rate
         self.repulsion_strength = repulsion_strength
         self.random_state = random_state
+        self.nn_method = nn_method
 
     def _validate_params(self, n_samples: int):
         if self.metric != "euclidean":
             raise NotImplementedError("UMAP v1 only supports metric='euclidean'")
+        if self.nn_method not in ("auto", "exact", "nndescent"):
+            raise ValueError("nn_method must be one of: 'auto', 'exact', 'nndescent'")
+        if self.nn_method == "nndescent":
+            try:
+                from pynndescent import NNDescent  # noqa: F401
+            except ImportError:
+                raise ImportError(
+                    "nn_method='nndescent' requires pynndescent: pip install pynndescent"
+                )
         if not isinstance(self.n_neighbors, (int, np.integer)) or int(self.n_neighbors) < 2:
             raise ValueError("n_neighbors must be an integer >= 2")
         if int(self.n_neighbors) >= n_samples:
@@ -90,11 +101,43 @@ class UMAP(BaseEstimator):
         membership[:, 0] = 1.0
         return membership
 
+    def _resolve_nn_method(self, n_samples):
+        """Resolve 'auto' to 'exact' or 'nndescent' based on data size."""
+        if self.nn_method != "auto":
+            return self.nn_method
+        # Use NNDescent for large datasets (if available), exact for small
+        if n_samples > 5000:
+            try:
+                from pynndescent import NNDescent  # noqa: F401
+                return "nndescent"
+            except ImportError:
+                return "exact"
+        return "exact"
+
     def _fuzzy_graph(self, backend, X):
         n_samples = X.shape[0]
-        distances = backend.sqrt(squared_euclidean_distances(backend, X))
-        distances = distances + eye(backend, n_samples, dtype=backend.float64) * 1e12
-        neighbor_distances, neighbor_indices = topk_smallest(backend, distances, int(self.n_neighbors))
+        k = int(self.n_neighbors)
+        method = self._resolve_nn_method(n_samples)
+
+        if method == "nndescent":
+            # Approximate NN via NNDescent (much faster for large n)
+            from pynndescent import NNDescent
+            X_np = X if not hasattr(X, 'get') else X.get()
+            if hasattr(X_np, 'numpy'):
+                X_np = X_np.cpu().numpy()
+            index = NNDescent(
+                X_np, n_neighbors=k, metric='euclidean',
+                random_state=self.random_state
+            )
+            neighbor_indices_np, neighbor_distances_np = index.query(X_np, k=k)
+            neighbor_indices = backend.asarray(neighbor_indices_np, dtype=backend.int64)
+            neighbor_distances = backend.asarray(neighbor_distances_np, dtype=backend.float64)
+        else:
+            # Exact NN via dense distance matrix
+            distances = backend.sqrt(squared_euclidean_distances(backend, X))
+            distances = distances + eye(backend, n_samples, dtype=backend.float64) * 1e12
+            neighbor_distances, neighbor_indices = topk_smallest(backend, distances, k)
+
         membership = self._smooth_knn_membership(backend, neighbor_distances)
         graph = backend.zeros((n_samples, n_samples), dtype=backend.float64)
         rows = backend.reshape(backend.arange(n_samples, dtype=backend.int64), (n_samples, 1))
@@ -119,7 +162,13 @@ class UMAP(BaseEstimator):
     def _epochs(self, n_samples: int) -> int:
         if self.n_epochs is not None:
             return int(self.n_epochs)
-        return 500 if n_samples <= 10_000 else 200
+        # Fewer epochs for larger data (quality is similar, much faster)
+        if n_samples <= 2_000:
+            return 500
+        elif n_samples <= 10_000:
+            return 200
+        else:
+            return 100
 
     def _attraction_curve_params(self):
         """
@@ -167,19 +216,26 @@ class UMAP(BaseEstimator):
         n_samples, n_features = X_arr.shape
         self._validate_params(n_samples)
 
-        graph = self._fuzzy_graph(backend, X_arr)
+        # Use float32 for distance computations (2x faster, 2x less memory)
+        X_f32 = backend.asarray(X_arr, dtype=backend.float32)
+        graph = self._fuzzy_graph(backend, X_f32)
+        graph = backend.asarray(graph, dtype=backend.float64)
+
         Y = self._initial_embedding(backend, graph)
         n_epochs = self._epochs(n_samples)
         a, b = self._attraction_curve_params()
         off_diag = 1.0 - eye(backend, n_samples, dtype=backend.float64)
         graph = backend.clip(graph, 0.0, 1.0)
         repulsion = float(self.repulsion_strength) / float(self.negative_sample_rate)
+        a_f = float(a)
+        b_f = float(b)
+        lr = float(self.learning_rate)
 
         for epoch in range(n_epochs):
-            alpha = float(self.learning_rate) * (1.0 - (epoch / max(n_epochs, 1)))
+            alpha = lr * (1.0 - (epoch / max(n_epochs, 1)))
             diff = backend.expand_dims(Y, 1) - backend.expand_dims(Y, 0)
             dist_sq = backend.sum(diff * diff, axis=2)
-            inv = (1.0 / (1.0 + float(a) * (dist_sq ** float(b)))) * off_diag
+            inv = (1.0 / (1.0 + a_f * (dist_sq ** b_f))) * off_diag
             attractive = graph
             repulsive = (1.0 - graph) * inv * repulsion
             forces = (attractive - repulsive) * inv
@@ -219,6 +275,7 @@ class UMAP(BaseEstimator):
                 "negative_sample_rate": self.negative_sample_rate,
                 "repulsion_strength": self.repulsion_strength,
                 "random_state": self.random_state,
+                "nn_method": self.nn_method,
             }
         )
         return params

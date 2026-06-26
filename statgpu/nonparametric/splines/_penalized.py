@@ -144,11 +144,11 @@ def penalized_ls(B, y, penalty_matrix, lambda_, xp=None):
     return beta, edf
 
 
-def generalized_cross_validation(B, y, penalty_matrix, lambda_, xp=None):
+def generalized_cross_validation(B, y, penalty_matrix, lambda_, xp=None, gamma=1.0):
     """
     Compute Generalized Cross-Validation (GCV) score.
 
-    GCV = n * RSS / (n - edf)^2
+    GCV = n * RSS / (n - gamma * edf)^2
 
     where RSS is the residual sum of squares and edf is the effective
     degrees of freedom.
@@ -165,6 +165,9 @@ def generalized_cross_validation(B, y, penalty_matrix, lambda_, xp=None):
         Smoothing parameter.
     xp : module, optional
         Array module.
+    gamma : float, optional
+        GCV gamma parameter. Default 1.0 (standard GCV).
+        Use 1.4 to match pygam (Wood 2006).
 
     Returns
     -------
@@ -184,7 +187,7 @@ def generalized_cross_validation(B, y, penalty_matrix, lambda_, xp=None):
     rss = xp.sum(resid ** 2)  # GPU scalar, no sync
 
     # Avoid division by zero or negative denom (edf >= n)
-    denom = 1.0 - edf / n
+    denom = 1.0 - gamma * edf / n
     # Keep denom as GPU scalar for xp.where compatibility
     if hasattr(denom, 'item'):  # torch/cupy scalar
         _inf = xp.tensor(float('inf'), dtype=denom.dtype, device=denom.device) if hasattr(xp, 'tensor') else float('inf')
@@ -195,7 +198,7 @@ def generalized_cross_validation(B, y, penalty_matrix, lambda_, xp=None):
     return gcv
 
 
-def select_lambda_gcv(B, y, penalty_matrix, lambda_grid=None, xp=None):
+def select_lambda_gcv(B, y, penalty_matrix, lambda_grid=None, xp=None, gamma=1.0):
     """
     Select smoothing parameter via Generalized Cross-Validation.
 
@@ -215,6 +218,8 @@ def select_lambda_gcv(B, y, penalty_matrix, lambda_grid=None, xp=None):
         log-spaced grid from 1e-10 to 1e10.
     xp : module, optional
         Array module.
+    gamma : float, optional
+        GCV gamma parameter. Default 1.0. Use 1.4 to match pygam.
 
     Returns
     -------
@@ -239,7 +244,7 @@ def select_lambda_gcv(B, y, penalty_matrix, lambda_grid=None, xp=None):
     gcv_list = []
     for i in range(len(lambda_grid)):
         gcv_val = generalized_cross_validation(
-            B, y, penalty_matrix, lambda_grid[i], xp
+            B, y, penalty_matrix, lambda_grid[i], xp, gamma=gamma
         )
         gcv_list.append(gcv_val)
 

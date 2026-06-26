@@ -1,13 +1,39 @@
 # Changelog
 
 > 语言：中文  
-> 最后更新：2026-06-19  
+> 最后更新：2026-06-24  
 > 页面定位：变更记录  
 > 切换：[English](en/changelog.md)
 
 语言切换：[English](en/changelog.md)
 
 ## 2026-06
+
+### 新增 (2026-06-24)
+
+- **完整 Benchmark 套件**：
+  - GLM Solver：7 family × 10 penalty × 7 solver × 3 backend（70 组合）
+  - 新模块：Panel（8 estimator）、GAM、ANOVA（5 函数）— 3 backend × 3 规模
+  - 无监督：12 算法 × 3 backend vs sklearn
+  - 外部对比：statgpu vs linearmodels、pygam、scipy、sklearn
+
+- **CuPyBackend**：补全 30+ 缺失方法（qr、svd、bool、zeros_like、solve、norm 等）
+  - TruncatedSVD、IncrementalPCA、DBSCAN GPU backend 现可正常工作
+
+- **TorchBackend**：添加 qr、svd、solve 方法
+
+- **无监督优化**：
+  - IncrementalPCA：batch_size 默认改为 n（GPU 0.4x → 21.1x）
+  - MiniBatchNMF：batch 自动调整 + HtH 预计算 + 同步节流（GPU 0.1x → 3.2x）
+  - UMAP：`nn_method` 参数（auto/exact/nndescent）、epoch 减少、float32 优化
+
+- **ANOVA 修复**：
+  - f_oneway：向量化 group 统计量（cupy 0.7x → 3.4x）
+  - f_twoway：torch dtype 兼容性修复
+
+- **Panel**：BetweenOLS 接受 `time_ids` 参数，API 一致性
+
+- **GAM**：`knot_method`（quantile/uniform）和 `gamma` 参数，用于与 pygam 对齐
 
 ### 新增 (2026-06-19)
 

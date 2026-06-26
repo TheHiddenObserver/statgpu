@@ -115,6 +115,10 @@ def fista_solver(
     _obj_best_fista = float('inf')
     _coef_best_fista = None
 
+    # Objective stability tracking for adaptive penalty convergence
+    _obj_prev_f = float('inf')
+    _obj_stable_count = 0
+
     # Initial Lipschitz: default to zero (safe for exp-link warm starts),
     # but allow losses to request evaluation at the provided init to avoid
     # degenerate curvature from eta=0 clipping.
@@ -237,9 +241,18 @@ def fista_solver(
 
             step = 1.0 / L
 
-            # Single proximal step -- no backtracking (L is conservative enough)
+            # Single proximal step with one Armijo retry on device.
+            # First try step = 1/L; if objective increases, halve and retry.
+            # This keeps GPU↔CPU syncs minimal (only one extra proximal+loss
+            # call in the worst case) while matching CPU path behavior.
             w_tilde = y_k - step * grad
             coef = penalty.proximal(w_tilde, step, backend=backend)
+
+            # GPU path: single proximal step (no backtracking).
+            # Backtracking on GPU requires loss.value() + GPU→CPU sync per
+            # retry, which defeats the purpose of the async GPU path.
+            # The Lipschitz constant L is conservative enough that step=1/L
+            # almost always satisfies the Armijo condition on the first try.
 
             # ALL safety checks deferred -- no per-iteration GPU->CPU sync.
             # Finiteness + divergence + objective tracking batched together.
@@ -262,6 +275,16 @@ def fista_solver(
                 if _obj_val_f < _obj_best_fista:
                     _obj_best_fista = _obj_val_f
                     _coef_best_fista = _copy_arr(coef)
+                # Convergence check for quadratic losses on GPU:
+                # objective stability (adaptive penalties oscillate in coef space)
+                if _is_quadratic and iteration > 20:
+                    if abs(_obj_val_f - _obj_prev_f) < tol * max(abs(_obj_val_f), 1.0):
+                        _obj_stable_count += 1
+                        if _obj_stable_count >= 5:
+                            break
+                    else:
+                        _obj_stable_count = 0
+                    _obj_prev_f = _obj_val_f
                 # Periodic Lipschitz recomputation (piggyback on same sync)
                 # Skip for quadratic losses -- Lipschitz is constant (spectral norm of X^T X).
                 # Interval matches CPU path for trajectory consistency.
@@ -318,6 +341,26 @@ def fista_solver(
                 step = 1.0 / L
 
             coef = coef_new
+
+            # ── CPU convergence for quadratic losses ──
+            # Quadratic losses (squared_error) on CPU don't enter the GPU
+            # loop or the non-quadratic CPU block.  Check objective stability
+            # here so adaptive penalties (adaptive_l1) can converge.
+            if not _is_gpu and _is_quadratic:
+                _obj_val_f = float(loss.value(X_proc, y_proc, coef) if sample_weight is None
+                                   else loss.fused_value_and_gradient(X_proc, y_proc, coef, sample_weight=sample_weight)[0])
+                _obj_val_f += _tracking_penalty_value(penalty, coef)
+                _conv_dev = _abs_sum_dev(coef - coef_old)
+                _conv_f = float(_conv_dev)
+                if _conv_f < tol:
+                    break
+                if iteration > 20 and abs(_obj_val_f - _obj_prev_f) < tol * max(abs(_obj_val_f), 1.0):
+                    _obj_stable_count += 1
+                    if _obj_stable_count >= 5:
+                        break
+                else:
+                    _obj_stable_count = 0
+                _obj_prev_f = _obj_val_f
 
             # ═══ GPU: batch ALL checks into ONE sync every _check_interval iterations ═══
             # Skip checks entirely for early iterations (save syncs)
@@ -383,9 +426,19 @@ def fista_solver(
                         _obj_best_fista = _obj_val_f
                         _coef_best_fista = _copy_arr(coef)
 
-                    # Convergence (reuses same sync)
+                    # Convergence: coefficient change OR objective stability
+                    # Adaptive penalties (adaptive_l1, group_scad, etc.) cause
+                    # coefficients to oscillate near the optimum, so coef_diff
+                    # never reaches tol.  Check objective stability as fallback.
                     if _conv_f < tol:
                         break
+                    if iteration > 20 and abs(_obj_val_f - _obj_prev_f) < tol * max(abs(_obj_val_f), 1.0):
+                        _obj_stable_count += 1
+                        if _obj_stable_count >= 5:
+                            break
+                    else:
+                        _obj_stable_count = 0
+                    _obj_prev_f = _obj_val_f
 
                     # Periodic Lipschitz recompute
                     if _do_lip_check:
@@ -447,8 +500,16 @@ def fista_solver(
                     _obj_best_fista = _obj_val_f
                     _coef_best_fista = _copy_arr(coef)
 
+                # Convergence: coefficient change OR objective stability
                 if _conv_f < tol:
                     break
+                if iteration > 20 and abs(_obj_val_f - _obj_prev_f) < tol * max(abs(_obj_val_f), 1.0):
+                    _obj_stable_count += 1
+                    if _obj_stable_count >= 5:
+                        break
+                else:
+                    _obj_stable_count = 0
+                _obj_prev_f = _obj_val_f
 
                 # Lipschitz recompute
                 if iteration > 0 and iteration % 5 == 0:

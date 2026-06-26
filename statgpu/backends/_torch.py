@@ -427,6 +427,24 @@ class TorchBackend(BackendBase):
         import torch
         return torch.linalg.eigh(a)
 
+    def qr(self, a, mode='reduced'):
+        """QR decomposition."""
+        import torch
+        Q, R = torch.linalg.qr(a)
+        if mode == 'r':
+            return R
+        return Q, R
+
+    def svd(self, a, full_matrices=True):
+        """Singular value decomposition."""
+        import torch
+        return torch.linalg.svd(a, full_matrices=full_matrices)
+
+    def solve(self, A, b):
+        """Solve the linear system Ax = b."""
+        import torch
+        return torch.linalg.solve(A, b)
+
     def argmin(self, x, axis=None):
         """Indices of minimum values along axis."""
         import torch

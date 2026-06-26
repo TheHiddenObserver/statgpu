@@ -137,44 +137,69 @@ def f_twoway(
     xp = _get_xp(resolved)
     float_dtype = dtype if dtype is not None else xp.float64
 
-    # Parse data into cell arrays
-    cells, n_a, n_b, cell_sizes, cell_sums, cell_ss = _parse_cells(
+    # Parse data into cell arrays (vectorized — no GPU sync per cell)
+    cells, n_a, n_b, cell_arrays, cell_sizes_arr, a_labels, b_labels = _parse_cells_vectorized(
         data, xp, float_dtype
     )
 
-    N = sum(cell_sizes.values())
-    grand_total = sum(cell_sums.values())
-    grand_mean = grand_total / N
+    N = int(cell_sizes_arr.sum())
+    grand_mean = float(sum(float(c.sum()) for c in cell_arrays) / N)
 
-    # --- Sum of Squares decomposition ---
-    # SSA (factor A)
-    ss_a = 0.0
+    # Concatenate all data for vectorized operations
+    all_data = xp.concatenate(cell_arrays)
+
+    # Build factor level labels (same length as all_data)
+    a_vals = xp.asarray([i for i in range(n_a) for _ in range(n_b)], dtype=float_dtype)
+    b_vals = xp.asarray([j for _ in range(n_a) for j in range(n_b)], dtype=float_dtype)
+    sizes_int = [int(cell_sizes_arr[i * n_b + j]) for i in range(n_a) for j in range(n_b)]
+    if hasattr(xp, 'tensor'):  # torch
+        import torch
+        a_idx = torch.repeat_interleave(a_vals, torch.tensor(sizes_int, device=a_vals.device))
+        b_idx = torch.repeat_interleave(b_vals, torch.tensor(sizes_int, device=b_vals.device))
+    else:
+        a_idx = xp.repeat(a_vals, sizes_int)
+        b_idx = xp.repeat(b_vals, sizes_int)
+
+    # --- Sum of Squares decomposition (vectorized) ---
+    # SSA: sum per A-level, then compute SS
+    row_sums = xp.zeros(n_a, dtype=float_dtype)
+    row_ns = xp.zeros(n_a, dtype=float_dtype)
     for i in range(n_a):
-        row_total = sum(cell_sums.get((i, j), 0.0) for j in range(n_b))
-        row_n = sum(cell_sizes.get((i, j), 0) for j in range(n_b))
-        if row_n > 0:
-            row_mean = row_total / row_n
-            ss_a += row_n * (row_mean - grand_mean) ** 2
+        mask = (a_idx == i)
+        row_sums[i] = xp.sum(all_data[mask])
+        row_ns[i] = float(mask.sum())
+    row_means = row_sums / row_ns
+    ss_a = float(xp.sum(row_ns * (row_means - grand_mean) ** 2))
 
-    # SSB (factor B)
-    ss_b = 0.0
+    # SSB: sum per B-level
+    col_sums = xp.zeros(n_b, dtype=float_dtype)
+    col_ns = xp.zeros(n_b, dtype=float_dtype)
     for j in range(n_b):
-        col_total = sum(cell_sums.get((i, j), 0.0) for i in range(n_a))
-        col_n = sum(cell_sizes.get((i, j), 0) for i in range(n_a))
-        if col_n > 0:
-            col_mean = col_total / col_n
-            ss_b += col_n * (col_mean - grand_mean) ** 2
+        mask = (b_idx == j)
+        col_sums[j] = xp.sum(all_data[mask])
+        col_ns[j] = float(mask.sum())
+    col_means = col_sums / col_ns
+    ss_b = float(xp.sum(col_ns * (col_means - grand_mean) ** 2))
 
-    # SSW (within / residual)
-    ssw = 0.0
-    for (i, j), vals in cells.items():
-        cell_mean = cell_sums[(i, j)] / cell_sizes[(i, j)]
-        ssw += cell_ss[(i, j)] - cell_sizes[(i, j)] * cell_mean ** 2
+    # SSW: vectorized — expand cell means to full length
+    cell_sums_list = [float(c.sum()) for c in cell_arrays]
+    if hasattr(xp, 'tensor'):  # torch
+        import torch
+        cell_sums_arr = torch.tensor(cell_sums_list, dtype=float_dtype, device=cell_sizes_arr.device)
+    else:
+        cell_sums_arr = xp.array(cell_sums_list, dtype=float_dtype)
+    cell_means = cell_sums_arr / cell_sizes_arr
+    sizes_int2 = [int(s) for s in cell_sizes_arr]
+    if hasattr(xp, 'tensor'):
+        expanded_cell_means = torch.repeat_interleave(cell_means, torch.tensor(sizes_int2, device=cell_means.device))
+    else:
+        expanded_cell_means = xp.repeat(cell_means, sizes_int2)
+    diff = all_data - expanded_cell_means
+    ssw = float(xp.sum(diff * diff))
 
-    # SST = sum(x^2) - N * grand_mean^2
-    total_ss_raw = sum(cell_ss[(i, j)] for (i, j) in cells)
+    # SST
+    total_ss_raw = float(xp.sum(all_data ** 2))
     sst = total_ss_raw - N * grand_mean ** 2
-    # SS_AB = SST - SSA - SSB - SSW (clamp to 0 for floating-point rounding)
     ss_ab = max(sst - ss_a - ss_b - ssw, 0.0)
 
     # Degrees of freedom
@@ -279,12 +304,58 @@ def _parse_cells(data, xp, float_dtype):
             raise ValueError(f"All rows must have the same number of columns. "
                              f"Row 0 has {n_b}, row {i} has {len(row)}.")
         for j, cell_data in enumerate(row):
-            arr = np.asarray(cell_data, dtype=float_dtype).ravel()
-            if arr.size == 0:
+            arr = xp.asarray(cell_data, dtype=float_dtype).ravel()
+            n_obs = int(arr.numel()) if hasattr(arr, 'numel') else int(arr.size)
+            if n_obs == 0:
                 raise ValueError(f"Cell ({i}, {j}) is empty.")
             cells[(i, j)] = arr
-            cell_sizes[(i, j)] = arr.size
+            cell_sizes[(i, j)] = n_obs
             cell_sums[(i, j)] = float(arr.sum())
             cell_ss[(i, j)] = float((arr ** 2).sum())
 
     return cells, n_a, n_b, cell_sizes, cell_sums, cell_ss
+
+
+def _parse_cells_vectorized(data, xp, float_dtype):
+    """Parse data into cell arrays without per-cell GPU sync.
+
+    Returns
+    -------
+    cells : dict (i, j) -> 1-D xp array
+    n_a, n_b : int
+    cell_arrays : list of 1-D arrays (flat, in row-major order)
+    cell_sizes_arr : 1-D xp array of cell sizes
+    a_labels, b_labels : not used (kept for API compat)
+    """
+    cells = {}
+    cell_arrays = []
+    cell_sizes_list = []
+
+    data_list = list(data) if not isinstance(data, list) else data
+    n_a = len(data_list)
+    if n_a < 1:
+        raise ValueError("data must have at least 1 row (factor A level)")
+
+    n_b = 0
+    for i, row in enumerate(data_list):
+        if not isinstance(row, (list, tuple)):
+            row = [row]
+        if i == 0:
+            n_b = len(row)
+        elif len(row) != n_b:
+            raise ValueError(f"All rows must have the same number of columns. "
+                             f"Row 0 has {n_b}, row {i} has {len(row)}.")
+        for j, cell_data in enumerate(row):
+            arr = xp.asarray(cell_data, dtype=float_dtype).ravel()
+            n_obs = int(arr.numel()) if hasattr(arr, 'numel') else int(arr.size)
+            if n_obs == 0:
+                raise ValueError(f"Cell ({i}, {j}) is empty.")
+            cells[(i, j)] = arr
+            cell_arrays.append(arr)
+            cell_sizes_list.append(n_obs)
+
+    if hasattr(xp, 'tensor'):  # torch
+        cell_sizes_arr = xp.tensor(cell_sizes_list, dtype=float_dtype)
+    else:
+        cell_sizes_arr = xp.array(cell_sizes_list, dtype=float_dtype)
+    return cells, n_a, n_b, cell_arrays, cell_sizes_arr, None, None

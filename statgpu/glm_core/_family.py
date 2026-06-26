@@ -283,7 +283,6 @@ class Gamma(GLMFamily):
     def variance(self, mu):
         return mu * mu
 
-
 class InverseGaussian(GLMFamily):
     """Inverse Gaussian family (positive continuous, right-skewed).
 

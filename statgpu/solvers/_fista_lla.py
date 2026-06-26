@@ -478,7 +478,10 @@ def fista_lla_path(
                     #           coef = proximal(w_tilde, step)  [weighted soft-threshold]
                     #           y_k = coef + beta * (coef - coef_old)
                     # Reduces 3 kernel launches to 1.
-                    if _fused_update is not None and backend != "numpy":
+                    # NOTE: fused update only works for coordinate-wise penalties
+                    # (AdaptiveL1Penalty with _weights), NOT group penalties.
+                    if (_fused_update is not None and backend != "numpy"
+                            and hasattr(inner_pen, '_weights')):
                         # Ensure thresh is on the correct device
                         _w = inner_pen._weights
                         if isinstance(_w, np.ndarray):

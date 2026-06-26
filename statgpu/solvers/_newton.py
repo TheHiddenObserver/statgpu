@@ -74,15 +74,22 @@ def newton_solver(
 
     _validate_uniform_sample_weight(sample_weight, X_proc.shape[0], "newton_solver")
     iteration = -1
+    line_search_failed = False
 
     for iteration in range(max_iter):
         params_old = _copy_arr(params)
         grad = loss.gradient(X_proc, y_proc, params) + _smooth_penalty_gradient(
             penalty, params
         )
+        grad_norm_dev = _norm2_dev(grad)
+        (grad_norm,) = _sync_scalars(grad_norm_dev, backend=backend)
+        if grad_norm <= tol:
+            break
+
         hess = _fixed_hess if _fixed_hess is not None else (
             loss.hessian(X_proc, y_proc, params) + _smooth_penalty_hessian(penalty, params)
         )
+        hess = 0.5 * (hess + hess.T)
 
         try:
             if backend == "numpy":
@@ -109,13 +116,19 @@ def newton_solver(
                 direction = torch.linalg.lstsq(hess, grad.unsqueeze(1)).solution
                 direction = direction.squeeze(1)
 
-        # Armijo backtracking — use loss.fused_value_and_gradient (generic interface)
+        # Armijo backtracking line search
         obj_old_dev, _ = loss.fused_value_and_gradient(X_proc, y_proc, params_old)
         obj_old_dev = obj_old_dev + _smooth_penalty_value_dev(penalty, params_old)
         gdd_dev = _dot_dev(grad, direction)
         gdd = _to_float_scalar(gdd_dev)
+        if not np.isfinite(gdd) or gdd <= 0.0:
+            # A Newton system may be singular or numerically indefinite.
+            # Fall back to steepest descent so Armijo still has a descent step.
+            direction = grad
+            gdd = grad_norm * grad_norm
 
         step = 1.0
+        accepted = False
         for _bt in range(20):
             params_try = params_old - step * direction
             try:
@@ -123,22 +136,31 @@ def newton_solver(
                 obj_try_dev = obj_try_dev + _smooth_penalty_value_dev(
                     penalty, params_try
                 )
-                if _device_leq(obj_try_dev, obj_old_dev + 1e-4 * step * gdd):
+                if _device_leq(obj_try_dev, obj_old_dev - 1e-4 * step * gdd):
                     params = params_try
+                    accepted = True
                     break
             except (ValueError, RuntimeError, FloatingPointError):
                 pass
             step *= 0.5
-        else:
-            params = params_old - step * direction
-
-        norm_diff_dev = _norm2_dev(params - params_old)
-        (nd,) = _sync_scalars(norm_diff_dev, backend=backend)
-        if nd < tol * tol:  # _norm2_dev returns squared norm
+        if not accepted:
+            # Never accept an unverified trial step.  A tiny rejected step
+            # would also make a parameter-difference test report false
+            # convergence.
+            params = params_old
+            line_search_failed = True
             break
 
     n_iter = iteration + 1
-    if n_iter >= max_iter:
+    if line_search_failed:
+        warnings.warn(
+            "newton_solver line search failed to find a descent step "
+            f"(loss={getattr(loss, 'name', '?')}, "
+            f"penalty={getattr(penalty, 'name', '?')}).",
+            ConvergenceWarning,
+            stacklevel=2,
+        )
+    elif n_iter >= max_iter:
         warnings.warn(
             f"newton_solver did not converge within {max_iter} iterations "
             f"(loss={getattr(loss, 'name', '?')}, "

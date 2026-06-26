@@ -11,6 +11,7 @@ __all__ = [
     "fista_lla_path",
     "newton_solver",
     "lbfgs_solver",
+    "lbfgs_b_solver",
     "admm_solver",
     "ConvergenceWarning",
 ]
@@ -21,4 +22,5 @@ from ._fista_bb import fista_bb_solver
 from ._fista_lla import fista_lla_path
 from ._newton import newton_solver
 from ._lbfgs import lbfgs_solver
+from ._lbfgs_b import lbfgs_b_solver
 from ._admm import admm_solver

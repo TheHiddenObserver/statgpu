@@ -36,7 +36,12 @@ if build_commands.intersection(sys.argv):
                     "statgpu.unsupervised._dbscan_cpu",
                     ["statgpu/unsupervised/_dbscan_cpu.pyx"],
                     include_dirs=[np.get_include()],
-                )
+                ),
+                Extension(
+                    "statgpu.unsupervised._dbscan_cy_fast",
+                    ["statgpu/unsupervised/_dbscan_cy_fast.pyx"],
+                    include_dirs=[np.get_include()],
+                ),
             ],
             compiler_directives={"language_level": "3"},
         )

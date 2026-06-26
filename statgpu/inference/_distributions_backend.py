@@ -321,6 +321,7 @@ class TorchSpecialFunctions:
         self._torch = torch
         self._device = device or _get_torch_device()
         self.use_lut = use_lut
+        self._gammaincinv_lut = {}
 
     def _as_tensor(self, x):
         return self._torch.as_tensor(x, dtype=self._torch.float64, device=self._device)
@@ -574,6 +575,31 @@ class TorchSpecialFunctions:
         qt = self._as_tensor(q)
         if hasattr(t.special, "gammaincinv"):
             return t.special.gammaincinv(self._as_tensor(a), qt)
+        # LUT-based: build LUT on CPU via scipy, then interpolate on GPU
+        if self.use_lut and af >= 1.0:
+            key = (af,)
+            if key not in self._gammaincinv_lut:
+                x_grid, y_grid = self._build_gammaincinv_lut(af, 20000)
+                self._gammaincinv_lut[key] = (
+                    self._as_tensor(x_grid), self._as_tensor(y_grid),
+                )
+            xg, yg = self._gammaincinv_lut[key]
+            # searchsorted on the y-grid (gammainc values)
+            q_clip = t.clamp(qt, 1e-15, 1.0 - 1e-15)
+            idx = t.searchsorted(yg, q_clip).clamp(1, len(yg) - 1)
+            y0, y1 = yg[idx - 1], yg[idx]
+            x0, x1 = xg[idx - 1], xg[idx]
+            w = (q_clip - y0) / (y1 - y0 + 1e-300)
+            x = t.clamp(x0 + w * (x1 - x0), 1e-15, 1e6)
+            # 1-step Newton refine
+            import math as _math
+            log_ga = _math.lgamma(af)
+            p = t.special.gammainc(self._as_tensor(af), x)
+            diff = p - qt
+            log_deriv = (af - 1.0) * t.log(t.clamp(x, 1e-300, None)) - x - log_ga
+            deriv = t.exp(log_deriv)
+            x = x - diff / t.clamp(deriv, 1e-300, 1e300)
+            return t.clamp(x, 1e-15, 1e6)
         return self._gammaincinv_newton(af, qt)
 
     def _gammaincinv_newton(self, a, q):
@@ -619,6 +645,27 @@ class TorchSpecialFunctions:
             x = x - step
             x = t.clamp(x, 1e-10, 1e6)
         return x
+
+    @staticmethod
+    def _build_gammaincinv_lut(a, n_grid):
+        """Build LUT via scipy on CPU, returns (x_grid, y_grid) as numpy arrays."""
+        import math
+        import scipy.special as _scsp
+        x_max = a + 20 * math.sqrt(max(a, 0.1)) + 10
+        x_max = min(x_max, 1e6)
+        n_log = n_grid // 3
+        n_lin = n_grid - n_log
+        x_lo = np.logspace(-15, math.log10(max(x_max, 1e-10)), n_log, endpoint=False)
+        x_hi = np.linspace(x_lo[-1] if len(x_lo) > 0 else 0, x_max, n_lin + 1)[1:]
+        x_grid = np.concatenate([x_lo, x_hi])
+        if len(x_grid) < n_grid:
+            extra = np.linspace(x_grid[-1], x_max, n_grid - len(x_grid) + 2)[1:]
+            x_grid = np.concatenate([x_grid, extra])
+        x_grid = x_grid[:n_grid]
+        y_grid = _scsp.gammainc(a, x_grid)
+        y_grid[0] = 0.0
+        y_grid[-1] = 1.0
+        return x_grid, y_grid
 
     def gammaln(self, x):
         return self._torch.lgamma(self._as_tensor(x))

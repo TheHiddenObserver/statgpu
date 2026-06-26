@@ -18,7 +18,7 @@ class MiniBatchNMF(BaseEstimator):
         self,
         n_components: Optional[int] = None,
         init: str = "random",
-        batch_size: int = 1024,
+        batch_size: Optional[int] = None,
         max_iter: int = 200,
         tol: float = 1e-4,
         random_state: Optional[int] = None,
@@ -42,8 +42,9 @@ class MiniBatchNMF(BaseEstimator):
             n_components = int(self.n_components)
         if self.init != "random":
             raise NotImplementedError("MiniBatchNMF v1 only supports init='random'")
-        if not isinstance(self.batch_size, (int, np.integer)) or int(self.batch_size) < 1:
-            raise ValueError("batch_size must be a positive integer")
+        if self.batch_size is not None:
+            if not isinstance(self.batch_size, (int, np.integer)) or int(self.batch_size) < 1:
+                raise ValueError("batch_size must be a positive integer or None")
         if not isinstance(self.max_iter, (int, np.integer)) or int(self.max_iter) < 1:
             raise ValueError("max_iter must be a positive integer")
         if float(self.tol) < 0.0:
@@ -88,16 +89,19 @@ class MiniBatchNMF(BaseEstimator):
             H = self._update_h_from_stats(backend, H, A, B, eps)
         return H
 
-    def _update_w(self, backend, X, W, H, eps):
+    def _update_w(self, backend, X, W, H, HtH, eps):
         numerator = backend.matmul(X, H.T)
-        denominator = backend.matmul(W, backend.matmul(H, H.T)) + eps
-        return W * numerator / denominator
+        denominator = backend.matmul(W, HtH) + eps
+        W *= numerator
+        W /= denominator
+        W = backend.maximum(W, eps)
+        return W
 
-    def _fit_batch_w(self, backend, X, H, n_steps):
+    def _fit_batch_w(self, backend, X, H, HtH, n_steps):
         eps = np.finfo(np.float64).eps
         W = self._init_w_from_data(backend, X, H, eps)
         for _ in range(int(n_steps)):
-            W = self._update_w(backend, X, W, H, eps)
+            W = self._update_w(backend, X, W, H, HtH, eps)
         return W
 
     def _batch_stats(self, backend, X, W):
@@ -135,7 +139,8 @@ class MiniBatchNMF(BaseEstimator):
             raise ValueError(f"X has {n_features} features, expected {self.n_features_in_}")
 
         eps = np.finfo(np.float64).eps
-        W = self._fit_batch_w(backend, X_arr, self.components_, n_steps=3)
+        HtH = backend.matmul(self.components_, self.components_.T)
+        W = self._fit_batch_w(backend, X_arr, self.components_, HtH, n_steps=3)
         A_batch, B_batch = self._batch_stats(backend, X_arr, W)
         self._A_accum = self._A_accum + A_batch
         self._B_accum = self._B_accum + B_batch
@@ -162,34 +167,50 @@ class MiniBatchNMF(BaseEstimator):
         self._n_batches_seen_ = 0
         self._backend_name = backend.name
         self._fitted = True
-        batch_size = min(int(self.batch_size), n_samples)
+
+        # Auto-size batch: large enough for GPU efficiency, small enough for mini-batch benefit
+        if self.batch_size is not None:
+            batch_size = min(int(self.batch_size), n_samples)
+        else:
+            batch_size = min(n_samples, max(20000, n_samples // 5))
+
         eps = np.finfo(np.float64).eps
         previous_delta = None
         last_A = None
         last_B = None
+        # Throttle convergence check: every 5 epochs on GPU, every epoch on CPU
+        check_interval = 5 if backend.name != "numpy" else 1
+        last_W = None
+
         for epoch in range(1, int(self.max_iter) + 1):
             A_epoch = backend.zeros((self.n_components_, self.n_components_), dtype=backend.float64)
             B_epoch = backend.zeros((self.n_components_, self.n_features_in_), dtype=backend.float64)
+            # Pre-compute HtH once per epoch (H is frozen within epoch)
+            HtH = backend.matmul(self.components_, self.components_.T)
             for start in range(0, n_samples, batch_size):
                 X_batch = X_arr[start : start + batch_size]
-                W_batch = self._fit_batch_w(backend, X_batch, self.components_, n_steps=3)
+                W_batch = self._fit_batch_w(backend, X_batch, self.components_, HtH, n_steps=3)
                 A_batch, B_batch = self._batch_stats(backend, X_batch, W_batch)
                 A_epoch = A_epoch + A_batch
                 B_epoch = B_epoch + B_batch
                 self._n_batches_seen_ = int(self._n_batches_seen_) + 1
+                last_W = W_batch
 
             old_components = self.components_
             new_components = self._update_h_from_stats_steps(
                 backend, old_components, A_epoch, B_epoch, eps, n_steps=3
             )
-            delta = scalar_to_float(backend.xp.linalg.norm(new_components - old_components) / (backend.xp.linalg.norm(old_components) + eps))
             self.components_ = new_components
             self.n_iter_ = int(epoch)
             last_A = A_epoch
             last_B = B_epoch
-            if previous_delta is not None and delta <= float(self.tol):
-                break
-            previous_delta = delta
+
+            # Throttled convergence check
+            if epoch % check_interval == 0 or epoch == int(self.max_iter):
+                delta = scalar_to_float(backend.xp.linalg.norm(new_components - old_components) / (backend.xp.linalg.norm(old_components) + eps))
+                if previous_delta is not None and delta <= float(self.tol):
+                    break
+                previous_delta = delta
         else:
             epoch = int(self.max_iter)
         self.n_iter_ = int(epoch)
@@ -216,14 +237,25 @@ class MiniBatchNMF(BaseEstimator):
         if X_arr.shape[1] != self.n_features_in_:
             raise ValueError(f"X has {X_arr.shape[1]} features, expected {self.n_features_in_}")
         eps = np.finfo(np.float64).eps
+        HtH = backend.matmul(self.components_, self.components_.T)
         W = self._init_w_from_data(backend, X_arr, self.components_, eps)
         n_steps = max(100, min(300, int(self.max_iter) * 5))
         for _ in range(n_steps):
-            W = self._update_w(backend, X_arr, W, self.components_, eps)
+            W = self._update_w(backend, X_arr, W, self.components_, HtH, eps)
         return W
 
     def fit_transform(self, X, y=None):
-        return self.fit(X, y=y).transform(X)
+        # Run fit, then compute W directly (avoid redundant transform call)
+        self.fit(X, y=y)
+        backend = self._get_backend()
+        X_arr = backend.asarray(X, dtype=backend.float64)
+        eps = np.finfo(np.float64).eps
+        HtH = backend.matmul(self.components_, self.components_.T)
+        W = self._init_w_from_data(backend, X_arr, self.components_, eps)
+        n_steps = max(100, min(300, int(self.max_iter) * 5))
+        for _ in range(n_steps):
+            W = self._update_w(backend, X_arr, W, self.components_, HtH, eps)
+        return W
 
     def inverse_transform(self, X):
         self._check_is_fitted()

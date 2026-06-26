@@ -29,12 +29,17 @@ _SMOOTH_PENALTIES = frozenset({"l2", "none", "null", ""})
 # condition = (loss, penalty, backend, l1_ratio, cv_mode, problem_size) -> bool
 _SOLVER_DISPATCH_TABLE = [
     # -- Priority 1: Exact closed-form solutions (highest priority) --
-    # Ridge + squared_error has an exact eigendecomposition solver.
-    ("exact", lambda l, p, b, lr, cv, ps: l == "squared_error" and p == "l2"),
+    # Ridge + squared_error: exact eigendecomposition on CPU, Newton on GPU
+    # (cuSOLVER eigendecomposition has high overhead for small/medium matrices).
+    ("exact", lambda l, p, b, lr, cv, ps: l == "squared_error" and p == "l2" and b in ("numpy", "cpu", "")),
+    ("newton", lambda l, p, b, lr, cv, ps: l == "squared_error" and p == "l2" and b in ("cupy", "torch")),
 
     # -- Priority 2: Nonconvex penalties always use FISTA+LLA wrapper --
     # SCAD/MCP/adaptive_l1 require iteratively reweighted L1 (LLA approximation).
     ("fista", lambda l, p, b, lr, cv, ps: p in _NONCONVEX_PENALTIES),
+
+    # -- Priority 2b: Quantile loss has no Hessian -> always FISTA --
+    ("fista", lambda l, p, b, lr, cv, ps: l == "quantile"),
 
     # -- Priority 3: Squared error + sparse penalties -> FISTA --
     # Quadratic loss + L1/ElasticNet: FISTA with exact line search.
@@ -64,6 +69,9 @@ _SOLVER_DISPATCH_TABLE = [
     # Logistic has iterate-dependent Lipschitz; FISTA with fixed global bound.
     ("fista", lambda l, p, b, lr, cv, ps: cv and l == "logistic" and p in _SPARSE_PENALTIES),
 
+    # -- Priority 7b: Robust losses + sparse -> FISTA --
+    ("fista", lambda l, p, b, lr, cv, ps: l in ("huber", "bisquare", "fair") and p in _SPARSE_PENALTIES),
+
     # -- Priority 8: Default sparse -> fista_bb --
     # Catch-all for remaining sparse penalty cases.
     ("fista_bb", lambda l, p, b, lr, cv, ps: p in _SPARSE_PENALTIES),
@@ -77,8 +85,15 @@ _SOLVER_DISPATCH_TABLE = [
     ("lbfgs", lambda l, p, b, lr, cv, ps: cv and p == "l2" and l in ("gamma", "inverse_gaussian")),
 
     # -- Priority 10: Smooth penalties (L2/none) with loss-specific solvers --
-    ("newton", lambda l, p, b, lr, cv, ps: p in _SMOOTH_PENALTIES and l in ("gamma", "tweedie", "inverse_gaussian")),
-    ("irls", lambda l, p, b, lr, cv, ps: p in _SMOOTH_PENALTIES and l in ("logistic", "poisson", "negative_binomial")),
+    # All GLM families: Newton (fastest convergence, 2-11 iterations).
+    # Fixed: expected Fisher Hessian (W=mu) for gamma/tweedie/IG ensures
+    # positive-definite Hessian and proper convergence.
+    ("newton", lambda l, p, b, lr, cv, ps: p in _SMOOTH_PENALTIES and l in (
+        "gamma", "tweedie", "inverse_gaussian", "logistic", "poisson", "negative_binomial")),
+    # Robust losses (Huber/Bisquare/Fair) and CoxPH: Newton for smooth penalties.
+    # These losses have Hessian and smooth gradient.
+    ("newton", lambda l, p, b, lr, cv, ps: p in _SMOOTH_PENALTIES and l in (
+        "huber", "bisquare", "fair", "cox_ph")),
 ]
 
 
@@ -111,10 +126,18 @@ def _preferred_penalized_glm_solver(
 
 
 def _resolve_loss_name(loss_name, loss_kwargs=None):
-    """Resolve loss name string to loss object via the GLM loss registry."""
-    from statgpu.glm_core._base import get_glm_loss
+    """Resolve loss name string to loss object.
+
+    Tries the GLM-specific registry first, then falls back to the generic
+    loss registry (quantile, huber, cox_ph, etc.).
+    """
     loss_kwargs = loss_kwargs or {}
-    return get_glm_loss(loss_name, **loss_kwargs)
+    try:
+        from statgpu.glm_core._base import get_glm_loss
+        return get_glm_loss(loss_name, **loss_kwargs)
+    except (ValueError, KeyError):
+        from statgpu.losses import get_loss
+        return get_loss(loss_name, **loss_kwargs)
 
 
 def _irls_ridge_init(X, y, loss_name, alpha=0.01, max_iter=100, tol=1e-4, loss_kwargs=None):
@@ -301,7 +324,7 @@ class _PenalizedFitMixin:
         # GLM+SCAD/MCP goes through _fit_lla -> FISTA with proximal operator.
         _pen_name = str(getattr(self._penalty, 'name', '')).lower()
         _loss_name = str(getattr(self._loss, 'name', '') if hasattr(self, '_loss') else self.loss).lower()
-        _is_glm_loss = _loss_name not in ("squared_error", "")
+        _is_glm_loss = _loss_name not in ("squared_error", "quantile", "")
         if _pen_name in ("scad", "mcp") and self._lla_enabled and not _is_glm_loss:
             # Use fused FISTA+LLA path for all backends (CPU/GPU).
             from statgpu.solvers import fista_lla_path
@@ -1327,25 +1350,77 @@ class _PenalizedFitMixin:
         else:
             coef = _xp_zeros(pp, X_work.dtype, X_work)
 
+        # Pre-compute batched XtX blocks for vectorized solve (equal-size groups)
+        _equal_size = len(set(len(g) for g in _g_indices)) == 1
+        _gs = len(_g_indices[0]) if _equal_size else 0
+        _contiguous = _equal_size and all(
+            _g_indices[g][0] == g * _gs for g in range(_n_groups)
+        )
+        if _equal_size and _n_groups > 1:
+            _XtX_batched = xp.stack(_XtX_blocks)  # (G, gs, gs)
+            _sqrt_pg_arr = xp.asarray(_sqrt_pg, dtype=X_work.dtype)
+
         iteration = -1  # ensure defined when max_iter=0
         for iteration in range(self.max_iter):
             coef_old = _xp_copy(coef)
 
-            for g in range(_n_groups):
-                g_idx = _g_indices[g]
-                rho_g = Xty[g_idx] - XtX[g_idx, :] @ coef + _XtX_blocks[g] @ coef[g_idx]
-                try:
-                    w_g = xp.linalg.solve(_XtX_blocks[g], rho_g)
-                    if xp.any(xp.isnan(w_g)) or xp.any(xp.isinf(w_g)):
-                        w_g = _xp_zeros(len(g_idx), X_work.dtype, X_work)
-                except Exception:
-                    w_g = _xp_zeros(len(g_idx), X_work.dtype, X_work)
-                norm_w = float(xp.linalg.norm(w_g))
-                thresh_g = alpha * _sqrt_pg[g]
-                if norm_w > thresh_g:
-                    coef[g_idx] = w_g * (1.0 - thresh_g / norm_w)
+            if _equal_size and _n_groups > 1:
+                # ── Vectorized path: all groups at once ──
+                # Compute XtX @ coef once (shared across groups)
+                XtX_coef = XtX @ coef  # (pp,)
+
+                if _contiguous:
+                    coef_mat = coef[:p].reshape(_n_groups, _gs)
+                    XtX_coef_mat = XtX_coef[:p].reshape(_n_groups, _gs)
+                    Xty_mat = Xty[:p].reshape(_n_groups, _gs)
                 else:
-                    coef[g_idx] = 0.0
+                    flat_idx = xp.asarray([i for g in _g_indices for i in g], dtype=xp.int64)
+                    coef_mat = coef[flat_idx].reshape(_n_groups, _gs)
+                    XtX_coef_mat = XtX_coef[flat_idx].reshape(_n_groups, _gs)
+                    Xty_mat = Xty[flat_idx].reshape(_n_groups, _gs)
+
+                # rho_g = Xty[g] - XtX[g,:] @ coef + XtX_blocks[g] @ coef[g]
+                #       = Xty[g] - XtX_coef[g] + diag_blocks @ coef_g
+                diag_contrib = xp.einsum('gsj,gj->gs', _XtX_batched, coef_mat)
+                rho_mat = Xty_mat - XtX_coef_mat + diag_contrib  # (G, gs)
+
+                # Batched solve: w_g = XtX_blocks[g]^{-1} @ rho_g
+                try:
+                    w_mat = xp.linalg.solve(_XtX_batched, rho_mat)  # (G, gs)
+                except Exception:
+                    w_mat = xp.zeros_like(rho_mat)
+                bad = xp.isnan(w_mat) | xp.isinf(w_mat)
+                if xp.any(bad):
+                    w_mat = xp.where(bad, 0.0, w_mat)
+
+                # Vectorized group thresholding
+                norms = xp.sqrt(xp.sum(w_mat ** 2, axis=1))  # (G,)
+                thresh = alpha * _sqrt_pg_arr  # (G,)
+                scale = xp.where(norms > thresh, 1.0 - thresh / (norms + 1e-300), 0.0)
+                scaled_mat = w_mat * scale[:, None]  # (G, gs)
+
+                # Scatter back
+                if _contiguous:
+                    coef[:p] = scaled_mat.reshape(-1)
+                else:
+                    coef[flat_idx] = scaled_mat.reshape(-1)
+            else:
+                # ── Serial path: unequal groups ──
+                for g in range(_n_groups):
+                    g_idx = _g_indices[g]
+                    rho_g = Xty[g_idx] - XtX[g_idx, :] @ coef + _XtX_blocks[g] @ coef[g_idx]
+                    try:
+                        w_g = xp.linalg.solve(_XtX_blocks[g], rho_g)
+                        if xp.any(xp.isnan(w_g)) or xp.any(xp.isinf(w_g)):
+                            w_g = _xp_zeros(len(g_idx), X_work.dtype, X_work)
+                    except Exception:
+                        w_g = _xp_zeros(len(g_idx), X_work.dtype, X_work)
+                    norm_w = float(xp.linalg.norm(w_g))
+                    thresh_g = alpha * _sqrt_pg[g]
+                    if norm_w > thresh_g:
+                        coef[g_idx] = w_g * (1.0 - thresh_g / norm_w)
+                    else:
+                        coef[g_idx] = 0.0
 
             if self._effective_intercept:
                 coef[pp - 1] = float(xp.mean(y_arr - X_work[:, :p] @ coef[:p]))
@@ -1404,13 +1479,22 @@ class _PenalizedFitMixin:
                 elif _loss_name == "logistic":
                     _y_mean_clipped = np.clip(_y_mean, 1e-3, 1.0 - 1e-3)
                     _int_init = np.log(_y_mean_clipped / (1.0 - _y_mean_clipped))
-                elif _loss_name in ("gamma", "inverse_gaussian", "negative_binomial", "tweedie"):
+                elif _loss_name in ("gamma", "inverse_gaussian", "negative_binomial", "tweedie", "cox_ph"):
                     # All use log link: intercept init = log(y_mean)
                     _int_init = np.log(max(_y_mean, 1e-3))
                 else:
                     _int_init = _y_mean  # identity link (squared_error)
-                init = np.zeros(p + 1)
-                init[-1] = _int_init
+                # For robust/quantile losses: use OLS as warm start
+                # (zeros is a poor starting point for non-quadratic losses)
+                _identity_link_losses = ("squared_error", "quantile", "huber", "bisquare", "fair")
+                if _loss_name in _identity_link_losses and _loss_name != "squared_error":
+                    _X_np = _to_numpy(X_arr)
+                    _y_np = _to_numpy(y_arr)
+                    _ols_coef = np.linalg.lstsq(_X_np, _y_np, rcond=None)[0]
+                    init = np.append(_ols_coef, _int_init)
+                else:
+                    init = np.zeros(p + 1)
+                    init[-1] = _int_init
                 init = _xp_asarray(init, X_arr.dtype, X_arr)
         else:
             p = X_arr.shape[1]
@@ -1430,7 +1514,7 @@ class _PenalizedFitMixin:
         # the original penalty's name so SCAD/MCP routing works.
         if not _pen_name:
             _pen_name = getattr(self._penalty, 'name', '')
-        _is_glm_loss = _loss_name not in ("squared_error", "")
+        _is_glm_loss = _loss_name not in ("squared_error", "quantile", "")
         # Routing:
         #   adaptive_l1/adaptive_lasso -> FISTA (weighted L1 proximal, works
         #     for both GLM and squared_error; avoids slow sequential CD)
@@ -1661,7 +1745,7 @@ class _PenalizedFitMixin:
             else:
                 params = xp.asarray(coef_np)
         elif _pen_name == "group_lasso":
-            # Block CD for group_lasso: use GPU-native solver on GPU backends.
+            # Block CD for group_lasso (converges in 2-5 iterations).
             if backend_name != "numpy":
                 coef_gpu, intercept, n_iter = self._block_cd_group_lasso_gpu(
                     pen, X_work, y_arr, init, backend_name,
@@ -1682,7 +1766,6 @@ class _PenalizedFitMixin:
                     params = np.concatenate([coef_np, [intercept]])
                 else:
                     params = coef_np
-        elif solver_name == "auto":
             # For smooth penalties (l2, elasticnet with low l1_ratio),
             # fista_bb with BB step sizes converges much more reliably
             # than standard FISTA with Nesterov momentum + proximal l2.

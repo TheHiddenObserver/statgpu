@@ -124,26 +124,32 @@ def f_oneway(
             f"total observations ({int(N)}) must exceed number of groups ({k})"
         )
 
-    # Group means — computed on device, single sync at the end
-    group_means = xp.empty(k, dtype=float_dtype)
-    if hasattr(group_means, 'to') and hasattr(ref, 'device'):
-        group_means = group_means.to(device=ref.device)
-    for i, g in enumerate(flat_groups):
-        group_means[i] = xp.sum(g) / g.shape[0]
+    # Vectorized: concatenate all groups, build expanded means in one pass
+    all_data = xp.concatenate(flat_groups)
 
-    # Grand mean (weighted by group sizes)
-    grand_mean = xp.sum(group_means * group_sizes) / N
+    # Group sums and means
+    group_sums = xp.zeros(k, dtype=float_dtype)
+    if hasattr(group_sums, 'to') and hasattr(ref, 'device'):
+        group_sums = group_sums.to(device=ref.device)
+    for i in range(k):
+        group_sums[i] = xp.sum(flat_groups[i])
+    group_means = group_sums / group_sizes
 
-    # SSB (between-group sum of squares)
+    # Grand mean
+    grand_mean = xp.sum(group_sums) / N
+
+    # SSB
     ssb = xp.sum(group_sizes * (group_means - grand_mean) ** 2)
 
-    # SSW (within-group sum of squares)
-    ssw = xp.zeros(1, dtype=float_dtype)
-    if hasattr(ssw, 'to') and hasattr(ref, 'device'):
-        ssw = ssw.to(device=ref.device)
-    for i, g in enumerate(flat_groups):
-        diff = g - group_means[i]
-        ssw = ssw + xp.sum(diff * diff)
+    # SSW: vectorized — build expanded means using backend-agnostic repeat
+    sizes_int = [int(s) for s in group_sizes]
+    if hasattr(ref, 'to'):  # torch
+        import torch
+        expanded_means = torch.repeat_interleave(group_means, torch.tensor(sizes_int, device=group_means.device))
+    else:
+        expanded_means = xp.repeat(group_means, sizes_int)
+    diff = all_data - expanded_means
+    ssw = xp.sum(diff * diff)
 
     # Single sync to CPU
     ssb = _to_float_scalar(ssb)

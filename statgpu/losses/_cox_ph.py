@@ -586,86 +586,92 @@ class CoxPartialLikelihoodLoss(LossBase):
     def _efron_grad_hess_backend(self, eta, X, xp):
         """Efron gradient/Hessian — backend-aware (works with cupy/torch/numpy).
 
-        For numpy: uses Python loop with prefix sums.
-        For cupy/torch: uses prefix sum with Python loop (no GPU→CPU transfer).
+        Uses incremental accumulator backward scan (O(p²) memory) for all backends.
+        For numpy: delegates to _efron_grad_hess_np.
+        For cupy/torch: incremental accumulators, no GPU→CPU transfer.
         """
         n, p = int(X.shape[0]), int(X.shape[1])
 
-        # Numpy: delegate to _efron_grad_hess_np
+        # Numpy: delegate to optimized _efron_grad_hess_np
         if xp.__name__ == "numpy":
             eta_np = _to_numpy(eta) if not isinstance(eta, np.ndarray) else eta
             X_np = _to_numpy(X) if not isinstance(X, np.ndarray) else X
             return self._efron_grad_hess_np(eta_np, X_np, self._efron_pre_np)
+
         exp_eta = xp.exp(eta)
         X_exp = X * exp_eta[:, None]
 
-        _, uft_ix, risk_enter, _, nuft, _ = self._efron_pre_np
+        _, uft_ix, _, _, nuft, first_idx_uft = self._efron_pre_np
 
-        # Suffix sums
+        if nuft == 0:
+            return _xp_zeros(p, dtype=xp.float64, ref_arr=X), _xp_zeros((p, p), dtype=xp.float64, ref_arr=X)
+
+        # Suffix sums with sentinel zero at end
         if xp.__name__ == "torch":
-            risk_sum = xp.cumsum(exp_eta.flip(0), dim=0).flip(0)
-            risk_X_sum = xp.cumsum(X_exp.flip(0), dim=0).flip(0)
+            risk_sum = xp.zeros(n + 1, dtype=xp.float64, device=X.device)
+            risk_sum[:n] = xp.cumsum(exp_eta.flip(0), dim=0).flip(0)
+            risk_X_sum = xp.zeros((n + 1, p), dtype=xp.float64, device=X.device)
+            risk_X_sum[:n] = xp.cumsum(X_exp.flip(0), dim=0).flip(0)
         else:
-            risk_sum = xp.cumsum(exp_eta[::-1])[::-1]
-            risk_X_sum = xp.cumsum(X_exp[::-1], axis=0)[::-1]
+            risk_sum = xp.zeros(n + 1, dtype=xp.float64)
+            risk_sum[:n] = xp.cumsum(exp_eta[::-1])[::-1]
+            risk_X_sum = xp.zeros((n + 1, p), dtype=xp.float64)
+            risk_X_sum[:n] = xp.cumsum(X_exp[::-1], axis=0)[::-1]
 
-        # Prefix sum of rank-1 outer products
-        outer_flat = (X_exp[:, :, None] * X[:, None, :]).reshape(n, p * p)
-        if xp.__name__ == "torch":
-            prefix_flat = xp.cat([
-                xp.zeros(1, p * p, dtype=xp.float64, device=X.device),
-                xp.cumsum(outer_flat[:-1], dim=0)
-            ], dim=0)
-        else:
-            prefix_flat = xp.concatenate([
-                xp.zeros((1, p * p), dtype=xp.float64),
-                xp.cumsum(outer_flat[:-1], axis=0)
-            ], axis=0)
-        total_X2 = prefix_flat[-1].reshape(p, p) + outer_flat[-1].reshape(p, p)
+        # Running accumulators (backward scan)
+        xp0 = 0.0
+        xp1 = _xp_zeros(p, dtype=xp.float64, ref_arr=X)
+        xp2 = _xp_zeros((p, p), dtype=xp.float64, ref_arr=X)
 
-        # Collect per-group quantities
-        s0_list, s1_list, sum_ev_exp_list, sum_ev_X_list, risk_X2_list, d_list = [], [], [], [], [], []
-        for g in range(nuft):
-            ix_ev = uft_ix[g]
-            d = len(ix_ev)
-            d_list.append(d)
-            if d == 0:
-                continue
-            re_val = risk_enter[g]
-            re = int(re_val[0]) if isinstance(re_val, (list, np.ndarray)) else int(re_val)
-            s0_list.append(float(risk_sum[re]))
-            s1_list.append(risk_X_sum[re])
-            sum_ev_exp_list.append(float(xp.sum(exp_eta[ix_ev])))
-            sum_ev_X_list.append(xp.sum(X[ix_ev], axis=0))
-            risk_X2_list.append(total_X2 - prefix_flat[re].reshape(p, p))
-
-        # Vectorized gradient and Hessian
         grad = _xp_zeros(p, dtype=xp.float64, ref_arr=X)
         hess = _xp_zeros((p, p), dtype=xp.float64, ref_arr=X)
 
-        for i in range(len(s0_list)):
-            d = d_list[i] if i < len(d_list) else 0
+        for g in range(nuft - 1, -1, -1):
+            # ── Enter phase: add samples with time in [uft[g], uft[g+1]) ──
+            enter_start = int(first_idx_uft[g])
+            enter_end = n if g == nuft - 1 else int(first_idx_uft[g + 1])
+            if enter_end > enter_start:
+                xp0 += float(risk_sum[enter_start] - risk_sum[enter_end])
+                xp1 = xp1 + (risk_X_sum[enter_start] - risk_X_sum[enter_end])
+                blk = X_exp[enter_start:enter_end]
+                xp2 = xp2 + (blk.T @ X[enter_start:enter_end])
+
+            # ── Fail phase: Efron correction ──
+            ix_ev = uft_ix[g]
+            d = len(ix_ev)
             if d == 0:
                 continue
-            s0 = float(s0_list[i])
-            s1 = s1_list[i]
-            sum_ev_exp = float(sum_ev_exp_list[i])
-            sum_ev_X = sum_ev_X_list[i]
-            risk_X2 = risk_X2_list[i]
 
+            v = X[ix_ev]
+            elx = exp_eta[ix_ev]
+            xp0f = float(xp.sum(elx))
+            xp1f = v.T @ elx
+            xp2f = (v * elx[:, None]).T @ v
+
+            # Vectorized Efron correction over tie size d
             if xp.__name__ == "torch":
-                k_vals = xp.arange(d, dtype=xp.float64, device=X.device)
+                J = xp.arange(d, dtype=xp.float64, device=X.device) / d
             else:
-                k_vals = xp.arange(d, dtype=xp.float64)
-            denom = s0 - (k_vals / d) * sum_ev_exp
-            safe_denom = xp.maximum(denom, xp.float64(1e-300)) if xp.__name__ == "torch" else xp.maximum(denom, 1e-300)
-            sum_inv = float(xp.sum(1.0 / safe_denom))
-            sum_inv2 = float(xp.sum(1.0 / (safe_denom * safe_denom)))
+                J = xp.arange(d, dtype=xp.float64) / d
+            c0 = xp0 - J * xp0f
+            c0 = xp.maximum(c0, xp.float64(1e-300)) if xp.__name__ == "torch" else xp.maximum(c0, 1e-300)
+            inv = 1.0 / c0
+            sum_inv = float(xp.sum(inv))
+            sum_J = float(xp.sum(J * inv))
+            sum_aa = float(xp.sum(inv * inv))
+            sum_bb = float(xp.sum((J * inv) * (J * inv)))
+            sum_ab = float(xp.sum(inv * (J * inv)))
 
-            grad = grad + sum_ev_X - s1 * sum_inv * d
-            hess = hess - (risk_X2 * sum_inv - xp.outer(s1, s1) * sum_inv2 * d)
+            grad = grad + xp.sum(v, axis=0) - (xp1 * sum_inv - xp1f * sum_J)
 
-        return grad, hess
+            hess = hess - xp2 * sum_inv + xp2f * sum_J
+            hess = hess + (
+                sum_aa * xp.outer(xp1, xp1)
+                + sum_bb * xp.outer(xp1f, xp1f)
+                - sum_ab * (xp.outer(xp1, xp1f) + xp.outer(xp1f, xp1))
+            )
+
+        return grad, -hess
 
     def _cpu_grad_hess(self, eta_np, time_np, event_np):
         """Compute gradient and Hessian in numpy."""
@@ -712,92 +718,79 @@ class CoxPartialLikelihoodLoss(LossBase):
 
     @staticmethod
     def _efron_grad_hess_np(eta, X, efron_pre):
-        """Efron gradient/Hessian — vectorized for d=1 groups, loop for ties.
+        """Efron gradient/Hessian — incremental accumulator backward scan.
 
-        Most groups have d=1 (no ties) and are processed via vectorized ops.
-        Only groups with d>1 (tied events) use a Python loop.
+        Uses the same algorithm as statsmodels PHReg: maintain running
+        xp0/xp1/xp2 accumulators, update incrementally at each failure time.
+        O(nuft·p²) time, O(p²) memory — no O(n·p²) suffix outer product.
         """
         n, p = X.shape
         exp_eta = np.exp(eta)
         X_exp = X * exp_eta[:, None]
 
-        _, uft_ix, risk_enter, _, nuft, _ = efron_pre
+        _, uft_ix, _, _, nuft, first_idx_uft = efron_pre
 
-        # Suffix sums
-        risk_sum = np.cumsum(exp_eta[::-1])[::-1]
-        risk_X_sum = np.cumsum(X_exp[::-1], axis=0)[::-1]
+        if nuft == 0:
+            return np.zeros(p, dtype=np.float64), np.zeros((p, p), dtype=np.float64)
 
-        # Collect per-group data
-        re_arr = np.zeros(nuft, dtype=np.int64)
-        d_arr = np.zeros(nuft, dtype=np.int64)
-        for g in range(nuft):
-            re_val = risk_enter[g]
-            re_arr[g] = int(re_val[0]) if isinstance(re_val, (list, np.ndarray)) else int(re_val)
-            d_arr[g] = len(uft_ix[g])
+        # Suffix sums with sentinel zero at end so that
+        # risk_sum[i] - risk_sum[j] = sum(exp_eta[i:j]) for any i < j.
+        risk_sum = np.zeros(n + 1, dtype=np.float64)
+        risk_sum[:n] = np.cumsum(exp_eta[::-1])[::-1]
+        risk_X_sum = np.zeros((n + 1, p), dtype=np.float64)
+        risk_X_sum[:n] = np.cumsum(X_exp[::-1], axis=0)[::-1]
 
-        # Separate d=1 groups (vectorizable) from d>1 groups (loop)
-        d1_mask = d_arr == 1
-        d1_indices = np.where(d1_mask)[0]
-        dgt1_indices = np.where(~d1_mask)[0]
+        # Running accumulators (backward scan)
+        xp0 = 0.0
+        xp1 = np.zeros(p, dtype=np.float64)
+        xp2 = np.zeros((p, p), dtype=np.float64)
 
         grad = np.zeros(p, dtype=np.float64)
         hess = np.zeros((p, p), dtype=np.float64)
 
-        # ── Vectorized path for d=1 groups (no ties) ──
-        if len(d1_indices) > 0:
-            re_d1 = re_arr[d1_indices]
-            s0_d1 = risk_sum[re_d1]                    # (G1,)
-            s1_d1 = risk_X_sum[re_d1]                  # (G1, p)
+        for g in range(nuft - 1, -1, -1):
+            # ── Enter phase: add samples with time in [uft[g], uft[g+1]) ──
+            enter_start = int(first_idx_uft[g])
+            enter_end = n if g == nuft - 1 else int(first_idx_uft[g + 1])
+            if enter_end > enter_start:
+                xp0 += risk_sum[enter_start] - risk_sum[enter_end]
+                xp1 += risk_X_sum[enter_start] - risk_X_sum[enter_end]
+                xp2 += X_exp[enter_start:enter_end].T @ X[enter_start:enter_end]
 
-            # For d=1: sum_ev_exp = exp_eta[event_idx], denom = s0 - sum_ev_exp
-            # Need event indices for each group
-            ev_indices = np.array([uft_ix[g][0] for g in d1_indices], dtype=np.int64)
-            se_d1 = exp_eta[ev_indices]                # (G1,)
-            sx_d1 = X[ev_indices]                      # (G1, p)
-
-            denom_d1 = s0_d1 - se_d1                   # (G1,)
-            safe_d1 = np.maximum(denom_d1, 1e-300)
-            inv_d1 = 1.0 / safe_d1                     # (G1,)
-
-            # grad += sum(sx_d1 - s1_d1 * inv_d1, axis=0)
-            grad_contrib = sx_d1 - s1_d1 * inv_d1[:, None]  # (G1, p)
-            grad += np.sum(grad_contrib, axis=0)
-
-            # hess -= sum(risk_X2[g] * inv_d1[g] - outer(s1[g], s1[g]) * inv_d1[g]^2)
-            # risk_X2[g] = suffix_outer[re_d1[g]]
-            # Compute suffix outer at re_d1 indices
-            outer_flat = (X_exp[:, :, None] * X[:, None, :]).reshape(n, p * p)
-            suffix_flat = np.cumsum(outer_flat[::-1], axis=0)[::-1]
-            risk_X2_d1 = suffix_flat[re_d1].reshape(-1, p, p)  # (G1, p, p)
-
-            hess -= np.sum(risk_X2_d1 * inv_d1[:, None, None], axis=0)
-            inv_d1_sq = np.minimum(inv_d1 * inv_d1, 1e30)
-            hess += np.einsum("g,gi,gj->ij", inv_d1_sq, s1_d1, s1_d1)
-
-        # ── Loop path for d>1 groups (tied events) ──
-        for g in dgt1_indices:
+            # ── Fail phase: Efron correction ──
             ix_ev = uft_ix[g]
-            d = int(d_arr[g])
-            re = int(re_arr[g])
-            s0 = risk_sum[re]
-            s1 = risk_X_sum[re]
-            se = float(np.sum(exp_eta[ix_ev]))
-            sx = np.sum(X[ix_ev], axis=0)
-            k = np.arange(d, dtype=np.float64)
-            denom = s0 - (k / d) * se
-            safe = np.maximum(denom, 1e-300)
-            si = np.sum(1.0 / safe)
-            si2 = np.sum(1.0 / (safe * safe))
+            d = len(ix_ev)
+            if d == 0:
+                continue
 
-            # risk_X2 via suffix outer
-            outer_flat_g = (X_exp[:, :, None] * X[:, None, :]).reshape(n, p * p)
-            suffix_flat_g = np.cumsum(outer_flat_g[::-1], axis=0)[::-1]
-            risk_X2 = suffix_flat_g[re].reshape(p, p)
+            v = X[ix_ev]
+            elx = exp_eta[ix_ev]
+            xp0f = float(elx.sum())
+            xp1f = v.T @ elx
+            xp2f = (v * elx[:, None]).T @ v
 
-            grad += sx - s1 * si * d
-            hess -= risk_X2 * si - np.outer(s1, s1) * si2 * d
+            # Vectorized Efron correction over tie size d
+            J = np.arange(d, dtype=np.float64) / d
+            c0 = xp0 - J * xp0f
+            np.maximum(c0, 1e-300, out=c0)
+            inv = 1.0 / c0
+            J_inv = J * inv
+            sum_inv = inv.sum()
+            sum_J = J_inv.sum()
+            sum_aa = np.dot(inv, inv)
+            sum_bb = np.dot(J_inv, J_inv)
+            sum_ab = np.dot(inv, J_inv)
 
-        return grad, hess
+            grad += v.sum(axis=0)
+            grad -= xp1 * sum_inv - xp1f * sum_J
+
+            hess -= xp2 * sum_inv
+            hess += xp2f * sum_J
+            hess += sum_aa * np.outer(xp1, xp1)
+            hess += sum_bb * np.outer(xp1f, xp1f)
+            hess -= sum_ab * (np.outer(xp1, xp1f) + np.outer(xp1f, xp1))
+
+        return grad, -hess
 
     def _cpu_fused_loglik_grad(self, eta_np, X_np, time_np, event_np):
         """Fused loglik + gradient for Efron — single pass.
@@ -839,10 +832,11 @@ class CoxPartialLikelihoodLoss(LossBase):
         return ll, grad, None
 
     def _cpu_fused_loglik_grad_hess(self, eta_np, X_np, time_np, event_np):
-        """Fused loglik + gradient + Hessian for Efron — vectorized for d=1.
+        """Fused loglik + gradient + Hessian for Efron — incremental accumulator.
 
-        Most groups have d=1 (no ties) and are processed via vectorized ops.
-        Only groups with d>1 use a Python loop.
+        Uses the same backward-scan algorithm as statsmodels PHReg:
+        maintain running xp0/xp1/xp2 accumulators, update incrementally
+        at each failure time.  O(nuft·p²) time, O(p²) memory.
         """
         n, p = X_np.shape
         # Numerical stability: shift eta to prevent exp overflow
@@ -851,79 +845,71 @@ class CoxPartialLikelihoodLoss(LossBase):
         X_exp = X_np * exp_eta[:, None]
 
         efron_pre = self._efron_pre_np
-        _, uft_ix, risk_enter, _, nuft, _ = efron_pre
+        _, uft_ix, _, _, nuft, first_idx_uft = efron_pre
 
-        # Suffix sums
-        risk_sum = np.cumsum(exp_eta[::-1])[::-1]
-        risk_X_sum = np.cumsum(X_exp[::-1], axis=0)[::-1]
+        if nuft == 0:
+            return 0.0, np.zeros(p, dtype=np.float64), np.zeros((p, p), dtype=np.float64)
 
-        # Collect per-group data
-        re_arr = np.zeros(nuft, dtype=np.int64)
-        d_arr = np.zeros(nuft, dtype=np.int64)
-        for g in range(nuft):
-            re_val = risk_enter[g]
-            re_arr[g] = int(re_val[0]) if isinstance(re_val, (list, np.ndarray)) else int(re_val)
-            d_arr[g] = len(uft_ix[g])
+        # Suffix sums with sentinel zero at end so that
+        # risk_sum[i] - risk_sum[j] = sum(exp_eta[i:j]) for any i < j.
+        risk_sum = np.zeros(n + 1, dtype=np.float64)
+        risk_sum[:n] = np.cumsum(exp_eta[::-1])[::-1]
+        risk_X_sum = np.zeros((n + 1, p), dtype=np.float64)
+        risk_X_sum[:n] = np.cumsum(X_exp[::-1], axis=0)[::-1]
 
-        # Separate d=1 from d>1
-        d1_indices = np.where(d_arr == 1)[0]
-        dgt1_indices = np.where(d_arr > 1)[0]
+        # Running accumulators (backward scan)
+        xp0 = 0.0
+        xp1 = np.zeros(p, dtype=np.float64)
+        xp2 = np.zeros((p, p), dtype=np.float64)
 
         ll = 0.0
         grad = np.zeros(p, dtype=np.float64)
         hess = np.zeros((p, p), dtype=np.float64)
 
-        # ── Vectorized path for d=1 groups ──
-        if len(d1_indices) > 0:
-            re_d1 = re_arr[d1_indices]
-            s0_d1 = risk_sum[re_d1]
-            s1_d1 = risk_X_sum[re_d1]
-            ev_indices = np.array([uft_ix[g][0] for g in d1_indices], dtype=np.int64)
-            se_d1 = exp_eta[ev_indices]
-            sx_d1 = X_np[ev_indices]
+        for g in range(nuft - 1, -1, -1):
+            # ── Enter phase: add samples with time in [uft[g], uft[g+1]) ──
+            enter_start = int(first_idx_uft[g])
+            enter_end = n if g == nuft - 1 else int(first_idx_uft[g + 1])
+            if enter_end > enter_start:
+                xp0 += risk_sum[enter_start] - risk_sum[enter_end]
+                xp1 += risk_X_sum[enter_start] - risk_X_sum[enter_end]
+                xp2 += X_exp[enter_start:enter_end].T @ X_np[enter_start:enter_end]
 
-            denom_d1 = s0_d1 - se_d1
-            safe_d1 = np.maximum(denom_d1, 1e-300)
-            inv_d1 = 1.0 / safe_d1
+            # ── Fail phase: Efron correction ──
+            ix_ev = uft_ix[g]
+            d = len(ix_ev)
+            if d == 0:
+                continue
+
+            v = X_np[ix_ev]
+            elx = exp_eta[ix_ev]
+            xp0f = float(elx.sum())
+            xp1f = v.T @ elx
+            xp2f = (v * elx[:, None]).T @ v
+
+            # Vectorized Efron correction over tie size d
+            J = np.arange(d, dtype=np.float64) / d
+            c0 = xp0 - J * xp0f
+            np.maximum(c0, 1e-300, out=c0)
+            inv = 1.0 / c0
+            J_inv = J * inv
+            sum_inv = inv.sum()
+            sum_J = J_inv.sum()
+            sum_aa = np.dot(inv, inv)
+            sum_bb = np.dot(J_inv, J_inv)
+            sum_ab = np.dot(inv, J_inv)
 
             # Loglik (use shifted eta for numerical stability)
-            ll += float(np.sum(eta_shift[ev_indices])) - float(np.sum(np.log(safe_d1)))
-            # Gradient
-            grad += np.sum(sx_d1 - s1_d1 * inv_d1[:, None], axis=0)
-            # Hessian via suffix outer
-            outer_flat = (X_exp[:, :, None] * X_np[:, None, :]).reshape(n, p * p)
-            suffix_flat = np.cumsum(outer_flat[::-1], axis=0)[::-1]
-            risk_X2_d1 = suffix_flat[re_d1].reshape(-1, p, p)
-            hess -= np.sum(risk_X2_d1 * inv_d1[:, None, None], axis=0)
-            inv_d1_sq = np.minimum(inv_d1 * inv_d1, 1e30)
-            hess += np.einsum("g,gi,gj->ij", inv_d1_sq, s1_d1, s1_d1)
+            ll += float(np.sum(eta_shift[ix_ev])) - float(np.sum(np.log(c0)))
 
-        # ── Loop for d>1 groups (tied events) ──
-        # Precompute suffix outer for all groups (shared)
-        if len(dgt1_indices) > 0:
-            outer_flat = (X_exp[:, :, None] * X_np[:, None, :]).reshape(n, p * p)
-            suffix_flat = np.cumsum(outer_flat[::-1], axis=0)[::-1]
+            grad += v.sum(axis=0)
+            grad -= xp1 * sum_inv - xp1f * sum_J
 
-        for g in dgt1_indices:
-            ix_ev = uft_ix[g]
-            d = int(d_arr[g])
-            re = int(re_arr[g])
-            s0 = risk_sum[re]
-            s1 = risk_X_sum[re]
-            se = float(np.sum(exp_eta[ix_ev]))
-            sx = np.sum(X_np[ix_ev], axis=0)
-            k = np.arange(d, dtype=np.float64)
-            denom = s0 - (k / d) * se
-            safe = np.maximum(denom, 1e-300)
-            si = np.sum(1.0 / safe)
-            si2 = np.sum(1.0 / (safe * safe))
+            hess -= xp2 * sum_inv
+            hess += xp2f * sum_J
+            hess += sum_aa * np.outer(xp1, xp1)
+            hess += sum_bb * np.outer(xp1f, xp1f)
+            hess -= sum_ab * (np.outer(xp1, xp1f) + np.outer(xp1f, xp1))
 
-            risk_X2 = suffix_flat[re].reshape(p, p)
-
-            ll += float(np.sum(eta_shift[ix_ev])) - float(np.sum(np.log(safe)))
-            grad += sx - s1 * si * d
-            inv_sq = np.minimum(si2, 1e30)
-            hess -= risk_X2 * si - np.outer(s1, s1) * inv_sq
-
-        return ll, grad, hess
+        return ll, grad, -hess
 

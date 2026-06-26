@@ -20,12 +20,16 @@ from ._base import LossBase
 from ._registry import register_loss, get_loss, list_losses
 from ._quantile import QuantileLoss
 from ._huber import HuberLoss
+from ._bisquare import BisquareLoss
+from ._fair import FairLoss
 from ._cox_ph import CoxPartialLikelihoodLoss
 
 __all__ = [
     "LossBase",
     "QuantileLoss",
     "HuberLoss",
+    "BisquareLoss",
+    "FairLoss",
     "CoxPartialLikelihoodLoss",
     "register_loss",
     "get_loss",

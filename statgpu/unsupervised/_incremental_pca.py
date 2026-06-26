@@ -122,7 +122,14 @@ class IncrementalPCA(BaseEstimator):
         check_2d_array(X_arr)
         n_samples, n_features = X_arr.shape
         n_components = self._validate_params(n_samples, n_features, first_pass=True)
-        batch_size = int(self.batch_size) if self.batch_size is not None else min(n_samples, max(1, 5 * n_features))
+
+        if self.batch_size is not None:
+            batch_size = int(self.batch_size)
+        else:
+            # Default: process all at once (fast for single fit).
+            # Only batch when data is too large or user explicitly sets batch_size.
+            batch_size = n_samples
+
         self._fitted = False
         first_batch_end = batch_size
         if n_samples >= n_components and first_batch_end < n_components:

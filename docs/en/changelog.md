@@ -1,13 +1,39 @@
 # Changelog
 
 > Language: English  
-> Last updated: 2026-06-19
+> Last updated: 2026-06-24
 > This page: Changelog  
 > Switch: [Chinese](../changelog.md)
 
 Language switch: [Chinese](../changelog.md)
 
 ## 2026-06
+
+### Added (2026-06-24)
+
+- **Comprehensive Benchmark Suite**:
+  - GLM Solver: 7 families × 10 penalties × 7 solvers × 3 backends (70 combos)
+  - New Modules: Panel (8 estimators), GAM, ANOVA (5 functions) — 3 backends × 3 scales
+  - Unsupervised: 12 algorithms × 3 backends vs sklearn
+  - External comparison: statgpu vs linearmodels, pygam, scipy, sklearn
+
+- **CuPyBackend**: Added 30+ missing methods (qr, svd, bool, zeros_like, solve, norm, etc.)
+  - TruncatedSVD, IncrementalPCA, DBSCAN GPU backends now functional
+
+- **TorchBackend**: Added qr, svd, solve methods
+
+- **Unsupervised Optimizations**:
+  - IncrementalPCA: batch_size default → n (GPU 0.4x → 21.1x)
+  - MiniBatchNMF: batch auto-sizing + HtH pre-compute + throttled sync (GPU 0.1x → 3.2x)
+  - UMAP: `nn_method` parameter (auto/exact/nndescent), epoch reduction, float32
+
+- **ANOVA Fixes**:
+  - f_oneway: vectorized group statistics (cupy 0.7x → 3.4x)
+  - f_twoway: torch dtype compatibility fix
+
+- **Panel**: BetweenOLS accepts `time_ids` parameter for API consistency
+
+- **GAM**: `knot_method` (quantile/uniform) and `gamma` parameters for pygam alignment
 
 ### Added (2026-06-19)
 
