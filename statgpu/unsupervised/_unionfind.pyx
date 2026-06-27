@@ -7,6 +7,7 @@ Nearly O(n) for n elements with α(n) ≈ 1.
 
 import numpy as np
 cimport numpy as np
+from libc.stdlib cimport malloc, free
 
 np.import_array()
 
@@ -68,9 +69,6 @@ cdef class UnionFind:
         for i in range(self.n):
             roots[i] = self.find(i)
         return roots
-
-
-from libc.stdlib cimport malloc, free
 
 
 def connected_components_uf(np.ndarray[ITYPE_t, ndim=1] row_idx,

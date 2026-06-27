@@ -1,13 +1,39 @@
 # Changelog
 
 > Language: English  
-> Last updated: 2026-06-24
+> Last updated: 2026-06-26
 > This page: Changelog  
 > Switch: [Chinese](../changelog.md)
 
 Language switch: [Chinese](../changelog.md)
 
 ## 2026-06
+
+### Added (2026-06-26)
+
+- **Unsupervised Benchmark**: 12 algorithms × 3 backends, vs sklearn
+  - Best: TruncatedSVD 28.6x, IncrementalPCA 21.9x, DBSCAN 21.0x, NMF 19.9x
+
+- **DBSCAN Optimization**:
+  - Cython fast path (`_dbscan_cy_fast`) for label assignment
+  - Hybrid: cKDTree for low-dim, sklearn radius_neighbors for high-dim
+  - `algorithm` parameter: auto/brute/ball_tree/kd_tree
+  - numpy 10d 100K: 28s (3.1x faster than sklearn)
+
+- **UMAP Optimization**:
+  - Sparse graph + negative sampling (16.7x GPU speedup)
+  - GPU-native scatter-add (no CPU transfers)
+  - `nn_method` parameter for NNDescent support
+
+- **IncrementalPCA**: batch_size default → n (GPU 0.4x → 21.9x)
+- **MiniBatchNMF**: auto batch, HtH pre-compute, throttled sync (GPU 0.1x → 3.2x)
+
+- **CuPyBackend**: Added 30+ missing methods (qr, svd, bool, zeros_like, etc.)
+- **TorchBackend**: Added qr, svd, solve
+- **Backend Utils**: Unified `scatter_add_1d` and `scatter_add_2d`
+- **Build**: Consolidated 7 setup files into single `setup.py`
+
+### Added (2026-06-24)
 
 ### Added (2026-06-24)
 

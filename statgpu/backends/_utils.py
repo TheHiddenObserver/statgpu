@@ -124,6 +124,78 @@ def _to_float_scalar(x: Any) -> float:
     return float(x)
 
 
+def scatter_add_1d(target, indices, values):
+    """Scatter-add 1D values to target array at given indices.
+
+    Works across NumPy, CuPy, and PyTorch.
+    Returns a new array with values added at specified indices.
+    """
+    if hasattr(target, 'scatter_add_'):  # torch
+        import torch
+        result = target.clone()
+        result.scatter_add_(0, indices.long(), values)
+        return result
+    elif hasattr(target, 'get'):  # cupy
+        from cupyx import scatter_add as cp_scatter_add
+        result = target.copy()
+        cp_scatter_add(result, indices, values)
+        return result
+    else:  # numpy
+        result = target.copy()
+        np.add.at(result, np.asarray(indices), np.asarray(values))
+        return result
+
+
+def scatter_add_2d(target, indices, values):
+    """Scatter-add 2D values to target rows at given indices.
+
+    For each (index, value) pair, adds value to target[index].
+    Works across NumPy, CuPy, and PyTorch.
+
+    Parameters
+    ----------
+    target : array, shape (n, d)
+        Target array to scatter into.
+    indices : int array, shape (m,)
+        Row indices to add to.
+    values : array, shape (m, d)
+        Values to add.
+
+    Returns
+    -------
+    result : array, shape (n, d)
+        New array with values scattered into rows.
+    """
+    n = target.shape[0]
+    ndim = values.shape[1] if len(values.shape) > 1 else 1
+
+    if hasattr(target, 'scatter_add_'):  # torch
+        import torch
+        result = torch.zeros_like(target)
+        idx = indices.long().unsqueeze(1).expand_as(values)
+        result.scatter_add_(0, idx, values)
+        return result
+    elif hasattr(target, 'get'):  # cupy
+        import cupy as cp
+        from cupyx import scatter_add as cp_scatter_add
+        result = cp.zeros_like(target)
+        if ndim > 1:
+            for d in range(ndim):
+                cp_scatter_add(result[:, d], indices.astype(cp.int32), values[:, d])
+        else:
+            cp_scatter_add(result.ravel(), indices.astype(cp.int32), values.ravel())
+        return result
+    else:  # numpy - use bincount (fast C implementation)
+        result = np.zeros_like(target)
+        idx_np = np.asarray(indices, dtype=np.intp)
+        if ndim > 1:
+            for d in range(ndim):
+                result[:, d] = np.bincount(idx_np, weights=np.asarray(values[:, d]), minlength=n)
+        else:
+            result = np.bincount(idx_np, weights=np.asarray(values), minlength=n).reshape(-1, 1)
+        return result
+
+
 def _get_torch_device_str() -> str:
     """Return ``'cuda'`` if PyTorch CUDA is available, else ``'cpu'``."""
     try:

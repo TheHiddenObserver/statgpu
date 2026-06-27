@@ -2,6 +2,63 @@
 
 All notable changes to statgpu are documented here, organized by date and PR.
 
+## 2026-06-26
+
+### Unsupervised Benchmark — 12 Algorithms × 3 Backends
+
+**Complete benchmark** (PCA, KMeans, GMM, NMF, TruncatedSVD, IncrementalPCA, DBSCAN, Agglomerative, UMAP, TSNE, MiniBatchKMeans, MiniBatchNMF):
+- Best GPU speedups: TruncatedSVD **28.6x**, IncrementalPCA **21.9x**, DBSCAN **21.0x**, NMF **19.9x**
+- vs sklearn: IncrementalPCA **39.0x**, TruncatedSVD **21.6x**, DBSCAN **7.5x**
+- Results: `results/unsupervised_bench_2026-06-26.json`
+
+### Unsupervised — DBSCAN Optimization
+
+- **Cython fast path**: `_dbscan_cy_fast` module for label assignment from CSR graph
+- **Hybrid strategy**: low-dim (≤12d) uses cKDTree `query_pairs` + Cython Union-Find; high-dim (>12d) uses sklearn `radius_neighbors` + Cython CSR
+- **`algorithm` parameter**: users can choose `"auto"`, `"brute"`, `"ball_tree"`, `"kd_tree"`
+- Effect: numpy 10d 100K 28s (3.1x faster than sklearn), 50d 100K matches sklearn
+
+### Unsupervised — UMAP Optimization
+
+- **Sparse graph + negative sampling**: replaced dense n×n epoch loop with sparse edge iteration
+- **GPU-native scatter-add**: no CPU transfers in optimization loop
+- Effect: 10K GPU from 325s → 19.4s (**16.7x**), 1K torch from 3.7s → 0.81s (**4.6x**)
+- `nn_method` parameter: `"auto"`, `"exact"`, `"nndescent"` for NNDescent support
+- Epoch reduction for large data (10K: 500→200, >10K: 500→100)
+
+### Unsupervised — IncrementalPCA & MiniBatchNMF
+
+- **IncrementalPCA**: default `batch_size` changed from `min(n, 5*p)` to `n` (process all at once)
+  - Effect: GPU 0.4x → **21.9x**
+- **MiniBatchNMF**: auto-size batch, pre-compute HtH per epoch, throttle convergence check
+  - Effect: GPU 0.1x → **3.2x**
+
+### CuPyBackend — Missing Methods
+
+Added 30+ methods to match NumpyBackend/TorchBackend:
+- `qr`, `svd`, `solve`, `norm`, `bool`, `nan`, `inf`, `pi`
+- `zeros_like`, `ones_like`, `full_like`, `isnan`, `isinf`, `nan_to_num`
+- `count_nonzero`, `any`, `all`, `unique`, `sort`
+- `reshape`, `flatten`, `squeeze`, `astype`, `cat`, `concatenate`
+- `einsum`, `tensordot`, `meshgrid`, `item`, `empty_cache`
+- Effect: TruncatedSVD, IncrementalPCA, DBSCAN GPU backends now functional
+
+### TorchBackend — Missing Methods
+
+Added `qr`, `svd`, `solve` methods.
+
+### Backend Utilities — Unified Scatter-Add
+
+- **`scatter_add_1d`**: 1D scatter-add across numpy/cupy/torch
+- **`scatter_add_2d`**: 2D scatter-add (row-wise) across numpy/cupy/torch
+- Used by UMAP optimization loop; available for other modules
+
+### Build System — Consolidated setup.py
+
+- Merged 7 separate setup files into single `setup.py`
+- All 5 Cython extensions: `_cox_efron_cy`, `_dbscan_cpu`, `_dbscan_cy_fast`, `_kdtree`, `_unionfind`
+- Deleted: `setup_cython.py`, `setup_dbscan_cy.py`, `setup_dbscan_fast.py`, `setup_kdtree.py`, `setup_kdtree_cy.py`, `setup_unionfind.py`
+
 ## 2026-06-24
 
 ### Benchmark Suite — GLM Solver, New Modules, Unsupervised

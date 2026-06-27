@@ -11,6 +11,7 @@ from scipy.spatial import cKDTree
 
 from statgpu._base import BaseEstimator
 from statgpu._config import Device
+from statgpu.backends._utils import _to_numpy
 from statgpu.unsupervised._utils import check_2d_array, reject_sparse, scalar_to_int
 
 # Optional Cython fast path (compiled via setup.py)
@@ -23,6 +24,12 @@ try:
     _HAS_CY_FAST = True
 except Exception:  # pragma: no cover
     _HAS_CY_FAST = False
+
+try:
+    from statgpu.unsupervised._unionfind import connected_components_uf
+    _HAS_UNIONFIND = True
+except Exception:
+    _HAS_UNIONFIND = False
 
 
 class DBSCAN(BaseEstimator):
@@ -41,6 +48,7 @@ class DBSCAN(BaseEstimator):
         eps: float = 0.5,
         min_samples: int = 5,
         metric: str = "euclidean",
+        algorithm: str = "auto",
         batch_size: Optional[int] = None,
         device: Union[str, Device] = Device.AUTO,
         n_jobs: Optional[int] = None,
@@ -49,6 +57,7 @@ class DBSCAN(BaseEstimator):
         self.eps = eps
         self.min_samples = min_samples
         self.metric = metric
+        self.algorithm = algorithm
         self.batch_size = batch_size
 
     def _validate_params(self, n_samples: int):
@@ -58,6 +67,8 @@ class DBSCAN(BaseEstimator):
             raise ValueError("min_samples must be a positive integer")
         if self.metric != "euclidean":
             raise NotImplementedError("DBSCAN only supports metric='euclidean'")
+        if self.algorithm not in ("auto", "brute", "ball_tree", "kd_tree"):
+            raise ValueError("algorithm must be one of: 'auto', 'brute', 'ball_tree', 'kd_tree'")
         if self.batch_size is not None:
             if not isinstance(self.batch_size, (int, np.integer)) or int(self.batch_size) < 1:
                 raise ValueError("batch_size must be None or a positive integer")
@@ -107,22 +118,34 @@ class DBSCAN(BaseEstimator):
         return self._labels_from_edges(n_samples, counts, row_idx, col_idx)
 
     def _fit_numpy_bruteforce(self, X_np, n_samples):
-        """High-dim path: sklearn brute-force BLAS + Cython CSR."""
+        """High-dim path: sklearn neighbor search + Cython label assignment."""
         from sklearn.neighbors import NearestNeighbors
 
         eps = float(self.eps)
         min_samples = int(self.min_samples)
+        algo = self.algorithm if self.algorithm != "auto" else "auto"
 
-        nn = NearestNeighbors(radius=eps, algorithm="brute", metric="euclidean")
+        nn = NearestNeighbors(radius=eps, algorithm=algo, metric="euclidean")
         nn.fit(X_np)
-        csr = nn.radius_neighbors_graph(X_np, mode="connectivity").tocsr()
+
+        # Use radius_neighbors (raw indices) instead of radius_neighbors_graph (sparse matrix)
+        # This avoids the overhead of constructing the sparse matrix
+        indices_list, distances_list = nn.radius_neighbors(X_np, return_distance=True)
+
+        # Build CSR arrays directly from index lists
+        indptr = np.zeros(n_samples + 1, dtype=np.int64)
+        for i in range(n_samples):
+            indptr[i + 1] = indptr[i] + len(indices_list[i])
+
+        total_nnz = int(indptr[-1])
+        indices = np.empty(total_nnz, dtype=np.int64)
+        for i in range(n_samples):
+            start = indptr[i]
+            end = indptr[i + 1]
+            indices[start:end] = indices_list[i]
 
         if _HAS_CY_FAST:
-            return dbscan_labels_from_csr(
-                n_samples, min_samples,
-                csr.indptr.astype(np.int64),
-                csr.indices.astype(np.int64),
-            )
+            return dbscan_labels_from_csr(n_samples, min_samples, indptr, indices)
 
         # Pure Python fallback
         counts = np.asarray(csr.sum(axis=1)).flatten().astype(np.int64)
@@ -207,16 +230,26 @@ class DBSCAN(BaseEstimator):
     # ------------------------------------------------------------------ #
 
     def _neighbor_graph_sparse(self, backend, X):
-        """Build sparse neighbor graph from GPU distance computation."""
+        """Build sparse neighbor graph using GPU batched distance computation.
+
+        For each batch: matmul → mask → nonzero (GPU-native). Transfers only
+        the sparse indices (not the full mask) back to CPU.
+
+        Uses float32 for 2x speedup and half memory.
+        """
         n_samples = X.shape[0]
+        eps = float(self.eps)
+
         if self.batch_size is not None:
             batch_size = min(int(self.batch_size), n_samples)
         else:
-            batch_size = min(n_samples, max(1000, 400_000_000 // (n_samples * 4)))
+            # Auto batch: use larger batches to reduce kernel launch overhead
+            # Target ~2GB per batch (batch × n × 4 bytes for float32)
+            batch_size = min(n_samples, max(2000, 2_000_000_000 // (n_samples * 4)))
 
         X_f32 = backend.asarray(X, dtype=backend.float32) if hasattr(backend, "float32") else X
         x_norm = backend.sum(X_f32 * X_f32, axis=1, keepdims=True)
-        eps_sq = float(self.eps) ** 2
+        eps_sq = eps ** 2
 
         all_rows, all_cols = [], []
         for start in range(0, n_samples, batch_size):
@@ -229,14 +262,13 @@ class DBSCAN(BaseEstimator):
             distances = backend.maximum(distances, 0.0)
             mask = distances <= eps_sq
 
+            # GPU-native nonzero — transfers only sparse indices, not full mask
             if hasattr(mask, "cpu"):  # torch
                 import torch
-
                 nz = torch.nonzero(mask, as_tuple=False)
                 nz_np = nz.cpu().numpy()
             elif hasattr(mask, "get"):  # cupy
                 import cupy as cp
-
                 nz_np = cp.argwhere(mask).get()
             else:
                 nz_np = np.argwhere(mask)
@@ -251,7 +283,8 @@ class DBSCAN(BaseEstimator):
         else:
             row_idx = np.empty(0, dtype=np.int64)
             col_idx = np.empty(0, dtype=np.int64)
-        return row_idx, col_idx
+
+        return backend.asarray(row_idx, dtype=backend.int64), backend.asarray(col_idx, dtype=backend.int64)
 
     # ------------------------------------------------------------------ #
     #  Public API                                                         #
@@ -268,48 +301,62 @@ class DBSCAN(BaseEstimator):
         if backend.name == "numpy":
             return self._fit_numpy(X_arr)
 
-        # GPU path
+        # GPU path: compute neighbor graph on GPU, label assignment on CPU
         row_idx, col_idx = self._neighbor_graph_sparse(backend, X_arr)
-        counts = np.bincount(row_idx, minlength=n_samples)
-        core_mask_np = counts >= int(self.min_samples)
-        core_indices = np.flatnonzero(core_mask_np).astype(np.int64)
 
-        if not core_indices.size:
-            self.labels_ = backend.asarray(np.full(n_samples, -1, dtype=np.int64), dtype=backend.int64)
-            self.core_sample_indices_ = backend.asarray(core_indices, dtype=backend.int64)
-            self.components_ = X_arr[:0]
-            self.n_features_in_ = int(n_features)
-            self._backend_name = backend.name
-            self._fitted = True
-            return self
+        # Convert to numpy for label assignment
+        row_np = _to_numpy(row_idx).astype(np.int64)
+        col_np = _to_numpy(col_idx).astype(np.int64)
 
-        core_edges = core_mask_np[row_idx] & core_mask_np[col_idx]
-        core_position = np.full(n_samples, -1, dtype=np.int64)
-        core_position[core_indices] = np.arange(core_indices.size, dtype=np.int64)
+        if _HAS_CY_FAST:
+            # Build CSR from edge list and use Cython fast path
+            from scipy.sparse import coo_matrix
+            graph_coo = coo_matrix(
+                (np.ones(len(row_np), dtype=np.int8), (row_np, col_np)),
+                shape=(n_samples, n_samples),
+            )
+            csr = graph_coo.tocsr()
+            labels_np, core_indices = dbscan_labels_from_csr(
+                n_samples, int(self.min_samples),
+                csr.indptr.astype(np.int64),
+                csr.indices.astype(np.int64),
+            )
+        else:
+            # Pure Python fallback
+            counts = np.bincount(row_np, minlength=n_samples)
+            core_mask_np = counts >= int(self.min_samples)
+            core_indices = np.flatnonzero(core_mask_np).astype(np.int64)
 
-        graph = csr_matrix(
-            (np.ones(np.sum(core_edges), dtype=bool),
-             (core_position[row_idx[core_edges]], core_position[col_idx[core_edges]])),
-            shape=(core_indices.size, core_indices.size),
-        )
-        _, core_labels = connected_components(graph, directed=False, return_labels=True)
+            if not core_indices.size:
+                labels_np = np.full(n_samples, -1, dtype=np.int64)
+            else:
+                core_edges = core_mask_np[row_np] & core_mask_np[col_np]
+                core_row = row_np[core_edges]
+                core_col = col_np[core_edges]
+                n_core = len(core_indices)
+                core_position = np.full(n_samples, -1, dtype=np.int64)
+                core_position[core_indices] = np.arange(n_core, dtype=np.int64)
+                graph = csr_matrix(
+                    (np.ones(len(core_row), dtype=bool),
+                     (core_position[core_row], core_position[core_col])),
+                    shape=(n_core, n_core),
+                )
+                _, core_labels = connected_components(graph, directed=False, return_labels=True)
+                labels_np = np.full(n_samples, -1, dtype=np.int64)
+                labels_np[core_indices] = core_labels.astype(np.int64)
 
-        labels_np = np.full(n_samples, -1, dtype=np.int64)
-        labels_np[core_indices] = core_labels.astype(np.int64)
+                border_edges = (~core_mask_np[row_np]) & core_mask_np[col_np]
+                if np.any(border_edges):
+                    border_rows = row_np[border_edges]
+                    border_labels = labels_np[col_np[border_edges]]
+                    order = np.argsort(border_rows, kind="mergesort")
+                    border_rows, border_labels = border_rows[order], border_labels[order]
+                    first = np.r_[True, border_rows[1:] != border_rows[:-1]]
+                    labels_np[border_rows[first]] = border_labels[first]
 
-        border_edges = (~core_mask_np[row_idx]) & core_mask_np[col_idx]
-        if np.any(border_edges):
-            border_rows = row_idx[border_edges]
-            border_labels = labels_np[col_idx[border_edges]]
-            order = np.argsort(border_rows, kind="mergesort")
-            border_rows, border_labels = border_rows[order], border_labels[order]
-            first = np.r_[True, border_rows[1:] != border_rows[:-1]]
-            labels_np[border_rows[first]] = border_labels[first]
-
-        core_backend = backend.asarray(core_indices, dtype=backend.int64)
         self.labels_ = backend.asarray(labels_np, dtype=backend.int64)
-        self.core_sample_indices_ = core_backend
-        self.components_ = X_arr[core_backend] if core_indices.size else X_arr[:0]
+        self.core_sample_indices_ = backend.asarray(core_indices, dtype=backend.int64)
+        self.components_ = X_arr[core_indices] if core_indices.size else X_arr[:0]
         self.n_features_in_ = int(n_features)
         self._backend_name = backend.name
         self._fitted = True

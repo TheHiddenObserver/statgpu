@@ -1,13 +1,39 @@
 # Changelog
 
 > 语言：中文  
-> 最后更新：2026-06-24  
+> 最后更新：2026-06-26  
 > 页面定位：变更记录  
 > 切换：[English](en/changelog.md)
 
 语言切换：[English](en/changelog.md)
 
 ## 2026-06
+
+### 新增 (2026-06-26)
+
+- **无监督 Benchmark**：12 算法 × 3 后端，对比 sklearn
+  - 最佳：TruncatedSVD 28.6x、IncrementalPCA 21.9x、DBSCAN 21.0x、NMF 19.9x
+
+- **DBSCAN 优化**：
+  - Cython 快速路径（`_dbscan_cy_fast`）用于标签分配
+  - 混合策略：低维用 cKDTree，高维用 sklearn radius_neighbors
+  - `algorithm` 参数：auto/brute/ball_tree/kd_tree
+  - numpy 10d 100K：28s（比 sklearn 快 3.1x）
+
+- **UMAP 优化**：
+  - 稀疏图 + 负采样（GPU 16.7x 加速）
+  - GPU 原生 scatter-add（无 CPU 传输）
+  - `nn_method` 参数支持 NNDescent
+
+- **IncrementalPCA**：batch_size 默认改为 n（GPU 0.4x → 21.9x）
+- **MiniBatchNMF**：自动 batch、HtH 预计算、同步节流（GPU 0.1x → 3.2x）
+
+- **CuPyBackend**：补全 30+ 缺失方法（qr、svd、bool、zeros_like 等）
+- **TorchBackend**：添加 qr、svd、solve
+- **Backend Utils**：统一 `scatter_add_1d` 和 `scatter_add_2d`
+- **构建系统**：合并 7 个 setup 文件为单一 `setup.py`
+
+### 新增 (2026-06-24)
 
 ### 新增 (2026-06-24)
 

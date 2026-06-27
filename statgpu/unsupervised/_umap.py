@@ -8,6 +8,7 @@ import numpy as np
 
 from statgpu._base import BaseEstimator
 from statgpu._config import Device
+from statgpu.backends._utils import _to_numpy, scatter_add_2d
 from statgpu.unsupervised._utils import (
     backend_random_normal,
     check_2d_array,
@@ -230,16 +231,74 @@ class UMAP(BaseEstimator):
         a_f = float(a)
         b_f = float(b)
         lr = float(self.learning_rate)
+        neg_rate = int(self.negative_sample_rate)
+
+        # Extract sparse edges on GPU (no CPU transfer)
+        graph_mask = graph > 0
+        if hasattr(graph_mask, 'cpu'):  # torch
+            import torch
+            nz = torch.nonzero(graph_mask, as_tuple=False)
+            edge_rows_b = nz[:, 0]
+            edge_cols_b = nz[:, 1]
+            edge_weights_b = graph[edge_rows_b, edge_cols_b]
+        elif hasattr(graph_mask, 'get'):  # cupy
+            import cupy as cp
+            nz = cp.argwhere(graph_mask)
+            edge_rows_b = nz[:, 0]
+            edge_cols_b = nz[:, 1]
+            edge_weights_b = graph[edge_rows_b, edge_cols_b]
+        else:  # numpy
+            edge_rows, edge_cols = np.nonzero(_to_numpy(graph_mask))
+            edge_rows_b = backend.asarray(edge_rows, dtype=backend.int64)
+            edge_cols_b = backend.asarray(edge_cols, dtype=backend.int64)
+            edge_weights_b = graph[edge_rows_b, edge_cols_b]
+
+        n_edges = len(edge_rows_b)
+
+        rng = np.random.RandomState(self.random_state)
 
         for epoch in range(n_epochs):
             alpha = lr * (1.0 - (epoch / max(n_epochs, 1)))
-            diff = backend.expand_dims(Y, 1) - backend.expand_dims(Y, 0)
-            dist_sq = backend.sum(diff * diff, axis=2)
-            inv = (1.0 / (1.0 + a_f * (dist_sq ** b_f))) * off_diag
-            attractive = graph
-            repulsive = (1.0 - graph) * inv * repulsion
-            forces = (attractive - repulsive) * inv
-            grad = 2.0 * backend.sum(backend.expand_dims(forces, 2) * diff, axis=1)
+
+            # === Attractive forces (sparse: only graph edges) ===
+            Y_src = Y[edge_rows_b]
+            Y_dst = Y[edge_cols_b]
+            diff_attr = Y_src - Y_dst
+            dist_sq_attr = backend.sum(diff_attr * diff_attr, axis=1)
+            w_attr = 1.0 / (1.0 + a_f * backend.maximum(dist_sq_attr, 1e-10) ** b_f)
+            force_attr = edge_weights_b * w_attr
+
+            # Gradient: scatter-add forces to source nodes
+            force_attr_2d = backend.expand_dims(force_attr, 1) * diff_attr
+            grad_attr = scatter_add_2d(Y, edge_rows_b, force_attr_2d)
+
+            # === Repulsive forces (negative sampling) ===
+            neg_indices = rng.randint(0, n_samples, size=n_samples * neg_rate)
+            neg_dst_indices = rng.randint(0, n_samples, size=n_samples * neg_rate)
+            if hasattr(Y, 'device') and not hasattr(graph_mask, 'get'):  # torch
+                import torch
+                neg_src = torch.tensor(neg_indices, device=Y.device, dtype=torch.int64)
+                neg_dst = torch.tensor(neg_dst_indices, device=Y.device, dtype=torch.int64)
+            elif hasattr(graph_mask, 'get'):  # cupy
+                import cupy as cp
+                neg_src = cp.asarray(neg_indices, dtype=cp.int64)
+                neg_dst = cp.asarray(neg_dst_indices, dtype=cp.int64)
+            else:  # numpy
+                neg_src = backend.asarray(neg_indices, dtype=backend.int64)
+                neg_dst = backend.asarray(neg_dst_indices, dtype=backend.int64)
+
+            Y_neg_src = Y[neg_src]
+            Y_neg_dst = Y[neg_dst]
+            diff_rep = Y_neg_src - Y_neg_dst
+            dist_sq_rep = backend.sum(diff_rep * diff_rep, axis=1)
+            w_rep = 1.0 / (1.0 + a_f * backend.maximum(dist_sq_rep, 1e-10) ** b_f)
+            force_rep = repulsion * w_rep * w_rep
+
+            force_rep_2d = backend.expand_dims(force_rep, 1) * diff_rep
+            grad_rep = scatter_add_2d(Y, neg_src, force_rep_2d)
+
+            # Update
+            grad = 2.0 * (grad_attr - grad_rep)
             Y = Y - alpha * grad
             Y = Y - backend.mean(Y, axis=0, keepdims=True)
 
