@@ -15,10 +15,11 @@
   - 最佳：TruncatedSVD 28.6x、IncrementalPCA 21.9x、DBSCAN 21.0x、NMF 19.9x
 
 - **DBSCAN 优化**：
-  - Cython 快速路径（`_dbscan_cy_fast`）用于标签分配
-  - 混合策略：低维用 cKDTree，高维用 sklearn radius_neighbors
-  - `algorithm` 参数：auto/brute/ball_tree/kd_tree
-  - numpy 10d 100K：28s（比 sklearn 快 3.1x）
+  - Cython `_dbscan_cy_fast.pyx`：`dbscan_labels_from_pairs` + `dbscan_labels_from_csr` — 全 pipeline 在 C 中运行
+  - CPU：p≤12 用 cKDTree query_pairs + Cython（比 sklearn 快 3-4 倍）；p>12 用 sklearn BLAS + Cython CSR（与 sklearn 持平）
+  - GPU（PyTorch CUDA）：全在设备上执行 — 距离、稀疏图、label propagation、border 分配，零 GPU→CPU 传输
+  - GPU label propagation 用 `scatter_reduce_(amin)`，2-5 次迭代收敛
+  - GPU（P100）：p=5 比 sklearn 快 **14-17 倍**，p=50 快 **3-4 倍**
 
 - **UMAP 优化**：
   - 稀疏图 + 负采样（GPU 16.7x 加速）

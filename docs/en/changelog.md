@@ -15,10 +15,11 @@ Language switch: [Chinese](../changelog.md)
   - Best: TruncatedSVD 28.6x, IncrementalPCA 21.9x, DBSCAN 21.0x, NMF 19.9x
 
 - **DBSCAN Optimization**:
-  - Cython fast path (`_dbscan_cy_fast`) for label assignment
-  - Hybrid: cKDTree for low-dim, sklearn radius_neighbors for high-dim
-  - `algorithm` parameter: auto/brute/ball_tree/kd_tree
-  - numpy 10d 100K: 28s (3.1x faster than sklearn)
+  - Cython `_dbscan_cy_fast.pyx`: `dbscan_labels_from_pairs` + `dbscan_labels_from_csr` — full pipeline in C
+  - CPU: p≤12 cKDTree query_pairs + Cython (3-4x sklearn); p>12 sklearn BLAS + Cython CSR (matches sklearn)
+  - GPU (PyTorch CUDA): fully on-device pipeline — distance, sparse graph, label propagation, border — zero GPU→CPU transfer
+  - GPU label propagation via `scatter_reduce_(amin)`, 2-5 iterations to converge
+  - GPU (P100): p=5 **14-17x** faster than sklearn, p=50 **3-4x** faster
 
 - **UMAP Optimization**:
   - Sparse graph + negative sampling (16.7x GPU speedup)

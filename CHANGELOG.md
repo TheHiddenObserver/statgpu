@@ -13,10 +13,12 @@ All notable changes to statgpu are documented here, organized by date and PR.
 
 ### Unsupervised — DBSCAN Optimization
 
-- **Cython fast path**: `_dbscan_cy_fast` module for label assignment from CSR graph
-- **Hybrid strategy**: low-dim (≤12d) uses cKDTree `query_pairs` + Cython Union-Find; high-dim (>12d) uses sklearn `radius_neighbors` + Cython CSR
-- **`algorithm` parameter**: users can choose `"auto"`, `"brute"`, `"ball_tree"`, `"kd_tree"`
-- Effect: numpy 10d 100K 28s (3.1x faster than sklearn), 50d 100K matches sklearn
+- **Cython fast path** (`_dbscan_cy_fast.pyx`): two entry points — `dbscan_labels_from_pairs` (from `query_pairs`) and `dbscan_labels_from_csr` (from CSR graph). Both run counting, Union-Find, and label assignment entirely in C.
+- **CPU hybrid strategy**: low-dim (p≤12) uses cKDTree `query_pairs` + Cython; high-dim (p>12) uses sklearn `radius_neighbors_graph` + Cython CSR.
+- **Fully GPU pipeline** (PyTorch CUDA): distance → sparse graph → label propagation → border assignment, all on-device. Zero GPU→CPU transfer until final labels. Single-pass distance computation avoids OOM.
+- **GPU label propagation**: connected components via `scatter_reduce_(amin)`, fully parallel over edges. Typically converges in 2-5 iterations.
+- CPU effect: p=5 3-4x faster than sklearn, p=50 matches sklearn.
+- GPU effect (Tesla P100): p=5 **14-17x** faster than sklearn, p=50 **3-4x** faster. ARI=1.0 for all cases.
 
 ### Unsupervised — UMAP Optimization
 
