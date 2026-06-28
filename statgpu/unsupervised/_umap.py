@@ -103,16 +103,11 @@ class UMAP(BaseEstimator):
         return membership
 
     def _resolve_nn_method(self, n_samples):
-        """Resolve 'auto' to 'exact' or 'nndescent' based on data size."""
+        """Resolve 'auto' to 'exact' (NNDescent slower for UMAP due to graph quality)."""
         if self.nn_method != "auto":
             return self.nn_method
-        # Use NNDescent for large datasets (if available), exact for small
-        if n_samples > 5000:
-            try:
-                from pynndescent import NNDescent  # noqa: F401
-                return "nndescent"
-            except ImportError:
-                return "exact"
+        # NNDescent is slower for UMAP because approximate graphs hurt optimization
+        # Exact neighbors give better graph quality → faster optimization loop
         return "exact"
 
     def _fuzzy_graph(self, backend, X):
@@ -121,18 +116,24 @@ class UMAP(BaseEstimator):
         method = self._resolve_nn_method(n_samples)
 
         if method == "nndescent":
-            # Approximate NN via NNDescent (much faster for large n)
-            from pynndescent import NNDescent
-            X_np = X if not hasattr(X, 'get') else X.get()
-            if hasattr(X_np, 'numpy'):
-                X_np = X_np.cpu().numpy()
-            index = NNDescent(
-                X_np, n_neighbors=k, metric='euclidean',
-                random_state=self.random_state
-            )
-            neighbor_indices_np, neighbor_distances_np = index.query(X_np, k=k)
-            neighbor_indices = backend.asarray(neighbor_indices_np, dtype=backend.int64)
-            neighbor_distances = backend.asarray(neighbor_distances_np, dtype=backend.float64)
+            # Approximate NN via NNDescent (O(n log n) vs O(n²))
+            from statgpu.unsupervised._nndescent import nndescent_torch, nndescent_cupy, nndescent_numpy
+            seed = self.random_state if self.random_state is not None else 42
+            if hasattr(X, 'device') and not hasattr(X, 'get'):  # torch
+                neighbor_indices, neighbor_distances_sq = nndescent_torch(
+                    X, k=k, max_iter=10, seed=seed
+                )
+                neighbor_distances = backend.sqrt(backend.maximum(neighbor_distances_sq, 0.0))
+            elif hasattr(X, 'get'):  # cupy
+                neighbor_indices, neighbor_distances_sq = nndescent_cupy(
+                    X, k=k, max_iter=10, seed=seed
+                )
+                neighbor_distances = backend.sqrt(backend.maximum(neighbor_distances_sq, 0.0))
+            else:  # numpy
+                neighbor_indices, neighbor_distances_sq = nndescent_numpy(
+                    X, k=k, max_iter=10, seed=seed
+                )
+                neighbor_distances = backend.sqrt(backend.maximum(neighbor_distances_sq, 0.0))
         else:
             # Exact NN via dense distance matrix
             distances = backend.sqrt(squared_euclidean_distances(backend, X))

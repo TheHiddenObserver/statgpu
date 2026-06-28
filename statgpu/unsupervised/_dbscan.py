@@ -230,22 +230,72 @@ class DBSCAN(BaseEstimator):
     # ------------------------------------------------------------------ #
 
     # ------------------------------------------------------------------ #
-    #  GPU path (fully on-device, no GPU→CPU transfer until final labels) #
+    #  GPU path                                                           #
+    # ------------------------------------------------------------------ #
+
+    def _neighbor_graph_sparse(self, backend, X):
+        """Build sparse neighbor graph using GPU batched distance computation."""
+        n_samples = X.shape[0]
+        eps = float(self.eps)
+
+        if self.batch_size is not None:
+            batch_size = min(int(self.batch_size), n_samples)
+        else:
+            batch_size = min(n_samples, max(1000, 400_000_000 // (n_samples * 4)))
+
+        X_f32 = backend.asarray(X, dtype=backend.float32) if hasattr(backend, "float32") else X
+        x_norm = backend.sum(X_f32 * X_f32, axis=1, keepdims=True)
+        eps_sq = eps ** 2
+
+        all_rows, all_cols = [], []
+        for start in range(0, n_samples, batch_size):
+            stop = min(start + batch_size, n_samples)
+            distances = (
+                x_norm[start:stop]
+                + backend.reshape(x_norm, (1, n_samples))
+                - 2.0 * backend.matmul(X_f32[start:stop], X_f32.T)
+            )
+            distances = backend.maximum(distances, 0.0)
+            mask = distances <= eps_sq
+
+            if hasattr(mask, "cpu"):  # torch
+                import torch
+                nz = torch.nonzero(mask, as_tuple=False)
+                nz_np = nz.cpu().numpy()
+            elif hasattr(mask, "get"):  # cupy
+                import cupy as cp
+                nz_np = cp.argwhere(mask).get()
+            else:
+                nz_np = np.argwhere(mask)
+
+            if len(nz_np) > 0:
+                all_rows.append(nz_np[:, 0] + start)
+                all_cols.append(nz_np[:, 1])
+
+        if all_rows:
+            row_idx = np.concatenate(all_rows).astype(np.int64)
+            col_idx = np.concatenate(all_cols).astype(np.int64)
+        else:
+            row_idx = np.empty(0, dtype=np.int64)
+            col_idx = np.empty(0, dtype=np.int64)
+
+        return backend.asarray(row_idx, dtype=backend.int64), backend.asarray(col_idx, dtype=backend.int64)
+
+    # ------------------------------------------------------------------ #
+    #  GPU path (fully on-device for torch, no GPU→CPU transfer)         #
     # ------------------------------------------------------------------ #
 
     def _fit_gpu(self, backend, X_arr, n_samples, n_features):
-        """Fully GPU-based DBSCAN: distance → sparse graph → label propagation.
+        """Fully GPU-based DBSCAN: single-pass distance → graph → labels.
 
-        Only the final labels (n int64 values) are transferred to CPU.
-        All intermediate data stays on GPU.
+        Computes distances once, caches edges as GPU tensors, then processes
+        entirely on GPU. Only final labels transferred to CPU.
         """
         import torch
 
         eps = float(self.eps)
         min_samples = int(self.min_samples)
         device = X_arr.device if hasattr(X_arr, "device") else None
-
-        # --- Step 1: Distance computation + neighbor counting (GPU) ---
         X_f32 = X_arr.float()
         x_norm = (X_f32 * X_f32).sum(dim=1, keepdim=True)
         eps_sq = eps ** 2
@@ -255,8 +305,10 @@ class DBSCAN(BaseEstimator):
         else:
             batch_size = min(n_samples, max(2000, 2_000_000_000 // (n_samples * 4)))
 
-        # Count neighbors per point (stays on GPU)
+        # --- Single pass: count neighbors + collect edges (GPU) ---
         counts = torch.zeros(n_samples, dtype=torch.int64, device=device)
+        all_rows, all_cols = [], []
+
         for start in range(0, n_samples, batch_size):
             stop = min(start + batch_size, n_samples)
             dist = x_norm[start:stop] + x_norm.T - 2.0 * X_f32[start:stop] @ X_f32.T
@@ -264,7 +316,13 @@ class DBSCAN(BaseEstimator):
             mask = dist <= eps_sq
             counts[start:stop] = mask.sum(dim=1)
 
-        # --- Step 2: Find core points (GPU) ---
+            nz = torch.nonzero(mask, as_tuple=False)
+            if nz.numel() > 0:
+                all_rows.append(nz[:, 0] + start)
+                all_cols.append(nz[:, 1])
+            del dist, mask  # free memory immediately
+
+        # --- Find core points ---
         core_mask = counts >= min_samples
         core_indices = torch.nonzero(core_mask, as_tuple=False).squeeze(1)
         n_core = core_indices.numel()
@@ -273,95 +331,57 @@ class DBSCAN(BaseEstimator):
             labels = torch.full((n_samples,), -1, dtype=torch.int64, device=device)
             return labels.cpu().numpy(), core_indices.cpu().numpy()
 
-        # --- Step 3: Build sparse core-core graph (GPU) ---
-        # Map original indices → core positions
-        core_pos = torch.full((n_samples,), -1, dtype=torch.int64, device=device)
-        core_pos[core_indices] = torch.arange(n_core, device=device, dtype=torch.int64)
-
-        all_rows, all_cols = [], []
-        for start in range(0, n_samples, batch_size):
-            stop = min(start + batch_size, n_samples)
-            dist = x_norm[start:stop] + x_norm.T - 2.0 * X_f32[start:stop] @ X_f32.T
-            dist.clamp_(min=0.0)
-            mask = dist <= eps_sq
-
-            # Filter to core-core edges only (on GPU)
-            batch_core_mask = core_mask[start:stop].unsqueeze(1) & core_mask.unsqueeze(0)
-            mask = mask & batch_core_mask
-
-            nz = torch.nonzero(mask, as_tuple=False)
-            if nz.numel() > 0:
-                # Map to core positions
-                row_orig = nz[:, 0] + start
-                col_orig = nz[:, 1]
-                all_rows.append(core_pos[row_orig])
-                all_cols.append(core_pos[col_orig])
-
         if not all_rows:
-            # No core-core edges
             labels = torch.full((n_samples,), -1, dtype=torch.int64, device=device)
             labels[core_indices] = torch.arange(n_core, device=device, dtype=torch.int64)
             return labels.cpu().numpy(), core_indices.cpu().numpy()
 
-        core_row = torch.cat(all_rows)
-        core_col = torch.cat(all_cols)
+        row_idx = torch.cat(all_rows)
+        col_idx = torch.cat(all_cols)
 
-        # --- Step 4: Connected components via label propagation (GPU) ---
-        # Build sparse adjacency
-        n_edges = core_row.numel()
-        indices = torch.stack([core_row, core_col])
+        # --- Core-core graph (filter on GPU) ---
+        core_pair = core_mask[row_idx] & core_mask[col_idx]
+        core_row = row_idx[core_pair]
+        core_col = col_idx[core_pair]
+
+        # Map to core-index space
+        core_pos = torch.full((n_samples,), -1, dtype=torch.int64, device=device)
+        core_pos[core_indices] = torch.arange(n_core, device=device, dtype=torch.int64)
+        cr = core_pos[core_row]
+        cc = core_pos[core_col]
+
+        # --- Connected components via label propagation (GPU) ---
+        n_edges = cr.numel()
+        indices = torch.stack([cr, cc])
         adj = torch.sparse_coo_tensor(
             indices, torch.ones(n_edges, device=device), (n_core, n_core)
         ).coalesce()
+        adj_indices = adj.indices()
 
-        # Label propagation: each core point starts with its own label
         labels_core = torch.arange(n_core, device=device, dtype=torch.int64)
-
-        # Iterate until convergence (typically 2-5 iterations for DBSCAN)
-        adj_indices = adj.indices()  # (2, nnz)
         for _ in range(50):
-            # For each edge (u,v), propose min(labels[u], labels[v]) to both
             src_labels = labels_core[adj_indices[0]]
             dst_labels = labels_core[adj_indices[1]]
             min_labels = torch.minimum(src_labels, dst_labels)
-
-            # Scatter minimum labels to each point
             new_labels = labels_core.clone()
             new_labels.scatter_reduce_(0, adj_indices[0], min_labels, reduce="amin")
             new_labels.scatter_reduce_(0, adj_indices[1], min_labels, reduce="amin")
-
             if torch.equal(new_labels, labels_core):
                 break
             labels_core = new_labels
 
-        # --- Step 5: Assign all labels (GPU) ---
-        # Compact core labels to 0, 1, 2, ...
-        unique_roots, compact = torch.unique(labels_core, return_inverse=True)
-
+        # --- Assign labels ---
+        _, compact = torch.unique(labels_core, return_inverse=True)
         labels = torch.full((n_samples,), -1, dtype=torch.int64, device=device)
         labels[core_indices] = compact
 
-        # Border points: non-core with core neighbors
-        border_mask = ~core_mask
-        if border_mask.any():
-            for start in range(0, n_samples, batch_size):
-                stop = min(start + batch_size, n_samples)
-                dist = x_norm[start:stop] + x_norm.T - 2.0 * X_f32[start:stop] @ X_f32.T
-                dist.clamp_(min=0.0)
-                mask = dist <= eps_sq
-
-                batch_border = border_mask[start:stop]
-                batch_core = core_mask.unsqueeze(0)
-                border_edges = mask & batch_border.unsqueeze(1) & batch_core
-
-                nz = torch.nonzero(border_edges, as_tuple=False)
-                if nz.numel() > 0:
-                    border_pts = nz[:, 0] + start
-                    core_neighbors = nz[:, 1]
-                    # First core neighbor wins (already sorted by batch order)
-                    first_mask = labels[border_pts] == -1
-                    if first_mask.any():
-                        labels[border_pts[first_mask]] = labels[core_neighbors[first_mask]]
+        # Border points (reuse cached edges)
+        border_pair = (~core_mask[row_idx]) & core_mask[col_idx]
+        if border_pair.any():
+            border_pts = row_idx[border_pair]
+            core_nbrs = col_idx[border_pair]
+            unlabeled = labels[border_pts] == -1
+            labels[border_pts[unlabeled]] = labels[core_nbrs[unlabeled]]
 
         return labels.cpu().numpy(), core_indices.cpu().numpy()
 
