@@ -104,6 +104,9 @@ def proximal_irls_quantile_solver(
     # Handle sample_weight
     if sample_weight is not None:
         sw = xp.asarray(sample_weight, dtype=xp.float64)
+        # Ensure sw is on the same device as X_dev (for torch CUDA)
+        if hasattr(X_dev, 'device') and hasattr(sw, 'to'):
+            sw = sw.to(device=X_dev.device)
         sw_sum = float(_to_numpy(xp.sum(sw)))
         # Normalize so sum(sw) = n (keeps penalty scale consistent)
         sw = sw * (n / sw_sum)
@@ -149,9 +152,13 @@ def proximal_irls_quantile_solver(
             # LLA weights = P'(|beta_j|) — penalty derivative at current coef.
             # For SCAD near-zero: alpha; middle: (a*alpha-|beta|)/(a-1); large: 0
             # For MCP: max(0, alpha - |beta|/gamma)
-            # thresh = lla_w directly (already contains alpha scaling)
+            #
+            # WLS uses un-normalized g = X'@wr and h = sum(X^2 * w),
+            # so threshold must be scaled by n to match:
+            #   min (1/2n) * sum(w * (y - X@beta)^2) + sum(P'(|beta_j|) * |beta_j|)
+            #   => g/h are un-normalized, thresh = n * P'(|beta_j|)
             lla_w = _compute_lla_weights(pen_step, beta, n_features, xp, backend)
-            thresh = lla_w  # (p,) per-coordinate threshold = P'(|beta_j|)
+            thresh = n * lla_w  # (p,) per-coordinate threshold
 
             beta_before_lla = _copy(beta)
 

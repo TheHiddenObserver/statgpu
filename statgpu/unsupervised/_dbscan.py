@@ -146,6 +146,8 @@ class DBSCAN(BaseEstimator):
             indices[start:end] = indices_list[i]
 
         if _HAS_CY_FAST:
+            # radius_neighbors includes self (distance=0), so counts already include self
+            # Use min_samples directly (not min_samples - 1)
             return dbscan_labels_from_csr(n_samples, min_samples, indptr, indices)
 
         # Pure Python fallback — construct CSR matrix from indptr/indices
@@ -153,8 +155,8 @@ class DBSCAN(BaseEstimator):
         data = np.ones(total_nnz, dtype=np.float64)
         csr = csr_matrix((data, indices, indptr), shape=(n_samples, n_samples))
         counts = np.asarray(csr.sum(axis=1)).flatten().astype(np.int64)
-        # sklearn convention: min_samples includes the point itself
-        core_mask = counts >= min_samples - 1
+        # radius_neighbors includes self, so counts already include self
+        core_mask = counts >= min_samples
         core_indices = np.flatnonzero(core_mask).astype(np.int64)
         if not core_indices.size:
             return np.full(n_samples, -1, dtype=np.int64), core_indices
@@ -329,8 +331,9 @@ class DBSCAN(BaseEstimator):
             del dist, mask  # free memory immediately
 
         # --- Find core points ---
-        # sklearn convention: min_samples includes the point itself
-        core_mask = counts >= min_samples - 1
+        # dist <= eps_sq includes diagonal (self-neighbor with distance 0)
+        # so counts already include self; use min_samples directly
+        core_mask = counts >= min_samples
         core_indices = torch.nonzero(core_mask, as_tuple=False).squeeze(1)
         n_core = core_indices.numel()
 

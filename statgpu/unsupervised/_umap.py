@@ -237,11 +237,19 @@ class UMAP(BaseEstimator):
         # Extract sparse edges on GPU (no CPU transfer)
         graph_mask = graph > 0
         if hasattr(graph_mask, 'cpu'):  # torch
-            import torch
-            nz = torch.nonzero(graph_mask, as_tuple=False)
-            edge_rows_b = nz[:, 0]
-            edge_cols_b = nz[:, 1]
-            edge_weights_b = graph[edge_rows_b, edge_cols_b]
+            try:
+                import torch
+                nz = torch.nonzero(graph_mask, as_tuple=False)
+                edge_rows_b = nz[:, 0]
+                edge_cols_b = nz[:, 1]
+                edge_weights_b = graph[edge_rows_b, edge_cols_b]
+            except ImportError:
+                # Fallback: convert to numpy
+                graph_mask_np = graph_mask.cpu().numpy() if hasattr(graph_mask, 'cpu') else np.asarray(graph_mask)
+                nz_np = np.argwhere(graph_mask_np)
+                edge_rows_b = backend.asarray(nz_np[:, 0], dtype=backend.int64)
+                edge_cols_b = backend.asarray(nz_np[:, 1], dtype=backend.int64)
+                edge_weights_b = graph[edge_rows_b, edge_cols_b]
         elif hasattr(graph_mask, 'get'):  # cupy
             import cupy as cp
             nz = cp.argwhere(graph_mask)
@@ -277,9 +285,13 @@ class UMAP(BaseEstimator):
             neg_indices = rng.randint(0, n_samples, size=n_samples * neg_rate)
             neg_dst_indices = rng.randint(0, n_samples, size=n_samples * neg_rate)
             if hasattr(Y, 'device') and not hasattr(graph_mask, 'get'):  # torch
-                import torch
-                neg_src = torch.tensor(neg_indices, device=Y.device, dtype=torch.int64)
-                neg_dst = torch.tensor(neg_dst_indices, device=Y.device, dtype=torch.int64)
+                try:
+                    import torch
+                    neg_src = torch.tensor(neg_indices, device=Y.device, dtype=torch.int64)
+                    neg_dst = torch.tensor(neg_dst_indices, device=Y.device, dtype=torch.int64)
+                except ImportError:
+                    neg_src = backend.asarray(neg_indices, dtype=backend.int64)
+                    neg_dst = backend.asarray(neg_dst_indices, dtype=backend.int64)
             elif hasattr(graph_mask, 'get'):  # cupy
                 import cupy as cp
                 neg_src = cp.asarray(neg_indices, dtype=cp.int64)

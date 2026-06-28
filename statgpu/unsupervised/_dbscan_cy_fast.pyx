@@ -280,17 +280,18 @@ def dbscan_labels_from_csr(
     cdef INT64* indices_p = <INT64*>np.PyArray_DATA(indices)
 
     # Count neighbors from CSR structure
+    # Note: radius_neighbors includes self (distance=0), so counts already include self
     cdef np.ndarray[INT64, ndim=1] counts_arr = np.zeros(n_samples, dtype=np.int64)
     cdef INT64[:] counts = counts_arr
     for i in range(n_samples):
         counts[i] = indptr_p[i + 1] - indptr_p[i]
 
-    # Find core points
+    # Find core points (counts already include self, use min_samples directly)
     cdef INT64 n_core = 0
     cdef np.ndarray[np.uint8_t, ndim=1] core_mask_arr = np.zeros(n_samples, dtype=np.uint8)
     cdef np.uint8_t[:] core_mask = core_mask_arr
     for i in range(n_samples):
-        if counts[i] >= min_samples - 1:
+        if counts[i] >= min_samples:
             core_mask[i] = 1
             n_core += 1
 
