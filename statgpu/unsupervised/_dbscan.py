@@ -147,9 +147,13 @@ class DBSCAN(BaseEstimator):
         if _HAS_CY_FAST:
             return dbscan_labels_from_csr(n_samples, min_samples, indptr, indices)
 
-        # Pure Python fallback
+        # Pure Python fallback — construct CSR matrix from indptr/indices
+        from scipy.sparse import csr_matrix
+        data = np.ones(total_nnz, dtype=np.float64)
+        csr = csr_matrix((data, indices, indptr), shape=(n_samples, n_samples))
         counts = np.asarray(csr.sum(axis=1)).flatten().astype(np.int64)
-        core_mask = counts >= min_samples
+        # sklearn convention: min_samples includes the point itself
+        core_mask = counts >= min_samples - 1
         core_indices = np.flatnonzero(core_mask).astype(np.int64)
         if not core_indices.size:
             return np.full(n_samples, -1, dtype=np.int64), core_indices
@@ -178,7 +182,8 @@ class DBSCAN(BaseEstimator):
     def _labels_from_edges(self, n_samples, counts, row_idx, col_idx):
         """Build labels from edge lists — pure Python fallback."""
         counts = np.asarray(counts, dtype=np.int64)
-        core_mask = counts >= int(self.min_samples)
+        # sklearn convention: min_samples includes the point itself
+        core_mask = counts >= int(self.min_samples) - 1
         core_indices = np.flatnonzero(core_mask).astype(np.int64)
         labels = np.full(n_samples, -1, dtype=np.int64)
         if not core_indices.size:
@@ -323,7 +328,8 @@ class DBSCAN(BaseEstimator):
             del dist, mask  # free memory immediately
 
         # --- Find core points ---
-        core_mask = counts >= min_samples
+        # sklearn convention: min_samples includes the point itself
+        core_mask = counts >= min_samples - 1
         core_indices = torch.nonzero(core_mask, as_tuple=False).squeeze(1)
         n_core = core_indices.numel()
 

@@ -2,6 +2,8 @@
 
 本文件用于帮助后续 coding agent 快速理解 `statgpu` 项目。它是项目导览，不是用户手册；修改代码前仍应阅读相关源码和文档。
 
+自动开发的阻塞 gate、退出状态和 review/fix 协议以 `.claude/workflows/new-module-dev.md` 及 `.claude/skills/` 下对应 skill 为准。若本文和 `.claude` workflow/skill 有冲突，开发任务中优先执行 `.claude` 的硬约束，并在结果中说明差异。
+
 ## 项目概览
 
 `statgpu` 是一个 GPU 加速的统计计算 Python 库，提供接近 scikit-learn 的 `fit` / `predict` / `score` API。项目重点是统计建模、推断、特征选择、生存分析和非参数方法，并通过 NumPy、CuPy、PyTorch 后端在 CPU/GPU 间切换。
@@ -71,16 +73,21 @@ def _cleanup_torch_memory(self):
 
 ## 通用开发硬规则
 
-以下规则来自 `dev/plans/PLAN_UNIFIED.md` 中较稳定的项目约束，适用于后续功能开发和重构：
+以下规则来自 `dev/plans/PLAN_UNIFIED.md` 和 `.claude` workflow/skill 中较稳定的项目约束，适用于后续功能开发和重构：
 
-- 新增统计功能默认要求 CPU、CuPy、Torch 三端同时实现；若某端暂不可行，必须明确记录原因、限制和后续补齐路径，且已有端要能独立验证。
+- 所有新增或修改的统计方法必须同时实现 NumPy、CuPy、Torch 三后端；CPU-only 工作不算完成。若某端暂不可行，必须获得用户明确批准，并记录原因、用户可见失败行为、测试 skip 条件和后续补齐路径。
+- 显式 `device="cuda"` 或 `device="torch"` 不允许静默回退 CPU；fallback、approximate inference、dtype/device 变化必须是公开契约的一部分，并在错误、warning 或结果字段中可见。
+- 直接 `fit()` 支持的 tunable loss x penalty 能力，默认也必须支持 CV 层，包括 alpha/lambda/C 路径、fold scoring、best parameter selection 和 refit；除非该能力明确 non-tunable 或用户批准延期。
+- 公共统计 estimator 若暴露 `compute_inference`、`summary()`、covariance、standard errors、p-values、confidence intervals，或该模型家族通常要求推断，则必须实现 inference 或显式声明 estimation-only，并补清晰错误行为、测试、文档和后续任务。
+- Formula-facing 方法必须验证 R-style/patsy 兼容，包括 intercept、categorical reference level、interaction/transform、missing data、列名和列顺序；暂不支持的语法要有明确失败模式和文档说明。
 - 新增 inference、stopping rule、影响数值的 memory behavior 或 estimator 行为时，外部基线检查应尽可能全面：推断/统计优先对齐 `statsmodels`，估计器和预测一致性优先对齐 `sklearn`，关键统计方法补充 R 基线；能覆盖 coef/bse/p/CI/AIC/BIC/LLF、预测、目标函数或 KKT 的场景应尽量覆盖。
 - 外部比较必须使用显式对齐设置，包括相同特征集、ties/solver、正则化参数和收敛参数，如 `alpha`、`C`、`max_iter`、`tol`。
+- 外部比较前必须确认 objective normalization 和 penalty scale。若 `statgpu` 优化 `n^{-1} sum_i loss_i + lambda * penalty`，而外部框架优化 `sum_i loss_i + lambda * penalty`，测试应使用等价 penalty 映射（如 `lambda_external = n * lambda`），不要为了强行对齐外部框架而修改 `statgpu` 的 loss 定义。
 - strict inference 是默认主线；strict 失败默认应报错，只有用户显式启用 fallback/downgrade 时才降级。
 - 当前 strict 对齐阈值基线：`coef <= 1e-6`、`bse <= 1e-3`、`p-value <= 5e-2`。
 - 关键 inference 输出字段应保持 CPU/GPU 一致，例如 `coef`、`bse`、`t/z`、`p`、`CI`、`AIC/BIC/LLF` 等。
 - CUDA 分层规则保持有效：模型层不要到处散落直接 `cupy` import，优先复用 `statgpu/backends/`、`BaseEstimator` 和已有后端工具。
-- 每个新方法的准入标准是 implementation、tests、external comparison 或 benchmark、docs update 同步完成。
+- 每个新方法的准入标准是 implementation、tests、external comparison 或 benchmark、docs update 同步完成；性能相关 benchmark 脚本优先放 `dev/benchmarks/`，结果写入 `results/*.json`，GPU 计时必须包含 CuPy/Torch synchronize。
 - 新模型推荐流程：先明确接口契约，再做 CPU 实现，然后补 GPU 路径和 strict inference，接着补导出、测试、外部一致性、benchmark、英文优先/中文跟进文档。
 - 用户可见能力变更后，要保持 README、USAGE、英文/中文 docs 和 changelog 的能力描述一致。
 - 工程 gate 的方向是 nightly 覆盖 lint/type/test，monthly stable 额外覆盖外部一致性矩阵、benchmark non-regression 和文档同步；本地改动至少要说明已跑或未跑的相关验证。
@@ -111,22 +118,23 @@ def _cleanup_torch_memory(self):
 - `docs/en/usage.md`: 英文使用入口。
 - `docs/cn/usage.md`: 中文使用入口。
 - `docs/en/`: 英文文档，包括 quickstart、guides 和各模型说明。
-- `docs/`: 中文文档目录。
+- `docs/cn/`: 中文文档目录。
 - `docs/en/models/README.md`: 模型覆盖范围和当前限制的较新摘要。
 - `docs/en/guides/device-and-memory.md`: 设备选择、GPU 内存和后端规则。
 
-新增或修改用户可见能力时，通常需要同步更新相关 `docs/en/models/*.md`、`docs/models/*.md`、`docs/changelog.md` 或入口文档。
+新增或修改用户可见能力时，通常需要同步更新相关 `docs/en/models/*.md`、`docs/cn/models/*.md`、`docs/en/changelog.md`、`docs/cn/changelog.md` 或入口文档。
 
 ## Changelog 写作规范
 
-项目有两份 changelog，定位不同：
+项目有三份 changelog，定位不同：
 
 | 文件 | 定位 | 读者 | 详细程度 |
 |---|---|---|---|
 | `CHANGELOG.md`（根目录） | PR 级摘要 | 开发者、贡献者 | 简洁，每个 PR 1-5 行 |
 | `docs/en/changelog.md` | 用户级详述 | 用户、研究者 | 详细，含性能数据、代码示例、验证产物 |
+| `docs/cn/changelog.md` | 用户级中文详述 | 中文用户、研究者 | 与英文详细版结构一致，中文自然表述 |
 
-两份文件**都需要更新**，内容不重复但互相引用。
+三份文件按变更类型同步更新，内容不机械重复但能力声明必须一致。
 
 ### 根目录 `CHANGELOG.md` 格式
 
@@ -295,16 +303,16 @@ pytest dev/tests/test_penalties_and_exports.py
 pytest dev/tests/test_distributions_backend.py
 ```
 
-本地 conda `base` 环境只用于导入测试和轻量 smoke test，例如确认 `import statgpu`、顶层 API 导出和纯 CPU 基础路径没有明显断裂。精度测试、运行时间测试、GPU 数值一致性、benchmark、R 对比和远程环境相关验证，应在 Matpool 远程服务器的 `myconda` 环境中进行。
+本地 conda `base` 环境只用于导入测试和轻量 smoke test，例如确认 `import statgpu`、顶层 API 导出和纯 CPU 基础路径没有明显断裂。精度测试、运行时间测试、GPU 数值一致性、benchmark、R 对比和远程环境相关验证，应在通过 `dev/scripts/remote_config.py` 配置的远程 GPU 环境中进行；当前常用环境是 Matpool 远程服务器的 `myconda`。
 
-GPU、远程、benchmark、R 对比类脚本较多，通常不应在本地无目的地全量运行。涉及 Matpool 远程测试时，使用环境变量或未跟踪的 local config 提供连接信息，不要把服务器凭据写入代码、文档、测试或提交记录。
+GPU、远程、benchmark、R 对比类脚本较多，通常不应在本地无目的地全量运行。涉及远程测试时，优先使用 `dev/scripts/remote_config.py` 或未跟踪的 local config/环境变量提供连接信息，不要把服务器凭据写入代码、文档、测试、memory、`.claude/settings.json` 或提交记录。
 
 ## 仓库布局和协作注意事项
 
 - `dev/tests/` 是主要测试目录，但其中也包含大量远程、debug、benchmark、runner 脚本；选择测试时要看文件名和内容。
 - `dev/benchmarks/`、`results/`、`tmp/`、`statgpu.egg-info/`、`__pycache__/` 等多为实验产物、构建产物或临时文件，不要把它们当作核心库代码。
 - `.gitignore` 已排除很多本地、远程和 benchmark 产物；新增临时脚本或大结果文件前先检查是否应被跟踪。
-- 不要提交远程服务器凭据、密码、token 或本地环境配置。远程配置应使用环境变量或未跟踪的 local config。
+- 不要提交远程服务器凭据、密码、token 或本地环境配置。远程配置应使用 `dev/scripts/remote_config.py`、环境变量或未跟踪的 local config。
 - 当前仓库可能存在未提交改动和未跟踪调试文件。修改前先看 `git status`，只触碰任务相关文件，不要回退他人改动。
 
 ## 实现建议

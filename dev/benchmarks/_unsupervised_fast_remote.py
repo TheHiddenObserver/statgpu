@@ -128,14 +128,14 @@ for s, (n, p) in SCALES.items():
         print(f"  {s}/{be}: {sg_t:.4f}s {status}", flush=True)
 
 # ===========================================================================
-# IncrementalPCA (GPU may fail)
+# IncrementalPCA (default batch_size=n_samples for fast single fit)
 # ===========================================================================
 print("\n=== IncrementalPCA ===", flush=True)
 for s, (n, p) in SCALES.items():
-    X = make_reduction(n, min(p,50)); nc = 10; bs = min(n, 5*X.shape[1])
-    sk = SkIPCA(n_components=nc, batch_size=bs); t0=time.perf_counter(); sk.fit(X); sk_t=time.perf_counter()-t0
+    X = make_reduction(n, min(p,50)); nc = 10
+    sk = SkIPCA(n_components=nc); t0=time.perf_counter(); sk.fit(X); sk_t=time.perf_counter()-t0
     for be, dev in [("numpy","cpu"),("cupy","cuda"),("torch","cuda")]:
-        sg_t, err = bench(IncrementalPCA, {"n_components":nc,"batch_size":bs}, X, dev)
+        sg_t, err = bench(IncrementalPCA, {"n_components":nc}, X, dev)
         spd = sk_t/sg_t if sg_t>0 else 0
         results[f"ipca_{s}_{be}"] = {"time":sg_t, "external":sk_t, "speedup":spd}
         status = f"spd={spd:.1f}x" if not err else f"FAIL: {err}"

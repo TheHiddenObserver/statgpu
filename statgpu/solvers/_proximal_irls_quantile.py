@@ -146,10 +146,12 @@ def proximal_irls_quantile_solver(
         _mi = max_iter[cont_i] if isinstance(max_iter, (list, tuple)) else max_iter
 
         for lla_i in range(max_lla_per_step):
-            # LLA weights from SCAD/MCP derivative (stays on GPU)
+            # LLA weights = P'(|beta_j|) — penalty derivative at current coef.
+            # For SCAD near-zero: alpha; middle: (a*alpha-|beta|)/(a-1); large: 0
+            # For MCP: max(0, alpha - |beta|/gamma)
+            # thresh = lla_w directly (already contains alpha scaling)
             lla_w = _compute_lla_weights(pen_step, beta, n_features, xp, backend)
-            alpha_val = float(pen_step.alpha)
-            thresh = alpha_val * lla_w  # (p,) per-coordinate threshold
+            thresh = lla_w  # (p,) per-coordinate threshold = P'(|beta_j|)
 
             beta_before_lla = _copy(beta)
 
@@ -175,8 +177,8 @@ def proximal_irls_quantile_solver(
                 w_max = 100.0 / eps
                 w = xp.minimum(w, xp.asarray(w_max, dtype=w.dtype))
 
-                # Batch CD sweep (all backends)
-                beta = _cd_sweep_batch(
+                # Parallel diagonal majorization step (Jacobi-style)
+                beta = _parallel_majorization_step(
                     X_work, X_sq, y_work, w, beta, thresh,
                     n_features, eps, xp, backend)
 
@@ -205,17 +207,19 @@ def proximal_irls_quantile_solver(
     return coef_np, intercept, total_iter
 
 
-# ── Batch CD (all backends) ─────────────────────────────────────────
+# ── Parallel diagonal majorization step (all backends) ─────────────
 
-def _cd_sweep_batch(X, X_sq, y, w, beta, thresh, p, eps, xp, backend):
-    """One CD sweep: update all coordinates at once (Jacobi-style).
+def _parallel_majorization_step(X, X_sq, y, w, beta, thresh, p, eps, xp, backend):
+    """One parallel diagonal majorization step (Jacobi-style update).
 
     Computes:
       g = X' @ diag(w) @ (y - X @ beta)    -- weighted gradient vector
       h = diag(X' @ diag(w) @ X)            -- weighted Hessian diagonal
       beta = S(g + h * beta, thresh) / h    -- soft-threshold update
 
-    This is equivalent to one CD cycle using "old" beta values for all coords.
+    Note: This is a Jacobi-style parallel update, not cyclic coordinate descent.
+    All coordinates are updated simultaneously using "old" beta values.
+    For strongly correlated designs, convergence may differ from true CD.
     GPU-friendly: only matrix operations, no per-coordinate kernel launches.
     """
     r = y - X @ beta  # (n,)

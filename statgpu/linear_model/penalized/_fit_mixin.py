@@ -25,11 +25,11 @@ from statgpu.penalties._categories import (
 )
 _SMOOTH_PENALTIES = frozenset({"l2", "none", "null", ""})
 
-# Losses that do NOT use IRLS-CD for SCAD/MCP (use FISTA-LLA instead).
-# squared_error: quadratic, uses IRLS-CD fast path.
-# quantile: non-smooth gradient, uses FISTA.
+# Losses with special LLA handling (not routed through generic GLM path).
+# squared_error: quadratic, uses fused FISTA-LLA fast path.
+# quantile: non-smooth gradient, uses proximal IRLS-CD.
 # All others (GLM, robust, CoxPH): use FISTA-LLA with generic gradient().
-_NON_IRLS_LOSSES = frozenset({"squared_error", "quantile", ""})
+_SPECIAL_LLA_LOSSES = frozenset({"squared_error", "quantile", ""})
 
 # SCAD/MCP continuation path parameters (shared across all fit paths).
 # Reduced from 20/6 to 10/4: benchmark shows 1.4x speedup with <1e-11 error.
@@ -343,7 +343,7 @@ class _PenalizedFitMixin:
         # squared_error/quantile use IRLS-CD for SCAD/MCP (fast quadratic path
         # or quantile-specific IRLS). All other losses (GLM, robust, CoxPH)
         # use FISTA-LLA with the generic loss.gradient() interface.
-        _is_glm_loss = _loss_name not in _NON_IRLS_LOSSES
+        _is_glm_loss = _loss_name not in _SPECIAL_LLA_LOSSES
         if _pen_name in ("scad", "mcp") and self._lla_enabled and not _is_glm_loss:
             self._nobs = X.shape[0]
             X_arr = self._to_array(X, backend=backend_name)
@@ -605,17 +605,30 @@ class _PenalizedFitMixin:
 
         Shared helper for quantile+SCAD/MCP and squared_error+SCAD/MCP paths.
         Returns (alpha_path, max_lla_per_step, mi_path).
+
+        For quantile: lambda_max uses pinball subgradient X'@psi_tau(y-intercept)/n
+        For others: lambda_max uses X'@centered(y)/n (squared-error style)
         """
         import numpy as _np
 
         _X_feat = _to_numpy(X_work[:, :p] if self._effective_intercept else X_work)
         _y_feat = _to_numpy(y_arr)
         _n = _X_feat.shape[0]
-        _col_norms = _np.sqrt(_np.sum(_X_feat ** 2, axis=0))
-        _col_norms = _np.maximum(_col_norms, 1e-20)
-        _X_s = _X_feat * (_np.sqrt(_n) / _col_norms)
-        _y_c = _y_feat - _np.mean(_y_feat)
-        _lam_max = float(_np.max(_np.abs(_X_s.T @ _y_c / _n)))
+
+        if loss_name == "quantile":
+            # Quantile-specific lambda_max: max_j |X_j' @ psi_tau(y - intercept) / n|
+            _tau = getattr(self._loss, '_tau', 0.5)
+            _intercept = float(_np.quantile(_y_feat, _tau))
+            _r = _y_feat - _intercept
+            _psi = _np.where(_r >= 0, _tau, -(1.0 - _tau))
+            _lam_max = float(_np.max(_np.abs(_X_feat.T @ _psi / _n)))
+        else:
+            # Squared-error style: max_j |X_j' @ centered(y) / n|
+            _col_norms = _np.sqrt(_np.sum(_X_feat ** 2, axis=0))
+            _col_norms = _np.maximum(_col_norms, 1e-20)
+            _X_s = _X_feat * (_np.sqrt(_n) / _col_norms)
+            _y_c = _y_feat - _np.mean(_y_feat)
+            _lam_max = float(_np.max(_np.abs(_X_s.T @ _y_c / _n)))
         _target_alpha = float(getattr(self._penalty, 'alpha', self.alpha))
 
         if n_cont is None:
@@ -1588,7 +1601,7 @@ class _PenalizedFitMixin:
         #   quantile + SCAD/MCP -> CD solver (coordinate descent, much faster)
         #   squared_error + SCAD/MCP -> IRLS-CD (matching R ncvreg)
         #   GLM + SCAD/MCP -> FISTA-LLA (Proximal Newton for losses with Hessian)
-        _is_glm_loss = _loss_name not in _NON_IRLS_LOSSES
+        _is_glm_loss = _loss_name not in _SPECIAL_LLA_LOSSES
         _use_fista = _pen_name in ("adaptive_l1", "adaptive_lasso")
         _use_quantile_cd = (_loss_name == "quantile" and _pen_name in ("scad", "mcp"))
         _use_irls_cd = (

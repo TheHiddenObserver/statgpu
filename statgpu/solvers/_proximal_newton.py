@@ -109,11 +109,11 @@ def proximal_newton_solver(
         # Gradient and Hessian of smooth loss
         if _has_fused:
             loss_grad, loss_hess = loss.fused_gradient_and_hessian(
-                X_proc, y_proc, params
+                X_proc, y_proc, params, sample_weight=sample_weight
             )
         else:
-            loss_grad = loss.gradient(X_proc, y_proc, params)
-            loss_hess = loss.hessian(X_proc, y_proc, params)
+            loss_grad = loss.gradient(X_proc, y_proc, params, sample_weight=sample_weight)
+            loss_hess = loss.hessian(X_proc, y_proc, params, sample_weight=sample_weight)
 
         # Add smooth penalty gradient/hessian only for smooth penalties.
         # Non-smooth penalties (L1, AdaptiveL1) are handled by proximal operator.
@@ -150,7 +150,7 @@ def proximal_newton_solver(
             direction = grad
 
         # Armijo backtracking line search with proximal step
-        obj_old_dev, _ = loss.fused_value_and_gradient(X_proc, y_proc, params_old)
+        obj_old_dev, _ = loss.fused_value_and_gradient(X_proc, y_proc, params_old, sample_weight=sample_weight)
         _has_pen_value = hasattr(penalty, 'value')
         if _has_pen_value:
             pen_old = float(_to_numpy(penalty.value(params_old[:n_features])))
@@ -182,7 +182,7 @@ def proximal_newton_solver(
                 params_try = penalty.proximal(params_try, step, backend=backend)
 
             try:
-                obj_try_dev, _ = loss.fused_value_and_gradient(X_proc, y_proc, params_try)
+                obj_try_dev, _ = loss.fused_value_and_gradient(X_proc, y_proc, params_try, sample_weight=sample_weight)
                 pen_try = float(_to_numpy(penalty.value(params_try[:n_features]))) if _has_pen_value else 0.0
 
                 # Composite Armijo: f(x_new) + g(x_new) <= f(x_old) + g(x_old) + c*step*gdd

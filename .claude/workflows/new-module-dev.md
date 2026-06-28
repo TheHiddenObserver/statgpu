@@ -1,247 +1,252 @@
 # New Module Development Workflow
 
-> Reusable workflow for adding new statistical modules to statgpu.
-> Invoke with: `/new-module-dev <module_description>`
+> Reusable workflow for adding or changing statistical methods in statgpu.
+> Invoke with: `/new-module-dev <module_description>`.
 
-## Overview
+## Purpose
 
-This workflow implements the full lifecycle of a new statgpu module:
-1. Design (API, backend strategy, external comparison targets)
-2. Implement (three-backend: numpy/cupy/torch)
-3. Test (unit tests + external framework comparison)
-4. Review (bug hunt, readability, performance)
-5. Document (model docs, changelog)
-6. Benchmark (remote server, 3-backend timing)
-7. Release (version bump, PyPI)
+This workflow is the hard protocol for automatic development. It defines what
+must be true before work can be called complete, when work may continue
+automatically, and when the agent must stop with a clear status.
 
-## Prerequisites
+Implementation details live in these skills:
 
-- Remote GPU server access configured in memory (hz-4.matpool.com)
-- `scipy`, `sklearn`, `statsmodels` available for external comparison
-- `cupy`, `torch` available on remote server for GPU testing
+- `.claude/skills/new-module-dev.md`
+- `.claude/skills/code-review.md`
+- `.claude/skills/benchmark.md`
 
-## Phase 1: Design
+## Hard Exit Contract
 
-Before writing code, clarify:
+Every run must end with exactly one status:
 
-1. **What statistical method?** (e.g., "Welch ANOVA", "GraphicalLasso")
-2. **What's the reference?** (paper, textbook, or existing implementation)
-3. **Which backends?** (numpy always; cupy/torch if GPU benefits expected)
-4. **What parameters?** (match sklearn's API where possible)
+- `COMPLETE`: All active blocking gates pass. Active statistical methods support
+  `numpy`, `cupy`, and `torch`; precision and convergence pass when active;
+  review has no unresolved CRITICAL or HIGH issues; docs and artifacts are
+  updated.
+- `PARTIAL_REMOTE_PENDING`: Local work is complete, but remote GPU, R/external
+  framework, or large benchmark validation is unavailable. Report exact skipped
+  commands, missing resources, and the remaining validation plan. Do not claim
+  full GPU validation.
+- `BLOCKED_NEEDS_USER_APPROVAL`: Continuing requires a user decision, such as
+  backend deferral, public API break, performance caveat, credential setup,
+  commit, push, PR, merge, release, or package upload. State the recommended
+  option and the tradeoff.
+- `FAILED`: A blocking gate remains unresolved: missing backend, incorrect
+  formula, incorrect loss/gradient/Hessian, precision or convergence failure,
+  silent fallback, unresolved CRITICAL/HIGH review issue, or unsafe artifact.
 
-### Find external equivalents for comparison
+Do not end with informal statuses such as "mostly done" or "needs more work".
 
-Before implementing, identify all comparison targets:
+## Non-Negotiable Rules
 
-**Python equivalents:**
-- Search sklearn, scipy, statsmodels for the same method
-- If not found, check linearmodels, pyGAM, or other specialized packages
+- All statistical methods touched by this workflow, including new or changed
+  methods, MUST implement all three backends: `numpy`, `cupy`, and `torch`.
+- CPU-only work is incomplete. Correctness may come before performance, but the
+  workflow cannot stop after only the numpy path.
+- Backend deferral requires explicit user approval and must record the reason,
+  user-visible failure behavior, test skip condition, and follow-up task.
+- Silent fallback is forbidden. Backend fallback, approximate inference, dtype
+  changes, or CPU fallback from GPU must be explicit in the API contract and
+  visible in outputs or reports.
+- Precision and convergence are blocking before performance optimization.
+- Public loss x penalty model support includes the CV layer. If a loss/penalty
+  combination is supported by `fit()`, its CV path must also be implemented and
+  tested unless the feature is explicitly non-tunable or the user approves
+  deferral.
+- Public statistical estimation support includes inference when the estimator
+  exposes `compute_inference`, `summary()`, covariance, standard errors,
+  p-values, confidence intervals, or when inference is standard for the model
+  family. Otherwise, the feature must be explicitly documented and tested as
+  estimation-only.
+- Commits, pushes, PRs, merges, tags, releases, and package publication require
+  an explicit user request.
+- Credentials must not be read from memory, Markdown, or `.claude/settings.json`.
+  Remote work must use `dev/scripts/remote_config.py` or an untracked local
+  config/environment variable.
 
-**R equivalents:**
-- Check the reference paper — it often cites the R package
-- Search CRAN for the method name
-- If no direct equivalent, check if a combination of R functions achieves the same result
-- Record the R package and function name for use in benchmark
+## Required Grounding
 
-**Comparison output:**
-- Document which statistics to compare (coefficients, SE, p-values, etc.)
-- Document the expected tolerance (e.g., coef diff < 1e-6)
+Before editing code, read the relevant subset of:
 
-Check existing code for reusable components:
-- `statgpu/backends/_utils.py` — `xp_*` helpers, `_to_numpy`, `_to_float_scalar`
-- `statgpu/inference/_distributions_backend.py` — `get_distribution()` for p-values
-- `statgpu/_base.py` — `BaseEstimator` for class-based models
-- Module-specific utils (e.g., `panel/_utils.py`, `covariance/_empirical.py`)
+- `dev/AGENTS.md`
+- target package code
+- existing tests
+- existing docs and changelog conventions
+- existing benchmarks or comparable scripts
+- external baseline docs/code when the request names one
 
-## Phase 2: Implement
+If the repo contradicts this workflow, follow this workflow and report the
+contradiction.
 
-### File structure
-```
-statgpu/<module>/
-├── __init__.py          # Export new symbols
-├── _new_feature.py      # New implementation
-└── _existing.py         # Existing code (may need minor updates)
-```
+## Impact Classification
 
-### Three-backend pattern
+Before implementing, classify the change and activate only the relevant gates.
+Always report the classification in the completion report.
 
-```python
-from statgpu.backends import _get_xp, _resolve_backend, _to_float_scalar, _to_numpy
+| Impact axis | Activate when touched |
+| --- | --- |
+| Public API | public imports, constructor args, return types, errors, docs examples |
+| Backend | dtype/device behavior, kernels, array helpers, memory ownership, fallback |
+| Loss | loss formula, gradient, Hessian, Lipschitz, registry, GLM family |
+| Penalty | value, gradient, proximal, LLA, group/adaptive setup, categories |
+| Solver | optimizer logic, convergence, dispatch, stopping rules |
+| Loss x penalty model | public penalized fit capability or wrapper behavior |
+| CV | alpha/lambda/C paths, folds, scoring, refit, CV dispatch |
+| Inference | `compute_inference`, covariance, p-values, CI, summary/result objects |
+| Formula | formula parsing, model matrix, feature names, intercept semantics |
+| Benchmark/performance | kernels, fast paths, scaling claims, external timing comparisons |
+| Docs-only | documentation or changelog without behavior changes |
 
-# For function-based APIs:
-def my_function(*args, backend="auto", dtype=None):
-    resolved = _resolve_backend(backend, *args)
-    xp = _get_xp(resolved)
-    # ... use xp.* for all array operations ...
-    result = _to_float_scalar(some_scalar)  # sync to CPU at end
+If classification is uncertain, choose the broader relevant set and state why.
+Docs-only changes do not activate code gates unless they change support claims.
 
-# For class-based APIs:
-class MyEstimator(BaseEstimator):
-    def fit(self, X, y=None):
-        backend = self._get_backend(backend="auto")
-        xp = backend.xp
-        X_arr = xp_asarray(X, dtype=xp.float64, xp=xp)
-        # ... use xp.* operations ...
-        self._fitted = True
-        return self
-```
+## Phase Order
 
-### Device consistency rules
-- GPU input → GPU output (don't auto-convert to numpy)
-- Use `hasattr(x, 'is_cuda')` for torch detection (not `hasattr(x, 'device')`)
-- Use `xp_asarray` (not `xp.asarray`) for device-aware conversion
-- Use `xp_zeros`, `xp_eye`, `xp_asarray` from `backends/_utils.py`
+1. Classify the impact axes and choose active gates.
+2. Define the public API, shape, dtype, device, error, formula, and fallback
+   contract.
+3. Implement the numpy baseline.
+4. Implement the CuPy path.
+5. Implement the Torch path.
+6. Add or update three-backend consistency tests.
+7. Add or update architecture-specific compatibility tests for the touched
+   component type.
+8. Validate against external baselines, including objective scaling and penalty
+   scale mapping.
+9. Run precision and convergence gates.
+10. Run performance benchmark and the bounded optimization loop when the
+    benchmark/performance gate is active.
+11. Run `code-review` in `auto-fix` mode and re-test.
+12. Update docs, changelog, exports, and benchmark artifacts.
+13. Report one Hard Exit Contract status.
 
-### Update exports
-- `statgpu/<module>/__init__.py` — add new symbols
-- `statgpu/__init__.py` — add top-level exports
+## Blocking Gates
 
-## Phase 3: Test
+| Gate | Blocking? | Deferrable? | Required Evidence |
+| --- | --- | --- | --- |
+| Impact classification | Yes | No | active axes and inactive gates with reasons |
+| Three backends | Yes | User approval only | numpy/cupy/torch tests or explicit approved deferral |
+| Public API contract | Yes | No | documented inputs, outputs, errors, dtype/device behavior |
+| Architecture-specific matrix | Yes | User approval only | required compatibility tests for the touched component type |
+| CV layer parity | Yes for tunable model capabilities | User approval only | CV fit/refit/alpha-or-C selection across supported backends |
+| Inference layer parity | Yes for inferential model capabilities | User approval only | inference fields, summary/result container, external baseline, backend parity |
+| R formula compatibility | Yes when formula-facing | User approval only | formula/model-matrix tests or documented unsupported syntax |
+| Objective scaling | Yes | No | loss normalization and equivalent penalty mapping, e.g. `lambda_external = n * lambda` when needed |
+| Precision | Yes | No | external or analytic baseline, tolerance source, failure diagnosis |
+| Convergence | Yes | No | solver status, monotonicity/KKT/gradient checks where applicable |
+| Silent fallback | Yes | No | explicit warnings/results fields for fallback or no fallback used |
+| Performance | Conditional | Yes with caveat | benchmark JSON, baseline comparison, optimization notes |
+| Review | Yes | No for CRITICAL/HIGH | `code-review` auto-fix report |
+| Docs/artifacts | Yes | No | docs/changelog/export/benchmark files or explicit not-applicable reason |
+| Remote GPU/large benchmark | No for local completion | Yes | `PARTIAL_REMOTE_PENDING` with exact follow-up command |
 
-### Test file: `dev/tests/test_<module>.py`
+## Capability Table
 
-```python
-import pytest
-import numpy as np
-from numpy.testing import assert_allclose
+Maintain an explicit capability decision for each public model family or
+wrapper touched by the change.
 
-class TestNewFeature:
-    def test_basic(self):
-        """Smoke test: does it run and return correct shape?"""
-        ...
+| Capability | Allowed values | Meaning |
+| --- | --- | --- |
+| backend | `three-backend`, `approved-deferral` | whether numpy/cupy/torch are implemented |
+| CV | `supported`, `non-tunable`, `planned`, `approved-deferral` | whether CV must be implemented now |
+| inference | `supported`, `estimation-only`, `planned`, `approved-deferral` | whether inference must be implemented now |
+| formula | `supported`, `not-formula-facing`, `planned`, `approved-deferral` | whether formula tests are active |
+| benchmark | `required`, `not-performance-sensitive`, `remote-pending` | whether benchmark evidence is needed |
 
-    def test_vs_external(self):
-        """Precision comparison with sklearn/scipy/statsmodels."""
-        from sklearn.xxx import Xxx as SkXxx
-        ours = OurXxx(params).fit(X)
-        sk = SkXxx(params).fit(X)
-        assert_allclose(ours.result_, sk.result_, rtol=1e-6)
+`planned` is not a completion status by itself. It requires a user-visible
+failure mode, tests, docs, and a follow-up task. User approval is required when
+`approved-deferral` changes expected public behavior.
 
-    def test_three_backend_consistency(self):
-        """numpy/cupy/torch produce same results."""
-        r_np = our_func(X, backend="numpy")
-        r_cp = our_func(cp.asarray(X), backend="cupy")
-        r_t = our_func(torch.from_numpy(X).cuda().double(), backend="torch")
-        assert_allclose(r_np, _to_np(r_cp), rtol=1e-10)
-        assert_allclose(r_np, _to_np(r_t), rtol=1e-10)
+## Validation Tiers
 
-    def test_edge_cases(self):
-        """Empty input, single observation, singular matrix, etc."""
-        ...
+Use the highest tier available and report it.
 
-    def test_error_handling(self):
-        """Invalid parameters raise appropriate errors."""
-        ...
-```
+- `local-minimal`: local imports, targeted numpy tests, unavailable-backend
+  errors/skips, active API/error tests, and no unsafe artifacts.
+- `local-full`: `local-minimal` plus every locally available backend, active
+  matrix tests, local external Python baselines, and benchmark JSON key checks.
+- `remote-full`: `local-full` plus remote GPU, R/external packages, or large
+  benchmarks through `dev/scripts/remote_config.py`.
 
-### Run tests
-```bash
-pytest dev/tests/test_<module>.py -v
-```
+`COMPLETE` requires `local-full` for active gates. If only remote-only evidence
+is missing, end as `PARTIAL_REMOTE_PENDING`. If local required evidence is
+missing, end as `FAILED` or `BLOCKED_NEEDS_USER_APPROVAL`.
 
-## Phase 4: Review
+## External Baseline Hierarchy
 
-Run the review loop until clean:
+Use the strongest available baseline and record the choice:
 
-1. **Correctness**: Are formulas right? Edge cases handled?
-2. **Backend consistency**: Same backend in/out? No silent conversions?
-3. **API contract**: Methods match docstrings? Error messages clear?
-4. **Performance**: Unnecessary allocations? Missed vectorization?
-5. **Readability**: Naming, comments, code structure
+1. Analytic closed form or derivative check.
+2. Existing trusted statgpu implementation.
+3. Python reference: sklearn, statsmodels, scipy, lifelines, patsy.
+4. R reference package.
+5. Numerical invariants: finite differences, KKT, monotonic objective,
+   simulation coverage, backend parity.
 
-Fix issues found, re-run tests, repeat until CLEAN.
+Do not block indefinitely on an unavailable external package. Use the next
+baseline tier, record the missing package/command, and mark remote or external
+work pending when appropriate.
 
-## Phase 5: Document
+## Architecture-Specific Test Matrix
 
-### Model docs: `docs/en/models/<module>.md`
-Follow existing format (Overview, Path, Objective Function, Parameters, Examples, FAQ, References).
+The package is organized around pluggable axes: losses, penalties, solvers,
+backends, formula/model-matrix parsing, inference, CV, wrappers, survival, and
+nonparametric/unsupervised estimators. A change must test the axes it touches.
 
-### Changelog (3 files):
-- `CHANGELOG.md` — PR-level summary (1-5 lines)
-- `docs/en/changelog.md` — English detailed (Added/Optimized/Validation)
-- `docs/cn/changelog.md` — Chinese detailed
+| Touched component | Required extra tests |
+| --- | --- |
+| New or changed loss | registry/export, per-sample value/gradient, fused value+gradient parity, finite-difference gradient, Hessian/Lipschitz when advertised, three-backend parity, supported penalties through `solver='auto'`, explicit solver constraints, external/analytic baseline |
+| New or changed penalty | registry/export, value/gradient/prox/LLA semantics, category constants, three-backend parity, compatibility with representative losses, solver auto-dispatch, explicit solver rejection for unsupported combinations, group/adaptive init when applicable |
+| New or changed solver | smooth/non-smooth/nonconvex/group penalty matrix, monotonic objective or KKT evidence, convergence status, explicit incompatibility errors, three-backend parity, auto-dispatch/CV dispatch if used |
+| Public loss x penalty capability | direct fit plus CV layer, alpha/lambda/C path generation, fold scoring, best parameter selection, refit behavior, inference after direct fit and CV refit when supported, backend parity, external/sklearn/R CV baseline when available |
+| New estimator or wrapper | sklearn-style fit/predict/score/get_params behavior, public exports, formula path if exposed, docs examples, external baseline, three-backend parity, inference/CV tests when those flags are supported |
+| CV path | deterministic folds, sample weights, alpha grid/path, best score/refit behavior, no leakage, backend selection, GPU/CPU parity, external baseline when available |
+| Inference path | strict/default behavior, estimation-only errors when unsupported, fallback visibility, `_inference_result` container, summary output, coef/bse/t-or-z/p/CI/AIC/BIC/LLF fields where applicable, backend parity, external baseline |
+| Formula path | intercept, categorical reference levels, interactions/transforms, missing data, column names/order, R or patsy baseline |
+| Backend helper or kernel | dtype/device preservation, no hidden host transfer, memory cleanup when owning GPU buffers, synchronization-sensitive benchmark, numpy/cupy/torch parity |
+| Survival path | censoring, risk sets, Breslow/Efron ties, gradient/Hessian checks, external lifelines/R baseline, backend parity |
+| Nonparametric or unsupervised estimator | sklearn-style API, transform/predict semantics, random_state determinism, external/sklearn baseline, large-scale/memory behavior, backend parity |
 
-## Phase 6: Benchmark (with R comparison)
+For broad cross-axis changes, update or extend a matrix test such as
+`dev/tests/test_loss_penalty_solver_matrix.py` and a precision/benchmark script
+covering the affected loss x penalty x solver x backend combinations.
 
-### Script: `dev/tests/bench_<module>.py`
+## Optimization Budget
 
-```python
-# 3-backend comparison at multiple scales
-for n in [5000, 20000, 50000]:
-    # numpy
-    _, t_np = timeit(lambda: our_func(X, backend="numpy"))
-    # cupy
-    X_c = cp.asarray(X)
-    _, t_cp = timeit(lambda: our_func(X_c, backend="cupy"))
-    # torch
-    X_t = torch.from_numpy(X).cuda().double()
-    _, t_t = timeit(lambda: our_func(X_t, backend="torch"))
-    # sklearn/scipy
-    _, t_sk = timeit(lambda: sk_func(X))
-    print(f"n={n}: numpy={t_np:.0f}ms cupy={t_cp:.0f}ms torch={t_t:.0f}ms sklearn={t_sk:.0f}ms")
+Performance work is mandatory when CPU is slower than an external framework, GPU
+is slower than CPU at target scales, or benchmark data contradicts expected
+acceleration.
 
-# R comparison (via rpy2)
-try:
-    import rpy2.robjects as ro
-    from rpy2.robjects import numpy2ri
-    numpy2ri.activate()
-    r_result = ro.r('aov(y ~ factor(group))')
-    # ... extract F-statistic and p-value ...
-except ImportError:
-    print("rpy2 not available, skipping R comparison")
-```
+Target scale must be explicit. Prefer an existing benchmark scale for the
+module; otherwise report `target_scale_source="temporary"` with the data shape,
+dtype, backend, and rationale. Do not make performance claims without a target
+scale and timing scope.
 
-### Remote execution
-```bash
-# Upload and run on remote server
-scp -P 28838 dev/tests/bench_<module>.py root@hz-4.matpool.com:/root/statgpu/dev/tests/
-ssh -p 28838 root@hz-4.matpool.com "cd /root/statgpu && conda activate myconda && python dev/tests/bench_<module>.py"
-```
+Use this bounded loop:
 
-## Phase 7: Commit and PR (NO AUTO-MERGE)
+1. One profiling pass to identify bottlenecks.
+2. Up to two algorithmic or kernel optimization attempts.
+3. One re-benchmark per attempt.
+4. If still failing, report `BLOCKED_NEEDS_USER_APPROVAL` or
+   `PARTIAL_REMOTE_PENDING` with `optimization_notes`, `cpu_vs_external`,
+   `gpu_vs_cpu`, and `crossover_n`.
 
-```bash
-# 1. Create feature branch
-git checkout -b feature/<module>
+Do not keep optimizing indefinitely without user input.
 
-# 2. Commit with conventional commit message
-git add -A && git commit -m "feat(<module>): <description>"
+## Required Completion Report
 
-# 3. Push and create PR
-git push -u origin feature/<module>
-gh pr create --title "feat: <module>" --body "..."
+The final report must include:
 
-# DO NOT merge - wait for user approval
-```
-
-**IMPORTANT**: Never merge PRs or push to master without explicit user approval.
-
-## Phase 8: Release (only after user approval)
-
-```bash
-# 1. Merge PR (after user approval)
-git checkout master && git merge feature/<module>
-
-# 2. Bump version
-# Edit statgpu/__init__.py and pyproject.toml
-
-# 3. Tag and push
-git tag v<version> && git push origin master --tags
-
-# 4. Build and upload to PyPI
-python -m build
-python -m twine upload dist/statgpu-<version>*
-```
-
-## Checklist
-
-- [ ] Three-backend implementation (numpy/cupy/torch)
-- [ ] Unit tests with external framework comparison
-- [ ] Three-backend consistency tests
-- [ ] Edge case and error handling tests
-- [ ] Code review (bugs, readability, performance)
-- [ ] Model documentation (docs/en/models/)
-- [ ] Three changelog files updated
-- [ ] Benchmark script with 3-backend timing
-- [ ] Remote benchmark executed
-- [ ] Version bumped, tagged, uploaded to PyPI
+- Hard Exit Contract status.
+- Impact classification and validation tier.
+- Files changed.
+- Backends implemented and tested.
+- Architecture-specific compatibility tests added or updated.
+- CV layer status for tunable loss x penalty capabilities.
+- Inference layer status, or explicit estimation-only contract.
+- Precision/convergence result and threshold source.
+- Objective scaling and penalty mapping decisions.
+- Formula compatibility result when applicable.
+- Performance result, benchmark artifact path, and optimization notes.
+- Review-and-fix result.
+- Tests or benchmarks run, including skipped remote work and why.

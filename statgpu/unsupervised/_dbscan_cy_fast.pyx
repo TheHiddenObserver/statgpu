@@ -196,7 +196,7 @@ def dbscan_labels_from_pairs(
     cdef np.ndarray[np.uint8_t, ndim=1] core_mask_arr = np.zeros(n_samples, dtype=np.uint8)
     cdef np.uint8_t[:] core_mask = core_mask_arr
     for i in range(n_samples):
-        if counts[i] >= min_samples:
+        if counts[i] >= min_samples - 1:
             core_mask[i] = 1
             n_core += 1
 
@@ -290,7 +290,7 @@ def dbscan_labels_from_csr(
     cdef np.ndarray[np.uint8_t, ndim=1] core_mask_arr = np.zeros(n_samples, dtype=np.uint8)
     cdef np.uint8_t[:] core_mask = core_mask_arr
     for i in range(n_samples):
-        if counts[i] >= min_samples:
+        if counts[i] >= min_samples - 1:
             core_mask[i] = 1
             n_core += 1
 
