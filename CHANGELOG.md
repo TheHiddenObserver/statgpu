@@ -2,6 +2,37 @@
 
 All notable changes to statgpu are documented here, organized by date and PR.
 
+## 2026-06-28
+
+### Proximal IRLS-CD Solver — Quantile + SCAD/MCP
+
+New solver for quantile regression with nonconvex penalties (SCAD/MCP):
+- **Algorithm**: IRLS quadratic majorization of quantile loss + LLA for nonconvex penalty + batch coordinate descent
+- **CPU (numpy)**: ~3x faster than FISTA-LLA (60-120 iterations vs 1800+)
+- **GPU (torch-CUDA)**: ~36x faster than CPU numpy for large problems (n=10K, p=500)
+- **Three-backend**: numpy, cupy, torch — all GPU-native, no CPU round-trips
+- **sample_weight**: fully supported with normalized weighting
+- File: `statgpu/solvers/_proximal_irls_quantile.py`
+
+### Bisquare + SCAD/MCP Fix
+
+Fixed Bisquare loss + SCAD/MCP returning empty active sets for alpha >= 0.1:
+- Root cause: continuation path started from lambda_max (~3.2) which shrunk all coefficients to zero; subsequent steps couldn't recover
+- Fix: warm-start at LAST step (target alpha) for proximal Newton path; auto-compute OLS warm-start when no explicit init_coef provided
+- Also affects: Huber, Fair, CoxPH + SCAD/MCP (all use proximal Newton path)
+
+### Refactoring
+
+- Extracted `_compute_lla_path()` shared helper for lambda_max + continuation path computation (eliminates 3x code duplication)
+- Renamed `_warm_at_start` → `_fista_warm_at_start` for clarity (only controls FISTA path, not proximal Newton)
+- Removed dead code `_cd_sweep_sequential` (only `_cd_sweep_batch` is used)
+- Added `_dispatch_irls()` method for routing IRLS to correct backend (GLM vs non-GLM losses)
+
+### Numerical Stability
+
+- IRLS weight clamping: `w_max = 100 / eps` prevents overflow when residuals near zero
+- SCAD denominator zero protection: falls back to L1 when `a*alpha - alpha ≈ 0`
+
 ## 2026-06-26
 
 ### Unsupervised Benchmark — 12 Algorithms × 3 Backends

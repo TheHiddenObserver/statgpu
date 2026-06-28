@@ -1,13 +1,39 @@
 # Changelog
 
 > 语言：中文  
-> 最后更新：2026-06-26  
+> 最后更新：2026-06-28  
 > 页面定位：变更记录  
 > 切换：[English](en/changelog.md)
 
 语言切换：[English](en/changelog.md)
 
 ## 2026-06
+
+### 新增 (2026-06-28)
+
+- **Proximal IRLS-CD 求解器**：quantile + SCAD/MCP 的新求解器
+  - 算法：IRLS 二次上界逼近 + LLA 非凸惩罚 + 批量坐标下降
+  - CPU（numpy）：比 FISTA-LLA 快 ~3 倍（60-120 次迭代 vs 1800+）
+  - GPU（torch-CUDA）：大规模问题（n=10K, p=500）比 CPU numpy 快 ~36 倍
+  - 三端支持：numpy、cupy、torch — 全 GPU 原生计算，无 CPU 往返
+  - sample_weight：完整支持
+  - 文件：`statgpu/solvers/_proximal_irls_quantile.py`
+
+- **Bisquare + SCAD/MCP 修复**：
+  - 问题：alpha >= 0.1 时返回空活跃集
+  - 原因：continuation path 从 lambda_max 开始把所有系数压到零，后续步骤无法恢复
+  - 修复：proximal Newton 路径在最后一步（target alpha）warm-start；自动计算 OLS 作为初始值
+  - 影响范围：Huber、Fair、CoxPH + SCAD/MCP 均受益
+
+- **重构**：
+  - 提取 `_compute_lla_path()` 共享方法，消除三处 lambda_max 重复代码
+  - `_warm_at_start` → `_fista_warm_at_start` 命名澄清
+  - 移除 `_cd_sweep_sequential` 死代码
+  - 新增 `_dispatch_irls()` 方法路由 IRLS 到正确后端
+
+- **数值稳定性**：
+  - IRLS 权重钳制：`w_max = 100 / eps` 防止残差接近零时溢出
+  - SCAD 分母零保护：`a*alpha - alpha ≈ 0` 时回退到 L1
 
 ### 新增 (2026-06-26)
 

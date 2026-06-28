@@ -1,13 +1,39 @@
 # Changelog
 
 > Language: English  
-> Last updated: 2026-06-26
+> Last updated: 2026-06-28
 > This page: Changelog  
 > Switch: [Chinese](../changelog.md)
 
 Language switch: [Chinese](../changelog.md)
 
 ## 2026-06
+
+### Added (2026-06-28)
+
+- **Proximal IRLS-CD Solver**: New solver for quantile + SCAD/MCP
+  - Algorithm: IRLS quadratic majorization + LLA nonconvex penalty + batch coordinate descent
+  - CPU (numpy): ~3x faster than FISTA-LLA (60-120 iterations vs 1800+)
+  - GPU (torch-CUDA): ~36x faster than CPU numpy for large problems (n=10K, p=500)
+  - Three-backend: numpy, cupy, torch — fully GPU-native, no CPU round-trips
+  - sample_weight: fully supported
+  - File: `statgpu/solvers/_proximal_irls_quantile.py`
+
+- **Bisquare + SCAD/MCP Fix**:
+  - Issue: returned empty active sets for alpha >= 0.1
+  - Root cause: continuation path started from lambda_max shrunk all coefficients to zero; subsequent steps couldn't recover
+  - Fix: warm-start at LAST step (target alpha) for proximal Newton path; auto-compute OLS warm-start
+  - Also fixes: Huber, Fair, CoxPH + SCAD/MCP (all use proximal Newton path)
+
+- **Refactoring**:
+  - Extracted `_compute_lla_path()` shared helper for lambda_max + continuation path (eliminates 3x duplication)
+  - Renamed `_warm_at_start` → `_fista_warm_at_start` for clarity
+  - Removed dead code `_cd_sweep_sequential`
+  - Added `_dispatch_irls()` method for IRLS backend routing
+
+- **Numerical Stability**:
+  - IRLS weight clamping: `w_max = 100 / eps` prevents overflow near zero residuals
+  - SCAD denominator zero protection: falls back to L1 when `a*alpha - alpha ≈ 0`
 
 ### Added (2026-06-26)
 
