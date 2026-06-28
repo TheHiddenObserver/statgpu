@@ -355,7 +355,9 @@ def _parse_cells_vectorized(data, xp, float_dtype):
             cell_sizes_list.append(n_obs)
 
     if hasattr(xp, 'tensor'):  # torch
-        cell_sizes_arr = xp.tensor(cell_sizes_list, dtype=float_dtype)
+        # Infer device from first cell array to avoid CPU/CUDA mismatch
+        _device = cell_arrays[0].device if cell_arrays else 'cpu'
+        cell_sizes_arr = xp.tensor(cell_sizes_list, dtype=float_dtype, device=_device)
     else:
         cell_sizes_arr = xp.array(cell_sizes_list, dtype=float_dtype)
     return cells, n_a, n_b, cell_arrays, cell_sizes_arr, None, None

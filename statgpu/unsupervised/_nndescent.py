@@ -144,15 +144,20 @@ def nndescent_torch(X, k=15, max_iter=10, tol=0.001, seed=42):
     distances = torch.sum(diff * diff, dim=2).to(torch.float64)
 
     # Iterate
+    node_ids = torch.arange(n, device=X.device).unsqueeze(1)  # (n, 1)
     for epoch in range(max_iter):
         # Collect candidates: neighbors + neighbors of neighbors
         nn_of_nn = indices[indices.view(-1)].view(n, k * k)
         candidates = torch.cat([indices, nn_of_nn], dim=1)  # (n, k + k²)
 
+        # Exclude self-candidates (set distance to inf for self)
+        is_self = (candidates == node_ids)  # (n, k + k²)
+
         # Compute distances to candidates
         X_cand = X[candidates.view(-1)].view(n, k + k * k, d)
         diff = X.unsqueeze(1) - X_cand
         dists = torch.sum(diff * diff, dim=2).to(torch.float64)  # (n, k + k²)
+        dists[is_self] = float('inf')  # exclude self from top-k
 
         # Keep k nearest
         _, topk_idx = torch.topk(dists, k, largest=False, sorted=True)
@@ -214,15 +219,20 @@ def nndescent_cupy(X, k=15, max_iter=10, tol=0.001, seed=42):
     distances = cp.sum(diff * diff, axis=2).astype(dtype)
 
     # Iterate
+    node_ids = cp.arange(n, dtype=cp.int64).reshape(n, 1)  # (n, 1)
     for epoch in range(max_iter):
         # Collect candidates: neighbors + neighbors of neighbors (vectorized)
         nn_of_nn = indices[indices.ravel()].reshape(n, k * k)
         candidates = cp.concatenate([indices, nn_of_nn], axis=1)
 
+        # Exclude self-candidates (set distance to inf for self)
+        is_self = (candidates == node_ids)  # (n, k + k²)
+
         # Compute distances to candidates (vectorized)
         X_cand = X[candidates.ravel()].reshape(n, k + k * k, d)
         diff = X[:, None, :] - X_cand
         dists = cp.sum(diff * diff, axis=2).astype(dtype)
+        dists[is_self] = cp.inf  # exclude self from top-k
 
         # Keep k nearest (vectorized)
         topk_idx = cp.argpartition(dists, k, axis=1)[:, :k]

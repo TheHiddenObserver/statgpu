@@ -183,11 +183,16 @@ class PenalizedCoxPHModel(PenalizedGeneralizedLinearModel):
         for i in range(n):
             for j in range(i + 1, n):
                 if time[i] != time[j]:
-                    permissible += 1
-                    # Higher risk (higher HR) should have shorter survival
-                    if (hr[i] > hr[j] and time[i] < time[j]) or \
-                       (hr[i] < hr[j] and time[i] > time[j]):
-                        concordant += 1
+                    # A pair is permissible only if the shorter time is observed (not censored)
+                    # If the shorter time is censored, we don't know the true ordering
+                    if time[i] < time[j] and event[i] == 1:
+                        permissible += 1
+                        if hr[i] > hr[j]:
+                            concordant += 1
+                    elif time[j] < time[i] and event[j] == 1:
+                        permissible += 1
+                        if hr[j] > hr[i]:
+                            concordant += 1
 
         return concordant / permissible if permissible > 0 else 0.5
 

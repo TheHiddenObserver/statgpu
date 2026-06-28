@@ -366,7 +366,8 @@ class DBSCAN(BaseEstimator):
         adj_indices = adj.indices()
 
         labels_core = torch.arange(n_core, device=device, dtype=torch.int64)
-        for _ in range(50):
+        # Propagate until convergence (no fixed limit — handles long chains)
+        for _ in range(n_core):  # worst case: linear chain needs n_core iterations
             src_labels = labels_core[adj_indices[0]]
             dst_labels = labels_core[adj_indices[1]]
             min_labels = torch.minimum(src_labels, dst_labels)

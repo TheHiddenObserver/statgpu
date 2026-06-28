@@ -233,6 +233,12 @@ def _evaluate_loss_numpy(loss_name, loss_fn, X_val_np, y_val_np, coef_np, interc
             _loss_params["alpha"] = float(getattr(loss_fn, "alpha", _NB_ALPHA_DEFAULT))
         elif loss_name == "tweedie":
             _loss_params["power"] = float(getattr(loss_fn, "power", _TWEEDIE_POWER_DEFAULT))
+        elif loss_name == "quantile":
+            _loss_params["quantile"] = float(getattr(loss_fn, "_tau", getattr(loss_fn, "quantile", 0.5)))
+        elif loss_name in ("huber", "fair"):
+            _loss_params["delta"] = float(getattr(loss_fn, "delta", 1.35))
+        elif loss_name == "bisquare":
+            _loss_params["delta"] = float(getattr(loss_fn, "delta", 4.685))
 
         per_sample_fn, uses_design = entry
         if uses_design:
