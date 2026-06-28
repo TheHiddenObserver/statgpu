@@ -191,22 +191,16 @@ def _efron_backward_scan_vectorized(
     X, e_linpred, risk_sum, risk_X_sum,
     first_idx_uft, uft_ix, nuft, n, p,
 ):
-    """Vectorized Efron via cumsum of outer products — no Python loop over groups.
+    """Vectorized Efron gradient/Hessian via suffix outer products.
 
-    O(n·p²) memory, fast when p is moderate (<= ~100).
-    Same algorithm as the GPU vectorized path.
+    Properly handles tied failures with Efron's k/d correction.
+    O(n·p²) memory for suffix outer products; O(nuft·d·p) for Efron loop.
     """
     X_exp = X * e_linpred[:, None]
     total = X_exp.T @ X  # (p, p)
 
-    # Per-group quantities
+    # Suffix outer products: risk_X2[g] = sum_{i >= first_idx[g]} X_i exp(eta_i) X_i'
     fi = first_idx_uft.astype(np.int64)
-    risk_at = risk_sum[fi]
-    E_X = risk_X_sum[fi] / risk_at[:, None]
-    counts = np.array([len(uft_ix[g]) for g in range(nuft)], dtype=np.float64)
-    sc = counts / risk_at
-
-    # Cumsum of outer products → prefix at each failure time
     flat = (X_exp[:, :, None] * X[:, None, :]).reshape(n, p * p)
     prefix_flat = np.cumsum(flat, axis=0)  # (n, p*p)
 
@@ -214,16 +208,52 @@ def _efron_backward_scan_vectorized(
     mask = fi > 0
     if mask.any():
         prefix_at_g[mask] = prefix_flat[fi[mask] - 1].reshape(-1, p, p)
-
-    # risk_X2[g] = total - prefix[g]
     risk_X2 = total[None, :, :] - prefix_at_g  # (nuft, p, p)
 
-    # hess = -sum_g sc[g] * risk_X2[g] + sum_g counts[g] * outer(E_X[g], E_X[g])
-    grad = np.sum(X[fi], axis=0) - np.sum(E_X * counts[:, None], axis=0)
-    hess = -np.einsum("g,gij->ij", sc, risk_X2)
-    hess += np.einsum("g,gi,gj->ij", counts, E_X, E_X)
+    # Efron gradient/Hessian with proper tied-event correction
+    grad = np.zeros(p, dtype=np.float64)
+    hess = np.zeros((p, p), dtype=np.float64)
 
-    return grad, hess
+    for g in range(nuft):
+        ix_ev = uft_ix[g]
+        d = len(ix_ev)
+        if d == 0:
+            continue
+
+        # Risk set quantities at this failure time
+        s0 = float(risk_sum[fi[g]])
+        s1 = risk_X_sum[fi[g]]  # (p,)
+
+        # Tied failure quantities
+        v = X[ix_ev]  # (d, p) — ALL failures, not just first
+        elx = e_linpred[ix_ev]  # (d,)
+        xp0f = float(elx.sum())
+        xp1f = v.T @ elx  # (p,) — weighted sum of failure covariates
+
+        # Efron correction: for k=0..d-1, denominator = s0 - (k/d)*xp0f
+        J = np.arange(d, dtype=np.float64) / d  # (d,)
+        c0 = s0 - J * xp0f  # (d,)
+        np.maximum(c0, 1e-300, out=c0)
+        inv = 1.0 / c0  # (d,)
+        J_inv = J * inv  # (d,)
+        sum_inv = inv.sum()
+        sum_J = J_inv.sum()
+        sum_aa = np.dot(inv, inv)
+        sum_bb = np.dot(J_inv, J_inv)
+        sum_ab = np.dot(inv, J_inv)
+
+        # Gradient: sum of ALL failure X's minus Efron-corrected risk term
+        grad += v.sum(axis=0)  # sum_{i in D_g} X_i
+        grad -= s1 * sum_inv - xp1f * sum_J
+
+        # Hessian: Efron-corrected second moment
+        hess -= risk_X2[g] * sum_inv
+        hess += (v * elx[:, None]).T @ v * sum_J  # xp2f * sum_J
+        hess += sum_aa * np.outer(s1, s1)
+        hess += sum_bb * np.outer(xp1f, xp1f)
+        hess -= sum_ab * (np.outer(s1, xp1f) + np.outer(xp1f, s1))
+
+    return grad, -hess
 
 
 class CoxPH(BaseEstimator):

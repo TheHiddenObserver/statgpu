@@ -1,7 +1,55 @@
-"""DBSCAN edge case tests: min_samples=1, high-dim path, Cython fallback."""
+"""DBSCAN edge case tests: min_samples=1, high-dim path, Cython fallback.
+CoxPH Efron tie correctness tests."""
 
 import numpy as np
 import pytest
+
+
+class TestCoxEfronTies:
+    """CoxPH Efron tied-event correctness tests."""
+
+    def test_efron_tied_events_fit(self):
+        """Efron should produce finite coefficients with many tied event times."""
+        from statgpu.survival import CoxPH
+
+        np.random.seed(42)
+        n, p = 100, 3
+        X = np.random.randn(n, p)
+
+        # Create data with many tied event times
+        time = np.random.choice([1, 2, 3, 4, 5], size=n).astype(np.float64)
+        event = np.ones(n, dtype=np.float64)
+
+        model = CoxPH(ties='efron', device='cpu', max_iter=50)
+        model.fit(X, time, event)
+
+        # Should produce finite coefficients
+        assert np.all(np.isfinite(model.coef_)), "Coefficients should be finite"
+        assert np.linalg.norm(model.coef_) > 0, "Coefficients should be non-zero"
+
+    def test_efron_unique_times_matches_breslow(self):
+        """When no ties, Efron and Breslow should give similar results."""
+        from statgpu.survival import CoxPH
+
+        np.random.seed(42)
+        n, p = 50, 3
+        X = np.random.randn(n, p)
+
+        # All unique event times (no ties)
+        time = np.arange(n, dtype=np.float64) + np.random.uniform(0, 0.1, n)
+        event = np.ones(n, dtype=np.float64)
+
+        # Breslow
+        model_b = CoxPH(ties='breslow', device='cpu', max_iter=50)
+        model_b.fit(X, time, event)
+
+        # Efron
+        model_e = CoxPH(ties='efron', device='cpu', max_iter=50)
+        model_e.fit(X, time, event)
+
+        # Coefficients should be very close when no ties
+        np.testing.assert_allclose(model_e.coef_, model_b.coef_, rtol=1e-3,
+                                    err_msg="Efron coef should match Breslow when no ties")
 
 
 class TestDBSCANMinSamples1:

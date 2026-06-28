@@ -407,21 +407,41 @@ class CoxPartialLikelihoodLoss(LossBase):
             re_val = risk_enter[g]
             re = int(re_val[0]) if isinstance(re_val, (list, np.ndarray)) else int(re_val)
             s0 = float(risk_sum[re])
-            s1 = risk_X_sum[re]
-            sum_ev_exp = float(cp.sum(exp_eta[ix_ev]))
-            sum_ev_X = cp.sum(X_s[ix_ev], axis=0)
-            risk_X2 = total_X2 - prefix_flat[re].reshape(p, p)
+            s1 = risk_X_sum[re]  # (p,)
 
+            # Tied failure quantities — ALL failures in group
+            v = X_s[ix_ev]  # (d, p)
+            elx = exp_eta[ix_ev]  # (d,)
+            xp0f = float(cp.sum(elx))
+            xp1f = v.T @ elx  # (p,)
+            xp2f = (v * elx[:, None]).T @ v  # (p, p)
+
+            # Efron correction: for k=0..d-1, denominator = s0 - (k/d)*xp0f
             k_vals = cp.arange(d, dtype=cp.float64)
-            denom = s0 - (k_vals / d) * sum_ev_exp
-            safe_denom = cp.maximum(denom, 1e-300)
-            sum_inv = float(cp.sum(1.0 / safe_denom))
-            sum_inv2 = float(cp.sum(1.0 / (safe_denom * safe_denom)))
+            J = k_vals / d  # (d,)
+            c0 = s0 - J * xp0f  # (d,)
+            safe_denom = cp.maximum(c0, 1e-300)
+            inv = 1.0 / safe_denom  # (d,)
+            J_inv = J * inv  # (d,)
+            sum_inv = float(cp.sum(inv))
+            sum_J = float(cp.sum(J_inv))
+            sum_aa = float(cp.dot(inv, inv))
+            sum_bb = float(cp.dot(J_inv, J_inv))
+            sum_ab = float(cp.dot(inv, J_inv))
 
-            grad = grad + sum_ev_X - s1 * sum_inv * d
-            hess = hess - (risk_X2 * sum_inv - cp.outer(s1, s1) * sum_inv2 * d)
+            # Gradient: sum of ALL failure X's minus Efron-corrected risk term
+            grad += cp.sum(v, axis=0)  # sum_{i in D_g} X_i
+            grad -= s1 * sum_inv - xp1f * sum_J
 
-        return grad, hess
+            # Hessian: Efron-corrected second moment
+            risk_X2 = total_X2 - prefix_flat[re].reshape(p, p)
+            hess -= risk_X2 * sum_inv
+            hess += xp2f * sum_J
+            hess += sum_aa * cp.outer(s1, s1)
+            hess += sum_bb * cp.outer(xp1f, xp1f)
+            hess -= sum_ab * (cp.outer(s1, xp1f) + cp.outer(xp1f, s1))
+
+        return grad, -hess
 
     def _gpu_loglik(self, coef_dev, X_s):
         """Compute log-likelihood via GPU kernel."""
