@@ -145,9 +145,16 @@ def proximal_newton_solver(
             else:
                 import torch
                 direction = torch.linalg.solve(hess_reg, grad.unsqueeze(1)).squeeze(1)
-        except (np.linalg.LinAlgError, ValueError, RuntimeError):
-            # Fallback to gradient descent if Hessian is singular
+        except (np.linalg.LinAlgError, ValueError) as e:
+            # Fallback to gradient descent if Hessian is singular/ill-conditioned
             direction = grad
+        except RuntimeError as e:
+            # Only catch singular/ill-conditioned errors, re-raise others (OOM, device mismatch, etc.)
+            err_msg = str(e).lower()
+            if "singular" in err_msg or "ill-conditioned" in err_msg or "not invertible" in err_msg:
+                direction = grad
+            else:
+                raise
 
         # Armijo backtracking line search with proximal step
         obj_old_dev, _ = loss.fused_value_and_gradient(X_proc, y_proc, params_old, sample_weight=sample_weight)

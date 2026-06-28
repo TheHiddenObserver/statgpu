@@ -104,6 +104,11 @@ class DBSCAN(BaseEstimator):
 
         pairs = tree.query_pairs(r=eps, output_type="ndarray")
         if not pairs.size:
+            # query_pairs excludes self; for min_samples=1, each point is its own core
+            if min_samples <= 1:
+                labels = np.arange(n_samples, dtype=np.int64)
+                core_indices = np.arange(n_samples, dtype=np.int64)
+                return labels, core_indices
             return np.full(n_samples, -1, dtype=np.int64), np.empty(0, dtype=np.int64)
 
         pairs64 = np.ascontiguousarray(pairs, dtype=np.int64)

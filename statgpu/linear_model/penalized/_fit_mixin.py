@@ -1887,6 +1887,8 @@ class _PenalizedFitMixin:
             if _loss_name == "quantile" and _has_irls and _is_smooth_pen:
                 _X_np = _to_numpy(X_work)
                 _y_np = _to_numpy(y_arr)
+                # Convert sample_weight to numpy for consistency
+                _sw_np = None if sample_weight is None else _to_numpy(sample_weight)
                 # Pass the inner penalty (not SelectivePenalty wrapper)
                 _inner_pen = getattr(self._penalty, '_pen', self._penalty)
                 # IRLS needs tighter tolerance than default (1e-4 is too loose
@@ -1898,7 +1900,7 @@ class _PenalizedFitMixin:
                     penalty=_inner_pen,
                     max_iter=self.max_iter, tol=_irls_tol,
                     init_coef=None,
-                    sample_weight=sample_weight,
+                    sample_weight=_sw_np,
                     fit_intercept=self._effective_intercept,
                 )
                 params = _xp_asarray(params_irls, X_arr.dtype, X_arr)
