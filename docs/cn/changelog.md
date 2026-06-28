@@ -9,31 +9,58 @@
 
 ## 2026-06
 
-### 新增 (2026-06-28)
+### 新增 (2026-06-28) — PR #73
+
+- **Loss 架构重构 — LossBase 提取**：
+  - 从 `GLMLoss` 提取 `LossBase` 基类，用于 quantile/robust/survival 损失
+  - `LossBase`：抽象基类，`per_sample_value()`、`per_sample_gradient()` 为唯一真实来源；自动派生 `value()`、`gradient()`、`fused_value_and_gradient()`
+  - `GLMLoss` 继承 `LossBase`，保留 GLM 特有功能（canonical link、IRLS）
+  - 新增损失类：`QuantileLoss`、`HuberLoss`、`BisquareLoss`、`CoxPartialLikelihoodLoss`
+  - 新增模块：`PenalizedQuantileRegression`、`PenalizedRobustRegression`、`PenalizedCoxRegression`
 
 - **Proximal IRLS-CD 求解器**：quantile + SCAD/MCP 的新求解器
-  - 算法：IRLS 二次上界逼近 + LLA 非凸惩罚 + 批量坐标下降
+  - 算法：IRLS 二次上界逼近 + LLA 非凸惩罚 + 并行对角化
   - CPU（numpy）：比 FISTA-LLA 快 ~3 倍（60-120 次迭代 vs 1800+）
   - GPU（torch-CUDA）：大规模问题（n=10K, p=500）比 CPU numpy 快 ~36 倍
   - 三端支持：numpy、cupy、torch — 全 GPU 原生计算，无 CPU 往返
-  - sample_weight：完整支持
-  - 文件：`statgpu/solvers/_proximal_irls_quantile.py`
 
-- **Bisquare + SCAD/MCP 修复**：
-  - 问题：alpha >= 0.1 时返回空活跃集
-  - 原因：continuation path 从 lambda_max 开始把所有系数压到零，后续步骤无法恢复
-  - 修复：proximal Newton 路径在最后一步（target alpha）warm-start；自动计算 OLS 作为初始值
-  - 影响范围：Huber、Fair、CoxPH + SCAD/MCP 均受益
+- **CoxPH Efron 优化**：
+  - 向量化 Efron：基于前缀和的梯度/Hessian 计算（无 Python 循环）
+  - 多块 CUDA kernel：Efron 的 fused loglik+grad+hess
+  - DLPack 桥接：torch-CUDA 通过 DLPack 使用 CuPy Efron kernel
+  - 性能：n=5000 时比 statsmodels 快 3-6 倍；GPU 比 CPU 快 6 倍
+  - 移除 Numba 依赖，纯 numpy 实现
+
+- **GLM Fused Value+Gradient**：集成 `_fused.py` 到 `GLMLoss.fused_value_and_gradient()`
+
+- **FISTA GPU 同步优化**：批量 GPU 同步（convergence+divergence+lipschitz 一次传输）
+
+- **Quantile IRLS 求解器**：`QuantileLoss.irls()` 方法，光滑惩罚（L2）下 5-15 次迭代收敛
+
+- **Huber Hessian 支持**：`has_hessian = True`，支持 proximal Newton（5-10 次迭代）
+
+- **Bisquare + SCAD/MCP 修复**：alpha >= 0.1 时返回空活跃集的问题
 
 - **重构**：
-  - 提取 `_compute_lla_path()` 共享方法，消除三处 lambda_max 重复代码
-  - `_warm_at_start` → `_fista_warm_at_start` 命名澄清
-  - 移除 `_cd_sweep_sequential` 死代码
+  - 提取 `_compute_lla_path()` 共享方法
+  - `_NON_IRLS_LOSSES` → `_SPECIAL_LLA_LOSSES` 命名修正
+  - `_cd_sweep_batch` → `_parallel_majorization_step` 命名修正
   - 新增 `_dispatch_irls()` 方法路由 IRLS 到正确后端
 
-- **数值稳定性**：
-  - IRLS 权重钳制：`w_max = 100 / eps` 防止残差接近零时溢出
-  - SCAD 分母零保护：`a*alpha - alpha ≈ 0` 时回退到 L1
+- **数值稳定性**：IRLS 权重钳制、SCAD 分母零保护、CoxPH Efron `inv_d1_sq` 钳制
+
+- **Bug 修复**：
+  - Group penalties cupy 兼容性和 device-aware cache
+  - Huber `per_sample_value` 公式修正
+  - Quantile IRLS 跳过 intercept 列惩罚
+  - Proximal Newton 传递 `sample_weight`
+  - DBSCAN `min_samples` off-by-one（sklearn 包含自身）
+  - DBSCAN `indices/distances` 返回值顺序修正
+  - DBSCAN GPU label propagation 改为收敛即停
+  - NNDescent 排除自身候选
+  - Cox C-index 排除 censored 短时间
+  - CV scoring 传递 loss kwargs
+  - ANOVA torch device mismatch
 
 ### 新增 (2026-06-26)
 

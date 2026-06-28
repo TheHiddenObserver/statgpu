@@ -2,36 +2,92 @@
 
 All notable changes to statgpu are documented here, organized by date and PR.
 
-## 2026-06-28
+## 2026-06-28 (PR #73)
+
+### Loss Architecture — LossBase Extraction
+
+Extracted `LossBase` from `GLMLoss` for quantile/robust/survival losses:
+- **LossBase**: abstract base with `per_sample_value()`, `per_sample_gradient()` as single source of truth; derives `value()`, `gradient()`, `fused_value_and_gradient()` automatically
+- **GLMLoss** inherits from `LossBase` for GLM-specific features (canonical link, IRLS)
+- New loss classes: `QuantileLoss`, `HuberLoss`, `BisquareLoss`, `CoxPartialLikelihoodLoss`
+- New modules: `PenalizedQuantileRegression`, `PenalizedRobustRegression`, `PenalizedCoxRegression`
+- Files: `statgpu/losses/_base.py`, `_quantile.py`, `_huber.py`, `_bisquare.py`, `_cox_ph.py`, `_robust_base.py`
 
 ### Proximal IRLS-CD Solver — Quantile + SCAD/MCP
 
 New solver for quantile regression with nonconvex penalties (SCAD/MCP):
-- **Algorithm**: IRLS quadratic majorization of quantile loss + LLA for nonconvex penalty + batch coordinate descent
+- **Algorithm**: IRLS quadratic majorization of quantile loss + LLA for nonconvex penalty + parallel diagonal majorization
 - **CPU (numpy)**: ~3x faster than FISTA-LLA (60-120 iterations vs 1800+)
 - **GPU (torch-CUDA)**: ~36x faster than CPU numpy for large problems (n=10K, p=500)
 - **Three-backend**: numpy, cupy, torch — all GPU-native, no CPU round-trips
 - **sample_weight**: fully supported with normalized weighting
 - File: `statgpu/solvers/_proximal_irls_quantile.py`
 
+### CoxPH Efron Optimization
+
+Major performance work for Cox partial likelihood with Efron tie correction:
+- **Vectorized Efron**: prefix-sum based gradient/Hessian computation (no Python loops)
+- **Multi-block CUDA kernel**: fused loglik+grad+hess for Efron on GPU
+- **DLPack bridge**: torch-CUDA uses CuPy Efron kernel via DLPack
+- **Performance**: 3-6x faster than statsmodels at n=5000; GPU 6x faster than CPU
+- Removed Numba dependency, pure numpy implementation
+
+### GLM Fused Value+Gradient
+
+- Integrated `_fused.py` into `GLMLoss.fused_value_and_gradient()` for all GLM families
+- Reduces kernel launches and GPU-CPU syncs
+
+### FISTA GPU Sync Optimization
+
+- Batch GPU syncs: convergence+divergence+lipschitz in one transfer
+- Reduced GPU-CPU syncs in backtracking loop
+
+### Quantile IRLS Solver
+
+- Added `QuantileLoss.irls()` method for fast convergence with smooth penalties (L2)
+- Backend-aware: numpy, cupy, torch
+- Converges in 5-15 iterations vs 300+ for FISTA
+
+### Huber Hessian Support
+
+- Added `has_hessian = True` to `HuberLoss`
+- Enables proximal Newton solver for Huber + nonconvex penalties (5-10 iterations vs 300+ for FISTA)
+
 ### Bisquare + SCAD/MCP Fix
 
 Fixed Bisquare loss + SCAD/MCP returning empty active sets for alpha >= 0.1:
-- Root cause: continuation path started from lambda_max (~3.2) which shrunk all coefficients to zero; subsequent steps couldn't recover
-- Fix: warm-start at LAST step (target alpha) for proximal Newton path; auto-compute OLS warm-start when no explicit init_coef provided
-- Also affects: Huber, Fair, CoxPH + SCAD/MCP (all use proximal Newton path)
+- Root cause: continuation path started from lambda_max (~3.2) which shrunk all coefficients to zero
+- Fix: warm-start at LAST step (target alpha) for proximal Newton path
+- Also affects: Huber, Fair, CoxPH + SCAD/MCP
 
 ### Refactoring
 
-- Extracted `_compute_lla_path()` shared helper for lambda_max + continuation path computation (eliminates 3x code duplication)
-- Renamed `_warm_at_start` → `_fista_warm_at_start` for clarity (only controls FISTA path, not proximal Newton)
-- Removed dead code `_cd_sweep_sequential` (only `_cd_sweep_batch` is used)
-- Added `_dispatch_irls()` method for routing IRLS to correct backend (GLM vs non-GLM losses)
+- Extracted `_compute_lla_path()` shared helper for lambda_max + continuation path computation
+- Renamed `_warm_at_start` → `_fista_warm_at_start` for clarity
+- Renamed `_NON_IRLS_LOSSES` → `_SPECIAL_LLA_LOSSES` (less misleading)
+- Renamed `_cd_sweep_batch` → `_parallel_majorization_step` (accurate name)
+- Added `_dispatch_irls()` method for routing IRLS to correct backend
 
 ### Numerical Stability
 
 - IRLS weight clamping: `w_max = 100 / eps` prevents overflow when residuals near zero
 - SCAD denominator zero protection: falls back to L1 when `a*alpha - alpha ≈ 0`
+- CoxPH Efron: `inv_d1_sq` clamping to avoid overflow in vectorized path
+
+### Bug Fixes
+
+- Group penalties: cupy compatibility after numpy/torch use
+- Group penalties: device-aware cache for torch-CUDA
+- Huber: correct `per_sample_value` formula (min(quad,linear) was wrong for small |u|)
+- Quantile IRLS: skip intercept column when applying penalty
+- Proximal Newton: pass `sample_weight` to all loss function calls
+- DBSCAN: `min_samples` off-by-one (sklearn includes self in count)
+- DBSCAN: fix indices/distances swap in `radius_neighbors` return value
+- DBSCAN: GPU label propagation to convergence (no 50-round cap)
+- NNDescent: exclude self-candidates in refinement
+- Cox C-index: exclude censored shorter times from permissible pairs
+- CV scoring: pass loss kwargs (quantile tau, huber/bisquare delta)
+- ANOVA: torch device mismatch for cell_sizes_arr
 
 ## 2026-06-26
 
