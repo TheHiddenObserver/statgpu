@@ -95,6 +95,77 @@ def _get_sqerr_proximal_cupy():
 
 
 # ---------------------------------------------------------------------------
+# Fused proximal + momentum + gradient clipping kernel
+# Reduces 3 kernel launches to 1 for the generic (non-quadratic) path.
+# ---------------------------------------------------------------------------
+
+_FUSED_PROXIMAL_CLIP_TORCH = None
+_FUSED_PROXIMAL_CLIP_CUPY = None
+
+
+def _get_fused_proximal_clip_torch():
+    """Fused: gradient clipping + weighted soft-threshold + momentum (torch)."""
+    global _FUSED_PROXIMAL_CLIP_TORCH
+    if _FUSED_PROXIMAL_CLIP_TORCH is None:
+        import torch
+
+        def _fused(grad, y_current, step, thresh, coef_old, beta,
+                   do_clip, grad_norm, grad_cap):
+            # Gradient clipping (element-wise, avoids separate kernel)
+            clipped_grad = torch.where(
+                do_clip & (grad_norm > grad_cap),
+                grad * (grad_cap / grad_norm.clamp(min=1e-30)),
+                grad,
+            )
+            # Weighted soft-threshold (proximal for AdaptiveL1)
+            w = y_current - step * clipped_grad
+            abs_w = w.abs()
+            sign_w = w.sign()
+            coef_new = sign_w * (abs_w - thresh).clamp(min=0.0)
+            # Nesterov momentum
+            y_k = coef_new + beta * (coef_new - coef_old)
+            return coef_new, y_k
+
+        # Try torch.compile on capable GPUs
+        _cap = torch.cuda.get_device_capability()[0] if torch.cuda.is_available() else 0
+        if _cap >= 7:
+            try:
+                _FUSED_PROXIMAL_CLIP_TORCH = torch.compile(
+                    _fused, mode='reduce-overhead', backend='inductor')
+            except (RuntimeError, TypeError):
+                _FUSED_PROXIMAL_CLIP_TORCH = _fused
+        else:
+            _FUSED_PROXIMAL_CLIP_TORCH = _fused
+    return _FUSED_PROXIMAL_CLIP_TORCH
+
+
+def _get_fused_proximal_clip_cupy():
+    """Fused: gradient clipping + weighted soft-threshold + momentum (cupy)."""
+    global _FUSED_PROXIMAL_CLIP_CUPY
+    if _FUSED_PROXIMAL_CLIP_CUPY is None:
+        import cupy as cp
+        _FUSED_PROXIMAL_CLIP_CUPY = cp.ElementwiseKernel(
+            'T grad, T y_current, T step, T thresh, T coef_old, T beta, '
+            'bool do_clip, T grad_norm, T grad_cap',
+            'T coef_new, T y_k',
+            '''
+            T g = grad;
+            if (do_clip && grad_norm > grad_cap) {
+                T safe_norm = (grad_norm > 1e-30) ? grad_norm : 1e-30;
+                g = grad * (grad_cap / safe_norm);
+            }
+            T w = y_current - step * g;
+            T abs_w = abs(w);
+            T sign_w = (w > 0) ? 1 : ((w < 0) ? -1 : 0);
+            coef_new = (abs_w > thresh) ? sign_w * (abs_w - thresh) : 0;
+            y_k = coef_new + beta * (coef_new - coef_old);
+            ''',
+            'fused_proximal_clip',
+        )
+    return _FUSED_PROXIMAL_CLIP_CUPY
+
+
+# ---------------------------------------------------------------------------
 # Main solver
 # ---------------------------------------------------------------------------
 
@@ -274,6 +345,12 @@ def fista_lla_path(
     coef = _zeros_coef()
     warm_coef = _warm_start_coef()
 
+    # For non-GLM losses (quantile, huber, etc.) in FISTA path: warm-start at
+    # FIRST step (not last). FISTA benefits from starting near the solution.
+    # Proximal Newton path uses LAST step (different logic, see _has_hessian branch).
+    _is_non_glm = not getattr(loss, '_is_quadratic', False) and not hasattr(loss, '_mu_from_eta')
+    _fista_warm_at_start = _is_non_glm and warm_coef is not None
+
     total_iter = 0
     inner_pen = AdaptiveL1Penalty(alpha=1.0)
     path_records = [] if return_path else None
@@ -383,144 +460,188 @@ def fista_lla_path(
                     break
             _record_path_alpha(cont_alpha)
     else:
-        # Pre-compute XtX and Xty for squared_error (avoids redundant matmuls).
-        # Must gate on sample_weight is None because XtX/Xty are unweighted.
-        _use_xtx = _is_quadratic and backend == "numpy" and sample_weight is None
-        if _use_xtx:
-            Xty = X_c.T @ y_c
+        # Generic path for non-quadratic losses (Huber, Bisquare, Fair, CoxPH, etc.)
+        # For losses with Hessian: use Proximal Newton (5-10 iter per LLA step).
+        # For losses without Hessian: use FISTA (300+ iter per LLA step).
+        _has_hessian = getattr(loss, 'has_hessian', False)
+        _is_numpy = backend == "numpy"
 
-        for _cont_i, cont_alpha in enumerate(alpha_path):
-            # Create a copy with the continuation alpha to avoid mutating
-            # the shared penalty object (thread-safety for future parallel CV).
-            _pen_step = copy.copy(scad_penalty)
-            _pen_step.alpha = float(cont_alpha)
-            _mi = max_iter[_cont_i] if isinstance(max_iter, (list, tuple)) else max_iter
-            if warm_coef is not None and _cont_i == len(alpha_path) - 1:
-                coef = _copy_arr(warm_coef)
+        if _has_hessian:
+            # ── Proximal Newton path ──────────────────────────────────
+            from ._proximal_newton import proximal_newton_solver
 
-            for _lla_i in range(max_lla_per_step):
-                # lla_weights() is now backend-aware -- stays on device
-                if _augment_intercept:
-                    lla_w_feat = _pen_step.lla_weights(coef[:n_features])
-                    # Append 0.0 for intercept on device
-                    _zero_append = _zeros(1, backend, ref_tensor=coef)
-                    lla_w = xp.concatenate([lla_w_feat, _zero_append])
-                else:
-                    lla_w = _pen_step.lla_weights(coef)
-                if lla_penalty_factory is not None:
-                    # lla_penalty_factory expects numpy; convert only if needed
-                    lla_w_np = _to_numpy(lla_w) if type(lla_w).__module__ != "numpy" else lla_w
-                    inner_pen = lla_penalty_factory(lla_w_np)
-                else:
-                    inner_pen._weights = lla_w
+            for _cont_i, cont_alpha in enumerate(alpha_path):
+                _pen_step = copy.copy(scad_penalty)
+                _pen_step.alpha = float(cont_alpha)
+                _mi = max_iter[_cont_i] if isinstance(max_iter, (list, tuple)) else max_iter
+                # Warm-start at LAST step (target alpha).
+                # Proximal Newton converges fast (5-10 iter), so starting
+                # from OLS at the target alpha is better than starting from
+                # a large-alpha solution that may have shrunk everything.
+                if warm_coef is not None and _cont_i == len(alpha_path) - 1:
+                    coef = _copy_arr(warm_coef)
 
-                # Save coef for LLA convergence check (on device)
-                coef_before_lla = _copy_arr(coef)
-
-                # --- FISTA inner solve (fixed-step, no backtracking) ---
-                y_k = _copy_arr(coef)
-                t_k = 1.0
-                L = L_base
-
-                # Get fused proximal+momentum kernel for GPU paths
-                if backend == "torch":
-                    _fused_update = _get_sqerr_proximal_torch()
-                elif backend == "cupy":
-                    _fused_update = _get_sqerr_proximal_cupy()
-                else:
-                    _fused_update = None
-                step = 1.0 / L
-
-                # Pre-compute device-side tolerance for convergence check
-                if backend != "numpy":
-                    _tol_dev = xp.asarray(tol)
-
-                # --- Async inner loop: skip backtracking, use fixed step ---
-                # For LLA, the Lipschitz constant L is pre-computed and stable.
-                # Backtracking is unnecessary — use fixed step 1/L.
-                # This eliminates per-iteration GPU→CPU syncs.
-                for iteration in range(_mi):
-                    coef_old = _copy_arr(coef)
-
-                    if _use_xtx:
-                        grad = (XtX @ y_k - Xty) / n_samples
+                for _lla_i in range(max_lla_per_step):
+                    # Compute LLA weights
+                    if _augment_intercept:
+                        lla_w_feat = _pen_step.lla_weights(coef[:n_features])
+                        _zero_append = _zeros(1, backend, ref_tensor=coef)
+                        lla_w = xp.concatenate([lla_w_feat, _zero_append])
                     else:
+                        lla_w = _pen_step.lla_weights(coef)
+                    if lla_penalty_factory is not None:
+                        lla_w_np = _to_numpy(lla_w) if type(lla_w).__module__ != "numpy" else lla_w
+                        inner_pen = lla_penalty_factory(lla_w_np)
+                    else:
+                        inner_pen._weights = lla_w
+
+                    coef_before_lla = _copy_arr(coef)
+
+                    # Proximal Newton inner solve (5-10 iter vs 300+ for FISTA)
+                    coef, n_iter_inner = proximal_newton_solver(
+                        loss, inner_pen, X_c, y_c,
+                        max_iter=min(_mi, 20), tol=tol,
+                        init_coef=coef, sample_weight=sample_weight,
+                    )
+                    total_iter += n_iter_inner
+
+                    # LLA convergence check
+                    delta = float(_to_numpy(_abs_sum_dev(coef - coef_before_lla)))
+                    if delta < lla_tol:
+                        break
+                _record_path_alpha(cont_alpha)
+
+        else:
+            # ── FISTA path (for losses without Hessian, e.g. Quantile) ─
+            _conv_check_freq = 10 if _is_numpy else 5
+            _grad_clip_freq = 20 if _is_numpy else 10
+
+            # Get fused kernel for GPU (CUDA only).
+            if backend == "torch":
+                from statgpu.backends._utils import _get_torch_device_str
+                _fused_clip_update = (
+                    _get_fused_proximal_clip_torch() if _get_torch_device_str() == "cuda" else None
+                )
+            elif backend == "cupy":
+                _fused_clip_update = _get_fused_proximal_clip_cupy()
+            else:
+                _fused_clip_update = None
+
+            for _cont_i, cont_alpha in enumerate(alpha_path):
+                _pen_step = copy.copy(scad_penalty)
+                _pen_step.alpha = float(cont_alpha)
+                _mi = max_iter[_cont_i] if isinstance(max_iter, (list, tuple)) else max_iter
+                # Warm-start: at first step for non-GLM losses, at last step for GLM
+                if _fista_warm_at_start and _cont_i == 0:
+                    coef = _copy_arr(warm_coef)
+                elif warm_coef is not None and _cont_i == len(alpha_path) - 1:
+                    coef = _copy_arr(warm_coef)
+
+                for _lla_i in range(max_lla_per_step):
+                    # Compute LLA weights
+                    if _augment_intercept:
+                        lla_w_feat = _pen_step.lla_weights(coef[:n_features])
+                        _zero_append = _zeros(1, backend, ref_tensor=coef)
+                        lla_w = xp.concatenate([lla_w_feat, _zero_append])
+                    else:
+                        lla_w = _pen_step.lla_weights(coef)
+                    if lla_penalty_factory is not None:
+                        lla_w_np = _to_numpy(lla_w) if type(lla_w).__module__ != "numpy" else lla_w
+                        inner_pen = lla_penalty_factory(lla_w_np)
+                    else:
+                        inner_pen._weights = lla_w
+
+                    coef_before_lla = _copy_arr(coef)
+
+                    # FISTA inner solve (fixed-step, no backtracking)
+                    y_k = _copy_arr(coef)
+                    t_k = 1.0
+                    L = L_base
+                    step = 1.0 / L
+
+                    # Pre-compute thresh on device for fused kernel
+                    if _fused_clip_update is not None and hasattr(inner_pen, '_weights'):
+                        _w_dev = inner_pen._weights
+                        if isinstance(_w_dev, np.ndarray):
+                            _w_dev = xp.asarray(_w_dev, dtype=coef.dtype)
+
+                    for iteration in range(_mi):
+                        coef_old = _copy_arr(coef)
+
+                        # Gradient: X.T @ per_sample_grad (2 matmuls, unavoidable)
                         if sample_weight is not None:
                             _, grad = loss.fused_value_and_gradient(
-                                X_c, y_c, y_k, sample_weight=sample_weight,
-                            )
+                                X_c, y_c, y_k, sample_weight=sample_weight)
                         else:
                             _, grad = loss.fused_value_and_gradient(X_c, y_c, y_k)
 
-                    # Clip gradients (device-side, every 10 iterations)
-                    if backend == "numpy" or iteration % 10 == 0:
-                        _gn_dev = _norm2_dev(grad)
-                        _gsum = _abs_sum_dev(coef_old) * _GRAD_CLIP_COEF_FACTOR + _GRAD_CLIP_ABS_FLOOR
-                        if backend == "torch":
-                            _gmax_dev = xp.clamp(_gsum, min=_GRAD_CLIP_MAX)
+                        # Momentum
+                        if _no_momentum:
+                            beta_mom = 0.0
+                        elif _conservative_momentum_lla:
+                            beta_mom, t_k = _nesterov_momentum(t_k, beta_cap=0.5)
                         else:
-                            _gmax_dev = xp.maximum(_gsum, _GRAD_CLIP_MAX)
-                        _gn_f, _gmax_f = _sync_scalars(_gn_dev, _gmax_dev, backend=backend)
-                        if _gn_f > _gmax_f:
-                            grad = grad * (_gmax_dev / _gn_dev)
+                            beta_mom, t_k = _nesterov_momentum(t_k)
 
+                        # Fused: clipping + proximal + momentum (1 kernel launch)
+                        if (_fused_clip_update is not None and backend != "numpy"
+                                and hasattr(inner_pen, '_weights')):
+                            _do_clip = (iteration % _grad_clip_freq == 0)
+                            if _do_clip:
+                                _gn = float(_to_numpy(_norm2_dev(grad)))
+                                _gcap = float(_to_numpy(_abs_sum_dev(coef_old))) * _GRAD_CLIP_COEF_FACTOR + _GRAD_CLIP_ABS_FLOOR
+                                _gcap = max(_gcap, _GRAD_CLIP_MAX)
+                            else:
+                                _gn, _gcap = 0.0, 1.0
 
-                    # Compute momentum beta before fused update
-                    if _no_momentum:
-                        beta_mom = 0.0
-                    elif _conservative_momentum_lla:
-                        beta_mom, t_k = _nesterov_momentum(t_k, beta_cap=0.5)
-                    else:
-                        beta_mom, t_k = _nesterov_momentum(t_k)
-
-                    # Fused proximal + momentum: single kernel launch on GPU
-                    # Combines: w_tilde = y_k - step*grad
-                    #           coef = proximal(w_tilde, step)  [weighted soft-threshold]
-                    #           y_k = coef + beta * (coef - coef_old)
-                    # Reduces 3 kernel launches to 1.
-                    # NOTE: fused update only works for coordinate-wise penalties
-                    # (AdaptiveL1Penalty with _weights), NOT group penalties.
-                    if (_fused_update is not None and backend != "numpy"
-                            and hasattr(inner_pen, '_weights')):
-                        # Ensure thresh is on the correct device
-                        _w = inner_pen._weights
-                        if isinstance(_w, np.ndarray):
-                            _w = xp.asarray(_w, dtype=coef.dtype)
-                        thresh = _w * inner_pen.alpha * step
-                        coef, y_k = _fused_update(y_k, grad, step, thresh, coef_old, beta_mom)
-                    else:
-                        w_tilde = y_k - step * grad
-                        coef = inner_pen.proximal(w_tilde, step, backend=backend)
-                        y_k = coef + beta_mom * (coef - coef_old)
-
-                    # Convergence (device-side comparison, only D2H 1 bool)
-                    if backend == "numpy" or iteration < 20 or iteration % 5 == 0:
-                        _conv_dev = _abs_sum_dev(coef - coef_old)
-                        if backend != "numpy":
-                            if bool(_to_numpy(_conv_dev < _tol_dev)):
-                                break
+                            thresh = _w_dev * inner_pen.alpha * step
+                            if backend == "torch":
+                                _do_clip_t = xp.tensor(_do_clip, device=coef.device)
+                                _gn_t = xp.tensor(_gn, dtype=coef.dtype, device=coef.device)
+                                _gcap_t = xp.tensor(_gcap, dtype=coef.dtype, device=coef.device)
+                                coef, y_k = _fused_clip_update(
+                                    grad, y_k, step, thresh, coef_old, beta_mom,
+                                    _do_clip_t, _gn_t, _gcap_t)
+                            else:
+                                _do_clip_c = xp.array(_do_clip)
+                                _gn_c = xp.array(_gn, dtype=coef.dtype)
+                                _gcap_c = xp.array(_gcap, dtype=coef.dtype)
+                                coef, y_k = _fused_clip_update(
+                                    grad, y_k, step, thresh, coef_old, beta_mom,
+                                    _do_clip_c, _gn_c, _gcap_c)
                         else:
-                            if float(_to_numpy(_conv_dev)) < tol:
-                                break
+                            if iteration % _grad_clip_freq == 0:
+                                grad = _clip_grad_on_device(grad, coef_old, backend)
+                            w_tilde = y_k - step * grad
+                            coef = inner_pen.proximal(w_tilde, step, backend=backend)
+                            y_k = coef + beta_mom * (coef - coef_old)
 
-                    # Periodic Lipschitz recomputation -- corrects stale L
-                    # as coef moves away from zero.
-                    if not _is_quadratic and iteration > 0 and iteration % 20 == 0:
-                        L_new = loss.lipschitz(X_c, coef, y=y_c)
-                        if _y_lipschitz_scale > 1.0:
-                            L_new = L_new * _y_lipschitz_scale
-                        if L_new > L * 1.5 or L_new < L / 1.5:
-                            L = max(L_new, L_base * 0.1)
-                            step = 1.0 / L
+                        # Convergence check
+                        if iteration % _conv_check_freq == 0:
+                            _conv_dev = _abs_sum_dev(coef - coef_old)
+                            if backend != "numpy":
+                                if bool(_to_numpy(_conv_dev < xp.asarray(tol))):
+                                    break
+                            else:
+                                if float(_to_numpy(_conv_dev)) < tol:
+                                    break
 
-                    total_iter += 1
-                # --- end FISTA ---
+                        # Periodic Lipschitz recomputation
+                        if not _is_quadratic and iteration > 0 and iteration % 20 == 0:
+                            L_new = loss.lipschitz(X_c, coef, y=y_c)
+                            if _y_lipschitz_scale > 1.0:
+                                L_new = L_new * _y_lipschitz_scale
+                            if L_new > L * 1.5 or L_new < L / 1.5:
+                                L = max(L_new, L_base * 0.1)
+                                step = 1.0 / L
 
-                # LLA convergence (on device, single sync for scalar)
-                delta = float(_to_numpy(_abs_sum_dev(coef - coef_before_lla)))
-                if delta < lla_tol:
-                    break
-            _record_path_alpha(cont_alpha)
+                        total_iter += 1
+
+                    # LLA convergence check
+                    delta = float(_to_numpy(_abs_sum_dev(coef - coef_before_lla)))
+                    if delta < lla_tol:
+                        break
+                _record_path_alpha(cont_alpha)
 
     # Extract coef and intercept
     coef_np, intercept = _split_current_coef(coef)

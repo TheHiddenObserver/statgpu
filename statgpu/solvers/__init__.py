@@ -10,6 +10,9 @@ __all__ = [
     "fista_bb_solver",
     "fista_lla_path",
     "newton_solver",
+    "proximal_newton_solver",
+    "proximal_irls_quantile_solver",
+    "quantile_cd_solver",
     "lbfgs_solver",
     "lbfgs_b_solver",
     "admm_solver",
@@ -21,6 +24,9 @@ from ._fista import fista_solver
 from ._fista_bb import fista_bb_solver
 from ._fista_lla import fista_lla_path
 from ._newton import newton_solver
+from ._proximal_newton import proximal_newton_solver
+from ._proximal_irls_quantile import proximal_irls_quantile_solver
+from ._quantile_cd import quantile_cd_solver
 from ._lbfgs import lbfgs_solver
 from ._lbfgs_b import lbfgs_b_solver
 from ._admm import admm_solver

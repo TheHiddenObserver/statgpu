@@ -57,6 +57,7 @@ class LossBase(ABC):
     _has_constant_hessian: bool = False  # Hessian is constant (Newton fast path)
     _prefer_fista_over_bb: bool = False  # Prefer FISTA over FISTA-BB for smooth penalties
     _conservative_momentum_with_nonsmooth: bool = False  # Cap momentum when penalty is non-smooth
+    _supports_irls: bool = False         # Whether loss has irls() method (Quantile, Bisquare, Fair)
 
     # ── Per-sample formulas (single source of truth) ──────────────────
 

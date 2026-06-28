@@ -30,6 +30,7 @@ class QuantileLoss(LossBase):
     y_type = "continuous"
     smooth_gradient = False   # non-smooth at u=0; FISTA handles via proximal
     has_hessian = False
+    _supports_irls = True     # has irls() method (Frisch-Newton)
 
     # Optimization hints
     _lipschitz_safety = 1.0
@@ -42,7 +43,11 @@ class QuantileLoss(LossBase):
         self._tau = self.quantile
 
     def lipschitz(self, X, coef, y=None, sample_weight=None):
-        """Lipschitz constant: lambda_max(X'X) / n. Cached."""
+        """Lipschitz constant: max(tau, 1-tau) * lambda_max(X'X) / n.
+
+        The per-sample gradient of quantile loss is bounded by max(tau, 1-tau),
+        not 1. For median (tau=0.5), this gives a 2x larger step size.
+        """
         from statgpu.backends._array_ops import _max_eigval_power
         cache_key = id(X)
         if not hasattr(self, '_lipschitz_cache'):
@@ -50,7 +55,8 @@ class QuantileLoss(LossBase):
         if cache_key in self._lipschitz_cache:
             return self._lipschitz_cache[cache_key]
         XtX = X.T @ X
-        L = _max_eigval_power(XtX) / X.shape[0]
+        grad_bound = max(self._tau, 1.0 - self._tau)
+        L = grad_bound * _max_eigval_power(XtX) / X.shape[0]
         self._lipschitz_cache[cache_key] = L
         return L
 
@@ -84,7 +90,7 @@ class QuantileLoss(LossBase):
             neg_mask = (u < 0).to(u.dtype)
         else:
             neg_mask = (u < 0).astype(u.dtype)
-        return -tau + (1.0 - tau) * neg_mask
+        return -tau + 1.0 * neg_mask
 
     def fused_value_and_gradient(self, X, y, coef, sample_weight=None):
         """Fused value+gradient: single X@coef, shared intermediate results.
@@ -105,12 +111,12 @@ class QuantileLoss(LossBase):
             neg = xp.maximum(-u, 0)
         ps = tau * pos + (1.0 - tau) * neg
 
-        # Gradient: -tau + (1-tau) * (u < 0)
+        # Gradient: -tau + 1.0 * (u < 0)
         if xp.__name__ == "torch":
             neg_mask = (u < 0).to(u.dtype)
         else:
             neg_mask = (u < 0).astype(u.dtype)
-        resid = -tau + (1.0 - tau) * neg_mask
+        resid = -tau + 1.0 * neg_mask
 
         # Aggregate
         if sample_weight is not None:

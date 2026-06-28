@@ -48,6 +48,14 @@ class CoxPartialLikelihoodLoss(LossBase):
     Dispatches to GPU-optimized kernels when input is CuPy/Torch-CUDA.
     Falls back to numpy Python loops on CPU.
 
+    Note: This loss does NOT support ``sample_weight``. All methods raise
+    ``NotImplementedError`` if ``sample_weight is not None``.
+
+    Note: ``preprocess()`` returns ``(X_sorted, zeros)`` — the second element
+    is a placeholder (not ``y``). The loss sorts data by time and precomputes
+    risk-set structures; ``value()``/``gradient()`` use ``_ensure_sorted()``
+    internally.
+
     Parameters
     ----------
     ties : str, default='breslow'

@@ -76,44 +76,76 @@ def newton_solver(
     iteration = -1
     line_search_failed = False
 
+    # Check if loss supports fused gradient+hessian (avoids redundant X@coef)
+    _has_fused = hasattr(loss, 'fused_gradient_and_hessian')
+
+    # Pre-allocate ridge matrix (reused every iteration, avoids O(p^2) allocation)
+    # Use same dtype as params to avoid dtype mismatch with Hessian
+    _n = n_features
+    _dtype = getattr(params, 'dtype', np.float64)
+    _device = getattr(params, 'device', None)
+    if backend == "numpy":
+        _ridge = 1e-10 * np.eye(_n, dtype=_dtype)
+    elif backend == "cupy":
+        import cupy as cp
+        _ridge = 1e-10 * cp.eye(_n, dtype=_dtype)
+    else:
+        import torch
+        _ridge = 1e-10 * torch.eye(_n, dtype=_dtype, device=_device)
+
     for iteration in range(max_iter):
         params_old = _copy_arr(params)
-        grad = loss.gradient(X_proc, y_proc, params) + _smooth_penalty_gradient(
-            penalty, params
-        )
+
+        if _has_fused and _fixed_hess is None:
+            # Fused: compute gradient and hessian in one pass
+            loss_grad, loss_hess = loss.fused_gradient_and_hessian(
+                X_proc, y_proc, params
+            )
+            grad = loss_grad + _smooth_penalty_gradient(penalty, params)
+            hess = loss_hess + _smooth_penalty_hessian(penalty, params)
+        else:
+            grad = loss.gradient(X_proc, y_proc, params) + _smooth_penalty_gradient(
+                penalty, params
+            )
+            hess = _fixed_hess if _fixed_hess is not None else (
+                loss.hessian(X_proc, y_proc, params) + _smooth_penalty_hessian(penalty, params)
+            )
+
         grad_norm_dev = _norm2_dev(grad)
         (grad_norm,) = _sync_scalars(grad_norm_dev, backend=backend)
         if grad_norm <= tol:
             break
-
-        hess = _fixed_hess if _fixed_hess is not None else (
-            loss.hessian(X_proc, y_proc, params) + _smooth_penalty_hessian(penalty, params)
-        )
         hess = 0.5 * (hess + hess.T)
+
+        # Add small ridge to ensure non-singular Hessian.
+        # This is needed for losses like CoxPH where the intercept is
+        # not identifiable (Hessian has zero eigenvalue for intercept).
+        # The ridge is negligible for well-conditioned problems.
+        hess_reg = hess + _ridge
 
         try:
             if backend == "numpy":
-                direction = np.linalg.solve(hess, grad)
+                direction = np.linalg.solve(hess_reg, grad)
             elif backend == "cupy":
                 import cupy as cp
 
-                direction = cp.linalg.solve(hess, grad)
+                direction = cp.linalg.solve(hess_reg, grad)
             else:
                 import torch
 
-                direction = torch.linalg.solve(hess, grad.unsqueeze(1))
+                direction = torch.linalg.solve(hess_reg, grad.unsqueeze(1))
                 direction = direction.squeeze(1)
         except (np.linalg.LinAlgError, ValueError, RuntimeError):
             if backend == "numpy":
-                direction = np.linalg.lstsq(hess, grad, rcond=None)[0]
+                direction = np.linalg.lstsq(hess_reg, grad, rcond=None)[0]
             elif backend == "cupy":
                 import cupy as cp
 
-                direction = cp.linalg.lstsq(hess, grad)[0]
+                direction = cp.linalg.lstsq(hess_reg, grad)[0]
             else:
                 import torch
 
-                direction = torch.linalg.lstsq(hess, grad.unsqueeze(1)).solution
+                direction = torch.linalg.lstsq(hess_reg, grad.unsqueeze(1)).solution
                 direction = direction.squeeze(1)
 
         # Armijo backtracking line search

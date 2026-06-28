@@ -17,6 +17,7 @@ Usage:
 """
 
 from ._base import LossBase
+from ._robust_base import RobustLossBase
 from ._registry import register_loss, get_loss, list_losses
 from ._quantile import QuantileLoss
 from ._huber import HuberLoss
@@ -26,6 +27,7 @@ from ._cox_ph import CoxPartialLikelihoodLoss
 
 __all__ = [
     "LossBase",
+    "RobustLossBase",
     "QuantileLoss",
     "HuberLoss",
     "BisquareLoss",

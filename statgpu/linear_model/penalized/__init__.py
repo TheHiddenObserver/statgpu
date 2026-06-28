@@ -10,6 +10,11 @@ from ._penalized_negative_binomial import PenalizedNegativeBinomialRegression
 from ._penalized_tweedie import PenalizedTweedieRegression
 from ._penalized_cv import PenalizedGLM_CV, ApproximateCVWarning
 
+# Non-GLM penalized models (LossBase subclasses)
+from ._penalized_robust import PenalizedRobustRegression
+from ._penalized_quantile import PenalizedQuantileRegression
+from ._penalized_cox import PenalizedCoxPHModel
+
 __all__ = [
     "PenalizedGeneralizedLinearModel",
     "SelectivePenalty",
@@ -20,6 +25,9 @@ __all__ = [
     "PenalizedInverseGaussianRegression",
     "PenalizedNegativeBinomialRegression",
     "PenalizedTweedieRegression",
+    "PenalizedRobustRegression",
+    "PenalizedQuantileRegression",
+    "PenalizedCoxPHModel",
     "PenalizedGLM_CV",
     "ApproximateCVWarning",
 ]

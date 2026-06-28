@@ -166,6 +166,40 @@ def _ps_squared_error(eta, y, X_design=None, coef_with_intercept=None, **_):
     return (y - X_design @ coef_with_intercept) ** 2
 
 
+def _val_quantile(eta, y, **kwargs):
+    """Per-sample quantile (pinball) loss for CV evaluation."""
+    q = kwargs.get("quantile", 0.5)
+    u = y - eta
+    return np.where(u >= 0, q * u, (q - 1.0) * u)
+
+
+def _val_huber(eta, y, **kwargs):
+    """Per-sample Huber loss for CV evaluation."""
+    delta = kwargs.get("delta", 1.35)
+    u = y - eta
+    abs_u = np.abs(u)
+    return np.where(abs_u <= delta, 0.5 * u * u, delta * (abs_u - 0.5 * delta))
+
+
+def _val_bisquare(eta, y, **kwargs):
+    """Per-sample bisquare (Tukey biweight) loss for CV evaluation."""
+    delta = kwargs.get("delta", 4.685)
+    u = y - eta
+    t = u / delta
+    abs_t = np.abs(t)
+    in_range = abs_t <= 1.0
+    one_minus_t2 = np.maximum(1.0 - t * t, 0.0)
+    return in_range * (delta * delta / 6.0) * (1.0 - one_minus_t2 ** 3) + (~in_range) * (delta * delta / 6.0)
+
+
+def _val_fair(eta, y, **kwargs):
+    """Per-sample Fair loss for CV evaluation."""
+    delta = kwargs.get("delta", 1.35)
+    u = y - eta
+    t = np.abs(u) / delta
+    return delta * delta * (t - np.log(1.0 + t))
+
+
 # loss_name -> (per_sample_fn, uses_design)
 # uses_design=True: fn needs X_design and coef_with_intercept (squared_error)
 # uses_design=False: fn uses eta directly (all GLM losses)
@@ -605,6 +639,11 @@ _LOSS_EVAL_DISPATCH.update({
     "inverse_gaussian": (_val_invgauss, False),
     "negative_binomial": (_val_nb, False),
     "tweedie": (_val_tweedie, False),
+    "quantile": (_val_quantile, False),
+    "huber": (_val_huber, False),
+    "bisquare": (_val_bisquare, False),
+    "fair": (_val_fair, False),
+    # cox_ph uses loss_fn.value() fallback (needs sorted data/risk sets)
 })
 
 
@@ -634,6 +673,18 @@ def _exp_link_intercept(y_mean, is_torch):
         return cp.log(cp.clip(y_mean, 1e-3, 100.0))
 
 
+def _identity_link_intercept(y_mean, is_torch):
+    """Intercept for identity-link losses: just y_mean."""
+    return y_mean
+
+
+def _fold_batch_lipschitz_identity(X_aug, y_train, n_train, is_torch):
+    """Lipschitz for identity-link losses (huber, bisquare, fair, quantile).
+    max_eigval(X'X) / n."""
+    eig_max = _max_eigval_power(X_aug.T @ X_aug)
+    return max(eig_max / max(n_train, 1), 1e-12)
+
+
 def _register_fold_batch(loss_name, lipschitz_fn, intercept_fn):
     _FOLD_BATCH_CONFIGS[loss_name] = {
         "lipschitz_fn": lipschitz_fn,
@@ -647,6 +698,11 @@ _register_fold_batch("gamma", _fold_batch_lipschitz_gamma, _exp_link_intercept)
 _register_fold_batch("inverse_gaussian", _fold_batch_lipschitz_exp_link, _exp_link_intercept)
 _register_fold_batch("negative_binomial", _fold_batch_lipschitz_exp_link, _exp_link_intercept)
 _register_fold_batch("tweedie", _fold_batch_lipschitz_exp_link, _exp_link_intercept)
+_register_fold_batch("huber", _fold_batch_lipschitz_identity, _identity_link_intercept)
+_register_fold_batch("bisquare", _fold_batch_lipschitz_identity, _identity_link_intercept)
+_register_fold_batch("fair", _fold_batch_lipschitz_identity, _identity_link_intercept)
+_register_fold_batch("quantile", _fold_batch_lipschitz_identity, _identity_link_intercept)
+_register_fold_batch("cox_ph", _fold_batch_lipschitz_exp_link, _exp_link_intercept)
 
 
 def _glm_sparse_cv_folds(
@@ -1806,6 +1862,7 @@ class PenalizedGLM_CV(CVEstimatorBase):
         acknowledge_approx: bool = False,
         refine_top_k: int = 3,
         loss_kwargs: Optional[dict] = None,
+        penalty_kwargs: Optional[dict] = None,
     ):
         super().__init__(cv=cv, random_state=random_state, device=device)
         self.cv_splits = cv_splits
@@ -1819,6 +1876,7 @@ class PenalizedGLM_CV(CVEstimatorBase):
             raise ValueError("refine_top_k must be a positive integer")
         self.loss = loss
         self._loss_kwargs = loss_kwargs or {}
+        self._penalty_kwargs = penalty_kwargs or {}
         self.penalty = penalty
         self._alpha_grid_input = alpha_grid
         self.n_alphas = n_alphas
@@ -1944,6 +2002,7 @@ class PenalizedGLM_CV(CVEstimatorBase):
                     loss=self.loss, penalty='l2', alpha=0.0,
                     device='cpu', compute_inference=False, max_iter=5,
                     loss_kwargs=getattr(self, '_loss_kwargs', None),
+                    penalty_kwargs=getattr(self, '_penalty_kwargs', None),
                 )
                 model.fit(X_np, y_np)
                 grad = X_np.T @ (y_np - _to_numpy(model.predict(X_np))) / n
@@ -2112,6 +2171,7 @@ class PenalizedGLM_CV(CVEstimatorBase):
                     compute_inference=False, max_iter=self.max_iter,
                     tol=self.tol, solver=cv_solver,
                     loss_kwargs=getattr(self, '_loss_kwargs', None),
+                    penalty_kwargs=getattr(self, '_penalty_kwargs', None),
                 )
                 return self._populate_refit_model(
                     model, path["coef"][-1], path["intercept"][-1],
@@ -2125,6 +2185,7 @@ class PenalizedGLM_CV(CVEstimatorBase):
             compute_inference=can_infer, max_iter=self.max_iter,
             tol=self.tol, solver=cv_solver,
             loss_kwargs=getattr(self, '_loss_kwargs', None),
+            penalty_kwargs=getattr(self, '_penalty_kwargs', None),
         )
         model.fit(X, y, sample_weight=sample_weight)
         return model
@@ -2229,6 +2290,7 @@ class PenalizedGLM_CV(CVEstimatorBase):
                     max_iter, tol, loss_name, device_name,
                     sample_weight=sample_weight,
                     loss_kwargs=getattr(self, '_loss_kwargs', None),
+                    penalty_kwargs=getattr(self, '_penalty_kwargs', None),
                 )
                 if path is not None and path["scores"] is not None:
                     all_scores[:, sort_idx] = path["scores"]
@@ -2358,7 +2420,8 @@ class PenalizedGLM_CV(CVEstimatorBase):
         sw_train, sw_val, max_iter, tol,
     ):
         """General per-fold CV path: model.fit() per alpha with warm-start."""
-        from statgpu.linear_model.penalized._base import PenalizedGeneralizedLinearModel, _resolve_loss_name
+        from statgpu.linear_model.penalized._base import PenalizedGeneralizedLinearModel
+        from statgpu.linear_model.penalized._fit_mixin import _resolve_loss_name
 
         penalty_name = str(self.penalty).lower()
         device_name = _device_to_name(cv_device)
@@ -2367,9 +2430,9 @@ class PenalizedGLM_CV(CVEstimatorBase):
         y_val_np = _to_numpy(y_val).astype(np.float64).ravel()
         loss_fn = _resolve_loss_name(loss_name)
 
-        # Disable warm-start for SCAD/MCP on non-squared-error losses
-        _is_scad_mcp_non_se = penalty_name in ("scad", "mcp") and loss_name != "squared_error"
-        use_warm_start = not _is_scad_mcp_non_se
+        # Warm-start from previous alpha for all penalty types.
+        # For SCAD/MCP on non-squared-error: use LLA path CV instead of warm-start.
+        use_warm_start = True
         use_lla_path_cv = (
             not strict and loss_name != "squared_error" and penalty_name in ("scad", "mcp")
         )
@@ -2394,6 +2457,8 @@ class PenalizedGLM_CV(CVEstimatorBase):
             loss=loss_name, penalty=self.penalty, alpha=alpha_sorted[0],
             l1_ratio=self.l1_ratio, device=cv_device, compute_inference=False,
             max_iter=max_iter, tol=tol, solver=cv_solver,
+            loss_kwargs=getattr(self, '_loss_kwargs', None),
+            penalty_kwargs=getattr(self, '_penalty_kwargs', None),
         )
         if cv_cache is not None:
             model._cv_cache = cv_cache

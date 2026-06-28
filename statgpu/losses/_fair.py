@@ -11,12 +11,12 @@ Matches R's MASS::rlm() with psi='fair'.
 
 import numpy as np
 from statgpu.backends._array_ops import _xp as _get_xp
-from ._base import LossBase
+from ._robust_base import RobustLossBase
 from ._registry import register_loss
 
 
 @register_loss('fair')
-class FairLoss(LossBase):
+class FairLoss(RobustLossBase):
     """Fair loss for robust regression.
 
     Smooth psi function with gradual down-weighting.  More smooth
@@ -36,6 +36,7 @@ class FairLoss(LossBase):
     y_type = "continuous"
     smooth_gradient = True
     has_hessian = True
+    _supports_irls = True     # has irls() method
 
     _lipschitz_safety = 1.5
 
@@ -59,77 +60,6 @@ class FairLoss(LossBase):
             self.delta = 1.0
             self._auto_scale = True
             self._scale_estimated = False
-
-    # ── Scale estimation ─────────────────────────────────────────────
-
-    def estimate_scale(self, X, y, coef=None):
-        """Estimate scale from residuals via MAD: scale = MAD(y - X@coef) / 0.6745."""
-        y_np = self._to_numpy(y)
-        X_np = self._to_numpy(X)
-        if coef is not None:
-            coef_np = self._to_numpy(coef)
-        else:
-            coef_np = np.linalg.lstsq(X_np, y_np, rcond=None)[0]
-        r = y_np - X_np @ coef_np
-        mad = float(np.median(np.abs(r)))
-        scale = max(mad / 0.6745, 1e-10)
-        self.delta = self.epsilon * scale
-        self._scale_estimated = True
-        return scale
-
-    def _update_scale_prop2(self, X, y, coef):
-        y_np = self._to_numpy(y)
-        X_np = self._to_numpy(X)
-        coef_np = self._to_numpy(coef)
-        r = y_np - X_np @ coef_np
-        n = len(r)
-        eps = self.epsilon
-        eps2 = eps * eps
-        sigma = self.delta / eps if eps > 0 else 1.0
-        for _ in range(20):
-            abs_r = np.abs(r)
-            inliers = abs_r <= eps * sigma
-            n_outliers = n - np.sum(inliers)
-            sum_sq_in = np.sum(r[inliers] ** 2)
-            sigma_new = np.sqrt((sum_sq_in + sigma**2 * eps2 * n_outliers) / n)
-            if abs(sigma_new - sigma) < 1e-10 * max(sigma, 1e-10):
-                break
-            sigma = sigma_new
-        self.delta = eps * max(sigma, 1e-10)
-        if hasattr(self, '_prev_sigma') and self._prev_sigma > 0:
-            if abs(sigma - self._prev_sigma) / self._prev_sigma < 0.01:
-                self._scale_estimated = True
-        self._prev_sigma = sigma
-
-    def _ensure_scale(self, X, y, coef):
-        if not self._auto_scale or self._scale_estimated:
-            return
-        if self._method == "mad":
-            self.estimate_scale(X, y, coef)
-        elif self._method == "huber_prop2":
-            self._update_scale_prop2(X, y, coef)
-
-    @staticmethod
-    def _to_numpy(arr):
-        if hasattr(arr, 'cpu'):
-            return arr.cpu().numpy()
-        elif hasattr(arr, 'get'):
-            return arr.get()
-        return np.asarray(arr)
-
-    # ── Solver-facing methods ────────────────────────────────────────
-
-    def gradient(self, X, y, coef, sample_weight=None):
-        self._ensure_scale(X, y, coef)
-        return super().gradient(X, y, coef, sample_weight=sample_weight)
-
-    def fused_value_and_gradient(self, X, y, coef, sample_weight=None):
-        self._ensure_scale(X, y, coef)
-        return self._fused_impl(X, y, coef, sample_weight=sample_weight)
-
-    def hessian(self, X, y, coef, sample_weight=None):
-        self._ensure_scale(X, y, coef)
-        return self._hessian_impl(X, y, coef, sample_weight=sample_weight)
 
     # ── Core computation ─────────────────────────────────────────────
 
@@ -179,6 +109,32 @@ class FairLoss(LossBase):
             return X.T @ (X * w[:, None]) / float(sample_weight.sum())
         return X.T @ (X * w[:, None]) / X.shape[0]
 
+    def _fused_grad_hess_impl(self, X, y, coef, sample_weight=None):
+        """Fused gradient + Hessian: one X@coef, shared residuals."""
+        xp = _get_xp(X)
+        eta = X @ coef
+        u = y - eta
+        c = self.delta
+        abs_u = xp.abs(u)
+        t = abs_u / c
+
+        # Gradient: resid = -u / (1 + |u|/c)
+        resid = -u / (1.0 + t)
+
+        # Hessian weight: 1/(1 + |u|/c)^2
+        w = 1.0 / ((1.0 + t) * (1.0 + t))
+
+        if sample_weight is not None:
+            sw_sum = float(sample_weight.sum())
+            grad = X.T @ (sample_weight * resid) / sw_sum
+            w = w * sample_weight
+            hess = X.T @ (X * w[:, None]) / sw_sum
+        else:
+            n = X.shape[0]
+            grad = X.T @ resid / n
+            hess = X.T @ (X * w[:, None]) / n
+        return grad, hess
+
     # ── Per-sample formulas ──────────────────────────────────────────
 
     def per_sample_value(self, eta, y):
@@ -225,7 +181,10 @@ class FairLoss(LossBase):
 
             # IRLS weights: w = psi(r)/r = 1/(1+|r|/c)
             w = 1.0 / (1.0 + t)
-            w = xp.maximum(w, eps)
+            if xp.__name__ == "torch":
+                w = xp.maximum(w, xp.tensor(eps, dtype=w.dtype, device=w.device))
+            else:
+                w = xp.maximum(w, eps)
 
             WX = X_dev * w[:, None]
             XtWX = X_dev.T @ WX
@@ -251,15 +210,3 @@ class FairLoss(LossBase):
             beta = beta_new
 
         return beta, max_iter
-
-    def lipschitz(self, X, coef, y=None, sample_weight=None):
-        from statgpu.backends._array_ops import _max_eigval_power
-        cache_key = id(X)
-        if not hasattr(self, '_lipschitz_cache'):
-            self._lipschitz_cache = {}
-        if cache_key in self._lipschitz_cache:
-            return self._lipschitz_cache[cache_key]
-        XtX = X.T @ X
-        L = _max_eigval_power(XtX) / X.shape[0]
-        self._lipschitz_cache[cache_key] = L
-        return L
