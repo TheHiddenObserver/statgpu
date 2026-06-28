@@ -130,7 +130,8 @@ class DBSCAN(BaseEstimator):
 
         # Use radius_neighbors (raw indices) instead of radius_neighbors_graph (sparse matrix)
         # This avoids the overhead of constructing the sparse matrix
-        indices_list, distances_list = nn.radius_neighbors(X_np, return_distance=True)
+        # Note: radius_neighbors returns (distances, indices) when return_distance=True
+        distances_list, indices_list = nn.radius_neighbors(X_np, return_distance=True)
 
         # Build CSR arrays directly from index lists
         indptr = np.zeros(n_samples + 1, dtype=np.int64)

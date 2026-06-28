@@ -132,7 +132,8 @@ class QuantileLoss(LossBase):
             grad = X.T @ resid / n
         return val, grad
 
-    def irls(self, X, y, penalty=None, max_iter=100, tol=1e-6, init_coef=None, eps=1e-8):
+    def irls(self, X, y, penalty=None, max_iter=100, tol=1e-6, init_coef=None, eps=1e-8,
+             sample_weight=None, fit_intercept=False):
         """IRLS (Iteratively Reweighted Least Squares) for quantile regression.
 
         Same algorithm as statsmodels QuantReg (Frisch-Newton variant).
@@ -151,6 +152,11 @@ class QuantileLoss(LossBase):
         init_coef : array of shape (p,), optional
         eps : float
             Small constant to avoid division by zero in weights.
+        sample_weight : array of shape (n,), optional
+            Sample weights for weighted quantile regression.
+        fit_intercept : bool
+            If True, X includes an intercept column (last column) which should
+            not be penalized.
 
         Returns
         -------
@@ -162,6 +168,14 @@ class QuantileLoss(LossBase):
         y_dev = xp.asarray(y, dtype=xp.float64)
         n, p = int(X_dev.shape[0]), int(X_dev.shape[1])
         tau = self._tau
+
+        # Handle sample_weight
+        if sample_weight is not None:
+            sw = xp.asarray(sample_weight, dtype=xp.float64)
+            sw_sum = float(xp.sum(sw))
+            sw = sw * (n / sw_sum)  # normalize so sum(sw) = n
+        else:
+            sw = None
 
         # Check penalty compatibility
         if penalty is not None:
@@ -198,6 +212,10 @@ class QuantileLoss(LossBase):
                 neg_mask = (r < 0).astype(abs_r.dtype)
             w = (tau + (1.0 - 2.0 * tau) * neg_mask) / abs_r_safe
 
+            # Apply sample weights
+            if sw is not None:
+                w = w * sw
+
             # Weighted least squares + penalty
             WX = X_dev * w[:, None]
             XtWX = X_dev.T @ WX
@@ -210,13 +228,18 @@ class QuantileLoss(LossBase):
             if penalty is not None:
                 # For L2: A += n * alpha * I, b += 0
                 # For ElasticNet: A += n * alpha * (1-l1_ratio) * I
+                # Skip intercept column (last column) if fit_intercept=True
                 if hasattr(penalty, 'alpha'):
                     alpha = float(penalty.alpha)
+                    # Build diagonal penalty matrix (skip intercept column)
+                    pen_diag = xp.ones(p, dtype=xp.float64)
+                    if fit_intercept and p > 1:
+                        pen_diag[-1] = 0.0  # don't penalize intercept
                     if hasattr(penalty, 'l1_ratio'):
                         l1r = float(penalty.l1_ratio)
-                        A = A + n * alpha * (1.0 - l1r) * (xp.eye(p, dtype=xp.float64) if xp.__name__ != "torch" else xp.eye(p, dtype=xp.float64, device=X_dev.device))
+                        A = A + n * alpha * (1.0 - l1r) * xp.diag(pen_diag)
                     else:
-                        A = A + n * alpha * (xp.eye(p, dtype=xp.float64) if xp.__name__ != "torch" else xp.eye(p, dtype=xp.float64, device=X_dev.device))
+                        A = A + n * alpha * xp.diag(pen_diag)
 
             beta_new = xp.linalg.solve(A, XtWy)
 

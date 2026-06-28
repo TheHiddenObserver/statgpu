@@ -1898,6 +1898,8 @@ class _PenalizedFitMixin:
                     penalty=_inner_pen,
                     max_iter=self.max_iter, tol=_irls_tol,
                     init_coef=None,
+                    sample_weight=sample_weight,
+                    fit_intercept=self._effective_intercept,
                 )
                 params = _xp_asarray(params_irls, X_arr.dtype, X_arr)
             else:
@@ -1947,6 +1949,8 @@ class _PenalizedFitMixin:
                 penalty=_inner_pen,
                 max_iter=self.max_iter, tol=_irls_tol,
                 init_coef=None,
+                sample_weight=sample_weight,
+                fit_intercept=self._effective_intercept,
             )
             params = _xp_asarray(params_irls, X_arr.dtype, X_arr)
         elif solver_name == "auto":
