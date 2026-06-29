@@ -88,13 +88,14 @@ def nndescent_numpy(X, k=15, max_iter=10, tol=0.001, seed=42):
             # Count changes
             changed += len(set(new_indices[i]) - set(indices[i]))
 
-        # Check convergence
+        # Check convergence FIRST (compare old vs new), then assign
         change_ratio = changed / (n * k)
-        if change_ratio < tol:
-            break
 
         indices = new_indices
         distances = new_distances
+
+        if change_ratio < tol:
+            break
 
     return indices, distances
 
@@ -164,14 +165,15 @@ def nndescent_torch(X, k=15, max_iter=10, tol=0.001, seed=42):
         new_indices = candidates.gather(1, topk_idx)
         new_distances = dists.gather(1, topk_idx)
 
-        # Check convergence
+        # Check convergence FIRST (compare old vs new), then assign
         changed = torch.sum(indices != new_indices).item()
         change_ratio = changed / (n * k)
-        if change_ratio < tol:
-            break
 
         indices = new_indices
         distances = new_distances
+
+        if change_ratio < tol:
+            break
 
     return indices, distances
 
@@ -243,13 +245,14 @@ def nndescent_cupy(X, k=15, max_iter=10, tol=0.001, seed=42):
         new_indices = cp.take_along_axis(candidates, topk_idx, axis=1)
         new_distances = cp.take_along_axis(dists, topk_idx, axis=1)
 
-        # Check convergence
+        # Check convergence FIRST (compare old vs new), then assign
         changed = int(cp.sum(indices != new_indices))
         change_ratio = changed / (n * k)
-        if change_ratio < tol:
-            break
 
         indices = new_indices
         distances = new_distances
+
+        if change_ratio < tol:
+            break
 
     return indices, distances

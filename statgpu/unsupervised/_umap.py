@@ -64,12 +64,8 @@ class UMAP(BaseEstimator):
         if self.nn_method not in ("auto", "exact", "nndescent"):
             raise ValueError("nn_method must be one of: 'auto', 'exact', 'nndescent'")
         if self.nn_method == "nndescent":
-            try:
-                from pynndescent import NNDescent  # noqa: F401
-            except ImportError:
-                raise ImportError(
-                    "nn_method='nndescent' requires pynndescent: pip install pynndescent"
-                )
+            # Uses internal _nndescent module (torch/cupy/numpy), no external dependency
+            pass
         if not isinstance(self.n_neighbors, (int, np.integer)) or int(self.n_neighbors) < 2:
             raise ValueError("n_neighbors must be an integer >= 2")
         if int(self.n_neighbors) >= n_samples:
