@@ -197,7 +197,16 @@ def proximal_newton_solver(
                     params = params_try
                     accepted = True
                     break
-            except (ValueError, RuntimeError, FloatingPointError):
+            except (ValueError, FloatingPointError):
+                pass
+            except RuntimeError as e:
+                # Only swallow numerical errors, re-raise infrastructure bugs
+                err_msg = str(e).lower()
+                if any(kw in err_msg for kw in ("singular", "ill-conditioned",
+                        "not invertible", "overflow", "invalid value", "nan")):
+                    pass
+                else:
+                    raise
                 pass
             step *= 0.5
 
