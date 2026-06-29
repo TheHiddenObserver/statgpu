@@ -278,23 +278,24 @@ class UMAP(BaseEstimator):
             grad_attr = scatter_add_2d(Y, edge_rows_b, force_attr_2d)
 
             # === Repulsive forces (negative sampling) ===
-            neg_indices = rng.randint(0, n_samples, size=n_samples * neg_rate)
-            neg_dst_indices = rng.randint(0, n_samples, size=n_samples * neg_rate)
+            # Use backend-native RNG for GPU — no per-epoch CPU→GPU transfer
             if hasattr(Y, 'device') and not hasattr(graph_mask, 'get'):  # torch
                 try:
                     import torch
-                    neg_src = torch.tensor(neg_indices, device=Y.device, dtype=torch.int64)
-                    neg_dst = torch.tensor(neg_dst_indices, device=Y.device, dtype=torch.int64)
+                    neg_src = torch.randint(0, n_samples, (n_samples * neg_rate,),
+                                            device=Y.device, dtype=torch.int64)
+                    neg_dst = torch.randint(0, n_samples, (n_samples * neg_rate,),
+                                            device=Y.device, dtype=torch.int64)
                 except ImportError:
-                    neg_src = backend.asarray(neg_indices, dtype=backend.int64)
-                    neg_dst = backend.asarray(neg_dst_indices, dtype=backend.int64)
+                    neg_src = backend.asarray(rng.randint(0, n_samples, size=n_samples * neg_rate), dtype=backend.int64)
+                    neg_dst = backend.asarray(rng.randint(0, n_samples, size=n_samples * neg_rate), dtype=backend.int64)
             elif hasattr(graph_mask, 'get'):  # cupy
                 import cupy as cp
-                neg_src = cp.asarray(neg_indices, dtype=cp.int64)
-                neg_dst = cp.asarray(neg_dst_indices, dtype=cp.int64)
+                neg_src = cp.random.randint(0, n_samples, (n_samples * neg_rate,), dtype=cp.int64)
+                neg_dst = cp.random.randint(0, n_samples, (n_samples * neg_rate,), dtype=cp.int64)
             else:  # numpy
-                neg_src = backend.asarray(neg_indices, dtype=backend.int64)
-                neg_dst = backend.asarray(neg_dst_indices, dtype=backend.int64)
+                neg_src = np.random.randint(0, n_samples, size=n_samples * neg_rate).astype(np.int64)
+                neg_dst = np.random.randint(0, n_samples, size=n_samples * neg_rate).astype(np.int64)
 
             Y_neg_src = Y[neg_src]
             Y_neg_dst = Y[neg_dst]
