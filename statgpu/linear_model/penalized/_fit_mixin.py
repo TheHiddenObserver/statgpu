@@ -327,6 +327,11 @@ class _PenalizedFitMixin:
         self._selected_solver = selected_solver
         self._selected_backend_name = backend_name
 
+        # Convert sample_weight to target backend once (avoids CPU/CUDA mismatch)
+        _sw_arr = None
+        if sample_weight is not None:
+            _sw_arr = self._to_array(sample_weight, backend=backend_name)
+
         # Handle penalties requiring initialization (e.g., Adaptive Lasso)
         if self._penalty.requires_init:
             init_coef = self._fit_initial(X, y, backend_name=backend_name)
@@ -366,7 +371,7 @@ class _PenalizedFitMixin:
                     max_iter=_mi_path,
                     tol=self.tol,
                     fit_intercept=self._effective_intercept,
-                    sample_weight=sample_weight,
+                    sample_weight=_sw_arr,
                 )
             else:
                 # squared_error + SCAD/MCP: use fused FISTA+LLA path.
@@ -380,7 +385,7 @@ class _PenalizedFitMixin:
                     max_iter=_mi_path,
                     tol=self.tol,
                     fit_intercept=self._effective_intercept,
-                    sample_weight=sample_weight,
+                    sample_weight=_sw_arr,
                 )
             self.coef_ = coef_np
             self.intercept_ = intercept
@@ -390,7 +395,7 @@ class _PenalizedFitMixin:
             else:
                 self._params = np.asarray(self.coef_).copy()
             self._df_resid = X.shape[0] - (X.shape[1] + (1 if self._effective_intercept else 0))
-            self._compute_post_fit_gaussian_inference(X, y, sample_weight=sample_weight)
+            self._compute_post_fit_gaussian_inference(X, y, sample_weight=_sw_arr)
             if backend_name == "cupy":
                 self._cleanup_cuda_memory()
             elif backend_name == "torch":
@@ -402,13 +407,13 @@ class _PenalizedFitMixin:
         y_arr = self._to_array(y, backend=backend_name)
 
         if backend_name == "torch":
-            self._fit_torch(X_arr, y_arr, sample_weight)
+            self._fit_torch(X_arr, y_arr, _sw_arr)
         elif backend_name == "cupy":
-            self._fit_gpu(X_arr, y_arr, sample_weight)
+            self._fit_gpu(X_arr, y_arr, _sw_arr)
         else:
-            self._fit_cpu(X_arr, y_arr, sample_weight)
+            self._fit_cpu(X_arr, y_arr, _sw_arr)
 
-        self._compute_post_fit_gaussian_inference(X, y, sample_weight=sample_weight)
+        self._compute_post_fit_gaussian_inference(X, y, sample_weight=_sw_arr)
         self._fitted = True
         # Clean up CV cache unless a caller is intentionally reusing one
         # across repeated fits, as PenalizedGLM_CV does within a fold.
