@@ -420,8 +420,13 @@ class DBSCAN(BaseEstimator):
         if hasattr(X_arr, "is_cuda") and X_arr.is_cuda:
             # PyTorch CUDA: use fully GPU-based approach
             labels_np, core_indices = self._fit_gpu(backend, X_arr, n_samples, n_features)
+        elif backend.name == "cupy":
+            # CuPy: GPU-native label propagation (no CPU round-trip)
+            labels_np, core_indices = self._fit_gpu_cupy(
+                backend, X_arr, n_samples, n_features
+            )
         else:
-            # CuPy or other backend: fall back to CPU label assignment
+            # Other backend: fall back to CPU label assignment
             labels_np, core_indices = self._fit_gpu_fallback(
                 backend, X_arr, n_samples
             )
@@ -433,6 +438,69 @@ class DBSCAN(BaseEstimator):
         self._backend_name = backend.name
         self._fitted = True
         return self
+
+    def _fit_gpu_cupy(self, backend, X_arr, n_samples, n_features):
+        """CuPy GPU-native DBSCAN: distance compute + label propagation all on device.
+
+        Uses cupyx.scipy.sparse.csgraph.connected_components for GPU-native
+        connected components (no CPU round-trip for label assignment).
+        """
+        import cupy as cp
+        from cupyx.scipy.sparse import csr_matrix as cp_csr
+        from cupyx.scipy.sparse.csgraph import connected_components as cp_cc
+
+        min_samples = int(self.min_samples)
+
+        # Build neighbor graph on GPU (reuse existing batch logic)
+        row_idx, col_idx = self._neighbor_graph_sparse(backend, X_arr)
+
+        n_edges = len(row_idx)
+        if n_edges == 0:
+            if min_samples <= 1:
+                labels = cp.arange(n_samples, dtype=cp.int64)
+                core_indices = cp.arange(n_samples, dtype=cp.int64)
+                return cp.asnumpy(labels), cp.asnumpy(core_indices)
+            return np.full(n_samples, -1, dtype=np.int64), np.empty(0, dtype=np.int64)
+
+        # Find core points on GPU
+        counts = cp.bincount(row_idx, minlength=n_samples)
+        core_mask = counts >= min_samples
+        core_indices = cp.nonzero(core_mask)[0].astype(cp.int64)
+        n_core = int(core_indices.size)
+
+        if n_core == 0:
+            return np.full(n_samples, -1, dtype=np.int64), np.empty(0, dtype=np.int64)
+
+        # Build core-only CSR sparse graph on GPU
+        core_position = cp.full(n_samples, -1, dtype=cp.int64)
+        core_position[core_indices] = cp.arange(n_core, dtype=cp.int64)
+
+        core_edges = core_mask[row_idx] & core_mask[col_idx]
+        cr = core_position[row_idx[core_edges]]
+        cc = core_position[col_idx[core_edges]]
+
+        # Symmetric graph for connected components
+        all_cr = cp.concatenate([cr, cc])
+        all_cc = cp.concatenate([cc, cr])
+        data = cp.ones(len(all_cr), dtype=cp.int32)
+        graph = cp_csr((data, (all_cr, all_cc)), shape=(n_core, n_core))
+
+        # GPU-native connected components
+        n_labels_found, core_labels = cp_cc(graph, directed=False, return_labels=True)
+
+        # Assign labels
+        labels = cp.full(n_samples, -1, dtype=cp.int64)
+        labels[core_indices] = core_labels.astype(cp.int64)
+
+        # Border points (neighbors of core points that are not core themselves)
+        border_pair = (~core_mask[row_idx]) & core_mask[col_idx]
+        if cp.any(border_pair):
+            border_pts = row_idx[border_pair]
+            core_nbrs = col_idx[border_pair]
+            unlabeled = labels[border_pts] == -1
+            labels[border_pts[unlabeled]] = labels[core_nbrs[unlabeled]]
+
+        return cp.asnumpy(labels), cp.asnumpy(core_indices)
 
     def _fit_gpu_fallback(self, backend, X_arr, n_samples):
         """GPU distance computation + CPU label assignment (for CuPy etc.)."""
