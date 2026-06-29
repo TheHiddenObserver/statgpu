@@ -55,35 +55,29 @@ def nndescent_numpy(X, k=15, max_iter=10, tol=0.001, seed=42):
 
     # Iterate
     for epoch in range(max_iter):
-        # Collect candidates: neighbors + neighbors of neighbors
-        all_candidates = set()
-        for i in range(n):
-            all_candidates.add(i)  # include self
-            for j in indices[i]:
-                all_candidates.add(j)
-                for l in indices[j]:
-                    all_candidates.add(l)
-
-        # For each point, compute distances to candidates and keep k nearest
-        changed = 0
+        # Per-point candidates: self + neighbors + neighbors of neighbors
+        # O(k + k²) per point, avoids degenerating to all-pairs
         new_indices = np.zeros((n, k), dtype=np.int64)
         new_distances = np.zeros((n, k), dtype=np.float64)
 
         for i in range(n):
-            candidates = list(all_candidates - {i})
-            if len(candidates) > k:
-                # Compute distances to candidates
-                cand_X = X[candidates]
-                diff = X[i] - cand_X
-                dists = np.sum(diff * diff, axis=1)
-                # Keep k nearest
-                idx = np.argpartition(dists, k)[:k]
-                sorted_idx = idx[np.argsort(dists[idx])]
-                new_indices[i] = np.array(candidates)[sorted_idx]
-                new_distances[i] = dists[sorted_idx]
-            else:
-                new_indices[i] = indices[i]
-                new_distances[i] = distances[i]
+            # Build per-point candidate set: self + neighbors + neighbors-of-neighbors
+            candidates = set(indices[i])
+            candidates.add(i)  # include self
+            for j in indices[i]:
+                candidates.update(indices[j])
+            candidates.discard(i)  # exclude self from final set
+
+            cand_list = list(candidates)
+            cand_X = X[cand_list]
+            diff = X[i] - cand_X
+            dists = np.sum(diff * diff, axis=1)
+            # Keep k nearest
+            k_eff = min(k, len(cand_list))
+            idx = np.argpartition(dists, k_eff)[:k_eff]
+            sorted_idx = idx[np.argsort(dists[idx])]
+            new_indices[i] = np.array(cand_list)[sorted_idx]
+            new_distances[i] = dists[sorted_idx]
 
             # Count changes
             changed += len(set(new_indices[i]) - set(indices[i]))
