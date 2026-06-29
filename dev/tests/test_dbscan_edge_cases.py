@@ -27,6 +27,37 @@ class TestCoxEfronTies:
         assert np.all(np.isfinite(model.coef_)), "Coefficients should be finite"
         assert np.linalg.norm(model.coef_) > 0, "Coefficients should be non-zero"
 
+    def test_efron_tied_reference_parity(self):
+        """Efron with tied events should match statsmodels reference."""
+        pytest.importorskip("statsmodels")
+        from statgpu.survival import CoxPH
+        from statsmodels.duration.hazard_regression import PHReg
+
+        np.random.seed(42)
+        n, p = 100, 3
+        X = np.random.randn(n, p)
+
+        # Many tied event times (d_g > 1 for several groups)
+        time = np.random.choice([1, 2, 3, 4, 5], size=n).astype(np.float64)
+        event = np.ones(n, dtype=np.float64)
+        # Add some censoring
+        event[np.random.choice(n, size=20, replace=False)] = 0
+
+        # statgpu
+        model_sg = CoxPH(ties='efron', device='cpu', max_iter=100)
+        model_sg.fit(X, time, event)
+
+        # statsmodels
+        model_sm = PHReg(time, X, event, ties='efron')
+        result_sm = model_sm.fit(maxiter=100, tol=1e-6)
+
+        # Coefficients should be close
+        np.testing.assert_allclose(
+            model_sg.coef_, result_sm.params, rtol=5e-2, atol=0.1,
+            err_msg=f"Efron tied-event coefficients differ from statsmodels: "
+                    f"statgpu={model_sg.coef_}, statsmodels={result_sm.params}"
+        )
+
     def test_efron_unique_times_matches_breslow(self):
         """When no ties, Efron and Breslow should give similar results."""
         from statgpu.survival import CoxPH
