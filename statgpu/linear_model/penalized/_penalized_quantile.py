@@ -128,7 +128,12 @@ class PenalizedQuantileRegression(PenalizedGeneralizedLinearModel):
         y = np.asarray(y)
         u = y - y_pred
         q = self.quantile
-        pinball = np.mean(np.where(u >= 0, q * u, (q - 1.0) * u))
+        per_sample = np.where(u >= 0, q * u, (q - 1.0) * u)
+        if sample_weight is not None:
+            sw = np.asarray(sample_weight, dtype=np.float64)
+            pinball = float(np.average(per_sample, weights=sw))
+        else:
+            pinball = float(np.mean(per_sample))
         return -pinball  # Negative because higher is "better" in sklearn convention
 
 

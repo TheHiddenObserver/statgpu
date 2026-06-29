@@ -90,9 +90,17 @@ class HuberLoss(RobustLossBase):
         """Unpack [coef, log_sigma] for joint mode.
 
         Uses log_sigma to ensure sigma > 0 and improve conditioning.
+        Backend-aware: works with numpy/cupy/torch.
         """
+        from statgpu.backends._array_ops import _xp as _get_xp
+        xp = _get_xp(coef)
         p = len(coef) - 1
-        return coef[:p], float(np.exp(coef[p]))
+        sigma_val = coef[p]
+        if hasattr(sigma_val, 'item'):
+            sigma = float(xp.exp(sigma_val).item())
+        else:
+            sigma = float(xp.exp(sigma_val))
+        return coef[:p], sigma
 
     def _joint_sigma_grad_hess(self, X, y, coef_vec, sigma):
         """Compute sigma gradient and Hessian cross/terms for joint mode.
