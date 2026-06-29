@@ -25,7 +25,6 @@ References:
 __all__ = ["proximal_irls_quantile_solver"]
 
 import copy
-import warnings
 import numpy as np
 
 from statgpu.backends import _resolve_backend, _to_numpy
@@ -86,12 +85,10 @@ def proximal_irls_quantile_solver(
     n, p = X.shape
     tau = loss._tau
     eps = 1e-8
-    _is_numpy = (backend == "numpy")
 
     # Get backend module
     if backend == "torch":
         import torch as xp
-        _device = X.device if hasattr(X, 'device') else 'cpu'
     elif backend == "cupy":
         import cupy as xp
     else:
