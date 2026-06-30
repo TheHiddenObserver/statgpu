@@ -461,3 +461,135 @@ class TestFitGpuBackendImports:
         assert "xp_ones" in src, (
             "_fit_gpu_backend must import xp_ones for power-iteration Lipschitz path"
         )
+
+
+class TestFistaBBWeightedBackendDevice:
+    """Regression: FISTA-BB + sample_weight + multi-backend, no device mismatch.
+
+    The backtracking objective and periodic Lipschitz recomputation in
+    fista_bb_solver previously leaked unweighted calls.  These tests
+    verify that weighted FISTA-BB runs correctly across numpy/torch/cupy
+    and produces different coefs from unweighted (confirming weights
+    actually take effect).
+    """
+
+    @pytest.fixture
+    def data(self):
+        rng = np.random.RandomState(42)
+        n, p = 100, 5
+        X = rng.randn(n, p)
+        beta = np.array([2.0, -1.5, 0.0, 0.0, 0.8])
+        y = (rng.rand(n) < 1 / (1 + np.exp(-X @ beta))).astype(float)
+        return X, y
+
+    @pytest.fixture
+    def weights(self):
+        n = 100
+        sw = np.ones(n)
+        sw[:50] = 3.0  # non-uniform: first half weighted 3x
+        return sw
+
+    def test_weighted_vs_unweighted_cpu_differ(self, data, weights):
+        """Weighted and unweighted FISTA-BB logistic+l1 must differ on CPU."""
+        from statgpu.solvers import fista_bb_solver
+        from statgpu.glm_core import LogisticLoss
+        from statgpu.penalties import L1Penalty
+
+        X, y = data
+        loss = LogisticLoss()
+        pen = L1Penalty(alpha=0.1)
+
+        coef_unw, _ = fista_bb_solver(loss, pen, X, y, max_iter=200, tol=1e-6)
+        coef_w, _ = fista_bb_solver(
+            loss, pen, X, y, sample_weight=weights, max_iter=200, tol=1e-6
+        )
+
+        assert np.all(np.isfinite(coef_unw))
+        assert np.all(np.isfinite(coef_w))
+        assert not np.allclose(coef_unw, coef_w, atol=1e-3), (
+            f"Weighted FISTA-BB coefs should differ from unweighted: "
+            f"unweighted={coef_unw}, weighted={coef_w}"
+        )
+
+    def test_weighted_torch_vs_cpu_consistent(self, data, weights):
+        """FISTA-BB weighted logistic+l1: torch GPU coefs consistent with CPU."""
+        torch = pytest.importorskip("torch")
+        if not torch.cuda.is_available():
+            pytest.skip("CUDA not available")
+
+        from statgpu.solvers import fista_bb_solver
+        from statgpu.glm_core import LogisticLoss
+        from statgpu.penalties import L1Penalty
+
+        X_np, y_np = data
+        loss = LogisticLoss()
+        pen = L1Penalty(alpha=0.1)
+
+        # CPU reference
+        coef_cpu, _ = fista_bb_solver(
+            loss, pen, X_np, y_np, sample_weight=weights, max_iter=200, tol=1e-6
+        )
+
+        # GPU via torch tensors (auto-backend detection)
+        X_t = torch.as_tensor(X_np, dtype=torch.float64, device="cuda")
+        y_t = torch.as_tensor(y_np, dtype=torch.float64, device="cuda")
+        sw_t = torch.as_tensor(weights, dtype=torch.float64, device="cuda")
+
+        coef_gpu, _ = fista_bb_solver(
+            loss, pen, X_t, y_t, sample_weight=sw_t, max_iter=200, tol=1e-6
+        )
+
+        coef_gpu_np = coef_gpu.cpu().numpy()
+        assert np.all(np.isfinite(coef_gpu_np))
+        np.testing.assert_allclose(coef_cpu, coef_gpu_np, atol=1e-2)
+
+    def test_weighted_cupy_smoke(self, data, weights):
+        """FISTA-BB weighted logistic+l1: cupy runs without device mismatch."""
+        cp = pytest.importorskip("cupy")
+
+        from statgpu.solvers import fista_bb_solver
+        from statgpu.glm_core import LogisticLoss
+        from statgpu.penalties import L1Penalty
+
+        X_np, y_np = data
+        loss = LogisticLoss()
+        pen = L1Penalty(alpha=0.1)
+
+        X_cp = cp.asarray(X_np, dtype=cp.float64)
+        y_cp = cp.asarray(y_np, dtype=cp.float64)
+        sw_cp = cp.asarray(weights, dtype=cp.float64)
+
+        coef, n_iter = fista_bb_solver(
+            loss, pen, X_cp, y_cp, sample_weight=sw_cp, max_iter=200, tol=1e-6
+        )
+
+        coef_np = cp.asnumpy(coef)
+        assert np.all(np.isfinite(coef_np))
+        assert n_iter > 0
+
+    def test_weighted_no_device_mismatch_lipschitz(self, data, weights):
+        """FISTA-BB: weighted Lipschitz recomputation produces valid finite L."""
+        torch = pytest.importorskip("torch")
+        if not torch.cuda.is_available():
+            pytest.skip("CUDA not available")
+
+        from statgpu.solvers import fista_bb_solver
+        from statgpu.glm_core import LogisticLoss
+        from statgpu.penalties import L2Penalty
+
+        X_np, y_np = data
+        loss = LogisticLoss()
+        # L2 penalty with small alpha to exercise Lipschitz recomputation
+        pen = L2Penalty(alpha=0.01)
+
+        X_t = torch.as_tensor(X_np, dtype=torch.float64, device="cuda")
+        y_t = torch.as_tensor(y_np, dtype=torch.float64, device="cuda")
+        sw_t = torch.as_tensor(weights, dtype=torch.float64, device="cuda")
+
+        coef, n_iter = fista_bb_solver(
+            loss, pen, X_t, y_t, sample_weight=sw_t, max_iter=300, tol=1e-6,
+        )
+
+        coef_np = coef.cpu().numpy()
+        assert np.all(np.isfinite(coef_np))
+        assert n_iter > 0
