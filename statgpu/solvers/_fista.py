@@ -266,7 +266,10 @@ def fista_solver(
             # ALL safety checks deferred -- no per-iteration GPU->CPU sync.
             # Finiteness + divergence + objective tracking batched together.
             if iteration > 0 and (iteration < 20 or iteration % _div_interval == 0):
-                _obj_dev = loss.value(X_proc, y_proc, coef)
+                if _sw_arr is not None:
+                    _obj_dev = loss.fused_value_and_gradient(X_proc, y_proc, coef, sample_weight=_sw_arr)[0]
+                else:
+                    _obj_dev = loss.value(X_proc, y_proc, coef)
                 # Single D2H transfer: extract float, then check finiteness.
                 _obj_val_f = float(_to_numpy(_obj_dev))
                 _all_finite = np.isfinite(_obj_val_f)
