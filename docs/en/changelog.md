@@ -1,7 +1,7 @@
 # Changelog
 
 > Language: English  
-> Last updated: 2026-06-28
+> Last updated: 2026-06-30
 > This page: Changelog  
 > Switch: [Chinese](../changelog.md)
 
@@ -55,6 +55,12 @@ Language switch: [Chinese](../changelog.md)
   - Cox C-index: exclude censored shorter times
   - CV scoring: pass loss kwargs
   - ANOVA: torch device mismatch
+
+- **UMAP Sparse Graph**: dense n×n → sparse COO O(n·k); spectral init via eigsh; backend-native negative sampling RNG seeded from random_state
+- **NNDescent**: new ANN module (numpy/torch/cupy); per-point candidate sets avoid O(n²); fixed convergence return order
+- **Sample Weight Global Backend**: unified conversion at solver entry; prevents CPU/CUDA mismatch
+- **GPU Convergence**: on-device comparison with bool sync; throttled check interval
+- **Tests added**: Cox Efron parity, DBSCAN boundaries, quantile SCAD parity, cross-backend, CuPy smoke, weighted score
 
 ### Added (2026-06-26)
 

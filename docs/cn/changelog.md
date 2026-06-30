@@ -1,7 +1,7 @@
 # Changelog
 
 > 语言：中文  
-> 最后更新：2026-06-28  
+> 最后更新：2026-06-30  
 > 页面定位：变更记录  
 > 切换：[English](en/changelog.md)
 
@@ -61,6 +61,35 @@
   - Cox C-index 排除 censored 短时间
   - CV scoring 传递 loss kwargs
   - ANOVA torch device mismatch
+
+- **UMAP 稀疏图**：
+  - 稠密 n×n 图构造改为稀疏 COO 边（O(n·k) 内存）
+  - Spectral initialization 使用 `scipy.sparse.linalg.eigsh`
+  - 优化循环和负采样使用 backend-native RNG
+  - 负采样 RNG 从 `random_state` 种子化
+
+- **NNDescent**：
+  - 新增近似最近邻模块（numpy/torch/cupy）
+  - 逐点候选集避免 O(n²) 退化
+  - 修复收敛返回值顺序
+
+- **Sample Weight 全局后端化**：
+  - 统一 `sample_weight` 在 solver 入口转换为 backend-native
+  - 防止 torch GPU 路径 CPU/CUDA mismatch
+  - 影响：FISTA、FISTA-LLA、quantile IRLS、proximal Newton
+
+- **GPU 收敛检查优化**：
+  - IRLS-CD：在 device 上比较，只同步 bool 到 CPU
+  - 降低 GPU 同步频率（每 5 次迭代）
+  - 批量 GPU 同步
+
+- **新增测试**：
+  - CoxPH Efron reference parity test（vs statsmodels）
+  - DBSCAN min_samples=1、高维路径、Cython fallback
+  - Quantile SCAD objective parity（vs FISTA-LLA）
+  - 三端交叉测试（numpy vs torch）
+  - CuPy smoke tests
+  - Weighted score test
 
 ### 新增 (2026-06-26)
 

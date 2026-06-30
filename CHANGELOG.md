@@ -89,6 +89,40 @@ Fixed Bisquare loss + SCAD/MCP returning empty active sets for alpha >= 0.1:
 - CV scoring: pass loss kwargs (quantile tau, huber/bisquare delta)
 - ANOVA: torch device mismatch for cell_sizes_arr
 
+### UMAP Sparse Graph
+
+- Replaced dense n×n graph construction with sparse COO edges (O(n·k) memory)
+- Spectral initialization uses `scipy.sparse.linalg.eigsh`
+- Optimization loop and negative sampling are backend-native
+- Negative sampling RNG seeded from `random_state` (torch/cupy/numpy)
+
+### NNDescent
+
+- New approximate nearest neighbor module (numpy/torch/cupy)
+- Per-point candidate sets avoid O(n²) degenerate complexity
+- Fixed convergence return value (assign before break)
+
+### Sample Weight Global Backend Handling
+
+- Unified `sample_weight` backend conversion at solver entry points
+- Prevents CPU/CUDA mismatch for torch GPU paths
+- Affects: FISTA, FISTA-LLA, quantile IRLS, proximal Newton
+
+### GPU Convergence Optimization
+
+- IRLS-CD convergence check: compare on-device, sync only bool
+- Throttled GPU sync frequency (every 5 iterations)
+- Batch GPU syncs for convergence + divergence + Lipschitz
+
+### Three-Backend Cross-Validation + Edge Case Tests
+
+- CoxPH Efron reference parity test vs statsmodels
+- DBSCAN: min_samples=1, high-dim path, Cython fallback tests
+- Quantile SCAD objective parity vs FISTA-LLA
+- Cross-backend parity (numpy vs torch)
+- CuPy smoke tests (quantile SCAD, Huber SCAD)
+- Weighted score test
+
 ## 2026-06-26
 
 ### Unsupervised Benchmark — 12 Algorithms × 3 Backends

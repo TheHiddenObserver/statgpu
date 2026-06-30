@@ -26,15 +26,15 @@ GPU-accelerated statistical methods with sklearn-compatible API.
 
 - 🚀 **3 Backends**: NumPy (CPU), CuPy (CUDA), PyTorch (CUDA) — automatic device selection
 - 🔧 **sklearn-compatible**: `fit`/`predict`/`score` API, `sklearn.base.clone()` supported
-- 📊 **7 GLM Families**: squared_error, logistic, poisson, gamma, inverse_gaussian, negative_binomial, tweedie
+- 📊 **GLM + Robust + Quantile + Cox**: 10+ loss types (quantile, huber, bisquare, fair, cox_ph + 7 GLM families)
 - 🔥 **10 Penalties**: l1, l2, elasticnet, scad, mcp, adaptive_l1, group_lasso, group_mcp, group_scad
-- ⚡ **6 Solvers**: exact, newton, lbfgs, irls, fista, fista_bb — `solver="auto"` selects optimal
+- ⚡ **8 Solvers**: exact, newton, lbfgs, irls, fista, fista_bb, proximal_irls_cd, proximal_newton — `solver="auto"`
 - 🧮 **Inference**: HC0-HC3/HAC robust SE, debiased Lasso, bootstrap, simultaneous CI
 - 📈 **Nonparametric**: KDE, kernel regression, B-splines, GAM
-- 🧬 **Unsupervised**: PCA, KMeans, DBSCAN, GMM, UMAP, t-SNE (12 classes)
+- 🧬 **Unsupervised**: PCA, KMeans, DBSCAN, GMM, UMAP, t-SNE, NNDescent (12+ classes)
 - 📐 **Distributions**: 15 distributions across 3 backends via `get_distribution()` — [API docs](docs/en/guides/distribution-api.md)
 - 🧪 **Multiple Testing**: `adjust_pvalues` + `combine_pvalues` + `permutation_test`
-- 🔥 **Cross-Validation**: PenalizedGLM_CV (all 7 losses × 10 penalties), RidgeCV, LassoCV, ElasticNetCV
+- 🔥 **Cross-Validation**: PenalizedGLM_CV (all losses × 10 penalties), RidgeCV, LassoCV, ElasticNetCV
 
 ## Implemented Methods
 
@@ -43,9 +43,9 @@ GPU-accelerated statistical methods with sklearn-compatible API.
 | Category | Classes | Highlights |
 |---|---|---|
 | **Regression & GLM** | 12 classes | LinearRegression, Ridge, Lasso, ElasticNet, Logistic, Poisson, Gamma, InvGauss, NB, Tweedie, Ordered models |
-| **Penalized GLM** | 8 classes | PenalizedGLM + 7 family wrappers (Linear, Logistic, Poisson, Gamma, InvGauss, NB, Tweedie) × 10 penalties × 6 solvers |
+| **Penalized GLM** | 11 classes | PenalizedGLM + 7 family wrappers + PenalizedQuantileRegression, PenalizedRobustRegression, PenalizedCoxRegression × 10 penalties × 8 solvers |
 | **Cross-Validation** | 6 classes | RidgeCV, LassoCV, ElasticNetCV, LogisticCV, PenalizedGLM_CV, CoxPHCV |
-| **ANOVA** | 1 function | `f_oneway` — GPU-accelerated |
+| **ANOVA** | 2 functions | `f_oneway`, `f_twoway` — GPU-accelerated |
 | **Covariance** | 3 classes | EmpiricalCovariance, LedoitWolf, OAS |
 | **Panel Data** | 2 classes | PanelOLS, RandomEffects |
 | **Nonparametric** | 5 classes | KernelRidge, KernelRidgeCV, pairwise_kernels, bspline_basis, natural_cubic_spline_basis |
