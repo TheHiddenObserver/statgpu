@@ -44,6 +44,8 @@
 | `fista_bb` | 所有惩罚（任意 loss） | — | FISTA + Barzilai-Borwein 步长 |
 | `admm` | 所有惩罚（任意 loss） | — | ADMM + proximal z 更新 |
 | `irls_cd` | scad, mcp, adaptive_l1 | l1, elasticnet, group_* | IRLS 外层 + 坐标下降内层 |
+| `proximal_irls_cd` | scad, mcp（仅 quantile） | l1, elasticnet, group_* 及其他 loss | IRLS 上界 + LLA + 并行对角化 |
+| `proximal_newton` | scad, mcp, adaptive_l1（有 Hessian 的 loss） | 其他所有 | Newton 方向 + Armijo + proximal 算子 |
 
 **尝试不支持的组合会抛出 `ValueError`**，提示哪些 solver–penalty 对有效。
 
@@ -59,6 +61,8 @@
 | `fista_bb** | ✅ | ✅ | ❌ | GLM + 非光滑（自适应步长） |
 | `admm** | ✅ | ✅ | ❌ | 任意惩罚（增广拉格朗日） |
 | `irls_cd** | ✅ | ✅ | ❌ | squared_error + SCAD/MCP（快速 CD） |
+| `proximal_irls_cd` | ✅ | ✅ | ❌ | quantile + SCAD/MCP（IRLS 上界） |
+| `proximal_newton` | ✅ | ✅ | ❌ | Huber/Bisquare/Cox + SCAD/MCP（5-10 iters） |
 
 ## 4. CV 支持 (`PenalizedGLM_CV`)
 
