@@ -400,6 +400,7 @@ class _PenalizedFitMixin:
                 self._cleanup_cuda_memory()
             elif backend_name == "torch":
                 self._cleanup_torch_memory()
+            self._record_backend_fallback()
             self._fitted = True
             return self
 
@@ -414,6 +415,7 @@ class _PenalizedFitMixin:
             self._fit_cpu(X_arr, y_arr, _sw_arr)
 
         self._compute_post_fit_gaussian_inference(X, y, sample_weight=_sw_arr)
+        self._record_backend_fallback()
         self._fitted = True
         # Clean up CV cache unless a caller is intentionally reusing one
         # across repeated fits, as PenalizedGLM_CV does within a fold.
@@ -2087,6 +2089,24 @@ class _PenalizedFitMixin:
             self._cleanup_cuda_memory()
         elif backend_name == "torch":
             self._cleanup_torch_memory()
+
+    def _record_backend_fallback(self):
+        """Track CPU fallback for AGENTS GPU visibility compliance.
+
+        When a loss object records that it fell back to CPU during GPU
+        execution (e.g. CoxPH), expose this on the estimator so users
+        can detect silent fallback.
+        """
+        if hasattr(self, '_loss') and hasattr(self._loss, '_cpu_fallback_used'):
+            if self._loss._cpu_fallback_used:
+                import warnings
+                warnings.warn(
+                    "CoxPH GPU path fell back to CPU for gradient/Hessian computation. "
+                    "Use device='cpu' to avoid this fallback, or ensure CuPy/Triton "
+                    "kernels are available for full GPU acceleration.",
+                    UserWarning, stacklevel=2,
+                )
+                self._backend_fallback_ = "coxph_cpu_grad_hess"
 
     def _cleanup_cuda_memory(self):
         """Free CuPy memory pool."""
