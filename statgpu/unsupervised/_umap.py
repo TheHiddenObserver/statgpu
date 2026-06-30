@@ -304,24 +304,27 @@ class UMAP(BaseEstimator):
             grad_attr = scatter_add_2d(Y, edge_rows_b, force_attr_2d)
 
             # === Repulsive forces (negative sampling) ===
-            # Use backend-native RNG for GPU — no per-epoch CPU→GPU transfer
+            # Use backend-native RNG seeded by random_state for reproducibility
+            rs = self.random_state if self.random_state is not None else 42
             if hasattr(Y, 'device') and not hasattr(Y, 'get'):  # torch
                 try:
                     import torch
+                    g = torch.Generator(device=Y.device).manual_seed(int(rs))
                     neg_src = torch.randint(0, n_samples, (n_samples * neg_rate,),
-                                            device=Y.device, dtype=torch.int64)
+                                            generator=g, device=Y.device, dtype=torch.int64)
                     neg_dst = torch.randint(0, n_samples, (n_samples * neg_rate,),
-                                            device=Y.device, dtype=torch.int64)
+                                            generator=g, device=Y.device, dtype=torch.int64)
                 except ImportError:
                     neg_src = backend.asarray(rng.randint(0, n_samples, size=n_samples * neg_rate), dtype=backend.int64)
                     neg_dst = backend.asarray(rng.randint(0, n_samples, size=n_samples * neg_rate), dtype=backend.int64)
             elif hasattr(Y, 'get'):  # cupy
                 import cupy as cp
-                neg_src = cp.random.randint(0, n_samples, (n_samples * neg_rate,), dtype=cp.int64)
-                neg_dst = cp.random.randint(0, n_samples, (n_samples * neg_rate,), dtype=cp.int64)
+                cp_rng = cp.random.RandomState(int(rs))
+                neg_src = cp_rng.randint(0, n_samples, (n_samples * neg_rate,), dtype=cp.int64)
+                neg_dst = cp_rng.randint(0, n_samples, (n_samples * neg_rate,), dtype=cp.int64)
             else:  # numpy
-                neg_src = np.random.randint(0, n_samples, size=n_samples * neg_rate).astype(np.int64)
-                neg_dst = np.random.randint(0, n_samples, size=n_samples * neg_rate).astype(np.int64)
+                neg_src = rng.randint(0, n_samples, size=n_samples * neg_rate).astype(np.int64)
+                neg_dst = rng.randint(0, n_samples, size=n_samples * neg_rate).astype(np.int64)
 
             Y_neg_src = Y[neg_src]
             Y_neg_dst = Y[neg_dst]

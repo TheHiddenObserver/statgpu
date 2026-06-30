@@ -421,7 +421,7 @@ class DBSCAN(BaseEstimator):
             # PyTorch CUDA: use fully GPU-based approach
             labels_np, core_indices = self._fit_gpu(backend, X_arr, n_samples, n_features)
         elif backend.name == "cupy":
-            # CuPy: GPU-native label propagation (no CPU round-trip)
+            # CuPy: GPU distance + CuPy-based labeling (uses host syncs in CC)
             labels_np, core_indices = self._fit_gpu_cupy(
                 backend, X_arr, n_samples, n_features
             )
@@ -440,10 +440,11 @@ class DBSCAN(BaseEstimator):
         return self
 
     def _fit_gpu_cupy(self, backend, X_arr, n_samples, n_features):
-        """CuPy GPU-native DBSCAN: distance compute + label propagation all on device.
+        """CuPy DBSCAN: GPU distance compute + CuPy-based label propagation.
 
-        Label propagation via scatter-reduce (same algorithm as torch path).
-        No external dependencies (pylibcugraph not required).
+        Uses host syncs for connected components (Python loop over edges).
+        Torch path uses device-native scatter_reduce; this CuPy path trades
+        some GPU-native performance for CuPy compatibility (no pylibcugraph).
         """
         import cupy as cp
 

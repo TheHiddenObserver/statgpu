@@ -77,8 +77,8 @@ def fista_solver(
     init_coef : array, optional
         Initial coefficient vector.
     sample_weight : array, optional
-        Per-sample weights. Non-uniform weights are currently rejected in this
-        solver path to avoid silently running an incorrect unweighted update.
+        Per-sample weights. Supported for paths using LossBase.fused_value_and_gradient.
+        Converted to backend-native array at solver entry to prevent device mismatch.
     cv_mode : bool, default=False
         Private CV fast path: keeps the same update rule but checks objective
         and convergence less often on GPU non-smooth GLM paths.
