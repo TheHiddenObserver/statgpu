@@ -142,8 +142,17 @@ class UMAP(BaseEstimator):
         # For each point i, add edge (i, neighbor_j) with weight membership[i,j]
         import numpy as np
         all_src_np = np.repeat(np.arange(n_samples, dtype=np.int64), k)  # (n*k,)
-        all_dst_np = np.asarray(neighbor_indices, dtype=np.int64).ravel()
-        all_w_np = np.asarray(membership, dtype=np.float64).ravel()
+        # Convert neighbor indices/membership to numpy (handle cupy/torch safely)
+        if hasattr(neighbor_indices, 'get'):  # cupy
+            import cupy as cp
+            all_dst_np = cp.asnumpy(neighbor_indices).ravel().astype(np.int64)
+            all_w_np = cp.asnumpy(membership).ravel().astype(np.float64)
+        elif hasattr(neighbor_indices, 'cpu'):  # torch
+            all_dst_np = neighbor_indices.cpu().numpy().ravel().astype(np.int64)
+            all_w_np = membership.cpu().numpy().ravel().astype(np.float64)
+        else:  # numpy
+            all_dst_np = np.asarray(neighbor_indices, dtype=np.int64).ravel()
+            all_w_np = np.asarray(membership, dtype=np.float64).ravel()
         all_src = backend.asarray(all_src_np, dtype=backend.int64)
         all_dst = backend.asarray(all_dst_np, dtype=backend.int64)
         all_w = backend.asarray(all_w_np, dtype=backend.float64)
@@ -169,12 +178,20 @@ class UMAP(BaseEstimator):
         from scipy.sparse import coo_matrix
         from scipy.sparse.linalg import eigsh
 
-        src_np = np.asarray(all_src, dtype=np.int32) if hasattr(all_src, 'cpu') else all_src
-        dst_np = np.asarray(all_dst, dtype=np.int32) if hasattr(all_dst, 'cpu') else all_dst
-        w_np = np.asarray(all_w, dtype=np.float64) if hasattr(all_w, 'cpu') else all_w
-        if hasattr(src_np, 'cpu'): src_np = src_np.cpu().numpy()
-        if hasattr(dst_np, 'cpu'): dst_np = dst_np.cpu().numpy()
-        if hasattr(w_np, 'cpu'): w_np = w_np.cpu().numpy()
+        # Convert to numpy (handle cupy/torch/numpy)
+        if hasattr(all_src, 'get'):  # cupy
+            import cupy as cp
+            src_np = cp.asnumpy(all_src).ravel().astype(np.int32)
+            dst_np = cp.asnumpy(all_dst).ravel().astype(np.int32)
+            w_np = cp.asnumpy(all_w).ravel().astype(np.float64)
+        elif hasattr(all_src, 'cpu'):  # torch
+            src_np = all_src.cpu().numpy().ravel().astype(np.int32)
+            dst_np = all_dst.cpu().numpy().ravel().astype(np.int32)
+            w_np = all_w.cpu().numpy().ravel().astype(np.float64)
+        else:  # numpy
+            src_np = np.asarray(all_src, dtype=np.int32).ravel()
+            dst_np = np.asarray(all_dst, dtype=np.int32).ravel()
+            w_np = np.asarray(all_w, dtype=np.float64).ravel()
 
         sparse_graph = coo_matrix((w_np, (src_np, dst_np)), shape=(n_samples, n_samples))
         sparse_graph = (sparse_graph + sparse_graph.T).tocsr() * 0.5
