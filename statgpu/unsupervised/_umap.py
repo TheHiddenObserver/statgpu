@@ -286,7 +286,19 @@ class UMAP(BaseEstimator):
 
         n_edges = len(edge_rows_b)
 
+        # Create RNG once before epoch loop (not re-seeded per epoch)
         rng = np.random.RandomState(self.random_state)
+        rs = self.random_state if self.random_state is not None else 42
+        if hasattr(Y, 'device') and not hasattr(Y, 'get'):  # torch
+            try:
+                import torch
+                torch_gen = torch.Generator(device=Y.device).manual_seed(int(rs))
+                _use_torch_gen = True
+            except ImportError:
+                _use_torch_gen = False
+        elif hasattr(Y, 'get'):  # cupy
+            import cupy as cp
+            cp_rng = cp.random.RandomState(int(rs))
 
         for epoch in range(n_epochs):
             alpha = lr * (1.0 - (epoch / max(n_epochs, 1)))
@@ -304,22 +316,17 @@ class UMAP(BaseEstimator):
             grad_attr = scatter_add_2d(Y, edge_rows_b, force_attr_2d)
 
             # === Repulsive forces (negative sampling) ===
-            # Use backend-native RNG seeded by random_state for reproducibility
-            rs = self.random_state if self.random_state is not None else 42
+            # Use backend-native RNG (created once before loop, not re-seeded)
             if hasattr(Y, 'device') and not hasattr(Y, 'get'):  # torch
-                try:
-                    import torch
-                    g = torch.Generator(device=Y.device).manual_seed(int(rs))
+                if _use_torch_gen:
                     neg_src = torch.randint(0, n_samples, (n_samples * neg_rate,),
-                                            generator=g, device=Y.device, dtype=torch.int64)
+                                            generator=torch_gen, device=Y.device, dtype=torch.int64)
                     neg_dst = torch.randint(0, n_samples, (n_samples * neg_rate,),
-                                            generator=g, device=Y.device, dtype=torch.int64)
-                except ImportError:
+                                            generator=torch_gen, device=Y.device, dtype=torch.int64)
+                else:
                     neg_src = backend.asarray(rng.randint(0, n_samples, size=n_samples * neg_rate), dtype=backend.int64)
                     neg_dst = backend.asarray(rng.randint(0, n_samples, size=n_samples * neg_rate), dtype=backend.int64)
             elif hasattr(Y, 'get'):  # cupy
-                import cupy as cp
-                cp_rng = cp.random.RandomState(int(rs))
                 neg_src = cp_rng.randint(0, n_samples, (n_samples * neg_rate,), dtype=cp.int64)
                 neg_dst = cp_rng.randint(0, n_samples, (n_samples * neg_rate,), dtype=cp.int64)
             else:  # numpy

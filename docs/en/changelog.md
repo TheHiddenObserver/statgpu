@@ -22,7 +22,7 @@ Language switch: [Chinese](../changelog.md)
   - Algorithm: IRLS quadratic majorization + LLA nonconvex penalty + parallel diagonal majorization
   - CPU (numpy): ~3x faster than FISTA-LLA (60-120 iterations vs 1800+)
   - GPU (torch-CUDA): ~36x faster than CPU numpy for large problems (n=10K, p=500)
-  - Three-backend: numpy, cupy, torch — fully GPU-native, no CPU round-trips
+  - Three-backend: numpy, cupy, torch — core array operations backend-native; scalar convergence checks synchronize to host
 
 - **CoxPH Efron Optimization**:
   - Vectorized Efron: prefix-sum based gradient/Hessian computation (no Python loops)
@@ -86,8 +86,6 @@ Language switch: [Chinese](../changelog.md)
 - **TorchBackend**: Added qr, svd, solve
 - **Backend Utils**: Unified `scatter_add_1d` and `scatter_add_2d`
 - **Build**: Consolidated 7 setup files into single `setup.py`
-
-### Added (2026-06-24)
 
 ### Added (2026-06-24)
 
