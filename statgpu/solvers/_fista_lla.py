@@ -249,6 +249,13 @@ def fista_lla_path(
     n_samples, n_features = X_proc.shape
     _validate_sample_weight(sample_weight, n_samples)
 
+    # Convert sample_weight to backend-native array (avoid CPU/CUDA mismatch)
+    _sw_arr = None
+    if sample_weight is not None:
+        _sw_arr = xp.asarray(sample_weight, dtype=X_proc.dtype)
+        if hasattr(X_proc, 'device') and hasattr(_sw_arr, 'to'):
+            _sw_arr = _sw_arr.to(device=X_proc.device)
+
     # --- Intercept handling ---
     # For squared_error (identity link): centering X, y is exact.
     # For GLM losses (log/logit link): centering is WRONG -- it changes
@@ -501,7 +508,7 @@ def fista_lla_path(
                     coef, n_iter_inner = proximal_newton_solver(
                         loss, inner_pen, X_c, y_c,
                         max_iter=min(_mi, 20), tol=tol,
-                        init_coef=coef, sample_weight=sample_weight,
+                        init_coef=coef, sample_weight=_sw_arr,
                     )
                     total_iter += n_iter_inner
 
@@ -571,7 +578,7 @@ def fista_lla_path(
                         # Gradient: X.T @ per_sample_grad (2 matmuls, unavoidable)
                         if sample_weight is not None:
                             _, grad = loss.fused_value_and_gradient(
-                                X_c, y_c, y_k, sample_weight=sample_weight)
+                                X_c, y_c, y_k, sample_weight=_sw_arr)
                         else:
                             _, grad = loss.fused_value_and_gradient(X_c, y_c, y_k)
 
