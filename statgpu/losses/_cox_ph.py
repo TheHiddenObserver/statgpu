@@ -77,7 +77,6 @@ class CoxPartialLikelihoodLoss(LossBase):
         self.ties = ties
 
         self._sorted = False
-        self._cpu_fallback_used = False  # tracks silent CPU fallback for AGENTS compliance
         self._X_sorted = None
         self._time_sorted = None
         self._event_sorted = None
@@ -296,8 +295,13 @@ class CoxPartialLikelihoodLoss(LossBase):
             except Exception:
                 pass
 
-        # CPU fallback (numpy)
-        self._cpu_fallback_used = True
+        # CPU-only (numpy). CuPy/Torch CUDA must NOT silently fall back.
+        if is_cupy or is_torch_cuda:
+            raise RuntimeError(
+                "CoxPH GPU gradient/Hessian path failed. "
+                "Explicit GPU devices do not fall back to CPU. "
+                "Use device='cpu' to run the CPU implementation."
+            )
         eta_np = _to_numpy(X_s @ coef_dev)
         grad_np, hess_np = self._cpu_grad_hess(eta_np, self._time_np, self._event_np)
         return (
@@ -315,6 +319,12 @@ class CoxPartialLikelihoodLoss(LossBase):
             result = self._gpu_loglik_from_eta(eta, X_s)
             if result is not None:
                 return result
+            # Explicit GPU must not silently fall back to CPU
+            raise RuntimeError(
+                "CoxPH GPU loglik path failed. "
+                "Explicit GPU devices do not fall back to CPU. "
+                "Use device='cpu' to run the CPU implementation."
+            )
         return self._cpu_loglik(_to_numpy(eta), self._time_np, self._event_np)
 
     def _grad_from_eta(self, eta, X_s):
@@ -380,8 +390,7 @@ class CoxPartialLikelihoodLoss(LossBase):
         except Exception:
             pass
 
-        # Fallback: Python loop
-        self._cpu_fallback_used = True
+        # Fallback: Python loop (CuPy backend-aware, no CPU round-trip)
         _, uft_ix, risk_enter, _, _, _ = self._efron_pre_np
         n, p = int(X_s.shape[0]), int(X_s.shape[1])
 
