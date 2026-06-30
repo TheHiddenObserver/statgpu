@@ -133,9 +133,10 @@ def fista_solver(
         if sample_weight is not None:
             # Weighted Lipschitz: eigenvalue of X' diag(w) X / sum(w)
             _xp_mod = _get_xp(backend)
-            # Ensure sample_weight is on same backend as X_proc
-            _sw_np = _to_numpy(sample_weight)
-            _sw = _xp_mod.asarray(_sw_np, dtype=X_proc.dtype)
+            # Ensure sample_weight is on same backend/device as X_proc
+            _sw = _xp_mod.asarray(sample_weight, dtype=X_proc.dtype)
+            if hasattr(X_proc, 'device') and hasattr(_sw, 'to'):
+                _sw = _sw.to(device=X_proc.device)
             sw_sum = _to_float_scalar(_xp_mod.sum(_sw))
             sw_col = _sw[:, None] if _sw.ndim == 1 else _sw
             XtWX = X_proc.T @ (X_proc * sw_col) / sw_sum

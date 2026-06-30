@@ -172,6 +172,9 @@ class QuantileLoss(LossBase):
         # Handle sample_weight
         if sample_weight is not None:
             sw = xp.asarray(sample_weight, dtype=xp.float64)
+            # Ensure sw is on same device as X for torch CUDA
+            if hasattr(X_dev, 'device') and hasattr(sw, 'to'):
+                sw = sw.to(device=X_dev.device)
             sw_sum = float(xp.sum(sw))
             sw = sw * (n / sw_sum)  # normalize so sum(sw) = n
         else:
