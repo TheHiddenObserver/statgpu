@@ -44,6 +44,8 @@ When you set `solver=` explicitly, these constraints apply:
 | `fista_bb` | all penalties (any loss) | — | FISTA + Barzilai-Borwein step size |
 | `admm` | all penalties (any loss) | — | ADMM with proximal z-update |
 | `irls_cd` | scad, mcp, adaptive_l1 | l1, elasticnet, group_* | IRLS outer + coordinate descent inner |
+| `proximal_irls_cd` | scad, mcp (quantile only) | l1, elasticnet, group_*, non-quantile losses | IRLS majorization + LLA + parallel diagonal step |
+| `proximal_newton` | scad, mcp, adaptive_l1 (Hessian losses) | all others | Newton direction + Armijo + proximal operator |
 
 **Attempting an unsupported combination raises `ValueError`** with a message indicating which solver–penalty pairs are valid.
 

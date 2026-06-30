@@ -31,6 +31,9 @@ All 7 GLM families support penalties through `PenalizedGeneralizedLinearModel` o
 | `PenalizedLinearRegression` | squared_error | exact, fista | l1, l2, elasticnet, scad, mcp, adaptive_l1 | CPU, CuPy, Torch |
 | `PenalizedLogisticRegression` | logistic | irls, fista | l1, l2, elasticnet, scad, mcp, adaptive_l1 | CPU, CuPy, Torch |
 | `PenalizedPoissonRegression` | poisson | irls, fista | l1, l2, elasticnet, scad, mcp, adaptive_l1 | CPU, CuPy, Torch |
+| `PenalizedQuantileRegression` | quantile | proximal_irls_cd, fista | scad, mcp, l2 | CPU, CuPy, Torch |
+| `PenalizedRobustRegression` | huber, bisquare | proximal_newton, irls | scad, mcp, l2 | CPU, CuPy, Torch |
+| `PenalizedCoxRegression` | cox_ph | proximal_newton | scad, mcp, l2 | CPU |
 
 For Gamma, InverseGaussian, NegativeBinomial, and Tweedie with penalties, use `PenalizedGeneralizedLinearModel(loss=..., penalty=...)`:
 
@@ -154,8 +157,9 @@ model.fit(X, y)
 | `IncrementalPCA` | Incremental PCA for large datasets | CPU, CuPy, Torch |
 | `NMF` | Non-negative matrix factorization (multiplicative updates) | CPU, CuPy, Torch |
 | `MiniBatchNMF` | Mini-batch NMF for large datasets | CPU, CuPy, Torch |
-| `UMAP` | Uniform Manifold Approximation and Projection | CPU, CuPy, Torch |
+| `UMAP` | Uniform Manifold Approximation and Projection (sparse COO edges, NNDescent NN) | CPU, CuPy, Torch |
 | `TSNE` | t-distributed Stochastic Neighbor Embedding | CPU, CuPy, Torch |
+| `NNDescent` | Approximate nearest neighbor descent (standalone) | CPU, CuPy, Torch |
 
 **Clustering & Mixture Models:**
 
@@ -171,7 +175,8 @@ model.fit(X, y)
 
 | Class | Description | Backends |
 |---|---|---|
-| `CoxPH` | Cox proportional hazards | CPU, CuPy, Torch |
+| `CoxPH` | Cox proportional hazards (Efron/Breslow ties, vectorized grad/hess) | CPU, CuPy, Torch |
+| `PenalizedCoxRegression` | CoxPH + SCAD/MCP penalties via proximal Newton | CPU |
 
 ## Feature Selection
 
