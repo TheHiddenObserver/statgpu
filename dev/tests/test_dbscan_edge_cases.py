@@ -215,5 +215,105 @@ class TestQuantileSCADScaling:
         assert active_sets[0] == (0, 3, 6), f"Expected (0,3,6), got {active_sets[0]}"
 
 
+class TestQuantileSCADParity:
+    """Quantile + SCAD/MCP: proximal IRLS-CD vs FISTA-LLA objective parity."""
+
+    def test_proximal_irls_vs_fista_lla(self):
+        """Proximal IRLS-CD objective should be close to FISTA-LLA."""
+        from statgpu.solvers._proximal_irls_quantile import proximal_irls_quantile_solver
+        from statgpu.solvers._fista_lla import fista_lla_path
+        from statgpu.losses._quantile import QuantileLoss
+        from statgpu.penalties._scad import SCADPenalty
+
+        np.random.seed(42)
+        n, p = 200, 10
+        X = np.random.randn(n, p).astype(np.float64)
+        beta_true = np.zeros(p)
+        beta_true[0] = 3.0
+        beta_true[3] = -2.5
+        beta_true[6] = 1.5
+        y = (X @ beta_true + np.random.randn(n) * 0.5).astype(np.float64)
+
+        cn = np.maximum(np.sqrt(np.sum(X**2, axis=0)), 1e-20)
+        Xs = X * (np.sqrt(n) / cn)
+        yc = y - np.mean(y)
+        lam = float(np.max(np.abs(Xs.T @ yc / n)))
+
+        for alpha in [0.05, 0.1]:
+            loss = QuantileLoss(0.5)
+            penalty = SCADPenalty(alpha=alpha)
+            ap = np.geomspace(max(lam, alpha * 1.1), alpha, 3)
+
+            # Proximal IRLS-CD
+            c1, _, _ = proximal_irls_quantile_solver(
+                loss, penalty, X, y, ap, max_lla_per_step=2, max_iter=200,
+                tol=1e-6, fit_intercept=True)
+
+            # FISTA-LLA
+            c2, _, _ = fista_lla_path(
+                loss, penalty, X, y, ap, max_lla_per_step=2, tol=1e-6,
+                max_iter=[100, 200, 500], fit_intercept=True)
+
+            # Active set should match
+            a1 = set(np.where(np.abs(c1) > 0.05)[0])
+            a2 = set(np.where(np.abs(c2) > 0.05)[0])
+            assert a1 == a2, f"alpha={alpha}: active sets differ: {a1} vs {a2}"
+
+            # Coefficients should be close
+            np.testing.assert_allclose(
+                c1, c2, rtol=0.15, atol=0.3,
+                err_msg=f"alpha={alpha}: coef divergence beyond tolerance")
+
+    def test_sample_weight_cpu(self):
+        """Weighted quantile SCAD on CPU should differ from unweighted."""
+        from statgpu.linear_model.penalized._penalized_quantile import PenalizedQuantileRegression
+
+        np.random.seed(42)
+        n, p = 200, 10
+        X = np.random.randn(n, p)
+        beta_true = np.zeros(p)
+        beta_true[0] = 3.0
+        beta_true[5] = -2.5
+        y = X @ beta_true + np.random.randn(n) * 0.5
+
+        # Unweighted
+        m1 = PenalizedQuantileRegression(quantile=0.5, penalty='scad', alpha=0.1)
+        m1.fit(X, y)
+
+        # Weighted: upweight first half
+        sw = np.ones(n)
+        sw[:n//2] = 5.0
+        m2 = PenalizedQuantileRegression(quantile=0.5, penalty='scad', alpha=0.1)
+        m2.fit(X, y, sample_weight=sw)
+
+        # Weighted fit should differ from unweighted
+        diff = np.max(np.abs(m1.coef_ - m2.coef_))
+        assert diff > 0.01, f"Weighted fit should differ from unweighted, got diff={diff}"
+
+
+class TestScoreSampleWeight:
+    """Score methods should handle sample_weight."""
+
+    def test_quantile_score_weighted(self):
+        """Quantile score with sample_weight should give weighted result."""
+        from statgpu.linear_model.penalized._penalized_quantile import PenalizedQuantileRegression
+
+        np.random.seed(42)
+        n = 200
+        X = np.random.randn(n, 5)
+        y = X @ np.array([1.0, 0, -0.5, 0, 0.3]) + np.random.randn(n) * 0.5
+
+        m = PenalizedQuantileRegression(quantile=0.5, penalty='scad', alpha=0.1)
+        m.fit(X, y)
+
+        s1 = m.score(X, y)
+        sw = np.ones(n)
+        sw[:50] = 10.0
+        s2 = m.score(X, y, sample_weight=sw)
+
+        # Weighted score should differ from unweighted
+        assert abs(s1 - s2) > 1e-6, f"Weighted score should differ from unweighted, diff={abs(s1-s2):.8f}"
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
