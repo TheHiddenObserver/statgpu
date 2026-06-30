@@ -159,9 +159,15 @@ class PenalizedCoxPHModel(PenalizedGeneralizedLinearModel):
         Returns the C-index measuring discrimination ability.
         Higher is better (0.5 = random, 1.0 = perfect).
 
-        Note: Requires lifelines or scikit-survival for computation.
-        Falls back to a simple implementation if not available.
+        Note: C-index is a ranking metric and does not support sample_weight.
+        The sample_weight parameter is accepted for sklearn API compatibility
+        but is ignored during computation.
         """
+        if sample_weight is not None:
+            import warnings
+            warnings.warn("sample_weight is not supported for C-index (ranking metric), ignoring.",
+                          UserWarning, stacklevel=2)
+
         if self.coef_ is None:
             raise RuntimeError("Model has not been fitted yet.")
 

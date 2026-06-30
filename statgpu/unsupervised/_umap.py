@@ -137,25 +137,53 @@ class UMAP(BaseEstimator):
             neighbor_distances, neighbor_indices = topk_smallest(backend, distances, k)
 
         membership = self._smooth_knn_membership(backend, neighbor_distances)
-        graph = backend.zeros((n_samples, n_samples), dtype=backend.float64)
-        rows = backend.reshape(backend.arange(n_samples, dtype=backend.int64), (n_samples, 1))
-        graph[rows, backend.astype(neighbor_indices, backend.int64)] = membership
-        graph = graph + graph.T - graph * graph.T
-        graph = graph * (1.0 - eye(backend, n_samples, dtype=backend.float64))
-        return graph
 
-    def _initial_embedding(self, backend, graph):
-        n_samples = graph.shape[0]
+        # Build COO sparse edges directly (O(n*k) memory, not O(n²))
+        # For each point i, add edge (i, neighbor_j) with weight membership[i,j]
+        import numpy as np
+        all_src_np = np.repeat(np.arange(n_samples, dtype=np.int64), k)  # (n*k,)
+        all_dst_np = np.asarray(neighbor_indices, dtype=np.int64).ravel()
+        all_w_np = np.asarray(membership, dtype=np.float64).ravel()
+        all_src = backend.asarray(all_src_np, dtype=backend.int64)
+        all_dst = backend.asarray(all_dst_np, dtype=backend.int64)
+        all_w = backend.asarray(all_w_np, dtype=backend.float64)
+
+        # Symmetrize: add reverse edges a+b-a*b
+        rev_w = all_w + all_w - all_w * all_w  # fuzzy union
+        # Remove self-edges (where src == dst, set to 0)
+        is_self = all_src == all_dst
+        if hasattr(is_self, 'cpu'):  # torch
+            rev_w = rev_w.where(~is_self, backend.asarray(0.0, dtype=rev_w.dtype))
+        else:
+            rev_w[is_self] = 0.0
+
+        return (all_src, all_dst, rev_w, n_samples)
+
+    def _initial_embedding(self, backend, graph_data):
+        all_src, all_dst, all_w, n_samples = graph_data
         if self.init == "random":
             return backend_random_normal(backend, self.random_state, size=(n_samples, int(self.n_components)), scale=1e-4)
 
-        degree = backend.sum(graph, axis=1)
-        laplacian = backend.diag(degree) - graph
-        eigenvalues, eigenvectors = backend.eigh(laplacian)
-        order = backend.argsort(eigenvalues, axis=0)
-        components = eigenvectors[:, order[1 : int(self.n_components) + 1]]
+        # Spectral embedding via sparse Laplacian eigendecomposition
+        import numpy as np
+        from scipy.sparse import coo_matrix
+        from scipy.sparse.linalg import eigsh
+
+        src_np = np.asarray(all_src, dtype=np.int32) if hasattr(all_src, 'cpu') else all_src
+        dst_np = np.asarray(all_dst, dtype=np.int32) if hasattr(all_dst, 'cpu') else all_dst
+        w_np = np.asarray(all_w, dtype=np.float64) if hasattr(all_w, 'cpu') else all_w
+        if hasattr(src_np, 'cpu'): src_np = src_np.cpu().numpy()
+        if hasattr(dst_np, 'cpu'): dst_np = dst_np.cpu().numpy()
+        if hasattr(w_np, 'cpu'): w_np = w_np.cpu().numpy()
+
+        sparse_graph = coo_matrix((w_np, (src_np, dst_np)), shape=(n_samples, n_samples))
+        sparse_graph = (sparse_graph + sparse_graph.T).tocsr() * 0.5
+        degree = np.array(sparse_graph.sum(axis=1)).ravel()
+        laplacian = sparse_graph - __import__('scipy').sparse.diags(degree)
+        n_components = min(int(self.n_components) + 1, n_samples - 2)
+        _, eigenvectors = eigsh(laplacian, k=n_components, which='SM', tol=1e-4)
         jitter = backend_random_normal(backend, self.random_state, size=(n_samples, int(self.n_components)), scale=1e-4)
-        return components + jitter
+        return backend.asarray(eigenvectors[:, 1:int(self.n_components)+1], dtype=backend.float64) + jitter
 
     def _epochs(self, n_samples: int) -> int:
         if self.n_epochs is not None:
@@ -216,47 +244,21 @@ class UMAP(BaseEstimator):
 
         # Use float32 for distance computations (2x faster, 2x less memory)
         X_f32 = backend.asarray(X_arr, dtype=backend.float32)
-        graph = self._fuzzy_graph(backend, X_f32)
-        graph = backend.asarray(graph, dtype=backend.float64)
+        graph_sparse = self._fuzzy_graph(backend, X_f32)
+        edge_rows_b, edge_cols_b, edge_weights_b, n_samples = graph_sparse
+        # Convert to float64 and clip weights (sparse: O(n*k), not O(n²))
+        edge_rows_b = backend.asarray(edge_rows_b, dtype=backend.int64)
+        edge_cols_b = backend.asarray(edge_cols_b, dtype=backend.int64)
+        edge_weights_b = backend.clip(backend.asarray(edge_weights_b, dtype=backend.float64), 0.0, 1.0)
 
-        Y = self._initial_embedding(backend, graph)
+        Y = self._initial_embedding(backend, graph_sparse)
         n_epochs = self._epochs(n_samples)
         a, b = self._attraction_curve_params()
-        off_diag = 1.0 - eye(backend, n_samples, dtype=backend.float64)
-        graph = backend.clip(graph, 0.0, 1.0)
         repulsion = float(self.repulsion_strength) / float(self.negative_sample_rate)
         a_f = float(a)
         b_f = float(b)
         lr = float(self.learning_rate)
         neg_rate = int(self.negative_sample_rate)
-
-        # Extract sparse edges on GPU (no CPU transfer)
-        graph_mask = graph > 0
-        if hasattr(graph_mask, 'cpu'):  # torch
-            try:
-                import torch
-                nz = torch.nonzero(graph_mask, as_tuple=False)
-                edge_rows_b = nz[:, 0]
-                edge_cols_b = nz[:, 1]
-                edge_weights_b = graph[edge_rows_b, edge_cols_b]
-            except ImportError:
-                # Fallback: convert to numpy
-                graph_mask_np = graph_mask.cpu().numpy() if hasattr(graph_mask, 'cpu') else np.asarray(graph_mask)
-                nz_np = np.argwhere(graph_mask_np)
-                edge_rows_b = backend.asarray(nz_np[:, 0], dtype=backend.int64)
-                edge_cols_b = backend.asarray(nz_np[:, 1], dtype=backend.int64)
-                edge_weights_b = graph[edge_rows_b, edge_cols_b]
-        elif hasattr(graph_mask, 'get'):  # cupy
-            import cupy as cp
-            nz = cp.argwhere(graph_mask)
-            edge_rows_b = nz[:, 0]
-            edge_cols_b = nz[:, 1]
-            edge_weights_b = graph[edge_rows_b, edge_cols_b]
-        else:  # numpy
-            edge_rows, edge_cols = np.nonzero(_to_numpy(graph_mask))
-            edge_rows_b = backend.asarray(edge_rows, dtype=backend.int64)
-            edge_cols_b = backend.asarray(edge_cols, dtype=backend.int64)
-            edge_weights_b = graph[edge_rows_b, edge_cols_b]
 
         n_edges = len(edge_rows_b)
 
@@ -279,7 +281,7 @@ class UMAP(BaseEstimator):
 
             # === Repulsive forces (negative sampling) ===
             # Use backend-native RNG for GPU — no per-epoch CPU→GPU transfer
-            if hasattr(Y, 'device') and not hasattr(graph_mask, 'get'):  # torch
+            if hasattr(Y, 'device') and not hasattr(Y, 'get'):  # torch
                 try:
                     import torch
                     neg_src = torch.randint(0, n_samples, (n_samples * neg_rate,),
@@ -289,7 +291,7 @@ class UMAP(BaseEstimator):
                 except ImportError:
                     neg_src = backend.asarray(rng.randint(0, n_samples, size=n_samples * neg_rate), dtype=backend.int64)
                     neg_dst = backend.asarray(rng.randint(0, n_samples, size=n_samples * neg_rate), dtype=backend.int64)
-            elif hasattr(graph_mask, 'get'):  # cupy
+            elif hasattr(Y, 'get'):  # cupy
                 import cupy as cp
                 neg_src = cp.random.randint(0, n_samples, (n_samples * neg_rate,), dtype=cp.int64)
                 neg_dst = cp.random.randint(0, n_samples, (n_samples * neg_rate,), dtype=cp.int64)
@@ -313,7 +315,7 @@ class UMAP(BaseEstimator):
             Y = Y - backend.mean(Y, axis=0, keepdims=True)
 
         self.embedding_ = Y
-        self.graph_ = graph
+        self.graph_ = graph_sparse
         self.n_epochs_ = int(n_epochs)
         self.n_features_in_ = int(n_features)
         self._backend_name = backend.name
