@@ -65,8 +65,9 @@ X_db[50:100] += [10, 0]
 X_cp_db = cp.asarray(X_db)
 db = DBSCAN(eps=0.5, min_samples=5)
 db.fit(X_cp_db)
-n_clusters = len(set(db.labels_)) - (1 if -1 in db.labels_ else 0)
-n_noise = np.sum(db.labels_ == -1)
+labels_np = cp.asnumpy(cp.asarray(db.labels_)).ravel()
+n_clusters = len(set(labels_np)) - (1 if -1 in labels_np else 0)
+n_noise = int(np.sum(labels_np == -1))
 print(f"  CuPy DBSCAN: {n_clusters} clusters, {n_noise} noise")
 
 # --- DBSCAN Torch CUDA ---
@@ -75,7 +76,10 @@ print("=== DBSCAN (torch CUDA) ===")
 X_tc_db = t.tensor(X_db, dtype=t.float64).cuda()
 db2 = DBSCAN(eps=0.5, min_samples=5)
 db2.fit(X_tc_db)
-n_clusters2 = len(set(db2.labels_)) - (1 if -1 in db2.labels_ else 0)
+labels2_np = db2.labels_
+if hasattr(labels2_np, 'cpu'): labels2_np = labels2_np.cpu().numpy()
+labels2_flat = labels2_np.ravel()
+n_clusters2 = len(set(int(x) for x in labels2_flat)) - (1 if -1 in labels2_flat else 0)
 print(f"  Torch CUDA DBSCAN: {n_clusters2} clusters")
 
 # --- UMAP negative sampling ---

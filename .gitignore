@@ -103,3 +103,4 @@ dist/
 dev/tests/debug_*.py
 dev/tests/remote_gpu_bench.py
 dev/tests/test_irls_gpu.py
+dev/tests/run_remote_gpu.py

@@ -442,12 +442,10 @@ class DBSCAN(BaseEstimator):
     def _fit_gpu_cupy(self, backend, X_arr, n_samples, n_features):
         """CuPy GPU-native DBSCAN: distance compute + label propagation all on device.
 
-        Uses cupyx.scipy.sparse.csgraph.connected_components for GPU-native
-        connected components (no CPU round-trip for label assignment).
+        Label propagation via scatter-reduce (same algorithm as torch path).
+        No external dependencies (pylibcugraph not required).
         """
         import cupy as cp
-        from cupyx.scipy.sparse import csr_matrix as cp_csr
-        from cupyx.scipy.sparse.csgraph import connected_components as cp_cc
 
         min_samples = int(self.min_samples)
 
@@ -471,7 +469,7 @@ class DBSCAN(BaseEstimator):
         if n_core == 0:
             return np.full(n_samples, -1, dtype=np.int64), np.empty(0, dtype=np.int64)
 
-        # Build core-only CSR sparse graph on GPU
+        # Map global indices to core-local indices
         core_position = cp.full(n_samples, -1, dtype=cp.int64)
         core_position[core_indices] = cp.arange(n_core, dtype=cp.int64)
 
@@ -479,20 +477,35 @@ class DBSCAN(BaseEstimator):
         cr = core_position[row_idx[core_edges]]
         cc = core_position[col_idx[core_edges]]
 
-        # Symmetric graph for connected components
-        all_cr = cp.concatenate([cr, cc])
-        all_cc = cp.concatenate([cc, cr])
-        data = cp.ones(len(all_cr), dtype=cp.int32)
-        graph = cp_csr((data, (all_cr, all_cc)), shape=(n_core, n_core))
+        # Build symmetric edge list for label propagation
+        all_src = cp.concatenate([cr, cc])
+        all_dst = cp.concatenate([cc, cr])
+        n_edges_sym = len(all_src)
 
-        # GPU-native connected components
-        n_labels_found, core_labels = cp_cc(graph, directed=False, return_labels=True)
+        # Label propagation: each node's label = min(label, neighbor's label)
+        labels_core = cp.arange(n_core, dtype=cp.int64)
+        for _ in range(n_core):  # worst case: linear chain
+            src_labels = labels_core[all_src]
+            dst_labels = labels_core[all_dst]
+            # Element-wise min for each edge
+            new_labels = labels_core.copy()
+            for ei in range(n_edges_sym):
+                s, d = int(all_src[ei]), int(all_dst[ei])
+                m = int(min(src_labels[ei], dst_labels[ei]))
+                if m < int(new_labels[s]): new_labels[s] = m
+                if m < int(new_labels[d]): new_labels[d] = m
+            if cp.array_equal(new_labels, labels_core):
+                break
+            labels_core = new_labels
+
+        # Compact labels
+        _, compact = cp.unique(labels_core, return_inverse=True)
 
         # Assign labels
         labels = cp.full(n_samples, -1, dtype=cp.int64)
-        labels[core_indices] = core_labels.astype(cp.int64)
+        labels[core_indices] = compact
 
-        # Border points (neighbors of core points that are not core themselves)
+        # Border points
         border_pair = (~core_mask[row_idx]) & core_mask[col_idx]
         if cp.any(border_pair):
             border_pts = row_idx[border_pair]
