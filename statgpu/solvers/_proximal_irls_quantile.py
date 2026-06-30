@@ -235,7 +235,7 @@ def _parallel_majorization_step(X, X_sq, y, w, beta, thresh, p, eps, xp, backend
     # Weighted Hessian diagonal: h = sum(X^2 * w, axis=0)  -- O(np)
     w_col = w[:, None] if w.ndim == 1 else w  # (n,1) for broadcast
     h = xp.sum(X_sq * w_col, axis=0)           # (p,)
-    h = xp.maximum(h, eps)
+    h = xp.maximum(h, xp.asarray(eps, dtype=h.dtype))
 
     # Soft-threshold update: beta = S(g + h*beta, thresh) / h
     # S(x, t) = sign(x) * max(|x| - t, 0)
