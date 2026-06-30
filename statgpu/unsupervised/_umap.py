@@ -21,10 +21,17 @@ from statgpu.unsupervised._utils import (
 
 class UMAP(BaseEstimator):
     """
-    Dense exact UMAP with NumPy, CuPy, or Torch backends.
+    UMAP with NumPy, CuPy, or Torch backends.
 
-    Version 1 builds an exact dense Euclidean neighbor graph and does not
-    implement approximate NNDescent or transforming new data.
+    Supports exact NN (dense distance) and approximate NNDescent.
+    Graph construction uses sparse COO edges (O(n*k) memory).
+    Optimization loop and negative sampling are backend-aware
+    (torch.randint / cp.random.randint / np.random.randint).
+
+    Known limitations:
+    - Spectral initialization uses CPU SciPy sparse eigensolver.
+    - Graph edge construction may transfer indices/weights through host memory.
+    - Transform of new data is not yet supported.
     """
 
     def __init__(

@@ -315,5 +315,39 @@ class TestScoreSampleWeight:
         assert abs(s1 - s2) > 1e-6, f"Weighted score should differ from unweighted, diff={abs(s1-s2):.8f}"
 
 
+class TestCrossBackendParity:
+    """Verify solver produces consistent results across backends."""
+
+    @pytest.mark.parametrize("backend", ["numpy", "torch"])
+    def test_quantile_scad_cross_backend(self, backend):
+        """Quantile+SCAD should give same active set on torch vs numpy."""
+        from statgpu.linear_model.penalized._penalized_quantile import PenalizedQuantileRegression
+
+        np.random.seed(42)
+        n, p = 100, 10
+        X_np = np.random.randn(n, p)
+        beta_true = np.zeros(p)
+        beta_true[0] = 3.0; beta_true[5] = -2.5
+        y_np = X_np @ beta_true + np.random.randn(n) * 0.5
+
+        if backend == "torch":
+            import torch
+            X = torch.tensor(X_np, dtype=torch.float64)
+            y = torch.tensor(y_np, dtype=torch.float64)
+        else:
+            X, y = X_np, y_np
+
+        m = PenalizedQuantileRegression(quantile=0.5, penalty='scad', alpha=0.1)
+        m.fit(X, y)
+        active = sorted(np.where(np.abs(m.coef_) > 0.05)[0])
+        assert active == [0, 5], f"backend={backend}: active={active}"
+
+        m_np = PenalizedQuantileRegression(quantile=0.5, penalty='scad', alpha=0.1)
+        m_np.fit(X_np, y_np)
+        if backend == "torch":
+            d = np.max(np.abs(m.coef_ - m_np.coef_))
+            assert d < 0.15, f"torch vs numpy coef diff too large: {d}"
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
