@@ -1886,26 +1886,19 @@ class _PenalizedFitMixin:
             # For quantile loss with smooth penalty: use IRLS (FISTA diverges
             # on non-smooth losses). IRLS converges to the same solution as
             # sklearn's HiGHS LP solver.
+            # IRLS is backend-aware — no _to_numpy() needed.
             _loss_name = getattr(self._loss, 'name', '')
             _has_irls = hasattr(self._loss, 'irls')
             _is_smooth_pen = _pen_name in ("l2", "none", "null", "")
             if _loss_name == "quantile" and _has_irls and _is_smooth_pen:
-                _X_np = _to_numpy(X_work)
-                _y_np = _to_numpy(y_arr)
-                # Convert sample_weight to numpy for consistency
-                _sw_np = None if sample_weight is None else _to_numpy(sample_weight)
-                # Pass the inner penalty (not SelectivePenalty wrapper)
                 _inner_pen = getattr(self._penalty, '_pen', self._penalty)
-                # IRLS needs tighter tolerance than default (1e-4 is too loose
-                # for quantile's non-smooth gradient — converges early to
-                # inaccurate solution). Use 1e-8 to match sklearn's HiGHS.
                 _irls_tol = min(self.tol, 1e-8)
                 params_irls, n_iter = self._loss.irls(
-                    _X_np, _y_np,
+                    X_work, y_arr,
                     penalty=_inner_pen,
                     max_iter=self.max_iter, tol=_irls_tol,
                     init_coef=None,
-                    sample_weight=_sw_np,
+                    sample_weight=sample_weight,
                     fit_intercept=self._effective_intercept,
                 )
                 params = _xp_asarray(params_irls, X_arr.dtype, X_arr)
