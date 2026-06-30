@@ -350,7 +350,9 @@ def fista_bb_solver(
                 if _cached_lipschitz_L is not None:
                     L_new = _cached_lipschitz_L
                 else:
-                    L_new = loss.lipschitz(X_proc, _zero_coef_bb, y=y_proc)
+                    L_new = _call_with_weight(
+                        loss.lipschitz, X_proc, _zero_coef_bb, y=y_proc, sample_weight=_sw_arr
+                    )
                 if L_new > 0:
                     # Re-apply y-scaling and per-family safety factor
                     if _y_scale > 1.0:
@@ -404,7 +406,8 @@ def fista_bb_solver(
                 for _bt in range(15):
                     # Batch obj + coef-norm into a single sync.
                     _new_obj, _new_norm = _sync_scalars(
-                        loss.value(X_proc, y_proc, coef), _norm2_dev(coef), backend=backend)
+                        _call_with_weight(loss.value, X_proc, y_proc, coef, sample_weight=_sw_arr),
+                        _norm2_dev(coef), backend=backend)
                     _new_pen = _tracking_penalty_value(penalty, coef)
                     _new_total = _new_obj + _new_pen
                     # Accept if: finite, reasonable norm, and objective not exploded.
