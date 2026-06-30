@@ -207,6 +207,14 @@ def fista_solver(
         _lip_interval = 25
     _validate_sample_weight(sample_weight, X_proc.shape[0])
 
+    # Convert sample_weight to backend-native array (prevent CPU/CUDA mismatch)
+    _sw_arr = None
+    if sample_weight is not None:
+        _xp_mod = _get_xp(backend)
+        _sw_arr = _xp_mod.asarray(sample_weight, dtype=X_proc.dtype)
+        if hasattr(X_proc, "device") and hasattr(_sw_arr, "to"):
+            _sw_arr = _sw_arr.to(device=X_proc.device)
+
     # Gram matrix optimization for squared_error on async GPU path only.
     # Precompute X'X/n and X'y/n to avoid redundant X@coef per iteration.
     _use_xtx = _is_quadratic and sample_weight is None and _use_gpu_loop
@@ -231,7 +239,7 @@ def fista_solver(
             q_yk_dev = loss.value(X_proc, y_proc, y_k)
         elif sample_weight is not None:
             q_yk_dev, grad = loss.fused_value_and_gradient(
-                X_proc, y_proc, y_k, sample_weight=sample_weight
+                X_proc, y_proc, y_k, sample_weight=_sw_arr
             )
         else:
             q_yk_dev, grad = loss.fused_value_and_gradient(X_proc, y_proc, y_k)
@@ -327,7 +335,7 @@ def fista_solver(
                 diff = coef_new - y_k
                 if sample_weight is not None:
                     q_new_dev, _ = loss.fused_value_and_gradient(
-                        X_proc, y_proc, coef_new, sample_weight=sample_weight
+                        X_proc, y_proc, coef_new, sample_weight=_sw_arr
                     )
                 else:
                     q_new_dev = loss.value(X_proc, y_proc, coef_new)
@@ -349,7 +357,7 @@ def fista_solver(
             # here so adaptive penalties (adaptive_l1) can converge.
             if not _is_gpu and _is_quadratic:
                 _obj_val_f = float(loss.value(X_proc, y_proc, coef) if sample_weight is None
-                                   else loss.fused_value_and_gradient(X_proc, y_proc, coef, sample_weight=sample_weight)[0])
+                                   else loss.fused_value_and_gradient(X_proc, y_proc, coef, sample_weight=_sw_arr)[0])
                 _obj_val_f += _tracking_penalty_value(penalty, coef)
                 _conv_dev = _abs_sum_dev(coef - coef_old)
                 _conv_f = float(_conv_dev)
@@ -379,7 +387,7 @@ def fista_solver(
                 if _do_full_check:
                     # Compute ALL check values on device first, then ONE sync
                     _obj_dev = _q_new_dev_last if _q_new_dev_last is not None else (
-                        loss.fused_value_and_gradient(X_proc, y_proc, coef, sample_weight=sample_weight)[0]
+                        loss.fused_value_and_gradient(X_proc, y_proc, coef, sample_weight=_sw_arr)[0]
                         if sample_weight is not None else loss.value(X_proc, y_proc, coef)
                     )
                     _q_new_dev_last = None
@@ -445,7 +453,7 @@ def fista_solver(
                     if _do_lip_check:
                         _relative_change = _conv_f / max(_coef_norm_f, 1e-10) if _need_norm else 1.0
                         if _relative_change > 1e-3:
-                            L_new = _call_with_weight(loss.lipschitz, X_proc, coef, y=y_proc, sample_weight=sample_weight)
+                            L_new = _call_with_weight(loss.lipschitz, X_proc, coef, y=y_proc, sample_weight=_sw_arr)
                             _lip_safety_recomp = getattr(loss, '_lipschitz_safety', 1.0)
                             if _lip_safety_recomp > 1.0:
                                 L_new *= _lip_safety_recomp
@@ -464,7 +472,7 @@ def fista_solver(
                         _coef_norm_f = _to_float_scalar(_norm2_dev(coef))
                         _relative_change = _conv_f / max(_coef_norm_f, 1e-10)
                         if _relative_change > 1e-3:
-                            L_new = _call_with_weight(loss.lipschitz, X_proc, coef, y=y_proc, sample_weight=sample_weight)
+                            L_new = _call_with_weight(loss.lipschitz, X_proc, coef, y=y_proc, sample_weight=_sw_arr)
                             _lip_s = getattr(loss, '_lipschitz_safety', 1.0)
                             if _lip_s > 1.0: L_new *= _lip_s
                             if _smooth_lip > 0: L_new += _smooth_lip
@@ -476,7 +484,7 @@ def fista_solver(
                     _obj_dev = _q_new_dev_last; _q_new_dev_last = None
                 else:
                     _obj_dev = loss.value(X_proc, y_proc, coef) if sample_weight is None else \
-                        loss.fused_value_and_gradient(X_proc, y_proc, coef, sample_weight=sample_weight)[0]
+                        loss.fused_value_and_gradient(X_proc, y_proc, coef, sample_weight=_sw_arr)[0]
                 _obj_val_f = float(_obj_dev) + _tracking_penalty_value(penalty, coef)
                 _conv_dev = _abs_sum_dev(coef - coef_old)
                 _conv_f = float(_conv_dev)
@@ -517,7 +525,7 @@ def fista_solver(
                     _coef_change_f = float(_abs_sum_dev(coef - coef_old))
                     _coef_norm_f = float(_norm2_dev(coef))
                     if _coef_change_f / max(_coef_norm_f, 1e-10) > 1e-3:
-                        L_new = _call_with_weight(loss.lipschitz, X_proc, coef, y=y_proc, sample_weight=sample_weight)
+                        L_new = _call_with_weight(loss.lipschitz, X_proc, coef, y=y_proc, sample_weight=_sw_arr)
                         _lip_s = getattr(loss, '_lipschitz_safety', 1.0)
                         if _lip_s > 1.0: L_new *= _lip_s
                         if _smooth_lip > 0: L_new += _smooth_lip

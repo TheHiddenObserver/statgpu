@@ -349,5 +349,54 @@ class TestCrossBackendParity:
             assert d < 0.15, f"torch vs numpy coef diff too large: {d}"
 
 
+class TestCupySmoke:
+    """Basic CuPy smoke tests (skip if cupy not available)."""
+
+    @staticmethod
+    def _cupy_available():
+        try:
+            import cupy; return True
+        except ImportError:
+            return False
+
+    @pytest.mark.skipif(not _cupy_available(), reason="CuPy not installed")
+    def test_quantile_scad_cupy(self):
+        """Quantile+SCAD should work on CuPy."""
+        from statgpu.linear_model.penalized._penalized_quantile import PenalizedQuantileRegression
+        import cupy as cp
+
+        np.random.seed(42)
+        n, p = 100, 10
+        X_np = np.random.randn(n, p).astype(np.float64)
+        beta_true = np.zeros(p)
+        beta_true[0] = 3.0; beta_true[5] = -2.5
+        y_np = (X_np @ beta_true + np.random.randn(n) * 0.5).astype(np.float64)
+
+        X = cp.asarray(X_np); y = cp.asarray(y_np)
+        m = PenalizedQuantileRegression(quantile=0.5, penalty='scad', alpha=0.1)
+        m.fit(X, y)
+        active = sorted(np.where(np.abs(m.coef_) > 0.05)[0])
+        assert active == [0, 5], f"CuPy active={active}"
+
+    @pytest.mark.skipif(not _cupy_available(), reason="CuPy not installed")
+    def test_huber_scad_cupy(self):
+        """Huber+SCAD should work on CuPy."""
+        from statgpu.linear_model.penalized._penalized_robust import PenalizedRobustRegression
+        import cupy as cp
+
+        np.random.seed(42)
+        n, p = 100, 10
+        X_np = np.random.randn(n, p).astype(np.float64)
+        beta_true = np.zeros(p)
+        beta_true[0] = 3.0; beta_true[5] = -2.5
+        y_np = (X_np @ beta_true + np.random.randn(n) * 0.5).astype(np.float64)
+
+        X = cp.asarray(X_np); y = cp.asarray(y_np)
+        m = PenalizedRobustRegression(loss='huber', penalty='scad', alpha=0.1)
+        m.fit(X, y)
+        active = sorted(np.where(np.abs(m.coef_) > 0.05)[0])
+        assert active == [0, 5], f"CuPy Huber active={active}"
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
