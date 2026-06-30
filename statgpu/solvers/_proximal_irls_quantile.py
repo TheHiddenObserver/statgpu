@@ -140,6 +140,9 @@ def proximal_irls_quantile_solver(
     # Precompute X^2 for weighted Hessian diagonal (reused each IRLS step)
     X_sq = X_work * X_work  # (n, p)
 
+    # GPU convergence check frequency: batch syncs to reduce overhead
+    _conv_check_freq = 5 if backend in ("torch", "cupy") else 1
+
     for cont_i, cont_alpha in enumerate(alpha_path):
         pen_step = copy.copy(penalty)
         pen_step.alpha = float(cont_alpha)
@@ -147,13 +150,6 @@ def proximal_irls_quantile_solver(
 
         for lla_i in range(max_lla_per_step):
             # LLA weights = P'(|beta_j|) — penalty derivative at current coef.
-            # For SCAD near-zero: alpha; middle: (a*alpha-|beta|)/(a-1); large: 0
-            # For MCP: max(0, alpha - |beta|/gamma)
-            #
-            # WLS uses un-normalized g = X'@wr and h = sum(X^2 * w),
-            # so threshold must be scaled by n to match:
-            #   min (1/2n) * sum(w * (y - X@beta)^2) + sum(P'(|beta_j|) * |beta_j|)
-            #   => g/h are un-normalized, thresh = n * P'(|beta_j|)
             lla_w = _compute_lla_weights(pen_step, beta, n_features, xp, backend)
             thresh = n * lla_w  # (p,) per-coordinate threshold
 
@@ -164,7 +160,6 @@ def proximal_irls_quantile_solver(
                 beta_old = _copy(beta)
 
                 # Residuals and IRLS weights
-                # w_i = tau_i / max(|r_i|, eps) where tau_i = tau if r_i>=0 else 1-tau
                 r = y_work - X_work @ beta
                 abs_r = xp.abs(r)
                 abs_r_safe = xp.maximum(abs_r, xp.asarray(eps, dtype=abs_r.dtype))
@@ -177,7 +172,6 @@ def proximal_irls_quantile_solver(
                     w = w * sw
 
                 # Clamp IRLS weights to prevent numerical overflow
-                # Max weight = 100 / eps ensures h_j doesn't exceed ~100 * X'X_diag
                 w_max = 100.0 / eps
                 w = xp.minimum(w, xp.asarray(w_max, dtype=w.dtype))
 
@@ -186,19 +180,26 @@ def proximal_irls_quantile_solver(
                     X_work, X_sq, y_work, w, beta, thresh,
                     n_features, eps, xp, backend)
 
-                # Convergence check
-                delta_dev = xp.abs(beta - beta_old)
-                delta = float(_to_numpy(xp.max(delta_dev)))
                 total_iter += 1
 
-                if delta < tol:
-                    break
+                # Convergence check — GPU comparison stays on device, only bool synced
+                if irls_iter % _conv_check_freq == 0:
+                    delta_dev = xp.abs(beta - beta_old)
+                    if backend in ("torch", "cupy"):
+                        if bool(_to_numpy(xp.max(delta_dev) < xp.asarray(tol, dtype=delta_dev.dtype))):
+                            break
+                    else:
+                        if float(_to_numpy(xp.max(delta_dev))) < tol:
+                            break
 
-            # LLA convergence check
+            # LLA convergence check — GPU comparison stays on device
             lla_delta_dev = xp.abs(beta - beta_before_lla)
-            lla_delta = float(_to_numpy(xp.max(lla_delta_dev)))
-            if lla_delta < lla_tol:
-                break
+            if backend in ("torch", "cupy"):
+                if bool(_to_numpy(xp.max(lla_delta_dev) < xp.asarray(lla_tol, dtype=lla_delta_dev.dtype))):
+                    break
+            else:
+                if float(_to_numpy(xp.max(lla_delta_dev))) < lla_tol:
+                    break
 
     # Reconstruct intercept
     coef_np = _to_numpy(beta).astype(np.float64)
