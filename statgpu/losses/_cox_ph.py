@@ -77,6 +77,7 @@ class CoxPartialLikelihoodLoss(LossBase):
         self.ties = ties
 
         self._sorted = False
+        self._cpu_fallback_used = False  # tracks silent CPU fallback for AGENTS compliance
         self._X_sorted = None
         self._time_sorted = None
         self._event_sorted = None
@@ -165,6 +166,7 @@ class CoxPartialLikelihoodLoss(LossBase):
                 return -_to_float_scalar(loglik) / n
 
         # CPU fallback
+        self._cpu_fallback_used = True
         eta = X_s @ coef_dev
         loglik = self._cpu_loglik(_to_numpy(eta), self._time_np, self._event_np)
         return -loglik / n
@@ -295,6 +297,7 @@ class CoxPartialLikelihoodLoss(LossBase):
                 pass
 
         # CPU fallback (numpy)
+        self._cpu_fallback_used = True
         eta_np = _to_numpy(X_s @ coef_dev)
         grad_np, hess_np = self._cpu_grad_hess(eta_np, self._time_np, self._event_np)
         return (
@@ -378,6 +381,7 @@ class CoxPartialLikelihoodLoss(LossBase):
             pass
 
         # Fallback: Python loop
+        self._cpu_fallback_used = True
         _, uft_ix, risk_enter, _, _, _ = self._efron_pre_np
         n, p = int(X_s.shape[0]), int(X_s.shape[1])
 
