@@ -130,7 +130,8 @@ model = LinearRegression(device='cuda', n_jobs=4)
 
 Full reports: `results/unsupervised_bench_2026-06-27.md`, `results/glm_solver_benchmark_2026-06-23.md`
 
-Test environment: RTX 4090 (24GB), CuPy 14.1.0, PyTorch 2.8.0+cu128, scikit-learn 1.8.0, statsmodels 0.14.6, lifelines 0.30.3
+Test environment: RTX 4090 (24GB), CuPy 14.1.0, PyTorch 2.8.0+cu128, scikit-learn 1.8.0, statsmodels 0.14.6, lifelines 0.30.3<br/>
+*Benchmark environment only; not installation requirements.*
 
 ### Real-Data Performance
 
