@@ -230,6 +230,42 @@ def irls_solver(
     else:
         params = init_coef
 
+    y_work = _to_backend(y, backend, X)
+    family_name = getattr(family, "name", "")
+    if backend == "torch":
+        import torch
+        invalid_y = torch.any(~torch.isfinite(y_work))
+        if family_name == "gamma":
+            invalid_y = invalid_y | torch.any(y_work <= 0)
+        elif family_name == "tweedie":
+            invalid_y = invalid_y | torch.any(y_work < 0)
+    elif backend == "cupy":
+        import cupy as cp
+        invalid_y = cp.any(~cp.isfinite(y_work))
+        if family_name == "gamma":
+            invalid_y = invalid_y | cp.any(y_work <= 0)
+        elif family_name == "tweedie":
+            invalid_y = invalid_y | cp.any(y_work < 0)
+    else:
+        invalid_y = np.any(~np.isfinite(y_work))
+        if family_name == "gamma":
+            invalid_y = invalid_y or np.any(y_work <= 0)
+        elif family_name == "tweedie":
+            invalid_y = invalid_y or np.any(y_work < 0)
+    if bool(invalid_y.item() if hasattr(invalid_y, "item") else invalid_y):
+        requirement = "strictly positive" if family_name == "gamma" else "non-negative"
+        raise ValueError(
+            f"{family_name} IRLS requires finite, {requirement} y values."
+        )
+    sw_work = (
+        _to_backend(sample_weight, backend, X)
+        if sample_weight is not None else None
+    )
+    penalty_matrix_work = (
+        _to_backend(penalty_matrix, backend, X)
+        if penalty_matrix is not None else None
+    )
+    line_search_failed = False
     iteration = 0
     for iteration in range(max_iter):
         params_old = _copy_arr(params)
@@ -251,15 +287,14 @@ def irls_solver(
             mu = _clip(mu, 1e-10, 1e6, backend)
 
         # Step 3: IRLS weights
-        W = family.irls_weights(mu, y)
+        W = family.irls_weights(mu, y_work)
         W = _clip(W, 1e-10, None, backend)
 
-        if sample_weight is not None:
-            sw = _to_backend(sample_weight, backend, X)
-            W = W * sw
+        if sw_work is not None:
+            W = W * sw_work
 
         # Step 4: working response
-        z = family.irls_working_response(mu, y, eta)
+        z = family.irls_working_response(mu, y_work, eta)
 
         # Step 5: weighted least squares (X'WX + lambda*I) params = X'Wz
         if backend == "torch":
@@ -283,14 +318,14 @@ def irls_solver(
             XtWX = XtWX + _diag(reg, backend, ref_tensor=X)
 
         # Add penalty matrix if provided (e.g., for spline smoothing)
-        if penalty_matrix is not None:
-            XtWX = XtWX + _to_backend(penalty_matrix, backend, X)
+        if penalty_matrix_work is not None:
+            XtWX = XtWX + penalty_matrix_work
 
         params_new = _solve(XtWX, Xtz, backend)
 
         # Armijo backtracking line search: find step in (0, 1] that
         # gives sufficient decrease in the loss (deviance).
-        _fname = getattr(family, 'name', '')
+        _fname = family_name
         _tweedie_power = float(getattr(family, 'power', 1.5)) if _fname == "tweedie" else 0.0
         _nb_alpha = float(getattr(family, 'alpha', 1.0)) if _fname == "negative_binomial" else 0.0
 
@@ -301,22 +336,26 @@ def irls_solver(
             Correct Tweedie deviance for power p (p != 1, p != 2):
               d(y, mu) = y*(y^(1-p) - mu^(1-p))/(1-p) - (y^(2-p) - mu^(2-p))/(2-p)
             """
-            _y = _to_backend(y, backend, X)
+            _y = y_work
             if backend == "torch":
                 import torch
                 if _fname in ("gaussian", "squared_error"):
-                    return torch.sum((_y - mu_arr) ** 2)
+                    return 0.5 * torch.sum((_y - mu_arr) ** 2)
+                elif _fname in ("binomial", "logistic"):
+                    _mu_c = torch.clamp(mu_arr, min=1e-10, max=1.0 - 1e-10)
+                    return torch.sum(-_y * torch.log(_mu_c)
+                                     - (1.0 - _y) * torch.log1p(-_mu_c))
                 elif _fname == "gamma":
-                    return torch.sum(_y / mu_arr - torch.log(_y / mu_arr) - 1.0)
+                    return torch.sum(_y / mu_arr + torch.log(mu_arr))
                 elif _fname == "inverse_gaussian":
-                    return torch.sum((_y - mu_arr) ** 2 / (_y * mu_arr ** 2))
+                    return torch.sum(_y / (2.0 * mu_arr ** 2) - 1.0 / mu_arr)
                 elif _fname == "negative_binomial":
                     _mu_c = torch.clamp(mu_arr, min=1e-10)
                     _y_c = torch.clamp(_y, min=1e-10)
                     _a = _nb_alpha
                     return torch.sum(
-                        2.0 * (_y_c * torch.log(_y_c / _mu_c)
-                               - (_y_c + 1.0 / _a) * torch.log((1.0 + _a * _y_c) / (1.0 + _a * _mu_c)))
+                        _y_c * torch.log(_y_c / _mu_c)
+                        - (_y_c + 1.0 / _a) * torch.log((1.0 + _a * _y_c) / (1.0 + _a * _mu_c))
                     )
                 elif _fname == "tweedie":
                     p = _tweedie_power
@@ -326,26 +365,29 @@ def irls_solver(
                         return torch.sum(_y / mu_arr - torch.log(_y / mu_arr) - 1.0)
                     else:
                         return torch.sum(
-                            _y * (torch.pow(_y, 1.0 - p) - torch.pow(mu_arr, 1.0 - p)) / (1.0 - p)
-                            - (torch.pow(_y, 2.0 - p) - torch.pow(mu_arr, 2.0 - p)) / (2.0 - p)
-                        )
+                            -_y * torch.pow(mu_arr, 1.0 - p) / (1.0 - p)
+                            + torch.pow(mu_arr, 2.0 - p) / (2.0 - p))
                 else:
                     return torch.sum(mu_arr - _y * torch.log(mu_arr))
             elif backend == "cupy":
                 import cupy as cp
                 if _fname in ("gaussian", "squared_error"):
-                    return cp.sum((_y - mu_arr) ** 2)
+                    return 0.5 * cp.sum((_y - mu_arr) ** 2)
+                elif _fname in ("binomial", "logistic"):
+                    _mu_c = cp.clip(mu_arr, 1e-10, 1.0 - 1e-10)
+                    return cp.sum(-_y * cp.log(_mu_c)
+                                  - (1.0 - _y) * cp.log1p(-_mu_c))
                 elif _fname == "gamma":
-                    return cp.sum(_y / mu_arr - cp.log(_y / mu_arr) - 1.0)
+                    return cp.sum(_y / mu_arr + cp.log(mu_arr))
                 elif _fname == "inverse_gaussian":
-                    return cp.sum((_y - mu_arr) ** 2 / (_y * mu_arr ** 2))
+                    return cp.sum(_y / (2.0 * mu_arr ** 2) - 1.0 / mu_arr)
                 elif _fname == "negative_binomial":
                     _mu_c = cp.clip(mu_arr, 1e-10)
                     _y_c = cp.clip(_y, 1e-10)
                     _a = _nb_alpha
                     return cp.sum(
-                        2.0 * (_y_c * cp.log(_y_c / _mu_c)
-                               - (_y_c + 1.0 / _a) * cp.log((1.0 + _a * _y_c) / (1.0 + _a * _mu_c)))
+                        _y_c * cp.log(_y_c / _mu_c)
+                        - (_y_c + 1.0 / _a) * cp.log((1.0 + _a * _y_c) / (1.0 + _a * _mu_c))
                     )
                 elif _fname == "tweedie":
                     p = _tweedie_power
@@ -355,25 +397,28 @@ def irls_solver(
                         return cp.sum(_y / mu_arr - cp.log(_y / mu_arr) - 1.0)
                     else:
                         return cp.sum(
-                            _y * (cp.power(_y, 1.0 - p) - cp.power(mu_arr, 1.0 - p)) / (1.0 - p)
-                            - (cp.power(_y, 2.0 - p) - cp.power(mu_arr, 2.0 - p)) / (2.0 - p)
-                        )
+                            -_y * cp.power(mu_arr, 1.0 - p) / (1.0 - p)
+                            + cp.power(mu_arr, 2.0 - p) / (2.0 - p))
                 else:
                     return cp.sum(mu_arr - _y * cp.log(mu_arr))
             else:
                 if _fname in ("gaussian", "squared_error"):
-                    return float(np.sum((_y - mu_arr) ** 2))
+                    return float(0.5 * np.sum((_y - mu_arr) ** 2))
+                elif _fname in ("binomial", "logistic"):
+                    _mu_c = np.clip(mu_arr, 1e-10, 1.0 - 1e-10)
+                    return float(np.sum(-_y * np.log(_mu_c)
+                                        - (1.0 - _y) * np.log1p(-_mu_c)))
                 elif _fname == "gamma":
-                    return float(np.sum(_y / mu_arr - np.log(_y / mu_arr) - 1.0))
+                    return float(np.sum(_y / mu_arr + np.log(mu_arr)))
                 elif _fname == "inverse_gaussian":
-                    return float(np.sum((_y - mu_arr) ** 2 / (_y * mu_arr ** 2)))
+                    return float(np.sum(_y / (2.0 * mu_arr ** 2) - 1.0 / mu_arr))
                 elif _fname == "negative_binomial":
                     _mu_c = np.clip(mu_arr, 1e-10, None)
                     _y_c = np.clip(_y, 1e-10, None)
                     _a = _nb_alpha
                     return float(np.sum(
-                        2.0 * (_y_c * np.log(_y_c / _mu_c)
-                               - (_y_c + 1.0 / _a) * np.log((1.0 + _a * _y_c) / (1.0 + _a * _mu_c)))
+                        _y_c * np.log(_y_c / _mu_c)
+                        - (_y_c + 1.0 / _a) * np.log((1.0 + _a * _y_c) / (1.0 + _a * _mu_c))
                     ))
                 elif _fname == "tweedie":
                     p = _tweedie_power
@@ -383,28 +428,50 @@ def irls_solver(
                         return float(np.sum(_y / mu_arr - np.log(_y / mu_arr) - 1.0))
                     else:
                         return float(np.sum(
-                            _y * (np.power(_y, 1.0 - p) - np.power(mu_arr, 1.0 - p)) / (1.0 - p)
-                            - (np.power(_y, 2.0 - p) - np.power(mu_arr, 2.0 - p)) / (2.0 - p)
-                        ))
+                            -_y * np.power(mu_arr, 1.0 - p) / (1.0 - p)
+                            + np.power(mu_arr, 2.0 - p) / (2.0 - p)))
                 else:
                     return float(np.sum(mu_arr - _y * np.log(mu_arr)))
+
+        def _penalty_val(params_arr):
+            value = 0.0
+            if ridge_alpha > 0:
+                penalized = (
+                    params_arr if ridge_penalize_intercept else params_arr[1:]
+                )
+                if backend == "torch":
+                    import torch
+                    value = value + 0.5 * ridge_alpha * torch.sum(penalized ** 2)
+                elif backend == "cupy":
+                    import cupy as cp
+                    value = value + 0.5 * ridge_alpha * cp.sum(penalized ** 2)
+                else:
+                    value = value + 0.5 * ridge_alpha * np.sum(penalized ** 2)
+            if penalty_matrix_work is not None:
+                value = value + 0.5 * (
+                    params_arr @ penalty_matrix_work @ params_arr
+                )
+            return value
+
+        def _objective_val(mu_arr, params_arr):
+            return _dev_val(mu_arr) + _penalty_val(params_arr)
 
         # Current loss — use only eta clipping (prevent exp overflow),
         # NOT mu clipping (which distorts the deviance landscape).
         eta_cur = _clip(X @ params_old, -30, 30, backend)
         mu_cur = family.link.inverse(eta_cur)
         try:
-            dev_old_dev = _dev_val(mu_cur)
+            dev_old_dev = _objective_val(mu_cur, params_old)
         except Exception:
             dev_old_dev = float('inf')
 
-        # Line search: for families with constant IRLS weights (Gaussian,
-        # Gamma, InverseGaussian), the IRLS step IS the Newton step on the
-        # GLM loss, and the Hessian is constant X'X/n.  Accept full step.
-        # For variable-weight families (Poisson, Logistic, Tweedie),
-        # use Armijo backtracking on the deviance.
+        # Gaussian-identity and Gamma-log have constant Fisher weights.
+        # Try their full Fisher-scoring step before backtracking.
         _direction = params_new - params_old
-        _is_constant_W = _fname in ("gamma", "gaussian", "squared_error")
+        _is_constant_W = (
+            _fname in ("gaussian", "squared_error")
+            or (_fname == "gamma" and _link_name == "log")
+        )
 
         # Convert dev_old to Python float for tolerance computation
         # (single sync per iteration, not per line-search step)
@@ -439,7 +506,7 @@ def irls_solver(
             eta_new = _clip(X @ params_new, -30, 30, backend)
             mu_new = family.link.inverse(eta_new)
             try:
-                dev_new_dev = _dev_val(mu_new)
+                dev_new_dev = _objective_val(mu_new, params_new)
             except Exception:
                 dev_new_dev = float('inf')
             if _dev_accept(dev_new_dev):
@@ -452,7 +519,7 @@ def irls_solver(
                     eta_try = _clip(X @ params_try, -30, 30, backend)
                     mu_try = family.link.inverse(eta_try)
                     try:
-                        dev_try_dev = _dev_val(mu_try)
+                        dev_try_dev = _objective_val(mu_try, params_try)
                     except Exception:
                         step *= 0.5
                         continue
@@ -460,7 +527,12 @@ def irls_solver(
                         _accepted = True
                         break
                     step *= 0.5
-                params = params_try if _accepted else params_old + 0.1 * _direction
+                if _accepted:
+                    params = params_try
+                else:
+                    params = params_old
+                    line_search_failed = True
+                    break
         else:
             # Variable weights: Armijo backtracking on deviance
             step = 1.0
@@ -470,7 +542,7 @@ def irls_solver(
                 eta_try = _clip(X @ params_try, -30, 30, backend)
                 mu_try = family.link.inverse(eta_try)
                 try:
-                    dev_try_dev = _dev_val(mu_try)
+                    dev_try_dev = _objective_val(mu_try, params_try)
                 except Exception:
                     step *= 0.5
                     continue
@@ -482,26 +554,52 @@ def irls_solver(
             if _accepted:
                 params = params_try
             else:
-                params = params_old + 0.1 * _direction
+                params = params_old
+                line_search_failed = True
+                break
 
-        # Convergence: gradient norm check (most reliable for all families)
+        # Convergence: normalized penalized score norm. Parameter changes can
+        # be tiny merely because line search truncated a bad step.
         if iteration % 5 == 4 or iteration == max_iter - 1:
-            try:
-                grad_f = family.gradient(X, y, params)
-                if ridge_alpha > 0:
-                    grad_f[1:] = grad_f[1:] + (ridge_alpha / X.shape[0]) * params[1:]
-                grad_norm = float(_norm(grad_f, backend))
-            except Exception:
-                # No gradient method available — fall back to param change
-                _param_change = float(_norm(params - params_old, backend))
-                _param_norm = max(float(_norm(params, backend)), 1.0)
-                grad_norm = _param_change / _param_norm  # relative change
+            eta_check = X @ params
+            if _link_name not in ("identity", "Identity"):
+                eta_check = _clip(eta_check, -30, 30, backend)
+            mu_check = family.link.inverse(eta_check)
+            if _link_name not in ("identity", "Identity"):
+                mu_check = _clip(mu_check, 1e-10, 1e6, backend)
+            score_eta = (
+                (mu_check - y_work)
+                / (family.variance(mu_check) * family.link.derivative(mu_check))
+            )
+            if sw_work is not None:
+                score_eta = score_eta * sw_work
+                sw_sum = sw_work.sum()
+                n_eff = float(sw_sum.item() if hasattr(sw_sum, "item") else sw_sum)
+            else:
+                n_eff = float(X.shape[0])
+            grad_f = X.T @ score_eta / n_eff
+            if ridge_alpha > 0:
+                ridge_grad = (ridge_alpha / n_eff) * params
+                if not ridge_penalize_intercept:
+                    ridge_grad = _copy_arr(ridge_grad)
+                    ridge_grad[0] = 0.0
+                grad_f = grad_f + ridge_grad
+            if penalty_matrix_work is not None:
+                grad_f = grad_f + (penalty_matrix_work @ params) / n_eff
+            grad_norm = float(_norm(grad_f, backend))
             if grad_norm < tol:
                 break
 
     n_iter = iteration + 1
-    if n_iter >= max_iter:
-        from statgpu.solvers._convergence import ConvergenceWarning
+    from statgpu.solvers._convergence import ConvergenceWarning
+    if line_search_failed:
+        warnings.warn(
+            f"irls line search failed to find a decreasing step "
+            f"(family={getattr(family, 'name', '?')}).",
+            ConvergenceWarning,
+            stacklevel=2,
+        )
+    elif n_iter >= max_iter:
         warnings.warn(
             f"irls did not converge within {max_iter} iterations "
             f"(family={getattr(family, 'name', '?')}).",

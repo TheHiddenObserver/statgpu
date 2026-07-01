@@ -427,8 +427,18 @@
 - R equivalents: `survival::coxph(strata())`, `survival::survreg()`, `cmprsk::crr()`
 
 ### Phase F: Advanced Methods
-- [ ] DID / Event Study
+- [ ] DID / Event Effects
 - [ ] Dynamic Panel (AB/GMM)
 - [ ] Quantile regression
 - [ ] Robust regression
 - R equivalents: `fixest::feols(sunab())`, `plm::pgmm()`, `quantreg::rq()`, `MASS::rlm()`
+
+---
+
+## See Also
+
+> **`cran_r_package_supplement.md`** — Comprehensive supplement covering 12 entirely new domains
+> (Quantile Regression, Robust Regression, Mixed Effects, Meta-Analysis, Change Point Detection,
+> Multivariate Statistics, IRT, Copula, SEM, EVT, Missing Data, Survey) and 5 major enhancements
+> to existing plans. Includes priority ranking, GPU acceleration analysis, proposed APIs, and
+> backend architecture implications.

@@ -1,0 +1,56 @@
+{
+  "gam_fixed_small_numpy": {
+    "statgpu_time": 0.006523042917251587,
+    "pygam_time": 0.026760876178741455,
+    "speedup": 4.102514197471639,
+    "pred_rel_diff": 0.012444057971803316
+  },
+  "gam_fixed_small_cupy": {
+    "statgpu_time": 0.7406964898109436,
+    "pygam_time": 0.026760876178741455,
+    "speedup": 0.036129341163169196,
+    "pred_rel_diff": 0.01244405797180297
+  },
+  "gam_fixed_small_torch": {
+    "statgpu_time": 0.017504632472991943,
+    "pygam_time": 0.026760876178741455,
+    "speedup": 1.528788234773341,
+    "pred_rel_diff": 0.01244405797180297
+  },
+  "gam_fixed_medium_numpy": {
+    "statgpu_time": 0.08015492558479309,
+    "pygam_time": 0.20393803715705872,
+    "speedup": 2.5442982532785186,
+    "pred_rel_diff": 0.004435598499465685
+  },
+  "gam_fixed_medium_cupy": {
+    "statgpu_time": 0.03562477231025696,
+    "pygam_time": 0.20393803715705872,
+    "speedup": 5.724613069269823,
+    "pred_rel_diff": 0.004435598499466642
+  },
+  "gam_fixed_medium_torch": {
+    "statgpu_time": 0.02975398302078247,
+    "pygam_time": 0.20393803715705872,
+    "speedup": 6.854142419003624,
+    "pred_rel_diff": 0.004435598499466642
+  },
+  "gam_fixed_large_numpy": {
+    "statgpu_time": 2.1647476851940155,
+    "pygam_time": 5.640075147151947,
+    "speedup": 2.6054191838280936,
+    "pred_rel_diff": 0.002504200270178523
+  },
+  "gam_fixed_large_cupy": {
+    "statgpu_time": 0.09103763103485107,
+    "pygam_time": 5.640075147151947,
+    "speedup": 61.95322838522468,
+    "pred_rel_diff": 0.0025042002701748055
+  },
+  "gam_fixed_large_torch": {
+    "statgpu_time": 0.07750585675239563,
+    "pygam_time": 5.640075147151947,
+    "speedup": 72.76966391288381,
+    "pred_rel_diff": 0.0025042002701748055
+  }
+}

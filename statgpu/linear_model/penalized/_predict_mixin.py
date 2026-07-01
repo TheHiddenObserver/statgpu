@@ -106,6 +106,8 @@ class _PenalizedPredictMixin:
             if self.loss == "logistic":
                 p = 1.0 / (1.0 + cp.exp(-cp.clip(raw, -_ETA_CLIP, _ETA_CLIP)))
                 result = (p > 0.5).astype(float)
+            elif self.loss == "cox_ph":
+                result = cp.exp(cp.clip(raw, -_ETA_CLIP, _ETA_CLIP))
             elif self.loss != "squared_error":
                 result = self._family_for_loss().link.inverse(raw)
             else:
@@ -123,6 +125,8 @@ class _PenalizedPredictMixin:
             if self.loss == "logistic":
                 p = 1.0 / (1.0 + torch.exp(-torch.clamp(raw, -_ETA_CLIP, _ETA_CLIP)))
                 result = (p > 0.5).to(raw.dtype)
+            elif self.loss == "cox_ph":
+                result = torch.exp(torch.clamp(raw, -_ETA_CLIP, _ETA_CLIP))
             elif self.loss != "squared_error":
                 result = self._family_for_loss().link.inverse(raw)
             else:
@@ -137,6 +141,8 @@ class _PenalizedPredictMixin:
         if self.loss == "logistic":
             p = 1.0 / (1.0 + np.exp(-np.clip(raw, -_ETA_CLIP, _ETA_CLIP)))
             return (p > 0.5).astype(float)
+        elif self.loss == "cox_ph":
+            return np.exp(np.clip(raw, -_ETA_CLIP, _ETA_CLIP))
         elif self.loss != "squared_error":
             return self._family_for_loss().link.inverse(raw)
         return raw

@@ -2,6 +2,169 @@
 
 All notable changes to statgpu are documented here, organized by date and PR.
 
+### PR #73 — LossBase Extraction, Proximal IRLS-CD, CoxPH Efron optimization
+- Extracted LossBase from GLMLoss; added QuantileLoss, HuberLoss, BisquareLoss, CoxPartialLikelihoodLoss
+- New penalized models: PenalizedQuantileRegression, PenalizedRobustRegression, PenalizedCoxPHModel
+- Proximal IRLS-CD solver: quantile+SCAD/MCP, ~3x CPU/49x GPU speedup (Tesla P100, n=10K, p=500)
+- CoxPH: vectorized Efron gradient/Hessian, multi-block CUDA kernel, statsmodels reference parity
+- UMAP sparse COO graph (O(n·k)), NNDescent module, DBSCAN CuPy label propagation
+- Sample weight global backend handling; GPU convergence optimization; 13 bug fixes
+
+## 2026-06-26
+
+### Unsupervised Benchmark — 12 Algorithms × 3 Backends
+
+**Complete benchmark** (PCA, KMeans, GMM, NMF, TruncatedSVD, IncrementalPCA, DBSCAN, Agglomerative, UMAP, TSNE, MiniBatchKMeans, MiniBatchNMF):
+- Best GPU speedups: TruncatedSVD **28.6x**, IncrementalPCA **21.9x**, DBSCAN **21.0x**, NMF **19.9x**
+- vs sklearn: IncrementalPCA **39.0x**, TruncatedSVD **21.6x**, DBSCAN **7.5x**
+- Results: `results/unsupervised_bench_2026-06-26.json`
+
+### Unsupervised — DBSCAN Optimization
+
+- **Cython fast path** (`_dbscan_cy_fast.pyx`): two entry points — `dbscan_labels_from_pairs` (from `query_pairs`) and `dbscan_labels_from_csr` (from CSR graph). Both run counting, Union-Find, and label assignment entirely in C.
+- **CPU hybrid strategy**: low-dim (p≤12) uses cKDTree `query_pairs` + Cython; high-dim (p>12) uses sklearn `radius_neighbors_graph` + Cython CSR.
+- **Fully GPU pipeline** (PyTorch CUDA): distance → sparse graph → label propagation → border assignment, all on-device. Zero GPU→CPU transfer until final labels. Single-pass distance computation avoids OOM.
+- **GPU label propagation**: connected components via `scatter_reduce_(amin)`, fully parallel over edges. Typically converges in 2-5 iterations.
+- CPU effect: p=5 3-4x faster than sklearn, p=50 matches sklearn.
+- GPU effect (Tesla P100): p=5 **14-17x** faster than sklearn, p=50 **3-4x** faster. ARI=1.0 for all cases.
+
+### Unsupervised — UMAP Optimization
+
+- **Sparse graph + negative sampling**: replaced dense n×n epoch loop with sparse edge iteration
+- **GPU-native scatter-add**: no CPU transfers in optimization loop
+- Effect: 10K GPU from 325s → 19.4s (**16.7x**), 1K torch from 3.7s → 0.81s (**4.6x**)
+- `nn_method` parameter: `"auto"`, `"exact"`, `"nndescent"` for NNDescent support
+- Epoch reduction for large data (10K: 500→200, >10K: 500→100)
+
+### Unsupervised — IncrementalPCA & MiniBatchNMF
+
+- **IncrementalPCA**: default `batch_size` changed from `min(n, 5*p)` to `n` (process all at once)
+  - Effect: GPU 0.4x → **21.9x**
+- **MiniBatchNMF**: auto-size batch, pre-compute HtH per epoch, throttle convergence check
+  - Effect: GPU 0.1x → **3.2x**
+
+### CuPyBackend — Missing Methods
+
+Added 30+ methods to match NumpyBackend/TorchBackend:
+- `qr`, `svd`, `solve`, `norm`, `bool`, `nan`, `inf`, `pi`
+- `zeros_like`, `ones_like`, `full_like`, `isnan`, `isinf`, `nan_to_num`
+- `count_nonzero`, `any`, `all`, `unique`, `sort`
+- `reshape`, `flatten`, `squeeze`, `astype`, `cat`, `concatenate`
+- `einsum`, `tensordot`, `meshgrid`, `item`, `empty_cache`
+- Effect: TruncatedSVD, IncrementalPCA, DBSCAN GPU backends now functional
+
+### TorchBackend — Missing Methods
+
+Added `qr`, `svd`, `solve` methods.
+
+### Backend Utilities — Unified Scatter-Add
+
+- **`scatter_add_1d`**: 1D scatter-add across numpy/cupy/torch
+- **`scatter_add_2d`**: 2D scatter-add (row-wise) across numpy/cupy/torch
+- Used by UMAP optimization loop; available for other modules
+
+### Build System — Consolidated setup.py
+
+- Merged 7 separate setup files into single `setup.py`
+- All 5 Cython extensions: `_cox_efron_cy`, `_dbscan_cpu`, `_dbscan_cy_fast`, `_kdtree`, `_unionfind`
+- Deleted: `setup_cython.py`, `setup_dbscan_cy.py`, `setup_dbscan_fast.py`, `setup_kdtree.py`, `setup_kdtree_cy.py`, `setup_unionfind.py`
+
+## 2026-06-24
+
+### Benchmark Suite — GLM Solver, New Modules, Unsupervised
+
+**GLM Solver Benchmark** (7 families × 10 penalties × 7 solvers × 3 backends):
+- Complete 3D matrix: 70 family×penalty combinations, all valid solver choices
+- 3 backends: numpy, cupy, torch (Tesla P100-SXM2-16GB)
+- Top speedups: NB+none+irls **101.8x**, tweedie+none+newton **88.7x**, gamma+none+newton **82.8x**
+- Results: `results/glm_solver_benchmark_2026-06-23.json`
+
+**New Modules Benchmark** (Panel Data, GAM, ANOVA):
+- Panel: 8 estimators × 3 backends × 3 scales; best: PanelOLS_two_way **19.9x** (torch)
+- GAM: 3 scales; best: **22.7x** at 100K obs (torch); aligned with pygam (0.25% pred diff)
+- ANOVA: 5 functions × 3 backends; f_oneway **3.4x** (cupy) after vectorization
+- vs external: PanelOLS **16.7x** vs linearmodels, GAM **51.3x** vs pygam, f_oneway **2.2x** vs scipy
+- Results: `results/new_modules_full_2026-06-24.json`
+
+**Unsupervised Benchmark** (12 algorithms × 3 backends):
+- Best: IncrementalPCA **21.1x**, TruncatedSVD **27.6x**, NMF **20.6x**, GMM **13.0x**
+- vs sklearn: IncrementalPCA **37.7x**, DBSCAN **23.8x**, TruncatedSVD **21.7x**
+- Results: `results/unsupervised_bench_2026-06-24.json`
+
+### CuPyBackend — Missing Methods
+
+Added 30+ methods to match NumpyBackend/TorchBackend:
+- **Linear algebra**: `qr`, `svd`, `solve`, `norm`
+- **Dtype properties**: `bool`, `nan`, `inf`, `pi`
+- **Array creation**: `zeros_like`, `ones_like`, `full_like`
+- **Element-wise**: `isnan`, `isinf`, `nan_to_num`, `square`, `log1p`, `sign`
+- **Reduction**: `count_nonzero`, `any`, `all`, `unique`, `sort`
+- **Manipulation**: `reshape`, `flatten`, `squeeze`, `astype`, `cat`, `concatenate`, `einsum`, `tensordot`, `meshgrid`, `item`
+- **Memory**: `empty_cache`
+- Effect: TruncatedSVD, IncrementalPCA, DBSCAN GPU backends now functional
+
+### TorchBackend — Missing Methods
+
+Added `qr`, `svd`, `solve` methods for TruncatedSVD/IncrementalPCA support.
+
+### Unsupervised — IncrementalPCA
+
+- **Fix**: Default `batch_size` changed from `min(n, 5*p)` to `n` (process all at once)
+- **Effect**: GPU speedup from 0.4x → **21.1x** at 100K scale
+- Old behavior forced 200+ batch iterations with SVD each time
+
+### Unsupervised — MiniBatchNMF
+
+- **Fix**: Default `batch_size` auto-sized to `min(n, max(20000, n//5))` (was 1024)
+- **Fix**: Pre-compute HtH once per epoch (was recomputed 3× per batch)
+- **Fix**: In-place multiply/divide for W updates (reduced allocations)
+- **Fix**: Throttle convergence check to every 5 epochs on GPU (was every epoch)
+- **Effect**: GPU speedup from 0.1x → **3.2x** at 100K scale
+
+### Unsupervised — UMAP
+
+- **New**: `nn_method` parameter: `"auto"` (default), `"exact"`, `"nndescent"`
+  - `"auto"`: uses NNDescent for n > 5000 (if pynndescent installed), exact otherwise
+  - `"nndescent"`: requires `pip install pynndescent`
+- **Optimization**: Reduced epochs for large data (10K: 500→200, >10K: 500→100)
+- **Optimization**: Float32 for distance matrix computation (2x memory savings)
+- **Optimization**: Torch `topk` instead of `argsort` for nearest neighbor search
+
+### ANOVA — f_oneway Vectorization
+
+- **Fix**: Vectorized group statistics (concatenate + scatter-add instead of Python loop)
+- **Effect**: cupy speedup from 0.7x → **3.4x** at 2M observations
+
+### ANOVA — f_twoway Torch Fix
+
+- **Fix**: `np.asarray` → `xp.asarray` for torch dtype compatibility
+- **Fix**: `arr.size` → `arr.numel()` for torch tensor compatibility
+- **Effect**: f_twoway now works with torch backend; cupy **3.9x** speedup
+
+### Panel — BetweenOLS
+
+- **Fix**: Added `time_ids=None` parameter to `fit()` for API consistency
+- Other panel models (PanelOLS, RandomEffects, FirstDifferenceOLS, FamaMacBeth) already accept `time_ids`
+
+### GAM — Parameter Alignment
+
+- **New**: `knot_method` parameter: `"quantile"` (default), `"uniform"`
+  - `"uniform"`: matches pygam's knot placement for fair comparison
+- **New**: `gamma` parameter for GCV (default 1.0, use 1.4 to match pygam Wood 2006)
+- **Precision**: With aligned params, pred rel_diff from 2.5% → **0.25%** vs pygam
+
+## 2026-06-19
+
+### LossBase Architecture — Phase 1
+
+- **LossBase**: Extracted generic base class from `GLMLoss`; all loss types share penalty/solver infrastructure
+- **QuantileLoss**: Pinball loss for quantile regression (R `quantreg::rq()`)
+- **HuberLoss**: Robust M-estimator loss (R `MASS::rlm()`)
+- **CoxPartialLikelihoodLoss**: Cox PH negative log partial likelihood (R `survival::coxph()`), Breslow+Efron ties
+- **Loss Registry**: `register_loss()`, `get_loss()`, `list_losses()` — 10 total losses registered
+- `GLMLoss` inherits `LossBase` (backward compatible); solver type hints updated
+- 64 tests, all passing; model docs in English + Chinese
+
 ## 2026-06-17
 
 ### PR #72 — P2 modules: ANOVA, Covariance, Panel, Splines, Kernel methods

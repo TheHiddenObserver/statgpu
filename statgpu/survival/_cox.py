@@ -38,6 +38,224 @@ def _unpack_efron_pre6(efron_pre):
         return uft, uft_ix, re, rx, nuft, None
     raise ValueError(f"invalid efron_pre length {len(efron_pre)}")
 
+
+# ── Numba JIT-compiled Efron backward scan (opt-in via env var) ─────
+_USE_NUMBA = (
+    os.environ.get("STATGPU_USE_NUMBA", "0").strip().lower()
+    in ("1", "true", "yes", "on")
+)
+_HAS_NUMBA_EFRON = False
+if _USE_NUMBA:
+    try:
+        from numba import njit
+
+        @njit(cache=True)
+        def _efron_backward_scan_numba(
+            X, e_linpred, risk_sum, risk_X_sum,
+            first_idx_uft, fail_ptr, fail_ind,
+            nuft, n, p,
+        ):
+            """Numba-compiled Efron backward scan — eliminates Python loop overhead."""
+            xp0 = 0.0
+            xp1 = np.zeros(p)
+            xp2 = np.zeros((p, p))
+            grad = np.zeros(p)
+            hess = np.zeros((p, p))
+
+            for g in range(nuft - 1, -1, -1):
+                enter_start = first_idx_uft[g]
+                enter_end = n if g == nuft - 1 else first_idx_uft[g + 1]
+                if enter_end > enter_start:
+                    xp0 += risk_sum[enter_start] - risk_sum[enter_end]
+                    for j in range(p):
+                        xp1[j] += risk_X_sum[enter_start, j] - risk_X_sum[enter_end, j]
+                    for r in range(enter_start, enter_end):
+                        elx = e_linpred[r]
+                        for j in range(p):
+                            for k in range(p):
+                                xp2[j, k] += elx * X[r, j] * X[r, k]
+
+                fs = fail_ptr[g]
+                fe = fail_ptr[g + 1]
+                d = fe - fs
+                if d == 0:
+                    continue
+
+                xp0f = 0.0
+                xp1f = np.zeros(p)
+                xp2f = np.zeros((p, p))
+                for idx in range(fs, fe):
+                    r = fail_ind[idx]
+                    elx = e_linpred[r]
+                    xp0f += elx
+                    for j in range(p):
+                        xp1f[j] += elx * X[r, j]
+                        for k in range(p):
+                            xp2f[j, k] += elx * X[r, j] * X[r, k]
+
+                sum_inv = 0.0
+                sum_J = 0.0
+                sum_aa = 0.0
+                sum_bb = 0.0
+                sum_ab = 0.0
+                for k in range(d):
+                    c0 = xp0 - (float(k) / float(d)) * xp0f
+                    if c0 < 1e-300:
+                        c0 = 1e-300
+                    inv_k = 1.0 / c0
+                    J_k = float(k) / float(d) * inv_k
+                    sum_inv += inv_k
+                    sum_J += J_k
+                    sum_aa += inv_k * inv_k
+                    sum_bb += J_k * J_k
+                    sum_ab += inv_k * J_k
+
+                for idx in range(fs, fe):
+                    r = fail_ind[idx]
+                    for j in range(p):
+                        grad[j] += X[r, j]
+                for j in range(p):
+                    grad[j] -= xp1[j] * sum_inv - xp1f[j] * sum_J
+
+                for j in range(p):
+                    for k in range(p):
+                        hess[j, k] -= xp2[j, k] * sum_inv
+                        hess[j, k] += xp2f[j, k] * sum_J
+                        hess[j, k] += sum_aa * xp1[j] * xp1[k]
+                        hess[j, k] += sum_bb * xp1f[j] * xp1f[k]
+                        hess[j, k] -= sum_ab * (xp1[j] * xp1f[k] + xp1f[j] * xp1[k])
+
+            return grad, -hess
+
+        _HAS_NUMBA_EFRON = True
+    except ImportError:
+        pass
+
+
+def _efron_backward_scan_python(
+    X, e_linpred, risk_sum, risk_X_sum,
+    first_idx_uft, uft_ix, nuft, n, p,
+):
+    """Pure Python fallback — same algorithm, no Numba required."""
+    xp0 = 0.0
+    xp1 = np.zeros(p, dtype=np.float64)
+    xp2 = np.zeros((p, p), dtype=np.float64)
+    grad = np.zeros(p, dtype=np.float64)
+    hess = np.zeros((p, p), dtype=np.float64)
+
+    for g in range(nuft - 1, -1, -1):
+        enter_start = int(first_idx_uft[g])
+        enter_end = n if g == nuft - 1 else int(first_idx_uft[g + 1])
+        if enter_end > enter_start:
+            xp0 += risk_sum[enter_start] - risk_sum[enter_end]
+            xp1 += risk_X_sum[enter_start] - risk_X_sum[enter_end]
+            xp2 += X[enter_start:enter_end].T @ (
+                X[enter_start:enter_end] * e_linpred[enter_start:enter_end, None]
+            )
+
+        ix_ev = uft_ix[g]
+        d = len(ix_ev)
+        if d == 0:
+            continue
+
+        v = X[ix_ev]
+        elx = e_linpred[ix_ev]
+        xp0f = float(elx.sum())
+        xp1f = v.T @ elx
+        xp2f = (v * elx[:, None]).T @ v
+
+        J = np.arange(d, dtype=np.float64) / d
+        c0 = xp0 - J * xp0f
+        np.maximum(c0, 1e-300, out=c0)
+        inv = 1.0 / c0
+        J_inv = J * inv
+        sum_inv = inv.sum()
+        sum_J = J_inv.sum()
+        sum_aa = np.dot(inv, inv)
+        sum_bb = np.dot(J_inv, J_inv)
+        sum_ab = np.dot(inv, J_inv)
+
+        grad += v.sum(axis=0)
+        grad -= xp1 * sum_inv - xp1f * sum_J
+
+        hess -= xp2 * sum_inv
+        hess += xp2f * sum_J
+        hess += sum_aa * np.outer(xp1, xp1)
+        hess += sum_bb * np.outer(xp1f, xp1f)
+        hess -= sum_ab * (np.outer(xp1, xp1f) + np.outer(xp1f, xp1))
+
+    return grad, -hess
+
+
+def _efron_backward_scan_vectorized(
+    X, e_linpred, risk_sum, risk_X_sum,
+    first_idx_uft, uft_ix, nuft, n, p,
+):
+    """Vectorized Efron gradient/Hessian via suffix outer products.
+
+    Properly handles tied failures with Efron's k/d correction.
+    O(n·p²) memory for suffix outer products; O(nuft·d·p) for Efron loop.
+    """
+    X_exp = X * e_linpred[:, None]
+    total = X_exp.T @ X  # (p, p)
+
+    # Suffix outer products: risk_X2[g] = sum_{i >= first_idx[g]} X_i exp(eta_i) X_i'
+    fi = first_idx_uft.astype(np.int64)
+    flat = (X_exp[:, :, None] * X[:, None, :]).reshape(n, p * p)
+    prefix_flat = np.cumsum(flat, axis=0)  # (n, p*p)
+
+    prefix_at_g = np.zeros((nuft, p, p), dtype=np.float64)
+    mask = fi > 0
+    if mask.any():
+        prefix_at_g[mask] = prefix_flat[fi[mask] - 1].reshape(-1, p, p)
+    risk_X2 = total[None, :, :] - prefix_at_g  # (nuft, p, p)
+
+    # Efron gradient/Hessian with proper tied-event correction
+    grad = np.zeros(p, dtype=np.float64)
+    hess = np.zeros((p, p), dtype=np.float64)
+
+    for g in range(nuft):
+        ix_ev = uft_ix[g]
+        d = len(ix_ev)
+        if d == 0:
+            continue
+
+        # Risk set quantities at this failure time
+        s0 = float(risk_sum[fi[g]])
+        s1 = risk_X_sum[fi[g]]  # (p,)
+
+        # Tied failure quantities
+        v = X[ix_ev]  # (d, p) — ALL failures, not just first
+        elx = e_linpred[ix_ev]  # (d,)
+        xp0f = float(elx.sum())
+        xp1f = v.T @ elx  # (p,) — weighted sum of failure covariates
+
+        # Efron correction: for k=0..d-1, denominator = s0 - (k/d)*xp0f
+        J = np.arange(d, dtype=np.float64) / d  # (d,)
+        c0 = s0 - J * xp0f  # (d,)
+        np.maximum(c0, 1e-300, out=c0)
+        inv = 1.0 / c0  # (d,)
+        J_inv = J * inv  # (d,)
+        sum_inv = inv.sum()
+        sum_J = J_inv.sum()
+        sum_aa = np.dot(inv, inv)
+        sum_bb = np.dot(J_inv, J_inv)
+        sum_ab = np.dot(inv, J_inv)
+
+        # Gradient: sum of ALL failure X's minus Efron-corrected risk term
+        grad += v.sum(axis=0)  # sum_{i in D_g} X_i
+        grad -= s1 * sum_inv - xp1f * sum_J
+
+        # Hessian: Efron-corrected second moment
+        hess -= risk_X2[g] * sum_inv
+        hess += (v * elx[:, None]).T @ v * sum_J  # xp2f * sum_J
+        hess += sum_aa * np.outer(s1, s1)
+        hess += sum_bb * np.outer(xp1f, xp1f)
+        hess -= sum_ab * (np.outer(s1, xp1f) + np.outer(xp1f, s1))
+
+    return grad, -hess
+
+
 class CoxPH(BaseEstimator):
     """
     Cox Proportional Hazards regression with GPU acceleration.
@@ -1940,66 +2158,41 @@ class CoxPH(BaseEstimator):
     def _compute_hessian_breslow_incremental_grouped_cupy(
         self, X, risk_sum, risk_X_sum, exp_eta, first_idx, counts
     ):
-        """CuPy grouped Breslow Hessian with incremental risk-set second moments."""
+        """CuPy Breslow Hessian — vectorized via cumsum of outer products.
+
+        O(n·p²) memory (acceptable on 16GB P100), zero Python loop over groups.
+        """
         import cupy as cp
-        from ._cox_efron_cuda import apply_breslow_hess_update_raw
+
+        n, p = int(X.shape[0]), int(X.shape[1])
+        nuft = int(first_idx.shape[0])
+        if nuft == 0:
+            return cp.zeros((p, p), dtype=cp.float64)
 
         X_exp = X * exp_eta[:, cp.newaxis]
-        risk_X2 = X_exp.T @ X
+        total = X_exp.T @ X  # (p, p)
 
-        p = int(X.shape[1])
-        hess = cp.zeros((p, p), dtype=cp.float64)
-        use_update_kernel = (
-            os.environ.get("STATGPU_BRESLOW_HESS_UPDATE_KERNEL", "1").strip().lower()
-            in ("1", "true", "yes", "on")
-        )
-        exx_buf = cp.empty((p, p), dtype=cp.float64) if not use_update_kernel else None
-        outer_buf = cp.empty((p, p), dtype=cp.float64) if not use_update_kernel else None
-        prev_idx = 0
-        block_size_env = os.environ.get("STATGPU_BRESLOW_GEMM_BLOCK", "1024")
-        try:
-            block_size = int(block_size_env)
-        except (TypeError, ValueError):
-            block_size = 1024
-        block_size = max(64, block_size)
-        # Reuse cached host-side tie metadata when available.
-        first_idx_np = getattr(self, "_breslow_first_idx_np", None)
-        counts_np = getattr(self, "_breslow_counts_np", None)
-        if (
-            first_idx_np is None
-            or counts_np is None
-            or int(first_idx_np.shape[0]) != int(first_idx.shape[0])
-        ):
-            first_idx_np = cp.asnumpy(first_idx).astype(np.int64, copy=False)
-            counts_np = cp.asnumpy(counts).astype(np.float64, copy=False)
-        risk_at_np = cp.asnumpy(risk_sum[first_idx]).astype(np.float64, copy=False)
-        n_groups = int(first_idx_np.size)
-        for g in range(n_groups):
-            idx = int(first_idx_np[g])
-            if idx > prev_idx:
-                # Batch removals to reduce many tiny GEMM launches.
-                cur = prev_idx
-                while cur < idx:
-                    nxt = min(idx, cur + block_size)
-                    blk = slice(cur, nxt)
-                    risk_X2 -= (X_exp[blk].T @ X[blk])
-                    cur = nxt
-                prev_idx = idx
+        risk_at = risk_sum[first_idx]
+        E_X = risk_X_sum[first_idx] / risk_at[:, None]
+        sc = counts / risk_at  # (nuft,)
 
-            rs = float(risk_at_np[g])
-            if rs <= 0.0:
-                continue
-            ex = risk_X_sum[idx] / rs
-            if use_update_kernel:
-                apply_breslow_hess_update_raw(
-                    hess, risk_X2, ex, rs, counts_np[g], cupy_module=cp
-                )
-            else:
-                inv_rs = 1.0 / rs
-                cp.multiply(risk_X2, inv_rs, out=exx_buf)
-                cp.multiply(ex[:, cp.newaxis], ex[cp.newaxis, :], out=outer_buf)
-                cp.subtract(exx_buf, outer_buf, out=exx_buf)
-                hess -= counts_np[g] * exx_buf
+        # Cumsum of outer products → prefix at each failure time
+        flat = (X_exp[:, :, None] * X[:, None, :]).reshape(n, p * p)
+        prefix_flat = cp.cumsum(flat, axis=0)  # (n, p*p)
+
+        # prefix_at_g[g] = prefix_flat[first_idx[g] - 1] if first_idx[g] > 0 else 0
+        fi = first_idx.astype(cp.int64)
+        prefix_at_g = cp.zeros((nuft, p, p), dtype=cp.float64)
+        mask = fi > 0
+        if mask.any():
+            prefix_at_g[mask] = prefix_flat[fi[mask] - 1].reshape(-1, p, p)
+
+        # risk_X2[g] = total - prefix[g]
+        risk_X2 = total[None, :, :] - prefix_at_g  # (nuft, p, p)
+
+        # hess = -sum_g sc[g] * risk_X2[g] + sum_g counts[g] * outer(E_X[g], E_X[g])
+        hess = -cp.einsum("g,gij->ij", sc, risk_X2)
+        hess += cp.einsum("g,gi,gj->ij", counts, E_X, E_X)
 
         return hess
 
@@ -2145,103 +2338,75 @@ class CoxPH(BaseEstimator):
 
     def _compute_gradient_hessian_efron_backward(self, beta, X, time, event, efron_pre=None):
         """
-        Efron gradient and Hessian using direct computation (O(n*d) per unique failure time).
+        Efron gradient and Hessian — incremental accumulator backward scan.
 
-        The gradient is: sum_events(X_i) - sum_events(E[X|R(t_i)])
-        where E[X|R(t_i)] uses the Efron approximation.
+        Uses the same algorithm as statsmodels PHReg and the Cython path:
+        maintain running xp0/xp1/xp2 accumulators, update incrementally at each
+        failure time.  O(nuft·p²) time, O(p²) memory.
 
-        Note: We do NOT center eta for consistency with _compute_log_likelihood.
-        The Efron ratio formula is scale-invariant, so centering is not needed for
-        numerical stability in typical use cases.
+        Note: X and time are already sorted by time (caller guarantees this).
         """
-        n_samples, n_features = X.shape
+        n_features = X.shape[1]
         linpred = X @ beta
-        # No centering - matches _compute_log_likelihood
         e_linpred = np.exp(linpred)
 
-        event_mask = event == 1
-        event_idx = np.where(event_mask)[0]
+        # Build Efron precomputed structure if not provided
+        if efron_pre is not None:
+            uft, uft_ix, risk_enter, risk_exit, nuft, first_idx_uft = _unpack_efron_pre6(efron_pre)
+        else:
+            event_mask = event == 1
+            event_idx = np.where(event_mask)[0]
+            if len(event_idx) == 0:
+                return np.zeros(n_features, dtype=np.float64), np.zeros((n_features, n_features), dtype=np.float64)
+            uft, uft_ix, risk_enter, risk_exit, nuft, first_idx_uft = self._efron_unique_failure_indices(time, event)
 
-        if len(event_idx) == 0:
+        if nuft == 0:
             return np.zeros(n_features, dtype=np.float64), np.zeros((n_features, n_features), dtype=np.float64)
 
-        # Get unique failure times and their counts
-        event_times = time[event_mask]
-        uft, counts = np.unique(event_times, return_counts=True)
-        nuft = len(uft)
+        # first_idx_uft[g] = first row index in sorted data with time == uft[g]
+        # Suffix sums with sentinel zero at end so that
+        # risk_sum[i] - risk_sum[j] = sum(exp_eta[i:j]) for any i < j.
+        n = X.shape[0]
+        X_exp = X * e_linpred[:, None]
+        risk_sum = np.zeros(n + 1, dtype=np.float64)
+        risk_sum[:n] = np.cumsum(e_linpred[::-1])[::-1]
+        risk_X_sum = np.zeros((n + 1, n_features), dtype=np.float64)
+        risk_X_sum[:n] = np.cumsum(X_exp[::-1], axis=0)[::-1]
 
-        grad = np.zeros(n_features, dtype=np.float64)
-        hess_inner = np.zeros((n_features, n_features), dtype=np.float64)
+        # Dispatch: Numba > Vectorized cumsum > Python incremental
+        # Vectorized cumsum: O(n·p²) memory, no Python loop — fast for p <= ~100.
+        _VEC_MAX_P = int(os.environ.get("STATGPU_EFRON_VEC_MAX_P", "30"))
 
-        # Pre-compute suffix sums for risk sets
-        # risk_sum[i] = sum of exp(lp) for all j with time[j] >= time[i]
-        order = np.argsort(time)
-        time_sorted = time[order]
-        e_lp_sorted = e_linpred[order]
-        X_sorted = X[order]
+        if _HAS_NUMBA_EFRON:
+            # Numba JIT — best for all sizes
+            fail_ptr = np.zeros(nuft + 1, dtype=np.int64)
+            for g in range(nuft):
+                fail_ptr[g + 1] = fail_ptr[g] + len(uft_ix[g])
+            n_fail = int(fail_ptr[nuft])
+            fail_ind = np.empty(n_fail, dtype=np.int64)
+            for g in range(nuft):
+                ix = uft_ix[g]
+                for j in range(len(ix)):
+                    fail_ind[fail_ptr[g] + j] = int(ix[j])
+            grad, hess = _efron_backward_scan_numba(
+                X, e_linpred, risk_sum, risk_X_sum,
+                first_idx_uft.astype(np.int64),
+                fail_ptr, fail_ind,
+                nuft, n, n_features,
+            )
+        elif n_features <= _VEC_MAX_P:
+            # Vectorized cumsum — eliminates Python loop, O(n·p²) memory
+            grad, hess = _efron_backward_scan_vectorized(
+                X, e_linpred, risk_sum, risk_X_sum,
+                first_idx_uft, uft_ix, nuft, n, n_features,
+            )
+        else:
+            # Python incremental — O(p²) memory, Python loop over groups
+            grad, hess = _efron_backward_scan_python(
+                X, e_linpred, risk_sum, risk_X_sum,
+                first_idx_uft, uft_ix, nuft, n, n_features,
+            )
 
-        # Suffix sum: risk_sum_sorted[i] = sum of e_lp_sorted[j] for j >= i
-        risk_sum_sorted = np.cumsum(e_lp_sorted[::-1])[::-1]
-        # risk_X_sum_sorted[i] = sum of e_lp_sorted[j] * X_sorted[j] for j >= i
-        risk_X_sum_sorted = np.cumsum((X_sorted * e_lp_sorted[:, np.newaxis])[::-1], axis=0)[::-1]
-        # risk_XX_sum_sorted[i] = sum of e_lp_sorted[j] * X_sorted[j] @ X_sorted[j]^T for j >= i
-        # Use matrix multiplication trick: (X^T diag(e) X) but we need per-row cumulative
-        # Direct einsum is clearest but slow; alternative is loop-based accumulation
-        # For now, use einsum - it's O(n*p^2) but vectorized
-        XX_outer = np.einsum('ni,nj,n->nij', X_sorted, X_sorted, e_lp_sorted)
-        risk_XX_sum_sorted = np.cumsum(XX_outer[::-1], axis=0)[::-1]
-
-        # For each unique failure time, compute the Efron-adjusted expectation
-        for g in range(nuft):
-            t_g = uft[g]
-            d_g = counts[g]
-
-            # Find first index in sorted array with time >= t_g
-            first_idx = np.searchsorted(time_sorted, t_g, side='left')
-
-            # Risk set sums at t_g
-            S0 = risk_sum_sorted[first_idx]
-            S1 = risk_X_sum_sorted[first_idx]  # sum of e^lp * X for risk set
-
-            # Events at this time
-            events_at_g = event_idx[event_times == t_g]
-            X_events = X[events_at_g]
-            sum_X_events = X_events.sum(axis=0)
-
-            # Efron approximation: E[X|R(t)] ≈ (1/d) * sum_{k=0}^{d-1} S1(t - k*S0/d) / (S0 - k*S0/d)
-            # Simplified: for each k, weight = 1/(S0 * (1 - k/d)) = 1/(S0 - k*S0/d)
-            # But we need to handle the case where some observations are the events themselves
-
-            # Direct Efron formula for gradient contribution:
-            # sum_{j in events} X_j - sum_{k=0}^{d-1} S1 / (S0 - k*S0/d)
-
-            # Actually, the correct Efron gradient is:
-            # sum_events(X) - sum_{k=0}^{d-1} [S1 / (S0 - (k/d)*sum_events(e^lp))]
-
-            # sum of e^lp for events at this time
-            sum_e_events = e_linpred[events_at_g].sum()
-
-            # Efron adjustment: for k in 0..d-1, compute gradient and Hessian contributions
-            for k in range(d_g):
-                frac = k / d_g
-                denom = S0 - frac * sum_e_events
-                if denom < 1e-300:
-                    denom = 1e-300
-
-                # Gradient: S1 / denom (subtracted from sum_X_events later)
-                grad_contrib = S1 / denom
-                grad -= grad_contrib
-
-                # Hessian: -risk_XX_sum/denom + outer(S1,S1)/denom^2
-                # Both terms are needed for correct Newton direction
-                risk_XX_sum = risk_XX_sum_sorted[first_idx]
-                hess_inner -= risk_XX_sum / denom
-                hess_inner += np.outer(S1, S1) / (denom * denom)
-
-            # Add event contribution to gradient
-            grad += sum_X_events
-
-        hess = -hess_inner
         return grad, hess
     
     def _compute_gradient_hessian_gpu(
@@ -3248,21 +3413,29 @@ class CoxPH(BaseEstimator):
                     return grad, hess, (eta, exp_eta, risk_sum)
                 return grad, hess
 
-        hess = torch.zeros((n_features, n_features), dtype=torch.float64, device=beta.device)
-        prev_idx = 0
-        for g in range(n_uft):
-            idx = int(first_idx[g].item())
-            if idx > prev_idx:
-                blk = slice(prev_idx, idx)
-                risk_X2 = risk_X2 - (X_exp[blk].transpose(0, 1) @ X[blk])
-                prev_idx = idx
+        # ---- Vectorized Hessian via cumsum of outer products ----
+        # hess = -sum_g (counts[g]/s0[g]) * risk_X2[g] + sum_g counts[g] * outer(E_X[g], E_X[g])
+        # where risk_X2[g] = total - prefix[g], prefix = cumsum of outer products.
+        total = risk_X2  # X_exp.T @ X
+        sc = weights / torch.clamp(risk_at_uft, min=1e-300)  # (n_uft,)
 
-            rs = torch.clamp(risk_at_uft[g], min=1e-300)
-            w = weights[g]
-            ex = E_X_at_uft[g]
-            # Torch-native p^2 update: avoid CuPy bridge and host sync.
-            hess.sub_(risk_X2 * (w / rs))
-            hess.add_(torch.outer(ex, ex) * w)
+        # Cumsum of outer products → prefix at each failure time
+        flat = (X_exp[:, :, None] * X[:, None, :]).reshape(n, n_features * n_features)
+        prefix_flat = torch.cumsum(flat, dim=0)  # (n, p*p)
+
+        # prefix_at_g[g] = prefix_flat[first_idx[g] - 1] if first_idx[g] > 0 else 0
+        prefix_at_g = torch.zeros((n_uft, n_features, n_features),
+                                  dtype=torch.float64, device=beta.device)
+        mask = first_idx > 0
+        if mask.any():
+            prefix_at_g[mask] = prefix_flat[first_idx[mask] - 1].reshape(-1, n_features, n_features)
+
+        # risk_X2[g] = total - prefix[g]
+        risk_X2_at_g = total.unsqueeze(0) - prefix_at_g  # (n_uft, p, p)
+
+        # hess = -sum_g sc[g] * risk_X2[g] + sum_g weights[g] * outer(E_X[g], E_X[g])
+        hess = -torch.einsum("g,gij->ij", sc, risk_X2_at_g)
+        hess += torch.einsum("g,gi,gj->ij", weights, E_X_at_uft, E_X_at_uft)
 
         if return_aux:
             return grad, hess, (eta, exp_eta, risk_sum)

@@ -255,6 +255,8 @@ def _smooth_penalty_lipschitz(penalty):
 def _smooth_penalty_value_dev(penalty, coef):
     if penalty is None:
         return 0.0
+    if hasattr(penalty, "smooth_value"):
+        return penalty.smooth_value(coef)
     pname = _penalty_name(penalty)
     if pname in ("none", "null"):
         return 0.0

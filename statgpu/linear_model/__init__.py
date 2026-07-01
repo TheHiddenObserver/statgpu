@@ -32,6 +32,11 @@ from .penalized._penalized_inverse_gaussian import PenalizedInverseGaussianRegre
 from .penalized._penalized_negative_binomial import PenalizedNegativeBinomialRegression
 from .penalized._penalized_tweedie import PenalizedTweedieRegression
 
+# Non-GLM penalized models
+from .penalized._penalized_robust import PenalizedRobustRegression
+from .penalized._penalized_quantile import PenalizedQuantileRegression
+from .penalized._penalized_cox import PenalizedCoxPHModel
+
 # CV models
 from .cv import LassoCV, RidgeCV, ElasticNetCV, LogisticRegressionCV
 from .penalized._penalized_cv import PenalizedGLM_CV, ApproximateCVWarning
@@ -60,6 +65,9 @@ __all__ = [
     'PenalizedInverseGaussianRegression',
     'PenalizedNegativeBinomialRegression',
     'PenalizedTweedieRegression',
+    'PenalizedRobustRegression',
+    'PenalizedQuantileRegression',
+    'PenalizedCoxPHModel',
     'AdaptiveLasso',
     'SCADRegression',
     'MCPRegression',

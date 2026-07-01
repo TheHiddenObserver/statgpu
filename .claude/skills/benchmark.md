@@ -1,175 +1,252 @@
 ---
 name: benchmark
-description: Run three-backend benchmarks on remote GPU server with precision and timing comparison
+description: Create and run synchronized three-backend statgpu benchmarks with external precision checks and remote_config-based execution
 ---
 
 # Benchmark Skill
 
-When the user invokes this skill, create and run benchmarks comparing
-statgpu across numpy/cupy/torch backends and external frameworks.
+Use this skill when benchmarking statgpu methods, validating GPU performance, or
+comparing precision/convergence against external frameworks.
 
-## Input
+## Core Rules
 
-The user provides:
-- Module or functions to benchmark
-- Data scales (default: n=5000, 20000, 50000)
-- External comparison targets (default: sklearn, scipy)
+- Benchmark all three backends: `numpy`, `cupy`, and `torch`.
+- Prefer reusable scripts in `dev/benchmarks/`.
+- Use `dev/tests/` only for pytest-style tests and assertions.
+- Save machine-readable output to `results/*.json`.
+- Use `dev/scripts/remote_config.py` for remote execution.
+- Do not read credentials from memory, Markdown, or `.claude/settings.json`.
+- Do not hardcode passwords, SSH ports, private remote paths, or host-specific
+  secrets in benchmark scripts or results.
+- Do not commit, push, publish, or upload packages unless explicitly requested.
 
-## Workflow
+## Required Output Schema
 
-### Step 1: Create benchmark script
+Each benchmark JSON should include these fields when applicable:
 
-Create `dev/tests/bench_<module>.py` with:
+```json
+{
+  "method": "...",
+  "backend_times": {
+    "numpy": null,
+    "cupy": null,
+    "torch": null
+  },
+  "external_baseline": {
+    "name": null,
+    "time": null,
+    "version": null
+  },
+  "precision_vs_external": {},
+  "convergence_status": {},
+  "backend_precision": {},
+  "compatibility_matrix": {},
+  "cv_matrix": {},
+  "inference_matrix": {},
+  "threshold_source": {},
+  "objective_scaling": null,
+  "penalty_scale_mapping": null,
+  "cpu_vs_external": null,
+  "gpu_vs_cpu": null,
+  "crossover_n": null,
+  "target_scale_source": null,
+  "optimization_notes": [],
+  "validation_tier": "local-minimal",
+  "schema_status": "unchecked",
+  "timing_scope": {},
+  "reproducibility": {},
+  "uncovered_reasons": []
+}
+```
+
+Use `null` only when the value is not applicable or could not be collected.
+Explain missing values in `uncovered_reasons`.
+
+After writing JSON, validate required keys. Set `schema_status` to `ok` only
+when all required keys are present. Missing keys must be added or explained in
+`uncovered_reasons`; do not leave the schema unchecked.
+
+## Timing Rules
+
+GPU timings must synchronize before and after the measured region:
 
 ```python
-import time, json, os
-import numpy as np
-
-def timeit(func, n_repeats=3):
-    times = []
-    result = None
-    for _ in range(n_repeats):
-        t0 = time.perf_counter()
-        result = func()
-        t1 = time.perf_counter()
-        times.append((t1 - t0) * 1000)
-    return result, float(np.median(times))
-
-def _to_np(x):
-    if hasattr(x, 'get'): return x.get()
-    if hasattr(x, 'cpu'): return x.detach().cpu().numpy()
-    return np.asarray(x)
-
-def warmup_gpu():
-    """Warmup GPU to avoid JIT/first-call overhead."""
-    try:
+def sync_backend(backend):
+    if backend == "cupy":
         import cupy as cp
-        a = cp.ones((100, 100), dtype=cp.float64)
-        _ = a @ a
         cp.cuda.Stream.null.synchronize()
-        del a
-        cp.get_default_memory_pool().free_all_blocks()
-    except Exception:
-        pass
-    try:
+    elif backend == "torch":
         import torch
         if torch.cuda.is_available():
-            a = torch.ones(100, 100, dtype=torch.float64, device='cuda')
-            _ = a @ a
             torch.cuda.synchronize()
-            del a
-            torch.cuda.empty_cache()
-    except Exception:
-        pass
 ```
 
-### Step 2: Run locally first
+Separate setup, data transfer, fitting, prediction, inference, and result
+conversion where possible. Report `timing_scope` so GPU speedups are not hidden
+or exaggerated by mixed scopes.
 
-```bash
-PYTHONPATH=. python dev/tests/bench_<module>.py
+Use repeated runs, warmup, fixed random seeds, and dtype/device metadata. If a
+method is stochastic, report seed and solver settings.
+
+## Validation Tiers
+
+- `local-minimal`: imports, targeted numpy checks, unavailable-backend behavior,
+  active API/error checks, and no unsafe artifacts.
+- `local-full`: `local-minimal` plus every locally available backend, active
+  matrix checks, local external Python baselines, and JSON schema checks.
+- `remote-full`: `local-full` plus remote GPU, R/external packages, or large
+  benchmarks through `dev/scripts/remote_config.py`.
+
+If a tier cannot run, record the exact command that should be run later and end
+the parent workflow with `PARTIAL_REMOTE_PENDING` when local work is otherwise
+complete.
+
+## Baseline Hierarchy
+
+Use the strongest available baseline and record it in `threshold_source` or
+`external_baseline`:
+
+1. Analytic closed form or derivative check.
+2. Existing trusted statgpu implementation.
+3. Python reference: sklearn, statsmodels, scipy, lifelines, patsy.
+4. R reference package.
+5. Numerical invariants: finite differences, KKT, monotonic objective,
+   simulation coverage, backend parity.
+
+If a stronger baseline is unavailable, record the missing package or command and
+use the next tier.
+
+## Precision And Convergence Evidence
+
+Benchmarks must report numerical correctness, not only speed:
+
+- objective/loss values
+- coefficients or parameters
+- predictions or risk scores
+- gradients, Hessians, KKT, or monotonic objective checks where relevant
+- standard errors, confidence intervals, p-values, or inference outputs where
+  relevant
+- `_inference_result`, summary fields, covariance type, and fallback status when
+  inference is supported
+- convergence status, tolerance, iteration count, and stop reason
+- backend-to-backend differences
+
+When statgpu and an external framework use different objective normalization,
+do not force statgpu to match by changing its loss. Instead record the mapping,
+for example:
+
+```text
+statgpu: n^{-1} sum_i loss_i + lambda * penalty
+external: sum_i loss_i + lambda * penalty
+equivalent comparison: lambda_external = n * lambda_statgpu
 ```
 
-Verify it runs without errors.
+Precision failure triggers the parent workflow's precision/convergence gate
+before any performance optimization.
 
-### Step 3: Upload to remote and run
+## Cross-Axis Matrix Evidence
 
-```python
-import paramiko
+When a change touches losses, penalties, solvers, CV dispatch, or backend
+kernels, benchmark or validation output should include a compact compatibility
+matrix for the affected axes:
 
-ssh = paramiko.SSHClient()
-ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-ssh.connect('hz-4.matpool.com', port=28838, username='root', password='<from memory>')
+- loss x penalty x solver x backend status
+- loss x penalty x CV x backend status when the combination is tunable
+- coefficient/objective difference against a reference path
+- selected alpha/lambda/C, fold score, and refit coefficient difference for CV
+- inference field status and bse/p-value/CI differences when inference is
+  supported
+- convergence status and iteration count
+- skipped combinations with explicit incompatibility or missing-backend reason
+- timing for supported combinations when performance is relevant
 
-sftp = ssh.open_sftp()
-sftp.put(local_path, remote_path)
-sftp.close()
+This can be sampled for very large matrices, but every newly added or changed
+axis member must appear in the matrix with representative partners.
 
-channel = ssh.invoke_shell()
-time.sleep(2)
-channel.recv(4096)
-channel.send('source /root/miniconda3/etc/profile.d/conda.sh && conda activate myconda && cd /root/statgpu && python dev/tests/bench_<module>.py\n')
+## Inference Evidence
 
-# Read output...
-ssh.close()
-```
+When inference is supported or expected, benchmark or validation output should
+include:
 
-### Step 4: Save results
+- direct-estimator inference status
+- CV final-refit inference status when CV supports `compute_inference=True`
+- `_inference_result` result type and method
+- `coef`, `bse`, `t` or `z`, `p`, CI, covariance type, and summary availability
+- AIC/BIC/LLF/R-squared/F-test fields where applicable
+- backend-to-backend differences for numpy/cupy/torch
+- external baseline differences against statsmodels, R, lifelines, sklearn, or
+  an analytic reference when available
+- explicit estimation-only reason when inference is unsupported
 
-Save JSON results to `results/bench_<module>.json` for frontend use.
+Inference failures trigger the parent workflow's inference gate before
+performance optimization.
 
-## Key metrics to report
+## Formula Compatibility Evidence
 
-| Metric | Description |
-|--------|-------------|
-| `time_ms` | Median execution time in milliseconds |
-| `speedup` | `time_external / time_statgpu` |
-| `max_diff` | `max(abs(ours - theirs))` for precision |
-| `corr` | Correlation between result matrices |
+For formula-facing methods, benchmark or validation scripts should record:
 
-## R comparison
+- formula string
+- generated model matrix shape
+- intercept handling
+- categorical levels and reference level
+- interaction/transform support
+- missing-data behavior
+- external R or formula-library comparison when available
 
-For statistical methods where R is the gold standard, include R comparison via `rpy2`.
+Unsupported formula behavior belongs in `uncovered_reasons` with a clear failure
+mode.
 
-When benchmarking a specific module, determine the appropriate R equivalent dynamically:
-- Search for the closest R package/function that implements the same method
-- Compare the same output statistics (coefficients, SE, p-values, etc.)
-- Use `rpy2.robjects` to call R from Python
+## Performance And Optimization Evidence
 
-Example pattern:
+Report:
 
-```python
-try:
-    import rpy2.robjects as ro
-    from rpy2.robjects import numpy2ri
-    numpy2ri.activate()
+- `cpu_vs_external`: numpy/statgpu CPU time compared with the external baseline
+- `gpu_vs_cpu`: CuPy/Torch time compared with numpy
+- `crossover_n`: smallest problem size where GPU is faster, if found
+- `target_scale_source`: existing benchmark, user request, or temporary scale
+- memory transfer costs when measurable
+- algorithmic complexity notes
+- `optimization_notes`: profiling result, attempted optimizations, and residual
+  bottlenecks
 
-    # Pass data to R
-    ro.globalenv['y'] = y
-    ro.globalenv['group'] = group
+Trigger algorithm optimization when:
 
-    # Call the R equivalent of the method being benchmarked
-    r_result = ro.r('<R code for the equivalent method>')
+- CPU is materially slower than an established external framework
+- GPU is slower than CPU at target scales
+- GPU speedup depends on undocumented scale thresholds
+- memory transfers dominate runtime
+- asymptotic behavior is worse than the known/reference method
 
-    # Extract comparable statistics
-    results["R"] = {"statistic": float(r_result[0])}
-except ImportError:
-    results["R"] = {"error": "rpy2 not installed"}
-```
+Target scale must be explicit. Prefer existing module benchmark scales. If none
+exist, use a temporary small/medium/large scale ladder and record the rationale;
+do not make speedup claims without target scale and timing scope.
 
-### How to find the R equivalent
+Follow the workflow optimization budget: one profiling pass, up to two
+optimization attempts, and one re-benchmark per attempt. If performance still
+misses the target, report a caveat and let the parent workflow choose
+`BLOCKED_NEEDS_USER_APPROVAL` or `PARTIAL_REMOTE_PENDING`.
 
-The R equivalent should be identified during the **design phase** (Phase 1 of `new-module-dev`), not at benchmark time. If not already known:
+## Script Placement
 
-1. **Check the method's docstring or model doc** — references often cite the R package
-2. **Check the reference paper** — it usually names the R implementation
-3. **Search CRAN** for the statistical method name
-4. **Common mappings** (for reference, verify at benchmark time):
+- Put reusable benchmarks in `dev/benchmarks/bench_<method>.py`.
+- Put pytest checks in `dev/tests/` only when they should be run as tests.
+- Put result JSON under `results/` or the repo's established results directory.
+- Keep benchmark scripts parameterized by backend, dtype, seed, scale, and
+  output path.
 
-| statgpu pattern | Likely R equivalent |
-|----------------|-------------------|
-| `f_oneway` / `f_twoway` | `stats::aov()` |
-| `f_welch` | `stats::oneway.test()` |
-| `tukey_hsd` | `stats::TukeyHSD()` |
-| `bonferroni` | `stats::pairwise.t.test(p.adjust.method="bonferroni")` |
-| Any panel estimator | `plm::plm()` or `fixest::feols()` |
-| `EmpiricalCovariance` | `stats::cov()` |
-| `LedoitWolf` / `OAS` | `stats::cov()` (no direct R equivalent, compare with sample cov) |
-| `MinCovDet` | `MASS::cov.mve()` or `MASS::cov.rob()` |
-| `GraphicalLasso` | `glasso::glasso()` |
-| `bspline_basis` | `splines::bs()` |
-| `natural_cubic_spline_basis` | `splines::ns()` |
-| `SplineTransformer` | `splines::bs()` (same output format) |
-| Kernel methods | `kernlab::` or base R |
-| `GAM` | `mgcv::gam()` |
-| `CoxPH` | `survival::coxph()` |
+## Completion Report
 
-If no direct R equivalent exists, skip R comparison and note why in the benchmark output.
+Report:
 
-## Remote server notes
-
-- Server: hz-4.matpool.com:28838
-- Conda env: `myconda` (has all deps, never use pip install)
-- GPU: Tesla P100-16GB
-- Package location: `/root/statgpu/`
-- Always warmup GPU before timing
-- Use `paramiko` for SSH (password auth)
+- benchmark script path
+- result JSON path
+- command used
+- validation tier
+- schema status
+- three-backend timings
+- external baseline result
+- precision and convergence result
+- objective scaling and penalty mapping
+- formula compatibility result when applicable
+- optimization notes
+- skipped tiers and exact follow-up commands

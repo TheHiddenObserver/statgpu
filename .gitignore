@@ -83,6 +83,10 @@ dev/tests/TORCH_BACKEND_CV_TESTING.md
 build/
 dist/
 *.egg-info/
+*.pyd
+*.so
+# Cython generated C files
+*.c
 
 # Credentials and secrets (prevent accidental commits)
 .pypirc
@@ -94,3 +98,9 @@ dist/
 *.pfx
 **/secrets.json
 **/credentials.json
+
+# Debug scripts from development sessions
+dev/tests/debug_*.py
+dev/tests/remote_gpu_bench.py
+dev/tests/test_irls_gpu.py
+dev/tests/run_remote_gpu.py

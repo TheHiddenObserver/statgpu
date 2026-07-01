@@ -16,7 +16,7 @@ __all__ = ["fista_bb_solver"]
 import warnings
 import numpy as np
 from statgpu.backends import _resolve_backend, _to_numpy
-from statgpu.backends._utils import _to_float_scalar
+from statgpu.backends._utils import _get_xp, _to_float_scalar
 from statgpu.backends._array_ops import (
     _abs_sum_dev, _clip_grad_on_device, _copy_arr, _dot_dev,
     _norm2_dev, _sync_scalars, _zeros,
@@ -77,6 +77,14 @@ def fista_bb_solver(
     n_features = X_proc.shape[1]
     _pen_name = _penalty_name(penalty)
 
+    # Convert sample_weight to backend-native (prevent CPU/CUDA mismatch)
+    _sw_arr = None
+    if sample_weight is not None:
+        _xp_mod = _get_xp(backend)
+        _sw_arr = _xp_mod.asarray(sample_weight, dtype=X_proc.dtype)
+        if hasattr(X_proc, "device") and hasattr(_sw_arr, "to"):
+            _sw_arr = _sw_arr.to(device=X_proc.device)
+
     # Smooth logistic objectives are better handled by the Armijo-backed FISTA
     # path.  This keeps explicit fista_bb numerically aligned across CPU/CuPy/
     # Torch for logistic+none/l2 Section A checks.
@@ -89,7 +97,7 @@ def fista_bb_solver(
             max_iter=max_iter,
             tol=tol,
             init_coef=init_coef,
-            sample_weight=sample_weight,
+            sample_weight=_sw_arr,
             cv_mode=cv_mode,
         )
 
@@ -158,7 +166,7 @@ def fista_bb_solver(
         L = _cached_lipschitz_L
     else:
         _cached_lipschitz_L = None
-        L = _call_with_weight(loss.lipschitz, X_proc, _zero_coef_bb, y=y_proc, sample_weight=sample_weight)
+        L = _call_with_weight(loss.lipschitz, X_proc, _zero_coef_bb, y=y_proc, sample_weight=_sw_arr)
     if L <= 0:
         L = 1.0
     # For GLM losses with exp link (Poisson, etc.), mu at coef=0
@@ -197,7 +205,7 @@ def fista_bb_solver(
     _validate_sample_weight(sample_weight, X_proc.shape[0])
 
     # Gradient at initial point for first BB difference
-    grad_old = _call_with_weight(loss.gradient, X_proc, y_proc, coef, sample_weight=sample_weight)
+    grad_old = _call_with_weight(loss.gradient, X_proc, y_proc, coef, sample_weight=_sw_arr)
     # Initialize dg for BB step selection (used before first assignment in loop)
     dg = _zeros(n_features, backend, ref_tensor=X_proc)
     iteration = -1  # default if max_iter=0
@@ -239,7 +247,7 @@ def fista_bb_solver(
         coef_old = _copy_arr(coef)
 
         # Gradient at extrapolated point
-        grad = _call_with_weight(loss.gradient, X_proc, y_proc, y_k, sample_weight=sample_weight)
+        grad = _call_with_weight(loss.gradient, X_proc, y_proc, y_k, sample_weight=_sw_arr)
 
         # Clip extreme gradients -- every iteration, all backends.
         # Skip for inverse_gaussian: 1/mu^3 gradient scaling produces large but
@@ -276,7 +284,7 @@ def fista_bb_solver(
                     _diverged = True
             # Full objective check every 5 iterations
             if not _diverged:
-                _obj_val = float(_to_numpy(_call_with_weight(loss.value, X_proc, y_proc, coef, sample_weight=sample_weight)))
+                _obj_val = float(_to_numpy(_call_with_weight(loss.value, X_proc, y_proc, coef, sample_weight=_sw_arr)))
                 _pen_val = _tracking_penalty_value(penalty, coef)
                 _obj_total = _obj_val + _pen_val
                 if not np.isfinite(_obj_total):
@@ -305,7 +313,7 @@ def fista_bb_solver(
                     coef = _zeros(n_features, backend, ref_tensor=X_proc)
                 y_k = _copy_arr(coef)
                 t_k = 1.0
-                grad_old = _call_with_weight(loss.gradient, X_proc, y_proc, coef, sample_weight=sample_weight)
+                grad_old = _call_with_weight(loss.gradient, X_proc, y_proc, coef, sample_weight=_sw_arr)
                 # Halve step size bounds
                 step_L = step_L * 0.5
                 step_k = step_L
@@ -342,7 +350,9 @@ def fista_bb_solver(
                 if _cached_lipschitz_L is not None:
                     L_new = _cached_lipschitz_L
                 else:
-                    L_new = loss.lipschitz(X_proc, _zero_coef_bb, y=y_proc)
+                    L_new = _call_with_weight(
+                        loss.lipschitz, X_proc, _zero_coef_bb, y=y_proc, sample_weight=_sw_arr
+                    )
                 if L_new > 0:
                     # Re-apply y-scaling and per-family safety factor
                     if _y_scale > 1.0:
@@ -396,7 +406,8 @@ def fista_bb_solver(
                 for _bt in range(15):
                     # Batch obj + coef-norm into a single sync.
                     _new_obj, _new_norm = _sync_scalars(
-                        loss.value(X_proc, y_proc, coef), _norm2_dev(coef), backend=backend)
+                        _call_with_weight(loss.value, X_proc, y_proc, coef, sample_weight=_sw_arr),
+                        _norm2_dev(coef), backend=backend)
                     _new_pen = _tracking_penalty_value(penalty, coef)
                     _new_total = _new_obj + _new_pen
                     # Accept if: finite, reasonable norm, and objective not exploded.
@@ -436,7 +447,7 @@ def fista_bb_solver(
                     coef = _copy_arr(_coef_best)
                     y_k = _copy_arr(coef)
                     t_k = 1.0
-                    grad_old = _call_with_weight(loss.gradient, X_proc, y_proc, coef, sample_weight=sample_weight)
+                    grad_old = _call_with_weight(loss.gradient, X_proc, y_proc, coef, sample_weight=_sw_arr)
                     step_L = step_L * 0.5
                     step_k = step_L
                     step_max = step_max * 0.5
@@ -449,7 +460,7 @@ def fista_bb_solver(
         # --- Store BB step info for next iteration (non-quadratic only) ---
         # Use accepted iterate (coef) not pre-backtracking (coef_new)
         if not _is_quadratic:
-            grad_new = _call_with_weight(loss.gradient, X_proc, y_proc, coef, sample_weight=sample_weight)
+            grad_new = _call_with_weight(loss.gradient, X_proc, y_proc, coef, sample_weight=_sw_arr)
 
             dw = coef - coef_old
             dg = grad_new - grad_old

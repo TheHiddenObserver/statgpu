@@ -1,13 +1,150 @@
 # Changelog
 
 > Language: English  
-> Last updated: 2026-06-17
+> Last updated: 2026-06-30
 > This page: Changelog  
 > Switch: [Chinese](../changelog.md)
 
 Language switch: [Chinese](../changelog.md)
 
 ## 2026-06
+
+### Added (2026-06-28) — PR #73
+
+- **Loss Architecture — LossBase Extraction**:
+  - Extracted `LossBase` from `GLMLoss` for quantile/robust/survival losses
+  - `LossBase`: abstract base with `per_sample_value()`, `per_sample_gradient()` as single source of truth; derives `value()`, `gradient()`, `fused_value_and_gradient()` automatically
+  - `GLMLoss` inherits from `LossBase` for GLM-specific features (canonical link, IRLS)
+  - New loss classes: `QuantileLoss`, `HuberLoss`, `BisquareLoss`, `CoxPartialLikelihoodLoss`
+  - New modules: `PenalizedQuantileRegression`, `PenalizedRobustRegression`, `PenalizedCoxPHModel`
+
+- **Proximal IRLS-CD Solver**: New solver for quantile + SCAD/MCP
+  - Algorithm: IRLS quadratic majorization + LLA nonconvex penalty + parallel diagonal majorization
+  - CPU (numpy): ~3x faster than FISTA-LLA (60-120 iterations vs 1800+)
+  - GPU (torch-CUDA): ~36x faster than CPU numpy for large problems (n=10K, p=500)
+  - Three-backend: numpy, cupy, torch — core array operations backend-native; scalar convergence checks synchronize to host
+  - Benchmark artifacts: `results/loss_functions_bench_2026-06-23.json`, `results/penalized_glm_bench_2026-06-22.json`
+
+- **CoxPH Efron Optimization**:
+  - Vectorized Efron: prefix-sum based gradient/Hessian computation (no Python loops)
+  - Multi-block CUDA kernel: fused loglik+grad+hess for Efron on GPU
+  - DLPack bridge: torch-CUDA uses CuPy Efron kernel via DLPack
+  - Performance: 3-6x faster than statsmodels at n=5000; GPU 6x faster than CPU
+  - Removed Numba dependency, pure numpy implementation
+  - Benchmark artifact: `results/coxph_efron_bench_2026-06-22.json` (precision vs statsmodels, GPU speedup 47-102x)
+
+- **GLM Fused Value+Gradient**: Integrated `_fused.py` into `GLMLoss.fused_value_and_gradient()`
+- **FISTA GPU Sync Optimization**: Batch GPU syncs (convergence+divergence+lipschitz in one transfer)
+- **Quantile IRLS Solver**: `QuantileLoss.irls()` for fast convergence with smooth penalties (5-15 iterations)
+- **Huber Hessian Support**: `has_hessian = True`, enables proximal Newton (5-10 iterations)
+- **Bisquare + SCAD/MCP Fix**: Empty active sets for alpha >= 0.1
+
+- **Refactoring**:
+  - Extracted `_compute_lla_path()` shared helper
+  - Renamed `_NON_IRLS_LOSSES` → `_SPECIAL_LLA_LOSSES`
+  - Renamed `_cd_sweep_batch` → `_parallel_majorization_step`
+  - Added `_dispatch_irls()` method for IRLS backend routing
+
+- **Numerical Stability**: IRLS weight clamping, SCAD denominator zero protection, CoxPH Efron `inv_d1_sq` clamping
+
+- **Bug Fixes**:
+  - Group penalties: cupy compatibility, device-aware cache
+  - Huber: correct `per_sample_value` formula
+  - Quantile IRLS: skip intercept column penalty
+  - Proximal Newton: pass `sample_weight`
+  - DBSCAN: `min_samples` off-by-one, indices/distances swap, GPU propagation to convergence
+  - NNDescent: exclude self-candidates
+  - Cox C-index: exclude censored shorter times
+  - CV scoring: pass loss kwargs
+  - ANOVA: torch device mismatch
+
+- **UMAP Sparse Graph**: dense n×n → sparse COO O(n·k); spectral init via eigsh; backend-native negative sampling RNG seeded from random_state
+- **NNDescent**: new ANN module (numpy/torch/cupy); per-point candidate sets avoid O(n²); fixed convergence return order
+- **Sample Weight Global Backend**: unified conversion at solver entry; prevents CPU/CUDA mismatch
+- **GPU Convergence**: on-device comparison with bool sync; throttled check interval
+- **Tests added**: Cox Efron parity, DBSCAN boundaries, quantile SCAD parity, cross-backend, CuPy smoke, weighted score
+
+### Added (2026-06-26)
+
+- **Unsupervised Benchmark**: 12 algorithms × 3 backends, vs sklearn
+  - Best: TruncatedSVD 28.6x, IncrementalPCA 21.9x, DBSCAN 21.0x, NMF 19.9x
+
+- **DBSCAN Optimization**:
+  - Cython `_dbscan_cy_fast.pyx`: `dbscan_labels_from_pairs` + `dbscan_labels_from_csr` — full pipeline in C
+  - CPU: p≤12 cKDTree query_pairs + Cython (3-4x sklearn); p>12 sklearn BLAS + Cython CSR (matches sklearn)
+  - GPU (PyTorch CUDA): fully on-device pipeline — distance, sparse graph, label propagation, border — zero GPU→CPU transfer
+  - GPU label propagation via `scatter_reduce_(amin)`, 2-5 iterations to converge
+  - GPU (P100): p=5 **14-17x** faster than sklearn, p=50 **3-4x** faster
+
+- **UMAP Optimization**:
+  - Sparse graph + negative sampling (16.7x GPU speedup)
+  - GPU-native scatter-add (no CPU transfers)
+  - `nn_method` parameter for NNDescent support
+
+- **IncrementalPCA**: batch_size default → n (GPU 0.4x → 21.9x)
+- **MiniBatchNMF**: auto batch, HtH pre-compute, throttled sync (GPU 0.1x → 3.2x)
+
+- **CuPyBackend**: Added 30+ missing methods (qr, svd, bool, zeros_like, etc.)
+- **TorchBackend**: Added qr, svd, solve
+- **Backend Utils**: Unified `scatter_add_1d` and `scatter_add_2d`
+- **Build**: Consolidated 7 setup files into single `setup.py`
+
+### Added (2026-06-24)
+
+- **Comprehensive Benchmark Suite**:
+  - GLM Solver: 7 families × 10 penalties × 7 solvers × 3 backends (70 combos)
+  - New Modules: Panel (8 estimators), GAM, ANOVA (5 functions) — 3 backends × 3 scales
+  - Unsupervised: 12 algorithms × 3 backends vs sklearn
+  - External comparison: statgpu vs linearmodels, pygam, scipy, sklearn
+
+- **CuPyBackend**: Added 30+ missing methods (qr, svd, bool, zeros_like, solve, norm, etc.)
+  - TruncatedSVD, IncrementalPCA, DBSCAN GPU backends now functional
+
+- **TorchBackend**: Added qr, svd, solve methods
+
+- **Unsupervised Optimizations**:
+  - IncrementalPCA: batch_size default → n (GPU 0.4x → 21.1x)
+  - MiniBatchNMF: batch auto-sizing + HtH pre-compute + throttled sync (GPU 0.1x → 3.2x)
+  - UMAP: `nn_method` parameter (auto/exact/nndescent), epoch reduction, float32
+
+- **ANOVA Fixes**:
+  - f_oneway: vectorized group statistics (cupy 0.7x → 3.4x)
+  - f_twoway: torch dtype compatibility fix
+
+- **Panel**: BetweenOLS accepts `time_ids` parameter for API consistency
+
+- **GAM**: `knot_method` (quantile/uniform) and `gamma` parameters for pygam alignment
+
+### Added (2026-06-19)
+
+- **LossBase Architecture** (Phase 1):
+  - Extracted `LossBase` from `GLMLoss` as generic base class for all loss functions
+  - `GLMLoss` now inherits from `LossBase` (backward compatible)
+  - New loss types automatically get all 10 penalties and 6 solvers
+  - Solver type hints updated from `GLMLoss` to duck-typed `LossBase` (fista, newton, lbfgs, admm)
+
+- **New Loss Types**:
+  - `QuantileLoss`: Pinball loss for quantile regression (matches R `quantreg::rq()`)
+    - `smooth_gradient=False` for FISTA proximal handling
+    - Supports all quantiles in (0, 1)
+  - `HuberLoss`: Robust M-estimator loss (matches R `MASS::rlm()`)
+    - `smooth_gradient=True`, `has_hessian=False`
+    - Recovers OLS for large delta; robust to outliers for small delta
+  - `CoxPartialLikelihoodLoss`: Cox PH negative log partial likelihood (matches R `survival::coxph()`)
+    - Breslow and Efron tie handling
+    - `has_hessian=True` for Newton solver
+    - CPU-only (numpy); for GPU use `statgpu.survival.CoxPH` directly
+    - Fused `fused_value_and_gradient()` avoids redundant X @ beta computation
+
+- **Loss Registry** (`statgpu.losses._registry`):
+  - `register_loss(name)`: Decorator to register custom loss classes
+  - `get_loss(name, **kwargs)`: Factory function for loss instantiation
+  - `list_losses()`: Lists all registered losses (GLM + non-GLM)
+  - GLM losses auto-registered via `register_glm_loss` cross-registration
+
+- **Files Created**: `statgpu/losses/__init__.py`, `_base.py`, `_registry.py`, `_quantile.py`, `_huber.py`, `_cox_ph.py`
+- **Files Modified**: `statgpu/glm_core/_base.py`, `statgpu/solvers/_fista.py`, `_newton.py`, `_lbfgs.py`, `_admm.py`, `statgpu/__init__.py`
+- **Tests**: 64 tests in `dev/tests/test_losses.py` (all passing)
 
 ### Added (2026-06-17)
 

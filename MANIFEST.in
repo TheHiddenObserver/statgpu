@@ -1,1 +1,2 @@
-include statgpu/unsupervised/_dbscan_cpu.pyx
+recursive-include statgpu *.pyx
+recursive-include statgpu *.pxd

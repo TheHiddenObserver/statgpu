@@ -1,13 +1,173 @@
 # Changelog
 
 > 语言：中文  
-> 最后更新：2026-06-17  
+> 最后更新：2026-06-30  
 > 页面定位：变更记录  
 > 切换：[English](en/changelog.md)
 
 语言切换：[English](en/changelog.md)
 
 ## 2026-06
+
+### 新增 (2026-06-28) — PR #73
+
+- **Loss 架构重构 — LossBase 提取**：
+  - 从 `GLMLoss` 提取 `LossBase` 基类，用于 quantile/robust/survival 损失
+  - `LossBase`：抽象基类，`per_sample_value()`、`per_sample_gradient()` 为唯一真实来源；自动派生 `value()`、`gradient()`、`fused_value_and_gradient()`
+  - `GLMLoss` 继承 `LossBase`，保留 GLM 特有功能（canonical link、IRLS）
+  - 新增损失类：`QuantileLoss`、`HuberLoss`、`BisquareLoss`、`CoxPartialLikelihoodLoss`
+  - 新增模块：`PenalizedQuantileRegression`、`PenalizedRobustRegression`、`PenalizedCoxPHModel`
+
+- **Proximal IRLS-CD 求解器**：quantile + SCAD/MCP 的新求解器
+  - 算法：IRLS 二次上界逼近 + LLA 非凸惩罚 + 并行对角化
+  - CPU（numpy）：比 FISTA-LLA 快 ~3 倍（60-120 次迭代 vs 1800+）
+  - GPU（torch-CUDA）：大规模问题（n=10K, p=500）比 CPU numpy 快 ~36 倍
+  - 三端支持：numpy、cupy、torch — 核心数组操作 GPU 原生；标量收敛检查同步到 Host
+  - Benchmark 产物：`results/loss_functions_bench_2026-06-23.json`、`results/penalized_glm_bench_2026-06-22.json`
+
+- **CoxPH Efron 优化**：
+  - 向量化 Efron：基于前缀和的梯度/Hessian 计算（无 Python 循环）
+  - 多块 CUDA kernel：Efron 的 fused loglik+grad+hess
+  - DLPack 桥接：torch-CUDA 通过 DLPack 使用 CuPy Efron kernel
+  - 性能：n=5000 时比 statsmodels 快 3-6 倍；GPU 比 CPU 快 6 倍
+  - 移除 Numba 依赖，纯 numpy 实现
+  - Benchmark 产物：`results/coxph_efron_bench_2026-06-22.json`（精度对比 statsmodels，GPU 加速 47-102x）
+
+- **GLM Fused Value+Gradient**：集成 `_fused.py` 到 `GLMLoss.fused_value_and_gradient()`
+
+- **FISTA GPU 同步优化**：批量 GPU 同步（convergence+divergence+lipschitz 一次传输）
+
+- **Quantile IRLS 求解器**：`QuantileLoss.irls()` 方法，光滑惩罚（L2）下 5-15 次迭代收敛
+
+- **Huber Hessian 支持**：`has_hessian = True`，支持 proximal Newton（5-10 次迭代）
+
+- **Bisquare + SCAD/MCP 修复**：alpha >= 0.1 时返回空活跃集的问题
+
+- **重构**：
+  - 提取 `_compute_lla_path()` 共享方法
+  - `_NON_IRLS_LOSSES` → `_SPECIAL_LLA_LOSSES` 命名修正
+  - `_cd_sweep_batch` → `_parallel_majorization_step` 命名修正
+  - 新增 `_dispatch_irls()` 方法路由 IRLS 到正确后端
+
+- **数值稳定性**：IRLS 权重钳制、SCAD 分母零保护、CoxPH Efron `inv_d1_sq` 钳制
+
+- **Bug 修复**：
+  - Group penalties cupy 兼容性和 device-aware cache
+  - Huber `per_sample_value` 公式修正
+  - Quantile IRLS 跳过 intercept 列惩罚
+  - Proximal Newton 传递 `sample_weight`
+  - DBSCAN `min_samples` off-by-one（sklearn 包含自身）
+  - DBSCAN `indices/distances` 返回值顺序修正
+  - DBSCAN GPU label propagation 改为收敛即停
+  - NNDescent 排除自身候选
+  - Cox C-index 排除 censored 短时间
+  - CV scoring 传递 loss kwargs
+  - ANOVA torch device mismatch
+
+- **UMAP 稀疏图**：
+  - 稠密 n×n 图构造改为稀疏 COO 边（O(n·k) 内存）
+  - Spectral initialization 使用 `scipy.sparse.linalg.eigsh`
+  - 优化循环和负采样使用 backend-native RNG
+  - 负采样 RNG 从 `random_state` 种子化
+
+- **NNDescent**：
+  - 新增近似最近邻模块（numpy/torch/cupy）
+  - 逐点候选集避免 O(n²) 退化
+  - 修复收敛返回值顺序
+
+- **Sample Weight 全局后端化**：
+  - 统一 `sample_weight` 在 solver 入口转换为 backend-native
+  - 防止 torch GPU 路径 CPU/CUDA mismatch
+  - 影响：FISTA、FISTA-LLA、quantile IRLS、proximal Newton
+
+- **GPU 收敛检查优化**：
+  - IRLS-CD：在 device 上比较，只同步 bool 到 CPU
+  - 降低 GPU 同步频率（每 5 次迭代）
+  - 批量 GPU 同步
+
+- **新增测试**：
+  - CoxPH Efron reference parity test（vs statsmodels）
+  - DBSCAN min_samples=1、高维路径、Cython fallback
+  - Quantile SCAD objective parity（vs FISTA-LLA）
+  - 三端交叉测试（numpy vs torch）
+  - CuPy smoke tests
+  - Weighted score test
+
+### 新增 (2026-06-26)
+
+- **无监督 Benchmark**：12 算法 × 3 后端，对比 sklearn
+  - 最佳：TruncatedSVD 28.6x、IncrementalPCA 21.9x、DBSCAN 21.0x、NMF 19.9x
+
+- **DBSCAN 优化**：
+  - Cython `_dbscan_cy_fast.pyx`：`dbscan_labels_from_pairs` + `dbscan_labels_from_csr` — 全 pipeline 在 C 中运行
+  - CPU：p≤12 用 cKDTree query_pairs + Cython（比 sklearn 快 3-4 倍）；p>12 用 sklearn BLAS + Cython CSR（与 sklearn 持平）
+  - GPU（PyTorch CUDA）：全在设备上执行 — 距离、稀疏图、label propagation、border 分配，零 GPU→CPU 传输
+  - GPU label propagation 用 `scatter_reduce_(amin)`，2-5 次迭代收敛
+  - GPU（P100）：p=5 比 sklearn 快 **14-17 倍**，p=50 快 **3-4 倍**
+
+- **UMAP 优化**：
+  - 稀疏图 + 负采样（GPU 16.7x 加速）
+  - GPU 原生 scatter-add（无 CPU 传输）
+  - `nn_method` 参数支持 NNDescent
+
+- **IncrementalPCA**：batch_size 默认改为 n（GPU 0.4x → 21.9x）
+- **MiniBatchNMF**：自动 batch、HtH 预计算、同步节流（GPU 0.1x → 3.2x）
+
+- **CuPyBackend**：补全 30+ 缺失方法（qr、svd、bool、zeros_like 等）
+- **TorchBackend**：添加 qr、svd、solve
+- **Backend Utils**：统一 `scatter_add_1d` 和 `scatter_add_2d`
+- **构建系统**：合并 7 个 setup 文件为单一 `setup.py`
+
+### 新增 (2026-06-24)
+
+### 新增 (2026-06-24)
+
+- **完整 Benchmark 套件**：
+  - GLM Solver：7 family × 10 penalty × 7 solver × 3 backend（70 组合）
+  - 新模块：Panel（8 estimator）、GAM、ANOVA（5 函数）— 3 backend × 3 规模
+  - 无监督：12 算法 × 3 backend vs sklearn
+  - 外部对比：statgpu vs linearmodels、pygam、scipy、sklearn
+
+- **CuPyBackend**：补全 30+ 缺失方法（qr、svd、bool、zeros_like、solve、norm 等）
+  - TruncatedSVD、IncrementalPCA、DBSCAN GPU backend 现可正常工作
+
+- **TorchBackend**：添加 qr、svd、solve 方法
+
+- **无监督优化**：
+  - IncrementalPCA：batch_size 默认改为 n（GPU 0.4x → 21.1x）
+  - MiniBatchNMF：batch 自动调整 + HtH 预计算 + 同步节流（GPU 0.1x → 3.2x）
+  - UMAP：`nn_method` 参数（auto/exact/nndescent）、epoch 减少、float32 优化
+
+- **ANOVA 修复**：
+  - f_oneway：向量化 group 统计量（cupy 0.7x → 3.4x）
+  - f_twoway：torch dtype 兼容性修复
+
+- **Panel**：BetweenOLS 接受 `time_ids` 参数，API 一致性
+
+- **GAM**：`knot_method`（quantile/uniform）和 `gamma` 参数，用于与 pygam 对齐
+
+### 新增 (2026-06-19)
+
+- **LossBase 架构** (Phase 1):
+  - 从 `GLMLoss` 提取 `LossBase` 作为所有损失函数的通用基类
+  - `GLMLoss` 现继承自 `LossBase`（向后兼容）
+  - 新损失类型自动继承全部 10 种惩罚和 6 种求解器
+  - 求解器类型注解从 `GLMLoss` 更新为 duck-typed `LossBase`
+
+- **新损失类型**:
+  - `QuantileLoss`: 分位数回归的 pinball 损失（对应 R `quantreg::rq()`）
+  - `HuberLoss`: 稳健 M-估计器损失（对应 R `MASS::rlm()`）
+  - `CoxPartialLikelihoodLoss`: Cox PH 负对数偏似然（对应 R `survival::coxph()`）
+    - 支持 Breslow 和 Efron tie 处理
+    - CPU-only (numpy)；GPU 加速请用 `statgpu.survival.CoxPH`
+
+- **损失注册表** (`statgpu.losses._registry`):
+  - `register_loss(name)`: 注册自定义损失类的装饰器
+  - `get_loss(name, **kwargs)`: 损失实例化工厂函数
+  - `list_losses()`: 列出所有已注册损失（GLM + 非 GLM）
+
+- **新增文件**: `statgpu/losses/__init__.py`, `_base.py`, `_registry.py`, `_quantile.py`, `_huber.py`, `_cox_ph.py`
+- **测试**: `dev/tests/test_losses.py` 64 个测试全部通过
 
 ### 新增 (2026-06-17)
 

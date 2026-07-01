@@ -43,10 +43,12 @@ def _fused_gamma(eta, X, y, n, loss):
         val = _sum(y * eta_c - _log(eta_c)) / n
         grad = X.T @ (y - mu) / n
         return val, grad
-    mu = _exp(_clip(eta, -30, 30))
-    mu_c = _clip(mu, 1e-10, None)
-    val = _sum(y / mu_c + _log(mu_c)) / n
-    grad = X.T @ ((mu_c - y) / mu_c) / n
+    eta_lo = float(getattr(loss, "_LOG_ETA_LO", -30.0))
+    eta_hi = float(getattr(loss, "_LOG_ETA_HI", 30.0))
+    eta_c = _clip(eta, eta_lo, eta_hi)
+    ratio = y * _exp(-eta_c)
+    val = _sum(eta_c + ratio) / n
+    grad = X.T @ (1.0 - ratio) / n
     return val, grad
 
 
@@ -66,8 +68,8 @@ def _fused_negative_binomial(eta, X, y, n, loss):
 def _fused_tweedie(eta, X, y, n, loss):
     from statgpu.backends._array_ops import _exp, _clip, _sum, _log
     pw = float(getattr(loss, "power", 1.5))
-    mu = _exp(_clip(eta, -50, 50))
-    mu_c = _clip(mu, 1e-10, 1e6)
+    z_clip = float(getattr(loss, "_Z_CLIP", 50.0))
+    mu_c = _exp(_clip(eta, -z_clip, z_clip))
     log_mu = _log(mu_c)
     d1 = 1.0 - pw
     d2 = 2.0 - pw

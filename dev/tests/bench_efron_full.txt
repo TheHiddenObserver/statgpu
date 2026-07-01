@@ -1,0 +1,35 @@
+====================================================================================================
+CoxPH Efron: ALL backends (n=5000, p=5)
+====================================================================================================
+penalty      solver        numpy     cupy    torch   t-cuda     |diff|
+--------------------------------------------------------------------------------
+/tmp/bench_efron_all.py:10: ConvergenceWarning: newton_solver did not converge within 50 iterations (loss=cox_ph, penalty=l2).
+  t0 = time.perf_counter(); func(*a, **kw); t1 = time.perf_counter()
+/tmp/bench_efron_all.py:74: ConvergenceWarning: newton_solver did not converge within 50 iterations (loss=cox_ph, penalty=l2).
+  coef, it = solver_fn(loss, pen, Xb, yb, **kw)
+none         newton       15932ms     129ms  112418ms     127ms   0.000000
+none         lbfgs         8122ms     138ms   13869ms     128ms   0.000000
+none         fista        13377ms     198ms   20650ms     174ms   0.000001
+none         fista_bb     15525ms     220ms   26501ms     196ms   0.000000
+l2           newton        9723ms     131ms   61331ms     129ms   0.023287
+l2           lbfgs         8032ms     140ms   13653ms     126ms   0.023287
+l2           fista        15005ms     192ms   20624ms     165ms   0.023287
+l2           fista_bb     15556ms     226ms   26544ms     193ms   0.023287
+l1           fista        13048ms     191ms   20506ms     176ms   0.033351
+l1           fista_bb     15814ms     235ms   26978ms     198ms   0.033353
+elasticnet   newton        8568ms     139ms   17795ms     133ms   0.011773
+elasticnet   lbfgs         8104ms     134ms   13639ms     130ms   0.011773
+elasticnet   fista        13081ms     193ms   20639ms     173ms   0.027759
+elasticnet   fista_bb     15735ms     231ms   27132ms     209ms   0.027761
+scad         fista        13306ms     200ms   20423ms     187ms   0.010168
+scad         fista_bb     15603ms     231ms   26749ms     212ms   0.010168
+mcp          fista        13277ms     205ms   20708ms     189ms   0.010092
+mcp          fista_bb     15591ms     229ms   26895ms     209ms   0.010091
+grp_lasso    fista        13180ms     203ms   20640ms     182ms   0.038321
+grp_lasso    fista_bb     15848ms     248ms   27336ms     215ms   0.038323
+grp_mcp      fista        13481ms     219ms   20675ms     188ms   0.000001
+grp_mcp      fista_bb     15699ms     264ms   27161ms     222ms   0.000001
+grp_scad     fista        13306ms     231ms   20547ms     192ms   0.000001
+grp_scad     fista_bb     15765ms     268ms   27116ms     217ms   0.000001
+
+Done.

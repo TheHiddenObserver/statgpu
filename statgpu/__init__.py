@@ -4,7 +4,7 @@ statgpu: GPU-accelerated statistical methods
 A sklearn-compatible library for statistical computing with GPU support.
 """
 
-__version__ = "0.1.1"
+__version__ = "0.2.0"
 
 from ._config import get_device, set_device, Device
 from ._base import BaseEstimator
@@ -26,6 +26,9 @@ from .linear_model import (
     PenalizedLinearRegression,
     PenalizedLogisticRegression,
     PenalizedPoissonRegression,
+    PenalizedQuantileRegression,
+    PenalizedRobustRegression,
+    PenalizedCoxPHModel,
     ApproximateCVWarning,
     Ridge,
     RidgeCV,
@@ -35,6 +38,12 @@ from .linear_model import (
     ElasticNetCV,
 )
 from .survival import CoxPH, CoxPHCV
+from .losses import (
+    LossBase,
+    QuantileLoss,
+    HuberLoss,
+    CoxPartialLikelihoodLoss,
+)
 from .panel import (
     PanelOLS,
     FixedEffects,
@@ -139,6 +148,9 @@ __all__ = [
     "PenalizedLinearRegression",
     "PenalizedLogisticRegression",
     "PenalizedPoissonRegression",
+    "PenalizedQuantileRegression",
+    "PenalizedRobustRegression",
+    "PenalizedCoxPHModel",
     "ApproximateCVWarning",
     "Ridge",
     "RidgeCV",
@@ -148,6 +160,11 @@ __all__ = [
     "ElasticNetCV",
     "CoxPH",
     "CoxPHCV",
+    # Losses (LossBase subclasses)
+    "LossBase",
+    "QuantileLoss",
+    "HuberLoss",
+    "CoxPartialLikelihoodLoss",
     # Panel
     "PanelOLS",
     "FixedEffects",

@@ -9,7 +9,7 @@ where mu is determined by the configured link:
 
 Supports numpy / cupy / torch backends via _array_ops helpers.
 """
-from statgpu.backends._array_ops import _clip, _exp, _log, _sum, _max_eigval_power, _xp
+from statgpu.backends._array_ops import _clip, _exp, _log, _max_eigval_power, _xp
 from statgpu.glm_core._base import GLMLoss, register_glm_loss
 
 
@@ -24,8 +24,8 @@ class GammaLoss(GLMLoss):
     _conservative_momentum_with_nonsmooth = True
     _gamma_like = True
 
-    _MU_LO = 1e-3
-    _MU_HI = 1e4
+    _LOG_ETA_LO = -30.0
+    _LOG_ETA_HI = 30.0
     _ETA_LO = 1e-4
     _ETA_HI = 1e3
 
@@ -38,21 +38,30 @@ class GammaLoss(GLMLoss):
         self.link = link
         self.link_name = link
         self._lipschitz_at_init = link == "inverse_power"
-        self._has_constant_hessian = (link == "log")
+        # The observed Gamma-log Hessian depends on y / mu.
+        self._has_constant_hessian = False
+
+    def preprocess(self, X, y):
+        xp = _xp(y)
+        invalid = xp.any(~xp.isfinite(y)) | xp.any(y <= 0)
+        if bool(invalid.item() if hasattr(invalid, "item") else invalid):
+            raise ValueError("Gamma loss requires finite, strictly positive y values.")
+        return X, y
 
     def _eta_mu(self, X, coef):
         eta = X @ coef
         if self.link == "inverse_power":
             eta_c = _clip(eta, self._ETA_LO, self._ETA_HI)
             return eta_c, 1.0 / eta_c
-        z = _clip(eta, -30, 30)
-        return z, _clip(_exp(z), self._MU_LO, self._MU_HI)
+        eta_c = _clip(eta, self._LOG_ETA_LO, self._LOG_ETA_HI)
+        return eta_c, _exp(eta_c)
 
     def _mu_from_eta(self, eta):
         if self.link == "inverse_power":
             eta_c = _clip(eta, self._ETA_LO, self._ETA_HI)
             return 1.0 / eta_c
-        return _clip(_exp(_clip(eta, -30, 30)), self._MU_LO, self._MU_HI)
+        eta_c = _clip(eta, self._LOG_ETA_LO, self._LOG_ETA_HI)
+        return _exp(eta_c)
 
     # ── Per-sample formulas (single source of truth) ──────────────────
 
@@ -60,28 +69,25 @@ class GammaLoss(GLMLoss):
         if self.link == "inverse_power":
             eta_c = _clip(eta, self._ETA_LO, self._ETA_HI)
             return y * eta_c - _log(eta_c)
-        mu = self._mu_from_eta(eta)
-        return y / mu + _log(mu)
+        eta_c = _clip(eta, self._LOG_ETA_LO, self._LOG_ETA_HI)
+        return eta_c + y * _exp(-eta_c)
 
     def per_sample_gradient(self, eta, y):
         if self.link == "inverse_power":
             mu = self._mu_from_eta(eta)
             return y - mu
-        mu = self._mu_from_eta(eta)
-        return 1.0 - y / mu
+        eta_c = _clip(eta, self._LOG_ETA_LO, self._LOG_ETA_HI)
+        return 1.0 - y * _exp(-eta_c)
 
     def hessian(self, X, y, coef, sample_weight=None):
         n_eff = float(sample_weight.sum()) if sample_weight is not None else X.shape[0]
+        eta, mu = self._eta_mu(X, coef)
         if self.link == "inverse_power":
-            eta, _ = self._eta_mu(X, coef)
             W = 1.0 / (eta * eta)
         else:
-            # Expected Fisher: W(mu) = 1 for Gamma with log link
-            xp = _xp(X)
-            if xp.__name__ == "torch":
-                W = xp.ones(X.shape[0], dtype=X.dtype, device=X.device)
-            else:
-                W = xp.ones(X.shape[0], dtype=X.dtype)
+            # Exact observed Hessian.  Since y / mu is positive, X'WX is
+            # positive semidefinite (positive definite for full-rank X).
+            W = y / mu
         if sample_weight is not None:
             W = W * sample_weight
         return X.T @ (X * W[:, None]) / n_eff
@@ -92,8 +98,8 @@ class GammaLoss(GLMLoss):
             eta, _ = self._eta_mu(X, coef)
             W = 1.0 / (eta * eta)
         elif y is not None:
-            z = _clip(X @ coef, -30, 30)
-            mu = _clip(_exp(z), self._MU_LO, self._MU_HI)
+            z = _clip(X @ coef, self._LOG_ETA_LO, self._LOG_ETA_HI)
+            mu = _exp(z)
             W = y / mu
         else:
             XtX = X.T @ X

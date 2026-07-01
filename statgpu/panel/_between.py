@@ -62,7 +62,7 @@ class BetweenOLS(BaseEstimator):
         if self.cov_type not in ("nonrobust", "robust"):
             raise ValueError("cov_type must be 'nonrobust' or 'robust'")
 
-    def fit(self, X=None, y=None, entity_ids=None, formula=None, data=None):
+    def fit(self, X=None, y=None, entity_ids=None, time_ids=None, formula=None, data=None):
         """Fit the between OLS model.
 
         Parameters

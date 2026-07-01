@@ -428,20 +428,28 @@ class GroupLassoPenalty(Penalty):
     def _get_sqrt_pg(self, xp, w):
         """Cached device tensor for _sqrt_pg."""
         if xp.__name__ == "torch":
-            if self._sqrt_pg_torch is None:
+            if self._sqrt_pg_torch is None or self._sqrt_pg_torch.device != w.device:
                 self._sqrt_pg_torch = _to_backend_array(self._sqrt_pg, xp, w)
             return self._sqrt_pg_torch
-        else:
+        elif xp.__name__ == "cupy":
             if self._sqrt_pg_cupy is None:
                 self._sqrt_pg_cupy = _to_backend_array(self._sqrt_pg, xp, w)
             return self._sqrt_pg_cupy
+        else:
+            # numpy: return raw numpy array (no caching needed)
+            return self._sqrt_pg
 
     def _get_cached(self, attr_name, xp, w):
         """Get or create cached device tensor for a numpy attribute."""
+        if xp.__name__ == "numpy":
+            return getattr(self, attr_name)  # no caching for numpy
         backend = "torch" if xp.__name__ == "torch" else "cupy"
         cache_attr = f"_{attr_name}_{backend}"
         cached = getattr(self, cache_attr, None)
         if cached is None:
+            cached = _to_backend_array(getattr(self, attr_name), xp, w)
+            setattr(self, cache_attr, cached)
+        elif xp.__name__ == "torch" and hasattr(cached, 'device') and cached.device != w.device:
             cached = _to_backend_array(getattr(self, attr_name), xp, w)
             setattr(self, cache_attr, cached)
         return cached
@@ -583,7 +591,7 @@ class AdaptiveGroupLassoPenalty(GroupLassoPenalty):
         if self._group_weights is None:
             return None
         if xp.__name__ == "torch":
-            if not hasattr(self, '_group_weights_torch') or self._group_weights_torch is None:
+            if not hasattr(self, '_group_weights_torch') or self._group_weights_torch is None or self._group_weights_torch.device != w.device:
                 self._group_weights_torch = _to_backend_array(self._group_weights, xp, w)
             return self._group_weights_torch
         else:

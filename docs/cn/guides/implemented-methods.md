@@ -31,6 +31,9 @@ statgpu 已实现的所有模型、函数和类的完整列表。
 | `PenalizedLinearRegression` | squared_error | exact, fista | l1, l2, elasticnet, scad, mcp, adaptive_l1 | CPU, CuPy, Torch |
 | `PenalizedLogisticRegression` | logistic | irls, fista | l1, l2, elasticnet, scad, mcp, adaptive_l1 | CPU, CuPy, Torch |
 | `PenalizedPoissonRegression` | poisson | irls, fista | l1, l2, elasticnet, scad, mcp, adaptive_l1 | CPU, CuPy, Torch |
+| `PenalizedQuantileRegression` | quantile | proximal_irls_cd, fista | scad, mcp, l2 | CPU, CuPy, Torch |
+| `PenalizedRobustRegression` | huber, bisquare | proximal_newton, irls | scad, mcp, l2 | CPU, CuPy, Torch |
+| `PenalizedCoxPHModel` | cox_ph | proximal_newton | scad, mcp, l2 | CPU, CuPy, Torch |
 
 对于 Gamma、InverseGaussian、NegativeBinomial 和 Tweedie 的惩罚，使用 `PenalizedGeneralizedLinearModel(loss=..., penalty=...)`：
 
@@ -154,8 +157,9 @@ model.fit(X, y)
 | `IncrementalPCA` | Incremental PCA for large datasets | CPU, CuPy, Torch |
 | `NMF` | Non-negative matrix factorization (multiplicative updates) | CPU, CuPy, Torch |
 | `MiniBatchNMF` | Mini-batch NMF for large datasets | CPU, CuPy, Torch |
-| `UMAP` | Uniform Manifold Approximation and Projection | CPU, CuPy, Torch |
+| `UMAP` | Uniform Manifold Approximation and Projection（稀疏 COO 边、NNDescent NN） | CPU, CuPy, Torch |
 | `TSNE` | t-distributed Stochastic Neighbor Embedding | CPU, CuPy, Torch |
+| `NNDescent` | 近似最近邻下降（独立模块） | CPU, CuPy, Torch |
 
 **聚类与混合模型：**
 
@@ -171,7 +175,8 @@ model.fit(X, y)
 
 | Class | Description | Backends |
 |---|---|---|
-| `CoxPH` | Cox proportional hazards | CPU, CuPy, Torch |
+| `CoxPH` | Cox 比例风险模型（Efron/Breslow ties、向量化 grad/hess） | CPU, CuPy, Torch |
+| `PenalizedCoxPHModel` | CoxPH + SCAD/MCP 惩罚，通过 proximal Newton 求解 | CPU, CuPy, Torch |
 
 ## 特征选择
 

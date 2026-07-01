@@ -1,0 +1,467 @@
+{
+  "date": "2026-06-24",
+  "environment": {
+    "gpu": "Tesla P100-SXM2-16GB"
+  },
+  "benchmarks": {
+    "panel_small_numpy_PooledOLS": {
+      "time": 0.0003903210163116455,
+      "coef_norm": null
+    },
+    "panel_small_numpy_PooledOLS_hac": {
+      "time": 0.00044605135917663574,
+      "coef_norm": null
+    },
+    "panel_small_numpy_PanelOLS_entity": {
+      "time": 0.00138130784034729,
+      "coef_norm": null
+    },
+    "panel_small_numpy_PanelOLS_two_way": {
+      "time": 0.003976345062255859,
+      "coef_norm": null
+    },
+    "panel_small_numpy_RandomEffects": {
+      "time": 0.0028654634952545166,
+      "coef_norm": null
+    },
+    "panel_small_numpy_BetweenOLS": {
+      "time": 0.0020756423473358154,
+      "coef_norm": null
+    },
+    "panel_small_numpy_FirstDifferenceOLS": {
+      "time": 0.0013935565948486328,
+      "coef_norm": null
+    },
+    "panel_small_numpy_FamaMacBeth": {
+      "time": 0.0007099509239196777,
+      "coef_norm": null
+    },
+    "panel_small_cupy_PooledOLS": {
+      "time": 0.003227919340133667,
+      "coef_norm": null
+    },
+    "panel_small_cupy_PooledOLS_hac": {
+      "time": 0.002985149621963501,
+      "coef_norm": null
+    },
+    "panel_small_cupy_PanelOLS_entity": {
+      "time": 0.006466180086135864,
+      "coef_norm": null
+    },
+    "panel_small_cupy_PanelOLS_two_way": {
+      "time": 0.012778609991073608,
+      "coef_norm": null
+    },
+    "panel_small_cupy_RandomEffects": {
+      "time": 0.010925829410552979,
+      "coef_norm": null
+    },
+    "panel_small_cupy_BetweenOLS": {
+      "time": 0.030057638883590698,
+      "coef_norm": null
+    },
+    "panel_small_cupy_FirstDifferenceOLS": {
+      "time": 0.004368811845779419,
+      "coef_norm": null
+    },
+    "panel_small_cupy_FamaMacBeth": {
+      "time": 0.002547651529312134,
+      "coef_norm": null
+    },
+    "panel_small_torch_PooledOLS": {
+      "time": 0.0032089948654174805,
+      "coef_norm": null
+    },
+    "panel_small_torch_PooledOLS_hac": {
+      "time": 0.0032058358192443848,
+      "coef_norm": null
+    },
+    "panel_small_torch_PanelOLS_entity": {
+      "time": 0.006400436162948608,
+      "coef_norm": null
+    },
+    "panel_small_torch_PanelOLS_two_way": {
+      "time": 0.013536423444747925,
+      "coef_norm": null
+    },
+    "panel_small_torch_RandomEffects": {
+      "time": 0.011467278003692627,
+      "coef_norm": null
+    },
+    "panel_small_torch_BetweenOLS": {
+      "time": 0.03011980652809143,
+      "coef_norm": null
+    },
+    "panel_small_torch_FirstDifferenceOLS": {
+      "time": 0.004442065954208374,
+      "coef_norm": null
+    },
+    "panel_small_torch_FamaMacBeth": {
+      "time": 0.0024841725826263428,
+      "coef_norm": null
+    },
+    "panel_medium_numpy_PooledOLS": {
+      "time": 0.0011855363845825195,
+      "coef_norm": null
+    },
+    "panel_medium_numpy_PooledOLS_hac": {
+      "time": 0.0042958855628967285,
+      "coef_norm": null
+    },
+    "panel_medium_numpy_PanelOLS_entity": {
+      "time": 0.017428696155548096,
+      "coef_norm": null
+    },
+    "panel_medium_numpy_PanelOLS_two_way": {
+      "time": 0.07370057702064514,
+      "coef_norm": null
+    },
+    "panel_medium_numpy_RandomEffects": {
+      "time": 0.05261769890785217,
+      "coef_norm": null
+    },
+    "panel_medium_numpy_BetweenOLS": {
+      "time": 0.029077529907226562,
+      "coef_norm": null
+    },
+    "panel_medium_numpy_FirstDifferenceOLS": {
+      "time": 0.02334773540496826,
+      "coef_norm": null
+    },
+    "panel_medium_numpy_FamaMacBeth": {
+      "time": 0.003351360559463501,
+      "coef_norm": null
+    },
+    "panel_medium_cupy_PooledOLS": {
+      "time": 0.003981053829193115,
+      "coef_norm": null
+    },
+    "panel_medium_cupy_PooledOLS_hac": {
+      "time": 0.003441929817199707,
+      "coef_norm": null
+    },
+    "panel_medium_cupy_PanelOLS_entity": {
+      "time": 0.008892625570297241,
+      "coef_norm": null
+    },
+    "panel_medium_cupy_PanelOLS_two_way": {
+      "time": 0.0223810076713562,
+      "coef_norm": null
+    },
+    "panel_medium_cupy_RandomEffects": {
+      "time": 0.022615909576416016,
+      "coef_norm": null
+    },
+    "panel_medium_cupy_BetweenOLS": {
+      "time": 0.24561405181884766,
+      "coef_norm": null
+    },
+    "panel_medium_cupy_FirstDifferenceOLS": {
+      "time": 0.02605915069580078,
+      "coef_norm": null
+    },
+    "panel_medium_cupy_FamaMacBeth": {
+      "time": 0.006397664546966553,
+      "coef_norm": null
+    },
+    "panel_medium_torch_PooledOLS": {
+      "time": 0.003934681415557861,
+      "coef_norm": null
+    },
+    "panel_medium_torch_PooledOLS_hac": {
+      "time": 0.003416597843170166,
+      "coef_norm": null
+    },
+    "panel_medium_torch_PanelOLS_entity": {
+      "time": 0.008895844221115112,
+      "coef_norm": null
+    },
+    "panel_medium_torch_PanelOLS_two_way": {
+      "time": 0.022297680377960205,
+      "coef_norm": null
+    },
+    "panel_medium_torch_RandomEffects": {
+      "time": 0.02369937300682068,
+      "coef_norm": null
+    },
+    "panel_medium_torch_BetweenOLS": {
+      "time": 0.24830281734466553,
+      "coef_norm": null
+    },
+    "panel_medium_torch_FirstDifferenceOLS": {
+      "time": 0.026783138513565063,
+      "coef_norm": null
+    },
+    "panel_medium_torch_FamaMacBeth": {
+      "time": 0.006602495908737183,
+      "coef_norm": null
+    },
+    "panel_large_numpy_PooledOLS": {
+      "time": 0.013956725597381592,
+      "coef_norm": null
+    },
+    "panel_large_numpy_PooledOLS_hac": {
+      "time": 0.04866328835487366,
+      "coef_norm": null
+    },
+    "panel_large_numpy_PanelOLS_entity": {
+      "time": 0.3290677070617676,
+      "coef_norm": null
+    },
+    "panel_large_numpy_PanelOLS_two_way": {
+      "time": 1.3771616518497467,
+      "coef_norm": null
+    },
+    "panel_large_numpy_RandomEffects": {
+      "time": 1.0125645399093628,
+      "coef_norm": null
+    },
+    "panel_large_numpy_BetweenOLS": {
+      "time": 0.6311948895454407,
+      "coef_norm": null
+    },
+    "panel_large_numpy_FirstDifferenceOLS": {
+      "time": 0.6036687791347504,
+      "coef_norm": null
+    },
+    "panel_large_numpy_FamaMacBeth": {
+      "time": 0.047542572021484375,
+      "coef_norm": null
+    },
+    "panel_large_cupy_PooledOLS": {
+      "time": 0.010212481021881104,
+      "coef_norm": null
+    },
+    "panel_large_cupy_PooledOLS_hac": {
+      "time": 0.00991871953010559,
+      "coef_norm": null
+    },
+    "panel_large_cupy_PanelOLS_entity": {
+      "time": 0.02522432804107666,
+      "coef_norm": null
+    },
+    "panel_large_cupy_PanelOLS_two_way": {
+      "time": 0.07267981767654419,
+      "coef_norm": null
+    },
+    "panel_large_cupy_RandomEffects": {
+      "time": 0.14083364605903625,
+      "coef_norm": null
+    },
+    "panel_large_cupy_BetweenOLS": {
+      "time": 1.0296652019023895,
+      "coef_norm": null
+    },
+    "panel_large_cupy_FirstDifferenceOLS": {
+      "time": 0.5978744626045227,
+      "coef_norm": null
+    },
+    "panel_large_cupy_FamaMacBeth": {
+      "time": 0.05059894919395447,
+      "coef_norm": null
+    },
+    "panel_large_torch_PooledOLS": {
+      "time": 0.009778052568435669,
+      "coef_norm": null
+    },
+    "panel_large_torch_PooledOLS_hac": {
+      "time": 0.00936049222946167,
+      "coef_norm": null
+    },
+    "panel_large_torch_PanelOLS_entity": {
+      "time": 0.02479955554008484,
+      "coef_norm": null
+    },
+    "panel_large_torch_PanelOLS_two_way": {
+      "time": 0.06920871138572693,
+      "coef_norm": null
+    },
+    "panel_large_torch_RandomEffects": {
+      "time": 0.14147105813026428,
+      "coef_norm": null
+    },
+    "panel_large_torch_BetweenOLS": {
+      "time": 1.0324515402317047,
+      "coef_norm": null
+    },
+    "panel_large_torch_FirstDifferenceOLS": {
+      "time": 0.6150524914264679,
+      "coef_norm": null
+    },
+    "panel_large_torch_FamaMacBeth": {
+      "time": 0.05423358082771301,
+      "coef_norm": null
+    },
+    "gam_small_numpy": {
+      "time": 0.005745619535446167,
+      "coef_norm": 8.32891475686895
+    },
+    "gam_small_cupy": {
+      "time": 0.01681271195411682,
+      "coef_norm": 8.328914756989434
+    },
+    "gam_small_torch": {
+      "time": 0.016396522521972656,
+      "coef_norm": 8.328914756989434
+    },
+    "gam_medium_numpy": {
+      "time": 0.06839746236801147,
+      "coef_norm": 17.43353486150373
+    },
+    "gam_medium_cupy": {
+      "time": 0.031912267208099365,
+      "coef_norm": 17.433534861528177
+    },
+    "gam_medium_torch": {
+      "time": 0.03185489773750305,
+      "coef_norm": 17.433534861528177
+    },
+    "gam_large_numpy": {
+      "time": 2.573031634092331,
+      "coef_norm": 28.86728246589793
+    },
+    "gam_large_cupy": {
+      "time": 0.11935827136039734,
+      "coef_norm": 28.867282465323076
+    },
+    "gam_large_torch": {
+      "time": 0.11771717667579651,
+      "coef_norm": 28.867282465323076
+    },
+    "anova_small_numpy_f_oneway": {
+      "time": 0.00013315677642822266
+    },
+    "anova_small_numpy_f_twoway": {
+      "time": 0.0003968477249145508
+    },
+    "anova_small_numpy_f_welch": {
+      "time": 0.00028127431869506836
+    },
+    "anova_small_numpy_tukey_hsd": {
+      "time": 2.2715310752391815
+    },
+    "anova_small_numpy_bonferroni": {
+      "time": 0.001596301794052124
+    },
+    "anova_small_cupy_f_oneway": {
+      "time": 0.0017735958099365234
+    },
+    "anova_small_cupy_f_twoway": {
+      "time": 0.007669925689697266
+    },
+    "anova_small_cupy_f_welch": {
+      "time": 0.0007354021072387695
+    },
+    "anova_small_cupy_tukey_hsd": {
+      "time": 2.2015401124954224
+    },
+    "anova_small_cupy_bonferroni": {
+      "time": 0.016989439725875854
+    },
+    "anova_small_torch_f_oneway": {
+      "time": 0.0009591579437255859
+    },
+    "anova_small_torch_f_twoway": {
+      "time": 0.0026008784770965576
+    },
+    "anova_small_torch_f_welch": {
+      "time": 0.0008705556392669678
+    },
+    "anova_small_torch_tukey_hsd": {
+      "time": 2.272121846675873
+    },
+    "anova_small_torch_bonferroni": {
+      "time": 0.02226567268371582
+    },
+    "anova_medium_numpy_f_oneway": {
+      "time": 0.0009026825428009033
+    },
+    "anova_medium_numpy_f_twoway": {
+      "time": 0.003631800413131714
+    },
+    "anova_medium_numpy_f_welch": {
+      "time": 0.0005736351013183594
+    },
+    "anova_medium_numpy_tukey_hsd": {
+      "time": 12.87065201997757
+    },
+    "anova_medium_numpy_bonferroni": {
+      "time": 0.008400678634643555
+    },
+    "anova_medium_cupy_f_oneway": {
+      "time": 0.002376556396484375
+    },
+    "anova_medium_cupy_f_twoway": {
+      "time": 0.007955700159072876
+    },
+    "anova_medium_cupy_f_welch": {
+      "time": 0.0009929835796356201
+    },
+    "anova_medium_cupy_tukey_hsd": {
+      "time": 12.724866211414337
+    },
+    "anova_medium_cupy_bonferroni": {
+      "time": 0.0933866798877716
+    },
+    "anova_medium_torch_f_oneway": {
+      "time": 0.0016753971576690674
+    },
+    "anova_medium_torch_f_twoway": {
+      "time": 0.005758106708526611
+    },
+    "anova_medium_torch_f_welch": {
+      "time": 0.0012505650520324707
+    },
+    "anova_medium_torch_tukey_hsd": {
+      "time": 12.803559988737106
+    },
+    "anova_medium_torch_bonferroni": {
+      "time": 0.09868216514587402
+    },
+    "anova_large_numpy_f_oneway": {
+      "time": 0.018048524856567383
+    },
+    "anova_large_numpy_f_twoway": {
+      "time": 0.03838247060775757
+    },
+    "anova_large_numpy_f_welch": {
+      "time": 0.005242586135864258
+    },
+    "anova_large_numpy_tukey_hsd": {
+      "time": 0.7950683832168579
+    },
+    "anova_large_numpy_bonferroni": {
+      "time": 0.11310100555419922
+    },
+    "anova_large_cupy_f_oneway": {
+      "time": 0.005422621965408325
+    },
+    "anova_large_cupy_f_twoway": {
+      "time": 0.009754955768585205
+    },
+    "anova_large_cupy_f_welch": {
+      "time": 0.005224078893661499
+    },
+    "anova_large_cupy_tukey_hsd": {
+      "time": 0.796185314655304
+    },
+    "anova_large_cupy_bonferroni": {
+      "time": 0.7217563092708588
+    },
+    "anova_large_torch_f_oneway": {
+      "time": 0.008546382188796997
+    },
+    "anova_large_torch_f_twoway": {
+      "time": 0.024280399084091187
+    },
+    "anova_large_torch_f_welch": {
+      "time": 0.010262876749038696
+    },
+    "anova_large_torch_tukey_hsd": {
+      "time": 0.7989976704120636
+    },
+    "anova_large_torch_bonferroni": {
+      "time": 0.5141590237617493
+    }
+  }
+}

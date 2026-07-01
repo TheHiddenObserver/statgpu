@@ -356,6 +356,197 @@ class CuPyBackend(BackendBase):
             _launch_cumop_2d(flat, result, N, K, op is cp.minimum)
         return result.reshape(shape)
 
+    # ── Linear algebra ──
+
+    def qr(self, a, mode='reduced'):
+        """QR decomposition."""
+        import cupy as cp
+        return cp.linalg.qr(a, mode=mode)
+
+    def svd(self, a, full_matrices=True):
+        """Singular value decomposition."""
+        import cupy as cp
+        return cp.linalg.svd(a, full_matrices=full_matrices)
+
+    def solve(self, A, b):
+        """Solve the linear system Ax = b."""
+        import cupy as cp
+        return cp.linalg.solve(A, b)
+
+    def norm(self, x, ord=None, axis=None):
+        """Compute matrix or vector norm."""
+        import cupy as cp
+        return cp.linalg.norm(x, ord=ord, axis=axis)
+
+    # ── Dtype properties ──
+
+    @property
+    def bool(self):
+        """Boolean dtype."""
+        import cupy as cp
+        return cp.bool_
+
+    @property
+    def nan(self):
+        """NaN value."""
+        import cupy as cp
+        return cp.nan
+
+    @property
+    def inf(self):
+        """Infinity value."""
+        import cupy as cp
+        return cp.inf
+
+    @property
+    def pi(self):
+        """Pi constant."""
+        return 3.141592653589793
+
+    # ── Array creation (like) ──
+
+    def zeros_like(self, x, dtype=None):
+        """Create zeros array with same shape as x."""
+        import cupy as cp
+        result = cp.zeros_like(x)
+        if dtype is not None:
+            result = result.astype(dtype)
+        return result
+
+    def ones_like(self, x, dtype=None):
+        """Create ones array with same shape as x."""
+        import cupy as cp
+        result = cp.ones_like(x)
+        if dtype is not None:
+            result = result.astype(dtype)
+        return result
+
+    def full_like(self, x, fill_value, dtype=None):
+        """Create filled array with same shape as x."""
+        import cupy as cp
+        result = cp.full_like(x, fill_value)
+        if dtype is not None:
+            result = result.astype(dtype)
+        return result
+
+    # ── Element-wise math ──
+
+    def isnan(self, x):
+        """Element-wise NaN check."""
+        import cupy as cp
+        return cp.isnan(x)
+
+    def isinf(self, x):
+        """Element-wise Inf check."""
+        import cupy as cp
+        return cp.isinf(x)
+
+    def nan_to_num(self, x, nan=0.0, posinf=None, neginf=None):
+        """Replace NaN and Inf values."""
+        import cupy as cp
+        return cp.nan_to_num(x, nan=nan, posinf=posinf, neginf=neginf)
+
+    def square(self, x):
+        """Element-wise square."""
+        import cupy as cp
+        return cp.square(x)
+
+    def log1p(self, x):
+        """Element-wise log(1 + x)."""
+        import cupy as cp
+        return cp.log1p(x)
+
+    def sign(self, x):
+        """Element-wise sign."""
+        import cupy as cp
+        return cp.sign(x)
+
+    # ── Reduction / logic ──
+
+    def count_nonzero(self, x):
+        """Count non-zero elements."""
+        import cupy as cp
+        return cp.count_nonzero(x)
+
+    def any(self, x, axis=None):
+        """Check if any element is true."""
+        import cupy as cp
+        return cp.any(x, axis=axis)
+
+    def all(self, x, axis=None):
+        """Check if all elements are true."""
+        import cupy as cp
+        return cp.all(x, axis=axis)
+
+    def unique(self, x, return_counts=False):
+        """Return unique elements."""
+        import cupy as cp
+        if return_counts:
+            return cp.unique(x, return_counts=True)
+        return cp.unique(x)
+
+    def sort(self, x, axis=-1):
+        """Sort array along axis."""
+        import cupy as cp
+        return cp.sort(x, axis=axis)
+
+    # ── Array manipulation ──
+
+    def reshape(self, x, shape):
+        """Reshape array."""
+        import cupy as cp
+        return cp.reshape(x, shape)
+
+    def flatten(self, x):
+        """Flatten array."""
+        return x.flatten()
+
+    def squeeze(self, x, axis=None):
+        """Remove singleton dimensions."""
+        import cupy as cp
+        return cp.squeeze(x, axis=axis)
+
+    def astype(self, x, dtype):
+        """Cast array to dtype."""
+        return x.astype(dtype)
+
+    def cat(self, arrays, axis=0):
+        """Concatenate arrays along an axis."""
+        import cupy as cp
+        return cp.concatenate(arrays, axis=axis)
+
+    def concatenate(self, arrays, axis=0):
+        """Concatenate arrays along an axis."""
+        import cupy as cp
+        return cp.concatenate(arrays, axis=axis)
+
+    def einsum(self, equation, *operands):
+        """Einstein summation."""
+        import cupy as cp
+        return cp.einsum(equation, *operands)
+
+    def tensordot(self, a, b, axes=2):
+        """Tensor dot product."""
+        import cupy as cp
+        return cp.tensordot(a, b, axes=axes)
+
+    def meshgrid(self, *arrays, indexing='xy'):
+        """Create coordinate matrices from coordinate vectors."""
+        import cupy as cp
+        return cp.meshgrid(*arrays, indexing=indexing)
+
+    def item(self, x):
+        """Extract scalar value from single-element array."""
+        return x.item()
+
+    # ── Memory management ──
+
+    def empty_cache(self):
+        """Free GPU memory pool."""
+        import cupy as cp
+        cp.get_default_memory_pool().free_all_blocks()
+        cp.get_default_pinned_memory_pool().free_all_blocks()
+
 
 # ── Raw CUDA kernels for cumulative scan ──
 _cumop_1d_template = r'''

@@ -297,10 +297,17 @@ class PenalizedGeneralizedLinearModel(
         return get_penalty(pen_name, **kwargs)
 
     def _resolve_loss(self):
-        """Resolve loss string to a GLMLoss object."""
-        from statgpu.glm_core import get_glm_loss
+        """Resolve loss string to a loss object.
 
-        return get_glm_loss(self.loss, **self.loss_kwargs)
+        Tries the GLM-specific registry first (squared_error, logistic, etc.),
+        then falls back to the generic loss registry (quantile, huber, cox_ph, etc.).
+        """
+        try:
+            from statgpu.glm_core import get_glm_loss
+            return get_glm_loss(self.loss, **self.loss_kwargs)
+        except (ValueError, KeyError, TypeError):
+            from statgpu.losses import get_loss
+            return get_loss(self.loss, **self.loss_kwargs)
 
     def _validate_solver_penalty(self):
         """Validate solver/penalty combinations before backend dispatch."""
@@ -313,14 +320,27 @@ class PenalizedGeneralizedLinearModel(
                     "solver='exact' is only supported for squared-error L2/Ridge models."
                 )
             return
-        if solver_name == "irls" and penalty_name != "l2":
+        if solver_name == "irls" and penalty_name not in ("l2", "none", "null", ""):
             raise ValueError(
-                "solver='irls' only supports smooth L2 penalized GLM objectives."
+                "solver='irls' only supports smooth L2 or no-penalty objectives."
+            )
+        # Reject irls for losses without IRLS support (not GLM and no custom irls())
+        if solver_name == "irls" and not getattr(self._loss, '_supports_irls', False):
+            raise ValueError(
+                f"solver='irls' requires a loss with IRLS support, "
+                f"got loss='{self.loss}'. Use solver='newton' or 'fista'."
             )
         if solver_name in ("newton", "lbfgs") and penalty_name in non_smooth:
             raise ValueError(
                 f"solver='{solver_name}' only supports smooth objectives; "
                 f"use solver='fista' for penalty='{penalty_name}'."
+            )
+        # QuantileLoss has no Hessian — cannot use newton/lbfgs/exact.
+        # But irls is allowed: quantile has its own IRLS (Frisch-Newton) method.
+        if solver_name in ("newton", "lbfgs", "exact") and self.loss == "quantile":
+            raise ValueError(
+                f"solver='{solver_name}' requires Hessian, but quantile loss has none. "
+                f"Use solver='fista', 'irls', or 'auto' for quantile regression."
             )
         if solver_name != "lbfgs":
             return
@@ -365,6 +385,7 @@ class PenalizedGeneralizedLinearModel(
         self._pvalues = None
         self._conf_int = None
         self._inference_result = None
+        self._family_cache = None  # Clear cached family to avoid stale link after loss change
 
     def _family_for_loss(self):
         # Cache on first call (avoid re-creating on every predict/score)
@@ -404,6 +425,9 @@ class PenalizedGeneralizedLinearModel(
                 getattr(self, "loss_kwargs", {}).get("power", 1.5),
             )
             fam = Tweedie(power=power)
+        elif self.loss in ("quantile", "huber", "bisquare", "fair"):
+            # Robust/quantile losses use identity link (linear predictor)
+            fam = Gaussian()
         else:
             fam = Gaussian()
 

@@ -15,22 +15,42 @@ import numpy as np
 # Array-type detection helpers (deferred imports to avoid hard deps)
 # ---------------------------------------------------------------------------
 
+_CUPY_MOD = None
+_CUPY_CHECKED = False
+
+
 def _is_cupy_array(x: Any) -> bool:
     """Return True if *x* is a CuPy ndarray."""
-    try:
-        import cupy as cp
-        return isinstance(x, cp.ndarray)
-    except Exception:
+    global _CUPY_MOD, _CUPY_CHECKED
+    if not _CUPY_CHECKED:
+        _CUPY_CHECKED = True
+        try:
+            import cupy as cp
+            _CUPY_MOD = cp
+        except Exception:
+            pass
+    if _CUPY_MOD is None:
         return False
+    return isinstance(x, _CUPY_MOD.ndarray)
+
+
+_TORCH_MOD = None
+_TORCH_CHECKED = False
 
 
 def _is_torch_array(x: Any) -> bool:
     """Return True if *x* is a PyTorch Tensor."""
-    try:
-        import torch
-        return isinstance(x, torch.Tensor)
-    except Exception:
+    global _TORCH_MOD, _TORCH_CHECKED
+    if not _TORCH_CHECKED:
+        _TORCH_CHECKED = True
+        try:
+            import torch
+            _TORCH_MOD = torch
+        except Exception:
+            pass
+    if _TORCH_MOD is None:
         return False
+    return isinstance(x, _TORCH_MOD.Tensor)
 
 
 def _resolve_backend(backend: str, *arrays) -> str:

@@ -1,0 +1,448 @@
+========================================================================================================================
+Loss x Penalty x Solver x Backend Benchmark (n=5000, p=10)
+========================================================================================================================
+
+Reference solutions:
+  Squared: loss=0.126105
+  Huber:   loss=0.124603
+  Quantile:loss=0.200443
+
+------------------------------------------------------------------------------------------------------------------------
+loss       penalty      solver     backend        time   iter   our_loss   ref_loss  loss_diff   status
+------------------------------------------------------------------------------------------------------------------------
+squared    none         fista      numpy          245ms  2000    0.12610    0.12610   +0.00000       NC
+squared    none         fista      cupy          1959ms  2000    0.12610    0.12610   +0.00000       NC
+squared    none         fista      torch          492ms  2000    0.12610    0.12610   +0.00000       NC
+squared    none         fista      t-cuda         856ms  2000    0.12610    0.12610   +0.00000       NC
+squared    none         fista_bb   numpy            1ms     9    0.12610    0.12610   +0.00000       OK
+squared    none         fista_bb   cupy             8ms     9    0.12610    0.12610   +0.00000       OK
+squared    none         fista_bb   torch            2ms     9    0.12610    0.12610   +0.00000       OK
+squared    none         fista_bb   t-cuda           4ms     9    0.12610    0.12610   +0.00000       OK
+squared    none         newton     numpy            1ms     3    0.12610    0.12610   +0.00000       OK
+squared    none         newton     cupy             6ms     3    0.12610    0.12610   +0.00000       OK
+squared    none         newton     torch            4ms     4    0.12610    0.12610   +0.00000       OK
+squared    none         newton     t-cuda           4ms     3    0.12610    0.12610   +0.00000       OK
+squared    none         lbfgs      numpy            3ms     7    0.12610    0.12610   +0.00000       OK
+squared    none         lbfgs      cupy            25ms     7    0.12610    0.12610   +0.00000       OK
+squared    none         lbfgs      torch            6ms     7    0.12610    0.12610   +0.00000       OK
+squared    none         lbfgs      t-cuda          20ms     7    0.12610    0.12610   +0.00000       OK
+squared    l2           fista      numpy          282ms  2000    0.12637    0.12610   +0.00026       NC
+squared    l2           fista      cupy          2303ms  2000    0.12637    0.12610   +0.00026       NC
+squared    l2           fista      torch          670ms  2000    0.12637    0.12610   +0.00026       NC
+squared    l2           fista      t-cuda        1166ms  2000    0.12637    0.12610   +0.00026       NC
+squared    l2           fista_bb   numpy            2ms     9    0.12637    0.12610   +0.00026       OK
+squared    l2           fista_bb   cupy            10ms     9    0.12637    0.12610   +0.00026       OK
+squared    l2           fista_bb   torch            3ms     9    0.12637    0.12610   +0.00026       OK
+squared    l2           fista_bb   t-cuda           6ms     9    0.12637    0.12610   +0.00026       OK
+squared    l2           newton     numpy            1ms     3    0.12637    0.12610   +0.00026       OK
+squared    l2           newton     cupy             9ms     3    0.12637    0.12610   +0.00026       OK
+squared    l2           newton     torch            2ms     3    0.12637    0.12610   +0.00026       OK
+squared    l2           newton     t-cuda           4ms     3    0.12637    0.12610   +0.00026       OK
+squared    l2           lbfgs      numpy            2ms     6    0.12637    0.12610   +0.00026       OK
+squared    l2           lbfgs      cupy            20ms     6    0.12637    0.12610   +0.00026       OK
+squared    l2           lbfgs      torch            5ms     6    0.12637    0.12610   +0.00026       OK
+squared    l2           lbfgs      t-cuda          10ms     6    0.12637    0.12610   +0.00026       OK
+squared    l1           fista      numpy          313ms  2000    0.12635    0.12610   +0.00024       NC
+squared    l1           fista      cupy          2162ms  2000    0.12635    0.12610   +0.00024       NC
+squared    l1           fista      torch          671ms  2000    0.12635    0.12610   +0.00024       NC
+squared    l1           fista      t-cuda         933ms  2000    0.12635    0.12610   +0.00024       NC
+squared    l1           fista_bb   numpy            1ms     8    0.12635    0.12610   +0.00024       OK
+squared    l1           fista_bb   cupy             9ms     8    0.12635    0.12610   +0.00024       OK
+squared    l1           fista_bb   torch           13ms     8    0.12635    0.12610   +0.00024       OK
+squared    l1           fista_bb   t-cuda           5ms     8    0.12635    0.12610   +0.00024       OK
+squared    elasticnet   fista      numpy          284ms  2000    0.12634    0.12610   +0.00024       NC
+squared    elasticnet   fista      cupy          1712ms  2000    0.12634    0.12610   +0.00024       NC
+squared    elasticnet   fista      torch          387ms  2000    0.12634    0.12610   +0.00024       NC
+squared    elasticnet   fista      t-cuda         853ms  2000    0.12634    0.12610   +0.00024       NC
+squared    elasticnet   fista_bb   numpy            1ms     8    0.12634    0.12610   +0.00024       OK
+squared    elasticnet   fista_bb   cupy             9ms     8    0.12634    0.12610   +0.00024       OK
+squared    elasticnet   fista_bb   torch            3ms     8    0.12634    0.12610   +0.00024       OK
+squared    elasticnet   fista_bb   t-cuda           5ms     8    0.12634    0.12610   +0.00024       OK
+squared    elasticnet   newton     numpy            1ms     3    0.12617    0.12610   +0.00007       OK
+squared    elasticnet   newton     cupy             6ms     3    0.12617    0.12610   +0.00007       OK
+squared    elasticnet   newton     torch            2ms     3    0.12617    0.12610   +0.00007       OK
+squared    elasticnet   newton     t-cuda           3ms     3    0.12617    0.12610   +0.00007       OK
+squared    elasticnet   lbfgs      numpy            2ms     7    0.12617    0.12610   +0.00007       OK
+squared    elasticnet   lbfgs      cupy            20ms     7    0.12617    0.12610   +0.00007       OK
+squared    elasticnet   lbfgs      torch            5ms     7    0.12617    0.12610   +0.00007       OK
+squared    elasticnet   lbfgs      t-cuda           9ms     7    0.12617    0.12610   +0.00007       OK
+squared    scad         fista      numpy          320ms  2000    0.12620    0.12610   +0.00009       NC
+squared    scad         fista      cupy          1482ms  2000    0.12620    0.12610   +0.00009       NC
+squared    scad         fista      torch          578ms  2000    0.12620    0.12610   +0.00009       NC
+squared    scad         fista      t-cuda        1098ms  2000    0.12620    0.12610   +0.00009       NC
+squared    scad         fista_bb   numpy            2ms     8    0.12620    0.12610   +0.00009       OK
+squared    scad         fista_bb   cupy             7ms     8    0.12620    0.12610   +0.00009       OK
+squared    scad         fista_bb   torch            3ms     8    0.12620    0.12610   +0.00009       OK
+squared    scad         fista_bb   t-cuda           6ms     8    0.12620    0.12610   +0.00009       OK
+squared    mcp          fista      numpy          298ms  2000    0.12620    0.12610   +0.00009       NC
+squared    mcp          fista      cupy          1510ms  2000    0.12620    0.12610   +0.00009       NC
+squared    mcp          fista      torch          531ms  2000    0.12620    0.12610   +0.00009       NC
+squared    mcp          fista      t-cuda        1021ms  2000    0.12620    0.12610   +0.00009       NC
+squared    mcp          fista_bb   numpy            2ms     8    0.12620    0.12610   +0.00009       OK
+squared    mcp          fista_bb   cupy             7ms     8    0.12620    0.12610   +0.00009       OK
+squared    mcp          fista_bb   torch            3ms     8    0.12620    0.12610   +0.00009       OK
+squared    mcp          fista_bb   t-cuda           5ms     8    0.12620    0.12610   +0.00009       OK
+squared    ada_l1       fista      numpy         2216ms  2000        nan    0.12610       +nan       NC
+squared    ada_l1       fista      cupy          1499ms  2000    2.66520    0.12610   +2.53910       NC
+squared    ada_l1       fista      torch          441ms  2000        nan    0.12610       +nan       NC
+squared    ada_l1       fista      t-cuda         846ms  2000        nan    0.12610       +nan       NC
+squared    ada_l1       fista_bb   numpy          265ms  2000        nan    0.12610       +nan       NC
+squared    ada_l1       fista_bb   cupy             1ms     1    2.66520    0.12610   +2.53910       OK
+squared    ada_l1       fista_bb   torch          618ms  2000        nan    0.12610       +nan       NC
+squared    ada_l1       fista_bb   t-cuda         999ms  2000        nan    0.12610       +nan       NC
+squared    grp_lasso    fista      numpy          292ms  2000    0.12642    0.12610   +0.00031       NC
+squared    grp_lasso    fista      cupy          2007ms  2000    0.12642    0.12610   +0.00031       NC
+squared    grp_lasso    fista      torch          602ms  2000    0.12642    0.12610   +0.00031       NC
+squared    grp_lasso    fista      t-cuda        1083ms  2000    0.12642    0.12610   +0.00031       NC
+squared    grp_lasso    fista_bb   numpy            1ms     8    0.12642    0.12610   +0.00031       OK
+squared    grp_lasso    fista_bb   cupy            10ms     8    0.12642    0.12610   +0.00031       OK
+squared    grp_lasso    fista_bb   torch            3ms     8    0.12642    0.12610   +0.00031       OK
+squared    grp_lasso    fista_bb   t-cuda           6ms     8    0.12642    0.12610   +0.00031       OK
+squared    grp_mcp      fista      numpy          313ms  2000    0.12616    0.12610   +0.00005       NC
+squared    grp_mcp      fista      cupy          2394ms  2000    0.12616    0.12610   +0.00005       NC
+squared    grp_mcp      fista      torch          707ms  2000    0.12616    0.12610   +0.00005       NC
+squared    grp_mcp      fista      t-cuda        1320ms  2000    0.12616    0.12610   +0.00005       NC
+squared    grp_mcp      fista_bb   numpy            1ms     8    0.12616    0.12610   +0.00005       OK
+squared    grp_mcp      fista_bb   cupy            11ms     8    0.12616    0.12610   +0.00005       OK
+squared    grp_mcp      fista_bb   torch            4ms     8    0.12616    0.12610   +0.00005       OK
+squared    grp_mcp      fista_bb   t-cuda           7ms     8    0.12616    0.12610   +0.00005       OK
+squared    grp_scad     fista      numpy          302ms  2000    0.12616    0.12610   +0.00005       NC
+squared    grp_scad     fista      cupy          2743ms  2000    0.12616    0.12610   +0.00005       NC
+squared    grp_scad     fista      torch          793ms  2000    0.12616    0.12610   +0.00005       NC
+squared    grp_scad     fista      t-cuda        1493ms  2000    0.12616    0.12610   +0.00005       NC
+squared    grp_scad     fista_bb   numpy            1ms     8    0.12616    0.12610   +0.00005       OK
+squared    grp_scad     fista_bb   cupy            13ms     8    0.12616    0.12610   +0.00005       OK
+squared    grp_scad     fista_bb   torch            4ms     8    0.12616    0.12610   +0.00005       OK
+squared    grp_scad     fista_bb   t-cuda           7ms     8    0.12616    0.12610   +0.00005       OK
+huber      none         fista      numpy           12ms    57    0.12460    0.12460   -0.00000       OK
+huber      none         fista      cupy            95ms    58    0.12460    0.12460   -0.00000       OK
+huber      none         fista      torch           30ms    58    0.12460    0.12460   -0.00000       OK
+huber      none         fista      t-cuda          54ms    58    0.12460    0.12460   -0.00000       OK
+huber      none         fista_bb   numpy           12ms    27    0.12460    0.12460   -0.00000       OK
+huber      none         fista_bb   cupy            62ms    28    0.12460    0.12460   -0.00000       OK
+huber      none         fista_bb   torch           22ms    28    0.12460    0.12460   -0.00000       OK
+huber      none         fista_bb   t-cuda          36ms    28    0.12460    0.12460   -0.00000       OK
+huber      none         newton     numpy            4ms     6    0.12460    0.12460   -0.00000       OK
+huber      none         newton     cupy            18ms     6    0.12460    0.12460   -0.00000       OK
+huber      none         newton     torch            7ms     6    0.12460    0.12460   -0.00000       OK
+huber      none         newton     t-cuda          11ms     6    0.12460    0.12460   -0.00000       OK
+huber      none         lbfgs      numpy            4ms    10    0.12460    0.12460   -0.00000       OK
+huber      none         lbfgs      cupy            41ms    10    0.12460    0.12460   -0.00000       OK
+huber      none         lbfgs      torch           11ms    10    0.12460    0.12460   -0.00000       OK
+huber      none         lbfgs      t-cuda          20ms    10    0.12460    0.12460   -0.00000       OK
+huber      l2           fista      numpy           12ms    57    0.12488    0.12460   +0.00027       OK
+huber      l2           fista      cupy            95ms    58    0.12488    0.12460   +0.00027       OK
+huber      l2           fista      torch           59ms    58    0.12488    0.12460   +0.00027       OK
+huber      l2           fista      t-cuda          57ms    58    0.12488    0.12460   +0.00027       OK
+huber      l2           fista_bb   numpy           14ms    27    0.12488    0.12460   +0.00027       OK
+huber      l2           fista_bb   cupy            63ms    28    0.12488    0.12460   +0.00027       OK
+huber      l2           fista_bb   torch           26ms    28    0.12488    0.12460   +0.00027       OK
+huber      l2           fista_bb   t-cuda          37ms    28    0.12488    0.12460   +0.00027       OK
+huber      l2           newton     numpy            5ms     7    0.12488    0.12460   +0.00027       OK
+huber      l2           newton     cupy            22ms     7    0.12488    0.12460   +0.00027       OK
+huber      l2           newton     torch           10ms     8    0.12488    0.12460   +0.00027       OK
+huber      l2           newton     t-cuda          13ms     7    0.12488    0.12460   +0.00027       OK
+huber      l2           lbfgs      numpy            4ms    10    0.12488    0.12460   +0.00027       OK
+huber      l2           lbfgs      cupy            42ms    10    0.12488    0.12460   +0.00027       OK
+huber      l2           lbfgs      torch           11ms    10    0.12488    0.12460   +0.00027       OK
+huber      l2           lbfgs      t-cuda          20ms    10    0.12488    0.12460   +0.00027       OK
+huber      l1           fista      numpy           12ms    52    0.12484    0.12460   +0.00024       OK
+huber      l1           fista      cupy            92ms    52    0.12484    0.12460   +0.00024       OK
+huber      l1           fista      torch           51ms    52    0.12484    0.12460   +0.00024       OK
+huber      l1           fista      t-cuda          56ms    52    0.12484    0.12460   +0.00024       OK
+huber      l1           fista_bb   numpy           25ms    54    0.12484    0.12460   +0.00024       OK
+huber      l1           fista_bb   cupy           119ms    55    0.12484    0.12460   +0.00024       OK
+huber      l1           fista_bb   torch           61ms    55    0.12484    0.12460   +0.00024       OK
+huber      l1           fista_bb   t-cuda          72ms    55    0.12484    0.12460   +0.00024       OK
+huber      elasticnet   fista      numpy           14ms    56    0.12485    0.12460   +0.00025       OK
+huber      elasticnet   fista      cupy           103ms    56    0.12485    0.12460   +0.00025       OK
+huber      elasticnet   fista      torch           31ms    56    0.12485    0.12460   +0.00025       OK
+huber      elasticnet   fista      t-cuda          59ms    56    0.12485    0.12460   +0.00025       OK
+huber      elasticnet   fista_bb   numpy           25ms    54    0.12485    0.12460   +0.00025       OK
+huber      elasticnet   fista_bb   cupy           120ms    55    0.12485    0.12460   +0.00025       OK
+huber      elasticnet   fista_bb   torch           64ms    55    0.12485    0.12460   +0.00025       OK
+huber      elasticnet   fista_bb   t-cuda          72ms    55    0.12485    0.12460   +0.00025       OK
+huber      elasticnet   newton     numpy            3ms     5    0.12467    0.12460   +0.00007       OK
+huber      elasticnet   newton     cupy            15ms     5    0.12467    0.12460   +0.00007       OK
+huber      elasticnet   newton     torch            6ms     5    0.12467    0.12460   +0.00007       OK
+huber      elasticnet   newton     t-cuda           9ms     5    0.12467    0.12460   +0.00007       OK
+huber      elasticnet   lbfgs      numpy            4ms     9    0.12467    0.12460   +0.00007       OK
+huber      elasticnet   lbfgs      cupy            37ms     9    0.12467    0.12460   +0.00007       OK
+huber      elasticnet   lbfgs      torch            9ms     9    0.12467    0.12460   +0.00007       OK
+huber      elasticnet   lbfgs      t-cuda          18ms     9    0.12467    0.12460   +0.00007       OK
+huber      scad         fista      numpy           15ms    52    0.12469    0.12460   +0.00008       OK
+huber      scad         fista      cupy           109ms    52    0.12469    0.12460   +0.00008       OK
+huber      scad         fista      torch           39ms    52    0.12469    0.12460   +0.00008       OK
+huber      scad         fista      t-cuda          69ms    52    0.12469    0.12460   +0.00008       OK
+huber      scad         fista_bb   numpy           15ms    26    0.12469    0.12460   +0.00008       OK
+huber      scad         fista_bb   cupy            73ms    28    0.12469    0.12460   +0.00008       OK
+huber      scad         fista_bb   torch           36ms    28    0.12469    0.12460   +0.00008       OK
+huber      scad         fista_bb   t-cuda          50ms    28    0.12469    0.12460   +0.00008       OK
+huber      mcp          fista      numpy           14ms    52    0.12469    0.12460   +0.00008       OK
+huber      mcp          fista      cupy           101ms    52    0.12469    0.12460   +0.00008       OK
+huber      mcp          fista      torch           37ms    52    0.12469    0.12460   +0.00008       OK
+huber      mcp          fista      t-cuda          65ms    52    0.12469    0.12460   +0.00008       OK
+huber      mcp          fista_bb   numpy           13ms    26    0.12469    0.12460   +0.00008       OK
+huber      mcp          fista_bb   cupy            70ms    28    0.12469    0.12460   +0.00008       OK
+huber      mcp          fista_bb   torch           41ms    28    0.12469    0.12460   +0.00008       OK
+huber      mcp          fista_bb   t-cuda          46ms    28    0.12469    0.12460   +0.00008       OK
+huber      ada_l1       fista      numpy         3716ms  2000        nan    0.12460       +nan       NC
+huber      ada_l1       fista      cupy            40ms    21    1.40460    0.12460   +1.28000       OK
+huber      ada_l1       fista      torch        10652ms  2000        nan    0.12460       +nan       NC
+huber      ada_l1       fista      t-cuda       18734ms  2000        nan    0.12460       +nan       NC
+huber      ada_l1       fista_bb   numpy         1489ms  2000    1.40460    0.12460   +1.28000       NC
+huber      ada_l1       fista_bb   cupy            16ms     1    1.40460    0.12460   +1.28000       OK
+huber      ada_l1       fista_bb   torch         1295ms  2000        nan    0.12460       +nan       NC
+huber      ada_l1       fista_bb   t-cuda        2537ms  2000        nan    0.12460       +nan       NC
+huber      grp_lasso    fista      numpy           17ms    53    0.12493    0.12460   +0.00032       OK
+huber      grp_lasso    fista      cupy           139ms    58    0.12493    0.12460   +0.00032       OK
+huber      grp_lasso    fista      torch           38ms    58    0.12493    0.12460   +0.00032       OK
+huber      grp_lasso    fista      t-cuda          87ms    58    0.12493    0.12460   +0.00032       OK
+huber      grp_lasso    fista_bb   numpy           53ms   100    0.12493    0.12460   +0.00032       OK
+huber      grp_lasso    fista_bb   cupy           277ms   100    0.12493    0.12460   +0.00032       OK
+huber      grp_lasso    fista_bb   torch           87ms   100    0.12493    0.12460   +0.00032       OK
+huber      grp_lasso    fista_bb   t-cuda         172ms   100    0.12493    0.12460   +0.00032       OK
+huber      grp_mcp      fista      numpy           18ms    56    0.12466    0.12460   +0.00006       OK
+huber      grp_mcp      fista      cupy           179ms    56    0.12466    0.12460   +0.00006       OK
+huber      grp_mcp      fista      torch           48ms    56    0.12466    0.12460   +0.00006       OK
+huber      grp_mcp      fista      t-cuda          82ms    56    0.12466    0.12460   +0.00006       OK
+huber      grp_mcp      fista_bb   numpy           53ms    99    0.12466    0.12460   +0.00006       OK
+huber      grp_mcp      fista_bb   cupy           271ms   100    0.12466    0.12460   +0.00006       OK
+huber      grp_mcp      fista_bb   torch           97ms   100    0.12466    0.12460   +0.00006       OK
+huber      grp_mcp      fista_bb   t-cuda         167ms   100    0.12466    0.12460   +0.00006       OK
+huber      grp_scad     fista      numpy           17ms    56    0.12466    0.12460   +0.00006       OK
+huber      grp_scad     fista      cupy           159ms    56    0.12466    0.12460   +0.00006       OK
+huber      grp_scad     fista      torch           50ms    56    0.12466    0.12460   +0.00006       OK
+huber      grp_scad     fista      t-cuda          90ms    56    0.12466    0.12460   +0.00006       OK
+huber      grp_scad     fista_bb   numpy           55ms    99    0.12466    0.12460   +0.00006       OK
+huber      grp_scad     fista_bb   cupy           299ms   100    0.12466    0.12460   +0.00006       OK
+huber      grp_scad     fista_bb   torch          105ms   100    0.12466    0.12460   +0.00006       OK
+huber      grp_scad     fista_bb   t-cuda         174ms   100    0.12466    0.12460   +0.00006       OK
+quantile   none         fista      numpy          140ms   814    0.20059    0.20044   +0.00014       OK
+quantile   none         fista      cupy          1118ms   814    0.20059    0.20044   +0.00015       OK
+quantile   none         fista      torch          310ms   814    0.20059    0.20044   +0.00015       OK
+quantile   none         fista      t-cuda         538ms   814    0.20059    0.20044   +0.00015       OK
+quantile   none         fista_bb   numpy           22ms    58    0.20062    0.20044   +0.00017       OK
+quantile   none         fista_bb   cupy           118ms    61    0.20064    0.20044   +0.00020       OK
+quantile   none         fista_bb   torch           57ms    61    0.20064    0.20044   +0.00020       OK
+quantile   none         fista_bb   t-cuda          65ms    61    0.20064    0.20044   +0.00020       OK
+quantile   none         lbfgs      numpy            6ms     8    0.20057    0.20044   +0.00012       OK
+quantile   none         lbfgs      cupy            50ms     8    0.20057    0.20044   +0.00012       OK
+quantile   none         lbfgs      torch           22ms     8    0.20057    0.20044   +0.00012       OK
+quantile   none         lbfgs      t-cuda          23ms     8    0.20057    0.20044   +0.00012       OK
+quantile   none         irls       numpy           52ms   200    0.20044    0.20044   +0.00000       NC
+quantile   none         irls       cupy           156ms   200    0.20044    0.20044   +0.00000       NC
+quantile   none         irls       torch           69ms   200    0.20044    0.20044   +0.00000       NC
+quantile   none         irls       t-cuda          99ms   200    0.20044    0.20044   +0.00000       NC
+quantile   l2           fista      numpy          383ms  2000    0.20105    0.20044   +0.00061       NC
+quantile   l2           fista      cupy          2784ms  2000    0.20098    0.20044   +0.00054       NC
+quantile   l2           fista      torch          827ms  2000    0.20098    0.20044   +0.00054       NC
+quantile   l2           fista      t-cuda        1430ms  2000    0.20098    0.20044   +0.00054       NC
+quantile   l2           fista_bb   numpy          794ms  2000    1.43057    0.20044   +1.23013       NC
+quantile   l2           fista_bb   cupy          3958ms  2000    1.43057    0.20044   +1.23013       NC
+quantile   l2           fista_bb   torch         1281ms  2000    1.43057    0.20044   +1.23013       NC
+quantile   l2           fista_bb   t-cuda        1961ms  2000    1.43057    0.20044   +1.23013       NC
+quantile   l2           lbfgs      numpy            7ms    11    0.20184    0.20044   +0.00139       OK
+quantile   l2           lbfgs      cupy            62ms    11    0.20184    0.20044   +0.00139       OK
+quantile   l2           lbfgs      torch           42ms    11    0.20184    0.20044   +0.00139       OK
+quantile   l2           lbfgs      t-cuda          28ms    11    0.20184    0.20044   +0.00139       OK
+quantile   l2           irls       numpy           50ms   200    0.20074    0.20044   +0.00029       NC
+quantile   l2           irls       cupy           158ms   200    0.20074    0.20044   +0.00029       NC
+quantile   l2           irls       torch           69ms   200    0.20074    0.20044   +0.00029       NC
+quantile   l2           irls       t-cuda          98ms   200    0.20074    0.20044   +0.00029       NC
+quantile   l1           fista      numpy          382ms  2000    0.20076    0.20044   +0.00032       NC
+quantile   l1           fista      cupy          3011ms  2000    0.20098    0.20044   +0.00053       NC
+quantile   l1           fista      torch          970ms  2000    0.20098    0.20044   +0.00053       NC
+quantile   l1           fista      t-cuda        1627ms  2000    0.20098    0.20044   +0.00053       NC
+quantile   l1           fista_bb   numpy           30ms    72    0.20155    0.20044   +0.00111       OK
+quantile   l1           fista_bb   cupy           151ms    73    0.20155    0.20044   +0.00111       OK
+quantile   l1           fista_bb   torch           61ms    73    0.20155    0.20044   +0.00111       OK
+quantile   l1           fista_bb   t-cuda          84ms    73    0.20155    0.20044   +0.00111       OK
+quantile   elasticnet   fista      numpy          420ms  1936    0.20102    0.20044   +0.00058       OK
+quantile   elasticnet   fista      cupy          3202ms  1939    0.20078    0.20044   +0.00033       OK
+quantile   elasticnet   fista      torch          936ms  1939    0.20078    0.20044   +0.00033       OK
+quantile   elasticnet   fista      t-cuda        1620ms  1939    0.20078    0.20044   +0.00033       OK
+quantile   elasticnet   fista_bb   numpy           28ms    64    0.20165    0.20044   +0.00121       OK
+quantile   elasticnet   fista_bb   cupy           141ms    64    0.20165    0.20044   +0.00121       OK
+quantile   elasticnet   fista_bb   torch           54ms    64    0.20165    0.20044   +0.00121       OK
+quantile   elasticnet   fista_bb   t-cuda          75ms    64    0.20165    0.20044   +0.00121       OK
+quantile   elasticnet   lbfgs      numpy            6ms     9    0.20101    0.20044   +0.00057       OK
+quantile   elasticnet   lbfgs      cupy            54ms     9    0.20101    0.20044   +0.00057       OK
+quantile   elasticnet   lbfgs      torch           22ms     9    0.20101    0.20044   +0.00057       OK
+quantile   elasticnet   lbfgs      t-cuda          24ms     9    0.20101    0.20044   +0.00057       OK
+quantile   elasticnet   irls       numpy           53ms   200    0.20052    0.20044   +0.00007       NC
+quantile   elasticnet   irls       cupy           161ms   200    0.20052    0.20044   +0.00007       NC
+quantile   elasticnet   irls       torch           69ms   200    0.20052    0.20044   +0.00007       NC
+quantile   elasticnet   irls       t-cuda          97ms   200    0.20052    0.20044   +0.00007       NC
+quantile   scad         fista      numpy          482ms  2000    0.20065    0.20044   +0.00020       NC
+quantile   scad         fista      cupy          3142ms  2000    0.20065    0.20044   +0.00021       NC
+quantile   scad         fista      torch         1086ms  2000    0.20065    0.20044   +0.00021       NC
+quantile   scad         fista      t-cuda        1974ms  2000    0.20065    0.20044   +0.00021       NC
+quantile   scad         fista_bb   numpy           32ms    64    0.20063    0.20044   +0.00019       OK
+quantile   scad         fista_bb   cupy           153ms    67    0.20065    0.20044   +0.00021       OK
+quantile   scad         fista_bb   torch           59ms    67    0.20065    0.20044   +0.00021       OK
+quantile   scad         fista_bb   t-cuda          95ms    67    0.20065    0.20044   +0.00021       OK
+quantile   mcp          fista      numpy          435ms  2000    0.20065    0.20044   +0.00021       NC
+quantile   mcp          fista      cupy          2971ms  2000    0.20065    0.20044   +0.00021       NC
+quantile   mcp          fista      torch         1052ms  2000    0.20065    0.20044   +0.00021       NC
+quantile   mcp          fista      t-cuda        1843ms  2000    0.20065    0.20044   +0.00021       NC
+quantile   mcp          fista_bb   numpy           30ms    64    0.20063    0.20044   +0.00019       OK
+quantile   mcp          fista_bb   cupy           154ms    67    0.20065    0.20044   +0.00021       OK
+quantile   mcp          fista_bb   torch           56ms    67    0.20065    0.20044   +0.00021       OK
+quantile   mcp          fista_bb   t-cuda          90ms    67    0.20065    0.20044   +0.00021       OK
+quantile   ada_l1       fista      numpy         3113ms  2000        nan    0.20044       +nan       NC
+quantile   ada_l1       fista      cupy            35ms    21    0.92468    0.20044   +0.72423       OK
+quantile   ada_l1       fista      torch         8327ms  2000        nan    0.20044       +nan       NC
+quantile   ada_l1       fista      t-cuda       15502ms  2000        nan    0.20044       +nan       NC
+quantile   ada_l1       fista_bb   numpy         1293ms  2000    0.92468    0.20044   +0.72423       NC
+quantile   ada_l1       fista_bb   cupy            14ms     1    0.92468    0.20044   +0.72423       OK
+quantile   ada_l1       fista_bb   torch         1256ms  2000        nan    0.20044       +nan       NC
+quantile   ada_l1       fista_bb   t-cuda        1827ms  2000        nan    0.20044       +nan       NC
+quantile   grp_lasso    fista      numpy          442ms  2000    0.20092    0.20044   +0.00048       NC
+quantile   grp_lasso    fista      cupy          3321ms  2000    0.20079    0.20044   +0.00034       NC
+quantile   grp_lasso    fista      torch         1138ms  2000    0.20079    0.20044   +0.00034       NC
+quantile   grp_lasso    fista      t-cuda        1806ms  2000    0.20079    0.20044   +0.00034       NC
+quantile   grp_lasso    fista_bb   numpy          909ms  2000    0.20210    0.20044   +0.00165       NC
+quantile   grp_lasso    fista_bb   cupy          4409ms  2000    0.20210    0.20044   +0.00165       NC
+quantile   grp_lasso    fista_bb   torch         1622ms  2000    0.20210    0.20044   +0.00165       NC
+quantile   grp_lasso    fista_bb   t-cuda        2383ms  2000    0.20210    0.20044   +0.00165       NC
+quantile   grp_mcp      fista      numpy          469ms  2000    0.20061    0.20044   +0.00017       NC
+quantile   grp_mcp      fista      cupy          4199ms  2000    0.20062    0.20044   +0.00017       NC
+quantile   grp_mcp      fista      torch         1330ms  2000    0.20062    0.20044   +0.00017       NC
+quantile   grp_mcp      fista      t-cuda        2290ms  2000    0.20062    0.20044   +0.00017       NC
+quantile   grp_mcp      fista_bb   numpy          948ms  2000    0.20062    0.20044   +0.00017       NC
+quantile   grp_mcp      fista_bb   cupy          5431ms  2000    0.20062    0.20044   +0.00017       NC
+quantile   grp_mcp      fista_bb   torch         1822ms  2000    0.20062    0.20044   +0.00017       NC
+quantile   grp_mcp      fista_bb   t-cuda        2873ms  2000    0.20062    0.20044   +0.00017       NC
+quantile   grp_scad     fista      numpy          212ms   846    0.20061    0.20044   +0.00017       OK
+quantile   grp_scad     fista      cupy          2012ms   846    0.20061    0.20044   +0.00017       OK
+quantile   grp_scad     fista      torch          610ms   846    0.20061    0.20044   +0.00017       OK
+quantile   grp_scad     fista      t-cuda        1072ms   846    0.20061    0.20044   +0.00017       OK
+quantile   grp_scad     fista_bb   numpy         1003ms  2000    0.20062    0.20044   +0.00017       NC
+quantile   grp_scad     fista_bb   cupy          5809ms  2000    0.20062    0.20044   +0.00017       NC
+quantile   grp_scad     fista_bb   torch         1964ms  2000    0.20062    0.20044   +0.00017       NC
+quantile   grp_scad     fista_bb   t-cuda        3234ms  2000    0.20062    0.20044   +0.00017       NC
+
+========================================================================================================================
+CoxPH Breslow + Efron (n=5000, p=5)
+========================================================================================================================
+
+--- ties=breslow ---
+penalty      solver     backend        time   iter     |diff|   status
+none         fista      numpy          115ms    26   0.000001       OK
+none         fista      cupy           175ms    26   0.000002       OK
+none         fista      torch          117ms    26   0.000002       OK
+none         fista      t-cuda         130ms    26   0.000002       OK
+none         fista_bb   numpy          179ms    22   0.000000       OK
+none         fista_bb   cupy           213ms    22   0.000000       OK
+none         fista_bb   torch          174ms    22   0.000000       OK
+none         fista_bb   t-cuda         160ms    22   0.000000       OK
+none         newton     numpy         1592ms   100   0.000000       NC
+none         newton     cupy           177ms    10   0.000000       OK
+none         newton     torch          215ms    12   0.000000       OK
+none         newton     t-cuda         163ms     8   0.000000       OK
+none         lbfgs      numpy           87ms     8   0.000000       OK
+none         lbfgs      cupy           114ms     8   0.000000       OK
+none         lbfgs      torch           89ms     8   0.000000       OK
+none         lbfgs      t-cuda          84ms     8   0.000000       OK
+l2           fista      numpy          116ms    26   0.023286       OK
+l2           fista      cupy           174ms    26   0.023289       OK
+l2           fista      torch          117ms    26   0.023289       OK
+l2           fista      t-cuda         122ms    26   0.023289       OK
+l2           fista_bb   numpy          188ms    22   0.023287       OK
+l2           fista_bb   cupy           230ms    22   0.023287       OK
+l2           fista_bb   torch          184ms    22   0.023287       OK
+l2           fista_bb   t-cuda         164ms    22   0.023287       OK
+l2           newton     numpy          107ms     5   0.023287       OK
+l2           newton     cupy           125ms     7   0.023287       OK
+l2           newton     torch          106ms     5   0.023287       OK
+l2           newton     t-cuda          95ms     7   0.023287       OK
+l2           lbfgs      numpy           88ms     8   0.023287       OK
+l2           lbfgs      cupy           119ms     8   0.023287       OK
+l2           lbfgs      torch           86ms     8   0.023287       OK
+l2           lbfgs      t-cuda          83ms     8   0.023287       OK
+l1           fista      numpy          116ms    26   0.033351       OK
+l1           fista      cupy           179ms    26   0.033354       OK
+l1           fista      torch          119ms    26   0.033354       OK
+l1           fista      t-cuda         125ms    26   0.033354       OK
+l1           fista_bb   numpy          181ms    22   0.033353       OK
+l1           fista_bb   cupy           219ms    22   0.033353       OK
+l1           fista_bb   torch          176ms    22   0.033353       OK
+l1           fista_bb   t-cuda         166ms    22   0.033353       OK
+elasticnet   fista      numpy          113ms    26   0.027760       OK
+elasticnet   fista      cupy           182ms    26   0.027762       OK
+elasticnet   fista      torch          116ms    26   0.027762       OK
+elasticnet   fista      t-cuda         124ms    26   0.027762       OK
+elasticnet   fista_bb   numpy          182ms    22   0.027761       OK
+elasticnet   fista_bb   cupy           230ms    22   0.027761       OK
+elasticnet   fista_bb   torch          176ms    22   0.027761       OK
+elasticnet   fista_bb   t-cuda         165ms    22   0.027761       OK
+elasticnet   newton     numpy          185ms    12   0.011773       OK
+elasticnet   newton     cupy           129ms     7   0.011773       OK
+elasticnet   newton     torch          103ms     7   0.011773       OK
+elasticnet   newton     t-cuda         108ms     8   0.011773       OK
+elasticnet   lbfgs      numpy           88ms     8   0.011773       OK
+elasticnet   lbfgs      cupy           115ms     8   0.011773       OK
+elasticnet   lbfgs      torch           86ms     8   0.011773       OK
+elasticnet   lbfgs      t-cuda          82ms     8   0.011773       OK
+scad         fista      numpy          117ms    26   0.010168       OK
+scad         fista      cupy           194ms    26   0.010168       OK
+scad         fista      torch          122ms    26   0.010168       OK
+scad         fista      t-cuda         135ms    26   0.010168       OK
+scad         fista_bb   numpy          184ms    22   0.010168       OK
+scad         fista_bb   cupy           235ms    22   0.010168       OK
+scad         fista_bb   torch          180ms    22   0.010168       OK
+scad         fista_bb   t-cuda         171ms    22   0.010168       OK
+mcp          fista      numpy          117ms    26   0.010092       OK
+mcp          fista      cupy           193ms    26   0.010091       OK
+mcp          fista      torch          125ms    26   0.010091       OK
+mcp          fista      t-cuda         131ms    26   0.010091       OK
+mcp          fista_bb   numpy          184ms    22   0.010091       OK
+mcp          fista_bb   cupy           232ms    22   0.010091       OK
+mcp          fista_bb   torch          182ms    22   0.010091       OK
+mcp          fista_bb   t-cuda         171ms    22   0.010091       OK
+ada_l1       fista      numpy        13766ms  2000        nan       NC
+ada_l1       fista      cupy           128ms    21   1.190049       OK
+ada_l1       fista      torch        19133ms  2000        nan       NC
+ada_l1       fista      t-cuda       33516ms  2000        nan       NC
+ada_l1       fista_bb   numpy        17039ms  2000   1.190049       NC
+ada_l1       fista_bb   cupy            33ms     1   1.190049       OK
+ada_l1       fista_bb   torch        15137ms  2000        nan       NC
+ada_l1       fista_bb   t-cuda       13689ms  2000        nan       NC
+grp_lasso    fista      numpy          116ms    26   0.038322       OK
+grp_lasso    fista      cupy           202ms    26   0.038324       OK
+grp_lasso    fista      torch          124ms    26   0.038324       OK
+grp_lasso    fista      t-cuda         131ms    26   0.038324       OK
+grp_lasso    fista_bb   numpy          184ms    22   0.038323       OK
+grp_lasso    fista_bb   cupy           241ms    22   0.038323       OK
+grp_lasso    fista_bb   torch          183ms    22   0.038323       OK
+grp_lasso    fista_bb   t-cuda         171ms    22   0.038323       OK
+grp_mcp      fista      numpy          119ms    26   0.000001       OK
+grp_mcp      fista      cupy           215ms    26   0.000002       OK
+grp_mcp      fista      torch          126ms    26   0.000002       OK
+grp_mcp      fista      t-cuda         141ms    26   0.000002       OK
+grp_mcp      fista_bb   numpy          191ms    23   0.000000       OK
+grp_mcp      fista_bb   cupy           278ms    25   0.000000       OK
+grp_mcp      fista_bb   torch          203ms    25   0.000000       OK
+grp_mcp      fista_bb   t-cuda         197ms    25   0.000000       OK
+grp_scad     fista      numpy          118ms    26   0.000001       OK
+grp_scad     fista      cupy           232ms    26   0.000002       OK
+grp_scad     fista      torch          124ms    26   0.000002       OK
+grp_scad     fista      t-cuda         144ms    26   0.000002       OK
+grp_scad     fista_bb   numpy          190ms    23   0.000000       OK
+grp_scad     fista_bb   cupy           280ms    25   0.000000       OK
+grp_scad     fista_bb   torch          205ms    25   0.000000       OK
+grp_scad     fista_bb   t-cuda         200ms    25   0.000000       OK
+
+--- ties=efron ---
+penalty      solver     backend        time   iter     |diff|   status
+none         fista      numpy        13085ms    26   0.000001       OK
+none         fista      cupy           178ms    26   0.000002       OK
+none         fista      torch        20229ms    26   0.000002       OK
+none         fista      t-cuda         163ms    26   0.000002       OK
+none         fista_bb   numpy        14609ms    22   0.000000       OK
+none         fista_bb   cupy           188ms    22   0.000000       OK
+none         fista_bb   torch        24890ms    22   0.000000       OK
+none         fista_bb   t-cuda         178ms    22   0.000000       OK
+none         newton     numpy        15713ms    13   0.000000       OK
+none         newton     cupy           123ms     6   0.000000       OK

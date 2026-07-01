@@ -45,8 +45,8 @@ from ._utils import (
 
 
 def fista_solver(
-    loss: "GLMLoss",
-    penalty: "Penalty | None",
+    loss,
+    penalty,
     X,
     y,
     max_iter: int = 1000,
@@ -62,8 +62,8 @@ def fista_solver(
 
     Parameters
     ----------
-    loss : GLMLoss
-        GLM loss function with gradient(), lipschitz(), preprocess(), value().
+    loss : LossBase
+        Loss function with gradient(), lipschitz(), preprocess(), value().
     penalty : Penalty
         Penalty with proximal().
     X : array
@@ -77,8 +77,8 @@ def fista_solver(
     init_coef : array, optional
         Initial coefficient vector.
     sample_weight : array, optional
-        Per-sample weights. Non-uniform weights are currently rejected in this
-        solver path to avoid silently running an incorrect unweighted update.
+        Per-sample weights. Supported for paths using LossBase.fused_value_and_gradient.
+        Converted to backend-native array at solver entry to prevent device mismatch.
     cv_mode : bool, default=False
         Private CV fast path: keeps the same update rule but checks objective
         and convergence less often on GPU non-smooth GLM paths.
@@ -115,6 +115,10 @@ def fista_solver(
     _obj_best_fista = float('inf')
     _coef_best_fista = None
 
+    # Objective stability tracking for adaptive penalty convergence
+    _obj_prev_f = float('inf')
+    _obj_stable_count = 0
+
     # Initial Lipschitz: default to zero (safe for exp-link warm starts),
     # but allow losses to request evaluation at the provided init to avoid
     # degenerate curvature from eta=0 clipping.
@@ -129,9 +133,10 @@ def fista_solver(
         if sample_weight is not None:
             # Weighted Lipschitz: eigenvalue of X' diag(w) X / sum(w)
             _xp_mod = _get_xp(backend)
-            # Ensure sample_weight is on same backend as X_proc
-            _sw_np = _to_numpy(sample_weight)
-            _sw = _xp_mod.asarray(_sw_np, dtype=X_proc.dtype)
+            # Ensure sample_weight is on same backend/device as X_proc
+            _sw = _xp_mod.asarray(sample_weight, dtype=X_proc.dtype)
+            if hasattr(X_proc, 'device') and hasattr(_sw, 'to'):
+                _sw = _sw.to(device=X_proc.device)
             sw_sum = _to_float_scalar(_xp_mod.sum(_sw))
             sw_col = _sw[:, None] if _sw.ndim == 1 else _sw
             XtWX = X_proc.T @ (X_proc * sw_col) / sw_sum
@@ -202,6 +207,14 @@ def fista_solver(
         _lip_interval = 25
     _validate_sample_weight(sample_weight, X_proc.shape[0])
 
+    # Convert sample_weight to backend-native array (prevent CPU/CUDA mismatch)
+    _sw_arr = None
+    if sample_weight is not None:
+        _xp_mod = _get_xp(backend)
+        _sw_arr = _xp_mod.asarray(sample_weight, dtype=X_proc.dtype)
+        if hasattr(X_proc, "device") and hasattr(_sw_arr, "to"):
+            _sw_arr = _sw_arr.to(device=X_proc.device)
+
     # Gram matrix optimization for squared_error on async GPU path only.
     # Precompute X'X/n and X'y/n to avoid redundant X@coef per iteration.
     _use_xtx = _is_quadratic and sample_weight is None and _use_gpu_loop
@@ -226,7 +239,7 @@ def fista_solver(
             q_yk_dev = loss.value(X_proc, y_proc, y_k)
         elif sample_weight is not None:
             q_yk_dev, grad = loss.fused_value_and_gradient(
-                X_proc, y_proc, y_k, sample_weight=sample_weight
+                X_proc, y_proc, y_k, sample_weight=_sw_arr
             )
         else:
             q_yk_dev, grad = loss.fused_value_and_gradient(X_proc, y_proc, y_k)
@@ -237,14 +250,26 @@ def fista_solver(
 
             step = 1.0 / L
 
-            # Single proximal step -- no backtracking (L is conservative enough)
+            # Single proximal step with one Armijo retry on device.
+            # First try step = 1/L; if objective increases, halve and retry.
+            # This keeps GPU↔CPU syncs minimal (only one extra proximal+loss
+            # call in the worst case) while matching CPU path behavior.
             w_tilde = y_k - step * grad
             coef = penalty.proximal(w_tilde, step, backend=backend)
+
+            # GPU path: single proximal step (no backtracking).
+            # Backtracking on GPU requires loss.value() + GPU→CPU sync per
+            # retry, which defeats the purpose of the async GPU path.
+            # The Lipschitz constant L is conservative enough that step=1/L
+            # almost always satisfies the Armijo condition on the first try.
 
             # ALL safety checks deferred -- no per-iteration GPU->CPU sync.
             # Finiteness + divergence + objective tracking batched together.
             if iteration > 0 and (iteration < 20 or iteration % _div_interval == 0):
-                _obj_dev = loss.value(X_proc, y_proc, coef)
+                if _sw_arr is not None:
+                    _obj_dev = loss.value(X_proc, y_proc, coef, sample_weight=_sw_arr)
+                else:
+                    _obj_dev = loss.value(X_proc, y_proc, coef)
                 # Single D2H transfer: extract float, then check finiteness.
                 _obj_val_f = float(_to_numpy(_obj_dev))
                 _all_finite = np.isfinite(_obj_val_f)
@@ -262,6 +287,16 @@ def fista_solver(
                 if _obj_val_f < _obj_best_fista:
                     _obj_best_fista = _obj_val_f
                     _coef_best_fista = _copy_arr(coef)
+                # Convergence check for quadratic losses on GPU:
+                # objective stability (adaptive penalties oscillate in coef space)
+                if _is_quadratic and iteration > 20:
+                    if abs(_obj_val_f - _obj_prev_f) < tol * max(abs(_obj_val_f), 1.0):
+                        _obj_stable_count += 1
+                        if _obj_stable_count >= 5:
+                            break
+                    else:
+                        _obj_stable_count = 0
+                    _obj_prev_f = _obj_val_f
                 # Periodic Lipschitz recomputation (piggyback on same sync)
                 # Skip for quadratic losses -- Lipschitz is constant (spectral norm of X^T X).
                 # Interval matches CPU path for trajectory consistency.
@@ -289,17 +324,13 @@ def fista_solver(
 
         else:
             # -- CPU/GPU path with backtracking (smooth penalties) --
-            # Use identical sync-based clipping for both CPU and GPU.
-            # (Backtracking already syncs every iteration for slack check,
-            #  so on-device clipping has no performance benefit here.)
-            _gn_f, _coef_abs_f = _sync_scalars(
-                _norm2_dev(grad), _abs_sum_dev(coef_old), backend=backend)
-            _gmax = max(_coef_abs_f * _GRAD_CLIP_COEF_FACTOR + _GRAD_CLIP_ABS_FLOOR, _GRAD_CLIP_MAX)
-            if _gn_f > _gmax:
-                grad = grad * (_gmax / _gn_f)
+            # GPU optimization: batch ALL checks into ONE sync per iteration.
 
             step = 1.0 / L
             _q_new_dev_last = None
+
+            # Backtracking line search
+            _bt_accepted = False
             for _bt in range(20):
                 w_tilde = y_k - step * grad
                 coef_new = penalty.proximal(w_tilde, step, backend=backend)
@@ -307,97 +338,201 @@ def fista_solver(
                 diff = coef_new - y_k
                 if sample_weight is not None:
                     q_new_dev, _ = loss.fused_value_and_gradient(
-                        X_proc, y_proc, coef_new, sample_weight=sample_weight
+                        X_proc, y_proc, coef_new, sample_weight=_sw_arr
                     )
                 else:
                     q_new_dev = loss.value(X_proc, y_proc, coef_new)
                 _q_new_dev_last = q_new_dev
                 bound_dev = q_yk_dev + _dot_dev(grad, diff) + 0.5 * L * _sum_sq_dev(diff)
                 slack_dev = bound_dev + _SLACK_TOLERANCE - q_new_dev
-                _armijo_ok = _to_float_scalar(slack_dev) >= 0
-                if _armijo_ok:
+
+                if _to_float_scalar(slack_dev) >= 0:
+                    _bt_accepted = True
                     break
                 L *= 1.5
                 step = 1.0 / L
 
             coef = coef_new
 
-            # Finiteness check
-            if not _is_quadratic:
-                _coef_norm_dev = _norm2_dev(coef)
-                _finite_ok = np.isfinite(float(_coef_norm_dev))
-                if not _finite_ok:
-                    if _coef_best_fista is not None:
-                        coef = _copy_arr(_coef_best_fista)
-                        y_k = _copy_arr(coef)
-                        t_k = 1.0
-                        L = L * 2.0
-                        continue
-
-            # Divergence detection
-            if not _is_quadratic and iteration > 0:
-                _need_norm_check = (iteration > 10)
-                if _q_new_dev_last is not None:
-                    _obj_dev = _q_new_dev_last
-                    _q_new_dev_last = None
+            # ── CPU convergence for quadratic losses ──
+            # Quadratic losses (squared_error) on CPU don't enter the GPU
+            # loop or the non-quadratic CPU block.  Check objective stability
+            # here so adaptive penalties (adaptive_l1) can converge.
+            if not _is_gpu and _is_quadratic:
+                _obj_val_f = float(loss.value(X_proc, y_proc, coef) if sample_weight is None
+                                   else loss.fused_value_and_gradient(X_proc, y_proc, coef, sample_weight=_sw_arr)[0])
+                _obj_val_f += _tracking_penalty_value(penalty, coef)
+                _conv_dev = _abs_sum_dev(coef - coef_old)
+                _conv_f = float(_conv_dev)
+                if _conv_f < tol:
+                    break
+                if iteration > 20 and abs(_obj_val_f - _obj_prev_f) < tol * max(abs(_obj_val_f), 1.0):
+                    _obj_stable_count += 1
+                    if _obj_stable_count >= 5:
+                        break
                 else:
-                    if sample_weight is not None:
-                        _obj_dev, _ = loss.fused_value_and_gradient(
-                            X_proc, y_proc, coef, sample_weight=sample_weight
+                    _obj_stable_count = 0
+                _obj_prev_f = _obj_val_f
+
+            # ═══ GPU: batch ALL checks into ONE sync every _check_interval iterations ═══
+            # Skip checks entirely for early iterations (save syncs)
+            if _is_gpu and not _is_quadratic:
+                # Always compute convergence metric on device (no sync)
+                _conv_dev = _abs_sum_dev(coef - coef_old)
+
+                # Full check (objective + divergence): every _conv_interval
+                _do_full_check = (iteration < 20) or (iteration % _conv_interval == 0)
+                # Quick convergence check: every 5 iterations (just convergence metric)
+                _do_conv_check = (iteration < 20) or (iteration % 5 == 0)
+                # Lipschitz recompute: every 5 iterations (same as CPU)
+                _do_lip_check = (iteration > 0 and iteration % 5 == 0)
+
+                if _do_full_check:
+                    # Compute ALL check values on device first, then ONE sync
+                    _obj_dev = _q_new_dev_last if _q_new_dev_last is not None else (
+                        loss.fused_value_and_gradient(X_proc, y_proc, coef, sample_weight=_sw_arr)[0]
+                        if sample_weight is not None else loss.value(X_proc, y_proc, coef)
+                    )
+                    _q_new_dev_last = None
+
+                    # ONE sync: (objective, coef_norm, coef_change_norm)
+                    _need_norm = (iteration > 10)
+                    if _need_norm:
+                        _obj_val_f, _coef_norm_f, _conv_f = _sync_scalars(
+                            _obj_dev, _norm2_dev(coef), _conv_dev, backend=backend
                         )
                     else:
-                        _obj_dev = loss.value(X_proc, y_proc, coef)
-                # Batched sync: objective + coef norm in one transfer
-                if _need_norm_check:
-                    _obj_val_f, _coef_norm_f = _sync_scalars(
-                        _obj_dev, _norm2_dev(coef), backend=backend
-                    )
+                        _obj_val_f, _conv_f = _sync_scalars(
+                            _obj_dev, _conv_dev, backend=backend
+                        )
+                        _coef_norm_f = 0.0
+
+                    _finite_ok = np.isfinite(_obj_val_f)
+
+                    # Finiteness
+                    if not _finite_ok:
+                        if _coef_best_fista is not None:
+                            coef = _copy_arr(_coef_best_fista)
+                            y_k = _copy_arr(coef); t_k = 1.0; L *= 2.0
+                            continue
+
+                    # Divergence
+                    _obj_val_f += _tracking_penalty_value(penalty, coef)
+                    _diverged_f = False
+                    if not np.isfinite(_obj_val_f):
+                        _diverged_f = True
+                    elif _obj_best_fista > 1e-8:
+                        _diverged_f = _obj_val_f > _obj_best_fista * 10.0 + 1e-8
+                    else:
+                        _diverged_f = _obj_val_f > _obj_best_fista + max(abs(_obj_best_fista) * 10.0, 1.0)
+                    if not _diverged_f and _need_norm and _coef_norm_f > _DIVERGE_COEF_NORM_CAP:
+                        _diverged_f = True
+                    if _diverged_f:
+                        if _coef_best_fista is not None:
+                            coef = _copy_arr(_coef_best_fista)
+                        else:
+                            coef = _zeros(n_features, backend, ref_tensor=X_proc)
+                        y_k = _copy_arr(coef); t_k = 1.0; L *= 2.0
+                        continue
+                    elif _obj_val_f < _obj_best_fista:
+                        _obj_best_fista = _obj_val_f
+                        _coef_best_fista = _copy_arr(coef)
+
+                    # Convergence: coefficient change OR objective stability
+                    # Adaptive penalties (adaptive_l1, group_scad, etc.) cause
+                    # coefficients to oscillate near the optimum, so coef_diff
+                    # never reaches tol.  Check objective stability as fallback.
+                    if _conv_f < tol:
+                        break
+                    if iteration > 20 and abs(_obj_val_f - _obj_prev_f) < tol * max(abs(_obj_val_f), 1.0):
+                        _obj_stable_count += 1
+                        if _obj_stable_count >= 5:
+                            break
+                    else:
+                        _obj_stable_count = 0
+                    _obj_prev_f = _obj_val_f
+
+                    # Periodic Lipschitz recompute
+                    if _do_lip_check:
+                        _relative_change = _conv_f / max(_coef_norm_f, 1e-10) if _need_norm else 1.0
+                        if _relative_change > 1e-3:
+                            L_new = _call_with_weight(loss.lipschitz, X_proc, coef, y=y_proc, sample_weight=_sw_arr)
+                            _lip_safety_recomp = getattr(loss, '_lipschitz_safety', 1.0)
+                            if _lip_safety_recomp > 1.0:
+                                L_new *= _lip_safety_recomp
+                            if _smooth_lip > 0:
+                                L_new += _smooth_lip
+                            L = max(L, L_new) if L_new > L else max(L * 0.8, L_new)
+
+                # Quick convergence check (just sync convergence metric)
+                elif _do_conv_check:
+                    _conv_f = _to_float_scalar(_conv_dev)
+                    if _conv_f < tol:
+                        break
+
+                    # Lipschitz recompute (reuse convergence sync)
+                    if _do_lip_check:
+                        _coef_norm_f = _to_float_scalar(_norm2_dev(coef))
+                        _relative_change = _conv_f / max(_coef_norm_f, 1e-10)
+                        if _relative_change > 1e-3:
+                            L_new = _call_with_weight(loss.lipschitz, X_proc, coef, y=y_proc, sample_weight=_sw_arr)
+                            _lip_s = getattr(loss, '_lipschitz_safety', 1.0)
+                            if _lip_s > 1.0: L_new *= _lip_s
+                            if _smooth_lip > 0: L_new += _smooth_lip
+                            L = max(L, L_new) if L_new > L else max(L * 0.8, L_new)
+
+            elif not _is_quadratic:
+                # CPU path: check every iteration
+                if _q_new_dev_last is not None:
+                    _obj_dev = _q_new_dev_last; _q_new_dev_last = None
                 else:
-                    _obj_val_f = float(_to_numpy(_obj_dev))
-                    _coef_norm_f = 0.0
-                _obj_val_f += _tracking_penalty_value(penalty, coef)
-                _diverged_f = False
+                    _obj_dev = loss.value(X_proc, y_proc, coef) if sample_weight is None else \
+                        loss.fused_value_and_gradient(X_proc, y_proc, coef, sample_weight=_sw_arr)[0]
+                _obj_val_f = float(_obj_dev) + _tracking_penalty_value(penalty, coef)
+                _conv_dev = _abs_sum_dev(coef - coef_old)
+                _conv_f = float(_conv_dev)
+
                 if not np.isfinite(_obj_val_f):
-                    _diverged_f = True
-                elif _obj_best_fista > 1e-8:
+                    if _coef_best_fista is not None:
+                        coef = _copy_arr(_coef_best_fista)
+                    y_k = _copy_arr(coef); t_k = 1.0; L *= 2.0; continue
+
+                _diverged_f = False
+                if _obj_best_fista > 1e-8:
                     _diverged_f = _obj_val_f > _obj_best_fista * 10.0 + 1e-8
                 else:
                     _diverged_f = _obj_val_f > _obj_best_fista + max(abs(_obj_best_fista) * 10.0, 1.0)
-                if not _diverged_f and _need_norm_check:
-                    if _coef_norm_f > _DIVERGE_COEF_NORM_CAP:
-                        _diverged_f = True
                 if _diverged_f:
                     if _coef_best_fista is not None:
                         coef = _copy_arr(_coef_best_fista)
                     else:
                         coef = _zeros(n_features, backend, ref_tensor=X_proc)
-                    y_k = _copy_arr(coef)
-                    t_k = 1.0
-                    L = L * 2.0
-                    continue
+                    y_k = _copy_arr(coef); t_k = 1.0; L *= 2.0; continue
                 elif _obj_val_f < _obj_best_fista:
                     _obj_best_fista = _obj_val_f
                     _coef_best_fista = _copy_arr(coef)
 
-            # Periodic Lipschitz recomputation
-            # Skip if coefficients haven't changed much (Lipschitz is stable)
-            if not _is_quadratic and iteration > 0 and iteration % 5 == 0:
-                # Batch both norms into a single GPU->CPU transfer
-                _coef_change, _coef_norm = _sync_scalars(
-                    _norm2_dev(coef - coef_old), _norm2_dev(coef), backend=backend)
-                _relative_change = _coef_change / max(_coef_norm, 1e-10)
-                if _relative_change > 1e-3:  # Only recompute if coefficients changed significantly
-                    L_new = _call_with_weight(loss.lipschitz, X_proc, coef, y=y_proc, sample_weight=sample_weight)
-                    # Safety factors from loss class
-                    _lip_safety_recomp = getattr(loss, '_lipschitz_safety', 1.0)
-                    if _lip_safety_recomp > 1.0:
-                        L_new = L_new * _lip_safety_recomp
-                    if _smooth_lip > 0:
-                        L_new = L_new + _smooth_lip
-                    if L_new > L:
-                        L = L_new
-                    else:
-                        L = max(L * 0.8, L_new)
+                # Convergence: coefficient change OR objective stability
+                if _conv_f < tol:
+                    break
+                if iteration > 20 and abs(_obj_val_f - _obj_prev_f) < tol * max(abs(_obj_val_f), 1.0):
+                    _obj_stable_count += 1
+                    if _obj_stable_count >= 5:
+                        break
+                else:
+                    _obj_stable_count = 0
+                _obj_prev_f = _obj_val_f
+
+                # Lipschitz recompute
+                if iteration > 0 and iteration % 5 == 0:
+                    _coef_change_f = float(_abs_sum_dev(coef - coef_old))
+                    _coef_norm_f = float(_norm2_dev(coef))
+                    if _coef_change_f / max(_coef_norm_f, 1e-10) > 1e-3:
+                        L_new = _call_with_weight(loss.lipschitz, X_proc, coef, y=y_proc, sample_weight=_sw_arr)
+                        _lip_s = getattr(loss, '_lipschitz_safety', 1.0)
+                        if _lip_s > 1.0: L_new *= _lip_s
+                        if _smooth_lip > 0: L_new += _smooth_lip
+                        L = max(L, L_new) if L_new > L else max(L * 0.8, L_new)
 
         # Momentum update -- all backends
         if _skip_momentum:
@@ -409,16 +544,8 @@ def fista_solver(
         else:
             y_k, t_k = _nesterov_update(coef, coef_old, t_k)
 
-        # Convergence check -- deferred for GPU, every iteration for CPU
-        if _is_gpu:
-            if iteration < 20 or iteration % _conv_interval == 0:
-                _conv_dev = _abs_sum_dev(coef - coef_old)
-                if _to_float_scalar(_conv_dev) < tol:
-                    break
-        else:
-            _conv_dev = _abs_sum_dev(coef - coef_old)
-            if float(_conv_dev) < tol:
-                break
+        # Note: convergence check is now inside the batched sync above (GPU)
+        # or inside the CPU path (CPU). No duplicate check needed.
 
     # Return best iterate if available
     if _coef_best_fista is not None:

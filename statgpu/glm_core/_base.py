@@ -10,23 +10,27 @@ The GLM core loss framework supports 7 families:
 - Negative Binomial loss (overdispersed count data)
 - Tweedie loss (generalized GLM family)
 
-Structured models such as Cox, panel, and time-series models should use a
-future objective layer rather than this GLM-specific interface.
+GLMLoss extends LossBase with GLM-specific features:
+- ``_mu_from_eta(eta)`` — link inverse μ = g⁻¹(η)
+- ``_poisson_like``, ``_gamma_like`` — family-specific solver hints
+- IRLS support (only for GLMLoss subclasses)
+
+Structured models such as Cox, panel, and time-series models should use
+LossBase directly rather than this GLM-specific interface.
 """
 
 __all__ = ["GLMLoss", "get_glm_loss", "register_glm_loss", "list_glm_losses"]
 
 
-from abc import ABC, abstractmethod
 from typing import Optional
 
-import numpy as np
-from statgpu.backends._array_ops import _xp as _get_xp_mod
-from statgpu.backends._utils import _to_float_scalar
+from statgpu.losses._base import LossBase
 
 
-class GLMLoss(ABC):
+class GLMLoss(LossBase):
     """GLM loss function base class.
+
+    Extends LossBase with GLM-specific features (link functions, IRLS hints).
 
     Objective: minimize: loss(X, y, w) + penalty(w)
 
@@ -40,103 +44,33 @@ class GLMLoss(ABC):
         - ``_mu_from_eta(eta)`` — link inverse μ = g⁻¹(η), with clipping
     """
 
-    name: str = "base"
-    y_type: str = "continuous"
-    smooth_gradient: bool = True
-    has_hessian: bool = False
-
-    # ── Optimization hints (solvers read these, subclasses can override) ──
-    _lipschitz_safety: float = 1.0       # Lipschitz safety factor
-    _lipschitz_safety_cv: float = 1.0    # Extra safety factor in CV mode
-    _lipschitz_uses_y: bool = False      # Whether Lipschitz needs y-scaling
-    _momentum_beta_cap: Optional[float] = None  # Nesterov momentum cap (None=unlimited)
-    _skip_momentum: bool = False         # Disable momentum entirely
-    _has_constant_hessian: bool = False  # Hessian is constant (Newton fast path)
-    _prefer_fista_over_bb: bool = False  # Prefer FISTA over FISTA-BB for smooth penalties
+    # ── GLM-specific optimization hints ──
+    # (solvers read these via getattr(..., False) — safe if absent)
     _is_quadratic: bool = False          # True for squared_error (XtX constant, no y-scaling)
     _supports_cholesky: bool = False     # True for squared_error (ADMM can use Cholesky)
     _gpu_loop_excluded: bool = False     # True for logistic (async GPU loop not suitable)
-    _conservative_momentum_with_nonsmooth: bool = False  # Cap momentum when penalty is non-smooth
     _inverse_gaussian: bool = False      # True for inverse Gaussian (special BB handling)
     _tweedie: bool = False               # True for Tweedie (special BB handling)
     _poisson_like: bool = False          # True for Poisson (conservative momentum burn-in)
     _gamma_like: bool = False            # True for Gamma (adjusted BB/momentum params)
 
-    # ── Per-sample formulas (single source of truth) ──────────────────
-
-    def per_sample_value(self, eta, y):
-        """Per-sample loss: ℓ(η, y). Returns array of shape (n,)."""
-        raise NotImplementedError(f"{self.name} does not implement per_sample_value")
-
-    def per_sample_gradient(self, eta, y):
-        """Per-sample gradient: ∂ℓ/∂η. Returns array of shape (n,)."""
-        raise NotImplementedError(f"{self.name} does not implement per_sample_gradient")
-
     def _mu_from_eta(self, eta):
         """Link inverse: μ = g⁻¹(η). Override for clipping."""
         return eta  # default: identity link
 
-    # ── Derived methods (implemented once in base class) ──────────────
-
-    def value(self, X, y, coef, sample_weight=None) -> float:
-        """Loss value: (1/n) Σ ℓ(ηᵢ, yᵢ)."""
-        xp = _get_xp_mod(X)
-        eta = X @ coef
-        ps = self.per_sample_value(eta, y)
-        if sample_weight is not None:
-            return float(xp.dot(sample_weight, ps)) / float(sample_weight.sum())
-        return float(xp.sum(ps)) / X.shape[0]
-
-    def gradient(self, X, y, coef, sample_weight=None) -> np.ndarray:
-        """Gradient: X' ∂ℓ/∂η / n."""
-        xp = _get_xp_mod(X)
-        eta = X @ coef
-        resid = self.per_sample_gradient(eta, y)
-        if sample_weight is not None:
-            return X.T @ (sample_weight * resid) / float(sample_weight.sum())
-        return X.T @ resid / X.shape[0]
-
     def fused_value_and_gradient(self, X, y, coef, sample_weight=None):
-        """Compute value and gradient in one pass (avoids redundant X @ coef).
+        """Fused value+gradient using GLM-specific optimized kernels.
 
-        Returns (value, gradient) tuple.
+        Dispatches to family-specific fused implementations (logistic, poisson,
+        gamma, etc.) that compute eta = X @ coef once and derive both value
+        and gradient from it, avoiding redundant matmul.
         """
-        xp = _get_xp_mod(X)
-        eta = X @ coef
-        ps = self.per_sample_value(eta, y)
-        resid = self.per_sample_gradient(eta, y)
         if sample_weight is not None:
-            sw_sum = float(sample_weight.sum())
-            val = float(xp.dot(sample_weight, ps)) / sw_sum
-            grad = X.T @ (sample_weight * resid) / sw_sum
-        else:
-            n = X.shape[0]
-            val = float(xp.sum(ps)) / n
-            grad = X.T @ resid / n
-        return val, grad
+            from statgpu.glm_core._fused import _weighted_loss_and_grad
+            return _weighted_loss_and_grad(self, X, y, coef, sample_weight)
 
-    def hessian(self, X, y, coef) -> np.ndarray:
-        """Hessian matrix (for IRLS/Newton).
-
-        Raises NotImplementedError when auto solver falls back to FISTA.
-        """
-        raise NotImplementedError(
-            f"{self.name} does not support Hessian."
-        )
-
-    def lipschitz(self, X, coef, y=None) -> float:
-        """Lipschitz constant (for FISTA step size step=1/L)."""
-        from statgpu.backends._array_ops import _max_eigval_power
-        XtX = X.T @ X
-        return _max_eigval_power(XtX) / X.shape[0]
-
-    def preprocess(self, X, y):
-        """Preprocess y. Default returns as-is."""
-        return X, y
-
-    def predict(self, X, coef):
-        """Map from X @ coef to prediction. Default X @ coef."""
-        return X @ coef
+        from statgpu.glm_core._fused import _fused_glm_value_and_gradient
+        return _fused_glm_value_and_gradient(self, X, y, coef)
 
 
 # ─── Registry ──────────────────────────────────────────────────────────────
@@ -193,6 +127,10 @@ def register_glm_loss(name: str):
                 f"GLM loss class must inherit from GLMLoss, got {cls.__bases__}"
             )
         _GLM_LOSS_REGISTRY[name] = cls
+        # Also register in the generic loss registry
+        from statgpu.losses._registry import _LOSS_REGISTRY
+        if name not in _LOSS_REGISTRY:
+            _LOSS_REGISTRY[name] = cls
         return cls
     return decorator
 

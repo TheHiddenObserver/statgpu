@@ -85,6 +85,8 @@ class GAM(BaseEstimator):
         degree: int = 3,
         lam: Optional[float] = None,
         penalty_order: int = 2,
+        knot_method: str = "quantile",
+        gamma: float = 1.0,
         device: Union[str, Device] = Device.AUTO,
         n_jobs: Optional[int] = None,
     ):
@@ -93,6 +95,8 @@ class GAM(BaseEstimator):
         self.degree = degree
         self.lam = lam
         self.penalty_order = penalty_order
+        self.knot_method = knot_method
+        self.gamma = gamma
 
         # Fitted attributes
         self.coef_ = None
@@ -116,7 +120,7 @@ class GAM(BaseEstimator):
 
     def _create_knots(self, x_col, n_splines, xp):
         """
-        Create interior knots for a feature using quantiles.
+        Create interior knots for a feature.
 
         Parameters
         ----------
@@ -132,8 +136,6 @@ class GAM(BaseEstimator):
         knots : array, shape (n_splines - degree - 1,)
             Interior knots.
         """
-        # Use quantiles for knot placement
-        # Exclude boundary knots (they'll be added by bspline_basis)
         n_interior = n_splines - self.degree - 1
 
         if n_interior <= 0:
@@ -141,13 +143,16 @@ class GAM(BaseEstimator):
                 f"n_splines ({n_splines}) must be greater than degree ({self.degree}) + 1"
             )
 
-        # Use percentiles from 0 to 100, excluding boundaries
-        percentiles = np.linspace(0, 100, n_interior + 2)[1:-1]
-
-        # Convert to numpy for percentile computation
         x_np = _to_numpy(x_col)
 
-        knots = np.percentile(x_np, percentiles)
+        if self.knot_method == "uniform":
+            # Uniform knots in data range (like pygam)
+            x_min, x_max = float(np.min(x_np)), float(np.max(x_np))
+            knots = np.linspace(x_min, x_max, n_interior + 2)[1:-1]
+        else:
+            # Quantile knots (default, data-adaptive)
+            percentiles = np.linspace(0, 100, n_interior + 2)[1:-1]
+            knots = np.percentile(x_np, percentiles)
 
         # Remove duplicate knots (can happen with discrete data)
         knots = np.unique(knots)
@@ -266,7 +271,7 @@ class GAM(BaseEstimator):
         if self.lam is None:
             # Auto-select via GCV
             best_lam, gcv_scores = select_lambda_gcv(
-                B_centered, y, penalty, xp=xp
+                B_centered, y, penalty, xp=xp, gamma=self.gamma
             )
             self.lam_ = best_lam
             self.gcv_score_ = float(xp.min(gcv_scores))
