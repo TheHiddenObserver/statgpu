@@ -23,6 +23,7 @@ Language switch: [Chinese](../changelog.md)
   - CPU (numpy): ~3x faster than FISTA-LLA (60-120 iterations vs 1800+)
   - GPU (torch-CUDA): ~36x faster than CPU numpy for large problems (n=10K, p=500)
   - Three-backend: numpy, cupy, torch — core array operations backend-native; scalar convergence checks synchronize to host
+  - Benchmark artifacts: `results/loss_functions_bench_2026-06-23.json`, `results/penalized_glm_bench_2026-06-22.json`
 
 - **CoxPH Efron Optimization**:
   - Vectorized Efron: prefix-sum based gradient/Hessian computation (no Python loops)
@@ -30,6 +31,7 @@ Language switch: [Chinese](../changelog.md)
   - DLPack bridge: torch-CUDA uses CuPy Efron kernel via DLPack
   - Performance: 3-6x faster than statsmodels at n=5000; GPU 6x faster than CPU
   - Removed Numba dependency, pure numpy implementation
+  - Benchmark artifact: `results/coxph_efron_bench_2026-06-22.json` (precision vs statsmodels, GPU speedup 47-102x)
 
 - **GLM Fused Value+Gradient**: Integrated `_fused.py` into `GLMLoss.fused_value_and_gradient()`
 - **FISTA GPU Sync Optimization**: Batch GPU syncs (convergence+divergence+lipschitz in one transfer)

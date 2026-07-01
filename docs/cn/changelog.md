@@ -23,6 +23,7 @@
   - CPU（numpy）：比 FISTA-LLA 快 ~3 倍（60-120 次迭代 vs 1800+）
   - GPU（torch-CUDA）：大规模问题（n=10K, p=500）比 CPU numpy 快 ~36 倍
   - 三端支持：numpy、cupy、torch — 核心数组操作 GPU 原生；标量收敛检查同步到 Host
+  - Benchmark 产物：`results/loss_functions_bench_2026-06-23.json`、`results/penalized_glm_bench_2026-06-22.json`
 
 - **CoxPH Efron 优化**：
   - 向量化 Efron：基于前缀和的梯度/Hessian 计算（无 Python 循环）
@@ -30,6 +31,7 @@
   - DLPack 桥接：torch-CUDA 通过 DLPack 使用 CuPy Efron kernel
   - 性能：n=5000 时比 statsmodels 快 3-6 倍；GPU 比 CPU 快 6 倍
   - 移除 Numba 依赖，纯 numpy 实现
+  - Benchmark 产物：`results/coxph_efron_bench_2026-06-22.json`（精度对比 statsmodels，GPU 加速 47-102x）
 
 - **GLM Fused Value+Gradient**：集成 `_fused.py` 到 `GLMLoss.fused_value_and_gradient()`
 
