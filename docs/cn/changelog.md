@@ -22,7 +22,7 @@
   - 算法：IRLS 二次上界逼近 + LLA 非凸惩罚 + 并行对角化
   - CPU（numpy）：比 FISTA-LLA 快 ~3 倍（60-120 次迭代 vs 1800+）
   - GPU（torch-CUDA）：大规模问题（n=10K, p=500）比 CPU numpy 快 ~36 倍
-  - 三端支持：numpy、cupy、torch — 全 GPU 原生计算，无 CPU 往返
+  - 三端支持：numpy、cupy、torch — 核心数组操作 GPU 原生；标量收敛检查同步到 Host
 
 - **CoxPH Efron 优化**：
   - 向量化 Efron：基于前缀和的梯度/Hessian 计算（无 Python 循环）

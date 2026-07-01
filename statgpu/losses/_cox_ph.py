@@ -2,8 +2,9 @@
 Cox partial likelihood loss for survival analysis.
 
 Negative log partial likelihood with Breslow/Efron tie handling.
-Dispatches to GPU-optimized kernels (CuPy CUDA / PyTorch) when available,
-falls back to numpy Python loops on CPU.
+Dispatches to GPU-optimized kernels (CuPy CUDA / PyTorch) when available;
+explicit GPU inputs raise RuntimeError if GPU path is unavailable.
+CPU inputs use numpy implementation.
 
 Matches R's survival::coxph() interface.
 """
@@ -46,7 +47,8 @@ class CoxPartialLikelihoodLoss(LossBase):
     """Cox proportional hazards negative log partial likelihood.
 
     Dispatches to GPU-optimized kernels when input is CuPy/Torch-CUDA.
-    Falls back to numpy Python loops on CPU.
+    CPU inputs use numpy implementation; explicit GPU inputs raise
+    RuntimeError if GPU path is unavailable.
 
     Note: This loss does NOT support ``sample_weight``. All methods raise
     ``NotImplementedError`` if ``sample_weight is not None``.
@@ -163,9 +165,13 @@ class CoxPartialLikelihoodLoss(LossBase):
             loglik = self._gpu_loglik(coef_dev, X_s)
             if loglik is not None:
                 return -_to_float_scalar(loglik) / n
+            raise RuntimeError(
+                "CoxPH GPU loglik path failed. "
+                "Explicit GPU devices do not fall back to CPU. "
+                "Use device='cpu' to run the CPU implementation."
+            )
 
-        # CPU fallback
-        self._cpu_fallback_used = True
+        # CPU path (numpy)
         eta = X_s @ coef_dev
         loglik = self._cpu_loglik(_to_numpy(eta), self._time_np, self._event_np)
         return -loglik / n
@@ -196,12 +202,10 @@ class CoxPartialLikelihoodLoss(LossBase):
         is_gpu = xp.__name__ == "cupy" or (xp.__name__ == "torch" and X_s.is_cuda)
 
         if is_gpu:
-            # GPU path: use existing dispatch
+            # GPU path: _loglik_from_eta raises if GPU path unavailable
             grad, _ = self._compute_grad_hess(coef_dev, X_s)
             eta = X_s @ coef_dev
             loglik = self._loglik_from_eta(eta, X_s)
-            if loglik is None:
-                loglik = self._cpu_loglik(_to_numpy(eta), self._time_np, self._event_np)
             return -_to_float_scalar(loglik) / n, -grad / n
 
         # CPU path: fused loglik + gradient + hessian in one pass
