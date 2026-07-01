@@ -1,7 +1,7 @@
 # Loss Functions (LossBase)
 
 > Language: English  
-> Last updated: 2026-06-19  
+> Last updated: 2026-07-01  
 > This page: Model documentation  
 > Switch: [Chinese](../../cn/models/losses.md)
 
@@ -77,7 +77,7 @@ where $L(\beta)$ is the Breslow or Efron partial likelihood.
 |--------|----------|-------|--------|
 | FISTA | ✅ | ✅ | ✅ |
 | FISTA-BB | ✅ | ✅ | ✅ |
-| Newton | ❌ (no Hessian) | ❌ (no Hessian) | ✅ |
+| Newton | ❌ (no Hessian) | ✅ | ✅ |
 | L-BFGS | ✅ | ✅ | ✅ |
 | ADMM | ✅ | ✅ | ✅ |
 | IRLS | ❌ (GLM only) | ❌ (GLM only) | ❌ (GLM only) |
@@ -149,9 +149,10 @@ coef, _ = lbfgs_solver(loss, L1Penalty(0.1), X, y)  # Lasso-Cox
 
 ## Notes
 
-- `CoxPartialLikelihoodLoss` is **CPU-only** (numpy). For GPU-accelerated Cox PH, use `statgpu.survival.CoxPH` directly.
+- `CoxPartialLikelihoodLoss` supports GPU via CuPy CUDA / PyTorch-CUDA kernels (both Breslow and Efron). Explicit GPU inputs raise `RuntimeError` if GPU path is unavailable; CPU inputs use numpy implementation.
 - `QuantileLoss` has `smooth_gradient=False`; FISTA handles the non-smoothness via proximal operators.
-- `HuberLoss` has `smooth_gradient=True` but `has_hessian=False` (Hessian is discontinuous at |u|=delta).
+- `HuberLoss` has `smooth_gradient=True` and `has_hessian=True`; proximal Newton is the preferred solver.
+- `BisquareLoss` is also available via `statgpu.losses.BisquareLoss` for redescending M-estimation.
 - All losses accept `sample_weight` in their API, except `CoxPartialLikelihoodLoss` which raises `NotImplementedError`.
 
 ## References

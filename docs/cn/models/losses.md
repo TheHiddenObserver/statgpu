@@ -1,7 +1,7 @@
 # 损失函数 (LossBase)
 
 > 语言：中文  
-> 最后更新：2026-06-19  
+> 最后更新：2026-07-01  
 > 页面定位：模型文档  
 > 切换：[English](../../en/models/losses.md)
 
@@ -31,7 +31,7 @@ statgpu.losses.CoxPartialLikelihoodLoss
 | 求解器 | Quantile | Huber | Cox PH |
 |--------|----------|-------|--------|
 | FISTA | ✅ | ✅ | ✅ |
-| Newton | ❌ | ❌ | ✅ |
+| Newton | ❌ | ✅ | ✅ |
 | L-BFGS | ✅ | ✅ | ✅ |
 
 ## 示例
@@ -51,5 +51,7 @@ coef, _ = lbfgs_solver(loss, None, X, y)
 
 ## 注意事项
 
-- `CoxPartialLikelihoodLoss` 仅支持 CPU (numpy)。GPU 加速请用 `statgpu.survival.CoxPH`。
+- `CoxPartialLikelihoodLoss` 支持 GPU（CuPy CUDA / PyTorch-CUDA kernel），涵盖 Breslow 和 Efron。显式 GPU 输入在 GPU 路径不可用时将 `raise RuntimeError`；CPU 输入使用 numpy 实现。
+- `HuberLoss` 的 `has_hessian = True`，proximal Newton 为首选求解器。
+- `BisquareLoss` 可通过 `statgpu.losses.BisquareLoss` 获取，支持 redescending M-估计。
 - 所有损失自动继承 10 种惩罚类型和 6 种求解器。

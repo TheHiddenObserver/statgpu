@@ -33,7 +33,7 @@ statgpu 已实现的所有模型、函数和类的完整列表。
 | `PenalizedPoissonRegression` | poisson | irls, fista | l1, l2, elasticnet, scad, mcp, adaptive_l1 | CPU, CuPy, Torch |
 | `PenalizedQuantileRegression` | quantile | proximal_irls_cd, fista | scad, mcp, l2 | CPU, CuPy, Torch |
 | `PenalizedRobustRegression` | huber, bisquare | proximal_newton, irls | scad, mcp, l2 | CPU, CuPy, Torch |
-| `PenalizedCoxRegression` | cox_ph | proximal_newton | scad, mcp, l2 | CPU |
+| `PenalizedCoxPHModel` | cox_ph | proximal_newton | scad, mcp, l2 | CPU, CuPy, Torch |
 
 对于 Gamma、InverseGaussian、NegativeBinomial 和 Tweedie 的惩罚，使用 `PenalizedGeneralizedLinearModel(loss=..., penalty=...)`：
 
@@ -176,7 +176,7 @@ model.fit(X, y)
 | Class | Description | Backends |
 |---|---|---|
 | `CoxPH` | Cox 比例风险模型（Efron/Breslow ties、向量化 grad/hess） | CPU, CuPy, Torch |
-| `PenalizedCoxRegression` | CoxPH + SCAD/MCP 惩罚，通过 proximal Newton 求解 | CPU |
+| `PenalizedCoxPHModel` | CoxPH + SCAD/MCP 惩罚，通过 proximal Newton 求解 | CPU, CuPy, Torch |
 
 ## 特征选择
 

@@ -4,7 +4,7 @@ All notable changes to statgpu are documented here, organized by date and PR.
 
 ### PR #73 — LossBase Extraction, Proximal IRLS-CD, CoxPH Efron optimization
 - Extracted LossBase from GLMLoss; added QuantileLoss, HuberLoss, BisquareLoss, CoxPartialLikelihoodLoss
-- New penalized models: PenalizedQuantileRegression, PenalizedRobustRegression, PenalizedCoxRegression
+- New penalized models: PenalizedQuantileRegression, PenalizedRobustRegression, PenalizedCoxPHModel
 - Proximal IRLS-CD solver: quantile+SCAD/MCP, ~3x CPU/49x GPU speedup (Tesla P100, n=10K, p=500)
 - CoxPH: vectorized Efron gradient/Hessian, multi-block CUDA kernel, statsmodels reference parity
 - UMAP sparse COO graph (O(n·k)), NNDescent module, DBSCAN CuPy label propagation

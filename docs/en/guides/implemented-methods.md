@@ -33,7 +33,7 @@ All 7 GLM families support penalties through `PenalizedGeneralizedLinearModel` o
 | `PenalizedPoissonRegression` | poisson | irls, fista | l1, l2, elasticnet, scad, mcp, adaptive_l1 | CPU, CuPy, Torch |
 | `PenalizedQuantileRegression` | quantile | proximal_irls_cd, fista | scad, mcp, l2 | CPU, CuPy, Torch |
 | `PenalizedRobustRegression` | huber, bisquare | proximal_newton, irls | scad, mcp, l2 | CPU, CuPy, Torch |
-| `PenalizedCoxRegression` | cox_ph | proximal_newton | scad, mcp, l2 | CPU |
+| `PenalizedCoxPHModel` | cox_ph | proximal_newton | scad, mcp, l2 | CPU, CuPy, Torch |
 
 For Gamma, InverseGaussian, NegativeBinomial, and Tweedie with penalties, use `PenalizedGeneralizedLinearModel(loss=..., penalty=...)`:
 
@@ -176,7 +176,7 @@ model.fit(X, y)
 | Class | Description | Backends |
 |---|---|---|
 | `CoxPH` | Cox proportional hazards (Efron/Breslow ties, vectorized grad/hess) | CPU, CuPy, Torch |
-| `PenalizedCoxRegression` | CoxPH + SCAD/MCP penalties via proximal Newton | CPU |
+| `PenalizedCoxPHModel` | CoxPH + SCAD/MCP penalties via proximal Newton | CPU |
 
 ## Feature Selection
 

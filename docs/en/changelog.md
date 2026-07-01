@@ -16,7 +16,7 @@ Language switch: [Chinese](../changelog.md)
   - `LossBase`: abstract base with `per_sample_value()`, `per_sample_gradient()` as single source of truth; derives `value()`, `gradient()`, `fused_value_and_gradient()` automatically
   - `GLMLoss` inherits from `LossBase` for GLM-specific features (canonical link, IRLS)
   - New loss classes: `QuantileLoss`, `HuberLoss`, `BisquareLoss`, `CoxPartialLikelihoodLoss`
-  - New modules: `PenalizedQuantileRegression`, `PenalizedRobustRegression`, `PenalizedCoxRegression`
+  - New modules: `PenalizedQuantileRegression`, `PenalizedRobustRegression`, `PenalizedCoxPHModel`
 
 - **Proximal IRLS-CD Solver**: New solver for quantile + SCAD/MCP
   - Algorithm: IRLS quadratic majorization + LLA nonconvex penalty + parallel diagonal majorization

@@ -16,7 +16,7 @@
   - `LossBase`：抽象基类，`per_sample_value()`、`per_sample_gradient()` 为唯一真实来源；自动派生 `value()`、`gradient()`、`fused_value_and_gradient()`
   - `GLMLoss` 继承 `LossBase`，保留 GLM 特有功能（canonical link、IRLS）
   - 新增损失类：`QuantileLoss`、`HuberLoss`、`BisquareLoss`、`CoxPartialLikelihoodLoss`
-  - 新增模块：`PenalizedQuantileRegression`、`PenalizedRobustRegression`、`PenalizedCoxRegression`
+  - 新增模块：`PenalizedQuantileRegression`、`PenalizedRobustRegression`、`PenalizedCoxPHModel`
 
 - **Proximal IRLS-CD 求解器**：quantile + SCAD/MCP 的新求解器
   - 算法：IRLS 二次上界逼近 + LLA 非凸惩罚 + 并行对角化

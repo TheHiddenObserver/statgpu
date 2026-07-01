@@ -43,7 +43,7 @@ GPU-accelerated statistical methods with sklearn-compatible API.
 | Category | Classes | Highlights |
 |---|---|---|
 | **Regression & GLM** | 12 classes | LinearRegression, Ridge, Lasso, ElasticNet, Logistic, Poisson, Gamma, InvGauss, NB, Tweedie, Ordered models |
-| **Penalized GLM** | 11 classes | PenalizedGLM + 7 family wrappers + PenalizedQuantileRegression, PenalizedRobustRegression, PenalizedCoxRegression × 10 penalties × 8 solvers |
+| **Penalized GLM** | 11 classes | PenalizedGLM + 7 family wrappers + PenalizedQuantileRegression, PenalizedRobustRegression, PenalizedCoxPHModel × 10 penalties × 8 solvers |
 | **Cross-Validation** | 6 classes | RidgeCV, LassoCV, ElasticNetCV, LogisticCV, PenalizedGLM_CV, CoxPHCV |
 | **ANOVA** | 2 functions | `f_oneway`, `f_twoway` — GPU-accelerated |
 | **Covariance** | 3 classes | EmpiricalCovariance, LedoitWolf, OAS |
@@ -128,7 +128,7 @@ model = LinearRegression(device='cuda', n_jobs=4)
 
 ## Benchmark Results (RTX 4090)
 
-Full report: `dev/tests/_bench_realdata_report.md`
+Full reports: `results/unsupervised_bench_2026-06-27.md`, `results/glm_solver_benchmark_2026-06-23.md`
 
 Test environment: RTX 4090 (24GB), CuPy 14.1.0, PyTorch 2.8.0+cu128, scikit-learn 1.8.0, statsmodels 0.14.6, lifelines 0.30.3
 
