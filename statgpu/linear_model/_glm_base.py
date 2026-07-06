@@ -101,6 +101,8 @@ class GeneralizedLinearModel(BaseEstimator):
         n_jobs: Optional[int] = None,
         solver: str = "auto",
         gpu_memory_cleanup: bool = False,
+        compute_inference: bool = False,
+        cov_type: str = "nonrobust",
     ):
         super().__init__(device=device, n_jobs=n_jobs)
         self.family = family
@@ -110,6 +112,8 @@ class GeneralizedLinearModel(BaseEstimator):
         self.C = C
         self.solver = solver
         self.gpu_memory_cleanup = gpu_memory_cleanup
+        self.compute_inference = compute_inference
+        self.cov_type = cov_type
 
         self.coef_ = None
         self.intercept_ = None
@@ -121,6 +125,19 @@ class GeneralizedLinearModel(BaseEstimator):
         self._design_info = None
         self._formula_has_intercept = None
         self._use_intercept = None  # formula-derived override; None = use fit_intercept
+
+        # Inference state (populated by _compute_inference)
+        self._loss = None
+        self._X_design = None
+        self._y_inf = None
+        self._sample_weight_inf = None
+        self._intercept_idx = None
+        self._fit_metadata = {}
+        self._inference_result = None
+        self._bse = None
+        self._zvalues = None
+        self._pvalues = None
+        self._conf_int = None
 
     @property
     def _effective_intercept(self):
@@ -184,6 +201,229 @@ class GeneralizedLinearModel(BaseEstimator):
             self._cleanup_cuda_memory()
         elif backend_name == "torch":
             self._cleanup_torch_memory()
+
+    # ------------------------------------------------------------------
+    # Inference helpers
+    # ------------------------------------------------------------------
+
+    def _resolve_loss_for_inference(self):
+        """Create the GLM loss object for inference.
+
+        Returns a loss with ``has_hessian=True`` for sandwich covariance.
+        Matches the family used during fitting.
+        """
+        from statgpu.glm_core import get_glm_loss
+        kwargs = self._get_loss_kwargs()
+        loss_name = self.family_to_loss()
+        return get_glm_loss(loss_name, **kwargs)
+
+    def family_to_loss(self):
+        """Map family name to GLM loss name."""
+        _map = {
+            "gaussian": "squared_error",
+            "binomial": "logistic",
+            "poisson": "poisson",
+            "gamma": "gamma",
+            "inverse_gaussian": "inverse_gaussian",
+            "negative_binomial": "negative_binomial",
+            "tweedie": "tweedie",
+        }
+        if self.family not in _map:
+            raise ValueError(f"Cannot map family '{self.family}' to loss name.")
+        return _map[self.family]
+
+    def _get_loss_kwargs(self):
+        """Return kwargs for the GLM loss constructor. Override in subclasses."""
+        return {}
+
+    def _aligned_inference_design_glm(self, X_orig):
+        """Return (X_design, params, intercept_idx) with aligned layout.
+
+        Layout: intercept first → X_design = [1, X], params = [intercept, coef].
+        This matches ``statsmodels.add_constant(X, prepend=True)`` order.
+        Backend-aware: works with numpy, cupy, and torch arrays.
+
+        ``X_orig`` must be the numeric design matrix after preprocessing
+        (dtype/backend conversion), before solver-internal intercept augmentation.
+        """
+        from statgpu.backends import _to_numpy, _resolve_backend
+        from statgpu.backends._utils import _get_xp
+
+        backend = _resolve_backend("auto", X_orig)
+        xp = _get_xp(backend)
+        is_gpu = backend != "numpy"
+
+        if self._effective_intercept:
+            n = X_orig.shape[0]
+            if is_gpu:
+                if backend == "torch":
+                    import torch
+                    dev = X_orig.device; dt = X_orig.dtype
+                    ones = torch.ones((n, 1), dtype=dt, device=dev)
+                    X_inf = torch.cat([ones, X_orig], dim=1)
+                    params_inf = torch.cat([
+                        torch.tensor([self.intercept_], dtype=dt, device=dev),
+                        torch.as_tensor(self.coef_, dtype=dt, device=dev)
+                    ])
+                else:
+                    ones = xp.ones((n, 1), dtype=X_orig.dtype)
+                    X_inf = xp.concatenate([ones, X_orig], axis=1)
+                    params_inf = xp.concatenate([
+                        xp.asarray([self.intercept_], dtype=X_orig.dtype),
+                        xp.asarray(self.coef_, dtype=X_orig.dtype)
+                    ])
+            else:
+                X_np = np.asarray(_to_numpy(X_orig), dtype=float)
+                X_inf = np.column_stack([np.ones(n), X_np])
+                params_inf = np.concatenate([[self.intercept_], np.asarray(self.coef_)])
+            return X_inf, params_inf, 0  # intercept_idx = 0
+        else:
+            if is_gpu:
+                if backend == "torch":
+                    import torch
+                    return X_orig, torch.as_tensor(self.coef_, dtype=X_orig.dtype, device=X_orig.device), None
+                return X_orig, xp.asarray(self.coef_, dtype=X_orig.dtype), None
+            else:
+                return np.asarray(_to_numpy(X_orig), dtype=float), np.asarray(self.coef_), None
+
+    def _compute_inference(self):
+        """Compute M-estimation inference after fit.
+
+        Called automatically at end of ``fit()`` when ``compute_inference=True``.
+        Uses fit-time metadata to match the inference to the actual objective.
+        Backend-aware: works with NumPy, CuPy, and Torch arrays.
+        """
+        from statgpu.inference._sandwich import m_estimation_inference, _infer_covariance_convention
+        from statgpu.inference._results import ParameterInferenceResult
+        from statgpu.backends import _to_numpy, _resolve_backend
+        from statgpu.backends._utils import _get_xp
+
+        curv = self._fit_metadata.get("penalty_curvature_diag")
+        backend = _resolve_backend("auto", self._X_design)
+        is_gpu = backend != "numpy"
+
+        result = m_estimation_inference(
+            self._loss, self._X_design, self._y_inf, self._params,
+            cov_type=self.cov_type,
+            penalty_curvature_diag=curv,
+            sample_weight=self._sample_weight_inf,
+        )
+        # Convert GPU results to NumPy for storage (API contract: CPU NumPy)
+        self._bse = np.asarray(_to_numpy(result["bse"]))
+        self._zvalues = np.asarray(_to_numpy(result["statistic"]))
+        self._pvalues = np.asarray(_to_numpy(result["pvalues"]))
+        self._conf_int = np.asarray(_to_numpy(result["conf_int"]))
+
+        # params may be GPU array
+        params_np = np.asarray(_to_numpy(self._params))
+
+        self._inference_result = ParameterInferenceResult(
+            method="m_estimation",
+            params=params_np.copy(),
+            bse=self._bse.copy(),
+            statistic=self._zvalues.copy(),
+            statistic_name="z",
+            pvalues=self._pvalues.copy(),
+            conf_int=self._conf_int.copy(),
+            distribution="normal",
+            metadata={
+                "dispersion": result["dispersion"],
+                "wald_stat": result["wald_stat"],
+                "wald_pval": result["wald_pval"],
+                "meat_type": self.cov_type,
+                "covariance_convention": _infer_covariance_convention(
+                    self.cov_type, curv is not None
+                ),
+                "solver_used": self._fit_metadata.get("solver_used"),
+                "inference_backend": backend,
+            },
+        )
+        self._inference_result.apply_to(self)
+
+    # ------------------------------------------------------------------
+    # Summary & diagnostics
+    # ------------------------------------------------------------------
+
+    def summary(self):
+        """Print a summary table of inference results.
+
+        Returns
+        -------
+        str
+            Formatted summary string.
+        """
+        if not self._fitted:
+            return f"{self.__class__.__name__}(not fitted)"
+
+        lines = []
+        family_name = getattr(self, 'family', 'unknown')
+        lines.append(f"{'='*60}")
+        lines.append(f"  {self.__class__.__name__} Results")
+        lines.append(f"{'='*60}")
+        lines.append(f"  Family: {family_name}")
+        lines.append(f"  Solver: {getattr(self, 'solver', 'unknown')}")
+        lines.append(f"  No. Observations: {self._nobs}")
+        lines.append(f"  Df Residuals: {self._df_resid}")
+        lines.append(f"  Covariance Type: {getattr(self, 'cov_type', 'nonrobust')}")
+        lines.append("")
+
+        if self._inference_result is not None:
+            try:
+                df = self._inference_result.to_dataframe()
+                lines.append(str(df.to_string(index=False)))
+            except Exception:
+                lines.append(f"  coef: {self._params}")
+                if self._bse is not None:
+                    lines.append(f"  std err: {self._bse}")
+        else:
+            if self._params is not None:
+                lines.append(f"  coef: {self._params}")
+            lines.append("  (inference not computed)")
+
+        # Model fit statistics
+        llf = self.loglikelihood if hasattr(self, 'loglikelihood') else None
+        aic = self.aic if hasattr(self, 'aic') else None
+        bic = self.bic if hasattr(self, 'bic') else None
+        if llf is not None:
+            lines.append(f"\n  Log-Likelihood: {llf:.4f}")
+        if aic is not None:
+            lines.append(f"  AIC: {aic:.4f}")
+        if bic is not None:
+            lines.append(f"  BIC: {bic:.4f}")
+
+        lines.append(f"{'='*60}")
+        return "\n".join(lines)
+
+    @property
+    def llf(self):
+        """Log-likelihood of the fitted model (alias for loglikelihood)."""
+        return self.loglikelihood
+
+    @property
+    def loglikelihood(self):
+        """Log-likelihood at the fitted coefficients."""
+        self._check_is_fitted()
+        if self._loss is None or self._X_design is None or self._y_inf is None:
+            return float("nan")
+        import numpy as np
+        return -float(np.sum(self._loss.per_sample_value(
+            self._X_design @ self._params, self._y_inf
+        )))
+
+    @property
+    def aic(self):
+        """Akaike Information Criterion: -2*loglik + 2*k."""
+        ll = self.loglikelihood
+        k = len(self._params) if self._params is not None else 0
+        return -2.0 * ll + 2.0 * k
+
+    @property
+    def bic(self):
+        """Bayesian Information Criterion: -2*loglik + k*log(n)."""
+        ll = self.loglikelihood
+        k = len(self._params) if self._params is not None else 0
+        n = self._nobs if self._nobs else 0
+        return -2.0 * ll + k * np.log(max(n, 1))
 
     def __del__(self):
         try:
@@ -286,6 +526,55 @@ class GeneralizedLinearModel(BaseEstimator):
             raise ValueError(
                 "solver must be one of: 'auto', 'irls', 'fista', 'newton', 'lbfgs'"
             )
+
+        # ---- Store inference prerequisites after fit ----
+        if self.compute_inference:
+            from statgpu.backends import _to_numpy, _resolve_backend
+            from statgpu.backends._utils import _get_xp
+            inf_backend = _resolve_backend("auto", X_arr)
+            inf_xp = _get_xp(inf_backend)
+            is_gpu = inf_backend != "numpy"
+
+            # Keep GPU arrays for inference (no CPU transfer)
+            if is_gpu:
+                self._y_inf = y_arr.ravel() if y_arr.ndim > 1 else y_arr
+                self._X_design, self._params, self._intercept_idx = \
+                    self._aligned_inference_design_glm(X_arr)
+                if sample_weight is not None:
+                    self._sample_weight_inf = sample_weight.ravel()
+                else:
+                    self._sample_weight_inf = None
+            else:
+                self._y_inf = np.asarray(_to_numpy(y_arr), dtype=float).ravel()
+                self._X_design, self._params, self._intercept_idx = \
+                    self._aligned_inference_design_glm(X_arr)
+                self._sample_weight_inf = (
+                    np.asarray(_to_numpy(sample_weight), dtype=float).ravel()
+                    if sample_weight is not None else None
+                )
+
+            self._loss = self._resolve_loss_for_inference()
+            self._fit_metadata = {
+                "solver_used": solver_name,
+                "objective_scale": "mean_loss_plus_penalty",
+                "ridge_alpha_avg": None,
+                "penalty_curvature_diag": None,
+            }
+            # IRLS with finite C: add ridge curvature
+            if solver_name == "irls" and self.C > 0:
+                lam = self._get_penalty_alpha()
+                if is_gpu:
+                    curv = inf_xp.zeros(self._params.shape[0], dtype=self._params.dtype)
+                else:
+                    curv = np.zeros(self._params.shape[0])
+                if self._effective_intercept:
+                    curv[1:] = lam
+                else:
+                    curv[:] = lam
+                self._fit_metadata["ridge_alpha_avg"] = lam
+                self._fit_metadata["penalty_curvature_diag"] = curv
+
+            self._compute_inference()
 
         self._fitted = True
         self._cleanup_backend_memory(backend_name)
@@ -708,8 +997,17 @@ class OrderedGeneralizedLinearModel(GeneralizedLinearModel):
         device: Union[str, Device] = Device.AUTO,
         n_jobs: Optional[int] = None,
         solver: str = "auto",
+        compute_inference: bool = False,
+        cov_type: str = "nonrobust",
         gpu_memory_cleanup: bool = False,
     ):
+        if compute_inference:
+            raise NotImplementedError(
+                "Ordered models (OrderedLogitRegression, OrderedProbitRegression) "
+                "do not yet support inference.  The threshold parameters require "
+                "special handling for standard errors.  "
+                "Set compute_inference=False."
+            )
         super().__init__(
             family=family,
             fit_intercept=fit_intercept,
@@ -719,6 +1017,8 @@ class OrderedGeneralizedLinearModel(GeneralizedLinearModel):
             device=device,
             n_jobs=n_jobs,
             solver=solver,
+            compute_inference=compute_inference,
+            cov_type=cov_type,
             gpu_memory_cleanup=gpu_memory_cleanup,
         )
         self.n_categories = n_categories

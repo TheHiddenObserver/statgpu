@@ -92,6 +92,23 @@ class GammaLoss(GLMLoss):
             W = W * sample_weight
         return X.T @ (X * W[:, None]) / n_eff
 
+    def fisher_information(self, X, coef, sample_weight=None):
+        n_eff = float(sample_weight.sum()) if sample_weight is not None else X.shape[0]
+        _, mu = self._eta_mu(X, coef)
+        if self.link == "inverse_power":
+            # Canonical link: Fisher = observed Hessian.  W = 1/eta² = mu².
+            # Since eta = 1/mu, 1/eta² = mu².  We compute as 1/eta² for stability.
+            eta = X @ coef
+            W = 1.0 / (eta * eta)
+        else:
+            # Log link: Fisher weight = 1/(V(mu)*g'(mu)²) = 1/(mu² * 1/mu²) = 1
+            from statgpu.backends._array_ops import _xp as _get_xp
+            xp = _get_xp(mu)
+            W = xp.ones(X.shape[0], dtype=mu.dtype)
+        if sample_weight is not None:
+            W = W * sample_weight
+        return X.T @ (X * W[:, None]) / n_eff
+
     def lipschitz(self, X, coef, y=None, sample_weight=None):
         n_eff = float(sample_weight.sum()) if sample_weight is not None else X.shape[0]
         if self.link == "inverse_power":

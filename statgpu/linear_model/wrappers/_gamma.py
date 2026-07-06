@@ -41,6 +41,8 @@ class GammaRegression(GeneralizedLinearModel):
         n_jobs: Optional[int] = None,
         link: str = "log",
         solver: str = "auto",
+        compute_inference: bool = False,
+        cov_type: str = "nonrobust",
         gpu_memory_cleanup: bool = False,
     ):
         self._link_name = link
@@ -53,6 +55,8 @@ class GammaRegression(GeneralizedLinearModel):
             device=device,
             n_jobs=n_jobs,
             solver=solver,
+            compute_inference=compute_inference,
+            cov_type=cov_type,
             gpu_memory_cleanup=gpu_memory_cleanup,
         )
 

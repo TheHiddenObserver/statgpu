@@ -31,12 +31,42 @@ class _PenalizedInferenceMixin:
         return X_np * sqrt_sw[:, np.newaxis], y_np * sqrt_sw
 
     def _compute_post_fit_gaussian_inference(self, X, y, sample_weight=None):
-        """Populate inference state after fit. Dispatches to debiased for L1/ElasticNet."""
+        """Populate inference state after fit. Routes to sandwich/debiased/oracle."""
         if not self.compute_inference:
             return
+
+        # Non-squared_error Hessian losses + smooth/L2 penalties: penalized sandwich
         if self.loss != "squared_error":
-            return
+            loss_has_hessian = getattr(self._loss, 'has_hessian', False)
+            penalty_name = str(getattr(self._penalty, "name", self.penalty)).lower()
+            if loss_has_hessian and penalty_name in ("l2", "none", "", "elasticnet", "en"):
+                self._compute_penalized_sandwich_inference(X, y, sample_weight)
+                return
+            # SCAD/MCP + oracle
+            if penalty_name in ("scad", "mcp"):
+                im = str(getattr(self, "inference_method", "oracle")).lower()
+                if im == "oracle":
+                    self._compute_oracle_inference(X, y, sample_weight)
+                    return
+            # Bootstrap for any other combination
+            if str(getattr(self, "inference_method", "")).lower() == "bootstrap":
+                self._compute_post_fit_bootstrap_inference(X, y)
+                return
+            return  # no inference available
+
         penalty_name = str(getattr(self._penalty, "name", self.penalty)).lower()
+
+        # SCAD/MCP + squared_error: oracle or bootstrap
+        if penalty_name in ("scad", "mcp"):
+            im = str(getattr(self, "inference_method", "oracle")).lower()
+            if im == "oracle":
+                self._compute_oracle_inference(X, y, sample_weight)
+                return
+            elif im == "bootstrap":
+                self._compute_post_fit_bootstrap_inference(X, y)
+                return
+            return
+
         if penalty_name in ("l1", "elasticnet", "en"):
             # GPU/Torch backends run their own debiased inference inside
             # _fit_gpu / _fit_torch.  Skip the CPU re-dispatch when inference
@@ -875,6 +905,228 @@ class _PenalizedInferenceMixin:
             simultaneous_n_bootstrap=getattr(self, 'simultaneous_n_bootstrap', None),
             simultaneous_critical_value=getattr(self, '_simultaneous_critical_value', None),
         )
+
+    # ----------------------------------------------------------------
+    # Penalized sandwich for non-squared_error Hessian losses + L2/EN
+    # ----------------------------------------------------------------
+
+    def _compute_penalized_sandwich_inference(self, X, y, sample_weight=None):
+        """Penalized sandwich inference for Hessian-equipped losses + L2/ElasticNet.
+
+        Uses the penalized Hessian H_pen = H_loss + penalty.curvature_diag()
+        as bread.  Follows Convention A: nonrobust uses phi * H_pen^{-1} / n.
+        """
+        import numpy as np
+        from statgpu.backends import _to_numpy
+        from statgpu.inference._sandwich import m_estimation_inference, _infer_covariance_convention
+        from statgpu.inference._results import ParameterInferenceResult
+
+        X_np = np.asarray(_to_numpy(X), dtype=float)
+        y_np = np.asarray(_to_numpy(y), dtype=float).ravel()
+        if sample_weight is not None:
+            sample_weight = np.asarray(_to_numpy(sample_weight), dtype=float).ravel()
+
+        # Build aligned design: [1, X] with intercept first
+        n, p_feat = X_np.shape
+        if self._effective_intercept:
+            X_design = np.column_stack([np.ones(n), X_np])
+            params = np.concatenate([[self.intercept_], np.asarray(self.coef_)])
+            intercept_idx = 0
+        else:
+            X_design = X_np.copy()
+            params = np.asarray(self.coef_).copy()
+            intercept_idx = None
+
+        # Penalty curvature: features only, intercept gets 0
+        curv = np.zeros(len(params))
+        if self._penalty is not None:
+            pen_name = str(getattr(self._penalty, "name", "")).lower()
+            if pen_name in ("l2",):
+                curv_feat = np.asarray(_to_numpy(
+                    self._penalty.curvature_diag(self.coef_)
+                ), dtype=float)
+            elif pen_name in ("elasticnet", "en"):
+                # Only L2 component: lambda * (1 - l1_ratio)
+                l1r = float(getattr(self._penalty, "l1_ratio", 0.5))
+                alpha = float(getattr(self._penalty, "alpha", self.alpha))
+                lam2 = alpha * (1.0 - l1r)
+                curv_feat = np.full(p_feat, lam2, dtype=float)
+            else:
+                curv_feat = np.zeros(p_feat)
+
+            if intercept_idx is not None:
+                curv[1:] = curv_feat  # intercept at index 0
+            else:
+                curv[:] = curv_feat
+
+        result = m_estimation_inference(
+            self._loss, X_design, y_np, params,
+            cov_type=self.cov_type,
+            penalty_curvature_diag=curv if np.any(curv) else None,
+            sample_weight=sample_weight,
+        )
+
+        self._bse = np.asarray(result["bse"])
+        self._zvalues = np.asarray(result["statistic"])
+        self._pvalues = np.asarray(result["pvalues"])
+        self._conf_int = np.asarray(result["conf_int"])
+        self._params = params.copy()
+
+        has_curv = curv is not None and np.any(curv)
+        self._inference_result = ParameterInferenceResult(
+            method="m_estimation",
+            params=self._params.copy(),
+            bse=self._bse.copy(),
+            statistic=self._zvalues.copy(),
+            statistic_name="z",
+            pvalues=self._pvalues.copy(),
+            conf_int=self._conf_int.copy(),
+            distribution="normal",
+            metadata={
+                "dispersion": result["dispersion"],
+                "wald_stat": result["wald_stat"],
+                "wald_pval": result["wald_pval"],
+                "meat_type": self.cov_type,
+                "covariance_convention": _infer_covariance_convention(
+                    self.cov_type, has_curv
+                ),
+            },
+        )
+        self._inference_result.apply_to(self)
+
+    def _compute_oracle_inference(self, X, y, sample_weight=None):
+        """Oracle active-set inference for SCAD/MCP.
+
+        Refits unpenalized model on the active set and applies sandwich.
+        Valid due to the oracle property (Fan & Li 2001).
+        """
+        import numpy as np
+        from statgpu.backends import _to_numpy
+        from statgpu.inference._sandwich import m_estimation_inference, _infer_covariance_convention
+        from statgpu.inference._results import ParameterInferenceResult
+
+        X_np = np.asarray(_to_numpy(X), dtype=float)
+        y_np = np.asarray(_to_numpy(y), dtype=float).ravel()
+        coef_np = np.asarray(self.coef_, dtype=float)
+        n, p = X_np.shape
+
+        # Active set
+        active = np.abs(coef_np) > 1e-10
+        n_active = int(np.sum(active))
+
+        if n_active == 0:
+            full_p = p + (1 if self._effective_intercept else 0)
+            self._params = np.concatenate([[self.intercept_], coef_np]) if self._effective_intercept else coef_np.copy()
+            self._bse = np.full(full_p, np.nan)
+            self._zvalues = np.full(full_p, np.nan)
+            self._pvalues = np.full(full_p, np.nan)
+            self._conf_int = np.full((full_p, 2), np.nan)
+            self._inference_result = ParameterInferenceResult(
+                method="oracle",
+                params=self._params.copy(),
+                bse=self._bse.copy(),
+                statistic=self._zvalues.copy(),
+                statistic_name="z",
+                pvalues=self._pvalues.copy(),
+                conf_int=self._conf_int.copy(),
+                distribution="normal",
+                metadata={"n_active": 0, "active_set": []},
+            )
+            self._inference_result.apply_to(self)
+            return
+
+        # Refit unpenalized on active set
+        from statgpu.linear_model.wrappers._poisson import PoissonRegression
+        from statgpu.linear_model.wrappers._gamma import GammaRegression
+        from statgpu.linear_model.wrappers._inverse_gaussian import InverseGaussianRegression
+        from statgpu.linear_model.wrappers._negative_binomial import NegativeBinomialRegression
+        from statgpu.linear_model.wrappers._tweedie import TweedieRegression
+        from statgpu.linear_model.wrappers._linear import LinearRegression
+
+        _MODEL_MAP = {
+            "squared_error": LinearRegression,
+            "poisson": PoissonRegression,
+            "logistic": None,  # use LogisticRegression from wrappers
+            "gamma": GammaRegression,
+            "inverse_gaussian": InverseGaussianRegression,
+            "negative_binomial": NegativeBinomialRegression,
+            "tweedie": TweedieRegression,
+        }
+        model_cls = _MODEL_MAP.get(self.loss)
+        if model_cls is None:
+            if self.loss == "logistic":
+                from statgpu.linear_model.wrappers._logistic import LogisticRegression as LR
+                model_cls = LR
+            else:
+                raise NotImplementedError(
+                    f"Oracle inference not implemented for loss='{self.loss}'"
+                )
+
+        X_active = X_np[:, active]
+        kwargs = {"fit_intercept": self._effective_intercept}
+        if "solver" in model_cls.__init__.__code__.co_varnames:
+            kwargs["solver"] = "newton"
+        refit = model_cls(**kwargs)
+        refit.fit(X_active, y_np, sample_weight=sample_weight)
+
+        # Sandwich on refit
+        if self._effective_intercept:
+            X_design = np.column_stack([np.ones(n), X_active])
+            params_active = np.concatenate([[refit.intercept_], refit.coef_])
+        else:
+            X_design = X_active
+            params_active = np.asarray(refit.coef_)
+
+        # Resolve loss for inference
+        loss_obj = refit._resolve_loss_for_inference() if hasattr(refit, '_resolve_loss_for_inference') else self._loss
+
+        result = m_estimation_inference(
+            loss_obj, X_design, y_np, params_active,
+            cov_type=self.cov_type,
+            sample_weight=sample_weight,
+        )
+
+        # Map back to full parameter space
+        full_p = p + (1 if self._effective_intercept else 0)
+        bse_full = np.full(full_p, np.nan)
+        z_full = np.full(full_p, np.nan)
+        p_full = np.full(full_p, np.nan)
+        ci_full = np.full((full_p, 2), np.nan)
+
+        offset = 1 if self._effective_intercept else 0
+        active_idx = np.where(active)[0] + offset
+        bse_full[active_idx] = np.asarray(result["bse"])[offset:]
+        z_full[active_idx] = np.asarray(result["statistic"])[offset:]
+        p_full[active_idx] = np.asarray(result["pvalues"])[offset:]
+        ci_full[active_idx] = np.asarray(result["conf_int"])[offset:]
+        if self._effective_intercept:
+            bse_full[0] = np.asarray(result["bse"])[0]
+            z_full[0] = np.asarray(result["statistic"])[0]
+            p_full[0] = np.asarray(result["pvalues"])[0]
+            ci_full[0] = np.asarray(result["conf_int"])[0]
+
+        self._bse = bse_full
+        self._zvalues = z_full
+        self._pvalues = p_full
+        self._conf_int = ci_full
+        self._params = np.concatenate([[self.intercept_], coef_np]) if self._effective_intercept else coef_np.copy()
+
+        self._inference_result = ParameterInferenceResult(
+            method="oracle",
+            params=self._params.copy(),
+            bse=self._bse.copy(),
+            statistic=self._zvalues.copy(),
+            statistic_name="z",
+            pvalues=self._pvalues.copy(),
+            conf_int=self._conf_int.copy(),
+            distribution="normal",
+            metadata={
+                "n_active": n_active,
+                "active_set": active.tolist() if hasattr(active, 'tolist') else list(active),
+                "covariance_convention": _infer_covariance_convention(self.cov_type, False),
+            },
+        )
+        self._inference_result.apply_to(self)
 
     def _compute_simultaneous_ci_maxz_bootstrap(self):
         """Compute simultaneous CIs using max-|Z| multiplier bootstrap.

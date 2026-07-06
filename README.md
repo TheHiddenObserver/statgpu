@@ -15,6 +15,7 @@ GPU-accelerated statistical methods with sklearn-compatible API.
 - **Quickstart**: [Quickstart](docs/en/getting-started/quickstart.md)
 - **GLM + Penalty**: [Generalized Linear Model](docs/en/models/generalized-linear-model.md) — 7 families × 10 penalties × 3 backends
 - **Cross-Validation**: [Cross-Validation Guide](docs/en/guides/cross-validation.md) — PenalizedGLM_CV, LassoCV, RidgeCV
+- **Loss × Penalty × Solver Framework**: [Framework Guide](docs/en/guides/loss-penalty-solver-framework.md) — complete architecture, dispatch logic, coverage matrix
 - **Solver-Penalty Matrix**: [Solver × Penalty](docs/en/guides/solver-penalty-matrix.md) — solver dispatch and penalty routing
 - **Device & Memory**: [Device and GPU Memory](docs/en/guides/device-and-memory.md)
 - **PyTorch Backend**: [PyTorch Backend](docs/en/guides/pytorch-backend.md)

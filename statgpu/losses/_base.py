@@ -109,12 +109,29 @@ class LossBase(ABC):
         return val, grad
 
     def hessian(self, X, y, coef, sample_weight=None) -> np.ndarray:
-        """Hessian matrix (for Newton solver).
+        """Observed Hessian matrix H = X'WX/n (for Newton solver and sandwich).
+
+        W is the per-observation second derivative ∂²ℓ/∂η² evaluated at (η_i, y_i).
 
         Raises NotImplementedError when auto solver falls back to FISTA.
         """
         raise NotImplementedError(
             f"{self.name} does not support Hessian."
+        )
+
+    def fisher_information(self, X, coef, sample_weight=None) -> np.ndarray:
+        """Expected Fisher information I(β) = X'WX/n.
+
+        W_ii = E[-∂²ℓ/∂η_i²] = 1 / (V(μ_i) · g'(μ_i)²) for GLMs.
+
+        Unlike ``hessian()``, this does NOT depend on y — it is the
+        expectation under the model.  For canonical-link GLMs,
+        ``fisher_information() == hessian()``.
+
+        Default raises NotImplementedError.  GLMLoss subclasses override.
+        """
+        raise NotImplementedError(
+            f"{self.name} does not support Fisher information."
         )
 
     def lipschitz(self, X, coef, y=None, sample_weight=None) -> float:
@@ -126,6 +143,66 @@ class LossBase(ABC):
     def preprocess(self, X, y):
         """Preprocess data. Default returns as-is."""
         return X, y
+
+    def per_sample_score(self, X, y, coef):
+        """Per-observation score contributions g_i = ∂ℓ/∂η_i · x_i.
+
+        Shape (n, p).  Used for HC2/HC3/HAC sandwich meat computation.
+        Materializes the full (n, p) matrix; for memory-efficient HC0/HC1,
+        prefer ``score_outer()``.
+
+        Parameters
+        ----------
+        X : ndarray (n, p)
+            Design matrix.
+        y : ndarray (n,)
+            Response vector.
+        coef : ndarray (p,)
+            Coefficient vector.
+
+        Returns
+        -------
+        scores : ndarray (n, p)
+            Per-observation score contributions.
+        """
+        xp = _get_xp(X)
+        eta = X @ coef
+        grad = self.per_sample_gradient(eta, y)  # (n,)
+        return X * grad[:, None]
+
+    def score_outer(self, X, y, coef, sample_weight=None):
+        """Memory-efficient score outer product for HC0/HC1 sandwich meat.
+
+        Unweighted: ``X' @ diag(grad²) @ X``
+        Weighted (analytic): ``X' @ diag(w²·grad²) @ X``
+
+        Avoids materializing the full (n, p) score matrix.
+
+        Parameters
+        ----------
+        X : ndarray (n, p)
+            Design matrix.
+        y : ndarray (n,)
+            Response vector.
+        coef : ndarray (p,)
+            Coefficient vector.
+        sample_weight : ndarray (n,) or None
+            If provided, uses w_i² for analytic-weight sandwich meat.
+
+        Returns
+        -------
+        outer : ndarray (p, p)
+            Sum of outer products Σ g_i g_i' (unweighted)
+            or Σ w_i² g_i g_i' (weighted).
+        """
+        xp = _get_xp(X)
+        eta = X @ coef
+        grad = self.per_sample_gradient(eta, y)  # (n,)
+        if sample_weight is not None:
+            # Weighted (analytic): Σ w_i² g_i g_i' = Σ (w_i·g_i)(w_i·g_i)'
+            grad = grad * sample_weight
+        Xw = X * grad[:, None]  # (n, p)
+        return Xw.T @ Xw
 
     def predict(self, X, coef):
         """Map from X @ coef to prediction. Default X @ coef."""
