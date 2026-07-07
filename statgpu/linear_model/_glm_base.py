@@ -572,7 +572,9 @@ class GeneralizedLinearModel(BaseEstimator):
             if solver_name == "irls" and self.C > 0:
                 lam = self._get_penalty_alpha()
                 if is_gpu:
-                    curv = inf_xp.zeros(self._params.shape[0], dtype=self._params.dtype)
+                    from statgpu.backends._utils import xp_zeros
+                    curv = xp_zeros(self._params.shape[0], self._params.dtype,
+                                    inf_xp, ref_arr=self._params)
                 else:
                     curv = np.zeros(self._params.shape[0])
                 if self._effective_intercept:
@@ -1277,6 +1279,14 @@ class OrderedGeneralizedLinearModel(GeneralizedLinearModel):
         Works with NumPy, CuPy, and Torch arrays.  Uses the vectorized
         ``_ordered_hessian_analytical`` and backend-native linalg + distributions.
         """
+        # Only nonrobust covariance is supported for ordered models
+        if self.cov_type not in ("nonrobust",):
+            raise NotImplementedError(
+                f"Ordered model inference only supports cov_type='nonrobust', "
+                f"got '{self.cov_type}'. HC0/HC1 sandwich and penalized "
+                f"inference are not yet available for ordered models."
+            )
+
         import numpy as np
         from statgpu.backends import _to_numpy, _resolve_backend
         from statgpu.backends._utils import _get_xp, xp_eye
