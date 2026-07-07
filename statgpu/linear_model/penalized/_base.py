@@ -372,7 +372,7 @@ class PenalizedGeneralizedLinearModel(
             if penalty_name == "l2":
                 return
             if penalty_name in ("l1", "elasticnet", "en"):
-                if inference_method in ("debiased", "cpu_ols", "gpu_ols", "bootstrap"):
+                if any(m in inference_method for m in ("debiased", "cpu_ols", "gpu_ols", "bootstrap")):
                     return
             if penalty_name in ("scad", "mcp") and inference_method in ("oracle", "bootstrap"):
                 return
