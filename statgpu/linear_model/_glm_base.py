@@ -22,7 +22,7 @@ def _parse_formula_if_provided(formula, data, X, y):
 
 from statgpu._base import BaseEstimator
 from statgpu._config import Device
-from statgpu.backends import _to_numpy, _resolve_backend
+from statgpu.backends import _to_numpy, _resolve_backend, _is_torch_array
 from statgpu.glm_core._irls import IRLSSolver
 from statgpu.solvers import fista_solver
 from statgpu.glm_core._family import (
@@ -37,16 +37,22 @@ from statgpu.glm_core._family import (
 
 
 def _np_compat_xp(arr):
-    """Get numpy-compatible array module from array type.
-
-    Returns cupy for cupy arrays, numpy for everything else (including torch).
-    Used for operations that need numpy-style indexing (e.g., ordered model).
-    """
+    """Return the native array module for the given array: cupy, torch, or numpy."""
     from statgpu.backends._utils import _get_xp
     backend = _resolve_backend("auto", arr)
     if backend == "cupy":
         return _get_xp("cupy")
+    if backend == "torch":
+        return _get_xp("torch")
     return np
+
+
+def _ordered_xp(X):
+    """Native array module: torch for torch, cupy for cupy, numpy otherwise."""
+    from statgpu.backends._utils import _get_xp
+    from statgpu.backends import _resolve_backend
+    backend = _resolve_backend("auto", X)
+    return _get_xp(backend)
 
 
 def _torch_promoted_float_dtype(X, y):
@@ -541,7 +547,9 @@ class GeneralizedLinearModel(BaseEstimator):
                 self._X_design, self._params, self._intercept_idx = \
                     self._aligned_inference_design_glm(X_arr)
                 if sample_weight is not None:
-                    self._sample_weight_inf = sample_weight.ravel()
+                    # Convert to GPU backend to match _X_design / _y_inf
+                    self._sample_weight_inf = self._to_array(
+                        sample_weight.ravel(), backend=inf_backend)
                 else:
                     self._sample_weight_inf = None
             else:
@@ -895,28 +903,6 @@ class GeneralizedLinearModel(BaseEstimator):
             X.shape[1] + (1 if self._effective_intercept else 0)
         )
 
-    def _get_loss_kwargs(self):
-        """Override in subclass to pass extra kwargs to family/loss."""
-        return {}
-
-    def family_to_loss(self):
-        """Map family name to loss name."""
-        mapping = {
-            "gaussian": "squared_error",
-            "binomial": "logistic",
-            "poisson": "poisson",
-            "gamma": "gamma",
-            "inverse_gaussian": "inverse_gaussian",
-            "negative_binomial": "negative_binomial",
-            "tweedie": "tweedie",
-        }
-        if self.family not in mapping:
-            raise ValueError(
-                f"Unknown family '{self.family}'. "
-                f"Supported families: {list(mapping.keys())}"
-            )
-        return mapping[self.family]
-
     def predict(self, X):
         """Predict using fitted model."""
         if self.coef_ is None:
@@ -1001,13 +987,7 @@ class OrderedGeneralizedLinearModel(GeneralizedLinearModel):
         cov_type: str = "nonrobust",
         gpu_memory_cleanup: bool = False,
     ):
-        if compute_inference:
-            raise NotImplementedError(
-                "Ordered models (OrderedLogitRegression, OrderedProbitRegression) "
-                "do not yet support inference.  The threshold parameters require "
-                "special handling for standard errors.  "
-                "Set compute_inference=False."
-            )
+        # Inference is supported via analytical Hessian in _compute_ordered_inference
         super().__init__(
             family=family,
             fit_intercept=fit_intercept,
@@ -1021,6 +1001,11 @@ class OrderedGeneralizedLinearModel(GeneralizedLinearModel):
             cov_type=cov_type,
             gpu_memory_cleanup=gpu_memory_cleanup,
         )
+        if n_categories < 2:
+            raise ValueError(
+                f"n_categories must be >= 2, got {n_categories}. "
+                "Ordered models require at least 2 ordinal categories."
+            )
         self.n_categories = n_categories
         self.thresholds_ = None
 
@@ -1037,7 +1022,6 @@ class OrderedGeneralizedLinearModel(GeneralizedLinearModel):
 
         backend = self._get_backend(backend="auto")
         backend_name = backend.name
-        self._selected_backend_name = backend_name
         self._nobs = X.shape[0]
 
         # Convert to backend format (cupy→cupy zero-copy, numpy→cupy/torch)
@@ -1049,361 +1033,438 @@ class OrderedGeneralizedLinearModel(GeneralizedLinearModel):
         n = X.shape[0]
         p = X.shape[1]
 
-        if backend_name == "cupy":
-            self._fit_cupy_ordered(X, y, family, K, n, p)
-        elif backend_name == "torch":
-            self._fit_torch_ordered(X, y, family, K, n, p)
-        else:
-            self._fit_scipy_ordered(X, y, family, K, n, p)
+        try:
+            if backend_name == "cupy":
+                self._fit_cupy_ordered(X, y, family, K, n, p)
+            elif backend_name == "torch":
+                self._fit_torch_ordered(X, y, family, K, n, p)
+            else:
+                self._fit_scipy_ordered(X, y, family, K, n, p)
 
-        self._df_resid = self._nobs - (p + K - 1)
-        self._fitted = True
-        self._cleanup_backend_memory(backend_name)
+            self._df_resid = self._nobs - (p + K - 1)
+            self._params = np.concatenate([self.coef_, self._thresh_est])
+
+            if self.compute_inference:
+                self._compute_ordered_inference(X, y)
+            self._fitted = True
+        finally:
+            self._cleanup_backend_memory(backend_name)
         return self
 
-    def _fit_scipy_ordered(self, X, y, family, K, n, p):
-        """Fit ordered GLM using scipy.optimize.minimize(L-BFGS-B)."""
-        from scipy.optimize import minimize
+    @property
+    def loglikelihood(self):
+        """Log-likelihood at the fitted parameters (ordered model)."""
+        self._check_is_fitted()
+        return -float(self._nobs) * float(self._final_nll)
 
-        X = np.asarray(X, dtype=np.float64)
-        y = np.asarray(y, dtype=np.int64)
+    # -----------------------------------------------------------------
+    # Shared Newton-Raphson trust-region (all 3 backends)
+    # -----------------------------------------------------------------
 
-        X_mean = X.mean(axis=0)
-        X_std = X.std(axis=0)
-        X_std[X_std < 1e-10] = 1.0
+    def _fit_ordered_newton_impl(self, X, y, family, K, n, p, xp, is_torch, is_cupy,
+                                  dev=None):
+        """Backend-agnostic Newton-Raphson with trust-region for ordered models.
+
+        Parameters
+        ----------
+        X, y : arrays on the target backend (already converted by caller).
+        family : GLMFamily
+        K, n, p : int
+        xp : module — numpy, cupy, or torch
+        is_torch, is_cupy : bool
+        dev : torch device or None
+        """
+        # ---- Standardization ----
+        from statgpu.backends._array_ops import _clip
+        if is_torch:
+            X_mean = X.mean(dim=0)
+            X_std = X.std(dim=0)
+            X_std = xp.where(X_std < 1e-10, xp.ones_like(X_std), X_std)
+        else:
+            X_mean = X.mean(axis=0)
+            X_std = X.std(axis=0)
+            X_std[X_std < 1e-10] = 1.0
         Xs = (X - X_mean) / X_std
 
-        theta_init = np.zeros(p + K - 1)
-        theta_init[p:] = np.arange(0.5, K - 0.5, dtype=np.float64)
+        # ---- Initialisation ----
+        if is_torch:
+            theta = xp.zeros(p + K - 1, dtype=xp.float64, device=dev)
+            theta[p:] = xp.arange(0.5, K - 0.5, dtype=xp.float64, device=dev)
+            idx = xp.arange(n, device=dev)
+        elif is_cupy:
+            theta = xp.zeros(p + K - 1, dtype=xp.float64)
+            theta[p:] = xp.arange(0.5, K - 0.5, dtype=xp.float64)
+            idx = xp.arange(n)
+        else:
+            theta = xp.zeros(p + K - 1)
+            theta[p:] = xp.arange(0.5, K - 0.5, dtype=xp.float64)
+            idx = xp.arange(n)
 
-        cache = {"nll": None, "grad": None, "theta": None}
+        d = len(theta); nll_old = xp.inf; ridge = 1e-4
 
-        def nll_and_grad(theta):
-            if cache["theta"] is not None and np.array_equal(cache["theta"], theta):
-                return cache["nll"], cache["grad"]
-
-            beta = theta[:p]
-            thresh = theta[p:]
-
-            prob = self._ordered_category_probs(Xs, beta, thresh, family, K)
-            prob_c = np.clip(prob, 1e-15, None)
-            nll = -np.sum(np.log(prob_c[y, np.arange(n)])) / n
-
-            grad = self._ordered_gradient(
-                Xs, y, beta, thresh, prob, prob_c, family, K, n
+        if self.max_iter <= 0:
+            raise ValueError(
+                f"max_iter must be > 0, got {self.max_iter}. "
+                "Newton-Raphson requires at least 1 iteration."
             )
 
-            cache["nll"] = nll
-            cache["grad"] = grad
-            cache["theta"] = theta
-            return nll, grad
+        # Pre-allocate identity matrix for trust-region (reused across attempts)
+        if is_torch:
+            eye_d = xp.eye(d, dtype=xp.float64, device=dev)
+        elif is_cupy:
+            eye_d = xp.eye(d, dtype=xp.float64)
+        else:
+            eye_d = xp.eye(d)
 
-        def nll_func(theta):
-            val, _ = nll_and_grad(theta)
-            return val
+        # ---- Newton loop ----
+        for iteration in range(self.max_iter):
+            beta = theta[:p]; thresh = theta[p:]
+            eta = Xs @ beta  # compute once, pass to all callees
 
-        def grad_func(theta):
-            _, g = nll_and_grad(theta)
-            return g
+            prob = self._ordered_category_probs(Xs, beta, thresh, family, K, eta=eta)
+            prob_c = _clip(prob, 1e-15, None)
+            if is_torch:
+                nll = -xp.mean(xp.log(prob_c[y, idx]))
+            else:
+                nll = -xp.sum(xp.log(prob_c[y, idx])) / n
 
-        result = minimize(
-            nll_func, theta_init, jac=grad_func, method="L-BFGS-B",
-            options={"maxiter": self.max_iter, "ftol": self.tol * 1e-3,
-                     "gtol": self.tol, "disp": False},
-        )
+            # Gradient (torch uses its own device-aware path)
+            if is_torch:
+                grad = self._ordered_gradient_torch(
+                    Xs, y, beta, thresh, prob, prob_c, family, K, n, eta=eta)
+            else:
+                grad = self._ordered_gradient(
+                    Xs, y, beta, thresh, prob, prob_c, family, K, n, eta=eta)
 
-        theta = result.x
-        beta_scaled = theta[:p]
-        self.coef_ = beta_scaled / X_std
-        thresh_est = np.sort(theta[p:])
-        self.thresholds_ = np.concatenate([[-np.inf], thresh_est, [np.inf]])
-        self._X_mean = X_mean
-        self._X_std = X_std
-        self.n_iter_ = result.nit if hasattr(result, "nit") else result.nfev
-
-    def _fit_cupy_ordered(self, X, y, family, K, n, p):
-        """Fit ordered GLM using full CuPy L-BFGS on GPU.
-
-        All computation stays on GPU — no scipy bridge, no CPU round-trips.
-        Pre-allocates arrays (prob, prob_c, eta, diff, deriv_all) to amortize
-        GPU memory allocation overhead across iterations.
-
-        Warm start: reuses previous fit's solution if available (self.coef_ exists).
-
-        For n=5000: GPU NLL+grad ≈ 2.4ms/call, ~67 evals ≈ 160ms total.
-        For n=50000+: GPU compute dominates, kernel launch overhead is negligible.
-        """
-        import cupy as cp
-
-        X = cp.asarray(X, dtype=cp.float64)
-        y = cp.asarray(y, dtype=cp.int64)
-
-        X_mean = X.mean(axis=0)
-        X_std = X.std(axis=0)
-        X_std[X_std < 1e-10] = 1.0
-        Xs = (X - X_mean) / X_std
-
-        # Pre-allocate reusable arrays (amortize GPU alloc overhead)
-        _prob_pre = cp.zeros((K, n), dtype=cp.float64)
-        _prob_c_pre = cp.zeros((K, n), dtype=cp.float64)
-        _eta_pre = cp.zeros(n, dtype=cp.float64)
-        _diff_pre = cp.zeros((K - 1, n), dtype=cp.float64)
-        _deriv_all = cp.zeros((K - 1, n), dtype=cp.float64)
-        _scalar = cp.zeros(n, dtype=cp.float64)
-        _inv_prob = cp.zeros(n, dtype=cp.float64)
-        _y_idx = cp.arange(n)
-
-        def nll_and_grad_prealloc(theta_cp):
-            """NLL + gradient with pre-allocated arrays."""
-            beta = theta_cp[:p]
-            thresh = theta_cp[p:]
-
-            # Inline category probs using pre-allocated arrays
-            _eta_pre[:] = Xs @ beta
-            _diff_pre[:] = thresh[:, None] - _eta_pre[None, :]
-            pi = family.link.inverse(_diff_pre)  # (K-1, n)
-
-            _prob_pre[0] = pi[0]
-            for j in range(1, K - 1):
-                _prob_pre[j] = pi[j] - pi[j - 1]
-            _prob_pre[K - 1] = 1.0 - pi[K - 2]
-            _prob_c_pre[:] = cp.clip(_prob_pre, 1e-15, None)
-
-            nll = -cp.sum(cp.log(_prob_c_pre[y, _y_idx])) / n
-
-            # Gradient with pre-allocated arrays
-            grad = cp.zeros(p + K - 1)
-            for j in range(K - 1):
-                _deriv_all[j] = self._ordered_link_derivative(_diff_pre[j], family)
-            _inv_prob[:] = 1.0 / _prob_c_pre[y, _y_idx]
-
-            for j in range(K - 1):
-                mask_pos = (y == j)
-                mask_neg = (y == j + 1)
-                grad[p + j] = -cp.sum(
-                    _inv_prob * (_deriv_all[j] * mask_pos - _deriv_all[j] * mask_neg)
-                ) / n
-
-            _scalar[:] = 0.0
-            mask0 = (y == 0)
-            mask_last = (y == K - 1)
-            mask_mid = ~mask0 & ~mask_last
-            _scalar[mask0] = -_deriv_all[0, mask0]
-            _scalar[mask_last] = _deriv_all[K - 2, mask_last]
-            idx_mid = cp.where(mask_mid)[0]
-            _scalar[idx_mid] = (_deriv_all[y[idx_mid] - 1, idx_mid]
-                                 - _deriv_all[y[idx_mid], idx_mid])
-            grad[:p] -= Xs.T @ (_inv_prob * _scalar) / n
-
-            return nll, grad
-
-        # Initial theta (matching scipy and torch: start from scratch)
-        theta = cp.zeros(p + K - 1, dtype=cp.float64)
-        theta[p:] = cp.arange(0.5, K - 0.5, dtype=cp.float64)
-
-        # L-BFGS parameters
-        c1, c2 = 1e-4, 0.9
-        max_ls = 25
-        m_hist = 15
-        min_iter = 5  # small guard against premature stop
-
-        nll, grad = nll_and_grad_prealloc(theta)
-        # Use infinity norm of gradient for convergence (matching scipy's gtol).
-        gtol = self.tol
-        grad_inf = float(cp.max(cp.abs(grad)))
-        s_hist, y_hist, rho_hist = [], [], []
-        H0 = 1.0
-        n_iter = 0
-
-        while n_iter < self.max_iter:
-            # Check convergence using infinity norm (after min_iter iterations)
-            if n_iter >= min_iter and grad_inf <= gtol:
+            # Convergence: NLL-change + gradient-norm + isfinite guard
+            if not xp.isfinite(nll):
+                raise RuntimeError(
+                    f"NLL became non-finite ({float(nll):.4g}) at iteration "
+                    f"{iteration}. Coefficients may have diverged."
+                )
+            if iteration > 0 and abs(float(nll_old - nll)) < self.tol:
                 break
-            s_old = theta.copy()
-            g_old = grad.copy()
+            grad_inf = float(xp.max(xp.abs(grad)))
+            if grad_inf < self.tol:
+                break
             nll_old = nll
 
-            # Two-loop recursion
-            q = grad.copy()
-            alphas = []
-            for i in range(len(s_hist) - 1, -1, -1):
-                a = rho_hist[i] * cp.dot(s_hist[i], q)
-                alphas.insert(0, a)
-                q = q - a * y_hist[i]
+            # Hessian + trust-region
+            H = self._ordered_hessian_analytical(
+                Xs, y, beta, thresh, family, K, prob, prob_c, eta=eta)
+            H_avg = H / n
 
-            if s_hist:
-                sy = float(cp.dot(s_hist[-1], y_hist[-1]))
-                yy = float(cp.dot(y_hist[-1], y_hist[-1]))
-                H0 = sy / (yy + 1e-30)
+            for attempt in range(20):
+                H_reg = H_avg + ridge * eye_d
+                # Catch linalg errors (singular matrix) only; OOM/programming
+                # errors re-raise.  CuPy uses generic Exception for linalg.
+                try:
+                    delta = xp.linalg.solve(H_reg, -grad)
+                except (np.linalg.LinAlgError, RuntimeError):
+                    ridge *= 10; continue
+                except Exception:
+                    if is_cupy:
+                        ridge *= 10; continue
+                    raise
 
-            r = H0 * q
-            for i in range(len(s_hist)):
-                b = rho_hist[i] * cp.dot(y_hist[i], r)
-                r = r + s_hist[i] * (alphas[i] - b)
-
-            d = -r
-            gd = float(cp.dot(grad, d))
-            if gd >= -1e-12:
-                d = -grad
-                gd = float(cp.dot(grad, d))
-
-            slope = gd
-            step = 1.0
-
-            # Armijo line search
-            for _ in range(max_ls):
-                theta_new = theta + step * d
-                nll_new, grad_new = nll_and_grad_prealloc(theta_new)
-                if nll_new <= nll_old + c1 * step * slope:
-                    break
-                step *= 0.5
+                theta_try = theta + delta
+                beta_t = theta_try[:p]; thresh_t = theta_try[p:]
+                prob_t = self._ordered_category_probs(Xs, beta_t, thresh_t, family, K)
+                pc_t = _clip(prob_t, 1e-15, None)
+                if is_torch:
+                    nll_try = -xp.mean(xp.log(pc_t[y, idx]))
+                else:
+                    nll_try = -xp.sum(xp.log(pc_t[y, idx])) / n
+                if float(nll_try) < float(nll):
+                    ridge *= 0.5; break
+                ridge *= 2.0
             else:
-                theta_new = theta + step * d
-                nll_new, grad_new = nll_and_grad_prealloc(theta_new)
+                break
+            theta = theta_try
+            nll = nll_try  # keep NLL in sync with accepted theta
 
-            # Update L-BFGS history
-            s_new = theta_new - s_old
-            y_new_arr = grad_new - g_old
-            sy_val = float(cp.dot(s_new, y_new_arr))
-            if sy_val > 1e-12:
-                if len(s_hist) >= m_hist:
-                    s_hist.pop(0)
-                    y_hist.pop(0)
-                    rho_hist.pop(0)
-                s_hist.append(s_new)
-                y_hist.append(y_new_arr)
-                rho_hist.append(1.0 / sy_val)
+        # ---- Extract results to CPU ----
+        self.n_iter_ = iteration + 1
+        self._final_nll = float(nll)
 
-            theta = theta_new
-            nll = nll_new
-            grad = grad_new
-            grad_inf = float(cp.max(cp.abs(grad)))
-            n_iter += 1
+        if is_torch:
+            beta_scaled = theta[:p]
+            self.coef_ = (beta_scaled / X_std).cpu().numpy()
+            thresh_est = xp.sort(theta[p:])[0]
+            intercept_adj = float(((X_mean / X_std) * beta_scaled).sum().cpu())
+            th_est = thresh_est.cpu().numpy()
+            self._beta_scaled = beta_scaled.cpu().numpy().copy()
+            self._thresh_est = th_est + intercept_adj
+            self._X_mean = X_mean.cpu().numpy()
+            self._X_std = X_std.cpu().numpy()
+        elif is_cupy:
+            beta_scaled = theta[:p]
+            self.coef_ = (beta_scaled / X_std).get()
+            thresh_est = xp.sort(theta[p:])
+            self._beta_scaled = beta_scaled.get().copy()
+            intercept_adj = float((X_mean / X_std * beta_scaled).sum().get())
+            self._thresh_est = thresh_est.get() + intercept_adj
+            self._X_mean = X_mean.get()
+            self._X_std = X_std.get()
+        else:
+            beta_scaled = theta[:p]
+            self.coef_ = beta_scaled / X_std
+            thresh_est = np.sort(theta[p:])
+            self._beta_scaled = beta_scaled.copy()
+            intercept_adj = float(X_mean @ self.coef_)
+            self._thresh_est = thresh_est + intercept_adj
+            self._X_mean = X_mean
+            self._X_std = X_std
 
-        # Extract results
-        beta_scaled = theta[:p]
-        self.coef_ = (beta_scaled / X_std).get()
-        thresh_est = cp.sort(theta[p:])
-        self.thresholds_ = np.concatenate([[-np.inf], thresh_est.get(), [np.inf]])
-        self._X_mean = X_mean.get()
-        self._X_std = X_std.get()
-        self.n_iter_ = n_iter
+        self.thresholds_ = np.concatenate([[-np.inf], self._thresh_est, [np.inf]])
+
+    def _fit_scipy_ordered(self, X, y, family, K, n, p):
+        """Fit ordered GLM using NumPy Newton-Raphson."""
+        X = np.asarray(X, dtype=np.float64)
+        y = np.asarray(y, dtype=np.int64)
+        self._fit_ordered_newton_impl(X, y, family, K, n, p, np,
+                                       is_torch=False, is_cupy=False)
+
+    def _fit_cupy_ordered(self, X, y, family, K, n, p):
+        """Fit ordered GLM using CuPy Newton-Raphson."""
+        import cupy as cp
+        X = cp.asarray(X, dtype=cp.float64)
+        y = cp.asarray(y, dtype=cp.int64)
+        self._fit_ordered_newton_impl(X, y, family, K, n, p, cp,
+                                       is_torch=False, is_cupy=True)
 
     def _fit_torch_ordered(self, X, y, family, K, n, p):
-        """Fit ordered GLM using PyTorch autograd + LBFGS on GPU.
-
-        X and y are already torch.Tensor on CUDA (converted by _to_array in fit()).
-        No CuPy/NumPy bridge needed here — device purity is enforced upstream.
-        """
+        """Fit ordered GLM using Torch Newton-Raphson."""
         import torch
-
-        assert isinstance(X, torch.Tensor), (
-            f"_fit_torch_ordered expects torch.Tensor, got {type(X)}. "
-            "Input should be converted by _to_array() before entering this method."
-        )
-
-        torch_device = X.device
-        if X.dtype != torch.float64:
-            X = X.to(torch.float64)
+        assert isinstance(X, torch.Tensor)
+        dev = X.device
+        if X.dtype != torch.float64: X = X.to(torch.float64)
         if not isinstance(y, torch.Tensor):
-            y = torch.from_numpy(np.asarray(y, dtype=np.int64)).to(torch_device)
+            y = torch.from_numpy(np.asarray(y, dtype=np.int64)).to(dev)
         elif y.dtype != torch.int64:
             y = y.to(torch.int64)
+        self._fit_ordered_newton_impl(X, y, family, K, n, p, torch,
+                                       is_torch=True, is_cupy=False, dev=dev)
 
-        X_mean = X.mean(dim=0)
-        X_std = X.std(dim=0)
-        X_std = torch.where(X_std < 1e-10, torch.ones_like(X_std), X_std)
-        Xs = (X - X_mean) / X_std
-
-        # Parameters: [beta (p), thresholds (K-1)]
-        # Initialize thresholds uniformly
-        theta_init = torch.zeros(p + K - 1, dtype=torch.float64, device=torch_device)
-        theta_init[p:] = torch.arange(0.5, K - 0.5, dtype=torch.float64, device=torch_device)
-        theta = torch.nn.Parameter(theta_init.clone())
-
-        n_samples = torch.tensor(float(n), dtype=torch.float64, device=torch_device)
-        y_idx = torch.arange(n, device=torch_device)
-
-        def closure():
-            optimizer.zero_grad()
-            beta = theta[:p]
-            thresh = theta[p:]
-
-            # Compute category probabilities with autograd
-            eta = Xs @ beta  # (n,)
-            diff = thresh[:, None] - eta[None, :]  # (K-1, n)
-
-            # Link inverse via family
-            pi = family.link.inverse(diff)  # (K-1, n)
-
-            # Category probabilities P(y=j)
-            prob = torch.zeros((K, n), dtype=torch.float64, device=torch_device)
-            prob[0] = pi[0]
-            for j in range(1, K - 1):
-                prob[j] = pi[j] - pi[j - 1]
-            prob[K - 1] = 1.0 - pi[K - 2]
-
-            # Negative log-likelihood
-            prob_c = torch.clamp(prob[y, y_idx], 1e-15, None)
-            nll = -torch.mean(torch.log(prob_c))
-
-            nll.backward()
-            return nll
-
-        # Torch L-BFGS — use strong_wolfe line_search for robust convergence
-        # (ordered logit NLL landscape has steep gradients that cause lr=1.0
-        #  without line search to diverge into degenerate local minima)
-        try:
-            optimizer = torch.optim.LBFGS(
-                [theta],
-                lr=1.0,
-                max_iter=self.max_iter,
-                tolerance_grad=self.tol,
-                tolerance_change=self.tol * 1e-3,
-                line_search_fn='strong_wolfe',
-                max_eval=self.max_iter * 25,
-            )
-        except TypeError:
-            raise RuntimeError(
-                "torch.optim.LBFGS with line_search_fn='strong_wolfe' is required "
-                "for ordered model fitting. Upgrade to PyTorch >= 1.13 or use "
-                "a different backend (numpy or cupy)."
-            )
-
-        loss = optimizer.step(closure)
-
-        # Extract results
-        theta_final = theta.detach()
-        beta_scaled = theta_final[:p]
-        thresh_est = torch.sort(theta_final[p:])[0]
-
-        self.coef_ = (beta_scaled / X_std).cpu().numpy()
-        self.thresholds_ = np.concatenate([[-np.inf], thresh_est.cpu().numpy(), [np.inf]])
-        self._X_mean = X_mean.cpu().numpy()
-        self._X_std = X_std.cpu().numpy()
-        try:
-            state_dict = optimizer.state_dict()
-            n_iter = 0
-            for group in state_dict.get('state', {}).values():
-                n_iter = max(n_iter, group.get('n_iter', 0))
-            self.n_iter_ = n_iter if n_iter > 0 else self.max_iter
-        except Exception:
-            self.n_iter_ = self.max_iter
-
-    def _ordered_category_probs(self, X, beta, thresh, family, K):
+    def _ordered_category_probs(self, X, beta, thresh, family, K, eta=None):
         """Compute category probabilities P(y=j|X), shape (K, n)."""
-        eta = X @ beta  # (n,)
+        if eta is None:
+            eta = X @ beta  # (n,)
         pi = family.link.inverse(thresh[:, None] - eta[None, :])  # (K-1, n)
 
-        xp = _np_compat_xp(X)
-        prob = xp.zeros((K, X.shape[0]), dtype=getattr(X, 'dtype', None))
+        # Use native array module for dtype compatibility (numpy/cupy/torch)
+        dt = getattr(X, 'dtype', None)
+        is_torch = _is_torch_array(X)
+        if is_torch:
+            import torch
+            prob = torch.zeros((K, X.shape[0]), dtype=dt, device=X.device)
+        else:
+            xp = _np_compat_xp(X)
+            prob = xp.zeros((K, X.shape[0]), dtype=dt)
         prob[0] = pi[0]
         for j in range(1, K - 1):
             prob[j] = pi[j] - pi[j - 1]
         prob[K - 1] = 1.0 - pi[K - 2]
         return prob
 
-    def _ordered_gradient(self, X, y, beta, thresh, prob, prob_clipped, family, K, n):
+    # -----------------------------------------------------------------
+    # Ordered model inference
+    # -----------------------------------------------------------------
+
+    def _compute_ordered_inference(self, X_orig, y_orig):
+        """Backend-aware analytical Hessian inference for ordered models.
+
+        Works with NumPy, CuPy, and Torch arrays.  Uses the vectorized
+        ``_ordered_hessian_analytical`` and backend-native linalg + distributions.
+        """
+        import numpy as np
+        from statgpu.backends import _to_numpy, _resolve_backend
+        from statgpu.backends._utils import _get_xp, xp_eye
+        from statgpu.inference._distributions_backend import get_distribution
+
+        backend = _resolve_backend("auto", X_orig)
+        xp = _get_xp(backend)
+        is_torch = (backend == "torch")
+        is_cupy = (backend == "cupy")
+
+        # Keep arrays on native backend; convert y to int
+        X_raw = xp.asarray(X_orig, dtype=xp.float64)
+        y = xp.asarray(y_orig, dtype=xp.int64 if not is_torch else None)
+        if is_torch:
+            y = y.to(xp.int64) if y.dtype != xp.int64 else y
+        y = y.ravel()
+        n, p = X_raw.shape
+        K = self.n_categories; n_thresh = K - 1; d = p + n_thresh
+        family = self._get_family()
+
+        # Raw-scale parameters (on same device as X for torch)
+        if is_torch:
+            beta = xp.asarray(self.coef_, dtype=xp.float64, device=X_raw.device)
+            thresh = xp.asarray(self._thresh_est, dtype=xp.float64, device=X_raw.device)
+        else:
+            beta = xp.asarray(self.coef_, dtype=xp.float64)
+            thresh = xp.asarray(self._thresh_est, dtype=xp.float64)
+
+        # Vectorized analytical Hessian
+        prob = self._ordered_category_probs(X_raw, beta, thresh, family, K)
+        from statgpu.backends._array_ops import _clip
+        prob_c = _clip(prob, 1e-15, None)
+        H = self._ordered_hessian_analytical(X_raw, y, beta, thresh, family, K, prob, prob_c)
+
+        # Covariance = H^{-1} (strict: raise on singular)
+        eye = xp_eye(d, xp.float64, xp, ref_arr=H)
+        try:
+            H_inv = xp.linalg.solve(H, eye)
+        except Exception:
+            raise np.linalg.LinAlgError(
+                "Ordered model Hessian is singular — cannot compute standard errors. "
+                "This may indicate quasi-complete separation or redundant thresholds. "
+                "Consider using inference_method='bootstrap' or reducing n_categories."
+            )
+        cov = H_inv
+
+        # Backend-aware distribution functions
+        norm_dist = get_distribution("norm", backend=backend)
+        params = xp.concatenate([beta, thresh])
+
+        if is_torch:
+            bse = xp.sqrt(xp.clamp(xp.diag(cov), min=0.0))
+        else:
+            bse = xp.sqrt(xp.maximum(xp.diag(cov), 0.0))
+        z_values = params / (bse + 1e-30)
+        pvalues = 2.0 * norm_dist.sf(xp.abs(z_values))
+        z_crit = norm_dist.ppf(0.975)
+        conf_int = xp.column_stack([
+            params - z_crit * bse,
+            params + z_crit * bse,
+        ])
+
+        # Convert to CPU numpy for storage
+        bse_cpu = _to_numpy(bse)
+        z_cpu = _to_numpy(z_values)
+        p_cpu = _to_numpy(pvalues)
+        ci_cpu = _to_numpy(conf_int)
+        params_cpu = _to_numpy(params)
+        beta_cpu = _to_numpy(beta)
+        thresh_cpu = _to_numpy(thresh)
+
+        # Store flat arrays (matching parent GLM contract).
+        # Users access coef-SEs via _bse[:p], threshold-SEs via _bse[p:].
+        self._bse = bse_cpu
+        self._zvalues = z_cpu
+        self._pvalues = p_cpu
+        self._conf_int = ci_cpu
+        self._params = np.concatenate([beta_cpu, thresh_cpu])
+
+        from statgpu.inference._results import ParameterInferenceResult
+        self._inference_result = ParameterInferenceResult(
+            method="analytical_hessian",
+            params=self._params.copy(),
+            bse=self._bse.copy(),
+            statistic=self._zvalues.copy(),
+            statistic_name="z",
+            pvalues=self._pvalues.copy(),
+            conf_int=self._conf_int.copy(),
+            distribution="normal",
+            metadata={"method": "analytical", "n_thresholds": n_thresh,
+                       "backend": backend},
+        )
+        self._inference_result.apply_to(self)
+
+    def _ordered_hessian_analytical(self, X, y, beta, thresh, family, K, prob, prob_c, eta=None):
+        """Vectorized analytical observed Hessian. Backend-agnostic (numpy/cupy/torch)."""
+        xp = _ordered_xp(X)
+        is_torch = _is_torch_array(X)
+        dev = X.device if is_torch else None
+        p = len(beta); n_thresh = len(thresh); d = p + n_thresh; n = X.shape[0]
+
+        # ---- Pre-compute f and fp ----
+        if eta is None:
+            eta = X @ beta
+        diff = thresh[:, None] - eta[None, :]
+        f_all = xp.empty_like(diff); fp_all = xp.empty_like(diff)
+        import math as _math
+        _sqrt2pi = _math.sqrt(2.0 * _math.pi)
+
+        is_probit = 'probit' in str(type(family.link)).lower()
+        if not is_probit:
+            from statgpu.backends._array_ops import _sigmoid
+        for j in range(n_thresh):
+            d_j = diff[j, :]
+            if is_probit:
+                f_all[j] = xp.exp(-0.5 * d_j * d_j) / _sqrt2pi
+                fp_all[j] = -d_j * f_all[j]
+            else:
+                F_j = _sigmoid(d_j)
+                f_all[j] = F_j * (1.0 - F_j)
+                fp_all[j] = f_all[j] * (1.0 - 2.0 * F_j)
+
+        # Weights (device-aware for torch)
+        if is_torch:
+            a_vec = xp.empty(n, dtype=X.dtype, device=dev)
+            H = xp.zeros((d, d), dtype=X.dtype, device=dev)
+        else:
+            a_vec = xp.empty(n)
+            H = xp.zeros((d, d))
+        for k_val in range(K):
+            mask = (y == k_val)
+            if not mask.any(): continue
+            sz = int(mask.sum())
+            if k_val < n_thresh: fk = f_all[k_val, mask]
+            else: fk = xp.zeros(sz, device=dev) if is_torch else xp.zeros(sz)
+            if k_val > 0: fk1 = f_all[k_val - 1, mask]
+            else: fk1 = xp.zeros(sz, device=dev) if is_torch else xp.zeros(sz)
+            a_vec[mask] = fk - fk1
+
+        if is_torch:
+            idx = xp.arange(n, device=dev, dtype=xp.long)
+        else:
+            idx = xp.arange(n)
+        pv_vec = prob_c[y, idx]
+        w_bb = a_vec * a_vec / (pv_vec * pv_vec)
+        _z = lambda sz: (xp.zeros(sz, dtype=X.dtype, device=dev) if is_torch else xp.zeros(sz))
+        for k_val in range(K):
+            mask = (y == k_val)
+            if not mask.any(): continue
+            fpk = fp_all[k_val, mask] if k_val < n_thresh else _z(int(mask.sum()))
+            fpk1 = fp_all[k_val - 1, mask] if k_val > 0 else _z(int(mask.sum()))
+            w_bb[mask] -= (fpk - fpk1) / pv_vec[mask]
+
+        H[:p, :p] = (X * w_bb[:, None]).T @ X
+
+        for j in range(n_thresh):
+            w_bth = _z(n)
+            f_j, fp_j = f_all[j], fp_all[j]
+            mk = (y == j)
+            if mk.any():
+                pv_k, a_k = pv_vec[mk], a_vec[mk]
+                w_bth[mk] = a_k * f_j[mk] / (pv_k * pv_k) - fp_j[mk] / pv_k
+            mk1 = (y == j + 1)
+            if mk1.any():
+                pv_k1, a_k1 = pv_vec[mk1], a_vec[mk1]
+                w_bth[mk1] = -a_k1 * f_j[mk1] / (pv_k1 * pv_k1) + fp_j[mk1] / pv_k1
+            H[:p, p+j] = X.T @ w_bth
+            H[p+j, :p] = H[:p, p+j]
+
+        for k_val in range(n_thresh):
+            mk = (y == k_val)
+            if mk.any():
+                pv_k, fk, fpk = pv_vec[mk], f_all[k_val, mk], fp_all[k_val, mk]
+                H[p+k_val, p+k_val] += xp.sum(fk * fk / (pv_k * pv_k) - fpk / pv_k)
+            mk1 = (y == k_val + 1)
+            if mk1.any():
+                pv_k1, fk1, fpk1 = pv_vec[mk1], f_all[k_val, mk1], fp_all[k_val, mk1]
+                H[p+k_val, p+k_val] += xp.sum(fk1 * fk1 / (pv_k1 * pv_k1) - fpk1 / pv_k1)
+            mc = (y == k_val + 1)
+            if mc.any() and k_val + 1 < n_thresh:
+                pv_c, fk_c, fk1_c = pv_vec[mc], f_all[k_val, mc], f_all[k_val+1, mc]
+                cross = -xp.sum(fk_c * fk1_c / (pv_c * pv_c))
+                H[p+k_val, p+k_val+1] += cross
+                H[p+k_val+1, p+k_val] += cross
+
+        return H
+
+    def _ordered_gradient(self, X, y, beta, thresh, prob, prob_clipped, family, K, n, eta=None):
         """Compute analytical gradient of the negative log-likelihood (vectorized)."""
         xp = _np_compat_xp(X)
         p = X.shape[1]
@@ -1411,7 +1472,8 @@ class OrderedGeneralizedLinearModel(GeneralizedLinearModel):
         dim = p + n_thresh
         grad = xp.zeros(dim)
 
-        eta = X @ beta  # (n,)
+        if eta is None:
+            eta = X @ beta  # (n,)
 
         # Link derivative at all threshold positions: shape (n_thresh, n)
         diff = thresh[:, None] - eta[None, :]  # (n_thresh, n)
@@ -1454,6 +1516,30 @@ class OrderedGeneralizedLinearModel(GeneralizedLinearModel):
 
         return grad
 
+    def _ordered_gradient_torch(self, X, y, beta, thresh, prob, prob_clipped, family, K, n, eta=None):
+        """Torch-native gradient of NLL for ordered model."""
+        import torch
+        d = len(beta) + len(thresh); p = len(beta); n_thresh = len(thresh)
+        grad = torch.zeros(d, dtype=X.dtype, device=X.device)
+        inv_p = 1.0 / prob_clipped[y, torch.arange(n, device=X.device)]
+        if eta is None:
+            eta = X @ beta
+        diff = thresh[:, None] - eta[None, :]
+        d_all = torch.empty_like(diff)
+        for j in range(n_thresh):
+            d_all[j] = self._ordered_link_derivative(diff[j], family)
+        for j in range(n_thresh):
+            mp = (y == j); mn = (y == j + 1)
+            grad[p + j] = -torch.sum(inv_p * (d_all[j] * mp - d_all[j] * mn)) / n
+        scalar = torch.zeros(n, dtype=X.dtype, device=X.device)
+        mask0 = (y == 0); mask_last = (y == K - 1); mask_mid = ~mask0 & ~mask_last
+        scalar[mask0] = -d_all[0, mask0]
+        scalar[mask_last] = d_all[n_thresh - 1, mask_last]
+        idx_mid = torch.where(mask_mid)[0]
+        scalar[idx_mid] = d_all[y[idx_mid] - 1, idx_mid] - d_all[y[idx_mid], idx_mid]
+        grad[:p] = -X.T @ (inv_p * scalar) / n
+        return grad
+
     def _ordered_link_derivative(self, x, family):
         """First derivative of link inverse F'(x) = density at x.
 
@@ -1470,25 +1556,6 @@ class OrderedGeneralizedLinearModel(GeneralizedLinearModel):
         F = family.link.inverse(x)
         return F * (1.0 - F)
 
-    def _ordered_link_second_derivative(self, x, family):
-        """Second derivative of link inverse F''(x)."""
-        mod = type(x).__module__
-        is_cupy = mod.startswith('cupy')
-        is_torch = mod.startswith('torch')
-
-        if family.link.name == "logit":
-            F = family.link.inverse(x)
-            return F * (1.0 - F) * (1.0 - 2.0 * F)
-        elif family.link.name == "probit":
-            # F''(x) = -x * φ(x) for standard normal PDF φ
-            from statgpu.backends._array_ops import _xp, _exp, _scalar_tensor
-            xp = _xp(x)
-            two_pi = _scalar_tensor(2.0 * np.pi, x)
-            phi = _exp(-0.5 * x * x) / xp.sqrt(two_pi)
-            return -x * phi
-        F = family.link.inverse(x)
-        return F * (1.0 - F) * (1.0 - 2.0 * F)
-
     def predict_proba(self, X):
         """Predict class probabilities P(y=j|X).
 
@@ -1504,20 +1571,26 @@ class OrderedGeneralizedLinearModel(GeneralizedLinearModel):
         backend_name = backend.name
         X_arr = self._to_array(X, backend=backend_name)
 
+        # Guard: integer X causes torch matmul to fail (matching parent GLM.predict)
+        if hasattr(X_arr, 'is_floating_point') and not X_arr.is_floating_point():
+            X_arr = X_arr.float()
+
         from statgpu.backends._utils import _get_xp, xp_asarray
         xp = _get_xp(backend_name)
+        is_torch = _is_torch_array(X_arr)
         coef = xp_asarray(self.coef_, xp=xp, ref_arr=X_arr)
-        X_mean = xp_asarray(self._X_mean, xp=xp, ref_arr=X_arr)
-        X_std = xp_asarray(self._X_std, xp=xp, ref_arr=X_arr)
+        # coef_ is already on raw (unstandardized) scale:
+        #   coef_ = beta_fit / X_std
+        # Thresholds are also on raw scale:
+        #   _thresh_est = theta_fit + X_mean @ coef_
+        # So linear predictor is simply X @ coef (no standardization needed).
         thresholds = xp_asarray(self.thresholds_, xp=xp, ref_arr=X_arr)
-
-        X_scaled = (X_arr - X_mean) / X_std
-        eta = X_scaled @ coef
+        eta = X_arr @ coef
         family = self._get_family()
         diff = thresholds[:, None] - eta[None, :]
         pi = family.link.inverse(diff)  # (K+1, n) with -inf/+inf thresholds
 
-        if hasattr(xp, '__name__') and xp.__name__ == "torch":
+        if is_torch:
             proba = xp.diff(pi, dim=0).T  # (n, K)
         else:
             proba = xp.diff(pi, axis=0).T  # (n, K)
@@ -1533,9 +1606,6 @@ class OrderedGeneralizedLinearModel(GeneralizedLinearModel):
         Backend-agnostic: computes argmax on the native backend, returns NumPy.
         """
         self._check_is_fitted()
-
-        backend = self._get_backend(backend="auto")
-        backend_name = backend.name
         proba = self.predict_proba(X)
         return np.argmax(proba, axis=1)
 

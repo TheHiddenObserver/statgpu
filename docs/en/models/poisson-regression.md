@@ -11,7 +11,7 @@ Language switch: [Chinese](../../models/poisson-regression.md)
 
 `PoissonRegression` implements Poisson GLM estimation for count data through the shared `GeneralizedLinearModel` stack. It is the ordinary, non-penalized Poisson entry point. For penalized Poisson models, use `PenalizedPoissonRegression`.
 
-Supports M-estimation sandwich inference: standard errors, z-statistics, p-values, and 95% confidence intervals via ``compute_inference=True``.  Uses expected Fisher information for model-based covariance (``cov_type='nonrobust'``, matching ``statsmodels.GLM``) and observed Hessian sandwich for robust covariance (``cov_type='hc0'``, ``'hc1'``).  CPU only in this release; GPU inference raises ``NotImplementedError`` explicitly.
+Supports M-estimation sandwich inference: standard errors, z-statistics, p-values, and 95% confidence intervals via ``compute_inference=True``.  Uses expected Fisher information for model-based covariance (``cov_type='nonrobust'``, matching ``statsmodels.GLM``) and observed Hessian sandwich for robust covariance (``cov_type='hc0'``, ``'hc1'``).  Supports all three backends (NumPy, CuPy, Torch) via the backend-agnostic sandwich engine.
 
 ## Path
 
@@ -82,7 +82,7 @@ m2.fit(X, y)
 **Dispersion**: φ = 1.0 (Poisson variance = mean).  Pearson dispersion available via metadata.
 
 **Strict inference**: model-based nonrobust Poisson matches statsmodels to machine precision (|bse diff| < 1e-9 for n≥200).
-**GPU**: raises ``NotImplementedError`` — CPU only in this release.  No silent fallback.
+**GPU**: fully supported (CuPy, Torch) — backend-agnostic sandwich engine runs on the same device as fitting.  No silent CPU fallback.
 
 ## Parameters
 

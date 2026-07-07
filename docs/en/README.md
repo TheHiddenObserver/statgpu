@@ -27,6 +27,14 @@
 - [Ridge](models/ridge.md) — Ridge regression + RidgeCV
 - [Lasso](models/lasso.md) — Lasso + LassoCV + debiased inference
 - [ElasticNet](models/elastic-net.md) — ElasticNet + ElasticNetCV
+- [SCAD](models/scad.md) — non-convex penalty with oracle property
+- [MCP](models/mcp.md) — non-convex penalty with oracle property
+- [AdaptiveLasso](models/adaptive-lasso.md) — adaptive L1 penalty
+
+### Loss Functions (v0.2.1)
+- [Loss Functions (LossBase)](models/losses.md) — architecture for 12 loss types
+- [Quantile Regression](models/quantile.md) — pinball loss + PenalizedQuantileRegression
+- [Robust Regression](models/robust.md) — Huber, Bisquare, Fair + PenalizedRobustRegression
 
 ### Generalized Linear Models
 - [GeneralizedLinearModel](models/generalized-linear-model.md) — GLM + PenalizedGLM base
@@ -35,7 +43,10 @@
 - [Ordered Models](models/ordered.md) — ordered logit/probit
 
 ### Survival
-- [CoxPH](models/coxph.md) — Cox proportional hazards
+- [CoxPH](models/coxph.md) — Cox proportional hazards + penalized
+
+### Unsupervised
+- [Unsupervised Overview](models/unsupervised.md) — 13 algorithms: PCA, KMeans, DBSCAN, GMM, UMAP, NNDescent, t-SNE, NMF, Agglomerative, TruncatedSVD, IncrementalPCA, MiniBatchKMeans, MiniBatchNMF
 
 ### Panel
 - [Panel](models/panel.md) — fixed/random effects panel models
@@ -54,4 +65,6 @@
 
 ## Reference
 
+- [Solver Algorithms](guides/solver-algorithms.md) — 10 solvers: algorithm details
+- [Loss × Penalty × Solver Framework](guides/loss-penalty-solver-framework.md) — dispatch logic
 - [Changelog](changelog.md) — version history

@@ -1,92 +1,101 @@
 # 模型总览
 
-> 语言: 中文  
-> 最后更新: 2026-05-28  
-> 页面定位: 模型索引  
-> 切换: [English](../en/models/README.md)
+> 语言：中文  
+> 最后更新：2026-07-01  
+> 切换：[English](../en/models/README.md)
 
-语言切换：[English](../en/models/README.md)
+---
 
-本节按方法维度组织文档，便于后续新增统计方法时持续扩展。
+## 核心框架
 
-## 线性与 GLM 模型
+| 页面 | 内容 |
+|------|------|
+| [损失函数 (LossBase)](losses.md) | 架构概述：12 种损失类型，逐样本公式 |
+| [求解器算法](../guides/solver-algorithms.md) | 10 种求解器：算法步骤、收敛条件、后端支持 |
+| [Loss × Penalty × Solver 框架](../guides/loss-penalty-solver-framework.md) | 完整调度逻辑与覆盖矩阵 |
+| [Solver × Penalty 矩阵](../guides/solver-penalty-matrix.md) | 求解器路由与惩罚约束 |
 
-- [LinearRegression](linear-regression.md)
-- [GeneralizedLinearModel 与 Penalized GLM](generalized-linear-model.md)
-- [PoissonRegression](poisson-regression.md)
-- [Ridge](ridge.md)
-- [Lasso](lasso.md)
-- [ElasticNet](elastic-net.md)
-- [AdaptiveLasso](adaptive-lasso.md) — 自适应 L1 惩罚，具有 oracle property
-- [SCAD](scad.md) — 非凸惩罚，具有 oracle property
-- [MCP](mcp.md) — 非凸惩罚，具有 oracle property
-- [LogisticRegression](logistic-regression.md)
-- [Ordered Generalized Linear Models (Logit/Probit)](ordered.md)
+---
 
-## 方差分析
+## 损失函数
 
-- [单因素方差分析 (One-Way ANOVA)](anova.md)
+| 损失 | 页面 | 惩罚模型 | 核心求解器 |
+|------|------|-----------------|------------|
+| Quantile | [quantile.md](quantile.md) | `PenalizedQuantileRegression` | Proximal IRLS-CD |
+| Huber | [robust.md](robust.md) | `PenalizedRobustRegression` | Proximal Newton |
+| Bisquare | [robust.md](robust.md) | `PenalizedRobustRegression` | Proximal Newton |
+| Fair | [robust.md](robust.md) | `PenalizedRobustRegression` | Proximal Newton |
+| Cox PH | [coxph.md](coxph.md) | `PenalizedCoxRegression` | Proximal Newton |
+| GLM (7 家族) | [losses.md](losses.md) | `PenalizedGeneralizedLinearModel` | IRLS / Newton / FISTA |
 
-## 协方差估计
+---
 
-- [经验协方差、LedoitWolf、OAS](covariance.md)
+## 回归与 GLM
 
-## 面板数据
+| 模型 | 页面 | 惩罚 |
+|-------|------|---------|
+| LinearRegression | [linear-regression.md](linear-regression.md) | — |
+| Ridge | [ridge.md](ridge.md) | L2 |
+| Lasso | [lasso.md](lasso.md) | L1 |
+| ElasticNet | [elastic-net.md](elastic-net.md) | L1 + L2 |
+| SCAD | [scad.md](scad.md) | SCAD（非凸） |
+| MCP | [mcp.md](mcp.md) | MCP（非凸） |
+| AdaptiveLasso | [adaptive-lasso.md](adaptive-lasso.md) | 加权 L1 |
+| LogisticRegression | [logistic-regression.md](logistic-regression.md) | L2 |
+| PoissonRegression | [poisson-regression.md](poisson-regression.md) | — |
+| GeneralizedLinearModel | [generalized-linear-model.md](generalized-linear-model.md) | 全部惩罚 |
+| Ordered (Logit/Probit) | [ordered.md](ordered.md) | — | Newton-Raphson + 解析 Hessian 推断 |
 
-- [固定效应与随机效应 (PanelOLS / RandomEffects)](panel.md)
-
-## 非参数方法
-
-- [核密度估计与核回归](nonparametric.md)
-- [核岭回归 (KernelRidge / KernelRidgeCV)](kernel-methods.md)
-- [样条基函数](splines.md)
-
-## 半参数模型
-
-- [GAM（广义可加模型）](semiparametric.md)
+---
 
 ## 生存分析
 
-- [CoxPH](coxph.md)
+| 模型 | 页面 | 特性 |
+|-------|------|----------|
+| CoxPH | [coxph.md](coxph.md) | Breslow/Efron ties、向量化梯度/海森、CuPy/Triton GPU |
 
-## 特征选择
+---
 
-- [Knockoff](knockoff.md)
+## 无监督学习
 
-## 新增模型文档流程
+| 模型 | 页面 | 备注 |
+|-------|------|-------|
+| PCA | [unsupervised.md](unsupervised.md) | 线性降维 |
+| KMeans | [unsupervised.md](unsupervised.md) | Lloyd k-means++ |
+| DBSCAN | [unsupervised.md](unsupervised.md) | Torch CUDA on-device, CuPy + host syncs |
+| GaussianMixture | [unsupervised.md](unsupervised.md) | Log-domain EM |
+| UMAP | [unsupervised.md](unsupervised.md) | 稀疏 COO 图, backend-aware 负采样 |
+| NNDescent | [unsupervised.md](unsupervised.md) | 近似最近邻, 逐点候选集 |
+| TSNE | [unsupervised.md](unsupervised.md) | KL divergence |
+| 其他 | [unsupervised.md](unsupervised.md) | NMF, IncrementalPCA, TruncatedSVD, Agglomerative |
 
-新增一个估计器时：
+---
 
-1. 创建 `docs/models/<model-name>.md`
-2. 将新页面加入本索引
-3. 将入口链接加入 `USAGE_CN.md` 与 `USAGE.md`
-4. 若包含基准测试，同步在 `docs/guides/benchmarks.md` 添加脚本引用
+## 专业模块
 
-## 当前覆盖说明
+| 领域 | 页面 |
+|--------|------|
+| ANOVA | [anova.md](anova.md) |
+| 协方差估计 | [covariance.md](covariance.md) |
+| 面板数据 | [panel.md](panel.md) |
+| 非参数 (KDE, 核回归) | [nonparametric.md](nonparametric.md) |
+| 核岭回归 | [kernel-methods.md](kernel-methods.md) |
+| 样条基函数 | [splines.md](splines.md) |
+| GAM (半参数) | [semiparametric.md](semiparametric.md) |
+| Knockoff (特征选择) | [knockoff.md](knockoff.md) |
+| 多重检验 | [multiple-testing.md](multiple-testing.md) |
 
-- 当前核心模型均支持 `device="cpu"` / `device="cuda"` / `device="auto"`。
-- 当前核心模型均支持 `gpu_memory_cleanup`。
-- `GeneralizedLinearModel` 与 typed penalized GLM 见 [GeneralizedLinearModel 与 Penalized GLM](generalized-linear-model.md)。
-- `PoissonRegression` 作为普通 Poisson GLM estimator 单独记录。
-- 推断能力较完整的模型：
-  - `LinearRegression`：经典协方差 + `HC0/HC1/HC2/HC3/HAC`
-  - `Ridge`：经典协方差 + `HC0/HC1/HC2/HC3/HAC`
-  - `Lasso`：CPU/GPU OLS 风格推断 + bootstrap
-  - `LogisticRegression`：经典协方差 + `HC0/HC1/HC2/HC3/HAC`
-- `CoxPH` 支持 Breslow/Efron ties，并提供 CPU/GPU 拟合路径。
-- `OrderedLogitRegression` / `OrderedProbitRegression` 支持 CPU/CuPy/Torch 三后端，跨后端精度已修复（coef diff < 1e-2）。
-- `CoxPH` 的 `entry`（delayed entry）路径已支持：
-  - `entry + breslow`：CPU/CUDA/Torch
-  - `entry + efron`：CPU/CUDA/Torch
-- 特征选择：
-  - `Knockoff`：fixed-X / model-X 统一 API + selector 封装
-- `LassoCV` 已实现并可直接训练使用。
-- 已导出的 CV 类中：
-  - `RidgeCV`、`LogisticRegressionCV`、`CoxPHCV` 均已可直接训练使用。
-  - `CoxPHCV` 当前边界：GPU 下 `entry` 目前仅支持 `ties='breslow'`；`cluster` 口径暂未支持，会抛出 `NotImplementedError`。
-- 新增模块（Tesla P100 验证 38/38 ALL PASS）：
-  - `ANOVA`：`f_oneway` — 可替代 `scipy.stats.f_oneway`
-  - `Covariance`：`EmpiricalCovariance`、`LedoitWolf`、`OAS` — 等价于 `sklearn.covariance`
-  - `KernelMethods`：`KernelRidge`、`KernelRidgeCV` — 等价于 `sklearn.kernel_ridge`
-  - `Panel`：`PanelOLS`、`RandomEffects` — 等价于 `linearmodels.panel`
-  - `Splines`：`bspline_basis`、`natural_cubic_spline_basis`、`GAM` — 惩罚 B 样条 GAM + GCV
+---
+
+## v0.2.1 覆盖摘要
+
+| 类别 | 详情 |
+|----------|---------|
+| 损失类型 | 12 种：7 GLM + quantile + huber + bisquare + fair + cox_ph |
+| 惩罚 | 10 种：l1, l2, elasticnet, scad, mcp, adaptive_l1, group_lasso, group_mcp, group_scad |
+| 求解器 | 10 种：exact, irls, newton, lbfgs, fista, fista_bb, fista_lla, proximal_irls_cd, proximal_newton, admm |
+| 后端 | numpy, cupy, torch — 核心求解器均三端支持 |
+| GPU 回退 | 显式 GPU 设备不静默回退 CPU |
+| sample_weight | 所有求解器支持（CoxPH 除外） |
+| CV | LassoCV, RidgeCV, LogisticRegressionCV, CoxPHCV, PenalizedGLM_CV |
+| 推断 | HC0-HC3, HAC, bootstrap, debiased Lasso, analytical Hessian (ordered) |

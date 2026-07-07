@@ -361,6 +361,12 @@ class PenalizedGeneralizedLinearModel(
         penalty_name = str(getattr(self._penalty, "name", self.penalty)).lower()
         inference_method = str(getattr(self, "inference_method", "sandwich")).lower()
 
+        # squared_error + l1/elasticnet: default to debiased (not sandwich)
+        if (self.loss == "squared_error"
+                and penalty_name in ("l1", "elasticnet", "en")
+                and inference_method == "sandwich"):
+            inference_method = "debiased"
+
         # squared_error: existing paths (unchanged)
         if self.loss == "squared_error":
             if penalty_name == "l2":

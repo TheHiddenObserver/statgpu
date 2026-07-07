@@ -1,82 +1,104 @@
 # Models Overview
 
 > Language: English  
-> Last updated: 2026-05-28  
-> This page: Model index  
-> Switch: [Chinese](../../models/README.md)
+> Last updated: 2026-07-01  
+> Switch: [Chinese](../../cn/models/README.md)
 
-Language switch: [Chinese](../../models/README.md)
+---
 
-## Linear and GLM Models
+## Core Framework
 
-- [LinearRegression](linear-regression.md)
-- [GeneralizedLinearModel and Penalized GLM](generalized-linear-model.md)
-- [PoissonRegression](poisson-regression.md)
-- [Ridge](ridge.md)
-- [Lasso](lasso.md)
-- [ElasticNet](elastic-net.md)
-- [AdaptiveLasso](adaptive-lasso.md) — adaptive L1 penalty with oracle property
-- [SCAD](scad.md) — non-convex penalty with oracle property
-- [MCP](mcp.md) — non-convex penalty with oracle property
-- [LogisticRegression](logistic-regression.md)
-- [Ordered Generalized Linear Models (Logit/Probit)](ordered.md)
+| Page | Content |
+|------|---------|
+| [Loss Functions (LossBase)](losses.md) | Architecture overview: 12 loss types, per-sample formulas |
+| [Solver Algorithms](../guides/solver-algorithms.md) | 10 solvers: algorithm steps, convergence, backend support |
+| [Loss × Penalty × Solver Framework](../guides/loss-penalty-solver-framework.md) | Complete dispatch logic and coverage matrix |
+| [Solver × Penalty Matrix](../guides/solver-penalty-matrix.md) | Solver routing and penalty constraints |
 
-## ANOVA
+---
 
-- [One-Way ANOVA](anova.md)
+## Loss Functions
 
-## Covariance Estimation
+| Loss | Page | Penalized Model | Key Solver |
+|------|------|-----------------|------------|
+| Quantile | [quantile.md](quantile.md) | `PenalizedQuantileRegression` | Proximal IRLS-CD |
+| Huber | [robust.md](robust.md) | `PenalizedRobustRegression` | Proximal Newton |
+| Bisquare | [robust.md](robust.md) | `PenalizedRobustRegression` | Proximal Newton |
+| Fair | [robust.md](robust.md) | `PenalizedRobustRegression` | Proximal Newton |
+| Cox PH | [coxph.md](coxph.md) | `PenalizedCoxRegression` | Proximal Newton |
+| GLM (7 families) | [losses.md](losses.md) | `PenalizedGeneralizedLinearModel` | IRLS / Newton / FISTA |
 
-- [EmpiricalCovariance, LedoitWolf, OAS](covariance.md)
+---
 
-## Panel Data
+## Regression & GLM
 
-- [PanelOLS and RandomEffects](panel.md)
+| Model | Page | Penalty |
+|-------|------|---------|
+| LinearRegression | [linear-regression.md](linear-regression.md) | — |
+| Ridge | [ridge.md](ridge.md) | L2 |
+| Lasso | [lasso.md](lasso.md) | L1 |
+| ElasticNet | [elastic-net.md](elastic-net.md) | L1 + L2 |
+| SCAD | [scad.md](scad.md) | SCAD (non-convex) |
+| MCP | [mcp.md](mcp.md) | MCP (non-convex) |
+| AdaptiveLasso | [adaptive-lasso.md](adaptive-lasso.md) | Weighted L1 |
+| LogisticRegression | [logistic-regression.md](logistic-regression.md) | L2 |
+| PoissonRegression | [poisson-regression.md](poisson-regression.md) | — |
+| GeneralizedLinearModel | [generalized-linear-model.md](generalized-linear-model.md) | All penalties |
+| Ordered (Logit/Probit) | [ordered.md](ordered.md) | — | Newton-Raphson + analytical Hessian inference |
 
-## Nonparametric Methods
+---
 
-- [Kernel Density Estimation and Kernel Regression](nonparametric.md)
-- [Kernel Ridge Regression](kernel-methods.md)
-- [Spline Basis Functions](splines.md)
+## Survival Analysis
 
-## Semiparametric Models
+| Model | Page | Features |
+|-------|------|----------|
+| CoxPH | [coxph.md](coxph.md) | Breslow/Efron ties, vectorized grad/hess, CuPy/Triton GPU |
 
-- [GAM (Generalized Additive Model)](semiparametric.md)
+---
 
-## Survival
+## Unsupervised Learning
 
-- [CoxPH](coxph.md)
+| Model | Page | Notes |
+|-------|------|-------|
+| PCA | [unsupervised.md](unsupervised.md) | Linear dimensionality reduction |
+| KMeans | [unsupervised.md](unsupervised.md) | Lloyd k-means++ |
+| DBSCAN | [unsupervised.md](unsupervised.md) | Torch CUDA on-device, CuPy + host syncs |
+| GaussianMixture | [unsupervised.md](unsupervised.md) | Log-domain EM |
+| NMF / MiniBatchNMF | [unsupervised.md](unsupervised.md) | Multiplicative updates |
+| IncrementalPCA | [unsupervised.md](unsupervised.md) | Batch-wise |
+| TruncatedSVD | [unsupervised.md](unsupervised.md) | Uncentered low-rank |
+| UMAP | [unsupervised.md](unsupervised.md) | Sparse COO graph, backend-aware neg-sampling |
+| NNDescent | [unsupervised.md](unsupervised.md) | Approximate NN, per-point candidates |
+| TSNE | [unsupervised.md](unsupervised.md) | KL divergence |
+| AgglomerativeClustering | [unsupervised.md](unsupervised.md) | Hierarchical |
 
-## Feature Selection
+---
 
-- [Knockoff](knockoff.md)
+## Specialized Modules
 
-## Current Coverage Notes
+| Domain | Page |
+|--------|------|
+| ANOVA | [anova.md](anova.md) |
+| Covariance Estimation | [covariance.md](covariance.md) |
+| Panel Data | [panel.md](panel.md) |
+| Nonparametric (KDE, Kernel Reg) | [nonparametric.md](nonparametric.md) |
+| Kernel Ridge Regression | [kernel-methods.md](kernel-methods.md) |
+| Spline Basis Functions | [splines.md](splines.md) |
+| GAM (Semiparametric) | [semiparametric.md](semiparametric.md) |
+| Knockoff (Feature Selection) | [knockoff.md](knockoff.md) |
+| Multiple Testing | [multiple-testing.md](multiple-testing.md) |
 
-- All current models support `device="cpu"` / `device="cuda"` / `device="torch"` / `device="auto"` where the documented backend implementation is available.
-- Explicit `device="cuda"` and `device="torch"` raise when their matching CUDA backend is unavailable; only `device="auto"` may choose another backend.
-- All current models support `gpu_memory_cleanup`.
-- `GeneralizedLinearModel` and typed penalized GLMs are documented in [GeneralizedLinearModel and Penalized GLM](generalized-linear-model.md).
-- `PoissonRegression` is documented separately as the ordinary Poisson GLM estimator.
-- Inference-rich models:
-  - `LinearRegression`: classical + `HC0/HC1/HC2/HC3/HAC`
-  - `Ridge`: classical + `HC0/HC1/HC2/HC3/HAC`
-  - `Lasso`: CPU/GPU OLS-style inference + bootstrap
-  - `LogisticRegression`: classical + `HC0/HC1/HC2/HC3/HAC`
-- `CoxPH` supports Breslow/Efron ties and CPU/GPU fitting paths.
-- `OrderedLogitRegression` / `OrderedProbitRegression` support CPU/CuPy/Torch backends with cross-backend precision fix (coef diff < 1e-2).
-- `CoxPH` delayed entry (`entry`) support:
-  - `entry + breslow`: CPU/CUDA/Torch
-  - `entry + efron`: CPU/CUDA/Torch
-- Feature selection:
-  - `Knockoff`: fixed-X/model-X unified API + selector wrappers
-- `LassoCV` is implemented and trainable.
-- Exported CV classes status:
-  - `RidgeCV`, `LogisticRegressionCV`, and `CoxPHCV` are implemented and trainable.
-  - Current `CoxPHCV` boundary: on GPU paths, `entry` currently supports only `ties='breslow'`; `cluster`-robust CV is not yet supported and raises `NotImplementedError`.
-- New modules (validated 38/38 ALL PASS on Tesla P100):
-  - `ANOVA`: `f_oneway` — drop-in replacement for `scipy.stats.f_oneway`
-  - `Covariance`: `EmpiricalCovariance`, `LedoitWolf`, `OAS` — equivalent to `sklearn.covariance`
-  - `KernelMethods`: `KernelRidge`, `KernelRidgeCV` — equivalent to `sklearn.kernel_ridge`
-  - `Panel`: `PanelOLS`, `RandomEffects` — equivalent to `linearmodels.panel`
-  - `Splines`: `bspline_basis`, `natural_cubic_spline_basis`, `GAM` — penalized B-spline GAM with GCV
+---
+
+## v0.2.1 Coverage Summary
+
+| Category | Details |
+|----------|---------|
+| Loss types | 12 total: 7 GLM + quantile + huber + bisquare + fair + cox_ph |
+| Penalties | 10: l1, l2, elasticnet, scad, mcp, adaptive_l1, group_lasso, group_mcp, group_scad |
+| Solvers | 10: exact, irls, newton, lbfgs, fista, fista_bb, fista_lla, proximal_irls_cd, proximal_newton, admm |
+| Backends | numpy, cupy, torch — all core solvers support all three |
+| GPU fallback | Explicit GPU devices do not silently fall back to CPU |
+| sample_weight | Supported across all solvers (except CoxPH) |
+| CV | LassoCV, RidgeCV, LogisticRegressionCV, CoxPHCV, PenalizedGLM_CV |
+| Inference | HC0-HC3, HAC, bootstrap, debiased Lasso, analytical Hessian (ordered) |

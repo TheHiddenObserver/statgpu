@@ -1,7 +1,7 @@
 # CoxPH
 
 > 语言: 中文  
-> 最后更新: 2026-04-22  
+> 最后更新: 2026-07-01  
 > 页面定位: 模型文档  
 > 切换: [English](../en/models/coxph.md)
 
@@ -9,14 +9,15 @@
 
 ## 概览（Overview）
 
-`CoxPH` 实现比例风险模型，支持 CPU/GPU、Breslow/Efron ties 处理，以及 `cluster` 口径稳健方差。当前范围聚焦标准 CoxPH 主路径，`strata/frailty/time-varying covariates` 仍在规划中（见 `TO_DO.md`）。
+`CoxPH` 实现比例风险模型，支持 CPU/GPU、Breslow/Efron ties 处理。向量化 Efron 梯度/Hessian（无 Python 循环）、多块 CUDA kernel、DLPack 桥接 torch-CUDA。
 
 补充：
 
+- **Efron 优化** (v0.2.1)：前缀和向量化路径，n=5000 时比 statsmodels 快 3-6x；已在 CI 中与 statsmodels PHReg 对齐验证。
+- `PenalizedCoxRegression` 支持 SCAD/MCP 惩罚，通过 proximal Newton 求解。
 - `CoxPH` 的 `entry`（delayed entry）路径在 `cpu/cuda/torch` 均可用。
-- `ties='efron' + entry` 已在 `CoxPH` 的 `cpu/cuda/torch` 路径落地，并完成与 lifelines 的精度对标。
-- `CoxPHCV`（交叉验证版本）当前已可用，支持 penalty 网格搜索 + 全量重训；GPU 场景下 `entry` 目前仅支持 `ties='breslow'`，`cluster` 口径仍未开放。
-- 显式 `device='cuda'` 和 `device='torch'` 不会静默回退到 CPU；需要自动选择后端时使用 `device='auto'`。
+- 显式 `device='cuda'` 和 `device='torch'` 不会静默回退 CPU；需要 CPU 路径时使用 `device='cpu'`。
+- `CoxPHCV` 已可用，支持 penalty 网格搜索 + 全量重训。
 
 ## 路径（Path）
 

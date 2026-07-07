@@ -107,15 +107,24 @@ def compute_bread_avg(
 
     # Solve H_avg @ bread = I via backend-native solver
     p = H_avg.shape[0]
-    eye = xp.eye(p, dtype=H_avg.dtype)
+    from statgpu.backends._utils import xp_eye
+    eye = xp_eye(p, H_avg.dtype, xp, ref_arr=H_avg)
     try:
         bread_avg = xp.linalg.solve(H_avg, eye)
-    except Exception:
+    except (np.linalg.LinAlgError, RuntimeError) as e:
+        # numpy/cupy raise LinAlgError; torch raises RuntimeError
         raise np.linalg.LinAlgError(
             "Singular Hessian in compute_bread_avg. "
             "The design matrix may be rank-deficient or the penalty is too weak. "
             "Consider adding ridge regularization or checking for collinear features."
-        )
+        ) from e
+    except Exception as e:
+        # CuPy may raise bare Exception for cuSOLVER failures
+        raise np.linalg.LinAlgError(
+            "Singular Hessian in compute_bread_avg. "
+            "The design matrix may be rank-deficient or the penalty is too weak. "
+            "Consider adding ridge regularization or checking for collinear features."
+        ) from e
     return bread_avg
 
 
@@ -310,7 +319,8 @@ def m_estimation_inference(
 
     # ---- standard errors ----
     cov_diag = xp.diag(cov)
-    cov_diag = xp.clip(cov_diag, 0.0, None)
+    from statgpu.backends._array_ops import _clip
+    cov_diag = _clip(cov_diag, 0.0, None)
     bse = xp.sqrt(cov_diag)
 
     # ---- z-statistics ----
@@ -331,9 +341,10 @@ def m_estimation_inference(
         # wald = coef' @ cov^{-1} @ coef via solve
         wald_vec = xp.linalg.solve(cov, coef)
         wald_stat = float(xp.dot(coef, wald_vec))
-    except Exception:
+    except (np.linalg.LinAlgError, RuntimeError):
         wald_stat = float("nan")
-    wald_pval = _chi2_sf(xp, wald_stat, k) if not xp.isnan(wald_stat) else float("nan")
+    from math import isnan as _math_isnan
+    wald_pval = _chi2_sf(xp, wald_stat, k) if not _math_isnan(wald_stat) else float("nan")
 
     # ---- distribution label ----
     distribution = "normal"
@@ -390,7 +401,8 @@ def _default_dispersion(loss, X, y, coef, n_eff, k):
         else:
             return 1.0
         resid_sq = (y - mu) ** 2
-        pearson = float(xp.sum(resid_sq / xp.maximum(V, 1e-10)))
+        from statgpu.backends._utils import xp_maximum
+        pearson = float(xp.sum(resid_sq / xp_maximum(V, 1e-10, xp)))
         return pearson / df
 
     return 1.0
@@ -401,7 +413,6 @@ def _two_sided_pvalue(xp, z_values):
     if xp.__name__ == "torch":
         import torch
         abs_z = xp.abs(z_values)
-        # torch.special.erfc or fallback to distribution backend
         from statgpu.inference._distributions_backend import norm
         p = 2.0 * norm.sf(abs_z)
         return p if isinstance(p, torch.Tensor) else torch.as_tensor(p, dtype=z_values.dtype, device=z_values.device)
@@ -409,8 +420,9 @@ def _two_sided_pvalue(xp, z_values):
         from statgpu.inference._distributions_backend import norm
         return 2.0 * norm.sf(xp.abs(z_values))
     else:
-        from scipy.stats import norm as _norm
-        return 2.0 * (1.0 - _norm.cdf(np.abs(np.asarray(z_values))))
+        from statgpu.inference._distributions_backend import get_distribution
+        _norm = get_distribution("norm", backend="numpy")
+        return 2.0 * _norm.sf(np.abs(np.asarray(z_values)))
 
 
 def _normal_critical_value(xp, alpha):
@@ -424,7 +436,8 @@ def _normal_critical_value(xp, alpha):
         from statgpu.inference._distributions_backend import norm
         return xp.asarray(norm.ppf(1.0 - alpha / 2.0))
     else:
-        from scipy.stats import norm as _norm
+        from statgpu.inference._distributions_backend import get_distribution
+        _norm = get_distribution("norm", backend="numpy")
         return _norm.ppf(1.0 - alpha / 2.0)
 
 
@@ -439,8 +452,9 @@ def _chi2_sf(xp, x, df):
         from statgpu.inference._distributions_backend import chi2
         return float(chi2.sf(float(x), df=df))
     else:
-        from scipy.stats import chi2 as _chi2
-        return 1.0 - _chi2.cdf(float(x), df)
+        from statgpu.inference._distributions_backend import get_distribution
+        _chi2 = get_distribution("chi2", backend="numpy")
+        return float(_chi2.sf(float(x), df=df))
 
 
 def _to_numpy_safe(arr):

@@ -102,9 +102,10 @@ class GammaLoss(GLMLoss):
             W = 1.0 / (eta * eta)
         else:
             # Log link: Fisher weight = 1/(V(mu)*g'(mu)²) = 1/(mu² * 1/mu²) = 1
+            from statgpu.backends._utils import xp_ones
             from statgpu.backends._array_ops import _xp as _get_xp
             xp = _get_xp(mu)
-            W = xp.ones(X.shape[0], dtype=mu.dtype)
+            W = xp_ones(X.shape[0], mu.dtype, xp, ref_arr=mu)
         if sample_weight is not None:
             W = W * sample_weight
         return X.T @ (X * W[:, None]) / n_eff

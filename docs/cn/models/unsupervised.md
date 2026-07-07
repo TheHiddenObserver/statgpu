@@ -1,15 +1,13 @@
 # 无监督学习
 
 > 语言：中文
-> 最后更新：2026-05-08
+> 最后更新：2026-07-01
 > 本页：无监督模型总览
 > English: [English](../en/models/unsupervised.md)
 
 ## 概览
 
-`statgpu.unsupervised` 提供降维、聚类、密度聚类、混合模型、非负矩阵分解和 manifold embedding 相关 estimator。API 尽量沿用常见的 `fit`、`transform`、`predict`、`fit_predict` 和 `score` 风格；不适合某个模型语义的方法会明确报错。
-
-逐模型说明位于 [docs/unsupervised/](../unsupervised/README.md)，其中分别说明 objective function、估计过程、设备路径、输出字段、限制和外部验证方式。
+`statgpu.unsupervised` 提供降维、聚类、密度聚类、混合模型、非负矩阵分解、manifold embedding 和近似最近邻搜索相关 estimator。API 沿用 `fit`、`transform`、`predict`、`fit_predict` 和 `score` 风格。
 
 ## 模型总览
 
@@ -26,6 +24,7 @@
 | [IncrementalPCA](../unsupervised/incremental-pca.md) | 分批线性降维 | 近似 centered rank-k 重构 |
 | [MiniBatchNMF](../unsupervised/minibatch-nmf.md) | 较大规模非负矩阵分解 | Mini-batch Frobenius 重构损失 |
 | [UMAP](../unsupervised/umap.md) | Manifold embedding | Fuzzy graph cross-entropy |
+| [NNDescent](../unsupervised/umap.md) | 近似最近邻搜索 | 迭代邻居候选优化 |
 | [TSNE](../unsupervised/tsne.md) | Manifold visualization | Affinity 分布之间的 KL divergence |
 
 ## 设备行为

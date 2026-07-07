@@ -211,7 +211,15 @@ class _PenalizedInferenceMixin:
         then computes the debiased estimator, standard errors,
         z-statistics, p-values, and confidence intervals.
         """
-        from scipy.stats import norm as _norm_dist
+        from statgpu.backends import _resolve_backend
+        backend = _resolve_backend("auto", X)
+        if backend in ("cupy", "torch"):
+            raise NotImplementedError(
+                f"Debiased Lasso inference is not yet supported on device={backend!r}. "
+                f"Use device='cpu' for inference, or set inference_method='cpu_ols' or 'bootstrap'."
+            )
+        from statgpu.inference._distributions_backend import get_distribution
+        _norm_dist = get_distribution("norm", backend="numpy")
 
         X_np = np.asarray(_to_numpy(X), dtype=np.float64)
         y_np = np.asarray(_to_numpy(y), dtype=np.float64).ravel()
@@ -358,7 +366,15 @@ class _PenalizedInferenceMixin:
         inference coverage.  Use ``inference_method='debiased'`` for
         proper marginal inference.
         """
-        from scipy import stats as _stats
+        from statgpu.backends import _resolve_backend
+        backend = _resolve_backend("auto", X)
+        if backend in ("cupy", "torch"):
+            raise NotImplementedError(
+                f"CPU-OLS inference is not yet supported on device={backend!r}. "
+                f"Use device='cpu' for inference, or set inference_method='debiased'."
+            )
+        from statgpu.inference._distributions_backend import get_distribution
+        _t_dist = get_distribution("t", backend="numpy")
 
         X_np = np.asarray(_to_numpy(X), dtype=np.float64)
         y_np = np.asarray(_to_numpy(y), dtype=np.float64).ravel()
@@ -396,9 +412,9 @@ class _PenalizedInferenceMixin:
 
         bse_sel = np.sqrt(scale * np.diag(XtX_inv))
         tvalues_sel = params_sel / (bse_sel + 1e-30)
-        pvalues_sel = 2.0 * (1.0 - _stats.t.cdf(np.abs(tvalues_sel), df_resid))
+        pvalues_sel = 2.0 * _t_dist.sf(np.abs(tvalues_sel), df=df_resid)
 
-        t_crit = _stats.t.ppf(0.975, df_resid)
+        t_crit = _t_dist.ppf(0.975, df=df_resid)
         ci_sel = np.column_stack([
             params_sel - t_crit * bse_sel,
             params_sel + t_crit * bse_sel,
@@ -457,6 +473,13 @@ class _PenalizedInferenceMixin:
         More robust than naive OLS-based inference, but still not full
         "post-selection inference" for Lasso.
         """
+        from statgpu.backends import _resolve_backend
+        backend = _resolve_backend("auto", X)
+        if backend in ("cupy", "torch"):
+            raise NotImplementedError(
+                f"Bootstrap inference is not yet supported on device={backend!r}. "
+                f"Use device='cpu' for inference, or set compute_inference=False."
+            )
         if self._X_design is None or self._resid is None or self._y is None:
             # Need to store these first
             X_np = np.asarray(_to_numpy(X), dtype=np.float64)
@@ -917,9 +940,17 @@ class _PenalizedInferenceMixin:
         as bread.  Follows Convention A: nonrobust uses phi * H_pen^{-1} / n.
         """
         import numpy as np
-        from statgpu.backends import _to_numpy
+        from statgpu.backends import _to_numpy, _resolve_backend
         from statgpu.inference._sandwich import m_estimation_inference, _infer_covariance_convention
         from statgpu.inference._results import ParameterInferenceResult
+
+        # Guard: explicit GPU devices must not silently fall back to CPU
+        backend = _resolve_backend("auto", X)
+        if backend in ("cupy", "torch"):
+            raise NotImplementedError(
+                f"Penalized sandwich inference is not yet supported on device={backend!r}. "
+                f"Use device='cpu' for inference, or set compute_inference=False."
+            )
 
         X_np = np.asarray(_to_numpy(X), dtype=float)
         y_np = np.asarray(_to_numpy(y), dtype=float).ravel()
@@ -1001,9 +1032,17 @@ class _PenalizedInferenceMixin:
         Valid due to the oracle property (Fan & Li 2001).
         """
         import numpy as np
-        from statgpu.backends import _to_numpy
+        from statgpu.backends import _to_numpy, _resolve_backend
         from statgpu.inference._sandwich import m_estimation_inference, _infer_covariance_convention
         from statgpu.inference._results import ParameterInferenceResult
+
+        # Guard: explicit GPU devices must not silently fall back to CPU
+        backend = _resolve_backend("auto", X)
+        if backend in ("cupy", "torch"):
+            raise NotImplementedError(
+                f"Oracle inference is not yet supported on device={backend!r}. "
+                f"Use device='cpu' for inference, or set compute_inference=False."
+            )
 
         X_np = np.asarray(_to_numpy(X), dtype=float)
         y_np = np.asarray(_to_numpy(y), dtype=float).ravel()

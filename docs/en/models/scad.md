@@ -54,9 +54,8 @@ SCAD produces **unbiased** estimates for large coefficients (unlike Lasso which 
 
 ## Covariance/Inference
 
-- `compute_inference=False` by default (SCAD does not support debiased inference)
-- For inference on selected variables, use the oracle approach: refit OLS on the selected support set
-- Future: oracle inference and BIC-based hyperparameter selection (see TO_DO.md)
+- `compute_inference=True` + `inference_method='oracle'` for active-set inference (Fan & Li 2001). CPU-only; CuPy/Torch raises ``NotImplementedError``.
+- `inference_method='bootstrap'` also available (CPU-only).
 
 ## Parameters
 
