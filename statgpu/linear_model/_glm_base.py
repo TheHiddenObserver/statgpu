@@ -1139,9 +1139,10 @@ class OrderedGeneralizedLinearModel(GeneralizedLinearModel):
                 gaps = xp.diff(thresh)
                 if is_torch:
                     gaps = xp.clamp(gaps, min=1e-6)
+                    thresh = xp.cat([thresh[:1], thresh[:1] + xp.cumsum(gaps, dim=0)])
                 else:
                     gaps = xp.maximum(gaps, 1e-6)
-                thresh = xp.concatenate([thresh[:1], thresh[:1] + xp.cumsum(gaps)])
+                    thresh = xp.concatenate([thresh[:1], thresh[:1] + xp.cumsum(gaps)])
             theta = xp.concatenate([theta[:p], thresh])
             beta = theta[:p]; thresh = theta[p:]
             eta = Xs @ beta  # compute once, pass to all callees
@@ -1202,9 +1203,10 @@ class OrderedGeneralizedLinearModel(GeneralizedLinearModel):
                     gaps = xp.diff(thresh_t)
                     if is_torch:
                         gaps = xp.clamp(gaps, min=1e-6)
+                        thresh_t = xp.cat([thresh_t[:1], thresh_t[:1] + xp.cumsum(gaps, dim=0)])
                     else:
                         gaps = xp.maximum(gaps, 1e-6)
-                    thresh_t = xp.concatenate([thresh_t[:1], thresh_t[:1] + xp.cumsum(gaps)])
+                        thresh_t = xp.concatenate([thresh_t[:1], thresh_t[:1] + xp.cumsum(gaps)])
                 theta_try = xp.concatenate([beta_t, thresh_t])
                 prob_t = self._ordered_category_probs(Xs, beta_t, thresh_t, family, K)
                 pc_t = _clip(prob_t, 1e-15, None)
