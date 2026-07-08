@@ -31,7 +31,9 @@ class QuantileRegression(BaseEstimator):
         If True, compute SE, p-values, CI.
     inference_method : str, default='kernel'
         'kernel': Powell (1991) sandwich covariance with kernel density.
-        'bootstrap': residual bootstrap with percentile CI.
+        'bootstrap': residual bootstrap (batched FISTA) with percentile CI,
+            bootstrap sign-test p-values, and bootstrap std errors.  All
+            backends (CPU/GPU) use the same batched solver for consistency.
     kernel : str, default='epa'
         Kernel for sparsity estimation: 'epa' (Epanechnikov), 'gau' (Gaussian),
         'biw' (Biweight), 'cos' (Cosine), 'par' (Parzen).  Only for
@@ -440,51 +442,60 @@ class QuantileRegression(BaseEstimator):
         return np.asarray(_to_numpy(coef.T)), params, Xd
 
     def _compute_inference_bootstrap(self, X, y):
-        """Residual bootstrap inference for quantile regression. Backend-aware.
+        """Residual bootstrap inference for quantile regression.
 
-        GPU backends use batched FISTA to solve all B bootstrap samples in
-        parallel.  Different solver path may produce different but valid
-        coefficients (quantile loss is convex but not strictly convex).
+        Uses batched pinball FISTA for all backends (CPU/GPU), solving all B
+        bootstrap samples in parallel via a single ``(p, B)`` coefficient matrix.
+        This gives numerically identical results across backends (same rng seed).
+
+        Inference outputs:
+        - Standard errors: bootstrap std (ddof=1)
+        - p-values: two-sided bootstrap sign-test
+        - Confidence intervals: percentile bootstrap (2.5%, 97.5%)
+
+        .. note::
+           Batched FISTA does NOT call ``fista_solver()`` because the general
+           solver API operates on ``(p,)`` coefficients.  The batched variant
+           works on ``(p, B)`` coefficients for parallel solves and includes
+           its own backtracking line search with Armijo condition.
         """
         from statgpu.backends import _to_numpy
-        dev = getattr(self, '_selected_backend_name', 'cpu') or 'cpu'
-        dev = {'numpy': 'cpu', 'cupy': 'cuda', 'torch': 'torch'}.get(dev, dev)
-        backend_name = {'cuda': 'cupy', 'torch': 'torch'}.get(dev, dev)
 
         X_cpu = np.asarray(_to_numpy(X), dtype=float)
         y_cpu = np.asarray(_to_numpy(y), dtype=float).ravel()
         n = X_cpu.shape[0]
 
         if self.fit_intercept:
-            X_design_cpu = np.column_stack([np.ones(n), X_cpu])
             params = np.concatenate([[self.intercept_], self.coef_])
         else:
-            X_design_cpu = X_cpu
             params = self.coef_.copy()
 
-        # Use same batched FISTA for all backends (CPU and GPU)
-        # for consistent cross-backend bootstrap results.
-        if True:  # batched FISTA for all backends (CPU + GPU)
-            boot_params, _, _ = self._compute_bootstrap_batched(X, y)
-            boot_params = np.asarray(boot_params)
-            self._bse = np.std(boot_params, axis=0, ddof=1)
-            self._zvalues = params / (self._bse + 1e-30)
-            pvalues = np.array([min(2.0 * min(np.mean(boot_params[:, i] <= 0.0),
-                                               np.mean(boot_params[:, i] >= 0.0)), 1.0)
-                                for i in range(len(params))])
-            self._pvalues = pvalues
-            self._conf_int = np.column_stack([
-                np.quantile(boot_params, 0.025, axis=0),
-                np.quantile(boot_params, 0.975, axis=0)])
-            from statgpu.inference._results import ParameterInferenceResult
-            self._inference_result = ParameterInferenceResult(
-                method="bootstrap", params=params.copy(), bse=self._bse.copy(),
-                statistic=self._zvalues.copy(), statistic_name="z",
-                pvalues=self._pvalues.copy(), conf_int=self._conf_int.copy(),
-                distribution="bootstrap_percentile",
-                metadata={"n_bootstrap": self.n_bootstrap})
-            self._inference_result.apply_to(self)
-            return
+        boot_params, _, _ = self._compute_bootstrap_batched(X, y)
+        boot_params = np.asarray(boot_params)
+        self._bse = np.std(boot_params, axis=0, ddof=1)
+        self._zvalues = params / (self._bse + 1e-30)
+        pvalues = np.array([min(2.0 * min(np.mean(boot_params[:, i] <= 0.0),
+                                           np.mean(boot_params[:, i] >= 0.0)), 1.0)
+                            for i in range(len(params))])
+        self._pvalues = pvalues
+        self._conf_int = np.column_stack([
+            np.quantile(boot_params, 0.025, axis=0),
+            np.quantile(boot_params, 0.975, axis=0)])
+
+        from statgpu.inference._results import ParameterInferenceResult
+        self._inference_result = ParameterInferenceResult(
+            method="bootstrap", params=params.copy(), bse=self._bse.copy(),
+            statistic=self._zvalues.copy(), statistic_name="z",
+            pvalues=self._pvalues.copy(), conf_int=self._conf_int.copy(),
+            distribution="bootstrap_percentile",
+            metadata={
+                "n_bootstrap": self.n_bootstrap,
+                "ci_method": "percentile",
+                "pvalue_method": "bootstrap_sign_test",
+                "solver": "batched_pinball_fista",
+                "backend": getattr(self, '_selected_backend_name', 'numpy'),
+            })
+        self._inference_result.apply_to(self)
 
     def predict(self, X):
         self._check_is_fitted()

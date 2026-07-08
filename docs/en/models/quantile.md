@@ -65,7 +65,37 @@ No scale parameter; quantile regression is scale-free.
 
 ## Examples
 
-### CPU
+### Standalone Model (with inference)
+
+```python
+from statgpu.linear_model import QuantileRegression
+
+# Median regression with kernel-based standard errors
+model = QuantileRegression(
+    quantile=0.5,
+    compute_inference=True,
+    inference_method="kernel",   # Powell (1991) sandwich
+    kernel="epa",                # Epanechnikov kernel
+    bandwidth="hsheather",       # Hall-Sheather bandwidth
+)
+model.fit(X, y)
+print(model.coef_)        # coefficients
+print(model._bse)         # standard errors
+print(model._pvalues)     # p-values
+print(model._conf_int)    # 95% confidence intervals
+
+# Bootstrap inference with batched FISTA (GPU-accelerated)
+model = QuantileRegression(
+    quantile=0.5,
+    compute_inference=True,
+    inference_method="bootstrap",
+    n_bootstrap=200,
+    device="cuda",         # or "torch" / "cpu"
+)
+model.fit(X, y)
+```
+
+### Penalized Quantile (with penalty selection)
 
 ```python
 from statgpu.linear_model.penalized import PenalizedQuantileRegression

@@ -65,7 +65,37 @@ $$
 
 ## 示例
 
-### CPU
+### 独立模型（含统计推断）
+
+```python
+from statgpu.linear_model import QuantileRegression
+
+# 中位数回归，含 kernel 标准误
+model = QuantileRegression(
+    quantile=0.5,
+    compute_inference=True,
+    inference_method="kernel",   # Powell (1991) sandwich
+    kernel="epa",                # Epanechnikov 核
+    bandwidth="hsheather",       # Hall-Sheather 带宽
+)
+model.fit(X, y)
+print(model.coef_)        # 系数
+print(model._bse)         # 标准误
+print(model._pvalues)     # p 值
+print(model._conf_int)    # 95% 置信区间
+
+# Bootstrap 推断，使用批量 FISTA（GPU 加速）
+model = QuantileRegression(
+    quantile=0.5,
+    compute_inference=True,
+    inference_method="bootstrap",
+    n_bootstrap=200,
+    device="cuda",         # 或 "torch" / "cpu"
+)
+model.fit(X, y)
+```
+
+### 带惩罚项的分位数回归
 
 ```python
 from statgpu.linear_model.penalized import PenalizedQuantileRegression

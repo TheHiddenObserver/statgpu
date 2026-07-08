@@ -104,21 +104,20 @@ def bootstrap(device, n, p):
     except Exception as e:
         return {"bse0": np.nan, "ok": False, "error": str(e)[:120]}
 
-# ---- QuantileRegression (CPU-only inference) ----
+# ---- QuantileRegression (kernel + bootstrap inference, all backends) ----
 def quantile_reg(device, n, p, method):
     from statgpu.linear_model import QuantileRegression
     np.random.seed(SEED)
     X = np.random.randn(n, p)
     y = 1.0 + X @ np.linspace(0.5,-0.3,p) + 0.5*np.random.randn(n)
     try:
-        t0 = time.perf_counter()
         m = QuantileRegression(quantile=0.5, compute_inference=True,
                                 inference_method=method, n_bootstrap=50, device=device)
         m.fit(X, y)
-        t = time.perf_counter() - t0
-        return {"bse0": float(m._bse[0]), "time": t, "ok": True}
-    except NotImplementedError as e:
-        return {"bse0": np.nan, "time": 0, "ok": True, "note": "CPU-only as expected"}
+        return {"bse0": float(m._bse[0]),
+                "method": method,
+                "solver": "batched_pinball_fista" if method == "bootstrap" else "kernel_sandwich",
+                "ok": True}
     except Exception as e:
         return {"bse0": np.nan, "ok": False, "error": str(e)[:120]}
 
@@ -142,16 +141,15 @@ for n, p in CFG:
             ok = r.get("ok", True)
             print(f"  {name:20s} {lbl:6s} bse0={r.get('bse0',np.nan):.6f} time={r.get('time',np.nan):.4f}s {'OK' if ok else 'FAIL:'+r.get('error','?')}")
 
-    # QuantileRegression (CPU-only inference, GPU raises NotImplementedError)
+    # QuantileRegression (kernel + bootstrap inference, all backends)
     for method in ["kernel", "bootstrap"]:
-        qr_results = {}
-        for device, label in backends_ordered:
-            r = quantile_reg(device, n, p, method)
-            qr_results[label] = r
-            note = r.get("note", "")
+        key = f"quantile_{method}_n{n}_p{p}"
+        all_results[key] = bench_one(
+            lambda dev, nn, pp, meth=method: quantile_reg(dev, nn, pp, meth),
+            backends_ordered, n, p)
+        for lbl, r in all_results[key].items():
             ok = r.get("ok", True)
-            print(f"  quantile_{method:9s} {label:6s} bse0={r.get('bse0',np.nan):.6f} time={r.get('time',np.nan):.4f}s {'OK' if ok else 'FAIL'} {note}")
-        all_results[f"quantile_{method}_n{n}_p{p}"] = qr_results
+            print(f"  quantile_{method:9s} {lbl:6s} bse0={r.get('bse0',np.nan):.6f} time={r.get('time',np.nan):.4f}s {'OK' if ok else 'FAIL:'+r.get('error','?')}")
 
 with open(OUT, "w") as f:
     json.dump(all_results, f, indent=2)
