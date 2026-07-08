@@ -12,6 +12,7 @@
 | 组件 | 路径 |
 |------|------|
 | 损失 | `statgpu.losses.QuantileLoss` |
+| 独立模型 | `statgpu.linear_model.QuantileRegression` |
 | 惩罚模型 | `statgpu.linear_model.penalized.PenalizedQuantileRegression` |
 | 专用求解器 | `statgpu.solvers._proximal_irls_quantile.proximal_irls_quantile_solver` |
 | R 等价 | `quantreg::rq()` |
