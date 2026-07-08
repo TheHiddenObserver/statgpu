@@ -487,13 +487,8 @@ class _PenalizedInferenceMixin:
         More robust than naive OLS-based inference, but still not full
         "post-selection inference" for Lasso.
         """
-        from statgpu.backends import _resolve_backend
-        backend = _resolve_backend("auto", X)
-        if backend in ("cupy", "torch"):
-            raise NotImplementedError(
-                f"Bootstrap inference is not yet supported on device={backend!r}. "
-                f"Use device='cpu' for inference, or set compute_inference=False."
-            )
+        # Bootstrap currently runs on CPU (serial refit).  GPU-parallel
+        # bootstrap is tracked for a follow-up PR (requires batched solver).
         if self._X_design is None or self._resid is None or self._y is None:
             # Need to store these first
             X_np = np.asarray(_to_numpy(X), dtype=np.float64)
