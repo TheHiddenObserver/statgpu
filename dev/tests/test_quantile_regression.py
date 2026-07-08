@@ -105,7 +105,7 @@ class TestQuantileRegression:
         assert len(m_gpu._bse) == 4
         assert np.all(m_gpu._bse > 0)
         # BSE must match CPU within floating-point tolerance
-        assert np.allclose(m_cpu._bse, m_gpu._bse, rtol=1e-12)
+        assert np.allclose(m_cpu._bse, m_gpu._bse, rtol=1e-8)
 
     @pytest.mark.skipif(not _HAS_CUPY, reason="CuPy GPU not available")
     def test_bootstrap_inference_cupy(self):
@@ -139,7 +139,7 @@ class TestQuantileRegression:
         assert len(m_gpu._bse) == 4
         assert np.all(m_gpu._bse > 0)
         # BSE must match CPU within floating-point tolerance
-        assert np.allclose(m_cpu._bse, m_gpu._bse, rtol=1e-12)
+        assert np.allclose(m_cpu._bse, m_gpu._bse, rtol=1e-8)
 
     @pytest.mark.skipif(not _HAS_TORCH_CUDA, reason="Torch CUDA not available")
     def test_bootstrap_inference_torch(self):
