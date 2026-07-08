@@ -487,19 +487,8 @@ class _PenalizedInferenceMixin:
         More robust than naive OLS-based inference, but still not full
         "post-selection inference" for Lasso.
         """
-        # Bootstrap inference is CPU-only: serial refit with numpy RNG.
-        # GPU-parallel bootstrap requires batched solver + GPU-native RNG
-        # (cupy.random / torch.random).  Additionally, Lasso GPU paths have
-        # pre-existing dtype issues (torch.asarray with Python float type).
-        # Tracked for follow-up PR.
-        from statgpu.backends import _resolve_backend
-        backend = _resolve_backend("auto", X)
-        if backend in ("cupy", "torch"):
-            raise NotImplementedError(
-                f"Bootstrap inference is not yet supported on device={backend!r}. "
-                f"Use device='cpu' for inference, or set compute_inference=False. "
-                f"GPU-parallel bootstrap is tracked for a follow-up PR."
-            )
+        # Bootstrap currently runs serial refits (CPU-native RNG).
+        # GPU-parallel bootstrap with batched solver tracked for follow-up PR.
         if self._X_design is None or self._resid is None or self._y is None:
             # Need to store these first
             X_np = np.asarray(_to_numpy(X), dtype=np.float64)
