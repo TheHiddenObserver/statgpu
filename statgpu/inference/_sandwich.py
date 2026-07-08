@@ -284,6 +284,7 @@ def m_estimation_inference(
         Keys: bse, statistic, pvalues, conf_int, cov_params,
         dispersion, wald_stat, wald_pval, distribution.
     """
+    cov_type = cov_type.lower()
     _, xp = _resolve_backend_and_xp(X)
 
     n_eff = float(xp.sum(sample_weight)) if sample_weight is not None else X.shape[0]

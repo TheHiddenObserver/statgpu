@@ -533,35 +533,35 @@ class GeneralizedLinearModel(BaseEstimator):
                 "solver must be one of: 'auto', 'irls', 'fista', 'newton', 'lbfgs'"
             )
 
-        # ---- Store inference prerequisites after fit ----
+        # ---- Store design/loss for loglikelihood/aic/bic (always) ----
+        from statgpu.backends import _to_numpy, _resolve_backend
+        from statgpu.backends._utils import _get_xp
+        inf_backend = _resolve_backend("auto", X_arr)
+        inf_xp = _get_xp(inf_backend)
+        is_gpu = inf_backend != "numpy"
+
+        # Keep GPU arrays for inference (no CPU transfer)
+        if is_gpu:
+            self._y_inf = y_arr.ravel() if y_arr.ndim > 1 else y_arr
+            self._X_design, self._params, self._intercept_idx = \
+                self._aligned_inference_design_glm(X_arr)
+        else:
+            self._y_inf = np.asarray(_to_numpy(y_arr), dtype=float).ravel()
+            self._X_design, self._params, self._intercept_idx = \
+                self._aligned_inference_design_glm(X_arr)
+        self._loss = self._resolve_loss_for_inference()
+
+        # ---- Compute inference if requested ----
         if self.compute_inference:
-            from statgpu.backends import _to_numpy, _resolve_backend
-            from statgpu.backends._utils import _get_xp
-            inf_backend = _resolve_backend("auto", X_arr)
-            inf_xp = _get_xp(inf_backend)
-            is_gpu = inf_backend != "numpy"
-
-            # Keep GPU arrays for inference (no CPU transfer)
-            if is_gpu:
-                self._y_inf = y_arr.ravel() if y_arr.ndim > 1 else y_arr
-                self._X_design, self._params, self._intercept_idx = \
-                    self._aligned_inference_design_glm(X_arr)
-                if sample_weight is not None:
-                    # Convert to GPU backend to match _X_design / _y_inf
-                    self._sample_weight_inf = self._to_array(
-                        sample_weight.ravel(), backend=inf_backend)
-                else:
-                    self._sample_weight_inf = None
+            if sample_weight is not None and is_gpu:
+                self._sample_weight_inf = self._to_array(
+                    sample_weight.ravel(), backend=inf_backend)
+            elif sample_weight is not None:
+                self._sample_weight_inf = np.asarray(
+                    _to_numpy(sample_weight), dtype=float).ravel()
             else:
-                self._y_inf = np.asarray(_to_numpy(y_arr), dtype=float).ravel()
-                self._X_design, self._params, self._intercept_idx = \
-                    self._aligned_inference_design_glm(X_arr)
-                self._sample_weight_inf = (
-                    np.asarray(_to_numpy(sample_weight), dtype=float).ravel()
-                    if sample_weight is not None else None
-                )
+                self._sample_weight_inf = None
 
-            self._loss = self._resolve_loss_for_inference()
             self._fit_metadata = {
                 "solver_used": solver_name,
                 "objective_scale": "mean_loss_plus_penalty",

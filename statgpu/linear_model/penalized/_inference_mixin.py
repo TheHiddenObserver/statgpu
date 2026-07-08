@@ -1148,7 +1148,12 @@ class _PenalizedInferenceMixin:
         self._zvalues = z_full
         self._pvalues = p_full
         self._conf_int = ci_full
-        self._params = np.concatenate([[self.intercept_], coef_np]) if self._effective_intercept else coef_np.copy()
+        # Use refit (oracle) parameters, not penalized — map to full space
+        params_full = np.full(full_p, np.nan)
+        params_full[active_idx] = params_active[offset:]
+        if self._effective_intercept:
+            params_full[0] = params_active[0]
+        self._params = params_full
 
         self._inference_result = ParameterInferenceResult(
             method="oracle",
