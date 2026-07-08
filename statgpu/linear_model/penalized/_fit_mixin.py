@@ -1131,27 +1131,36 @@ class _PenalizedFitMixin:
             if is_torch:
                 import torch
                 if _use_l2:
-                    try:
-                        def _fista_elementwise_l2(_y_k, _xtx_y, _step_over_n_Xty, _step_over_n,
-                                                  _thresh, _l2_scale, _coef_old, _beta):
-                            w = _y_k - _step_over_n * _xtx_y + _step_over_n_Xty
-                            c = _st_fn(w, _thresh, xp) / _l2_scale
-                            y = c + _beta * (c - _coef_old)
-                            return c, y
-                        _fused_step_l2 = torch.compile(_fista_elementwise_l2, mode='reduce-overhead')
-                    except Exception:
-                        _fused_step_l2 = None
+                    # torch.compile requires Triton (CUDA capability >= 7.0).
+                    # On older GPUs (e.g. Tesla P100, CUDA 6.0), skip compilation
+                    # and use the plain eager-mode function directly.
+                    _can_compile = (torch.cuda.is_available()
+                                    and torch.cuda.get_device_capability()[0] >= 7)
+                    if _can_compile:
+                        try:
+                            def _fista_elementwise_l2(_y_k, _xtx_y, _step_over_n_Xty, _step_over_n,
+                                                      _thresh, _l2_scale, _coef_old, _beta):
+                                w = _y_k - _step_over_n * _xtx_y + _step_over_n_Xty
+                                c = _st_fn(w, _thresh, xp) / _l2_scale
+                                y = c + _beta * (c - _coef_old)
+                                return c, y
+                            _fused_step_l2 = torch.compile(_fista_elementwise_l2, mode='reduce-overhead')
+                        except Exception:
+                            _fused_step_l2 = None
                 else:
-                    try:
-                        def _fista_elementwise(_y_k, _xtx_y, _step_over_n_Xty, _step_over_n,
-                                               _thresh, _coef_old, _beta):
-                            w = _y_k - _step_over_n * _xtx_y + _step_over_n_Xty
-                            c = _st_fn(w, _thresh, xp)
-                            y = c + _beta * (c - _coef_old)
-                            return c, y
-                        _fused_step = torch.compile(_fista_elementwise, mode='reduce-overhead')
-                    except Exception:
-                        _fused_step = None
+                    _can_compile = (torch.cuda.is_available()
+                                    and torch.cuda.get_device_capability()[0] >= 7)
+                    if _can_compile:
+                        try:
+                            def _fista_elementwise(_y_k, _xtx_y, _step_over_n_Xty, _step_over_n,
+                                                   _thresh, _coef_old, _beta):
+                                w = _y_k - _step_over_n * _xtx_y + _step_over_n_Xty
+                                c = _st_fn(w, _thresh, xp)
+                                y = c + _beta * (c - _coef_old)
+                                return c, y
+                            _fused_step = torch.compile(_fista_elementwise, mode='reduce-overhead')
+                        except Exception:
+                            _fused_step = None
             else:
                 import cupy as cp
                 if _use_l2:
