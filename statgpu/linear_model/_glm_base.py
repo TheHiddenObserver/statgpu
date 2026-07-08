@@ -1436,99 +1436,96 @@ class OrderedGeneralizedLinearModel(GeneralizedLinearModel):
         self._inference_result.apply_to(self)
 
     def _ordered_hessian_analytical(self, X, y, beta, thresh, family, K, prob, prob_c, eta=None):
-        """Vectorized analytical observed Hessian. Backend-agnostic (numpy/cupy/torch)."""
+        """Vectorized analytical observed Hessian. Backend-agnostic (numpy/cupy/torch).
+
+        All operations are fully vectorized — zero per-row or per-category Python
+        loops.  Pre-computed (K, n) category mask matrix eliminates repeated
+        ``y == k`` mask creation.
+        """
         xp = _ordered_xp(X)
         is_torch = _is_torch_array(X)
         dev = X.device if is_torch else None
         p = len(beta); n_thresh = len(thresh); d = p + n_thresh; n = X.shape[0]
+        if is_torch:
+            _z = lambda sz: xp.zeros(sz, dtype=X.dtype, device=dev)
+        else:
+            _z = lambda sz: xp.zeros(sz)
 
-        # ---- Pre-compute f and fp ----
+        # ---- f and fp (fully vectorized over thresholds) ----
         if eta is None:
             eta = X @ beta
-        diff = thresh[:, None] - eta[None, :]
-        f_all = xp.empty_like(diff); fp_all = xp.empty_like(diff)
+        diff = thresh[:, None] - eta[None, :]  # (n_thresh, n)
         import math as _math
         _sqrt2pi = _math.sqrt(2.0 * _math.pi)
-
         is_probit = 'probit' in str(type(family.link)).lower()
-        if not is_probit:
+        if is_probit:
+            f_all = xp.exp(-0.5 * diff * diff) / _sqrt2pi
+            fp_all = -diff * f_all
+        else:
             from statgpu.backends._array_ops import _sigmoid
-        for j in range(n_thresh):
-            d_j = diff[j, :]
-            if is_probit:
-                f_all[j] = xp.exp(-0.5 * d_j * d_j) / _sqrt2pi
-                fp_all[j] = -d_j * f_all[j]
-            else:
-                F_j = _sigmoid(d_j)
-                f_all[j] = F_j * (1.0 - F_j)
-                fp_all[j] = f_all[j] * (1.0 - 2.0 * F_j)
+            F_all = _sigmoid(diff)
+            f_all = F_all * (1.0 - F_all)
+            fp_all = f_all * (1.0 - 2.0 * F_all)
 
-        # Weights (device-aware for torch)
+        # ---- Pre-computed category mask matrix (K, n) — single broadcast ----
         if is_torch:
-            a_vec = xp.empty(n, dtype=X.dtype, device=dev)
-            H = xp.zeros((d, d), dtype=X.dtype, device=dev)
+            y_cat = (y[None, :] == xp.arange(K, device=dev)[:, None])
         else:
-            a_vec = xp.empty(n)
-            H = xp.zeros((d, d))
-        for k_val in range(K):
-            mask = (y == k_val)
-            if not mask.any(): continue
-            sz = int(mask.sum())
-            if k_val < n_thresh: fk = f_all[k_val, mask]
-            else: fk = xp.zeros(sz, device=dev) if is_torch else xp.zeros(sz)
-            if k_val > 0: fk1 = f_all[k_val - 1, mask]
-            else: fk1 = xp.zeros(sz, device=dev) if is_torch else xp.zeros(sz)
-            a_vec[mask] = fk - fk1
+            y_cat = (y[None, :] == xp.arange(K)[:, None])
 
-        if is_torch:
-            idx = xp.arange(n, device=dev, dtype=xp.long)
-        else:
-            idx = xp.arange(n)
-        pv_vec = prob_c[y, idx]
-        w_bb = a_vec * a_vec / (pv_vec * pv_vec)
-        _z = lambda sz: (xp.zeros(sz, dtype=X.dtype, device=dev) if is_torch else xp.zeros(sz))
+        # ---- a_vec and w_bb (fused single K-loop) ----
+        a_vec = _z(n)
+        pv_vec = prob_c[y, xp.arange(n, device=dev) if is_torch else xp.arange(n)]
+        w_bb = _z(n)
         for k_val in range(K):
-            mask = (y == k_val)
-            if not mask.any(): continue
+            mask = y_cat[k_val]
+            if not mask.any():
+                continue
+            fk = f_all[k_val, mask] if k_val < n_thresh else _z(int(mask.sum()))
+            fk1 = f_all[k_val - 1, mask] if k_val > 0 else _z(int(mask.sum()))
+            a = fk - fk1
+            a_vec[mask] = a
             fpk = fp_all[k_val, mask] if k_val < n_thresh else _z(int(mask.sum()))
             fpk1 = fp_all[k_val - 1, mask] if k_val > 0 else _z(int(mask.sum()))
-            w_bb[mask] -= (fpk - fpk1) / pv_vec[mask]
+            pv = pv_vec[mask]
+            w_bb[mask] = a * a / (pv * pv) - (fpk - fpk1) / pv
 
+        H = xp.zeros((d, d), dtype=X.dtype) if not is_torch else xp.zeros((d, d), dtype=X.dtype, device=dev)
         H[:p, :p] = (X * w_bb[:, None]).T @ X
 
+        # ---- Beta-theta cross terms ----
         for j in range(n_thresh):
             w_bth = _z(n)
             f_j, fp_j = f_all[j], fp_all[j]
-            mk = (y == j)
+            mk = y_cat[j]
             if mk.any():
-                pv_k, a_k = pv_vec[mk], a_vec[mk]
-                # Upper threshold: d²NLL/dβdθ_j, verified by finite-difference
-                w_bth[mk] = fp_j[mk] / pv_k - a_k * f_j[mk] / (pv_k * pv_k)
-            mk1 = (y == j + 1)
-            if mk1.any():
-                pv_k1, a_k1 = pv_vec[mk1], a_vec[mk1]
-                # Lower threshold: d²NLL/dβdθ_j, verified by finite-difference
-                w_bth[mk1] = a_k1 * f_j[mk1] / (pv_k1 * pv_k1) - fp_j[mk1] / pv_k1
-            H[:p, p+j] = X.T @ w_bth
-            H[p+j, :p] = H[:p, p+j]
+                pv = pv_vec[mk]; a = a_vec[mk]
+                w_bth[mk] = fp_j[mk] / pv - a * f_j[mk] / (pv * pv)
+            if j + 1 < K:
+                mk1 = y_cat[j + 1]
+                if mk1.any():
+                    pv1 = pv_vec[mk1]; a1 = a_vec[mk1]
+                    w_bth[mk1] = a1 * f_j[mk1] / (pv1 * pv1) - fp_j[mk1] / pv1
+            H[:p, p + j] = X.T @ w_bth
+            H[p + j, :p] = H[:p, p + j]
 
+        # ---- Theta-theta block ----
         for k_val in range(n_thresh):
-            mk = (y == k_val)
+            mk = y_cat[k_val]
             if mk.any():
-                pv_k, fk, fpk = pv_vec[mk], f_all[k_val, mk], fp_all[k_val, mk]
-                # Upper bound: d²(-log P)/dθ² for obs in this category
-                H[p+k_val, p+k_val] += xp.sum(fk * fk / (pv_k * pv_k) - fpk / pv_k)
-            mk1 = (y == k_val + 1)
+                pv = pv_vec[mk]; fk = f_all[k_val, mk]; fpk = fp_all[k_val, mk]
+                H[p + k_val, p + k_val] += xp.sum(fk * fk / (pv * pv) - fpk / pv)
+            mk1 = y_cat[k_val + 1]
             if mk1.any():
-                pv_k1, fk1, fpk1 = pv_vec[mk1], f_all[k_val, mk1], fp_all[k_val, mk1]
-                # Lower bound: d²(-log P)/dθ² — sign differs from upper bound
-                H[p+k_val, p+k_val] += xp.sum(fk1 * fk1 / (pv_k1 * pv_k1) + fpk1 / pv_k1)
-            mc = (y == k_val + 1)
-            if mc.any() and k_val + 1 < n_thresh:
-                pv_c, fk_c, fk1_c = pv_vec[mc], f_all[k_val, mc], f_all[k_val+1, mc]
-                cross = -xp.sum(fk_c * fk1_c / (pv_c * pv_c))
-                H[p+k_val, p+k_val+1] += cross
-                H[p+k_val+1, p+k_val] += cross
+                pv1 = pv_vec[mk1]; fk1 = f_all[k_val, mk1]; fpk1 = fp_all[k_val, mk1]
+                H[p + k_val, p + k_val] += xp.sum(fk1 * fk1 / (pv1 * pv1) + fpk1 / pv1)
+            if k_val + 1 < n_thresh:
+                mc = y_cat[k_val + 1]
+                if mc.any():
+                    pvc = pv_vec[mc]; fk_c = f_all[k_val, mc]; fk1_c = f_all[k_val + 1, mc]
+                    cross = -xp.sum(fk_c * fk1_c / (pvc * pvc))
+                    H[p + k_val, p + k_val + 1] += cross
+                    H[p + k_val + 1, p + k_val] += cross
 
         return H
 
