@@ -951,75 +951,76 @@ class _PenalizedInferenceMixin:
         """Penalized sandwich inference for Hessian-equipped losses + L2/ElasticNet.
 
         Uses the penalized Hessian H_pen = H_loss + penalty.curvature_diag()
-        as bread.  Follows Convention A: nonrobust uses phi * H_pen^{-1} / n.
+        as bread.  Backend-aware: works with NumPy, CuPy, and Torch arrays.
         """
         import numpy as np
         from statgpu.backends import _to_numpy, _resolve_backend
+        from statgpu.backends._utils import _get_xp, xp_ones, xp_asarray
         from statgpu.inference._sandwich import m_estimation_inference, _infer_covariance_convention
         from statgpu.inference._results import ParameterInferenceResult
 
-        # Guard: explicit GPU devices must not silently fall back to CPU.
-        # Check the backend actually used during fit, not the input array type.
-        fit_backend = getattr(self, '_selected_backend_name', None)
-        if fit_backend in ("cupy", "torch"):
-            raise NotImplementedError(
-                f"Penalized sandwich inference is not yet supported on "
-                f"device={fit_backend!r}. Use device='cpu' for inference, "
-                f"or set compute_inference=False."
-            )
+        # Resolve backend and keep arrays on native device
+        backend = _resolve_backend("auto", X)
+        xp = _get_xp(backend)
+        is_torch = (backend == "torch")
 
-        X_np = np.asarray(_to_numpy(X), dtype=float)
-        y_np = np.asarray(_to_numpy(y), dtype=float).ravel()
+        X_arr = xp_asarray(X, dtype=xp.float64, xp=xp)
+        y_arr = xp_asarray(y, dtype=xp.float64, xp=xp).ravel()
+        sw_arr = None
         if sample_weight is not None:
-            sample_weight = np.asarray(_to_numpy(sample_weight), dtype=float).ravel()
+            sw_arr = xp_asarray(sample_weight, dtype=xp.float64, xp=xp).ravel()
 
         # Build aligned design: [1, X] with intercept first
-        n, p_feat = X_np.shape
+        n, p_feat = X_arr.shape
         if self._effective_intercept:
-            X_design = np.column_stack([np.ones(n), X_np])
-            params = np.concatenate([[self.intercept_], np.asarray(self.coef_)])
+            ones = xp_ones(n, xp.float64, xp, ref_arr=X_arr)
+            if is_torch:
+                X_design = xp.cat([ones.reshape(-1, 1), X_arr], dim=1)
+            else:
+                X_design = xp.column_stack([ones, X_arr])
+            params = xp.concatenate([xp.asarray([self.intercept_], dtype=xp.float64),
+                                      xp_asarray(self.coef_, dtype=xp.float64, xp=xp)])
             intercept_idx = 0
         else:
-            X_design = X_np.copy()
-            params = np.asarray(self.coef_).copy()
+            X_design = X_arr
+            params = xp_asarray(self.coef_, dtype=xp.float64, xp=xp)
             intercept_idx = None
 
         # Penalty curvature: features only, intercept gets 0
-        curv = np.zeros(len(params))
+        curv = xp.zeros(len(params), dtype=xp.float64)
         if self._penalty is not None:
             pen_name = str(getattr(self._penalty, "name", "")).lower()
             if pen_name in ("l2",):
-                curv_feat = np.asarray(_to_numpy(
-                    self._penalty.curvature_diag(self.coef_)
-                ), dtype=float)
+                curv_feat = xp_asarray(
+                    self._penalty.curvature_diag(self.coef_), dtype=xp.float64, xp=xp)
             elif pen_name in ("elasticnet", "en"):
-                # Only L2 component: lambda * (1 - l1_ratio)
                 l1r = float(getattr(self._penalty, "l1_ratio", 0.5))
                 alpha = float(getattr(self._penalty, "alpha", self.alpha))
                 lam2 = alpha * (1.0 - l1r)
-                curv_feat = np.full(p_feat, lam2, dtype=float)
+                curv_feat = xp.full(p_feat, lam2, dtype=xp.float64)
             else:
-                curv_feat = np.zeros(p_feat)
+                curv_feat = xp.zeros(p_feat, dtype=xp.float64)
 
             if intercept_idx is not None:
-                curv[1:] = curv_feat  # intercept at index 0
+                curv[1:] = curv_feat
             else:
                 curv[:] = curv_feat
 
+        has_curv = bool(float(xp.sum(xp.abs(curv))) > 0)
+
         result = m_estimation_inference(
-            self._loss, X_design, y_np, params,
+            self._loss, X_design, y_arr, params,
             cov_type=self.cov_type,
-            penalty_curvature_diag=curv if np.any(curv) else None,
-            sample_weight=sample_weight,
+            penalty_curvature_diag=_to_numpy(curv) if has_curv else None,
+            sample_weight=sw_arr,
         )
 
-        self._bse = np.asarray(result["bse"])
-        self._zvalues = np.asarray(result["statistic"])
-        self._pvalues = np.asarray(result["pvalues"])
-        self._conf_int = np.asarray(result["conf_int"])
-        self._params = params.copy()
+        self._bse = np.asarray(_to_numpy(result["bse"]))
+        self._zvalues = np.asarray(_to_numpy(result["statistic"]))
+        self._pvalues = np.asarray(_to_numpy(result["pvalues"]))
+        self._conf_int = np.asarray(_to_numpy(result["conf_int"]))
+        self._params = np.asarray(_to_numpy(params))
 
-        has_curv = curv is not None and np.any(curv)
         self._inference_result = ParameterInferenceResult(
             method="m_estimation",
             params=self._params.copy(),
@@ -1037,6 +1038,7 @@ class _PenalizedInferenceMixin:
                 "covariance_convention": _infer_covariance_convention(
                     self.cov_type, has_curv
                 ),
+                "backend": backend,
             },
         )
         self._inference_result.apply_to(self)
