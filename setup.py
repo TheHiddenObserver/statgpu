@@ -6,6 +6,7 @@ Usage:
 """
 from __future__ import annotations
 
+import os
 import warnings
 import sys
 
@@ -76,7 +77,14 @@ def get_ext_modules():
 
 
 build_commands = {"build", "build_ext", "bdist_wheel", "develop", "install"}
-if build_commands.intersection(sys.argv):
+# STATGPU_NO_EXT=1 forces a pure-Python build (no compiled extensions). The PyPI
+# release workflow sets this so the published wheel is tagged ``py3-none-any`` and
+# works on every OS / Python version. The Cython extensions are optional CPU
+# accelerators with pure-Python fallbacks, so nothing is lost; users who want the
+# C speedups build them from the sdist (which ships the .pyx/.pxd sources).
+if os.environ.get("STATGPU_NO_EXT") == "1":
+    ext_modules = []
+elif build_commands.intersection(sys.argv):
     ext_modules = get_ext_modules()
 else:
     ext_modules = []

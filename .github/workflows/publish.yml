@@ -33,8 +33,18 @@ jobs:
             exit 1
           fi
 
-      - name: Build package
+      - name: Build package (pure-Python wheel + sdist)
+        # STATGPU_NO_EXT=1 -> no compiled extensions, so the wheel is tagged
+        # py3-none-any (universal). The sdist still ships .pyx/.pxd sources for
+        # users who want to build the optional C accelerators locally.
+        env:
+          STATGPU_NO_EXT: "1"
         run: python -m build
+
+      - name: Check distributions
+        run: |
+          python -m twine check dist/*
+          ls -l dist/
 
       - name: Publish to PyPI
         env:

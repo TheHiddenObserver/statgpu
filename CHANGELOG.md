@@ -2,6 +2,22 @@
 
 All notable changes to statgpu are documented here, organized by date and PR.
 
+## 2026-07-08
+
+### v0.2.1 — Packaging / PyPI release hygiene
+
+- **Version bump** 0.2.0 → 0.2.1 (`pyproject.toml`, `statgpu/__init__.py`).
+- **Pure-Python wheel policy**: the PyPI release workflow now sets `STATGPU_NO_EXT=1`,
+  so the published wheel is tagged `py3-none-any` and installs on every OS / Python
+  version. Previously `python -m build` compiled the optional Cython extensions during
+  `bdist_wheel`, producing a platform-locked wheel (e.g. `cp311-linux_x86_64`) that
+  served almost no one and forced everyone else onto the sdist.
+- **setup.py**: added the `STATGPU_NO_EXT` switch — when set to `1`, `ext_modules` is
+  empty (forces a pure-Python build). The Cython extensions remain optional CPU
+  accelerators with pure-Python fallbacks; users who want the C speedups build them
+  from the sdist, which still ships the `.pyx`/`.pxd` sources via `MANIFEST.in`.
+- **publish.yml**: added `twine check dist/*` before upload.
+
 ### PR #73 — LossBase Extraction, Proximal IRLS-CD, CoxPH Efron optimization
 - Extracted LossBase from GLMLoss; added QuantileLoss, HuberLoss, BisquareLoss, CoxPartialLikelihoodLoss
 - New penalized models: PenalizedQuantileRegression, PenalizedRobustRegression, PenalizedCoxPHModel
