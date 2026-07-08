@@ -411,10 +411,14 @@ class GeneralizedLinearModel(BaseEstimator):
         self._check_is_fitted()
         if self._loss is None or self._X_design is None or self._y_inf is None:
             return float("nan")
+        from statgpu.backends._utils import _get_xp, xp_asarray
+        from statgpu.backends import _resolve_backend
         import numpy as np
-        return -float(np.sum(self._loss.per_sample_value(
-            self._X_design @ self._params, self._y_inf
-        )))
+        backend = _resolve_backend("auto", self._X_design)
+        xp = _get_xp(backend)
+        params = xp_asarray(self._params, xp=xp, ref_arr=self._X_design)
+        eta = self._X_design @ params
+        return -float(xp.sum(self._loss.per_sample_value(eta, self._y_inf)))
 
     @property
     def aic(self):

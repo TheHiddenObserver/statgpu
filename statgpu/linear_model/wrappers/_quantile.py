@@ -82,29 +82,34 @@ class QuantileRegression(BaseEstimator):
         self._fitted = False
 
     def fit(self, X, y, sample_weight=None):
-        X_np = np.asarray(X, dtype=float)
-        y_np = np.asarray(y, dtype=float).ravel()
-        n, p = X_np.shape
+        backend = self._get_backend(device=self.device)
+        backend_name = backend.name
+
+        X_arr = self._to_array(X, backend=backend_name)
+        y_arr = self._to_array(y, backend=backend_name)
+        n, p = X_arr.shape
 
         loss = QuantileLoss(quantile=self.quantile)
 
         if self.fit_intercept:
-            # Build design with intercept appended (FISTA convention)
             from statgpu.penalties._l2 import L2Penalty
-            X_aug = np.column_stack([X_np, np.ones(n)])
-            pen = L2Penalty(alpha=0.0)  # unpenalized
-            params, n_iter = fista_solver(loss, pen, X_aug, y_np,
+            from statgpu.backends._utils import _get_xp, xp_ones
+            xp = _get_xp(backend_name)
+            ones = xp_ones(n, X_arr.dtype, xp, ref_arr=X_arr)
+            X_aug = xp.column_stack([X_arr, ones])
+            pen = L2Penalty(alpha=0.0)
+            params, n_iter = fista_solver(loss, pen, X_aug, y_arr,
                                           max_iter=self.max_iter, tol=self.tol,
                                           sample_weight=sample_weight)
-            self.coef_ = params[:-1].copy()
+            self.coef_ = np.asarray(params[:-1])
             self.intercept_ = float(params[-1])
         else:
             from statgpu.penalties._l2 import L2Penalty
             pen = L2Penalty(alpha=0.0)
-            params, n_iter = fista_solver(loss, pen, X_np, y_np,
+            params, n_iter = fista_solver(loss, pen, X_arr, y_arr,
                                           max_iter=self.max_iter, tol=self.tol,
                                           sample_weight=sample_weight)
-            self.coef_ = params.copy()
+            self.coef_ = np.asarray(params)
             self.intercept_ = 0.0
 
         self.n_iter_ = n_iter

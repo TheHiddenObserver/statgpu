@@ -944,12 +944,14 @@ class _PenalizedInferenceMixin:
         from statgpu.inference._sandwich import m_estimation_inference, _infer_covariance_convention
         from statgpu.inference._results import ParameterInferenceResult
 
-        # Guard: explicit GPU devices must not silently fall back to CPU
-        backend = _resolve_backend("auto", X)
-        if backend in ("cupy", "torch"):
+        # Guard: explicit GPU devices must not silently fall back to CPU.
+        # Check the backend actually used during fit, not the input array type.
+        fit_backend = getattr(self, '_selected_backend_name', None)
+        if fit_backend in ("cupy", "torch"):
             raise NotImplementedError(
-                f"Penalized sandwich inference is not yet supported on device={backend!r}. "
-                f"Use device='cpu' for inference, or set compute_inference=False."
+                f"Penalized sandwich inference is not yet supported on "
+                f"device={fit_backend!r}. Use device='cpu' for inference, "
+                f"or set compute_inference=False."
             )
 
         X_np = np.asarray(_to_numpy(X), dtype=float)
@@ -1036,12 +1038,14 @@ class _PenalizedInferenceMixin:
         from statgpu.inference._sandwich import m_estimation_inference, _infer_covariance_convention
         from statgpu.inference._results import ParameterInferenceResult
 
-        # Guard: explicit GPU devices must not silently fall back to CPU
-        backend = _resolve_backend("auto", X)
-        if backend in ("cupy", "torch"):
+        # Guard: explicit GPU devices must not silently fall back to CPU.
+        # Check the backend actually used during fit, not the input array type.
+        fit_backend = getattr(self, '_selected_backend_name', None)
+        if fit_backend in ("cupy", "torch"):
             raise NotImplementedError(
-                f"Oracle inference is not yet supported on device={backend!r}. "
-                f"Use device='cpu' for inference, or set compute_inference=False."
+                f"Oracle inference is not yet supported on "
+                f"device={fit_backend!r}. Use device='cpu' for inference, "
+                f"or set compute_inference=False."
             )
 
         X_np = np.asarray(_to_numpy(X), dtype=float)
@@ -1105,6 +1109,14 @@ class _PenalizedInferenceMixin:
         kwargs = {"fit_intercept": self._effective_intercept}
         if "solver" in model_cls.__init__.__code__.co_varnames:
             kwargs["solver"] = "newton"
+        # Pass through loss-specific kwargs (NB alpha, Tweedie power, Gamma link, etc.)
+        loss_kwargs = getattr(self, 'loss_kwargs', None) or {}
+        if loss_kwargs:
+            if "loss_kwargs" in model_cls.__init__.__code__.co_varnames:
+                kwargs["loss_kwargs"] = loss_kwargs
+        # Avoid default regularization for logistic
+        if self.loss == "logistic" and "C" in model_cls.__init__.__code__.co_varnames:
+            kwargs["C"] = 1e9  # effectively unpenalized
         refit = model_cls(**kwargs)
         refit.fit(X_active, y_np, sample_weight=sample_weight)
 
