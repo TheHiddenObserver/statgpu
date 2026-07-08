@@ -17,6 +17,7 @@ from .wrappers import (
     InverseGaussianRegression,
     NegativeBinomialRegression,
     TweedieRegression,
+    QuantileRegression,
 )
 
 # GLM base

@@ -78,8 +78,8 @@ Language switch: [Chinese](../changelog.md)
     (β-β, β-θ, θ-θ) matching R `MASS::polr` and `ordinal::clm`
   - Standard errors via `sqrt(diag(H^{-1}))`; Wald z-statistics, two-sided p-values,
     95% confidence intervals via standard normal
-  - Separate attribute sets: `_bse_ordered`/`_pvalues_ordered` (coefficients)
-    and `_bse_thresholds`/`_pvalues_thresholds` (thresholds)
+  - Flat arrays `_bse`/`_zvalues`/`_pvalues`/`_conf_int`; use `_bse[:p]` for
+    coefficients and `_bse[p:]` for thresholds
   - `loglikelihood`, `aic`, `bic` properties for ordered models
   - `summary()` method via `ParameterInferenceResult`
   - GPU guard: explicit `device='cuda'` or `device='torch'` raises

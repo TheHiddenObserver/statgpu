@@ -84,6 +84,7 @@ class QuantileRegression(BaseEstimator):
     def fit(self, X, y, sample_weight=None):
         backend = self._get_backend(device=self.device)
         backend_name = backend.name
+        from statgpu.backends import _to_numpy
 
         X_arr = self._to_array(X, backend=backend_name)
         y_arr = self._to_array(y, backend=backend_name)
@@ -101,15 +102,15 @@ class QuantileRegression(BaseEstimator):
             params, n_iter = fista_solver(loss, pen, X_aug, y_arr,
                                           max_iter=self.max_iter, tol=self.tol,
                                           sample_weight=sample_weight)
-            self.coef_ = np.asarray(params[:-1])
-            self.intercept_ = float(params[-1])
+            self.coef_ = np.asarray(_to_numpy(params[:-1]))
+            self.intercept_ = float(_to_numpy(params[-1]))
         else:
             from statgpu.penalties._l2 import L2Penalty
             pen = L2Penalty(alpha=0.0)
             params, n_iter = fista_solver(loss, pen, X_arr, y_arr,
                                           max_iter=self.max_iter, tol=self.tol,
                                           sample_weight=sample_weight)
-            self.coef_ = np.asarray(params)
+            self.coef_ = np.asarray(_to_numpy(params))
             self.intercept_ = 0.0
 
         self.n_iter_ = n_iter
@@ -120,7 +121,9 @@ class QuantileRegression(BaseEstimator):
         self._fitted = True
 
         if self.compute_inference:
-            self._compute_inference(X_np, y_np, loss)
+            X_cpu = np.asarray(_to_numpy(X_arr), dtype=float)
+            y_cpu = np.asarray(_to_numpy(y_arr), dtype=float).ravel()
+            self._compute_inference(X_cpu, y_cpu, loss)
 
         return self
 

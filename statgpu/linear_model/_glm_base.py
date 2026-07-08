@@ -557,12 +557,13 @@ class GeneralizedLinearModel(BaseEstimator):
 
         # ---- Compute inference if requested ----
         if self.compute_inference:
-            if sample_weight is not None and is_gpu:
-                self._sample_weight_inf = self._to_array(
-                    sample_weight.ravel(), backend=inf_backend)
-            elif sample_weight is not None:
-                self._sample_weight_inf = np.asarray(
-                    _to_numpy(sample_weight), dtype=float).ravel()
+            if sample_weight is not None:
+                sw = np.asarray(sample_weight, dtype=float).ravel()
+                if is_gpu:
+                    self._sample_weight_inf = self._to_array(
+                        sw, backend=inf_backend)
+                else:
+                    self._sample_weight_inf = sw
             else:
                 self._sample_weight_inf = None
 
@@ -1034,8 +1035,21 @@ class OrderedGeneralizedLinearModel(GeneralizedLinearModel):
         X = self._to_array(X, backend=backend_name)
         y = self._to_array(y, backend=backend_name)
 
-        family = self._get_family()
+        # Validate labels: must be integers in [0, n_categories)
+        from statgpu.backends._utils import _get_xp
+        xp = _get_xp(backend_name)
+        y_flat = xp.asarray(y).ravel()
+        y_min = int(xp.min(y_flat))
+        y_max = int(xp.max(y_flat))
         K = self.n_categories
+        if y_min < 0 or y_max >= K:
+            raise ValueError(
+                f"Ordered model labels must be integers in [0, {K - 1}], "
+                f"got range [{y_min}, {y_max}]. "
+                f"n_categories={K}."
+            )
+
+        family = self._get_family()
         n = X.shape[0]
         p = X.shape[1]
 
