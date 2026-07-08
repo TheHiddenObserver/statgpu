@@ -187,7 +187,7 @@ class TestDebiasedInferenceCPU:
         m_db.fit(X, y)
 
         m_ols = Lasso(
-            alpha=0.01, inference_method="cpu_ols_inference", device="cpu",
+            alpha=0.01, inference_method="cpu_ols", device="cpu",
             compute_inference=True, max_iter=1000, tol=1e-6, cpu_solver="fista",
         )
         m_ols.fit(X, y)
