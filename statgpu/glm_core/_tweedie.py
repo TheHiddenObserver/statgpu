@@ -63,6 +63,16 @@ class TweedieLoss(GLMLoss):
         n_eff = float(sample_weight.sum()) if sample_weight is not None else X.shape[0]
         return X.T @ (X * W[:, None]) / n_eff
 
+    def fisher_information(self, X, coef, sample_weight=None):
+        """Expected Fisher: W = mu^(2-p) for log-link Tweedie."""
+        z = _clip(X @ coef, -self._Z_CLIP, self._Z_CLIP)
+        mu = _exp(z)
+        W = mu ** (2.0 - self.power)
+        if sample_weight is not None:
+            W = W * sample_weight
+        n_eff = float(sample_weight.sum()) if sample_weight is not None else X.shape[0]
+        return X.T @ (X * W[:, None]) / n_eff
+
     def lipschitz(self, X, coef, y=None, sample_weight=None):
         z = _clip(X @ coef, -self._Z_CLIP, self._Z_CLIP)
         mu = _exp(z)

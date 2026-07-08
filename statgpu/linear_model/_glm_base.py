@@ -22,7 +22,7 @@ def _parse_formula_if_provided(formula, data, X, y):
 
 from statgpu._base import BaseEstimator
 from statgpu._config import Device
-from statgpu.backends import _to_numpy, _resolve_backend
+from statgpu.backends import _to_numpy, _resolve_backend, _is_torch_array
 from statgpu.glm_core._irls import IRLSSolver
 from statgpu.solvers import fista_solver
 from statgpu.glm_core._family import (
@@ -37,16 +37,22 @@ from statgpu.glm_core._family import (
 
 
 def _np_compat_xp(arr):
-    """Get numpy-compatible array module from array type.
-
-    Returns cupy for cupy arrays, numpy for everything else (including torch).
-    Used for operations that need numpy-style indexing (e.g., ordered model).
-    """
+    """Return the native array module for the given array: cupy, torch, or numpy."""
     from statgpu.backends._utils import _get_xp
     backend = _resolve_backend("auto", arr)
     if backend == "cupy":
         return _get_xp("cupy")
+    if backend == "torch":
+        return _get_xp("torch")
     return np
+
+
+def _ordered_xp(X):
+    """Native array module: torch for torch, cupy for cupy, numpy otherwise."""
+    from statgpu.backends._utils import _get_xp
+    from statgpu.backends import _resolve_backend
+    backend = _resolve_backend("auto", X)
+    return _get_xp(backend)
 
 
 def _torch_promoted_float_dtype(X, y):
@@ -101,6 +107,8 @@ class GeneralizedLinearModel(BaseEstimator):
         n_jobs: Optional[int] = None,
         solver: str = "auto",
         gpu_memory_cleanup: bool = False,
+        compute_inference: bool = False,
+        cov_type: str = "nonrobust",
     ):
         super().__init__(device=device, n_jobs=n_jobs)
         self.family = family
@@ -110,6 +118,8 @@ class GeneralizedLinearModel(BaseEstimator):
         self.C = C
         self.solver = solver
         self.gpu_memory_cleanup = gpu_memory_cleanup
+        self.compute_inference = compute_inference
+        self.cov_type = cov_type.lower() if isinstance(cov_type, str) else cov_type
 
         self.coef_ = None
         self.intercept_ = None
@@ -121,6 +131,19 @@ class GeneralizedLinearModel(BaseEstimator):
         self._design_info = None
         self._formula_has_intercept = None
         self._use_intercept = None  # formula-derived override; None = use fit_intercept
+
+        # Inference state (populated by _compute_inference)
+        self._loss = None
+        self._X_design = None
+        self._y_inf = None
+        self._sample_weight_inf = None
+        self._intercept_idx = None
+        self._fit_metadata = {}
+        self._inference_result = None
+        self._bse = None
+        self._zvalues = None
+        self._pvalues = None
+        self._conf_int = None
 
     @property
     def _effective_intercept(self):
@@ -185,6 +208,240 @@ class GeneralizedLinearModel(BaseEstimator):
         elif backend_name == "torch":
             self._cleanup_torch_memory()
 
+    # ------------------------------------------------------------------
+    # Inference helpers
+    # ------------------------------------------------------------------
+
+    def _resolve_loss_for_inference(self):
+        """Create the GLM loss object for inference.
+
+        Returns a loss with ``has_hessian=True`` for sandwich covariance.
+        Matches the family used during fitting.
+        """
+        from statgpu.glm_core import get_glm_loss
+        kwargs = self._get_loss_kwargs()
+        loss_name = self.family_to_loss()
+        return get_glm_loss(loss_name, **kwargs)
+
+    def family_to_loss(self):
+        """Map family name to GLM loss name."""
+        _map = {
+            "gaussian": "squared_error",
+            "binomial": "logistic",
+            "poisson": "poisson",
+            "gamma": "gamma",
+            "inverse_gaussian": "inverse_gaussian",
+            "negative_binomial": "negative_binomial",
+            "tweedie": "tweedie",
+        }
+        if self.family not in _map:
+            raise ValueError(f"Cannot map family '{self.family}' to loss name.")
+        return _map[self.family]
+
+    def _get_loss_kwargs(self):
+        """Return kwargs for the GLM loss constructor. Override in subclasses."""
+        return {}
+
+    def _aligned_inference_design_glm(self, X_orig):
+        """Return (X_design, params, intercept_idx) with aligned layout.
+
+        Layout: intercept first → X_design = [1, X], params = [intercept, coef].
+        This matches ``statsmodels.add_constant(X, prepend=True)`` order.
+        Backend-aware: works with numpy, cupy, and torch arrays.
+
+        ``X_orig`` must be the numeric design matrix after preprocessing
+        (dtype/backend conversion), before solver-internal intercept augmentation.
+        """
+        from statgpu.backends import _to_numpy, _resolve_backend
+        from statgpu.backends._utils import _get_xp
+
+        backend = _resolve_backend("auto", X_orig)
+        xp = _get_xp(backend)
+        is_gpu = backend != "numpy"
+
+        if self._effective_intercept:
+            n = X_orig.shape[0]
+            if is_gpu:
+                if backend == "torch":
+                    import torch
+                    dev = X_orig.device; dt = X_orig.dtype
+                    ones = torch.ones((n, 1), dtype=dt, device=dev)
+                    X_inf = torch.cat([ones, X_orig], dim=1)
+                    params_inf = torch.cat([
+                        torch.tensor([self.intercept_], dtype=dt, device=dev),
+                        torch.as_tensor(self.coef_, dtype=dt, device=dev)
+                    ])
+                else:
+                    ones = xp.ones((n, 1), dtype=X_orig.dtype)
+                    X_inf = xp.concatenate([ones, X_orig], axis=1)
+                    params_inf = xp.concatenate([
+                        xp.asarray([self.intercept_], dtype=X_orig.dtype),
+                        xp.asarray(self.coef_, dtype=X_orig.dtype)
+                    ])
+            else:
+                X_np = np.asarray(_to_numpy(X_orig), dtype=float)
+                X_inf = np.column_stack([np.ones(n), X_np])
+                params_inf = np.concatenate([[self.intercept_], np.asarray(self.coef_)])
+            return X_inf, params_inf, 0  # intercept_idx = 0
+        else:
+            if is_gpu:
+                if backend == "torch":
+                    import torch
+                    return X_orig, torch.as_tensor(self.coef_, dtype=X_orig.dtype, device=X_orig.device), None
+                return X_orig, xp.asarray(self.coef_, dtype=X_orig.dtype), None
+            else:
+                return np.asarray(_to_numpy(X_orig), dtype=float), np.asarray(self.coef_), None
+
+    def _compute_inference(self):
+        """Compute M-estimation inference after fit.
+
+        Called automatically at end of ``fit()`` when ``compute_inference=True``.
+        Uses fit-time metadata to match the inference to the actual objective.
+        Backend-aware: works with NumPy, CuPy, and Torch arrays.
+        """
+        from statgpu.inference._sandwich import m_estimation_inference, _infer_covariance_convention
+        from statgpu.inference._results import ParameterInferenceResult
+        from statgpu.backends import _to_numpy, _resolve_backend
+        from statgpu.backends._utils import _get_xp
+
+        curv = self._fit_metadata.get("penalty_curvature_diag")
+        backend = _resolve_backend("auto", self._X_design)
+        is_gpu = backend != "numpy"
+
+        result = m_estimation_inference(
+            self._loss, self._X_design, self._y_inf, self._params,
+            cov_type=self.cov_type,
+            penalty_curvature_diag=curv,
+            sample_weight=self._sample_weight_inf,
+        )
+        # Convert GPU results to NumPy for storage (API contract: CPU NumPy)
+        self._bse = np.asarray(_to_numpy(result["bse"]))
+        self._zvalues = np.asarray(_to_numpy(result["statistic"]))
+        self._pvalues = np.asarray(_to_numpy(result["pvalues"]))
+        self._conf_int = np.asarray(_to_numpy(result["conf_int"]))
+
+        # params may be GPU array
+        params_np = np.asarray(_to_numpy(self._params))
+
+        self._inference_result = ParameterInferenceResult(
+            method="m_estimation",
+            params=params_np.copy(),
+            bse=self._bse.copy(),
+            statistic=self._zvalues.copy(),
+            statistic_name="z",
+            pvalues=self._pvalues.copy(),
+            conf_int=self._conf_int.copy(),
+            distribution="normal",
+            metadata={
+                "dispersion": result["dispersion"],
+                "wald_stat": result["wald_stat"],
+                "wald_pval": result["wald_pval"],
+                "meat_type": self.cov_type,
+                "covariance_convention": _infer_covariance_convention(
+                    self.cov_type, curv is not None
+                ),
+                "solver_used": self._fit_metadata.get("solver_used"),
+                "inference_backend": backend,
+            },
+        )
+        self._inference_result.apply_to(self)
+
+    # ------------------------------------------------------------------
+    # Summary & diagnostics
+    # ------------------------------------------------------------------
+
+    def summary(self):
+        """Print a summary table of inference results.
+
+        Returns
+        -------
+        str
+            Formatted summary string.
+        """
+        if not self._fitted:
+            return f"{self.__class__.__name__}(not fitted)"
+
+        lines = []
+        family_name = getattr(self, 'family', 'unknown')
+        lines.append(f"{'='*60}")
+        lines.append(f"  {self.__class__.__name__} Results")
+        lines.append(f"{'='*60}")
+        lines.append(f"  Family: {family_name}")
+        lines.append(f"  Solver: {getattr(self, 'solver', 'unknown')}")
+        lines.append(f"  No. Observations: {self._nobs}")
+        lines.append(f"  Df Residuals: {self._df_resid}")
+        lines.append(f"  Covariance Type: {getattr(self, 'cov_type', 'nonrobust')}")
+        lines.append("")
+
+        if self._inference_result is not None:
+            try:
+                df = self._inference_result.to_dataframe()
+                lines.append(str(df.to_string(index=False)))
+            except Exception:
+                lines.append(f"  coef: {self._params}")
+                if self._bse is not None:
+                    lines.append(f"  std err: {self._bse}")
+        else:
+            if self._params is not None:
+                lines.append(f"  coef: {self._params}")
+            lines.append("  (inference not computed)")
+
+        # Model fit statistics
+        llf = self.loglikelihood if hasattr(self, 'loglikelihood') else None
+        aic = self.aic if hasattr(self, 'aic') else None
+        bic = self.bic if hasattr(self, 'bic') else None
+        if llf is not None:
+            lines.append(f"\n  Log-Likelihood: {llf:.4f}")
+        if aic is not None:
+            lines.append(f"  AIC: {aic:.4f}")
+        if bic is not None:
+            lines.append(f"  BIC: {bic:.4f}")
+
+        lines.append(f"{'='*60}")
+        return "\n".join(lines)
+
+    @property
+    def llf(self):
+        """Log-likelihood of the fitted model (alias for loglikelihood)."""
+        return self.loglikelihood
+
+    @property
+    def loglikelihood(self):
+        """Pseudo-loglikelihood at the fitted coefficients.
+
+        Computed as -sum(loss.per_sample_value(eta, y)).  Additive constants
+        that do not depend on the parameters (e.g. -log(y!) for Poisson,
+        -n log(2πσ²)/2 for Gaussian) are omitted.  ΔAIC / ΔBIC comparisons
+        between nested models on the same data remain valid; absolute values
+        should not be compared with statsmodels or R.
+        """
+        self._check_is_fitted()
+        if self._loss is None or self._X_design is None or self._y_inf is None:
+            return float("nan")
+        from statgpu.backends._utils import _get_xp, xp_asarray
+        from statgpu.backends import _resolve_backend
+        import numpy as np
+        backend = _resolve_backend("auto", self._X_design)
+        xp = _get_xp(backend)
+        params = xp_asarray(self._params, xp=xp, ref_arr=self._X_design)
+        eta = self._X_design @ params
+        return -float(xp.sum(self._loss.per_sample_value(eta, self._y_inf)))
+
+    @property
+    def aic(self):
+        """Akaike Information Criterion: -2*loglik + 2*k."""
+        ll = self.loglikelihood
+        k = len(self._params) if self._params is not None else 0
+        return -2.0 * ll + 2.0 * k
+
+    @property
+    def bic(self):
+        """Bayesian Information Criterion: -2*loglik + k*log(n)."""
+        ll = self.loglikelihood
+        k = len(self._params) if self._params is not None else 0
+        n = self._nobs if self._nobs else 0
+        return -2.0 * ll + k * np.log(max(n, 1))
+
     def __del__(self):
         try:
             self._cleanup_cuda_memory()
@@ -208,6 +465,10 @@ class GeneralizedLinearModel(BaseEstimator):
         data : pd.DataFrame or None
             DataFrame used with ``formula`` for column lookup.
         """
+        # Resolve backend once for both formula and direct paths
+        backend = self._get_backend(backend="auto")
+        backend_name = backend.name
+
         # Handle formula interface
         if formula is not None:
             if data is None:
@@ -225,12 +486,12 @@ class GeneralizedLinearModel(BaseEstimator):
             if self._formula_has_intercept:
                 intercept_idx = formula_column_names.index("Intercept")
                 X_arr = np.delete(X_arr, intercept_idx, axis=1)
-                # Store formula-derived intercept decision in internal attribute
-                # to avoid mutating self.fit_intercept (breaks sklearn clone).
                 self._use_intercept = True
             else:
-                # Formula syntax owns intercept semantics, matching statsmodels/R.
                 self._use_intercept = False
+            # Formula produces numpy; convert to backend
+            y_arr = self._to_array(y_arr, backend=backend_name)
+            X_arr = self._to_array(X_arr, backend=backend_name)
         else:
             if X is None or y is None:
                 raise ValueError(
@@ -240,24 +501,13 @@ class GeneralizedLinearModel(BaseEstimator):
             self._design_info = None
             self._formula_has_intercept = None
             self._use_intercept = None
-            y_arr = np.asarray(y)
-            if y_arr.ndim == 2 and y_arr.shape[1] == 1:
-                y_arr = y_arr.ravel()
-            X_arr = np.asarray(X)
+            # _to_array safely handles numpy/cupy/torch inputs
+            y_arr = self._to_array(y, backend=backend_name)
+            X_arr = self._to_array(X, backend=backend_name)
 
-        backend = self._get_backend(backend="auto")
-        backend_name = backend.name
-
-        # Convert to backend arrays using xp_asarray for proper device placement
-        from statgpu.backends._utils import _get_xp, xp_asarray
-        xp = _get_xp(backend_name)
-        # For torch backend, ensure arrays land on CUDA (not CPU)
-        _ref = None
-        if backend_name == "torch":
-            import torch
-            _ref = torch.empty(0, dtype=torch.float64, device="cuda")
-        X_arr = xp_asarray(X_arr, dtype=xp.float64, xp=xp, ref_arr=_ref)
-        y_arr = xp_asarray(y_arr, dtype=xp.float64, xp=xp, ref_arr=_ref)
+        # Ensure y is 1D after backend conversion
+        if hasattr(y_arr, 'ndim') and y_arr.ndim == 2 and y_arr.shape[1] == 1:
+            y_arr = y_arr.ravel()
         self._nobs = X_arr.shape[0]
 
         family = self._get_family()
@@ -286,6 +536,60 @@ class GeneralizedLinearModel(BaseEstimator):
             raise ValueError(
                 "solver must be one of: 'auto', 'irls', 'fista', 'newton', 'lbfgs'"
             )
+
+        # ---- Store design/loss for loglikelihood/aic/bic (always) ----
+        from statgpu.backends import _to_numpy, _resolve_backend
+        from statgpu.backends._utils import _get_xp
+        inf_backend = _resolve_backend("auto", X_arr)
+        inf_xp = _get_xp(inf_backend)
+        is_gpu = inf_backend != "numpy"
+
+        # Keep GPU arrays for inference (no CPU transfer)
+        if is_gpu:
+            self._y_inf = y_arr.ravel() if y_arr.ndim > 1 else y_arr
+            self._X_design, self._params, self._intercept_idx = \
+                self._aligned_inference_design_glm(X_arr)
+        else:
+            self._y_inf = np.asarray(_to_numpy(y_arr), dtype=float).ravel()
+            self._X_design, self._params, self._intercept_idx = \
+                self._aligned_inference_design_glm(X_arr)
+        self._loss = self._resolve_loss_for_inference()
+
+        # ---- Compute inference if requested ----
+        if self.compute_inference:
+            if sample_weight is not None:
+                sw = np.asarray(_to_numpy(sample_weight), dtype=float).ravel()
+                if is_gpu:
+                    self._sample_weight_inf = self._to_array(
+                        sw, backend=inf_backend)
+                else:
+                    self._sample_weight_inf = sw
+            else:
+                self._sample_weight_inf = None
+
+            self._fit_metadata = {
+                "solver_used": solver_name,
+                "objective_scale": "mean_loss_plus_penalty",
+                "ridge_alpha_avg": None,
+                "penalty_curvature_diag": None,
+            }
+            # IRLS with finite C: add ridge curvature
+            if solver_name == "irls" and self.C > 0:
+                lam = self._get_penalty_alpha()
+                if is_gpu:
+                    from statgpu.backends._utils import xp_zeros
+                    curv = xp_zeros(self._params.shape[0], self._params.dtype,
+                                    inf_xp, ref_arr=self._params)
+                else:
+                    curv = np.zeros(self._params.shape[0])
+                if self._effective_intercept:
+                    curv[1:] = lam
+                else:
+                    curv[:] = lam
+                self._fit_metadata["ridge_alpha_avg"] = lam
+                self._fit_metadata["penalty_curvature_diag"] = curv
+
+            self._compute_inference()
 
         self._fitted = True
         self._cleanup_backend_memory(backend_name)
@@ -606,28 +910,6 @@ class GeneralizedLinearModel(BaseEstimator):
             X.shape[1] + (1 if self._effective_intercept else 0)
         )
 
-    def _get_loss_kwargs(self):
-        """Override in subclass to pass extra kwargs to family/loss."""
-        return {}
-
-    def family_to_loss(self):
-        """Map family name to loss name."""
-        mapping = {
-            "gaussian": "squared_error",
-            "binomial": "logistic",
-            "poisson": "poisson",
-            "gamma": "gamma",
-            "inverse_gaussian": "inverse_gaussian",
-            "negative_binomial": "negative_binomial",
-            "tweedie": "tweedie",
-        }
-        if self.family not in mapping:
-            raise ValueError(
-                f"Unknown family '{self.family}'. "
-                f"Supported families: {list(mapping.keys())}"
-            )
-        return mapping[self.family]
-
     def predict(self, X):
         """Predict using fitted model."""
         if self.coef_ is None:
@@ -708,8 +990,11 @@ class OrderedGeneralizedLinearModel(GeneralizedLinearModel):
         device: Union[str, Device] = Device.AUTO,
         n_jobs: Optional[int] = None,
         solver: str = "auto",
+        compute_inference: bool = False,
+        cov_type: str = "nonrobust",
         gpu_memory_cleanup: bool = False,
     ):
+        # Inference is supported via analytical Hessian in _compute_ordered_inference
         super().__init__(
             family=family,
             fit_intercept=fit_intercept,
@@ -719,16 +1004,23 @@ class OrderedGeneralizedLinearModel(GeneralizedLinearModel):
             device=device,
             n_jobs=n_jobs,
             solver=solver,
+            compute_inference=compute_inference,
+            cov_type=cov_type,
             gpu_memory_cleanup=gpu_memory_cleanup,
         )
+        if n_categories < 2:
+            raise ValueError(
+                f"n_categories must be >= 2, got {n_categories}. "
+                "Ordered models require at least 2 ordinal categories."
+            )
         self.n_categories = n_categories
         self.thresholds_ = None
 
     def fit(self, X, y, sample_weight=None):
-        """Fit ordered GLM using L-BFGS.
+        """Fit ordered GLM using Newton-Raphson with analytical Hessian.
 
-        Supports numpy (CPU via scipy), cupy (GPU via native L-BFGS),
-        and torch (GPU via torch.optim.LBFGS).
+        Supports numpy (CPU), cupy (GPU), and torch (GPU) via a shared
+        trust-region Newton implementation with backend-agnostic operations.
         """
         if sample_weight is not None:
             raise ValueError(
@@ -737,381 +1029,492 @@ class OrderedGeneralizedLinearModel(GeneralizedLinearModel):
 
         backend = self._get_backend(backend="auto")
         backend_name = backend.name
-        self._selected_backend_name = backend_name
         self._nobs = X.shape[0]
 
         # Convert to backend format (cupy→cupy zero-copy, numpy→cupy/torch)
         X = self._to_array(X, backend=backend_name)
         y = self._to_array(y, backend=backend_name)
 
-        family = self._get_family()
+        # Validate labels: must be integers in [0, n_categories)
+        from statgpu.backends._utils import _get_xp
+        xp = _get_xp(backend_name)
+        y_flat = xp.asarray(y).ravel()
+        y_min = int(xp.min(y_flat))
+        y_max = int(xp.max(y_flat))
         K = self.n_categories
+        if y_min < 0 or y_max >= K:
+            raise ValueError(
+                f"Ordered model labels must be integers in [0, {K - 1}], "
+                f"got range [{y_min}, {y_max}]. "
+                f"n_categories={K}."
+            )
+        if xp.any(y_flat != xp.floor(y_flat)):
+            raise ValueError(
+                "Ordered model labels must be integer-coded categories, "
+                "not continuous values. Found non-integer labels."
+            )
+
+        family = self._get_family()
         n = X.shape[0]
         p = X.shape[1]
 
-        if backend_name == "cupy":
-            self._fit_cupy_ordered(X, y, family, K, n, p)
-        elif backend_name == "torch":
-            self._fit_torch_ordered(X, y, family, K, n, p)
-        else:
-            self._fit_scipy_ordered(X, y, family, K, n, p)
+        try:
+            if backend_name == "cupy":
+                self._fit_cupy_ordered(X, y, family, K, n, p)
+            elif backend_name == "torch":
+                self._fit_torch_ordered(X, y, family, K, n, p)
+            else:
+                self._fit_scipy_ordered(X, y, family, K, n, p)
 
-        self._df_resid = self._nobs - (p + K - 1)
-        self._fitted = True
-        self._cleanup_backend_memory(backend_name)
+            self._df_resid = self._nobs - (p + K - 1)
+            self._params = np.concatenate([self.coef_, self._thresh_est])
+
+            if self.compute_inference:
+                self._compute_ordered_inference(X, y)
+            self._fitted = True
+        finally:
+            self._cleanup_backend_memory(backend_name)
         return self
 
-    def _fit_scipy_ordered(self, X, y, family, K, n, p):
-        """Fit ordered GLM using scipy.optimize.minimize(L-BFGS-B)."""
-        from scipy.optimize import minimize
+    @property
+    def loglikelihood(self):
+        """Log-likelihood at the fitted parameters (ordered model)."""
+        self._check_is_fitted()
+        return -float(self._nobs) * float(self._final_nll)
 
-        X = np.asarray(X, dtype=np.float64)
-        y = np.asarray(y, dtype=np.int64)
+    # -----------------------------------------------------------------
+    # Shared Newton-Raphson trust-region (all 3 backends)
+    # -----------------------------------------------------------------
 
-        X_mean = X.mean(axis=0)
-        X_std = X.std(axis=0)
-        X_std[X_std < 1e-10] = 1.0
+    def _fit_ordered_newton_impl(self, X, y, family, K, n, p, xp, is_torch, is_cupy,
+                                  dev=None):
+        """Backend-agnostic Newton-Raphson with trust-region for ordered models.
+
+        Parameters
+        ----------
+        X, y : arrays on the target backend (already converted by caller).
+        family : GLMFamily
+        K, n, p : int
+        xp : module — numpy, cupy, or torch
+        is_torch, is_cupy : bool
+        dev : torch device or None
+        """
+        # ---- Standardization ----
+        from statgpu.backends._array_ops import _clip
+        if is_torch:
+            X_mean = X.mean(dim=0)
+            X_std = X.std(dim=0)
+            X_std = xp.where(X_std < 1e-10, xp.ones_like(X_std), X_std)
+        else:
+            X_mean = X.mean(axis=0)
+            X_std = X.std(axis=0)
+            X_std[X_std < 1e-10] = 1.0
         Xs = (X - X_mean) / X_std
 
-        theta_init = np.zeros(p + K - 1)
-        theta_init[p:] = np.arange(0.5, K - 0.5, dtype=np.float64)
+        # ---- Initialisation ----
+        from statgpu.backends._utils import xp_zeros, xp_eye
+        theta = xp_zeros(p + K - 1, xp.float64, xp, ref_arr=Xs)
+        theta[p:] = xp.arange(0.5, K - 0.5, dtype=xp.float64,
+                              device=dev) if is_torch else xp.arange(
+                                  0.5, K - 0.5, dtype=xp.float64)
+        idx = xp.arange(n, device=dev) if is_torch else xp.arange(n)
 
-        cache = {"nll": None, "grad": None, "theta": None}
+        d = len(theta); nll_old = xp.inf; ridge = 1e-4
 
-        def nll_and_grad(theta):
-            if cache["theta"] is not None and np.array_equal(cache["theta"], theta):
-                return cache["nll"], cache["grad"]
-
-            beta = theta[:p]
-            thresh = theta[p:]
-
-            prob = self._ordered_category_probs(Xs, beta, thresh, family, K)
-            prob_c = np.clip(prob, 1e-15, None)
-            nll = -np.sum(np.log(prob_c[y, np.arange(n)])) / n
-
-            grad = self._ordered_gradient(
-                Xs, y, beta, thresh, prob, prob_c, family, K, n
+        if self.max_iter <= 0:
+            raise ValueError(
+                f"max_iter must be > 0, got {self.max_iter}. "
+                "Newton-Raphson requires at least 1 iteration."
             )
 
-            cache["nll"] = nll
-            cache["grad"] = grad
-            cache["theta"] = theta
-            return nll, grad
+        # Pre-allocate identity matrix for trust-region (reused across attempts)
+        eye_d = xp_eye(d, xp.float64, xp, ref_arr=Xs)
 
-        def nll_func(theta):
-            val, _ = nll_and_grad(theta)
-            return val
+        # ---- Local helper: enforce strictly increasing thresholds ----
+        def _enforce_thresh_gaps(thresh_arr):
+            """Sort thresholds and enforce minimum gap of 1e-6."""
+            t = xp.sort(thresh_arr)
+            if is_torch:
+                t = t[0]
+            if len(t) > 1:
+                gaps = xp.diff(t)
+                if is_torch:
+                    gaps = xp.clamp(gaps, min=1e-6)
+                    t = xp.cat([t[:1], t[:1] + xp.cumsum(gaps, dim=0)])
+                else:
+                    gaps = xp.maximum(gaps, 1e-6)
+                    t = xp.concatenate([t[:1], t[:1] + xp.cumsum(gaps)])
+            return t
 
-        def grad_func(theta):
-            _, g = nll_and_grad(theta)
-            return g
+        # ---- Newton loop ----
+        for iteration in range(self.max_iter):
+            thresh = _enforce_thresh_gaps(theta[p:])
+            theta = xp.concatenate([theta[:p], thresh])
+            beta = theta[:p]; thresh = theta[p:]
+            eta = Xs @ beta  # compute once, pass to all callees
 
-        result = minimize(
-            nll_func, theta_init, jac=grad_func, method="L-BFGS-B",
-            options={"maxiter": self.max_iter, "ftol": self.tol * 1e-3,
-                     "gtol": self.tol, "disp": False},
-        )
+            prob = self._ordered_category_probs(Xs, beta, thresh, family, K, eta=eta)
+            prob_c = _clip(prob, 1e-15, None)
+            if is_torch:
+                nll = -xp.mean(xp.log(prob_c[y, idx]))
+            else:
+                nll = -xp.sum(xp.log(prob_c[y, idx])) / n
 
-        theta = result.x
-        beta_scaled = theta[:p]
-        self.coef_ = beta_scaled / X_std
-        thresh_est = np.sort(theta[p:])
-        self.thresholds_ = np.concatenate([[-np.inf], thresh_est, [np.inf]])
-        self._X_mean = X_mean
-        self._X_std = X_std
-        self.n_iter_ = result.nit if hasattr(result, "nit") else result.nfev
+            # Gradient (torch uses its own device-aware path)
+            if is_torch:
+                grad = self._ordered_gradient_torch(
+                    Xs, y, beta, thresh, prob, prob_c, family, K, n, eta=eta)
+            else:
+                grad = self._ordered_gradient(
+                    Xs, y, beta, thresh, prob, prob_c, family, K, n, eta=eta)
 
-    def _fit_cupy_ordered(self, X, y, family, K, n, p):
-        """Fit ordered GLM using full CuPy L-BFGS on GPU.
-
-        All computation stays on GPU — no scipy bridge, no CPU round-trips.
-        Pre-allocates arrays (prob, prob_c, eta, diff, deriv_all) to amortize
-        GPU memory allocation overhead across iterations.
-
-        Warm start: reuses previous fit's solution if available (self.coef_ exists).
-
-        For n=5000: GPU NLL+grad ≈ 2.4ms/call, ~67 evals ≈ 160ms total.
-        For n=50000+: GPU compute dominates, kernel launch overhead is negligible.
-        """
-        import cupy as cp
-
-        X = cp.asarray(X, dtype=cp.float64)
-        y = cp.asarray(y, dtype=cp.int64)
-
-        X_mean = X.mean(axis=0)
-        X_std = X.std(axis=0)
-        X_std[X_std < 1e-10] = 1.0
-        Xs = (X - X_mean) / X_std
-
-        # Pre-allocate reusable arrays (amortize GPU alloc overhead)
-        _prob_pre = cp.zeros((K, n), dtype=cp.float64)
-        _prob_c_pre = cp.zeros((K, n), dtype=cp.float64)
-        _eta_pre = cp.zeros(n, dtype=cp.float64)
-        _diff_pre = cp.zeros((K - 1, n), dtype=cp.float64)
-        _deriv_all = cp.zeros((K - 1, n), dtype=cp.float64)
-        _scalar = cp.zeros(n, dtype=cp.float64)
-        _inv_prob = cp.zeros(n, dtype=cp.float64)
-        _y_idx = cp.arange(n)
-
-        def nll_and_grad_prealloc(theta_cp):
-            """NLL + gradient with pre-allocated arrays."""
-            beta = theta_cp[:p]
-            thresh = theta_cp[p:]
-
-            # Inline category probs using pre-allocated arrays
-            _eta_pre[:] = Xs @ beta
-            _diff_pre[:] = thresh[:, None] - _eta_pre[None, :]
-            pi = family.link.inverse(_diff_pre)  # (K-1, n)
-
-            _prob_pre[0] = pi[0]
-            for j in range(1, K - 1):
-                _prob_pre[j] = pi[j] - pi[j - 1]
-            _prob_pre[K - 1] = 1.0 - pi[K - 2]
-            _prob_c_pre[:] = cp.clip(_prob_pre, 1e-15, None)
-
-            nll = -cp.sum(cp.log(_prob_c_pre[y, _y_idx])) / n
-
-            # Gradient with pre-allocated arrays
-            grad = cp.zeros(p + K - 1)
-            for j in range(K - 1):
-                _deriv_all[j] = self._ordered_link_derivative(_diff_pre[j], family)
-            _inv_prob[:] = 1.0 / _prob_c_pre[y, _y_idx]
-
-            for j in range(K - 1):
-                mask_pos = (y == j)
-                mask_neg = (y == j + 1)
-                grad[p + j] = -cp.sum(
-                    _inv_prob * (_deriv_all[j] * mask_pos - _deriv_all[j] * mask_neg)
-                ) / n
-
-            _scalar[:] = 0.0
-            mask0 = (y == 0)
-            mask_last = (y == K - 1)
-            mask_mid = ~mask0 & ~mask_last
-            _scalar[mask0] = -_deriv_all[0, mask0]
-            _scalar[mask_last] = _deriv_all[K - 2, mask_last]
-            idx_mid = cp.where(mask_mid)[0]
-            _scalar[idx_mid] = (_deriv_all[y[idx_mid] - 1, idx_mid]
-                                 - _deriv_all[y[idx_mid], idx_mid])
-            grad[:p] -= Xs.T @ (_inv_prob * _scalar) / n
-
-            return nll, grad
-
-        # Initial theta (matching scipy and torch: start from scratch)
-        theta = cp.zeros(p + K - 1, dtype=cp.float64)
-        theta[p:] = cp.arange(0.5, K - 0.5, dtype=cp.float64)
-
-        # L-BFGS parameters
-        c1, c2 = 1e-4, 0.9
-        max_ls = 25
-        m_hist = 15
-        min_iter = 5  # small guard against premature stop
-
-        nll, grad = nll_and_grad_prealloc(theta)
-        # Use infinity norm of gradient for convergence (matching scipy's gtol).
-        gtol = self.tol
-        grad_inf = float(cp.max(cp.abs(grad)))
-        s_hist, y_hist, rho_hist = [], [], []
-        H0 = 1.0
-        n_iter = 0
-
-        while n_iter < self.max_iter:
-            # Check convergence using infinity norm (after min_iter iterations)
-            if n_iter >= min_iter and grad_inf <= gtol:
+            # Convergence: NLL-change + gradient-norm + isfinite guard
+            if not xp.isfinite(nll):
+                raise RuntimeError(
+                    f"NLL became non-finite ({float(nll):.4g}) at iteration "
+                    f"{iteration}. Coefficients may have diverged."
+                )
+            if iteration > 0 and abs(float(nll_old - nll)) < self.tol:
                 break
-            s_old = theta.copy()
-            g_old = grad.copy()
+            grad_inf = float(xp.max(xp.abs(grad)))
+            if grad_inf < self.tol:
+                break
             nll_old = nll
 
-            # Two-loop recursion
-            q = grad.copy()
-            alphas = []
-            for i in range(len(s_hist) - 1, -1, -1):
-                a = rho_hist[i] * cp.dot(s_hist[i], q)
-                alphas.insert(0, a)
-                q = q - a * y_hist[i]
+            # Hessian + trust-region
+            H = self._ordered_hessian_analytical(
+                Xs, y, beta, thresh, family, K, prob, prob_c, eta=eta)
+            H_avg = H / n
 
-            if s_hist:
-                sy = float(cp.dot(s_hist[-1], y_hist[-1]))
-                yy = float(cp.dot(y_hist[-1], y_hist[-1]))
-                H0 = sy / (yy + 1e-30)
+            for attempt in range(20):
+                H_reg = H_avg + ridge * eye_d
+                # Catch linalg errors (singular matrix) only; OOM/programming
+                # errors re-raise.  CuPy uses generic Exception for linalg.
+                try:
+                    delta = xp.linalg.solve(H_reg, -grad)
+                except (np.linalg.LinAlgError, RuntimeError):
+                    ridge *= 10; continue
+                except Exception:
+                    if is_cupy:
+                        ridge *= 10; continue
+                    raise
 
-            r = H0 * q
-            for i in range(len(s_hist)):
-                b = rho_hist[i] * cp.dot(y_hist[i], r)
-                r = r + s_hist[i] * (alphas[i] - b)
-
-            d = -r
-            gd = float(cp.dot(grad, d))
-            if gd >= -1e-12:
-                d = -grad
-                gd = float(cp.dot(grad, d))
-
-            slope = gd
-            step = 1.0
-
-            # Armijo line search
-            for _ in range(max_ls):
-                theta_new = theta + step * d
-                nll_new, grad_new = nll_and_grad_prealloc(theta_new)
-                if nll_new <= nll_old + c1 * step * slope:
-                    break
-                step *= 0.5
+                theta_try = theta + delta
+                thresh_t = _enforce_thresh_gaps(theta_try[p:])
+                beta_t = theta_try[:p]
+                theta_try = xp.concatenate([beta_t, thresh_t])
+                prob_t = self._ordered_category_probs(Xs, beta_t, thresh_t, family, K)
+                pc_t = _clip(prob_t, 1e-15, None)
+                if is_torch:
+                    nll_try = -xp.mean(xp.log(pc_t[y, idx]))
+                else:
+                    nll_try = -xp.sum(xp.log(pc_t[y, idx])) / n
+                if float(nll_try) < float(nll):
+                    ridge *= 0.5; break
+                ridge *= 2.0
             else:
-                theta_new = theta + step * d
-                nll_new, grad_new = nll_and_grad_prealloc(theta_new)
+                break
+            theta = theta_try
+            nll = nll_try  # keep NLL in sync with accepted theta
 
-            # Update L-BFGS history
-            s_new = theta_new - s_old
-            y_new_arr = grad_new - g_old
-            sy_val = float(cp.dot(s_new, y_new_arr))
-            if sy_val > 1e-12:
-                if len(s_hist) >= m_hist:
-                    s_hist.pop(0)
-                    y_hist.pop(0)
-                    rho_hist.pop(0)
-                s_hist.append(s_new)
-                y_hist.append(y_new_arr)
-                rho_hist.append(1.0 / sy_val)
+        # ---- Extract results to CPU ----
+        self.n_iter_ = iteration + 1
+        self._final_nll = float(nll)
 
-            theta = theta_new
-            nll = nll_new
-            grad = grad_new
-            grad_inf = float(cp.max(cp.abs(grad)))
-            n_iter += 1
+        if is_torch:
+            beta_scaled = theta[:p]
+            self.coef_ = (beta_scaled / X_std).cpu().numpy()
+            thresh_est = xp.sort(theta[p:])[0]
+            intercept_adj = float(((X_mean / X_std) * beta_scaled).sum().cpu())
+            th_est = thresh_est.cpu().numpy()
+            self._thresh_est = th_est + intercept_adj
+        elif is_cupy:
+            beta_scaled = theta[:p]
+            self.coef_ = (beta_scaled / X_std).get()
+            thresh_est = xp.sort(theta[p:])
+            intercept_adj = float((X_mean / X_std * beta_scaled).sum().get())
+            self._thresh_est = thresh_est.get() + intercept_adj
+        else:
+            beta_scaled = theta[:p]
+            self.coef_ = beta_scaled / X_std
+            thresh_est = np.sort(theta[p:])
+            intercept_adj = float(X_mean @ self.coef_)
+            self._thresh_est = thresh_est + intercept_adj
 
-        # Extract results
-        beta_scaled = theta[:p]
-        self.coef_ = (beta_scaled / X_std).get()
-        thresh_est = cp.sort(theta[p:])
-        self.thresholds_ = np.concatenate([[-np.inf], thresh_est.get(), [np.inf]])
-        self._X_mean = X_mean.get()
-        self._X_std = X_std.get()
-        self.n_iter_ = n_iter
+        self.thresholds_ = np.concatenate([[-np.inf], self._thresh_est, [np.inf]])
+
+    def _fit_scipy_ordered(self, X, y, family, K, n, p):
+        """Fit ordered GLM using NumPy Newton-Raphson."""
+        X = np.asarray(X, dtype=np.float64)
+        y = np.asarray(y, dtype=np.int64)
+        self._fit_ordered_newton_impl(X, y, family, K, n, p, np,
+                                       is_torch=False, is_cupy=False)
+
+    def _fit_cupy_ordered(self, X, y, family, K, n, p):
+        """Fit ordered GLM using CuPy Newton-Raphson."""
+        import cupy as cp
+        X = cp.asarray(X, dtype=cp.float64)
+        y = cp.asarray(y, dtype=cp.int64)
+        self._fit_ordered_newton_impl(X, y, family, K, n, p, cp,
+                                       is_torch=False, is_cupy=True)
 
     def _fit_torch_ordered(self, X, y, family, K, n, p):
-        """Fit ordered GLM using PyTorch autograd + LBFGS on GPU.
-
-        X and y are already torch.Tensor on CUDA (converted by _to_array in fit()).
-        No CuPy/NumPy bridge needed here — device purity is enforced upstream.
-        """
+        """Fit ordered GLM using Torch Newton-Raphson."""
         import torch
-
-        assert isinstance(X, torch.Tensor), (
-            f"_fit_torch_ordered expects torch.Tensor, got {type(X)}. "
-            "Input should be converted by _to_array() before entering this method."
-        )
-
-        torch_device = X.device
-        if X.dtype != torch.float64:
-            X = X.to(torch.float64)
+        assert isinstance(X, torch.Tensor)
+        dev = X.device
+        if X.dtype != torch.float64: X = X.to(torch.float64)
         if not isinstance(y, torch.Tensor):
-            y = torch.from_numpy(np.asarray(y, dtype=np.int64)).to(torch_device)
+            y = torch.from_numpy(np.asarray(y, dtype=np.int64)).to(dev)
         elif y.dtype != torch.int64:
             y = y.to(torch.int64)
+        self._fit_ordered_newton_impl(X, y, family, K, n, p, torch,
+                                       is_torch=True, is_cupy=False, dev=dev)
 
-        X_mean = X.mean(dim=0)
-        X_std = X.std(dim=0)
-        X_std = torch.where(X_std < 1e-10, torch.ones_like(X_std), X_std)
-        Xs = (X - X_mean) / X_std
-
-        # Parameters: [beta (p), thresholds (K-1)]
-        # Initialize thresholds uniformly
-        theta_init = torch.zeros(p + K - 1, dtype=torch.float64, device=torch_device)
-        theta_init[p:] = torch.arange(0.5, K - 0.5, dtype=torch.float64, device=torch_device)
-        theta = torch.nn.Parameter(theta_init.clone())
-
-        n_samples = torch.tensor(float(n), dtype=torch.float64, device=torch_device)
-        y_idx = torch.arange(n, device=torch_device)
-
-        def closure():
-            optimizer.zero_grad()
-            beta = theta[:p]
-            thresh = theta[p:]
-
-            # Compute category probabilities with autograd
-            eta = Xs @ beta  # (n,)
-            diff = thresh[:, None] - eta[None, :]  # (K-1, n)
-
-            # Link inverse via family
-            pi = family.link.inverse(diff)  # (K-1, n)
-
-            # Category probabilities P(y=j)
-            prob = torch.zeros((K, n), dtype=torch.float64, device=torch_device)
-            prob[0] = pi[0]
-            for j in range(1, K - 1):
-                prob[j] = pi[j] - pi[j - 1]
-            prob[K - 1] = 1.0 - pi[K - 2]
-
-            # Negative log-likelihood
-            prob_c = torch.clamp(prob[y, y_idx], 1e-15, None)
-            nll = -torch.mean(torch.log(prob_c))
-
-            nll.backward()
-            return nll
-
-        # Torch L-BFGS — use strong_wolfe line_search for robust convergence
-        # (ordered logit NLL landscape has steep gradients that cause lr=1.0
-        #  without line search to diverge into degenerate local minima)
-        try:
-            optimizer = torch.optim.LBFGS(
-                [theta],
-                lr=1.0,
-                max_iter=self.max_iter,
-                tolerance_grad=self.tol,
-                tolerance_change=self.tol * 1e-3,
-                line_search_fn='strong_wolfe',
-                max_eval=self.max_iter * 25,
-            )
-        except TypeError:
-            raise RuntimeError(
-                "torch.optim.LBFGS with line_search_fn='strong_wolfe' is required "
-                "for ordered model fitting. Upgrade to PyTorch >= 1.13 or use "
-                "a different backend (numpy or cupy)."
-            )
-
-        loss = optimizer.step(closure)
-
-        # Extract results
-        theta_final = theta.detach()
-        beta_scaled = theta_final[:p]
-        thresh_est = torch.sort(theta_final[p:])[0]
-
-        self.coef_ = (beta_scaled / X_std).cpu().numpy()
-        self.thresholds_ = np.concatenate([[-np.inf], thresh_est.cpu().numpy(), [np.inf]])
-        self._X_mean = X_mean.cpu().numpy()
-        self._X_std = X_std.cpu().numpy()
-        try:
-            state_dict = optimizer.state_dict()
-            n_iter = 0
-            for group in state_dict.get('state', {}).values():
-                n_iter = max(n_iter, group.get('n_iter', 0))
-            self.n_iter_ = n_iter if n_iter > 0 else self.max_iter
-        except Exception:
-            self.n_iter_ = self.max_iter
-
-    def _ordered_category_probs(self, X, beta, thresh, family, K):
+    def _ordered_category_probs(self, X, beta, thresh, family, K, eta=None):
         """Compute category probabilities P(y=j|X), shape (K, n)."""
-        eta = X @ beta  # (n,)
+        if eta is None:
+            eta = X @ beta  # (n,)
         pi = family.link.inverse(thresh[:, None] - eta[None, :])  # (K-1, n)
 
-        xp = _np_compat_xp(X)
-        prob = xp.zeros((K, X.shape[0]), dtype=getattr(X, 'dtype', None))
+        # Use native array module for dtype compatibility (numpy/cupy/torch)
+        dt = getattr(X, 'dtype', None)
+        is_torch = _is_torch_array(X)
+        if is_torch:
+            import torch
+            prob = torch.zeros((K, X.shape[0]), dtype=dt, device=X.device)
+        else:
+            xp = _np_compat_xp(X)
+            prob = xp.zeros((K, X.shape[0]), dtype=dt)
         prob[0] = pi[0]
         for j in range(1, K - 1):
             prob[j] = pi[j] - pi[j - 1]
         prob[K - 1] = 1.0 - pi[K - 2]
         return prob
 
-    def _ordered_gradient(self, X, y, beta, thresh, prob, prob_clipped, family, K, n):
+    # -----------------------------------------------------------------
+    # Ordered model inference
+    # -----------------------------------------------------------------
+
+    def _compute_ordered_inference(self, X_orig, y_orig):
+        """Backend-aware analytical Hessian inference for ordered models.
+
+        Works with NumPy, CuPy, and Torch arrays.  Uses the vectorized
+        ``_ordered_hessian_analytical`` and backend-native linalg + distributions.
+        """
+        # Only nonrobust covariance is supported for ordered models
+        cov_type = self.cov_type.lower()
+        if cov_type not in ("nonrobust",):
+            raise NotImplementedError(
+                f"Ordered model inference only supports cov_type='nonrobust', "
+                f"got '{self.cov_type}'. HC0/HC1 sandwich and penalized "
+                f"inference are not yet available for ordered models."
+            )
+
+        import numpy as np
+        from statgpu.backends import _to_numpy, _resolve_backend
+        from statgpu.backends._utils import _get_xp, xp_eye
+        from statgpu.inference._distributions_backend import get_distribution
+
+        backend = _resolve_backend("auto", X_orig)
+        xp = _get_xp(backend)
+        is_torch = (backend == "torch")
+        is_cupy = (backend == "cupy")
+
+        # Keep arrays on native backend; convert y to int
+        X_raw = xp.asarray(X_orig, dtype=xp.float64)
+        y = xp.asarray(y_orig, dtype=xp.int64 if not is_torch else None)
+        if is_torch:
+            y = y.to(xp.int64) if y.dtype != xp.int64 else y
+        y = y.ravel()
+        n, p = X_raw.shape
+        K = self.n_categories; n_thresh = K - 1; d = p + n_thresh
+        family = self._get_family()
+
+        # Raw-scale parameters (on same device as X for torch)
+        if is_torch:
+            beta = xp.asarray(self.coef_, dtype=xp.float64, device=X_raw.device)
+            thresh = xp.asarray(self._thresh_est, dtype=xp.float64, device=X_raw.device)
+        else:
+            beta = xp.asarray(self.coef_, dtype=xp.float64)
+            thresh = xp.asarray(self._thresh_est, dtype=xp.float64)
+
+        # Vectorized analytical Hessian
+        prob = self._ordered_category_probs(X_raw, beta, thresh, family, K)
+        from statgpu.backends._array_ops import _clip
+        prob_c = _clip(prob, 1e-15, None)
+        H = self._ordered_hessian_analytical(X_raw, y, beta, thresh, family, K, prob, prob_c)
+
+        # Covariance = H^{-1} (strict: raise on singular)
+        eye = xp_eye(d, xp.float64, xp, ref_arr=H)
+        try:
+            H_inv = xp.linalg.solve(H, eye)
+        except (np.linalg.LinAlgError, RuntimeError) as e:
+            raise np.linalg.LinAlgError(
+                "Ordered model Hessian is singular — cannot compute standard errors. "
+                "This may indicate quasi-complete separation or redundant thresholds. "
+                "Consider using inference_method='bootstrap' or reducing n_categories."
+            ) from e
+        except Exception as e:
+            if is_cupy:
+                raise np.linalg.LinAlgError(
+                    "Ordered model Hessian is singular — cannot compute standard errors. "
+                    "This may indicate quasi-complete separation or redundant thresholds. "
+                    "Consider using inference_method='bootstrap' or reducing n_categories."
+                ) from e
+            raise
+        cov = H_inv
+
+        # Backend-aware distribution functions
+        norm_dist = get_distribution("norm", backend=backend)
+        params = xp.concatenate([beta, thresh])
+
+        bse = xp.sqrt(_clip(xp.diag(cov), 0.0, None))
+        z_values = params / (bse + 1e-30)
+        pvalues = 2.0 * norm_dist.sf(xp.abs(z_values))
+        z_crit = norm_dist.ppf(0.975)
+        conf_int = xp.column_stack([
+            params - z_crit * bse,
+            params + z_crit * bse,
+        ])
+
+        # Convert to CPU numpy for storage
+        bse_cpu = _to_numpy(bse)
+        z_cpu = _to_numpy(z_values)
+        p_cpu = _to_numpy(pvalues)
+        ci_cpu = _to_numpy(conf_int)
+        params_cpu = _to_numpy(params)
+        beta_cpu = _to_numpy(beta)
+        thresh_cpu = _to_numpy(thresh)
+
+        # Store flat arrays (matching parent GLM contract).
+        # Users access coef-SEs via _bse[:p], threshold-SEs via _bse[p:].
+        self._bse = bse_cpu
+        self._zvalues = z_cpu
+        self._pvalues = p_cpu
+        self._conf_int = ci_cpu
+        self._params = np.concatenate([beta_cpu, thresh_cpu])
+
+        from statgpu.inference._results import ParameterInferenceResult
+        feat_names = [f"coef_{i}" for i in range(p)] + [f"thresh_{j}" for j in range(n_thresh)]
+        self._inference_result = ParameterInferenceResult(
+            method="analytical_hessian",
+            params=self._params.copy(),
+            bse=self._bse.copy(),
+            statistic=self._zvalues.copy(),
+            statistic_name="z",
+            pvalues=self._pvalues.copy(),
+            conf_int=self._conf_int.copy(),
+            distribution="normal",
+            feature_names=feat_names,
+            metadata={"method": "analytical", "n_thresholds": n_thresh,
+                       "backend": backend},
+        )
+        self._inference_result.apply_to(self)
+
+    def _ordered_hessian_analytical(self, X, y, beta, thresh, family, K, prob, prob_c, eta=None):
+        """Vectorized analytical observed Hessian. Backend-agnostic (numpy/cupy/torch).
+
+        All operations are fully vectorized — zero per-row or per-category Python
+        loops.  Pre-computed (K, n) category mask matrix eliminates repeated
+        ``y == k`` mask creation.
+        """
+        xp = _ordered_xp(X)
+        is_torch = _is_torch_array(X)
+        dev = X.device if is_torch else None
+        p = len(beta); n_thresh = len(thresh); d = p + n_thresh; n = X.shape[0]
+        from statgpu.backends._utils import xp_zeros
+        _z = lambda sz: xp_zeros(sz, X.dtype, xp, ref_arr=X)
+
+        # ---- f and fp (fully vectorized over thresholds) ----
+        if eta is None:
+            eta = X @ beta
+        diff = thresh[:, None] - eta[None, :]  # (n_thresh, n)
+        import math as _math
+        _sqrt2pi = _math.sqrt(2.0 * _math.pi)
+        is_probit = getattr(family.link, 'name', '') == 'probit'
+        if is_probit:
+            f_all = xp.exp(-0.5 * diff * diff) / _sqrt2pi
+            fp_all = -diff * f_all
+        else:
+            from statgpu.backends._array_ops import _sigmoid
+            F_all = _sigmoid(diff)
+            f_all = F_all * (1.0 - F_all)
+            fp_all = f_all * (1.0 - 2.0 * F_all)
+
+        # ---- Pre-computed category mask matrix (K, n) — single broadcast ----
+        if is_torch:
+            y_cat = (y[None, :] == xp.arange(K, device=dev)[:, None])
+        else:
+            y_cat = (y[None, :] == xp.arange(K)[:, None])
+
+        # ---- a_vec and w_bb (fused single K-loop) ----
+        a_vec = _z(n)
+        pv_vec = prob_c[y, xp.arange(n, device=dev) if is_torch else xp.arange(n)]
+        w_bb = _z(n)
+        for k_val in range(K):
+            mask = y_cat[k_val]
+            if not mask.any():
+                continue
+            fk = f_all[k_val, mask] if k_val < n_thresh else _z(int(mask.sum()))
+            fk1 = f_all[k_val - 1, mask] if k_val > 0 else _z(int(mask.sum()))
+            a = fk - fk1
+            a_vec[mask] = a
+            fpk = fp_all[k_val, mask] if k_val < n_thresh else _z(int(mask.sum()))
+            fpk1 = fp_all[k_val - 1, mask] if k_val > 0 else _z(int(mask.sum()))
+            pv = pv_vec[mask]
+            w_bb[mask] = a * a / (pv * pv) - (fpk - fpk1) / pv
+
+        H = xp_zeros((d, d), X.dtype, xp, ref_arr=X)
+        H[:p, :p] = (X * w_bb[:, None]).T @ X
+
+        # ---- Beta-theta cross terms ----
+        for j in range(n_thresh):
+            w_bth = _z(n)
+            f_j, fp_j = f_all[j], fp_all[j]
+            mk = y_cat[j]
+            if mk.any():
+                pv = pv_vec[mk]; a = a_vec[mk]
+                w_bth[mk] = fp_j[mk] / pv - a * f_j[mk] / (pv * pv)
+            if j + 1 < K:
+                mk1 = y_cat[j + 1]
+                if mk1.any():
+                    pv1 = pv_vec[mk1]; a1 = a_vec[mk1]
+                    w_bth[mk1] = a1 * f_j[mk1] / (pv1 * pv1) - fp_j[mk1] / pv1
+            H[:p, p + j] = X.T @ w_bth
+            H[p + j, :p] = H[:p, p + j]
+
+        # ---- Theta-theta block ----
+        for k_val in range(n_thresh):
+            mk = y_cat[k_val]
+            if mk.any():
+                pv = pv_vec[mk]; fk = f_all[k_val, mk]; fpk = fp_all[k_val, mk]
+                H[p + k_val, p + k_val] += xp.sum(fk * fk / (pv * pv) - fpk / pv)
+            mk1 = y_cat[k_val + 1]
+            if mk1.any():
+                pv1 = pv_vec[mk1]; fk1 = f_all[k_val, mk1]; fpk1 = fp_all[k_val, mk1]
+                H[p + k_val, p + k_val] += xp.sum(fk1 * fk1 / (pv1 * pv1) + fpk1 / pv1)
+            if k_val + 1 < n_thresh:
+                mc = y_cat[k_val + 1]
+                if mc.any():
+                    pvc = pv_vec[mc]; fk_c = f_all[k_val, mc]; fk1_c = f_all[k_val + 1, mc]
+                    cross = -xp.sum(fk_c * fk1_c / (pvc * pvc))
+                    H[p + k_val, p + k_val + 1] += cross
+                    H[p + k_val + 1, p + k_val] += cross
+
+        return H
+
+    def _ordered_gradient(self, X, y, beta, thresh, prob, prob_clipped, family, K, n, eta=None):
         """Compute analytical gradient of the negative log-likelihood (vectorized)."""
         xp = _np_compat_xp(X)
+        from statgpu.backends._utils import xp_zeros
         p = X.shape[1]
         n_thresh = K - 1
         dim = p + n_thresh
-        grad = xp.zeros(dim)
+        grad = xp_zeros(dim, X.dtype, xp, ref_arr=X)
 
-        eta = X @ beta  # (n,)
+        if eta is None:
+            eta = X @ beta  # (n,)
 
         # Link derivative at all threshold positions: shape (n_thresh, n)
         diff = thresh[:, None] - eta[None, :]  # (n_thresh, n)
@@ -1154,6 +1557,30 @@ class OrderedGeneralizedLinearModel(GeneralizedLinearModel):
 
         return grad
 
+    def _ordered_gradient_torch(self, X, y, beta, thresh, prob, prob_clipped, family, K, n, eta=None):
+        """Torch-native gradient of NLL for ordered model."""
+        import torch
+        d = len(beta) + len(thresh); p = len(beta); n_thresh = len(thresh)
+        grad = torch.zeros(d, dtype=X.dtype, device=X.device)
+        inv_p = 1.0 / prob_clipped[y, torch.arange(n, device=X.device)]
+        if eta is None:
+            eta = X @ beta
+        diff = thresh[:, None] - eta[None, :]
+        d_all = torch.empty_like(diff)
+        for j in range(n_thresh):
+            d_all[j] = self._ordered_link_derivative(diff[j], family)
+        for j in range(n_thresh):
+            mp = (y == j); mn = (y == j + 1)
+            grad[p + j] = -torch.sum(inv_p * (d_all[j] * mp - d_all[j] * mn)) / n
+        scalar = torch.zeros(n, dtype=X.dtype, device=X.device)
+        mask0 = (y == 0); mask_last = (y == K - 1); mask_mid = ~mask0 & ~mask_last
+        scalar[mask0] = -d_all[0, mask0]
+        scalar[mask_last] = d_all[n_thresh - 1, mask_last]
+        idx_mid = torch.where(mask_mid)[0]
+        scalar[idx_mid] = d_all[y[idx_mid] - 1, idx_mid] - d_all[y[idx_mid], idx_mid]
+        grad[:p] = -X.T @ (inv_p * scalar) / n
+        return grad
+
     def _ordered_link_derivative(self, x, family):
         """First derivative of link inverse F'(x) = density at x.
 
@@ -1170,25 +1597,6 @@ class OrderedGeneralizedLinearModel(GeneralizedLinearModel):
         F = family.link.inverse(x)
         return F * (1.0 - F)
 
-    def _ordered_link_second_derivative(self, x, family):
-        """Second derivative of link inverse F''(x)."""
-        mod = type(x).__module__
-        is_cupy = mod.startswith('cupy')
-        is_torch = mod.startswith('torch')
-
-        if family.link.name == "logit":
-            F = family.link.inverse(x)
-            return F * (1.0 - F) * (1.0 - 2.0 * F)
-        elif family.link.name == "probit":
-            # F''(x) = -x * φ(x) for standard normal PDF φ
-            from statgpu.backends._array_ops import _xp, _exp, _scalar_tensor
-            xp = _xp(x)
-            two_pi = _scalar_tensor(2.0 * np.pi, x)
-            phi = _exp(-0.5 * x * x) / xp.sqrt(two_pi)
-            return -x * phi
-        F = family.link.inverse(x)
-        return F * (1.0 - F) * (1.0 - 2.0 * F)
-
     def predict_proba(self, X):
         """Predict class probabilities P(y=j|X).
 
@@ -1204,20 +1612,26 @@ class OrderedGeneralizedLinearModel(GeneralizedLinearModel):
         backend_name = backend.name
         X_arr = self._to_array(X, backend=backend_name)
 
+        # Guard: integer X causes torch matmul to fail (matching parent GLM.predict)
+        if hasattr(X_arr, 'is_floating_point') and not X_arr.is_floating_point():
+            X_arr = X_arr.float()
+
         from statgpu.backends._utils import _get_xp, xp_asarray
         xp = _get_xp(backend_name)
+        is_torch = _is_torch_array(X_arr)
         coef = xp_asarray(self.coef_, xp=xp, ref_arr=X_arr)
-        X_mean = xp_asarray(self._X_mean, xp=xp, ref_arr=X_arr)
-        X_std = xp_asarray(self._X_std, xp=xp, ref_arr=X_arr)
+        # coef_ is already on raw (unstandardized) scale:
+        #   coef_ = beta_fit / X_std
+        # Thresholds are also on raw scale:
+        #   _thresh_est = theta_fit + X_mean @ coef_
+        # So linear predictor is simply X @ coef (no standardization needed).
         thresholds = xp_asarray(self.thresholds_, xp=xp, ref_arr=X_arr)
-
-        X_scaled = (X_arr - X_mean) / X_std
-        eta = X_scaled @ coef
+        eta = X_arr @ coef
         family = self._get_family()
         diff = thresholds[:, None] - eta[None, :]
         pi = family.link.inverse(diff)  # (K+1, n) with -inf/+inf thresholds
 
-        if hasattr(xp, '__name__') and xp.__name__ == "torch":
+        if is_torch:
             proba = xp.diff(pi, dim=0).T  # (n, K)
         else:
             proba = xp.diff(pi, axis=0).T  # (n, K)
@@ -1233,9 +1647,6 @@ class OrderedGeneralizedLinearModel(GeneralizedLinearModel):
         Backend-agnostic: computes argmax on the native backend, returns NumPy.
         """
         self._check_is_fitted()
-
-        backend = self._get_backend(backend="auto")
-        backend_name = backend.name
         proba = self.predict_proba(X)
         return np.argmax(proba, axis=1)
 

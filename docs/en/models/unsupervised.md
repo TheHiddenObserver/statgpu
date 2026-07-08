@@ -1,15 +1,13 @@
 # Unsupervised Learning
 
 > Language: English
-> Last updated: 2026-05-08
+> Last updated: 2026-07-01
 > This page: unsupervised model overview
-> Switch: [Chinese](../../models/unsupervised.md)
+> Switch: [Chinese](../../cn/models/unsupervised.md)
 
 ## Overview
 
-`statgpu.unsupervised` contains estimators for dimensionality reduction, clustering, density-based grouping, mixture modeling, non-negative matrix factorization, and manifold embedding. The API follows the familiar `fit`, `transform`, `predict`, `fit_predict`, and `score` style where those operations make sense for the model.
-
-The detailed pages under [docs/en/unsupervised/](../unsupervised/README.md) describe each estimator's objective function, estimating procedure, device behavior, outputs, limitations, and validation approach.
+`statgpu.unsupervised` contains estimators for dimensionality reduction, clustering, density-based grouping, mixture modeling, non-negative matrix factorization, manifold embedding, and approximate nearest neighbor search. The API follows the familiar `fit`, `transform`, `predict`, `fit_predict`, and `score` style where those operations make sense for the model.
 
 ## Model Summary
 
@@ -26,6 +24,7 @@ The detailed pages under [docs/en/unsupervised/](../unsupervised/README.md) desc
 | [IncrementalPCA](../unsupervised/incremental-pca.md) | Batch-wise linear dimensionality reduction | Approximate centered rank-k reconstruction |
 | [MiniBatchNMF](../unsupervised/minibatch-nmf.md) | Larger-scale non-negative factorization | Mini-batch Frobenius reconstruction loss |
 | [UMAP](../unsupervised/umap.md) | Manifold embedding | Fuzzy graph cross-entropy |
+| [NNDescent](../unsupervised/umap.md) | Approximate nearest neighbor search | Iterative neighbor candidate refinement |
 | [TSNE](../unsupervised/tsne.md) | Manifold visualization | KL divergence between affinity distributions |
 
 ## Device Behavior

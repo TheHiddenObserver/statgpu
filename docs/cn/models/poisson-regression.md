@@ -11,7 +11,7 @@
 
 `PoissonRegression` 是用于计数数据的普通 Poisson GLM 入口，内部走共享的 `GeneralizedLinearModel` 架构。它表示非惩罚的 Poisson 回归；如果需要 L1、L2、ElasticNet、group 或 adaptive penalty，请使用 `PenalizedPoissonRegression`。
 
-当前范围是估计和预测。robust standard error、confidence interval 等完整 inference 字段尚未在该 GLM wrapper 中公开。
+支持 M-estimation sandwich inference：通过 ``compute_inference=True`` 获取标准误、z 统计量、p 值和 95% 置信区间。模型协方差使用 expected Fisher information（``cov_type='nonrobust'``，与 ``statsmodels.GLM`` 对齐），稳健 sandwich 使用 observed Hessian（``cov_type='hc0'``、``'hc1'``）。当前仅 CPU；GPU 显式 raise ``NotImplementedError``。
 
 ## Path
 
@@ -51,9 +51,22 @@ $$
 
 ## Covariance/Inference
 
-该 wrapper 当前没有暴露 `LinearRegression`、`Ridge` 或 `LogisticRegression` 那类 inference-rich 接口。也就是说，本页不承诺公开 `cov_type`、robust covariance、`_bse`、`_zvalues`、`_pvalues` 或 `_conf_int`。
+设置 ``compute_inference=True`` 即可获得推断结果：
 
-本轮应通过系数、预测、目标函数和外部框架对比验证 Poisson estimation。Poisson GLM 的 strict inference 应留到后续 inference 专项里补齐。
+```python
+from statgpu import PoissonRegression
+import numpy as np
+
+m = PoissonRegression(solver='newton', compute_inference=True, cov_type='nonrobust')
+m.fit(X, y)
+print(m._bse)       # 标准误
+print(m._pvalues)   # 双尾 p 值（正态）
+print(m._conf_int)  # 95% 置信区间
+```
+
+**协方差类型**：``'nonrobust'``（默认，expected Fisher，与 statsmodels 对齐）、``'hc0'``、``'hc1'``（sandwich）。HC2/HC3/HAC 暂不支持（raise ``NotImplementedError``）。
+
+**严格推断**：nonrobust Poisson 与 statsmodels 对齐到机器精度（n≥200 时 \|bse diff\| < 1e-9）。GPU 暂不支持（显式报错，不静默回退）。
 
 ## Parameters
 
@@ -115,7 +128,7 @@ pred = model.predict(df_new)
 
 - 什么时候使用 `PoissonRegression` 而不是 `GeneralizedLinearModel(family="poisson")`？当你希望 public API 更明确时使用 `PoissonRegression`；二者共享 GLM 实现。
 - 什么时候使用 `PenalizedPoissonRegression`？需要 L1、L2、ElasticNet、group 或 adaptive penalty 时使用。
-- `PoissonRegression` 当前提供 robust standard error 吗？不提供，这部分留到后续 inference 里程碑。
+- `PoissonRegression` 提供标准误和 p 值吗？提供——设置 ``compute_inference=True``。支持 model-based（``cov_type='nonrobust'``）和 sandwich（``hc0``、``hc1``）协方差。与 statsmodels 对齐到 \|bse diff\| < 1e-9。
 - `device="cuda"` 是否一定使用 GPU？对已支持的 Poisson GLM solver 路径，是的：核心计算保持在 CuPy，否则清晰报错。`device="torch"` 同样要求 Torch CUDA。
 
 ## External Validation

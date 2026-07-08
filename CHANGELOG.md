@@ -18,6 +18,16 @@ All notable changes to statgpu are documented here, organized by date and PR.
   from the sdist, which still ships the `.pyx`/`.pxd` sources via `MANIFEST.in`.
 - **publish.yml**: added `twine check dist/*` before upload.
 
+### PR #74 — Ordered Newton-Raphson + Analytical Hessian Inference + Unified Sandwich Engine
+- Ordered Logit/Probit: L-BFGS replaced with Newton-Raphson + trust-region (3-backend)
+- Ordered inference: analytical Hessian, SE/z/p/CI, loglikelihood/aic/bic (CPU+GPU)
+- Sandwich engine: m_estimation_inference, fisher_information, penalty curvature API
+- Penalized inference: sandwich (L2/EN), oracle active-set (SCAD/MCP)
+- QuantileRegression standalone class with kernel+bootstrap inference
+- 28 bug fixes across 4 code review rounds; scipy→get_distribution; GPU guards
+- Docs: ordered.md rewrite, v0.2.1 coverage matrix, solver-algorithms/quantile/robust
+- Validated: R ordinal::clm, three-backend GPU (CuPy+Torch), 226 CI tests
+
 ### PR #73 — LossBase Extraction, Proximal IRLS-CD, CoxPH Efron optimization
 - Extracted LossBase from GLMLoss; added QuantileLoss, HuberLoss, BisquareLoss, CoxPartialLikelihoodLoss
 - New penalized models: PenalizedQuantileRegression, PenalizedRobustRegression, PenalizedCoxPHModel

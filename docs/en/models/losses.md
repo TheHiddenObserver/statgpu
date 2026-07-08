@@ -7,17 +7,27 @@
 
 ## Overview
 
-`LossBase` is the generic base class for all loss functions in statgpu. It provides a unified interface for optimization solvers (FISTA, Newton, L-BFGS, ADMM) and penalty functions (L1, L2, ElasticNet, SCAD, MCP, etc.).
+`LossBase` is the generic base class for all loss functions in statgpu. It provides a unified interface for optimization solvers and penalty functions.
 
-Three new loss types extend `LossBase` beyond the existing GLM family:
+> For solver algorithm details, see: [Solver Algorithms](../guides/solver-algorithms.md)
+>
+> For detailed per-loss documentation, see:
+> - [Quantile Regression](quantile.md) — pinball loss, PenalizedQuantileRegression, Proximal IRLS-CD
+> - [Robust Regression](robust.md) — Huber, Bisquare, Fair losses, PenalizedRobustRegression
+> - [CoxPH](coxph.md) — Cox partial likelihood, Efron ties
+
+Five new loss types extend `LossBase` beyond the existing GLM family:
 
 | Loss | Class | R Equivalent | Use Case |
 |------|-------|-------------|----------|
 | Quantile | `QuantileLoss` | `quantreg::rq()` | Conditional quantiles, median regression |
 | Huber | `HuberLoss` | `MASS::rlm()` | Robust regression (M-estimator) |
+| Bisquare | `BisquareLoss` | `MASS::rlm(psi="bisquare")` | Redescending M-estimator |
+| Fair | `FairLoss` | `MASS::rlm(psi="fair")` | Fair's M-estimator |
 | Cox PH | `CoxPartialLikelihoodLoss` | `survival::coxph()` | Survival analysis |
 
-All losses automatically inherit support for 10 penalty types and 6 solver types.
+All losses automatically inherit support for 10 penalty types and 8 solver types.
+Penalized wrappers: `PenalizedQuantileRegression`, `PenalizedRobustRegression`, `PenalizedCoxRegression`.
 
 ## Path
 
@@ -73,14 +83,17 @@ where $L(\beta)$ is the Breslow or Efron partial likelihood.
 
 ## Solver Compatibility
 
-| Solver | Quantile | Huber | Cox PH |
-|--------|----------|-------|--------|
-| FISTA | ✅ | ✅ | ✅ |
-| FISTA-BB | ✅ | ✅ | ✅ |
-| Newton | ❌ (no Hessian) | ✅ | ✅ |
-| L-BFGS | ✅ | ✅ | ✅ |
-| ADMM | ✅ | ✅ | ✅ |
-| IRLS | ❌ (GLM only) | ❌ (GLM only) | ❌ (GLM only) |
+| Solver | Quantile | Huber | Bisquare | Fair | Cox PH |
+|--------|----------|-------|----------|------|--------|
+| FISTA | ✅ | ✅ | ✅ | ✅ | ✅ |
+| FISTA-BB | ✅ | ✅ | ✅ | ✅ | ✅ |
+| FISTA-LLA | ✅ (SCAD/MCP) | ✅ | ✅ | ✅ | ✅ |
+| Proximal IRLS-CD | ✅ (SCAD/MCP) | ❌ | ❌ | ❌ | ❌ |
+| Proximal Newton | ❌ (no Hessian) | ✅ (5-10 iter) | ✅ (5-10 iter) | ✅ | ✅ (5-10 iter) |
+| Newton | ❌ (no Hessian) | ✅ | ✅ | ✅ | ✅ |
+| L-BFGS | ✅ | ✅ | ✅ | ✅ | ✅ |
+| ADMM | ✅ | ✅ | ✅ | ✅ | ✅ |
+| IRLS | ✅ (L2 only) | ❌ | ❌ | ❌ | ❌ |
 
 ## Parameters
 
@@ -104,24 +117,48 @@ where $L(\beta)$ is the Breslow or Efron partial likelihood.
 
 ## Examples
 
-### Quantile Regression
+### CPU
 
 ```python
-from statgpu.losses import QuantileLoss
+from statgpu.losses import QuantileLoss, HuberLoss
 from statgpu.solvers import lbfgs_solver
 
-loss = QuantileLoss(quantile=0.5)  # median regression
+# Quantile regression
+loss = QuantileLoss(quantile=0.5)
+coef, n_iter = lbfgs_solver(loss, None, X, y)
+
+# Robust regression
+loss = HuberLoss(epsilon=1.345)
 coef, n_iter = lbfgs_solver(loss, None, X, y)
 ```
 
-### Huber Robust Regression
+### GPU (torch-CUDA)
 
 ```python
-from statgpu.losses import HuberLoss
-from statgpu.solvers import lbfgs_solver
+import torch
+X_t = torch.tensor(X, dtype=torch.float64).cuda()
+y_t = torch.tensor(y, dtype=torch.float64).cuda()
 
-loss = HuberLoss(delta=1.345)  # 95% efficiency at Gaussian
-coef, n_iter = lbfgs_solver(loss, None, X, y)
+from statgpu.losses import HuberLoss
+from statgpu.penalties import SCADPenalty
+from statgpu.solvers import fista_solver
+
+loss = HuberLoss(epsilon=1.345)
+coef, n_iter = fista_solver(loss, SCADPenalty(alpha=0.1), X_t, y_t)
+```
+
+### Penalized Quantile with SCAD (CPU/GPU)
+
+```python
+from statgpu.linear_model.penalized import PenalizedQuantileRegression
+
+# CPU
+model = PenalizedQuantileRegression(quantile=0.5, penalty='scad', alpha=0.1)
+model.fit(X, y)
+
+# GPU (torch-CUDA)
+model = PenalizedQuantileRegression(quantile=0.5, penalty='scad', alpha=0.1)
+model.fit(X_t, y_t)
 ```
 
 ### Cox PH with Newton Solver
@@ -147,16 +184,26 @@ loss = CoxPartialLikelihoodLoss(ties='efron')
 coef, _ = lbfgs_solver(loss, L1Penalty(0.1), X, y)  # Lasso-Cox
 ```
 
+## External Validation
+
+- **QuantileLoss**: validated against R `quantreg::rq()` (Frisch-Newton IRLS) and sklearn `QuantileRegressor` (HiGHS LP solver). Coefficient parity to 1e-6.
+- **HuberLoss**: validated against R `MASS::rlm()` with Huber psi function.
+- **BisquareLoss**: validated against R `MASS::rlm(psi="bisquare")`. Supports SCAD/MCP via proximal Newton (5-10 iter convergence).
+- **CoxPartialLikelihoodLoss**: Efron tied-event gradient/Hessian validated against `statsmodels PHReg(ties='efron')`. CI reference parity test included.
+
 ## Notes
 
-- `CoxPartialLikelihoodLoss` supports GPU via CuPy CUDA / PyTorch-CUDA kernels (both Breslow and Efron). Explicit GPU inputs raise `RuntimeError` if GPU path is unavailable; CPU inputs use numpy implementation.
-- `QuantileLoss` has `smooth_gradient=False`; FISTA handles the non-smoothness via proximal operators.
-- `HuberLoss` has `smooth_gradient=True` and `has_hessian=True`; proximal Newton is the preferred solver.
-- `BisquareLoss` is also available via `statgpu.losses.BisquareLoss` for redescending M-estimation.
-- All losses accept `sample_weight` in their API, except `CoxPartialLikelihoodLoss` which raises `NotImplementedError`.
+- `CoxPartialLikelihoodLoss` supports CuPy CUDA / PyTorch-CUDA kernels (both Breslow and Efron). Explicit GPU inputs raise `RuntimeError` if GPU path fails; CPU inputs use numpy implementation.
+- `QuantileLoss` has `smooth_gradient=False` and `has_hessian=False`; use FISTA or proximal IRLS-CD (for SCAD/MCP).
+- `HuberLoss` and `BisquareLoss` have `has_hessian=True`; proximal Newton converges in 5-10 iterations for SCAD/MCP.
+- All losses accept `sample_weight` (except `CoxPartialLikelihoodLoss` which raises `NotImplementedError`).
+- See [Loss × Penalty × Solver Framework](../guides/loss-penalty-solver-framework.md) for complete dispatch logic and coverage matrix.
 
 ## References
 
 - Koenker, R. & Bassett, G. (1978). Regression Quantiles. *Econometrica*, 46(1), 33-50.
 - Huber, P. J. (1964). Robust Estimation of a Location Parameter. *Annals of Mathematical Statistics*, 35(1), 73-101.
+- Beaton, A. E. & Tukey, J. W. (1974). The Fitting of Power Series. *Technometrics*, 16(2), 147-185. (Bisquare)
 - Cox, D. R. (1972). Regression Models and Life-Tables. *Journal of the Royal Statistical Society*, B34, 187-220.
+- Wu, Y. & Liu, Y. (2009). Variable Selection in Quantile Regression. *Statistica Sinica*, 19, 801-817.
+- Fan, J. & Li, R. (2001). Variable Selection via Nonconcave Penalized Likelihood. *JASA*, 96, 1348-1360. (SCAD)

@@ -44,6 +44,11 @@ class L2Penalty(Penalty):
         """∇P(w) = α * w"""
         return self.alpha * coef
 
+    def curvature_diag(self, coef):
+        """P''(w) = α · I → diag = α · ones(p)."""
+        xp = _xp(coef)
+        return self.alpha * xp.ones_like(coef)
+
     def proximal(
         self,
         w: np.ndarray,

@@ -401,6 +401,11 @@ def xp_astype(arr, dtype, xp=None):
 def xp_asarray(data, dtype=None, xp=None, ref_arr=None):
     """Device-aware ``xp.asarray``.  *ref_arr* provides the target device."""
     dev = _torch_dev(ref_arr) if ref_arr is not None else None
+    # Convert numpy dtype to torch dtype for torch backend compatibility
+    if dev is not None and dtype is not None:
+        torch = _require_torch()
+        if not isinstance(dtype, torch.dtype):
+            dtype = _np_dtype_to_torch(dtype)
     if dev is not None:
         kwargs = {'device': dev}
         if dtype is not None:

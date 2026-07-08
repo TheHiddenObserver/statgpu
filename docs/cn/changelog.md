@@ -1,11 +1,123 @@
 # Changelog
 
 > 语言：中文  
-> 最后更新：2026-06-30  
+> 最后更新：2026-07-08  
 > 页面定位：变更记录  
 > 切换：[English](en/changelog.md)
 
 语言切换：[English](en/changelog.md)
+
+## 2026-07
+
+### 新增 (2026-07-07)
+
+- **统一推断框架 — Loss × Penalty Sandwich 引擎**:
+  - 新模块 `statgpu/inference/_sandwich.py`：`compute_bread_avg`、`compute_meat_avg`、
+    `assemble_cov_avg`、`m_estimation_inference` — 平均尺度 M-estimation sandwich，
+    支持 `nonrobust`（模型协方差 φ·H⁻¹/n）和 `hc0`/`hc1`（稳健 sandwich
+    H⁻¹·J·H⁻¹/n），适用于所有具有 Hessian 的损失函数
+  - 新模块 `statgpu/inference/_dispersion.py`：`glm_pearson_dispersion` 用于非典型连接
+    GLM（Gamma、IG、Tweedie），`robust_scale_dispersion` 用于 M-估计器
+  - **Expected Fisher 接口**：`loss.fisher_information(X, coef, sample_weight)`
+    添加到 LossBase（默认 `NotImplementedError`）；在 `GammaLoss`
+    （log-link W=1, inverse_power W=1/η²）和 `TweedieLoss`（log-link W=μ^(2-p)）上实现
+  - **Penalty 曲率 API**：`Penalty.curvature_diag(coef)` — 返回 P'' 对角线，
+    默认 zeros；`L2Penalty` 覆写为 `α·ones`。SCAD/MCP 抛出 `NotImplementedError`
+  - **惩罚推断路由**（`penalized/_inference_mixin.py` +256 行）：
+    - 具有 Hessian 的损失 + L2/ElasticNet 惩罚 → sandwich
+    - SCAD/MCP → oracle active-set refit（Fan & Li 2001，以选中模型为条件）
+    - Bootstrap 推断入口（分阶段推出）
+  - **GLM 推断管线**（`_glm_base.py` +300 行）：
+    - `GeneralizedLinearModel` 上的 `compute_inference`、`cov_type` 参数
+    - `_compute_inference()` 读取拟合时元数据（惩罚、求解器、目标尺度）
+    - 对齐设计矩阵：intercept 第一列，匹配 statsmodels `sm.add_constant(X, prepend=True)`
+    - GLM 基类上的 `summary()`、`aic`、`bic`、`loglikelihood` 属性
+  - **Loss 基元**（`losses/_base.py` +79 行）：
+    - `per_sample_score(X, y, coef)` — (n, p) 逐样本得分，用于 HC2/HC3/HAC
+    - `score_outer(X, y, coef, sample_weight=None)` — 内存高效得分外积，
+      含 w_i² 分析权重缩放用于 sandwich meat
+  - **GLM wrapper 暴露**：`PoissonRegression`、`GammaRegression`、
+    `InverseGaussianRegression`、`NegativeBinomialRegression`、`TweedieRegression`
+    均暴露 `compute_inference`、`cov_type`
+  - **QuantileRegression**（`wrappers/_quantile.py` +329 行）：独立类，
+    含 kernel 推断（Powell 1991, Epanechnikov 核 + Hall-Sheather 带宽）
+    和 bootstrap 推断
+  - 涉及文件：`statgpu/inference/_sandwich.py`、`_dispersion.py`；`statgpu/losses/_base.py`；
+    `statgpu/penalties/_base.py`、`_l2.py`；`statgpu/glm_core/_gamma.py`、`_tweedie.py`；
+    `statgpu/linear_model/_glm_base.py`、`penalized/_base.py`、`penalized/_inference_mixin.py`；
+    `wrappers/_poisson.py`、`_gamma.py`、`_inverse_gaussian.py`、`_negative_binomial.py`、
+    `_tweedie.py`、`_quantile.py`；`_ordered_logit.py`、`_ordered_probit.py`
+
+- **Loss × Penalty × Solver 框架指南**（中英文）:
+  - 新文档：`docs/en/guides/loss-penalty-solver-framework.md` (+206)、
+    `docs/cn/guides/loss-penalty-solver-framework.md` (+205)
+  - 完整调度逻辑：12 损失 × 10 惩罚 × 10 求解器
+  - 自动求解器选择规则、惩罚约束、求解器-惩罚矩阵
+
+- **有序 Logit/Probit — Newton-Raphson + 解析 Hessian + 推断**:
+  - 三端全部从 L-BFGS 替换为 Newton-Raphson + 信赖域优化
+    - NumPy: 向量化解析 Hessian + `numpy.linalg.solve`
+    - CuPy: 原生 GPU Newton-Raphson，logit 下零 CPU 往返
+    - Torch: 原生 `torch.linalg.solve`，正确设备/dtype 处理
+  - 典型问题 5–23 次迭代收敛；信赖域内层循环（每次迭代最多 20 次 ridge 尝试）保证 NLL 下降
+  - 标准化：X 内部标准化，收敛后系数和阈值转回原始尺度
+    （`β_raw = β_fit / X_std`, `θ_raw = θ_fit + X_mean @ β_raw`）
+  - 修改文件：`statgpu/linear_model/_glm_base.py`（重大重写）
+    - 删除方法：`_ordered_nll_grad_fn`, `_ordered_gradient_vec`（死代码）
+    - 新增方法：`_ordered_hessian_analytical`, `_compute_ordered_inference`,
+      `_ordered_F_and_f`, `_ordered_gradient_torch`
+    - 重写方法：`_fit_scipy_ordered`, `_fit_cupy_ordered`,
+      `_fit_torch_ordered`, `_ordered_category_probs`, `predict_proba`
+  - 修改文件：`statgpu/glm_core/_gamma.py`, `statgpu/inference/_sandwich.py`
+    （设备感知张量创建修复）
+
+- **有序模型推断** (`compute_inference=True`):
+  - MLE 处的解析观测 Hessian，分块结构（β-β, β-θ, θ-θ），与 R `MASS::polr`
+    和 `ordinal::clm` 一致
+  - 标准误：`sqrt(diag(H^{-1}))`；Wald z 统计量，双侧 p 值，95% 置信区间
+  - 独立属性组：`_bse_ordered`/`_pvalues_ordered`（系数）
+    和 `_bse_thresholds`/`_pvalues_thresholds`（阈值）
+  - `loglikelihood`、`aic`、`bic` 属性
+  - `summary()` 方法通过 `ParameterInferenceResult`
+  - GPU 推断：显式 `device='cuda'` 或 `device='torch'` 现在使用
+    后端原生解析 Hessian 推断（NumPy/CuPy/Torch）；暂不支持的
+    covariance type（`hc0`/`hc1`/`hac`）仍显式抛出 `NotImplementedError`
+  - 当前限制：仅 `cov_type='nonrobust'`、不支持 `sample_weight`
+
+### 修复 (2026-07-07)
+
+- **有序模型 9 项 Bug 修复**（来自 code review）:
+  - **probit 梯度**: `_ordered_gradient_torch` 硬编码 `torch.sigmoid`；
+    修复为使用 `_ordered_link_derivative(family)` 正确派发 probit
+  - **probit f'(z)**: `_compute_ordered_inference` 丢弃正确的 probit f'(z)
+    并用 logit 公式重新计算；修复为直接使用返回值
+  - **GPU 静默回退**: `_to_numpy()` 静默将 GPU 数组转为 CPU；
+    添加 `_resolve_backend` 守卫抛出 `NotImplementedError`
+  - **pinv 降级**: `np.linalg.pinv` 在奇异 Hessian 时静默降级推断；
+    替换为 `LinAlgError` 抛出
+  - **predict_proba 双重除法**: `X_scaled @ coef` 中两者均已缩放
+    （coef 已除以 `X_std`）；修复为原始尺度 `X @ coef`
+  - **y.dtype 守卫**: `_fit_torch_ordered` 未处理非 int64 的 torch 张量；
+    添加 `elif y.dtype != torch.int64` 检查
+  - **死代码**: 删除 `_ordered_nll_grad_fn` 和 `_ordered_gradient_vec`
+    （约 70 行，零调用者）
+  - **loglikelihood**: 有序模型 `loglikelihood` 返回 `nan` 因为
+    `_loss`/`_X_design` 未设置；添加 `_final_nll` 存储 + 属性覆盖
+
+### 改进 (2026-07-07)
+
+- **有序模型文档**（中英文）：完整重写，包含 Newton-Raphson 算法、
+  解析 Hessian、推断 API、参数表、CPU+GPU 示例、strict vs approximate、
+  外部验证和当前限制
+- **文档文件**：`docs/en/models/ordered.md`，`docs/cn/models/ordered.md`
+
+### 验证 (2026-07-07)
+
+- 三端有序 logit benchmark：NumPy vs CuPy vs Torch 单步 Hessian 差异
+  在机器精度级别（~1e-14）；24 轮迭代累积 BSE 差异 ~4.5e-04，
+  源于数学库差异（`libm` vs NVIDIA `libdevice`）
+- R `ordinal::clm` 对比：NLL 一致，相同解析 Hessian 结构
+- 所有现有有序模型测试通过（4/4 CPU，6 GPU 跳过）
 
 ## 2026-06
 

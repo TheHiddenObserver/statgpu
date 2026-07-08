@@ -17,6 +17,7 @@ from .wrappers import (
     InverseGaussianRegression,
     NegativeBinomialRegression,
     TweedieRegression,
+    QuantileRegression,
 )
 
 # GLM base
@@ -54,6 +55,7 @@ __all__ = [
     'InverseGaussianRegression',
     'NegativeBinomialRegression',
     'TweedieRegression',
+    'QuantileRegression',
     'GeneralizedLinearModel',
     'OrderedGeneralizedLinearModel',
     'PenalizedGeneralizedLinearModel',

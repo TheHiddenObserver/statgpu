@@ -90,12 +90,10 @@ class ParameterInferenceResult(BaseInferenceResult):
             stat = np.asarray(self.statistic).copy()
             if self.statistic_name == "z":
                 estimator._zvalues = stat
-                if hasattr(estimator, "_tvalues"):
-                    estimator._tvalues = None
+                estimator._tvalues = stat  # backward compat: z ≈ t for large n
             elif self.statistic_name == "t":
                 estimator._tvalues = stat
-                if hasattr(estimator, "_zvalues"):
-                    estimator._zvalues = None
+                estimator._zvalues = stat  # backward compat
             else:
                 estimator._statistic = stat
                 if hasattr(estimator, "_zvalues"):

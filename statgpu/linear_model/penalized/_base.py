@@ -253,6 +253,7 @@ class PenalizedGeneralizedLinearModel(
         self._params = None
         self._bse = None
         self._tvalues = None
+        self._zvalues = None
         self._pvalues = None
         self._conf_int = None
         self._inference_result = None
@@ -346,30 +347,69 @@ class PenalizedGeneralizedLinearModel(
             return
 
     def _validate_inference_request(self):
-        """Reject unsupported penalized inference paths with a clear error.
+        """Validate and route penalized inference requests.
 
-        Currently supported:
-        - squared_error + L2 (standard OLS inference)
-        - squared_error + L1/ElasticNet (debiased Lasso, cpu_ols_inference, bootstrap)
+        Supported paths:
+        - squared_error + L2: standard Gaussian inference
+        - squared_error + L1/ElasticNet: debiased Lasso / bootstrap
+        - Hessian-equipped losses + L2/none/ElasticNet: penalized sandwich
+        - SCAD/MCP + oracle/bootstrap: oracle active-set or bootstrap
+        - Any loss + bootstrap: universal fallback
         """
         if not self.compute_inference:
             return
         penalty_name = str(getattr(self._penalty, "name", self.penalty)).lower()
-        if self.loss == "squared_error" and penalty_name == "l2":
+        inference_method = str(getattr(self, "inference_method", "sandwich")).lower()
+
+        # squared_error + l1/elasticnet: default to debiased (not sandwich)
+        if (self.loss == "squared_error"
+                and penalty_name in ("l1", "elasticnet", "en")
+                and inference_method == "sandwich"):
+            inference_method = "debiased"
+
+        # squared_error: existing paths (unchanged)
+        if self.loss == "squared_error":
+            if penalty_name == "l2":
+                return
+            if penalty_name in ("l1", "elasticnet", "en"):
+                if inference_method in ("debiased", "cpu_ols", "gpu_ols", "bootstrap"):
+                    return
+            if penalty_name in ("scad", "mcp") and inference_method in ("oracle", "bootstrap"):
+                return
+            raise NotImplementedError(
+                f"squared_error + '{penalty_name}' inference not supported "
+                f"with inference_method='{inference_method}'. "
+                f"Use inference_method='oracle' or 'bootstrap'."
+            )
+
+        # Hessian-equipped losses + smooth penalties: penalized sandwich
+        loss_has_hessian = getattr(self._loss, 'has_hessian', False)
+        if loss_has_hessian and penalty_name in ("l2", "none", ""):
             return
-        inference_method = str(getattr(self, "inference_method", "debiased")).lower()
-        if penalty_name in ("l1", "elasticnet", "en"):
-            if "debiased" in inference_method:
-                return
-            if "cpu_ols" in inference_method or "gpu_ols" in inference_method:
-                return
-            if "bootstrap" in inference_method:
-                return
+        if loss_has_hessian and penalty_name in ("elasticnet", "en"):
+            return  # L2 curvature component only
+
+        # SCAD/MCP: oracle or bootstrap
+        if penalty_name in ("scad", "mcp") and inference_method in ("oracle", "bootstrap"):
+            return
+
+        # Bootstrap: universal fallback
+        if inference_method == "bootstrap":
+            return
+
+        # L1 + non-squared_error: only bootstrap
+        if loss_has_hessian and penalty_name in ("l1",) and inference_method == "bootstrap":
+            return
+        if penalty_name in ("l1",):
+            raise NotImplementedError(
+                f"loss='{self.loss}' + penalty='l1' does not support "
+                f"inference_method='{inference_method}'. "
+                f"Use inference_method='bootstrap' or set compute_inference=False."
+            )
+
         raise NotImplementedError(
-            f"compute_inference=True with penalty='{penalty_name}' and "
-            f"loss='{self.loss}' is not supported. Use inference_method='debiased', "
-            f"'cpu_ols_inference', or 'bootstrap' for L1/ElasticNet, "
-            f"or compute_inference=False to skip inference."
+            f"Inference not supported for loss='{self.loss}' × penalty='{penalty_name}'. "
+            f"Use inference_method='bootstrap' or set compute_inference=False."
         )
 
     def _clear_inference_state(self):
@@ -382,6 +422,7 @@ class PenalizedGeneralizedLinearModel(
         self._params = None
         self._bse = None
         self._tvalues = None
+        self._zvalues = None
         self._pvalues = None
         self._conf_int = None
         self._inference_result = None
