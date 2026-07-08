@@ -356,15 +356,22 @@ class QuantileRegression(BaseEstimator):
         rng = np.random.default_rng(self.random_state)
         boot_params = np.zeros((B, len(params)), dtype=float)
 
+        # For GPU backends, pre-convert X_design once to avoid _to_array per iteration
+        X_refit = X_design
+        if dev != 'cpu':
+            X_refit = self._to_array(X_design, backend={'cuda':'cupy','torch':'torch'}.get(dev, dev))
+
         for b in range(B):
             idx = rng.integers(0, n, size=n)
             y_star = y_fitted + resid[idx]
+            if dev != 'cpu':
+                y_star = self._to_array(y_star, backend={'cuda':'cupy','torch':'torch'}.get(dev, dev))
             m = QuantileRegression(
                 quantile=self.quantile, fit_intercept=False,
                 max_iter=self.max_iter, tol=self.tol, device=dev,
                 compute_inference=False,
             )
-            m.fit(X_design, y_star)
+            m.fit(X_refit, y_star)
             boot_params[b, :] = m._params
 
         self._bse = np.std(boot_params, axis=0, ddof=1)
