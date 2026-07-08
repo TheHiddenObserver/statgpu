@@ -375,32 +375,67 @@ class QuantileRegression(BaseEstimator):
         coef = xp.zeros((p, B), dtype=X.dtype)
         if is_torch: coef = coef.to(X.device)
         z = coef.clone() if is_torch else coef.copy()
-        t_val = 1.0
-        c1 = 1e-4  # Armijo constant
+        c1 = 1e-4
+        t_iter = 1.0
+        is_cupy = (not is_torch and hasattr(xp, 'fuse'))
 
-        for _ in range(self.max_iter):
+        # CuPy: pre-allocate scratch arrays to avoid allocation in hot loop
+        if is_cupy:
+            _d_eta_buf = xp.empty_like(y_gpu.T)
+            _loss_buf = xp.empty_like(y_gpu.T)
+            @xp.fuse()
+            def _pinball_grad_kernel(_r, _out):
+                _out[:] = xp.where(_r > 0, float(tau - 1.0), float(tau))
+            @xp.fuse()
+            def _pinball_loss_kernel(_r, _out):
+                _out[:] = xp.where(_r > 0, float(tau) * _r, float(tau - 1.0) * _r)
+
+        for iteration in range(self.max_iter):
+            # ---- Gradient (all backends) ----
             pred_z = Xd @ z
-            r_z = y_gpu.T - pred_z
-            loss_z = xp.sum(xp.where(r_z > 0, tau * r_z, (tau - 1.0) * r_z)) / n
-            d_eta = xp.where(r_z > 0, float(tau - 1.0), float(tau))
-            if is_torch: d_eta = d_eta.to(Xd.dtype)
-            grad = Xd.T @ d_eta / n
-            grad_norm_sq = xp.sum(grad * grad)  # GPU scalar, computed once
+            r_z = y_gpu.T - pred_z  # (n, B)
 
+            # Element-wise pinball gradient
+            if is_cupy:
+                _pinball_grad_kernel(r_z, _d_eta_buf)
+                d_eta = _d_eta_buf
+            else:
+                d_eta = xp.where(r_z > 0, float(tau - 1.0), float(tau))
+                if is_torch: d_eta = d_eta.to(Xd.dtype)
+
+            grad = Xd.T @ d_eta / n
+
+            # ---- Convergence check ----
+            if float(xp.max(xp.abs(grad))) < self.tol:
+                break
+
+            # ---- Backtracking line search ----
             step = 1.0 / L0
-            for _ in range(10):  # backtracking
+            # Compute loss once; reuse for Armijo checks
+            if is_cupy:
+                _pinball_loss_kernel(r_z, _loss_buf)
+                loss_z = xp.sum(_loss_buf) / n
+            else:
+                loss_z = xp.sum(xp.where(r_z > 0, tau * r_z, (tau - 1.0) * r_z)) / n
+            grad_norm_sq = xp.sum(grad * grad)
+
+            for _ in range(10):
                 coef_new = z - step * grad
                 pred_new = Xd @ coef_new
                 r_new = y_gpu.T - pred_new
-                loss_new = xp.sum(xp.where(r_new > 0, tau * r_new, (tau - 1.0) * r_new)) / n
-                # Armijo check: transfer only final boolean via single comparison
+                if is_cupy:
+                    _pinball_loss_kernel(r_new, _loss_buf)
+                    loss_new = xp.sum(_loss_buf) / n
+                else:
+                    loss_new = xp.sum(xp.where(r_new > 0, tau * r_new, (tau - 1.0) * r_new)) / n
                 if float(loss_new - loss_z + c1 * step * grad_norm_sq) <= 0:
                     break
                 step *= 0.5
 
-            t_new = 0.5 * (1.0 + (1.0 + 4.0 * t_val * t_val) ** 0.5)
-            z = coef_new + ((t_val - 1.0) / t_new) * (coef_new - coef)
-            coef = coef_new; t_val = t_new
+            # ---- FISTA momentum update ----
+            t_new = 0.5 * (1.0 + (1.0 + 4.0 * t_iter * t_iter) ** 0.5)
+            z = coef_new + ((t_iter - 1.0) / t_new) * (coef_new - coef)
+            coef = coef_new; t_iter = t_new
 
         return np.asarray(_to_numpy(coef.T)), params, Xd
 
