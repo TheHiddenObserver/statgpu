@@ -119,7 +119,7 @@ class GeneralizedLinearModel(BaseEstimator):
         self.solver = solver
         self.gpu_memory_cleanup = gpu_memory_cleanup
         self.compute_inference = compute_inference
-        self.cov_type = cov_type
+        self.cov_type = cov_type.lower() if isinstance(cov_type, str) else cov_type
 
         self.coef_ = None
         self.intercept_ = None

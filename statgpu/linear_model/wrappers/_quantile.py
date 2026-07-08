@@ -335,69 +335,6 @@ class QuantileRegression(BaseEstimator):
                        "sparsity": float(sparsity), "quantile": tau, "backend": backend})
         self._inference_result.apply_to(self)
 
-    def _compute_inference_bootstrap_batched(self, X, y):
-        """Batched pinball FISTA bootstrap for GPU — correct subgradient."""
-        from statgpu.backends import _to_numpy, _resolve_backend
-        from statgpu.backends._utils import _get_xp
-        backend = _resolve_backend("auto", X)
-        xp = _get_xp(backend)
-        is_torch = (backend == "torch")
-        n = X.shape[0]; tau = self.quantile
-
-        if self.fit_intercept:
-            ones = xp.ones((n, 1), dtype=X.dtype)
-            if is_torch: ones = xp.ones((n, 1), dtype=X.dtype, device=X.device)
-            X_design = xp.cat([ones, X], dim=1) if is_torch else xp.column_stack([ones, X])
-            inter = xp.asarray([self.intercept_], dtype=X.dtype)
-            coef_arr = xp.asarray(self.coef_, dtype=X.dtype)
-            if is_torch: inter = inter.to(X.device); coef_arr = coef_arr.to(X.device)
-            params = xp.concatenate([inter, coef_arr])
-        else:
-            X_design = X
-            params = xp.asarray(self.coef_, dtype=X.dtype)
-
-        eta = X_design @ params
-        resid = (y - eta).ravel()
-        p = X_design.shape[1]
-        B = self.n_bootstrap
-
-        # Generate all B bootstrap y samples at once on CPU
-        eta_cpu = np.asarray(_to_numpy(eta))
-        resid_cpu = np.asarray(_to_numpy(resid))
-        rng = np.random.default_rng(self.random_state)
-        y_batch = np.array([eta_cpu + resid_cpu[rng.integers(0, n, size=n)]
-                            for _ in range(B)])
-
-        # Convert to GPU
-        y_gpu = xp.asarray(y_batch, dtype=X.dtype)
-        if is_torch: y_gpu = y_gpu.to(X.device)
-
-        # Batched pinball FISTA: correct subgradient, no proximal op needed
-        L = max(float(xp.linalg.norm(X_design, ord=2)) ** 2 / n, 1e-10)
-        step = 1.0 / L
-        coef = xp.zeros((p, B), dtype=X.dtype)  # (p, B) for efficient GEMM
-        if is_torch: coef = coef.to(X.device)
-        z = coef.clone() if is_torch else coef.copy()
-        t_val = 1.0
-
-        for _ in range(self.max_iter):
-            pred = X_design @ z  # (n, B)
-            resid_batch = y_gpu.T - pred  # (n, B), r = y - X@coef
-            # Pinball gradient w.r.t β: ∂ℓ/∂β = Xᵀ · ∂ℓ/∂η, where
-            # ∂ℓ/∂η = -(τ if r>0 else τ-1) = (τ-1) if r>0, τ if r<0
-            # Use Python float; torch/cupy auto-cast to match X_design.dtype
-            d_eta = xp.where(resid_batch > 0, float(tau - 1.0), float(tau))
-            if is_torch:
-                d_eta = d_eta.to(X_design.dtype)
-            grad = X_design.T @ d_eta / n  # (p, B)
-            coef_new = z - step * grad
-            t_new = 0.5 * (1.0 + (1.0 + 4.0 * t_val * t_val) ** 0.5)
-            z = coef_new + ((t_val - 1.0) / t_new) * (coef_new - coef)
-            coef = coef_new; t_val = t_new
-
-        boot_params = np.asarray(_to_numpy(coef.T))  # (B, p)
-        return boot_params, params, X_design
-
     def _compute_inference_bootstrap(self, X, y):
         """Residual bootstrap inference for quantile regression. Backend-aware."""
         from statgpu.backends import _to_numpy
@@ -419,16 +356,15 @@ class QuantileRegression(BaseEstimator):
         eta = X_design_cpu @ params
         resid = y_cpu - eta
         y_fitted = eta
-
-        B = self.n_bootstrap
-        rng = np.random.default_rng(self.random_state)
-        boot_params = np.zeros((B, len(params)), dtype=float)
-
-        # Pre-convert X_design to GPU once for serial refits
+        # Use same solver as CPU for cross-backend consistency.
+        # Pre-convert X_design to GPU once, then serial GPU fits.
         X_refit = X_design_cpu
         if dev != 'cpu':
             X_refit = self._to_array(X_design_cpu, backend=backend_name)
 
+        B = self.n_bootstrap
+        rng = np.random.default_rng(self.random_state)
+        boot_params = np.zeros((B, len(params)), dtype=float)
         for b in range(B):
             idx = rng.integers(0, n, size=n)
             y_star = y_fitted + resid[idx]
@@ -437,9 +373,8 @@ class QuantileRegression(BaseEstimator):
             m = QuantileRegression(
                 quantile=self.quantile, fit_intercept=False,
                 max_iter=self.max_iter, tol=self.tol, device=dev,
-                compute_inference=False,
-            )
-            m.fit(X_refit, y_star)
+                compute_inference=False)
+            m.fit(X_refit if dev != 'cpu' else X_design_cpu, y_star)
             boot_params[b, :] = m._params
 
         self._bse = np.std(boot_params, axis=0, ddof=1)

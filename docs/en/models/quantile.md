@@ -53,7 +53,7 @@ No scale parameter; quantile regression is scale-free.
 | Newton | ❌ | Quantile has no Hessian. |
 | Proximal Newton | ❌ | Quantile has no Hessian. |
 
-## Penaltiy Compatibility
+## Penalty Compatibility
 
 | Penalty | Solver (auto) | Notes |
 |---------|---------------|-------|

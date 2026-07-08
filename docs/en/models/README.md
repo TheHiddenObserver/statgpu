@@ -99,6 +99,6 @@
 | Solvers | 10: exact, irls, newton, lbfgs, fista, fista_bb, fista_lla, proximal_irls_cd, proximal_newton, admm |
 | Backends | numpy, cupy, torch — all core solvers support all three |
 | GPU fallback | Explicit GPU devices do not silently fall back to CPU |
-| sample_weight | Supported across all solvers (except CoxPH) |
+| sample_weight | Supported by IRLS/FISTA paths; not supported by Ordered models, CoxPH, and GLM Newton/LBFGS |
 | CV | LassoCV, RidgeCV, LogisticRegressionCV, CoxPHCV, PenalizedGLM_CV |
 | Inference | nonrobust/HC0/HC1 (sandwich), HC2/HC3/HAC (Gaussian only), bootstrap, debiased Lasso, analytical Hessian (ordered) |
