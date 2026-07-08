@@ -1108,20 +1108,26 @@ class _PenalizedInferenceMixin:
 
         X_active = X_cpu[:, active_cpu]
         kwargs = {"fit_intercept": self._effective_intercept}
-        if "solver" in model_cls.__init__.__code__.co_varnames:
-            # Use appropriate solver: IRLS for squared_error (no fused_gradient_and_hessian),
-            # Newton for GLM families with proper Hessian support
-            kwargs["solver"] = "irls" if self.loss == "squared_error" else "newton"
         loss_kwargs = getattr(self, 'loss_kwargs', None) or {}
-        if loss_kwargs and "loss_kwargs" in model_cls.__init__.__code__.co_varnames:
+        # Pass through loss-specific kwargs with correct parameter names
+        if self.loss == "negative_binomial" and "alpha" in model_cls.__init__.__code__.co_varnames:
+            kwargs["alpha"] = loss_kwargs.get("alpha", 1.0)
+        elif self.loss == "gamma" and "link" in model_cls.__init__.__code__.co_varnames:
+            kwargs["link"] = loss_kwargs.get("link", "log")
+        elif self.loss == "tweedie" and "power" in model_cls.__init__.__code__.co_varnames:
+            kwargs["power"] = loss_kwargs.get("power", 1.5)
+        elif loss_kwargs and "loss_kwargs" in model_cls.__init__.__code__.co_varnames:
             kwargs["loss_kwargs"] = loss_kwargs
         if self.loss == "logistic" and "C" in model_cls.__init__.__code__.co_varnames:
             kwargs["C"] = 1e9
-        # Refit on the same backend as the original fit
         if backend != "numpy" and "device" in model_cls.__init__.__code__.co_varnames:
             kwargs["device"] = backend
+        # Ensure sample_weight is CPU numpy (refit runs on CPU)
+        sw_cpu = None
+        if sample_weight is not None:
+            sw_cpu = np.asarray(_to_numpy(sample_weight), dtype=float).ravel()
         refit = model_cls(**kwargs)
-        refit.fit(X_active, y_cpu, sample_weight=sample_weight)
+        refit.fit(X_active, y_cpu, sample_weight=sw_cpu)
 
         # Sandwich on refit — use backend-aware m_estimation_inference
         if self._effective_intercept:

@@ -111,18 +111,29 @@ def compute_bread_avg(
     eye = xp_eye(p, H_avg.dtype, xp, ref_arr=H_avg)
     try:
         bread_avg = xp.linalg.solve(H_avg, eye)
-    except (np.linalg.LinAlgError, RuntimeError) as e:
-        # numpy/cupy raise LinAlgError; torch raises RuntimeError
+    except np.linalg.LinAlgError as e:
         raise np.linalg.LinAlgError(
             "Singular Hessian in compute_bread_avg. "
             "The design matrix may be rank-deficient or the penalty is too weak. "
             "Consider adding ridge regularization or checking for collinear features."
         ) from e
+    except RuntimeError as e:
+        # torch raises RuntimeError for singular matrices AND other errors.
+        # Only re-wrap if the message suggests a linalg issue.
+        msg = str(e).lower()
+        if any(kw in msg for kw in ("singular", "linalg", "solve", "lapack")):
+            raise np.linalg.LinAlgError(
+                "Singular Hessian in compute_bread_avg. "
+                "The design matrix may be rank-deficient or the penalty is too weak. "
+                "Consider adding ridge regularization or checking for collinear features."
+            ) from e
+        raise
     except Exception as e:
-        # CuPy may raise bare Exception for cuSOLVER failures
+        # CuPy may raise bare Exception for cuSOLVER failures.
+        # Re-wrap but note it may also be OOM or device errors.
         raise np.linalg.LinAlgError(
-            "Singular Hessian in compute_bread_avg. "
-            "The design matrix may be rank-deficient or the penalty is too weak. "
+            "Hessian solve failed in compute_bread_avg. "
+            "This may indicate singularity, GPU out-of-memory, or cuSOLVER error. "
             "Consider adding ridge regularization or checking for collinear features."
         ) from e
     return bread_avg

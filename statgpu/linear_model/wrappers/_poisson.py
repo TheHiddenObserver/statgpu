@@ -7,7 +7,7 @@ from statgpu.linear_model._glm_base import GeneralizedLinearModel
 
 
 class PoissonRegression(GeneralizedLinearModel):
-    """Poisson regression with GPU-accelerated fitting and CPU inference.
+    """Poisson regression with GPU-accelerated fitting and inference.
 
     Uses IRLS, Newton, LBFGS, or FISTA solvers for coefficient estimation.
     Supports M-estimation sandwich inference (standard errors, z-values,
@@ -24,14 +24,14 @@ class PoissonRegression(GeneralizedLinearModel):
     C : float, default=1.0
         Inverse regularization strength (for IRLS path only).
     device : str or Device, default='auto'
-        Compute device. Inference currently CPU-only.
+        Compute device. Inference supports all three backends.
     solver : str, default='auto'
         Solver: 'auto', 'irls', 'newton', 'lbfgs', 'fista'.
         For unpenalized inference validation against statsmodels,
         use ``solver='newton'`` (IRLS with default C=1.0 adds ridge penalty).
     compute_inference : bool, default=False
         If True, compute standard errors, z-statistics, p-values, and
-        95% confidence intervals after fitting. CPU only in this release.
+        95% confidence intervals after fitting. Supports all three backends.
     cov_type : str, default='nonrobust'
         Covariance type: 'nonrobust', 'hc0', or 'hc1'.
     gpu_memory_cleanup : bool, default=False
