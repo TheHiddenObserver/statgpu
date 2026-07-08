@@ -174,7 +174,8 @@ class QuantileRegression(BaseEstimator):
 
     @staticmethod
     def _get_bandwidth_h(n, q, rule, resid, y_std):
-        from scipy.stats import norm as _norm
+        from statgpu.inference._distributions_backend import get_distribution
+        _norm = get_distribution("norm", backend="numpy")
         import numpy as _np
         iqre = float(_np.percentile(resid, 75) - _np.percentile(resid, 25))
         scale = min(y_std, iqre / 1.34)
@@ -200,7 +201,8 @@ class QuantileRegression(BaseEstimator):
         Matches statsmodels ``QuantReg`` with configurable kernel and bandwidth.
         Default: Epanechnikov kernel + Hall-Sheather bandwidth (se='nid').
         """
-        from scipy.stats import norm as _norm
+        from statgpu.inference._distributions_backend import get_distribution
+        _norm = get_distribution("norm", backend="numpy")
         import numpy as _np
 
         if self.fit_intercept:
@@ -241,7 +243,7 @@ class QuantileRegression(BaseEstimator):
 
         self._bse = _np.sqrt(_np.maximum(_np.diag(cov), 0.0))
         self._zvalues = params / (self._bse + 1e-30)
-        self._pvalues = 2.0 * (1.0 - _norm.cdf(_np.abs(self._zvalues)))
+        self._pvalues = 2.0 * _norm.sf(_np.abs(self._zvalues))
         z_crit = _norm.ppf(0.975)
         self._conf_int = _np.column_stack([
             params - z_crit * self._bse,
@@ -272,7 +274,8 @@ class QuantileRegression(BaseEstimator):
     def _compute_inference_kernel_gpu(self, X, y):
         """GPU-native kernel-based sandwich covariance (Powell 1991)."""
         from statgpu.backends import _to_numpy, _resolve_backend
-        from statgpu.backends._utils import _get_xp
+        from statgpu.backends._utils import _get_xp, xp_ones, xp_eye, xp_asarray
+        from statgpu.backends._array_ops import _clip
         from statgpu.inference._distributions_backend import get_distribution
 
         backend = _resolve_backend("auto", X)
@@ -282,16 +285,14 @@ class QuantileRegression(BaseEstimator):
         n = X.shape[0]
 
         if self.fit_intercept:
-            ones = xp.ones((n, 1), dtype=X.dtype) if not is_torch else xp.ones((n,1), dtype=X.dtype, device=dev)
+            ones = xp_ones((n, 1), X.dtype, xp, ref_arr=X)
             X_design = xp.cat([ones, X], dim=1) if is_torch else xp.column_stack([ones, X])
-            inter = xp.asarray([self.intercept_], dtype=X.dtype)
-            coef = xp.asarray(self.coef_, dtype=X.dtype)
-            if is_torch:
-                inter = inter.to(dev); coef = coef.to(dev)
+            inter = xp_asarray([self.intercept_], dtype=X.dtype, xp=xp, ref_arr=X)
+            coef = xp_asarray(self.coef_, dtype=X.dtype, xp=xp, ref_arr=X)
             params = xp.concatenate([inter, coef])
         else:
             X_design = X
-            params = xp.asarray(self.coef_, dtype=X.dtype)
+            params = xp_asarray(self.coef_, dtype=X.dtype, xp=xp, ref_arr=X)
 
         k = X_design.shape[1]
         resid = (y - X_design @ params).ravel()
@@ -311,13 +312,12 @@ class QuantileRegression(BaseEstimator):
         # Sandwich covariance
         D = xp.where(resid > 0, (tau / fhat) ** 2, ((1.0 - tau) / fhat) ** 2)
         XtX = X_design.T @ X_design
-        eye = xp.eye(k, dtype=X.dtype) if not is_torch else xp.eye(k, dtype=X.dtype, device=dev)
-        XtX_inv = xp.linalg.solve(XtX, eye)
+        XtX_inv = xp.linalg.solve(XtX, xp_eye(k, X.dtype, xp, ref_arr=X))
         XtDX = X_design.T @ (X_design * D[:, None])
         cov = XtX_inv @ XtDX @ XtX_inv
 
         cov_diag = xp.diag(cov)
-        bse = xp.sqrt(xp.clamp(cov_diag, min=0.0) if is_torch else xp.maximum(cov_diag, 0.0))
+        bse = xp.sqrt(_clip(cov_diag, 0.0, None))
         z_values = params / (bse + 1e-30)
         _norm = get_distribution("norm", backend=backend)
         pvalues = 2.0 * _norm.sf(xp.abs(z_values))
@@ -349,23 +349,21 @@ class QuantileRegression(BaseEstimator):
         from the CPU serial solver.  Both minimize the same objective.
         """
         from statgpu.backends import _to_numpy, _resolve_backend
-        from statgpu.backends._utils import _get_xp
+        from statgpu.backends._utils import _get_xp, xp_ones, xp_zeros, xp_asarray
         backend = _resolve_backend("auto", X)
         xp = _get_xp(backend)
         is_torch = (backend == "torch")
         n = X.shape[0]; tau = self.quantile; p = X.shape[1]
 
         if self.fit_intercept:
-            ones = xp.ones((n, 1), dtype=X.dtype)
-            if is_torch: ones = xp.ones((n, 1), dtype=X.dtype, device=X.device)
+            ones = xp_ones((n, 1), X.dtype, xp, ref_arr=X)
             Xd = xp.cat([ones, X], dim=1) if is_torch else xp.column_stack([ones, X])
-            inter = xp.asarray([self.intercept_], dtype=X.dtype)
-            cf = xp.asarray(self.coef_, dtype=X.dtype)
-            if is_torch: inter = inter.to(X.device); cf = cf.to(X.device)
+            inter = xp_asarray([self.intercept_], dtype=X.dtype, xp=xp, ref_arr=X)
+            cf = xp_asarray(self.coef_, dtype=X.dtype, xp=xp, ref_arr=X)
             params = xp.concatenate([inter, cf])
         else:
             Xd = X; p = X.shape[1]
-            params = xp.asarray(self.coef_, dtype=X.dtype)
+            params = xp_asarray(self.coef_, dtype=X.dtype, xp=xp, ref_arr=X)
         p = Xd.shape[1]
 
         eta = Xd @ params
@@ -374,13 +372,11 @@ class QuantileRegression(BaseEstimator):
         B = self.n_bootstrap
         rng = np.random.default_rng(self.random_state)
         y_batch = np.array([eta_cpu + resid_cpu[rng.integers(0, n, size=n)] for _ in range(B)])
-        y_gpu = xp.asarray(y_batch, dtype=X.dtype)
-        if is_torch: y_gpu = y_gpu.to(X.device)
+        y_gpu = xp_asarray(y_batch, dtype=X.dtype, xp=xp, ref_arr=X)
 
         # Lipschitz constant + backtracking line search
         L0 = max(float(xp.linalg.norm(Xd, ord=2)) ** 2 / n, 1e-10)
-        coef = xp.zeros((p, B), dtype=X.dtype)
-        if is_torch: coef = coef.to(X.device)
+        coef = xp_zeros((p, B), X.dtype, xp, ref_arr=X)
         z = coef.clone() if is_torch else coef.copy()
         c1 = 1e-4
         t_iter = 1.0

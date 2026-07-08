@@ -1112,18 +1112,12 @@ class OrderedGeneralizedLinearModel(GeneralizedLinearModel):
         Xs = (X - X_mean) / X_std
 
         # ---- Initialisation ----
-        if is_torch:
-            theta = xp.zeros(p + K - 1, dtype=xp.float64, device=dev)
-            theta[p:] = xp.arange(0.5, K - 0.5, dtype=xp.float64, device=dev)
-            idx = xp.arange(n, device=dev)
-        elif is_cupy:
-            theta = xp.zeros(p + K - 1, dtype=xp.float64)
-            theta[p:] = xp.arange(0.5, K - 0.5, dtype=xp.float64)
-            idx = xp.arange(n)
-        else:
-            theta = xp.zeros(p + K - 1)
-            theta[p:] = xp.arange(0.5, K - 0.5, dtype=xp.float64)
-            idx = xp.arange(n)
+        from statgpu.backends._utils import xp_zeros, xp_eye
+        theta = xp_zeros(p + K - 1, xp.float64, xp, ref_arr=Xs)
+        theta[p:] = xp.arange(0.5, K - 0.5, dtype=xp.float64,
+                              device=dev) if is_torch else xp.arange(
+                                  0.5, K - 0.5, dtype=xp.float64)
+        idx = xp.arange(n, device=dev) if is_torch else xp.arange(n)
 
         d = len(theta); nll_old = xp.inf; ridge = 1e-4
 
@@ -1134,12 +1128,7 @@ class OrderedGeneralizedLinearModel(GeneralizedLinearModel):
             )
 
         # Pre-allocate identity matrix for trust-region (reused across attempts)
-        if is_torch:
-            eye_d = xp.eye(d, dtype=xp.float64, device=dev)
-        elif is_cupy:
-            eye_d = xp.eye(d, dtype=xp.float64)
-        else:
-            eye_d = xp.eye(d)
+        eye_d = xp_eye(d, xp.float64, xp, ref_arr=Xs)
 
         # ---- Local helper: enforce strictly increasing thresholds ----
         def _enforce_thresh_gaps(thresh_arr):
@@ -1380,10 +1369,7 @@ class OrderedGeneralizedLinearModel(GeneralizedLinearModel):
         norm_dist = get_distribution("norm", backend=backend)
         params = xp.concatenate([beta, thresh])
 
-        if is_torch:
-            bse = xp.sqrt(xp.clamp(xp.diag(cov), min=0.0))
-        else:
-            bse = xp.sqrt(xp.maximum(xp.diag(cov), 0.0))
+        bse = xp.sqrt(_clip(xp.diag(cov), 0.0, None))
         z_values = params / (bse + 1e-30)
         pvalues = 2.0 * norm_dist.sf(xp.abs(z_values))
         z_crit = norm_dist.ppf(0.975)
@@ -1437,10 +1423,8 @@ class OrderedGeneralizedLinearModel(GeneralizedLinearModel):
         is_torch = _is_torch_array(X)
         dev = X.device if is_torch else None
         p = len(beta); n_thresh = len(thresh); d = p + n_thresh; n = X.shape[0]
-        if is_torch:
-            _z = lambda sz: xp.zeros(sz, dtype=X.dtype, device=dev)
-        else:
-            _z = lambda sz: xp.zeros(sz)
+        from statgpu.backends._utils import xp_zeros
+        _z = lambda sz: xp_zeros(sz, X.dtype, xp, ref_arr=X)
 
         # ---- f and fp (fully vectorized over thresholds) ----
         if eta is None:
@@ -1481,7 +1465,7 @@ class OrderedGeneralizedLinearModel(GeneralizedLinearModel):
             pv = pv_vec[mask]
             w_bb[mask] = a * a / (pv * pv) - (fpk - fpk1) / pv
 
-        H = xp.zeros((d, d), dtype=X.dtype) if not is_torch else xp.zeros((d, d), dtype=X.dtype, device=dev)
+        H = xp_zeros((d, d), X.dtype, xp, ref_arr=X)
         H[:p, :p] = (X * w_bb[:, None]).T @ X
 
         # ---- Beta-theta cross terms ----
@@ -1523,10 +1507,11 @@ class OrderedGeneralizedLinearModel(GeneralizedLinearModel):
     def _ordered_gradient(self, X, y, beta, thresh, prob, prob_clipped, family, K, n, eta=None):
         """Compute analytical gradient of the negative log-likelihood (vectorized)."""
         xp = _np_compat_xp(X)
+        from statgpu.backends._utils import xp_zeros
         p = X.shape[1]
         n_thresh = K - 1
         dim = p + n_thresh
-        grad = xp.zeros(dim)
+        grad = xp_zeros(dim, X.dtype, xp, ref_arr=X)
 
         if eta is None:
             eta = X @ beta  # (n,)
