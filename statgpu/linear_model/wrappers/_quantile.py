@@ -370,20 +370,32 @@ class QuantileRegression(BaseEstimator):
         y_gpu = xp.asarray(y_batch, dtype=X.dtype)
         if is_torch: y_gpu = y_gpu.to(X.device)
 
-        L = max(float(xp.linalg.norm(Xd, ord=2)) ** 2 / n, 1e-10)
-        step = 1.0 / L
+        # Lipschitz constant + backtracking line search
+        L0 = max(float(xp.linalg.norm(Xd, ord=2)) ** 2 / n, 1e-10)
         coef = xp.zeros((p, B), dtype=X.dtype)
         if is_torch: coef = coef.to(X.device)
         z = coef.clone() if is_torch else coef.copy()
         t_val = 1.0
+        c1 = 1e-4  # Armijo constant
 
         for _ in range(self.max_iter):
-            pred = Xd @ z
-            r = y_gpu.T - pred
-            d_eta = xp.where(r > 0, float(tau - 1.0), float(tau))
+            pred_z = Xd @ z
+            r_z = y_gpu.T - pred_z
+            loss_z = xp.sum(xp.where(r_z > 0, tau * r_z, (tau - 1.0) * r_z)) / n
+            d_eta = xp.where(r_z > 0, float(tau - 1.0), float(tau))
             if is_torch: d_eta = d_eta.to(Xd.dtype)
             grad = Xd.T @ d_eta / n
-            coef_new = z - step * grad
+
+            step = 1.0 / L0
+            for _ in range(10):  # backtracking
+                coef_new = z - step * grad
+                pred_new = Xd @ coef_new
+                r_new = y_gpu.T - pred_new
+                loss_new = xp.sum(xp.where(r_new > 0, tau * r_new, (tau - 1.0) * r_new)) / n
+                if float(loss_new) <= float(loss_z) - c1 * step * float(xp.sum(grad * grad)):
+                    break
+                step *= 0.5
+
             t_new = 0.5 * (1.0 + (1.0 + 4.0 * t_val * t_val) ** 0.5)
             z = coef_new + ((t_val - 1.0) / t_new) * (coef_new - coef)
             coef = coef_new; t_val = t_new
@@ -413,30 +425,28 @@ class QuantileRegression(BaseEstimator):
             X_design_cpu = X_cpu
             params = self.coef_.copy()
 
-        # GPU: batched parallel FISTA for all B samples
-        if dev != 'cpu' and self.fit_intercept is not None:
+        # Use same batched FISTA for all backends (CPU and GPU)
+        # for consistent cross-backend bootstrap results.
+        if self.fit_intercept is not None:
             boot_params, _, _ = self._compute_bootstrap_batched(X, y)
             boot_params = np.asarray(boot_params)
-            params_cpu = params
             self._bse = np.std(boot_params, axis=0, ddof=1)
-            self._zvalues = params_cpu / (self._bse + 1e-30)
+            self._zvalues = params / (self._bse + 1e-30)
             pvalues = np.array([min(2.0 * min(np.mean(boot_params[:, i] <= 0.0),
                                                np.mean(boot_params[:, i] >= 0.0)), 1.0)
-                                for i in range(len(params_cpu))])
+                                for i in range(len(params))])
             self._pvalues = pvalues
             z_crit = 1.96
-            self._conf_int = np.column_stack([params_cpu - z_crit * self._bse,
-                                               params_cpu + z_crit * self._bse])
+            self._conf_int = np.column_stack([params - z_crit * self._bse,
+                                               params + z_crit * self._bse])
             from statgpu.inference._results import ParameterInferenceResult
             self._inference_result = ParameterInferenceResult(
-                method="bootstrap", params=params_cpu.copy(), bse=self._bse.copy(),
+                method="bootstrap", params=params.copy(), bse=self._bse.copy(),
                 statistic=self._zvalues.copy(), statistic_name="z",
                 pvalues=self._pvalues.copy(), conf_int=self._conf_int.copy(),
                 distribution="normal", metadata={"n_bootstrap": self.n_bootstrap})
             self._inference_result.apply_to(self)
             return
-
-        # CPU: serial refits
         eta = X_design_cpu @ params
         resid = y_cpu - eta
         y_fitted = eta
