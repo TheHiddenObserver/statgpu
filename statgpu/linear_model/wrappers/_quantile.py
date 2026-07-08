@@ -142,17 +142,20 @@ class QuantileRegression(BaseEstimator):
 
     # ---- Kernel helpers (matching statsmodels) ----
     @staticmethod
-    def _get_kernel_fn(name):
-        import numpy as _np
-        from scipy.stats import norm as _norm
+    def _get_kernel_fn(name, xp=None):
+        """Backend-agnostic kernel function."""
+        if xp is None:
+            import numpy as _np
+            xp = _np
+        if name == 'gau':
+            return lambda u: xp.exp(-0.5 * u * u) / (2.0 * np.pi) ** 0.5 if xp.__name__ == 'numpy' else xp.exp(-0.5 * u * u) / xp.sqrt(2.0 * xp.pi)
         _KERNELS = {
-            'epa': lambda u: 0.75 * (1 - u**2) * _np.where(_np.abs(u) <= 1, 1, 0),
-            'gau': _norm.pdf,
-            'biw': lambda u: 15./16 * (1 - u**2)**2 * _np.where(_np.abs(u) <= 1, 1, 0),
-            'cos': lambda u: _np.where(_np.abs(u) <= 0.5, 1 + _np.cos(2*_np.pi*u), 0),
-            'par': lambda u: _np.where(_np.abs(u) <= 0.5,
-                    4./3 - 8*u**2 + 8*_np.abs(u)**3,
-                    _np.where(_np.abs(u) <= 1, 8*(1-_np.abs(u))**3/3., 0)),
+            'epa': lambda u: 0.75 * (1 - u**2) * (xp.abs(u) <= 1),
+            'biw': lambda u: 15./16 * (1 - u**2)**2 * (xp.abs(u) <= 1),
+            'cos': lambda u: (xp.abs(u) <= 0.5) * (1 + xp.cos(2*xp.pi*u)),
+            'par': lambda u: xp.where(xp.abs(u) <= 0.5,
+                    4./3 - 8*u**2 + 8*xp.abs(u)**3,
+                    xp.where(xp.abs(u) <= 1, 8*(1-xp.abs(u))**3/3., 0)),
         }
         if name not in _KERNELS:
             raise ValueError(f"kernel must be one of {list(_KERNELS.keys())}, got '{name}'")
@@ -270,7 +273,11 @@ class QuantileRegression(BaseEstimator):
         if self.fit_intercept:
             ones = xp.ones((n, 1), dtype=X.dtype) if not is_torch else xp.ones((n,1), dtype=X.dtype, device=dev)
             X_design = xp.cat([ones, X], dim=1) if is_torch else xp.column_stack([ones, X])
-            params = xp.concatenate([xp.asarray([self.intercept_], dtype=X.dtype), xp.asarray(self.coef_, dtype=X.dtype)])
+            inter = xp.asarray([self.intercept_], dtype=X.dtype)
+            coef = xp.asarray(self.coef_, dtype=X.dtype)
+            if is_torch:
+                inter = inter.to(dev); coef = coef.to(dev)
+            params = xp.concatenate([inter, coef])
         else:
             X_design = X
             params = xp.asarray(self.coef_, dtype=X.dtype)
@@ -298,7 +305,8 @@ class QuantileRegression(BaseEstimator):
         XtDX = X_design.T @ (X_design * D[:, None])
         cov = XtX_inv @ XtDX @ XtX_inv
 
-        bse = xp.sqrt(xp.maximum(xp.diag(cov), 0.0))
+        cov_diag = xp.diag(cov)
+        bse = xp.sqrt(xp.clamp(cov_diag, min=0.0) if is_torch else xp.maximum(cov_diag, 0.0))
         z_values = params / (bse + 1e-30)
         _norm = get_distribution("norm", backend=backend)
         pvalues = 2.0 * _norm.sf(xp.abs(z_values))
@@ -327,8 +335,7 @@ class QuantileRegression(BaseEstimator):
         """Residual bootstrap inference for quantile regression. Backend-aware."""
         from statgpu.backends import _to_numpy
         dev = getattr(self, '_selected_backend_name', 'cpu') or 'cpu'
-        if dev == 'numpy':
-            dev = 'cpu'
+        dev = {'numpy': 'cpu', 'cupy': 'cuda', 'torch': 'torch'}.get(dev, dev)
 
         X_cpu = np.asarray(_to_numpy(X), dtype=float)
         y_cpu = np.asarray(_to_numpy(y), dtype=float).ravel()
