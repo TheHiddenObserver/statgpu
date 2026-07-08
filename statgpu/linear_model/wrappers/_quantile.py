@@ -331,11 +331,100 @@ class QuantileRegression(BaseEstimator):
                        "sparsity": float(sparsity), "quantile": tau, "backend": backend})
         self._inference_result.apply_to(self)
 
+    def _compute_inference_bootstrap_batched(self, X, y):
+        """Batched FISTA bootstrap for GPU — solves all B samples in parallel."""
+        from statgpu.backends import _to_numpy, _resolve_backend
+        from statgpu.backends._utils import _get_xp
+        backend = _resolve_backend("auto", X)
+        xp = _get_xp(backend)
+        is_torch = (backend == "torch")
+        n = X.shape[0]
+
+        if self.fit_intercept:
+            ones = xp.ones((n, 1), dtype=X.dtype)
+            if is_torch: ones = xp.ones((n, 1), dtype=X.dtype, device=X.device)
+            X_design = xp.cat([ones, X], dim=1) if is_torch else xp.column_stack([ones, X])
+            inter = xp.asarray([self.intercept_], dtype=X.dtype)
+            coef = xp.asarray(self.coef_, dtype=X.dtype)
+            if is_torch: inter = inter.to(X.device); coef = coef.to(X.device)
+            params = xp.concatenate([inter, coef])
+        else:
+            X_design = X
+            params = xp.asarray(self.coef_, dtype=X.dtype)
+
+        eta = X_design @ params
+        resid = (y - eta).ravel()
+        p = X_design.shape[1]
+        B = self.n_bootstrap
+
+        # Generate all B bootstrap y samples at once on CPU
+        eta_cpu = np.asarray(_to_numpy(eta))
+        resid_cpu = np.asarray(_to_numpy(resid))
+        rng = np.random.default_rng(self.random_state)
+        y_batch = np.array([eta_cpu + resid_cpu[rng.integers(0, n, size=n)]
+                            for _ in range(B)])
+
+        # Convert to GPU: y_gpu shape (B, n)
+        y_gpu = xp.asarray(y_batch, dtype=X.dtype)
+        if is_torch: y_gpu = y_gpu.to(X.device)
+
+        # Batched FISTA: coef stored as (p, B) for efficient matmul
+        step = 1.0 / max(float(xp.linalg.norm(X_design, ord=2)) ** 2, 1e-10)
+        coef = xp.zeros((p, B), dtype=X.dtype)
+        if is_torch: coef = coef.to(X.device)
+        z = coef.clone() if is_torch else coef.copy()
+        t_val = 1.0
+
+        for _ in range(self.max_iter):
+            # pred = X_design @ z, z is (p, B), pred = (n, B)
+            pred = X_design @ z
+            resid_batch = pred - y_gpu.T  # (n, B)
+            grad = X_design.T @ resid_batch  # (p, B)
+            coef_new = z - step * grad  # (p, B)
+            thr = step * 0.5
+            if is_torch:
+                coef_new = xp.where(coef_new > thr, coef_new - thr,
+                            xp.where(coef_new < -thr, coef_new + thr,
+                                     xp.zeros_like(coef_new)))
+            else:
+                coef_new = xp.where(coef_new > thr, coef_new - thr, coef_new)
+                coef_new = xp.where(coef_new < -thr, coef_new + thr, coef_new)
+            t_new = 0.5 * (1.0 + (1.0 + 4.0 * t_val * t_val) ** 0.5)
+            z = coef_new + ((t_val - 1.0) / t_new) * (coef_new - coef)
+            coef = coef_new; t_val = t_new
+
+        # Return (B, p) for compatibility
+        boot_params = np.asarray(_to_numpy(coef.T))
+        return boot_params, params, X_design
+
     def _compute_inference_bootstrap(self, X, y):
         """Residual bootstrap inference for quantile regression. Backend-aware."""
         from statgpu.backends import _to_numpy
         dev = getattr(self, '_selected_backend_name', 'cpu') or 'cpu'
         dev = {'numpy': 'cpu', 'cupy': 'cuda', 'torch': 'torch'}.get(dev, dev)
+
+        # Use batched GPU FISTA for GPU backends
+        if dev != 'cpu' and self.fit_intercept is not None:
+            boot_params, params, _ = self._compute_inference_bootstrap_batched(X, y)
+            boot_params = np.asarray(boot_params)
+            params_cpu = np.asarray(_to_numpy(params))
+            self._bse = np.std(boot_params, axis=0, ddof=1)
+            self._zvalues = params_cpu / (self._bse + 1e-30)
+            pvalues = np.array([min(2.0 * min(np.mean(boot_params[:, i] <= 0.0),
+                                               np.mean(boot_params[:, i] >= 0.0)), 1.0)
+                                for i in range(len(params_cpu))])
+            self._pvalues = pvalues
+            z_crit = 1.96
+            self._conf_int = np.column_stack([params_cpu - z_crit * self._bse,
+                                               params_cpu + z_crit * self._bse])
+            from statgpu.inference._results import ParameterInferenceResult
+            self._inference_result = ParameterInferenceResult(
+                method="bootstrap", params=params_cpu.copy(), bse=self._bse.copy(),
+                statistic=self._zvalues.copy(), statistic_name="z",
+                pvalues=self._pvalues.copy(), conf_int=self._conf_int.copy(),
+                distribution="normal", metadata={"n_bootstrap": self.n_bootstrap})
+            self._inference_result.apply_to(self)
+            return
 
         X_cpu = np.asarray(_to_numpy(X), dtype=float)
         y_cpu = np.asarray(_to_numpy(y), dtype=float).ravel()
