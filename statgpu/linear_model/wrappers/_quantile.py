@@ -403,42 +403,20 @@ class QuantileRegression(BaseEstimator):
         from statgpu.backends import _to_numpy
         dev = getattr(self, '_selected_backend_name', 'cpu') or 'cpu'
         dev = {'numpy': 'cpu', 'cupy': 'cuda', 'torch': 'torch'}.get(dev, dev)
-
-        # Use correct pinball batched FISTA for GPU backends
-        if dev != 'cpu' and self.fit_intercept is not None:
-            boot_params, params_gpu, _ = self._compute_inference_bootstrap_batched(X, y)
-            boot_params = np.asarray(boot_params)
-            params_cpu = np.asarray(_to_numpy(params_gpu))
-            self._bse = np.std(boot_params, axis=0, ddof=1)
-            self._zvalues = params_cpu / (self._bse + 1e-30)
-            pvalues = np.array([min(2.0 * min(np.mean(boot_params[:, i] <= 0.0),
-                                               np.mean(boot_params[:, i] >= 0.0)), 1.0)
-                                for i in range(len(params_cpu))])
-            self._pvalues = pvalues
-            z_crit = 1.96
-            self._conf_int = np.column_stack([params_cpu - z_crit * self._bse,
-                                               params_cpu + z_crit * self._bse])
-            from statgpu.inference._results import ParameterInferenceResult
-            self._inference_result = ParameterInferenceResult(
-                method="bootstrap", params=params_cpu.copy(), bse=self._bse.copy(),
-                statistic=self._zvalues.copy(), statistic_name="z",
-                pvalues=self._pvalues.copy(), conf_int=self._conf_int.copy(),
-                distribution="normal", metadata={"n_bootstrap": self.n_bootstrap})
-            self._inference_result.apply_to(self)
-            return
+        backend_name = {'cuda': 'cupy', 'torch': 'torch'}.get(dev, dev)
 
         X_cpu = np.asarray(_to_numpy(X), dtype=float)
         y_cpu = np.asarray(_to_numpy(y), dtype=float).ravel()
         n = X_cpu.shape[0]
 
         if self.fit_intercept:
-            X_design = np.column_stack([np.ones(n), X_cpu])
+            X_design_cpu = np.column_stack([np.ones(n), X_cpu])
             params = np.concatenate([[self.intercept_], self.coef_])
         else:
-            X_design = X_cpu
+            X_design_cpu = X_cpu
             params = self.coef_.copy()
 
-        eta = X_design @ params
+        eta = X_design_cpu @ params
         resid = y_cpu - eta
         y_fitted = eta
 
@@ -446,16 +424,16 @@ class QuantileRegression(BaseEstimator):
         rng = np.random.default_rng(self.random_state)
         boot_params = np.zeros((B, len(params)), dtype=float)
 
-        # For GPU backends, pre-convert X_design once to avoid _to_array per iteration
-        X_refit = X_design
+        # Pre-convert X_design to GPU once for serial refits
+        X_refit = X_design_cpu
         if dev != 'cpu':
-            X_refit = self._to_array(X_design, backend={'cuda':'cupy','torch':'torch'}.get(dev, dev))
+            X_refit = self._to_array(X_design_cpu, backend=backend_name)
 
         for b in range(B):
             idx = rng.integers(0, n, size=n)
             y_star = y_fitted + resid[idx]
             if dev != 'cpu':
-                y_star = self._to_array(y_star, backend={'cuda':'cupy','torch':'torch'}.get(dev, dev))
+                y_star = self._to_array(y_star, backend=backend_name)
             m = QuantileRegression(
                 quantile=self.quantile, fit_intercept=False,
                 max_iter=self.max_iter, tol=self.tol, device=dev,
