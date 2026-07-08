@@ -1,4 +1,4 @@
-"""Poisson regression with inference support (CPU)."""
+"""Poisson regression with GPU-accelerated fitting and inference."""
 
 from typing import Optional
 from statgpu._config import Device

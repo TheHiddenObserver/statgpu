@@ -1120,9 +1120,7 @@ class _PenalizedInferenceMixin:
             kwargs["loss_kwargs"] = loss_kwargs
         if self.loss == "logistic" and "C" in model_cls.__init__.__code__.co_varnames:
             kwargs["C"] = 1e9
-        if backend != "numpy" and "device" in model_cls.__init__.__code__.co_varnames:
-            kwargs["device"] = backend
-        # Ensure sample_weight is CPU numpy (refit runs on CPU)
+        # Oracle refit runs on CPU with numpy arrays
         sw_cpu = None
         if sample_weight is not None:
             sw_cpu = np.asarray(_to_numpy(sample_weight), dtype=float).ravel()
@@ -1140,7 +1138,7 @@ class _PenalizedInferenceMixin:
         loss_obj = refit._resolve_loss_for_inference() if hasattr(refit, '_resolve_loss_for_inference') else self._loss
         result = m_estimation_inference(
             loss_obj, X_design, y_cpu, params_active,
-            cov_type=self.cov_type, sample_weight=sample_weight)
+            cov_type=self.cov_type, sample_weight=sw_cpu)
 
         # Map back to full parameter space
         full_p = p + (1 if self._effective_intercept else 0)

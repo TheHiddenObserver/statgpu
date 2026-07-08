@@ -82,7 +82,7 @@ class QuantileRegression(BaseEstimator):
         self._fitted = False
 
     def fit(self, X, y, sample_weight=None):
-        backend = self._get_backend(backend=str(self.device))
+        backend = self._get_backend(backend="auto")
         backend_name = backend.name
         from statgpu.backends import _to_numpy
 
@@ -147,8 +147,10 @@ class QuantileRegression(BaseEstimator):
         if xp is None:
             import numpy as _np
             xp = _np
+        import math as _math
         if name == 'gau':
-            return lambda u: xp.exp(-0.5 * u * u) / (2.0 * np.pi) ** 0.5 if xp.__name__ == 'numpy' else xp.exp(-0.5 * u * u) / xp.sqrt(2.0 * xp.pi)
+            _denom = _math.sqrt(2.0 * _math.pi)
+            return lambda u: xp.exp(-0.5 * u * u) / _denom
         _KERNELS = {
             'epa': lambda u: 0.75 * (1 - u**2) * (xp.abs(u) <= 1),
             'biw': lambda u: 15./16 * (1 - u**2)**2 * (xp.abs(u) <= 1),
@@ -403,28 +405,10 @@ class QuantileRegression(BaseEstimator):
         dev = getattr(self, '_selected_backend_name', 'cpu') or 'cpu'
         dev = {'numpy': 'cpu', 'cupy': 'cuda', 'torch': 'torch'}.get(dev, dev)
 
-        # Use batched GPU FISTA for GPU backends
-        if dev != 'cpu' and self.fit_intercept is not None:
-            boot_params, params, _ = self._compute_inference_bootstrap_batched(X, y)
-            boot_params = np.asarray(boot_params)
-            params_cpu = np.asarray(_to_numpy(params))
-            self._bse = np.std(boot_params, axis=0, ddof=1)
-            self._zvalues = params_cpu / (self._bse + 1e-30)
-            pvalues = np.array([min(2.0 * min(np.mean(boot_params[:, i] <= 0.0),
-                                               np.mean(boot_params[:, i] >= 0.0)), 1.0)
-                                for i in range(len(params_cpu))])
-            self._pvalues = pvalues
-            z_crit = 1.96
-            self._conf_int = np.column_stack([params_cpu - z_crit * self._bse,
-                                               params_cpu + z_crit * self._bse])
-            from statgpu.inference._results import ParameterInferenceResult
-            self._inference_result = ParameterInferenceResult(
-                method="bootstrap", params=params_cpu.copy(), bse=self._bse.copy(),
-                statistic=self._zvalues.copy(), statistic_name="z",
-                pvalues=self._pvalues.copy(), conf_int=self._conf_int.copy(),
-                distribution="normal", metadata={"n_bootstrap": self.n_bootstrap})
-            self._inference_result.apply_to(self)
-            return
+        # GPU bootstrap currently uses serial CPU refits (batched FISTA
+        # with correct pinball proximal operator is tracked for follow-up PR).
+        # For GPU backends, arrays are kept on CPU for bootstrap correctness.
+        dev = 'cpu'
 
         X_cpu = np.asarray(_to_numpy(X), dtype=float)
         y_cpu = np.asarray(_to_numpy(y), dtype=float).ravel()
@@ -503,7 +487,8 @@ class QuantileRegression(BaseEstimator):
         coef = xp_asarray(self.coef_, xp=xp, ref_arr=X_arr)
         intercept = xp_asarray(self.intercept_, xp=xp, ref_arr=X_arr)
         raw = X_arr @ coef + intercept
-        return np.asarray(raw) if backend_name != "numpy" else raw
+        from statgpu.backends import _to_numpy
+        return np.asarray(_to_numpy(raw)) if backend_name != "numpy" else raw
 
     def _check_is_fitted(self):
         if not self._fitted:
