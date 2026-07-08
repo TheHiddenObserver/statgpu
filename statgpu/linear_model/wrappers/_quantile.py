@@ -1,7 +1,11 @@
 """Quantile regression with bootstrap inference support."""
 
+import math as _math
 from typing import Optional
 import numpy as np
+
+# Pre-computed scalar constants (Python floats, safe for GPU tensor broadcast)
+_INV_SQRT_2PI = 1.0 / _math.sqrt(2.0 * _math.pi)
 
 from statgpu._base import BaseEstimator
 from statgpu._config import Device
@@ -147,10 +151,8 @@ class QuantileRegression(BaseEstimator):
         if xp is None:
             import numpy as _np
             xp = _np
-        import math as _math
         if name == 'gau':
-            _inv_sqrt2pi = 1.0 / _math.sqrt(2.0 * _math.pi)
-            return lambda u: xp.exp(-0.5 * u * u) * _inv_sqrt2pi
+            return lambda u: xp.exp(-0.5 * u * u) * _INV_SQRT_2PI
         _KERNELS = {
             'epa': lambda u: 0.75 * (1 - u**2) * (xp.abs(u) <= 1),
             'biw': lambda u: 15./16 * (1 - u**2)**2 * (xp.abs(u) <= 1),
