@@ -1131,8 +1131,16 @@ class OrderedGeneralizedLinearModel(GeneralizedLinearModel):
 
         # ---- Newton loop ----
         for iteration in range(self.max_iter):
-            # Enforce strictly increasing thresholds
+            # Enforce strictly increasing thresholds with minimum gap
             thresh = xp.sort(theta[p:])
+            if len(thresh) > 1:
+                gaps = xp.diff(thresh)
+                min_gap = 1e-6
+                if is_torch:
+                    gaps = xp.clamp(gaps, min=min_gap)
+                else:
+                    gaps = xp.maximum(gaps, min_gap)
+                thresh = xp.concatenate([thresh[:1], thresh[:1] + xp.cumsum(gaps)])
             theta = xp.concatenate([theta[:p], thresh])
             beta = theta[:p]; thresh = theta[p:]
             eta = Xs @ beta  # compute once, pass to all callees
@@ -1184,9 +1192,17 @@ class OrderedGeneralizedLinearModel(GeneralizedLinearModel):
                     raise
 
                 theta_try = theta + delta
-                # Enforce strictly increasing thresholds (sort + reject non-monotonic steps)
+                # Enforce strictly increasing thresholds with minimum gap
                 beta_t = theta_try[:p]
                 thresh_t = xp.sort(theta_try[p:])
+                if len(thresh_t) > 1:
+                    gaps = xp.diff(thresh_t)
+                    min_gap = 1e-6
+                    if is_torch:
+                        gaps = xp.clamp(gaps, min=min_gap)
+                    else:
+                        gaps = xp.maximum(gaps, min_gap)
+                    thresh_t = xp.concatenate([thresh_t[:1], thresh_t[:1] + xp.cumsum(gaps)])
                 theta_try = xp.concatenate([beta_t, thresh_t])
                 prob_t = self._ordered_category_probs(Xs, beta_t, thresh_t, family, K)
                 pc_t = _clip(prob_t, 1e-15, None)
@@ -1342,12 +1358,20 @@ class OrderedGeneralizedLinearModel(GeneralizedLinearModel):
         eye = xp_eye(d, xp.float64, xp, ref_arr=H)
         try:
             H_inv = xp.linalg.solve(H, eye)
-        except Exception:
+        except (np.linalg.LinAlgError, RuntimeError) as e:
             raise np.linalg.LinAlgError(
                 "Ordered model Hessian is singular — cannot compute standard errors. "
                 "This may indicate quasi-complete separation or redundant thresholds. "
                 "Consider using inference_method='bootstrap' or reducing n_categories."
-            )
+            ) from e
+        except Exception as e:
+            if is_cupy:
+                raise np.linalg.LinAlgError(
+                    "Ordered model Hessian is singular — cannot compute standard errors. "
+                    "This may indicate quasi-complete separation or redundant thresholds. "
+                    "Consider using inference_method='bootstrap' or reducing n_categories."
+                ) from e
+            raise
         cov = H_inv
 
         # Backend-aware distribution functions
