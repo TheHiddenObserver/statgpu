@@ -1,7 +1,7 @@
 # Changelog
 
 > 语言：中文  
-> 最后更新：2026-07-07  
+> 最后更新：2026-07-08  
 > 页面定位：变更记录  
 > 切换：[English](en/changelog.md)
 
@@ -79,8 +79,9 @@
     和 `_bse_thresholds`/`_pvalues_thresholds`（阈值）
   - `loglikelihood`、`aic`、`bic` 属性
   - `summary()` 方法通过 `ParameterInferenceResult`
-  - GPU 守卫：显式 `device='cuda'` 或 `device='torch'` 抛出
-    `NotImplementedError`（不静默回退 CPU）
+  - GPU 推断：显式 `device='cuda'` 或 `device='torch'` 现在使用
+    后端原生解析 Hessian 推断（NumPy/CuPy/Torch）；暂不支持的
+    covariance type（`hc0`/`hc1`/`hac`）仍显式抛出 `NotImplementedError`
   - 当前限制：仅 `cov_type='nonrobust'`、不支持 `sample_weight`
 
 ### 修复 (2026-07-07)

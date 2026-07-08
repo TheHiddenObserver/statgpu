@@ -343,10 +343,11 @@ class QuantileRegression(BaseEstimator):
         self._inference_result.apply_to(self)
 
     def _compute_bootstrap_batched(self, X, y):
-        """Batched pinball FISTA — solves all B bootstrap samples in parallel on GPU.
+        """Batched pinball FISTA — solves all B bootstrap samples in parallel.
 
-        The pinball loss is convex but not strictly convex; solutions may differ
-        from the CPU serial solver.  Both minimize the same objective.
+        Works on all backends (CPU/GPU).  The pinball loss is convex but not
+        strictly convex; different backends may produce different but equally
+        valid solutions that minimize the same objective.
         """
         from statgpu.backends import _to_numpy, _resolve_backend
         from statgpu.backends._utils import _get_xp, xp_ones, xp_zeros, xp_asarray

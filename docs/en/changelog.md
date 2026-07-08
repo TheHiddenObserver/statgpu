@@ -1,7 +1,7 @@
 # Changelog
 
 > Language: English  
-> Last updated: 2026-07-07
+> Last updated: 2026-07-08
 > This page: Changelog  
 > Switch: [Chinese](../changelog.md)
 
@@ -82,8 +82,9 @@ Language switch: [Chinese](../changelog.md)
     coefficients and `_bse[p:]` for thresholds
   - `loglikelihood`, `aic`, `bic` properties for ordered models
   - `summary()` method via `ParameterInferenceResult`
-  - GPU guard: explicit `device='cuda'` or `device='torch'` raises
-    `NotImplementedError` for inference (no silent CPU fallback)
+  - GPU inference: explicit `device='cuda'` or `device='torch'` now uses
+    backend-native analytical Hessian inference (NumPy/CuPy/Torch); unsupported
+    covariance types (`hc0`/`hc1`/`hac`) still raise `NotImplementedError`
   - Current limitations: `cov_type='nonrobust'` only, no `sample_weight`
 
 - **Bug Fixes** (9 total, from code review):
