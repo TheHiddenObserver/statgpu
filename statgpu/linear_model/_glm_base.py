@@ -407,7 +407,14 @@ class GeneralizedLinearModel(BaseEstimator):
 
     @property
     def loglikelihood(self):
-        """Log-likelihood at the fitted coefficients."""
+        """Pseudo-loglikelihood at the fitted coefficients.
+
+        Computed as -sum(loss.per_sample_value(eta, y)).  Additive constants
+        that do not depend on the parameters (e.g. -log(y!) for Poisson,
+        -n log(2πσ²)/2 for Gaussian) are omitted.  ΔAIC / ΔBIC comparisons
+        between nested models on the same data remain valid; absolute values
+        should not be compared with statsmodels or R.
+        """
         self._check_is_fitted()
         if self._loss is None or self._X_design is None or self._y_inf is None:
             return float("nan")
@@ -1412,6 +1419,7 @@ class OrderedGeneralizedLinearModel(GeneralizedLinearModel):
         self._params = np.concatenate([beta_cpu, thresh_cpu])
 
         from statgpu.inference._results import ParameterInferenceResult
+        feat_names = [f"coef_{i}" for i in range(p)] + [f"thresh_{j}" for j in range(n_thresh)]
         self._inference_result = ParameterInferenceResult(
             method="analytical_hessian",
             params=self._params.copy(),
@@ -1421,6 +1429,7 @@ class OrderedGeneralizedLinearModel(GeneralizedLinearModel):
             pvalues=self._pvalues.copy(),
             conf_int=self._conf_int.copy(),
             distribution="normal",
+            feature_names=feat_names,
             metadata={"method": "analytical", "n_thresholds": n_thresh,
                        "backend": backend},
         )

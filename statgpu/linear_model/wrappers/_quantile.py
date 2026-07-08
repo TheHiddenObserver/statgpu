@@ -210,7 +210,11 @@ class QuantileRegression(BaseEstimator):
         try:
             XtX_inv = _np.linalg.solve(XtX, _np.eye(k))
         except _np.linalg.LinAlgError:
-            XtX_inv = _np.linalg.pinv(XtX)
+            raise _np.linalg.LinAlgError(
+                "Quantile regression design matrix is singular — cannot compute "
+                "kernel standard errors. This may indicate collinear features. "
+                "Consider using inference_method='bootstrap' instead."
+            )
 
         XtDX = X_design.T @ (X_design * D[:, None])
         cov = XtX_inv @ XtDX @ XtX_inv

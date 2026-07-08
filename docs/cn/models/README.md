@@ -98,4 +98,4 @@
 | GPU 回退 | 显式 GPU 设备不静默回退 CPU |
 | sample_weight | 所有求解器支持（CoxPH 除外） |
 | CV | LassoCV, RidgeCV, LogisticRegressionCV, CoxPHCV, PenalizedGLM_CV |
-| 推断 | HC0-HC3, HAC, bootstrap, debiased Lasso, analytical Hessian (ordered) |
+| 推断 | nonrobust/HC0/HC1 (sandwich), HC2/HC3/HAC (仅 Gaussian), bootstrap, debiased Lasso, analytical Hessian (ordered) |

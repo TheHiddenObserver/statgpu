@@ -101,4 +101,4 @@
 | GPU fallback | Explicit GPU devices do not silently fall back to CPU |
 | sample_weight | Supported across all solvers (except CoxPH) |
 | CV | LassoCV, RidgeCV, LogisticRegressionCV, CoxPHCV, PenalizedGLM_CV |
-| Inference | HC0-HC3, HAC, bootstrap, debiased Lasso, analytical Hessian (ordered) |
+| Inference | nonrobust/HC0/HC1 (sandwich), HC2/HC3/HAC (Gaussian only), bootstrap, debiased Lasso, analytical Hessian (ordered) |
