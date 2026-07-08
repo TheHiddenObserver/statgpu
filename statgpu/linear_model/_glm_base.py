@@ -458,6 +458,10 @@ class GeneralizedLinearModel(BaseEstimator):
         data : pd.DataFrame or None
             DataFrame used with ``formula`` for column lookup.
         """
+        # Resolve backend once for both formula and direct paths
+        backend = self._get_backend(backend="auto")
+        backend_name = backend.name
+
         # Handle formula interface
         if formula is not None:
             if data is None:
@@ -475,12 +479,12 @@ class GeneralizedLinearModel(BaseEstimator):
             if self._formula_has_intercept:
                 intercept_idx = formula_column_names.index("Intercept")
                 X_arr = np.delete(X_arr, intercept_idx, axis=1)
-                # Store formula-derived intercept decision in internal attribute
-                # to avoid mutating self.fit_intercept (breaks sklearn clone).
                 self._use_intercept = True
             else:
-                # Formula syntax owns intercept semantics, matching statsmodels/R.
                 self._use_intercept = False
+            # Formula produces numpy; convert to backend
+            y_arr = self._to_array(y_arr, backend=backend_name)
+            X_arr = self._to_array(X_arr, backend=backend_name)
         else:
             if X is None or y is None:
                 raise ValueError(
@@ -490,24 +494,13 @@ class GeneralizedLinearModel(BaseEstimator):
             self._design_info = None
             self._formula_has_intercept = None
             self._use_intercept = None
-            y_arr = np.asarray(y)
-            if y_arr.ndim == 2 and y_arr.shape[1] == 1:
-                y_arr = y_arr.ravel()
-            X_arr = np.asarray(X)
+            # _to_array safely handles numpy/cupy/torch inputs
+            y_arr = self._to_array(y, backend=backend_name)
+            X_arr = self._to_array(X, backend=backend_name)
 
-        backend = self._get_backend(backend="auto")
-        backend_name = backend.name
-
-        # Convert to backend arrays using xp_asarray for proper device placement
-        from statgpu.backends._utils import _get_xp, xp_asarray
-        xp = _get_xp(backend_name)
-        # For torch backend, ensure arrays land on CUDA (not CPU)
-        _ref = None
-        if backend_name == "torch":
-            import torch
-            _ref = torch.empty(0, dtype=torch.float64, device="cuda")
-        X_arr = xp_asarray(X_arr, dtype=xp.float64, xp=xp, ref_arr=_ref)
-        y_arr = xp_asarray(y_arr, dtype=xp.float64, xp=xp, ref_arr=_ref)
+        # Ensure y is 1D after backend conversion
+        if hasattr(y_arr, 'ndim') and y_arr.ndim == 2 and y_arr.shape[1] == 1:
+            y_arr = y_arr.ravel()
         self._nobs = X_arr.shape[0]
 
         family = self._get_family()
@@ -1472,11 +1465,13 @@ class OrderedGeneralizedLinearModel(GeneralizedLinearModel):
             mk = (y == j)
             if mk.any():
                 pv_k, a_k = pv_vec[mk], a_vec[mk]
-                w_bth[mk] = a_k * f_j[mk] / (pv_k * pv_k) - fp_j[mk] / pv_k
+                # Upper threshold: d²NLL/dβdθ_j, verified by finite-difference
+                w_bth[mk] = fp_j[mk] / pv_k - a_k * f_j[mk] / (pv_k * pv_k)
             mk1 = (y == j + 1)
             if mk1.any():
                 pv_k1, a_k1 = pv_vec[mk1], a_vec[mk1]
-                w_bth[mk1] = -a_k1 * f_j[mk1] / (pv_k1 * pv_k1) + fp_j[mk1] / pv_k1
+                # Lower threshold: d²NLL/dβdθ_j, verified by finite-difference
+                w_bth[mk1] = a_k1 * f_j[mk1] / (pv_k1 * pv_k1) - fp_j[mk1] / pv_k1
             H[:p, p+j] = X.T @ w_bth
             H[p+j, :p] = H[:p, p+j]
 
@@ -1484,11 +1479,13 @@ class OrderedGeneralizedLinearModel(GeneralizedLinearModel):
             mk = (y == k_val)
             if mk.any():
                 pv_k, fk, fpk = pv_vec[mk], f_all[k_val, mk], fp_all[k_val, mk]
+                # Upper bound: d²(-log P)/dθ² for obs in this category
                 H[p+k_val, p+k_val] += xp.sum(fk * fk / (pv_k * pv_k) - fpk / pv_k)
             mk1 = (y == k_val + 1)
             if mk1.any():
                 pv_k1, fk1, fpk1 = pv_vec[mk1], f_all[k_val, mk1], fp_all[k_val, mk1]
-                H[p+k_val, p+k_val] += xp.sum(fk1 * fk1 / (pv_k1 * pv_k1) - fpk1 / pv_k1)
+                # Lower bound: d²(-log P)/dθ² — sign differs from upper bound
+                H[p+k_val, p+k_val] += xp.sum(fk1 * fk1 / (pv_k1 * pv_k1) + fpk1 / pv_k1)
             mc = (y == k_val + 1)
             if mc.any() and k_val + 1 < n_thresh:
                 pv_c, fk_c, fk1_c = pv_vec[mc], f_all[k_val, mc], f_all[k_val+1, mc]

@@ -84,7 +84,7 @@ Language switch: [Chinese](../changelog.md)
   - `summary()` method via `ParameterInferenceResult`
   - GPU guard: explicit `device='cuda'` or `device='torch'` raises
     `NotImplementedError` for inference (no silent CPU fallback)
-  - Current limitations: CPU-only, `cov_type='nonrobust'` only, no `sample_weight`
+  - Current limitations: `cov_type='nonrobust'` only, no `sample_weight`
 
 - **Bug Fixes** (9 total, from code review):
   - **probit gradient**: `_ordered_gradient_torch` hardcoded `torch.sigmoid`;

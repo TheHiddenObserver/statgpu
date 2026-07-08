@@ -81,7 +81,7 @@
   - `summary()` 方法通过 `ParameterInferenceResult`
   - GPU 守卫：显式 `device='cuda'` 或 `device='torch'` 抛出
     `NotImplementedError`（不静默回退 CPU）
-  - 当前限制：仅 CPU 推断、仅 `cov_type='nonrobust'`、不支持 `sample_weight`
+  - 当前限制：仅 `cov_type='nonrobust'`、不支持 `sample_weight`
 
 ### 修复 (2026-07-07)
 
