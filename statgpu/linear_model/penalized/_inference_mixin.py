@@ -487,8 +487,19 @@ class _PenalizedInferenceMixin:
         More robust than naive OLS-based inference, but still not full
         "post-selection inference" for Lasso.
         """
-        # Bootstrap currently runs on CPU (serial refit).  GPU-parallel
-        # bootstrap is tracked for a follow-up PR (requires batched solver).
+        # Bootstrap inference is CPU-only: serial refit with numpy RNG.
+        # GPU-parallel bootstrap requires batched solver + GPU-native RNG
+        # (cupy.random / torch.random).  Additionally, Lasso GPU paths have
+        # pre-existing dtype issues (torch.asarray with Python float type).
+        # Tracked for follow-up PR.
+        from statgpu.backends import _resolve_backend
+        backend = _resolve_backend("auto", X)
+        if backend in ("cupy", "torch"):
+            raise NotImplementedError(
+                f"Bootstrap inference is not yet supported on device={backend!r}. "
+                f"Use device='cpu' for inference, or set compute_inference=False. "
+                f"GPU-parallel bootstrap is tracked for a follow-up PR."
+            )
         if self._X_design is None or self._resid is None or self._y is None:
             # Need to store these first
             X_np = np.asarray(_to_numpy(X), dtype=np.float64)
@@ -1109,7 +1120,9 @@ class _PenalizedInferenceMixin:
         X_active = X_cpu[:, active_cpu]
         kwargs = {"fit_intercept": self._effective_intercept}
         if "solver" in model_cls.__init__.__code__.co_varnames:
-            kwargs["solver"] = "newton"
+            # Use appropriate solver: IRLS for squared_error (no fused_gradient_and_hessian),
+            # Newton for GLM families with proper Hessian support
+            kwargs["solver"] = "irls" if self.loss == "squared_error" else "newton"
         loss_kwargs = getattr(self, 'loss_kwargs', None) or {}
         if loss_kwargs and "loss_kwargs" in model_cls.__init__.__code__.co_varnames:
             kwargs["loss_kwargs"] = loss_kwargs
