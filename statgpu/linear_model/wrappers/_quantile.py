@@ -385,6 +385,7 @@ class QuantileRegression(BaseEstimator):
             d_eta = xp.where(r_z > 0, float(tau - 1.0), float(tau))
             if is_torch: d_eta = d_eta.to(Xd.dtype)
             grad = Xd.T @ d_eta / n
+            grad_norm_sq = xp.sum(grad * grad)  # GPU scalar, computed once
 
             step = 1.0 / L0
             for _ in range(10):  # backtracking
@@ -392,7 +393,8 @@ class QuantileRegression(BaseEstimator):
                 pred_new = Xd @ coef_new
                 r_new = y_gpu.T - pred_new
                 loss_new = xp.sum(xp.where(r_new > 0, tau * r_new, (tau - 1.0) * r_new)) / n
-                if float(loss_new) <= float(loss_z) - c1 * step * float(xp.sum(grad * grad)):
+                # Armijo check: transfer only final boolean via single comparison
+                if float(loss_new - loss_z + c1 * step * grad_norm_sq) <= 0:
                     break
                 step *= 0.5
 
@@ -427,7 +429,7 @@ class QuantileRegression(BaseEstimator):
 
         # Use same batched FISTA for all backends (CPU and GPU)
         # for consistent cross-backend bootstrap results.
-        if self.fit_intercept is not None:
+        if True:  # batched FISTA for all backends (CPU + GPU)
             boot_params, _, _ = self._compute_bootstrap_batched(X, y)
             boot_params = np.asarray(boot_params)
             self._bse = np.std(boot_params, axis=0, ddof=1)
@@ -436,65 +438,18 @@ class QuantileRegression(BaseEstimator):
                                                np.mean(boot_params[:, i] >= 0.0)), 1.0)
                                 for i in range(len(params))])
             self._pvalues = pvalues
-            z_crit = 1.96
-            self._conf_int = np.column_stack([params - z_crit * self._bse,
-                                               params + z_crit * self._bse])
+            self._conf_int = np.column_stack([
+                np.quantile(boot_params, 0.025, axis=0),
+                np.quantile(boot_params, 0.975, axis=0)])
             from statgpu.inference._results import ParameterInferenceResult
             self._inference_result = ParameterInferenceResult(
                 method="bootstrap", params=params.copy(), bse=self._bse.copy(),
                 statistic=self._zvalues.copy(), statistic_name="z",
                 pvalues=self._pvalues.copy(), conf_int=self._conf_int.copy(),
-                distribution="normal", metadata={"n_bootstrap": self.n_bootstrap})
+                distribution="bootstrap_percentile",
+                metadata={"n_bootstrap": self.n_bootstrap})
             self._inference_result.apply_to(self)
             return
-        eta = X_design_cpu @ params
-        resid = y_cpu - eta
-        y_fitted = eta
-        B = self.n_bootstrap
-        rng = np.random.default_rng(self.random_state)
-        boot_params = np.zeros((B, len(params)), dtype=float)
-        for b in range(B):
-            idx = rng.integers(0, n, size=n)
-            y_star = y_fitted + resid[idx]
-            if dev != 'cpu':
-                y_star = self._to_array(y_star, backend=backend_name)
-            m = QuantileRegression(
-                quantile=self.quantile, fit_intercept=False,
-                max_iter=self.max_iter, tol=self.tol, device=dev,
-                compute_inference=False)
-            m.fit(X_refit if dev != 'cpu' else X_design_cpu, y_star)
-            boot_params[b, :] = m._params
-
-        self._bse = np.std(boot_params, axis=0, ddof=1)
-        self._zvalues = params / (self._bse + 1e-30)
-
-        pvalues = np.zeros(len(params), dtype=float)
-        for i in range(len(params)):
-            pvalues[i] = min(2.0 * min(
-                np.mean(boot_params[:, i] <= 0.0),
-                np.mean(boot_params[:, i] >= 0.0)
-            ), 1.0)
-        self._pvalues = pvalues
-
-        self._conf_int = np.column_stack([
-            np.quantile(boot_params, 0.025, axis=0),
-            np.quantile(boot_params, 0.975, axis=0),
-        ])
-
-        from statgpu.inference._results import ParameterInferenceResult
-        self._inference_result = ParameterInferenceResult(
-            method="bootstrap",
-            params=params.copy(),
-            bse=self._bse.copy(),
-            statistic=self._zvalues.copy(),
-            statistic_name="z",
-            pvalues=self._pvalues.copy(),
-            conf_int=self._conf_int.copy(),
-            distribution="bootstrap_percentile",
-            metadata={"n_bootstrap": B, "method": "residual_bootstrap",
-                      "quantile": self.quantile},
-        )
-        self._inference_result.apply_to(self)
 
     def predict(self, X):
         self._check_is_fitted()
