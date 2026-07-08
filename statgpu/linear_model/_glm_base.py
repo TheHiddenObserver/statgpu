@@ -1133,13 +1133,14 @@ class OrderedGeneralizedLinearModel(GeneralizedLinearModel):
         for iteration in range(self.max_iter):
             # Enforce strictly increasing thresholds with minimum gap
             thresh = xp.sort(theta[p:])
+            if is_torch:
+                thresh = thresh[0]  # torch.sort returns (values, indices)
             if len(thresh) > 1:
                 gaps = xp.diff(thresh)
-                min_gap = 1e-6
                 if is_torch:
-                    gaps = xp.clamp(gaps, min=min_gap)
+                    gaps = xp.clamp(gaps, min=1e-6)
                 else:
-                    gaps = xp.maximum(gaps, min_gap)
+                    gaps = xp.maximum(gaps, 1e-6)
                 thresh = xp.concatenate([thresh[:1], thresh[:1] + xp.cumsum(gaps)])
             theta = xp.concatenate([theta[:p], thresh])
             beta = theta[:p]; thresh = theta[p:]
@@ -1195,13 +1196,14 @@ class OrderedGeneralizedLinearModel(GeneralizedLinearModel):
                 # Enforce strictly increasing thresholds with minimum gap
                 beta_t = theta_try[:p]
                 thresh_t = xp.sort(theta_try[p:])
+                if is_torch:
+                    thresh_t = thresh_t[0]
                 if len(thresh_t) > 1:
                     gaps = xp.diff(thresh_t)
-                    min_gap = 1e-6
                     if is_torch:
-                        gaps = xp.clamp(gaps, min=min_gap)
+                        gaps = xp.clamp(gaps, min=1e-6)
                     else:
-                        gaps = xp.maximum(gaps, min_gap)
+                        gaps = xp.maximum(gaps, 1e-6)
                     thresh_t = xp.concatenate([thresh_t[:1], thresh_t[:1] + xp.cumsum(gaps)])
                 theta_try = xp.concatenate([beta_t, thresh_t])
                 prob_t = self._ordered_category_probs(Xs, beta_t, thresh_t, family, K)
