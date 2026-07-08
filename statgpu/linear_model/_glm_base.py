@@ -558,7 +558,7 @@ class GeneralizedLinearModel(BaseEstimator):
         # ---- Compute inference if requested ----
         if self.compute_inference:
             if sample_weight is not None:
-                sw = np.asarray(sample_weight, dtype=float).ravel()
+                sw = np.asarray(_to_numpy(sample_weight), dtype=float).ravel()
                 if is_gpu:
                     self._sample_weight_inf = self._to_array(
                         sw, backend=inf_backend)
@@ -1329,7 +1329,8 @@ class OrderedGeneralizedLinearModel(GeneralizedLinearModel):
         ``_ordered_hessian_analytical`` and backend-native linalg + distributions.
         """
         # Only nonrobust covariance is supported for ordered models
-        if self.cov_type not in ("nonrobust",):
+        cov_type = self.cov_type.lower()
+        if cov_type not in ("nonrobust",):
             raise NotImplementedError(
                 f"Ordered model inference only supports cov_type='nonrobust', "
                 f"got '{self.cov_type}'. HC0/HC1 sandwich and penalized "

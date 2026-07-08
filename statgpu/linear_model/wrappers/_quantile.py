@@ -383,14 +383,13 @@ class QuantileRegression(BaseEstimator):
         for _ in range(self.max_iter):
             pred = X_design @ z  # (n, B)
             resid_batch = y_gpu.T - pred  # (n, B), r = y - X@coef
-            # Pinball subgradient: tau if r>0, -(1-tau) if r<0
+            # Pinball gradient w.r.t β: ∂ℓ/∂β = Xᵀ · ∂ℓ/∂η, where
+            # ∂ℓ/∂η = -(τ if r>0 else τ-1) = (τ-1) if r>0, τ if r<0
             # Use Python float; torch/cupy auto-cast to match X_design.dtype
-            subgrad_pos = float(tau)
-            subgrad_neg = float(tau - 1.0)
-            subgrad = xp.where(resid_batch > 0, subgrad_pos, subgrad_neg)
+            d_eta = xp.where(resid_batch > 0, float(tau - 1.0), float(tau))
             if is_torch:
-                subgrad = subgrad.to(X_design.dtype)
-            grad = X_design.T @ subgrad / n  # (p, B)
+                d_eta = d_eta.to(X_design.dtype)
+            grad = X_design.T @ d_eta / n  # (p, B)
             coef_new = z - step * grad
             t_new = 0.5 * (1.0 + (1.0 + 4.0 * t_val * t_val) ** 0.5)
             z = coef_new + ((t_val - 1.0) / t_new) * (coef_new - coef)
