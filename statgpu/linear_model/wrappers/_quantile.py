@@ -92,13 +92,6 @@ class QuantileRegression(BaseEstimator):
 
         loss = QuantileLoss(quantile=self.quantile)
 
-        # GPU inference not yet supported for QuantileRegression
-        if self.compute_inference and backend_name != "numpy":
-            raise NotImplementedError(
-                f"QuantileRegression inference is currently CPU-only. "
-                f"Use device='cpu' or set compute_inference=False."
-            )
-
         if self.fit_intercept:
             from statgpu.penalties._l2 import L2Penalty
             from statgpu.backends._utils import _get_xp, xp_ones
@@ -129,13 +122,12 @@ class QuantileRegression(BaseEstimator):
         self._fitted = True
 
         if self.compute_inference:
-            X_cpu = np.asarray(_to_numpy(X_arr), dtype=float)
-            y_cpu = np.asarray(_to_numpy(y_arr), dtype=float).ravel()
-            self._compute_inference(X_cpu, y_cpu, loss)
+            self._compute_inference(X_arr, y_arr, loss,
+                                     backend_name=backend_name)
 
         return self
 
-    def _compute_inference(self, X, y, loss):
+    def _compute_inference(self, X, y, loss, backend_name="numpy"):
         """Dispatch to kernel-based or bootstrap inference."""
         _valid = {"kernel", "bootstrap"}
         if self.inference_method not in _valid:
@@ -146,7 +138,7 @@ class QuantileRegression(BaseEstimator):
         if self.inference_method == "bootstrap":
             self._compute_inference_bootstrap(X, y)
         else:
-            self._compute_inference_kernel(X, y)
+            self._compute_inference_kernel_gpu(X, y) if backend_name != "numpy" else self._compute_inference_kernel(X, y)
 
     # ---- Kernel helpers (matching statsmodels) ----
     @staticmethod
@@ -263,19 +255,94 @@ class QuantileRegression(BaseEstimator):
         )
         self._inference_result.apply_to(self)
 
-    def _compute_inference_bootstrap(self, X, y):
-        """Residual bootstrap inference for quantile regression."""
+    def _compute_inference_kernel_gpu(self, X, y):
+        """GPU-native kernel-based sandwich covariance (Powell 1991)."""
+        from statgpu.backends import _to_numpy, _resolve_backend
+        from statgpu.backends._utils import _get_xp
+        from statgpu.inference._distributions_backend import get_distribution
+
+        backend = _resolve_backend("auto", X)
+        xp = _get_xp(backend)
+        is_torch = (backend == "torch")
+        dev = X.device if is_torch else None
         n = X.shape[0]
 
         if self.fit_intercept:
-            X_design = np.column_stack([np.ones(n), X])
-            params = np.concatenate([[self.intercept_], self.coef_])
+            ones = xp.ones((n, 1), dtype=X.dtype) if not is_torch else xp.ones((n,1), dtype=X.dtype, device=dev)
+            X_design = xp.cat([ones, X], dim=1) if is_torch else xp.column_stack([ones, X])
+            params = xp.concatenate([xp.asarray([self.intercept_], dtype=X.dtype), xp.asarray(self.coef_, dtype=X.dtype)])
         else:
             X_design = X
+            params = xp.asarray(self.coef_, dtype=X.dtype)
+
+        k = X_design.shape[1]
+        resid = (y - X_design @ params).ravel()
+        tau = self.quantile
+
+        # Bandwidth (scipy operates on CPU scalars only)
+        resid_cpu = np.asarray(_to_numpy(resid)).ravel()
+        h = self._get_bandwidth_h(n, tau, self.bandwidth, resid_cpu,
+                                   float(np.std(_to_numpy(y))))
+
+        # Sparsity
+        kernel_fn = self._get_kernel_fn(self.kernel, xp)
+        u = resid / h
+        fhat = float(xp.sum(kernel_fn(u))) / (n * h)
+        sparsity = 1.0 / max(fhat, 1e-10)
+
+        # Sandwich covariance
+        D = xp.where(resid > 0, (tau / fhat) ** 2, ((1.0 - tau) / fhat) ** 2)
+        XtX = X_design.T @ X_design
+        eye = xp.eye(k, dtype=X.dtype) if not is_torch else xp.eye(k, dtype=X.dtype, device=dev)
+        XtX_inv = xp.linalg.solve(XtX, eye)
+        XtDX = X_design.T @ (X_design * D[:, None])
+        cov = XtX_inv @ XtDX @ XtX_inv
+
+        bse = xp.sqrt(xp.maximum(xp.diag(cov), 0.0))
+        z_values = params / (bse + 1e-30)
+        _norm = get_distribution("norm", backend=backend)
+        pvalues = 2.0 * _norm.sf(xp.abs(z_values))
+        z_crit = _norm.ppf(0.975)
+
+        self._bse = np.asarray(_to_numpy(bse))
+        self._zvalues = np.asarray(_to_numpy(z_values))
+        self._pvalues = np.asarray(_to_numpy(pvalues))
+        self._conf_int = np.column_stack([
+            np.asarray(_to_numpy(params - z_crit * bse)),
+            np.asarray(_to_numpy(params + z_crit * bse))])
+        self._params = np.asarray(_to_numpy(params))
+
+        from statgpu.inference._results import ParameterInferenceResult
+        self._inference_result = ParameterInferenceResult(
+            method="kernel", params=self._params.copy(), bse=self._bse.copy(),
+            statistic=self._zvalues.copy(), statistic_name="z",
+            pvalues=self._pvalues.copy(), conf_int=self._conf_int.copy(),
+            distribution="normal",
+            metadata={"method": "powell_1991_sandwich", "kernel": self.kernel,
+                       "bandwidth_rule": self.bandwidth, "bandwidth": float(h),
+                       "sparsity": float(sparsity), "quantile": tau, "backend": backend})
+        self._inference_result.apply_to(self)
+
+    def _compute_inference_bootstrap(self, X, y):
+        """Residual bootstrap inference for quantile regression. Backend-aware."""
+        from statgpu.backends import _to_numpy
+        dev = getattr(self, '_selected_backend_name', 'cpu') or 'cpu'
+        if dev == 'numpy':
+            dev = 'cpu'
+
+        X_cpu = np.asarray(_to_numpy(X), dtype=float)
+        y_cpu = np.asarray(_to_numpy(y), dtype=float).ravel()
+        n = X_cpu.shape[0]
+
+        if self.fit_intercept:
+            X_design = np.column_stack([np.ones(n), X_cpu])
+            params = np.concatenate([[self.intercept_], self.coef_])
+        else:
+            X_design = X_cpu
             params = self.coef_.copy()
 
         eta = X_design @ params
-        resid = y - eta
+        resid = y_cpu - eta
         y_fitted = eta
 
         B = self.n_bootstrap
@@ -287,7 +354,7 @@ class QuantileRegression(BaseEstimator):
             y_star = y_fitted + resid[idx]
             m = QuantileRegression(
                 quantile=self.quantile, fit_intercept=False,
-                max_iter=self.max_iter, tol=self.tol, device="cpu",
+                max_iter=self.max_iter, tol=self.tol, device=dev,
                 compute_inference=False,
             )
             m.fit(X_design, y_star)
