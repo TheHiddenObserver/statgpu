@@ -285,6 +285,20 @@ def m_estimation_inference(
         dispersion, wald_stat, wald_pval, distribution.
     """
     cov_type = cov_type.lower()
+    _VALID_COV = {"nonrobust", "hc0", "hc1", "hc2", "hc3", "hac"}
+    if cov_type not in _VALID_COV:
+        raise ValueError(
+            f"Unknown cov_type='{cov_type}'. "
+            f"Valid options: {sorted(_VALID_COV)}."
+        )
+    if cov_type in {"hc2", "hc3"}:
+        raise NotImplementedError(
+            "HC2/HC3 requires leverage computation; not yet implemented."
+        )
+    if cov_type == "hac":
+        raise NotImplementedError(
+            "HAC requires lag selection; not yet implemented."
+        )
     _, xp = _resolve_backend_and_xp(X)
 
     n_eff = float(xp.sum(sample_weight)) if sample_weight is not None else X.shape[0]

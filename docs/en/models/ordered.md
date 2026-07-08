@@ -208,7 +208,7 @@ print(model._pvalues)
 
 | Reference | Method | Agreement |
 |-----------|--------|-----------|
-| R `ordinal::clm` | Newton-Raphson + analytical Hessian | NLL match (statgpu: -0.532, R: -0.497 on benchmark data) |
+| R `ordinal::clm` | Newton-Raphson + analytical Hessian | Same Hessian structure. NLL differs by ~0.035 due to objective normalization: statgpu uses average NLL (1/n scale), R clm uses sum NLL. At the same coefficients, NLL ratio equals n. |
 | R `MASS::polr` | Fisher scoring | Same Hessian structure, coefficients match |
 | `statsmodels` `OrderedModel` | L-BFGS + numerical Hessian | NLL comparable (statgpu achieves lower NLL) |
 

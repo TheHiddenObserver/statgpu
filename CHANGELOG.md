@@ -2,28 +2,17 @@
 
 All notable changes to statgpu are documented here, organized by date and PR.
 
-## 2026-07-07
+## 2026-07-08
 
-### Unified Inference Framework — Loss × Penalty sandwich engine
-- M-estimation sandwich engine: `compute_bread_avg`, `compute_meat_avg`, `assemble_cov_avg`, `m_estimation_inference`
-- Expected Fisher: `loss.fisher_information()` for Gamma/Tweedie (non-canonical GLM)
-- Pearson dispersion for non-canonical GLMs (Gamma, IG, Tweedie)
-- Penalty curvature API: `curvature_diag()` on L2/ElasticNet for penalized sandwich
-- Penalized inference: sandwich (L2/EN) + oracle active-set refit (SCAD/MCP, Fan & Li 2001)
-- `QuantileRegression` standalone class: kernel-based (Powell 1991) + bootstrap inference
-- GLM wrappers (Poisson, Gamma, IG, NB, Tweedie): `compute_inference`, `cov_type` exposure
-- `summary()`, `aic`, `bic`, `loglikelihood` on `GeneralizedLinearModel`
-- Loss primitives: `per_sample_score()`, `score_outer(sample_weight)` on `LossBase`
-- GPU device fixes: `xp_eye`/`xp_ones`/`xp_maximum` with `ref_arr` for Torch-CUDA
-
-### Ordered Logit/Probit — Newton-Raphson + Analytical Hessian + Inference
-- Replaced L-BFGS with Newton-Raphson + trust-region across all 3 backends (NumPy, CuPy, Torch)
-- Vectorized analytical Hessian (backend-agnostic) matching R `MASS::polr` structure
-- Added `compute_inference=True` support: SE, z-values, p-values, 95% CI
-- Added `loglikelihood`, `aic`, `bic` properties for ordered models
-- Fixed 9 bugs: probit gradient/f'(z), GPU silent fallback, pinv degradation, predict_proba double-division, y.dtype guard, dead code removal
-- CPU-only inference guard for explicit GPU devices (raises NotImplementedError)
-- Validated against R `ordinal::clm`
+### PR #74 — Ordered Newton-Raphson + Analytical Hessian Inference + Unified Sandwich Engine
+- Ordered Logit/Probit: L-BFGS replaced with Newton-Raphson + trust-region (3-backend)
+- Ordered inference: analytical Hessian, SE/z/p/CI, loglikelihood/aic/bic (CPU+GPU)
+- Sandwich engine: m_estimation_inference, fisher_information, penalty curvature API
+- Penalized inference: sandwich (L2/EN), oracle active-set (SCAD/MCP)
+- QuantileRegression standalone class with kernel+bootstrap inference
+- 28 bug fixes across 4 code review rounds; scipy→get_distribution; GPU guards
+- Docs: ordered.md rewrite, v0.2.1 coverage matrix, solver-algorithms/quantile/robust
+- Validated: R ordinal::clm, three-backend GPU (CuPy+Torch), 226 CI tests
 
 ### PR #73 — LossBase Extraction, Proximal IRLS-CD, CoxPH Efron optimization
 - Extracted LossBase from GLMLoss; added QuantileLoss, HuberLoss, BisquareLoss, CoxPartialLikelihoodLoss

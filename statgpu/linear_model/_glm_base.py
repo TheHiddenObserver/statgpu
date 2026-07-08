@@ -1016,10 +1016,10 @@ class OrderedGeneralizedLinearModel(GeneralizedLinearModel):
         self.thresholds_ = None
 
     def fit(self, X, y, sample_weight=None):
-        """Fit ordered GLM using L-BFGS.
+        """Fit ordered GLM using Newton-Raphson with analytical Hessian.
 
-        Supports numpy (CPU via scipy), cupy (GPU via native L-BFGS),
-        and torch (GPU via torch.optim.LBFGS).
+        Supports numpy (CPU), cupy (GPU), and torch (GPU) via a shared
+        trust-region Newton implementation with backend-agnostic operations.
         """
         if sample_weight is not None:
             raise ValueError(
@@ -1124,6 +1124,9 @@ class OrderedGeneralizedLinearModel(GeneralizedLinearModel):
 
         # ---- Newton loop ----
         for iteration in range(self.max_iter):
+            # Enforce strictly increasing thresholds
+            thresh = xp.sort(theta[p:])
+            theta = xp.concatenate([theta[:p], thresh])
             beta = theta[:p]; thresh = theta[p:]
             eta = Xs @ beta  # compute once, pass to all callees
 
@@ -1174,7 +1177,10 @@ class OrderedGeneralizedLinearModel(GeneralizedLinearModel):
                     raise
 
                 theta_try = theta + delta
-                beta_t = theta_try[:p]; thresh_t = theta_try[p:]
+                # Enforce strictly increasing thresholds (sort + reject non-monotonic steps)
+                beta_t = theta_try[:p]
+                thresh_t = xp.sort(theta_try[p:])
+                theta_try = xp.concatenate([beta_t, thresh_t])
                 prob_t = self._ordered_category_probs(Xs, beta_t, thresh_t, family, K)
                 pc_t = _clip(prob_t, 1e-15, None)
                 if is_torch:

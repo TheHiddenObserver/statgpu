@@ -65,7 +65,11 @@ class _PenalizedInferenceMixin:
             elif im == "bootstrap":
                 self._compute_post_fit_bootstrap_inference(X, y)
                 return
-            return
+            raise NotImplementedError(
+                f"SCAD/MCP inference requires inference_method='oracle' or "
+                f"'bootstrap', got '{im}'. "
+                f"Set compute_inference=False or choose a supported method."
+            )
 
         if penalty_name in ("l1", "elasticnet", "en"):
             # GPU/Torch backends run their own debiased inference inside
@@ -80,9 +84,19 @@ class _PenalizedInferenceMixin:
                 self._compute_post_fit_bootstrap_inference(X, y)
             elif "cpu_ols" in inference_method or "gpu_ols" in inference_method:
                 self._compute_post_fit_cpu_ols_inference(X, y)
+            else:
+                raise NotImplementedError(
+                    f"L1/ElasticNet inference requires inference_method='debiased', "
+                    f"'cpu_ols', 'gpu_ols', or 'bootstrap', got '{inference_method}'. "
+                    f"Set compute_inference=False or choose a supported method."
+                )
             return
         if penalty_name != "l2":
-            return
+            raise NotImplementedError(
+                f"Inference not supported for penalty='{penalty_name}' "
+                f"with loss='{self.loss}'. "
+                f"Set compute_inference=False or use a supported penalty."
+            )
         if self._inference_precomputed:
             state = self._precomputed_gaussian_state
             self._resid = np.asarray(state["resid"], dtype=float)
