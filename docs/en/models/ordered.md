@@ -76,7 +76,7 @@ Newton-Raphson with trust-region regularization (all 3 backends):
 | Backend | Algorithm | Notes |
 |---------|-----------|-------|
 | numpy (CPU) | Newton-Raphson + vectorized analytical Hessian | NumPy `linalg.solve` |
-| cupy (GPU) | Newton-Raphson + vectorized analytical Hessian | CuPy native, zero CPU round-trips (logit) |
+| cupy (GPU) | Newton-Raphson + vectorized analytical Hessian | CuPy native, scalar sync per iteration |
 | torch (GPU) | Newton-Raphson + vectorized analytical Hessian | Torch native, uses `torch.linalg.solve` |
 
 **Convergence**: 5–23 iterations for typical problems. Trust-region inner loop
