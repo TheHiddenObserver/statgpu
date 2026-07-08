@@ -1047,54 +1047,50 @@ class _PenalizedInferenceMixin:
         """Oracle active-set inference for SCAD/MCP.
 
         Refits unpenalized model on the active set and applies sandwich.
+        Backend-aware: works with NumPy, CuPy, and Torch arrays.
         Valid due to the oracle property (Fan & Li 2001).
         """
         import numpy as np
         from statgpu.backends import _to_numpy, _resolve_backend
+        from statgpu.backends._utils import _get_xp, xp_asarray, xp_ones
         from statgpu.inference._sandwich import m_estimation_inference, _infer_covariance_convention
         from statgpu.inference._results import ParameterInferenceResult
 
-        # Guard: explicit GPU devices must not silently fall back to CPU.
-        # Check the backend actually used during fit, not the input array type.
-        fit_backend = getattr(self, '_selected_backend_name', None)
-        if fit_backend in ("cupy", "torch"):
-            raise NotImplementedError(
-                f"Oracle inference is not yet supported on "
-                f"device={fit_backend!r}. Use device='cpu' for inference, "
-                f"or set compute_inference=False."
-            )
+        backend = _resolve_backend("auto", X)
+        xp = _get_xp(backend)
 
-        X_np = np.asarray(_to_numpy(X), dtype=float)
-        y_np = np.asarray(_to_numpy(y), dtype=float).ravel()
-        coef_np = np.asarray(self.coef_, dtype=float)
-        n, p = X_np.shape
+        X_arr = xp_asarray(X, dtype=xp.float64, xp=xp)
+        y_arr = xp_asarray(y, dtype=xp.float64, xp=xp).ravel()
+        coef_arr = xp_asarray(self.coef_, dtype=xp.float64, xp=xp)
+        n, p = X_arr.shape
 
         # Active set
-        active = np.abs(coef_np) > 1e-10
-        n_active = int(np.sum(active))
+        active = xp.abs(coef_arr) > 1e-10
+        n_active = int(xp.sum(active))
+
+        active_cpu = np.asarray(_to_numpy(active))
+        n_active = int(np.sum(active_cpu))
+        coef_cpu = np.asarray(_to_numpy(coef_arr))
 
         if n_active == 0:
             full_p = p + (1 if self._effective_intercept else 0)
-            self._params = np.concatenate([[self.intercept_], coef_np]) if self._effective_intercept else coef_np.copy()
+            self._params = np.concatenate([[self.intercept_], coef_cpu]) if self._effective_intercept else coef_cpu.copy()
             self._bse = np.full(full_p, np.nan)
             self._zvalues = np.full(full_p, np.nan)
             self._pvalues = np.full(full_p, np.nan)
             self._conf_int = np.full((full_p, 2), np.nan)
             self._inference_result = ParameterInferenceResult(
-                method="oracle",
-                params=self._params.copy(),
-                bse=self._bse.copy(),
-                statistic=self._zvalues.copy(),
-                statistic_name="z",
-                pvalues=self._pvalues.copy(),
-                conf_int=self._conf_int.copy(),
-                distribution="normal",
-                metadata={"n_active": 0, "active_set": []},
-            )
+                method="oracle", params=self._params.copy(), bse=self._bse.copy(),
+                statistic=self._zvalues.copy(), statistic_name="z",
+                pvalues=self._pvalues.copy(), conf_int=self._conf_int.copy(),
+                distribution="normal", metadata={"n_active": 0, "active_set": []})
             self._inference_result.apply_to(self)
             return
 
-        # Refit unpenalized on active set
+        # Convert to CPU for refit (model constructors expect numpy)
+        X_cpu = np.asarray(_to_numpy(X_arr), dtype=float)
+        y_cpu = np.asarray(_to_numpy(y_arr), dtype=float).ravel()
+
         from statgpu.linear_model.wrappers._poisson import PoissonRegression
         from statgpu.linear_model.wrappers._gamma import GammaRegression
         from statgpu.linear_model.wrappers._inverse_gaussian import InverseGaussianRegression
@@ -1103,40 +1099,34 @@ class _PenalizedInferenceMixin:
         from statgpu.linear_model.wrappers._linear import LinearRegression
 
         _MODEL_MAP = {
-            "squared_error": LinearRegression,
-            "poisson": PoissonRegression,
-            "logistic": None,  # use LogisticRegression from wrappers
-            "gamma": GammaRegression,
+            "squared_error": LinearRegression, "poisson": PoissonRegression,
+            "logistic": None, "gamma": GammaRegression,
             "inverse_gaussian": InverseGaussianRegression,
-            "negative_binomial": NegativeBinomialRegression,
-            "tweedie": TweedieRegression,
-        }
+            "negative_binomial": NegativeBinomialRegression, "tweedie": TweedieRegression}
         model_cls = _MODEL_MAP.get(self.loss)
         if model_cls is None:
             if self.loss == "logistic":
                 from statgpu.linear_model.wrappers._logistic import LogisticRegression as LR
                 model_cls = LR
             else:
-                raise NotImplementedError(
-                    f"Oracle inference not implemented for loss='{self.loss}'"
-                )
+                raise NotImplementedError(f"Oracle inference not implemented for loss='{self.loss}'")
 
-        X_active = X_np[:, active]
+        X_active = X_cpu[:, active_cpu]
         kwargs = {"fit_intercept": self._effective_intercept}
         if "solver" in model_cls.__init__.__code__.co_varnames:
             kwargs["solver"] = "newton"
-        # Pass through loss-specific kwargs (NB alpha, Tweedie power, Gamma link, etc.)
         loss_kwargs = getattr(self, 'loss_kwargs', None) or {}
-        if loss_kwargs:
-            if "loss_kwargs" in model_cls.__init__.__code__.co_varnames:
-                kwargs["loss_kwargs"] = loss_kwargs
-        # Avoid default regularization for logistic
+        if loss_kwargs and "loss_kwargs" in model_cls.__init__.__code__.co_varnames:
+            kwargs["loss_kwargs"] = loss_kwargs
         if self.loss == "logistic" and "C" in model_cls.__init__.__code__.co_varnames:
-            kwargs["C"] = 1e9  # effectively unpenalized
+            kwargs["C"] = 1e9
+        # Refit on the same backend as the original fit
+        if backend != "numpy" and "device" in model_cls.__init__.__code__.co_varnames:
+            kwargs["device"] = backend
         refit = model_cls(**kwargs)
-        refit.fit(X_active, y_np, sample_weight=sample_weight)
+        refit.fit(X_active, y_cpu, sample_weight=sample_weight)
 
-        # Sandwich on refit
+        # Sandwich on refit — use backend-aware m_estimation_inference
         if self._effective_intercept:
             X_design = np.column_stack([np.ones(n), X_active])
             params_active = np.concatenate([[refit.intercept_], refit.coef_])
@@ -1144,39 +1134,26 @@ class _PenalizedInferenceMixin:
             X_design = X_active
             params_active = np.asarray(refit.coef_)
 
-        # Resolve loss for inference
         loss_obj = refit._resolve_loss_for_inference() if hasattr(refit, '_resolve_loss_for_inference') else self._loss
-
         result = m_estimation_inference(
-            loss_obj, X_design, y_np, params_active,
-            cov_type=self.cov_type,
-            sample_weight=sample_weight,
-        )
+            loss_obj, X_design, y_cpu, params_active,
+            cov_type=self.cov_type, sample_weight=sample_weight)
 
         # Map back to full parameter space
         full_p = p + (1 if self._effective_intercept else 0)
-        bse_full = np.full(full_p, np.nan)
-        z_full = np.full(full_p, np.nan)
-        p_full = np.full(full_p, np.nan)
-        ci_full = np.full((full_p, 2), np.nan)
-
+        bse_full = np.full(full_p, np.nan); z_full = np.full(full_p, np.nan)
+        p_full = np.full(full_p, np.nan); ci_full = np.full((full_p, 2), np.nan)
         offset = 1 if self._effective_intercept else 0
-        active_idx = np.where(active)[0] + offset
+        active_idx = np.where(active_cpu)[0] + offset
         bse_full[active_idx] = np.asarray(result["bse"])[offset:]
         z_full[active_idx] = np.asarray(result["statistic"])[offset:]
         p_full[active_idx] = np.asarray(result["pvalues"])[offset:]
         ci_full[active_idx] = np.asarray(result["conf_int"])[offset:]
         if self._effective_intercept:
-            bse_full[0] = np.asarray(result["bse"])[0]
-            z_full[0] = np.asarray(result["statistic"])[0]
-            p_full[0] = np.asarray(result["pvalues"])[0]
-            ci_full[0] = np.asarray(result["conf_int"])[0]
-
-        self._bse = bse_full
-        self._zvalues = z_full
-        self._pvalues = p_full
-        self._conf_int = ci_full
-        # Use refit (oracle) parameters, not penalized — map to full space
+            bse_full[0] = np.asarray(result["bse"])[0]; z_full[0] = np.asarray(result["statistic"])[0]
+            p_full[0] = np.asarray(result["pvalues"])[0]; ci_full[0] = np.asarray(result["conf_int"])[0]
+        self._bse = bse_full; self._zvalues = z_full
+        self._pvalues = p_full; self._conf_int = ci_full
         params_full = np.full(full_p, np.nan)
         params_full[active_idx] = params_active[offset:]
         if self._effective_intercept:
