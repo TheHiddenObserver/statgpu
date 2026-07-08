@@ -30,7 +30,7 @@ GPU-accelerated statistical methods with sklearn-compatible API.
 - 📊 **GLM + Robust + Quantile + Cox**: 10+ loss types (quantile, huber, bisquare, fair, cox_ph + 7 GLM families)
 - 🔥 **10 Penalties**: l1, l2, elasticnet, scad, mcp, adaptive_l1, group_lasso, group_mcp, group_scad
 - ⚡ **8 Solvers**: exact, newton, lbfgs, irls, fista, fista_bb, proximal_irls_cd, proximal_newton — `solver="auto"`
-- 🧮 **Inference**: HC0-HC3/HAC robust SE, debiased Lasso, bootstrap, simultaneous CI
+- 🧮 **Inference**: penalized sandwich (L2) + oracle (SCAD/MCP) for Hessian-equipped losses; analytical Hessian for ordered models; kernel + bootstrap for quantile regression; debiased Lasso + simultaneous CI — GPU-native across NumPy/CuPy/Torch
 - 📈 **Nonparametric**: KDE, kernel regression, B-splines, GAM
 - 🧬 **Unsupervised**: PCA, KMeans, DBSCAN, GMM, UMAP, t-SNE, NNDescent (12+ classes)
 - 📐 **Distributions**: 15 distributions across 3 backends via `get_distribution()` — [API docs](docs/en/guides/distribution-api.md)
@@ -43,7 +43,7 @@ GPU-accelerated statistical methods with sklearn-compatible API.
 
 | Category | Classes | Highlights |
 |---|---|---|
-| **Regression & GLM** | 12 classes | LinearRegression, Ridge, Lasso, ElasticNet, Logistic, Poisson, Gamma, InvGauss, NB, Tweedie, Ordered models |
+| **Regression & GLM** | 13 classes | LinearRegression, Ridge, Lasso, ElasticNet, Logistic, Poisson, Gamma, InvGauss, NB, Tweedie, QuantileRegression, Ordered models (logit/probit, GPU inference) |
 | **Penalized GLM** | 11 classes | PenalizedGLM + 7 family wrappers + PenalizedQuantileRegression, PenalizedRobustRegression, PenalizedCoxPHModel × 10 penalties × 8 solvers |
 | **Cross-Validation** | 6 classes | RidgeCV, LassoCV, ElasticNetCV, LogisticCV, PenalizedGLM_CV, CoxPHCV |
 | **ANOVA** | 2 functions | `f_oneway`, `f_twoway` — GPU-accelerated |
