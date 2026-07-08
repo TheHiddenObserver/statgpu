@@ -1141,20 +1141,25 @@ class OrderedGeneralizedLinearModel(GeneralizedLinearModel):
         else:
             eye_d = xp.eye(d)
 
-        # ---- Newton loop ----
-        for iteration in range(self.max_iter):
-            # Enforce strictly increasing thresholds with minimum gap
-            thresh = xp.sort(theta[p:])
+        # ---- Local helper: enforce strictly increasing thresholds ----
+        def _enforce_thresh_gaps(thresh_arr):
+            """Sort thresholds and enforce minimum gap of 1e-6."""
+            t = xp.sort(thresh_arr)
             if is_torch:
-                thresh = thresh[0]  # torch.sort returns (values, indices)
-            if len(thresh) > 1:
-                gaps = xp.diff(thresh)
+                t = t[0]
+            if len(t) > 1:
+                gaps = xp.diff(t)
                 if is_torch:
                     gaps = xp.clamp(gaps, min=1e-6)
-                    thresh = xp.cat([thresh[:1], thresh[:1] + xp.cumsum(gaps, dim=0)])
+                    t = xp.cat([t[:1], t[:1] + xp.cumsum(gaps, dim=0)])
                 else:
                     gaps = xp.maximum(gaps, 1e-6)
-                    thresh = xp.concatenate([thresh[:1], thresh[:1] + xp.cumsum(gaps)])
+                    t = xp.concatenate([t[:1], t[:1] + xp.cumsum(gaps)])
+            return t
+
+        # ---- Newton loop ----
+        for iteration in range(self.max_iter):
+            thresh = _enforce_thresh_gaps(theta[p:])
             theta = xp.concatenate([theta[:p], thresh])
             beta = theta[:p]; thresh = theta[p:]
             eta = Xs @ beta  # compute once, pass to all callees
@@ -1206,19 +1211,8 @@ class OrderedGeneralizedLinearModel(GeneralizedLinearModel):
                     raise
 
                 theta_try = theta + delta
-                # Enforce strictly increasing thresholds with minimum gap
+                thresh_t = _enforce_thresh_gaps(theta_try[p:])
                 beta_t = theta_try[:p]
-                thresh_t = xp.sort(theta_try[p:])
-                if is_torch:
-                    thresh_t = thresh_t[0]
-                if len(thresh_t) > 1:
-                    gaps = xp.diff(thresh_t)
-                    if is_torch:
-                        gaps = xp.clamp(gaps, min=1e-6)
-                        thresh_t = xp.cat([thresh_t[:1], thresh_t[:1] + xp.cumsum(gaps, dim=0)])
-                    else:
-                        gaps = xp.maximum(gaps, 1e-6)
-                        thresh_t = xp.concatenate([thresh_t[:1], thresh_t[:1] + xp.cumsum(gaps)])
                 theta_try = xp.concatenate([beta_t, thresh_t])
                 prob_t = self._ordered_category_probs(Xs, beta_t, thresh_t, family, K)
                 pc_t = _clip(prob_t, 1e-15, None)
@@ -1244,28 +1238,19 @@ class OrderedGeneralizedLinearModel(GeneralizedLinearModel):
             thresh_est = xp.sort(theta[p:])[0]
             intercept_adj = float(((X_mean / X_std) * beta_scaled).sum().cpu())
             th_est = thresh_est.cpu().numpy()
-            self._beta_scaled = beta_scaled.cpu().numpy().copy()
             self._thresh_est = th_est + intercept_adj
-            self._X_mean = X_mean.cpu().numpy()
-            self._X_std = X_std.cpu().numpy()
         elif is_cupy:
             beta_scaled = theta[:p]
             self.coef_ = (beta_scaled / X_std).get()
             thresh_est = xp.sort(theta[p:])
-            self._beta_scaled = beta_scaled.get().copy()
             intercept_adj = float((X_mean / X_std * beta_scaled).sum().get())
             self._thresh_est = thresh_est.get() + intercept_adj
-            self._X_mean = X_mean.get()
-            self._X_std = X_std.get()
         else:
             beta_scaled = theta[:p]
             self.coef_ = beta_scaled / X_std
             thresh_est = np.sort(theta[p:])
-            self._beta_scaled = beta_scaled.copy()
             intercept_adj = float(X_mean @ self.coef_)
             self._thresh_est = thresh_est + intercept_adj
-            self._X_mean = X_mean
-            self._X_std = X_std
 
         self.thresholds_ = np.concatenate([[-np.inf], self._thresh_est, [np.inf]])
 
@@ -1463,7 +1448,7 @@ class OrderedGeneralizedLinearModel(GeneralizedLinearModel):
         diff = thresh[:, None] - eta[None, :]  # (n_thresh, n)
         import math as _math
         _sqrt2pi = _math.sqrt(2.0 * _math.pi)
-        is_probit = 'probit' in str(type(family.link)).lower()
+        is_probit = getattr(family.link, 'name', '') == 'probit'
         if is_probit:
             f_all = xp.exp(-0.5 * diff * diff) / _sqrt2pi
             fp_all = -diff * f_all

@@ -131,6 +131,9 @@ class QuantileRegression(BaseEstimator):
             self._compute_inference(X_arr, y_arr, loss,
                                      backend_name=backend_name)
 
+        if self.gpu_memory_cleanup:
+            self._cleanup_backend_memory(backend_name)
+
         return self
 
     def _compute_inference(self, X, y, loss, backend_name="numpy"):
@@ -143,8 +146,10 @@ class QuantileRegression(BaseEstimator):
             )
         if self.inference_method == "bootstrap":
             self._compute_inference_bootstrap(X, y)
+        elif backend_name == "numpy":
+            self._compute_inference_kernel(X, y)
         else:
-            self._compute_inference_kernel_gpu(X, y) if backend_name != "numpy" else self._compute_inference_kernel(X, y)
+            self._compute_inference_kernel_gpu(X, y)
 
     # ---- Kernel helpers (matching statsmodels) ----
     @staticmethod
@@ -169,9 +174,9 @@ class QuantileRegression(BaseEstimator):
 
     @staticmethod
     def _get_bandwidth_h(n, q, rule, resid, y_std):
-        from scipy.stats import norm as _norm, scoreatpercentile
+        from scipy.stats import norm as _norm
         import numpy as _np
-        iqre = float(scoreatpercentile(resid, 75) - scoreatpercentile(resid, 25))
+        iqre = float(_np.percentile(resid, 75) - _np.percentile(resid, 25))
         scale = min(y_std, iqre / 1.34)
 
         if rule == 'hsheather':
@@ -294,8 +299,8 @@ class QuantileRegression(BaseEstimator):
 
         # Bandwidth (scipy operates on CPU scalars only)
         resid_cpu = np.asarray(_to_numpy(resid)).ravel()
-        h = self._get_bandwidth_h(n, tau, self.bandwidth, resid_cpu,
-                                   float(np.std(_to_numpy(y))))
+        y_std = float(xp.std(y))
+        h = self._get_bandwidth_h(n, tau, self.bandwidth, resid_cpu, y_std)
 
         # Sparsity
         kernel_fn = self._get_kernel_fn(self.kernel, xp)
@@ -459,12 +464,6 @@ class QuantileRegression(BaseEstimator):
            works on ``(p, B)`` coefficients for parallel solves and includes
            its own backtracking line search with Armijo condition.
         """
-        from statgpu.backends import _to_numpy
-
-        X_cpu = np.asarray(_to_numpy(X), dtype=float)
-        y_cpu = np.asarray(_to_numpy(y), dtype=float).ravel()
-        n = X_cpu.shape[0]
-
         if self.fit_intercept:
             params = np.concatenate([[self.intercept_], self.coef_])
         else:
@@ -507,7 +506,45 @@ class QuantileRegression(BaseEstimator):
         intercept = xp_asarray(self.intercept_, xp=xp, ref_arr=X_arr)
         raw = X_arr @ coef + intercept
         from statgpu.backends import _to_numpy
-        return np.asarray(_to_numpy(raw)) if backend_name != "numpy" else raw
+        result = np.asarray(_to_numpy(raw)) if backend_name != "numpy" else raw
+        if self.gpu_memory_cleanup:
+            self._cleanup_backend_memory(backend_name)
+        return result
+
+    # ---- GPU memory management ----
+
+    def _cleanup_cuda_memory(self):
+        if not self.gpu_memory_cleanup:
+            return
+        try:
+            import cupy as cp
+            cp.get_default_memory_pool().free_all_blocks()
+            cp.get_default_pinned_memory_pool().free_all_blocks()
+        except Exception:
+            pass
+
+    def _cleanup_torch_memory(self):
+        if not self.gpu_memory_cleanup:
+            return
+        try:
+            import torch
+            torch.cuda.empty_cache()
+            torch.cuda.synchronize()
+        except Exception:
+            pass
+
+    def _cleanup_backend_memory(self, backend_name):
+        if backend_name == "cuda":
+            self._cleanup_cuda_memory()
+        elif backend_name == "torch":
+            self._cleanup_torch_memory()
+
+    def __del__(self):
+        try:
+            self._cleanup_cuda_memory()
+            self._cleanup_torch_memory()
+        except Exception:
+            pass
 
     def _check_is_fitted(self):
         if not self._fitted:

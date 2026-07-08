@@ -438,13 +438,14 @@ def _two_sided_pvalue(xp, z_values):
     """Two-sided p-value from standard normal. Backend-agnostic."""
     if xp.__name__ == "torch":
         import torch
-        abs_z = xp.abs(z_values)
-        from statgpu.inference._distributions_backend import norm
-        p = 2.0 * norm.sf(abs_z)
-        return p if isinstance(p, torch.Tensor) else torch.as_tensor(p, dtype=z_values.dtype, device=z_values.device)
+        from statgpu.inference._distributions_backend import get_distribution
+        _norm = get_distribution("norm", backend="torch",
+                                 device=z_values.device)
+        return 2.0 * _norm.sf(xp.abs(z_values))
     elif xp.__name__ == "cupy":
-        from statgpu.inference._distributions_backend import norm
-        return 2.0 * norm.sf(xp.abs(z_values))
+        from statgpu.inference._distributions_backend import get_distribution
+        _norm = get_distribution("norm", backend="cupy")
+        return 2.0 * _norm.sf(xp.abs(z_values))
     else:
         from statgpu.inference._distributions_backend import get_distribution
         _norm = get_distribution("norm", backend="numpy")
@@ -454,13 +455,14 @@ def _two_sided_pvalue(xp, z_values):
 def _normal_critical_value(xp, alpha):
     """Two-sided critical value for (1-alpha) CI."""
     if xp.__name__ == "torch":
-        from statgpu.inference._distributions_backend import norm
+        from statgpu.inference._distributions_backend import get_distribution
         import torch
-        z = norm.ppf(1.0 - alpha / 2.0)
-        return z if isinstance(z, torch.Tensor) else torch.as_tensor(z, dtype=torch.float64)
+        _norm = get_distribution("norm", backend="torch")
+        return _norm.ppf(1.0 - alpha / 2.0)
     elif xp.__name__ == "cupy":
-        from statgpu.inference._distributions_backend import norm
-        return xp.asarray(norm.ppf(1.0 - alpha / 2.0))
+        from statgpu.inference._distributions_backend import get_distribution
+        _norm = get_distribution("norm", backend="cupy")
+        return xp.asarray(_norm.ppf(1.0 - alpha / 2.0))
     else:
         from statgpu.inference._distributions_backend import get_distribution
         _norm = get_distribution("norm", backend="numpy")
@@ -470,13 +472,15 @@ def _normal_critical_value(xp, alpha):
 def _chi2_sf(xp, x, df):
     """Survival function of chi2(df) at x."""
     if xp.__name__ == "torch":
-        from statgpu.inference._distributions_backend import chi2
+        from statgpu.inference._distributions_backend import get_distribution
+        _chi2 = get_distribution("chi2", backend="torch")
         import torch
         x_t = torch.as_tensor(float(x), dtype=torch.float64)
-        return float(chi2.sf(x_t, df=df))
+        return float(_chi2.sf(x_t, df=df))
     elif xp.__name__ == "cupy":
-        from statgpu.inference._distributions_backend import chi2
-        return float(chi2.sf(float(x), df=df))
+        from statgpu.inference._distributions_backend import get_distribution
+        _chi2 = get_distribution("chi2", backend="cupy")
+        return float(_chi2.sf(float(x), df=df))
     else:
         from statgpu.inference._distributions_backend import get_distribution
         _chi2 = get_distribution("chi2", backend="numpy")

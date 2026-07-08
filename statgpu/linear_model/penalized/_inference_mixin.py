@@ -585,6 +585,11 @@ class _PenalizedInferenceMixin:
         from statgpu.inference._distributions_backend import norm as _gpu_norm
 
         n, p = X_gpu.shape
+        if p <= 1:
+            raise NotImplementedError(
+                "Debiased Lasso inference requires at least 2 features "
+                "(p >= 2). For p=1, use post_selection_ols or bootstrap."
+            )
         Sigma_hat = X_gpu.T @ X_gpu / n
 
         resid = y_gpu - X_gpu @ coef_gpu
@@ -759,6 +764,11 @@ class _PenalizedInferenceMixin:
         from statgpu.inference._distributions_backend import norm as _gpu_norm
 
         n, p = X_torch.shape
+        if p <= 1:
+            raise NotImplementedError(
+                "Debiased Lasso inference requires at least 2 features "
+                "(p >= 2). For p=1, use post_selection_ols or bootstrap."
+            )
         dtype = torch.float64
         device = X_torch.device
 
@@ -1006,7 +1016,7 @@ class _PenalizedInferenceMixin:
         result = m_estimation_inference(
             self._loss, X_design, y_arr, params,
             cov_type=self.cov_type,
-            penalty_curvature_diag=_to_numpy(curv) if has_curv else None,
+            penalty_curvature_diag=curv if has_curv else None,
             sample_weight=sw_arr,
         )
 
@@ -1120,6 +1130,9 @@ class _PenalizedInferenceMixin:
             kwargs["loss_kwargs"] = loss_kwargs
         if self.loss == "logistic" and "C" in model_cls.__init__.__code__.co_varnames:
             kwargs["C"] = 1e9
+        # Oracle refits use Newton solver for accuracy and consistency
+        if "solver" in model_cls.__init__.__code__.co_varnames:
+            kwargs["solver"] = "newton"
         # Oracle refit runs on CPU with numpy arrays
         sw_cpu = None
         if sample_weight is not None:
@@ -1140,26 +1153,29 @@ class _PenalizedInferenceMixin:
             loss_obj, X_design, y_cpu, params_active,
             cov_type=self.cov_type, sample_weight=sw_cpu)
 
-        # Map back to full parameter space
+        # Map back to full parameter space.
+        # Inactive features keep their original penalized coefficient values
+        # (not NaN), matching the pre-refactor behavior for summary().
         full_p = p + (1 if self._effective_intercept else 0)
-        bse_full = np.full(full_p, np.nan); z_full = np.full(full_p, np.nan)
-        p_full = np.full(full_p, np.nan); ci_full = np.full((full_p, 2), np.nan)
         offset = 1 if self._effective_intercept else 0
+        # Start from original penalized params, override active with refit
+        self._params = coef_cpu.copy()
+        if self._effective_intercept:
+            self._params = np.concatenate([[self.intercept_], self._params])
+        self._bse = np.full(full_p, np.nan)
+        self._zvalues = np.full(full_p, np.nan)
+        self._pvalues = np.full(full_p, np.nan)
+        self._conf_int = np.full((full_p, 2), np.nan)
         active_idx = np.where(active_cpu)[0] + offset
-        bse_full[active_idx] = np.asarray(result["bse"])[offset:]
-        z_full[active_idx] = np.asarray(result["statistic"])[offset:]
-        p_full[active_idx] = np.asarray(result["pvalues"])[offset:]
-        ci_full[active_idx] = np.asarray(result["conf_int"])[offset:]
+        self._params[active_idx] = params_active[offset:]
+        self._bse[active_idx] = np.asarray(result["bse"])[offset:]
+        self._zvalues[active_idx] = np.asarray(result["statistic"])[offset:]
+        self._pvalues[active_idx] = np.asarray(result["pvalues"])[offset:]
+        self._conf_int[active_idx] = np.asarray(result["conf_int"])[offset:]
         if self._effective_intercept:
-            bse_full[0] = np.asarray(result["bse"])[0]; z_full[0] = np.asarray(result["statistic"])[0]
-            p_full[0] = np.asarray(result["pvalues"])[0]; ci_full[0] = np.asarray(result["conf_int"])[0]
-        self._bse = bse_full; self._zvalues = z_full
-        self._pvalues = p_full; self._conf_int = ci_full
-        params_full = np.full(full_p, np.nan)
-        params_full[active_idx] = params_active[offset:]
-        if self._effective_intercept:
-            params_full[0] = params_active[0]
-        self._params = params_full
+            self._params[0] = params_active[0]
+            self._bse[0] = np.asarray(result["bse"])[0]; self._zvalues[0] = np.asarray(result["statistic"])[0]
+            self._pvalues[0] = np.asarray(result["pvalues"])[0]; self._conf_int[0] = np.asarray(result["conf_int"])[0]
 
         self._inference_result = ParameterInferenceResult(
             method="oracle",
