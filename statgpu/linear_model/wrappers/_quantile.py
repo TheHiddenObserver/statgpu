@@ -82,7 +82,7 @@ class QuantileRegression(BaseEstimator):
         self._fitted = False
 
     def fit(self, X, y, sample_weight=None):
-        backend = self._get_backend(device=self.device)
+        backend = self._get_backend(backend=self.device)
         backend_name = backend.name
         from statgpu.backends import _to_numpy
 

@@ -12,6 +12,7 @@
 | Component | Path |
 |-----------|------|
 | Loss | `statgpu.losses.QuantileLoss` |
+| Standalone Model | `statgpu.linear_model.QuantileRegression` |
 | Penalized Model | `statgpu.linear_model.penalized.PenalizedQuantileRegression` |
 | Specialized Solver | `statgpu.solvers._proximal_irls_quantile.proximal_irls_quantile_solver` |
 | R Equivalent | `quantreg::rq()` |
