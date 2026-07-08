@@ -82,7 +82,7 @@ class QuantileRegression(BaseEstimator):
         self._fitted = False
 
     def fit(self, X, y, sample_weight=None):
-        backend = self._get_backend(backend=self.device)
+        backend = self._get_backend(backend=str(self.device))
         backend_name = backend.name
         from statgpu.backends import _to_numpy
 
@@ -91,6 +91,13 @@ class QuantileRegression(BaseEstimator):
         n, p = X_arr.shape
 
         loss = QuantileLoss(quantile=self.quantile)
+
+        # GPU inference not yet supported for QuantileRegression
+        if self.compute_inference and backend_name != "numpy":
+            raise NotImplementedError(
+                f"QuantileRegression inference is currently CPU-only. "
+                f"Use device='cpu' or set compute_inference=False."
+            )
 
         if self.fit_intercept:
             from statgpu.penalties._l2 import L2Penalty
@@ -118,6 +125,7 @@ class QuantileRegression(BaseEstimator):
             self._params = np.concatenate([[self.intercept_], self.coef_])
         else:
             self._params = self.coef_.copy()
+        self._selected_backend_name = backend_name
         self._fitted = True
 
         if self.compute_inference:
@@ -129,6 +137,12 @@ class QuantileRegression(BaseEstimator):
 
     def _compute_inference(self, X, y, loss):
         """Dispatch to kernel-based or bootstrap inference."""
+        _valid = {"kernel", "bootstrap"}
+        if self.inference_method not in _valid:
+            raise ValueError(
+                f"Unknown inference_method='{self.inference_method}'. "
+                f"Valid options: {sorted(_valid)}."
+            )
         if self.inference_method == "bootstrap":
             self._compute_inference_bootstrap(X, y)
         else:
@@ -312,7 +326,14 @@ class QuantileRegression(BaseEstimator):
 
     def predict(self, X):
         self._check_is_fitted()
-        return np.asarray(X) @ self.coef_ + self.intercept_
+        backend_name = self._selected_backend_name or "numpy"
+        X_arr = self._to_array(X, backend=backend_name)
+        from statgpu.backends._utils import _get_xp, xp_asarray
+        xp = _get_xp(backend_name)
+        coef = xp_asarray(self.coef_, xp=xp, ref_arr=X_arr)
+        intercept = xp_asarray(self.intercept_, xp=xp, ref_arr=X_arr)
+        raw = X_arr @ coef + intercept
+        return np.asarray(raw) if backend_name != "numpy" else raw
 
     def _check_is_fitted(self):
         if not self._fitted:

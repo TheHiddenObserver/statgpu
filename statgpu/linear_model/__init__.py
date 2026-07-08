@@ -55,6 +55,7 @@ __all__ = [
     'InverseGaussianRegression',
     'NegativeBinomialRegression',
     'TweedieRegression',
+    'QuantileRegression',
     'GeneralizedLinearModel',
     'OrderedGeneralizedLinearModel',
     'PenalizedGeneralizedLinearModel',

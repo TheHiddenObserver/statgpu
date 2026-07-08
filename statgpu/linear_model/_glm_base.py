@@ -1048,6 +1048,11 @@ class OrderedGeneralizedLinearModel(GeneralizedLinearModel):
                 f"got range [{y_min}, {y_max}]. "
                 f"n_categories={K}."
             )
+        if xp.any(y_flat != xp.floor(y_flat)):
+            raise ValueError(
+                "Ordered model labels must be integer-coded categories, "
+                "not continuous values. Found non-integer labels."
+            )
 
         family = self._get_family()
         n = X.shape[0]
