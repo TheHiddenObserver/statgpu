@@ -207,9 +207,10 @@ class PenalizedLinearRegression(PenalizedGeneralizedLinearModel):
         print(f"{'':<15} {'coef':>12} {'std err':>12} {stat_label:>10} {pval_label:>10} {'[0.025':>12} {'0.975]':>12}")
         print("-" * 80)
 
+        zvals = self._zvalues if getattr(self, '_tvalues', None) is None else self._tvalues
         for i, name in enumerate(feature_names):
             print(f"{name:<15} {self._params[i]:>12.4f} {self._bse[i]:>12.4f} "
-                  f"{self._tvalues[i]:>10.3f} {self._pvalues[i]:>10.4f} "
+                  f"{zvals[i]:>10.3f} {self._pvalues[i]:>10.4f} "
                   f"{self._conf_int[i, 0]:>12.4f} {self._conf_int[i, 1]:>12.4f}")
 
         if getattr(self, '_simultaneous_enabled', False) and self._conf_int_simultaneous is not None:

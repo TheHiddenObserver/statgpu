@@ -131,6 +131,16 @@ class Penalty(ABC):
         xp = _xp(coef)
         return xp.ones_like(coef)
 
+    def curvature_diag(self, coef: np.ndarray) -> np.ndarray:
+        """Diagonal of second derivative P''(coef) for penalized sandwich inference.
+
+        Returns a (p,) vector.  Default: zeros(p).
+        L2 overrides: ``alpha * ones(p)``.
+        SCAD/MCP: raises NotImplementedError (concave — use oracle/bootstrap).
+        """
+        xp = _xp(coef)
+        return xp.zeros_like(coef)
+
     def get_params(self) -> dict:
         """
         Get penalty parameters for serialization.

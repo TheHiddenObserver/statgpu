@@ -34,6 +34,8 @@ class NegativeBinomialRegression(GeneralizedLinearModel):
         device: Device = Device.AUTO,
         n_jobs: Optional[int] = None,
         solver: str = "auto",
+        compute_inference: bool = False,
+        cov_type: str = "nonrobust",
         gpu_memory_cleanup: bool = False,
     ):
         if not np.isfinite(alpha) or alpha <= 0.0:
@@ -48,6 +50,8 @@ class NegativeBinomialRegression(GeneralizedLinearModel):
             device=device,
             n_jobs=n_jobs,
             solver=solver,
+            compute_inference=compute_inference,
+            cov_type=cov_type,
             gpu_memory_cleanup=gpu_memory_cleanup,
         )
 

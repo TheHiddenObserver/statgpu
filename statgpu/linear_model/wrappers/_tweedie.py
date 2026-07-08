@@ -33,6 +33,8 @@ class TweedieRegression(GeneralizedLinearModel):
         device: Device = Device.AUTO,
         n_jobs: Optional[int] = None,
         solver: str = "auto",
+        compute_inference: bool = False,
+        cov_type: str = "nonrobust",
         gpu_memory_cleanup: bool = False,
     ):
         if not 1.0 < power < 2.0:
@@ -47,6 +49,8 @@ class TweedieRegression(GeneralizedLinearModel):
             device=device,
             n_jobs=n_jobs,
             solver=solver,
+            compute_inference=compute_inference,
+            cov_type=cov_type,
             gpu_memory_cleanup=gpu_memory_cleanup,
         )
 

@@ -31,12 +31,46 @@ class _PenalizedInferenceMixin:
         return X_np * sqrt_sw[:, np.newaxis], y_np * sqrt_sw
 
     def _compute_post_fit_gaussian_inference(self, X, y, sample_weight=None):
-        """Populate inference state after fit. Dispatches to debiased for L1/ElasticNet."""
+        """Populate inference state after fit. Routes to sandwich/debiased/oracle."""
         if not self.compute_inference:
             return
+
+        # Non-squared_error Hessian losses + smooth/L2 penalties: penalized sandwich
         if self.loss != "squared_error":
-            return
+            loss_has_hessian = getattr(self._loss, 'has_hessian', False)
+            penalty_name = str(getattr(self._penalty, "name", self.penalty)).lower()
+            if loss_has_hessian and penalty_name in ("l2", "none", "", "elasticnet", "en"):
+                self._compute_penalized_sandwich_inference(X, y, sample_weight)
+                return
+            # SCAD/MCP + oracle
+            if penalty_name in ("scad", "mcp"):
+                im = str(getattr(self, "inference_method", "oracle")).lower()
+                if im == "oracle":
+                    self._compute_oracle_inference(X, y, sample_weight)
+                    return
+            # Bootstrap for any other combination
+            if str(getattr(self, "inference_method", "")).lower() == "bootstrap":
+                self._compute_post_fit_bootstrap_inference(X, y)
+                return
+            return  # no inference available
+
         penalty_name = str(getattr(self._penalty, "name", self.penalty)).lower()
+
+        # SCAD/MCP + squared_error: oracle or bootstrap
+        if penalty_name in ("scad", "mcp"):
+            im = str(getattr(self, "inference_method", "oracle")).lower()
+            if im == "oracle":
+                self._compute_oracle_inference(X, y, sample_weight)
+                return
+            elif im == "bootstrap":
+                self._compute_post_fit_bootstrap_inference(X, y)
+                return
+            raise NotImplementedError(
+                f"SCAD/MCP inference requires inference_method='oracle' or "
+                f"'bootstrap', got '{im}'. "
+                f"Set compute_inference=False or choose a supported method."
+            )
+
         if penalty_name in ("l1", "elasticnet", "en"):
             # GPU/Torch backends run their own debiased inference inside
             # _fit_gpu / _fit_torch.  Skip the CPU re-dispatch when inference
@@ -50,9 +84,19 @@ class _PenalizedInferenceMixin:
                 self._compute_post_fit_bootstrap_inference(X, y)
             elif "cpu_ols" in inference_method or "gpu_ols" in inference_method:
                 self._compute_post_fit_cpu_ols_inference(X, y)
+            else:
+                raise NotImplementedError(
+                    f"L1/ElasticNet inference requires inference_method='debiased', "
+                    f"'cpu_ols', 'gpu_ols', or 'bootstrap', got '{inference_method}'. "
+                    f"Set compute_inference=False or choose a supported method."
+                )
             return
         if penalty_name != "l2":
-            return
+            raise NotImplementedError(
+                f"Inference not supported for penalty='{penalty_name}' "
+                f"with loss='{self.loss}'. "
+                f"Set compute_inference=False or use a supported penalty."
+            )
         if self._inference_precomputed:
             state = self._precomputed_gaussian_state
             self._resid = np.asarray(state["resid"], dtype=float)
@@ -181,7 +225,15 @@ class _PenalizedInferenceMixin:
         then computes the debiased estimator, standard errors,
         z-statistics, p-values, and confidence intervals.
         """
-        from scipy.stats import norm as _norm_dist
+        from statgpu.backends import _resolve_backend
+        backend = _resolve_backend("auto", X)
+        if backend in ("cupy", "torch"):
+            raise NotImplementedError(
+                f"Debiased Lasso inference is not yet supported on device={backend!r}. "
+                f"Use device='cpu' for inference, or set inference_method='cpu_ols' or 'bootstrap'."
+            )
+        from statgpu.inference._distributions_backend import get_distribution
+        _norm_dist = get_distribution("norm", backend="numpy")
 
         X_np = np.asarray(_to_numpy(X), dtype=np.float64)
         y_np = np.asarray(_to_numpy(y), dtype=np.float64).ravel()
@@ -328,7 +380,15 @@ class _PenalizedInferenceMixin:
         inference coverage.  Use ``inference_method='debiased'`` for
         proper marginal inference.
         """
-        from scipy import stats as _stats
+        from statgpu.backends import _resolve_backend
+        backend = _resolve_backend("auto", X)
+        if backend in ("cupy", "torch"):
+            raise NotImplementedError(
+                f"CPU-OLS inference is not yet supported on device={backend!r}. "
+                f"Use device='cpu' for inference, or set inference_method='debiased'."
+            )
+        from statgpu.inference._distributions_backend import get_distribution
+        _t_dist = get_distribution("t", backend="numpy")
 
         X_np = np.asarray(_to_numpy(X), dtype=np.float64)
         y_np = np.asarray(_to_numpy(y), dtype=np.float64).ravel()
@@ -366,9 +426,9 @@ class _PenalizedInferenceMixin:
 
         bse_sel = np.sqrt(scale * np.diag(XtX_inv))
         tvalues_sel = params_sel / (bse_sel + 1e-30)
-        pvalues_sel = 2.0 * (1.0 - _stats.t.cdf(np.abs(tvalues_sel), df_resid))
+        pvalues_sel = 2.0 * _t_dist.sf(np.abs(tvalues_sel), df=df_resid)
 
-        t_crit = _stats.t.ppf(0.975, df_resid)
+        t_crit = _t_dist.ppf(0.975, df=df_resid)
         ci_sel = np.column_stack([
             params_sel - t_crit * bse_sel,
             params_sel + t_crit * bse_sel,
@@ -427,6 +487,8 @@ class _PenalizedInferenceMixin:
         More robust than naive OLS-based inference, but still not full
         "post-selection inference" for Lasso.
         """
+        # Bootstrap currently runs serial refits (CPU-native RNG).
+        # GPU-parallel bootstrap with batched solver tracked for follow-up PR.
         if self._X_design is None or self._resid is None or self._y is None:
             # Need to store these first
             X_np = np.asarray(_to_numpy(X), dtype=np.float64)
@@ -523,6 +585,11 @@ class _PenalizedInferenceMixin:
         from statgpu.inference._distributions_backend import norm as _gpu_norm
 
         n, p = X_gpu.shape
+        if p <= 1:
+            raise NotImplementedError(
+                "Debiased Lasso inference requires at least 2 features "
+                "(p >= 2). For p=1, use post_selection_ols or bootstrap."
+            )
         Sigma_hat = X_gpu.T @ X_gpu / n
 
         resid = y_gpu - X_gpu @ coef_gpu
@@ -697,6 +764,11 @@ class _PenalizedInferenceMixin:
         from statgpu.inference._distributions_backend import norm as _gpu_norm
 
         n, p = X_torch.shape
+        if p <= 1:
+            raise NotImplementedError(
+                "Debiased Lasso inference requires at least 2 features "
+                "(p >= 2). For p=1, use post_selection_ols or bootstrap."
+            )
         dtype = torch.float64
         device = X_torch.device
 
@@ -875,6 +947,252 @@ class _PenalizedInferenceMixin:
             simultaneous_n_bootstrap=getattr(self, 'simultaneous_n_bootstrap', None),
             simultaneous_critical_value=getattr(self, '_simultaneous_critical_value', None),
         )
+
+    # ----------------------------------------------------------------
+    # Penalized sandwich for non-squared_error Hessian losses + L2/EN
+    # ----------------------------------------------------------------
+
+    def _compute_penalized_sandwich_inference(self, X, y, sample_weight=None):
+        """Penalized sandwich inference for Hessian-equipped losses + L2/ElasticNet.
+
+        Uses the penalized Hessian H_pen = H_loss + penalty.curvature_diag()
+        as bread.  Backend-aware: works with NumPy, CuPy, and Torch arrays.
+        """
+        import numpy as np
+        from statgpu.backends import _to_numpy, _resolve_backend
+        from statgpu.backends._utils import _get_xp, xp_ones, xp_asarray
+        from statgpu.inference._sandwich import m_estimation_inference, _infer_covariance_convention
+        from statgpu.inference._results import ParameterInferenceResult
+
+        # Resolve backend and keep arrays on native device
+        backend = _resolve_backend("auto", X)
+        xp = _get_xp(backend)
+        is_torch = (backend == "torch")
+
+        X_arr = xp_asarray(X, dtype=xp.float64, xp=xp)
+        y_arr = xp_asarray(y, dtype=xp.float64, xp=xp).ravel()
+        sw_arr = None
+        if sample_weight is not None:
+            sw_arr = xp_asarray(sample_weight, dtype=xp.float64, xp=xp).ravel()
+
+        # Build aligned design: [1, X] with intercept first
+        n, p_feat = X_arr.shape
+        if self._effective_intercept:
+            ones = xp_ones(n, xp.float64, xp, ref_arr=X_arr)
+            if is_torch:
+                X_design = xp.cat([ones.reshape(-1, 1), X_arr], dim=1)
+            else:
+                X_design = xp.column_stack([ones, X_arr])
+            params = xp.concatenate([xp.asarray([self.intercept_], dtype=xp.float64),
+                                      xp_asarray(self.coef_, dtype=xp.float64, xp=xp)])
+            intercept_idx = 0
+        else:
+            X_design = X_arr
+            params = xp_asarray(self.coef_, dtype=xp.float64, xp=xp)
+            intercept_idx = None
+
+        # Penalty curvature: features only, intercept gets 0
+        curv = xp.zeros(len(params), dtype=xp.float64)
+        if self._penalty is not None:
+            pen_name = str(getattr(self._penalty, "name", "")).lower()
+            if pen_name in ("l2",):
+                curv_feat = xp_asarray(
+                    self._penalty.curvature_diag(self.coef_), dtype=xp.float64, xp=xp)
+            elif pen_name in ("elasticnet", "en"):
+                l1r = float(getattr(self._penalty, "l1_ratio", 0.5))
+                alpha = float(getattr(self._penalty, "alpha", self.alpha))
+                lam2 = alpha * (1.0 - l1r)
+                curv_feat = xp.full(p_feat, lam2, dtype=xp.float64)
+            else:
+                curv_feat = xp.zeros(p_feat, dtype=xp.float64)
+
+            if intercept_idx is not None:
+                curv[1:] = curv_feat
+            else:
+                curv[:] = curv_feat
+
+        has_curv = bool(float(xp.sum(xp.abs(curv))) > 0)
+
+        result = m_estimation_inference(
+            self._loss, X_design, y_arr, params,
+            cov_type=self.cov_type,
+            penalty_curvature_diag=curv if has_curv else None,
+            sample_weight=sw_arr,
+        )
+
+        self._bse = np.asarray(_to_numpy(result["bse"]))
+        self._zvalues = np.asarray(_to_numpy(result["statistic"]))
+        self._pvalues = np.asarray(_to_numpy(result["pvalues"]))
+        self._conf_int = np.asarray(_to_numpy(result["conf_int"]))
+        self._params = np.asarray(_to_numpy(params))
+
+        self._inference_result = ParameterInferenceResult(
+            method="m_estimation",
+            params=self._params.copy(),
+            bse=self._bse.copy(),
+            statistic=self._zvalues.copy(),
+            statistic_name="z",
+            pvalues=self._pvalues.copy(),
+            conf_int=self._conf_int.copy(),
+            distribution="normal",
+            metadata={
+                "dispersion": result["dispersion"],
+                "wald_stat": result["wald_stat"],
+                "wald_pval": result["wald_pval"],
+                "meat_type": self.cov_type,
+                "covariance_convention": _infer_covariance_convention(
+                    self.cov_type, has_curv
+                ),
+                "backend": backend,
+            },
+        )
+        self._inference_result.apply_to(self)
+
+    def _compute_oracle_inference(self, X, y, sample_weight=None):
+        """Oracle active-set inference for SCAD/MCP.
+
+        Refits unpenalized model on the active set and applies sandwich.
+        Backend-aware: works with NumPy, CuPy, and Torch arrays.
+        Valid due to the oracle property (Fan & Li 2001).
+        """
+        import numpy as np
+        from statgpu.backends import _to_numpy, _resolve_backend
+        from statgpu.backends._utils import _get_xp, xp_asarray, xp_ones
+        from statgpu.inference._sandwich import m_estimation_inference, _infer_covariance_convention
+        from statgpu.inference._results import ParameterInferenceResult
+
+        backend = _resolve_backend("auto", X)
+        xp = _get_xp(backend)
+
+        X_arr = xp_asarray(X, dtype=xp.float64, xp=xp)
+        y_arr = xp_asarray(y, dtype=xp.float64, xp=xp).ravel()
+        coef_arr = xp_asarray(self.coef_, dtype=xp.float64, xp=xp)
+        n, p = X_arr.shape
+
+        # Active set
+        active = xp.abs(coef_arr) > 1e-10
+        n_active = int(xp.sum(active))
+
+        active_cpu = np.asarray(_to_numpy(active))
+        n_active = int(np.sum(active_cpu))
+        coef_cpu = np.asarray(_to_numpy(coef_arr))
+
+        if n_active == 0:
+            full_p = p + (1 if self._effective_intercept else 0)
+            self._params = np.concatenate([[self.intercept_], coef_cpu]) if self._effective_intercept else coef_cpu.copy()
+            self._bse = np.full(full_p, np.nan)
+            self._zvalues = np.full(full_p, np.nan)
+            self._pvalues = np.full(full_p, np.nan)
+            self._conf_int = np.full((full_p, 2), np.nan)
+            self._inference_result = ParameterInferenceResult(
+                method="oracle", params=self._params.copy(), bse=self._bse.copy(),
+                statistic=self._zvalues.copy(), statistic_name="z",
+                pvalues=self._pvalues.copy(), conf_int=self._conf_int.copy(),
+                distribution="normal", metadata={"n_active": 0, "active_set": []})
+            self._inference_result.apply_to(self)
+            return
+
+        # Convert to CPU for refit (model constructors expect numpy)
+        X_cpu = np.asarray(_to_numpy(X_arr), dtype=float)
+        y_cpu = np.asarray(_to_numpy(y_arr), dtype=float).ravel()
+
+        from statgpu.linear_model.wrappers._poisson import PoissonRegression
+        from statgpu.linear_model.wrappers._gamma import GammaRegression
+        from statgpu.linear_model.wrappers._inverse_gaussian import InverseGaussianRegression
+        from statgpu.linear_model.wrappers._negative_binomial import NegativeBinomialRegression
+        from statgpu.linear_model.wrappers._tweedie import TweedieRegression
+        from statgpu.linear_model.wrappers._linear import LinearRegression
+
+        _MODEL_MAP = {
+            "squared_error": LinearRegression, "poisson": PoissonRegression,
+            "logistic": None, "gamma": GammaRegression,
+            "inverse_gaussian": InverseGaussianRegression,
+            "negative_binomial": NegativeBinomialRegression, "tweedie": TweedieRegression}
+        model_cls = _MODEL_MAP.get(self.loss)
+        if model_cls is None:
+            if self.loss == "logistic":
+                from statgpu.linear_model.wrappers._logistic import LogisticRegression as LR
+                model_cls = LR
+            else:
+                raise NotImplementedError(f"Oracle inference not implemented for loss='{self.loss}'")
+
+        X_active = X_cpu[:, active_cpu]
+        kwargs = {"fit_intercept": self._effective_intercept}
+        loss_kwargs = getattr(self, 'loss_kwargs', None) or {}
+        # Pass through loss-specific kwargs with correct parameter names
+        if self.loss == "negative_binomial" and "alpha" in model_cls.__init__.__code__.co_varnames:
+            kwargs["alpha"] = loss_kwargs.get("alpha", 1.0)
+        elif self.loss == "gamma" and "link" in model_cls.__init__.__code__.co_varnames:
+            kwargs["link"] = loss_kwargs.get("link", "log")
+        elif self.loss == "tweedie" and "power" in model_cls.__init__.__code__.co_varnames:
+            kwargs["power"] = loss_kwargs.get("power", 1.5)
+        elif loss_kwargs and "loss_kwargs" in model_cls.__init__.__code__.co_varnames:
+            kwargs["loss_kwargs"] = loss_kwargs
+        if self.loss == "logistic" and "C" in model_cls.__init__.__code__.co_varnames:
+            kwargs["C"] = 1e9
+        # Oracle refits use Newton solver for accuracy and consistency
+        if "solver" in model_cls.__init__.__code__.co_varnames:
+            kwargs["solver"] = "newton"
+        # Oracle refit runs on CPU with numpy arrays
+        sw_cpu = None
+        if sample_weight is not None:
+            sw_cpu = np.asarray(_to_numpy(sample_weight), dtype=float).ravel()
+        refit = model_cls(**kwargs)
+        refit.fit(X_active, y_cpu, sample_weight=sw_cpu)
+
+        # Sandwich on refit — use backend-aware m_estimation_inference
+        if self._effective_intercept:
+            X_design = np.column_stack([np.ones(n), X_active])
+            params_active = np.concatenate([[refit.intercept_], refit.coef_])
+        else:
+            X_design = X_active
+            params_active = np.asarray(refit.coef_)
+
+        loss_obj = refit._resolve_loss_for_inference() if hasattr(refit, '_resolve_loss_for_inference') else self._loss
+        result = m_estimation_inference(
+            loss_obj, X_design, y_cpu, params_active,
+            cov_type=self.cov_type, sample_weight=sw_cpu)
+
+        # Map back to full parameter space.
+        # Inactive features keep their original penalized coefficient values
+        # (not NaN), matching the pre-refactor behavior for summary().
+        full_p = p + (1 if self._effective_intercept else 0)
+        offset = 1 if self._effective_intercept else 0
+        # Start from original penalized params, override active with refit
+        self._params = coef_cpu.copy()
+        if self._effective_intercept:
+            self._params = np.concatenate([[self.intercept_], self._params])
+        self._bse = np.full(full_p, np.nan)
+        self._zvalues = np.full(full_p, np.nan)
+        self._pvalues = np.full(full_p, np.nan)
+        self._conf_int = np.full((full_p, 2), np.nan)
+        active_idx = np.where(active_cpu)[0] + offset
+        self._params[active_idx] = params_active[offset:]
+        self._bse[active_idx] = np.asarray(result["bse"])[offset:]
+        self._zvalues[active_idx] = np.asarray(result["statistic"])[offset:]
+        self._pvalues[active_idx] = np.asarray(result["pvalues"])[offset:]
+        self._conf_int[active_idx] = np.asarray(result["conf_int"])[offset:]
+        if self._effective_intercept:
+            self._params[0] = params_active[0]
+            self._bse[0] = np.asarray(result["bse"])[0]; self._zvalues[0] = np.asarray(result["statistic"])[0]
+            self._pvalues[0] = np.asarray(result["pvalues"])[0]; self._conf_int[0] = np.asarray(result["conf_int"])[0]
+
+        self._inference_result = ParameterInferenceResult(
+            method="oracle",
+            params=self._params.copy(),
+            bse=self._bse.copy(),
+            statistic=self._zvalues.copy(),
+            statistic_name="z",
+            pvalues=self._pvalues.copy(),
+            conf_int=self._conf_int.copy(),
+            distribution="normal",
+            metadata={
+                "n_active": n_active,
+                "active_set": active.tolist() if hasattr(active, 'tolist') else list(active),
+                "covariance_convention": _infer_covariance_convention(self.cov_type, False),
+            },
+        )
+        self._inference_result.apply_to(self)
 
     def _compute_simultaneous_ci_maxz_bootstrap(self):
         """Compute simultaneous CIs using max-|Z| multiplier bootstrap.

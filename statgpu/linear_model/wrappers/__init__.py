@@ -13,6 +13,7 @@ from ._poisson import PoissonRegression
 from ._inverse_gaussian import InverseGaussianRegression
 from ._negative_binomial import NegativeBinomialRegression
 from ._tweedie import TweedieRegression
+from ._quantile import QuantileRegression
 
 __all__ = [
     "LinearRegression",
@@ -28,4 +29,5 @@ __all__ = [
     "InverseGaussianRegression",
     "NegativeBinomialRegression",
     "TweedieRegression",
+    "QuantileRegression",
 ]
