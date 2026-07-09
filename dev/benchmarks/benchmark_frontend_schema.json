@@ -1,0 +1,316 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://statgpu.org/benchmark-frontend-schema.json",
+  "title": "statgpu Benchmark Frontend Data Schema",
+  "description": "Normalized benchmark data for the statgpu frontend dashboard.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "generated", "meta", "environments", "categories", "models", "runs"],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "description": "Semantic version of this schema"
+    },
+    "generated": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 timestamp when this file was generated"
+    },
+    "meta": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["generator", "git_sha"],
+      "properties": {
+        "generator": {
+          "type": "string",
+          "description": "Path to the generator script"
+        },
+        "git_sha": {
+          "type": "string",
+          "description": "Git commit SHA at generation time"
+        }
+      }
+    },
+    "environments": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["env_id", "label", "gpu", "cpu"],
+        "properties": {
+          "env_id": {
+            "type": "string",
+            "description": "Unique environment identifier, e.g. remote-p100"
+          },
+          "label": {
+            "type": "string",
+            "description": "Human-readable label, e.g. Tesla P100 + Xeon 8163"
+          },
+          "gpu": {
+            "type": "string",
+            "description": "GPU model, e.g. NVIDIA Tesla P100-16GB"
+          },
+          "cpu": {
+            "type": "string",
+            "description": "CPU model, e.g. 12x Intel Xeon Platinum 8163 @ 2.50GHz"
+          },
+          "host": {
+            "type": "string",
+            "description": "Optional host identifier"
+          }
+        }
+      }
+    },
+    "categories": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["category_id", "name_zh", "name_en"],
+        "properties": {
+          "category_id": {
+            "type": "string",
+            "description": "Unique category identifier, e.g. penalized_glm"
+          },
+          "name_zh": {
+            "type": "string",
+            "description": "Chinese display name"
+          },
+          "name_en": {
+            "type": "string",
+            "description": "English display name"
+          }
+        }
+      }
+    },
+    "models": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["model_id", "primary_category_id", "category_ids"],
+        "properties": {
+          "model_id": {
+            "type": "string",
+            "description": "Unique model identifier, e.g. PenalizedLogisticRegression"
+          },
+          "primary_category_id": {
+            "type": "string",
+            "description": "Primary category this model belongs to"
+          },
+          "category_ids": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "All categories this model can appear in"
+          },
+          "loss": {
+            "type": "string",
+            "description": "Loss function, e.g. logistic, squared_error"
+          },
+          "supports_penalty": {
+            "type": "boolean",
+            "default": false
+          },
+          "supports_inference": {
+            "type": "boolean",
+            "default": false
+          }
+        }
+      }
+    },
+    "runs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "run_id", "env_id", "category_ids", "model_id",
+          "framework", "backend", "scale", "source"
+        ],
+        "properties": {
+          "run_id": {
+            "type": "string",
+            "description": "Unique stable key for this run"
+          },
+          "benchmark_session_id": {
+            "type": "string",
+            "description": "Groups runs from the same benchmark execution"
+          },
+          "env_id": {
+            "type": "string",
+            "description": "References environments[].env_id"
+          },
+          "category_ids": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Categories this run belongs to (multi-label)"
+          },
+          "model_id": {
+            "type": "string",
+            "description": "References models[].model_id"
+          },
+          "loss": {
+            "type": "string",
+            "description": "Loss function used, e.g. logistic"
+          },
+          "penalty": {
+            "type": "string",
+            "description": "Penalty type, e.g. l1, l2, elasticnet, or null if unpenalized"
+          },
+          "solver": {
+            "type": "string",
+            "description": "Solver used, e.g. auto, fista, exact"
+          },
+          "solver_display": {
+            "type": "string",
+            "description": "Human-readable solver display name"
+          },
+          "solver_kind": {
+            "type": "string",
+            "enum": ["dispatch", "manual", "internal", null],
+            "description": "Kind of solver: dispatch (auto), manual, internal"
+          },
+          "framework": {
+            "type": "string",
+            "enum": ["statgpu", "sklearn", "statsmodels", "glmnet", "scipy", "r"],
+            "description": "Framework that produced this run"
+          },
+          "backend": {
+            "type": ["string", "null"],
+            "enum": ["numpy", "cupy", "torch", null],
+            "description": "Backend: numpy/cupy/torch for statgpu; null for external frameworks"
+          },
+          "scale": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["scale_key", "n_samples", "n_features", "label"],
+            "properties": {
+              "scale_key": { "type": "string" },
+              "n_samples": { "type": "integer", "minimum": 1 },
+              "n_features": { "type": "integer", "minimum": 1 },
+              "label": { "type": "string" }
+            }
+          },
+          "source": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["file", "date", "parser", "parser_version"],
+            "properties": {
+              "file": { "type": "string" },
+              "date": { "type": "string" },
+              "parser": { "type": "string" },
+              "parser_version": { "type": "string" }
+            }
+          },
+          "metrics": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "timing": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["fit_time_ms", "quality", "source_file"],
+                "properties": {
+                  "fit_time_ms": { "type": "number", "minimum": 0 },
+                  "std_ms": { "type": "number", "minimum": 0 },
+                  "min_ms": { "type": "number", "minimum": 0 },
+                  "max_ms": { "type": "number", "minimum": 0 },
+                  "quality": {
+                    "type": "string",
+                    "enum": ["measured", "reported", "computed", "partial"]
+                  },
+                  "source_file": { "type": "string" }
+                }
+              },
+              "speedup": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["value", "reference_backend", "reference_framework", "reported_semantics", "quality", "source_file"],
+                "properties": {
+                  "value": { "type": "number", "minimum": 0 },
+                  "reference_run_id": { "type": "string" },
+                  "reference_backend": {
+                    "type": ["string", "null"],
+                    "enum": ["numpy", "cupy", "torch", null]
+                  },
+                  "reference_framework": {
+                    "type": "string",
+                    "enum": ["statgpu", "sklearn", "statsmodels", "glmnet", "scipy", "r"]
+                  },
+                  "reported_semantics": {
+                    "type": "string",
+                    "enum": ["computed", "reported_by_runner"]
+                  },
+                  "quality": {
+                    "type": "string",
+                    "enum": ["measured", "reported", "computed", "partial"]
+                  },
+                  "source_file": { "type": "string" }
+                }
+              },
+              "accuracy": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["quality", "source_file"],
+                "properties": {
+                  "coef_l2_diff": { "type": "number", "minimum": 0 },
+                  "coef_max_abs_diff": { "type": "number", "minimum": 0 },
+                  "bse_max_abs_diff": { "type": "number", "minimum": 0 },
+                  "reference": { "type": "string" },
+                  "quality": {
+                    "type": "string",
+                    "enum": ["measured", "reported", "computed", "partial"]
+                  },
+                  "source_file": { "type": "string" }
+                }
+              },
+              "inference": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["quality", "source_file"],
+                "properties": {
+                  "bse": { "type": "number", "minimum": 0 },
+                  "wald_stat": { "type": "number" },
+                  "p_value": { "type": "number", "minimum": 0, "maximum": 1 },
+                  "ok": { "type": "boolean" },
+                  "quality": {
+                    "type": "string",
+                    "enum": ["measured", "reported", "computed", "partial"]
+                  },
+                  "source_file": { "type": "string" }
+                }
+              },
+              "convergence": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "n_iter": { "type": "integer", "minimum": 1 },
+                  "converged": { "type": "boolean" },
+                  "quality": {
+                    "type": "string",
+                    "enum": ["measured", "reported", "computed", "partial"]
+                  },
+                  "source_file": { "type": "string" }
+                }
+              }
+            }
+          },
+          "quality": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "status": {
+                "type": "string",
+                "enum": ["ok", "warning", "error"]
+              },
+              "warnings": {
+                "type": "array",
+                "items": { "type": "string" }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

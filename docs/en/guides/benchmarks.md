@@ -1,11 +1,25 @@
 # Benchmark Index
 
 > Language: English  
-> Last updated: 2026-06-01
+> Last updated: 2026-07-09
 > This page: Benchmark index  
 > Switch: [Chinese](../../guides/benchmarks.md)
 
-Language switch: [Chinese](../../guides/benchmarks.md)
+## Benchmark Dashboard
+
+**Interactive benchmark dashboard**: [Open Dashboard](../../assets/benchmarks/index.html)
+
+The dashboard provides interactive exploration of benchmark results across 12 model categories (penalized GLM, linear models, unsupervised, survival, etc.), comparing statgpu's 3 backends (numpy/cupy/torch) against sklearn, statsmodels, and R glmnet. Features:
+
+- Filterable by category, model, penalty, solver, scale, and backend
+- Timing comparison charts (ECharts) with speedup analysis
+- Solver-level comparison (penalized GLM)
+- Accuracy validation (l2_diff vs reference implementations)
+- Data provenance tracking per benchmark run
+
+To generate/update benchmark data: `python dev/benchmarks/generate_benchmark_data.py`
+
+---
 
 ## Inference
 

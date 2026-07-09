@@ -1,11 +1,25 @@
 # 基准脚本索引
 
 > 语言: 中文  
-> 最后更新: 2026-04-16  
+> 最后更新: 2026-07-09  
 > 页面定位: 基准脚本索引  
 > 切换: [English](../en/guides/benchmarks.md)
 
-语言切换：[English](../en/guides/benchmarks.md)
+## 交互式基准面板
+
+**打开面板**: [Benchmark Dashboard](../../assets/benchmarks/index.html)
+
+交互式基准面板覆盖 12 个模型大类（惩罚 GLM、线性模型、无监督学习、生存分析等），对比 statgpu 三后端（numpy/cupy/torch）与 sklearn、statsmodels、R glmnet。功能包括：
+
+- 按分类、模型、惩罚项、求解器、数据规模、后端筛选
+- 时间对比图（ECharts）+ 加速比分析
+- 求解器级别对比（惩罚 GLM）
+- 精度验证（l2_diff 与参考实现对比）
+- 每次基准运行的数据溯源
+
+生成/更新基准数据：`python dev/benchmarks/generate_benchmark_data.py`
+
+---
 
 ## 推断相关
 
