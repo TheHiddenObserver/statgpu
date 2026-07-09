@@ -8,10 +8,6 @@ export function renderSidebar(
   onUpdate: () => void,
 ): HTMLElement {
   const sidebar = h('div', { class: 'sidebar' });
-  sidebar.style.cssText = `
-    width:200px; min-width:200px; background:#f5f5f5; border-right:1px solid #ddd;
-    padding:8px; overflow-y:auto; font-size:13px;
-  `;
 
   const title = h(
     'div',
@@ -61,7 +57,7 @@ export function renderSidebar(
   }
   sidebar.appendChild(catContainer);
 
-  // Wire up search to filter category rows
+  // Wire up search
   search.addEventListener('input', () => {
     const q = search.value.toLowerCase();
     for (const row of catRows) {
@@ -74,21 +70,13 @@ export function renderSidebar(
   const btnRow = h('div', {
     style: 'display:flex; gap:4px; margin-top:6px;',
   });
-  const allBtn = h(
-    'button',
-    { style: 'font-size:11px; padding:2px 6px;' },
-    'All',
-  );
+  const allBtn = h('button', {}, 'All');
   allBtn.addEventListener('click', () => {
     for (const cat of data.categories)
       state.selectedCategoryIds.add(cat.category_id);
     onUpdate();
   });
-  const noneBtn = h(
-    'button',
-    { style: 'font-size:11px; padding:2px 6px;' },
-    'None',
-  );
+  const noneBtn = h('button', {}, 'None');
   noneBtn.addEventListener('click', () => {
     state.selectedCategoryIds.clear();
     onUpdate();

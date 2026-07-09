@@ -10,8 +10,6 @@ export function renderFilterBar(
   onUpdate: () => void,
 ): HTMLElement {
   const bar = h('div', { class: 'filter-bar' });
-  bar.style.cssText =
-    'display:flex; flex-wrap:wrap; align-items:center; gap:8px; padding:6px 0; border-bottom:1px solid #eee; margin-bottom:8px; font-size:13px;';
 
   const filtered = filterRuns(allRuns, state);
 

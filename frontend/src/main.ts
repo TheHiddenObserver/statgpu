@@ -1,4 +1,6 @@
-﻿import * as echarts from 'echarts';
+import './style.css';
+
+import * as echarts from 'echarts';
 import type { BenchmarkData, ParseReport, Run } from './schema';
 import { fetchBenchmarkData, fetchParseReport, filterRuns } from './data';
 import { createDefaultState } from './state';
@@ -8,6 +10,7 @@ import { renderHeader } from './components/Header';
 import { renderSidebar } from './components/Sidebar';
 import { renderFilterBar } from './components/FilterBar';
 import { renderOverviewTable } from './components/OverviewTable';
+import { renderSummaryCards } from './components/SummaryCards';
 import { renderTimingChart } from './charts/TimingChart';
 import { renderSpeedupChart } from './charts/SpeedupChart';
 
@@ -23,12 +26,11 @@ let state: AppState = createDefaultState();
 const chartInstances: echarts.ECharts[] = [];
 
 // ---------------------------------------------------------------------------
-// Components
+// Layout
 // ---------------------------------------------------------------------------
 
 function renderApp(): HTMLElement {
   const app = h('div', { id: 'app-root' });
-  app.style.cssText = 'display:flex; flex-direction:column; height:100vh;';
   app.appendChild(renderHeader(data!, parseReport, state, update));
   app.appendChild(renderBody());
   return app;
@@ -36,8 +38,6 @@ function renderApp(): HTMLElement {
 
 function renderBody(): HTMLElement {
   const body = h('div', { class: 'body' });
-  body.style.cssText = 'display:flex; flex:1; overflow:hidden;';
-
   body.appendChild(renderSidebar(data!, state, update));
   body.appendChild(renderMain());
   return body;
@@ -45,33 +45,50 @@ function renderBody(): HTMLElement {
 
 function renderMain(): HTMLElement {
   const main = h('div', { class: 'main' });
-  main.style.cssText = 'flex:1; display:flex; flex-direction:column; overflow-y:auto; padding:12px;';
-
-  const allRuns = data!.runs;
-  main.appendChild(renderFilterBar(allRuns, data!, state, update));
+  main.appendChild(renderSummaryCards(data!, parseReport, data!.runs));
+  main.appendChild(renderFilterBar(data!.runs, data!, state, update));
   main.appendChild(renderChartArea());
   main.appendChild(renderOverviewTable(getFilteredRuns(), state, update));
-
+  main.appendChild(renderFooter());
   return main;
 }
 
 function renderChartArea(): HTMLElement {
   const area = h('div', { class: 'chart-area' });
-  area.style.cssText = 'display:flex; gap:8px; margin-bottom:8px;';
-
-  const timingDiv = h('div', { id: 'timing-chart', style: 'flex:1; height:350px; border:1px solid #eee; border-radius:4px;' });
-  const speedupDiv = h('div', { id: 'speedup-chart', style: 'flex:1; height:350px; border:1px solid #eee; border-radius:4px;' });
-
+  const timingDiv = h('div', { id: 'timing-chart', class: 'chart-container' });
+  const speedupDiv = h('div', { id: 'speedup-chart', class: 'chart-container' });
   area.appendChild(timingDiv);
   area.appendChild(speedupDiv);
 
-  // Render charts after DOM update
   setTimeout(() => {
     const filtered = getFilteredRuns();
     renderTimingChart(timingDiv, filtered, state, chartInstances);
     renderSpeedupChart(speedupDiv, filtered, state, chartInstances);
   }, 0);
   return area;
+}
+
+function renderFooter(): HTMLElement {
+  const footer = h('div', { class: 'dashboard-footer' });
+
+  const links: [string, string][] = [
+    ['Benchmark guide', '../../en/guides/benchmarks.html'],
+    ['Raw data (JSON)', 'data/benchmark_data.json'],
+    ['Parse report (JSON)', 'data/parse_report.json'],
+    [
+      'GitHub source',
+      'https://github.com/TheHiddenObserver/statgpu/tree/master/dev/benchmarks',
+    ],
+  ];
+  for (const [label, href] of links) {
+    const a = h('a', { href, target: '_blank', rel: 'noopener' }, label);
+    footer.appendChild(a);
+  }
+
+  const meta = h('span', {}, `Schema ${data!.schema_version} · ${data!.meta.git_sha}`);
+  footer.appendChild(meta);
+
+  return footer;
 }
 
 // ---------------------------------------------------------------------------
@@ -87,15 +104,13 @@ function update(): void {
   const main = document.querySelector('.main') as HTMLElement | null;
   if (!main) return;
 
-  // Dispose old ECharts instances before clearing DOM
   for (const chart of chartInstances) {
     if (!chart.isDisposed()) chart.dispose();
   }
   chartInstances.length = 0;
 
   clear(main);
-  const allRuns = data!.runs;
-  main.appendChild(renderFilterBar(allRuns, data!, state, update));
+  main.appendChild(renderFilterBar(data!.runs, data!, state, update));
   main.appendChild(renderChartArea());
   main.appendChild(renderOverviewTable(getFilteredRuns(), state, update));
 }
@@ -109,7 +124,7 @@ async function init(): Promise<void> {
   if (!root) return;
 
   root.innerHTML =
-    '<div style="padding:40px; text-align:center; color:#999;">Loading benchmark data...</div>';
+    '<div class="empty-state">Loading benchmark data...</div>';
 
   try {
     [data, parseReport] = await Promise.all([
@@ -121,7 +136,7 @@ async function init(): Promise<void> {
     (root as HTMLElement).appendChild(appEl);
     update();
   } catch (err) {
-    root.innerHTML = `<div style="padding:40px; text-align:center; color:#ff4d4f;">
+    root.innerHTML = `<div class="empty-state" style="color:#ff4d4f;">
       Failed to load benchmark data: ${err instanceof Error ? err.message : String(err)}<br/>
       <small>Make sure to run: python dev/benchmarks/generate_benchmark_data.py</small>
     </div>`;

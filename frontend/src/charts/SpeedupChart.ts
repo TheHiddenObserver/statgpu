@@ -31,33 +31,50 @@ export function renderSpeedupChart(
   }
 
   speedupRuns.sort(
-    (a, b) => (b.metrics.speedup?.value ?? 0) - (a.metrics.speedup?.value ?? 0),
+    (a, b) =>
+      (b.metrics.speedup?.value ?? 0) - (a.metrics.speedup?.value ?? 0),
   );
   const topN = speedupRuns.slice(0, 30);
-  const labels = topN.map(
-    (r) =>
-      `${r.model_id.replace('Penalized', '').replace('Regression', '')}+${r.penalty} [${r.solver_display ?? r.solver}] ${r.scale.label}`,
-  );
+  const reportedCount = topN.filter(
+    (r) => r.metrics.speedup?.reported_semantics !== 'computed',
+  ).length;
+
+  const labels = topN.map((r) => {
+    const isComputed =
+      r.metrics.speedup?.reported_semantics === 'computed';
+    const suffix = isComputed ? '' : ' Ⓡ';
+    return `${r.model_id.replace('Penalized', '').replace('Regression', '')}+${r.penalty} [${r.solver_display ?? r.solver}] ${r.scale.label}${suffix}`;
+  });
 
   chart.setOption(
     {
       title: {
         text: 'GPU Speedup vs CPU',
+        subtext:
+          reportedCount > 0
+            ? 'Ⓡ = reported by solver benchmark'
+            : '',
         left: 'center',
         textStyle: { fontSize: 13 },
+        subtextStyle: { fontSize: 10, color: '#999' },
       },
       tooltip: {
         trigger: 'axis',
         formatter: (
-          params: { value: number; color: string }[],
+          params: { value: number; color: string; name: string }[],
         ) => {
-          const v = params[0]?.value;
-          if (v == null) return 'No data';
-          const label = v > 1 ? 'faster' : v < 1 ? 'slower' : 'same';
-          return `<b>${v.toFixed(2)}x</b> (${label})`;
+          const p = params[0];
+          if (!p || p.value == null) return 'No data';
+          const label =
+            p.value > 1 ? 'faster' : p.value < 1 ? 'slower' : 'same';
+          const isReported = p.name.includes('Ⓡ');
+          const kind = isReported
+            ? 'reported by solver benchmark'
+            : 'computed vs NumPy';
+          return `<b>${p.value.toFixed(2)}×</b> ${kind} (${label})`;
         },
       },
-      grid: { left: 10, right: 10, top: 40, bottom: 30 },
+      grid: { left: 10, right: 10, top: reportedCount > 0 ? 50 : 40, bottom: 30 },
       xAxis: {
         type: 'value',
         name: 'speedup',
@@ -71,13 +88,28 @@ export function renderSpeedupChart(
       series: [
         {
           type: 'bar',
-          data: topN.reverse().map((r) => ({
-            value: r.metrics.speedup!.value,
-            itemStyle: {
-              color:
-                r.metrics.speedup!.value >= 1 ? '#52c41a' : '#ff4d4f',
-            },
-          })),
+          data: topN.reverse().map((r) => {
+            const isReported =
+              r.metrics.speedup?.reported_semantics ===
+              'reported_by_runner';
+            const val = r.metrics.speedup!.value;
+            return {
+              value: val,
+              itemStyle: {
+                color: val >= 1 ? '#52c41a' : '#ff4d4f',
+                ...(isReported
+                  ? {
+                      decal: {
+                        symbol: 'triangle' as const,
+                        symbolSize: 0.6,
+                        color: 'rgba(0,0,0,0.12)',
+                        dashArrayX: [6, 0],
+                      },
+                    }
+                  : {}),
+              },
+            };
+          }),
           markLine: {
             silent: true,
             data: [

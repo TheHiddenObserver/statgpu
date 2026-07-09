@@ -1,14 +1,28 @@
 import { h } from '../utils/dom';
 
-/** Wraps existing empty-state messages without changing copy in Step 2.
- *  Message improvements deferred to Step 3. */
+/** Improved empty state messages — Step 3 UI polish. */
 export function emptyStateMessage(text: string): HTMLElement {
+  return h('div', { class: 'empty-state' }, text);
+}
+
+export function emptyFilterMessage(): HTMLElement {
   return h(
     'div',
-    {
-      style:
-        'padding:40px; text-align:center; color:#999; font-size:14px;',
-    },
-    text,
+    { class: 'empty-state' },
+    'No runs match the current filters.',
+    h('br'),
+    h(
+      'small',
+      {},
+      'Try clearing scale, solver, or external framework filters.',
+    ),
+  );
+}
+
+export function emptyChartMessage(): HTMLElement {
+  return h(
+    'div',
+    { class: 'empty-state' },
+    'No timing data is available for this filtered view.',
   );
 }

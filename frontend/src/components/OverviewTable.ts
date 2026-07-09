@@ -44,7 +44,6 @@ export function renderOverviewTable(
   onUpdate: () => void,
 ): HTMLElement {
   const container = h('div', { class: 'table-container' });
-  container.style.cssText = 'font-size:12px;';
 
   const filtered = runs;
   const displayCount =
@@ -58,9 +57,7 @@ export function renderOverviewTable(
   );
   container.appendChild(title);
 
-  const table = h('table', {
-    style: 'width:100%; border-collapse:collapse;',
-  });
+  const table = h('table');
   const thead = h('thead');
   const headerRow = h('tr');
   const cols = [
@@ -93,14 +90,7 @@ export function renderOverviewTable(
           ? ' ▲'
           : ' ▼'
         : '';
-    const th = h(
-      'th',
-      {
-        style:
-          'padding:4px 6px; border-bottom:2px solid #ddd; text-align:left; position:sticky; top:0; background:#fff; cursor:pointer;',
-      },
-      col + arrow,
-    );
+    const th = h('th', {}, col + arrow);
     th.addEventListener('click', () => {
       if (state.sortColumn === ck) {
         state.sortDir = state.sortDir === 'asc' ? 'desc' : 'asc';
@@ -150,11 +140,7 @@ export function renderOverviewTable(
       r.source.file,
     ];
     for (const c of cells) {
-      const td = h(
-        'td',
-        { style: 'padding:3px 6px;' },
-        String(c),
-      );
+      const td = h('td', {}, String(c));
       if (
         c &&
         typeof c === 'string' &&

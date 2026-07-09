@@ -9,11 +9,6 @@ export function renderHeader(
   onUpdate: () => void,
 ): HTMLElement {
   const header = h('div', { class: 'header' });
-  header.style.cssText = `
-    display:flex; align-items:center; justify-content:space-between;
-    padding:8px 16px; background:#1a1a2e; color:#eee; font-size:14px;
-    border-bottom:2px solid #16213e;
-  `;
 
   const left = h('div');
   left.innerHTML =
@@ -25,10 +20,7 @@ export function renderHeader(
 
   // Hardware selector
   const hwLabel = h('span', {}, 'Environment: ');
-  const hwSelect = h('select', {
-    id: 'env-select',
-    style: 'padding:4px 8px; border-radius:4px;',
-  });
+  const hwSelect = h('select', { id: 'env-select' });
   for (const env of data.environments) {
     const opt = h('option', { value: env.env_id }, env.label);
     if (env.env_id === state.selectedEnvId) opt.setAttribute('selected', '');
