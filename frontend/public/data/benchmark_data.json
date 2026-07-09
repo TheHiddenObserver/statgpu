@@ -1,9 +1,9 @@
 {
   "schema_version": "1.0.0",
-  "generated": "2026-07-09T07:00:52.663721+00:00",
+  "generated": "1970-01-01T00:00:00+00:00",
   "meta": {
     "generator": "dev/benchmarks/generate_benchmark_data.py",
-    "git_sha": "46c0722"
+    "git_sha": "deterministic"
   },
   "environments": [
     {

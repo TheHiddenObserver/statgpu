@@ -27,6 +27,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+      - name: Install test dependencies
+        run: python -m pip install -U pip pytest jsonschema
       - name: Run parser tests
         run: pytest dev/tests/test_benchmark_frontend_data.py -v
       - name: Validate generator output
@@ -56,11 +58,12 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
-      - name: Generate data
+      - name: Generate data (deterministic)
         run: |
           python dev/benchmarks/generate_benchmark_data.py \
             --out frontend/public/data/benchmark_data.json \
-            --report frontend/public/data/parse_report.json
+            --report frontend/public/data/parse_report.json \
+            --deterministic
       - name: Build frontend
         run: |
           cd frontend

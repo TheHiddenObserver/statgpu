@@ -669,7 +669,7 @@ def get_git_sha() -> str:
         return "unknown"
 
 
-def generate(results_dir: Path, check_only: bool = False) -> tuple[dict, dict]:
+def generate(results_dir: Path, check_only: bool = False, deterministic: bool = False) -> tuple[dict, dict]:
     """Generate unified benchmark_data.json from results_dir."""
     all_runs: list[dict] = []
     all_models: dict[str, dict] = {}
@@ -715,12 +715,19 @@ def generate(results_dir: Path, check_only: bool = False) -> tuple[dict, dict]:
         }
     ]
 
+    if deterministic:
+        generated_ts = "1970-01-01T00:00:00+00:00"
+        git_sha = "deterministic"
+    else:
+        generated_ts = datetime.now(timezone.utc).isoformat()
+        git_sha = get_git_sha()
+
     output = {
         "schema_version": "1.0.0",
-        "generated": datetime.now(timezone.utc).isoformat(),
+        "generated": generated_ts,
         "meta": {
             "generator": "dev/benchmarks/generate_benchmark_data.py",
-            "git_sha": get_git_sha(),
+            "git_sha": git_sha,
         },
         "environments": environments,
         "categories": CATEGORIES,
@@ -748,12 +755,34 @@ def _load_schema() -> dict | None:
         return json.load(f)
 
 
+def _get_jsonschema_validator():
+    """Get Draft202012Validator if jsonschema is installed, else None."""
+    try:
+        from jsonschema import Draft202012Validator
+        return Draft202012Validator
+    except ImportError:
+        return None
+
+
 def validate_against_schema(output: dict) -> list[str]:
-    """Validate output against benchmark_frontend_schema.json using stdlib only."""
+    """Validate output against benchmark_frontend_schema.json.
+
+    Uses jsonschema library for full validation if available,
+    falls back to basic sanity checks otherwise.
+    """
     schema = _load_schema()
     if schema is None:
         return ["Schema file not found, skipping schema validation"]
 
+    Validator = _get_jsonschema_validator()
+    if Validator is not None:
+        validator = Validator(schema)
+        schema_errors = sorted(validator.iter_errors(output), key=lambda e: list(e.path))
+        if not schema_errors:
+            return []
+        return [f"{' → '.join(str(p) for p in e.absolute_path)}: {e.message}" for e in schema_errors[:50]]
+
+    # Fallback: basic sanity checks without jsonschema
     errors = []
     runs_schema = schema.get("properties", {}).get("runs", {})
     run_props = runs_schema.get("items", {}).get("properties", {})
@@ -761,13 +790,9 @@ def validate_against_schema(output: dict) -> list[str]:
 
     for run in output.get("runs", []):
         rid = run.get("run_id", "?")
-
-        # Check required fields
         for field in run_required:
             if field not in run:
                 errors.append(f"{rid}: missing required field '{field}' (schema)")
-
-        # Check enum constraints
         for field_name in ("framework", "backend", "solver_kind"):
             schema_field = run_props.get(field_name, {})
             enum_vals = schema_field.get("enum", [])
@@ -853,6 +878,8 @@ def main():
     parser.add_argument("--report", help="Output path for parse_report.json")
     parser.add_argument("--check", action="store_true", help="Validate only, don't write output")
     parser.add_argument("--results-dir", default="results", help="Directory containing benchmark result files")
+    parser.add_argument("--deterministic", action="store_true",
+                        help="Freeze generated/git_sha for CI staleness checks")
     args = parser.parse_args()
 
     results_dir = Path(args.results_dir)
@@ -866,7 +893,8 @@ def main():
         sys.exit(1)
 
     print(f"Scanning results from: {results_dir}")
-    output, parse_report = generate(results_dir, check_only=args.check)
+    output, parse_report = generate(results_dir, check_only=args.check, deterministic=args.deterministic)
+    deterministic = args.deterministic
 
     errors = validate_output(output)
     schema_errors = validate_against_schema(output)
