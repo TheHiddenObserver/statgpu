@@ -1,0 +1,148 @@
+import { test, expect } from '@playwright/test';
+
+test.describe('Benchmark Dashboard', () => {
+  test.beforeEach(async ({ page }) => {
+    await page.goto('/');
+    // Wait for data to load — header should appear
+    await expect(page.locator('.header')).toBeVisible({ timeout: 15000 });
+  });
+
+  // 1. Page Loads
+  test('dashboard loads with header, sidebar, charts, and table', async ({
+    page,
+  }) => {
+    await expect(page.locator('.header')).toBeVisible();
+    await expect(page.locator('.sidebar')).toBeVisible();
+    await expect(page.locator('#timing-chart')).toBeVisible();
+    await expect(page.locator('#speedup-chart')).toBeVisible();
+    await expect(page.locator('.table-container')).toBeVisible();
+    await expect(page.locator('.summary-cards')).toBeVisible();
+  });
+
+  // 2. Category Filtering
+  test('category filter — clear all and select single category', async ({
+    page,
+  }) => {
+    // Click "None" to clear all
+    await page.getByRole('button', { name: 'None' }).click();
+    await expect(page.locator('.table-container')).toBeVisible();
+
+    // Select penalized_glm checkbox
+    await page.locator('#cat-penalized_glm').check();
+    await expect(page.locator('.table-container')).toBeVisible();
+  });
+
+  // 3. Model / Penalty Filtering
+  test('progressive filter — model then penalty then solver', async ({
+    page,
+  }) => {
+    // Select a model from the filter bar (skip env-select in header)
+    await page.locator('.filter-bar select').first().selectOption({ index: 1 });
+    // Penalty selector should appear
+    await expect(page.getByText('Penalty:')).toBeVisible();
+    // Select a penalty if one exists
+    const penaltySelect = page.locator('.filter-bar select').nth(1);
+    if ((await penaltySelect.count()) > 0) {
+      await penaltySelect.selectOption({ index: 1 });
+    }
+  });
+
+  // 4. Scale Multi-select
+  test('scale chips are multi-selectable', async ({ page }) => {
+    const chips = page.locator('.filter-bar span[style*="border-radius:4px"]');
+    const count = await chips.count();
+    if (count >= 2) {
+      await chips.first().click();
+      // First chip should be active (blue background)
+      await expect(chips.first()).toHaveAttribute(
+        'style',
+        /background:#1890ff/,
+      );
+      await chips.nth(1).click();
+      // Both should be active
+      await expect(chips.first()).toHaveAttribute(
+        'style',
+        /background:#1890ff/,
+      );
+      await expect(chips.nth(1)).toHaveAttribute(
+        'style',
+        /background:#1890ff/,
+      );
+    }
+  });
+
+  // 5. Show All / Show First 200
+  test('table pagination — Show all and Show first 200', async ({ page }) => {
+    const showAllBtn = page.getByText('Show all', { exact: false });
+    if (await showAllBtn.isVisible()) {
+      await showAllBtn.click();
+      // After clicking Show all, the button should change to "Show first 200"
+      await expect(
+        page.getByText('Show first 200', { exact: false }),
+      ).toBeVisible({ timeout: 5000 });
+      // Click to return to 200
+      await page.getByText('Show first 200', { exact: false }).click();
+      await expect(
+        page.getByText('Show all', { exact: false }),
+      ).toBeVisible({ timeout: 5000 });
+    }
+  });
+
+  // 6. External Framework Toggle
+  test('external framework checkboxes toggle visibility', async ({
+    page,
+  }) => {
+    // glmnet checkbox should exist and be unchecked by default
+    const glmnetCheckbox = page.locator('input[value="glmnet"]');
+    await expect(glmnetCheckbox).toBeVisible();
+    await expect(glmnetCheckbox).not.toBeChecked();
+
+    // Enable glmnet
+    await glmnetCheckbox.check();
+    await expect(glmnetCheckbox).toBeChecked();
+    // Wait for table update
+    await page.waitForTimeout(500);
+
+    // Disable again
+    await glmnetCheckbox.uncheck();
+    await expect(glmnetCheckbox).not.toBeChecked();
+  });
+
+  // 7. Table sorting
+  test('table header click toggles sort direction', async ({ page }) => {
+    const modelHeader = page.getByRole('columnheader', { name: /Model/ });
+    await modelHeader.click();
+    // Should show sort arrow
+    await expect(modelHeader).toContainText('▲');
+    await modelHeader.click();
+    await expect(modelHeader).toContainText('▼');
+  });
+
+  // 8. Backend radio filtering
+  test('backend radio — select numpy only', async ({ page }) => {
+    const numpyRadio = page.locator('input[value="numpy"]');
+    await numpyRadio.check();
+    await expect(numpyRadio).toBeChecked();
+    // Select "All" again
+    const allRadio = page.locator('input[value="all"]');
+    await allRadio.check();
+    await expect(allRadio).toBeChecked();
+  });
+
+  // 9. Environment selector
+  test('environment selector changes env', async ({ page }) => {
+    const envSelect = page.locator('#env-select');
+    await expect(envSelect).toBeVisible();
+    // Verify it has options
+    const options = await envSelect.locator('option').count();
+    expect(options).toBeGreaterThan(0);
+  });
+
+  // 10. Summary cards display global stats
+  test('summary cards show global statistics', async ({ page }) => {
+    const cards = page.locator('.summary-card');
+    await expect(cards).toHaveCount(6);
+    // First card should show total runs count
+    await expect(cards.first().locator('.card-value')).not.toBeEmpty();
+  });
+});

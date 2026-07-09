@@ -39,17 +39,23 @@ function renderApp(): HTMLElement {
 function renderBody(): HTMLElement {
   const body = h('div', { class: 'body' });
   body.appendChild(renderSidebar(data!, state, update));
-  body.appendChild(renderMain());
+
+  const right = h('div', { style: 'flex:1; display:flex; flex-direction:column; overflow:hidden;' });
+  // Summary cards + footer persist across filter updates; only main is re-rendered
+  right.appendChild(renderSummaryCards(data!, parseReport, data!.runs));
+  const main = renderMain();
+  right.appendChild(main);
+  right.appendChild(renderFooter());
+
+  body.appendChild(right);
   return body;
 }
 
 function renderMain(): HTMLElement {
   const main = h('div', { class: 'main' });
-  main.appendChild(renderSummaryCards(data!, parseReport, data!.runs));
   main.appendChild(renderFilterBar(data!.runs, data!, state, update));
   main.appendChild(renderChartArea());
   main.appendChild(renderOverviewTable(getFilteredRuns(), state, update));
-  main.appendChild(renderFooter());
   return main;
 }
 
