@@ -1,0 +1,101 @@
+import type { BenchmarkData } from '../schema';
+import type { AppState } from '../state';
+import { h } from '../utils/dom';
+
+export function renderSidebar(
+  data: BenchmarkData,
+  state: AppState,
+  onUpdate: () => void,
+): HTMLElement {
+  const sidebar = h('div', { class: 'sidebar' });
+  sidebar.style.cssText = `
+    width:200px; min-width:200px; background:#f5f5f5; border-right:1px solid #ddd;
+    padding:8px; overflow-y:auto; font-size:13px;
+  `;
+
+  const title = h(
+    'div',
+    { style: 'font-weight:bold; margin-bottom:6px;' },
+    'Categories',
+  );
+  sidebar.appendChild(title);
+
+  // Search
+  const search = h('input', {
+    type: 'text',
+    placeholder: 'Search...',
+    style:
+      'width:100%; padding:4px; margin-bottom:6px; border:1px solid #ccc; border-radius:4px;',
+  }) as HTMLInputElement;
+  sidebar.appendChild(search);
+
+  // Category checkboxes
+  const catContainer = h('div', { id: 'category-list' });
+  const catRows: HTMLElement[] = [];
+  for (const cat of data.categories) {
+    const row = h('div', {
+      style:
+        'display:flex; align-items:center; gap:4px; padding:2px 0; cursor:pointer;',
+      'data-cat-name': `${cat.name_zh} ${cat.name_en}`.toLowerCase(),
+    });
+    const cb = h('input', {
+      type: 'checkbox',
+      id: `cat-${cat.category_id}`,
+      value: cat.category_id,
+    }) as HTMLInputElement;
+    if (state.selectedCategoryIds.has(cat.category_id)) cb.checked = true;
+    cb.addEventListener('change', () => {
+      if (cb.checked) state.selectedCategoryIds.add(cat.category_id);
+      else state.selectedCategoryIds.delete(cat.category_id);
+      onUpdate();
+    });
+    const label = h(
+      'label',
+      { for: `cat-${cat.category_id}` },
+      ` ${cat.name_zh}`,
+    );
+    row.appendChild(cb);
+    row.appendChild(label);
+    catContainer.appendChild(row);
+    catRows.push(row);
+  }
+  sidebar.appendChild(catContainer);
+
+  // Wire up search to filter category rows
+  search.addEventListener('input', () => {
+    const q = search.value.toLowerCase();
+    for (const row of catRows) {
+      const catName = row.getAttribute('data-cat-name') ?? '';
+      row.style.display = !q || catName.includes(q) ? '' : 'none';
+    }
+  });
+
+  // Select all / none
+  const btnRow = h('div', {
+    style: 'display:flex; gap:4px; margin-top:6px;',
+  });
+  const allBtn = h(
+    'button',
+    { style: 'font-size:11px; padding:2px 6px;' },
+    'All',
+  );
+  allBtn.addEventListener('click', () => {
+    for (const cat of data.categories)
+      state.selectedCategoryIds.add(cat.category_id);
+    onUpdate();
+  });
+  const noneBtn = h(
+    'button',
+    { style: 'font-size:11px; padding:2px 6px;' },
+    'None',
+  );
+  noneBtn.addEventListener('click', () => {
+    state.selectedCategoryIds.clear();
+    onUpdate();
+  });
+  btnRow.appendChild(allBtn);
+  btnRow.appendChild(noneBtn);
+  sidebar.appendChild(btnRow);
+
+  return sidebar;
+}

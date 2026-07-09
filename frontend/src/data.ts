@@ -1,4 +1,5 @@
 import type { BenchmarkData, ParseReport, Run } from './schema';
+import type { AppState } from './state';
 
 const DATA_URL = `${import.meta.env.BASE_URL}data/benchmark_data.json`;
 const REPORT_URL = `${import.meta.env.BASE_URL}data/parse_report.json`;
@@ -76,35 +77,3 @@ export function filterRuns(runs: Run[], state: AppState): Run[] {
   });
 }
 
-/** Simple reactive state for Phase 2 */
-export interface AppState {
-  selectedCategoryIds: Set<string>;
-  selectedEnvId: string | null;
-  selectedModelId: string | null;
-  selectedPenalty: string | null;
-  selectedSolver: string | null;
-  selectedScaleKeys: Set<string>;
-  selectedBackends: Set<string>;
-  showExternal: Set<string>;
-  showInference: boolean;
-  tableLimit: number;
-  sortColumn: string | null;
-  sortDir: 'asc' | 'desc';
-}
-
-export function createDefaultState(): AppState {
-  return {
-    selectedCategoryIds: new Set(['penalized_glm']),
-    selectedEnvId: 'remote-p100',
-    selectedModelId: null,
-    selectedPenalty: null,
-    selectedSolver: null,
-    selectedScaleKeys: new Set(),
-    selectedBackends: new Set(),
-    showExternal: new Set(),
-    showInference: false,
-    tableLimit: 200,
-    sortColumn: null,
-    sortDir: 'asc',
-  };
-}
