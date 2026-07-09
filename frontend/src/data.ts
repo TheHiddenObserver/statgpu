@@ -87,6 +87,9 @@ export interface AppState {
   selectedBackends: Set<string>;
   showExternal: Set<string>;
   showInference: boolean;
+  tableLimit: number;
+  sortColumn: string | null;
+  sortDir: 'asc' | 'desc';
 }
 
 export function createDefaultState(): AppState {
@@ -100,5 +103,8 @@ export function createDefaultState(): AppState {
     selectedBackends: new Set(),
     showExternal: new Set(),
     showInference: false,
+    tableLimit: 200,
+    sortColumn: null,
+    sortDir: 'asc',
   };
 }

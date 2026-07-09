@@ -166,7 +166,7 @@
             "description": "Human-readable solver display name"
           },
           "solver_kind": {
-            "type": "string",
+            "type": ["string", "null"],
             "enum": ["dispatch", "manual", "internal", null],
             "description": "Kind of solver: dispatch (auto), manual, internal"
           },

@@ -1,0 +1,70 @@
+name: Benchmark Frontend CI
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'dev/benchmarks/generate_benchmark_data.py'
+      - 'dev/benchmarks/benchmark_frontend_schema.json'
+      - 'dev/tests/test_benchmark_frontend_data.py'
+      - 'frontend/**'
+      - 'docs/assets/benchmarks/**'
+      - 'results/benchmark_full/**'
+  pull_request:
+    paths:
+      - 'dev/benchmarks/generate_benchmark_data.py'
+      - 'dev/benchmarks/benchmark_frontend_schema.json'
+      - 'dev/tests/test_benchmark_frontend_data.py'
+      - 'frontend/**'
+      - 'docs/assets/benchmarks/**'
+      - 'results/benchmark_full/**'
+
+jobs:
+  python-data:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Run parser tests
+        run: pytest dev/tests/test_benchmark_frontend_data.py -v
+      - name: Validate generator output
+        run: python dev/benchmarks/generate_benchmark_data.py --check
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run build
+
+  staleness:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Generate data
+        run: |
+          python dev/benchmarks/generate_benchmark_data.py \
+            --out frontend/public/data/benchmark_data.json \
+            --report frontend/public/data/parse_report.json
+      - name: Build frontend
+        run: |
+          cd frontend
+          npm ci
+          npm run build
+      - name: Check staleness
+        run: git diff --exit-code docs/assets/benchmarks/ frontend/public/data/

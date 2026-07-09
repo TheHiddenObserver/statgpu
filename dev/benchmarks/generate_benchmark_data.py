@@ -199,39 +199,48 @@ def parse_penalized_glm_bench_perf(filepath: Path, env_id: str) -> tuple[list[di
 
             models.add(model_id)
 
+            # Two-pass: collect numpy_time first, then build runs with speedup
             numpy_time = None
+            backend_entries = []
             for bk_name, bk_data in backends.items():
                 bk_canon = BACKEND_MAP.get(bk_name, bk_name)
                 if bk_canon not in ("numpy", "cupy", "torch"):
                     warnings.append(f"{filepath.name}: unknown backend '{bk_name}' in {model_key}")
                     continue
-
+                backend_entries.append((bk_canon, bk_data))
                 if bk_canon == "numpy":
-                    numpy_time = bk_data.get("mean_ms")
+                    numpy_time = bk_data.get("mean_ms") or 0
 
-                session_id = f"{env_id}-glm-{source_date}"
-                source_hash = _short_hash(f"{filepath.name}:{scale_name}:{model_key}:{bk_name}")
+            session_id = f"{env_id}-glm-{source_date}"
+            source = {
+                "file": filepath.name,
+                "date": source_date,
+                "parser": "parse_penalized_glm_bench_perf_v1",
+                "parser_version": "1.0",
+            }
+            category_ids = ["penalized_glm"]
+            if penalty == "none":
+                category_ids.append("glm")
+
+            for bk_canon, bk_data in backend_entries:
+                source_hash = _short_hash(f"{filepath.name}:{scale_name}:{model_key}:{bk_canon}")
                 run_id = make_run_id(
                     model_id, family, penalty, solver, bk_canon,
                     "statgpu", scale["scale_key"], env_id, session_id, source_hash,
                 )
 
-                category_ids = ["penalized_glm"]
-                if penalty == "none":
-                    category_ids.append("glm")
-
                 timing = {
                     "fit_time_ms": bk_data["mean_ms"],
-                    "std_ms": bk_data.get("std_ms", 0),
-                    "min_ms": bk_data.get("min_ms", bk_data["mean_ms"]),
-                    "max_ms": bk_data.get("max_ms", bk_data["mean_ms"]),
+                    "std_ms": bk_data.get("std_ms") or 0,
+                    "min_ms": bk_data.get("min_ms") or bk_data["mean_ms"],
+                    "max_ms": bk_data.get("max_ms") or bk_data["mean_ms"],
                     "quality": "measured",
                     "source_file": filepath.name,
                 }
 
                 metrics: dict = {"timing": timing}
 
-                if numpy_time is not None and bk_canon != "numpy" and numpy_time > 0:
+                if numpy_time and numpy_time > 0 and bk_canon != "numpy":
                     speedup_val = numpy_time / bk_data["mean_ms"]
                     metrics["speedup"] = {
                         "value": round(speedup_val, 4),
@@ -241,13 +250,6 @@ def parse_penalized_glm_bench_perf(filepath: Path, env_id: str) -> tuple[list[di
                         "quality": "computed",
                         "source_file": filepath.name,
                     }
-
-                source = {
-                    "file": filepath.name,
-                    "date": source_date,
-                    "parser": "parse_penalized_glm_bench_perf_v1",
-                    "parser_version": "1.0",
-                }
 
                 run = {
                     "run_id": run_id,
@@ -387,12 +389,9 @@ def parse_glm_solver_benchmark(filepath: Path, env_id: str) -> tuple[list[dict],
                 }
                 runs.append(auto_run)
 
-                # Generate per-solver runs
+                # Generate per-solver runs (keep all manual rows — auto dispatch row has different semantics)
                 solvers = bk_data.get("solvers", {})
                 for solver_name, speedup_val in solvers.items():
-                    if solver_name == best_solver and speedup_val == best_speedup:
-                        continue  # Already added as auto
-
                     source_hash = _short_hash(f"{filepath.name}:{scale_name}:{model_key}:{bk_name}:{solver_name}")
                     solver_run_id = make_run_id(
                         model_id, family, penalty, solver_name, bk_canon,
@@ -526,6 +525,8 @@ def parse_elasticnet_benchmark_full(filepath: Path, env_id: str) -> tuple[list[d
             if n_samples == 0:
                 continue
 
+            entry_runs = []  # Track current entry's runs separately
+
             scale = {
                 "scale_key": make_scale_key(n_samples, n_features),
                 "n_samples": n_samples,
@@ -598,11 +599,11 @@ def parse_elasticnet_benchmark_full(filepath: Path, env_id: str) -> tuple[list[d
                     },
                     "metrics": metrics,
                 }
-                runs.append(run)
+                entry_runs.append(run)
 
-            # Add speedup for GPU runs
+            # Add speedup for GPU runs (only current entry's runs)
             if numpy_time and numpy_time > 0:
-                for run in runs:
+                for run in entry_runs:
                     if run["framework"] == "statgpu" and run["backend"] in ("cupy", "torch"):
                         run_ftime = run["metrics"]["timing"]["fit_time_ms"]
                         if run_ftime > 0:
@@ -614,6 +615,7 @@ def parse_elasticnet_benchmark_full(filepath: Path, env_id: str) -> tuple[list[d
                                 "quality": "computed",
                                 "source_file": filepath.name,
                             }
+            runs.extend(entry_runs)
 
     model_entries = [
         {
@@ -737,8 +739,48 @@ def generate(results_dir: Path, check_only: bool = False) -> tuple[dict, dict]:
     return output, parse_report
 
 
+def _load_schema() -> dict | None:
+    """Load the JSON Schema file for validation."""
+    schema_path = Path(__file__).resolve().parent / "benchmark_frontend_schema.json"
+    if not schema_path.exists():
+        return None
+    with open(schema_path, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+
+def validate_against_schema(output: dict) -> list[str]:
+    """Validate output against benchmark_frontend_schema.json using stdlib only."""
+    schema = _load_schema()
+    if schema is None:
+        return ["Schema file not found, skipping schema validation"]
+
+    errors = []
+    runs_schema = schema.get("properties", {}).get("runs", {})
+    run_props = runs_schema.get("items", {}).get("properties", {})
+    run_required = runs_schema.get("items", {}).get("required", [])
+
+    for run in output.get("runs", []):
+        rid = run.get("run_id", "?")
+
+        # Check required fields
+        for field in run_required:
+            if field not in run:
+                errors.append(f"{rid}: missing required field '{field}' (schema)")
+
+        # Check enum constraints
+        for field_name in ("framework", "backend", "solver_kind"):
+            schema_field = run_props.get(field_name, {})
+            enum_vals = schema_field.get("enum", [])
+            if enum_vals:
+                val = run.get(field_name)
+                if val not in enum_vals:
+                    errors.append(f"{rid}: {field_name}='{val}' not in schema enum {enum_vals}")
+
+    return errors
+
+
 def validate_output(output: dict) -> list[str]:
-    """Basic validation checks (full JSON Schema validation done separately)."""
+    """Comprehensive validation (structural + schema checks)."""
     errors = []
     runs = output.get("runs", [])
     seen_ids = set()
@@ -827,12 +869,14 @@ def main():
     output, parse_report = generate(results_dir, check_only=args.check)
 
     errors = validate_output(output)
-    if errors:
-        print(f"VALIDATION ERRORS ({len(errors)}):")
-        for e in errors[:20]:
+    schema_errors = validate_against_schema(output)
+    all_errors = errors + schema_errors
+    if all_errors:
+        print(f"VALIDATION ERRORS ({len(all_errors)}):")
+        for e in all_errors[:20]:
             print(f"  - {e}")
-        if len(errors) > 20:
-            print(f"  ... and {len(errors) - 20} more")
+        if len(all_errors) > 20:
+            print(f"  ... and {len(all_errors) - 20} more")
         if args.check:
             sys.exit(1)
 
@@ -845,9 +889,9 @@ def main():
             print(f"  - {w['file']}: {w['reason']}")
 
     if args.check:
-        if errors:
+        if all_errors:
             sys.exit(1)
-        print("OK — validation passed")
+        print("OK — validation passed (structural + JSON Schema)")
         return
 
     if args.out:

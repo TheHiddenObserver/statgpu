@@ -241,8 +241,10 @@ function renderFilterBar(): HTMLElement {
     bar.appendChild(sel);
   }
 
-  // Scale chips
-  const scaleKeys = getUniqueScaleKeys(filtered);
+  // Scale chips — derive from data filtered by everything EXCEPT scale
+  const scaleBaseState = { ...state, selectedScaleKeys: new Set<string>() };
+  const scaleOptionRuns = data ? filterRuns(data.runs, scaleBaseState) : [];
+  const scaleKeys = getUniqueScaleKeys(scaleOptionRuns);
   if (scaleKeys.length > 0) {
     bar.appendChild(h('span', {}, 'Scale:'));
     for (const sk of scaleKeys.slice(0, 15)) {
@@ -336,36 +338,36 @@ function renderTimingChart(runs: Run[]) {
     return;
   }
 
-  // Sort: model + penalty + scale, then numpy/cupy/torch
-  timingRuns.sort((a, b) => {
-    const ak = `${a.model_id}-${a.penalty}-${a.scale.scale_key}-${a.backend}`;
-    const bk = `${b.model_id}-${b.penalty}-${b.scale.scale_key}-${b.backend}`;
-    return ak.localeCompare(bk);
-  });
+  // Group by comparison key: model + penalty + solver + scale
+  type GroupKey = string;
+  const groups = new Map<GroupKey, { label: string; byBackend: Map<string, number> }>();
+  for (const r of timingRuns) {
+    const gk = `${r.model_id}|${r.penalty ?? 'none'}|${r.solver ?? 'auto'}|${r.scale.scale_key}`;
+    if (!groups.has(gk)) {
+      groups.set(gk, {
+        label: `${r.model_id.replace('Penalized', '').replace('Regression', '')}+${r.penalty ?? 'none'} ${r.scale.label}`,
+        byBackend: new Map(),
+      });
+    }
+    const be = r.framework === 'statgpu' ? (r.backend ?? 'ext') : r.framework;
+    groups.get(gk)!.byBackend.set(be, r.metrics.timing!.fit_time_ms);
+  }
 
-  const categories = timingRuns.map(r =>
-    `${r.model_id.replace('Penalized', '').replace('Regression', '')}+${r.penalty ?? 'none'} ${r.scale.label}`
-  );
-  const backendOrder = ['numpy', 'cupy', 'torch'];
+  const sortedGroups = [...groups.entries()].sort(([a], [b]) => a.localeCompare(b));
+  const categories = sortedGroups.map(([, g]) => g.label);
+
+  const allBackends = new Set<string>();
+  for (const [, g] of sortedGroups) {
+    for (const bk of g.byBackend.keys()) allBackends.add(bk);
+  }
+  const backendOrder = ['numpy', 'cupy', 'torch', ...state.showExternal].filter(b => allBackends.has(b));
+
   const series = backendOrder.map(bk => ({
     name: bk,
     type: 'bar' as const,
-    data: timingRuns.filter(r => r.backend === bk).map(r => r.metrics.timing!.fit_time_ms),
+    data: sortedGroups.map(([, g]) => g.byBackend.get(bk) ?? null),
     itemStyle: { color: COLORS[bk] || '#999' },
   }));
-
-  // Add external frameworks
-  for (const ext of state.showExternal) {
-    const extRuns = timingRuns.filter(r => r.framework === ext);
-    if (extRuns.length > 0) {
-      series.push({
-        name: ext,
-        type: 'bar' as const,
-        data: extRuns.map(r => r.metrics.timing!.fit_time_ms),
-        itemStyle: { color: COLORS[ext] || '#999' },
-      });
-    }
-  }
 
   chart.setOption({
     title: { text: 'Fit Time (ms)', left: 'center', textStyle: { fontSize: 13 } },
@@ -434,6 +436,21 @@ function renderSpeedupChart(runs: Run[]) {
   }, true);
 }
 
+function getSortValue(r: Run, key: string): string | number {
+  switch (key) {
+    case 'model_id': return r.model_id;
+    case 'penalty': return r.penalty ?? '';
+    case 'solver': return r.solver ?? '';
+    case 'backend_framework': return r.backend ?? r.framework;
+    case 'scale': return r.scale.label;
+    case 'time_ms': return r.metrics.timing?.fit_time_ms ?? 0;
+    case 'speedup': return r.metrics.speedup?.value ?? 0;
+    case 'quality': return r.metrics.timing?.quality ?? r.metrics.speedup?.quality ?? '';
+    case 'source': return r.source.file;
+    default: return '';
+  }
+}
+
 function renderOverviewTable(): HTMLElement {
   const container = h('div', { class: 'table-container' });
   container.style.cssText = 'font-size:12px;';
@@ -448,11 +465,21 @@ function renderOverviewTable(): HTMLElement {
   const thead = h('thead');
   const headerRow = h('tr');
   const cols = ['Model', 'Penalty', 'Solver', 'Backend', 'Scale', 'Time (ms)', 'Speedup', 'Quality', 'Source'];
+  const colKeyMap: Record<string, string> = {
+    'Model': 'model_id', 'Penalty': 'penalty', 'Solver': 'solver', 'Backend': 'backend_framework',
+    'Scale': 'scale', 'Time (ms)': 'time_ms', 'Speedup': 'speedup', 'Quality': 'quality', 'Source': 'source'
+  };
   for (const col of cols) {
-    const th = h('th', { style: 'padding:4px 6px; border-bottom:2px solid #ddd; text-align:left; position:sticky; top:0; background:#fff;' }, col);
+    const ck = colKeyMap[col];
+    const arrow = state.sortColumn === ck ? (state.sortDir === 'asc' ? ' ▲' : ' ▼') : '';
+    const th = h('th', { style: 'padding:4px 6px; border-bottom:2px solid #ddd; text-align:left; position:sticky; top:0; background:#fff; cursor:pointer;' }, col + arrow);
     th.addEventListener('click', () => {
-      // Simple sort toggle
-      (th as HTMLElement).dataset.sortDir = (th as HTMLElement).dataset.sortDir === 'asc' ? 'desc' : 'asc';
+      if (state.sortColumn === ck) {
+        state.sortDir = state.sortDir === 'asc' ? 'desc' : 'asc';
+      } else {
+        state.sortColumn = ck;
+        state.sortDir = 'asc';
+      }
       update();
     });
     headerRow.appendChild(th);
@@ -460,8 +487,21 @@ function renderOverviewTable(): HTMLElement {
   thead.appendChild(headerRow);
   table.appendChild(thead);
 
+  // Sort filtered runs
+  const sorted = [...filtered];
+  if (state.sortColumn) {
+    const key = state.sortColumn;
+    sorted.sort((a, b) => {
+      const va = getSortValue(a, key);
+      const vb = getSortValue(b, key);
+      if (va < vb) return state.sortDir === 'asc' ? -1 : 1;
+      if (va > vb) return state.sortDir === 'asc' ? 1 : -1;
+      return 0;
+    });
+  }
+
   const tbody = h('tbody');
-  const displayRuns = filtered.slice(0, 200);
+  const displayRuns = sorted.slice(0, state.tableLimit);
   for (const r of displayRuns) {
     const row = h('tr', { style: 'border-bottom:1px solid #eee;' });
     const t = r.metrics.timing;
@@ -490,15 +530,18 @@ function renderOverviewTable(): HTMLElement {
   container.appendChild(table);
 
   // Show more button
-  if (filtered.length > 200) {
+  if (state.tableLimit === 200 && filtered.length > 200) {
     const btn = h('button', { style: 'margin-top:6px; padding:4px 12px;' }, `Show all ${filtered.length} runs`);
     btn.addEventListener('click', () => {
-      // Re-render with all rows (simple approach: rebuild with larger slice)
-      const tableContainer = document.querySelector('.table-container') as HTMLElement | null;
-      if (tableContainer) {
-        clear(tableContainer);
-        tableContainer.appendChild(renderOverviewTableAll(filtered));
-      }
+      state.tableLimit = Infinity;
+      update();
+    });
+    container.appendChild(btn);
+  } else if (state.tableLimit === Infinity && filtered.length > 200) {
+    const btn = h('button', { style: 'margin-top:6px; padding:4px 12px;' }, 'Show first 200');
+    btn.addEventListener('click', () => {
+      state.tableLimit = 200;
+      update();
     });
     container.appendChild(btn);
   }
@@ -547,10 +590,6 @@ function renderOverviewTable(): HTMLElement {
   return container;
 }
 
-function renderOverviewTableAll(runs: Run[]): HTMLElement {
-  // Full table render (used when user clicks "Show all")
-  return renderOverviewTable(); // Simplified: re-renders the same component with all data
-}
 
 // ---------------------------------------------------------------------------
 // State & update loop
