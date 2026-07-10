@@ -31,8 +31,8 @@ test.describe('Benchmark Dashboard', () => {
     await expect(page.locator('.table-container tbody tr').first()).toBeVisible({ timeout: 5000 });
   });
 
-  // 3. Model / Penalty Filtering
-  test('progressive filter — model then penalty then solver', async ({
+  // 3. Progressive filter — model then penalty cascade
+  test('progressive filter — model selection reveals penalty dropdown', async ({
     page,
   }) => {
     await page.locator('.filter-bar select').first().selectOption({ index: 1 });
@@ -115,7 +115,7 @@ test.describe('Benchmark Dashboard', () => {
   });
 
   // 9. Environment selector
-  test('environment selector changes env', async ({ page }) => {
+  test('environment selector is present with options', async ({ page }) => {
     const envSelect = page.locator('#env-select');
     await expect(envSelect).toBeVisible();
     const options = await envSelect.locator('option').count();

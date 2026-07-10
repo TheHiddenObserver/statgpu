@@ -1,7 +1,7 @@
 import type { Run } from '../schema';
 import type { AppState } from '../state';
 import { h } from '../utils/dom';
-import { setSortColumn } from '../state';
+import { setSortColumn, setTableLimit } from '../state';
 import { emptyFilterMessage } from './EmptyState';
 import {
   formatModelName,
@@ -169,7 +169,7 @@ export function renderOverviewTable(
       `Show all ${filtered.length} runs`,
     );
     btn.addEventListener('click', () => {
-      state.tableLimit = Infinity;
+      setTableLimit(state, Infinity);
       onUpdate();
     });
     container.appendChild(btn);
@@ -183,7 +183,7 @@ export function renderOverviewTable(
       'Show first 200',
     );
     btn.addEventListener('click', () => {
-      state.tableLimit = 200;
+      setTableLimit(state, 200);
       onUpdate();
     });
     container.appendChild(btn);
