@@ -38,7 +38,29 @@ export function getUniqueScaleKeys(runs: Run[]): string[] {
   return [...keys].sort();
 }
 
-export function filterRuns(runs: Run[], state: AppState): Run[] {
+/** Precompute scale_key → label map for O(1) chip label lookup */
+let scaleLabelMap: Map<string, string> | null = null;
+
+export function getScaleLabelMap(runs: Run[]): Map<string, string> {
+  if (scaleLabelMap) return scaleLabelMap;
+  scaleLabelMap = new Map();
+  for (const r of runs) {
+    if (!scaleLabelMap.has(r.scale.scale_key)) {
+      scaleLabelMap.set(r.scale.scale_key, r.scale.label);
+    }
+  }
+  return scaleLabelMap;
+}
+
+export interface FilterOptions {
+  ignoreScale?: boolean;
+}
+
+export function filterRuns(
+  runs: Run[],
+  state: AppState,
+  opts?: FilterOptions,
+): Run[] {
   return runs.filter(r => {
     // Category filter
     if (state.selectedCategoryIds.size > 0) {
@@ -58,8 +80,13 @@ export function filterRuns(runs: Run[], state: AppState): Run[] {
     // Solver filter
     if (state.selectedSolver && r.solver !== state.selectedSolver) return false;
 
-    // Scale filter
-    if (state.selectedScaleKeys.size > 0 && !state.selectedScaleKeys.has(r.scale.scale_key)) return false;
+    // Scale filter (skipped when deriving scale options)
+    if (
+      !opts?.ignoreScale &&
+      state.selectedScaleKeys.size > 0 &&
+      !state.selectedScaleKeys.has(r.scale.scale_key)
+    )
+      return false;
 
     // Backend filter (statgpu only)
     if (state.selectedBackends.size > 0 && r.framework === 'statgpu' && r.backend) {

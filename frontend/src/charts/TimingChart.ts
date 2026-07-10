@@ -3,6 +3,7 @@ import type { Run } from '../schema';
 import type { AppState } from '../state';
 import { COLORS } from '../utils/theme';
 import { formatModelName } from '../utils/format';
+import { emptyChartMessage } from '../components/EmptyState';
 
 export function renderTimingChart(
   el: HTMLElement,

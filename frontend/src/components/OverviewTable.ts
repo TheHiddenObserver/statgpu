@@ -1,7 +1,13 @@
 import type { Run } from '../schema';
 import type { AppState } from '../state';
 import { h } from '../utils/dom';
-import { formatModelName } from '../utils/format';
+import { setSortColumn } from '../state';
+import {
+  formatModelName,
+  formatTime,
+  formatSpeedup,
+  formatQuality,
+} from '../utils/format';
 
 // ---------------------------------------------------------------------------
 // Sort helper
@@ -92,12 +98,7 @@ export function renderOverviewTable(
         : '';
     const th = h('th', {}, col + arrow);
     th.addEventListener('click', () => {
-      if (state.sortColumn === ck) {
-        state.sortDir = state.sortDir === 'asc' ? 'desc' : 'asc';
-      } else {
-        state.sortColumn = ck;
-        state.sortDir = 'asc';
-      }
+      setSortColumn(state, ck);
       onUpdate();
     });
     headerRow.appendChild(th);
@@ -132,11 +133,9 @@ export function renderOverviewTable(
       r.solver_display ?? r.solver ?? '-',
       r.backend ?? r.framework,
       r.scale.label,
-      t
-        ? `${t.fit_time_ms.toFixed(2)}±${(t.std_ms ?? 0).toFixed(1)}`
-        : '-',
-      s ? `${s.value.toFixed(1)}x` : '-',
-      t?.quality ?? s?.quality ?? '-',
+      t ? formatTime(t.fit_time_ms, t.std_ms) : '-',
+      s ? formatSpeedup(s.value) : '-',
+      formatQuality(t?.quality, s?.quality),
       r.source.file,
     ];
     for (let i = 0; i < cells.length; i++) {

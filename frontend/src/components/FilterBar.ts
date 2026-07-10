@@ -1,7 +1,20 @@
 import type { BenchmarkData, Run } from '../schema';
 import type { AppState } from '../state';
+import {
+  setSelectedModel,
+  setSelectedPenalty,
+  setSelectedSolver,
+  toggleScaleKey,
+  setBackend,
+  toggleExternal,
+} from '../state';
 import { h } from '../utils/dom';
-import { filterRuns, getUniqueValues, getUniqueScaleKeys } from '../data';
+import {
+  filterRuns,
+  getUniqueValues,
+  getUniqueScaleKeys,
+  getScaleLabelMap,
+} from '../data';
 
 export function renderFilterBar(
   allRuns: Run[],
@@ -25,9 +38,7 @@ export function renderFilterBar(
       sel.appendChild(opt);
     }
     sel.addEventListener('change', () => {
-      state.selectedModelId = (sel as HTMLSelectElement).value || null;
-      state.selectedPenalty = null;
-      state.selectedSolver = null;
+      setSelectedModel(state, (sel as HTMLSelectElement).value || null);
       onUpdate();
     });
     bar.appendChild(sel);
@@ -48,8 +59,7 @@ export function renderFilterBar(
       sel.appendChild(opt);
     }
     sel.addEventListener('change', () => {
-      state.selectedPenalty = (sel as HTMLSelectElement).value || null;
-      state.selectedSolver = null;
+      setSelectedPenalty(state, (sel as HTMLSelectElement).value || null);
       onUpdate();
     });
     bar.appendChild(sel);
@@ -74,21 +84,18 @@ export function renderFilterBar(
       sel.appendChild(opt);
     }
     sel.addEventListener('change', () => {
-      state.selectedSolver = (sel as HTMLSelectElement).value || null;
+      setSelectedSolver(state, (sel as HTMLSelectElement).value || null);
       onUpdate();
     });
     bar.appendChild(sel);
   }
 
   // Scale chips — derive from data filtered by everything EXCEPT scale
-  const scaleOptionState: AppState = {
-    ...state,
-    selectedScaleKeys: new Set(),
-  };
-  const scaleOptionRuns = filterRuns(allRuns, scaleOptionState);
+  const scaleOptionRuns = filterRuns(allRuns, state, { ignoreScale: true });
   const scaleKeys = getUniqueScaleKeys(scaleOptionRuns);
   if (scaleKeys.length > 0) {
     bar.appendChild(h('span', {}, 'Scale:'));
+    const labelMap = getScaleLabelMap(data.runs);
     for (const sk of scaleKeys.slice(0, 15)) {
       const chip = h(
         'span',
@@ -99,12 +106,10 @@ export function renderFilterBar(
             font-size:11px; border:1px solid #ccc;
             ${state.selectedScaleKeys.has(sk) ? 'background:#1890ff; color:#fff; border-color:#1890ff;' : ''}`,
         },
-        data.runs.find((r) => r.scale.scale_key === sk)?.scale.label ?? sk,
+        labelMap.get(sk) ?? sk,
       );
       chip.addEventListener('click', () => {
-        if (state.selectedScaleKeys.has(sk))
-          state.selectedScaleKeys.delete(sk);
-        else state.selectedScaleKeys.add(sk);
+        toggleScaleKey(state, sk);
         onUpdate();
       });
       bar.appendChild(chip);
@@ -126,11 +131,10 @@ export function renderFilterBar(
     if (bk === 'all' && state.selectedBackends.size === 0) inp.checked = true;
     if (bk !== 'all' && state.selectedBackends.has(bk)) inp.checked = true;
     inp.addEventListener('change', () => {
-      if (bk === 'all') state.selectedBackends.clear();
-      else {
-        state.selectedBackends.clear();
-        state.selectedBackends.add(bk);
-      }
+      setBackend(
+        state,
+        bk === 'all' ? null : (bk as 'numpy' | 'cupy' | 'torch'),
+      );
       onUpdate();
     });
     radio.appendChild(inp);
@@ -150,8 +154,7 @@ export function renderFilterBar(
     }) as HTMLInputElement;
     if (state.showExternal.has(ext)) cb.checked = true;
     cb.addEventListener('change', () => {
-      if (cb.checked) state.showExternal.add(ext);
-      else state.showExternal.delete(ext);
+      toggleExternal(state, ext);
       onUpdate();
     });
     lbl.appendChild(cb);

@@ -13,6 +13,7 @@ import { renderOverviewTable } from './components/OverviewTable';
 import { renderSummaryCards } from './components/SummaryCards';
 import { renderTimingChart } from './charts/TimingChart';
 import { renderSpeedupChart } from './charts/SpeedupChart';
+import { emptyStateMessage } from './components/EmptyState';
 
 // ---------------------------------------------------------------------------
 // Global state
@@ -53,13 +54,14 @@ function renderBody(): HTMLElement {
 
 function renderMain(): HTMLElement {
   const main = h('div', { class: 'main' });
+  const filtered = getFilteredRuns();
   main.appendChild(renderFilterBar(data!.runs, data!, state, update));
-  main.appendChild(renderChartArea());
-  main.appendChild(renderOverviewTable(getFilteredRuns(), state, update));
+  main.appendChild(renderChartArea(filtered));
+  main.appendChild(renderOverviewTable(filtered, state, update));
   return main;
 }
 
-function renderChartArea(): HTMLElement {
+function renderChartArea(filtered: Run[]): HTMLElement {
   const area = h('div', { class: 'chart-area' });
   const timingDiv = h('div', { id: 'timing-chart', class: 'chart-container' });
   const speedupDiv = h('div', { id: 'speedup-chart', class: 'chart-container' });
@@ -67,7 +69,6 @@ function renderChartArea(): HTMLElement {
   area.appendChild(speedupDiv);
 
   setTimeout(() => {
-    const filtered = getFilteredRuns();
     renderTimingChart(timingDiv, filtered, state, chartInstances);
     renderSpeedupChart(speedupDiv, filtered, state, chartInstances);
   }, 0);
@@ -115,10 +116,14 @@ function update(): void {
   }
   chartInstances.length = 0;
 
+  // Compute filtered runs once per update, pass to all renderers
+  const allRuns = data!.runs;
+  const filtered = filterRuns(allRuns, state);
+
   clear(main);
-  main.appendChild(renderFilterBar(data!.runs, data!, state, update));
-  main.appendChild(renderChartArea());
-  main.appendChild(renderOverviewTable(getFilteredRuns(), state, update));
+  main.appendChild(renderFilterBar(allRuns, data!, state, update));
+  main.appendChild(renderChartArea(filtered));
+  main.appendChild(renderOverviewTable(filtered, state, update));
 }
 
 // ---------------------------------------------------------------------------
@@ -129,8 +134,8 @@ async function init(): Promise<void> {
   const root = document.getElementById('app');
   if (!root) return;
 
-  root.innerHTML =
-    '<div class="empty-state">Loading benchmark data...</div>';
+  clear(root);
+  root.appendChild(emptyStateMessage('Loading benchmark data...'));
 
   try {
     data = await fetchBenchmarkData();
@@ -141,10 +146,19 @@ async function init(): Promise<void> {
     (root as HTMLElement).appendChild(appEl);
     // renderApp() already renders with default state — no extra update() needed
   } catch (err) {
-    root.innerHTML = `<div class="empty-state" style="color:#ff4d4f;">
-      Failed to load benchmark data: ${err instanceof Error ? err.message : String(err)}<br/>
-      <small>Make sure to run: python dev/benchmarks/generate_benchmark_data.py</small>
-    </div>`;
+    clear(root);
+    const msg = emptyStateMessage(
+      `Failed to load benchmark data: ${err instanceof Error ? err.message : String(err)}`,
+    );
+    msg.style.color = '#ff4d4f';
+    const hint = h(
+      'small',
+      {},
+      'Make sure to run: python dev/benchmarks/generate_benchmark_data.py',
+    );
+    msg.appendChild(h('br'));
+    msg.appendChild(hint);
+    root.appendChild(msg);
   }
 }
 
