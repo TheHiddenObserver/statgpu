@@ -111,8 +111,7 @@ dev/tests/test_irls_gpu.py
 dev/tests/run_remote_gpu.py
 
 # === Benchmark dashboard tracked sources ===
-# Overrides: unignore specific paths under ignored parent directories
-!dev/benchmarks/
+# Force-add new files under ignored dirs with: git add -f <path>
 !dev/benchmarks/frontend_data/
 !dev/benchmarks/frontend_data/**
 !dev/benchmarks/generate_benchmark_data.py

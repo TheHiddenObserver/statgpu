@@ -21,7 +21,7 @@ import { emptyStateMessage } from './components/EmptyState';
 
 let data: BenchmarkData | null = null;
 let parseReport: ParseReport | null = null;
-let state: AppState = createDefaultState();
+let state: AppState | null = null;
 
 /** Track ECharts instances for cleanup before re-render */
 const chartInstances: echarts.ECharts[] = [];
@@ -32,14 +32,14 @@ const chartInstances: echarts.ECharts[] = [];
 
 function renderApp(): HTMLElement {
   const app = h('div', { id: 'app-root' });
-  app.appendChild(renderHeader(data!, parseReport, state, update));
+  app.appendChild(renderHeader(data!, parseReport, state!, update));
   app.appendChild(renderBody());
   return app;
 }
 
 function renderBody(): HTMLElement {
   const body = h('div', { class: 'body' });
-  body.appendChild(renderSidebar(data!, state, update));
+  body.appendChild(renderSidebar(data!, state!, update));
 
   const right = h('div', { style: 'flex:1; display:flex; flex-direction:column; overflow:hidden;' });
   // Summary cards + footer persist across filter updates; only main is re-rendered
@@ -55,9 +55,9 @@ function renderBody(): HTMLElement {
 function renderMain(): HTMLElement {
   const main = h('div', { class: 'main' });
   const filtered = getFilteredRuns();
-  main.appendChild(renderFilterBar(data!.runs, data!, state, update));
+  main.appendChild(renderFilterBar(data!.runs, data!, state!, update));
   main.appendChild(renderChartArea(filtered));
-  main.appendChild(renderOverviewTable(filtered, state, update));
+  main.appendChild(renderOverviewTable(filtered, state!, update));
   return main;
 }
 
@@ -69,8 +69,8 @@ function renderChartArea(filtered: Run[]): HTMLElement {
   area.appendChild(speedupDiv);
 
   setTimeout(() => {
-    renderTimingChart(timingDiv, filtered, state, chartInstances);
-    renderSpeedupChart(speedupDiv, filtered, state, chartInstances);
+    renderTimingChart(timingDiv, filtered, state!, chartInstances);
+    renderSpeedupChart(speedupDiv, filtered, state!, chartInstances);
   }, 0);
   return area;
 }
@@ -103,7 +103,7 @@ function renderFooter(): HTMLElement {
 // ---------------------------------------------------------------------------
 
 function getFilteredRuns(): Run[] {
-  if (!data) return [];
+  if (!data || !state) return [];
   return filterRuns(data.runs, state);
 }
 
@@ -131,12 +131,12 @@ function update(): void {
 
   // Compute filtered runs once per update, pass to all renderers
   const allRuns = data!.runs;
-  const filtered = filterRuns(allRuns, state);
+  const filtered = filterRuns(allRuns, state!);
 
   clear(main);
-  main.appendChild(renderFilterBar(allRuns, data!, state, update));
+  main.appendChild(renderFilterBar(allRuns, data!, state!, update));
   main.appendChild(renderChartArea(filtered));
-  main.appendChild(renderOverviewTable(filtered, state, update));
+  main.appendChild(renderOverviewTable(filtered, state!, update));
 }
 
 // ---------------------------------------------------------------------------
@@ -152,6 +152,7 @@ async function init(): Promise<void> {
 
   try {
     data = await fetchBenchmarkData();
+    state = createDefaultState(data.environments);
     // parseReport is non-critical; fetch separately so failure doesn't block dashboard
     parseReport = await fetchParseReport().catch(() => null);
     const appEl = renderApp();

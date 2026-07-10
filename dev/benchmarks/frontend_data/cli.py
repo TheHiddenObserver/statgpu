@@ -24,6 +24,97 @@ def get_git_sha() -> str:
         return "unknown"
 
 
+# ---------------------------------------------------------------------------
+# Transitional v1.1 field injection (A1b)
+# ---------------------------------------------------------------------------
+
+# Legacy comparison groups from A0 audit
+LEGACY_COMPARISON_GROUPS = {
+    "penalized_glm_bench_perf_2026-06-22.json": "transitional:penalized-glm-performance",
+    "glm_solver_benchmark_2026-06-23.json": "transitional:glm-solver",
+    "benchmark_full/benchmark_statgpu_all.json": "transitional:elasticnet-cross-framework",
+    "benchmark_full/benchmark_glmnet_all.json": "transitional:elasticnet-cross-framework",
+}
+
+TRANSITIONAL_FRAMEWORKS = {
+    "statgpu":     {"framework_id": "statgpu",     "display_name": "statgpu",      "external": False, "backend_policy": "required"},
+    "sklearn":     {"framework_id": "sklearn",     "display_name": "scikit-learn",  "external": True,  "backend_policy": "forbidden"},
+    "glmnet":      {"framework_id": "glmnet",      "display_name": "glmnet",        "external": True,  "backend_policy": "forbidden"},
+    "statsmodels": {"framework_id": "statsmodels", "display_name": "statsmodels",   "external": True,  "backend_policy": "forbidden"},
+}
+
+
+def _make_transitional_case_id(parser_name: str, raw_case_key: str | None) -> str:
+    if not raw_case_key:
+        return "default"
+    payload = json.dumps({"parser": parser_name, "raw_case_key": raw_case_key},
+                         sort_keys=True, separators=(",", ":"))
+    return "legacy-" + hashlib.sha256(payload.encode()).hexdigest()[:16]
+
+
+def _inject_transitional_fields(runs: list[dict], results_dir: Path) -> None:
+    """Inject case_id, method_config_id, comparison_id, and source fields."""
+    repo_root = Path(__file__).resolve().parents[3]
+
+    for run in runs:
+        src_file = run["source"]["file"]
+        parser_name = run["source"]["parser"]
+
+        # comparison_id
+        comparison_id = LEGACY_COMPARISON_GROUPS.get(src_file, f"transitional:{src_file.replace('/', '-')}")
+        run["comparison_id"] = comparison_id
+
+        # case_id — transitional hash of parser-specific discriminator
+        raw_case_key = None
+        if "Penalized" in run.get("model_id", ""):
+            raw_case_key = f"{run['scale']['scale_key']}:{run.get('loss','')}_{run.get('penalty','')}"
+        elif run.get("model_id") == "Lasso":
+            raw_case_key = run.get("benchmark_session_id", "") or run["scale"]["scale_key"]
+        run["case_id"] = _make_transitional_case_id(parser_name, raw_case_key)
+
+        # method_config_id
+        run["method_config_id"] = "default"
+
+        # source fields
+        source_path = results_dir / src_file
+        repo_rel = source_path.resolve().relative_to(repo_root.resolve()).as_posix() if source_path.exists() else src_file
+        run["source"]["source_id"] = f"transitional:{repo_rel}"
+        run["source"]["original_path"] = repo_rel
+        if source_path.exists():
+            from .canonical import source_sha256
+            run["source"]["sha256"] = source_sha256(source_path)
+
+
+def _build_transitional_frameworks(runs: list[dict]) -> list[dict]:
+    """Build frameworks[] from transitional registry, only entries referenced by runs."""
+    used = sorted(set(r["framework"] for r in runs))
+    result = []
+    for fw_id in used:
+        if fw_id in TRANSITIONAL_FRAMEWORKS:
+            result.append(dict(TRANSITIONAL_FRAMEWORKS[fw_id]))
+        else:
+            result.append({
+                "framework_id": fw_id, "display_name": fw_id,
+                "external": fw_id != "statgpu", "backend_policy": "forbidden" if fw_id != "statgpu" else "required"
+            })
+    return result
+
+
+def _build_transitional_comparisons(runs: list[dict], results_dir: Path) -> list[dict]:
+    """Build comparisons[] by deduplicating comparison_ids from runs."""
+    seen: dict[str, dict] = {}
+    for run in runs:
+        cid = run["comparison_id"]
+        if cid not in seen:
+            label = cid.replace("transitional:", "").replace("-", " ").title()
+            seen[cid] = {
+                "comparison_id": cid,
+                "label": label,
+                "env_id": run["env_id"],
+            }
+    return sorted(seen.values(), key=lambda c: c["comparison_id"])
+
+
 def generate(results_dir: Path, deterministic: bool = False) -> tuple[dict, dict]:
     """Generate unified benchmark_data.json from results_dir."""
     all_runs: list[dict] = []
@@ -70,16 +161,29 @@ def generate(results_dir: Path, deterministic: bool = False) -> tuple[dict, dict
         generated_ts = datetime.now(timezone.utc).isoformat()
         git_sha = get_git_sha()
 
+    # --- Inject transitional v1.1 fields ---
+    _inject_transitional_fields(all_runs, results_dir)
+
+    # Build transitional framework registry
+    t_frameworks = _build_transitional_frameworks(all_runs)
+
+    # Build transitional comparison registry
+    t_comparisons = _build_transitional_comparisons(all_runs, results_dir)
+
+    # Build output
     output = {
-        "schema_version": "1.0.0",
+        "schema_version": "1.1.0",
         "generated": generated_ts,
         "meta": {
             "generator": "dev/benchmarks/generate_benchmark_data.py",
             "git_sha": git_sha,
+            "generation_id": "",  # placeholder — filled after full build
         },
         "environments": environments,
         "categories": CATEGORIES,
         "models": sorted(all_models.values(), key=lambda x: x["model_id"]),
+        "frameworks": t_frameworks,
+        "comparisons": t_comparisons,
         "runs": all_runs,
     }
 
@@ -213,7 +317,19 @@ def main():
                         help="Freeze generated/git_sha for CI staleness checks")
     parser.add_argument("--update-preflight-baseline", action="store_true",
                         help="Write legacy identity audit fixture (manual-only; not in CI)")
+    parser.add_argument("--inventory-out", help="Output path for source_inventory.json (A1b+)")
+    parser.add_argument("--strict-sources", action="store_true",
+                        help="Fail on missing required sources (A2+)")
     args = parser.parse_args()
+
+    # All-or-none for output args (A1b+)
+    output_args = [args.out, args.report, args.inventory_out]
+    if any(output_args) and not all(output_args):
+        parser.error("--out, --report, and --inventory-out must be provided together")
+    if args.check and any(output_args):
+        parser.error("--check cannot be combined with output paths")
+    if args.update_preflight_baseline and (args.check or any(output_args) or args.strict_sources):
+        parser.error("--update-preflight-baseline must run alone")
 
     results_dir = Path(args.results_dir)
     if not results_dir.is_absolute():

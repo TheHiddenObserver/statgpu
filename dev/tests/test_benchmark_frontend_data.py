@@ -26,21 +26,26 @@ class TestGenerateBenchmarkData:
 
     def test_generate_produces_valid_output(self, generator, results_dir):
         output, report = generator(results_dir)
-        assert output["schema_version"] == "1.0.0"
+        assert output["schema_version"] == "1.1.0"
         assert "generated" in output
         assert len(output["environments"]) >= 1
         assert len(output["categories"]) == 12
         assert len(output["models"]) >= 1
         assert len(output["runs"]) > 0
+        assert "frameworks" in output
+        assert "comparisons" in output
+        assert "generation_id" in output["meta"]
         assert report["files_parsed"] >= 1
         assert report["runs_generated"] == len(output["runs"])
 
     def test_all_runs_have_required_fields(self, generator, results_dir):
         output, _ = generator(results_dir)
-        required = ["run_id", "env_id", "category_ids", "model_id", "framework", "backend", "scale", "source"]
+        required = ["run_id", "env_id", "category_ids", "model_id", "framework", "backend", "scale", "source",
+                    "comparison_id", "case_id", "method_config_id"]
         for run in output["runs"]:
             for field in required:
                 assert field in run, f"{run.get('run_id', '?')} missing {field}"
+            assert "source_id" in run["source"], f"{run['run_id']} source missing source_id"
 
     def test_no_duplicate_run_ids(self, generator, results_dir):
         output, _ = generator(results_dir)
