@@ -25,29 +25,31 @@ export function renderSummaryCards(
     summaryCard(String(data.categories.length), 'Model categories'),
   );
 
-  // Fastest GPU speedup (prefer computed over reported)
-  const speedupRuns = runs
-    .filter(
-      (r) =>
-        r.framework === 'statgpu' &&
-        r.backend !== 'numpy' &&
-        r.metrics.speedup,
-    )
-    .sort(
-      (a, b) =>
-        (b.metrics.speedup!.value ?? 0) -
-        (a.metrics.speedup!.value ?? 0),
-    );
+  // Fastest GPU speedup (prefer computed over reported) — single O(n) pass
+  let fastestComputedVal = -Infinity;
+  let fastestAnyVal = -Infinity;
+  for (const r of runs) {
+    if (
+      r.framework === 'statgpu' &&
+      r.backend !== 'numpy' &&
+      r.metrics.speedup
+    ) {
+      const v = r.metrics.speedup.value ?? 0;
+      if (v > fastestAnyVal) fastestAnyVal = v;
+      if (
+        r.metrics.speedup.reported_semantics === 'computed' &&
+        v > fastestComputedVal
+      )
+        fastestComputedVal = v;
+    }
+  }
 
-  const fastestComputed = speedupRuns.find(
-    (r) => r.metrics.speedup!.reported_semantics === 'computed',
-  );
-  const fastestAny = speedupRuns[0];
-
-  const gpuLabel = fastestComputed
-    ? 'Fastest computed GPU speedup'
-    : 'Fastest GPU speedup';
-  const gpuValue = (fastestComputed ?? fastestAny)?.metrics.speedup?.value;
+  const gpuLabel =
+    fastestComputedVal > -Infinity
+      ? 'Fastest computed GPU speedup'
+      : 'Fastest GPU speedup';
+  const gpuValue =
+    fastestComputedVal > -Infinity ? fastestComputedVal : fastestAnyVal > -Infinity ? fastestAnyVal : null;
   row.appendChild(
     summaryCard(
       gpuValue != null ? `${gpuValue.toFixed(1)}×` : '-',

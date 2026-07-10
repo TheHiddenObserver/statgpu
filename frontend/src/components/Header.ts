@@ -28,6 +28,9 @@ export function renderHeader(
   }
   hwSelect.addEventListener('change', () => {
     state.selectedEnvId = (hwSelect as HTMLSelectElement).value;
+    // Reset backend/external filters that may be invalid for the new environment
+    state.selectedBackends.clear();
+    state.showExternal.clear();
     onUpdate();
   });
   right.appendChild(hwLabel);

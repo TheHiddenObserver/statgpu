@@ -139,15 +139,11 @@ export function renderOverviewTable(
       t?.quality ?? s?.quality ?? '-',
       r.source.file,
     ];
-    for (const c of cells) {
+    for (let i = 0; i < cells.length; i++) {
+      const c = cells[i];
       const td = h('td', {}, String(c));
-      if (
-        c &&
-        typeof c === 'string' &&
-        c.includes('x') &&
-        s &&
-        s.value >= 2
-      ) {
+      // Highlight the Speedup column (index 6) when speedup >= 2x
+      if (i === 6 && s && s.value >= 2) {
         td.style.cssText +=
           '; font-weight:bold; color:#52c41a;';
       }

@@ -1,6 +1,7 @@
 import * as echarts from 'echarts';
 import type { Run } from '../schema';
 import type { AppState } from '../state';
+import { formatModelName } from '../utils/format';
 
 export function renderSpeedupChart(
   el: HTMLElement,
@@ -36,14 +37,14 @@ export function renderSpeedupChart(
   );
   const topN = speedupRuns.slice(0, 30);
   const reportedCount = topN.filter(
-    (r) => r.metrics.speedup?.reported_semantics !== 'computed',
+    (r) => r.metrics.speedup?.reported_semantics === 'reported_by_runner',
   ).length;
 
   const labels = topN.map((r) => {
     const isComputed =
       r.metrics.speedup?.reported_semantics === 'computed';
     const suffix = isComputed ? '' : ' Ⓡ';
-    return `${r.model_id.replace('Penalized', '').replace('Regression', '')}+${r.penalty} [${r.solver_display ?? r.solver}] ${r.scale.label}${suffix}`;
+    return `${formatModelName(r.model_id)}+${r.penalty} [${r.solver_display ?? r.solver}] ${r.scale.label}${suffix}`;
   });
 
   chart.setOption(

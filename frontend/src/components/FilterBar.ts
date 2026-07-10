@@ -93,6 +93,8 @@ export function renderFilterBar(
       const chip = h(
         'span',
         {
+          class: 'scale-chip',
+          'data-scale-key': sk,
           style: `display:inline-block; padding:2px 6px; margin:1px; border-radius:4px; cursor:pointer;
             font-size:11px; border:1px solid #ccc;
             ${state.selectedScaleKeys.has(sk) ? 'background:#1890ff; color:#fff; border-color:#1890ff;' : ''}`,

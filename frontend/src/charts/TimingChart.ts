@@ -2,6 +2,7 @@ import * as echarts from 'echarts';
 import type { Run } from '../schema';
 import type { AppState } from '../state';
 import { COLORS } from '../utils/theme';
+import { formatModelName } from '../utils/format';
 
 export function renderTimingChart(
   el: HTMLElement,
@@ -39,7 +40,7 @@ export function renderTimingChart(
     const gk = `${r.model_id}|${r.penalty ?? 'none'}|${r.solver ?? 'auto'}|${r.scale.scale_key}`;
     if (!groups.has(gk)) {
       groups.set(gk, {
-        label: `${r.model_id.replace('Penalized', '').replace('Regression', '')}+${r.penalty ?? 'none'} ${r.scale.label}`,
+        label: `${formatModelName(r.model_id)}+${r.penalty ?? 'none'} ${r.scale.label}`,
         byBackend: new Map(),
       });
     }

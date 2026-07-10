@@ -49,25 +49,19 @@ test.describe('Benchmark Dashboard', () => {
 
   // 4. Scale Multi-select
   test('scale chips are multi-selectable', async ({ page }) => {
-    const chips = page.locator('.filter-bar span[style*="border-radius:4px"]');
+    const chips = page.locator('.scale-chip');
     const count = await chips.count();
     if (count >= 2) {
       await chips.first().click();
-      // First chip should be active (blue background)
-      await expect(chips.first()).toHaveAttribute(
-        'style',
-        /background:#1890ff/,
-      );
+      // First chip should have active background color
+      const firstStyle = await chips.first().getAttribute('style');
+      expect(firstStyle).toContain('background:#1890ff');
       await chips.nth(1).click();
       // Both should be active
-      await expect(chips.first()).toHaveAttribute(
-        'style',
-        /background:#1890ff/,
-      );
-      await expect(chips.nth(1)).toHaveAttribute(
-        'style',
-        /background:#1890ff/,
-      );
+      const firstStyle2 = await chips.first().getAttribute('style');
+      const secondStyle = await chips.nth(1).getAttribute('style');
+      expect(firstStyle2).toContain('background:#1890ff');
+      expect(secondStyle).toContain('background:#1890ff');
     }
   });
 

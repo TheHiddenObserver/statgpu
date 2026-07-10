@@ -66,7 +66,13 @@ export function renderSidebar(
     }
   });
 
-  // Select all / none
+  // Select all / none — keep checkbox DOM in sync with state
+  const catCheckboxes = new Map<string, HTMLInputElement>();
+  for (const cat of data.categories) {
+    const cb = catContainer.querySelector<HTMLInputElement>(`#cat-${cat.category_id}`);
+    if (cb) catCheckboxes.set(cat.category_id, cb);
+  }
+
   const btnRow = h('div', {
     style: 'display:flex; gap:4px; margin-top:6px;',
   });
@@ -74,11 +80,13 @@ export function renderSidebar(
   allBtn.addEventListener('click', () => {
     for (const cat of data.categories)
       state.selectedCategoryIds.add(cat.category_id);
+    for (const cb of catCheckboxes.values()) cb.checked = true;
     onUpdate();
   });
   const noneBtn = h('button', {}, 'None');
   noneBtn.addEventListener('click', () => {
     state.selectedCategoryIds.clear();
+    for (const cb of catCheckboxes.values()) cb.checked = false;
     onUpdate();
   });
   btnRow.appendChild(allBtn);

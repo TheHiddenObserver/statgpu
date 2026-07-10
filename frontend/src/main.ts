@@ -133,14 +133,13 @@ async function init(): Promise<void> {
     '<div class="empty-state">Loading benchmark data...</div>';
 
   try {
-    [data, parseReport] = await Promise.all([
-      fetchBenchmarkData(),
-      fetchParseReport(),
-    ]);
+    data = await fetchBenchmarkData();
+    // parseReport is non-critical; fetch separately so failure doesn't block dashboard
+    parseReport = await fetchParseReport().catch(() => null);
     const appEl = renderApp();
     clear(root);
     (root as HTMLElement).appendChild(appEl);
-    update();
+    // renderApp() already renders with default state — no extra update() needed
   } catch (err) {
     root.innerHTML = `<div class="empty-state" style="color:#ff4d4f;">
       Failed to load benchmark data: ${err instanceof Error ? err.message : String(err)}<br/>

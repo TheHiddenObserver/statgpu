@@ -134,6 +134,24 @@ body {
   box-shadow: var(--shadow);
 }
 
+/* ---- Scale chips ---- */
+.scale-chip {
+  display: inline-block;
+  padding: 2px 6px;
+  margin: 1px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: var(--font-size-sm);
+  border: 1px solid #ccc;
+  user-select: none;
+}
+
+.scale-chip.active {
+  background: var(--color-primary);
+  color: #fff;
+  border-color: var(--color-primary);
+}
+
 /* ---- Filter bar ---- */
 .filter-bar {
   display: flex;
