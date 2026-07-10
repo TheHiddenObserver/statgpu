@@ -3,7 +3,6 @@ import { test, expect } from '@playwright/test';
 test.describe('Benchmark Dashboard', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/');
-    // Wait for data to load — header should appear
     await expect(page.locator('.header')).toBeVisible({ timeout: 15000 });
   });
 
@@ -20,27 +19,24 @@ test.describe('Benchmark Dashboard', () => {
   });
 
   // 2. Category Filtering
-  test('category filter — clear all and select single category', async ({
+  test('category filter — clear all shows empty state, re-select restores data', async ({
     page,
   }) => {
-    // Click "None" to clear all
+    // Click "None" to clear all — should show empty state
     await page.getByRole('button', { name: 'None' }).click();
-    await expect(page.locator('.table-container')).toBeVisible();
+    await expect(page.getByText(/No runs match/i)).toBeVisible({ timeout: 5000 });
 
-    // Select penalized_glm checkbox
+    // Re-select penalized_glm — data should return
     await page.locator('#cat-penalized_glm').check();
-    await expect(page.locator('.table-container')).toBeVisible();
+    await expect(page.locator('.table-container tbody tr').first()).toBeVisible({ timeout: 5000 });
   });
 
   // 3. Model / Penalty Filtering
   test('progressive filter — model then penalty then solver', async ({
     page,
   }) => {
-    // Select a model from the filter bar (skip env-select in header)
     await page.locator('.filter-bar select').first().selectOption({ index: 1 });
-    // Penalty selector should appear
     await expect(page.getByText('Penalty:')).toBeVisible();
-    // Select a penalty if one exists
     const penaltySelect = page.locator('.filter-bar select').nth(1);
     if ((await penaltySelect.count()) > 0) {
       await penaltySelect.selectOption({ index: 1 });
@@ -48,20 +44,15 @@ test.describe('Benchmark Dashboard', () => {
   });
 
   // 4. Scale Multi-select
-  test('scale chips are multi-selectable', async ({ page }) => {
+  test('scale chips are multi-selectable with .active class', async ({ page }) => {
     const chips = page.locator('.scale-chip');
     const count = await chips.count();
     if (count >= 2) {
       await chips.first().click();
-      // First chip should have active background color
-      const firstStyle = await chips.first().getAttribute('style');
-      expect(firstStyle).toContain('background:#1890ff');
+      await expect(chips.first()).toHaveClass(/active/);
       await chips.nth(1).click();
-      // Both should be active
-      const firstStyle2 = await chips.first().getAttribute('style');
-      const secondStyle = await chips.nth(1).getAttribute('style');
-      expect(firstStyle2).toContain('background:#1890ff');
-      expect(secondStyle).toContain('background:#1890ff');
+      await expect(chips.first()).toHaveClass(/active/);
+      await expect(chips.nth(1)).toHaveClass(/active/);
     }
   });
 
@@ -70,11 +61,9 @@ test.describe('Benchmark Dashboard', () => {
     const showAllBtn = page.getByText('Show all', { exact: false });
     if (await showAllBtn.isVisible()) {
       await showAllBtn.click();
-      // After clicking Show all, the button should change to "Show first 200"
       await expect(
         page.getByText('Show first 200', { exact: false }),
       ).toBeVisible({ timeout: 5000 });
-      // Click to return to 200
       await page.getByText('Show first 200', { exact: false }).click();
       await expect(
         page.getByText('Show all', { exact: false }),
@@ -86,18 +75,20 @@ test.describe('Benchmark Dashboard', () => {
   test('external framework checkboxes toggle visibility', async ({
     page,
   }) => {
-    // glmnet checkbox should exist and be unchecked by default
     const glmnetCheckbox = page.locator('input[value="glmnet"]');
     await expect(glmnetCheckbox).toBeVisible();
     await expect(glmnetCheckbox).not.toBeChecked();
 
-    // Enable glmnet
+    // Enable glmnet — checkbox should check, run count should increase
+    const beforeText = await page.locator('.table-container').textContent();
     await glmnetCheckbox.check();
     await expect(glmnetCheckbox).toBeChecked();
-    // Wait for table update
+    // Verify table content changed (rows were added or shown)
     await page.waitForTimeout(500);
+    const afterCheckText = await page.locator('.table-container').textContent();
+    expect(afterCheckText).not.toBe(beforeText);
 
-    // Disable again
+    // Disable — checkbox unchecks, table reverts
     await glmnetCheckbox.uncheck();
     await expect(glmnetCheckbox).not.toBeChecked();
   });
@@ -106,7 +97,6 @@ test.describe('Benchmark Dashboard', () => {
   test('table header click toggles sort direction', async ({ page }) => {
     const modelHeader = page.getByRole('columnheader', { name: /Model/ });
     await modelHeader.click();
-    // Should show sort arrow
     await expect(modelHeader).toContainText('▲');
     await modelHeader.click();
     await expect(modelHeader).toContainText('▼');
@@ -117,7 +107,6 @@ test.describe('Benchmark Dashboard', () => {
     const numpyRadio = page.locator('input[value="numpy"]');
     await numpyRadio.check();
     await expect(numpyRadio).toBeChecked();
-    // Select "All" again
     const allRadio = page.locator('input[value="all"]');
     await allRadio.check();
     await expect(allRadio).toBeChecked();
@@ -127,7 +116,6 @@ test.describe('Benchmark Dashboard', () => {
   test('environment selector changes env', async ({ page }) => {
     const envSelect = page.locator('#env-select');
     await expect(envSelect).toBeVisible();
-    // Verify it has options
     const options = await envSelect.locator('option').count();
     expect(options).toBeGreaterThan(0);
   });
@@ -136,7 +124,15 @@ test.describe('Benchmark Dashboard', () => {
   test('summary cards show global statistics', async ({ page }) => {
     const cards = page.locator('.summary-card');
     await expect(cards).toHaveCount(6);
-    // First card should show total runs count
     await expect(cards.first().locator('.card-value')).not.toBeEmpty();
+  });
+
+  // 11. None button shows empty state (regression guard)
+  test('clearing all categories shows empty state message', async ({ page }) => {
+    await page.getByRole('button', { name: 'None' }).click();
+    await expect(page.getByText(/No runs match/i)).toBeVisible({ timeout: 5000 });
+    // Re-select a category to confirm recovery
+    await page.locator('#cat-penalized_glm').check();
+    await expect(page.locator('.table-container tbody tr').first()).toBeVisible({ timeout: 5000 });
   });
 });

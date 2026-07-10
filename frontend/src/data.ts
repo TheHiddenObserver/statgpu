@@ -62,11 +62,10 @@ export function filterRuns(
   opts?: FilterOptions,
 ): Run[] {
   return runs.filter(r => {
-    // Category filter
-    if (state.selectedCategoryIds.size > 0) {
-      const hasCat = r.category_ids.some(cid => state.selectedCategoryIds.has(cid));
-      if (!hasCat) return false;
-    }
+    // Category filter — empty set means no categories selected = empty results
+    if (state.selectedCategoryIds.size === 0) return false;
+    const hasCat = r.category_ids.some(cid => state.selectedCategoryIds.has(cid));
+    if (!hasCat) return false;
 
     // Environment filter
     if (state.selectedEnvId && r.env_id !== state.selectedEnvId) return false;

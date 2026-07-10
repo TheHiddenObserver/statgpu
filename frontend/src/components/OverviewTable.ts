@@ -2,6 +2,7 @@ import type { Run } from '../schema';
 import type { AppState } from '../state';
 import { h } from '../utils/dom';
 import { setSortColumn } from '../state';
+import { emptyFilterMessage } from './EmptyState';
 import {
   formatModelName,
   formatTime,
@@ -52,6 +53,13 @@ export function renderOverviewTable(
   const container = h('div', { class: 'table-container' });
 
   const filtered = runs;
+
+  // Empty state
+  if (filtered.length === 0) {
+    container.appendChild(emptyFilterMessage());
+    return container;
+  }
+
   const displayCount =
     state.tableLimit === Infinity
       ? filtered.length

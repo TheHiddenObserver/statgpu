@@ -120,14 +120,13 @@ export function renderFilterBar(
     bar.appendChild(h('span', {}, 'Scale:'));
     const labelMap = getScaleLabelMap(data.runs);
     for (const sk of scaleKeys.slice(0, 15)) {
+      const active = state.selectedScaleKeys.has(sk);
       const chip = h(
         'span',
         {
-          class: 'scale-chip',
+          class: `scale-chip${active ? ' active' : ''}`,
           'data-scale-key': sk,
-          style: `display:inline-block; padding:2px 6px; margin:1px; border-radius:4px; cursor:pointer;
-            font-size:11px; border:1px solid #ccc;
-            ${state.selectedScaleKeys.has(sk) ? 'background:#1890ff; color:#fff; border-color:#1890ff;' : ''}`,
+          'aria-pressed': String(active),
         },
         labelMap.get(sk) ?? sk,
       );
