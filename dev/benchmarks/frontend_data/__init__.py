@@ -1,23 +1,13 @@
-#!/usr/bin/env python3
-"""
-Generate unified benchmark data JSON for the statgpu frontend dashboard.
+"""Benchmark frontend data generation package."""
 
-Usage:
-    python dev/benchmarks/generate_benchmark_data.py \
-        --out frontend/public/data/benchmark_data.json \
-        --report frontend/public/data/parse_report.json
-
-    python dev/benchmarks/generate_benchmark_data.py --check  # validate only
-
-This is a thin wrapper — implementation lives in dev.benchmarks.frontend_data.
-"""
-
-from dev.benchmarks.frontend_data import (
+from .cli import (
     generate,
     validate_output,
     validate_against_schema,
     main,
     get_git_sha,
+)
+from .canonical import (
     CATEGORIES,
     BACKEND_MAP,
     FRAMEWORK_MAP,
@@ -57,6 +47,3 @@ __all__ = [
     "normalize_utf8_bytes",
     "source_sha256",
 ]
-
-if __name__ == "__main__":
-    main()
