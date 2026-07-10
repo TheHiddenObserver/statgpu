@@ -44,6 +44,15 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
+      - name: Reject committed frontend artifacts
+        run: |
+          if git -C "$GITHUB_WORKSPACE" ls-files \
+            'frontend/node_modules/**' \
+            'frontend/test-results/**' \
+            'frontend/playwright-report/**' | grep -q .; then
+            echo "Generated frontend dependencies/test artifacts must not be committed."
+            exit 1
+          fi
       - run: npm ci
       - run: npm run typecheck
       - run: npm run build
@@ -71,3 +80,24 @@ jobs:
           npm run build
       - name: Check staleness
         run: git diff --exit-code docs/assets/benchmarks/ frontend/public/data/
+
+  frontend-e2e:
+    runs-on: ubuntu-latest
+    needs: [frontend, staleness]
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:e2e
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: playwright-report
+          path: frontend/playwright-report/
+          retention-days: 30

@@ -1,4 +1,5 @@
 import type { BenchmarkData, ParseReport, Run } from './schema';
+import type { AppState } from './state';
 
 const DATA_URL = `${import.meta.env.BASE_URL}data/benchmark_data.json`;
 const REPORT_URL = `${import.meta.env.BASE_URL}data/parse_report.json`;
@@ -37,13 +38,39 @@ export function getUniqueScaleKeys(runs: Run[]): string[] {
   return [...keys].sort();
 }
 
-export function filterRuns(runs: Run[], state: AppState): Run[] {
-  return runs.filter(r => {
-    // Category filter
-    if (state.selectedCategoryIds.size > 0) {
-      const hasCat = r.category_ids.some(cid => state.selectedCategoryIds.has(cid));
-      if (!hasCat) return false;
+/** Precompute scale_key → label map for O(1) chip label lookup */
+let scaleLabelMap: Map<string, string> | null = null;
+
+export function getScaleLabelMap(runs: Run[]): Map<string, string> {
+  if (scaleLabelMap) return scaleLabelMap;
+  scaleLabelMap = new Map();
+  for (const r of runs) {
+    if (!scaleLabelMap.has(r.scale.scale_key)) {
+      scaleLabelMap.set(r.scale.scale_key, r.scale.label);
     }
+  }
+  return scaleLabelMap;
+}
+
+/** Reset cached scale label map — call when switching data sources */
+export function resetScaleLabelMap(): void {
+  scaleLabelMap = null;
+}
+
+export interface FilterOptions {
+  ignoreScale?: boolean;
+}
+
+export function filterRuns(
+  runs: Run[],
+  state: AppState,
+  opts?: FilterOptions,
+): Run[] {
+  return runs.filter(r => {
+    // Category filter — empty set means no categories selected = empty results
+    if (state.selectedCategoryIds.size === 0) return false;
+    const hasCat = r.category_ids.some(cid => state.selectedCategoryIds.has(cid));
+    if (!hasCat) return false;
 
     // Environment filter
     if (state.selectedEnvId && r.env_id !== state.selectedEnvId) return false;
@@ -57,8 +84,13 @@ export function filterRuns(runs: Run[], state: AppState): Run[] {
     // Solver filter
     if (state.selectedSolver && r.solver !== state.selectedSolver) return false;
 
-    // Scale filter
-    if (state.selectedScaleKeys.size > 0 && !state.selectedScaleKeys.has(r.scale.scale_key)) return false;
+    // Scale filter (skipped when deriving scale options)
+    if (
+      !opts?.ignoreScale &&
+      state.selectedScaleKeys.size > 0 &&
+      !state.selectedScaleKeys.has(r.scale.scale_key)
+    )
+      return false;
 
     // Backend filter (statgpu only)
     if (state.selectedBackends.size > 0 && r.framework === 'statgpu' && r.backend) {
@@ -76,35 +108,3 @@ export function filterRuns(runs: Run[], state: AppState): Run[] {
   });
 }
 
-/** Simple reactive state for Phase 2 */
-export interface AppState {
-  selectedCategoryIds: Set<string>;
-  selectedEnvId: string | null;
-  selectedModelId: string | null;
-  selectedPenalty: string | null;
-  selectedSolver: string | null;
-  selectedScaleKeys: Set<string>;
-  selectedBackends: Set<string>;
-  showExternal: Set<string>;
-  showInference: boolean;
-  tableLimit: number;
-  sortColumn: string | null;
-  sortDir: 'asc' | 'desc';
-}
-
-export function createDefaultState(): AppState {
-  return {
-    selectedCategoryIds: new Set(['penalized_glm']),
-    selectedEnvId: 'remote-p100',
-    selectedModelId: null,
-    selectedPenalty: null,
-    selectedSolver: null,
-    selectedScaleKeys: new Set(),
-    selectedBackends: new Set(),
-    showExternal: new Set(),
-    showInference: false,
-    tableLimit: 200,
-    sortColumn: null,
-    sortDir: 'asc',
-  };
-}
