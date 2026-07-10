@@ -43,6 +43,11 @@ export function renderSidebar(
     cb.addEventListener('change', () => {
       if (cb.checked) state.selectedCategoryIds.add(cat.category_id);
       else state.selectedCategoryIds.delete(cat.category_id);
+      // Clear downstream filters — category change invalidates model/penalty/solver/scale
+      state.selectedModelId = null;
+      state.selectedPenalty = null;
+      state.selectedSolver = null;
+      state.selectedScaleKeys.clear();
       onUpdate();
     });
     const label = h(
@@ -81,12 +86,20 @@ export function renderSidebar(
     for (const cat of data.categories)
       state.selectedCategoryIds.add(cat.category_id);
     for (const cb of catCheckboxes.values()) cb.checked = true;
+    state.selectedModelId = null;
+    state.selectedPenalty = null;
+    state.selectedSolver = null;
+    state.selectedScaleKeys.clear();
     onUpdate();
   });
   const noneBtn = h('button', {}, 'None');
   noneBtn.addEventListener('click', () => {
     state.selectedCategoryIds.clear();
     for (const cb of catCheckboxes.values()) cb.checked = false;
+    state.selectedModelId = null;
+    state.selectedPenalty = null;
+    state.selectedSolver = null;
+    state.selectedScaleKeys.clear();
     onUpdate();
   });
   btnRow.appendChild(allBtn);

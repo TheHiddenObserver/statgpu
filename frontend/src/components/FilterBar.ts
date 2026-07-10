@@ -24,10 +24,33 @@ export function renderFilterBar(
 ): HTMLElement {
   const bar = h('div', { class: 'filter-bar' });
 
-  const filtered = filterRuns(allRuns, state);
+  // Option runs: exclude self + downstream filters so selecting a value
+  // doesn't shrink the dropdown to only that value (avoids stale-filter deadlock).
+  const modelOptionState: AppState = {
+    ...state,
+    selectedModelId: null,
+    selectedPenalty: null,
+    selectedSolver: null,
+    selectedScaleKeys: new Set(),
+  };
+  const modelOptionRuns = filterRuns(allRuns, modelOptionState);
+
+  const penaltyOptionState: AppState = {
+    ...state,
+    selectedPenalty: null,
+    selectedSolver: null,
+    selectedScaleKeys: new Set(),
+  };
+  const penaltyOptionRuns = filterRuns(allRuns, penaltyOptionState);
+
+  const solverOptionState: AppState = {
+    ...state,
+    selectedSolver: null,
+  };
+  const solverOptionRuns = filterRuns(allRuns, solverOptionState);
 
   // Model selector
-  const modelIds = getUniqueValues(filtered, 'model_id');
+  const modelIds = getUniqueValues(modelOptionRuns, 'model_id');
   if (modelIds.length > 0) {
     bar.appendChild(h('span', {}, 'Model:'));
     const sel = h('select', { style: 'padding:2px 6px;' });
@@ -47,7 +70,7 @@ export function renderFilterBar(
   // Penalty selector (appears after model selected)
   if (state.selectedModelId) {
     const penalties = getUniqueValues(
-      filtered.filter((r) => r.model_id === state.selectedModelId),
+      penaltyOptionRuns.filter((r) => r.model_id === state.selectedModelId),
       'penalty',
     );
     bar.appendChild(h('span', {}, 'Penalty:'));
@@ -68,7 +91,7 @@ export function renderFilterBar(
   // Solver selector (appears after penalty selected)
   if (state.selectedPenalty) {
     const solvers = getUniqueValues(
-      filtered.filter(
+      solverOptionRuns.filter(
         (r) =>
           r.model_id === state.selectedModelId &&
           r.penalty === state.selectedPenalty,

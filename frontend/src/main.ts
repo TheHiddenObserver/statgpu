@@ -107,14 +107,21 @@ function getFilteredRuns(): Run[] {
   return filterRuns(data.runs, state);
 }
 
+function disposeCharts(): void {
+  for (const id of ['timing-chart', 'speedup-chart']) {
+    const el = document.getElementById(id);
+    if (!el) continue;
+    const chart = echarts.getInstanceByDom(el);
+    if (chart && !chart.isDisposed()) chart.dispose();
+  }
+  chartInstances.length = 0;
+}
+
 function update(): void {
   const main = document.querySelector('.main') as HTMLElement | null;
   if (!main) return;
 
-  for (const chart of chartInstances) {
-    if (!chart.isDisposed()) chart.dispose();
-  }
-  chartInstances.length = 0;
+  disposeCharts();
 
   // Compute filtered runs once per update, pass to all renderers
   const allRuns = data!.runs;
