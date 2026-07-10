@@ -50,7 +50,7 @@ export function renderSpeedupChart(
   chart.setOption(
     {
       title: {
-        text: 'GPU Speedup vs CPU',
+        text: 'Speedup vs Reference',
         subtext:
           reportedCount > 0
             ? 'Ⓡ = reported by solver benchmark'
