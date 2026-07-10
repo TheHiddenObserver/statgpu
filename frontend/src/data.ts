@@ -52,6 +52,11 @@ export function getScaleLabelMap(runs: Run[]): Map<string, string> {
   return scaleLabelMap;
 }
 
+/** Reset cached scale label map — call when switching data sources */
+export function resetScaleLabelMap(): void {
+  scaleLabelMap = null;
+}
+
 export interface FilterOptions {
   ignoreScale?: boolean;
 }

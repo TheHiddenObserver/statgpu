@@ -72,25 +72,27 @@ test.describe('Benchmark Dashboard', () => {
   });
 
   // 6. External Framework Toggle
-  test('external framework checkboxes toggle visibility', async ({
+  test('external framework checkboxes toggle table visibility', async ({
     page,
   }) => {
     const glmnetCheckbox = page.locator('input[value="glmnet"]');
     await expect(glmnetCheckbox).toBeVisible();
     await expect(glmnetCheckbox).not.toBeChecked();
 
-    // Enable glmnet — checkbox should check, run count should increase
-    const beforeText = await page.locator('.table-container').textContent();
+    // Show all rows so glmnet entries are not hidden by pagination
+    const showAllBtn = page.getByText('Show all', { exact: false });
+    if (await showAllBtn.isVisible()) await showAllBtn.click();
+    await page.waitForTimeout(300);
+
+    // Enable glmnet — table should show glmnet rows
     await glmnetCheckbox.check();
     await expect(glmnetCheckbox).toBeChecked();
-    // Verify table content changed (rows were added or shown)
-    await page.waitForTimeout(500);
-    const afterCheckText = await page.locator('.table-container').textContent();
-    expect(afterCheckText).not.toBe(beforeText);
+    await expect(page.locator('.table-container')).toContainText('glmnet', { timeout: 5000 });
 
-    // Disable — checkbox unchecks, table reverts
+    // Disable — glmnet rows should disappear
     await glmnetCheckbox.uncheck();
     await expect(glmnetCheckbox).not.toBeChecked();
+    await expect(page.locator('.table-container')).not.toContainText('glmnet', { timeout: 5000 });
   });
 
   // 7. Table sorting

@@ -10,6 +10,11 @@ setup_cython.py
 spec_tracking.md
 SECURITY.md
 
+# Frontend dependencies and test artifacts
+frontend/node_modules/
+frontend/test-results/
+frontend/playwright-report/
+
 # IDE
 .vscode/
 .idea/

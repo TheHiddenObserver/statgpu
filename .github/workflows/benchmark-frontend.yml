@@ -44,6 +44,15 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
+      - name: Reject committed frontend artifacts
+        run: |
+          if git ls-files \
+            'frontend/node_modules/**' \
+            'frontend/test-results/**' \
+            'frontend/playwright-report/**' | grep -q .; then
+            echo "Generated frontend dependencies/test artifacts must not be committed."
+            exit 1
+          fi
       - run: npm ci
       - run: npm run typecheck
       - run: npm run build
