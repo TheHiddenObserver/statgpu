@@ -868,6 +868,136 @@ def validate_output(output: dict) -> list[str]:
 
 
 # ---------------------------------------------------------------------------
+# Preflight audit
+# ---------------------------------------------------------------------------
+
+def normalize_utf8_bytes(raw: bytes) -> bytes:
+    """Normalize UTF-8 bytes for consistent SHA256: reject BOM, bare CR, non-UTF-8."""
+    if raw.startswith(b'\xef\xbb\xbf'):
+        raise ValueError("BOM not allowed in source file")
+    text = raw.decode("utf-8")
+    if '\r' in text.replace('\r\n', ''):
+        raise ValueError("Bare CR not allowed in source file")
+    return text.replace('\r\n', '\n').encode("utf-8")
+
+
+def source_sha256(path: Path) -> str:
+    """Compute SHA256 of a file after UTF-8/line-ending normalization."""
+    return hashlib.sha256(normalize_utf8_bytes(path.read_bytes())).hexdigest()
+
+
+def build_preflight_audit(results_dir: Path, output: dict, parse_report: dict) -> dict:
+    """Build the legacy identity audit fixture for A0."""
+    repo_root = Path(__file__).resolve().parents[2]
+
+    # Source SHA256
+    source_hashes = {}
+    for filename in PARSER_REGISTRY:
+        filepath = results_dir / filename
+        if filepath.exists():
+            source_hashes[filename] = source_sha256(filepath)
+
+    # Convergence provenance
+    conv_explicit = 0
+    conv_inferred = 0
+    for run in output["runs"]:
+        conv = run.get("metrics", {}).get("convergence", {})
+        if conv:
+            if "converged" in conv:
+                conv_explicit += 1
+            else:
+                conv_inferred += 1
+    # The current code always sets "converged": True on glmnet entries
+    # and on statgpu elasticnet entries with n_iter. Count all with convergence as inferred.
+
+    # Check convergence provenance from actual source files
+    conv_prov = {"explicit_converged": 0, "parser_inferred_converged": 0}
+    for run in output["runs"]:
+        conv = run.get("metrics", {}).get("convergence", {})
+        if conv:
+            conv_prov["parser_inferred_converged"] += 1
+
+    # Timing provenance
+    timing_prov = {}
+    for filename in PARSER_REGISTRY:
+        short_name = filename.replace("/", "_").replace(".json", "")
+        timing_prov[short_name] = {
+            "sample_count_known": False,
+            "std_ddof": None,
+            "std_scope": "unknown",
+        }
+
+    # Legacy discriminators
+    legacy_disc = {
+        "penalized_glm": ["scale_name", "model_key"],
+        "glm_solver": ["scale_name", "model_key"],
+        "elasticnet_statgpu": ["entry_name"],
+        "elasticnet_glmnet": ["dataset_name"],
+    }
+
+    # Legacy comparison groups
+    legacy_comparison_groups = {
+        "penalized_glm_bench_perf_2026-06-22.json": "transitional:penalized-glm-performance",
+        "glm_solver_benchmark_2026-06-23.json": "transitional:glm-solver",
+        "benchmark_full/benchmark_statgpu_all.json": "transitional:elasticnet-cross-framework",
+        "benchmark_full/benchmark_glmnet_all.json": "transitional:elasticnet-cross-framework",
+    }
+
+    # Count total JSON files in results/
+    catalog_total = 0
+    if results_dir.exists():
+        catalog_total = len(list(results_dir.rglob("*.json")))
+
+    # Check for duplicate transitional identities (RunIdentity + session)
+    from collections import defaultdict
+    groups = defaultdict(list)
+    for run in output["runs"]:
+        key = (
+            run["model_id"],
+            run.get("loss", ""),
+            run.get("penalty", ""),
+            run.get("solver", ""),
+            run["framework"],
+            str(run["backend"]),
+            run["scale"]["scale_key"],
+            run["env_id"],
+            run.get("benchmark_session_id", ""),
+        )
+        groups[key].append(run["run_id"])
+
+    dup_transitional = []
+    for key, ids in groups.items():
+        if len(ids) > 1:
+            dup_transitional.append({"key": str(key), "run_ids": ids})
+
+    audit = {
+        "baseline_git_sha": get_git_sha(),
+        "catalog_total": catalog_total,
+        "run_count": len(output["runs"]),
+        "warning_count": len(parse_report["warnings"]),
+        "duplicate_run_ids": [],
+        "duplicate_transitional_identities": dup_transitional,
+        "source_sha256": source_hashes,
+        "convergence_provenance": conv_prov,
+        "timing_provenance": timing_prov,
+        "legacy_discriminators": legacy_disc,
+        "legacy_comparison_groups": legacy_comparison_groups,
+    }
+
+    # Verify no duplicate run_ids
+    seen = set()
+    dup_ids = []
+    for run in output["runs"]:
+        rid = run["run_id"]
+        if rid in seen:
+            dup_ids.append(rid)
+        seen.add(rid)
+    audit["duplicate_run_ids"] = dup_ids
+
+    return audit
+
+
+# ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
 
@@ -880,6 +1010,8 @@ def main():
     parser.add_argument("--results-dir", default="results", help="Directory containing benchmark result files")
     parser.add_argument("--deterministic", action="store_true",
                         help="Freeze generated/git_sha for CI staleness checks")
+    parser.add_argument("--update-preflight-baseline", action="store_true",
+                        help="Write legacy identity audit fixture (manual-only; not in CI)")
     args = parser.parse_args()
 
     results_dir = Path(args.results_dir)
@@ -939,6 +1071,33 @@ def main():
         with open(report_path, "w", encoding="utf-8") as f:
             json.dump(parse_report, f, indent=2)
         print(f"Wrote: {report_path}")
+
+    if args.update_preflight_baseline:
+        repo_root = Path(__file__).resolve().parents[2]
+        fixture_dir = repo_root / "dev" / "tests" / "fixtures" / "benchmark_frontend"
+        fixture_dir.mkdir(parents=True, exist_ok=True)
+
+        audit = build_preflight_audit(results_dir, output, parse_report)
+        audit_path = fixture_dir / "legacy_identity_audit.json"
+        with open(audit_path, "w", encoding="utf-8") as f:
+            json.dump(audit, f, indent=2)
+        print(f"Wrote preflight audit: {audit_path}")
+
+        # Also write deterministic output SHA256 for A1a byte-identical verification
+        det_output, det_report = generate(results_dir, deterministic=True)
+        det_hashes = {
+            "benchmark_data_sha256": hashlib.sha256(
+                json.dumps(det_output, sort_keys=True, indent=2, ensure_ascii=False).encode("utf-8")
+            ).hexdigest(),
+            "parse_report_sha256": hashlib.sha256(
+                json.dumps(det_report, sort_keys=True, indent=2).encode("utf-8")
+            ).hexdigest(),
+        }
+        det_path = fixture_dir / "legacy_deterministic_output_sha256.json"
+        with open(det_path, "w", encoding="utf-8") as f:
+            json.dump(det_hashes, f, indent=2)
+        print(f"Wrote deterministic output hashes: {det_path}")
+        return
 
     if not args.out and not args.report:
         # Print summary to stdout when no output files specified
