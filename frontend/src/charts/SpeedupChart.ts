@@ -75,7 +75,7 @@ export function renderSpeedupChart(
           return `<b>${p.value.toFixed(2)}×</b> ${kind} (${label})`;
         },
       },
-      grid: { left: 10, right: 10, top: reportedCount > 0 ? 50 : 40, bottom: 30 },
+      grid: { left: 10, right: 10, top: reportedCount > 0 ? 50 : 40, bottom: 30, containLabel: true },
       xAxis: {
         type: 'value',
         name: 'speedup',

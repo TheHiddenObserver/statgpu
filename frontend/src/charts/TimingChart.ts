@@ -94,7 +94,7 @@ export function renderTimingChart(
         },
       },
       legend: { bottom: 0, textStyle: { fontSize: 11 } },
-      grid: { left: 10, right: 10, top: 40, bottom: 30 },
+      grid: { left: 10, right: 10, top: 40, bottom: 30, containLabel: true },
       xAxis: {
         type: 'category',
         data: categories,

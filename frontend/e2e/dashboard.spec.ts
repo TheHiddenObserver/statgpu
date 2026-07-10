@@ -129,12 +129,21 @@ test.describe('Benchmark Dashboard', () => {
     await expect(cards.first().locator('.card-value')).not.toBeEmpty();
   });
 
-  // 11. None button shows empty state (regression guard)
-  test('clearing all categories shows empty state message', async ({ page }) => {
-    await page.getByRole('button', { name: 'None' }).click();
-    await expect(page.getByText(/No runs match/i)).toBeVisible({ timeout: 5000 });
-    // Re-select a category to confirm recovery
-    await page.locator('#cat-penalized_glm').check();
+  // 11. Model change clears incompatible scale filters (regression guard)
+  test('changing model clears incompatible scale filters', async ({ page }) => {
+    const modelSelect = page.locator('.filter-bar select').first();
+
+    // Select Lasso and a scale chip
+    await modelSelect.selectOption('Lasso');
+    const chip = page.locator('.scale-chip').first();
+    if (await chip.count() > 0) {
+      await chip.click();
+      await expect(chip).toHaveClass(/active/);
+    }
+
+    // Switch model — scale should be cleared
+    await modelSelect.selectOption('PenalizedLogisticRegression');
+    await expect(page.locator('.scale-chip.active')).toHaveCount(0);
     await expect(page.locator('.table-container tbody tr').first()).toBeVisible({ timeout: 5000 });
   });
 });

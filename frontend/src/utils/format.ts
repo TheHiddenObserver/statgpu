@@ -17,5 +17,8 @@ export function formatQuality(
   timingQuality?: string,
   speedupQuality?: string,
 ): string {
-  return timingQuality ?? speedupQuality ?? '-';
+  if (timingQuality && speedupQuality && timingQuality !== speedupQuality) {
+    return `time:${timingQuality} · speedup:${speedupQuality}`;
+  }
+  return timingQuality || speedupQuality || '-';
 }

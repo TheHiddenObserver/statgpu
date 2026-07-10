@@ -28,7 +28,11 @@ export function renderHeader(
   }
   hwSelect.addEventListener('change', () => {
     state.selectedEnvId = (hwSelect as HTMLSelectElement).value;
-    // Reset backend/external filters that may be invalid for the new environment
+    // Reset downstream filters that may be invalid for the new environment
+    state.selectedModelId = null;
+    state.selectedPenalty = null;
+    state.selectedSolver = null;
+    state.selectedScaleKeys.clear();
     state.selectedBackends.clear();
     state.showExternal.clear();
     onUpdate();

@@ -46,7 +46,7 @@ jobs:
           node-version: '20'
       - name: Reject committed frontend artifacts
         run: |
-          if git ls-files \
+          if git -C "$GITHUB_WORKSPACE" ls-files \
             'frontend/node_modules/**' \
             'frontend/test-results/**' \
             'frontend/playwright-report/**' | grep -q .; then

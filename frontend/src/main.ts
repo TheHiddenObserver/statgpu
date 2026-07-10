@@ -117,6 +117,12 @@ function disposeCharts(): void {
   chartInstances.length = 0;
 }
 
+function resizeCharts(): void {
+  for (const chart of chartInstances) {
+    if (!chart.isDisposed()) chart.resize();
+  }
+}
+
 function update(): void {
   const main = document.querySelector('.main') as HTMLElement | null;
   if (!main) return;
@@ -152,6 +158,7 @@ async function init(): Promise<void> {
     clear(root);
     (root as HTMLElement).appendChild(appEl);
     // renderApp() already renders with default state — no extra update() needed
+    window.addEventListener('resize', resizeCharts);
   } catch (err) {
     clear(root);
     const msg = emptyStateMessage(

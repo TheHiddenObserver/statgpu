@@ -244,16 +244,32 @@ export function renderOverviewTable(
     for (const r of accRuns.slice(0, 30)) {
       const a = r.metrics.accuracy!;
       const accRow = h('tr');
-      const l2 = a.coef_l2_diff ?? 0;
+      const l2 = a.coef_l2_diff;
+      const maxAbs = a.coef_max_abs_diff;
+
+      // Don't coerce missing metrics to 0 — missing ≠ pass
       const status =
-        l2 < 1e-5 ? 'PASS' : l2 < 1e-3 ? 'WARN' : 'FAIL';
+        l2 == null
+          ? 'N/A'
+          : l2 < 1e-5
+            ? 'PASS'
+            : l2 < 1e-3
+              ? 'WARN'
+              : 'FAIL';
       const statusColor =
-        l2 < 1e-5 ? '#52c41a' : l2 < 1e-3 ? '#faad14' : '#ff4d4f';
+        l2 == null
+          ? '#888'
+          : l2 < 1e-5
+            ? '#52c41a'
+            : l2 < 1e-3
+              ? '#faad14'
+              : '#ff4d4f';
+
       for (const c of [
         r.model_id,
-        a.reference ?? 'sklearn',
-        l2.toExponential(2),
-        (a.coef_max_abs_diff ?? 0).toExponential(2),
+        a.reference ?? '-',
+        l2 != null ? l2.toExponential(2) : '-',
+        maxAbs != null ? maxAbs.toExponential(2) : '-',
       ]) {
         accRow.appendChild(
           h('td', { style: 'padding:2px 6px;' }, String(c)),

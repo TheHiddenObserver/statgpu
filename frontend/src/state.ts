@@ -51,6 +51,7 @@ export function setSelectedModel(
   state.selectedModelId = modelId;
   state.selectedPenalty = null;
   state.selectedSolver = null;
+  state.selectedScaleKeys.clear();
 }
 
 export function setSelectedPenalty(
@@ -59,6 +60,7 @@ export function setSelectedPenalty(
 ): void {
   state.selectedPenalty = penalty;
   state.selectedSolver = null;
+  state.selectedScaleKeys.clear();
 }
 
 export function setSelectedSolver(
@@ -66,6 +68,7 @@ export function setSelectedSolver(
   solver: string | null,
 ): void {
   state.selectedSolver = solver;
+  state.selectedScaleKeys.clear();
 }
 
 export function toggleScaleKey(state: AppState, key: string): void {
