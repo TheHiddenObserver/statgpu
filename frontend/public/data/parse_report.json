@@ -1,34 +1,50 @@
 {
   "report_version": "2.0",
   "files_seen": 9,
-  "files_parsed": 9,
-  "files_skipped": 0,
-  "runs_generated": 1503,
-  "generation_id": "3dc48db41e616c45569463dd1c48f51951429de044057dc92fce98be1b7e6c9f",
+  "files_parsed": 8,
+  "files_skipped": 1,
+  "runs_generated": 1498,
+  "generation_id": "6ad1e4af0f69e86ce5e7cb4b2ef47e3f3b45e0bbabcc3ea711da2c785d74783a",
   "issues": [
     {
-      "source_id": "",
-      "file": "results/benchmark_frontend_sources/knockoff_baselines_20260409.json",
-      "parser": "",
-      "code": "PARSE_WARNING",
-      "severity": "warning",
-      "message": "knockoff_baselines_20260409.json: method 'knockpy_gaussian_lasso' is not a dict, skipping"
+      "source_id": "comprehensive-validation-20260410-b70ca11586f7",
+      "file": "results/benchmark_frontend_sources/comprehensive_validation.json",
+      "parser": "comprehensive_validation",
+      "code": "SHA256_MISMATCH",
+      "severity": "error",
+      "message": "SHA256 mismatch: expected b70ca11586f7..., got 093733c9a457...",
+      "comparison_id": "comprehensive-validation",
+      "parser_version": "1.0"
     },
     {
-      "source_id": "",
+      "source_id": "knockoff-baselines-20260409-beecd907fe54",
       "file": "results/benchmark_frontend_sources/knockoff_baselines_20260409.json",
-      "parser": "",
+      "parser": "knockoff_benchmark",
       "code": "PARSE_WARNING",
       "severity": "warning",
-      "message": "knockoff_baselines_20260409.json: method 'knockoff_fixedx_cupy' is not a dict, skipping"
+      "message": "knockoff_baselines_20260409.json: method 'knockpy_gaussian_lasso' is not a dict, skipping",
+      "comparison_id": "knockoff-baselines-20260409",
+      "parser_version": "1.0"
     },
     {
-      "source_id": "",
+      "source_id": "knockoff-baselines-20260409-beecd907fe54",
       "file": "results/benchmark_frontend_sources/knockoff_baselines_20260409.json",
-      "parser": "",
+      "parser": "knockoff_benchmark",
       "code": "PARSE_WARNING",
       "severity": "warning",
-      "message": "knockoff_baselines_20260409.json: method 'knockoff_modelx_cupy' is not a dict, skipping"
+      "message": "knockoff_baselines_20260409.json: method 'knockoff_fixedx_cupy' is not a dict, skipping",
+      "comparison_id": "knockoff-baselines-20260409",
+      "parser_version": "1.0"
+    },
+    {
+      "source_id": "knockoff-baselines-20260409-beecd907fe54",
+      "file": "results/benchmark_frontend_sources/knockoff_baselines_20260409.json",
+      "parser": "knockoff_benchmark",
+      "code": "PARSE_WARNING",
+      "severity": "warning",
+      "message": "knockoff_baselines_20260409.json: method 'knockoff_modelx_cupy' is not a dict, skipping",
+      "comparison_id": "knockoff-baselines-20260409",
+      "parser_version": "1.0"
     }
   ]
 }

@@ -1,10 +1,10 @@
 {
   "inventory_version": "1.0",
   "catalog_version": "1.0",
-  "generation_id": "3dc48db41e616c45569463dd1c48f51951429de044057dc92fce98be1b7e6c9f",
+  "generation_id": "6ad1e4af0f69e86ce5e7cb4b2ef47e3f3b45e0bbabcc3ea711da2c785d74783a",
   "catalog_total": 472,
   "eligible_total": 9,
   "registered_sources": 9,
   "available_sources": 9,
-  "parsed_sources": 9
+  "parsed_sources": 8
 }
