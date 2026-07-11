@@ -145,6 +145,8 @@ def _inject_canonical_fields(runs: list[dict], manifest: dict, results_dir: Path
             run["source"]["source_id"] = manifest_src["source_id"]
             run["source"]["original_path"] = manifest_src.get("original_path", "")
             run["comparison_id"] = manifest_src.get("comparison_id", manifest_src["source_id"])
+            if manifest_src.get("source_date"):
+                run["source"]["date"] = manifest_src["source_date"]
         else:
             # Fallback: transitional source_id
             run["source"]["source_id"] = f"transitional:{src_file}"
@@ -530,9 +532,25 @@ def validate_semantic(output: dict, manifest: dict | None = None) -> list[str]:
             if manifest:
                 errors.append(f"{rid}: legacy case_id in canonical mode")
 
-    # Registry uniqueness
-    for label, items in [("env_id", envs), ("model_id", models), ("framework_id", frameworks), ("comparison_id", comparisons)]:
-        pass  # already unique by set construction
+    # RunIdentity uniqueness (canonical mode)
+    if manifest:
+        from .identity import run_identity, identity_json as _id_json
+        seen_identities: dict[str, str] = {}
+        for run in runs:
+            rid_key = _id_json(run_identity(run))
+            if rid_key in seen_identities:
+                errors.append(f"{run['run_id']}: duplicate RunIdentity with {seen_identities[rid_key]}")
+            seen_identities[rid_key] = run["run_id"]
+
+    # Strict mode: check allowed_issue_codes
+    if manifest and strict_sources:
+        for src in manifest.get("sources", []):
+            allowed = set(src.get("allowed_issue_codes", []))
+            for issue in all_issues if 'all_issues' in dir() else []:
+                code = issue.get("code", "")
+                severity = issue.get("severity", "warning")
+                if severity in ("warning", "error") and code not in allowed:
+                    errors.append(f"{src['path']}: unallowed issue [{severity}] {code}: {issue.get('reason','')}")
 
     return errors
 

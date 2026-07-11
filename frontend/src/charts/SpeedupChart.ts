@@ -62,17 +62,14 @@ export function renderSpeedupChart(
       tooltip: {
         trigger: 'axis',
         formatter: (
-          params: { value: number; color: string; name: string }[],
+          params: { value: number; color: string; name: string; data: { refFw?: string; semantics?: string } }[],
         ) => {
           const p = params[0];
           if (!p || p.value == null) return 'No data';
-          const label =
-            p.value > 1 ? 'faster' : p.value < 1 ? 'slower' : 'same';
-          const isReported = p.name.includes('Ⓡ');
-          const kind = isReported
-            ? 'reported by solver benchmark'
-            : 'computed vs NumPy';
-          return `<b>${p.value.toFixed(2)}×</b> ${kind} (${label})`;
+          const label = p.value > 1 ? 'faster' : p.value < 1 ? 'slower' : 'same';
+          const refFw = p.data?.refFw ?? 'reference';
+          const semantics = p.data?.semantics === 'reported_by_runner' ? 'reported' : 'computed';
+          return `<b>${p.value.toFixed(2)}×</b> ${semantics} vs ${refFw} (${label})`;
         },
       },
       grid: { left: 10, right: 10, top: reportedCount > 0 ? 50 : 40, bottom: 30, containLabel: true },
@@ -90,12 +87,13 @@ export function renderSpeedupChart(
         {
           type: 'bar',
           data: topN.reverse().map((r) => {
-            const isReported =
-              r.metrics.speedup?.reported_semantics ===
-              'reported_by_runner';
-            const val = r.metrics.speedup!.value;
+            const sp = r.metrics.speedup!;
+            const isReported = sp.reported_semantics === 'reported_by_runner';
+            const val = sp.value;
             return {
               value: val,
+              refFw: sp.reference_framework || 'reference',
+              semantics: sp.reported_semantics,
               itemStyle: {
                 color: val >= 1 ? '#52c41a' : '#ff4d4f',
                 ...(isReported

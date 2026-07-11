@@ -122,7 +122,8 @@
       "parser_version": "1.0",
       "env_id": "remote-p100",
       "required": true,
-      "allowed_issue_codes": []
+      "allowed_issue_codes": [],
+      "source_date": "2026-04-10"
     },
     {
       "source_id": "coxph-package-20260419-5f48a5551613",

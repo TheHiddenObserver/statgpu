@@ -4,6 +4,7 @@ import type { AppState } from '../state';
 import { COLORS } from '../utils/theme';
 import { formatModelName } from '../utils/format';
 import { emptyChartMessage } from '../components/EmptyState';
+import { chartGroupIdentity, chartSeriesIdentity } from '../identity';
 
 export function renderTimingChart(
   el: HTMLElement,
@@ -38,7 +39,7 @@ export function renderTimingChart(
     { label: string; byBackend: Map<string, number> }
   >();
   for (const r of timingRuns) {
-    const gk = `${r.model_id}|${r.variant ?? ''}|${r.method_config_id}|${r.penalty ?? 'none'}|${r.solver ?? 'auto'}|${r.scale.scale_key}`;
+    const gk = JSON.stringify(chartGroupIdentity(r, false));
     if (!groups.has(gk)) {
       const variantSuffix = r.variant ? ` (${r.variant})` : '';
       groups.set(gk, {
@@ -46,9 +47,8 @@ export function renderTimingChart(
         byBackend: new Map(),
       });
     }
-    const implSuffix = r.implementation ? `/${r.implementation}` : '';
-    const be =
-      r.framework === 'statgpu' ? `${r.backend ?? 'ext'}${implSuffix}` : r.framework;
+    const sk = JSON.stringify(chartSeriesIdentity(r));
+    const be = r.implementation ? `${sk}/${r.implementation}` : sk;
     groups.get(gk)!.byBackend.set(be, r.metrics.timing!.fit_time_ms);
   }
 
