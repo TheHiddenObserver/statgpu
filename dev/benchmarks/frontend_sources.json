@@ -77,7 +77,7 @@
       "allowed_issue_codes": []
     },
     {
-      "source_id": "elasticnet-statgpu-1a68c00113b3",
+      "source_id": "elasticnet-statgpu-20260418-1a68c00113b3",
       "comparison_id": "elasticnet-cross-framework",
       "path": "results/benchmark_frontend_sources/elasticnet_statgpu.json",
       "original_path": "results/benchmark_full/benchmark_statgpu_all.json",
@@ -89,7 +89,7 @@
       "allowed_issue_codes": []
     },
     {
-      "source_id": "elasticnet-glmnet-c5545d225b6b",
+      "source_id": "elasticnet-glmnet-20260418-c5545d225b6b",
       "comparison_id": "elasticnet-cross-framework",
       "path": "results/benchmark_frontend_sources/elasticnet_glmnet.json",
       "original_path": "results/benchmark_full/benchmark_glmnet_all.json",
@@ -113,7 +113,7 @@
       "allowed_issue_codes": []
     },
     {
-      "source_id": "comprehensive-validation-b70ca11586f7",
+      "source_id": "comprehensive-validation-20260410-b70ca11586f7",
       "comparison_id": "comprehensive-validation",
       "path": "results/benchmark_frontend_sources/comprehensive_validation.json",
       "original_path": "results/bench_validation_comprehensive.json",

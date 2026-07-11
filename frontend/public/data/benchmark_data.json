@@ -1,10 +1,10 @@
 {
   "schema_version": "1.1.0",
-  "generated": "2026-07-11T02:47:08.109179+00:00",
+  "generated": "2026-07-11T03:11:36.901330+00:00",
   "meta": {
     "generator": "dev/benchmarks/generate_benchmark_data.py",
-    "git_sha": "f07ee83",
-    "generation_id": "45a1463769844f10627f4983713038f11ab09a2a5441b1bdc48bb179995381f3"
+    "git_sha": "90698f8",
+    "generation_id": "f7e66714f4c86a4e8fb898592d05efc7af8a17f4ad91470fb8ef75ce6df50512"
   },
   "environments": [
     {
@@ -62576,7 +62576,7 @@
       "method_config_id": "default"
     },
     {
-      "run_id": "90432f158730dcdf",
+      "run_id": "3358e0378799da4d",
       "benchmark_session_id": "remote-p100-elasticnet-2026-04-18",
       "env_id": "remote-p100",
       "category_ids": [
@@ -62602,7 +62602,7 @@
         "date": "2026-04-18",
         "parser": "parse_elasticnet_benchmark_full_v1",
         "parser_version": "1.0",
-        "source_id": "elasticnet-statgpu-1a68c00113b3",
+        "source_id": "elasticnet-statgpu-20260418-1a68c00113b3",
         "original_path": "results/benchmark_full/benchmark_statgpu_all.json"
       },
       "metrics": {
@@ -62624,7 +62624,7 @@
       "method_config_id": "default"
     },
     {
-      "run_id": "8c5a7ac8e8d2bd96",
+      "run_id": "838f37bfea7feeff",
       "benchmark_session_id": "remote-p100-elasticnet-2026-04-18",
       "env_id": "remote-p100",
       "category_ids": [
@@ -62650,7 +62650,7 @@
         "date": "2026-04-18",
         "parser": "parse_elasticnet_benchmark_full_v1",
         "parser_version": "1.0",
-        "source_id": "elasticnet-statgpu-1a68c00113b3",
+        "source_id": "elasticnet-statgpu-20260418-1a68c00113b3",
         "original_path": "results/benchmark_full/benchmark_statgpu_all.json"
       },
       "metrics": {
@@ -62680,7 +62680,7 @@
       "method_config_id": "default"
     },
     {
-      "run_id": "6b9998bd262c31ce",
+      "run_id": "57881487f89c2eab",
       "benchmark_session_id": "remote-p100-elasticnet-2026-04-18",
       "env_id": "remote-p100",
       "category_ids": [
@@ -62706,7 +62706,7 @@
         "date": "2026-04-18",
         "parser": "parse_elasticnet_benchmark_full_v1",
         "parser_version": "1.0",
-        "source_id": "elasticnet-statgpu-1a68c00113b3",
+        "source_id": "elasticnet-statgpu-20260418-1a68c00113b3",
         "original_path": "results/benchmark_full/benchmark_statgpu_all.json"
       },
       "metrics": {
@@ -62736,7 +62736,7 @@
       "method_config_id": "default"
     },
     {
-      "run_id": "cd5c71002071c5de",
+      "run_id": "6acaef982e234215",
       "benchmark_session_id": "remote-p100-elasticnet-2026-04-18",
       "env_id": "remote-p100",
       "category_ids": [
@@ -62762,7 +62762,7 @@
         "date": "2026-04-18",
         "parser": "parse_elasticnet_benchmark_full_v1",
         "parser_version": "1.0",
-        "source_id": "elasticnet-statgpu-1a68c00113b3",
+        "source_id": "elasticnet-statgpu-20260418-1a68c00113b3",
         "original_path": "results/benchmark_full/benchmark_statgpu_all.json"
       },
       "metrics": {
@@ -62784,7 +62784,7 @@
       "method_config_id": "default"
     },
     {
-      "run_id": "fc54d16a64b2ac16",
+      "run_id": "aa2e607ec9280067",
       "benchmark_session_id": "remote-p100-elasticnet-2026-04-18",
       "env_id": "remote-p100",
       "category_ids": [
@@ -62810,7 +62810,7 @@
         "date": "2026-04-18",
         "parser": "parse_elasticnet_benchmark_full_v1",
         "parser_version": "1.0",
-        "source_id": "elasticnet-statgpu-1a68c00113b3",
+        "source_id": "elasticnet-statgpu-20260418-1a68c00113b3",
         "original_path": "results/benchmark_full/benchmark_statgpu_all.json"
       },
       "metrics": {
@@ -62840,7 +62840,7 @@
       "method_config_id": "default"
     },
     {
-      "run_id": "28dded769ae842a3",
+      "run_id": "39b321a2fc5b6ac9",
       "benchmark_session_id": "remote-p100-elasticnet-2026-04-18",
       "env_id": "remote-p100",
       "category_ids": [
@@ -62866,7 +62866,7 @@
         "date": "2026-04-18",
         "parser": "parse_elasticnet_benchmark_full_v1",
         "parser_version": "1.0",
-        "source_id": "elasticnet-statgpu-1a68c00113b3",
+        "source_id": "elasticnet-statgpu-20260418-1a68c00113b3",
         "original_path": "results/benchmark_full/benchmark_statgpu_all.json"
       },
       "metrics": {
@@ -62896,7 +62896,7 @@
       "method_config_id": "default"
     },
     {
-      "run_id": "dccf3781f62d8722",
+      "run_id": "b044f5572c670114",
       "benchmark_session_id": "remote-p100-elasticnet-2026-04-18",
       "env_id": "remote-p100",
       "category_ids": [
@@ -62922,7 +62922,7 @@
         "date": "2026-04-18",
         "parser": "parse_elasticnet_benchmark_full_v1",
         "parser_version": "1.0",
-        "source_id": "elasticnet-statgpu-1a68c00113b3",
+        "source_id": "elasticnet-statgpu-20260418-1a68c00113b3",
         "original_path": "results/benchmark_full/benchmark_statgpu_all.json"
       },
       "metrics": {
@@ -62944,7 +62944,7 @@
       "method_config_id": "default"
     },
     {
-      "run_id": "08a0aeb19e3fd74f",
+      "run_id": "38bbf9812841239e",
       "benchmark_session_id": "remote-p100-elasticnet-2026-04-18",
       "env_id": "remote-p100",
       "category_ids": [
@@ -62970,7 +62970,7 @@
         "date": "2026-04-18",
         "parser": "parse_elasticnet_benchmark_full_v1",
         "parser_version": "1.0",
-        "source_id": "elasticnet-statgpu-1a68c00113b3",
+        "source_id": "elasticnet-statgpu-20260418-1a68c00113b3",
         "original_path": "results/benchmark_full/benchmark_statgpu_all.json"
       },
       "metrics": {
@@ -63000,7 +63000,7 @@
       "method_config_id": "default"
     },
     {
-      "run_id": "3d941872f5df39b8",
+      "run_id": "25a6b2388b2656ef",
       "benchmark_session_id": "remote-p100-elasticnet-2026-04-18",
       "env_id": "remote-p100",
       "category_ids": [
@@ -63026,7 +63026,7 @@
         "date": "2026-04-18",
         "parser": "parse_elasticnet_benchmark_full_v1",
         "parser_version": "1.0",
-        "source_id": "elasticnet-statgpu-1a68c00113b3",
+        "source_id": "elasticnet-statgpu-20260418-1a68c00113b3",
         "original_path": "results/benchmark_full/benchmark_statgpu_all.json"
       },
       "metrics": {
@@ -63056,7 +63056,7 @@
       "method_config_id": "default"
     },
     {
-      "run_id": "e57bf4ffce8b7e12",
+      "run_id": "1aec47c7a59cef8e",
       "benchmark_session_id": "remote-p100-elasticnet-2026-04-18",
       "env_id": "remote-p100",
       "category_ids": [
@@ -63082,7 +63082,7 @@
         "date": "2026-04-18",
         "parser": "parse_elasticnet_benchmark_full_v1",
         "parser_version": "1.0",
-        "source_id": "elasticnet-statgpu-1a68c00113b3",
+        "source_id": "elasticnet-statgpu-20260418-1a68c00113b3",
         "original_path": "results/benchmark_full/benchmark_statgpu_all.json"
       },
       "metrics": {
@@ -63104,7 +63104,7 @@
       "method_config_id": "default"
     },
     {
-      "run_id": "936e9970609846d8",
+      "run_id": "9c712333cebf7cc1",
       "benchmark_session_id": "remote-p100-elasticnet-2026-04-18",
       "env_id": "remote-p100",
       "category_ids": [
@@ -63130,7 +63130,7 @@
         "date": "2026-04-18",
         "parser": "parse_elasticnet_benchmark_full_v1",
         "parser_version": "1.0",
-        "source_id": "elasticnet-statgpu-1a68c00113b3",
+        "source_id": "elasticnet-statgpu-20260418-1a68c00113b3",
         "original_path": "results/benchmark_full/benchmark_statgpu_all.json"
       },
       "metrics": {
@@ -63160,7 +63160,7 @@
       "method_config_id": "default"
     },
     {
-      "run_id": "f7a4d121ac0c0cef",
+      "run_id": "926c2042cc3d9900",
       "benchmark_session_id": "remote-p100-elasticnet-2026-04-18",
       "env_id": "remote-p100",
       "category_ids": [
@@ -63186,7 +63186,7 @@
         "date": "2026-04-18",
         "parser": "parse_elasticnet_benchmark_full_v1",
         "parser_version": "1.0",
-        "source_id": "elasticnet-statgpu-1a68c00113b3",
+        "source_id": "elasticnet-statgpu-20260418-1a68c00113b3",
         "original_path": "results/benchmark_full/benchmark_statgpu_all.json"
       },
       "metrics": {
@@ -63216,7 +63216,7 @@
       "method_config_id": "default"
     },
     {
-      "run_id": "08d85c7dcf401107",
+      "run_id": "ca27cd766b0ede5d",
       "benchmark_session_id": "remote-p100-elasticnet-2026-04-18",
       "env_id": "remote-p100",
       "category_ids": [
@@ -63242,7 +63242,7 @@
         "date": "2026-04-18",
         "parser": "parse_elasticnet_benchmark_full_v1",
         "parser_version": "1.0",
-        "source_id": "elasticnet-statgpu-1a68c00113b3",
+        "source_id": "elasticnet-statgpu-20260418-1a68c00113b3",
         "original_path": "results/benchmark_full/benchmark_statgpu_all.json"
       },
       "metrics": {
@@ -63264,7 +63264,7 @@
       "method_config_id": "default"
     },
     {
-      "run_id": "455404d09737c328",
+      "run_id": "4d97f407a8905988",
       "benchmark_session_id": "remote-p100-elasticnet-2026-04-18",
       "env_id": "remote-p100",
       "category_ids": [
@@ -63290,7 +63290,7 @@
         "date": "2026-04-18",
         "parser": "parse_elasticnet_benchmark_full_v1",
         "parser_version": "1.0",
-        "source_id": "elasticnet-statgpu-1a68c00113b3",
+        "source_id": "elasticnet-statgpu-20260418-1a68c00113b3",
         "original_path": "results/benchmark_full/benchmark_statgpu_all.json"
       },
       "metrics": {
@@ -63320,7 +63320,7 @@
       "method_config_id": "default"
     },
     {
-      "run_id": "0b4a9523b148031e",
+      "run_id": "a2e8c52e76e567e1",
       "benchmark_session_id": "remote-p100-elasticnet-2026-04-18",
       "env_id": "remote-p100",
       "category_ids": [
@@ -63346,7 +63346,7 @@
         "date": "2026-04-18",
         "parser": "parse_elasticnet_benchmark_full_v1",
         "parser_version": "1.0",
-        "source_id": "elasticnet-statgpu-1a68c00113b3",
+        "source_id": "elasticnet-statgpu-20260418-1a68c00113b3",
         "original_path": "results/benchmark_full/benchmark_statgpu_all.json"
       },
       "metrics": {
@@ -63376,7 +63376,7 @@
       "method_config_id": "default"
     },
     {
-      "run_id": "2963f1669dc63b80",
+      "run_id": "c7d8347812942cbb",
       "benchmark_session_id": "remote-p100-elasticnet-2026-04-18",
       "env_id": "remote-p100",
       "category_ids": [
@@ -63402,7 +63402,7 @@
         "date": "2026-04-18",
         "parser": "parse_elasticnet_benchmark_full_v1",
         "parser_version": "1.0",
-        "source_id": "elasticnet-statgpu-1a68c00113b3",
+        "source_id": "elasticnet-statgpu-20260418-1a68c00113b3",
         "original_path": "results/benchmark_full/benchmark_statgpu_all.json"
       },
       "metrics": {
@@ -63424,7 +63424,7 @@
       "method_config_id": "default"
     },
     {
-      "run_id": "e7ee6ce99e6207da",
+      "run_id": "9a793ee1d52c2e96",
       "benchmark_session_id": "remote-p100-elasticnet-2026-04-18",
       "env_id": "remote-p100",
       "category_ids": [
@@ -63450,7 +63450,7 @@
         "date": "2026-04-18",
         "parser": "parse_elasticnet_benchmark_full_v1",
         "parser_version": "1.0",
-        "source_id": "elasticnet-statgpu-1a68c00113b3",
+        "source_id": "elasticnet-statgpu-20260418-1a68c00113b3",
         "original_path": "results/benchmark_full/benchmark_statgpu_all.json"
       },
       "metrics": {
@@ -63480,7 +63480,7 @@
       "method_config_id": "default"
     },
     {
-      "run_id": "b21e12a25d9a93f5",
+      "run_id": "2e0ec583a82e22db",
       "benchmark_session_id": "remote-p100-elasticnet-2026-04-18",
       "env_id": "remote-p100",
       "category_ids": [
@@ -63506,7 +63506,7 @@
         "date": "2026-04-18",
         "parser": "parse_elasticnet_benchmark_full_v1",
         "parser_version": "1.0",
-        "source_id": "elasticnet-statgpu-1a68c00113b3",
+        "source_id": "elasticnet-statgpu-20260418-1a68c00113b3",
         "original_path": "results/benchmark_full/benchmark_statgpu_all.json"
       },
       "metrics": {
@@ -63536,7 +63536,7 @@
       "method_config_id": "default"
     },
     {
-      "run_id": "653714a0315acdb0",
+      "run_id": "cdf1102b891018c7",
       "env_id": "remote-p100",
       "category_ids": [
         "linear_models",
@@ -63561,7 +63561,7 @@
         "date": "2026-04-18",
         "parser": "parse_elasticnet_benchmark_full_v1",
         "parser_version": "1.0",
-        "source_id": "elasticnet-glmnet-c5545d225b6b",
+        "source_id": "elasticnet-glmnet-20260418-c5545d225b6b",
         "original_path": "results/benchmark_full/benchmark_glmnet_all.json"
       },
       "metrics": {
@@ -63583,7 +63583,7 @@
       "method_config_id": "default"
     },
     {
-      "run_id": "641f18c90fc37f95",
+      "run_id": "0e744f51a2630173",
       "env_id": "remote-p100",
       "category_ids": [
         "linear_models",
@@ -63608,7 +63608,7 @@
         "date": "2026-04-18",
         "parser": "parse_elasticnet_benchmark_full_v1",
         "parser_version": "1.0",
-        "source_id": "elasticnet-glmnet-c5545d225b6b",
+        "source_id": "elasticnet-glmnet-20260418-c5545d225b6b",
         "original_path": "results/benchmark_full/benchmark_glmnet_all.json"
       },
       "metrics": {
@@ -63630,7 +63630,7 @@
       "method_config_id": "default"
     },
     {
-      "run_id": "e2776c14f39f6630",
+      "run_id": "740d9ef1c4023c15",
       "env_id": "remote-p100",
       "category_ids": [
         "linear_models",
@@ -63655,7 +63655,7 @@
         "date": "2026-04-18",
         "parser": "parse_elasticnet_benchmark_full_v1",
         "parser_version": "1.0",
-        "source_id": "elasticnet-glmnet-c5545d225b6b",
+        "source_id": "elasticnet-glmnet-20260418-c5545d225b6b",
         "original_path": "results/benchmark_full/benchmark_glmnet_all.json"
       },
       "metrics": {
@@ -63677,7 +63677,7 @@
       "method_config_id": "default"
     },
     {
-      "run_id": "3f512491e9165b4a",
+      "run_id": "41a79b5039e38747",
       "env_id": "remote-p100",
       "category_ids": [
         "linear_models",
@@ -63702,7 +63702,7 @@
         "date": "2026-04-18",
         "parser": "parse_elasticnet_benchmark_full_v1",
         "parser_version": "1.0",
-        "source_id": "elasticnet-glmnet-c5545d225b6b",
+        "source_id": "elasticnet-glmnet-20260418-c5545d225b6b",
         "original_path": "results/benchmark_full/benchmark_glmnet_all.json"
       },
       "metrics": {
@@ -63724,7 +63724,7 @@
       "method_config_id": "default"
     },
     {
-      "run_id": "98635359a30db7a0",
+      "run_id": "0d1c0a2bb5cbe89c",
       "env_id": "remote-p100",
       "category_ids": [
         "linear_models",
@@ -63749,7 +63749,7 @@
         "date": "2026-04-18",
         "parser": "parse_elasticnet_benchmark_full_v1",
         "parser_version": "1.0",
-        "source_id": "elasticnet-glmnet-c5545d225b6b",
+        "source_id": "elasticnet-glmnet-20260418-c5545d225b6b",
         "original_path": "results/benchmark_full/benchmark_glmnet_all.json"
       },
       "metrics": {
@@ -63771,7 +63771,7 @@
       "method_config_id": "default"
     },
     {
-      "run_id": "a63f1afab469b409",
+      "run_id": "ff2cec47500152b0",
       "env_id": "remote-p100",
       "category_ids": [
         "linear_models",
@@ -63796,7 +63796,7 @@
         "date": "2026-04-18",
         "parser": "parse_elasticnet_benchmark_full_v1",
         "parser_version": "1.0",
-        "source_id": "elasticnet-glmnet-c5545d225b6b",
+        "source_id": "elasticnet-glmnet-20260418-c5545d225b6b",
         "original_path": "results/benchmark_full/benchmark_glmnet_all.json"
       },
       "metrics": {
@@ -64591,10 +64591,10 @@
         },
         "speedup": {
           "value": 1.7,
-          "reference_backend": "numpy",
-          "reference_framework": "statgpu",
-          "reported_semantics": "computed",
-          "quality": "computed",
+          "reference_backend": null,
+          "reference_framework": "statsmodels",
+          "reported_semantics": "reported_by_runner",
+          "quality": "reported",
           "source_file": "coxph_efron_20260622.json"
         }
       },
@@ -64641,10 +64641,10 @@
         },
         "speedup": {
           "value": 26.56,
-          "reference_backend": "numpy",
-          "reference_framework": "statgpu",
-          "reported_semantics": "computed",
-          "quality": "computed",
+          "reference_backend": null,
+          "reference_framework": "statsmodels",
+          "reported_semantics": "reported_by_runner",
+          "quality": "reported",
           "source_file": "coxph_efron_20260622.json"
         }
       },
@@ -64691,10 +64691,10 @@
         },
         "speedup": {
           "value": 28.5,
-          "reference_backend": "numpy",
-          "reference_framework": "statgpu",
-          "reported_semantics": "computed",
-          "quality": "computed",
+          "reference_backend": null,
+          "reference_framework": "statsmodels",
+          "reported_semantics": "reported_by_runner",
+          "quality": "reported",
           "source_file": "coxph_efron_20260622.json"
         }
       },
@@ -64783,10 +64783,10 @@
         },
         "speedup": {
           "value": 2.55,
-          "reference_backend": "numpy",
-          "reference_framework": "statgpu",
-          "reported_semantics": "computed",
-          "quality": "computed",
+          "reference_backend": null,
+          "reference_framework": "statsmodels",
+          "reported_semantics": "reported_by_runner",
+          "quality": "reported",
           "source_file": "coxph_efron_20260622.json"
         }
       },
@@ -64833,10 +64833,10 @@
         },
         "speedup": {
           "value": 2.48,
-          "reference_backend": "numpy",
-          "reference_framework": "statgpu",
-          "reported_semantics": "computed",
-          "quality": "computed",
+          "reference_backend": null,
+          "reference_framework": "statsmodels",
+          "reported_semantics": "reported_by_runner",
+          "quality": "reported",
           "source_file": "coxph_efron_20260622.json"
         }
       },
@@ -64883,10 +64883,10 @@
         },
         "speedup": {
           "value": 47.42,
-          "reference_backend": "numpy",
-          "reference_framework": "statgpu",
-          "reported_semantics": "computed",
-          "quality": "computed",
+          "reference_backend": null,
+          "reference_framework": "statsmodels",
+          "reported_semantics": "reported_by_runner",
+          "quality": "reported",
           "source_file": "coxph_efron_20260622.json"
         }
       },
@@ -64933,10 +64933,10 @@
         },
         "speedup": {
           "value": 47.47,
-          "reference_backend": "numpy",
-          "reference_framework": "statgpu",
-          "reported_semantics": "computed",
-          "quality": "computed",
+          "reference_backend": null,
+          "reference_framework": "statsmodels",
+          "reported_semantics": "reported_by_runner",
+          "quality": "reported",
           "source_file": "coxph_efron_20260622.json"
         }
       },
@@ -65025,10 +65025,10 @@
         },
         "speedup": {
           "value": 1.19,
-          "reference_backend": "numpy",
-          "reference_framework": "statgpu",
-          "reported_semantics": "computed",
-          "quality": "computed",
+          "reference_backend": null,
+          "reference_framework": "statsmodels",
+          "reported_semantics": "reported_by_runner",
+          "quality": "reported",
           "source_file": "coxph_efron_20260622.json"
         }
       },
@@ -65075,10 +65075,10 @@
         },
         "speedup": {
           "value": 1.75,
-          "reference_backend": "numpy",
-          "reference_framework": "statgpu",
-          "reported_semantics": "computed",
-          "quality": "computed",
+          "reference_backend": null,
+          "reference_framework": "statsmodels",
+          "reported_semantics": "reported_by_runner",
+          "quality": "reported",
           "source_file": "coxph_efron_20260622.json"
         }
       },
@@ -65125,10 +65125,10 @@
         },
         "speedup": {
           "value": 100.02,
-          "reference_backend": "numpy",
-          "reference_framework": "statgpu",
-          "reported_semantics": "computed",
-          "quality": "computed",
+          "reference_backend": null,
+          "reference_framework": "statsmodels",
+          "reported_semantics": "reported_by_runner",
+          "quality": "reported",
           "source_file": "coxph_efron_20260622.json"
         }
       },
@@ -65175,10 +65175,10 @@
         },
         "speedup": {
           "value": 102.09,
-          "reference_backend": "numpy",
-          "reference_framework": "statgpu",
-          "reported_semantics": "computed",
-          "quality": "computed",
+          "reference_backend": null,
+          "reference_framework": "statsmodels",
+          "reported_semantics": "reported_by_runner",
+          "quality": "reported",
           "source_file": "coxph_efron_20260622.json"
         }
       },
@@ -65267,10 +65267,10 @@
         },
         "speedup": {
           "value": 3.9,
-          "reference_backend": "numpy",
-          "reference_framework": "statgpu",
-          "reported_semantics": "computed",
-          "quality": "computed",
+          "reference_backend": null,
+          "reference_framework": "statsmodels",
+          "reported_semantics": "reported_by_runner",
+          "quality": "reported",
           "source_file": "coxph_efron_20260622.json"
         }
       },
@@ -65317,10 +65317,10 @@
         },
         "speedup": {
           "value": 1.17,
-          "reference_backend": "numpy",
-          "reference_framework": "statgpu",
-          "reported_semantics": "computed",
-          "quality": "computed",
+          "reference_backend": null,
+          "reference_framework": "statsmodels",
+          "reported_semantics": "reported_by_runner",
+          "quality": "reported",
           "source_file": "coxph_efron_20260622.json"
         }
       },
@@ -65367,10 +65367,10 @@
         },
         "speedup": {
           "value": 72.64,
-          "reference_backend": "numpy",
-          "reference_framework": "statgpu",
-          "reported_semantics": "computed",
-          "quality": "computed",
+          "reference_backend": null,
+          "reference_framework": "statsmodels",
+          "reported_semantics": "reported_by_runner",
+          "quality": "reported",
           "source_file": "coxph_efron_20260622.json"
         }
       },
@@ -65417,10 +65417,10 @@
         },
         "speedup": {
           "value": 72.9,
-          "reference_backend": "numpy",
-          "reference_framework": "statgpu",
-          "reported_semantics": "computed",
-          "quality": "computed",
+          "reference_backend": null,
+          "reference_framework": "statsmodels",
+          "reported_semantics": "reported_by_runner",
+          "quality": "reported",
           "source_file": "coxph_efron_20260622.json"
         }
       },
@@ -65509,10 +65509,10 @@
         },
         "speedup": {
           "value": 1.58,
-          "reference_backend": "numpy",
-          "reference_framework": "statgpu",
-          "reported_semantics": "computed",
-          "quality": "computed",
+          "reference_backend": null,
+          "reference_framework": "statsmodels",
+          "reported_semantics": "reported_by_runner",
+          "quality": "reported",
           "source_file": "coxph_efron_20260622.json"
         }
       },
@@ -65559,10 +65559,10 @@
         },
         "speedup": {
           "value": 0.96,
-          "reference_backend": "numpy",
-          "reference_framework": "statgpu",
-          "reported_semantics": "computed",
-          "quality": "computed",
+          "reference_backend": null,
+          "reference_framework": "statsmodels",
+          "reported_semantics": "reported_by_runner",
+          "quality": "reported",
           "source_file": "coxph_efron_20260622.json"
         }
       },
@@ -65609,10 +65609,10 @@
         },
         "speedup": {
           "value": 48.83,
-          "reference_backend": "numpy",
-          "reference_framework": "statgpu",
-          "reported_semantics": "computed",
-          "quality": "computed",
+          "reference_backend": null,
+          "reference_framework": "statsmodels",
+          "reported_semantics": "reported_by_runner",
+          "quality": "reported",
           "source_file": "coxph_efron_20260622.json"
         }
       },
@@ -65659,10 +65659,10 @@
         },
         "speedup": {
           "value": 49.26,
-          "reference_backend": "numpy",
-          "reference_framework": "statgpu",
-          "reported_semantics": "computed",
-          "quality": "computed",
+          "reference_backend": null,
+          "reference_framework": "statsmodels",
+          "reported_semantics": "reported_by_runner",
+          "quality": "reported",
           "source_file": "coxph_efron_20260622.json"
         }
       },
@@ -65751,10 +65751,10 @@
         },
         "speedup": {
           "value": 1.42,
-          "reference_backend": "numpy",
-          "reference_framework": "statgpu",
-          "reported_semantics": "computed",
-          "quality": "computed",
+          "reference_backend": null,
+          "reference_framework": "statsmodels",
+          "reported_semantics": "reported_by_runner",
+          "quality": "reported",
           "source_file": "coxph_efron_20260622.json"
         }
       },
@@ -65801,10 +65801,10 @@
         },
         "speedup": {
           "value": 2.55,
-          "reference_backend": "numpy",
-          "reference_framework": "statgpu",
-          "reported_semantics": "computed",
-          "quality": "computed",
+          "reference_backend": null,
+          "reference_framework": "statsmodels",
+          "reported_semantics": "reported_by_runner",
+          "quality": "reported",
           "source_file": "coxph_efron_20260622.json"
         }
       },
@@ -65851,10 +65851,10 @@
         },
         "speedup": {
           "value": 2.75,
-          "reference_backend": "numpy",
-          "reference_framework": "statgpu",
-          "reported_semantics": "computed",
-          "quality": "computed",
+          "reference_backend": null,
+          "reference_framework": "statsmodels",
+          "reported_semantics": "reported_by_runner",
+          "quality": "reported",
           "source_file": "coxph_efron_20260622.json"
         }
       },
@@ -65901,10 +65901,10 @@
         },
         "speedup": {
           "value": 2.86,
-          "reference_backend": "numpy",
-          "reference_framework": "statgpu",
-          "reported_semantics": "computed",
-          "quality": "computed",
+          "reference_backend": null,
+          "reference_framework": "statsmodels",
+          "reported_semantics": "reported_by_runner",
+          "quality": "reported",
           "source_file": "coxph_efron_20260622.json"
         }
       },
@@ -65993,10 +65993,10 @@
         },
         "speedup": {
           "value": 4.47,
-          "reference_backend": "numpy",
-          "reference_framework": "statgpu",
-          "reported_semantics": "computed",
-          "quality": "computed",
+          "reference_backend": null,
+          "reference_framework": "statsmodels",
+          "reported_semantics": "reported_by_runner",
+          "quality": "reported",
           "source_file": "coxph_efron_20260622.json"
         }
       },
@@ -66043,10 +66043,10 @@
         },
         "speedup": {
           "value": 0.89,
-          "reference_backend": "numpy",
-          "reference_framework": "statgpu",
-          "reported_semantics": "computed",
-          "quality": "computed",
+          "reference_backend": null,
+          "reference_framework": "statsmodels",
+          "reported_semantics": "reported_by_runner",
+          "quality": "reported",
           "source_file": "coxph_efron_20260622.json"
         }
       },
@@ -66093,10 +66093,10 @@
         },
         "speedup": {
           "value": 1.79,
-          "reference_backend": "numpy",
-          "reference_framework": "statgpu",
-          "reported_semantics": "computed",
-          "quality": "computed",
+          "reference_backend": null,
+          "reference_framework": "statsmodels",
+          "reported_semantics": "reported_by_runner",
+          "quality": "reported",
           "source_file": "coxph_efron_20260622.json"
         }
       },
@@ -66143,10 +66143,10 @@
         },
         "speedup": {
           "value": 1.81,
-          "reference_backend": "numpy",
-          "reference_framework": "statgpu",
-          "reported_semantics": "computed",
-          "quality": "computed",
+          "reference_backend": null,
+          "reference_framework": "statsmodels",
+          "reported_semantics": "reported_by_runner",
+          "quality": "reported",
           "source_file": "coxph_efron_20260622.json"
         }
       },
@@ -66235,10 +66235,10 @@
         },
         "speedup": {
           "value": 1.47,
-          "reference_backend": "numpy",
-          "reference_framework": "statgpu",
-          "reported_semantics": "computed",
-          "quality": "computed",
+          "reference_backend": null,
+          "reference_framework": "statsmodels",
+          "reported_semantics": "reported_by_runner",
+          "quality": "reported",
           "source_file": "coxph_efron_20260622.json"
         }
       },
@@ -66285,10 +66285,10 @@
         },
         "speedup": {
           "value": 1.1,
-          "reference_backend": "numpy",
-          "reference_framework": "statgpu",
-          "reported_semantics": "computed",
-          "quality": "computed",
+          "reference_backend": null,
+          "reference_framework": "statsmodels",
+          "reported_semantics": "reported_by_runner",
+          "quality": "reported",
           "source_file": "coxph_efron_20260622.json"
         }
       },
@@ -66335,10 +66335,10 @@
         },
         "speedup": {
           "value": 1.73,
-          "reference_backend": "numpy",
-          "reference_framework": "statgpu",
-          "reported_semantics": "computed",
-          "quality": "computed",
+          "reference_backend": null,
+          "reference_framework": "statsmodels",
+          "reported_semantics": "reported_by_runner",
+          "quality": "reported",
           "source_file": "coxph_efron_20260622.json"
         }
       },
@@ -66385,10 +66385,10 @@
         },
         "speedup": {
           "value": 1.76,
-          "reference_backend": "numpy",
-          "reference_framework": "statgpu",
-          "reported_semantics": "computed",
-          "quality": "computed",
+          "reference_backend": null,
+          "reference_framework": "statsmodels",
+          "reported_semantics": "reported_by_runner",
+          "quality": "reported",
           "source_file": "coxph_efron_20260622.json"
         }
       },
@@ -66477,10 +66477,10 @@
         },
         "speedup": {
           "value": 3.75,
-          "reference_backend": "numpy",
-          "reference_framework": "statgpu",
-          "reported_semantics": "computed",
-          "quality": "computed",
+          "reference_backend": null,
+          "reference_framework": "statsmodels",
+          "reported_semantics": "reported_by_runner",
+          "quality": "reported",
           "source_file": "coxph_efron_20260622.json"
         }
       },
@@ -66527,10 +66527,10 @@
         },
         "speedup": {
           "value": 1.63,
-          "reference_backend": "numpy",
-          "reference_framework": "statgpu",
-          "reported_semantics": "computed",
-          "quality": "computed",
+          "reference_backend": null,
+          "reference_framework": "statsmodels",
+          "reported_semantics": "reported_by_runner",
+          "quality": "reported",
           "source_file": "coxph_efron_20260622.json"
         }
       },
@@ -66577,10 +66577,10 @@
         },
         "speedup": {
           "value": 8.59,
-          "reference_backend": "numpy",
-          "reference_framework": "statgpu",
-          "reported_semantics": "computed",
-          "quality": "computed",
+          "reference_backend": null,
+          "reference_framework": "statsmodels",
+          "reported_semantics": "reported_by_runner",
+          "quality": "reported",
           "source_file": "coxph_efron_20260622.json"
         }
       },
@@ -66627,10 +66627,10 @@
         },
         "speedup": {
           "value": 8.71,
-          "reference_backend": "numpy",
-          "reference_framework": "statgpu",
-          "reported_semantics": "computed",
-          "quality": "computed",
+          "reference_backend": null,
+          "reference_framework": "statsmodels",
+          "reported_semantics": "reported_by_runner",
+          "quality": "reported",
           "source_file": "coxph_efron_20260622.json"
         }
       },
@@ -66719,10 +66719,10 @@
         },
         "speedup": {
           "value": 2.05,
-          "reference_backend": "numpy",
-          "reference_framework": "statgpu",
-          "reported_semantics": "computed",
-          "quality": "computed",
+          "reference_backend": null,
+          "reference_framework": "statsmodels",
+          "reported_semantics": "reported_by_runner",
+          "quality": "reported",
           "source_file": "coxph_efron_20260622.json"
         }
       },
@@ -66769,10 +66769,10 @@
         },
         "speedup": {
           "value": 1.64,
-          "reference_backend": "numpy",
-          "reference_framework": "statgpu",
-          "reported_semantics": "computed",
-          "quality": "computed",
+          "reference_backend": null,
+          "reference_framework": "statsmodels",
+          "reported_semantics": "reported_by_runner",
+          "quality": "reported",
           "source_file": "coxph_efron_20260622.json"
         }
       },
@@ -66819,10 +66819,10 @@
         },
         "speedup": {
           "value": 7.37,
-          "reference_backend": "numpy",
-          "reference_framework": "statgpu",
-          "reported_semantics": "computed",
-          "quality": "computed",
+          "reference_backend": null,
+          "reference_framework": "statsmodels",
+          "reported_semantics": "reported_by_runner",
+          "quality": "reported",
           "source_file": "coxph_efron_20260622.json"
         }
       },
@@ -66869,10 +66869,10 @@
         },
         "speedup": {
           "value": 11.99,
-          "reference_backend": "numpy",
-          "reference_framework": "statgpu",
-          "reported_semantics": "computed",
-          "quality": "computed",
+          "reference_backend": null,
+          "reference_framework": "statsmodels",
+          "reported_semantics": "reported_by_runner",
+          "quality": "reported",
           "source_file": "coxph_efron_20260622.json"
         }
       },
@@ -66961,10 +66961,10 @@
         },
         "speedup": {
           "value": 1.22,
-          "reference_backend": "numpy",
-          "reference_framework": "statgpu",
-          "reported_semantics": "computed",
-          "quality": "computed",
+          "reference_backend": null,
+          "reference_framework": "statsmodels",
+          "reported_semantics": "reported_by_runner",
+          "quality": "reported",
           "source_file": "coxph_efron_20260622.json"
         }
       },
@@ -66973,7 +66973,7 @@
       "method_config_id": "default"
     },
     {
-      "run_id": "842cad4a2a3d4a18",
+      "run_id": "41e0e9e853f142a1",
       "env_id": "remote-p100",
       "category_ids": [
         "glm"
@@ -66997,7 +66997,7 @@
         "date": "2026-04",
         "parser": "parse_comprehensive_validation_v1",
         "parser_version": "1.0",
-        "source_id": "comprehensive-validation-b70ca11586f7",
+        "source_id": "comprehensive-validation-20260410-b70ca11586f7",
         "original_path": "results/bench_validation_comprehensive.json"
       },
       "metrics": {
@@ -67017,6 +67017,13 @@
               "value": 2.259902653900525e-09,
               "tolerance": 0.001,
               "reference": "statsmodels"
+            },
+            {
+              "metric": "bse_max_abs_diff",
+              "status": "pass",
+              "value": 3.3685609024391994e-09,
+              "tolerance": 0.001,
+              "reference": "statsmodels"
             }
           ],
           "quality": "measured",
@@ -67028,7 +67035,7 @@
       "method_config_id": "default"
     },
     {
-      "run_id": "dc2434a730817994",
+      "run_id": "45eaad1f060e331d",
       "env_id": "remote-p100",
       "category_ids": [
         "glm"
@@ -67052,7 +67059,7 @@
         "date": "2026-04",
         "parser": "parse_comprehensive_validation_v1",
         "parser_version": "1.0",
-        "source_id": "comprehensive-validation-b70ca11586f7",
+        "source_id": "comprehensive-validation-20260410-b70ca11586f7",
         "original_path": "results/bench_validation_comprehensive.json"
       },
       "metrics": {
@@ -67072,6 +67079,13 @@
               "value": 7.978556482157728e-09,
               "tolerance": 0.05,
               "reference": "statsmodels"
+            },
+            {
+              "metric": "bse_max_abs_diff",
+              "status": "pass",
+              "value": 0.013866155337754052,
+              "tolerance": 0.05,
+              "reference": "statsmodels"
             }
           ],
           "quality": "measured",
@@ -67083,7 +67097,7 @@
       "method_config_id": "default"
     },
     {
-      "run_id": "951d378f2c936536",
+      "run_id": "fbb6a7c933d78886",
       "env_id": "remote-p100",
       "category_ids": [
         "glm"
@@ -67107,7 +67121,7 @@
         "date": "2026-04",
         "parser": "parse_comprehensive_validation_v1",
         "parser_version": "1.0",
-        "source_id": "comprehensive-validation-b70ca11586f7",
+        "source_id": "comprehensive-validation-20260410-b70ca11586f7",
         "original_path": "results/bench_validation_comprehensive.json"
       },
       "metrics": {
@@ -67123,8 +67137,15 @@
           "checks": [
             {
               "metric": "coef_max_abs_diff",
-              "status": "fail",
+              "status": "pass",
               "value": 2.874634753758515e-05,
+              "tolerance": 0.001,
+              "reference": "statsmodels"
+            },
+            {
+              "metric": "bse_max_abs_diff",
+              "status": "fail",
+              "value": 0.02719985959727055,
               "tolerance": 0.001,
               "reference": "statsmodels"
             }
@@ -67138,7 +67159,7 @@
       "method_config_id": "default"
     },
     {
-      "run_id": "b635f6dae2ffa8bf",
+      "run_id": "100e80fd40956350",
       "env_id": "remote-p100",
       "category_ids": [
         "glm"
@@ -67162,7 +67183,7 @@
         "date": "2026-04",
         "parser": "parse_comprehensive_validation_v1",
         "parser_version": "1.0",
-        "source_id": "comprehensive-validation-b70ca11586f7",
+        "source_id": "comprehensive-validation-20260410-b70ca11586f7",
         "original_path": "results/bench_validation_comprehensive.json"
       },
       "metrics": {
@@ -67182,6 +67203,13 @@
               "value": 4.7569323564089494e-05,
               "tolerance": 0.005,
               "reference": "statsmodels"
+            },
+            {
+              "metric": "bse_max_abs_diff",
+              "status": "pass",
+              "value": 1.7404515293556466e-07,
+              "tolerance": 0.005,
+              "reference": "statsmodels"
             }
           ],
           "quality": "measured",
@@ -67193,7 +67221,7 @@
       "method_config_id": "default"
     },
     {
-      "run_id": "ac09504b54f05069",
+      "run_id": "e677663112135d58",
       "env_id": "remote-p100",
       "category_ids": [
         "glm"
@@ -67217,7 +67245,7 @@
         "date": "2026-04",
         "parser": "parse_comprehensive_validation_v1",
         "parser_version": "1.0",
-        "source_id": "comprehensive-validation-b70ca11586f7",
+        "source_id": "comprehensive-validation-20260410-b70ca11586f7",
         "original_path": "results/bench_validation_comprehensive.json"
       },
       "metrics": {
@@ -67235,6 +67263,13 @@
               "metric": "coef_max_abs_diff",
               "status": "pass",
               "value": 3.0766342739158015e-06,
+              "tolerance": 0.05,
+              "reference": "statsmodels"
+            },
+            {
+              "metric": "bse_max_abs_diff",
+              "status": "pass",
+              "value": 0.014613906289851937,
               "tolerance": 0.05,
               "reference": "statsmodels"
             }
@@ -67277,7 +67312,7 @@
       },
       "metrics": {
         "timing": {
-          "fit_time_ms": 1.1604213118553162,
+          "fit_time_ms": 1160.4213118553162,
           "quality": "measured",
           "source_file": "coxph_package_20260419.json"
         },
@@ -67321,7 +67356,7 @@
       },
       "metrics": {
         "timing": {
-          "fit_time_ms": 0.10946425795555115,
+          "fit_time_ms": 109.46425795555115,
           "quality": "measured",
           "source_file": "coxph_package_20260419.json"
         },
@@ -67365,7 +67400,7 @@
       },
       "metrics": {
         "timing": {
-          "fit_time_ms": 0.07705700397491455,
+          "fit_time_ms": 77.05700397491455,
           "quality": "measured",
           "source_file": "coxph_package_20260419.json"
         },
@@ -67409,7 +67444,7 @@
       },
       "metrics": {
         "timing": {
-          "fit_time_ms": 11.137798368930817,
+          "fit_time_ms": 11137.798368930817,
           "quality": "measured",
           "source_file": "coxph_package_20260419.json"
         },
@@ -67453,7 +67488,7 @@
       },
       "metrics": {
         "timing": {
-          "fit_time_ms": 0.2501043677330017,
+          "fit_time_ms": 250.1043677330017,
           "quality": "measured",
           "source_file": "coxph_package_20260419.json"
         },
@@ -67497,7 +67532,7 @@
       },
       "metrics": {
         "timing": {
-          "fit_time_ms": 0.19272121787071228,
+          "fit_time_ms": 192.72121787071228,
           "quality": "measured",
           "source_file": "coxph_package_20260419.json"
         },
@@ -67541,7 +67576,7 @@
       },
       "metrics": {
         "timing": {
-          "fit_time_ms": 105.7223030924797,
+          "fit_time_ms": 105722.3030924797,
           "quality": "measured",
           "source_file": "coxph_package_20260419.json"
         },
@@ -67585,7 +67620,7 @@
       },
       "metrics": {
         "timing": {
-          "fit_time_ms": 0.7864027619361877,
+          "fit_time_ms": 786.4027619361877,
           "quality": "measured",
           "source_file": "coxph_package_20260419.json"
         },
@@ -67629,7 +67664,7 @@
       },
       "metrics": {
         "timing": {
-          "fit_time_ms": 0.7952851951122284,
+          "fit_time_ms": 795.2851951122284,
           "quality": "measured",
           "source_file": "coxph_package_20260419.json"
         },
@@ -67675,8 +67710,10 @@
       "metrics": {
         "timing": {
           "fit_time_ms": 24.457892,
-          "std_ms": 1.026843,
+          "std_ms": 0.838414,
           "sample_count": 3,
+          "std_ddof": 0,
+          "std_scope": "replicates",
           "quality": "measured",
           "source_file": "lassocv_combined_20260409.json"
         },
@@ -67690,15 +67727,15 @@
           "quality": "measured",
           "source_file": "lassocv_combined_20260409.json",
           "train_mse": 0.98862,
-          "train_mse_std": 0.021212,
+          "train_mse_std": 0.017319,
           "test_mse": 1.017331,
-          "test_mse_std": 0.016537,
+          "test_mse_std": 0.013502,
           "alpha_mean": 0.026762,
-          "alpha_std": 0.000786
+          "alpha_std": 0.000642
         },
         "accuracy": {
           "coef_l2_rel_error": 0.02262352,
-          "coef_l2_rel_error_std": 0.0034077,
+          "coef_l2_rel_error_std": 0.00278237,
           "quality": "computed",
           "source_file": "lassocv_combined_20260409.json"
         }
@@ -67743,14 +67780,16 @@
       "metrics": {
         "timing": {
           "fit_time_ms": 50.344904,
-          "std_ms": 0.373801,
+          "std_ms": 0.305208,
           "sample_count": 3,
+          "std_ddof": 0,
+          "std_scope": "replicates",
           "quality": "measured",
           "source_file": "lassocv_combined_20260409.json"
         },
         "convergence": {
           "n_iter_mean": 9.67,
-          "n_iter_std": 0.58,
+          "n_iter_std": 0.47,
           "quality": "reported",
           "source_file": "lassocv_combined_20260409.json"
         },
@@ -67758,15 +67797,15 @@
           "quality": "measured",
           "source_file": "lassocv_combined_20260409.json",
           "train_mse": 1.003255,
-          "train_mse_std": 0.016922,
+          "train_mse_std": 0.013817,
           "test_mse": 1.021414,
-          "test_mse_std": 0.017925,
+          "test_mse_std": 0.014636,
           "alpha_mean": 0.040742,
-          "alpha_std": 0.001064
+          "alpha_std": 0.000869
         },
         "accuracy": {
           "coef_l2_rel_error": 0.02332263,
-          "coef_l2_rel_error_std": 0.00379072,
+          "coef_l2_rel_error_std": 0.00309511,
           "quality": "computed",
           "source_file": "lassocv_combined_20260409.json"
         }
@@ -67811,8 +67850,10 @@
       "metrics": {
         "timing": {
           "fit_time_ms": 59.555848,
-          "std_ms": 3.827553,
+          "std_ms": 3.125184,
           "sample_count": 3,
+          "std_ddof": 0,
+          "std_scope": "replicates",
           "quality": "measured",
           "source_file": "lassocv_combined_20260409.json"
         },
@@ -67826,15 +67867,15 @@
           "quality": "measured",
           "source_file": "lassocv_combined_20260409.json",
           "train_mse": 1.003255,
-          "train_mse_std": 0.016921,
+          "train_mse_std": 0.013816,
           "test_mse": 1.021415,
-          "test_mse_std": 0.017927,
+          "test_mse_std": 0.014637,
           "alpha_mean": 0.040742,
-          "alpha_std": 0.001064
+          "alpha_std": 0.000869
         },
         "accuracy": {
           "coef_l2_rel_error": 0.02332287,
-          "coef_l2_rel_error_std": 0.00379162,
+          "coef_l2_rel_error_std": 0.00309585,
           "quality": "computed",
           "source_file": "lassocv_combined_20260409.json"
         }

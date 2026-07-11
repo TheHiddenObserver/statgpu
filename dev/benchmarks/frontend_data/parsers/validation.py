@@ -73,8 +73,14 @@ def parse_comprehensive_validation(filepath: Path, env_id: str) -> tuple[list[di
                 "validation": {
                     "status": status,
                     "checks": [
-                        {"metric": "coef_max_abs_diff", "status": status,
+                        {"metric": "coef_max_abs_diff",
+                         "status": "pass" if (result.get("max_coef_diff") or 0) <= (result.get("threshold") or 0) else "fail",
                          "value": result.get("max_coef_diff"),
+                         "tolerance": result.get("threshold"),
+                         "reference": "statsmodels"},
+                        {"metric": "bse_max_abs_diff",
+                         "status": "pass" if (result.get("max_bse_diff") or 0) <= (result.get("threshold") or 0) else "fail",
+                         "value": result.get("max_bse_diff"),
                          "tolerance": result.get("threshold"),
                          "reference": "statsmodels"},
                     ],
@@ -145,7 +151,7 @@ def parse_coxph_package_comparison(filepath: Path, env_id: str) -> tuple[list[di
             metrics = {}
             if timing is not None:
                 metrics["timing"] = {
-                    "fit_time_ms": timing,
+                    "fit_time_ms": timing * 1000,  # source uses seconds, schema uses ms
                     "quality": "measured",
                     "source_file": filepath.name,
                 }

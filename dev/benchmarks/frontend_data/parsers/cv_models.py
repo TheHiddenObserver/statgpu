@@ -73,36 +73,38 @@ def parse_lassocv_combined(filepath: Path, env_id: str) -> tuple[list[dict], lis
             warnings.append(f"{filepath.name}: method '{method_name}' has no timing data, skipping")
             continue
         timing_mean = statistics.mean(times)
-        timing_std = statistics.stdev(times) if len(times) > 1 else 0.0
+        timing_std = statistics.pstdev(times) if len(times) > 1 else 0.0
 
-        # Aggregate n_iter
+        # Aggregate n_iter (population std to match source aggregate)
         niters = [r["n_iter"] for r in seed_runs if "n_iter" in r]
         niter_mean = statistics.mean(niters) if niters else 0
-        niter_std = statistics.stdev(niters) if len(niters) > 1 else 0.0
+        niter_std = statistics.pstdev(niters) if len(niters) > 1 else 0.0
 
         # Aggregate alpha
         alphas = [r["alpha"] for r in seed_runs if "alpha" in r]
         alpha_mean = statistics.mean(alphas) if alphas else 0
-        alpha_std = statistics.stdev(alphas) if len(alphas) > 1 else 0.0
+        alpha_std = statistics.pstdev(alphas) if len(alphas) > 1 else 0.0
 
         # Aggregate MSE
         train_mses = [r["train_mse"] for r in seed_runs if "train_mse" in r]
         test_mses = [r["test_mse"] for r in seed_runs if "test_mse" in r]
         train_mse_mean = statistics.mean(train_mses) if train_mses else None
-        train_mse_std = statistics.stdev(train_mses) if len(train_mses) > 1 else 0.0
+        train_mse_std = statistics.pstdev(train_mses) if len(train_mses) > 1 else 0.0
         test_mse_mean = statistics.mean(test_mses) if test_mses else None
-        test_mse_std = statistics.stdev(test_mses) if len(test_mses) > 1 else 0.0
+        test_mse_std = statistics.pstdev(test_mses) if len(test_mses) > 1 else 0.0
 
         # coef_l2_rel → coef_l2_rel_error
         coef_errors = [r["coef_l2_rel"] for r in seed_runs if "coef_l2_rel" in r]
         coef_l2_rel_mean = statistics.mean(coef_errors) if coef_errors else None
-        coef_l2_rel_std = statistics.stdev(coef_errors) if len(coef_errors) > 1 else 0.0
+        coef_l2_rel_std = statistics.pstdev(coef_errors) if len(coef_errors) > 1 else 0.0
 
         metrics = {
             "timing": {
                 "fit_time_ms": round(timing_mean, 6),
                 "std_ms": round(timing_std, 6),
-                "sample_count": n_seeds,
+                "sample_count": len(times),
+                "std_ddof": 0,
+                "std_scope": "replicates",
                 "quality": "measured",
                 "source_file": filepath.name,
             },

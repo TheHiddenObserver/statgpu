@@ -161,7 +161,7 @@ def parse_coxph_efron_bench(filepath: Path, env_id: str) -> tuple[list[dict], li
                     }
                     perf_runs_by_key[key] = run
 
-        # Second pass: attach speedups
+        # Second pass: attach speedups (source reports speedup vs statsmodels)
         for scale_group, scale_sp in sp_data.items():
             for scale_name, backends_sp in scale_sp.items():
                 m = re.match(r"n(\d+)_p(\d+)", scale_name)
@@ -171,30 +171,22 @@ def parse_coxph_efron_bench(filepath: Path, env_id: str) -> tuple[list[dict], li
                 n_features = int(m.group(2))
                 scale_key = make_scale_key(n_samples, n_features)
 
-                # Find cpu timing for this scale
-                cpu_time = None
-                for (sk, fw, bk, impl), run in perf_runs_by_key.items():
-                    if sk == scale_key and fw == "statgpu" and bk == "numpy":
-                        cpu_time = run["metrics"]["timing"]["fit_time_ms"]
-                        break
-
                 for bk_raw, speedup_val in backends_sp.items():
                     bk_info = BACKEND_MAP_COXPH.get(bk_raw)
                     if bk_info is None:
                         continue
                     backend, framework, implementation = bk_info
                     key = (scale_key, framework, backend, implementation or "default")
-                    if key in perf_runs_by_key:
+                    if key in perf_runs_by_key and speedup_val > 0:
                         run = perf_runs_by_key[key]
-                        if cpu_time and cpu_time > 0 and speedup_val > 0:
-                            run["metrics"]["speedup"] = {
-                                "value": round(speedup_val, 4),
-                                "reference_backend": "numpy",
-                                "reference_framework": "statgpu",
-                                "reported_semantics": "computed",
-                                "quality": "computed",
-                                "source_file": filepath.name,
-                            }
+                        run["metrics"]["speedup"] = {
+                            "value": round(speedup_val, 4),
+                            "reference_backend": None,
+                            "reference_framework": "statsmodels",
+                            "reported_semantics": "reported_by_runner",
+                            "quality": "reported",
+                            "source_file": filepath.name,
+                        }
 
         runs.extend(perf_runs_by_key.values())
 
