@@ -6,6 +6,7 @@ import hashlib
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Optional
 
 from .canonical import CATEGORIES
 from .registry import PARSER_REGISTRY
@@ -44,7 +45,7 @@ TRANSITIONAL_FRAMEWORKS = {
 }
 
 
-def _make_transitional_case_id(parser_name: str, raw_case_key: str | None) -> str:
+def _make_transitional_case_id(parser_name: str, raw_case_key: Optional[str]) -> str:
     if not raw_case_key:
         return "default"
     payload = json.dumps({"parser": parser_name, "raw_case_key": raw_case_key},
@@ -152,7 +153,9 @@ def _inject_canonical_fields(runs: list[dict], manifest: dict, results_dir: Path
             run["source"]["source_id"] = f"transitional:{src_file}"
             run["comparison_id"] = f"transitional:{src_file.replace('/', '-')}"
 
-        # case_id stays transitional for now
+        # Set case_id/method_config_id from parser output or fall back to default
+        # Parsers should set these fields explicitly; default is a valid choice
+        # for benchmarks with no parameter variation
         if run.get("case_id") is None:
             run["case_id"] = "default"
         if run.get("method_config_id") is None:
@@ -189,7 +192,7 @@ def _build_manifest_comparisons(manifest: dict) -> list[dict]:
 
 
 def generate(results_dir: Path, deterministic: bool = False,
-            manifest: dict | None = None, strict_sources: bool = False) -> tuple[dict, dict]:
+            manifest: Optional[dict] = None, strict_sources: bool = False) -> tuple[dict, dict, dict]:
     """Generate unified benchmark_data.json from results_dir.
 
     If manifest is provided, use canonical mode (A2+).
@@ -242,7 +245,9 @@ def generate(results_dir: Path, deterministic: bool = False,
             continue
 
         # SHA256 check (manifest mode)
-        if manifest is not None and "sha256" in config:
+        if manifest is not None and strict_sources and config.get("required", True) and not config.get("sha256"):
+            raise ValueError(f"Required source missing SHA256: {path_str}")
+        if manifest is not None and config.get("sha256"):
             from .canonical import source_sha256
             actual = source_sha256(filepath)
             if actual != config["sha256"]:
@@ -353,7 +358,15 @@ def generate(results_dir: Path, deterministic: bool = False,
         registered = len(PARSER_REGISTRY)
         available = sum(1 for p in PARSER_REGISTRY if (results_dir / p).exists())
     parsed = len({r["source"]["source_id"] for r in all_runs})
-    catalog_total = 472  # from A0 audit
+    catalog_total = manifest.get("catalog_total") if manifest else None
+    if catalog_total is None:
+        catalog_total = sum(
+            1
+            for path in results_dir.rglob("*.json")
+            if "benchmark_frontend_sources" not in path.relative_to(results_dir).parts
+        )
+    if not isinstance(catalog_total, int) or catalog_total < registered:
+        raise ValueError("catalog_total must be an integer >= registered_sources")
     inventory = {
         "inventory_version": "1.0",
         "catalog_version": "1.0",
@@ -411,13 +424,18 @@ def generate(results_dir: Path, deterministic: bool = False,
 
 
 def _resolve_speedup_references(runs: list[dict]) -> None:
-    """Second pass: resolve reference_run_id for computed speedups using RunIdentity."""
-    from .identity import run_identity, identity_json as _id_json
-    run_by_identity: dict[str, dict] = {}
+    """Resolve computed speedups to an unambiguous timing run in the same chart cell."""
+    from .identity import chart_cell_identity, chart_series_identity, identity_json
+
+    timing_runs_by_cell: dict[str, list[dict]] = {}
     for r in runs:
-        rid = run_identity(r)
-        key = _id_json(rid)
-        run_by_identity[key] = r
+        timing = r.get("metrics", {}).get("timing")
+        if not timing or timing.get("fit_time_ms", 0) <= 0:
+            continue
+        key = identity_json(
+            chart_cell_identity(r, include_session=False) + chart_series_identity(r)
+        )
+        timing_runs_by_cell.setdefault(key, []).append(r)
 
     for run in runs:
         sp = run.get("metrics", {}).get("speedup", {})
@@ -426,28 +444,25 @@ def _resolve_speedup_references(runs: list[dict]) -> None:
         if sp.get("reference_run_id"):
             continue  # already resolved
 
-        # Find reference run: same env/comparison/case/method/scale, matching framework/backend
-        ref_identity = [
-            run["source"]["source_id"], run["case_id"], run.get("method_config_id", "default"),
-            run["env_id"], run["model_id"],
-            run.get("variant"), run.get("implementation"),
-            run.get("loss"), run.get("penalty"), run.get("solver"),
-            sp.get("reference_framework", "statgpu"),
-            sp.get("reference_backend", "numpy"),
-            run["scale"]["scale_key"],
-        ]
-        for fw_backend in [("statgpu", "numpy"), ("statgpu", sp.get("reference_backend", "numpy"))]:
-            ref_identity[-2] = fw_backend[0]
-            ref_identity[-1] = fw_backend[1]
-            ref_key = _id_json(ref_identity)
-            ref_run = run_by_identity.get(ref_key)
-            if ref_run and ref_run.get("metrics", {}).get("timing", {}).get("fit_time_ms", 0) > 0:
-                sp["reference_run_id"] = ref_run["run_id"]
+        group_identity = chart_cell_identity(run, include_session=False)
+        reference_framework = sp.get("reference_framework")
+        reference_backend = sp.get("reference_backend")
+        implementations = [run.get("implementation")]
+        if implementations[0] is not None:
+            implementations.append(None)
+
+        for implementation in implementations:
+            ref_key = identity_json(
+                group_identity + [reference_framework, reference_backend, implementation]
+            )
+            candidates = timing_runs_by_cell.get(ref_key, [])
+            if len(candidates) == 1:
+                sp["reference_run_id"] = candidates[0]["run_id"]
                 break
 
 
 # Validation functions (migrated from old module)
-def _load_schema() -> dict | None:
+def _load_schema() -> Optional[dict]:
     schema_path = Path(__file__).resolve().parent.parent / "benchmark_frontend_schema.json"
     if not schema_path.exists():
         return None
@@ -497,7 +512,7 @@ def validate_against_schema(output: dict) -> list[str]:
     return errors
 
 
-def validate_semantic(output: dict, manifest: dict | None = None, strict_sources: bool = False) -> list[str]:
+def validate_semantic(output: dict, manifest: Optional[dict] = None, strict_sources: bool = False) -> list[str]:
     """Semantic/referential integrity checks for canonical mode."""
     errors = []
     runs = output.get("runs", [])
@@ -506,6 +521,7 @@ def validate_semantic(output: dict, manifest: dict | None = None, strict_sources
     frameworks = {f["framework_id"] for f in output.get("frameworks", [])}
     comparisons = {c["comparison_id"] for c in output.get("comparisons", [])}
     fw_policy = {f["framework_id"]: f.get("backend_policy", "forbidden") for f in output.get("frameworks", [])}
+    runs_by_id = {run.get("run_id"): run for run in runs}
 
     for run in runs:
         rid = run.get("run_id", "?")
@@ -544,6 +560,26 @@ def validate_semantic(output: dict, manifest: dict | None = None, strict_sources
         ref_fw = sp.get("reference_framework")
         if ref_fw and ref_fw not in frameworks:
             errors.append(f"{rid}: speedup reference_framework '{ref_fw}' not in frameworks")
+        if sp.get("reported_semantics") == "computed":
+            ref_id = sp.get("reference_run_id")
+            if not ref_id:
+                errors.append(f"{rid}: computed speedup missing reference_run_id")
+            elif ref_id not in runs_by_id:
+                errors.append(f"{rid}: speedup reference_run_id '{ref_id}' not found")
+            else:
+                ref_run = runs_by_id[ref_id]
+                if ref_run.get("framework") != ref_fw:
+                    errors.append(f"{rid}: speedup reference framework does not match referenced run")
+                if ref_run.get("backend") != sp.get("reference_backend"):
+                    errors.append(f"{rid}: speedup reference backend does not match referenced run")
+                ref_time = ref_run.get("metrics", {}).get("timing", {}).get("fit_time_ms")
+                run_time = run.get("metrics", {}).get("timing", {}).get("fit_time_ms")
+                if not ref_time or not run_time:
+                    errors.append(f"{rid}: computed speedup requires positive timing on both runs")
+                else:
+                    expected = ref_time / run_time
+                    if abs(sp.get("value", 0) - expected) > max(1e-4, abs(expected) * 1e-4):
+                        errors.append(f"{rid}: computed speedup value does not match referenced timing")
 
         # Canonical IDs
         if run.get("source", {}).get("source_id", "").startswith("transitional:"):
@@ -605,8 +641,8 @@ def validate_output(output: dict) -> list[str]:
 
         if "speedup" in metrics:
             s = metrics["speedup"]
-            if s.get("value", -1) < 0:
-                errors.append(f"{rid}: speedup.value < 0")
+            if s.get("value", 0) <= 0:
+                errors.append(f"{rid}: speedup.value must be > 0")
             for sf in ["reference_backend", "reference_framework", "reported_semantics"]:
                 if sf not in s:
                     errors.append(f"{rid}: speedup missing '{sf}'")
@@ -631,39 +667,41 @@ def validate_output(output: dict) -> list[str]:
 def _write_transactional(out_path_str, report_path_str, inv_path_str, output, parse_report, inventory):
     """Write three output files atomically: temp → os.replace in order."""
     import os as _os
-    out_p = Path(out_path_str) if isinstance(out_path_str, Path) else Path(out_path_str)
-    rpt_p = Path(report_path_str) if isinstance(report_path_str, Path) else Path(report_path_str)
-    inv_p = Path(inv_path_str) if isinstance(inv_path_str, Path) else Path(inv_path_str)
+    import tempfile
 
-    for p in (out_p, rpt_p, inv_p):
-        if not p.is_absolute():
-            p = Path.cwd() / p.name
-        p.parent.mkdir(parents=True, exist_ok=True)
-        out_p, rpt_p, inv_p = (Path.cwd() / p if not p.is_absolute() else p for p in (out_p, rpt_p, inv_p))
-        break  # only fix abs paths
-
-    if not out_p.is_absolute(): out_p = Path.cwd() / out_p
-    if not rpt_p.is_absolute(): rpt_p = Path.cwd() / rpt_p
-    if not inv_p.is_absolute(): inv_p = Path.cwd() / inv_p
+    out_p, rpt_p, inv_p = (Path(path) for path in (out_path_str, report_path_str, inv_path_str))
+    out_p, rpt_p, inv_p = (
+        path if path.is_absolute() else Path.cwd() / path
+        for path in (out_p, rpt_p, inv_p)
+    )
 
     for p in (out_p, rpt_p, inv_p):
         p.parent.mkdir(parents=True, exist_ok=True)
 
-    tmp_d = out_p.with_suffix(out_p.suffix + ".tmp")
-    tmp_r = rpt_p.with_suffix(rpt_p.suffix + ".tmp")
-    tmp_i = inv_p.with_suffix(inv_p.suffix + ".tmp")
+    def write_temp(target: Path, data: bytes) -> Path:
+        with tempfile.NamedTemporaryFile(
+            mode="wb", dir=target.parent, prefix=f".{target.name}.", suffix=".tmp", delete=False
+        ) as handle:
+            handle.write(data)
+            handle.flush()
+            _os.fsync(handle.fileno())
+            return Path(handle.name)
 
-    for tmp, data in [(tmp_r, json.dumps(parse_report, indent=2).encode("utf-8")),
-                       (tmp_i, json.dumps(inventory, indent=2).encode("utf-8")),
-                       (tmp_d, json.dumps(output, indent=2, ensure_ascii=False).encode("utf-8"))]:
-        with open(tmp, "wb") as f:
-            f.write(data)
-            f.flush()
-            _os.fsync(f.fileno())
+    temp_paths: list[Path] = []
+    try:
+        tmp_r = write_temp(rpt_p, json.dumps(parse_report, indent=2).encode("utf-8"))
+        temp_paths.append(tmp_r)
+        tmp_i = write_temp(inv_p, json.dumps(inventory, indent=2).encode("utf-8"))
+        temp_paths.append(tmp_i)
+        tmp_d = write_temp(out_p, json.dumps(output, indent=2, ensure_ascii=False).encode("utf-8"))
+        temp_paths.append(tmp_d)
 
-    _os.replace(tmp_r, rpt_p)
-    _os.replace(tmp_i, inv_p)
-    _os.replace(tmp_d, out_p)
+        _os.replace(tmp_r, rpt_p)
+        _os.replace(tmp_i, inv_p)
+        _os.replace(tmp_d, out_p)
+    finally:
+        for temp_path in temp_paths:
+            temp_path.unlink(missing_ok=True)
     print(f"Wrote: {out_p}")
     print(f"Wrote: {rpt_p}")
     print(f"Wrote: {inv_p}")
@@ -703,17 +741,11 @@ def main():
         sys.exit(1)
 
     # Load manifest if available (A2+)
-    manifest = None
-    try:
-        from .registry import load_manifest
-        repo_root = Path(__file__).resolve().parents[3]
-        manifest = load_manifest(repo_root)
-        if manifest:
-            print("Using manifest-driven canonical mode")
-    except FileNotFoundError:
-        pass  # manifest not yet created — expected in transitional mode
-    except Exception as e:
-        print(f"WARNING: Failed to load manifest: {e}", file=sys.stderr)
+    from .registry import load_manifest
+    repo_root = Path(__file__).resolve().parents[3]
+    manifest = load_manifest(repo_root)
+    if manifest:
+        print("Using manifest-driven canonical mode")
 
     print(f"Scanning results from: {results_dir}")
     output, parse_report, source_inventory = generate(results_dir, deterministic=args.deterministic,

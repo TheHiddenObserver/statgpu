@@ -3,9 +3,129 @@
   "files_seen": 9,
   "files_parsed": 9,
   "files_skipped": 0,
-  "runs_generated": 1503,
-  "generation_id": "9e51ad0c0424aad6c38e387e0c6a90d3f8d75e8d16247c30578d3afaadea5bc2",
+  "runs_generated": 1491,
+  "generation_id": "99bf2eca1d004512498527bb22c11605cc2ba3d2337c12351e3572efa17f03c2",
   "issues": [
+    {
+      "source_id": "glm-solver-20260623-1b6197d94d88",
+      "file": "results/benchmark_frontend_sources/glm_solver_20260623.json",
+      "parser": "glm_solver_benchmark",
+      "code": "METHOD_UNAVAILABLE",
+      "severity": "info",
+      "message": "glm_solver_20260623.json: solver 'exact' unavailable for negative_binomial_none/numpy (non-positive speedup)",
+      "comparison_id": "glm-solver-20260623",
+      "parser_version": "1.0"
+    },
+    {
+      "source_id": "glm-solver-20260623-1b6197d94d88",
+      "file": "results/benchmark_frontend_sources/glm_solver_20260623.json",
+      "parser": "glm_solver_benchmark",
+      "code": "METHOD_UNAVAILABLE",
+      "severity": "info",
+      "message": "glm_solver_20260623.json: solver 'exact' unavailable for negative_binomial_none/cupy (non-positive speedup)",
+      "comparison_id": "glm-solver-20260623",
+      "parser_version": "1.0"
+    },
+    {
+      "source_id": "glm-solver-20260623-1b6197d94d88",
+      "file": "results/benchmark_frontend_sources/glm_solver_20260623.json",
+      "parser": "glm_solver_benchmark",
+      "code": "METHOD_UNAVAILABLE",
+      "severity": "info",
+      "message": "glm_solver_20260623.json: solver 'exact' unavailable for negative_binomial_none/torch (non-positive speedup)",
+      "comparison_id": "glm-solver-20260623",
+      "parser_version": "1.0"
+    },
+    {
+      "source_id": "glm-solver-20260623-1b6197d94d88",
+      "file": "results/benchmark_frontend_sources/glm_solver_20260623.json",
+      "parser": "glm_solver_benchmark",
+      "code": "METHOD_UNAVAILABLE",
+      "severity": "info",
+      "message": "glm_solver_20260623.json: solver 'exact' unavailable for negative_binomial_l2/numpy (non-positive speedup)",
+      "comparison_id": "glm-solver-20260623",
+      "parser_version": "1.0"
+    },
+    {
+      "source_id": "glm-solver-20260623-1b6197d94d88",
+      "file": "results/benchmark_frontend_sources/glm_solver_20260623.json",
+      "parser": "glm_solver_benchmark",
+      "code": "METHOD_UNAVAILABLE",
+      "severity": "info",
+      "message": "glm_solver_20260623.json: solver 'exact' unavailable for negative_binomial_l2/cupy (non-positive speedup)",
+      "comparison_id": "glm-solver-20260623",
+      "parser_version": "1.0"
+    },
+    {
+      "source_id": "glm-solver-20260623-1b6197d94d88",
+      "file": "results/benchmark_frontend_sources/glm_solver_20260623.json",
+      "parser": "glm_solver_benchmark",
+      "code": "METHOD_UNAVAILABLE",
+      "severity": "info",
+      "message": "glm_solver_20260623.json: solver 'exact' unavailable for negative_binomial_l2/torch (non-positive speedup)",
+      "comparison_id": "glm-solver-20260623",
+      "parser_version": "1.0"
+    },
+    {
+      "source_id": "glm-solver-20260623-1b6197d94d88",
+      "file": "results/benchmark_frontend_sources/glm_solver_20260623.json",
+      "parser": "glm_solver_benchmark",
+      "code": "METHOD_UNAVAILABLE",
+      "severity": "info",
+      "message": "glm_solver_20260623.json: solver 'exact' unavailable for tweedie_none/numpy (non-positive speedup)",
+      "comparison_id": "glm-solver-20260623",
+      "parser_version": "1.0"
+    },
+    {
+      "source_id": "glm-solver-20260623-1b6197d94d88",
+      "file": "results/benchmark_frontend_sources/glm_solver_20260623.json",
+      "parser": "glm_solver_benchmark",
+      "code": "METHOD_UNAVAILABLE",
+      "severity": "info",
+      "message": "glm_solver_20260623.json: solver 'exact' unavailable for tweedie_none/cupy (non-positive speedup)",
+      "comparison_id": "glm-solver-20260623",
+      "parser_version": "1.0"
+    },
+    {
+      "source_id": "glm-solver-20260623-1b6197d94d88",
+      "file": "results/benchmark_frontend_sources/glm_solver_20260623.json",
+      "parser": "glm_solver_benchmark",
+      "code": "METHOD_UNAVAILABLE",
+      "severity": "info",
+      "message": "glm_solver_20260623.json: solver 'exact' unavailable for tweedie_none/torch (non-positive speedup)",
+      "comparison_id": "glm-solver-20260623",
+      "parser_version": "1.0"
+    },
+    {
+      "source_id": "glm-solver-20260623-1b6197d94d88",
+      "file": "results/benchmark_frontend_sources/glm_solver_20260623.json",
+      "parser": "glm_solver_benchmark",
+      "code": "METHOD_UNAVAILABLE",
+      "severity": "info",
+      "message": "glm_solver_20260623.json: solver 'exact' unavailable for tweedie_l2/numpy (non-positive speedup)",
+      "comparison_id": "glm-solver-20260623",
+      "parser_version": "1.0"
+    },
+    {
+      "source_id": "glm-solver-20260623-1b6197d94d88",
+      "file": "results/benchmark_frontend_sources/glm_solver_20260623.json",
+      "parser": "glm_solver_benchmark",
+      "code": "METHOD_UNAVAILABLE",
+      "severity": "info",
+      "message": "glm_solver_20260623.json: solver 'exact' unavailable for tweedie_l2/cupy (non-positive speedup)",
+      "comparison_id": "glm-solver-20260623",
+      "parser_version": "1.0"
+    },
+    {
+      "source_id": "glm-solver-20260623-1b6197d94d88",
+      "file": "results/benchmark_frontend_sources/glm_solver_20260623.json",
+      "parser": "glm_solver_benchmark",
+      "code": "METHOD_UNAVAILABLE",
+      "severity": "info",
+      "message": "glm_solver_20260623.json: solver 'exact' unavailable for tweedie_l2/torch (non-positive speedup)",
+      "comparison_id": "glm-solver-20260623",
+      "parser_version": "1.0"
+    },
     {
       "source_id": "knockoff-baselines-20260409-beecd907fe54",
       "file": "results/benchmark_frontend_sources/knockoff_baselines_20260409.json",

@@ -138,6 +138,23 @@ def parse_lassocv_combined(filepath: Path, env_id: str) -> tuple[list[dict], lis
         if len(pred) > 2:
             metrics["prediction"] = pred
 
+        # Selection metrics (support precision/recall/F1/Jaccard from source)
+        sel_fields = {
+            "support_precision": "precision", "support_recall": "recall",
+            "support_f1": "f1", "support_jaccard": "jaccard_truth",
+        }
+        sel: dict = {"quality": "computed", "source_file": filepath.name}
+        has_sel = False
+        for src_key, dst_key in sel_fields.items():
+            vals = [r[src_key] for r in seed_runs if src_key in r]
+            if vals:
+                sel[dst_key] = round(statistics.mean(vals), 6)
+                if len(vals) > 1:
+                    sel[f"{dst_key}_std"] = round(statistics.pstdev(vals), 6)
+                has_sel = True
+        if has_sel:
+            metrics["selection"] = sel
+
         # Accuracy
         if coef_l2_rel_mean is not None:
             metrics["accuracy"] = {
