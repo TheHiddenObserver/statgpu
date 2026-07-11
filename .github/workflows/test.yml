@@ -8,7 +8,7 @@ permissions:
   contents: write
 
 jobs:
-  restore-cox:
+  torch-inference-autofix:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -18,30 +18,34 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - name: Restore complete Cox implementation and fix undefined dimension
+      - name: Correct staged helper indentation and apply patch
         run: |
-          git show origin/master:statgpu/survival/_cox.py > statgpu/survival/_cox.py
           python - <<'PY'
           from pathlib import Path
-          path = Path('statgpu/survival/_cox.py')
+          path = Path('dev/scripts/apply_review_batch3.py')
           text = path.read_text()
-          old = '(X_exp[:, :, None] * X[:, None, :]).reshape(n, n_features * n_features)'
-          new = '(X_exp[:, :, None] * X[:, None, :]).reshape(n_samples, n_features * n_features)'
-          if text.count(old) != 1:
-              raise RuntimeError(f'Cox undefined-n match count={text.count(old)}')
-          path.write_text(text.replace(old, new))
+          old_start = "helper = dedent('''\n    def _resolve_inference_backend"
+          new_start = "helper = '''    def _resolve_inference_backend"
+          old_end = "    def adjust_pvalues(\n''')"
+          new_end = "    def adjust_pvalues(\n'''"
+          if text.count(old_start) != 1 or text.count(old_end) != 1:
+              raise RuntimeError('batch3 helper indentation markers changed')
+          path.write_text(text.replace(old_start, new_start).replace(old_end, new_end))
           PY
+          python dev/scripts/apply_review_batch3.py
       - run: |
           python -m pip install --upgrade pip
           python -m pip install -e ".[validation,formula]"
-      - name: Validate Cox implementation
+          python -m pip install ruff
+      - name: Validate third batch
         run: |
-          python -m compileall -q statgpu/survival/_cox.py
-          python -m pytest dev/tests/test_cox.py dev/tests/test_cox_cv.py -q --tb=short
-      - name: Commit restored Cox implementation
+          python -m compileall -q statgpu/_base.py
+          ruff check statgpu/_base.py --select F821,E9,F63,F7,F82
+          python -m pytest dev/tests/test_repository_review_batch3.py dev/tests/test_inference_multiple_testing.py dev/tests/test_inference_resampling.py -q --tb=short
+      - name: Commit third batch
         run: |
           git config user.name "OpenAI review agent"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add statgpu/survival/_cox.py
-          git commit -m "fix: restore Cox implementation and correct Hessian dimension"
+          git add statgpu/_base.py dev/tests/test_repository_review_batch3.py
+          git commit -m "fix: preserve Torch inference backend context"
           git push origin HEAD:agent/code-review-fixes
