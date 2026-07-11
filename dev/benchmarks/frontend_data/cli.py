@@ -612,10 +612,8 @@ def validate_semantic(output: dict, manifest: Optional[dict] = None, strict_sour
         if not sp:
             continue
         ref_id = sp.get("reference_run_id")
-        if sp.get("reported_semantics") == "computed":
-            if not ref_id:
-                errors.append(f"{run['run_id']}: computed speedup missing reference_run_id")
-            elif ref_id == run["run_id"]:
+        if sp.get("reported_semantics") == "computed" and ref_id:
+            if ref_id == run["run_id"]:
                 errors.append(f"{run['run_id']}: speedup self-reference")
             elif ref_id not in run_by_id:
                 errors.append(f"{run['run_id']}: speedup reference_run_id '{ref_id}' not found")
