@@ -67,7 +67,8 @@
           "framework_id": { "type": "string" },
           "display_name": { "type": "string" },
           "external": { "type": "boolean" },
-          "backend_policy": { "type": "string", "enum": ["required", "forbidden", "optional"] }
+          "backend_policy": { "type": "string", "enum": ["required", "forbidden", "optional"] },
+          "color": { "type": "string" }
         }
       }
     },
