@@ -5,25 +5,59 @@ on:
     branches: [master]
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  review-source-snapshot:
+  final-review-autofix:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
-      - name: Package review sources
-        run: |
-          tar -czf review-sources.tar.gz \
-            statgpu/survival/_cox.py \
-            statgpu/linear_model/wrappers/_ridge.py \
-            statgpu/linear_model/penalized/_base.py \
-            dev/tests/test_external_consistency.py \
-            dev/tests/test_dbscan_edge_cases.py \
-            dev/tests/test_v10_import_smoke.py \
-            dev/tests/test_ridge_cv.py
-      - uses: actions/upload-artifact@v4
         with:
-          name: review-sources-${{ github.sha }}
-          path: review-sources.tar.gz
-          if-no-files-found: error
+          ref: agent/code-review-fixes
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Apply final reviewed fixes
+        run: python dev/scripts/apply_review_final.py
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[validation,formula]"
+          python -m pip install ruff
+      - name: Static checks
+        run: |
+          python -m compileall -q statgpu
+          ruff check \
+            statgpu/linear_model/wrappers/_ridge.py \
+            statgpu/survival/_cox.py \
+            --select F821,E9,F63,F7,F82
+      - name: Re-run all previously failing tests
+        run: |
+          python -m pytest \
+            'dev/tests/test_dbscan_edge_cases.py::test_dbscan_backend_input_types[torch]' \
+            'dev/tests/test_external_consistency.py::TestStatsmodelsConsistency::test_cox_estimation_matches_statsmodels[cox-efron]' \
+            'dev/tests/test_external_consistency.py::TestSklearnPenaltyConsistency::test_ridge_estimator_matches_sklearn[small]' \
+            'dev/tests/test_external_consistency.py::TestSklearnPenaltyConsistency::test_ridge_estimator_matches_sklearn[medium]' \
+            'dev/tests/test_external_consistency.py::TestSklearnPenaltyConsistency::test_ridge_estimator_matches_sklearn[large]' \
+            dev/tests/test_v10_import_smoke.py::test_losses_namespace_remains_a_public_compatibility_entrypoint \
+            dev/tests/test_v10_import_smoke.py::test_penalized_glm_auto_solver_is_backend_aware \
+            -q --tb=short
+      - name: Run focused numerical and neighboring suites
+        run: |
+          python -m pytest \
+            dev/tests/test_repository_review_final.py \
+            dev/tests/test_cox.py \
+            dev/tests/test_cox_cv.py \
+            dev/tests/test_ridge_inference.py \
+            dev/tests/test_ridge_cv.py \
+            dev/tests/test_v10_import_smoke.py \
+            -q --tb=short
+      - name: Commit final fixes
+        run: |
+          git config user.name "OpenAI review agent"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add statgpu dev/tests
+          git commit -m "fix: align Ridge and Cox inference contracts"
+          git push origin HEAD:agent/code-review-fixes
