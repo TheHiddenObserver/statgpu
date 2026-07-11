@@ -25,7 +25,7 @@ class TestGenerateBenchmarkData:
     """Integration tests for the data generator."""
 
     def test_generate_produces_valid_output(self, generator, results_dir):
-        output, report = generator(results_dir)
+        output, report, _inventory = generator(results_dir)
         assert output["schema_version"] == "1.1.0"
         assert "generated" in output
         assert len(output["environments"]) >= 1
@@ -39,7 +39,7 @@ class TestGenerateBenchmarkData:
         assert report["runs_generated"] == len(output["runs"])
 
     def test_all_runs_have_required_fields(self, generator, results_dir):
-        output, _ = generator(results_dir)
+        output, _, _inventory = generator(results_dir)
         required = ["run_id", "env_id", "category_ids", "model_id", "framework", "backend", "scale", "source",
                     "comparison_id", "case_id", "method_config_id"]
         for run in output["runs"]:
@@ -48,12 +48,12 @@ class TestGenerateBenchmarkData:
             assert "source_id" in run["source"], f"{run['run_id']} source missing source_id"
 
     def test_no_duplicate_run_ids(self, generator, results_dir):
-        output, _ = generator(results_dir)
+        output, _, _inventory = generator(results_dir)
         ids = [r["run_id"] for r in output["runs"]]
         assert len(ids) == len(set(ids)), f"Found {len(ids) - len(set(ids))} duplicate run_ids"
 
     def test_framework_backend_consistency(self, generator, results_dir):
-        output, _ = generator(results_dir)
+        output, _, _inventory = generator(results_dir)
         for run in output["runs"]:
             fw = run["framework"]
             bk = run["backend"]
@@ -63,7 +63,7 @@ class TestGenerateBenchmarkData:
                 assert bk is None, f"{run['run_id']}: external framework {fw} has backend {bk}"
 
     def test_timing_metrics_valid(self, generator, results_dir):
-        output, _ = generator(results_dir)
+        output, _, _inventory = generator(results_dir)
         for run in output["runs"]:
             t = run.get("metrics", {}).get("timing")
             if t is None:
@@ -75,7 +75,7 @@ class TestGenerateBenchmarkData:
                 assert t["min_ms"] <= t["max_ms"], f"{run['run_id']}: min_ms > max_ms"
 
     def test_speedup_metrics_valid(self, generator, results_dir):
-        output, _ = generator(results_dir)
+        output, _, _inventory = generator(results_dir)
         for run in output["runs"]:
             s = run.get("metrics", {}).get("speedup")
             if s is None:
@@ -87,7 +87,7 @@ class TestGenerateBenchmarkData:
 
     def test_no_nan_or_inf(self, generator, results_dir):
         import math
-        output, _ = generator(results_dir)
+        output, _, _inventory = generator(results_dir)
 
         def check(obj, path=""):
             if isinstance(obj, float):
@@ -105,7 +105,7 @@ class TestGenerateBenchmarkData:
 
     def test_parse_penalized_glm_bench_perf(self, generator, results_dir):
         """Verify penalized_glm_bench_perf parser produces expected runs."""
-        output, _ = generator(results_dir)
+        output, _, _inventory = generator(results_dir)
         # Check we have penalized_glm runs with timing
         glm_runs = [r for r in output["runs"] if "penalized_glm" in r["category_ids"]]
         assert len(glm_runs) > 0, "Should have penalized_glm runs"
@@ -124,7 +124,7 @@ class TestGenerateBenchmarkData:
 
     def test_parse_glm_solver_benchmark(self, generator, results_dir):
         """Verify glm_solver_benchmark parser produces speedup runs."""
-        output, _ = generator(results_dir)
+        output, _, _inventory = generator(results_dir)
         speedup_runs = [
             r for r in output["runs"]
             if "speedup" in r.get("metrics", {})
@@ -139,7 +139,7 @@ class TestGenerateBenchmarkData:
 
     def test_parse_elasticnet_benchmark(self, generator, results_dir):
         """Verify elasticnet benchmark parser produces glmnet/external runs."""
-        output, _ = generator(results_dir)
+        output, _, _inventory = generator(results_dir)
         ext_runs = [r for r in output["runs"] if r["framework"] == "glmnet"]
         assert len(ext_runs) > 0, "Should have glmnet comparison runs"
 
@@ -148,13 +148,13 @@ class TestGenerateBenchmarkData:
             assert "timing" in r.get("metrics", {}), f"glmnet run {r['run_id']} should have timing"
 
     def test_category_ids_is_array(self, generator, results_dir):
-        output, _ = generator(results_dir)
+        output, _, _inventory = generator(results_dir)
         for run in output["runs"]:
             assert isinstance(run["category_ids"], list), f"{run['run_id']}: category_ids should be list"
             assert len(run["category_ids"]) >= 1, f"{run['run_id']}: category_ids should have at least 1 entry"
 
     def test_scale_has_all_fields(self, generator, results_dir):
-        output, _ = generator(results_dir)
+        output, _, _inventory = generator(results_dir)
         for run in output["runs"]:
             s = run["scale"]
             assert "scale_key" in s

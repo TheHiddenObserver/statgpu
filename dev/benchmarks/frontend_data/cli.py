@@ -315,7 +315,28 @@ def generate(results_dir: Path, deterministic: bool = False,
         "issues": raw_issues,
     }
 
-    # generation_id from full bundle
+    # Build inventory
+    repo_root = Path(__file__).resolve().parents[3]
+    if manifest:
+        registered = len(manifest.get("sources", []))
+        available = sum(1 for s in manifest["sources"] if (repo_root / s["path"]).exists())
+    else:
+        registered = len(PARSER_REGISTRY)
+        available = sum(1 for p in PARSER_REGISTRY if (results_dir / p).exists())
+    parsed = len({r["source"]["source_id"] for r in all_runs})
+    catalog_total = 472  # from A0 audit
+    inventory = {
+        "inventory_version": "1.0",
+        "catalog_version": "1.0",
+        "generation_id": "",
+        "catalog_total": catalog_total,
+        "eligible_total": registered,
+        "registered_sources": registered,
+        "available_sources": available,
+        "parsed_sources": parsed,
+    }
+
+    # generation_id from full 3-file bundle
     from copy import deepcopy
     def _strip_gid(obj):
         result = deepcopy(obj)
@@ -328,15 +349,16 @@ def generate(results_dir: Path, deterministic: bool = False,
     bundle = {
         "benchmark_data": _strip_gid(output),
         "parse_report": _strip_gid(parse_report),
-        "source_inventory": {},  # placeholder for inventory
+        "source_inventory": _strip_gid(inventory),
     }
     gid = hashlib.sha256(
         json.dumps(bundle, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
     ).hexdigest()
     output["meta"]["generation_id"] = gid
     parse_report["generation_id"] = gid
+    inventory["generation_id"] = gid
 
-    return output, parse_report
+    return output, parse_report, inventory
 
 
 # Validation functions (migrated from old module)
@@ -448,6 +470,47 @@ def validate_output(output: dict) -> list[str]:
     return errors
 
 
+def _write_transactional(out_path_str, report_path_str, inv_path_str, output, parse_report, inventory):
+    """Write three output files atomically: temp → os.replace in order."""
+    import os as _os
+    out_p = Path(out_path_str) if isinstance(out_path_str, Path) else Path(out_path_str)
+    rpt_p = Path(report_path_str) if isinstance(report_path_str, Path) else Path(report_path_str)
+    inv_p = Path(inv_path_str) if isinstance(inv_path_str, Path) else Path(inv_path_str)
+
+    for p in (out_p, rpt_p, inv_p):
+        if not p.is_absolute():
+            p = Path.cwd() / p.name
+        p.parent.mkdir(parents=True, exist_ok=True)
+        out_p, rpt_p, inv_p = (Path.cwd() / p if not p.is_absolute() else p for p in (out_p, rpt_p, inv_p))
+        break  # only fix abs paths
+
+    if not out_p.is_absolute(): out_p = Path.cwd() / out_p
+    if not rpt_p.is_absolute(): rpt_p = Path.cwd() / rpt_p
+    if not inv_p.is_absolute(): inv_p = Path.cwd() / inv_p
+
+    for p in (out_p, rpt_p, inv_p):
+        p.parent.mkdir(parents=True, exist_ok=True)
+
+    tmp_d = out_p.with_suffix(out_p.suffix + ".tmp")
+    tmp_r = rpt_p.with_suffix(rpt_p.suffix + ".tmp")
+    tmp_i = inv_p.with_suffix(inv_p.suffix + ".tmp")
+
+    for tmp, data in [(tmp_r, json.dumps(parse_report, indent=2).encode("utf-8")),
+                       (tmp_i, json.dumps(inventory, indent=2).encode("utf-8")),
+                       (tmp_d, json.dumps(output, indent=2, ensure_ascii=False).encode("utf-8"))]:
+        with open(tmp, "wb") as f:
+            f.write(data)
+            f.flush()
+            _os.fsync(f.fileno())
+
+    _os.replace(tmp_r, rpt_p)
+    _os.replace(tmp_i, inv_p)
+    _os.replace(tmp_d, out_p)
+    print(f"Wrote: {out_p}")
+    print(f"Wrote: {rpt_p}")
+    print(f"Wrote: {inv_p}")
+
+
 def main():
     parser = argparse.ArgumentParser(description="Generate benchmark frontend data")
     parser.add_argument("--out", help="Output path for benchmark_data.json")
@@ -495,8 +558,8 @@ def main():
         print(f"WARNING: Failed to load manifest: {e}", file=sys.stderr)
 
     print(f"Scanning results from: {results_dir}")
-    output, parse_report = generate(results_dir, deterministic=args.deterministic,
-                                     manifest=manifest, strict_sources=args.strict_sources)
+    output, parse_report, source_inventory = generate(results_dir, deterministic=args.deterministic,
+                                                       manifest=manifest, strict_sources=args.strict_sources)
 
     errors = validate_output(output)
     schema_errors = validate_against_schema(output)

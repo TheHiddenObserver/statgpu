@@ -6,6 +6,7 @@ from .cli import (
     validate_against_schema,
     main,
     get_git_sha,
+    _write_transactional,
 )
 from .canonical import (
     CATEGORIES,
