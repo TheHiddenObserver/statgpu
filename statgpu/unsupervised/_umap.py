@@ -12,6 +12,7 @@ from statgpu.backends._utils import _to_numpy, scatter_add_2d
 from statgpu.unsupervised._utils import (
     backend_random_normal,
     check_2d_array,
+    draw_random_seed,
     eye,
     reject_sparse,
     squared_euclidean_distances,
@@ -121,7 +122,7 @@ class UMAP(BaseEstimator):
         if method == "nndescent":
             # Approximate NN via NNDescent (O(n log n) vs O(n²))
             from statgpu.unsupervised._nndescent import nndescent_torch, nndescent_cupy, nndescent_numpy
-            seed = self.random_state if self.random_state is not None else 42
+            seed = int(self._fit_random_seed_)
             if hasattr(X, 'device') and not hasattr(X, 'get'):  # torch
                 neighbor_indices, neighbor_distances_sq = nndescent_torch(
                     X, k=k, max_iter=10, seed=seed
@@ -189,7 +190,7 @@ class UMAP(BaseEstimator):
     def _initial_embedding(self, backend, graph_data):
         all_src, all_dst, all_w, n_samples = graph_data
         if self.init == "random":
-            return backend_random_normal(backend, self.random_state, size=(n_samples, int(self.n_components)), scale=1e-4)
+            return backend_random_normal(backend, self._fit_random_seed_, size=(n_samples, int(self.n_components)), scale=1e-4)
 
         # Spectral embedding via sparse Laplacian eigendecomposition
         import numpy as np
@@ -217,7 +218,7 @@ class UMAP(BaseEstimator):
         laplacian = sparse_graph - __import__('scipy').sparse.diags(degree)
         n_components = min(int(self.n_components) + 1, n_samples - 2)
         _, eigenvectors = eigsh(laplacian, k=n_components, which='SM', tol=1e-4)
-        jitter = backend_random_normal(backend, self.random_state, size=(n_samples, int(self.n_components)), scale=1e-4)
+        jitter = backend_random_normal(backend, self._fit_random_seed_, size=(n_samples, int(self.n_components)), scale=1e-4)
         return backend.asarray(eigenvectors[:, 1:int(self.n_components)+1], dtype=backend.float64) + jitter
 
     def _epochs(self, n_samples: int) -> int:
@@ -276,6 +277,7 @@ class UMAP(BaseEstimator):
         check_2d_array(X_arr)
         n_samples, n_features = X_arr.shape
         self._validate_params(n_samples)
+        self._fit_random_seed_ = draw_random_seed(self.random_state)
 
         # Use float32 for distance computations (2x faster, 2x less memory)
         X_f32 = backend.asarray(X_arr, dtype=backend.float32)
@@ -298,8 +300,8 @@ class UMAP(BaseEstimator):
         n_edges = len(edge_rows_b)
 
         # Create RNG once before epoch loop (not re-seeded per epoch)
-        rng = np.random.RandomState(self.random_state)
-        rs = self.random_state if self.random_state is not None else 42
+        rs = int(self._fit_random_seed_)
+        rng = np.random.RandomState(rs)
         if hasattr(Y, 'device') and not hasattr(Y, 'get'):  # torch
             try:
                 import torch

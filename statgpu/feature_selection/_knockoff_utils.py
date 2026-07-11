@@ -829,7 +829,7 @@ def _lasso_coef_diff_statistics(
     else:
         from statgpu.linear_model.wrappers._lasso import _fit_lasso_single_alpha_fast, _select_lasso_alpha_cv
 
-        use_cupy_native = str(backend_name).lower() == "cupy" and _is_cupy_array(Z)
+        use_cupy_native = str(backend_name).lower() == "cupy"
         use_torch_native = str(backend_name).lower() == "torch" and hasattr(Z, 'shape')
         if use_cupy_native:
             import cupy as cp
