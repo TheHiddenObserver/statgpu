@@ -82,8 +82,6 @@ def parse_penalized_glm_bench_perf(filepath: Path, env_id: str) -> tuple[list[di
                 }
                 if std_val is not None:
                     timing["std_ms"] = std_val
-                    timing["std_ddof"] = 0
-                    timing["std_scope"] = "replicates"
                 if min_val is not None:
                     timing["min_ms"] = min_val
                 else:

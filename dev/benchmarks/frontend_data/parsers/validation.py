@@ -53,7 +53,7 @@ def parse_comprehensive_validation(filepath: Path, env_id: str) -> tuple[list[di
             "env_id": env_id,
             "category_ids": ["glm"],
             "model_id": model_id,
-            "loss": family.lower(),
+            "loss": family_key,
             "penalty": None,
             "solver": "irls",
             "solver_display": "IRLS",

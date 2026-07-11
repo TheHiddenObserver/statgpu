@@ -62,7 +62,7 @@ def parse_coxph_efron_bench(filepath: Path, env_id: str) -> tuple[list[dict], li
         if status not in ("pass", "warn", "fail"):
             status = "pass"
 
-        run = {
+        run: dict = {
             "run_id": "",
             "env_id": env_id,
             "category_ids": ["survival"],
@@ -73,7 +73,6 @@ def parse_coxph_efron_bench(filepath: Path, env_id: str) -> tuple[list[dict], li
             "solver_display": "Newton",
             "solver_kind": "manual",
             "variant": "efron_precision",
-            "implementation": implementation,
             "framework": framework,
             "backend": backend,
             "scale": scale,
@@ -92,6 +91,8 @@ def parse_coxph_efron_bench(filepath: Path, env_id: str) -> tuple[list[dict], li
                 }
             },
         }
+        if implementation is not None:
+            run["implementation"] = implementation
         runs.append(run)
 
     # --- Performance runs (timing + speedup) ---
@@ -134,7 +135,7 @@ def parse_coxph_efron_bench(filepath: Path, env_id: str) -> tuple[list[dict], li
                     backend, framework, implementation = bk_info
 
                     key = (scale_key, framework, backend, implementation or "default")
-                    run = {
+                    run: dict = {
                         "run_id": "",
                         "benchmark_session_id": session_id,
                         "env_id": env_id,
@@ -146,7 +147,6 @@ def parse_coxph_efron_bench(filepath: Path, env_id: str) -> tuple[list[dict], li
                         "solver_display": "Newton",
                         "solver_kind": "manual",
                         "variant": variant,
-                        "implementation": implementation,
                         "framework": framework,
                         "backend": backend,
                         "scale": scale,
@@ -159,6 +159,8 @@ def parse_coxph_efron_bench(filepath: Path, env_id: str) -> tuple[list[dict], li
                             }
                         },
                     }
+                    if implementation is not None:
+                        run["implementation"] = implementation
                     perf_runs_by_key[key] = run
 
         # Second pass: attach speedups (source reports speedup vs statsmodels)

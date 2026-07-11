@@ -1,10 +1,10 @@
 {
   "schema_version": "1.1.0",
-  "generated": "2026-07-11T03:27:30.786613+00:00",
+  "generated": "1970-01-01T00:00:00+00:00",
   "meta": {
     "generator": "dev/benchmarks/generate_benchmark_data.py",
-    "git_sha": "eb1f705",
-    "generation_id": "154a576cf998698bd1649dd908f7301c30895f2950e1b00e7f1852bc0a222c02"
+    "git_sha": "deterministic",
+    "generation_id": "3dc48db41e616c45569463dd1c48f51951429de044057dc92fce98be1b7e6c9f"
   },
   "environments": [
     {
@@ -323,8 +323,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.062269450795459355,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 1.793891191482544,
           "max_ms": 1.958787441253662
         }
@@ -369,8 +367,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.05702544486036798,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 3.4819841384887695,
           "max_ms": 3.6565959453582764
         },
@@ -423,8 +419,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 1.1037427313900452,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 3.684878349304199,
           "max_ms": 6.78330659866333
         },
@@ -476,8 +470,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.06293844249197741,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 1.9751191139221191,
           "max_ms": 2.134948968887329
         }
@@ -521,8 +513,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.006323836522444039,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 4.003047943115234,
           "max_ms": 4.01836633682251
         },
@@ -574,8 +564,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.004307457405022454,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 4.038363695144653,
           "max_ms": 4.048585891723633
         },
@@ -627,8 +615,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.03281804569469999,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 1.6207396984100342,
           "max_ms": 1.7089247703552246
         }
@@ -672,8 +658,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.050547175612952334,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 3.634899854660034,
           "max_ms": 3.7751197814941406
         },
@@ -725,8 +709,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.3919435356037001,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 3.6775171756744385,
           "max_ms": 4.66686487197876
         },
@@ -778,8 +760,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.006206117360913563,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 1.7463266849517822,
           "max_ms": 1.7635226249694824
         }
@@ -823,8 +803,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.009728212100969233,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 3.490924835205078,
           "max_ms": 3.517061471939087
         },
@@ -876,8 +854,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.010121377661434816,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 3.5262107849121094,
           "max_ms": 3.555983304977417
         },
@@ -929,8 +905,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.11977052835345796,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 11.361837387084961,
           "max_ms": 11.68125867843628
         }
@@ -974,8 +948,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 2.5647658477456994,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 135.37582755088806,
           "max_ms": 141.38129353523254
         },
@@ -1027,8 +999,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 1.336014559809629,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 135.29545068740845,
           "max_ms": 139.3953263759613
         },
@@ -1080,8 +1050,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.03174209751778816,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 9.976685047149658,
           "max_ms": 10.067462921142578
         }
@@ -1125,8 +1093,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.03665201709560272,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 93.41010451316833,
           "max_ms": 93.51792931556702
         },
@@ -1178,8 +1144,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.07882982679423348,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 93.30862760543823,
           "max_ms": 93.53137016296387
         },
@@ -1231,8 +1195,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.06495002480769113,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 9.246498346328735,
           "max_ms": 9.446918964385986
         }
@@ -1276,8 +1238,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.07663459973673785,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 74.90077614784241,
           "max_ms": 75.09234547615051
         },
@@ -1329,8 +1289,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.07718222598235713,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 74.80117678642273,
           "max_ms": 75.00126957893372
         },
@@ -1382,8 +1340,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.1407258324258613,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 13.119429349899292,
           "max_ms": 13.523459434509277
         }
@@ -1427,8 +1383,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 4.3478397903124355,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 175.28456449508667,
           "max_ms": 186.05712056159973
         },
@@ -1480,8 +1434,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 3.468043312749749,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 175.78396201133728,
           "max_ms": 184.57427620887756
         },
@@ -1533,8 +1485,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.04227697159772702,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 2.477020025253296,
           "max_ms": 2.600044012069702
         }
@@ -1578,8 +1528,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 3.9359028386982042,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 245.35435438156128,
           "max_ms": 255.97259402275085
         },
@@ -1631,8 +1579,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 1.782849544719891,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 245.9009289741516,
           "max_ms": 250.2974569797516
         },
@@ -1684,8 +1630,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.04282385707241649,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 2.259165048599243,
           "max_ms": 2.375960350036621
         }
@@ -1729,8 +1673,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 1.2546898128289719,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 215.96983075141907,
           "max_ms": 219.35448050498962
         },
@@ -1782,8 +1724,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 1.684861636455835,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 221.53648734092712,
           "max_ms": 226.72387957572937
         },
@@ -1836,8 +1776,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.3852912591219296,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 5.194485187530518,
           "max_ms": 6.193250417709351
         }
@@ -1882,8 +1820,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.010740194665835862,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 7.2238147258758545,
           "max_ms": 7.253855466842651
         },
@@ -1936,8 +1872,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.008516471335066212,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 7.241398096084595,
           "max_ms": 7.264465093612671
         },
@@ -1989,8 +1923,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.04688225680339774,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 3.7120282649993896,
           "max_ms": 3.8463175296783447
         }
@@ -2034,8 +1966,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.027831243703502092,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 10.487347841262817,
           "max_ms": 10.567963123321533
         },
@@ -2087,8 +2017,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.15625682090676993,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 10.174542665481567,
           "max_ms": 10.562300682067871
         },
@@ -2140,8 +2068,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.22530547714736565,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 5.117148160934448,
           "max_ms": 5.692511796951294
         }
@@ -2185,8 +2111,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.0092119552176413,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 7.198333740234375,
           "max_ms": 7.226675748825073
         },
@@ -2238,8 +2162,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.006332566443236724,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 7.233560085296631,
           "max_ms": 7.251441478729248
         },
@@ -2291,8 +2213,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.03842389004245168,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 3.7598907947540283,
           "max_ms": 3.8636624813079834
         }
@@ -2336,8 +2256,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.03368113074069525,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 10.618984699249268,
           "max_ms": 10.700106620788574
         },
@@ -2389,8 +2307,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.23791696859306027,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 10.049641132354736,
           "max_ms": 10.675519704818726
         },
@@ -2442,8 +2358,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.7669005899859082,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 34.75788235664368,
           "max_ms": 36.99055314064026
         }
@@ -2487,8 +2401,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 1.7848583640966176,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 162.07951307296753,
           "max_ms": 166.25860333442688
         },
@@ -2540,8 +2452,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 1.6924669646932435,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 159.9021553993225,
           "max_ms": 164.97185826301575
         },
@@ -2593,8 +2503,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.2313477813156295,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 15.301942825317383,
           "max_ms": 16.007930040359497
         }
@@ -2638,8 +2546,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.7642923102206893,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 57.62168765068054,
           "max_ms": 59.6655011177063
         },
@@ -2691,8 +2597,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.6335835186747861,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 56.69814348220825,
           "max_ms": 58.47811698913574
         },
@@ -2744,8 +2648,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.09983205885650348,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 15.851885080337524,
           "max_ms": 16.148120164871216
         }
@@ -2789,8 +2691,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.1261710588421028,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 54.32060360908508,
           "max_ms": 54.654985666275024
         },
@@ -2842,8 +2742,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.4576803243433689,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 55.460840463638306,
           "max_ms": 56.83538317680359
         },
@@ -2895,8 +2793,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.21234514041001715,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 5.163252353668213,
           "max_ms": 5.779743194580078
         }
@@ -2940,8 +2836,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.38470792940498766,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 17.377525568008423,
           "max_ms": 18.366992473602295
         },
@@ -2993,8 +2887,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.24808338831503654,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 17.63397455215454,
           "max_ms": 18.287241458892822
         },
@@ -3046,8 +2938,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 1.0159335330579005,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 157.3791801929474,
           "max_ms": 159.82794761657715
         }
@@ -3091,8 +2981,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 5.7908553541919385,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 506.8787634372711,
           "max_ms": 523.188978433609
         },
@@ -3144,8 +3032,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 2.719876537160923,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 501.50105357170105,
           "max_ms": 509.72646474838257
         },
@@ -3197,8 +3083,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.8441394333148159,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 82.00612664222717,
           "max_ms": 84.46243405342102
         }
@@ -3242,8 +3126,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 1.2865853154410285,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 223.769873380661,
           "max_ms": 227.10970044136047
         },
@@ -3295,8 +3177,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.9781153867064176,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 224.44656491279602,
           "max_ms": 227.02458500862122
         },
@@ -3349,8 +3229,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.3201385305377311,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 6.816089153289795,
           "max_ms": 7.680743932723999
         }
@@ -3395,8 +3273,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.011937478617793706,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 8.698135614395142,
           "max_ms": 8.725881576538086
         },
@@ -3449,8 +3325,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.00847758687698024,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 8.74549150466919,
           "max_ms": 8.7679922580719
         },
@@ -3502,8 +3376,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 2.7045620967793362,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 50.90755224227905,
           "max_ms": 58.34415555000305
         }
@@ -3547,8 +3419,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 2.602017460012399,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 126.20192766189575,
           "max_ms": 132.88527727127075
         },
@@ -3600,8 +3470,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 1.1022886095912767,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 122.53144383430481,
           "max_ms": 125.7840096950531
         },
@@ -3653,8 +3521,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.38149606038260053,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 6.792604923248291,
           "max_ms": 7.8015923500061035
         }
@@ -3698,8 +3564,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.007339072253463556,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 8.748501539230347,
           "max_ms": 8.770972490310669
         },
@@ -3751,8 +3615,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.1132524367434162,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 8.505791425704956,
           "max_ms": 8.8004469871521
         },
@@ -3804,8 +3666,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.2922129928280285,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 47.5044846534729,
           "max_ms": 48.354119062423706
         }
@@ -3849,8 +3709,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.3794958716464891,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 118.62143874168396,
           "max_ms": 119.78349089622498
         },
@@ -3902,8 +3760,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.9047045270560911,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 119.20994520187378,
           "max_ms": 121.99088931083679
         },
@@ -3955,8 +3811,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.19711731308604655,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 28.326034545898438,
           "max_ms": 28.870344161987305
         }
@@ -4000,8 +3854,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 1.606619598585576,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 116.30484461784363,
           "max_ms": 120.63586711883545
         },
@@ -4053,8 +3905,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 1.2144232934702708,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 119.5988655090332,
           "max_ms": 123.08663129806519
         },
@@ -4106,8 +3956,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 2.819684261772167,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 231.80201649665833,
           "max_ms": 239.30135369300842
         }
@@ -4151,8 +3999,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 7.172963172921891,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 600.938230752945,
           "max_ms": 620.5242872238159
         },
@@ -4204,8 +4050,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 7.806663590251177,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 602.291464805603,
           "max_ms": 622.6032078266144
         },
@@ -4257,8 +4101,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.6898474160314637,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 213.92080187797546,
           "max_ms": 215.5928611755371
         }
@@ -4302,8 +4144,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 4.3967049616526594,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 548.9422380924225,
           "max_ms": 561.7515742778778
         },
@@ -4355,8 +4195,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 7.729484030997923,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 541.4173901081085,
           "max_ms": 563.3590221405029
         },
@@ -4408,8 +4246,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.4782609301604007,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 22.10909128189087,
           "max_ms": 23.38215708732605
         }
@@ -4453,8 +4289,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 1.6475804596191919,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 76.61265134811401,
           "max_ms": 81.50836825370789
         },
@@ -4506,8 +4340,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.6427621863606031,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 76.73299312591553,
           "max_ms": 78.5234272480011
         },
@@ -4559,8 +4391,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 1.7722937879622824,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 388.6765241622925,
           "max_ms": 393.85080337524414
         }
@@ -4604,8 +4434,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 15.596005139694338,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 1153.536468744278,
           "max_ms": 1190.727174282074
         },
@@ -4657,8 +4485,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 22.221240839555787,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 1148.0252146720886,
           "max_ms": 1205.1999866962433
         },
@@ -4710,8 +4536,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 2.3555324720085933,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 450.8023262023926,
           "max_ms": 457.1787416934967
         }
@@ -4755,8 +4579,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 20.216535276842905,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 1305.9287071228027,
           "max_ms": 1358.3627045154572
         },
@@ -4808,8 +4630,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 16.68148880597227,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 1291.5635406970978,
           "max_ms": 1336.4386856555939
         },
@@ -4862,8 +4682,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.13898614928533506,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 6.519883871078491,
           "max_ms": 6.875753402709961
         }
@@ -4908,8 +4726,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.01480925829675654,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 8.807182312011719,
           "max_ms": 8.845984935760498
         },
@@ -4962,8 +4778,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.16694273952687974,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 8.428573608398438,
           "max_ms": 8.864104747772217
         },
@@ -5015,8 +4829,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.03858823116259736,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 15.925973653793335,
           "max_ms": 16.04214310646057
         }
@@ -5060,8 +4872,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.999091543489895,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 74.86552000045776,
           "max_ms": 77.50537991523743
         },
@@ -5113,8 +4923,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 1.1143327931001237,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 74.67040419578552,
           "max_ms": 77.92425155639648
         },
@@ -5166,8 +4974,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.24847326906985295,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 6.260693073272705,
           "max_ms": 7.027626037597656
         }
@@ -5211,8 +5017,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.0064265472595225305,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 8.826375007629395,
           "max_ms": 8.844137191772461
         },
@@ -5264,8 +5068,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.18214555261250606,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 8.473247289657593,
           "max_ms": 8.865773677825928
         },
@@ -5317,8 +5119,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.1706836925968813,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 15.780210494995117,
           "max_ms": 16.18051528930664
         }
@@ -5362,8 +5162,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 1.3822315698710357,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 77.79663801193237,
           "max_ms": 81.6592276096344
         },
@@ -5415,8 +5213,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.7870323639911944,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 80.45369386672974,
           "max_ms": 82.89676904678345
         },
@@ -5468,8 +5264,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.4350725978191614,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 28.166383504867554,
           "max_ms": 29.32661771774292
         }
@@ -5513,8 +5307,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 2.7357425584867183,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 168.52369904518127,
           "max_ms": 175.90653896331787
         },
@@ -5566,8 +5358,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 2.782666936615122,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 167.3702895641327,
           "max_ms": 175.57862401008606
         },
@@ -5619,8 +5409,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 1.8160419494586648,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 208.69171619415283,
           "max_ms": 213.48902583122253
         }
@@ -5664,8 +5452,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 6.336545822935254,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 560.0236356258392,
           "max_ms": 576.5524208545685
         },
@@ -5717,8 +5503,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 11.846427441293311,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 567.1537816524506,
           "max_ms": 600.8364856243134
         },
@@ -5770,8 +5554,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 1.376923105111949,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 179.14140224456787,
           "max_ms": 183.42828750610352
         }
@@ -5815,8 +5597,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 6.76450840400891,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 471.9373881816864,
           "max_ms": 492.55019426345825
         },
@@ -5868,8 +5648,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 7.613286714242932,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 468.7073230743408,
           "max_ms": 487.6839220523834
         },
@@ -5921,8 +5699,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.14014551403163236,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 20.1379656791687,
           "max_ms": 20.475536584854126
         }
@@ -5966,8 +5742,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 1.7112683859136568,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 90.21830558776855,
           "max_ms": 94.29731965065002
         },
@@ -6019,8 +5793,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 1.3171901842883205,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 89.52745795249939,
           "max_ms": 93.06588768959045
         },
@@ -6072,8 +5844,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 4.253554187203345,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 358.4672212600708,
           "max_ms": 371.0469901561737
         }
@@ -6117,8 +5887,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 12.710943625681136,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 1132.1030855178833,
           "max_ms": 1164.1404330730438
         },
@@ -6170,8 +5938,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 12.103551862604382,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 1108.3100736141205,
           "max_ms": 1143.7815725803375
         },
@@ -6223,8 +5989,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 8.724952315110704,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 422.2637414932251,
           "max_ms": 448.40002059936523
         }
@@ -6268,8 +6032,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 27.478856603990383,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 1334.0825140476227,
           "max_ms": 1402.7434289455414
         },
@@ -6321,8 +6083,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 10.870258895784541,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 1345.9782600402832,
           "max_ms": 1379.150927066803
         },
@@ -6375,8 +6135,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.1685752369789947,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 37.43767738342285,
           "max_ms": 37.89976239204407
         }
@@ -6421,8 +6179,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.17750657945385248,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 46.12979292869568,
           "max_ms": 46.55727744102478
         },
@@ -6475,8 +6231,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.12119263578211109,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 46.08786106109619,
           "max_ms": 46.42680287361145
         },
@@ -6528,8 +6282,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.04900547815654408,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 17.86676049232483,
           "max_ms": 18.010735511779785
         }
@@ -6573,8 +6325,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 1.3988336622998305,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 78.88957858085632,
           "max_ms": 82.60264992713928
         },
@@ -6626,8 +6376,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.36747000148177394,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 81.37145638465881,
           "max_ms": 82.41108059883118
         },
@@ -6679,8 +6427,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.09939566336277703,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 25.334447622299194,
           "max_ms": 25.600582361221313
         }
@@ -6724,8 +6470,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.6400491912572005,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 30.57330846786499,
           "max_ms": 32.29629993438721
         },
@@ -6777,8 +6521,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.05153218349767773,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 32.156288623809814,
           "max_ms": 32.303065061569214
         },
@@ -6830,8 +6572,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.07576775284547319,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 18.16055178642273,
           "max_ms": 18.37858557701111
         }
@@ -6875,8 +6615,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 1.030592184699129,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 81.28443360328674,
           "max_ms": 83.93654227256775
         },
@@ -6928,8 +6666,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.4569552623387056,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 83.20891857147217,
           "max_ms": 84.62148904800415
         },
@@ -6981,8 +6717,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.6971656198617283,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 31.954944133758545,
           "max_ms": 33.81550312042236
         }
@@ -7026,8 +6760,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 3.470981631250393,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 166.21246933937073,
           "max_ms": 175.51958560943604
         },
@@ -7079,8 +6811,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 4.799739654835396,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 165.7995879650116,
           "max_ms": 177.72716283798218
         },
@@ -7132,8 +6862,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 2.3873962140449874,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 161.92099452018738,
           "max_ms": 168.67640614509583
         }
@@ -7177,8 +6905,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 9.039239510592672,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 466.0434126853943,
           "max_ms": 487.59618401527405
         },
@@ -7230,8 +6956,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 8.887295065012406,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 465.5321538448334,
           "max_ms": 487.0835542678833
         },
@@ -7283,8 +7007,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 1.2851195894508631,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 151.08263492584229,
           "max_ms": 154.5085906982422
         }
@@ -7328,8 +7050,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 4.430745497339004,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 386.3443434238434,
           "max_ms": 399.1571366786957
         },
@@ -7381,8 +7101,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 2.559782956886936,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 399.5838761329651,
           "max_ms": 406.2177836894989
         },
@@ -7434,8 +7152,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.19820347270131833,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 4.585832357406616,
           "max_ms": 5.08609414100647
         }
@@ -7479,8 +7195,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.013272558546994917,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 16.54231548309326,
           "max_ms": 16.58061146736145
         },
@@ -7532,8 +7246,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.04293815764726407,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 16.4337158203125,
           "max_ms": 16.552060842514038
         },
@@ -7585,8 +7297,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 5.87908312835779,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 302.8441369533539,
           "max_ms": 318.6033368110657
         }
@@ -7630,8 +7340,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 17.109261813763485,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 888.121485710144,
           "max_ms": 936.8433654308319
         },
@@ -7683,8 +7391,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 11.062876347410766,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 887.9421949386597,
           "max_ms": 919.0298616886139
         },
@@ -7736,8 +7442,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 2.3294040689619524,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 332.50904083251953,
           "max_ms": 339.5354151725769
         }
@@ -7781,8 +7485,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 18.807743294676534,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 987.2563481330872,
           "max_ms": 1035.5363190174103
         },
@@ -7834,8 +7536,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 15.736490776463175,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 981.4504981040955,
           "max_ms": 1020.2920734882355
         },
@@ -7888,8 +7588,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.28737470831673934,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 7.119983434677124,
           "max_ms": 7.8916847705841064
         }
@@ -7934,8 +7632,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.007339517595505009,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 9.791195392608643,
           "max_ms": 9.81128215789795
         },
@@ -7988,8 +7684,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.1301741220459376,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 9.557396173477173,
           "max_ms": 9.84889268875122
         },
@@ -8041,8 +7735,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.5629623966680388,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 61.470210552215576,
           "max_ms": 62.875896692276
         }
@@ -8086,8 +7778,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.9759010761625304,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 164.81178998947144,
           "max_ms": 167.62569546699524
         },
@@ -8139,8 +7829,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 3.2338837246863124,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 159.02167558670044,
           "max_ms": 167.63615608215332
         },
@@ -8192,8 +7880,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.12238180975445931,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 9.25523042678833,
           "max_ms": 9.573638439178467
         }
@@ -8237,8 +7923,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 1.082392045078471,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 12.593388557434082,
           "max_ms": 15.310466289520264
         },
@@ -8290,8 +7974,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.030435426180583643,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 12.289643287658691,
           "max_ms": 12.374013662338257
         },
@@ -8343,8 +8025,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.6811650183356383,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 61.902523040771484,
           "max_ms": 63.918471336364746
         }
@@ -8388,8 +8068,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 1.6533172158480953,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 162.36549615859985,
           "max_ms": 166.9144630432129
         },
@@ -8441,8 +8119,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 2.8445365722385207,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 165.88816046714783,
           "max_ms": 173.89631271362305
         },
@@ -8494,8 +8170,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 4.6377315156318435,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 36.512017250061035,
           "max_ms": 49.523115158081055
         }
@@ -8539,8 +8213,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.5346745231927846,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 189.5400881767273,
           "max_ms": 191.1224126815796
         },
@@ -8592,8 +8264,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 4.075388310330882,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 176.04252696037292,
           "max_ms": 186.44475936889648
         },
@@ -8645,8 +8315,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.6108404058513052,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 94.82944011688232,
           "max_ms": 96.66985273361206
         }
@@ -8690,8 +8358,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 10.720196479991147,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 289.371132850647,
           "max_ms": 312.1282160282135
         },
@@ -8743,8 +8409,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.0563692171016417,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 289.6554172039032,
           "max_ms": 289.8010015487671
         },
@@ -8796,8 +8460,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 2.8855907347643606,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 100.80376267433167,
           "max_ms": 108.2688570022583
         }
@@ -8841,8 +8503,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 3.953289978790879,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 321.0553228855133,
           "max_ms": 332.73014426231384
         },
@@ -8894,8 +8554,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 6.348865377235044,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 312.3973309993744,
           "max_ms": 329.047828912735
         },
@@ -8947,8 +8605,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.27882426090951806,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 4.552066326141357,
           "max_ms": 5.376577377319336
         }
@@ -8992,8 +8648,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.3981027754362423,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 17.537921667099,
           "max_ms": 18.56216788291931
         },
@@ -9045,8 +8699,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.140572049157663,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 17.517536878585815,
           "max_ms": 17.887920141220093
         },
@@ -9098,8 +8750,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 2.6854750275690003,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 313.99452686309814,
           "max_ms": 320.7114040851593
         }
@@ -9143,8 +8793,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 2.006301677725916,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 950.8222043514252,
           "max_ms": 956.3341736793518
         },
@@ -9196,8 +8844,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 8.93700838967638,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 952.3023366928101,
           "max_ms": 979.0455400943756
         },
@@ -9249,8 +8895,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 3.7124606085746357,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 369.58786845207214,
           "max_ms": 379.57704067230225
         }
@@ -9294,8 +8938,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 11.21401371086911,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 1187.5031292438507,
           "max_ms": 1218.6917662620544
         },
@@ -9347,8 +8989,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 12.595414494195,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 1220.1234102249146,
           "max_ms": 1250.2045333385468
         },
@@ -9401,8 +9041,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.49312076754811995,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 5.087792873382568,
           "max_ms": 6.5268874168396
         }
@@ -9447,8 +9085,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.008187096652538922,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 7.403314113616943,
           "max_ms": 7.427304983139038
         },
@@ -9501,8 +9137,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.010508205899710635,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 7.450133562088013,
           "max_ms": 7.479995489120483
         },
@@ -9554,8 +9188,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 1.7536582430560888,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 151.65677666664124,
           "max_ms": 156.74757957458496
         }
@@ -9599,8 +9231,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 1.4556492135623813,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 85.05004644393921,
           "max_ms": 88.42200040817261
         },
@@ -9652,8 +9282,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.3351124992571458,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 84.11774039268494,
           "max_ms": 85.13212203979492
         },
@@ -9705,8 +9333,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.4635355866096379,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 5.003422498703003,
           "max_ms": 6.2052905559539795
         }
@@ -9750,8 +9376,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.015956705561188465,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 7.443219423294067,
           "max_ms": 7.4815452098846436
         },
@@ -9803,8 +9427,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.014199993206817437,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 7.497072219848633,
           "max_ms": 7.5394511222839355
         },
@@ -9856,8 +9478,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.3372876834389976,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 152.89306640625,
           "max_ms": 153.76242995262146
         }
@@ -9901,8 +9521,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 1.6136891792826173,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 86.79896593093872,
           "max_ms": 90.76586365699768
         },
@@ -9954,8 +9572,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.9407217498310141,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 88.09256553649902,
           "max_ms": 90.31820297241211
         },
@@ -10007,8 +9623,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.3658624252023974,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 34.80184078216553,
           "max_ms": 35.78603267669678
         }
@@ -10052,8 +9666,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 1.6696967685589494,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 176.54219269752502,
           "max_ms": 180.82773685455322
         },
@@ -10105,8 +9717,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.5090316192125178,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 176.28124356269836,
           "max_ms": 177.6200532913208
         },
@@ -10158,8 +9768,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 1.8821329325740264,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 205.83534240722656,
           "max_ms": 210.4901373386383
         }
@@ -10203,8 +9811,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 11.41468518038421,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 616.5594458580017,
           "max_ms": 648.308664560318
         },
@@ -10256,8 +9862,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 4.717163722870793,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 612.3416125774384,
           "max_ms": 624.9091327190399
         },
@@ -10309,8 +9913,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 2.5523250251347833,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 163.00618648529053,
           "max_ms": 170.3319251537323
         }
@@ -10354,8 +9956,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 3.3604299117379646,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 500.53223967552185,
           "max_ms": 510.48970222473145
         },
@@ -10407,8 +10007,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 4.838924307982781,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 501.7138421535492,
           "max_ms": 515.790194272995
         },
@@ -10460,8 +10058,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.10813758185820996,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 23.170530796051025,
           "max_ms": 23.442447185516357
         }
@@ -10505,8 +10101,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.9178741858908681,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 101.54306888580322,
           "max_ms": 103.82834076881409
         },
@@ -10558,8 +10152,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.6959426013531992,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 100.6549596786499,
           "max_ms": 102.31786966323853
         },
@@ -10611,8 +10203,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 3.857456580056491,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 398.8988995552063,
           "max_ms": 409.1712236404419
         }
@@ -10656,8 +10246,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 17.75455417204662,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 1355.3296625614166,
           "max_ms": 1404.7881066799164
         },
@@ -10709,8 +10297,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 18.939550852713882,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 1372.5739419460297,
           "max_ms": 1428.9786517620087
         },
@@ -10762,8 +10348,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 3.9850025707931698,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 471.24210000038147,
           "max_ms": 482.1426570415497
         }
@@ -10807,8 +10391,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 38.19382416984345,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 1672.9312539100647,
           "max_ms": 1778.3653438091278
         },
@@ -10860,8 +10442,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 64.51046785914343,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 1701.3461291790009,
           "max_ms": 1877.803087234497
         },
@@ -10914,8 +10494,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.54059085071641,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 86.43099665641785,
           "max_ms": 87.89137005805969
         }
@@ -10960,8 +10538,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.10566812660396388,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 28.218090534210205,
           "max_ms": 28.45621109008789
         },
@@ -11014,8 +10590,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.041443088509680356,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 28.218358755111694,
           "max_ms": 28.33220362663269
         },
@@ -11067,8 +10641,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 3.657904801318634,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 86.03328466415405,
           "max_ms": 96.37680649757385
         }
@@ -11112,8 +10684,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.030211849989155683,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 30.772656202316284,
           "max_ms": 30.858665704727173
         },
@@ -11165,8 +10735,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.01994658906603352,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 30.745387077331543,
           "max_ms": 30.801475048065186
         },
@@ -11218,8 +10786,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.7506018857621124,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 84.1556191444397,
           "max_ms": 86.09926700592041
         }
@@ -11263,8 +10829,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.11844365448051629,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 28.05355191230774,
           "max_ms": 28.37616205215454
         },
@@ -11316,8 +10880,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.10620671220327259,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 27.98721194267273,
           "max_ms": 28.26419472694397
         },
@@ -11369,8 +10931,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.4386780824786309,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 85.28414368629456,
           "max_ms": 86.62867546081543
         }
@@ -11414,8 +10974,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.1311096459745225,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 30.62450885772705,
           "max_ms": 30.989497900009155
         },
@@ -11467,8 +11025,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.12488906047037207,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 30.148684978485107,
           "max_ms": 30.48989176750183
         },
@@ -11520,8 +11076,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 3.0039160903913986,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 482.1667969226837,
           "max_ms": 490.69175124168396
         }
@@ -11565,8 +11119,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.726711367045568,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 203.56088876724243,
           "max_ms": 205.52945137023926
         },
@@ -11618,8 +11170,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 1.8252112884160399,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 203.84925603866577,
           "max_ms": 208.5997462272644
         },
@@ -11671,8 +11221,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 1.818796699514599,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 228.25181484222412,
           "max_ms": 232.38444328308105
         }
@@ -11716,8 +11264,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 2.8190484055287377,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 281.0875475406647,
           "max_ms": 288.8190746307373
         },
@@ -11769,8 +11315,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 2.7006857897686736,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 282.0310890674591,
           "max_ms": 288.6093854904175
         },
@@ -11822,8 +11366,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 2.593274955085332,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 224.9496579170227,
           "max_ms": 231.74428939819336
         }
@@ -11867,8 +11409,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 1.4359068849137697,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 267.56083965301514,
           "max_ms": 271.4879810810089
         },
@@ -11920,8 +11460,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 4.127007274806324,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 268.4592604637146,
           "max_ms": 280.5625796318054
         },
@@ -11973,8 +11511,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 1.432738026329177,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 347.1032679080963,
           "max_ms": 350.9500026702881
         }
@@ -12018,8 +11554,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 2.8576896461080583,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 226.18693113327026,
           "max_ms": 234.33691263198853
         },
@@ -12071,8 +11605,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 2.946257225878178,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 221.63790464401245,
           "max_ms": 229.40200567245483
         },
@@ -12124,8 +11656,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.43021767364924995,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 87.3117744922638,
           "max_ms": 88.58627080917358
         }
@@ -12169,8 +11699,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 2.6286544656393396,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 291.4459705352783,
           "max_ms": 299.5539903640747
         },
@@ -12222,8 +11750,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 3.7277301788972896,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 298.5905408859253,
           "max_ms": 307.495653629303
         },
@@ -12275,8 +11801,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.8068575461311933,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 89.03497457504272,
           "max_ms": 91.40953421592712
         }
@@ -12320,8 +11844,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 5.014027886265662,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 252.59238481521606,
           "max_ms": 267.0811116695404
         },
@@ -12373,8 +11895,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 2.8254184437503587,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 255.9065818786621,
           "max_ms": 263.82672786712646
         },
@@ -12427,8 +11947,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 1.9591493977577472,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 268.83116364479065,
           "max_ms": 274.6705412864685
         }
@@ -12473,8 +11991,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.21219240430361738,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 33.007293939590454,
           "max_ms": 33.58826041221619
         },
@@ -12527,8 +12043,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.04323638270239763,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 32.638102769851685,
           "max_ms": 32.763272523880005
         },
@@ -12580,8 +12094,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 1.2229386634885382,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 176.4824092388153,
           "max_ms": 179.71542477607727
         }
@@ -12625,8 +12137,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.07948015859981997,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 35.83228588104248,
           "max_ms": 36.01735830307007
         },
@@ -12678,8 +12188,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.04647678052737064,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 35.65621376037598,
           "max_ms": 35.77733039855957
         },
@@ -12731,8 +12239,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 1.1587546405260778,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 260.78641414642334,
           "max_ms": 263.994961977005
         }
@@ -12776,8 +12282,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.07487489973557657,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 32.805293798446655,
           "max_ms": 32.99814462661743
         },
@@ -12829,8 +12333,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.14456013133596027,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 32.31483697891235,
           "max_ms": 32.67073631286621
         },
@@ -12882,8 +12384,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 1.3367223491249187,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 683.8011741638184,
           "max_ms": 687.8450810909271
         }
@@ -12927,8 +12427,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 7.827397375479641,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 98.39990735054016,
           "max_ms": 118.71996521949768
         },
@@ -12980,8 +12478,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.8799732338826215,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 99.08890724182129,
           "max_ms": 101.37960314750671
         },
@@ -13033,8 +12529,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 3.943604538103284,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 1166.7909026145935,
           "max_ms": 1178.097903728485
         }
@@ -13078,8 +12572,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.9053201487491854,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 231.4961850643158,
           "max_ms": 233.9755892753601
         },
@@ -13131,8 +12623,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.6739127679068353,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 225.5726158618927,
           "max_ms": 227.46822237968445
         },
@@ -13184,8 +12674,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 4.831252087067202,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 553.1219840049744,
           "max_ms": 566.1602020263672
         }
@@ -13229,8 +12717,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 1.1127760828345037,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 87.3686671257019,
           "max_ms": 90.23168683052063
         },
@@ -13282,8 +12768,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.8648554284315713,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 87.47074007987976,
           "max_ms": 89.5327627658844
         },
@@ -13335,8 +12819,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 7.14143994662896,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 551.304280757904,
           "max_ms": 570.3159868717194
         }
@@ -13380,8 +12862,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.6915728445380688,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 87.52420544624329,
           "max_ms": 89.39188718795776
         },
@@ -13433,8 +12913,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.47693563226795693,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 87.41739392280579,
           "max_ms": 88.67135643959045
         },
@@ -13486,8 +12964,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.5077373094363345,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 185.5124533176422,
           "max_ms": 186.81365251541138
         }
@@ -13531,8 +13007,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.05671264462549528,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 52.53928899765015,
           "max_ms": 52.7016818523407
         },
@@ -13584,8 +13058,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.4335892983938125,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 51.34490132331848,
           "max_ms": 52.59796977043152
         },
@@ -13637,8 +13109,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 46.65758109487339,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 3497.623175382614,
           "max_ms": 3639.1069293022156
         }
@@ -13682,8 +13152,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 8.003779866139153,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 659.6178710460663,
           "max_ms": 681.1800301074982
         },
@@ -13735,8 +13203,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 10.959721385000867,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 648.0620503425598,
           "max_ms": 678.142249584198
         },
@@ -13788,8 +13254,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 115.50057215105409,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 1321.121633052826,
           "max_ms": 1623.8787472248077
         }
@@ -13833,8 +13297,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 1.4664728829963287,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 205.3462266921997,
           "max_ms": 209.29056406021118
         },
@@ -13886,8 +13348,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.799913026540445,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 203.99972796440125,
           "max_ms": 206.13813400268555
         },
@@ -13940,8 +13400,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 2.1259792497488967,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 350.34170746803284,
           "max_ms": 355.9549152851105
         }
@@ -13986,8 +13444,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.14144705073702746,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 35.84599494934082,
           "max_ms": 36.25527024269104
         },
@@ -14040,8 +13496,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.13397899039054972,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 35.76916456222534,
           "max_ms": 36.13710403442383
         },
@@ -14093,8 +13547,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 3.7758129883318143,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 1271.0681557655334,
           "max_ms": 1281.1965346336365
         }
@@ -14138,8 +13590,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 1.174301875667955,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 143.20692420005798,
           "max_ms": 146.36334776878357
         },
@@ -14191,8 +13641,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 1.4502844004377702,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 141.88113808631897,
           "max_ms": 146.08964323997498
         },
@@ -14244,8 +13692,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 2.012021628157141,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 352.09089517593384,
           "max_ms": 357.01799392700195
         }
@@ -14289,8 +13735,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.17665829145059836,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 35.62787175178528,
           "max_ms": 36.06259822845459
         },
@@ -14342,8 +13786,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.06294153573543583,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 35.8271598815918,
           "max_ms": 36.00415587425232
         },
@@ -14395,8 +13837,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 6.120645181274258,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 1259.8954141139984,
           "max_ms": 1279.039978981018
         }
@@ -14440,8 +13880,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 1.5899202347483299,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 145.79713344573975,
           "max_ms": 150.193452835083
         },
@@ -14493,8 +13931,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 4.046245254976229,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 147.1770703792572,
           "max_ms": 159.95201468467712
         },
@@ -14546,8 +13982,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 19.587123703798714,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 1038.5994613170624,
           "max_ms": 1089.3986523151398
         }
@@ -14591,8 +14025,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.2561042673321679,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 169.85422372817993,
           "max_ms": 170.5416440963745
         },
@@ -14644,8 +14076,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 2.0138688331260473,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 165.54191708564758,
           "max_ms": 170.30420899391174
         },
@@ -14697,8 +14127,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 43.40558618612816,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 6578.303843736649,
           "max_ms": 6703.09853553772
         }
@@ -14742,8 +14170,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 7.4284157403635,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 680.8571517467499,
           "max_ms": 700.5555927753448
         },
@@ -14795,8 +14221,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 13.118450600404577,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 684.0915381908417,
           "max_ms": 720.9486961364746
         },
@@ -14848,8 +14272,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 128.82606729836334,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 6196.758031845093,
           "max_ms": 6583.842575550079
         }
@@ -14893,8 +14315,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 9.528423532603808,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 632.7761113643646,
           "max_ms": 662.2158586978912
         },
@@ -14946,8 +14366,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 13.45954408228863,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 632.506936788559,
           "max_ms": 668.8244044780731
         },
@@ -14999,8 +14417,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 4.656386494382921,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 689.160019159317,
           "max_ms": 701.6751170158386
         }
@@ -15044,8 +14460,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.8400743152385003,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 115.7466471195221,
           "max_ms": 118.30094456672668
         },
@@ -15097,8 +14511,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.16238873131817194,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 116.76353216171265,
           "max_ms": 117.16732382774353
         },
@@ -15150,8 +14562,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 38.915246655062475,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 7925.486654043198,
           "max_ms": 8039.5495891571045
         }
@@ -15195,8 +14605,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 31.1313156226998,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 1166.039764881134,
           "max_ms": 1236.5663349628448
         },
@@ -15248,8 +14656,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 29.49354668214995,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 1166.5285527706146,
           "max_ms": 1247.3842203617096
         },
@@ -15301,8 +14707,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 66.09431923172949,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 9387.110084295273,
           "max_ms": 9549.248993396759
         }
@@ -15346,8 +14750,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 14.671552469453026,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 1357.1344017982483,
           "max_ms": 1398.6263573169708
         },
@@ -15399,8 +14801,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 27.025432760224245,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 1370.0411021709442,
           "max_ms": 1446.0225701332092
         },
@@ -15453,8 +14853,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 3.722829744414648,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 350.09512305259705,
           "max_ms": 361.03203892707825
         }
@@ -15499,8 +14897,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.3874083189108976,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 35.904377698898315,
           "max_ms": 37.06437349319458
         },
@@ -15553,8 +14949,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.14949558651120406,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 35.787105560302734,
           "max_ms": 36.19912266731262
         },
@@ -15606,8 +15000,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 3.749006168590332,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 640.7653093338013,
           "max_ms": 650.700181722641
         }
@@ -15651,8 +15043,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.5521456167485916,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 109.44244265556335,
           "max_ms": 110.89709401130676
         },
@@ -15704,8 +15094,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 1.1266998985488068,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 110.1067066192627,
           "max_ms": 113.12457919120789
         },
@@ -15757,8 +15145,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 1.663977060910973,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 351.99716687202454,
           "max_ms": 356.89252614974976
         }
@@ -15802,8 +15188,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.1406084619428552,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 36.02483868598938,
           "max_ms": 36.397725343704224
         },
@@ -15855,8 +15239,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.14200235314800783,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 35.78519821166992,
           "max_ms": 36.204367876052856
         },
@@ -15908,8 +15290,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 4.175297114451229,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 644.0048515796661,
           "max_ms": 655.0435423851013
         }
@@ -15953,8 +15333,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 1.2867754637609745,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 113.22200298309326,
           "max_ms": 116.1566972732544
         },
@@ -16006,8 +15384,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 2.020383204048515,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 113.83652687072754,
           "max_ms": 118.86024475097656
         },
@@ -16059,8 +15435,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 20.2614917154114,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 1226.4298796653748,
           "max_ms": 1282.1362018585205
         }
@@ -16104,8 +15478,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.4499889235922935,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 222.3215401172638,
           "max_ms": 223.5012650489807
         },
@@ -16157,8 +15529,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 1.3053500457448113,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 221.84067964553833,
           "max_ms": 225.01006722450256
         },
@@ -16210,8 +15580,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 108.9650915181087,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 4185.758620500565,
           "max_ms": 4476.088255643845
         }
@@ -16255,8 +15623,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 6.642147836371193,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 453.75990867614746,
           "max_ms": 472.2813367843628
         },
@@ -16308,8 +15674,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 3.7790060179276104,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 452.7636766433716,
           "max_ms": 463.2185399532318
         },
@@ -16361,8 +15725,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 36.40332306917224,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 4556.574791669846,
           "max_ms": 4645.740181207657
         }
@@ -16406,8 +15768,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 8.493509939775524,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 459.8460793495178,
           "max_ms": 481.6957116127014
         },
@@ -16459,8 +15819,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 6.9671452877304985,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 461.58960461616516,
           "max_ms": 481.68784379959106
         },
@@ -16512,8 +15870,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 5.446678170045438,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 665.4011905193329,
           "max_ms": 681.7367374897003
         }
@@ -16557,8 +15913,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 2.1179846815374614,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 130.62426447868347,
           "max_ms": 135.87912917137146
         },
@@ -16610,8 +15964,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 1.1948248298188158,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 137.86980509757996,
           "max_ms": 141.0488486289978
         },
@@ -16663,8 +16015,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 131.77428642282513,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 8247.683107852936,
           "max_ms": 8623.189717531204
         }
@@ -16708,8 +16058,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 20.097187955863795,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 1144.5392668247223,
           "max_ms": 1191.42547249794
         },
@@ -16761,8 +16109,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 12.22548799445077,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 1153.698354959488,
           "max_ms": 1188.7874603271484
         },
@@ -16814,8 +16160,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 58.404415430066095,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 10139.933913946152,
           "max_ms": 10293.08995604515
         }
@@ -16859,8 +16203,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 18.76899758107552,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 1372.577965259552,
           "max_ms": 1429.1521310806274
         },
@@ -16912,8 +16254,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 11.425029228711399,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 1382.6788663864136,
           "max_ms": 1411.7325842380524
         },
@@ -16966,8 +16306,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 121.89900892620737,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 1425.5660474300385,
           "max_ms": 1743.5585260391235
         }
@@ -17012,8 +16350,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.24474515661556856,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 78.61170172691345,
           "max_ms": 79.32671904563904
         },
@@ -17066,8 +16402,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.4256327065919209,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 79.40232753753662,
           "max_ms": 80.53511381149292
         },
@@ -17119,8 +16453,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 2.734436203436179,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 677.6483952999115,
           "max_ms": 685.7469379901886
         }
@@ -17164,8 +16496,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.2807957399523191,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 111.26449704170227,
           "max_ms": 112.1249794960022
         },
@@ -17217,8 +16547,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.7790375224065346,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 111.30347847938538,
           "max_ms": 113.3817732334137
         },
@@ -17270,8 +16598,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 2.9045226074045787,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 1045.0703501701355,
           "max_ms": 1053.1215965747833
         }
@@ -17315,8 +16641,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.4615996222791397,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 63.25387954711914,
           "max_ms": 64.31901454925537
         },
@@ -17368,8 +16692,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.26367238362667383,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 63.24884295463562,
           "max_ms": 63.921958208084106
         },
@@ -17421,8 +16743,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 3.5262026254640615,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 673.6485660076141,
           "max_ms": 683.4774613380432
         }
@@ -17466,8 +16786,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 2.4034421271194795,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 115.45011401176453,
           "max_ms": 121.64661288261414
         },
@@ -17519,8 +16837,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.27106373943170764,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 119.48251724243164,
           "max_ms": 120.2128529548645
         },
@@ -17572,8 +16888,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 23.893168434367713,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 1288.7685000896454,
           "max_ms": 1362.766683101654
         }
@@ -17617,8 +16931,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 2.9710825796766516,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 233.66931080818176,
           "max_ms": 241.43803119659424
         },
@@ -17670,8 +16982,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 1.3997701105101976,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 236.6098165512085,
           "max_ms": 240.31519889831543
         },
@@ -17723,8 +17033,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 25.589387277797137,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 4631.436824798584,
           "max_ms": 4688.394874334335
         }
@@ -17768,8 +17076,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 12.885875137132274,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 539.2489433288574,
           "max_ms": 573.3554661273956
         },
@@ -17821,8 +17127,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 5.117061896821691,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 545.22505402565,
           "max_ms": 556.8766593933105
         },
@@ -17874,8 +17178,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 15.384062582172342,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 4303.474932909012,
           "max_ms": 4346.432983875275
         }
@@ -17919,8 +17221,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 15.757014851199088,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 478.3557057380676,
           "max_ms": 523.5277116298676
         },
@@ -17972,8 +17272,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 9.193334391707214,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 503.04335355758667,
           "max_ms": 528.3617973327637
         },
@@ -18025,8 +17323,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 45.87109415796195,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 172.87251353263855,
           "max_ms": 288.0410850048065
         }
@@ -18070,8 +17366,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.15927441493060288,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 46.568095684051514,
           "max_ms": 47.021180391311646
         },
@@ -18123,8 +17417,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.17184825128075595,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 46.47687077522278,
           "max_ms": 46.92074656486511
         },
@@ -18176,8 +17468,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 60.29245333903965,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 4309.656322002411,
           "max_ms": 4481.661558151245
         }
@@ -18221,8 +17511,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 16.297522539658797,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 759.8319351673126,
           "max_ms": 808.3162903785706
         },
@@ -18274,8 +17562,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 8.85853948367465,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 740.152508020401,
           "max_ms": 766.6823267936707
         },
@@ -18327,8 +17613,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 56.815976008113196,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 5201.997995376587,
           "max_ms": 5355.9940457344055
         }
@@ -18372,8 +17656,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 12.396353061851812,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 871.5986609458923,
           "max_ms": 905.4742753505707
         },
@@ -18425,8 +17707,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 14.094083130715886,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 868.1195974349976,
           "max_ms": 904.927670955658
         },
@@ -18479,8 +17759,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 2.2684465302227173,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 371.1920380592346,
           "max_ms": 378.1011402606964
         }
@@ -18525,8 +17803,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.08946889560433936,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 36.795586347579956,
           "max_ms": 37.024885416030884
         },
@@ -18579,8 +17855,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.11887994003442749,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 36.39429807662964,
           "max_ms": 36.71199083328247
         },
@@ -18632,8 +17906,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 16.557250034243992,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 1642.531394958496,
           "max_ms": 1680.301696062088
         }
@@ -18677,8 +17949,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 3.653047827473608,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 197.19824194908142,
           "max_ms": 206.56004548072815
         },
@@ -18730,8 +18000,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 2.602621424402453,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 195.86244225502014,
           "max_ms": 202.299565076828
         },
@@ -18783,8 +18051,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 1.8987709645428785,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 358.2803010940552,
           "max_ms": 364.05593156814575
         }
@@ -18828,8 +18094,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.009857527086600428,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 36.796361207962036,
           "max_ms": 36.8269681930542
         },
@@ -18881,8 +18145,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.05724912412200105,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 36.67190670967102,
           "max_ms": 36.828845739364624
         },
@@ -18934,8 +18196,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 101.4346530642242,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 1674.2255985736847,
           "max_ms": 1942.345291376114
         }
@@ -18979,8 +18239,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 1.4510811285132479,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 201.63732767105103,
           "max_ms": 205.31246066093445
         },
@@ -19032,8 +18290,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 2.443567160010257,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 202.56003737449646,
           "max_ms": 209.5329761505127
         },
@@ -19085,8 +18341,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 8.632416140918089,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 1311.6785883903503,
           "max_ms": 1335.9261751174927
         }
@@ -19130,8 +18384,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 2.1849062893166407,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 255.75530529022217,
           "max_ms": 261.85670495033264
         },
@@ -19183,8 +18435,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 2.382824393118237,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 253.63728404045105,
           "max_ms": 260.7099413871765
         },
@@ -19236,8 +18486,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 40.45546772397469,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 3160.239428281784,
           "max_ms": 3275.3010392189026
         }
@@ -19281,8 +18529,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 5.501147870191478,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 430.51859736442566,
           "max_ms": 446.05356454849243
         },
@@ -19334,8 +18580,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 6.39512963752109,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 429.67647314071655,
           "max_ms": 443.3594346046448
         },
@@ -19387,8 +18631,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 30.197638454621117,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 3143.735110759735,
           "max_ms": 3228.8672626018524
         }
@@ -19432,8 +18674,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 9.652732560165134,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 376.36470794677734,
           "max_ms": 405.76425194740295
         },
@@ -19485,8 +18725,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 1.8491198274266711,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 371.280312538147,
           "max_ms": 375.8811950683594
         },
@@ -19538,8 +18776,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 1.1926915692932438,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 171.52032256126404,
           "max_ms": 174.6075451374054
         }
@@ -19583,8 +18819,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.10602069960261037,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 47.88768291473389,
           "max_ms": 48.208385705947876
         },
@@ -19636,8 +18870,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.12877727914166878,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 47.78480529785156,
           "max_ms": 48.10729622840881
         },
@@ -19689,8 +18921,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 128.42977057898491,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 7617.269396781921,
           "max_ms": 8015.475183725357
         }
@@ -19734,8 +18964,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 20.776846812198933,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 1222.2784459590912,
           "max_ms": 1277.8147757053375
         },
@@ -19787,8 +19015,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 26.583872498830882,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 1249.205857515335,
           "max_ms": 1327.709972858429
         },
@@ -19840,8 +19066,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 62.70575819137768,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 8092.040300369263,
           "max_ms": 8254.559397697449
         }
@@ -19885,8 +19109,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 33.34411792706918,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 1545.513927936554,
           "max_ms": 1643.9136564731598
         },
@@ -19938,8 +19160,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 35.87927283292226,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 1545.7567274570465,
           "max_ms": 1644.6841657161713
         },
@@ -19992,8 +19212,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 5.850044136640781,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 265.0378346443176,
           "max_ms": 281.9724977016449
         }
@@ -20038,8 +19256,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.22209394546053504,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 32.65544772148132,
           "max_ms": 33.26502442359924
         },
@@ -20092,8 +19308,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.1630766408661477,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 32.75236487388611,
           "max_ms": 33.13609957695007
         },
@@ -20145,8 +19359,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 21.999234921706154,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 4313.960433006287,
           "max_ms": 4378.608196973801
         }
@@ -20190,8 +19402,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 1.1061270055759262,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 120.29612064361572,
           "max_ms": 123.27519059181213
         },
@@ -20243,8 +19453,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 1.6870968845275676,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 116.7030930519104,
           "max_ms": 120.40930986404419
         },
@@ -20296,8 +19504,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 1.2698085158699928,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 264.3824815750122,
           "max_ms": 267.8772509098053
         }
@@ -20341,8 +19547,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.08777483768929835,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 32.95692801475525,
           "max_ms": 33.19379687309265
         },
@@ -20394,8 +19598,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.07493450474229439,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 32.52655267715454,
           "max_ms": 32.74381160736084
         },
@@ -20447,8 +19649,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 19.044024922687846,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 4308.541238307953,
           "max_ms": 4356.689989566803
         }
@@ -20492,8 +19692,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.6891596090145522,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 120.37581205368042,
           "max_ms": 122.22632765769958
         },
@@ -20545,8 +19743,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 1.335411671149144,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 119.20890212059021,
           "max_ms": 123.22163581848145
         },
@@ -20598,8 +19794,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 12.157682010303075,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 1347.3154604434967,
           "max_ms": 1378.328800201416
         }
@@ -20643,8 +19837,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 5.30962563535869,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 244.91369724273682,
           "max_ms": 261.5737318992615
         },
@@ -20696,8 +19888,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 2.3410634677072024,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 245.2620267868042,
           "max_ms": 252.44978070259094
         },
@@ -20749,8 +19939,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 33.41162279245631,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 5836.340427398682,
           "max_ms": 5926.895558834076
         }
@@ -20794,8 +19982,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 11.712669141465188,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 688.1141364574432,
           "max_ms": 717.7848815917969
         },
@@ -20847,8 +20033,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 12.593738609796887,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 690.0828182697296,
           "max_ms": 725.9151935577393
         },
@@ -20900,8 +20084,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 66.34070142538091,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 6839.5887315273285,
           "max_ms": 7025.99173784256
         }
@@ -20945,8 +20127,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 3.5801103136751404,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 780.5055379867554,
           "max_ms": 790.3056740760803
         },
@@ -20998,8 +20178,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 14.516228342813022,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 783.1099331378937,
           "max_ms": 820.4713761806488
         },
@@ -21051,8 +20229,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 4.055553746675401,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 728.7473976612091,
           "max_ms": 738.0465865135193
         }
@@ -21096,8 +20272,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 2.342729303225196,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 146.85705304145813,
           "max_ms": 153.14731001853943
         },
@@ -21149,8 +20323,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 0.7469051438004405,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 145.5983817577362,
           "max_ms": 147.2809612751007
         },
@@ -21202,8 +20374,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 116.12785036011212,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 9131.183356046677,
           "max_ms": 9444.204986095428
         }
@@ -21247,8 +20417,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 36.1796517482453,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 1467.6774442195892,
           "max_ms": 1555.755078792572
         },
@@ -21300,8 +20468,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 30.376961478873724,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 1462.9959762096405,
           "max_ms": 1547.0013320446014
         },
@@ -21353,8 +20519,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 129.53497185863654,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 10297.938823699951,
           "max_ms": 10671.390563249588
         }
@@ -21398,8 +20562,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 108.69533741392597,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 1803.7041425704956,
           "max_ms": 2091.1527574062347
         },
@@ -21451,8 +20613,6 @@
           "quality": "measured",
           "source_file": "penalized_glm_perf_20260622.json",
           "std_ms": 23.44526855094327,
-          "std_ddof": 0,
-          "std_scope": "replicates",
           "min_ms": 1799.351066350937,
           "max_ms": 1859.6231043338776
         },
@@ -63454,7 +62614,6 @@
         "convergence": {
           "n_iter_mean": 22.0,
           "n_iter_std": 0.0,
-          "converged_rate": 1.0,
           "quality": "reported",
           "source_file": "elasticnet_statgpu.json"
         }
@@ -63502,7 +62661,6 @@
         "convergence": {
           "n_iter_mean": 22.0,
           "n_iter_std": 0.0,
-          "converged_rate": 1.0,
           "quality": "reported",
           "source_file": "elasticnet_statgpu.json"
         },
@@ -63558,7 +62716,6 @@
         "convergence": {
           "n_iter_mean": 22.0,
           "n_iter_std": 0.0,
-          "converged_rate": 1.0,
           "quality": "reported",
           "source_file": "elasticnet_statgpu.json"
         },
@@ -63614,7 +62771,6 @@
         "convergence": {
           "n_iter_mean": 24.0,
           "n_iter_std": 0.0,
-          "converged_rate": 1.0,
           "quality": "reported",
           "source_file": "elasticnet_statgpu.json"
         }
@@ -63662,7 +62818,6 @@
         "convergence": {
           "n_iter_mean": 24.0,
           "n_iter_std": 0.0,
-          "converged_rate": 1.0,
           "quality": "reported",
           "source_file": "elasticnet_statgpu.json"
         },
@@ -63718,7 +62873,6 @@
         "convergence": {
           "n_iter_mean": 24.0,
           "n_iter_std": 0.0,
-          "converged_rate": 1.0,
           "quality": "reported",
           "source_file": "elasticnet_statgpu.json"
         },
@@ -63774,7 +62928,6 @@
         "convergence": {
           "n_iter_mean": 20.0,
           "n_iter_std": 0.0,
-          "converged_rate": 1.0,
           "quality": "reported",
           "source_file": "elasticnet_statgpu.json"
         }
@@ -63822,7 +62975,6 @@
         "convergence": {
           "n_iter_mean": 20.0,
           "n_iter_std": 0.0,
-          "converged_rate": 1.0,
           "quality": "reported",
           "source_file": "elasticnet_statgpu.json"
         },
@@ -63878,7 +63030,6 @@
         "convergence": {
           "n_iter_mean": 20.0,
           "n_iter_std": 0.0,
-          "converged_rate": 1.0,
           "quality": "reported",
           "source_file": "elasticnet_statgpu.json"
         },
@@ -63934,7 +63085,6 @@
         "convergence": {
           "n_iter_mean": 162.0,
           "n_iter_std": 0.0,
-          "converged_rate": 1.0,
           "quality": "reported",
           "source_file": "elasticnet_statgpu.json"
         }
@@ -63982,7 +63132,6 @@
         "convergence": {
           "n_iter_mean": 162.0,
           "n_iter_std": 0.0,
-          "converged_rate": 1.0,
           "quality": "reported",
           "source_file": "elasticnet_statgpu.json"
         },
@@ -64038,7 +63187,6 @@
         "convergence": {
           "n_iter_mean": 162.0,
           "n_iter_std": 0.0,
-          "converged_rate": 1.0,
           "quality": "reported",
           "source_file": "elasticnet_statgpu.json"
         },
@@ -64094,7 +63242,6 @@
         "convergence": {
           "n_iter_mean": 30.0,
           "n_iter_std": 0.0,
-          "converged_rate": 1.0,
           "quality": "reported",
           "source_file": "elasticnet_statgpu.json"
         }
@@ -64142,7 +63289,6 @@
         "convergence": {
           "n_iter_mean": 30.0,
           "n_iter_std": 0.0,
-          "converged_rate": 1.0,
           "quality": "reported",
           "source_file": "elasticnet_statgpu.json"
         },
@@ -64198,7 +63344,6 @@
         "convergence": {
           "n_iter_mean": 30.0,
           "n_iter_std": 0.0,
-          "converged_rate": 1.0,
           "quality": "reported",
           "source_file": "elasticnet_statgpu.json"
         },
@@ -64254,7 +63399,6 @@
         "convergence": {
           "n_iter_mean": 30.0,
           "n_iter_std": 0.0,
-          "converged_rate": 1.0,
           "quality": "reported",
           "source_file": "elasticnet_statgpu.json"
         }
@@ -64302,7 +63446,6 @@
         "convergence": {
           "n_iter_mean": 30.0,
           "n_iter_std": 0.0,
-          "converged_rate": 1.0,
           "quality": "reported",
           "source_file": "elasticnet_statgpu.json"
         },
@@ -64358,7 +63501,6 @@
         "convergence": {
           "n_iter_mean": 30.0,
           "n_iter_std": 0.0,
-          "converged_rate": 1.0,
           "quality": "reported",
           "source_file": "elasticnet_statgpu.json"
         },
@@ -64413,7 +63555,6 @@
         "convergence": {
           "n_iter_mean": 2.0,
           "n_iter_std": 0.0,
-          "converged_rate": 1.0,
           "quality": "reported",
           "source_file": "elasticnet_glmnet.json"
         }
@@ -64460,7 +63601,6 @@
         "convergence": {
           "n_iter_mean": 5.0,
           "n_iter_std": 0.0,
-          "converged_rate": 1.0,
           "quality": "reported",
           "source_file": "elasticnet_glmnet.json"
         }
@@ -64507,7 +63647,6 @@
         "convergence": {
           "n_iter_mean": 14.0,
           "n_iter_std": 0.0,
-          "converged_rate": 1.0,
           "quality": "reported",
           "source_file": "elasticnet_glmnet.json"
         }
@@ -64554,7 +63693,6 @@
         "convergence": {
           "n_iter_mean": 14.0,
           "n_iter_std": 0.0,
-          "converged_rate": 1.0,
           "quality": "reported",
           "source_file": "elasticnet_glmnet.json"
         }
@@ -64601,7 +63739,6 @@
         "convergence": {
           "n_iter_mean": 2.0,
           "n_iter_std": 0.0,
-          "converged_rate": 1.0,
           "quality": "reported",
           "source_file": "elasticnet_glmnet.json"
         }
@@ -64648,7 +63785,6 @@
         "convergence": {
           "n_iter_mean": 6.0,
           "n_iter_std": 0.0,
-          "converged_rate": 1.0,
           "quality": "reported",
           "source_file": "elasticnet_glmnet.json"
         }
@@ -64670,7 +63806,6 @@
       "solver_display": "Newton",
       "solver_kind": "manual",
       "variant": "efron_precision",
-      "implementation": null,
       "framework": "statgpu",
       "backend": "numpy",
       "scale": {
@@ -64719,7 +63854,6 @@
       "solver_display": "Newton",
       "solver_kind": "manual",
       "variant": "efron_precision",
-      "implementation": null,
       "framework": "statgpu",
       "backend": "torch",
       "scale": {
@@ -64768,7 +63902,6 @@
       "solver_display": "Newton",
       "solver_kind": "manual",
       "variant": "efron_precision",
-      "implementation": null,
       "framework": "statgpu",
       "backend": "cupy",
       "scale": {
@@ -64817,7 +63950,6 @@
       "solver_display": "Newton",
       "solver_kind": "manual",
       "variant": "efron_precision",
-      "implementation": null,
       "framework": "statgpu",
       "backend": "numpy",
       "scale": {
@@ -64866,7 +63998,6 @@
       "solver_display": "Newton",
       "solver_kind": "manual",
       "variant": "efron_precision",
-      "implementation": null,
       "framework": "statgpu",
       "backend": "torch",
       "scale": {
@@ -64915,7 +64046,6 @@
       "solver_display": "Newton",
       "solver_kind": "manual",
       "variant": "efron_precision",
-      "implementation": null,
       "framework": "statgpu",
       "backend": "cupy",
       "scale": {
@@ -64964,7 +64094,6 @@
       "solver_display": "Newton",
       "solver_kind": "manual",
       "variant": "efron_precision",
-      "implementation": null,
       "framework": "statgpu",
       "backend": "numpy",
       "scale": {
@@ -65013,7 +64142,6 @@
       "solver_display": "Newton",
       "solver_kind": "manual",
       "variant": "efron_precision",
-      "implementation": null,
       "framework": "statgpu",
       "backend": "torch",
       "scale": {
@@ -65062,7 +64190,6 @@
       "solver_display": "Newton",
       "solver_kind": "manual",
       "variant": "efron_precision",
-      "implementation": null,
       "framework": "statgpu",
       "backend": "cupy",
       "scale": {
@@ -65111,7 +64238,6 @@
       "solver_display": "Newton",
       "solver_kind": "manual",
       "variant": "efron_precision",
-      "implementation": null,
       "framework": "statgpu",
       "backend": "numpy",
       "scale": {
@@ -65160,7 +64286,6 @@
       "solver_display": "Newton",
       "solver_kind": "manual",
       "variant": "efron_precision",
-      "implementation": null,
       "framework": "statgpu",
       "backend": "torch",
       "scale": {
@@ -65209,7 +64334,6 @@
       "solver_display": "Newton",
       "solver_kind": "manual",
       "variant": "efron_precision",
-      "implementation": null,
       "framework": "statgpu",
       "backend": "cupy",
       "scale": {
@@ -65258,7 +64382,6 @@
       "solver_display": "Newton",
       "solver_kind": "manual",
       "variant": "efron_precision",
-      "implementation": null,
       "framework": "statgpu",
       "backend": "numpy",
       "scale": {
@@ -65307,7 +64430,6 @@
       "solver_display": "Newton",
       "solver_kind": "manual",
       "variant": "efron_precision",
-      "implementation": null,
       "framework": "statgpu",
       "backend": "torch",
       "scale": {
@@ -65356,7 +64478,6 @@
       "solver_display": "Newton",
       "solver_kind": "manual",
       "variant": "efron_precision",
-      "implementation": null,
       "framework": "statgpu",
       "backend": "cupy",
       "scale": {
@@ -65406,7 +64527,6 @@
       "solver_display": "Newton",
       "solver_kind": "manual",
       "variant": "efron_light_ties",
-      "implementation": null,
       "framework": "statgpu",
       "backend": "numpy",
       "scale": {
@@ -65456,7 +64576,6 @@
       "solver_display": "Newton",
       "solver_kind": "manual",
       "variant": "efron_light_ties",
-      "implementation": null,
       "framework": "statgpu",
       "backend": "torch",
       "scale": {
@@ -65506,7 +64625,6 @@
       "solver_display": "Newton",
       "solver_kind": "manual",
       "variant": "efron_light_ties",
-      "implementation": null,
       "framework": "statgpu",
       "backend": "cupy",
       "scale": {
@@ -65556,7 +64674,6 @@
       "solver_display": "Newton",
       "solver_kind": "manual",
       "variant": "efron_light_ties",
-      "implementation": null,
       "framework": "statsmodels",
       "backend": null,
       "scale": {
@@ -65598,7 +64715,6 @@
       "solver_display": "Newton",
       "solver_kind": "manual",
       "variant": "efron_light_ties",
-      "implementation": "numba",
       "framework": "statgpu",
       "backend": "numpy",
       "scale": {
@@ -65630,6 +64746,7 @@
           "source_file": "coxph_efron_20260622.json"
         }
       },
+      "implementation": "numba",
       "comparison_id": "coxph-efron-20260622",
       "case_id": "default",
       "method_config_id": "default"
@@ -65648,7 +64765,6 @@
       "solver_display": "Newton",
       "solver_kind": "manual",
       "variant": "efron_light_ties",
-      "implementation": null,
       "framework": "statgpu",
       "backend": "numpy",
       "scale": {
@@ -65698,7 +64814,6 @@
       "solver_display": "Newton",
       "solver_kind": "manual",
       "variant": "efron_light_ties",
-      "implementation": null,
       "framework": "statgpu",
       "backend": "torch",
       "scale": {
@@ -65748,7 +64863,6 @@
       "solver_display": "Newton",
       "solver_kind": "manual",
       "variant": "efron_light_ties",
-      "implementation": null,
       "framework": "statgpu",
       "backend": "cupy",
       "scale": {
@@ -65798,7 +64912,6 @@
       "solver_display": "Newton",
       "solver_kind": "manual",
       "variant": "efron_light_ties",
-      "implementation": null,
       "framework": "statsmodels",
       "backend": null,
       "scale": {
@@ -65840,7 +64953,6 @@
       "solver_display": "Newton",
       "solver_kind": "manual",
       "variant": "efron_light_ties",
-      "implementation": "numba",
       "framework": "statgpu",
       "backend": "numpy",
       "scale": {
@@ -65872,6 +64984,7 @@
           "source_file": "coxph_efron_20260622.json"
         }
       },
+      "implementation": "numba",
       "comparison_id": "coxph-efron-20260622",
       "case_id": "default",
       "method_config_id": "default"
@@ -65890,7 +65003,6 @@
       "solver_display": "Newton",
       "solver_kind": "manual",
       "variant": "efron_light_ties",
-      "implementation": null,
       "framework": "statgpu",
       "backend": "numpy",
       "scale": {
@@ -65940,7 +65052,6 @@
       "solver_display": "Newton",
       "solver_kind": "manual",
       "variant": "efron_light_ties",
-      "implementation": null,
       "framework": "statgpu",
       "backend": "torch",
       "scale": {
@@ -65990,7 +65101,6 @@
       "solver_display": "Newton",
       "solver_kind": "manual",
       "variant": "efron_light_ties",
-      "implementation": null,
       "framework": "statgpu",
       "backend": "cupy",
       "scale": {
@@ -66040,7 +65150,6 @@
       "solver_display": "Newton",
       "solver_kind": "manual",
       "variant": "efron_light_ties",
-      "implementation": null,
       "framework": "statsmodels",
       "backend": null,
       "scale": {
@@ -66082,7 +65191,6 @@
       "solver_display": "Newton",
       "solver_kind": "manual",
       "variant": "efron_light_ties",
-      "implementation": "numba",
       "framework": "statgpu",
       "backend": "numpy",
       "scale": {
@@ -66114,6 +65222,7 @@
           "source_file": "coxph_efron_20260622.json"
         }
       },
+      "implementation": "numba",
       "comparison_id": "coxph-efron-20260622",
       "case_id": "default",
       "method_config_id": "default"
@@ -66132,7 +65241,6 @@
       "solver_display": "Newton",
       "solver_kind": "manual",
       "variant": "efron_light_ties",
-      "implementation": null,
       "framework": "statgpu",
       "backend": "numpy",
       "scale": {
@@ -66182,7 +65290,6 @@
       "solver_display": "Newton",
       "solver_kind": "manual",
       "variant": "efron_light_ties",
-      "implementation": null,
       "framework": "statgpu",
       "backend": "torch",
       "scale": {
@@ -66232,7 +65339,6 @@
       "solver_display": "Newton",
       "solver_kind": "manual",
       "variant": "efron_light_ties",
-      "implementation": null,
       "framework": "statgpu",
       "backend": "cupy",
       "scale": {
@@ -66282,7 +65388,6 @@
       "solver_display": "Newton",
       "solver_kind": "manual",
       "variant": "efron_light_ties",
-      "implementation": null,
       "framework": "statsmodels",
       "backend": null,
       "scale": {
@@ -66324,7 +65429,6 @@
       "solver_display": "Newton",
       "solver_kind": "manual",
       "variant": "efron_light_ties",
-      "implementation": "numba",
       "framework": "statgpu",
       "backend": "numpy",
       "scale": {
@@ -66356,6 +65460,7 @@
           "source_file": "coxph_efron_20260622.json"
         }
       },
+      "implementation": "numba",
       "comparison_id": "coxph-efron-20260622",
       "case_id": "default",
       "method_config_id": "default"
@@ -66374,7 +65479,6 @@
       "solver_display": "Newton",
       "solver_kind": "manual",
       "variant": "efron_light_ties",
-      "implementation": null,
       "framework": "statgpu",
       "backend": "numpy",
       "scale": {
@@ -66424,7 +65528,6 @@
       "solver_display": "Newton",
       "solver_kind": "manual",
       "variant": "efron_light_ties",
-      "implementation": null,
       "framework": "statgpu",
       "backend": "torch",
       "scale": {
@@ -66474,7 +65577,6 @@
       "solver_display": "Newton",
       "solver_kind": "manual",
       "variant": "efron_light_ties",
-      "implementation": null,
       "framework": "statgpu",
       "backend": "cupy",
       "scale": {
@@ -66524,7 +65626,6 @@
       "solver_display": "Newton",
       "solver_kind": "manual",
       "variant": "efron_light_ties",
-      "implementation": null,
       "framework": "statsmodels",
       "backend": null,
       "scale": {
@@ -66566,7 +65667,6 @@
       "solver_display": "Newton",
       "solver_kind": "manual",
       "variant": "efron_light_ties",
-      "implementation": "numba",
       "framework": "statgpu",
       "backend": "numpy",
       "scale": {
@@ -66598,6 +65698,7 @@
           "source_file": "coxph_efron_20260622.json"
         }
       },
+      "implementation": "numba",
       "comparison_id": "coxph-efron-20260622",
       "case_id": "default",
       "method_config_id": "default"
@@ -66616,7 +65717,6 @@
       "solver_display": "Newton",
       "solver_kind": "manual",
       "variant": "efron_heavy_ties",
-      "implementation": null,
       "framework": "statgpu",
       "backend": "numpy",
       "scale": {
@@ -66666,7 +65766,6 @@
       "solver_display": "Newton",
       "solver_kind": "manual",
       "variant": "efron_heavy_ties",
-      "implementation": null,
       "framework": "statgpu",
       "backend": "torch",
       "scale": {
@@ -66716,7 +65815,6 @@
       "solver_display": "Newton",
       "solver_kind": "manual",
       "variant": "efron_heavy_ties",
-      "implementation": null,
       "framework": "statgpu",
       "backend": "cupy",
       "scale": {
@@ -66766,7 +65864,6 @@
       "solver_display": "Newton",
       "solver_kind": "manual",
       "variant": "efron_heavy_ties",
-      "implementation": null,
       "framework": "statsmodels",
       "backend": null,
       "scale": {
@@ -66808,7 +65905,6 @@
       "solver_display": "Newton",
       "solver_kind": "manual",
       "variant": "efron_heavy_ties",
-      "implementation": "numba",
       "framework": "statgpu",
       "backend": "numpy",
       "scale": {
@@ -66840,6 +65936,7 @@
           "source_file": "coxph_efron_20260622.json"
         }
       },
+      "implementation": "numba",
       "comparison_id": "coxph-efron-20260622",
       "case_id": "default",
       "method_config_id": "default"
@@ -66858,7 +65955,6 @@
       "solver_display": "Newton",
       "solver_kind": "manual",
       "variant": "efron_heavy_ties",
-      "implementation": null,
       "framework": "statgpu",
       "backend": "numpy",
       "scale": {
@@ -66908,7 +66004,6 @@
       "solver_display": "Newton",
       "solver_kind": "manual",
       "variant": "efron_heavy_ties",
-      "implementation": null,
       "framework": "statgpu",
       "backend": "torch",
       "scale": {
@@ -66958,7 +66053,6 @@
       "solver_display": "Newton",
       "solver_kind": "manual",
       "variant": "efron_heavy_ties",
-      "implementation": null,
       "framework": "statgpu",
       "backend": "cupy",
       "scale": {
@@ -67008,7 +66102,6 @@
       "solver_display": "Newton",
       "solver_kind": "manual",
       "variant": "efron_heavy_ties",
-      "implementation": null,
       "framework": "statsmodels",
       "backend": null,
       "scale": {
@@ -67050,7 +66143,6 @@
       "solver_display": "Newton",
       "solver_kind": "manual",
       "variant": "efron_heavy_ties",
-      "implementation": "numba",
       "framework": "statgpu",
       "backend": "numpy",
       "scale": {
@@ -67082,6 +66174,7 @@
           "source_file": "coxph_efron_20260622.json"
         }
       },
+      "implementation": "numba",
       "comparison_id": "coxph-efron-20260622",
       "case_id": "default",
       "method_config_id": "default"
@@ -67100,7 +66193,6 @@
       "solver_display": "Newton",
       "solver_kind": "manual",
       "variant": "efron_heavy_ties",
-      "implementation": null,
       "framework": "statgpu",
       "backend": "numpy",
       "scale": {
@@ -67150,7 +66242,6 @@
       "solver_display": "Newton",
       "solver_kind": "manual",
       "variant": "efron_heavy_ties",
-      "implementation": null,
       "framework": "statgpu",
       "backend": "torch",
       "scale": {
@@ -67200,7 +66291,6 @@
       "solver_display": "Newton",
       "solver_kind": "manual",
       "variant": "efron_heavy_ties",
-      "implementation": null,
       "framework": "statgpu",
       "backend": "cupy",
       "scale": {
@@ -67250,7 +66340,6 @@
       "solver_display": "Newton",
       "solver_kind": "manual",
       "variant": "efron_heavy_ties",
-      "implementation": null,
       "framework": "statsmodels",
       "backend": null,
       "scale": {
@@ -67292,7 +66381,6 @@
       "solver_display": "Newton",
       "solver_kind": "manual",
       "variant": "efron_heavy_ties",
-      "implementation": "numba",
       "framework": "statgpu",
       "backend": "numpy",
       "scale": {
@@ -67324,6 +66412,7 @@
           "source_file": "coxph_efron_20260622.json"
         }
       },
+      "implementation": "numba",
       "comparison_id": "coxph-efron-20260622",
       "case_id": "default",
       "method_config_id": "default"
@@ -67342,7 +66431,6 @@
       "solver_display": "Newton",
       "solver_kind": "manual",
       "variant": "efron_heavy_ties",
-      "implementation": null,
       "framework": "statgpu",
       "backend": "numpy",
       "scale": {
@@ -67392,7 +66480,6 @@
       "solver_display": "Newton",
       "solver_kind": "manual",
       "variant": "efron_heavy_ties",
-      "implementation": null,
       "framework": "statgpu",
       "backend": "torch",
       "scale": {
@@ -67442,7 +66529,6 @@
       "solver_display": "Newton",
       "solver_kind": "manual",
       "variant": "efron_heavy_ties",
-      "implementation": null,
       "framework": "statgpu",
       "backend": "cupy",
       "scale": {
@@ -67492,7 +66578,6 @@
       "solver_display": "Newton",
       "solver_kind": "manual",
       "variant": "efron_heavy_ties",
-      "implementation": null,
       "framework": "statsmodels",
       "backend": null,
       "scale": {
@@ -67534,7 +66619,6 @@
       "solver_display": "Newton",
       "solver_kind": "manual",
       "variant": "efron_heavy_ties",
-      "implementation": "numba",
       "framework": "statgpu",
       "backend": "numpy",
       "scale": {
@@ -67566,6 +66650,7 @@
           "source_file": "coxph_efron_20260622.json"
         }
       },
+      "implementation": "numba",
       "comparison_id": "coxph-efron-20260622",
       "case_id": "default",
       "method_config_id": "default"
@@ -67584,7 +66669,6 @@
       "solver_display": "Newton",
       "solver_kind": "manual",
       "variant": "efron_heavy_ties",
-      "implementation": null,
       "framework": "statgpu",
       "backend": "numpy",
       "scale": {
@@ -67634,7 +66718,6 @@
       "solver_display": "Newton",
       "solver_kind": "manual",
       "variant": "efron_heavy_ties",
-      "implementation": null,
       "framework": "statgpu",
       "backend": "torch",
       "scale": {
@@ -67684,7 +66767,6 @@
       "solver_display": "Newton",
       "solver_kind": "manual",
       "variant": "efron_heavy_ties",
-      "implementation": null,
       "framework": "statgpu",
       "backend": "cupy",
       "scale": {
@@ -67734,7 +66816,6 @@
       "solver_display": "Newton",
       "solver_kind": "manual",
       "variant": "efron_heavy_ties",
-      "implementation": null,
       "framework": "statsmodels",
       "backend": null,
       "scale": {
@@ -67776,7 +66857,6 @@
       "solver_display": "Newton",
       "solver_kind": "manual",
       "variant": "efron_heavy_ties",
-      "implementation": "numba",
       "framework": "statgpu",
       "backend": "numpy",
       "scale": {
@@ -67808,6 +66888,7 @@
           "source_file": "coxph_efron_20260622.json"
         }
       },
+      "implementation": "numba",
       "comparison_id": "coxph-efron-20260622",
       "case_id": "default",
       "method_config_id": "default"
@@ -67937,13 +67018,13 @@
       "method_config_id": "default"
     },
     {
-      "run_id": "fbb6a7c933d78886",
+      "run_id": "79050abd49224bab",
       "env_id": "remote-p100",
       "category_ids": [
         "glm"
       ],
       "model_id": "PenalizedInverseGaussianRegression",
-      "loss": "invgaussian",
+      "loss": "inverse_gaussian",
       "penalty": null,
       "solver": "irls",
       "solver_display": "IRLS",
@@ -67999,13 +67080,13 @@
       "method_config_id": "default"
     },
     {
-      "run_id": "100e80fd40956350",
+      "run_id": "06af7f02d304d34d",
       "env_id": "remote-p100",
       "category_ids": [
         "glm"
       ],
       "model_id": "PenalizedNegativeBinomialRegression",
-      "loss": "negbinom",
+      "loss": "negative_binomial",
       "penalty": null,
       "solver": "irls",
       "solver_display": "IRLS",

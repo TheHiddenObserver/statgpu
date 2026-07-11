@@ -5,7 +5,8 @@ Generate unified benchmark data JSON for the statgpu frontend dashboard.
 Usage:
     python dev/benchmarks/generate_benchmark_data.py \
         --out frontend/public/data/benchmark_data.json \
-        --report frontend/public/data/parse_report.json
+        --report frontend/public/data/parse_report.json \
+        --inventory-out frontend/public/data/source_inventory.json
 
     python dev/benchmarks/generate_benchmark_data.py --check  # validate only
 
