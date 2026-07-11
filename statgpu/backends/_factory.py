@@ -31,8 +31,8 @@ def get_backend(backend: str = "auto", device: str = "auto") -> BackendBase:
           CUDA if available, else NumPy.
 
     device : {'auto', 'cpu', 'cuda'}, default='auto'
-        Hint about the target device.  Ignored when *backend* is explicitly
-        set to a non-``'auto'`` value.  When ``'cpu'``, always returns the
+        Hint about the target device. Ignored when *backend* is explicitly
+        set to a non-``'auto'`` value. When ``'cpu'``, always returns the
         NumPy backend regardless of GPU availability.
 
     Returns
@@ -46,6 +46,16 @@ def get_backend(backend: str = "auto", device: str = "auto") -> BackendBase:
     >>> xp = get_backend().xp      # numpy, cupy, or torch depending on hw
     >>> arr = xp.zeros((3, 3))
     """
+    backend = str(backend).strip().lower()
+    device = str(device).strip().lower()
+
+    if backend not in {"auto", "numpy", "cupy", "torch"}:
+        raise ValueError(
+            "backend must be one of: 'auto', 'numpy', 'cupy', 'torch'"
+        )
+    if device not in {"auto", "cpu", "cuda"}:
+        raise ValueError("device must be one of: 'auto', 'cpu', 'cuda'")
+
     if backend == "numpy":
         return _numpy_backend
     if backend == "cupy":
