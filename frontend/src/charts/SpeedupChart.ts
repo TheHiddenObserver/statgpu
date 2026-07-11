@@ -3,10 +3,23 @@ import type { Run } from '../schema';
 import type { AppState } from '../state';
 import { formatModelName } from '../utils/format';
 
+function formatSeries(run: Run): string {
+  if (run.framework !== 'statgpu') return run.framework;
+  return [run.backend, run.implementation].filter(Boolean).join('/') || 'statgpu';
+}
+
+function formatRunLabel(run: Run): string {
+  const variant = run.variant ? ` (${run.variant})` : '';
+  const penalty = run.penalty ? ` + ${run.penalty}` : '';
+  const solver = run.solver_display ?? run.solver ?? 'unknown';
+  const reported = run.metrics.speedup?.reported_semantics === 'computed' ? '' : ' Ⓡ';
+  return `${formatModelName(run.model_id)}${variant}${penalty} [${solver}] · ${formatSeries(run)} · ${run.scale.label}${reported}`;
+}
+
 export function renderSpeedupChart(
   el: HTMLElement,
   runs: Run[],
-  _state: AppState,
+  state: AppState,
   chartInstances: echarts.ECharts[],
 ): void {
   let chart = echarts.getInstanceByDom(el);
@@ -35,17 +48,13 @@ export function renderSpeedupChart(
     (a, b) =>
       (b.metrics.speedup?.value ?? 0) - (a.metrics.speedup?.value ?? 0),
   );
-  const topN = speedupRuns.slice(0, 30);
+  const limit = state.speedupChartLimit > 0 ? state.speedupChartLimit : 30;
+  const topN = speedupRuns.slice(0, limit);
   const reportedCount = topN.filter(
     (r) => r.metrics.speedup?.reported_semantics === 'reported_by_runner',
   ).length;
 
-  const labels = topN.map((r) => {
-    const isComputed =
-      r.metrics.speedup?.reported_semantics === 'computed';
-    const suffix = isComputed ? '' : ' Ⓡ';
-    return `${formatModelName(r.model_id)}+${r.penalty} [${r.solver_display ?? r.solver}] ${r.scale.label}${suffix}`;
-  });
+  const labels = topN.map(formatRunLabel);
 
   chart.setOption(
     {
@@ -62,14 +71,14 @@ export function renderSpeedupChart(
       tooltip: {
         trigger: 'axis',
         formatter: (
-          params: { value: number; color: string; name: string; data: { refFw?: string; semantics?: string } }[],
+          params: { value: number; color: string; name: string; data: { refLabel?: string; semantics?: string } }[],
         ) => {
           const p = params[0];
           if (!p || p.value == null) return 'No data';
           const label = p.value > 1 ? 'faster' : p.value < 1 ? 'slower' : 'same';
-          const refFw = p.data?.refFw ?? 'reference';
+          const reference = p.data?.refLabel ?? 'reference';
           const semantics = p.data?.semantics === 'reported_by_runner' ? 'reported' : 'computed';
-          return `<b>${p.value.toFixed(2)}×</b> ${semantics} vs ${refFw} (${label})`;
+          return `<b>${p.value.toFixed(2)}×</b> ${semantics} vs ${reference} (${label})`;
         },
       },
       grid: { left: 10, right: 10, top: reportedCount > 0 ? 50 : 40, bottom: 30, containLabel: true },
@@ -90,9 +99,10 @@ export function renderSpeedupChart(
             const sp = r.metrics.speedup!;
             const isReported = sp.reported_semantics === 'reported_by_runner';
             const val = sp.value;
+            const refLabel = [sp.reference_framework, sp.reference_backend].filter(Boolean).join('/');
             return {
               value: val,
-              refFw: sp.reference_framework || 'reference',
+              refLabel,
               semantics: sp.reported_semantics,
               itemStyle: {
                 color: val >= 1 ? '#52c41a' : '#ff4d4f',
