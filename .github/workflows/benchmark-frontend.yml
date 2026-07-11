@@ -7,7 +7,6 @@ on:
       - '.github/workflows/benchmark-frontend.yml'
       - 'dev/benchmarks/**'
       - 'dev/tests/test_benchmark_frontend_data.py'
-      - 'dev/tests/test_frontend_parsers.py'
       - 'dev/tests/fixtures/benchmark_frontend/**'
       - 'frontend/**'
       - 'docs/assets/benchmarks/**'
@@ -17,7 +16,6 @@ on:
       - '.github/workflows/benchmark-frontend.yml'
       - 'dev/benchmarks/**'
       - 'dev/tests/test_benchmark_frontend_data.py'
-      - 'dev/tests/test_frontend_parsers.py'
       - 'dev/tests/fixtures/benchmark_frontend/**'
       - 'frontend/**'
       - 'docs/assets/benchmarks/**'
@@ -36,7 +34,7 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - name: Install test dependencies
         run: python -m pip install -U pip pytest jsonschema
-      - name: Run parser tests
+      - name: Run generator and parser tests
         run: pytest dev/tests/test_benchmark_frontend_data.py -v
       - name: Validate generator output
         run: python dev/benchmarks/generate_benchmark_data.py --check --strict-sources
@@ -88,12 +86,14 @@ jobs:
           npm run build
       - name: Check staleness
         run: |
-          python dev/benchmarks/generate_benchmark_data.py \
-            --out frontend/public/data/benchmark_data.json \
-            --report frontend/public/data/parse_report.json \
-            --inventory-out frontend/public/data/source_inventory.json \
-            --deterministic --strict-sources
-          echo "OK — deterministic generation succeeded"
+          changes="$(git status --porcelain -- frontend/public/data docs/assets/benchmarks)"
+          if [ -n "$changes" ]; then
+            echo "Generated benchmark assets are stale:"
+            printf '%s\n' "$changes"
+            git diff -- frontend/public/data docs/assets/benchmarks
+            exit 1
+          fi
+          echo "OK — generated benchmark assets are current"
 
   frontend-e2e:
     runs-on: ubuntu-latest
