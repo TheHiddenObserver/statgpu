@@ -155,7 +155,7 @@ def _compute_aggregate(seed_runs: list[dict]) -> dict:
         if values:
             result[f"{field}_mean"] = statistics.mean(values)
             if len(values) > 1:
-                result[f"{field}_std"] = statistics.stdev(values)
+                result[f"{field}_std"] = statistics.pstdev(values)
             else:
                 result[f"{field}_std"] = 0.0
     return result

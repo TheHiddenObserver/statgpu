@@ -22,5 +22,5 @@ export function chartGroupIdentity(run: Run, includeSession: boolean): readonly 
 }
 
 export function chartSeriesIdentity(run: Run): readonly unknown[] {
-  return [run.framework, run.backend];
+  return [run.framework, run.backend ?? null, run.implementation ?? null];
 }

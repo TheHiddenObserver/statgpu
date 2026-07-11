@@ -32,45 +32,75 @@ export function renderTimingChart(
     return;
   }
 
-  // Group by comparison key: model + penalty + solver + scale
+  // Build timing series metadata: canonical key for dedup, display label for UI
+  interface TimingSeries {
+    key: string;
+    label: string;
+    backend: string | null;
+    framework: string;
+    impl: string | null;
+  }
+  function makeSeries(r: Run): TimingSeries {
+    const impl = r.implementation ?? null;
+    const identity = [r.framework, r.backend ?? null, impl];
+    return {
+      key: JSON.stringify(identity),
+      label: r.framework === 'statgpu'
+        ? [r.backend, impl].filter(Boolean).join('/') || (r.backend ?? 'ext')
+        : r.framework,
+      backend: r.backend,
+      framework: r.framework,
+      impl,
+    };
+  }
+
   type GroupKey = string;
-  const groups = new Map<
-    GroupKey,
-    { label: string; byBackend: Map<string, number> }
-  >();
+  const groups = new Map<GroupKey, { label: string; bySeries: Map<string, number> }>();
+  const seriesMeta = new Map<string, TimingSeries>();
+
   for (const r of timingRuns) {
     const gk = JSON.stringify(chartGroupIdentity(r, false));
     if (!groups.has(gk)) {
       const variantSuffix = r.variant ? ` (${r.variant})` : '';
       groups.set(gk, {
         label: `${formatModelName(r.model_id)}${variantSuffix}+${r.penalty ?? 'none'} ${r.scale.label}`,
-        byBackend: new Map(),
+        bySeries: new Map(),
       });
     }
-    const sk = JSON.stringify(chartSeriesIdentity(r));
-    const be = r.implementation ? `${sk}/${r.implementation}` : sk;
-    groups.get(gk)!.byBackend.set(be, r.metrics.timing!.fit_time_ms);
+    const s = makeSeries(r);
+    seriesMeta.set(s.key, s);
+    groups.get(gk)!.bySeries.set(s.key, r.metrics.timing!.fit_time_ms);
   }
 
-  const sortedGroups = [...groups.entries()].sort(([a], [b]) =>
-    a.localeCompare(b),
-  );
+  const sortedGroups = [...groups.entries()].sort(([a], [b]) => a.localeCompare(b));
   const categories = sortedGroups.map(([, g]) => g.label);
 
-  const allBackends = new Set<string>();
+  // Preferred series order uses display labels for matching
+  const allKeys = new Set<string>();
   for (const [, g] of sortedGroups) {
-    for (const bk of g.byBackend.keys()) allBackends.add(bk);
+    for (const sk of g.bySeries.keys()) allKeys.add(sk);
   }
-  const preferred = ['numpy', 'numpy/numba', 'cupy', 'torch', ...state.showExternal];
-  const backendOrder = [...new Set(preferred.filter(x => allBackends.has(x)))].filter(
-    (b) => allBackends.has(b),
-  );
+  const preferredLabels = ['numpy', 'numpy/numba', 'cupy', 'torch', ...state.showExternal];
+  const seriesOrder: TimingSeries[] = [];
+  for (const lbl of preferredLabels) {
+    for (const [key, s] of seriesMeta) {
+      if (s.label === lbl && allKeys.has(key)) {
+        seriesOrder.push(s);
+      }
+    }
+  }
+  // Append any remaining series not in preferred order
+  for (const [key, s] of seriesMeta) {
+    if (allKeys.has(key) && !seriesOrder.some(x => x.key === key)) {
+      seriesOrder.push(s);
+    }
+  }
 
-  const series = backendOrder.map((bk) => ({
-    name: bk,
+  const series = seriesOrder.map((s) => ({
+    name: s.label,
     type: 'bar' as const,
-    data: sortedGroups.map(([, g]) => g.byBackend.get(bk) ?? null),
-    itemStyle: { color: COLORS[bk] || '#999' },
+    data: sortedGroups.map(([, g]) => g.bySeries.get(s.key) ?? null),
+    itemStyle: { color: COLORS[s.label] || COLORS[s.backend || ''] || '#999' },
   }));
 
   chart.setOption(
