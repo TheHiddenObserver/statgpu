@@ -97,7 +97,7 @@
               {"pattern": "^[a-z0-9][a-z0-9_.:-]*$"}
             ]
           },
-          "benchmark_session_id": { "type": "string" },
+          "benchmark_session_id": { "type": ["string", "null"] },
           "env_id": { "type": "string" },
           "category_ids": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
           "model_id": { "type": "string" },
@@ -123,8 +123,8 @@
               {"pattern": "^legacy-[0-9a-f]{16}$"}
             ]
           },
-          "variant": { "type": "string" },
-          "implementation": { "type": "string" },
+          "variant": { "type": ["string", "null"] },
+          "implementation": { "type": ["string", "null"] },
           "parameters": { "type": "object" },
           "replicate": {
             "type": "object", "additionalProperties": false,
