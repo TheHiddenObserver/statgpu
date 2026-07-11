@@ -33,3 +33,107 @@ jobs:
       - name: Run tests
         run: |
           python -m pytest dev/tests/test_refactor_safety_net.py dev/tests/test_refactor_post_phase.py dev/tests/test_linear.py dev/tests/test_logistic.py dev/tests/test_cox.py dev/tests/test_cox_cv.py dev/tests/test_distributions_backend.py dev/tests/test_penalties_and_exports.py dev/tests/test_ridge_inference.py dev/tests/test_lasso_debiased_inference.py dev/tests/test_ordered_cross_backend.py dev/tests/test_hessian_fd_cpu.py dev/tests/test_quantile_regression.py dev/tests/test_unsupervised_pca.py dev/tests/test_unsupervised_kmeans.py dev/tests/test_unsupervised_dbscan.py dev/tests/test_unsupervised_gmm.py dev/tests/test_unsupervised_nmf.py dev/tests/test_unsupervised_tsne.py dev/tests/test_unsupervised_umap.py dev/tests/test_inference_resampling.py dev/tests/test_core_contracts.py -q --tb=short
+
+  repository-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install audit dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[validation,formula]"
+          python -m pip install ruff vulture
+
+      - name: Repository inventory
+        run: |
+          echo "Python files: $(find statgpu -name '*.py' | wc -l)"
+          echo "Source lines: $(find statgpu -name '*.py' -print0 | xargs -0 cat | wc -l)"
+          echo "Largest source files:"
+          find statgpu -name '*.py' -printf '%s %p\n' | sort -nr | head -25
+
+      - name: Compile all package modules
+        run: python -m compileall -q statgpu
+
+      - name: Ruff correctness audit
+        continue-on-error: true
+        run: |
+          ruff check statgpu \
+            --select E9,F63,F7,F82,B,BLE,C4,PERF,RUF100 \
+            --output-format concise | tee /tmp/ruff-audit.txt
+
+      - name: Dead-code audit
+        continue-on-error: true
+        run: |
+          vulture statgpu --min-confidence 90 | tee /tmp/vulture-audit.txt
+
+      - name: Collect all tests
+        continue-on-error: true
+        run: |
+          python -m pytest --collect-only -q 2>&1 | tee /tmp/pytest-collect.txt
+
+      - name: Custom repository risk scan
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import ast
+          import re
+
+          root = Path('statgpu')
+          files = sorted(root.rglob('*.py'))
+          findings = []
+          counts = {}
+
+          def add(kind, path, line, text):
+              findings.append((kind, str(path), int(line), text.strip()))
+              counts[kind] = counts.get(kind, 0) + 1
+
+          for path in files:
+              text = path.read_text(encoding='utf-8')
+              try:
+                  tree = ast.parse(text, filename=str(path))
+              except SyntaxError as exc:
+                  add('SYNTAX', path, exc.lineno or 0, str(exc))
+                  continue
+
+              for node in ast.walk(tree):
+                  if isinstance(node, ast.ExceptHandler):
+                      if node.type is None:
+                          add('BARE_EXCEPT', path, node.lineno, 'bare except')
+                      elif (isinstance(node.type, ast.Name) and node.type.id == 'Exception'):
+                          if len(node.body) == 1 and isinstance(node.body[0], ast.Pass):
+                              add('SWALLOWED_EXCEPTION', path, node.lineno, 'except Exception: pass')
+                  if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                      defaults = list(node.args.defaults) + [d for d in node.args.kw_defaults if d is not None]
+                      for default in defaults:
+                          if isinstance(default, (ast.List, ast.Dict, ast.Set)):
+                              add('MUTABLE_DEFAULT', path, node.lineno, node.name)
+                  if isinstance(node, (ast.Import, ast.ImportFrom)):
+                      names = []
+                      if isinstance(node, ast.Import):
+                          names = [a.name for a in node.names]
+                      elif node.module:
+                          names = [node.module]
+                      if any(name == 'cupy' or name.startswith('cupy.') for name in names):
+                          if 'backends' not in path.parts:
+                              add('DIRECT_CUPY_IMPORT', path, node.lineno, ', '.join(names))
+
+              for lineno, line in enumerate(text.splitlines(), 1):
+                  if re.search(r'random_state\s+is\s+not\s+None\s+else\s+(0|42)\b', line):
+                      add('FIXED_NONE_SEED', path, lineno, line)
+                  if re.search(r'\b(?:TODO|FIXME|XXX)\b', line):
+                      add('TODO', path, lineno, line)
+                  if 'cpu().numpy()' in line or '.get()' in line:
+                      add('HOST_TRANSFER', path, lineno, line)
+
+          print('CUSTOM AUDIT COUNTS')
+          for kind in sorted(counts):
+              print(f'{kind}: {counts[kind]}')
+          print('\nCUSTOM AUDIT FINDINGS')
+          for kind, path, line, text in findings:
+              print(f'{kind}\t{path}:{line}\t{text}')
+          PY
