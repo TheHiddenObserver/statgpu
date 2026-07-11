@@ -10,12 +10,12 @@ export function chartGroupIdentity(run: Run, includeSession: boolean): readonly 
     run.case_id,
     run.method_config_id,
     run.variant ?? null,
-    run.implementation ?? null,
     run.loss ?? null,
     run.penalty ?? null,
     run.solver ?? null,
     run.scale.scale_key,
   ];
+  // NOTE: implementation is in chartSeriesIdentity, NOT group identity
   return includeSession
     ? [run.comparison_id, run.benchmark_session_id ?? null, ...common.slice(1)]
     : common;

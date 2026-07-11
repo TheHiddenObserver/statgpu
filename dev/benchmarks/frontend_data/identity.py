@@ -36,22 +36,32 @@ def chart_cell_identity(run: dict, *, include_session: bool) -> list:
         run.get("case_id", "default"),
         run.get("method_config_id", "default"),
         run.get("variant"),
-        run.get("implementation"),
         run.get("loss"),
         run.get("penalty"),
         run.get("solver"),
         run["scale"]["scale_key"],
     ]
-    # Note: framework/backend are in chartSeriesIdentity, not group identity
+    # NOTE: implementation, framework, backend belong in chart_series_identity
     if include_session:
         return [run.get("comparison_id", run["source"].get("source_id", run["source"]["file"])),
                 run.get("benchmark_session_id")] + base[1:]
     return base
 
 
+def chart_series_identity(run: dict) -> list:
+    """Series identity: framework, backend, implementation."""
+    return [
+        run["framework"],
+        run.get("backend"),
+        run.get("implementation"),
+    ]
+
+
 def timing_cell_identity(run: dict, *, include_session: bool) -> list:
-    return chart_cell_identity(run, include_session=include_session)
+    """Cell = group + series."""
+    return chart_cell_identity(run, include_session=include_session) + chart_series_identity(run)
 
 
 def speedup_cell_identity(run: dict, *, include_session: bool) -> list:
-    return chart_cell_identity(run, include_session=include_session)
+    """Cell = group + series."""
+    return chart_cell_identity(run, include_session=include_session) + chart_series_identity(run)

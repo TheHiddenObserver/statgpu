@@ -720,8 +720,10 @@ def main():
             print(f"  - {e}")
         if len(all_errors) > 20:
             print(f"  ... and {len(all_errors) - 20} more")
-        if args.check:
-            sys.exit(1)
+    # Always exit on validation errors — never write invalid output
+    if all_errors:
+        print(f"ERROR: {len(all_errors)} validation errors, refusing to write", file=sys.stderr)
+        sys.exit(1)
 
     print(f"Runs generated: {len(output['runs'])}")
     print(f"Models: {len(output['models'])}")
@@ -735,57 +737,12 @@ def main():
             print(f"  - [{i.get('severity','?')}] {i.get('file','')}: {i.get('reason', i.get('message',''))}")
 
     if args.check:
-        if all_errors:
-            sys.exit(1)
         print("OK — validation passed (structural + JSON Schema)")
         return
 
+    # Transactional write using inventory from generate() (participated in generation_id hash)
     if args.out:
-        out_path = Path(args.out)
-        if not out_path.is_absolute():
-            out_path = Path.cwd() / out_path
-        out_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(out_path, "w", encoding="utf-8") as f:
-            json.dump(output, f, indent=2, ensure_ascii=False)
-        print(f"Wrote: {out_path}")
-
-    if args.report:
-        report_path = Path(args.report)
-        if not report_path.is_absolute():
-            report_path = Path.cwd() / report_path
-        report_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(report_path, "w", encoding="utf-8") as f:
-            json.dump(parse_report, f, indent=2)
-        print(f"Wrote: {report_path}")
-
-    if args.inventory_out:
-        # Compute inventory from manifest if available, else transitional
-        if manifest:
-            registered = len(manifest.get("sources", []))
-            repo_root = Path(__file__).resolve().parents[3]
-            available = sum(1 for s in manifest["sources"] if (repo_root / s["path"]).exists())
-        else:
-            registered = len(PARSER_REGISTRY)
-            available = sum(1 for p in PARSER_REGISTRY if (results_dir / p).exists())
-        parsed = len({r["source"]["source_id"] for r in output["runs"]})
-        catalog_total = 472  # from A0 audit
-        inventory = {
-            "inventory_version": "1.0",
-            "catalog_version": "1.0",
-            "generation_id": output["meta"]["generation_id"],
-            "catalog_total": catalog_total,
-            "eligible_total": registered,
-            "registered_sources": registered,
-            "available_sources": available,
-            "parsed_sources": parsed,
-        }
-        inv_path = Path(args.inventory_out)
-        if not inv_path.is_absolute():
-            inv_path = Path.cwd() / inv_path
-        inv_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(inv_path, "w", encoding="utf-8") as f:
-            json.dump(inventory, f, indent=2)
-        print(f"Wrote: {inv_path}")
+        _write_transactional(args.out, args.report, args.inventory_out, output, parse_report, source_inventory)
 
     if args.update_preflight_baseline:
         repo_root = Path(__file__).resolve().parents[3]
