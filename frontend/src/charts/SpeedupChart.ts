@@ -16,7 +16,7 @@ export function renderSpeedupChart(
   }
 
   const speedupRuns = runs.filter(
-    (r) => r.metrics.speedup && r.backend !== 'numpy',
+    (r) => r.metrics.speedup,
   );
   if (speedupRuns.length === 0) {
     chart.clear();
@@ -53,7 +53,7 @@ export function renderSpeedupChart(
         text: 'Speedup vs Reference',
         subtext:
           reportedCount > 0
-            ? 'Ⓡ = reported by solver benchmark'
+            ? 'Ⓡ = reported speedup'
             : '',
         left: 'center',
         textStyle: { fontSize: 13 },

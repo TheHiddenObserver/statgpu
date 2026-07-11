@@ -123,10 +123,12 @@ export function filterRuns(
     }
 
     // External framework filter (unchanged semantics: empty = hide all)
-    if (r.framework !== 'statgpu' && state.showExternal.size > 0) {
-      if (!state.showExternal.has(r.framework)) return false;
-    } else if (r.framework !== 'statgpu' && state.showExternal.size === 0) {
-      return false;
+    if (!opts?.ignoreExternal) {
+      if (r.framework !== 'statgpu' && state.showExternal.size > 0) {
+        if (!state.showExternal.has(r.framework)) return false;
+      } else if (r.framework !== 'statgpu' && state.showExternal.size === 0) {
+        return false;
+      }
     }
 
     return true;

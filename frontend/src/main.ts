@@ -62,6 +62,8 @@ function renderMain(): HTMLElement {
   return main;
 }
 
+let renderEpoch = 0;
+
 function renderChartArea(filtered: Run[]): HTMLElement {
   const area = h('div', { class: 'chart-area' });
   const timingDiv = h('div', { id: 'timing-chart', class: 'chart-container' });
@@ -69,10 +71,12 @@ function renderChartArea(filtered: Run[]): HTMLElement {
   area.appendChild(timingDiv);
   area.appendChild(speedupDiv);
 
-  setTimeout(() => {
+  const epoch = ++renderEpoch;
+  requestAnimationFrame(() => {
+    if (epoch !== renderEpoch || !timingDiv.isConnected || !speedupDiv.isConnected) return;
     renderTimingChart(timingDiv, filtered, state!, chartInstances);
     renderSpeedupChart(speedupDiv, filtered, state!, chartInstances);
-  }, 0);
+  });
   return area;
 }
 
@@ -159,6 +163,14 @@ async function init(): Promise<void> {
       fetchParseReport().catch(() => null),
       fetchSourceInventory().catch(() => null),
     ]);
+
+    // Cross-validate generation_id: discard metadata that doesn't match data
+    if (parseReport && parseReport.generation_id !== data.meta.generation_id) {
+      parseReport = null;
+    }
+    if (sourceInventory && sourceInventory.generation_id !== data.meta.generation_id) {
+      sourceInventory = null;
+    }
     const appEl = renderApp();
     clear(root);
     (root as HTMLElement).appendChild(appEl);

@@ -46,8 +46,9 @@ export function renderTimingChart(
         byBackend: new Map(),
       });
     }
+    const implSuffix = r.implementation ? `/${r.implementation}` : '';
     const be =
-      r.framework === 'statgpu' ? (r.backend ?? 'ext') : r.framework;
+      r.framework === 'statgpu' ? `${r.backend ?? 'ext'}${implSuffix}` : r.framework;
     groups.get(gk)!.byBackend.set(be, r.metrics.timing!.fit_time_ms);
   }
 

@@ -2,6 +2,7 @@ import type { BenchmarkData, Run } from '../schema';
 import type { AppState } from '../state';
 import {
   setSelectedModel,
+  setSelectedVariant,
   setSelectedPenalty,
   setSelectedSolver,
   toggleScaleKey,
@@ -65,6 +66,33 @@ export function renderFilterBar(
       onUpdate();
     });
     bar.appendChild(sel);
+  }
+
+  // Variant selector (appears after model selected, when variants exist)
+  if (state.selectedModelId) {
+    const variantRuns = filterRuns(allRuns, {
+      ...state, selectedVariant: null, selectedPenalty: null, selectedSolver: null, selectedScaleKeys: new Set(),
+    } as AppState);
+    const variants = getUniqueValues(
+      variantRuns.filter((r) => r.model_id === state.selectedModelId && r.variant),
+      'variant',
+    );
+    if (variants.length > 0) {
+      bar.appendChild(h('span', {}, 'Variant:'));
+      const vsel = h('select', { style: 'padding:2px 6px;' });
+      vsel.appendChild(h('option', { value: '' }, 'All'));
+      for (const v of variants) {
+        const opt = h('option', { value: v }, v);
+        if (v === state.selectedVariant) opt.setAttribute('selected', '');
+        vsel.appendChild(opt);
+      }
+      vsel.addEventListener('change', () => {
+        const val = (vsel as HTMLSelectElement).value;
+        setSelectedVariant(state, val || null);
+        onUpdate();
+      });
+      bar.appendChild(vsel);
+    }
   }
 
   // Penalty selector (appears after model selected)

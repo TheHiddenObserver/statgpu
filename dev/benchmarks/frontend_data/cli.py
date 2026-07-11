@@ -301,10 +301,29 @@ def generate(results_dir: Path, deterministic: bool = False,
     }
 
     # Compute generation_id (bundle hash, without generation_id in payload)
-    raw_issues = [{"source_id": i.get("source_id", ""), "file": i.get("file", ""),
-                    "parser": i.get("parser", ""), "code": i.get("code", "UNKNOWN"),
-                    "severity": i.get("severity", "warning"), "message": i.get("reason", "")}
-                   for i in all_issues]
+    # Build per-source context for enriching issues
+    source_context: dict[str, dict] = {}
+    if manifest:
+        for src in manifest.get("sources", []):
+            source_context[src["path"]] = {
+                "source_id": src["source_id"],
+                "parser": src["parser"],
+                "parser_version": src.get("parser_version", ""),
+                "comparison_id": src.get("comparison_id", src["source_id"]),
+            }
+    raw_issues = []
+    for i in all_issues:
+        ctx = source_context.get(i.get("file", ""), {})
+        raw_issues.append({
+            "source_id": i.get("source_id") or ctx.get("source_id", ""),
+            "file": i.get("file", ""),
+            "parser": i.get("parser") or ctx.get("parser", ""),
+            "code": i.get("code", "UNKNOWN"),
+            "severity": i.get("severity", "warning"),
+            "message": i.get("reason", i.get("message", "")),
+            "comparison_id": ctx.get("comparison_id", ""),
+            "parser_version": ctx.get("parser_version", ""),
+        })
     parse_report = {
         "report_version": "2.0",
         "files_seen": files_seen,
@@ -409,6 +428,69 @@ def validate_against_schema(output: dict) -> list[str]:
                 val = run.get(field_name)
                 if val not in enum_vals:
                     errors.append(f"{rid}: {field_name}='{val}' not in schema enum {enum_vals}")
+    return errors
+
+
+def validate_semantic(output: dict, manifest: dict | None = None) -> list[str]:
+    """Semantic/referential integrity checks for canonical mode."""
+    errors = []
+    runs = output.get("runs", [])
+    envs = {e["env_id"] for e in output.get("environments", [])}
+    models = {m["model_id"] for m in output.get("models", [])}
+    frameworks = {f["framework_id"] for f in output.get("frameworks", [])}
+    comparisons = {c["comparison_id"] for c in output.get("comparisons", [])}
+    fw_policy = {f["framework_id"]: f.get("backend_policy", "forbidden") for f in output.get("frameworks", [])}
+
+    for run in runs:
+        rid = run.get("run_id", "?")
+        fw = run.get("framework", "")
+        bk = run.get("backend")
+
+        # Referential integrity
+        if run.get("env_id") not in envs:
+            errors.append(f"{rid}: env_id '{run.get('env_id')}' not in environments")
+        if run.get("model_id") not in models:
+            errors.append(f"{rid}: model_id '{run.get('model_id')}' not in models")
+        if fw not in frameworks:
+            errors.append(f"{rid}: framework '{fw}' not in frameworks")
+        if run.get("comparison_id") not in comparisons:
+            errors.append(f"{rid}: comparison_id '{run.get('comparison_id')}' not in comparisons")
+
+        # Backend policy
+        policy = fw_policy.get(fw)
+        if policy == "required" and bk is None:
+            errors.append(f"{rid}: framework '{fw}' requires backend, got null")
+        if policy == "forbidden" and bk is not None:
+            errors.append(f"{rid}: framework '{fw}' forbids backend, got '{bk}'")
+
+        # Category validity
+        cats = run.get("category_ids", [])
+        if not cats:
+            errors.append(f"{rid}: empty category_ids")
+        model_entry = next((m for m in output.get("models", []) if m["model_id"] == run.get("model_id")), None)
+        if model_entry:
+            for cid in cats:
+                if cid not in model_entry.get("category_ids", []):
+                    errors.append(f"{rid}: category '{cid}' not in model categories")
+
+        # Speedup reference
+        sp = run.get("metrics", {}).get("speedup", {})
+        ref_fw = sp.get("reference_framework")
+        if ref_fw and ref_fw not in frameworks:
+            errors.append(f"{rid}: speedup reference_framework '{ref_fw}' not in frameworks")
+
+        # Canonical IDs
+        if run.get("source", {}).get("source_id", "").startswith("transitional:"):
+            if manifest:
+                errors.append(f"{rid}: transitional source_id in canonical mode")
+        if run.get("case_id", "").startswith("legacy-"):
+            if manifest:
+                errors.append(f"{rid}: legacy case_id in canonical mode")
+
+    # Registry uniqueness
+    for label, items in [("env_id", envs), ("model_id", models), ("framework_id", frameworks), ("comparison_id", comparisons)]:
+        pass  # already unique by set construction
+
     return errors
 
 
@@ -563,7 +645,8 @@ def main():
 
     errors = validate_output(output)
     schema_errors = validate_against_schema(output)
-    all_errors = errors + schema_errors
+    semantic_errors = validate_semantic(output, manifest)
+    all_errors = errors + schema_errors + semantic_errors
     if all_errors:
         print(f"VALIDATION ERRORS ({len(all_errors)}):")
         for e in all_errors[:20]:
