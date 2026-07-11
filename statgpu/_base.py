@@ -512,33 +512,76 @@ class BaseEstimator(ABC):
             )
     
     def get_params(self, deep=True):
-        """Get parameters for this estimator.
+        """Get constructor parameters for this estimator.
 
-        Only returns parameters accepted by this class's own ``__init__``,
-        not parent class parameters. This matches sklearn's contract where
-        ``clone(est).__init__(**est.get_params())`` must work.
+        Nested estimator parameters are exposed as ``name__param`` when
+        ``deep=True``, matching the scikit-learn estimator contract.
         """
         import inspect
+
         params = {}
-        # Only look at the most specific __init__ (this class, not parents)
         try:
             sig = inspect.signature(type(self).__init__)
         except (ValueError, TypeError):
             return params
-        for name in sig.parameters:
-            if name == "self":
+
+        for name, parameter in sig.parameters.items():
+            if name == "self" or parameter.kind in (
+                inspect.Parameter.VAR_POSITIONAL,
+                inspect.Parameter.VAR_KEYWORD,
+            ):
                 continue
             if hasattr(self, name):
                 params[name] = getattr(self, name)
-            elif hasattr(self, f'_{name}'):
-                params[name] = getattr(self, f'_{name}')
+            elif hasattr(self, f"_{name}"):
+                params[name] = getattr(self, f"_{name}")
+
+        if deep:
+            for name, value in list(params.items()):
+                if hasattr(value, "get_params"):
+                    for sub_name, sub_value in value.get_params(deep=True).items():
+                        params[f"{name}__{sub_name}"] = sub_value
         return params
-    
+
+
     def set_params(self, **params):
-        """Set parameters for this estimator."""
+        """Set estimator parameters, validating names and nesting."""
+        if not params:
+            return self
+
+        valid_params = self.get_params(deep=True)
+        nested_params = {}
+
         for key, value in params.items():
-            if key == 'device':
-                self.device = Device(value) if isinstance(value, str) else value
+            root, delimiter, sub_key = key.partition("__")
+            if root not in valid_params:
+                valid_names = sorted(name for name in valid_params if "__" not in name)
+                raise ValueError(
+                    f"Invalid parameter {root!r} for estimator "
+                    f"{self.__class__.__name__}. Valid parameters are: "
+                    f"{', '.join(valid_names)}."
+                )
+
+            if delimiter:
+                nested_params.setdefault(root, {})[sub_key] = value
+                continue
+
+            if root == "device" and isinstance(value, str):
+                value = Device(value)
+            if hasattr(self, root):
+                setattr(self, root, value)
             else:
-                setattr(self, key, value)
+                setattr(self, f"_{root}", value)
+
+        for root, sub_params in nested_params.items():
+            nested_estimator = getattr(self, root, None)
+            if nested_estimator is None:
+                nested_estimator = getattr(self, f"_{root}", None)
+            if not hasattr(nested_estimator, "set_params"):
+                raise ValueError(
+                    f"Parameter {root!r} of {self.__class__.__name__} "
+                    "does not support nested parameters."
+                )
+            nested_estimator.set_params(**sub_params)
+
         return self

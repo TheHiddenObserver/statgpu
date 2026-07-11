@@ -157,7 +157,7 @@ Test environment: RTX 4090 (24GB), CuPy 14.1.0, PyTorch 2.8.0+cu128, scikit-lear
 
 ## Requirements
 
-- Python >= 3.8
+- Python >= 3.9
 - NumPy >= 1.20
 - CuPy (optional, for GPU; choose wheel matching CUDA major version)
   - CUDA 11.x: `cupy-cuda11x`

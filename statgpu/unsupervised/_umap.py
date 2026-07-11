@@ -145,35 +145,46 @@ class UMAP(BaseEstimator):
 
         membership = self._smooth_knn_membership(backend, neighbor_distances)
 
-        # Build COO sparse edges directly (O(n*k) memory, not O(n²))
-        # For each point i, add edge (i, neighbor_j) with weight membership[i,j]
-        import numpy as np
-        all_src_np = np.repeat(np.arange(n_samples, dtype=np.int64), k)  # (n*k,)
-        # Convert neighbor indices/membership to numpy (handle cupy/torch safely)
-        if hasattr(neighbor_indices, 'get'):  # cupy
+        # Build the directed membership graph on the host, then apply
+        # UMAP's fuzzy union W + W.T - W * W.T. The previous code used
+        # 2W - W^2 without looking up reverse-edge memberships, leaving
+        # the graph asymmetric and assigning incorrect edge strengths.
+        from scipy.sparse import coo_matrix
+
+        all_src_np = np.repeat(np.arange(n_samples, dtype=np.int64), k)
+        if hasattr(neighbor_indices, "get"):
             import cupy as cp
             all_dst_np = cp.asnumpy(neighbor_indices).ravel().astype(np.int64)
             all_w_np = cp.asnumpy(membership).ravel().astype(np.float64)
-        elif hasattr(neighbor_indices, 'cpu'):  # torch
-            all_dst_np = neighbor_indices.cpu().numpy().ravel().astype(np.int64)
-            all_w_np = membership.cpu().numpy().ravel().astype(np.float64)
-        else:  # numpy
+        elif hasattr(neighbor_indices, "cpu"):
+            all_dst_np = neighbor_indices.detach().cpu().numpy().ravel().astype(np.int64)
+            all_w_np = membership.detach().cpu().numpy().ravel().astype(np.float64)
+        else:
             all_dst_np = np.asarray(neighbor_indices, dtype=np.int64).ravel()
             all_w_np = np.asarray(membership, dtype=np.float64).ravel()
-        all_src = backend.asarray(all_src_np, dtype=backend.int64)
-        all_dst = backend.asarray(all_dst_np, dtype=backend.int64)
-        all_w = backend.asarray(all_w_np, dtype=backend.float64)
 
-        # Symmetrize: add reverse edges a+b-a*b
-        rev_w = all_w + all_w - all_w * all_w  # fuzzy union
-        # Remove self-edges (where src == dst, set to 0)
-        is_self = all_src == all_dst
-        if hasattr(is_self, 'cpu'):  # torch
-            rev_w = rev_w.where(~is_self, backend.asarray(0.0, dtype=rev_w.dtype))
-        else:
-            rev_w[is_self] = 0.0
+        directed = coo_matrix(
+            (all_w_np, (all_src_np, all_dst_np)),
+            shape=(n_samples, n_samples),
+        ).tocsr()
+        directed.sum_duplicates()
+        reverse = directed.T.tocsr()
+        fuzzy = directed + reverse - directed.multiply(reverse)
+        fuzzy.setdiag(0.0)
+        fuzzy.eliminate_zeros()
+        fuzzy = fuzzy.tocoo()
 
-        return (all_src, all_dst, rev_w, n_samples)
+        all_src = backend.asarray(
+            fuzzy.row.astype(np.int64, copy=False), dtype=backend.int64
+        )
+        all_dst = backend.asarray(
+            fuzzy.col.astype(np.int64, copy=False), dtype=backend.int64
+        )
+        all_w = backend.asarray(
+            np.clip(fuzzy.data, 0.0, 1.0).astype(np.float64, copy=False),
+            dtype=backend.float64,
+        )
+        return (all_src, all_dst, all_w, n_samples)
 
     def _initial_embedding(self, backend, graph_data):
         all_src, all_dst, all_w, n_samples = graph_data

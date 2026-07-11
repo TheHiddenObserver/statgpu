@@ -115,13 +115,16 @@ def _rng_default(backend_name: str, random_state: Optional[int], device: str = "
     if backend_name == "torch":
         import torch
         g = torch.Generator(device=device)
-        if random_state is not None:
+        if random_state is None:
+            g.seed()
+        else:
             g.manual_seed(int(random_state))
         return g
     import cupy as cp
 
-    seed = 0 if random_state is None else int(random_state)
-    return cp.random.RandomState(seed)
+    if random_state is None:
+        return cp.random.RandomState()
+    return cp.random.RandomState(int(random_state))
 
 
 def _rng_integers(rng, low: int, high: int, size, backend_name: str, device: str = "cuda"):
