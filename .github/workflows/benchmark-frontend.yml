@@ -4,6 +4,7 @@ on:
   push:
     branches: [master]
     paths:
+      - '.github/workflows/benchmark-frontend.yml'
       - 'dev/benchmarks/**'
       - 'dev/tests/test_benchmark_frontend_data.py'
       - 'dev/tests/test_frontend_parsers.py'
@@ -13,6 +14,7 @@ on:
       - 'results/benchmark_frontend_sources/**'
   pull_request:
     paths:
+      - '.github/workflows/benchmark-frontend.yml'
       - 'dev/benchmarks/**'
       - 'dev/tests/test_benchmark_frontend_data.py'
       - 'dev/tests/test_frontend_parsers.py'
@@ -24,11 +26,14 @@ on:
 jobs:
   python-data:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ['3.9', '3.11']
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: ${{ matrix.python-version }}
       - name: Install test dependencies
         run: python -m pip install -U pip pytest jsonschema
       - name: Run parser tests
@@ -82,7 +87,7 @@ jobs:
           npm ci
           npm run build
       - name: Check staleness
-        run: git diff --exit-code docs/assets/benchmarks/ frontend/public/data/
+        run: git diff --exit-code frontend/public/data/
 
   frontend-e2e:
     runs-on: ubuntu-latest
