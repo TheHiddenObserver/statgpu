@@ -55,25 +55,37 @@ regression tests for every accepted fix.
     and weighted MSE inputs now have explicit contracts.
 16. Mixed NumPy/GPU CV inputs are converted together instead of returning a
     NumPy backend label with an unconverted GPU object.
+17. Ridge's exact CPU solver now uses the same un-normalized `alpha` convention
+    as scikit-learn instead of multiplying the penalty by sample count or weight
+    sum.
+18. Cox inference now normalizes the legacy Breslow/Efron Hessian orientation at
+    the observed-information boundary, preventing Efron standard errors from
+    being clipped to zero while preserving coefficient estimates.
 
 ### Test and CI quality
 
 1. A remote GPU runner was moved out of `dev/tests`, so CPU-only pytest
    collection no longer imports CUDA-only dependencies.
 2. ElasticNetCV tests no longer import Torch unconditionally.
-3. The ElasticNetCV GPU test now skips only when CuPy CUDA is unavailable;
-   unexpected GPU failures are no longer swallowed as a passing test.
-4. Focused regression suites cover backend validation, estimator parameters,
+3. GPU and optional-Torch tests now skip only when their backend dependency is
+   unavailable; unexpected backend failures are no longer swallowed as passing
+   tests.
+4. Stale tests were aligned with the public `statgpu.losses` namespace and the
+   benchmark-backed auto-solver dispatch table.
+5. RidgeCV helper-style tests now contain explicit assertions and backend skips.
+6. Focused regression suites cover backend validation, estimator parameters,
    RNG semantics, UMAP fuzzy union, NNDescent neighbor validity, CV validation,
-   KMeans input contracts, small-sample spectral UMAP, and Torch inference
-   routing.
-5. CI now includes Python 3.9-3.12 regression gates, a complete Python 3.11 CPU
+   KMeans input contracts, small-sample spectral UMAP, Torch inference routing,
+   Ridge/scikit-learn parity, and Cox/statsmodels parity.
+7. CI now includes Python 3.9-3.12 regression gates, a complete Python 3.11 CPU
    test-tree job, package compilation, high-signal static checks, and complete
    pytest collection.
 
 ### Documentation
 
 - README minimum Python version is aligned with `pyproject.toml` (`>=3.9`).
+- Root, English, and Chinese changelogs document PR #79 and its validation
+  boundary.
 - This report records review scope, accepted fixes, deferred risks, and the
   validation boundary required by `dev/AGENTS.md`.
 
@@ -118,13 +130,14 @@ explicit.
 
 ## Validation status
 
-The final branch is gated by:
+GitHub Actions run **#199** passed all permanent gates:
 
 - Python 3.9, 3.10, 3.11, and 3.12 selected regression matrices;
 - the complete `dev/tests` CPU suite on Python 3.11;
 - full package bytecode compilation;
 - high-signal undefined-name/syntax Ruff checks on every modified production
   module;
+- Cox review structure assertions;
 - complete pytest collection without optional GPU import failures.
 
 Final status: **PARTIAL_REMOTE_PENDING** until the physical GPU checks above are
