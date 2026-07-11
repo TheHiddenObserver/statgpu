@@ -360,6 +360,22 @@ def generate(results_dir: Path, deterministic: bool = False,
         "parsed_sources": parsed,
     }
 
+    # Strict mode: check allowed_issue_codes for warnings/errors
+    if manifest and strict_sources:
+        allowed_by_path: dict[str, set] = {}
+        for src in manifest.get("sources", []):
+            allowed_by_path[src["path"]] = set(src.get("allowed_issue_codes", []))
+        for issue in all_issues:
+            if issue.get("severity") in ("warning", "error"):
+                path = issue.get("file", "")
+                allowed = allowed_by_path.get(path, set())
+                code = issue.get("code", "")
+                if code not in allowed:
+                    raise ValueError(
+                        f"Strict mode: unallowed issue [{issue['severity']}] {code} "
+                        f"in {path}: {issue.get('reason', '')}"
+                    )
+
     # Two-phase speedup reference resolution (canonical mode — before generation_id)
     if manifest:
         _resolve_speedup_references(all_runs)
@@ -476,7 +492,7 @@ def validate_against_schema(output: dict) -> list[str]:
     return errors
 
 
-def validate_semantic(output: dict, manifest: dict | None = None) -> list[str]:
+def validate_semantic(output: dict, manifest: dict | None = None, strict_sources: bool = False) -> list[str]:
     """Semantic/referential integrity checks for canonical mode."""
     errors = []
     runs = output.get("runs", [])
@@ -541,16 +557,6 @@ def validate_semantic(output: dict, manifest: dict | None = None) -> list[str]:
             if rid_key in seen_identities:
                 errors.append(f"{run['run_id']}: duplicate RunIdentity with {seen_identities[rid_key]}")
             seen_identities[rid_key] = run["run_id"]
-
-    # Strict mode: check allowed_issue_codes
-    if manifest and strict_sources:
-        for src in manifest.get("sources", []):
-            allowed = set(src.get("allowed_issue_codes", []))
-            for issue in all_issues if 'all_issues' in dir() else []:
-                code = issue.get("code", "")
-                severity = issue.get("severity", "warning")
-                if severity in ("warning", "error") and code not in allowed:
-                    errors.append(f"{src['path']}: unallowed issue [{severity}] {code}: {issue.get('reason','')}")
 
     return errors
 
@@ -706,7 +712,7 @@ def main():
 
     errors = validate_output(output)
     schema_errors = validate_against_schema(output)
-    semantic_errors = validate_semantic(output, manifest)
+    semantic_errors = validate_semantic(output, manifest, args.strict_sources)
     all_errors = errors + schema_errors + semantic_errors
     if all_errors:
         print(f"VALIDATION ERRORS ({len(all_errors)}):")

@@ -49,8 +49,8 @@ def parse_knockoff_benchmark(filepath: Path, env_id: str) -> tuple[list[dict], l
     methods = data.get("methods", {})
     for method_name, method_data in methods.items():
         if not isinstance(method_data, dict):
-            warnings.append(f"{filepath.name}: method '{method_name}' is not a dict, skipping")
-            continue
+            warnings.append(f"{filepath.name}: method '{method_name}' unavailable (null in source)")
+            continue  # code: METHOD_UNAVAILABLE — environment capability, not malformed
         method_info = KNOCKOFF_METHOD_MAP.get(method_name)
         if method_info is None:
             warnings.append(f"{filepath.name}: unknown method '{method_name}'")

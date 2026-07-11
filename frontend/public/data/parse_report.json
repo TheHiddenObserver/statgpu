@@ -4,7 +4,7 @@
   "files_parsed": 9,
   "files_skipped": 0,
   "runs_generated": 1503,
-  "generation_id": "2377e284affdb219e8db42cfa25c32a7da4054bdc46b58e483e7080ac6a2582d",
+  "generation_id": "a6759d04b1e99ef4cb5efa8deb4d304a6bb98239606eaa4292baaa75fa637682",
   "issues": [
     {
       "source_id": "knockoff-baselines-20260409-beecd907fe54",
@@ -12,7 +12,7 @@
       "parser": "knockoff_benchmark",
       "code": "PARSE_WARNING",
       "severity": "warning",
-      "message": "knockoff_baselines_20260409.json: method 'knockpy_gaussian_lasso' is not a dict, skipping",
+      "message": "knockoff_baselines_20260409.json: method 'knockpy_gaussian_lasso' unavailable (null in source)",
       "comparison_id": "knockoff-baselines-20260409",
       "parser_version": "1.0"
     },
@@ -22,7 +22,7 @@
       "parser": "knockoff_benchmark",
       "code": "PARSE_WARNING",
       "severity": "warning",
-      "message": "knockoff_baselines_20260409.json: method 'knockoff_fixedx_cupy' is not a dict, skipping",
+      "message": "knockoff_baselines_20260409.json: method 'knockoff_fixedx_cupy' unavailable (null in source)",
       "comparison_id": "knockoff-baselines-20260409",
       "parser_version": "1.0"
     },
@@ -32,7 +32,7 @@
       "parser": "knockoff_benchmark",
       "code": "PARSE_WARNING",
       "severity": "warning",
-      "message": "knockoff_baselines_20260409.json: method 'knockoff_modelx_cupy' is not a dict, skipping",
+      "message": "knockoff_baselines_20260409.json: method 'knockoff_modelx_cupy' unavailable (null in source)",
       "comparison_id": "knockoff-baselines-20260409",
       "parser_version": "1.0"
     }
