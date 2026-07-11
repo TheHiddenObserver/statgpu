@@ -9,6 +9,11 @@ import {
   formatSpeedup,
   formatQuality,
 } from '../utils/format';
+import { renderValidationPanel } from './panels/ValidationPanel';
+import { renderAccuracyPanel } from './panels/AccuracyPanel';
+import { renderPredictionPanel } from './panels/PredictionPanel';
+import { renderConvergencePanel } from './panels/ConvergencePanel';
+import { renderSelectionPanel } from './panels/SelectionPanel';
 
 // ---------------------------------------------------------------------------
 // Sort helper
@@ -189,104 +194,16 @@ export function renderOverviewTable(
     container.appendChild(btn);
   }
 
-  // Accuracy panel
-  const accRuns = filtered.filter((r) => r.metrics.accuracy);
-  if (accRuns.length > 0) {
-    const accToggle = h(
-      'div',
-      {
-        style:
-          'margin-top:4px; color:#1890ff; cursor:pointer; font-size:12px;',
-      },
-      '▶ Accuracy (l2_diff vs reference)',
-    );
-    accToggle.addEventListener('click', () => {
-      const accPanel = document.getElementById('accuracy-panel');
-      if (accPanel) {
-        accPanel.style.display =
-          accPanel.style.display === 'none' ? 'block' : 'none';
-        accToggle.textContent =
-          accPanel.style.display === 'none'
-            ? '▶ Accuracy (l2_diff vs reference)'
-            : '▼ Accuracy (l2_diff vs reference)';
-      }
-    });
-    container.appendChild(accToggle);
-
-    const accPanel = h('div', {
-      id: 'accuracy-panel',
-      style: 'display:none; margin-top:4px;',
-    });
-    const accTable = h('table', {
-      style:
-        'width:100%; border-collapse:collapse; font-size:11px;',
-    });
-    const accHeader = h('tr');
-    for (const hdr of [
-      'Model',
-      'Reference',
-      'L2 diff',
-      'Max abs diff',
-      'Status',
-    ]) {
-      accHeader.appendChild(
-        h(
-          'th',
-          {
-            style:
-              'padding:2px 6px; border-bottom:1px solid #ddd; text-align:left;',
-          },
-          hdr,
-        ),
-      );
-    }
-    accTable.appendChild(accHeader);
-    for (const r of accRuns.slice(0, 30)) {
-      const a = r.metrics.accuracy!;
-      const accRow = h('tr');
-      const l2 = a.coef_l2_diff;
-      const maxAbs = a.coef_max_abs_diff;
-
-      // Don't coerce missing metrics to 0 — missing ≠ pass
-      const status =
-        l2 == null
-          ? 'N/A'
-          : l2 < 1e-5
-            ? 'PASS'
-            : l2 < 1e-3
-              ? 'WARN'
-              : 'FAIL';
-      const statusColor =
-        l2 == null
-          ? '#888'
-          : l2 < 1e-5
-            ? '#52c41a'
-            : l2 < 1e-3
-              ? '#faad14'
-              : '#ff4d4f';
-
-      for (const c of [
-        r.model_id,
-        a.reference ?? '-',
-        l2 != null ? l2.toExponential(2) : '-',
-        maxAbs != null ? maxAbs.toExponential(2) : '-',
-      ]) {
-        accRow.appendChild(
-          h('td', { style: 'padding:2px 6px;' }, String(c)),
-        );
-      }
-      const statusTd = h(
-        'td',
-        {
-          style: `padding:2px 6px; color:${statusColor}; font-weight:bold;`,
-        },
-        status,
-      );
-      accRow.appendChild(statusTd);
-      accTable.appendChild(accRow);
-    }
-    accPanel.appendChild(accTable);
-    container.appendChild(accPanel);
+  // Domain panels
+  const panels = [
+    renderValidationPanel(filtered, state, onUpdate),
+    renderAccuracyPanel(filtered, state, onUpdate),
+    renderPredictionPanel(filtered, state, onUpdate),
+    renderConvergencePanel(filtered, state, onUpdate),
+    renderSelectionPanel(filtered, state, onUpdate),
+  ];
+  for (const p of panels) {
+    if (p) container.appendChild(p);
   }
 
   return container;
