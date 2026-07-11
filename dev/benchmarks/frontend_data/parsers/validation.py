@@ -30,12 +30,18 @@ def parse_comprehensive_validation(filepath: Path, env_id: str) -> tuple[list[di
         "parser": "parse_comprehensive_validation_v1", "parser_version": "1.0",
     }
 
+    # Normalize family names to canonical form
+    FAMILY_ALIASES = {
+        "poisson": "poisson", "gamma": "gamma", "tweedie": "tweedie",
+        "invgaussian": "inverse_gaussian", "negbinom": "negative_binomial",
+    }
     ext_val = data.get("external_validation", {})
     for family, result in ext_val.items():
         if not isinstance(result, dict):
             continue
-        model_id = FAMILY_MODEL_MAP.get(family.lower().replace("_", " ").replace(" ", "_"),
-                                        f"Penalized{family}Regression")
+        family_key = family.lower().replace("_", " ").replace(" ", "_")
+        family_key = FAMILY_ALIASES.get(family_key, family_key)
+        model_id = FAMILY_MODEL_MAP.get(family_key, f"Penalized{family}Regression")
         models.add(model_id)
 
         status = result.get("status", "PASS").lower()

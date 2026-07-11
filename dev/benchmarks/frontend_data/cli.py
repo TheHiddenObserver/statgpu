@@ -545,6 +545,35 @@ def main():
             json.dump(parse_report, f, indent=2)
         print(f"Wrote: {report_path}")
 
+    if args.inventory_out:
+        # Compute inventory from manifest if available, else transitional
+        if manifest:
+            registered = len(manifest.get("sources", []))
+            repo_root = Path(__file__).resolve().parents[3]
+            available = sum(1 for s in manifest["sources"] if (repo_root / s["path"]).exists())
+        else:
+            registered = len(PARSER_REGISTRY)
+            available = sum(1 for p in PARSER_REGISTRY if (results_dir / p).exists())
+        parsed = len({r["source"]["source_id"] for r in output["runs"]})
+        catalog_total = 472  # from A0 audit
+        inventory = {
+            "inventory_version": "1.0",
+            "catalog_version": "1.0",
+            "generation_id": output["meta"]["generation_id"],
+            "catalog_total": catalog_total,
+            "eligible_total": registered,
+            "registered_sources": registered,
+            "available_sources": available,
+            "parsed_sources": parsed,
+        }
+        inv_path = Path(args.inventory_out)
+        if not inv_path.is_absolute():
+            inv_path = Path.cwd() / inv_path
+        inv_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(inv_path, "w", encoding="utf-8") as f:
+            json.dump(inventory, f, indent=2)
+        print(f"Wrote: {inv_path}")
+
     if args.update_preflight_baseline:
         repo_root = Path(__file__).resolve().parents[3]
         fixture_dir = repo_root / "dev" / "tests" / "fixtures" / "benchmark_frontend"

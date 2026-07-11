@@ -38,10 +38,11 @@ export function renderTimingChart(
     { label: string; byBackend: Map<string, number> }
   >();
   for (const r of timingRuns) {
-    const gk = `${r.model_id}|${r.penalty ?? 'none'}|${r.solver ?? 'auto'}|${r.scale.scale_key}`;
+    const gk = `${r.model_id}|${r.variant ?? ''}|${r.method_config_id}|${r.penalty ?? 'none'}|${r.solver ?? 'auto'}|${r.scale.scale_key}`;
     if (!groups.has(gk)) {
+      const variantSuffix = r.variant ? ` (${r.variant})` : '';
       groups.set(gk, {
-        label: `${formatModelName(r.model_id)}+${r.penalty ?? 'none'} ${r.scale.label}`,
+        label: `${formatModelName(r.model_id)}${variantSuffix}+${r.penalty ?? 'none'} ${r.scale.label}`,
         byBackend: new Map(),
       });
     }
