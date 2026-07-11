@@ -1,5 +1,6 @@
 import type { BenchmarkData, ParseReport } from '../schema';
 import type { AppState } from '../state';
+import { resetDownstreamFilters } from '../state';
 import { h } from '../utils/dom';
 
 export function renderHeader(
@@ -28,13 +29,12 @@ export function renderHeader(
   }
   hwSelect.addEventListener('change', () => {
     state.selectedEnvId = (hwSelect as HTMLSelectElement).value;
-    // Reset downstream filters that may be invalid for the new environment
-    state.selectedModelId = null;
-    state.selectedPenalty = null;
-    state.selectedSolver = null;
-    state.selectedScaleKeys.clear();
-    state.selectedBackends.clear();
-    state.showExternal.clear();
+    // Reset downstream filters via centralized helper
+    resetDownstreamFilters(state, {
+      clearModel: true, clearVariant: true, clearPenalty: true,
+      clearSolver: true, clearScale: true, clearBackend: true, clearExternal: true,
+    });
+    state.tableLimit = 200;
     onUpdate();
   });
   right.appendChild(hwLabel);

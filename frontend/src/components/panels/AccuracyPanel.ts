@@ -9,9 +9,12 @@ export function renderAccuracyPanel(runs: Run[], state: AppState, onUpdate: () =
   for (const r of runs) {
     const a = r.metrics.accuracy;
     if (!a) continue;
+    // Prefer validation.status if available, else auto-compute from coef_l2_diff
+    const vStatus = r.metrics.validation?.status;
     const l2 = a.coef_l2_diff;
-    const status = l2 == null ? 'N/A' : l2 < 1e-5 ? 'PASS' : l2 < 1e-3 ? 'WARN' : 'FAIL';
-    const color = l2 == null ? '#888' : l2 < 1e-5 ? '#52c41a' : l2 < 1e-3 ? '#faad14' : '#ff4d4f';
+    const status = vStatus ?? (l2 == null ? 'N/A' : l2 < 1e-5 ? 'PASS' : l2 < 1e-3 ? 'WARN' : 'FAIL');
+    const colorMap: Record<string, string> = { pass: '#52c41a', PASS: '#52c41a', warn: '#faad14', WARN: '#faad14', fail: '#ff4d4f', FAIL: '#ff4d4f', 'N/A': '#888' };
+    const color = colorMap[status] ?? '#888';
     rows.push({
       model: r.model_id, reference: a.reference ?? '-',
       coef_l2: l2 != null ? l2.toExponential(2) : '-',

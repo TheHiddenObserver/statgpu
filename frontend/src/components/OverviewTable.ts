@@ -151,13 +151,12 @@ export function renderOverviewTable(
       formatQuality(t?.quality, s?.quality),
       r.source.file,
     ];
+    const speedupColIdx = cols.indexOf('Speedup');
     for (let i = 0; i < cells.length; i++) {
       const c = cells[i];
       const td = h('td', {}, String(c));
-      // Highlight the Speedup column (index 6) when speedup >= 2x
-      if (i === 6 && s && s.value >= 2) {
-        td.style.cssText +=
-          '; font-weight:bold; color:#52c41a;';
+      if (i === speedupColIdx && s && s.value >= 2) {
+        td.style.cssText += '; font-weight:bold; color:#52c41a;';
       }
       row.appendChild(td);
     }

@@ -2,7 +2,7 @@ import './style.css';
 
 import * as echarts from 'echarts';
 import type { BenchmarkData, ParseReport, Run } from './schema';
-import { fetchBenchmarkData, fetchParseReport, filterRuns } from './data';
+import { fetchBenchmarkData, fetchParseReport, fetchSourceInventory, filterRuns } from './data';
 import { createDefaultState } from './state';
 import type { AppState } from './state';
 import { h, clear } from './utils/dom';
@@ -21,6 +21,7 @@ import { emptyStateMessage } from './components/EmptyState';
 
 let data: BenchmarkData | null = null;
 let parseReport: ParseReport | null = null;
+let sourceInventory: import('./schema').SourceInventory | null = null;
 let state: AppState | null = null;
 
 /** Track ECharts instances for cleanup before re-render */
@@ -153,8 +154,11 @@ async function init(): Promise<void> {
   try {
     data = await fetchBenchmarkData();
     state = createDefaultState(data.environments);
-    // parseReport is non-critical; fetch separately so failure doesn't block dashboard
-    parseReport = await fetchParseReport().catch(() => null);
+    // Non-critical metadata — fetch in parallel, failure doesn't block dashboard
+    [parseReport, sourceInventory] = await Promise.all([
+      fetchParseReport().catch(() => null),
+      fetchSourceInventory().catch(() => null),
+    ]);
     const appEl = renderApp();
     clear(root);
     (root as HTMLElement).appendChild(appEl);

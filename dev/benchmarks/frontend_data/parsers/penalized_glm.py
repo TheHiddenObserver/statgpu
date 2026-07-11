@@ -77,12 +77,21 @@ def parse_penalized_glm_bench_perf(filepath: Path, env_id: str) -> tuple[list[di
                 max_val = bk_data.get("max_ms")
                 timing = {
                     "fit_time_ms": bk_data["mean_ms"],
-                    "std_ms": std_val if std_val is not None else 0,
-                    "min_ms": min_val if min_val is not None else bk_data["mean_ms"],
-                    "max_ms": max_val if max_val is not None else bk_data["mean_ms"],
                     "quality": "measured",
                     "source_file": filepath.name,
                 }
+                if std_val is not None:
+                    timing["std_ms"] = std_val
+                    timing["std_ddof"] = 0
+                    timing["std_scope"] = "replicates"
+                if min_val is not None:
+                    timing["min_ms"] = min_val
+                else:
+                    timing["min_ms"] = bk_data["mean_ms"]
+                if max_val is not None:
+                    timing["max_ms"] = max_val
+                else:
+                    timing["max_ms"] = bk_data["mean_ms"]
 
                 metrics: dict = {"timing": timing}
 
