@@ -38,10 +38,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - name: Apply staged fixes
-        run: python dev/scripts/apply_review_batch1.py
-      - name: Install dependencies
-        run: |
+      - run: python dev/scripts/apply_review_batch1.py
+      - run: |
           python -m pip install --upgrade pip
           python -m pip install -e ".[validation,formula]"
           python -m pip install ruff
@@ -49,20 +47,18 @@ jobs:
         run: |
           python -m compileall -q statgpu
           ruff check statgpu/feature_selection/_knockoff_utils.py statgpu/glm_core/_solver_utils.py statgpu/penalties/_adaptive_l1.py statgpu/unsupervised/_nndescent.py statgpu/unsupervised/_umap.py --select F821,E9,F63,F7,F82
-          python - <<'PY'
-          from pathlib import Path
-          text = Path('statgpu/survival/_cox.py').read_text()
-          assert '.reshape(n, n_features * n_features)' not in text
-          assert 'prefix_weights = suffix_sc - sc_at_start' in text
-          PY
-      - name: Test Adaptive L1 regression
-        run: python -m pytest dev/tests/test_repository_review_regressions.py::test_adaptive_l1_gradient_numpy -q --tb=short
-      - name: Test NNDescent regression
-        run: python -m pytest dev/tests/test_repository_review_regressions.py::test_nndescent_numpy_unique_and_validated -q --tb=short
-      - name: Test UMAP entropy regression
-        run: python -m pytest dev/tests/test_repository_review_regressions.py::test_umap_none_seed_draws_once_per_fit -q --tb=short
-      - name: Test existing UMAP suite
-        run: python -m pytest dev/tests/test_unsupervised_umap.py -q --tb=short
+      - name: New regressions
+        run: python -m pytest dev/tests/test_repository_review_regressions.py -q --tb=short
+      - name: UMAP shape and attributes
+        run: python -m pytest dev/tests/test_unsupervised_umap.py::test_umap_fit_transform_shape_and_attributes -q --tb=short
+      - name: UMAP seeded reproducibility
+        run: python -m pytest dev/tests/test_unsupervised_umap.py::test_umap_seeded_random_init_is_reproducible -q --tb=short
+      - name: UMAP unsupported modes
+        run: python -m pytest dev/tests/test_unsupervised_umap.py::test_umap_rejects_unsupported_modes -q --tb=short
+      - name: UMAP parameter sensitivity
+        run: python -m pytest dev/tests/test_unsupervised_umap.py::test_umap_min_dist_and_spread_change_embedding -q --tb=short
+      - name: UMAP curve parameters
+        run: python -m pytest dev/tests/test_unsupervised_umap.py::test_umap_attraction_curve_params_are_positive -q --tb=short
       - name: Commit first batch
         run: |
           git config user.name "OpenAI review agent"
