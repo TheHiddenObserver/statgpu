@@ -72,11 +72,14 @@ def parse_penalized_glm_bench_perf(filepath: Path, env_id: str) -> tuple[list[di
                     "statgpu", scale["scale_key"], env_id, session_id, source_hash,
                 )
 
+                std_val = bk_data.get("std_ms")
+                min_val = bk_data.get("min_ms")
+                max_val = bk_data.get("max_ms")
                 timing = {
                     "fit_time_ms": bk_data["mean_ms"],
-                    "std_ms": bk_data.get("std_ms") or 0,
-                    "min_ms": bk_data.get("min_ms") or bk_data["mean_ms"],
-                    "max_ms": bk_data.get("max_ms") or bk_data["mean_ms"],
+                    "std_ms": std_val if std_val is not None else 0,
+                    "min_ms": min_val if min_val is not None else bk_data["mean_ms"],
+                    "max_ms": max_val if max_val is not None else bk_data["mean_ms"],
                     "quality": "measured",
                     "source_file": filepath.name,
                 }

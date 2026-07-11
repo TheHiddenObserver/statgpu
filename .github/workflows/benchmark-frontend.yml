@@ -4,20 +4,22 @@ on:
   push:
     branches: [master]
     paths:
-      - 'dev/benchmarks/generate_benchmark_data.py'
-      - 'dev/benchmarks/benchmark_frontend_schema.json'
+      - 'dev/benchmarks/**'
       - 'dev/tests/test_benchmark_frontend_data.py'
+      - 'dev/tests/test_frontend_parsers.py'
+      - 'dev/tests/fixtures/benchmark_frontend/**'
       - 'frontend/**'
       - 'docs/assets/benchmarks/**'
-      - 'results/benchmark_full/**'
+      - 'results/benchmark_frontend_sources/**'
   pull_request:
     paths:
-      - 'dev/benchmarks/generate_benchmark_data.py'
-      - 'dev/benchmarks/benchmark_frontend_schema.json'
+      - 'dev/benchmarks/**'
       - 'dev/tests/test_benchmark_frontend_data.py'
+      - 'dev/tests/test_frontend_parsers.py'
+      - 'dev/tests/fixtures/benchmark_frontend/**'
       - 'frontend/**'
       - 'docs/assets/benchmarks/**'
-      - 'results/benchmark_full/**'
+      - 'results/benchmark_frontend_sources/**'
 
 jobs:
   python-data:

@@ -44,11 +44,7 @@ export function renderSelectionPanel(runs: Run[], state: AppState, onUpdate: () 
       { key: 'n_selected', label: 'N Selected', render: r => String(r.n_selected) },
       { key: 'target_fdr', label: 'Target FDR', render: r => String(r.target_fdr) },
     ],
-    rows, state,
+    rows, state, onToggle: onUpdate,
   });
-  const toggleBtn = panel.querySelector('div') as HTMLElement | null;
-  if (toggleBtn) (toggleBtn as any)._onToggle = onUpdate;
-  const buttons = panel.querySelectorAll('button');
-  for (const btn of buttons) (btn as any)._onToggle = onUpdate;
   return panel;
 }

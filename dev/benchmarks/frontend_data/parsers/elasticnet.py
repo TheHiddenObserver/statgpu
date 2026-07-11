@@ -77,8 +77,9 @@ def parse_elasticnet_benchmark_full(filepath: Path, env_id: str) -> tuple[list[d
                         "source_file": filepath.name,
                     },
                     "convergence": {
-                        "n_iter": entry.get("n_iterations", entry.get("n_iter", 0)),
-                        "converged": True,
+                        "n_iter_mean": float(entry.get("n_iterations", entry.get("n_iter", 0))),
+                        "n_iter_std": 0.0,
+                        "converged_rate": 1.0,
                         "quality": "reported",
                         "source_file": filepath.name,
                     },
@@ -139,8 +140,9 @@ def parse_elasticnet_benchmark_full(filepath: Path, env_id: str) -> tuple[list[d
 
                 if "n_iter" in bk_data:
                     metrics["convergence"] = {
-                        "n_iter": bk_data["n_iter"],
-                        "converged": True,
+                        "n_iter_mean": float(bk_data["n_iter"]),
+                        "n_iter_std": 0.0,
+                        "converged_rate": 1.0,
                         "quality": "reported",
                         "source_file": filepath.name,
                     }

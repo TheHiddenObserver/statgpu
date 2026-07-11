@@ -164,9 +164,10 @@ export function renderFilterBar(
     bar.appendChild(radio);
   }
 
-  // External frameworks
+  // External frameworks (dynamic from data.frameworks)
   bar.appendChild(h('span', {}, '| Ext:'));
-  for (const ext of ['sklearn', 'glmnet', 'statsmodels']) {
+  const extFrameworks = data.frameworks.filter(f => f.external).map(f => f.framework_id);
+  for (const ext of extFrameworks) {
     const lbl = h('label', {
       style: 'margin:0 4px; cursor:pointer; font-size:12px;',
     });

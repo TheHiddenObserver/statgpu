@@ -30,11 +30,7 @@ export function renderPredictionPanel(runs: Run[], state: AppState, onUpdate: ()
       { key: 'test_mse', label: 'Test MSE', render: r => String(r.test_mse) },
       { key: 'alpha', label: 'Alpha', render: r => String(r.alpha) },
     ],
-    rows, state,
+    rows, state, onToggle: onUpdate,
   });
-  const toggleBtn = panel.querySelector('div') as HTMLElement | null;
-  if (toggleBtn) (toggleBtn as any)._onToggle = onUpdate;
-  const buttons = panel.querySelectorAll('button');
-  for (const btn of buttons) (btn as any)._onToggle = onUpdate;
   return panel;
 }

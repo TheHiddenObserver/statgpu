@@ -38,7 +38,7 @@ def parse_glm_solver_benchmark(filepath: Path, env_id: str) -> tuple[list[dict],
         if scale_name in SCALE_CONFIG:
             scale_cfg = SCALE_CONFIG[scale_name]
         else:
-            m = re.match(r"(\d+)K\s*[x×]\s*(\d+)", env_scale)
+            m = re.match(r"(\d+)K\s*[x×]\s*(\d+)", scale_name) or re.match(r"(\d+)K\s*[x×]\s*(\d+)", env_scale)
             if m:
                 n_samples = int(m.group(1)) * 1000
                 n_features = int(m.group(2))

@@ -283,15 +283,6 @@ def generate(results_dir: Path, deterministic: bool = False,
         generated_ts = datetime.now(timezone.utc).isoformat()
         git_sha = get_git_sha()
 
-    # --- Inject transitional v1.1 fields ---
-    _inject_transitional_fields(all_runs, results_dir)
-
-    # Build transitional framework registry
-    t_frameworks = _build_transitional_frameworks(all_runs)
-
-    # Build transitional comparison registry
-    t_comparisons = _build_transitional_comparisons(all_runs, results_dir)
-
     # Build output
     output = {
         "schema_version": "1.1.0",
@@ -498,8 +489,10 @@ def main():
         manifest = load_manifest(repo_root)
         if manifest:
             print("Using manifest-driven canonical mode")
-    except Exception:
-        pass
+    except FileNotFoundError:
+        pass  # manifest not yet created — expected in transitional mode
+    except Exception as e:
+        print(f"WARNING: Failed to load manifest: {e}", file=sys.stderr)
 
     print(f"Scanning results from: {results_dir}")
     output, parse_report = generate(results_dir, deterministic=args.deterministic,

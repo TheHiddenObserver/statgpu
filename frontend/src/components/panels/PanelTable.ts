@@ -17,6 +17,7 @@ export interface PanelTableOptions {
   rows: Record<string, unknown>[];
   state: AppState;
   defaultLimit?: number;
+  onToggle?: () => void;
 }
 
 export function renderPanelTable(opts: PanelTableOptions): HTMLElement {
@@ -37,8 +38,7 @@ export function renderPanelTable(opts: PanelTableOptions): HTMLElement {
     } else {
       state.expandedPanels.add(panelId);
     }
-    // Trigger re-render via callback
-    (toggle as any)._onToggle?.();
+    opts.onToggle?.();
   });
   container.appendChild(toggle);
 
@@ -77,14 +77,14 @@ export function renderPanelTable(opts: PanelTableOptions): HTMLElement {
       const btn = h('button', { style: 'margin-left:8px; padding:1px 6px; font-size:11px;' }, 'Show first 30');
       btn.addEventListener('click', () => {
         state.panelLimits[panelId] = 30;
-        (btn as any)._onToggle?.();
+        opts.onToggle?.();
       });
       footer.appendChild(btn);
     } else {
       const btn = h('button', { style: 'margin-left:8px; padding:1px 6px; font-size:11px;' }, `Show all ${rows.length}`);
       btn.addEventListener('click', () => {
         state.panelLimits[panelId] = Infinity;
-        (btn as any)._onToggle?.();
+        opts.onToggle?.();
       });
       footer.appendChild(btn);
     }

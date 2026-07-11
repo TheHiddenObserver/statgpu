@@ -35,11 +35,7 @@ export function renderAccuracyPanel(runs: Run[], state: AppState, onUpdate: () =
       { key: 'status', label: 'Status', render: r => String(r.status),
         style: r => `padding:2px 6px; color:${r._color}; font-weight:bold;` },
     ],
-    rows, state,
+    rows, state, onToggle: onUpdate,
   });
-  const toggleBtn = panel.querySelector('div') as HTMLElement | null;
-  if (toggleBtn) (toggleBtn as any)._onToggle = onUpdate;
-  const buttons = panel.querySelectorAll('button');
-  for (const btn of buttons) (btn as any)._onToggle = onUpdate;
   return panel;
 }

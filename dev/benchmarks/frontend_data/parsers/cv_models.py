@@ -69,7 +69,10 @@ def parse_lassocv_combined(filepath: Path, env_id: str) -> tuple[list[dict], lis
 
         # Aggregate timing
         times = [r["time_ms"] for r in seed_runs if "time_ms" in r]
-        timing_mean = statistics.mean(times) if times else 0
+        if not times:
+            warnings.append(f"{filepath.name}: method '{method_name}' has no timing data, skipping")
+            continue
+        timing_mean = statistics.mean(times)
         timing_std = statistics.stdev(times) if len(times) > 1 else 0.0
 
         # Aggregate n_iter
@@ -119,7 +122,7 @@ def parse_lassocv_combined(filepath: Path, env_id: str) -> tuple[list[dict], lis
         if test_mse_mean is not None:
             pred["test_mse"] = round(test_mse_mean, 6)
             pred["test_mse_std"] = round(test_mse_std, 6)
-        if alpha_mean:
+        if alphas:
             pred["alpha_mean"] = round(alpha_mean, 6)
             pred["alpha_std"] = round(alpha_std, 6)
         if len(pred) > 2:

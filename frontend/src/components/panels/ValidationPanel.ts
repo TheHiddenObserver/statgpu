@@ -54,13 +54,8 @@ export function renderValidationPanel(
     ],
     rows,
     state,
+    onToggle: onUpdate,
   });
-
-  // Wire up the toggle callback to trigger dashboard re-render
-  const toggleBtn = panel.querySelector('div') as HTMLElement | null;
-  if (toggleBtn) (toggleBtn as any)._onToggle = onUpdate;
-  const buttons = panel.querySelectorAll('button');
-  for (const btn of buttons) (btn as any)._onToggle = onUpdate;
 
   return panel;
 }

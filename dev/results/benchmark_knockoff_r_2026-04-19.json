@@ -1,0 +1,60 @@
+{
+  "date": "2026-04-19",
+  "r_version": "4.5.3",
+  "packages": {
+    "knockoff": "0.3.6"
+  },
+  "config": {
+    "n": 400,
+    "p": 80,
+    "n_signal": 12,
+    "rho": 0.3,
+    "q": 0.1,
+    "noise_scale": 1,
+    "seeds": [20260406, 20260407, 20260408]
+  },
+  "methods": {
+    "fixed_x_sdp": {
+      "runs": [
+        {"seed": 20260406, "time_ms": 1566, "n_selected": 13, "tp": 12, "fp": 1, "precision": 0.923, "recall": 1.0, "fdp": 0.077, "error": null},
+        {"seed": 20260407, "time_ms": 14790, "n_selected": 12, "tp": 12, "fp": 0, "precision": 1.0, "recall": 1.0, "fdp": 0.0, "error": null},
+        {"seed": 20260408, "time_ms": 668, "n_selected": 13, "tp": 12, "fp": 1, "precision": 0.923, "recall": 1.0, "fdp": 0.077, "error": null}
+      ],
+      "aggregate": {
+        "n_runs": 3,
+        "time_ms_mean": 5674.67,
+        "precision_mean": 0.949,
+        "recall_mean": 1.0,
+        "fdp_mean": 0.051
+      }
+    },
+    "fixed_x_equi": {
+      "runs": [
+        {"seed": 20260406, "time_ms": 468, "n_selected": 16, "tp": 12, "fp": 4, "precision": 0.75, "recall": 1.0, "fdp": 0.25, "error": null},
+        {"seed": 20260407, "time_ms": 465, "n_selected": 13, "tp": 12, "fp": 1, "precision": 0.923, "recall": 1.0, "fdp": 0.077, "error": null},
+        {"seed": 20260408, "time_ms": 429, "n_selected": 15, "tp": 12, "fp": 3, "precision": 0.8, "recall": 1.0, "fdp": 0.2, "error": null}
+      ],
+      "aggregate": {
+        "n_runs": 3,
+        "time_ms_mean": 454.0,
+        "precision_mean": 0.824,
+        "recall_mean": 1.0,
+        "fdp_mean": 0.176
+      }
+    },
+    "model_x_second_order": {
+      "runs": [
+        {"seed": 20260406, "time_ms": 15692, "n_selected": 14, "tp": 12, "fp": 2, "precision": 0.857, "recall": 1.0, "fdp": 0.143, "error": null},
+        {"seed": 20260407, "time_ms": 450, "n_selected": 12, "tp": 12, "fp": 0, "precision": 1.0, "recall": 1.0, "fdp": 0.0, "error": null},
+        {"seed": 20260408, "time_ms": 801, "n_selected": 20, "tp": 12, "fp": 8, "precision": 0.6, "recall": 1.0, "fdp": 0.4, "error": null}
+      ],
+      "aggregate": {
+        "n_runs": 3,
+        "time_ms_mean": 5647.67,
+        "precision_mean": 0.819,
+        "recall_mean": 1.0,
+        "fdp_mean": 0.181
+      }
+    }
+  }
+}

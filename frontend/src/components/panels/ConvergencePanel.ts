@@ -26,11 +26,7 @@ export function renderConvergencePanel(runs: Run[], state: AppState, onUpdate: (
       { key: 'n_iter', label: 'N Iter (mean±std)', render: r => String(r.n_iter) },
       { key: 'converged', label: 'Converged Rate', render: r => String(r.converged) },
     ],
-    rows, state,
+    rows, state, onToggle: onUpdate,
   });
-  const toggleBtn = panel.querySelector('div') as HTMLElement | null;
-  if (toggleBtn) (toggleBtn as any)._onToggle = onUpdate;
-  const buttons = panel.querySelectorAll('button');
-  for (const btn of buttons) (btn as any)._onToggle = onUpdate;
   return panel;
 }
