@@ -3532,6 +3532,21 @@ class CoxPH(BaseEstimator):
         else:
             return torch.tensor(float("nan"), dtype=torch.float64, device=beta.device)
 
+    @staticmethod
+    def _observed_information(hess):
+        """Return a symmetric positive-oriented observed information matrix.
+
+        Breslow kernels return the log-likelihood Hessian, while legacy Efron
+        kernels return its negation.  Select the orientation with the larger
+        positive spectral mass and keep this compatibility normalization at the
+        inference boundary.
+        """
+        sym = 0.5 * (np.asarray(hess, dtype=np.float64) + np.asarray(hess, dtype=np.float64).T)
+        eigvals = np.linalg.eigvalsh(sym)
+        positive_mass = float(np.sum(np.clip(eigvals, 0.0, None)))
+        negative_mass = float(np.sum(np.clip(-eigvals, 0.0, None)))
+        return sym if positive_mass >= negative_mass else -sym
+
     def _compute_inference_cpu(self, X, time, event, cluster=None):
         """Compute standard errors, z-values, p-values, and confidence intervals."""
         n_features = X.shape[1]
@@ -3545,10 +3560,11 @@ class CoxPH(BaseEstimator):
         )
         
         # Bread matrix from observed information.
+        information = self._observed_information(hess)
         try:
-            bread = np.linalg.solve(-hess, np.eye(n_features))
+            bread = np.linalg.solve(information, np.eye(n_features))
         except np.linalg.LinAlgError:
-            bread = np.linalg.pinv(-hess)
+            bread = np.linalg.pinv(information)
 
         if self.cov_type == "nonrobust":
             self._var_matrix = bread
@@ -3607,7 +3623,7 @@ class CoxPH(BaseEstimator):
         grad_0, _ = self._compute_gradient_hessian(np.zeros(n_features), X, time, event, ep, entry=getattr(self, "_entry", None))
         try:
             _, hess_0 = self._compute_gradient_hessian(np.zeros(n_features), X, time, event, ep, entry=getattr(self, "_entry", None))
-            info_0 = -hess_0
+            info_0 = self._observed_information(hess_0)
             info_0_inv = np.linalg.solve(info_0, np.eye(n_features))
             self._score_test_stat = grad_0 @ info_0_inv @ grad_0
         except:

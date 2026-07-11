@@ -100,9 +100,6 @@ class Ridge(_PenalizedLinearRegression):
             if self.fit_intercept:
                 XtX -= w_sum * np.outer(X_wmean, X_wmean)
                 Xty -= w_sum * X_wmean * y_wmean
-                n_eff = w_sum
-            else:
-                n_eff = float(sw.sum())
         else:
             if self.fit_intercept:
                 X_mean = np.mean(X_np, axis=0)
@@ -114,17 +111,15 @@ class Ridge(_PenalizedLinearRegression):
             else:
                 XtX = X_np.T @ X_np
                 Xty = X_np.T @ y_np
-            n_eff = float(n_samples)
 
         if Xty.ndim == 0:
             Xty = Xty.reshape(1)
         if Xty.ndim == 1:
             Xty = Xty.reshape(-1, 1)
 
-        # Solve (XtX + n_eff*alpha*I) @ coef = Xty
-        # n_eff scaling matches PenalizedGeneralizedLinearModel exact ridge
-        # and sklearn Ridge convention.
-        A = XtX + float(self.alpha) * n_eff * np.eye(n_features, dtype=np.float64)
+        # sklearn Ridge minimizes ||y - Xb||^2 + alpha * ||b||^2.
+        # The penalty is therefore not multiplied by n_samples or weight sum.
+        A = XtX + float(self.alpha) * np.eye(n_features, dtype=np.float64)
         try:
             coef = np.linalg.solve(A, Xty).flatten()
         except np.linalg.LinAlgError:
