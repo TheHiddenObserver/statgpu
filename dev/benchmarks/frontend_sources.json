@@ -14,7 +14,8 @@
     "glmnet": { "display_name": "glmnet", "external": true, "backend_policy": "forbidden" },
     "statsmodels": { "display_name": "statsmodels", "external": true, "backend_policy": "forbidden" },
     "lifelines": { "display_name": "lifelines", "external": true, "backend_policy": "forbidden" },
-    "scikit_survival": { "display_name": "scikit-survival", "external": true, "backend_policy": "forbidden" }
+    "scikit_survival": { "display_name": "scikit-survival", "external": true, "backend_policy": "forbidden" },
+    "knockpy": { "display_name": "knockpy", "external": true, "backend_policy": "forbidden" }
   },
   "comparisons": {
     "penalized-glm-perf-20260622": {
@@ -39,6 +40,14 @@
     },
     "coxph-package-20260419": {
       "label": "CoxPH package comparison — 2026-04-19",
+      "env_id": "remote-p100"
+    },
+    "lassocv-20260409": {
+      "label": "LassoCV backend comparison — 2026-04-09",
+      "env_id": "remote-p100"
+    },
+    "knockoff-baselines-20260409": {
+      "label": "Knockoff feature selection baselines — 2026-04-09",
       "env_id": "remote-p100"
     }
   },
@@ -122,6 +131,30 @@
       "original_path": "results/coxph_package_comparison_2026-04-19.json",
       "sha256": "5f48a555161359e3e2fac0a35bda495f03cbbbd8749a9640cf6dd2aef9d478e9",
       "parser": "coxph_package_comparison",
+      "parser_version": "1.0",
+      "env_id": "remote-p100",
+      "required": true,
+      "allowed_issue_codes": []
+    },
+    {
+      "source_id": "lassocv-combined-20260409-12c19911bfee",
+      "comparison_id": "lassocv-20260409",
+      "path": "results/benchmark_frontend_sources/lassocv_combined_20260409.json",
+      "original_path": "results/remote_gpu_lassocv_runtime_compare_combined_2026-04-09.json",
+      "sha256": "12c19911bfeecb84f74cc33a37fb2e2982928d28056f014f3256c32c21b801d1",
+      "parser": "lassocv_combined",
+      "parser_version": "1.0",
+      "env_id": "remote-p100",
+      "required": true,
+      "allowed_issue_codes": []
+    },
+    {
+      "source_id": "knockoff-baselines-20260409-beecd907fe54",
+      "comparison_id": "knockoff-baselines-20260409",
+      "path": "results/benchmark_frontend_sources/knockoff_baselines_20260409.json",
+      "original_path": "results/benchmark_knockoff_vs_baselines_2026-04-09.json",
+      "sha256": "beecd907fe543e16b8edf7a8e69baf7b61fea0e0c3b799ef6cb253f87582d21d",
+      "parser": "knockoff_benchmark",
       "parser_version": "1.0",
       "env_id": "remote-p100",
       "required": true,

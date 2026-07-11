@@ -10,6 +10,8 @@ from .parsers import (
     parse_coxph_efron_bench,
     parse_comprehensive_validation,
     parse_coxph_package_comparison,
+    parse_lassocv_combined,
+    parse_knockoff_benchmark,
 )
 
 # Hardcoded fallback (A1 transitional)
@@ -40,6 +42,8 @@ PARSER_FUNCTIONS = {
     "coxph_efron_bench": parse_coxph_efron_bench,
     "comprehensive_validation": parse_comprehensive_validation,
     "coxph_package_comparison": parse_coxph_package_comparison,
+    "lassocv_combined": parse_lassocv_combined,
+    "knockoff_benchmark": parse_knockoff_benchmark,
 }
 
 

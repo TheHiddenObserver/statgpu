@@ -119,27 +119,32 @@ def _inject_canonical_fields(runs: list[dict], manifest: dict, results_dir: Path
     """Inject canonical source_id, case_id, method_config_id, comparison_id (A2+)."""
     from .identity import run_identity
 
-    # Build source lookup
-    source_by_path: dict[str, dict] = {}
+    # Build source lookup by canonical filename AND original path ending
+    source_by_canon: dict[str, dict] = {}
+    source_by_orig: dict[str, dict] = {}
     for src in manifest.get("sources", []):
-        source_by_path[src["path"]] = src
+        canon_name = Path(src["path"]).name
+        source_by_canon[canon_name] = src
+        orig = src.get("original_path", "")
+        if orig:
+            orig_name = Path(orig).name
+            source_by_orig[orig_name] = src
 
     for run in runs:
         src_file = run["source"]["file"]
-        # Try to find matching manifest source
-        manifest_src = None
-        canonical_path = None
-        for path, src in source_by_path.items():
-            if Path(path).name == src_file or src.get("original_path", "").endswith(src_file):
-                manifest_src = src
-                canonical_path = path
-                break
+        # Match by canonical name first, then original name
+        manifest_src = source_by_canon.get(src_file) or source_by_orig.get(src_file)
+        if not manifest_src:
+            # Try original_path ending match
+            for orig_name, src in source_by_orig.items():
+                if orig_name == src_file:
+                    manifest_src = src
+                    break
 
         if manifest_src:
             run["source"]["source_id"] = manifest_src["source_id"]
             run["source"]["original_path"] = manifest_src.get("original_path", "")
             run["comparison_id"] = manifest_src.get("comparison_id", manifest_src["source_id"])
-            # SHA256 already computed in transitional mode, keep it
         else:
             # Fallback: transitional source_id
             run["source"]["source_id"] = f"transitional:{src_file}"
