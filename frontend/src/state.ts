@@ -31,9 +31,13 @@ export interface AppState {
 
 export function createDefaultState(envs: Environment[], runs: Run[] = []): AppState {
   if (envs.length === 0) throw new Error('environments must have at least 1 entry');
-  const defaultEnvId = envs.some(e => e.env_id === 'remote-p100')
-    ? 'remote-p100'
-    : envs[0].env_id;
+
+  const runEnvIds = new Set(runs.map(run => run.env_id));
+  const preferredEnvId = envs.find(
+    env => env.env_id === 'remote-p100' && (runs.length === 0 || runEnvIds.has(env.env_id)),
+  )?.env_id;
+  const firstEnvWithRuns = envs.find(env => runEnvIds.has(env.env_id))?.env_id;
+  const defaultEnvId = preferredEnvId ?? firstEnvWithRuns ?? envs[0].env_id;
 
   const availableCategories = new Set(
     runs
