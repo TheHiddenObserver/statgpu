@@ -1,6 +1,6 @@
 /** UI state model and mutation helpers */
 
-import type { Environment } from './schema';
+import type { Environment, Run } from './schema';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -29,15 +29,24 @@ export interface AppState {
 // Factory
 // ---------------------------------------------------------------------------
 
-export function createDefaultState(envs: Environment[], _runs?: unknown[]): AppState {
+export function createDefaultState(envs: Environment[], runs: Run[] = []): AppState {
   if (envs.length === 0) throw new Error('environments must have at least 1 entry');
   const defaultEnvId = envs.some(e => e.env_id === 'remote-p100')
     ? 'remote-p100'
     : envs[0].env_id;
-  // Prefer penalized_glm if available, but don't require it
-  const defaultCat = 'penalized_glm';
+
+  const availableCategories = new Set(
+    runs
+      .filter(run => run.env_id === defaultEnvId)
+      .flatMap(run => run.category_ids),
+  );
+  const firstAvailableCategory = availableCategories.values().next().value as string | undefined;
+  const defaultCategory = availableCategories.has('penalized_glm')
+    ? 'penalized_glm'
+    : firstAvailableCategory ?? (runs.length === 0 ? 'penalized_glm' : null);
+
   return {
-    selectedCategoryIds: new Set([defaultCat]),
+    selectedCategoryIds: defaultCategory ? new Set([defaultCategory]) : new Set(),
     selectedEnvId: defaultEnvId,
     selectedModelId: null,
     selectedVariant: null,
