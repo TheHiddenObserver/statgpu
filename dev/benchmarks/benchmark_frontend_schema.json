@@ -7,7 +7,7 @@
   "additionalProperties": false,
   "required": ["schema_version", "generated", "meta", "environments", "categories", "models", "frameworks", "comparisons", "runs"],
   "properties": {
-    "schema_version": { "type": "string" },
+    "schema_version": { "const": "1.1.0" },
     "generated": { "type": "string", "format": "date-time" },
     "meta": {
       "type": "object", "additionalProperties": false,
