@@ -7,46 +7,6 @@ on:
     branches: [master]
 
 jobs:
-  patch-reviewed-code:
-    if: github.event_name == 'pull_request' && github.head_ref == 'agent/code-review-fixes' && github.actor != 'github-actions[bot]'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-    - uses: actions/checkout@v4
-      with:
-        ref: ${{ github.head_ref }}
-        fetch-depth: 0
-
-    - name: Set up Python 3.11
-      uses: actions/setup-python@v5
-      with:
-        python-version: '3.11'
-
-    - name: Apply reviewed patch
-      run: |
-        python dev/agent_patch.py
-        git checkout HEAD -- .github/workflows/test.yml
-
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install -e ".[validation]"
-
-    - name: Run targeted regression tests
-      run: |
-        python -m pytest dev/tests/test_core_contracts.py dev/tests/test_inference_resampling.py dev/tests/test_unsupervised_umap.py -q --tb=short
-
-    - name: Commit tested source patch
-      run: |
-        git config user.name "github-actions[bot]"
-        git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-        git add statgpu README.md dev/tests/test_core_contracts.py
-        git rm -f dev/agent_patch.py
-        git rm -f dev/.agent-patch-trigger dev/.agent-patch-trigger-v2
-        git commit -m "fix reviewed correctness and estimator contract issues"
-        git push origin HEAD:${{ github.head_ref }}
-
   test:
     runs-on: ubuntu-latest
     strategy:
@@ -69,4 +29,4 @@ jobs:
 
     - name: Run tests
       run: |
-        python -m pytest dev/tests/test_refactor_safety_net.py dev/tests/test_penalized_correctness.py dev/tests/test_penalized_robust_cox.py dev/tests/test_multitarget_linear.py dev/tests/test_multitarget_glm.py dev/tests/test_multitarget_penalized.py dev/tests/test_sklearn_contract.py dev/tests/test_cox_cv.py dev/tests/test_quantile_regression.py dev/tests/test_quantile_penalized.py dev/tests/test_backend_utils_parity.py dev/tests/test_glm_torch_backend.py dev/tests/test_model_contracts.py dev/tests/test_unsupervised_minibatch.py dev/tests/test_unsupervised_kmeans.py dev/tests/test_unsupervised_gmm.py dev/tests/test_unsupervised_pca.py dev/tests/test_unsupervised_truncated_svd.py dev/tests/test_unsupervised_nmf.py dev/tests/test_unsupervised_minibatch_nmf.py dev/tests/test_unsupervised_dbscan.py dev/tests/test_unsupervised_agglomerative.py dev/tests/test_unsupervised_tsne.py dev/tests/test_unsupervised_umap.py -q --tb=short
+        python -m pytest dev/tests/test_refactor_safety_net.py dev/tests/test_penalized_correctness.py dev/tests/test_penalized_robust_cox.py dev/tests/test_multitarget_linear.py dev/tests/test_multitarget_glm.py dev/tests/test_multitarget_penalized.py dev/tests/test_sklearn_contract.py dev/tests/test_cox_cv.py dev/tests/test_quantile_regression.py dev/tests/test_quantile_penalized.py dev/tests/test_backend_utils_parity.py dev/tests/test_glm_torch_backend.py dev/tests/test_model_contracts.py dev/tests/test_unsupervised_minibatch.py dev/tests/test_unsupervised_kmeans.py dev/tests/test_unsupervised_gmm.py dev/tests/test_unsupervised_pca.py dev/tests/test_unsupervised_truncated_svd.py dev/tests/test_unsupervised_nmf.py dev/tests/test_unsupervised_minibatch_nmf.py dev/tests/test_unsupervised_dbscan.py dev/tests/test_unsupervised_agglomerative.py dev/tests/test_unsupervised_tsne.py dev/tests/test_unsupervised_umap.py dev/tests/test_inference_resampling.py dev/tests/test_core_contracts.py -q --tb=short
