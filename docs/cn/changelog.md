@@ -1,13 +1,26 @@
 # Changelog
 
 > 语言：中文  
-> 最后更新：2026-07-08  
+> 最后更新：2026-07-11  
 > 页面定位：变更记录  
 > 切换：[English](en/changelog.md)
 
 语言切换：[English](en/changelog.md)
 
 ## 2026-07
+
+### 修复与加固（2026-07-11）— PR #79
+
+- 按照 `dev/AGENTS.md` 完成多轮全仓库审查，覆盖正确性、后端路由、统计/API
+  契约、可读性、可维护性、可扩展性、性能风险与测试质量。
+- 修复后端与设备参数校验、嵌套估计器参数、Torch 推断后端、UMAP fuzzy union
+  与随机种子语义、NNDescent 邻居有效性、CV/KMeans 输入契约、Ridge 惩罚尺度，
+  以及 Cox Efron 观测信息矩阵方向。
+- 加固可选 GPU 测试与完整 pytest 收集；将远程 GPU runner 移出 `dev/tests`；
+  新增 Python 3.9–3.12 回归门禁、完整 CPU 测试、包编译、静态契约检查和专项
+  回归测试。
+- 新增 `dev/reviews/pr79_full_repository_review.md`。当前状态为
+  `PARTIAL_REMOTE_PENDING`，仍需在真实 CuPy/Torch CUDA 环境完成数值、显存与性能验证。
 
 ### 新增 (2026-07-07)
 

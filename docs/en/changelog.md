@@ -1,13 +1,28 @@
 # Changelog
 
 > Language: English  
-> Last updated: 2026-07-08
+> Last updated: 2026-07-11
 > This page: Changelog  
 > Switch: [Chinese](../changelog.md)
 
 Language switch: [Chinese](../changelog.md)
 
 ## 2026-07
+
+### Fixed and hardened (2026-07-11) — PR #79
+
+- Completed an iterative full-repository review covering correctness, backend routing,
+  API/statistical contracts, readability, maintainability, extensibility, performance
+  risks, tests, and compliance with `dev/AGENTS.md`.
+- Fixed backend/device validation, nested estimator parameters, Torch inference routing,
+  UMAP fuzzy-union and RNG semantics, NNDescent neighbor validity, CV/KMeans input
+  contracts, Ridge penalty scaling, and Cox Efron observed-information orientation.
+- Hardened optional GPU tests and full pytest collection; moved the remote GPU runner out
+  of `dev/tests`; added Python 3.9–3.12 regression gates, a full CPU suite, package
+  compilation, static-contract checks, and review-specific regression suites.
+- Added `dev/reviews/pr79_full_repository_review.md`. Validation status is
+  `PARTIAL_REMOTE_PENDING` until physical CuPy/Torch CUDA numerical, memory, and
+  performance checks are completed.
 
 ### Added (2026-07-07)
 
