@@ -216,10 +216,28 @@ class UMAP(BaseEstimator):
         sparse_graph = (sparse_graph + sparse_graph.T).tocsr() * 0.5
         degree = np.array(sparse_graph.sum(axis=1)).ravel()
         laplacian = sparse_graph - __import__('scipy').sparse.diags(degree)
-        n_components = min(int(self.n_components) + 1, n_samples - 2)
-        _, eigenvectors = eigsh(laplacian, k=n_components, which='SM', tol=1e-4)
-        jitter = backend_random_normal(backend, self._fit_random_seed_, size=(n_samples, int(self.n_components)), scale=1e-4)
-        return backend.asarray(eigenvectors[:, 1:int(self.n_components)+1], dtype=backend.float64) + jitter
+        requested = int(self.n_components)
+        if requested + 1 >= n_samples:
+            eigenvalues, eigenvectors = np.linalg.eigh(laplacian.toarray())
+            order = np.argsort(np.abs(eigenvalues))
+            embedding_np = eigenvectors[:, order[1 : requested + 1]]
+        else:
+            _, eigenvectors = eigsh(
+                laplacian, k=requested + 1, which="SM", tol=1e-4
+            )
+            embedding_np = eigenvectors[:, 1 : requested + 1]
+        if embedding_np.shape[1] != requested:
+            raise RuntimeError(
+                f"spectral initialization returned {embedding_np.shape[1]} components, "
+                f"expected {requested}"
+            )
+        jitter = backend_random_normal(
+            backend,
+            self._fit_random_seed_,
+            size=(n_samples, requested),
+            scale=1e-4,
+        )
+        return backend.asarray(embedding_np, dtype=backend.float64) + jitter
 
     def _epochs(self, n_samples: int) -> int:
         if self.n_epochs is not None:

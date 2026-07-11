@@ -63,7 +63,7 @@ from statgpu.unsupervised._dbscan import DBSCAN
 X_db = np.random.randn(200, 2).astype(np.float64) * 3
 X_db[50:100] += [10, 0]
 X_cp_db = cp.asarray(X_db)
-db = DBSCAN(eps=0.5, min_samples=5)
+db = DBSCAN(eps=0.5, min_samples=5, device="cuda")
 db.fit(X_cp_db)
 labels_np = cp.asnumpy(cp.asarray(db.labels_)).ravel()
 n_clusters = len(set(labels_np)) - (1 if -1 in labels_np else 0)
@@ -74,7 +74,7 @@ print(f"  CuPy DBSCAN: {n_clusters} clusters, {n_noise} noise")
 print()
 print("=== DBSCAN (torch CUDA) ===")
 X_tc_db = t.tensor(X_db, dtype=t.float64).cuda()
-db2 = DBSCAN(eps=0.5, min_samples=5)
+db2 = DBSCAN(eps=0.5, min_samples=5, device="torch")
 db2.fit(X_tc_db)
 labels2_np = db2.labels_
 if hasattr(labels2_np, 'cpu'): labels2_np = labels2_np.cpu().numpy()
@@ -88,7 +88,7 @@ print("=== UMAP (torch CUDA) ===")
 from statgpu.unsupervised._umap import UMAP
 X_umap = np.random.randn(100, 5).astype(np.float32)
 X_tc_umap = t.tensor(X_umap, dtype=t.float64).cuda()
-umap = UMAP(n_neighbors=5, n_epochs=2, device='cuda')
+umap = UMAP(n_neighbors=5, n_epochs=2, device='torch')
 umap.fit(X_tc_umap)
 emb = umap.embedding_
 print(f"  UMAP torch CUDA: embedding shape={emb.shape}")

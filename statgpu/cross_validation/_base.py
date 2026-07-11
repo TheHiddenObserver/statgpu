@@ -154,6 +154,8 @@ def validate_cv_sample_weight(sample_weight, n_samples: int):
         raise ValueError("sample_weight must be non-negative")
     if not np.all(np.isfinite(sw_np)):
         raise ValueError("sample_weight must be finite")
+    if float(np.sum(sw_np)) <= 0.0:
+        raise ValueError("sample_weight must have a positive sum")
     # Return the original array (preserves CuPy/Torch backend)
     return sample_weight
 
@@ -174,8 +176,10 @@ class CVCache:
     """
 
     def __init__(self, maxsize: int = 64):
+        if not isinstance(maxsize, (int, np.integer)) or int(maxsize) < 0:
+            raise ValueError("maxsize must be a non-negative integer")
         self._cache: OrderedDict = OrderedDict()
-        self._maxsize = maxsize
+        self._maxsize = int(maxsize)
         self._lock = __import__('threading').Lock()
 
     def get(self, key: str):
@@ -216,57 +220,43 @@ class CVCache:
 # GPU input detection
 # ---------------------------------------------------------------------------
 
-def detect_gpu_input(X, y) -> Tuple[str, Any, Any]:
-    """Detect whether inputs are CuPy or Torch arrays.
 
-    Returns
-    -------
-    backend : str
-        One of 'numpy', 'cupy', 'torch'.
-    X, y : arrays
-        Original arrays (unchanged).
+def detect_gpu_input(X, y) -> Tuple[str, Any, Any]:
+    """Detect a common input backend, converting mixed inputs safely.
+
+    Matching CuPy or Torch inputs are preserved. Any mixture of NumPy and
+    GPU arrays, or CuPy and Torch arrays, is converted to NumPy so callers
+    never receive ``backend='numpy'`` alongside an unconverted GPU object.
     """
     import warnings as _warnings
 
-    x_type = None
-    y_type = None
+    def array_type(value):
+        try:
+            import cupy as cp
+            if isinstance(value, cp.ndarray):
+                return "cupy"
+        except ImportError:
+            pass
+        try:
+            import torch
+            if isinstance(value, torch.Tensor):
+                return "torch"
+        except ImportError:
+            pass
+        return "numpy"
 
-    try:
-        import cupy as cp
-        if isinstance(X, cp.ndarray):
-            x_type = 'cupy'
-        if isinstance(y, cp.ndarray):
-            y_type = 'cupy'
-    except ImportError:
-        pass
+    x_type = array_type(X)
+    y_type = array_type(y)
+    if x_type == y_type:
+        return x_type, X, y
 
-    try:
-        import torch
-        if isinstance(X, torch.Tensor):
-            x_type = 'torch'
-        if isinstance(y, torch.Tensor):
-            y_type = 'torch'
-    except ImportError:
-        pass
-
-    if x_type is not None and y_type is not None and x_type != y_type:
-        _warnings.warn(
-            f"Mixed backend detected: X is {x_type} but y is {y_type}. "
-            f"Both arrays should use the same backend. Falling back to numpy.",
-            RuntimeWarning,
-            stacklevel=2,
-        )
-        # Convert both arrays to numpy for consistent backend
-        X_np = _to_numpy(X)
-        y_np = _to_numpy(y)
-        return 'numpy', X_np, y_np
-
-    if x_type == 'cupy' and y_type == 'cupy':
-        return 'cupy', X, y
-    if x_type == 'torch' and y_type == 'torch':
-        return 'torch', X, y
-
-    return 'numpy', X, y
+    _warnings.warn(
+        f"Mixed backend detected: X is {x_type} but y is {y_type}. "
+        "Converting both arrays to NumPy.",
+        RuntimeWarning,
+        stacklevel=2,
+    )
+    return "numpy", _to_numpy(X), _to_numpy(y)
 
 
 # ---------------------------------------------------------------------------
@@ -320,13 +310,32 @@ def batch_mse(
             f"X_val has {X_val.shape[0]} samples"
         )
     n_models = coefs.shape[0]
+    if not isinstance(chunk_size, (int, np.integer)) or int(chunk_size) < 1:
+        raise ValueError("chunk_size must be a positive integer")
+    chunk_size = int(chunk_size)
 
     if intercepts is not None:
-        intercepts = _to_numpy(intercepts)
+        intercepts = _to_numpy(intercepts).ravel()
+        if intercepts.shape[0] != n_models:
+            raise ValueError(
+                f"intercepts length {intercepts.shape[0]} != n_models {n_models}"
+            )
+        if not np.all(np.isfinite(intercepts)):
+            raise ValueError("intercepts must be finite")
 
     if sample_weight is not None:
-        sw = _to_numpy(sample_weight).ravel()
+        sw = _to_numpy(sample_weight).ravel().astype(np.float64, copy=False)
+        if sw.shape[0] != X_val.shape[0]:
+            raise ValueError(
+                f"sample_weight length {sw.shape[0]} != n_samples {X_val.shape[0]}"
+            )
+        if not np.all(np.isfinite(sw)):
+            raise ValueError("sample_weight must be finite")
+        if np.any(sw < 0):
+            raise ValueError("sample_weight must be non-negative")
         sw_sum = float(np.sum(sw))
+        if sw_sum <= 0.0:
+            raise ValueError("sample_weight must have a positive sum")
     else:
         sw = None
         sw_sum = 0.0
@@ -346,10 +355,7 @@ def batch_mse(
         residuals = y_val[None, :] - y_pred  # (chunk_size, n_val)
 
         if sw is not None:
-            if sw_sum > 0:
-                mse[start:end] = np.sum(residuals ** 2 * sw[None, :], axis=1) / sw_sum
-            else:
-                mse[start:end] = np.nan
+            mse[start:end] = np.sum(residuals ** 2 * sw[None, :], axis=1) / sw_sum
         else:
             mse[start:end] = np.mean(residuals ** 2, axis=1)
 
