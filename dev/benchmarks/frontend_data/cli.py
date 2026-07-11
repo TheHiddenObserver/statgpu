@@ -358,6 +358,10 @@ def generate(results_dir: Path, deterministic: bool = False,
         "parsed_sources": parsed,
     }
 
+    # Two-phase speedup reference resolution (canonical mode — before generation_id)
+    if manifest:
+        _resolve_speedup_references(all_runs)
+
     # generation_id from full 3-file bundle
     from copy import deepcopy
     def _strip_gid(obj):
@@ -380,10 +384,6 @@ def generate(results_dir: Path, deterministic: bool = False,
     parse_report["generation_id"] = gid
     inventory["generation_id"] = gid
 
-    # Two-phase speedup reference resolution (canonical mode)
-    if manifest:
-        _resolve_speedup_references(all_runs)
-
     return output, parse_report, inventory
 
 
@@ -403,14 +403,15 @@ def _resolve_speedup_references(runs: list[dict]) -> None:
         if sp.get("reference_run_id"):
             continue  # already resolved
 
-        # Find reference run: same env/comparison/case/method/scale, statgpu numpy
+        # Find reference run: same env/comparison/case/method/scale, matching framework/backend
         ref_identity = [
-            r["source"]["source_id"], r["case_id"], r.get("method_config_id", "default"),
-            r["env_id"], r["model_id"],
-            r.get("variant"), r.get("implementation"),
-            r.get("loss"), r.get("penalty"), r.get("solver"),
-            "statgpu", "numpy",
-            r["scale"]["scale_key"],
+            run["source"]["source_id"], run["case_id"], run.get("method_config_id", "default"),
+            run["env_id"], run["model_id"],
+            run.get("variant"), run.get("implementation"),
+            run.get("loss"), run.get("penalty"), run.get("solver"),
+            sp.get("reference_framework", "statgpu"),
+            sp.get("reference_backend", "numpy"),
+            run["scale"]["scale_key"],
         ]
         for fw_backend in [("statgpu", "numpy"), ("statgpu", sp.get("reference_backend", "numpy"))]:
             ref_identity[-2] = fw_backend[0]
@@ -773,7 +774,7 @@ def main():
             json.dump(audit, f, indent=2)
         print(f"Wrote preflight audit: {audit_path}")
 
-        det_output, det_report = generate(results_dir, deterministic=True)
+        det_output, det_report, det_inventory = generate(results_dir, deterministic=True)
         det_hashes = {
             "benchmark_data_sha256": hashlib.sha256(
                 json.dumps(det_output, sort_keys=True, indent=2, ensure_ascii=False).encode("utf-8")

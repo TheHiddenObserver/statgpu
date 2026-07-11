@@ -113,11 +113,11 @@
       "allowed_issue_codes": []
     },
     {
-      "source_id": "comprehensive-validation-20260410-b70ca11586f7",
+      "source_id": "comprehensive-validation-20260410-093733c9a457",
       "comparison_id": "comprehensive-validation",
       "path": "results/benchmark_frontend_sources/comprehensive_validation.json",
       "original_path": "results/bench_validation_comprehensive.json",
-      "sha256": "b70ca11586f7d12bb5c40fa75e5e39b3f8c12c22f2a5c9d19c66da84faea4632",
+      "sha256": "093733c9a45740ca61bb9b22dd6de115e3849b14d5873c7cdc0cc8e958baf52c",
       "parser": "comprehensive_validation",
       "parser_version": "1.0",
       "env_id": "remote-p100",

@@ -4,7 +4,7 @@
   "meta": {
     "generator": "dev/benchmarks/generate_benchmark_data.py",
     "git_sha": "deterministic",
-    "generation_id": "6ad1e4af0f69e86ce5e7cb4b2ef47e3f3b45e0bbabcc3ea711da2c785d74783a"
+    "generation_id": "2377e284affdb219e8db42cfa25c32a7da4054bdc46b58e483e7080ac6a2582d"
   },
   "environments": [
     {
@@ -66894,6 +66894,316 @@
       "method_config_id": "default"
     },
     {
+      "run_id": "861775543e72cd44",
+      "env_id": "remote-p100",
+      "category_ids": [
+        "glm"
+      ],
+      "model_id": "PenalizedPoissonRegression",
+      "loss": "poisson",
+      "penalty": null,
+      "solver": "irls",
+      "solver_display": "IRLS",
+      "solver_kind": "manual",
+      "framework": "statgpu",
+      "backend": "numpy",
+      "scale": {
+        "scale_key": "n500_p10",
+        "n_samples": 500,
+        "n_features": 10,
+        "label": "500×10"
+      },
+      "source": {
+        "file": "comprehensive_validation.json",
+        "date": "2026-04",
+        "parser": "parse_comprehensive_validation_v1",
+        "parser_version": "1.0",
+        "source_id": "comprehensive-validation-20260410-093733c9a457",
+        "original_path": "results/bench_validation_comprehensive.json"
+      },
+      "metrics": {
+        "accuracy": {
+          "coef_max_abs_diff": 2.259902653900525e-09,
+          "bse_max_abs_diff": 3.3685609024391994e-09,
+          "reference": "statsmodels",
+          "quality": "measured",
+          "source_file": "comprehensive_validation.json"
+        },
+        "validation": {
+          "status": "pass",
+          "checks": [
+            {
+              "metric": "coef_max_abs_diff",
+              "status": "pass",
+              "value": 2.259902653900525e-09,
+              "tolerance": 0.001,
+              "reference": "statsmodels"
+            },
+            {
+              "metric": "bse_max_abs_diff",
+              "status": "pass",
+              "value": 3.3685609024391994e-09,
+              "tolerance": 0.001,
+              "reference": "statsmodels"
+            }
+          ],
+          "quality": "measured",
+          "source_file": "comprehensive_validation.json"
+        }
+      },
+      "comparison_id": "comprehensive-validation",
+      "case_id": "default",
+      "method_config_id": "default"
+    },
+    {
+      "run_id": "1abf880099a96eb9",
+      "env_id": "remote-p100",
+      "category_ids": [
+        "glm"
+      ],
+      "model_id": "PenalizedGammaRegression",
+      "loss": "gamma",
+      "penalty": null,
+      "solver": "irls",
+      "solver_display": "IRLS",
+      "solver_kind": "manual",
+      "framework": "statgpu",
+      "backend": "numpy",
+      "scale": {
+        "scale_key": "n500_p10",
+        "n_samples": 500,
+        "n_features": 10,
+        "label": "500×10"
+      },
+      "source": {
+        "file": "comprehensive_validation.json",
+        "date": "2026-04",
+        "parser": "parse_comprehensive_validation_v1",
+        "parser_version": "1.0",
+        "source_id": "comprehensive-validation-20260410-093733c9a457",
+        "original_path": "results/bench_validation_comprehensive.json"
+      },
+      "metrics": {
+        "accuracy": {
+          "coef_max_abs_diff": 7.978556482157728e-09,
+          "bse_max_abs_diff": 0.013866155337754052,
+          "reference": "statsmodels",
+          "quality": "measured",
+          "source_file": "comprehensive_validation.json"
+        },
+        "validation": {
+          "status": "pass",
+          "checks": [
+            {
+              "metric": "coef_max_abs_diff",
+              "status": "pass",
+              "value": 7.978556482157728e-09,
+              "tolerance": 0.05,
+              "reference": "statsmodels"
+            },
+            {
+              "metric": "bse_max_abs_diff",
+              "status": "pass",
+              "value": 0.013866155337754052,
+              "tolerance": 0.05,
+              "reference": "statsmodels"
+            }
+          ],
+          "quality": "measured",
+          "source_file": "comprehensive_validation.json"
+        }
+      },
+      "comparison_id": "comprehensive-validation",
+      "case_id": "default",
+      "method_config_id": "default"
+    },
+    {
+      "run_id": "0de254aea39db44a",
+      "env_id": "remote-p100",
+      "category_ids": [
+        "glm"
+      ],
+      "model_id": "PenalizedInverseGaussianRegression",
+      "loss": "inverse_gaussian",
+      "penalty": null,
+      "solver": "irls",
+      "solver_display": "IRLS",
+      "solver_kind": "manual",
+      "framework": "statgpu",
+      "backend": "numpy",
+      "scale": {
+        "scale_key": "n500_p10",
+        "n_samples": 500,
+        "n_features": 10,
+        "label": "500×10"
+      },
+      "source": {
+        "file": "comprehensive_validation.json",
+        "date": "2026-04",
+        "parser": "parse_comprehensive_validation_v1",
+        "parser_version": "1.0",
+        "source_id": "comprehensive-validation-20260410-093733c9a457",
+        "original_path": "results/bench_validation_comprehensive.json"
+      },
+      "metrics": {
+        "accuracy": {
+          "coef_max_abs_diff": 2.874634753758515e-05,
+          "bse_max_abs_diff": 0.02719985959727055,
+          "reference": "statsmodels",
+          "quality": "measured",
+          "source_file": "comprehensive_validation.json"
+        },
+        "validation": {
+          "status": "fail",
+          "checks": [
+            {
+              "metric": "coef_max_abs_diff",
+              "status": "pass",
+              "value": 2.874634753758515e-05,
+              "tolerance": 0.001,
+              "reference": "statsmodels"
+            },
+            {
+              "metric": "bse_max_abs_diff",
+              "status": "fail",
+              "value": 0.02719985959727055,
+              "tolerance": 0.001,
+              "reference": "statsmodels"
+            }
+          ],
+          "quality": "measured",
+          "source_file": "comprehensive_validation.json"
+        }
+      },
+      "comparison_id": "comprehensive-validation",
+      "case_id": "default",
+      "method_config_id": "default"
+    },
+    {
+      "run_id": "596d4dc508f463e2",
+      "env_id": "remote-p100",
+      "category_ids": [
+        "glm"
+      ],
+      "model_id": "PenalizedNegativeBinomialRegression",
+      "loss": "negative_binomial",
+      "penalty": null,
+      "solver": "irls",
+      "solver_display": "IRLS",
+      "solver_kind": "manual",
+      "framework": "statgpu",
+      "backend": "numpy",
+      "scale": {
+        "scale_key": "n500_p10",
+        "n_samples": 500,
+        "n_features": 10,
+        "label": "500×10"
+      },
+      "source": {
+        "file": "comprehensive_validation.json",
+        "date": "2026-04",
+        "parser": "parse_comprehensive_validation_v1",
+        "parser_version": "1.0",
+        "source_id": "comprehensive-validation-20260410-093733c9a457",
+        "original_path": "results/bench_validation_comprehensive.json"
+      },
+      "metrics": {
+        "accuracy": {
+          "coef_max_abs_diff": 4.7569323564089494e-05,
+          "bse_max_abs_diff": 1.7404515293556466e-07,
+          "reference": "statsmodels",
+          "quality": "measured",
+          "source_file": "comprehensive_validation.json"
+        },
+        "validation": {
+          "status": "pass",
+          "checks": [
+            {
+              "metric": "coef_max_abs_diff",
+              "status": "pass",
+              "value": 4.7569323564089494e-05,
+              "tolerance": 0.005,
+              "reference": "statsmodels"
+            },
+            {
+              "metric": "bse_max_abs_diff",
+              "status": "pass",
+              "value": 1.7404515293556466e-07,
+              "tolerance": 0.005,
+              "reference": "statsmodels"
+            }
+          ],
+          "quality": "measured",
+          "source_file": "comprehensive_validation.json"
+        }
+      },
+      "comparison_id": "comprehensive-validation",
+      "case_id": "default",
+      "method_config_id": "default"
+    },
+    {
+      "run_id": "3dcd823baef9b04a",
+      "env_id": "remote-p100",
+      "category_ids": [
+        "glm"
+      ],
+      "model_id": "PenalizedTweedieRegression",
+      "loss": "tweedie",
+      "penalty": null,
+      "solver": "irls",
+      "solver_display": "IRLS",
+      "solver_kind": "manual",
+      "framework": "statgpu",
+      "backend": "numpy",
+      "scale": {
+        "scale_key": "n500_p10",
+        "n_samples": 500,
+        "n_features": 10,
+        "label": "500×10"
+      },
+      "source": {
+        "file": "comprehensive_validation.json",
+        "date": "2026-04",
+        "parser": "parse_comprehensive_validation_v1",
+        "parser_version": "1.0",
+        "source_id": "comprehensive-validation-20260410-093733c9a457",
+        "original_path": "results/bench_validation_comprehensive.json"
+      },
+      "metrics": {
+        "accuracy": {
+          "coef_max_abs_diff": 3.0766342739158015e-06,
+          "bse_max_abs_diff": 0.014613906289851937,
+          "reference": "statsmodels",
+          "quality": "measured",
+          "source_file": "comprehensive_validation.json"
+        },
+        "validation": {
+          "status": "pass",
+          "checks": [
+            {
+              "metric": "coef_max_abs_diff",
+              "status": "pass",
+              "value": 3.0766342739158015e-06,
+              "tolerance": 0.05,
+              "reference": "statsmodels"
+            },
+            {
+              "metric": "bse_max_abs_diff",
+              "status": "pass",
+              "value": 0.014613906289851937,
+              "tolerance": 0.05,
+              "reference": "statsmodels"
+            }
+          ],
+          "quality": "measured",
+          "source_file": "comprehensive_validation.json"
+        }
+      },
+      "comparison_id": "comprehensive-validation",
+      "case_id": "default",
+      "method_config_id": "default"
+    },
+    {
       "run_id": "fc7e18945e8c662b",
       "env_id": "remote-p100",
       "category_ids": [
@@ -67342,7 +67652,9 @@
           "test_mse": 1.017331,
           "test_mse_std": 0.013502,
           "alpha_mean": 0.026762,
-          "alpha_std": 0.000642
+          "alpha_std": 0.000642,
+          "test_mse_noiseless": 0.017304,
+          "test_mse_noiseless_std": 0.003709
         },
         "accuracy": {
           "coef_l2_rel_error": 0.02262352,
@@ -67412,7 +67724,9 @@
           "test_mse": 1.021414,
           "test_mse_std": 0.014636,
           "alpha_mean": 0.040742,
-          "alpha_std": 0.000869
+          "alpha_std": 0.000869,
+          "test_mse_noiseless": 0.021369,
+          "test_mse_noiseless_std": 0.005339
         },
         "accuracy": {
           "coef_l2_rel_error": 0.02332263,
@@ -67482,7 +67796,9 @@
           "test_mse": 1.021415,
           "test_mse_std": 0.014637,
           "alpha_mean": 0.040742,
-          "alpha_std": 0.000869
+          "alpha_std": 0.000869,
+          "test_mse_noiseless": 0.021369,
+          "test_mse_noiseless_std": 0.00534
         },
         "accuracy": {
           "coef_l2_rel_error": 0.02332287,
@@ -67529,7 +67845,9 @@
           "std_ms": 8.517195,
           "quality": "measured",
           "source_file": "knockoff_baselines_20260409.json",
-          "sample_count": 3
+          "sample_count": 3,
+          "std_ddof": 0,
+          "std_scope": "replicates"
         },
         "selection": {
           "quality": "measured",
@@ -67589,7 +67907,9 @@
           "std_ms": 4.017873,
           "quality": "measured",
           "source_file": "knockoff_baselines_20260409.json",
-          "sample_count": 3
+          "sample_count": 3,
+          "std_ddof": 0,
+          "std_scope": "replicates"
         },
         "selection": {
           "quality": "measured",
@@ -67649,7 +67969,9 @@
           "std_ms": 0.111502,
           "quality": "measured",
           "source_file": "knockoff_baselines_20260409.json",
-          "sample_count": 3
+          "sample_count": 3,
+          "std_ddof": 0,
+          "std_scope": "replicates"
         },
         "selection": {
           "quality": "measured",
@@ -67707,7 +68029,9 @@
           "std_ms": 8.087962,
           "quality": "measured",
           "source_file": "knockoff_baselines_20260409.json",
-          "sample_count": 3
+          "sample_count": 3,
+          "std_ddof": 0,
+          "std_scope": "replicates"
         },
         "selection": {
           "quality": "measured",
@@ -67765,7 +68089,9 @@
           "std_ms": 112.526576,
           "quality": "measured",
           "source_file": "knockoff_baselines_20260409.json",
-          "sample_count": 3
+          "sample_count": 3,
+          "std_ddof": 0,
+          "std_scope": "replicates"
         },
         "selection": {
           "quality": "measured",

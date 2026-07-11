@@ -116,6 +116,11 @@ def parse_lassocv_combined(filepath: Path, env_id: str) -> tuple[list[dict], lis
             },
         }
 
+        # test_mse_noiseless
+        noiseless_vals = [r["test_mse_noiseless"] for r in seed_runs if "test_mse_noiseless" in r]
+        noiseless_mean = statistics.mean(noiseless_vals) if noiseless_vals else None
+        noiseless_std = statistics.pstdev(noiseless_vals) if len(noiseless_vals) > 1 else 0.0
+
         # Prediction
         pred = {"quality": "measured", "source_file": filepath.name}
         if train_mse_mean is not None:
@@ -127,6 +132,9 @@ def parse_lassocv_combined(filepath: Path, env_id: str) -> tuple[list[dict], lis
         if alphas:
             pred["alpha_mean"] = round(alpha_mean, 6)
             pred["alpha_std"] = round(alpha_std, 6)
+        if noiseless_mean is not None:
+            pred["test_mse_noiseless"] = round(noiseless_mean, 6)
+            pred["test_mse_noiseless_std"] = round(noiseless_std, 6)
         if len(pred) > 2:
             metrics["prediction"] = pred
 

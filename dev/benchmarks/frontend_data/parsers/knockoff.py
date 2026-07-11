@@ -84,6 +84,8 @@ def parse_knockoff_benchmark(filepath: Path, env_id: str) -> tuple[list[dict], l
             n_seeds = aggregate.get("n_runs", 0)
             if n_seeds:
                 metrics["timing"]["sample_count"] = n_seeds
+                metrics["timing"]["std_ddof"] = 0
+                metrics["timing"]["std_scope"] = "replicates"
 
         # Selection metrics
         sel = {"quality": "measured", "source_file": filepath.name}
