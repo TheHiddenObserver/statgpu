@@ -157,7 +157,7 @@ async function init(): Promise<void> {
 
   try {
     data = await fetchBenchmarkData();
-    state = createDefaultState(data.environments);
+    state = createDefaultState(data.environments, data.runs);
     // Non-critical metadata — fetch in parallel, failure doesn't block dashboard
     [parseReport, sourceInventory] = await Promise.all([
       fetchParseReport().catch(() => null),
