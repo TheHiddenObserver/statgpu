@@ -192,10 +192,13 @@ export function renderFilterBar(
     bar.appendChild(radio);
   }
 
-  // External frameworks (dynamic from data.frameworks)
-  bar.appendChild(h('span', {}, '| Ext:'));
-  const extFrameworks = data.frameworks.filter(f => f.external).map(f => f.framework_id);
-  for (const ext of extFrameworks) {
+  // External frameworks (context-aware: only those with runs in current filter context)
+  const extAvailableRuns = filterRuns(allRuns, state, { ignoreExternal: true });
+  const extAvailable = new Set(extAvailableRuns.filter(r => r.framework !== 'statgpu').map(r => r.framework));
+  const extFrameworks = data.frameworks.filter(f => f.external && extAvailable.has(f.framework_id));
+  if (extFrameworks.length > 0) bar.appendChild(h('span', {}, '| Ext:'));
+  for (const fw of extFrameworks) {
+    const ext = fw.framework_id;
     const lbl = h('label', {
       style: 'margin:0 4px; cursor:pointer; font-size:12px;',
     });

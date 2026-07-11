@@ -29,13 +29,15 @@ export interface AppState {
 // Factory
 // ---------------------------------------------------------------------------
 
-export function createDefaultState(envs: Environment[]): AppState {
+export function createDefaultState(envs: Environment[], _runs?: unknown[]): AppState {
   if (envs.length === 0) throw new Error('environments must have at least 1 entry');
   const defaultEnvId = envs.some(e => e.env_id === 'remote-p100')
     ? 'remote-p100'
     : envs[0].env_id;
+  // Prefer penalized_glm if available, but don't require it
+  const defaultCat = 'penalized_glm';
   return {
-    selectedCategoryIds: new Set(['penalized_glm']),
+    selectedCategoryIds: new Set([defaultCat]),
     selectedEnvId: defaultEnvId,
     selectedModelId: null,
     selectedVariant: null,

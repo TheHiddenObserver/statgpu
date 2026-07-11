@@ -11,8 +11,8 @@ export function renderSelectionPanel(runs: Run[], state: AppState, onUpdate: () 
     if (!s) continue;
     const fdp = s.fdp;
     const target = s.target_fdr;
-    const fdpColor = target != null
-      ? (fdp != null && fdp <= target ? '#52c41a' : '#ff4d4f')
+    const fdpColor = fdp == null ? '#888'
+      : target != null ? (fdp <= target ? '#52c41a' : '#ff4d4f')
       : '#888';
     rows.push({
       model: r.model_id, variant: r.variant ?? '-', scale: r.scale.label,

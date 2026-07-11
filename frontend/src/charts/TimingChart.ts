@@ -61,7 +61,8 @@ export function renderTimingChart(
   for (const [, g] of sortedGroups) {
     for (const bk of g.byBackend.keys()) allBackends.add(bk);
   }
-  const backendOrder = ['numpy', 'cupy', 'torch', ...state.showExternal].filter(
+  const preferred = ['numpy', 'numpy/numba', 'cupy', 'torch', ...state.showExternal];
+  const backendOrder = [...new Set(preferred.filter(x => allBackends.has(x)))].filter(
     (b) => allBackends.has(b),
   );
 

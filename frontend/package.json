@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
-    "typecheck": "npm run typecheck:src",
+    "typecheck": "npm run typecheck:src && npm run typecheck:e2e && npm run typecheck:contract",
     "typecheck:src": "tsc --noEmit -p tsconfig.json",
     "typecheck:e2e": "tsc --noEmit -p tsconfig.e2e.json",
     "typecheck:contract": "tsc --noEmit -p tsconfig.contract.json",
