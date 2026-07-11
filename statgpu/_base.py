@@ -236,6 +236,27 @@ class BaseEstimator(ABC):
             return X.detach().cpu().numpy()
         return np.asarray(X)
 
+    def _resolve_inference_backend(self, backend: str) -> str:
+        """Resolve model-context inference backend from the estimator device."""
+        backend_name = str(backend).strip().lower()
+        if backend_name == "auto":
+            compute_device = self._get_compute_device()
+            if compute_device == Device.CUDA:
+                return "cupy"
+            if compute_device == Device.TORCH:
+                return "torch"
+        return backend_name
+
+    def _cast_inference_array(self, value, backend_name: str):
+        """Cast an inference input to the explicitly resolved backend."""
+        if backend_name == "cupy":
+            return self._to_array(value, Device.CUDA, backend="cupy")
+        if backend_name == "torch":
+            return self._to_array(value, Device.TORCH, backend="torch")
+        if backend_name == "numpy":
+            return self._to_numpy(value)
+        return value
+
     def adjust_pvalues(
         self,
         pvalues=None,
@@ -258,8 +279,8 @@ class BaseEstimator(ABC):
             Rejection threshold in (0, 1).
         axis : int or None, default=0
             Axis along which to adjust. ``None`` flattens all entries.
-        backend : {'auto', 'numpy', 'cupy'}, default='auto'
-            Compute backend. ``'auto'`` uses CuPy when estimator device is CUDA.
+        backend : {'auto', 'numpy', 'cupy', 'torch'}, default='auto'
+            Compute backend. ``'auto'`` follows the estimator's resolved device.
 
         Returns
         -------
@@ -277,14 +298,9 @@ class BaseEstimator(ABC):
                 "No p-values available. Fit with inference enabled or pass pvalues explicitly."
             )
 
-        backend_name = str(backend).strip().lower()
-        if backend_name == "auto" and self._get_compute_device() == Device.CUDA:
-            backend_name = "cupy"
+        backend_name = self._resolve_inference_backend(backend)
 
-        if backend_name == "cupy":
-            pvals = self._to_array(source, Device.CUDA)
-        else:
-            pvals = self._to_numpy(source)
+        pvals = self._cast_inference_array(source, backend_name)
 
         reject, pvals_adj = _adjust_pvalues(
             pvals,
@@ -325,8 +341,8 @@ class BaseEstimator(ABC):
             Optional non-negative weights for cauchy combination.
         axis : int or None, default=None
             Axis along which to combine p-values. ``None`` flattens input.
-        backend : {'auto', 'numpy', 'cupy'}, default='auto'
-            Compute backend. ``'auto'`` uses CuPy when estimator device is CUDA.
+        backend : {'auto', 'numpy', 'cupy', 'torch'}, default='auto'
+            Compute backend. ``'auto'`` follows the estimator's resolved device.
 
         Returns
         -------
@@ -344,19 +360,14 @@ class BaseEstimator(ABC):
                 "No p-values available. Fit with inference enabled or pass pvalues explicitly."
             )
 
-        backend_name = str(backend).strip().lower()
-        if backend_name == "auto" and self._get_compute_device() == Device.CUDA:
-            backend_name = "cupy"
+        backend_name = self._resolve_inference_backend(backend)
 
-        if backend_name == "cupy":
-            pvals = self._to_array(source, Device.CUDA)
-            w_cast = None if weights is None else self._to_array(weights, Device.CUDA)
-        elif backend_name == "numpy":
-            pvals = self._to_numpy(source)
-            w_cast = None if weights is None else self._to_numpy(weights)
-        else:
-            pvals = source
-            w_cast = weights
+        pvals = self._cast_inference_array(source, backend_name)
+        w_cast = (
+            None
+            if weights is None
+            else self._cast_inference_array(weights, backend_name)
+        )
 
         statistic, pvalue = _combine_pvalues(
             pvals,
@@ -407,22 +418,21 @@ class BaseEstimator(ABC):
                 )
             arrays_use = (X_cache, y_cache)
 
-        backend_name = str(backend).strip().lower()
-        if backend_name == "auto" and self._get_compute_device() == Device.CUDA:
-            backend_name = "cupy"
+        backend_name = self._resolve_inference_backend(backend)
 
-        if backend_name == "cupy":
-            arrays_cast = tuple(self._to_array(a, Device.CUDA) for a in arrays_use)
-            strata_cast = None if strata is None else self._to_array(strata, Device.CUDA)
-            clusters_cast = None if clusters is None else self._to_array(clusters, Device.CUDA)
-        elif backend_name == "numpy":
-            arrays_cast = tuple(self._to_numpy(a) for a in arrays_use)
-            strata_cast = None if strata is None else self._to_numpy(strata)
-            clusters_cast = None if clusters is None else self._to_numpy(clusters)
-        else:
-            arrays_cast = arrays_use
-            strata_cast = strata
-            clusters_cast = clusters
+        arrays_cast = tuple(
+            self._cast_inference_array(a, backend_name) for a in arrays_use
+        )
+        strata_cast = (
+            None
+            if strata is None
+            else self._cast_inference_array(strata, backend_name)
+        )
+        clusters_cast = (
+            None
+            if clusters is None
+            else self._cast_inference_array(clusters, backend_name)
+        )
 
         return _bootstrap_statistic(
             statistic,
@@ -459,25 +469,20 @@ class BaseEstimator(ABC):
         """
         from statgpu.inference import permutation_test as _permutation_test
 
-        backend_name = str(backend).strip().lower()
-        if backend_name == "auto" and self._get_compute_device() == Device.CUDA:
-            backend_name = "cupy"
+        backend_name = self._resolve_inference_backend(backend)
 
-        if backend_name == "cupy":
-            X_cast = self._to_array(X, Device.CUDA)
-            y_cast = self._to_array(y, Device.CUDA)
-            strata_cast = None if strata is None else self._to_array(strata, Device.CUDA)
-            groups_cast = None if groups is None else self._to_array(groups, Device.CUDA)
-        elif backend_name == "numpy":
-            X_cast = self._to_numpy(X)
-            y_cast = self._to_numpy(y)
-            strata_cast = None if strata is None else self._to_numpy(strata)
-            groups_cast = None if groups is None else self._to_numpy(groups)
-        else:
-            X_cast = X
-            y_cast = y
-            strata_cast = strata
-            groups_cast = groups
+        X_cast = self._cast_inference_array(X, backend_name)
+        y_cast = self._cast_inference_array(y, backend_name)
+        strata_cast = (
+            None
+            if strata is None
+            else self._cast_inference_array(strata, backend_name)
+        )
+        groups_cast = (
+            None
+            if groups is None
+            else self._cast_inference_array(groups, backend_name)
+        )
 
         return _permutation_test(
             statistic,
