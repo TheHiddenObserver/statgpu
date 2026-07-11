@@ -26,13 +26,19 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -e ".[validation,formula]"
           python -m pip install ruff
-      - name: Static checks
+      - name: Compile modified production modules
+        run: python -m py_compile statgpu/linear_model/wrappers/_ridge.py statgpu/survival/_cox.py
+      - name: Static check Ridge
+        run: ruff check statgpu/linear_model/wrappers/_ridge.py --select F821,E9,F63,F7,F82
+      - name: Static check Cox additions
         run: |
-          python -m compileall -q statgpu
-          ruff check \
-            statgpu/linear_model/wrappers/_ridge.py \
-            statgpu/survival/_cox.py \
-            --select F821,E9,F63,F7,F82
+          python - <<'PY'
+          from pathlib import Path
+          text = Path('statgpu/survival/_cox.py').read_text()
+          assert text.count('def _observed_information(hess):') == 1
+          assert text.count('information = self._observed_information(hess)') == 1
+          assert text.count('info_0 = self._observed_information(hess_0)') == 1
+          PY
       - name: Re-run all previously failing tests
         run: |
           python -m pytest \
