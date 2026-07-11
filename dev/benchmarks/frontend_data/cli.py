@@ -115,20 +115,136 @@ def _build_transitional_comparisons(runs: list[dict], results_dir: Path) -> list
     return sorted(seen.values(), key=lambda c: c["comparison_id"])
 
 
-def generate(results_dir: Path, deterministic: bool = False) -> tuple[dict, dict]:
-    """Generate unified benchmark_data.json from results_dir."""
+def _inject_canonical_fields(runs: list[dict], manifest: dict, results_dir: Path) -> None:
+    """Inject canonical source_id, case_id, method_config_id, comparison_id (A2+)."""
+    from .identity import run_identity
+
+    # Build source lookup
+    source_by_path: dict[str, dict] = {}
+    for src in manifest.get("sources", []):
+        source_by_path[src["path"]] = src
+
+    for run in runs:
+        src_file = run["source"]["file"]
+        # Try to find matching manifest source
+        manifest_src = None
+        canonical_path = None
+        for path, src in source_by_path.items():
+            if Path(path).name == src_file or src.get("original_path", "").endswith(src_file):
+                manifest_src = src
+                canonical_path = path
+                break
+
+        if manifest_src:
+            run["source"]["source_id"] = manifest_src["source_id"]
+            run["source"]["original_path"] = manifest_src.get("original_path", "")
+            run["comparison_id"] = manifest_src.get("comparison_id", manifest_src["source_id"])
+            # SHA256 already computed in transitional mode, keep it
+        else:
+            # Fallback: transitional source_id
+            run["source"]["source_id"] = f"transitional:{src_file}"
+            run["comparison_id"] = f"transitional:{src_file.replace('/', '-')}"
+
+        # case_id stays transitional for now
+        if run.get("case_id") is None:
+            run["case_id"] = "default"
+        if run.get("method_config_id") is None:
+            run["method_config_id"] = "default"
+
+        # Generate canonical run_id from RunIdentity
+        identity = run_identity(run)
+        canonical = json.dumps(identity, separators=(",", ":"), ensure_ascii=False)
+        run["run_id"] = hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:16]
+
+
+def _build_manifest_frameworks(manifest: dict, runs: list[dict]) -> list[dict]:
+    """Build frameworks[] from manifest, only entries referenced by runs."""
+    used = sorted(set(r["framework"] for r in runs))
+    mf = manifest.get("frameworks", {})
+    result = []
+    for fw_id in used:
+        if fw_id in mf:
+            result.append({"framework_id": fw_id, **mf[fw_id]})
+        else:
+            result.append({"framework_id": fw_id, "display_name": fw_id,
+                           "external": fw_id != "statgpu",
+                           "backend_policy": "forbidden" if fw_id != "statgpu" else "required"})
+    return result
+
+
+def _build_manifest_comparisons(manifest: dict) -> list[dict]:
+    """Build comparisons[] from manifest."""
+    mc = manifest.get("comparisons", {})
+    return sorted(
+        [{"comparison_id": cid, **cdata} for cid, cdata in mc.items()],
+        key=lambda c: c["comparison_id"]
+    )
+
+
+def generate(results_dir: Path, deterministic: bool = False,
+            manifest: dict | None = None, strict_sources: bool = False) -> tuple[dict, dict]:
+    """Generate unified benchmark_data.json from results_dir.
+
+    If manifest is provided, use canonical mode (A2+).
+    Otherwise use transitional mode (A1b).
+    """
+    from .registry import build_registry_from_manifest
+    from .identity import run_identity
+
     all_runs: list[dict] = []
     all_models: dict[str, dict] = {}
-    all_warnings: list[dict] = []
+    all_issues: list[dict] = []
     files_seen = 0
     files_parsed = 0
 
-    for filename, config in PARSER_REGISTRY.items():
-        filepath = results_dir / filename
+    # Build registry
+    if manifest is not None:
+        registry = build_registry_from_manifest(manifest)
+        environments = [
+            {"env_id": eid, **edata}
+            for eid, edata in manifest.get("environments", {}).items()
+        ]
+        if not environments:
+            environments = [{"env_id": "remote-p100", "label": "Tesla P100 + Xeon 8163",
+                             "gpu": "NVIDIA Tesla P100-16GB", "cpu": "Intel Xeon Platinum 8163",
+                             "host": "hz-4.matpool.com"}]
+    else:
+        registry = dict(PARSER_REGISTRY)
+        environments = [{"env_id": "remote-p100", "label": "Tesla P100 + Xeon 8163",
+                         "gpu": "NVIDIA Tesla P100-16GB", "cpu": "Intel Xeon Platinum 8163",
+                         "host": "hz-4.matpool.com"}]
+
+    for src_path, config in registry.items():
+        filepath = Path(src_path)
+        if not filepath.is_absolute():
+            if manifest is not None:
+                # Manifest paths are repo-relative
+                repo_root = Path(__file__).resolve().parents[3]
+                filepath = repo_root / src_path
+            else:
+                # Hardcoded registry paths are relative to results_dir
+                filepath = results_dir / src_path
+        path_str = src_path
         files_seen += 1
         if not filepath.exists():
-            all_warnings.append({"file": filename, "reason": "file not found"})
+            issue = {"file": path_str, "reason": "file not found",
+                     "code": "SOURCE_MISSING", "severity": "error" if config.get("required", True) else "info"}
+            all_issues.append(issue)
+            if strict_sources and config.get("required", True):
+                raise FileNotFoundError(f"Required source missing: {path_str}")
             continue
+
+        # SHA256 check (manifest mode)
+        if manifest is not None and "sha256" in config:
+            from .canonical import source_sha256
+            actual = source_sha256(filepath)
+            if actual != config["sha256"]:
+                issue = {"file": path_str, "reason": f"SHA256 mismatch: expected {config['sha256'][:12]}..., got {actual[:12]}...",
+                         "code": "SHA256_MISMATCH", "severity": "error"}
+                all_issues.append(issue)
+                if strict_sources:
+                    raise ValueError(f"SHA256 mismatch for {path_str}")
+                continue
 
         parser_fn = config["parser"]
         env_id = config["env_id"]
@@ -139,20 +255,21 @@ def generate(results_dir: Path, deterministic: bool = False) -> tuple[dict, dict
                 mid = m["model_id"]
                 all_models[mid] = merge_model_entries(all_models.get(mid, {}), m)
             for w in warns:
-                all_warnings.append({"file": filename, "reason": w})
+                all_issues.append({"file": path_str, "reason": w, "code": "PARSE_WARNING", "severity": "warning"})
             files_parsed += 1
         except Exception as e:
-            all_warnings.append({"file": filename, "reason": f"parse error: {e}"})
+            all_issues.append({"file": path_str, "reason": f"parse error: {e}",
+                               "code": "PARSE_ERROR", "severity": "error"})
 
-    environments = [
-        {
-            "env_id": "remote-p100",
-            "label": "Tesla P100 + Xeon 8163",
-            "gpu": "NVIDIA Tesla P100-16GB",
-            "cpu": "12× Intel Xeon Platinum 8163 @ 2.50GHz",
-            "host": "hz-4.matpool.com",
-        }
-    ]
+    # Inject fields
+    if manifest is not None:
+        _inject_canonical_fields(all_runs, manifest, results_dir)
+        t_frameworks = _build_manifest_frameworks(manifest, all_runs)
+        t_comparisons = _build_manifest_comparisons(manifest)
+    else:
+        _inject_transitional_fields(all_runs, results_dir)
+        t_frameworks = _build_transitional_frameworks(all_runs)
+        t_comparisons = _build_transitional_comparisons(all_runs, results_dir)
 
     if deterministic:
         generated_ts = "1970-01-01T00:00:00+00:00"
@@ -177,7 +294,7 @@ def generate(results_dir: Path, deterministic: bool = False) -> tuple[dict, dict
         "meta": {
             "generator": "dev/benchmarks/generate_benchmark_data.py",
             "git_sha": git_sha,
-            "generation_id": "",  # placeholder — filled after full build
+            "generation_id": "",
         },
         "environments": environments,
         "categories": CATEGORIES,
@@ -187,13 +304,41 @@ def generate(results_dir: Path, deterministic: bool = False) -> tuple[dict, dict
         "runs": all_runs,
     }
 
+    # Compute generation_id (bundle hash, without generation_id in payload)
+    raw_issues = [{"source_id": i.get("source_id", ""), "file": i.get("file", ""),
+                    "parser": i.get("parser", ""), "code": i.get("code", "UNKNOWN"),
+                    "severity": i.get("severity", "warning"), "message": i.get("reason", "")}
+                   for i in all_issues]
     parse_report = {
+        "report_version": "2.0",
         "files_seen": files_seen,
         "files_parsed": files_parsed,
         "files_skipped": files_seen - files_parsed,
         "runs_generated": len(all_runs),
-        "warnings": all_warnings,
+        "generation_id": "",
+        "issues": raw_issues,
     }
+
+    # generation_id from full bundle
+    from copy import deepcopy
+    def _strip_gid(obj):
+        result = deepcopy(obj)
+        if "meta" in result:
+            result["meta"].pop("generation_id", None)
+        else:
+            result.pop("generation_id", None)
+        return result
+
+    bundle = {
+        "benchmark_data": _strip_gid(output),
+        "parse_report": _strip_gid(parse_report),
+        "source_inventory": {},  # placeholder for inventory
+    }
+    gid = hashlib.sha256(
+        json.dumps(bundle, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+    ).hexdigest()
+    output["meta"]["generation_id"] = gid
+    parse_report["generation_id"] = gid
 
     return output, parse_report
 
@@ -340,8 +485,20 @@ def main():
         print(f"ERROR: results directory not found: {results_dir}", file=sys.stderr)
         sys.exit(1)
 
+    # Load manifest if available (A2+)
+    manifest = None
+    try:
+        from .registry import load_manifest
+        repo_root = Path(__file__).resolve().parents[3]
+        manifest = load_manifest(repo_root)
+        if manifest:
+            print("Using manifest-driven canonical mode")
+    except Exception:
+        pass
+
     print(f"Scanning results from: {results_dir}")
-    output, parse_report = generate(results_dir, deterministic=args.deterministic)
+    output, parse_report = generate(results_dir, deterministic=args.deterministic,
+                                     manifest=manifest, strict_sources=args.strict_sources)
 
     errors = validate_output(output)
     schema_errors = validate_against_schema(output)
@@ -358,10 +515,13 @@ def main():
     print(f"Runs generated: {len(output['runs'])}")
     print(f"Models: {len(output['models'])}")
     print(f"Validation errors: {len(errors)}")
-    print(f"Parse warnings: {len(parse_report['warnings'])}")
-    if parse_report["warnings"]:
-        for w in parse_report["warnings"][:5]:
-            print(f"  - {w['file']}: {w['reason']}")
+    issues = parse_report.get("issues", parse_report.get("warnings", []))
+    errors_count = sum(1 for i in issues if i.get("severity") == "error")
+    warnings_count = sum(1 for i in issues if i.get("severity") == "warning")
+    print(f"Issues: {errors_count} errors, {warnings_count} warnings")
+    if issues:
+        for i in issues[:5]:
+            print(f"  - [{i.get('severity','?')}] {i.get('file','')}: {i.get('reason', i.get('message',''))}")
 
     if args.check:
         if all_errors:

@@ -1,0 +1,81 @@
+{
+  "manifest_version": "1.0",
+  "environments": {
+    "remote-p100": {
+      "label": "Tesla P100 + Xeon 8163",
+      "gpu": "NVIDIA Tesla P100-SXM2-16GB",
+      "cpu": "Intel Xeon Platinum 8163",
+      "host": "hz-4.matpool.com"
+    }
+  },
+  "frameworks": {
+    "statgpu": { "display_name": "statgpu", "external": false, "backend_policy": "required" },
+    "sklearn": { "display_name": "scikit-learn", "external": true, "backend_policy": "forbidden" },
+    "glmnet": { "display_name": "glmnet", "external": true, "backend_policy": "forbidden" },
+    "statsmodels": { "display_name": "statsmodels", "external": true, "backend_policy": "forbidden" }
+  },
+  "comparisons": {
+    "penalized-glm-perf-20260622": {
+      "label": "Penalized GLM performance — 2026-06-22",
+      "env_id": "remote-p100"
+    },
+    "glm-solver-20260623": {
+      "label": "GLM solver benchmark — 2026-06-23",
+      "env_id": "remote-p100"
+    },
+    "elasticnet-cross-framework": {
+      "label": "ElasticNet cross-framework comparison",
+      "env_id": "remote-p100"
+    }
+  },
+  "sources": [
+    {
+      "source_id": "penalized-glm-perf-20260622-e5baa1cbb516",
+      "comparison_id": "penalized-glm-perf-20260622",
+      "path": "results/benchmark_frontend_sources/penalized_glm_perf_20260622.json",
+      "original_path": "results/penalized_glm_bench_perf_2026-06-22.json",
+      "sha256": "e5baa1cbb5162e46523614a9e4dcb96429e7157555c3a51a7d77aa6bbd5ad14f",
+      "parser": "penalized_glm_bench_perf",
+      "parser_version": "1.0",
+      "env_id": "remote-p100",
+      "required": true,
+      "allowed_issue_codes": []
+    },
+    {
+      "source_id": "glm-solver-20260623-1b6197d94d88",
+      "comparison_id": "glm-solver-20260623",
+      "path": "results/benchmark_frontend_sources/glm_solver_20260623.json",
+      "original_path": "results/glm_solver_benchmark_2026-06-23.json",
+      "sha256": "1b6197d94d88da9b3cc637dfcaab141c1a46a1681b0e78806cb876166f4983b9",
+      "parser": "glm_solver_benchmark",
+      "parser_version": "1.0",
+      "env_id": "remote-p100",
+      "required": true,
+      "allowed_issue_codes": []
+    },
+    {
+      "source_id": "elasticnet-statgpu-1a68c00113b3",
+      "comparison_id": "elasticnet-cross-framework",
+      "path": "results/benchmark_frontend_sources/elasticnet_statgpu.json",
+      "original_path": "results/benchmark_full/benchmark_statgpu_all.json",
+      "sha256": "1a68c00113b391c9a12bb997299975d254a014eacd9b1abf8abe769dd04869ef",
+      "parser": "elasticnet_benchmark_full",
+      "parser_version": "1.0",
+      "env_id": "remote-p100",
+      "required": true,
+      "allowed_issue_codes": []
+    },
+    {
+      "source_id": "elasticnet-glmnet-c5545d225b6b",
+      "comparison_id": "elasticnet-cross-framework",
+      "path": "results/benchmark_frontend_sources/elasticnet_glmnet.json",
+      "original_path": "results/benchmark_full/benchmark_glmnet_all.json",
+      "sha256": "c5545d225b6b30e9a1a9c60f18afd018c295106e8146052ad4ebb4e7924a63a0",
+      "parser": "elasticnet_benchmark_full",
+      "parser_version": "1.0",
+      "env_id": "remote-p100",
+      "required": true,
+      "allowed_issue_codes": []
+    }
+  ]
+}
