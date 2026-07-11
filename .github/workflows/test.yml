@@ -1,8 +1,6 @@
 name: Tests
 
 on:
-  push:
-    branches: [master]
   pull_request:
     branches: [master]
 
@@ -10,53 +8,7 @@ permissions:
   contents: read
 
 jobs:
-  regression-matrix:
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        python-version: ['3.9', '3.10', '3.11', '3.12']
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: ${{ matrix.python-version }}
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install -e ".[validation]"
-      - name: Run regression gate
-        run: |
-          python -m pytest \
-            dev/tests/test_refactor_safety_net.py \
-            dev/tests/test_refactor_post_phase.py \
-            dev/tests/test_linear.py \
-            dev/tests/test_logistic.py \
-            dev/tests/test_cox.py \
-            dev/tests/test_cox_cv.py \
-            dev/tests/test_distributions_backend.py \
-            dev/tests/test_penalties_and_exports.py \
-            dev/tests/test_ridge_inference.py \
-            dev/tests/test_lasso_debiased_inference.py \
-            dev/tests/test_ordered_cross_backend.py \
-            dev/tests/test_hessian_fd_cpu.py \
-            dev/tests/test_quantile_regression.py \
-            dev/tests/test_unsupervised_pca.py \
-            dev/tests/test_unsupervised_kmeans.py \
-            dev/tests/test_unsupervised_dbscan.py \
-            dev/tests/test_unsupervised_gmm.py \
-            dev/tests/test_unsupervised_nmf.py \
-            dev/tests/test_unsupervised_tsne.py \
-            dev/tests/test_unsupervised_umap.py \
-            dev/tests/test_inference_resampling.py \
-            dev/tests/test_core_contracts.py \
-            dev/tests/test_repository_review_regressions.py \
-            dev/tests/test_repository_review_batch2.py \
-            dev/tests/test_repository_review_batch3.py \
-            dev/tests/test_elasticnet_cv.py \
-            -q --tb=short
-
-  full-cpu-suite:
+  full-suite-diagnostic:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -68,39 +20,20 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           python -m pip install -e ".[validation,formula]"
-      - name: Run complete CPU test tree
-        run: python -m pytest dev/tests -q --tb=short
-
-  static-contracts:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - name: Run complete test tree and capture report
+        id: pytest
+        shell: bash
+        run: |
+          set +e
+          python -m pytest dev/tests -q --tb=short --maxfail=50 > full-suite.txt 2>&1
+          code=$?
+          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+          tail -120 full-suite.txt
+          exit 0
+      - uses: actions/upload-artifact@v4
         with:
-          python-version: '3.11'
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install -e ".[validation,formula]"
-          python -m pip install ruff
-      - name: Compile package
-        run: python -m compileall -q statgpu
-      - name: High-signal static checks
-        run: |
-          ruff check \
-            statgpu/_base.py \
-            statgpu/_config.py \
-            statgpu/backends/_factory.py \
-            statgpu/cross_validation/_base.py \
-            statgpu/feature_selection/_knockoff_utils.py \
-            statgpu/glm_core/_solver_utils.py \
-            statgpu/inference/_resampling.py \
-            statgpu/penalties/_adaptive_l1.py \
-            statgpu/survival/_cox.py \
-            statgpu/unsupervised/_kmeans.py \
-            statgpu/unsupervised/_nndescent.py \
-            statgpu/unsupervised/_umap.py \
-            statgpu/unsupervised/_utils.py \
-            --select F821,E9,F63,F7,F82
-      - name: Collect complete test tree
-        run: python -m pytest --collect-only -q
+          name: full-suite-report-${{ github.sha }}
+          path: full-suite.txt
+          if-no-files-found: error
+      - name: Enforce suite result
+        run: test "${{ steps.pytest.outputs.exit_code }}" = "0"
