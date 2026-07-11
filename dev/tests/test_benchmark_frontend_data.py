@@ -21,8 +21,15 @@ def results_dir():
     return repo_root / "results"
 
 
+@pytest.fixture
+def manifest():
+    """Load the canonical manifest for manifest-mode tests."""
+    from dev.benchmarks.frontend_data.registry import load_manifest
+    return load_manifest(repo_root)
+
+
 class TestGenerateBenchmarkData:
-    """Integration tests for the data generator."""
+    """Integration tests for the data generator (transitional mode)."""
 
     def test_generate_produces_valid_output(self, generator, results_dir):
         output, report, _inventory = generator(results_dir)
@@ -163,6 +170,40 @@ class TestGenerateBenchmarkData:
             assert "label" in s
             assert s["n_samples"] > 0
             assert s["n_features"] > 0
+
+
+class TestManifestMode:
+    """Integration tests exercising manifest-driven canonical mode."""
+
+    def test_manifest_loads(self, manifest):
+        assert manifest is not None, "Manifest should be loadable"
+        assert "sources" in manifest
+        assert len(manifest["sources"]) >= 8, f"Expected >=8 sources, got {len(manifest['sources'])}"
+
+    def test_canonical_generate(self, generator, manifest, results_dir):
+        output, report, inventory = generator(results_dir, manifest=manifest)
+        assert len(output["runs"]) > 0
+        assert output["schema_version"] == "1.1.0"
+        assert "frameworks" in output
+        assert "comparisons" in output
+        assert "generation_id" in output["meta"]
+        # Canonical mode: no transitional IDs
+        src_ids = [r["source"]["source_id"] for r in output["runs"]]
+        transitional = [s for s in src_ids if s.startswith("transitional:")]
+        assert len(transitional) == 0, f"Found {len(transitional)} transitional source_ids in canonical mode"
+
+    def test_canonical_frameworks_present(self, generator, manifest, results_dir):
+        output, _, _ = generator(results_dir, manifest=manifest)
+        fw_ids = {f["framework_id"] for f in output["frameworks"]}
+        assert "statgpu" in fw_ids
+        assert "lifelines" in fw_ids or "scikit_survival" in fw_ids or "knockpy" in fw_ids, \
+            "Expected at least one new external framework"
+
+    def test_canonical_models(self, generator, manifest, results_dir):
+        output, _, _ = generator(results_dir, manifest=manifest)
+        model_ids = {m["model_id"] for m in output["models"]}
+        assert "CoxPH" in model_ids, "CoxPH model should be present"
+        assert "LassoCV" in model_ids, "LassoCV model should be present"
 
 
 if __name__ == "__main__":

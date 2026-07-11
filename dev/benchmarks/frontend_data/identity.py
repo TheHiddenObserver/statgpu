@@ -1,4 +1,11 @@
-"""Run identity and chart cell identity helpers (placeholder — full implementation in A1b)."""
+"""Run identity and chart cell identity helpers."""
+
+import json
+
+
+def identity_json(identity: list) -> str:
+    """Serialize an identity list to canonical JSON for hashing."""
+    return json.dumps(identity, separators=(",", ":"), ensure_ascii=False, allow_nan=False)
 
 
 def run_identity(run: dict) -> list:

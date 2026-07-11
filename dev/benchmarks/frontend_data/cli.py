@@ -263,8 +263,11 @@ def generate(results_dir: Path, deterministic: bool = False,
                 all_issues.append({"file": path_str, "reason": w, "code": "PARSE_WARNING", "severity": "warning"})
             files_parsed += 1
         except Exception as e:
-            all_issues.append({"file": path_str, "reason": f"parse error: {e}",
-                               "code": "PARSE_ERROR", "severity": "error"})
+            issue = {"file": path_str, "reason": f"parse error: {e}",
+                     "code": "PARSE_ERROR", "severity": "error"}
+            all_issues.append(issue)
+            if strict_sources:
+                raise RuntimeError(f"Strict mode: parser failed for {path_str}: {e}") from e
 
     # Inject fields
     if manifest is not None:
@@ -377,7 +380,46 @@ def generate(results_dir: Path, deterministic: bool = False,
     parse_report["generation_id"] = gid
     inventory["generation_id"] = gid
 
+    # Two-phase speedup reference resolution (canonical mode)
+    if manifest:
+        _resolve_speedup_references(all_runs)
+
     return output, parse_report, inventory
+
+
+def _resolve_speedup_references(runs: list[dict]) -> None:
+    """Second pass: resolve reference_run_id for computed speedups using RunIdentity."""
+    from .identity import run_identity, identity_json as _id_json
+    run_by_identity: dict[str, dict] = {}
+    for r in runs:
+        rid = run_identity(r)
+        key = _id_json(rid)
+        run_by_identity[key] = r
+
+    for run in runs:
+        sp = run.get("metrics", {}).get("speedup", {})
+        if not sp or sp.get("reported_semantics") != "computed":
+            continue
+        if sp.get("reference_run_id"):
+            continue  # already resolved
+
+        # Find reference run: same env/comparison/case/method/scale, statgpu numpy
+        ref_identity = [
+            r["source"]["source_id"], r["case_id"], r.get("method_config_id", "default"),
+            r["env_id"], r["model_id"],
+            r.get("variant"), r.get("implementation"),
+            r.get("loss"), r.get("penalty"), r.get("solver"),
+            "statgpu", "numpy",
+            r["scale"]["scale_key"],
+        ]
+        for fw_backend in [("statgpu", "numpy"), ("statgpu", sp.get("reference_backend", "numpy"))]:
+            ref_identity[-2] = fw_backend[0]
+            ref_identity[-1] = fw_backend[1]
+            ref_key = _id_json(ref_identity)
+            ref_run = run_by_identity.get(ref_key)
+            if ref_run and ref_run.get("metrics", {}).get("timing", {}).get("fit_time_ms", 0) > 0:
+                sp["reference_run_id"] = ref_run["run_id"]
+                break
 
 
 # Validation functions (migrated from old module)
