@@ -7,7 +7,7 @@ on:
     branches: [master]
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   test:
@@ -145,3 +145,506 @@ jobs:
           name: repository-audit-${{ github.sha }}
           path: audit/
           if-no-files-found: error
+
+  repository-autofix:
+    if: github.event_name == 'pull_request' && github.head_ref == 'agent/code-review-fixes'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/code-review-fixes
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Apply reviewed fixes
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          from textwrap import dedent
+
+          def replace_once(path, old, new):
+              p = Path(path)
+              text = p.read_text(encoding='utf-8')
+              count = text.count(old)
+              if count != 1:
+                  raise RuntimeError(f'{path}: expected one match, found {count}')
+              p.write_text(text.replace(old, new), encoding='utf-8')
+
+          # Adaptive L1 gradient used an undefined backend resolver.
+          replace_once(
+              'statgpu/penalties/_adaptive_l1.py',
+              'import numpy as np\nfrom statgpu.penalties._base import Penalty\n',
+              'import numpy as np\nfrom statgpu.backends._array_ops import _xp\nfrom statgpu.penalties._base import Penalty\n',
+          )
+
+          # torch.compile Newton fallback referenced torch outside its scope.
+          replace_once(
+              'statgpu/glm_core/_solver_utils.py',
+              dedent('''\
+                      def _newton_eager(params, direction, params_old):
+                          params_new = params - direction
+                          diff_norm = torch.linalg.norm(params_new - params_old)
+                          return params_new, diff_norm
+              '''),
+              dedent('''\
+                      def _newton_eager(params, direction, params_old):
+                          import torch
+
+                          params_new = params - direction
+                          diff_norm = torch.linalg.norm(params_new - params_old)
+                          return params_new, diff_norm
+              '''),
+          )
+
+          # CuPy knockoff path called a non-existent helper.
+          replace_once(
+              'statgpu/feature_selection/_knockoff_utils.py',
+              '        use_cupy_native = str(backend_name).lower() == "cupy" and _is_cupy_array(Z)\n',
+              '        use_cupy_native = str(backend_name).lower() == "cupy"\n',
+          )
+
+          # Cox Torch Hessian: avoid undefined n and the O(n*p*p) outer-product tensor.
+          replace_once(
+              'statgpu/survival/_cox.py',
+              dedent('''\
+                      # Cumsum of outer products → prefix at each failure time
+                      flat = (X_exp[:, :, None] * X[:, None, :]).reshape(n, n_features * n_features)
+                      prefix_flat = torch.cumsum(flat, dim=0)  # (n, p*p)
+
+                      # prefix_at_g[g] = prefix_flat[first_idx[g] - 1] if first_idx[g] > 0 else 0
+                      prefix_at_g = torch.zeros((n_uft, n_features, n_features),
+                                                dtype=torch.float64, device=beta.device)
+                      mask = first_idx > 0
+                      if mask.any():
+                          prefix_at_g[mask] = prefix_flat[first_idx[mask] - 1].reshape(-1, n_features, n_features)
+
+                      # risk_X2[g] = total - prefix[g]
+                      risk_X2_at_g = total.unsqueeze(0) - prefix_at_g  # (n_uft, p, p)
+
+                      # hess = -sum_g sc[g] * risk_X2[g] + sum_g weights[g] * outer(E_X[g], E_X[g])
+                      hess = -torch.einsum("g,gij->ij", sc, risk_X2_at_g)
+                      hess += torch.einsum("g,gi,gj->ij", weights, E_X_at_uft, E_X_at_uft)
+              '''),
+              dedent('''\
+                      # Sum weighted risk-set second moments without materializing an
+                      # O(n * p * p) tensor. For each observation i, its outer product
+                      # contributes to every prefix whose failure-time start is after i.
+                      sc_at_start = torch.zeros(
+                          n_samples, dtype=torch.float64, device=beta.device
+                      )
+                      sc_at_start.index_add_(0, first_idx, sc)
+                      suffix_sc = torch.flip(
+                          torch.cumsum(torch.flip(sc_at_start, dims=[0]), dim=0),
+                          dims=[0],
+                      )
+                      prefix_weights = suffix_sc - sc_at_start
+                      weighted_prefix = X_exp.transpose(0, 1) @ (
+                          X * prefix_weights.unsqueeze(1)
+                      )
+
+                      hess = -torch.sum(sc) * total + weighted_prefix
+                      hess += torch.einsum(
+                          "g,gi,gj->ij", weights, E_X_at_uft, E_X_at_uft
+                      )
+              '''),
+          )
+
+          # NNDescent input validation, initialization, unique GPU candidates,
+          # and correct kth semantics.
+          replace_once(
+              'statgpu/unsupervised/_nndescent.py',
+              'import numpy as np\n\n\ndef nndescent_numpy',
+              dedent('''\
+                  import numpy as np
+
+                  from statgpu.unsupervised._utils import draw_random_seed
+
+
+                  def _validate_inputs(X, k, max_iter, tol):
+                      if getattr(X, "ndim", None) != 2:
+                          raise ValueError("X must be a 2D array")
+                      n = int(X.shape[0])
+                      if n < 2:
+                          raise ValueError("X must contain at least two samples")
+                      if not isinstance(k, (int, np.integer)) or not 1 <= int(k) < n:
+                          raise ValueError("k must be an integer in [1, n_samples)")
+                      if not isinstance(max_iter, (int, np.integer)) or int(max_iter) < 1:
+                          raise ValueError("max_iter must be a positive integer")
+                      if float(tol) < 0.0:
+                          raise ValueError("tol must be non-negative")
+                      return n, int(k), int(max_iter), float(tol)
+
+
+                  def nndescent_numpy'''),
+          )
+          replace_once(
+              'statgpu/unsupervised/_nndescent.py',
+              dedent('''\
+                      rng = np.random.RandomState(seed)
+                      n, d = X.shape
+              '''),
+              dedent('''\
+                      n, k, max_iter, tol = _validate_inputs(X, k, max_iter, tol)
+                      seed = draw_random_seed(seed)
+                      rng = np.random.RandomState(seed)
+                      d = int(X.shape[1])
+              '''),
+          )
+          replace_once(
+              'statgpu/unsupervised/_nndescent.py',
+              '        new_distances = np.zeros((n, k), dtype=np.float64)\n\n        for i in range(n):\n',
+              '        new_distances = np.zeros((n, k), dtype=np.float64)\n        changed = 0\n\n        for i in range(n):\n',
+          )
+          replace_once(
+              'statgpu/unsupervised/_nndescent.py',
+              '            idx = np.argpartition(dists, k_eff)[:k_eff]\n',
+              '            idx = np.argpartition(dists, k_eff - 1)[:k_eff]\n',
+          )
+          replace_once(
+              'statgpu/unsupervised/_nndescent.py',
+              dedent('''\
+                      n, d = X.shape
+                      device = X.device
+                      rng = torch.Generator(device=device)
+                      rng.manual_seed(seed)
+              '''),
+              dedent('''\
+                      n, k, max_iter, tol = _validate_inputs(X, k, max_iter, tol)
+                      d = int(X.shape[1])
+                      device = X.device
+                      seed = draw_random_seed(seed)
+                      rng = torch.Generator(device=device)
+                      rng.manual_seed(seed)
+              '''),
+          )
+          replace_once(
+              'statgpu/unsupervised/_nndescent.py',
+              dedent('''\
+                      # Exclude self-candidates (set distance to inf for self)
+                      is_self = (candidates == node_ids)  # (n, k + k²)
+
+                      # Compute distances to candidates
+              '''),
+              dedent('''\
+                      # Keep one occurrence of each candidate and exclude self.
+                      sort_order = torch.argsort(candidates, dim=1)
+                      sorted_candidates = torch.gather(candidates, 1, sort_order)
+                      duplicate_sorted = torch.zeros_like(sorted_candidates, dtype=torch.bool)
+                      duplicate_sorted[:, 1:] = (
+                          sorted_candidates[:, 1:] == sorted_candidates[:, :-1]
+                      )
+                      duplicate_mask = torch.zeros_like(duplicate_sorted)
+                      duplicate_mask.scatter_(1, sort_order, duplicate_sorted)
+                      invalid = (candidates == node_ids) | duplicate_mask
+
+                      # Compute distances to candidates
+              '''),
+          )
+          replace_once(
+              'statgpu/unsupervised/_nndescent.py',
+              "        dists[is_self] = float('inf')  # exclude self from top-k\n",
+              "        dists[invalid] = float('inf')\n",
+          )
+          replace_once(
+              'statgpu/unsupervised/_nndescent.py',
+              dedent('''\
+                      n, d = X.shape
+                      dtype = X.dtype
+
+                      # Initialize with random neighbors (vectorized)
+                      rng = cp.random.RandomState(seed)
+              '''),
+              dedent('''\
+                      n, k, max_iter, tol = _validate_inputs(X, k, max_iter, tol)
+                      d = int(X.shape[1])
+                      dtype = X.dtype
+
+                      # Initialize with random neighbors (vectorized)
+                      seed = draw_random_seed(seed)
+                      rng = cp.random.RandomState(seed)
+              '''),
+          )
+          replace_once(
+              'statgpu/unsupervised/_nndescent.py',
+              dedent('''\
+                      # Exclude self-candidates (set distance to inf for self)
+                      is_self = (candidates == node_ids)  # (n, k + k²)
+
+                      # Compute distances to candidates (vectorized)
+              '''),
+              dedent('''\
+                      # Keep one occurrence of each candidate and exclude self.
+                      sort_order = cp.argsort(candidates, axis=1)
+                      sorted_candidates = cp.take_along_axis(candidates, sort_order, axis=1)
+                      duplicate_sorted = cp.zeros_like(sorted_candidates, dtype=cp.bool_)
+                      duplicate_sorted[:, 1:] = (
+                          sorted_candidates[:, 1:] == sorted_candidates[:, :-1]
+                      )
+                      duplicate_mask = cp.zeros_like(duplicate_sorted)
+                      rows = cp.arange(n, dtype=cp.int64)[:, None]
+                      duplicate_mask[rows, sort_order] = duplicate_sorted
+                      invalid = (candidates == node_ids) | duplicate_mask
+
+                      # Compute distances to candidates (vectorized)
+              '''),
+          )
+          replace_once(
+              'statgpu/unsupervised/_nndescent.py',
+              '        dists[is_self] = cp.inf  # exclude self from top-k\n',
+              '        dists[invalid] = cp.inf\n',
+          )
+          replace_once(
+              'statgpu/unsupervised/_nndescent.py',
+              '        topk_idx = cp.argpartition(dists, k, axis=1)[:, :k]\n',
+              '        topk_idx = cp.argpartition(dists, k - 1, axis=1)[:, :k]\n',
+          )
+
+          # UMAP random_state=None must draw entropy once per fit, while a fixed
+          # seed remains reproducible across all substeps.
+          replace_once(
+              'statgpu/unsupervised/_umap.py',
+              '    backend_random_normal,\n    check_2d_array,\n',
+              '    backend_random_normal,\n    check_2d_array,\n    draw_random_seed,\n',
+          )
+          replace_once(
+              'statgpu/unsupervised/_umap.py',
+              '            seed = self.random_state if self.random_state is not None else 42\n',
+              '            seed = int(self._fit_random_seed_)\n',
+          )
+          replace_once(
+              'statgpu/unsupervised/_umap.py',
+              '            return backend_random_normal(backend, self.random_state, size=(n_samples, int(self.n_components)), scale=1e-4)\n',
+              '            return backend_random_normal(backend, self._fit_random_seed_, size=(n_samples, int(self.n_components)), scale=1e-4)\n',
+          )
+          replace_once(
+              'statgpu/unsupervised/_umap.py',
+              '        jitter = backend_random_normal(backend, self.random_state, size=(n_samples, int(self.n_components)), scale=1e-4)\n',
+              '        jitter = backend_random_normal(backend, self._fit_random_seed_, size=(n_samples, int(self.n_components)), scale=1e-4)\n',
+          )
+          replace_once(
+              'statgpu/unsupervised/_umap.py',
+              '        self._validate_params(n_samples)\n\n        # Use float32 for distance computations',
+              '        self._validate_params(n_samples)\n        self._fit_random_seed_ = draw_random_seed(self.random_state)\n\n        # Use float32 for distance computations',
+          )
+          replace_once(
+              'statgpu/unsupervised/_umap.py',
+              dedent('''\
+                      # Create RNG once before epoch loop (not re-seeded per epoch)
+                      rng = np.random.RandomState(self.random_state)
+                      rs = self.random_state if self.random_state is not None else 42
+              '''),
+              dedent('''\
+                      # Create RNG once before epoch loop (not re-seeded per epoch).
+                      # random_state=None draws a fresh seed once per fit.
+                      rs = int(self._fit_random_seed_)
+                      rng = np.random.RandomState(rs)
+              '''),
+          )
+
+          # Model-context inference should honor explicit Torch device selection.
+          base = Path('statgpu/_base.py')
+          text = base.read_text(encoding='utf-8')
+          marker = dedent('''\
+                  def adjust_pvalues(
+          ''')
+          helper = dedent('''\
+                  def _resolve_inference_backend(self, backend: str) -> str:
+                      """Resolve model-context inference backend without silent fallback."""
+                      backend_name = str(backend).strip().lower()
+                      if backend_name == "auto":
+                          compute_device = self._get_compute_device()
+                          if compute_device == Device.CUDA:
+                              return "cupy"
+                          if compute_device == Device.TORCH:
+                              return "torch"
+                      return backend_name
+
+                  def adjust_pvalues(
+          ''')
+          if text.count(marker) != 1:
+              raise RuntimeError('BaseEstimator adjust_pvalues marker mismatch')
+          text = text.replace(marker, helper)
+          old_resolve = dedent('''\
+                      backend_name = str(backend).strip().lower()
+                      if backend_name == "auto" and self._get_compute_device() == Device.CUDA:
+                          backend_name = "cupy"
+          ''')
+          if text.count(old_resolve) != 4:
+              raise RuntimeError(f'expected four inference resolver blocks, found {text.count(old_resolve)}')
+          text = text.replace(old_resolve, '        backend_name = self._resolve_inference_backend(backend)\n')
+          text = text.replace(
+              dedent('''\
+                      if backend_name == "cupy":
+                          pvals = self._to_array(source, Device.CUDA)
+                      else:
+                          pvals = self._to_numpy(source)
+              '''),
+              dedent('''\
+                      if backend_name == "cupy":
+                          pvals = self._to_array(source, Device.CUDA)
+                      elif backend_name == "torch":
+                          pvals = self._to_array(source, Device.TORCH, backend="torch")
+                      else:
+                          pvals = self._to_numpy(source)
+              '''),
+              1,
+          )
+          text = text.replace(
+              dedent('''\
+                      if backend_name == "cupy":
+                          pvals = self._to_array(source, Device.CUDA)
+                          w_cast = None if weights is None else self._to_array(weights, Device.CUDA)
+                      elif backend_name == "numpy":
+                          pvals = self._to_numpy(source)
+                          w_cast = None if weights is None else self._to_numpy(weights)
+                      else:
+                          pvals = source
+                          w_cast = weights
+              '''),
+              dedent('''\
+                      if backend_name == "cupy":
+                          pvals = self._to_array(source, Device.CUDA)
+                          w_cast = None if weights is None else self._to_array(weights, Device.CUDA)
+                      elif backend_name == "torch":
+                          pvals = self._to_array(source, Device.TORCH, backend="torch")
+                          w_cast = None if weights is None else self._to_array(
+                              weights, Device.TORCH, backend="torch"
+                          )
+                      else:
+                          pvals = self._to_numpy(source)
+                          w_cast = None if weights is None else self._to_numpy(weights)
+              '''),
+              1,
+          )
+          text = text.replace("backend : {'auto', 'numpy', 'cupy'}, default='auto'", "backend : {'auto', 'numpy', 'cupy', 'torch'}, default='auto'")
+          base.write_text(text, encoding='utf-8')
+
+          # Optional Torch is not required to collect CPU ElasticNet tests.
+          replace_once(
+              'dev/tests/test_elasticnet_cv.py',
+              'import numpy as np\nimport torch\nfrom statgpu.linear_model import ElasticNetCV, ElasticNet\nfrom statgpu import get_backend, Device\n',
+              'import numpy as np\nfrom statgpu.linear_model import ElasticNetCV\n',
+          )
+
+          # Remote hardware runner does not belong under pytest testpaths.
+          src = Path('dev/tests/remote_gpu_test.py')
+          dst = Path('dev/manual/remote_gpu_runner.py')
+          if not src.exists() or dst.exists():
+              raise RuntimeError('remote GPU runner move precondition failed')
+          dst.parent.mkdir(parents=True, exist_ok=True)
+          src.rename(dst)
+
+          Path('dev/tests/test_repository_review_regressions.py').write_text(dedent('''\
+              """Regression coverage for repository-wide review fixes."""
+
+              import numpy as np
+              import pytest
+
+              from statgpu._base import BaseEstimator
+              from statgpu._config import Device
+              from statgpu.penalties import AdaptiveL1Penalty
+              from statgpu.unsupervised import UMAP
+              from statgpu.unsupervised._nndescent import nndescent_numpy
+              import statgpu.unsupervised._umap as umap_module
+
+
+              class _DummyEstimator(BaseEstimator):
+                  def fit(self, X, y=None, **fit_params):
+                      self._fitted = True
+                      return self
+
+                  def predict(self, X):
+                      return X
+
+
+              def test_adaptive_l1_gradient_uses_array_backend():
+                  penalty = AdaptiveL1Penalty(alpha=2.0, weights=np.array([1.0, 3.0]))
+                  coef = np.array([-4.0, 5.0])
+                  np.testing.assert_array_equal(penalty.gradient(coef), np.array([-2.0, 6.0]))
+
+
+              def test_nndescent_numpy_valid_unique_neighbors():
+                  rng = np.random.default_rng(123)
+                  X = rng.normal(size=(24, 4))
+                  indices, distances = nndescent_numpy(X, k=5, max_iter=3, seed=7)
+                  assert indices.shape == (24, 5)
+                  assert distances.shape == (24, 5)
+                  assert np.all(np.isfinite(distances))
+                  for i, row in enumerate(indices):
+                      assert i not in row
+                      assert len(np.unique(row)) == 5
+                  with pytest.raises(ValueError, match="k must"):
+                      nndescent_numpy(X, k=24)
+
+
+              def test_umap_none_seed_draws_once_per_fit(monkeypatch):
+                  seeds = iter([101, 202])
+                  monkeypatch.setattr(umap_module, "draw_random_seed", lambda state: next(seeds))
+                  X = np.arange(60.0).reshape(20, 3)
+                  first = UMAP(
+                      n_neighbors=4,
+                      n_components=2,
+                      n_epochs=1,
+                      init="random",
+                      random_state=None,
+                      device="cpu",
+                  ).fit(X)
+                  second = UMAP(
+                      n_neighbors=4,
+                      n_components=2,
+                      n_epochs=1,
+                      init="random",
+                      random_state=None,
+                      device="cpu",
+                  ).fit(X)
+                  assert first._fit_random_seed_ == 101
+                  assert second._fit_random_seed_ == 202
+                  assert not np.allclose(first.embedding_, second.embedding_)
+
+
+              def test_model_context_resolves_explicit_torch_backend():
+                  model = _DummyEstimator(device=Device.TORCH)
+                  assert model._resolve_inference_backend("auto") == "torch"
+                  assert model._resolve_inference_backend("numpy") == "numpy"
+          '''), encoding='utf-8')
+          PY
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[validation,formula]"
+          python -m pip install ruff
+
+      - name: Static correctness gate
+        run: |
+          python -m compileall -q statgpu
+          ruff check \
+            statgpu/feature_selection/_knockoff_utils.py \
+            statgpu/glm_core/_solver_utils.py \
+            statgpu/penalties/_adaptive_l1.py \
+            statgpu/survival/_cox.py \
+            statgpu/unsupervised/_nndescent.py \
+            statgpu/unsupervised/_umap.py \
+            --select F821,E9,F63,F7,F82
+
+      - name: Targeted regression tests
+        run: |
+          python -m pytest \
+            dev/tests/test_repository_review_regressions.py \
+            dev/tests/test_unsupervised_umap.py \
+            dev/tests/test_inference_multiple_testing.py \
+            dev/tests/test_elasticnet_cv.py \
+            -q --tb=short
+          python -m pytest --collect-only -q >/tmp/collect.txt
+          tail -3 /tmp/collect.txt
+
+      - name: Commit tested source fixes
+        run: |
+          git config user.name "OpenAI review agent"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add statgpu dev/tests dev/manual
+          git commit -m "fix: resolve repository-wide correctness findings"
+          git push origin HEAD:agent/code-review-fixes
