@@ -8,70 +8,44 @@ permissions:
   contents: write
 
 jobs:
-  final-review-autofix:
+  update-review-changelogs:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
         with:
           ref: agent/code-review-fixes
           fetch-depth: 0
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-      - name: Correct staged helper indentation and apply fixes
+      - name: Add PR #79 review entries
         run: |
           python - <<'PY'
           from pathlib import Path
-          path = Path('dev/scripts/apply_review_final.py')
-          text = path.read_text()
-          text = text.replace(
-              "helper = dedent('''\n    @staticmethod\n    def _observed_information",
-              "helper = '''    @staticmethod\n    def _observed_information",
-          ).replace(
-              "    def _compute_inference_cpu(self, X, time, event, cluster=None):\n''')",
-              "    def _compute_inference_cpu(self, X, time, event, cluster=None):\n'''",
-          )
-          path.write_text(text)
+
+          en = Path('docs/en/changelog.md')
+          text = en.read_text(encoding='utf-8')
+          text = text.replace('> Last updated: 2026-07-08', '> Last updated: 2026-07-11', 1)
+          marker = '## 2026-07\n'
+          entry = '''## 2026-07\n\n### Fixed and hardened (2026-07-11) — PR #79\n\n- Completed an iterative full-repository review covering correctness, backend routing,\n  API/statistical contracts, readability, maintainability, extensibility, performance\n  risks, tests, and compliance with `dev/AGENTS.md`.\n- Fixed backend/device validation, nested estimator parameters, Torch inference routing,\n  UMAP fuzzy-union and RNG semantics, NNDescent neighbor validity, CV/KMeans input\n  contracts, Ridge penalty scaling, and Cox Efron observed-information orientation.\n- Hardened optional GPU tests and full pytest collection; moved the remote GPU runner out\n  of `dev/tests`; added Python 3.9–3.12 regression gates, a full CPU suite, package\n  compilation, static-contract checks, and review-specific regression suites.\n- Added `dev/reviews/pr79_full_repository_review.md`. Validation status is\n  `PARTIAL_REMOTE_PENDING` until physical CuPy/Torch CUDA numerical, memory, and\n  performance checks are completed.\n'''
+          if '### Fixed and hardened (2026-07-11) — PR #79' not in text:
+              if text.count(marker) != 1:
+                  raise RuntimeError('English changelog month marker mismatch')
+              text = text.replace(marker, entry, 1)
+          en.write_text(text, encoding='utf-8')
+
+          cn = Path('docs/cn/changelog.md')
+          text = cn.read_text(encoding='utf-8')
+          text = text.replace('> 最后更新：2026-07-08', '> 最后更新：2026-07-11', 1)
+          marker = '## 2026-07\n'
+          entry = '''## 2026-07\n\n### 修复与加固（2026-07-11）— PR #79\n\n- 按照 `dev/AGENTS.md` 完成多轮全仓库审查，覆盖正确性、后端路由、统计/API\n  契约、可读性、可维护性、可扩展性、性能风险与测试质量。\n- 修复后端与设备参数校验、嵌套估计器参数、Torch 推断后端、UMAP fuzzy union\n  与随机种子语义、NNDescent 邻居有效性、CV/KMeans 输入契约、Ridge 惩罚尺度，\n  以及 Cox Efron 观测信息矩阵方向。\n- 加固可选 GPU 测试与完整 pytest 收集；将远程 GPU runner 移出 `dev/tests`；\n  新增 Python 3.9–3.12 回归门禁、完整 CPU 测试、包编译、静态契约检查和专项\n  回归测试。\n- 新增 `dev/reviews/pr79_full_repository_review.md`。当前状态为\n  `PARTIAL_REMOTE_PENDING`，仍需在真实 CuPy/Torch CUDA 环境完成数值、显存与性能验证。\n'''
+          if '### 修复与加固（2026-07-11）— PR #79' not in text:
+              if text.count(marker) != 1:
+                  raise RuntimeError('Chinese changelog month marker mismatch')
+              text = text.replace(marker, entry, 1)
+          cn.write_text(text, encoding='utf-8')
           PY
-          python dev/scripts/apply_review_final.py
-      - run: |
-          python -m pip install --upgrade pip
-          python -m pip install -e ".[validation,formula]"
-          python -m pip install ruff
-      - name: Compile and static checks
-        run: |
-          python -m py_compile statgpu/linear_model/wrappers/_ridge.py statgpu/survival/_cox.py
-          ruff check statgpu/linear_model/wrappers/_ridge.py --select F821,E9,F63,F7,F82
-      - name: Optional Torch contract
-        run: python -m pytest 'dev/tests/test_dbscan_edge_cases.py::TestCrossBackendParity::test_quantile_scad_cross_backend[torch]' -q --tb=short
-      - name: Cox Efron consistency
-        run: python -m pytest 'dev/tests/test_external_consistency.py::TestStatsmodelsConsistency::test_cox_estimation_matches_statsmodels[cox-efron]' -q --tb=short
-      - name: Ridge sklearn consistency
-        run: |
-          python -m pytest \
-            'dev/tests/test_external_consistency.py::TestSklearnPenaltyConsistency::test_ridge_estimator_matches_sklearn[small]' \
-            'dev/tests/test_external_consistency.py::TestSklearnPenaltyConsistency::test_ridge_estimator_matches_sklearn[medium]' \
-            'dev/tests/test_external_consistency.py::TestSklearnPenaltyConsistency::test_ridge_estimator_matches_sklearn[large]' \
-            -q --tb=short
-      - name: Public loss namespace contract
-        run: python -m pytest dev/tests/test_v10_import_smoke.py::test_losses_namespace_remains_a_public_compatibility_entrypoint -q --tb=short
-      - name: Solver dispatch contract
-        run: python -m pytest dev/tests/test_v10_import_smoke.py::test_penalized_glm_auto_solver_is_backend_aware -q --tb=short
-      - name: Focused numerical and neighboring suites
-        run: |
-          python -m pytest \
-            dev/tests/test_repository_review_final.py \
-            dev/tests/test_cox.py \
-            dev/tests/test_cox_cv.py \
-            dev/tests/test_ridge_inference.py \
-            dev/tests/test_ridge_cv.py \
-            dev/tests/test_v10_import_smoke.py \
-            -q --tb=short
-      - name: Commit final fixes
+      - name: Commit changelogs
         run: |
           git config user.name "OpenAI review agent"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add statgpu dev/tests
-          git commit -m "fix: align Ridge and Cox inference contracts"
+          git add docs/en/changelog.md docs/cn/changelog.md
+          git commit -m "docs: document full repository review"
           git push origin HEAD:agent/code-review-fixes
