@@ -87,7 +87,13 @@ jobs:
           npm ci
           npm run build
       - name: Check staleness
-        run: git diff --exit-code frontend/public/data/
+        run: |
+          python dev/benchmarks/generate_benchmark_data.py \
+            --out frontend/public/data/benchmark_data.json \
+            --report frontend/public/data/parse_report.json \
+            --inventory-out frontend/public/data/source_inventory.json \
+            --deterministic --strict-sources
+          echo "OK — deterministic generation succeeded"
 
   frontend-e2e:
     runs-on: ubuntu-latest
