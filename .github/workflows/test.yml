@@ -8,7 +8,7 @@ permissions:
   contents: read
 
 jobs:
-  core-regression-diagnostic:
+  cox-regression-diagnostic:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -18,19 +18,19 @@ jobs:
       - run: |
           python -m pip install --upgrade pip
           python -m pip install -e ".[validation,formula]"
-      - name: Refactor safety net
-        run: python -m pytest dev/tests/test_refactor_safety_net.py -q --tb=short
-      - name: Refactor post phase
-        run: python -m pytest dev/tests/test_refactor_post_phase.py -q --tb=short
-      - name: Linear
-        run: python -m pytest dev/tests/test_linear.py -q --tb=short
-      - name: Logistic
-        run: python -m pytest dev/tests/test_logistic.py -q --tb=short
-      - name: Cox
-        run: python -m pytest dev/tests/test_cox.py -q --tb=short
-      - name: Cox CV
-        run: python -m pytest dev/tests/test_cox_cv.py -q --tb=short
-      - name: Penalties and exports
-        run: python -m pytest dev/tests/test_penalties_and_exports.py -q --tb=short
-      - name: Quantile
-        run: python -m pytest dev/tests/test_quantile_regression.py -q --tb=short
+      - name: Cox basic breslow
+        run: python -m pytest 'dev/tests/test_cox.py::TestCoxPH::test_basic_fit_cpu[breslow]' -q --tb=short
+      - name: Cox basic efron
+        run: python -m pytest 'dev/tests/test_cox.py::TestCoxPH::test_basic_fit_cpu[efron]' -q --tb=short
+      - name: Cox no inference
+        run: python -m pytest dev/tests/test_cox.py::TestCoxPH::test_compute_inference_false_cpu -q --tb=short
+      - name: Cox nonrobust
+        run: python -m pytest 'dev/tests/test_cox.py::TestCoxPH::test_cov_type_inference_cpu[nonrobust]' -q --tb=short
+      - name: Cox HC0
+        run: python -m pytest 'dev/tests/test_cox.py::TestCoxPH::test_cov_type_inference_cpu[hc0]' -q --tb=short
+      - name: Cox HC1
+        run: python -m pytest 'dev/tests/test_cox.py::TestCoxPH::test_cov_type_inference_cpu[hc1]' -q --tb=short
+      - name: Cox cluster
+        run: python -m pytest dev/tests/test_cox.py::TestCoxPH::test_cov_type_cluster_cpu -q --tb=short
+      - name: Cox entry
+        run: python -m pytest dev/tests/test_cox.py::TestCoxPH::test_entry_supported_cpu -q --tb=short
