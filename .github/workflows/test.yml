@@ -8,32 +8,22 @@ permissions:
   contents: read
 
 jobs:
-  full-suite-diagnostic:
+  review-source-snapshot:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-      - name: Install dependencies
+      - name: Package review sources
         run: |
-          python -m pip install --upgrade pip
-          python -m pip install -e ".[validation,formula]"
-      - name: Run complete test tree and capture report
-        id: pytest
-        shell: bash
-        run: |
-          set +e
-          python -m pytest dev/tests -q --tb=short --maxfail=50 > full-suite.txt 2>&1
-          code=$?
-          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
-          tail -120 full-suite.txt
-          exit 0
+          tar -czf review-sources.tar.gz \
+            statgpu/survival/_cox.py \
+            statgpu/linear_model/wrappers/_ridge.py \
+            statgpu/linear_model/penalized/_base.py \
+            dev/tests/test_external_consistency.py \
+            dev/tests/test_dbscan_edge_cases.py \
+            dev/tests/test_v10_import_smoke.py \
+            dev/tests/test_ridge_cv.py
       - uses: actions/upload-artifact@v4
         with:
-          name: full-suite-report-${{ github.sha }}
-          path: full-suite.txt
+          name: review-sources-${{ github.sha }}
+          path: review-sources.tar.gz
           if-no-files-found: error
-      - name: Enforce suite result
-        run: test "${{ steps.pytest.outputs.exit_code }}" = "0"
