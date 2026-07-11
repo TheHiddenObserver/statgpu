@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Catalog and inventory helpers (placeholder — full implementation in A2)."""
 
 import json

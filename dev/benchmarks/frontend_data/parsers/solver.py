@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Parse glm_solver_benchmark_*.json — GLM solver benchmark with speedup data."""
 
 import json
@@ -113,11 +114,23 @@ def parse_glm_solver_benchmark(filepath: Path, env_id: str) -> tuple[list[dict],
                         }
                     },
                 }
-                runs.append(auto_run)
+                if best_speedup > 0:
+                    runs.append(auto_run)
+                else:
+                    warnings.append(
+                        f"{filepath.name}: best solver unavailable for {model_key}/{bk_name} "
+                        f"(non-positive speedup)"
+                    )
 
                 # per-solver runs
                 solvers = bk_data.get("solvers", {})
                 for solver_name, speedup_val in solvers.items():
+                    if speedup_val <= 0:
+                        warnings.append(
+                            f"{filepath.name}: solver '{solver_name}' unavailable for "
+                            f"{model_key}/{bk_name} (non-positive speedup)"
+                        )
+                        continue
                     source_hash = _short_hash(f"{filepath.name}:{scale_name}:{model_key}:{bk_name}:{solver_name}")
                     solver_run_id = make_run_id(
                         model_id, family, penalty, solver_name, bk_canon,

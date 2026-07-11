@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Parser registry — hardcoded in A1, manifest-driven in A2."""
 
 import json
@@ -64,13 +65,15 @@ def build_registry_from_manifest(manifest: dict) -> dict[str, dict]:
         parser_name = src["parser"]
         if parser_name not in PARSER_FUNCTIONS:
             raise ValueError(f"Unknown parser: {parser_name}")
-        registry[src["path"]] = {
+        config = {
             "parser": PARSER_FUNCTIONS[parser_name],
             "env_id": src["env_id"],
             "source_id": src["source_id"],
             "comparison_id": src.get("comparison_id", src["source_id"]),
-            "sha256": src.get("sha256", ""),
             "required": src.get("required", True),
             "allowed_issue_codes": set(src.get("allowed_issue_codes", [])),
         }
+        if src.get("sha256"):
+            config["sha256"] = src["sha256"]
+        registry[src["path"]] = config
     return registry

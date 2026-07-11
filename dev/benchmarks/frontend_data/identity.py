@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Run identity and chart cell identity helpers."""
 
 import json

@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Tests for the benchmark frontend data generator."""
 import json
 import sys
@@ -87,7 +88,7 @@ class TestGenerateBenchmarkData:
             s = run.get("metrics", {}).get("speedup")
             if s is None:
                 continue
-            assert s["value"] >= 0, f"{run['run_id']}: negative speedup"
+            assert s["value"] > 0, f"{run['run_id']}: non-positive speedup"
             assert "reference_backend" in s, f"{run['run_id']}: speedup missing reference_backend"
             assert "reference_framework" in s, f"{run['run_id']}: speedup missing reference_framework"
             assert "reported_semantics" in s, f"{run['run_id']}: speedup missing reported_semantics"
@@ -171,6 +172,15 @@ class TestGenerateBenchmarkData:
             assert s["n_samples"] > 0
             assert s["n_features"] > 0
 
+    def test_catalog_total_is_computed(self, generator, results_dir):
+        _, _, inventory = generator(results_dir)
+        expected = sum(
+            1
+            for path in results_dir.rglob("*.json")
+            if "benchmark_frontend_sources" not in path.relative_to(results_dir).parts
+        )
+        assert inventory["catalog_total"] == expected
+
 
 class TestManifestMode:
     """Integration tests exercising manifest-driven canonical mode."""
@@ -187,10 +197,28 @@ class TestManifestMode:
         assert "frameworks" in output
         assert "comparisons" in output
         assert "generation_id" in output["meta"]
+        assert inventory["catalog_total"] == manifest["catalog_total"]
         # Canonical mode: no transitional IDs
         src_ids = [r["source"]["source_id"] for r in output["runs"]]
         transitional = [s for s in src_ids if s.startswith("transitional:")]
         assert len(transitional) == 0, f"Found {len(transitional)} transitional source_ids in canonical mode"
+
+    def test_computed_speedups_reference_matching_timing_runs(self, generator, manifest, results_dir):
+        output, _, _ = generator(results_dir, manifest=manifest)
+        runs_by_id = {run["run_id"]: run for run in output["runs"]}
+        computed = [
+            run
+            for run in output["runs"]
+            if run.get("metrics", {}).get("speedup", {}).get("reported_semantics") == "computed"
+        ]
+        assert computed
+        for run in computed:
+            speedup = run["metrics"]["speedup"]
+            reference = runs_by_id[speedup["reference_run_id"]]
+            assert reference["framework"] == speedup["reference_framework"]
+            assert reference["backend"] == speedup["reference_backend"]
+            expected = reference["metrics"]["timing"]["fit_time_ms"] / run["metrics"]["timing"]["fit_time_ms"]
+            assert speedup["value"] == pytest.approx(expected, rel=1e-4, abs=1e-4)
 
     def test_canonical_frameworks_present(self, generator, manifest, results_dir):
         output, _, _ = generator(results_dir, manifest=manifest)
@@ -204,6 +232,64 @@ class TestManifestMode:
         model_ids = {m["model_id"] for m in output["models"]}
         assert "CoxPH" in model_ids, "CoxPH model should be present"
         assert "LassoCV" in model_ids, "LassoCV model should be present"
+
+
+def test_parse_family_penalty_solver_handles_underscored_solver():
+    from dev.benchmarks.frontend_data.canonical import parse_family_penalty_solver
+
+    assert parse_family_penalty_solver("inverse_gaussian_group_lasso_fista_bb") == (
+        "inverse_gaussian",
+        "group_lasso",
+        "fista_bb",
+    )
+
+
+def test_make_scale_label_preserves_fractional_thousands():
+    from dev.benchmarks.frontend_data.canonical import make_scale_label
+
+    assert make_scale_label(1500, 20) == "1.5K×20"
+
+
+def test_manifest_registry_allows_unhashed_sources():
+    from dev.benchmarks.frontend_data.registry import build_registry_from_manifest
+
+    registry = build_registry_from_manifest({
+        "sources": [{
+            "path": "results/example.json",
+            "parser": "knockoff_benchmark",
+            "env_id": "test",
+            "source_id": "example-20260101-000000000000",
+        }]
+    })
+    assert "sha256" not in registry["results/example.json"]
+
+
+def test_strict_mode_requires_hash_for_required_source(generator, tmp_path):
+    source = tmp_path / "source.json"
+    source.write_text("{}", encoding="utf-8")
+    manifest = {
+        "catalog_total": 1,
+        "environments": {"test": {"label": "Test", "gpu": "none", "cpu": "test"}},
+        "sources": [{
+            "path": str(source),
+            "parser": "knockoff_benchmark",
+            "env_id": "test",
+            "source_id": "example-20260101-000000000000",
+            "required": True,
+        }],
+    }
+    with pytest.raises(ValueError, match="missing SHA256"):
+        generator(tmp_path, manifest=manifest, strict_sources=True)
+
+
+def test_load_manifest_propagates_invalid_json(tmp_path):
+    from dev.benchmarks.frontend_data.registry import load_manifest
+
+    manifest_dir = tmp_path / "dev" / "benchmarks"
+    manifest_dir.mkdir(parents=True)
+    (manifest_dir / "frontend_sources.json").write_text("{", encoding="utf-8")
+    with pytest.raises(json.JSONDecodeError):
+        load_manifest(tmp_path)
 
 
 if __name__ == "__main__":

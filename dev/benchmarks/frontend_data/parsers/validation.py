@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Parse comprehensive validation and Cox package comparison benchmarks."""
 
 import json

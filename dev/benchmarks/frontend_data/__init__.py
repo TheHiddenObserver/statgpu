@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Benchmark frontend data generation package."""
 
 from .cli import (

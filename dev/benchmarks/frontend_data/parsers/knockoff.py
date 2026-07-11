@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Parse knockoff benchmark — feature selection with selection metrics."""
 
 import hashlib

@@ -1,3 +1,4 @@
+from __future__ import annotations
 """CLI for benchmark frontend data generation."""
 
 import argparse

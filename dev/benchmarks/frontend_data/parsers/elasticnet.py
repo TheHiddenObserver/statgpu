@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Parse ElasticNet benchmark files (statgpu + glmnet)."""
 
 import json

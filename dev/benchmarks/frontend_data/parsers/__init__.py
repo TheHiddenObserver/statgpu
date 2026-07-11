@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Benchmark data parsers."""
 
 from .penalized_glm import parse_penalized_glm_bench_perf

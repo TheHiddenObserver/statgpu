@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Parse penalized_glm_bench_perf_*.json — Penalized GLM performance benchmark."""
 
 import json

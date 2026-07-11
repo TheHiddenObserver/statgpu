@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Canonicalization helpers, constants, and maps for benchmark data generation."""
 
 import json
@@ -116,7 +117,7 @@ def make_scale_key(n_samples: int, n_features: int) -> str:
 
 def make_scale_label(n_samples: int, n_features: int) -> str:
     if n_samples >= 1000:
-        ns = f"{n_samples//1000}K" if n_samples % 1000 == 0 else f"{n_samples/1000:.0f}K"
+        ns = f"{n_samples // 1000}K" if n_samples % 1000 == 0 else f"{n_samples / 1000:g}K"
     else:
         ns = str(n_samples)
     return f"{ns}×{n_features}"
@@ -124,13 +125,14 @@ def make_scale_label(n_samples: int, n_features: int) -> str:
 
 def parse_family_penalty_solver(key: str):
     """Parse a key like 'squared_error_l1_auto' into (family, penalty, solver)."""
-    parts = key.rsplit("_", 1)
-    if len(parts) == 2 and parts[1] in SOLVER_KIND_MAP:
-        solver = parts[1]
-        prefix = parts[0]
-    else:
-        solver = "auto"
-        prefix = key
+    solver = "auto"
+    prefix = key
+    for candidate in sorted(SOLVER_KIND_MAP, key=len, reverse=True):
+        suffix = f"_{candidate}"
+        if key.endswith(suffix):
+            solver = candidate
+            prefix = key[:-len(suffix)]
+            break
 
     for fam in sorted(KNOWN_FAMILIES, key=len, reverse=True):
         if prefix.startswith(fam):

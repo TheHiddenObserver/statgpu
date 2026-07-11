@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Parse LassoCV combined benchmark — seed-level aggregation."""
 
 import hashlib

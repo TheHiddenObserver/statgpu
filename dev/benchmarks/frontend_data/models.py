@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Model metadata merge rules."""
 
 # Central registry: canonical primary_category_id per model.
