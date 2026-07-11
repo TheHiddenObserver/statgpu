@@ -3,7 +3,7 @@
 > Language: English  
 > Last updated: 2026-07-11  
 > This page: Benchmark index  
-> Switch: [Chinese](../../guides/benchmarks.md)
+> Switch: [Chinese](../../cn/guides/benchmarks.md)
 
 ## Benchmark Dashboard
 
