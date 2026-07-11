@@ -48,37 +48,35 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -e ".[validation,formula]"
           python -m pip install ruff vulture
+          mkdir -p audit
 
       - name: Repository inventory
         run: |
-          echo "Python files: $(find statgpu -name '*.py' | wc -l)"
-          echo "Source lines: $(find statgpu -name '*.py' -print0 | xargs -0 cat | wc -l)"
-          echo "Largest source files:"
-          find statgpu -name '*.py' -printf '%s %p\n' | sort -nr | head -25
+          {
+            echo "Python files: $(find statgpu -name '*.py' | wc -l)"
+            echo "Source lines: $(find statgpu -name '*.py' -print0 | xargs -0 cat | wc -l)"
+            echo "Largest source files:"
+            find statgpu -name '*.py' -printf '%s %p\n' | sort -nr | head -25
+          } > audit/inventory.txt
 
       - name: Compile all package modules
         run: python -m compileall -q statgpu
 
       - name: Ruff correctness audit
-        continue-on-error: true
         run: |
           ruff check statgpu \
             --select E9,F63,F7,F82,B,BLE,C4,PERF,RUF100 \
-            --output-format concise | tee /tmp/ruff-audit.txt
+            --output-format concise > audit/ruff.txt || true
 
       - name: Dead-code audit
-        continue-on-error: true
-        run: |
-          vulture statgpu --min-confidence 90 | tee /tmp/vulture-audit.txt
+        run: vulture statgpu --min-confidence 90 > audit/vulture.txt || true
 
       - name: Collect all tests
-        continue-on-error: true
-        run: |
-          python -m pytest --collect-only -q 2>&1 | tee /tmp/pytest-collect.txt
+        run: python -m pytest --collect-only -q > audit/pytest-collect.txt 2>&1 || true
 
       - name: Custom repository risk scan
         run: |
-          python - <<'PY'
+          python - <<'PY' > audit/custom.txt
           from pathlib import Path
           import ast
           import re
@@ -104,7 +102,7 @@ jobs:
                   if isinstance(node, ast.ExceptHandler):
                       if node.type is None:
                           add('BARE_EXCEPT', path, node.lineno, 'bare except')
-                      elif (isinstance(node.type, ast.Name) and node.type.id == 'Exception'):
+                      elif isinstance(node.type, ast.Name) and node.type.id == 'Exception':
                           if len(node.body) == 1 and isinstance(node.body[0], ast.Pass):
                               add('SWALLOWED_EXCEPTION', path, node.lineno, 'except Exception: pass')
                   if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
@@ -113,11 +111,7 @@ jobs:
                           if isinstance(default, (ast.List, ast.Dict, ast.Set)):
                               add('MUTABLE_DEFAULT', path, node.lineno, node.name)
                   if isinstance(node, (ast.Import, ast.ImportFrom)):
-                      names = []
-                      if isinstance(node, ast.Import):
-                          names = [a.name for a in node.names]
-                      elif node.module:
-                          names = [node.module]
+                      names = [a.name for a in node.names] if isinstance(node, ast.Import) else ([node.module] if node.module else [])
                       if any(name == 'cupy' or name.startswith('cupy.') for name in names):
                           if 'backends' not in path.parts:
                               add('DIRECT_CUPY_IMPORT', path, node.lineno, ', '.join(names))
@@ -137,3 +131,17 @@ jobs:
           for kind, path, line, text in findings:
               print(f'{kind}\t{path}:{line}\t{text}')
           PY
+
+      - name: Audit summary
+        run: |
+          cat audit/inventory.txt
+          echo "Ruff findings: $(wc -l < audit/ruff.txt)"
+          echo "Vulture findings: $(wc -l < audit/vulture.txt)"
+          sed -n '1,/CUSTOM AUDIT FINDINGS/p' audit/custom.txt
+          tail -5 audit/pytest-collect.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: repository-audit-${{ github.sha }}
+          path: audit/
+          if-no-files-found: error
