@@ -2,6 +2,7 @@
 
 import json
 from pathlib import Path
+from typing import Optional
 
 from .parsers import (
     parse_penalized_glm_bench_perf,
@@ -47,7 +48,7 @@ PARSER_FUNCTIONS = {
 }
 
 
-def load_manifest(repo_root: Path) -> dict | None:
+def load_manifest(repo_root: Path) -> Optional[dict]:
     """Load the frontend_sources.json manifest. Returns None if not found."""
     manifest_path = repo_root / "dev" / "benchmarks" / "frontend_sources.json"
     if not manifest_path.exists():
