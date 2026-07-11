@@ -45,10 +45,20 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -e ".[validation,formula]"
           python -m pip install ruff
-      - name: Static correctness gate
-        run: |
-          python -m compileall -q statgpu
-          ruff check statgpu/feature_selection/_knockoff_utils.py statgpu/glm_core/_solver_utils.py statgpu/penalties/_adaptive_l1.py statgpu/survival/_cox.py statgpu/unsupervised/_nndescent.py statgpu/unsupervised/_umap.py --select F821,E9,F63,F7,F82
+      - name: Compile package
+        run: python -m compileall -q statgpu
+      - name: Ruff knockoff
+        run: ruff check statgpu/feature_selection/_knockoff_utils.py --select F821,E9,F63,F7,F82
+      - name: Ruff solver
+        run: ruff check statgpu/glm_core/_solver_utils.py --select F821,E9,F63,F7,F82
+      - name: Ruff adaptive penalty
+        run: ruff check statgpu/penalties/_adaptive_l1.py --select F821,E9,F63,F7,F82
+      - name: Ruff Cox
+        run: ruff check statgpu/survival/_cox.py --select F821,E9,F63,F7,F82
+      - name: Ruff NNDescent
+        run: ruff check statgpu/unsupervised/_nndescent.py --select F821,E9,F63,F7,F82
+      - name: Ruff UMAP
+        run: ruff check statgpu/unsupervised/_umap.py --select F821,E9,F63,F7,F82
       - name: Targeted regression tests
         run: python -m pytest dev/tests/test_repository_review_regressions.py dev/tests/test_unsupervised_umap.py -q --tb=short
       - name: Commit first batch
