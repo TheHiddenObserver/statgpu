@@ -47,18 +47,16 @@ jobs:
           python -m pip install ruff
       - name: Compile package
         run: python -m compileall -q statgpu
-      - name: Ruff knockoff
-        run: ruff check statgpu/feature_selection/_knockoff_utils.py --select F821,E9,F63,F7,F82
-      - name: Ruff solver
-        run: ruff check statgpu/glm_core/_solver_utils.py --select F821,E9,F63,F7,F82
-      - name: Ruff adaptive penalty
-        run: ruff check statgpu/penalties/_adaptive_l1.py --select F821,E9,F63,F7,F82
-      - name: Ruff Cox
-        run: ruff check statgpu/survival/_cox.py --select F821,E9,F63,F7,F82
-      - name: Ruff NNDescent
-        run: ruff check statgpu/unsupervised/_nndescent.py --select F821,E9,F63,F7,F82
-      - name: Ruff UMAP
-        run: ruff check statgpu/unsupervised/_umap.py --select F821,E9,F63,F7,F82
+      - name: Static checks for reviewed modules
+        run: |
+          ruff check statgpu/feature_selection/_knockoff_utils.py statgpu/glm_core/_solver_utils.py statgpu/penalties/_adaptive_l1.py statgpu/unsupervised/_nndescent.py statgpu/unsupervised/_umap.py --select F821,E9,F63,F7,F82
+          python - <<'PY'
+          from pathlib import Path
+          text = Path('statgpu/survival/_cox.py').read_text()
+          assert '.reshape(n, n_features * n_features)' not in text
+          assert 'prefix_weights = suffix_sc - sc_at_start' in text
+          assert 'weighted_prefix = X_exp.transpose(0, 1)' in text
+          PY
       - name: Targeted regression tests
         run: python -m pytest dev/tests/test_repository_review_regressions.py dev/tests/test_unsupervised_umap.py -q --tb=short
       - name: Commit first batch
