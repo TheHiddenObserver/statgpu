@@ -7,6 +7,9 @@ from .parsers import (
     parse_penalized_glm_bench_perf,
     parse_glm_solver_benchmark,
     parse_elasticnet_benchmark_full,
+    parse_coxph_efron_bench,
+    parse_comprehensive_validation,
+    parse_coxph_package_comparison,
 )
 
 # Hardcoded fallback (A1 transitional)
@@ -34,6 +37,9 @@ PARSER_FUNCTIONS = {
     "penalized_glm_bench_perf": parse_penalized_glm_bench_perf,
     "glm_solver_benchmark": parse_glm_solver_benchmark,
     "elasticnet_benchmark_full": parse_elasticnet_benchmark_full,
+    "coxph_efron_bench": parse_coxph_efron_bench,
+    "comprehensive_validation": parse_comprehensive_validation,
+    "coxph_package_comparison": parse_coxph_package_comparison,
 }
 
 

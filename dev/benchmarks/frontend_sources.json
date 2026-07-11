@@ -12,7 +12,9 @@
     "statgpu": { "display_name": "statgpu", "external": false, "backend_policy": "required" },
     "sklearn": { "display_name": "scikit-learn", "external": true, "backend_policy": "forbidden" },
     "glmnet": { "display_name": "glmnet", "external": true, "backend_policy": "forbidden" },
-    "statsmodels": { "display_name": "statsmodels", "external": true, "backend_policy": "forbidden" }
+    "statsmodels": { "display_name": "statsmodels", "external": true, "backend_policy": "forbidden" },
+    "lifelines": { "display_name": "lifelines", "external": true, "backend_policy": "forbidden" },
+    "scikit_survival": { "display_name": "scikit-survival", "external": true, "backend_policy": "forbidden" }
   },
   "comparisons": {
     "penalized-glm-perf-20260622": {
@@ -25,6 +27,18 @@
     },
     "elasticnet-cross-framework": {
       "label": "ElasticNet cross-framework comparison",
+      "env_id": "remote-p100"
+    },
+    "coxph-efron-20260622": {
+      "label": "CoxPH Efron benchmark — 2026-06-22",
+      "env_id": "remote-p100"
+    },
+    "comprehensive-validation": {
+      "label": "Comprehensive GLM validation",
+      "env_id": "remote-p100"
+    },
+    "coxph-package-20260419": {
+      "label": "CoxPH package comparison — 2026-04-19",
       "env_id": "remote-p100"
     }
   },
@@ -72,6 +86,42 @@
       "original_path": "results/benchmark_full/benchmark_glmnet_all.json",
       "sha256": "c5545d225b6b30e9a1a9c60f18afd018c295106e8146052ad4ebb4e7924a63a0",
       "parser": "elasticnet_benchmark_full",
+      "parser_version": "1.0",
+      "env_id": "remote-p100",
+      "required": true,
+      "allowed_issue_codes": []
+    },
+    {
+      "source_id": "coxph-efron-20260622-7192358f4c6d",
+      "comparison_id": "coxph-efron-20260622",
+      "path": "results/benchmark_frontend_sources/coxph_efron_20260622.json",
+      "original_path": "results/coxph_efron_bench_2026-06-22.json",
+      "sha256": "7192358f4c6dd2758c52defa55e2e5b5acba80bc3dbac60b8a24f5562ed8265d",
+      "parser": "coxph_efron_bench",
+      "parser_version": "1.0",
+      "env_id": "remote-p100",
+      "required": true,
+      "allowed_issue_codes": []
+    },
+    {
+      "source_id": "comprehensive-validation-b70ca11586f7",
+      "comparison_id": "comprehensive-validation",
+      "path": "results/benchmark_frontend_sources/comprehensive_validation.json",
+      "original_path": "results/bench_validation_comprehensive.json",
+      "sha256": "b70ca11586f7d12bb5c40fa75e5e39b3f8c12c22f2a5c9d19c66da84faea4632",
+      "parser": "comprehensive_validation",
+      "parser_version": "1.0",
+      "env_id": "remote-p100",
+      "required": true,
+      "allowed_issue_codes": []
+    },
+    {
+      "source_id": "coxph-package-20260419-5f48a5551613",
+      "comparison_id": "coxph-package-20260419",
+      "path": "results/benchmark_frontend_sources/coxph_package_20260419.json",
+      "original_path": "results/coxph_package_comparison_2026-04-19.json",
+      "sha256": "5f48a555161359e3e2fac0a35bda495f03cbbbd8749a9640cf6dd2aef9d478e9",
+      "parser": "coxph_package_comparison",
       "parser_version": "1.0",
       "env_id": "remote-p100",
       "required": true,

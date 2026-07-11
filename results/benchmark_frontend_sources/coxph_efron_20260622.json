@@ -1,0 +1,421 @@
+{
+  "date": "2026-06-22",
+  "model": "CoxPH",
+  "ties": "efron",
+  "environment": {
+    "gpu": "Tesla P100-SXM2-16GB",
+    "backends": [
+      "cpu",
+      "torch_gpu",
+      "cupy_gpu"
+    ]
+  },
+  "precision": {
+    "reference": "statsmodels PHReg",
+    "results": [
+      {
+        "n": 1000,
+        "p": 10,
+        "backend": "cpu",
+        "status": "PASS",
+        "max_abs_error": 4.440892098500626e-16
+      },
+      {
+        "n": 1000,
+        "p": 10,
+        "backend": "torch_gpu",
+        "status": "PASS",
+        "max_abs_error": 1.1102230246251565e-16
+      },
+      {
+        "n": 1000,
+        "p": 10,
+        "backend": "cupy_gpu",
+        "status": "PASS",
+        "max_abs_error": 1.1102230246251565e-16
+      },
+      {
+        "n": 2000,
+        "p": 20,
+        "backend": "cpu",
+        "status": "PASS",
+        "max_abs_error": 4.996003610813204e-16
+      },
+      {
+        "n": 2000,
+        "p": 20,
+        "backend": "torch_gpu",
+        "status": "PASS",
+        "max_abs_error": 2.220446049250313e-16
+      },
+      {
+        "n": 2000,
+        "p": 20,
+        "backend": "cupy_gpu",
+        "status": "PASS",
+        "max_abs_error": 2.220446049250313e-16
+      },
+      {
+        "n": 5000,
+        "p": 20,
+        "backend": "cpu",
+        "status": "PASS",
+        "max_abs_error": 5.551115123125783e-16
+      },
+      {
+        "n": 5000,
+        "p": 20,
+        "backend": "torch_gpu",
+        "status": "PASS",
+        "max_abs_error": 1.1102230246251565e-16
+      },
+      {
+        "n": 5000,
+        "p": 20,
+        "backend": "cupy_gpu",
+        "status": "PASS",
+        "max_abs_error": 1.1102230246251565e-16
+      },
+      {
+        "n": 10000,
+        "p": 50,
+        "backend": "cpu",
+        "status": "PASS",
+        "max_abs_error": 6.661338147750939e-16
+      },
+      {
+        "n": 10000,
+        "p": 50,
+        "backend": "torch_gpu",
+        "status": "PASS",
+        "max_abs_error": 2.7755575615628914e-16
+      },
+      {
+        "n": 10000,
+        "p": 50,
+        "backend": "cupy_gpu",
+        "status": "PASS",
+        "max_abs_error": 2.7755575615628914e-16
+      },
+      {
+        "n": 20000,
+        "p": 50,
+        "backend": "cpu",
+        "status": "PASS",
+        "max_abs_error": 2.4424906541753444e-15
+      },
+      {
+        "n": 20000,
+        "p": 50,
+        "backend": "torch_gpu",
+        "status": "PASS",
+        "max_abs_error": 2.3314683517128287e-15
+      },
+      {
+        "n": 20000,
+        "p": 50,
+        "backend": "cupy_gpu",
+        "status": "PASS",
+        "max_abs_error": 2.3314683517128287e-15
+      }
+    ],
+    "summary": {
+      "pass": 15,
+      "warn": 0,
+      "fail": 0,
+      "total": 15
+    }
+  },
+  "performance": {
+    "light_ties": {
+      "small_1k": {
+        "n1000_p10": {
+          "cpu": {
+            "mean_ms": 554.3
+          },
+          "torch_gpu": {
+            "mean_ms": 31.2
+          },
+          "cupy_gpu": {
+            "mean_ms": 29.1
+          },
+          "statsmodels": {
+            "mean_ms": 829.2
+          },
+          "cpu_numba": {
+            "mean_ms": 325.0
+          }
+        }
+      },
+      "small_2k": {
+        "n2000_p20": {
+          "cpu": {
+            "mean_ms": 892.6
+          },
+          "torch_gpu": {
+            "mean_ms": 29.1
+          },
+          "cupy_gpu": {
+            "mean_ms": 29.1
+          },
+          "statsmodels": {
+            "mean_ms": 1379.8
+          },
+          "cpu_numba": {
+            "mean_ms": 1158.8
+          }
+        }
+      },
+      "medium_5k": {
+        "n5000_p20": {
+          "cpu": {
+            "mean_ms": 2257.9
+          },
+          "torch_gpu": {
+            "mean_ms": 35.8
+          },
+          "cupy_gpu": {
+            "mean_ms": 35.1
+          },
+          "statsmodels": {
+            "mean_ms": 3584.9
+          },
+          "cpu_numba": {
+            "mean_ms": 919.9
+          }
+        }
+      },
+      "medium_10k": {
+        "n10000_p50": {
+          "cpu": {
+            "mean_ms": 8722.1
+          },
+          "torch_gpu": {
+            "mean_ms": 132.1
+          },
+          "cupy_gpu": {
+            "mean_ms": 131.7
+          },
+          "statsmodels": {
+            "mean_ms": 9597.6
+          },
+          "cpu_numba": {
+            "mean_ms": 6090.9
+          }
+        }
+      },
+      "large_20k": {
+        "n20000_p50": {
+          "cpu": {
+            "mean_ms": 15202.1
+          },
+          "torch_gpu": {
+            "mean_ms": 307.2
+          },
+          "cupy_gpu": {
+            "mean_ms": 304.5
+          },
+          "statsmodels": {
+            "mean_ms": 14999.1
+          },
+          "cpu_numba": {
+            "mean_ms": 10565.5
+          }
+        }
+      }
+    },
+    "heavy_ties": {
+      "small_1k": {
+        "n1000_p10_uft52": {
+          "cpu": {
+            "mean_ms": 68.9
+          },
+          "torch_gpu": {
+            "mean_ms": 114.4
+          },
+          "cupy_gpu": {
+            "mean_ms": 110.0
+          },
+          "statsmodels": {
+            "mean_ms": 314.5
+          },
+          "cpu_numba": {
+            "mean_ms": 70.4
+          }
+        }
+      },
+      "small_2k": {
+        "n2000_p20_uft60": {
+          "cpu": {
+            "mean_ms": 570.7
+          },
+          "torch_gpu": {
+            "mean_ms": 432.8
+          },
+          "cupy_gpu": {
+            "mean_ms": 428.6
+          },
+          "statsmodels": {
+            "mean_ms": 775.3
+          },
+          "cpu_numba": {
+            "mean_ms": 528.8
+          }
+        }
+      },
+      "medium_5k": {
+        "n5000_p20_uft67": {
+          "cpu": {
+            "mean_ms": 683.3
+          },
+          "torch_gpu": {
+            "mean_ms": 503.4
+          },
+          "cupy_gpu": {
+            "mean_ms": 493.1
+          },
+          "statsmodels": {
+            "mean_ms": 870.2
+          },
+          "cpu_numba": {
+            "mean_ms": 231.8
+          }
+        }
+      },
+      "medium_10k": {
+        "n10000_p50_uft62": {
+          "cpu": {
+            "mean_ms": 2225.2
+          },
+          "torch_gpu": {
+            "mean_ms": 564.1
+          },
+          "cupy_gpu": {
+            "mean_ms": 556.3
+          },
+          "statsmodels": {
+            "mean_ms": 4844.8
+          },
+          "cpu_numba": {
+            "mean_ms": 2363.5
+          }
+        }
+      },
+      "large_20k": {
+        "n20000_p50_uft49": {
+          "cpu": {
+            "mean_ms": 2868.0
+          },
+          "torch_gpu": {
+            "mean_ms": 667.5
+          },
+          "cupy_gpu": {
+            "mean_ms": 410.4
+          },
+          "statsmodels": {
+            "mean_ms": 4918.5
+          },
+          "cpu_numba": {
+            "mean_ms": 4039.3
+          }
+        }
+      }
+    }
+  },
+  "speedups": {
+    "light_ties": {
+      "small_1k": {
+        "n1000_p10": {
+          "cpu": 1.7,
+          "torch_gpu": 26.56,
+          "cupy_gpu": 28.5,
+          "cpu_numba": 2.55
+        }
+      },
+      "small_2k": {
+        "n2000_p20": {
+          "cpu": 2.48,
+          "torch_gpu": 47.42,
+          "cupy_gpu": 47.47,
+          "cpu_numba": 1.19
+        }
+      },
+      "medium_5k": {
+        "n5000_p20": {
+          "cpu": 1.75,
+          "torch_gpu": 100.02,
+          "cupy_gpu": 102.09,
+          "cpu_numba": 3.9
+        }
+      },
+      "medium_10k": {
+        "n10000_p50": {
+          "cpu": 1.17,
+          "torch_gpu": 72.64,
+          "cupy_gpu": 72.9,
+          "cpu_numba": 1.58
+        }
+      },
+      "large_20k": {
+        "n20000_p50": {
+          "cpu": 0.96,
+          "torch_gpu": 48.83,
+          "cupy_gpu": 49.26,
+          "cpu_numba": 1.42
+        }
+      }
+    },
+    "heavy_ties": {
+      "small_1k": {
+        "n1000_p10_uft52": {
+          "cpu": 2.55,
+          "torch_gpu": 2.75,
+          "cupy_gpu": 2.86,
+          "cpu_numba": 4.47
+        }
+      },
+      "small_2k": {
+        "n2000_p20_uft60": {
+          "cpu": 0.89,
+          "torch_gpu": 1.79,
+          "cupy_gpu": 1.81,
+          "cpu_numba": 1.47
+        }
+      },
+      "medium_5k": {
+        "n5000_p20_uft67": {
+          "cpu": 1.1,
+          "torch_gpu": 1.73,
+          "cupy_gpu": 1.76,
+          "cpu_numba": 3.75
+        }
+      },
+      "medium_10k": {
+        "n10000_p50_uft62": {
+          "cpu": 1.63,
+          "torch_gpu": 8.59,
+          "cupy_gpu": 8.71,
+          "cpu_numba": 2.05
+        }
+      },
+      "large_20k": {
+        "n20000_p50_uft49": {
+          "cpu": 1.64,
+          "torch_gpu": 7.37,
+          "cupy_gpu": 11.99,
+          "cpu_numba": 1.22
+        }
+      }
+    }
+  },
+  "config": {
+    "STATGPU_USE_NUMBA": {
+      "default": "0",
+      "description": "Enable Numba JIT for CPU Efron (~2x speedup)"
+    },
+    "STATGPU_EFRON_VEC_MAX_P": {
+      "default": "30",
+      "description": "Vectorized cumsum p threshold (p <= this uses cumsum, else incremental loop)"
+    }
+  }
+}
