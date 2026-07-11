@@ -19,132 +19,16 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-
-      - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           python -m pip install -e ".[validation]"
-
       - name: Run tests
         run: |
           python -m pytest dev/tests/test_refactor_safety_net.py dev/tests/test_refactor_post_phase.py dev/tests/test_linear.py dev/tests/test_logistic.py dev/tests/test_cox.py dev/tests/test_cox_cv.py dev/tests/test_distributions_backend.py dev/tests/test_penalties_and_exports.py dev/tests/test_ridge_inference.py dev/tests/test_lasso_debiased_inference.py dev/tests/test_ordered_cross_backend.py dev/tests/test_hessian_fd_cpu.py dev/tests/test_quantile_regression.py dev/tests/test_unsupervised_pca.py dev/tests/test_unsupervised_kmeans.py dev/tests/test_unsupervised_dbscan.py dev/tests/test_unsupervised_gmm.py dev/tests/test_unsupervised_nmf.py dev/tests/test_unsupervised_tsne.py dev/tests/test_unsupervised_umap.py dev/tests/test_inference_resampling.py dev/tests/test_core_contracts.py -q --tb=short
-
-  repository-audit:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-
-      - name: Install audit dependencies
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install -e ".[validation,formula]"
-          python -m pip install ruff vulture
-          mkdir -p audit
-
-      - name: Repository inventory
-        run: |
-          {
-            echo "Python files: $(find statgpu -name '*.py' | wc -l)"
-            echo "Source lines: $(find statgpu -name '*.py' -print0 | xargs -0 cat | wc -l)"
-            echo "Largest source files:"
-            find statgpu -name '*.py' -printf '%s %p\n' | sort -nr | head -25
-          } > audit/inventory.txt
-
-      - name: Compile all package modules
-        run: python -m compileall -q statgpu
-
-      - name: Ruff correctness audit
-        run: |
-          ruff check statgpu \
-            --select E9,F63,F7,F82,B,BLE,C4,PERF,RUF100 \
-            --output-format concise > audit/ruff.txt || true
-
-      - name: Dead-code audit
-        run: vulture statgpu --min-confidence 90 > audit/vulture.txt || true
-
-      - name: Collect all tests
-        run: python -m pytest --collect-only -q > audit/pytest-collect.txt 2>&1 || true
-
-      - name: Custom repository risk scan
-        run: |
-          python - <<'PY' > audit/custom.txt
-          from pathlib import Path
-          import ast
-          import re
-
-          root = Path('statgpu')
-          files = sorted(root.rglob('*.py'))
-          findings = []
-          counts = {}
-
-          def add(kind, path, line, text):
-              findings.append((kind, str(path), int(line), text.strip()))
-              counts[kind] = counts.get(kind, 0) + 1
-
-          for path in files:
-              text = path.read_text(encoding='utf-8')
-              try:
-                  tree = ast.parse(text, filename=str(path))
-              except SyntaxError as exc:
-                  add('SYNTAX', path, exc.lineno or 0, str(exc))
-                  continue
-
-              for node in ast.walk(tree):
-                  if isinstance(node, ast.ExceptHandler):
-                      if node.type is None:
-                          add('BARE_EXCEPT', path, node.lineno, 'bare except')
-                      elif isinstance(node.type, ast.Name) and node.type.id == 'Exception':
-                          if len(node.body) == 1 and isinstance(node.body[0], ast.Pass):
-                              add('SWALLOWED_EXCEPTION', path, node.lineno, 'except Exception: pass')
-                  if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                      defaults = list(node.args.defaults) + [d for d in node.args.kw_defaults if d is not None]
-                      for default in defaults:
-                          if isinstance(default, (ast.List, ast.Dict, ast.Set)):
-                              add('MUTABLE_DEFAULT', path, node.lineno, node.name)
-                  if isinstance(node, (ast.Import, ast.ImportFrom)):
-                      names = [a.name for a in node.names] if isinstance(node, ast.Import) else ([node.module] if node.module else [])
-                      if any(name == 'cupy' or name.startswith('cupy.') for name in names):
-                          if 'backends' not in path.parts:
-                              add('DIRECT_CUPY_IMPORT', path, node.lineno, ', '.join(names))
-
-              for lineno, line in enumerate(text.splitlines(), 1):
-                  if re.search(r'random_state\s+is\s+not\s+None\s+else\s+(0|42)\b', line):
-                      add('FIXED_NONE_SEED', path, lineno, line)
-                  if re.search(r'\b(?:TODO|FIXME|XXX)\b', line):
-                      add('TODO', path, lineno, line)
-                  if 'cpu().numpy()' in line or '.get()' in line:
-                      add('HOST_TRANSFER', path, lineno, line)
-
-          print('CUSTOM AUDIT COUNTS')
-          for kind in sorted(counts):
-              print(f'{kind}: {counts[kind]}')
-          print('\nCUSTOM AUDIT FINDINGS')
-          for kind, path, line, text in findings:
-              print(f'{kind}\t{path}:{line}\t{text}')
-          PY
-
-      - name: Audit summary
-        run: |
-          cat audit/inventory.txt
-          echo "Ruff findings: $(wc -l < audit/ruff.txt)"
-          echo "Vulture findings: $(wc -l < audit/vulture.txt)"
-          sed -n '1,/CUSTOM AUDIT FINDINGS/p' audit/custom.txt
-          tail -5 audit/pytest-collect.txt
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: repository-audit-${{ github.sha }}
-          path: audit/
-          if-no-files-found: error
 
   repository-autofix:
     if: github.event_name == 'pull_request' && github.head_ref == 'agent/code-review-fixes'
@@ -154,7 +38,6 @@ jobs:
         with:
           ref: agent/code-review-fixes
           fetch-depth: 0
-
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
@@ -164,246 +47,233 @@ jobs:
           python - <<'PY'
           from pathlib import Path
           from textwrap import dedent
+          import re
 
           def replace_once(path, old, new):
               p = Path(path)
               text = p.read_text(encoding='utf-8')
               count = text.count(old)
               if count != 1:
-                  raise RuntimeError(f'{path}: expected one match, found {count}')
+                  raise RuntimeError(f'{path}: expected one match, found {count}: {old[:60]!r}')
               p.write_text(text.replace(old, new), encoding='utf-8')
 
-          # Adaptive L1 gradient used an undefined backend resolver.
           replace_once(
               'statgpu/penalties/_adaptive_l1.py',
               'import numpy as np\nfrom statgpu.penalties._base import Penalty\n',
               'import numpy as np\nfrom statgpu.backends._array_ops import _xp\nfrom statgpu.penalties._base import Penalty\n',
           )
 
-          # torch.compile Newton fallback referenced torch outside its scope.
           replace_once(
               'statgpu/glm_core/_solver_utils.py',
-              dedent('''\
-                      def _newton_eager(params, direction, params_old):
-                          params_new = params - direction
-                          diff_norm = torch.linalg.norm(params_new - params_old)
-                          return params_new, diff_norm
-              '''),
-              dedent('''\
-                      def _newton_eager(params, direction, params_old):
-                          import torch
-
-                          params_new = params - direction
-                          diff_norm = torch.linalg.norm(params_new - params_old)
-                          return params_new, diff_norm
-              '''),
+              '        def _newton_eager(params, direction, params_old):\n'
+              '            params_new = params - direction\n'
+              '            diff_norm = torch.linalg.norm(params_new - params_old)\n'
+              '            return params_new, diff_norm\n',
+              '        def _newton_eager(params, direction, params_old):\n'
+              '            import torch\n\n'
+              '            params_new = params - direction\n'
+              '            diff_norm = torch.linalg.norm(params_new - params_old)\n'
+              '            return params_new, diff_norm\n',
           )
 
-          # CuPy knockoff path called a non-existent helper.
           replace_once(
               'statgpu/feature_selection/_knockoff_utils.py',
               '        use_cupy_native = str(backend_name).lower() == "cupy" and _is_cupy_array(Z)\n',
               '        use_cupy_native = str(backend_name).lower() == "cupy"\n',
           )
 
-          # Cox Torch Hessian: avoid undefined n and the O(n*p*p) outer-product tensor.
-          replace_once(
-              'statgpu/survival/_cox.py',
-              dedent('''\
-                      # Cumsum of outer products → prefix at each failure time
-                      flat = (X_exp[:, :, None] * X[:, None, :]).reshape(n, n_features * n_features)
-                      prefix_flat = torch.cumsum(flat, dim=0)  # (n, p*p)
-
-                      # prefix_at_g[g] = prefix_flat[first_idx[g] - 1] if first_idx[g] > 0 else 0
-                      prefix_at_g = torch.zeros((n_uft, n_features, n_features),
-                                                dtype=torch.float64, device=beta.device)
-                      mask = first_idx > 0
-                      if mask.any():
-                          prefix_at_g[mask] = prefix_flat[first_idx[mask] - 1].reshape(-1, n_features, n_features)
-
-                      # risk_X2[g] = total - prefix[g]
-                      risk_X2_at_g = total.unsqueeze(0) - prefix_at_g  # (n_uft, p, p)
-
-                      # hess = -sum_g sc[g] * risk_X2[g] + sum_g weights[g] * outer(E_X[g], E_X[g])
-                      hess = -torch.einsum("g,gij->ij", sc, risk_X2_at_g)
-                      hess += torch.einsum("g,gi,gj->ij", weights, E_X_at_uft, E_X_at_uft)
-              '''),
-              dedent('''\
-                      # Sum weighted risk-set second moments without materializing an
-                      # O(n * p * p) tensor. For each observation i, its outer product
-                      # contributes to every prefix whose failure-time start is after i.
-                      sc_at_start = torch.zeros(
-                          n_samples, dtype=torch.float64, device=beta.device
-                      )
-                      sc_at_start.index_add_(0, first_idx, sc)
-                      suffix_sc = torch.flip(
-                          torch.cumsum(torch.flip(sc_at_start, dims=[0]), dim=0),
-                          dims=[0],
-                      )
-                      prefix_weights = suffix_sc - sc_at_start
-                      weighted_prefix = X_exp.transpose(0, 1) @ (
-                          X * prefix_weights.unsqueeze(1)
-                      )
-
-                      hess = -torch.sum(sc) * total + weighted_prefix
-                      hess += torch.einsum(
-                          "g,gi,gj->ij", weights, E_X_at_uft, E_X_at_uft
-                      )
-              '''),
+          cox = Path('statgpu/survival/_cox.py')
+          text = cox.read_text(encoding='utf-8')
+          pattern = re.compile(
+              r'        # Cumsum of outer products.*?'
+              r'        hess \+= torch\.einsum\("g,gi,gj->ij", weights, E_X_at_uft, E_X_at_uft\)\n',
+              re.S,
           )
+          replacement = dedent('''
+                  # Sum weighted risk-set second moments without materializing an
+                  # O(n * p * p) tensor. Observation i contributes to every prefix
+                  # whose failure-time start is strictly after i.
+                  sc_at_start = torch.zeros(
+                      n_samples, dtype=torch.float64, device=beta.device
+                  )
+                  sc_at_start.index_add_(0, first_idx, sc)
+                  suffix_sc = torch.flip(
+                      torch.cumsum(torch.flip(sc_at_start, dims=[0]), dim=0),
+                      dims=[0],
+                  )
+                  prefix_weights = suffix_sc - sc_at_start
+                  weighted_prefix = X_exp.transpose(0, 1) @ (
+                      X * prefix_weights.unsqueeze(1)
+                  )
 
-          # NNDescent input validation, initialization, unique GPU candidates,
-          # and correct kth semantics.
-          replace_once(
-              'statgpu/unsupervised/_nndescent.py',
-              'import numpy as np\n\n\ndef nndescent_numpy',
-              dedent('''\
-                  import numpy as np
+                  hess = -torch.sum(sc) * total + weighted_prefix
+                  hess += torch.einsum(
+                      "g,gi,gj->ij", weights, E_X_at_uft, E_X_at_uft
+                  )
+          ''').replace('\n', '\n        ')[8:]
+          text, count = pattern.subn(replacement, text)
+          if count != 1:
+              raise RuntimeError(f'Cox Hessian block: expected one match, found {count}')
+          cox.write_text(text, encoding='utf-8')
 
-                  from statgpu.unsupervised._utils import draw_random_seed
+          Path('statgpu/unsupervised/_nndescent.py').write_text(dedent('''
+              """NNDescent approximate nearest-neighbor search for three backends."""
+              from __future__ import annotations
 
+              import numpy as np
 
-                  def _validate_inputs(X, k, max_iter, tol):
-                      if getattr(X, "ndim", None) != 2:
-                          raise ValueError("X must be a 2D array")
-                      n = int(X.shape[0])
-                      if n < 2:
-                          raise ValueError("X must contain at least two samples")
-                      if not isinstance(k, (int, np.integer)) or not 1 <= int(k) < n:
-                          raise ValueError("k must be an integer in [1, n_samples)")
-                      if not isinstance(max_iter, (int, np.integer)) or int(max_iter) < 1:
-                          raise ValueError("max_iter must be a positive integer")
-                      if float(tol) < 0.0:
-                          raise ValueError("tol must be non-negative")
-                      return n, int(k), int(max_iter), float(tol)
+              from statgpu.unsupervised._utils import draw_random_seed
 
 
-                  def nndescent_numpy'''),
-          )
-          replace_once(
-              'statgpu/unsupervised/_nndescent.py',
-              dedent('''\
-                      rng = np.random.RandomState(seed)
-                      n, d = X.shape
-              '''),
-              dedent('''\
-                      n, k, max_iter, tol = _validate_inputs(X, k, max_iter, tol)
-                      seed = draw_random_seed(seed)
-                      rng = np.random.RandomState(seed)
-                      d = int(X.shape[1])
-              '''),
-          )
-          replace_once(
-              'statgpu/unsupervised/_nndescent.py',
-              '        new_distances = np.zeros((n, k), dtype=np.float64)\n\n        for i in range(n):\n',
-              '        new_distances = np.zeros((n, k), dtype=np.float64)\n        changed = 0\n\n        for i in range(n):\n',
-          )
-          replace_once(
-              'statgpu/unsupervised/_nndescent.py',
-              '            idx = np.argpartition(dists, k_eff)[:k_eff]\n',
-              '            idx = np.argpartition(dists, k_eff - 1)[:k_eff]\n',
-          )
-          replace_once(
-              'statgpu/unsupervised/_nndescent.py',
-              dedent('''\
-                      n, d = X.shape
-                      device = X.device
-                      rng = torch.Generator(device=device)
-                      rng.manual_seed(seed)
-              '''),
-              dedent('''\
-                      n, k, max_iter, tol = _validate_inputs(X, k, max_iter, tol)
-                      d = int(X.shape[1])
-                      device = X.device
-                      seed = draw_random_seed(seed)
-                      rng = torch.Generator(device=device)
-                      rng.manual_seed(seed)
-              '''),
-          )
-          replace_once(
-              'statgpu/unsupervised/_nndescent.py',
-              dedent('''\
-                      # Exclude self-candidates (set distance to inf for self)
-                      is_self = (candidates == node_ids)  # (n, k + k²)
+              def _validate_inputs(X, k, max_iter, tol):
+                  if getattr(X, "ndim", None) != 2:
+                      raise ValueError("X must be a 2D array")
+                  n = int(X.shape[0])
+                  if n < 2:
+                      raise ValueError("X must contain at least two samples")
+                  if not isinstance(k, (int, np.integer)) or not 1 <= int(k) < n:
+                      raise ValueError("k must be an integer in [1, n_samples)")
+                  if not isinstance(max_iter, (int, np.integer)) or int(max_iter) < 1:
+                      raise ValueError("max_iter must be a positive integer")
+                  if float(tol) < 0.0:
+                      raise ValueError("tol must be non-negative")
+                  return n, int(k), int(max_iter), float(tol)
 
-                      # Compute distances to candidates
-              '''),
-              dedent('''\
-                      # Keep one occurrence of each candidate and exclude self.
-                      sort_order = torch.argsort(candidates, dim=1)
-                      sorted_candidates = torch.gather(candidates, 1, sort_order)
+
+              def nndescent_numpy(X, k=15, max_iter=10, tol=0.001, seed=42):
+                  """Run NNDescent with NumPy and return squared distances."""
+                  n, k, max_iter, tol = _validate_inputs(X, k, max_iter, tol)
+                  d = int(X.shape[1])
+                  rng = np.random.RandomState(draw_random_seed(seed))
+
+                  indices = np.empty((n, k), dtype=np.int64)
+                  for i in range(n):
+                      choices = np.concatenate((np.arange(i), np.arange(i + 1, n)))
+                      indices[i] = rng.choice(choices, size=k, replace=False)
+
+                  neighbors = X[indices.reshape(-1)].reshape(n, k, d)
+                  distances = np.sum((X[:, None, :] - neighbors) ** 2, axis=2)
+
+                  for _ in range(max_iter):
+                      new_indices = np.empty((n, k), dtype=np.int64)
+                      new_distances = np.empty((n, k), dtype=np.float64)
+                      changed = 0
+                      for i in range(n):
+                          candidates = set(int(v) for v in indices[i])
+                          for neighbor in indices[i]:
+                              candidates.update(int(v) for v in indices[int(neighbor)])
+                          candidates.discard(i)
+                          candidate_ids = np.fromiter(candidates, dtype=np.int64)
+                          candidate_X = X[candidate_ids]
+                          dists = np.sum((X[i] - candidate_X) ** 2, axis=1)
+                          selected = np.argpartition(dists, k - 1)[:k]
+                          selected = selected[np.argsort(dists[selected])]
+                          new_indices[i] = candidate_ids[selected]
+                          new_distances[i] = dists[selected]
+                          changed += len(set(new_indices[i]) - set(indices[i]))
+
+                      indices = new_indices
+                      distances = new_distances
+                      if changed / float(n * k) < tol:
+                          break
+                  return indices, distances
+
+
+              def nndescent_torch(X, k=15, max_iter=10, tol=0.001, seed=42):
+                  """Run NNDescent with Torch and return squared float64 distances."""
+                  import torch
+
+                  n, k, max_iter, tol = _validate_inputs(X, k, max_iter, tol)
+                  d = int(X.shape[1])
+                  device = X.device
+                  generator = torch.Generator(device=device)
+                  generator.manual_seed(draw_random_seed(seed))
+
+                  indices = torch.empty((n, k), dtype=torch.int64, device=device)
+                  all_ids = torch.arange(n, device=device)
+                  for i in range(n):
+                      choices = all_ids[all_ids != i]
+                      perm = torch.randperm(n - 1, generator=generator, device=device)[:k]
+                      indices[i] = choices[perm]
+
+                  neighbors = X[indices.reshape(-1)].reshape(n, k, d)
+                  distances = torch.sum((X[:, None, :] - neighbors) ** 2, dim=2).to(torch.float64)
+                  node_ids = torch.arange(n, device=device).reshape(n, 1)
+
+                  for _ in range(max_iter):
+                      neighbors_of_neighbors = indices[indices.reshape(-1)].reshape(n, k * k)
+                      candidates = torch.cat((indices, neighbors_of_neighbors), dim=1)
+
+                      order = torch.argsort(candidates, dim=1)
+                      sorted_candidates = torch.gather(candidates, 1, order)
                       duplicate_sorted = torch.zeros_like(sorted_candidates, dtype=torch.bool)
-                      duplicate_sorted[:, 1:] = (
-                          sorted_candidates[:, 1:] == sorted_candidates[:, :-1]
-                      )
+                      duplicate_sorted[:, 1:] = sorted_candidates[:, 1:] == sorted_candidates[:, :-1]
                       duplicate_mask = torch.zeros_like(duplicate_sorted)
-                      duplicate_mask.scatter_(1, sort_order, duplicate_sorted)
+                      duplicate_mask.scatter_(1, order, duplicate_sorted)
                       invalid = (candidates == node_ids) | duplicate_mask
 
-                      # Compute distances to candidates
-              '''),
-          )
-          replace_once(
-              'statgpu/unsupervised/_nndescent.py',
-              "        dists[is_self] = float('inf')  # exclude self from top-k\n",
-              "        dists[invalid] = float('inf')\n",
-          )
-          replace_once(
-              'statgpu/unsupervised/_nndescent.py',
-              dedent('''\
-                      n, d = X.shape
-                      dtype = X.dtype
+                      candidate_X = X[candidates.reshape(-1)].reshape(n, k + k * k, d)
+                      dists = torch.sum((X[:, None, :] - candidate_X) ** 2, dim=2).to(torch.float64)
+                      dists[invalid] = torch.inf
+                      new_distances, positions = torch.topk(dists, k, largest=False, sorted=True)
+                      new_indices = torch.gather(candidates, 1, positions)
 
-                      # Initialize with random neighbors (vectorized)
-                      rng = cp.random.RandomState(seed)
-              '''),
-              dedent('''\
-                      n, k, max_iter, tol = _validate_inputs(X, k, max_iter, tol)
-                      d = int(X.shape[1])
-                      dtype = X.dtype
+                      changed = int(torch.sum(indices != new_indices).item())
+                      indices = new_indices
+                      distances = new_distances
+                      if changed / float(n * k) < tol:
+                          break
+                  return indices, distances
 
-                      # Initialize with random neighbors (vectorized)
-                      seed = draw_random_seed(seed)
-                      rng = cp.random.RandomState(seed)
-              '''),
-          )
-          replace_once(
-              'statgpu/unsupervised/_nndescent.py',
-              dedent('''\
-                      # Exclude self-candidates (set distance to inf for self)
-                      is_self = (candidates == node_ids)  # (n, k + k²)
 
-                      # Compute distances to candidates (vectorized)
-              '''),
-              dedent('''\
-                      # Keep one occurrence of each candidate and exclude self.
-                      sort_order = cp.argsort(candidates, axis=1)
-                      sorted_candidates = cp.take_along_axis(candidates, sort_order, axis=1)
+              def nndescent_cupy(X, k=15, max_iter=10, tol=0.001, seed=42):
+                  """Run NNDescent with CuPy and return squared float64 distances."""
+                  import cupy as cp
+
+                  n, k, max_iter, tol = _validate_inputs(X, k, max_iter, tol)
+                  d = int(X.shape[1])
+                  rng = cp.random.RandomState(draw_random_seed(seed))
+
+                  indices = cp.empty((n, k), dtype=cp.int64)
+                  for i in range(n):
+                      choices = rng.choice(n - 1, size=k, replace=False)
+                      indices[i] = cp.where(choices >= i, choices + 1, choices)
+
+                  neighbors = X[indices.reshape(-1)].reshape(n, k, d)
+                  distances = cp.sum((X[:, None, :] - neighbors) ** 2, axis=2).astype(cp.float64)
+                  node_ids = cp.arange(n, dtype=cp.int64).reshape(n, 1)
+                  rows = cp.arange(n, dtype=cp.int64)[:, None]
+
+                  for _ in range(max_iter):
+                      neighbors_of_neighbors = indices[indices.reshape(-1)].reshape(n, k * k)
+                      candidates = cp.concatenate((indices, neighbors_of_neighbors), axis=1)
+
+                      order = cp.argsort(candidates, axis=1)
+                      sorted_candidates = cp.take_along_axis(candidates, order, axis=1)
                       duplicate_sorted = cp.zeros_like(sorted_candidates, dtype=cp.bool_)
-                      duplicate_sorted[:, 1:] = (
-                          sorted_candidates[:, 1:] == sorted_candidates[:, :-1]
-                      )
+                      duplicate_sorted[:, 1:] = sorted_candidates[:, 1:] == sorted_candidates[:, :-1]
                       duplicate_mask = cp.zeros_like(duplicate_sorted)
-                      rows = cp.arange(n, dtype=cp.int64)[:, None]
-                      duplicate_mask[rows, sort_order] = duplicate_sorted
+                      duplicate_mask[rows, order] = duplicate_sorted
                       invalid = (candidates == node_ids) | duplicate_mask
 
-                      # Compute distances to candidates (vectorized)
-              '''),
-          )
-          replace_once(
-              'statgpu/unsupervised/_nndescent.py',
-              '        dists[is_self] = cp.inf  # exclude self from top-k\n',
-              '        dists[invalid] = cp.inf\n',
-          )
-          replace_once(
-              'statgpu/unsupervised/_nndescent.py',
-              '        topk_idx = cp.argpartition(dists, k, axis=1)[:, :k]\n',
-              '        topk_idx = cp.argpartition(dists, k - 1, axis=1)[:, :k]\n',
-          )
+                      candidate_X = X[candidates.reshape(-1)].reshape(n, k + k * k, d)
+                      dists = cp.sum((X[:, None, :] - candidate_X) ** 2, axis=2).astype(cp.float64)
+                      dists[invalid] = cp.inf
+                      positions = cp.argpartition(dists, k - 1, axis=1)[:, :k]
+                      selected_distances = cp.take_along_axis(dists, positions, axis=1)
+                      sort_positions = cp.argsort(selected_distances, axis=1)
+                      positions = cp.take_along_axis(positions, sort_positions, axis=1)
+                      new_indices = cp.take_along_axis(candidates, positions, axis=1)
+                      new_distances = cp.take_along_axis(dists, positions, axis=1)
 
-          # UMAP random_state=None must draw entropy once per fit, while a fixed
-          # seed remains reproducible across all substeps.
+                      changed = int(cp.sum(indices != new_indices))
+                      indices = new_indices
+                      distances = new_distances
+                      if changed / float(n * k) < tol:
+                          break
+                  return indices, distances
+          '''), encoding='utf-8')
+
           replace_once(
               'statgpu/unsupervised/_umap.py',
               '    backend_random_normal,\n    check_2d_array,\n',
@@ -416,130 +286,139 @@ jobs:
           )
           replace_once(
               'statgpu/unsupervised/_umap.py',
-              '            return backend_random_normal(backend, self.random_state, size=(n_samples, int(self.n_components)), scale=1e-4)\n',
-              '            return backend_random_normal(backend, self._fit_random_seed_, size=(n_samples, int(self.n_components)), scale=1e-4)\n',
+              'backend_random_normal(backend, self.random_state, size=',
+              'backend_random_normal(backend, self._fit_random_seed_, size=',
           )
           replace_once(
               'statgpu/unsupervised/_umap.py',
-              '        jitter = backend_random_normal(backend, self.random_state, size=(n_samples, int(self.n_components)), scale=1e-4)\n',
-              '        jitter = backend_random_normal(backend, self._fit_random_seed_, size=(n_samples, int(self.n_components)), scale=1e-4)\n',
+              '        self._validate_params(n_samples)\n\n        # Use float32',
+              '        self._validate_params(n_samples)\n        self._fit_random_seed_ = draw_random_seed(self.random_state)\n\n        # Use float32',
           )
           replace_once(
               'statgpu/unsupervised/_umap.py',
-              '        self._validate_params(n_samples)\n\n        # Use float32 for distance computations',
-              '        self._validate_params(n_samples)\n        self._fit_random_seed_ = draw_random_seed(self.random_state)\n\n        # Use float32 for distance computations',
-          )
-          replace_once(
-              'statgpu/unsupervised/_umap.py',
-              dedent('''\
-                      # Create RNG once before epoch loop (not re-seeded per epoch)
-                      rng = np.random.RandomState(self.random_state)
-                      rs = self.random_state if self.random_state is not None else 42
-              '''),
-              dedent('''\
-                      # Create RNG once before epoch loop (not re-seeded per epoch).
-                      # random_state=None draws a fresh seed once per fit.
-                      rs = int(self._fit_random_seed_)
-                      rng = np.random.RandomState(rs)
-              '''),
+              '        rng = np.random.RandomState(self.random_state)\n        rs = self.random_state if self.random_state is not None else 42\n',
+              '        rs = int(self._fit_random_seed_)\n        rng = np.random.RandomState(rs)\n',
           )
 
-          # Model-context inference should honor explicit Torch device selection.
           base = Path('statgpu/_base.py')
           text = base.read_text(encoding='utf-8')
-          marker = dedent('''\
-                  def adjust_pvalues(
-          ''')
-          helper = dedent('''\
-                  def _resolve_inference_backend(self, backend: str) -> str:
-                      """Resolve model-context inference backend without silent fallback."""
-                      backend_name = str(backend).strip().lower()
-                      if backend_name == "auto":
-                          compute_device = self._get_compute_device()
-                          if compute_device == Device.CUDA:
-                              return "cupy"
-                          if compute_device == Device.TORCH:
-                              return "torch"
-                      return backend_name
+          marker = '    def adjust_pvalues(\n'
+          helper = dedent('''
+              def _resolve_inference_backend(self, backend: str) -> str:
+                  """Resolve model-context inference backend without silent fallback."""
+                  backend_name = str(backend).strip().lower()
+                  if backend_name == "auto":
+                      compute_device = self._get_compute_device()
+                      if compute_device == Device.CUDA:
+                          return "cupy"
+                      if compute_device == Device.TORCH:
+                          return "torch"
+                  return backend_name
 
-                  def adjust_pvalues(
+              def adjust_pvalues(
           ''')
           if text.count(marker) != 1:
-              raise RuntimeError('BaseEstimator adjust_pvalues marker mismatch')
-          text = text.replace(marker, helper)
-          old_resolve = dedent('''\
-                      backend_name = str(backend).strip().lower()
-                      if backend_name == "auto" and self._get_compute_device() == Device.CUDA:
-                          backend_name = "cupy"
-          ''')
-          if text.count(old_resolve) != 4:
-              raise RuntimeError(f'expected four inference resolver blocks, found {text.count(old_resolve)}')
-          text = text.replace(old_resolve, '        backend_name = self._resolve_inference_backend(backend)\n')
+              raise RuntimeError('BaseEstimator marker mismatch')
+          text = text.replace(marker, helper, 1)
+          resolver = (
+              '        backend_name = str(backend).strip().lower()\n'
+              '        if backend_name == "auto" and self._get_compute_device() == Device.CUDA:\n'
+              '            backend_name = "cupy"\n'
+          )
+          if text.count(resolver) != 4:
+              raise RuntimeError(f'expected four resolver blocks, found {text.count(resolver)}')
+          text = text.replace(resolver, '        backend_name = self._resolve_inference_backend(backend)\n')
           text = text.replace(
-              dedent('''\
-                      if backend_name == "cupy":
-                          pvals = self._to_array(source, Device.CUDA)
-                      else:
-                          pvals = self._to_numpy(source)
-              '''),
-              dedent('''\
-                      if backend_name == "cupy":
-                          pvals = self._to_array(source, Device.CUDA)
-                      elif backend_name == "torch":
-                          pvals = self._to_array(source, Device.TORCH, backend="torch")
-                      else:
-                          pvals = self._to_numpy(source)
-              '''),
+              '        if backend_name == "cupy":\n'
+              '            pvals = self._to_array(source, Device.CUDA)\n'
+              '        else:\n'
+              '            pvals = self._to_numpy(source)\n',
+              '        if backend_name == "cupy":\n'
+              '            pvals = self._to_array(source, Device.CUDA)\n'
+              '        elif backend_name == "torch":\n'
+              '            pvals = self._to_array(source, Device.TORCH, backend="torch")\n'
+              '        else:\n'
+              '            pvals = self._to_numpy(source)\n',
               1,
           )
           text = text.replace(
-              dedent('''\
-                      if backend_name == "cupy":
-                          pvals = self._to_array(source, Device.CUDA)
-                          w_cast = None if weights is None else self._to_array(weights, Device.CUDA)
-                      elif backend_name == "numpy":
-                          pvals = self._to_numpy(source)
-                          w_cast = None if weights is None else self._to_numpy(weights)
-                      else:
-                          pvals = source
-                          w_cast = weights
-              '''),
-              dedent('''\
-                      if backend_name == "cupy":
-                          pvals = self._to_array(source, Device.CUDA)
-                          w_cast = None if weights is None else self._to_array(weights, Device.CUDA)
-                      elif backend_name == "torch":
-                          pvals = self._to_array(source, Device.TORCH, backend="torch")
-                          w_cast = None if weights is None else self._to_array(
-                              weights, Device.TORCH, backend="torch"
-                          )
-                      else:
-                          pvals = self._to_numpy(source)
-                          w_cast = None if weights is None else self._to_numpy(weights)
-              '''),
+              '        elif backend_name == "numpy":\n'
+              '            pvals = self._to_numpy(source)\n'
+              '            w_cast = None if weights is None else self._to_numpy(weights)\n'
+              '        else:\n'
+              '            pvals = source\n'
+              '            w_cast = weights\n',
+              '        elif backend_name == "torch":\n'
+              '            pvals = self._to_array(source, Device.TORCH, backend="torch")\n'
+              '            w_cast = None if weights is None else self._to_array(\n'
+              '                weights, Device.TORCH, backend="torch"\n'
+              '            )\n'
+              '        else:\n'
+              '            pvals = self._to_numpy(source)\n'
+              '            w_cast = None if weights is None else self._to_numpy(weights)\n',
               1,
           )
-          text = text.replace("backend : {'auto', 'numpy', 'cupy'}, default='auto'", "backend : {'auto', 'numpy', 'cupy', 'torch'}, default='auto'")
+          text = text.replace(
+              "backend : {'auto', 'numpy', 'cupy'}, default='auto'",
+              "backend : {'auto', 'numpy', 'cupy', 'torch'}, default='auto'",
+          )
           base.write_text(text, encoding='utf-8')
 
-          # Optional Torch is not required to collect CPU ElasticNet tests.
-          replace_once(
-              'dev/tests/test_elasticnet_cv.py',
-              'import numpy as np\nimport torch\nfrom statgpu.linear_model import ElasticNetCV, ElasticNet\nfrom statgpu import get_backend, Device\n',
-              'import numpy as np\nfrom statgpu.linear_model import ElasticNetCV\n',
+          test_file = Path('dev/tests/test_elasticnet_cv.py')
+          text = test_file.read_text(encoding='utf-8')
+          text = text.replace(
+              'import numpy as np\nimport torch\nfrom statgpu.linear_model import ElasticNetCV, ElasticNet\nfrom statgpu import get_backend, Device\n\nimport warnings\nwarnings.filterwarnings(\'ignore\')\n',
+              'import numpy as np\nimport pytest\nfrom statgpu.linear_model import ElasticNetCV\nfrom statgpu.backends import get_backend\n',
           )
+          gpu_pattern = re.compile(
+              r'def test_elasticnetcv_gpu_backend\(\):.*?\n\n\ndef test_elasticnetcv_predict',
+              re.S,
+          )
+          gpu_replacement = dedent('''
+              def test_elasticnetcv_gpu_backend():
+                  """Compare CPU and explicit CuPy CUDA results when available."""
+                  X, y, _ = generate_elasticnet_data(n_samples=500, n_features=50)
+                  cpu_model = ElasticNetCV(
+                      l1_ratio=0.5,
+                      n_alphas=20,
+                      cv=3,
+                      random_state=42,
+                      device="cpu",
+                  ).fit(X, y)
+                  if not get_backend("cupy").is_available():
+                      pytest.skip("working CuPy CUDA backend is unavailable")
+                  cuda_model = ElasticNetCV(
+                      l1_ratio=0.5,
+                      n_alphas=20,
+                      cv=3,
+                      random_state=42,
+                      device="cuda",
+                  ).fit(X, y)
+                  np.testing.assert_allclose(
+                      cpu_model.coef_, cuda_model.coef_, rtol=5e-4, atol=5e-5
+                  )
 
-          # Remote hardware runner does not belong under pytest testpaths.
+
+              def test_elasticnetcv_predict''')
+          text, count = gpu_pattern.subn(gpu_replacement, text)
+          if count != 1:
+              raise RuntimeError(f'ElasticNet GPU test block: found {count}')
+          test_file.write_text(text, encoding='utf-8')
+
           src = Path('dev/tests/remote_gpu_test.py')
           dst = Path('dev/manual/remote_gpu_runner.py')
           if not src.exists() or dst.exists():
               raise RuntimeError('remote GPU runner move precondition failed')
           dst.parent.mkdir(parents=True, exist_ok=True)
           src.rename(dst)
+          remote = dst.read_text(encoding='utf-8')
+          remote = remote.replace('db = DBSCAN(eps=0.5, min_samples=5)', 'db = DBSCAN(eps=0.5, min_samples=5, device="cuda")', 1)
+          remote = remote.replace('db2 = DBSCAN(eps=0.5, min_samples=5)', 'db2 = DBSCAN(eps=0.5, min_samples=5, device="torch")', 1)
+          remote = remote.replace("UMAP(n_neighbors=5, n_epochs=2, device='cuda')", "UMAP(n_neighbors=5, n_epochs=2, device='torch')")
+          dst.write_text(remote, encoding='utf-8')
 
-          Path('dev/tests/test_repository_review_regressions.py').write_text(dedent('''\
+          Path('dev/tests/test_repository_review_regressions.py').write_text(dedent('''
               """Regression coverage for repository-wide review fixes."""
-
               import numpy as np
               import pytest
 
@@ -555,23 +434,21 @@ jobs:
                   def fit(self, X, y=None, **fit_params):
                       self._fitted = True
                       return self
-
                   def predict(self, X):
                       return X
 
 
               def test_adaptive_l1_gradient_uses_array_backend():
                   penalty = AdaptiveL1Penalty(alpha=2.0, weights=np.array([1.0, 3.0]))
-                  coef = np.array([-4.0, 5.0])
-                  np.testing.assert_array_equal(penalty.gradient(coef), np.array([-2.0, 6.0]))
+                  np.testing.assert_array_equal(
+                      penalty.gradient(np.array([-4.0, 5.0])), np.array([-2.0, 6.0])
+                  )
 
 
               def test_nndescent_numpy_valid_unique_neighbors():
-                  rng = np.random.default_rng(123)
-                  X = rng.normal(size=(24, 4))
+                  X = np.random.default_rng(123).normal(size=(24, 4))
                   indices, distances = nndescent_numpy(X, k=5, max_iter=3, seed=7)
-                  assert indices.shape == (24, 5)
-                  assert distances.shape == (24, 5)
+                  assert indices.shape == distances.shape == (24, 5)
                   assert np.all(np.isfinite(distances))
                   for i, row in enumerate(indices):
                       assert i not in row
@@ -584,24 +461,13 @@ jobs:
                   seeds = iter([101, 202])
                   monkeypatch.setattr(umap_module, "draw_random_seed", lambda state: next(seeds))
                   X = np.arange(60.0).reshape(20, 3)
-                  first = UMAP(
-                      n_neighbors=4,
-                      n_components=2,
-                      n_epochs=1,
-                      init="random",
-                      random_state=None,
-                      device="cpu",
-                  ).fit(X)
-                  second = UMAP(
-                      n_neighbors=4,
-                      n_components=2,
-                      n_epochs=1,
-                      init="random",
-                      random_state=None,
-                      device="cpu",
-                  ).fit(X)
-                  assert first._fit_random_seed_ == 101
-                  assert second._fit_random_seed_ == 202
+                  params = dict(
+                      n_neighbors=4, n_components=2, n_epochs=1,
+                      init="random", random_state=None, device="cpu",
+                  )
+                  first = UMAP(**params).fit(X)
+                  second = UMAP(**params).fit(X)
+                  assert (first._fit_random_seed_, second._fit_random_seed_) == (101, 202)
                   assert not np.allclose(first.embedding_, second.embedding_)
 
 
@@ -621,23 +487,11 @@ jobs:
       - name: Static correctness gate
         run: |
           python -m compileall -q statgpu
-          ruff check \
-            statgpu/feature_selection/_knockoff_utils.py \
-            statgpu/glm_core/_solver_utils.py \
-            statgpu/penalties/_adaptive_l1.py \
-            statgpu/survival/_cox.py \
-            statgpu/unsupervised/_nndescent.py \
-            statgpu/unsupervised/_umap.py \
-            --select F821,E9,F63,F7,F82
+          ruff check statgpu/feature_selection/_knockoff_utils.py statgpu/glm_core/_solver_utils.py statgpu/penalties/_adaptive_l1.py statgpu/survival/_cox.py statgpu/unsupervised/_nndescent.py statgpu/unsupervised/_umap.py --select F821,E9,F63,F7,F82
 
       - name: Targeted regression tests
         run: |
-          python -m pytest \
-            dev/tests/test_repository_review_regressions.py \
-            dev/tests/test_unsupervised_umap.py \
-            dev/tests/test_inference_multiple_testing.py \
-            dev/tests/test_elasticnet_cv.py \
-            -q --tb=short
+          python -m pytest dev/tests/test_repository_review_regressions.py dev/tests/test_unsupervised_umap.py dev/tests/test_inference_multiple_testing.py dev/tests/test_elasticnet_cv.py -q --tb=short
           python -m pytest --collect-only -q >/tmp/collect.txt
           tail -3 /tmp/collect.txt
 
