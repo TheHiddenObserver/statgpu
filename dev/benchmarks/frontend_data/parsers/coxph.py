@@ -1,5 +1,6 @@
 """Parse coxph_efron_bench_*.json — CoxPH survival analysis benchmark."""
 
+import hashlib
 import json
 from pathlib import Path
 

@@ -1,5 +1,6 @@
 """Parse LassoCV combined benchmark — seed-level aggregation."""
 
+import hashlib
 import json
 import statistics
 from pathlib import Path
@@ -34,6 +35,14 @@ def parse_lassocv_combined(filepath: Path, env_id: str) -> tuple[list[dict], lis
         "n_samples": n_samples, "n_features": n_features,
         "label": make_scale_label(n_samples, n_features),
     }
+
+    # Build canonical case_id from shared benchmark parameters
+    identity_params = {k: config[k] for k in ("n_samples", "n_features", "n_signal", "noise_scale", "rho", "cv", "n_alphas", "alpha_min_ratio") if k in config}
+    if identity_params:
+        case_payload = json.dumps(identity_params, sort_keys=True, separators=(",", ":"))
+        case_id = "case-" + hashlib.sha256(case_payload.encode()).hexdigest()[:16]
+    else:
+        case_id = "default"
 
     methods = data.get("methods", {})
     for method_name, method_data in methods.items():
@@ -169,6 +178,7 @@ def parse_lassocv_combined(filepath: Path, env_id: str) -> tuple[list[dict], lis
             "env_id": env_id,
             "category_ids": ["linear_models", "penalized_glm"],
             "model_id": model_id,
+            "case_id": case_id,
             "loss": "squared_error",
             "penalty": "l1",
             "solver": "auto",

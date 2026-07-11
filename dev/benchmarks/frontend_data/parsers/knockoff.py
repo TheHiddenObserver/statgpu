@@ -1,5 +1,6 @@
 """Parse knockoff benchmark — feature selection with selection metrics."""
 
+import hashlib
 import json
 from pathlib import Path
 
@@ -45,6 +46,15 @@ def parse_knockoff_benchmark(filepath: Path, env_id: str) -> tuple[list[dict], l
         "file": filepath.name, "date": source_date,
         "parser": "parse_knockoff_benchmark_v1", "parser_version": "1.0",
     }
+
+    # Build canonical case_id from shared benchmark parameters
+    config = data.get("config", {})
+    identity_params = {k: config[k] for k in ("n_samples", "n_features", "n_signal", "noise_scale", "rho", "q") if k in config}
+    if identity_params:
+        case_payload = json.dumps(identity_params, sort_keys=True, separators=(",", ":"))
+        case_id = "case-" + hashlib.sha256(case_payload.encode()).hexdigest()[:16]
+    else:
+        case_id = "default"
 
     methods = data.get("methods", {})
     for method_name, method_data in methods.items():
@@ -118,6 +128,7 @@ def parse_knockoff_benchmark(filepath: Path, env_id: str) -> tuple[list[dict], l
             "env_id": env_id,
             "category_ids": ["feature_selection"],
             "model_id": model_id,
+            "case_id": case_id,
             "variant": variant,
             "framework": framework,
             "backend": backend,

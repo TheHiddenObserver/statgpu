@@ -12,7 +12,9 @@ npm install
 cd ..
 python dev/benchmarks/generate_benchmark_data.py \
   --out frontend/public/data/benchmark_data.json \
-  --report frontend/public/data/parse_report.json
+  --report frontend/public/data/parse_report.json \
+  --inventory-out frontend/public/data/source_inventory.json \
+  --deterministic --strict-sources
 
 # Start dev server
 cd frontend

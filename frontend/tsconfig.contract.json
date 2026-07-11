@@ -7,5 +7,5 @@
     "noEmit": true,
     "resolveJsonModule": true
   },
-  "include": ["src/schema.ts", "e2e/identity.spec.ts"]
+  "include": ["src/schema.ts", "src/identity.ts"]
 }

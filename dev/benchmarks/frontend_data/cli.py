@@ -589,6 +589,9 @@ def validate_semantic(output: dict, manifest: Optional[dict] = None, strict_sour
             if manifest:
                 errors.append(f"{rid}: legacy case_id in canonical mode")
 
+    # Build run_id lookup for speedup reference validation
+    run_by_id: dict[str, dict] = {r["run_id"]: r for r in runs}
+
     # RunIdentity uniqueness + hash verification (canonical mode)
     if manifest:
         from .identity import run_identity, identity_json as _id_json
@@ -602,6 +605,30 @@ def validate_semantic(output: dict, manifest: Optional[dict] = None, strict_sour
             if rid_key in seen_identities:
                 errors.append(f"{run['run_id']}: duplicate RunIdentity with {seen_identities[rid_key]}")
             seen_identities[rid_key] = run["run_id"]
+
+    # Speedup reference validation
+    for run in runs:
+        sp = run.get("metrics", {}).get("speedup", {})
+        if not sp:
+            continue
+        ref_id = sp.get("reference_run_id")
+        if sp.get("reported_semantics") == "computed":
+            if not ref_id:
+                errors.append(f"{run['run_id']}: computed speedup missing reference_run_id")
+            elif ref_id == run["run_id"]:
+                errors.append(f"{run['run_id']}: speedup self-reference")
+            elif ref_id not in run_by_id:
+                errors.append(f"{run['run_id']}: speedup reference_run_id '{ref_id}' not found")
+            else:
+                ref_run = run_by_id[ref_id]
+                ref_time = ref_run.get("metrics", {}).get("timing", {}).get("fit_time_ms", 0)
+                if ref_time <= 0:
+                    errors.append(f"{run['run_id']}: speedup reference run has no positive timing")
+                # Cross-check comparison/case compatibility
+                if ref_run.get("comparison_id") != run.get("comparison_id"):
+                    errors.append(f"{run['run_id']}: speedup reference has different comparison_id")
+                if ref_run.get("scale", {}).get("scale_key") != run.get("scale", {}).get("scale_key"):
+                    errors.append(f"{run['run_id']}: speedup reference has different scale")
 
     return errors
 

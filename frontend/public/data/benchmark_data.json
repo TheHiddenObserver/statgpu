@@ -4,7 +4,7 @@
   "meta": {
     "generator": "dev/benchmarks/generate_benchmark_data.py",
     "git_sha": "deterministic",
-    "generation_id": "99bf2eca1d004512498527bb22c11605cc2ba3d2337c12351e3572efa17f03c2"
+    "generation_id": "03b7a2b4e11f0a004f7de33cc7c3216ec559b8958ebe43ff0b87479dfaa07213"
   },
   "environments": [
     {
@@ -67370,13 +67370,14 @@
       "method_config_id": "default"
     },
     {
-      "run_id": "8d28630cbeaf26df",
+      "run_id": "a1f469696b19d7e2",
       "env_id": "remote-p100",
       "category_ids": [
         "linear_models",
         "penalized_glm"
       ],
       "model_id": "LassoCV",
+      "case_id": "case-8ad26b603dbd972f",
       "loss": "squared_error",
       "penalty": "l1",
       "solver": "auto",
@@ -67450,17 +67451,17 @@
         "seed_count": 3
       },
       "comparison_id": "lassocv-20260409",
-      "case_id": "default",
       "method_config_id": "default"
     },
     {
-      "run_id": "4c7e96b66f04b592",
+      "run_id": "4e1c237d290324fc",
       "env_id": "remote-p100",
       "category_ids": [
         "linear_models",
         "penalized_glm"
       ],
       "model_id": "LassoCV",
+      "case_id": "case-8ad26b603dbd972f",
       "loss": "squared_error",
       "penalty": "l1",
       "solver": "auto",
@@ -67534,17 +67535,17 @@
         "seed_count": 3
       },
       "comparison_id": "lassocv-20260409",
-      "case_id": "default",
       "method_config_id": "default"
     },
     {
-      "run_id": "101869d569dcc195",
+      "run_id": "3e4156b8104d3420",
       "env_id": "remote-p100",
       "category_ids": [
         "linear_models",
         "penalized_glm"
       ],
       "model_id": "LassoCV",
+      "case_id": "case-8ad26b603dbd972f",
       "loss": "squared_error",
       "penalty": "l1",
       "solver": "auto",
@@ -67618,16 +67619,16 @@
         "seed_count": 3
       },
       "comparison_id": "lassocv-20260409",
-      "case_id": "default",
       "method_config_id": "default"
     },
     {
-      "run_id": "de5fc82575d3880e",
+      "run_id": "83e096f2c83ed3e7",
       "env_id": "remote-p100",
       "category_ids": [
         "feature_selection"
       ],
       "model_id": "KnockoffFilter",
+      "case_id": "case-d99c63abe334787b",
       "variant": "fixed_x",
       "framework": "statgpu",
       "backend": "numpy",
@@ -67680,16 +67681,16 @@
         "seed_count": 3
       },
       "comparison_id": "knockoff-baselines-20260409",
-      "case_id": "default",
       "method_config_id": "default"
     },
     {
-      "run_id": "2454332c019ed84a",
+      "run_id": "7cad8c0e06b06ed5",
       "env_id": "remote-p100",
       "category_ids": [
         "feature_selection"
       ],
       "model_id": "KnockoffFilter",
+      "case_id": "case-d99c63abe334787b",
       "variant": "model_x",
       "framework": "statgpu",
       "backend": "numpy",
@@ -67742,16 +67743,16 @@
         "seed_count": 3
       },
       "comparison_id": "knockoff-baselines-20260409",
-      "case_id": "default",
       "method_config_id": "default"
     },
     {
-      "run_id": "1ba39bbae6a52cf2",
+      "run_id": "2e74ca87ac1af468",
       "env_id": "remote-p100",
       "category_ids": [
         "feature_selection"
       ],
       "model_id": "MarginalCorrelationSelector",
+      "case_id": "case-d99c63abe334787b",
       "variant": "top_k",
       "framework": "statgpu",
       "backend": "numpy",
@@ -67802,16 +67803,16 @@
         "seed_count": 3
       },
       "comparison_id": "knockoff-baselines-20260409",
-      "case_id": "default",
       "method_config_id": "default"
     },
     {
-      "run_id": "4d5bb3d553cb0776",
+      "run_id": "fef43cd3ce10968f",
       "env_id": "remote-p100",
       "category_ids": [
         "feature_selection"
       ],
       "model_id": "LassoSelector",
+      "case_id": "case-d99c63abe334787b",
       "variant": "top_k",
       "framework": "statgpu",
       "backend": "numpy",
@@ -67862,16 +67863,16 @@
         "seed_count": 3
       },
       "comparison_id": "knockoff-baselines-20260409",
-      "case_id": "default",
       "method_config_id": "default"
     },
     {
-      "run_id": "64ef8c7d45f02e39",
+      "run_id": "fea36979ba9915a9",
       "env_id": "remote-p100",
       "category_ids": [
         "feature_selection"
       ],
       "model_id": "LassoCV",
+      "case_id": "case-d99c63abe334787b",
       "variant": "cv",
       "framework": "sklearn",
       "backend": null,
@@ -67922,7 +67923,6 @@
         "seed_count": 3
       },
       "comparison_id": "knockoff-baselines-20260409",
-      "case_id": "default",
       "method_config_id": "default"
     }
   ]
