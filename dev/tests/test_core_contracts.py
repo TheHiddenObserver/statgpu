@@ -1,4 +1,3 @@
-\
 """Regression tests for core contracts found during iterative review."""
 
 import sys
