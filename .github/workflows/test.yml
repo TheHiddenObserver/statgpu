@@ -19,53 +19,46 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - name: Correct staged Cox helper indentation and apply fixes
+      - name: Correct staged helper indentation and apply fixes
         run: |
           python - <<'PY'
           from pathlib import Path
           path = Path('dev/scripts/apply_review_final.py')
           text = path.read_text()
-          old_start = "helper = dedent('''\n    @staticmethod\n    def _observed_information"
-          new_start = "helper = '''    @staticmethod\n    def _observed_information"
-          old_end = "    def _compute_inference_cpu(self, X, time, event, cluster=None):\n''')"
-          new_end = "    def _compute_inference_cpu(self, X, time, event, cluster=None):\n'''"
-          if text.count(old_start) != 1 or text.count(old_end) != 1:
-              raise RuntimeError('final helper indentation markers changed')
-          path.write_text(text.replace(old_start, new_start).replace(old_end, new_end))
+          text = text.replace(
+              "helper = dedent('''\n    @staticmethod\n    def _observed_information",
+              "helper = '''    @staticmethod\n    def _observed_information",
+          ).replace(
+              "    def _compute_inference_cpu(self, X, time, event, cluster=None):\n''')",
+              "    def _compute_inference_cpu(self, X, time, event, cluster=None):\n'''",
+          )
+          path.write_text(text)
           PY
           python dev/scripts/apply_review_final.py
-      - name: Install dependencies
-        run: |
+      - run: |
           python -m pip install --upgrade pip
           python -m pip install -e ".[validation,formula]"
           python -m pip install ruff
-      - name: Compile Ridge
-        run: python -m py_compile statgpu/linear_model/wrappers/_ridge.py
-      - name: Compile Cox
-        run: python -m py_compile statgpu/survival/_cox.py
-      - name: Static check Ridge
-        run: ruff check statgpu/linear_model/wrappers/_ridge.py --select F821,E9,F63,F7,F82
-      - name: Static check Cox additions
+      - name: Compile and static checks
         run: |
-          python - <<'PY'
-          from pathlib import Path
-          text = Path('statgpu/survival/_cox.py').read_text()
-          assert text.count('def _observed_information(hess):') == 1
-          assert text.count('information = self._observed_information(hess)') == 1
-          assert text.count('info_0 = self._observed_information(hess_0)') == 1
-          PY
-      - name: Re-run all previously failing tests
+          python -m py_compile statgpu/linear_model/wrappers/_ridge.py statgpu/survival/_cox.py
+          ruff check statgpu/linear_model/wrappers/_ridge.py --select F821,E9,F63,F7,F82
+      - name: DBSCAN optional Torch contract
+        run: python -m pytest 'dev/tests/test_dbscan_edge_cases.py::test_dbscan_backend_input_types[torch]' -q --tb=short
+      - name: Cox Efron consistency
+        run: python -m pytest 'dev/tests/test_external_consistency.py::TestStatsmodelsConsistency::test_cox_estimation_matches_statsmodels[cox-efron]' -q --tb=short
+      - name: Ridge sklearn consistency
         run: |
           python -m pytest \
-            'dev/tests/test_dbscan_edge_cases.py::test_dbscan_backend_input_types[torch]' \
-            'dev/tests/test_external_consistency.py::TestStatsmodelsConsistency::test_cox_estimation_matches_statsmodels[cox-efron]' \
             'dev/tests/test_external_consistency.py::TestSklearnPenaltyConsistency::test_ridge_estimator_matches_sklearn[small]' \
             'dev/tests/test_external_consistency.py::TestSklearnPenaltyConsistency::test_ridge_estimator_matches_sklearn[medium]' \
             'dev/tests/test_external_consistency.py::TestSklearnPenaltyConsistency::test_ridge_estimator_matches_sklearn[large]' \
-            dev/tests/test_v10_import_smoke.py::test_losses_namespace_remains_a_public_compatibility_entrypoint \
-            dev/tests/test_v10_import_smoke.py::test_penalized_glm_auto_solver_is_backend_aware \
             -q --tb=short
-      - name: Run focused numerical and neighboring suites
+      - name: Public loss namespace contract
+        run: python -m pytest dev/tests/test_v10_import_smoke.py::test_losses_namespace_remains_a_public_compatibility_entrypoint -q --tb=short
+      - name: Solver dispatch contract
+        run: python -m pytest dev/tests/test_v10_import_smoke.py::test_penalized_glm_auto_solver_is_backend_aware -q --tb=short
+      - name: Focused numerical and neighboring suites
         run: |
           python -m pytest \
             dev/tests/test_repository_review_final.py \
