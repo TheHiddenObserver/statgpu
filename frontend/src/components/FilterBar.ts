@@ -30,9 +30,12 @@ export function renderFilterBar(
   const modelOptionState: AppState = {
     ...state,
     selectedModelId: null,
+    selectedVariant: null,
     selectedPenalty: null,
     selectedSolver: null,
     selectedScaleKeys: new Set(),
+    selectedBackends: new Set(),
+    showExternal: new Set(),
   };
   const modelOptionRuns = filterRuns(allRuns, modelOptionState);
 
@@ -47,6 +50,7 @@ export function renderFilterBar(
   const solverOptionState: AppState = {
     ...state,
     selectedSolver: null,
+    selectedScaleKeys: new Set(),
   };
   const solverOptionRuns = filterRuns(allRuns, solverOptionState);
 

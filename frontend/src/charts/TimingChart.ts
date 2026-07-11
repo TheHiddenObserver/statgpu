@@ -62,8 +62,9 @@ export function renderTimingChart(
     const gk = JSON.stringify(chartGroupIdentity(r, false));
     if (!groups.has(gk)) {
       const variantSuffix = r.variant ? ` (${r.variant})` : '';
+      const solverLabel = r.solver_display ?? r.solver ?? 'unknown';
       groups.set(gk, {
-        label: `${formatModelName(r.model_id)}${variantSuffix}+${r.penalty ?? 'none'} ${r.scale.label}`,
+        label: `${formatModelName(r.model_id)}${variantSuffix} · ${solverLabel} · ${r.penalty ?? 'none'} · ${r.scale.label}`,
         bySeries: new Map(),
       });
     }
@@ -72,7 +73,8 @@ export function renderTimingChart(
     groups.get(gk)!.bySeries.set(s.key, r.metrics.timing!.fit_time_ms);
   }
 
-  const sortedGroups = [...groups.entries()].sort(([a], [b]) => a.localeCompare(b));
+  const limit = state.timingChartGroupLimit ?? 30;
+  const sortedGroups = [...groups.entries()].sort(([a], [b]) => a.localeCompare(b)).slice(0, limit);
   const categories = sortedGroups.map(([, g]) => g.label);
 
   // Preferred series order uses display labels for matching

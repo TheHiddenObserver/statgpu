@@ -4,14 +4,14 @@
   "files_parsed": 9,
   "files_skipped": 0,
   "runs_generated": 1503,
-  "generation_id": "a6759d04b1e99ef4cb5efa8deb4d304a6bb98239606eaa4292baaa75fa637682",
+  "generation_id": "9e51ad0c0424aad6c38e387e0c6a90d3f8d75e8d16247c30578d3afaadea5bc2",
   "issues": [
     {
       "source_id": "knockoff-baselines-20260409-beecd907fe54",
       "file": "results/benchmark_frontend_sources/knockoff_baselines_20260409.json",
       "parser": "knockoff_benchmark",
-      "code": "PARSE_WARNING",
-      "severity": "warning",
+      "code": "METHOD_UNAVAILABLE",
+      "severity": "info",
       "message": "knockoff_baselines_20260409.json: method 'knockpy_gaussian_lasso' unavailable (null in source)",
       "comparison_id": "knockoff-baselines-20260409",
       "parser_version": "1.0"
@@ -20,8 +20,8 @@
       "source_id": "knockoff-baselines-20260409-beecd907fe54",
       "file": "results/benchmark_frontend_sources/knockoff_baselines_20260409.json",
       "parser": "knockoff_benchmark",
-      "code": "PARSE_WARNING",
-      "severity": "warning",
+      "code": "METHOD_UNAVAILABLE",
+      "severity": "info",
       "message": "knockoff_baselines_20260409.json: method 'knockoff_fixedx_cupy' unavailable (null in source)",
       "comparison_id": "knockoff-baselines-20260409",
       "parser_version": "1.0"
@@ -30,8 +30,8 @@
       "source_id": "knockoff-baselines-20260409-beecd907fe54",
       "file": "results/benchmark_frontend_sources/knockoff_baselines_20260409.json",
       "parser": "knockoff_benchmark",
-      "code": "PARSE_WARNING",
-      "severity": "warning",
+      "code": "METHOD_UNAVAILABLE",
+      "severity": "info",
       "message": "knockoff_baselines_20260409.json: method 'knockoff_modelx_cupy' unavailable (null in source)",
       "comparison_id": "knockoff-baselines-20260409",
       "parser_version": "1.0"

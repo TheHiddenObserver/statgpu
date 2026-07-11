@@ -262,7 +262,12 @@ def generate(results_dir: Path, deterministic: bool = False,
                 mid = m["model_id"]
                 all_models[mid] = merge_model_entries(all_models.get(mid, {}), m)
             for w in warns:
-                all_issues.append({"file": path_str, "reason": w, "code": "PARSE_WARNING", "severity": "warning"})
+                code = "PARSE_WARNING"
+                severity = "warning"
+                if "unavailable" in w.lower() or "not available" in w.lower():
+                    code = "METHOD_UNAVAILABLE"
+                    severity = "info"
+                all_issues.append({"file": path_str, "reason": w, "code": code, "severity": severity})
             files_parsed += 1
         except Exception as e:
             issue = {"file": path_str, "reason": f"parse error: {e}",
@@ -548,12 +553,16 @@ def validate_semantic(output: dict, manifest: dict | None = None, strict_sources
             if manifest:
                 errors.append(f"{rid}: legacy case_id in canonical mode")
 
-    # RunIdentity uniqueness (canonical mode)
+    # RunIdentity uniqueness + hash verification (canonical mode)
     if manifest:
         from .identity import run_identity, identity_json as _id_json
         seen_identities: dict[str, str] = {}
         for run in runs:
-            rid_key = _id_json(run_identity(run))
+            identity = run_identity(run)
+            rid_key = _id_json(identity)
+            expected_rid = hashlib.sha256(rid_key.encode("utf-8")).hexdigest()[:16]
+            if run["run_id"] != expected_rid:
+                errors.append(f"{run['run_id']}: run_id does not match RunIdentity hash (expected {expected_rid})")
             if rid_key in seen_identities:
                 errors.append(f"{run['run_id']}: duplicate RunIdentity with {seen_identities[rid_key]}")
             seen_identities[rid_key] = run["run_id"]

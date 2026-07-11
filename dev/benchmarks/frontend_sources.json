@@ -159,7 +159,7 @@
       "parser_version": "1.0",
       "env_id": "remote-p100",
       "required": true,
-      "allowed_issue_codes": ["PARSE_WARNING"]
+      "allowed_issue_codes": ["METHOD_UNAVAILABLE"]
     }
   ]
 }
