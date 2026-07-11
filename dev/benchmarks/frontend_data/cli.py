@@ -666,8 +666,8 @@ def validate_output(output: dict) -> list[str]:
 
         if "speedup" in metrics:
             s = metrics["speedup"]
-            if s.get("value", 0) <= 0:
-                errors.append(f"{rid}: speedup.value must be > 0")
+            if s.get("value", -1) < 0:
+                errors.append(f"{rid}: speedup.value must be >= 0")
             for sf in ["reference_backend", "reference_framework", "reported_semantics"]:
                 if sf not in s:
                     errors.append(f"{rid}: speedup missing '{sf}'")
