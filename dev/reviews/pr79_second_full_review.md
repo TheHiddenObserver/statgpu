@@ -50,6 +50,10 @@ no statistical definition was changed merely to match an external library.
 - [LOW][MAINT][fixed] `PenalizedLinearRegression` referenced `Penalty` in a public type
   annotation without defining it. A `TYPE_CHECKING` import now keeps runtime imports
   acyclic while satisfying static analysis and type-hint resolution.
+- [LOW][TEST-COMPAT][fixed] the Welch reference regression originally used SciPy's newer
+  `f_oneway(equal_var=False)` API, unavailable in the SciPy builds selected for Python
+  3.9 and 3.10. It now uses the stable statsmodels Welch ANOVA reference and compares
+  statistic, p-value, numerator df, and fractional denominator df.
 
 ## Validation evidence
 
@@ -57,7 +61,7 @@ no statistical definition was changed merely to match an external library.
 - Broad CPU suites cover losses/penalties/solvers, inference/distributions, covariance,
   panel, splines/GAM, nonparametric methods, unsupervised methods, backend contracts,
   and repository review regressions.
-- Analytic/reference checks include SciPy Welch ANOVA, statsmodels influence diagnostics,
+- Analytic/reference checks include statsmodels Welch ANOVA and influence diagnostics,
   Gaussian closed-form/inference invariants, weighted-centering identities, backend
   parity, and source/dtype/device contracts.
 - The focused suite is included in the permanent Python 3.9–3.12 regression matrix and
