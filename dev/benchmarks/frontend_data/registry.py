@@ -14,6 +14,11 @@ from .parsers import (
     parse_coxph_package_comparison,
     parse_lassocv_combined,
     parse_knockoff_benchmark,
+    parse_loss_functions_benchmark,
+    parse_ordered_inference_benchmark,
+    parse_unsupervised_benchmark,
+    parse_new_modules_benchmark,
+    parse_p2_benchmark,
 )
 
 # Hardcoded fallback (A1 transitional)
@@ -46,6 +51,11 @@ PARSER_FUNCTIONS = {
     "coxph_package_comparison": parse_coxph_package_comparison,
     "lassocv_combined": parse_lassocv_combined,
     "knockoff_benchmark": parse_knockoff_benchmark,
+    "loss_functions_benchmark": parse_loss_functions_benchmark,
+    "ordered_inference_benchmark": parse_ordered_inference_benchmark,
+    "unsupervised_benchmark": parse_unsupervised_benchmark,
+    "new_modules_benchmark": parse_new_modules_benchmark,
+    "p2_benchmark": parse_p2_benchmark,
 }
 
 
