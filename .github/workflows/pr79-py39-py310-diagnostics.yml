@@ -29,7 +29,7 @@ jobs:
         continue-on-error: true
         shell: bash
         run: |
-          set -o pipefail
+          set +e
           python -m pytest \
             dev/tests/test_refactor_safety_net.py \
             dev/tests/test_refactor_post_phase.py \
@@ -66,13 +66,15 @@ jobs:
             dev/tests/test_elasticnet_cv.py \
             dev/tests/test_v10_import_smoke.py \
             -q --tb=long 2>&1 | tee /tmp/pytest-full.log
-          tail -n 250 /tmp/pytest-full.log > /tmp/pytest-tail-${{ matrix.python-version }}.log
+          status=${PIPESTATUS[0]}
+          tail -n 250 /tmp/pytest-full.log > /tmp/pytest-tail.log
+          exit $status
       - name: Upload failure tail
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: py${{ matrix.python-version }}-failure-tail
-          path: /tmp/pytest-tail-${{ matrix.python-version }}.log
+          path: /tmp/pytest-tail.log
           retention-days: 2
       - name: Enforce result
         if: steps.tests.outcome != 'success'
