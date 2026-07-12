@@ -114,7 +114,6 @@ def test_weighted_default_alpha_grid_uses_average_loss_scale():
     np.testing.assert_allclose(grid, scaled, rtol=1e-12, atol=1e-12)
 
 
-
 def test_formula_missing_rows_aligns_full_length_sample_weights():
     pd = pytest.importorskip("pandas")
     rng = np.random.default_rng(1206)
@@ -161,3 +160,25 @@ def test_ridgecv_is_invariant_to_global_weight_rescaling():
     np.testing.assert_allclose(first.mean_mse_, second.mean_mse_, rtol=1e-12, atol=1e-12)
     np.testing.assert_allclose(first.coef_, second.coef_, rtol=1e-11, atol=1e-11)
     np.testing.assert_allclose(first.intercept_, second.intercept_, rtol=1e-11, atol=1e-11)
+
+
+def test_weighted_sklearn_mapping_uses_total_weight():
+    pytest.importorskip("sklearn")
+    from sklearn.linear_model import Ridge as SklearnRidge
+
+    rng = np.random.default_rng(1208)
+    X = rng.normal(size=(210, 5))
+    y = -0.2 + X @ rng.normal(size=5) + rng.normal(scale=0.35, size=210)
+    w = rng.uniform(0.15, 3.2, size=210)
+    alpha = 0.14
+
+    ours = Ridge(
+        alpha=alpha, fit_intercept=True, device="cpu",
+        compute_inference=False,
+    ).fit(X, y, sample_weight=w)
+    reference = SklearnRidge(
+        alpha=float(np.sum(w)) * alpha, fit_intercept=True,
+    ).fit(X, y, sample_weight=w)
+
+    np.testing.assert_allclose(ours.coef_, reference.coef_, rtol=1e-9, atol=1e-9)
+    np.testing.assert_allclose(ours.intercept_, reference.intercept_, rtol=1e-9, atol=1e-9)
