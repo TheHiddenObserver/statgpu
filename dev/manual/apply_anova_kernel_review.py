@@ -53,24 +53,29 @@ path.write_text(text.replace(old, new, 1))
 # confidence interval are 1 and [0, 0] for identical constant groups.
 path = Path('statgpu/anova/_posthoc.py')
 text = path.read_text()
-old = '''            if se > 0:
+old = '''            # Welch's t-test
+            se = np.sqrt(var_i / ni + var_j / nj)
+            if se > 0:
                 t_stat = mean_diff / se
             else:
                 t_stat = 0.0 if mean_diff == 0.0 else np.copysign(float("inf"), mean_diff)
 
-            # Welch-Satterthwaite degrees of freedom
-            numerator = (se2_i + se2_j) ** 2
-            denominator = (
-                se2_i ** 2 / (ns[i] - 1)
-                + se2_j ** 2 / (ns[j] - 1)
-            )
-            df = numerator / denominator if denominator > 0 else float("inf")
+            # Welch-Satterthwaite df
+            num = (var_i / ni + var_j / nj) ** 2
+            den = (var_i / ni) ** 2 / (ni - 1) + (var_j / nj) ** 2 / (nj - 1)
+            df = num / den if den > 0 else float("inf")
 
-            pvalue = 2.0 * _to_float_scalar(t_dist.sf(abs(t_stat), df))
-            t_critical = _to_float_scalar(t_dist.isf(adjusted_alpha / 2.0, df))
-            margin = t_critical * se
+            # Two-sided p-value
+            pvalue_raw = _to_float_scalar(t_dist.sf(abs(t_stat), df)) * 2
+            pvalue = min(pvalue_raw, 1.0)
+
+            # Bonferroni-corrected CI
+            t_crit = _to_float_scalar(t_dist.isf(alpha_bonf / 2, df))
+            margin = t_crit * se
 '''
-new = '''            if se == 0.0:
+new = '''            # Welch's t-test
+            se = np.sqrt(var_i / ni + var_j / nj)
+            if se == 0.0:
                 df = float("inf")
                 if mean_diff == 0.0:
                     t_stat = 0.0
@@ -82,17 +87,18 @@ new = '''            if se == 0.0:
             else:
                 t_stat = mean_diff / se
 
-                # Welch-Satterthwaite degrees of freedom
-                numerator = (se2_i + se2_j) ** 2
-                denominator = (
-                    se2_i ** 2 / (ns[i] - 1)
-                    + se2_j ** 2 / (ns[j] - 1)
-                )
-                df = numerator / denominator if denominator > 0 else float("inf")
+                # Welch-Satterthwaite df
+                num = (var_i / ni + var_j / nj) ** 2
+                den = (var_i / ni) ** 2 / (ni - 1) + (var_j / nj) ** 2 / (nj - 1)
+                df = num / den if den > 0 else float("inf")
 
-                pvalue = 2.0 * _to_float_scalar(t_dist.sf(abs(t_stat), df))
-                t_critical = _to_float_scalar(t_dist.isf(adjusted_alpha / 2.0, df))
-                margin = t_critical * se
+                # Two-sided p-value
+                pvalue_raw = _to_float_scalar(t_dist.sf(abs(t_stat), df)) * 2
+                pvalue = min(pvalue_raw, 1.0)
+
+                # Bonferroni-corrected CI
+                t_crit = _to_float_scalar(t_dist.isf(alpha_bonf / 2, df))
+                margin = t_crit * se
 '''
 if text.count(old) != 1:
     raise RuntimeError('unexpected Bonferroni Welch block content')
