@@ -95,7 +95,7 @@ Most estimators use direct computation rather than iterative optimization:
 - **OAS**: Same closed-form approach as Ledoit-Wolf but with the OAS shrinkage formula, which is derived under a Gaussian assumption and is asymptotically optimal when \(n > p\).
 - **ShrunkCovariance**: Same as LedoitWolf/OAS but with a user-supplied \(\alpha\); no iterative optimization.
 - **MinCovDet**: The FAST-MCD algorithm uses multi-stage C-steps (concentration steps). For \(n \le 500\), 30 random subsets are drawn, each refined by 2 C-steps, the top 10 are refined to convergence, and the best is kept. For larger data, 50 seeded random starts are used; candidate subsets are refined by backend-native C-steps and the best positive-definite support is retained. After finding the raw MCD estimate, reweighting and consistency correction are applied.
-- **GraphicalLasso**: Block coordinate descent iterates over features, solving an L1-regularized regression per column via cyclical coordinate descent with soft-thresholding (up to 100 inner iterations). Convergence is checked by the dual gap \(|\operatorname{tr}(W\Theta) - p|\).
+- **GraphicalLasso**: Block coordinate descent iterates over features, solving an L1-regularized regression per column via cyclical coordinate descent with soft-thresholding (up to 1000 inner iterations). Outer convergence is checked by the maximum absolute covariance update.
 - **GraphicalLassoCV**: K-fold cross-validation over a grid of \(\alpha\) values, each fit using `GraphicalLasso`. The final model is refitted on all data with the best \(\alpha\).
 
 ## Covariance/Inference
