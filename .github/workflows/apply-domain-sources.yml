@@ -1,0 +1,218 @@
+name: Apply Benchmark Domain Sources
+
+on:
+  push:
+    branches: [frontend-dashboard-data-pipeline]
+    paths:
+      - '.github/workflows/apply-domain-sources.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  integrate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: frontend-dashboard-data-pipeline
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Copy canonical sources and update manifest
+        run: |
+          python - <<'PY'
+          import hashlib
+          import json
+          import shutil
+          from pathlib import Path
+
+          root = Path.cwd()
+          canonical = root / 'results' / 'benchmark_frontend_sources'
+          canonical.mkdir(parents=True, exist_ok=True)
+
+          source_specs = [
+              {
+                  'src': 'results/loss_functions_bench_2026-06-23.json',
+                  'dst': 'results/benchmark_frontend_sources/loss_functions_20260623.json',
+                  'prefix': 'loss-functions',
+                  'id_date': '20260623',
+                  'comparison_id': 'loss-functions-20260623',
+                  'parser': 'loss_functions_benchmark',
+                  'source_date': '2026-06-23',
+              },
+              {
+                  'src': 'results/pr74_inference_validation.json',
+                  'dst': 'results/benchmark_frontend_sources/ordered_inference_pr74.json',
+                  'prefix': 'ordered-inference',
+                  'id_date': '20260712',
+                  'comparison_id': 'ordered-inference-pr74',
+                  'parser': 'ordered_inference_benchmark',
+              },
+              {
+                  'src': 'results/unsupervised_bench_2026-06-27.json',
+                  'dst': 'results/benchmark_frontend_sources/unsupervised_20260627.json',
+                  'prefix': 'unsupervised',
+                  'id_date': '20260627',
+                  'comparison_id': 'unsupervised-20260627',
+                  'parser': 'unsupervised_benchmark',
+                  'source_date': '2026-06-27',
+              },
+              {
+                  'src': 'results/new_modules_full_2026-06-24.json',
+                  'dst': 'results/benchmark_frontend_sources/new_modules_full_20260624.json',
+                  'prefix': 'new-modules',
+                  'id_date': '20260624',
+                  'comparison_id': 'new-modules-20260624',
+                  'parser': 'new_modules_benchmark',
+                  'source_date': '2026-06-24',
+              },
+              {
+                  'src': 'results/p2_benchmark_final.json',
+                  'dst': 'results/benchmark_frontend_sources/p2_benchmark_20260617.json',
+                  'prefix': 'p2-benchmark',
+                  'id_date': '20260617',
+                  'comparison_id': 'p2-benchmark-20260617',
+                  'parser': 'p2_benchmark',
+                  'source_date': '2026-06-17',
+              },
+          ]
+
+          def normalized_sha(path: Path) -> str:
+              raw = path.read_bytes()
+              if raw.startswith(b'\xef\xbb\xbf'):
+                  raise ValueError(f'BOM not allowed: {path}')
+              text = raw.decode('utf-8')
+              if '\r' in text.replace('\r\n', ''):
+                  raise ValueError(f'bare CR not allowed: {path}')
+              return hashlib.sha256(text.replace('\r\n', '\n').encode('utf-8')).hexdigest()
+
+          for spec in source_specs:
+              shutil.copyfile(root / spec['src'], root / spec['dst'])
+
+          manifest_path = root / 'dev' / 'benchmarks' / 'frontend_sources.json'
+          manifest = json.loads(manifest_path.read_text(encoding='utf-8'))
+          manifest['frameworks'].update({
+              'linearmodels': {
+                  'display_name': 'linearmodels',
+                  'external': True,
+                  'backend_policy': 'forbidden',
+              },
+              'pygam': {
+                  'display_name': 'pyGAM',
+                  'external': True,
+                  'backend_policy': 'forbidden',
+              },
+          })
+          manifest['comparisons'].update({
+              'loss-functions-20260623': {
+                  'label': 'Robust and quantile loss benchmark — 2026-06-23',
+                  'env_id': 'remote-p100',
+              },
+              'ordered-inference-pr74': {
+                  'label': 'Ordered-model inference validation — PR #74',
+                  'env_id': 'remote-p100',
+              },
+              'unsupervised-20260627': {
+                  'label': 'Unsupervised benchmark — 2026-06-27',
+                  'env_id': 'remote-p100',
+              },
+              'new-modules-20260624': {
+                  'label': 'Panel and GAM benchmark — 2026-06-24',
+                  'env_id': 'remote-p100',
+              },
+              'p2-benchmark-20260617': {
+                  'label': 'Covariance and nonparametric benchmark — 2026-06-17',
+                  'env_id': 'remote-p100',
+              },
+          })
+          new_paths = {spec['dst'] for spec in source_specs}
+          manifest['sources'] = [
+              src for src in manifest['sources']
+              if src.get('path') not in new_paths
+          ]
+          for spec in source_specs:
+              path = root / spec['dst']
+              sha = normalized_sha(path)
+              entry = {
+                  'source_id': f"{spec['prefix']}-{spec['id_date']}-{sha[:12]}",
+                  'comparison_id': spec['comparison_id'],
+                  'path': spec['dst'],
+                  'original_path': spec['src'],
+                  'sha256': sha,
+                  'parser': spec['parser'],
+                  'parser_version': '1.0',
+                  'env_id': 'remote-p100',
+                  'required': True,
+                  'allowed_issue_codes': [],
+              }
+              if spec.get('source_date'):
+                  entry['source_date'] = spec['source_date']
+              manifest['sources'].append(entry)
+          manifest_path.write_text(
+              json.dumps(manifest, indent=2, ensure_ascii=False) + '\n',
+              encoding='utf-8',
+          )
+
+          parser_path = root / 'dev' / 'benchmarks' / 'frontend_data' / 'parsers' / 'domains.py'
+          text = parser_path.read_text(encoding='utf-8')
+          text = text.replace('import json\nimport re', 'import hashlib\nimport json\nimport re')
+          marker = '\n\ndef _scale(n_samples: int, n_features: int) -> dict[str, Any]:\n'
+          helper = '''\n\ndef _stable_id(kind: str, *parts: object) -> str:\n    payload = json.dumps(parts, sort_keys=True, separators=(",", ":"), ensure_ascii=False)\n    return f"{kind}-" + hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]\n'''
+          if 'def _stable_id(' not in text:
+              text = text.replace(marker, helper + marker)
+          replacements = {
+              'case_id = f"{loss}-{scale[\'scale_key\']}"': 'case_id = _stable_id("case", loss, scale["scale_key"])',
+              '"method_config_id": "irls",': '"method_config_id": _stable_id("method", loss, "irls"),',
+              '"case_id": scale["scale_key"],': '"case_id": _stable_id("case", family, scale["scale_key"]),',
+              '"method_config_id": family,': '"method_config_id": _stable_id("method", family, "newton"),',
+              'case_id = f"{prefix}-{scale[\'scale_key\']}"': 'case_id = _stable_id("case", prefix, scale["scale_key"])',
+              '"method_config_id": model_id.lower(),': '"method_config_id": _stable_id("method", model_id),',
+              'case_id = f"panel-large-{token.lower()}"': 'case_id = _stable_id("case", "panel", "large", token)',
+              '"method_config_id": token.lower(),': '"method_config_id": _stable_id("method", token, "closed_form"),',
+              '"case_id": "gam-aligned-large",': '"case_id": _stable_id("case", "gam", "aligned", "large"),',
+              '"method_config_id": "aligned-pygam",': '"method_config_id": _stable_id("method", "gam", "aligned-pygam"),',
+              'case_id = f"{section}-{scale[\'scale_key\']}"': 'case_id = _stable_id("case", section, scale["scale_key"])',
+              '"method_config_id": section,': '"method_config_id": _stable_id("method", section),',
+          }
+          for old, new in replacements.items():
+              if old not in text:
+                  raise RuntimeError(f'missing expected parser text: {old}')
+              text = text.replace(old, new)
+          parser_path.write_text(text, encoding='utf-8')
+          PY
+      - name: Run Python contract and coverage tests
+        run: |
+          python -m pip install -U pip pytest jsonschema
+          pytest \
+            dev/tests/test_benchmark_frontend_data.py \
+            dev/tests/test_frontend_contracts.py \
+            dev/tests/test_frontend_domain_coverage.py -v
+          python dev/benchmarks/generate_benchmark_data.py --check --strict-sources
+      - name: Refresh generated data and deployment assets
+        run: |
+          python dev/benchmarks/generate_benchmark_data.py \
+            --out frontend/public/data/benchmark_data.json \
+            --report frontend/public/data/parse_report.json \
+            --inventory-out frontend/public/data/source_inventory.json \
+            --deterministic --strict-sources
+          cd frontend
+          npm ci
+          npm run typecheck
+          npm run build
+      - name: Remove temporary audit files and commit integration
+        run: |
+          rm -f \
+            .github/workflows/export-benchmark-audit.yml \
+            dev/benchmarks/benchmark_artifact_audit.json \
+            dev/benchmarks/benchmark_target_audit.json \
+            dev/benchmarks/benchmark_target_paths.json
+          rm -f .github/workflows/apply-domain-sources.yml
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -A
+          git commit -m 'feat(frontend): connect missing benchmark domains and refresh assets'
+          git push origin HEAD:frontend-dashboard-data-pipeline
