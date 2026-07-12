@@ -57,6 +57,19 @@ def test_recent_linear_results_are_visible(canonical_output):
     assert {run["backend"] for run in recent if run["backend"]} >= {"numpy", "cupy", "torch"}
 
 
+def test_quantile_inference_has_all_backends(canonical_output):
+    output, _, _, _ = canonical_output
+    quantile_inference = [
+        run
+        for run in output["runs"]
+        if run["model_id"] == "QuantileRegression"
+        and run.get("variant") in {"kernel", "bootstrap"}
+        and run.get("metrics", {}).get("inference")
+    ]
+    assert {run["backend"] for run in quantile_inference} >= {"numpy", "cupy", "torch"}
+    assert {run.get("variant") for run in quantile_inference} == {"kernel", "bootstrap"}
+
+
 def test_missing_domain_sources_are_manifest_registered(canonical_output):
     _, _, _, manifest = canonical_output
     parsers = {source["parser"] for source in manifest["sources"]}
