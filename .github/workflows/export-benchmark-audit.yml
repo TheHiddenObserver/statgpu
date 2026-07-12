@@ -22,48 +22,60 @@ jobs:
           import json
           from pathlib import Path
 
-          def shape(value, depth=0):
-              if depth >= 3:
+          TARGETS = {
+              'robust_quantile': ('robust', 'quantile', 'huber', 'bisquare', 'pinball'),
+              'unsupervised': ('unsupervised', 'pca', 'kmeans', 'dbscan', 'nmf', 'umap', 'tsne', 'gaussianmixture'),
+              'ordered': ('ordered', 'ordinal', 'orderedlogit', 'orderedprobit'),
+              'nonparametric': ('nonparametric', 'kernel_regression', 'kde', 'spline', 'gam'),
+              'panel': ('panel', 'fixed_effect', 'random_effect'),
+              'covariance': ('covariance', 'cov_type', 'hc2', 'hc3', 'hac'),
+              'linear_recent': ('penalized_glm', 'glm_solver', 'squared_error'),
+          }
+
+          def compact(value, depth=0):
+              if depth >= 4:
                   return type(value).__name__
               if isinstance(value, dict):
-                  return {k: shape(v, depth + 1) for k, v in list(value.items())[:30]}
+                  return {k: compact(v, depth + 1) for k, v in list(value.items())[:40]}
               if isinstance(value, list):
                   return {
-                      "type": "list",
-                      "length": len(value),
-                      "item_shape": shape(value[0], depth + 1) if value else None,
+                      'type': 'list',
+                      'length': len(value),
+                      'sample': [compact(v, depth + 1) for v in value[:2]],
                   }
-              return type(value).__name__
+              if isinstance(value, str):
+                  return value[:160]
+              return value
 
-          records = []
+          result = {key: [] for key in TARGETS}
           for root in (Path('results'), Path('dev/results')):
               if not root.exists():
                   continue
               for path in sorted(root.rglob('*.json')):
-                  rec = {"path": path.as_posix(), "size_bytes": path.stat().st_size}
                   try:
-                      data = json.loads(path.read_text(encoding='utf-8'))
-                      rec["shape"] = shape(data)
-                      if isinstance(data, dict):
-                          for key in (
-                              'date', 'timestamp', 'generated', 'generated_at', 'benchmark_date',
-                              'name', 'title', 'benchmark', 'version', 'environment', 'config',
-                          ):
-                              if key in data:
-                                  rec[key] = data[key]
-                  except Exception as exc:
-                      rec["error"] = str(exc)
-                  records.append(rec)
+                      raw = path.read_text(encoding='utf-8')
+                      data = json.loads(raw)
+                  except Exception:
+                      continue
+                  haystack = (path.as_posix() + '\n' + raw[:200000]).lower()
+                  for target, tokens in TARGETS.items():
+                      if any(token in haystack for token in tokens):
+                          record = {
+                              'path': path.as_posix(),
+                              'size_bytes': path.stat().st_size,
+                              'summary': compact(data),
+                          }
+                          result[target].append(record)
 
-          out = Path('dev/benchmarks/benchmark_artifact_audit.json')
-          out.write_text(json.dumps(records, indent=2, ensure_ascii=False), encoding='utf-8')
-          print(f'wrote {out} with {len(records)} records')
+          out = Path('dev/benchmarks/benchmark_target_audit.json')
+          out.write_text(json.dumps(result, indent=2, ensure_ascii=False), encoding='utf-8')
+          print({key: len(value) for key, value in result.items()})
           PY
       - name: Commit inventory
         run: |
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add dev/benchmarks/benchmark_artifact_audit.json
+          git add dev/benchmarks/benchmark_target_audit.json
           git diff --cached --quiet && exit 0
-          git commit -m 'chore(audit): inventory benchmark result artifacts'
+          git commit -m 'chore(audit): summarize missing benchmark domains'
           git push origin HEAD:frontend-dashboard-data-pipeline
