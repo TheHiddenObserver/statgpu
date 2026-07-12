@@ -1,7 +1,7 @@
 # Ridge
 
 > Language: English  
-> Last updated: 2026-05-20  
+> Last updated: 2026-07-12  
 > This page: Model documentation  
 > Switch: [Chinese](../../models/ridge.md)
 
@@ -17,21 +17,45 @@ Language switch: [Chinese](../../models/ridge.md)
 
 ## Objective Function
 
-Estimate
+For unweighted observations, statgpu minimizes the average-loss objective
+
 $$
-\min_{\beta} \|y - X\beta\|_2^2 + \alpha\|\beta\|_2^2
+\min_{b,\beta}
+\frac{1}{2n}\sum_{i=1}^n
+\left(y_i-b-x_i^\top\beta\right)^2
++\frac{\alpha}{2}\|\beta\|_2^2.
 $$
-with optional intercept handling.
+
+With `sample_weight=w`, the data-fit term is normalized by the total weight:
+
+$$
+\min_{b,\beta}
+\frac{1}{2\sum_i w_i}\sum_{i=1}^n
+w_i\left(y_i-b-x_i^\top\beta\right)^2
++\frac{\alpha}{2}\|\beta\|_2^2.
+$$
+
+The intercept is not penalized. Multiplying every sample weight by the same positive constant therefore leaves the fitted model unchanged.
 
 ## Estimating Equation
 
-The ridge first-order condition is
-$$
-(X^\top X + \alpha I)\hat\beta = X^\top y
-$$
-solved by stable linear algebra routines on CPU/GPU backends.
+After centering the data using the corresponding ordinary or weighted means, the first-order condition is
 
-`Ridge` now defaults to `solver="exact"`, which uses the closed-form normal-equation solution.  The exact path is available on CPU, CuPy, and Torch backends.  For objective-scale comparisons with sklearn, use `sklearn_alpha = n_samples * statgpu_alpha`.
+$$
+\left(X_c^\top W X_c + \alpha\,s_w I\right)\hat\beta
+= X_c^\top W y_c,
+$$
+
+where $W=I$ and $s_w=n$ without sample weights, while $W=\operatorname{diag}(w)$ and $s_w=\sum_iw_i$ for weighted fitting.
+
+`Ridge` defaults to `solver="exact"`. The same objective scale is used by the exact and FISTA paths, by `PenalizedLinearRegression(loss="squared_error", penalty="l2")`, and by `RidgeCV`.
+
+scikit-learn uses an unnormalized residual sum of squares. For coefficient comparisons, use
+
+- unweighted: `sklearn_alpha = n_samples * statgpu_alpha`;
+- weighted: `sklearn_alpha = sample_weight.sum() * statgpu_alpha`.
+
+Comparing the two libraries with the same numerical `alpha` compares different objectives.
 
 ## Covariance/Inference
 
@@ -39,20 +63,21 @@ solved by stable linear algebra routines on CPU/GPU backends.
 - `cov_type="hc0"|"hc1"|"hc2"|"hc3"`: sandwich-style robust covariance variants.
 - `cov_type="hac"`: Newey-West (Bartlett) covariance with optional `hac_maxlags`.
 - `compute_inference=True` returns `_bse`, `_tvalues`, `_pvalues`, `_conf_int`.
+- Weighted inference uses the weighted design `[sqrt(w), sqrt(w) * X]`, so the intercept column, residuals, bread, and meat follow the same weighting convention as estimation.
 
 ## Parameters
 
 | Parameter | Default | Description |
 |---|---:|---|
-| `alpha` | `1.0` | L2 regularization strength |
+| `alpha` | `1.0` | L2 regularization strength on the average-loss scale |
 | `fit_intercept` | `True` | Whether to fit an intercept |
-| `device` | `"auto"` | `cpu` / `cuda` / `auto` |
+| `device` | `"auto"` | `cpu` / `cuda` / `torch` / `auto` |
 | `n_jobs` | `None` | Number of parallel jobs |
 | `compute_inference` | `True` | Whether to compute inference stats (SE/t/p/CI) |
 | `cov_type` | `"nonrobust"` | `nonrobust` / `hc0` / `hc1` / `hc2` / `hc3` / `hac` |
-| `hac_maxlags` | `None` | Max lag for `cov_type="hac"`; default follows Newey-West style heuristic |
-| `gpu_memory_cleanup` | `False` | Best-effort CuPy pool cleanup after each fit |
-| `solver` | `"exact"` | Solver for the thin-wrapper path; exact L2 solution by default |
+| `hac_maxlags` | `None` | Max lag for `cov_type="hac"`; default follows a Newey-West-style heuristic |
+| `gpu_memory_cleanup` | `False` | Best-effort GPU memory cleanup after each fit |
+| `solver` | `"exact"` | Exact L2 solution by default; `fista` uses the same objective |
 
 ## CPU+GPU Examples
 
@@ -61,33 +86,42 @@ from statgpu.linear_model import Ridge
 
 # CPU
 m_cpu = Ridge(alpha=1.0, device="cpu", cov_type="hc3", compute_inference=True)
-m_cpu.fit(X, y)
+m_cpu.fit(X, y, sample_weight=w)
 
-# GPU
-m_gpu = Ridge(alpha=1.0, device="cuda", cov_type="hc3", compute_inference=True, gpu_memory_cleanup=True)
-m_gpu.fit(X, y)
+# CuPy CUDA
+m_gpu = Ridge(
+    alpha=1.0,
+    device="cuda",
+    cov_type="hc3",
+    compute_inference=True,
+    gpu_memory_cleanup=True,
+)
+m_gpu.fit(X, y, sample_weight=w)
 ```
 
 ## strict/approx difference
 
-No separate public approx mode is exposed. The default inference path is the validated release path; backend differences are expected to be limited to floating-point effects.
+No separate public approximate mode is exposed. CPU tests cover the exact/FISTA, weighted/unweighted, formula, inference, and RidgeCV contracts. Physical CuPy/Torch CUDA numerical and performance validation remains part of the remote validation gate.
 
 ## Outputs
 
 - Coefficients: `intercept_`, `coef_`
 - Inference: `_bse`, `_tvalues`, `_pvalues`, `_conf_int`
-- Diagnostics: `r_squared`, `adj_r_squared`, `f_statistic`, `aic`, `bic`
+- Diagnostics: `rsquared`, `rsquared_adj`, `fvalue`, `aic`, `bic`
 - Methods: `fit`, `predict`, `score`, `summary`
 
 ## FAQ
 
-- How should `alpha` be chosen? Start with log-grid cross-validation (for example, `1e-4` to `1e2`) and then fix a task-specific value.
-- When should I set `hac_maxlags`? When using `cov_type="hac"` with time dependence; otherwise leave default.
+- How should `alpha` be chosen? Use `RidgeCV` or a task-specific log grid on statgpu's average-loss scale.
+- Why does the same `alpha` differ from sklearn? The residual term has a different normalization; apply the mapping above.
+- Does rescaling all sample weights change the model? No. The weighted loss is divided by `sum(sample_weight)`.
+- When should I set `hac_maxlags`? When using `cov_type="hac"` with time dependence; otherwise leave the default.
 
 ## External Validation
 
-- Inference/covariance behavior follows the same robust covariance implementation surface used by `LinearRegression`.
-- Related consistency checks are maintained in `dev/tests/test_external_consistency.py`.
+- Internal consistency is tested against the average-loss closed form and the generic penalized-linear estimator.
+- sklearn comparisons use the explicit unweighted or weighted alpha mapping.
+- Weighted exact/FISTA, formula-row alignment, inference, and RidgeCV weight-rescaling invariance are covered in `dev/tests/test_ridge_weighted_consistency.py`.
 
 ## References
 
