@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
-from typing import Optional, Union
+from typing import TYPE_CHECKING, Optional, Union
 
 import numpy as np
 from scipy import stats
 
 from statgpu._config import Device
 from statgpu.linear_model.penalized._base import PenalizedGeneralizedLinearModel
+
+if TYPE_CHECKING:
+    from statgpu.penalties._base import Penalty
 
 
 class PenalizedLinearRegression(PenalizedGeneralizedLinearModel):
