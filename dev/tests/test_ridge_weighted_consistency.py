@@ -182,3 +182,21 @@ def test_weighted_sklearn_mapping_uses_total_weight():
 
     np.testing.assert_allclose(ours.coef_, reference.coef_, rtol=1e-9, atol=1e-9)
     np.testing.assert_allclose(ours.intercept_, reference.intercept_, rtol=1e-9, atol=1e-9)
+
+
+
+def test_backend_weight_validation_returns_scalar_sum_without_host_vector_conversion():
+    from statgpu.linear_model.penalized._fit_mixin import _validate_sample_weight_backend
+
+    weights = np.array([0.5, 1.5, 2.0])
+    assert _validate_sample_weight_backend(weights, 3, "numpy") == 4.0
+    with pytest.raises(ValueError, match="non-negative"):
+        _validate_sample_weight_backend(np.array([1.0, -0.1]), 2, "numpy")
+
+    torch = pytest.importorskip("torch")
+    torch_weights = torch.tensor([0.5, 1.5, 2.0], dtype=torch.float64)
+    assert _validate_sample_weight_backend(torch_weights, 3, "torch") == 4.0
+    with pytest.raises(ValueError, match="finite"):
+        _validate_sample_weight_backend(
+            torch.tensor([1.0, float("nan")], dtype=torch.float64), 2, "torch"
+        )
