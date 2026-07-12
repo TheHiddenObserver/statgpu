@@ -1,0 +1,229 @@
+name: Finalize June-only Dashboard
+
+on:
+  push:
+    branches: [frontend-dashboard-data-pipeline]
+    paths:
+      - '.github/workflows/finalize-june-dashboard.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  finalize:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: frontend-dashboard-data-pipeline
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Update tests and documentation
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+
+          test_path = Path('dev/tests/test_benchmark_frontend_data.py')
+          text = test_path.read_text(encoding='utf-8')
+          text = re.sub(
+              r'\n    def test_parse_elasticnet_benchmark\(.*?(?=\n    def test_category_ids_is_array)',
+              '\n',
+              text,
+              flags=re.S,
+          )
+          text = re.sub(
+              r'    def test_canonical_frameworks_present\(.*?(?=\n    def test_canonical_models)',
+              '''    def test_canonical_frameworks_present(self, generator, manifest, results_dir):
+                  output, _, _ = generator(results_dir, manifest=manifest)
+                  fw_ids = {f["framework_id"] for f in output["frameworks"]}
+                  assert {"statgpu", "sklearn", "linearmodels", "pygam"} <= fw_ids
+                  assert fw_ids.isdisjoint({"glmnet", "lifelines", "scikit_survival", "knockpy"})
+
+''',
+              text,
+              flags=re.S,
+          )
+          text = re.sub(
+              r'    def test_canonical_models\(.*?(?=\n\ndef test_parse_family_penalty_solver)',
+              '''    def test_canonical_models(self, generator, manifest, results_dir):
+                  output, _, _ = generator(results_dir, manifest=manifest)
+                  model_ids = {m["model_id"] for m in output["models"]}
+                  assert "CoxPH" in model_ids, "CoxPH model should be present"
+                  assert "QuantileRegression" in model_ids, "QuantileRegression model should be present"
+                  assert "PanelOLS" in model_ids, "PanelOLS model should be present"
+
+''',
+              text,
+              flags=re.S,
+          )
+          test_path.write_text(text, encoding='utf-8')
+
+          readme = Path('frontend/README.md')
+          text = readme.read_text(encoding='utf-8')
+          text = re.sub(
+              r'## Current coverage\n.*?(?=\n## What the dashboard shows)',
+              '''## Current coverage
+
+The canonical dashboard is restricted to sources dated **2026-06-01 or later**. It currently contains **8 registered sources**, `__RUNS__` normalized runs, and `__MODELS__` models.
+
+Covered categories include penalized GLM/GLM, June 2026 linear-model benchmarks, robust/quantile regression, survival analysis, unsupervised learning, ordered models, nonparametric methods, panel models, and covariance estimation.
+
+The linear-model category uses the June 2026 squared-error rows from `penalized_glm_perf_20260622.json` and `glm_solver_20260623.json`. April 2026 ElasticNet, LassoCV, comprehensive-validation, Cox package-comparison, and knockoff results are intentionally not registered.
+
+The feature-selection category remains part of the schema, but no feature-selection source is shown until a June 2026-or-later benchmark is available.
+''',
+              text,
+              flags=re.S,
+          )
+          text = text.replace(
+              'The generator automatically uses `dev/benchmarks/frontend_sources.json`. Required canonical sources are SHA256-verified; unapproved warnings or errors fail under `--strict-sources`.',
+              'The generator automatically uses `dev/benchmarks/frontend_sources.json`. Required canonical sources are SHA256-verified, and manifest loading rejects missing dates or any source earlier than `2026-06-01`; unapproved warnings or errors fail under `--strict-sources`.',
+          )
+          text = text.replace(
+              'The domain-coverage suite verifies that robust/quantile, unsupervised, ordered, nonparametric, panel, and covariance categories all produce runs; it also guards the June 2026 linear-model sources and quantile GPU inference rows.',
+              'The domain-coverage suite verifies that robust/quantile, unsupervised, ordered, nonparametric, panel, and covariance categories all produce runs; it also guards the June 2026 linear-model sources, quantile GPU inference rows, and the repository-wide ban on pre-June dashboard sources.',
+          )
+          readme.write_text(text, encoding='utf-8')
+
+          guide = Path('docs/en/guides/statgpu_benchmark_dashboard.md')
+          text = guide.read_text(encoding='utf-8')
+          text = re.sub(
+              r'## Current coverage\n.*?(?=\n## Filters)',
+              '''## Current coverage
+
+As of PR #78, the canonical manifest registers **8 benchmark sources**, all dated **2026-06-01 or later**. The generated bundle contains `__RUNS__` normalized runs across `__MODELS__` models.
+
+Current registered sources are:
+
+| Source | Frontend coverage |
+|---|---|
+| `p2_benchmark_20260617.json` | Covariance, Nystroem, RBF kernel and spline benchmarks |
+| `penalized_glm_perf_20260622.json` | Penalized GLM plus recent squared-error NumPy/CuPy/Torch timings under `linear_models` |
+| `coxph_efron_20260622.json` | CoxPH Efron variants and cross-backend timing |
+| `glm_solver_20260623.json` | GLM and squared-error solver speedups |
+| `loss_functions_20260623.json` | Robust/quantile timing, validation and sklearn comparison |
+| `new_modules_full_20260624.json` | Panel and aligned GAM comparisons |
+| `unsupervised_20260627.json` | PCA, clustering, decomposition, UMAP and t-SNE timings |
+| `ordered_inference_pr74.json` | Ordered logit/probit inference and quantile kernel/bootstrap GPU inference |
+
+April 2026 ElasticNet, LassoCV, comprehensive-validation, Cox package-comparison, and knockoff sources are not registered. The feature-selection category remains available in the schema but is intentionally empty until a June-or-later result exists.
+
+The source registry is `dev/benchmarks/frontend_sources.json`. Manifest loading requires every source to have an explicit `source_date` no earlier than `minimum_source_date: 2026-06-01`. Generated files are committed in `frontend/public/data/` and `docs/assets/benchmarks/data/`.
+''',
+              text,
+              flags=re.S,
+          )
+          text = text.replace(
+              'Registered external frameworks include scikit-learn, glmnet, statsmodels, lifelines, scikit-survival, knockpy, linearmodels, and pyGAM.',
+              'Registered external frameworks currently used by June-or-later sources are scikit-learn, linearmodels, and pyGAM.',
+          )
+          guide.write_text(text, encoding='utf-8')
+
+          index = Path('docs/en/guides/benchmarks.md')
+          text = index.read_text(encoding='utf-8')
+          text = re.sub(
+              r'## Benchmark Dashboard\n.*?(?=\n---)',
+              '''## Benchmark Dashboard
+
+- **Interactive dashboard**: [Open Dashboard](../../assets/benchmarks/index.html)
+- **Dashboard guide**: [Filters, charts, metrics, and reproduction](statgpu_benchmark_dashboard.md)
+
+The dashboard presents the canonical bundle produced by `dev/benchmarks/generate_benchmark_data.py`. It is restricted to benchmark sources dated **2026-06-01 or later** and currently contains **8 registered sources, `__RUNS__` normalized runs, and `__MODELS__` models**.
+
+The current expansion connects robust/quantile, unsupervised, ordered, nonparametric, panel, covariance, survival, GLM, and recent linear-model benchmarks. Linear models use the June 2026 squared-error rows from `penalized_glm_perf_20260622.json` and `glm_solver_20260623.json`; April ElasticNet/LassoCV sources are not connected.
+
+Current capabilities:
+
+- Environment and multi-category navigation.
+- Progressive model, variant, penalty, solver, and scale filters.
+- NumPy, CuPy, and Torch backend selection.
+- Context-aware external comparisons with scikit-learn, linearmodels, and pyGAM.
+- Timing and speedup charts with distinct computed and runner-reported semantics.
+- Sortable run-level table.
+- Validation, accuracy, inference, prediction, convergence, and selection panels.
+- Source provenance, parse-report metadata, and source-inventory coverage.
+
+Generate and validate the canonical bundle:
+
+```bash
+python dev/benchmarks/generate_benchmark_data.py \\
+  --out frontend/public/data/benchmark_data.json \\
+  --report frontend/public/data/parse_report.json \\
+  --inventory-out frontend/public/data/source_inventory.json \\
+  --deterministic --strict-sources
+
+python dev/benchmarks/generate_benchmark_data.py --check --strict-sources
+```
+
+Build the deployed dashboard:
+
+```bash
+cd frontend
+npm ci
+npm run typecheck
+npm run build
+```
+''',
+              text,
+              flags=re.S,
+          )
+          index.write_text(text, encoding='utf-8')
+          PY
+
+      - name: Run Python tests and generate bundle
+        run: |
+          python -m pip install -U pip pytest jsonschema
+          pytest \
+            dev/tests/test_benchmark_frontend_data.py \
+            dev/tests/test_frontend_contracts.py \
+            dev/tests/test_frontend_domain_coverage.py -v
+          python dev/benchmarks/generate_benchmark_data.py \
+            --out frontend/public/data/benchmark_data.json \
+            --report frontend/public/data/parse_report.json \
+            --inventory-out frontend/public/data/source_inventory.json \
+            --deterministic --strict-sources
+
+      - name: Insert generated counts into docs
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          data = json.loads(Path('frontend/public/data/benchmark_data.json').read_text(encoding='utf-8'))
+          runs = str(len(data['runs']))
+          models = str(len(data['models']))
+          for name in [
+              'frontend/README.md',
+              'docs/en/guides/statgpu_benchmark_dashboard.md',
+              'docs/en/guides/benchmarks.md',
+          ]:
+              path = Path(name)
+              text = path.read_text(encoding='utf-8')
+              text = text.replace('__RUNS__', runs).replace('__MODELS__', models)
+              path.write_text(text, encoding='utf-8')
+          print(f'Generated {runs} runs across {models} models')
+          PY
+
+      - name: Build and test frontend
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run typecheck
+          npm run build
+          npx playwright install --with-deps chromium
+          npm run test:e2e
+
+      - name: Commit June-only bundle
+        run: |
+          rm -f .github/workflows/finalize-june-dashboard.yml
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -A
+          git commit -m "build(frontend): publish June-only benchmark bundle"
+          git push origin HEAD:frontend-dashboard-data-pipeline
