@@ -7,43 +7,9 @@ on:
     branches: [master]
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  ridge-consistency-patch:
-    if: github.event_name == 'pull_request' && github.head_ref == 'agent/code-review-fixes'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: agent/code-review-fixes
-          fetch-depth: 0
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-      - name: Apply and validate Ridge consistency patch
-        run: |
-          if [ ! -f dev/manual/apply_ridge_weighted_consistency_patch.py ]; then
-            echo 'Patch script already consumed.'
-            exit 0
-          fi
-          python dev/manual/apply_ridge_weighted_consistency_patch.py
-          python -m pip install --upgrade pip
-          python -m pip install -e ".[validation,formula]"
-          python -m compileall -q statgpu
-          python -m pytest \
-            dev/tests/test_ridge_weighted_consistency.py \
-            dev/tests/test_repository_review_final.py \
-            dev/tests/test_ridge_inference.py \
-            dev/tests/test_ridge_cv.py \
-            -q --tb=short
-          rm dev/manual/apply_ridge_weighted_consistency_patch.py
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add statgpu dev/tests dev/manual
-          git commit -m 'fix: preserve weighted Ridge objective across paths'
-          git push origin HEAD:agent/code-review-fixes
-
   regression-matrix:
     runs-on: ubuntu-latest
     strategy:
@@ -71,6 +37,7 @@ jobs:
             dev/tests/test_distributions_backend.py \
             dev/tests/test_penalties_and_exports.py \
             dev/tests/test_ridge_inference.py \
+            dev/tests/test_ridge_weighted_consistency.py \
             dev/tests/test_lasso_debiased_inference.py \
             dev/tests/test_ordered_cross_backend.py \
             dev/tests/test_hessian_fd_cpu.py \
@@ -127,10 +94,14 @@ jobs:
             statgpu/_base.py \
             statgpu/_config.py \
             statgpu/backends/_factory.py \
+            statgpu/core/formula/_parser.py \
             statgpu/cross_validation/_base.py \
             statgpu/feature_selection/_knockoff_utils.py \
             statgpu/glm_core/_solver_utils.py \
             statgpu/inference/_resampling.py \
+            statgpu/linear_model/cv/_ridge_cv.py \
+            statgpu/linear_model/penalized/_fit_mixin.py \
+            statgpu/linear_model/penalized/_inference_mixin.py \
             statgpu/linear_model/wrappers/_ridge.py \
             statgpu/penalties/_adaptive_l1.py \
             statgpu/unsupervised/_kmeans.py \
