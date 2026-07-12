@@ -1,7 +1,7 @@
 # Panel
 
 > 语言: 中文
-> 最后更新: 2026-05-28
+> 最后更新: 2026-07-12
 > 页面定位: 模型文档
 > 切换: [English](../en/models/panel.md)
 
@@ -9,12 +9,16 @@
 
 ## 概览（Overview）
 
-`panel` 模块提供面板数据（纵向数据）模型。`PanelOLS` 估计固定效应（个体效应和/或时间效应），支持非稳健、HC1 稳健和聚类标准误。`RandomEffects` 使用 Swamy-Arora 方差分量估计器实现可行 GLS 随机效应。两个类均支持 CPU、CuPy 和 PyTorch 后端，并自动检测设备。
+`panel` 模块包含 `PanelOLS`、`RandomEffects`、`PooledOLS`、`BetweenOLS`、`FirstDifferenceOLS` 和 `FamaMacBeth` 六类估计器，并提供 clustered、two-way clustered 与 HAC 协方差工具。所有模型支持 NumPy、CuPy 和 Torch 后端。
 
 ## 路径（Path）
 
 - `statgpu.panel.PanelOLS`
 - `statgpu.panel.RandomEffects`
+- `statgpu.panel.PooledOLS`
+- `statgpu.panel.BetweenOLS`
+- `statgpu.panel.FirstDifferenceOLS`
+- `statgpu.panel.FamaMacBeth`
 - `statgpu.panel.clustered_covariance`
 - `statgpu.panel.two_way_clustered_covariance`
 
@@ -41,6 +45,10 @@ y_{it} = \alpha + X_{it}'\beta + a_i + \epsilon_{it}
 $$
 
 其中 \(a_i \sim \text{iid}(0, \sigma^2_a)\) 为个体随机效应，\(\epsilon_{it} \sim \text{iid}(0, \sigma^2_e)\) 为特异性误差。Swamy-Arora 估计器从组内估计器获得 \(\hat{\sigma}^2_e\)，从组间估计器获得 \(\hat{\sigma}^2_a\)，然后应用可行 GLS。
+
+**PooledOLS** 在堆叠数据上直接做 OLS；**BetweenOLS** 在个体均值上做 OLS；
+**FirstDifferenceOLS** 在个体内一阶差分后做无截距 OLS。**FamaMacBeth** 在每个时期
+执行横截面 OLS，再对系数路径取平均，并可使用 Newey-West HAC 推断。
 
 ## 估计方程（Estimating Equation）
 
@@ -108,10 +116,20 @@ $$
 |---|---:|---|
 | `device` | `"auto"` | 计算设备：`"cpu"`、`"cuda"` 或 `"auto"` |
 
+### 其他模型
+
+- `PooledOLS(cov_type='nonrobust', bandwidth=None, kernel='bartlett')`
+- `BetweenOLS(cov_type='nonrobust')`
+- `FirstDifferenceOLS(cov_type='nonrobust')`
+- `FamaMacBeth(cov_type='newey-west', bandwidth=None, min_obs_per_period=1)`
+
+以上模型均支持 `alpha` 和 `device`；相应 `fit()` 需要 entity/time/cluster 元数据。
+
 ## CPU+GPU 示例（CPU+GPU Examples）
 
 ```python
-from statgpu.panel import PanelOLS, RandomEffects
+from statgpu.panel import (PanelOLS, RandomEffects, PooledOLS,
+                           BetweenOLS, FirstDifferenceOLS, FamaMacBeth)
 import numpy as np
 
 # 生成面板数据
@@ -158,6 +176,15 @@ fe_torch = PanelOLS(entity_effects=True, cov_type='robust', device='cuda')
 fe_torch.fit(y_torch, X_torch, entity_ids=entity_ids)
 print(f"Torch FE 系数: {fe_torch.coef_}")
 ```
+
+## 后端执行与元数据边界
+
+对于数组输入，FamaMacBeth 的分期回归、系数路径、Newey-West 协方差、推断数组
+和预测均保留在 NumPy/CuPy/Torch 后端。Patsy formula 构造和时间/聚类标签 factorize
+属于 CPU 元数据操作，只将紧凑整数编码复制到数值后端；t/normal 分布只接收标量。
+formula 删除缺失行后，entity/time/cluster 等侧数组会同步对齐。
+
+已验证 NumPy/Torch-CPU 的 FamaMacBeth HAC 拟合与预测一致性；真实 CUDA 验证仍待完成。
 
 ## strict/approx 差异（strict/approx difference）
 

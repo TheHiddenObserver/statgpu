@@ -9,6 +9,17 @@
 
 ## 2026-07
 
+### 改进（2026-07-12）— PR #79 原生三后端执行
+
+- 移除 Graphical Lasso/CV、MinCovDet、SplineTransformer 与 Fama–MacBeth
+  对完整数值设计矩阵的 NumPy 回退，使核心计算保留在 NumPy、CuPy 或 Torch 后端。
+- 事后检验的组内归约保留在所选后端，仅将 studentized-range/t 分布的标量
+  CDF/分位数计算交给 SciPy。
+- 新增 NumPy/Torch 数值一致性、输出后端与源码边界测试；只有存在 CUDA runtime
+  时才运行可选 CuPy 检查。
+- 同步根 README、中英文方法清单以及 ANOVA、协方差、面板和样条模型页。
+  真实 CUDA 数值、显存、性能与重复拟合验证仍待完成。
+
 ### 修复与加固（2026-07-12）— PR #79 公开模块后续审查
 
 - 将审查范围从 Ridge 扩展到 ANOVA、核方法、协方差、面板模型、KDE/核回归、

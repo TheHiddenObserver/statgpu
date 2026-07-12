@@ -9,6 +9,18 @@ Language switch: [Chinese](../changelog.md)
 
 ## 2026-07
 
+### Improved (2026-07-12) — PR #79 native three-backend execution
+
+- Replaced complete-design NumPy fallbacks in Graphical Lasso/CV, MinCovDet,
+  SplineTransformer, and Fama–MacBeth with NumPy/CuPy/Torch-native core
+  numerical paths.
+- Kept post-hoc group reductions on the selected backend and restricted SciPy
+  use to scalar studentized-range/t distribution evaluations.
+- Added NumPy/Torch parity, output-backend, and source-boundary regression tests;
+  optional CuPy checks run only when a CUDA runtime is available.
+- Updated public README, bilingual method inventories, and ANOVA/covariance/panel/
+  spline model pages. Physical CUDA validation remains pending.
+
 ### Fixed and hardened (2026-07-12) — PR #79 public-module follow-up
 
 - Extended the review beyond Ridge to ANOVA, kernel methods, covariance, panel models,

@@ -1,7 +1,7 @@
 # Covariance
 
 > 语言: 中文  
-> 最后更新: 2026-05-28  
+> 最后更新: 2026-07-12  
 > 页面定位: 模型文档  
 > 切换: [English](../en/models/covariance.md)
 
@@ -9,13 +9,17 @@
 
 ## 概览（Overview）
 
-`covariance` 模块提供协方差矩阵估计，包含三种估计器：`EmpiricalCovariance`（经验协方差）、`LedoitWolf`（Ledoit & Wolf 2004 收缩估计）和 `OAS`（Oracle Approximating Shrinkage，Chen et al. 2010）。三者均支持 CPU、CuPy 和 PyTorch 后端，并具备自动设备检测功能。`LedoitWolf` 和 `OAS` 在 `EmpiricalCovariance` 基础上增加了向缩放单位矩阵目标的解析最优收缩，即使特征数接近或超过样本量时也能产生良态的协方差估计。
+`covariance` 模块包含七种估计器：`EmpiricalCovariance`、`LedoitWolf`、`OAS`、`ShrunkCovariance`、稳健的 `MinCovDet`，以及稀疏精度矩阵估计 `GraphicalLasso`/`GraphicalLassoCV`。七者均支持 NumPy、CuPy 和 Torch 后端；Graphical Lasso 的坐标下降和 FAST-MCD 的 C-step 已改为后端原生执行。
 
 ## 路径（Path）
 
 - `statgpu.covariance.EmpiricalCovariance`
 - `statgpu.covariance.LedoitWolf`
 - `statgpu.covariance.OAS`
+- `statgpu.covariance.ShrunkCovariance`
+- `statgpu.covariance.MinCovDet`
+- `statgpu.covariance.GraphicalLasso`
+- `statgpu.covariance.GraphicalLassoCV`
 
 ## 目标函数（Objective Function）
 
@@ -56,13 +60,31 @@ $$
 
 其中 \(\overline{S^2} = \frac{1}{p^2}\sum_{i,j} S_{ij}^2\) 为 \(\hat{S}\) 元素平方的均值。
 
+### 其他估计器
+
+`ShrunkCovariance` 使用用户指定的收缩强度。`MinCovDet` 通过 FAST-MCD
+选择协方差行列式较小的支持子集，并使用卡方阈值进行重加权。
+`GraphicalLasso` 求解
+
+$$
+\max_{\Theta \succ 0}\; \log\det(\Theta)-\operatorname{tr}(S\Theta)
+-\alpha\|\Theta\|_{1,\mathrm{off}},
+$$
+
+其中对角元素不受 L1 惩罚；`GraphicalLassoCV` 通过留出对数似然选择
+`alpha`。
+
 ## 估计方程（Estimating Equation）
 
-三种估计器均使用直接计算，而非迭代优化：
+经验与收缩估计器使用直接计算；稳健和稀疏估计器使用迭代算法：
 
 - **EmpiricalCovariance**：样本协方差 \(\hat{S} = X^\top X / n\) 直接计算。精度矩阵 \(\hat{S}^{-1}\) 通过抖动稳定矩阵求逆获得（当矩阵接近奇异时逐步增加对角增量）。
 - **LedoitWolf**：Ledoit-Wolf 的解析公式从中心化数据中闭式求解 \(\alpha\)，然后计算收缩协方差及其逆。
 - **OAS**：与 Ledoit-Wolf 相同的闭式方法，但使用 OAS 收缩公式。该公式在高斯假设下推导，当 \(n > p\) 时渐近最优。
+- **ShrunkCovariance**：使用用户指定的收缩强度。
+- **MinCovDet**：30/50 个 seeded 随机起点，经后端原生 C-step 精炼并重加权。
+- **GraphicalLasso**：协方差块坐标下降，内层使用软阈值坐标更新；外层以协方差最大变化量判断收敛。
+- **GraphicalLassoCV**：在各 fold 上拟合并按留出高斯对数似然选择 `alpha`。
 
 ## 协方差与推断（Covariance/Inference）
 
@@ -87,7 +109,7 @@ $$
 | `device` | `"auto"` | 计算设备：`"cpu"`、`"cuda"`、`"torch"` 或 `"auto"`（根据输入数组类型自动检测） |
 | `n_jobs` | `None` | 并行任务数（保留参数，当前未启用） |
 
-以上参数由 `EmpiricalCovariance`、`LedoitWolf` 和 `OAS` 共享。
+以上参数由七种估计器共享；`MinCovDet` 另有 `support_fraction`、`random_state`，Graphical Lasso 另有 `alpha`、`max_iter`、`tol`，CV 版本另有 `alphas` 与 `cv`。
 
 ## CPU+GPU 示例（CPU+GPU Examples）
 
@@ -139,6 +161,15 @@ lw_torch.fit(X_torch)
 print(f"Torch shrinkage: {lw_torch.shrinkage_:.4f}")
 ```
 
+## 后端执行与验证边界
+
+Graphical Lasso/CV 的中心化、协方差更新、坐标下降、求逆与 fold 评分，以及
+MinCovDet 的 C-step、马氏距离、排序、支持集和重加权均保留在 NumPy/CuPy/Torch
+后端。CPU 仅处理随机/fold 整数索引、收敛标量和卡方分布标量。
+
+已验证 NumPy 与 Torch-CPU 数值一致性和输出后端；真实 CuPy/Torch CUDA 的
+收敛、显存、性能与重复拟合验证仍为 `PARTIAL_REMOTE_PENDING`。
+
 ## strict/approx 差异（strict/approx difference）
 
 协方差估计器没有单独的 strict 或 approx 模式。三种估计器均使用直接解析公式，无迭代求解器，因此无需调节收敛容差。
@@ -186,13 +217,17 @@ print(f"Torch shrinkage: {lw_torch.shrinkage_:.4f}")
 
 ## 外部验证（External Validation）
 
-三种估计器均针对其 scikit-learn 对应类进行验证：
+七种估计器均有参考实现或结构不变量测试：
 
 - `sklearn.covariance.EmpiricalCovariance`
 - `sklearn.covariance.LedoitWolf`
 - `sklearn.covariance.OAS`
+- `sklearn.covariance.ShrunkCovariance`
+- `sklearn.covariance.MinCovDet`
+- `sklearn.covariance.GraphicalLasso`
+- `sklearn.covariance.GraphicalLassoCV`
 
-拟合的 `covariance_`、`precision_`、`location_` 和 `shrinkage_` 值在测试数据集上相对误差 < 1e-15。一致性检查维护在 `dev/tests/test_external_consistency.py` 中。
+经验与收缩估计器在严格容差下对照 scikit-learn；MinCovDet 与 Graphical Lasso 还检查支持集、互逆性、对角线和稀疏结构。NumPy/Torch-CPU parity 见 `dev/tests/test_three_backend_native_followup.py`，尚不宣称完成真实 CUDA parity。
 
 ## 参考文献（References）
 

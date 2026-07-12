@@ -26,6 +26,7 @@ GPU-accelerated statistical methods with sklearn-compatible API.
 ## Features
 
 - 🚀 **3 Backends**: NumPy (CPU), CuPy (CUDA), PyTorch (CUDA) — automatic device selection
+- 🧭 **Backend transparency**: core numerical paths preserve backend arrays; intentional CPU boundaries are limited to formula/label metadata and unsupported scalar distribution functions
 - 🔧 **sklearn-compatible**: `fit`/`predict`/`score` API, `sklearn.base.clone()` supported
 - 📊 **GLM + Robust + Quantile + Cox**: 10+ loss types (quantile, huber, bisquare, fair, cox_ph + 7 GLM families)
 - 🔥 **10 Penalties**: l1, l2, elasticnet, scad, mcp, adaptive_l1, group_lasso, group_mcp, group_scad
@@ -46,15 +47,24 @@ GPU-accelerated statistical methods with sklearn-compatible API.
 | **Regression & GLM** | 13 classes | LinearRegression, Ridge, Lasso, ElasticNet, Logistic, Poisson, Gamma, InvGauss, NB, Tweedie, QuantileRegression, Ordered models (logit/probit, GPU inference) |
 | **Penalized GLM** | 11 classes | PenalizedGLM + 7 family wrappers + PenalizedQuantileRegression, PenalizedRobustRegression, PenalizedCoxPHModel × 10 penalties × 8 solvers |
 | **Cross-Validation** | 6 classes | RidgeCV, LassoCV, ElasticNetCV, LogisticCV, PenalizedGLM_CV, CoxPHCV |
-| **ANOVA** | 2 functions | `f_oneway`, `f_twoway` — GPU-accelerated |
-| **Covariance** | 3 classes | EmpiricalCovariance, LedoitWolf, OAS |
-| **Panel Data** | 2 classes | PanelOLS, RandomEffects |
-| **Nonparametric** | 5 classes | KernelRidge, KernelRidgeCV, pairwise_kernels, bspline_basis, natural_cubic_spline_basis |
+| **ANOVA** | 7 functions | `f_oneway`, `f_twoway`, `f_welch`, Tukey/Bonferroni post-hoc, effect sizes |
+| **Covariance** | 7 classes | Empirical/shrinkage covariance, MinCovDet, GraphicalLasso, GraphicalLassoCV |
+| **Panel Data** | 6 classes | PanelOLS, RandomEffects, PooledOLS, BetweenOLS, FirstDifferenceOLS, FamaMacBeth |
+| **Nonparametric** | 10+ classes/functions | KDE/kernel regression, KernelRidge/CV, KernelPCA, Nystroem, spline bases and SplineTransformer |
 | **Semiparametric** | 1 class | GAM (penalized B-splines + GCV) |
 | **Unsupervised** | 12 classes | PCA, SVD, NMF, UMAP, t-SNE, KMeans, DBSCAN, GMM, AgglomerativeClustering |
 | **Survival** | 1 class | CoxPH (Breslow/Efron ties, robust SE) |
 | **Feature Selection** | 2 functions | fixed-X / model-X knockoff filters |
 | **Multiple Testing** | 3 functions | adjust_pvalues, combine_pvalues, permutation_test |
+
+## Backend execution status
+
+`GraphicalLasso`/`GraphicalLassoCV`, `MinCovDet`, `SplineTransformer`, and
+`FamaMacBeth` now keep their main numerical computation on NumPy, CuPy, or Torch.
+Tukey and Bonferroni keep group reductions on-device and synchronize only scalar
+statistics for distributions not implemented by CuPy/Torch. NumPy/Torch-CPU parity
+is covered by CI; physical CuPy CUDA and Torch CUDA convergence, memory, runtime,
+and repeated-fit validation is still tracked as `PARTIAL_REMOTE_PENDING`.
 
 ## Installation
 

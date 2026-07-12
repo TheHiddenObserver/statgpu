@@ -1,7 +1,7 @@
 # 样条基函数
 
 > 语言: 中文
-> 最后更新: 2026-05-28
+> 最后更新: 2026-07-12
 > 页面定位: 模型文档
 > 切换: [English](../en/models/splines.md)
 
@@ -9,13 +9,17 @@
 
 ## 概览（Overview）
 
-样条模块提供样条基函数构造工具。`bspline_basis` 使用 De Boor 递归算法评估 B 样条基矩阵。`natural_cubic_spline_basis` 构造带边界约束（边界节点处二阶导数为零）的自然三次样条基。两者均支持 CPU、CuPy 和 Torch 后端。
+样条模块提供 `bspline_basis`、`natural_cubic_spline_basis`、`cyclic_cubic_spline_basis`、`thin_plate_spline_basis` 以及 sklearn 风格的 `SplineTransformer`。这些接口支持 NumPy、CuPy 和 Torch；SplineTransformer 使用后端原生 Cox–de Boor 递推。
 
 使用这些基函数的广义可加模型（GAM）请参见 [GAM](semiparametric.md)。
 
 ## 路径（Path）
 
-`statgpu.nonparametric.splines.bspline_basis`、`statgpu.nonparametric.splines.natural_cubic_spline_basis`
+- `statgpu.nonparametric.splines.bspline_basis`
+- `statgpu.nonparametric.splines.natural_cubic_spline_basis`
+- `statgpu.nonparametric.splines.cyclic_cubic_spline_basis`
+- `statgpu.nonparametric.splines.thin_plate_spline_basis`
+- `statgpu.nonparametric.splines.SplineTransformer`
 
 ## 目标函数（Objective Function）
 
@@ -41,13 +45,30 @@ $$
 
 **自然三次样条**基：将三次 B 样条基投影到边界二阶导数约束（$f'' = 0$，在两个边界节点处）的零空间上。与对应的普通 B 样条基相比，基的维度减少 2。
 
+**周期三次样条**在两端约束函数值、一阶导数与二阶导数连续。
+**薄板样条**使用径向核；二维且惩罚阶数为 2 时为
+\(\phi(r)=r^2\log r\)。
+
+`SplineTransformer` 为每个特征学习 uniform、quantile 或自定义节点，并支持：
+
+- `error`：超出边界时报错；
+- `constant`：钳制到边界；
+- `linear`：沿边界切线延拓；
+- `continue`：继续边界处的多项式片段。
+
 ## 估计方程（Estimating Equation）
 
-评估是直接的递归计算，无需求解线性系统。
+评估采用直接递推，无需求解回归系统。SplineTransformer 不再将完整数组交给 SciPy，而是在所选后端构造完整基矩阵。
 
 ## 协方差 / 推断（Covariance / Inference）
 
 样条基函数是确定性计算工具，不产生推断输出（无标准误、p 值或置信区间）。如需使用样条进行统计推断，请参见 [GAM](../semiparametric.md) 模型，该模型将惩罚样条与 GCV 平滑参数选择相结合。
+
+## 后端执行与验证边界
+
+SplineTransformer 的节点学习和四种外推均使用 NumPy/CuPy/Torch 共享递推。
+在已拟合对象切换输入后端时，仅转移节点元数据，不转移完整训练设计。
+已验证 NumPy/Torch-CPU 外推一致性；真实 CUDA 显存与性能验证仍待完成。
 
 ## strict / approx 区别
 
@@ -71,6 +92,9 @@ $$
 | `x` | 必需 | 评估点，形状 `(n,)` |
 | `knots` | 必需 | 内部节点位置（严格递增） |
 | `xp` | `None` | 数组模块；若为 `None` 则从 `x` 推断 |
+
+**SplineTransformer**：`n_knots=5`、`degree=3`、`knots='uniform'`、
+`include_bias=True`、`extrapolation='constant'`，并支持 `device='auto'`。
 
 ## CPU+GPU 示例（CPU+GPU Examples）
 
@@ -127,7 +151,7 @@ print(f"Torch 基矩阵形状: {B_t.shape}")  # (500, 14)
 
 **自然样条与普通 B 样条有何区别？** 自然样条在边界处强制线性，减少数据范围边缘的过拟合。当边界行为很重要时，使用自然样条。
 
-**样条的 GPU 加速效果如何？** B 样条基构造在所有样本点上向量化。对于大 $n$（5000+），GPU 上可期望 2-3 倍加速。
+**样条的 GPU 加速效果如何？** 递推已向量化并保留在设备端，但加速取决于样本量、次数、节点数和后端；完成当前 CUDA benchmark 前不作统一倍数承诺。
 
 ## 外部验证（External Validation）
 

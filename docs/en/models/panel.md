@@ -1,7 +1,7 @@
 # Panel
 
 > Language: English  
-> Last updated: 2026-06-17  
+> Last updated: 2026-07-12  
 > This page: Model documentation  
 > Switch: [Chinese](../../models/panel.md)
 
@@ -276,7 +276,7 @@ print(f"GPU RE coef: {re_gpu.coef_}, theta: {re_gpu.theta_}")
 import torch
 y_torch = torch.from_numpy(y).cuda().float()
 X_torch = torch.from_numpy(X).cuda().float()
-fe_torch = PanelOLS(entity_effects=True, cov_type='robust', device='cuda')
+fe_torch = PanelOLS(entity_effects=True, cov_type='robust', device='torch')
 fe_torch.fit(y_torch, X_torch, entity_ids=entity_ids)
 print(f"Torch FE coef: {fe_torch.coef_}")
 
@@ -310,6 +310,18 @@ fm.fit(X, y, time_ids=time_ids)
 print(f"FM coef: {fm.coef_}, SE: {fm.bse_}")
 print(f"FM periods: {fm.n_periods}, betas shape: {fm.betas_.shape}")
 ```
+
+## Backend execution and metadata boundary
+
+For array input, `FamaMacBeth` keeps cross-sectional regressions, coefficient paths,
+Newey-West covariance, inference arrays, and prediction on NumPy, CuPy, or Torch.
+Panel formula construction and categorical/time/cluster label factorization remain CPU
+metadata operations; only compact integer codes are copied to the numerical backend.
+Scalar t/normal CDF and quantile evaluations are also intentional CPU boundaries.
+
+Formula-side arrays are aligned to Patsy's retained rows after missing-value deletion.
+NumPy/Torch-CPU parity is tested for Fama–MacBeth HAC fit and prediction; physical CUDA
+validation remains pending.
 
 ## strict/approx difference
 

@@ -1,7 +1,7 @@
 # Spline Basis Functions
 
 > Language: English  
-> Last updated: 2026-06-17  
+> Last updated: 2026-07-12  
 > This page: Model documentation  
 > Switch: [Chinese](../../models/splines.md)
 
@@ -67,15 +67,26 @@ where $r = \|x - \xi_j\|$ is the Euclidean distance to knot $\xi_j$. For 1-D dat
 
 ## Estimating Equation
 
-Evaluation is a direct recursive computation; no linear system is solved. For `cyclic_cubic_spline_basis`, the null space of the periodicity constraint matrix is computed via SVD. For `thin_plate_spline_basis`, pairwise distances are computed via vectorized broadcasting. `SplineTransformer` delegates to `bspline_basis` per feature.
+Evaluation is a direct recursive computation; no linear system is solved. For `cyclic_cubic_spline_basis`, the null space of the periodicity constraint matrix is computed via SVD. For `thin_plate_spline_basis`, pairwise distances are computed via vectorized broadcasting. `SplineTransformer` evaluates each feature with its own backend-native Cox–de Boor recurrence and explicit extrapolation semantics.
 
 ## Covariance / Inference
 
 Spline basis functions are deterministic computational utilities. They do not produce inference outputs (no standard errors, p-values, or confidence intervals). For statistical inference using splines, see the [GAM](../semiparametric.md) model which wraps penalized splines with GCV-based smoothing parameter selection.
 
+## Backend execution and extrapolation boundary
+
+`SplineTransformer.fit()` learns knots on the selected backend and `transform()`
+constructs the full basis there; it no longer transfers the complete input to SciPy.
+`error`, `constant`, `linear`, and polynomial `continue` modes share the same
+NumPy/CuPy/Torch recurrence. Moving a fitted transformer to another backend transfers
+only knot metadata.
+
+NumPy/Torch-CPU extrapolation parity is covered by CI. Physical CuPy CUDA and Torch
+CUDA memory/runtime validation remains pending.
+
 ## strict / approx Difference
 
-Spline basis computation has no strict/approx mode distinction. The De Boor recursion is a deterministic algorithm that produces identical results across all backends (NumPy, CuPy, Torch) up to floating-point precision.
+Spline basis computation has no strict/approx mode. The same recurrence is used across NumPy, CuPy, and Torch. NumPy/Torch-CPU parity is tested at tight tolerance; physical CUDA parity and performance remain pending.
 
 ## Parameters
 
@@ -121,7 +132,7 @@ Spline basis computation has no strict/approx mode distinction. The De Boor recu
 | `degree` | `3` | Spline degree (3 = cubic) |
 | `knots` | `'uniform'` | Knot placement: `'uniform'`, `'quantile'`, or an array of shape `(n_knots, n_features)` |
 | `include_bias` | `True` | If `True`, include all basis functions (including the redundant one from partition-of-unity) |
-| `extrapolation` | `'constant'` | Extrapolation mode: `'constant'` (clamp), `'linear'`, or `'continue'` (extend with boundary slope) |
+| `extrapolation` | `'constant'` | `'error'`, `'constant'` (clamp), `'linear'` (boundary tangent), or `'continue'` (continue the boundary polynomial piece) |
 | `device` | `'auto'` | Computation device |
 
 ## CPU+GPU Examples
@@ -240,13 +251,14 @@ print(f"Torch thin plate basis shape: {B_tp_t.shape}")  # (500, 12)
 - **When to use cyclic cubic splines?** Use cyclic splines when the data has a periodic structure (e.g., day-of-year, angle). The basis enforces that the fitted function and its first two derivatives match at the period boundaries.
 - **When to use thin plate splines?** Thin plate splines are designed for multi-dimensional smoothing. Unlike B-splines, which are inherently 1-D, thin plate splines naturally handle $d$-dimensional inputs using radial basis functions.
 - **SplineTransformer vs calling bspline_basis directly?** `SplineTransformer` provides an sklearn-compatible API that handles multiple features, automatic knot placement, and pipeline integration. Use it when building preprocessing pipelines or when you need `fit`/`transform` semantics.
-- **GPU speedup for splines?** The B-spline basis construction is vectorized over all sample points. For large $n$ (5000+), expect 2-3x speedup on GPU.
+- **GPU speedup for splines?** The recurrence is vectorized over observations and remains on-device, but speedup depends on sample size, degree, knot count, and backend. No general speedup claim is made until the current CUDA benchmark pass is completed.
 
 ## External Validation
 
 - B-spline basis values validated against `scipy.interpolate.BSpline`; relative error < 1e-15.
 - Natural cubic spline accuracy: excellent (< 1e-10) for $n \le 500$; fair (~1.5e-6) for $n = 5000$ due to SVD conditioning in the boundary constraint projection.
 - `SplineTransformer` output validated against `sklearn.preprocessing.SplineTransformer` for uniform and quantile knot strategies.
+- Constant, linear, and continue extrapolation are checked for NumPy/Torch-CPU parity; optional CuPy tests require a physical CUDA runtime.
 - `cyclic_cubic_spline_basis` periodicity verified: $f(a) \approx f(b)$, $f'(a) \approx f'(b)$, $f''(a) \approx f''(b)$ to within SVD tolerance.
 - `thin_plate_spline_basis` validated against hand-computed $\phi(r) = r^2 \log(r)$ values for 2-D inputs.
 

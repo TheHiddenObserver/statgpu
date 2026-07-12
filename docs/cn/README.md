@@ -51,17 +51,17 @@
 - [无监督概览](models/unsupervised.md) — 13 种算法：PCA、KMeans、DBSCAN、GMM、UMAP、NNDescent、t-SNE、NMF、Agglomerative、TruncatedSVD、IncrementalPCA、MiniBatchKMeans、MiniBatchNMF
 
 ### 面板数据
-- [Panel](models/panel.md) — 固定/随机效应面板模型
+- [Panel](models/panel.md) — 六类面板估计器，含 pooled、between、first-difference 与 Fama–MacBeth
 
 ### 非参数
 - [非参数概述](models/nonparametric.md) — 核方法与样条
 - [核方法](models/kernel-methods.md) — KDE、核回归、KRR
-- [样条](models/splines.md) — B 样条基、惩罚样条
+- [样条](models/splines.md) — B/自然/周期/薄板样条与 SplineTransformer
 - [半参数 (GAM)](models/semiparametric.md) — 广义可加模型
 
 ### 推断
-- [ANOVA](models/anova.md) — 方差分析
-- [Covariance](models/covariance.md) — 协方差估计、收缩
+- [ANOVA](models/anova.md) — 单/双因素、Welch、事后检验与效应量
+- [Covariance](models/covariance.md) — 经验/收缩、稳健 MCD 与稀疏精度矩阵
 - [多重检验](models/multiple-testing.md) — P 值校正（BH、Holm、Bonferroni）和合并（Fisher、Cauchy、Stouffer）
 - [Knockoff](models/knockoff.md) — knockoff 特征选择
 

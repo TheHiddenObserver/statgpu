@@ -4,6 +4,21 @@ All notable changes to statgpu are documented here, organized by date and PR.
 
 ## 2026-07-12
 
+### PR #79 — Native three-backend execution follow-up
+
+- Removed complete numeric-array NumPy fallbacks from `GraphicalLasso`,
+  `GraphicalLassoCV`, `MinCovDet`, `SplineTransformer`, and `FamaMacBeth`.
+- Kept Graphical Lasso block-coordinate descent/CV, FAST-MCD C-steps and
+  reweighting, spline Cox–de Boor recurrence, and Fama–MacBeth regressions/HAC
+  covariance on the selected NumPy, CuPy, or Torch backend.
+- Kept Tukey/Bonferroni group reductions on-device; only scalar distribution
+  CDF/quantile evaluations cross the CPU boundary.
+- Added NumPy/Torch parity and backend-preservation tests plus optional CuPy CUDA
+  checks. Physical CuPy/Torch CUDA memory, runtime, convergence, and repeated-fit
+  validation remains `PARTIAL_REMOTE_PENDING`.
+- Synchronized README, bilingual implemented-method lists, model pages, and all
+  three changelogs with the corrected execution and validation boundaries.
+
 ### PR #79 — Public module statistical-contract follow-up
 
 - Extended the repository review beyond Ridge to every top-level public module family,
