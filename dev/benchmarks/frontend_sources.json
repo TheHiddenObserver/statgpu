@@ -20,6 +20,11 @@
       "external": true,
       "backend_policy": "forbidden"
     },
+    "statsmodels": {
+      "display_name": "statsmodels",
+      "external": true,
+      "backend_policy": "forbidden"
+    },
     "linearmodels": {
       "display_name": "linearmodels",
       "external": true,
