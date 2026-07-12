@@ -11,6 +11,7 @@ import {
 } from '../utils/format';
 import { renderValidationPanel } from './panels/ValidationPanel';
 import { renderAccuracyPanel } from './panels/AccuracyPanel';
+import { renderInferencePanel } from './panels/InferencePanel';
 import { renderPredictionPanel } from './panels/PredictionPanel';
 import { renderConvergencePanel } from './panels/ConvergencePanel';
 import { renderSelectionPanel } from './panels/SelectionPanel';
@@ -173,12 +174,13 @@ export function renderOverviewTable(
   const panels = [
     renderValidationPanel(filtered, state, onUpdate),
     renderAccuracyPanel(filtered, state, onUpdate),
+    renderInferencePanel(filtered, state, onUpdate),
     renderPredictionPanel(filtered, state, onUpdate),
     renderConvergencePanel(filtered, state, onUpdate),
     renderSelectionPanel(filtered, state, onUpdate),
   ];
-  for (const p of panels) {
-    if (p) container.appendChild(p);
+  for (const panel of panels) {
+    if (panel) container.appendChild(panel);
   }
 
   return container;
