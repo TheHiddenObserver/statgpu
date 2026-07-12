@@ -47,16 +47,24 @@ no statistical definition was changed merely to match an external library.
   twice and used a bare exception; it now performs one call with explicit failure types.
 - [LOW][READ/PERF][fixed] KDE zero-density log-sum calculations no longer emit expected
   runtime warnings; stale skeleton and support documentation was removed.
+- [LOW][MAINT][fixed] `PenalizedLinearRegression` referenced `Penalty` in a public type
+  annotation without defining it. A `TYPE_CHECKING` import now keeps runtime imports
+  acyclic while satisfying static analysis and type-hint resolution.
 
 ## Validation evidence
 
-- Focused review suite: `dev/tests/test_second_full_review.py`.
+- Focused review suite: `dev/tests/test_second_full_review.py` (44 review regressions).
 - Broad CPU suites cover losses/penalties/solvers, inference/distributions, covariance,
   panel, splines/GAM, nonparametric methods, unsupervised methods, backend contracts,
   and repository review regressions.
 - Analytic/reference checks include SciPy Welch ANOVA, statsmodels influence diagnostics,
   Gaussian closed-form/inference invariants, weighted-centering identities, backend
   parity, and source/dtype/device contracts.
+- The focused suite is included in the permanent Python 3.9–3.12 regression matrix and
+  the full Python 3.11 CPU suite.
+- Permanent static gates now cover every source path changed in this review, including
+  CV engine, diagnostics, feature selection, Gaussian summaries, penalized linear
+  wrappers, penalties, FISTA-LLA, and Cox.
 
 ## Capability decisions
 
@@ -69,6 +77,18 @@ no statistical definition was changed merely to match an external library.
 - Formula: no formula-facing behavior changed in this pass.
 - Benchmark: local micro/performance regressions were checked; physical CUDA benchmark
   and transfer profiling remain remote-pending.
+
+## `dev/AGENTS.md` compliance
+
+- Public API, backend, dtype/device, solver, CV, inference, formula, and benchmark axes
+  were classified before changes.
+- A dedicated regression suite accompanies the fixes and is part of permanent CI.
+- Constructor parameters are not mutated during fit; repeated-fit and sklearn clone
+  contracts are explicitly tested for the affected estimators.
+- Backend-native paths do not introduce silent complete-array host transfers or silent
+  float64-to-float32 downcasts.
+- Public capability changes are reflected in English and Chinese documentation and all
+  maintained changelogs.
 
 ## Deferred items
 
