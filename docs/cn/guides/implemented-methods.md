@@ -207,10 +207,20 @@ Torch-CPU 一致性；真实 CUDA 验证仍待完成。
 
 ## 特征选择
 
-| Function | Description |
+| 接口 | 说明 | 后端 |
+|---|---|---|
+| `StepwiseSelector` / `stepwise_selection` | 基于 AIC/BIC 的前向、后向或双向子集搜索 | 跟随被包装估计器 |
+| `knockoff_filter` | 统一 fixed-X/model-X FDR 控制选择 | CPU, CuPy, Torch |
+| `fixed_x_knockoff_filter` | Fixed-X knockoff filter | CPU, CuPy, Torch |
+| `model_x_knockoff_filter` | 高斯二阶近似 Model-X knockoff | CPU, CuPy, Torch |
+| `KnockoffSelector` / `FixedXKnockoffSelector` | sklearn 风格 selector wrapper | CPU, CuPy, Torch |
+
+## 回归诊断
+
+| 接口 | 说明 |
 |---|---|
-| `fixed_x_knockoff_filter` | Fixed-X knockoff filter |
-| `model_x_knockoff_filter` | Model-X knockoff filter |
+| `RegressionDiagnostics` | 残差、杠杆值、内部/外部 studentized residual、Cook 距离与 VIF |
+| `diagnose_model` | 构造并打印诊断摘要 |
 
 ## 多重检验
 

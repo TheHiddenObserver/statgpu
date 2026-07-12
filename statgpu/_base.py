@@ -516,6 +516,19 @@ class BaseEstimator(ABC):
                 "Call 'fit' before using this method."
             )
     
+    def __sklearn_clone__(self):
+        """Return an unfitted estimator clone for scikit-learn >= 1.3.
+
+        Several statgpu constructors validate or canonicalize immutable strings
+        and copy mutable dictionaries. scikit-learn's legacy identity check
+        treats those defensive copies as constructor mutation. The explicit
+        clone protocol preserves the public constructor values while discarding
+        fitted state.
+        """
+        from copy import deepcopy
+
+        return type(self)(**deepcopy(self.get_params(deep=False)))
+
     def get_params(self, deep=True):
         """Get constructor parameters for this estimator.
 

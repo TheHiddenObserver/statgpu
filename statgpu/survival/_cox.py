@@ -847,20 +847,20 @@ class CoxPH(BaseEstimator):
         self._var_matrix = cov
         self._bse = np.sqrt(np.maximum(np.diag(cov), 0.0))
         self._zvalues = self.coef_ / (self._bse + 1e-30)
-        self._pvalues = 2 * (1 - stats.norm.cdf(np.abs(self._zvalues)))
+        self._pvalues = 2 * stats.norm.sf(np.abs(self._zvalues))
         self._conf_int = np.asarray(res.conf_int(), dtype=np.float64)
 
         # Delayed-entry robust covariance override is intentionally skipped:
         # current internal robust score/hessian helpers do not account for entry.
 
         self._lr_test_stat = 2 * (self._log_likelihood - self._log_likelihood_null)
-        self._lr_test_pvalue = 1 - stats.chi2.cdf(self._lr_test_stat, n_features)
+        self._lr_test_pvalue = stats.chi2.sf(self._lr_test_stat, n_features)
         try:
             var_inv = np.linalg.solve(self._var_matrix, np.eye(n_features))
             self._wald_test_stat = self.coef_ @ var_inv @ self.coef_
         except np.linalg.LinAlgError:
             self._wald_test_stat = np.nan
-        self._wald_test_pvalue = 1 - stats.chi2.cdf(self._wald_test_stat, n_features)
+        self._wald_test_pvalue = stats.chi2.sf(self._wald_test_stat, n_features)
         self._score_test_stat = np.nan
         self._score_test_pvalue = np.nan
 
@@ -3618,17 +3618,24 @@ class CoxPH(BaseEstimator):
         self._lr_test_stat = 2 * (self._log_likelihood - self._log_likelihood_null)
         self._lr_test_pvalue = 1 - stats.chi2.cdf(self._lr_test_stat, n_features)
         
-        # Score test (Rao's test) - computed at beta = 0
+        # Score test (Rao's test) - computed at beta = 0.  Compute the
+        # gradient and Hessian in one call because Efron paths can be expensive.
         ep = getattr(self, "_efron_pre", None)
-        grad_0, _ = self._compute_gradient_hessian(np.zeros(n_features), X, time, event, ep, entry=getattr(self, "_entry", None))
         try:
-            _, hess_0 = self._compute_gradient_hessian(np.zeros(n_features), X, time, event, ep, entry=getattr(self, "_entry", None))
+            grad_0, hess_0 = self._compute_gradient_hessian(
+                np.zeros(n_features),
+                X,
+                time,
+                event,
+                ep,
+                entry=getattr(self, "_entry", None),
+            )
             info_0 = self._observed_information(hess_0)
             info_0_inv = np.linalg.solve(info_0, np.eye(n_features))
-            self._score_test_stat = grad_0 @ info_0_inv @ grad_0
-        except:
+            self._score_test_stat = float(grad_0 @ info_0_inv @ grad_0)
+        except (np.linalg.LinAlgError, ValueError, FloatingPointError):
             self._score_test_stat = np.nan
-        self._score_test_pvalue = 1 - stats.chi2.cdf(self._score_test_stat, n_features)
+        self._score_test_pvalue = stats.chi2.sf(self._score_test_stat, n_features)
 
     def _compute_robust_score_residuals(self, X, time, event):
         """

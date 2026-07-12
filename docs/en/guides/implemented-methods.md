@@ -208,10 +208,20 @@ CUDA validation remains pending.
 
 ## Feature Selection
 
-| Function | Description |
+| Interface | Description | Backends |
+|---|---|---|
+| `StepwiseSelector` / `stepwise_selection` | AIC/BIC forward, backward, or bidirectional subset search | follows wrapped estimator |
+| `knockoff_filter` | Unified fixed-X/model-X FDR-controlled selection | CPU, CuPy, Torch |
+| `fixed_x_knockoff_filter` | Fixed-X knockoff filter | CPU, CuPy, Torch |
+| `model_x_knockoff_filter` | Gaussian second-order model-X knockoff filter | CPU, CuPy, Torch |
+| `KnockoffSelector` / `FixedXKnockoffSelector` | sklearn-style selector wrappers | CPU, CuPy, Torch |
+
+## Regression Diagnostics
+
+| Interface | Description |
 |---|---|
-| `fixed_x_knockoff_filter` | Fixed-X knockoff filter |
-| `model_x_knockoff_filter` | Model-X knockoff filter |
+| `RegressionDiagnostics` | Residuals, leverage, internal/external studentization, Cook's distance, and VIF |
+| `diagnose_model` | Construct and print a diagnostic summary |
 
 ## Multiple Testing
 

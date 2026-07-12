@@ -78,7 +78,16 @@ def partial_eta_squared(
     This is equivalent to eta-squared in one-way ANOVA but differs
     in multi-factor designs where SS_error is the residual SS.
     """
+    try:
+        ss_effect = float(ss_effect)
+        ss_error = float(ss_error)
+    except (TypeError, ValueError) as exc:
+        raise TypeError("ss_effect and ss_error must be real scalars") from exc
+    if not np.isfinite(ss_effect) or not np.isfinite(ss_error):
+        raise ValueError("ss_effect and ss_error must be finite")
+    if ss_effect < 0.0 or ss_error < 0.0:
+        raise ValueError("sum-of-squares inputs must be non-negative")
     total = ss_effect + ss_error
-    if total == 0:
+    if total == 0.0:
         return float("nan")
     return float(ss_effect / total)

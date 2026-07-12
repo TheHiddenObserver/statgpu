@@ -166,16 +166,16 @@ class TestDebiasedInferenceCPU:
         assert m.fvalue == np.inf
         assert m.f_pvalue == 0.0
 
-    def test_f_pvalue_zero_predictors_returns_none(self):
-        """Zero-predictor edge case should not map infinite F to near-zero p-value."""
+    def test_f_pvalue_zero_predictors_is_undefined(self):
+        """The overall F-test is undefined when there are no slope predictors."""
         m = Lasso(alpha=0.1, device="cpu")
         m.coef_ = np.array([], dtype=float)
         m._df_resid = 8
         m._y = np.array([1.0, 2.0, 3.0, 4.0], dtype=float)
         m._resid = np.array([0.1, -0.1, 0.1, -0.1], dtype=float)
 
-        assert m.fvalue == np.inf
-        assert m.f_pvalue is None
+        assert np.isnan(m.fvalue)
+        assert np.isnan(m.f_pvalue)
 
     def test_debiased_vs_ols_low_dim(self):
         """In low-dimensional regime (n >> p, sparse), debiased should be close to OLS."""

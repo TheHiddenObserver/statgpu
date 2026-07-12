@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from typing import Optional
 
+import inspect
 import numpy as np
 
 from statgpu.backends import _to_float_scalar, xp_maximum
@@ -47,18 +48,27 @@ def rbf_kernel(X, Y=None, gamma=None, xp=None):
 
     n, m = X.shape[0], Y.shape[0]
 
-    # For numpy: chunked float32 for large matrices (halves memory, avoids OOM).
-    # Preserves input dtype for small matrices (important for eigendecomposition).
+    # NumPy uses chunking for large matrices but never silently changes an
+    # explicitly floating input dtype. Integer inputs are promoted because the
+    # exponential kernel is intrinsically floating point.
     if xp is np:
-        orig_dt = np.asarray(X).dtype
-        use_f32 = n * m > 4e6 and orig_dt == np.float64  # >4M elements and float64 input
-        dt = np.float32 if use_f32 else orig_dt
-        XX = np.sum(np.asarray(X, dtype=dt) ** 2, axis=1)  # (n,)
-        YY = np.sum(np.asarray(Y, dtype=dt) ** 2, axis=1)  # (m,)
+        X_np = np.asarray(X)
+        Y_np = np.asarray(Y)
+        if X_np.ndim != 2 or Y_np.ndim != 2:
+            raise ValueError("X and Y must be two-dimensional arrays")
+        if X_np.shape[1] != Y_np.shape[1]:
+            raise ValueError("X and Y must have the same number of features")
+        dt = np.result_type(X_np.dtype, Y_np.dtype, np.float32)
+        if np.issubdtype(dt, np.complexfloating):
+            raise ValueError("rbf_kernel does not support complex-valued inputs")
+        X_np = np.asarray(X_np, dtype=dt)
+        Y_np = np.asarray(Y_np, dtype=dt)
+        XX = np.sum(X_np ** 2, axis=1)  # (n,)
+        YY = np.sum(Y_np ** 2, axis=1)  # (m,)
         chunk = max(1, min(n, int(5e8 / (m * np.dtype(dt).itemsize))))
         if chunk >= n:
-            X_a = np.asarray(X, dtype=dt)
-            Y_a = np.asarray(Y, dtype=dt)
+            X_a = X_np
+            Y_a = Y_np
             K = X_a @ Y_a.T
             K *= -2.0
             K += XX[:, None]
@@ -68,10 +78,10 @@ def rbf_kernel(X, Y=None, gamma=None, xp=None):
             return K
         else:
             K = np.empty((n, m), dtype=dt)
-            Y_a = np.asarray(Y, dtype=dt)
+            Y_a = Y_np
             for s in range(0, n, chunk):
                 e = min(s + chunk, n)
-                Kc = np.asarray(X[s:e], dtype=dt) @ Y_a.T
+                Kc = X_np[s:e] @ Y_a.T
                 Kc *= -2.0
                 Kc += XX[s:e, None]
                 Kc += YY[None, :]
@@ -80,6 +90,24 @@ def rbf_kernel(X, Y=None, gamma=None, xp=None):
                 K[s:e] = Kc
             return K
 
+    if getattr(X, "ndim", None) != 2 or getattr(Y, "ndim", None) != 2:
+        raise ValueError("X and Y must be two-dimensional arrays")
+    if X.shape[1] != Y.shape[1]:
+        raise ValueError("X and Y must have the same number of features")
+
+    # Torch integer tensors cannot be updated in-place with floating kernel
+    # coefficients. Promote integer inputs while preserving floating dtypes.
+    if getattr(xp, "__name__", "") == "torch":
+        if not X.is_floating_point() or not Y.is_floating_point():
+            X = X.to(dtype=xp.float64)
+            Y = Y.to(dtype=xp.float64)
+    else:
+        x_kind = getattr(getattr(X, "dtype", None), "kind", None)
+        y_kind = getattr(getattr(Y, "dtype", None), "kind", None)
+        if x_kind not in ("f",) or y_kind not in ("f",):
+            X = X.astype(xp.float64, copy=False)
+            Y = Y.astype(xp.float64, copy=False)
+
     # ||x - y||^2 = ||x||^2 + ||y||^2 - 2 * x @ y.T
     # Single n×m buffer, all in-place.
     K = X @ Y.T                     # (n, m) — BLAS gemm
@@ -87,7 +115,7 @@ def rbf_kernel(X, Y=None, gamma=None, xp=None):
     # norms — avoid n×n temporary via row-wise sum
     K += xp.sum(X * X, axis=1)[:, None]
     K += xp.sum(Y * Y, axis=1)[None, :]
-    xp.maximum(K, 0.0, out=K)      # clamp negatives
+    K = xp_maximum(K, 0.0, xp)      # clamp negatives, including Torch scalar handling
     K *= -gamma
     if hasattr(K, 'exp_'):
         K.exp_()                    # torch in-place
@@ -368,14 +396,20 @@ def pairwise_kernels(X, Y=None, metric="rbf", xp=None, **params):
     K : array of shape (n_samples_X, n_samples_Y)
     """
     if callable(metric):
-        # Try calling with xp parameter first; fall back without it
-        # for user-defined callables that don't accept xp.
-        # Pass Y as-is (including None) so callables can distinguish
-        # self-kernel (Y=None) from cross-kernel.
+        # Decide whether the callable accepts ``xp`` before invoking it. Catching
+        # TypeError around the call itself masks genuine errors raised inside a
+        # user kernel and can execute a stateful callable twice.
         try:
+            signature = inspect.signature(metric)
+        except (TypeError, ValueError):
+            signature = None
+        accepts_xp = signature is None or "xp" in signature.parameters or any(
+            parameter.kind == inspect.Parameter.VAR_KEYWORD
+            for parameter in signature.parameters.values()
+        )
+        if accepts_xp:
             return metric(X, Y, xp=xp, **params)
-        except TypeError:
-            return metric(X, Y, **params)
+        return metric(X, Y, **params)
 
     key = str(metric).strip().lower()
     func = KERNEL_REGISTRY.get(key)

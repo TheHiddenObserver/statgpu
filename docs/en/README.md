@@ -62,6 +62,8 @@
 - [Covariance](models/covariance.md) — empirical/shrinkage, robust MCD, and sparse precision
 - [Multiple Testing](models/multiple-testing.md) — p-value adjustment (BH, Holm, Bonferroni) and combination (Fisher, Cauchy, Stouffer)
 - [Knockoff](models/knockoff.md) — knockoff feature selection
+- [Feature Selection](models/feature-selection.md) — stepwise selection and knockoff overview
+- [Regression Diagnostics](guides/regression-diagnostics.md) — residuals, leverage, Cook’s distance, and VIF
 
 ## Reference
 

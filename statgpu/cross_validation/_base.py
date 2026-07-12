@@ -17,7 +17,13 @@ from statgpu._base import BaseEstimator
 # Shared constant: intercept clipping bound for CV proximal operators
 INTERCEPT_CLIP_BOUND = 15.0
 from statgpu._config import Device
-from statgpu.backends import _to_numpy
+from statgpu.backends import (
+    _get_xp,
+    _resolve_backend,
+    _to_float_scalar,
+    _to_numpy,
+    xp_asarray,
+)
 
 
 def _torch_cuda_available():
@@ -56,6 +62,14 @@ def kfold_indices(
     -------
     folds : list of (train_idx, val_idx) tuples
     """
+    if isinstance(n_samples, bool) or not isinstance(n_samples, (int, np.integer)):
+        raise TypeError("n_samples must be a positive integer")
+    if isinstance(n_splits, bool) or not isinstance(n_splits, (int, np.integer)):
+        raise TypeError("n_splits must be an integer")
+    n_samples = int(n_samples)
+    n_splits = int(n_splits)
+    if n_samples <= 0:
+        raise ValueError("n_samples must be positive")
     if n_splits < 2:
         raise ValueError(f"n_splits={n_splits} must be at least 2")
     if n_splits > n_samples:
@@ -83,8 +97,16 @@ def kfold_indices(
 
 
 def folds_are_complete(folds, n_samples: int) -> bool:
-    """Check that all folds together cover every sample exactly once."""
-    val_indices = np.concatenate([f[1] for f in folds])
+    """Check that validation folds cover every sample exactly once."""
+    if isinstance(n_samples, bool) or not isinstance(n_samples, (int, np.integer)):
+        return False
+    n_samples = int(n_samples)
+    if n_samples < 0 or not folds:
+        return False
+    try:
+        val_indices = np.concatenate([np.asarray(fold[1], dtype=int) for fold in folds])
+    except (TypeError, ValueError, IndexError):
+        return False
     if len(val_indices) != n_samples:
         return False
     return np.array_equal(np.sort(val_indices), np.arange(n_samples))
@@ -136,28 +158,34 @@ def hash_cv_data(X, y, sample_weight=None) -> bytes:
 
 
 def validate_cv_sample_weight(sample_weight, n_samples: int):
-    """Validate sample_weight for CV: must be non-negative and finite.
+    """Validate CV sample weights without transferring the full vector to CPU.
 
-    Returns None if sample_weight is None, otherwise returns validated array.
-    Raises ValueError for invalid weights.  Preserves the original backend
-    (CuPy/Torch/numpy) — does not force conversion to numpy.
+    The returned array uses the same NumPy/CuPy/Torch backend as the input.
+    Only scalar validation results are synchronized.
     """
     if sample_weight is None:
         return None
-    # Validate on numpy (single D2H sync) but return original array
-    sw_np = _to_numpy(sample_weight).ravel().astype(np.float64)
-    if sw_np.shape[0] != n_samples:
+    if isinstance(n_samples, bool) or not isinstance(n_samples, (int, np.integer)):
+        raise TypeError("n_samples must be a positive integer")
+    n_samples = int(n_samples)
+    if n_samples <= 0:
+        raise ValueError("n_samples must be positive")
+
+    resolved = _resolve_backend("auto", sample_weight)
+    xp = _get_xp(resolved)
+    ref = sample_weight if resolved in ("cupy", "torch") else None
+    weights = xp_asarray(sample_weight, dtype=xp.float64, xp=xp, ref_arr=ref).ravel()
+    if int(weights.shape[0]) != n_samples:
         raise ValueError(
-            f"sample_weight length {sw_np.shape[0]} != n_samples {n_samples}"
+            f"sample_weight length {weights.shape[0]} != n_samples {n_samples}"
         )
-    if np.any(sw_np < 0):
-        raise ValueError("sample_weight must be non-negative")
-    if not np.all(np.isfinite(sw_np)):
+    if not bool(_to_float_scalar(xp.all(xp.isfinite(weights)))):
         raise ValueError("sample_weight must be finite")
-    if float(np.sum(sw_np)) <= 0.0:
+    if bool(_to_float_scalar(xp.any(weights < 0))):
+        raise ValueError("sample_weight must be non-negative")
+    if _to_float_scalar(xp.sum(weights)) <= 0.0:
         raise ValueError("sample_weight must have a positive sum")
-    # Return the original array (preserves CuPy/Torch backend)
-    return sample_weight
+    return weights
 
 
 # ---------------------------------------------------------------------------
@@ -200,19 +228,54 @@ class CVCache:
 
     @staticmethod
     def make_key(*args) -> str:
-        """Generate a blake2b hash key from arbitrary arguments.
+        """Generate a framed content hash for nested CV arguments.
 
-        Uses content-based hashing for arrays (tobytes) to avoid collisions
-        from str() truncation on large arrays.
+        Type tags and payload lengths prevent concatenation collisions such as
+        ``("ab", "c")`` versus ``("a", "bc")``. Arrays additionally include
+        dtype and shape metadata before their contiguous content bytes.
         """
         h = hashlib.blake2b(digest_size=32)
-        for arg in args:
-            if hasattr(arg, 'tobytes') and hasattr(arg, 'shape'):
-                # Array-like: hash shape + content bytes
-                h.update(str(arg.shape).encode())
-                h.update(np.ascontiguousarray(_to_numpy(arg)).tobytes())
+
+        def frame(tag: bytes, payload: bytes = b"") -> None:
+            h.update(len(tag).to_bytes(4, "big"))
+            h.update(tag)
+            h.update(len(payload).to_bytes(8, "big"))
+            h.update(payload)
+
+        def update(value) -> None:
+            if value is None:
+                frame(b"none")
+            elif isinstance(value, (bool, np.bool_)):
+                frame(b"bool", b"1" if bool(value) else b"0")
+            elif isinstance(value, (int, np.integer)):
+                frame(b"int", str(int(value)).encode("ascii"))
+            elif isinstance(value, (float, np.floating)):
+                frame(b"float", np.float64(value).tobytes())
+            elif isinstance(value, str):
+                frame(b"str", value.encode("utf-8"))
+            elif isinstance(value, (bytes, bytearray, memoryview)):
+                frame(b"bytes", bytes(value))
+            elif isinstance(value, (list, tuple)):
+                frame(b"list" if isinstance(value, list) else b"tuple", str(len(value)).encode())
+                for item in value:
+                    update(item)
+            elif isinstance(value, dict):
+                frame(b"dict", str(len(value)).encode())
+                for key in sorted(value, key=lambda item: (type(item).__name__, repr(item))):
+                    update(key)
+                    update(value[key])
+            elif hasattr(value, "shape"):
+                array = np.ascontiguousarray(_to_numpy(value))
+                metadata = (array.dtype.str + "|" + repr(tuple(array.shape))).encode("utf-8")
+                frame(b"array-meta", metadata)
+                frame(b"array-data", array.tobytes())
             else:
-                h.update(str(arg).encode())
+                typename = f"{type(value).__module__}.{type(value).__qualname__}"
+                frame(b"object-type", typename.encode("utf-8"))
+                frame(b"object-repr", repr(value).encode("utf-8"))
+
+        for argument in args:
+            update(argument)
         return h.hexdigest()
 
 

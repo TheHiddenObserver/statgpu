@@ -9,6 +9,24 @@ Language switch: [Chinese](../changelog.md)
 
 ## 2026-07
 
+### Fixed and hardened (2026-07-12) — PR #79 second full-repository review
+
+- **Correctness**: repaired Stepwise backward/bidirectional selection, feature-order
+  prediction, null-model and repeated-fit behavior; excluded incomplete CV candidates;
+  corrected Welch degrees of freedom, Gaussian summary edge cases, external
+  studentization, and Cox score-test computation.
+- **Three-backend behavior**: removed the Welch host-array path, fixed Torch RBF kernel
+  execution, preserved float64 on large kernel matrices, clarified Torch CPU backend
+  selection for functional APIs, and kept explicit estimator GPU requests strict.
+- **Solver/performance**: restored quadratic SCAD/MCP to weighted FISTA-LLA with weighted
+  centering and avoided duplicate Cox gradient/Hessian work.
+- **API/maintainability**: hardened cloning, knockoff selectors and draw counts,
+  resampling integer/finiteness contracts, composite penalties, effect sizes, KDE
+  zero-density handling, and top-level feature-selection/diagnostic exports.
+- **Validation/docs**: added `dev/tests/test_second_full_review.py`, updated method
+  inventories and usage portals, and added focused feature-selection and regression-
+  diagnostics pages. Physical CUDA validation remains pending.
+
 ### Improved (2026-07-12) — PR #79 native three-backend execution
 
 - Replaced complete-design NumPy fallbacks in Graphical Lasso/CV, MinCovDet,

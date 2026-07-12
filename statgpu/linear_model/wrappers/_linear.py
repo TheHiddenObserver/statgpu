@@ -904,35 +904,53 @@ class LinearRegression(BaseEstimator):
     
     @property
     def rsquared_adj(self):
-        """Adjusted R-squared."""
+        """Adjusted R-squared, or NaN when residual degrees of freedom are invalid."""
         if self._nobs is None:
             return None
+        if self._df_resid is None or self._df_resid <= 0:
+            return np.nan
         r2 = self.rsquared
-        k = int(self._X_design.shape[1] - (1 if self.fit_intercept else 0))
+        if r2 is None:
+            return None
         return 1 - (1 - r2) * (self._nobs - 1) / self._df_resid
     
     @property
     def fvalue(self):
-        """F-statistic."""
+        """Overall regression F-statistic.
+
+        The statistic is undefined for an intercept-only model, a constant target,
+        or non-positive residual degrees of freedom.  A perfect non-constant fit
+        has an infinite F-statistic.
+        """
         if self._y is None or self._resid is None:
             return None
-        y_mean = np.mean(self._y)
-        ss_tot = np.sum((self._y - y_mean) ** 2)
-        ss_res = np.sum(self._resid ** 2)
-        ss_reg = ss_tot - ss_res
         k = int(self._X_design.shape[1] - (1 if self.fit_intercept else 0))
-        if k == 0 or ss_res <= 0:
-            return np.inf
+        if k <= 0 or self._df_resid is None or self._df_resid <= 0:
+            return np.nan
+        y = np.asarray(self._y, dtype=float)
+        resid = np.asarray(self._resid, dtype=float)
+        ss_tot = float(np.sum((y - np.mean(y)) ** 2))
+        ss_res = float(np.sum(resid ** 2))
+        if not np.isfinite(ss_tot) or not np.isfinite(ss_res) or ss_tot <= 0:
+            return np.nan
+        ss_reg = max(0.0, ss_tot - ss_res)
+        tol = np.finfo(float).eps * max(1.0, ss_tot)
+        if ss_res <= tol:
+            return np.inf if ss_reg > tol else np.nan
         return (ss_reg / k) / (ss_res / self._df_resid)
     
     @property
     def f_pvalue(self):
-        """p-value for F-statistic."""
+        """Upper-tail p-value for the overall F-test."""
         fv = self.fvalue
-        if fv is None or fv == np.inf:
-            return 1.0
+        if fv is None:
+            return None
+        if np.isnan(fv):
+            return np.nan
+        if np.isposinf(fv):
+            return 0.0
         k = int(self._X_design.shape[1] - (1 if self.fit_intercept else 0))
-        return 1 - stats.f.cdf(fv, k, self._df_resid)
+        return float(stats.f.sf(fv, k, self._df_resid))
     
     @property
     def aic(self):
@@ -962,14 +980,18 @@ class LinearRegression(BaseEstimator):
     
     @property
     def llf(self):
-        """Log-likelihood (matches statsmodels/R)."""
+        """Gaussian log-likelihood evaluated at the MLE residual variance."""
         if self._nobs is None or self._resid is None:
             return None
-        n = self._nobs
-        # Use MLE estimate of sigma^2 = RSS/n (not RSS/df_resid)
-        sigma2_mle = np.sum(self._resid ** 2) / n
-        # LL = -n/2 * log(2*pi*sigma2_mle) - n/2
-        return -n/2 * np.log(2 * np.pi * sigma2_mle) - n/2
+        n = int(self._nobs)
+        if n <= 0:
+            return np.nan
+        sigma2_mle = float(np.sum(np.asarray(self._resid, dtype=float) ** 2) / n)
+        if not np.isfinite(sigma2_mle) or sigma2_mle < 0:
+            return np.nan
+        if sigma2_mle == 0:
+            return np.inf
+        return -n / 2 * (np.log(2 * np.pi * sigma2_mle) + 1.0)
     
     def summary(self):
         """Print summary table similar to R's summary(lm())."""

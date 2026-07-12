@@ -1,7 +1,7 @@
 # Knockoff Feature Selection
 
 > Language: English  
-> Last updated: 2026-04-17  
+> Last updated: 2026-07-12  
 > This page: Method documentation  
 > Switch: [Chinese](../../models/knockoff.md)
 
@@ -64,7 +64,7 @@ Key `knockoff_filter` parameters:
 | `lasso_cv_impl` | `auto` | `auto` / `statgpu` / `sklearn` |
 | `modelx_covariance_shrinkage` | `0.20` | model-X covariance shrinkage factor |
 | `modelx_s_scale` | `0.999` | model-X S-matrix scaling factor |
-| `modelx_draws` | `None` | Number of model-X draws (auto defaults by statistic) |
+| `modelx_draws` | `None` | Strictly positive integer draw count; `None` uses the statistic-specific default |
 | `modelx_shrinkage` | `ledoitwolf` | knockpy-compatible covariance strategy |
 | `modelx_smatrix_method` | `mvr` | knockpy-compatible S-matrix method |
 | `knockpy_sampler` | `None` | Optional dispatch target (`gaussian`, `fx`, `metro`, `artk`, ...) |
@@ -127,12 +127,11 @@ res_torch_mx = knockoff_filter(
 - In model-X, higher `modelx_draws` usually improves stability at higher runtime cost.
 - `knockpy_sampler` dispatch options are currently guarded; explicitly setting unsupported targets can raise `NotImplementedError` instead of silently falling back.
 
-## Torch Backend Performance
+## Performance Boundary
 
-**Torch Backend Benchmarks** (20-experiment comparison):
-- **Large (n=1000, p=200)**: ~1.14x speedup vs NumPy
-- **XLarge (n=2000, p=500)**: ~1.33x speedup vs NumPy
-- **Small datasets (<500 samples)**: NumPy may be faster due to GPU overhead
+Knockoff runtime depends strongly on `n`, `p`, statistic choice, draw count, and
+backend launch/transfer costs. Historical benchmark scripts remain available, but no
+current speedup factor is claimed until the physical-CUDA benchmark matrix is rerun.
 
 ## Outputs
 

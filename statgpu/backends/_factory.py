@@ -11,7 +11,8 @@ from statgpu.backends._torch import TorchBackend
 # Module-level singletons (one instance per library, shared across calls).
 _numpy_backend = NumpyBackend()
 _cupy_backend = CuPyBackend()
-_torch_backend = TorchBackend()
+_torch_backend = TorchBackend(device="cuda")
+_torch_cpu_backend = TorchBackend(device="cpu")
 
 
 def get_backend(backend: str = "auto", device: str = "auto") -> BackendBase:
@@ -61,7 +62,15 @@ def get_backend(backend: str = "auto", device: str = "auto") -> BackendBase:
     if backend == "cupy":
         return _cupy_backend
     if backend == "torch":
-        return _torch_backend
+        # ``backend='torch'`` selects the array library, while ``device``
+        # selects CPU versus CUDA.  Keep estimator ``device='torch'`` strict by
+        # passing device='cuda' from BaseEstimator, but allow functional APIs to
+        # use a Torch CPU backend when CUDA is unavailable, as documented.
+        if device == "cpu":
+            return _torch_cpu_backend
+        if device == "cuda":
+            return _torch_backend
+        return _torch_backend if _torch_backend.is_available() else _torch_cpu_backend
 
     # --- auto-selection ---
     if device == "cpu":

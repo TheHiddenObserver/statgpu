@@ -1,9 +1,4 @@
-"""GPU-accelerated Welch ANOVA.
-
-Provides :func:`f_welch`, a backend-agnostic replacement for
-``scipy.stats.alexandergovern`` (or R's ``oneway.test``) that handles
-unequal variances across groups.
-"""
+"""Backend-native Welch one-way ANOVA."""
 
 from __future__ import annotations
 
@@ -13,8 +8,17 @@ from typing import Any
 
 import numpy as np
 
-from statgpu.backends import _get_xp, _resolve_backend, _to_float_scalar, _to_numpy
 from statgpu.anova._oneway import AnovaResult
+from statgpu.backends import (
+    _get_xp,
+    _resolve_backend,
+    _to_float_scalar,
+    xp_asarray,
+)
+
+
+def _array_size(arr, xp) -> int:
+    return int(arr.numel()) if xp.__name__ == "torch" else int(arr.size)
 
 
 def f_welch(
@@ -22,119 +26,119 @@ def f_welch(
     backend: str = "auto",
     dtype: Any = None,
 ) -> AnovaResult:
-    """Perform Welch's one-way ANOVA (unequal variances).
+    """Perform Welch's one-way ANOVA for unequal group variances.
+
+    Group validation, means, variances, weights, and the Welch statistic remain
+    on the selected NumPy, CuPy, or Torch backend. Only the final scalar
+    statistic/degrees of freedom are synchronized for the result container and
+    distribution evaluation.
 
     Parameters
     ----------
     *groups : array-like
-        Two or more sample arrays, one per group.  Each must be 1-D.
+        Two or more one-dimensional samples. Each group must contain at least
+        two finite observations.
     backend : {'auto', 'numpy', 'cupy', 'torch'}, default='auto'
-        Compute backend.  **Note:** computation currently runs on CPU
-        regardless of backend selection.
+        Compute backend.
     dtype : dtype or None, default=None
-        Float dtype for computation.  ``None`` uses ``float64``.
+        Floating-point dtype. ``None`` uses backend float64.
 
     Returns
     -------
     AnovaResult
-        Dataclass with ``statistic``, ``pvalue``, ``df_between``,
-        ``df_within``, and ``eta_squared`` (set to NaN -- not meaningful
-        for Welch's test).
-
-    Raises
-    ------
-    ValueError
-        If fewer than 2 groups or any group has < 2 observations.
-
-    Notes
-    -----
-    Welch's ANOVA (Welch 1951) does not assume equal variances.  The
-    test statistic is:
-
-        W = (sum_k w_k * (xbar_k - xbar_w)**2 / (K-1)) /
-            (1 + 2*(K-2)/(K^2-1) * sum_k (1-w_k/W)^2 / (n_k-1))
-
-    where w_k = n_k / s_k^2, W = sum w_k, and xbar_w = sum(w_k*xbar_k)/W.
-
-    The p-value uses an F distribution with df1 = K-1 and df2 from the
-    Welch-Satterthwaite equation.
-
-    References
-    ----------
-    Welch, B. L. (1951). On the comparison of several mean values: an
-    alternative approach. *Biometrika*, 38(3/4), 330-336.
+        Welch F statistic, p-value, numerator df, fractional denominator df,
+        and ``eta_squared=NaN`` because a pooled eta-squared is not defined for
+        the heteroskedastic Welch model.
     """
     if len(groups) < 2:
         raise ValueError("f_welch requires at least 2 groups")
 
     resolved = _resolve_backend(backend, *groups)
     xp = _get_xp(resolved)
-    float_dtype = dtype if dtype is not None else xp.float64
+    float_dtype = xp.float64 if dtype is None else dtype
+    ref = next(
+        (
+            group
+            for group in groups
+            if type(group).__module__.startswith(("torch", "cupy"))
+        ),
+        None,
+    )
 
-    # Convert groups to flat numpy arrays for statistics
-    flat_groups = []
-    for g in groups:
-        arr = np.asarray(_to_numpy(g), dtype=np.float64).ravel()
-        if arr.size < 2:
-            raise ValueError("Welch ANOVA requires at least 2 observations per group")
-        if not np.all(np.isfinite(arr)):
-            raise ValueError("Welch ANOVA groups must contain only finite values")
-        flat_groups.append(arr)
+    arrays = []
+    sizes = []
+    for index, group in enumerate(groups):
+        arr = xp_asarray(group, dtype=float_dtype, xp=xp, ref_arr=ref).ravel()
+        size = _array_size(arr, xp)
+        if size < 2:
+            raise ValueError(
+                f"Group {index} must contain at least 2 observations for Welch ANOVA"
+            )
+        if not bool(_to_float_scalar(xp.all(xp.isfinite(arr)))):
+            raise ValueError(f"Group {index} contains NaN or infinite values")
+        arrays.append(arr)
+        sizes.append(size)
 
-    k = len(flat_groups)
+    k = len(arrays)
+    ref_arr = arrays[0]
+    n_k = xp_asarray(sizes, dtype=float_dtype, xp=xp, ref_arr=ref_arr)
+    means = xp.stack([xp.mean(group) for group in arrays])
+    variances = xp.stack(
+        [
+            xp.sum((group - mean) ** 2) / float(size - 1)
+            for group, mean, size in zip(arrays, means, sizes)
+        ]
+    )
 
-    # Group statistics
-    n_k = np.array([g.size for g in flat_groups], dtype=np.float64)
-    xbar_k = np.array([g.mean() for g in flat_groups], dtype=np.float64)
-    s2_k = np.array([g.var(ddof=1) for g in flat_groups], dtype=np.float64)
-
-    # Guard against zero variance groups
-    if np.any(s2_k == 0):
-        # If all groups have zero variance and same mean, F=NaN
-        # If means differ, F=inf (perfect separation)
-        if np.all(s2_k == 0):
-            if np.allclose(xbar_k, xbar_k[0]):
-                return AnovaResult(float("nan"), float("nan"), k - 1, int(sum(n_k)) - k, float("nan"))
-            else:
-                return AnovaResult(float("inf"), 0.0, k - 1, int(sum(n_k)) - k, float("nan"))
-        # Dropping only the zero-variance groups changes the null hypothesis.
-        # Require the caller to handle this degenerate mixed case explicitly.
+    zero_variance = variances == 0
+    n_zero = int(round(_to_float_scalar(xp.sum(zero_variance))))
+    if n_zero:
+        if n_zero == k:
+            spread = _to_float_scalar(xp.max(xp.abs(means - means[0])))
+            mean_scale = max(1.0, abs(_to_float_scalar(means[0])))
+            df_within = int(sum(sizes) - k)
+            if spread <= 1e-12 * mean_scale:
+                return AnovaResult(
+                    float("nan"),
+                    float("nan"),
+                    k - 1,
+                    df_within,
+                    float("nan"),
+                )
+            return AnovaResult(
+                float("inf"), 0.0, k - 1, df_within, float("nan")
+            )
         raise ValueError(
             "Welch ANOVA is undefined when only some groups have zero variance"
         )
 
-    # Weights (inverse variance)
-    w_k = n_k / s2_k
-    W = w_k.sum()
+    weights = n_k / variances
+    weight_sum = xp.sum(weights)
+    weighted_mean = xp.sum(weights * means) / weight_sum
+    numerator = xp.sum(weights * (means - weighted_mean) ** 2) / float(k - 1)
 
-    # Weighted grand mean
-    xbar_w = np.dot(w_k, xbar_k) / W
+    adjustment_terms = (1.0 - weights / weight_sum) ** 2 / (n_k - 1.0)
+    adjustment_sum = xp.sum(adjustment_terms)
+    denominator = 1.0 + (2.0 * (k - 2) / float(k**2 - 1)) * adjustment_sum
+    statistic_backend = numerator / denominator
 
-    # Numerator
-    numer = np.dot(w_k, (xbar_k - xbar_w) ** 2) / (k - 1)
-
-    # Denominator (Welch-Satterthwaite adjustment)
-    lam_k = (1 - w_k / W) ** 2 / (n_k - 1)
-    denom = 1 + 2 * (k - 2) / (k ** 2 - 1) * lam_k.sum()
-
-    f_stat = numer / denom
-
-    # Welch-Satterthwaite degrees of freedom
     df1 = k - 1
-    df2_num = (k ** 2 - 1) / 3.0
-    df2_den = lam_k.sum()
-    df2 = df2_num / df2_den if df2_den > 0 else float("inf")
+    adjustment_scalar = _to_float_scalar(adjustment_sum)
+    df2 = (
+        float("inf")
+        if adjustment_scalar <= 0.0
+        else ((k**2 - 1) / 3.0) / adjustment_scalar
+    )
+    statistic = _to_float_scalar(statistic_backend)
 
-    # P-value from F distribution
     from statgpu.inference._distributions_backend import get_distribution
 
-    f_dist = get_distribution("f", backend=resolved)
-    pvalue = _to_float_scalar(f_dist.sf(f_stat, df1, df2))
+    device = str(ref_arr.device) if resolved == "torch" else None
+    f_dist = get_distribution("f", backend=resolved, device=device)
+    pvalue = _to_float_scalar(f_dist.sf(statistic, df1, df2))
 
-    # Welch's ANOVA does not assume equal variances, so a pooled
-    # eta-squared is not well-defined.  Return NaN.
     return AnovaResult(
-        statistic=float(f_stat),
+        statistic=float(statistic),
         pvalue=float(pvalue),
         df_between=int(df1),
         df_within=float(df2),

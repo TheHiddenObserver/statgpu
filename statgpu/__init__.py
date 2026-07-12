@@ -61,10 +61,13 @@ from .metrics import evaluate_binary_classification
 from .feature_selection import (
     FixedXKnockoffSelector,
     KnockoffSelector,
+    StepwiseSelector,
     fixed_x_knockoff_filter,
     knockoff_filter,
     model_x_knockoff_filter,
+    stepwise_selection,
 )
+from .diagnostics import RegressionDiagnostics, diagnose_model
 from .inference import adjust_pvalues, combine_pvalues, multipletests
 from .inference import bootstrap_statistic, permutation_test
 from .anova import (
@@ -189,6 +192,11 @@ __all__ = [
     "fixed_x_knockoff_filter",
     "knockoff_filter",
     "model_x_knockoff_filter",
+    "StepwiseSelector",
+    "stepwise_selection",
+    # Diagnostics
+    "RegressionDiagnostics",
+    "diagnose_model",
     # Inference
     "adjust_pvalues",
     "combine_pvalues",

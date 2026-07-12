@@ -9,6 +9,20 @@
 
 ## 2026-07
 
+### 修复与加固（2026-07-12）— PR #79 第二轮全仓库审查
+
+- **正确性**：修复 Stepwise 后向/双向选择、特征顺序、null model 与重复拟合；
+  排除未完成全部 fold 的 CV 候选；修复 Welch 自由度、Gaussian summary 边界、
+  外部 studentized residual 与 Cox score test。
+- **三后端**：移除 Welch 完整数组 CPU 路径，修复 Torch RBF kernel，保留大矩阵
+  float64，并区分函数式 Torch-CPU 后端与 estimator 显式 GPU 请求的严格语义。
+- **求解器/性能**：将二次损失 SCAD/MCP 恢复到带权 FISTA-LLA，使用带权中心化，
+  并消除 Cox 重复 gradient/Hessian 计算。
+- **API/可维护性**：加固 clone、knockoff selector/draw、重采样、组合惩罚、效应量、
+  KDE 零密度与顶层特征选择/诊断导出。
+- **验证/文档**：新增 `dev/tests/test_second_full_review.py`，同步方法清单、usage、
+  特征选择和回归诊断页面；真实 CUDA 验证仍待完成。
+
 ### 改进（2026-07-12）— PR #79 原生三后端执行
 
 - 移除 Graphical Lasso/CV、MinCovDet、SplineTransformer 与 Fama–MacBeth

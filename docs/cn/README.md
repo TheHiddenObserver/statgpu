@@ -64,6 +64,8 @@
 - [Covariance](models/covariance.md) — 经验/收缩、稳健 MCD 与稀疏精度矩阵
 - [多重检验](models/multiple-testing.md) — P 值校正（BH、Holm、Bonferroni）和合并（Fisher、Cauchy、Stouffer）
 - [Knockoff](models/knockoff.md) — knockoff 特征选择
+- [特征选择](models/feature-selection.md) — stepwise 与 knockoff 总览
+- [回归诊断](guides/regression-diagnostics.md) — 残差、杠杆值、Cook 距离与 VIF
 
 ## 参考
 

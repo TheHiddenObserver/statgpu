@@ -4,6 +4,16 @@ All notable changes to statgpu are documented here, organized by date and PR.
 
 ## 2026-07-12
 
+### PR #79 — Second full-repository review and auto-fix
+
+- Fixed Stepwise backward selection/order/state contracts, backend-native Welch ANOVA,
+  incomplete-fold CV selection, regression diagnostics, summary-statistic edge cases,
+  Torch RBF kernels, weighted quadratic SCAD/MCP routing, resampling validation, and
+  Cox score-test duplication.
+- Hardened estimator cloning, knockoff selectors/draw validation, composite penalties,
+  effect sizes, backend factory semantics, KDE zero-density handling, and dtype/device
+  preservation; added 40+ focused regression tests and synchronized public docs.
+
 ### PR #79 — Native three-backend execution follow-up
 
 - Removed complete numeric-array NumPy fallbacks from `GraphicalLasso`,
