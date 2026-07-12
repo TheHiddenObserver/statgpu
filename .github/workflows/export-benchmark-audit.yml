@@ -16,7 +16,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: frontend-dashboard-data-pipeline
-      - name: Build benchmark artifact inventory
+      - name: Build benchmark target paths
         run: |
           python - <<'PY'
           import json
@@ -32,21 +32,6 @@ jobs:
               'linear_recent': ('penalized_glm', 'glm_solver', 'squared_error'),
           }
 
-          def compact(value, depth=0):
-              if depth >= 4:
-                  return type(value).__name__
-              if isinstance(value, dict):
-                  return {k: compact(v, depth + 1) for k, v in list(value.items())[:40]}
-              if isinstance(value, list):
-                  return {
-                      'type': 'list',
-                      'length': len(value),
-                      'sample': [compact(v, depth + 1) for v in value[:2]],
-                  }
-              if isinstance(value, str):
-                  return value[:160]
-              return value
-
           result = {key: [] for key in TARGETS}
           for root in (Path('results'), Path('dev/results')):
               if not root.exists():
@@ -54,28 +39,26 @@ jobs:
               for path in sorted(root.rglob('*.json')):
                   try:
                       raw = path.read_text(encoding='utf-8')
-                      data = json.loads(raw)
+                      json.loads(raw)
                   except Exception:
                       continue
                   haystack = (path.as_posix() + '\n' + raw[:200000]).lower()
                   for target, tokens in TARGETS.items():
                       if any(token in haystack for token in tokens):
-                          record = {
+                          result[target].append({
                               'path': path.as_posix(),
                               'size_bytes': path.stat().st_size,
-                              'summary': compact(data),
-                          }
-                          result[target].append(record)
+                          })
 
-          out = Path('dev/benchmarks/benchmark_target_audit.json')
-          out.write_text(json.dumps(result, indent=2, ensure_ascii=False), encoding='utf-8')
+          out = Path('dev/benchmarks/benchmark_target_paths.json')
+          out.write_text(json.dumps(result, indent=2), encoding='utf-8')
           print({key: len(value) for key, value in result.items()})
           PY
       - name: Commit inventory
         run: |
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add dev/benchmarks/benchmark_target_audit.json
+          git add dev/benchmarks/benchmark_target_paths.json
           git diff --cached --quiet && exit 0
-          git commit -m 'chore(audit): summarize missing benchmark domains'
+          git commit -m 'chore(audit): list benchmark target paths'
           git push origin HEAD:frontend-dashboard-data-pipeline
