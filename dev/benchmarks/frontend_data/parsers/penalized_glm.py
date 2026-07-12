@@ -65,6 +65,8 @@ def parse_penalized_glm_bench_perf(filepath: Path, env_id: str) -> tuple[list[di
             category_ids = ["penalized_glm"]
             if penalty == "none":
                 category_ids.append("glm")
+            if family == "squared_error":
+                category_ids.append("linear_models")
 
             for bk_canon, bk_data in backend_entries:
                 source_hash = _short_hash(f"{filepath.name}:{scale_name}:{model_key}:{bk_canon}")
@@ -124,14 +126,20 @@ def parse_penalized_glm_bench_perf(filepath: Path, env_id: str) -> tuple[list[di
                 }
                 runs.append(run)
 
-    model_entries = [
-        {
-            "model_id": m,
-            "primary_category_id": "penalized_glm",
-            "category_ids": ["penalized_glm", "glm"] if m in FAMILY_MODEL_MAP.values() else ["penalized_glm"],
-            "supports_penalty": True,
-            "supports_inference": True,
-        }
-        for m in sorted(models)
-    ]
+    model_entries = []
+    for model_id in sorted(models):
+        categories = ["penalized_glm"]
+        if model_id in FAMILY_MODEL_MAP.values():
+            categories.append("glm")
+        if model_id == "PenalizedLinearRegression":
+            categories.append("linear_models")
+        model_entries.append(
+            {
+                "model_id": model_id,
+                "primary_category_id": "penalized_glm",
+                "category_ids": categories,
+                "supports_penalty": True,
+                "supports_inference": True,
+            }
+        )
     return runs, model_entries, warnings
