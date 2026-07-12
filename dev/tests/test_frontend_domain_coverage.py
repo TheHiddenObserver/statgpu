@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+from datetime import date
 from pathlib import Path
 
 import pytest
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
+MINIMUM_SOURCE_DATE = date(2026, 6, 1)
 TARGET_CATEGORIES = {
     "robust_quantile",
     "unsupervised",
@@ -39,6 +41,27 @@ def test_published_categories_have_runs(canonical_output):
         for category in TARGET_CATEGORIES
     }
     assert all(count > 0 for count in counts.values()), counts
+
+
+def test_dashboard_uses_only_june_2026_or_later_sources(canonical_output):
+    output, _, _, manifest = canonical_output
+    assert manifest["minimum_source_date"] == "2026-06-01"
+    assert len(manifest["sources"]) == 8
+
+    manifest_dates = {
+        source["source_id"]: date.fromisoformat(source["source_date"])
+        for source in manifest["sources"]
+    }
+    assert all(source_date >= MINIMUM_SOURCE_DATE for source_date in manifest_dates.values())
+
+    registered_ids = set(manifest_dates)
+    generated_ids = {run["source"]["source_id"] for run in output["runs"]}
+    assert generated_ids <= registered_ids
+    assert all("202604" not in source_id for source_id in generated_ids)
+    assert all(
+        not run["source"].get("date", "").startswith("2026-04")
+        for run in output["runs"]
+    )
 
 
 def test_recent_linear_results_are_visible(canonical_output):
@@ -82,10 +105,11 @@ def test_missing_domain_sources_are_manifest_registered(canonical_output):
     } <= parsers
 
 
-def test_new_external_frameworks_are_reachable(canonical_output):
+def test_current_external_frameworks_are_reachable(canonical_output):
     output, _, _, _ = canonical_output
     frameworks = {run["framework"] for run in output["runs"]}
     assert {"linearmodels", "pygam", "sklearn"} <= frameworks
+    assert frameworks.isdisjoint({"glmnet", "lifelines", "scikit_survival", "knockpy"})
 
 
 def test_domain_models_are_present(canonical_output):
