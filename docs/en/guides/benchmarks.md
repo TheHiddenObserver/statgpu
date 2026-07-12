@@ -10,16 +10,18 @@
 - **Interactive dashboard**: [Open Dashboard](../../assets/benchmarks/index.html)
 - **Dashboard guide**: [Filters, charts, metrics, and reproduction](statgpu_benchmark_dashboard.md)
 
-The dashboard presents the canonical bundle produced by `dev/benchmarks/generate_benchmark_data.py`. As of PR #78, it contains **14 registered sources, 1,623 normalized runs, and 36 models**.
+The canonical dashboard is restricted to benchmark sources dated **2026-06-01 or later**. As of PR #78, it contains **8 registered sources, 1,577 normalized runs, and 31 models**.
 
-The current expansion connects robust/quantile, unsupervised, ordered, nonparametric, panel, and covariance benchmarks. The linear-model category also includes the June 2026 squared-error rows from `penalized_glm_perf_20260622.json` and `glm_solver_20260623.json`, rather than relying only on the older ElasticNet and LassoCV sources.
+The current bundle connects robust/quantile, unsupervised, ordered, nonparametric, panel, covariance, survival, GLM, and recent linear-model benchmarks. The linear-model category uses the June 2026 squared-error rows from `penalized_glm_perf_20260622.json` and `glm_solver_20260623.json`.
+
+April 2026 ElasticNet, LassoCV, comprehensive-validation, Cox package-comparison, and knockoff results are intentionally not connected. The feature-selection category remains in Schema v1.1 but is empty until a June 2026-or-later benchmark is available.
 
 Current capabilities:
 
 - Environment and multi-category navigation.
 - Progressive model, variant, penalty, solver, and scale filters.
 - NumPy, CuPy, and Torch backend selection.
-- Context-aware external comparisons with scikit-learn, glmnet, statsmodels, lifelines, scikit-survival, knockpy, linearmodels, and pyGAM.
+- Context-aware external comparisons with scikit-learn, statsmodels, linearmodels, and pyGAM.
 - Timing and speedup charts with distinct computed and runner-reported semantics.
 - Sortable run-level table.
 - Validation, accuracy, inference, prediction, convergence, and selection panels.
