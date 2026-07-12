@@ -34,6 +34,23 @@ def test_schema_rejects_unsupported_version() -> None:
     assert any("schema_version" in error and "1.1.0" in error for error in errors)
 
 
+def test_manifest_declares_every_generated_framework() -> None:
+    from dev.benchmarks.frontend_data.registry import load_manifest
+    from dev.benchmarks.generate_benchmark_data import generate
+
+    manifest = load_manifest(REPO_ROOT)
+    assert manifest is not None
+
+    output, _, _ = generate(
+        REPO_ROOT / "results",
+        deterministic=True,
+        manifest=manifest,
+    )
+    generated_frameworks = {run["framework"] for run in output["runs"]}
+
+    assert generated_frameworks <= set(manifest["frameworks"])
+
+
 def test_transitional_inventory_catalog_total_matches_results_tree() -> None:
     from dev.benchmarks.generate_benchmark_data import generate
 
