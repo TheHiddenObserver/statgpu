@@ -1,0 +1,57 @@
+name: Apply ANOVA Kernel Review
+
+on:
+  pull_request:
+    branches: [master]
+
+permissions:
+  contents: write
+
+jobs:
+  apply-review-patch:
+    if: github.head_ref == 'agent/code-review-fixes'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/code-review-fixes
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Apply focused patch
+        run: python dev/manual/apply_anova_kernel_review.py
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[validation,formula]"
+          python -m pip install ruff
+      - name: Compile and statically check modified modules
+        run: |
+          python -m compileall -q \
+            statgpu/anova \
+            statgpu/nonparametric/kernel_methods \
+            dev/tests/test_module_review_anova_kernel.py
+          ruff check \
+            statgpu/anova \
+            statgpu/nonparametric/kernel_methods \
+            dev/tests/test_module_review_anova_kernel.py \
+            --select F821,E9,F63,F7,F82,B023
+      - name: Run focused and existing regression tests
+        run: |
+          python -m pytest \
+            dev/tests/test_module_review_anova_kernel.py \
+            dev/tests/test_anova_p2.py \
+            dev/tests/test_kernel_methods_p2.py \
+            -q --tb=short
+      - name: Commit reviewed source changes
+        run: |
+          rm -f dev/manual/apply_anova_kernel_review.py
+          rm -f .github/workflows/apply-module-review.yml
+          rm -f .github/workflows/repository-audit.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add statgpu dev/tests dev/manual .github/workflows
+          git commit -m 'fix: harden ANOVA and kernel method contracts'
+          git push origin HEAD:agent/code-review-fixes
