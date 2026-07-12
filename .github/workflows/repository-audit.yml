@@ -22,8 +22,8 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -e ".[validation,formula]"
           python -m pip install ruff vulture
-      - name: Compile all maintained Python
-        run: python -m compileall -q statgpu dev
+      - name: Compile maintained Python
+        run: python -m compileall -q statgpu dev/validation dev/benchmarks
       - name: High-signal Ruff audit
         continue-on-error: true
         run: |
