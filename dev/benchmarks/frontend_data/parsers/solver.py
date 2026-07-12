@@ -80,6 +80,8 @@ def parse_glm_solver_benchmark(filepath: Path, env_id: str) -> tuple[list[dict],
                 category_ids = ["penalized_glm"]
                 if penalty == "none":
                     category_ids.append("glm")
+                if family == "squared_error":
+                    category_ids.append("linear_models")
 
                 source = {
                     "file": filepath.name,
@@ -99,6 +101,7 @@ def parse_glm_solver_benchmark(filepath: Path, env_id: str) -> tuple[list[dict],
                     "solver": "auto",
                     "solver_display": "Auto (best)",
                     "solver_kind": "dispatch",
+                    "implementation": best_solver,
                     "framework": "statgpu",
                     "backend": bk_canon,
                     "scale": scale,
@@ -165,14 +168,18 @@ def parse_glm_solver_benchmark(filepath: Path, env_id: str) -> tuple[list[dict],
                     }
                     runs.append(solver_run)
 
-    model_entries = [
-        {
-            "model_id": m,
-            "primary_category_id": "penalized_glm",
-            "category_ids": ["penalized_glm", "glm"],
-            "supports_penalty": True,
-            "supports_inference": False,
-        }
-        for m in sorted(models)
-    ]
+    model_entries = []
+    for model_id in sorted(models):
+        categories = ["penalized_glm", "glm"]
+        if model_id == "PenalizedLinearRegression":
+            categories.append("linear_models")
+        model_entries.append(
+            {
+                "model_id": model_id,
+                "primary_category_id": "penalized_glm",
+                "category_ids": categories,
+                "supports_penalty": True,
+                "supports_inference": False,
+            }
+        )
     return runs, model_entries, warnings
