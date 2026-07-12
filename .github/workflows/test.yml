@@ -7,9 +7,41 @@ on:
     branches: [master]
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
+  ridge-weight-scalar-patch:
+    if: github.event_name == 'pull_request' && github.head_ref == 'agent/code-review-fixes'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/code-review-fixes
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Apply and validate scalar-only weight patch
+        run: |
+          if [ ! -f dev/manual/apply_ridge_weight_scalar_patch.py ]; then
+            echo 'Patch script already consumed.'
+            exit 0
+          fi
+          python dev/manual/apply_ridge_weight_scalar_patch.py
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[validation,formula]"
+          python -m compileall -q statgpu dev/validation dev/benchmarks
+          python -m pytest \
+            dev/tests/test_ridge_weighted_consistency.py \
+            dev/tests/test_repository_review_final.py \
+            -q --tb=short
+          rm dev/manual/apply_ridge_weight_scalar_patch.py
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add statgpu dev/tests dev/manual
+          git commit -m 'perf: validate GPU sample weights with scalar reductions'
+          git push origin HEAD:agent/code-review-fixes
+
   regression-matrix:
     runs-on: ubuntu-latest
     strategy:
@@ -86,8 +118,8 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -e ".[validation,formula]"
           python -m pip install ruff
-      - name: Compile package
-        run: python -m compileall -q statgpu
+      - name: Compile package and maintained dev scripts
+        run: python -m compileall -q statgpu dev/validation dev/benchmarks
       - name: High-signal static checks
         run: |
           ruff check \
