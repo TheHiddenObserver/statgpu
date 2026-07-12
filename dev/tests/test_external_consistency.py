@@ -57,11 +57,8 @@ class TestStatsmodelsConsistency:
         X_sm = sm.add_constant(X)
         sm_res = sm.OLS(y, X_sm).fit()
 
-        # Estimation
         assert np.allclose(sg.intercept_, sm_res.params[0], rtol=1e-6, atol=1e-6)
         assert np.allclose(sg.coef_, sm_res.params[1:], rtol=1e-6, atol=1e-6)
-
-        # Inference
         assert np.allclose(sg._bse, sm_res.bse, rtol=1e-4, atol=1e-6)
         assert np.allclose(sg._pvalues, sm_res.pvalues, rtol=1e-3, atol=1e-6)
         assert np.allclose(sg.aic, sm_res.aic, rtol=1e-6, atol=1e-6)
@@ -80,14 +77,8 @@ class TestStatsmodelsConsistency:
             ("hc3", "HC3", 12000, 24, 85),
         ],
         ids=[
-            "hc0-small",
-            "hc1-small",
-            "hc2-small",
-            "hc3-small",
-            "hc0-medium",
-            "hc1-medium",
-            "hc2-medium",
-            "hc3-medium",
+            "hc0-small", "hc1-small", "hc2-small", "hc3-small",
+            "hc0-medium", "hc1-medium", "hc2-medium", "hc3-medium",
         ],
     )
     def test_linear_robust_covariance_matches_statsmodels(
@@ -98,8 +89,6 @@ class TestStatsmodelsConsistency:
         rng = np.random.default_rng(seed)
         X = rng.normal(size=(n_samples, n_features))
         beta = rng.normal(size=n_features)
-
-        # Heteroskedastic noise to make robust covariance meaningful.
         noise_scale = 0.2 + 0.8 * np.abs(X[:, 0])
         y = X @ beta + 2.0 + rng.normal(scale=noise_scale, size=n_samples)
 
@@ -109,11 +98,8 @@ class TestStatsmodelsConsistency:
         X_sm = sm.add_constant(X)
         sm_res = sm.OLS(y, X_sm).fit(cov_type=sm_cov_type)
 
-        # Estimation should still match.
         assert np.allclose(sg.intercept_, sm_res.params[0], rtol=1e-6, atol=1e-6)
         assert np.allclose(sg.coef_, sm_res.params[1:], rtol=1e-6, atol=1e-6)
-
-        # Robust inference: statsmodels robust path typically uses z-based p-values.
         assert np.allclose(sg._bse, sm_res.bse, rtol=2e-3, atol=1e-6)
         assert np.allclose(sg._pvalues, sm_res.pvalues, rtol=5e-2, atol=1e-5)
         assert np.allclose(sg._conf_int, sm_res.conf_int(), rtol=2e-2, atol=1e-4)
@@ -126,8 +112,6 @@ class TestStatsmodelsConsistency:
         n_samples, n_features = 5000, 12
         X = rng.normal(size=(n_samples, n_features))
         beta = rng.normal(size=n_features)
-
-        # AR(1)-like serial dependence for HAC relevance.
         eps = rng.normal(scale=0.5, size=n_samples)
         for t in range(1, n_samples):
             eps[t] += 0.55 * eps[t - 1]
@@ -145,18 +129,10 @@ class TestStatsmodelsConsistency:
         assert np.allclose(sg._pvalues, sm_res.pvalues, rtol=8e-2, atol=5e-4)
         assert np.allclose(sg._conf_int, sm_res.conf_int(), rtol=5e-2, atol=5e-4)
 
-    @pytest.mark.skipif(
-        (not HAS_CUPY) or (not cuda_available()),
-        reason="CuPy/CUDA not available",
-    )
+    @pytest.mark.skipif((not HAS_CUPY) or (not cuda_available()), reason="CuPy/CUDA not available")
     @pytest.mark.parametrize(
         "cov_type,sm_cov_type,seed",
-        [
-            ("hc0", "HC0", 172),
-            ("hc1", "HC1", 173),
-            ("hc2", "HC2", 174),
-            ("hc3", "HC3", 175),
-        ],
+        [("hc0", "HC0", 172), ("hc1", "HC1", 173), ("hc2", "HC2", 174), ("hc3", "HC3", 175)],
         ids=["gpu-hc0", "gpu-hc1", "gpu-hc2", "gpu-hc3"],
     )
     def test_linear_robust_covariance_gpu_matches_statsmodels(self, cov_type, sm_cov_type, seed):
@@ -183,11 +159,7 @@ class TestStatsmodelsConsistency:
 
     @pytest.mark.parametrize(
         "n_samples,n_features,seed",
-        [
-            (3000, 8, 7),
-            (8000, 16, 17),
-            (15000, 24, 27),
-        ],
+        [(3000, 8, 7), (8000, 16, 17), (15000, 24, 27)],
         ids=["small", "medium", "large"],
     )
     def test_logistic_estimation_and_inference_match_statsmodels(self, n_samples, n_features, seed):
@@ -200,7 +172,6 @@ class TestStatsmodelsConsistency:
         p = 1.0 / (1.0 + np.exp(-logits))
         y = (rng.random(n_samples) < p).astype(int)
 
-        # Use very weak regularization to approximate unpenalized MLE.
         sg = LogisticRegression(device="cpu", C=1e10, max_iter=200)
         sg.fit(X, y)
 
@@ -209,19 +180,12 @@ class TestStatsmodelsConsistency:
 
         sg_params = np.concatenate(([sg.intercept_], sg.coef_))
         assert np.allclose(sg_params, sm_res.params, rtol=5e-2, atol=5e-2)
-
-        # Inference (SE / p-values) should be close for the same likelihood model.
         assert np.allclose(sg._bse, sm_res.bse, rtol=1e-1, atol=1e-2)
         assert np.allclose(sg._pvalues, sm_res.pvalues, rtol=2e-1, atol=1e-2)
 
     @pytest.mark.parametrize(
         "cov_type,sm_cov_type,n_samples,n_features,seed",
-        [
-            ("hc0", "HC0", 5000, 10, 107),
-            ("hc1", "HC1", 5000, 10, 108),
-            ("hc2", "HC2", 5000, 10, 109),
-            ("hc3", "HC3", 5000, 10, 110),
-        ],
+        [("hc0", "HC0", 5000, 10, 107), ("hc1", "HC1", 5000, 10, 108), ("hc2", "HC2", 5000, 10, 109), ("hc3", "HC3", 5000, 10, 110)],
         ids=["logit-hc0-cpu", "logit-hc1-cpu", "logit-hc2-cpu", "logit-hc3-cpu"],
     )
     def test_logistic_robust_covariance_matches_statsmodels(
@@ -247,18 +211,10 @@ class TestStatsmodelsConsistency:
         assert np.allclose(sg._bse, sm_res.bse, rtol=2e-1, atol=2e-2)
         assert np.allclose(sg._pvalues, sm_res.pvalues, rtol=3e-1, atol=2e-2)
 
-    @pytest.mark.skipif(
-        (not HAS_CUPY) or (not cuda_available()),
-        reason="CuPy/CUDA not available",
-    )
+    @pytest.mark.skipif((not HAS_CUPY) or (not cuda_available()), reason="CuPy/CUDA not available")
     @pytest.mark.parametrize(
         "cov_type,sm_cov_type,seed",
-        [
-            ("hc0", "HC0", 207),
-            ("hc1", "HC1", 208),
-            ("hc2", "HC2", 209),
-            ("hc3", "HC3", 210),
-        ],
+        [("hc0", "HC0", 207), ("hc1", "HC1", 208), ("hc2", "HC2", 209), ("hc3", "HC3", 210)],
         ids=["logit-hc0-gpu", "logit-hc1-gpu", "logit-hc2-gpu", "logit-hc3-gpu"],
     )
     def test_logistic_robust_covariance_gpu_matches_statsmodels(self, cov_type, sm_cov_type, seed):
@@ -285,10 +241,7 @@ class TestStatsmodelsConsistency:
 
     @pytest.mark.parametrize(
         "ties,n_samples,n_features,seed",
-        [
-            ("breslow", 1200, 10, 310),
-            ("efron", 1200, 10, 311),
-        ],
+        [("breslow", 1200, 10, 310), ("efron", 1200, 10, 311)],
         ids=["cox-breslow", "cox-efron"],
     )
     def test_cox_estimation_matches_statsmodels(self, ties, n_samples, n_features, seed):
@@ -346,19 +299,15 @@ class TestStatsmodelsConsistency:
 
 @pytest.mark.skipif(not HAS_SKLEARN, reason="sklearn not available")
 class TestSklearnPenaltyConsistency:
-    """Compare ridge/lasso estimators with sklearn."""
+    """Compare ridge/lasso estimators with sklearn under explicit objective mappings."""
 
     @pytest.mark.parametrize(
         "n_samples,n_features,seed",
-        [
-            (5000, 24, 123),
-            (15000, 48, 133),
-            (30000, 80, 143),
-        ],
+        [(5000, 24, 123), (15000, 48, 133), (30000, 80, 143)],
         ids=["small", "medium", "large"],
     )
     def test_ridge_estimator_matches_sklearn(self, n_samples, n_features, seed):
-        """Ridge coefficients/intercept should align with sklearn."""
+        """Ridge should align with sklearn after mapping average-loss alpha."""
         set_device("cpu")
         rng = np.random.default_rng(seed)
         X = rng.normal(size=(n_samples, n_features))
@@ -369,7 +318,9 @@ class TestSklearnPenaltyConsistency:
         sg = Ridge(alpha=alpha, fit_intercept=True, device="cpu")
         sg.fit(X, y)
 
-        sk = SklearnRidge(alpha=alpha, fit_intercept=True)
+        # statgpu minimizes mean squared loss / 2 + alpha*||b||^2 / 2,
+        # whereas sklearn Ridge uses an unnormalized residual sum of squares.
+        sk = SklearnRidge(alpha=n_samples * alpha, fit_intercept=True)
         sk.fit(X, y)
 
         assert np.allclose(sg.intercept_, sk.intercept_, rtol=1e-6, atol=1e-6)
@@ -377,11 +328,7 @@ class TestSklearnPenaltyConsistency:
 
     @pytest.mark.parametrize(
         "n_samples,n_features,seed",
-        [
-            (3000, 24, 321),
-            (8000, 48, 331),
-            (15000, 72, 341),
-        ],
+        [(3000, 24, 321), (8000, 48, 331), (15000, 72, 341)],
         ids=["small", "medium", "large"],
     )
     def test_lasso_estimator_matches_sklearn(self, n_samples, n_features, seed):
@@ -395,24 +342,11 @@ class TestSklearnPenaltyConsistency:
         y = X @ beta + 0.7 + rng.normal(scale=0.3, size=n_samples)
 
         alpha = 0.05
-        sg = Lasso(
-            alpha=alpha,
-            fit_intercept=True,
-            max_iter=5000,
-            tol=1e-6,
-            device="cpu",
-        )
+        sg = Lasso(alpha=alpha, fit_intercept=True, max_iter=5000, tol=1e-6, device="cpu")
         sg.fit(X, y)
 
-        sk = SklearnLasso(
-            alpha=alpha,
-            fit_intercept=True,
-            max_iter=5000,
-            tol=1e-6,
-        )
+        sk = SklearnLasso(alpha=alpha, fit_intercept=True, max_iter=5000, tol=1e-6)
         sk.fit(X, y)
 
-        # Coordinate-descent implementations may differ slightly in path/stopping;
-        # require close but not identical coefficients.
         assert np.allclose(sg.intercept_, sk.intercept_, rtol=2e-2, atol=2e-2)
         assert np.allclose(sg.coef_, sk.coef_, rtol=5e-2, atol=1e-2)
