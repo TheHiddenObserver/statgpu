@@ -1,13 +1,105 @@
 # Changelog
 
-> Language: English  
-> Last updated: 2026-07-08
-> This page: Changelog  
-> Switch: [Chinese](../changelog.md)
-
-Language switch: [Chinese](../changelog.md)
+> Language: English
+>
+> Last updated: 2026-07-12
+>
+> This page: Changelog
+>
+> Switch: [Chinese](../cn/changelog.md)
 
 ## 2026-07
+
+### Added (2026-07-12)
+
+- **Survival phase-one completion**:
+  - `CoxPH` now supports Breslow, Efron, and Exact tied partial likelihood for
+    right-censored, delayed-entry, counting-process `(start, stop]`, and
+    stratified data.
+  - `subject_id` identifies repeated time-varying rows for concordance and
+    subject-preserving automatic CV folds; `cluster` remains the separate
+    grouping input for cluster-robust covariance.
+  - Model-based, HC0, HC1, and cluster covariance are available for Breslow and
+    Efron. Exact-tie inference is explicitly model-based only; robust Exact
+    requests raise `NotImplementedError`.
+  - NumPy, CuPy, and Torch use native backend implementations. Explicit GPU
+    devices do not silently fall back or route through another array backend.
+  - The formula interface accepts `Surv(time, event)` and
+    `Surv(start, stop, event)` responses.
+
+- **CoxPHCV completion**:
+  - L2 penalty-grid selection and final refit now propagate `start`, `strata`,
+    `subject_id`, and Breslow/Efron/Exact ties.
+  - Automatically generated folds keep every subject wholly in train or test.
+  - NumPy, CuPy, and Torch candidate fits use the requested backend. CV
+    bookkeeping remains host-side, while explicit CuPy/Torch held-out scoring
+    remains on the requested backend.
+
+- **Penalized Cox contract**:
+  - `PenalizedCoxPHModel` supports L1, L2, ElasticNet, SCAD, and MCP on NumPy,
+    CuPy, and Torch. SCAD/MCP use FISTA-LLA continuation.
+  - Cox partial likelihood has no identifiable intercept, so
+    `fit_intercept=True` is rejected.
+  - The estimator is estimation-only. `compute_inference=True` raises
+    `NotImplementedError` with guidance to use unpenalized `CoxPH`.
+
+```python
+from statgpu.survival import CoxPH, CoxPHCV
+
+model = CoxPH(ties="efron", device="cuda", cov_type="hc1")
+model.fit(X, stop, event, start=start, strata=strata, subject_id=subject_id)
+
+cv = CoxPHCV(ties="exact", penalties=[0.0, 0.01, 0.1], device="torch")
+cv.fit(X, stop, event, start=start, strata=strata, subject_id=subject_id)
+```
+
+### Fixed (2026-07-12)
+
+- **Unified survival risk-set and baseline semantics**:
+  - Entry/start-stop, strata, and Exact fits now share one counting-process
+    risk-set definition, including backend-consistent score and information
+    calculations.
+  - Baseline hazards use a unified Breslow estimator for coefficients fitted
+    with Breslow, Efron, or Exact ties, with independent baselines per stratum.
+  - `compute_inference=False` consistently skips inference and baseline state;
+    `predict_survival()` reports that a refit with inference is required.
+  - Centered risk-set moments and log-domain baseline products preserve results
+    under large constant covariate shifts; singular information now raises an
+    identifiability error rather than returning zero variance.
+  - Formula NA removal aligns all row-level grouping inputs, fractional
+    CuPy/Torch labels remain distinct, and robust covariance uses the shared
+    martingale-residual engine without an optional statsmodels dependency.
+  - `CoxPH`, `CoxPHCV`, and `PenalizedCoxPHModel` satisfy sklearn cloning;
+    CV/penalized failed refits clear old state, and penalized concordance handles
+    tied predictions and same-time censoring correctly.
+
+### Optimized (2026-07-12)
+
+- **Audited survival GPU performance**:
+  - On an NVIDIA RTX 5880 Ada Generation using float64, speedup is defined as
+    NumPy fit time divided by GPU fit time and includes optimization, inference,
+    and baseline estimation; transfers are measured separately.
+  - Quick delayed-entry (`n=700`, `p=8`) measured 0.647x CuPy and 0.959x
+    Torch; full delayed-entry (`n=2500`, `p=16`) measured 1.044x and 1.374x.
+  - Full stratified start-stop (`n=2400`, `p=16`) measured 0.241x CuPy and
+    0.411x Torch. Exact and standard heavy-tie target scenarios were also
+    slower than NumPy.
+  - No crossover size is claimed: Exact dynamic programming and small
+    risk-set kernels remain sensitive to launch/synchronization overhead and
+    workload shape.
+  - Artifacts: `results/survival_completion_2026-07-12.json` and
+    `results/survival_completion_full_2026-07-12.json`.
+
+### Validation (2026-07-12)
+
+- Quick/full matrices cover Breslow/Efron/Exact, delayed entry, stratified
+  start-stop data, inference, unified baselines, and predictions on all three
+  backends.
+- Breslow/Efron external comparisons use `statsmodels.duration.PHReg` with
+  aligned entry/strata/ties settings. Exact uses brute-force tied-risk-set
+  references.
+- The CoxPHCV matrix selected the same L2 penalty across NumPy, CuPy, and Torch;
+  final-refit coefficient and standard-error differences were below `1e-16`.
 
 ### Added (2026-07-07)
 
@@ -141,10 +233,11 @@ Language switch: [Chinese](../changelog.md)
 - **CoxPH Efron Optimization**:
   - Vectorized Efron: prefix-sum based gradient/Hessian computation (no Python loops)
   - Multi-block CUDA kernel: fused loglik+grad+hess for Efron on GPU
-  - DLPack bridge: torch-CUDA uses CuPy Efron kernel via DLPack
-  - Performance: 3-6x faster than statsmodels at n=5000; GPU 6x faster than CPU
+  - Current NumPy, CuPy, and Torch paths are backend-native; Torch does not
+    route Efron calculations through CuPy
   - Removed Numba dependency, pure numpy implementation
-  - Benchmark artifact: `results/coxph_efron_bench_2026-06-22.json` (precision vs statsmodels, GPU speedup 47-102x)
+  - Current performance and precision evidence is superseded by the audited
+    2026-07-12 survival artifacts above
 
 - **GLM Fused Value+Gradient**: Integrated `_fused.py` into `GLMLoss.fused_value_and_gradient()`
 - **FISTA GPU Sync Optimization**: Batch GPU syncs (convergence+divergence+lipschitz in one transfer)
@@ -246,7 +339,7 @@ Language switch: [Chinese](../changelog.md)
   - `CoxPartialLikelihoodLoss`: Cox PH negative log partial likelihood (matches R `survival::coxph()`)
     - Breslow and Efron tie handling
     - `has_hessian=True` for Newton solver
-    - CPU-only (numpy); for GPU use `statgpu.survival.CoxPH` directly
+    - Native NumPy, CuPy, and Torch loss evaluation
     - Fused `fused_value_and_gradient()` avoids redundant X @ beta computation
 
 - **Loss Registry** (`statgpu.losses._registry`):
@@ -706,7 +799,8 @@ Language switch: [Chinese](../changelog.md)
 ### Optimized (2026-06-01)
 
 - **Backend transfer helpers and benchmark parser**:
-  - CuPy <-> Torch CUDA conversions now prefer DLPack zero-copy sharing and fall back to the previous safe conversion path when unavailable.
+  - CuPy <-> Torch CUDA conversions use the shared backend conversion helper
+    with an explicit safe fallback when zero-copy sharing is unavailable.
   - NumPy -> Torch CUDA transfers try pinned host memory with `non_blocking=True`.
   - Added `dev/tests/_bench_report_parser.py` to summarize full-matrix benchmark text logs into JSON or Markdown.
   - Benchmark summaries include backend/family/penalty row counts and support `--fail-on-alerts` for scriptable benchmark gates.
@@ -890,10 +984,10 @@ Language switch: [Chinese](../changelog.md)
   - Consolidated duplicated backend utility functions
   - Cleaner backend abstraction layer
 
-- **CoxPHCV upgraded from skeleton to trainable implementation**:
+- **CoxPHCV became a trainable implementation**:
   - Implemented K-fold penalty search and final refit on full data
-  - Supports `ties='breslow'/'efron'` with existing `device` paths (executed via `CoxPH` backends)
-  - Current boundary: `entry` and `cluster` are not yet supported in `CoxPHCV.fit()` (explicit `NotImplementedError`)
+  - Current implementation supports Breslow/Efron/Exact, entry/start,
+    strata, subject-aware folds, and final refit across all three backends
   - Files:
     - `statgpu/survival/_cox_cv.py`
     - `dev/tests/test_coxph_cv.py`
@@ -947,21 +1041,18 @@ Language switch: [Chinese](../changelog.md)
 - **CoxPH Efron Implementation Fix and Performance Optimization**:
   - Fixed numerical overflow in Cython Efron gradient/Hessian computation with clipping protection (`MAX_LINPRED=700`, `MIN_LINPRED=-700`)
   - Identified correctness issues in compiled Cython version, temporarily using Python fallback (verified against numeric gradient)
-  - CoxPH comprehensive benchmark (vs statsmodels/lifelines/R survival):
-    - statgpu-Torch GPU achieves **15.44x** speedup on n=5000, p=20 (vs statsmodels)
-    - All statgpu backends match statsmodels coefficients (Max Diff < 4e-12)
-    - C-index calculation fixed: CPU/CuPy/Torch now use identical exact blockwise vectorized algorithm
+  - C-index calculation fixed: CPU/CuPy/Torch use the same exact blockwise
+    vectorized definition
+  - Current backend precision and timing evidence is recorded in the audited
+    2026-07-12 survival artifacts
   - Files modified:
     - `statgpu/survival/_cox_efron_cy.pyx` - Added exp() clipping protection
     - `statgpu/survival/_cox.py` - Use Python fallback for Efron gradient computation
-  - Benchmark results:
-    - n=1000, p=10: statgpu-Torch 2.05x, lifelines 3.33x, R survival 21.6x (vs statsmodels)
-    - n=5000, p=20: statgpu-Torch **15.44x**, lifelines 3.42x (vs statsmodels)
   - Test scripts:
     - `dev/scripts/test_coxph_fit.py` - CoxPH fit with lifelines comparison
     - `dev/scripts/final_verification.py` - Comprehensive verification script
-  - Report:
-    - `results/coxph_benchmark_report_2026-04-20.md` - Comprehensive benchmark report
+  - Historical report: `results/coxph_benchmark_report_2026-04-20.md`;
+    current claims use the 2026-07-12 JSON artifacts
 
 ### Added (2026-04-18)
 
@@ -1018,7 +1109,8 @@ Language switch: [Chinese](../changelog.md)
     - LogisticRegression Torch GPU: numerical accuracy ~1e-14
     - Lasso Torch GPU: numerical accuracy ~1e-5
     - Ridge Torch GPU: numerical accuracy ~1e-15
-    - CoxPH Torch GPU: numerical accuracy ~1e-15
+    - CoxPH Torch GPU: backend parity validated; current numerical evidence is
+      in the 2026-07-12 survival artifacts
 
 - **PyTorch Backend Complete** (Torch Backend Complete):
   - ✅ All core models support Torch backend (LinearRegression, Ridge, Lasso, LogisticRegression, CoxPH)
@@ -1071,18 +1163,18 @@ Language switch: [Chinese](../changelog.md)
     - `statgpu/linear_model/_linear.py` - Added `_fit_torch()` with HAC covariance
     - `statgpu/survival/_cox.py` - Added `_fit_torch()`, `_compute_log_likelihood_torch()`, `_compute_gradient_hessian_torch()`, `_compute_cindex_torch()`, `_compute_baseline_hazard_torch()`
   - Features:
-    - Full GPU acceleration for Ridge, LogisticRegression, Lasso, CoxPH
+    - Native GPU computation for Ridge, LogisticRegression, Lasso, and CoxPH
     - Lasso Debiased inference (Javanmard-Montanari / Zhang-Zhang methods)
     - Lasso Simultaneous inference (max-|Z| multiplier bootstrap)
     - Robust covariance support (HC1/HC2/HC3/HAC)
     - CoxPH Baseline Hazard estimation (Breslow method)
     - SciPy fallback for older PyTorch versions (< 2.0)
-    - Numerical accuracy: coefficients match NumPy within 1e-14
+    - Backend parity validation for coefficients; current Cox precision is
+      reported in the 2026-07-12 survival artifacts
   - **Large-Scale Performance** (Tesla P100, 50K×200):
     - Ridge HC3: Torch GPU 0.067s vs CuPy GPU 0.064s (4% gap)
     - Logistic HC1: Torch GPU 0.099s vs CuPy GPU 0.102s (Torch wins!)
     - Lasso: Torch GPU 0.081s vs CuPy GPU 0.076s (7% gap)
-    - CoxPH: Torch GPU 1.94s vs CuPy GPU 0.42s (CuPy faster for baseline hazard)
     - 60x GPU speedup for robust covariance vs CPU
   - Documentation:
     - `dev/docs/torch_backend_full_feature_report.md` - Complete benchmark report
@@ -1191,12 +1283,14 @@ Language switch: [Chinese](../changelog.md)
 - `LinearRegression` robust covariance: `nonrobust/hc0/hc1/hc2/hc3/hac` (CPU+GPU, with `hac_maxlags`)
 - `Ridge` robust covariance: `nonrobust/hc0/hc1/hc2/hc3/hac` (CPU+GPU, with `hac_maxlags`)
 - `LogisticRegression` robust covariance: `nonrobust/hc0/hc1/hc2/hc3/hac` (CPU+GPU, with `hac_maxlags`)
-- `CoxPH` covariance support: `nonrobust/hc0/hc1/cluster` (cluster is CPU path)
-- Exported CV estimator interface skeletons:
+- `CoxPH` covariance support: `nonrobust/hc0/hc1/cluster` across NumPy, CuPy,
+  and Torch (Exact ties are nonrobust-only)
+- Exported initial CV estimator interfaces:
   - `RidgeCV`
   - `LogisticRegressionCV`
   - `CoxPHCV`
-  - Current status: interface-only scaffolding; CV training logic is not implemented yet and currently raises `NotImplementedError`.
+  - These estimators are now trainable; current `CoxPHCV` capabilities are
+    documented in the 2026-07-12 entry above.
 - New benchmark: `dev/benchmarks/benchmark_all_methods_large_scale.py`
 - New external comparison benchmark: `dev/benchmarks/benchmark_external_frameworks.py`
 - Nonparametric exports and API coverage:

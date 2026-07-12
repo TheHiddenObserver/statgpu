@@ -1,6 +1,6 @@
 # Implemented Methods
 
-> Last updated: 2026-06-14
+> Last updated: 2026-07-12
 
 Complete list of all implemented models, functions, and classes in statgpu.
 
@@ -21,9 +21,11 @@ Complete list of all implemented models, functions, and classes in statgpu.
 | `OrderedLogitRegression` | Ordered logit model | logit | CPU, CuPy, Torch |
 | `OrderedProbitRegression` | Ordered probit model | probit | CPU, CuPy, Torch |
 
-## Penalized GLM
+## Penalized Models
 
-All 7 GLM families support penalties through `PenalizedGeneralizedLinearModel` or typed wrappers:
+All seven GLM families support penalties through
+`PenalizedGeneralizedLinearModel` or typed wrappers. Specialized `LossBase`
+wrappers add quantile, robust, and Cox objectives:
 
 | Class | Loss | Solvers | Penalties | Backends |
 |---|---|---|---|---|
@@ -33,7 +35,7 @@ All 7 GLM families support penalties through `PenalizedGeneralizedLinearModel` o
 | `PenalizedPoissonRegression` | poisson | irls, fista | l1, l2, elasticnet, scad, mcp, adaptive_l1 | CPU, CuPy, Torch |
 | `PenalizedQuantileRegression` | quantile | proximal_irls_cd, fista | scad, mcp, l2 | CPU, CuPy, Torch |
 | `PenalizedRobustRegression` | huber, bisquare | proximal_newton, irls | scad, mcp, l2 | CPU, CuPy, Torch |
-| `PenalizedCoxPHModel` | cox_ph | proximal_newton | scad, mcp, l2 | CPU, CuPy, Torch |
+| `PenalizedCoxPHModel` | cox_ph | fista/newton; FISTA-LLA for SCAD/MCP | l1, l2, elasticnet, scad, mcp | CPU, CuPy, Torch |
 
 For Gamma, InverseGaussian, NegativeBinomial, and Tweedie with penalties, use `PenalizedGeneralizedLinearModel(loss=..., penalty=...)`:
 
@@ -107,7 +109,7 @@ model.fit(X, y)
 | `ElasticNetCV` | l1_ratio + alpha grid | CPU, CuPy, Torch |
 | `LogisticRegressionCV` | GPU-accelerated logistic CV | CPU, CuPy, Torch |
 | `PenalizedGLM_CV` | Unified CV for all 7 losses × 10 penalties | CPU, CuPy, Torch |
-| `CoxPHCV` | CV penalty search + refit | CPU, CuPy |
+| `CoxPHCV` | L2 penalty-grid search + refit; start/strata/subject-aware folds; Breslow/Efron/Exact | CPU, CuPy, Torch |
 
 ## ANOVA
 
@@ -175,8 +177,25 @@ model.fit(X, y)
 
 | Class | Description | Backends |
 |---|---|---|
-| `CoxPH` | Cox proportional hazards (Efron/Breslow ties, vectorized grad/hess) | CPU, CuPy, Torch |
-| `PenalizedCoxPHModel` | CoxPH + SCAD/MCP penalties via proximal Newton | CPU |
+| `CoxPH` | Breslow/Efron/Exact Cox PH; delayed entry, start-stop, strata, subject-aware concordance; nonrobust/HC0/HC1/cluster covariance | CPU, CuPy, Torch |
+| `CoxPHCV` | L2 grid selection and final refit with start, strata, subject-preserving folds, and all three tie methods | CPU, CuPy, Torch |
+| `PenalizedCoxPHModel` | Estimation-only L1/L2/ElasticNet/SCAD/MCP Cox PH; no intercept; FISTA-LLA for SCAD/MCP | CPU, CuPy, Torch |
+
+Survival-specific boundaries:
+
+- Exact-tie inference is model-based (`cov_type="nonrobust"`) only.
+- Baseline hazards use a unified Breslow convention for coefficients fitted by
+  Breslow, Efron, or Exact partial likelihood.
+- `PenalizedCoxPHModel(compute_inference=True)` raises `NotImplementedError`.
+- `subject_id` controls time-varying concordance and automatic CV grouping;
+  `cluster` separately defines cluster-robust covariance groups.
+
+The audited quick/full RTX 5880 Ada artifacts are
+`results/survival_completion_2026-07-12.json` and
+`results/survival_completion_full_2026-07-12.json`. Full delayed-entry speedups
+were 1.044x (CuPy) and 1.374x (Torch), but full stratified start-stop speedups
+were 0.241x and 0.411x; Exact and standard heavy-tie target scenarios were also
+slower than NumPy. No general crossover threshold is claimed.
 
 ## Feature Selection
 

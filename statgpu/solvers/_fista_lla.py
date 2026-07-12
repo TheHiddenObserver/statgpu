@@ -17,13 +17,11 @@ from statgpu.backends._array_ops import (
     _clip_grad_on_device,
     _copy_arr,
     _norm2_dev,
-    _sync_scalars,
     _zeros,
 )
 from statgpu.penalties._categories import NONSMOOTH as _NONSMOOTH_ALL
 from statgpu.penalties._adaptive_l1 import AdaptiveL1Penalty
 from ._constants import (
-    _DIVERGE_COEF_NORM_CAP,
     _GRAD_CLIP_COEF_FACTOR,
     _GRAD_CLIP_ABS_FLOOR,
     _GRAD_CLIP_MAX,
@@ -470,7 +468,15 @@ def fista_lla_path(
         # Generic path for non-quadratic losses (Huber, Bisquare, Fair, CoxPH, etc.)
         # For losses with Hessian: use Proximal Newton (5-10 iter per LLA step).
         # For losses without Hessian: use FISTA (300+ iter per LLA step).
-        _has_hessian = getattr(loss, 'has_hessian', False)
+        # Cox partial likelihood has a Hessian, but the generic composite
+        # proximal-Newton Armijo rule is not reliable for its risk-set
+        # objective and frequently rejects every step.  Use the backend-native
+        # FISTA-LLA path for Cox until a Cox-specific proximal Newton line
+        # search is available.
+        _has_hessian = (
+            getattr(loss, 'has_hessian', False)
+            and getattr(loss, 'name', '') != 'cox_ph'
+        )
         _is_numpy = backend == "numpy"
 
         if _has_hessian:

@@ -88,7 +88,9 @@ class CoxPartialLikelihoodLoss(LossBase):
         self._efron_pre_np = None
         self._breslow_pre_np = None
         self._efron_csr = None
+        self._efron_backend_index_cache = {}
         self._n_events = 0
+        self._x_reference = None
 
     def _ensure_sorted(self, X, y):
         """Ensure data is preprocessed. Call at start of every public method."""
@@ -114,7 +116,28 @@ class CoxPartialLikelihoodLoss(LossBase):
         X_arr = _xp_asarray(X, dtype=xp.float64, ref_arr=X)
         if X_arr.ndim == 1:
             X_arr = X_arr.reshape(-1, 1)
-
+        if time.ndim != 1 or event.ndim != 1:
+            raise ValueError("time and event must have shape (n_samples,)")
+        if time.shape[0] != X_arr.shape[0] or event.shape[0] != X_arr.shape[0]:
+            raise ValueError("X, time, and event must contain the same number of rows")
+        if _to_float_scalar(xp.sum(~xp.isfinite(X_arr))) > 0 or _to_float_scalar(
+            xp.sum(~xp.isfinite(time))
+        ) > 0:
+            raise ValueError("X and time must contain only finite values")
+        if _to_float_scalar(xp.sum(~xp.isfinite(event))) > 0 or _to_float_scalar(
+            xp.sum((event != 0) & (event != 1))
+        ) > 0:
+            raise ValueError("event must contain only 0/1 finite values")
+        if _to_float_scalar(xp.sum(time <= 0)) > 0:
+            raise ValueError("time must contain only positive values")
+        if xp.__name__ == "torch":
+            self._x_reference = xp.mean(X_arr, dim=0)
+        else:
+            self._x_reference = xp.mean(X_arr, axis=0)
+        # Cox partial likelihood derivatives are invariant to a common column
+        # shift.  Center once on the active backend to prevent raw-moment
+        # cancellation and eta under/overflow for X = z + a large constant.
+        X_arr = X_arr - self._x_reference.reshape(1, -1)
         order = xp.argsort(time, stable=True) if xp.__name__ == "torch" else xp.argsort(time)
         self._X_sorted = X_arr[order]
         self._time_sorted = time[order]
@@ -122,6 +145,7 @@ class CoxPartialLikelihoodLoss(LossBase):
         self._order = order
         self._sorted = True
         self._n_events = int(_to_float_scalar(xp.sum(self._event_sorted)))
+        self._efron_backend_index_cache = {}
 
         # Numpy copies for kernel dispatch
         time_np = _to_numpy(self._time_sorted).astype(np.float64)
@@ -262,24 +286,14 @@ class CoxPartialLikelihoodLoss(LossBase):
         is_cupy = xp.__name__ == "cupy"
         is_torch_cuda = xp.__name__ == "torch" and X_s.is_cuda
 
-        # Efron: try CuPy kernel (works for both cupy and torch-CUDA via DLPack)
-        if (is_cupy or is_torch_cuda) and self.ties == 'efron':
+        # Efron dispatch is backend-native.  Torch must not require CuPy (or a
+        # DLPack round trip through CuPy) merely to evaluate a Torch model.
+        if self.ties == 'efron':
             if is_torch_cuda:
-                import cupy as cp
-                import torch
-                X_cp = cp.from_dlpack(X_s.__dlpack__())
-                coef_cp = cp.from_dlpack(coef_dev.__dlpack__())
-                result = self._cupy_grad_hess(coef_cp, X_cp)
-                if result is not None:
-                    return (
-                        torch.from_dlpack(result[0].__dlpack__()),
-                        torch.from_dlpack(result[1].__dlpack__()),
-                    )
-                # Fallback: Triton kernel
                 result = self._triton_grad_hess(coef_dev, X_s)
                 if result is not None:
                     return result
-            else:
+            elif is_cupy:
                 result = self._cupy_grad_hess(coef_dev, X_s)
                 if result is not None:
                     return result
@@ -289,15 +303,35 @@ class CoxPartialLikelihoodLoss(LossBase):
             if result is not None:
                 return result
 
+        if is_cupy and self.ties == 'breslow':
+            from statgpu.survival._risk_sets import (
+                cox_counting_process_objective,
+            )
+
+            result = cox_counting_process_objective(
+                coef_dev,
+                X_s,
+                self._time_sorted,
+                self._event_sorted,
+                ties="breslow",
+            )
+            # Loss helpers expose derivatives of log partial likelihood;
+            # the shared engine exposes positive observed information.
+            return result["score"], -result["information"]
+
         # Backend-aware Efron fallback (stays on device, no GPU→CPU transfer)
         if self.ties == 'efron' and self._efron_pre_np is not None:
             eta = X_s @ coef_dev
-            eta_shifted = eta - (xp.max(eta) if xp.__name__ != "torch" else xp.max(eta))
+            eta_shifted = eta - xp.max(eta)
             try:
                 grad, hess = self._efron_grad_hess_backend(eta_shifted, X_s, xp)
                 return grad, hess
-            except Exception:
-                pass
+            except Exception as exc:
+                if is_cupy or is_torch_cuda:
+                    raise RuntimeError(
+                        f"CoxPH {xp.__name__} Efron gradient/Hessian path failed; "
+                        "no CPU fallback is performed for an explicit GPU backend."
+                    ) from exc
 
         # CPU-only (numpy). CuPy/Torch CUDA must NOT silently fall back.
         if is_cupy or is_torch_cuda:
@@ -340,169 +374,71 @@ class CoxPartialLikelihoodLoss(LossBase):
     # ── CuPy CUDA kernel path ────────────────────────────────────────
 
     def _cupy_grad_hess(self, coef_dev, X_s):
-        """Efron gradient/Hessian on CuPy.
+        """Correct backend-native Efron gradient/Hessian on CuPy.
 
-        Tries existing CUDA kernel (nuft<=512), falls back to prefix-sum
-        loop for larger nuft.
+        The historical multiblock kernel omits tied-failure E1/E2 terms for
+        ``d > 1``.  Route through the audited shared counting-process engine
+        until that specialized kernel has a complete Efron implementation.
         """
-        try:
-            import cupy as cp
-        except ImportError:
-            return None
+        from statgpu.survival._risk_sets import cox_counting_process_objective
 
-        if self._efron_pre_np is None:
-            return None
-
-        _, _, _, _, nuft, _ = self._efron_pre_np
-
-        # Try multi-block CUDA kernel (works for any nuft)
-        try:
-            from statgpu.survival._cox_efron_cuda import efron_indices_to_csr
-            from statgpu.survival._cox_efron_grad_hess_kernel import compute_efron_grad_hess_multiblock
-
-            _, uft_ix, risk_enter, risk_exit, _, first_idx_uft = self._efron_pre_np
-            if self._efron_csr is None:
-                csr6 = efron_indices_to_csr(uft_ix, risk_enter, risk_exit, nuft)
-                self._efron_csr = csr6 + (first_idx_uft.astype(np.int32), int(nuft))
-            _, _, _, _, fail_ptr, fail_ind, _, _ = self._efron_csr
-
-            # Prepare arrays (must be contiguous for CUDA kernels)
-            n, p = int(X_s.shape[0]), int(X_s.shape[1])
-            eta = X_s @ coef_dev
-            eta = eta - cp.max(eta)
-            exp_eta = cp.exp(eta)
-            X_exp = X_s * exp_eta[:, None]
-
-            risk_sum = cp.cumsum(exp_eta[::-1])[::-1]
-            risk_X_sum = cp.cumsum(X_exp[::-1], axis=0)[::-1]
-            outer_flat = (X_exp[:, :, None] * X_s[:, None, :]).reshape(n, p * p)
-            prefix_flat = cp.concatenate([
-                cp.zeros((1, p * p), dtype=cp.float64),
-                cp.cumsum(outer_flat[:-1], axis=0)
-            ], axis=0)
-            total_X2 = prefix_flat[-1].reshape(p, p) + outer_flat[-1].reshape(p, p)
-
-            result = compute_efron_grad_hess_multiblock(
-                X_s, exp_eta, risk_sum, risk_X_sum, prefix_flat, total_X2,
-                cp.asarray(fail_ptr, dtype=cp.int32),
-                cp.asarray(fail_ind, dtype=cp.int32),
-                cp.asarray(first_idx_uft.astype(np.int32), dtype=cp.int32),
-                nuft, p, cupy_module=cp,
-            )
-            if result is not None:
-                return result
-        except Exception:
-            pass
-
-        # Fallback: Python loop (CuPy backend-aware, no CPU round-trip)
-        _, uft_ix, risk_enter, _, _, _ = self._efron_pre_np
-        n, p = int(X_s.shape[0]), int(X_s.shape[1])
-
-        eta = X_s @ coef_dev
-        eta = eta - cp.max(eta)
-        exp_eta = cp.exp(eta)
-        X_exp = X_s * exp_eta[:, None]
-
-        risk_sum = cp.cumsum(exp_eta[::-1])[::-1]
-        risk_X_sum = cp.cumsum(X_exp[::-1], axis=0)[::-1]
-
-        outer_flat = (X_exp[:, :, None] * X_s[:, None, :]).reshape(n, p * p)
-        prefix_flat = cp.concatenate([
-            cp.zeros((1, p * p), dtype=cp.float64),
-            cp.cumsum(outer_flat[:-1], axis=0)
-        ], axis=0)
-        total_X2 = prefix_flat[-1].reshape(p, p) + outer_flat[-1].reshape(p, p)
-
-        grad = cp.zeros(p, dtype=cp.float64)
-        hess = cp.zeros((p, p), dtype=cp.float64)
-
-        for g in range(nuft):
-            ix_ev = uft_ix[g]
-            d = len(ix_ev)
-            if d == 0:
-                continue
-            re_val = risk_enter[g]
-            re = int(re_val[0]) if isinstance(re_val, (list, np.ndarray)) else int(re_val)
-            s0 = float(risk_sum[re])
-            s1 = risk_X_sum[re]  # (p,)
-
-            # Tied failure quantities — ALL failures in group
-            v = X_s[ix_ev]  # (d, p)
-            elx = exp_eta[ix_ev]  # (d,)
-            xp0f = float(cp.sum(elx))
-            xp1f = v.T @ elx  # (p,)
-            xp2f = (v * elx[:, None]).T @ v  # (p, p)
-
-            # Efron correction: for k=0..d-1, denominator = s0 - (k/d)*xp0f
-            k_vals = cp.arange(d, dtype=cp.float64)
-            J = k_vals / d  # (d,)
-            c0 = s0 - J * xp0f  # (d,)
-            safe_denom = cp.maximum(c0, 1e-300)
-            inv = 1.0 / safe_denom  # (d,)
-            J_inv = J * inv  # (d,)
-            sum_inv = float(cp.sum(inv))
-            sum_J = float(cp.sum(J_inv))
-            sum_aa = float(cp.dot(inv, inv))
-            sum_bb = float(cp.dot(J_inv, J_inv))
-            sum_ab = float(cp.dot(inv, J_inv))
-
-            # Gradient: sum of ALL failure X's minus Efron-corrected risk term
-            grad += cp.sum(v, axis=0)  # sum_{i in D_g} X_i
-            grad -= s1 * sum_inv - xp1f * sum_J
-
-            # Hessian: Efron-corrected second moment
-            risk_X2 = total_X2 - prefix_flat[re].reshape(p, p)
-            hess -= risk_X2 * sum_inv
-            hess += xp2f * sum_J
-            hess += sum_aa * cp.outer(s1, s1)
-            hess += sum_bb * cp.outer(xp1f, xp1f)
-            hess -= sum_ab * (cp.outer(s1, xp1f) + cp.outer(xp1f, s1))
-
-        return grad, -hess
+        result = cox_counting_process_objective(
+            coef_dev,
+            X_s,
+            self._time_sorted,
+            self._event_sorted,
+            ties="efron",
+        )
+        return result["score"], -result["information"]
 
     def _gpu_loglik(self, coef_dev, X_s):
         """Compute log-likelihood via GPU kernel."""
-        xp = _get_xp(X_s)
         eta = X_s @ coef_dev
         return self._gpu_loglik_from_eta(eta, X_s)
 
     def _gpu_loglik_from_eta(self, eta, X_s):
         """Compute log-likelihood from precomputed eta on GPU.
 
-        Supports cupy and torch-CUDA (via DLPack conversion).
+        CuPy uses its CUDA kernel when available.  Torch CUDA uses only Torch
+        tensor operations and therefore does not require CuPy.
         """
         xp = _get_xp(X_s)
         is_cupy = xp.__name__ == "cupy"
         is_torch_cuda = xp.__name__ == "torch" and X_s.is_cuda
 
         if self.ties == 'efron' and self._efron_pre_np is not None:
-            try:
-                if is_cupy or is_torch_cuda:
+            if is_torch_cuda:
+                return self._efron_loglik_backend(eta, X_s, xp)
+
+            if is_cupy:
+                try:
                     import cupy as cp
                     from statgpu.survival._cox_efron_cuda import compute_efron_loglik_raw_csr
 
-                    if is_torch_cuda:
-                        eta_cp = cp.from_dlpack(eta.__dlpack__())
-                    else:
-                        eta_cp = eta
-
-                    exp_eta = cp.exp(eta_cp)
+                    eta_shifted = eta - cp.max(eta)
+                    exp_eta = cp.exp(eta_shifted)
                     risk_sum = cp.cumsum(exp_eta[::-1])[::-1]
                     _, _, _, _, nuft, first_idx_uft = self._efron_pre_np
                     first_idx_uft_dev = cp.asarray(first_idx_uft, dtype=cp.int32)
                     if self._efron_csr is not None:
                         result = compute_efron_loglik_raw_csr(
-                            eta_cp, exp_eta, risk_sum,
+                            eta_shifted, exp_eta, risk_sum,
                             self._efron_csr[4], self._efron_csr[5],
                             first_idx_uft_dev, nuft, cupy_module=cp
                         )
                         return result
-            except (ImportError, RuntimeError):
-                pass
+                except (ImportError, RuntimeError):
+                    # The backend-native implementation remains on CuPy and
+                    # is the explicit fallback when the custom kernel is not
+                    # available.
+                    pass
+                return self._efron_loglik_backend(eta, X_s, xp)
 
         # Breslow: can compute directly on any backend
         if self.ties == 'breslow' and self._breslow_pre_np is not None:
-            exp_eta = xp.exp(eta)
+            eta_shift = xp.max(eta)
+            eta_shifted = eta - eta_shift
+            exp_eta = xp.exp(eta_shifted)
             if xp.__name__ == "torch":
                 risk_sum = xp.cumsum(exp_eta.flip(0), dim=0).flip(0)
             else:
@@ -525,12 +461,73 @@ class CoxPartialLikelihoodLoss(LossBase):
                 event_mask_dev = torch.from_numpy(self._event_np).bool().to(eta.device) if hasattr(self, '_event_np') else event_mask
             else:
                 event_mask_dev = event_mask
-            event_eta = eta[event_mask_dev]
+            event_eta = eta_shifted[event_mask_dev]
             if xp.__name__ == "torch":
                 return xp.sum(event_eta) - xp.sum(counts * xp.log(risk_at))
             return float(xp.sum(event_eta) - xp.sum(counts * xp.log(risk_at)))
 
         return None
+
+    def _efron_event_indices_backend(self, X, xp):
+        """Return cached event-index tensors for the active GPU backend."""
+        _, uft_ix, _, _, _, _ = self._efron_pre_np
+        if xp.__name__ == "numpy":
+            return uft_ix
+
+        if xp.__name__ == "torch":
+            key = ("torch", str(X.device))
+        else:
+            key = ("cupy", int(X.device.id))
+
+        cached = self._efron_backend_index_cache.get(key)
+        if cached is not None:
+            return cached
+
+        if xp.__name__ == "torch":
+            indices = tuple(
+                xp.as_tensor(ix, dtype=xp.long, device=X.device) for ix in uft_ix
+            )
+        else:
+            indices = tuple(xp.asarray(ix, dtype=xp.int64) for ix in uft_ix)
+        self._efron_backend_index_cache[key] = indices
+        return indices
+
+    def _efron_loglik_backend(self, eta, X, xp):
+        """Efron log partial likelihood using only the active array backend."""
+        _, _, _, _, nuft, first_idx_uft = self._efron_pre_np
+        if nuft == 0:
+            return _xp_zeros((), dtype=xp.float64, ref_arr=eta)
+
+        # Shifting eta is exactly invariant for a Cox partial likelihood and
+        # avoids overflow in exp() for every backend.
+        eta_shifted = eta - xp.max(eta)
+        exp_eta = xp.exp(eta_shifted)
+        if xp.__name__ == "torch":
+            risk_sum = xp.cumsum(exp_eta.flip(0), dim=0).flip(0)
+        else:
+            risk_sum = xp.cumsum(exp_eta[::-1])[::-1]
+
+        event_indices = self._efron_event_indices_backend(X, xp)
+        loglik = _xp_zeros((), dtype=xp.float64, ref_arr=eta)
+        for g in range(nuft):
+            ix_ev = event_indices[g]
+            d = int(ix_ev.shape[0])
+            if d == 0:
+                continue
+            risk_at_t = risk_sum[int(first_idx_uft[g])]
+            sum_events = xp.sum(exp_eta[ix_ev])
+            if xp.__name__ == "torch":
+                k_vals = xp.arange(d, dtype=xp.float64, device=X.device)
+                denom = xp.clamp(
+                    risk_at_t - (k_vals / d) * sum_events, min=1e-300
+                )
+            else:
+                k_vals = xp.arange(d, dtype=xp.float64)
+                denom = xp.maximum(
+                    risk_at_t - (k_vals / d) * sum_events, 1e-300
+                )
+            loglik = loglik + xp.sum(eta_shifted[ix_ev]) - xp.sum(xp.log(denom))
+        return loglik
 
     # ── Triton/Torch kernel paths ────────────────────────────────────
 
@@ -569,6 +566,7 @@ class CoxPartialLikelihoodLoss(LossBase):
         efron_pre = self._efron_pre_np
         _, uft_ix, risk_enter, _, nuft, _ = efron_pre
 
+        eta_np = eta_np - np.max(eta_np)
         exp_eta = np.exp(eta_np)
         risk_sum = np.cumsum(exp_eta[::-1])[::-1]
 
@@ -590,6 +588,7 @@ class CoxPartialLikelihoodLoss(LossBase):
 
     def _cpu_loglik(self, eta_np, time_np, event_np):
         """Compute log partial likelihood in numpy."""
+        eta_np = eta_np - np.max(eta_np)
         exp_eta = np.exp(eta_np)
         risk_sum = np.cumsum(exp_eta[::-1])[::-1]
         event_mask = event_np == 1
@@ -646,7 +645,8 @@ class CoxPartialLikelihoodLoss(LossBase):
         exp_eta = xp.exp(eta)
         X_exp = X * exp_eta[:, None]
 
-        _, uft_ix, _, _, nuft, first_idx_uft = self._efron_pre_np
+        _, _, _, _, nuft, first_idx_uft = self._efron_pre_np
+        event_indices = self._efron_event_indices_backend(X, xp)
 
         if nuft == 0:
             return _xp_zeros(p, dtype=xp.float64, ref_arr=X), _xp_zeros((p, p), dtype=xp.float64, ref_arr=X)
@@ -664,7 +664,7 @@ class CoxPartialLikelihoodLoss(LossBase):
             risk_X_sum[:n] = xp.cumsum(X_exp[::-1], axis=0)[::-1]
 
         # Running accumulators (backward scan)
-        xp0 = 0.0
+        xp0 = _xp_zeros((), dtype=xp.float64, ref_arr=X)
         xp1 = _xp_zeros(p, dtype=xp.float64, ref_arr=X)
         xp2 = _xp_zeros((p, p), dtype=xp.float64, ref_arr=X)
 
@@ -676,20 +676,20 @@ class CoxPartialLikelihoodLoss(LossBase):
             enter_start = int(first_idx_uft[g])
             enter_end = n if g == nuft - 1 else int(first_idx_uft[g + 1])
             if enter_end > enter_start:
-                xp0 += float(risk_sum[enter_start] - risk_sum[enter_end])
+                xp0 = xp0 + (risk_sum[enter_start] - risk_sum[enter_end])
                 xp1 = xp1 + (risk_X_sum[enter_start] - risk_X_sum[enter_end])
                 blk = X_exp[enter_start:enter_end]
                 xp2 = xp2 + (blk.T @ X[enter_start:enter_end])
 
             # ── Fail phase: Efron correction ──
-            ix_ev = uft_ix[g]
-            d = len(ix_ev)
+            ix_ev = event_indices[g]
+            d = int(ix_ev.shape[0])
             if d == 0:
                 continue
 
             v = X[ix_ev]
             elx = exp_eta[ix_ev]
-            xp0f = float(xp.sum(elx))
+            xp0f = xp.sum(elx)
             xp1f = v.T @ elx
             xp2f = (v * elx[:, None]).T @ v
 
@@ -699,13 +699,16 @@ class CoxPartialLikelihoodLoss(LossBase):
             else:
                 J = xp.arange(d, dtype=xp.float64) / d
             c0 = xp0 - J * xp0f
-            c0 = xp.maximum(c0, xp.float64(1e-300)) if xp.__name__ == "torch" else xp.maximum(c0, 1e-300)
+            if xp.__name__ == "torch":
+                c0 = xp.clamp(c0, min=1e-300)
+            else:
+                c0 = xp.maximum(c0, 1e-300)
             inv = 1.0 / c0
-            sum_inv = float(xp.sum(inv))
-            sum_J = float(xp.sum(J * inv))
-            sum_aa = float(xp.sum(inv * inv))
-            sum_bb = float(xp.sum((J * inv) * (J * inv)))
-            sum_ab = float(xp.sum(inv * (J * inv)))
+            sum_inv = xp.sum(inv)
+            sum_J = xp.sum(J * inv)
+            sum_aa = xp.sum(inv * inv)
+            sum_bb = xp.sum((J * inv) * (J * inv))
+            sum_ab = xp.sum(inv * (J * inv))
 
             grad = grad + xp.sum(v, axis=0) - (xp1 * sum_inv - xp1f * sum_J)
 
@@ -716,12 +719,13 @@ class CoxPartialLikelihoodLoss(LossBase):
                 - sum_ab * (xp.outer(xp1, xp1f) + xp.outer(xp1f, xp1))
             )
 
-        return grad, -hess
+        return grad, hess
 
     def _cpu_grad_hess(self, eta_np, time_np, event_np):
         """Compute gradient and Hessian in numpy."""
         X_np = _to_numpy(self._X_sorted)
         p = X_np.shape[1]
+        eta_np = eta_np - np.max(eta_np)
         exp_eta = np.exp(eta_np)
         risk_sum = np.cumsum(exp_eta[::-1])[::-1]
         X_exp_eta = X_np * exp_eta[:, None]
@@ -835,7 +839,7 @@ class CoxPartialLikelihoodLoss(LossBase):
             hess += sum_bb * np.outer(xp1f, xp1f)
             hess -= sum_ab * (np.outer(xp1, xp1f) + np.outer(xp1f, xp1))
 
-        return grad, -hess
+        return grad, hess
 
     def _cpu_fused_loglik_grad(self, eta_np, X_np, time_np, event_np):
         """Fused loglik + gradient for Efron — single pass.
@@ -843,6 +847,7 @@ class CoxPartialLikelihoodLoss(LossBase):
         Shares suffix sums across loglik and gradient computation.
         """
         n, p = X_np.shape
+        eta_np = eta_np - np.max(eta_np)
         exp_eta = np.exp(eta_np)
         X_exp = X_np * exp_eta[:, None]
 
@@ -956,5 +961,4 @@ class CoxPartialLikelihoodLoss(LossBase):
             hess += sum_bb * np.outer(xp1f, xp1f)
             hess -= sum_ab * (np.outer(xp1, xp1f) + np.outer(xp1f, xp1))
 
-        return ll, grad, -hess
-
+        return ll, grad, hess

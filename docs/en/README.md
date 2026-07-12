@@ -1,6 +1,9 @@
 # StatGPU Documentation
 
-> Language: English  
+> Language: English
+>
+> Last updated: 2026-07-12
+>
 > Switch: [Chinese](../cn/README.md)
 
 ## Getting Started
@@ -43,7 +46,13 @@
 - [Ordered Models](models/ordered.md) — ordered logit/probit
 
 ### Survival
-- [CoxPH](models/coxph.md) — Cox proportional hazards + penalized
+- [CoxPH](models/coxph.md) — Breslow/Efron/Exact Cox models with
+  delayed-entry/start-stop data, strata, robust covariance, and native
+  NumPy/CuPy/Torch paths
+- [CoxPHCV](models/coxph.md) — L2 grid selection and refit with
+  subject-preserving folds
+- [PenalizedCoxPHModel](models/coxph.md) — estimation-only
+  L1/L2/ElasticNet/SCAD/MCP Cox fits; no intercept
 
 ### Unsupervised
 - [Unsupervised Overview](models/unsupervised.md) — 13 algorithms: PCA, KMeans, DBSCAN, GMM, UMAP, NNDescent, t-SNE, NMF, Agglomerative, TruncatedSVD, IncrementalPCA, MiniBatchKMeans, MiniBatchNMF

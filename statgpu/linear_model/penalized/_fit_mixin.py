@@ -3,14 +3,10 @@
 from __future__ import annotations
 
 import numpy as np
-from typing import TYPE_CHECKING
 
 from statgpu._config import Device
-from statgpu.backends import get_backend, _get_torch_device_str, _to_numpy, _LINALG_ERRORS
+from statgpu.backends import get_backend, _to_numpy, _LINALG_ERRORS
 from statgpu.solvers._utils import _nesterov_momentum, _nesterov_update
-
-if TYPE_CHECKING:
-    from ._base import PenalizedGeneralizedLinearModel as _Self
 
 # ---------------------------------------------------------------------------
 # Solver dispatch table for solver='auto'
@@ -1630,7 +1626,6 @@ class _PenalizedFitMixin:
 
         if _use_fista:
             # FISTA for GLM+adaptive_l1 -- works on any backend.
-            from statgpu.solvers import fista_solver
             params, n_iter = fista_solver(
                 self._loss, pen, X_work, y_arr,
                 max_iter=self.max_iter, tol=self.tol,
@@ -1695,18 +1690,36 @@ class _PenalizedFitMixin:
 
             xp = get_backend(backend_name).xp
 
-            # lambda_max with backend-native arrays (no CPU-GPU transfer)
+            # lambda_max with backend-native arrays (no CPU-GPU transfer).
+            # Cox has a two-column (time, event) response, so the GLM-style
+            # X.T @ centered(y) expression is both dimensionally wrong for a
+            # coefficient path and unrelated to the Cox score.  At beta=0 the
+            # maximum absolute partial-likelihood gradient is the correct
+            # zero-solution threshold for the weighted-L1 LLA subproblem.
             X_feat = X_work[:, :p] if self._effective_intercept else X_work
             _n = X_feat.shape[0]
-            _col_norms = xp.sqrt(xp.sum(X_feat ** 2, axis=0))
-            if backend_name == "torch":
-                import torch
-                _col_norms = torch.clamp(_col_norms, min=1e-20)
+            if _loss_name == "cox_ph":
+                if backend_name == "torch":
+                    import torch
+                    _zero_coef = torch.zeros(
+                        p, dtype=X_feat.dtype, device=X_feat.device
+                    )
+                else:
+                    _zero_coef = xp.zeros(p, dtype=X_feat.dtype)
+                _score_at_zero = self._loss.gradient(
+                    X_feat, y_arr, _zero_coef, sample_weight=sample_weight
+                )
+                _lam_max = float(xp.max(xp.abs(_score_at_zero)))
             else:
-                _col_norms = xp.maximum(_col_norms, 1e-20)
-            X_s = X_feat * (float(_n) ** 0.5 / _col_norms)
-            y_c = y_arr - xp.mean(y_arr)
-            _lam_max = float(xp.max(xp.abs(X_s.T @ y_c / _n)))
+                _col_norms = xp.sqrt(xp.sum(X_feat ** 2, axis=0))
+                if backend_name == "torch":
+                    import torch
+                    _col_norms = torch.clamp(_col_norms, min=1e-20)
+                else:
+                    _col_norms = xp.maximum(_col_norms, 1e-20)
+                X_s = X_feat * (float(_n) ** 0.5 / _col_norms)
+                y_c = y_arr - xp.mean(y_arr)
+                _lam_max = float(xp.max(xp.abs(X_s.T @ y_c / _n)))
             _cv_alpha_path = getattr(self, '_cv_alpha_path', None)
             _cv_return_path = _cv_alpha_path is not None
             if _cv_return_path:
@@ -1754,11 +1767,21 @@ class _PenalizedFitMixin:
                             getattr(self, '_init_intercept', 0.0) or 0.0
                         )
 
-            # For losses with Hessian (Bisquare, Huber, etc.): use OLS as
+            # For one-dimensional losses with Hessian (Bisquare, Huber,
+            # etc.): use OLS as
             # warm-start if no explicit init_coef is provided. This prevents
             # the continuation path from shrinking everything to zero at the
-            # first (large-alpha) step.
-            if _warm_coef is None and getattr(self._loss, 'has_hessian', False):
+            # first (large-alpha) step.  Cox's response is (time, event): OLS
+            # would return a (p, 2) matrix which cannot warm-start a p-vector.
+            # Cox therefore follows the continuation path from zero unless an
+            # explicit p-vector warm start is supplied by the caller/CV layer.
+            _y_ndim = getattr(y_arr, "ndim", None)
+            if _y_ndim is None:
+                _y_ndim = np.asarray(y_arr).ndim
+            _y_ndim = int(_y_ndim)
+            if (_warm_coef is None
+                    and getattr(self._loss, 'has_hessian', False)
+                    and _y_ndim == 1):
                 _X_np = np.asarray(_to_numpy(X_orig), dtype=np.float64)
                 _y_np = np.asarray(_to_numpy(y_arr), dtype=np.float64)
                 _warm_coef = np.linalg.lstsq(_X_np, _y_np, rcond=None)[0]

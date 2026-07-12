@@ -2,10 +2,20 @@
 
 **创建日期**: 2026-04-19  
 **作者**: TheHiddenObserver  
-**状态**: 🔶 核心实现 (~40%)
+**更新日期**: 2026-07-12
+**状态**: ✅ Phase 1 CoxPH 核心功能已完成；Phase 2+ 继续规划
 
-> 已实现: `CoxPH` (Breslow/Efron ties, robust SE HC0-HC1, cluster-robust, C-index, baseline hazard, AIC/BIC), `CoxPHCV` (骨架)
-> 缺失: strata, frailty, time-varying covariates, Cox 回报 (CoxBoost), 竞争风险 (Fine-Gray)
+> 已实现: `CoxPH`（Breslow/Efron/Exact ties、delayed entry、`(start, stop]`
+> counting-process、strata、HC0/HC1/cluster robust SE、C-index、分层 baseline
+> survival、无惩罚 AIC/BIC）、完整的 `CoxPHCV` L2 选择流程，以及 estimation-only 的
+> `PenalizedCoxPHModel`（已验证 L1/L2/ElasticNet/SCAD/MCP）。
+>
+> 明确限制: Exact ties 目前仅支持 `cov_type="nonrobust"`；Efron/Exact 拟合后的
+> baseline 使用常规 Breslow estimator；`PenalizedCoxPHModel` 不提供 SE/p-value/CI；
+> GPU 是否更快取决于风险集结构和数据规模。
+>
+> 后续范围: Kaplan-Meier/Nelson-Aalen、Frailty、AFT、Fine-Gray、多状态模型和
+> survival forest/boosting 尚未实现。
 
 ---
 
@@ -143,16 +153,16 @@
 | Nelson-Aalen | ❌ | ✅ | ❌ | ⚠️ | ✅ | ❌ |
 | CoxPH (Breslow) | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | CoxPH (Efron) | ⚠️ | ✅ | ❌ | ⚠️ | ✅ | ✅ |
-| CoxPH (Exact) | ❌ | ❌ | ❌ | ❌ | ✅ | ❌ |
+| CoxPH (Exact) | ❌ | ❌ | ❌ | ❌ | ✅ | ✅（仅 nonrobust covariance） |
 | 参数化 AFT | ❌ | ✅ | ❌ | ✅ | ✅ | ❌ |
 | 随机生存森林 | ❌ | ❌ | ✅ | ✅ | ✅ (randomForestSRC) | ❌ |
 | 生存 SVM | ❌ | ❌ | ✅ | ✅ | ❌ | ❌ |
-| 时依协变量 | ⚠️ | ✅ | ❌ | ❌ | ✅ | ❌ |
-| 分层 Cox | ⚠️ | ✅ | ❌ | ❌ | ✅ | ❌ |
+| 时依协变量 | ⚠️ | ✅ | ❌ | ❌ | ✅ | ✅（`(start, stop]`） |
+| 分层 Cox | ⚠️ | ✅ | ❌ | ❌ | ✅ | ✅（共享 coef、分层 baseline） |
 | 脆弱模型 | ❌ | ⚠️ | ❌ | ❌ | ✅ | ❌ |
 | 竞争风险 | ❌ | ⚠️ | ❌ | ⚠️ | ✅ (cmprsk) | ❌ |
-| 惩罚 Cox | ❌ | ✅ (L2) | ❌ | ✅ | ✅ | ✅ (L2) |
-| 稳健协方差 | ✅ | ⚠️ | ❌ | ❌ | ✅ | ✅ (部分) |
+| 惩罚 Cox | ❌ | ✅ (L2) | ❌ | ✅ | ✅ | ✅（L1/L2/EN/SCAD/MCP；estimation-only） |
+| 稳健协方差 | ✅ | ⚠️ | ❌ | ❌ | ✅ | ✅（Breslow/Efron；Exact 暂不支持） |
 | GPU 加速 | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
 
 ---
@@ -182,44 +192,91 @@
 ```
 statgpu/survival/
 ├── __init__.py
-├── _cox.py          # CoxPH 核心实现
-├── _cox_cv.py       # 交叉验证 CoxPH
-└── _cox_efron_cuda.py  # Efron ties CUDA 优化
+├── _cox.py                    # CoxPH 公共 API、拟合、推断与预测
+├── _cox_cv.py                 # CoxPHCV 选择、诊断与最终 refit
+├── _risk_sets.py              # 三后端风险集与 tied-event 原语
+├── _cox_counting.py           # counting-process 目标函数、solver、baseline
+├── _cox_efron_cuda.py         # Efron CuPy 优化
+├── _cox_efron_grad_hess_kernel.py
+├── _cox_efron_triton.py
+└── _cox_breslow_triton_kernel.py
 ```
 
 **当前 `CoxPH` 支持**:
-- ✅ Breslow / Efron ties 处理
-- ✅ Newton-Raphson 优化
+- ✅ Breslow / Efron / Exact ties 处理
+- ✅ right-censored、delayed-entry 和 `(start, stop]` counting-process 输入
+- ✅ `strata` 共享系数、独立风险集和 stratum-specific baseline
+- ✅ `Surv(time, event)` 与 `Surv(start, stop, event)` formula 输入
+- ✅ NumPy / CuPy / Torch-CUDA backend-native Newton 优化与风险集计算
 - ✅ 稳健协方差 (HC0/HC1/cluster)
 - ✅ L2 正则化 (penalty 参数)
 - ✅ C-index 计算
 - ✅ 基线风险/累积风险估计
-- ✅ `survfit()` 风格预测接口
+- ✅ right-continuous `survfit()` 风格预测接口（分层模型预测时需提供 strata）
+
+**当前 `CoxPHCV` 支持**:
+- ✅ L2 penalty path 与 Breslow/Efron/Exact held-out partial likelihood
+- ✅ delayed entry、start-stop、strata 与 subject-grouped folds
+- ✅ 每个 candidate/fold 的 convergence、iterations 和 failure diagnostics
+- ✅ 最优 penalty 的全数据 refit 与 `predict`/`score` 转发
+
+**当前 `PenalizedCoxPHModel` 支持**:
+- ✅ L1 / L2 / ElasticNet / SCAD / MCP 的 CPU 目标值与 KKT 验证
+- ✅ CuPy / Torch-CUDA parity gates
+- ✅ 无截距（Cox partial likelihood 中 intercept 不可识别）
+- ⚠️ 仅估计；`compute_inference=True` 显式抛出 `NotImplementedError`
+- ⚠️ 目前只处理 `(time, event)` 与 Breslow/Efron，不等同于 `CoxPH` Phase-1 全功能
 
 **对标 R `survival::coxph()`**:
-- 文档参见：`docs/models/coxph.md`
-- 当前精度：与 R 一致 (见 benchmark 结果)
+- 文档参见：`docs/en/models/coxph.md`
+- Breslow/Efron delayed-entry/strata 在 CPU 测试中对标 statsmodels；Exact 使用
+  brute-force tied-partition 测试，三后端结果由 parity gates 验证。
+- 完整的 R `survival::coxph()` Exact/counting-process 对标仍是后续验证项，不能据此
+  声称已经覆盖 R 的全部推断语义。
+
+### 3.2 2026-07-12 GPU benchmark 快照
+
+最终 quick/full artifact 来自 NVIDIA RTX 5880 Ada、float64、1 次 warm-up 和 2 次
+计时重复。下列比值为 `NumPy fit time / GPU fit time`，大于 1 才表示 GPU 更快；
+fit timing 包含优化、推断和 baseline 估计，数据传输单独计时。
+
+| 场景 | CuPy / NumPy | Torch / NumPy | 结论 |
+|------|--------------|---------------|------|
+| quick delayed entry (700×8) | 0.647x | 0.959x | 两个 GPU backend 均较慢 |
+| full delayed entry (2,500×16) | 1.044x | 1.374x | 两个 GPU backend 均加速，Torch 更明显 |
+| full stratified start-stop (2,400×16, 4 strata) | 0.241x | 0.411x | 均慢于 NumPy |
+| full standard heavy ties (20,000×32, Efron) | 0.850x | 0.436x | 均慢于 NumPy |
+| full Exact ties (120×4) | 0.069x | 0.095x | 动态规划正确性优先，均慢于 NumPy |
+
+Artifact: `results/survival_completion_2026-07-12.json` 与
+`results/survival_completion_full_2026-07-12.json`。这些结果不构成普遍 speedup
+承诺；在 crossover 规模得到系统估计前，`device="cpu"` 仍是小型/复杂风险集场景的
+合理选择。相同 artifact 中，NumPy/CuPy/Torch-CUDA 的 CV 均选择同一 penalty，
+最终 refit 的 coef/bse backend 差异小于 `1e-16`。
 
 ---
 
 ## 四、GPU 实现路线图
 
-### 4.1 第一阶段：CoxPH 功能对齐 (P0 - 2026 Q2)
+### 4.1 第一阶段：CoxPH 核心功能对齐（P0，2026-07-12 已完成）
 
-**目标**: 达到 R `survival::coxph()` 80% 核心功能
+**目标**: 完成 Exact、counting-process、strata 与可审计 CV 的共享三后端实现。
 
-| 功能 | 优先级 | 预计工作量 | 依赖 |
-|------|--------|-----------|------|
-| Ties 处理 (Exact) | P0 | 2 周 | Efron 实现 |
-| 时依协变量 | P0 | 3 周 | counting process 格式 |
-| 分层 Cox | P0 | 2 周 | baseline 分层估计 |
-| 稳健协方差 HC2/HC3/HAC | P1 | 1 周 | 已有 Linear/Ridge 基础 |
-| 脆弱模型 (Frailty) | P1 | 3 周 | 随机效应估计 |
+| 功能 | 优先级 | 状态 | 当前边界 |
+|------|--------|------|----------|
+| Ties 处理 (Exact) | P0 | ✅ 完成 | nonrobust covariance；baseline 使用 Breslow convention |
+| 时依协变量 | P0 | ✅ 完成 | `(start, stop]` counting-process，支持 subject ID |
+| 分层 Cox | P0 | ✅ 完成 | 共享 coef，独立风险集和 baseline |
+| CoxPHCV | P0 | ✅ 完成 | L2 path、Exact/Breslow/Efron、subject-grouped folds |
+| 稳健协方差 HC2/HC3/HAC | P1 | ⏳ 后续 | 当前为 nonrobust/HC0/HC1/cluster |
+| 脆弱模型 (Frailty) | P1 | ⏳ 后续 | 需要随机效应估计与新的推断合同 |
 
 **关键设计决策**:
 1. **时依协变量数据格式**: 采用 R 的 `(start, stop, event)` counting process 格式
 2. **分层实现**: 每层独立 baseline hazard，共享 coef
-3. **脆弱模型**: 使用 penalized partial likelihood 或 EM 算法
+3. **风险集实现**: NumPy/CuPy/Torch 共用相同语义，区间采用左开右闭 `(start, stop]`
+4. **Exact 实现**: elementary-symmetric dynamic programming；优先正确性和数值稳定性
+5. **脆弱模型**: 保留为后续独立 phase，候选方案为 penalized partial likelihood 或 EM
 
 ---
 
@@ -330,7 +387,7 @@ class Device(Enum):
 
 | 阶段 | 时间范围 | 里程碑 |
 |------|---------|--------|
-| **Phase 1** | 2026 Q2 | CoxPH 功能对齐 R |
+| **Phase 1** | 2026-07-12 完成 | Exact/start-stop/strata/CV 核心能力 |
 | **Phase 2** | 2026 Q3 | AFT 模型家族 |
 | **Phase 3** | 2026 Q4 | 随机森林/梯度提升 |
 | **Phase 4** | 2027 Q1 | 工具链完善 |
@@ -363,13 +420,16 @@ class Device(Enum):
 
 ## 九、下一步行动
 
-1. **Phase 1 启动**: 实现 Ties (Exact) 和时依协变量
-2. **建立 R 对标环境**: 配置 rpy2 或直接 Rscript 调用
-3. **文档框架**: 创建 `docs/en/models/survival-aft.md` 等
-4. **Cox entry+efron GPU 收尾（2026-04-22）**:
-   - 保留并继续调优 `cupy_fused` 路径（`STATGPU_ENTRY_S2_FUSED_CUPY=1`）。
-   - `torch.compile` 暂不作为默认路径：仅在 GPU Compute Capability >= 7.0（如 A30/RTX 4090）时启用。
-   - 为 `torch.compile` 增加设备能力检测与自动回退（老卡如 P100 回退 eager，不中断训练/拟合）。
+1. **Phase 1 性能后续**: 针对 standard heavy ties、stratified start-stop 和 Exact
+   风险集优化；在得到多规模 crossover 曲线前不做普遍 GPU speedup 承诺。
+2. **独立 R 对标**: 通过 `Rscript` 对比 Exact、counting-process、strata、robust
+   covariance 与 baseline prediction；当前 artifact 未调用 R。
+3. **推断增强**: 评估 HC2/HC3/HAC、Exact robust covariance，以及 penalized Cox
+   的 debiased/post-selection inference；在方法学验证前维持 estimation-only。
+4. **Phase 2 AFT**: Weibull、Log-Normal、Log-Logistic；先定义三后端 likelihood、
+   censoring 和 inference contract，再实现 GPU kernel。
+5. **Phase 3 高级模型**: Frailty、Fine-Gray、多状态、survival forest/boosting 均
+   保留为后续独立里程碑，不纳入本次 Phase 1 完成声明。
 
 ---
 

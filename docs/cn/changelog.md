@@ -1,13 +1,60 @@
 # Changelog
 
-> 语言：中文  
-> 最后更新：2026-07-08  
-> 页面定位：变更记录  
-> 切换：[English](en/changelog.md)
-
-语言切换：[English](en/changelog.md)
+> 语言：中文
+>
+> 最后更新：2026-07-12
+>
+> 页面定位：变更记录
+>
+> 切换：[English](../en/changelog.md)
 
 ## 2026-07
+
+### 新增 (2026-07-12)
+
+- **生存分析 Phase 1 完成**：
+  - `CoxPH` 新增 Exact ties，以及 delayed entry / `(start, stop]`、`strata`、
+    重复行 `subject_id` 的共享计数过程实现
+  - NumPy、CuPy CUDA、Torch CUDA 三后端覆盖 Breslow、Efron、Exact 和计数过程轴；
+    显式 GPU 路径失败时不回退 CPU
+  - Breslow/Efron 的 `nonrobust`、HC0、HC1、cluster 稳健推断支持普通右删失和
+    start-stop/分层数据；按 `subject_id` 聚合受试者级得分
+  - `CoxPHCV` 在相同 ties、start-stop、strata 和 subject 轴上完成 L2 penalty
+    held-out 部分似然搜索、受试者分组折叠和全量重拟合
+  - `PenalizedCoxPHModel` 验证 L1、L2、Elastic Net、SCAD、MCP 五类惩罚；
+    SCAD/MCP 使用 FISTA-LLA。该接口无截距且仅提供估计
+
+### 修复 (2026-07-12)
+
+- **Cox 正确性与契约**：
+  - 修复 `CoxPHCV` held-out Breslow/Efron/Exact 部分似然、delayed-entry 风险集和
+    strata 隔离；自定义 folds 检测 `subject_id` 泄漏
+  - 修复 CV 候选的有效 fold 数和失败诊断；最终 refit 保持选定后端，后端错误不再
+    被另一个设备的结果掩盖
+  - Torch Breslow/Efron 路径改为 Torch 后端原生执行，不依赖 CuPy 中转
+  - 系数无论以 Breslow、Efron 还是 Exact 拟合，基线风险与生存预测统一使用常规
+    Breslow baseline；分层模型按 stratum 存储独立 baseline
+  - Exact robust inference 的边界显式化：Exact 仅支持 `cov_type="nonrobust"`，
+    HC0、HC1 或 cluster 请求抛出 `NotImplementedError`
+  - 风险集矩使用列中心化、baseline 预测使用 log-domain 乘积，保证大常数协变量平移下
+    的数值不变性；奇异信息矩阵不再通过伪逆产生虚假的零标准误
+  - formula 自动删除 NA 时同步对齐 entry/cluster/strata/subject；CuPy/Torch 小数标签
+    不再被整数转换合并；稳健协方差不再依赖可选 statsmodels
+  - `CoxPH`、`CoxPHCV` 与 `PenalizedCoxPHModel` 可被 sklearn clone；失败重拟合会清空
+    旧状态，CV 只允许全 fold 收敛候选，惩罚 Cox 的 C-index 正确处理预测并列与同时间删失
+
+### 验证 (2026-07-12)
+
+- 两份最终可复现实验产物：
+  - [`results/survival_completion_2026-07-12.json`](../../results/survival_completion_2026-07-12.json)（quick）
+  - [`results/survival_completion_full_2026-07-12.json`](../../results/survival_completion_full_2026-07-12.json)（full）
+- NVIDIA RTX 5880 Ada Generation、Python 3.11.15、NumPy 2.4.6、CuPy 14.1.1、
+  Torch 2.8.0+cu128、float64；fit 计时包含优化、推断和 baseline，传输单独计时
+- full delayed-entry 中 CuPy/Torch 相对 NumPy 为 1.044×/1.374×；full stratified
+  start-stop 为 0.241×/0.411×，Exact 与普通重 ties 也慢于 CPU。quick delayed-entry
+  为 0.647×/0.959×；当前未建立通用 crossover 阈值
+- 两份产物的三后端 `CoxPHCV` 均选择同一 penalty，最终 refit 系数和标准误最大差异
+  小于 $10^{-16}$；Exact 另由小规模暴力枚举验证
 
 ### 新增 (2026-07-07)
 
@@ -27,6 +74,7 @@
     - 具有 Hessian 的损失 + L2/ElasticNet 惩罚 → sandwich
     - SCAD/MCP → oracle active-set refit（Fan & Li 2001，以选中模型为条件）
     - Bootstrap 推断入口（分阶段推出）
+    - `PenalizedCoxPHModel` 不接入上述通用响应推断路由，当前仍为 estimation-only
   - **GLM 推断管线**（`_glm_base.py` +300 行）：
     - `GeneralizedLinearModel` 上的 `compute_inference`、`cov_type` 参数
     - `_compute_inference()` 读取拟合时元数据（惩罚、求解器、目标尺度）
@@ -140,10 +188,9 @@
 - **CoxPH Efron 优化**：
   - 向量化 Efron：基于前缀和的梯度/Hessian 计算（无 Python 循环）
   - 多块 CUDA kernel：Efron 的 fused loglik+grad+hess
-  - DLPack 桥接：torch-CUDA 通过 DLPack 使用 CuPy Efron kernel
-  - 性能：n=5000 时比 statsmodels 快 3-6 倍；GPU 比 CPU 快 6 倍
+  - Torch CUDA 使用后端原生 Efron 实现，不依赖 CuPy 中转
   - 移除 Numba 依赖，纯 numpy 实现
-  - Benchmark 产物：`results/coxph_efron_bench_2026-06-22.json`（精度对比 statsmodels，GPU 加速 47-102x）
+  - 当前性能与精度证据统一见 2026-07-12 两份 survival completion 产物
 
 - **GLM Fused Value+Gradient**：集成 `_fused.py` 到 `GLMLoss.fused_value_and_gradient()`
 
@@ -271,7 +318,7 @@
   - `HuberLoss`: 稳健 M-估计器损失（对应 R `MASS::rlm()`）
   - `CoxPartialLikelihoodLoss`: Cox PH 负对数偏似然（对应 R `survival::coxph()`）
     - 支持 Breslow 和 Efron tie 处理
-    - CPU-only (numpy)；GPU 加速请用 `statgpu.survival.CoxPH`
+    - 支持 NumPy、CuPy CUDA 和 Torch CUDA 后端原生执行
 
 - **损失注册表** (`statgpu.losses._registry`):
   - `register_loss(name)`: 注册自定义损失类的装饰器
@@ -720,7 +767,7 @@
 ### 优化 (2026-06-01)
 
 - **后端传输 helper 与 benchmark parser**:
-  - CuPy <-> Torch CUDA 转换优先使用 DLPack 零拷贝共享，失败时回退到原安全路径。
+  - CuPy 与 Torch CUDA 各自保持后端原生执行；跨后端转换不用于 Cox 拟合路径。
   - NumPy -> Torch CUDA 传输在可用时尝试 pinned memory 与 `non_blocking=True`。
   - 新增 `dev/tests/_bench_report_parser.py`，可将 full-matrix benchmark 文本日志汇总为 JSON/Markdown。
   - Benchmark summary 现在包含 backend/family/penalty 行数统计，并支持 `--fail-on-alerts` 作为脚本化 gate。
@@ -884,7 +931,7 @@
 
 - **PR #19 — Cython Efron 优化**:
   - Cython 优化 Efron 梯度和 Hessian 计算
-  - CoxPH 精度和运行时综合基准测试
+  - CoxPH 精度和运行时验证脚本（当前结论以 2026-07-12 产物为准）
   - 更新 RidgeCV、LogisticRegressionCV 和 CoxPHCV 文档
   - 修复 logistic cv 重复的 batch log-loss helper 名称
   - 修复 cox cv 缓存键类型和 CUDA 核启动错误暴露
@@ -903,16 +950,18 @@
   - 整合重复的后端工具函数
   - 更清晰的后端抽象层
 
-- **CoxPHCV 从接口骨架升级为可训练版本**:
-  - 已实现 penalty 网格搜索（K-fold）与最佳 penalty 全量重训流程
-  - 支持 `ties='breslow'/'efron'` 与现有 `device` 路径（通过 `CoxPH` 后端执行）
-  - 当前边界：`entry` 与 `cluster` 在 `CoxPHCV.fit()` 中暂未支持（显式 `NotImplementedError`）
+- **CoxPHCV 可训练版本持续扩展**:
+  - 已实现 L2 penalty 网格搜索（K-fold）与最佳 penalty 全量重训流程
+  - 当前支持 `ties='breslow'/'efron'/'exact'`、entry/start-stop、strata、
+    subject-grouped folds 与 NumPy/CuPy/Torch 后端
+  - `cluster` 传递到最终 refit；计数过程 held-out 部分似然和 subject 泄漏检测见
+    2026-07-12 完成项
   - 修改文件:
     - `statgpu/survival/_cox_cv.py`
     - `dev/tests/test_coxph_cv.py`
 
 - **RidgeCV 和 LogisticRegressionCV 完整实现**:
-  - 从接口骨架升级为完整功能实现，支持 GPU 加速的交叉验证
+  - 完成功能实现，支持 GPU 加速的交叉验证
   - `RidgeCV` 新增功能:
     - K-fold 交叉验证 (支持自定义 folds 或 folds 生成器)
     - Alpha 网格自动生成 (log-spaced grid)
@@ -957,24 +1006,17 @@
   - 更新 Cox GPU entry+efron 路径并记录安全推出
   - 同步 Cox 模型文档的 entry+efron GPU 状态
 
-- **CoxPH Efron 实现修复与性能优化**:
+- **CoxPH Efron 数值修复**:
   - 修复 Cython Efron 梯度/海森矩阵计算中的数值溢出问题，添加 clipping 保护 (`MAX_LINPRED=700`, `MIN_LINPRED=-700`)
   - 发现 Cython 编译版本存在正确性问题，暂时使用 Python fallback 实现（已验证与数值梯度一致）
-  - CoxPH 综合性能对比 (vs statsmodels/lifelines/R survival)：
-    - statgpu-Torch GPU 在 n=5000, p=20 规模下实现 **15.44x** 加速 (vs statsmodels)
-    - 所有 statgpu 后端系数精度与 statsmodels 一致 (Max Diff < 4e-12)
-    - C-index 计算已修复，CPU/CuPy/Torch 现在使用相同的精确分块向量化算法
+  - C-index 计算已修复，NumPy/CuPy/Torch 使用相同的精确分块向量化算法
   - 修改文件:
     - `statgpu/survival/_cox_efron_cy.pyx` - 添加 exp() clipping 保护
     - `statgpu/survival/_cox.py` - 使用 Python fallback 用于 Efron 梯度计算
-  - 基准测试结果:
-    - n=1000, p=10: statgpu-Torch 2.05x, lifelines 3.33x, R survival 21.6x (vs statsmodels)
-    - n=5000, p=20: statgpu-Torch **15.44x**, lifelines 3.42x (vs statsmodels)
   - 测试脚本:
     - `dev/scripts/test_coxph_fit.py` - CoxPH 拟合与 lifelines 对比
     - `dev/scripts/final_verification.py` - 综合验证脚本
-  - 报告:
-    - `results/coxph_benchmark_report_2026-04-20.md` - 综合性能对比报告
+  - 当前跨后端精度与性能结论统一引用 2026-07-12 的 quick/full survival completion 产物
 
 ### 新增 (2026-04-18)
 
@@ -1031,7 +1073,7 @@
     - LogisticRegression Torch GPU: 数值精度 ~1e-14
     - Lasso Torch GPU: 数值精度 ~1e-5
     - Ridge Torch GPU: 数值精度 ~1e-15
-    - CoxPH Torch GPU: 数值精度 ~1e-15
+    - CoxPH Torch GPU 精度验证已完成；当前定量结论见 2026-07-12 产物
 
 - **PyTorch 后端完整实现** (Torch Backend Complete):
   - ✅ 所有核心模型支持 Torch 后端 (LinearRegression, Ridge, Lasso, LogisticRegression, CoxPH)
@@ -1096,7 +1138,7 @@
     - Ridge HC3: Torch GPU 0.067s vs CuPy GPU 0.064s (4% 差距)
     - Logistic HC1: Torch GPU 0.099s vs CuPy GPU 0.102s (Torch 胜!)
     - Lasso: Torch GPU 0.081s vs CuPy GPU 0.076s (7% 差距)
-    - CoxPH: Torch GPU 1.94s vs CuPy GPU 0.42s (CuPy 更快，因 baseline hazard 优化)
+    - CoxPH 的当前跨后端计时见 2026-07-12 的 quick/full survival completion 产物
     - GPU 相比 CPU 提供 60x 加速用于稳健协方差
   - 文档:
     - `dev/docs/torch_backend_full_feature_report.md` - 完整基准报告
@@ -1119,8 +1161,8 @@
   - LinearRegression 和 LogisticRegression 的 HAC 协方差
   - Newey-West 带宽选择
   - 修复 Ridge 推断的 penalized bread
-  - 为 CV 骨架添加 NotImplementedError
-  - 明确 CV 类的已实现 vs 仅接口范围
+  - 为当时尚未实现的 CV 路径添加明确错误（这些路径随后已完成）
+  - 明确 CV 类的实现范围
 
 - **PR #11 — 新模型文档**:
   - Knockoff 特征选择文档
@@ -1243,12 +1285,12 @@
   - `hc1`
   （当前为稳健协方差近似路径）
 - `CoxPH(cov_type='cluster')`：
-  - 支持按 cluster 分组的 sandwich 协方差（CPU 路径）
-- 导出 CV 估计器接口骨架：
+  - 支持按 cluster 分组的 sandwich 协方差（NumPy/CuPy/Torch）
+- 导出 CV 估计器：
   - `RidgeCV`
   - `LogisticRegressionCV`
   - `CoxPHCV`
-  - 当前状态：仅提供接口骨架；CV 训练逻辑尚未实现，当前会抛出 `NotImplementedError`。
+  - 当前状态：三者均提供完整训练/搜索逻辑；`CoxPHCV` 的最新范围见 2026-07-12。
 - 新增外部框架统一对标脚本：
   - `dev/benchmarks/benchmark_external_frameworks.py`
 - 新增全方法大规模 benchmark：

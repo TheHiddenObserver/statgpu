@@ -1,7 +1,9 @@
 # Models Overview
 
-> Language: English  
-> Last updated: 2026-07-01  
+> Language: English
+>
+> Last updated: 2026-07-12
+>
 > Switch: [Chinese](../../cn/models/README.md)
 
 ---
@@ -25,7 +27,7 @@
 | Huber | [robust.md](robust.md) | `PenalizedRobustRegression` | Proximal Newton |
 | Bisquare | [robust.md](robust.md) | `PenalizedRobustRegression` | Proximal Newton |
 | Fair | [robust.md](robust.md) | `PenalizedRobustRegression` | Proximal Newton |
-| Cox PH | [coxph.md](coxph.md) | `PenalizedCoxRegression` | Proximal Newton |
+| Cox PH | [coxph.md](coxph.md) | `PenalizedCoxPHModel` | FISTA / FISTA-LLA |
 | GLM (7 families) | [losses.md](losses.md) | `PenalizedGeneralizedLinearModel` | IRLS / Newton / FISTA |
 
 ---
@@ -52,7 +54,15 @@
 
 | Model | Page | Features |
 |-------|------|----------|
-| CoxPH | [coxph.md](coxph.md) | Breslow/Efron ties, vectorized grad/hess, CuPy/Triton GPU |
+| `CoxPH` | [coxph.md](coxph.md) | Breslow/Efron/Exact ties; entry/start-stop, strata, subject-aware concordance; nonrobust/HC0/HC1/cluster inference |
+| `CoxPHCV` | [coxph.md](coxph.md) | L2 grid selection and refit; supports start, strata, subject-preserving folds, and Exact ties |
+| `PenalizedCoxPHModel` | [coxph.md](coxph.md) | Estimation-only L1/L2/ElasticNet/SCAD/MCP; no intercept; FISTA-LLA for SCAD/MCP |
+
+`CoxPH` and penalized Cox use native NumPy, CuPy, and Torch model operations.
+`CoxPHCV` keeps fold bookkeeping and held-out scoring on the host while fitting
+every candidate and the final refit on the requested backend. Exact-tie robust
+covariance is not implemented, and penalized Cox inference is explicitly
+unavailable.
 
 ---
 
@@ -99,6 +109,6 @@
 | Solvers | 10: exact, irls, newton, lbfgs, fista, fista_bb, fista_lla, proximal_irls_cd, proximal_newton, admm |
 | Backends | numpy, cupy, torch — all core solvers support all three |
 | GPU fallback | Explicit GPU devices do not silently fall back to CPU |
-| sample_weight | Supported by IRLS/FISTA paths; not supported by Ordered models, CoxPH, and GLM Newton/LBFGS |
-| CV | LassoCV, RidgeCV, LogisticRegressionCV, CoxPHCV, PenalizedGLM_CV |
-| Inference | nonrobust/HC0/HC1 (sandwich), HC2/HC3/HAC (Gaussian only), bootstrap, debiased Lasso, analytical Hessian (ordered) |
+| sample_weight | Supported by IRLS/FISTA paths; not supported by Ordered models, Cox partial likelihood, and GLM Newton/LBFGS |
+| CV | LassoCV, RidgeCV, LogisticRegressionCV, CoxPHCV (L2; all tie methods), PenalizedGLM_CV |
+| Inference | nonrobust/HC0/HC1 (sandwich), Cox cluster covariance, HC2/HC3/HAC (Gaussian only), bootstrap, debiased Lasso, analytical Hessian (ordered); Exact Cox is nonrobust-only |

@@ -1,7 +1,8 @@
 # Loss × Penalty × Solver Framework
 
-> Language: English  
-> Last updated: 2026-07-01
+> Language: English
+>
+> Last updated: 2026-07-12
 
 ## Overview
 
@@ -19,7 +20,7 @@ fit(X, y, sample_weight)
        ├── fista / fista_bb / fista_lla → FISTA family
        ├── newton / irls                  → smooth paths
        ├── proximal_irls_cd              → quantile + SCAD/MCP
-       ├── proximal_newton               → Huber/Bisquare/Cox + SCAD/MCP
+       ├── proximal_newton               → Huber/Bisquare + SCAD/MCP
        └── lbfgs / admm                 → quasi-Newton / augmented Lagrangian
 ```
 
@@ -66,8 +67,12 @@ $$\ell(u) = \begin{cases} \frac{1}{2}u^2 & |u| \leq k \\ k|u| - \frac{1}{2}k^2 &
 **Bisquare (Tukey biweight)** (c = 4.685):
 $$\ell(u) = \begin{cases} \frac{c^2}{6}[1 - (1-(u/c)^2)^3] & |u| \leq c \\ c^2/6 & |u| > c \end{cases}$$
 
-**Cox Partial Likelihood** (Breslow / Efron ties):
+**Cox Partial Likelihood** (Breslow / Efron ties in `CoxPartialLikelihoodLoss`):
 $$L(\beta) = \prod_{i:\delta_i=1} \frac{\exp(X_i\beta)}{\sum_{j:T_j \geq T_i} \exp(X_j\beta)}$$
+
+The high-level `CoxPH` estimator additionally implements Exact ties,
+delayed-entry/counting-process risk sets, and strata. Its Exact path is not a
+generic `LossBase` solver combination.
 
 ## 2. Penalty Functions
 
@@ -105,11 +110,14 @@ The `solver="auto"` dispatch follows priority:
 |----------|--------|-----------|
 | 1 | `exact` | squared_error + l2 + numpy |
 | 2 | `newton` | squared_error + l2 + GPU |
-| 3 | `fista` (LLA) | all nonconvex penalties (SCAD/MCP/adaptive) |
+| 3 | `fista_lla` | nonconvex SCAD/MCP paths, including penalized Cox |
 | 4 | `fista` | quantile (has no Hessian) |
 | 5 | `fista` / `fista_bb` | squared_error/GLM + sparse penalties |
 | 6 | `lbfgs` / `newton` | CV + L2 + loss-specific |
 | 7 | `newton` / `irls` | smooth penalties + smooth losses |
+
+The `exact` solver in this table is the closed-form squared-error/L2 solver; it
+is unrelated to `CoxPH(ties="exact")`.
 
 ### All Solvers
 
@@ -124,7 +132,7 @@ The `solver="auto"` dispatch follows priority:
 | `fista_bb` | any | all (except nonconvex groups) | ✅ | ✅ |
 | `fista_lla` | any (SCAD/MCP path) | SCAD/MCP/adaptive | ✅ | ✅ |
 | `proximal_irls_cd` | quantile only | SCAD/MCP | ✅ | ✅ |
-| `proximal_newton` | any with Hessian | SCAD/MCP/adaptive (via LLA) | ✅ | ✅ |
+| `proximal_newton` | selected Hessian losses | SCAD/MCP/adaptive (via LLA) | ✅ | ✅ |
 | `admm` | any | all | ❌ | ✅ |
 
 ### Specialized Solvers
@@ -135,7 +143,7 @@ The `solver="auto"` dispatch follows priority:
 3. Parallel diagonal majorization step + LLA threshold
 4. GPU: convergence check stays on device, only syncs bool
 
-**Proximal Newton** (Huber/Bisquare/Cox + SCAD/MCP):
+**Proximal Newton** (Huber/Bisquare + SCAD/MCP):
 1. Compute Hessian `H = ∇²ℓ(β)` and gradient `g = ∇ℓ(β)`
 2. Newton direction: `d = -H⁻¹·g`
 3. Armijo line search with proximal step
@@ -144,7 +152,10 @@ The `solver="auto"` dispatch follows priority:
 **FISTA-LLA** (generic nonconvex path):
 1. Continuation path: λ_max → target α (3-5 steps)
 2. LLA outer loop (2-5 iterations per step)
-3. FISTA or Proximal Newton inner solve
+3. Weighted-L1 FISTA inner solve
+
+`PenalizedCoxPHModel` uses this FISTA-LLA continuation for SCAD and MCP. Its
+convex L1/L2/ElasticNet paths use the corresponding FISTA/Newton routing.
 
 ## 4. Backend Coverage
 
@@ -156,7 +167,8 @@ The `solver="auto"` dispatch follows priority:
 | FISTA-BB (weighted) | ✅ | ✅ | ✅ |
 | FISTA-LLA (weighted) | ✅ | ✅ | ✅ |
 | Quantile IRLS (smooth) | ✅ | ✅ | ✅ |
-| CoxPH Efron GPU | ✅ | ✅ (kernel) | ✅ (DLPack→CuPy) |
+| Cox partial likelihood (Breslow/Efron) | ✅ native | ✅ native | ✅ native |
+| CoxPH counting process / strata / Exact | ✅ native | ✅ native | ✅ native |
 | DBSCAN | ✅ | GPU dist + host-sync CC | ✅ on-device |
 | UMAP | ✅ | backend-aware + known host transfer | backend-aware + known host transfer |
 
@@ -170,7 +182,11 @@ The `solver="auto"` dispatch follows priority:
 | `PenalizedPoissonRegression` | poisson | l1/l2/elasticnet/scad/mcp/adaptive_l1 | irls/fista |
 | `PenalizedQuantileRegression` | quantile | scad/mcp/l2 | proximal_irls_cd/fista/irls |
 | `PenalizedRobustRegression` | huber/bisquare | scad/mcp/l2 | proximal_newton/irls |
-| `PenalizedCoxRegression` | cox_ph | scad/mcp/l2 | proximal_newton |
+| `PenalizedCoxPHModel` | cox_ph | l1/l2/elasticnet/scad/mcp | fista/newton; fista_lla for SCAD/MCP |
+
+The penalized Cox wrapper never fits an intercept and is estimation-only.
+Passing `compute_inference=True` raises `NotImplementedError` rather than
+falling through to generic GLM inference.
 
 ## 6. Quick Reference
 
@@ -186,9 +202,15 @@ model = PenalizedRobustRegression(loss='huber', penalty='mcp', alpha=0.1)
 model.fit(X, y)
 
 # Cox PH with SCAD penalty
-from statgpu.linear_model.penalized import PenalizedCoxRegression
-model = PenalizedCoxRegression(penalty='scad', alpha=0.1)
-model.fit(X, (time, event))
+import numpy as np
+from statgpu.linear_model.penalized import PenalizedCoxPHModel
+
+y_surv = np.column_stack([time, event])
+model = PenalizedCoxPHModel(
+    penalty='scad', alpha=0.1,
+    fit_intercept=False, compute_inference=False,
+)
+model.fit(X, y_surv)
 
 # All penalties + losses via PenalizedGeneralizedLinearModel
 from statgpu.linear_model.penalized import PenalizedGeneralizedLinearModel
