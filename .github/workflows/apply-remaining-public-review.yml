@@ -1,0 +1,66 @@
+name: Apply Remaining Public Module Review
+
+on:
+  pull_request:
+    branches: [master]
+
+permissions:
+  contents: write
+
+jobs:
+  apply-review:
+    if: github.head_ref == 'agent/code-review-fixes'
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/code-review-fixes
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Apply focused patch
+        run: python dev/manual/apply_remaining_public_review.py
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[validation,formula]"
+          python -m pip install ruff
+      - name: Compile and static check
+        run: |
+          python -m compileall -q \
+            statgpu/nonparametric/kernel_smoothing \
+            statgpu/nonparametric/splines \
+            statgpu/semiparametric \
+            statgpu/metrics \
+            dev/tests/test_module_review_smoothing_splines_gam_metrics.py
+          ruff check \
+            statgpu/nonparametric/kernel_smoothing \
+            statgpu/nonparametric/splines \
+            statgpu/semiparametric \
+            statgpu/metrics \
+            dev/tests/test_module_review_smoothing_splines_gam_metrics.py \
+            --select F821,E9,F63,F7,F82,B023
+      - name: Run focused and existing regressions
+        run: |
+          set +e
+          python -m pytest \
+            dev/tests/test_module_review_smoothing_splines_gam_metrics.py \
+            dev/tests/test_splines_p2.py \
+            dev/tests/test_nonparametric_kernel_regression.py \
+            dev/tests/test_inference_kde.py \
+            dev/tests/test_metrics.py \
+            -q --tb=long > /tmp/remaining-public.log 2>&1
+          status=$?
+          cat /tmp/remaining-public.log
+          exit $status
+      - name: Commit fixes and remove temporary workflow
+        run: |
+          rm -f dev/manual/apply_remaining_public_review.py
+          rm -f .github/workflows/apply-remaining-public-review.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'fix: harden smoothing spline GAM and metrics contracts'
+          git push origin HEAD:agent/code-review-fixes
