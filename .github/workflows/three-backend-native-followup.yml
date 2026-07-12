@@ -37,11 +37,17 @@ jobs:
             statgpu/anova/_posthoc.py \
             dev/tests/test_three_backend_native_followup.py \
             --select F821,E9,F63,F7,F82,B023
-      - name: Run focused native parity
+      - name: Run parity and affected regression suites
         id: focused
         continue-on-error: true
         run: |
-          python -m pytest dev/tests/test_three_backend_native_followup.py \
+          python -m pytest \
+            dev/tests/test_three_backend_native_followup.py \
+            dev/tests/test_module_review_covariance_panel.py \
+            dev/tests/test_module_review_smoothing_splines_gam_metrics.py \
+            dev/tests/test_module_review_anova_kernel.py \
+            dev/tests/test_splines_p2.py \
+            dev/tests/test_anova_p2.py \
             -q --tb=long > /tmp/native-parity.log 2>&1
       - name: Upload parity diagnostics
         if: always()
@@ -53,5 +59,5 @@ jobs:
       - name: Enforce focused result
         if: steps.focused.outcome != 'success'
         run: |
-          tail -n 50 /tmp/native-parity.log
+          tail -n 80 /tmp/native-parity.log
           exit 1
