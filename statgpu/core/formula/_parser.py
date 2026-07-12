@@ -49,11 +49,27 @@ class FormulaParser:
         self.formula = formula
         self._design_info = None
         self._y_names: Optional[List[str]] = None
+        self._row_positions: Optional[np.ndarray] = None
+        self._row_index = None
 
     @property
     def design_info(self):
         """Design matrix metadata, available after :meth:`eval`."""
         return self._design_info
+
+    @property
+    def row_positions(self) -> Optional[np.ndarray]:
+        """Zero-based positions retained after Patsy missing-value filtering."""
+        if self._row_positions is None:
+            return None
+        return self._row_positions.copy()
+
+    @property
+    def row_index(self):
+        """Original DataFrame index retained after formula evaluation."""
+        if self._row_index is None:
+            return None
+        return self._row_index.copy()
 
     @property
     def column_names(self) -> Optional[List[str]]:
@@ -99,16 +115,22 @@ class FormulaParser:
         """
         patsy = self._require_patsy()
         data = data.copy()
+        original_index = data.index.copy()
+        # A positional index lets callers align side arrays (sample weights,
+        # clusters, offsets) after Patsy drops rows containing missing values.
+        data.index = pd.RangeIndex(len(data))
 
         y, X = patsy.dmatrices(
             self.formula,
             data,
             eval_env=eval_env + 1,
-            return_type="matrix",
+            return_type="dataframe",
         )
 
         self._y_names = list(y.design_info.column_names)
         self._design_info = X.design_info
+        self._row_positions = np.asarray(X.index, dtype=np.int64)
+        self._row_index = original_index.take(self._row_positions)
 
         y_arr = np.asarray(y)
         if y_arr.ndim == 2 and y_arr.shape[1] == 1:

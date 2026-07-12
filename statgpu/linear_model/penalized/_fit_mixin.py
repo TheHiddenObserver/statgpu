@@ -272,6 +272,18 @@ class _PenalizedFitMixin:
 
             parser = FormulaParser(formula)
             y, X, design_info = parser.eval(data)
+            if sample_weight is not None:
+                sw_formula = np.asarray(_to_numpy(sample_weight), dtype=np.float64).reshape(-1)
+                row_positions = parser.row_positions
+                if sw_formula.shape[0] == len(data):
+                    sample_weight = sw_formula[row_positions]
+                elif sw_formula.shape[0] == X.shape[0]:
+                    sample_weight = sw_formula
+                else:
+                    raise ValueError(
+                        "For formula fitting, sample_weight must have length "
+                        "len(data) or the number of rows retained by the formula."
+                    )
             formula_column_names = list(design_info.column_names)
             self._design_info = design_info
             self._formula_has_intercept = "Intercept" in formula_column_names

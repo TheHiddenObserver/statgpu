@@ -112,3 +112,52 @@ def test_weighted_default_alpha_grid_uses_average_loss_scale():
     grid = _default_ridge_alpha_grid(X, y, n_alphas=7, sample_weight=w)
     scaled = _default_ridge_alpha_grid(X, y, n_alphas=7, sample_weight=9.0 * w)
     np.testing.assert_allclose(grid, scaled, rtol=1e-12, atol=1e-12)
+
+
+
+def test_formula_missing_rows_aligns_full_length_sample_weights():
+    pd = pytest.importorskip("pandas")
+    rng = np.random.default_rng(1206)
+    n = 150
+    X = rng.normal(size=(n, 3))
+    y = 0.4 + X @ np.array([0.8, -0.6, 0.3]) + rng.normal(scale=0.25, size=n)
+    w = rng.uniform(0.2, 3.0, size=n)
+    frame = pd.DataFrame(X, columns=["x1", "x2", "x3"])
+    frame["y"] = y
+    frame.loc[[4, 31, 92], "x2"] = np.nan
+    frame.loc[[17, 108], "y"] = np.nan
+    keep = frame[["y", "x1", "x2", "x3"]].notna().all(axis=1).to_numpy()
+
+    formula = Ridge(alpha=0.13, compute_inference=False, device="cpu").fit(
+        formula="y ~ x1 + x2 + x3", data=frame, sample_weight=w
+    )
+    direct = Ridge(alpha=0.13, compute_inference=False, device="cpu").fit(
+        X[keep], y[keep], sample_weight=w[keep]
+    )
+
+    np.testing.assert_allclose(formula.coef_, direct.coef_, rtol=1e-11, atol=1e-11)
+    np.testing.assert_allclose(formula.intercept_, direct.intercept_, rtol=1e-11, atol=1e-11)
+
+
+def test_ridgecv_is_invariant_to_global_weight_rescaling():
+    from statgpu.linear_model import RidgeCV
+
+    rng = np.random.default_rng(1207)
+    X = rng.normal(size=(180, 6))
+    y = 0.3 + X @ rng.normal(size=6) + rng.normal(scale=0.5, size=180)
+    w = rng.uniform(0.1, 2.5, size=180)
+    alphas = np.array([0.01, 0.04, 0.12, 0.4])
+
+    first = RidgeCV(
+        alphas=alphas, cv=4, random_state=9, device="cpu",
+        compute_inference=False,
+    ).fit(X, y, sample_weight=w)
+    second = RidgeCV(
+        alphas=alphas, cv=4, random_state=9, device="cpu",
+        compute_inference=False,
+    ).fit(X, y, sample_weight=11.0 * w)
+
+    assert first.alpha_ == second.alpha_
+    np.testing.assert_allclose(first.mean_mse_, second.mean_mse_, rtol=1e-12, atol=1e-12)
+    np.testing.assert_allclose(first.coef_, second.coef_, rtol=1e-11, atol=1e-11)
+    np.testing.assert_allclose(first.intercept_, second.intercept_, rtol=1e-11, atol=1e-11)
