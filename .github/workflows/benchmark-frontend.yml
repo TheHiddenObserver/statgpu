@@ -115,11 +115,9 @@ jobs:
             exit 1
           fi
 
-          git show b63e184fa2d9de3c1d2ba8f83c251c5788ca0847:.github/workflows/benchmark-frontend.yml \
-            > .github/workflows/benchmark-frontend.yml
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add .github/workflows/benchmark-frontend.yml frontend/public/data docs/assets/benchmarks
+          git add frontend/public/data docs/assets/benchmarks
           git commit -m "build(frontend): publish June-only bundle (1577 runs, 31 models)"
           git push origin HEAD:frontend-dashboard-data-pipeline
 
