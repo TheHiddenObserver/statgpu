@@ -12,7 +12,7 @@ from typing import Optional
 
 import numpy as np
 
-from statgpu.backends import xp_maximum
+from statgpu.backends import _to_float_scalar, xp_maximum
 
 
 # ---------------------------------------------------------------------------
@@ -243,6 +243,30 @@ def cosine_kernel(X, Y=None, xp=None):
     return (X @ Y.T) / (X_norm * Y_norm + 1e-10)
 
 
+def _chi2_kernel_numpy_fallback(X, Y, gamma=1.0, max_elements=2_000_000):
+    """Chunked NumPy chi-squared kernel used when sklearn is unavailable."""
+    X = np.asarray(X)
+    Y = np.asarray(Y)
+    n, p = X.shape
+    m = Y.shape[0]
+    chunk = min(p, max(1, int(max_elements) // max(n * m, 1)))
+    chi2_dist = np.zeros((n, m), dtype=np.result_type(X.dtype, Y.dtype, np.float64))
+    for start in range(0, p, chunk):
+        end = min(start + chunk, p)
+        Xc = X[:, None, start:end]
+        Yc = Y[None, :, start:end]
+        numerator = (Xc - Yc) ** 2
+        denominator = Xc + Yc
+        contribution = np.divide(
+            numerator,
+            denominator,
+            out=np.zeros_like(numerator, dtype=chi2_dist.dtype),
+            where=denominator > 0,
+        )
+        chi2_dist += np.sum(contribution, axis=2)
+    return np.exp(-float(gamma) * chi2_dist)
+
+
 def chi2_kernel(X, Y=None, gamma=1.0, xp=None):
     r"""Chi-squared kernel.
 
@@ -275,48 +299,36 @@ def chi2_kernel(X, Y=None, gamma=1.0, xp=None):
     """
     if xp is None:
         xp = np
-    if Y is None:
+    if not np.isfinite(gamma) or gamma < 0:
+        raise ValueError("gamma must be finite and non-negative")
+
+    if xp is np:
+        X = np.asarray(X)
+        Y = X if Y is None else np.asarray(Y)
+    elif Y is None:
         Y = X
 
-    # Ensure non-negative
-    if xp is np:
-        X = np.maximum(np.asarray(X), 0)
-        Y = np.maximum(np.asarray(Y), 0)
-    else:
-        X = xp_maximum(X, 0, xp)
-        Y = xp_maximum(Y, 0, xp)
+    if getattr(X, "ndim", None) != 2 or getattr(Y, "ndim", None) != 2:
+        raise ValueError("X and Y must be two-dimensional arrays")
+    if X.shape[1] != Y.shape[1]:
+        raise ValueError("X and Y must have the same number of features")
+    if _to_float_scalar(xp.min(X)) < 0 or _to_float_scalar(xp.min(Y)) < 0:
+        raise ValueError("chi2_kernel requires non-negative input features")
 
-    # chi-squared distance: sum_i (x_i - y_i)^2 / (x_i + y_i)
     if xp is np:
-        # Use sklearn's Cython-optimized implementation for numpy
         try:
             from sklearn.metrics.pairwise import chi2_kernel as _sk_chi2
-            return _sk_chi2(np.asarray(X), np.asarray(Y), gamma=gamma)
+            return _sk_chi2(X, Y, gamma=gamma)
         except ImportError:
-            pass
-        # Fallback: chunked broadcasting
-        n, p = X.shape
-        m = Y.shape[0]
-        chunk = min(p, max(1, 2000000 // max(n * m, 1)))
-        chi2_dist = np.zeros((n, m), dtype=X.dtype)
-        for start in range(0, p, chunk):
-            end = min(start + chunk, p)
-            Xc = X[:, start:end, None]
-            Yc = Y[None, :, start:end]
-            s = Xc + Yc
-            np.maximum(s, 1e-10, out=s)
-            chi2_dist += np.sum((Xc - Yc) ** 2 / s, axis=2)
-        return np.exp(-gamma * chi2_dist)
-    else:
-        # GPU: use broadcasting
-        X_exp = X[:, None, :]
-        Y_exp = Y[None, :, :]
-        numerator = (X_exp - Y_exp) ** 2
-        denominator = X_exp + Y_exp
-        denom_safe = xp_maximum(denominator, 1e-10, xp)
-        chi2_dist = xp.sum(numerator / denom_safe, axis=2)
+            return _chi2_kernel_numpy_fallback(X, Y, gamma=gamma)
 
-    return xp.exp(-gamma * chi2_dist, out=chi2_dist)
+    X_exp = X[:, None, :]
+    Y_exp = Y[None, :, :]
+    numerator = (X_exp - Y_exp) ** 2
+    denominator = X_exp + Y_exp
+    denom_safe = xp_maximum(denominator, 1e-10, xp)
+    chi2_dist = xp.sum(numerator / denom_safe, axis=2)
+    return xp.exp(-gamma * chi2_dist)
 
 
 # ---------------------------------------------------------------------------

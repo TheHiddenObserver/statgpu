@@ -13,7 +13,7 @@ from typing import Any
 
 import numpy as np
 
-from statgpu.backends import _get_xp, _resolve_backend, _to_float_scalar
+from statgpu.backends import _get_xp, _resolve_backend, _to_float_scalar, _to_numpy
 from statgpu.anova._oneway import AnovaResult
 
 
@@ -74,9 +74,11 @@ def f_welch(
     # Convert groups to flat numpy arrays for statistics
     flat_groups = []
     for g in groups:
-        arr = np.asarray(g, dtype=np.float64).ravel()
+        arr = np.asarray(_to_numpy(g), dtype=np.float64).ravel()
         if arr.size < 2:
             raise ValueError("Welch ANOVA requires at least 2 observations per group")
+        if not np.all(np.isfinite(arr)):
+            raise ValueError("Welch ANOVA groups must contain only finite values")
         flat_groups.append(arr)
 
     k = len(flat_groups)
@@ -95,15 +97,11 @@ def f_welch(
                 return AnovaResult(float("nan"), float("nan"), k - 1, int(sum(n_k)) - k, float("nan"))
             else:
                 return AnovaResult(float("inf"), 0.0, k - 1, int(sum(n_k)) - k, float("nan"))
-        # Some but not all zero: filter to non-zero variance groups
-        mask = s2_k > 0
-        flat_groups = [g for g, m in zip(flat_groups, mask) if m]
-        n_k = n_k[mask]
-        xbar_k = xbar_k[mask]
-        s2_k = s2_k[mask]
-        k = len(flat_groups)
-        if k < 2:
-            raise ValueError("After filtering zero-variance groups, fewer than 2 groups remain")
+        # Dropping only the zero-variance groups changes the null hypothesis.
+        # Require the caller to handle this degenerate mixed case explicitly.
+        raise ValueError(
+            "Welch ANOVA is undefined when only some groups have zero variance"
+        )
 
     # Weights (inverse variance)
     w_k = n_k / s2_k
@@ -139,6 +137,6 @@ def f_welch(
         statistic=float(f_stat),
         pvalue=float(pvalue),
         df_between=int(df1),
-        df_within=int(round(df2)),
+        df_within=float(df2),
         eta_squared=float("nan"),
     )

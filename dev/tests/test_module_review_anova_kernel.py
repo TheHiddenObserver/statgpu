@@ -139,7 +139,7 @@ def test_kernel_ridge_multioutput_score_matches_sklearn_r2():
 
 def test_kernel_ridge_constant_target_force_finite_semantics():
     X = np.arange(12.0).reshape(-1, 1)
-    model = KernelRidge(alpha=0.0, kernel="linear").fit(X, np.ones(12))
+    model = KernelRidge(alpha=0.0, kernel="rbf", gamma=0.2).fit(X, np.ones(12))
     assert model.score(X, np.ones(12)) == pytest.approx(1.0)
     assert model.score(X, np.zeros(12)) == pytest.approx(0.0)
 
