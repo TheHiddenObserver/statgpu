@@ -85,12 +85,7 @@ path.write_text(text)
 # ---------------------------------------------------------------------------
 path = Path("statgpu/covariance/_graphical_lasso.py")
 text = path.read_text()
-text = replace_once(
-    text,
-    "from statgpu.backends import _get_xp\n",
-    "from statgpu.backends import _get_xp, _to_numpy\n",
-    str(path),
-)
+text = replace_once(text, "from statgpu.backends import _get_xp\n", "from statgpu.backends import _get_xp, _to_numpy\n", str(path))
 new_fit = '''    def fit(self, X, y=None):
         """Fit graphical lasso by covariance block coordinate descent."""
         alpha = float(self.alpha)
@@ -124,8 +119,6 @@ new_fit = '''    def fit(self, X, y=None):
             self.n_iter_ = 1
         else:
             covariance = empirical.copy()
-            # The graphical-lasso penalty excludes precision diagonal terms;
-            # consequently the dual covariance diagonal stays empirical.
             np.fill_diagonal(covariance, np.diag(empirical))
             inner_tol = min(1e-8, float(self.tol) * 0.1)
             beta_cache = [np.zeros(p - 1, dtype=np.float64) for _ in range(p)]
@@ -146,11 +139,7 @@ new_fit = '''    def fit(self, X, y=None):
                             diagonal = W11[coordinate, coordinate]
                             if diagonal <= 0:
                                 raise ValueError("GraphicalLasso encountered a non-positive covariance diagonal")
-                            partial = (
-                                s12[coordinate]
-                                - W11[coordinate] @ beta
-                                + diagonal * beta[coordinate]
-                            )
+                            partial = s12[coordinate] - W11[coordinate] @ beta + diagonal * beta[coordinate]
                             beta[coordinate] = _soft_threshold(partial, alpha) / diagonal
                         if np.max(np.abs(beta - beta_old)) <= inner_tol:
                             break
@@ -189,16 +178,11 @@ new_fit = '''    def fit(self, X, y=None):
 
 '''
 text = replace_block(text, "    def fit(self, X, y=None):\n", "    def get_params(self, deep=True):\n", new_fit, str(path))
-text = replace_once(
-    text,
-    "        X_np = np.asarray(X, dtype=np.float64)\n",
-    "        X_np = np.asarray(_to_numpy(X), dtype=np.float64)\n",
-    str(path),
-)
+text = replace_once(text, "        X_np = np.asarray(X, dtype=np.float64)\n", "        X_np = np.asarray(_to_numpy(X), dtype=np.float64)\n", str(path))
 text = replace_once(
     text,
     "        n, p = X_np.shape\n\n        # Build alpha grid\n        if isinstance(self.alphas, int):\n            alpha_grid = np.logspace(-2, 0, self.alphas)\n        else:\n            alpha_grid = np.asarray(self.alphas, dtype=np.float64)\n\n        # K-fold CV\n",
-    "        n, p = X_np.shape\n        if n < 2 or p < 1 or not np.all(np.isfinite(X_np)):\n            raise ValueError(\"X must be a finite 2D array with at least 2 samples\")\n        if isinstance(self.cv, bool) or not isinstance(self.cv, (int, np.integer)):\n            raise ValueError(\"cv must be an integer\")\n        if int(self.cv) < 2 or int(self.cv) > n:\n            raise ValueError(\"cv must satisfy 2 <= cv <= n_samples\")\n\n        # Build alpha grid\n        if isinstance(self.alphas, (int, np.integer)) and not isinstance(self.alphas, bool):\n            if int(self.alphas) < 1:\n                raise ValueError(\"alphas must be a positive integer or a non-empty array\")\n            alpha_grid = np.logspace(-2, 0, int(self.alphas))\n        else:\n            alpha_grid = np.asarray(self.alphas, dtype=np.float64).ravel()\n        if alpha_grid.size == 0 or not np.all(np.isfinite(alpha_grid)) or np.any(alpha_grid < 0):\n            raise ValueError(\"alphas must be finite, non-negative, and non-empty\")\n\n        # K-fold CV\n",
+    "        n, p = X_np.shape\n        if n < 2 or p < 1 or not np.all(np.isfinite(X_np)):\n            raise ValueError(\"X must be a finite 2D array with at least 2 samples\")\n        if isinstance(self.cv, bool) or not isinstance(self.cv, (int, np.integer)):\n            raise ValueError(\"cv must be an integer\")\n        if int(self.cv) < 2 or int(self.cv) > n:\n            raise ValueError(\"cv must satisfy 2 <= cv <= n_samples\")\n\n        if isinstance(self.alphas, (int, np.integer)) and not isinstance(self.alphas, bool):\n            if int(self.alphas) < 1:\n                raise ValueError(\"alphas must be a positive integer or a non-empty array\")\n            alpha_grid = np.logspace(-2, 0, int(self.alphas))\n        else:\n            alpha_grid = np.asarray(self.alphas, dtype=np.float64).ravel()\n        if alpha_grid.size == 0 or not np.all(np.isfinite(alpha_grid)) or np.any(alpha_grid < 0):\n            raise ValueError(\"alphas must be finite, non-negative, and non-empty\")\n\n        # K-fold CV\n",
     str(path),
 )
 path.write_text(text)
@@ -209,42 +193,17 @@ path.write_text(text)
 # ---------------------------------------------------------------------------
 path = Path("statgpu/covariance/_robust.py")
 text = path.read_text()
-text = replace_once(
-    text,
-    "        X_np = np.asarray(X, dtype=np.float64)\n",
-    "        X_np = np.asarray(_to_numpy(X), dtype=np.float64)\n",
-    str(path),
-)
+text = replace_once(text, "        X_np = np.asarray(X, dtype=np.float64)\n", "        X_np = np.asarray(_to_numpy(X), dtype=np.float64)\n", str(path))
 text = replace_once(
     text,
     "        # Determine h (support size) -- use ceil like sklearn\n        if self.support_fraction is not None:\n            h = int(np.ceil(self.support_fraction * n))\n",
     "        if self.support_fraction is not None:\n            fraction = float(self.support_fraction)\n            if not np.isfinite(fraction) or not 0.0 < fraction <= 1.0:\n                raise ValueError(\"support_fraction must be finite and in (0, 1]\")\n\n        # Determine h (support size) -- use ceil like sklearn\n        if self.support_fraction is not None:\n            h = int(np.ceil(float(self.support_fraction) * n))\n",
     str(path),
 )
-text = replace_once(
-    text,
-    "        raw_location = X_sub.mean(axis=0)\n        raw_cov = (X_sub - raw_location).T @ (X_sub - raw_location) / float(h)\n",
-    "        raw_location = np.zeros(p) if self.assume_centered else X_sub.mean(axis=0)\n        raw_centered = X_sub if self.assume_centered else X_sub - raw_location\n        raw_cov = raw_centered.T @ raw_centered / float(h)\n",
-    str(path),
-)
-text = replace_once(
-    text,
-    "            final_location = X_support.mean(axis=0)\n            final_cov_emp = (X_support - final_location).T @ (X_support - final_location) / float(n_support)\n",
-    "            final_location = np.zeros(p) if self.assume_centered else X_support.mean(axis=0)\n            final_centered = X_support if self.assume_centered else X_support - final_location\n            final_cov_emp = final_centered.T @ final_centered / float(n_support)\n",
-    str(path),
-)
-text = replace_once(
-    text,
-    "    @staticmethod\n    def _c_step(X, subset, h, max_iter=30):\n",
-    "    def _c_step(self, X, subset, h, max_iter=30):\n",
-    str(path),
-)
-text = replace_once(
-    text,
-    "            loc = X_sub.mean(axis=0)\n            cov = (X_sub - loc).T @ (X_sub - loc) / float(h)\n",
-    "            loc = np.zeros(X.shape[1]) if self.assume_centered else X_sub.mean(axis=0)\n            centered = X_sub if self.assume_centered else X_sub - loc\n            cov = centered.T @ centered / float(h)\n",
-    str(path),
-)
+text = replace_once(text, "        raw_location = X_sub.mean(axis=0)\n        raw_cov = (X_sub - raw_location).T @ (X_sub - raw_location) / float(h)\n", "        raw_location = np.zeros(p) if self.assume_centered else X_sub.mean(axis=0)\n        raw_centered = X_sub if self.assume_centered else X_sub - raw_location\n        raw_cov = raw_centered.T @ raw_centered / float(h)\n", str(path))
+text = replace_once(text, "            final_location = X_support.mean(axis=0)\n            final_cov_emp = (X_support - final_location).T @ (X_support - final_location) / float(n_support)\n", "            final_location = np.zeros(p) if self.assume_centered else X_support.mean(axis=0)\n            final_centered = X_support if self.assume_centered else X_support - final_location\n            final_cov_emp = final_centered.T @ final_centered / float(n_support)\n", str(path))
+text = replace_once(text, "    @staticmethod\n    def _c_step(X, subset, h, max_iter=30):\n", "    def _c_step(self, X, subset, h, max_iter=30):\n", str(path))
+text = replace_once(text, "            loc = X_sub.mean(axis=0)\n            cov = (X_sub - loc).T @ (X_sub - loc) / float(h)\n", "            loc = np.zeros(X.shape[1]) if self.assume_centered else X_sub.mean(axis=0)\n            centered = X_sub if self.assume_centered else X_sub - loc\n            cov = centered.T @ centered / float(h)\n", str(path))
 path.write_text(text)
 
 
@@ -256,15 +215,10 @@ text = path.read_text()
 text = replace_once(
     text,
     "    X = xp_asarray(X, dtype=xp.float64, xp=xp)\n    resid = xp_asarray(resid, dtype=xp.float64, xp=xp, ref_arr=X).ravel()\n    clusters = xp_asarray(clusters, xp=xp, ref_arr=X).ravel()\n\n    n, k = X.shape\n",
-    "    # Factorize labels before moving them to a GPU backend, since CuPy and\n    # Torch cannot represent arbitrary string/categorical labels.\n    clusters_np = np.asarray(_to_numpy(clusters)).ravel()\n    X = xp_asarray(X, dtype=xp.float64, xp=xp)\n    resid = xp_asarray(resid, dtype=xp.float64, xp=xp, ref_arr=X).ravel()\n\n    if X.ndim != 2:\n        raise ValueError(\"X must be two-dimensional\")\n    n, k = X.shape\n    if resid.shape[0] != n or clusters_np.shape[0] != n:\n        raise ValueError(\"X, resid, and clusters must have the same number of observations\")\n",
+    "    clusters_np = np.asarray(_to_numpy(clusters)).ravel()\n    X = xp_asarray(X, dtype=xp.float64, xp=xp)\n    resid = xp_asarray(resid, dtype=xp.float64, xp=xp, ref_arr=X).ravel()\n\n    if X.ndim != 2:\n        raise ValueError(\"X must be two-dimensional\")\n    n, k = X.shape\n    if resid.shape[0] != n or clusters_np.shape[0] != n:\n        raise ValueError(\"X, resid, and clusters must have the same number of observations\")\n",
     str(path),
 )
-text = replace_once(
-    text,
-    "    # Factorize cluster labels to contiguous indices\n    clusters_np = _to_numpy(clusters)\n    unique_labels, cluster_idx = np.unique(clusters_np, return_inverse=True)\n",
-    "    # Factorize cluster labels to contiguous indices\n    unique_labels, cluster_idx = np.unique(clusters_np, return_inverse=True)\n",
-    str(path),
-)
+text = replace_once(text, "    # Factorize cluster labels to contiguous indices\n    clusters_np = _to_numpy(clusters)\n    unique_labels, cluster_idx = np.unique(clusters_np, return_inverse=True)\n", "    # Factorize cluster labels to contiguous indices\n    unique_labels, cluster_idx = np.unique(clusters_np, return_inverse=True)\n", str(path))
 text = replace_once(
     text,
     "    elif hasattr(S, 'device') and not hasattr(S, 'get'):\n        # cupy — fall back to numpy loop\n        S_np = np.zeros((n_clusters, k), dtype=np.float64)\n        np.add.at(S_np, cluster_idx, _to_numpy(scores))\n        S = xp_asarray(S_np, dtype=xp.float64, xp=xp, ref_arr=X)\n    else:\n        # numpy\n        np.add.at(S, cluster_idx, scores)\n",
@@ -279,10 +233,38 @@ text = replace_once(
 )
 text = replace_once(
     text,
-    "    xp = _ensure_xp(xp)\n\n    X = xp_asarray(X, dtype=xp.float64, xp=xp)\n",
-    "    xp = _ensure_xp(xp)\n    if str(kernel).lower() != \"bartlett\":\n        raise ValueError(\"kernel must be 'bartlett'\")\n    if bandwidth is not None:\n        if isinstance(bandwidth, bool) or not isinstance(bandwidth, (int, np.integer)):\n            raise ValueError(\"bandwidth must be a non-negative integer or None\")\n        if int(bandwidth) < 0:\n            raise ValueError(\"bandwidth must be a non-negative integer or None\")\n\n    X = xp_asarray(X, dtype=xp.float64, xp=xp)\n",
+    "def hac_covariance(X, resid, bandwidth=None, kernel=\"bartlett\", xp=None):\n",
+    "def hac_covariance(X, resid, bandwidth=None, kernel=\"bartlett\", xp=None):\n",
     str(path),
 )
+hac_anchor = """    xp = _ensure_xp(xp)
+
+    X = xp_asarray(X, dtype=xp.float64, xp=xp)
+    resid = xp_asarray(resid, dtype=xp.float64, xp=xp, ref_arr=X).ravel()
+
+    n, k = X.shape
+
+    # Default bandwidth: Newey-West (1994) rule
+"""
+hac_new = """    xp = _ensure_xp(xp)
+    if str(kernel).lower() != "bartlett":
+        raise ValueError("kernel must be 'bartlett'")
+    if bandwidth is not None:
+        if isinstance(bandwidth, bool) or not isinstance(bandwidth, (int, np.integer)):
+            raise ValueError("bandwidth must be a non-negative integer or None")
+        if int(bandwidth) < 0:
+            raise ValueError("bandwidth must be a non-negative integer or None")
+
+    X = xp_asarray(X, dtype=xp.float64, xp=xp)
+    resid = xp_asarray(resid, dtype=xp.float64, xp=xp, ref_arr=X).ravel()
+
+    if X.ndim != 2 or resid.shape[0] != X.shape[0]:
+        raise ValueError("X and resid must have matching observation counts")
+    n, k = X.shape
+
+    # Default bandwidth: Newey-West (1994) rule
+"""
+text = replace_once(text, hac_anchor, hac_new, str(path))
 path.write_text(text)
 
 
@@ -291,18 +273,8 @@ path.write_text(text)
 # ---------------------------------------------------------------------------
 path = Path("statgpu/panel/_formula.py")
 text = path.read_text()
-text = replace_once(
-    text,
-    "    y_arr, X_arr, design_info = parser.eval(data)\n\n    formula_column_names = list(design_info.column_names)\n",
-    "    y_arr, X_arr, design_info = parser.eval(data)\n    setattr(design_info, \"_statgpu_row_positions\", np.asarray(parser._row_positions, dtype=np.int64))\n\n    formula_column_names = list(design_info.column_names)\n",
-    str(path),
-)
-text = replace_once(
-    text,
-    "    parser = FormulaParser(formula)\n    return parser.eval(data)\n",
-    "    parser = FormulaParser(formula)\n    y_arr, X_arr, design_info = parser.eval(data)\n    setattr(design_info, \"_statgpu_row_positions\", np.asarray(parser._row_positions, dtype=np.int64))\n    return y_arr, X_arr, design_info\n",
-    str(path),
-)
+text = replace_once(text, "    y_arr, X_arr, design_info = parser.eval(data)\n\n    formula_column_names = list(design_info.column_names)\n", "    y_arr, X_arr, design_info = parser.eval(data)\n    setattr(design_info, \"_statgpu_row_positions\", np.asarray(parser._row_positions, dtype=np.int64))\n\n    formula_column_names = list(design_info.column_names)\n", str(path))
+text = replace_once(text, "    parser = FormulaParser(formula)\n    return parser.eval(data)\n", "    parser = FormulaParser(formula)\n    y_arr, X_arr, design_info = parser.eval(data)\n    setattr(design_info, \"_statgpu_row_positions\", np.asarray(parser._row_positions, dtype=np.int64))\n    return y_arr, X_arr, design_info\n", str(path))
 helper = '''def _align_formula_side_array(values, design_info, expected_n=None, name="array"):
     """Align an observation-level side array with rows retained by Patsy."""
     if values is None:
@@ -322,152 +294,53 @@ helper = '''def _align_formula_side_array(values, design_info, expected_n=None, 
         return arr[positions]
     if positions.size == 0 and arr.shape[0] == 0:
         return arr
-    raise ValueError(
-        f"{name} has {arr.shape[0]} observations and cannot be aligned to "
-        f"the {positions.shape[0]} rows retained by the formula"
-    )
+    raise ValueError(f"{name} has {arr.shape[0]} observations and cannot be aligned to the {positions.shape[0]} rows retained by the formula")
 
 
 '''
 text = replace_once(text, "def _formula_predict(X, design_info, formula_has_intercept, model_has_intercept):\n", helper + "def _formula_predict(X, design_info, formula_has_intercept, model_has_intercept):\n", str(path))
-# Align IDs extracted from pipe/token formulas.
-text = replace_once(
-    text,
-    "            if time_effects and time_ids is None and hasattr(data, 'columns'):\n                if 'time' in data.columns:\n                    time_ids = data['time'].values\n",
-    "            if time_effects and time_ids is None and hasattr(data, 'columns'):\n                if 'time' in data.columns:\n                    time_ids = data['time'].values\n            entity_ids = _align_formula_side_array(entity_ids, design_info, len(y_arr), \"entity_ids\")\n            time_ids = _align_formula_side_array(time_ids, design_info, len(y_arr), \"time_ids\")\n",
-    str(path),
-)
+text = replace_once(text, "            if time_effects and time_ids is None and hasattr(data, 'columns'):\n                if 'time' in data.columns:\n                    time_ids = data['time'].values\n", "            if time_effects and time_ids is None and hasattr(data, 'columns'):\n                if 'time' in data.columns:\n                    time_ids = data['time'].values\n            entity_ids = _align_formula_side_array(entity_ids, design_info, len(y_arr), \"entity_ids\")\n            time_ids = _align_formula_side_array(time_ids, design_info, len(y_arr), \"time_ids\")\n", str(path))
 path.write_text(text)
 
 
 # ---------------------------------------------------------------------------
 # Panel model call sites and stable rank-deficient fallbacks
 # ---------------------------------------------------------------------------
-# PooledOLS
 path = Path("statgpu/panel/_pooled.py")
 text = path.read_text()
-text = replace_once(
-    text,
-    "        from statgpu.panel._formula import _prepare_formula_fit, _get_feature_names\n",
-    "        from statgpu.panel._formula import _align_formula_side_array, _prepare_formula_fit\n",
-    str(path),
-)
-text = replace_once(
-    text,
-    "            _prepare_formula_fit(formula, data, X, y, model_has_intercept=True)\n\n        backend = self._get_backend(backend=\"auto\")\n",
-    "            _prepare_formula_fit(formula, data, X, y, model_has_intercept=True)\n        if formula is not None:\n            cluster = _align_formula_side_array(cluster, self._design_info, len(y_arr), \"cluster\")\n            time_index = _align_formula_side_array(time_index, self._design_info, len(y_arr), \"time_index\")\n\n        backend = self._get_backend(backend=\"auto\")\n",
-    str(path),
-)
-text = replace_once(
-    text,
-    "        except _LINALG_ERRORS:\n            params = xp.linalg.lstsq(XtX, Xty)[0]\n\n        resid = y_arr - X_arr @ params\n        scale = _to_float_scalar(xp.sum(resid * resid)) / (n - k)\n",
-    "        except _LINALG_ERRORS:\n            params = xp.linalg.pinv(X_arr) @ y_arr\n\n        if n <= k:\n            raise ValueError(f\"positive residual degrees of freedom required; n={n}, k={k}\")\n        resid = y_arr - X_arr @ params\n        scale = _to_float_scalar(xp.sum(resid * resid)) / (n - k)\n",
-    str(path),
-)
+text = replace_once(text, "        from statgpu.panel._formula import _prepare_formula_fit, _get_feature_names\n", "        from statgpu.panel._formula import _align_formula_side_array, _prepare_formula_fit\n", str(path))
+text = replace_once(text, "            _prepare_formula_fit(formula, data, X, y, model_has_intercept=True)\n\n        backend = self._get_backend(backend=\"auto\")\n", "            _prepare_formula_fit(formula, data, X, y, model_has_intercept=True)\n        if formula is not None:\n            cluster = _align_formula_side_array(cluster, self._design_info, len(y_arr), \"cluster\")\n            time_index = _align_formula_side_array(time_index, self._design_info, len(y_arr), \"time_index\")\n\n        backend = self._get_backend(backend=\"auto\")\n", str(path))
+text = replace_once(text, "        except _LINALG_ERRORS:\n            params = xp.linalg.lstsq(XtX, Xty)[0]\n\n        resid = y_arr - X_arr @ params\n        scale = _to_float_scalar(xp.sum(resid * resid)) / (n - k)\n", "        except _LINALG_ERRORS:\n            params = xp.linalg.pinv(X_arr) @ y_arr\n\n        if n <= k:\n            raise ValueError(f\"positive residual degrees of freedom required; n={n}, k={k}\")\n        resid = y_arr - X_arr @ params\n        scale = _to_float_scalar(xp.sum(resid * resid)) / (n - k)\n", str(path))
 path.write_text(text)
 
-# BetweenOLS
 path = Path("statgpu/panel/_between.py")
 text = path.read_text()
-text = replace_once(
-    text,
-    "        from statgpu.panel._formula import _prepare_formula_fit\n",
-    "        from statgpu.panel._formula import _align_formula_side_array, _prepare_formula_fit\n",
-    str(path),
-)
-text = replace_once(
-    text,
-    "            _prepare_formula_fit(formula, data, X, y, model_has_intercept=True)\n\n        backend = self._get_backend(backend=\"auto\")\n",
-    "            _prepare_formula_fit(formula, data, X, y, model_has_intercept=True)\n        if formula is not None:\n            entity_ids = _align_formula_side_array(entity_ids, self._design_info, len(y_arr), \"entity_ids\")\n\n        backend = self._get_backend(backend=\"auto\")\n",
-    str(path),
-)
-text = replace_once(
-    text,
-    "        except _LINALG_ERRORS:\n            params = xp.linalg.lstsq(XtX, Xty)[0]\n\n        resid = y_mean - X_mean @ params\n        n = n_groups\n        scale = _to_float_scalar(xp.sum(resid * resid)) / (n - k)\n",
-    "        except _LINALG_ERRORS:\n            params = xp.linalg.pinv(X_mean) @ y_mean\n\n        resid = y_mean - X_mean @ params\n        n = n_groups\n        if n <= k:\n            raise ValueError(f\"positive residual degrees of freedom required; groups={n}, parameters={k}\")\n        scale = _to_float_scalar(xp.sum(resid * resid)) / (n - k)\n",
-    str(path),
-)
+text = replace_once(text, "        from statgpu.panel._formula import _prepare_formula_fit\n", "        from statgpu.panel._formula import _align_formula_side_array, _prepare_formula_fit\n", str(path))
+text = replace_once(text, "            _prepare_formula_fit(formula, data, X, y, model_has_intercept=True)\n\n        backend = self._get_backend(backend=\"auto\")\n", "            _prepare_formula_fit(formula, data, X, y, model_has_intercept=True)\n        if formula is not None:\n            entity_ids = _align_formula_side_array(entity_ids, self._design_info, len(y_arr), \"entity_ids\")\n\n        backend = self._get_backend(backend=\"auto\")\n", str(path))
+text = replace_once(text, "        except _LINALG_ERRORS:\n            params = xp.linalg.lstsq(XtX, Xty)[0]\n\n        resid = y_mean - X_mean @ params\n        n = n_groups\n        scale = _to_float_scalar(xp.sum(resid * resid)) / (n - k)\n", "        except _LINALG_ERRORS:\n            params = xp.linalg.pinv(X_mean) @ y_mean\n\n        resid = y_mean - X_mean @ params\n        n = n_groups\n        if n <= k:\n            raise ValueError(f\"positive residual degrees of freedom required; groups={n}, parameters={k}\")\n        scale = _to_float_scalar(xp.sum(resid * resid)) / (n - k)\n", str(path))
 path.write_text(text)
 
-# FirstDifferenceOLS
 path = Path("statgpu/panel/_first_diff.py")
 text = path.read_text()
-text = replace_once(
-    text,
-    "        from statgpu.panel._formula import _prepare_formula_fit\n",
-    "        from statgpu.panel._formula import _align_formula_side_array, _prepare_formula_fit\n",
-    str(path),
-)
-text = replace_once(
-    text,
-    "            _prepare_formula_fit(formula, data, X, y, model_has_intercept=False)\n\n        backend = self._get_backend(backend=\"auto\")\n",
-    "            _prepare_formula_fit(formula, data, X, y, model_has_intercept=False)\n        if formula is not None:\n            entity_ids = _align_formula_side_array(entity_ids, self._design_info, len(y_arr), \"entity_ids\")\n            time_ids = _align_formula_side_array(time_ids, self._design_info, len(y_arr), \"time_ids\")\n\n        backend = self._get_backend(backend=\"auto\")\n",
-    str(path),
-)
-text = replace_once(
-    text,
-    "        except _LINALG_ERRORS:\n            params = xp.linalg.lstsq(XtX, Xty)[0]\n\n        resid = y_diff - X_diff @ params\n        scale = _to_float_scalar(xp.sum(resid * resid)) / (n - k)\n",
-    "        except _LINALG_ERRORS:\n            params = xp.linalg.pinv(X_diff) @ y_diff\n\n        if n <= k:\n            raise ValueError(f\"positive residual degrees of freedom required; n={n}, k={k}\")\n        resid = y_diff - X_diff @ params\n        scale = _to_float_scalar(xp.sum(resid * resid)) / (n - k)\n",
-    str(path),
-)
-text = replace_once(
-    text,
-    "        xp.asarray(X_diff_np, dtype=xp.float64),\n        xp.asarray(y_diff_np, dtype=xp.float64),\n",
-    "        xp_asarray(X_diff_np, dtype=xp.float64, xp=xp, ref_arr=X),\n        xp_asarray(y_diff_np, dtype=xp.float64, xp=xp, ref_arr=X),\n",
-    str(path),
-)
+text = replace_once(text, "        from statgpu.panel._formula import _prepare_formula_fit\n", "        from statgpu.panel._formula import _align_formula_side_array, _prepare_formula_fit\n", str(path))
+text = replace_once(text, "            _prepare_formula_fit(formula, data, X, y, model_has_intercept=False)\n\n        backend = self._get_backend(backend=\"auto\")\n", "            _prepare_formula_fit(formula, data, X, y, model_has_intercept=False)\n        if formula is not None:\n            entity_ids = _align_formula_side_array(entity_ids, self._design_info, len(y_arr), \"entity_ids\")\n            time_ids = _align_formula_side_array(time_ids, self._design_info, len(y_arr), \"time_ids\")\n\n        backend = self._get_backend(backend=\"auto\")\n", str(path))
+text = replace_once(text, "        except _LINALG_ERRORS:\n            params = xp.linalg.lstsq(XtX, Xty)[0]\n\n        resid = y_diff - X_diff @ params\n        scale = _to_float_scalar(xp.sum(resid * resid)) / (n - k)\n", "        except _LINALG_ERRORS:\n            params = xp.linalg.pinv(X_diff) @ y_diff\n\n        if n <= k:\n            raise ValueError(f\"positive residual degrees of freedom required; n={n}, k={k}\")\n        resid = y_diff - X_diff @ params\n        scale = _to_float_scalar(xp.sum(resid * resid)) / (n - k)\n", str(path))
+text = replace_once(text, "        xp.asarray(X_diff_np, dtype=xp.float64),\n        xp.asarray(y_diff_np, dtype=xp.float64),\n", "        xp_asarray(X_diff_np, dtype=xp.float64, xp=xp, ref_arr=X),\n        xp_asarray(y_diff_np, dtype=xp.float64, xp=xp, ref_arr=X),\n", str(path))
 path.write_text(text)
 
-# FamaMacBeth
 path = Path("statgpu/panel/_fama_macbeth.py")
 text = path.read_text()
-text = replace_once(
-    text,
-    "        from statgpu.panel._formula import _prepare_formula_fit\n",
-    "        from statgpu.panel._formula import _align_formula_side_array, _prepare_formula_fit\n",
-    str(path),
-)
-text = replace_once(
-    text,
-    "            _prepare_formula_fit(formula, data, X, y, model_has_intercept=True)\n\n        backend = self._get_backend(backend=\"auto\")\n        y_np = np.asarray(y_np, dtype=np.float64).ravel()\n        tids_np = np.asarray(time_ids).ravel()\n",
-    "            _prepare_formula_fit(formula, data, X, y, model_has_intercept=True)\n        if formula is not None:\n            time_ids = _align_formula_side_array(time_ids, self._design_info, len(y_np), \"time_ids\")\n\n        backend = self._get_backend(backend=\"auto\")\n        X_np = np.asarray(_to_numpy(X_np), dtype=np.float64)\n        y_np = np.asarray(_to_numpy(y_np), dtype=np.float64).ravel()\n        tids_np = np.asarray(_to_numpy(time_ids)).ravel()\n",
-    str(path),
-)
-text = replace_once(
-    text,
-    "            except np.linalg.LinAlgError:\n                beta_t = np.linalg.lstsq(X_t.T @ X_t, X_t.T @ y_t, rcond=None)[0]\n",
-    "            except np.linalg.LinAlgError:\n                beta_t = np.linalg.pinv(X_t) @ y_t\n",
-    str(path),
-)
-text = replace_once(
-    text,
-    "        T = betas.shape[0]\n\n        # Step 2: Time-series averages and SEs\n",
-    "        T = betas.shape[0]\n        if T < 2:\n            raise ValueError(\"FamaMacBeth requires at least 2 time periods after filtering\")\n\n        # Step 2: Time-series averages and SEs\n",
-    str(path),
-)
+text = replace_once(text, "        from statgpu.panel._formula import _prepare_formula_fit\n", "        from statgpu.panel._formula import _align_formula_side_array, _prepare_formula_fit\n", str(path))
+text = replace_once(text, "            _prepare_formula_fit(formula, data, X, y, model_has_intercept=True)\n\n        backend = self._get_backend(backend=\"auto\")\n        y_np = np.asarray(y_np, dtype=np.float64).ravel()\n        tids_np = np.asarray(time_ids).ravel()\n", "            _prepare_formula_fit(formula, data, X, y, model_has_intercept=True)\n        if formula is not None:\n            time_ids = _align_formula_side_array(time_ids, self._design_info, len(y_np), \"time_ids\")\n\n        backend = self._get_backend(backend=\"auto\")\n        X_np = np.asarray(_to_numpy(X_np), dtype=np.float64)\n        y_np = np.asarray(_to_numpy(y_np), dtype=np.float64).ravel()\n        tids_np = np.asarray(_to_numpy(time_ids)).ravel()\n", str(path))
+text = replace_once(text, "            except np.linalg.LinAlgError:\n                beta_t = np.linalg.lstsq(X_t.T @ X_t, X_t.T @ y_t, rcond=None)[0]\n", "            except np.linalg.LinAlgError:\n                beta_t = np.linalg.pinv(X_t) @ y_t\n", str(path))
+text = replace_once(text, "        T = betas.shape[0]\n\n        # Step 2: Time-series averages and SEs\n", "        T = betas.shape[0]\n        if T < 2:\n            raise ValueError(\"FamaMacBeth requires at least 2 time periods after filtering\")\n\n        # Step 2: Time-series averages and SEs\n", str(path))
 path.write_text(text)
 
-# PanelOLS fixed-effects side-array alignment and stable fallback.
 path = Path("statgpu/panel/_fixed_effects.py")
 text = path.read_text()
-text = replace_once(
-    text,
-    "            from statgpu.panel._formula import _prepare_formula_fit\n",
-    "            from statgpu.panel._formula import _align_formula_side_array, _prepare_formula_fit\n",
-    str(path),
-)
-text = replace_once(
-    text,
-    "            X = X_raw\n            y = y_raw\n",
-    "            X = X_raw\n            y = y_raw\n            entity_ids = _align_formula_side_array(entity_ids, self._design_info, len(y_raw), \"entity_ids\")\n            time_ids = _align_formula_side_array(time_ids, self._design_info, len(y_raw), \"time_ids\")\n            cluster = _align_formula_side_array(cluster, self._design_info, len(y_raw), \"cluster\")\n",
-    str(path),
-)
-# Replace only the final normal-equation fallback if present.
-text = text.replace(
-    "        except _LINALG_ERRORS:\n            params = xp.linalg.solve(XtX, Xty)\n",
-    "        except _LINALG_ERRORS:\n            params = xp.linalg.pinv(X_tilde) @ y_tilde\n",
-    1,
-)
+text = replace_once(text, "            from statgpu.panel._formula import _prepare_formula_fit\n", "            from statgpu.panel._formula import _align_formula_side_array, _prepare_formula_fit\n", str(path))
+text = replace_once(text, "            X = X_raw\n            y = y_raw\n", "            X = X_raw\n            y = y_raw\n            entity_ids = _align_formula_side_array(entity_ids, self._design_info, len(y_raw), \"entity_ids\")\n            time_ids = _align_formula_side_array(time_ids, self._design_info, len(y_raw), \"time_ids\")\n            cluster = _align_formula_side_array(cluster, self._design_info, len(y_raw), \"cluster\")\n", str(path))
+text = text.replace("        except _LINALG_ERRORS:\n            params = xp.linalg.solve(XtX, Xty)\n", "        except _LINALG_ERRORS:\n            params = xp.linalg.pinv(X_tilde) @ y_tilde\n", 1)
 path.write_text(text)
 
 print("Covariance and panel review patch applied")
