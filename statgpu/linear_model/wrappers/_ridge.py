@@ -73,12 +73,27 @@ class Ridge(_PenalizedLinearRegression):
 
         X_np = np.asarray(self._to_array(X, Device.CPU), dtype=np.float64)
         y_np = np.asarray(self._to_array(y, Device.CPU), dtype=np.float64)
+        if X_np.ndim != 2:
+            raise ValueError("X must be a 2D array")
+        if y_np.ndim != 1:
+            raise ValueError("y must be one-dimensional")
+        if y_np.shape[0] != X_np.shape[0]:
+            raise ValueError("X and y must contain the same number of samples")
 
         n_samples, n_features = X_np.shape
         self._nobs = n_samples
         self._fitted = False
 
         sw = np.asarray(sample_weight, dtype=np.float64).ravel() if sample_weight is not None else None
+        if sw is not None:
+            if sw.shape[0] != n_samples:
+                raise ValueError("sample_weight must have length n_samples")
+            if not np.all(np.isfinite(sw)):
+                raise ValueError("sample_weight must be finite")
+            if np.any(sw < 0):
+                raise ValueError("sample_weight must be non-negative")
+            if float(np.sum(sw)) <= 0.0:
+                raise ValueError("sample_weight must have a positive sum")
 
         if self.fit_intercept:
             if sw is not None:
