@@ -197,7 +197,7 @@ explicit.
 
 ## Validation status
 
-The final branch is gated by:
+GitHub Actions run **#228** passed all permanent gates on the final branch state:
 
 - Python 3.9, 3.10, 3.11, and 3.12 selected regression matrices;
 - the complete `dev/tests` CPU suite on Python 3.11;
