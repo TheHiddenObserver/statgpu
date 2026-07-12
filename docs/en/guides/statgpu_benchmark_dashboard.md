@@ -1,39 +1,29 @@
 # statgpu Benchmark Dashboard
 
-The statgpu benchmark dashboard provides a common view of timing, speedup, numerical quality, inference, convergence, prediction, validation, and feature-selection results.
+The statgpu benchmark dashboard provides a common view of timing, speedup, numerical quality, inference, convergence, prediction, validation, and feature-selection metrics.
 
 The browser is a presentation layer over a generated benchmark bundle. Raw result files are parsed and validated in Python before the frontend is built.
 
 ## Current coverage
 
-As of PR #78, the canonical manifest registers **14 benchmark sources** handled by **13 parser implementations**. The generated bundle contains **1,623 normalized runs across 36 models**.
-
-The categories addressed by this expansion now contain benchmark rows:
-
-- Penalized GLM and GLM.
-- Linear models, including June 2026 squared-error performance and solver results.
-- Robust and quantile regression.
-- Survival analysis.
-- Unsupervised learning.
-- Ordered models.
-- Nonparametric methods.
-- Panel models.
-- Covariance estimation.
-- Feature selection.
-
-The newly connected sources include:
+The canonical manifest registers **eight benchmark sources**, all dated **2026-06-01 or later**:
 
 | Source | Frontend coverage |
 |---|---|
-| `loss_functions_20260623.json` | Robust/quantile timing, validation, sklearn comparison |
-| `ordered_inference_pr74.json` | Ordered logit/probit inference and quantile kernel/bootstrap GPU inference |
-| `unsupervised_20260627.json` | PCA, clustering, decomposition, UMAP and t-SNE timings |
+| `p2_benchmark_20260617.json` | Covariance, Nystroem, RBF kernel, and spline benchmarks |
+| `penalized_glm_perf_20260622.json` | Penalized GLM and recent squared-error NumPy/CuPy/Torch timings |
+| `coxph_efron_20260622.json` | CoxPH Efron variants and cross-backend timing |
+| `glm_solver_20260623.json` | GLM and squared-error solver speedups |
+| `loss_functions_20260623.json` | Robust/quantile timing, validation, and sklearn comparison |
 | `new_modules_full_20260624.json` | Panel and aligned GAM comparisons |
-| `p2_benchmark_20260617.json` | Covariance, Nystroem, RBF kernel and spline benchmarks |
-| `penalized_glm_perf_20260622.json` | Recent squared-error NumPy/CuPy/Torch timings under `linear_models` |
-| `glm_solver_20260623.json` | Recent squared-error solver speedups under `linear_models` |
+| `unsupervised_20260627.json` | PCA, clustering, decomposition, UMAP, and t-SNE timings |
+| `ordered_inference_pr74.json` | Ordered logit/probit and quantile kernel/bootstrap inference |
 
-The source registry is `dev/benchmarks/frontend_sources.json`. Generated files are committed in `frontend/public/data/` and `docs/assets/benchmarks/data/`.
+These sources populate penalized GLM and GLM, recent linear models, robust/quantile regression, survival analysis, unsupervised learning, ordered models, nonparametric methods, panel models, and covariance estimation.
+
+April 2026 ElasticNet, LassoCV, comprehensive-validation, Cox package-comparison, and knockoff sources are not registered. The feature-selection category remains part of Schema v1.1 but is intentionally empty until a June 2026-or-later benchmark is available.
+
+The source registry is `dev/benchmarks/frontend_sources.json`. It sets `minimum_source_date` to `2026-06-01`, and every registered source must provide an explicit `source_date` on or after that date. Generated files are committed in `frontend/public/data/` and `docs/assets/benchmarks/data/`.
 
 ## Filters
 
@@ -50,7 +40,7 @@ Environment and category
 
 Changing an upstream value clears incompatible downstream selections. External frameworks are hidden by default and offered only when relevant to the current context.
 
-Registered external frameworks include scikit-learn, glmnet, statsmodels, lifelines, scikit-survival, knockpy, linearmodels, and pyGAM.
+External frameworks currently used by registered June-or-later sources are scikit-learn, linearmodels, and pyGAM.
 
 ## Charts
 
@@ -78,7 +68,7 @@ Panels appear only when filtered rows contain the corresponding metric group:
 - **Inference**: BSE, Wald statistic, p-value, backend, scale, and status.
 - **Prediction**: train/test MSE, noiseless MSE, selected alpha, and C-index.
 - **Convergence**: iteration summaries and convergence rates.
-- **Selection**: precision, recall, FDP, F1, Jaccard, FDR, and selected-set size.
+- **Selection**: precision, recall, FDP, F1, Jaccard, FDR, and selected-set size when a current source exists.
 
 The Inference panel is particularly relevant to ordered logit/probit and quantile kernel/bootstrap results.
 
@@ -99,7 +89,7 @@ The frontend loads:
 - `parse_report.json`: source/run counts and structured issues;
 - `source_inventory.json`: catalog, registration, availability, and parsed counts.
 
-All three files share one `generation_id`.
+All three files share one `generation_id`. In canonical mode, `eligible_total`, `registered_sources`, `available_sources`, and `parsed_sources` refer only to the eight manifest-registered June-or-later sources.
 
 ## Reproduce and test
 
@@ -127,11 +117,12 @@ npm run test:e2e
 ## Adding a source
 
 1. Copy canonical JSON under `results/benchmark_frontend_sources/`.
-2. Register SHA256, environment, comparison, parser, and allowed issue codes in `frontend_sources.json`.
-3. Implement or reuse a parser and register it in `registry.py`.
-4. Return schema-compliant runs with canonical case/method identities.
-5. Add parser, domain-coverage, and interaction tests.
-6. Regenerate the bundle and rebuild deployed assets.
+2. Register SHA256, environment, comparison, parser, allowed issue codes, and `source_date` in `frontend_sources.json`.
+3. Ensure `source_date` is on or after the manifest's `minimum_source_date`.
+4. Implement or reuse a parser and register it in `registry.py`.
+5. Return schema-compliant runs with canonical case/method identities.
+6. Add parser, date-policy, domain-coverage, and interaction tests.
+7. Regenerate the bundle and rebuild deployed assets.
 
 Technical references:
 
