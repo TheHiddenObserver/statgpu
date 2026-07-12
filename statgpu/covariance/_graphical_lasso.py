@@ -1,4 +1,4 @@
-"""Graphical Lasso for sparse inverse covariance estimation with GPU support."""
+"""Graphical Lasso for sparse inverse covariance estimation with native backend execution."""
 
 from __future__ import annotations
 
@@ -9,59 +9,33 @@ from typing import Optional, Union
 import numpy as np
 
 from statgpu._config import Device
-from statgpu.backends import _get_xp, _to_numpy
+from statgpu.backends import _get_xp, _to_float_scalar, xp_asarray, xp_zeros
+from statgpu.covariance._empirical import EmpiricalCovariance, _detect_backend, _stable_inv
 
-from statgpu.covariance._empirical import (
-    EmpiricalCovariance,
-    _detect_backend,
-    _stable_inv,
-)
+
+def _copy_array(x):
+    return x.clone() if hasattr(x, "clone") else x.copy()
+
+
+def _finite_all(x, xp) -> bool:
+    return bool(_to_float_scalar(xp.all(xp.isfinite(x))))
+
+
+def _index_array(indices, xp, ref):
+    return xp_asarray(
+        np.asarray(indices, dtype=np.int64), dtype=xp.int64, xp=xp, ref_arr=ref
+    )
+
+
+def _soft_threshold(x, threshold, xp):
+    return xp.sign(x) * xp.maximum(xp.abs(x) - threshold, xp.zeros_like(x))
 
 
 class GraphicalLasso(EmpiricalCovariance):
-    """
-    Sparse inverse covariance estimation via the graphical lasso.
+    """Sparse inverse covariance estimation via graphical lasso.
 
-    Estimates a sparse precision matrix (inverse covariance) by solving:
-
-        maximize  log(det(theta)) - trace(S * theta) - alpha * ||theta||_1
-
-    using the graphical lasso algorithm (Friedman, Hastie & Tibshirani, 2008).
-
-    Parameters
-    ----------
-    alpha : float, default=0.01
-        Regularization parameter for the L1 penalty.
-    max_iter : int, default=100
-        Maximum number of outer iterations.
-    tol : float, default=1e-4
-        Convergence tolerance on the dual gap.
-    assume_centered : bool, default=False
-        If True, data is assumed to be already centered.
-    device : str or Device, default='auto'
-        Computation device.
-    n_jobs : int or None, default=None
-        Number of parallel jobs (reserved for future use).
-
-    Attributes
-    ----------
-    covariance_ : ndarray of shape (n_features, n_features)
-        Estimated covariance matrix.
-    precision_ : ndarray of shape (n_features, n_features)
-        Estimated sparse precision matrix.
-    location_ : ndarray of shape (n_features,)
-        Estimated mean.
-    n_iter_ : int
-        Number of iterations performed.
-    n_samples_ : int
-        Number of training samples.
-    n_features_ : int
-        Number of features.
-
-    References
-    ----------
-    Friedman, J., Hastie, T., & Tibshirani, R. (2008). Sparse inverse
-    covariance estimation with the graphical lasso. *Biostatistics*, 9(3), 432-441.
+    The block-coordinate descent is executed on the selected NumPy, CuPy, or
+    Torch backend. Only scalar convergence diagnostics are synchronized.
     """
 
     def __init__(
@@ -78,90 +52,108 @@ class GraphicalLasso(EmpiricalCovariance):
         self.max_iter = max_iter
         self.tol = tol
 
+    def _prepare_input(self, X):
+        backend_name = _detect_backend(X, self._get_compute_device())
+        xp = _get_xp(backend_name)
+        ref = None
+        if backend_name == "torch":
+            import torch
+
+            if isinstance(X, torch.Tensor):
+                ref = X
+            else:
+                dev = self._get_compute_device()
+                target = "cuda" if dev.value in ("torch", "cuda") else "cpu"
+                ref = torch.empty(0, dtype=torch.float64, device=target)
+        X_arr = xp_asarray(X, dtype=xp.float64, xp=xp, ref_arr=ref)
+        if X_arr.ndim == 1:
+            X_arr = X_arr.reshape(-1, 1)
+        if X_arr.ndim != 2 or int(X_arr.shape[0]) < 2 or int(X_arr.shape[1]) < 1:
+            raise ValueError("X must be a non-empty 2D array with at least 2 samples")
+        if not _finite_all(X_arr, xp):
+            raise ValueError("X contains NaN or infinite values")
+        return backend_name, xp, X_arr
+
     def fit(self, X, y=None):
         """Fit graphical lasso by covariance block coordinate descent."""
         alpha = float(self.alpha)
         if not np.isfinite(alpha) or alpha < 0:
             raise ValueError("alpha must be finite and non-negative")
-        if isinstance(self.max_iter, bool) or int(self.max_iter) < 1:
+        if (
+            isinstance(self.max_iter, bool)
+            or not isinstance(self.max_iter, (int, np.integer))
+            or int(self.max_iter) < 1
+        ):
             raise ValueError("max_iter must be a positive integer")
-        if not np.isfinite(self.tol) or float(self.tol) <= 0:
+        if not np.isfinite(float(self.tol)) or float(self.tol) <= 0:
             raise ValueError("tol must be finite and positive")
 
-        X_np = np.asarray(_to_numpy(X), dtype=np.float64)
-        if X_np.ndim == 1:
-            X_np = X_np.reshape(-1, 1)
-        if X_np.ndim != 2 or X_np.shape[0] < 2 or X_np.shape[1] < 1:
-            raise ValueError("X must be a non-empty 2D array with at least 2 samples")
-        if not np.all(np.isfinite(X_np)):
-            raise ValueError("X contains NaN or infinite values")
-
-        n, p = X_np.shape
+        backend_name, xp, X_arr = self._prepare_input(X)
+        n, p = int(X_arr.shape[0]), int(X_arr.shape[1])
         if self.assume_centered:
-            location_np = np.zeros(p, dtype=np.float64)
-            X_centered = X_np
+            location = xp_zeros(p, xp.float64, xp, X_arr)
+            centered = X_arr
         else:
-            location_np = X_np.mean(axis=0)
-            X_centered = X_np - location_np
-        empirical = X_centered.T @ X_centered / float(n)
+            location = xp.mean(X_arr, axis=0)
+            centered = X_arr - location
+        empirical = centered.T @ centered / float(n)
 
         if alpha == 0.0 or p == 1:
-            covariance = empirical.copy()
-            precision = np.linalg.pinv(covariance)
+            covariance = _copy_array(empirical)
+            precision = xp.linalg.pinv(covariance)
             self.n_iter_ = 1
         else:
-            covariance = empirical.copy()
-            np.fill_diagonal(covariance, np.diag(empirical))
+            covariance = _copy_array(empirical)
             inner_tol = min(1e-8, float(self.tol) * 0.1)
-            beta_cache = [np.zeros(p - 1, dtype=np.float64) for _ in range(p)]
+            beta_cache = [xp_zeros(p - 1, xp.float64, xp, X_arr) for _ in range(p)]
             self.n_iter_ = 0
 
             for outer in range(int(self.max_iter)):
-                previous = covariance.copy()
+                previous = _copy_array(covariance)
                 self.n_iter_ = outer + 1
+
                 for j in range(p):
-                    mask = np.arange(p) != j
-                    W11 = covariance[np.ix_(mask, mask)]
-                    s12 = empirical[mask, j]
-                    beta = beta_cache[j].copy()
+                    indices = [i for i in range(p) if i != j]
+                    idx = _index_array(indices, xp, X_arr)
+                    W11 = covariance[idx][:, idx]
+                    s12 = empirical[idx, j]
+                    beta = _copy_array(beta_cache[j])
 
                     for _ in range(1000):
-                        beta_old = beta.copy()
+                        beta_old = _copy_array(beta)
                         for coordinate in range(p - 1):
                             diagonal = W11[coordinate, coordinate]
-                            if diagonal <= 0:
-                                raise ValueError("GraphicalLasso encountered a non-positive covariance diagonal")
-                            partial = s12[coordinate] - W11[coordinate] @ beta + diagonal * beta[coordinate]
-                            beta[coordinate] = _soft_threshold(partial, alpha) / diagonal
-                        if np.max(np.abs(beta - beta_old)) <= inner_tol:
+                            if _to_float_scalar(diagonal) <= 0.0:
+                                raise ValueError(
+                                    "GraphicalLasso encountered a non-positive covariance diagonal"
+                                )
+                            partial = (
+                                s12[coordinate]
+                                - W11[coordinate] @ beta
+                                + diagonal * beta[coordinate]
+                            )
+                            beta[coordinate] = _soft_threshold(partial, alpha, xp) / diagonal
+                        delta = _to_float_scalar(xp.max(xp.abs(beta - beta_old)))
+                        if delta <= inner_tol:
                             break
 
                     beta_cache[j] = beta
                     w12 = W11 @ beta
-                    covariance[mask, j] = w12
-                    covariance[j, mask] = w12
+                    covariance[idx, j] = w12
+                    covariance[j, idx] = w12
                     covariance[j, j] = empirical[j, j]
 
-                if np.max(np.abs(covariance - previous)) <= float(self.tol):
+                outer_delta = _to_float_scalar(xp.max(xp.abs(covariance - previous)))
+                if outer_delta <= float(self.tol):
                     break
 
             covariance = 0.5 * (covariance + covariance.T)
-            precision = np.linalg.pinv(covariance)
+            precision = _stable_inv(covariance, xp, backend_name)
             precision = 0.5 * (precision + precision.T)
 
-        backend_name = _detect_backend(X, self._get_compute_device())
-        xp = _get_xp(backend_name)
-        _ref = None
-        if backend_name == "torch":
-            import torch
-            device = self._get_compute_device()
-            target = "cuda" if device.value in ("torch", "cuda") else "cpu"
-            _ref = torch.empty(0, dtype=torch.float64, device=target)
-        kwargs = {"device": _ref.device} if _ref is not None else {}
-
-        self.covariance_ = xp.asarray(covariance, dtype=xp.float64, **kwargs)
-        self.precision_ = xp.asarray(precision, dtype=xp.float64, **kwargs)
-        self.location_ = xp.asarray(location_np, dtype=xp.float64, **kwargs)
+        self.covariance_ = covariance
+        self.precision_ = precision
+        self.location_ = location
         self.n_samples_ = n
         self.n_features_ = p
         self._backend_name = backend_name
@@ -170,9 +162,7 @@ class GraphicalLasso(EmpiricalCovariance):
 
     def get_params(self, deep=True):
         params = super().get_params(deep=deep)
-        params["alpha"] = self.alpha
-        params["max_iter"] = self.max_iter
-        params["tol"] = self.tol
+        params.update(alpha=self.alpha, max_iter=self.max_iter, tol=self.tol)
         return params
 
     def set_params(self, **params):
@@ -185,47 +175,7 @@ class GraphicalLasso(EmpiricalCovariance):
 
 
 class GraphicalLassoCV(EmpiricalCovariance):
-    """
-    Graphical Lasso with cross-validated regularization parameter.
-
-    Selects the best ``alpha`` from a grid by maximizing the log-likelihood
-    on held-out folds.
-
-    Parameters
-    ----------
-    alphas : int or array-like, default=4
-        If int, number of alpha values to try (log-spaced from 0.01 to 1).
-        If array-like, the specific alpha values to try.
-    cv : int, default=5
-        Number of cross-validation folds.
-    max_iter : int, default=100
-        Maximum number of GLasso iterations per alpha.
-    tol : float, default=1e-4
-        Convergence tolerance.
-    assume_centered : bool, default=False
-        If True, data is assumed to be already centered.
-    device : str or Device, default='auto'
-        Computation device.
-    n_jobs : int or None, default=None
-        Number of parallel jobs (reserved for future use).
-
-    Attributes
-    ----------
-    covariance_ : ndarray of shape (n_features, n_features)
-        Estimated covariance matrix (at best alpha).
-    precision_ : ndarray of shape (n_features, n_features)
-        Estimated precision matrix (at best alpha).
-    location_ : ndarray of shape (n_features,)
-        Estimated mean.
-    alpha_ : float
-        Best alpha selected by cross-validation.
-    cv_results_ : list of dict
-        Results for each alpha value tried.
-    n_samples_ : int
-        Number of training samples.
-    n_features_ : int
-        Number of features.
-    """
+    """Graphical Lasso with backend-native cross-validation."""
 
     def __init__(
         self,
@@ -246,28 +196,22 @@ class GraphicalLassoCV(EmpiricalCovariance):
         self.random_state = random_state
 
     def fit(self, X, y=None):
-        """Fit the graphical lasso model with cross-validated alpha.
+        probe = GraphicalLasso(
+            alpha=0.0,
+            max_iter=self.max_iter,
+            tol=self.tol,
+            assume_centered=self.assume_centered,
+            device=self.device,
+        )
+        backend_name, xp, X_arr = probe._prepare_input(X)
+        n, p = int(X_arr.shape[0]), int(X_arr.shape[1])
 
-        Parameters
-        ----------
-        X : array-like of shape (n_samples, n_features)
-            Training data.
-        y : ignored
-
-        Returns
-        -------
-        self
-        """
-        X_np = np.asarray(_to_numpy(X), dtype=np.float64)
-        if X_np.ndim == 1:
-            X_np = X_np.reshape(-1, 1)
-
-        n, p = X_np.shape
-        if n < 2 or p < 1 or not np.all(np.isfinite(X_np)):
-            raise ValueError("X must be a finite 2D array with at least 2 samples")
-        if isinstance(self.cv, bool) or not isinstance(self.cv, (int, np.integer)):
-            raise ValueError("cv must be an integer")
-        if int(self.cv) < 2 or int(self.cv) > n:
+        if (
+            isinstance(self.cv, bool)
+            or not isinstance(self.cv, (int, np.integer))
+            or int(self.cv) < 2
+            or int(self.cv) > n
+        ):
             raise ValueError("cv must satisfy 2 <= cv <= n_samples")
 
         if isinstance(self.alphas, (int, np.integer)) and not isinstance(self.alphas, bool):
@@ -279,85 +223,52 @@ class GraphicalLassoCV(EmpiricalCovariance):
         if alpha_grid.size == 0 or not np.all(np.isfinite(alpha_grid)) or np.any(alpha_grid < 0):
             raise ValueError("alphas must be finite, non-negative, and non-empty")
 
-        # K-fold CV
         rng = np.random.RandomState(self.random_state)
-        indices = rng.permutation(n)
-        fold_size = n // self.cv
-        folds = []
-        for i in range(self.cv):
-            start = i * fold_size
-            end = start + fold_size if i < self.cv - 1 else n
-            folds.append(indices[start:end])
-
+        folds = np.array_split(rng.permutation(n), int(self.cv))
         cv_results = []
         best_score = -np.inf
-        best_alpha = alpha_grid[0]
+        best_alpha = float(alpha_grid[0])
 
         for alpha in alpha_grid:
             scores = []
-            for k in range(self.cv):
-                test_idx = folds[k]
-                train_idx = np.concatenate([folds[j] for j in range(self.cv) if j != k])
+            for fold_index in range(int(self.cv)):
+                test_np = folds[fold_index]
+                train_np = np.concatenate(
+                    [folds[j] for j in range(int(self.cv)) if j != fold_index]
+                )
+                train_idx = _index_array(train_np, xp, X_arr)
+                test_idx = _index_array(test_np, xp, X_arr)
+                X_train = X_arr[train_idx]
+                X_test = X_arr[test_idx]
 
-                X_train = X_np[train_idx]
-                X_test = X_np[test_idx]
-
-                # Fit GLasso on train
-                gl = GraphicalLasso(
-                    alpha=alpha,
+                model = GraphicalLasso(
+                    alpha=float(alpha),
                     max_iter=self.max_iter,
                     tol=self.tol,
                     assume_centered=self.assume_centered,
-                    device="cpu",
-                )
-                gl.fit(X_train)
+                    device=self.device,
+                ).fit(X_train)
+                scores.append(float(model.score(X_test)))
 
-                # Score on test: log-likelihood
-                n_test = X_test.shape[0]
-                loc = np.asarray(gl.location_)
-                prec = np.asarray(gl.precision_)
-                cov = np.asarray(gl.covariance_)
-
-                X_centered = X_test - loc
-                mahal = np.sum(X_centered @ prec * X_centered, axis=1)
-                sign, logdet = np.linalg.slogdet(cov)
-                if sign <= 0:
-                    scores.append(-np.inf)
-                    continue
-                ll = -0.5 * (p * np.log(2 * np.pi) + logdet + mahal.mean())
-                scores.append(ll)
-
-            mean_score = np.mean(scores)
-            cv_results.append({"alpha": alpha, "mean_score": mean_score, "scores": scores})
-
+            mean_score = float(np.mean(scores))
+            cv_results.append(
+                {"alpha": float(alpha), "mean_score": mean_score, "scores": scores}
+            )
             if mean_score > best_score:
                 best_score = mean_score
-                best_alpha = alpha
+                best_alpha = float(alpha)
 
-        # Fit final model with best alpha
-        gl_final = GraphicalLasso(
+        final = GraphicalLasso(
             alpha=best_alpha,
             max_iter=self.max_iter,
             tol=self.tol,
             assume_centered=self.assume_centered,
-            device="cpu",
-        )
-        gl_final.fit(X_np)  # GraphicalLasso handles centering internally
+            device=self.device,
+        ).fit(X_arr)
 
-        # Convert to target backend
-        backend_name = _detect_backend(X, self._get_compute_device())
-        xp = _get_xp(backend_name)
-        _ref = None
-        if backend_name == "torch":
-            import torch
-            _dev = self._get_compute_device()
-            _cuda_dev = "cuda" if _dev.value in ("torch", "cuda") else "cpu"
-            _ref = torch.empty(0, dtype=torch.float64, device=_cuda_dev)
-        kw = {"device": _ref.device} if _ref else {}
-
-        self.covariance_ = xp.asarray(np.asarray(gl_final.covariance_), dtype=xp.float64, **kw)
-        self.precision_ = xp.asarray(np.asarray(gl_final.precision_), dtype=xp.float64, **kw)
-        self.location_ = xp.asarray(np.asarray(gl_final.location_), dtype=xp.float64, **kw)
+        self.covariance_ = final.covariance_
+        self.precision_ = final.precision_
+        self.location_ = final.location_
         self.alpha_ = best_alpha
         self.cv_results_ = cv_results
         self.n_samples_ = n
@@ -368,21 +279,19 @@ class GraphicalLassoCV(EmpiricalCovariance):
 
     def get_params(self, deep=True):
         params = super().get_params(deep=deep)
-        params["alphas"] = self.alphas
-        params["cv"] = self.cv
-        params["max_iter"] = self.max_iter
-        params["tol"] = self.tol
+        params.update(
+            alphas=self.alphas,
+            cv=self.cv,
+            max_iter=self.max_iter,
+            tol=self.tol,
+            random_state=self.random_state,
+        )
         return params
 
     def set_params(self, **params):
-        for key in ["alphas", "cv", "max_iter", "tol"]:
+        for key in ["alphas", "cv", "max_iter", "tol", "random_state"]:
             if key in params:
                 setattr(self, key, params.pop(key))
         if params:
             super().set_params(**params)
         return self
-
-
-def _soft_threshold(x, threshold):
-    """Soft thresholding operator (vectorized)."""
-    return np.sign(x) * np.maximum(np.abs(x) - threshold, 0.0)
