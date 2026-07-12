@@ -19,7 +19,7 @@ Covered categories include penalized GLM and GLM, recent linear models, robust a
 
 The linear-model category uses the June 2026 squared-error rows from `penalized_glm_perf_20260622.json` and `glm_solver_20260623.json`. April 2026 ElasticNet, LassoCV, comprehensive-validation, Cox package-comparison, and knockoff results are intentionally not registered.
 
-The feature-selection category remains part of Schema v1.1, but it is intentionally empty until a June 2026-or-later benchmark is available.
+Current June-or-later sources provide external comparisons through scikit-learn, statsmodels, linearmodels, and pyGAM. The feature-selection category remains part of Schema v1.1, but it is intentionally empty until a June 2026-or-later benchmark is available.
 
 ## What the dashboard shows
 
