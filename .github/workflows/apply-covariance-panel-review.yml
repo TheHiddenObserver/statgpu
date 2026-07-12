@@ -1,0 +1,56 @@
+name: Apply Covariance Panel Review
+
+on:
+  pull_request:
+    branches: [master]
+
+permissions:
+  contents: write
+
+jobs:
+  apply-review:
+    if: github.head_ref == 'agent/code-review-fixes'
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/code-review-fixes
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Apply focused patch
+        run: python dev/manual/apply_covariance_panel_review.py
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[validation,formula]"
+          python -m pip install ruff
+      - name: Compile and static check
+        run: |
+          python -m compileall -q statgpu/covariance statgpu/panel dev/tests/test_module_review_covariance_panel.py
+          ruff check statgpu/covariance statgpu/panel dev/tests/test_module_review_covariance_panel.py \
+            --select F821,E9,F63,F7,F82,B023
+      - name: Run focused and existing tests
+        run: |
+          set +e
+          python -m pytest \
+            dev/tests/test_module_review_covariance_panel.py \
+            dev/tests/test_covariance_p2.py \
+            dev/tests/test_panel_p2.py \
+            -q --tb=long > /tmp/cov-panel.log 2>&1
+          status=$?
+          cat /tmp/cov-panel.log
+          exit $status
+      - name: Commit fixes and remove temporary audit assets
+        run: |
+          rm -f dev/manual/apply_covariance_panel_review.py
+          rm -f .github/workflows/apply-covariance-panel-review.yml
+          rm -f .github/workflows/diagnose-anova-kernel.yml
+          rm -f .github/workflows/repository-audit.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'fix: harden covariance and panel statistical contracts'
+          git push origin HEAD:agent/code-review-fixes
