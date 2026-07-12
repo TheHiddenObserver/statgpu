@@ -108,7 +108,7 @@ def test_missing_domain_sources_are_manifest_registered(canonical_output):
 def test_current_external_frameworks_are_reachable(canonical_output):
     output, _, _, _ = canonical_output
     frameworks = {run["framework"] for run in output["runs"]}
-    assert {"linearmodels", "pygam", "sklearn"} <= frameworks
+    assert {"linearmodels", "pygam", "sklearn", "statsmodels"} <= frameworks
     assert frameworks.isdisjoint({"glmnet", "lifelines", "scikit_survival", "knockpy"})
 
 
