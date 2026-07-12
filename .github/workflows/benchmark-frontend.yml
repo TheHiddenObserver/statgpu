@@ -2,7 +2,7 @@ name: Benchmark Frontend CI
 
 on:
   push:
-    branches: [master]
+    branches: [master, frontend-dashboard-data-pipeline]
     paths:
       - '.github/workflows/benchmark-frontend.yml'
       - 'dev/benchmarks/**'
@@ -27,6 +27,7 @@ on:
 
 jobs:
   python-data:
+    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/master'
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -48,6 +49,7 @@ jobs:
         run: python dev/benchmarks/generate_benchmark_data.py --check --strict-sources
 
   frontend:
+    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/master'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -71,6 +73,7 @@ jobs:
       - run: npm run build
 
   staleness:
+    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/master'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -104,6 +107,7 @@ jobs:
           echo "OK — generated benchmark assets are current"
 
   frontend-e2e:
+    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/master'
     runs-on: ubuntu-latest
     needs: [frontend, staleness]
     defaults:
@@ -123,3 +127,248 @@ jobs:
           name: playwright-report
           path: frontend/playwright-report/
           retention-days: 30
+
+  refresh-june-dashboard:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/frontend-dashboard-data-pipeline'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: frontend-dashboard-data-pipeline
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Update benchmark index summary
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+
+          path = Path('docs/en/guides/benchmarks.md')
+          text = path.read_text(encoding='utf-8')
+          replacement = '''## Benchmark Dashboard
+
+          - **Interactive dashboard**: [Open Dashboard](../../assets/benchmarks/index.html)
+          - **Dashboard guide**: [Filters, charts, metrics, and reproduction](statgpu_benchmark_dashboard.md)
+
+          The canonical dashboard is restricted to benchmark sources dated **2026-06-01 or later**. Eight sources are currently registered; April 2026 ElasticNet, LassoCV, comprehensive-validation, Cox package-comparison, and knockoff results are not connected.
+
+          The current bundle covers robust/quantile, unsupervised, ordered, nonparametric, panel, covariance, survival, GLM, and recent linear-model benchmarks. Linear models use the June 2026 squared-error rows from `penalized_glm_perf_20260622.json` and `glm_solver_20260623.json`.
+
+          Current capabilities:
+
+          - Environment and multi-category navigation.
+          - Progressive model, variant, penalty, solver, and scale filters.
+          - NumPy, CuPy, and Torch backend selection.
+          - Context-aware external comparisons with scikit-learn, linearmodels, and pyGAM.
+          - Timing and speedup charts with distinct computed and runner-reported semantics.
+          - Sortable run-level table.
+          - Validation, accuracy, inference, prediction, convergence, and selection panels.
+          - Source provenance, parse-report metadata, and source-inventory coverage.
+
+          Generate and validate the canonical bundle:
+
+          ```bash
+          python dev/benchmarks/generate_benchmark_data.py \
+            --out frontend/public/data/benchmark_data.json \
+            --report frontend/public/data/parse_report.json \
+            --inventory-out frontend/public/data/source_inventory.json \
+            --deterministic --strict-sources
+
+          python dev/benchmarks/generate_benchmark_data.py --check --strict-sources
+          ```
+
+          Build the deployed dashboard:
+
+          ```bash
+          cd frontend
+          npm ci
+          npm run typecheck
+          npm run build
+          ```
+          '''
+          replacement = '\n'.join(
+              line[10:] if line.startswith('          ') else line
+              for line in replacement.splitlines()
+          )
+          text, count = re.subn(
+              r'## Benchmark Dashboard\n.*?(?=\n---)',
+              replacement,
+              text,
+              count=1,
+              flags=re.S,
+          )
+          if count != 1:
+              raise RuntimeError('Benchmark Dashboard section not found exactly once')
+          path.write_text(text, encoding='utf-8')
+          PY
+      - name: Validate and generate data
+        run: |
+          python -m pip install -U pip pytest jsonschema
+          pytest \
+            dev/tests/test_benchmark_frontend_data.py \
+            dev/tests/test_frontend_contracts.py \
+            dev/tests/test_frontend_domain_coverage.py -v
+          python dev/benchmarks/generate_benchmark_data.py \
+            --out frontend/public/data/benchmark_data.json \
+            --report frontend/public/data/parse_report.json \
+            --inventory-out frontend/public/data/source_inventory.json \
+            --deterministic --strict-sources
+      - name: Build and test frontend
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run typecheck
+          npm run build
+          npx playwright install --with-deps chromium
+          npm run test:e2e
+      - name: Restore permanent workflow and commit generated assets
+        run: |
+          rm -f .github/workflows/finalize-june-dashboard.yml
+          cat > .github/workflows/benchmark-frontend.yml <<'EOF'
+          name: Benchmark Frontend CI
+
+          on:
+            push:
+              branches: [master]
+              paths:
+                - '.github/workflows/benchmark-frontend.yml'
+                - 'dev/benchmarks/**'
+                - 'dev/tests/test_benchmark_frontend_data.py'
+                - 'dev/tests/test_frontend_contracts.py'
+                - 'dev/tests/test_frontend_domain_coverage.py'
+                - 'dev/tests/fixtures/benchmark_frontend/**'
+                - 'frontend/**'
+                - 'docs/assets/benchmarks/**'
+                - 'results/benchmark_frontend_sources/**'
+            pull_request:
+              paths:
+                - '.github/workflows/benchmark-frontend.yml'
+                - 'dev/benchmarks/**'
+                - 'dev/tests/test_benchmark_frontend_data.py'
+                - 'dev/tests/test_frontend_contracts.py'
+                - 'dev/tests/test_frontend_domain_coverage.py'
+                - 'dev/tests/fixtures/benchmark_frontend/**'
+                - 'frontend/**'
+                - 'docs/assets/benchmarks/**'
+                - 'results/benchmark_frontend_sources/**'
+
+          jobs:
+            python-data:
+              runs-on: ubuntu-latest
+              strategy:
+                matrix:
+                  python-version: ['3.9', '3.11']
+              steps:
+                - uses: actions/checkout@v4
+                - uses: actions/setup-python@v5
+                  with:
+                    python-version: ${{ matrix.python-version }}
+                - name: Install test dependencies
+                  run: python -m pip install -U pip pytest jsonschema
+                - name: Run generator and parser tests
+                  run: |
+                    pytest \
+                      dev/tests/test_benchmark_frontend_data.py \
+                      dev/tests/test_frontend_contracts.py \
+                      dev/tests/test_frontend_domain_coverage.py -v
+                - name: Validate generator output
+                  run: python dev/benchmarks/generate_benchmark_data.py --check --strict-sources
+
+            frontend:
+              runs-on: ubuntu-latest
+              defaults:
+                run:
+                  working-directory: frontend
+              steps:
+                - uses: actions/checkout@v4
+                - uses: actions/setup-node@v4
+                  with:
+                    node-version: '20'
+                - name: Reject committed frontend artifacts
+                  run: |
+                    if git -C "$GITHUB_WORKSPACE" ls-files \
+                      'frontend/node_modules/**' \
+                      'frontend/test-results/**' \
+                      'frontend/playwright-report/**' | grep -q .; then
+                      echo "Generated frontend dependencies/test artifacts must not be committed."
+                      exit 1
+                    fi
+                - run: npm ci
+                - run: npm run typecheck
+                - run: npm run build
+
+            staleness:
+              runs-on: ubuntu-latest
+              steps:
+                - uses: actions/checkout@v4
+                - uses: actions/setup-python@v5
+                  with:
+                    python-version: '3.11'
+                - uses: actions/setup-node@v4
+                  with:
+                    node-version: '20'
+                - name: Generate data (deterministic)
+                  run: |
+                    python dev/benchmarks/generate_benchmark_data.py \
+                      --out frontend/public/data/benchmark_data.json \
+                      --report frontend/public/data/parse_report.json \
+                      --inventory-out frontend/public/data/source_inventory.json \
+                      --deterministic --strict-sources
+                - name: Build frontend
+                  run: |
+                    cd frontend
+                    npm ci
+                    npm run build
+                - name: Check staleness
+                  run: |
+                    changes="$(git status --porcelain -- frontend/public/data docs/assets/benchmarks)"
+                    if [ -n "$changes" ]; then
+                      echo "Generated benchmark assets are stale:"
+                      printf '%s\n' "$changes"
+                      git diff -- frontend/public/data docs/assets/benchmarks
+                      exit 1
+                    fi
+                    echo "OK — generated benchmark assets are current"
+
+            frontend-e2e:
+              runs-on: ubuntu-latest
+              needs: [frontend, staleness]
+              defaults:
+                run:
+                  working-directory: frontend
+              steps:
+                - uses: actions/checkout@v4
+                - uses: actions/setup-node@v4
+                  with:
+                    node-version: '20'
+                - run: npm ci
+                - run: npx playwright install --with-deps chromium
+                - run: npm run test:e2e
+                - uses: actions/upload-artifact@v4
+                  if: always()
+                  with:
+                    name: playwright-report
+                    path: frontend/playwright-report/
+                    retention-days: 30
+          EOF
+          sed -i 's/^          //' .github/workflows/benchmark-frontend.yml
+          read runs models <<EOF
+          $(python - <<'PY'
+          import json
+          from pathlib import Path
+          data = json.loads(Path('frontend/public/data/benchmark_data.json').read_text())
+          print(len(data['runs']), len(data['models']))
+          PY
+          )
+          EOF
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -A
+          git commit -m "build(frontend): publish June-only bundle (${runs} runs, ${models} models)"
+          git push origin HEAD:frontend-dashboard-data-pipeline
