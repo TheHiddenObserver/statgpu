@@ -8,6 +8,13 @@ from .coxph import parse_coxph_efron_bench
 from .validation import parse_comprehensive_validation, parse_coxph_package_comparison
 from .cv_models import parse_lassocv_combined
 from .knockoff import parse_knockoff_benchmark
+from .domains import (
+    parse_loss_functions_benchmark,
+    parse_ordered_inference_benchmark,
+    parse_unsupervised_benchmark,
+    parse_new_modules_benchmark,
+    parse_p2_benchmark,
+)
 
 __all__ = [
     "parse_penalized_glm_bench_perf",
@@ -18,4 +25,9 @@ __all__ = [
     "parse_coxph_package_comparison",
     "parse_lassocv_combined",
     "parse_knockoff_benchmark",
+    "parse_loss_functions_benchmark",
+    "parse_ordered_inference_benchmark",
+    "parse_unsupervised_benchmark",
+    "parse_new_modules_benchmark",
+    "parse_p2_benchmark",
 ]
