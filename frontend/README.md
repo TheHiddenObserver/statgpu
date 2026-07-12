@@ -4,7 +4,7 @@ Interactive benchmark dashboard for statgpu, built with Vite, TypeScript, and EC
 
 ## Current coverage
 
-The canonical bundle currently contains 14 registered sources, 1,623 normalized runs, and 36 models. All published dashboard categories now have data, including:
+The canonical bundle currently contains 14 registered sources, 1,623 normalized runs, and 36 models. The categories addressed by the current data-pipeline expansion now have benchmark rows, including:
 
 - penalized GLM, GLM, and linear models;
 - robust and quantile regression;
