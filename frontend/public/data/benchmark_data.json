@@ -4,7 +4,7 @@
   "meta": {
     "generator": "dev/benchmarks/generate_benchmark_data.py",
     "git_sha": "deterministic",
-    "generation_id": "03fb9b33c456d8d14fba311c27e92f142e7029ece1eaa6802c81404e42227083"
+    "generation_id": "9a10c0cc5d72be3443356b9ecd2039ef1ecec8edec436f77a30af05d2ce8cc21"
   },
   "environments": [
     {
@@ -69906,6 +69906,642 @@
           "quality": "computed",
           "source_file": "ordered_inference_pr74.json",
           "reference_run_id": "d562a9bd89fe87fc"
+        }
+      },
+      "comparison_id": "ordered-inference-pr74"
+    },
+    {
+      "run_id": "82479236cf404dcf",
+      "benchmark_session_id": "remote-p100-pr74-inference",
+      "env_id": "remote-p100",
+      "category_ids": [
+        "robust_quantile"
+      ],
+      "model_id": "QuantileRegression",
+      "case_id": "case-d51786c8a55f9bf3",
+      "method_config_id": "method-ae1ac366628d13fe",
+      "variant": "kernel",
+      "loss": "quantile",
+      "penalty": null,
+      "solver": "kernel_sandwich",
+      "solver_display": "Kernel Sandwich",
+      "solver_kind": "internal",
+      "framework": "statgpu",
+      "backend": "numpy",
+      "scale": {
+        "scale_key": "n500_p5",
+        "n_samples": 500,
+        "n_features": 5,
+        "label": "500×5"
+      },
+      "source": {
+        "file": "ordered_inference_pr74.json",
+        "date": "",
+        "parser": "parse_pr74_inference_benchmark_v1",
+        "parser_version": "1.0",
+        "source_id": "ordered-inference-20260712-c584a2bfa213",
+        "original_path": "results/pr74_inference_validation.json"
+      },
+      "metrics": {
+        "timing": {
+          "fit_time_ms": 6.81591,
+          "quality": "measured",
+          "source_file": "ordered_inference_pr74.json"
+        },
+        "inference": {
+          "bse": 0.03283551093131752,
+          "ok": true,
+          "quality": "measured",
+          "source_file": "ordered_inference_pr74.json"
+        }
+      },
+      "comparison_id": "ordered-inference-pr74"
+    },
+    {
+      "run_id": "78d4506d4cc2ed19",
+      "benchmark_session_id": "remote-p100-pr74-inference",
+      "env_id": "remote-p100",
+      "category_ids": [
+        "robust_quantile"
+      ],
+      "model_id": "QuantileRegression",
+      "case_id": "case-d51786c8a55f9bf3",
+      "method_config_id": "method-ae1ac366628d13fe",
+      "variant": "kernel",
+      "loss": "quantile",
+      "penalty": null,
+      "solver": "kernel_sandwich",
+      "solver_display": "Kernel Sandwich",
+      "solver_kind": "internal",
+      "framework": "statgpu",
+      "backend": "cupy",
+      "scale": {
+        "scale_key": "n500_p5",
+        "n_samples": 500,
+        "n_features": 5,
+        "label": "500×5"
+      },
+      "source": {
+        "file": "ordered_inference_pr74.json",
+        "date": "",
+        "parser": "parse_pr74_inference_benchmark_v1",
+        "parser_version": "1.0",
+        "source_id": "ordered-inference-20260712-c584a2bfa213",
+        "original_path": "results/pr74_inference_validation.json"
+      },
+      "metrics": {
+        "timing": {
+          "fit_time_ms": 121.072054,
+          "quality": "measured",
+          "source_file": "ordered_inference_pr74.json"
+        },
+        "inference": {
+          "bse": 0.03283551093131752,
+          "ok": true,
+          "quality": "measured",
+          "source_file": "ordered_inference_pr74.json"
+        },
+        "speedup": {
+          "value": 0.056296,
+          "reference_backend": "numpy",
+          "reference_framework": "statgpu",
+          "reported_semantics": "computed",
+          "quality": "computed",
+          "source_file": "ordered_inference_pr74.json",
+          "reference_run_id": "82479236cf404dcf"
+        }
+      },
+      "comparison_id": "ordered-inference-pr74"
+    },
+    {
+      "run_id": "fc45af9983dba6f2",
+      "benchmark_session_id": "remote-p100-pr74-inference",
+      "env_id": "remote-p100",
+      "category_ids": [
+        "robust_quantile"
+      ],
+      "model_id": "QuantileRegression",
+      "case_id": "case-d51786c8a55f9bf3",
+      "method_config_id": "method-ae1ac366628d13fe",
+      "variant": "kernel",
+      "loss": "quantile",
+      "penalty": null,
+      "solver": "kernel_sandwich",
+      "solver_display": "Kernel Sandwich",
+      "solver_kind": "internal",
+      "framework": "statgpu",
+      "backend": "torch",
+      "scale": {
+        "scale_key": "n500_p5",
+        "n_samples": 500,
+        "n_features": 5,
+        "label": "500×5"
+      },
+      "source": {
+        "file": "ordered_inference_pr74.json",
+        "date": "",
+        "parser": "parse_pr74_inference_benchmark_v1",
+        "parser_version": "1.0",
+        "source_id": "ordered-inference-20260712-c584a2bfa213",
+        "original_path": "results/pr74_inference_validation.json"
+      },
+      "metrics": {
+        "timing": {
+          "fit_time_ms": 58.57259,
+          "quality": "measured",
+          "source_file": "ordered_inference_pr74.json"
+        },
+        "inference": {
+          "bse": 0.03283551119424449,
+          "ok": true,
+          "quality": "measured",
+          "source_file": "ordered_inference_pr74.json"
+        },
+        "speedup": {
+          "value": 0.116367,
+          "reference_backend": "numpy",
+          "reference_framework": "statgpu",
+          "reported_semantics": "computed",
+          "quality": "computed",
+          "source_file": "ordered_inference_pr74.json",
+          "reference_run_id": "82479236cf404dcf"
+        }
+      },
+      "comparison_id": "ordered-inference-pr74"
+    },
+    {
+      "run_id": "8bd490055b243fbe",
+      "benchmark_session_id": "remote-p100-pr74-inference",
+      "env_id": "remote-p100",
+      "category_ids": [
+        "robust_quantile"
+      ],
+      "model_id": "QuantileRegression",
+      "case_id": "case-18fd39bcbe2ceddc",
+      "method_config_id": "method-1f351c80de014320",
+      "variant": "bootstrap",
+      "loss": "quantile",
+      "penalty": null,
+      "solver": "batched_pinball_fista",
+      "solver_display": "Batched Pinball Fista",
+      "solver_kind": "internal",
+      "framework": "statgpu",
+      "backend": "numpy",
+      "scale": {
+        "scale_key": "n500_p5",
+        "n_samples": 500,
+        "n_features": 5,
+        "label": "500×5"
+      },
+      "source": {
+        "file": "ordered_inference_pr74.json",
+        "date": "",
+        "parser": "parse_pr74_inference_benchmark_v1",
+        "parser_version": "1.0",
+        "source_id": "ordered-inference-20260712-c584a2bfa213",
+        "original_path": "results/pr74_inference_validation.json"
+      },
+      "metrics": {
+        "timing": {
+          "fit_time_ms": 640.723586,
+          "quality": "measured",
+          "source_file": "ordered_inference_pr74.json"
+        },
+        "inference": {
+          "bse": 0.02364740829631826,
+          "ok": true,
+          "quality": "measured",
+          "source_file": "ordered_inference_pr74.json"
+        }
+      },
+      "comparison_id": "ordered-inference-pr74"
+    },
+    {
+      "run_id": "c02ab6619eda0a93",
+      "benchmark_session_id": "remote-p100-pr74-inference",
+      "env_id": "remote-p100",
+      "category_ids": [
+        "robust_quantile"
+      ],
+      "model_id": "QuantileRegression",
+      "case_id": "case-18fd39bcbe2ceddc",
+      "method_config_id": "method-1f351c80de014320",
+      "variant": "bootstrap",
+      "loss": "quantile",
+      "penalty": null,
+      "solver": "batched_pinball_fista",
+      "solver_display": "Batched Pinball Fista",
+      "solver_kind": "internal",
+      "framework": "statgpu",
+      "backend": "cupy",
+      "scale": {
+        "scale_key": "n500_p5",
+        "n_samples": 500,
+        "n_features": 5,
+        "label": "500×5"
+      },
+      "source": {
+        "file": "ordered_inference_pr74.json",
+        "date": "",
+        "parser": "parse_pr74_inference_benchmark_v1",
+        "parser_version": "1.0",
+        "source_id": "ordered-inference-20260712-c584a2bfa213",
+        "original_path": "results/pr74_inference_validation.json"
+      },
+      "metrics": {
+        "timing": {
+          "fit_time_ms": 818.529397,
+          "quality": "measured",
+          "source_file": "ordered_inference_pr74.json"
+        },
+        "inference": {
+          "bse": 0.023647408296312022,
+          "ok": true,
+          "quality": "measured",
+          "source_file": "ordered_inference_pr74.json"
+        },
+        "speedup": {
+          "value": 0.782774,
+          "reference_backend": "numpy",
+          "reference_framework": "statgpu",
+          "reported_semantics": "computed",
+          "quality": "computed",
+          "source_file": "ordered_inference_pr74.json",
+          "reference_run_id": "8bd490055b243fbe"
+        }
+      },
+      "comparison_id": "ordered-inference-pr74"
+    },
+    {
+      "run_id": "caa29e8e7fb151da",
+      "benchmark_session_id": "remote-p100-pr74-inference",
+      "env_id": "remote-p100",
+      "category_ids": [
+        "robust_quantile"
+      ],
+      "model_id": "QuantileRegression",
+      "case_id": "case-18fd39bcbe2ceddc",
+      "method_config_id": "method-1f351c80de014320",
+      "variant": "bootstrap",
+      "loss": "quantile",
+      "penalty": null,
+      "solver": "batched_pinball_fista",
+      "solver_display": "Batched Pinball Fista",
+      "solver_kind": "internal",
+      "framework": "statgpu",
+      "backend": "torch",
+      "scale": {
+        "scale_key": "n500_p5",
+        "n_samples": 500,
+        "n_features": 5,
+        "label": "500×5"
+      },
+      "source": {
+        "file": "ordered_inference_pr74.json",
+        "date": "",
+        "parser": "parse_pr74_inference_benchmark_v1",
+        "parser_version": "1.0",
+        "source_id": "ordered-inference-20260712-c584a2bfa213",
+        "original_path": "results/pr74_inference_validation.json"
+      },
+      "metrics": {
+        "timing": {
+          "fit_time_ms": 503.755301,
+          "quality": "measured",
+          "source_file": "ordered_inference_pr74.json"
+        },
+        "inference": {
+          "bse": 0.023647408296312154,
+          "ok": true,
+          "quality": "measured",
+          "source_file": "ordered_inference_pr74.json"
+        },
+        "speedup": {
+          "value": 1.271894,
+          "reference_backend": "numpy",
+          "reference_framework": "statgpu",
+          "reported_semantics": "computed",
+          "quality": "computed",
+          "source_file": "ordered_inference_pr74.json",
+          "reference_run_id": "8bd490055b243fbe"
+        }
+      },
+      "comparison_id": "ordered-inference-pr74"
+    },
+    {
+      "run_id": "d2b8c86bd6d55fec",
+      "benchmark_session_id": "remote-p100-pr74-inference",
+      "env_id": "remote-p100",
+      "category_ids": [
+        "robust_quantile"
+      ],
+      "model_id": "QuantileRegression",
+      "case_id": "case-8d76ce33a90fd188",
+      "method_config_id": "method-ae1ac366628d13fe",
+      "variant": "kernel",
+      "loss": "quantile",
+      "penalty": null,
+      "solver": "kernel_sandwich",
+      "solver_display": "Kernel Sandwich",
+      "solver_kind": "internal",
+      "framework": "statgpu",
+      "backend": "numpy",
+      "scale": {
+        "scale_key": "n2000_p10",
+        "n_samples": 2000,
+        "n_features": 10,
+        "label": "2K×10"
+      },
+      "source": {
+        "file": "ordered_inference_pr74.json",
+        "date": "",
+        "parser": "parse_pr74_inference_benchmark_v1",
+        "parser_version": "1.0",
+        "source_id": "ordered-inference-20260712-c584a2bfa213",
+        "original_path": "results/pr74_inference_validation.json"
+      },
+      "metrics": {
+        "timing": {
+          "fit_time_ms": 10.843933,
+          "quality": "measured",
+          "source_file": "ordered_inference_pr74.json"
+        },
+        "inference": {
+          "bse": 0.018970628401968913,
+          "ok": true,
+          "quality": "measured",
+          "source_file": "ordered_inference_pr74.json"
+        }
+      },
+      "comparison_id": "ordered-inference-pr74"
+    },
+    {
+      "run_id": "32f45c6ca5bb8cf3",
+      "benchmark_session_id": "remote-p100-pr74-inference",
+      "env_id": "remote-p100",
+      "category_ids": [
+        "robust_quantile"
+      ],
+      "model_id": "QuantileRegression",
+      "case_id": "case-8d76ce33a90fd188",
+      "method_config_id": "method-ae1ac366628d13fe",
+      "variant": "kernel",
+      "loss": "quantile",
+      "penalty": null,
+      "solver": "kernel_sandwich",
+      "solver_display": "Kernel Sandwich",
+      "solver_kind": "internal",
+      "framework": "statgpu",
+      "backend": "cupy",
+      "scale": {
+        "scale_key": "n2000_p10",
+        "n_samples": 2000,
+        "n_features": 10,
+        "label": "2K×10"
+      },
+      "source": {
+        "file": "ordered_inference_pr74.json",
+        "date": "",
+        "parser": "parse_pr74_inference_benchmark_v1",
+        "parser_version": "1.0",
+        "source_id": "ordered-inference-20260712-c584a2bfa213",
+        "original_path": "results/pr74_inference_validation.json"
+      },
+      "metrics": {
+        "timing": {
+          "fit_time_ms": 133.728147,
+          "quality": "measured",
+          "source_file": "ordered_inference_pr74.json"
+        },
+        "inference": {
+          "bse": 0.01897062840196928,
+          "ok": true,
+          "quality": "measured",
+          "source_file": "ordered_inference_pr74.json"
+        },
+        "speedup": {
+          "value": 0.081089,
+          "reference_backend": "numpy",
+          "reference_framework": "statgpu",
+          "reported_semantics": "computed",
+          "quality": "computed",
+          "source_file": "ordered_inference_pr74.json",
+          "reference_run_id": "d2b8c86bd6d55fec"
+        }
+      },
+      "comparison_id": "ordered-inference-pr74"
+    },
+    {
+      "run_id": "ccf021c8d3b82f8d",
+      "benchmark_session_id": "remote-p100-pr74-inference",
+      "env_id": "remote-p100",
+      "category_ids": [
+        "robust_quantile"
+      ],
+      "model_id": "QuantileRegression",
+      "case_id": "case-8d76ce33a90fd188",
+      "method_config_id": "method-ae1ac366628d13fe",
+      "variant": "kernel",
+      "loss": "quantile",
+      "penalty": null,
+      "solver": "kernel_sandwich",
+      "solver_display": "Kernel Sandwich",
+      "solver_kind": "internal",
+      "framework": "statgpu",
+      "backend": "torch",
+      "scale": {
+        "scale_key": "n2000_p10",
+        "n_samples": 2000,
+        "n_features": 10,
+        "label": "2K×10"
+      },
+      "source": {
+        "file": "ordered_inference_pr74.json",
+        "date": "",
+        "parser": "parse_pr74_inference_benchmark_v1",
+        "parser_version": "1.0",
+        "source_id": "ordered-inference-20260712-c584a2bfa213",
+        "original_path": "results/pr74_inference_validation.json"
+      },
+      "metrics": {
+        "timing": {
+          "fit_time_ms": 63.98806,
+          "quality": "measured",
+          "source_file": "ordered_inference_pr74.json"
+        },
+        "inference": {
+          "bse": 0.018970628054947435,
+          "ok": true,
+          "quality": "measured",
+          "source_file": "ordered_inference_pr74.json"
+        },
+        "speedup": {
+          "value": 0.169468,
+          "reference_backend": "numpy",
+          "reference_framework": "statgpu",
+          "reported_semantics": "computed",
+          "quality": "computed",
+          "source_file": "ordered_inference_pr74.json",
+          "reference_run_id": "d2b8c86bd6d55fec"
+        }
+      },
+      "comparison_id": "ordered-inference-pr74"
+    },
+    {
+      "run_id": "8498bbff71ffc66d",
+      "benchmark_session_id": "remote-p100-pr74-inference",
+      "env_id": "remote-p100",
+      "category_ids": [
+        "robust_quantile"
+      ],
+      "model_id": "QuantileRegression",
+      "case_id": "case-f63012690c044d8d",
+      "method_config_id": "method-1f351c80de014320",
+      "variant": "bootstrap",
+      "loss": "quantile",
+      "penalty": null,
+      "solver": "batched_pinball_fista",
+      "solver_display": "Batched Pinball Fista",
+      "solver_kind": "internal",
+      "framework": "statgpu",
+      "backend": "numpy",
+      "scale": {
+        "scale_key": "n2000_p10",
+        "n_samples": 2000,
+        "n_features": 10,
+        "label": "2K×10"
+      },
+      "source": {
+        "file": "ordered_inference_pr74.json",
+        "date": "",
+        "parser": "parse_pr74_inference_benchmark_v1",
+        "parser_version": "1.0",
+        "source_id": "ordered-inference-20260712-c584a2bfa213",
+        "original_path": "results/pr74_inference_validation.json"
+      },
+      "metrics": {
+        "timing": {
+          "fit_time_ms": 3120.067507,
+          "quality": "measured",
+          "source_file": "ordered_inference_pr74.json"
+        },
+        "inference": {
+          "bse": 0.012652059241257172,
+          "ok": true,
+          "quality": "measured",
+          "source_file": "ordered_inference_pr74.json"
+        }
+      },
+      "comparison_id": "ordered-inference-pr74"
+    },
+    {
+      "run_id": "0fd5eae628d4fa33",
+      "benchmark_session_id": "remote-p100-pr74-inference",
+      "env_id": "remote-p100",
+      "category_ids": [
+        "robust_quantile"
+      ],
+      "model_id": "QuantileRegression",
+      "case_id": "case-f63012690c044d8d",
+      "method_config_id": "method-1f351c80de014320",
+      "variant": "bootstrap",
+      "loss": "quantile",
+      "penalty": null,
+      "solver": "batched_pinball_fista",
+      "solver_display": "Batched Pinball Fista",
+      "solver_kind": "internal",
+      "framework": "statgpu",
+      "backend": "cupy",
+      "scale": {
+        "scale_key": "n2000_p10",
+        "n_samples": 2000,
+        "n_features": 10,
+        "label": "2K×10"
+      },
+      "source": {
+        "file": "ordered_inference_pr74.json",
+        "date": "",
+        "parser": "parse_pr74_inference_benchmark_v1",
+        "parser_version": "1.0",
+        "source_id": "ordered-inference-20260712-c584a2bfa213",
+        "original_path": "results/pr74_inference_validation.json"
+      },
+      "metrics": {
+        "timing": {
+          "fit_time_ms": 860.403538,
+          "quality": "measured",
+          "source_file": "ordered_inference_pr74.json"
+        },
+        "inference": {
+          "bse": 0.012652059241257172,
+          "ok": true,
+          "quality": "measured",
+          "source_file": "ordered_inference_pr74.json"
+        },
+        "speedup": {
+          "value": 3.626284,
+          "reference_backend": "numpy",
+          "reference_framework": "statgpu",
+          "reported_semantics": "computed",
+          "quality": "computed",
+          "source_file": "ordered_inference_pr74.json",
+          "reference_run_id": "8498bbff71ffc66d"
+        }
+      },
+      "comparison_id": "ordered-inference-pr74"
+    },
+    {
+      "run_id": "09521c1a3dfaeced",
+      "benchmark_session_id": "remote-p100-pr74-inference",
+      "env_id": "remote-p100",
+      "category_ids": [
+        "robust_quantile"
+      ],
+      "model_id": "QuantileRegression",
+      "case_id": "case-f63012690c044d8d",
+      "method_config_id": "method-1f351c80de014320",
+      "variant": "bootstrap",
+      "loss": "quantile",
+      "penalty": null,
+      "solver": "batched_pinball_fista",
+      "solver_display": "Batched Pinball Fista",
+      "solver_kind": "internal",
+      "framework": "statgpu",
+      "backend": "torch",
+      "scale": {
+        "scale_key": "n2000_p10",
+        "n_samples": 2000,
+        "n_features": 10,
+        "label": "2K×10"
+      },
+      "source": {
+        "file": "ordered_inference_pr74.json",
+        "date": "",
+        "parser": "parse_pr74_inference_benchmark_v1",
+        "parser_version": "1.0",
+        "source_id": "ordered-inference-20260712-c584a2bfa213",
+        "original_path": "results/pr74_inference_validation.json"
+      },
+      "metrics": {
+        "timing": {
+          "fit_time_ms": 519.518733,
+          "quality": "measured",
+          "source_file": "ordered_inference_pr74.json"
+        },
+        "inference": {
+          "bse": 0.012652059241249528,
+          "ok": true,
+          "quality": "measured",
+          "source_file": "ordered_inference_pr74.json"
+        },
+        "speedup": {
+          "value": 6.005688,
+          "reference_backend": "numpy",
+          "reference_framework": "statgpu",
+          "reported_semantics": "computed",
+          "quality": "computed",
+          "source_file": "ordered_inference_pr74.json",
+          "reference_run_id": "8498bbff71ffc66d"
         }
       },
       "comparison_id": "ordered-inference-pr74"
