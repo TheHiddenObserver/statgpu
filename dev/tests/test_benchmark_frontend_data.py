@@ -243,33 +243,58 @@ def test_manifest_registry_allows_unhashed_sources():
 
     registry = build_registry_from_manifest(
         {
+            "minimum_source_date": "2026-06-01",
             "sources": [
                 {
                     "path": "results/example.json",
                     "parser": "knockoff_benchmark",
                     "env_id": "test",
-                    "source_id": "example-20260101-000000000000",
+                    "source_id": "example-20260601-000000000000",
+                    "source_date": "2026-06-01",
                 }
-            ]
+            ],
         }
     )
     assert "sha256" not in registry["results/example.json"]
 
 
 def test_manifest_date_policy_rejects_old_and_undated_sources():
-    from dev.benchmarks.frontend_data.registry import validate_manifest_source_dates
+    from dev.benchmarks.frontend_data.registry import (
+        build_registry_from_manifest,
+        validate_manifest_source_dates,
+    )
+
+    undated = {"minimum_source_date": "2026-06-01", "sources": [{"source_id": "x"}]}
+    old = {
+        "minimum_source_date": "2026-06-01",
+        "sources": [{"source_id": "x", "source_date": "2026-04-30"}],
+    }
 
     with pytest.raises(ValueError, match="missing source_date"):
-        validate_manifest_source_dates(
-            {"minimum_source_date": "2026-06-01", "sources": [{"source_id": "x"}]}
-        )
+        validate_manifest_source_dates(undated)
     with pytest.raises(ValueError, match="minimum allowed date"):
-        validate_manifest_source_dates(
+        validate_manifest_source_dates(old)
+    with pytest.raises(ValueError, match="minimum allowed date"):
+        build_registry_from_manifest(old)
+
+
+def test_direct_manifest_generation_rejects_pre_june_sources(generator, tmp_path):
+    source = tmp_path / "old.json"
+    source.write_text("{}", encoding="utf-8")
+    manifest = {
+        "minimum_source_date": "2026-06-01",
+        "sources": [
             {
-                "minimum_source_date": "2026-06-01",
-                "sources": [{"source_id": "x", "source_date": "2026-04-30"}],
+                "path": str(source),
+                "parser": "knockoff_benchmark",
+                "env_id": "test",
+                "source_id": "old-20260430-000000000000",
+                "source_date": "2026-04-30",
             }
-        )
+        ],
+    }
+    with pytest.raises(ValueError, match="minimum allowed date"):
+        generator(tmp_path, manifest=manifest)
 
 
 def test_strict_mode_requires_hash_for_required_source(generator, tmp_path):
@@ -277,13 +302,15 @@ def test_strict_mode_requires_hash_for_required_source(generator, tmp_path):
     source.write_text("{}", encoding="utf-8")
     manifest = {
         "catalog_total": 1,
+        "minimum_source_date": "2026-06-01",
         "environments": {"test": {"label": "Test", "gpu": "none", "cpu": "test"}},
         "sources": [
             {
                 "path": str(source),
                 "parser": "knockoff_benchmark",
                 "env_id": "test",
-                "source_id": "example-20260101-000000000000",
+                "source_id": "example-20260601-000000000000",
+                "source_date": "2026-06-01",
                 "required": True,
             }
         ],
