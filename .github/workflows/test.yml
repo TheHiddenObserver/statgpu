@@ -55,6 +55,9 @@ jobs:
             dev/tests/test_repository_review_batch2.py \
             dev/tests/test_repository_review_batch3.py \
             dev/tests/test_repository_review_final.py \
+            dev/tests/test_module_review_anova_kernel.py \
+            dev/tests/test_module_review_covariance_panel.py \
+            dev/tests/test_module_review_smoothing_splines_gam_metrics.py \
             dev/tests/test_elasticnet_cv.py \
             dev/tests/test_v10_import_smoke.py \
             -q --tb=short
@@ -93,8 +96,10 @@ jobs:
           ruff check \
             statgpu/_base.py \
             statgpu/_config.py \
+            statgpu/anova \
             statgpu/backends/_factory.py \
             statgpu/core/formula/_parser.py \
+            statgpu/covariance \
             statgpu/cross_validation/_base.py \
             statgpu/feature_selection/_knockoff_utils.py \
             statgpu/glm_core/_solver_utils.py \
@@ -104,7 +109,13 @@ jobs:
             statgpu/linear_model/penalized/_inference_mixin.py \
             statgpu/linear_model/penalized/_penalized_cv.py \
             statgpu/linear_model/wrappers/_ridge.py \
+            statgpu/metrics \
+            statgpu/nonparametric/kernel_methods \
+            statgpu/nonparametric/kernel_smoothing \
+            statgpu/nonparametric/splines \
+            statgpu/panel \
             statgpu/penalties/_adaptive_l1.py \
+            statgpu/semiparametric \
             statgpu/unsupervised/_kmeans.py \
             statgpu/unsupervised/_nndescent.py \
             statgpu/unsupervised/_umap.py \
