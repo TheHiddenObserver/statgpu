@@ -1,42 +1,43 @@
 # statgpu Benchmark Dashboard
 
-The statgpu benchmark dashboard provides a common view of timing, speedup, numerical quality, convergence, prediction, validation, and feature-selection results produced by several benchmark families.
+The statgpu benchmark dashboard provides a common view of timing, speedup, numerical quality, inference, convergence, prediction, validation, and feature-selection results.
 
-The dashboard is a presentation layer over a generated benchmark bundle. It does not parse raw benchmark files in the browser and does not recompute statistical metrics except for sorting, filtering, and chart layout.
+The browser is a presentation layer over a generated benchmark bundle. Raw result files are parsed and validated in Python before the frontend is built.
 
 ## Current coverage
 
-As of PR #78, the canonical manifest registers nine benchmark sources and eight parser implementations. The generated bundle contains 1,491 normalized runs across 13 models.
+As of PR #78, the canonical manifest registers **14 benchmark sources** handled by **13 parser implementations**. The generated bundle contains **1,623 normalized runs across 36 models**.
 
-Covered benchmark families include:
+All published categories now contain runs:
 
-- Penalized GLM performance.
-- GLM solver comparison.
-- ElasticNet cross-framework comparison.
-- CoxPH Efron variants.
-- Comprehensive GLM validation.
-- CoxPH package comparison.
-- LassoCV backend comparison.
-- Knockoff and feature-selection baselines.
+- Penalized GLM and GLM.
+- Linear models, including June 2026 squared-error performance and solver results.
+- Robust and quantile regression.
+- Survival analysis.
+- Unsupervised learning.
+- Ordered models.
+- Nonparametric methods.
+- Panel models.
+- Covariance estimation.
+- Feature selection.
 
-The source registry is `dev/benchmarks/frontend_sources.json`. Generated files are committed in both `frontend/public/data/` and `docs/assets/benchmarks/data/`.
+The newly connected sources include:
 
-## Reading the page
+| Source | Frontend coverage |
+|---|---|
+| `loss_functions_20260623.json` | Robust/quantile timing, validation, sklearn comparison |
+| `ordered_inference_pr74.json` | Ordered logit/probit inference and quantile kernel/bootstrap GPU inference |
+| `unsupervised_20260627.json` | PCA, clustering, decomposition, UMAP and t-SNE timings |
+| `new_modules_full_20260624.json` | Panel and aligned GAM comparisons |
+| `p2_benchmark_20260617.json` | Covariance, Nystroem, RBF kernel and spline benchmarks |
+| `penalized_glm_perf_20260622.json` | Recent squared-error NumPy/CuPy/Torch timings under `linear_models` |
+| `glm_solver_20260623.json` | Recent squared-error solver speedups under `linear_models` |
 
-### Environment and category
+The source registry is `dev/benchmarks/frontend_sources.json`. Generated files are committed in `frontend/public/data/` and `docs/assets/benchmarks/data/`.
 
-The sidebar selects the benchmark environment and one or more model categories. The initial state is data-driven:
+## Filters
 
-1. Prefer `remote-p100` when it exists and has runs.
-2. Otherwise select the first environment that has runs.
-3. Prefer `penalized_glm` when it is available in the selected environment.
-4. Otherwise select the first available category.
-
-This avoids loading a valid environment/category combination with no rows.
-
-### Progressive filters
-
-Filters are applied in the following order:
+Filters follow a dependency chain:
 
 ```text
 Environment and category
@@ -49,147 +50,71 @@ Environment and category
               → External framework
 ```
 
-Changing an upstream filter clears incompatible downstream selections. For example, changing the model clears variant, penalty, solver, and scale selections.
+Changing an upstream value clears incompatible downstream selections. External frameworks are hidden by default and are offered only when relevant to the current filter context.
 
-Filter behavior:
-
-- **Model**: all models present in the selected environment and categories.
-- **Variant**: shown only when the selected model has variants.
-- **Penalty**: shown after a model is selected.
-- **Solver**: shown after a penalty is selected.
-- **Scale**: multi-select chips based on `scale_key`.
-- **Backend**: applies only to statgpu runs; available values are NumPy, CuPy, and Torch.
-- **External framework**: hidden by default and shown only when the current filter context contains applicable external runs.
-
-External frameworks currently registered by the manifest are scikit-learn, glmnet, statsmodels, lifelines, scikit-survival, and knockpy. The browser only renders entries actually referenced by generated runs.
+Registered external frameworks include scikit-learn, glmnet, statsmodels, lifelines, scikit-survival, knockpy, linearmodels, and pyGAM.
 
 ## Charts
 
-### Timing chart
+### Timing
 
-The timing chart displays `metrics.timing.fit_time_ms`. A bar represents a fully identified run series within a benchmark comparison and scale.
+The timing chart uses `metrics.timing.fit_time_ms`. Group identity includes comparison, environment, model, case, method configuration, variant, loss, penalty, solver, and scale. Series identity includes framework, backend, and implementation.
 
-The grouping identity includes:
+This prevents different CoxPH variants, solver configurations, unsupervised algorithms, ordered inference methods, and external packages from overwriting one another.
 
-- Comparison.
-- Environment.
-- Model.
-- Case and method configuration.
-- Variant.
-- Loss, penalty, and solver.
-- Scale.
+### Speedup
 
-The series identity includes:
+A value above one means faster than the reference; a value below one is a slowdown.
 
-- Framework.
-- Backend.
-- Implementation.
+- **Computed** speedups use `reference time / current time` and carry `reference_run_id`.
+- **Runner-reported** speedups are copied from an upstream benchmark and use `reported_semantics: "reported_by_runner"`.
 
-This distinction prevents results from different CoxPH variants, solver configurations, implementations, or external packages from being merged into the same visual cell.
+Semantic validation checks computed references, positive timings, compatible comparison/scale identity, and numerical agreement with the timing ratio.
 
-### Speedup chart
+## Overview and metric panels
 
-A speedup greater than one means the displayed run is faster than its reference. A value below one is a slowdown.
+The overview table supports stable keyed sorting, a default 200-row limit, “Show all,” source provenance, and framework-aware display.
 
-There are two speedup semantics:
+Panels appear only when the filtered rows contain the corresponding metric group:
 
-#### Computed speedup
+- **Validation**: pass/warn/fail checks and tolerances.
+- **Accuracy**: coefficient and standard-error differences.
+- **Inference**: BSE, Wald statistic, p-value, backend, scale, and status.
+- **Prediction**: train/test MSE, noiseless MSE, selected alpha, and C-index.
+- **Convergence**: iteration summaries and convergence rates.
+- **Selection**: precision, recall, FDP, F1, Jaccard, FDR, and selected-set size.
 
-```text
-speedup = reference fit time / current fit time
-```
+The Inference panel is particularly relevant to ordered logit/probit and quantile kernel/bootstrap results.
 
-The generated record contains `reference_run_id`, `reference_framework`, and `reference_backend`. Semantic validation checks that:
+## Metric provenance
 
-- The reference run exists.
-- Both timings are positive.
-- Comparison and scale are compatible.
-- The stored value agrees with the timing ratio within tolerance.
+Metric quality labels are:
 
-#### Reported speedup
+- `measured`: directly observed;
+- `reported`: copied from an upstream report;
+- `computed`: deterministically derived by a parser;
+- `partial`: incomplete or partially comparable.
 
-Some benchmark runners directly emit a speedup value. These records use `reported_semantics: "reported_by_runner"`. They are labeled as reported values and should not be interpreted as a frontend recomputation.
+Quality records provenance, not whether a method performed well.
 
-Speedup labels include enough identity information to distinguish variant, penalty, solver, framework/backend, implementation, and scale when present.
+## Generated bundle
 
-## Overview table
+The frontend loads:
 
-The overview table provides run-level inspection and supports:
+- `benchmark_data.json`: registries and normalized runs;
+- `parse_report.json`: source/run counts and structured issues;
+- `source_inventory.json`: catalog, registration, availability, and parsed counts.
 
-- Stable keyed-column sorting.
-- Ascending/descending toggling.
-- A default 200-row limit.
-- “Show all” for the filtered result set.
-- Framework-aware display for external rows whose backend is `null`.
+All three files share one `generation_id`. A mismatch means files from different generator executions were mixed.
 
-Sort ties are resolved by `run_id`, so repeated renders are deterministic.
-
-## Domain panels
-
-Panels are rendered only when the filtered runs contain the corresponding metric group.
-
-### Validation
-
-Displays overall `pass`, `warn`, or `fail` status and individual validation checks. A check can include an operator, value, tolerance, and reference.
-
-### Accuracy
-
-Displays coefficient and standard-error differences, including absolute, relative, and seed-aggregated forms when available.
-
-Typical fields include:
-
-- Coefficient L2 difference.
-- Maximum absolute coefficient difference.
-- Relative coefficient L2 error.
-- Maximum absolute standard-error difference.
-
-### Prediction
-
-Displays predictive metrics such as train/test MSE, noiseless test MSE, selected regularization level, and survival C-index.
-
-### Convergence
-
-Displays iteration summaries and convergence rates. Iteration summaries may include a mean and standard deviation over benchmark replicates.
-
-### Selection
-
-Displays feature-selection metrics such as precision, recall, false discovery proportion, F1, Jaccard similarity to truth, estimated FDR, target FDR, and selected-set size.
-
-## Metric quality
-
-Metric groups carry a quality label:
-
-- `measured`: directly observed by the benchmark.
-- `reported`: copied from an upstream aggregate or benchmark report.
-- `computed`: derived deterministically by the parser from source values.
-- `partial`: incomplete or only partially comparable information.
-
-Quality describes provenance, not whether a method performed well.
-
-## Generated metadata
-
-The frontend loads three files:
-
-### `benchmark_data.json`
-
-Contains the schema version, environment/category/model/framework/comparison registries, and normalized runs.
-
-### `parse_report.json`
-
-Contains source counts, generated run count, and structured parse issues. The frontend accepts report version `2.0`.
-
-### `source_inventory.json`
-
-Contains catalog, eligibility, registration, availability, and parsed-source counts. The frontend accepts inventory version `1.0`.
-
-All three files must have the same `generation_id`. A mismatch indicates that files from different generator executions were mixed.
-
-## Reproducing the dashboard
-
-From the repository root:
+## Reproduce and test
 
 ```bash
 python -m pip install -U pytest jsonschema
+pytest \
+  dev/tests/test_benchmark_frontend_data.py \
+  dev/tests/test_frontend_contracts.py \
+  dev/tests/test_frontend_domain_coverage.py -v
 
 python dev/benchmarks/generate_benchmark_data.py \
   --out frontend/public/data/benchmark_data.json \
@@ -205,26 +130,16 @@ npx playwright install --with-deps chromium
 npm run test:e2e
 ```
 
-Preview the production files:
+## Adding a source
 
-```bash
-cd docs/assets/benchmarks
-python -m http.server 8000
-```
+1. Copy the canonical JSON under `results/benchmark_frontend_sources/`.
+2. Register its SHA256, environment, comparison, parser, and allowed issue codes in `frontend_sources.json`.
+3. Implement or reuse a parser in `frontend_data/parsers/` and register it in `registry.py`.
+4. Return schema-compliant runs and model metadata with canonical case/method identities.
+5. Add parser, coverage, and interaction tests.
+6. Regenerate the three-file bundle and rebuild deployed assets.
 
-## Adding a benchmark source
-
-A maintainer should:
-
-1. Add a canonical source JSON file under `results/benchmark_frontend_sources/`.
-2. Add the source, SHA256, environment, comparison, parser, and allowed issue codes to `dev/benchmarks/frontend_sources.json`.
-3. Implement or reuse a parser registered in `dev/benchmarks/frontend_data/registry.py`.
-4. Return normalized runs and model metadata according to the parser contract.
-5. Add parser and contract tests.
-6. Regenerate all three data files and rebuild the deployed frontend assets.
-7. Run Python validation, TypeScript checks, the production build, and Playwright tests.
-
-See the following technical references:
+Technical references:
 
 - `docs/benchmark-dashboard/schema-v1.1.md`
 - `docs/benchmark-dashboard/parser-contracts.md`
