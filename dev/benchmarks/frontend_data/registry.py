@@ -103,7 +103,11 @@ def load_manifest(repo_root: Path) -> Optional[dict]:
 
 
 def build_registry_from_manifest(manifest: dict) -> dict[str, dict]:
-    """Build parser registry from manifest. Keys are canonical paths."""
+    """Build parser registry from a validated June-or-later manifest."""
+    # Enforce the dashboard date policy for every programmatic entry point, not
+    # only manifests loaded from disk via ``load_manifest``.
+    validate_manifest_source_dates(manifest)
+
     registry = {}
     for src in manifest["sources"]:
         parser_name = src["parser"]
