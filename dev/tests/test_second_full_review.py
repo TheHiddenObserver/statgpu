@@ -83,8 +83,8 @@ class TestStepwiseSelectorContracts:
 
 
 class TestWelchBackendAndReference:
-    def test_numpy_matches_scipy_welch_anova(self):
-        from scipy import stats
+    def test_numpy_matches_statsmodels_welch_anova(self):
+        from statsmodels.stats.oneway import anova_oneway
         from statgpu.anova import f_welch
 
         rng = np.random.default_rng(12)
@@ -94,9 +94,11 @@ class TestWelchBackendAndReference:
             rng.normal(-0.2, 0.5, 60),
         )
         actual = f_welch(*groups)
-        expected = stats.f_oneway(*groups, equal_var=False)
+        expected = anova_oneway(groups, use_var="unequal", welch_correction=True)
         np.testing.assert_allclose(actual.statistic, expected.statistic, rtol=1e-12)
         np.testing.assert_allclose(actual.pvalue, expected.pvalue, rtol=1e-10)
+        np.testing.assert_allclose(actual.df_between, expected.df[0], rtol=0, atol=0)
+        np.testing.assert_allclose(actual.df_within, expected.df[1], rtol=1e-12)
         assert isinstance(actual.df_within, float)
 
     def test_torch_cpu_matches_numpy_without_full_numpy_fallback(self):
