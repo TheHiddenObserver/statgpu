@@ -12,16 +12,20 @@ All notable changes to statgpu are documented here, organized by date and PR.
   `X'WX + sum(w)*alpha*I` for weighted fits; scikit-learn comparisons now use the
   explicit corresponding alpha mapping.
 - Unified weighted Ridge behavior across the optimized wrapper, generic exact solver,
-  FISTA, formula fitting, CPU/CuPy/Torch exact paths, Gaussian inference, and RidgeCV.
+  FISTA, formula fitting, CPU/CuPy/Torch exact paths, Gaussian inference, RidgeCV,
+  and `PenalizedGLM_CV(loss="squared_error", penalty="l2")`.
 - Corrected weighted centering before square-root weighting, weighted intercept and
   residual construction for inference, and weighted default alpha-grid generation.
+- `PenalizedGLM_CV` now generates weighted alpha grids from the normalized weighted
+  null gradient and avoids building an unused host-side Gram cache for the default
+  GPU Newton Ridge route.
 - Formula evaluation now exposes retained row positions so sample weights remain
   aligned when Patsy drops rows containing missing values.
 - GPU sample-weight validation and normalization use device-side reductions and
   synchronize only scalar results, avoiding full weight-vector host transfers.
 - Added regression coverage for weighted closed forms, weight-rescaling invariance,
   exact/FISTA and wrapper/generic equality, formula missing rows, inference covariance,
-  RidgeCV, and weighted scikit-learn alpha mapping.
+  both Ridge CV implementations, and weighted scikit-learn alpha mapping.
 
 ## 2026-07-11
 
