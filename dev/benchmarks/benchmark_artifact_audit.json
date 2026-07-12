@@ -1,0 +1,4365 @@
+[
+  {
+    "path": "results/bench_large_scale.json",
+    "size_bytes": 7024,
+    "shape": {
+      "config": {
+        "seed": "int",
+        "repeats": "int",
+        "warmup_runs": "int",
+        "devices": "str",
+        "compute_inference": "bool",
+        "gpu_memory_cleanup": "bool",
+        "json_out": "str",
+        "include_external": "bool",
+        "include_r": "bool",
+        "n_reg": "int",
+        "p_reg": "int",
+        "n_logit": "int",
+        "p_logit": "int",
+        "n_cox": "int",
+        "p_cox": "int"
+      },
+      "results": {
+        "type": "list",
+        "length": 22,
+        "item_shape": {
+          "model": "str",
+          "device": "str",
+          "mean_ms": "float",
+          "std_ms": "float",
+          "min_ms": "float",
+          "max_ms": "float",
+          "repeats": "int",
+          "ok": "bool",
+          "error": "str",
+          "coef_diff": "float"
+        }
+      }
+    },
+    "config": {
+      "seed": 42,
+      "repeats": 5,
+      "warmup_runs": 2,
+      "devices": "cpu,cuda",
+      "compute_inference": false,
+      "gpu_memory_cleanup": false,
+      "json_out": "results/bench_large_scale.json",
+      "include_external": true,
+      "include_r": true,
+      "n_reg": 200000,
+      "p_reg": 64,
+      "n_logit": 150000,
+      "p_logit": 48,
+      "n_cox": 100000,
+      "p_cox": 24
+    }
+  },
+  {
+    "path": "results/benchmark_elasticnet_sklearn_2026-04-18.json",
+    "size_bytes": 52772,
+    "shape": {
+      "timestamp": "str",
+      "total_tests": "int",
+      "results": {
+        "type": "list",
+        "length": 6,
+        "item_shape": {
+          "name": "str",
+          "n_samples": "int",
+          "n_features": "int",
+          "true_nonzero": "int",
+          "config": "dict",
+          "backends": "dict"
+        }
+      }
+    },
+    "timestamp": "2026-04-18T19:52:10.900241"
+  },
+  {
+    "path": "results/benchmark_frontend_sources/comprehensive_validation.json",
+    "size_bytes": 1926,
+    "shape": {
+      "config": {
+        "n": "int",
+        "p": "int",
+        "seed": "int"
+      },
+      "gpu": "str",
+      "external_validation": {
+        "Poisson": {
+          "max_coef_diff": "float",
+          "max_bse_diff": "float",
+          "threshold": "float",
+          "status": "str"
+        },
+        "Gamma": {
+          "max_coef_diff": "float",
+          "max_bse_diff": "float",
+          "threshold": "float",
+          "status": "str"
+        },
+        "InvGaussian": {
+          "max_coef_diff": "float",
+          "max_bse_diff": "float",
+          "threshold": "float",
+          "status": "str"
+        },
+        "NegBinom": {
+          "max_coef_diff": "float",
+          "max_bse_diff": "float",
+          "threshold": "float",
+          "status": "str"
+        },
+        "Tweedie": {
+          "max_coef_diff": "float",
+          "max_bse_diff": "float",
+          "threshold": "float",
+          "status": "str"
+        }
+      },
+      "cross_backend": {
+        "penalized_poisson_l2": {
+          "numpy": "dict"
+        },
+        "scad_oracle": {
+          "numpy": "dict"
+        }
+      },
+      "timing": {
+        "numpy": {
+          "fit_s": "float",
+          "inference_per_cov_s": "float"
+        }
+      }
+    },
+    "config": {
+      "n": 500,
+      "p": 10,
+      "seed": 42
+    }
+  },
+  {
+    "path": "results/benchmark_frontend_sources/coxph_efron_20260622.json",
+    "size_bytes": 8888,
+    "shape": {
+      "date": "str",
+      "model": "str",
+      "ties": "str",
+      "environment": {
+        "gpu": "str",
+        "backends": {
+          "type": "list",
+          "length": 3,
+          "item_shape": "str"
+        }
+      },
+      "precision": {
+        "reference": "str",
+        "results": {
+          "type": "list",
+          "length": 15,
+          "item_shape": "dict"
+        },
+        "summary": {
+          "pass": "int",
+          "warn": "int",
+          "fail": "int",
+          "total": "int"
+        }
+      },
+      "performance": {
+        "light_ties": {
+          "small_1k": "dict",
+          "small_2k": "dict",
+          "medium_5k": "dict",
+          "medium_10k": "dict",
+          "large_20k": "dict"
+        },
+        "heavy_ties": {
+          "small_1k": "dict",
+          "small_2k": "dict",
+          "medium_5k": "dict",
+          "medium_10k": "dict",
+          "large_20k": "dict"
+        }
+      },
+      "speedups": {
+        "light_ties": {
+          "small_1k": "dict",
+          "small_2k": "dict",
+          "medium_5k": "dict",
+          "medium_10k": "dict",
+          "large_20k": "dict"
+        },
+        "heavy_ties": {
+          "small_1k": "dict",
+          "small_2k": "dict",
+          "medium_5k": "dict",
+          "medium_10k": "dict",
+          "large_20k": "dict"
+        }
+      },
+      "config": {
+        "STATGPU_USE_NUMBA": {
+          "default": "str",
+          "description": "str"
+        },
+        "STATGPU_EFRON_VEC_MAX_P": {
+          "default": "str",
+          "description": "str"
+        }
+      }
+    },
+    "date": "2026-06-22",
+    "environment": {
+      "gpu": "Tesla P100-SXM2-16GB",
+      "backends": [
+        "cpu",
+        "torch_gpu",
+        "cupy_gpu"
+      ]
+    },
+    "config": {
+      "STATGPU_USE_NUMBA": {
+        "default": "0",
+        "description": "Enable Numba JIT for CPU Efron (~2x speedup)"
+      },
+      "STATGPU_EFRON_VEC_MAX_P": {
+        "default": "30",
+        "description": "Vectorized cumsum p threshold (p <= this uses cumsum, else incremental loop)"
+      }
+    }
+  },
+  {
+    "path": "results/benchmark_frontend_sources/coxph_package_20260419.json",
+    "size_bytes": 1247,
+    "shape": {
+      "type": "list",
+      "length": 3,
+      "item_shape": {
+        "n_samples": "int",
+        "n_features": "int",
+        "statgpu": {
+          "time": "float",
+          "c_index": "float"
+        },
+        "statsmodels": {
+          "time": "NoneType",
+          "c_index": "NoneType"
+        },
+        "lifelines": {
+          "time": "float",
+          "c_index": "float"
+        },
+        "scikit_survival": {
+          "time": "float",
+          "c_index": "float"
+        }
+      }
+    }
+  },
+  {
+    "path": "results/benchmark_frontend_sources/elasticnet_glmnet.json",
+    "size_bytes": 4201,
+    "shape": {
+      "timestamp": "str",
+      "backend": "str",
+      "results": {
+        "small_data": {
+          "name": "str",
+          "n_samples": "int",
+          "n_features": "int",
+          "backend": "str",
+          "coef": "list",
+          "intercept": "float",
+          "coef_norm": "float",
+          "fit_time_ms": "float",
+          "n_iterations": "int"
+        },
+        "medium_data": {
+          "name": "str",
+          "n_samples": "int",
+          "n_features": "int",
+          "backend": "str",
+          "coef": "list",
+          "intercept": "float",
+          "coef_norm": "float",
+          "fit_time_ms": "float",
+          "n_iterations": "int"
+        },
+        "large_data": {
+          "name": "str",
+          "n_samples": "int",
+          "n_features": "int",
+          "backend": "str",
+          "coef": "list",
+          "intercept": "float",
+          "coef_norm": "float",
+          "fit_time_ms": "float",
+          "n_iterations": "int"
+        },
+        "high_dim_data": {
+          "name": "str",
+          "n_samples": "int",
+          "n_features": "int",
+          "backend": "str",
+          "coef": "list",
+          "intercept": "float",
+          "coef_norm": "float",
+          "fit_time_ms": "float",
+          "n_iterations": "int"
+        },
+        "sparse_coef": {
+          "name": "str",
+          "n_samples": "int",
+          "n_features": "int",
+          "backend": "str",
+          "coef": "list",
+          "intercept": "float",
+          "coef_norm": "float",
+          "fit_time_ms": "float",
+          "n_iterations": "int"
+        },
+        "high_noise": {
+          "name": "str",
+          "n_samples": "int",
+          "n_features": "int",
+          "backend": "str",
+          "coef": "list",
+          "intercept": "float",
+          "coef_norm": "float",
+          "fit_time_ms": "float",
+          "n_iterations": "int"
+        }
+      }
+    },
+    "timestamp": "2026-04-18T19:58:39"
+  },
+  {
+    "path": "results/benchmark_frontend_sources/elasticnet_statgpu.json",
+    "size_bytes": 34524,
+    "shape": {
+      "timestamp": "str",
+      "results": {
+        "type": "list",
+        "length": 6,
+        "item_shape": {
+          "name": "str",
+          "n_samples": "int",
+          "n_features": "int",
+          "backends": "dict"
+        }
+      }
+    },
+    "timestamp": "2026-04-18T19:59:36.025209"
+  },
+  {
+    "path": "results/benchmark_frontend_sources/glm_solver_20260623.json",
+    "size_bytes": 55159,
+    "shape": {
+      "date": "str",
+      "environment": {
+        "cupy_available": "bool",
+        "torch_available": "bool",
+        "gpu": "str",
+        "scale": "str"
+      },
+      "performance": {
+        "medium_100k": {
+          "squared_error_none": "dict",
+          "squared_error_l2": "dict",
+          "squared_error_l1": "dict",
+          "squared_error_elasticnet": "dict",
+          "squared_error_adaptive_l1": "dict",
+          "squared_error_scad": "dict",
+          "squared_error_mcp": "dict",
+          "squared_error_group_lasso": "dict",
+          "squared_error_group_scad": "dict",
+          "squared_error_group_mcp": "dict",
+          "logistic_none": "dict",
+          "logistic_l2": "dict",
+          "logistic_l1": "dict",
+          "logistic_elasticnet": "dict",
+          "logistic_adaptive_l1": "dict",
+          "logistic_scad": "dict",
+          "logistic_mcp": "dict",
+          "logistic_group_lasso": "dict",
+          "logistic_group_scad": "dict",
+          "logistic_group_mcp": "dict",
+          "poisson_none": "dict",
+          "poisson_l2": "dict",
+          "poisson_l1": "dict",
+          "poisson_elasticnet": "dict",
+          "poisson_adaptive_l1": "dict",
+          "poisson_scad": "dict",
+          "poisson_mcp": "dict",
+          "poisson_group_lasso": "dict",
+          "poisson_group_scad": "dict",
+          "poisson_group_mcp": "dict"
+        }
+      }
+    },
+    "date": "2026-06-24",
+    "environment": {
+      "cupy_available": true,
+      "torch_available": true,
+      "gpu": "Tesla P100-SXM2-16GB",
+      "scale": "100K x 50"
+    }
+  },
+  {
+    "path": "results/benchmark_frontend_sources/knockoff_baselines_20260409.json",
+    "size_bytes": 10930,
+    "shape": {
+      "date": "str",
+      "environment": {
+        "cuda_available": "bool",
+        "sklearn_available": "bool",
+        "knockpy_available": "bool"
+      },
+      "config": {
+        "seeds": {
+          "type": "list",
+          "length": 3,
+          "item_shape": "int"
+        },
+        "n_samples": "int",
+        "n_features": "int",
+        "n_signal": "int",
+        "noise_scale": "float",
+        "rho": "float",
+        "q": "float",
+        "knockoff_method": "str",
+        "knockoff_compat_mode": "str",
+        "knockoff_lasso_cv_impl": "str",
+        "k_topk": "int",
+        "lasso_alpha": "float"
+      },
+      "methods": {
+        "knockoff_fixedx_numpy": {
+          "runs": "list",
+          "aggregate": "dict"
+        },
+        "knockoff_modelx_numpy": {
+          "runs": "list",
+          "aggregate": "dict"
+        },
+        "marginal_corr_topk": {
+          "runs": "list",
+          "aggregate": "dict"
+        },
+        "statgpu_lasso_topk": {
+          "runs": "list",
+          "aggregate": "dict"
+        },
+        "sklearn_lasso_cv": {
+          "runs": "list",
+          "aggregate": "dict"
+        },
+        "knockpy_gaussian_lasso": "NoneType",
+        "knockoff_fixedx_cupy": "NoneType",
+        "knockoff_modelx_cupy": "NoneType"
+      },
+      "pairwise": {}
+    },
+    "date": "2026-04-09",
+    "environment": {
+      "cuda_available": false,
+      "sklearn_available": true,
+      "knockpy_available": false
+    },
+    "config": {
+      "seeds": [
+        20260406,
+        20260407,
+        20260408
+      ],
+      "n_samples": 400,
+      "n_features": 80,
+      "n_signal": 12,
+      "noise_scale": 1.0,
+      "rho": 0.3,
+      "q": 0.1,
+      "knockoff_method": "ols_coef_diff",
+      "knockoff_compat_mode": "statgpu",
+      "knockoff_lasso_cv_impl": "auto",
+      "k_topk": 12,
+      "lasso_alpha": 0.08
+    }
+  },
+  {
+    "path": "results/benchmark_frontend_sources/lassocv_combined_20260409.json",
+    "size_bytes": 12283,
+    "shape": {
+      "date": "str",
+      "environment": {
+        "cuda_available": "bool",
+        "sklearn_available": "bool",
+        "statgpu_available": "bool"
+      },
+      "config": {
+        "seeds": {
+          "type": "list",
+          "length": 3,
+          "item_shape": "int"
+        },
+        "n_samples": "int",
+        "n_features": "int",
+        "n_signal": "int",
+        "n_test_samples": "int",
+        "noise_scale": "float",
+        "rho": "float",
+        "cv": "int",
+        "n_alphas": "int",
+        "alpha_min_ratio": "float",
+        "max_iter": "int",
+        "tol": "float",
+        "n_jobs": "int",
+        "cpu_solver": "str",
+        "coef_support_threshold": "float",
+        "warmup": "int",
+        "repeats": "int"
+      },
+      "methods": {
+        "sklearn_lassocv_cpu": {
+          "runs": "list",
+          "aggregate": "dict"
+        },
+        "statgpu_lassocv_cpu": {
+          "runs": "list",
+          "aggregate": "dict"
+        },
+        "statgpu_lassocv_gpu": {
+          "runs": "list",
+          "aggregate": "dict"
+        }
+      },
+      "pairwise": {
+        "statgpu_cpu_over_sklearn": "float",
+        "statgpu_cpu_test_mse_over_sklearn": "float",
+        "statgpu_cpu_coef_l2_rel_over_sklearn": "float",
+        "statgpu_cpu_support_f1_minus_sklearn": "float",
+        "statgpu_gpu_over_sklearn": "float",
+        "statgpu_gpu_test_mse_over_sklearn": "float",
+        "statgpu_gpu_coef_l2_rel_over_sklearn": "float",
+        "statgpu_gpu_support_f1_minus_sklearn": "float",
+        "statgpu_gpu_over_statgpu_cpu": "float",
+        "statgpu_gpu_test_mse_over_statgpu_cpu": "float"
+      },
+      "sources": {
+        "statgpu_partial": "str",
+        "sklearn_partial": "str"
+      }
+    },
+    "date": "2026-04-09",
+    "environment": {
+      "cuda_available": true,
+      "sklearn_available": true,
+      "statgpu_available": true
+    },
+    "config": {
+      "seeds": [
+        20260406,
+        20260407,
+        20260408
+      ],
+      "n_samples": 2000,
+      "n_features": 100,
+      "n_signal": 12,
+      "n_test_samples": 2000,
+      "noise_scale": 1.0,
+      "rho": 0.3,
+      "cv": 5,
+      "n_alphas": 12,
+      "alpha_min_ratio": 0.01,
+      "max_iter": 3000,
+      "tol": 0.0001,
+      "n_jobs": 1,
+      "cpu_solver": "coordinate_descent",
+      "coef_support_threshold": 1e-08,
+      "warmup": 1,
+      "repeats": 1
+    }
+  },
+  {
+    "path": "results/benchmark_frontend_sources/penalized_glm_perf_20260622.json",
+    "size_bytes": 97430,
+    "shape": {
+      "date": "str",
+      "environment": {
+        "cupy_available": "bool",
+        "torch_available": "bool"
+      },
+      "performance": {
+        "small_5k": {
+          "squared_error_none_auto": "dict",
+          "squared_error_l1_auto": "dict",
+          "squared_error_l2_auto": "dict",
+          "squared_error_elasticnet_auto": "dict",
+          "squared_error_adaptive_l1_auto": "dict",
+          "squared_error_scad_auto": "dict",
+          "squared_error_mcp_auto": "dict",
+          "squared_error_group_lasso_auto": "dict",
+          "squared_error_group_scad_auto": "dict",
+          "squared_error_group_mcp_auto": "dict",
+          "logistic_none_auto": "dict",
+          "logistic_l1_auto": "dict",
+          "logistic_l2_auto": "dict",
+          "logistic_elasticnet_auto": "dict",
+          "logistic_adaptive_l1_auto": "dict",
+          "logistic_scad_auto": "dict",
+          "logistic_mcp_auto": "dict",
+          "logistic_group_lasso_auto": "dict",
+          "logistic_group_scad_auto": "dict",
+          "logistic_group_mcp_auto": "dict",
+          "poisson_none_auto": "dict",
+          "poisson_l1_auto": "dict",
+          "poisson_l2_auto": "dict",
+          "poisson_elasticnet_auto": "dict",
+          "poisson_adaptive_l1_auto": "dict",
+          "poisson_scad_auto": "dict",
+          "poisson_mcp_auto": "dict",
+          "poisson_group_lasso_auto": "dict",
+          "poisson_group_scad_auto": "dict",
+          "poisson_group_mcp_auto": "dict"
+        },
+        "medium_100k": {
+          "squared_error_none_auto": "dict",
+          "squared_error_l1_auto": "dict",
+          "squared_error_l2_auto": "dict",
+          "squared_error_elasticnet_auto": "dict",
+          "squared_error_adaptive_l1_auto": "dict",
+          "squared_error_scad_auto": "dict",
+          "squared_error_mcp_auto": "dict",
+          "squared_error_group_lasso_auto": "dict",
+          "squared_error_group_scad_auto": "dict",
+          "squared_error_group_mcp_auto": "dict",
+          "logistic_none_auto": "dict",
+          "logistic_l1_auto": "dict",
+          "logistic_l2_auto": "dict",
+          "logistic_elasticnet_auto": "dict",
+          "logistic_adaptive_l1_auto": "dict",
+          "logistic_scad_auto": "dict",
+          "logistic_mcp_auto": "dict",
+          "logistic_group_lasso_auto": "dict",
+          "logistic_group_scad_auto": "dict",
+          "logistic_group_mcp_auto": "dict",
+          "poisson_none_auto": "dict",
+          "poisson_l1_auto": "dict",
+          "poisson_l2_auto": "dict",
+          "poisson_elasticnet_auto": "dict",
+          "poisson_adaptive_l1_auto": "dict",
+          "poisson_scad_auto": "dict",
+          "poisson_mcp_auto": "dict",
+          "poisson_group_lasso_auto": "dict",
+          "poisson_group_scad_auto": "dict",
+          "poisson_group_mcp_auto": "dict"
+        }
+      },
+      "speedups": {
+        "small_5k": {
+          "squared_error_none_auto": "dict",
+          "squared_error_l1_auto": "dict",
+          "squared_error_l2_auto": "dict",
+          "squared_error_elasticnet_auto": "dict",
+          "squared_error_adaptive_l1_auto": "dict",
+          "squared_error_scad_auto": "dict",
+          "squared_error_mcp_auto": "dict",
+          "squared_error_group_lasso_auto": "dict",
+          "squared_error_group_scad_auto": "dict",
+          "squared_error_group_mcp_auto": "dict",
+          "logistic_none_auto": "dict",
+          "logistic_l1_auto": "dict",
+          "logistic_l2_auto": "dict",
+          "logistic_elasticnet_auto": "dict",
+          "logistic_adaptive_l1_auto": "dict",
+          "logistic_scad_auto": "dict",
+          "logistic_mcp_auto": "dict",
+          "logistic_group_lasso_auto": "dict",
+          "logistic_group_scad_auto": "dict",
+          "logistic_group_mcp_auto": "dict",
+          "poisson_none_auto": "dict",
+          "poisson_l1_auto": "dict",
+          "poisson_l2_auto": "dict",
+          "poisson_elasticnet_auto": "dict",
+          "poisson_adaptive_l1_auto": "dict",
+          "poisson_scad_auto": "dict",
+          "poisson_mcp_auto": "dict",
+          "poisson_group_lasso_auto": "dict",
+          "poisson_group_scad_auto": "dict",
+          "poisson_group_mcp_auto": "dict"
+        },
+        "medium_100k": {
+          "squared_error_none_auto": "dict",
+          "squared_error_l1_auto": "dict",
+          "squared_error_l2_auto": "dict",
+          "squared_error_elasticnet_auto": "dict",
+          "squared_error_adaptive_l1_auto": "dict",
+          "squared_error_scad_auto": "dict",
+          "squared_error_mcp_auto": "dict",
+          "squared_error_group_lasso_auto": "dict",
+          "squared_error_group_scad_auto": "dict",
+          "squared_error_group_mcp_auto": "dict",
+          "logistic_none_auto": "dict",
+          "logistic_l1_auto": "dict",
+          "logistic_l2_auto": "dict",
+          "logistic_elasticnet_auto": "dict",
+          "logistic_adaptive_l1_auto": "dict",
+          "logistic_scad_auto": "dict",
+          "logistic_mcp_auto": "dict",
+          "logistic_group_lasso_auto": "dict",
+          "logistic_group_scad_auto": "dict",
+          "logistic_group_mcp_auto": "dict",
+          "poisson_none_auto": "dict",
+          "poisson_l1_auto": "dict",
+          "poisson_l2_auto": "dict",
+          "poisson_elasticnet_auto": "dict",
+          "poisson_adaptive_l1_auto": "dict",
+          "poisson_scad_auto": "dict",
+          "poisson_mcp_auto": "dict",
+          "poisson_group_lasso_auto": "dict",
+          "poisson_group_scad_auto": "dict",
+          "poisson_group_mcp_auto": "dict"
+        }
+      }
+    },
+    "date": "2026-06-23",
+    "environment": {
+      "cupy_available": true,
+      "torch_available": true
+    }
+  },
+  {
+    "path": "results/benchmark_full/benchmark_glmnet_all.json",
+    "size_bytes": 4201,
+    "shape": {
+      "timestamp": "str",
+      "backend": "str",
+      "results": {
+        "small_data": {
+          "name": "str",
+          "n_samples": "int",
+          "n_features": "int",
+          "backend": "str",
+          "coef": "list",
+          "intercept": "float",
+          "coef_norm": "float",
+          "fit_time_ms": "float",
+          "n_iterations": "int"
+        },
+        "medium_data": {
+          "name": "str",
+          "n_samples": "int",
+          "n_features": "int",
+          "backend": "str",
+          "coef": "list",
+          "intercept": "float",
+          "coef_norm": "float",
+          "fit_time_ms": "float",
+          "n_iterations": "int"
+        },
+        "large_data": {
+          "name": "str",
+          "n_samples": "int",
+          "n_features": "int",
+          "backend": "str",
+          "coef": "list",
+          "intercept": "float",
+          "coef_norm": "float",
+          "fit_time_ms": "float",
+          "n_iterations": "int"
+        },
+        "high_dim_data": {
+          "name": "str",
+          "n_samples": "int",
+          "n_features": "int",
+          "backend": "str",
+          "coef": "list",
+          "intercept": "float",
+          "coef_norm": "float",
+          "fit_time_ms": "float",
+          "n_iterations": "int"
+        },
+        "sparse_coef": {
+          "name": "str",
+          "n_samples": "int",
+          "n_features": "int",
+          "backend": "str",
+          "coef": "list",
+          "intercept": "float",
+          "coef_norm": "float",
+          "fit_time_ms": "float",
+          "n_iterations": "int"
+        },
+        "high_noise": {
+          "name": "str",
+          "n_samples": "int",
+          "n_features": "int",
+          "backend": "str",
+          "coef": "list",
+          "intercept": "float",
+          "coef_norm": "float",
+          "fit_time_ms": "float",
+          "n_iterations": "int"
+        }
+      }
+    },
+    "timestamp": "2026-04-18T19:58:39"
+  },
+  {
+    "path": "results/benchmark_full/benchmark_statgpu_all.json",
+    "size_bytes": 34524,
+    "shape": {
+      "timestamp": "str",
+      "results": {
+        "type": "list",
+        "length": 6,
+        "item_shape": {
+          "name": "str",
+          "n_samples": "int",
+          "n_features": "int",
+          "backends": "dict"
+        }
+      }
+    },
+    "timestamp": "2026-04-18T19:59:36.025209"
+  },
+  {
+    "path": "results/compare_external_2026-06-24.json",
+    "size_bytes": 9059,
+    "shape": {
+      "panel_small_PanelOLS_numpy": {
+        "statgpu_time": "float",
+        "external_time": "float",
+        "speedup": "float",
+        "l2_diff": "float",
+        "rel_diff": "float"
+      },
+      "panel_small_PanelOLS_torch": {
+        "statgpu_time": "float",
+        "external_time": "float",
+        "speedup": "float",
+        "l2_diff": "float",
+        "rel_diff": "float"
+      },
+      "panel_small_RandomEffects_numpy": {
+        "statgpu_time": "float",
+        "external_time": "float",
+        "speedup": "float",
+        "l2_diff": "float",
+        "rel_diff": "float"
+      },
+      "panel_small_RandomEffects_torch": {
+        "statgpu_time": "float",
+        "external_time": "float",
+        "speedup": "float",
+        "l2_diff": "float",
+        "rel_diff": "float"
+      },
+      "panel_small_PooledOLS_numpy": {
+        "statgpu_time": "float",
+        "external_time": "float",
+        "speedup": "float",
+        "l2_diff": "float",
+        "rel_diff": "float"
+      },
+      "panel_small_PooledOLS_torch": {
+        "statgpu_time": "float",
+        "external_time": "float",
+        "speedup": "float",
+        "l2_diff": "float",
+        "rel_diff": "float"
+      },
+      "panel_medium_PanelOLS_numpy": {
+        "statgpu_time": "float",
+        "external_time": "float",
+        "speedup": "float",
+        "l2_diff": "float",
+        "rel_diff": "float"
+      },
+      "panel_medium_PanelOLS_torch": {
+        "statgpu_time": "float",
+        "external_time": "float",
+        "speedup": "float",
+        "l2_diff": "float",
+        "rel_diff": "float"
+      },
+      "panel_medium_RandomEffects_numpy": {
+        "statgpu_time": "float",
+        "external_time": "float",
+        "speedup": "float",
+        "l2_diff": "float",
+        "rel_diff": "float"
+      },
+      "panel_medium_RandomEffects_torch": {
+        "statgpu_time": "float",
+        "external_time": "float",
+        "speedup": "float",
+        "l2_diff": "float",
+        "rel_diff": "float"
+      },
+      "panel_medium_PooledOLS_numpy": {
+        "statgpu_time": "float",
+        "external_time": "float",
+        "speedup": "float",
+        "l2_diff": "float",
+        "rel_diff": "float"
+      },
+      "panel_medium_PooledOLS_torch": {
+        "statgpu_time": "float",
+        "external_time": "float",
+        "speedup": "float",
+        "l2_diff": "float",
+        "rel_diff": "float"
+      },
+      "panel_large_PanelOLS_numpy": {
+        "statgpu_time": "float",
+        "external_time": "float",
+        "speedup": "float",
+        "l2_diff": "float",
+        "rel_diff": "float"
+      },
+      "panel_large_PanelOLS_torch": {
+        "statgpu_time": "float",
+        "external_time": "float",
+        "speedup": "float",
+        "l2_diff": "float",
+        "rel_diff": "float"
+      },
+      "panel_large_RandomEffects_numpy": {
+        "statgpu_time": "float",
+        "external_time": "float",
+        "speedup": "float",
+        "l2_diff": "float",
+        "rel_diff": "float"
+      },
+      "panel_large_RandomEffects_torch": {
+        "statgpu_time": "float",
+        "external_time": "float",
+        "speedup": "float",
+        "l2_diff": "float",
+        "rel_diff": "float"
+      },
+      "panel_large_PooledOLS_numpy": {
+        "statgpu_time": "float",
+        "external_time": "float",
+        "speedup": "float",
+        "l2_diff": "float",
+        "rel_diff": "float"
+      },
+      "panel_large_PooledOLS_torch": {
+        "statgpu_time": "float",
+        "external_time": "float",
+        "speedup": "float",
+        "l2_diff": "float",
+        "rel_diff": "float"
+      },
+      "gam_small_numpy": {
+        "statgpu_time": "float",
+        "external_time": "float",
+        "speedup": "float",
+        "pred_rel_diff": "float"
+      },
+      "gam_small_torch": {
+        "statgpu_time": "float",
+        "external_time": "float",
+        "speedup": "float",
+        "pred_rel_diff": "float"
+      },
+      "gam_medium_numpy": {
+        "statgpu_time": "float",
+        "external_time": "float",
+        "speedup": "float",
+        "pred_rel_diff": "float"
+      },
+      "gam_medium_torch": {
+        "statgpu_time": "float",
+        "external_time": "float",
+        "speedup": "float",
+        "pred_rel_diff": "float"
+      },
+      "gam_large_numpy": {
+        "statgpu_time": "float",
+        "external_time": "float",
+        "speedup": "float",
+        "pred_rel_diff": "float"
+      },
+      "gam_large_torch": {
+        "statgpu_time": "float",
+        "external_time": "float",
+        "speedup": "float",
+        "pred_rel_diff": "float"
+      },
+      "anova_small_f_oneway_numpy": {
+        "statgpu_time": "float",
+        "external_time": "float",
+        "speedup": "float",
+        "f_rel_diff": "float",
+        "statgpu_f": "float",
+        "scipy_f": "float"
+      },
+      "anova_small_f_oneway_cupy": {
+        "statgpu_time": "float",
+        "external_time": "float",
+        "speedup": "float",
+        "f_rel_diff": "float",
+        "statgpu_f": "float",
+        "scipy_f": "float"
+      },
+      "anova_small_f_oneway_torch": {
+        "statgpu_time": "float",
+        "external_time": "float",
+        "speedup": "float",
+        "f_rel_diff": "float",
+        "statgpu_f": "float",
+        "scipy_f": "float"
+      },
+      "anova_small_f_welch_numpy": {
+        "statgpu_time": "float",
+        "external_time": "float",
+        "speedup": "float",
+        "f_rel_diff": "float"
+      },
+      "anova_small_f_welch_cupy": {
+        "statgpu_time": "float",
+        "external_time": "float",
+        "speedup": "float",
+        "f_rel_diff": "float"
+      },
+      "anova_small_f_welch_torch": {
+        "statgpu_time": "float",
+        "external_time": "float",
+        "speedup": "float",
+        "f_rel_diff": "float"
+      }
+    }
+  },
+  {
+    "path": "results/compare_external_v2_2026-06-24.json",
+    "size_bytes": 6818,
+    "shape": {
+      "panel_medium_PanelOLS_numpy": {
+        "statgpu_time": "float",
+        "external_time": "float",
+        "speedup": "float",
+        "coef_rel_diff": "float"
+      },
+      "panel_medium_PanelOLS_cupy": {
+        "statgpu_time": "float",
+        "external_time": "float",
+        "speedup": "float",
+        "coef_rel_diff": "float"
+      },
+      "panel_medium_PanelOLS_torch": {
+        "statgpu_time": "float",
+        "external_time": "float",
+        "speedup": "float",
+        "coef_rel_diff": "float"
+      },
+      "panel_medium_RE_numpy": {
+        "statgpu_time": "float",
+        "external_time": "float",
+        "speedup": "float",
+        "coef_rel_diff": "float"
+      },
+      "panel_medium_RE_cupy": {
+        "statgpu_time": "float",
+        "external_time": "float",
+        "speedup": "float",
+        "coef_rel_diff": "float"
+      },
+      "panel_medium_RE_torch": {
+        "statgpu_time": "float",
+        "external_time": "float",
+        "speedup": "float",
+        "coef_rel_diff": "float"
+      },
+      "panel_large_PanelOLS_numpy": {
+        "statgpu_time": "float",
+        "external_time": "float",
+        "speedup": "float",
+        "coef_rel_diff": "float"
+      },
+      "panel_large_PanelOLS_cupy": {
+        "statgpu_time": "float",
+        "external_time": "float",
+        "speedup": "float",
+        "coef_rel_diff": "float"
+      },
+      "panel_large_PanelOLS_torch": {
+        "statgpu_time": "float",
+        "external_time": "float",
+        "speedup": "float",
+        "coef_rel_diff": "float"
+      },
+      "panel_large_RE_numpy": {
+        "statgpu_time": "float",
+        "external_time": "float",
+        "speedup": "float",
+        "coef_rel_diff": "float"
+      },
+      "panel_large_RE_cupy": {
+        "statgpu_time": "float",
+        "external_time": "float",
+        "speedup": "float",
+        "coef_rel_diff": "float"
+      },
+      "panel_large_RE_torch": {
+        "statgpu_time": "float",
+        "external_time": "float",
+        "speedup": "float",
+        "coef_rel_diff": "float"
+      },
+      "gam_small_numpy": {
+        "statgpu_time": "float",
+        "external_time": "float",
+        "speedup": "float",
+        "pred_rel_diff": "float"
+      },
+      "gam_small_cupy": {
+        "statgpu_time": "float",
+        "external_time": "float",
+        "speedup": "float",
+        "pred_rel_diff": "float"
+      },
+      "gam_small_torch": {
+        "statgpu_time": "float",
+        "external_time": "float",
+        "speedup": "float",
+        "pred_rel_diff": "float"
+      },
+      "gam_medium_numpy": {
+        "statgpu_time": "float",
+        "external_time": "float",
+        "speedup": "float",
+        "pred_rel_diff": "float"
+      },
+      "gam_medium_cupy": {
+        "statgpu_time": "float",
+        "external_time": "float",
+        "speedup": "float",
+        "pred_rel_diff": "float"
+      },
+      "gam_medium_torch": {
+        "statgpu_time": "float",
+        "external_time": "float",
+        "speedup": "float",
+        "pred_rel_diff": "float"
+      },
+      "gam_large_numpy": {
+        "statgpu_time": "float",
+        "external_time": "float",
+        "speedup": "float",
+        "pred_rel_diff": "float"
+      },
+      "gam_large_cupy": {
+        "statgpu_time": "float",
+        "external_time": "float",
+        "speedup": "float",
+        "pred_rel_diff": "float"
+      },
+      "gam_large_torch": {
+        "statgpu_time": "float",
+        "external_time": "float",
+        "speedup": "float",
+        "pred_rel_diff": "float"
+      },
+      "anova_small_f_oneway_numpy": {
+        "statgpu_time": "float",
+        "external_time": "float",
+        "speedup": "float",
+        "f_rel_diff": "float"
+      },
+      "anova_small_f_oneway_cupy": {
+        "statgpu_time": "float",
+        "external_time": "float",
+        "speedup": "float",
+        "f_rel_diff": "float"
+      },
+      "anova_small_f_oneway_torch": {
+        "statgpu_time": "float",
+        "external_time": "float",
+        "speedup": "float",
+        "f_rel_diff": "float"
+      },
+      "anova_small_f_twoway_numpy": {
+        "statgpu_time": "float",
+        "f_a": "float"
+      },
+      "anova_small_f_twoway_cupy": {
+        "statgpu_time": "float",
+        "f_a": "float"
+      },
+      "anova_small_f_twoway_torch": {
+        "statgpu_time": "float",
+        "f_a": "float"
+      },
+      "anova_medium_f_oneway_numpy": {
+        "statgpu_time": "float",
+        "external_time": "float",
+        "speedup": "float",
+        "f_rel_diff": "float"
+      },
+      "anova_medium_f_oneway_cupy": {
+        "statgpu_time": "float",
+        "external_time": "float",
+        "speedup": "float",
+        "f_rel_diff": "float"
+      },
+      "anova_medium_f_oneway_torch": {
+        "statgpu_time": "float",
+        "external_time": "float",
+        "speedup": "float",
+        "f_rel_diff": "float"
+      }
+    }
+  },
+  {
+    "path": "results/coxph_efron_bench_2026-06-22.json",
+    "size_bytes": 8888,
+    "shape": {
+      "date": "str",
+      "model": "str",
+      "ties": "str",
+      "environment": {
+        "gpu": "str",
+        "backends": {
+          "type": "list",
+          "length": 3,
+          "item_shape": "str"
+        }
+      },
+      "precision": {
+        "reference": "str",
+        "results": {
+          "type": "list",
+          "length": 15,
+          "item_shape": "dict"
+        },
+        "summary": {
+          "pass": "int",
+          "warn": "int",
+          "fail": "int",
+          "total": "int"
+        }
+      },
+      "performance": {
+        "light_ties": {
+          "small_1k": "dict",
+          "small_2k": "dict",
+          "medium_5k": "dict",
+          "medium_10k": "dict",
+          "large_20k": "dict"
+        },
+        "heavy_ties": {
+          "small_1k": "dict",
+          "small_2k": "dict",
+          "medium_5k": "dict",
+          "medium_10k": "dict",
+          "large_20k": "dict"
+        }
+      },
+      "speedups": {
+        "light_ties": {
+          "small_1k": "dict",
+          "small_2k": "dict",
+          "medium_5k": "dict",
+          "medium_10k": "dict",
+          "large_20k": "dict"
+        },
+        "heavy_ties": {
+          "small_1k": "dict",
+          "small_2k": "dict",
+          "medium_5k": "dict",
+          "medium_10k": "dict",
+          "large_20k": "dict"
+        }
+      },
+      "config": {
+        "STATGPU_USE_NUMBA": {
+          "default": "str",
+          "description": "str"
+        },
+        "STATGPU_EFRON_VEC_MAX_P": {
+          "default": "str",
+          "description": "str"
+        }
+      }
+    },
+    "date": "2026-06-22",
+    "environment": {
+      "gpu": "Tesla P100-SXM2-16GB",
+      "backends": [
+        "cpu",
+        "torch_gpu",
+        "cupy_gpu"
+      ]
+    },
+    "config": {
+      "STATGPU_USE_NUMBA": {
+        "default": "0",
+        "description": "Enable Numba JIT for CPU Efron (~2x speedup)"
+      },
+      "STATGPU_EFRON_VEC_MAX_P": {
+        "default": "30",
+        "description": "Vectorized cumsum p threshold (p <= this uses cumsum, else incremental loop)"
+      }
+    }
+  },
+  {
+    "path": "results/distribution_bench_2026-06-21.json",
+    "size_bytes": 222922,
+    "shape": {
+      "date": "str",
+      "environment": {
+        "cupy_available": "bool",
+        "torch_available": "bool"
+      },
+      "precision": {
+        "results": {
+          "type": "list",
+          "length": 139,
+          "item_shape": "dict"
+        },
+        "summary": {
+          "pass": "int",
+          "warn": "int",
+          "fail": "int",
+          "total": "int"
+        }
+      },
+      "performance": {
+        "small_10k": {
+          "norm": "dict",
+          "t(df=10)": "dict",
+          "t(df=5)": "dict",
+          "t(df=30)": "dict",
+          "chi2(df=5)": "dict",
+          "chi2(df=30)": "dict",
+          "gamma(a=2.0)": "dict",
+          "beta(a=2.0,b=3.0)": "dict",
+          "f(dfn=3,dfd=100)": "dict",
+          "uniform": "dict",
+          "expon": "dict",
+          "cauchy": "dict",
+          "laplace": "dict",
+          "logistic": "dict",
+          "weibull_min(c=2.0)": "dict",
+          "lognorm(s=1.0)": "dict",
+          "poisson(mu=5)": "dict",
+          "binom(n=100,p=0.3)": "dict"
+        },
+        "medium_100k": {
+          "norm": "dict",
+          "t(df=10)": "dict",
+          "t(df=5)": "dict",
+          "t(df=30)": "dict",
+          "chi2(df=5)": "dict",
+          "chi2(df=30)": "dict",
+          "gamma(a=2.0)": "dict",
+          "beta(a=2.0,b=3.0)": "dict",
+          "f(dfn=3,dfd=100)": "dict",
+          "uniform": "dict",
+          "expon": "dict",
+          "cauchy": "dict",
+          "laplace": "dict",
+          "logistic": "dict",
+          "weibull_min(c=2.0)": "dict",
+          "lognorm(s=1.0)": "dict",
+          "poisson(mu=5)": "dict",
+          "binom(n=100,p=0.3)": "dict"
+        },
+        "large_1m": {
+          "norm": "dict",
+          "t(df=10)": "dict",
+          "t(df=5)": "dict",
+          "t(df=30)": "dict",
+          "chi2(df=5)": "dict",
+          "chi2(df=30)": "dict",
+          "gamma(a=2.0)": "dict",
+          "beta(a=2.0,b=3.0)": "dict",
+          "f(dfn=3,dfd=100)": "dict",
+          "uniform": "dict",
+          "expon": "dict",
+          "cauchy": "dict",
+          "laplace": "dict",
+          "logistic": "dict",
+          "weibull_min(c=2.0)": "dict",
+          "lognorm(s=1.0)": "dict",
+          "poisson(mu=5)": "dict",
+          "binom(n=100,p=0.3)": "dict"
+        }
+      },
+      "speedups": {
+        "small_10k": {
+          "norm": "dict",
+          "t(df=10)": "dict",
+          "t(df=5)": "dict",
+          "t(df=30)": "dict",
+          "chi2(df=5)": "dict",
+          "chi2(df=30)": "dict",
+          "gamma(a=2.0)": "dict",
+          "beta(a=2.0,b=3.0)": "dict",
+          "f(dfn=3,dfd=100)": "dict",
+          "uniform": "dict",
+          "expon": "dict",
+          "cauchy": "dict",
+          "laplace": "dict",
+          "logistic": "dict",
+          "weibull_min(c=2.0)": "dict",
+          "lognorm(s=1.0)": "dict",
+          "poisson(mu=5)": "dict",
+          "binom(n=100,p=0.3)": "dict"
+        },
+        "medium_100k": {
+          "norm": "dict",
+          "t(df=10)": "dict",
+          "t(df=5)": "dict",
+          "t(df=30)": "dict",
+          "chi2(df=5)": "dict",
+          "chi2(df=30)": "dict",
+          "gamma(a=2.0)": "dict",
+          "beta(a=2.0,b=3.0)": "dict",
+          "f(dfn=3,dfd=100)": "dict",
+          "uniform": "dict",
+          "expon": "dict",
+          "cauchy": "dict",
+          "laplace": "dict",
+          "logistic": "dict",
+          "weibull_min(c=2.0)": "dict",
+          "lognorm(s=1.0)": "dict",
+          "poisson(mu=5)": "dict",
+          "binom(n=100,p=0.3)": "dict"
+        },
+        "large_1m": {
+          "norm": "dict",
+          "t(df=10)": "dict",
+          "t(df=5)": "dict",
+          "t(df=30)": "dict",
+          "chi2(df=5)": "dict",
+          "chi2(df=30)": "dict",
+          "gamma(a=2.0)": "dict",
+          "beta(a=2.0,b=3.0)": "dict",
+          "f(dfn=3,dfd=100)": "dict",
+          "uniform": "dict",
+          "expon": "dict",
+          "cauchy": "dict",
+          "laplace": "dict",
+          "logistic": "dict",
+          "weibull_min(c=2.0)": "dict",
+          "lognorm(s=1.0)": "dict",
+          "poisson(mu=5)": "dict",
+          "binom(n=100,p=0.3)": "dict"
+        }
+      }
+    },
+    "date": "2026-06-22",
+    "environment": {
+      "cupy_available": true,
+      "torch_available": true
+    }
+  },
+  {
+    "path": "results/gam_aligned_2026-06-24.json",
+    "size_bytes": 1714,
+    "shape": {
+      "gam_fixed_small_numpy": {
+        "statgpu_time": "float",
+        "pygam_time": "float",
+        "speedup": "float",
+        "pred_rel_diff": "float"
+      },
+      "gam_fixed_small_cupy": {
+        "statgpu_time": "float",
+        "pygam_time": "float",
+        "speedup": "float",
+        "pred_rel_diff": "float"
+      },
+      "gam_fixed_small_torch": {
+        "statgpu_time": "float",
+        "pygam_time": "float",
+        "speedup": "float",
+        "pred_rel_diff": "float"
+      },
+      "gam_fixed_medium_numpy": {
+        "statgpu_time": "float",
+        "pygam_time": "float",
+        "speedup": "float",
+        "pred_rel_diff": "float"
+      },
+      "gam_fixed_medium_cupy": {
+        "statgpu_time": "float",
+        "pygam_time": "float",
+        "speedup": "float",
+        "pred_rel_diff": "float"
+      },
+      "gam_fixed_medium_torch": {
+        "statgpu_time": "float",
+        "pygam_time": "float",
+        "speedup": "float",
+        "pred_rel_diff": "float"
+      },
+      "gam_fixed_large_numpy": {
+        "statgpu_time": "float",
+        "pygam_time": "float",
+        "speedup": "float",
+        "pred_rel_diff": "float"
+      },
+      "gam_fixed_large_cupy": {
+        "statgpu_time": "float",
+        "pygam_time": "float",
+        "speedup": "float",
+        "pred_rel_diff": "float"
+      },
+      "gam_fixed_large_torch": {
+        "statgpu_time": "float",
+        "pygam_time": "float",
+        "speedup": "float",
+        "pred_rel_diff": "float"
+      }
+    }
+  },
+  {
+    "path": "results/glm_solver_benchmark_2026-06-23.json",
+    "size_bytes": 55159,
+    "shape": {
+      "date": "str",
+      "environment": {
+        "cupy_available": "bool",
+        "torch_available": "bool",
+        "gpu": "str",
+        "scale": "str"
+      },
+      "performance": {
+        "medium_100k": {
+          "squared_error_none": "dict",
+          "squared_error_l2": "dict",
+          "squared_error_l1": "dict",
+          "squared_error_elasticnet": "dict",
+          "squared_error_adaptive_l1": "dict",
+          "squared_error_scad": "dict",
+          "squared_error_mcp": "dict",
+          "squared_error_group_lasso": "dict",
+          "squared_error_group_scad": "dict",
+          "squared_error_group_mcp": "dict",
+          "logistic_none": "dict",
+          "logistic_l2": "dict",
+          "logistic_l1": "dict",
+          "logistic_elasticnet": "dict",
+          "logistic_adaptive_l1": "dict",
+          "logistic_scad": "dict",
+          "logistic_mcp": "dict",
+          "logistic_group_lasso": "dict",
+          "logistic_group_scad": "dict",
+          "logistic_group_mcp": "dict",
+          "poisson_none": "dict",
+          "poisson_l2": "dict",
+          "poisson_l1": "dict",
+          "poisson_elasticnet": "dict",
+          "poisson_adaptive_l1": "dict",
+          "poisson_scad": "dict",
+          "poisson_mcp": "dict",
+          "poisson_group_lasso": "dict",
+          "poisson_group_scad": "dict",
+          "poisson_group_mcp": "dict"
+        }
+      }
+    },
+    "date": "2026-06-24",
+    "environment": {
+      "cupy_available": true,
+      "torch_available": true,
+      "gpu": "Tesla P100-SXM2-16GB",
+      "scale": "100K x 50"
+    }
+  },
+  {
+    "path": "results/large_scale/benchmark_elasticnet_large_scale_2026-04-18.json",
+    "size_bytes": 6866,
+    "shape": {
+      "timestamp": "str",
+      "test_type": "str",
+      "total_tests": "int",
+      "results": {
+        "type": "list",
+        "length": 6,
+        "item_shape": {
+          "name": "str",
+          "n_samples": "int",
+          "n_features": "int",
+          "backends": "dict"
+        }
+      }
+    },
+    "timestamp": "2026-04-18T20:09:40.105201"
+  },
+  {
+    "path": "results/loss_functions_bench_2026-06-23.json",
+    "size_bytes": 11618,
+    "shape": {
+      "date": "str",
+      "environment": {
+        "gpu": "str",
+        "backends": {
+          "type": "list",
+          "length": 3,
+          "item_shape": "str"
+        }
+      },
+      "precision": {
+        "results": {
+          "type": "list",
+          "length": 26,
+          "item_shape": "dict"
+        },
+        "summary": {
+          "pass": "int",
+          "warn": "int",
+          "fail": "int",
+          "total": "int"
+        }
+      },
+      "performance": {
+        "quantile": {
+          "n500_p5": "dict",
+          "n1000_p10": "dict",
+          "n2000_p20": "dict"
+        },
+        "huber": {
+          "n500_p5": "dict",
+          "n1000_p10": "dict",
+          "n2000_p20": "dict"
+        },
+        "coxph_breslow": {
+          "n1000_p10": "dict",
+          "n2000_p20": "dict",
+          "n5000_p20": "dict",
+          "n10000_p50": "dict",
+          "n20000_p50": "dict"
+        },
+        "coxph_efron": {
+          "n1000_p10": "dict",
+          "n2000_p20": "dict",
+          "n5000_p20": "dict",
+          "n10000_p50": "dict",
+          "n20000_p50": "dict"
+        }
+      },
+      "speedups": {
+        "quantile": {
+          "n500_p5": "dict",
+          "n1000_p10": "dict",
+          "n2000_p20": "dict"
+        },
+        "huber": {
+          "n500_p5": "dict",
+          "n1000_p10": "dict",
+          "n2000_p20": "dict"
+        },
+        "coxph_breslow": {
+          "n1000_p10": "dict",
+          "n2000_p20": "dict",
+          "n5000_p20": "dict",
+          "n10000_p50": "dict",
+          "n20000_p50": "dict"
+        },
+        "coxph_efron": {
+          "n1000_p10": "dict",
+          "n2000_p20": "dict",
+          "n5000_p20": "dict",
+          "n10000_p50": "dict",
+          "n20000_p50": "dict"
+        }
+      }
+    },
+    "date": "2026-06-23",
+    "environment": {
+      "gpu": "Tesla P100-SXM2-16GB",
+      "backends": [
+        "cpu",
+        "torch_gpu",
+        "cupy_gpu"
+      ]
+    }
+  },
+  {
+    "path": "results/new_modules_bench_2026-06-24.json",
+    "size_bytes": 12315,
+    "shape": {
+      "date": "str",
+      "environment": {
+        "gpu": "str"
+      },
+      "benchmarks": {
+        "panel_small_numpy_PooledOLS": {
+          "time": "float",
+          "coef_norm": "NoneType"
+        },
+        "panel_small_numpy_PooledOLS_hac": {
+          "time": "float",
+          "coef_norm": "NoneType"
+        },
+        "panel_small_numpy_PanelOLS_entity": {
+          "time": "float",
+          "coef_norm": "NoneType"
+        },
+        "panel_small_numpy_PanelOLS_two_way": {
+          "time": "float",
+          "coef_norm": "NoneType"
+        },
+        "panel_small_numpy_RandomEffects": {
+          "time": "float",
+          "coef_norm": "NoneType"
+        },
+        "panel_small_numpy_BetweenOLS": {
+          "time": "float",
+          "coef_norm": "NoneType"
+        },
+        "panel_small_numpy_FirstDifferenceOLS": {
+          "time": "float",
+          "coef_norm": "NoneType"
+        },
+        "panel_small_numpy_FamaMacBeth": {
+          "time": "float",
+          "coef_norm": "NoneType"
+        },
+        "panel_small_cupy_PooledOLS": {
+          "time": "float",
+          "coef_norm": "NoneType"
+        },
+        "panel_small_cupy_PooledOLS_hac": {
+          "time": "float",
+          "coef_norm": "NoneType"
+        },
+        "panel_small_cupy_PanelOLS_entity": {
+          "time": "float",
+          "coef_norm": "NoneType"
+        },
+        "panel_small_cupy_PanelOLS_two_way": {
+          "time": "float",
+          "coef_norm": "NoneType"
+        },
+        "panel_small_cupy_RandomEffects": {
+          "time": "float",
+          "coef_norm": "NoneType"
+        },
+        "panel_small_cupy_BetweenOLS": {
+          "time": "float",
+          "coef_norm": "NoneType"
+        },
+        "panel_small_cupy_FirstDifferenceOLS": {
+          "time": "float",
+          "coef_norm": "NoneType"
+        },
+        "panel_small_cupy_FamaMacBeth": {
+          "time": "float",
+          "coef_norm": "NoneType"
+        },
+        "panel_small_torch_PooledOLS": {
+          "time": "float",
+          "coef_norm": "NoneType"
+        },
+        "panel_small_torch_PooledOLS_hac": {
+          "time": "float",
+          "coef_norm": "NoneType"
+        },
+        "panel_small_torch_PanelOLS_entity": {
+          "time": "float",
+          "coef_norm": "NoneType"
+        },
+        "panel_small_torch_PanelOLS_two_way": {
+          "time": "float",
+          "coef_norm": "NoneType"
+        },
+        "panel_small_torch_RandomEffects": {
+          "time": "float",
+          "coef_norm": "NoneType"
+        },
+        "panel_small_torch_BetweenOLS": {
+          "time": "float",
+          "coef_norm": "NoneType"
+        },
+        "panel_small_torch_FirstDifferenceOLS": {
+          "time": "float",
+          "coef_norm": "NoneType"
+        },
+        "panel_small_torch_FamaMacBeth": {
+          "time": "float",
+          "coef_norm": "NoneType"
+        },
+        "panel_medium_numpy_PooledOLS": {
+          "time": "float",
+          "coef_norm": "NoneType"
+        },
+        "panel_medium_numpy_PooledOLS_hac": {
+          "time": "float",
+          "coef_norm": "NoneType"
+        },
+        "panel_medium_numpy_PanelOLS_entity": {
+          "time": "float",
+          "coef_norm": "NoneType"
+        },
+        "panel_medium_numpy_PanelOLS_two_way": {
+          "time": "float",
+          "coef_norm": "NoneType"
+        },
+        "panel_medium_numpy_RandomEffects": {
+          "time": "float",
+          "coef_norm": "NoneType"
+        },
+        "panel_medium_numpy_BetweenOLS": {
+          "time": "float",
+          "coef_norm": "NoneType"
+        }
+      }
+    },
+    "date": "2026-06-24",
+    "environment": {
+      "gpu": "Tesla P100-SXM2-16GB"
+    }
+  },
+  {
+    "path": "results/new_modules_full_2026-06-24.json",
+    "size_bytes": 17787,
+    "shape": {
+      "date": "str",
+      "environment": {
+        "gpu": "str"
+      },
+      "modules": {
+        "panel": {
+          "performance": "dict",
+          "external_comparison": "dict"
+        },
+        "gam": {
+          "performance": "dict",
+          "precision_aligned": "dict",
+          "external_comparison": "dict"
+        },
+        "anova": {
+          "performance": "dict",
+          "external_comparison": "dict"
+        }
+      },
+      "summary": {
+        "panel_large": {
+          "estimators": "dict",
+          "note": "str"
+        },
+        "gam_large": {
+          "backends": "dict",
+          "note": "str"
+        },
+        "anova_large": {
+          "functions": "dict",
+          "note": "str"
+        }
+      }
+    },
+    "date": "2026-06-24",
+    "environment": {
+      "gpu": "Tesla P100-SXM2-16GB"
+    }
+  },
+  {
+    "path": "results/nmf_production_opt_20260507_194500.json",
+    "size_bytes": 2272,
+    "shape": {
+      "cases": {
+        "large_5000x128x16": {
+          "sklearn_cpu": "dict",
+          "statgpu_cpu": "dict",
+          "statgpu_cuda": "dict",
+          "statgpu_torch": "dict"
+        },
+        "small_800x64x8": {
+          "sklearn_cpu": "dict",
+          "statgpu_cpu": "dict",
+          "statgpu_cuda": "dict",
+          "statgpu_torch": "dict"
+        }
+      }
+    }
+  },
+  {
+    "path": "results/p2_benchmark_final.json",
+    "size_bytes": 5317,
+    "shape": {
+      "meta": {
+        "timestamp": "str",
+        "python": "str",
+        "numpy": "str",
+        "cupy": "str",
+        "gpu": "str",
+        "gpu_memory_mb": "int",
+        "torch": "str",
+        "torch_gpu": "str"
+      },
+      "benchmarks": {
+        "anova": {
+          "n=10000p=": "dict",
+          "n=50000p=": "dict",
+          "n=100000p=": "dict"
+        },
+        "covariance": {
+          "n=10000p=50": "dict",
+          "n=50000p=50": "dict",
+          "n=100000p=50": "dict"
+        },
+        "nystroem": {
+          "n=10000p=20": "dict",
+          "n=50000p=20": "dict",
+          "n=100000p=20": "dict"
+        },
+        "rbf_kernel": {
+          "n=5000p=20": "dict",
+          "n=10000p=20": "dict",
+          "n=20000p=20": "dict"
+        },
+        "panel": {
+          "n=5000p=": "dict",
+          "n=20000p=": "dict",
+          "n=50000p=": "dict"
+        },
+        "splines": {
+          "n=5000p=5": "dict",
+          "n=20000p=5": "dict",
+          "n=50000p=5": "dict"
+        }
+      }
+    }
+  },
+  {
+    "path": "results/penalized_glm_bench_2026-06-22.json",
+    "size_bytes": 112402,
+    "shape": {
+      "date": "str",
+      "environment": {
+        "cupy_available": "bool",
+        "torch_available": "bool"
+      },
+      "precision": {
+        "results": {
+          "type": "list",
+          "length": 210,
+          "item_shape": "dict"
+        },
+        "summary": {
+          "pass": "int",
+          "warn": "int",
+          "fail": "int",
+          "total": "int"
+        }
+      },
+      "performance": {
+        "small_5k": {
+          "squared_error_l2_exact": "dict",
+          "squared_error_l2_newton": "dict",
+          "logistic_l2_irls": "dict",
+          "logistic_l2_newton": "dict",
+          "poisson_l2_irls": "dict",
+          "poisson_l2_newton": "dict",
+          "gamma_l2_newton": "dict",
+          "inverse_gaussian_l2_newton": "dict",
+          "negative_binomial_l2_lbfgs": "dict",
+          "tweedie_l2_newton": "dict",
+          "logistic_l2_fista": "dict",
+          "logistic_l2_fista_bb": "dict",
+          "squared_error_l1_fista": "dict",
+          "squared_error_elasticnet_fista": "dict",
+          "logistic_l1_fista": "dict",
+          "poisson_l1_fista": "dict",
+          "squared_error_adaptive_l1_fista": "dict",
+          "logistic_adaptive_l1_fista": "dict",
+          "poisson_adaptive_l1_fista": "dict",
+          "gamma_adaptive_l1_fista": "dict",
+          "squared_error_scad_fista": "dict",
+          "squared_error_mcp_fista": "dict",
+          "logistic_scad_fista": "dict",
+          "squared_error_group_lasso_fista": "dict",
+          "logistic_group_lasso_fista": "dict",
+          "squared_error_group_scad_fista": "dict"
+        },
+        "medium_100k": {
+          "squared_error_l2_exact": "dict",
+          "squared_error_l2_newton": "dict",
+          "logistic_l2_irls": "dict",
+          "logistic_l2_newton": "dict",
+          "poisson_l2_irls": "dict",
+          "poisson_l2_newton": "dict",
+          "gamma_l2_newton": "dict",
+          "inverse_gaussian_l2_newton": "dict",
+          "negative_binomial_l2_lbfgs": "dict",
+          "tweedie_l2_newton": "dict",
+          "logistic_l2_fista": "dict",
+          "logistic_l2_fista_bb": "dict",
+          "squared_error_l1_fista": "dict",
+          "squared_error_elasticnet_fista": "dict",
+          "logistic_l1_fista": "dict",
+          "poisson_l1_fista": "dict",
+          "squared_error_adaptive_l1_fista": "dict",
+          "logistic_adaptive_l1_fista": "dict",
+          "poisson_adaptive_l1_fista": "dict",
+          "gamma_adaptive_l1_fista": "dict",
+          "squared_error_scad_fista": "dict",
+          "squared_error_mcp_fista": "dict",
+          "logistic_scad_fista": "dict",
+          "squared_error_group_lasso_fista": "dict",
+          "logistic_group_lasso_fista": "dict",
+          "squared_error_group_scad_fista": "dict"
+        }
+      },
+      "speedups": {
+        "small_5k": {
+          "squared_error_l2_exact": "dict",
+          "squared_error_l2_newton": "dict",
+          "logistic_l2_irls": "dict",
+          "logistic_l2_newton": "dict",
+          "poisson_l2_irls": "dict",
+          "poisson_l2_newton": "dict",
+          "gamma_l2_newton": "dict",
+          "inverse_gaussian_l2_newton": "dict",
+          "negative_binomial_l2_lbfgs": "dict",
+          "tweedie_l2_newton": "dict",
+          "logistic_l2_fista": "dict",
+          "logistic_l2_fista_bb": "dict",
+          "squared_error_l1_fista": "dict",
+          "squared_error_elasticnet_fista": "dict",
+          "logistic_l1_fista": "dict",
+          "poisson_l1_fista": "dict",
+          "squared_error_adaptive_l1_fista": "dict",
+          "logistic_adaptive_l1_fista": "dict",
+          "poisson_adaptive_l1_fista": "dict",
+          "gamma_adaptive_l1_fista": "dict",
+          "squared_error_scad_fista": "dict",
+          "squared_error_mcp_fista": "dict",
+          "logistic_scad_fista": "dict",
+          "squared_error_group_lasso_fista": "dict",
+          "logistic_group_lasso_fista": "dict",
+          "squared_error_group_scad_fista": "dict"
+        },
+        "medium_100k": {
+          "squared_error_l2_exact": "dict",
+          "squared_error_l2_newton": "dict",
+          "logistic_l2_irls": "dict",
+          "logistic_l2_newton": "dict",
+          "poisson_l2_irls": "dict",
+          "poisson_l2_newton": "dict",
+          "gamma_l2_newton": "dict",
+          "inverse_gaussian_l2_newton": "dict",
+          "negative_binomial_l2_lbfgs": "dict",
+          "tweedie_l2_newton": "dict",
+          "logistic_l2_fista": "dict",
+          "logistic_l2_fista_bb": "dict",
+          "squared_error_l1_fista": "dict",
+          "squared_error_elasticnet_fista": "dict",
+          "logistic_l1_fista": "dict",
+          "poisson_l1_fista": "dict",
+          "squared_error_adaptive_l1_fista": "dict",
+          "logistic_adaptive_l1_fista": "dict",
+          "poisson_adaptive_l1_fista": "dict",
+          "gamma_adaptive_l1_fista": "dict",
+          "squared_error_scad_fista": "dict",
+          "squared_error_mcp_fista": "dict",
+          "logistic_scad_fista": "dict",
+          "squared_error_group_lasso_fista": "dict",
+          "logistic_group_lasso_fista": "dict",
+          "squared_error_group_scad_fista": "dict"
+        }
+      }
+    },
+    "date": "2026-06-23",
+    "environment": {
+      "cupy_available": true,
+      "torch_available": true
+    }
+  },
+  {
+    "path": "results/penalized_glm_bench_perf_2026-06-22.json",
+    "size_bytes": 97430,
+    "shape": {
+      "date": "str",
+      "environment": {
+        "cupy_available": "bool",
+        "torch_available": "bool"
+      },
+      "performance": {
+        "small_5k": {
+          "squared_error_none_auto": "dict",
+          "squared_error_l1_auto": "dict",
+          "squared_error_l2_auto": "dict",
+          "squared_error_elasticnet_auto": "dict",
+          "squared_error_adaptive_l1_auto": "dict",
+          "squared_error_scad_auto": "dict",
+          "squared_error_mcp_auto": "dict",
+          "squared_error_group_lasso_auto": "dict",
+          "squared_error_group_scad_auto": "dict",
+          "squared_error_group_mcp_auto": "dict",
+          "logistic_none_auto": "dict",
+          "logistic_l1_auto": "dict",
+          "logistic_l2_auto": "dict",
+          "logistic_elasticnet_auto": "dict",
+          "logistic_adaptive_l1_auto": "dict",
+          "logistic_scad_auto": "dict",
+          "logistic_mcp_auto": "dict",
+          "logistic_group_lasso_auto": "dict",
+          "logistic_group_scad_auto": "dict",
+          "logistic_group_mcp_auto": "dict",
+          "poisson_none_auto": "dict",
+          "poisson_l1_auto": "dict",
+          "poisson_l2_auto": "dict",
+          "poisson_elasticnet_auto": "dict",
+          "poisson_adaptive_l1_auto": "dict",
+          "poisson_scad_auto": "dict",
+          "poisson_mcp_auto": "dict",
+          "poisson_group_lasso_auto": "dict",
+          "poisson_group_scad_auto": "dict",
+          "poisson_group_mcp_auto": "dict"
+        },
+        "medium_100k": {
+          "squared_error_none_auto": "dict",
+          "squared_error_l1_auto": "dict",
+          "squared_error_l2_auto": "dict",
+          "squared_error_elasticnet_auto": "dict",
+          "squared_error_adaptive_l1_auto": "dict",
+          "squared_error_scad_auto": "dict",
+          "squared_error_mcp_auto": "dict",
+          "squared_error_group_lasso_auto": "dict",
+          "squared_error_group_scad_auto": "dict",
+          "squared_error_group_mcp_auto": "dict",
+          "logistic_none_auto": "dict",
+          "logistic_l1_auto": "dict",
+          "logistic_l2_auto": "dict",
+          "logistic_elasticnet_auto": "dict",
+          "logistic_adaptive_l1_auto": "dict",
+          "logistic_scad_auto": "dict",
+          "logistic_mcp_auto": "dict",
+          "logistic_group_lasso_auto": "dict",
+          "logistic_group_scad_auto": "dict",
+          "logistic_group_mcp_auto": "dict",
+          "poisson_none_auto": "dict",
+          "poisson_l1_auto": "dict",
+          "poisson_l2_auto": "dict",
+          "poisson_elasticnet_auto": "dict",
+          "poisson_adaptive_l1_auto": "dict",
+          "poisson_scad_auto": "dict",
+          "poisson_mcp_auto": "dict",
+          "poisson_group_lasso_auto": "dict",
+          "poisson_group_scad_auto": "dict",
+          "poisson_group_mcp_auto": "dict"
+        }
+      },
+      "speedups": {
+        "small_5k": {
+          "squared_error_none_auto": "dict",
+          "squared_error_l1_auto": "dict",
+          "squared_error_l2_auto": "dict",
+          "squared_error_elasticnet_auto": "dict",
+          "squared_error_adaptive_l1_auto": "dict",
+          "squared_error_scad_auto": "dict",
+          "squared_error_mcp_auto": "dict",
+          "squared_error_group_lasso_auto": "dict",
+          "squared_error_group_scad_auto": "dict",
+          "squared_error_group_mcp_auto": "dict",
+          "logistic_none_auto": "dict",
+          "logistic_l1_auto": "dict",
+          "logistic_l2_auto": "dict",
+          "logistic_elasticnet_auto": "dict",
+          "logistic_adaptive_l1_auto": "dict",
+          "logistic_scad_auto": "dict",
+          "logistic_mcp_auto": "dict",
+          "logistic_group_lasso_auto": "dict",
+          "logistic_group_scad_auto": "dict",
+          "logistic_group_mcp_auto": "dict",
+          "poisson_none_auto": "dict",
+          "poisson_l1_auto": "dict",
+          "poisson_l2_auto": "dict",
+          "poisson_elasticnet_auto": "dict",
+          "poisson_adaptive_l1_auto": "dict",
+          "poisson_scad_auto": "dict",
+          "poisson_mcp_auto": "dict",
+          "poisson_group_lasso_auto": "dict",
+          "poisson_group_scad_auto": "dict",
+          "poisson_group_mcp_auto": "dict"
+        },
+        "medium_100k": {
+          "squared_error_none_auto": "dict",
+          "squared_error_l1_auto": "dict",
+          "squared_error_l2_auto": "dict",
+          "squared_error_elasticnet_auto": "dict",
+          "squared_error_adaptive_l1_auto": "dict",
+          "squared_error_scad_auto": "dict",
+          "squared_error_mcp_auto": "dict",
+          "squared_error_group_lasso_auto": "dict",
+          "squared_error_group_scad_auto": "dict",
+          "squared_error_group_mcp_auto": "dict",
+          "logistic_none_auto": "dict",
+          "logistic_l1_auto": "dict",
+          "logistic_l2_auto": "dict",
+          "logistic_elasticnet_auto": "dict",
+          "logistic_adaptive_l1_auto": "dict",
+          "logistic_scad_auto": "dict",
+          "logistic_mcp_auto": "dict",
+          "logistic_group_lasso_auto": "dict",
+          "logistic_group_scad_auto": "dict",
+          "logistic_group_mcp_auto": "dict",
+          "poisson_none_auto": "dict",
+          "poisson_l1_auto": "dict",
+          "poisson_l2_auto": "dict",
+          "poisson_elasticnet_auto": "dict",
+          "poisson_adaptive_l1_auto": "dict",
+          "poisson_scad_auto": "dict",
+          "poisson_mcp_auto": "dict",
+          "poisson_group_lasso_auto": "dict",
+          "poisson_group_scad_auto": "dict",
+          "poisson_group_mcp_auto": "dict"
+        }
+      }
+    },
+    "date": "2026-06-23",
+    "environment": {
+      "cupy_available": true,
+      "torch_available": true
+    }
+  },
+  {
+    "path": "results/pr74_inference_validation.json",
+    "size_bytes": 8233,
+    "shape": {
+      "ordered_logit_n500_p5": {
+        "NumPy": {
+          "bse0": "float",
+          "nll": "float",
+          "wald_stat": "float",
+          "wald_pval": "float",
+          "iter": "int",
+          "ok": "bool",
+          "time": "float",
+          "n": "int",
+          "p": "int"
+        },
+        "CuPy": {
+          "bse0": "float",
+          "nll": "float",
+          "wald_stat": "float",
+          "wald_pval": "float",
+          "iter": "int",
+          "ok": "bool",
+          "time": "float",
+          "n": "int",
+          "p": "int"
+        },
+        "Torch": {
+          "bse0": "float",
+          "nll": "float",
+          "wald_stat": "float",
+          "wald_pval": "float",
+          "iter": "int",
+          "ok": "bool",
+          "time": "float",
+          "n": "int",
+          "p": "int"
+        }
+      },
+      "ordered_probit_n500_p5": {
+        "NumPy": {
+          "bse0": "float",
+          "nll": "float",
+          "iter": "int",
+          "ok": "bool",
+          "time": "float",
+          "n": "int",
+          "p": "int"
+        },
+        "CuPy": {
+          "bse0": "float",
+          "nll": "float",
+          "iter": "int",
+          "ok": "bool",
+          "time": "float",
+          "n": "int",
+          "p": "int"
+        },
+        "Torch": {
+          "bse0": "float",
+          "nll": "float",
+          "iter": "int",
+          "ok": "bool",
+          "time": "float",
+          "n": "int",
+          "p": "int"
+        }
+      },
+      "sandwich_n500_p5": {
+        "NumPy": {
+          "bse0": "float",
+          "ok": "bool",
+          "time": "float",
+          "n": "int",
+          "p": "int"
+        },
+        "CuPy": {
+          "bse0": "float",
+          "ok": "bool",
+          "time": "float",
+          "n": "int",
+          "p": "int"
+        },
+        "Torch": {
+          "bse0": "float",
+          "ok": "bool",
+          "time": "float",
+          "n": "int",
+          "p": "int"
+        }
+      },
+      "oracle_n500_p5": {
+        "NumPy": {
+          "bse0": "float",
+          "ok": "bool",
+          "time": "float",
+          "n": "int",
+          "p": "int"
+        },
+        "CuPy": {
+          "bse0": "float",
+          "ok": "bool",
+          "time": "float",
+          "n": "int",
+          "p": "int"
+        },
+        "Torch": {
+          "bse0": "float",
+          "ok": "bool",
+          "time": "float",
+          "n": "int",
+          "p": "int"
+        }
+      },
+      "bootstrap_n500_p5": {
+        "NumPy": {
+          "bse0": "float",
+          "ok": "bool",
+          "time": "float",
+          "n": "int",
+          "p": "int"
+        },
+        "CuPy": {
+          "bse0": "float",
+          "ok": "bool",
+          "time": "float",
+          "n": "int",
+          "p": "int"
+        },
+        "Torch": {
+          "bse0": "float",
+          "ok": "bool",
+          "time": "float",
+          "n": "int",
+          "p": "int"
+        }
+      },
+      "quantile_kernel_n500_p5": {
+        "NumPy": {
+          "bse0": "float",
+          "method": "str",
+          "solver": "str",
+          "ok": "bool",
+          "time": "float",
+          "n": "int",
+          "p": "int"
+        },
+        "CuPy": {
+          "bse0": "float",
+          "method": "str",
+          "solver": "str",
+          "ok": "bool",
+          "time": "float",
+          "n": "int",
+          "p": "int"
+        },
+        "Torch": {
+          "bse0": "float",
+          "method": "str",
+          "solver": "str",
+          "ok": "bool",
+          "time": "float",
+          "n": "int",
+          "p": "int"
+        }
+      },
+      "quantile_bootstrap_n500_p5": {
+        "NumPy": {
+          "bse0": "float",
+          "method": "str",
+          "solver": "str",
+          "ok": "bool",
+          "time": "float",
+          "n": "int",
+          "p": "int"
+        },
+        "CuPy": {
+          "bse0": "float",
+          "method": "str",
+          "solver": "str",
+          "ok": "bool",
+          "time": "float",
+          "n": "int",
+          "p": "int"
+        },
+        "Torch": {
+          "bse0": "float",
+          "method": "str",
+          "solver": "str",
+          "ok": "bool",
+          "time": "float",
+          "n": "int",
+          "p": "int"
+        }
+      },
+      "ordered_logit_n2000_p10": {
+        "NumPy": {
+          "bse0": "float",
+          "nll": "float",
+          "wald_stat": "float",
+          "wald_pval": "float",
+          "iter": "int",
+          "ok": "bool",
+          "time": "float",
+          "n": "int",
+          "p": "int"
+        },
+        "CuPy": {
+          "bse0": "float",
+          "nll": "float",
+          "wald_stat": "float",
+          "wald_pval": "float",
+          "iter": "int",
+          "ok": "bool",
+          "time": "float",
+          "n": "int",
+          "p": "int"
+        },
+        "Torch": {
+          "bse0": "float",
+          "nll": "float",
+          "wald_stat": "float",
+          "wald_pval": "float",
+          "iter": "int",
+          "ok": "bool",
+          "time": "float",
+          "n": "int",
+          "p": "int"
+        }
+      },
+      "ordered_probit_n2000_p10": {
+        "NumPy": {
+          "bse0": "float",
+          "nll": "float",
+          "iter": "int",
+          "ok": "bool",
+          "time": "float",
+          "n": "int",
+          "p": "int"
+        },
+        "CuPy": {
+          "bse0": "float",
+          "nll": "float",
+          "iter": "int",
+          "ok": "bool",
+          "time": "float",
+          "n": "int",
+          "p": "int"
+        },
+        "Torch": {
+          "bse0": "float",
+          "nll": "float",
+          "iter": "int",
+          "ok": "bool",
+          "time": "float",
+          "n": "int",
+          "p": "int"
+        }
+      },
+      "sandwich_n2000_p10": {
+        "NumPy": {
+          "bse0": "float",
+          "ok": "bool",
+          "time": "float",
+          "n": "int",
+          "p": "int"
+        },
+        "CuPy": {
+          "bse0": "float",
+          "ok": "bool",
+          "time": "float",
+          "n": "int",
+          "p": "int"
+        },
+        "Torch": {
+          "bse0": "float",
+          "ok": "bool",
+          "time": "float",
+          "n": "int",
+          "p": "int"
+        }
+      },
+      "oracle_n2000_p10": {
+        "NumPy": {
+          "bse0": "float",
+          "ok": "bool",
+          "time": "float",
+          "n": "int",
+          "p": "int"
+        },
+        "CuPy": {
+          "bse0": "float",
+          "ok": "bool",
+          "time": "float",
+          "n": "int",
+          "p": "int"
+        },
+        "Torch": {
+          "bse0": "float",
+          "ok": "bool",
+          "time": "float",
+          "n": "int",
+          "p": "int"
+        }
+      },
+      "bootstrap_n2000_p10": {
+        "NumPy": {
+          "bse0": "float",
+          "ok": "bool",
+          "time": "float",
+          "n": "int",
+          "p": "int"
+        },
+        "CuPy": {
+          "bse0": "float",
+          "ok": "bool",
+          "time": "float",
+          "n": "int",
+          "p": "int"
+        },
+        "Torch": {
+          "bse0": "float",
+          "ok": "bool",
+          "time": "float",
+          "n": "int",
+          "p": "int"
+        }
+      },
+      "quantile_kernel_n2000_p10": {
+        "NumPy": {
+          "bse0": "float",
+          "method": "str",
+          "solver": "str",
+          "ok": "bool",
+          "time": "float",
+          "n": "int",
+          "p": "int"
+        },
+        "CuPy": {
+          "bse0": "float",
+          "method": "str",
+          "solver": "str",
+          "ok": "bool",
+          "time": "float",
+          "n": "int",
+          "p": "int"
+        },
+        "Torch": {
+          "bse0": "float",
+          "method": "str",
+          "solver": "str",
+          "ok": "bool",
+          "time": "float",
+          "n": "int",
+          "p": "int"
+        }
+      },
+      "quantile_bootstrap_n2000_p10": {
+        "NumPy": {
+          "bse0": "float",
+          "method": "str",
+          "solver": "str",
+          "ok": "bool",
+          "time": "float",
+          "n": "int",
+          "p": "int"
+        },
+        "CuPy": {
+          "bse0": "float",
+          "method": "str",
+          "solver": "str",
+          "ok": "bool",
+          "time": "float",
+          "n": "int",
+          "p": "int"
+        },
+        "Torch": {
+          "bse0": "float",
+          "method": "str",
+          "solver": "str",
+          "ok": "bool",
+          "time": "float",
+          "n": "int",
+          "p": "int"
+        }
+      }
+    }
+  },
+  {
+    "path": "results/unsupervised_agglomerative_gpu_verify_20260509_agglo_gpu.json",
+    "size_bytes": 39310,
+    "shape": {
+      "cases": {
+        "n200_p16": {
+          "average": "dict",
+          "complete": "dict",
+          "single": "dict",
+          "ward": "dict"
+        },
+        "n200_p4": {
+          "average": "dict",
+          "complete": "dict",
+          "single": "dict",
+          "ward": "dict"
+        },
+        "n500_p16": {
+          "average": "dict",
+          "complete": "dict",
+          "single": "dict",
+          "ward": "dict"
+        },
+        "n500_p4": {
+          "average": "dict",
+          "complete": "dict",
+          "single": "dict",
+          "ward": "dict"
+        },
+        "n50_p16": {
+          "average": "dict",
+          "complete": "dict",
+          "single": "dict",
+          "ward": "dict"
+        },
+        "n50_p4": {
+          "average": "dict",
+          "complete": "dict",
+          "single": "dict",
+          "ward": "dict"
+        }
+      },
+      "environment": {
+        "cases": {
+          "type": "list",
+          "length": 6,
+          "item_shape": "list"
+        },
+        "linkages": {
+          "type": "list",
+          "length": 4,
+          "item_shape": "str"
+        },
+        "platform": "str",
+        "python": "str"
+      }
+    },
+    "environment": {
+      "cases": [
+        [
+          50,
+          4
+        ],
+        [
+          50,
+          16
+        ],
+        [
+          200,
+          4
+        ],
+        [
+          200,
+          16
+        ],
+        [
+          500,
+          4
+        ],
+        [
+          500,
+          16
+        ]
+      ],
+      "linkages": [
+        "single",
+        "complete",
+        "average",
+        "ward"
+      ],
+      "platform": "Linux-4.19.0-14-amd64-x86_64-with-glibc2.31",
+      "python": "3.9.16 (main, Mar  8 2023, 14:00:05) \n[GCC 11.2.0]"
+    }
+  },
+  {
+    "path": "results/unsupervised_bench_2026-06-24.json",
+    "size_bytes": 10273,
+    "shape": {
+      "pca_small_numpy": {
+        "time": "float",
+        "external": "float",
+        "speedup": "float"
+      },
+      "pca_small_cupy": {
+        "time": "float",
+        "external": "float",
+        "speedup": "float"
+      },
+      "pca_small_torch": {
+        "time": "float",
+        "external": "float",
+        "speedup": "float"
+      },
+      "pca_medium_numpy": {
+        "time": "float",
+        "external": "float",
+        "speedup": "float"
+      },
+      "pca_medium_cupy": {
+        "time": "float",
+        "external": "float",
+        "speedup": "float"
+      },
+      "pca_medium_torch": {
+        "time": "float",
+        "external": "float",
+        "speedup": "float"
+      },
+      "pca_large_numpy": {
+        "time": "float",
+        "external": "float",
+        "speedup": "float"
+      },
+      "pca_large_cupy": {
+        "time": "float",
+        "external": "float",
+        "speedup": "float"
+      },
+      "pca_large_torch": {
+        "time": "float",
+        "external": "float",
+        "speedup": "float"
+      },
+      "kmeans_small_numpy": {
+        "time": "float",
+        "external": "float",
+        "speedup": "float"
+      },
+      "kmeans_small_cupy": {
+        "time": "float",
+        "external": "float",
+        "speedup": "float"
+      },
+      "kmeans_small_torch": {
+        "time": "float",
+        "external": "float",
+        "speedup": "float"
+      },
+      "kmeans_medium_numpy": {
+        "time": "float",
+        "external": "float",
+        "speedup": "float"
+      },
+      "kmeans_medium_cupy": {
+        "time": "float",
+        "external": "float",
+        "speedup": "float"
+      },
+      "kmeans_medium_torch": {
+        "time": "float",
+        "external": "float",
+        "speedup": "float"
+      },
+      "kmeans_large_numpy": {
+        "time": "float",
+        "external": "float",
+        "speedup": "float"
+      },
+      "kmeans_large_cupy": {
+        "time": "float",
+        "external": "float",
+        "speedup": "float"
+      },
+      "kmeans_large_torch": {
+        "time": "float",
+        "external": "float",
+        "speedup": "float"
+      },
+      "gmm_small_numpy": {
+        "time": "float",
+        "external": "float",
+        "speedup": "float"
+      },
+      "gmm_small_cupy": {
+        "time": "float",
+        "external": "float",
+        "speedup": "float"
+      },
+      "gmm_small_torch": {
+        "time": "float",
+        "external": "float",
+        "speedup": "float"
+      },
+      "gmm_medium_numpy": {
+        "time": "float",
+        "external": "float",
+        "speedup": "float"
+      },
+      "gmm_medium_cupy": {
+        "time": "float",
+        "external": "float",
+        "speedup": "float"
+      },
+      "gmm_medium_torch": {
+        "time": "float",
+        "external": "float",
+        "speedup": "float"
+      },
+      "gmm_large_numpy": {
+        "time": "float",
+        "external": "float",
+        "speedup": "float"
+      },
+      "gmm_large_cupy": {
+        "time": "float",
+        "external": "float",
+        "speedup": "float"
+      },
+      "gmm_large_torch": {
+        "time": "float",
+        "external": "float",
+        "speedup": "float"
+      },
+      "nmf_small_numpy": {
+        "time": "float",
+        "external": "float",
+        "speedup": "float"
+      },
+      "nmf_small_cupy": {
+        "time": "float",
+        "external": "float",
+        "speedup": "float"
+      },
+      "nmf_small_torch": {
+        "time": "float",
+        "external": "float",
+        "speedup": "float"
+      }
+    }
+  },
+  {
+    "path": "results/unsupervised_bench_2026-06-26.json",
+    "size_bytes": 12097,
+    "shape": {
+      "pca_small_numpy": {
+        "time": "float",
+        "external": "float",
+        "speedup": "float"
+      },
+      "pca_small_cupy": {
+        "time": "float",
+        "external": "float",
+        "speedup": "float"
+      },
+      "pca_small_torch": {
+        "time": "float",
+        "external": "float",
+        "speedup": "float"
+      },
+      "pca_medium_numpy": {
+        "time": "float",
+        "external": "float",
+        "speedup": "float"
+      },
+      "pca_medium_cupy": {
+        "time": "float",
+        "external": "float",
+        "speedup": "float"
+      },
+      "pca_medium_torch": {
+        "time": "float",
+        "external": "float",
+        "speedup": "float"
+      },
+      "pca_large_numpy": {
+        "time": "float",
+        "external": "float",
+        "speedup": "float"
+      },
+      "pca_large_cupy": {
+        "time": "float",
+        "external": "float",
+        "speedup": "float"
+      },
+      "pca_large_torch": {
+        "time": "float",
+        "external": "float",
+        "speedup": "float"
+      },
+      "kmeans_small_numpy": {
+        "time": "float",
+        "external": "float",
+        "speedup": "float"
+      },
+      "kmeans_small_cupy": {
+        "time": "float",
+        "external": "float",
+        "speedup": "float"
+      },
+      "kmeans_small_torch": {
+        "time": "float",
+        "external": "float",
+        "speedup": "float"
+      },
+      "kmeans_medium_numpy": {
+        "time": "float",
+        "external": "float",
+        "speedup": "float"
+      },
+      "kmeans_medium_cupy": {
+        "time": "float",
+        "external": "float",
+        "speedup": "float"
+      },
+      "kmeans_medium_torch": {
+        "time": "float",
+        "external": "float",
+        "speedup": "float"
+      },
+      "kmeans_large_numpy": {
+        "time": "float",
+        "external": "float",
+        "speedup": "float"
+      },
+      "kmeans_large_cupy": {
+        "time": "float",
+        "external": "float",
+        "speedup": "float"
+      },
+      "kmeans_large_torch": {
+        "time": "float",
+        "external": "float",
+        "speedup": "float"
+      },
+      "gmm_small_numpy": {
+        "time": "float",
+        "external": "float",
+        "speedup": "float"
+      },
+      "gmm_small_cupy": {
+        "time": "float",
+        "external": "float",
+        "speedup": "float"
+      },
+      "gmm_small_torch": {
+        "time": "float",
+        "external": "float",
+        "speedup": "float"
+      },
+      "gmm_medium_numpy": {
+        "time": "float",
+        "external": "float",
+        "speedup": "float"
+      },
+      "gmm_medium_cupy": {
+        "time": "float",
+        "external": "float",
+        "speedup": "float"
+      },
+      "gmm_medium_torch": {
+        "time": "float",
+        "external": "float",
+        "speedup": "float"
+      },
+      "gmm_large_numpy": {
+        "time": "float",
+        "external": "float",
+        "speedup": "float"
+      },
+      "gmm_large_cupy": {
+        "time": "float",
+        "external": "float",
+        "speedup": "float"
+      },
+      "gmm_large_torch": {
+        "time": "float",
+        "external": "float",
+        "speedup": "float"
+      },
+      "nmf_small_numpy": {
+        "time": "float",
+        "external": "float",
+        "speedup": "float"
+      },
+      "nmf_small_cupy": {
+        "time": "float",
+        "external": "float",
+        "speedup": "float"
+      },
+      "nmf_small_torch": {
+        "time": "float",
+        "external": "float",
+        "speedup": "float"
+      }
+    }
+  },
+  {
+    "path": "results/unsupervised_bench_2026-06-27.json",
+    "size_bytes": 12135,
+    "shape": {
+      "pca_small_numpy": {
+        "time": "float",
+        "external": "float",
+        "speedup": "float"
+      },
+      "pca_small_cupy": {
+        "time": "float",
+        "external": "float",
+        "speedup": "float"
+      },
+      "pca_small_torch": {
+        "time": "float",
+        "external": "float",
+        "speedup": "float"
+      },
+      "pca_medium_numpy": {
+        "time": "float",
+        "external": "float",
+        "speedup": "float"
+      },
+      "pca_medium_cupy": {
+        "time": "float",
+        "external": "float",
+        "speedup": "float"
+      },
+      "pca_medium_torch": {
+        "time": "float",
+        "external": "float",
+        "speedup": "float"
+      },
+      "pca_large_numpy": {
+        "time": "float",
+        "external": "float",
+        "speedup": "float"
+      },
+      "pca_large_cupy": {
+        "time": "float",
+        "external": "float",
+        "speedup": "float"
+      },
+      "pca_large_torch": {
+        "time": "float",
+        "external": "float",
+        "speedup": "float"
+      },
+      "kmeans_small_numpy": {
+        "time": "float",
+        "external": "float",
+        "speedup": "float"
+      },
+      "kmeans_small_cupy": {
+        "time": "float",
+        "external": "float",
+        "speedup": "float"
+      },
+      "kmeans_small_torch": {
+        "time": "float",
+        "external": "float",
+        "speedup": "float"
+      },
+      "kmeans_medium_numpy": {
+        "time": "float",
+        "external": "float",
+        "speedup": "float"
+      },
+      "kmeans_medium_cupy": {
+        "time": "float",
+        "external": "float",
+        "speedup": "float"
+      },
+      "kmeans_medium_torch": {
+        "time": "float",
+        "external": "float",
+        "speedup": "float"
+      },
+      "kmeans_large_numpy": {
+        "time": "float",
+        "external": "float",
+        "speedup": "float"
+      },
+      "kmeans_large_cupy": {
+        "time": "float",
+        "external": "float",
+        "speedup": "float"
+      },
+      "kmeans_large_torch": {
+        "time": "float",
+        "external": "float",
+        "speedup": "float"
+      },
+      "gmm_small_numpy": {
+        "time": "float",
+        "external": "float",
+        "speedup": "float"
+      },
+      "gmm_small_cupy": {
+        "time": "float",
+        "external": "float",
+        "speedup": "float"
+      },
+      "gmm_small_torch": {
+        "time": "float",
+        "external": "float",
+        "speedup": "float"
+      },
+      "gmm_medium_numpy": {
+        "time": "float",
+        "external": "float",
+        "speedup": "float"
+      },
+      "gmm_medium_cupy": {
+        "time": "float",
+        "external": "float",
+        "speedup": "float"
+      },
+      "gmm_medium_torch": {
+        "time": "float",
+        "external": "float",
+        "speedup": "float"
+      },
+      "gmm_large_numpy": {
+        "time": "float",
+        "external": "float",
+        "speedup": "float"
+      },
+      "gmm_large_cupy": {
+        "time": "float",
+        "external": "float",
+        "speedup": "float"
+      },
+      "gmm_large_torch": {
+        "time": "float",
+        "external": "float",
+        "speedup": "float"
+      },
+      "nmf_small_numpy": {
+        "time": "float",
+        "external": "float",
+        "speedup": "float"
+      },
+      "nmf_small_cupy": {
+        "time": "float",
+        "external": "float",
+        "speedup": "float"
+      },
+      "nmf_small_torch": {
+        "time": "float",
+        "external": "float",
+        "speedup": "float"
+      }
+    }
+  },
+  {
+    "path": "results/unsupervised_full_verify_phase1_20260507_175226.json",
+    "size_bytes": 2987,
+    "shape": {
+      "devices": {
+        "type": "list",
+        "length": 3,
+        "item_shape": "str"
+      },
+      "k": "int",
+      "methods": {
+        "type": "list",
+        "length": 2,
+        "item_shape": "str"
+      },
+      "n": "int",
+      "p": "int",
+      "preload_device_data": "bool",
+      "repeats": "int",
+      "rows": {
+        "type": "list",
+        "length": 8,
+        "item_shape": {
+          "device": "str",
+          "explained_variance_sum": "float",
+          "fit_ms": "float",
+          "fit_ms_all": "list",
+          "method": "str",
+          "status": "str"
+        }
+      },
+      "seed": "int",
+      "warmup_runs": "int"
+    }
+  },
+  {
+    "path": "results/unsupervised_full_verify_phase2_20260507_175226.json",
+    "size_bytes": 6619,
+    "shape": {
+      "devices": {
+        "type": "list",
+        "length": 3,
+        "item_shape": "str"
+      },
+      "repeats": "int",
+      "rows": {
+        "type": "list",
+        "length": 18,
+        "item_shape": {
+          "backend": "str",
+          "fit_ms": "float",
+          "fit_ms_all": "list",
+          "framework": "str",
+          "method": "str",
+          "n_clusters": "int",
+          "n_core": "int",
+          "n_noise": "int",
+          "status": "str"
+        }
+      },
+      "seed": "int",
+      "warmup_runs": "int"
+    }
+  },
+  {
+    "path": "results/unsupervised_full_verify_phase3_20260507_175226.json",
+    "size_bytes": 8124,
+    "shape": {
+      "environment": {
+        "args": {
+          "batch_size": "int",
+          "components": "int",
+          "debug_timeout": "int",
+          "devices": "str",
+          "json_out": "str",
+          "k": "int",
+          "manifold_epochs": "int",
+          "mb_iter": "int",
+          "md_out": "str",
+          "n": "int",
+          "neighbors": "int",
+          "p": "int",
+          "perplexity": "float",
+          "print_json": "bool",
+          "repeats": "int",
+          "seed": "int",
+          "skip_external": "bool",
+          "skip_r": "bool",
+          "svd_algorithm": "str",
+          "tsne_iter": "int",
+          "warmup": "int"
+        },
+        "platform": "str",
+        "python": "str"
+      },
+      "models": {
+        "MiniBatchKMeans": {
+          "cuml_gpu": "dict",
+          "sklearn_cpu": "dict",
+          "statgpu_cpu": "dict",
+          "statgpu_cuda": "dict",
+          "statgpu_torch": "dict"
+        },
+        "TSNE": {
+          "cuml_gpu": "dict",
+          "openTSNE_cpu": "dict",
+          "sklearn_cpu": "dict",
+          "statgpu_cpu": "dict",
+          "statgpu_cuda": "dict",
+          "statgpu_torch": "dict"
+        },
+        "TruncatedSVD": {
+          "R_cpu": "dict",
+          "cuml_gpu": "dict",
+          "sklearn_cpu": "dict",
+          "statgpu_cpu": "dict",
+          "statgpu_cuda": "dict",
+          "statgpu_torch": "dict",
+          "statsmodels_cpu": "dict"
+        },
+        "UMAP": {
+          "cuml_gpu": "dict",
+          "statgpu_cpu": "dict",
+          "statgpu_cuda": "dict",
+          "statgpu_torch": "dict",
+          "umap_learn_cpu": "dict"
+        }
+      }
+    },
+    "environment": {
+      "args": {
+        "batch_size": 256,
+        "components": 5,
+        "debug_timeout": 0,
+        "devices": "cpu,cuda,torch",
+        "json_out": "results/unsupervised_full_verify_phase3_20260507_175226.json",
+        "k": 5,
+        "manifold_epochs": 30,
+        "mb_iter": 20,
+        "md_out": "results/unsupervised_full_verify_phase3_summary_20260507_175226.md",
+        "n": 800,
+        "neighbors": 10,
+        "p": 32,
+        "perplexity": 20.0,
+        "print_json": false,
+        "repeats": 2,
+        "seed": 0,
+        "skip_external": false,
+        "skip_r": false,
+        "svd_algorithm": "randomized",
+        "tsne_iter": 250,
+        "warmup": 1
+      },
+      "platform": "Linux-4.19.0-14-amd64-x86_64-with-glibc2.31",
+      "python": "3.9.16 (main, Mar  8 2023, 14:00:05) \n[GCC 11.2.0]"
+    }
+  },
+  {
+    "path": "results/unsupervised_full_verify_phase3b_20260507_175226.json",
+    "size_bytes": 10134,
+    "shape": {
+      "environment": {
+        "args": {
+          "devices": "str",
+          "gmm_iter": "int",
+          "json_out": "str",
+          "k": "int",
+          "md_out": "str",
+          "n": "int",
+          "p": "int",
+          "print_json": "bool",
+          "repeats": "int",
+          "seed": "int",
+          "skip_r": "bool",
+          "tol": "float",
+          "warmup": "int"
+        },
+        "platform": "str",
+        "python": "str"
+      },
+      "models": {
+        "AgglomerativeClustering": {
+          "average": "dict",
+          "complete": "dict",
+          "single": "dict",
+          "ward": "dict"
+        },
+        "GaussianMixture": {
+          "diag": "dict",
+          "full": "dict",
+          "spherical": "dict",
+          "tied": "dict"
+        }
+      }
+    },
+    "environment": {
+      "args": {
+        "devices": "cpu,cuda,torch",
+        "gmm_iter": 60,
+        "json_out": "results/unsupervised_full_verify_phase3b_20260507_175226.json",
+        "k": 3,
+        "md_out": "results/unsupervised_full_verify_phase3b_summary_20260507_175226.md",
+        "n": 1000,
+        "p": 12,
+        "print_json": false,
+        "repeats": 2,
+        "seed": 20260507,
+        "skip_r": false,
+        "tol": 1e-05,
+        "warmup": 1
+      },
+      "platform": "Linux-4.19.0-14-amd64-x86_64-with-glibc2.31",
+      "python": "3.9.16 (main, Mar  8 2023, 14:00:05) \n[GCC 11.2.0]"
+    }
+  },
+  {
+    "path": "results/unsupervised_full_verify_phase3c_20260507_175226.json",
+    "size_bytes": 4122,
+    "shape": {
+      "environment": {
+        "args": {
+          "batch_size": "int",
+          "components": "int",
+          "devices": "str",
+          "json_out": "str",
+          "max_iter": "int",
+          "md_out": "str",
+          "n": "int",
+          "p": "int",
+          "print_json": "bool",
+          "repeats": "int",
+          "seed": "int",
+          "warmup": "int"
+        },
+        "platform": "str",
+        "python": "str"
+      },
+      "models": {
+        "IncrementalPCA": {
+          "sklearn_cpu": "dict",
+          "statgpu_cpu": "dict",
+          "statgpu_cuda": "dict",
+          "statgpu_torch": "dict"
+        },
+        "MiniBatchNMF": {
+          "sklearn_cpu": "dict",
+          "statgpu_cpu": "dict",
+          "statgpu_cuda": "dict",
+          "statgpu_torch": "dict"
+        }
+      }
+    },
+    "environment": {
+      "args": {
+        "batch_size": 512,
+        "components": 6,
+        "devices": "cpu,cuda,torch",
+        "json_out": "results/unsupervised_full_verify_phase3c_20260507_175226.json",
+        "max_iter": 15,
+        "md_out": "results/unsupervised_full_verify_phase3c_summary_20260507_175226.md",
+        "n": 5000,
+        "p": 32,
+        "print_json": false,
+        "repeats": 2,
+        "seed": 20260507,
+        "warmup": 1
+      },
+      "platform": "Linux-4.19.0-14-amd64-x86_64-with-glibc2.31",
+      "python": "3.9.16 (main, Mar  8 2023, 14:00:05) \n[GCC 11.2.0]"
+    }
+  },
+  {
+    "path": "results/unsupervised_full_verify_phase3c_large_20260507_175226.json",
+    "size_bytes": 4366,
+    "shape": {
+      "environment": {
+        "args": {
+          "batch_size": "int",
+          "components": "int",
+          "devices": "str",
+          "json_out": "str",
+          "max_iter": "int",
+          "md_out": "str",
+          "n": "int",
+          "p": "int",
+          "print_json": "bool",
+          "repeats": "int",
+          "seed": "int",
+          "warmup": "int"
+        },
+        "platform": "str",
+        "python": "str"
+      },
+      "models": {
+        "IncrementalPCA": {
+          "sklearn_cpu": "dict",
+          "statgpu_cpu": "dict",
+          "statgpu_cuda": "dict",
+          "statgpu_torch": "dict"
+        },
+        "MiniBatchNMF": {
+          "sklearn_cpu": "dict",
+          "statgpu_cpu": "dict",
+          "statgpu_cuda": "dict",
+          "statgpu_torch": "dict"
+        }
+      }
+    },
+    "environment": {
+      "args": {
+        "batch_size": 4096,
+        "components": 8,
+        "devices": "cpu,cuda,torch",
+        "json_out": "results/unsupervised_full_verify_phase3c_large_20260507_175226.json",
+        "max_iter": 10,
+        "md_out": "results/unsupervised_full_verify_phase3c_large_summary_20260507_175226.md",
+        "n": 20000,
+        "p": 64,
+        "print_json": false,
+        "repeats": 2,
+        "seed": 20260507,
+        "warmup": 1
+      },
+      "platform": "Linux-4.19.0-14-amd64-x86_64-with-glibc2.31",
+      "python": "3.9.16 (main, Mar  8 2023, 14:00:05) \n[GCC 11.2.0]"
+    }
+  },
+  {
+    "path": "results/unsupervised_phase2_nmf_inplace_fix_20260507_193500.json",
+    "size_bytes": 7099,
+    "shape": {
+      "devices": {
+        "type": "list",
+        "length": 3,
+        "item_shape": "str"
+      },
+      "repeats": "int",
+      "rows": {
+        "type": "list",
+        "length": 18,
+        "item_shape": {
+          "backend": "str",
+          "fit_ms": "float",
+          "fit_ms_all": "list",
+          "framework": "str",
+          "method": "str",
+          "n_clusters": "int",
+          "n_core": "int",
+          "n_noise": "int",
+          "status": "str"
+        }
+      },
+      "seed": "int",
+      "warmup_runs": "int"
+    }
+  },
+  {
+    "path": "results/unsupervised_phase3_remote_finalopt_20260505_084444.json",
+    "size_bytes": 8199,
+    "shape": {
+      "environment": {
+        "args": {
+          "batch_size": "int",
+          "components": "int",
+          "debug_timeout": "int",
+          "devices": "str",
+          "json_out": "str",
+          "k": "int",
+          "manifold_epochs": "int",
+          "mb_iter": "int",
+          "md_out": "str",
+          "n": "int",
+          "neighbors": "int",
+          "p": "int",
+          "perplexity": "float",
+          "print_json": "bool",
+          "repeats": "int",
+          "seed": "int",
+          "skip_external": "bool",
+          "skip_r": "bool",
+          "svd_algorithm": "str",
+          "tsne_iter": "int",
+          "warmup": "int"
+        },
+        "platform": "str",
+        "python": "str"
+      },
+      "models": {
+        "MiniBatchKMeans": {
+          "cuml_gpu": "dict",
+          "sklearn_cpu": "dict",
+          "statgpu_cpu": "dict",
+          "statgpu_cuda": "dict",
+          "statgpu_torch": "dict"
+        },
+        "TSNE": {
+          "cuml_gpu": "dict",
+          "openTSNE_cpu": "dict",
+          "sklearn_cpu": "dict",
+          "statgpu_cpu": "dict",
+          "statgpu_cuda": "dict",
+          "statgpu_torch": "dict"
+        },
+        "TruncatedSVD": {
+          "R_cpu": "dict",
+          "cuml_gpu": "dict",
+          "sklearn_cpu": "dict",
+          "statgpu_cpu": "dict",
+          "statgpu_cuda": "dict",
+          "statgpu_torch": "dict",
+          "statsmodels_cpu": "dict"
+        },
+        "UMAP": {
+          "cuml_gpu": "dict",
+          "statgpu_cpu": "dict",
+          "statgpu_cuda": "dict",
+          "statgpu_torch": "dict",
+          "umap_learn_cpu": "dict"
+        }
+      }
+    },
+    "environment": {
+      "args": {
+        "batch_size": 64,
+        "components": 4,
+        "debug_timeout": 120,
+        "devices": "cpu,cuda,torch",
+        "json_out": "results/unsupervised_phase3_remote_finalopt_20260505_084444.json",
+        "k": 4,
+        "manifold_epochs": 40,
+        "mb_iter": 10,
+        "md_out": "results/unsupervised_phase3_remote_finalopt_20260505_084444.md",
+        "n": 160,
+        "neighbors": 10,
+        "p": 16,
+        "perplexity": 20.0,
+        "print_json": false,
+        "repeats": 2,
+        "seed": 0,
+        "skip_external": false,
+        "skip_r": false,
+        "svd_algorithm": "randomized",
+        "tsne_iter": 300,
+        "warmup": 1
+      },
+      "platform": "Linux-4.19.0-14-amd64-x86_64-with-glibc2.31",
+      "python": "3.9.16 (main, Mar  8 2023, 14:00:05) \n[GCC 11.2.0]"
+    }
+  },
+  {
+    "path": "results/unsupervised_phase3_remote_perfopt2_large_tabular_20260505_132223.json",
+    "size_bytes": 2268,
+    "shape": {
+      "environment": {
+        "args": {
+          "batch_size": "int",
+          "components": "int",
+          "debug_timeout": "int",
+          "devices": "str",
+          "json_out": "str",
+          "k": "int",
+          "manifold_epochs": "int",
+          "mb_iter": "int",
+          "md_out": "str",
+          "n": "int",
+          "neighbors": "int",
+          "p": "int",
+          "perplexity": "float",
+          "print_json": "bool",
+          "repeats": "int",
+          "seed": "int",
+          "skip_external": "bool",
+          "skip_r": "bool",
+          "svd_algorithm": "str",
+          "tsne_iter": "int",
+          "warmup": "int"
+        }
+      },
+      "models": {
+        "MiniBatchKMeans": {
+          "cuml_gpu": "dict",
+          "sklearn_cpu": "dict",
+          "statgpu_cpu": "dict",
+          "statgpu_cuda": "dict",
+          "statgpu_torch": "dict"
+        }
+      }
+    },
+    "environment": {
+      "args": {
+        "batch_size": 1024,
+        "components": 16,
+        "debug_timeout": 240,
+        "devices": "cpu,cuda,torch",
+        "json_out": "",
+        "k": 10,
+        "manifold_epochs": 0,
+        "mb_iter": 50,
+        "md_out": "",
+        "n": 10000,
+        "neighbors": 15,
+        "p": 64,
+        "perplexity": 30.0,
+        "print_json": false,
+        "repeats": 2,
+        "seed": 0,
+        "skip_external": false,
+        "skip_r": false,
+        "svd_algorithm": "randomized",
+        "tsne_iter": 0,
+        "warmup": 1
+      }
+    }
+  },
+  {
+    "path": "results/unsupervised_phase3_remote_perfopt2_large_tabular_bs4096_20260505_132359.json",
+    "size_bytes": 2275,
+    "shape": {
+      "environment": {
+        "args": {
+          "batch_size": "int",
+          "components": "int",
+          "debug_timeout": "int",
+          "devices": "str",
+          "json_out": "str",
+          "k": "int",
+          "manifold_epochs": "int",
+          "mb_iter": "int",
+          "md_out": "str",
+          "n": "int",
+          "neighbors": "int",
+          "p": "int",
+          "perplexity": "float",
+          "print_json": "bool",
+          "repeats": "int",
+          "seed": "int",
+          "skip_external": "bool",
+          "skip_r": "bool",
+          "svd_algorithm": "str",
+          "tsne_iter": "int",
+          "warmup": "int"
+        }
+      },
+      "models": {
+        "MiniBatchKMeans": {
+          "cuml_gpu": "dict",
+          "sklearn_cpu": "dict",
+          "statgpu_cpu": "dict",
+          "statgpu_cuda": "dict",
+          "statgpu_torch": "dict"
+        }
+      }
+    },
+    "environment": {
+      "args": {
+        "batch_size": 4096,
+        "components": 16,
+        "debug_timeout": 240,
+        "devices": "cpu,cuda,torch",
+        "json_out": "",
+        "k": 10,
+        "manifold_epochs": 0,
+        "mb_iter": 50,
+        "md_out": "",
+        "n": 10000,
+        "neighbors": 15,
+        "p": 64,
+        "perplexity": 30.0,
+        "print_json": false,
+        "repeats": 2,
+        "seed": 0,
+        "skip_external": false,
+        "skip_r": false,
+        "svd_algorithm": "randomized",
+        "tsne_iter": 0,
+        "warmup": 1
+      }
+    }
+  },
+  {
+    "path": "results/unsupervised_phase3_remote_perfopt_mediumlarge_20260505_131617.json",
+    "size_bytes": 8192,
+    "shape": {
+      "environment": {
+        "args": {
+          "batch_size": "int",
+          "components": "int",
+          "debug_timeout": "int",
+          "devices": "str",
+          "json_out": "str",
+          "k": "int",
+          "manifold_epochs": "int",
+          "mb_iter": "int",
+          "md_out": "str",
+          "n": "int",
+          "neighbors": "int",
+          "p": "int",
+          "perplexity": "float",
+          "print_json": "bool",
+          "repeats": "int",
+          "seed": "int",
+          "skip_external": "bool",
+          "skip_r": "bool",
+          "svd_algorithm": "str",
+          "tsne_iter": "int",
+          "warmup": "int"
+        },
+        "platform": "str",
+        "python": "str"
+      },
+      "models": {
+        "MiniBatchKMeans": {
+          "cuml_gpu": "dict",
+          "sklearn_cpu": "dict",
+          "statgpu_cpu": "dict",
+          "statgpu_cuda": "dict",
+          "statgpu_torch": "dict"
+        },
+        "TSNE": {
+          "cuml_gpu": "dict",
+          "openTSNE_cpu": "dict",
+          "sklearn_cpu": "dict",
+          "statgpu_cpu": "dict",
+          "statgpu_cuda": "dict",
+          "statgpu_torch": "dict"
+        },
+        "TruncatedSVD": {
+          "R_cpu": "dict",
+          "cuml_gpu": "dict",
+          "sklearn_cpu": "dict",
+          "statgpu_cpu": "dict",
+          "statgpu_cuda": "dict",
+          "statgpu_torch": "dict",
+          "statsmodels_cpu": "dict"
+        },
+        "UMAP": {
+          "cuml_gpu": "dict",
+          "statgpu_cpu": "dict",
+          "statgpu_cuda": "dict",
+          "statgpu_torch": "dict",
+          "umap_learn_cpu": "dict"
+        }
+      }
+    },
+    "environment": {
+      "args": {
+        "batch_size": 256,
+        "components": 8,
+        "debug_timeout": 240,
+        "devices": "cpu,cuda,torch",
+        "json_out": "results/unsupervised_phase3_remote_perfopt_mediumlarge_20260505_131617.json",
+        "k": 8,
+        "manifold_epochs": 80,
+        "mb_iter": 30,
+        "md_out": "results/unsupervised_phase3_remote_perfopt_mediumlarge_20260505_131617.md",
+        "n": 800,
+        "neighbors": 15,
+        "p": 32,
+        "perplexity": 30.0,
+        "print_json": false,
+        "repeats": 2,
+        "seed": 0,
+        "skip_external": false,
+        "skip_r": false,
+        "svd_algorithm": "randomized",
+        "tsne_iter": 500,
+        "warmup": 1
+      },
+      "platform": "Linux-4.19.0-14-amd64-x86_64-with-glibc2.31",
+      "python": "3.9.16 (main, Mar  8 2023, 14:00:05) \n[GCC 11.2.0]"
+    }
+  },
+  {
+    "path": "results/unsupervised_phase3b_verify_20260507_003957.json",
+    "size_bytes": 10087,
+    "shape": {
+      "environment": {
+        "args": {
+          "devices": "str",
+          "gmm_iter": "int",
+          "json_out": "str",
+          "k": "int",
+          "md_out": "str",
+          "n": "int",
+          "p": "int",
+          "print_json": "bool",
+          "repeats": "int",
+          "seed": "int",
+          "skip_r": "bool",
+          "tol": "float",
+          "warmup": "int"
+        },
+        "platform": "str",
+        "python": "str"
+      },
+      "models": {
+        "AgglomerativeClustering": {
+          "average": "dict",
+          "complete": "dict",
+          "single": "dict",
+          "ward": "dict"
+        },
+        "GaussianMixture": {
+          "diag": "dict",
+          "full": "dict",
+          "spherical": "dict",
+          "tied": "dict"
+        }
+      }
+    },
+    "environment": {
+      "args": {
+        "devices": "cpu,cuda,torch",
+        "gmm_iter": 60,
+        "json_out": "results/unsupervised_phase3b_verify_20260507_003957.json",
+        "k": 3,
+        "md_out": "results/unsupervised_phase3b_verify_summary_20260507_003957.md",
+        "n": 800,
+        "p": 6,
+        "print_json": false,
+        "repeats": 2,
+        "seed": 20260507,
+        "skip_r": false,
+        "tol": 1e-05,
+        "warmup": 1
+      },
+      "platform": "Linux-4.19.0-14-amd64-x86_64-with-glibc2.31",
+      "python": "3.9.16 (main, Mar  8 2023, 14:00:05) \n[GCC 11.2.0]"
+    }
+  },
+  {
+    "path": "results/unsupervised_phase3c_opt7_20260507_185500.json",
+    "size_bytes": 4108,
+    "shape": {
+      "environment": {
+        "args": {
+          "batch_size": "int",
+          "components": "int",
+          "devices": "str",
+          "json_out": "str",
+          "max_iter": "int",
+          "md_out": "str",
+          "n": "int",
+          "p": "int",
+          "print_json": "bool",
+          "repeats": "int",
+          "seed": "int",
+          "warmup": "int"
+        },
+        "platform": "str",
+        "python": "str"
+      },
+      "models": {
+        "IncrementalPCA": {
+          "sklearn_cpu": "dict",
+          "statgpu_cpu": "dict",
+          "statgpu_cuda": "dict",
+          "statgpu_torch": "dict"
+        },
+        "MiniBatchNMF": {
+          "sklearn_cpu": "dict",
+          "statgpu_cpu": "dict",
+          "statgpu_cuda": "dict",
+          "statgpu_torch": "dict"
+        }
+      }
+    },
+    "environment": {
+      "args": {
+        "batch_size": 512,
+        "components": 6,
+        "devices": "cpu,cuda,torch",
+        "json_out": "results/unsupervised_phase3c_opt7_20260507_185500.json",
+        "max_iter": 15,
+        "md_out": "results/unsupervised_phase3c_opt7_summary_20260507_185500.md",
+        "n": 5000,
+        "p": 32,
+        "print_json": false,
+        "repeats": 2,
+        "seed": 20260507,
+        "warmup": 1
+      },
+      "platform": "Linux-4.19.0-14-amd64-x86_64-with-glibc2.31",
+      "python": "3.9.16 (main, Mar  8 2023, 14:00:05) \n[GCC 11.2.0]"
+    }
+  },
+  {
+    "path": "results/unsupervised_phase3c_opt7_large_bs4096_20260507_185500.json",
+    "size_bytes": 4360,
+    "shape": {
+      "environment": {
+        "args": {
+          "batch_size": "int",
+          "components": "int",
+          "devices": "str",
+          "json_out": "str",
+          "max_iter": "int",
+          "md_out": "str",
+          "n": "int",
+          "p": "int",
+          "print_json": "bool",
+          "repeats": "int",
+          "seed": "int",
+          "warmup": "int"
+        },
+        "platform": "str",
+        "python": "str"
+      },
+      "models": {
+        "IncrementalPCA": {
+          "sklearn_cpu": "dict",
+          "statgpu_cpu": "dict",
+          "statgpu_cuda": "dict",
+          "statgpu_torch": "dict"
+        },
+        "MiniBatchNMF": {
+          "sklearn_cpu": "dict",
+          "statgpu_cpu": "dict",
+          "statgpu_cuda": "dict",
+          "statgpu_torch": "dict"
+        }
+      }
+    },
+    "environment": {
+      "args": {
+        "batch_size": 4096,
+        "components": 8,
+        "devices": "cpu,cuda,torch",
+        "json_out": "results/unsupervised_phase3c_opt7_large_bs4096_20260507_185500.json",
+        "max_iter": 10,
+        "md_out": "results/unsupervised_phase3c_opt7_large_bs4096_summary_20260507_185500.md",
+        "n": 20000,
+        "p": 64,
+        "print_json": false,
+        "repeats": 2,
+        "seed": 20260507,
+        "warmup": 1
+      },
+      "platform": "Linux-4.19.0-14-amd64-x86_64-with-glibc2.31",
+      "python": "3.9.16 (main, Mar  8 2023, 14:00:05) \n[GCC 11.2.0]"
+    }
+  },
+  {
+    "path": "results/unsupervised_phase3c_opt7_xlarge_20260507_185500.json",
+    "size_bytes": 4830,
+    "shape": {
+      "environment": {
+        "args": {
+          "batch_size": "int",
+          "components": "int",
+          "devices": "str",
+          "json_out": "str",
+          "max_iter": "int",
+          "md_out": "str",
+          "n": "int",
+          "p": "int",
+          "print_json": "bool",
+          "repeats": "int",
+          "seed": "int",
+          "warmup": "int"
+        },
+        "platform": "str",
+        "python": "str"
+      },
+      "models": {
+        "IncrementalPCA": {
+          "sklearn_cpu": "dict",
+          "statgpu_cpu": "dict",
+          "statgpu_cuda": "dict",
+          "statgpu_torch": "dict"
+        },
+        "MiniBatchNMF": {
+          "sklearn_cpu": "dict",
+          "statgpu_cpu": "dict",
+          "statgpu_cuda": "dict",
+          "statgpu_torch": "dict"
+        }
+      }
+    },
+    "environment": {
+      "args": {
+        "batch_size": 8192,
+        "components": 12,
+        "devices": "cpu,cuda,torch",
+        "json_out": "results/unsupervised_phase3c_opt7_xlarge_20260507_185500.json",
+        "max_iter": 8,
+        "md_out": "results/unsupervised_phase3c_opt7_xlarge_summary_20260507_185500.md",
+        "n": 50000,
+        "p": 128,
+        "print_json": false,
+        "repeats": 2,
+        "seed": 20260507,
+        "warmup": 1
+      },
+      "platform": "Linux-4.19.0-14-amd64-x86_64-with-glibc2.31",
+      "python": "3.9.16 (main, Mar  8 2023, 14:00:05) \n[GCC 11.2.0]"
+    }
+  },
+  {
+    "path": "dev/results/benchmark_knockoff_r_2026-04-19.json",
+    "size_bytes": 2243,
+    "shape": {
+      "date": "str",
+      "r_version": "str",
+      "packages": {
+        "knockoff": "str"
+      },
+      "config": {
+        "n": "int",
+        "p": "int",
+        "n_signal": "int",
+        "rho": "float",
+        "q": "float",
+        "noise_scale": "int",
+        "seeds": {
+          "type": "list",
+          "length": 3,
+          "item_shape": "int"
+        }
+      },
+      "methods": {
+        "fixed_x_sdp": {
+          "runs": "list",
+          "aggregate": "dict"
+        },
+        "fixed_x_equi": {
+          "runs": "list",
+          "aggregate": "dict"
+        },
+        "model_x_second_order": {
+          "runs": "list",
+          "aggregate": "dict"
+        }
+      }
+    },
+    "date": "2026-04-19",
+    "config": {
+      "n": 400,
+      "p": 80,
+      "n_signal": 12,
+      "rho": 0.3,
+      "q": 0.1,
+      "noise_scale": 1,
+      "seeds": [
+        20260406,
+        20260407,
+        20260408
+      ]
+    }
+  },
+  {
+    "path": "dev/results/cross_lang_test/python_results_20260406.json",
+    "size_bytes": 347,
+    "shape": {
+      "fixed_x": {
+        "selected": {
+          "type": "list",
+          "length": 14,
+          "item_shape": "int"
+        },
+        "metrics": {
+          "n_selected": "int",
+          "tp": "int",
+          "fp": "int",
+          "precision": "float",
+          "recall": "float",
+          "fdp": "float"
+        }
+      }
+    }
+  },
+  {
+    "path": "dev/results/cross_lang_test/r_results_20260406.json",
+    "size_bytes": 356,
+    "shape": {
+      "fixed_x_sdp": {
+        "selected": {
+          "type": "list",
+          "length": 0,
+          "item_shape": null
+        },
+        "metrics": {
+          "n_selected": "int",
+          "tp": "int",
+          "fp": "int",
+          "precision": "int",
+          "recall": "int",
+          "fdp": "int"
+        }
+      },
+      "fixed_x_equi": {
+        "selected": {
+          "type": "list",
+          "length": 0,
+          "item_shape": null
+        },
+        "metrics": {
+          "n_selected": "int",
+          "tp": "int",
+          "fp": "int",
+          "precision": "int",
+          "recall": "int",
+          "fdp": "int"
+        }
+      }
+    }
+  },
+  {
+    "path": "dev/results/cross_lang_test/r_results_manual_20260406.json",
+    "size_bytes": 298,
+    "shape": {
+      "fixed_x_manual": {
+        "selected": {
+          "type": "list",
+          "length": 12,
+          "item_shape": "int"
+        },
+        "metrics": {
+          "n_selected": "int",
+          "tp": "int",
+          "fp": "int",
+          "precision": "int",
+          "recall": "int",
+          "fdp": "int"
+        }
+      }
+    }
+  },
+  {
+    "path": "dev/results/cross_lang_test/test_data_20260406.json",
+    "size_bytes": 669288,
+    "shape": {
+      "X": {
+        "type": "list",
+        "length": 400,
+        "item_shape": {
+          "type": "list",
+          "length": 80,
+          "item_shape": "float"
+        }
+      },
+      "y": {
+        "type": "list",
+        "length": 400,
+        "item_shape": "float"
+      },
+      "true_signal": {
+        "type": "list",
+        "length": 12,
+        "item_shape": "int"
+      },
+      "config": {
+        "seed": "int",
+        "n": "int",
+        "p": "int",
+        "n_signal": "int",
+        "rho": "float",
+        "q": "float"
+      }
+    },
+    "config": {
+      "seed": 20260406,
+      "n": 400,
+      "p": 80,
+      "n_signal": 12,
+      "rho": 0.3,
+      "q": 0.1
+    }
+  },
+  {
+    "path": "dev/results/remote_benchmark_knockoff_vs_baselines_2026-04-19.json",
+    "size_bytes": 14821,
+    "shape": {
+      "date": "str",
+      "environment": {
+        "cuda_available": "bool",
+        "sklearn_available": "bool",
+        "knockpy_available": "bool"
+      },
+      "config": {
+        "seeds": {
+          "type": "list",
+          "length": 3,
+          "item_shape": "int"
+        },
+        "n_samples": "int",
+        "n_features": "int",
+        "n_signal": "int",
+        "noise_scale": "float",
+        "rho": "float",
+        "q": "float",
+        "knockoff_method": "str",
+        "knockoff_compat_mode": "str",
+        "knockoff_lasso_cv_impl": "str",
+        "k_topk": "int",
+        "lasso_alpha": "float"
+      },
+      "methods": {
+        "knockoff_fixedx_numpy": {
+          "runs": "list",
+          "aggregate": "dict"
+        },
+        "knockoff_modelx_numpy": {
+          "runs": "list",
+          "aggregate": "dict"
+        },
+        "marginal_corr_topk": {
+          "runs": "list",
+          "aggregate": "dict"
+        },
+        "statgpu_lasso_topk": {
+          "runs": "list",
+          "aggregate": "dict"
+        },
+        "sklearn_lasso_cv": "NoneType",
+        "knockpy_gaussian_lasso": "NoneType",
+        "knockoff_fixedx_cupy": {
+          "runs": "list",
+          "aggregate": "dict"
+        },
+        "knockoff_modelx_cupy": {
+          "runs": "list",
+          "aggregate": "dict"
+        }
+      },
+      "pairwise": {
+        "knockoff_numpy_vs_cupy": {
+          "estimated_fdr_abs_diff_mean": "float",
+          "estimated_fdr_abs_diff_max": "float"
+        },
+        "knockoff_modelx_numpy_vs_cupy": {
+          "estimated_fdr_abs_diff_mean": "float",
+          "estimated_fdr_abs_diff_max": "float"
+        }
+      }
+    },
+    "date": "2026-04-19",
+    "environment": {
+      "cuda_available": true,
+      "sklearn_available": false,
+      "knockpy_available": false
+    },
+    "config": {
+      "seeds": [
+        20260406,
+        20260407,
+        20260408
+      ],
+      "n_samples": 400,
+      "n_features": 80,
+      "n_signal": 12,
+      "noise_scale": 1.0,
+      "rho": 0.3,
+      "q": 0.1,
+      "knockoff_method": "ols_coef_diff",
+      "knockoff_compat_mode": "statgpu",
+      "knockoff_lasso_cv_impl": "auto",
+      "k_topk": 12,
+      "lasso_alpha": 0.08
+    }
+  },
+  {
+    "path": "dev/results/remote_knockoff_cross_language_comparison_2026-04-19.json",
+    "size_bytes": 504,
+    "shape": {
+      "date": "str",
+      "comparison_type": "str",
+      "frameworks": {
+        "type": "list",
+        "length": 4,
+        "item_shape": "str"
+      },
+      "methods": {
+        "type": "list",
+        "length": 1,
+        "item_shape": {
+          "name": "str",
+          "framework": "str",
+          "note": "str",
+          "time_ms_mean": "float",
+          "precision_mean": "float",
+          "recall_mean": "float",
+          "fdp_mean": "float"
+        }
+      },
+      "pairwise": {}
+    },
+    "date": "2026-04-19"
+  }
+]
