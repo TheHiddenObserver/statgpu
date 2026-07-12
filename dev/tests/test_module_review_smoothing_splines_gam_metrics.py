@@ -69,7 +69,10 @@ def test_spline_transformer_custom_knots_validate_shape_and_boundaries():
     with pytest.raises(ValueError, match="shape"):
         SplineTransformer(knots=np.array([[0.0, 1.0, 2.0]])).fit(X)
     with pytest.raises(ValueError, match="strictly increasing"):
-        SplineTransformer(knots=np.array([[0.0, 1.0], [0.0, 1.5], [1.0, 2.0]])).fit(X)
+        SplineTransformer(
+            n_knots=3,
+            knots=np.array([[0.0, 1.0], [0.0, 1.5], [1.0, 2.0]]),
+        ).fit(X)
 
 
 def test_spline_transformer_declared_dimension_matches_transform():
