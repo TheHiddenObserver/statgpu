@@ -59,6 +59,7 @@ jobs:
             dev/tests/test_module_review_covariance_panel.py \
             dev/tests/test_module_review_smoothing_splines_gam_metrics.py \
             dev/tests/test_three_backend_native_followup.py \
+            dev/tests/test_second_full_review.py \
             dev/tests/test_elasticnet_cv.py \
             dev/tests/test_v10_import_smoke.py \
             -q --tb=short
@@ -101,14 +102,18 @@ jobs:
             statgpu/backends/_factory.py \
             statgpu/core/formula/_parser.py \
             statgpu/covariance \
-            statgpu/cross_validation/_base.py \
-            statgpu/feature_selection/_knockoff_utils.py \
+            statgpu/cross_validation \
+            statgpu/diagnostics \
+            statgpu/feature_selection \
             statgpu/glm_core/_solver_utils.py \
             statgpu/inference/_resampling.py \
+            statgpu/linear_model/_stats.py \
             statgpu/linear_model/cv/_ridge_cv.py \
             statgpu/linear_model/penalized/_fit_mixin.py \
             statgpu/linear_model/penalized/_inference_mixin.py \
             statgpu/linear_model/penalized/_penalized_cv.py \
+            statgpu/linear_model/penalized/_penalized_linear.py \
+            statgpu/linear_model/wrappers/_linear.py \
             statgpu/linear_model/wrappers/_ridge.py \
             statgpu/metrics \
             statgpu/nonparametric/kernel_methods \
@@ -116,7 +121,10 @@ jobs:
             statgpu/nonparametric/splines \
             statgpu/panel \
             statgpu/penalties/_adaptive_l1.py \
+            statgpu/penalties/_base.py \
             statgpu/semiparametric \
+            statgpu/solvers/_fista_lla.py \
+            statgpu/survival/_cox.py \
             statgpu/unsupervised/_kmeans.py \
             statgpu/unsupervised/_nndescent.py \
             statgpu/unsupervised/_umap.py \
