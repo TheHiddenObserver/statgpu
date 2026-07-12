@@ -47,13 +47,28 @@ def bspline_basis(x, knots, degree=3, xp=None, boundary_lo=None, boundary_hi=Non
     """
     xp = _get_xp(xp)
 
-    x = xp.asarray(x, dtype=xp.float64).ravel()
-    knots = xp.asarray(knots, dtype=xp.float64).ravel()
+    if isinstance(degree, bool) or not isinstance(degree, (int, np.integer)):
+        raise ValueError("degree must be an integer")
+    if int(degree) < 0:
+        raise ValueError("degree must be non-negative")
+    degree = int(degree)
+
+    x = xp_asarray(x, dtype=xp.float64, xp=xp).ravel()
+    knots = xp_asarray(knots, dtype=xp.float64, xp=xp, ref_arr=x).ravel()
     n = x.shape[0]
     m = knots.shape[0]
 
+    if n == 0:
+        raise ValueError("x must contain at least one value")
     if m == 0:
         raise ValueError("At least one interior knot is required")
+    if not bool(np.asarray(_to_numpy(xp.all(xp.isfinite(x)))).item()):
+        raise ValueError("x and knots must contain only finite values")
+    if not bool(np.asarray(_to_numpy(xp.all(xp.isfinite(knots)))).item()):
+        raise ValueError("x and knots must contain only finite values")
+    knots_np = np.asarray(_to_numpy(knots), dtype=np.float64)
+    if np.any(np.diff(knots_np) <= 0):
+        raise ValueError("interior knots must be strictly increasing")
 
     # Construct augmented knot vector:
     # t = [boundary_lo]*(degree+1), knots..., [boundary_hi]*(degree+1)
@@ -68,6 +83,9 @@ def bspline_basis(x, knots, degree=3, xp=None, boundary_lo=None, boundary_hi=Non
     if boundary_hi is None:
         x_max = float(xp.max(x))
         boundary_hi = max(x_max, knot_max)
+
+    if not np.isfinite(boundary_lo) or not np.isfinite(boundary_hi) or boundary_lo >= boundary_hi:
+        raise ValueError("boundary_lo and boundary_hi must be finite with boundary_lo < boundary_hi")
 
     # Ensure interior knots are strictly within boundary
     if knot_min <= boundary_lo or knot_max >= boundary_hi:
