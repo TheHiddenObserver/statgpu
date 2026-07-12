@@ -1,6 +1,6 @@
 # PR #79 Full Repository Review
 
-Date: 2026-07-11  
+Date: 2026-07-12  
 Branch: `agent/code-review-fixes`  
 Base: `master`
 
@@ -21,6 +21,10 @@ Python source files and approximately 77,900 source lines. The audit combined
 manual review, package compilation, high-signal Ruff rules, dead-code scanning,
 full pytest collection, selected multi-version regression tests, and targeted
 regression tests for every accepted fix.
+
+A subsequent focused pass traced Ridge through the optimized wrapper, generic
+penalized estimator, exact and iterative solvers, formula handling, weighted
+inference, RidgeCV, documentation, validation scripts, and benchmark scripts.
 
 ## Fixed findings
 
@@ -55,14 +59,49 @@ regression tests for every accepted fix.
     and weighted MSE inputs now have explicit contracts.
 16. Mixed NumPy/GPU CV inputs are converted together instead of returning a
     NumPy backend label with an unconverted GPU object.
-17. Ridge's exact CPU solver preserves the package-wide objective
-    `mean(data loss) + penalty`: for L2 this yields the normal equation
-    `(X'X + n*alpha*I) beta = X'y` (or `sum(w)*alpha` for weighted fits).
-    scikit-learn comparisons use an explicit alpha mapping rather than changing
-    statgpu's internal loss/penalty convention.
-18. Cox inference now normalizes the legacy Breslow/Efron Hessian orientation at
-    the observed-information boundary, preventing Efron standard errors from
-    being clipped to zero while preserving coefficient estimates.
+17. Cox inference normalizes the legacy Breslow/Efron Hessian orientation at the
+    observed-information boundary, preventing Efron standard errors from being
+    clipped to zero while preserving coefficient estimates.
+
+### Ridge objective and weighted-path consistency
+
+1. Ridge preserves the package-wide objective
+
+   `average data loss + penalty`.
+
+   For L2 regression this yields
+
+   - unweighted: `(Xc'Xc + n*alpha*I) beta = Xc'yc`;
+   - weighted: `(Xc'W Xc + sum(w)*alpha*I) beta = Xc'W yc`.
+
+   scikit-learn comparisons use `alpha_sklearn = n*alpha_statgpu`, or
+   `sum(w)*alpha_statgpu` for weighted fits, rather than changing statgpu's
+   internal objective.
+2. Weighted centering is performed before multiplying by `sqrt(sample_weight)`.
+   The optimized Ridge wrapper, generic exact solver, and CPU FISTA path now
+   solve the same weighted objective.
+3. Explicit CuPy/Torch exact paths use weighted means and `sum(w)` normalization,
+   matching the CPU objective instead of centering already weighted arrays with
+   an ordinary mean.
+4. IRLS receives the same `sum(w)*alpha` ridge curvature when sample weights are
+   present.
+5. Weighted Gaussian inference uses design
+   `[sqrt(w), sqrt(w)*X]`, response `sqrt(w)*y`, and residual
+   `sqrt(w)*(y - intercept - X beta)`. The intercept column, bread, meat, scale,
+   and ridge curvature therefore follow one weighting convention.
+6. RidgeCV default alpha grids use weighted-centered cross-products divided by
+   total weight. Both the alpha grid and the full CV fit are invariant to global
+   positive rescaling of sample weights.
+7. Formula parsing records the retained row positions after Patsy missing-value
+   filtering, allowing full-length side arrays such as sample weights to be
+   aligned with the fitted rows.
+8. Sample-weight validation rejects wrong length, non-finite values, negative
+   values, and non-positive totals. CuPy/Torch validation performs reductions on
+   the selected device and synchronizes only scalar results, avoiding a full
+   weight-vector transfer to CPU.
+9. English and Chinese Ridge documentation now states the actual average-loss
+   and weighted objectives, estimating equations, alpha mappings, and inference
+   convention. Maintained validation and benchmark scripts use the same mapping.
 
 ### Test and CI quality
 
@@ -75,20 +114,31 @@ regression tests for every accepted fix.
 4. Stale tests were aligned with the public `statgpu.losses` namespace and the
    benchmark-backed auto-solver dispatch table.
 5. RidgeCV helper-style tests now contain explicit assertions and backend skips.
-6. Focused regression suites cover backend validation, estimator parameters,
-   RNG semantics, UMAP fuzzy union, NNDescent neighbor validity, CV validation,
-   KMeans input contracts, small-sample spectral UMAP, Torch inference routing,
-   Ridge's internal average-loss objective, Ridge/PGLM equality, explicit
-   scikit-learn alpha mapping, and Cox/statsmodels parity.
-7. CI now includes Python 3.9-3.12 regression gates, a complete Python 3.11 CPU
-   test-tree job, package compilation, high-signal static checks, and complete
-   pytest collection.
+6. Focused repository-review suites cover backend validation, estimator
+   parameters, RNG semantics, UMAP fuzzy union, NNDescent neighbor validity, CV
+   validation, KMeans input contracts, small-sample spectral UMAP, Torch
+   inference routing, and Cox/statsmodels parity.
+7. Ridge-specific tests cover:
+   - unweighted and weighted average-loss closed forms;
+   - invariance to global sample-weight rescaling;
+   - optimized wrapper versus generic exact estimator;
+   - exact versus FISTA equality;
+   - formula fits, including rows removed because of missing values;
+   - manual weighted inference covariance and weighted design state;
+   - weighted default alpha-grid and full RidgeCV invariance;
+   - explicit unweighted and weighted scikit-learn alpha mappings;
+   - scalar-only NumPy/Torch weight validation.
+8. CI includes Python 3.9-3.12 regression gates, a complete Python 3.11 CPU
+   test-tree job, package and maintained-dev-script compilation, high-signal
+   static checks, and complete pytest collection.
 
 ### Documentation
 
 - README minimum Python version is aligned with `pyproject.toml` (`>=3.9`).
 - Root, English, and Chinese changelogs document PR #79 and its validation
   boundary.
+- English and Chinese Ridge model pages document the internal objective rather
+  than presenting the unnormalized scikit-learn equation as the statgpu API.
 - This report records review scope, accepted fixes, deferred risks, and the
   validation boundary required by `dev/AGENTS.md`.
 
@@ -96,17 +146,22 @@ regression tests for every accepted fix.
 
 ### Physical GPU validation
 
-The GitHub-hosted jobs are CPU-only. CuPy/Torch routing, type preservation, and
-error behavior are covered by isolated tests, but numerical parity, memory
-usage, and performance have not been revalidated on physical CUDA hardware.
-The review status is therefore `PARTIAL_REMOTE_PENDING`, not `COMPLETE`.
+The GitHub-hosted jobs are CPU-only. CuPy/Torch routing, type preservation,
+scalar-reduction behavior, and error contracts are covered by isolated tests,
+but numerical parity, memory usage, and performance have not been revalidated on
+physical CUDA hardware. The review status is therefore
+`PARTIAL_REMOTE_PENDING`, not `COMPLETE`.
 
-Required remote checks:
+Required remote checks now include:
 
+- run weighted and unweighted Ridge exact fits on both CuPy CUDA and Torch CUDA;
+- compare CPU/CuPy/Torch coefficients, intercepts, predictions, and weighted
+  inference outputs within documented tolerances;
+- verify global sample-weight rescaling invariance on both GPU backends;
+- confirm that weight validation transfers only scalar reductions and measure
+  peak memory/runtime for large weight vectors;
 - run the affected UMAP/NNDescent, Cox, knockoff, inference, and ElasticNetCV
   suites on both CuPy CUDA and Torch CUDA;
-- compare CPU/CuPy/Torch numerical outputs within documented tolerances;
-- measure peak GPU memory and runtime before and after the changes;
 - verify cleanup hooks and repeated-fit memory behavior.
 
 ### Cox Hessian memory optimization
@@ -133,13 +188,13 @@ explicit.
 
 ## Validation status
 
-GitHub Actions run **#203** passed all permanent gates:
+GitHub Actions run **#220** passed all permanent gates on the latest code state
+before this documentation synchronization:
 
 - Python 3.9, 3.10, 3.11, and 3.12 selected regression matrices;
 - the complete `dev/tests` CPU suite on Python 3.11;
-- full package bytecode compilation;
-- high-signal undefined-name/syntax Ruff checks on every modified production
-  module;
+- package and maintained validation/benchmark script bytecode compilation;
+- high-signal undefined-name/syntax Ruff checks on modified production modules;
 - Cox review structure assertions;
 - complete pytest collection without optional GPU import failures.
 
