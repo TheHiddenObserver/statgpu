@@ -38,11 +38,26 @@ jobs:
       - name: Compile changed Python sources
         run: python -m compileall -q statgpu dev/tests
       - name: Run focused second-review regression suite
-        run: python -m pytest -q dev/tests/test_second_full_review.py
+        id: focused
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          python -m pytest -q dev/tests/test_second_full_review.py 2>&1 | tee /tmp/pr79-second-review-tests.log
+      - name: Upload focused-test diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pr79-second-review-tests
+          path: /tmp/pr79-second-review-tests.log
+          retention-days: 2
       - name: Commit reviewed implementation
+        if: steps.focused.outcome == 'success'
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add -A
           git commit -m 'fix: complete second full-repository review'
           git push origin HEAD:${{ github.head_ref }}
+      - name: Enforce focused test result
+        if: steps.focused.outcome != 'success'
+        run: exit 1
