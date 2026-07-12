@@ -1,0 +1,232 @@
+{
+  "robust_quantile": [
+    {
+      "path": "results/benchmark_frontend_sources/comprehensive_validation.json",
+      "size_bytes": 1926
+    },
+    {
+      "path": "results/loss_functions_bench_2026-06-23.json",
+      "size_bytes": 11618
+    },
+    {
+      "path": "results/pr74_inference_validation.json",
+      "size_bytes": 8233
+    }
+  ],
+  "unsupervised": [
+    {
+      "path": "results/nmf_production_opt_20260507_194500.json",
+      "size_bytes": 2272
+    },
+    {
+      "path": "results/unsupervised_agglomerative_gpu_verify_20260509_agglo_gpu.json",
+      "size_bytes": 39310
+    },
+    {
+      "path": "results/unsupervised_bench_2026-06-24.json",
+      "size_bytes": 10273
+    },
+    {
+      "path": "results/unsupervised_bench_2026-06-26.json",
+      "size_bytes": 12097
+    },
+    {
+      "path": "results/unsupervised_bench_2026-06-27.json",
+      "size_bytes": 12135
+    },
+    {
+      "path": "results/unsupervised_full_verify_phase1_20260507_175226.json",
+      "size_bytes": 2987
+    },
+    {
+      "path": "results/unsupervised_full_verify_phase2_20260507_175226.json",
+      "size_bytes": 6619
+    },
+    {
+      "path": "results/unsupervised_full_verify_phase3_20260507_175226.json",
+      "size_bytes": 8124
+    },
+    {
+      "path": "results/unsupervised_full_verify_phase3b_20260507_175226.json",
+      "size_bytes": 10134
+    },
+    {
+      "path": "results/unsupervised_full_verify_phase3c_20260507_175226.json",
+      "size_bytes": 4122
+    },
+    {
+      "path": "results/unsupervised_full_verify_phase3c_large_20260507_175226.json",
+      "size_bytes": 4366
+    },
+    {
+      "path": "results/unsupervised_phase2_nmf_inplace_fix_20260507_193500.json",
+      "size_bytes": 7099
+    },
+    {
+      "path": "results/unsupervised_phase3_remote_finalopt_20260505_084444.json",
+      "size_bytes": 8199
+    },
+    {
+      "path": "results/unsupervised_phase3_remote_perfopt2_large_tabular_20260505_132223.json",
+      "size_bytes": 2268
+    },
+    {
+      "path": "results/unsupervised_phase3_remote_perfopt2_large_tabular_bs4096_20260505_132359.json",
+      "size_bytes": 2275
+    },
+    {
+      "path": "results/unsupervised_phase3_remote_perfopt_mediumlarge_20260505_131617.json",
+      "size_bytes": 8192
+    },
+    {
+      "path": "results/unsupervised_phase3b_verify_20260507_003957.json",
+      "size_bytes": 10087
+    },
+    {
+      "path": "results/unsupervised_phase3c_opt7_20260507_185500.json",
+      "size_bytes": 4108
+    },
+    {
+      "path": "results/unsupervised_phase3c_opt7_large_bs4096_20260507_185500.json",
+      "size_bytes": 4360
+    },
+    {
+      "path": "results/unsupervised_phase3c_opt7_xlarge_20260507_185500.json",
+      "size_bytes": 4830
+    }
+  ],
+  "ordered": [
+    {
+      "path": "results/pr74_inference_validation.json",
+      "size_bytes": 8233
+    }
+  ],
+  "nonparametric": [
+    {
+      "path": "results/benchmark_frontend_sources/comprehensive_validation.json",
+      "size_bytes": 1926
+    },
+    {
+      "path": "results/benchmark_frontend_sources/glm_solver_20260623.json",
+      "size_bytes": 55159
+    },
+    {
+      "path": "results/benchmark_frontend_sources/penalized_glm_perf_20260622.json",
+      "size_bytes": 97430
+    },
+    {
+      "path": "results/compare_external_2026-06-24.json",
+      "size_bytes": 9059
+    },
+    {
+      "path": "results/compare_external_v2_2026-06-24.json",
+      "size_bytes": 6818
+    },
+    {
+      "path": "results/distribution_bench_2026-06-21.json",
+      "size_bytes": 222922
+    },
+    {
+      "path": "results/gam_aligned_2026-06-24.json",
+      "size_bytes": 1714
+    },
+    {
+      "path": "results/glm_solver_benchmark_2026-06-23.json",
+      "size_bytes": 55159
+    },
+    {
+      "path": "results/new_modules_bench_2026-06-24.json",
+      "size_bytes": 12315
+    },
+    {
+      "path": "results/new_modules_full_2026-06-24.json",
+      "size_bytes": 17787
+    },
+    {
+      "path": "results/p2_benchmark_final.json",
+      "size_bytes": 5317
+    },
+    {
+      "path": "results/penalized_glm_bench_2026-06-22.json",
+      "size_bytes": 112402
+    },
+    {
+      "path": "results/penalized_glm_bench_perf_2026-06-22.json",
+      "size_bytes": 97430
+    }
+  ],
+  "panel": [
+    {
+      "path": "results/compare_external_2026-06-24.json",
+      "size_bytes": 9059
+    },
+    {
+      "path": "results/compare_external_v2_2026-06-24.json",
+      "size_bytes": 6818
+    },
+    {
+      "path": "results/new_modules_bench_2026-06-24.json",
+      "size_bytes": 12315
+    },
+    {
+      "path": "results/new_modules_full_2026-06-24.json",
+      "size_bytes": 17787
+    },
+    {
+      "path": "results/p2_benchmark_final.json",
+      "size_bytes": 5317
+    }
+  ],
+  "covariance": [
+    {
+      "path": "results/benchmark_frontend_sources/knockoff_baselines_20260409.json",
+      "size_bytes": 10930
+    },
+    {
+      "path": "results/new_modules_bench_2026-06-24.json",
+      "size_bytes": 12315
+    },
+    {
+      "path": "results/new_modules_full_2026-06-24.json",
+      "size_bytes": 17787
+    },
+    {
+      "path": "results/p2_benchmark_final.json",
+      "size_bytes": 5317
+    },
+    {
+      "path": "results/unsupervised_full_verify_phase2_20260507_175226.json",
+      "size_bytes": 6619
+    },
+    {
+      "path": "results/unsupervised_phase2_nmf_inplace_fix_20260507_193500.json",
+      "size_bytes": 7099
+    },
+    {
+      "path": "dev/results/remote_benchmark_knockoff_vs_baselines_2026-04-19.json",
+      "size_bytes": 14821
+    }
+  ],
+  "linear_recent": [
+    {
+      "path": "results/benchmark_frontend_sources/glm_solver_20260623.json",
+      "size_bytes": 55159
+    },
+    {
+      "path": "results/benchmark_frontend_sources/penalized_glm_perf_20260622.json",
+      "size_bytes": 97430
+    },
+    {
+      "path": "results/glm_solver_benchmark_2026-06-23.json",
+      "size_bytes": 55159
+    },
+    {
+      "path": "results/penalized_glm_bench_2026-06-22.json",
+      "size_bytes": 112402
+    },
+    {
+      "path": "results/penalized_glm_bench_perf_2026-06-22.json",
+      "size_bytes": 97430
+    }
+  ]
+}
