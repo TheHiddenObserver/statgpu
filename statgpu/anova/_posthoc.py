@@ -39,6 +39,10 @@ class PosthocResult:
     n_comparisons: int
 
 
+def _array_size(arr, xp):
+    return int(arr.numel()) if xp.__name__ == "torch" else int(arr.size)
+
+
 def _prepare_groups(groups, backend, dtype, min_size, label):
     resolved = _resolve_backend(backend, *groups)
     xp = _get_xp(resolved)
@@ -52,7 +56,7 @@ def _prepare_groups(groups, backend, dtype, min_size, label):
     arrays = []
     for index, group in enumerate(groups):
         arr = xp_asarray(group, dtype=float_dtype, xp=xp, ref_arr=ref).ravel()
-        if int(arr.size) < min_size:
+        if _array_size(arr, xp) < min_size:
             raise ValueError(
                 f"Group {index} must have at least {min_size} observations for {label}"
             )
@@ -81,7 +85,7 @@ def tukey_hsd(
 
     _, xp, arrays = _prepare_groups(groups, backend, dtype, 2, "Tukey HSD")
     k = len(arrays)
-    sizes = [int(group.size) for group in arrays]
+    sizes = [_array_size(group, xp) for group in arrays]
     means = [_to_float_scalar(xp.mean(group)) for group in arrays]
     N = int(sum(sizes))
     df_within = N - k
@@ -158,7 +162,7 @@ def bonferroni(
     from statgpu.inference._distributions_backend import get_distribution
 
     t_dist = get_distribution("t", backend="numpy")
-    sizes = [int(group.size) for group in arrays]
+    sizes = [_array_size(group, xp) for group in arrays]
     means = [_to_float_scalar(xp.mean(group)) for group in arrays]
     variances = [
         _to_float_scalar(xp.sum((group - mean) ** 2)) / float(size - 1)
