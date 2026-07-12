@@ -78,7 +78,7 @@ $$
 
 经验与收缩估计器使用直接计算；稳健和稀疏估计器使用迭代算法：
 
-- **EmpiricalCovariance**：样本协方差 \(\hat{S} = X^\top X / n\) 直接计算。精度矩阵 \(\hat{S}^{-1}\) 通过抖动稳定矩阵求逆获得（当矩阵接近奇异时逐步增加对角增量）。
+- **EmpiricalCovariance**：样本协方差 \(\hat{S} = X^\top X / n\) 直接计算。先尝试精确求逆；仅当求逆失败或结果非有限时才逐步增加对角 jitter。
 - **LedoitWolf**：Ledoit-Wolf 的解析公式从中心化数据中闭式求解 \(\alpha\)，然后计算收缩协方差及其逆。
 - **OAS**：与 Ledoit-Wolf 相同的闭式方法，但使用 OAS 收缩公式。该公式在高斯假设下推导，当 \(n > p\) 时渐近最优。
 - **ShrunkCovariance**：使用用户指定的收缩强度。
@@ -93,7 +93,7 @@ $$
 - `covariance_`：估计的协方差矩阵 \(\hat{\Sigma}\)（形状 `(n_features, n_features)`）。
 - `precision_`：逆协方差矩阵 \(\hat{\Sigma}^{-1}\)（形状 `(n_features, n_features)`），通过抖动稳定求逆以保证数值稳健性。
 - `location_`：估计的均值向量（形状 `(n_features,)`）；若 `assume_centered=True` 则为零向量。
-- `shrinkage_`：收缩强度 \(\alpha\)，取值范围 \([0, 1]\) 的浮点数（仅 LedoitWolf 和 OAS）。
+- `shrinkage_`：收缩强度 \(\alpha\)，取值范围 \([0, 1]\) 的浮点数（LedoitWolf、OAS 与 ShrunkCovariance）。
 
 `score()` 方法计算每个观测的平均高斯对数似然：
 
@@ -172,7 +172,7 @@ MinCovDet 的 C-step、马氏距离、排序、支持集和重加权均保留在
 
 ## strict/approx 差异（strict/approx difference）
 
-协方差估计器没有单独的 strict 或 approx 模式。三种估计器均使用直接解析公式，无迭代求解器，因此无需调节收敛容差。
+协方差估计器没有单独的 strict 或 approx 模式。经验/收缩估计器使用直接公式；MinCovDet 使用内部 C-step；GraphicalLasso/CV 使用 `max_iter` 和以协方差最大变化量定义的 `tol`。
 
 `LedoitWolf` 和 `OAS` 提供不同的收缩强度公式。根据使用场景选择：
 

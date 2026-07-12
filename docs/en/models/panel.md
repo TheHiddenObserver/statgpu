@@ -344,7 +344,7 @@ There is no strict/approx mode for panel models. The `cov_type` parameter contro
 | `pvalues_` | `(k,)` | P-values |
 | `conf_int_` | `(k, 2)` | 95% confidence intervals |
 | `rsquared_within` | scalar | Within R-squared (PanelOLS only) |
-| `rsquared` | scalar | R-squared (PooledOLS, BetweenOLS, FirstDifferenceOLS, FamaMacBeth) |
+| `rsquared` | scalar | R-squared (PooledOLS, BetweenOLS, FirstDifferenceOLS) |
 | `theta_` | scalar | GLS transformation weight (RandomEffects only) |
 | `variance_components_` | dict | `{'sigma2_e': float, 'sigma2_a': float}` (RandomEffects only) |
 | `betas_` | `(T, k)` | Time-series of per-period coefficients from Step 1 (FamaMacBeth only) |

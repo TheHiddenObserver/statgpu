@@ -269,7 +269,7 @@ The shrinkage estimators (`EmpiricalCovariance`, `LedoitWolf`, `OAS`, `ShrunkCov
 
 `MinCovDet` uses iterative C-steps internally but the number of iterations is not user-configurable; convergence is determined by the algorithm.
 
-`GraphicalLasso` and `GraphicalLassoCV` have two convergence-related parameters: `max_iter` (outer iterations) and `tol` (dual gap tolerance). The inner coordinate descent for each feature uses a fixed 100-iteration cap with tolerance \(10^{-6}\).
+`GraphicalLasso` and `GraphicalLassoCV` have two convergence-related parameters: `max_iter` (outer iterations) and `tol` (maximum absolute covariance-update tolerance). The inner coordinate descent uses a 1000-iteration cap and tolerance `min(1e-8, 0.1 * tol)`.
 
 `LedoitWolf` and `OAS` provide different shrinkage intensity formulas. Choose based on your use case:
 

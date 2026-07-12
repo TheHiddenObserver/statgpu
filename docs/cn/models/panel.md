@@ -21,6 +21,7 @@
 - `statgpu.panel.FamaMacBeth`
 - `statgpu.panel.clustered_covariance`
 - `statgpu.panel.two_way_clustered_covariance`
+- `statgpu.panel.hac_covariance`
 
 ## 目标函数（Objective Function）
 
@@ -97,7 +98,9 @@ $$
 
 `RandomEffects` 默认在准去均值数据上使用非稳健 OLS 推断。
 
-`fit()` 后的输出：`coef_`、`bse_`、`tvalues_`、`pvalues_`、`conf_int_`、`rsquared_within`（PanelOLS）。
+`PooledOLS` 支持 `nonrobust`、`robust`、`clustered` 与 Bartlett HAC；`BetweenOLS` 支持 `nonrobust`、`robust`、`clustered`；`FirstDifferenceOLS` 支持 `nonrobust` 与 `robust`；`FamaMacBeth` 支持 `nonrobust` 或对系数时间序列使用 `newey-west`。
+
+`fit()` 后的公共输出包括 `coef_`、`bse_`、`tvalues_`、`pvalues_`、`conf_int_`；PanelOLS 另有 `rsquared_within`，Pooled/Between/FirstDifference 另有 `rsquared`，FamaMacBeth 另有 `betas_`、`cov_params_` 和 `n_periods`。
 
 ## 参数（Parameters）
 
@@ -172,7 +175,7 @@ print(f"GPU RE 系数: {re_gpu.coef_}, theta: {re_gpu.theta_}")
 import torch
 y_torch = torch.from_numpy(y).cuda().float()
 X_torch = torch.from_numpy(X).cuda().float()
-fe_torch = PanelOLS(entity_effects=True, cov_type='robust', device='cuda')
+fe_torch = PanelOLS(entity_effects=True, cov_type='robust', device='torch')
 fe_torch.fit(y_torch, X_torch, entity_ids=entity_ids)
 print(f"Torch FE 系数: {fe_torch.coef_}")
 ```
@@ -193,6 +196,7 @@ formula 删除缺失行后，entity/time/cluster 等侧数组会同步对齐。
 - `'nonrobust'`：经典 OLS 标准误，假设同方差且无组内相关。p 值使用 \(t\) 分布。
 - `'robust'`：HC1 异方差稳健标准误（White sandwich）。p 值使用正态分布。
 - `'clustered'`：聚类稳健标准误，允许组内任意相关。p 值使用正态分布。支持单向和双向聚类。
+- `'hac'` / `'newey-west'`：使用 Bartlett 权重的 Newey-West HAC；PooledOLS 作用于按时间排序的 score，FamaMacBeth 作用于分期系数路径。
 
 ## 输出（Outputs）
 
@@ -206,8 +210,12 @@ formula 删除缺失行后，entity/time/cluster 等侧数组会同步对齐。
 | `pvalues_` | `(k,)` | p 值 |
 | `conf_int_` | `(k, 2)` | 95% 置信区间 |
 | `rsquared_within` | 标量 | 组内 R 方（仅 PanelOLS） |
+| `rsquared` | 标量 | R 方（PooledOLS、BetweenOLS、FirstDifferenceOLS） |
 | `theta_` | 标量 | GLS 变换权重（仅 RandomEffects） |
 | `variance_components_` | dict | `{'sigma2_e': float, 'sigma2_a': float}`（仅 RandomEffects） |
+| `betas_` | `(T, k)` | 每期横截面系数路径（仅 FamaMacBeth） |
+| `cov_params_` | `(k, k)` | 系数均值的协方差（仅 FamaMacBeth） |
+| `n_periods` | int | 纳入的时期数（仅 FamaMacBeth） |
 | `nobs` | int | 观测数 |
 | `df_resid` | int | 残差自由度 |
 
@@ -216,6 +224,7 @@ formula 删除缺失行后，entity/time/cluster 等侧数组会同步对齐。
 | 方法 | 返回值 | 说明 |
 |---|---|---|
 | `fit(y, X, entity_ids, ...)` | `self` | 拟合面板模型。需要 `entity_ids`（一维个体标签数组）。可选：`time_ids`、`cluster`。 |
+| `fit(X, y, ...)` | `self` | 拟合 PooledOLS、BetweenOLS、FirstDifferenceOLS 或 FamaMacBeth；所需 entity/time/cluster 参数见上文。 |
 | `predict(X, entity_ids)` | `ndarray` | 预测值 |
 | `summary()` | str | 格式化汇总表 |
 
