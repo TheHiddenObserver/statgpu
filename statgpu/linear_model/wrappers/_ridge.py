@@ -93,13 +93,17 @@ class Ridge(_PenalizedLinearRegression):
         # Weighted: X'WX, X'Wy.  Unweighted: X'X, X'y.
         # Centering for intercept: subtract weighted/unweighted outer product.
         if sw is not None:
-            # Weighted normal equations: (X'WX + alpha*I) coef = X'Wy
+            # Weighted average-loss normal equations:
+            # (X'WX + sum(w)*alpha*I) coef = X'Wy.
             sw_col = sw[:, None]
             XtX = (X_np * sw_col).T @ X_np
             Xty = (X_np * sw_col).T @ y_np
             if self.fit_intercept:
                 XtX -= w_sum * np.outer(X_wmean, X_wmean)
                 Xty -= w_sum * X_wmean * y_wmean
+                n_eff = w_sum
+            else:
+                n_eff = float(sw.sum())
         else:
             if self.fit_intercept:
                 X_mean = np.mean(X_np, axis=0)
@@ -111,15 +115,17 @@ class Ridge(_PenalizedLinearRegression):
             else:
                 XtX = X_np.T @ X_np
                 Xty = X_np.T @ y_np
+            n_eff = float(n_samples)
 
         if Xty.ndim == 0:
             Xty = Xty.reshape(1)
         if Xty.ndim == 1:
             Xty = Xty.reshape(-1, 1)
 
-        # sklearn Ridge minimizes ||y - Xb||^2 + alpha * ||b||^2.
-        # The penalty is therefore not multiplied by n_samples or weight sum.
-        A = XtX + float(self.alpha) * np.eye(n_features, dtype=np.float64)
+        # LossBase uses an average data-fit term and L2Penalty uses
+        # (alpha/2)||coef||^2, hence the normal equation contains
+        # n_eff*alpha. This preserves loss/penalty/solver consistency.
+        A = XtX + float(self.alpha) * n_eff * np.eye(n_features, dtype=np.float64)
         try:
             coef = np.linalg.solve(A, Xty).flatten()
         except np.linalg.LinAlgError:
