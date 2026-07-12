@@ -192,6 +192,10 @@ class EmpiricalCovariance(BaseEstimator):
 
         n_samples = int(X_arr.shape[0])
         p = int(X_arr.shape[1])
+        if p != self.n_features_:
+            raise ValueError(f"X must have {self.n_features_} features, got {p}")
+        if n_samples == 0:
+            raise ValueError("X must contain at least one sample")
 
         loc = xp_asarray(self.location_, dtype=xp.float64, xp=xp, ref_arr=X_arr)
         prec = xp_asarray(self.precision_, dtype=xp.float64, xp=xp, ref_arr=X_arr)
@@ -205,6 +209,9 @@ class EmpiricalCovariance(BaseEstimator):
 
         # log(det(S)) via slogdet for numerical stability
         sign, logdet = xp.linalg.slogdet(cov)
+        sign_val = _to_float_scalar(sign)
+        if sign_val <= 0:
+            return float("-inf")
         logdet_val = _to_float_scalar(logdet)
 
         # Average log-likelihood:
@@ -231,6 +238,9 @@ class EmpiricalCovariance(BaseEstimator):
         X_arr = xp_asarray(X, dtype=xp.float64, xp=xp)
         if X_arr.ndim == 1:
             X_arr = X_arr.reshape(1, -1)
+        if X_arr.ndim != 2 or X_arr.shape[1] != self.n_features_:
+            got = X_arr.shape[1] if X_arr.ndim == 2 else "invalid"
+            raise ValueError(f"X must have {self.n_features_} features, got {got}")
 
         loc = xp_asarray(self.location_, dtype=xp.float64, xp=xp, ref_arr=X_arr)
         prec = xp_asarray(self.precision_, dtype=xp.float64, xp=xp, ref_arr=X_arr)
@@ -288,15 +298,20 @@ def _stable_inv(S, xp, backend_name: str):
     else:
         eye = xp.eye(p, dtype=xp.float64)
 
+    # Preserve the exact estimator whenever the covariance is invertible.
+    # Jitter is a fallback, not part of the empirical covariance definition.
+    try:
+        inv_S = xp.linalg.inv(S)
+        test_val = _to_float_scalar(xp.max(xp.abs(inv_S)))
+        if np.isfinite(test_val):
+            return inv_S
+    except _LINALG_ERRORS + (ValueError,):
+        pass
+
     jitter = base
     for _ in range(12):
         try:
-            if jitter > 0:
-                S_work = S + jitter * eye
-            else:
-                S_work = S
-
-            inv_S = xp.linalg.inv(S_work)
+            inv_S = xp.linalg.inv(S + jitter * eye)
             test_val = _to_float_scalar(xp.max(xp.abs(inv_S)))
             if np.isfinite(test_val):
                 return inv_S

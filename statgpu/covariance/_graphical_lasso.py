@@ -9,7 +9,7 @@ from typing import Optional, Union
 import numpy as np
 
 from statgpu._config import Device
-from statgpu.backends import _get_xp
+from statgpu.backends import _get_xp, _to_numpy
 
 from statgpu.covariance._empirical import (
     EmpiricalCovariance,
@@ -79,103 +79,89 @@ class GraphicalLasso(EmpiricalCovariance):
         self.tol = tol
 
     def fit(self, X, y=None):
-        """Fit the graphical lasso model to *X*.
+        """Fit graphical lasso by covariance block coordinate descent."""
+        alpha = float(self.alpha)
+        if not np.isfinite(alpha) or alpha < 0:
+            raise ValueError("alpha must be finite and non-negative")
+        if isinstance(self.max_iter, bool) or int(self.max_iter) < 1:
+            raise ValueError("max_iter must be a positive integer")
+        if not np.isfinite(self.tol) or float(self.tol) <= 0:
+            raise ValueError("tol must be finite and positive")
 
-        Parameters
-        ----------
-        X : array-like of shape (n_samples, n_features)
-            Training data.
-        y : ignored
-
-        Returns
-        -------
-        self
-        """
-        # Work in numpy for the iterative block-coordinate descent
-        X_np = np.asarray(X, dtype=np.float64)
+        X_np = np.asarray(_to_numpy(X), dtype=np.float64)
         if X_np.ndim == 1:
             X_np = X_np.reshape(-1, 1)
+        if X_np.ndim != 2 or X_np.shape[0] < 2 or X_np.shape[1] < 1:
+            raise ValueError("X must be a non-empty 2D array with at least 2 samples")
+        if not np.all(np.isfinite(X_np)):
+            raise ValueError("X contains NaN or infinite values")
 
         n, p = X_np.shape
-        if n < 2:
-            raise ValueError(f"Need at least 2 samples, got {n}")
-
-        if not self.assume_centered:
-            location_np = X_np.mean(axis=0)
-            X_np = X_np - location_np
+        if self.assume_centered:
+            location_np = np.zeros(p, dtype=np.float64)
+            X_centered = X_np
         else:
-            location_np = np.zeros(p)
+            location_np = X_np.mean(axis=0)
+            X_centered = X_np - location_np
+        empirical = X_centered.T @ X_centered / float(n)
 
-        # Sample covariance
-        S = X_np.T @ X_np / float(n)
+        if alpha == 0.0 or p == 1:
+            covariance = empirical.copy()
+            precision = np.linalg.pinv(covariance)
+            self.n_iter_ = 1
+        else:
+            covariance = empirical.copy()
+            np.fill_diagonal(covariance, np.diag(empirical))
+            inner_tol = min(1e-8, float(self.tol) * 0.1)
+            beta_cache = [np.zeros(p - 1, dtype=np.float64) for _ in range(p)]
+            self.n_iter_ = 0
 
-        # Graphical lasso: block coordinate descent
-        # Initialize W = S + alpha * I (ensures positive definiteness)
-        W = S.copy()
-        np.fill_diagonal(W, W.diagonal() + self.alpha)
-        theta = np.linalg.inv(W)
+            for outer in range(int(self.max_iter)):
+                previous = covariance.copy()
+                self.n_iter_ = outer + 1
+                for j in range(p):
+                    mask = np.arange(p) != j
+                    W11 = covariance[np.ix_(mask, mask)]
+                    s12 = empirical[mask, j]
+                    beta = beta_cache[j].copy()
 
-        self.n_iter_ = 0
-        for iteration in range(self.max_iter):
-            W_old = W.copy()
-            self.n_iter_ = iteration + 1
+                    for _ in range(1000):
+                        beta_old = beta.copy()
+                        for coordinate in range(p - 1):
+                            diagonal = W11[coordinate, coordinate]
+                            if diagonal <= 0:
+                                raise ValueError("GraphicalLasso encountered a non-positive covariance diagonal")
+                            partial = s12[coordinate] - W11[coordinate] @ beta + diagonal * beta[coordinate]
+                            beta[coordinate] = _soft_threshold(partial, alpha) / diagonal
+                        if np.max(np.abs(beta - beta_old)) <= inner_tol:
+                            break
 
-            for j in range(p):
-                # Partition: solve the L1-regularized regression for feature j
-                # Using the block coordinate descent (Friedman et al. 2008)
-                not_j = list(range(j)) + list(range(j + 1, p))
-                W_11 = W[np.ix_(not_j, not_j)]
+                    beta_cache[j] = beta
+                    w12 = W11 @ beta
+                    covariance[mask, j] = w12
+                    covariance[j, mask] = w12
+                    covariance[j, j] = empirical[j, j]
 
-                # Solve: beta = argmin (1/2) beta^T W_11 beta - s_12^T beta + alpha ||beta||_1
-                s_12 = S[not_j, j]
-                beta = theta[not_j, j] * W[j, j]  # warm start
+                if np.max(np.abs(covariance - previous)) <= float(self.tol):
+                    break
 
-                for _ in range(100):  # inner CD iterations
-                    beta_old = beta.copy()
-                    for k_idx in range(p - 1):
-                        # Partial residual using W_11 (current iterate)
-                        residual = s_12[k_idx] - W_11[k_idx, :].dot(beta) + W_11[k_idx, k_idx] * beta[k_idx]
-                        # Soft thresholding
-                        beta[k_idx] = _soft_threshold(residual / W_11[k_idx, k_idx], self.alpha / W_11[k_idx, k_idx])
-                    if np.max(np.abs(beta - beta_old)) < 1e-6:
-                        break
+            covariance = 0.5 * (covariance + covariance.T)
+            precision = np.linalg.pinv(covariance)
+            precision = 0.5 * (precision + precision.T)
 
-                # Update W and theta for feature j (Friedman et al. 2008)
-                # Schur complement: c = S_jj + alpha - s_12^T beta
-                # (W[j,j] already includes alpha, so use S[j,j] + alpha)
-                c = S[j, j] + self.alpha - s_12.dot(beta)
-                theta_j = np.zeros(p)
-                theta_j[not_j] = -beta / c
-                theta_j[j] = 1.0 / c
-                w_12 = W_11 @ beta  # W_{12} = W_{11} @ beta
-
-                W[j, not_j] = w_12
-                W[not_j, j] = w_12
-                W[j, j] = S[j, j] + self.alpha
-                theta[j, :] = theta_j
-                theta[:, j] = theta_j
-
-            # Check convergence via dual gap
-            gap = np.abs(np.sum(W * theta) - p)
-            if gap < self.tol:
-                break
-            if np.max(np.abs(W - W_old)) < self.tol:
-                break
-
-        # Convert to target backend
         backend_name = _detect_backend(X, self._get_compute_device())
         xp = _get_xp(backend_name)
         _ref = None
         if backend_name == "torch":
             import torch
-            _dev = self._get_compute_device()
-            _cuda_dev = "cuda" if _dev.value in ("torch", "cuda") else "cpu"
-            _ref = torch.empty(0, dtype=torch.float64, device=_cuda_dev)
-        kw = {"device": _ref.device} if _ref else {}
+            device = self._get_compute_device()
+            target = "cuda" if device.value in ("torch", "cuda") else "cpu"
+            _ref = torch.empty(0, dtype=torch.float64, device=target)
+        kwargs = {"device": _ref.device} if _ref is not None else {}
 
-        self.covariance_ = xp.asarray(W, dtype=xp.float64, **kw)
-        self.precision_ = xp.asarray(theta, dtype=xp.float64, **kw)
-        self.location_ = xp.asarray(location_np, dtype=xp.float64, **kw)
+        self.covariance_ = xp.asarray(covariance, dtype=xp.float64, **kwargs)
+        self.precision_ = xp.asarray(precision, dtype=xp.float64, **kwargs)
+        self.location_ = xp.asarray(location_np, dtype=xp.float64, **kwargs)
         self.n_samples_ = n
         self.n_features_ = p
         self._backend_name = backend_name
@@ -272,17 +258,26 @@ class GraphicalLassoCV(EmpiricalCovariance):
         -------
         self
         """
-        X_np = np.asarray(X, dtype=np.float64)
+        X_np = np.asarray(_to_numpy(X), dtype=np.float64)
         if X_np.ndim == 1:
             X_np = X_np.reshape(-1, 1)
 
         n, p = X_np.shape
+        if n < 2 or p < 1 or not np.all(np.isfinite(X_np)):
+            raise ValueError("X must be a finite 2D array with at least 2 samples")
+        if isinstance(self.cv, bool) or not isinstance(self.cv, (int, np.integer)):
+            raise ValueError("cv must be an integer")
+        if int(self.cv) < 2 or int(self.cv) > n:
+            raise ValueError("cv must satisfy 2 <= cv <= n_samples")
 
-        # Build alpha grid
-        if isinstance(self.alphas, int):
-            alpha_grid = np.logspace(-2, 0, self.alphas)
+        if isinstance(self.alphas, (int, np.integer)) and not isinstance(self.alphas, bool):
+            if int(self.alphas) < 1:
+                raise ValueError("alphas must be a positive integer or a non-empty array")
+            alpha_grid = np.logspace(-2, 0, int(self.alphas))
         else:
-            alpha_grid = np.asarray(self.alphas, dtype=np.float64)
+            alpha_grid = np.asarray(self.alphas, dtype=np.float64).ravel()
+        if alpha_grid.size == 0 or not np.all(np.isfinite(alpha_grid)) or np.any(alpha_grid < 0):
+            raise ValueError("alphas must be finite, non-negative, and non-empty")
 
         # K-fold CV
         rng = np.random.RandomState(self.random_state)

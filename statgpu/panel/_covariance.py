@@ -54,11 +54,15 @@ def clustered_covariance(X, resid, clusters, xp=None):
     """
     xp = _ensure_xp(xp)
 
+    clusters_np = np.asarray(_to_numpy(clusters)).ravel()
     X = xp_asarray(X, dtype=xp.float64, xp=xp)
     resid = xp_asarray(resid, dtype=xp.float64, xp=xp, ref_arr=X).ravel()
-    clusters = xp_asarray(clusters, xp=xp, ref_arr=X).ravel()
 
+    if X.ndim != 2:
+        raise ValueError("X must be two-dimensional")
     n, k = X.shape
+    if resid.shape[0] != n or clusters_np.shape[0] != n:
+        raise ValueError("X, resid, and clusters must have the same number of observations")
 
     # Bread: (X'X / n)^{-1}
     XtX = X.T @ X / n
@@ -72,7 +76,6 @@ def clustered_covariance(X, resid, clusters, xp=None):
     scores = X * resid[:, None]  # (n, k)
 
     # Factorize cluster labels to contiguous indices
-    clusters_np = _to_numpy(clusters)
     unique_labels, cluster_idx = np.unique(clusters_np, return_inverse=True)
     n_clusters = len(unique_labels)
     cluster_idx_xp = xp_asarray(cluster_idx, dtype=xp.int64, xp=xp, ref_arr=X)
@@ -82,13 +85,9 @@ def clustered_covariance(X, resid, clusters, xp=None):
     if hasattr(S, 'scatter_add_'):
         # torch
         S.scatter_add_(0, cluster_idx_xp.unsqueeze(1).expand_as(scores), scores)
-    elif hasattr(S, 'device') and not hasattr(S, 'get'):
-        # cupy — fall back to numpy loop
-        S_np = np.zeros((n_clusters, k), dtype=np.float64)
-        np.add.at(S_np, cluster_idx, _to_numpy(scores))
-        S = xp_asarray(S_np, dtype=xp.float64, xp=xp, ref_arr=X)
+    elif type(S).__module__.startswith('cupy'):
+        xp.add.at(S, cluster_idx_xp, scores)
     else:
-        # numpy
         np.add.at(S, cluster_idx, scores)
 
     # meat = S' @ S  (k, k)
@@ -136,8 +135,11 @@ def two_way_clustered_covariance(X, resid, cluster1, cluster2, xp=None):
 
     # Intersection clusters: unique (c1, c2) pairs via Cantor-pair hash
     # Factorize labels to integers (supports string/categorical labels)
-    c1_raw = _to_numpy(xp_asarray(cluster1, xp=xp, ref_arr=V1).ravel())
-    c2_raw = _to_numpy(xp_asarray(cluster2, xp=xp, ref_arr=V1).ravel())
+    c1_raw = np.asarray(_to_numpy(cluster1)).ravel()
+    c2_raw = np.asarray(_to_numpy(cluster2)).ravel()
+    n = int(np.asarray(_to_numpy(X)).shape[0])
+    if c1_raw.shape[0] != n or c2_raw.shape[0] != n:
+        raise ValueError("cluster arrays must match the number of observations")
     _, c1 = np.unique(c1_raw, return_inverse=True)
     _, c2 = np.unique(c2_raw, return_inverse=True)
     # Vectorized Cantor-pair hash: s = c1 + c2, hash = s*(s+1)/2 + c2
@@ -185,10 +187,19 @@ def hac_covariance(X, resid, bandwidth=None, kernel="bartlett", xp=None):
     *Econometrica*, 55(3), 703-708.
     """
     xp = _ensure_xp(xp)
+    if str(kernel).lower() != "bartlett":
+        raise ValueError("kernel must be 'bartlett'")
+    if bandwidth is not None:
+        if isinstance(bandwidth, bool) or not isinstance(bandwidth, (int, np.integer)):
+            raise ValueError("bandwidth must be a non-negative integer or None")
+        if int(bandwidth) < 0:
+            raise ValueError("bandwidth must be a non-negative integer or None")
 
     X = xp_asarray(X, dtype=xp.float64, xp=xp)
     resid = xp_asarray(resid, dtype=xp.float64, xp=xp, ref_arr=X).ravel()
 
+    if X.ndim != 2 or resid.shape[0] != X.shape[0]:
+        raise ValueError("X and resid must have matching observation counts")
     n, k = X.shape
 
     # Default bandwidth: Newey-West (1994) rule

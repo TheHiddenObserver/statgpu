@@ -91,10 +91,13 @@ class FirstDifferenceOLS(BaseEstimator):
         if entity_ids is None:
             raise ValueError("entity_ids is required for FirstDifferenceOLS")
 
-        from statgpu.panel._formula import _prepare_formula_fit
+        from statgpu.panel._formula import _align_formula_side_array, _prepare_formula_fit
         (y_arr, X_arr, self._design_info, self._feature_names, self._formula_has_intercept,
          _fe_eids, _fe_tids, _fe_entity, _fe_time) = \
             _prepare_formula_fit(formula, data, X, y, model_has_intercept=False)
+        if formula is not None:
+            entity_ids = _align_formula_side_array(entity_ids, self._design_info, len(y_arr), "entity_ids")
+            time_ids = _align_formula_side_array(time_ids, self._design_info, len(y_arr), "time_ids")
 
         backend = self._get_backend(backend="auto")
         xp = backend.xp
@@ -117,8 +120,10 @@ class FirstDifferenceOLS(BaseEstimator):
         try:
             params = xp.linalg.solve(XtX, Xty)
         except _LINALG_ERRORS:
-            params = xp.linalg.lstsq(XtX, Xty)[0]
+            params = xp.linalg.pinv(X_diff) @ y_diff
 
+        if n <= k:
+            raise ValueError(f"positive residual degrees of freedom required; n={n}, k={k}")
         resid = y_diff - X_diff @ params
         scale = _to_float_scalar(xp.sum(resid * resid)) / (n - k)
 
@@ -231,6 +236,6 @@ def _first_diff_transform(X, y, entity_ids, time_ids, xp):
     y_diff_np = np.concatenate(y_diff_list)
 
     return (
-        xp.asarray(X_diff_np, dtype=xp.float64),
-        xp.asarray(y_diff_np, dtype=xp.float64),
+        xp_asarray(X_diff_np, dtype=xp.float64, xp=xp, ref_arr=X),
+        xp_asarray(y_diff_np, dtype=xp.float64, xp=xp, ref_arr=X),
     )

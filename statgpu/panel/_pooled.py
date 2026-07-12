@@ -96,10 +96,13 @@ class PooledOLS(BaseEstimator):
         -------
         self
         """
-        from statgpu.panel._formula import _prepare_formula_fit, _get_feature_names
+        from statgpu.panel._formula import _align_formula_side_array, _prepare_formula_fit
         (y_arr, X_arr, self._design_info, self._feature_names, self._formula_has_intercept,
          _fe_eids, _fe_tids, _fe_entity, _fe_time) = \
             _prepare_formula_fit(formula, data, X, y, model_has_intercept=True)
+        if formula is not None:
+            cluster = _align_formula_side_array(cluster, self._design_info, len(y_arr), "cluster")
+            time_index = _align_formula_side_array(time_index, self._design_info, len(y_arr), "time_index")
 
         backend = self._get_backend(backend="auto")
         xp = backend.xp
@@ -124,8 +127,10 @@ class PooledOLS(BaseEstimator):
         try:
             params = xp.linalg.solve(XtX, Xty)
         except _LINALG_ERRORS:
-            params = xp.linalg.lstsq(XtX, Xty)[0]
+            params = xp.linalg.pinv(X_arr) @ y_arr
 
+        if n <= k:
+            raise ValueError(f"positive residual degrees of freedom required; n={n}, k={k}")
         resid = y_arr - X_arr @ params
         scale = _to_float_scalar(xp.sum(resid * resid)) / (n - k)
 

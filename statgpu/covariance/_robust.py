@@ -128,7 +128,7 @@ class MinCovDet(EmpiricalCovariance):
         -------
         self
         """
-        X_np = np.asarray(X, dtype=np.float64)
+        X_np = np.asarray(_to_numpy(X), dtype=np.float64)
         if X_np.ndim == 1:
             X_np = X_np.reshape(-1, 1)
 
@@ -136,9 +136,14 @@ class MinCovDet(EmpiricalCovariance):
         if n < 2:
             raise ValueError(f"Need at least 2 samples, got {n}")
 
+        if self.support_fraction is not None:
+            fraction = float(self.support_fraction)
+            if not np.isfinite(fraction) or not 0.0 < fraction <= 1.0:
+                raise ValueError("support_fraction must be finite and in (0, 1]")
+
         # Determine h (support size) -- use ceil like sklearn
         if self.support_fraction is not None:
-            h = int(np.ceil(self.support_fraction * n))
+            h = int(np.ceil(float(self.support_fraction) * n))
             h = max(h, p + 1)
             h = min(h, n)
         else:
@@ -156,8 +161,9 @@ class MinCovDet(EmpiricalCovariance):
 
         # Raw estimates from best subset
         X_sub = X_np[best_subset]
-        raw_location = X_sub.mean(axis=0)
-        raw_cov = (X_sub - raw_location).T @ (X_sub - raw_location) / float(h)
+        raw_location = np.zeros(p) if self.assume_centered else X_sub.mean(axis=0)
+        raw_centered = X_sub if self.assume_centered else X_sub - raw_location
+        raw_cov = raw_centered.T @ raw_centered / float(h)
 
         # Consistency correction factor for raw estimate
         alpha_raw = h / n
@@ -186,8 +192,9 @@ class MinCovDet(EmpiricalCovariance):
             dist_final = mahal_raw
         else:
             X_support = X_np[support]
-            final_location = X_support.mean(axis=0)
-            final_cov_emp = (X_support - final_location).T @ (X_support - final_location) / float(n_support)
+            final_location = np.zeros(p) if self.assume_centered else X_support.mean(axis=0)
+            final_centered = X_support if self.assume_centered else X_support - final_location
+            final_cov_emp = final_centered.T @ final_centered / float(n_support)
             final_cov = final_cov_emp * c_reweight
             support_mask = support
 
@@ -298,8 +305,7 @@ class MinCovDet(EmpiricalCovariance):
 
         return best_subset
 
-    @staticmethod
-    def _c_step(X, subset, h, max_iter=30):
+    def _c_step(self, X, subset, h, max_iter=30):
         """Perform C-steps: recompute covariance from subset, select h
         observations with smallest Mahalanobis distances.
 
@@ -312,8 +318,9 @@ class MinCovDet(EmpiricalCovariance):
 
         for _ in range(max_iter):
             X_sub = X[subset]
-            loc = X_sub.mean(axis=0)
-            cov = (X_sub - loc).T @ (X_sub - loc) / float(h)
+            loc = np.zeros(X.shape[1]) if self.assume_centered else X_sub.mean(axis=0)
+            centered = X_sub if self.assume_centered else X_sub - loc
+            cov = centered.T @ centered / float(h)
 
             # Use logdet for numerical stability
             logdet = _fast_logdet(cov)

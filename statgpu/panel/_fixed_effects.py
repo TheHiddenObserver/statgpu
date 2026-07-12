@@ -131,7 +131,7 @@ class PanelOLS(BaseEstimator):
         """
         # Handle formula interface
         if formula is not None:
-            from statgpu.panel._formula import _prepare_formula_fit
+            from statgpu.panel._formula import _align_formula_side_array, _prepare_formula_fit
             (y_raw, X_raw, self._design_info, self._feature_names,
              self._formula_has_intercept,
              fe_entity_ids, fe_time_ids,
@@ -150,6 +150,9 @@ class PanelOLS(BaseEstimator):
                 time_ids = fe_time_ids
             X = X_raw
             y = y_raw
+            entity_ids = _align_formula_side_array(entity_ids, self._design_info, len(y_raw), "entity_ids")
+            time_ids = _align_formula_side_array(time_ids, self._design_info, len(y_raw), "time_ids")
+            cluster = _align_formula_side_array(cluster, self._design_info, len(y_raw), "cluster")
         else:
             self._design_info = None
             self._feature_names = None

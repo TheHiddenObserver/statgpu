@@ -100,14 +100,17 @@ class FamaMacBeth(BaseEstimator):
         if time_ids is None:
             raise ValueError("time_ids is required for FamaMacBeth")
 
-        from statgpu.panel._formula import _prepare_formula_fit
+        from statgpu.panel._formula import _align_formula_side_array, _prepare_formula_fit
         (y_np, X_np, self._design_info, self._feature_names, self._formula_has_intercept,
          _fe_eids, _fe_tids, _fe_entity, _fe_time) = \
             _prepare_formula_fit(formula, data, X, y, model_has_intercept=True)
+        if formula is not None:
+            time_ids = _align_formula_side_array(time_ids, self._design_info, len(y_np), "time_ids")
 
         backend = self._get_backend(backend="auto")
-        y_np = np.asarray(y_np, dtype=np.float64).ravel()
-        tids_np = np.asarray(time_ids).ravel()
+        X_np = np.asarray(_to_numpy(X_np), dtype=np.float64)
+        y_np = np.asarray(_to_numpy(y_np), dtype=np.float64).ravel()
+        tids_np = np.asarray(_to_numpy(time_ids)).ravel()
 
         if X_np.ndim == 1:
             X_np = X_np.reshape(-1, 1)
@@ -136,7 +139,7 @@ class FamaMacBeth(BaseEstimator):
             try:
                 beta_t = np.linalg.solve(X_t.T @ X_t, X_t.T @ y_t)
             except np.linalg.LinAlgError:
-                beta_t = np.linalg.lstsq(X_t.T @ X_t, X_t.T @ y_t, rcond=None)[0]
+                beta_t = np.linalg.pinv(X_t) @ y_t
             betas_list.append(beta_t)
 
         if not betas_list:
@@ -144,6 +147,8 @@ class FamaMacBeth(BaseEstimator):
 
         betas = np.array(betas_list)  # (T, k)
         T = betas.shape[0]
+        if T < 2:
+            raise ValueError("FamaMacBeth requires at least 2 time periods after filtering")
 
         # Step 2: Time-series averages and SEs
         avg_beta = betas.mean(axis=0)

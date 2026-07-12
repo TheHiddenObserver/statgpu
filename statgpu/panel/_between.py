@@ -85,10 +85,12 @@ class BetweenOLS(BaseEstimator):
         if entity_ids is None:
             raise ValueError("entity_ids is required for BetweenOLS")
 
-        from statgpu.panel._formula import _prepare_formula_fit
+        from statgpu.panel._formula import _align_formula_side_array, _prepare_formula_fit
         (y_arr, X_arr, self._design_info, self._feature_names, self._formula_has_intercept,
          _fe_eids, _fe_tids, _fe_entity, _fe_time) = \
             _prepare_formula_fit(formula, data, X, y, model_has_intercept=True)
+        if formula is not None:
+            entity_ids = _align_formula_side_array(entity_ids, self._design_info, len(y_arr), "entity_ids")
 
         backend = self._get_backend(backend="auto")
         xp = backend.xp
@@ -134,10 +136,12 @@ class BetweenOLS(BaseEstimator):
         try:
             params = xp.linalg.solve(XtX, Xty)
         except _LINALG_ERRORS:
-            params = xp.linalg.lstsq(XtX, Xty)[0]
+            params = xp.linalg.pinv(X_mean) @ y_mean
 
         resid = y_mean - X_mean @ params
         n = n_groups
+        if n <= k:
+            raise ValueError(f"positive residual degrees of freedom required; groups={n}, parameters={k}")
         scale = _to_float_scalar(xp.sum(resid * resid)) / (n - k)
 
         # Inference
