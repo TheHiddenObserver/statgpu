@@ -110,20 +110,31 @@ class FamaMacBeth(BaseEstimator):
         if time_ids is None:
             raise ValueError("time_ids is required for FamaMacBeth")
 
-        from statgpu.panel._formula import _align_formula_side_array, _prepare_formula_fit
+        if formula is None:
+            if X is None or y is None:
+                raise ValueError("Either formula+data or X+y must be provided.")
+            X_data = X
+            y_data = y
+            self._design_info = None
+            self._feature_names = None
+            self._formula_has_intercept = None
+        else:
+            from statgpu.panel._formula import (
+                _align_formula_side_array,
+                _prepare_formula_fit,
+            )
 
-        (
-            y_data,
-            X_data,
-            self._design_info,
-            self._feature_names,
-            self._formula_has_intercept,
-            _fe_eids,
-            _fe_tids,
-            _fe_entity,
-            _fe_time,
-        ) = _prepare_formula_fit(formula, data, X, y, model_has_intercept=True)
-        if formula is not None:
+            (
+                y_data,
+                X_data,
+                self._design_info,
+                self._feature_names,
+                self._formula_has_intercept,
+                _fe_eids,
+                _fe_tids,
+                _fe_entity,
+                _fe_time,
+            ) = _prepare_formula_fit(formula, data, X, y, model_has_intercept=True)
             time_ids = _align_formula_side_array(
                 time_ids, self._design_info, len(y_data), "time_ids"
             )
@@ -139,7 +150,11 @@ class FamaMacBeth(BaseEstimator):
         _, time_codes = np.unique(tids_np, return_inverse=True)
         counts = np.bincount(time_codes)
         intercept = xp_ones((n_orig, 1), xp.float64, xp, X_arr)
-        X_design = xp.cat([intercept, X_arr], dim=1) if xp.__name__ == "torch" else xp.concatenate([intercept, X_arr], axis=1)
+        X_design = (
+            xp.cat([intercept, X_arr], dim=1)
+            if xp.__name__ == "torch"
+            else xp.concatenate([intercept, X_arr], axis=1)
+        )
         k = int(X_design.shape[1])
 
         betas_list = []
@@ -222,14 +237,17 @@ class FamaMacBeth(BaseEstimator):
 
     def predict(self, X):
         self._check_is_fitted()
-        from statgpu.panel._formula import _formula_predict
+        if self._design_info is None:
+            X_data = X
+        else:
+            from statgpu.panel._formula import _formula_predict
 
-        X_data = _formula_predict(
-            X,
-            getattr(self, "_design_info", None),
-            getattr(self, "_formula_has_intercept", None),
-            model_has_intercept=True,
-        )
+            X_data = _formula_predict(
+                X,
+                self._design_info,
+                self._formula_has_intercept,
+                model_has_intercept=True,
+            )
         xp = self._xp
         X_arr = xp_asarray(X_data, dtype=xp.float64, xp=xp, ref_arr=self._fit_ref_)
         if X_arr.ndim == 1:
@@ -237,7 +255,11 @@ class FamaMacBeth(BaseEstimator):
         if X_arr.ndim != 2 or int(X_arr.shape[1]) + 1 != int(self.coef_.shape[0]):
             raise ValueError("X has an incompatible feature count")
         intercept = xp_ones((int(X_arr.shape[0]), 1), xp.float64, xp, X_arr)
-        X_design = xp.cat([intercept, X_arr], dim=1) if xp.__name__ == "torch" else xp.concatenate([intercept, X_arr], axis=1)
+        X_design = (
+            xp.cat([intercept, X_arr], dim=1)
+            if xp.__name__ == "torch"
+            else xp.concatenate([intercept, X_arr], axis=1)
+        )
         return X_design @ self.coef_
 
     def summary(self):
