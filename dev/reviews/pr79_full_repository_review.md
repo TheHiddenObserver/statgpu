@@ -55,9 +55,11 @@ regression tests for every accepted fix.
     and weighted MSE inputs now have explicit contracts.
 16. Mixed NumPy/GPU CV inputs are converted together instead of returning a
     NumPy backend label with an unconverted GPU object.
-17. Ridge's exact CPU solver now uses the same un-normalized `alpha` convention
-    as scikit-learn instead of multiplying the penalty by sample count or weight
-    sum.
+17. Ridge's exact CPU solver preserves the package-wide objective
+    `mean(data loss) + penalty`: for L2 this yields the normal equation
+    `(X'X + n*alpha*I) beta = X'y` (or `sum(w)*alpha` for weighted fits).
+    scikit-learn comparisons use an explicit alpha mapping rather than changing
+    statgpu's internal loss/penalty convention.
 18. Cox inference now normalizes the legacy Breslow/Efron Hessian orientation at
     the observed-information boundary, preventing Efron standard errors from
     being clipped to zero while preserving coefficient estimates.
@@ -76,7 +78,8 @@ regression tests for every accepted fix.
 6. Focused regression suites cover backend validation, estimator parameters,
    RNG semantics, UMAP fuzzy union, NNDescent neighbor validity, CV validation,
    KMeans input contracts, small-sample spectral UMAP, Torch inference routing,
-   Ridge/scikit-learn parity, and Cox/statsmodels parity.
+   Ridge's internal average-loss objective, Ridge/PGLM equality, explicit
+   scikit-learn alpha mapping, and Cox/statsmodels parity.
 7. CI now includes Python 3.9-3.12 regression gates, a complete Python 3.11 CPU
    test-tree job, package compilation, high-signal static checks, and complete
    pytest collection.
@@ -130,7 +133,7 @@ explicit.
 
 ## Validation status
 
-GitHub Actions run **#199** passed all permanent gates:
+GitHub Actions run **#203** passed all permanent gates:
 
 - Python 3.9, 3.10, 3.11, and 3.12 selected regression matrices;
 - the complete `dev/tests` CPU suite on Python 3.11;
