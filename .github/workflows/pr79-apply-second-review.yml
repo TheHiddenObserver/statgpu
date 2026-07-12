@@ -34,7 +34,7 @@ jobs:
           rm -f .github/workflows/pr79-source-export.yml
           rm -f .github/workflows/pr79-apply-second-review.yml
       - name: Install review dependencies
-        run: python -m pip install -e '.[dev]'
+        run: python -m pip install -e '.[validation,formula]'
       - name: Compile changed Python sources
         run: python -m compileall -q statgpu dev/tests
       - name: Run focused second-review regression suite
