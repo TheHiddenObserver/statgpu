@@ -22,7 +22,7 @@ jobs:
         id: sync
         continue-on-error: true
         run: |
-          python dev/scripts/sync_pr79_public_docs.py > /tmp/pr79-docs-sync.log 2>&1
+          python dev/scripts/run_pr79_docs_sync_relaxed.py > /tmp/pr79-docs-sync.log 2>&1
       - name: Upload sync diagnostics
         if: always()
         uses: actions/upload-artifact@v4
@@ -38,6 +38,7 @@ jobs:
       - name: Remove temporary synchronizer
         run: |
           rm -f dev/scripts/sync_pr79_public_docs.py
+          rm -f dev/scripts/run_pr79_docs_sync_relaxed.py
           rm -f .github/workflows/pr79-docs-sync.yml
       - name: Commit synchronized documentation
         run: |
