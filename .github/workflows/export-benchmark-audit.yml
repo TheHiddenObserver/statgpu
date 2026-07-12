@@ -6,27 +6,64 @@ on:
     paths:
       - '.github/workflows/export-benchmark-audit.yml'
 
+permissions:
+  contents: write
+
 jobs:
   export:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Inventory benchmark artifacts
-        run: |
-          find results dev/results -type f \( -name '*.json' -o -name '*.md' \) -print | sort > benchmark-file-inventory.txt
-          find dev/benchmarks -type f -print | sort > benchmark-code-inventory.txt
-      - uses: actions/upload-artifact@v4
         with:
-          name: benchmark-audit
-          path: |
-            benchmark-file-inventory.txt
-            benchmark-code-inventory.txt
-            results/**/*.json
-            dev/results/**/*.json
-            dev/benchmarks/**/*.py
-            dev/benchmarks/**/*.json
-            dev/tests/bench*.py
-            dev/tests/_bench*.py
-            frontend/src/**/*.ts
-          if-no-files-found: warn
-          retention-days: 1
+          ref: frontend-dashboard-data-pipeline
+      - name: Build benchmark artifact inventory
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          def shape(value, depth=0):
+              if depth >= 3:
+                  return type(value).__name__
+              if isinstance(value, dict):
+                  return {k: shape(v, depth + 1) for k, v in list(value.items())[:30]}
+              if isinstance(value, list):
+                  return {
+                      "type": "list",
+                      "length": len(value),
+                      "item_shape": shape(value[0], depth + 1) if value else None,
+                  }
+              return type(value).__name__
+
+          records = []
+          for root in (Path('results'), Path('dev/results')):
+              if not root.exists():
+                  continue
+              for path in sorted(root.rglob('*.json')):
+                  rec = {"path": path.as_posix(), "size_bytes": path.stat().st_size}
+                  try:
+                      data = json.loads(path.read_text(encoding='utf-8'))
+                      rec["shape"] = shape(data)
+                      if isinstance(data, dict):
+                          for key in (
+                              'date', 'timestamp', 'generated', 'generated_at', 'benchmark_date',
+                              'name', 'title', 'benchmark', 'version', 'environment', 'config',
+                          ):
+                              if key in data:
+                                  rec[key] = data[key]
+                  except Exception as exc:
+                      rec["error"] = str(exc)
+                  records.append(rec)
+
+          out = Path('dev/benchmarks/benchmark_artifact_audit.json')
+          out.write_text(json.dumps(records, indent=2, ensure_ascii=False), encoding='utf-8')
+          print(f'wrote {out} with {len(records)} records')
+          PY
+      - name: Commit inventory
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add dev/benchmarks/benchmark_artifact_audit.json
+          git diff --cached --quiet && exit 0
+          git commit -m 'chore(audit): inventory benchmark result artifacts'
+          git push origin HEAD:frontend-dashboard-data-pipeline
