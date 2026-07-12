@@ -250,13 +250,15 @@ explicit.
 
 ## Validation status
 
-GitHub Actions run **#268** passed all permanent gates on the final branch state:
+GitHub Actions run **#268** passed all permanent gates on the code-complete branch
+state before the final documentation synchronization:
 
 - Python 3.9, 3.10, 3.11, and 3.12 selected regression matrices;
 - the complete `dev/tests` CPU suite on Python 3.11;
 - package and maintained validation/benchmark script bytecode compilation;
 - high-signal undefined-name/syntax Ruff checks on modified production modules,
-  including the Ridge, ANOVA, kernel, covariance, panel, smoothing, spline, GAM, and metrics paths;
+  including the Ridge, ANOVA, kernel, covariance, panel, smoothing, spline, GAM,
+  and metrics paths;
 - Cox review structure assertions;
 - complete pytest collection without optional GPU import failures.
 
