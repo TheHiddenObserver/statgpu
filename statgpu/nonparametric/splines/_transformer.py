@@ -1,4 +1,4 @@
-"""sklearn-compatible SplineTransformer with GPU acceleration."""
+"""sklearn-compatible SplineTransformer with GPU-compatible output."""
 
 from __future__ import annotations
 
@@ -7,51 +7,32 @@ __all__ = ["SplineTransformer"]
 from typing import Optional, Union
 
 import numpy as np
+from scipy.interpolate import BSpline
 
 from statgpu._base import BaseEstimator
 from statgpu._config import Device
 from statgpu.backends import _to_numpy, xp_asarray
-from statgpu.nonparametric.splines._bspline_basis import bspline_basis
 
 
 class SplineTransformer(BaseEstimator):
-    """B-spline feature transformer (sklearn-compatible API).
-
-    Generates B-spline basis features for each input feature, suitable
-    for use in pipelines and GAM-like models.
+    """B-spline feature transformer with explicit extrapolation semantics.
 
     Parameters
     ----------
     n_knots : int, default=5
-        Number of knots (including boundary knots).
+        Number of knots including the two boundary knots.
     degree : int, default=3
-        Spline degree (3 = cubic).
-    knots : str or array-like, default='uniform'
-        Knot placement strategy: ``'uniform'`` or ``'quantile'``.
-        Can also be an array of shape ``(n_knots, n_features)``.
+        Spline polynomial degree.
+    knots : {'uniform', 'quantile'} or array-like, default='uniform'
+        Knot placement strategy or an array of shape
+        ``(n_knots, n_features)``.
     include_bias : bool, default=True
-        If True, include all basis functions (including the one that
-        is redundant due to the partition-of-unity property).
-    extrapolation : str, default='constant'
-        How to handle extrapolation beyond boundary knots:
-        ``'constant'`` (clamp to boundary values), ``'linear'``
-        (linear extrapolation), or ``'continue'`` (extend with
-        boundary slope).
+        Retain all basis columns when True; otherwise drop the final column
+        from each feature block.
+    extrapolation : {'error', 'constant', 'linear', 'continue'}, default='constant'
+        Behavior outside the fitted boundary knots.
     device : str or Device, default='auto'
-        Computation device.
-
-    Attributes
-    ----------
-    knots_ : list of array
-        Knot positions for each feature.
-    boundary_lo_ : ndarray, shape (n_features,)
-        Lower boundary for each feature.
-    boundary_hi_ : ndarray, shape (n_features,)
-        Upper boundary for each feature.
-    n_features_in_ : int
-        Number of input features.
-    n_features_out_ : int
-        Number of output features.
+        Output computation device.
     """
 
     def __init__(
@@ -71,164 +52,177 @@ class SplineTransformer(BaseEstimator):
         self.include_bias = include_bias
         self.extrapolation = extrapolation
 
-    def fit(self, X, y=None, sample_weight=None):
-        """Fit the spline transformer.
+    def _validate_parameters(self):
+        if isinstance(self.n_knots, bool) or not isinstance(self.n_knots, (int, np.integer)):
+            raise ValueError("n_knots must be an integer")
+        if int(self.n_knots) < 3:
+            raise ValueError("n_knots must be at least 3")
+        if isinstance(self.degree, bool) or not isinstance(self.degree, (int, np.integer)):
+            raise ValueError("degree must be an integer")
+        if int(self.degree) < 0:
+            raise ValueError("degree must be non-negative")
+        extrapolation = str(self.extrapolation).lower()
+        if extrapolation not in {"error", "constant", "linear", "continue"}:
+            raise ValueError(
+                "extrapolation must be one of 'error', 'constant', 'linear', or 'continue'"
+            )
+        self._extrapolation_ = extrapolation
 
-        Parameters
-        ----------
-        X : array-like, shape (n_samples, n_features)
-            Training data.
-        y : ignored
-        sample_weight : ignored
-
-        Returns
-        -------
-        self
-        """
-        X_np = np.asarray(X, dtype=np.float64)
+    @staticmethod
+    def _validate_X_numpy(X, *, expected_features=None):
+        X_np = np.asarray(_to_numpy(X), dtype=np.float64)
         if X_np.ndim == 1:
-            X_np = X_np.reshape(-1, 1)
+            if expected_features is None or expected_features == 1:
+                X_np = X_np.reshape(-1, 1)
+            elif X_np.size == expected_features:
+                X_np = X_np.reshape(1, -1)
+            else:
+                raise ValueError("X shape is incompatible with fitted feature count")
+        if X_np.ndim != 2 or X_np.shape[0] == 0 or X_np.shape[1] == 0:
+            raise ValueError("X must be a non-empty one- or two-dimensional array")
+        if expected_features is not None and X_np.shape[1] != expected_features:
+            raise ValueError(f"Expected {expected_features} features, got {X_np.shape[1]}")
+        if not np.all(np.isfinite(X_np)):
+            raise ValueError("X must contain only finite values")
+        return X_np
 
-        n_samples, n_features = X_np.shape
-        self.n_features_in_ = n_features
-
-        if self.n_knots < 3:
-            raise ValueError("n_knots must be at least 3 (boundary + at least 1 interior knot)")
-
-        # Determine knots per feature
+    def _build_knots(self, X_np):
+        n_features = X_np.shape[1]
         if isinstance(self.knots, str):
-            knots_list = []
+            strategy = self.knots.lower()
+            if strategy not in {"uniform", "quantile"}:
+                raise ValueError("knots must be 'uniform', 'quantile', or an array")
+            result = []
             for j in range(n_features):
                 col = X_np[:, j]
-                if self.knots == "uniform":
-                    kts = np.linspace(col.min(), col.max(), self.n_knots)
-                elif self.knots == "quantile":
-                    percentiles = np.linspace(0, 100, self.n_knots)
-                    kts = np.nanpercentile(col, percentiles)
-                    kts = np.unique(kts)  # handle ties
+                if strategy == "uniform":
+                    values = np.linspace(col.min(), col.max(), int(self.n_knots))
                 else:
-                    raise ValueError(f"Unknown knots strategy: {self.knots}")
-                knots_list.append(kts)
-        else:
-            knots_arr = np.asarray(self.knots, dtype=np.float64)
-            if knots_arr.ndim == 1:
-                knots_list = [knots_arr for _ in range(n_features)]
-            else:
-                knots_list = [knots_arr[:, j] for j in range(n_features)]
+                    q = np.linspace(0.0, 100.0, int(self.n_knots))
+                    values = np.percentile(col, q)
+                if np.unique(values).size != int(self.n_knots):
+                    raise ValueError(
+                        "each feature must provide n_knots distinct knot values; "
+                        "quantile ties or constant features are not supported"
+                    )
+                result.append(values.astype(np.float64, copy=False))
+            return result
 
-        self.knots_ = knots_list
-        self.boundary_lo_ = np.array([kts[0] for kts in knots_list])
-        self.boundary_hi_ = np.array([kts[-1] for kts in knots_list])
+        knots_arr = np.asarray(self.knots, dtype=np.float64)
+        expected = (int(self.n_knots), n_features)
+        if knots_arr.ndim == 1:
+            if n_features != 1 or knots_arr.shape[0] != int(self.n_knots):
+                raise ValueError(f"custom knots must have shape {expected}")
+            knots_arr = knots_arr.reshape(-1, 1)
+        if knots_arr.shape != expected:
+            raise ValueError(f"custom knots must have shape {expected}")
+        if not np.all(np.isfinite(knots_arr)):
+            raise ValueError("custom knots must contain only finite values")
+        result = []
+        for j in range(n_features):
+            values = knots_arr[:, j]
+            if np.any(np.diff(values) <= 0):
+                raise ValueError("custom knots must be strictly increasing for every feature")
+            result.append(values.copy())
+        return result
 
-        # Compute output dimension based on actual knot counts (handles ties)
-        self._n_splines_per_feature = []
-        for kts in knots_list:
-            n_int = len(kts) - 2  # interior knots
-            if n_int < 1:
-                n_int = max(len(kts), 1)
-            self._n_splines_per_feature.append(n_int + self.degree + 1)
-
-        # Use the minimum for consistent output dimension
-        min_splines = min(self._n_splines_per_feature)
-        if self.include_bias:
-            self.n_features_out_ = n_features * min_splines
-        else:
-            self.n_features_out_ = n_features * (min_splines - 1)
-        self._n_splines_per_feature = min_splines
+    def fit(self, X, y=None, sample_weight=None):
+        """Learn knot locations from X."""
+        self._validate_parameters()
+        X_np = self._validate_X_numpy(X)
+        self.n_features_in_ = int(X_np.shape[1])
+        self.knots_ = self._build_knots(X_np)
+        self.boundary_lo_ = np.asarray([k[0] for k in self.knots_], dtype=np.float64)
+        self.boundary_hi_ = np.asarray([k[-1] for k in self.knots_], dtype=np.float64)
+        self._n_splines_per_feature = int(self.n_knots) + int(self.degree) - 1
+        block_width = self._n_splines_per_feature - (0 if self.include_bias else 1)
+        if block_width < 1:
+            raise ValueError("degree/n_knots/include_bias produce no output features")
+        self.n_features_out_ = self.n_features_in_ * block_width
         self._fitted = True
         return self
 
+    def _basis_numpy(self, values, knots):
+        degree = int(self.degree)
+        augmented = np.concatenate(
+            [
+                np.repeat(knots[0], degree + 1),
+                knots[1:-1],
+                np.repeat(knots[-1], degree + 1),
+            ]
+        )
+        n_basis = len(augmented) - degree - 1
+        coefficients = np.eye(n_basis, dtype=np.float64)
+        spline = BSpline(augmented, coefficients, degree, extrapolate=True)
+        lo, hi = float(knots[0]), float(knots[-1])
+        mode = self._extrapolation_
+
+        if mode == "error":
+            if np.any(values < lo) or np.any(values > hi):
+                raise ValueError(
+                    "X contains values outside the fitted knot range and extrapolation='error'"
+                )
+            basis = spline(values)
+        elif mode == "constant":
+            basis = spline(np.clip(values, lo, hi))
+        elif mode == "continue":
+            basis = spline(values)
+        else:  # linear
+            clipped = np.clip(values, lo, hi)
+            basis = spline(clipped)
+            derivative = spline.derivative(1)
+            left = values < lo
+            right = values > hi
+            if np.any(left):
+                basis[left] = spline(lo) + (values[left] - lo)[:, None] * derivative(lo)
+            if np.any(right):
+                basis[right] = spline(hi) + (values[right] - hi)[:, None] * derivative(hi)
+
+        if not self.include_bias:
+            basis = basis[:, :-1]
+        return np.asarray(basis, dtype=np.float64)
+
     def transform(self, X):
-        """Transform X to B-spline basis features.
-
-        Parameters
-        ----------
-        X : array-like, shape (n_samples, n_features)
-
-        Returns
-        -------
-        X_transformed : ndarray, shape (n_samples, n_features_out)
-        """
+        """Transform X into concatenated B-spline basis blocks."""
         self._check_is_fitted()
+        X_np = self._validate_X_numpy(X, expected_features=self.n_features_in_)
+        blocks = [self._basis_numpy(X_np[:, j], self.knots_[j]) for j in range(self.n_features_in_)]
+        X_out = np.hstack(blocks)
+        if X_out.shape[1] != self.n_features_out_:
+            raise RuntimeError(
+                f"internal spline dimension mismatch: expected {self.n_features_out_}, "
+                f"got {X_out.shape[1]}"
+            )
         backend = self._get_backend(backend="auto")
         xp = backend.xp
-
-        X_np = np.asarray(X, dtype=np.float64)
-        if X_np.ndim == 1:
-            X_np = X_np.reshape(-1, 1)
-
-        n_samples, n_features = X_np.shape
-        if n_features != self.n_features_in_:
-            raise ValueError(
-                f"Expected {self.n_features_in_} features, got {n_features}"
-            )
-
-        blocks = []
-        for j in range(n_features):
-            col = X_np[:, j]
-            kts = self.knots_[j]
-
-            # Build augmented knot vector (Eilers & Marx style)
-            # Interior knots = kts[1:-1], boundaries = kts[0], kts[-1]
-            interior_knots = kts[1:-1] if len(kts) > 2 else kts
-
-            B = bspline_basis(
-                col, interior_knots, degree=self.degree,
-                boundary_lo=kts[0], boundary_hi=kts[-1]
-            )
-
-            # Handle extrapolation
-            if self.extrapolation == "constant":
-                # Clamp values outside boundary to boundary basis values
-                pass  # B-spline De Boor already handles this
-            elif self.extrapolation == "error":
-                mask_lo = col < kts[0]
-                mask_hi = col > kts[-1]
-                if np.any(mask_lo) or np.any(mask_hi):
-                    raise ValueError(
-                        "X contains values outside the fitted knot range "
-                        "and extrapolation='error'"
-                    )
-
-            # Drop bias column if requested
-            if not self.include_bias:
-                B = B[:, :-1]
-
-            blocks.append(B)
-
-        # Concatenate across features
-        X_out = np.hstack(blocks)
-
-        # Convert to target backend
-        return xp.asarray(X_out, dtype=xp.float64)
+        return xp_asarray(X_out, dtype=xp.float64, xp=xp)
 
     def fit_transform(self, X, y=None, sample_weight=None):
-        """Fit and transform in one step."""
         return self.fit(X, y, sample_weight).transform(X)
 
     def predict(self, X):
-        """Alias for transform (required by BaseEstimator)."""
         return self.transform(X)
 
     def get_feature_names_out(self, input_features=None):
-        """Get output feature names."""
         self._check_is_fitted()
         if input_features is None:
             input_features = [f"x{i}" for i in range(self.n_features_in_)]
-        names = []
-        n_splines = self._n_splines_per_feature if self.include_bias else self._n_splines_per_feature - 1
-        for feat_name in input_features:
-            for s in range(n_splines):
-                names.append(f"{feat_name}_bspline{s}")
-        return names
+        if len(input_features) != self.n_features_in_:
+            raise ValueError(
+                f"input_features must have length {self.n_features_in_}, got {len(input_features)}"
+            )
+        width = self._n_splines_per_feature - (0 if self.include_bias else 1)
+        return [f"{name}_bspline{j}" for name in input_features for j in range(width)]
 
     def get_params(self, deep=True):
         params = super().get_params(deep=deep)
-        params["n_knots"] = self.n_knots
-        params["degree"] = self.degree
-        params["knots"] = self.knots
-        params["include_bias"] = self.include_bias
-        params["extrapolation"] = self.extrapolation
+        params.update(
+            n_knots=self.n_knots,
+            degree=self.degree,
+            knots=self.knots,
+            include_bias=self.include_bias,
+            extrapolation=self.extrapolation,
+        )
         return params
 
     def set_params(self, **params):
