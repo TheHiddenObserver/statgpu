@@ -50,7 +50,7 @@ jobs:
             dev/tests/test_splines_p2.py \
             dev/tests/test_nonparametric_kernel_regression.py \
             dev/tests/test_inference_kde.py \
-            dev/tests/test_metrics.py \
+            dev/tests/test_logistic.py \
             -q --tb=long > /tmp/remaining-public.log 2>&1
           status=$?
           cat /tmp/remaining-public.log
