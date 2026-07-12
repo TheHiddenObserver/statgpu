@@ -1,6 +1,7 @@
 from __future__ import annotations
 """Parsers for benchmark domains that were previously listed but had no runs."""
 
+import hashlib
 import json
 import re
 from pathlib import Path
@@ -19,6 +20,11 @@ _BACKENDS = {
     "torch": "torch",
     "Torch": "torch",
 }
+
+
+def _stable_id(kind: str, *parts: object) -> str:
+    payload = json.dumps(parts, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    return f"{kind}-" + hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
 
 
 def _scale(n_samples: int, n_features: int) -> dict[str, Any]:
@@ -103,7 +109,7 @@ def parse_loss_functions_benchmark(
                 continue
             n_samples, n_features = map(int, match.groups())
             scale = _scale(n_samples, n_features)
-            case_id = f"{loss}-{scale['scale_key']}"
+            case_id = _stable_id("case", loss, scale["scale_key"])
 
             for method_name, entry in methods.items():
                 mean_ms = entry.get("mean_ms")
@@ -154,7 +160,7 @@ def parse_loss_functions_benchmark(
                         "category_ids": ["robust_quantile"],
                         "model_id": model_id,
                         "case_id": case_id,
-                        "method_config_id": "irls",
+                        "method_config_id": _stable_id("method", loss, "irls"),
                         "loss": loss,
                         "penalty": None,
                         "solver": "irls",
@@ -251,8 +257,8 @@ def parse_ordered_inference_benchmark(
                     "env_id": env_id,
                     "category_ids": ["ordered"],
                     "model_id": model_id,
-                    "case_id": scale["scale_key"],
-                    "method_config_id": family,
+                    "case_id": _stable_id("case", family, scale["scale_key"]),
+                    "method_config_id": _stable_id("method", family, "newton"),
                     "loss": family,
                     "penalty": None,
                     "solver": "newton",
@@ -323,7 +329,7 @@ def parse_unsupervised_benchmark(
             (entry.get("external") for entry in entries.values() if entry.get("external") is not None),
             None,
         )
-        case_id = f"{prefix}-{scale['scale_key']}"
+        case_id = _stable_id("case", prefix, scale["scale_key"])
 
         for backend, entry in entries.items():
             time_s = float(entry["time"])
@@ -346,7 +352,7 @@ def parse_unsupervised_benchmark(
                 "category_ids": ["unsupervised"],
                 "model_id": model_id,
                 "case_id": case_id,
-                "method_config_id": model_id.lower(),
+                "method_config_id": _stable_id("method", model_id),
                 "penalty": None,
                 "solver": "auto",
                 "solver_display": "Auto",
@@ -369,7 +375,7 @@ def parse_unsupervised_benchmark(
                 "category_ids": ["unsupervised"],
                 "model_id": model_id,
                 "case_id": case_id,
-                "method_config_id": model_id.lower(),
+                "method_config_id": _stable_id("method", model_id),
                 "penalty": None,
                 "solver": "auto",
                 "solver_display": "Auto",
@@ -427,7 +433,7 @@ def parse_new_modules_benchmark(
             for value in selected.values()
             if value.get("external_time") is not None
         )
-        case_id = f"panel-large-{token.lower()}"
+        case_id = _stable_id("case", "panel", "large", token)
         for backend, entry in selected.items():
             metrics: dict[str, Any] = {
                 "timing": _timing_ms(float(entry["statgpu_time"]) * 1000.0, filepath),
@@ -450,7 +456,7 @@ def parse_new_modules_benchmark(
                     "category_ids": ["panel"],
                     "model_id": model_id,
                     "case_id": case_id,
-                    "method_config_id": token.lower(),
+                    "method_config_id": _stable_id("method", token, "closed_form"),
                     "penalty": None,
                     "solver": "closed_form",
                     "solver_display": "Closed form",
@@ -470,7 +476,7 @@ def parse_new_modules_benchmark(
                 "category_ids": ["panel"],
                 "model_id": model_id,
                 "case_id": case_id,
-                "method_config_id": token.lower(),
+                "method_config_id": _stable_id("method", token, "closed_form"),
                 "penalty": None,
                 "solver": "closed_form",
                 "solver_display": "Closed form",
@@ -515,8 +521,8 @@ def parse_new_modules_benchmark(
                     "env_id": env_id,
                     "category_ids": ["nonparametric"],
                     "model_id": "GAM",
-                    "case_id": "gam-aligned-large",
-                    "method_config_id": "aligned-pygam",
+                    "case_id": _stable_id("case", "gam", "aligned", "large"),
+                    "method_config_id": _stable_id("method", "gam", "aligned-pygam"),
                     "penalty": None,
                     "solver": "gcv",
                     "solver_display": "GCV",
@@ -555,8 +561,8 @@ def parse_new_modules_benchmark(
                 "env_id": env_id,
                 "category_ids": ["nonparametric"],
                 "model_id": "GAM",
-                "case_id": "gam-aligned-large",
-                "method_config_id": "aligned-pygam",
+                "case_id": _stable_id("case", "gam", "aligned", "large"),
+                "method_config_id": _stable_id("method", "gam", "aligned-pygam"),
                 "penalty": None,
                 "solver": "gcv",
                 "solver_display": "GCV",
@@ -610,7 +616,7 @@ def parse_p2_benchmark(
                 continue
             n_samples, n_features = map(int, match.groups())
             scale = _scale(n_samples, n_features)
-            case_id = f"{section}-{scale['scale_key']}"
+            case_id = _stable_id("case", section, scale["scale_key"])
             external_ms = entry.get("sklearn_ms")
 
             for backend in ("numpy", "cupy", "torch"):
@@ -633,7 +639,7 @@ def parse_p2_benchmark(
                         "category_ids": [category_id],
                         "model_id": model_id,
                         "case_id": case_id,
-                        "method_config_id": section,
+                        "method_config_id": _stable_id("method", section),
                         "penalty": None,
                         "solver": "auto",
                         "solver_display": "Auto",
@@ -655,7 +661,7 @@ def parse_p2_benchmark(
                         "category_ids": [category_id],
                         "model_id": model_id,
                         "case_id": case_id,
-                        "method_config_id": section,
+                        "method_config_id": _stable_id("method", section),
                         "penalty": None,
                         "solver": "auto",
                         "solver_display": "Auto",

@@ -9,13 +9,51 @@
     }
   },
   "frameworks": {
-    "statgpu": { "display_name": "statgpu", "external": false, "backend_policy": "required" },
-    "sklearn": { "display_name": "scikit-learn", "external": true, "backend_policy": "forbidden" },
-    "glmnet": { "display_name": "glmnet", "external": true, "backend_policy": "forbidden" },
-    "statsmodels": { "display_name": "statsmodels", "external": true, "backend_policy": "forbidden" },
-    "lifelines": { "display_name": "lifelines", "external": true, "backend_policy": "forbidden" },
-    "scikit_survival": { "display_name": "scikit-survival", "external": true, "backend_policy": "forbidden" },
-    "knockpy": { "display_name": "knockpy", "external": true, "backend_policy": "forbidden" }
+    "statgpu": {
+      "display_name": "statgpu",
+      "external": false,
+      "backend_policy": "required"
+    },
+    "sklearn": {
+      "display_name": "scikit-learn",
+      "external": true,
+      "backend_policy": "forbidden"
+    },
+    "glmnet": {
+      "display_name": "glmnet",
+      "external": true,
+      "backend_policy": "forbidden"
+    },
+    "statsmodels": {
+      "display_name": "statsmodels",
+      "external": true,
+      "backend_policy": "forbidden"
+    },
+    "lifelines": {
+      "display_name": "lifelines",
+      "external": true,
+      "backend_policy": "forbidden"
+    },
+    "scikit_survival": {
+      "display_name": "scikit-survival",
+      "external": true,
+      "backend_policy": "forbidden"
+    },
+    "knockpy": {
+      "display_name": "knockpy",
+      "external": true,
+      "backend_policy": "forbidden"
+    },
+    "linearmodels": {
+      "display_name": "linearmodels",
+      "external": true,
+      "backend_policy": "forbidden"
+    },
+    "pygam": {
+      "display_name": "pyGAM",
+      "external": true,
+      "backend_policy": "forbidden"
+    }
   },
   "comparisons": {
     "penalized-glm-perf-20260622": {
@@ -48,6 +86,26 @@
     },
     "knockoff-baselines-20260409": {
       "label": "Knockoff feature selection baselines — 2026-04-09",
+      "env_id": "remote-p100"
+    },
+    "loss-functions-20260623": {
+      "label": "Robust and quantile loss benchmark — 2026-06-23",
+      "env_id": "remote-p100"
+    },
+    "ordered-inference-pr74": {
+      "label": "Ordered-model inference validation — PR #74",
+      "env_id": "remote-p100"
+    },
+    "unsupervised-20260627": {
+      "label": "Unsupervised benchmark — 2026-06-27",
+      "env_id": "remote-p100"
+    },
+    "new-modules-20260624": {
+      "label": "Panel and GAM benchmark — 2026-06-24",
+      "env_id": "remote-p100"
+    },
+    "p2-benchmark-20260617": {
+      "label": "Covariance and nonparametric benchmark — 2026-06-17",
       "env_id": "remote-p100"
     }
   },
@@ -159,7 +217,73 @@
       "parser_version": "1.0",
       "env_id": "remote-p100",
       "required": true,
-      "allowed_issue_codes": ["METHOD_UNAVAILABLE"]
+      "allowed_issue_codes": [
+        "METHOD_UNAVAILABLE"
+      ]
+    },
+    {
+      "source_id": "loss-functions-20260623-f7e2d070a3b7",
+      "comparison_id": "loss-functions-20260623",
+      "path": "results/benchmark_frontend_sources/loss_functions_20260623.json",
+      "original_path": "results/loss_functions_bench_2026-06-23.json",
+      "sha256": "f7e2d070a3b766f542e47c9751117174555dece5de432c36ba7b407b114b1f5e",
+      "parser": "loss_functions_benchmark",
+      "parser_version": "1.0",
+      "env_id": "remote-p100",
+      "required": true,
+      "allowed_issue_codes": [],
+      "source_date": "2026-06-23"
+    },
+    {
+      "source_id": "ordered-inference-20260712-c584a2bfa213",
+      "comparison_id": "ordered-inference-pr74",
+      "path": "results/benchmark_frontend_sources/ordered_inference_pr74.json",
+      "original_path": "results/pr74_inference_validation.json",
+      "sha256": "c584a2bfa213ffb8d3abc30f3bfa4b54a32b2c53cbd2449ade052153567c0164",
+      "parser": "ordered_inference_benchmark",
+      "parser_version": "1.0",
+      "env_id": "remote-p100",
+      "required": true,
+      "allowed_issue_codes": []
+    },
+    {
+      "source_id": "unsupervised-20260627-1ee68806e3ee",
+      "comparison_id": "unsupervised-20260627",
+      "path": "results/benchmark_frontend_sources/unsupervised_20260627.json",
+      "original_path": "results/unsupervised_bench_2026-06-27.json",
+      "sha256": "1ee68806e3ee5fec95cbeca3e98b1a9c30c68a91798403d6b6d8f06a6e6a47f2",
+      "parser": "unsupervised_benchmark",
+      "parser_version": "1.0",
+      "env_id": "remote-p100",
+      "required": true,
+      "allowed_issue_codes": [],
+      "source_date": "2026-06-27"
+    },
+    {
+      "source_id": "new-modules-20260624-bcbdb676223b",
+      "comparison_id": "new-modules-20260624",
+      "path": "results/benchmark_frontend_sources/new_modules_full_20260624.json",
+      "original_path": "results/new_modules_full_2026-06-24.json",
+      "sha256": "bcbdb676223bea9a71bdd4fe6701ee8d177536ad12a6b1b93ba65ec1675cb6e6",
+      "parser": "new_modules_benchmark",
+      "parser_version": "1.0",
+      "env_id": "remote-p100",
+      "required": true,
+      "allowed_issue_codes": [],
+      "source_date": "2026-06-24"
+    },
+    {
+      "source_id": "p2-benchmark-20260617-e9c268d6a6f1",
+      "comparison_id": "p2-benchmark-20260617",
+      "path": "results/benchmark_frontend_sources/p2_benchmark_20260617.json",
+      "original_path": "results/p2_benchmark_final.json",
+      "sha256": "e9c268d6a6f1c907395dcccd3e39c9b7c3e2be54ac16d25950e3e9ee1070a445",
+      "parser": "p2_benchmark",
+      "parser_version": "1.0",
+      "env_id": "remote-p100",
+      "required": true,
+      "allowed_issue_codes": [],
+      "source_date": "2026-06-17"
     }
   ]
 }
