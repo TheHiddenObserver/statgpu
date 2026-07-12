@@ -98,10 +98,7 @@ jobs:
       - run: npm run test:e2e
 
   publish-june-assets:
-    if: >-
-      github.event_name == 'pull_request' &&
-      github.event.pull_request.head.repo.full_name == github.repository &&
-      github.event.pull_request.head.ref == 'frontend-dashboard-data-pipeline'
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -115,15 +112,13 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
-      - name: Validate Python pipeline
-        run: |
-          python -m pip install -U pip pytest jsonschema
+      - run: python -m pip install -U pip pytest jsonschema
+      - run: |
           pytest \
             dev/tests/test_benchmark_frontend_data.py \
             dev/tests/test_frontend_contracts.py \
             dev/tests/test_frontend_domain_coverage.py -v
-      - name: Generate and build
-        run: |
+      - run: |
           python dev/benchmarks/generate_benchmark_data.py \
             --out frontend/public/data/benchmark_data.json \
             --report frontend/public/data/parse_report.json \
@@ -135,68 +130,7 @@ jobs:
           npm run build
           npx playwright install --with-deps chromium
           npm run test:e2e
-      - name: Update benchmark index
-        run: |
-          python - <<'PY'
-          from pathlib import Path
-          import re
-
-          path = Path('docs/en/guides/benchmarks.md')
-          text = path.read_text(encoding='utf-8')
-          replacement = '''## Benchmark Dashboard
-
-- **Interactive dashboard**: [Open Dashboard](../../assets/benchmarks/index.html)
-- **Dashboard guide**: [Filters, charts, metrics, and reproduction](statgpu_benchmark_dashboard.md)
-
-The canonical dashboard is restricted to benchmark sources dated **2026-06-01 or later**. Eight sources are currently registered; April 2026 ElasticNet, LassoCV, comprehensive-validation, Cox package-comparison, and knockoff results are not connected.
-
-The current bundle covers robust/quantile, unsupervised, ordered, nonparametric, panel, covariance, survival, GLM, and recent linear-model benchmarks. Linear models use the June 2026 squared-error rows from `penalized_glm_perf_20260622.json` and `glm_solver_20260623.json`.
-
-Current capabilities:
-
-- Environment and multi-category navigation.
-- Progressive model, variant, penalty, solver, and scale filters.
-- NumPy, CuPy, and Torch backend selection.
-- Context-aware external comparisons with scikit-learn, statsmodels, linearmodels, and pyGAM.
-- Timing and speedup charts with distinct computed and runner-reported semantics.
-- Sortable run-level table.
-- Validation, accuracy, inference, prediction, convergence, and selection panels.
-- Source provenance, parse-report metadata, and source-inventory coverage.
-
-Generate and validate the canonical bundle:
-
-```bash
-python dev/benchmarks/generate_benchmark_data.py \
-  --out frontend/public/data/benchmark_data.json \
-  --report frontend/public/data/parse_report.json \
-  --inventory-out frontend/public/data/source_inventory.json \
-  --deterministic --strict-sources
-
-python dev/benchmarks/generate_benchmark_data.py --check --strict-sources
-```
-
-Build the deployed dashboard:
-
-```bash
-cd frontend
-npm ci
-npm run typecheck
-npm run build
-```
-'''
-          text, count = re.subn(
-              r'## Benchmark Dashboard\n.*?(?=\n---)',
-              replacement,
-              text,
-              count=1,
-              flags=re.S,
-          )
-          if count != 1:
-              raise RuntimeError('Benchmark Dashboard section not found exactly once')
-          path.write_text(text, encoding='utf-8')
-          PY
-      - name: Restore permanent workflow and publish
-        run: |
+      - run: |
           git show b63e184fa2d9de3c1d2ba8f83c251c5788ca0847:.github/workflows/benchmark-frontend.yml > .github/workflows/benchmark-frontend.yml
           read runs models <<EOF
           $(python - <<'PY'
