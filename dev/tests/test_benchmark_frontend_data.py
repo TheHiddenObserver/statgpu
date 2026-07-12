@@ -210,9 +210,9 @@ class TestManifestMode:
     def test_canonical_frameworks_present(self, generator, manifest, results_dir):
         output, _, _ = generator(results_dir, manifest=manifest)
         framework_ids = {item["framework_id"] for item in output["frameworks"]}
-        assert {"statgpu", "sklearn", "linearmodels", "pygam"} <= framework_ids
+        assert {"statgpu", "sklearn", "statsmodels", "linearmodels", "pygam"} <= framework_ids
         assert framework_ids.isdisjoint(
-            {"glmnet", "statsmodels", "lifelines", "scikit_survival", "knockpy"}
+            {"glmnet", "lifelines", "scikit_survival", "knockpy"}
         )
 
     def test_canonical_models(self, generator, manifest, results_dir):
