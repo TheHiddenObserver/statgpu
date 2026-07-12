@@ -4,19 +4,22 @@ Interactive benchmark dashboard for statgpu, built with Vite, TypeScript, and EC
 
 ## Current coverage
 
-The canonical bundle currently contains 14 registered sources, 1,623 normalized runs, and 36 models. The categories addressed by the current data-pipeline expansion now have benchmark rows, including:
+The canonical dashboard is restricted to benchmark sources dated **2026-06-01 or later**. The manifest currently registers eight sources:
 
-- penalized GLM, GLM, and linear models;
-- robust and quantile regression;
-- survival analysis;
-- unsupervised learning;
-- ordered models;
-- nonparametric methods;
-- panel models;
-- covariance estimation;
-- feature selection.
+- `p2_benchmark_20260617.json`;
+- `penalized_glm_perf_20260622.json`;
+- `coxph_efron_20260622.json`;
+- `glm_solver_20260623.json`;
+- `loss_functions_20260623.json`;
+- `new_modules_full_20260624.json`;
+- `unsupervised_20260627.json`;
+- `ordered_inference_pr74.json`.
 
-The linear-model category includes the June 2026 squared-error rows from `penalized_glm_perf_20260622.json` and `glm_solver_20260623.json`, in addition to the older ElasticNet and LassoCV comparisons.
+Covered categories include penalized GLM and GLM, recent linear models, robust and quantile regression, survival analysis, unsupervised learning, ordered models, nonparametric methods, panel models, and covariance estimation.
+
+The linear-model category uses the June 2026 squared-error rows from `penalized_glm_perf_20260622.json` and `glm_solver_20260623.json`. April 2026 ElasticNet, LassoCV, comprehensive-validation, Cox package-comparison, and knockoff results are intentionally not registered.
+
+The feature-selection category remains part of Schema v1.1, but it is intentionally empty until a June 2026-or-later benchmark is available.
 
 ## What the dashboard shows
 
@@ -58,7 +61,7 @@ npm run dev
 # Open http://localhost:5173
 ```
 
-The generator automatically uses `dev/benchmarks/frontend_sources.json`. Required canonical sources are SHA256-verified; unapproved warnings or errors fail under `--strict-sources`.
+The generator automatically uses `dev/benchmarks/frontend_sources.json`. Required canonical sources are SHA256-verified. Manifest loading rejects a missing `source_date` or any source earlier than the configured `minimum_source_date`, currently `2026-06-01`. Unapproved warnings or errors fail under `--strict-sources`.
 
 ## Validation and tests
 
@@ -78,7 +81,7 @@ npx playwright install --with-deps chromium
 npm run test:e2e
 ```
 
-The domain-coverage suite verifies that robust/quantile, unsupervised, ordered, nonparametric, panel, and covariance categories all produce runs; it also guards the June 2026 linear-model sources and quantile GPU inference rows.
+The domain-coverage suite verifies that robust/quantile, unsupervised, ordered, nonparametric, panel, and covariance categories produce runs. It also guards the June 2026 linear-model sources, quantile GPU inference rows, and the ban on pre-June dashboard sources.
 
 ## Production build and staleness
 
