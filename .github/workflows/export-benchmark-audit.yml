@@ -1,0 +1,32 @@
+name: Export Benchmark Audit
+
+on:
+  push:
+    branches: [frontend-dashboard-data-pipeline]
+    paths:
+      - '.github/workflows/export-benchmark-audit.yml'
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Inventory benchmark artifacts
+        run: |
+          find results dev/results -type f \( -name '*.json' -o -name '*.md' \) -print | sort > benchmark-file-inventory.txt
+          find dev/benchmarks -type f -print | sort > benchmark-code-inventory.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-audit
+          path: |
+            benchmark-file-inventory.txt
+            benchmark-code-inventory.txt
+            results/**/*.json
+            dev/results/**/*.json
+            dev/benchmarks/**/*.py
+            dev/benchmarks/**/*.json
+            dev/tests/bench*.py
+            dev/tests/_bench*.py
+            frontend/src/**/*.ts
+          if-no-files-found: warn
+          retention-days: 1
