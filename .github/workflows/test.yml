@@ -58,6 +58,7 @@ jobs:
             dev/tests/test_module_review_anova_kernel.py \
             dev/tests/test_module_review_covariance_panel.py \
             dev/tests/test_module_review_smoothing_splines_gam_metrics.py \
+            dev/tests/test_three_backend_native_followup.py \
             dev/tests/test_elasticnet_cv.py \
             dev/tests/test_v10_import_smoke.py \
             -q --tb=short
