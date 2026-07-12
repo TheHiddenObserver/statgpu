@@ -4,6 +4,25 @@ All notable changes to statgpu are documented here, organized by date and PR.
 
 ## 2026-07-12
 
+### PR #79 — Public module statistical-contract follow-up
+
+- Extended the repository review beyond Ridge to every top-level public module family,
+  combining full-package high-signal static analysis with targeted numerical invariants,
+  nested-model checks, and parity comparisons against established reference libraries.
+- Corrected two-way ANOVA residual and balance semantics, Welch/post-hoc degenerate cases,
+  chi-square kernels, KernelRidge/KernelRidgeCV scoring, KernelPCA embedding consistency,
+  and Nystroem normalization for indefinite kernels.
+- Corrected empirical precision estimation, Graphical Lasso block-coordinate updates,
+  MinCovDet centered semantics, panel cluster/HAC contracts, Patsy side-array alignment,
+  and rank-deficient panel regression fallbacks.
+- Implemented real spline extrapolation modes; hardened B-spline, KDE, kernel regression,
+  GAM, and binary-metric input contracts.
+- Added three focused regression suites and expanded the permanent Python 3.9–3.12,
+  full-CPU, static-contract, compilation, and complete-collection gates.
+- Validation remains `PARTIAL_REMOTE_PENDING`: all hosted CPU/static gates pass, while
+  physical CuPy/Torch CUDA numerical, memory, type/device, and performance validation is
+  still required for affected GPU paths.
+
 ### PR #79 — Ridge objective and weighted-path consistency follow-up
 
 - Confirmed that statgpu Ridge uses the package-wide average-loss objective rather

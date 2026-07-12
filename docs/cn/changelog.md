@@ -1,13 +1,26 @@
 # Changelog
 
 > 语言：中文  
-> 最后更新：2026-07-11  
+> 最后更新：2026-07-12  
 > 页面定位：变更记录  
 > 切换：[English](en/changelog.md)
 
 语言切换：[English](en/changelog.md)
 
 ## 2026-07
+
+### 修复与加固（2026-07-12）— PR #79 公开模块后续审查
+
+- 将审查范围从 Ridge 扩展到 ANOVA、核方法、协方差、面板模型、KDE/核回归、
+  样条、GAM 与二分类指标等全部顶层公开模块族。
+- 修复双因素 ANOVA 模型分解、Welch/事后检验退化情形、卡方核定义域与 fallback、
+  KernelRidge 评分/CV、KernelPCA 一致性及不定核下 Nystroem 归一化。
+- 修复经验精度矩阵、Graphical Lasso 坐标下降、MinCovDet 中心化语义、面板聚类/HAC
+  协方差、formula 侧数组行对齐及秩亏面板回归的稳定回退。
+- 为样条实现真实的 `error`/`constant`/`linear`/`continue` 外推，并加固 B-spline、
+  KDE、核回归、GAM 与分类指标的有限性、参数、形状和退化情形契约。
+- 新增专项数值回归测试，扩展永久多版本、完整 CPU、静态、编译与收集门禁。
+  当前仍为 `PARTIAL_REMOTE_PENDING`，需完成真实 CuPy/Torch CUDA 验证。
 
 ### 修复与加固（2026-07-11）— PR #79
 

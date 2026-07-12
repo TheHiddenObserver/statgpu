@@ -1,13 +1,30 @@
 # Changelog
 
 > Language: English  
-> Last updated: 2026-07-11
+> Last updated: 2026-07-12
 > This page: Changelog  
 > Switch: [Chinese](../changelog.md)
 
 Language switch: [Chinese](../changelog.md)
 
 ## 2026-07
+
+### Fixed and hardened (2026-07-12) — PR #79 public-module follow-up
+
+- Extended the review beyond Ridge to ANOVA, kernel methods, covariance, panel models,
+  KDE/kernel regression, splines, GAM, and binary metrics.
+- Fixed two-way ANOVA model decomposition, Welch/post-hoc degeneracies, chi-square
+  kernel domain/fallback logic, KernelRidge scoring/CV, KernelPCA consistency, and
+  Nystroem normalization for indefinite kernels.
+- Fixed empirical precision, Graphical Lasso coordinate descent, MinCovDet centering,
+  clustered/HAC panel covariance, formula side-array alignment, and rank-deficient panel
+  regression fallbacks.
+- Implemented actual `error`/`constant`/`linear`/`continue` spline extrapolation and
+  hardened finite-value, parameter, shape, and degeneracy contracts across B-splines,
+  KDE, kernel regression, GAM, and classification metrics.
+- Added focused numerical regression suites and expanded the permanent multi-version,
+  full-CPU, static, compilation, and collection gates. Status remains
+  `PARTIAL_REMOTE_PENDING` until physical CuPy/Torch CUDA validation is complete.
 
 ### Fixed and hardened (2026-07-11) — PR #79
 

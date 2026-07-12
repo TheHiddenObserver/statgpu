@@ -108,6 +108,52 @@ benchmark scripts.
     and weighted objectives, estimating equations, alpha mappings, and inference
     convention. Maintained validation and benchmark scripts use the same mapping.
 
+### Post-Ridge public module audit
+
+1. **ANOVA and post-hoc inference**
+   - Additive two-way ANOVA now absorbs omitted interaction variation into the
+     residual instead of inflating main-effect F statistics.
+   - The balanced-design sums-of-squares implementation rejects unbalanced cells
+     until the API exposes an explicit Type I/II/III convention.
+   - Welch ANOVA preserves fractional denominator degrees of freedom and rejects
+     mixed zero-variance groups rather than silently changing the null hypothesis.
+   - Tukey and Bonferroni comparisons handle identical constant groups without
+     NaN/Inf artifacts and accept optional GPU inputs through an explicit boundary.
+2. **Kernel methods**
+   - The chi-square kernel rejects negative features and its chunked NumPy fallback
+     matches the reference definition.
+   - KernelRidge validates inputs, uses stable solve fallback, and implements
+     force-finite uniform-average multi-output R-squared.
+   - KernelRidgeCV validates folds/grids, avoids unused eigenvectors, and reports
+     actual mean fold R-squared.
+   - KernelPCA uses the unregularized centered-kernel eigenvalues for embeddings so
+     training `fit_transform` and `transform` agree.
+   - Nystroem uses SVD normalization for indefinite kernels instead of converting
+     negative eigenvalues into enormous artificial features.
+3. **Covariance estimators**
+   - EmpiricalCovariance computes the exact precision when possible and adds jitter
+     only as a singular fallback.
+   - GraphicalLasso uses covariance block-coordinate descent, leaves the precision
+     diagonal unpenalized, preserves the empirical covariance diagonal, and returns
+     mutually consistent covariance/precision matrices.
+   - GraphicalLassoCV validates folds and alpha grids; MinCovDet validates support
+     fractions and honors `assume_centered` throughout its C-steps.
+4. **Panel estimators**
+   - Cluster labels are factorized before GPU conversion; clustered/HAC covariance
+     validates labels, lengths, kernels, and bandwidths.
+   - Formula-side entity/time/cluster arrays follow Patsy's retained rows after
+     missing-value filtering.
+   - Pooled, between, first-difference, fixed-effects, and Fama-MacBeth paths use
+     stable pseudoinverse fallbacks and explicit residual-degree/period checks.
+5. **Smoothing, splines, GAM, and metrics**
+   - SplineTransformer now implements real `error`, `constant`, `linear`, and
+     `continue` extrapolation rather than silently returning zero/ignoring modes.
+   - B-spline, KDE, and kernel-regression shared utilities reject non-finite inputs,
+     invalid knots, and non-finite weights.
+   - GAM validates smoothing parameters, shapes, finite data, and constant features,
+     and accepts one-dimensional prediction points for one-feature fits.
+   - Binary evaluation rejects non-finite decision thresholds.
+
 ### Test and CI quality
 
 1. A remote GPU runner was moved out of `dev/tests`, so CPU-only pytest
@@ -135,7 +181,12 @@ benchmark scripts.
    - explicit unweighted and weighted scikit-learn alpha mappings;
    - scalar-only NumPy/Torch weight validation;
    - cache-consumer routing for GPU exact versus Newton Ridge CV.
-8. CI includes Python 3.9-3.12 regression gates, a complete Python 3.11 CPU
+8. Three post-Ridge public-module suites cover:
+   - nested additive/two-way ANOVA identities and degenerate post-hoc cases;
+   - sklearn/reference parity and invariants for kernel/covariance estimators;
+   - formula missing-row alignment and panel covariance/rank-deficiency contracts;
+   - spline extrapolation, smoothing/GAM finite-value contracts, and metric edges.
+9. CI includes Python 3.9-3.12 regression gates, a complete Python 3.11 CPU
    test-tree job, package and maintained-dev-script compilation, high-signal
    static checks, and complete pytest collection.
 
@@ -171,6 +222,8 @@ Required remote checks now include:
 - confirm that GPU Newton Ridge CV does not construct the unused host Gram cache;
 - run the affected UMAP/NNDescent, Cox, knockoff, inference, and ElasticNetCV
   suites on both CuPy CUDA and Torch CUDA;
+- validate kernel, covariance, panel, KDE/kernel-regression, spline, GAM, and
+  post-hoc paths for numerical parity, output type/device, memory, and runtime;
 - verify cleanup hooks and repeated-fit memory behavior.
 
 ### Cox Hessian memory optimization
@@ -197,13 +250,13 @@ explicit.
 
 ## Validation status
 
-GitHub Actions run **#228** passed all permanent gates on the final branch state:
+GitHub Actions run **#268** passed all permanent gates on the final branch state:
 
 - Python 3.9, 3.10, 3.11, and 3.12 selected regression matrices;
 - the complete `dev/tests` CPU suite on Python 3.11;
 - package and maintained validation/benchmark script bytecode compilation;
 - high-signal undefined-name/syntax Ruff checks on modified production modules,
-  including both Ridge CV implementations and the penalized fit/inference paths;
+  including the Ridge, ANOVA, kernel, covariance, panel, smoothing, spline, GAM, and metrics paths;
 - Cox review structure assertions;
 - complete pytest collection without optional GPU import failures.
 
