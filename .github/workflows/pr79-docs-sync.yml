@@ -1,0 +1,37 @@
+name: PR79 Documentation Sync
+
+on:
+  pull_request:
+    branches: [master]
+
+permissions:
+  contents: write
+
+jobs:
+  sync-docs:
+    if: github.head_ref == 'agent/code-review-fixes'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Synchronize public documentation
+        run: python dev/scripts/sync_pr79_public_docs.py
+      - name: Remove temporary synchronizer
+        run: |
+          rm -f dev/scripts/sync_pr79_public_docs.py
+          rm -f .github/workflows/pr79-docs-sync.yml
+      - name: Commit synchronized documentation
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No documentation changes"
+            exit 0
+          fi
+          git commit -m "docs: synchronize native backend documentation"
+          git push origin HEAD:${{ github.head_ref }}
