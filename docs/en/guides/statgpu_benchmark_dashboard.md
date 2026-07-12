@@ -8,7 +8,7 @@ The browser is a presentation layer over a generated benchmark bundle. Raw resul
 
 As of PR #78, the canonical manifest registers **14 benchmark sources** handled by **13 parser implementations**. The generated bundle contains **1,623 normalized runs across 36 models**.
 
-All published categories now contain runs:
+The categories addressed by this expansion now contain benchmark rows:
 
 - Penalized GLM and GLM.
 - Linear models, including June 2026 squared-error performance and solver results.
@@ -37,8 +37,6 @@ The source registry is `dev/benchmarks/frontend_sources.json`. Generated files a
 
 ## Filters
 
-Filters follow a dependency chain:
-
 ```text
 Environment and category
   → Model
@@ -50,7 +48,7 @@ Environment and category
               → External framework
 ```
 
-Changing an upstream value clears incompatible downstream selections. External frameworks are hidden by default and are offered only when relevant to the current filter context.
+Changing an upstream value clears incompatible downstream selections. External frameworks are hidden by default and offered only when relevant to the current context.
 
 Registered external frameworks include scikit-learn, glmnet, statsmodels, lifelines, scikit-survival, knockpy, linearmodels, and pyGAM.
 
@@ -60,8 +58,6 @@ Registered external frameworks include scikit-learn, glmnet, statsmodels, lifeli
 
 The timing chart uses `metrics.timing.fit_time_ms`. Group identity includes comparison, environment, model, case, method configuration, variant, loss, penalty, solver, and scale. Series identity includes framework, backend, and implementation.
 
-This prevents different CoxPH variants, solver configurations, unsupervised algorithms, ordered inference methods, and external packages from overwriting one another.
-
 ### Speedup
 
 A value above one means faster than the reference; a value below one is a slowdown.
@@ -69,13 +65,13 @@ A value above one means faster than the reference; a value below one is a slowdo
 - **Computed** speedups use `reference time / current time` and carry `reference_run_id`.
 - **Runner-reported** speedups are copied from an upstream benchmark and use `reported_semantics: "reported_by_runner"`.
 
-Semantic validation checks computed references, positive timings, compatible comparison/scale identity, and numerical agreement with the timing ratio.
+Semantic validation checks computed references, positive timings, compatible identities, and numerical agreement with the timing ratio.
 
 ## Overview and metric panels
 
 The overview table supports stable keyed sorting, a default 200-row limit, “Show all,” source provenance, and framework-aware display.
 
-Panels appear only when the filtered rows contain the corresponding metric group:
+Panels appear only when filtered rows contain the corresponding metric group:
 
 - **Validation**: pass/warn/fail checks and tolerances.
 - **Accuracy**: coefficient and standard-error differences.
@@ -87,8 +83,6 @@ Panels appear only when the filtered rows contain the corresponding metric group
 The Inference panel is particularly relevant to ordered logit/probit and quantile kernel/bootstrap results.
 
 ## Metric provenance
-
-Metric quality labels are:
 
 - `measured`: directly observed;
 - `reported`: copied from an upstream report;
@@ -105,7 +99,7 @@ The frontend loads:
 - `parse_report.json`: source/run counts and structured issues;
 - `source_inventory.json`: catalog, registration, availability, and parsed counts.
 
-All three files share one `generation_id`. A mismatch means files from different generator executions were mixed.
+All three files share one `generation_id`.
 
 ## Reproduce and test
 
@@ -132,12 +126,12 @@ npm run test:e2e
 
 ## Adding a source
 
-1. Copy the canonical JSON under `results/benchmark_frontend_sources/`.
-2. Register its SHA256, environment, comparison, parser, and allowed issue codes in `frontend_sources.json`.
-3. Implement or reuse a parser in `frontend_data/parsers/` and register it in `registry.py`.
-4. Return schema-compliant runs and model metadata with canonical case/method identities.
-5. Add parser, coverage, and interaction tests.
-6. Regenerate the three-file bundle and rebuild deployed assets.
+1. Copy canonical JSON under `results/benchmark_frontend_sources/`.
+2. Register SHA256, environment, comparison, parser, and allowed issue codes in `frontend_sources.json`.
+3. Implement or reuse a parser and register it in `registry.py`.
+4. Return schema-compliant runs with canonical case/method identities.
+5. Add parser, domain-coverage, and interaction tests.
+6. Regenerate the bundle and rebuild deployed assets.
 
 Technical references:
 
