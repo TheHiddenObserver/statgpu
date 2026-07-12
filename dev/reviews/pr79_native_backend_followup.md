@@ -92,6 +92,23 @@ numeric design matrix:
 - scalar studentized-range, t, normal, and chi-square CDF/quantile operations;
 - user-facing summary conversion to NumPy/Python objects.
 
+## Public documentation synchronization
+
+The public capability and validation claims were synchronized after the native
+backend changes:
+
+- root `CHANGELOG.md`, `docs/en/changelog.md`, and `docs/cn/changelog.md` record
+  the native three-backend follow-up separately from the earlier statistical fixes;
+- root `README.md` now reports the complete ANOVA, covariance, panel, and
+  nonparametric inventories and states the intentional CPU boundaries;
+- bilingual `guides/implemented-methods.md` inventories now include all affected
+  estimators/functions and the backend execution boundary;
+- bilingual ANOVA, covariance, panel, and spline model pages document the corrected
+  algorithms, balanced-design/extrapolation semantics, output backends, and pending
+  physical-CUDA validation;
+- temporary documentation synchronization workflows and scripts were removed after
+  the final files were committed.
+
 ## Remaining validation boundary
 
 The source paths are now backend-native and NumPy/Torch-CPU parity is covered, but
