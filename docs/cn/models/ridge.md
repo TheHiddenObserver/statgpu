@@ -1,7 +1,7 @@
 # Ridge
 
 > 语言: 中文  
-> 最后更新: 2026-05-20  
+> 最后更新: 2026-07-12  
 > 页面定位: 模型文档  
 > 切换: [English](../en/models/ridge.md)
 
@@ -17,23 +17,45 @@
 
 ## Objective Function
 
-估计目标为：
+对于无权重样本，statgpu 使用平均损失目标：
 
 $$
-\min_{\beta} \|y - X\beta\|_2^2 + \alpha\|\beta\|_2^2
+\min_{b,\beta}
+\frac{1}{2n}\sum_{i=1}^n
+\left(y_i-b-x_i^\top\beta\right)^2
++\frac{\alpha}{2}\|\beta\|_2^2.
 $$
 
-其中截距项按当前实现单独处理，不作为 L2 惩罚对象。
+当传入 `sample_weight=w` 时，数据拟合项按照总权重归一化：
+
+$$
+\min_{b,\beta}
+\frac{1}{2\sum_i w_i}\sum_{i=1}^n
+w_i\left(y_i-b-x_i^\top\beta\right)^2
++\frac{\alpha}{2}\|\beta\|_2^2.
+$$
+
+截距项不受 L2 惩罚。因而将所有样本权重同时乘以任意正数，不会改变拟合结果。
 
 ## Estimating Equation
 
-Ridge 的一阶条件为：
+使用普通均值或加权均值对数据中心化后，一阶条件为：
 
 $$
-(X^\top X + \alpha I)\hat\beta = X^\top y
+\left(X_c^\top W X_c + \alpha\,s_w I\right)\hat\beta
+= X_c^\top W y_c,
 $$
 
-当前 `Ridge` 默认使用 `solver="exact"`，即闭式 normal-equation 路径。该路径支持 CPU、CuPy 和 Torch 后端。与 sklearn 做目标函数尺度对齐时，请使用 `sklearn_alpha = n_samples * statgpu_alpha`。
+其中，无权重时 $W=I$、$s_w=n$；加权时 $W=\operatorname{diag}(w)$、$s_w=\sum_iw_i$。
+
+`Ridge` 默认使用 `solver="exact"`。exact 与 FISTA 路径、`PenalizedLinearRegression(loss="squared_error", penalty="l2")` 以及 `RidgeCV` 均使用同一个平均损失尺度。
+
+scikit-learn 使用未归一化的残差平方和。比较系数时应使用：
+
+- 无权重：`sklearn_alpha = n_samples * statgpu_alpha`；
+- 加权：`sklearn_alpha = sample_weight.sum() * statgpu_alpha`。
+
+直接使用相同数值的 `alpha`，实际比较的是两个不同目标函数。
 
 ## Covariance/Inference
 
@@ -41,20 +63,21 @@ $$
 - `cov_type="hc0"|"hc1"|"hc2"|"hc3"`：sandwich 风格稳健协方差。
 - `cov_type="hac"`：Newey-West Bartlett kernel 协方差，`hac_maxlags` 控制最大滞后阶。
 - `compute_inference=True` 时返回 `_bse`、`_tvalues`、`_pvalues`、`_conf_int`。
+- 加权推断使用加权设计矩阵 `[sqrt(w), sqrt(w) * X]`，因此截距列、残差、bread 和 meat 与估计阶段采用相同权重约定。
 
 ## Parameters
 
 | Parameter | Default | Description |
 |---|---:|---|
-| `alpha` | `1.0` | L2 正则化强度 |
+| `alpha` | `1.0` | 平均损失尺度下的 L2 正则化强度 |
 | `fit_intercept` | `True` | 是否拟合截距 |
-| `device` | `"auto"` | `cpu` / `cuda` / `auto` |
+| `device` | `"auto"` | `cpu` / `cuda` / `torch` / `auto` |
 | `n_jobs` | `None` | 并行任务数 |
 | `compute_inference` | `True` | 是否计算标准误、t 值、p 值和置信区间 |
 | `cov_type` | `"nonrobust"` | `nonrobust` / `hc0` / `hc1` / `hc2` / `hc3` / `hac` |
 | `hac_maxlags` | `None` | `cov_type="hac"` 时的最大滞后阶 |
-| `gpu_memory_cleanup` | `False` | `fit` 后尝试释放 CuPy memory pool |
-| `solver` | `"exact"` | thin-wrapper 路径的求解器；默认使用 L2 闭式解 |
+| `gpu_memory_cleanup` | `False` | `fit` 后尽可能释放 GPU 内存 |
+| `solver` | `"exact"` | 默认使用 L2 闭式解；`fista` 使用相同目标函数 |
 
 ## CPU+GPU Examples
 
@@ -63,9 +86,9 @@ from statgpu.linear_model import Ridge
 
 # CPU
 m_cpu = Ridge(alpha=1.0, device="cpu", cov_type="hc3", compute_inference=True)
-m_cpu.fit(X, y)
+m_cpu.fit(X, y, sample_weight=w)
 
-# GPU
+# CuPy CUDA
 m_gpu = Ridge(
     alpha=1.0,
     device="cuda",
@@ -73,31 +96,32 @@ m_gpu = Ridge(
     compute_inference=True,
     gpu_memory_cleanup=True,
 )
-m_gpu.fit(X, y)
+m_gpu.fit(X, y, sample_weight=w)
 ```
 
 ## strict/approx difference
 
-当前没有单独公开的 approx 模式。默认路径是经过验证的发布路径；CPU/GPU 差异预期主要来自浮点线性代数实现差异。
+当前没有单独公开的 approximate 模式。CPU 测试覆盖 exact/FISTA、加权/无权重、formula、推断和 RidgeCV 契约；真实 CuPy/Torch CUDA 数值与性能验证仍属于远程验证门禁。
 
 ## Outputs
 
 - 系数：`intercept_`、`coef_`
 - 推断：`_bse`、`_tvalues`、`_pvalues`、`_conf_int`
-- 诊断：`r_squared`、`adj_r_squared`、`f_statistic`、`aic`、`bic`
+- 诊断：`rsquared`、`rsquared_adj`、`fvalue`、`aic`、`bic`
 - 方法：`fit`、`predict`、`score`、`summary`
 
 ## FAQ
 
-- `alpha` 如何选择？建议先使用对数网格交叉验证，例如 `1e-4` 到 `1e2`，再固定任务参数。
+- `alpha` 如何选择？建议使用 `RidgeCV`，或在 statgpu 的平均损失尺度下使用任务相关的对数网格。
+- 为什么相同 `alpha` 与 sklearn 不一致？两者残差项的归一化方式不同，应使用上面的显式映射。
+- 将所有样本权重同时缩放会改变模型吗？不会，因为加权损失除以 `sum(sample_weight)`。
 - 什么时候设置 `hac_maxlags`？当 `cov_type="hac"` 且存在时间相关时建议显式设置，否则使用默认规则。
-- 为什么和 sklearn 的 `alpha` 不能直接同名比较？statgpu 的 penalized 目标使用平均 loss 尺度；与 sklearn 对比 Ridge 时应使用 `sklearn_alpha = n_samples * statgpu_alpha`。
 
 ## External Validation
 
-- Ridge inference/covariance 行为复用与 `LinearRegression` 对齐的稳健协方差实现。
-- 相关一致性检查维护在 `dev/tests/test_external_consistency.py`。
-- penalized Gaussian 路径的外部对比由远程 `myconda` accuracy/benchmark 脚本覆盖。
+- 内部一致性通过平均损失闭式解以及通用 penalized-linear estimator 进行验证。
+- 与 sklearn 比较时使用无权重或加权情况下的显式 alpha 映射。
+- 加权 exact/FISTA、formula 缺失行权重对齐、推断和 RidgeCV 权重整体缩放不变性由 `dev/tests/test_ridge_weighted_consistency.py` 覆盖。
 
 ## References
 
