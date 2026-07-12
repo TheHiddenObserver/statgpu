@@ -200,3 +200,72 @@ def test_backend_weight_validation_returns_scalar_sum_without_host_vector_conver
         _validate_sample_weight_backend(
             torch.tensor([1.0, float("nan")], dtype=torch.float64), 2, "torch"
         )
+
+
+
+def test_penalized_glm_cv_weighted_alpha_grid_matches_null_gradient():
+    from statgpu.linear_model.penalized._penalized_cv import PenalizedGLM_CV
+
+    rng = np.random.default_rng(1209)
+    X = rng.normal(size=(160, 5))
+    y = 0.7 + X @ rng.normal(size=5) + rng.normal(scale=0.4, size=160)
+    w = rng.uniform(0.1, 3.0, size=160)
+    cv = PenalizedGLM_CV(
+        loss="squared_error", penalty="l2", n_alphas=6,
+        cv=3, random_state=4, device="cpu",
+    )
+    grid = cv._generate_alpha_grid(X, y, sample_weight=w)
+
+    total = float(np.sum(w))
+    x_mean = np.sum(X * w[:, None], axis=0) / total
+    y_mean = float(np.sum(y * w) / total)
+    expected_max = float(
+        np.max(np.abs((X - x_mean).T @ (w * (y - y_mean)) / total))
+    )
+    np.testing.assert_allclose(grid[0], expected_max, rtol=1e-12, atol=1e-12)
+    np.testing.assert_allclose(
+        grid,
+        cv._generate_alpha_grid(X, y, sample_weight=13.0 * w),
+        rtol=1e-12,
+        atol=1e-12,
+    )
+
+
+def test_penalized_glm_cv_weighted_ridge_is_weight_scale_invariant():
+    from statgpu.linear_model.penalized._penalized_cv import PenalizedGLM_CV
+
+    rng = np.random.default_rng(1210)
+    X = rng.normal(size=(150, 5))
+    y = -0.3 + X @ rng.normal(size=5) + rng.normal(scale=0.45, size=150)
+    w = rng.uniform(0.15, 2.8, size=150)
+
+    kwargs = dict(
+        loss="squared_error", penalty="l2", n_alphas=7,
+        cv=3, random_state=7, device="cpu", max_iter=3000, tol=1e-10,
+    )
+    first = PenalizedGLM_CV(**kwargs).fit(X, y, sample_weight=w)
+    second = PenalizedGLM_CV(**kwargs).fit(X, y, sample_weight=8.0 * w)
+
+    np.testing.assert_allclose(first.alpha_grid_, second.alpha_grid_, rtol=1e-12, atol=1e-12)
+    assert first.alpha_ == second.alpha_
+    np.testing.assert_allclose(first.coef_, second.coef_, rtol=1e-10, atol=1e-10)
+    np.testing.assert_allclose(first.intercept_, second.intercept_, rtol=1e-10, atol=1e-10)
+
+
+def test_gpu_newton_ridge_cv_does_not_request_unused_gram_cache():
+    from statgpu.linear_model.penalized._penalized_cv import (
+        _should_build_squared_error_cv_cache,
+    )
+
+    assert not _should_build_squared_error_cv_cache(
+        "squared_error", "l2", "newton", "torch"
+    )
+    assert not _should_build_squared_error_cv_cache(
+        "squared_error", "l2", "newton", "cuda"
+    )
+    assert _should_build_squared_error_cv_cache(
+        "squared_error", "l2", "exact", "torch"
+    )
+    assert _should_build_squared_error_cv_cache(
+        "squared_error", "l1", "fista", "cuda"
+    )
