@@ -15,6 +15,7 @@ from .domains import (
     parse_new_modules_benchmark,
     parse_p2_benchmark,
 )
+from .pr74 import parse_pr74_inference_benchmark
 
 __all__ = [
     "parse_penalized_glm_bench_perf",
@@ -27,6 +28,7 @@ __all__ = [
     "parse_knockoff_benchmark",
     "parse_loss_functions_benchmark",
     "parse_ordered_inference_benchmark",
+    "parse_pr74_inference_benchmark",
     "parse_unsupervised_benchmark",
     "parse_new_modules_benchmark",
     "parse_p2_benchmark",
