@@ -1,0 +1,88 @@
+name: Update Benchmark Index
+
+on:
+  push:
+    branches: [frontend-dashboard-data-pipeline]
+    paths:
+      - '.github/workflows/update-benchmark-index.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: frontend-dashboard-data-pipeline
+      - name: Refresh dashboard section
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('docs/en/guides/benchmarks.md')
+          text = path.read_text(encoding='utf-8')
+          marker = '\n---\n'
+          if marker not in text:
+              raise RuntimeError('benchmark index section marker not found')
+          _, tail = text.split(marker, 1)
+          header = '''# Benchmark Index
+
+> Language: English  
+> Last updated: 2026-07-12  
+> This page: Benchmark index  
+> Switch: [Chinese](../../cn/guides/benchmarks.md)
+
+## Benchmark Dashboard
+
+- **Interactive dashboard**: [Open Dashboard](../../assets/benchmarks/index.html)
+- **Dashboard guide**: [Filters, charts, metrics, and reproduction](statgpu_benchmark_dashboard.md)
+
+The dashboard presents the canonical bundle produced by `dev/benchmarks/generate_benchmark_data.py`. As of PR #78, it contains **14 registered sources, 1,623 normalized runs, and 36 models**.
+
+The current expansion connects robust/quantile, unsupervised, ordered, nonparametric, panel, and covariance benchmarks. The linear-model category also includes the June 2026 squared-error rows from `penalized_glm_perf_20260622.json` and `glm_solver_20260623.json`, rather than relying only on the older ElasticNet and LassoCV sources.
+
+Current capabilities:
+
+- Environment and multi-category navigation.
+- Progressive model, variant, penalty, solver, and scale filters.
+- NumPy, CuPy, and Torch backend selection.
+- Context-aware external comparisons with scikit-learn, glmnet, statsmodels, lifelines, scikit-survival, knockpy, linearmodels, and pyGAM.
+- Timing and speedup charts with distinct computed and runner-reported semantics.
+- Sortable run-level table.
+- Validation, accuracy, inference, prediction, convergence, and selection panels.
+- Source provenance, parse-report metadata, and source-inventory coverage.
+
+Generate and validate the canonical bundle:
+
+```bash
+python dev/benchmarks/generate_benchmark_data.py \
+  --out frontend/public/data/benchmark_data.json \
+  --report frontend/public/data/parse_report.json \
+  --inventory-out frontend/public/data/source_inventory.json \
+  --deterministic --strict-sources
+
+python dev/benchmarks/generate_benchmark_data.py --check --strict-sources
+```
+
+Build the deployed dashboard:
+
+```bash
+cd frontend
+npm ci
+npm run typecheck
+npm run build
+npm run test:e2e
+```
+'''
+          path.write_text(header + marker + tail, encoding='utf-8')
+          PY
+      - name: Commit update
+        run: |
+          rm -f .github/workflows/update-benchmark-index.yml
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -A
+          git commit -m 'docs(benchmarks): refresh dashboard coverage summary'
+          git push origin HEAD:frontend-dashboard-data-pipeline
