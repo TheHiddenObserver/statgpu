@@ -1,6 +1,8 @@
 name: Tests
 
 on:
+  push:
+    branches: [agent/code-review-fixes]
   pull_request:
     branches: [master]
 
@@ -9,13 +11,13 @@ permissions:
 
 jobs:
   repair-ridge-changelogs:
-    if: github.head_ref == 'agent/code-review-fixes'
+    if: github.ref == 'refs/heads/agent/code-review-fixes' || github.head_ref == 'agent/code-review-fixes'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           ref: agent/code-review-fixes
-          fetch-depth: 4
+          fetch-depth: 0
       - name: Restore full English history and add Ridge entries
         run: |
           python - <<'PY'
@@ -25,9 +27,10 @@ jobs:
           en_path = Path('docs/en/changelog.md')
           cn_path = Path('docs/cn/changelog.md')
 
-          # HEAD~2 is the branch state before the accidental full-file replacement.
+          # This commit predates the accidental full-file English replacement.
           en = subprocess.check_output(
-              ['git', 'show', 'HEAD~2:docs/en/changelog.md'], text=True
+              ['git', 'show', '1abbeb6b1ea556fdb4feacdde84c5f452dfa224d:docs/en/changelog.md'],
+              text=True,
           )
           en = en.replace('> Last updated: 2026-07-08', '> Last updated: 2026-07-12', 1)
           en_marker = '### Fixed and hardened (2026-07-12) — PR #79 Ridge follow-up'
@@ -80,8 +83,13 @@ jobs:
               cn = cn.replace('## 2026-07\n\n', '## 2026-07\n\n' + cn_section, 1)
           cn_path.write_text(cn)
           PY
+          rm -f .github/ridge-changelog-trigger
+          if git diff --quiet; then
+            echo 'Changelogs already repaired.'
+            exit 0
+          fi
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add docs/en/changelog.md docs/cn/changelog.md
+          git add docs/en/changelog.md docs/cn/changelog.md .github/ridge-changelog-trigger
           git commit -m 'docs: preserve and synchronize Ridge changelog history'
           git push origin HEAD:agent/code-review-fixes
