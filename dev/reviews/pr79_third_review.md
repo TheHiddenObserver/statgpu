@@ -46,8 +46,13 @@ non-finite input behavior, repeated device conversions, and GPU-sensitive alloca
 - Panel/formula/covariance plus new tests: 90 passed locally.
 - Kernel-method, smoothing/spline/GAM, unsupervised, RidgeCV, and third-review focused
   suites passed in isolated local runs; optional CUDA tests remain hardware-gated.
-- The permanent Python 3.9–3.12 matrix, full Python 3.11 CPU tree, compilation, Ruff,
-  structural checks, and collection must pass on the final clean branch.
+- The checksum-verified application workflow passed package compilation and the focused
+  Torch-CPU/cross-module regression set before committing the source changes.
+- Permanent GitHub Actions run **#367** passed the Python 3.9, 3.10, 3.11, and 3.12
+  regression matrices, the complete Python 3.11 CPU test tree, maintained-script/package
+  compilation, expanded Ruff checks, Cox structural assertions, and complete collection.
+- Temporary snapshot/application workflows and patch-transfer files were removed before
+  the final permanent run.
 
 ## `dev/AGENTS.md` compliance
 
