@@ -1,0 +1,59 @@
+name: PR79 Third Review Apply
+
+on:
+  pull_request:
+    branches: [master]
+
+permissions:
+  contents: write
+
+jobs:
+  apply-review:
+    if: github.head_ref == 'agent/code-review-fixes'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Reconstruct and verify patch
+        run: |
+          cat dev/patches/pr79-review3/part-*.b64 > /tmp/review3.b64
+          base64 -d /tmp/review3.b64 > /tmp/review3.patch
+          echo "5f8239f47ebb6728d63c3721c8237bf94619a89386f0f14cd300ebded9b97b36  /tmp/review3.patch" | sha256sum -c -
+          git apply --check /tmp/review3.patch
+          git apply /tmp/review3.patch
+      - name: Install validation dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[validation,formula]"
+          python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+      - name: Compile and run focused regressions
+        run: |
+          python -m compileall -q statgpu dev/tests/test_third_full_review.py
+          python -m pytest \
+            dev/tests/test_third_full_review.py \
+            dev/tests/test_module_review_covariance_panel.py \
+            dev/tests/test_kernel_methods_p2.py \
+            dev/tests/test_module_review_anova_kernel.py \
+            dev/tests/test_module_review_smoothing_splines_gam_metrics.py \
+            dev/tests/test_ridge_cv.py \
+            dev/tests/test_unsupervised_pca.py \
+            dev/tests/test_unsupervised_kmeans.py \
+            dev/tests/test_unsupervised_gmm.py \
+            dev/tests/test_unsupervised_nmf.py \
+            -q --tb=short
+      - name: Remove temporary transfer files
+        run: |
+          rm -rf dev/patches/pr79-review3
+          rm -f .github/workflows/pr79-third-review-apply.yml
+      - name: Commit review fixes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "fix: complete third repository review cycle"
+          git push origin HEAD:${{ github.head_ref }}
