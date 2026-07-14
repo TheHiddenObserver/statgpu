@@ -1,7 +1,10 @@
 # StatGPU 文档
 
-> 语言：中文  
-> 切换：[English](en/README.md)
+> 语言：中文
+>
+> 最后更新：2026-07-12
+>
+> 切换：[English](../en/README.md)
 
 ## 快速开始
 
@@ -45,7 +48,8 @@
 - [有序模型](models/ordered.md) — ordered logit/probit
 
 ### 生存分析
-- [CoxPH](models/coxph.md) — Cox 比例风险 + 惩罚
+- [CoxPH / CoxPHCV / PenalizedCoxPHModel](models/coxph.md) — Exact、start-stop、
+  strata、subject、稳健推断、L2 CV 与五类惩罚估计
 
 ### 无监督学习
 - [无监督概览](models/unsupervised.md) — 13 种算法：PCA、KMeans、DBSCAN、GMM、UMAP、NNDescent、t-SNE、NMF、Agglomerative、TruncatedSVD、IncrementalPCA、MiniBatchKMeans、MiniBatchNMF

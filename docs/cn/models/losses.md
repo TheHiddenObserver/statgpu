@@ -1,8 +1,11 @@
 # 损失函数 (LossBase)
 
-> 语言：中文  
-> 最后更新：2026-07-01  
-> 页面定位：模型文档  
+> 语言：中文
+>
+> 最后更新：2026-07-12
+>
+> 页面定位：模型文档
+>
 > 切换：[English](../../en/models/losses.md)
 
 ## 概述
@@ -14,7 +17,7 @@
 > 各损失详细文档参见：
 > - [分位数回归](quantile.md) — pinball 损失、PenalizedQuantileRegression、Proximal IRLS-CD
 > - [稳健回归](robust.md) — Huber、Bisquare、Fair 损失、PenalizedRobustRegression
-> - [CoxPH](coxph.md) — Cox 部分似然、Efron ties
+> - [CoxPH](coxph.md) — Breslow/Efron/Exact、start-stop、分层、推断与 CV
 
 五种新损失类型扩展了 `LossBase`（在已有 7 种 GLM 家族之外）：
 
@@ -26,8 +29,10 @@
 | Fair | `FairLoss` | `MASS::rlm(psi="fair")` | Fair M-估计器 |
 | Cox PH | `CoxPartialLikelihoodLoss` | `survival::coxph()` | 生存分析 |
 
-所有损失自动继承 10 种惩罚类型和 8 种求解器。
-惩罚封装器：`PenalizedQuantileRegression`、`PenalizedRobustRegression`、`PenalizedCoxRegression`。
+`LossBase` 提供统一接口，但可用组合仍由各损失和公开 estimator 的能力约束，不应理解为
+每个损失都自动支持全部惩罚和求解器。惩罚封装器包括
+`PenalizedQuantileRegression`、`PenalizedRobustRegression` 和
+`PenalizedCoxPHModel`；其中 Cox 封装器当前验证 L1、L2、Elastic Net、SCAD、MCP 五类惩罚。
 
 ## 路径
 
@@ -86,7 +91,10 @@ $$ \rho_c(u) = \begin{cases} \frac{c^2}{6}\left[1 - \left(1 - (\frac{u}{c})^2\ri
 
 $$ \ell(\beta) = -\frac{1}{n} \log L(\beta) $$
 
-其中 $L(\beta)$ 为 Breslow 或 Efron 部分似然。
+`CoxPartialLikelihoodLoss` 接收 `[time, event]` 二列响应，$L(\beta)$ 为 Breslow 或
+Efron 部分似然。它是 `PenalizedCoxPHModel` 的标准右删失损失。需要 Exact ties、
+$(\text{start},\text{stop}]$、`strata` 或 `subject_id` 时，应使用
+[`CoxPH`/`CoxPHCV`](coxph.md) 的计数过程实现。
 
 ## 求解器兼容性
 
@@ -94,9 +102,9 @@ $$ \ell(\beta) = -\frac{1}{n} \log L(\beta) $$
 |--------|----------|-------|----------|------|--------|
 | FISTA | ✅ | ✅ | ✅ | ✅ | ✅ |
 | FISTA-BB | ✅ | ✅ | ✅ | ✅ | ✅ |
-| FISTA-LLA | ✅ (SCAD/MCP) | ✅ | ✅ | ✅ | ✅ |
+| FISTA-LLA | ✅ (SCAD/MCP) | ✅ | ✅ | ✅ | ✅ (SCAD/MCP) |
 | Proximal IRLS-CD | ✅ (SCAD/MCP) | ❌ | ❌ | ❌ | ❌ |
-| Proximal Newton | ❌ (无 Hessian) | ✅ (5-10 iter) | ✅ (5-10 iter) | ✅ | ✅ (5-10 iter) |
+| Proximal Newton | ❌ (无 Hessian) | ✅ (5-10 iter) | ✅ (5-10 iter) | ✅ | ❌（Cox 当前走 FISTA-LLA） |
 | Newton | ❌ (无 Hessian) | ✅ | ✅ | ✅ | ✅ |
 | L-BFGS | ✅ | ✅ | ✅ | ✅ | ✅ |
 | ADMM | ✅ | ✅ | ✅ | ✅ | ✅ |
@@ -136,6 +144,9 @@ $$ \ell(\beta) = -\frac{1}{n} \log L(\beta) $$
 | 参数 | 默认值 | 说明 |
 |---|---:|---|
 | `ties` | `"breslow"` | ties 处理方法：`"breslow"` 或 `"efron"` |
+
+此处的 loss 对象不接受 `ties="exact"`。Exact 是 `statgpu.survival.CoxPH` 和
+`CoxPHCV` 的 estimator 级能力。
 
 ## 示例
 
@@ -193,11 +204,20 @@ model.fit(X_t, y_t)
 - **QuantileLoss**: 与 R `quantreg::rq()`（Frisch-Newton IRLS）和 sklearn `QuantileRegressor`（HiGHS LP 求解器）对齐。系数精度 1e-6。
 - **HuberLoss**: 与 R `MASS::rlm()` Huber psi 函数对齐。
 - **BisquareLoss**: 与 R `MASS::rlm(psi="bisquare")` 对齐。支持 SCAD/MCP 通过 proximal Newton（5-10 次迭代收敛）。
-- **CoxPartialLikelihoodLoss**: Efron tied-event 梯度/Hessian 与 `statsmodels PHReg(ties='efron')` 对齐。CI 包含 reference parity 测试。
+- **CoxPartialLikelihoodLoss / CoxPH**：Breslow/Efron 与 statsmodels PHReg 对齐；Exact
+  由小规模暴力枚举验证。2026-07-12 的
+  [`quick`](../../../results/survival_completion_2026-07-12.json) 与
+  [`full`](../../../results/survival_completion_full_2026-07-12.json) 产物覆盖 NumPy、CuPy、
+  Torch 的 delayed-entry、Exact、重 ties、stratified start-stop 兼容性与精度矩阵。
 
 ## 注意事项
 
-- `CoxPartialLikelihoodLoss` 支持 CuPy CUDA / PyTorch-CUDA kernel（Breslow 和 Efron）。显式 GPU 输入在 GPU 路径失败时 `raise RuntimeError`；CPU 输入使用 numpy 实现。
+- `CoxPartialLikelihoodLoss` 的 Breslow/Efron 路径在 NumPy、CuPy CUDA 和 Torch CUDA
+  后端原生执行；Torch 不依赖 CuPy 桥接。显式 GPU 输入在对应路径失败时
+  `raise RuntimeError`，不会回退 NumPy。
+- `PenalizedCoxPHModel` 无可识别截距，且当前仅提供估计：`fit_intercept=True` 会报错，
+  `compute_inference=True` 会抛出 `NotImplementedError`。SCAD/MCP 使用 FISTA-LLA；
+  需要标准误和基线风险时使用 `CoxPH`。
 - `QuantileLoss` 的 `smooth_gradient=False` 且 `has_hessian=False`；对 SCAD/MCP 使用 FISTA 或 proximal IRLS-CD。
 - `HuberLoss` 和 `BisquareLoss` 的 `has_hessian=True`；proximal Newton 对 SCAD/MCP 5-10 次迭代收敛。
 - 所有损失接受 `sample_weight`（`CoxPartialLikelihoodLoss` 除外，会 `raise NotImplementedError`）。

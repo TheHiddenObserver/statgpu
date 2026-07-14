@@ -1,8 +1,10 @@
 # 模型总览
 
-> 语言：中文  
-> 最后更新：2026-07-01  
-> 切换：[English](../en/models/README.md)
+> 语言：中文
+>
+> 最后更新：2026-07-12
+>
+> 切换：[English](../../en/models/README.md)
 
 ---
 
@@ -25,7 +27,7 @@
 | Huber | [robust.md](robust.md) | `PenalizedRobustRegression` | Proximal Newton |
 | Bisquare | [robust.md](robust.md) | `PenalizedRobustRegression` | Proximal Newton |
 | Fair | [robust.md](robust.md) | `PenalizedRobustRegression` | Proximal Newton |
-| Cox PH | [coxph.md](coxph.md) | `PenalizedCoxRegression` | Proximal Newton |
+| Cox PH | [coxph.md](coxph.md) | `PenalizedCoxPHModel` | FISTA / FISTA-LLA |
 | GLM (7 家族) | [losses.md](losses.md) | `PenalizedGeneralizedLinearModel` | IRLS / Newton / FISTA |
 
 ---
@@ -52,7 +54,9 @@
 
 | 模型 | 页面 | 特性 |
 |-------|------|----------|
-| CoxPH | [coxph.md](coxph.md) | Breslow/Efron ties、向量化梯度/海森、CuPy/Triton GPU |
+| `CoxPH` | [coxph.md](coxph.md) | Breslow/Efron/Exact、start-stop、strata、subject、稳健推断与 Breslow baseline |
+| `CoxPHCV` | [coxph.md](coxph.md) | 三后端 L2 部分似然 CV，支持 Exact 与计数过程轴 |
+| `PenalizedCoxPHModel` | [coxph.md](coxph.md) | L1/L2/Elastic Net/SCAD/MCP；无截距、仅估计 |
 
 ---
 
@@ -97,5 +101,5 @@
 | 后端 | numpy, cupy, torch — 核心求解器均三端支持 |
 | GPU 回退 | 显式 GPU 设备不静默回退 CPU |
 | sample_weight | IRLS/FISTA 路径支持；有序模型、CoxPH 和 GLM Newton/LBFGS 不支持 |
-| CV | LassoCV, RidgeCV, LogisticRegressionCV, CoxPHCV, PenalizedGLM_CV |
-| 推断 | nonrobust/HC0/HC1 (sandwich), HC2/HC3/HAC (仅 Gaussian), bootstrap, debiased Lasso, analytical Hessian (ordered) |
+| CV | LassoCV, RidgeCV, LogisticRegressionCV, CoxPHCV, PenalizedGLM_CV；CoxPHCV 支持 NumPy/CuPy/Torch |
+| 推断 | nonrobust/HC0/HC1 (sandwich), HC2/HC3/HAC (仅 Gaussian), bootstrap, debiased Lasso, analytical Hessian (ordered)；CoxPH 支持 nonrobust/HC0/HC1/cluster，Exact 仅 nonrobust |

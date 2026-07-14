@@ -1,7 +1,7 @@
 # statgpu Documentation Portal
 
 > Language: English  
-> Last updated: 2026-04-26  
+> Last updated: 2026-07-12
 > This page: Primary documentation entrypoint  
 > Switch: [Chinese](USAGE_CN.md)
 
@@ -22,6 +22,7 @@ Detailed docs are organized in `en/` and `cn/`.
 - [GLM + Penalty Module](en/models/generalized-linear-model.md) — 7 families × 10 penalties × 3 backends
 - [Solver-Penalty Matrix](en/guides/solver-penalty-matrix.md) — solver dispatch and penalty routing
 - [Cross-Validation Guide](en/guides/cross-validation.md) — PenalizedGLM_CV, LassoCV, RidgeCV
+- [Cox Proportional Hazards](en/models/coxph.md) — CoxPH, CoxPHCV, and penalized Cox
 - [Changelog](en/changelog.md)
 
 Install note:
@@ -39,6 +40,7 @@ Install note:
 - [Knockoff Feature Selection](en/models/knockoff.md)
 - [Ordered Generalized Linear Models (Logit/Probit)](en/models/ordered.md)
 - [Nonparametric Methods](en/models/nonparametric.md)
+- [Cox Proportional Hazards](en/models/coxph.md)
 
 Implemented estimators:
 - `LinearRegression`
@@ -53,11 +55,13 @@ Implemented estimators:
 - `LassoCV`
 - `LogisticRegression` ✅ (Torch backend)
 - `CoxPH` ✅ (Torch backend)
-  - `cov_type=nonrobust/hc0/hc1/cluster` (cluster is CPU path)
-  - `ties=breslow/efron` (Efron with numerical stability clipping)
-  - C-index, baseline hazard, AIC/BIC
-  - **Performance**: Torch GPU 15.44x speedup on n=5000, p=20 (vs statsmodels)
-  - See `results/coxph_benchmark_report_2026-04-20.md` for comprehensive benchmark
+  - `ties=breslow/efron/exact`; Exact inference currently supports `cov_type=nonrobust` only
+  - Right-censored and delayed-entry data, `(start, stop]` counting-process rows, shared coefficients across strata, and `Surv(start, stop, event)` formulas
+  - `cov_type=nonrobust/hc0/hc1/cluster`, C-index, stratum-specific baseline hazard/survival, AIC/BIC
+  - NumPy, CuPy, and Torch-CUDA implementations; performance is workload-dependent rather than guaranteed
+- `PenalizedCoxPHModel`
+  - Validated for L1, L2, ElasticNet, SCAD, and MCP with Breslow/Efron ties
+  - No intercept; estimation-only (`compute_inference=True` raises `NotImplementedError`)
 - `OrderedLogitRegression` / `OrderedProbitRegression` ✅ (3 backends)
   - Ordered response models with cumulative logit/probit link
   - Cross-backend precision fix (2026-04-26): coef diff < 1e-2 across backends
@@ -65,7 +69,10 @@ Implemented estimators:
 Exported CV classes:
 - `RidgeCV` ✅ (Full implementation with GPU acceleration)
 - `LogisticRegressionCV` ✅ (Full implementation with GPU acceleration)
-- `CoxPHCV` (Skeleton, pending full CV training/search implementation)
+- `CoxPHCV` ✅ (L2 penalty selection with Breslow/Efron/Exact held-out partial likelihood)
+  - Propagates delayed entry/start-stop, strata, and subject IDs; repeated rows from one subject stay in the same fold
+  - Reports per-candidate convergence/failure diagnostics and refits the selected model
+  - Quick/full remote validation selected the same penalty across NumPy, CuPy, and Torch-CUDA
 
 Implemented feature selection:
 - `knockoff_filter`
@@ -82,6 +89,8 @@ Inference highlights:
 - Multiple-testing utilities: `statgpu.adjust_pvalues` / `statgpu.multipletests` (`bh/by/holm/bonferroni/hochberg`)
 - Global p-value combination: `statgpu.combine_pvalues` (`fisher/cauchy/stouffer`)
 - Ordered response models: `OrderedLogitRegression` / `OrderedProbitRegression` (CPU/CuPy/Torch)
+- `CoxPH`: model-based and robust inference; Exact currently uses model-based covariance only
+- `PenalizedCoxPHModel`: estimation-only; use `CoxPH(penalty=...)` when L2 Cox inference is required
 - Unified resampling engine: `statgpu.bootstrap_statistic` / `statgpu.permutation_test`
 
 ## 3) Benchmarks and Validation
@@ -89,6 +98,7 @@ Inference highlights:
 - [Benchmark Index](en/guides/benchmarks.md)
 
 Primary scripts:
+- `dev/benchmarks/benchmark_survival_completion.py` (Cox Phase-1 precision, convergence, and synchronized NumPy/CuPy/Torch timing)
 - `dev/benchmarks/_bench_inference_timing.py` (multiple-testing, p=100-10k)
 - `dev/benchmarks/_bench_inference_timing_large.py` (multiple-testing, p=50k-1M)
 - `dev/benchmarks/benchmark_gpu_memory_cleanup.py`
@@ -101,6 +111,10 @@ Latest nonparametric artifacts:
 
 Latest tri-backend covariance artifact:
 - `results/remote_covariance_full_compare_2026-04-10.json` (`statsmodels` / `statgpu CPU` / `statgpu GPU`, `hc2/hc3/hac`)
+
+Latest survival artifacts:
+- `results/survival_completion_2026-07-12.json` (quick)
+- `results/survival_completion_full_2026-07-12.json` (full; includes workload-specific GPU/CPU ratios and limitations)
 
 Recommended large-scale command:
 

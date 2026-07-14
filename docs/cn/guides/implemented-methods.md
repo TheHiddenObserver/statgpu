@@ -1,6 +1,10 @@
 # 已实现方法
 
-> 最后更新：2026-06-14
+> 语言：中文
+>
+> 最后更新：2026-07-12
+>
+> 切换：[English](../../en/guides/implemented-methods.md)
 
 statgpu 已实现的所有模型、函数和类的完整列表。
 
@@ -33,7 +37,11 @@ statgpu 已实现的所有模型、函数和类的完整列表。
 | `PenalizedPoissonRegression` | poisson | irls, fista | l1, l2, elasticnet, scad, mcp, adaptive_l1 | CPU, CuPy, Torch |
 | `PenalizedQuantileRegression` | quantile | proximal_irls_cd, fista | scad, mcp, l2 | CPU, CuPy, Torch |
 | `PenalizedRobustRegression` | huber, bisquare | proximal_newton, irls | scad, mcp, l2 | CPU, CuPy, Torch |
-| `PenalizedCoxPHModel` | cox_ph | proximal_newton | scad, mcp, l2 | CPU, CuPy, Torch |
+| `PenalizedCoxPHModel` | cox_ph | FISTA / FISTA-LLA | l1, l2, elasticnet, scad, mcp | CPU, CuPy, Torch |
+
+`PenalizedCoxPHModel` 不拟合不可识别的截距，当前为 estimation-only：
+`fit_intercept=True` 会报错，`compute_inference=True` 会抛出 `NotImplementedError`。
+SCAD/MCP 使用 FISTA-LLA；需要 Cox 标准误、基线风险或生存曲线时使用 `CoxPH`。
 
 对于 Gamma、InverseGaussian、NegativeBinomial 和 Tweedie 的惩罚，使用 `PenalizedGeneralizedLinearModel(loss=..., penalty=...)`：
 
@@ -107,7 +115,7 @@ model.fit(X, y)
 | `ElasticNetCV` | l1_ratio + alpha grid | CPU, CuPy, Torch |
 | `LogisticRegressionCV` | GPU-accelerated logistic CV | CPU, CuPy, Torch |
 | `PenalizedGLM_CV` | Unified CV for all 7 losses × 10 penalties | CPU, CuPy, Torch |
-| `CoxPHCV` | CV penalty search + refit | CPU, CuPy |
+| `CoxPHCV` | L2 部分似然 CV + refit；Breslow/Efron/Exact、start-stop、strata、subject-grouped folds | CPU, CuPy, Torch |
 
 ## 方差分析
 
@@ -175,8 +183,13 @@ model.fit(X, y)
 
 | Class | Description | Backends |
 |---|---|---|
-| `CoxPH` | Cox 比例风险模型（Efron/Breslow ties、向量化 grad/hess） | CPU, CuPy, Torch |
-| `PenalizedCoxPHModel` | CoxPH + SCAD/MCP 惩罚，通过 proximal Newton 求解 | CPU, CuPy, Torch |
+| `CoxPH` | Breslow/Efron/Exact；右删失、delayed entry、`(start, stop]`、strata、subject；nonrobust/HC0/HC1/cluster 推断 | CPU, CuPy, Torch |
+| `CoxPHCV` | 同一计数过程/Exact 轴上的 L2 CV，按 held-out 部分似然选参并全量 refit | CPU, CuPy, Torch |
+| `PenalizedCoxPHModel` | L1/L2/Elastic Net/SCAD/MCP；FISTA/FISTA-LLA；无截距、仅估计 | CPU, CuPy, Torch |
+
+`CoxPH` 的 Exact ties 当前只支持 `cov_type="nonrobust"`；HC0、HC1 和 cluster
+稳健协方差适用于 Breslow/Efron。系数拟合选择哪种 ties，都统一使用常规 Breslow
+baseline；分层模型按 stratum 保存独立 baseline。
 
 ## 特征选择
 

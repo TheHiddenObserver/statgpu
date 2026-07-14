@@ -2,6 +2,66 @@
 
 All notable changes to statgpu are documented here, organized by date and PR.
 
+## 2026-07-12
+
+### Unreleased — CoxPH Phase 1 completion and penalized Cox hardening
+
+- **CoxPH Phase 1**: added Exact ties, delayed-entry and `(start, stop]`
+  counting-process data, shared-coefficient stratification with stratum-specific
+  baselines, subject identifiers, and `Surv(start, stop, event)` formula input.
+- **Three-backend risk sets**: added shared NumPy, CuPy, and Torch-CUDA
+  counting-process objective, gradient, information, and baseline primitives.
+  Exact tied-event partitions use backend-native dynamic programming.
+- **Inference contract**: Breslow/Efron support model-based, HC0, HC1, and
+  cluster covariance. Exact currently supports model-based covariance only;
+  robust covariance requests fail explicitly. Baseline prediction requires
+  `compute_inference=True` and uses the conventional Breslow baseline after
+  coefficient fitting, including for Efron/Exact ties.
+- **Numerical and API hardening**: centered risk-set moments and log-domain
+  baseline prediction preserve Cox invariance under large covariate shifts;
+  singular information is rejected instead of producing zero standard errors.
+  Formula NA removal now includes survival-response columns and aligns
+  entry/cluster/strata/subject arrays. Formula prediction and scoring reject
+  missing rows instead of silently shortening outputs; ad-hoc scoring strata
+  retain arbitrary labels, and `subject_id` is honored even after a
+  subject-level fit. Fractional device labels retain distinct groups, and robust
+  covariance no longer depends on optional statsmodels.
+- **CoxPHCV completion**: held-out partial likelihood now handles
+  Breslow/Efron/Exact ties, delayed entry/start-stop rows, and strata. Subject
+  IDs keep repeated rows in one fold; candidate convergence/failure diagnostics
+  are retained and the selected penalty is refitted on all data.
+  Full-data cache hashes, fold validation, convergence-aware eligibility,
+  device-native held-out scoring, cloneability, and failed-refit state resets
+  harden sklearn-style model selection. Generated-grid controls reject
+  non-finite values, `device="auto"` resolves before backend dispatch, and
+  cached result objects are isolated from caller mutation.
+- **Penalized Cox**: hardened L1, L2, ElasticNet, SCAD, and MCP estimation,
+  removed the unidentified intercept, corrected Cox-specific SCAD/MCP warm
+  starts, and made Torch Efron value/gradient/Hessian native rather than routing
+  through CuPy. `PenalizedCoxPHModel` is explicitly estimation-only;
+  `compute_inference=True` raises `NotImplementedError`. Right-censored
+  `Surv(time, event)` formulas now support categoricals, interactions,
+  transforms, and formula-driven NA removal. Unvalidated adaptive/group
+  penalties are rejected rather than being routed through an unsupported Cox
+  path; supported built-in penalty objects are revalidated and remain compatible
+  with `sklearn.clone`. Its C-index uses censoring- and tie-correct shared
+  concordance semantics,
+  and failed refits cannot expose stale coefficients.
+- **Inference boundary hardening**: Exact ties reject robust `cov_type` only
+  when inference is actually requested; estimation-only `CoxPH`/`CoxPHCV` fits
+  may retain an otherwise irrelevant covariance setting.
+- **Optimization and validation**: NumPy first-order penalized Cox evaluations
+  no longer allocate or compute an unused dense Hessian, while Newton uses a fused
+  gradient/Hessian call. Cox optimizers reject non-finite penalties,
+  tolerances, and invalid iteration controls. Added CPU reference,
+  finite-difference, brute-force Exact,
+  formula, CV, and penalized-objective tests plus CuPy/Torch parity tests that
+  skip when no compatible GPU is available. Structured quick/full survival
+  benchmark artifacts record precision, convergence, timing scope, and cases
+  where GPU execution is slower than NumPy. CV selected the same penalty on all
+  three backends, with final-refit coefficient/SE differences below `1e-16`;
+  no universal speedup is claimed.
+
 ## 2026-07-08
 
 ### v0.2.1 — Packaging / PyPI release hygiene

@@ -16,40 +16,59 @@ patsy evaluation environments, needed for model-specific syntax
 like ``Surv(time, event)`` in Cox PH models.
 """
 
-from typing import Dict, Any, Optional
+from typing import Any, Dict
 
 import numpy as np
 
 
-def _surv(time, event):
+def _surv(*args):
     """Survival function for patsy formula parsing.
 
     Mimics R's survival::Surv() function for use in patsy formulas::
 
         "Surv(time, event) ~ x1 + x2"
+        "Surv(start, stop, event) ~ x1 + x2"
 
     Parameters
     ----------
-    time : array-like
-        Survival/follow-up times.
-    event : array-like
-        Event indicator (1 = event occurred, 0 = censored).
+    *args : tuple of array-like
+        Either ``(time, event)`` for right-censored data or
+        ``(start, stop, event)`` for counting-process data.  Counting-process
+        rows follow the R convention ``(start, stop]``.
 
     Returns
     -------
-    result : ndarray of shape (n, 2)
-        Column 0: time, Column 1: event.
+    result : ndarray of shape (n, 2) or (n, 3)
+        ``[time, event]`` or ``[start, stop, event]``.
     """
-    time = np.asarray(time, dtype=np.float64).ravel()
-    event = np.asarray(event, dtype=np.float64).ravel()
-
-    if len(time) != len(event):
-        raise ValueError(
-            f"time ({len(time)} elements) and event ({len(event)} elements) "
-            "must have the same length."
+    if len(args) not in (2, 3):
+        raise TypeError(
+            "Surv expects Surv(time, event) or Surv(start, stop, event)"
         )
-
-    return np.column_stack([time, event])
+    columns = [np.asarray(value, dtype=np.float64).ravel() for value in args]
+    lengths = {len(value) for value in columns}
+    if len(lengths) != 1:
+        raise ValueError("all Surv arguments must have the same length")
+    if len(columns) == 3:
+        start, stop, event = columns
+        # Patsy owns formula missing-data handling.  Validate only rows whose
+        # complete Surv response will survive NA removal; otherwise a missing
+        # event would raise here before Patsy can drop the row.
+        complete = ~(np.isnan(start) | np.isnan(stop) | np.isnan(event))
+        if np.any(~np.isfinite(start[complete])) or np.any(
+            ~np.isfinite(stop[complete])
+        ):
+            raise ValueError("Surv start/stop values must be finite")
+        if np.any(start[complete] < 0) or np.any(stop[complete] <= start[complete]):
+            raise ValueError("Surv(start, stop, event) requires 0 <= start < stop")
+    else:
+        _, event = columns
+    observed_event = ~np.isnan(event)
+    if np.any(~np.isfinite(event[observed_event])) or np.any(
+        (event[observed_event] != 0) & (event[observed_event] != 1)
+    ):
+        raise ValueError("Surv event must contain only 0/1 values")
+    return np.column_stack(columns)
 
 
 def make_surv_env() -> Dict[str, Any]:
@@ -67,4 +86,4 @@ def make_surv_env() -> Dict[str, Any]:
     >>> env = make_surv_env()
     >>> # Then pass env to patsy.dmatrices or dmatrix
     """
-    return {"Surv": _surv}
+    return {"Surv": _surv, "np": np}

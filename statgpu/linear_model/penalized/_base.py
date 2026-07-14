@@ -21,6 +21,9 @@ from ._fit_mixin import _PenalizedFitMixin
 from ._inference_mixin import _PenalizedInferenceMixin
 from ._predict_mixin import _PenalizedPredictMixin
 
+if TYPE_CHECKING:
+    from statgpu.penalties import Penalty
+
 
 class SelectivePenalty:
     """Penalty wrapper that leaves the last intercept coefficient free.
@@ -211,7 +214,9 @@ class PenalizedGeneralizedLinearModel(
         self.penalty = penalty
         self.alpha = alpha
         self.l1_ratio = l1_ratio
-        self.penalty_kwargs = penalty_kwargs or {}
+        self.penalty_kwargs = (
+            penalty_kwargs if penalty_kwargs is not None else {}
+        )
         self.fit_intercept = fit_intercept
         self.max_iter = max_iter
         self.tol = tol
@@ -233,7 +238,7 @@ class PenalizedGeneralizedLinearModel(
         self.lla = lla
         self.max_lla_iters = max_lla_iters
         self.lla_tol = lla_tol
-        self.loss_kwargs = loss_kwargs or {}
+        self.loss_kwargs = loss_kwargs if loss_kwargs is not None else {}
 
         # Internal state
         self._penalty: Optional["Penalty"] = None
