@@ -54,9 +54,12 @@ jobs:
           rm -rf dev/patches/pr79-review3-gz
           rm -f .github/workflows/pr79-third-review-apply.yml
       - name: Commit review fixes
+        shell: bash
         run: |
+          set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
           git commit -m "fix: complete third repository review cycle"
-          git push origin HEAD:${{ github.head_ref }}
+          git pull --rebase origin "${{ github.head_ref }}"
+          git push origin HEAD:"${{ github.head_ref }}"
