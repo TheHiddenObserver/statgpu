@@ -17,12 +17,27 @@ jobs:
     steps:
       - name: Check out PR branch
         uses: actions/checkout@v4
-      - name: Upload source tree
+      - name: Upload PR source tree
         uses: actions/upload-artifact@v4
         with:
           name: statgpu-pr80-source
           path: |
             .
             !.git
+            !base-source
+          include-hidden-files: true
+          retention-days: 1
+      - name: Check out master baseline
+        uses: actions/checkout@v4
+        with:
+          ref: master
+          path: base-source
+      - name: Upload master source tree
+        uses: actions/upload-artifact@v4
+        with:
+          name: statgpu-pr80-base
+          path: |
+            base-source
+            !base-source/.git
           include-hidden-files: true
           retention-days: 1
