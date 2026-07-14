@@ -1,0 +1,27 @@
+name: PR80 round-four export
+
+on:
+  pull_request:
+    branches: [master]
+
+permissions:
+  contents: read
+
+jobs:
+  export-source:
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.head_ref == 'codex/survival-gpu-completion'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: statgpu-pr80-round4-source
+          path: |
+            .
+            !.git
+          include-hidden-files: true
+          retention-days: 1
