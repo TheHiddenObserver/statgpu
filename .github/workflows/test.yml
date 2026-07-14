@@ -88,20 +88,13 @@ jobs:
       - name: Extract and apply reviewed patch
         shell: bash
         run: |
-          python - <<'PY'
-          import base64
-          import gzip
-          from pathlib import Path
-
-          workflow = Path('.github/workflows/pr80-export-source.yml').read_text()
-          payload = workflow.split("<<'PATCH_B64'\n", 1)[1].split(
-              '\n          PATCH_B64', 1
-          )[0]
-          encoded = ''.join(line.strip() for line in payload.splitlines())
-          Path('/tmp/pr80-review-fixes.patch').write_bytes(
-              gzip.decompress(base64.b64decode(encoded))
-          )
-          PY
+          grep -A1 "<<'PATCH_B64'" .github/workflows/pr80-export-source.yml \
+            | tail -n1 \
+            | tr -d '[:space:]' \
+            | base64 -d \
+            | gzip -d \
+            > /tmp/pr80-review-fixes.patch
+          test -s /tmp/pr80-review-fixes.patch
           if git apply --check /tmp/pr80-review-fixes.patch; then
             git apply /tmp/pr80-review-fixes.patch
           elif git apply --reverse --check /tmp/pr80-review-fixes.patch; then
@@ -109,6 +102,7 @@ jobs:
             exit 0
           else
             echo "Reviewed patch no longer applies cleanly." >&2
+            git apply --check --verbose /tmp/pr80-review-fixes.patch
             exit 1
           fi
 
