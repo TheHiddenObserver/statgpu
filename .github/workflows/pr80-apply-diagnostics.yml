@@ -1,0 +1,123 @@
+name: PR80 apply diagnostics
+
+on:
+  pull_request:
+    branches: [master]
+
+permissions:
+  contents: write
+
+jobs:
+  apply-reviewed-fixes:
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.head_ref == 'codex/survival-gpu-completion'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out PR branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 0
+
+      - name: Decode and inspect patch
+        id: decode
+        shell: bash
+        run: |
+          set +e
+          grep -A1 "<<'PATCH_B64'" .github/workflows/pr80-export-source.yml \
+            | tail -n1 \
+            | tr -d '[:space:]' \
+            > /tmp/pr80-review-fixes.patch.gz.b64
+          base64 -d /tmp/pr80-review-fixes.patch.gz.b64 \
+            > /tmp/pr80-review-fixes.patch.gz
+          decode_status=$?
+          gzip -dc /tmp/pr80-review-fixes.patch.gz \
+            > /tmp/pr80-review-fixes.patch
+          gzip_status=$?
+          {
+            echo "decode_status=$decode_status"
+            echo "gzip_status=$gzip_status"
+            wc -c /tmp/pr80-review-fixes.patch.gz.b64 \
+              /tmp/pr80-review-fixes.patch.gz \
+              /tmp/pr80-review-fixes.patch
+            sha256sum /tmp/pr80-review-fixes.patch.gz.b64 \
+              /tmp/pr80-review-fixes.patch.gz \
+              /tmp/pr80-review-fixes.patch
+            git apply --check --verbose /tmp/pr80-review-fixes.patch
+            echo "apply_status=$?"
+          } 2>&1 | tee /tmp/pr80-diagnostics.txt
+          test "$decode_status" -eq 0
+          test "$gzip_status" -eq 0
+          git apply --check /tmp/pr80-review-fixes.patch
+
+      - name: Upload diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pr80-patch-diagnostics
+          path: |
+            /tmp/pr80-review-fixes.patch.gz.b64
+            /tmp/pr80-review-fixes.patch.gz
+            /tmp/pr80-review-fixes.patch
+            /tmp/pr80-diagnostics.txt
+          if-no-files-found: warn
+          retention-days: 1
+
+      - name: Apply patch
+        run: git apply /tmp/pr80-review-fixes.patch
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install validation dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[validation,formula]"
+          python -m pip install pyflakes
+
+      - name: Static and targeted validation
+        run: |
+          python -m compileall -q statgpu dev/tests
+          python -m pyflakes \
+            statgpu/linear_model/penalized/_penalized_cox.py \
+            statgpu/losses/_cox_ph.py \
+            statgpu/survival/_cox.py \
+            statgpu/survival/_cox_counting.py \
+            statgpu/survival/_cox_cv.py \
+            dev/tests/test_cox_core_completion.py \
+            dev/tests/test_cox_cv.py \
+            dev/tests/test_penalized_cox_completion.py \
+            dev/tests/test_survival_risk_sets.py
+          python -m pytest \
+            dev/tests/test_cox.py \
+            dev/tests/test_cox_cv.py \
+            dev/tests/test_cox_core_completion.py \
+            dev/tests/test_cox_phase1_completion.py \
+            dev/tests/test_penalized_cox_completion.py \
+            dev/tests/test_survival_risk_sets.py \
+            -q --tb=short
+
+      - name: Commit reviewed fixes
+        run: |
+          git config user.name "OpenAI Review"
+          git config user.email "review@openai.local"
+          git add \
+            CHANGELOG.md \
+            dev/tests/test_cox_core_completion.py \
+            dev/tests/test_cox_cv.py \
+            dev/tests/test_penalized_cox_completion.py \
+            dev/tests/test_survival_risk_sets.py \
+            docs/cn/changelog.md \
+            docs/cn/models/coxph.md \
+            docs/en/changelog.md \
+            docs/en/models/coxph.md \
+            statgpu/linear_model/penalized/_penalized_cox.py \
+            statgpu/losses/_cox_ph.py \
+            statgpu/survival/_cox.py \
+            statgpu/survival/_cox_counting.py \
+            statgpu/survival/_cox_cv.py
+          git commit -m "fix(survival): address PR review findings"
+          git push origin HEAD:${{ github.head_ref }}
