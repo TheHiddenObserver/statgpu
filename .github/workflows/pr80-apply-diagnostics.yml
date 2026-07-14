@@ -25,10 +25,16 @@ jobs:
         shell: bash
         run: |
           set +e
-          grep -A1 "<<'PATCH_B64'" .github/workflows/pr80-export-source.yml \
-            | tail -n1 \
-            | tr -d '[:space:]' \
-            > /tmp/pr80-review-fixes.patch.gz.b64
+          python - <<'PY'
+          from pathlib import Path
+
+          workflow = Path('.github/workflows/pr80-export-source.yml').read_text()
+          encoded = workflow.split("<<'PATCH_B64'\n", 1)[1].splitlines()[0].strip()
+          assert len(encoded) == 18032
+          assert encoded[6036] == 'a'
+          encoded = encoded[:6036] + 'e' + encoded[6037:]
+          Path('/tmp/pr80-review-fixes.patch.gz.b64').write_text(encoded)
+          PY
           base64 -d /tmp/pr80-review-fixes.patch.gz.b64 \
             > /tmp/pr80-review-fixes.patch.gz
           decode_status=$?
