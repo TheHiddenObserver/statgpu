@@ -23,7 +23,7 @@ jobs:
         run: |
           cat dev/patches/pr79-review3-gz/part-*.b64 > /tmp/review3.patch.gz.b64
           base64 -d /tmp/review3.patch.gz.b64 > /tmp/review3.patch.gz
-          echo "439c23dc67427ac12568b07cc04803c1bf5739eef885e34deb92731ddace9aa9  /tmp/review3.patch.gz" | sha256sum -c -
+          echo "4f7fd0dfdaf54eb208f3bf35b6173f69fb83b09706fd10ff67a8bdd87410675b  /tmp/review3.patch.gz" | sha256sum -c -
           gzip -dc /tmp/review3.patch.gz > /tmp/review3.patch
           echo "5f8239f47ebb6728d63c3721c8237bf94619a89386f0f14cd300ebded9b97b36  /tmp/review3.patch" | sha256sum -c -
           git apply --check /tmp/review3.patch
