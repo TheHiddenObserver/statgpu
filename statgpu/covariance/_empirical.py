@@ -56,6 +56,22 @@ def _torch_device_from_data(X) -> Optional[str]:
     return None
 
 
+def _validate_covariance_input(X_arr, xp, *, min_samples=1):
+    """Validate shape and finiteness without transferring the full array."""
+    if X_arr.ndim != 2:
+        raise ValueError("X must be a two-dimensional array")
+    n_samples, n_features = map(int, X_arr.shape)
+    if n_samples < min_samples:
+        raise ValueError(
+            f"Need at least {min_samples} samples to estimate covariance, got {n_samples}"
+        )
+    if n_features < 1:
+        raise ValueError("X must contain at least one feature")
+    if not bool(_to_float_scalar(xp.all(xp.isfinite(X_arr)))):
+        raise ValueError("X must contain only finite values")
+    return n_samples, n_features
+
+
 class EmpiricalCovariance(BaseEstimator):
     """
     Maximum likelihood covariance estimator with GPU acceleration.
@@ -125,13 +141,9 @@ class EmpiricalCovariance(BaseEstimator):
         if X_arr.ndim == 1:
             X_arr = X_arr.reshape(-1, 1)
 
-        n_samples = int(X_arr.shape[0])
-        n_features = int(X_arr.shape[1])
-
-        if n_samples < 2:
-            raise ValueError(
-                f"Need at least 2 samples to estimate covariance, got {n_samples}"
-            )
+        n_samples, n_features = _validate_covariance_input(
+            X_arr, xp, min_samples=2
+        )
 
         # Center if needed
         if self.assume_centered:
@@ -190,12 +202,9 @@ class EmpiricalCovariance(BaseEstimator):
         if X_arr.ndim == 1:
             X_arr = X_arr.reshape(-1, 1)
 
-        n_samples = int(X_arr.shape[0])
-        p = int(X_arr.shape[1])
+        n_samples, p = _validate_covariance_input(X_arr, xp, min_samples=1)
         if p != self.n_features_:
             raise ValueError(f"X must have {self.n_features_} features, got {p}")
-        if n_samples == 0:
-            raise ValueError("X must contain at least one sample")
 
         loc = xp_asarray(self.location_, dtype=xp.float64, xp=xp, ref_arr=X_arr)
         prec = xp_asarray(self.precision_, dtype=xp.float64, xp=xp, ref_arr=X_arr)
@@ -238,9 +247,13 @@ class EmpiricalCovariance(BaseEstimator):
         X_arr = xp_asarray(X, dtype=xp.float64, xp=xp)
         if X_arr.ndim == 1:
             X_arr = X_arr.reshape(1, -1)
-        if X_arr.ndim != 2 or X_arr.shape[1] != self.n_features_:
-            got = X_arr.shape[1] if X_arr.ndim == 2 else "invalid"
-            raise ValueError(f"X must have {self.n_features_} features, got {got}")
+        _n_samples, n_features = _validate_covariance_input(
+            X_arr, xp, min_samples=1
+        )
+        if n_features != self.n_features_:
+            raise ValueError(
+                f"X must have {self.n_features_} features, got {n_features}"
+            )
 
         loc = xp_asarray(self.location_, dtype=xp.float64, xp=xp, ref_arr=X_arr)
         prec = xp_asarray(self.precision_, dtype=xp.float64, xp=xp, ref_arr=X_arr)

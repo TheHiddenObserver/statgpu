@@ -1,7 +1,7 @@
 # Panel
 
 > Language: English  
-> Last updated: 2026-07-12  
+> Last updated: 2026-07-14  
 > This page: Model documentation  
 > Switch: [Chinese](../../models/panel.md)
 
@@ -322,6 +322,13 @@ Scalar t/normal CDF and quantile evaluations are also intentional CPU boundaries
 Formula-side arrays are aligned to Patsy's retained rows after missing-value deletion.
 NumPy/Torch-CPU parity is tested for Fama–MacBeth HAC fit and prediction; physical CUDA
 validation remains pending.
+
+Array-mode PooledOLS, BetweenOLS, and FirstDifferenceOLS preserve NumPy/CuPy/Torch
+X and y rather than converting them in the formula helper. Entity/time labels are an
+explicit metadata boundary: string or categorical labels are factorized on CPU and only
+int64 codes move to the numerical backend. FirstDifferenceOLS copies only the sorting
+index; sorting application and numerical differences remain on-device. All panel array
+inputs reject non-finite X/y values before estimation.
 
 ## strict/approx difference
 

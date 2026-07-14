@@ -10,7 +10,7 @@ import numpy as np
 
 from statgpu._base import BaseEstimator
 from statgpu._config import Device
-from statgpu.backends import _to_numpy, xp_asarray
+from statgpu.backends import _to_float_scalar, _to_numpy, xp_asarray
 from statgpu.nonparametric.kernel_methods._kernels import pairwise_kernels
 
 
@@ -99,6 +99,8 @@ class Nystroem(BaseEstimator):
 
         if X_arr.ndim != 2 or X_arr.shape[0] == 0 or X_arr.shape[1] == 0:
             raise ValueError("X must be a non-empty two-dimensional array")
+        if not bool(_to_float_scalar(xp.all(xp.isfinite(X_arr)))):
+            raise ValueError("X must contain only finite values")
         if isinstance(self.n_components, bool) or int(self.n_components) < 1:
             raise ValueError("n_components must be a positive integer")
 
@@ -161,6 +163,8 @@ class Nystroem(BaseEstimator):
             X_arr = X_arr.reshape(-1, 1)
         if X_arr.ndim != 2 or X_arr.shape[1] != self.n_features_in_:
             raise ValueError(f"X must have {self.n_features_in_} features")
+        if not bool(_to_float_scalar(xp.all(xp.isfinite(X_arr)))):
+            raise ValueError("X must contain only finite values")
 
         # Compute K_nm on the same device as X
         if xp is np:

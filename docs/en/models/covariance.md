@@ -1,7 +1,7 @@
 # Covariance
 
 > Language: English
-> Last updated: 2026-07-12
+> Last updated: 2026-07-14
 > This page: Model documentation
 > Switch: [Chinese](../../models/covariance.md)
 
@@ -262,6 +262,10 @@ CDF/quantile calculations cross the CPU boundary.
 NumPy/Torch-CPU parity and output-backend preservation are covered by regression
 tests. Physical CuPy CUDA and Torch CUDA convergence, memory, runtime, and repeated-fit
 validation remains `PARTIAL_REMOTE_PENDING`.
+
+Empirical and shrinkage covariance estimators validate a non-empty feature dimension
+and finite input values on the selected backend before centering or inversion, avoiding
+misleading singular-covariance errors for NaN/Inf data.
 
 ## strict/approx difference
 

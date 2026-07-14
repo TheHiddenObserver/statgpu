@@ -5,13 +5,26 @@ from __future__ import annotations
 import numpy as np
 from scipy import sparse
 
+from statgpu.backends import _is_cupy_array, _is_torch_array
+
 
 def check_2d_array(X, name: str = "X") -> None:
-    """Validate that *X* is a non-empty 2D array-like object."""
+    """Validate that *X* is a non-empty finite 2D array-like object."""
     if getattr(X, "ndim", None) != 2:
         raise ValueError(f"{name} must be a 2D array")
     if X.shape[0] < 1 or X.shape[1] < 1:
         raise ValueError(f"{name} must contain at least one sample and one feature")
+
+    if _is_torch_array(X):
+        import torch
+        finite = bool(torch.isfinite(X).all().detach().cpu().item())
+    elif _is_cupy_array(X):
+        import cupy as cp
+        finite = bool(cp.isfinite(X).all().item())
+    else:
+        finite = bool(np.isfinite(np.asarray(X)).all())
+    if not finite:
+        raise ValueError(f"{name} must contain only finite values")
 
 
 def reject_sparse(X, estimator_name: str) -> None:

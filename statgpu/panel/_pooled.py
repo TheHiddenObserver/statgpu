@@ -12,7 +12,7 @@ from statgpu._base import BaseEstimator
 from statgpu._config import Device
 from statgpu.backends import _LINALG_ERRORS, _to_float_scalar, _to_numpy, xp_asarray, xp_zeros
 
-from statgpu.panel._utils import PanelSummary
+from statgpu.panel._utils import PanelSummary, validate_panel_alpha, validate_panel_numeric_data
 from statgpu.panel._covariance import clustered_covariance, hac_covariance
 
 
@@ -111,6 +111,8 @@ class PooledOLS(BaseEstimator):
         y_arr = xp_asarray(y_arr, dtype=xp.float64, xp=xp, ref_arr=X_arr).ravel()
         if X_arr.ndim == 1:
             X_arr = X_arr.reshape(-1, 1)
+        validate_panel_alpha(self.alpha)
+        validate_panel_numeric_data(X_arr, y_arr, xp)
 
         # Add intercept
         n = X_arr.shape[0]

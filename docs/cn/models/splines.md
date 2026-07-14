@@ -1,7 +1,7 @@
 # 样条基函数
 
 > 语言: 中文
-> 最后更新: 2026-07-12
+> 最后更新: 2026-07-14
 > 页面定位: 模型文档
 > 切换: [English](../en/models/splines.md)
 
@@ -69,6 +69,10 @@ $$
 SplineTransformer 的节点学习和四种外推均使用 NumPy/CuPy/Torch 共享递推。
 在已拟合对象切换输入后端时，仅转移节点元数据，不转移完整训练设计。
 已验证 NumPy/Torch-CPU 外推一致性；真实 CUDA 显存与性能验证仍待完成。
+
+`thin_plate_spline_basis` 同样使用 device-aware 分配和标量安全的径向运算，并在
+构造基函数前验证 x、knots 与 penalty order。自然样条的 QR fallback 会在约束矩阵
+所在设备创建单位矩阵。
 
 ## strict / approx 区别
 

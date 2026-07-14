@@ -299,11 +299,10 @@ def _prepare_formula_fit(formula, data, X, y, model_has_intercept=True,
     else:
         if X is None or y is None:
             raise ValueError("Either formula+data or X+y must be provided.")
-        y_arr = np.asarray(y, dtype=np.float64)
-        if y_arr.ndim == 2 and y_arr.shape[1] == 1:
-            y_arr = y_arr.ravel()
-        X_arr = np.asarray(X, dtype=np.float64)
-        return (y_arr, X_arr, None, None, None,
+        # Preserve NumPy/CuPy/Torch arrays.  The estimator resolves dtype/device
+        # after this formula-only boundary; converting here would force GPU
+        # array input through host NumPy.
+        return (y, X, None, None, None,
                 None, None, False, False)
 
 

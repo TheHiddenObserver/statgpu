@@ -255,7 +255,7 @@ def natural_cubic_spline_basis(x, knots, xp=None):
         Q_c, R_c = xp.linalg.qr(C.T, mode='reduced')
         # Null space is the complement of column space of C.T
         # Build full QR of identity and project out C's column space
-        Q_full, _ = xp.linalg.qr(xp.eye(n_basis, dtype=xp.float64))
+        Q_full, _ = xp.linalg.qr(xp_eye(n_basis, xp.float64, xp, C))
         # Remove components in C's column space
         proj = Q_full - Q_c @ (Q_c.T @ Q_full)
         # Re-orthogonalize to get clean null space basis

@@ -6,7 +6,7 @@ __all__ = ["thin_plate_spline_basis"]
 
 import numpy as np
 
-from statgpu.backends import xp_asarray
+from statgpu.backends import _to_float_scalar, xp_asarray, xp_maximum, xp_ones
 from statgpu.nonparametric.splines._bspline_basis import _get_xp
 
 
@@ -48,13 +48,22 @@ def thin_plate_spline_basis(x, knots, penalty_order=2, xp=None):
     """
     xp = _get_xp(xp)
 
-    x = xp.asarray(x, dtype=xp.float64)
-    knots = xp.asarray(knots, dtype=xp.float64)
+    x = xp_asarray(x, dtype=xp.float64, xp=xp)
+    knots = xp_asarray(knots, dtype=xp.float64, xp=xp, ref_arr=x)
 
     if x.ndim == 1:
         x = x.reshape(-1, 1)
     if knots.ndim == 1:
         knots = knots.reshape(-1, 1)
+
+    if x.ndim != 2 or knots.ndim != 2 or x.shape[0] == 0 or knots.shape[0] == 0:
+        raise ValueError("x and knots must be non-empty one- or two-dimensional arrays")
+    if isinstance(penalty_order, bool) or int(penalty_order) != penalty_order or penalty_order < 1:
+        raise ValueError("penalty_order must be a positive integer")
+    if not bool(_to_float_scalar(xp.all(xp.isfinite(x)))) or not bool(
+        _to_float_scalar(xp.all(xp.isfinite(knots)))
+    ):
+        raise ValueError("x and knots must contain only finite values")
 
     n, d = x.shape
     m = knots.shape[0]
@@ -70,7 +79,7 @@ def thin_plate_spline_basis(x, knots, penalty_order=2, xp=None):
     diff = x[:, None, :] - knots[None, :, :]
     # r: (n, m)
     r_sq = xp.sum(diff * diff, axis=2)
-    r = xp.sqrt(xp.maximum(r_sq, 1e-30))  # avoid log(0); 1e-30 safe for log
+    r = xp.sqrt(xp_maximum(r_sq, 1e-30, xp))  # avoid log(0); 1e-30 safe for log
 
     # Radial basis functions
     if d % 2 == 0:
@@ -82,7 +91,7 @@ def thin_plate_spline_basis(x, knots, penalty_order=2, xp=None):
                 f"penalty_order={penalty_order} too small for d={d} dimensions; "
                 f"need 2*penalty_order > d (got {2*penalty_order} <= {d})"
             )
-        phi = xp.power(r, exponent) * xp.log(xp.maximum(r, 1e-30))
+        phi = r ** exponent * xp.log(xp_maximum(r, 1e-30, xp))
     else:
         # Odd dimension: φ(r) = r^{2m-d}
         # For d=1, m=2: φ(r) = r^3
@@ -93,10 +102,10 @@ def thin_plate_spline_basis(x, knots, penalty_order=2, xp=None):
                 f"penalty_order={penalty_order} too small for d={d} dimensions; "
                 f"need 2*penalty_order > d (got {2*penalty_order} <= {d})"
             )
-        phi = xp.power(r, exponent)
+        phi = r ** exponent
 
     # Polynomial terms: [1, x_1, ..., x_d]
-    poly = xp.ones((n, d + 1), dtype=xp.float64)
+    poly = xp_ones((n, d + 1), xp.float64, xp, x)
     if d >= 1:
         poly[:, 1:] = x
 

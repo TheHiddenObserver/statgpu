@@ -14,7 +14,7 @@ import numpy as np
 
 from statgpu._config import Device
 from statgpu.cross_validation._base import CVEstimatorBase
-from statgpu.backends import get_backend, _torch_dev
+from statgpu.backends import get_backend, _torch_dev, xp_maximum
 from statgpu.backends._factory import _cupy_backend, _torch_backend
 from statgpu.linear_model.wrappers._ridge import Ridge
 
@@ -198,7 +198,7 @@ def _solve_ridge_path_gpu_from_gram_eig(XtX_batch, Xty_batch, alphas, backend, f
         _eig_floor = max(float(xp.finfo(eigvals.dtype).tiny), 1e-15)
     except (AttributeError, TypeError):
         _eig_floor = 1e-15
-    eigvals = xp.maximum(eigvals, _eig_floor)
+    eigvals = xp_maximum(eigvals, _eig_floor, xp)
 
     # Step 2: Project Xty into eigenbasis
     # QTXty = Q.T @ Xty_batch  -> (n_folds, n_features)

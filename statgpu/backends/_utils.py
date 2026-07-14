@@ -478,8 +478,11 @@ def xp_cholesky_solve(A, b, xp):
         return xp.linalg.solve(A, b)
     L = xp.linalg.cholesky(A)
     if _torch_dev(L) is not None:
-        tmp = xp.linalg.solve_triangular(L, b, upper=False)
-        return xp.linalg.solve_triangular(L.T, tmp, upper=True)
+        vector_rhs = getattr(b, "ndim", 0) == 1
+        rhs = b[:, None] if vector_rhs else b
+        tmp = xp.linalg.solve_triangular(L, rhs, upper=False)
+        solution = xp.linalg.solve_triangular(L.T, tmp, upper=True)
+        return solution[:, 0] if vector_rhs else solution
     # numpy: use scipy for solve_triangular
     from scipy.linalg import solve_triangular
     tmp = solve_triangular(L, b, lower=True)

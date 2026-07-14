@@ -2,6 +2,15 @@
 
 All notable changes to statgpu are documented here, organized by date and PR.
 
+## 2026-07-14
+
+### PR #79 — Third review/fix cycle
+
+- Fixed Torch vector Cholesky solves, Panel string-label/device paths, KernelPCA/RidgeCV/
+  thin-plate Torch failures, and full-design CPU fallbacks in panel array workflows.
+- Added shared finite-input validation for panel, covariance, unsupervised, KernelPCA,
+  Nystroem, and thin-plate paths plus 21 focused regressions.
+
 ## 2026-07-12
 
 ### PR #79 — Second full-repository review and auto-fix

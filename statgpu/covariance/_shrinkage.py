@@ -11,7 +11,12 @@ import numpy as np
 from statgpu._config import Device
 from statgpu.backends import _get_xp, _to_float_scalar, xp_zeros, xp_eye
 
-from statgpu.covariance._empirical import EmpiricalCovariance, _detect_backend, _stable_inv
+from statgpu.covariance._empirical import (
+    EmpiricalCovariance,
+    _detect_backend,
+    _stable_inv,
+    _validate_covariance_input,
+)
 
 
 class LedoitWolf(EmpiricalCovariance):
@@ -78,13 +83,7 @@ class LedoitWolf(EmpiricalCovariance):
         if X_arr.ndim == 1:
             X_arr = X_arr.reshape(-1, 1)
 
-        n = int(X_arr.shape[0])
-        p = int(X_arr.shape[1])
-
-        if n < 2:
-            raise ValueError(
-                f"Need at least 2 samples to estimate covariance, got {n}"
-            )
+        n, p = _validate_covariance_input(X_arr, xp, min_samples=2)
 
         # Center
         if self.assume_centered:
@@ -199,13 +198,7 @@ class OAS(EmpiricalCovariance):
         if X_arr.ndim == 1:
             X_arr = X_arr.reshape(-1, 1)
 
-        n = int(X_arr.shape[0])
-        p = int(X_arr.shape[1])
-
-        if n < 2:
-            raise ValueError(
-                f"Need at least 2 samples to estimate covariance, got {n}"
-            )
+        n, p = _validate_covariance_input(X_arr, xp, min_samples=2)
 
         # Center
         if self.assume_centered:
@@ -304,8 +297,8 @@ class ShrunkCovariance(EmpiricalCovariance):
 
     def fit(self, X, y=None):
         """Fit the shrunk covariance model to *X*."""
-        if not 0 <= self.shrinkage <= 1:
-            raise ValueError(f"shrinkage must be in [0, 1], got {self.shrinkage}")
+        if not np.isfinite(float(self.shrinkage)) or not 0 <= self.shrinkage <= 1:
+            raise ValueError(f"shrinkage must be finite and in [0, 1], got {self.shrinkage}")
 
         backend_name = _detect_backend(X, self._get_compute_device())
         xp = _get_xp(backend_name)
@@ -320,9 +313,7 @@ class ShrunkCovariance(EmpiricalCovariance):
         if X_arr.ndim == 1:
             X_arr = X_arr.reshape(-1, 1)
 
-        n, p = int(X_arr.shape[0]), int(X_arr.shape[1])
-        if n < 2:
-            raise ValueError(f"Need at least 2 samples, got {n}")
+        n, p = _validate_covariance_input(X_arr, xp, min_samples=2)
 
         if self.assume_centered:
             location = xp_zeros(p, xp.float64, xp, X_arr)

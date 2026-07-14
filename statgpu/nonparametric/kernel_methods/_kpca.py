@@ -97,6 +97,8 @@ class KernelPCA(BaseEstimator):
 
         if X_arr.ndim != 2 or X_arr.shape[0] == 0 or X_arr.shape[1] == 0:
             raise ValueError("X must be a non-empty two-dimensional array")
+        if not bool(_to_float_scalar(xp.all(xp.isfinite(X_arr)))):
+            raise ValueError("X must contain only finite values")
         if isinstance(self.n_components, bool) or int(self.n_components) < 1:
             raise ValueError("n_components must be a positive integer")
         if not np.isfinite(self.alpha) or self.alpha < 0:
@@ -148,7 +150,8 @@ class KernelPCA(BaseEstimator):
         eigenvalues = eigenvalues - float(self.alpha)
 
         # Sort by descending eigenvalue
-        idx = xp.argsort(eigenvalues)[::-1]
+        idx = xp.argsort(eigenvalues)
+        idx = xp.flip(idx, dims=(0,)) if xp.__name__ == "torch" else idx[::-1]
         eigenvalues = eigenvalues[idx]
         eigenvectors = eigenvectors[:, idx]
 
@@ -190,6 +193,8 @@ class KernelPCA(BaseEstimator):
             X_arr = X_arr.reshape(-1, 1)
         if X_arr.ndim != 2 or X_arr.shape[1] != self.n_features_in_:
             raise ValueError(f"X must have {self.n_features_in_} features")
+        if not bool(_to_float_scalar(xp.all(xp.isfinite(X_arr)))):
+            raise ValueError("X must contain only finite values")
 
         X_fit_arr = xp.asarray(self.X_fit_, dtype=xp.float64)
         if hasattr(X_arr, 'is_cuda'):

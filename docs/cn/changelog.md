@@ -9,6 +9,21 @@
 
 ## 2026-07
 
+### 修复（2026-07-14）— PR #79 第三轮 review/fix
+
+- **Torch 线性代数与面板执行**：共享 Cholesky 求解现支持向量和矩阵右端项；
+  PanelOLS/RandomEffects 的 Torch 推断不再报错。entity/time 标签在 CPU 作为元数据
+  factorize，仅将整数编码复制到数值后端，并保留原标签用于预测。
+- **面板设备纯度**：数组模式的 PooledOLS/BetweenOLS/FirstDifferenceOLS 不再经
+  NumPy formula helper 回传完整 X/y；一阶差分只复制 CPU 生成的排序索引，数值差分
+  留在设备端。
+- **核与样条后端**：修复 KernelPCA 的 Torch 降序特征值索引、RidgeCV 的标量
+  eigenvalue floor，以及 thin-plate spline 的 Torch maximum/power/device 分配。
+- **输入契约**：panel、covariance、unsupervised、KernelPCA、Nystroem 与 thin-plate
+  入口会在底层线性代数前明确拒绝 NaN/Inf。
+- **验证**：新增 `dev/tests/test_third_full_review.py` 的 21 项专项回归；真实
+  CuPy/Torch CUDA profiling 仍待完成。
+
 ### 修复与加固（2026-07-12）— PR #79 第二轮全仓库审查
 
 - **正确性**：修复 Stepwise 后向/双向选择、特征顺序、null model 与重复拟合；

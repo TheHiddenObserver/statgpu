@@ -1,7 +1,7 @@
 # Spline Basis Functions
 
 > Language: English  
-> Last updated: 2026-07-12  
+> Last updated: 2026-07-14  
 > This page: Model documentation  
 > Switch: [Chinese](../../models/splines.md)
 
@@ -83,6 +83,11 @@ only knot metadata.
 
 NumPy/Torch-CPU extrapolation parity is covered by CI. Physical CuPy CUDA and Torch
 CUDA memory/runtime validation remains pending.
+
+`thin_plate_spline_basis` also uses device-aware allocation and scalar-safe radial
+operations across NumPy/CuPy/Torch; x, knots, and penalty order are validated before
+basis construction. The QR fallback for natural splines allocates its identity matrix
+on the same device as the constraint matrix.
 
 ## strict / approx Difference
 

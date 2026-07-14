@@ -9,6 +9,23 @@ Language switch: [Chinese](../changelog.md)
 
 ## 2026-07
 
+### Fixed (2026-07-14) — PR #79 third review/fix cycle
+
+- **Torch linear algebra and panel execution**: shared Cholesky solves now support vector
+  and matrix right-hand sides; PanelOLS/RandomEffects inference no longer fails on Torch.
+  Entity/time labels are factorized as CPU metadata, preserving original labels for
+  prediction while copying only integer codes to the numerical backend.
+- **Panel device purity**: array-mode PooledOLS/BetweenOLS/FirstDifferenceOLS no longer
+  pass complete X/y arrays through the NumPy-oriented formula helper. First differences
+  are formed on-device after copying only a CPU-generated sort index.
+- **Kernel/spline backends**: fixed Torch descending eigensort in KernelPCA, scalar-safe
+  eigenvalue flooring in RidgeCV, and Torch maximum/power/device allocation in thin-plate
+  splines.
+- **Input contracts**: panel, covariance, unsupervised, KernelPCA, Nystroem, and thin-plate
+  entry points now reject NaN/Inf before low-level linear algebra.
+- **Validation**: added `dev/tests/test_third_full_review.py` with 21 focused regressions;
+  physical CuPy/Torch CUDA profiling remains pending.
+
 ### Fixed and hardened (2026-07-12) — PR #79 second full-repository review
 
 - **Correctness**: repaired Stepwise backward/bidirectional selection, feature-order

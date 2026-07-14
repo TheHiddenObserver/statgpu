@@ -1,7 +1,7 @@
 # Covariance
 
 > 语言: 中文  
-> 最后更新: 2026-07-12  
+> 最后更新: 2026-07-14  
 > 页面定位: 模型文档  
 > 切换: [English](../en/models/covariance.md)
 
@@ -169,6 +169,9 @@ MinCovDet 的 C-step、马氏距离、排序、支持集和重加权均保留在
 
 已验证 NumPy 与 Torch-CPU 数值一致性和输出后端；真实 CuPy/Torch CUDA 的
 收敛、显存、性能与重复拟合验证仍为 `PARTIAL_REMOTE_PENDING`。
+
+经验与收缩协方差估计器会在中心化或求逆前，在所选后端验证非空特征维度和有限
+输入，避免 NaN/Inf 被误报为协方差奇异。
 
 ## strict/approx 差异（strict/approx difference）
 

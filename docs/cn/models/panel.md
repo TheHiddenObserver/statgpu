@@ -1,7 +1,7 @@
 # Panel
 
 > 语言: 中文
-> 最后更新: 2026-07-12
+> 最后更新: 2026-07-14
 > 页面定位: 模型文档
 > 切换: [English](../en/models/panel.md)
 
@@ -188,6 +188,12 @@ print(f"Torch FE 系数: {fe_torch.coef_}")
 formula 删除缺失行后，entity/time/cluster 等侧数组会同步对齐。
 
 已验证 NumPy/Torch-CPU 的 FamaMacBeth HAC 拟合与预测一致性；真实 CUDA 验证仍待完成。
+
+数组模式的 PooledOLS、BetweenOLS 与 FirstDifferenceOLS 会保留 NumPy/CuPy/Torch
+形式的 X 和 y，不再经过 formula helper 转为 NumPy。entity/time 的字符串或分类标签
+属于明确的 CPU 元数据边界：只将 factorize 后的 int64 编码复制到数值后端。
+FirstDifferenceOLS 仅复制排序索引，排序应用和数值差分仍在设备端完成。所有面板数组
+输入都会在估计前拒绝非有限 X/y。
 
 ## strict/approx 差异（strict/approx difference）
 
