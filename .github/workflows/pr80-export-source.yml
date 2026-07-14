@@ -1,6 +1,9 @@
 name: PR80 source export
 
 on:
+  pull_request:
+    branches:
+      - master
   push:
     branches:
       - codex/survival-gpu-completion
@@ -14,8 +17,6 @@ jobs:
     steps:
       - name: Check out PR branch
         uses: actions/checkout@v4
-        with:
-          ref: codex/survival-gpu-completion
       - name: Upload source tree
         uses: actions/upload-artifact@v4
         with:
