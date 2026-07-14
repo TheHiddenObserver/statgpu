@@ -1,0 +1,42 @@
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index 57c738e..f403615 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -41,8 +41,8 @@ All notable changes to statgpu are documented here, organized by date and PR.
+   transforms, and formula-driven NA removal. Its C-index uses censoring- and
+   tie-correct shared concordance semantics, and failed refits cannot expose
+   stale coefficients.
+-- **Optimization and validation**: first-order penalized Cox evaluations no
+-  longer allocate or compute an unused dense Hessian, while Newton uses a fused
++- **Optimization and validation**: NumPy first-order penalized Cox evaluations
++  no longer allocate or compute an unused dense Hessian, while Newton uses a fused
+   gradient/Hessian call. Cox optimizers reject non-finite penalties,
+   tolerances, and invalid iteration controls. Added CPU reference,
+   finite-difference, brute-force Exact,
+diff --git a/dev/tests/test_penalized_cox_completion.py b/dev/tests/test_penalized_cox_completion.py
+index 70028a6..a3ae275 100644
+--- a/dev/tests/test_penalized_cox_completion.py
++++ b/dev/tests/test_penalized_cox_completion.py
+@@ -572,6 +572,10 @@ def test_penalized_cox_formula_supports_full_design_contract(survival_data):
+         rtol=0,
+         atol=1e-12,
+     )
++    prediction_y = prediction_frame[["time", "event"]].to_numpy()
++    assert model.score(prediction_frame, prediction_y) == pytest.approx(
++        direct.score(transformed_np, prediction_y)
++    )
+ 
+ 
+ def test_penalized_cox_formula_rejects_start_stop_response(survival_data):
+diff --git a/statgpu/linear_model/penalized/_penalized_cox.py b/statgpu/linear_model/penalized/_penalized_cox.py
+index f388258..7c26424 100644
+--- a/statgpu/linear_model/penalized/_penalized_cox.py
++++ b/statgpu/linear_model/penalized/_penalized_cox.py
+@@ -474,6 +474,7 @@ class PenalizedCoxPHModel(PenalizedGeneralizedLinearModel):
+ 
+         from statgpu.survival._risk_sets import counting_process_concordance
+ 
++        X = self._prepare_predict_X(X)
+         X_np = np.asarray(_to_numpy(X), dtype=np.float64)
+         if X_np.ndim == 1:
+             X_np = X_np.reshape(-1, 1)
