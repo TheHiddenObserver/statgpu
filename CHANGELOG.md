@@ -20,9 +20,12 @@ All notable changes to statgpu are documented here, organized by date and PR.
 - **Numerical and API hardening**: centered risk-set moments and log-domain
   baseline prediction preserve Cox invariance under large covariate shifts;
   singular information is rejected instead of producing zero standard errors.
-  Formula NA removal now aligns entry/cluster/strata/subject arrays, fractional
-  device labels retain distinct groups, and robust covariance no longer depends
-  on optional statsmodels.
+  Formula NA removal now includes survival-response columns and aligns
+  entry/cluster/strata/subject arrays. Formula prediction and scoring reject
+  missing rows instead of silently shortening outputs; ad-hoc scoring strata
+  retain arbitrary labels, and `subject_id` is honored even after a
+  subject-level fit. Fractional device labels retain distinct groups, and robust
+  covariance no longer depends on optional statsmodels.
 - **CoxPHCV completion**: held-out partial likelihood now handles
   Breslow/Efron/Exact ties, delayed entry/start-stop rows, and strata. Subject
   IDs keep repeated rows in one fold; candidate convergence/failure diagnostics
@@ -38,9 +41,15 @@ All notable changes to statgpu are documented here, organized by date and PR.
   through CuPy. `PenalizedCoxPHModel` is explicitly estimation-only;
   `compute_inference=True` raises `NotImplementedError`. Right-censored
   `Surv(time, event)` formulas now support categoricals, interactions,
-  transforms, and formula-driven NA removal. Its C-index uses censoring- and
-  tie-correct shared concordance semantics, and failed refits cannot expose
-  stale coefficients.
+  transforms, and formula-driven NA removal. Unvalidated adaptive/group
+  penalties are rejected rather than being routed through an unsupported Cox
+  path; supported built-in penalty objects are revalidated and remain compatible
+  with `sklearn.clone`. Its C-index uses censoring- and tie-correct shared
+  concordance semantics,
+  and failed refits cannot expose stale coefficients.
+- **Inference boundary hardening**: Exact ties reject robust `cov_type` only
+  when inference is actually requested; estimation-only `CoxPH`/`CoxPHCV` fits
+  may retain an otherwise irrelevant covariance setting.
 - **Optimization and validation**: NumPy first-order penalized Cox evaluations
   no longer allocate or compute an unused dense Hessian, while Newton uses a fused
   gradient/Hessian call. Cox optimizers reject non-finite penalties,

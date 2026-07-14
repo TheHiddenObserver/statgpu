@@ -637,3 +637,136 @@ def test_cox_loss_fused_derivatives_match_separate_calls(survival_data):
     grad, hess = loss.fused_gradient_and_hessian(X, y, coef)
     assert_allclose(grad, loss.gradient(X, y, coef), rtol=1e-12, atol=1e-12)
     assert_allclose(hess, loss.hessian(X, y, coef), rtol=1e-12, atol=1e-12)
+
+
+def test_penalized_formula_drops_missing_survival_response(survival_data):
+    pd = pytest.importorskip("pandas")
+    X, y = survival_data
+    frame = pd.DataFrame(
+        {"time": y[:, 0], "event": y[:, 1], "x1": X[:, 0], "x2": X[:, 1]}
+    )
+    frame.loc[9, "event"] = np.nan
+    keep = np.arange(len(frame)) != 9
+    common = dict(
+        penalty="l2",
+        alpha=0.03,
+        device="cpu",
+        compute_inference=False,
+        max_iter=250,
+        tol=1e-7,
+    )
+    formula = PenalizedCoxPHModel(**common).fit(
+        formula="Surv(time, event) ~ x1 + x2", data=frame
+    )
+    direct = PenalizedCoxPHModel(**common).fit(X[keep, :2], y[keep])
+    assert_allclose(formula.coef_, direct.coef_, rtol=1e-10, atol=1e-11)
+
+
+def test_penalized_formula_prediction_missing_values_raise(survival_data):
+    pd = pytest.importorskip("pandas")
+    X, y = survival_data
+    frame = pd.DataFrame(
+        {"time": y[:, 0], "event": y[:, 1], "x1": X[:, 0], "x2": X[:, 1]}
+    )
+    model = PenalizedCoxPHModel(
+        penalty="l2", alpha=0.03, device="cpu", compute_inference=False
+    ).fit(formula="Surv(time, event) ~ x1 + x2", data=frame)
+    prediction = frame.iloc[:8].copy()
+    prediction.loc[prediction.index[2], "x2"] = np.nan
+    with pytest.raises(ValueError, match="cannot be dropped silently"):
+        model.predict(prediction)
+    with pytest.raises(ValueError, match="cannot be dropped silently"):
+        model.score(prediction, prediction[["time", "event"]].to_numpy())
+
+
+@pytest.mark.parametrize(
+    "penalty",
+    ["adaptive_l1", "adaptive_lasso", "group_lasso", "group_mcp", "group_scad"],
+)
+def test_penalized_cox_rejects_unvalidated_penalty_families(survival_data, penalty):
+    X, y = survival_data
+    model = PenalizedCoxPHModel(
+        penalty=penalty, device="cpu", compute_inference=False
+    )
+    with pytest.raises(ValueError, match="supports only"):
+        model.fit(X, y)
+    assert model.coef_ is None
+
+
+def test_penalized_cox_set_params_rejects_unvalidated_penalty():
+    model = PenalizedCoxPHModel(device="cpu", compute_inference=False)
+    with pytest.raises(ValueError, match="supports only"):
+        model.set_params(penalty="group_lasso")
+
+
+def test_penalized_cox_score_accepts_survival_dict(survival_data):
+    X, y = survival_data
+    model = PenalizedCoxPHModel(
+        penalty="l2", alpha=0.03, device="cpu", compute_inference=False
+    ).fit(X, y)
+    expected = model.score(X, y)
+    actual = model.score(X, {"time": y[:, 0], "event": y[:, 1]})
+    assert actual == pytest.approx(expected)
+
+
+@pytest.mark.parametrize(
+    "penalty",
+    [
+        pytest.param("l1", id="string-l1"),
+        pytest.param("l2", id="string-l2"),
+    ],
+)
+def test_penalized_cox_string_penalties_remain_sklearn_cloneable(penalty):
+    from sklearn.base import clone
+
+    model = PenalizedCoxPHModel(
+        penalty=penalty, alpha=0.2, device="cpu", compute_inference=False
+    )
+    cloned = clone(model)
+    assert cloned.penalty == penalty
+    assert cloned.alpha == pytest.approx(0.2)
+
+
+@pytest.mark.parametrize("penalty_name", ["l1", "l2", "elasticnet", "scad", "mcp"])
+def test_penalized_cox_penalty_objects_are_sklearn_cloneable(penalty_name):
+    from sklearn.base import clone
+    from statgpu.penalties import get_penalty
+
+    kwargs = {"alpha": 0.2}
+    if penalty_name == "elasticnet":
+        kwargs["l1_ratio"] = 0.3
+    penalty = get_penalty(penalty_name, **kwargs)
+    model = PenalizedCoxPHModel(
+        penalty=penalty, device="cpu", compute_inference=False
+    )
+    cloned = clone(model)
+
+    assert cloned.penalty is not penalty
+    assert cloned.penalty.__class__ is penalty.__class__
+    assert cloned.penalty.get_params() == penalty.get_params()
+    cloned._validate_cox_hyperparameters()
+
+
+@pytest.mark.parametrize(
+    "penalty_name,attribute,value,match",
+    [
+        ("l1", "alpha", np.nan, "penalty object alpha"),
+        ("l2", "alpha", np.inf, "penalty object alpha"),
+        ("elasticnet", "l1_ratio", np.nan, "penalty object l1_ratio"),
+        ("scad", "a", 2.0, "SCAD penalty object a"),
+        ("mcp", "gamma", 1.0, "MCP penalty object gamma"),
+    ],
+)
+def test_penalized_cox_revalidates_mutated_penalty_objects(
+    survival_data, penalty_name, attribute, value, match
+):
+    from statgpu.penalties import get_penalty
+
+    penalty = get_penalty(penalty_name, alpha=0.2)
+    setattr(penalty, attribute, value)
+    model = PenalizedCoxPHModel(
+        penalty=penalty, device="cpu", compute_inference=False
+    )
+    with pytest.raises(ValueError, match=match):
+        model.fit(*survival_data)
+    assert model.coef_ is None

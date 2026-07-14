@@ -865,3 +865,122 @@ def test_device_fractional_strata_are_encoded_without_integer_collapse(device):
     assert set(gpu._baseline_by_stratum) == {0, 1}
     assert_array_equal(gpu._strata_labels, np.array([0.2, 0.8]))
     assert_allclose(gpu.coef_, cpu.coef_, rtol=2e-7, atol=2e-8)
+
+
+def test_formula_survival_response_na_is_removed_and_auxiliary_rows_align():
+    pd = pytest.importorskip("pandas")
+    pytest.importorskip("patsy")
+    X, stop, event = _right_censored_subjects(n=100, p=2, seed=3140)
+    frame = pd.DataFrame(
+        {"time": stop, "event": event.astype(float), "x1": X[:, 0], "x2": X[:, 1]}
+    )
+    frame.loc[11, "event"] = np.nan
+    strata = np.where(np.arange(len(frame)) % 2, "a", "b")
+    keep = np.arange(len(frame)) != 11
+
+    formula = CoxPH(
+        device="cpu", compute_inference=False, compute_cindex=False, tol=1e-10
+    ).fit(
+        formula="Surv(time, event) ~ x1 + x2",
+        data=frame,
+        strata=strata,
+    )
+    direct = CoxPH(
+        device="cpu", compute_inference=False, compute_cindex=False, tol=1e-10
+    ).fit(X[keep], stop[keep], event[keep], strata=strata[keep])
+
+    assert formula._nobs == int(np.sum(keep))
+    assert_allclose(formula.coef_, direct.coef_, rtol=1e-10, atol=1e-11)
+
+
+def test_formula_prediction_missing_values_never_silently_drop_rows():
+    pd = pytest.importorskip("pandas")
+    pytest.importorskip("patsy")
+    X, stop, event = _right_censored_subjects(n=80, p=2, seed=3141)
+    frame = pd.DataFrame(
+        {"time": stop, "event": event, "x1": X[:, 0], "x2": X[:, 1]}
+    )
+    model = CoxPH(
+        device="cpu", compute_inference=False, compute_cindex=False
+    ).fit(formula="Surv(time, event) ~ x1 + x2", data=frame)
+    prediction = frame.iloc[:8].copy()
+    prediction.loc[prediction.index[3], "x1"] = np.nan
+
+    with pytest.raises(ValueError, match="cannot be dropped silently"):
+        model.predict(prediction)
+    with pytest.raises(ValueError, match="cannot be dropped silently"):
+        model.score(prediction, prediction[["time", "event"]].to_numpy())
+
+
+def test_score_honors_subject_id_even_after_subject_level_fit():
+    from statgpu.survival._risk_sets import counting_process_concordance
+
+    X = np.array([[3.0], [0.0], [2.0], [1.0]])
+    stop = np.array([1.0, 2.0, 3.0, 4.0])
+    event = np.array([1, 1, 1, 0])
+    subject_id = np.array([0, 0, 1, 2])
+    model = CoxPH(
+        device="cpu", compute_inference=False, compute_cindex=False
+    ).fit(X, stop, event)
+    # Fix a deterministic risk ordering so excluding the within-subject pair
+    # changes the concordance value and catches accidental argument ignoring.
+    model.coef_ = np.array([-1.0])
+
+    expected = float(
+        counting_process_concordance(
+            model.coef_, X, stop, event, subject_id=subject_id
+        )
+    )
+    assert expected != pytest.approx(model.score(X, stop, event))
+    assert model.score(X, stop, event, subject_id=subject_id) == pytest.approx(expected)
+
+
+def test_score_encodes_ad_hoc_string_strata_for_unstratified_fit():
+    from statgpu.survival._risk_sets import counting_process_concordance
+
+    X = np.array([[3.0], [0.0], [2.0], [1.0]])
+    stop = np.array([1.0, 2.0, 1.0, 2.0])
+    event = np.array([1, 0, 1, 0])
+    labels = np.array(["a", "a", "b", "b"])
+    model = CoxPH(
+        device="cpu", compute_inference=False, compute_cindex=False
+    ).fit(X, stop, event)
+    model.coef_ = np.array([-1.0])
+    expected = float(
+        counting_process_concordance(
+            model.coef_, X, stop, event, strata=np.array([0, 0, 1, 1])
+        )
+    )
+    assert model.score(X, stop, event, strata=labels) == pytest.approx(expected)
+
+
+def test_score_rejects_covariate_response_row_mismatch_explicitly():
+    X, stop, event = _right_censored_subjects(n=50, p=2, seed=3142)
+    model = CoxPH(
+        device="cpu", compute_inference=False, compute_cindex=False
+    ).fit(X, stop, event)
+    with pytest.raises(ValueError, match="same number of rows"):
+        model.score(X[:-1], stop, event)
+
+
+def test_exact_robust_cov_type_is_ignored_when_inference_is_disabled():
+    X = np.array([[-1.0], [-0.2], [0.4], [1.2], [0.8]])
+    stop = np.array([1.0, 1.0, 2.0, 3.0, 4.0])
+    event = np.array([1, 1, 1, 0, 0])
+    model = CoxPH(
+        ties="exact",
+        cov_type="hc0",
+        compute_inference=False,
+        compute_cindex=False,
+        device="cpu",
+    ).fit(X, stop, event)
+    assert model._fitted
+    assert model._bse is None
+    with pytest.raises(NotImplementedError, match="robust covariance"):
+        CoxPH(
+            ties="exact",
+            cov_type="hc0",
+            compute_inference=True,
+            compute_cindex=False,
+            device="cpu",
+        ).fit(X, stop, event)

@@ -69,15 +69,24 @@ cv.fit(X, stop, event, start=start, strata=strata, subject_id=subject_id)
   - Centered risk-set moments and log-domain baseline products preserve results
     under large constant covariate shifts; singular information now raises an
     identifiability error rather than returning zero variance.
-  - Formula NA removal aligns all row-level grouping inputs, fractional
-    CuPy/Torch labels remain distinct, and robust covariance uses the shared
-    martingale-residual engine without an optional statsmodels dependency.
+  - Formula NA removal includes missing `Surv(...)` response rows and aligns
+    every row-level grouping input. Formula prediction/scoring rejects missing
+    covariates instead of silently dropping rows; `score()` honors supplied
+    `subject_id` after ordinary fits and accepts arbitrary ad-hoc stratum labels.
+    Fractional CuPy/Torch labels remain distinct, and robust covariance uses the
+    shared martingale-residual engine without an optional statsmodels dependency.
   - `CoxPH`, `CoxPHCV`, and `PenalizedCoxPHModel` satisfy sklearn cloning;
     CV/penalized failed refits clear old state, and penalized concordance handles
     tied predictions and same-time censoring correctly.
   - Cox optimization controls reject non-finite penalties/tolerances and invalid
     iteration counts. CV auto-device selection resolves before dispatch, and
-    cached result objects cannot be corrupted by caller mutation.
+    cached result objects cannot be corrupted by caller mutation. Exact robust
+    covariance is rejected only when `compute_inference=True`; an estimation-only
+    fit may carry an otherwise irrelevant `cov_type`.
+  - Penalized Cox now rejects adaptive/group penalty families that are not part
+    of its documented and validated L1/L2/ElasticNet/SCAD/MCP contract. Supported
+    built-in penalty objects are revalidated after mutation and implement the
+    `sklearn.clone` hook without changing their serialization API.
 
 ### Optimized (2026-07-12)
 

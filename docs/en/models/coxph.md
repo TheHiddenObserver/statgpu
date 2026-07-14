@@ -88,6 +88,12 @@ model.fit(formula="Surv(time, event) ~ age + treatment", data=df)
 model.fit(formula="Surv(start, stop, event) ~ age + treatment", data=df_long)
 ```
 
+Patsy removes rows with missing values in either the survival response or the
+design terms during fitting, and auxiliary row-level arrays are aligned to the
+retained rows. Prediction and scoring never silently apply this row removal:
+missing formula covariates raise `ValueError`, preserving one output per input
+row.
+
 ## Covariance and Inference
 
 | `cov_type` | Meaning | Extra fit input |
@@ -103,9 +109,10 @@ confidence intervals, likelihood diagnostics, and baseline hazards.
 `predict_survival()` is unavailable until the model is refit with inference
 enabled.
 
-Robust covariance is intentionally unsupported for `ties="exact"`. Exact-tie
-fits must use `cov_type="nonrobust"`; requesting HC0, HC1, or cluster covariance
-raises `NotImplementedError`.
+Robust covariance is intentionally unsupported for `ties="exact"`. When
+`compute_inference=True`, Exact-tie fits must use `cov_type="nonrobust"`;
+requesting HC0, HC1, or cluster covariance raises `NotImplementedError`. With
+`compute_inference=False`, `cov_type` is unused and does not block estimation.
 
 For `penalty > 0`, covariance is based on penalized observed curvature and is
 conditional on the chosen penalty. In particular, inference from the final
@@ -216,7 +223,12 @@ scoring, and orchestration devices separately.
 unpenalized `CoxPH` when standard errors or confidence intervals are required.
 The penalized formula interface accepts `Surv(time, event)` only; use `CoxPH`
 for `Surv(start, stop, event)`, strata, or subject-level counting-process data.
-Non-finite regularization/solver controls are rejected before optimization.
+Only the documented L1, L2/Ridge, ElasticNet, SCAD, MCP, and no-penalty choices
+are accepted; adaptive and group penalties are rejected because their Cox paths
+have not been validated. String names and the corresponding built-in penalty
+objects are accepted. Penalty objects are revalidated before each fit and are
+compatible with `sklearn.clone`. Non-finite regularization/solver controls are
+rejected before optimization.
 
 ## Tie Methods and Strictness
 

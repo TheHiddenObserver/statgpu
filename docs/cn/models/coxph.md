@@ -45,6 +45,10 @@ CoxPH().fit(formula="Surv(time, event) ~ age + treatment", data=df)
 CoxPH().fit(formula="Surv(start, stop, event) ~ age + treatment", data=df)
 ```
 
+拟合时 Patsy 会删除生存响应或设计项中含缺失值的行，并将外部逐行数组同步到保留行。
+预测和评分不会静默复用这种删行行为：公式协变量含缺失值时会抛出 `ValueError`，从而
+保证每个输入行都对应一个输出。
+
 ## 部分似然与 ties
 
 模型为
@@ -72,8 +76,10 @@ $$
 - `cov_type="cluster"`：聚类稳健协方差，需要 `fit(..., cluster=...)`。
 
 Breslow/Efron、普通右删失和 start-stop/分层数据均可在 NumPy、CuPy、Torch 上执行这些
-推断路径。**Exact 当前只支持 `cov_type="nonrobust"`**；Exact 与 HC0、HC1 或 cluster
-组合会抛出 `NotImplementedError`，不会改用近似协方差。
+推断路径。**当 `compute_inference=True` 时，Exact 只支持
+`cov_type="nonrobust"`**；Exact 与 HC0、HC1 或 cluster 组合会抛出
+`NotImplementedError`，不会改用近似协方差。`compute_inference=False` 时
+`cov_type` 不参与计算，因此不会阻止纯估计拟合。
 
 系数无论使用 Breslow、Efron 还是 Exact 拟合，基线风险、累计基线风险和
 生存概率都统一使用常规 **Breslow 基线估计量**；分层模型为每个 stratum 单独保存基线。
@@ -213,6 +219,9 @@ formula_model.fit(
 - 该惩罚接口接收形如 `[time, event]` 的二维响应，或右删失
   `Surv(time, event)` 公式；公式支持分类变量、交互项、变换和 NA 删除；
 - 尚不提供 `CoxPH` 的 start-stop/strata/subject 公共接口，也不支持 Exact ties；
+- 仅接受已公开验证的 L1、L2/Ridge、Elastic Net、SCAD、MCP 或无惩罚；可传入字符串
+  或对应的内置 penalty 对象。对象参数会在每次拟合前重新校验，并支持 `sklearn.clone`；
+  adaptive/group penalty 的 Cox 路径尚未验证，因此会显式报错；
 - 非有限的 penalty、容差及非法迭代次数会在优化前显式报错。
 
 ## 性能与验证

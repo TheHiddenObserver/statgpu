@@ -15,6 +15,21 @@ from ._base import PenalizedGeneralizedLinearModel
 
 
 class PenalizedCoxPHModel(PenalizedGeneralizedLinearModel):
+    _SUPPORTED_PENALTY_NAMES = frozenset(
+        {
+            "",
+            "none",
+            "null",
+            "l1",
+            "l2",
+            "l2_squared",
+            "ridge",
+            "elasticnet",
+            "en",
+            "scad",
+            "mcp",
+        }
+    )
     """Penalized Cox proportional hazards model.
 
     Minimizes: -partial_likelihood(X, time, event) + penalty(coef)
@@ -214,6 +229,8 @@ class PenalizedCoxPHModel(PenalizedGeneralizedLinearModel):
             self._validate_finite_positive(
                 params.get("lipschitz_L", self.lipschitz_L), "lipschitz_L"
             )
+        if "penalty" in params:
+            self._validate_supported_penalty(params["penalty"])
         if "alpha" in params:
             alpha = float(params["alpha"])
             if not np.isfinite(alpha) or alpha < 0:
@@ -268,7 +285,65 @@ class PenalizedCoxPHModel(PenalizedGeneralizedLinearModel):
         if not np.isfinite(value) or value <= 0:
             raise ValueError(f"{name} must be a finite positive number")
 
+    @classmethod
+    def _validate_supported_penalty(cls, penalty):
+        from statgpu.penalties import (
+            ElasticNetPenalty,
+            L1Penalty,
+            L2Penalty,
+            MCPPenalty,
+            Penalty,
+            SCADPenalty,
+        )
+
+        name = str(getattr(penalty, "name", penalty)).lower().strip()
+        if name not in cls._SUPPORTED_PENALTY_NAMES:
+            raise ValueError(
+                "PenalizedCoxPHModel supports only L1, L2/Ridge, "
+                "ElasticNet, SCAD, MCP, or no penalty; "
+                f"got penalty={name!r}"
+            )
+        if not isinstance(penalty, Penalty):
+            return
+
+        supported_types = (
+            L1Penalty,
+            L2Penalty,
+            ElasticNetPenalty,
+            SCADPenalty,
+            MCPPenalty,
+        )
+        if not isinstance(penalty, supported_types):
+            raise ValueError(
+                "PenalizedCoxPHModel accepts only built-in validated penalty "
+                "objects for L1, L2, ElasticNet, SCAD, or MCP"
+            )
+
+        try:
+            alpha = float(penalty.alpha)
+        except (AttributeError, TypeError, ValueError) as exc:
+            raise ValueError("penalty object alpha must be finite") from exc
+        minimum = 0.0 if isinstance(
+            penalty, (L1Penalty, L2Penalty, ElasticNetPenalty)
+        ) else np.nextafter(0.0, 1.0)
+        if not np.isfinite(alpha) or alpha < minimum:
+            qualifier = "non-negative" if minimum == 0.0 else "positive"
+            raise ValueError(f"penalty object alpha must be finite and {qualifier}")
+        if isinstance(penalty, ElasticNetPenalty):
+            l1_ratio = float(penalty.l1_ratio)
+            if not np.isfinite(l1_ratio) or not 0.0 <= l1_ratio <= 1.0:
+                raise ValueError("penalty object l1_ratio must be between 0 and 1")
+        if isinstance(penalty, SCADPenalty):
+            a = float(penalty.a)
+            if not np.isfinite(a) or a <= 2.0:
+                raise ValueError("SCAD penalty object a must be greater than 2")
+        if isinstance(penalty, MCPPenalty):
+            gamma = float(penalty.gamma)
+            if not np.isfinite(gamma) or gamma <= 1.0:
+                raise ValueError("MCP penalty object gamma must be greater than 1")
+
     def _validate_cox_hyperparameters(self):
+        self._validate_supported_penalty(self.penalty)
         try:
             alpha = float(self.alpha)
             l1_ratio = float(self.l1_ratio)
@@ -478,13 +553,23 @@ class PenalizedCoxPHModel(PenalizedGeneralizedLinearModel):
         X_np = np.asarray(_to_numpy(X), dtype=np.float64)
         if X_np.ndim == 1:
             X_np = X_np.reshape(-1, 1)
-        y = np.asarray(_to_numpy(y), dtype=np.float64)
-        if y.ndim == 2 and y.shape[1] == 2:
-            time = y[:, 0]
-            event = y[:, 1]
+        if isinstance(y, dict):
+            if "time" not in y or "event" not in y:
+                raise ValueError("survival y dict must contain time and event")
+            time = np.asarray(_to_numpy(y["time"]), dtype=np.float64).reshape(-1)
+            event = np.asarray(_to_numpy(y["event"]), dtype=np.float64).reshape(-1)
+            if time.shape[0] != event.shape[0]:
+                raise ValueError("time and event must contain the same number of rows")
+            n_response_rows = time.shape[0]
         else:
-            raise ValueError("y must be (n, 2) array with columns [time, event]")
-        if X_np.shape[0] != y.shape[0]:
+            y = np.asarray(_to_numpy(y), dtype=np.float64)
+            if y.ndim == 2 and y.shape[1] == 2:
+                time = y[:, 0]
+                event = y[:, 1]
+            else:
+                raise ValueError("y must be (n, 2) array with columns [time, event]")
+            n_response_rows = y.shape[0]
+        if X_np.shape[0] != n_response_rows:
             raise ValueError("X and y must contain the same number of rows")
         return float(
             counting_process_concordance(

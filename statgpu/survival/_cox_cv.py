@@ -1604,6 +1604,15 @@ class CoxPHCV(CVEstimatorBase):
         fit_device_name = device_name
         ties_name = str(self.ties).lower()
         cov_type_name = str(self.cov_type).lower()
+        if (
+            ties_name == "exact"
+            and bool(self.compute_inference)
+            and cov_type_name != "nonrobust"
+        ):
+            raise NotImplementedError(
+                "robust covariance is not yet defined for ties='exact'; "
+                "use cov_type='nonrobust' or compute_inference=False"
+            )
         max_iter = _validate_positive_integer(self.max_iter, "max_iter")
         tol = _validate_finite_positive(self.tol, "tol")
         if self.cv_splits is None:

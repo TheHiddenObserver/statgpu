@@ -39,12 +39,19 @@
     HC0、HC1 或 cluster 请求抛出 `NotImplementedError`
   - 风险集矩使用列中心化、baseline 预测使用 log-domain 乘积，保证大常数协变量平移下
     的数值不变性；奇异信息矩阵不再通过伪逆产生虚假的零标准误
-  - formula 自动删除 NA 时同步对齐 entry/cluster/strata/subject；CuPy/Torch 小数标签
-    不再被整数转换合并；稳健协方差不再依赖可选 statsmodels
+  - formula 自动删除 NA 时包含 `Surv(...)` 响应列，并同步对齐
+    entry/cluster/strata/subject；公式预测或评分遇到缺失协变量时显式报错，不再静默
+    缩短输出。普通拟合后的 `score()` 也会遵守调用时传入的 `subject_id`，临时 strata
+    可使用任意标签；CuPy/Torch 小数标签不再被整数转换合并，稳健协方差不再依赖
+    可选 statsmodels
   - `CoxPH`、`CoxPHCV` 与 `PenalizedCoxPHModel` 可被 sklearn clone；失败重拟合会清空
     旧状态，CV 只允许全 fold 收敛候选，惩罚 Cox 的 C-index 正确处理预测并列与同时间删失
   - 非有限 penalty/tol 与非法迭代次数在优化前报错；CV 的 `device="auto"` 在后端分派前
-    完成解析，缓存结果使用隔离副本，调用方修改不会污染后续命中
+    完成解析，缓存结果使用隔离副本，调用方修改不会污染后续命中。Exact 仅在
+    `compute_inference=True` 时拒绝 robust `cov_type`，纯估计拟合不会因无关协方差设置失败
+  - 惩罚 Cox 对未进入公开验证矩阵的 adaptive/group penalty 显式报错，只接受文档声明的
+    L1、L2、Elastic Net、SCAD、MCP（或无惩罚）；内置 penalty 对象在拟合前会重新校验，
+    并通过专用 clone hook 支持 `sklearn.clone`，不改变原有序列化参数接口
   - 惩罚 Cox 的一阶 CPU 路径不再计算未使用的稠密 Hessian；Newton 使用融合梯度/Hessian
 
 ### 验证 (2026-07-12)

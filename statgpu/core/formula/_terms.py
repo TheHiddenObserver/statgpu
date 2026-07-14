@@ -51,11 +51,22 @@ def _surv(*args):
         raise ValueError("all Surv arguments must have the same length")
     if len(columns) == 3:
         start, stop, event = columns
-        if np.any(start < 0) or np.any(stop <= start):
+        # Patsy owns formula missing-data handling.  Validate only rows whose
+        # complete Surv response will survive NA removal; otherwise a missing
+        # event would raise here before Patsy can drop the row.
+        complete = ~(np.isnan(start) | np.isnan(stop) | np.isnan(event))
+        if np.any(~np.isfinite(start[complete])) or np.any(
+            ~np.isfinite(stop[complete])
+        ):
+            raise ValueError("Surv start/stop values must be finite")
+        if np.any(start[complete] < 0) or np.any(stop[complete] <= start[complete]):
             raise ValueError("Surv(start, stop, event) requires 0 <= start < stop")
     else:
         _, event = columns
-    if np.any((event != 0) & (event != 1)):
+    observed_event = ~np.isnan(event)
+    if np.any(~np.isfinite(event[observed_event])) or np.any(
+        (event[observed_event] != 0) & (event[observed_event] != 1)
+    ):
         raise ValueError("Surv event must contain only 0/1 values")
     return np.column_stack(columns)
 

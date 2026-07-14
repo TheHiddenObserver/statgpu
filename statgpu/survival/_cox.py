@@ -1111,7 +1111,11 @@ class CoxPH(BaseEstimator):
             subject_id, n_samples, "subject_id"
         )
 
-        if self.ties == "exact" and self.cov_type != "nonrobust":
+        if (
+            self.ties == "exact"
+            and self.compute_inference
+            and self.cov_type != "nonrobust"
+        ):
             raise NotImplementedError(
                 "robust covariance is not yet defined for ties='exact'; "
                 "use cov_type='nonrobust'"
@@ -4875,10 +4879,16 @@ class CoxPH(BaseEstimator):
             if pd is not None and isinstance(X, pd.DataFrame):
                 from statgpu.core.formula import FormulaParser
 
+                n_input_rows = len(X)
                 parser = FormulaParser.__new__(FormulaParser)
                 parser._design_info = self._design_info
                 parser.formula = None
                 X = parser.transform(X)
+                if X.shape[0] != n_input_rows:
+                    raise ValueError(
+                        "formula prediction data contains missing values; "
+                        "rows cannot be dropped silently"
+                    )
                 column_names = list(self._design_info.column_names)
                 if "Intercept" in column_names:
                     X = np.delete(X, column_names.index("Intercept"), axis=1)
@@ -5152,16 +5162,19 @@ class CoxPH(BaseEstimator):
         ):
             raise ValueError("event must contain only 0/1 finite values")
         event_codes = event_values.astype(np.int64, copy=False)
+        X_arr = self._prepare_prediction_X(X)
+        if X_arr.shape[0] != time_values.shape[0]:
+            raise ValueError("X, time, and event must contain the same number of rows")
 
         if (
             self._strata is not None
             or self._is_counting_process
             or start is not None
             or strata is not None
+            or subject_id is not None
         ):
             from statgpu.survival._risk_sets import counting_process_concordance
 
-            X_arr = self._prepare_prediction_X(X)
             if strata is None:
                 fitted_n_strata = (
                     1
@@ -5186,7 +5199,11 @@ class CoxPH(BaseEstimator):
                 except KeyError as exc:
                     raise ValueError(f"unknown scoring stratum: {exc.args[0]!r}") from exc
             else:
-                strata_codes = self._to_numpy(strata)
+                strata_codes, _ = self._encode_group_labels(
+                    np.asarray(self._to_numpy(strata)),
+                    X_arr.shape[0],
+                    "strata",
+                )
             subject_codes, _ = self._encode_group_labels(
                 None if subject_id is None else self._to_numpy(subject_id),
                 X_arr.shape[0],
@@ -5208,7 +5225,7 @@ class CoxPH(BaseEstimator):
                 )
             )
 
-        risk_score = self.predict_risk_score(X)
+        risk_score = X_arr @ self.coef_
         time = time_values
         event = event_codes
 

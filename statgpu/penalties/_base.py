@@ -12,7 +12,7 @@ __all__ = ["Penalty", "CompositePenalty"]
 
 
 from abc import ABC, abstractmethod
-from typing import Optional, Union, Any
+from typing import Optional
 import numpy as np
 
 from statgpu.backends._array_ops import _xp
@@ -140,6 +140,19 @@ class Penalty(ABC):
         """
         xp = _xp(coef)
         return xp.zeros_like(coef)
+
+    def __sklearn_clone__(self):
+        """Return an independent penalty copy for sklearn estimator cloning.
+
+        Penalty ``get_params()`` is a serialization API that includes the
+        non-constructor ``name`` field, so routing it through sklearn's generic
+        estimator reconstruction is incorrect.  The clone hook preserves the
+        configured penalty object without imposing estimator semantics on every
+        penalty subclass.
+        """
+        import copy
+
+        return copy.deepcopy(self)
 
     def get_params(self) -> dict:
         """

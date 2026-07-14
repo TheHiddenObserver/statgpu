@@ -1113,3 +1113,40 @@ def test_coxphcv_public_fit_does_not_coerce_invalid_controls(kwargs, match):
         model.fit(X, time, event)
     assert model.coef_ is None
     assert model.cv_results_ is None
+
+
+def test_coxphcv_exact_robust_covariance_rejected_before_cv(monkeypatch):
+    X, time, event = _make_survival_data(n_samples=40, n_features=2, seed=882)
+
+    def fail_if_selected(*args, **kwargs):
+        pytest.fail("penalty selection ran before validating exact robust inference")
+
+    monkeypatch.setattr(cox_cv_module, "_select_coxph_penalty_cv", fail_if_selected)
+    model = CoxPHCV(
+        ties="exact",
+        cov_type="hc0",
+        compute_inference=True,
+        penalties=[0.1],
+        cv=2,
+        device="cpu",
+    )
+    with pytest.raises(NotImplementedError, match="robust covariance"):
+        model.fit(X, time, event)
+    assert model.coef_ is None
+    assert model.cv_results_ is None
+
+
+def test_coxphcv_exact_allows_irrelevant_cov_type_without_inference():
+    X, time, event = _make_survival_data(n_samples=50, n_features=2, seed=883)
+    model = CoxPHCV(
+        ties="exact",
+        cov_type="hc0",
+        compute_inference=False,
+        penalties=[0.1],
+        cv=2,
+        max_iter=80,
+        device="cpu",
+        random_state=4,
+    ).fit(X, time, event)
+    assert model._fitted
+    assert model.estimator_._bse is None
