@@ -48,15 +48,18 @@ jobs:
             dev/tests/test_unsupervised_gmm.py \
             dev/tests/test_unsupervised_nmf.py \
             -q --tb=short
-      - name: Remove temporary transfer files
+      - name: Remove temporary patch files
         run: |
           rm -rf dev/patches/pr79-review3
           rm -rf dev/patches/pr79-review3-gz
-          rm -f .github/workflows/pr79-third-review-apply.yml
-      - name: Commit review fixes
+      - name: Commit source, tests, and documentation
         shell: bash
         run: |
           set -euo pipefail
+          # GITHUB_TOKEN cannot update files under .github/workflows. Restore those
+          # paths here; the connected GitHub client applies the reviewed workflow
+          # update and removes temporary workflows after this source commit lands.
+          git restore --source=HEAD -- .github/workflows
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
