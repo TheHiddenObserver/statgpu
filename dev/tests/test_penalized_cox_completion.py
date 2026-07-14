@@ -572,6 +572,10 @@ def test_penalized_cox_formula_supports_full_design_contract(survival_data):
         rtol=0,
         atol=1e-12,
     )
+    prediction_y = prediction_frame[["time", "event"]].to_numpy()
+    assert model.score(prediction_frame, prediction_y) == pytest.approx(
+        direct.score(transformed_np, prediction_y)
+    )
 
 
 def test_penalized_cox_formula_rejects_start_stop_response(survival_data):

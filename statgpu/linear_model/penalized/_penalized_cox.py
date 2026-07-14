@@ -474,6 +474,7 @@ class PenalizedCoxPHModel(PenalizedGeneralizedLinearModel):
 
         from statgpu.survival._risk_sets import counting_process_concordance
 
+        X = self._prepare_predict_X(X)
         X_np = np.asarray(_to_numpy(X), dtype=np.float64)
         if X_np.ndim == 1:
             X_np = X_np.reshape(-1, 1)

@@ -41,8 +41,8 @@ All notable changes to statgpu are documented here, organized by date and PR.
   transforms, and formula-driven NA removal. Its C-index uses censoring- and
   tie-correct shared concordance semantics, and failed refits cannot expose
   stale coefficients.
-- **Optimization and validation**: first-order penalized Cox evaluations no
-  longer allocate or compute an unused dense Hessian, while Newton uses a fused
+- **Optimization and validation**: NumPy first-order penalized Cox evaluations
+  no longer allocate or compute an unused dense Hessian, while Newton uses a fused
   gradient/Hessian call. Cox optimizers reject non-finite penalties,
   tolerances, and invalid iteration controls. Added CPU reference,
   finite-difference, brute-force Exact,
