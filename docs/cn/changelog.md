@@ -22,7 +22,8 @@
   - `CoxPHCV` 在相同 ties、start-stop、strata 和 subject 轴上完成 L2 penalty
     held-out 部分似然搜索、受试者分组折叠和全量重拟合
   - `PenalizedCoxPHModel` 验证 L1、L2、Elastic Net、SCAD、MCP 五类惩罚；
-    SCAD/MCP 使用 FISTA-LLA。该接口无截距且仅提供估计
+    SCAD/MCP 使用 FISTA-LLA。该接口无截距且仅提供估计；右删失
+    `Surv(time, event)` 公式支持分类变量、交互项、变换与 NA 删除
 
 ### 修复 (2026-07-12)
 
@@ -42,6 +43,9 @@
     不再被整数转换合并；稳健协方差不再依赖可选 statsmodels
   - `CoxPH`、`CoxPHCV` 与 `PenalizedCoxPHModel` 可被 sklearn clone；失败重拟合会清空
     旧状态，CV 只允许全 fold 收敛候选，惩罚 Cox 的 C-index 正确处理预测并列与同时间删失
+  - 非有限 penalty/tol 与非法迭代次数在优化前报错；CV 的 `device="auto"` 在后端分派前
+    完成解析，缓存结果使用隔离副本，调用方修改不会污染后续命中
+  - 惩罚 Cox 的一阶 CPU 路径不再计算未使用的稠密 Hessian；Newton 使用融合梯度/Hessian
 
 ### 验证 (2026-07-12)
 

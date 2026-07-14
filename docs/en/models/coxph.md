@@ -194,6 +194,16 @@ penalized = PenalizedCoxPHModel(
     device="cuda", compute_inference=False,
 )
 penalized.fit(X, y_surv)
+
+# The right-censored formula path supports categoricals, interactions,
+# transforms, and Patsy NA removal. The intercept is removed automatically.
+penalized_formula = PenalizedCoxPHModel(
+    penalty="l2", alpha=0.05, ties="efron", device="cpu",
+)
+penalized_formula.fit(
+    formula="Surv(time, event) ~ age * C(group) + np.log(marker)",
+    data=frame,
+)
 ```
 
 Fold construction and diagnostics are orchestrated on the host. For explicit
@@ -204,6 +214,9 @@ scoring, and orchestration devices separately.
 `PenalizedCoxPHModel` rejects `fit_intercept=True`. It also raises
 `NotImplementedError` at fit time when `compute_inference=True`; use
 unpenalized `CoxPH` when standard errors or confidence intervals are required.
+The penalized formula interface accepts `Surv(time, event)` only; use `CoxPH`
+for `Surv(start, stop, event)`, strata, or subject-level counting-process data.
+Non-finite regularization/solver controls are rejected before optimization.
 
 ## Tie Methods and Strictness
 

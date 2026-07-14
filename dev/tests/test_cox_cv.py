@@ -1021,3 +1021,95 @@ def test_coxphcv_accepts_torch_cpu_penalty_array():
     assert np.array_equal(model.penalties_, np.array([0.1]))
     assert model.cv_results_["scoring_device"] == "cpu"
     assert model.cv_results_["orchestration_device"] == "cpu"
+
+
+@pytest.mark.parametrize(
+    "kwargs,match",
+    [
+        ({"n_penalties": 0}, "n_penalties"),
+        ({"n_penalties": 2.5}, "n_penalties"),
+        ({"penalty_min_ratio": 0.0}, "penalty_min_ratio"),
+        ({"penalty_min_ratio": np.nan}, "penalty_min_ratio"),
+        ({"penalty_min_ratio": 1.1}, "less than or equal to 1"),
+        ({"max_iter": 0}, "max_iter"),
+        ({"tol": np.inf}, "tol"),
+    ],
+)
+def test_coxphcv_rejects_invalid_grid_and_solver_controls(kwargs, match):
+    X, time, event = _make_survival_data(n_samples=36, n_features=2, seed=878)
+    with pytest.raises(ValueError, match=match):
+        _select_coxph_penalty_cv(
+            X,
+            time,
+            event,
+            cv_folds=3,
+            device="cpu",
+            cache_key=f"invalid-controls-{repr(kwargs)}",
+            **kwargs,
+        )
+
+
+def test_coxphcv_direct_auto_device_resolves_before_backend_dispatch(monkeypatch):
+    X, time, event = _make_survival_data(n_samples=42, n_features=2, seed=879)
+    monkeypatch.setattr(cox_cv_module, "get_device", lambda: cox_cv_module.Device.CPU)
+    _, details = _select_coxph_penalty_cv(
+        X,
+        time,
+        event,
+        penalties=[0.1],
+        cv_folds=2,
+        device="auto",
+        max_iter=60,
+        return_details=True,
+        cache_key="direct-auto-resolves-to-cpu",
+    )
+    assert details["effective_device"] == "cpu"
+    assert details["scoring_device"] == "cpu"
+
+
+def test_coxphcv_cache_results_are_isolated_from_caller_mutation():
+    X, time, event = _make_survival_data(n_samples=42, n_features=2, seed=880)
+    _COXPH_CV_CACHE.clear()
+    kwargs = dict(
+        penalties=[0.1],
+        cv_folds=2,
+        random_state=7,
+        device="cpu",
+        max_iter=60,
+        return_details=True,
+        cache_key="cache-mutation-isolation",
+    )
+    _, first = _select_coxph_penalty_cv(X, time, event, **kwargs)
+    expected = first["pl_path"].copy()
+    first["pl_path"][:] = 12345.0
+    first["fold_metadata"][0]["n_train"] = -1
+
+    _, second = _select_coxph_penalty_cv(X, time, event, **kwargs)
+    assert np.array_equal(second["pl_path"], expected)
+    assert second["fold_metadata"][0]["n_train"] >= 0
+
+
+@pytest.mark.parametrize(
+    "kwargs,match",
+    [
+        ({"n_penalties": 2.5}, "n_penalties"),
+        ({"cv": 2.5}, "cv"),
+        ({"max_iter": 2.5}, "max_iter"),
+        ({"penalty_min_ratio": np.nan}, "penalty_min_ratio"),
+    ],
+)
+def test_coxphcv_public_fit_does_not_coerce_invalid_controls(kwargs, match):
+    X, time, event = _make_survival_data(n_samples=36, n_features=2, seed=881)
+    model_kwargs = {
+        "device": "cpu",
+        "compute_inference": False,
+        "n_penalties": 3,
+        "cv": 2,
+        "max_iter": 40,
+    }
+    model_kwargs.update(kwargs)
+    model = CoxPHCV(**model_kwargs)
+    with pytest.raises(ValueError, match=match):
+        model.fit(X, time, event)
+    assert model.coef_ is None
+    assert model.cv_results_ is None

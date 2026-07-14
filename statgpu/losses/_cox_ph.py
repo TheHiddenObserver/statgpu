@@ -209,8 +209,15 @@ class CoxPartialLikelihoodLoss(LossBase):
         xp = _get_xp(X_s)
         coef_dev = _xp_asarray(coef, dtype=xp.float64, ref_arr=X_s)
         n = X_s.shape[0]
-        grad, _ = self._compute_grad_hess(coef_dev, X_s)
-        return -grad / n
+        is_gpu = xp.__name__ == "cupy" or (
+            xp.__name__ == "torch" and X_s.is_cuda
+        )
+        if is_gpu:
+            grad, _ = self._compute_grad_hess(coef_dev, X_s)
+            return -grad / n
+        eta_np = _to_numpy(X_s @ coef_dev)
+        _, grad_np = self._cpu_loglik_grad(eta_np, _to_numpy(X_s))
+        return _xp_asarray(-grad_np / n, dtype=xp.float64, ref_arr=X_s)
 
     def fused_value_and_gradient(self, X, y, coef, sample_weight=None):
         if sample_weight is not None:
@@ -232,19 +239,28 @@ class CoxPartialLikelihoodLoss(LossBase):
             loglik = self._loglik_from_eta(eta, X_s)
             return -_to_float_scalar(loglik) / n, -grad / n
 
-        # CPU path: fused loglik + gradient + hessian in one pass
+        # CPU first-order solvers do not need the O(p^2) Hessian.  Compute
+        # value and score together using O(n p) storage.
         X_np = _to_numpy(X_s)
         eta_np = _to_numpy(X_s @ coef_dev)
-        if self.ties == 'efron' and self._efron_pre_np is not None:
-            loglik, grad_np, hess_np = self._cpu_fused_loglik_grad_hess(eta_np, X_np, self._time_np, self._event_np)
-            # Cache hessian for Newton solver
-            if hess_np is not None:
-                self._cached_hess = hess_np
-            return -loglik / n, _xp_asarray(-grad_np / n, dtype=xp.float64, ref_arr=X_s)
-        else:
-            loglik = self._cpu_loglik(eta_np, self._time_np, self._event_np)
-            grad_np, _ = self._cpu_grad_hess(eta_np, self._time_np, self._event_np)
-            return -loglik / n, _xp_asarray(-grad_np / n, dtype=xp.float64, ref_arr=X_s)
+        loglik, grad_np = self._cpu_loglik_grad(eta_np, X_np)
+        return -loglik / n, _xp_asarray(
+            -grad_np / n, dtype=xp.float64, ref_arr=X_s
+        )
+
+    def fused_gradient_and_hessian(self, X, y, coef, sample_weight=None):
+        """Return loss gradient and Hessian from one derivative evaluation."""
+        if sample_weight is not None:
+            raise NotImplementedError(
+                "CoxPartialLikelihoodLoss does not support sample_weight"
+            )
+        self._ensure_sorted(X, y)
+        X_s = self._X_sorted
+        xp = _get_xp(X_s)
+        coef_dev = _xp_asarray(coef, dtype=xp.float64, ref_arr=X_s)
+        grad, hess = self._compute_grad_hess(coef_dev, X_s)
+        n = X_s.shape[0]
+        return -grad / n, -hess / n
 
     def hessian(self, X, y, coef, sample_weight=None):
         if sample_weight is not None:
@@ -254,12 +270,6 @@ class CoxPartialLikelihoodLoss(LossBase):
         X_s = self._X_sorted
         xp = _get_xp(X_s)
         n = X_s.shape[0]
-
-        # Use cached Hessian from fused_value_and_gradient if available
-        if hasattr(self, '_cached_hess') and self._cached_hess is not None:
-            hess = self._cached_hess
-            self._cached_hess = None  # Clear cache
-            return _xp_asarray(-hess / n, dtype=xp.float64, ref_arr=X_s)
 
         coef_dev = _xp_asarray(coef, dtype=xp.float64, ref_arr=X_s)
         _, hess = self._compute_grad_hess(coef_dev, X_s)
@@ -880,6 +890,61 @@ class CoxPartialLikelihoodLoss(LossBase):
             grad += sx - s1 * si * d
 
         return ll, grad, None
+
+    def _cpu_loglik_grad(self, eta_np, X_np):
+        """Compute CPU log likelihood and score without allocating a Hessian."""
+        n, p = X_np.shape
+        eta_shift = eta_np - np.max(eta_np)
+        exp_eta = np.exp(eta_shift)
+        X_exp = X_np * exp_eta[:, None]
+        risk_sum = np.zeros(n + 1, dtype=np.float64)
+        risk_sum[:n] = np.cumsum(exp_eta[::-1])[::-1]
+        risk_X_sum = np.zeros((n + 1, p), dtype=np.float64)
+        risk_X_sum[:n] = np.cumsum(X_exp[::-1], axis=0)[::-1]
+        event_mask = self._event_np == 1
+        if not np.any(event_mask):
+            return 0.0, np.zeros(p, dtype=np.float64)
+
+        if self.ties == "breslow":
+            first_idx, counts = self._breslow_pre_np
+            risk_at = np.maximum(risk_sum[first_idx], 1e-300)
+            mean_x = risk_X_sum[first_idx] / risk_at[:, None]
+            loglik = float(
+                np.sum(eta_shift[event_mask])
+                - np.sum(counts * np.log(risk_at))
+            )
+            grad = np.sum(X_np[event_mask], axis=0) - np.sum(
+                counts[:, None] * mean_x, axis=0
+            )
+            return loglik, grad
+
+        _, uft_ix, _, _, nuft, first_idx_uft = self._efron_pre_np
+        loglik = 0.0
+        grad = np.zeros(p, dtype=np.float64)
+        for group in range(nuft):
+            event_idx = uft_ix[group]
+            d = int(event_idx.shape[0])
+            if d == 0:
+                continue
+            first_idx = int(first_idx_uft[group])
+            s0 = risk_sum[first_idx]
+            s1 = risk_X_sum[first_idx]
+            event_exp = exp_eta[event_idx]
+            event_x = X_np[event_idx]
+            e0 = float(np.sum(event_exp))
+            e1 = event_x.T @ event_exp
+            fractions = np.arange(d, dtype=np.float64) / d
+            denominators = np.maximum(s0 - fractions * e0, 1e-300)
+            loglik += float(np.sum(eta_shift[event_idx])) - float(
+                np.sum(np.log(denominators))
+            )
+            grad += np.sum(event_x, axis=0)
+            grad -= np.sum(
+                (s1[None, :] - fractions[:, None] * e1[None, :])
+                / denominators[:, None],
+                axis=0,
+            )
+        return loglik, grad
 
     def _cpu_fused_loglik_grad_hess(self, eta_np, X_np, time_np, event_np):
         """Fused loglik + gradient + Hessian for Efron — incremental accumulator.

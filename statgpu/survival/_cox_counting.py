@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from typing import Any, Dict, Optional
+import numbers
+import numpy as np
 
 from ._risk_sets import (
     _array_namespace,
@@ -67,14 +69,19 @@ def fit_counting_process_cox(
         beta = _as_backend_array(init_coef, backend, xp, X).reshape(-1)
         if int(beta.shape[0]) != n_features:
             raise ValueError("init_coef must have shape (n_features,)")
+        if not _scalar_bool(xp.all(xp.isfinite(beta))):
+            raise ValueError("init_coef must contain only finite values")
 
     penalty = float(penalty)
-    if penalty < 0:
-        raise ValueError("penalty must be non-negative")
-    if max_iter < 1:
-        raise ValueError("max_iter must be at least 1")
-    if tol <= 0:
-        raise ValueError("tol must be positive")
+    if not np.isfinite(penalty) or penalty < 0:
+        raise ValueError("penalty must be a finite non-negative number")
+    if isinstance(max_iter, (bool, np.bool_)) or not isinstance(
+        max_iter, numbers.Integral
+    ) or int(max_iter) < 1:
+        raise ValueError("max_iter must be a positive integer")
+    tol = float(tol)
+    if not np.isfinite(tol) or tol <= 0:
+        raise ValueError("tol must be a finite positive number")
 
     identity = _eye(backend, xp, n_features, X)
     converged = False

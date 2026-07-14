@@ -29,15 +29,23 @@ All notable changes to statgpu are documented here, organized by date and PR.
   are retained and the selected penalty is refitted on all data.
   Full-data cache hashes, fold validation, convergence-aware eligibility,
   device-native held-out scoring, cloneability, and failed-refit state resets
-  harden sklearn-style model selection.
+  harden sklearn-style model selection. Generated-grid controls reject
+  non-finite values, `device="auto"` resolves before backend dispatch, and
+  cached result objects are isolated from caller mutation.
 - **Penalized Cox**: hardened L1, L2, ElasticNet, SCAD, and MCP estimation,
   removed the unidentified intercept, corrected Cox-specific SCAD/MCP warm
   starts, and made Torch Efron value/gradient/Hessian native rather than routing
   through CuPy. `PenalizedCoxPHModel` is explicitly estimation-only;
-  `compute_inference=True` raises `NotImplementedError`. Its C-index now uses
-  censoring- and tie-correct shared concordance semantics, and failed refits
-  cannot expose stale coefficients.
-- **Validation**: added CPU reference, finite-difference, brute-force Exact,
+  `compute_inference=True` raises `NotImplementedError`. Right-censored
+  `Surv(time, event)` formulas now support categoricals, interactions,
+  transforms, and formula-driven NA removal. Its C-index uses censoring- and
+  tie-correct shared concordance semantics, and failed refits cannot expose
+  stale coefficients.
+- **Optimization and validation**: first-order penalized Cox evaluations no
+  longer allocate or compute an unused dense Hessian, while Newton uses a fused
+  gradient/Hessian call. Cox optimizers reject non-finite penalties,
+  tolerances, and invalid iteration controls. Added CPU reference,
+  finite-difference, brute-force Exact,
   formula, CV, and penalized-objective tests plus CuPy/Torch parity tests that
   skip when no compatible GPU is available. Structured quick/full survival
   benchmark artifacts record precision, convergence, timing scope, and cases

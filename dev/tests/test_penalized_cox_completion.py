@@ -480,3 +480,156 @@ def test_penalized_cox_score_accepts_device_response_arrays(survival_data, devic
             torch.as_tensor(y, device="cuda"),
         )
     assert actual == pytest.approx(expected)
+
+
+@pytest.mark.parametrize(
+    "kwargs,match",
+    [
+        ({"alpha": np.nan}, "alpha"),
+        ({"alpha": np.inf}, "alpha"),
+        ({"alpha": -0.1}, "alpha"),
+        ({"l1_ratio": np.nan}, "l1_ratio"),
+        ({"l1_ratio": 1.1}, "l1_ratio"),
+        ({"max_iter": 0}, "max_iter"),
+        ({"tol": np.inf}, "tol"),
+        ({"max_lla_iters": 0}, "max_lla_iters"),
+        ({"lla_tol": 0.0}, "lla_tol"),
+        ({"lipschitz_L": np.nan}, "lipschitz_L"),
+    ],
+)
+def test_penalized_cox_rejects_invalid_optimization_controls(
+    survival_data, kwargs, match
+):
+    X, y = survival_data
+    model = PenalizedCoxPHModel(device="cpu", compute_inference=False, **kwargs)
+    with pytest.raises(ValueError, match=match):
+        model.fit(X, y)
+
+
+def test_penalized_cox_formula_supports_full_design_contract(survival_data):
+    pd = pytest.importorskip("pandas")
+    patsy = pytest.importorskip("patsy")
+    X, y = survival_data
+    frame = pd.DataFrame(
+        {
+            "time": y[:, 0],
+            "event": y[:, 1],
+            "x1": X[:, 0],
+            "positive_x2": np.exp(X[:, 1]),
+            "group": np.where(np.arange(X.shape[0]) % 2, "b", "a"),
+        }
+    )
+    frame.loc[7, "x1"] = np.nan
+    formula = "Surv(time, event) ~ x1 * C(group) + np.log(positive_x2)"
+    model = PenalizedCoxPHModel(
+        penalty="l2",
+        alpha=0.03,
+        device="cpu",
+        compute_inference=False,
+        max_iter=250,
+        tol=1e-7,
+    ).fit(formula=formula, data=frame)
+
+    from patsy import EvalEnvironment
+    from statgpu.core.formula import make_surv_env
+
+    y_design, X_design = patsy.dmatrices(
+        formula,
+        frame.reset_index(drop=True),
+        eval_env=EvalEnvironment([make_surv_env()]),
+        return_type="dataframe",
+    )
+    names = list(X_design.design_info.column_names)
+    expected_X = np.asarray(X_design)
+    if "Intercept" in names:
+        expected_X = np.delete(expected_X, names.index("Intercept"), axis=1)
+    direct = PenalizedCoxPHModel(
+        penalty="l2",
+        alpha=0.03,
+        device="cpu",
+        compute_inference=False,
+        max_iter=250,
+        tol=1e-7,
+    ).fit(expected_X, np.asarray(y_design))
+
+    assert model._feature_names == [name for name in names if name != "Intercept"]
+    assert model._design_info is not None
+    assert model._formula_has_intercept is True
+    assert model._use_intercept is False
+    assert_allclose(model.coef_, direct.coef_, rtol=1e-10, atol=1e-11)
+    prediction_frame = frame.dropna().iloc[:8]
+    transformed = patsy.build_design_matrices(
+        [model._design_info], prediction_frame, return_type="dataframe"
+    )[0]
+    transformed_np = np.asarray(transformed)
+    transformed_names = list(model._design_info.column_names)
+    transformed_np = np.delete(
+        transformed_np, transformed_names.index("Intercept"), axis=1
+    )
+    assert_allclose(
+        model.predict(prediction_frame),
+        np.exp(np.clip(transformed_np @ model.coef_, -500.0, 500.0)),
+        rtol=0,
+        atol=1e-12,
+    )
+
+
+def test_penalized_cox_formula_rejects_start_stop_response(survival_data):
+    pd = pytest.importorskip("pandas")
+    X, y = survival_data
+    frame = pd.DataFrame(
+        {
+            "start": np.zeros(len(y)),
+            "stop": y[:, 0],
+            "event": y[:, 1],
+            "x1": X[:, 0],
+        }
+    )
+    with pytest.raises(NotImplementedError, match="right-censored"):
+        PenalizedCoxPHModel(device="cpu", compute_inference=False).fit(
+            formula="Surv(start, stop, event) ~ x1", data=frame
+        )
+
+
+def test_cox_loss_hessian_is_evaluated_at_requested_coefficients(survival_data):
+    X, y = survival_data
+    X = X[:, :3]
+    coef_first = np.array([0.1, -0.2, 0.05])
+    coef_second = np.array([-0.3, 0.15, 0.2])
+    loss = CoxPartialLikelihoodLoss(ties="efron")
+    loss.fused_value_and_gradient(X, y, coef_first)
+    actual = loss.hessian(X, y, coef_second)
+    expected = CoxPartialLikelihoodLoss(ties="efron").hessian(
+        X, y, coef_second
+    )
+    assert_allclose(actual, expected, rtol=0, atol=1e-12)
+
+
+def test_cox_loss_first_order_paths_avoid_hessian_work(survival_data, monkeypatch):
+    X, y = survival_data
+    X = X[:, :3]
+    coef = np.array([0.1, -0.2, 0.05])
+    loss = CoxPartialLikelihoodLoss(ties="efron")
+    expected_loss = CoxPartialLikelihoodLoss(ties="efron")
+    expected_value, expected_grad = expected_loss.fused_value_and_gradient(X, y, coef)
+
+    def fail_full_hessian(*args, **kwargs):
+        raise AssertionError("first-order path requested an O(p^2) Hessian")
+
+    monkeypatch.setattr(loss, "_cpu_grad_hess", fail_full_hessian)
+    monkeypatch.setattr(loss, "_cpu_fused_loglik_grad_hess", fail_full_hessian)
+    value, grad = loss.fused_value_and_gradient(X, y, coef)
+    grad_only = loss.gradient(X, y, coef)
+    assert value == pytest.approx(expected_value)
+    assert_allclose(grad, expected_grad, rtol=1e-12, atol=1e-12)
+    assert_allclose(grad_only, expected_grad, rtol=1e-12, atol=1e-12)
+
+
+def test_cox_loss_fused_derivatives_match_separate_calls(survival_data):
+    X, y = survival_data
+    X = X[:, :3]
+    coef = np.array([0.1, -0.2, 0.05])
+    loss = CoxPartialLikelihoodLoss(ties="efron")
+    grad, hess = loss.fused_gradient_and_hessian(X, y, coef)
+    assert_allclose(grad, loss.gradient(X, y, coef), rtol=1e-12, atol=1e-12)
+    assert_allclose(hess, loss.hessian(X, y, coef), rtol=1e-12, atol=1e-12)

@@ -192,6 +192,16 @@ model = PenalizedCoxPHModel(
 )
 model.fit(X, y_surv)
 hazard_ratio = model.predict_hazard_ratio(X_new)
+
+# 右删失公式支持分类变量、交互项、变换和 Patsy 的 NA 删除；
+# 不可识别的截距会自动从设计矩阵中移除。
+formula_model = PenalizedCoxPHModel(
+    penalty="l2", alpha=0.05, ties="efron", device="cpu"
+)
+formula_model.fit(
+    formula="Surv(time, event) ~ age * C(group) + np.log(marker)",
+    data=frame,
+)
 ```
 
 当前限制必须显式考虑：
@@ -200,8 +210,10 @@ hazard_ratio = model.predict_hazard_ratio(X_new)
 - 该类仅提供惩罚估计、风险比和 C-index；`compute_inference=True` 会抛出
   `NotImplementedError`；
 - 需要标准误、显著性检验、置信区间、基线风险或生存曲线时，使用无惩罚 `CoxPH`；
-- 该惩罚接口接收形如 `[time, event]` 的二维响应，尚不提供 `CoxPH` 的
-  start-stop/strata/subject 公共接口，也不支持 Exact ties。
+- 该惩罚接口接收形如 `[time, event]` 的二维响应，或右删失
+  `Surv(time, event)` 公式；公式支持分类变量、交互项、变换和 NA 删除；
+- 尚不提供 `CoxPH` 的 start-stop/strata/subject 公共接口，也不支持 Exact ties；
+- 非有限的 penalty、容差及非法迭代次数会在优化前显式报错。
 
 ## 性能与验证
 

@@ -43,15 +43,15 @@ def test_refit_resets_convergence_and_inference_state():
     ).fit(X, time, event)
     assert model._baseline_cumulative_hazard is not None
 
-    # Make stale state unmistakable, then perform a zero-iteration,
+    # Make stale state unmistakable, then perform a deliberately short,
     # estimation-only refit on the same object.
     model._converged = True
-    model.max_iter = 0
+    model.max_iter = 1
     model.compute_inference = False
     model.fit(X[:120], time[:120], event[:120])
 
     assert model._fitted
-    assert model._iterations == 0
+    assert model._iterations == 1
     assert model._converged is False
     assert model._bse is None
     assert model._var_matrix is None
@@ -279,3 +279,32 @@ def test_gpu_nonrobust_inference_keeps_full_covariance_and_baseline(device, ties
     survival, returned_times = model.predict_survival(X[:5], custom_times)
     assert survival.shape == (5, 3)
     np.testing.assert_array_equal(returned_times, custom_times)
+
+
+@pytest.mark.parametrize(
+    "parameter,value,match",
+    [
+        ("penalty", np.nan, "penalty"),
+        ("penalty", np.inf, "penalty"),
+        ("tol", 0.0, "tol"),
+        ("tol", np.nan, "tol"),
+        ("tol", np.inf, "tol"),
+        ("max_iter", 0, "max_iter"),
+        ("max_iter", 2.5, "max_iter"),
+        ("max_iter", True, "max_iter"),
+    ],
+)
+def test_coxph_rejects_invalid_optimization_controls(parameter, value, match):
+    kwargs = {parameter: value}
+    with pytest.raises(ValueError, match=match):
+        CoxPH(**kwargs)
+
+
+def test_coxph_mutated_invalid_controls_fail_and_clear_fitted_state():
+    X, time, event = _survival_data(n=80, p=2, seed=2718)
+    model = CoxPH(device="cpu", compute_inference=False).fit(X, time, event)
+    model.max_iter = 0
+    with pytest.raises(ValueError, match="max_iter"):
+        model.fit(X, time, event)
+    assert model._fitted is False
+    assert model.coef_ is None

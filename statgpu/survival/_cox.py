@@ -6,6 +6,7 @@ Newton-Raphson optimization. Matches R's survival::coxph() API.
 """
 
 from typing import Optional, Union
+import numbers
 import os
 import numpy as np
 from scipy import stats
@@ -335,12 +336,22 @@ class CoxPH(BaseEstimator):
         self.gpu_memory_cleanup = bool(gpu_memory_cleanup)
         self.penalty = float(penalty)
 
+        if isinstance(max_iter, (bool, np.bool_)) or not isinstance(
+            max_iter, numbers.Integral
+        ) or int(max_iter) < 1:
+            raise ValueError("max_iter must be a positive integer")
+        try:
+            tol_value = float(tol)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("tol must be a finite positive number") from exc
+        if not np.isfinite(tol_value) or tol_value <= 0:
+            raise ValueError("tol must be a finite positive number")
+        if not np.isfinite(self.penalty) or self.penalty < 0:
+            raise ValueError("penalty must be a finite non-negative number")
         if self.ties not in ('breslow', 'efron', 'exact'):
             raise ValueError("ties must be 'breslow', 'efron', or 'exact'")
         if self.cov_type not in ("nonrobust", "hc0", "hc1", "cluster"):
             raise ValueError("cov_type must be one of: 'nonrobust', 'hc0', 'hc1', 'cluster'")
-        if self.penalty < 0:
-            raise ValueError("penalty must be non-negative")
         
         # Fitted attributes
         self.coef_ = None
@@ -521,7 +532,25 @@ class CoxPH(BaseEstimator):
             if conv_attr is not None:
                 return bool(conv_attr)
         return None
-        
+
+    def _validate_optimization_controls(self):
+        """Validate mutable optimization controls before every fit attempt."""
+        if isinstance(self.max_iter, (bool, np.bool_)) or not isinstance(
+            self.max_iter, numbers.Integral
+        ) or int(self.max_iter) < 1:
+            raise ValueError("max_iter must be a positive integer")
+        try:
+            tol = float(self.tol)
+            penalty = float(self.penalty)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                "tol and penalty must be finite numeric values"
+            ) from exc
+        if not np.isfinite(tol) or tol <= 0:
+            raise ValueError("tol must be a finite positive number")
+        if not np.isfinite(penalty) or penalty < 0:
+            raise ValueError("penalty must be a finite non-negative number")
+
     def fit(
         self,
         X=None,
@@ -540,6 +569,7 @@ class CoxPH(BaseEstimator):
         """Fit and clear all state if validation or inference fails."""
         self._reset_fit_state()
         try:
+            self._validate_optimization_controls()
             if formula is None and event is None and time is not None:
                 target = np.asarray(self._to_numpy(time), dtype=np.float64)
                 if target.ndim != 2 or target.shape[1] not in (2, 3):
@@ -962,10 +992,23 @@ class CoxPH(BaseEstimator):
                     "cov_type must be one of: 'nonrobust', 'hc0', 'hc1', 'cluster'"
                 )
             params["cov_type"] = cov_type
+        if "max_iter" in params:
+            max_iter = params["max_iter"]
+            if isinstance(max_iter, (bool, np.bool_)) or not isinstance(
+                max_iter, numbers.Integral
+            ) or int(max_iter) < 1:
+                raise ValueError("max_iter must be a positive integer")
+        if "tol" in params:
+            try:
+                tol = float(params["tol"])
+            except (TypeError, ValueError) as exc:
+                raise ValueError("tol must be a finite positive number") from exc
+            if not np.isfinite(tol) or tol <= 0:
+                raise ValueError("tol must be a finite positive number")
         if "penalty" in params:
             penalty = float(params["penalty"])
-            if penalty < 0:
-                raise ValueError("penalty must be non-negative")
+            if not np.isfinite(penalty) or penalty < 0:
+                raise ValueError("penalty must be a finite non-negative number")
             params["penalty"] = penalty
         return super().set_params(**params)
 
@@ -1784,12 +1827,6 @@ class CoxPH(BaseEstimator):
                 self._efron_pre = None
                 self._efron_pre_csr = None
                 self._efron_pre_csr_gpu = None
-            try:
-                _, uft_ix, _, _, nuft, _ = _unpack_efron_pre6(efron_pre)
-                n_events = int(cp.asnumpy(cp.sum(event_sorted)))
-                avg_tie = float(n_events / max(1, int(nuft)))
-            except Exception:
-                avg_tie = 1.0
         else:
             self._efron_pre = None
             self._efron_all_singletons = False
@@ -1819,8 +1856,6 @@ class CoxPH(BaseEstimator):
                 self._entry_order_gpu = None
                 self._entry_add_end_np_gpu = None
                 self._entry_rem_end_np_gpu = None
-            n_events = int(cp.asnumpy(cp.sum(event_sorted)))
-            avg_tie = float(n_events / max(1, int(len(counts_uft))))
 
         # Initialize coefficients on GPU (supports warm-start path in CV)
         if init_coef is None:
@@ -1981,11 +2016,6 @@ class CoxPH(BaseEstimator):
             if use_penalty:
                 inference_hess[diag_idx, diag_idx] -= 2 * penalty
             info = self._observed_information_cupy(inference_hess)
-            rhs_eye = (
-                eye_cache
-                if eye_cache is not None
-                else cp.eye(info.shape[0], dtype=info.dtype)
-            )
             if self.cov_type == "nonrobust":
                 var_gpu = self._invert_information_cupy(info)
                 var_gpu = 0.5 * (var_gpu + var_gpu.T)
@@ -2114,12 +2144,6 @@ class CoxPH(BaseEstimator):
                 self._efron_pre = None
                 self._efron_pre_csr = None
                 self._efron_pre_csr_gpu = None
-            try:
-                _, uft_ix, _, _, nuft, _ = _unpack_efron_pre6(efron_pre)
-                n_events = int(torch.sum(event_sorted).item())
-                avg_tie = float(n_events / max(1, int(nuft)))
-            except Exception:
-                avg_tie = 1.0
         else:
             self._efron_pre = None
             self._efron_all_singletons = False
@@ -2146,8 +2170,6 @@ class CoxPH(BaseEstimator):
                 self._entry_order_torch = None
                 self._entry_add_end_np_torch = None
                 self._entry_rem_end_np_torch = None
-            n_events = int(torch.sum(event_sorted).item())
-            avg_tie = float(n_events / max(1, int(len(counts_uft))))
 
         # Initialize coefficients on Torch device (supports warm-start path in CV)
         if init_coef is None:
@@ -2484,8 +2506,8 @@ class CoxPH(BaseEstimator):
         if max_d > 0:
             # Create k matrix: (n_uft, max_d) where each row has [0/d, 1/d, ..., (d-1)/d]
             # Use broadcasting with careful masking for different d values
-            k_matrix = np.arange(max_d, dtype=np.float64) / np.arange(1, max_d + 1, dtype=np.float64)[:, np.newaxis]
-            # This is complex; fall back to loop for correctness
+            # Tie sizes differ by group; a short loop is clearer and avoids a
+            # padded temporary matrix whose unused entries would need masking.
             for g in range(len(uft)):
                 d = int(counts[g])
                 if d == 0:
@@ -3057,7 +3079,6 @@ class CoxPH(BaseEstimator):
         ift = np.flatnonzero(event == 1)
         if ift.size == 0:
             return np.array([], dtype=np.float64), [], [], [], 0, np.array([], dtype=np.int32)
-        n = time.shape[0]
         ft = time[ift]
         uft = np.unique(ft)
         nuft = int(uft.size)
@@ -4794,7 +4815,7 @@ class CoxPH(BaseEstimator):
         print("=" * 80)
         print("                     Cox Proportional Hazards Model")
         print("=" * 80)
-        print(f"Call:")
+        print("Call:")
         print(f"  coxph(formula = Surv(time, event) ~ ., ties = '{self.ties}')")
         print()
         print(f"  n= {self._nobs}, number of events= {int(self._nevents)}")

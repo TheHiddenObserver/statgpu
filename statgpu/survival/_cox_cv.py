@@ -6,12 +6,14 @@ parameter for Cox PH models.
 """
 
 from typing import Optional, Union, Tuple, Dict, Any, List
+import copy
+import numbers
 from collections import OrderedDict
 import hashlib
 import os
 import numpy as np
 
-from statgpu._config import Device
+from statgpu._config import Device, get_device
 from statgpu.backends import _to_numpy
 from statgpu.cross_validation._base import CVEstimatorBase
 from statgpu.survival._cox import CoxPH
@@ -88,14 +90,15 @@ def _coxcv_cache_get(cache_key: Optional[str]) -> Optional[Dict[str, Any]]:
     val = _COXPH_CV_CACHE.get(cache_key)
     if val is not None:
         _COXPH_CV_CACHE.move_to_end(cache_key)
-    return val
+        return copy.deepcopy(val)
+    return None
 
 
 def _coxcv_cache_put(cache_key: Optional[str], value: Dict[str, Any]) -> None:
     """Put cached CoxPH CV results."""
     if cache_key is None:
         return
-    _COXPH_CV_CACHE[cache_key] = value
+    _COXPH_CV_CACHE[cache_key] = copy.deepcopy(value)
     _COXPH_CV_CACHE.move_to_end(cache_key)
     while len(_COXPH_CV_CACHE) > _COXPH_CV_CACHE_MAXSIZE:
         _COXPH_CV_CACHE.popitem(last=False)
@@ -386,6 +389,27 @@ def _coerce_cv_indices(values, *, fold_idx: int, name: str) -> np.ndarray:
         return np.asarray(normalized, dtype=np.int64)
 
     raise ValueError(f"cv_splits fold {fold_idx} {name} indices must contain integers")
+
+
+def _validate_positive_integer(value, name: str) -> int:
+    """Validate an integer control without accepting booleans or float aliases."""
+    if isinstance(value, (bool, np.bool_)) or not isinstance(value, numbers.Integral):
+        raise ValueError(f"{name} must be a positive integer")
+    value = int(value)
+    if value < 1:
+        raise ValueError(f"{name} must be a positive integer")
+    return value
+
+
+def _validate_finite_positive(value, name: str) -> float:
+    """Validate a finite strictly positive numeric control."""
+    try:
+        value = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{name} must be a finite positive number") from exc
+    if not np.isfinite(value) or value <= 0:
+        raise ValueError(f"{name} must be a finite positive number")
+    return value
 
 
 # =============================================================================
@@ -722,8 +746,20 @@ def _select_coxph_penalty_cv(
     )
     if device_name not in {member.value for member in Device}:
         raise ValueError("device must be 'cpu', 'cuda', 'torch', or 'auto'")
+    if device_name == Device.AUTO.value:
+        device_name = get_device().value
     use_gpu = device_name in (Device.CUDA.value, Device.TORCH.value)
     fit_device = device_name
+
+    ties = str(ties).lower()
+    if ties not in {"breslow", "efron", "exact"}:
+        raise ValueError("ties must be 'breslow', 'efron', or 'exact'")
+    max_iter = _validate_positive_integer(max_iter, "max_iter")
+    tol = _validate_finite_positive(tol, "tol")
+    if cv_splits is None:
+        cv_folds = _validate_positive_integer(cv_folds, "cv_folds")
+        if cv_folds < 2:
+            raise ValueError("cv_folds must be at least 2")
 
     if entry is not None and start is not None:
         raise ValueError("pass only one of entry and start")
@@ -752,6 +788,8 @@ def _select_coxph_penalty_cv(
 
     if X_np.ndim != 2:
         raise ValueError("X must have shape (n_samples, n_features)")
+    if X_np.shape[1] < 1:
+        raise ValueError("X must contain at least one feature")
     n_samples = X_np.shape[0]
     if time_np.shape[0] != n_samples or event_raw_np.shape[0] != n_samples:
         raise ValueError("time and event must have shape (n_samples,)")
@@ -779,15 +817,22 @@ def _select_coxph_penalty_cv(
 
     # Generate penalty grid
     if penalties is None:
-        penalties = _default_coxph_penalty_grid(X_np, time_np, event_np, n_penalties, penalty_min_ratio)
-    else:
-        penalties = np.asarray(penalties, dtype=np.float64)
-        if penalties.ndim != 1 or penalties.size == 0:
-            raise ValueError("penalties must be a non-empty one-dimensional array")
-        if not np.all(np.isfinite(penalties)):
-            raise ValueError("penalties must contain only finite values")
-        if np.any(penalties < 0):
-            raise ValueError("penalties must be non-negative")
+        n_penalties = _validate_positive_integer(n_penalties, "n_penalties")
+        penalty_min_ratio = _validate_finite_positive(
+            penalty_min_ratio, "penalty_min_ratio"
+        )
+        if penalty_min_ratio > 1:
+            raise ValueError("penalty_min_ratio must be less than or equal to 1")
+        penalties = _default_coxph_penalty_grid(
+            X_np, time_np, event_np, n_penalties, penalty_min_ratio
+        )
+    penalties = np.asarray(_to_numpy(penalties), dtype=np.float64)
+    if penalties.ndim != 1 or penalties.size == 0:
+        raise ValueError("penalties must be a non-empty one-dimensional array")
+    if not np.all(np.isfinite(penalties)):
+        raise ValueError("penalties must contain only finite values")
+    if np.any(penalties < 0):
+        raise ValueError("penalties must be non-negative")
 
     n_penalties_actual = len(penalties)
 
@@ -1559,11 +1604,28 @@ class CoxPHCV(CVEstimatorBase):
         fit_device_name = device_name
         ties_name = str(self.ties).lower()
         cov_type_name = str(self.cov_type).lower()
-        n_penalties = int(self.n_penalties)
-        penalty_min_ratio = float(self.penalty_min_ratio)
-        cv_folds = int(self.cv)
-        max_iter = int(self.max_iter)
-        tol = float(self.tol)
+        max_iter = _validate_positive_integer(self.max_iter, "max_iter")
+        tol = _validate_finite_positive(self.tol, "tol")
+        if self.cv_splits is None:
+            cv_folds = _validate_positive_integer(self.cv, "cv")
+            if cv_folds < 2:
+                raise ValueError("cv must be at least 2")
+        else:
+            cv_folds = self.cv
+        if self.penalties is None:
+            n_penalties = _validate_positive_integer(
+                self.n_penalties, "n_penalties"
+            )
+            penalty_min_ratio = _validate_finite_positive(
+                self.penalty_min_ratio, "penalty_min_ratio"
+            )
+            if penalty_min_ratio > 1:
+                raise ValueError(
+                    "penalty_min_ratio must be less than or equal to 1"
+                )
+        else:
+            n_penalties = self.n_penalties
+            penalty_min_ratio = self.penalty_min_ratio
 
         penalties = (
             None

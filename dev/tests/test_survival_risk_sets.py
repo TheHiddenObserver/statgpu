@@ -430,3 +430,30 @@ def test_stratified_objective_is_invariant_to_per_stratum_constant_shifts(ties):
             rtol=2e-5,
             atol=2e-6,
         )
+
+
+@pytest.mark.parametrize(
+    "kwargs,match",
+    [
+        ({"penalty": np.nan}, "penalty"),
+        ({"penalty": np.inf}, "penalty"),
+        ({"max_iter": 0}, "max_iter"),
+        ({"max_iter": 2.5}, "max_iter"),
+        ({"tol": np.nan}, "tol"),
+        ({"tol": np.inf}, "tol"),
+    ],
+)
+def test_counting_process_solver_rejects_invalid_controls(kwargs, match):
+    X = np.array([[0.0], [1.0], [2.0]])
+    stop = np.array([1.0, 2.0, 3.0])
+    event = np.array([1, 1, 0])
+    with pytest.raises(ValueError, match=match):
+        fit_counting_process_cox(X, stop, event, **kwargs)
+
+
+def test_counting_process_solver_rejects_nonfinite_initial_coefficients():
+    X = np.array([[0.0], [1.0], [2.0]])
+    stop = np.array([1.0, 2.0, 3.0])
+    event = np.array([1, 1, 0])
+    with pytest.raises(ValueError, match="init_coef"):
+        fit_counting_process_cox(X, stop, event, init_coef=[np.nan])

@@ -6,6 +6,7 @@ This class provides a clean API with survival-specific parameters and prediction
 
 __all__ = ["PenalizedCoxPHModel"]
 
+import numbers
 import numpy as np
 from statgpu._config import Device
 from statgpu.backends._utils import _to_numpy
@@ -200,6 +201,28 @@ class PenalizedCoxPHModel(PenalizedGeneralizedLinearModel):
             if ties not in {"breslow", "efron"}:
                 raise ValueError("ties must be 'breslow' or 'efron'")
             params["ties"] = ties
+        if "max_iter" in params:
+            self._validate_positive_integer(params["max_iter"], "max_iter")
+        if "max_lla_iters" in params:
+            self._validate_positive_integer(
+                params["max_lla_iters"], "max_lla_iters"
+            )
+        for name in ("tol", "lla_tol"):
+            if name in params:
+                self._validate_finite_positive(params[name], name)
+        if params.get("lipschitz_L", self.lipschitz_L) is not None:
+            self._validate_finite_positive(
+                params.get("lipschitz_L", self.lipschitz_L), "lipschitz_L"
+            )
+        if "alpha" in params:
+            alpha = float(params["alpha"])
+            if not np.isfinite(alpha) or alpha < 0:
+                raise ValueError("alpha must be a finite non-negative number")
+        if "l1_ratio" in params:
+            l1_ratio = float(params["l1_ratio"])
+            if not np.isfinite(l1_ratio) or not 0 <= l1_ratio <= 1:
+                raise ValueError("l1_ratio must be between 0 and 1")
+
         prospective_ties = str(params.get("ties", self.ties)).lower()
         prospective_loss_kwargs = params.get("loss_kwargs", self.loss_kwargs)
         if (
@@ -223,14 +246,122 @@ class PenalizedCoxPHModel(PenalizedGeneralizedLinearModel):
         self._selected_backend_name = None
         self._penalty = None
         self._loss = None
+        self._feature_names = None
+        self._design_info = None
+        self._formula_has_intercept = None
+        self._use_intercept = None
         self._clear_inference_state()
+
+    @staticmethod
+    def _validate_positive_integer(value, name):
+        if isinstance(value, (bool, np.bool_)) or not isinstance(
+            value, numbers.Integral
+        ) or int(value) < 1:
+            raise ValueError(f"{name} must be a positive integer")
+
+    @staticmethod
+    def _validate_finite_positive(value, name):
+        try:
+            value = float(value)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"{name} must be a finite positive number") from exc
+        if not np.isfinite(value) or value <= 0:
+            raise ValueError(f"{name} must be a finite positive number")
+
+    def _validate_cox_hyperparameters(self):
+        try:
+            alpha = float(self.alpha)
+            l1_ratio = float(self.l1_ratio)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("alpha and l1_ratio must be finite numbers") from exc
+        if not np.isfinite(alpha) or alpha < 0:
+            raise ValueError("alpha must be a finite non-negative number")
+        if not np.isfinite(l1_ratio) or not 0 <= l1_ratio <= 1:
+            raise ValueError("l1_ratio must be between 0 and 1")
+        self._validate_positive_integer(self.max_iter, "max_iter")
+        self._validate_finite_positive(self.tol, "tol")
+        self._validate_positive_integer(self.max_lla_iters, "max_lla_iters")
+        self._validate_finite_positive(self.lla_tol, "lla_tol")
+        if self.lipschitz_L is not None:
+            self._validate_finite_positive(self.lipschitz_L, "lipschitz_L")
+
+    @staticmethod
+    def _parse_survival_formula(formula, data):
+        if data is None:
+            raise ValueError(
+                "formula was provided but data is None. "
+                "Pass data=your_dataframe when using formula."
+            )
+        try:
+            import pandas as pd
+            import patsy
+            from patsy import EvalEnvironment
+        except ImportError as exc:
+            raise ImportError(
+                "pandas and patsy are required for the penalized Cox formula interface"
+            ) from exc
+        if not isinstance(data, pd.DataFrame):
+            raise TypeError("formula data must be a pandas DataFrame")
+        from statgpu.core.formula import make_surv_env
+
+        formula_data = data.copy(deep=False)
+        formula_data.index = np.arange(len(data), dtype=np.int64)
+        y_patsy, X_patsy = patsy.dmatrices(
+            formula,
+            formula_data,
+            eval_env=EvalEnvironment([make_surv_env()]),
+            return_type="dataframe",
+        )
+        y_array = np.asarray(y_patsy, dtype=np.float64)
+        if y_array.ndim != 2 or y_array.shape[1] not in (2, 3):
+            raise ValueError(
+                "Formula response must be Surv(time, event) or "
+                "Surv(start, stop, event)"
+            )
+        if y_array.shape[1] == 3:
+            raise NotImplementedError(
+                "PenalizedCoxPHModel currently supports right-censored "
+                "Surv(time, event) formulas only; use statgpu.survival.CoxPH "
+                "for start-stop data."
+            )
+        design_info = X_patsy.design_info
+        column_names = list(design_info.column_names)
+        has_intercept = "Intercept" in column_names
+        X_array = np.asarray(X_patsy, dtype=np.float64)
+        if has_intercept:
+            X_array = np.delete(X_array, column_names.index("Intercept"), axis=1)
+        feature_names = [name for name in column_names if name != "Intercept"]
+        return X_array, y_array, design_info, has_intercept, feature_names
 
     def fit(self, X=None, y=None, sample_weight=None, formula=None, data=None):
         """Fit without allowing a failed refit to expose stale coefficients."""
         self._reset_fit_state()
         try:
+            self._validate_cox_hyperparameters()
+            if sample_weight is not None:
+                raise NotImplementedError(
+                    "PenalizedCoxPHModel does not support sample_weight"
+                )
+
+            formula_state = None
+            if formula is not None:
+                if X is not None or y is not None:
+                    raise ValueError("pass either formula+data or X+y, not both")
+                X, y, design_info, has_intercept, feature_names = (
+                    self._parse_survival_formula(formula, data)
+                )
+                formula_state = (
+                    design_info,
+                    has_intercept,
+                    feature_names,
+                )
+                formula = None
+                data = None
+
             if y is not None:
                 if isinstance(y, dict):
+                    if "time" not in y or "event" not in y:
+                        raise ValueError("survival y dict must contain time and event")
                     event = np.asarray(_to_numpy(y["event"]), dtype=np.float64)
                 else:
                     y_array = np.asarray(_to_numpy(y), dtype=np.float64)
@@ -239,15 +370,26 @@ class PenalizedCoxPHModel(PenalizedGeneralizedLinearModel):
                             "y must be (n, 2) array with columns [time, event]"
                         )
                     event = y_array[:, 1]
+                if not np.all(np.isfinite(event)) or np.any(
+                    (event != 0) & (event != 1)
+                ):
+                    raise ValueError("event must contain only 0/1 finite values")
                 if not np.any(event == 1):
                     raise ValueError("at least one observed event is required")
-            return super().fit(
+
+            result = super().fit(
                 X=X,
                 y=y,
-                sample_weight=sample_weight,
+                sample_weight=None,
                 formula=formula,
                 data=data,
             )
+            if formula_state is not None:
+                self._design_info, self._formula_has_intercept, self._feature_names = (
+                    formula_state
+                )
+                self._use_intercept = False
+            return result
         except Exception:
             self._reset_fit_state()
             raise

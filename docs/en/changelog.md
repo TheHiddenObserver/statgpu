@@ -42,6 +42,9 @@
     `fit_intercept=True` is rejected.
   - The estimator is estimation-only. `compute_inference=True` raises
     `NotImplementedError` with guidance to use unpenalized `CoxPH`.
+  - Right-censored `Surv(time, event)` formulas support categoricals,
+    interactions, transforms, and formula-driven NA removal; start-stop
+    formulas remain an explicit `CoxPH` capability.
 
 ```python
 from statgpu.survival import CoxPH, CoxPHCV
@@ -72,9 +75,14 @@ cv.fit(X, stop, event, start=start, strata=strata, subject_id=subject_id)
   - `CoxPH`, `CoxPHCV`, and `PenalizedCoxPHModel` satisfy sklearn cloning;
     CV/penalized failed refits clear old state, and penalized concordance handles
     tied predictions and same-time censoring correctly.
+  - Cox optimization controls reject non-finite penalties/tolerances and invalid
+    iteration counts. CV auto-device selection resolves before dispatch, and
+    cached result objects cannot be corrupted by caller mutation.
 
 ### Optimized (2026-07-12)
 
+- Penalized Cox first-order CPU paths now compute value/gradient without an
+  unused dense Hessian; Newton uses a fused gradient/Hessian evaluation.
 - **Audited survival GPU performance**:
   - On an NVIDIA RTX 5880 Ada Generation using float64, speedup is defined as
     NumPy fit time divided by GPU fit time and includes optimization, inference,
