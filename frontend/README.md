@@ -35,6 +35,8 @@ Current June-or-later sources provide external comparisons through scikit-learn,
 
 Focused is the default chart view. It keeps the timing chart readable by selecting the largest workload in the current unscaled context and retaining Auto/best solver groups when available. This is a chart-only presentation rule: it does not change the table or filter state. Full matrix restores all filtered chart groups.
 
+The visual theme uses a low-saturation blue-gray background, white cards, soft borders, muted backend colors, and responsive chart/card layouts; it changes presentation only, not benchmark semantics.
+
 Speedups have two distinct meanings:
 
 - **Computed**: reference timing divided by current-run timing. The generated record contains `reference_run_id`.
