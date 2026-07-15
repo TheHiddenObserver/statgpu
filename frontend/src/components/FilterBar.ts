@@ -1,5 +1,5 @@
 import type { BenchmarkData, Run } from '../schema';
-import type { AppState } from '../state';
+import type { AppState, ChartViewMode } from '../state';
 import {
   setSelectedModel,
   setSelectedVariant,
@@ -8,6 +8,7 @@ import {
   toggleScaleKey,
   setBackend,
   toggleExternal,
+  setChartViewMode,
 } from '../state';
 import { h } from '../utils/dom';
 import {
@@ -24,6 +25,36 @@ export function renderFilterBar(
   onUpdate: () => void,
 ): HTMLElement {
   const bar = h('div', { class: 'filter-bar' });
+
+  const viewControl = h('div', {
+    class: 'chart-view-control',
+    title:
+      'Focused keeps charts readable by using one representative scale and Auto/best solver groups when possible. Full matrix shows every filtered chart group. The table is unchanged.',
+  });
+  viewControl.appendChild(h('span', { class: 'filter-label' }, 'Chart view:'));
+  const viewButtons: Array<{ mode: ChartViewMode; label: string }> = [
+    { mode: 'focused', label: 'Focused' },
+    { mode: 'full', label: 'Full matrix' },
+  ];
+  for (const { mode, label } of viewButtons) {
+    const active = state.chartViewMode === mode;
+    const button = h(
+      'button',
+      {
+        type: 'button',
+        class: `view-toggle-btn${active ? ' active' : ''}`,
+        'aria-pressed': String(active),
+        'data-chart-view': mode,
+      },
+      label,
+    );
+    button.addEventListener('click', () => {
+      setChartViewMode(state, mode);
+      onUpdate();
+    });
+    viewControl.appendChild(button);
+  }
+  bar.appendChild(viewControl);
 
   // Option runs: exclude self + downstream filters so selecting a value
   // doesn't shrink the dropdown to only that value (avoids stale-filter deadlock).
@@ -57,8 +88,8 @@ export function renderFilterBar(
   // Model selector
   const modelIds = getUniqueValues(modelOptionRuns, 'model_id');
   if (modelIds.length > 0) {
-    bar.appendChild(h('span', {}, 'Model:'));
-    const sel = h('select', { style: 'padding:2px 6px;' });
+    bar.appendChild(h('span', { class: 'filter-label' }, 'Model:'));
+    const sel = h('select');
     sel.appendChild(h('option', { value: '' }, 'All'));
     for (const m of modelIds) {
       const opt = h('option', { value: m }, m);
@@ -75,15 +106,19 @@ export function renderFilterBar(
   // Variant selector (appears after model selected, when variants exist)
   if (state.selectedModelId) {
     const variantRuns = filterRuns(allRuns, {
-      ...state, selectedVariant: null, selectedPenalty: null, selectedSolver: null, selectedScaleKeys: new Set(),
+      ...state,
+      selectedVariant: null,
+      selectedPenalty: null,
+      selectedSolver: null,
+      selectedScaleKeys: new Set(),
     } as AppState);
     const variants = getUniqueValues(
       variantRuns.filter((r) => r.model_id === state.selectedModelId && r.variant),
       'variant',
     );
     if (variants.length > 0) {
-      bar.appendChild(h('span', {}, 'Variant:'));
-      const vsel = h('select', { style: 'padding:2px 6px;' });
+      bar.appendChild(h('span', { class: 'filter-label' }, 'Variant:'));
+      const vsel = h('select');
       vsel.appendChild(h('option', { value: '' }, 'All'));
       for (const v of variants) {
         const opt = h('option', { value: v }, v);
@@ -105,8 +140,8 @@ export function renderFilterBar(
       penaltyOptionRuns.filter((r) => r.model_id === state.selectedModelId),
       'penalty',
     );
-    bar.appendChild(h('span', {}, 'Penalty:'));
-    const sel = h('select', { style: 'padding:2px 6px;' });
+    bar.appendChild(h('span', { class: 'filter-label' }, 'Penalty:'));
+    const sel = h('select');
     sel.appendChild(h('option', { value: '' }, 'All'));
     for (const p of penalties) {
       const opt = h('option', { value: p }, p || 'none');
@@ -130,8 +165,8 @@ export function renderFilterBar(
       ),
       'solver',
     );
-    bar.appendChild(h('span', {}, 'Solver:'));
-    const sel = h('select', { style: 'padding:2px 6px;' });
+    bar.appendChild(h('span', { class: 'filter-label' }, 'Solver:'));
+    const sel = h('select');
     sel.appendChild(h('option', { value: '' }, 'All'));
     for (const s of solvers) {
       const opt = h('option', { value: s }, s);
@@ -149,7 +184,7 @@ export function renderFilterBar(
   const scaleOptionRuns = filterRuns(allRuns, state, { ignoreScale: true });
   const scaleKeys = getUniqueScaleKeys(scaleOptionRuns);
   if (scaleKeys.length > 0) {
-    bar.appendChild(h('span', {}, 'Scale:'));
+    bar.appendChild(h('span', { class: 'filter-label' }, 'Scale:'));
     const labelMap = getScaleLabelMap(data.runs);
     for (const sk of scaleKeys.slice(0, 15)) {
       const active = state.selectedScaleKeys.has(sk);
@@ -171,12 +206,10 @@ export function renderFilterBar(
   }
 
   // Backend radio
-  bar.appendChild(h('span', {}, '| Backend:'));
+  bar.appendChild(h('span', { class: 'filter-divider' }, 'Backend:'));
   for (const bk of ['all', 'numpy', 'cupy', 'torch']) {
     const label = bk === 'all' ? 'All' : bk;
-    const radio = h('label', {
-      style: 'margin:0 4px; cursor:pointer; font-size:12px;',
-    });
+    const radio = h('label', { class: 'filter-option' });
     const inp = h('input', {
       type: 'radio',
       name: 'backend',
@@ -198,14 +231,18 @@ export function renderFilterBar(
 
   // External frameworks (context-aware: only those with runs in current filter context)
   const extAvailableRuns = filterRuns(allRuns, state, { ignoreExternal: true });
-  const extAvailable = new Set(extAvailableRuns.filter(r => r.framework !== 'statgpu').map(r => r.framework));
-  const extFrameworks = data.frameworks.filter(f => f.external && extAvailable.has(f.framework_id));
-  if (extFrameworks.length > 0) bar.appendChild(h('span', {}, '| Ext:'));
+  const extAvailable = new Set(
+    extAvailableRuns.filter((r) => r.framework !== 'statgpu').map((r) => r.framework),
+  );
+  const extFrameworks = data.frameworks.filter(
+    (f) => f.external && extAvailable.has(f.framework_id),
+  );
+  if (extFrameworks.length > 0) {
+    bar.appendChild(h('span', { class: 'filter-divider' }, 'External:'));
+  }
   for (const fw of extFrameworks) {
     const ext = fw.framework_id;
-    const lbl = h('label', {
-      style: 'margin:0 4px; cursor:pointer; font-size:12px;',
-    });
+    const lbl = h('label', { class: 'filter-option' });
     const cb = h('input', {
       type: 'checkbox',
       value: ext,
