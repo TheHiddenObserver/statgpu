@@ -15,6 +15,24 @@ test.describe('Benchmark Dashboard', () => {
     await expect(page.locator('.summary-cards')).toBeVisible();
   });
 
+  test('charts default to focused mode and can expose the full matrix', async ({ page }) => {
+    const focused = page.getByRole('button', { name: 'Focused' });
+    const full = page.getByRole('button', { name: 'Full matrix' });
+    await expect(focused).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.locator('#timing-chart')).toHaveAttribute('data-chart-view', 'focused');
+
+    await full.click();
+    await expect(full).toHaveAttribute('aria-pressed', 'true');
+    await expect(focused).toHaveAttribute('aria-pressed', 'false');
+    await expect(page.locator('#timing-chart')).toHaveAttribute('data-chart-view', 'full');
+  });
+
+  test('speedup chart exposes a dashed 1x parity reference', async ({ page }) => {
+    const chart = page.locator('#speedup-chart');
+    await expect(chart).toHaveAttribute('data-parity-style', 'dashed');
+    await expect(chart).toHaveAttribute('aria-label', /dashed 1× parity line/);
+  });
+
   test('category filter — clear all shows empty state, re-select restores data', async ({ page }) => {
     await page.getByRole('button', { name: 'None' }).click();
     await expect(page.getByText(/No runs match/i)).toBeVisible({ timeout: 5000 });
