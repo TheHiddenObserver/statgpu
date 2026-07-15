@@ -4,7 +4,7 @@
   "meta": {
     "generator": "dev/benchmarks/generate_benchmark_data.py",
     "git_sha": "deterministic",
-    "generation_id": "91d47ecaf4941e3a462f70b42a31d5bb82fa7e2b5d642d6402cfc4e6ad709d60"
+    "generation_id": "428bd284ff6b6469f6159d27fe88db52812a9f98da97d69447afa2ee2b929f7a"
   },
   "environments": [
     {
@@ -92,6 +92,15 @@
       "primary_category_id": "nonparametric",
       "category_ids": [
         "nonparametric"
+      ],
+      "supports_penalty": false,
+      "supports_inference": false
+    },
+    {
+      "model_id": "BonferroniCorrection",
+      "primary_category_id": "anova",
+      "category_ids": [
+        "anova"
       ],
       "supports_penalty": false,
       "supports_inference": false
@@ -194,6 +203,15 @@
       ],
       "supports_penalty": false,
       "supports_inference": false
+    },
+    {
+      "model_id": "OneWayANOVA",
+      "primary_category_id": "anova",
+      "category_ids": [
+        "anova"
+      ],
+      "supports_penalty": false,
+      "supports_inference": true
     },
     {
       "model_id": "OrderedLogit",
@@ -357,6 +375,24 @@
       "supports_inference": false
     },
     {
+      "model_id": "TukeyHSD",
+      "primary_category_id": "anova",
+      "category_ids": [
+        "anova"
+      ],
+      "supports_penalty": false,
+      "supports_inference": false
+    },
+    {
+      "model_id": "TwoWayANOVA",
+      "primary_category_id": "anova",
+      "category_ids": [
+        "anova"
+      ],
+      "supports_penalty": false,
+      "supports_inference": true
+    },
+    {
       "model_id": "UMAP",
       "primary_category_id": "unsupervised",
       "category_ids": [
@@ -364,6 +400,15 @@
       ],
       "supports_penalty": false,
       "supports_inference": false
+    },
+    {
+      "model_id": "WelchANOVA",
+      "primary_category_id": "anova",
+      "category_ids": [
+        "anova"
+      ],
+      "supports_penalty": false,
+      "supports_inference": true
     }
   ],
   "frameworks": [
@@ -376,6 +421,12 @@
     {
       "framework_id": "pygam",
       "display_name": "pyGAM",
+      "external": true,
+      "backend_policy": "forbidden"
+    },
+    {
+      "framework_id": "scipy",
+      "display_name": "SciPy",
       "external": true,
       "backend_policy": "forbidden"
     },
@@ -416,7 +467,7 @@
     },
     {
       "comparison_id": "new-modules-20260624",
-      "label": "Panel and GAM benchmark — 2026-06-24",
+      "label": "Panel, GAM, and ANOVA benchmark — 2026-06-24",
       "env_id": "remote-p100"
     },
     {
@@ -70156,8 +70207,8 @@
       "source": {
         "file": "new_modules_full_20260624.json",
         "date": "2026-06-24",
-        "parser": "parse_new_modules_benchmark_v1",
-        "parser_version": "1.0",
+        "parser": "parse_new_modules_with_anova_benchmark_v1",
+        "parser_version": "1.1",
         "source_id": "new-modules-20260624-bcbdb676223b",
         "original_path": "results/new_modules_full_2026-06-24.json"
       },
@@ -70209,8 +70260,8 @@
       "source": {
         "file": "new_modules_full_20260624.json",
         "date": "2026-06-24",
-        "parser": "parse_new_modules_benchmark_v1",
-        "parser_version": "1.0",
+        "parser": "parse_new_modules_with_anova_benchmark_v1",
+        "parser_version": "1.1",
         "source_id": "new-modules-20260624-bcbdb676223b",
         "original_path": "results/new_modules_full_2026-06-24.json"
       },
@@ -70262,8 +70313,8 @@
       "source": {
         "file": "new_modules_full_20260624.json",
         "date": "2026-06-24",
-        "parser": "parse_new_modules_benchmark_v1",
-        "parser_version": "1.0",
+        "parser": "parse_new_modules_with_anova_benchmark_v1",
+        "parser_version": "1.1",
         "source_id": "new-modules-20260624-bcbdb676223b",
         "original_path": "results/new_modules_full_2026-06-24.json"
       },
@@ -70315,8 +70366,8 @@
       "source": {
         "file": "new_modules_full_20260624.json",
         "date": "2026-06-24",
-        "parser": "parse_new_modules_benchmark_v1",
-        "parser_version": "1.0",
+        "parser": "parse_new_modules_with_anova_benchmark_v1",
+        "parser_version": "1.1",
         "source_id": "new-modules-20260624-bcbdb676223b",
         "original_path": "results/new_modules_full_2026-06-24.json"
       },
@@ -70354,8 +70405,8 @@
       "source": {
         "file": "new_modules_full_20260624.json",
         "date": "2026-06-24",
-        "parser": "parse_new_modules_benchmark_v1",
-        "parser_version": "1.0",
+        "parser": "parse_new_modules_with_anova_benchmark_v1",
+        "parser_version": "1.1",
         "source_id": "new-modules-20260624-bcbdb676223b",
         "original_path": "results/new_modules_full_2026-06-24.json"
       },
@@ -70407,8 +70458,8 @@
       "source": {
         "file": "new_modules_full_20260624.json",
         "date": "2026-06-24",
-        "parser": "parse_new_modules_benchmark_v1",
-        "parser_version": "1.0",
+        "parser": "parse_new_modules_with_anova_benchmark_v1",
+        "parser_version": "1.1",
         "source_id": "new-modules-20260624-bcbdb676223b",
         "original_path": "results/new_modules_full_2026-06-24.json"
       },
@@ -70460,8 +70511,8 @@
       "source": {
         "file": "new_modules_full_20260624.json",
         "date": "2026-06-24",
-        "parser": "parse_new_modules_benchmark_v1",
-        "parser_version": "1.0",
+        "parser": "parse_new_modules_with_anova_benchmark_v1",
+        "parser_version": "1.1",
         "source_id": "new-modules-20260624-bcbdb676223b",
         "original_path": "results/new_modules_full_2026-06-24.json"
       },
@@ -70513,8 +70564,8 @@
       "source": {
         "file": "new_modules_full_20260624.json",
         "date": "2026-06-24",
-        "parser": "parse_new_modules_benchmark_v1",
-        "parser_version": "1.0",
+        "parser": "parse_new_modules_with_anova_benchmark_v1",
+        "parser_version": "1.1",
         "source_id": "new-modules-20260624-bcbdb676223b",
         "original_path": "results/new_modules_full_2026-06-24.json"
       },
@@ -70552,8 +70603,8 @@
       "source": {
         "file": "new_modules_full_20260624.json",
         "date": "2026-06-24",
-        "parser": "parse_new_modules_benchmark_v1",
-        "parser_version": "1.0",
+        "parser": "parse_new_modules_with_anova_benchmark_v1",
+        "parser_version": "1.1",
         "source_id": "new-modules-20260624-bcbdb676223b",
         "original_path": "results/new_modules_full_2026-06-24.json"
       },
@@ -70614,8 +70665,8 @@
       "source": {
         "file": "new_modules_full_20260624.json",
         "date": "2026-06-24",
-        "parser": "parse_new_modules_benchmark_v1",
-        "parser_version": "1.0",
+        "parser": "parse_new_modules_with_anova_benchmark_v1",
+        "parser_version": "1.1",
         "source_id": "new-modules-20260624-bcbdb676223b",
         "original_path": "results/new_modules_full_2026-06-24.json"
       },
@@ -70676,8 +70727,8 @@
       "source": {
         "file": "new_modules_full_20260624.json",
         "date": "2026-06-24",
-        "parser": "parse_new_modules_benchmark_v1",
-        "parser_version": "1.0",
+        "parser": "parse_new_modules_with_anova_benchmark_v1",
+        "parser_version": "1.1",
         "source_id": "new-modules-20260624-bcbdb676223b",
         "original_path": "results/new_modules_full_2026-06-24.json"
       },
@@ -70738,8 +70789,8 @@
       "source": {
         "file": "new_modules_full_20260624.json",
         "date": "2026-06-24",
-        "parser": "parse_new_modules_benchmark_v1",
-        "parser_version": "1.0",
+        "parser": "parse_new_modules_with_anova_benchmark_v1",
+        "parser_version": "1.1",
         "source_id": "new-modules-20260624-bcbdb676223b",
         "original_path": "results/new_modules_full_2026-06-24.json"
       },
@@ -70748,6 +70799,2331 @@
           "fit_time_ms": 5640.075147,
           "quality": "reported",
           "source_file": "new_modules_full_20260624.json"
+        }
+      },
+      "comparison_id": "new-modules-20260624"
+    },
+    {
+      "run_id": "949fdc57faf4d737",
+      "benchmark_session_id": "remote-p100-new-modules-2026-06-24",
+      "env_id": "remote-p100",
+      "category_ids": [
+        "anova"
+      ],
+      "model_id": "OneWayANOVA",
+      "case_id": "case-8df237e37f13725c",
+      "method_config_id": "method-854bf406d2d2ccf3",
+      "variant": "one-way",
+      "penalty": null,
+      "solver": "f_oneway",
+      "solver_display": "One-way F test",
+      "solver_kind": "internal",
+      "framework": "statgpu",
+      "backend": "numpy",
+      "scale": {
+        "scale_key": "n500_p5",
+        "n_samples": 500,
+        "n_features": 5,
+        "label": "100/group · 5 groups"
+      },
+      "source": {
+        "file": "new_modules_full_20260624.json",
+        "date": "2026-06-24",
+        "parser": "parse_new_modules_with_anova_benchmark_v1",
+        "parser_version": "1.1",
+        "source_id": "new-modules-20260624-bcbdb676223b",
+        "original_path": "results/new_modules_full_2026-06-24.json"
+      },
+      "metrics": {
+        "timing": {
+          "fit_time_ms": 0.365853,
+          "quality": "measured",
+          "source_file": "new_modules_full_20260624.json"
+        },
+        "validation": {
+          "status": "pass",
+          "checks": [
+            {
+              "metric": "f_statistic_relative_difference",
+              "operator": "le",
+              "status": "pass",
+              "value": 0.0,
+              "tolerance": 1e-10,
+              "reference": "scipy"
+            }
+          ],
+          "quality": "computed",
+          "source_file": "new_modules_full_20260624.json"
+        }
+      },
+      "comparison_id": "new-modules-20260624"
+    },
+    {
+      "run_id": "ff2910113caa00bf",
+      "benchmark_session_id": "remote-p100-new-modules-2026-06-24",
+      "env_id": "remote-p100",
+      "category_ids": [
+        "anova"
+      ],
+      "model_id": "OneWayANOVA",
+      "case_id": "case-8df237e37f13725c",
+      "method_config_id": "method-854bf406d2d2ccf3",
+      "variant": "one-way",
+      "penalty": null,
+      "solver": "f_oneway",
+      "solver_display": "One-way F test",
+      "solver_kind": "internal",
+      "framework": "statgpu",
+      "backend": "cupy",
+      "scale": {
+        "scale_key": "n500_p5",
+        "n_samples": 500,
+        "n_features": 5,
+        "label": "100/group · 5 groups"
+      },
+      "source": {
+        "file": "new_modules_full_20260624.json",
+        "date": "2026-06-24",
+        "parser": "parse_new_modules_with_anova_benchmark_v1",
+        "parser_version": "1.1",
+        "source_id": "new-modules-20260624-bcbdb676223b",
+        "original_path": "results/new_modules_full_2026-06-24.json"
+      },
+      "metrics": {
+        "timing": {
+          "fit_time_ms": 7.315099,
+          "quality": "measured",
+          "source_file": "new_modules_full_20260624.json"
+        },
+        "speedup": {
+          "value": 0.050013,
+          "reference_backend": "numpy",
+          "reference_framework": "statgpu",
+          "reported_semantics": "computed",
+          "quality": "computed",
+          "source_file": "new_modules_full_20260624.json",
+          "reference_run_id": "949fdc57faf4d737"
+        },
+        "validation": {
+          "status": "pass",
+          "checks": [
+            {
+              "metric": "f_statistic_relative_difference",
+              "operator": "le",
+              "status": "pass",
+              "value": 4.046603203943273e-16,
+              "tolerance": 1e-10,
+              "reference": "scipy"
+            }
+          ],
+          "quality": "computed",
+          "source_file": "new_modules_full_20260624.json"
+        }
+      },
+      "comparison_id": "new-modules-20260624"
+    },
+    {
+      "run_id": "01997524afbf1153",
+      "benchmark_session_id": "remote-p100-new-modules-2026-06-24",
+      "env_id": "remote-p100",
+      "category_ids": [
+        "anova"
+      ],
+      "model_id": "OneWayANOVA",
+      "case_id": "case-8df237e37f13725c",
+      "method_config_id": "method-854bf406d2d2ccf3",
+      "variant": "one-way",
+      "penalty": null,
+      "solver": "f_oneway",
+      "solver_display": "One-way F test",
+      "solver_kind": "internal",
+      "framework": "statgpu",
+      "backend": "torch",
+      "scale": {
+        "scale_key": "n500_p5",
+        "n_samples": 500,
+        "n_features": 5,
+        "label": "100/group · 5 groups"
+      },
+      "source": {
+        "file": "new_modules_full_20260624.json",
+        "date": "2026-06-24",
+        "parser": "parse_new_modules_with_anova_benchmark_v1",
+        "parser_version": "1.1",
+        "source_id": "new-modules-20260624-bcbdb676223b",
+        "original_path": "results/new_modules_full_2026-06-24.json"
+      },
+      "metrics": {
+        "timing": {
+          "fit_time_ms": 59.347034,
+          "quality": "measured",
+          "source_file": "new_modules_full_20260624.json"
+        },
+        "speedup": {
+          "value": 0.006165,
+          "reference_backend": "numpy",
+          "reference_framework": "statgpu",
+          "reported_semantics": "computed",
+          "quality": "computed",
+          "source_file": "new_modules_full_20260624.json",
+          "reference_run_id": "949fdc57faf4d737"
+        },
+        "validation": {
+          "status": "pass",
+          "checks": [
+            {
+              "metric": "f_statistic_relative_difference",
+              "operator": "le",
+              "status": "pass",
+              "value": 4.046603203943273e-16,
+              "tolerance": 1e-10,
+              "reference": "scipy"
+            }
+          ],
+          "quality": "computed",
+          "source_file": "new_modules_full_20260624.json"
+        }
+      },
+      "comparison_id": "new-modules-20260624"
+    },
+    {
+      "run_id": "9ecaa184fa9c641a",
+      "benchmark_session_id": "remote-p100-new-modules-2026-06-24",
+      "env_id": "remote-p100",
+      "category_ids": [
+        "anova"
+      ],
+      "model_id": "OneWayANOVA",
+      "case_id": "case-8df237e37f13725c",
+      "method_config_id": "method-854bf406d2d2ccf3",
+      "variant": "one-way",
+      "penalty": null,
+      "solver": "f_oneway",
+      "solver_display": "One-way F test",
+      "solver_kind": "internal",
+      "framework": "scipy",
+      "backend": null,
+      "scale": {
+        "scale_key": "n500_p5",
+        "n_samples": 500,
+        "n_features": 5,
+        "label": "100/group · 5 groups"
+      },
+      "source": {
+        "file": "new_modules_full_20260624.json",
+        "date": "2026-06-24",
+        "parser": "parse_new_modules_with_anova_benchmark_v1",
+        "parser_version": "1.1",
+        "source_id": "new-modules-20260624-bcbdb676223b",
+        "original_path": "results/new_modules_full_2026-06-24.json"
+      },
+      "metrics": {
+        "timing": {
+          "fit_time_ms": 0.909388,
+          "quality": "reported",
+          "source_file": "new_modules_full_20260624.json"
+        }
+      },
+      "comparison_id": "new-modules-20260624"
+    },
+    {
+      "run_id": "9e5a7856fa0b06d7",
+      "benchmark_session_id": "remote-p100-new-modules-2026-06-24",
+      "env_id": "remote-p100",
+      "category_ids": [
+        "anova"
+      ],
+      "model_id": "TwoWayANOVA",
+      "case_id": "case-e9b9dc9a87ecf387",
+      "method_config_id": "method-609d63c507cc7001",
+      "variant": "two-way",
+      "penalty": null,
+      "solver": "f_twoway",
+      "solver_display": "Two-way F test",
+      "solver_kind": "internal",
+      "framework": "statgpu",
+      "backend": "numpy",
+      "scale": {
+        "scale_key": "n1200_p12",
+        "n_samples": 1200,
+        "n_features": 12,
+        "label": "100/cell · 3×4 cells"
+      },
+      "source": {
+        "file": "new_modules_full_20260624.json",
+        "date": "2026-06-24",
+        "parser": "parse_new_modules_with_anova_benchmark_v1",
+        "parser_version": "1.1",
+        "source_id": "new-modules-20260624-bcbdb676223b",
+        "original_path": "results/new_modules_full_2026-06-24.json"
+      },
+      "metrics": {
+        "timing": {
+          "fit_time_ms": 0.396848,
+          "quality": "measured",
+          "source_file": "new_modules_full_20260624.json"
+        }
+      },
+      "comparison_id": "new-modules-20260624"
+    },
+    {
+      "run_id": "a7c0c0050651234f",
+      "benchmark_session_id": "remote-p100-new-modules-2026-06-24",
+      "env_id": "remote-p100",
+      "category_ids": [
+        "anova"
+      ],
+      "model_id": "TwoWayANOVA",
+      "case_id": "case-e9b9dc9a87ecf387",
+      "method_config_id": "method-609d63c507cc7001",
+      "variant": "two-way",
+      "penalty": null,
+      "solver": "f_twoway",
+      "solver_display": "Two-way F test",
+      "solver_kind": "internal",
+      "framework": "statgpu",
+      "backend": "cupy",
+      "scale": {
+        "scale_key": "n1200_p12",
+        "n_samples": 1200,
+        "n_features": 12,
+        "label": "100/cell · 3×4 cells"
+      },
+      "source": {
+        "file": "new_modules_full_20260624.json",
+        "date": "2026-06-24",
+        "parser": "parse_new_modules_with_anova_benchmark_v1",
+        "parser_version": "1.1",
+        "source_id": "new-modules-20260624-bcbdb676223b",
+        "original_path": "results/new_modules_full_2026-06-24.json"
+      },
+      "metrics": {
+        "timing": {
+          "fit_time_ms": 7.669926,
+          "quality": "measured",
+          "source_file": "new_modules_full_20260624.json"
+        },
+        "speedup": {
+          "value": 0.051741,
+          "reference_backend": "numpy",
+          "reference_framework": "statgpu",
+          "reported_semantics": "computed",
+          "quality": "computed",
+          "source_file": "new_modules_full_20260624.json",
+          "reference_run_id": "9e5a7856fa0b06d7"
+        }
+      },
+      "comparison_id": "new-modules-20260624"
+    },
+    {
+      "run_id": "5e00c1e03732e847",
+      "benchmark_session_id": "remote-p100-new-modules-2026-06-24",
+      "env_id": "remote-p100",
+      "category_ids": [
+        "anova"
+      ],
+      "model_id": "TwoWayANOVA",
+      "case_id": "case-e9b9dc9a87ecf387",
+      "method_config_id": "method-609d63c507cc7001",
+      "variant": "two-way",
+      "penalty": null,
+      "solver": "f_twoway",
+      "solver_display": "Two-way F test",
+      "solver_kind": "internal",
+      "framework": "statgpu",
+      "backend": "torch",
+      "scale": {
+        "scale_key": "n1200_p12",
+        "n_samples": 1200,
+        "n_features": 12,
+        "label": "100/cell · 3×4 cells"
+      },
+      "source": {
+        "file": "new_modules_full_20260624.json",
+        "date": "2026-06-24",
+        "parser": "parse_new_modules_with_anova_benchmark_v1",
+        "parser_version": "1.1",
+        "source_id": "new-modules-20260624-bcbdb676223b",
+        "original_path": "results/new_modules_full_2026-06-24.json"
+      },
+      "metrics": {
+        "timing": {
+          "fit_time_ms": 2.600878,
+          "quality": "measured",
+          "source_file": "new_modules_full_20260624.json"
+        },
+        "speedup": {
+          "value": 0.152582,
+          "reference_backend": "numpy",
+          "reference_framework": "statgpu",
+          "reported_semantics": "computed",
+          "quality": "computed",
+          "source_file": "new_modules_full_20260624.json",
+          "reference_run_id": "9e5a7856fa0b06d7"
+        }
+      },
+      "comparison_id": "new-modules-20260624"
+    },
+    {
+      "run_id": "bc12e114b4158488",
+      "benchmark_session_id": "remote-p100-new-modules-2026-06-24",
+      "env_id": "remote-p100",
+      "category_ids": [
+        "anova"
+      ],
+      "model_id": "WelchANOVA",
+      "case_id": "case-7fa3621875e18ea9",
+      "method_config_id": "method-27b142318b446359",
+      "variant": "welch",
+      "penalty": null,
+      "solver": "f_welch",
+      "solver_display": "Welch ANOVA",
+      "solver_kind": "internal",
+      "framework": "statgpu",
+      "backend": "numpy",
+      "scale": {
+        "scale_key": "n500_p5",
+        "n_samples": 500,
+        "n_features": 5,
+        "label": "100/group · 5 groups"
+      },
+      "source": {
+        "file": "new_modules_full_20260624.json",
+        "date": "2026-06-24",
+        "parser": "parse_new_modules_with_anova_benchmark_v1",
+        "parser_version": "1.1",
+        "source_id": "new-modules-20260624-bcbdb676223b",
+        "original_path": "results/new_modules_full_2026-06-24.json"
+      },
+      "metrics": {
+        "timing": {
+          "fit_time_ms": 0.281274,
+          "quality": "measured",
+          "source_file": "new_modules_full_20260624.json"
+        }
+      },
+      "comparison_id": "new-modules-20260624"
+    },
+    {
+      "run_id": "d5a8a134a27a1b1d",
+      "benchmark_session_id": "remote-p100-new-modules-2026-06-24",
+      "env_id": "remote-p100",
+      "category_ids": [
+        "anova"
+      ],
+      "model_id": "WelchANOVA",
+      "case_id": "case-7fa3621875e18ea9",
+      "method_config_id": "method-27b142318b446359",
+      "variant": "welch",
+      "penalty": null,
+      "solver": "f_welch",
+      "solver_display": "Welch ANOVA",
+      "solver_kind": "internal",
+      "framework": "statgpu",
+      "backend": "cupy",
+      "scale": {
+        "scale_key": "n500_p5",
+        "n_samples": 500,
+        "n_features": 5,
+        "label": "100/group · 5 groups"
+      },
+      "source": {
+        "file": "new_modules_full_20260624.json",
+        "date": "2026-06-24",
+        "parser": "parse_new_modules_with_anova_benchmark_v1",
+        "parser_version": "1.1",
+        "source_id": "new-modules-20260624-bcbdb676223b",
+        "original_path": "results/new_modules_full_2026-06-24.json"
+      },
+      "metrics": {
+        "timing": {
+          "fit_time_ms": 0.735402,
+          "quality": "measured",
+          "source_file": "new_modules_full_20260624.json"
+        },
+        "speedup": {
+          "value": 0.382477,
+          "reference_backend": "numpy",
+          "reference_framework": "statgpu",
+          "reported_semantics": "computed",
+          "quality": "computed",
+          "source_file": "new_modules_full_20260624.json",
+          "reference_run_id": "bc12e114b4158488"
+        }
+      },
+      "comparison_id": "new-modules-20260624"
+    },
+    {
+      "run_id": "b42cec3248f36c38",
+      "benchmark_session_id": "remote-p100-new-modules-2026-06-24",
+      "env_id": "remote-p100",
+      "category_ids": [
+        "anova"
+      ],
+      "model_id": "WelchANOVA",
+      "case_id": "case-7fa3621875e18ea9",
+      "method_config_id": "method-27b142318b446359",
+      "variant": "welch",
+      "penalty": null,
+      "solver": "f_welch",
+      "solver_display": "Welch ANOVA",
+      "solver_kind": "internal",
+      "framework": "statgpu",
+      "backend": "torch",
+      "scale": {
+        "scale_key": "n500_p5",
+        "n_samples": 500,
+        "n_features": 5,
+        "label": "100/group · 5 groups"
+      },
+      "source": {
+        "file": "new_modules_full_20260624.json",
+        "date": "2026-06-24",
+        "parser": "parse_new_modules_with_anova_benchmark_v1",
+        "parser_version": "1.1",
+        "source_id": "new-modules-20260624-bcbdb676223b",
+        "original_path": "results/new_modules_full_2026-06-24.json"
+      },
+      "metrics": {
+        "timing": {
+          "fit_time_ms": 0.870556,
+          "quality": "measured",
+          "source_file": "new_modules_full_20260624.json"
+        },
+        "speedup": {
+          "value": 0.323097,
+          "reference_backend": "numpy",
+          "reference_framework": "statgpu",
+          "reported_semantics": "computed",
+          "quality": "computed",
+          "source_file": "new_modules_full_20260624.json",
+          "reference_run_id": "bc12e114b4158488"
+        }
+      },
+      "comparison_id": "new-modules-20260624"
+    },
+    {
+      "run_id": "d2ea1a27710f79da",
+      "benchmark_session_id": "remote-p100-new-modules-2026-06-24",
+      "env_id": "remote-p100",
+      "category_ids": [
+        "anova"
+      ],
+      "model_id": "TukeyHSD",
+      "case_id": "case-ed50744e68d94ec4",
+      "method_config_id": "method-f806c4b82815f4d4",
+      "variant": "post-hoc",
+      "penalty": null,
+      "solver": "tukey_hsd",
+      "solver_display": "Tukey HSD",
+      "solver_kind": "internal",
+      "framework": "statgpu",
+      "backend": "numpy",
+      "scale": {
+        "scale_key": "n500_p5",
+        "n_samples": 500,
+        "n_features": 5,
+        "label": "100/group · 5 groups"
+      },
+      "source": {
+        "file": "new_modules_full_20260624.json",
+        "date": "2026-06-24",
+        "parser": "parse_new_modules_with_anova_benchmark_v1",
+        "parser_version": "1.1",
+        "source_id": "new-modules-20260624-bcbdb676223b",
+        "original_path": "results/new_modules_full_2026-06-24.json"
+      },
+      "metrics": {
+        "timing": {
+          "fit_time_ms": 2271.531075,
+          "quality": "measured",
+          "source_file": "new_modules_full_20260624.json"
+        }
+      },
+      "comparison_id": "new-modules-20260624"
+    },
+    {
+      "run_id": "d05a1632e6117c45",
+      "benchmark_session_id": "remote-p100-new-modules-2026-06-24",
+      "env_id": "remote-p100",
+      "category_ids": [
+        "anova"
+      ],
+      "model_id": "TukeyHSD",
+      "case_id": "case-ed50744e68d94ec4",
+      "method_config_id": "method-f806c4b82815f4d4",
+      "variant": "post-hoc",
+      "penalty": null,
+      "solver": "tukey_hsd",
+      "solver_display": "Tukey HSD",
+      "solver_kind": "internal",
+      "framework": "statgpu",
+      "backend": "cupy",
+      "scale": {
+        "scale_key": "n500_p5",
+        "n_samples": 500,
+        "n_features": 5,
+        "label": "100/group · 5 groups"
+      },
+      "source": {
+        "file": "new_modules_full_20260624.json",
+        "date": "2026-06-24",
+        "parser": "parse_new_modules_with_anova_benchmark_v1",
+        "parser_version": "1.1",
+        "source_id": "new-modules-20260624-bcbdb676223b",
+        "original_path": "results/new_modules_full_2026-06-24.json"
+      },
+      "metrics": {
+        "timing": {
+          "fit_time_ms": 2201.540112,
+          "quality": "measured",
+          "source_file": "new_modules_full_20260624.json"
+        },
+        "speedup": {
+          "value": 1.031792,
+          "reference_backend": "numpy",
+          "reference_framework": "statgpu",
+          "reported_semantics": "computed",
+          "quality": "computed",
+          "source_file": "new_modules_full_20260624.json",
+          "reference_run_id": "d2ea1a27710f79da"
+        }
+      },
+      "comparison_id": "new-modules-20260624"
+    },
+    {
+      "run_id": "e6278006c307d744",
+      "benchmark_session_id": "remote-p100-new-modules-2026-06-24",
+      "env_id": "remote-p100",
+      "category_ids": [
+        "anova"
+      ],
+      "model_id": "TukeyHSD",
+      "case_id": "case-ed50744e68d94ec4",
+      "method_config_id": "method-f806c4b82815f4d4",
+      "variant": "post-hoc",
+      "penalty": null,
+      "solver": "tukey_hsd",
+      "solver_display": "Tukey HSD",
+      "solver_kind": "internal",
+      "framework": "statgpu",
+      "backend": "torch",
+      "scale": {
+        "scale_key": "n500_p5",
+        "n_samples": 500,
+        "n_features": 5,
+        "label": "100/group · 5 groups"
+      },
+      "source": {
+        "file": "new_modules_full_20260624.json",
+        "date": "2026-06-24",
+        "parser": "parse_new_modules_with_anova_benchmark_v1",
+        "parser_version": "1.1",
+        "source_id": "new-modules-20260624-bcbdb676223b",
+        "original_path": "results/new_modules_full_2026-06-24.json"
+      },
+      "metrics": {
+        "timing": {
+          "fit_time_ms": 2272.121847,
+          "quality": "measured",
+          "source_file": "new_modules_full_20260624.json"
+        },
+        "speedup": {
+          "value": 0.99974,
+          "reference_backend": "numpy",
+          "reference_framework": "statgpu",
+          "reported_semantics": "computed",
+          "quality": "computed",
+          "source_file": "new_modules_full_20260624.json",
+          "reference_run_id": "d2ea1a27710f79da"
+        }
+      },
+      "comparison_id": "new-modules-20260624"
+    },
+    {
+      "run_id": "db8cedc2a532da6d",
+      "benchmark_session_id": "remote-p100-new-modules-2026-06-24",
+      "env_id": "remote-p100",
+      "category_ids": [
+        "anova"
+      ],
+      "model_id": "BonferroniCorrection",
+      "case_id": "case-0a21fbf180f0816d",
+      "method_config_id": "method-7d34c79c470ed5d5",
+      "variant": "multiple-testing",
+      "penalty": null,
+      "solver": "bonferroni",
+      "solver_display": "Bonferroni",
+      "solver_kind": "internal",
+      "framework": "statgpu",
+      "backend": "numpy",
+      "scale": {
+        "scale_key": "n500_p5",
+        "n_samples": 500,
+        "n_features": 5,
+        "label": "100/group · 5 groups"
+      },
+      "source": {
+        "file": "new_modules_full_20260624.json",
+        "date": "2026-06-24",
+        "parser": "parse_new_modules_with_anova_benchmark_v1",
+        "parser_version": "1.1",
+        "source_id": "new-modules-20260624-bcbdb676223b",
+        "original_path": "results/new_modules_full_2026-06-24.json"
+      },
+      "metrics": {
+        "timing": {
+          "fit_time_ms": 1.596302,
+          "quality": "measured",
+          "source_file": "new_modules_full_20260624.json"
+        }
+      },
+      "comparison_id": "new-modules-20260624"
+    },
+    {
+      "run_id": "d6ab71275f0e592d",
+      "benchmark_session_id": "remote-p100-new-modules-2026-06-24",
+      "env_id": "remote-p100",
+      "category_ids": [
+        "anova"
+      ],
+      "model_id": "BonferroniCorrection",
+      "case_id": "case-0a21fbf180f0816d",
+      "method_config_id": "method-7d34c79c470ed5d5",
+      "variant": "multiple-testing",
+      "penalty": null,
+      "solver": "bonferroni",
+      "solver_display": "Bonferroni",
+      "solver_kind": "internal",
+      "framework": "statgpu",
+      "backend": "cupy",
+      "scale": {
+        "scale_key": "n500_p5",
+        "n_samples": 500,
+        "n_features": 5,
+        "label": "100/group · 5 groups"
+      },
+      "source": {
+        "file": "new_modules_full_20260624.json",
+        "date": "2026-06-24",
+        "parser": "parse_new_modules_with_anova_benchmark_v1",
+        "parser_version": "1.1",
+        "source_id": "new-modules-20260624-bcbdb676223b",
+        "original_path": "results/new_modules_full_2026-06-24.json"
+      },
+      "metrics": {
+        "timing": {
+          "fit_time_ms": 16.98944,
+          "quality": "measured",
+          "source_file": "new_modules_full_20260624.json"
+        },
+        "speedup": {
+          "value": 0.093958,
+          "reference_backend": "numpy",
+          "reference_framework": "statgpu",
+          "reported_semantics": "computed",
+          "quality": "computed",
+          "source_file": "new_modules_full_20260624.json",
+          "reference_run_id": "db8cedc2a532da6d"
+        }
+      },
+      "comparison_id": "new-modules-20260624"
+    },
+    {
+      "run_id": "fe898609d778e616",
+      "benchmark_session_id": "remote-p100-new-modules-2026-06-24",
+      "env_id": "remote-p100",
+      "category_ids": [
+        "anova"
+      ],
+      "model_id": "BonferroniCorrection",
+      "case_id": "case-0a21fbf180f0816d",
+      "method_config_id": "method-7d34c79c470ed5d5",
+      "variant": "multiple-testing",
+      "penalty": null,
+      "solver": "bonferroni",
+      "solver_display": "Bonferroni",
+      "solver_kind": "internal",
+      "framework": "statgpu",
+      "backend": "torch",
+      "scale": {
+        "scale_key": "n500_p5",
+        "n_samples": 500,
+        "n_features": 5,
+        "label": "100/group · 5 groups"
+      },
+      "source": {
+        "file": "new_modules_full_20260624.json",
+        "date": "2026-06-24",
+        "parser": "parse_new_modules_with_anova_benchmark_v1",
+        "parser_version": "1.1",
+        "source_id": "new-modules-20260624-bcbdb676223b",
+        "original_path": "results/new_modules_full_2026-06-24.json"
+      },
+      "metrics": {
+        "timing": {
+          "fit_time_ms": 22.265673,
+          "quality": "measured",
+          "source_file": "new_modules_full_20260624.json"
+        },
+        "speedup": {
+          "value": 0.071693,
+          "reference_backend": "numpy",
+          "reference_framework": "statgpu",
+          "reported_semantics": "computed",
+          "quality": "computed",
+          "source_file": "new_modules_full_20260624.json",
+          "reference_run_id": "db8cedc2a532da6d"
+        }
+      },
+      "comparison_id": "new-modules-20260624"
+    },
+    {
+      "run_id": "520168f94e86419e",
+      "benchmark_session_id": "remote-p100-new-modules-2026-06-24",
+      "env_id": "remote-p100",
+      "category_ids": [
+        "anova"
+      ],
+      "model_id": "OneWayANOVA",
+      "case_id": "case-e6b1a193c1b5e790",
+      "method_config_id": "method-854bf406d2d2ccf3",
+      "variant": "one-way",
+      "penalty": null,
+      "solver": "f_oneway",
+      "solver_display": "One-way F test",
+      "solver_kind": "internal",
+      "framework": "statgpu",
+      "backend": "numpy",
+      "scale": {
+        "scale_key": "n100000_p10",
+        "n_samples": 100000,
+        "n_features": 10,
+        "label": "10K/group · 10 groups"
+      },
+      "source": {
+        "file": "new_modules_full_20260624.json",
+        "date": "2026-06-24",
+        "parser": "parse_new_modules_with_anova_benchmark_v1",
+        "parser_version": "1.1",
+        "source_id": "new-modules-20260624-bcbdb676223b",
+        "original_path": "results/new_modules_full_2026-06-24.json"
+      },
+      "metrics": {
+        "timing": {
+          "fit_time_ms": 0.905484,
+          "quality": "measured",
+          "source_file": "new_modules_full_20260624.json"
+        },
+        "validation": {
+          "status": "pass",
+          "checks": [
+            {
+              "metric": "f_statistic_relative_difference",
+              "operator": "le",
+              "status": "pass",
+              "value": 3.179028266916435e-16,
+              "tolerance": 1e-10,
+              "reference": "scipy"
+            }
+          ],
+          "quality": "computed",
+          "source_file": "new_modules_full_20260624.json"
+        }
+      },
+      "comparison_id": "new-modules-20260624"
+    },
+    {
+      "run_id": "3553672bc9be0412",
+      "benchmark_session_id": "remote-p100-new-modules-2026-06-24",
+      "env_id": "remote-p100",
+      "category_ids": [
+        "anova"
+      ],
+      "model_id": "OneWayANOVA",
+      "case_id": "case-e6b1a193c1b5e790",
+      "method_config_id": "method-854bf406d2d2ccf3",
+      "variant": "one-way",
+      "penalty": null,
+      "solver": "f_oneway",
+      "solver_display": "One-way F test",
+      "solver_kind": "internal",
+      "framework": "statgpu",
+      "backend": "cupy",
+      "scale": {
+        "scale_key": "n100000_p10",
+        "n_samples": 100000,
+        "n_features": 10,
+        "label": "10K/group · 10 groups"
+      },
+      "source": {
+        "file": "new_modules_full_20260624.json",
+        "date": "2026-06-24",
+        "parser": "parse_new_modules_with_anova_benchmark_v1",
+        "parser_version": "1.1",
+        "source_id": "new-modules-20260624-bcbdb676223b",
+        "original_path": "results/new_modules_full_2026-06-24.json"
+      },
+      "metrics": {
+        "timing": {
+          "fit_time_ms": 2.402514,
+          "quality": "measured",
+          "source_file": "new_modules_full_20260624.json"
+        },
+        "speedup": {
+          "value": 0.37689,
+          "reference_backend": "numpy",
+          "reference_framework": "statgpu",
+          "reported_semantics": "computed",
+          "quality": "computed",
+          "source_file": "new_modules_full_20260624.json",
+          "reference_run_id": "520168f94e86419e"
+        },
+        "validation": {
+          "status": "pass",
+          "checks": [
+            {
+              "metric": "f_statistic_relative_difference",
+              "operator": "le",
+              "status": "pass",
+              "value": 1.5895141334582176e-16,
+              "tolerance": 1e-10,
+              "reference": "scipy"
+            }
+          ],
+          "quality": "computed",
+          "source_file": "new_modules_full_20260624.json"
+        }
+      },
+      "comparison_id": "new-modules-20260624"
+    },
+    {
+      "run_id": "996692aef68cccaf",
+      "benchmark_session_id": "remote-p100-new-modules-2026-06-24",
+      "env_id": "remote-p100",
+      "category_ids": [
+        "anova"
+      ],
+      "model_id": "OneWayANOVA",
+      "case_id": "case-e6b1a193c1b5e790",
+      "method_config_id": "method-854bf406d2d2ccf3",
+      "variant": "one-way",
+      "penalty": null,
+      "solver": "f_oneway",
+      "solver_display": "One-way F test",
+      "solver_kind": "internal",
+      "framework": "statgpu",
+      "backend": "torch",
+      "scale": {
+        "scale_key": "n100000_p10",
+        "n_samples": 100000,
+        "n_features": 10,
+        "label": "10K/group · 10 groups"
+      },
+      "source": {
+        "file": "new_modules_full_20260624.json",
+        "date": "2026-06-24",
+        "parser": "parse_new_modules_with_anova_benchmark_v1",
+        "parser_version": "1.1",
+        "source_id": "new-modules-20260624-bcbdb676223b",
+        "original_path": "results/new_modules_full_2026-06-24.json"
+      },
+      "metrics": {
+        "timing": {
+          "fit_time_ms": 8.491546,
+          "quality": "measured",
+          "source_file": "new_modules_full_20260624.json"
+        },
+        "speedup": {
+          "value": 0.106634,
+          "reference_backend": "numpy",
+          "reference_framework": "statgpu",
+          "reported_semantics": "computed",
+          "quality": "computed",
+          "source_file": "new_modules_full_20260624.json",
+          "reference_run_id": "520168f94e86419e"
+        },
+        "validation": {
+          "status": "pass",
+          "checks": [
+            {
+              "metric": "f_statistic_relative_difference",
+              "operator": "le",
+              "status": "pass",
+              "value": 1.5895141334582176e-16,
+              "tolerance": 1e-10,
+              "reference": "scipy"
+            }
+          ],
+          "quality": "computed",
+          "source_file": "new_modules_full_20260624.json"
+        }
+      },
+      "comparison_id": "new-modules-20260624"
+    },
+    {
+      "run_id": "bdcaaa8bbb15f781",
+      "benchmark_session_id": "remote-p100-new-modules-2026-06-24",
+      "env_id": "remote-p100",
+      "category_ids": [
+        "anova"
+      ],
+      "model_id": "OneWayANOVA",
+      "case_id": "case-e6b1a193c1b5e790",
+      "method_config_id": "method-854bf406d2d2ccf3",
+      "variant": "one-way",
+      "penalty": null,
+      "solver": "f_oneway",
+      "solver_display": "One-way F test",
+      "solver_kind": "internal",
+      "framework": "scipy",
+      "backend": null,
+      "scale": {
+        "scale_key": "n100000_p10",
+        "n_samples": 100000,
+        "n_features": 10,
+        "label": "10K/group · 10 groups"
+      },
+      "source": {
+        "file": "new_modules_full_20260624.json",
+        "date": "2026-06-24",
+        "parser": "parse_new_modules_with_anova_benchmark_v1",
+        "parser_version": "1.1",
+        "source_id": "new-modules-20260624-bcbdb676223b",
+        "original_path": "results/new_modules_full_2026-06-24.json"
+      },
+      "metrics": {
+        "timing": {
+          "fit_time_ms": 1.556605,
+          "quality": "reported",
+          "source_file": "new_modules_full_20260624.json"
+        }
+      },
+      "comparison_id": "new-modules-20260624"
+    },
+    {
+      "run_id": "6f2b70395f61bec8",
+      "benchmark_session_id": "remote-p100-new-modules-2026-06-24",
+      "env_id": "remote-p100",
+      "category_ids": [
+        "anova"
+      ],
+      "model_id": "TwoWayANOVA",
+      "case_id": "case-b8bf152301b6c157",
+      "method_config_id": "method-609d63c507cc7001",
+      "variant": "two-way",
+      "penalty": null,
+      "solver": "f_twoway",
+      "solver_display": "Two-way F test",
+      "solver_kind": "internal",
+      "framework": "statgpu",
+      "backend": "numpy",
+      "scale": {
+        "scale_key": "n120000_p12",
+        "n_samples": 120000,
+        "n_features": 12,
+        "label": "10K/cell · 3×4 cells"
+      },
+      "source": {
+        "file": "new_modules_full_20260624.json",
+        "date": "2026-06-24",
+        "parser": "parse_new_modules_with_anova_benchmark_v1",
+        "parser_version": "1.1",
+        "source_id": "new-modules-20260624-bcbdb676223b",
+        "original_path": "results/new_modules_full_2026-06-24.json"
+      },
+      "metrics": {
+        "timing": {
+          "fit_time_ms": 3.6318,
+          "quality": "measured",
+          "source_file": "new_modules_full_20260624.json"
+        }
+      },
+      "comparison_id": "new-modules-20260624"
+    },
+    {
+      "run_id": "27e0c3d3e603cf6f",
+      "benchmark_session_id": "remote-p100-new-modules-2026-06-24",
+      "env_id": "remote-p100",
+      "category_ids": [
+        "anova"
+      ],
+      "model_id": "TwoWayANOVA",
+      "case_id": "case-b8bf152301b6c157",
+      "method_config_id": "method-609d63c507cc7001",
+      "variant": "two-way",
+      "penalty": null,
+      "solver": "f_twoway",
+      "solver_display": "Two-way F test",
+      "solver_kind": "internal",
+      "framework": "statgpu",
+      "backend": "cupy",
+      "scale": {
+        "scale_key": "n120000_p12",
+        "n_samples": 120000,
+        "n_features": 12,
+        "label": "10K/cell · 3×4 cells"
+      },
+      "source": {
+        "file": "new_modules_full_20260624.json",
+        "date": "2026-06-24",
+        "parser": "parse_new_modules_with_anova_benchmark_v1",
+        "parser_version": "1.1",
+        "source_id": "new-modules-20260624-bcbdb676223b",
+        "original_path": "results/new_modules_full_2026-06-24.json"
+      },
+      "metrics": {
+        "timing": {
+          "fit_time_ms": 7.9557,
+          "quality": "measured",
+          "source_file": "new_modules_full_20260624.json"
+        },
+        "speedup": {
+          "value": 0.456503,
+          "reference_backend": "numpy",
+          "reference_framework": "statgpu",
+          "reported_semantics": "computed",
+          "quality": "computed",
+          "source_file": "new_modules_full_20260624.json",
+          "reference_run_id": "6f2b70395f61bec8"
+        }
+      },
+      "comparison_id": "new-modules-20260624"
+    },
+    {
+      "run_id": "00452005f04faf2f",
+      "benchmark_session_id": "remote-p100-new-modules-2026-06-24",
+      "env_id": "remote-p100",
+      "category_ids": [
+        "anova"
+      ],
+      "model_id": "TwoWayANOVA",
+      "case_id": "case-b8bf152301b6c157",
+      "method_config_id": "method-609d63c507cc7001",
+      "variant": "two-way",
+      "penalty": null,
+      "solver": "f_twoway",
+      "solver_display": "Two-way F test",
+      "solver_kind": "internal",
+      "framework": "statgpu",
+      "backend": "torch",
+      "scale": {
+        "scale_key": "n120000_p12",
+        "n_samples": 120000,
+        "n_features": 12,
+        "label": "10K/cell · 3×4 cells"
+      },
+      "source": {
+        "file": "new_modules_full_20260624.json",
+        "date": "2026-06-24",
+        "parser": "parse_new_modules_with_anova_benchmark_v1",
+        "parser_version": "1.1",
+        "source_id": "new-modules-20260624-bcbdb676223b",
+        "original_path": "results/new_modules_full_2026-06-24.json"
+      },
+      "metrics": {
+        "timing": {
+          "fit_time_ms": 5.758107,
+          "quality": "measured",
+          "source_file": "new_modules_full_20260624.json"
+        },
+        "speedup": {
+          "value": 0.630728,
+          "reference_backend": "numpy",
+          "reference_framework": "statgpu",
+          "reported_semantics": "computed",
+          "quality": "computed",
+          "source_file": "new_modules_full_20260624.json",
+          "reference_run_id": "6f2b70395f61bec8"
+        }
+      },
+      "comparison_id": "new-modules-20260624"
+    },
+    {
+      "run_id": "e0c9dcb6dc2bf7a7",
+      "benchmark_session_id": "remote-p100-new-modules-2026-06-24",
+      "env_id": "remote-p100",
+      "category_ids": [
+        "anova"
+      ],
+      "model_id": "WelchANOVA",
+      "case_id": "case-a8cded5e172970d1",
+      "method_config_id": "method-27b142318b446359",
+      "variant": "welch",
+      "penalty": null,
+      "solver": "f_welch",
+      "solver_display": "Welch ANOVA",
+      "solver_kind": "internal",
+      "framework": "statgpu",
+      "backend": "numpy",
+      "scale": {
+        "scale_key": "n100000_p10",
+        "n_samples": 100000,
+        "n_features": 10,
+        "label": "10K/group · 10 groups"
+      },
+      "source": {
+        "file": "new_modules_full_20260624.json",
+        "date": "2026-06-24",
+        "parser": "parse_new_modules_with_anova_benchmark_v1",
+        "parser_version": "1.1",
+        "source_id": "new-modules-20260624-bcbdb676223b",
+        "original_path": "results/new_modules_full_2026-06-24.json"
+      },
+      "metrics": {
+        "timing": {
+          "fit_time_ms": 0.573635,
+          "quality": "measured",
+          "source_file": "new_modules_full_20260624.json"
+        }
+      },
+      "comparison_id": "new-modules-20260624"
+    },
+    {
+      "run_id": "971cd57dac6cb75f",
+      "benchmark_session_id": "remote-p100-new-modules-2026-06-24",
+      "env_id": "remote-p100",
+      "category_ids": [
+        "anova"
+      ],
+      "model_id": "WelchANOVA",
+      "case_id": "case-a8cded5e172970d1",
+      "method_config_id": "method-27b142318b446359",
+      "variant": "welch",
+      "penalty": null,
+      "solver": "f_welch",
+      "solver_display": "Welch ANOVA",
+      "solver_kind": "internal",
+      "framework": "statgpu",
+      "backend": "cupy",
+      "scale": {
+        "scale_key": "n100000_p10",
+        "n_samples": 100000,
+        "n_features": 10,
+        "label": "10K/group · 10 groups"
+      },
+      "source": {
+        "file": "new_modules_full_20260624.json",
+        "date": "2026-06-24",
+        "parser": "parse_new_modules_with_anova_benchmark_v1",
+        "parser_version": "1.1",
+        "source_id": "new-modules-20260624-bcbdb676223b",
+        "original_path": "results/new_modules_full_2026-06-24.json"
+      },
+      "metrics": {
+        "timing": {
+          "fit_time_ms": 0.992984,
+          "quality": "measured",
+          "source_file": "new_modules_full_20260624.json"
+        },
+        "speedup": {
+          "value": 0.577688,
+          "reference_backend": "numpy",
+          "reference_framework": "statgpu",
+          "reported_semantics": "computed",
+          "quality": "computed",
+          "source_file": "new_modules_full_20260624.json",
+          "reference_run_id": "e0c9dcb6dc2bf7a7"
+        }
+      },
+      "comparison_id": "new-modules-20260624"
+    },
+    {
+      "run_id": "c31c00b8c701b9ae",
+      "benchmark_session_id": "remote-p100-new-modules-2026-06-24",
+      "env_id": "remote-p100",
+      "category_ids": [
+        "anova"
+      ],
+      "model_id": "WelchANOVA",
+      "case_id": "case-a8cded5e172970d1",
+      "method_config_id": "method-27b142318b446359",
+      "variant": "welch",
+      "penalty": null,
+      "solver": "f_welch",
+      "solver_display": "Welch ANOVA",
+      "solver_kind": "internal",
+      "framework": "statgpu",
+      "backend": "torch",
+      "scale": {
+        "scale_key": "n100000_p10",
+        "n_samples": 100000,
+        "n_features": 10,
+        "label": "10K/group · 10 groups"
+      },
+      "source": {
+        "file": "new_modules_full_20260624.json",
+        "date": "2026-06-24",
+        "parser": "parse_new_modules_with_anova_benchmark_v1",
+        "parser_version": "1.1",
+        "source_id": "new-modules-20260624-bcbdb676223b",
+        "original_path": "results/new_modules_full_2026-06-24.json"
+      },
+      "metrics": {
+        "timing": {
+          "fit_time_ms": 1.250565,
+          "quality": "measured",
+          "source_file": "new_modules_full_20260624.json"
+        },
+        "speedup": {
+          "value": 0.458701,
+          "reference_backend": "numpy",
+          "reference_framework": "statgpu",
+          "reported_semantics": "computed",
+          "quality": "computed",
+          "source_file": "new_modules_full_20260624.json",
+          "reference_run_id": "e0c9dcb6dc2bf7a7"
+        }
+      },
+      "comparison_id": "new-modules-20260624"
+    },
+    {
+      "run_id": "e2294716d5e6cb47",
+      "benchmark_session_id": "remote-p100-new-modules-2026-06-24",
+      "env_id": "remote-p100",
+      "category_ids": [
+        "anova"
+      ],
+      "model_id": "TukeyHSD",
+      "case_id": "case-5eaa2c1b262a09b7",
+      "method_config_id": "method-f806c4b82815f4d4",
+      "variant": "post-hoc",
+      "penalty": null,
+      "solver": "tukey_hsd",
+      "solver_display": "Tukey HSD",
+      "solver_kind": "internal",
+      "framework": "statgpu",
+      "backend": "numpy",
+      "scale": {
+        "scale_key": "n100000_p10",
+        "n_samples": 100000,
+        "n_features": 10,
+        "label": "10K/group · 10 groups"
+      },
+      "source": {
+        "file": "new_modules_full_20260624.json",
+        "date": "2026-06-24",
+        "parser": "parse_new_modules_with_anova_benchmark_v1",
+        "parser_version": "1.1",
+        "source_id": "new-modules-20260624-bcbdb676223b",
+        "original_path": "results/new_modules_full_2026-06-24.json"
+      },
+      "metrics": {
+        "timing": {
+          "fit_time_ms": 12870.65202,
+          "quality": "measured",
+          "source_file": "new_modules_full_20260624.json"
+        }
+      },
+      "comparison_id": "new-modules-20260624"
+    },
+    {
+      "run_id": "af836415268c054f",
+      "benchmark_session_id": "remote-p100-new-modules-2026-06-24",
+      "env_id": "remote-p100",
+      "category_ids": [
+        "anova"
+      ],
+      "model_id": "TukeyHSD",
+      "case_id": "case-5eaa2c1b262a09b7",
+      "method_config_id": "method-f806c4b82815f4d4",
+      "variant": "post-hoc",
+      "penalty": null,
+      "solver": "tukey_hsd",
+      "solver_display": "Tukey HSD",
+      "solver_kind": "internal",
+      "framework": "statgpu",
+      "backend": "cupy",
+      "scale": {
+        "scale_key": "n100000_p10",
+        "n_samples": 100000,
+        "n_features": 10,
+        "label": "10K/group · 10 groups"
+      },
+      "source": {
+        "file": "new_modules_full_20260624.json",
+        "date": "2026-06-24",
+        "parser": "parse_new_modules_with_anova_benchmark_v1",
+        "parser_version": "1.1",
+        "source_id": "new-modules-20260624-bcbdb676223b",
+        "original_path": "results/new_modules_full_2026-06-24.json"
+      },
+      "metrics": {
+        "timing": {
+          "fit_time_ms": 12724.866211,
+          "quality": "measured",
+          "source_file": "new_modules_full_20260624.json"
+        },
+        "speedup": {
+          "value": 1.011457,
+          "reference_backend": "numpy",
+          "reference_framework": "statgpu",
+          "reported_semantics": "computed",
+          "quality": "computed",
+          "source_file": "new_modules_full_20260624.json",
+          "reference_run_id": "e2294716d5e6cb47"
+        }
+      },
+      "comparison_id": "new-modules-20260624"
+    },
+    {
+      "run_id": "93ecdb3281f34140",
+      "benchmark_session_id": "remote-p100-new-modules-2026-06-24",
+      "env_id": "remote-p100",
+      "category_ids": [
+        "anova"
+      ],
+      "model_id": "TukeyHSD",
+      "case_id": "case-5eaa2c1b262a09b7",
+      "method_config_id": "method-f806c4b82815f4d4",
+      "variant": "post-hoc",
+      "penalty": null,
+      "solver": "tukey_hsd",
+      "solver_display": "Tukey HSD",
+      "solver_kind": "internal",
+      "framework": "statgpu",
+      "backend": "torch",
+      "scale": {
+        "scale_key": "n100000_p10",
+        "n_samples": 100000,
+        "n_features": 10,
+        "label": "10K/group · 10 groups"
+      },
+      "source": {
+        "file": "new_modules_full_20260624.json",
+        "date": "2026-06-24",
+        "parser": "parse_new_modules_with_anova_benchmark_v1",
+        "parser_version": "1.1",
+        "source_id": "new-modules-20260624-bcbdb676223b",
+        "original_path": "results/new_modules_full_2026-06-24.json"
+      },
+      "metrics": {
+        "timing": {
+          "fit_time_ms": 12803.559989,
+          "quality": "measured",
+          "source_file": "new_modules_full_20260624.json"
+        },
+        "speedup": {
+          "value": 1.00524,
+          "reference_backend": "numpy",
+          "reference_framework": "statgpu",
+          "reported_semantics": "computed",
+          "quality": "computed",
+          "source_file": "new_modules_full_20260624.json",
+          "reference_run_id": "e2294716d5e6cb47"
+        }
+      },
+      "comparison_id": "new-modules-20260624"
+    },
+    {
+      "run_id": "2cacf7d9b7d1b857",
+      "benchmark_session_id": "remote-p100-new-modules-2026-06-24",
+      "env_id": "remote-p100",
+      "category_ids": [
+        "anova"
+      ],
+      "model_id": "BonferroniCorrection",
+      "case_id": "case-5e4afa063c221c0d",
+      "method_config_id": "method-7d34c79c470ed5d5",
+      "variant": "multiple-testing",
+      "penalty": null,
+      "solver": "bonferroni",
+      "solver_display": "Bonferroni",
+      "solver_kind": "internal",
+      "framework": "statgpu",
+      "backend": "numpy",
+      "scale": {
+        "scale_key": "n100000_p10",
+        "n_samples": 100000,
+        "n_features": 10,
+        "label": "10K/group · 10 groups"
+      },
+      "source": {
+        "file": "new_modules_full_20260624.json",
+        "date": "2026-06-24",
+        "parser": "parse_new_modules_with_anova_benchmark_v1",
+        "parser_version": "1.1",
+        "source_id": "new-modules-20260624-bcbdb676223b",
+        "original_path": "results/new_modules_full_2026-06-24.json"
+      },
+      "metrics": {
+        "timing": {
+          "fit_time_ms": 8.400679,
+          "quality": "measured",
+          "source_file": "new_modules_full_20260624.json"
+        }
+      },
+      "comparison_id": "new-modules-20260624"
+    },
+    {
+      "run_id": "1477c4a6795eeb76",
+      "benchmark_session_id": "remote-p100-new-modules-2026-06-24",
+      "env_id": "remote-p100",
+      "category_ids": [
+        "anova"
+      ],
+      "model_id": "BonferroniCorrection",
+      "case_id": "case-5e4afa063c221c0d",
+      "method_config_id": "method-7d34c79c470ed5d5",
+      "variant": "multiple-testing",
+      "penalty": null,
+      "solver": "bonferroni",
+      "solver_display": "Bonferroni",
+      "solver_kind": "internal",
+      "framework": "statgpu",
+      "backend": "cupy",
+      "scale": {
+        "scale_key": "n100000_p10",
+        "n_samples": 100000,
+        "n_features": 10,
+        "label": "10K/group · 10 groups"
+      },
+      "source": {
+        "file": "new_modules_full_20260624.json",
+        "date": "2026-06-24",
+        "parser": "parse_new_modules_with_anova_benchmark_v1",
+        "parser_version": "1.1",
+        "source_id": "new-modules-20260624-bcbdb676223b",
+        "original_path": "results/new_modules_full_2026-06-24.json"
+      },
+      "metrics": {
+        "timing": {
+          "fit_time_ms": 93.38668,
+          "quality": "measured",
+          "source_file": "new_modules_full_20260624.json"
+        },
+        "speedup": {
+          "value": 0.089956,
+          "reference_backend": "numpy",
+          "reference_framework": "statgpu",
+          "reported_semantics": "computed",
+          "quality": "computed",
+          "source_file": "new_modules_full_20260624.json",
+          "reference_run_id": "2cacf7d9b7d1b857"
+        }
+      },
+      "comparison_id": "new-modules-20260624"
+    },
+    {
+      "run_id": "72033a799189d84e",
+      "benchmark_session_id": "remote-p100-new-modules-2026-06-24",
+      "env_id": "remote-p100",
+      "category_ids": [
+        "anova"
+      ],
+      "model_id": "BonferroniCorrection",
+      "case_id": "case-5e4afa063c221c0d",
+      "method_config_id": "method-7d34c79c470ed5d5",
+      "variant": "multiple-testing",
+      "penalty": null,
+      "solver": "bonferroni",
+      "solver_display": "Bonferroni",
+      "solver_kind": "internal",
+      "framework": "statgpu",
+      "backend": "torch",
+      "scale": {
+        "scale_key": "n100000_p10",
+        "n_samples": 100000,
+        "n_features": 10,
+        "label": "10K/group · 10 groups"
+      },
+      "source": {
+        "file": "new_modules_full_20260624.json",
+        "date": "2026-06-24",
+        "parser": "parse_new_modules_with_anova_benchmark_v1",
+        "parser_version": "1.1",
+        "source_id": "new-modules-20260624-bcbdb676223b",
+        "original_path": "results/new_modules_full_2026-06-24.json"
+      },
+      "metrics": {
+        "timing": {
+          "fit_time_ms": 98.682165,
+          "quality": "measured",
+          "source_file": "new_modules_full_20260624.json"
+        },
+        "speedup": {
+          "value": 0.085129,
+          "reference_backend": "numpy",
+          "reference_framework": "statgpu",
+          "reported_semantics": "computed",
+          "quality": "computed",
+          "source_file": "new_modules_full_20260624.json",
+          "reference_run_id": "2cacf7d9b7d1b857"
+        }
+      },
+      "comparison_id": "new-modules-20260624"
+    },
+    {
+      "run_id": "5f52eca4880f531b",
+      "benchmark_session_id": "remote-p100-new-modules-2026-06-24",
+      "env_id": "remote-p100",
+      "category_ids": [
+        "anova"
+      ],
+      "model_id": "OneWayANOVA",
+      "case_id": "case-534c96e8509dfac1",
+      "method_config_id": "method-854bf406d2d2ccf3",
+      "variant": "one-way",
+      "penalty": null,
+      "solver": "f_oneway",
+      "solver_display": "One-way F test",
+      "solver_kind": "internal",
+      "framework": "statgpu",
+      "backend": "numpy",
+      "scale": {
+        "scale_key": "n2000000_p20",
+        "n_samples": 2000000,
+        "n_features": 20,
+        "label": "100K/group · 20 groups"
+      },
+      "source": {
+        "file": "new_modules_full_20260624.json",
+        "date": "2026-06-24",
+        "parser": "parse_new_modules_with_anova_benchmark_v1",
+        "parser_version": "1.1",
+        "source_id": "new-modules-20260624-bcbdb676223b",
+        "original_path": "results/new_modules_full_2026-06-24.json"
+      },
+      "metrics": {
+        "timing": {
+          "fit_time_ms": 17.24419,
+          "quality": "measured",
+          "source_file": "new_modules_full_20260624.json"
+        },
+        "validation": {
+          "status": "pass",
+          "checks": [
+            {
+              "metric": "f_statistic_relative_difference",
+              "operator": "le",
+              "status": "pass",
+              "value": 5.061827559165639e-15,
+              "tolerance": 1e-10,
+              "reference": "scipy"
+            }
+          ],
+          "quality": "computed",
+          "source_file": "new_modules_full_20260624.json"
+        }
+      },
+      "comparison_id": "new-modules-20260624"
+    },
+    {
+      "run_id": "2bc2a34c2b657016",
+      "benchmark_session_id": "remote-p100-new-modules-2026-06-24",
+      "env_id": "remote-p100",
+      "category_ids": [
+        "anova"
+      ],
+      "model_id": "OneWayANOVA",
+      "case_id": "case-534c96e8509dfac1",
+      "method_config_id": "method-854bf406d2d2ccf3",
+      "variant": "one-way",
+      "penalty": null,
+      "solver": "f_oneway",
+      "solver_display": "One-way F test",
+      "solver_kind": "internal",
+      "framework": "statgpu",
+      "backend": "cupy",
+      "scale": {
+        "scale_key": "n2000000_p20",
+        "n_samples": 2000000,
+        "n_features": 20,
+        "label": "100K/group · 20 groups"
+      },
+      "source": {
+        "file": "new_modules_full_20260624.json",
+        "date": "2026-06-24",
+        "parser": "parse_new_modules_with_anova_benchmark_v1",
+        "parser_version": "1.1",
+        "source_id": "new-modules-20260624-bcbdb676223b",
+        "original_path": "results/new_modules_full_2026-06-24.json"
+      },
+      "metrics": {
+        "timing": {
+          "fit_time_ms": 7.733345,
+          "quality": "measured",
+          "source_file": "new_modules_full_20260624.json"
+        },
+        "speedup": {
+          "value": 2.229849,
+          "reference_backend": "numpy",
+          "reference_framework": "statgpu",
+          "reported_semantics": "computed",
+          "quality": "computed",
+          "source_file": "new_modules_full_20260624.json",
+          "reference_run_id": "5f52eca4880f531b"
+        },
+        "validation": {
+          "status": "pass",
+          "checks": [
+            {
+              "metric": "f_statistic_relative_difference",
+              "operator": "le",
+              "status": "pass",
+              "value": 5.461445524362927e-15,
+              "tolerance": 1e-10,
+              "reference": "scipy"
+            }
+          ],
+          "quality": "computed",
+          "source_file": "new_modules_full_20260624.json"
+        }
+      },
+      "comparison_id": "new-modules-20260624"
+    },
+    {
+      "run_id": "a984600d09568086",
+      "benchmark_session_id": "remote-p100-new-modules-2026-06-24",
+      "env_id": "remote-p100",
+      "category_ids": [
+        "anova"
+      ],
+      "model_id": "OneWayANOVA",
+      "case_id": "case-534c96e8509dfac1",
+      "method_config_id": "method-854bf406d2d2ccf3",
+      "variant": "one-way",
+      "penalty": null,
+      "solver": "f_oneway",
+      "solver_display": "One-way F test",
+      "solver_kind": "internal",
+      "framework": "statgpu",
+      "backend": "torch",
+      "scale": {
+        "scale_key": "n2000000_p20",
+        "n_samples": 2000000,
+        "n_features": 20,
+        "label": "100K/group · 20 groups"
+      },
+      "source": {
+        "file": "new_modules_full_20260624.json",
+        "date": "2026-06-24",
+        "parser": "parse_new_modules_with_anova_benchmark_v1",
+        "parser_version": "1.1",
+        "source_id": "new-modules-20260624-bcbdb676223b",
+        "original_path": "results/new_modules_full_2026-06-24.json"
+      },
+      "metrics": {
+        "timing": {
+          "fit_time_ms": 18.975914,
+          "quality": "measured",
+          "source_file": "new_modules_full_20260624.json"
+        },
+        "speedup": {
+          "value": 0.908741,
+          "reference_backend": "numpy",
+          "reference_framework": "statgpu",
+          "reported_semantics": "computed",
+          "quality": "computed",
+          "source_file": "new_modules_full_20260624.json",
+          "reference_run_id": "5f52eca4880f531b"
+        },
+        "validation": {
+          "status": "pass",
+          "checks": [
+            {
+              "metric": "f_statistic_relative_difference",
+              "operator": "le",
+              "status": "pass",
+              "value": 5.328239535963831e-15,
+              "tolerance": 1e-10,
+              "reference": "scipy"
+            }
+          ],
+          "quality": "computed",
+          "source_file": "new_modules_full_20260624.json"
+        }
+      },
+      "comparison_id": "new-modules-20260624"
+    },
+    {
+      "run_id": "4afccc2bfd07306f",
+      "benchmark_session_id": "remote-p100-new-modules-2026-06-24",
+      "env_id": "remote-p100",
+      "category_ids": [
+        "anova"
+      ],
+      "model_id": "OneWayANOVA",
+      "case_id": "case-534c96e8509dfac1",
+      "method_config_id": "method-854bf406d2d2ccf3",
+      "variant": "one-way",
+      "penalty": null,
+      "solver": "f_oneway",
+      "solver_display": "One-way F test",
+      "solver_kind": "internal",
+      "framework": "scipy",
+      "backend": null,
+      "scale": {
+        "scale_key": "n2000000_p20",
+        "n_samples": 2000000,
+        "n_features": 20,
+        "label": "100K/group · 20 groups"
+      },
+      "source": {
+        "file": "new_modules_full_20260624.json",
+        "date": "2026-06-24",
+        "parser": "parse_new_modules_with_anova_benchmark_v1",
+        "parser_version": "1.1",
+        "source_id": "new-modules-20260624-bcbdb676223b",
+        "original_path": "results/new_modules_full_2026-06-24.json"
+      },
+      "metrics": {
+        "timing": {
+          "fit_time_ms": 17.330855,
+          "quality": "reported",
+          "source_file": "new_modules_full_20260624.json"
+        }
+      },
+      "comparison_id": "new-modules-20260624"
+    },
+    {
+      "run_id": "82b8569394c08619",
+      "benchmark_session_id": "remote-p100-new-modules-2026-06-24",
+      "env_id": "remote-p100",
+      "category_ids": [
+        "anova"
+      ],
+      "model_id": "TwoWayANOVA",
+      "case_id": "case-8555dcfd0fd804fe",
+      "method_config_id": "method-609d63c507cc7001",
+      "variant": "two-way",
+      "penalty": null,
+      "solver": "f_twoway",
+      "solver_display": "Two-way F test",
+      "solver_kind": "internal",
+      "framework": "statgpu",
+      "backend": "numpy",
+      "scale": {
+        "scale_key": "n1200000_p12",
+        "n_samples": 1200000,
+        "n_features": 12,
+        "label": "100K/cell · 3×4 cells"
+      },
+      "source": {
+        "file": "new_modules_full_20260624.json",
+        "date": "2026-06-24",
+        "parser": "parse_new_modules_with_anova_benchmark_v1",
+        "parser_version": "1.1",
+        "source_id": "new-modules-20260624-bcbdb676223b",
+        "original_path": "results/new_modules_full_2026-06-24.json"
+      },
+      "metrics": {
+        "timing": {
+          "fit_time_ms": 38.382471,
+          "quality": "measured",
+          "source_file": "new_modules_full_20260624.json"
+        }
+      },
+      "comparison_id": "new-modules-20260624"
+    },
+    {
+      "run_id": "aedf4d9968b085cf",
+      "benchmark_session_id": "remote-p100-new-modules-2026-06-24",
+      "env_id": "remote-p100",
+      "category_ids": [
+        "anova"
+      ],
+      "model_id": "TwoWayANOVA",
+      "case_id": "case-8555dcfd0fd804fe",
+      "method_config_id": "method-609d63c507cc7001",
+      "variant": "two-way",
+      "penalty": null,
+      "solver": "f_twoway",
+      "solver_display": "Two-way F test",
+      "solver_kind": "internal",
+      "framework": "statgpu",
+      "backend": "cupy",
+      "scale": {
+        "scale_key": "n1200000_p12",
+        "n_samples": 1200000,
+        "n_features": 12,
+        "label": "100K/cell · 3×4 cells"
+      },
+      "source": {
+        "file": "new_modules_full_20260624.json",
+        "date": "2026-06-24",
+        "parser": "parse_new_modules_with_anova_benchmark_v1",
+        "parser_version": "1.1",
+        "source_id": "new-modules-20260624-bcbdb676223b",
+        "original_path": "results/new_modules_full_2026-06-24.json"
+      },
+      "metrics": {
+        "timing": {
+          "fit_time_ms": 9.754956,
+          "quality": "measured",
+          "source_file": "new_modules_full_20260624.json"
+        },
+        "speedup": {
+          "value": 3.934664,
+          "reference_backend": "numpy",
+          "reference_framework": "statgpu",
+          "reported_semantics": "computed",
+          "quality": "computed",
+          "source_file": "new_modules_full_20260624.json",
+          "reference_run_id": "82b8569394c08619"
+        }
+      },
+      "comparison_id": "new-modules-20260624"
+    },
+    {
+      "run_id": "6b2068ca5d83f6e3",
+      "benchmark_session_id": "remote-p100-new-modules-2026-06-24",
+      "env_id": "remote-p100",
+      "category_ids": [
+        "anova"
+      ],
+      "model_id": "TwoWayANOVA",
+      "case_id": "case-8555dcfd0fd804fe",
+      "method_config_id": "method-609d63c507cc7001",
+      "variant": "two-way",
+      "penalty": null,
+      "solver": "f_twoway",
+      "solver_display": "Two-way F test",
+      "solver_kind": "internal",
+      "framework": "statgpu",
+      "backend": "torch",
+      "scale": {
+        "scale_key": "n1200000_p12",
+        "n_samples": 1200000,
+        "n_features": 12,
+        "label": "100K/cell · 3×4 cells"
+      },
+      "source": {
+        "file": "new_modules_full_20260624.json",
+        "date": "2026-06-24",
+        "parser": "parse_new_modules_with_anova_benchmark_v1",
+        "parser_version": "1.1",
+        "source_id": "new-modules-20260624-bcbdb676223b",
+        "original_path": "results/new_modules_full_2026-06-24.json"
+      },
+      "metrics": {
+        "timing": {
+          "fit_time_ms": 24.280399,
+          "quality": "measured",
+          "source_file": "new_modules_full_20260624.json"
+        },
+        "speedup": {
+          "value": 1.580801,
+          "reference_backend": "numpy",
+          "reference_framework": "statgpu",
+          "reported_semantics": "computed",
+          "quality": "computed",
+          "source_file": "new_modules_full_20260624.json",
+          "reference_run_id": "82b8569394c08619"
+        }
+      },
+      "comparison_id": "new-modules-20260624"
+    },
+    {
+      "run_id": "5ff06b6a35a8aac6",
+      "benchmark_session_id": "remote-p100-new-modules-2026-06-24",
+      "env_id": "remote-p100",
+      "category_ids": [
+        "anova"
+      ],
+      "model_id": "WelchANOVA",
+      "case_id": "case-91d5a7197e23ecb6",
+      "method_config_id": "method-27b142318b446359",
+      "variant": "welch",
+      "penalty": null,
+      "solver": "f_welch",
+      "solver_display": "Welch ANOVA",
+      "solver_kind": "internal",
+      "framework": "statgpu",
+      "backend": "numpy",
+      "scale": {
+        "scale_key": "n2000000_p20",
+        "n_samples": 2000000,
+        "n_features": 20,
+        "label": "100K/group · 20 groups"
+      },
+      "source": {
+        "file": "new_modules_full_20260624.json",
+        "date": "2026-06-24",
+        "parser": "parse_new_modules_with_anova_benchmark_v1",
+        "parser_version": "1.1",
+        "source_id": "new-modules-20260624-bcbdb676223b",
+        "original_path": "results/new_modules_full_2026-06-24.json"
+      },
+      "metrics": {
+        "timing": {
+          "fit_time_ms": 5.242586,
+          "quality": "measured",
+          "source_file": "new_modules_full_20260624.json"
+        }
+      },
+      "comparison_id": "new-modules-20260624"
+    },
+    {
+      "run_id": "46bb0d59b212941c",
+      "benchmark_session_id": "remote-p100-new-modules-2026-06-24",
+      "env_id": "remote-p100",
+      "category_ids": [
+        "anova"
+      ],
+      "model_id": "WelchANOVA",
+      "case_id": "case-91d5a7197e23ecb6",
+      "method_config_id": "method-27b142318b446359",
+      "variant": "welch",
+      "penalty": null,
+      "solver": "f_welch",
+      "solver_display": "Welch ANOVA",
+      "solver_kind": "internal",
+      "framework": "statgpu",
+      "backend": "cupy",
+      "scale": {
+        "scale_key": "n2000000_p20",
+        "n_samples": 2000000,
+        "n_features": 20,
+        "label": "100K/group · 20 groups"
+      },
+      "source": {
+        "file": "new_modules_full_20260624.json",
+        "date": "2026-06-24",
+        "parser": "parse_new_modules_with_anova_benchmark_v1",
+        "parser_version": "1.1",
+        "source_id": "new-modules-20260624-bcbdb676223b",
+        "original_path": "results/new_modules_full_2026-06-24.json"
+      },
+      "metrics": {
+        "timing": {
+          "fit_time_ms": 5.224079,
+          "quality": "measured",
+          "source_file": "new_modules_full_20260624.json"
+        },
+        "speedup": {
+          "value": 1.003543,
+          "reference_backend": "numpy",
+          "reference_framework": "statgpu",
+          "reported_semantics": "computed",
+          "quality": "computed",
+          "source_file": "new_modules_full_20260624.json",
+          "reference_run_id": "5ff06b6a35a8aac6"
+        }
+      },
+      "comparison_id": "new-modules-20260624"
+    },
+    {
+      "run_id": "d5854f64375f3d5c",
+      "benchmark_session_id": "remote-p100-new-modules-2026-06-24",
+      "env_id": "remote-p100",
+      "category_ids": [
+        "anova"
+      ],
+      "model_id": "WelchANOVA",
+      "case_id": "case-91d5a7197e23ecb6",
+      "method_config_id": "method-27b142318b446359",
+      "variant": "welch",
+      "penalty": null,
+      "solver": "f_welch",
+      "solver_display": "Welch ANOVA",
+      "solver_kind": "internal",
+      "framework": "statgpu",
+      "backend": "torch",
+      "scale": {
+        "scale_key": "n2000000_p20",
+        "n_samples": 2000000,
+        "n_features": 20,
+        "label": "100K/group · 20 groups"
+      },
+      "source": {
+        "file": "new_modules_full_20260624.json",
+        "date": "2026-06-24",
+        "parser": "parse_new_modules_with_anova_benchmark_v1",
+        "parser_version": "1.1",
+        "source_id": "new-modules-20260624-bcbdb676223b",
+        "original_path": "results/new_modules_full_2026-06-24.json"
+      },
+      "metrics": {
+        "timing": {
+          "fit_time_ms": 10.262877,
+          "quality": "measured",
+          "source_file": "new_modules_full_20260624.json"
+        },
+        "speedup": {
+          "value": 0.51083,
+          "reference_backend": "numpy",
+          "reference_framework": "statgpu",
+          "reported_semantics": "computed",
+          "quality": "computed",
+          "source_file": "new_modules_full_20260624.json",
+          "reference_run_id": "5ff06b6a35a8aac6"
+        }
+      },
+      "comparison_id": "new-modules-20260624"
+    },
+    {
+      "run_id": "60ee980c0d2e7b9c",
+      "benchmark_session_id": "remote-p100-new-modules-2026-06-24",
+      "env_id": "remote-p100",
+      "category_ids": [
+        "anova"
+      ],
+      "model_id": "TukeyHSD",
+      "case_id": "case-8aeb09c6e2572a05",
+      "method_config_id": "method-f806c4b82815f4d4",
+      "variant": "post-hoc",
+      "penalty": null,
+      "solver": "tukey_hsd",
+      "solver_display": "Tukey HSD",
+      "solver_kind": "internal",
+      "framework": "statgpu",
+      "backend": "numpy",
+      "scale": {
+        "scale_key": "n2000000_p20",
+        "n_samples": 2000000,
+        "n_features": 20,
+        "label": "100K/group · 20 groups"
+      },
+      "source": {
+        "file": "new_modules_full_20260624.json",
+        "date": "2026-06-24",
+        "parser": "parse_new_modules_with_anova_benchmark_v1",
+        "parser_version": "1.1",
+        "source_id": "new-modules-20260624-bcbdb676223b",
+        "original_path": "results/new_modules_full_2026-06-24.json"
+      },
+      "metrics": {
+        "timing": {
+          "fit_time_ms": 795.068383,
+          "quality": "measured",
+          "source_file": "new_modules_full_20260624.json"
+        }
+      },
+      "comparison_id": "new-modules-20260624"
+    },
+    {
+      "run_id": "891b360ce1730b78",
+      "benchmark_session_id": "remote-p100-new-modules-2026-06-24",
+      "env_id": "remote-p100",
+      "category_ids": [
+        "anova"
+      ],
+      "model_id": "TukeyHSD",
+      "case_id": "case-8aeb09c6e2572a05",
+      "method_config_id": "method-f806c4b82815f4d4",
+      "variant": "post-hoc",
+      "penalty": null,
+      "solver": "tukey_hsd",
+      "solver_display": "Tukey HSD",
+      "solver_kind": "internal",
+      "framework": "statgpu",
+      "backend": "cupy",
+      "scale": {
+        "scale_key": "n2000000_p20",
+        "n_samples": 2000000,
+        "n_features": 20,
+        "label": "100K/group · 20 groups"
+      },
+      "source": {
+        "file": "new_modules_full_20260624.json",
+        "date": "2026-06-24",
+        "parser": "parse_new_modules_with_anova_benchmark_v1",
+        "parser_version": "1.1",
+        "source_id": "new-modules-20260624-bcbdb676223b",
+        "original_path": "results/new_modules_full_2026-06-24.json"
+      },
+      "metrics": {
+        "timing": {
+          "fit_time_ms": 796.185315,
+          "quality": "measured",
+          "source_file": "new_modules_full_20260624.json"
+        },
+        "speedup": {
+          "value": 0.998597,
+          "reference_backend": "numpy",
+          "reference_framework": "statgpu",
+          "reported_semantics": "computed",
+          "quality": "computed",
+          "source_file": "new_modules_full_20260624.json",
+          "reference_run_id": "60ee980c0d2e7b9c"
+        }
+      },
+      "comparison_id": "new-modules-20260624"
+    },
+    {
+      "run_id": "a487145aa6be4e32",
+      "benchmark_session_id": "remote-p100-new-modules-2026-06-24",
+      "env_id": "remote-p100",
+      "category_ids": [
+        "anova"
+      ],
+      "model_id": "TukeyHSD",
+      "case_id": "case-8aeb09c6e2572a05",
+      "method_config_id": "method-f806c4b82815f4d4",
+      "variant": "post-hoc",
+      "penalty": null,
+      "solver": "tukey_hsd",
+      "solver_display": "Tukey HSD",
+      "solver_kind": "internal",
+      "framework": "statgpu",
+      "backend": "torch",
+      "scale": {
+        "scale_key": "n2000000_p20",
+        "n_samples": 2000000,
+        "n_features": 20,
+        "label": "100K/group · 20 groups"
+      },
+      "source": {
+        "file": "new_modules_full_20260624.json",
+        "date": "2026-06-24",
+        "parser": "parse_new_modules_with_anova_benchmark_v1",
+        "parser_version": "1.1",
+        "source_id": "new-modules-20260624-bcbdb676223b",
+        "original_path": "results/new_modules_full_2026-06-24.json"
+      },
+      "metrics": {
+        "timing": {
+          "fit_time_ms": 798.99767,
+          "quality": "measured",
+          "source_file": "new_modules_full_20260624.json"
+        },
+        "speedup": {
+          "value": 0.995082,
+          "reference_backend": "numpy",
+          "reference_framework": "statgpu",
+          "reported_semantics": "computed",
+          "quality": "computed",
+          "source_file": "new_modules_full_20260624.json",
+          "reference_run_id": "60ee980c0d2e7b9c"
+        }
+      },
+      "comparison_id": "new-modules-20260624"
+    },
+    {
+      "run_id": "a78a8b780358334a",
+      "benchmark_session_id": "remote-p100-new-modules-2026-06-24",
+      "env_id": "remote-p100",
+      "category_ids": [
+        "anova"
+      ],
+      "model_id": "BonferroniCorrection",
+      "case_id": "case-cb0eb464dd2237fa",
+      "method_config_id": "method-7d34c79c470ed5d5",
+      "variant": "multiple-testing",
+      "penalty": null,
+      "solver": "bonferroni",
+      "solver_display": "Bonferroni",
+      "solver_kind": "internal",
+      "framework": "statgpu",
+      "backend": "numpy",
+      "scale": {
+        "scale_key": "n2000000_p20",
+        "n_samples": 2000000,
+        "n_features": 20,
+        "label": "100K/group · 20 groups"
+      },
+      "source": {
+        "file": "new_modules_full_20260624.json",
+        "date": "2026-06-24",
+        "parser": "parse_new_modules_with_anova_benchmark_v1",
+        "parser_version": "1.1",
+        "source_id": "new-modules-20260624-bcbdb676223b",
+        "original_path": "results/new_modules_full_2026-06-24.json"
+      },
+      "metrics": {
+        "timing": {
+          "fit_time_ms": 113.101006,
+          "quality": "measured",
+          "source_file": "new_modules_full_20260624.json"
+        }
+      },
+      "comparison_id": "new-modules-20260624"
+    },
+    {
+      "run_id": "b47b5d20f07d4b65",
+      "benchmark_session_id": "remote-p100-new-modules-2026-06-24",
+      "env_id": "remote-p100",
+      "category_ids": [
+        "anova"
+      ],
+      "model_id": "BonferroniCorrection",
+      "case_id": "case-cb0eb464dd2237fa",
+      "method_config_id": "method-7d34c79c470ed5d5",
+      "variant": "multiple-testing",
+      "penalty": null,
+      "solver": "bonferroni",
+      "solver_display": "Bonferroni",
+      "solver_kind": "internal",
+      "framework": "statgpu",
+      "backend": "cupy",
+      "scale": {
+        "scale_key": "n2000000_p20",
+        "n_samples": 2000000,
+        "n_features": 20,
+        "label": "100K/group · 20 groups"
+      },
+      "source": {
+        "file": "new_modules_full_20260624.json",
+        "date": "2026-06-24",
+        "parser": "parse_new_modules_with_anova_benchmark_v1",
+        "parser_version": "1.1",
+        "source_id": "new-modules-20260624-bcbdb676223b",
+        "original_path": "results/new_modules_full_2026-06-24.json"
+      },
+      "metrics": {
+        "timing": {
+          "fit_time_ms": 721.756309,
+          "quality": "measured",
+          "source_file": "new_modules_full_20260624.json"
+        },
+        "speedup": {
+          "value": 0.156702,
+          "reference_backend": "numpy",
+          "reference_framework": "statgpu",
+          "reported_semantics": "computed",
+          "quality": "computed",
+          "source_file": "new_modules_full_20260624.json",
+          "reference_run_id": "a78a8b780358334a"
+        }
+      },
+      "comparison_id": "new-modules-20260624"
+    },
+    {
+      "run_id": "ea17618522f3a516",
+      "benchmark_session_id": "remote-p100-new-modules-2026-06-24",
+      "env_id": "remote-p100",
+      "category_ids": [
+        "anova"
+      ],
+      "model_id": "BonferroniCorrection",
+      "case_id": "case-cb0eb464dd2237fa",
+      "method_config_id": "method-7d34c79c470ed5d5",
+      "variant": "multiple-testing",
+      "penalty": null,
+      "solver": "bonferroni",
+      "solver_display": "Bonferroni",
+      "solver_kind": "internal",
+      "framework": "statgpu",
+      "backend": "torch",
+      "scale": {
+        "scale_key": "n2000000_p20",
+        "n_samples": 2000000,
+        "n_features": 20,
+        "label": "100K/group · 20 groups"
+      },
+      "source": {
+        "file": "new_modules_full_20260624.json",
+        "date": "2026-06-24",
+        "parser": "parse_new_modules_with_anova_benchmark_v1",
+        "parser_version": "1.1",
+        "source_id": "new-modules-20260624-bcbdb676223b",
+        "original_path": "results/new_modules_full_2026-06-24.json"
+      },
+      "metrics": {
+        "timing": {
+          "fit_time_ms": 514.159024,
+          "quality": "measured",
+          "source_file": "new_modules_full_20260624.json"
+        },
+        "speedup": {
+          "value": 0.219973,
+          "reference_backend": "numpy",
+          "reference_framework": "statgpu",
+          "reported_semantics": "computed",
+          "quality": "computed",
+          "source_file": "new_modules_full_20260624.json",
+          "reference_run_id": "a78a8b780358334a"
         }
       },
       "comparison_id": "new-modules-20260624"
