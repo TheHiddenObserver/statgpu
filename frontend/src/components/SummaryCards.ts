@@ -1,7 +1,7 @@
 import type { BenchmarkData, ParseReport, Run } from '../schema';
 import { h } from '../utils/dom';
 
-/** Global dataset-level statistics — do NOT change with filters. */
+/** Global dataset-level statistics — these do not change with filters. */
 export function renderSummaryCards(
   data: BenchmarkData,
   parseReport: ParseReport | null,
@@ -9,91 +9,98 @@ export function renderSummaryCards(
 ): HTMLElement {
   const row = h('div', { class: 'summary-cards' });
 
-  // Total runs
-  row.appendChild(summaryCard(String(data.runs.length), 'Total runs'));
-
-  // Parsed files
-  const parsed = parseReport
-    ? `${parseReport.files_parsed}/${parseReport.files_seen}`
-    : '-';
-  row.appendChild(summaryCard(parsed, 'Parsed files'));
-
-  // Model categories
-  row.appendChild(
-    summaryCard(String(data.categories.length), 'Model categories'),
-  );
-
-  // Keep computed and runner-reported maxima separate. They can use different
-  // reference frameworks and are therefore not interchangeable statistics.
-  let fastestComputedVal = -Infinity;
-  let fastestReportedVal = -Infinity;
-  for (const r of runs) {
-    if (
-      r.framework !== 'statgpu' ||
-      r.backend === 'numpy' ||
-      !r.metrics.speedup
-    ) {
-      continue;
-    }
-
-    const value = r.metrics.speedup.value ?? 0;
-    if (r.metrics.speedup.reported_semantics === 'computed') {
-      if (value > fastestComputedVal) fastestComputedVal = value;
-    } else if (value > fastestReportedVal) {
-      fastestReportedVal = value;
-    }
-  }
-
-  const hasComputed = fastestComputedVal > -Infinity;
-  const hasReported = fastestReportedVal > -Infinity;
-  let gpuValue = '-';
-  let gpuLabel = 'Fastest GPU speedup';
-  let gpuTitle = 'No GPU speedup data is available.';
-
-  if (hasComputed && hasReported) {
-    gpuValue = `${fastestComputedVal.toFixed(1)}× / ${fastestReportedVal.toFixed(1)}× Ⓡ`;
-    gpuLabel = 'Fastest GPU speedup · computed / reported';
-    gpuTitle =
-      'Computed speedups are recalculated from matched timing runs. Ⓡ values are copied from benchmark-runner reports and may use a different reference.';
-  } else if (hasComputed) {
-    gpuValue = `${fastestComputedVal.toFixed(1)}×`;
-    gpuLabel = 'Fastest computed GPU speedup';
-    gpuTitle = 'Recalculated from matched reference and GPU timing runs.';
-  } else if (hasReported) {
-    gpuValue = `${fastestReportedVal.toFixed(1)}× Ⓡ`;
-    gpuLabel = 'Fastest reported GPU speedup';
-    gpuTitle = 'Copied from benchmark-runner output; not recomputed by the dashboard.';
-  }
-
-  row.appendChild(summaryCard(gpuValue, gpuLabel, gpuTitle));
-
-  // External frameworks available
-  const extFrameworks = new Set<string>();
-  for (const r of runs) {
-    if (r.framework !== 'statgpu') extFrameworks.add(r.framework);
-  }
   row.appendChild(
     summaryCard(
-      extFrameworks.size > 0 ? [...extFrameworks].join(', ') : 'None',
-      'External frameworks',
+      String(data.runs.length),
+      'Benchmark runs',
+      'Number of normalized run records in the canonical dashboard bundle.',
     ),
   );
 
-  // Latest generated timestamp
-  const ts = data.generated;
-  const tsDisplay =
-    ts && !ts.startsWith('1970')
-      ? new Date(ts).toLocaleDateString()
-      : 'Deterministic build';
-  row.appendChild(summaryCard(tsDisplay, 'Generated'));
+  const parsed = parseReport
+    ? `${parseReport.files_parsed}/${parseReport.files_seen}`
+    : '-';
+  row.appendChild(
+    summaryCard(
+      parsed,
+      'Sources parsed',
+      'Canonical source files parsed successfully out of all registered source files.',
+    ),
+  );
+
+  row.appendChild(
+    summaryCard(
+      String(data.categories.length),
+      'Benchmark categories',
+      'Number of statistical benchmark categories defined by Schema v1.1.',
+    ),
+  );
+
+  // The headline follows the benchmark runner's published speedup. Computed
+  // speedups remain available in charts and run-level records for auditing.
+  let fastestReported: Run | null = null;
+  for (const run of runs) {
+    const speedup = run.metrics.speedup;
+    if (
+      run.framework !== 'statgpu' ||
+      run.backend === 'numpy' ||
+      !speedup ||
+      speedup.reported_semantics !== 'reported_by_runner'
+    ) {
+      continue;
+    }
+    if (!fastestReported || speedup.value > fastestReported.metrics.speedup!.value) {
+      fastestReported = run;
+    }
+  }
+
+  const reportedSpeedup = fastestReported?.metrics.speedup;
+  const gpuValue = reportedSpeedup ? `${reportedSpeedup.value.toFixed(1)}× Ⓡ` : '-';
+  const gpuTitle = reportedSpeedup
+    ? `Largest runner-reported GPU speedup. Reference: ${[
+        reportedSpeedup.reference_framework,
+        reportedSpeedup.reference_backend,
+      ]
+        .filter(Boolean)
+        .join('/') || 'benchmark runner reference'}. Computed timing ratios remain available in the charts and raw data.`
+    : 'No runner-reported GPU speedup is available.';
+  row.appendChild(
+    summaryCard(gpuValue, 'Fastest reported GPU speedup', gpuTitle),
+  );
+
+  const extFrameworks = [...new Set(
+    runs.filter((run) => run.framework !== 'statgpu').map((run) => run.framework),
+  )].sort();
+  row.appendChild(
+    summaryCard(
+      extFrameworks.length > 0 ? `${extFrameworks.length} frameworks` : 'None',
+      'External references',
+      extFrameworks.length > 0
+        ? `Available external reference frameworks: ${extFrameworks.join(', ')}.`
+        : 'No external reference framework is present in the canonical bundle.',
+    ),
+  );
+
+  const deterministic = !data.generated || data.generated.startsWith('1970');
+  row.appendChild(
+    summaryCard(
+      deterministic ? 'Deterministic' : new Date(data.generated).toLocaleDateString(),
+      deterministic ? 'Build mode' : 'Generated',
+      deterministic
+        ? 'The committed bundle uses stable ordering and deterministic metadata so CI can detect stale generated assets.'
+        : 'Date on which the current benchmark bundle was generated.',
+    ),
+  );
 
   return row;
 }
 
-function summaryCard(value: string, label: string, title?: string): HTMLElement {
-  const attrs: Record<string, string> = { class: 'summary-card' };
-  if (title) attrs.title = title;
-  const card = h('div', attrs);
+function summaryCard(value: string, label: string, title: string): HTMLElement {
+  const card = h('div', {
+    class: 'summary-card',
+    title,
+    'aria-label': `${label}: ${value}. ${title}`,
+  });
   const v = h('div', { class: 'card-value' }, value);
   const l = h('div', { class: 'card-label' }, label);
   card.appendChild(v);
