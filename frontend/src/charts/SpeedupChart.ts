@@ -28,9 +28,7 @@ export function renderSpeedupChart(
     chartInstances.push(chart);
   }
 
-  const speedupRuns = runs.filter(
-    (r) => r.metrics.speedup,
-  );
+  const speedupRuns = runs.filter((r) => r.metrics.speedup);
   if (speedupRuns.length === 0) {
     chart.clear();
     chart.setOption({
@@ -54,34 +52,45 @@ export function renderSpeedupChart(
     (r) => r.metrics.speedup?.reported_semantics === 'reported_by_runner',
   ).length;
 
+  const subtitleParts = ['solid gray line = 1× parity'];
+  if (reportedCount > 0) subtitleParts.unshift('Ⓡ = reported by benchmark runner');
   const labels = topN.map(formatRunLabel);
 
   chart.setOption(
     {
       title: {
         text: 'Speedup vs Reference',
-        subtext:
-          reportedCount > 0
-            ? 'Ⓡ = reported speedup'
-            : '',
+        subtext: subtitleParts.join(' · '),
         left: 'center',
         textStyle: { fontSize: 13 },
-        subtextStyle: { fontSize: 10, color: '#999' },
+        subtextStyle: { fontSize: 10, color: '#8c8c8c' },
       },
       tooltip: {
         trigger: 'axis',
         formatter: (
-          params: { value: number; color: string; name: string; data: { refLabel?: string; semantics?: string } }[],
+          params: {
+            value: number;
+            color: string;
+            name: string;
+            data: { refLabel?: string; semantics?: string };
+          }[],
         ) => {
           const p = params[0];
           if (!p || p.value == null) return 'No data';
           const label = p.value > 1 ? 'faster' : p.value < 1 ? 'slower' : 'same';
           const reference = p.data?.refLabel ?? 'reference';
-          const semantics = p.data?.semantics === 'reported_by_runner' ? 'reported' : 'computed';
+          const semantics =
+            p.data?.semantics === 'reported_by_runner' ? 'reported' : 'computed';
           return `<b>${p.value.toFixed(2)}×</b> ${semantics} vs ${reference} (${label})`;
         },
       },
-      grid: { left: 10, right: 10, top: reportedCount > 0 ? 50 : 40, bottom: 30, containLabel: true },
+      grid: {
+        left: 10,
+        right: 18,
+        top: 58,
+        bottom: 30,
+        containLabel: true,
+      },
       xAxis: {
         type: 'value',
         name: 'speedup',
@@ -95,39 +104,51 @@ export function renderSpeedupChart(
       series: [
         {
           type: 'bar',
+          barMaxWidth: 28,
           data: topN.reverse().map((r) => {
             const sp = r.metrics.speedup!;
             const isReported = sp.reported_semantics === 'reported_by_runner';
             const val = sp.value;
-            const refLabel = [sp.reference_framework, sp.reference_backend].filter(Boolean).join('/');
+            const isFaster = val >= 1;
+            const refLabel = [sp.reference_framework, sp.reference_backend]
+              .filter(Boolean)
+              .join('/');
             return {
               value: val,
               refLabel,
               semantics: sp.reported_semantics,
               itemStyle: {
-                color: val >= 1 ? '#52c41a' : '#ff4d4f',
-                ...(isReported
-                  ? {
-                      decal: {
-                        symbol: 'triangle' as const,
-                        symbolSize: 0.6,
-                        color: 'rgba(0,0,0,0.12)',
-                        dashArrayX: [6, 0],
-                      },
-                    }
-                  : {}),
+                color: isFaster
+                  ? isReported
+                    ? '#73d13d'
+                    : '#52c41a'
+                  : isReported
+                    ? '#ff7875'
+                    : '#ff4d4f',
+                borderColor: isReported
+                  ? isFaster
+                    ? '#389e0d'
+                    : '#cf1322'
+                  : 'transparent',
+                borderWidth: isReported ? 1 : 0,
+                opacity: isReported ? 0.9 : 1,
               },
             };
           }),
           markLine: {
             silent: true,
+            symbol: ['none', 'none'],
             data: [
               {
                 xAxis: 1,
-                lineStyle: { color: '#999', type: 'dashed' },
+                lineStyle: {
+                  color: 'rgba(89, 89, 89, 0.72)',
+                  type: 'solid',
+                  width: 1.5,
+                },
               },
             ],
-            label: { formatter: '1.0x' },
+            label: { show: false },
           },
         },
       ],
