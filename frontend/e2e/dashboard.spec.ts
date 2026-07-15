@@ -22,16 +22,27 @@ test.describe('Benchmark Dashboard', () => {
     await expect(page.locator('#category-list')).not.toContainText('生存分析');
   });
 
-  test('charts default to focused mode and can expose the full matrix', async ({ page }) => {
+  test('focused charts use a representative subset and full matrix expands it', async ({ page }) => {
     const focused = page.getByRole('button', { name: 'Focused' });
     const full = page.getByRole('button', { name: 'Full matrix' });
+    const timingChart = page.locator('#timing-chart');
+    const speedupChart = page.locator('#speedup-chart');
+
     await expect(focused).toHaveAttribute('aria-pressed', 'true');
-    await expect(page.locator('#timing-chart')).toHaveAttribute('data-chart-view', 'focused');
+    await expect(timingChart).toHaveAttribute('data-chart-view', 'focused');
+    await expect(speedupChart).toHaveAttribute('data-chart-view', 'focused');
+
+    const focusedRows = Number(await speedupChart.getAttribute('data-speedup-rows'));
+    expect(focusedRows).toBeGreaterThan(0);
 
     await full.click();
     await expect(full).toHaveAttribute('aria-pressed', 'true');
     await expect(focused).toHaveAttribute('aria-pressed', 'false');
-    await expect(page.locator('#timing-chart')).toHaveAttribute('data-chart-view', 'full');
+    await expect(timingChart).toHaveAttribute('data-chart-view', 'full');
+    await expect(speedupChart).toHaveAttribute('data-chart-view', 'full');
+
+    const fullRows = Number(await speedupChart.getAttribute('data-speedup-rows'));
+    expect(fullRows).toBeGreaterThanOrEqual(focusedRows);
   });
 
   test('speedup chart exposes a dashed parity line with its label near the axis', async ({ page }) => {
@@ -127,10 +138,16 @@ test.describe('Benchmark Dashboard', () => {
     expect(options).toBeGreaterThan(0);
   });
 
-  test('summary cards show global statistics', async ({ page }) => {
+  test('summary cards use compact, self-explanatory global statistics', async ({ page }) => {
     const cards = page.locator('.summary-card');
     await expect(cards).toHaveCount(6);
-    await expect(cards.first().locator('.card-value')).not.toBeEmpty();
+    await expect(page.getByText('Benchmark runs', { exact: true })).toBeVisible();
+    await expect(page.getByText('Sources parsed', { exact: true })).toBeVisible();
+    await expect(page.getByText('Benchmark categories', { exact: true })).toBeVisible();
+    await expect(page.getByText('Fastest reported GPU speedup', { exact: true })).toBeVisible();
+    await expect(page.getByText('External references', { exact: true })).toBeVisible();
+    await expect(page.getByText('Build mode', { exact: true })).toBeVisible();
+    await expect(page.getByText('Fastest GPU speedup · computed / reported')).toHaveCount(0);
   });
 
   test('changing model clears incompatible scale filters', async ({ page }) => {
