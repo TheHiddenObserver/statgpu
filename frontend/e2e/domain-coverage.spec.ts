@@ -45,13 +45,13 @@ test.describe('Benchmark domain coverage', () => {
     await expect(page.locator('input[value="scipy"]')).toBeVisible();
   });
 
-  test('speedup summary separates computed and reported maxima', async ({ page }) => {
-    await expect(
-      page.getByText('Fastest GPU speedup · computed / reported'),
-    ).toBeVisible();
-    await expect(page.locator('.summary-card').filter({
-      hasText: 'Fastest GPU speedup · computed / reported',
-    })).toContainText('Ⓡ');
+  test('speedup summary uses the runner-reported headline', async ({ page }) => {
+    const card = page.locator('.summary-card').filter({
+      hasText: 'Fastest reported GPU speedup',
+    });
+    await expect(card).toBeVisible();
+    await expect(card).toContainText('Ⓡ');
+    await expect(card).not.toContainText('/');
   });
 
   test('linear models include the June 2026 GLM benchmark sources', async ({
