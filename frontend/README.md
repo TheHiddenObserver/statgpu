@@ -4,7 +4,7 @@ Interactive benchmark dashboard for statgpu, built with Vite, TypeScript, and EC
 
 ## Current coverage
 
-The canonical dashboard is restricted to benchmark sources dated **2026-06-01 or later**. The manifest currently registers **eight sources**, producing **1,577 normalized runs across 31 models**:
+The canonical dashboard is restricted to benchmark sources dated **2026-06-01 or later**. The manifest currently registers **eight sources**, producing **1,625 normalized runs across 36 models**:
 
 - `p2_benchmark_20260617.json`;
 - `penalized_glm_perf_20260622.json`;
@@ -15,11 +15,13 @@ The canonical dashboard is restricted to benchmark sources dated **2026-06-01 or
 - `unsupervised_20260627.json`;
 - `ordered_inference_pr74.json`.
 
-Covered categories include penalized GLM and GLM, recent linear models, robust and quantile regression, survival analysis, unsupervised learning, ordered models, nonparametric methods, panel models, and covariance estimation.
+Covered categories include penalized GLM and GLM, recent linear models, robust and quantile regression, survival analysis, unsupervised learning, ordered models, nonparametric methods, panel models, covariance estimation, and ANOVA.
+
+ANOVA coverage includes one-way ANOVA, two-way ANOVA, Welch ANOVA, Tukey HSD, and Bonferroni correction on NumPy, CuPy, and Torch. One-way ANOVA also includes aligned SciPy timing and F-statistic validation rows.
 
 The linear-model category uses the June 2026 squared-error rows from `penalized_glm_perf_20260622.json` and `glm_solver_20260623.json`. April 2026 ElasticNet, LassoCV, comprehensive-validation, Cox package-comparison, and knockoff results are intentionally not registered.
 
-Current June-or-later sources provide external comparisons through scikit-learn, statsmodels, linearmodels, and pyGAM. The feature-selection category remains part of Schema v1.1, but it is intentionally empty until a June 2026-or-later benchmark is available.
+Current June-or-later sources provide external comparisons through scikit-learn, SciPy, statsmodels, linearmodels, and pyGAM. The feature-selection category remains part of Schema v1.1, but it is intentionally empty until a June 2026-or-later benchmark is available.
 
 ## What the dashboard shows
 
@@ -33,7 +35,9 @@ Current June-or-later sources provide external comparisons through scikit-learn,
 Speedups have two distinct meanings:
 
 - **Computed**: reference timing divided by current-run timing. The generated record contains `reference_run_id`.
-- **Reported by runner**: copied from a benchmark runner that already computed the speedup. These rows are labeled separately and do not imply frontend recomputation.
+- **Reported by runner**: copied from a benchmark runner that already computed the speedup. These rows carry an `Ⓡ` marker and do not imply frontend recomputation.
+
+The speedup chart uses a thin solid gray 1× parity line without an overlapping `1.0x` label. Runner-reported bars use a subtle border instead of a patterned fill. The summary card displays the computed and reported maxima separately when both are present, because they may use different references.
 
 ## Requirements
 
@@ -81,7 +85,7 @@ npx playwright install --with-deps chromium
 npm run test:e2e
 ```
 
-The domain-coverage suite verifies that robust/quantile, unsupervised, ordered, nonparametric, panel, and covariance categories produce runs. It also guards the June 2026 linear-model sources, quantile GPU inference rows, and the ban on pre-June dashboard sources.
+The domain-coverage suite verifies that robust/quantile, unsupervised, ordered, nonparametric, panel, covariance, and ANOVA categories produce runs. It also guards the June 2026 linear-model sources, quantile GPU inference rows, ANOVA backend/SciPy coverage, speedup-summary semantics, and the ban on pre-June dashboard sources.
 
 ## Production build and staleness
 
