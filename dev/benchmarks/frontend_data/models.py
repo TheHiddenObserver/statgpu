@@ -40,6 +40,11 @@ MODEL_PRIMARY_CATEGORY: dict[str, str] = {
     "RBFKernel": "nonparametric",
     "BSplineBasis": "nonparametric",
     "EmpiricalCovariance": "covariance",
+    "OneWayANOVA": "anova",
+    "TwoWayANOVA": "anova",
+    "WelchANOVA": "anova",
+    "TukeyHSD": "anova",
+    "BonferroniCorrection": "anova",
 }
 
 
