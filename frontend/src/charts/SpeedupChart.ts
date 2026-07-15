@@ -4,6 +4,11 @@ import type { AppState } from '../state';
 import { formatModelName } from '../utils/format';
 import { CHART_STYLE } from '../utils/theme';
 
+interface SpeedupSelection {
+  runs: Run[];
+  notes: string[];
+}
+
 function formatSeries(run: Run): string {
   if (run.framework !== 'statgpu') return run.framework;
   return [run.backend, run.implementation].filter(Boolean).join('/') || 'statgpu';
@@ -15,6 +20,49 @@ function formatRunLabel(run: Run): string {
   const solver = run.solver_display ?? run.solver ?? 'unknown';
   const reported = run.metrics.speedup?.reported_semantics === 'computed' ? '' : ' Ⓡ';
   return `${formatModelName(run.model_id)}${variant}${penalty} [${solver}] · ${formatSeries(run)} · ${run.scale.label}${reported}`;
+}
+
+function selectSpeedupRuns(runs: Run[], state: AppState): SpeedupSelection {
+  const speedupRuns = runs.filter((run) => run.metrics.speedup);
+  if (state.chartViewMode === 'full' || speedupRuns.length === 0) {
+    return { runs: speedupRuns, notes: ['Full matrix'] };
+  }
+
+  let focused = speedupRuns;
+  const notes = ['Focused'];
+
+  // Match the timing-chart semantics: when scale is not explicitly selected,
+  // choose one representative workload instead of mixing every scale.
+  if (state.selectedScaleKeys.size === 0) {
+    const scales = new Map<string, Run['scale']>();
+    for (const run of focused) scales.set(run.scale.scale_key, run.scale);
+    const representative = [...scales.values()].sort((a, b) => {
+      const workloadDiff = b.n_samples * b.n_features - a.n_samples * a.n_features;
+      if (workloadDiff !== 0) return workloadDiff;
+      if (b.n_samples !== a.n_samples) return b.n_samples - a.n_samples;
+      return b.n_features - a.n_features;
+    })[0];
+    if (representative) {
+      focused = focused.filter(
+        (run) => run.scale.scale_key === representative.scale_key,
+      );
+      notes.push(representative.label);
+    }
+  } else {
+    notes.push('selected scale filter');
+  }
+
+  // Prefer dispatch/Auto(best) rows where the current domain provides them.
+  // Domains without dispatch rows retain all methods at the representative scale.
+  const dispatchRows = focused.filter(
+    (run) => run.solver_kind === 'dispatch' || run.solver === 'auto',
+  );
+  if (dispatchRows.length > 0) {
+    focused = dispatchRows;
+    notes.push('Auto/best solver rows');
+  }
+
+  return { runs: focused, notes };
 }
 
 export function renderSpeedupChart(
@@ -29,15 +77,28 @@ export function renderSpeedupChart(
     chartInstances.push(chart);
   }
 
+  const selection = selectSpeedupRuns(runs, state);
+  const selectedRuns = [...selection.runs].sort(
+    (a, b) =>
+      (b.metrics.speedup?.value ?? 0) - (a.metrics.speedup?.value ?? 0),
+  );
+  const isFocused = state.chartViewMode === 'focused';
+  const limit = isFocused ? 18 : state.speedupChartLimit;
+  const chartRuns = selectedRuns.slice(0, limit);
+  const displayRuns = [...chartRuns].reverse();
+  const hasScroll = !isFocused && displayRuns.length > 18;
+
   el.dataset.parityStyle = 'dashed';
   el.dataset.parityLabelPlacement = 'axis-bottom';
+  el.dataset.chartView = state.chartViewMode;
+  el.dataset.speedupRows = String(selectedRuns.length);
+  el.dataset.speedupDisplayed = String(chartRuns.length);
   el.setAttribute(
     'aria-label',
-    'Speedup vs Reference chart — dashed 1× parity line labeled near the horizontal axis; values to the right are faster',
+    `Speedup vs Reference chart — ${isFocused ? 'focused representative view' : 'full matrix view'}; dashed 1× parity line labeled near the horizontal axis; values to the right are faster`,
   );
 
-  const speedupRuns = runs.filter((run) => run.metrics.speedup);
-  if (speedupRuns.length === 0) {
+  if (selectedRuns.length === 0) {
     chart.clear();
     chart.setOption({
       title: {
@@ -50,22 +111,19 @@ export function renderSpeedupChart(
     return;
   }
 
-  speedupRuns.sort(
-    (a, b) =>
-      (b.metrics.speedup?.value ?? 0) - (a.metrics.speedup?.value ?? 0),
-  );
-  const limit = state.chartViewMode === 'focused' ? 18 : state.speedupChartLimit;
-  const topN = speedupRuns.slice(0, limit);
-  const reportedCount = topN.filter(
+  const reportedCount = chartRuns.filter(
     (run) => run.metrics.speedup?.reported_semantics === 'reported_by_runner',
   ).length;
-
-  const subtitleParts = ['dashed line = 1× parity'];
-  if (reportedCount > 0) subtitleParts.unshift('Ⓡ = runner-reported');
-  if (speedupRuns.length > topN.length) {
-    subtitleParts.push(`showing top ${topN.length}/${speedupRuns.length}`);
+  const subtitleParts = [...selection.notes];
+  if (reportedCount > 0) subtitleParts.push('Ⓡ = runner-reported');
+  subtitleParts.push('dashed line = 1× parity');
+  if (selectedRuns.length > chartRuns.length) {
+    subtitleParts.push(`showing top ${chartRuns.length}/${selectedRuns.length}`);
+  } else if (hasScroll) {
+    subtitleParts.push('scroll to browse');
   }
-  const labels = topN.map(formatRunLabel);
+
+  const visibleWindowStart = Math.max(0, displayRuns.length - 18);
 
   chart.setOption(
     {
@@ -100,11 +158,31 @@ export function renderSpeedupChart(
       },
       grid: {
         left: 12,
-        right: 20,
+        right: hasScroll ? 38 : 20,
         top: 66,
         bottom: 46,
         containLabel: true,
       },
+      dataZoom: hasScroll
+        ? [
+            {
+              type: 'inside',
+              yAxisIndex: 0,
+              startValue: visibleWindowStart,
+              endValue: displayRuns.length - 1,
+            },
+            {
+              type: 'slider',
+              yAxisIndex: 0,
+              right: 4,
+              width: 12,
+              startValue: visibleWindowStart,
+              endValue: displayRuns.length - 1,
+              showDetail: false,
+              brushSelect: false,
+            },
+          ]
+        : [],
       xAxis: {
         type: 'value',
         min: 0,
@@ -119,7 +197,7 @@ export function renderSpeedupChart(
       },
       yAxis: {
         type: 'category',
-        data: labels.reverse(),
+        data: displayRuns.map(formatRunLabel),
         axisLine: { lineStyle: { color: CHART_STYLE.axis } },
         axisTick: { lineStyle: { color: CHART_STYLE.axis } },
         axisLabel: {
@@ -133,7 +211,7 @@ export function renderSpeedupChart(
         {
           type: 'bar',
           barMaxWidth: 24,
-          data: topN.reverse().map((run) => {
+          data: displayRuns.map((run) => {
             const speedup = run.metrics.speedup!;
             const isReported = speedup.reported_semantics === 'reported_by_runner';
             const value = speedup.value;
