@@ -53,5 +53,5 @@ test('default state prefers penalized GLM on the preferred populated environment
   expect(state.selectedEnvId).toBe('remote-p100');
   expect([...state.selectedCategoryIds]).toEqual(['penalized_glm']);
   expect(state.chartViewMode).toBe('focused');
-  expect(state.speedupChartLimit).toBe(24);
+  expect(state.speedupChartLimit).toBe(100);
 });
