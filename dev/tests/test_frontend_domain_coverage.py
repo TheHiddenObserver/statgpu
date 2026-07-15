@@ -15,6 +15,7 @@ TARGET_CATEGORIES = {
     "nonparametric",
     "panel",
     "covariance",
+    "anova",
 }
 
 
@@ -93,6 +94,31 @@ def test_quantile_inference_has_all_backends(canonical_output):
     assert {run.get("variant") for run in quantile_inference} == {"kernel", "bootstrap"}
 
 
+def test_anova_has_all_functions_backends_and_scipy(canonical_output):
+    output, _, _, _ = canonical_output
+    anova_runs = [run for run in output["runs"] if "anova" in run["category_ids"]]
+    assert anova_runs
+    assert {run["model_id"] for run in anova_runs} >= {
+        "OneWayANOVA",
+        "TwoWayANOVA",
+        "WelchANOVA",
+        "TukeyHSD",
+        "BonferroniCorrection",
+    }
+    statgpu_backends = {
+        run["backend"]
+        for run in anova_runs
+        if run["framework"] == "statgpu" and run["backend"]
+    }
+    assert statgpu_backends >= {"numpy", "cupy", "torch"}
+    assert any(run["framework"] == "scipy" for run in anova_runs)
+    assert any(
+        run["model_id"] == "OneWayANOVA"
+        and run.get("metrics", {}).get("validation")
+        for run in anova_runs
+    )
+
+
 def test_missing_domain_sources_are_manifest_registered(canonical_output):
     _, _, _, manifest = canonical_output
     parsers = {source["parser"] for source in manifest["sources"]}
@@ -100,7 +126,7 @@ def test_missing_domain_sources_are_manifest_registered(canonical_output):
         "loss_functions_benchmark",
         "ordered_inference_benchmark",
         "unsupervised_benchmark",
-        "new_modules_benchmark",
+        "new_modules_with_anova_benchmark",
         "p2_benchmark",
     } <= parsers
 
@@ -108,7 +134,7 @@ def test_missing_domain_sources_are_manifest_registered(canonical_output):
 def test_current_external_frameworks_are_reachable(canonical_output):
     output, _, _, _ = canonical_output
     frameworks = {run["framework"] for run in output["runs"]}
-    assert {"linearmodels", "pygam", "sklearn", "statsmodels"} <= frameworks
+    assert {"linearmodels", "pygam", "sklearn", "statsmodels", "scipy"} <= frameworks
     assert frameworks.isdisjoint({"glmnet", "lifelines", "scikit_survival", "knockpy"})
 
 
@@ -126,4 +152,9 @@ def test_domain_models_are_present(canonical_output):
         "RandomEffects",
         "GAM",
         "EmpiricalCovariance",
+        "OneWayANOVA",
+        "TwoWayANOVA",
+        "WelchANOVA",
+        "TukeyHSD",
+        "BonferroniCorrection",
     } <= model_ids
