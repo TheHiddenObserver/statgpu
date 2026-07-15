@@ -69,7 +69,9 @@ export function createDefaultState(envs: Environment[], runs: Run[] = []): AppSt
     expandedPanels: new Set(),
     panelLimits: {},
     timingChartGroupLimit: 30,
-    speedupChartLimit: 24,
+    // Full matrix uses a vertical zoom/scroll control, so it can expose a much
+    // broader result set without compressing every row into the chart height.
+    speedupChartLimit: 100,
   };
 }
 
