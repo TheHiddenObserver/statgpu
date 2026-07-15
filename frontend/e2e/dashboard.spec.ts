@@ -15,6 +15,13 @@ test.describe('Benchmark Dashboard', () => {
     await expect(page.locator('.summary-cards')).toBeVisible();
   });
 
+  test('sidebar category labels use the English dashboard locale', async ({ page }) => {
+    await expect(page.locator('label[for="cat-survival"]')).toHaveText('Survival Analysis');
+    await expect(page.locator('label[for="cat-robust_quantile"]')).toHaveText('Robust/Quantile');
+    await expect(page.locator('label[for="cat-linear_models"]')).toHaveText('Linear Models');
+    await expect(page.locator('#category-list')).not.toContainText('生存分析');
+  });
+
   test('charts default to focused mode and can expose the full matrix', async ({ page }) => {
     const focused = page.getByRole('button', { name: 'Focused' });
     const full = page.getByRole('button', { name: 'Full matrix' });
@@ -27,10 +34,11 @@ test.describe('Benchmark Dashboard', () => {
     await expect(page.locator('#timing-chart')).toHaveAttribute('data-chart-view', 'full');
   });
 
-  test('speedup chart exposes a dashed 1x parity reference', async ({ page }) => {
+  test('speedup chart exposes a dashed parity line with its label near the axis', async ({ page }) => {
     const chart = page.locator('#speedup-chart');
     await expect(chart).toHaveAttribute('data-parity-style', 'dashed');
-    await expect(chart).toHaveAttribute('aria-label', /dashed 1× parity line/);
+    await expect(chart).toHaveAttribute('data-parity-label-placement', 'axis-bottom');
+    await expect(chart).toHaveAttribute('aria-label', /labeled near the horizontal axis/);
   });
 
   test('category filter — clear all shows empty state, re-select restores data', async ({ page }) => {
