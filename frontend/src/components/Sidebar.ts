@@ -25,7 +25,7 @@ export function renderSidebar(
   for (const cat of data.categories) {
     const row = h('div', {
       class: 'category-row',
-      'data-cat-name': `${cat.name_zh} ${cat.name_en}`.toLowerCase(),
+      'data-cat-name': `${cat.name_en} ${cat.name_zh}`.toLowerCase(),
     });
     const cb = h('input', {
       type: 'checkbox',
@@ -47,7 +47,14 @@ export function renderSidebar(
       });
       onUpdate();
     });
-    const label = h('label', { for: `cat-${cat.category_id}` }, cat.name_zh);
+    const label = h(
+      'label',
+      {
+        for: `cat-${cat.category_id}`,
+        title: cat.name_zh !== cat.name_en ? cat.name_zh : cat.name_en,
+      },
+      cat.name_en,
+    );
     row.appendChild(cb);
     row.appendChild(label);
     catContainer.appendChild(row);
