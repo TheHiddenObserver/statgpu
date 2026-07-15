@@ -7,6 +7,7 @@ const categories = [
   'nonparametric',
   'panel',
   'covariance',
+  'anova',
 ];
 
 test.describe('Benchmark domain coverage', () => {
@@ -31,6 +32,26 @@ test.describe('Benchmark domain coverage', () => {
     await expect(page.getByText(/Inference Metrics \(\d+\)/)).toBeVisible({
       timeout: 5000,
     });
+  });
+
+  test('ANOVA includes all functions and SciPy reference rows', async ({ page }) => {
+    await page.getByRole('button', { name: 'None' }).click();
+    await page.locator('#cat-anova').check();
+
+    const table = page.locator('.table-container');
+    await expect(table).toContainText('One Way ANOVA', { timeout: 5000 });
+    await expect(table).toContainText('Two Way ANOVA', { timeout: 5000 });
+    await expect(table).toContainText('Welch ANOVA', { timeout: 5000 });
+    await expect(page.locator('input[value="scipy"]')).toBeVisible();
+  });
+
+  test('speedup summary separates computed and reported maxima', async ({ page }) => {
+    await expect(
+      page.getByText('Fastest GPU speedup · computed / reported'),
+    ).toBeVisible();
+    await expect(page.locator('.summary-card').filter({
+      hasText: 'Fastest GPU speedup · computed / reported',
+    })).toContainText('Ⓡ');
   });
 
   test('linear models include the June 2026 GLM benchmark sources', async ({
