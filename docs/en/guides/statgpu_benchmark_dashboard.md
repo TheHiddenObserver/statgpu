@@ -44,22 +44,41 @@ Changing an upstream value clears incompatible downstream selections. External f
 
 External frameworks currently used by registered June-or-later sources are scikit-learn, SciPy, statsmodels, linearmodels, and pyGAM.
 
+## Chart view modes
+
+The chart toolbar has two explicit modes:
+
+- **Focused** is the default. When no scale chip is selected, the timing chart chooses the largest workload in the current filter context. If canonical Auto/best dispatch groups are available, it keeps those groups while preserving aligned external reference rows. Focused timing is capped at 14 groups and focused speedup at 18 rows.
+- **Full matrix** shows all filtered chart groups up to the configured larger chart limits.
+
+This distinction is presentation-only. Switching chart modes does not change the table, selected categories, model filters, scale chips, backend selection, or external-framework state. The chart subtitle states which representative scale and solver rule were applied.
+
+This approach is preferred over silently setting scale and solver filters because it keeps the table/filter contract exact while providing a readable first view. It is also preferred over globally truncating data because users can restore the complete matrix with one visible control.
+
 ## Charts
 
 ### Timing
 
 The timing chart uses `metrics.timing.fit_time_ms`. Group identity includes comparison, environment, model, case, method configuration, variant, loss, penalty, solver, and scale. Series identity includes framework, backend, and implementation.
 
+Focused labels omit repeated scale and Auto/best text. Full-matrix labels use two lines. Both modes use bounded label width and full tooltip text, avoiding the previous dense diagonal label wall.
+
 ### Speedup
 
-A value above one means faster than the reference; a value below one is a slowdown. A thin solid gray line marks 1× parity without an overlaid chart label.
+A value above one means faster than the reference; a value below one is a slowdown. A dashed gray line marks 1× parity, with a compact `1×` badge attached inside the plot. Horizontal tick labels include the `×` unit.
 
 - **Computed** speedups use `reference time / current time` and carry `reference_run_id`.
 - **Runner-reported** speedups are copied from an upstream benchmark and use `reported_semantics: "reported_by_runner"`. They are marked with `Ⓡ` and a subtle border rather than a patterned bar fill.
 
 Semantic validation checks computed references, positive timings, compatible identities, and numerical agreement with the timing ratio.
 
-The summary card reports computed and runner-reported maxima separately when both are present, because those values can use different reference implementations. For example, the previous 36.8× value was the maximum recomputed GPU-versus-NumPy timing ratio, while larger `Ⓡ` values were runner-reported comparisons against external references.
+The summary card reports computed and runner-reported maxima separately because those values can use different reference implementations. For example, the previous 36.8× value was the maximum recomputed GPU-versus-NumPy timing ratio, while larger `Ⓡ` values were runner-reported comparisons against external references.
+
+## Visual theme
+
+The page uses a low-saturation blue-gray application background, white cards, soft borders and shallow shadows. Backend and framework colors are deliberately muted so that long benchmark sessions remain comfortable to scan. Selected categories use a light primary tint rather than a high-contrast block, and chart grid lines are lighter than the 1× parity marker.
+
+The responsive layout keeps paired charts on large screens and stacks them below 1080 px. Summary cards collapse from six to three columns below 1450 px.
 
 ## Overview and metric panels
 
