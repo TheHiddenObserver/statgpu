@@ -2,7 +2,6 @@ import { expect, test } from '@playwright/test';
 import type { Environment, Run } from '../src/schema';
 import { createDefaultState } from '../src/state';
 
-
 const environments: Environment[] = [
   { env_id: 'remote-p100', label: 'P100', gpu: 'P100', cpu: 'Xeon' },
   { env_id: 'cpu-only', label: 'CPU', gpu: 'none', cpu: 'EPYC' },
@@ -41,6 +40,7 @@ test('default state skips preferred environments with no runs', () => {
 
   expect(state.selectedEnvId).toBe('cpu-only');
   expect([...state.selectedCategoryIds]).toEqual(['survival']);
+  expect(state.chartViewMode).toBe('focused');
 });
 
 test('default state prefers penalized GLM on the preferred populated environment', () => {
@@ -52,4 +52,6 @@ test('default state prefers penalized GLM on the preferred populated environment
 
   expect(state.selectedEnvId).toBe('remote-p100');
   expect([...state.selectedCategoryIds]).toEqual(['penalized_glm']);
+  expect(state.chartViewMode).toBe('focused');
+  expect(state.speedupChartLimit).toBe(24);
 });
