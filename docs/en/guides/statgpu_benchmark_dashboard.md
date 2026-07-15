@@ -6,7 +6,7 @@ The browser is a presentation layer over a generated benchmark bundle. Raw resul
 
 ## Current coverage
 
-The canonical manifest registers **eight benchmark sources**, all dated **2026-06-01 or later**:
+The canonical manifest registers **eight benchmark sources**, all dated **2026-06-01 or later**. The generated bundle contains **1,625 normalized runs across 36 models**:
 
 | Source | Frontend coverage |
 |---|---|
@@ -15,11 +15,13 @@ The canonical manifest registers **eight benchmark sources**, all dated **2026-0
 | `coxph_efron_20260622.json` | CoxPH Efron variants and cross-backend timing |
 | `glm_solver_20260623.json` | GLM and squared-error solver speedups |
 | `loss_functions_20260623.json` | Robust/quantile timing, validation, and sklearn comparison |
-| `new_modules_full_20260624.json` | Panel and aligned GAM comparisons |
+| `new_modules_full_20260624.json` | Panel, aligned GAM, and ANOVA benchmarks |
 | `unsupervised_20260627.json` | PCA, clustering, decomposition, UMAP, and t-SNE timings |
 | `ordered_inference_pr74.json` | Ordered logit/probit and quantile kernel/bootstrap inference |
 
-These sources populate penalized GLM and GLM, recent linear models, robust/quantile regression, survival analysis, unsupervised learning, ordered models, nonparametric methods, panel models, and covariance estimation.
+These sources populate penalized GLM and GLM, recent linear models, robust/quantile regression, survival analysis, unsupervised learning, ordered models, nonparametric methods, panel models, covariance estimation, and ANOVA.
+
+ANOVA coverage includes one-way ANOVA, two-way ANOVA, Welch ANOVA, Tukey HSD, and Bonferroni correction at three scales on NumPy, CuPy, and Torch. One-way ANOVA also contains aligned SciPy timing and F-statistic validation rows.
 
 April 2026 ElasticNet, LassoCV, comprehensive-validation, Cox package-comparison, and knockoff sources are not registered. The feature-selection category remains part of Schema v1.1 but is intentionally empty until a June 2026-or-later benchmark is available.
 
@@ -40,7 +42,7 @@ Environment and category
 
 Changing an upstream value clears incompatible downstream selections. External frameworks are hidden by default and offered only when relevant to the current context.
 
-External frameworks currently used by registered June-or-later sources are scikit-learn, linearmodels, and pyGAM.
+External frameworks currently used by registered June-or-later sources are scikit-learn, SciPy, statsmodels, linearmodels, and pyGAM.
 
 ## Charts
 
@@ -50,12 +52,14 @@ The timing chart uses `metrics.timing.fit_time_ms`. Group identity includes comp
 
 ### Speedup
 
-A value above one means faster than the reference; a value below one is a slowdown.
+A value above one means faster than the reference; a value below one is a slowdown. A thin solid gray line marks 1× parity without an overlaid chart label.
 
 - **Computed** speedups use `reference time / current time` and carry `reference_run_id`.
-- **Runner-reported** speedups are copied from an upstream benchmark and use `reported_semantics: "reported_by_runner"`.
+- **Runner-reported** speedups are copied from an upstream benchmark and use `reported_semantics: "reported_by_runner"`. They are marked with `Ⓡ` and a subtle border rather than a patterned bar fill.
 
 Semantic validation checks computed references, positive timings, compatible identities, and numerical agreement with the timing ratio.
+
+The summary card reports computed and runner-reported maxima separately when both are present, because those values can use different reference implementations. For example, the previous 36.8× value was the maximum recomputed GPU-versus-NumPy timing ratio, while larger `Ⓡ` values were runner-reported comparisons against external references.
 
 ## Overview and metric panels
 
@@ -70,7 +74,7 @@ Panels appear only when filtered rows contain the corresponding metric group:
 - **Convergence**: iteration summaries and convergence rates.
 - **Selection**: precision, recall, FDP, F1, Jaccard, FDR, and selected-set size when a current source exists.
 
-The Inference panel is particularly relevant to ordered logit/probit and quantile kernel/bootstrap results.
+The Inference panel is particularly relevant to ordered logit/probit and quantile kernel/bootstrap results. ANOVA one-way rows expose SciPy-relative F-statistic validation in the Validation panel.
 
 ## Metric provenance
 
