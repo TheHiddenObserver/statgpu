@@ -20,6 +20,11 @@
       "external": true,
       "backend_policy": "forbidden"
     },
+    "scipy": {
+      "display_name": "SciPy",
+      "external": true,
+      "backend_policy": "forbidden"
+    },
     "statsmodels": {
       "display_name": "statsmodels",
       "external": true,
@@ -62,7 +67,7 @@
       "env_id": "remote-p100"
     },
     "new-modules-20260624": {
-      "label": "Panel and GAM benchmark — 2026-06-24",
+      "label": "Panel, GAM, and ANOVA benchmark — 2026-06-24",
       "env_id": "remote-p100"
     },
     "p2-benchmark-20260617": {
@@ -155,8 +160,8 @@
       "path": "results/benchmark_frontend_sources/new_modules_full_20260624.json",
       "original_path": "results/new_modules_full_2026-06-24.json",
       "sha256": "bcbdb676223bea9a71bdd4fe6701ee8d177536ad12a6b1b93ba65ec1675cb6e6",
-      "parser": "new_modules_benchmark",
-      "parser_version": "1.0",
+      "parser": "new_modules_with_anova_benchmark",
+      "parser_version": "1.1",
       "env_id": "remote-p100",
       "required": true,
       "allowed_issue_codes": [],
