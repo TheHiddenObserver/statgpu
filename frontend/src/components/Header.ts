@@ -11,16 +11,14 @@ export function renderHeader(
 ): HTMLElement {
   const header = h('div', { class: 'header' });
 
-  const left = h('div');
-  left.innerHTML =
-    '<strong style="font-size:16px;">statgpu</strong> <span style="color:#888;">Benchmark Dashboard</span>';
+  const brand = h('div', { class: 'header-brand' });
+  brand.appendChild(h('strong', { class: 'header-logo' }, 'statgpu'));
+  brand.appendChild(h('span', { class: 'header-subtitle' }, 'Benchmark Dashboard'));
 
-  const right = h('div', {
-    style: 'display:flex; align-items:center; gap:12px;',
-  });
+  const controls = h('div', { class: 'header-controls' });
 
   // Hardware selector
-  const hwLabel = h('span', {}, 'Environment: ');
+  const hwLabel = h('label', { for: 'env-select', class: 'header-env-label' }, 'Environment:');
   const hwSelect = h('select', { id: 'env-select' });
   for (const env of data.environments) {
     const opt = h('option', { value: env.env_id }, env.label);
@@ -29,28 +27,32 @@ export function renderHeader(
   }
   hwSelect.addEventListener('change', () => {
     state.selectedEnvId = (hwSelect as HTMLSelectElement).value;
-    // Reset downstream filters via centralized helper
     resetDownstreamFilters(state, {
-      clearModel: true, clearVariant: true, clearPenalty: true,
-      clearSolver: true, clearScale: true, clearBackend: true, clearExternal: true,
+      clearModel: true,
+      clearVariant: true,
+      clearPenalty: true,
+      clearSolver: true,
+      clearScale: true,
+      clearBackend: true,
+      clearExternal: true,
     });
     state.tableLimit = 200;
     onUpdate();
   });
-  right.appendChild(hwLabel);
-  right.appendChild(hwSelect);
+  controls.appendChild(hwLabel);
+  controls.appendChild(hwSelect);
 
-  // Parse report info (passed in, not fetched)
   if (parseReport) {
-    const info = h(
-      'span',
-      { style: 'color:#666; font-size:12px;' },
-      `${parseReport.runs_generated} runs from ${parseReport.files_parsed}/${parseReport.files_seen} files`,
+    controls.appendChild(
+      h(
+        'span',
+        { class: 'header-meta' },
+        `${parseReport.runs_generated} runs from ${parseReport.files_parsed}/${parseReport.files_seen} files`,
+      ),
     );
-    right.appendChild(info);
   }
 
-  header.appendChild(left);
-  header.appendChild(right);
+  header.appendChild(brand);
+  header.appendChild(controls);
   return header;
 }
