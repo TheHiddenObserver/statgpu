@@ -6,6 +6,8 @@ import type { Environment, Run } from './schema';
 // Types
 // ---------------------------------------------------------------------------
 
+export type ChartViewMode = 'focused' | 'full';
+
 export interface AppState {
   selectedCategoryIds: Set<string>;
   selectedEnvId: string | null;
@@ -16,6 +18,7 @@ export interface AppState {
   selectedScaleKeys: Set<string>;
   selectedBackends: Set<string>;
   showExternal: Set<string>;
+  chartViewMode: ChartViewMode;
   tableLimit: number;
   sortColumn: string | null;
   sortDir: 'asc' | 'desc';
@@ -59,13 +62,14 @@ export function createDefaultState(envs: Environment[], runs: Run[] = []): AppSt
     selectedScaleKeys: new Set(),
     selectedBackends: new Set(),
     showExternal: new Set(),
+    chartViewMode: 'focused',
     tableLimit: 200,
     sortColumn: null,
     sortDir: 'asc',
     expandedPanels: new Set(),
     panelLimits: {},
     timingChartGroupLimit: 30,
-    speedupChartLimit: 30,
+    speedupChartLimit: 24,
   };
 }
 
@@ -134,6 +138,10 @@ export function toggleExternal(state: AppState, framework: string): void {
   } else {
     state.showExternal.add(framework);
   }
+}
+
+export function setChartViewMode(state: AppState, mode: ChartViewMode): void {
+  state.chartViewMode = mode;
 }
 
 export function setTableLimit(state: AppState, limit: number): void {
