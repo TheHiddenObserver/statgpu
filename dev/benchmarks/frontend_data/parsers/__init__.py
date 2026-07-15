@@ -15,6 +15,7 @@ from .domains import (
     parse_new_modules_benchmark,
     parse_p2_benchmark,
 )
+from .new_modules import parse_new_modules_with_anova_benchmark
 from .pr74 import parse_pr74_inference_benchmark
 
 __all__ = [
@@ -31,5 +32,6 @@ __all__ = [
     "parse_pr74_inference_benchmark",
     "parse_unsupervised_benchmark",
     "parse_new_modules_benchmark",
+    "parse_new_modules_with_anova_benchmark",
     "parse_p2_benchmark",
 ]
