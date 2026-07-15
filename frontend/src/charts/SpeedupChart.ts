@@ -30,9 +30,10 @@ export function renderSpeedupChart(
   }
 
   el.dataset.parityStyle = 'dashed';
+  el.dataset.parityLabelPlacement = 'axis-bottom';
   el.setAttribute(
     'aria-label',
-    'Speedup vs Reference chart — dashed 1× parity line; values to the right are faster',
+    'Speedup vs Reference chart — dashed 1× parity line labeled near the horizontal axis; values to the right are faster',
   );
 
   const speedupRuns = runs.filter((run) => run.metrics.speedup);
@@ -101,7 +102,7 @@ export function renderSpeedupChart(
         left: 12,
         right: 20,
         top: 66,
-        bottom: 38,
+        bottom: 46,
         containLabel: true,
       },
       xAxis: {
@@ -112,7 +113,7 @@ export function renderSpeedupChart(
         axisLabel: {
           fontSize: 10,
           color: CHART_STYLE.text,
-          formatter: (value: number) => `${value}×`,
+          formatter: (value: number) => (value === 0 ? '' : `${value}×`),
         },
         splitLine: { lineStyle: { color: CHART_STYLE.grid } },
       },
@@ -178,12 +179,15 @@ export function renderSpeedupChart(
                 label: {
                   show: true,
                   formatter: '1×',
-                  position: 'insideEndTop',
-                  distance: 5,
+                  position: 'insideStartTop',
+                  distance: 9,
+                  offset: [10, 0],
                   color: CHART_STYLE.parity,
                   fontSize: 10,
                   fontWeight: 600,
-                  backgroundColor: 'rgba(255, 255, 255, 0.94)',
+                  backgroundColor: 'rgba(255, 255, 255, 0.97)',
+                  borderColor: 'rgba(122, 132, 151, 0.35)',
+                  borderWidth: 1,
                   padding: [2, 5],
                   borderRadius: 4,
                 },
