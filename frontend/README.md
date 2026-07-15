@@ -27,17 +27,20 @@ Current June-or-later sources provide external comparisons through scikit-learn,
 
 - Environment and category navigation.
 - Progressive filters for model, variant, penalty, solver, scale, backend, and external framework.
+- Explicit **Focused** and **Full matrix** chart views.
 - Timing and speedup charts.
 - A sortable and paginated overview table.
 - Validation, accuracy, inference, prediction, convergence, and selection panels.
 - Parse-report and source-inventory metadata.
+
+Focused is the default chart view. It keeps the timing chart readable by selecting the largest workload in the current unscaled context and retaining Auto/best solver groups when available. This is a chart-only presentation rule: it does not change the table or filter state. Full matrix restores all filtered chart groups.
 
 Speedups have two distinct meanings:
 
 - **Computed**: reference timing divided by current-run timing. The generated record contains `reference_run_id`.
 - **Reported by runner**: copied from a benchmark runner that already computed the speedup. These rows carry an `Ⓡ` marker and do not imply frontend recomputation.
 
-The speedup chart uses a thin solid gray 1× parity line without an overlapping `1.0x` label. Runner-reported bars use a subtle border instead of a patterned fill. The summary card displays the computed and reported maxima separately when both are present, because they may use different references.
+The speedup chart uses a dashed gray 1× parity line with a compact in-chart `1×` badge and `×` axis labels. Runner-reported bars use a subtle border instead of a patterned fill. The summary card displays computed and reported maxima separately because they may use different references.
 
 ## Requirements
 
@@ -85,7 +88,7 @@ npx playwright install --with-deps chromium
 npm run test:e2e
 ```
 
-The domain-coverage suite verifies that robust/quantile, unsupervised, ordered, nonparametric, panel, covariance, and ANOVA categories produce runs. It also guards the June 2026 linear-model sources, quantile GPU inference rows, ANOVA backend/SciPy coverage, speedup-summary semantics, and the ban on pre-June dashboard sources.
+The domain-coverage suite verifies that robust/quantile, unsupervised, ordered, nonparametric, panel, covariance, and ANOVA categories produce runs. Playwright also guards Focused/Full matrix switching, the dashed 1× parity contract, June 2026 linear-model sources, quantile GPU inference, ANOVA backend/SciPy coverage, speedup-summary semantics, and removal of pre-June framework controls.
 
 ## Production build and staleness
 
