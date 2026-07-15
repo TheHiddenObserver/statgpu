@@ -2,6 +2,7 @@ import * as echarts from 'echarts';
 import type { Run } from '../schema';
 import type { AppState } from '../state';
 import { formatModelName } from '../utils/format';
+import { CHART_STYLE } from '../utils/theme';
 
 function formatSeries(run: Run): string {
   if (run.framework !== 'statgpu') return run.framework;
@@ -10,7 +11,7 @@ function formatSeries(run: Run): string {
 
 function formatRunLabel(run: Run): string {
   const variant = run.variant ? ` (${run.variant})` : '';
-  const penalty = run.penalty ? ` + ${run.penalty}` : '';
+  const penalty = run.penalty && run.penalty !== 'none' ? ` + ${run.penalty}` : '';
   const solver = run.solver_display ?? run.solver ?? 'unknown';
   const reported = run.metrics.speedup?.reported_semantics === 'computed' ? '' : ' Ⓡ';
   return `${formatModelName(run.model_id)}${variant}${penalty} [${solver}] · ${formatSeries(run)} · ${run.scale.label}${reported}`;
@@ -28,7 +29,13 @@ export function renderSpeedupChart(
     chartInstances.push(chart);
   }
 
-  const speedupRuns = runs.filter((r) => r.metrics.speedup);
+  el.dataset.parityStyle = 'dashed';
+  el.setAttribute(
+    'aria-label',
+    'Speedup vs Reference chart — dashed 1× parity line; values to the right are faster',
+  );
+
+  const speedupRuns = runs.filter((run) => run.metrics.speedup);
   if (speedupRuns.length === 0) {
     chart.clear();
     chart.setOption({
@@ -36,7 +43,7 @@ export function renderSpeedupChart(
         text: 'No speedup data',
         left: 'center',
         top: 'center',
-        textStyle: { color: '#999', fontSize: 14 },
+        textStyle: { color: CHART_STYLE.muted, fontSize: 14 },
       },
     });
     return;
@@ -46,14 +53,17 @@ export function renderSpeedupChart(
     (a, b) =>
       (b.metrics.speedup?.value ?? 0) - (a.metrics.speedup?.value ?? 0),
   );
-  const limit = state.speedupChartLimit > 0 ? state.speedupChartLimit : 30;
+  const limit = state.chartViewMode === 'focused' ? 18 : state.speedupChartLimit;
   const topN = speedupRuns.slice(0, limit);
   const reportedCount = topN.filter(
-    (r) => r.metrics.speedup?.reported_semantics === 'reported_by_runner',
+    (run) => run.metrics.speedup?.reported_semantics === 'reported_by_runner',
   ).length;
 
-  const subtitleParts = ['solid gray line = 1× parity'];
-  if (reportedCount > 0) subtitleParts.unshift('Ⓡ = reported by benchmark runner');
+  const subtitleParts = ['dashed line = 1× parity'];
+  if (reportedCount > 0) subtitleParts.unshift('Ⓡ = runner-reported');
+  if (speedupRuns.length > topN.length) {
+    subtitleParts.push(`showing top ${topN.length}/${speedupRuns.length}`);
+  }
   const labels = topN.map(formatRunLabel);
 
   chart.setOption(
@@ -62,11 +72,14 @@ export function renderSpeedupChart(
         text: 'Speedup vs Reference',
         subtext: subtitleParts.join(' · '),
         left: 'center',
-        textStyle: { fontSize: 13 },
-        subtextStyle: { fontSize: 10, color: '#8c8c8c' },
+        textStyle: { fontSize: 13, color: CHART_STYLE.text },
+        subtextStyle: { fontSize: 10, color: CHART_STYLE.muted },
       },
       tooltip: {
         trigger: 'axis',
+        backgroundColor: CHART_STYLE.tooltipBackground,
+        borderWidth: 0,
+        textStyle: { color: '#fff' },
         formatter: (
           params: {
             value: number;
@@ -75,63 +88,78 @@ export function renderSpeedupChart(
             data: { refLabel?: string; semantics?: string };
           }[],
         ) => {
-          const p = params[0];
-          if (!p || p.value == null) return 'No data';
-          const label = p.value > 1 ? 'faster' : p.value < 1 ? 'slower' : 'same';
-          const reference = p.data?.refLabel ?? 'reference';
+          const param = params[0];
+          if (!param || param.value == null) return 'No data';
+          const label = param.value > 1 ? 'faster' : param.value < 1 ? 'slower' : 'same';
+          const reference = param.data?.refLabel ?? 'reference';
           const semantics =
-            p.data?.semantics === 'reported_by_runner' ? 'reported' : 'computed';
-          return `<b>${p.value.toFixed(2)}×</b> ${semantics} vs ${reference} (${label})`;
+            param.data?.semantics === 'reported_by_runner' ? 'runner-reported' : 'computed';
+          return `<b>${param.value.toFixed(2)}×</b> ${semantics} vs ${reference} (${label})`;
         },
       },
       grid: {
-        left: 10,
-        right: 18,
-        top: 58,
-        bottom: 30,
+        left: 12,
+        right: 20,
+        top: 66,
+        bottom: 38,
         containLabel: true,
       },
       xAxis: {
         type: 'value',
-        name: 'speedup',
-        axisLabel: { fontSize: 10 },
+        min: 0,
+        axisLine: { lineStyle: { color: CHART_STYLE.axis } },
+        axisTick: { lineStyle: { color: CHART_STYLE.axis } },
+        axisLabel: {
+          fontSize: 10,
+          color: CHART_STYLE.text,
+          formatter: (value: number) => `${value}×`,
+        },
+        splitLine: { lineStyle: { color: CHART_STYLE.grid } },
       },
       yAxis: {
         type: 'category',
         data: labels.reverse(),
-        axisLabel: { fontSize: 10 },
+        axisLine: { lineStyle: { color: CHART_STYLE.axis } },
+        axisTick: { lineStyle: { color: CHART_STYLE.axis } },
+        axisLabel: {
+          fontSize: 10,
+          color: CHART_STYLE.text,
+          width: 285,
+          overflow: 'truncate',
+        },
       },
       series: [
         {
           type: 'bar',
-          barMaxWidth: 28,
-          data: topN.reverse().map((r) => {
-            const sp = r.metrics.speedup!;
-            const isReported = sp.reported_semantics === 'reported_by_runner';
-            const val = sp.value;
-            const isFaster = val >= 1;
-            const refLabel = [sp.reference_framework, sp.reference_backend]
+          barMaxWidth: 24,
+          data: topN.reverse().map((run) => {
+            const speedup = run.metrics.speedup!;
+            const isReported = speedup.reported_semantics === 'reported_by_runner';
+            const value = speedup.value;
+            const isFaster = value >= 1;
+            const refLabel = [speedup.reference_framework, speedup.reference_backend]
               .filter(Boolean)
               .join('/');
             return {
-              value: val,
+              value,
               refLabel,
-              semantics: sp.reported_semantics,
+              semantics: speedup.reported_semantics,
               itemStyle: {
                 color: isFaster
                   ? isReported
-                    ? '#73d13d'
-                    : '#52c41a'
+                    ? CHART_STYLE.speedupReported
+                    : CHART_STYLE.speedupComputed
                   : isReported
-                    ? '#ff7875'
-                    : '#ff4d4f',
+                    ? CHART_STYLE.slowdownReported
+                    : CHART_STYLE.slowdownComputed,
                 borderColor: isReported
                   ? isFaster
-                    ? '#389e0d'
-                    : '#cf1322'
+                    ? '#4f8763'
+                    : '#ae5f64'
                   : 'transparent',
                 borderWidth: isReported ? 1 : 0,
-                opacity: isReported ? 0.9 : 1,
+                borderRadius: [0, 4, 4, 0],
+                opacity: isReported ? 0.92 : 1,
               },
             };
           }),
@@ -142,13 +170,25 @@ export function renderSpeedupChart(
               {
                 xAxis: 1,
                 lineStyle: {
-                  color: 'rgba(89, 89, 89, 0.72)',
-                  type: 'solid',
-                  width: 1.5,
+                  color: CHART_STYLE.parity,
+                  type: 'dashed',
+                  width: 1.4,
+                  opacity: 0.9,
+                },
+                label: {
+                  show: true,
+                  formatter: '1×',
+                  position: 'insideEndTop',
+                  distance: 5,
+                  color: CHART_STYLE.parity,
+                  fontSize: 10,
+                  fontWeight: 600,
+                  backgroundColor: 'rgba(255, 255, 255, 0.94)',
+                  padding: [2, 5],
+                  borderRadius: 4,
                 },
               },
             ],
-            label: { show: false },
           },
         },
       ],
