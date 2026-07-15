@@ -42,7 +42,7 @@ function renderBody(): HTMLElement {
   const body = h('div', { class: 'body' });
   body.appendChild(renderSidebar(data!, state!, update));
 
-  const right = h('div', { style: 'flex:1; display:flex; flex-direction:column; overflow:hidden;' });
+  const right = h('div', { class: 'content-column' });
   // Summary cards + footer persist across filter updates; only main is re-rendered
   right.appendChild(renderSummaryCards(data!, parseReport, data!.runs));
   const main = renderMain();
@@ -181,7 +181,7 @@ async function init(): Promise<void> {
     const msg = emptyStateMessage(
       `Failed to load benchmark data: ${err instanceof Error ? err.message : String(err)}`,
     );
-    msg.style.color = '#ff4d4f';
+    msg.style.color = '#c96f73';
     const hint = h(
       'small',
       {},
