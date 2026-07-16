@@ -9,6 +9,18 @@ interface SpeedupSelection {
   notes: string[];
 }
 
+interface SpeedupTooltipParam {
+  value: number;
+  color: string;
+  name: string;
+  data: { refLabel?: string; semantics?: string };
+}
+
+interface TooltipSize {
+  contentSize: number[];
+  viewSize: number[];
+}
+
 function formatSeries(run: Run): string {
   if (run.framework !== 'statgpu') return run.framework;
   return [run.backend, run.implementation].filter(Boolean).join('/') || 'statgpu';
@@ -65,6 +77,27 @@ function selectSpeedupRuns(runs: Run[], state: AppState): SpeedupSelection {
   return { runs: focused, notes };
 }
 
+function placeTooltip(
+  point: number[],
+  _params: unknown,
+  _dom: HTMLElement,
+  _rect: unknown,
+  size: TooltipSize,
+): [number, number] {
+  const margin = 14;
+  const titleBand = 74;
+  const [contentWidth, contentHeight] = size.contentSize;
+  const [viewWidth, viewHeight] = size.viewSize;
+
+  // Keep the tooltip out of the long y-axis label area. It is docked to the
+  // right edge and placed in the vertical half opposite the hovered bar.
+  const x = Math.max(margin, viewWidth - contentWidth - margin);
+  const topY = titleBand;
+  const bottomY = Math.max(titleBand, viewHeight - contentHeight - margin);
+  const y = point[1] < viewHeight / 2 ? bottomY : topY;
+  return [x, y];
+}
+
 export function renderSpeedupChart(
   el: HTMLElement,
   runs: Run[],
@@ -90,12 +123,13 @@ export function renderSpeedupChart(
 
   el.dataset.parityStyle = 'dashed';
   el.dataset.parityLabelPlacement = 'axis-bottom';
+  el.dataset.tooltipPlacement = 'opposite-corner';
   el.dataset.chartView = state.chartViewMode;
   el.dataset.speedupRows = String(selectedRuns.length);
   el.dataset.speedupDisplayed = String(chartRuns.length);
   el.setAttribute(
     'aria-label',
-    `Speedup vs Reference chart — ${isFocused ? 'focused representative view' : 'full matrix view'}; dashed 1× parity line labeled near the horizontal axis; values to the right are faster`,
+    `Speedup vs Reference chart — ${isFocused ? 'focused representative view' : 'full matrix view'}; tooltip is confined to the chart and docked away from labels; dashed 1× parity line labeled near the horizontal axis; values to the right are faster`,
   );
 
   if (selectedRuns.length === 0) {
@@ -135,25 +169,25 @@ export function renderSpeedupChart(
         subtextStyle: { fontSize: 10, color: CHART_STYLE.muted },
       },
       tooltip: {
-        trigger: 'axis',
+        trigger: 'item',
+        confine: true,
+        enterable: false,
+        transitionDuration: 0,
+        position: placeTooltip,
         backgroundColor: CHART_STYLE.tooltipBackground,
         borderWidth: 0,
-        textStyle: { color: '#fff' },
-        formatter: (
-          params: {
-            value: number;
-            color: string;
-            name: string;
-            data: { refLabel?: string; semantics?: string };
-          }[],
-        ) => {
-          const param = params[0];
+        padding: [8, 10],
+        textStyle: { color: '#fff', fontSize: 12, lineHeight: 18 },
+        extraCssText:
+          'max-width: 360px; white-space: normal; overflow-wrap: anywhere; pointer-events: none; box-shadow: 0 6px 18px rgba(22, 27, 45, 0.22);',
+        formatter: (params: SpeedupTooltipParam | SpeedupTooltipParam[]) => {
+          const param = Array.isArray(params) ? params[0] : params;
           if (!param || param.value == null) return 'No data';
           const label = param.value > 1 ? 'faster' : param.value < 1 ? 'slower' : 'same';
           const reference = param.data?.refLabel ?? 'reference';
           const semantics =
             param.data?.semantics === 'reported_by_runner' ? 'runner-reported' : 'computed';
-          return `<b>${param.value.toFixed(2)}×</b> ${semantics} vs ${reference} (${label})`;
+          return `<b>${param.value.toFixed(2)}×</b><br>${semantics} vs ${reference} (${label})`;
         },
       },
       grid: {
