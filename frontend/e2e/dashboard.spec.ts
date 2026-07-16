@@ -52,6 +52,12 @@ test.describe('Benchmark Dashboard', () => {
     await expect(chart).toHaveAttribute('aria-label', /labeled near the horizontal axis/);
   });
 
+  test('speedup tooltip is confined and docked away from method labels', async ({ page }) => {
+    const chart = page.locator('#speedup-chart');
+    await expect(chart).toHaveAttribute('data-tooltip-placement', 'opposite-corner');
+    await expect(chart).toHaveAttribute('aria-label', /tooltip is confined to the chart and docked away from labels/);
+  });
+
   test('category filter — clear all shows empty state, re-select restores data', async ({ page }) => {
     await page.getByRole('button', { name: 'None' }).click();
     await expect(page.getByText(/No runs match/i)).toBeVisible({ timeout: 5000 });
