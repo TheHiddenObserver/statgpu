@@ -8,20 +8,45 @@ import { chartGroupIdentity } from '../identity';
 interface TimingSelection {
   runs: Run[];
   notes: string[];
+  penaltyScope: 'penalized-only' | 'all';
 }
 
 function groupKey(run: Run): string {
   return JSON.stringify(chartGroupIdentity(run, false));
 }
 
+function shouldFocusPenalizedRows(state: AppState): boolean {
+  return (
+    state.selectedCategoryIds.size === 1 &&
+    state.selectedCategoryIds.has('penalized_glm') &&
+    state.selectedPenalty === null
+  );
+}
+
 function selectTimingRuns(runs: Run[], state: AppState): TimingSelection {
   const timingRuns = runs.filter((run) => run.metrics.timing);
   if (state.chartViewMode === 'full' || timingRuns.length === 0) {
-    return { runs: timingRuns, notes: ['Full matrix'] };
+    return { runs: timingRuns, notes: ['Full matrix'], penaltyScope: 'all' };
   }
 
   let focused = timingRuns;
   const notes = ['Focused'];
+  let penaltyScope: TimingSelection['penaltyScope'] = 'all';
+
+  // Penalized GLM has a dedicated category, while unpenalized GLM is available
+  // in the separate GLM category. Keep the default focused view on true
+  // penalty comparisons without changing the table or filter state. An explicit
+  // penalty selection always takes precedence, and Full matrix retains all rows.
+  if (shouldFocusPenalizedRows(state)) {
+    const penalizedRows = focused.filter(
+      (run) => Boolean(run.penalty) && run.penalty !== 'none',
+    );
+    if (penalizedRows.length > 0) {
+      focused = penalizedRows;
+      penaltyScope = 'penalized-only';
+      notes.push('penalized rows only');
+    }
+  }
 
   // When the user has not explicitly selected scales, use the largest workload
   // represented in the current filter context. This keeps the default chart
@@ -62,7 +87,7 @@ function selectTimingRuns(runs: Run[], state: AppState): TimingSelection {
     notes.push('Auto/best solver groups');
   }
 
-  return { runs: focused, notes };
+  return { runs: focused, notes, penaltyScope };
 }
 
 function formatGroupLabel(run: Run, focused: boolean): string {
@@ -97,9 +122,10 @@ export function renderTimingChart(
   const selection = selectTimingRuns(runs, state);
   const timingRuns = selection.runs;
   el.dataset.chartView = state.chartViewMode;
+  el.dataset.penaltyScope = selection.penaltyScope;
   el.setAttribute(
     'aria-label',
-    `Fit Time chart — ${state.chartViewMode === 'focused' ? 'focused representative view' : 'full matrix view'}`,
+    `Fit Time chart — ${state.chartViewMode === 'focused' ? 'focused representative view' : 'full matrix view'}${selection.penaltyScope === 'penalized-only' ? '; penalized rows only' : ''}`,
   );
 
   if (timingRuns.length === 0) {
