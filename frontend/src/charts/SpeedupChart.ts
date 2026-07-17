@@ -38,12 +38,24 @@ function formatSeries(run: Run): string {
   return [run.backend, run.implementation].filter(Boolean).join('/') || 'statgpu';
 }
 
-function formatRunLabel(run: Run): string {
+function formatFocusedSeries(run: Run): string {
+  if (run.framework !== 'statgpu') return run.framework;
+  return run.backend ?? 'statgpu';
+}
+
+function formatRunLabel(run: Run, focused: boolean): string {
   const variant = run.variant ? ` (${run.variant})` : '';
-  const penalty = run.penalty && run.penalty !== 'none' ? ` + ${run.penalty}` : '';
-  const solver = run.solver_display ?? run.solver ?? 'unknown';
+  const model = `${formatModelName(run.model_id)}${variant}`;
+  const penalty = run.penalty && run.penalty !== 'none' ? run.penalty : null;
   const reported = run.metrics.speedup?.reported_semantics === 'computed' ? '' : ' Ⓡ';
-  return `${formatModelName(run.model_id)}${variant}${penalty} [${solver}] · ${formatSeries(run)} · ${run.scale.label}${reported}`;
+
+  if (focused) {
+    return `${[model, penalty, formatFocusedSeries(run)].filter(Boolean).join(' · ')}${reported}`;
+  }
+
+  const solver = run.solver_display ?? run.solver ?? 'unknown';
+  const penaltyPart = penalty ? ` + ${penalty}` : '';
+  return `${model}${penaltyPart} [${solver}] · ${formatSeries(run)} · ${run.scale.label}${reported}`;
 }
 
 function formatTooltipTitle(run: Run): string {
@@ -157,14 +169,15 @@ export function renderSpeedupChart(
   const hasScroll = !isFocused && displayRuns.length > 18;
 
   el.dataset.parityStyle = 'dashed';
-  el.dataset.parityLabelPlacement = 'axis-bottom';
+  el.dataset.parityLabelPlacement = 'plot-top';
+  el.dataset.labelStyle = isFocused ? 'compact' : 'detailed';
   el.dataset.tooltipPlacement = 'adjacent-smart';
   el.dataset.chartView = state.chartViewMode;
   el.dataset.speedupRows = String(selectedRuns.length);
   el.dataset.speedupDisplayed = String(chartRuns.length);
   el.setAttribute(
     'aria-label',
-    `Speedup vs Reference chart — ${isFocused ? 'focused representative view' : 'full matrix view'}; tooltip follows the hovered bar and flips left or right inside the plotting area; dashed 1× parity line labeled near the horizontal axis; values to the right are faster`,
+    `Speedup vs Reference chart — ${isFocused ? 'focused representative view with compact labels' : 'full matrix view with detailed labels'}; tooltip follows the hovered bar and flips left or right inside the plotting area; dashed 1× parity line labeled above the bars; values to the right are faster`,
   );
 
   if (selectedRuns.length === 0) {
@@ -232,7 +245,7 @@ export function renderSpeedupChart(
       grid: {
         left: 12,
         right: hasScroll ? 38 : 20,
-        top: 66,
+        top: 94,
         bottom: 46,
         containLabel: true,
       },
@@ -270,13 +283,13 @@ export function renderSpeedupChart(
       },
       yAxis: {
         type: 'category',
-        data: displayRuns.map(formatRunLabel),
+        data: displayRuns.map((run) => formatRunLabel(run, isFocused)),
         axisLine: { lineStyle: { color: CHART_STYLE.axis } },
         axisTick: { lineStyle: { color: CHART_STYLE.axis } },
         axisLabel: {
           fontSize: 10,
           color: CHART_STYLE.text,
-          width: 285,
+          width: isFocused ? 210 : 285,
           overflow: 'truncate',
         },
       },
@@ -332,13 +345,14 @@ export function renderSpeedupChart(
                 label: {
                   show: true,
                   formatter: '1×',
-                  position: 'insideStartTop',
-                  distance: 9,
-                  offset: [10, 0],
+                  position: 'insideEndTop',
+                  distance: 6,
+                  offset: [12, -9],
+                  rotate: 0,
                   color: CHART_STYLE.parity,
                   fontSize: 10,
                   fontWeight: 600,
-                  backgroundColor: 'rgba(255, 255, 255, 0.97)',
+                  backgroundColor: 'rgba(255, 255, 255, 0.98)',
                   borderColor: 'rgba(122, 132, 151, 0.35)',
                   borderWidth: 1,
                   padding: [2, 5],
