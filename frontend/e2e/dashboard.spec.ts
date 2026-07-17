@@ -22,7 +22,7 @@ test.describe('Benchmark Dashboard', () => {
     await expect(page.locator('#category-list')).not.toContainText('生存分析');
   });
 
-  test('focused charts use a representative subset and full matrix expands it', async ({ page }) => {
+  test('focused charts use compact representative labels and full matrix expands them', async ({ page }) => {
     const focused = page.getByRole('button', { name: 'Focused' });
     const full = page.getByRole('button', { name: 'Full matrix' });
     const timingChart = page.locator('#timing-chart');
@@ -31,6 +31,7 @@ test.describe('Benchmark Dashboard', () => {
     await expect(focused).toHaveAttribute('aria-pressed', 'true');
     await expect(timingChart).toHaveAttribute('data-chart-view', 'focused');
     await expect(speedupChart).toHaveAttribute('data-chart-view', 'focused');
+    await expect(speedupChart).toHaveAttribute('data-label-style', 'compact');
 
     const focusedRows = Number(await speedupChart.getAttribute('data-speedup-rows'));
     expect(focusedRows).toBeGreaterThan(0);
@@ -40,16 +41,17 @@ test.describe('Benchmark Dashboard', () => {
     await expect(focused).toHaveAttribute('aria-pressed', 'false');
     await expect(timingChart).toHaveAttribute('data-chart-view', 'full');
     await expect(speedupChart).toHaveAttribute('data-chart-view', 'full');
+    await expect(speedupChart).toHaveAttribute('data-label-style', 'detailed');
 
     const fullRows = Number(await speedupChart.getAttribute('data-speedup-rows'));
     expect(fullRows).toBeGreaterThanOrEqual(focusedRows);
   });
 
-  test('speedup chart exposes a dashed parity line with its label near the axis', async ({ page }) => {
+  test('speedup chart lifts the dashed parity label above the bars', async ({ page }) => {
     const chart = page.locator('#speedup-chart');
     await expect(chart).toHaveAttribute('data-parity-style', 'dashed');
-    await expect(chart).toHaveAttribute('data-parity-label-placement', 'axis-bottom');
-    await expect(chart).toHaveAttribute('aria-label', /labeled near the horizontal axis/);
+    await expect(chart).toHaveAttribute('data-parity-label-placement', 'plot-top');
+    await expect(chart).toHaveAttribute('aria-label', /labeled above the bars/);
   });
 
   test('speedup tooltip follows the hovered bar and stays inside the plot', async ({ page }) => {
