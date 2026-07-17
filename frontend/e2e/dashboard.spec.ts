@@ -52,10 +52,10 @@ test.describe('Benchmark Dashboard', () => {
     await expect(chart).toHaveAttribute('aria-label', /labeled near the horizontal axis/);
   });
 
-  test('speedup tooltip is confined and docked away from method labels', async ({ page }) => {
+  test('speedup tooltip follows the hovered bar and stays inside the plot', async ({ page }) => {
     const chart = page.locator('#speedup-chart');
-    await expect(chart).toHaveAttribute('data-tooltip-placement', 'opposite-corner');
-    await expect(chart).toHaveAttribute('aria-label', /tooltip is confined to the chart and docked away from labels/);
+    await expect(chart).toHaveAttribute('data-tooltip-placement', 'adjacent-smart');
+    await expect(chart).toHaveAttribute('aria-label', /tooltip follows the hovered bar and flips left or right inside the plotting area/);
   });
 
   test('category filter — clear all shows empty state, re-select restores data', async ({ page }) => {
