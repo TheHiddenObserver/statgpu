@@ -22,7 +22,7 @@ test.describe('Benchmark Dashboard', () => {
     await expect(page.locator('#category-list')).not.toContainText('生存分析');
   });
 
-  test('focused charts use compact representative labels and full matrix expands them', async ({ page }) => {
+  test('Penalized GLM focused charts show penalized rows while full matrix restores all rows', async ({ page }) => {
     const focused = page.getByRole('button', { name: 'Focused' });
     const full = page.getByRole('button', { name: 'Full matrix' });
     const timingChart = page.locator('#timing-chart');
@@ -32,6 +32,10 @@ test.describe('Benchmark Dashboard', () => {
     await expect(timingChart).toHaveAttribute('data-chart-view', 'focused');
     await expect(speedupChart).toHaveAttribute('data-chart-view', 'focused');
     await expect(speedupChart).toHaveAttribute('data-label-style', 'compact');
+    await expect(timingChart).toHaveAttribute('data-penalty-scope', 'penalized-only');
+    await expect(speedupChart).toHaveAttribute('data-penalty-scope', 'penalized-only');
+    await expect(timingChart).toHaveAttribute('aria-label', /penalized rows only/);
+    await expect(speedupChart).toHaveAttribute('aria-label', /penalized rows only/);
 
     const focusedRows = Number(await speedupChart.getAttribute('data-speedup-rows'));
     expect(focusedRows).toBeGreaterThan(0);
@@ -42,6 +46,8 @@ test.describe('Benchmark Dashboard', () => {
     await expect(timingChart).toHaveAttribute('data-chart-view', 'full');
     await expect(speedupChart).toHaveAttribute('data-chart-view', 'full');
     await expect(speedupChart).toHaveAttribute('data-label-style', 'detailed');
+    await expect(timingChart).toHaveAttribute('data-penalty-scope', 'all');
+    await expect(speedupChart).toHaveAttribute('data-penalty-scope', 'all');
 
     const fullRows = Number(await speedupChart.getAttribute('data-speedup-rows'));
     expect(fullRows).toBeGreaterThanOrEqual(focusedRows);
