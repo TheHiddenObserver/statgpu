@@ -7,6 +7,7 @@ import { CHART_STYLE } from '../utils/theme';
 interface SpeedupSelection {
   runs: Run[];
   notes: string[];
+  penaltyScope: 'penalized-only' | 'all';
 }
 
 interface SpeedupTooltipParam {
@@ -69,14 +70,34 @@ function formatTooltipMeta(run: Run): string {
   return `${solver} · ${formatSeries(run)} · ${run.scale.label}`;
 }
 
+function shouldFocusPenalizedRows(state: AppState): boolean {
+  return (
+    state.selectedCategoryIds.size === 1 &&
+    state.selectedCategoryIds.has('penalized_glm') &&
+    state.selectedPenalty === null
+  );
+}
+
 function selectSpeedupRuns(runs: Run[], state: AppState): SpeedupSelection {
   const speedupRuns = runs.filter((run) => run.metrics.speedup);
   if (state.chartViewMode === 'full' || speedupRuns.length === 0) {
-    return { runs: speedupRuns, notes: ['Full matrix'] };
+    return { runs: speedupRuns, notes: ['Full matrix'], penaltyScope: 'all' };
   }
 
   let focused = speedupRuns;
   const notes = ['Focused'];
+  let penaltyScope: SpeedupSelection['penaltyScope'] = 'all';
+
+  if (shouldFocusPenalizedRows(state)) {
+    const penalizedRows = focused.filter(
+      (run) => Boolean(run.penalty) && run.penalty !== 'none',
+    );
+    if (penalizedRows.length > 0) {
+      focused = penalizedRows;
+      penaltyScope = 'penalized-only';
+      notes.push('penalized rows only');
+    }
+  }
 
   if (state.selectedScaleKeys.size === 0) {
     const scales = new Map<string, Run['scale']>();
@@ -105,7 +126,7 @@ function selectSpeedupRuns(runs: Run[], state: AppState): SpeedupSelection {
     notes.push('Auto/best solver rows');
   }
 
-  return { runs: focused, notes };
+  return { runs: focused, notes, penaltyScope };
 }
 
 function placeTooltip(
@@ -171,13 +192,14 @@ export function renderSpeedupChart(
   el.dataset.parityStyle = 'dashed';
   el.dataset.parityLabelPlacement = 'plot-top';
   el.dataset.labelStyle = isFocused ? 'compact' : 'detailed';
+  el.dataset.penaltyScope = selection.penaltyScope;
   el.dataset.tooltipPlacement = 'adjacent-smart';
   el.dataset.chartView = state.chartViewMode;
   el.dataset.speedupRows = String(selectedRuns.length);
   el.dataset.speedupDisplayed = String(chartRuns.length);
   el.setAttribute(
     'aria-label',
-    `Speedup vs Reference chart — ${isFocused ? 'focused representative view with compact labels' : 'full matrix view with detailed labels'}; tooltip follows the hovered bar and flips left or right inside the plotting area; dashed 1× parity line labeled above the bars; values to the right are faster`,
+    `Speedup vs Reference chart — ${isFocused ? 'focused representative view with compact labels' : 'full matrix view with detailed labels'}${selection.penaltyScope === 'penalized-only' ? '; penalized rows only' : ''}; tooltip follows the hovered bar and flips left or right inside the plotting area; dashed 1× parity line labeled above the bars; values to the right are faster`,
   );
 
   if (selectedRuns.length === 0) {
