@@ -6,22 +6,26 @@ The browser is a presentation layer over a generated benchmark bundle. Raw resul
 
 ## Current coverage
 
-The canonical manifest registers **eight benchmark sources**, all dated **2026-06-01 or later**. The generated bundle contains **1,625 normalized runs across 36 models**:
+The canonical manifest registers **eight benchmark sources**, all dated **2026-06-01 or later**. The generated bundle contains **1,653 normalized runs across 36 models**:
 
 | Source | Frontend coverage |
 |---|---|
-| `p2_benchmark_20260617.json` | Covariance, Nystroem, RBF kernel, and spline benchmarks |
+| `p2_benchmark_20260617.json` | Empirical covariance, Nystroem, RBF kernel, and spline benchmarks |
 | `penalized_glm_perf_20260622.json` | Penalized GLM and recent squared-error NumPy/CuPy/Torch timings |
 | `coxph_efron_20260622.json` | CoxPH Efron variants and cross-backend timing |
 | `glm_solver_20260623.json` | GLM and squared-error solver speedups |
-| `loss_functions_20260623.json` | Robust/quantile timing, validation, and sklearn comparison |
-| `new_modules_full_20260624.json` | Panel, aligned GAM, and ANOVA benchmarks |
+| `loss_functions_20260623.json` | Robust/quantile timing, validation, sklearn comparison, and CoxPH Breslow rows |
+| `new_modules_full_20260624.json` | Panel, aligned GAM at three scales, and ANOVA benchmarks |
 | `unsupervised_20260627.json` | PCA, clustering, decomposition, UMAP, and t-SNE timings |
 | `ordered_inference_pr74.json` | Ordered logit/probit and quantile kernel/bootstrap inference |
 
 These sources populate penalized GLM and GLM, recent linear models, robust/quantile regression, survival analysis, unsupervised learning, ordered models, nonparametric methods, panel models, covariance estimation, and ANOVA.
 
+Aligned GAM coverage includes `1K×3`, `10K×5`, and `100K×10`. Each scale contains statgpu NumPy/CuPy/Torch rows and a pyGAM reference, together with runner-reported speedup and prediction-difference validation. The previous large-only display was a parser omission and has been corrected.
+
 ANOVA coverage includes one-way ANOVA, two-way ANOVA, Welch ANOVA, Tukey HSD, and Bonferroni correction at three scales on NumPy, CuPy, and Torch. One-way ANOVA also contains aligned SciPy timing and F-statistic validation rows.
+
+The current bundle should not be interpreted as complete coverage of every implementation in the repository. Ordered scales remain too small to locate a GPU crossover; covariance currently contains only EmpiricalCovariance; Feature Selection has no eligible source; and ANOVA has too few synchronized scale points for a precise crossover interval. These gaps and the required benchmark matrices are recorded in `docs/benchmark-dashboard/domain-coverage-audit-plan.md`.
 
 April 2026 ElasticNet, LassoCV, comprehensive-validation, Cox package-comparison, and knockoff sources are not registered. The feature-selection category remains part of Schema v1.1 but is intentionally empty until a June 2026-or-later benchmark is available.
 
@@ -61,18 +65,18 @@ This approach is preferred over silently setting scale and solver filters becaus
 
 The timing chart uses `metrics.timing.fit_time_ms`. Group identity includes comparison, environment, model, case, method configuration, variant, loss, penalty, solver, and scale. Series identity includes framework, backend, and implementation.
 
-Focused labels omit repeated scale and Auto/best text. Full-matrix labels use two lines. Both modes use bounded label width and full tooltip text, avoiding the previous dense diagonal label wall.
+Focused labels omit repeated scale and Auto/best text. Full-matrix labels use two lines. Both modes use bounded label width and full tooltip text, avoiding a dense diagonal label wall.
 
 ### Speedup
 
-A value above one means faster than the reference; a value below one is a slowdown. A dashed gray line marks 1× parity, with a compact `1×` badge attached inside the plot. Horizontal tick labels include the `×` unit.
+A value above one means faster than the reference; a value below one is a slowdown. A dashed gray line marks 1× parity, with a compact `1×` badge above the bar area. Horizontal tick labels include the `×` unit.
 
 - **Computed** speedups use `reference time / current time` and carry `reference_run_id`.
 - **Runner-reported** speedups are copied from an upstream benchmark and use `reported_semantics: "reported_by_runner"`. They are marked with `Ⓡ` and a subtle border rather than a patterned bar fill.
 
 Semantic validation checks computed references, positive timings, compatible identities, and numerical agreement with the timing ratio.
 
-The summary card reports computed and runner-reported maxima separately because those values can use different reference implementations. For example, the previous 36.8× value was the maximum recomputed GPU-versus-NumPy timing ratio, while larger `Ⓡ` values were runner-reported comparisons against external references.
+The global summary card shows only the fastest runner-reported GPU speedup. Computed timing ratios remain available in the chart and raw data for auditing; the two reference semantics are not mixed into one headline.
 
 ## Visual theme
 
@@ -152,3 +156,5 @@ Technical references:
 - `docs/benchmark-dashboard/schema-v1.1.md`
 - `docs/benchmark-dashboard/parser-contracts.md`
 - `docs/benchmark-dashboard/aggregation-contract.md`
+- `docs/benchmark-dashboard/domain-coverage-audit-plan.md`
+- `docs/benchmark-dashboard/penalized-robust-quantile-plan.md`
