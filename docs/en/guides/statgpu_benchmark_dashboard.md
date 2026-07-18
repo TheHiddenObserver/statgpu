@@ -6,7 +6,7 @@ The browser is a presentation layer over a generated benchmark bundle. Raw resul
 
 ## Current coverage
 
-The canonical manifest registers **eight benchmark sources**, all dated **2026-06-01 or later**. The generated bundle contains **1,661 normalized runs across 36 models**:
+The canonical manifest registers **eight benchmark sources**, all dated **2026-06-01 or later**. The generated bundle contains **1,774 normalized runs across 36 models**:
 
 | Source | Frontend coverage |
 |---|---|
@@ -15,28 +15,35 @@ The canonical manifest registers **eight benchmark sources**, all dated **2026-0
 | `coxph_efron_20260622.json` | CoxPH Efron variants and cross-backend timing |
 | `glm_solver_20260623.json` | GLM and squared-error solver speedups |
 | `loss_functions_20260623.json` | Robust/quantile timing, validation, sklearn comparison, and CoxPH Breslow rows |
-| `new_modules_full_20260624.json` | Panel, aligned GAM at three scales, and ANOVA benchmarks |
-| `unsupervised_20260627.json` | PCA, clustering, decomposition, UMAP, and t-SNE timings |
-| `ordered_inference_pr74.json` | Ordered logit/probit and quantile kernel/bootstrap inference |
+| `new_modules_full_20260624.json` | Panel, two complete fixed-lambda GAM comparison variants, and ANOVA benchmarks |
+| `unsupervised_20260627.json` | Complete source matrix for PCA, clustering, decomposition, mini-batch methods, UMAP, and t-SNE |
+| `ordered_inference_pr74.json` | Ordered, Quantile, sandwich, oracle, and bootstrap inference configurations |
 
 These sources populate penalized GLM and GLM, recent linear models, robust/quantile regression, survival analysis, unsupervised learning, ordered models, nonparametric methods, panel models, covariance estimation, and ANOVA.
 
-Aligned GAM coverage includes `1K×3`, `10K×5`, and `100K×10`. Each scale contains statgpu NumPy/CuPy/Torch rows and a pyGAM reference, together with runner-reported speedup and prediction-difference validation. The previous large-only display was a parser omission and has been corrected.
+GAM coverage includes `1K×3`, `10K×5`, and `100K×10` for two distinct variants: the ordinary pyGAM comparison and the uniform-knot precision-aligned comparison. Each variant contains statgpu NumPy/CuPy/Torch rows and a pyGAM reference, together with runner-reported speedup and prediction-difference validation. The solver is represented as fixed `lambda=1.0`, matching the source runner rather than incorrectly labelling the work as GCV.
 
-Aligned Panel coverage includes `10K×10` and `100K×20` for both PanelOLS and RandomEffects. Each model/scale contains statgpu NumPy/CuPy/Torch rows and a linearmodels reference, together with runner-reported speedup and coefficient-relative-error metrics. The previous large-only display was also a parser omission and is corrected by parser v1.3.
+Aligned Panel coverage includes `10K×10` and `100K×20` for both PanelOLS and RandomEffects. Each model/scale contains statgpu NumPy/CuPy/Torch rows and a linearmodels reference, together with runner-reported speedup and coefficient-relative-error metrics.
+
+Unsupervised coverage retains all 131 source rows. PCA, KMeans, GaussianMixture, NMF, TruncatedSVD, IncrementalPCA, MiniBatchKMeans, and MiniBatchNMF expose every small/medium/large configuration. DBSCAN exposes both 10-dimensional and 50-dimensional variants at all three scales; AgglomerativeClustering, UMAP, and t-SNE expose every scale actually run. Large labels follow the arrays passed to fit, so estimators capped at 50 input features are correctly shown as `100K×50` instead of the uncapped `100K×100` runner template.
+
+The PR #74 source now exposes all of its methods. In addition to Ordered Logit/Probit and Quantile kernel/bootstrap inference, it includes penalized-logistic HC0 sandwich inference, penalized-logistic SCAD oracle inference, and penalized-linear bootstrap inference. These additional configurations are explicitly marked as fit-plus-inference timings.
 
 ANOVA coverage includes one-way ANOVA, two-way ANOVA, Welch ANOVA, Tukey HSD, and Bonferroni correction at three scales on NumPy, CuPy, and Torch. One-way ANOVA also contains aligned SciPy timing and F-statistic validation rows.
 
-The current bundle should not be interpreted as complete coverage of every implementation in the repository. In particular, the current robust source contains CPU Huber and Quantile fit comparisons but no Bisquare, Fair, or robust-loss GPU fit matrix. Ordered scales remain too small to locate a GPU crossover; covariance currently contains only EmpiricalCovariance; Feature Selection has no eligible source; and ANOVA has too few synchronized scale points for a precise crossover interval.
+The current bundle should not be interpreted as complete coverage of every implementation in the repository. In particular, the robust source contains CPU Huber and Quantile fit comparisons but no Bisquare, Fair, or robust-loss GPU fit matrix. Ordered scales remain too small to locate a GPU crossover; covariance currently contains only EmpiricalCovariance; Feature Selection has no eligible structured source; and ANOVA has too few synchronization-safe scale points for a precise crossover interval.
 
-The domain and method-level gaps are recorded in:
+A June distribution benchmark also exists and reports 139/139 SciPy precision checks plus NumPy/CuPy/Torch timings for 15 distributions. It is not yet registered because only a rounded Markdown report is committed, without raw repeats, per-check errors, or a structured category/source contract. It is recorded as a P1 structured-conversion or rerun task rather than being ignored or represented with invented metadata.
+
+Coverage gaps and source-quality findings are recorded in:
 
 - `docs/benchmark-dashboard/domain-coverage-audit-plan.md`;
 - `docs/benchmark-dashboard/method-coverage-audit.md`;
+- `docs/benchmark-dashboard/remaining-module-audit.md`;
 - `docs/benchmark-dashboard/robust-loss-comparison-plan.md`;
 - `docs/benchmark-dashboard/penalized-robust-quantile-plan.md`.
 
-April 2026 ElasticNet, LassoCV, comprehensive-validation, Cox package-comparison, and knockoff sources are not registered. The feature-selection category remains part of Schema v1.1 but is intentionally empty until a June 2026-or-later benchmark is available.
+April 2026 ElasticNet, LassoCV, comprehensive-validation, Cox package-comparison, and knockoff sources are not registered. The feature-selection category remains part of Schema v1.1 but is intentionally empty until a June 2026-or-later structured benchmark is available.
 
 The source registry is `dev/benchmarks/frontend_sources.json`. It sets `minimum_source_date` to `2026-06-01`, and every registered source must provide an explicit `source_date` on or after that date. Generated files are committed in `frontend/public/data/` and `docs/assets/benchmarks/data/`.
 
@@ -106,7 +113,7 @@ Panels appear only when filtered rows contain the corresponding metric group:
 - **Convergence**: iteration summaries and convergence rates.
 - **Selection**: precision, recall, FDP, F1, Jaccard, FDR, and selected-set size when a current source exists.
 
-The Inference panel is particularly relevant to ordered logit/probit and quantile kernel/bootstrap results. ANOVA one-way rows expose SciPy-relative F-statistic validation in the Validation panel.
+The Inference panel covers Ordered Logit/Probit, Quantile kernel/bootstrap inference, and the restored sandwich/oracle/bootstrap configurations. ANOVA one-way rows expose SciPy-relative F-statistic validation in the Validation panel.
 
 ## Metric provenance
 
@@ -167,5 +174,6 @@ Technical references:
 - `docs/benchmark-dashboard/aggregation-contract.md`
 - `docs/benchmark-dashboard/domain-coverage-audit-plan.md`
 - `docs/benchmark-dashboard/method-coverage-audit.md`
+- `docs/benchmark-dashboard/remaining-module-audit.md`
 - `docs/benchmark-dashboard/robust-loss-comparison-plan.md`
 - `docs/benchmark-dashboard/penalized-robust-quantile-plan.md`
