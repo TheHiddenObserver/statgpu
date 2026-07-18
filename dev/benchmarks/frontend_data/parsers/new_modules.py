@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from ..canonical import make_scale_key
+from ..canonical import make_scale_key, make_scale_label
 from .domains import parse_new_modules_benchmark
 
 
@@ -23,6 +23,15 @@ _ANOVA_MODELS = {
     "tukey_hsd": ("TukeyHSD", "Tukey HSD", "post-hoc"),
     "bonferroni": ("BonferroniCorrection", "Bonferroni", "multiple-testing"),
 }
+
+_GAM_SCALES = {
+    "small": (1_000, 3),
+    "medium": (10_000, 5),
+    "large": (100_000, 10),
+}
+
+_PARSER_NAME = "parse_new_modules_with_anova_benchmark_v2"
+_PARSER_VERSION = "1.2"
 
 
 def _stable_id(kind: str, *parts: object) -> str:
@@ -58,6 +67,15 @@ def _anova_scale(func_name: str, n_per_group: int, n_groups: int) -> dict[str, A
     }
 
 
+def _scale(n_samples: int, n_features: int) -> dict[str, Any]:
+    return {
+        "scale_key": make_scale_key(n_samples, n_features),
+        "n_samples": n_samples,
+        "n_features": n_features,
+        "label": make_scale_label(n_samples, n_features),
+    }
+
+
 def _timing_ms(seconds: float, filepath: Path, quality: str = "measured") -> dict[str, Any]:
     return {
         "fit_time_ms": round(float(seconds) * 1000.0, 6),
@@ -77,19 +95,172 @@ def _computed_speedup(value: float, filepath: Path) -> dict[str, Any]:
     }
 
 
+def _reported_speedup(value: float, filepath: Path, reference: str) -> dict[str, Any]:
+    return {
+        "value": round(float(value), 6),
+        "reference_backend": None,
+        "reference_framework": reference,
+        "reported_semantics": "reported_by_runner",
+        "quality": "reported",
+        "source_file": filepath.name,
+    }
+
+
+def _source(filepath: Path, date: str) -> dict[str, str]:
+    return {
+        "file": filepath.name,
+        "date": date,
+        "parser": _PARSER_NAME,
+        "parser_version": _PARSER_VERSION,
+    }
+
+
+def _append_all_aligned_gam_rows(
+    runs: list[dict],
+    models: list[dict],
+    warnings: list[str],
+    data: dict[str, Any],
+    filepath: Path,
+    env_id: str,
+    date: str,
+) -> None:
+    """Expose every aligned GAM scale instead of only the previous large row."""
+    aligned = data.get("modules", {}).get("gam", {}).get("precision_aligned", {})
+    emitted = 0
+
+    for scale_name, (n_samples, n_features) in _GAM_SCALES.items():
+        selected = {
+            backend: aligned.get(f"gam_fixed_{scale_name}_{backend}")
+            for backend in ("numpy", "cupy", "torch")
+        }
+        selected = {backend: row for backend, row in selected.items() if row}
+        if not selected:
+            warnings.append(f"{filepath.name}: no aligned GAM rows for {scale_name}")
+            continue
+
+        external_seconds = next(
+            (
+                float(row["pygam_time"])
+                for row in selected.values()
+                if row.get("pygam_time") is not None
+            ),
+            None,
+        )
+        scale = _scale(n_samples, n_features)
+        case_id = _stable_id("case", "gam", "aligned", scale_name, scale["scale_key"])
+        method_id = _stable_id("method", "gam", "aligned-pygam")
+
+        for backend, row in selected.items():
+            statgpu_seconds = row.get("statgpu_time")
+            if statgpu_seconds is None:
+                continue
+            rel_diff = row.get("pred_rel_diff")
+            metrics: dict[str, Any] = {
+                "timing": _timing_ms(float(statgpu_seconds), filepath),
+            }
+            if row.get("speedup") is not None:
+                metrics["speedup"] = _reported_speedup(
+                    float(row["speedup"]), filepath, "pygam"
+                )
+            if rel_diff is not None:
+                rel_diff = float(rel_diff)
+                status = "pass" if rel_diff <= 0.05 else "warn"
+                metrics["validation"] = {
+                    "status": status,
+                    "checks": [
+                        {
+                            "metric": "prediction_relative_difference",
+                            "operator": "le",
+                            "status": status,
+                            "value": rel_diff,
+                            "tolerance": 0.05,
+                            "reference": "pygam",
+                        }
+                    ],
+                    "quality": "computed",
+                    "source_file": filepath.name,
+                }
+
+            runs.append(
+                {
+                    "run_id": "",
+                    "benchmark_session_id": f"{env_id}-new-modules-{date}",
+                    "env_id": env_id,
+                    "category_ids": ["nonparametric"],
+                    "model_id": "GAM",
+                    "case_id": case_id,
+                    "method_config_id": method_id,
+                    "variant": "aligned-pygam",
+                    "penalty": None,
+                    "solver": "gcv",
+                    "solver_display": "GCV",
+                    "solver_kind": "internal",
+                    "framework": "statgpu",
+                    "backend": backend,
+                    "scale": scale,
+                    "source": _source(filepath, date),
+                    "metrics": metrics,
+                }
+            )
+            emitted += 1
+
+        if external_seconds is not None:
+            runs.append(
+                {
+                    "run_id": "",
+                    "benchmark_session_id": f"{env_id}-new-modules-{date}",
+                    "env_id": env_id,
+                    "category_ids": ["nonparametric"],
+                    "model_id": "GAM",
+                    "case_id": case_id,
+                    "method_config_id": method_id,
+                    "variant": "aligned-pygam",
+                    "penalty": None,
+                    "solver": "gcv",
+                    "solver_display": "GCV",
+                    "solver_kind": "internal",
+                    "framework": "pygam",
+                    "backend": None,
+                    "scale": scale,
+                    "source": _source(filepath, date),
+                    "metrics": {
+                        "timing": _timing_ms(external_seconds, filepath, "reported")
+                    },
+                }
+            )
+            emitted += 1
+
+    if emitted:
+        models.append(
+            {
+                "model_id": "GAM",
+                "primary_category_id": "nonparametric",
+                "category_ids": ["nonparametric"],
+                "supports_penalty": True,
+                "supports_inference": False,
+            }
+        )
+
+
 def parse_new_modules_with_anova_benchmark(
     filepath: Path, env_id: str
 ) -> tuple[list[dict], list[dict], list[str]]:
-    """Parse panel/GAM plus all ANOVA functions from the 2026-06-24 bundle."""
+    """Parse all aligned Panel/GAM scales plus all ANOVA functions."""
     runs, models, warnings = parse_new_modules_benchmark(filepath, env_id)
     data = json.loads(filepath.read_text(encoding="utf-8"))
     date = data.get("date", "")
-    parser_name = "parse_new_modules_with_anova_benchmark_v1"
+
+    # The legacy domain parser emitted only the large aligned GAM row. Replace
+    # those rows with the complete small/medium/large aligned matrix.
+    runs = [run for run in runs if run.get("model_id") != "GAM"]
+    models = [model for model in models if model.get("model_id") != "GAM"]
 
     # Keep one parser identity for every run emitted from this canonical source.
     for run in runs:
-        run["source"]["parser"] = parser_name
-        run["source"]["parser_version"] = "1.1"
+        run["source"]["parser"] = _PARSER_NAME
+        run["source"]["parser_version"] = _PARSER_VERSION
+
+    _append_all_aligned_gam_rows(runs, models, warnings, data, filepath, env_id, date)
 
     anova = data.get("modules", {}).get("anova", {})
     performance = anova.get("performance", {})
@@ -175,12 +346,7 @@ def parse_new_modules_with_anova_benchmark(
                         "framework": "statgpu",
                         "backend": backend,
                         "scale": scale,
-                        "source": {
-                            "file": filepath.name,
-                            "date": date,
-                            "parser": parser_name,
-                            "parser_version": "1.1",
-                        },
+                        "source": _source(filepath, date),
                         "metrics": metrics,
                     }
                 )
@@ -212,12 +378,7 @@ def parse_new_modules_with_anova_benchmark(
                             "framework": "scipy",
                             "backend": None,
                             "scale": scale,
-                            "source": {
-                                "file": filepath.name,
-                                "date": date,
-                                "parser": parser_name,
-                                "parser_version": "1.1",
-                            },
+                            "source": _source(filepath, date),
                             "metrics": {
                                 "timing": _timing_ms(
                                     float(external_seconds), filepath, "reported"
