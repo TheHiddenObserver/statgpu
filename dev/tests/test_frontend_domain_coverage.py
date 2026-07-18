@@ -157,6 +157,44 @@ def test_anova_has_all_functions_backends_and_scipy(canonical_output):
     )
 
 
+def test_gam_exposes_complete_aligned_scale_matrix(canonical_output):
+    output, _, _, _ = canonical_output
+    gam_runs = [
+        run
+        for run in output["runs"]
+        if run["model_id"] == "GAM"
+        and run.get("variant") == "aligned-pygam"
+        and run["source"]["file"] == "new_modules_full_20260624.json"
+    ]
+    assert len(gam_runs) == 12
+    assert {run["scale"]["label"] for run in gam_runs} == {
+        "1K×3",
+        "10K×5",
+        "100K×10",
+    }
+
+    for label in ("1K×3", "10K×5", "100K×10"):
+        rows = [run for run in gam_runs if run["scale"]["label"] == label]
+        assert len(rows) == 4
+        assert {run["framework"] for run in rows} == {"statgpu", "pygam"}
+        assert {
+            run["backend"]
+            for run in rows
+            if run["framework"] == "statgpu"
+        } == {"numpy", "cupy", "torch"}
+        assert all(run.get("metrics", {}).get("timing") for run in rows)
+        assert all(
+            run.get("metrics", {}).get("speedup", {}).get("reference_framework")
+            == "pygam"
+            for run in rows
+            if run["framework"] == "statgpu"
+        )
+
+    assert {
+        run["source"]["parser_version"] for run in gam_runs
+    } == {"1.2"}
+
+
 def test_missing_domain_sources_are_manifest_registered(canonical_output):
     _, _, _, manifest = canonical_output
     parsers = {source["parser"] for source in manifest["sources"]}
