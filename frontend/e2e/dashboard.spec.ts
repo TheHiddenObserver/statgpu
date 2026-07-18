@@ -53,6 +53,23 @@ test.describe('Benchmark Dashboard', () => {
     expect(fullRows).toBeGreaterThanOrEqual(focusedRows);
   });
 
+  test('Survival focused charts use the default NumPy implementation while full matrix preserves Numba', async ({ page }) => {
+    await page.getByRole('button', { name: 'None' }).click();
+    await page.locator('#cat-survival').check();
+
+    const timingChart = page.locator('#timing-chart');
+    const speedupChart = page.locator('#speedup-chart');
+    await expect(timingChart).toHaveAttribute('data-implementation-scope', 'default-only');
+    await expect(speedupChart).toHaveAttribute('data-implementation-scope', 'default-only');
+    await expect(timingChart).toHaveAttribute('aria-label', /default NumPy implementation only/);
+    await expect(speedupChart).toHaveAttribute('aria-label', /default NumPy implementation only/);
+
+    await page.getByRole('button', { name: 'Full matrix' }).click();
+    await expect(timingChart).toHaveAttribute('data-implementation-scope', 'all');
+    await expect(speedupChart).toHaveAttribute('data-implementation-scope', 'all');
+    await expect(page.locator('.table-container')).toContainText('numba');
+  });
+
   test('speedup chart lifts the dashed parity label above the bars', async ({ page }) => {
     const chart = page.locator('#speedup-chart');
     await expect(chart).toHaveAttribute('data-parity-style', 'dashed');
