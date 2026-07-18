@@ -54,6 +54,20 @@ test.describe('Benchmark domain coverage', () => {
     });
   });
 
+  test('nonparametric GAM exposes all aligned source scales', async ({ page }) => {
+    await page.getByRole('button', { name: 'None' }).click();
+    await page.locator('#cat-nonparametric').check();
+
+    const modelSelect = page.locator('.filter-bar select').first();
+    await modelSelect.selectOption('GAM');
+
+    const chips = page.locator('.scale-chip');
+    await expect(chips.filter({ hasText: '1K×3' })).toHaveCount(1);
+    await expect(chips.filter({ hasText: '10K×5' })).toHaveCount(1);
+    await expect(chips.filter({ hasText: '100K×10' })).toHaveCount(1);
+    await expect(page.locator('input[value="pygam"]')).toBeVisible();
+  });
+
   test('ANOVA includes all functions and SciPy reference rows', async ({ page }) => {
     await page.getByRole('button', { name: 'None' }).click();
     await page.locator('#cat-anova').check();
