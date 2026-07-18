@@ -3,8 +3,8 @@
   "files_seen": 8,
   "files_parsed": 8,
   "files_skipped": 0,
-  "runs_generated": 1661,
-  "generation_id": "a4fd68d04f08fc2c599e4fe0785b93334976200dddcd6aff52ffadf0eae04ecf",
+  "runs_generated": 1774,
+  "generation_id": "a7991ae2d6016da65a7ee52dbe81b6fc97f141175dcd38a4550fda23c434ce54",
   "issues": [
     {
       "source_id": "glm-solver-20260623-1b6197d94d88",
