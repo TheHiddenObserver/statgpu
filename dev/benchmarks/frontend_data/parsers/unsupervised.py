@@ -4,7 +4,7 @@ from __future__ import annotations
 import hashlib
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 from ..canonical import make_scale_key, make_scale_label
 
@@ -14,8 +14,8 @@ _PARSER_VERSION = "2.0"
 _DATE = "2026-06-27"
 
 # The source runner starts from (1K,20), (10K,50), and (100K,100), but
-# caps the input feature count at 50 for the estimators below.  Scale labels
-# must describe the arrays actually passed to fit, not the uncapped template.
+# caps the input feature count at 50 for the estimators below. Scale labels
+# describe the arrays actually passed to fit, not the uncapped template.
 _BASE_SCALES = {
     "small": (1_000, 20),
     "medium": (10_000, 50),
@@ -34,8 +34,7 @@ _SIMPLE_MODELS: dict[str, tuple[str, dict[str, Any]]] = {
     "ipca": ("IncrementalPCA", {"n_components": 10}),
 }
 
-
-CaseSpec = tuple[str, int, int, str | None, dict[str, Any]]
+CaseSpec = tuple[str, int, int, Optional[str], dict[str, Any]]
 
 
 def _case_specs() -> dict[str, CaseSpec]:
