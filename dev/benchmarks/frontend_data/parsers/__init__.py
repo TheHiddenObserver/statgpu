@@ -15,7 +15,7 @@ from .domains import (
     parse_new_modules_benchmark,
     parse_p2_benchmark,
 )
-from .new_modules import parse_new_modules_with_anova_benchmark
+from .new_modules_complete import parse_new_modules_with_anova_benchmark
 from .pr74 import parse_pr74_inference_benchmark
 
 __all__ = [
