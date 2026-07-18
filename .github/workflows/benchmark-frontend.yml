@@ -1,3 +1,4 @@
+# Temporary publication mode for PR #78; restore read-only staleness after assets land.
 name: Benchmark Frontend CI
 
 on:
