@@ -161,7 +161,7 @@
       "original_path": "results/new_modules_full_2026-06-24.json",
       "sha256": "bcbdb676223bea9a71bdd4fe6701ee8d177536ad12a6b1b93ba65ec1675cb6e6",
       "parser": "new_modules_with_anova_benchmark",
-      "parser_version": "1.2",
+      "parser_version": "1.3",
       "env_id": "remote-p100",
       "required": true,
       "allowed_issue_codes": [],
