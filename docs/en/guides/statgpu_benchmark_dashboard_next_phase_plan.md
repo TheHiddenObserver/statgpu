@@ -8,13 +8,13 @@ Completed scope includes:
 
 - Schema v1.1.0 and runtime version checks.
 - Manifest-driven canonical source registration.
-- Nine canonical benchmark sources and eight parser implementations.
+- Eight canonical benchmark sources and the registered parser implementations.
 - Source SHA256 verification and strict issue handling.
 - Canonical run identity and speedup-reference resolution.
 - Vite + TypeScript + ECharts frontend.
 - Modular chart, component, state, identity, and panel code.
 - Timing and speedup charts.
-- Validation, accuracy, prediction, convergence, and selection panels.
+- Validation, accuracy, inference, prediction, convergence, and selection panels.
 - Progressive filters and data-driven default state.
 - Python, TypeScript, build, staleness, and Playwright checks.
 - Current frontend, user, schema, parser, and aggregation documentation.
@@ -120,6 +120,7 @@ For filters that produce relevant metrics, verify:
 
 - Validation status and checks.
 - Accuracy fields and references.
+- Inference metrics where present.
 - Prediction fields, including C-index where present.
 - Convergence summaries.
 - Selection metrics and target FDR.
@@ -155,6 +156,7 @@ The following documentation now exists:
 - `docs/benchmark-dashboard/parser-contracts.md`
 - `docs/benchmark-dashboard/aggregation-contract.md`
 - `docs/benchmark-dashboard/rollout-plan.md`
+- `docs/benchmark-dashboard/penalized-robust-quantile-plan.md`
 
 Remaining documentation work:
 
@@ -164,6 +166,29 @@ Remaining documentation work:
 - Update contract documentation in the same PR as any schema, identity, parser, or aggregation change.
 
 ## Recommended future enhancements
+
+### Penalized robust and quantile integration
+
+A dedicated implementation plan is recorded in:
+
+```text
+docs/benchmark-dashboard/penalized-robust-quantile-plan.md
+```
+
+The selected design is:
+
+- keep the existing `robust_quantile` category;
+- add penalty as a first-class method dimension;
+- generate a new P100 benchmark source rather than relabeling unpenalized rows;
+- begin with Quantile `q=0.5` and Huber/MAD;
+- cover `none`, L1, L2, ElasticNet, SCAD, and MCP;
+- use four representative scales, three backends, and Auto/resolved solver identity;
+- preserve `none` in Focused mode as the direct baseline;
+- defer group/adaptive penalties, additional loss variants, and an exhaustive solver matrix.
+
+This staged core matrix was selected over both a minimal two-case benchmark and an exhaustive cross-product. It provides enough coverage to exercise smooth, nonsmooth, and nonconvex solver paths while remaining interpretable and feasible to validate.
+
+The plan is not complete until a real June-or-later P100 artifact is generated, registered, parsed, and tested. Frontend-only relabeling is explicitly prohibited.
 
 ### URL-persisted state
 
@@ -243,7 +268,8 @@ Possible future measures include lazy panels, precomputed indexes, virtualized t
 python -m pip install -U pytest jsonschema
 
 pytest dev/tests/test_benchmark_frontend_data.py \
-       dev/tests/test_frontend_contracts.py -v
+       dev/tests/test_frontend_contracts.py \
+       dev/tests/test_frontend_domain_coverage.py -v
 
 python dev/benchmarks/generate_benchmark_data.py --check --strict-sources
 
