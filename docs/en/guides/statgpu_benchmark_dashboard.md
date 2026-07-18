@@ -6,7 +6,7 @@ The browser is a presentation layer over a generated benchmark bundle. Raw resul
 
 ## Current coverage
 
-The canonical manifest registers **eight benchmark sources**, all dated **2026-06-01 or later**. The generated bundle contains **1,653 normalized runs across 36 models**:
+The canonical manifest registers **eight benchmark sources**, all dated **2026-06-01 or later**. The generated bundle contains **1,661 normalized runs across 36 models**:
 
 | Source | Frontend coverage |
 |---|---|
@@ -23,9 +23,18 @@ These sources populate penalized GLM and GLM, recent linear models, robust/quant
 
 Aligned GAM coverage includes `1K×3`, `10K×5`, and `100K×10`. Each scale contains statgpu NumPy/CuPy/Torch rows and a pyGAM reference, together with runner-reported speedup and prediction-difference validation. The previous large-only display was a parser omission and has been corrected.
 
+Aligned Panel coverage includes `10K×10` and `100K×20` for both PanelOLS and RandomEffects. Each model/scale contains statgpu NumPy/CuPy/Torch rows and a linearmodels reference, together with runner-reported speedup and coefficient-relative-error metrics. The previous large-only display was also a parser omission and is corrected by parser v1.3.
+
 ANOVA coverage includes one-way ANOVA, two-way ANOVA, Welch ANOVA, Tukey HSD, and Bonferroni correction at three scales on NumPy, CuPy, and Torch. One-way ANOVA also contains aligned SciPy timing and F-statistic validation rows.
 
-The current bundle should not be interpreted as complete coverage of every implementation in the repository. Ordered scales remain too small to locate a GPU crossover; covariance currently contains only EmpiricalCovariance; Feature Selection has no eligible source; and ANOVA has too few synchronized scale points for a precise crossover interval. These gaps and the required benchmark matrices are recorded in `docs/benchmark-dashboard/domain-coverage-audit-plan.md`.
+The current bundle should not be interpreted as complete coverage of every implementation in the repository. In particular, the current robust source contains CPU Huber and Quantile fit comparisons but no Bisquare, Fair, or robust-loss GPU fit matrix. Ordered scales remain too small to locate a GPU crossover; covariance currently contains only EmpiricalCovariance; Feature Selection has no eligible source; and ANOVA has too few synchronized scale points for a precise crossover interval.
+
+The domain and method-level gaps are recorded in:
+
+- `docs/benchmark-dashboard/domain-coverage-audit-plan.md`;
+- `docs/benchmark-dashboard/method-coverage-audit.md`;
+- `docs/benchmark-dashboard/robust-loss-comparison-plan.md`;
+- `docs/benchmark-dashboard/penalized-robust-quantile-plan.md`.
 
 April 2026 ElasticNet, LassoCV, comprehensive-validation, Cox package-comparison, and knockoff sources are not registered. The feature-selection category remains part of Schema v1.1 but is intentionally empty until a June 2026-or-later benchmark is available.
 
@@ -157,4 +166,6 @@ Technical references:
 - `docs/benchmark-dashboard/parser-contracts.md`
 - `docs/benchmark-dashboard/aggregation-contract.md`
 - `docs/benchmark-dashboard/domain-coverage-audit-plan.md`
+- `docs/benchmark-dashboard/method-coverage-audit.md`
+- `docs/benchmark-dashboard/robust-loss-comparison-plan.md`
 - `docs/benchmark-dashboard/penalized-robust-quantile-plan.md`
