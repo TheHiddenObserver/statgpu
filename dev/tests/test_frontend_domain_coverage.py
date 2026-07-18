@@ -16,6 +16,7 @@ TARGET_CATEGORIES = {
     "panel",
     "covariance",
     "anova",
+    "survival",
 }
 
 
@@ -94,6 +95,43 @@ def test_quantile_inference_has_all_backends(canonical_output):
     assert {run.get("variant") for run in quantile_inference} == {"kernel", "bootstrap"}
 
 
+def test_survival_includes_breslow_timing_speedup_and_validation(canonical_output):
+    output, _, _, _ = canonical_output
+    breslow = [
+        run
+        for run in output["runs"]
+        if "survival" in run["category_ids"]
+        and run["model_id"] == "CoxPH"
+        and run.get("variant") == "breslow"
+        and run["source"]["file"] == "loss_functions_20260623.json"
+    ]
+    assert len(breslow) == 20
+    assert {run["framework"] for run in breslow} == {"statgpu", "statsmodels"}
+    assert {
+        run["backend"]
+        for run in breslow
+        if run["framework"] == "statgpu"
+    } == {"numpy", "cupy", "torch"}
+    assert all(run.get("metrics", {}).get("timing") for run in breslow)
+
+    statgpu = [run for run in breslow if run["framework"] == "statgpu"]
+    assert all(
+        run.get("metrics", {}).get("speedup", {}).get("reference_framework")
+        == "statsmodels"
+        for run in statgpu
+    )
+    assert all(
+        run["metrics"]["speedup"]["reported_semantics"] == "reported_by_runner"
+        for run in statgpu
+    )
+    validated_backends = {
+        run["backend"]
+        for run in statgpu
+        if run.get("metrics", {}).get("validation")
+    }
+    assert validated_backends == {"numpy", "cupy"}
+
+
 def test_anova_has_all_functions_backends_and_scipy(canonical_output):
     output, _, _, _ = canonical_output
     anova_runs = [run for run in output["runs"] if "anova" in run["category_ids"]]
@@ -144,6 +182,7 @@ def test_domain_models_are_present(canonical_output):
     assert {
         "QuantileRegression",
         "RobustRegression",
+        "CoxPH",
         "OrderedLogit",
         "OrderedProbit",
         "PCA",
