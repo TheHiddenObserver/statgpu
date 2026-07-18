@@ -4,7 +4,7 @@
   "meta": {
     "generator": "dev/benchmarks/generate_benchmark_data.py",
     "git_sha": "deterministic",
-    "generation_id": "f1d923a48d96349b2c068eebd4ef79a5b5f5c684f42ffd5fd4eea9ffd2685819"
+    "generation_id": "088853de2fb325c6ee88d19b15fa92c014118d34e6f3664e19bbbb4f60f770c4"
   },
   "environments": [
     {
@@ -71277,8 +71277,8 @@
       "source": {
         "file": "new_modules_full_20260624.json",
         "date": "2026-06-24",
-        "parser": "parse_new_modules_with_anova_benchmark_v1",
-        "parser_version": "1.1",
+        "parser": "parse_new_modules_with_anova_benchmark_v2",
+        "parser_version": "1.2",
         "source_id": "new-modules-20260624-bcbdb676223b",
         "original_path": "results/new_modules_full_2026-06-24.json"
       },
@@ -71330,8 +71330,8 @@
       "source": {
         "file": "new_modules_full_20260624.json",
         "date": "2026-06-24",
-        "parser": "parse_new_modules_with_anova_benchmark_v1",
-        "parser_version": "1.1",
+        "parser": "parse_new_modules_with_anova_benchmark_v2",
+        "parser_version": "1.2",
         "source_id": "new-modules-20260624-bcbdb676223b",
         "original_path": "results/new_modules_full_2026-06-24.json"
       },
@@ -71383,8 +71383,8 @@
       "source": {
         "file": "new_modules_full_20260624.json",
         "date": "2026-06-24",
-        "parser": "parse_new_modules_with_anova_benchmark_v1",
-        "parser_version": "1.1",
+        "parser": "parse_new_modules_with_anova_benchmark_v2",
+        "parser_version": "1.2",
         "source_id": "new-modules-20260624-bcbdb676223b",
         "original_path": "results/new_modules_full_2026-06-24.json"
       },
@@ -71436,8 +71436,8 @@
       "source": {
         "file": "new_modules_full_20260624.json",
         "date": "2026-06-24",
-        "parser": "parse_new_modules_with_anova_benchmark_v1",
-        "parser_version": "1.1",
+        "parser": "parse_new_modules_with_anova_benchmark_v2",
+        "parser_version": "1.2",
         "source_id": "new-modules-20260624-bcbdb676223b",
         "original_path": "results/new_modules_full_2026-06-24.json"
       },
@@ -71475,8 +71475,8 @@
       "source": {
         "file": "new_modules_full_20260624.json",
         "date": "2026-06-24",
-        "parser": "parse_new_modules_with_anova_benchmark_v1",
-        "parser_version": "1.1",
+        "parser": "parse_new_modules_with_anova_benchmark_v2",
+        "parser_version": "1.2",
         "source_id": "new-modules-20260624-bcbdb676223b",
         "original_path": "results/new_modules_full_2026-06-24.json"
       },
@@ -71528,8 +71528,8 @@
       "source": {
         "file": "new_modules_full_20260624.json",
         "date": "2026-06-24",
-        "parser": "parse_new_modules_with_anova_benchmark_v1",
-        "parser_version": "1.1",
+        "parser": "parse_new_modules_with_anova_benchmark_v2",
+        "parser_version": "1.2",
         "source_id": "new-modules-20260624-bcbdb676223b",
         "original_path": "results/new_modules_full_2026-06-24.json"
       },
@@ -71581,8 +71581,8 @@
       "source": {
         "file": "new_modules_full_20260624.json",
         "date": "2026-06-24",
-        "parser": "parse_new_modules_with_anova_benchmark_v1",
-        "parser_version": "1.1",
+        "parser": "parse_new_modules_with_anova_benchmark_v2",
+        "parser_version": "1.2",
         "source_id": "new-modules-20260624-bcbdb676223b",
         "original_path": "results/new_modules_full_2026-06-24.json"
       },
@@ -71634,8 +71634,8 @@
       "source": {
         "file": "new_modules_full_20260624.json",
         "date": "2026-06-24",
-        "parser": "parse_new_modules_with_anova_benchmark_v1",
-        "parser_version": "1.1",
+        "parser": "parse_new_modules_with_anova_benchmark_v2",
+        "parser_version": "1.2",
         "source_id": "new-modules-20260624-bcbdb676223b",
         "original_path": "results/new_modules_full_2026-06-24.json"
       },
@@ -71649,15 +71649,474 @@
       "comparison_id": "new-modules-20260624"
     },
     {
-      "run_id": "1886fb15e3af4138",
+      "run_id": "8df44e5e9c19f8e3",
       "benchmark_session_id": "remote-p100-new-modules-2026-06-24",
       "env_id": "remote-p100",
       "category_ids": [
         "nonparametric"
       ],
       "model_id": "GAM",
-      "case_id": "case-72ea86c44c8eaa7a",
+      "case_id": "case-4c598de529999f4a",
       "method_config_id": "method-b2b95951915ac4ff",
+      "variant": "aligned-pygam",
+      "penalty": null,
+      "solver": "gcv",
+      "solver_display": "GCV",
+      "solver_kind": "internal",
+      "framework": "statgpu",
+      "backend": "numpy",
+      "scale": {
+        "scale_key": "n1000_p3",
+        "n_samples": 1000,
+        "n_features": 3,
+        "label": "1K×3"
+      },
+      "source": {
+        "file": "new_modules_full_20260624.json",
+        "date": "2026-06-24",
+        "parser": "parse_new_modules_with_anova_benchmark_v2",
+        "parser_version": "1.2",
+        "source_id": "new-modules-20260624-bcbdb676223b",
+        "original_path": "results/new_modules_full_2026-06-24.json"
+      },
+      "metrics": {
+        "timing": {
+          "fit_time_ms": 6.523043,
+          "quality": "measured",
+          "source_file": "new_modules_full_20260624.json"
+        },
+        "speedup": {
+          "value": 4.102514,
+          "reference_backend": null,
+          "reference_framework": "pygam",
+          "reported_semantics": "reported_by_runner",
+          "quality": "reported",
+          "source_file": "new_modules_full_20260624.json"
+        },
+        "validation": {
+          "status": "pass",
+          "checks": [
+            {
+              "metric": "prediction_relative_difference",
+              "operator": "le",
+              "status": "pass",
+              "value": 0.012444057971803316,
+              "tolerance": 0.05,
+              "reference": "pygam"
+            }
+          ],
+          "quality": "computed",
+          "source_file": "new_modules_full_20260624.json"
+        }
+      },
+      "comparison_id": "new-modules-20260624"
+    },
+    {
+      "run_id": "49078b2826de6c25",
+      "benchmark_session_id": "remote-p100-new-modules-2026-06-24",
+      "env_id": "remote-p100",
+      "category_ids": [
+        "nonparametric"
+      ],
+      "model_id": "GAM",
+      "case_id": "case-4c598de529999f4a",
+      "method_config_id": "method-b2b95951915ac4ff",
+      "variant": "aligned-pygam",
+      "penalty": null,
+      "solver": "gcv",
+      "solver_display": "GCV",
+      "solver_kind": "internal",
+      "framework": "statgpu",
+      "backend": "cupy",
+      "scale": {
+        "scale_key": "n1000_p3",
+        "n_samples": 1000,
+        "n_features": 3,
+        "label": "1K×3"
+      },
+      "source": {
+        "file": "new_modules_full_20260624.json",
+        "date": "2026-06-24",
+        "parser": "parse_new_modules_with_anova_benchmark_v2",
+        "parser_version": "1.2",
+        "source_id": "new-modules-20260624-bcbdb676223b",
+        "original_path": "results/new_modules_full_2026-06-24.json"
+      },
+      "metrics": {
+        "timing": {
+          "fit_time_ms": 740.69649,
+          "quality": "measured",
+          "source_file": "new_modules_full_20260624.json"
+        },
+        "speedup": {
+          "value": 0.036129,
+          "reference_backend": null,
+          "reference_framework": "pygam",
+          "reported_semantics": "reported_by_runner",
+          "quality": "reported",
+          "source_file": "new_modules_full_20260624.json"
+        },
+        "validation": {
+          "status": "pass",
+          "checks": [
+            {
+              "metric": "prediction_relative_difference",
+              "operator": "le",
+              "status": "pass",
+              "value": 0.01244405797180297,
+              "tolerance": 0.05,
+              "reference": "pygam"
+            }
+          ],
+          "quality": "computed",
+          "source_file": "new_modules_full_20260624.json"
+        }
+      },
+      "comparison_id": "new-modules-20260624"
+    },
+    {
+      "run_id": "fd3dd15502170404",
+      "benchmark_session_id": "remote-p100-new-modules-2026-06-24",
+      "env_id": "remote-p100",
+      "category_ids": [
+        "nonparametric"
+      ],
+      "model_id": "GAM",
+      "case_id": "case-4c598de529999f4a",
+      "method_config_id": "method-b2b95951915ac4ff",
+      "variant": "aligned-pygam",
+      "penalty": null,
+      "solver": "gcv",
+      "solver_display": "GCV",
+      "solver_kind": "internal",
+      "framework": "statgpu",
+      "backend": "torch",
+      "scale": {
+        "scale_key": "n1000_p3",
+        "n_samples": 1000,
+        "n_features": 3,
+        "label": "1K×3"
+      },
+      "source": {
+        "file": "new_modules_full_20260624.json",
+        "date": "2026-06-24",
+        "parser": "parse_new_modules_with_anova_benchmark_v2",
+        "parser_version": "1.2",
+        "source_id": "new-modules-20260624-bcbdb676223b",
+        "original_path": "results/new_modules_full_2026-06-24.json"
+      },
+      "metrics": {
+        "timing": {
+          "fit_time_ms": 17.504632,
+          "quality": "measured",
+          "source_file": "new_modules_full_20260624.json"
+        },
+        "speedup": {
+          "value": 1.528788,
+          "reference_backend": null,
+          "reference_framework": "pygam",
+          "reported_semantics": "reported_by_runner",
+          "quality": "reported",
+          "source_file": "new_modules_full_20260624.json"
+        },
+        "validation": {
+          "status": "pass",
+          "checks": [
+            {
+              "metric": "prediction_relative_difference",
+              "operator": "le",
+              "status": "pass",
+              "value": 0.01244405797180297,
+              "tolerance": 0.05,
+              "reference": "pygam"
+            }
+          ],
+          "quality": "computed",
+          "source_file": "new_modules_full_20260624.json"
+        }
+      },
+      "comparison_id": "new-modules-20260624"
+    },
+    {
+      "run_id": "56f133e3e6e98c6c",
+      "benchmark_session_id": "remote-p100-new-modules-2026-06-24",
+      "env_id": "remote-p100",
+      "category_ids": [
+        "nonparametric"
+      ],
+      "model_id": "GAM",
+      "case_id": "case-4c598de529999f4a",
+      "method_config_id": "method-b2b95951915ac4ff",
+      "variant": "aligned-pygam",
+      "penalty": null,
+      "solver": "gcv",
+      "solver_display": "GCV",
+      "solver_kind": "internal",
+      "framework": "pygam",
+      "backend": null,
+      "scale": {
+        "scale_key": "n1000_p3",
+        "n_samples": 1000,
+        "n_features": 3,
+        "label": "1K×3"
+      },
+      "source": {
+        "file": "new_modules_full_20260624.json",
+        "date": "2026-06-24",
+        "parser": "parse_new_modules_with_anova_benchmark_v2",
+        "parser_version": "1.2",
+        "source_id": "new-modules-20260624-bcbdb676223b",
+        "original_path": "results/new_modules_full_2026-06-24.json"
+      },
+      "metrics": {
+        "timing": {
+          "fit_time_ms": 26.760876,
+          "quality": "reported",
+          "source_file": "new_modules_full_20260624.json"
+        }
+      },
+      "comparison_id": "new-modules-20260624"
+    },
+    {
+      "run_id": "1ebd0e58e1499129",
+      "benchmark_session_id": "remote-p100-new-modules-2026-06-24",
+      "env_id": "remote-p100",
+      "category_ids": [
+        "nonparametric"
+      ],
+      "model_id": "GAM",
+      "case_id": "case-cc275b0470a86fe2",
+      "method_config_id": "method-b2b95951915ac4ff",
+      "variant": "aligned-pygam",
+      "penalty": null,
+      "solver": "gcv",
+      "solver_display": "GCV",
+      "solver_kind": "internal",
+      "framework": "statgpu",
+      "backend": "numpy",
+      "scale": {
+        "scale_key": "n10000_p5",
+        "n_samples": 10000,
+        "n_features": 5,
+        "label": "10K×5"
+      },
+      "source": {
+        "file": "new_modules_full_20260624.json",
+        "date": "2026-06-24",
+        "parser": "parse_new_modules_with_anova_benchmark_v2",
+        "parser_version": "1.2",
+        "source_id": "new-modules-20260624-bcbdb676223b",
+        "original_path": "results/new_modules_full_2026-06-24.json"
+      },
+      "metrics": {
+        "timing": {
+          "fit_time_ms": 80.154926,
+          "quality": "measured",
+          "source_file": "new_modules_full_20260624.json"
+        },
+        "speedup": {
+          "value": 2.544298,
+          "reference_backend": null,
+          "reference_framework": "pygam",
+          "reported_semantics": "reported_by_runner",
+          "quality": "reported",
+          "source_file": "new_modules_full_20260624.json"
+        },
+        "validation": {
+          "status": "pass",
+          "checks": [
+            {
+              "metric": "prediction_relative_difference",
+              "operator": "le",
+              "status": "pass",
+              "value": 0.004435598499465685,
+              "tolerance": 0.05,
+              "reference": "pygam"
+            }
+          ],
+          "quality": "computed",
+          "source_file": "new_modules_full_20260624.json"
+        }
+      },
+      "comparison_id": "new-modules-20260624"
+    },
+    {
+      "run_id": "153a3279ed6c723f",
+      "benchmark_session_id": "remote-p100-new-modules-2026-06-24",
+      "env_id": "remote-p100",
+      "category_ids": [
+        "nonparametric"
+      ],
+      "model_id": "GAM",
+      "case_id": "case-cc275b0470a86fe2",
+      "method_config_id": "method-b2b95951915ac4ff",
+      "variant": "aligned-pygam",
+      "penalty": null,
+      "solver": "gcv",
+      "solver_display": "GCV",
+      "solver_kind": "internal",
+      "framework": "statgpu",
+      "backend": "cupy",
+      "scale": {
+        "scale_key": "n10000_p5",
+        "n_samples": 10000,
+        "n_features": 5,
+        "label": "10K×5"
+      },
+      "source": {
+        "file": "new_modules_full_20260624.json",
+        "date": "2026-06-24",
+        "parser": "parse_new_modules_with_anova_benchmark_v2",
+        "parser_version": "1.2",
+        "source_id": "new-modules-20260624-bcbdb676223b",
+        "original_path": "results/new_modules_full_2026-06-24.json"
+      },
+      "metrics": {
+        "timing": {
+          "fit_time_ms": 35.624772,
+          "quality": "measured",
+          "source_file": "new_modules_full_20260624.json"
+        },
+        "speedup": {
+          "value": 5.724613,
+          "reference_backend": null,
+          "reference_framework": "pygam",
+          "reported_semantics": "reported_by_runner",
+          "quality": "reported",
+          "source_file": "new_modules_full_20260624.json"
+        },
+        "validation": {
+          "status": "pass",
+          "checks": [
+            {
+              "metric": "prediction_relative_difference",
+              "operator": "le",
+              "status": "pass",
+              "value": 0.004435598499466642,
+              "tolerance": 0.05,
+              "reference": "pygam"
+            }
+          ],
+          "quality": "computed",
+          "source_file": "new_modules_full_20260624.json"
+        }
+      },
+      "comparison_id": "new-modules-20260624"
+    },
+    {
+      "run_id": "019b74951aad0c8a",
+      "benchmark_session_id": "remote-p100-new-modules-2026-06-24",
+      "env_id": "remote-p100",
+      "category_ids": [
+        "nonparametric"
+      ],
+      "model_id": "GAM",
+      "case_id": "case-cc275b0470a86fe2",
+      "method_config_id": "method-b2b95951915ac4ff",
+      "variant": "aligned-pygam",
+      "penalty": null,
+      "solver": "gcv",
+      "solver_display": "GCV",
+      "solver_kind": "internal",
+      "framework": "statgpu",
+      "backend": "torch",
+      "scale": {
+        "scale_key": "n10000_p5",
+        "n_samples": 10000,
+        "n_features": 5,
+        "label": "10K×5"
+      },
+      "source": {
+        "file": "new_modules_full_20260624.json",
+        "date": "2026-06-24",
+        "parser": "parse_new_modules_with_anova_benchmark_v2",
+        "parser_version": "1.2",
+        "source_id": "new-modules-20260624-bcbdb676223b",
+        "original_path": "results/new_modules_full_2026-06-24.json"
+      },
+      "metrics": {
+        "timing": {
+          "fit_time_ms": 29.753983,
+          "quality": "measured",
+          "source_file": "new_modules_full_20260624.json"
+        },
+        "speedup": {
+          "value": 6.854142,
+          "reference_backend": null,
+          "reference_framework": "pygam",
+          "reported_semantics": "reported_by_runner",
+          "quality": "reported",
+          "source_file": "new_modules_full_20260624.json"
+        },
+        "validation": {
+          "status": "pass",
+          "checks": [
+            {
+              "metric": "prediction_relative_difference",
+              "operator": "le",
+              "status": "pass",
+              "value": 0.004435598499466642,
+              "tolerance": 0.05,
+              "reference": "pygam"
+            }
+          ],
+          "quality": "computed",
+          "source_file": "new_modules_full_20260624.json"
+        }
+      },
+      "comparison_id": "new-modules-20260624"
+    },
+    {
+      "run_id": "b109c4a8e4237e6b",
+      "benchmark_session_id": "remote-p100-new-modules-2026-06-24",
+      "env_id": "remote-p100",
+      "category_ids": [
+        "nonparametric"
+      ],
+      "model_id": "GAM",
+      "case_id": "case-cc275b0470a86fe2",
+      "method_config_id": "method-b2b95951915ac4ff",
+      "variant": "aligned-pygam",
+      "penalty": null,
+      "solver": "gcv",
+      "solver_display": "GCV",
+      "solver_kind": "internal",
+      "framework": "pygam",
+      "backend": null,
+      "scale": {
+        "scale_key": "n10000_p5",
+        "n_samples": 10000,
+        "n_features": 5,
+        "label": "10K×5"
+      },
+      "source": {
+        "file": "new_modules_full_20260624.json",
+        "date": "2026-06-24",
+        "parser": "parse_new_modules_with_anova_benchmark_v2",
+        "parser_version": "1.2",
+        "source_id": "new-modules-20260624-bcbdb676223b",
+        "original_path": "results/new_modules_full_2026-06-24.json"
+      },
+      "metrics": {
+        "timing": {
+          "fit_time_ms": 203.938037,
+          "quality": "reported",
+          "source_file": "new_modules_full_20260624.json"
+        }
+      },
+      "comparison_id": "new-modules-20260624"
+    },
+    {
+      "run_id": "c245ae1eb721687a",
+      "benchmark_session_id": "remote-p100-new-modules-2026-06-24",
+      "env_id": "remote-p100",
+      "category_ids": [
+        "nonparametric"
+      ],
+      "model_id": "GAM",
+      "case_id": "case-bb1b93f4266c6f4a",
+      "method_config_id": "method-b2b95951915ac4ff",
+      "variant": "aligned-pygam",
       "penalty": null,
       "solver": "gcv",
       "solver_display": "GCV",
@@ -71673,8 +72132,8 @@
       "source": {
         "file": "new_modules_full_20260624.json",
         "date": "2026-06-24",
-        "parser": "parse_new_modules_with_anova_benchmark_v1",
-        "parser_version": "1.1",
+        "parser": "parse_new_modules_with_anova_benchmark_v2",
+        "parser_version": "1.2",
         "source_id": "new-modules-20260624-bcbdb676223b",
         "original_path": "results/new_modules_full_2026-06-24.json"
       },
@@ -71711,15 +72170,16 @@
       "comparison_id": "new-modules-20260624"
     },
     {
-      "run_id": "c0e9d44eab047a03",
+      "run_id": "d89e759a997f9ab2",
       "benchmark_session_id": "remote-p100-new-modules-2026-06-24",
       "env_id": "remote-p100",
       "category_ids": [
         "nonparametric"
       ],
       "model_id": "GAM",
-      "case_id": "case-72ea86c44c8eaa7a",
+      "case_id": "case-bb1b93f4266c6f4a",
       "method_config_id": "method-b2b95951915ac4ff",
+      "variant": "aligned-pygam",
       "penalty": null,
       "solver": "gcv",
       "solver_display": "GCV",
@@ -71735,8 +72195,8 @@
       "source": {
         "file": "new_modules_full_20260624.json",
         "date": "2026-06-24",
-        "parser": "parse_new_modules_with_anova_benchmark_v1",
-        "parser_version": "1.1",
+        "parser": "parse_new_modules_with_anova_benchmark_v2",
+        "parser_version": "1.2",
         "source_id": "new-modules-20260624-bcbdb676223b",
         "original_path": "results/new_modules_full_2026-06-24.json"
       },
@@ -71773,15 +72233,16 @@
       "comparison_id": "new-modules-20260624"
     },
     {
-      "run_id": "73e03f028fd0ad2a",
+      "run_id": "d2a7563282cb4a59",
       "benchmark_session_id": "remote-p100-new-modules-2026-06-24",
       "env_id": "remote-p100",
       "category_ids": [
         "nonparametric"
       ],
       "model_id": "GAM",
-      "case_id": "case-72ea86c44c8eaa7a",
+      "case_id": "case-bb1b93f4266c6f4a",
       "method_config_id": "method-b2b95951915ac4ff",
+      "variant": "aligned-pygam",
       "penalty": null,
       "solver": "gcv",
       "solver_display": "GCV",
@@ -71797,8 +72258,8 @@
       "source": {
         "file": "new_modules_full_20260624.json",
         "date": "2026-06-24",
-        "parser": "parse_new_modules_with_anova_benchmark_v1",
-        "parser_version": "1.1",
+        "parser": "parse_new_modules_with_anova_benchmark_v2",
+        "parser_version": "1.2",
         "source_id": "new-modules-20260624-bcbdb676223b",
         "original_path": "results/new_modules_full_2026-06-24.json"
       },
@@ -71835,15 +72296,16 @@
       "comparison_id": "new-modules-20260624"
     },
     {
-      "run_id": "ed224ab80ed8613b",
+      "run_id": "a25405851028800a",
       "benchmark_session_id": "remote-p100-new-modules-2026-06-24",
       "env_id": "remote-p100",
       "category_ids": [
         "nonparametric"
       ],
       "model_id": "GAM",
-      "case_id": "case-72ea86c44c8eaa7a",
+      "case_id": "case-bb1b93f4266c6f4a",
       "method_config_id": "method-b2b95951915ac4ff",
+      "variant": "aligned-pygam",
       "penalty": null,
       "solver": "gcv",
       "solver_display": "GCV",
@@ -71859,8 +72321,8 @@
       "source": {
         "file": "new_modules_full_20260624.json",
         "date": "2026-06-24",
-        "parser": "parse_new_modules_with_anova_benchmark_v1",
-        "parser_version": "1.1",
+        "parser": "parse_new_modules_with_anova_benchmark_v2",
+        "parser_version": "1.2",
         "source_id": "new-modules-20260624-bcbdb676223b",
         "original_path": "results/new_modules_full_2026-06-24.json"
       },
@@ -71899,8 +72361,8 @@
       "source": {
         "file": "new_modules_full_20260624.json",
         "date": "2026-06-24",
-        "parser": "parse_new_modules_with_anova_benchmark_v1",
-        "parser_version": "1.1",
+        "parser": "parse_new_modules_with_anova_benchmark_v2",
+        "parser_version": "1.2",
         "source_id": "new-modules-20260624-bcbdb676223b",
         "original_path": "results/new_modules_full_2026-06-24.json"
       },
@@ -71954,8 +72416,8 @@
       "source": {
         "file": "new_modules_full_20260624.json",
         "date": "2026-06-24",
-        "parser": "parse_new_modules_with_anova_benchmark_v1",
-        "parser_version": "1.1",
+        "parser": "parse_new_modules_with_anova_benchmark_v2",
+        "parser_version": "1.2",
         "source_id": "new-modules-20260624-bcbdb676223b",
         "original_path": "results/new_modules_full_2026-06-24.json"
       },
@@ -72018,8 +72480,8 @@
       "source": {
         "file": "new_modules_full_20260624.json",
         "date": "2026-06-24",
-        "parser": "parse_new_modules_with_anova_benchmark_v1",
-        "parser_version": "1.1",
+        "parser": "parse_new_modules_with_anova_benchmark_v2",
+        "parser_version": "1.2",
         "source_id": "new-modules-20260624-bcbdb676223b",
         "original_path": "results/new_modules_full_2026-06-24.json"
       },
@@ -72082,8 +72544,8 @@
       "source": {
         "file": "new_modules_full_20260624.json",
         "date": "2026-06-24",
-        "parser": "parse_new_modules_with_anova_benchmark_v1",
-        "parser_version": "1.1",
+        "parser": "parse_new_modules_with_anova_benchmark_v2",
+        "parser_version": "1.2",
         "source_id": "new-modules-20260624-bcbdb676223b",
         "original_path": "results/new_modules_full_2026-06-24.json"
       },
@@ -72122,8 +72584,8 @@
       "source": {
         "file": "new_modules_full_20260624.json",
         "date": "2026-06-24",
-        "parser": "parse_new_modules_with_anova_benchmark_v1",
-        "parser_version": "1.1",
+        "parser": "parse_new_modules_with_anova_benchmark_v2",
+        "parser_version": "1.2",
         "source_id": "new-modules-20260624-bcbdb676223b",
         "original_path": "results/new_modules_full_2026-06-24.json"
       },
@@ -72162,8 +72624,8 @@
       "source": {
         "file": "new_modules_full_20260624.json",
         "date": "2026-06-24",
-        "parser": "parse_new_modules_with_anova_benchmark_v1",
-        "parser_version": "1.1",
+        "parser": "parse_new_modules_with_anova_benchmark_v2",
+        "parser_version": "1.2",
         "source_id": "new-modules-20260624-bcbdb676223b",
         "original_path": "results/new_modules_full_2026-06-24.json"
       },
@@ -72211,8 +72673,8 @@
       "source": {
         "file": "new_modules_full_20260624.json",
         "date": "2026-06-24",
-        "parser": "parse_new_modules_with_anova_benchmark_v1",
-        "parser_version": "1.1",
+        "parser": "parse_new_modules_with_anova_benchmark_v2",
+        "parser_version": "1.2",
         "source_id": "new-modules-20260624-bcbdb676223b",
         "original_path": "results/new_modules_full_2026-06-24.json"
       },
@@ -72260,8 +72722,8 @@
       "source": {
         "file": "new_modules_full_20260624.json",
         "date": "2026-06-24",
-        "parser": "parse_new_modules_with_anova_benchmark_v1",
-        "parser_version": "1.1",
+        "parser": "parse_new_modules_with_anova_benchmark_v2",
+        "parser_version": "1.2",
         "source_id": "new-modules-20260624-bcbdb676223b",
         "original_path": "results/new_modules_full_2026-06-24.json"
       },
@@ -72300,8 +72762,8 @@
       "source": {
         "file": "new_modules_full_20260624.json",
         "date": "2026-06-24",
-        "parser": "parse_new_modules_with_anova_benchmark_v1",
-        "parser_version": "1.1",
+        "parser": "parse_new_modules_with_anova_benchmark_v2",
+        "parser_version": "1.2",
         "source_id": "new-modules-20260624-bcbdb676223b",
         "original_path": "results/new_modules_full_2026-06-24.json"
       },
@@ -72349,8 +72811,8 @@
       "source": {
         "file": "new_modules_full_20260624.json",
         "date": "2026-06-24",
-        "parser": "parse_new_modules_with_anova_benchmark_v1",
-        "parser_version": "1.1",
+        "parser": "parse_new_modules_with_anova_benchmark_v2",
+        "parser_version": "1.2",
         "source_id": "new-modules-20260624-bcbdb676223b",
         "original_path": "results/new_modules_full_2026-06-24.json"
       },
@@ -72398,8 +72860,8 @@
       "source": {
         "file": "new_modules_full_20260624.json",
         "date": "2026-06-24",
-        "parser": "parse_new_modules_with_anova_benchmark_v1",
-        "parser_version": "1.1",
+        "parser": "parse_new_modules_with_anova_benchmark_v2",
+        "parser_version": "1.2",
         "source_id": "new-modules-20260624-bcbdb676223b",
         "original_path": "results/new_modules_full_2026-06-24.json"
       },
@@ -72438,8 +72900,8 @@
       "source": {
         "file": "new_modules_full_20260624.json",
         "date": "2026-06-24",
-        "parser": "parse_new_modules_with_anova_benchmark_v1",
-        "parser_version": "1.1",
+        "parser": "parse_new_modules_with_anova_benchmark_v2",
+        "parser_version": "1.2",
         "source_id": "new-modules-20260624-bcbdb676223b",
         "original_path": "results/new_modules_full_2026-06-24.json"
       },
@@ -72487,8 +72949,8 @@
       "source": {
         "file": "new_modules_full_20260624.json",
         "date": "2026-06-24",
-        "parser": "parse_new_modules_with_anova_benchmark_v1",
-        "parser_version": "1.1",
+        "parser": "parse_new_modules_with_anova_benchmark_v2",
+        "parser_version": "1.2",
         "source_id": "new-modules-20260624-bcbdb676223b",
         "original_path": "results/new_modules_full_2026-06-24.json"
       },
@@ -72536,8 +72998,8 @@
       "source": {
         "file": "new_modules_full_20260624.json",
         "date": "2026-06-24",
-        "parser": "parse_new_modules_with_anova_benchmark_v1",
-        "parser_version": "1.1",
+        "parser": "parse_new_modules_with_anova_benchmark_v2",
+        "parser_version": "1.2",
         "source_id": "new-modules-20260624-bcbdb676223b",
         "original_path": "results/new_modules_full_2026-06-24.json"
       },
@@ -72576,8 +73038,8 @@
       "source": {
         "file": "new_modules_full_20260624.json",
         "date": "2026-06-24",
-        "parser": "parse_new_modules_with_anova_benchmark_v1",
-        "parser_version": "1.1",
+        "parser": "parse_new_modules_with_anova_benchmark_v2",
+        "parser_version": "1.2",
         "source_id": "new-modules-20260624-bcbdb676223b",
         "original_path": "results/new_modules_full_2026-06-24.json"
       },
@@ -72625,8 +73087,8 @@
       "source": {
         "file": "new_modules_full_20260624.json",
         "date": "2026-06-24",
-        "parser": "parse_new_modules_with_anova_benchmark_v1",
-        "parser_version": "1.1",
+        "parser": "parse_new_modules_with_anova_benchmark_v2",
+        "parser_version": "1.2",
         "source_id": "new-modules-20260624-bcbdb676223b",
         "original_path": "results/new_modules_full_2026-06-24.json"
       },
@@ -72674,8 +73136,8 @@
       "source": {
         "file": "new_modules_full_20260624.json",
         "date": "2026-06-24",
-        "parser": "parse_new_modules_with_anova_benchmark_v1",
-        "parser_version": "1.1",
+        "parser": "parse_new_modules_with_anova_benchmark_v2",
+        "parser_version": "1.2",
         "source_id": "new-modules-20260624-bcbdb676223b",
         "original_path": "results/new_modules_full_2026-06-24.json"
       },
@@ -72729,8 +73191,8 @@
       "source": {
         "file": "new_modules_full_20260624.json",
         "date": "2026-06-24",
-        "parser": "parse_new_modules_with_anova_benchmark_v1",
-        "parser_version": "1.1",
+        "parser": "parse_new_modules_with_anova_benchmark_v2",
+        "parser_version": "1.2",
         "source_id": "new-modules-20260624-bcbdb676223b",
         "original_path": "results/new_modules_full_2026-06-24.json"
       },
@@ -72793,8 +73255,8 @@
       "source": {
         "file": "new_modules_full_20260624.json",
         "date": "2026-06-24",
-        "parser": "parse_new_modules_with_anova_benchmark_v1",
-        "parser_version": "1.1",
+        "parser": "parse_new_modules_with_anova_benchmark_v2",
+        "parser_version": "1.2",
         "source_id": "new-modules-20260624-bcbdb676223b",
         "original_path": "results/new_modules_full_2026-06-24.json"
       },
@@ -72857,8 +73319,8 @@
       "source": {
         "file": "new_modules_full_20260624.json",
         "date": "2026-06-24",
-        "parser": "parse_new_modules_with_anova_benchmark_v1",
-        "parser_version": "1.1",
+        "parser": "parse_new_modules_with_anova_benchmark_v2",
+        "parser_version": "1.2",
         "source_id": "new-modules-20260624-bcbdb676223b",
         "original_path": "results/new_modules_full_2026-06-24.json"
       },
@@ -72897,8 +73359,8 @@
       "source": {
         "file": "new_modules_full_20260624.json",
         "date": "2026-06-24",
-        "parser": "parse_new_modules_with_anova_benchmark_v1",
-        "parser_version": "1.1",
+        "parser": "parse_new_modules_with_anova_benchmark_v2",
+        "parser_version": "1.2",
         "source_id": "new-modules-20260624-bcbdb676223b",
         "original_path": "results/new_modules_full_2026-06-24.json"
       },
@@ -72937,8 +73399,8 @@
       "source": {
         "file": "new_modules_full_20260624.json",
         "date": "2026-06-24",
-        "parser": "parse_new_modules_with_anova_benchmark_v1",
-        "parser_version": "1.1",
+        "parser": "parse_new_modules_with_anova_benchmark_v2",
+        "parser_version": "1.2",
         "source_id": "new-modules-20260624-bcbdb676223b",
         "original_path": "results/new_modules_full_2026-06-24.json"
       },
@@ -72986,8 +73448,8 @@
       "source": {
         "file": "new_modules_full_20260624.json",
         "date": "2026-06-24",
-        "parser": "parse_new_modules_with_anova_benchmark_v1",
-        "parser_version": "1.1",
+        "parser": "parse_new_modules_with_anova_benchmark_v2",
+        "parser_version": "1.2",
         "source_id": "new-modules-20260624-bcbdb676223b",
         "original_path": "results/new_modules_full_2026-06-24.json"
       },
@@ -73035,8 +73497,8 @@
       "source": {
         "file": "new_modules_full_20260624.json",
         "date": "2026-06-24",
-        "parser": "parse_new_modules_with_anova_benchmark_v1",
-        "parser_version": "1.1",
+        "parser": "parse_new_modules_with_anova_benchmark_v2",
+        "parser_version": "1.2",
         "source_id": "new-modules-20260624-bcbdb676223b",
         "original_path": "results/new_modules_full_2026-06-24.json"
       },
@@ -73075,8 +73537,8 @@
       "source": {
         "file": "new_modules_full_20260624.json",
         "date": "2026-06-24",
-        "parser": "parse_new_modules_with_anova_benchmark_v1",
-        "parser_version": "1.1",
+        "parser": "parse_new_modules_with_anova_benchmark_v2",
+        "parser_version": "1.2",
         "source_id": "new-modules-20260624-bcbdb676223b",
         "original_path": "results/new_modules_full_2026-06-24.json"
       },
@@ -73124,8 +73586,8 @@
       "source": {
         "file": "new_modules_full_20260624.json",
         "date": "2026-06-24",
-        "parser": "parse_new_modules_with_anova_benchmark_v1",
-        "parser_version": "1.1",
+        "parser": "parse_new_modules_with_anova_benchmark_v2",
+        "parser_version": "1.2",
         "source_id": "new-modules-20260624-bcbdb676223b",
         "original_path": "results/new_modules_full_2026-06-24.json"
       },
@@ -73173,8 +73635,8 @@
       "source": {
         "file": "new_modules_full_20260624.json",
         "date": "2026-06-24",
-        "parser": "parse_new_modules_with_anova_benchmark_v1",
-        "parser_version": "1.1",
+        "parser": "parse_new_modules_with_anova_benchmark_v2",
+        "parser_version": "1.2",
         "source_id": "new-modules-20260624-bcbdb676223b",
         "original_path": "results/new_modules_full_2026-06-24.json"
       },
@@ -73213,8 +73675,8 @@
       "source": {
         "file": "new_modules_full_20260624.json",
         "date": "2026-06-24",
-        "parser": "parse_new_modules_with_anova_benchmark_v1",
-        "parser_version": "1.1",
+        "parser": "parse_new_modules_with_anova_benchmark_v2",
+        "parser_version": "1.2",
         "source_id": "new-modules-20260624-bcbdb676223b",
         "original_path": "results/new_modules_full_2026-06-24.json"
       },
@@ -73262,8 +73724,8 @@
       "source": {
         "file": "new_modules_full_20260624.json",
         "date": "2026-06-24",
-        "parser": "parse_new_modules_with_anova_benchmark_v1",
-        "parser_version": "1.1",
+        "parser": "parse_new_modules_with_anova_benchmark_v2",
+        "parser_version": "1.2",
         "source_id": "new-modules-20260624-bcbdb676223b",
         "original_path": "results/new_modules_full_2026-06-24.json"
       },
@@ -73311,8 +73773,8 @@
       "source": {
         "file": "new_modules_full_20260624.json",
         "date": "2026-06-24",
-        "parser": "parse_new_modules_with_anova_benchmark_v1",
-        "parser_version": "1.1",
+        "parser": "parse_new_modules_with_anova_benchmark_v2",
+        "parser_version": "1.2",
         "source_id": "new-modules-20260624-bcbdb676223b",
         "original_path": "results/new_modules_full_2026-06-24.json"
       },
@@ -73351,8 +73813,8 @@
       "source": {
         "file": "new_modules_full_20260624.json",
         "date": "2026-06-24",
-        "parser": "parse_new_modules_with_anova_benchmark_v1",
-        "parser_version": "1.1",
+        "parser": "parse_new_modules_with_anova_benchmark_v2",
+        "parser_version": "1.2",
         "source_id": "new-modules-20260624-bcbdb676223b",
         "original_path": "results/new_modules_full_2026-06-24.json"
       },
@@ -73400,8 +73862,8 @@
       "source": {
         "file": "new_modules_full_20260624.json",
         "date": "2026-06-24",
-        "parser": "parse_new_modules_with_anova_benchmark_v1",
-        "parser_version": "1.1",
+        "parser": "parse_new_modules_with_anova_benchmark_v2",
+        "parser_version": "1.2",
         "source_id": "new-modules-20260624-bcbdb676223b",
         "original_path": "results/new_modules_full_2026-06-24.json"
       },
@@ -73449,8 +73911,8 @@
       "source": {
         "file": "new_modules_full_20260624.json",
         "date": "2026-06-24",
-        "parser": "parse_new_modules_with_anova_benchmark_v1",
-        "parser_version": "1.1",
+        "parser": "parse_new_modules_with_anova_benchmark_v2",
+        "parser_version": "1.2",
         "source_id": "new-modules-20260624-bcbdb676223b",
         "original_path": "results/new_modules_full_2026-06-24.json"
       },
@@ -73504,8 +73966,8 @@
       "source": {
         "file": "new_modules_full_20260624.json",
         "date": "2026-06-24",
-        "parser": "parse_new_modules_with_anova_benchmark_v1",
-        "parser_version": "1.1",
+        "parser": "parse_new_modules_with_anova_benchmark_v2",
+        "parser_version": "1.2",
         "source_id": "new-modules-20260624-bcbdb676223b",
         "original_path": "results/new_modules_full_2026-06-24.json"
       },
@@ -73568,8 +74030,8 @@
       "source": {
         "file": "new_modules_full_20260624.json",
         "date": "2026-06-24",
-        "parser": "parse_new_modules_with_anova_benchmark_v1",
-        "parser_version": "1.1",
+        "parser": "parse_new_modules_with_anova_benchmark_v2",
+        "parser_version": "1.2",
         "source_id": "new-modules-20260624-bcbdb676223b",
         "original_path": "results/new_modules_full_2026-06-24.json"
       },
@@ -73632,8 +74094,8 @@
       "source": {
         "file": "new_modules_full_20260624.json",
         "date": "2026-06-24",
-        "parser": "parse_new_modules_with_anova_benchmark_v1",
-        "parser_version": "1.1",
+        "parser": "parse_new_modules_with_anova_benchmark_v2",
+        "parser_version": "1.2",
         "source_id": "new-modules-20260624-bcbdb676223b",
         "original_path": "results/new_modules_full_2026-06-24.json"
       },
@@ -73672,8 +74134,8 @@
       "source": {
         "file": "new_modules_full_20260624.json",
         "date": "2026-06-24",
-        "parser": "parse_new_modules_with_anova_benchmark_v1",
-        "parser_version": "1.1",
+        "parser": "parse_new_modules_with_anova_benchmark_v2",
+        "parser_version": "1.2",
         "source_id": "new-modules-20260624-bcbdb676223b",
         "original_path": "results/new_modules_full_2026-06-24.json"
       },
@@ -73712,8 +74174,8 @@
       "source": {
         "file": "new_modules_full_20260624.json",
         "date": "2026-06-24",
-        "parser": "parse_new_modules_with_anova_benchmark_v1",
-        "parser_version": "1.1",
+        "parser": "parse_new_modules_with_anova_benchmark_v2",
+        "parser_version": "1.2",
         "source_id": "new-modules-20260624-bcbdb676223b",
         "original_path": "results/new_modules_full_2026-06-24.json"
       },
@@ -73761,8 +74223,8 @@
       "source": {
         "file": "new_modules_full_20260624.json",
         "date": "2026-06-24",
-        "parser": "parse_new_modules_with_anova_benchmark_v1",
-        "parser_version": "1.1",
+        "parser": "parse_new_modules_with_anova_benchmark_v2",
+        "parser_version": "1.2",
         "source_id": "new-modules-20260624-bcbdb676223b",
         "original_path": "results/new_modules_full_2026-06-24.json"
       },
@@ -73810,8 +74272,8 @@
       "source": {
         "file": "new_modules_full_20260624.json",
         "date": "2026-06-24",
-        "parser": "parse_new_modules_with_anova_benchmark_v1",
-        "parser_version": "1.1",
+        "parser": "parse_new_modules_with_anova_benchmark_v2",
+        "parser_version": "1.2",
         "source_id": "new-modules-20260624-bcbdb676223b",
         "original_path": "results/new_modules_full_2026-06-24.json"
       },
@@ -73850,8 +74312,8 @@
       "source": {
         "file": "new_modules_full_20260624.json",
         "date": "2026-06-24",
-        "parser": "parse_new_modules_with_anova_benchmark_v1",
-        "parser_version": "1.1",
+        "parser": "parse_new_modules_with_anova_benchmark_v2",
+        "parser_version": "1.2",
         "source_id": "new-modules-20260624-bcbdb676223b",
         "original_path": "results/new_modules_full_2026-06-24.json"
       },
@@ -73899,8 +74361,8 @@
       "source": {
         "file": "new_modules_full_20260624.json",
         "date": "2026-06-24",
-        "parser": "parse_new_modules_with_anova_benchmark_v1",
-        "parser_version": "1.1",
+        "parser": "parse_new_modules_with_anova_benchmark_v2",
+        "parser_version": "1.2",
         "source_id": "new-modules-20260624-bcbdb676223b",
         "original_path": "results/new_modules_full_2026-06-24.json"
       },
@@ -73948,8 +74410,8 @@
       "source": {
         "file": "new_modules_full_20260624.json",
         "date": "2026-06-24",
-        "parser": "parse_new_modules_with_anova_benchmark_v1",
-        "parser_version": "1.1",
+        "parser": "parse_new_modules_with_anova_benchmark_v2",
+        "parser_version": "1.2",
         "source_id": "new-modules-20260624-bcbdb676223b",
         "original_path": "results/new_modules_full_2026-06-24.json"
       },
@@ -73988,8 +74450,8 @@
       "source": {
         "file": "new_modules_full_20260624.json",
         "date": "2026-06-24",
-        "parser": "parse_new_modules_with_anova_benchmark_v1",
-        "parser_version": "1.1",
+        "parser": "parse_new_modules_with_anova_benchmark_v2",
+        "parser_version": "1.2",
         "source_id": "new-modules-20260624-bcbdb676223b",
         "original_path": "results/new_modules_full_2026-06-24.json"
       },
@@ -74037,8 +74499,8 @@
       "source": {
         "file": "new_modules_full_20260624.json",
         "date": "2026-06-24",
-        "parser": "parse_new_modules_with_anova_benchmark_v1",
-        "parser_version": "1.1",
+        "parser": "parse_new_modules_with_anova_benchmark_v2",
+        "parser_version": "1.2",
         "source_id": "new-modules-20260624-bcbdb676223b",
         "original_path": "results/new_modules_full_2026-06-24.json"
       },
@@ -74086,8 +74548,8 @@
       "source": {
         "file": "new_modules_full_20260624.json",
         "date": "2026-06-24",
-        "parser": "parse_new_modules_with_anova_benchmark_v1",
-        "parser_version": "1.1",
+        "parser": "parse_new_modules_with_anova_benchmark_v2",
+        "parser_version": "1.2",
         "source_id": "new-modules-20260624-bcbdb676223b",
         "original_path": "results/new_modules_full_2026-06-24.json"
       },
@@ -74126,8 +74588,8 @@
       "source": {
         "file": "new_modules_full_20260624.json",
         "date": "2026-06-24",
-        "parser": "parse_new_modules_with_anova_benchmark_v1",
-        "parser_version": "1.1",
+        "parser": "parse_new_modules_with_anova_benchmark_v2",
+        "parser_version": "1.2",
         "source_id": "new-modules-20260624-bcbdb676223b",
         "original_path": "results/new_modules_full_2026-06-24.json"
       },
@@ -74175,8 +74637,8 @@
       "source": {
         "file": "new_modules_full_20260624.json",
         "date": "2026-06-24",
-        "parser": "parse_new_modules_with_anova_benchmark_v1",
-        "parser_version": "1.1",
+        "parser": "parse_new_modules_with_anova_benchmark_v2",
+        "parser_version": "1.2",
         "source_id": "new-modules-20260624-bcbdb676223b",
         "original_path": "results/new_modules_full_2026-06-24.json"
       },
