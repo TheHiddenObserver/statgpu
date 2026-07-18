@@ -4,7 +4,7 @@ Interactive benchmark dashboard for statgpu, built with Vite, TypeScript, and EC
 
 ## Current coverage
 
-The canonical dashboard is restricted to benchmark sources dated **2026-06-01 or later**. The manifest currently registers **eight sources**, producing **1,661 normalized runs across 36 models**:
+The canonical dashboard is restricted to benchmark sources dated **2026-06-01 or later**. The manifest currently registers **eight sources**, producing **1,774 normalized runs across 36 models**:
 
 - `p2_benchmark_20260617.json`;
 - `penalized_glm_perf_20260622.json`;
@@ -19,15 +19,19 @@ Covered categories include penalized GLM and GLM, recent linear models, robust a
 
 Survival coverage combines the dedicated Efron benchmark with the aligned Breslow rows embedded in `loss_functions_20260623.json`. Breslow contributes five scales, NumPy/CuPy/Torch and statsmodels timings, runner-reported speedups against statsmodels, and CPU/CuPy precision validation. The richer Efron source retains its light-ties and heavy-ties variants.
 
-Nonparametric GAM coverage now exposes every aligned scale present in the June 24 source: `1K×3`, `10K×5`, and `100K×10`. Each scale includes NumPy, CuPy, Torch, and pyGAM timing, reported speedup, and prediction-difference validation. Other nonparametric and covariance families remain limited by the available source artifacts rather than hidden frontend rows.
+GAM coverage exposes two distinct fixed-lambda pyGAM comparison variants at `1K×3`, `10K×5`, and `100K×10`: the ordinary source comparison and the uniform-knot precision-aligned comparison. Each variant includes NumPy, CuPy, Torch, and pyGAM timing, reported speedup, and prediction-difference validation. Other nonparametric and covariance families remain limited by available source artifacts rather than hidden frontend rows.
 
-Panel coverage now exposes both aligned linearmodels scales present in the June 24 source: `10K×10` and `100K×20`. PanelOLS and RandomEffects each include NumPy, CuPy, Torch, and linearmodels timing, runner-reported speedup, and coefficient-relative-error metrics.
+Panel coverage exposes both aligned linearmodels scales present in the June 24 source: `10K×10` and `100K×20`. PanelOLS and RandomEffects each include NumPy, CuPy, Torch, and linearmodels timing, runner-reported speedup, and coefficient-relative-error metrics.
+
+Unsupervised coverage now retains all 131 rows present in the June 27 source rather than selecting one scale per estimator. This includes complete small/medium/large matrices for PCA, KMeans, GaussianMixture, NMF, TruncatedSVD, IncrementalPCA, MiniBatchKMeans, and MiniBatchNMF; both DBSCAN dimensional variants; and every feasible AgglomerativeClustering, UMAP, and t-SNE row. Large input dimensions are labelled from the arrays actually passed to fit, so capped estimators correctly show `100K×50` rather than the uncapped `100K×100` template.
+
+The PR #74 source now contributes all of its inference methods: Ordered Logit/Probit, Quantile kernel/bootstrap inference, penalized-logistic HC0 sandwich and oracle inference, and penalized-linear bootstrap inference. The latter three are explicitly labelled as fit-plus-inference timing configurations.
 
 ANOVA coverage includes one-way ANOVA, two-way ANOVA, Welch ANOVA, Tukey HSD, and Bonferroni correction on NumPy, CuPy, and Torch. One-way ANOVA also includes aligned SciPy timing and F-statistic validation rows.
 
 The linear-model category uses the June 2026 squared-error rows from `penalized_glm_perf_20260622.json` and `glm_solver_20260623.json`. April 2026 ElasticNet, LassoCV, comprehensive-validation, Cox package-comparison, and knockoff results are intentionally not registered.
 
-Current June-or-later sources provide external comparisons through scikit-learn, SciPy, statsmodels, linearmodels, and pyGAM. The feature-selection category remains part of Schema v1.1, but it is intentionally empty until a June 2026-or-later benchmark is available.
+Current June-or-later sources provide external comparisons through scikit-learn, SciPy, statsmodels, linearmodels, and pyGAM. The feature-selection category remains part of Schema v1.1, but it is intentionally empty until a June 2026-or-later structured benchmark is available. A June distribution report also exists, but it remains outside the dashboard until its rounded Markdown tables are converted or rerun as a structured source with full timing and precision provenance.
 
 ## What the dashboard shows
 
@@ -96,7 +100,7 @@ npx playwright install --with-deps chromium
 npm run test:e2e
 ```
 
-The domain-coverage suite verifies robust/quantile, survival, unsupervised, ordered, nonparametric, panel, covariance, and ANOVA runs. It specifically guards CoxPH Breslow timing/speedup/validation, all three aligned GAM scales, both aligned Panel scales, Focused/Full matrix switching, the dashed 1× parity contract, June 2026 linear-model sources, quantile GPU inference, ANOVA backend/SciPy coverage, speedup-summary semantics, and removal of pre-June framework controls.
+The domain-coverage suite verifies robust/quantile, survival, unsupervised, ordered, nonparametric, panel, covariance, and ANOVA runs. It specifically guards CoxPH Breslow timing/speedup/validation, both complete GAM comparison variants, both aligned Panel scales, all 131 Unsupervised rows and corrected scale labels, all PR #74 inference methods, Focused/Full matrix switching, the dashed 1× parity contract, June 2026 linear-model sources, ANOVA backend/SciPy coverage, speedup-summary semantics, and removal of pre-June framework controls.
 
 ## Production build and staleness
 
@@ -166,6 +170,7 @@ All three generated JSON files share one `generation_id`, computed from the comp
 - Aggregation contract: `docs/benchmark-dashboard/aggregation-contract.md`
 - Domain coverage audit and benchmark plan: `docs/benchmark-dashboard/domain-coverage-audit-plan.md`
 - Method-level coverage audit: `docs/benchmark-dashboard/method-coverage-audit.md`
+- Remaining-module audit: `docs/benchmark-dashboard/remaining-module-audit.md`
 - Robust-loss comparison plan: `docs/benchmark-dashboard/robust-loss-comparison-plan.md`
 - Penalized robust/quantile plan: `docs/benchmark-dashboard/penalized-robust-quantile-plan.md`
 - Rollout record: `docs/benchmark-dashboard/rollout-plan.md`
