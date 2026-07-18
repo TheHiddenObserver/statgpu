@@ -9,6 +9,7 @@ interface TimingSelection {
   runs: Run[];
   notes: string[];
   penaltyScope: 'penalized-only' | 'all';
+  implementationScope: 'default-only' | 'all';
 }
 
 function groupKey(run: Run): string {
@@ -23,19 +24,32 @@ function shouldFocusPenalizedRows(state: AppState): boolean {
   );
 }
 
+function shouldFocusDefaultSurvivalImplementation(state: AppState): boolean {
+  return (
+    state.selectedCategoryIds.size === 1 &&
+    state.selectedCategoryIds.has('survival')
+  );
+}
+
 function selectTimingRuns(runs: Run[], state: AppState): TimingSelection {
   const timingRuns = runs.filter((run) => run.metrics.timing);
   if (state.chartViewMode === 'full' || timingRuns.length === 0) {
-    return { runs: timingRuns, notes: ['Full matrix'], penaltyScope: 'all' };
+    return {
+      runs: timingRuns,
+      notes: ['Full matrix'],
+      penaltyScope: 'all',
+      implementationScope: 'all',
+    };
   }
 
   let focused = timingRuns;
   const notes = ['Focused'];
   let penaltyScope: TimingSelection['penaltyScope'] = 'all';
+  let implementationScope: TimingSelection['implementationScope'] = 'all';
 
   // Penalized GLM has a dedicated category, while unpenalized GLM is available
   // in the separate GLM category. Keep the default focused view on true
-  // penalty comparisons without changing the table or filter state. An explicit
+  // penalty comparisons without changing the table or the actual filter state. An explicit
   // penalty selection always takes precedence, and Full matrix retains all rows.
   if (shouldFocusPenalizedRows(state)) {
     const penalizedRows = focused.filter(
@@ -45,6 +59,25 @@ function selectTimingRuns(runs: Run[], state: AppState): TimingSelection {
       focused = penalizedRows;
       penaltyScope = 'penalized-only';
       notes.push('penalized rows only');
+    }
+  }
+
+  // CoxPH's cpu_numba result is a separate implementation run, not a separate
+  // backend. In the compact Survival view, keep the canonical NumPy CPU series
+  // and omit the additional Numba implementation so the chart does not imply
+  // two distinct CPU backends. Full matrix and the table preserve the raw row.
+  if (shouldFocusDefaultSurvivalImplementation(state)) {
+    const defaultRows = focused.filter(
+      (run) => !(
+        run.framework === 'statgpu' &&
+        run.backend === 'numpy' &&
+        run.implementation === 'numba'
+      ),
+    );
+    if (defaultRows.length > 0 && defaultRows.length < focused.length) {
+      focused = defaultRows;
+      implementationScope = 'default-only';
+      notes.push('default NumPy implementation');
     }
   }
 
@@ -87,7 +120,7 @@ function selectTimingRuns(runs: Run[], state: AppState): TimingSelection {
     notes.push('Auto/best solver groups');
   }
 
-  return { runs: focused, notes, penaltyScope };
+  return { runs: focused, notes, penaltyScope, implementationScope };
 }
 
 function formatGroupLabel(run: Run, focused: boolean): string {
@@ -123,9 +156,10 @@ export function renderTimingChart(
   const timingRuns = selection.runs;
   el.dataset.chartView = state.chartViewMode;
   el.dataset.penaltyScope = selection.penaltyScope;
+  el.dataset.implementationScope = selection.implementationScope;
   el.setAttribute(
     'aria-label',
-    `Fit Time chart — ${state.chartViewMode === 'focused' ? 'focused representative view' : 'full matrix view'}${selection.penaltyScope === 'penalized-only' ? '; penalized rows only' : ''}`,
+    `Fit Time chart — ${state.chartViewMode === 'focused' ? 'focused representative view' : 'full matrix view'}${selection.penaltyScope === 'penalized-only' ? '; penalized rows only' : ''}${selection.implementationScope === 'default-only' ? '; default NumPy implementation only' : ''}`,
   );
 
   if (timingRuns.length === 0) {
