@@ -190,9 +190,55 @@ def test_gam_exposes_complete_aligned_scale_matrix(canonical_output):
             if run["framework"] == "statgpu"
         )
 
+
+def test_panel_exposes_complete_aligned_scale_matrix(canonical_output):
+    output, _, _, _ = canonical_output
+    panel_runs = [
+        run
+        for run in output["runs"]
+        if "panel" in run["category_ids"]
+        and run.get("variant") == "aligned-linearmodels"
+        and run["source"]["file"] == "new_modules_full_20260624.json"
+    ]
+    assert len(panel_runs) == 16
+    assert {run["scale"]["label"] for run in panel_runs} == {
+        "10K×10",
+        "100K×20",
+    }
+    assert {run["model_id"] for run in panel_runs} == {
+        "PanelOLS",
+        "RandomEffects",
+    }
+
+    for model_id in ("PanelOLS", "RandomEffects"):
+        for label in ("10K×10", "100K×20"):
+            rows = [
+                run
+                for run in panel_runs
+                if run["model_id"] == model_id
+                and run["scale"]["label"] == label
+            ]
+            assert len(rows) == 4
+            assert {run["framework"] for run in rows} == {
+                "statgpu",
+                "linearmodels",
+            }
+            assert {
+                run["backend"]
+                for run in rows
+                if run["framework"] == "statgpu"
+            } == {"numpy", "cupy", "torch"}
+            assert all(run.get("metrics", {}).get("timing") for run in rows)
+            assert all(
+                run.get("metrics", {}).get("speedup", {}).get("reference_framework")
+                == "linearmodels"
+                for run in rows
+                if run["framework"] == "statgpu"
+            )
+
     assert {
-        run["source"]["parser_version"] for run in gam_runs
-    } == {"1.2"}
+        run["source"]["parser_version"] for run in panel_runs
+    } == {"1.3"}
 
 
 def test_missing_domain_sources_are_manifest_registered(canonical_output):
