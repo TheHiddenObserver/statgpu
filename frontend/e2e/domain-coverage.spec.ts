@@ -54,18 +54,92 @@ test.describe('Benchmark domain coverage', () => {
     });
   });
 
-  test('nonparametric GAM exposes all aligned source scales', async ({ page }) => {
+  test('PR74 exposes sandwich, oracle, and bootstrap inference configurations', async ({
+    page,
+  }) => {
+    await page.getByRole('button', { name: 'None' }).click();
+    await page.locator('#cat-penalized_glm').check();
+
+    const modelSelect = page.locator('.filter-bar select').first();
+    await modelSelect.selectOption('PenalizedLogisticRegression');
+    const logisticVariant = page.locator('.filter-bar select').nth(1);
+    await expect(
+      logisticVariant.locator('option[value="hc0-sandwich"]'),
+    ).toHaveCount(1);
+    await expect(
+      logisticVariant.locator('option[value="oracle-inference"]'),
+    ).toHaveCount(1);
+
+    await page.getByRole('button', { name: 'None' }).click();
+    await page.locator('#cat-linear_models').check();
+    await page
+      .locator('.filter-bar select')
+      .first()
+      .selectOption('PenalizedLinearRegression');
+    const linearVariant = page.locator('.filter-bar select').nth(1);
+    await expect(
+      linearVariant.locator('option[value="bootstrap-inference"]'),
+    ).toHaveCount(1);
+    await linearVariant.selectOption('bootstrap-inference');
+    await expect(page.locator('.table-container')).toContainText(
+      'ordered_inference_pr74.json',
+      { timeout: 5000 },
+    );
+  });
+
+  test('nonparametric GAM exposes both comparison variants and all scales', async ({
+    page,
+  }) => {
     await page.getByRole('button', { name: 'None' }).click();
     await page.locator('#cat-nonparametric').check();
 
     const modelSelect = page.locator('.filter-bar select').first();
     await modelSelect.selectOption('GAM');
 
+    const variantSelect = page.locator('.filter-bar select').nth(1);
+    await expect(
+      variantSelect.locator('option[value="pygam-comparison"]'),
+    ).toHaveCount(1);
+    await expect(
+      variantSelect.locator('option[value="aligned-pygam"]'),
+    ).toHaveCount(1);
+
     const chips = page.locator('.scale-chip');
     await expect(chips.filter({ hasText: '1K×3' })).toHaveCount(1);
     await expect(chips.filter({ hasText: '10K×5' })).toHaveCount(1);
     await expect(chips.filter({ hasText: '100K×10' })).toHaveCount(1);
     await expect(page.locator('input[value="pygam"]')).toBeVisible();
+  });
+
+  test('unsupervised PCA exposes the complete and correctly labelled scale matrix', async ({
+    page,
+  }) => {
+    await page.getByRole('button', { name: 'None' }).click();
+    await page.locator('#cat-unsupervised').check();
+
+    await page.locator('.filter-bar select').first().selectOption('PCA');
+    const chips = page.locator('.scale-chip');
+    await expect(chips.filter({ hasText: '1K×20' })).toHaveCount(1);
+    await expect(chips.filter({ hasText: '10K×50' })).toHaveCount(1);
+    await expect(chips.filter({ hasText: '100K×50' })).toHaveCount(1);
+    await expect(chips.filter({ hasText: '100K×100' })).toHaveCount(0);
+    await expect(page.locator('input[value="sklearn"]')).toBeVisible();
+  });
+
+  test('unsupervised DBSCAN exposes both dimensional variants', async ({ page }) => {
+    await page.getByRole('button', { name: 'None' }).click();
+    await page.locator('#cat-unsupervised').check();
+
+    await page.locator('.filter-bar select').first().selectOption('DBSCAN');
+    const variantSelect = page.locator('.filter-bar select').nth(1);
+    await expect(variantSelect.locator('option[value="10d"]')).toHaveCount(1);
+    await expect(variantSelect.locator('option[value="50d"]')).toHaveCount(1);
+    await variantSelect.selectOption('10d');
+
+    const chips = page.locator('.scale-chip');
+    await expect(chips.filter({ hasText: '1K×10' })).toHaveCount(1);
+    await expect(chips.filter({ hasText: '10K×10' })).toHaveCount(1);
+    await expect(chips.filter({ hasText: '100K×10' })).toHaveCount(1);
   });
 
   test('panel models expose both aligned source scales', async ({ page }) => {
