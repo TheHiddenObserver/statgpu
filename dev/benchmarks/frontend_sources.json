@@ -59,7 +59,7 @@
       "env_id": "remote-p100"
     },
     "ordered-inference-pr74": {
-      "label": "Ordered-model and quantile inference validation — 2026-07-12",
+      "label": "Ordered, penalized, bootstrap, and quantile inference — 2026-07-12",
       "env_id": "remote-p100"
     },
     "unsupervised-20260627": {
@@ -135,7 +135,7 @@
       "original_path": "results/pr74_inference_validation.json",
       "sha256": "c584a2bfa213ffb8d3abc30f3bfa4b54a32b2c53cbd2449ade052153567c0164",
       "parser": "ordered_inference_benchmark",
-      "parser_version": "1.0",
+      "parser_version": "2.0",
       "env_id": "remote-p100",
       "required": true,
       "allowed_issue_codes": [],
@@ -148,7 +148,7 @@
       "original_path": "results/unsupervised_bench_2026-06-27.json",
       "sha256": "1ee68806e3ee5fec95cbeca3e98b1a9c30c68a91798403d6b6d8f06a6e6a47f2",
       "parser": "unsupervised_benchmark",
-      "parser_version": "1.0",
+      "parser_version": "2.0",
       "env_id": "remote-p100",
       "required": true,
       "allowed_issue_codes": [],
@@ -161,7 +161,7 @@
       "original_path": "results/new_modules_full_2026-06-24.json",
       "sha256": "bcbdb676223bea9a71bdd4fe6701ee8d177536ad12a6b1b93ba65ec1675cb6e6",
       "parser": "new_modules_with_anova_benchmark",
-      "parser_version": "1.3",
+      "parser_version": "1.4",
       "env_id": "remote-p100",
       "required": true,
       "allowed_issue_codes": [],
