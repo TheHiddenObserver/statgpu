@@ -64,6 +64,26 @@ function renderMain(): HTMLElement {
 
 let renderEpoch = 0;
 
+function usesDefaultSurvivalImplementation(): boolean {
+  return Boolean(
+    state &&
+    state.chartViewMode === 'focused' &&
+    state.selectedCategoryIds.size === 1 &&
+    state.selectedCategoryIds.has('survival'),
+  );
+}
+
+function focusedSpeedupRuns(filtered: Run[]): Run[] {
+  if (!usesDefaultSurvivalImplementation()) return filtered;
+  return filtered.filter(
+    (run) => !(
+      run.framework === 'statgpu' &&
+      run.backend === 'numpy' &&
+      run.implementation === 'numba'
+    ),
+  );
+}
+
 function renderChartArea(filtered: Run[]): HTMLElement {
   const area = h('div', { class: 'chart-area' });
   const timingDiv = h('div', { id: 'timing-chart', class: 'chart-container' });
@@ -71,11 +91,19 @@ function renderChartArea(filtered: Run[]): HTMLElement {
   area.appendChild(timingDiv);
   area.appendChild(speedupDiv);
 
+  const speedupRuns = focusedSpeedupRuns(filtered);
+  const defaultSurvivalOnly = usesDefaultSurvivalImplementation();
+  speedupDiv.dataset.implementationScope = defaultSurvivalOnly ? 'default-only' : 'all';
+
   const epoch = ++renderEpoch;
   requestAnimationFrame(() => {
     if (epoch !== renderEpoch || !timingDiv.isConnected || !speedupDiv.isConnected) return;
     renderTimingChart(timingDiv, filtered, state!, chartInstances);
-    renderSpeedupChart(speedupDiv, filtered, state!, chartInstances);
+    renderSpeedupChart(speedupDiv, speedupRuns, state!, chartInstances);
+    if (defaultSurvivalOnly) {
+      const aria = speedupDiv.getAttribute('aria-label') ?? 'Speedup vs Reference chart';
+      speedupDiv.setAttribute('aria-label', `${aria}; default NumPy implementation only`);
+    }
   });
   return area;
 }
