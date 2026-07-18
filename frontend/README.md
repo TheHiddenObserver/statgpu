@@ -4,7 +4,7 @@ Interactive benchmark dashboard for statgpu, built with Vite, TypeScript, and EC
 
 ## Current coverage
 
-The canonical dashboard is restricted to benchmark sources dated **2026-06-01 or later**. The manifest currently registers **eight sources**, producing **1,653 normalized runs across 36 models**:
+The canonical dashboard is restricted to benchmark sources dated **2026-06-01 or later**. The manifest currently registers **eight sources**, producing **1,661 normalized runs across 36 models**:
 
 - `p2_benchmark_20260617.json`;
 - `penalized_glm_perf_20260622.json`;
@@ -20,6 +20,8 @@ Covered categories include penalized GLM and GLM, recent linear models, robust a
 Survival coverage combines the dedicated Efron benchmark with the aligned Breslow rows embedded in `loss_functions_20260623.json`. Breslow contributes five scales, NumPy/CuPy/Torch and statsmodels timings, runner-reported speedups against statsmodels, and CPU/CuPy precision validation. The richer Efron source retains its light-ties and heavy-ties variants.
 
 Nonparametric GAM coverage now exposes every aligned scale present in the June 24 source: `1K×3`, `10K×5`, and `100K×10`. Each scale includes NumPy, CuPy, Torch, and pyGAM timing, reported speedup, and prediction-difference validation. Other nonparametric and covariance families remain limited by the available source artifacts rather than hidden frontend rows.
+
+Panel coverage now exposes both aligned linearmodels scales present in the June 24 source: `10K×10` and `100K×20`. PanelOLS and RandomEffects each include NumPy, CuPy, Torch, and linearmodels timing, runner-reported speedup, and coefficient-relative-error metrics.
 
 ANOVA coverage includes one-way ANOVA, two-way ANOVA, Welch ANOVA, Tukey HSD, and Bonferroni correction on NumPy, CuPy, and Torch. One-way ANOVA also includes aligned SciPy timing and F-statistic validation rows.
 
@@ -94,7 +96,7 @@ npx playwright install --with-deps chromium
 npm run test:e2e
 ```
 
-The domain-coverage suite verifies robust/quantile, survival, unsupervised, ordered, nonparametric, panel, covariance, and ANOVA runs. It specifically guards CoxPH Breslow timing/speedup/validation, all three aligned GAM scales, Focused/Full matrix switching, the dashed 1× parity contract, June 2026 linear-model sources, quantile GPU inference, ANOVA backend/SciPy coverage, speedup-summary semantics, and removal of pre-June framework controls.
+The domain-coverage suite verifies robust/quantile, survival, unsupervised, ordered, nonparametric, panel, covariance, and ANOVA runs. It specifically guards CoxPH Breslow timing/speedup/validation, all three aligned GAM scales, both aligned Panel scales, Focused/Full matrix switching, the dashed 1× parity contract, June 2026 linear-model sources, quantile GPU inference, ANOVA backend/SciPy coverage, speedup-summary semantics, and removal of pre-June framework controls.
 
 ## Production build and staleness
 
@@ -163,5 +165,7 @@ All three generated JSON files share one `generation_id`, computed from the comp
 - Parser contract: `docs/benchmark-dashboard/parser-contracts.md`
 - Aggregation contract: `docs/benchmark-dashboard/aggregation-contract.md`
 - Domain coverage audit and benchmark plan: `docs/benchmark-dashboard/domain-coverage-audit-plan.md`
+- Method-level coverage audit: `docs/benchmark-dashboard/method-coverage-audit.md`
+- Robust-loss comparison plan: `docs/benchmark-dashboard/robust-loss-comparison-plan.md`
 - Penalized robust/quantile plan: `docs/benchmark-dashboard/penalized-robust-quantile-plan.md`
 - Rollout record: `docs/benchmark-dashboard/rollout-plan.md`
