@@ -1,6 +1,7 @@
-import type { BenchmarkData, Run } from '../schema';
+import type { BenchmarkData, MetricScope, Run } from '../schema';
 import type { AppState, ChartViewMode } from '../state';
 import {
+  setSelectedMetricScope,
   setSelectedModel,
   setSelectedVariant,
   setSelectedPenalty,
@@ -13,9 +14,11 @@ import {
 import { h } from '../utils/dom';
 import {
   filterRuns,
+  getMetricScopeLabel,
   getUniqueValues,
   getUniqueScaleKeys,
   getScaleLabelMap,
+  runHasMetricScope,
 } from '../data';
 
 export function renderFilterBar(
@@ -55,6 +58,68 @@ export function renderFilterBar(
     viewControl.appendChild(button);
   }
   bar.appendChild(viewControl);
+
+  // Metric scope is upstream of model/variant/penalty. It makes the inference
+  // rows already in the canonical bundle directly discoverable and reserves a
+  // stable frontend contract for forthcoming current CV sources.
+  const scopeOptionState: AppState = {
+    ...state,
+    selectedMetricScope: 'all',
+    selectedModelId: null,
+    selectedVariant: null,
+    selectedPenalty: null,
+    selectedSolver: null,
+    selectedScaleKeys: new Set(),
+    selectedBackends: new Set(),
+    showExternal: new Set(),
+  };
+  const scopeOptionRuns = filterRuns(allRuns, scopeOptionState, {
+    ignoreExternal: true,
+    ignoreMetricScope: true,
+  });
+  const scopeControl = h('div', {
+    class: 'metric-scope-control',
+    title:
+      'Filter by benchmark task. CV remains available as a disabled zero-count option until a June-or-later structured CV source is registered.',
+  });
+  scopeControl.appendChild(h('span', { class: 'filter-label' }, 'Metric scope:'));
+  const scopes: MetricScope[] = [
+    'all',
+    'fit',
+    'cross_validation',
+    'inference',
+    'prediction',
+    'selection',
+  ];
+  for (const scope of scopes) {
+    const count = scope === 'all'
+      ? scopeOptionRuns.length
+      : scopeOptionRuns.filter(run => runHasMetricScope(run, scope)).length;
+    const active = state.selectedMetricScope === scope;
+    const disabled = scope !== 'all' && count === 0;
+    const shortLabel = scope === 'cross_validation' ? 'CV' : getMetricScopeLabel(scope);
+    const button = h(
+      'button',
+      {
+        type: 'button',
+        class: `scope-toggle-btn${active ? ' active' : ''}`,
+        'aria-pressed': String(active),
+        'data-metric-scope': scope,
+        title: disabled
+          ? `No current ${getMetricScopeLabel(scope).toLowerCase()} rows in this category/environment.`
+          : `${getMetricScopeLabel(scope)} benchmark rows: ${count}`,
+      },
+      `${shortLabel} (${count})`,
+    ) as HTMLButtonElement;
+    button.disabled = disabled;
+    button.addEventListener('click', () => {
+      if (disabled) return;
+      setSelectedMetricScope(state, scope);
+      onUpdate();
+    });
+    scopeControl.appendChild(button);
+  }
+  bar.appendChild(scopeControl);
 
   // Option runs: exclude self + downstream filters so selecting a value
   // doesn't shrink the dropdown to only that value (avoids stale-filter deadlock).
