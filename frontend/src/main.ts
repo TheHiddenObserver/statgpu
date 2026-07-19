@@ -1,4 +1,5 @@
 import './style.css';
+import './metric-scope.css';
 
 import * as echarts from 'echarts';
 import type { BenchmarkData, ParseReport, Run } from './schema';
