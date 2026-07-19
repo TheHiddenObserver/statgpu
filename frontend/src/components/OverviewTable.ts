@@ -4,6 +4,10 @@ import { h } from '../utils/dom';
 import { setSortColumn, setTableLimit } from '../state';
 import { emptyFilterMessage } from './EmptyState';
 import {
+  getMetricScopeLabel,
+  getPrimaryMetricScope,
+} from '../data';
+import {
   formatModelName,
   formatTime,
   formatSpeedup,
@@ -28,11 +32,23 @@ interface Column {
   style?: (r: Run) => string | null;
 }
 
+function formatScope(run: Run): string {
+  const scope = getPrimaryMetricScope(run);
+  const label = getMetricScopeLabel(scope);
+  const timingScope = run.parameters?.timing_scope;
+  if (timingScope == null) return label;
+  const detail = String(timingScope).replaceAll('_', ' ');
+  return detail.toLowerCase() === label.toLowerCase() ? label : `${label} · ${detail}`;
+}
+
 function buildColumns(): Column[] {
   return [
     { key: 'model_id', label: 'Model',
       sortValue: r => r.model_id,
       render: r => formatModelName(r.model_id) },
+    { key: 'metric_scope', label: 'Scope',
+      sortValue: r => getPrimaryMetricScope(r),
+      render: r => formatScope(r) },
     { key: 'penalty', label: 'Penalty',
       sortValue: r => r.penalty ?? '',
       render: r => r.penalty ?? '-' },
@@ -88,11 +104,28 @@ export function renderOverviewTable(
     return container;
   }
 
+  // Metric panels belong to the filtered model rows, not below hundreds of
+  // overview records. Keeping their headers above the table makes existing
+  // inference/CV-adjacent metrics discoverable without changing the data model.
+  const panelStack = h('div', { class: 'metric-panel-stack' });
+  const panels = [
+    renderValidationPanel(filtered, state, onUpdate),
+    renderAccuracyPanel(filtered, state, onUpdate),
+    renderInferencePanel(filtered, state, onUpdate),
+    renderPredictionPanel(filtered, state, onUpdate),
+    renderConvergencePanel(filtered, state, onUpdate),
+    renderSelectionPanel(filtered, state, onUpdate),
+  ];
+  for (const panel of panels) {
+    if (panel) panelStack.appendChild(panel);
+  }
+  if (panelStack.childElementCount > 0) container.appendChild(panelStack);
+
   const displayCount =
     state.tableLimit === Infinity
       ? filtered.length
       : Math.min(filtered.length, state.tableLimit);
-  const title = h('div', { style: 'font-weight:bold; margin-bottom:4px;' },
+  const title = h('div', { class: 'overview-table-title' },
     `Showing ${displayCount} of ${filtered.length} runs`);
   container.appendChild(title);
 
@@ -168,19 +201,6 @@ export function renderOverviewTable(
       onUpdate();
     });
     container.appendChild(btn);
-  }
-
-  // Domain panels
-  const panels = [
-    renderValidationPanel(filtered, state, onUpdate),
-    renderAccuracyPanel(filtered, state, onUpdate),
-    renderInferencePanel(filtered, state, onUpdate),
-    renderPredictionPanel(filtered, state, onUpdate),
-    renderConvergencePanel(filtered, state, onUpdate),
-    renderSelectionPanel(filtered, state, onUpdate),
-  ];
-  for (const panel of panels) {
-    if (panel) container.appendChild(panel);
   }
 
   return container;
