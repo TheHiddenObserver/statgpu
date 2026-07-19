@@ -1,6 +1,6 @@
 /** UI state model and mutation helpers */
 
-import type { Environment, Run } from './schema';
+import type { Environment, MetricScope, Run } from './schema';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -11,6 +11,7 @@ export type ChartViewMode = 'focused' | 'full';
 export interface AppState {
   selectedCategoryIds: Set<string>;
   selectedEnvId: string | null;
+  selectedMetricScope: MetricScope;
   selectedModelId: string | null;
   selectedVariant: string | null;
   selectedPenalty: string | null;
@@ -55,6 +56,7 @@ export function createDefaultState(envs: Environment[], runs: Run[] = []): AppSt
   return {
     selectedCategoryIds: defaultCategory ? new Set([defaultCategory]) : new Set(),
     selectedEnvId: defaultEnvId,
+    selectedMetricScope: 'all',
     selectedModelId: null,
     selectedVariant: null,
     selectedPenalty: null,
@@ -80,6 +82,7 @@ export function createDefaultState(envs: Environment[], runs: Run[] = []): AppSt
 // ---------------------------------------------------------------------------
 
 export function resetDownstreamFilters(state: AppState, opts: {
+  clearMetricScope?: boolean;
   clearModel?: boolean;
   clearVariant?: boolean;
   clearPenalty?: boolean;
@@ -88,6 +91,7 @@ export function resetDownstreamFilters(state: AppState, opts: {
   clearBackend?: boolean;
   clearExternal?: boolean;
 }): void {
+  if (opts.clearMetricScope) state.selectedMetricScope = 'all';
   if (opts.clearModel)    state.selectedModelId = null;
   if (opts.clearVariant)  state.selectedVariant = null;
   if (opts.clearPenalty)  state.selectedPenalty = null;
@@ -100,6 +104,19 @@ export function resetDownstreamFilters(state: AppState, opts: {
 // ---------------------------------------------------------------------------
 // Mutation helpers
 // ---------------------------------------------------------------------------
+
+export function setSelectedMetricScope(state: AppState, scope: MetricScope): void {
+  state.selectedMetricScope = scope;
+  resetDownstreamFilters(state, {
+    clearModel: true,
+    clearVariant: true,
+    clearPenalty: true,
+    clearSolver: true,
+    clearScale: true,
+    clearBackend: true,
+    clearExternal: true,
+  });
+}
 
 export function setSelectedModel(state: AppState, modelId: string | null): void {
   state.selectedModelId = modelId;
