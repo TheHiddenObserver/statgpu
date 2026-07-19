@@ -40,6 +40,7 @@ test('default state skips preferred environments with no runs', () => {
 
   expect(state.selectedEnvId).toBe('cpu-only');
   expect([...state.selectedCategoryIds]).toEqual(['survival']);
+  expect(state.selectedMetricScope).toBe('all');
   expect(state.chartViewMode).toBe('focused');
 });
 
@@ -52,6 +53,7 @@ test('default state prefers penalized GLM on the preferred populated environment
 
   expect(state.selectedEnvId).toBe('remote-p100');
   expect([...state.selectedCategoryIds]).toEqual(['penalized_glm']);
+  expect(state.selectedMetricScope).toBe('all');
   expect(state.chartViewMode).toBe('focused');
   expect(state.speedupChartLimit).toBe(100);
 });
