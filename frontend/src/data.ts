@@ -1,4 +1,10 @@
-import type { BenchmarkData, ParseReport, Run, FilterOptions } from './schema';
+import type {
+  BenchmarkData,
+  FilterOptions,
+  MetricScope,
+  ParseReport,
+  Run,
+} from './schema';
 import type { AppState } from './state';
 
 const DATA_URL = `${import.meta.env.BASE_URL}data/benchmark_data.json`;
@@ -83,6 +89,82 @@ export function resetScaleLabelMap(): void {
   scaleLabelMap = null;
 }
 
+function parameterText(run: Run, key: string): string {
+  const value = run.parameters?.[key];
+  return value == null ? '' : String(value).toLowerCase();
+}
+
+export function isInferenceRun(run: Run): boolean {
+  const timingScope = parameterText(run, 'timing_scope');
+  return Boolean(
+    run.metrics.inference ||
+    run.parameters?.compute_inference === true ||
+    run.parameters?.inference_method != null ||
+    timingScope.includes('inference')
+  );
+}
+
+export function isCrossValidationRun(run: Run): boolean {
+  const explicitScopes = [
+    parameterText(run, 'metric_scope'),
+    parameterText(run, 'benchmark_scope'),
+    parameterText(run, 'task_scope'),
+    parameterText(run, 'timing_scope'),
+  ];
+  return Boolean(
+    /(?:CV|CrossValidation)$/i.test(run.model_id) ||
+    explicitScopes.some(value => value === 'cv' || value === 'cross_validation') ||
+    run.parameters?.cv != null ||
+    run.parameters?.cv_folds != null ||
+    run.parameters?.fold_count != null ||
+    run.parameters?.n_folds != null
+  );
+}
+
+export function getRunMetricScopes(run: Run): Set<MetricScope> {
+  const scopes = new Set<MetricScope>();
+  const inference = isInferenceRun(run);
+  const crossValidation = isCrossValidationRun(run);
+
+  if (run.metrics.timing && !inference && !crossValidation) scopes.add('fit');
+  if (crossValidation) scopes.add('cross_validation');
+  if (inference) scopes.add('inference');
+  if (run.metrics.prediction) scopes.add('prediction');
+  if (run.metrics.selection) scopes.add('selection');
+
+  return scopes;
+}
+
+export function runHasMetricScope(run: Run, scope: MetricScope): boolean {
+  return scope === 'all' || getRunMetricScopes(run).has(scope);
+}
+
+export function getPrimaryMetricScope(run: Run): MetricScope {
+  const scopes = getRunMetricScopes(run);
+  for (const scope of [
+    'inference',
+    'cross_validation',
+    'selection',
+    'prediction',
+    'fit',
+  ] as MetricScope[]) {
+    if (scopes.has(scope)) return scope;
+  }
+  return 'all';
+}
+
+export function getMetricScopeLabel(scope: MetricScope): string {
+  const labels: Record<MetricScope, string> = {
+    all: 'All',
+    fit: 'Fit',
+    cross_validation: 'Cross-validation',
+    inference: 'Inference',
+    prediction: 'Prediction',
+    selection: 'Selection',
+  };
+  return labels[scope];
+}
+
 export function filterRuns(
   runs: Run[],
   state: AppState,
@@ -97,10 +179,19 @@ export function filterRuns(
     // Environment filter
     if (state.selectedEnvId && r.env_id !== state.selectedEnvId) return false;
 
+    // Metric-scope filter. Inference remains attached to its model/category;
+    // CV rows can additionally live under the dedicated cross_validation category.
+    if (
+      !opts?.ignoreMetricScope &&
+      state.selectedMetricScope !== 'all' &&
+      !runHasMetricScope(r, state.selectedMetricScope)
+    )
+      return false;
+
     // Model filter
     if (state.selectedModelId && r.model_id !== state.selectedModelId) return false;
 
-    // Variant filter (NEW)
+    // Variant filter
     if (state.selectedVariant && r.variant !== state.selectedVariant) return false;
 
     // Penalty filter
@@ -122,7 +213,7 @@ export function filterRuns(
       if (!state.selectedBackends.has(r.backend)) return false;
     }
 
-    // External framework filter (unchanged semantics: empty = hide all)
+    // External framework filter (empty = hide all)
     if (!opts?.ignoreExternal) {
       if (r.framework !== 'statgpu' && state.showExternal.size > 0) {
         if (!state.showExternal.has(r.framework)) return false;
