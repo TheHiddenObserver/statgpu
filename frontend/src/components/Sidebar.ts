@@ -37,6 +37,7 @@ export function renderSidebar(
       if (cb.checked) state.selectedCategoryIds.add(cat.category_id);
       else state.selectedCategoryIds.delete(cat.category_id);
       resetDownstreamFilters(state, {
+        clearMetricScope: true,
         clearModel: true,
         clearVariant: true,
         clearPenalty: true,
@@ -82,6 +83,7 @@ export function renderSidebar(
     for (const cat of data.categories) state.selectedCategoryIds.add(cat.category_id);
     for (const cb of catCheckboxes.values()) cb.checked = true;
     resetDownstreamFilters(state, {
+      clearMetricScope: true,
       clearModel: true,
       clearVariant: true,
       clearPenalty: true,
@@ -97,6 +99,7 @@ export function renderSidebar(
     state.selectedCategoryIds.clear();
     for (const cb of catCheckboxes.values()) cb.checked = false;
     resetDownstreamFilters(state, {
+      clearMetricScope: true,
       clearModel: true,
       clearVariant: true,
       clearPenalty: true,
