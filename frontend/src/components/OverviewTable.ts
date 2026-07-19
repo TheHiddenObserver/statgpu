@@ -71,31 +71,6 @@ function buildColumns(): Column[] {
   ];
 }
 
-function renderMetricPanels(
-  runs: Run[],
-  state: AppState,
-  onUpdate: () => void,
-): HTMLElement | null {
-  const panels = [
-    renderValidationPanel(runs, state, onUpdate),
-    renderAccuracyPanel(runs, state, onUpdate),
-    renderInferencePanel(runs, state, onUpdate),
-    renderPredictionPanel(runs, state, onUpdate),
-    renderConvergencePanel(runs, state, onUpdate),
-    renderSelectionPanel(runs, state, onUpdate),
-  ].filter((panel): panel is HTMLElement => panel !== null);
-
-  if (panels.length === 0) return null;
-
-  const container = h('section', {
-    class: 'metric-panels',
-    'aria-label': 'Available benchmark metric panels',
-  });
-  container.appendChild(h('div', { class: 'metric-panels-title' }, 'Available metrics'));
-  for (const panel of panels) container.appendChild(panel);
-  return container;
-}
-
 // ---------------------------------------------------------------------------
 // Table renderer
 // ---------------------------------------------------------------------------
@@ -117,18 +92,12 @@ export function renderOverviewTable(
     state.tableLimit === Infinity
       ? filtered.length
       : Math.min(filtered.length, state.tableLimit);
-  const title = h('div', { class: 'overview-table-title' },
+  const title = h('div', { style: 'font-weight:bold; margin-bottom:4px;' },
     `Showing ${displayCount} of ${filtered.length} runs`);
   container.appendChild(title);
 
-  // Metric panels belong above the potentially long overview table.  Keeping
-  // them below 200 rows made inference/validation data look absent even when
-  // the canonical run records already contained those metrics.
-  const metricPanels = renderMetricPanels(filtered, state, onUpdate);
-  if (metricPanels) container.appendChild(metricPanels);
-
   const columns = buildColumns();
-  const table = h('table', { class: 'overview-table' });
+  const table = h('table');
   const thead = h('thead');
   const headerRow = h('tr');
 
@@ -199,6 +168,19 @@ export function renderOverviewTable(
       onUpdate();
     });
     container.appendChild(btn);
+  }
+
+  // Domain panels
+  const panels = [
+    renderValidationPanel(filtered, state, onUpdate),
+    renderAccuracyPanel(filtered, state, onUpdate),
+    renderInferencePanel(filtered, state, onUpdate),
+    renderPredictionPanel(filtered, state, onUpdate),
+    renderConvergencePanel(filtered, state, onUpdate),
+    renderSelectionPanel(filtered, state, onUpdate),
+  ];
+  for (const panel of panels) {
+    if (panel) container.appendChild(panel);
   }
 
   return container;
