@@ -54,6 +54,35 @@ test.describe('Benchmark domain coverage', () => {
     });
   });
 
+  test('metric scope exposes current inference and reserves the CV frontend contract', async ({
+    page,
+  }) => {
+    await page.getByRole('button', { name: 'None' }).click();
+    await page.locator('#cat-penalized_glm').check();
+
+    const inference = page.locator('[data-metric-scope="inference"]');
+    const cv = page.locator('[data-metric-scope="cross_validation"]');
+    await expect(inference).toBeEnabled();
+    await expect(cv).toBeDisabled();
+    await expect(cv).toContainText('CV (0)');
+
+    await inference.click();
+    await expect(inference).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.getByText(/Inference Metrics \(\d+\)/)).toBeVisible();
+
+    const scopeCells = page.locator('.table-container tbody tr td:nth-child(2)');
+    await expect(scopeCells.first()).toContainText('Inference');
+    const allScopes = await scopeCells.allTextContents();
+    expect(allScopes.length).toBeGreaterThan(0);
+    expect(allScopes.every(value => value.includes('Inference'))).toBeTruthy();
+
+    const panelTop = await page.getByText(/Inference Metrics \(\d+\)/).boundingBox();
+    const tableTitleTop = await page.locator('.overview-table-title').boundingBox();
+    expect(panelTop).not.toBeNull();
+    expect(tableTitleTop).not.toBeNull();
+    expect(panelTop!.y).toBeLessThan(tableTitleTop!.y);
+  });
+
   test('PR74 exposes sandwich, oracle, and bootstrap inference configurations', async ({
     page,
   }) => {
