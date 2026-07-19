@@ -11,6 +11,10 @@ function formatNumber(value: number | undefined): string {
   return abs >= 1e4 || abs < 1e-3 ? value.toExponential(3) : value.toFixed(5);
 }
 
+function formatParameter(value: unknown): string {
+  return value == null ? '-' : String(value).replaceAll('_', ' ');
+}
+
 export function renderInferencePanel(
   runs: Run[],
   state: AppState,
@@ -23,10 +27,17 @@ export function renderInferencePanel(
     const ok = inference.ok;
     rows.push({
       model: run.model_id,
+      method:
+        run.variant ??
+        run.parameters?.inference_method ??
+        run.parameters?.cov_type ??
+        '-',
+      penalty: run.penalty ?? 'none',
       backend: run.implementation
         ? `${run.backend ?? run.framework} (${run.implementation})`
         : (run.backend ?? run.framework),
       scale: run.scale.label,
+      timingScope: formatParameter(run.parameters?.timing_scope ?? 'inference'),
       bse: formatNumber(inference.bse),
       wald: formatNumber(inference.wald_stat),
       pValue: formatNumber(inference.p_value),
@@ -42,8 +53,11 @@ export function renderInferencePanel(
     title: 'Inference Metrics',
     columns: [
       { key: 'model', label: 'Model', render: row => String(row.model) },
+      { key: 'method', label: 'Method', render: row => String(row.method) },
+      { key: 'penalty', label: 'Penalty', render: row => String(row.penalty) },
       { key: 'backend', label: 'Backend', render: row => String(row.backend) },
       { key: 'scale', label: 'Scale', render: row => String(row.scale) },
+      { key: 'timingScope', label: 'Timing Scope', render: row => String(row.timingScope) },
       { key: 'bse', label: 'BSE', render: row => String(row.bse) },
       { key: 'wald', label: 'Wald Statistic', render: row => String(row.wald) },
       { key: 'pValue', label: 'p-value', render: row => String(row.pValue) },
