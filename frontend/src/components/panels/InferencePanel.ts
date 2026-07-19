@@ -12,7 +12,7 @@ function formatNumber(value: number | undefined): string {
 }
 
 function formatParameter(value: unknown): string {
-  return value == null ? '-' : String(value).replaceAll('_', ' ');
+  return value == null ? '-' : String(value).replace(/_/g, ' ');
 }
 
 export function renderInferencePanel(
