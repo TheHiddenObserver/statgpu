@@ -28,6 +28,7 @@ export function renderHeader(
   hwSelect.addEventListener('change', () => {
     state.selectedEnvId = (hwSelect as HTMLSelectElement).value;
     resetDownstreamFilters(state, {
+      clearMetricScope: true,
       clearModel: true,
       clearVariant: true,
       clearPenalty: true,
