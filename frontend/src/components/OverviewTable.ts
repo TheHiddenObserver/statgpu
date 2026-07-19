@@ -37,7 +37,7 @@ function formatScope(run: Run): string {
   const label = getMetricScopeLabel(scope);
   const timingScope = run.parameters?.timing_scope;
   if (timingScope == null) return label;
-  const detail = String(timingScope).replaceAll('_', ' ');
+  const detail = String(timingScope).replace(/_/g, ' ');
   return detail.toLowerCase() === label.toLowerCase() ? label : `${label} · ${detail}`;
 }
 
