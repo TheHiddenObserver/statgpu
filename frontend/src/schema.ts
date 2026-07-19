@@ -1,6 +1,13 @@
 /** TypeScript types matching benchmark_frontend_schema.json v1.1.0 */
 
 export type MetricQuality = 'measured' | 'reported' | 'computed' | 'partial';
+export type MetricScope =
+  | 'all'
+  | 'fit'
+  | 'cross_validation'
+  | 'inference'
+  | 'prediction'
+  | 'selection';
 
 export interface BenchmarkData {
   schema_version: string;
@@ -261,4 +268,5 @@ export interface FilterContext {
 export interface FilterOptions {
   ignoreScale?: boolean;
   ignoreExternal?: boolean;
+  ignoreMetricScope?: boolean;
 }
