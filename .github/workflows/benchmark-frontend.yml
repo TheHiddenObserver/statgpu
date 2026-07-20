@@ -1,6 +1,13 @@
 name: Benchmark Frontend CI
 
 on:
+  push:
+    branches: [feature/benchmark-frontend-dashboard]
+    paths:
+      - '.github/workflows/benchmark-frontend.yml'
+      - 'dev/benchmarks/**'
+      - 'dev/tests/test_frontend_contracts.py'
+      - 'pyproject.toml'
   pull_request:
     paths:
       - '.github/workflows/benchmark-frontend.yml'
@@ -13,12 +20,12 @@ permissions:
 
 jobs:
   review-fix:
-    if: github.head_ref == 'feature/benchmark-frontend-dashboard'
+    if: github.ref == 'refs/heads/feature/benchmark-frontend-dashboard' || github.head_ref == 'feature/benchmark-frontend-dashboard'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.head_ref }}
+          ref: feature/benchmark-frontend-dashboard
           fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
