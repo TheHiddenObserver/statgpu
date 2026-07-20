@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import type { Environment, Run } from '../src/schema';
+import { getUniqueScaleKeys } from '../src/data';
 import { createDefaultState } from '../src/state';
 
 const environments: Environment[] = [
@@ -56,4 +57,56 @@ test('default state prefers penalized GLM on the preferred populated environment
   expect(state.selectedMetricScope).toBe('all');
   expect(state.chartViewMode).toBe('focused');
   expect(state.speedupChartLimit).toBe(100);
+});
+
+test('scale keys are ordered by numeric workload dimensions, not lexicographically', () => {
+  const base = makeRun('remote-p100', ['linear_models']);
+  const runs: Run[] = [
+    {
+      ...base,
+      run_id: 'run-20k',
+      scale: {
+        scale_key: 'n20000_p5',
+        n_samples: 20000,
+        n_features: 5,
+        label: '20K×5',
+      },
+    },
+    {
+      ...base,
+      run_id: 'run-1k',
+      scale: {
+        scale_key: 'n1000_p50',
+        n_samples: 1000,
+        n_features: 50,
+        label: '1K×50',
+      },
+    },
+    {
+      ...base,
+      run_id: 'run-5k',
+      scale: {
+        scale_key: 'n5000_p10',
+        n_samples: 5000,
+        n_features: 10,
+        label: '5K×10',
+      },
+    },
+    {
+      ...base,
+      run_id: 'run-1k-duplicate',
+      scale: {
+        scale_key: 'n1000_p50',
+        n_samples: 1000,
+        n_features: 50,
+        label: '1K×50',
+      },
+    },
+  ];
+
+  expect(getUniqueScaleKeys(runs)).toEqual([
+    'n1000_p50',
+    'n5000_p10',
+    'n20000_p5',
+  ]);
 });
