@@ -1,0 +1,43 @@
+name: PR76 Review Fix Assets
+
+on:
+  push:
+    branches:
+      - feature/benchmark-frontend-dashboard
+    paths:
+      - '.github/workflows/review-fix-assets.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  refresh-assets:
+    if: github.repository == 'TheHiddenObserver/statgpu'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/benchmark-frontend-dashboard
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Typecheck and build deployment assets
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run typecheck
+          npm run build
+      - name: Commit refreshed assets and remove workflow
+        run: |
+          rm .github/workflows/review-fix-assets.yml
+          printf '%s\n' 'PR76 review-fix assets refreshed' > dev/benchmarks/.review-fix-assets-refreshed
+          git diff --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add \
+            .github/workflows/review-fix-assets.yml \
+            dev/benchmarks/.review-fix-assets-refreshed \
+            docs/assets/benchmarks
+          git commit -m 'build(frontend): refresh benchmark dashboard assets'
+          git push origin HEAD:feature/benchmark-frontend-dashboard
