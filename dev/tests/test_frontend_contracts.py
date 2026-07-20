@@ -63,3 +63,37 @@ def test_transitional_inventory_catalog_total_matches_results_tree() -> None:
     )
 
     assert inventory["catalog_total"] == expected
+
+
+def test_public_validator_rejects_zero_timing_for_log_axis() -> None:
+    from dev.benchmarks.generate_benchmark_data import validate_output
+
+    output = {
+        "runs": [
+            {
+                "run_id": "zero-timing",
+                "env_id": "test",
+                "category_ids": ["linear_models"],
+                "model_id": "ExampleModel",
+                "framework": "statgpu",
+                "backend": "numpy",
+                "scale": {
+                    "scale_key": "n10_p2",
+                    "n_samples": 10,
+                    "n_features": 2,
+                    "label": "10×2",
+                },
+                "source": {
+                    "file": "example.json",
+                },
+                "metrics": {
+                    "timing": {
+                        "fit_time_ms": 0,
+                    },
+                },
+            }
+        ]
+    }
+
+    errors = validate_output(output)
+    assert any("timing.fit_time_ms must be > 0" in error for error in errors)
