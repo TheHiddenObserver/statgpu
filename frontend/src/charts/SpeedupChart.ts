@@ -3,6 +3,7 @@ import type { Run } from '../schema';
 import type { AppState } from '../state';
 import { formatModelName } from '../utils/format';
 import { CHART_STYLE } from '../utils/theme';
+import { chartGroupIdentity, chartSolverFamilyIdentity } from '../identity';
 
 interface SpeedupSelection {
   runs: Run[];
@@ -34,6 +35,14 @@ interface TooltipRect {
   height?: number;
 }
 
+function groupKey(run: Run): string {
+  return JSON.stringify(chartGroupIdentity(run, false));
+}
+
+function solverFamilyKey(run: Run): string {
+  return JSON.stringify(chartSolverFamilyIdentity(run, false));
+}
+
 function formatSeries(run: Run): string {
   if (run.framework !== 'statgpu') return run.framework;
   return [run.backend, run.implementation].filter(Boolean).join('/') || 'statgpu';
@@ -44,14 +53,24 @@ function formatFocusedSeries(run: Run): string {
   return run.backend ?? 'statgpu';
 }
 
-function formatRunLabel(run: Run, focused: boolean): string {
+export function formatRunLabel(run: Run, focused: boolean, includeScale = false): string {
   const variant = run.variant ? ` (${run.variant})` : '';
   const model = `${formatModelName(run.model_id)}${variant}`;
   const penalty = run.penalty && run.penalty !== 'none' ? run.penalty : null;
   const reported = run.metrics.speedup?.reported_semantics === 'computed' ? '' : ' Ⓡ';
 
   if (focused) {
-    return `${[model, penalty, formatFocusedSeries(run)].filter(Boolean).join(' · ')}${reported}`;
+    const solver = run.solver_display ?? run.solver ?? 'unknown';
+    const solverPart = run.solver === 'auto' || run.solver_kind === 'dispatch'
+      ? null
+      : solver;
+    return `${[
+      model,
+      penalty,
+      solverPart,
+      formatFocusedSeries(run),
+      includeScale ? run.scale.label : null,
+    ].filter(Boolean).join(' · ')}${reported}`;
   }
 
   const solver = run.solver_display ?? run.solver ?? 'unknown';
@@ -78,7 +97,7 @@ function shouldFocusPenalizedRows(state: AppState): boolean {
   );
 }
 
-function selectSpeedupRuns(runs: Run[], state: AppState): SpeedupSelection {
+export function selectSpeedupRuns(runs: Run[], state: AppState): SpeedupSelection {
   const speedupRuns = runs.filter((run) => run.metrics.speedup);
   if (state.chartViewMode === 'full' || speedupRuns.length === 0) {
     return { runs: speedupRuns, notes: ['Full matrix'], penaltyScope: 'all' };
@@ -121,9 +140,16 @@ function selectSpeedupRuns(runs: Run[], state: AppState): SpeedupSelection {
   const dispatchRows = focused.filter(
     (run) => run.solver_kind === 'dispatch' || run.solver === 'auto',
   );
-  if (dispatchRows.length > 0) {
-    focused = dispatchRows;
-    notes.push('Auto/best solver rows');
+  const dispatchGroupKeys = new Set(dispatchRows.map(groupKey));
+  const familiesWithDispatch = new Set(dispatchRows.map(solverFamilyKey));
+  if (familiesWithDispatch.size > 0) {
+    const before = focused.length;
+    focused = focused.filter(
+      (run) =>
+        !familiesWithDispatch.has(solverFamilyKey(run)) ||
+        dispatchGroupKeys.has(groupKey(run)),
+    );
+    if (focused.length < before) notes.push('Auto/best solver rows');
   }
 
   return { runs: focused, notes, penaltyScope };
@@ -184,6 +210,7 @@ export function renderSpeedupChart(
       (b.metrics.speedup?.value ?? 0) - (a.metrics.speedup?.value ?? 0),
   );
   const isFocused = state.chartViewMode === 'focused';
+  const includeScaleInFocusedLabel = isFocused && state.selectedScaleKeys.size > 1;
   const limit = isFocused ? 18 : state.speedupChartLimit;
   const chartRuns = selectedRuns.slice(0, limit);
   const displayRuns = [...chartRuns].reverse();
@@ -305,7 +332,8 @@ export function renderSpeedupChart(
       },
       yAxis: {
         type: 'category',
-        data: displayRuns.map((run) => formatRunLabel(run, isFocused)),
+        data: displayRuns.map((run) =>
+          formatRunLabel(run, isFocused, includeScaleInFocusedLabel)),
         axisLine: { lineStyle: { color: CHART_STYLE.axis } },
         axisTick: { lineStyle: { color: CHART_STYLE.axis } },
         axisLabel: {

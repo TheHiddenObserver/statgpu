@@ -147,6 +147,8 @@ def _inject_canonical_fields(runs: list[dict], manifest: dict, results_dir: Path
         if manifest_src:
             run["source"]["source_id"] = manifest_src["source_id"]
             run["source"]["original_path"] = manifest_src.get("original_path", "")
+            if manifest_src.get("sha256"):
+                run["source"]["sha256"] = manifest_src["sha256"]
             run["comparison_id"] = manifest_src.get("comparison_id", manifest_src["source_id"])
             if manifest_src.get("source_date"):
                 run["source"]["date"] = manifest_src["source_date"]
@@ -492,7 +494,7 @@ def validate_against_schema(output: dict) -> list[str]:
             "install statgpu[dev] or statgpu[validation]"
         ]
 
-    validator = Validator(schema)
+    validator = Validator(schema, format_checker=Validator.FORMAT_CHECKER)
     schema_errors = sorted(validator.iter_errors(output), key=lambda e: list(e.path))
     if not schema_errors:
         return []
@@ -520,6 +522,11 @@ def validate_semantic(output: dict, manifest: Optional[dict] = None, strict_sour
     comparisons = {c["comparison_id"] for c in output.get("comparisons", [])}
     fw_policy = {f["framework_id"]: f.get("backend_policy", "forbidden") for f in output.get("frameworks", [])}
     runs_by_id = {run.get("run_id"): run for run in runs}
+    manifest_sources_by_id = (
+        {source.get("source_id"): source for source in manifest.get("sources", [])}
+        if manifest
+        else {}
+    )
 
     for run in runs:
         rid = run.get("run_id", "?")
@@ -587,13 +594,25 @@ def validate_semantic(output: dict, manifest: Optional[dict] = None, strict_sour
                     elif abs(speedup_value - expected) > max(1e-4, abs(expected) * 1e-4):
                         errors.append(f"{rid}: computed speedup value does not match referenced timing")
 
-        # Canonical IDs
-        if run.get("source", {}).get("source_id", "").startswith("transitional:"):
+        # Canonical IDs and source provenance
+        source = run.get("source", {})
+        source_id = source.get("source_id", "")
+        if source_id.startswith("transitional:"):
             if manifest:
                 errors.append(f"{rid}: transitional source_id in canonical mode")
         if run.get("case_id", "").startswith("legacy-"):
             if manifest:
                 errors.append(f"{rid}: legacy case_id in canonical mode")
+        if manifest:
+            manifest_source = manifest_sources_by_id.get(source_id)
+            if manifest_source is None:
+                errors.append(f"{rid}: source_id '{source_id}' not found in manifest")
+            else:
+                expected_hash = manifest_source.get("sha256")
+                if expected_hash and source.get("sha256") != expected_hash:
+                    errors.append(
+                        f"{rid}: source.sha256 does not match manifest for '{source_id}'"
+                    )
 
     # Build run_id lookup for speedup reference validation
     run_by_id: dict[str, dict] = {r["run_id"]: r for r in runs}

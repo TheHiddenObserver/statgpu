@@ -3,7 +3,7 @@ import type { Run } from '../schema';
 import type { AppState } from '../state';
 import { CHART_STYLE, COLORS } from '../utils/theme';
 import { formatModelName } from '../utils/format';
-import { chartGroupIdentity } from '../identity';
+import { chartGroupIdentity, chartSolverFamilyIdentity } from '../identity';
 
 interface TimingSelection {
   runs: Run[];
@@ -14,6 +14,10 @@ interface TimingSelection {
 
 function groupKey(run: Run): string {
   return JSON.stringify(chartGroupIdentity(run, false));
+}
+
+function solverFamilyKey(run: Run): string {
+  return JSON.stringify(chartSolverFamilyIdentity(run, false));
 }
 
 function shouldFocusPenalizedRows(state: AppState): boolean {
@@ -31,7 +35,7 @@ function shouldFocusDefaultSurvivalImplementation(state: AppState): boolean {
   );
 }
 
-function selectTimingRuns(runs: Run[], state: AppState): TimingSelection {
+export function selectTimingRuns(runs: Run[], state: AppState): TimingSelection {
   const timingRuns = runs.filter((run) => run.metrics.timing);
   if (state.chartViewMode === 'full' || timingRuns.length === 0) {
     return {
@@ -106,24 +110,27 @@ function selectTimingRuns(runs: Run[], state: AppState): TimingSelection {
   // Prefer dispatch/Auto(best) groups where they exist. Match by canonical
   // chart-group identity so any external reference rows in the same group stay
   // visible. Domains without dispatch rows retain their complete focused view.
-  const dispatchGroupKeys = new Set(
-    focused
-      .filter(
-        (run) =>
-          run.framework === 'statgpu' &&
-          (run.solver_kind === 'dispatch' || run.solver === 'auto'),
-      )
-      .map(groupKey),
+  const dispatchRuns = focused.filter(
+    (run) =>
+      run.framework === 'statgpu' &&
+      (run.solver_kind === 'dispatch' || run.solver === 'auto'),
   );
-  if (dispatchGroupKeys.size > 0) {
-    focused = focused.filter((run) => dispatchGroupKeys.has(groupKey(run)));
-    notes.push('Auto/best solver groups');
+  const dispatchGroupKeys = new Set(dispatchRuns.map(groupKey));
+  const familiesWithDispatch = new Set(dispatchRuns.map(solverFamilyKey));
+  if (familiesWithDispatch.size > 0) {
+    const before = focused.length;
+    focused = focused.filter(
+      (run) =>
+        !familiesWithDispatch.has(solverFamilyKey(run)) ||
+        dispatchGroupKeys.has(groupKey(run)),
+    );
+    if (focused.length < before) notes.push('Auto/best solver groups');
   }
 
   return { runs: focused, notes, penaltyScope, implementationScope };
 }
 
-function formatGroupLabel(run: Run, focused: boolean): string {
+export function formatGroupLabel(run: Run, focused: boolean, includeScale = false): string {
   const variant = run.variant ? ` (${run.variant})` : '';
   const model = `${formatModelName(run.model_id)}${variant}`;
   const penalty = run.penalty && run.penalty !== 'none' ? run.penalty : null;
@@ -133,7 +140,9 @@ function formatGroupLabel(run: Run, focused: boolean): string {
     const solverPart = run.solver === 'auto' || run.solver_kind === 'dispatch'
       ? null
       : solver;
-    return [model, penalty, solverPart].filter(Boolean).join(' · ');
+    return [model, penalty, solverPart, includeScale ? run.scale.label : null]
+      .filter(Boolean)
+      .join(' · ');
   }
 
   const firstLine = [model, penalty].filter(Boolean).join(' · ');
@@ -203,12 +212,13 @@ export function renderTimingChart(
   const groups = new Map<GroupKey, { label: string; bySeries: Map<string, number> }>();
   const seriesMeta = new Map<string, TimingSeries>();
   const isFocused = state.chartViewMode === 'focused';
+  const includeScaleInFocusedLabel = isFocused && state.selectedScaleKeys.size > 1;
 
   for (const run of timingRuns) {
     const key = groupKey(run);
     if (!groups.has(key)) {
       groups.set(key, {
-        label: formatGroupLabel(run, isFocused),
+        label: formatGroupLabel(run, isFocused, includeScaleInFocusedLabel),
         bySeries: new Map(),
       });
     }

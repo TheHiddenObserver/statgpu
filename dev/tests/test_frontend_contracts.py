@@ -350,3 +350,21 @@ def test_schema_rejects_invalid_generated_date_time() -> None:
 
     errors = validate_against_schema(output)
     assert any("generated" in error and "date-time" in error for error in errors)
+
+
+def test_semantic_validation_rejects_manifest_source_hash_mismatch() -> None:
+    from dev.benchmarks.frontend_data.cli import validate_semantic
+    from dev.benchmarks.frontend_data.registry import load_manifest
+    from dev.benchmarks.generate_benchmark_data import generate
+
+    manifest = load_manifest(REPO_ROOT)
+    assert manifest is not None
+    output, _, _ = generate(
+        REPO_ROOT / "results",
+        deterministic=True,
+        manifest=manifest,
+    )
+    output["runs"][0]["source"]["sha256"] = "0" * 64
+
+    errors = validate_semantic(output, manifest=manifest)
+    assert any("source.sha256 does not match manifest" in error for error in errors)
