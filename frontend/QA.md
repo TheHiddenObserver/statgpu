@@ -1,92 +1,127 @@
 # Frontend Dashboard QA
 
-- **Branch**: frontend-dashboard-e2e-tests
-- **Commit**: aacaf03
-- **Date**: 2026-07-10
-- **Browser**: Chrome/Edge latest (via code review + build verification)
-- **Test command**: `npm run build` (prod), `npm run dev` (dev)
+## Scope
 
-## Data Summary
+- **Pull request**: #76
+- **Branch**: `feature/benchmark-frontend-dashboard`
+- **Last updated**: 2026-07-20
+- **QA type**: automated contract, build, and browser tests
+- **Manual production smoke test**: still required before final merge
 
-- 1416 total runs, 4/4 files parsed, 12 categories, 8 models
-- 444 timing runs, 1264 speedup runs (292 computed, 972 reported)
-- 0 accuracy runs, 6 glmnet external runs
-- 10 penalties, 8 solvers, 8 scale sizes
+This file describes the current dashboard rather than the earlier 1,416-run prototype.
 
-## Checklist
+## Data summary
 
-### 1. Page Loading
-- [x] Dev mode loads without console errors (verified via build + code review)
-- [x] Production build loads without console errors (`npm run build` succeeds, no TS errors)
-- [x] benchmark_data.json loads. Run count: 1416
-- [x] parse_report.json loads. Files parsed: 4 / 4
-- [x] Header shows expected counts (via fetchParseReport)
+```text
+8 registered benchmark sources
+8 parsed sources
+0 skipped sources
+1,774 normalized runs
+36 models
+```
 
-### 2. Category Filter
-- [x] Default category pre-selected (penalized_glm in createDefaultState)
-- [x] Select all categories — table updates (All button calls update())
-- [x] Clear all categories — table shows empty state (None button clears Set)
-- [x] Single category — correct runs shown (filterRuns checks category_ids)
-- [x] Overlapping (penalized_glm + glm) — no duplicates (runs filtered by Set.has, one run can match either)
+The canonical source policy requires `source_date >= 2026-06-01`. April ElasticNet, LassoCV, Cox package-comparison, comprehensive-validation, and knockoff artifacts remain excluded from the deployed bundle.
 
-### 3. Progressive Filters
-- [x] Model dropdown populates after category change (modelIds from filtered runs)
-- [x] Penalty appears after model selection (conditional on state.selectedModelId)
-- [x] Solver appears after penalty selection (conditional on state.selectedPenalty)
-- [x] Solver resets when model/penalty changes (set to null in change handler)
-- [x] Scale chips remain multi-selectable (derived from runs without scale filter applied)
-- [x] Backend radio filters correctly (all/numpy/cupy/torch via selectedBackends Set)
-- [x] External frameworks are hidden by default before any checkbox is enabled (showExternal defaults to empty Set)
-- [x] External checkboxes show/hide sklearn/glmnet/statsmodels correctly
+## Automated validation
 
-### 4. Timing Chart
-- [x] All backends — bars align to correct groups (grouped by model+penalty+solver+scale key)
-- [x] Single backend — only that backend shown (backendOrder filters to selected backends)
-- [x] With sklearn — external bars appear (external frameworks added to backendOrder via showExternal)
-- [x] Missing values do not shift bar groups (null values passed for missing backends)
-- [x] Tooltip values match table values (same fit_time_ms used in both)
-- [x] **FIXED**: Tooltip handles null values (filter added for `p.value != null`)
+The current CI matrix verifies:
 
-### 5. Speedup Chart
-- [x] NumPy baseline rows excluded (filter: `r.backend !== 'numpy'`)
-- [x] Speedup > 1 shown as green (#52c41a)
-- [x] Slowdown < 1 shown as red (#ff4d4f)
-- [x] 1.0x reference line visible (markLine at xAxis: 1)
-- [x] **FIXED**: Reported vs computed speedups distinguishable (Ⓡ suffix on labels, decal pattern on bars, subtext legend)
-- [x] **FIXED**: Tooltip handles null values
+- project tests on Python 3.9, 3.10, 3.11, and 3.12;
+- benchmark parser and schema tests on Python 3.9 and 3.11;
+- strict manifest/source-date/SHA validation;
+- TypeScript type checking;
+- Vite production build;
+- deterministic data and deployment-asset staleness;
+- Playwright Chromium interaction tests.
 
-### 6. Overview Table
-- [x] Sort by Model/Penalty/Solver/Backend/Scale/Time/Speedup (all in colKeyMap)
-- [x] Sort direction toggles (asc/desc) (toggles on same column re-click)
-- [x] Show all / Show first 200 toggle works (Infinity / 200 toggle)
-- [x] Table count matches filter result count (displayCount = min(filtered.length, tableLimit))
-- [x] External framework rows show framework name (r.backend ?? r.framework)
-- [x] **FIXED**: Table title shows correct count when "Show all" active (uses tableLimit instead of hardcoded 200)
+## Dashboard checks
 
-### 7. Accuracy Panel
-- [x] Panel opens and closes (toggle display:none/block)
-- [x] PASS/WARN/FAIL thresholds reasonable (1e-5 / 1e-3)
-- [x] Reference column displayed
-- [x] No accuracy data → No broken empty panel (conditional `if (accRuns.length > 0)`)
-- [x] **CONFIRMED**: 0 accuracy runs in current data — panel correctly not rendered
+### Page loading and deployment
 
-## Bugs Found
+- [x] The three generated JSON files are committed:
+  - `benchmark_data.json`;
+  - `parse_report.json`;
+  - `source_inventory.json`.
+- [x] Vite builds to `docs/assets/benchmarks/`.
+- [x] Nested-base asset paths are covered by the production configuration.
+- [ ] Perform a final manual load from `docs/assets/benchmarks/index.html` before merge.
+- [ ] Confirm no browser-console error in the manually served production build.
 
-| # | Description | Severity | Fixed |
-|---|---|---|---|
-| 1 | Timing chart tooltip crashes on null values (ECharts axis trigger includes all series even with null data) | high | yes |
-| 2 | Overview table title always shows "Showing min(N,200)" even when Show All is active | low | yes |
-| 3 | ECharts instances leaked on every update() call (old DOM elements removed, instances never disposed) | med | yes |
-| 4 | Sidebar search input present in DOM but not wired to any filtering logic | low | yes |
-| 5 | Speedup chart does not differentiate computed vs reported speedups | med | yes |
+### Navigation and filter state
 
-## Additional Observations
+- [x] Default environment is selected only when it has runs.
+- [x] Default category avoids a valid-but-empty initial view.
+- [x] Category search is wired to English and Chinese metadata.
+- [x] Upstream changes clear incompatible downstream filters.
+- [x] Scale chips remain multi-selectable because options are derived without applying the active scale filter.
+- [x] Backend filtering applies to statgpu rows only.
+- [x] External frameworks are hidden by default and are context-aware.
 
-- **Search input now works**: filters category rows by Chinese/English name match
-- **Chart instance lifecycle**: disposed before clear() on each update(), preventing memory leaks
-- **Speedup differentiation**: Ⓡ marker on reported speedup labels + decal pattern on bars + subtitle legend
-- **Table title**: now correctly displays "Showing N of M runs" where N reflects actual displayed count
+### Metric scope
 
-## Final Status
+- [x] Scope control supports All, Fit, CV, Inference, Prediction, and Selection.
+- [x] Existing inference rows are directly selectable.
+- [x] CV remains visible as disabled `CV (0)` until a current structured CV source is registered.
+- [x] Overview rows show an explicit Scope column.
+- [x] Metric panels appear above the potentially long overview table.
 
-Pass — 5 bugs found, all fixed. Build and typecheck pass. No regression.
+### Timing chart
+
+- [x] Comparison groups define the x-axis once.
+- [x] Every framework/backend/implementation series supplies a value or `null` at each group index.
+- [x] Missing backend values do not shift bars under unrelated labels.
+- [x] Focused mode applies representative-scale and Auto/best rules only to charts.
+- [x] Full matrix restores the broader filtered chart matrix.
+- [x] Tooltip values use the same normalized timing records as the table.
+- [x] Existing ECharts instances are disposed before re-render.
+
+### Speedup chart
+
+- [x] Computed and runner-reported speedups use distinct semantics.
+- [x] Computed speedups carry a matched `reference_run_id`.
+- [x] Runner-reported rows use an `Ⓡ` marker and are not silently recomputed.
+- [x] A dashed 1× parity marker is present.
+- [x] The global speedup headline uses runner-reported GPU rows only.
+
+### Overview table and metric panels
+
+- [x] Sorting supports null-last ordering and deterministic run-id tie breaks.
+- [x] Show all / Show first 200 uses `Infinity` / `200` state and renders the requested count.
+- [x] Validation, Accuracy, Inference, Prediction, Convergence, and Selection panels render only when relevant rows exist.
+- [x] The Inference panel displays method, penalty, backend, scale, timing scope, BSE, Wald statistic, p-value, status, and source.
+
+## Source-matrix regression coverage
+
+Automated tests guard:
+
+- CoxPH Breslow plus Efron variants;
+- both complete GAM comparison variants and all three GAM scales;
+- both aligned Panel scales;
+- all 131 Unsupervised source rows and corrected capped-feature labels;
+- all PR #74 inference configurations;
+- ANOVA functions and SciPy reference rows;
+- June 2026 linear-model sources;
+- removal of pre-June framework controls;
+- Inference scope and CV frontend readiness.
+
+## Known coverage gaps
+
+These are benchmark-data gaps rather than hidden frontend rows:
+
+- Bisquare/Fair and full robust GPU comparisons;
+- current CV benchmark sources;
+- large-scale Ordered crossover;
+- synchronization-safe ANOVA crossover;
+- complete Covariance, Nonparametric, Feature Selection, Penalized Survival, extended Panel, Distribution, and Multiple Testing sources.
+
+Detailed plans are under `docs/benchmark-dashboard/`.
+
+## Merge gate
+
+Before merging PR #76:
+
+1. all required CI checks must pass on the final functional head;
+2. unresolved review threads must be resolved or explicitly dispositioned;
+3. the PR description and benchmark indexes must match the generated bundle;
+4. a final manual production smoke test must pass;
+5. generated data and deployment assets must remain current.
