@@ -1,0 +1,62 @@
+{
+  "baseline_git_sha": "9d4ace3",
+  "catalog_total": 472,
+  "run_count": 1416,
+  "warning_count": 0,
+  "duplicate_run_ids": [],
+  "duplicate_transitional_identities": [],
+  "source_sha256": {
+    "penalized_glm_bench_perf_2026-06-22.json": "e5baa1cbb5162e46523614a9e4dcb96429e7157555c3a51a7d77aa6bbd5ad14f",
+    "glm_solver_benchmark_2026-06-23.json": "1b6197d94d88da9b3cc637dfcaab141c1a46a1681b0e78806cb876166f4983b9",
+    "benchmark_full/benchmark_statgpu_all.json": "1a68c00113b391c9a12bb997299975d254a014eacd9b1abf8abe769dd04869ef",
+    "benchmark_full/benchmark_glmnet_all.json": "c5545d225b6b30e9a1a9c60f18afd018c295106e8146052ad4ebb4e7924a63a0"
+  },
+  "convergence_provenance": {
+    "explicit_converged": 0,
+    "parser_inferred_converged": 24
+  },
+  "timing_provenance": {
+    "penalized_glm_bench_perf_2026-06-22": {
+      "sample_count_known": false,
+      "std_ddof": null,
+      "std_scope": "unknown"
+    },
+    "glm_solver_benchmark_2026-06-23": {
+      "sample_count_known": false,
+      "std_ddof": null,
+      "std_scope": "unknown"
+    },
+    "benchmark_full_benchmark_statgpu_all": {
+      "sample_count_known": false,
+      "std_ddof": null,
+      "std_scope": "unknown"
+    },
+    "benchmark_full_benchmark_glmnet_all": {
+      "sample_count_known": false,
+      "std_ddof": null,
+      "std_scope": "unknown"
+    }
+  },
+  "legacy_discriminators": {
+    "penalized_glm": [
+      "scale_name",
+      "model_key"
+    ],
+    "glm_solver": [
+      "scale_name",
+      "model_key"
+    ],
+    "elasticnet_statgpu": [
+      "entry_name"
+    ],
+    "elasticnet_glmnet": [
+      "dataset_name"
+    ]
+  },
+  "legacy_comparison_groups": {
+    "penalized_glm_bench_perf_2026-06-22.json": "transitional:penalized-glm-performance",
+    "glm_solver_benchmark_2026-06-23.json": "transitional:glm-solver",
+    "benchmark_full/benchmark_statgpu_all.json": "transitional:elasticnet-cross-framework",
+    "benchmark_full/benchmark_glmnet_all.json": "transitional:elasticnet-cross-framework"
+  }
+}

@@ -1,0 +1,184 @@
+{
+  "manifest_version": "1.0",
+  "minimum_source_date": "2026-06-01",
+  "environments": {
+    "remote-p100": {
+      "label": "Tesla P100 + Xeon 8163",
+      "gpu": "NVIDIA Tesla P100-SXM2-16GB",
+      "cpu": "Intel Xeon Platinum 8163",
+      "host": "hz-4.matpool.com"
+    }
+  },
+  "frameworks": {
+    "statgpu": {
+      "display_name": "statgpu",
+      "external": false,
+      "backend_policy": "required"
+    },
+    "sklearn": {
+      "display_name": "scikit-learn",
+      "external": true,
+      "backend_policy": "forbidden"
+    },
+    "scipy": {
+      "display_name": "SciPy",
+      "external": true,
+      "backend_policy": "forbidden"
+    },
+    "statsmodels": {
+      "display_name": "statsmodels",
+      "external": true,
+      "backend_policy": "forbidden"
+    },
+    "linearmodels": {
+      "display_name": "linearmodels",
+      "external": true,
+      "backend_policy": "forbidden"
+    },
+    "pygam": {
+      "display_name": "pyGAM",
+      "external": true,
+      "backend_policy": "forbidden"
+    }
+  },
+  "comparisons": {
+    "penalized-glm-perf-20260622": {
+      "label": "Penalized GLM performance — 2026-06-22",
+      "env_id": "remote-p100"
+    },
+    "glm-solver-20260623": {
+      "label": "GLM solver benchmark — 2026-06-23",
+      "env_id": "remote-p100"
+    },
+    "coxph-efron-20260622": {
+      "label": "CoxPH Efron benchmark — 2026-06-22",
+      "env_id": "remote-p100"
+    },
+    "loss-functions-20260623": {
+      "label": "Robust, quantile, and CoxPH loss benchmark — 2026-06-23",
+      "env_id": "remote-p100"
+    },
+    "ordered-inference-pr74": {
+      "label": "Ordered, penalized, bootstrap, and quantile inference — 2026-07-12",
+      "env_id": "remote-p100"
+    },
+    "unsupervised-20260627": {
+      "label": "Unsupervised benchmark — 2026-06-27",
+      "env_id": "remote-p100"
+    },
+    "new-modules-20260624": {
+      "label": "Panel, GAM, and ANOVA benchmark — 2026-06-24",
+      "env_id": "remote-p100"
+    },
+    "p2-benchmark-20260617": {
+      "label": "Covariance and nonparametric benchmark — 2026-06-17",
+      "env_id": "remote-p100"
+    }
+  },
+  "sources": [
+    {
+      "source_id": "penalized-glm-perf-20260622-e5baa1cbb516",
+      "comparison_id": "penalized-glm-perf-20260622",
+      "path": "results/benchmark_frontend_sources/penalized_glm_perf_20260622.json",
+      "original_path": "results/penalized_glm_bench_perf_2026-06-22.json",
+      "sha256": "e5baa1cbb5162e46523614a9e4dcb96429e7157555c3a51a7d77aa6bbd5ad14f",
+      "parser": "penalized_glm_bench_perf",
+      "parser_version": "1.0",
+      "env_id": "remote-p100",
+      "required": true,
+      "allowed_issue_codes": [],
+      "source_date": "2026-06-22"
+    },
+    {
+      "source_id": "glm-solver-20260623-1b6197d94d88",
+      "comparison_id": "glm-solver-20260623",
+      "path": "results/benchmark_frontend_sources/glm_solver_20260623.json",
+      "original_path": "results/glm_solver_benchmark_2026-06-23.json",
+      "sha256": "1b6197d94d88da9b3cc637dfcaab141c1a46a1681b0e78806cb876166f4983b9",
+      "parser": "glm_solver_benchmark",
+      "parser_version": "1.0",
+      "env_id": "remote-p100",
+      "required": true,
+      "allowed_issue_codes": [],
+      "source_date": "2026-06-23"
+    },
+    {
+      "source_id": "coxph-efron-20260622-7192358f4c6d",
+      "comparison_id": "coxph-efron-20260622",
+      "path": "results/benchmark_frontend_sources/coxph_efron_20260622.json",
+      "original_path": "results/coxph_efron_bench_2026-06-22.json",
+      "sha256": "7192358f4c6dd2758c52defa55e2e5b5acba80bc3dbac60b8a24f5562ed8265d",
+      "parser": "coxph_efron_bench",
+      "parser_version": "1.0",
+      "env_id": "remote-p100",
+      "required": true,
+      "allowed_issue_codes": [],
+      "source_date": "2026-06-22"
+    },
+    {
+      "source_id": "loss-functions-20260623-f7e2d070a3b7",
+      "comparison_id": "loss-functions-20260623",
+      "path": "results/benchmark_frontend_sources/loss_functions_20260623.json",
+      "original_path": "results/loss_functions_bench_2026-06-23.json",
+      "sha256": "f7e2d070a3b766f542e47c9751117174555dece5de432c36ba7b407b114b1f5e",
+      "parser": "loss_functions_benchmark",
+      "parser_version": "2.0",
+      "env_id": "remote-p100",
+      "required": true,
+      "allowed_issue_codes": [],
+      "source_date": "2026-06-23"
+    },
+    {
+      "source_id": "ordered-inference-20260712-c584a2bfa213",
+      "comparison_id": "ordered-inference-pr74",
+      "path": "results/benchmark_frontend_sources/ordered_inference_pr74.json",
+      "original_path": "results/pr74_inference_validation.json",
+      "sha256": "c584a2bfa213ffb8d3abc30f3bfa4b54a32b2c53cbd2449ade052153567c0164",
+      "parser": "ordered_inference_benchmark",
+      "parser_version": "2.0",
+      "env_id": "remote-p100",
+      "required": true,
+      "allowed_issue_codes": [],
+      "source_date": "2026-07-12"
+    },
+    {
+      "source_id": "unsupervised-20260627-1ee68806e3ee",
+      "comparison_id": "unsupervised-20260627",
+      "path": "results/benchmark_frontend_sources/unsupervised_20260627.json",
+      "original_path": "results/unsupervised_bench_2026-06-27.json",
+      "sha256": "1ee68806e3ee5fec95cbeca3e98b1a9c30c68a91798403d6b6d8f06a6e6a47f2",
+      "parser": "unsupervised_benchmark",
+      "parser_version": "2.0",
+      "env_id": "remote-p100",
+      "required": true,
+      "allowed_issue_codes": [],
+      "source_date": "2026-06-27"
+    },
+    {
+      "source_id": "new-modules-20260624-bcbdb676223b",
+      "comparison_id": "new-modules-20260624",
+      "path": "results/benchmark_frontend_sources/new_modules_full_20260624.json",
+      "original_path": "results/new_modules_full_2026-06-24.json",
+      "sha256": "bcbdb676223bea9a71bdd4fe6701ee8d177536ad12a6b1b93ba65ec1675cb6e6",
+      "parser": "new_modules_with_anova_benchmark",
+      "parser_version": "1.4",
+      "env_id": "remote-p100",
+      "required": true,
+      "allowed_issue_codes": [],
+      "source_date": "2026-06-24"
+    },
+    {
+      "source_id": "p2-benchmark-20260617-e9c268d6a6f1",
+      "comparison_id": "p2-benchmark-20260617",
+      "path": "results/benchmark_frontend_sources/p2_benchmark_20260617.json",
+      "original_path": "results/p2_benchmark_final.json",
+      "sha256": "e9c268d6a6f1c907395dcccd3e39c9b7c3e2be54ac16d25950e3e9ee1070a445",
+      "parser": "p2_benchmark",
+      "parser_version": "1.0",
+      "env_id": "remote-p100",
+      "required": true,
+      "allowed_issue_codes": [],
+      "source_date": "2026-06-17"
+    }
+  ]
+}

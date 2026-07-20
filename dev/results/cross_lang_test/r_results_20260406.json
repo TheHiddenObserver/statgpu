@@ -1,0 +1,24 @@
+{
+  "fixed_x_sdp": {
+    "selected": [],
+    "metrics": {
+      "n_selected": 0,
+      "tp": 0,
+      "fp": 0,
+      "precision": 0,
+      "recall": 0,
+      "fdp": 0
+    }
+  },
+  "fixed_x_equi": {
+    "selected": [],
+    "metrics": {
+      "n_selected": 0,
+      "tp": 0,
+      "fp": 0,
+      "precision": 0,
+      "recall": 0,
+      "fdp": 0
+    }
+  }
+}

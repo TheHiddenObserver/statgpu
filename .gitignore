@@ -10,6 +10,11 @@ setup_cython.py
 spec_tracking.md
 SECURITY.md
 
+# Frontend dependencies and test artifacts
+frontend/node_modules/
+frontend/test-results/
+frontend/playwright-report/
+
 # IDE
 .vscode/
 .idea/
@@ -104,3 +109,22 @@ dev/tests/debug_*.py
 dev/tests/remote_gpu_bench.py
 dev/tests/test_irls_gpu.py
 dev/tests/run_remote_gpu.py
+
+# === Benchmark dashboard tracked sources ===
+!dev/benchmarks/
+!dev/benchmarks/frontend_data/
+!dev/benchmarks/frontend_data/**
+!dev/benchmarks/generate_benchmark_data.py
+!dev/benchmarks/benchmark_frontend_schema.json
+!dev/benchmarks/frontend_sources.json
+!dev/benchmarks/benchmark_source_catalog.json
+
+!dev/tests/test_benchmark_frontend_data.py
+!dev/tests/test_frontend_parsers.py
+!dev/tests/fixtures/benchmark_frontend/
+!dev/tests/fixtures/benchmark_frontend/**
+
+!results/
+results/*
+!results/benchmark_frontend_sources/
+!results/benchmark_frontend_sources/**
