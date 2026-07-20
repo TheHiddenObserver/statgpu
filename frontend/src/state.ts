@@ -120,22 +120,44 @@ export function setSelectedMetricScope(state: AppState, scope: MetricScope): voi
 
 export function setSelectedModel(state: AppState, modelId: string | null): void {
   state.selectedModelId = modelId;
-  resetDownstreamFilters(state, { clearVariant: true, clearPenalty: true, clearSolver: true, clearScale: true });
+  resetDownstreamFilters(state, {
+    clearVariant: true,
+    clearPenalty: true,
+    clearSolver: true,
+    clearScale: true,
+    clearBackend: true,
+    clearExternal: true,
+  });
 }
 
 export function setSelectedVariant(state: AppState, variant: string | null): void {
   state.selectedVariant = variant;
-  resetDownstreamFilters(state, { clearPenalty: true, clearSolver: true, clearScale: true });
+  resetDownstreamFilters(state, {
+    clearPenalty: true,
+    clearSolver: true,
+    clearScale: true,
+    clearBackend: true,
+    clearExternal: true,
+  });
 }
 
 export function setSelectedPenalty(state: AppState, penalty: string | null): void {
   state.selectedPenalty = penalty;
-  resetDownstreamFilters(state, { clearSolver: true, clearScale: true });
+  resetDownstreamFilters(state, {
+    clearSolver: true,
+    clearScale: true,
+    clearBackend: true,
+    clearExternal: true,
+  });
 }
 
 export function setSelectedSolver(state: AppState, solver: string | null): void {
   state.selectedSolver = solver;
-  resetDownstreamFilters(state, { clearScale: true });
+  resetDownstreamFilters(state, {
+    clearScale: true,
+    clearBackend: true,
+    clearExternal: true,
+  });
 }
 
 export function toggleScaleKey(state: AppState, key: string): void {
@@ -144,6 +166,10 @@ export function toggleScaleKey(state: AppState, key: string): void {
   } else {
     state.selectedScaleKeys.add(key);
   }
+  // Backend and external availability can differ by scale. Clear both rather
+  // than retaining a now-incompatible downstream selection and showing an
+  // unexplained empty result set.
+  resetDownstreamFilters(state, { clearBackend: true, clearExternal: true });
 }
 
 export function setBackend(state: AppState, backend: 'numpy' | 'cupy' | 'torch' | null): void {
