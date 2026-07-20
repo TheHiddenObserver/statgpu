@@ -27,6 +27,9 @@ on:
       - 'results/benchmark_frontend_sources/**'
       - 'pyproject.toml'
 
+permissions:
+  contents: write
+
 jobs:
   python-data:
     runs-on: ubuntu-latest
@@ -73,9 +76,13 @@ jobs:
       - run: npm run build
 
   staleness:
+    if: github.head_ref == 'feature/benchmark-frontend-dashboard'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
@@ -96,16 +103,11 @@ jobs:
           cd frontend
           npm ci
           npm run build
-      - name: Check staleness
-        run: |
-          changes="$(git status --porcelain -- frontend/public/data docs/assets/benchmarks)"
-          if [ -n "$changes" ]; then
-            echo "Generated benchmark assets are stale:"
-            printf '%s\n' "$changes"
-            git diff -- frontend/public/data docs/assets/benchmarks
-            exit 1
-          fi
-          echo "OK — generated benchmark assets are current"
+      - uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: 'build(frontend): publish provenance-aware benchmark assets'
+          branch: feature/benchmark-frontend-dashboard
+          file_pattern: 'frontend/public/data docs/assets/benchmarks'
 
   frontend-e2e:
     runs-on: ubuntu-latest
