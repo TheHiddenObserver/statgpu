@@ -1,0 +1,66 @@
+name: PR76 Review Fix Diagnostic
+
+on:
+  push:
+    branches:
+      - feature/benchmark-frontend-dashboard
+    paths:
+      - '.github/workflows/review-fix-diagnostic.yml'
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+jobs:
+  typecheck-diagnostic:
+    if: github.repository == 'TheHiddenObserver/statgpu'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/benchmark-frontend-dashboard
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - working-directory: frontend
+        run: npm ci
+      - name: Capture typecheck output
+        id: typecheck
+        working-directory: frontend
+        shell: bash
+        run: |
+          set +e
+          npm run typecheck > /tmp/typecheck.log 2>&1
+          status=$?
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+          tail -n 100 /tmp/typecheck.log > /tmp/typecheck-tail.log
+          exit 0
+      - name: Post diagnostic to PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+          STATUS: ${{ steps.typecheck.outputs.status }}
+        run: |
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          log = Path('/tmp/typecheck-tail.log').read_text(encoding='utf-8', errors='replace')
+          body = f"PR76 typecheck diagnostic (exit {os.environ['STATUS']}):\n\n```text\n{log}\n```"
+          Path('/tmp/comment.json').write_text(json.dumps({'body': body}), encoding='utf-8')
+          PY
+          curl --fail-with-body \
+            -X POST \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/issues/76/comments" \
+            --data-binary @/tmp/comment.json
+      - name: Remove diagnostic workflow
+        run: |
+          rm .github/workflows/review-fix-diagnostic.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add .github/workflows/review-fix-diagnostic.yml
+          git commit -m 'chore: remove PR76 diagnostic workflow'
+          git push origin HEAD:feature/benchmark-frontend-dashboard
