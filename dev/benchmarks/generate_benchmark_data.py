@@ -24,6 +24,7 @@ if str(_repo_root) not in sys.path:
 from dev.benchmarks import frontend_data as _frontend_data
 from dev.benchmarks.frontend_data import (
     generate,
+    validate_output,
     validate_against_schema,
     get_git_sha,
     CATEGORIES,
@@ -66,12 +67,8 @@ def validate_output(output: dict) -> list[str]:
 
 
 def main() -> None:
-    # cli.main resolves validate_output from its module globals. Patch that
-    # public validation hook so both --check and write mode enforce the same
-    # strictly-positive timing contract.
     from dev.benchmarks.frontend_data import cli as _cli
 
-    _cli.validate_output = validate_output
     _cli.main()
 
 

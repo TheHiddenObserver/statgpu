@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import json
 import hashlib
+import math
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -513,6 +514,14 @@ def validate_against_schema(output: dict) -> list[str]:
     return errors
 
 
+def _is_finite_number(value: object) -> bool:
+    return (
+        isinstance(value, (int, float))
+        and not isinstance(value, bool)
+        and math.isfinite(value)
+    )
+
+
 def validate_semantic(output: dict, manifest: Optional[dict] = None, strict_sources: bool = False) -> list[str]:
     """Semantic/referential integrity checks for canonical mode."""
     errors = []
@@ -575,11 +584,19 @@ def validate_semantic(output: dict, manifest: Optional[dict] = None, strict_sour
                     errors.append(f"{rid}: speedup reference backend does not match referenced run")
                 ref_time = ref_run.get("metrics", {}).get("timing", {}).get("fit_time_ms")
                 run_time = run.get("metrics", {}).get("timing", {}).get("fit_time_ms")
-                if not ref_time or not run_time:
-                    errors.append(f"{rid}: computed speedup requires positive timing on both runs")
+                if (
+                    not _is_finite_number(ref_time)
+                    or not _is_finite_number(run_time)
+                    or ref_time <= 0
+                    or run_time <= 0
+                ):
+                    errors.append(f"{rid}: computed speedup requires positive numeric timing on both runs")
                 else:
                     expected = ref_time / run_time
-                    if abs(sp.get("value", 0) - expected) > max(1e-4, abs(expected) * 1e-4):
+                    speedup_value = sp.get("value")
+                    if not _is_finite_number(speedup_value):
+                        errors.append(f"{rid}: computed speedup value must be numeric")
+                    elif abs(speedup_value - expected) > max(1e-4, abs(expected) * 1e-4):
                         errors.append(f"{rid}: computed speedup value does not match referenced timing")
 
         # Canonical IDs
@@ -620,9 +637,9 @@ def validate_semantic(output: dict, manifest: Optional[dict] = None, strict_sour
                 errors.append(f"{run['run_id']}: speedup reference_run_id '{ref_id}' not found")
             else:
                 ref_run = run_by_id[ref_id]
-                ref_time = ref_run.get("metrics", {}).get("timing", {}).get("fit_time_ms", 0)
-                if ref_time <= 0:
-                    errors.append(f"{run['run_id']}: speedup reference run has no positive timing")
+                ref_time = ref_run.get("metrics", {}).get("timing", {}).get("fit_time_ms")
+                if not _is_finite_number(ref_time) or ref_time <= 0:
+                    errors.append(f"{run['run_id']}: speedup reference run has no positive numeric timing")
                 # Cross-check comparison/case compatibility
                 if ref_run.get("comparison_id") != run.get("comparison_id"):
                     errors.append(f"{run['run_id']}: speedup reference has different comparison_id")
@@ -657,18 +674,35 @@ def validate_output(output: dict) -> list[str]:
         metrics = run.get("metrics", {})
         if "timing" in metrics:
             t = metrics["timing"]
-            ft = t.get("fit_time_ms", -1)
-            if ft < 0:
-                errors.append(f"{rid}: timing.fit_time_ms < 0 ({ft})")
-            if "std_ms" in t and t["std_ms"] < 0:
-                errors.append(f"{rid}: timing.std_ms < 0")
-            if "min_ms" in t and "max_ms" in t and t["min_ms"] > t["max_ms"]:
+            ft = t.get("fit_time_ms")
+            if not _is_finite_number(ft) or ft <= 0:
+                errors.append(
+                    f"{rid}: timing.fit_time_ms must be a finite number > 0 ({ft!r})"
+                )
+
+            for name in ("std_ms", "min_ms", "max_ms"):
+                if name not in t:
+                    continue
+                value = t[name]
+                if not _is_finite_number(value):
+                    errors.append(f"{rid}: timing.{name} must be a finite number")
+                elif value < 0:
+                    errors.append(f"{rid}: timing.{name} < 0")
+
+            min_ms = t.get("min_ms")
+            max_ms = t.get("max_ms")
+            if (
+                _is_finite_number(min_ms)
+                and _is_finite_number(max_ms)
+                and min_ms > max_ms
+            ):
                 errors.append(f"{rid}: timing.min_ms > max_ms")
 
         if "speedup" in metrics:
             s = metrics["speedup"]
-            if s.get("value", -1) < 0:
-                errors.append(f"{rid}: speedup.value must be >= 0")
+            speedup_value = s.get("value")
+            if not _is_finite_number(speedup_value) or speedup_value < 0:
+                errors.append(f"{rid}: speedup.value must be a finite number >= 0")
             for sf in ["reference_backend", "reference_framework", "reported_semantics"]:
                 if sf not in s:
                     errors.append(f"{rid}: speedup missing '{sf}'")

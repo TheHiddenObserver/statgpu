@@ -174,7 +174,7 @@
                 "type": "object", "additionalProperties": false,
                 "required": ["fit_time_ms", "quality", "source_file"],
                 "properties": {
-                  "fit_time_ms": { "type": "number", "minimum": 0 },
+                  "fit_time_ms": { "type": "number", "exclusiveMinimum": 0 },
                   "std_ms": { "type": "number", "minimum": 0 },
                   "min_ms": { "type": "number", "minimum": 0 },
                   "max_ms": { "type": "number", "minimum": 0 },
