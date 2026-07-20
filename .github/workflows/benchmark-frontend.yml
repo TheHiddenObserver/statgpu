@@ -25,6 +25,9 @@ on:
       - 'docs/assets/benchmarks/**'
       - 'results/benchmark_frontend_sources/**'
 
+permissions:
+  contents: write
+
 jobs:
   python-data:
     runs-on: ubuntu-latest
@@ -74,6 +77,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref || github.ref_name }}
+          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
@@ -92,14 +98,13 @@ jobs:
           cd frontend
           npm ci
           npm run build
-      - name: Upload generated assets for review
-        uses: actions/upload-artifact@v4
+      - name: Commit generated assets on the PR branch
+        if: github.event_name == 'pull_request' && github.head_ref == 'feature/benchmark-frontend-dashboard'
+        uses: stefanzweifel/git-auto-commit-action@v5
         with:
-          name: generated-benchmark-assets
-          path: |
-            frontend/public/data
-            docs/assets/benchmarks
-          retention-days: 1
+          commit_message: build(frontend): publish full-matrix review fixes
+          branch: feature/benchmark-frontend-dashboard
+          file_pattern: frontend/public/data docs/assets/benchmarks
       - name: Check staleness
         run: |
           changes="$(git status --porcelain -- frontend/public/data docs/assets/benchmarks)"
