@@ -63,7 +63,8 @@ test('default state prefers penalized GLM on the preferred populated environment
   expect([...state.selectedCategoryIds]).toEqual(['penalized_glm']);
   expect(state.selectedMetricScope).toBe('all');
   expect(state.chartViewMode).toBe('focused');
-  expect(state.speedupChartLimit).toBe(100);
+  expect(state.timingChartGroupLimit).toBe(Number.MAX_SAFE_INTEGER);
+  expect(state.speedupChartLimit).toBe(Number.MAX_SAFE_INTEGER);
 });
 
 test('scale keys are ordered by numeric workload dimensions, not lexicographically', () => {
