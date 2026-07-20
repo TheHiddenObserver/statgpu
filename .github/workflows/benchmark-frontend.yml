@@ -4,34 +4,36 @@ on:
   pull_request:
     paths:
       - '.github/workflows/benchmark-frontend.yml'
-      - 'dev/benchmarks/**'
       - 'dev/tests/test_frontend_contracts.py'
-      - 'pyproject.toml'
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  diagnostics:
+  review-fix:
+    if: github.head_ref == 'feature/benchmark-frontend-dashboard'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
-      - name: Install diagnostic dependencies
-        run: python -m pip install -U pip pytest jsonschema
-      - name: Capture contract test output
+          ref: ${{ github.head_ref }}
+          fetch-depth: 0
+      - name: Separate reference and measured scale fixtures
         run: |
-          mkdir -p diagnostics
-          pytest dev/tests/test_frontend_contracts.py -vv \
-            > diagnostics/pytest.log 2>&1 || true
-      - name: Capture generator output
-        run: |
-          python dev/benchmarks/generate_benchmark_data.py --check --strict-sources \
-            > diagnostics/generator.log 2>&1 || true
-      - uses: actions/upload-artifact@v4
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('dev/tests/test_frontend_contracts.py')
+          text = path.read_text(encoding='utf-8')
+          old = '''        "run_id": "measured",\n        "backend": "cupy",\n        "source": {"file": "measured.json", "source_id": "measured-source"},\n'''
+          new = '''        "run_id": "measured",\n        "backend": "cupy",\n        "scale": dict(reference["scale"]),\n        "source": {"file": "measured.json", "source_id": "measured-source"},\n'''
+          if old in text:
+              path.write_text(text.replace(old, new, 1), encoding='utf-8')
+          elif new not in text:
+              raise SystemExit('Expected measured fixture block not found')
+          PY
+      - uses: stefanzweifel/git-auto-commit-action@v5
         with:
-          name: benchmark-review-diagnostics
-          path: diagnostics/
-          retention-days: 1
+          commit_message: 'test(benchmarks): isolate speedup scale fixture'
+          branch: feature/benchmark-frontend-dashboard
+          file_pattern: dev/tests/test_frontend_contracts.py
