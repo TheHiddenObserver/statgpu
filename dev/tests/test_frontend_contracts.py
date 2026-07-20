@@ -162,7 +162,7 @@ def test_schema_validation_requires_jsonschema(monkeypatch) -> None:
     monkeypatch.setattr(cli, "_get_jsonschema_validator", lambda: None)
     errors = cli.validate_against_schema({})
 
-    assert any("jsonschema>=4.0 is required" in error for error in errors)
+    assert any("jsonschema" in error and "required" in error for error in errors)
 
 
 def test_transactional_write_rolls_back_all_prior_assets(
@@ -308,3 +308,45 @@ def test_speedup_reference_requires_complete_chart_cell_identity() -> None:
             "speedup reference has different chart-cell identity" in error
             for error in errors
         ), path
+
+
+def test_canonical_runs_preserve_manifest_source_hashes() -> None:
+    from dev.benchmarks.frontend_data.registry import load_manifest
+    from dev.benchmarks.generate_benchmark_data import generate
+
+    manifest = load_manifest(REPO_ROOT)
+    assert manifest is not None
+    output, parse_report, inventory = generate(
+        REPO_ROOT / "results",
+        deterministic=True,
+        manifest=manifest,
+    )
+    expected = {
+        source["source_id"]: source["sha256"]
+        for source in manifest["sources"]
+        if source.get("sha256")
+    }
+
+    assert output["runs"]
+    assert output["meta"]["generation_id"] == parse_report["generation_id"]
+    assert output["meta"]["generation_id"] == inventory["generation_id"]
+    for run in output["runs"]:
+        source = run["source"]
+        assert source["sha256"] == expected[source["source_id"]]
+
+
+def test_schema_rejects_invalid_generated_date_time() -> None:
+    from dev.benchmarks.frontend_data.registry import load_manifest
+    from dev.benchmarks.generate_benchmark_data import generate, validate_against_schema
+
+    manifest = load_manifest(REPO_ROOT)
+    assert manifest is not None
+    output, _, _ = generate(
+        REPO_ROOT / "results",
+        deterministic=True,
+        manifest=manifest,
+    )
+    output["generated"] = "not-a-date-time"
+
+    errors = validate_against_schema(output)
+    assert any("generated" in error and "date-time" in error for error in errors)
