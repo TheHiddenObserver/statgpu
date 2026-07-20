@@ -27,6 +27,20 @@ test.describe('Benchmark domain coverage', () => {
     }
   });
 
+  test('unpenalized models hide an empty penalty selector and expose solver', async ({
+    page,
+  }) => {
+    await page.getByRole('button', { name: 'None' }).click();
+    await page.locator('#cat-robust_quantile').check();
+    await page.locator('.filter-bar select').first().selectOption('QuantileRegression');
+
+    await expect(page.getByText('Penalty:', { exact: true })).toHaveCount(0);
+    const solverLabel = page.getByText('Solver:', { exact: true });
+    await expect(solverLabel).toBeVisible();
+    const solverSelect = solverLabel.locator('xpath=following-sibling::select[1]');
+    await expect(solverSelect.locator('option[value="irls"]')).toHaveCount(1);
+  });
+
   test('survival benchmarks expose the CoxPH Breslow variant', async ({ page }) => {
     await page.getByRole('button', { name: 'None' }).click();
     await page.locator('#cat-survival').check();
