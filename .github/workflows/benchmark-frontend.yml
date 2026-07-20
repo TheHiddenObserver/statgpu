@@ -102,7 +102,7 @@ jobs:
         if: github.event_name == 'pull_request' && github.head_ref == 'feature/benchmark-frontend-dashboard'
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
-          commit_message: build(frontend): publish full-matrix review fixes
+          commit_message: 'build(frontend): publish full-matrix review fixes'
           branch: feature/benchmark-frontend-dashboard
           file_pattern: frontend/public/data docs/assets/benchmarks
       - name: Check staleness
