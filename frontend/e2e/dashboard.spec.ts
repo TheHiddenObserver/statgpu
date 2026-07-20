@@ -50,7 +50,9 @@ test.describe('Benchmark Dashboard', () => {
     await expect(speedupChart).toHaveAttribute('data-penalty-scope', 'all');
 
     const fullRows = Number(await speedupChart.getAttribute('data-speedup-rows'));
+    const displayedRows = Number(await speedupChart.getAttribute('data-speedup-displayed'));
     expect(fullRows).toBeGreaterThanOrEqual(focusedRows);
+    expect(displayedRows).toBe(fullRows);
   });
 
   test('Survival focused charts use the default NumPy implementation while full matrix preserves Numba', async ({ page }) => {
