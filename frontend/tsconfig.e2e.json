@@ -5,6 +5,7 @@
     "moduleResolution": "bundler",
     "strict": true,
     "noEmit": true,
+    "skipLibCheck": true,
     "types": ["node", "@playwright/test"]
   },
   "include": ["e2e/**/*.ts", "src/identity.ts"]
