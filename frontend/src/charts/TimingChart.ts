@@ -163,6 +163,8 @@ export function renderTimingChart(
   );
 
   if (timingRuns.length === 0) {
+    el.dataset.timingGroups = '0';
+    el.dataset.timingDisplayed = '0';
     chart.clear();
     chart.setOption({
       title: {
@@ -215,15 +217,20 @@ export function renderTimingChart(
     groups.get(key)!.bySeries.set(series.key, run.metrics.timing!.fit_time_ms);
   }
 
-  const limit = isFocused ? 14 : state.timingChartGroupLimit;
   const allGroups = [...groups.entries()].sort(([, a], [, b]) =>
     a.label.localeCompare(b.label),
   );
-  const sortedGroups = allGroups.slice(0, limit);
+  const sortedGroups = isFocused ? allGroups.slice(0, 14) : allGroups;
   const categories = sortedGroups.map(([, group]) => group.label);
+  const hasScroll = !isFocused && sortedGroups.length > 30;
+  el.dataset.timingGroups = String(allGroups.length);
+  el.dataset.timingDisplayed = String(sortedGroups.length);
+
   const subtitleParts = [...selection.notes];
-  if (allGroups.length > sortedGroups.length) {
+  if (isFocused && allGroups.length > sortedGroups.length) {
     subtitleParts.push(`showing ${sortedGroups.length}/${allGroups.length} groups`);
+  } else if (hasScroll) {
+    subtitleParts.push(`scroll to browse all ${sortedGroups.length} groups`);
   }
 
   const allKeys = new Set<string>();
@@ -253,6 +260,27 @@ export function renderTimingChart(
       borderRadius: [3, 3, 0, 0],
     },
   }));
+
+  const dataZoom = hasScroll
+    ? [
+        {
+          type: 'inside' as const,
+          xAxisIndex: 0,
+          startValue: 0,
+          endValue: Math.min(29, sortedGroups.length - 1),
+        },
+        {
+          type: 'slider' as const,
+          xAxisIndex: 0,
+          bottom: 30,
+          height: 12,
+          startValue: 0,
+          endValue: Math.min(29, sortedGroups.length - 1),
+          showDetail: false,
+          brushSelect: false,
+        },
+      ]
+    : [];
 
   chart.setOption(
     {
@@ -295,7 +323,13 @@ export function renderTimingChart(
         itemWidth: 18,
         itemHeight: 9,
       },
-      grid: { left: 12, right: 12, top: 64, bottom: 62, containLabel: true },
+      grid: {
+        left: 12,
+        right: 12,
+        top: 64,
+        bottom: hasScroll ? 82 : 62,
+        containLabel: true,
+      },
       xAxis: {
         type: 'category',
         data: categories,
@@ -318,6 +352,7 @@ export function renderTimingChart(
         axisLabel: { fontSize: 10, color: CHART_STYLE.text },
         splitLine: { lineStyle: { color: CHART_STYLE.grid } },
       },
+      dataZoom,
       series,
     },
     true,
