@@ -7,6 +7,8 @@ import type {
 } from './schema';
 import type { AppState } from './state';
 
+export { getUniqueScaleKeys } from './scales';
+
 const DATA_URL = `${import.meta.env.BASE_URL}data/benchmark_data.json`;
 const REPORT_URL = `${import.meta.env.BASE_URL}data/parse_report.json`;
 const INVENTORY_URL = `${import.meta.env.BASE_URL}data/source_inventory.json`;
@@ -64,23 +66,6 @@ export function getUniqueValues(runs: Run[], field: string): string[] {
     if (val !== null && val !== undefined) values.add(String(val));
   }
   return [...values].sort();
-}
-
-export function getUniqueScaleKeys(runs: Run[]): string[] {
-  const scales = new Map<string, Run['scale']>();
-  for (const run of runs) {
-    if (!scales.has(run.scale.scale_key)) {
-      scales.set(run.scale.scale_key, run.scale);
-    }
-  }
-  return [...scales.values()]
-    .sort((a, b) =>
-      a.n_samples - b.n_samples ||
-      a.n_features - b.n_features ||
-      a.label.localeCompare(b.label) ||
-      a.scale_key.localeCompare(b.scale_key),
-    )
-    .map(scale => scale.scale_key);
 }
 
 let scaleLabelMap: Map<string, string> | null = null;
