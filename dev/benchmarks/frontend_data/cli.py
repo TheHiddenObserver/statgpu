@@ -483,35 +483,23 @@ def _get_jsonschema_validator():
 def validate_against_schema(output: dict) -> list[str]:
     schema = _load_schema()
     if schema is None:
-        return ["Schema file not found, skipping schema validation"]
+        return ["Schema file not found; JSON Schema validation is required"]
 
     Validator = _get_jsonschema_validator()
-    if Validator is not None:
-        validator = Validator(schema)
-        schema_errors = sorted(validator.iter_errors(output), key=lambda e: list(e.path))
-        if not schema_errors:
-            return []
-        return [f"{' → '.join(str(p) for p in e.absolute_path)}: {e.message}" for e in schema_errors[:50]]
+    if Validator is None:
+        return [
+            "jsonschema>=4.0 is required for benchmark bundle validation; "
+            "install statgpu[dev] or statgpu[validation]"
+        ]
 
-    # Fallback
-    errors = []
-    runs_schema = schema.get("properties", {}).get("runs", {})
-    run_props = runs_schema.get("items", {}).get("properties", {})
-    run_required = runs_schema.get("items", {}).get("required", [])
-
-    for run in output.get("runs", []):
-        rid = run.get("run_id", "?")
-        for field in run_required:
-            if field not in run:
-                errors.append(f"{rid}: missing required field '{field}' (schema)")
-        for field_name in ("framework", "backend", "solver_kind"):
-            schema_field = run_props.get(field_name, {})
-            enum_vals = schema_field.get("enum", [])
-            if enum_vals:
-                val = run.get(field_name)
-                if val not in enum_vals:
-                    errors.append(f"{rid}: {field_name}='{val}' not in schema enum {enum_vals}")
-    return errors
+    validator = Validator(schema)
+    schema_errors = sorted(validator.iter_errors(output), key=lambda e: list(e.path))
+    if not schema_errors:
+        return []
+    return [
+        f"{' → '.join(str(p) for p in error.absolute_path)}: {error.message}"
+        for error in schema_errors[:50]
+    ]
 
 
 def _is_finite_number(value: object) -> bool:
@@ -640,11 +628,15 @@ def validate_semantic(output: dict, manifest: Optional[dict] = None, strict_sour
                 ref_time = ref_run.get("metrics", {}).get("timing", {}).get("fit_time_ms")
                 if not _is_finite_number(ref_time) or ref_time <= 0:
                     errors.append(f"{run['run_id']}: speedup reference run has no positive numeric timing")
-                # Cross-check comparison/case compatibility
-                if ref_run.get("comparison_id") != run.get("comparison_id"):
-                    errors.append(f"{run['run_id']}: speedup reference has different comparison_id")
-                if ref_run.get("scale", {}).get("scale_key") != run.get("scale", {}).get("scale_key"):
-                    errors.append(f"{run['run_id']}: speedup reference has different scale")
+
+                from .identity import chart_cell_identity
+
+                if chart_cell_identity(
+                    ref_run, include_session=False
+                ) != chart_cell_identity(run, include_session=False):
+                    errors.append(
+                        f"{run['run_id']}: speedup reference has different chart-cell identity"
+                    )
 
     return errors
 
@@ -725,8 +717,9 @@ def validate_output(output: dict) -> list[str]:
 
 
 def _write_transactional(out_path_str, report_path_str, inv_path_str, output, parse_report, inventory):
-    """Write three output files atomically: temp → os.replace in order."""
+    """Replace the three-file bundle and roll back prior replacements on failure."""
     import os as _os
+    import shutil
     import tempfile
 
     out_p, rpt_p, inv_p = (Path(path) for path in (out_path_str, report_path_str, inv_path_str))
@@ -735,33 +728,79 @@ def _write_transactional(out_path_str, report_path_str, inv_path_str, output, pa
         for path in (out_p, rpt_p, inv_p)
     )
 
-    for p in (out_p, rpt_p, inv_p):
-        p.parent.mkdir(parents=True, exist_ok=True)
+    for path in (out_p, rpt_p, inv_p):
+        path.parent.mkdir(parents=True, exist_ok=True)
 
     def write_temp(target: Path, data: bytes) -> Path:
         with tempfile.NamedTemporaryFile(
-            mode="wb", dir=target.parent, prefix=f".{target.name}.", suffix=".tmp", delete=False
+            mode="wb",
+            dir=target.parent,
+            prefix=f".{target.name}.",
+            suffix=".tmp",
+            delete=False,
         ) as handle:
             handle.write(data)
             handle.flush()
             _os.fsync(handle.fileno())
             return Path(handle.name)
 
-    temp_paths: list[Path] = []
-    try:
-        tmp_r = write_temp(rpt_p, json.dumps(parse_report, indent=2).encode("utf-8"))
-        temp_paths.append(tmp_r)
-        tmp_i = write_temp(inv_p, json.dumps(inventory, indent=2).encode("utf-8"))
-        temp_paths.append(tmp_i)
-        tmp_d = write_temp(out_p, json.dumps(output, indent=2, ensure_ascii=False).encode("utf-8"))
-        temp_paths.append(tmp_d)
+    def make_backup(target: Path) -> Path:
+        descriptor, backup_name = tempfile.mkstemp(
+            dir=target.parent,
+            prefix=f".{target.name}.",
+            suffix=".bak",
+        )
+        _os.close(descriptor)
+        backup = Path(backup_name)
+        shutil.copy2(target, backup)
+        return backup
 
-        _os.replace(tmp_r, rpt_p)
-        _os.replace(tmp_i, inv_p)
-        _os.replace(tmp_d, out_p)
+    payloads = [
+        (rpt_p, json.dumps(parse_report, indent=2).encode("utf-8")),
+        (inv_p, json.dumps(inventory, indent=2).encode("utf-8")),
+        (out_p, json.dumps(output, indent=2, ensure_ascii=False).encode("utf-8")),
+    ]
+    temp_paths: dict[Path, Path] = {}
+    backups: dict[Path, Path] = {}
+    existed: dict[Path, bool] = {}
+    replaced: list[Path] = []
+
+    try:
+        for target, data in payloads:
+            temp_paths[target] = write_temp(target, data)
+
+        for target, _ in payloads:
+            existed[target] = target.exists()
+            if existed[target]:
+                backups[target] = make_backup(target)
+
+        for target, _ in payloads:
+            _os.replace(temp_paths[target], target)
+            replaced.append(target)
+    except Exception as original_error:
+        rollback_errors: list[str] = []
+        for target in reversed(replaced):
+            try:
+                if existed[target]:
+                    _os.replace(backups[target], target)
+                    backups.pop(target, None)
+                else:
+                    target.unlink(missing_ok=True)
+            except Exception as rollback_error:
+                rollback_errors.append(f"{target}: {rollback_error}")
+
+        if rollback_errors:
+            details = "; ".join(rollback_errors)
+            raise RuntimeError(
+                f"Bundle replacement failed and rollback was incomplete: {details}"
+            ) from original_error
+        raise
     finally:
-        for temp_path in temp_paths:
-            temp_path.unlink(missing_ok=True)
+        for path in temp_paths.values():
+            path.unlink(missing_ok=True)
+        for path in backups.values():
+            path.unlink(missing_ok=True)
+
     print(f"Wrote: {out_p}")
     print(f"Wrote: {rpt_p}")
     print(f"Wrote: {inv_p}")
