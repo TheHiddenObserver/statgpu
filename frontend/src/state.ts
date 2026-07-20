@@ -70,10 +70,10 @@ export function createDefaultState(envs: Environment[], runs: Run[] = []): AppSt
     sortDir: 'asc',
     expandedPanels: new Set(),
     panelLimits: {},
-    timingChartGroupLimit: 30,
-    // Full matrix uses a vertical zoom/scroll control, so it can expose a much
-    // broader result set without compressing every row into the chart height.
-    speedupChartLimit: 100,
+    // Focused mode applies its own compact limits. Full matrix must not drop
+    // filtered groups or rows; the speedup chart already provides dataZoom.
+    timingChartGroupLimit: Number.MAX_SAFE_INTEGER,
+    speedupChartLimit: Number.MAX_SAFE_INTEGER,
   };
 }
 
