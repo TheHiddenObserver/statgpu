@@ -67,9 +67,20 @@ export function getUniqueValues(runs: Run[], field: string): string[] {
 }
 
 export function getUniqueScaleKeys(runs: Run[]): string[] {
-  const keys = new Set<string>();
-  for (const r of runs) keys.add(r.scale.scale_key);
-  return [...keys].sort();
+  const scales = new Map<string, Run['scale']>();
+  for (const run of runs) {
+    if (!scales.has(run.scale.scale_key)) {
+      scales.set(run.scale.scale_key, run.scale);
+    }
+  }
+  return [...scales.values()]
+    .sort((a, b) =>
+      a.n_samples - b.n_samples ||
+      a.n_features - b.n_features ||
+      a.label.localeCompare(b.label) ||
+      a.scale_key.localeCompare(b.scale_key),
+    )
+    .map(scale => scale.scale_key);
 }
 
 let scaleLabelMap: Map<string, string> | null = null;
@@ -179,8 +190,8 @@ export function filterRuns(
     // Environment filter
     if (state.selectedEnvId && r.env_id !== state.selectedEnvId) return false;
 
-    // Metric-scope filter. Inference remains attached to its model/category;
-    // CV rows can additionally live under the dedicated cross_validation category.
+    // Metric-scope filter. Inference and CV remain attached to their model
+    // categories rather than being treated as separate statistical families.
     if (
       !opts?.ignoreMetricScope &&
       state.selectedMetricScope !== 'all' &&
