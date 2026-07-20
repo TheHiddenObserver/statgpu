@@ -92,6 +92,14 @@ jobs:
           cd frontend
           npm ci
           npm run build
+      - name: Upload generated assets for review
+        uses: actions/upload-artifact@v4
+        with:
+          name: generated-benchmark-assets
+          path: |
+            frontend/public/data
+            docs/assets/benchmarks
+          retention-days: 1
       - name: Check staleness
         run: |
           changes="$(git status --porcelain -- frontend/public/data docs/assets/benchmarks)"
