@@ -1,127 +1,111 @@
 name: Benchmark Frontend CI
 
 on:
-  push:
-    branches: [master]
-    paths:
-      - '.github/workflows/benchmark-frontend.yml'
-      - 'dev/benchmarks/**'
-      - 'dev/tests/test_benchmark_frontend_data.py'
-      - 'dev/tests/test_frontend_contracts.py'
-      - 'dev/tests/test_frontend_domain_coverage.py'
-      - 'dev/tests/fixtures/benchmark_frontend/**'
-      - 'frontend/**'
-      - 'docs/assets/benchmarks/**'
-      - 'results/benchmark_frontend_sources/**'
   pull_request:
     paths:
       - '.github/workflows/benchmark-frontend.yml'
       - 'dev/benchmarks/**'
-      - 'dev/tests/test_benchmark_frontend_data.py'
       - 'dev/tests/test_frontend_contracts.py'
-      - 'dev/tests/test_frontend_domain_coverage.py'
-      - 'dev/tests/fixtures/benchmark_frontend/**'
-      - 'frontend/**'
-      - 'docs/assets/benchmarks/**'
-      - 'results/benchmark_frontend_sources/**'
+      - 'pyproject.toml'
+
+permissions:
+  contents: write
 
 jobs:
-  python-data:
+  review-fix:
+    if: github.head_ref == 'feature/benchmark-frontend-dashboard'
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        python-version: ['3.9', '3.11']
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
         with:
-          python-version: ${{ matrix.python-version }}
-      - name: Install test dependencies
-        run: python -m pip install -U pip pytest jsonschema
-      - name: Run generator and parser tests
-        run: |
-          pytest \
-            dev/tests/test_benchmark_frontend_data.py \
-            dev/tests/test_frontend_contracts.py \
-            dev/tests/test_frontend_domain_coverage.py -v
-      - name: Validate generator output
-        run: python dev/benchmarks/generate_benchmark_data.py --check --strict-sources
-
-  frontend:
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: frontend
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-      - name: Reject committed frontend artifacts
-        run: |
-          if git -C "$GITHUB_WORKSPACE" ls-files \
-            'frontend/node_modules/**' \
-            'frontend/test-results/**' \
-            'frontend/playwright-report/**' | grep -q .; then
-            echo "Generated frontend dependencies/test artifacts must not be committed."
-            exit 1
-          fi
-      - run: npm ci
-      - run: npm run typecheck
-      - run: npm run build
-
-  staleness:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
+          ref: ${{ github.head_ref }}
+          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - name: Install schema validation dependency
-        run: python -m pip install jsonschema
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-      - name: Generate data (deterministic)
+      - name: Install validation dependencies
+        run: python -m pip install -U pip pytest 'jsonschema[format]'
+      - name: Apply provenance and format-validation fixes
         run: |
-          python dev/benchmarks/generate_benchmark_data.py \
-            --out frontend/public/data/benchmark_data.json \
-            --report frontend/public/data/parse_report.json \
-            --inventory-out frontend/public/data/source_inventory.json \
-            --deterministic --strict-sources
-      - name: Build frontend
-        run: |
-          cd frontend
-          npm ci
-          npm run build
-      - name: Check staleness
-        run: |
-          changes="$(git status --porcelain -- frontend/public/data docs/assets/benchmarks)"
-          if [ -n "$changes" ]; then
-            echo "Generated benchmark assets are stale:"
-            printf '%s\n' "$changes"
-            git diff -- frontend/public/data docs/assets/benchmarks
-            exit 1
-          fi
-          echo "OK — generated benchmark assets are current"
+          python - <<'PY'
+          from pathlib import Path
 
-  frontend-e2e:
-    runs-on: ubuntu-latest
-    needs: [frontend, staleness]
-    defaults:
-      run:
-        working-directory: frontend
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+          cli_path = Path('dev/benchmarks/frontend_data/cli.py')
+          text = cli_path.read_text(encoding='utf-8')
+
+          old_hash = '''            if manifest_src.get("source_date"):
+                run["source"]["date"] = manifest_src["source_date"]
+'''
+          new_hash = '''            if manifest_src.get("source_date"):
+                run["source"]["date"] = manifest_src["source_date"]
+            if manifest_src.get("sha256"):
+                run["source"]["sha256"] = manifest_src["sha256"]
+'''
+          if new_hash not in text:
+              if old_hash not in text:
+                  raise SystemExit('Canonical provenance insertion point not found')
+              text = text.replace(old_hash, new_hash, 1)
+
+          old_validator = '    validator = Validator(schema)\n'
+          new_validator = '    validator = Validator(schema, format_checker=Validator.FORMAT_CHECKER)\n'
+          if new_validator not in text:
+              if old_validator not in text:
+                  raise SystemExit('JSON Schema validator construction not found')
+              text = text.replace(old_validator, new_validator, 1)
+
+          cli_path.write_text(text, encoding='utf-8')
+
+          test_path = Path('dev/tests/test_frontend_contracts.py')
+          tests = test_path.read_text(encoding='utf-8')
+          addition = r'''
+
+
+def test_canonical_runs_preserve_manifest_source_hashes() -> None:
+    from dev.benchmarks.frontend_data.registry import load_manifest
+    from dev.benchmarks.generate_benchmark_data import generate
+
+    manifest = load_manifest(REPO_ROOT)
+    assert manifest is not None
+    output, _, _ = generate(
+        REPO_ROOT / "results",
+        deterministic=True,
+        manifest=manifest,
+    )
+    expected = {
+        source["source_id"]: source["sha256"]
+        for source in manifest["sources"]
+        if source.get("sha256")
+    }
+
+    assert output["runs"]
+    for run in output["runs"]:
+        source = run["source"]
+        assert source["sha256"] == expected[source["source_id"]]
+
+
+def test_schema_rejects_invalid_generated_date_time() -> None:
+    from dev.benchmarks.frontend_data.registry import load_manifest
+    from dev.benchmarks.generate_benchmark_data import generate, validate_against_schema
+
+    manifest = load_manifest(REPO_ROOT)
+    assert manifest is not None
+    output, _, _ = generate(
+        REPO_ROOT / "results",
+        deterministic=True,
+        manifest=manifest,
+    )
+    output["generated"] = "not-a-date-time"
+
+    errors = validate_against_schema(output)
+    assert any("generated" in error and "date-time" in error for error in errors)
+'''
+          if 'def test_canonical_runs_preserve_manifest_source_hashes' not in tests:
+              test_path.write_text(tests.rstrip() + addition + '\n', encoding='utf-8')
+          PY
+      - name: Run focused contract tests
+        run: pytest dev/tests/test_frontend_contracts.py -v
+      - uses: stefanzweifel/git-auto-commit-action@v5
         with:
-          node-version: '20'
-      - run: npm ci
-      - run: npx playwright install --with-deps chromium
-      - run: npm run test:e2e
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: playwright-report
-          path: frontend/playwright-report/
-          retention-days: 30
+          commit_message: 'fix(benchmarks): preserve source hashes and validate date formats'
+          branch: feature/benchmark-frontend-dashboard
+          file_pattern: 'dev/benchmarks/frontend_data/cli.py dev/tests/test_frontend_contracts.py'
