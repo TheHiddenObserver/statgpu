@@ -79,8 +79,7 @@ export function renderFilterBar(
   });
   const scopeControl = h('div', {
     class: 'metric-scope-control',
-    title:
-      'Filter by benchmark task. CV remains available as a disabled zero-count option until a June-or-later structured CV source is registered.',
+    title: 'Filter by benchmark task. Zero-count scopes remain disabled until matching data is registered.',
   });
   scopeControl.appendChild(h('span', { class: 'filter-label' }, 'Metric scope:'));
   const scopes: MetricScope[] = [
@@ -199,59 +198,74 @@ export function renderFilterBar(
     }
   }
 
-  // Penalty selector (appears after model selected)
+  // Penalty selector. Canonical unpenalized rows may use penalty=null, while
+  // null in UI state means "All"; avoid rendering an empty selector for those
+  // models. Future mixed matrices should represent the baseline as "none".
+  let modelPenalties: string[] = [];
   if (state.selectedModelId) {
-    const penalties = getUniqueValues(
+    modelPenalties = getUniqueValues(
       penaltyOptionRuns.filter((r) => r.model_id === state.selectedModelId),
       'penalty',
     );
-    bar.appendChild(h('span', { class: 'filter-label' }, 'Penalty:'));
-    const sel = h('select');
-    sel.appendChild(h('option', { value: '' }, 'All'));
-    for (const p of penalties) {
-      const opt = h('option', { value: p }, p || 'none');
-      if (p === state.selectedPenalty) opt.setAttribute('selected', '');
-      sel.appendChild(opt);
+    if (modelPenalties.length > 0) {
+      bar.appendChild(h('span', { class: 'filter-label' }, 'Penalty:'));
+      const sel = h('select');
+      sel.appendChild(h('option', { value: '' }, 'All'));
+      for (const p of modelPenalties) {
+        const opt = h('option', { value: p }, p || 'none');
+        if (p === state.selectedPenalty) opt.setAttribute('selected', '');
+        sel.appendChild(opt);
+      }
+      sel.addEventListener('change', () => {
+        setSelectedPenalty(state, (sel as HTMLSelectElement).value || null);
+        onUpdate();
+      });
+      bar.appendChild(sel);
     }
-    sel.addEventListener('change', () => {
-      setSelectedPenalty(state, (sel as HTMLSelectElement).value || null);
-      onUpdate();
-    });
-    bar.appendChild(sel);
   }
 
-  // Solver selector (appears after penalty selected)
-  if (state.selectedPenalty) {
+  // Solver selection follows an explicit penalty when a penalty dimension is
+  // present. For purely unpenalized models, expose solver directly after model/
+  // variant so IRLS/Newton/etc. remain filterable.
+  const canSelectSolver = Boolean(
+    state.selectedModelId &&
+    (state.selectedPenalty !== null || modelPenalties.length === 0),
+  );
+  if (canSelectSolver) {
     const solvers = getUniqueValues(
       solverOptionRuns.filter(
         (r) =>
           r.model_id === state.selectedModelId &&
-          r.penalty === state.selectedPenalty,
+          (state.selectedPenalty === null || r.penalty === state.selectedPenalty),
       ),
       'solver',
     );
-    bar.appendChild(h('span', { class: 'filter-label' }, 'Solver:'));
-    const sel = h('select');
-    sel.appendChild(h('option', { value: '' }, 'All'));
-    for (const s of solvers) {
-      const opt = h('option', { value: s }, s);
-      if (s === state.selectedSolver) opt.setAttribute('selected', '');
-      sel.appendChild(opt);
+    if (solvers.length > 0) {
+      bar.appendChild(h('span', { class: 'filter-label' }, 'Solver:'));
+      const sel = h('select');
+      sel.appendChild(h('option', { value: '' }, 'All'));
+      for (const s of solvers) {
+        const opt = h('option', { value: s }, s);
+        if (s === state.selectedSolver) opt.setAttribute('selected', '');
+        sel.appendChild(opt);
+      }
+      sel.addEventListener('change', () => {
+        setSelectedSolver(state, (sel as HTMLSelectElement).value || null);
+        onUpdate();
+      });
+      bar.appendChild(sel);
     }
-    sel.addEventListener('change', () => {
-      setSelectedSolver(state, (sel as HTMLSelectElement).value || null);
-      onUpdate();
-    });
-    bar.appendChild(sel);
   }
 
-  // Scale chips — derive from data filtered by everything EXCEPT scale
+  // Scale chips — derive from data filtered by everything EXCEPT scale. Render
+  // every available scale: silently slicing the list makes valid benchmark
+  // cases impossible to select in broad category views.
   const scaleOptionRuns = filterRuns(allRuns, state, { ignoreScale: true });
   const scaleKeys = getUniqueScaleKeys(scaleOptionRuns);
   if (scaleKeys.length > 0) {
     bar.appendChild(h('span', { class: 'filter-label' }, 'Scale:'));
     const labelMap = getScaleLabelMap(data.runs);
-    for (const sk of scaleKeys.slice(0, 15)) {
+    for (const sk of scaleKeys) {
       const active = state.selectedScaleKeys.has(sk);
       const chip = h(
         'span',
@@ -318,7 +332,7 @@ export function renderFilterBar(
       onUpdate();
     });
     lbl.appendChild(cb);
-    lbl.appendChild(document.createTextNode(ext));
+    lbl.appendChild(document.createTextNode(fw.display_name));
     bar.appendChild(lbl);
   }
 
