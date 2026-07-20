@@ -6,12 +6,16 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "npm run typecheck:src && npm run typecheck:e2e && npm run typecheck:contract",
+    "typecheck:src": "tsc --noEmit -p tsconfig.json",
+    "typecheck:e2e": "tsc --noEmit -p tsconfig.e2e.json",
+    "typecheck:contract": "tsc --noEmit -p tsconfig.contract.json",
     "preview": "vite preview",
     "test:e2e": "playwright test"
   },
   "devDependencies": {
     "@playwright/test": "^1.61.1",
+    "@types/node": "^22.0.0",
     "typescript": "^5.7.0",
     "vite": "^6.0.0"
   },

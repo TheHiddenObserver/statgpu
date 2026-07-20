@@ -1,74 +1,141 @@
 /** UI state model and mutation helpers */
 
+import type { Environment, MetricScope, Run } from './schema';
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
+export type ChartViewMode = 'focused' | 'full';
+
 export interface AppState {
   selectedCategoryIds: Set<string>;
   selectedEnvId: string | null;
+  selectedMetricScope: MetricScope;
   selectedModelId: string | null;
+  selectedVariant: string | null;
   selectedPenalty: string | null;
   selectedSolver: string | null;
   selectedScaleKeys: Set<string>;
   selectedBackends: Set<string>;
   showExternal: Set<string>;
-  showInference: boolean;
+  chartViewMode: ChartViewMode;
   tableLimit: number;
   sortColumn: string | null;
   sortDir: 'asc' | 'desc';
+  expandedPanels: Set<string>;
+  panelLimits: Record<string, number>;
+  timingChartGroupLimit: number;
+  speedupChartLimit: number;
 }
 
 // ---------------------------------------------------------------------------
 // Factory
 // ---------------------------------------------------------------------------
 
-export function createDefaultState(): AppState {
+export function createDefaultState(envs: Environment[], runs: Run[] = []): AppState {
+  if (envs.length === 0) throw new Error('environments must have at least 1 entry');
+
+  const runEnvIds = new Set(runs.map(run => run.env_id));
+  const preferredEnvId = envs.find(
+    env => env.env_id === 'remote-p100' && (runs.length === 0 || runEnvIds.has(env.env_id)),
+  )?.env_id;
+  const firstEnvWithRuns = envs.find(env => runEnvIds.has(env.env_id))?.env_id;
+  const defaultEnvId = preferredEnvId ?? firstEnvWithRuns ?? envs[0].env_id;
+
+  const availableCategories = new Set(
+    runs
+      .filter(run => run.env_id === defaultEnvId)
+      .flatMap(run => run.category_ids),
+  );
+  const firstAvailableCategory = availableCategories.values().next().value as string | undefined;
+  const defaultCategory = availableCategories.has('penalized_glm')
+    ? 'penalized_glm'
+    : firstAvailableCategory ?? (runs.length === 0 ? 'penalized_glm' : null);
+
   return {
-    selectedCategoryIds: new Set(['penalized_glm']),
-    selectedEnvId: 'remote-p100',
+    selectedCategoryIds: defaultCategory ? new Set([defaultCategory]) : new Set(),
+    selectedEnvId: defaultEnvId,
+    selectedMetricScope: 'all',
     selectedModelId: null,
+    selectedVariant: null,
     selectedPenalty: null,
     selectedSolver: null,
     selectedScaleKeys: new Set(),
     selectedBackends: new Set(),
     showExternal: new Set(),
-    showInference: false,
+    chartViewMode: 'focused',
     tableLimit: 200,
     sortColumn: null,
     sortDir: 'asc',
+    expandedPanels: new Set(),
+    panelLimits: {},
+    timingChartGroupLimit: 30,
+    // Full matrix uses a vertical zoom/scroll control, so it can expose a much
+    // broader result set without compressing every row into the chart height.
+    speedupChartLimit: 100,
   };
 }
 
 // ---------------------------------------------------------------------------
-// Mutation helpers — mutate state in place, caller invokes onUpdate()
+// Cascade reset
 // ---------------------------------------------------------------------------
 
-export function setSelectedModel(
-  state: AppState,
-  modelId: string | null,
-): void {
+export function resetDownstreamFilters(state: AppState, opts: {
+  clearMetricScope?: boolean;
+  clearModel?: boolean;
+  clearVariant?: boolean;
+  clearPenalty?: boolean;
+  clearSolver?: boolean;
+  clearScale?: boolean;
+  clearBackend?: boolean;
+  clearExternal?: boolean;
+}): void {
+  if (opts.clearMetricScope) state.selectedMetricScope = 'all';
+  if (opts.clearModel)    state.selectedModelId = null;
+  if (opts.clearVariant)  state.selectedVariant = null;
+  if (opts.clearPenalty)  state.selectedPenalty = null;
+  if (opts.clearSolver)   state.selectedSolver = null;
+  if (opts.clearScale)    state.selectedScaleKeys.clear();
+  if (opts.clearBackend)  state.selectedBackends.clear();
+  if (opts.clearExternal) state.showExternal.clear();
+}
+
+// ---------------------------------------------------------------------------
+// Mutation helpers
+// ---------------------------------------------------------------------------
+
+export function setSelectedMetricScope(state: AppState, scope: MetricScope): void {
+  state.selectedMetricScope = scope;
+  resetDownstreamFilters(state, {
+    clearModel: true,
+    clearVariant: true,
+    clearPenalty: true,
+    clearSolver: true,
+    clearScale: true,
+    clearBackend: true,
+    clearExternal: true,
+  });
+}
+
+export function setSelectedModel(state: AppState, modelId: string | null): void {
   state.selectedModelId = modelId;
-  state.selectedPenalty = null;
-  state.selectedSolver = null;
-  state.selectedScaleKeys.clear();
+  resetDownstreamFilters(state, { clearVariant: true, clearPenalty: true, clearSolver: true, clearScale: true });
 }
 
-export function setSelectedPenalty(
-  state: AppState,
-  penalty: string | null,
-): void {
+export function setSelectedVariant(state: AppState, variant: string | null): void {
+  state.selectedVariant = variant;
+  resetDownstreamFilters(state, { clearPenalty: true, clearSolver: true, clearScale: true });
+}
+
+export function setSelectedPenalty(state: AppState, penalty: string | null): void {
   state.selectedPenalty = penalty;
-  state.selectedSolver = null;
-  state.selectedScaleKeys.clear();
+  resetDownstreamFilters(state, { clearSolver: true, clearScale: true });
 }
 
-export function setSelectedSolver(
-  state: AppState,
-  solver: string | null,
-): void {
+export function setSelectedSolver(state: AppState, solver: string | null): void {
   state.selectedSolver = solver;
-  state.selectedScaleKeys.clear();
+  resetDownstreamFilters(state, { clearScale: true });
 }
 
 export function toggleScaleKey(state: AppState, key: string): void {
@@ -79,10 +146,7 @@ export function toggleScaleKey(state: AppState, key: string): void {
   }
 }
 
-export function setBackend(
-  state: AppState,
-  backend: 'numpy' | 'cupy' | 'torch' | null,
-): void {
+export function setBackend(state: AppState, backend: 'numpy' | 'cupy' | 'torch' | null): void {
   state.selectedBackends.clear();
   if (backend) state.selectedBackends.add(backend);
 }
@@ -95,16 +159,16 @@ export function toggleExternal(state: AppState, framework: string): void {
   }
 }
 
+export function setChartViewMode(state: AppState, mode: ChartViewMode): void {
+  state.chartViewMode = mode;
+}
+
 export function setTableLimit(state: AppState, limit: number): void {
   state.tableLimit = limit;
 }
 
-export function setSortColumn(
-  state: AppState,
-  column: string | null,
-): void {
+export function setSortColumn(state: AppState, column: string | null): void {
   if (state.sortColumn === column) {
-    // toggle direction on same column
     state.sortDir = state.sortDir === 'asc' ? 'desc' : 'asc';
   } else {
     state.sortColumn = column;

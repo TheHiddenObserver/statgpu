@@ -1,0 +1,85 @@
+{
+  "config": {
+    "n": 500,
+    "p": 10,
+    "seed": 42
+  },
+  "gpu": "unknown",
+  "external_validation": {
+    "Poisson": {
+      "max_coef_diff": 2.259902653900525e-09,
+      "max_bse_diff": 3.3685609024391994e-09,
+      "threshold": 0.001,
+      "status": "PASS"
+    },
+    "Gamma": {
+      "max_coef_diff": 7.978556482157728e-09,
+      "max_bse_diff": 0.013866155337754052,
+      "threshold": 0.05,
+      "status": "PASS"
+    },
+    "InvGaussian": {
+      "max_coef_diff": 2.874634753758515e-05,
+      "max_bse_diff": 0.02719985959727055,
+      "threshold": 0.001,
+      "status": "FAIL"
+    },
+    "NegBinom": {
+      "max_coef_diff": 4.7569323564089494e-05,
+      "max_bse_diff": 1.7404515293556466e-07,
+      "threshold": 0.005,
+      "status": "PASS"
+    },
+    "Tweedie": {
+      "max_coef_diff": 3.0766342739158015e-06,
+      "max_bse_diff": 0.014613906289851937,
+      "threshold": 0.05,
+      "status": "PASS"
+    }
+  },
+  "cross_backend": {
+    "penalized_poisson_l2": {
+      "numpy": {
+        "nonrobust": {
+          "bse": [
+            0.042584539721650105,
+            0.03175163527023159,
+            0.026526917094533614,
+            0.02989870379544522,
+            0.032356476835808445,
+            0.029341353338073365,
+            0.029403020762411747,
+            0.03164777295216569,
+            0.03288590152995732,
+            0.03112816024060339,
+            0.030876747312299502
+          ]
+        }
+      }
+    },
+    "scad_oracle": {
+      "numpy": {
+        "bse": [
+          0.004765379351265533,
+          0.004989522827679175,
+          0.004504994291096141,
+          null,
+          0.00487092097106277,
+          null,
+          0.004590340973103061,
+          null,
+          0.004756822802399437,
+          null,
+          null
+        ],
+        "n_active": 5
+      }
+    }
+  },
+  "timing": {
+    "numpy": {
+      "fit_s": 0.0074,
+      "inference_per_cov_s": 0.0018
+    }
+  }
+}

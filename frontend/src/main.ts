@@ -1,8 +1,9 @@
 import './style.css';
+import './metric-scope.css';
 
 import * as echarts from 'echarts';
 import type { BenchmarkData, ParseReport, Run } from './schema';
-import { fetchBenchmarkData, fetchParseReport, filterRuns } from './data';
+import { fetchBenchmarkData, fetchParseReport, fetchSourceInventory, filterRuns } from './data';
 import { createDefaultState } from './state';
 import type { AppState } from './state';
 import { h, clear } from './utils/dom';
@@ -21,7 +22,8 @@ import { emptyStateMessage } from './components/EmptyState';
 
 let data: BenchmarkData | null = null;
 let parseReport: ParseReport | null = null;
-let state: AppState = createDefaultState();
+let sourceInventory: import('./schema').SourceInventory | null = null;
+let state: AppState | null = null;
 
 /** Track ECharts instances for cleanup before re-render */
 const chartInstances: echarts.ECharts[] = [];
@@ -32,16 +34,16 @@ const chartInstances: echarts.ECharts[] = [];
 
 function renderApp(): HTMLElement {
   const app = h('div', { id: 'app-root' });
-  app.appendChild(renderHeader(data!, parseReport, state, update));
+  app.appendChild(renderHeader(data!, parseReport, state!, update));
   app.appendChild(renderBody());
   return app;
 }
 
 function renderBody(): HTMLElement {
   const body = h('div', { class: 'body' });
-  body.appendChild(renderSidebar(data!, state, update));
+  body.appendChild(renderSidebar(data!, state!, update));
 
-  const right = h('div', { style: 'flex:1; display:flex; flex-direction:column; overflow:hidden;' });
+  const right = h('div', { class: 'content-column' });
   // Summary cards + footer persist across filter updates; only main is re-rendered
   right.appendChild(renderSummaryCards(data!, parseReport, data!.runs));
   const main = renderMain();
@@ -55,10 +57,32 @@ function renderBody(): HTMLElement {
 function renderMain(): HTMLElement {
   const main = h('div', { class: 'main' });
   const filtered = getFilteredRuns();
-  main.appendChild(renderFilterBar(data!.runs, data!, state, update));
+  main.appendChild(renderFilterBar(data!.runs, data!, state!, update));
   main.appendChild(renderChartArea(filtered));
-  main.appendChild(renderOverviewTable(filtered, state, update));
+  main.appendChild(renderOverviewTable(filtered, state!, update));
   return main;
+}
+
+let renderEpoch = 0;
+
+function usesDefaultSurvivalImplementation(): boolean {
+  return Boolean(
+    state &&
+    state.chartViewMode === 'focused' &&
+    state.selectedCategoryIds.size === 1 &&
+    state.selectedCategoryIds.has('survival'),
+  );
+}
+
+function focusedSpeedupRuns(filtered: Run[]): Run[] {
+  if (!usesDefaultSurvivalImplementation()) return filtered;
+  return filtered.filter(
+    (run) => !(
+      run.framework === 'statgpu' &&
+      run.backend === 'numpy' &&
+      run.implementation === 'numba'
+    ),
+  );
 }
 
 function renderChartArea(filtered: Run[]): HTMLElement {
@@ -68,10 +92,20 @@ function renderChartArea(filtered: Run[]): HTMLElement {
   area.appendChild(timingDiv);
   area.appendChild(speedupDiv);
 
-  setTimeout(() => {
-    renderTimingChart(timingDiv, filtered, state, chartInstances);
-    renderSpeedupChart(speedupDiv, filtered, state, chartInstances);
-  }, 0);
+  const speedupRuns = focusedSpeedupRuns(filtered);
+  const defaultSurvivalOnly = usesDefaultSurvivalImplementation();
+  speedupDiv.dataset.implementationScope = defaultSurvivalOnly ? 'default-only' : 'all';
+
+  const epoch = ++renderEpoch;
+  requestAnimationFrame(() => {
+    if (epoch !== renderEpoch || !timingDiv.isConnected || !speedupDiv.isConnected) return;
+    renderTimingChart(timingDiv, filtered, state!, chartInstances);
+    renderSpeedupChart(speedupDiv, speedupRuns, state!, chartInstances);
+    if (defaultSurvivalOnly) {
+      const aria = speedupDiv.getAttribute('aria-label') ?? 'Speedup vs Reference chart';
+      speedupDiv.setAttribute('aria-label', `${aria}; default NumPy implementation only`);
+    }
+  });
   return area;
 }
 
@@ -103,7 +137,7 @@ function renderFooter(): HTMLElement {
 // ---------------------------------------------------------------------------
 
 function getFilteredRuns(): Run[] {
-  if (!data) return [];
+  if (!data || !state) return [];
   return filterRuns(data.runs, state);
 }
 
@@ -131,12 +165,12 @@ function update(): void {
 
   // Compute filtered runs once per update, pass to all renderers
   const allRuns = data!.runs;
-  const filtered = filterRuns(allRuns, state);
+  const filtered = filterRuns(allRuns, state!);
 
   clear(main);
-  main.appendChild(renderFilterBar(allRuns, data!, state, update));
+  main.appendChild(renderFilterBar(allRuns, data!, state!, update));
   main.appendChild(renderChartArea(filtered));
-  main.appendChild(renderOverviewTable(filtered, state, update));
+  main.appendChild(renderOverviewTable(filtered, state!, update));
 }
 
 // ---------------------------------------------------------------------------
@@ -152,8 +186,20 @@ async function init(): Promise<void> {
 
   try {
     data = await fetchBenchmarkData();
-    // parseReport is non-critical; fetch separately so failure doesn't block dashboard
-    parseReport = await fetchParseReport().catch(() => null);
+    state = createDefaultState(data.environments, data.runs);
+    // Non-critical metadata — fetch in parallel, failure doesn't block dashboard
+    [parseReport, sourceInventory] = await Promise.all([
+      fetchParseReport().catch(() => null),
+      fetchSourceInventory().catch(() => null),
+    ]);
+
+    // Cross-validate generation_id: discard metadata that doesn't match data
+    if (parseReport && parseReport.generation_id !== data.meta.generation_id) {
+      parseReport = null;
+    }
+    if (sourceInventory && sourceInventory.generation_id !== data.meta.generation_id) {
+      sourceInventory = null;
+    }
     const appEl = renderApp();
     clear(root);
     (root as HTMLElement).appendChild(appEl);
@@ -164,7 +210,7 @@ async function init(): Promise<void> {
     const msg = emptyStateMessage(
       `Failed to load benchmark data: ${err instanceof Error ? err.message : String(err)}`,
     );
-    msg.style.color = '#ff4d4f';
+    msg.style.color = '#c96f73';
     const hint = h(
       'small',
       {},

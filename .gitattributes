@@ -1,0 +1,6 @@
+# Benchmark dashboard canonical JSON — ensure consistent line endings for SHA256
+results/benchmark_frontend_sources/*.json text eol=lf
+dev/benchmarks/*.json text eol=lf
+frontend/public/data/*.json text eol=lf
+dev/tests/fixtures/benchmark_frontend/*.json text eol=lf
+docs/assets/benchmarks/data/*.json text eol=lf

@@ -1,5 +1,6 @@
 import type { BenchmarkData } from '../schema';
 import type { AppState } from '../state';
+import { resetDownstreamFilters } from '../state';
 import { h } from '../utils/dom';
 
 export function renderSidebar(
@@ -9,30 +10,22 @@ export function renderSidebar(
 ): HTMLElement {
   const sidebar = h('div', { class: 'sidebar' });
 
-  const title = h(
-    'div',
-    { style: 'font-weight:bold; margin-bottom:6px;' },
-    'Categories',
-  );
-  sidebar.appendChild(title);
+  sidebar.appendChild(h('div', { class: 'sidebar-title' }, 'Categories'));
 
-  // Search
   const search = h('input', {
     type: 'text',
-    placeholder: 'Search...',
-    style:
-      'width:100%; padding:4px; margin-bottom:6px; border:1px solid #ccc; border-radius:4px;',
+    placeholder: 'Search categories…',
+    class: 'sidebar-search',
+    'aria-label': 'Search categories',
   }) as HTMLInputElement;
   sidebar.appendChild(search);
 
-  // Category checkboxes
-  const catContainer = h('div', { id: 'category-list' });
+  const catContainer = h('div', { id: 'category-list', class: 'category-list' });
   const catRows: HTMLElement[] = [];
   for (const cat of data.categories) {
     const row = h('div', {
-      style:
-        'display:flex; align-items:center; gap:4px; padding:2px 0; cursor:pointer;',
-      'data-cat-name': `${cat.name_zh} ${cat.name_en}`.toLowerCase(),
+      class: 'category-row',
+      'data-cat-name': `${cat.name_en} ${cat.name_zh}`.toLowerCase(),
     });
     const cb = h('input', {
       type: 'checkbox',
@@ -43,17 +36,25 @@ export function renderSidebar(
     cb.addEventListener('change', () => {
       if (cb.checked) state.selectedCategoryIds.add(cat.category_id);
       else state.selectedCategoryIds.delete(cat.category_id);
-      // Clear downstream filters — category change invalidates model/penalty/solver/scale
-      state.selectedModelId = null;
-      state.selectedPenalty = null;
-      state.selectedSolver = null;
-      state.selectedScaleKeys.clear();
+      resetDownstreamFilters(state, {
+        clearMetricScope: true,
+        clearModel: true,
+        clearVariant: true,
+        clearPenalty: true,
+        clearSolver: true,
+        clearScale: true,
+        clearBackend: true,
+        clearExternal: true,
+      });
       onUpdate();
     });
     const label = h(
       'label',
-      { for: `cat-${cat.category_id}` },
-      ` ${cat.name_zh}`,
+      {
+        for: `cat-${cat.category_id}`,
+        title: cat.name_zh !== cat.name_en ? cat.name_zh : cat.name_en,
+      },
+      cat.name_en,
     );
     row.appendChild(cb);
     row.appendChild(label);
@@ -62,44 +63,51 @@ export function renderSidebar(
   }
   sidebar.appendChild(catContainer);
 
-  // Wire up search
   search.addEventListener('input', () => {
-    const q = search.value.toLowerCase();
+    const query = search.value.toLowerCase();
     for (const row of catRows) {
-      const catName = row.getAttribute('data-cat-name') ?? '';
-      row.style.display = !q || catName.includes(q) ? '' : 'none';
+      const categoryName = row.getAttribute('data-cat-name') ?? '';
+      row.style.display = !query || categoryName.includes(query) ? '' : 'none';
     }
   });
 
-  // Select all / none — keep checkbox DOM in sync with state
   const catCheckboxes = new Map<string, HTMLInputElement>();
   for (const cat of data.categories) {
     const cb = catContainer.querySelector<HTMLInputElement>(`#cat-${cat.category_id}`);
     if (cb) catCheckboxes.set(cat.category_id, cb);
   }
 
-  const btnRow = h('div', {
-    style: 'display:flex; gap:4px; margin-top:6px;',
-  });
-  const allBtn = h('button', {}, 'All');
+  const btnRow = h('div', { class: 'sidebar-actions' });
+  const allBtn = h('button', { type: 'button' }, 'All');
   allBtn.addEventListener('click', () => {
-    for (const cat of data.categories)
-      state.selectedCategoryIds.add(cat.category_id);
+    for (const cat of data.categories) state.selectedCategoryIds.add(cat.category_id);
     for (const cb of catCheckboxes.values()) cb.checked = true;
-    state.selectedModelId = null;
-    state.selectedPenalty = null;
-    state.selectedSolver = null;
-    state.selectedScaleKeys.clear();
+    resetDownstreamFilters(state, {
+      clearMetricScope: true,
+      clearModel: true,
+      clearVariant: true,
+      clearPenalty: true,
+      clearSolver: true,
+      clearScale: true,
+      clearBackend: true,
+      clearExternal: true,
+    });
     onUpdate();
   });
-  const noneBtn = h('button', {}, 'None');
+  const noneBtn = h('button', { type: 'button' }, 'None');
   noneBtn.addEventListener('click', () => {
     state.selectedCategoryIds.clear();
     for (const cb of catCheckboxes.values()) cb.checked = false;
-    state.selectedModelId = null;
-    state.selectedPenalty = null;
-    state.selectedSolver = null;
-    state.selectedScaleKeys.clear();
+    resetDownstreamFilters(state, {
+      clearMetricScope: true,
+      clearModel: true,
+      clearVariant: true,
+      clearPenalty: true,
+      clearSolver: true,
+      clearScale: true,
+      clearBackend: true,
+      clearExternal: true,
+    });
     onUpdate();
   });
   btnRow.appendChild(allBtn);

@@ -1,23 +1,53 @@
 # Benchmark Index
 
 > Language: English  
-> Last updated: 2026-07-09
+> Last updated: 2026-07-12  
 > This page: Benchmark index  
-> Switch: [Chinese](../../guides/benchmarks.md)
+> Switch: [Chinese](../../cn/guides/benchmarks.md)
 
 ## Benchmark Dashboard
 
-**Interactive benchmark dashboard**: [Open Dashboard](../../assets/benchmarks/index.html)
+- **Interactive dashboard**: [Open Dashboard](../../assets/benchmarks/index.html)
+- **Dashboard guide**: [Filters, charts, metrics, and reproduction](statgpu_benchmark_dashboard.md)
 
-The dashboard provides interactive exploration of benchmark results across 12 model categories (penalized GLM, linear models, unsupervised, survival, etc.), comparing statgpu's 3 backends (numpy/cupy/torch) against sklearn, statsmodels, and R glmnet. Features:
+The canonical dashboard is restricted to benchmark sources dated **2026-06-01 or later**. As of PR #78, it contains **8 registered sources, 1,577 normalized runs, and 31 models**.
 
-- Filterable by category, model, penalty, solver, scale, and backend
-- Timing comparison charts (ECharts) with speedup analysis
-- Solver-level comparison (penalized GLM)
-- Accuracy validation (l2_diff vs reference implementations)
-- Data provenance tracking per benchmark run
+The current bundle connects robust/quantile, unsupervised, ordered, nonparametric, panel, covariance, survival, GLM, and recent linear-model benchmarks. The linear-model category uses the June 2026 squared-error rows from `penalized_glm_perf_20260622.json` and `glm_solver_20260623.json`.
 
-To generate/update benchmark data: `python dev/benchmarks/generate_benchmark_data.py`
+April 2026 ElasticNet, LassoCV, comprehensive-validation, Cox package-comparison, and knockoff results are intentionally not connected. The feature-selection category remains in Schema v1.1 but is empty until a June 2026-or-later benchmark is available.
+
+Current capabilities:
+
+- Environment and multi-category navigation.
+- Progressive model, variant, penalty, solver, and scale filters.
+- NumPy, CuPy, and Torch backend selection.
+- Context-aware external comparisons with scikit-learn, statsmodels, linearmodels, and pyGAM.
+- Timing and speedup charts with distinct computed and runner-reported semantics.
+- Sortable run-level table.
+- Validation, accuracy, inference, prediction, convergence, and selection panels.
+- Source provenance, parse-report metadata, and source-inventory coverage.
+
+Generate and validate the canonical bundle:
+
+```bash
+python dev/benchmarks/generate_benchmark_data.py \
+  --out frontend/public/data/benchmark_data.json \
+  --report frontend/public/data/parse_report.json \
+  --inventory-out frontend/public/data/source_inventory.json \
+  --deterministic --strict-sources
+
+python dev/benchmarks/generate_benchmark_data.py --check --strict-sources
+```
+
+Build the deployed dashboard:
+
+```bash
+cd frontend
+npm ci
+npm run typecheck
+npm run build
+npm run test:e2e
+```
 
 ---
 

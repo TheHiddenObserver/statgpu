@@ -10,7 +10,10 @@ export function formatSpeedup(value: number): string {
 }
 
 export function formatModelName(name: string): string {
-  return name.replace('Penalized', '').replace('Regression', '');
+  const stripped = name.replace('Penalized', '').replace('Regression', '');
+  return stripped
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .replace(/([A-Z])([A-Z][a-z])/g, '$1 $2');
 }
 
 export function formatQuality(

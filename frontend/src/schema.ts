@@ -1,4 +1,13 @@
-/** TypeScript types matching benchmark_frontend_schema.json v1.0.0 */
+/** TypeScript types matching benchmark_frontend_schema.json v1.1.0 */
+
+export type MetricQuality = 'measured' | 'reported' | 'computed' | 'partial';
+export type MetricScope =
+  | 'all'
+  | 'fit'
+  | 'cross_validation'
+  | 'inference'
+  | 'prediction'
+  | 'selection';
 
 export interface BenchmarkData {
   schema_version: string;
@@ -7,12 +16,15 @@ export interface BenchmarkData {
   environments: Environment[];
   categories: Category[];
   models: Model[];
+  frameworks: Framework[];
+  comparisons: Comparison[];
   runs: Run[];
 }
 
 export interface Meta {
   generator: string;
   git_sha: string;
+  generation_id: string;
 }
 
 export interface Environment {
@@ -33,9 +45,22 @@ export interface Model {
   model_id: string;
   primary_category_id: string;
   category_ids: string[];
-  loss?: string;
   supports_penalty?: boolean;
   supports_inference?: boolean;
+}
+
+export interface Framework {
+  framework_id: string;
+  display_name: string;
+  external: boolean;
+  backend_policy: 'required' | 'forbidden' | 'optional';
+  color?: string;
+}
+
+export interface Comparison {
+  comparison_id: string;
+  label: string;
+  env_id: string;
 }
 
 export interface Run {
@@ -49,7 +74,14 @@ export interface Run {
   solver?: string;
   solver_display?: string;
   solver_kind?: 'dispatch' | 'manual' | 'internal' | null;
-  framework: 'statgpu' | 'sklearn' | 'statsmodels' | 'glmnet' | 'scipy' | 'r';
+  comparison_id: string;
+  case_id: string;
+  method_config_id: string;
+  variant?: string;
+  implementation?: string;
+  parameters?: Record<string, unknown>;
+  replicate?: { n_runs: number; seed_count?: number; n_failed?: number };
+  framework: string;
   backend: 'numpy' | 'cupy' | 'torch' | null;
   scale: Scale;
   source: Source;
@@ -65,7 +97,10 @@ export interface Scale {
 }
 
 export interface Source {
+  source_id: string;
   file: string;
+  original_path?: string;
+  sha256?: string;
   date: string;
   parser: string;
   parser_version: string;
@@ -77,6 +112,9 @@ export interface Metrics {
   accuracy?: AccuracyMetric;
   inference?: InferenceMetric;
   convergence?: ConvergenceMetric;
+  selection?: SelectionMetric;
+  prediction?: PredictionMetric;
+  validation?: ValidationMetric;
 }
 
 export interface TimingMetric {
@@ -84,7 +122,10 @@ export interface TimingMetric {
   std_ms?: number;
   min_ms?: number;
   max_ms?: number;
-  quality: 'measured' | 'reported' | 'computed' | 'partial';
+  sample_count?: number;
+  std_ddof?: 0 | 1;
+  std_scope?: 'raw_measurements' | 'replicates';
+  quality: MetricQuality;
   source_file: string;
 }
 
@@ -92,18 +133,23 @@ export interface SpeedupMetric {
   value: number;
   reference_run_id?: string;
   reference_backend: 'numpy' | 'cupy' | 'torch' | null;
-  reference_framework: 'statgpu' | 'sklearn' | 'statsmodels' | 'glmnet' | 'scipy' | 'r';
+  reference_framework: string;
   reported_semantics: 'computed' | 'reported_by_runner';
-  quality: 'measured' | 'reported' | 'computed' | 'partial';
+  quality: MetricQuality;
   source_file: string;
 }
 
 export interface AccuracyMetric {
   coef_l2_diff?: number;
+  coef_l2_diff_std?: number;
   coef_max_abs_diff?: number;
+  coef_max_abs_diff_std?: number;
+  coef_l2_rel_error?: number;
+  coef_l2_rel_error_std?: number;
   bse_max_abs_diff?: number;
+  bse_max_abs_diff_std?: number;
   reference?: string;
-  quality: 'measured' | 'reported' | 'computed' | 'partial';
+  quality: MetricQuality;
   source_file: string;
 }
 
@@ -112,15 +158,67 @@ export interface InferenceMetric {
   wald_stat?: number;
   p_value?: number;
   ok?: boolean;
-  quality: 'measured' | 'reported' | 'computed' | 'partial';
+  quality: MetricQuality;
   source_file: string;
 }
 
 export interface ConvergenceMetric {
-  n_iter?: number;
-  converged?: boolean;
-  quality?: 'measured' | 'reported' | 'computed' | 'partial';
+  n_iter_mean?: number;
+  n_iter_std?: number;
+  converged_rate?: number;
+  quality?: MetricQuality;
   source_file?: string;
+}
+
+export interface SelectionMetric {
+  precision?: number;
+  precision_std?: number;
+  recall?: number;
+  recall_std?: number;
+  fdp?: number;
+  fdp_std?: number;
+  f1?: number;
+  f1_std?: number;
+  jaccard_truth?: number;
+  jaccard_truth_std?: number;
+  estimated_fdr?: number;
+  estimated_fdr_std?: number;
+  target_fdr?: number;
+  n_selected_mean?: number;
+  n_selected_std?: number;
+  quality: MetricQuality;
+  source_file: string;
+}
+
+export interface PredictionMetric {
+  train_mse?: number;
+  train_mse_std?: number;
+  test_mse?: number;
+  test_mse_std?: number;
+  test_mse_noiseless?: number;
+  test_mse_noiseless_std?: number;
+  c_index?: number;
+  c_index_std?: number;
+  alpha_mean?: number;
+  alpha_std?: number;
+  quality: MetricQuality;
+  source_file: string;
+}
+
+export interface ValidationCheck {
+  metric: string;
+  operator?: 'le' | 'lt' | 'ge' | 'gt' | 'abs_le';
+  status: 'pass' | 'warn' | 'fail';
+  value?: number;
+  tolerance?: number;
+  reference?: string;
+}
+
+export interface ValidationMetric {
+  status: 'pass' | 'warn' | 'fail';
+  checks?: ValidationCheck[];
+  quality: MetricQuality;
+  source_file: string;
 }
 
 export interface Quality {
@@ -128,11 +226,47 @@ export interface Quality {
   warnings?: string[];
 }
 
-/** Parse report */
+/** Parse report v2 */
+export interface ParseIssue {
+  source_id?: string;
+  file?: string;
+  parser?: string;
+  code: string;
+  severity: 'error' | 'warning' | 'info';
+  message: string;
+}
+
 export interface ParseReport {
+  report_version: '2.0';
+  generation_id: string;
   files_seen: number;
   files_parsed: number;
   files_skipped: number;
   runs_generated: number;
-  warnings: { file: string; reason: string }[];
+  issues: ParseIssue[];
+}
+
+/** Source inventory */
+export interface SourceInventory {
+  inventory_version: '1.0';
+  catalog_version: string;
+  generation_id: string;
+  catalog_total: number;
+  eligible_total: number;
+  registered_sources: number;
+  available_sources: number;
+  parsed_sources: number;
+}
+
+/** Filter context and options */
+export interface FilterContext {
+  externalFrameworkIds: ReadonlySet<string>;
+  frameworksById: ReadonlyMap<string, Framework>;
+  comparisonsById: ReadonlyMap<string, Comparison>;
+}
+
+export interface FilterOptions {
+  ignoreScale?: boolean;
+  ignoreExternal?: boolean;
+  ignoreMetricScope?: boolean;
 }

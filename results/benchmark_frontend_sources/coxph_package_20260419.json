@@ -1,0 +1,62 @@
+[
+  {
+    "n_samples": 500,
+    "n_features": 20,
+    "statgpu": {
+      "time": 1.1604213118553162,
+      "c_index": 0.8116769387664612
+    },
+    "statsmodels": {
+      "time": null,
+      "c_index": null
+    },
+    "lifelines": {
+      "time": 0.10946425795555115,
+      "c_index": 0.8117988737640225
+    },
+    "scikit_survival": {
+      "time": 0.07705700397491455,
+      "c_index": 0.8115550037688999
+    }
+  },
+  {
+    "n_samples": 1000,
+    "n_features": 50,
+    "statgpu": {
+      "time": 11.137798368930817,
+      "c_index": 0.892109421861302
+    },
+    "statsmodels": {
+      "time": null,
+      "c_index": null
+    },
+    "lifelines": {
+      "time": 0.2501043677330017,
+      "c_index": 0.8913423383933927
+    },
+    "scikit_survival": {
+      "time": 0.19272121787071228,
+      "c_index": 0.8920171411433581
+    }
+  },
+  {
+    "n_samples": 2000,
+    "n_features": 100,
+    "statgpu": {
+      "time": 105.7223030924797,
+      "c_index": 0.9185086840011604
+    },
+    "statsmodels": {
+      "time": null,
+      "c_index": null
+    },
+    "lifelines": {
+      "time": 0.7864027619361877,
+      "c_index": 0.9174007450404832
+    },
+    "scikit_survival": {
+      "time": 0.7952851951122284,
+      "c_index": 0.918457703012043
+    }
+  }
+]
