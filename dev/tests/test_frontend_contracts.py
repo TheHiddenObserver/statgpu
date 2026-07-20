@@ -96,7 +96,10 @@ def test_public_validator_rejects_zero_timing_for_log_axis() -> None:
     }
 
     errors = validate_output(output)
-    assert any("timing.fit_time_ms must be > 0" in error for error in errors)
+    assert any(
+        "timing.fit_time_ms must be a finite number > 0" in error
+        for error in errors
+    )
 
 
 def _minimal_timing_output(fit_time_ms: object) -> dict:
