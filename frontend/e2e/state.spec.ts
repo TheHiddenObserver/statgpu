@@ -1,7 +1,14 @@
 import { expect, test } from '@playwright/test';
 import type { Environment, Run } from '../src/schema';
 import { getUniqueScaleKeys } from '../src/scales';
-import { createDefaultState } from '../src/state';
+import {
+  createDefaultState,
+  setSelectedModel,
+  setSelectedPenalty,
+  setSelectedSolver,
+  setSelectedVariant,
+  toggleScaleKey,
+} from '../src/state';
 
 const environments: Environment[] = [
   { env_id: 'remote-p100', label: 'P100', gpu: 'P100', cpu: 'Xeon' },
@@ -109,4 +116,44 @@ test('scale keys are ordered by numeric workload dimensions, not lexicographical
     'n5000_p10',
     'n20000_p5',
   ]);
+});
+
+test('upstream filter changes clear backend and external selections', () => {
+  const state = createDefaultState(environments, [
+    makeRun('remote-p100', ['penalized_glm']),
+  ]);
+
+  const seedDownstream = () => {
+    state.selectedScaleKeys.add('n10_p2');
+    state.selectedBackends.add('cupy');
+    state.showExternal.add('sklearn');
+  };
+  const expectDownstreamCleared = () => {
+    expect(state.selectedScaleKeys.size).toBe(0);
+    expect(state.selectedBackends.size).toBe(0);
+    expect(state.showExternal.size).toBe(0);
+  };
+
+  seedDownstream();
+  setSelectedModel(state, 'ModelA');
+  expectDownstreamCleared();
+
+  seedDownstream();
+  setSelectedVariant(state, 'variant-a');
+  expectDownstreamCleared();
+
+  seedDownstream();
+  setSelectedPenalty(state, 'l1');
+  expectDownstreamCleared();
+
+  seedDownstream();
+  setSelectedSolver(state, 'fista');
+  expectDownstreamCleared();
+
+  state.selectedBackends.add('torch');
+  state.showExternal.add('statsmodels');
+  toggleScaleKey(state, 'n20_p2');
+  expect(state.selectedScaleKeys).toEqual(new Set(['n20_p2']));
+  expect(state.selectedBackends.size).toBe(0);
+  expect(state.showExternal.size).toBe(0);
 });
