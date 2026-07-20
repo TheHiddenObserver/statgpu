@@ -241,6 +241,7 @@ def _semantic_speedup_output() -> dict:
         **reference,
         "run_id": "measured",
         "backend": "cupy",
+        "scale": dict(reference["scale"]),
         "source": {"file": "measured.json", "source_id": "measured-source"},
         "metrics": {
             "timing": {"fit_time_ms": 5.0},
