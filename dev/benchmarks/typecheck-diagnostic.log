@@ -1,0 +1,15 @@
+exit_status=2
+
+
+> statgpu-benchmark-frontend@1.0.0 typecheck
+> npm run typecheck:src && npm run typecheck:e2e && npm run typecheck:contract
+
+
+> statgpu-benchmark-frontend@1.0.0 typecheck:src
+> tsc --noEmit -p tsconfig.json
+
+
+> statgpu-benchmark-frontend@1.0.0 typecheck:e2e
+> tsc --noEmit -p tsconfig.e2e.json
+
+node_modules/echarts/index.d.ts(23,1): error TS1203: Export assignment cannot be used when targeting ECMAScript modules. Consider using 'export default' or another module format instead.
