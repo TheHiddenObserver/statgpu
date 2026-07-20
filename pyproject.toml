@@ -41,8 +41,8 @@ gpu11 = ["cupy-cuda11x>=13.0"]
 gpu12 = ["cupy-cuda12x>=13.0"]
 # PyTorch backend (PyTorch 2.0+ recommended for torch.special functions)
 torch = ["torch>=2.0", "scipy>=1.7"]
-dev = ["pytest>=6.0", "black", "flake8", "mypy"]
-validation = ["pytest>=6.0", "scikit-learn>=1.0", "statsmodels>=0.13"]
+dev = ["pytest>=6.0", "black", "flake8", "mypy", "jsonschema>=4.0"]
+validation = ["pytest>=6.0", "scikit-learn>=1.0", "statsmodels>=0.13", "jsonschema>=4.0"]
 formula = ["patsy>=0.5.3", "pandas>=1.5"]
 cpu_ext = ["Cython>=3.0"]
 
