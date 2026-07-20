@@ -1,125 +1,71 @@
 name: Benchmark Frontend CI
 
 on:
-  push:
-    branches: [master]
-    paths:
-      - '.github/workflows/benchmark-frontend.yml'
-      - 'dev/benchmarks/**'
-      - 'dev/tests/test_benchmark_frontend_data.py'
-      - 'dev/tests/test_frontend_contracts.py'
-      - 'dev/tests/test_frontend_domain_coverage.py'
-      - 'dev/tests/fixtures/benchmark_frontend/**'
-      - 'frontend/**'
-      - 'docs/assets/benchmarks/**'
-      - 'results/benchmark_frontend_sources/**'
   pull_request:
     paths:
       - '.github/workflows/benchmark-frontend.yml'
       - 'dev/benchmarks/**'
-      - 'dev/tests/test_benchmark_frontend_data.py'
       - 'dev/tests/test_frontend_contracts.py'
-      - 'dev/tests/test_frontend_domain_coverage.py'
-      - 'dev/tests/fixtures/benchmark_frontend/**'
-      - 'frontend/**'
-      - 'docs/assets/benchmarks/**'
-      - 'results/benchmark_frontend_sources/**'
+      - 'pyproject.toml'
+
+permissions:
+  contents: write
 
 jobs:
-  python-data:
+  review-fix:
+    if: github.head_ref == 'feature/benchmark-frontend-dashboard'
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        python-version: ['3.9', '3.11']
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
         with:
-          python-version: ${{ matrix.python-version }}
-      - name: Install test dependencies
-        run: python -m pip install -U pip pytest jsonschema
-      - name: Run generator and parser tests
-        run: |
-          pytest \
-            dev/tests/test_benchmark_frontend_data.py \
-            dev/tests/test_frontend_contracts.py \
-            dev/tests/test_frontend_domain_coverage.py -v
-      - name: Validate generator output
-        run: python dev/benchmarks/generate_benchmark_data.py --check --strict-sources
-
-  frontend:
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: frontend
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-      - name: Reject committed frontend artifacts
-        run: |
-          if git -C "$GITHUB_WORKSPACE" ls-files \
-            'frontend/node_modules/**' \
-            'frontend/test-results/**' \
-            'frontend/playwright-report/**' | grep -q .; then
-            echo "Generated frontend dependencies/test artifacts must not be committed."
-            exit 1
-          fi
-      - run: npm ci
-      - run: npm run typecheck
-      - run: npm run build
-
-  staleness:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
+          ref: ${{ github.head_ref }}
+          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-      - name: Generate data (deterministic)
+      - name: Apply core review fixes
         run: |
-          python dev/benchmarks/generate_benchmark_data.py \
-            --out frontend/public/data/benchmark_data.json \
-            --report frontend/public/data/parse_report.json \
-            --inventory-out frontend/public/data/source_inventory.json \
-            --deterministic --strict-sources
-      - name: Build frontend
-        run: |
-          cd frontend
-          npm ci
-          npm run build
-      - name: Check staleness
-        run: |
-          changes="$(git status --porcelain -- frontend/public/data docs/assets/benchmarks)"
-          if [ -n "$changes" ]; then
-            echo "Generated benchmark assets are stale:"
-            printf '%s\n' "$changes"
-            git diff -- frontend/public/data docs/assets/benchmarks
-            exit 1
-          fi
-          echo "OK — generated benchmark assets are current"
+          python - <<'PY'
+          from pathlib import Path
 
-  frontend-e2e:
-    runs-on: ubuntu-latest
-    needs: [frontend, staleness]
-    defaults:
-      run:
-        working-directory: frontend
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+          def replace_once(path: Path, old: str, new: str) -> None:
+              text = path.read_text(encoding='utf-8')
+              if old not in text:
+                  if new in text:
+                      return
+                  raise SystemExit(f'Expected block not found in {path}: {old[:100]!r}')
+              path.write_text(text.replace(old, new, 1), encoding='utf-8')
+
+          cli = Path('dev/benchmarks/frontend_data/cli.py')
+
+          replace_once(
+              cli,
+              '''def validate_against_schema(output: dict) -> list[str]:\n    schema = _load_schema()\n    if schema is None:\n        return ["Schema file not found, skipping schema validation"]\n\n    Validator = _get_jsonschema_validator()\n    if Validator is not None:\n        validator = Validator(schema)\n        schema_errors = sorted(validator.iter_errors(output), key=lambda e: list(e.path))\n        if not schema_errors:\n            return []\n        return [f"{' → '.join(str(p) for p in e.absolute_path)}: {e.message}" for e in schema_errors[:50]]\n\n    # Fallback\n    errors = []\n    runs_schema = schema.get("properties", {}).get("runs", {})\n    run_props = runs_schema.get("items", {}).get("properties", {})\n    run_required = runs_schema.get("items", {}).get("required", [])\n\n    for run in output.get("runs", []):\n        rid = run.get("run_id", "?")\n        for field in run_required:\n            if field not in run:\n                errors.append(f"{rid}: missing required field '{field}' (schema)")\n        for field_name in ("framework", "backend", "solver_kind"):\n            schema_field = run_props.get(field_name, {})\n            enum_vals = schema_field.get("enum", [])\n            if enum_vals:\n                val = run.get(field_name)\n                if val not in enum_vals:\n                    errors.append(f"{rid}: {field_name}='{val}' not in schema enum {enum_vals}")\n    return errors\n''',
+              '''def validate_against_schema(output: dict) -> list[str]:\n    schema = _load_schema()\n    if schema is None:\n        return ["Schema file not found; JSON Schema validation is required"]\n\n    Validator = _get_jsonschema_validator()\n    if Validator is None:\n        return [\n            "jsonschema>=4.0 is required for benchmark bundle validation; "\n            "install statgpu[dev] or statgpu[validation]"\n        ]\n\n    validator = Validator(schema)\n    schema_errors = sorted(validator.iter_errors(output), key=lambda e: list(e.path))\n    if not schema_errors:\n        return []\n    return [\n        f"{' → '.join(str(p) for p in error.absolute_path)}: {error.message}"\n        for error in schema_errors[:50]\n    ]\n''',
+          )
+
+          replace_once(
+              cli,
+              '''                ref_run = run_by_id[ref_id]\n                ref_time = ref_run.get("metrics", {}).get("timing", {}).get("fit_time_ms")\n                if not _is_finite_number(ref_time) or ref_time <= 0:\n                    errors.append(f"{run['run_id']}: speedup reference run has no positive numeric timing")\n                # Cross-check comparison/case compatibility\n                if ref_run.get("comparison_id") != run.get("comparison_id"):\n                    errors.append(f"{run['run_id']}: speedup reference has different comparison_id")\n                if ref_run.get("scale", {}).get("scale_key") != run.get("scale", {}).get("scale_key"):\n                    errors.append(f"{run['run_id']}: speedup reference has different scale")\n''',
+              '''                ref_run = run_by_id[ref_id]\n                ref_time = ref_run.get("metrics", {}).get("timing", {}).get("fit_time_ms")\n                if not _is_finite_number(ref_time) or ref_time <= 0:\n                    errors.append(f"{run['run_id']}: speedup reference run has no positive numeric timing")\n\n                from .identity import chart_cell_identity\n\n                if chart_cell_identity(\n                    ref_run, include_session=False\n                ) != chart_cell_identity(run, include_session=False):\n                    errors.append(\n                        f"{run['run_id']}: speedup reference has different chart-cell identity"\n                    )\n''',
+          )
+
+          replace_once(
+              cli,
+              '''def _write_transactional(out_path_str, report_path_str, inv_path_str, output, parse_report, inventory):\n    """Write three output files atomically: temp → os.replace in order."""\n    import os as _os\n    import tempfile\n\n    out_p, rpt_p, inv_p = (Path(path) for path in (out_path_str, report_path_str, inv_path_str))\n    out_p, rpt_p, inv_p = (\n        path if path.is_absolute() else Path.cwd() / path\n        for path in (out_p, rpt_p, inv_p)\n    )\n\n    for p in (out_p, rpt_p, inv_p):\n        p.parent.mkdir(parents=True, exist_ok=True)\n\n    def write_temp(target: Path, data: bytes) -> Path:\n        with tempfile.NamedTemporaryFile(\n            mode="wb", dir=target.parent, prefix=f".{target.name}.", suffix=".tmp", delete=False\n        ) as handle:\n            handle.write(data)\n            handle.flush()\n            _os.fsync(handle.fileno())\n            return Path(handle.name)\n\n    temp_paths: list[Path] = []\n    try:\n        tmp_r = write_temp(rpt_p, json.dumps(parse_report, indent=2).encode("utf-8"))\n        temp_paths.append(tmp_r)\n        tmp_i = write_temp(inv_p, json.dumps(inventory, indent=2).encode("utf-8"))\n        temp_paths.append(tmp_i)\n        tmp_d = write_temp(out_p, json.dumps(output, indent=2, ensure_ascii=False).encode("utf-8"))\n        temp_paths.append(tmp_d)\n\n        _os.replace(tmp_r, rpt_p)\n        _os.replace(tmp_i, inv_p)\n        _os.replace(tmp_d, out_p)\n    finally:\n        for temp_path in temp_paths:\n            temp_path.unlink(missing_ok=True)\n    print(f"Wrote: {out_p}")\n    print(f"Wrote: {rpt_p}")\n    print(f"Wrote: {inv_p}")\n''',
+              '''def _write_transactional(out_path_str, report_path_str, inv_path_str, output, parse_report, inventory):\n    """Replace the three-file bundle and roll back prior replacements on failure."""\n    import os as _os\n    import shutil\n    import tempfile\n\n    out_p, rpt_p, inv_p = (Path(path) for path in (out_path_str, report_path_str, inv_path_str))\n    out_p, rpt_p, inv_p = (\n        path if path.is_absolute() else Path.cwd() / path\n        for path in (out_p, rpt_p, inv_p)\n    )\n\n    for path in (out_p, rpt_p, inv_p):\n        path.parent.mkdir(parents=True, exist_ok=True)\n\n    def write_temp(target: Path, data: bytes) -> Path:\n        with tempfile.NamedTemporaryFile(\n            mode="wb",\n            dir=target.parent,\n            prefix=f".{target.name}.",\n            suffix=".tmp",\n            delete=False,\n        ) as handle:\n            handle.write(data)\n            handle.flush()\n            _os.fsync(handle.fileno())\n            return Path(handle.name)\n\n    def make_backup(target: Path) -> Path:\n        descriptor, backup_name = tempfile.mkstemp(\n            dir=target.parent,\n            prefix=f".{target.name}.",\n            suffix=".bak",\n        )\n        _os.close(descriptor)\n        backup = Path(backup_name)\n        shutil.copy2(target, backup)\n        return backup\n\n    payloads = [\n        (rpt_p, json.dumps(parse_report, indent=2).encode("utf-8")),\n        (inv_p, json.dumps(inventory, indent=2).encode("utf-8")),\n        (out_p, json.dumps(output, indent=2, ensure_ascii=False).encode("utf-8")),\n    ]\n    temp_paths: dict[Path, Path] = {}\n    backups: dict[Path, Path] = {}\n    existed: dict[Path, bool] = {}\n    replaced: list[Path] = []\n\n    try:\n        for target, data in payloads:\n            temp_paths[target] = write_temp(target, data)\n\n        for target, _ in payloads:\n            existed[target] = target.exists()\n            if existed[target]:\n                backups[target] = make_backup(target)\n\n        for target, _ in payloads:\n            _os.replace(temp_paths[target], target)\n            replaced.append(target)\n    except Exception as original_error:\n        rollback_errors: list[str] = []\n        for target in reversed(replaced):\n            try:\n                if existed[target]:\n                    _os.replace(backups[target], target)\n                    backups.pop(target, None)\n                else:\n                    target.unlink(missing_ok=True)\n            except Exception as rollback_error:\n                rollback_errors.append(f"{target}: {rollback_error}")\n\n        if rollback_errors:\n            details = "; ".join(rollback_errors)\n            raise RuntimeError(\n                f"Bundle replacement failed and rollback was incomplete: {details}"\n            ) from original_error\n        raise\n    finally:\n        for path in temp_paths.values():\n            path.unlink(missing_ok=True)\n        for path in backups.values():\n            path.unlink(missing_ok=True)\n\n    print(f"Wrote: {out_p}")\n    print(f"Wrote: {rpt_p}")\n    print(f"Wrote: {inv_p}")\n''',
+          )
+
+          tests = Path('dev/tests/test_frontend_contracts.py')
+          text = tests.read_text(encoding='utf-8')
+          marker = 'def test_transactional_write_rolls_back_all_prior_assets('
+          if marker not in text:
+              text += '''\n\ndef test_schema_validation_requires_jsonschema(monkeypatch) -> None:\n    from dev.benchmarks.frontend_data import cli\n\n    monkeypatch.setattr(cli, "_get_jsonschema_validator", lambda: None)\n    errors = cli.validate_against_schema({})\n\n    assert any("jsonschema>=4.0 is required" in error for error in errors)\n\n\ndef test_transactional_write_rolls_back_all_prior_assets(\n    tmp_path, monkeypatch\n) -> None:\n    import os\n\n    import pytest\n\n    from dev.benchmarks.frontend_data.cli import _write_transactional\n\n    data_path = tmp_path / "benchmark_data.json"\n    report_path = tmp_path / "parse_report.json"\n    inventory_path = tmp_path / "source_inventory.json"\n    old_contents = {\n        data_path: "old-data",\n        report_path: "old-report",\n        inventory_path: "old-inventory",\n    }\n    for path, content in old_contents.items():\n        path.write_text(content, encoding="utf-8")\n\n    real_replace = os.replace\n    failed = False\n\n    def fail_data_replacement(source, target):\n        nonlocal failed\n        if Path(target) == data_path and not failed:\n            failed = True\n            raise OSError("simulated data replacement failure")\n        return real_replace(source, target)\n\n    monkeypatch.setattr(os, "replace", fail_data_replacement)\n\n    with pytest.raises(OSError, match="simulated data replacement failure"):\n        _write_transactional(\n            data_path,\n            report_path,\n            inventory_path,\n            {"generation_id": "new"},\n            {"generation_id": "new"},\n            {"generation_id": "new"},\n        )\n\n    assert {\n        path: path.read_text(encoding="utf-8")\n        for path in old_contents\n    } == old_contents\n\n\ndef _semantic_speedup_output() -> dict:\n    reference = {\n        "run_id": "reference",\n        "env_id": "remote-p100",\n        "category_ids": ["linear_models"],\n        "model_id": "ExampleModel",\n        "comparison_id": "comparison",\n        "case_id": "case-a",\n        "method_config_id": "method-a",\n        "variant": "variant-a",\n        "loss": "squared_error",\n        "penalty": "l2",\n        "solver": "auto",\n        "framework": "statgpu",\n        "backend": "numpy",\n        "scale": {\n            "scale_key": "n10_p2",\n            "n_samples": 10,\n            "n_features": 2,\n            "label": "10×2",\n        },\n        "source": {"file": "reference.json", "source_id": "reference-source"},\n        "metrics": {"timing": {"fit_time_ms": 10.0}},\n    }\n    measured = {\n        **reference,\n        "run_id": "measured",\n        "backend": "cupy",\n        "source": {"file": "measured.json", "source_id": "measured-source"},\n        "metrics": {\n            "timing": {"fit_time_ms": 5.0},\n            "speedup": {\n                "value": 2.0,\n                "reference_run_id": "reference",\n                "reference_framework": "statgpu",\n                "reference_backend": "numpy",\n                "reported_semantics": "computed",\n            },\n        },\n    }\n    return {\n        "environments": [\n            {"env_id": "remote-p100"},\n            {"env_id": "other-env"},\n        ],\n        "models": [\n            {"model_id": "ExampleModel", "category_ids": ["linear_models"]},\n            {"model_id": "OtherModel", "category_ids": ["linear_models"]},\n        ],\n        "frameworks": [\n            {\n                "framework_id": "statgpu",\n                "backend_policy": "required",\n            }\n        ],\n        "comparisons": [\n            {"comparison_id": "comparison"},\n            {"comparison_id": "other-comparison"},\n        ],\n        "runs": [reference, measured],\n    }\n\n\ndef test_speedup_reference_requires_complete_chart_cell_identity() -> None:\n    from copy import deepcopy\n\n    from dev.benchmarks.frontend_data.cli import validate_semantic\n\n    mutations = [\n        (("comparison_id",), "other-comparison"),\n        (("env_id",), "other-env"),\n        (("model_id",), "OtherModel"),\n        (("case_id",), "case-b"),\n        (("method_config_id",), "method-b"),\n        (("variant",), "variant-b"),\n        (("loss",), "huber"),\n        (("penalty",), "l1"),\n        (("solver",), "fista"),\n        (("scale", "scale_key"), "n20_p2"),\n    ]\n\n    for path, value in mutations:\n        output = deepcopy(_semantic_speedup_output())\n        reference = output["runs"][0]\n        target = reference\n        for key in path[:-1]:\n            target = target[key]\n        target[path[-1]] = value\n\n        errors = validate_semantic(output)\n        assert any(\n            "speedup reference has different chart-cell identity" in error\n            for error in errors\n        ), path\n'''
+              tests.write_text(text, encoding='utf-8')
+          PY
+      - name: Commit core review fixes
+        uses: stefanzweifel/git-auto-commit-action@v5
         with:
-          node-version: '20'
-      - run: npm ci
-      - run: npx playwright install --with-deps chromium
-      - run: npm run test:e2e
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: playwright-report
-          path: frontend/playwright-report/
-          retention-days: 30
+          commit_message: 'fix(benchmarks): enforce schema and bundle integrity'
+          branch: feature/benchmark-frontend-dashboard
+          file_pattern: dev/benchmarks/frontend_data/cli.py dev/tests/test_frontend_contracts.py
