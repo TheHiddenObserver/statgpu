@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import type { Environment, Run } from '../src/schema';
-import { getUniqueScaleKeys } from '../src/data';
+import { getUniqueScaleKeys } from '../src/scales';
 import { createDefaultState } from '../src/state';
 
 const environments: Environment[] = [
