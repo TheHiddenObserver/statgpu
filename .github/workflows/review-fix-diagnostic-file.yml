@@ -1,0 +1,47 @@
+name: PR76 Typecheck Diagnostic File
+
+on:
+  push:
+    branches:
+      - feature/benchmark-frontend-dashboard
+    paths:
+      - '.github/workflows/review-fix-diagnostic-file.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  capture:
+    if: github.repository == 'TheHiddenObserver/statgpu'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/benchmark-frontend-dashboard
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - working-directory: frontend
+        run: npm ci
+      - name: Capture typecheck log
+        shell: bash
+        run: |
+          set +e
+          cd frontend
+          npm run typecheck > /tmp/typecheck.log 2>&1
+          status=$?
+          cd ..
+          {
+            echo "exit_status=$status"
+            echo
+            tail -n 160 /tmp/typecheck.log
+          } > dev/benchmarks/typecheck-diagnostic.log
+      - name: Publish diagnostic and remove workflow
+        run: |
+          rm .github/workflows/review-fix-diagnostic-file.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add .github/workflows/review-fix-diagnostic-file.yml dev/benchmarks/typecheck-diagnostic.log
+          git commit -m 'chore: capture PR76 typecheck diagnostic'
+          git push origin HEAD:feature/benchmark-frontend-dashboard
