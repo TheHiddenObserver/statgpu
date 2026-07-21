@@ -33,7 +33,8 @@ and StepwiseSelector legacy clone behavior.
 ### Fixed (2026-07-21) — post-validation review-fix loop
 
 A further review → fix → test → re-review cycle was completed after the full GPU campaign.
-The cleaned code head is `ff72424071ec7ca52399146dbd8a556534c9e6c3`.
+The exact cleaned acceptance head is
+`786af9e2eb4742a56e5203b4380b03aec63a3ac8`.
 
 Additional repairs:
 
@@ -45,30 +46,34 @@ Additional repairs:
   worktrees, and reset/clean verification;
 - separated formula-controlled intercept semantics from the public clone-visible
   `fit_intercept` constructor parameter;
-- corrected weighted `LinearRegression` on CPU, CuPy, and Torch by weighting the intercept
-  column, fixing multi-output broadcasting, validating weights, retaining raw and weighted
-  residual states, and using stable least-squares fallback paths;
-- aligned original-length formula sample weights after Patsy removes missing rows.
+- corrected weighted `LinearRegression` on CPU, CuPy, and Torch, including intercept
+  weighting, multi-output broadcasting, validation, residual state, singular fallback,
+  diagnostics, and weighted R-squared;
+- aligned original-length formula sample weights after Patsy removes missing rows;
+- aligned CuPy and Torch degenerate overall F-test semantics with the CPU contract.
 
-Permanent tests were added in `dev/tests/test_pr79_final_review_fixes.py`, including
-scikit-learn/statsmodels parity, rank-deficient and HAC invariants, formula intercept and
-missing-row behavior, invalid weight contracts, multi-output WLS, orchestrator exact-SHA
-checks, pipeline failure propagation, and optional physical CuPy/Torch parity.
+Permanent coverage in `dev/tests/test_pr79_final_review_fixes.py` includes reference-library
+parity, rank-deficient and HAC invariants, formula behavior, invalid weights, multi-output
+WLS, exact-SHA validator checks, backend-to-NumPy transfer guards, and physical CuPy/Torch
+F-statistic edge cases.
 
-### Validation boundary for the latest head
+### Validation (2026-07-21) — exact-head acceptance passed
 
-GitHub Actions Tests run #477 passed on cleaned code head `ff72424`:
+On a clean Tesla P100 worktree at exact SHA
+`786af9e2eb4742a56e5203b4380b03aec63a3ac8`:
 
-- Python 3.9, 3.10, 3.11, and 3.12 regression matrices;
-- static contracts, compilation, and complete test collection;
-- the complete CPU suite.
+- `STATGPU_REQUIRE_PHYSICAL_GPU=1` forced both CUDA backends to execute;
+- `dev/tests/test_pr79_final_review_fixes.py` completed with
+  **17 passed, 0 failed, 0 skipped in 7.28 seconds**;
+- CuPy and Torch weighted fit/predict parity passed;
+- formula missing-row and original-length weight alignment passed;
+- perfect non-constant fits return `(inf, 0.0)` for the overall F test;
+- intercept-only and otherwise undefined overall F tests return `(nan, nan)`;
+- the exact SHA and clean-worktree state were recorded.
 
-The post-validation changes touch weighted CuPy/Torch `LinearRegression` paths. Therefore,
-one focused physical-GPU recheck on the exact cleaned code head is still required before
-PR #79 is changed from Draft to Ready for review. The prior full P100 campaign remains
-valid evidence for `2f18e5d`, but is not presented as exact-head evidence for later code.
-See `dev/reviews/pr79_physical_gpu_validation.md` for the required command and acceptance
-criteria.
+Standard GitHub Actions Tests run #483 also passed on the cleaned head, including the
+Python 3.9–3.12 regression matrices, static contracts, compilation, complete collection,
+and full CPU suite. PR #79 is therefore ready for review and squash merge.
 
 ### Performance baseline — Tesla P100
 

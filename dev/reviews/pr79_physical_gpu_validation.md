@@ -4,22 +4,21 @@ Date: 2026-07-21
 Base SHA: `a4879fb4d9fb183efc01f147cd2cc501691f28c4`  
 PR branch: `agent/code-review-fixes`  
 Physical-GPU validated code head: `2f18e5dec9195da1a12e5eea89ee2d832557b3ad`  
-Latest cleaned code head after the review-fix loop: `ff72424071ec7ca52399146dbd8a556534c9e6c3`
+Exact-head physical-GPU acceptance SHA: `786af9e2eb4742a56e5203b4380b03aec63a3ac8`
 
 ## Decision
 
-**CONDITIONALLY MERGE-READY.** The complete Tesla P100 validation campaign passed on
-`2f18e5d`. A subsequent review-fix loop found and repaired additional correctness and
-validation-infrastructure defects. The cleaned post-review code head `ff72424` passes the
-full standard GitHub Actions suite, including Python 3.9–3.12 regression matrices, static
-contracts, complete test collection, and the full CPU suite.
+**MERGE-READY.** The complete Tesla P100 Gate A–G campaign passed, the subsequent
+review-fix cycle was completed, and the exact cleaned head
+`786af9e2eb4742a56e5203b4380b03aec63a3ac8` passed the mandatory focused physical-GPU
+acceptance suite with **17 passed, 0 failed, and 0 skipped in 7.28 seconds**.
 
-Because the post-validation changes include `LinearRegression` CuPy/Torch weighted-fit
-paths, one focused physical-GPU recheck on the exact latest code head remains required
-before changing this PR from Draft to Ready for review. The older P100 results must not be
-represented as exact-head validation for these later changes.
+CuPy CUDA and Torch CUDA both executed under `STATGPU_REQUIRE_PHYSICAL_GPU=1`. The exact
+SHA and clean-worktree state were recorded. Standard GitHub Actions Tests run #483 also
+passed. No unresolved CRITICAL/HIGH defect or PR-introduced regression is known.
 
-No unresolved CRITICAL/HIGH defect is known from the completed review-fix cycle.
+Issues #81 and #82 and the Torch Cox Hessian memory optimization remain explicitly tracked,
+non-blocking follow-ups.
 
 ## Evidence boundary
 
@@ -49,18 +48,26 @@ Gate B improved from **1036 passed / 40 failed / 159 skipped** to
 scikit-learn <=1.2 reproduces for the same 26 estimators on base SHA `a4879fb` and is
 tracked in issue #82.
 
-### Post-validation review-fix evidence — cleaned code head `ff72424`
+### Post-validation review-fix and exact-head evidence
 
-GitHub Actions Tests run #477 completed successfully with:
+The post-validation review repaired additional backend-routing, PooledOLS, WLS, formula,
+validator, and GPU inference edge cases. Standard GitHub Actions Tests run #483 completed
+successfully on the cleaned head with:
 
 - regression matrices on Python 3.9, 3.10, 3.11, and 3.12;
 - static-contract, compilation, and complete-collection gates;
 - the complete CPU test suite.
 
-Each repair commit was also gated by the focused suite
-`dev/tests/test_pr79_final_review_fixes.py` together with the maintained linear and panel
-regression suites before being pushed. All temporary patch/workflow infrastructure was
-then deleted atomically; only production changes and permanent regression tests remain.
+The mandatory Tesla P100 exact-head acceptance then ran on clean SHA
+`786af9e2eb4742a56e5203b4380b03aec63a3ac8`:
+
+```text
+17 passed in 7.28s
+```
+
+Both CuPy and Torch CUDA parameterizations executed with no skips. The suite confirmed
+weighted fit/predict parity, formula missing-row weight alignment, device-purity guards,
+and backend-consistent degenerate F-statistic semantics.
 
 ## Additional defects fixed by the post-validation review-fix loop
 
@@ -74,32 +81,40 @@ then deleted atomically; only production changes and permanent regression tests 
 | Formula intercept semantics | Formula syntax set an intercept decision and then immediately restored the public constructor value. A private effective-intercept state now controls fitting without mutating clone-visible parameters. | HIGH |
 | Weighted `LinearRegression` | The intercept column was not multiplied by `sqrt(weight)`, multi-output weighting broadcast incorrectly, and raw versus weighted residual state was conflated. CPU/CuPy/Torch paths now implement the same WLS transformation, validation, fallback solve, diagnostics, and weighted R² semantics. | CRITICAL |
 | Formula sample weights | Patsy could drop rows while `sample_weight` retained original length. Formula evaluation now returns retained row positions and aligns weights deterministically. | HIGH |
+| GPU overall F-test edge cases | The early return mixed perfect-fit and intercept-only cases and returned an incorrect p-value. CuPy/Torch now return `(inf, 0.0)` for perfect non-constant fits and `(nan, nan)` when the overall test is undefined. | HIGH |
 
 Permanent regression coverage includes scikit-learn/statsmodels parity, rank-deficient
 PooledOLS inference, HAC row-order invariance, formula intercept behavior, invalid weight
 contracts, multi-output WLS broadcasting, Patsy missing-row alignment, pipeline failure
 propagation, exact-SHA worktree checks, and optional physical CuPy/Torch parity tests.
 
-## Required exact-head physical-GPU recheck
+## Exact-head physical-GPU acceptance — PASS
 
-Reset the GPU validation worktree to `ff72424071ec7ca52399146dbd8a556534c9e6c3`,
-confirm a clean worktree, and run:
+Command:
 
 ```bash
+STATGPU_REQUIRE_PHYSICAL_GPU=1 \
 python -m pytest dev/tests/test_pr79_final_review_fixes.py -q -rs --tb=short
 ```
 
-Acceptance criteria:
+Recorded result on clean SHA `786af9e2eb4742a56e5203b4380b03aec63a3ac8`:
 
-1. CuPy and Torch CUDA are both available and the two GPU-parametrized tests do not skip.
-2. Weighted fit/predict parity passes for both GPU backends.
-3. Formula + missing rows + original-length sample weights matches the CPU reference.
-4. The exact checked-out SHA and clean-worktree status are recorded with the result.
+```text
+17 passed in 7.28s
+```
 
-After this focused recheck passes, update this report with the run identifier and change the
-PR from Draft to Ready for review. Re-running performance and memory gates is optional
-because the post-validation repairs do not introduce new persistent GPU allocations or a
-new algorithmic complexity class; the focused correctness/device test is mandatory.
+Acceptance results:
+
+1. CuPy CUDA available and executed: PASS.
+2. Torch CUDA available and executed: PASS.
+3. No GPU parameterization skipped: PASS.
+4. Weighted fit/predict parity: PASS.
+5. Formula missing-row and sample-weight alignment: PASS.
+6. Perfect-fit overall F test `(inf, 0.0)` on CuPy and Torch: PASS.
+7. Intercept-only overall F test `(nan, nan)` on CuPy and Torch: PASS.
+8. Exact SHA and clean-worktree state recorded: PASS.
+
+The physical-GPU validation loop is closed. PR #79 may be marked Ready for review.
 
 ## Previously fixed production defects from the full GPU campaign
 

@@ -8,12 +8,20 @@ All notable changes to statgpu are documented here, organized by date and PR.
 
 - Completed GPU smoke, three-backend correctness, metamorphic, device-purity,
   memory-leak, performance, external-validation, and full CPU/GPU gates on Tesla P100.
-- Final result: 1100 passed, 0 failed, 124 skipped, and 1 version-limited strict XFAIL;
-  all 40 initially observed Gate B failures were eliminated or formally dispositioned.
-- Fixed panel device mismatches, CuPy 13.x array conversion, rank-deficient PooledOLS,
-  debiased-inference state retention, weighted GLM recursion, and Stepwise cloning.
-- Recorded synchronized CuPy/Torch performance baselines and follow-up issues #81/#82;
-  see `dev/reviews/pr79_physical_gpu_validation.md`.
+- Full campaign result on `2f18e5d`: 1100 passed, 0 failed, 124 skipped, and
+  1 version-limited strict XFAIL; all 40 initial Gate B failures were eliminated or
+  formally dispositioned.
+- Completed a subsequent review-fix cycle covering backend-native `LinearRegression`,
+  PooledOLS HAC ordering and effective rank, formula-weight alignment, validator integrity,
+  weighted CPU/CuPy/Torch fitting, and degenerate GPU F-statistic semantics.
+- Exact-head physical GPU acceptance on clean SHA
+  `786af9e2eb4742a56e5203b4380b03aec63a3ac8`: **17 passed, 0 failed, 0 skipped**
+  in 7.28 seconds, with CuPy and Torch CUDA tests both executed.
+- Degenerate F tests now agree across backends: perfect non-constant fit returns
+  `(inf, 0.0)`; intercept-only and otherwise undefined overall tests return `(nan, nan)`.
+- Standard GitHub Actions Tests run #483 also passed on the exact cleaned head.
+- Follow-up issues #81 and #82 remain non-blocking; see
+  `dev/reviews/pr79_physical_gpu_validation.md`.
 
 ## 2026-07-14
 

@@ -32,41 +32,42 @@ Debiased Lasso 拟合状态丢失、带权 GLM fused 递归以及 StepwiseSelect
 
 ### 修复（2026-07-21）— 验证后的 review-fix 循环
 
-完整 GPU 验证之后又执行了一轮 review → fix → test → re-review。清理后的代码
-head 为 `ff72424071ec7ca52399146dbd8a556534c9e6c3`。
+完整 GPU 验证后又完成了一轮 review → fix → test → re-review。最终 exact-head 验收
+代码为 `786af9e2eb4742a56e5203b4380b03aec63a3ac8`。
 
 新增修复包括：
 
-- `LinearRegression.fit` 与 `predict` 在后端解析前保留 CuPy/Torch 原生输入，
-  不再提前执行 NumPy 转换；
-- PooledOLS HAC 通过经过验证的 `time_index` 稳定排序，显式消除输入行顺序依赖；
+- `LinearRegression.fit` 与 `predict` 在后端解析前保留 CuPy/Torch 原生输入；
+- PooledOLS HAC 使用经过验证的 `time_index` 稳定排序；
 - PooledOLS 使用有效设计秩计算 residual degrees of freedom；
-- 远程验证器加入 shell `pipefail`、必须显式提供的精确 SHA、不可变 base worktree
-  以及 reset/clean 检查；
-- 将公式控制的截距语义与公开、clone 可见的 `fit_intercept` 构造参数分离；
-- 修正 CPU、CuPy、Torch 三条带权 `LinearRegression` 路径：截距列同步乘
-  `sqrt(weight)`，修复 multi-output 广播，统一权重验证，分别保留原始与带权残差，
-  并在奇异设计下使用稳定 least-squares fallback；
-- Patsy 删除缺失行后，按照保留的原始行位置对齐原始长度的 formula sample weights。
+- 远程验证器加入 shell `pipefail`、精确 SHA、不可变 base worktree 与 reset/clean 检查；
+- 将公式控制的截距语义与公开、clone 可见的 `fit_intercept` 参数分离；
+- 修正 CPU、CuPy、Torch 带权 `LinearRegression` 的截距加权、multi-output 广播、
+  权重验证、残差状态、奇异设计 fallback、diagnostics 与 weighted R-squared；
+- Patsy 删除缺失行后，按保留的原始行位置对齐 formula sample weights；
+- 统一 CuPy、Torch 与 CPU 的退化 overall F-test 语义。
 
-永久回归测试位于 `dev/tests/test_pr79_final_review_fixes.py`，覆盖
-scikit-learn/statsmodels 对齐、秩亏与 HAC 不变量、公式截距及缺失行语义、非法权重、
-multi-output WLS、orchestrator 精确 SHA、pipeline 失败传播，以及可选的真实
-CuPy/Torch parity。
+永久测试 `dev/tests/test_pr79_final_review_fixes.py` 覆盖外部库对齐、秩亏与 HAC
+不变量、公式语义、非法权重、multi-output WLS、精确 SHA 验证器、
+backend-to-NumPy 传输保护，以及真实 CuPy/Torch F-stat 边界情况。
 
-### 最新 head 的验证边界
+### 验证（2026-07-21）— exact-head 最终验收通过
 
-GitHub Actions Tests run #477 已在清理后的代码 head `ff72424` 上通过：
+在 Tesla P100 的 clean worktree 上，对精确 SHA
+`786af9e2eb4742a56e5203b4380b03aec63a3ac8` 执行最终验收：
 
-- Python 3.9、3.10、3.11、3.12 regression matrix；
-- static contracts、编译与完整测试收集；
-- 完整 CPU suite。
+- 设置 `STATGPU_REQUIRE_PHYSICAL_GPU=1`，强制 CuPy 与 Torch CUDA 测试实际执行；
+- `dev/tests/test_pr79_final_review_fixes.py` 结果为
+  **17 passed，0 failed，0 skipped，耗时 7.28 秒**；
+- CuPy 与 Torch weighted fit/predict parity 通过；
+- formula 缺失行与原始长度 sample weights 对齐通过；
+- perfect non-constant fit 的 overall F test 返回 `(inf, 0.0)`；
+- intercept-only 及其他未定义 overall F test 返回 `(nan, nan)`；
+- 已记录 exact SHA 与 clean-worktree 状态。
 
-验证后的修改涉及 CuPy/Torch 带权 `LinearRegression` 路径。因此，在 PR #79 从
-Draft 改为 Ready for review 之前，仍必须针对精确的最新代码 head 执行一次聚焦的
-真实 GPU 复验。先前 P100 完整验证仍是 `2f18e5d` 的有效证据，但不会被表述为后续
-代码的 exact-head 验证。所需命令与验收标准见
-`dev/reviews/pr79_physical_gpu_validation.md`。
+标准 GitHub Actions Tests run #483 同样通过，包括 Python 3.9–3.12 regression matrix、
+static contracts、编译、完整测试收集与 full CPU suite。因此 PR #79 已满足 Ready for
+review 与 squash merge 条件。
 
 ### 性能基线 — Tesla P100
 
