@@ -1,0 +1,7 @@
+Traceback (most recent call last):
+  File "/home/runner/work/statgpu/statgpu/dev/scripts/finalize_pr79_gpu_validation.py", line 162, in <module>
+    replace_between(
+  File "/home/runner/work/statgpu/statgpu/dev/scripts/finalize_pr79_gpu_validation.py", line 7, in replace_between
+    start_pos = text.index(start)
+                ^^^^^^^^^^^^^^^^^
+ValueError: substring not found
