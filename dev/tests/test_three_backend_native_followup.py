@@ -26,7 +26,7 @@ def test_graphical_lasso_torch_cpu_matches_numpy_and_preserves_backend():
     X = rng.normal(size=(80, 5))
     X[:, 1] += 0.4 * X[:, 0]
 
-    cpu = GraphicalLasso(alpha=0.08, max_iter=100, tol=1e-7).fit(X)
+    cpu = GraphicalLasso(alpha=0.08, max_iter=100, tol=1e-7, device="cpu").fit(X)
     tensor = torch.as_tensor(X, dtype=torch.float64)
     native = GraphicalLasso(alpha=0.08, max_iter=100, tol=1e-7).fit(tensor)
 
@@ -42,7 +42,7 @@ def test_graphical_lasso_cv_torch_cpu_matches_numpy_selection():
     rng = np.random.default_rng(7)
     X = rng.normal(size=(54, 4))
     kwargs = dict(alphas=[0.03, 0.08], cv=3, random_state=9, max_iter=60, tol=1e-6)
-    cpu = GraphicalLassoCV(**kwargs).fit(X)
+    cpu = GraphicalLassoCV(**kwargs, device="cpu").fit(X)
     native = GraphicalLassoCV(**kwargs).fit(torch.as_tensor(X, dtype=torch.float64))
     assert native.alpha_ == cpu.alpha_
     assert isinstance(native.covariance_, torch.Tensor)
@@ -55,7 +55,7 @@ def test_min_cov_det_torch_cpu_matches_numpy_and_keeps_support_on_backend():
     X = rng.normal(size=(70, 3))
     X[:4] += 8.0
     kwargs = dict(support_fraction=0.7, random_state=11)
-    cpu = MinCovDet(**kwargs).fit(X)
+    cpu = MinCovDet(**kwargs, device="cpu").fit(X)
     native = MinCovDet(**kwargs).fit(torch.as_tensor(X, dtype=torch.float64))
 
     assert isinstance(native.covariance_, torch.Tensor)
@@ -72,7 +72,7 @@ def test_spline_transformer_torch_cpu_matches_numpy_for_all_extrapolations(mode)
     train = np.linspace(0.0, 1.0, 40).reshape(-1, 1)
     points = np.array([[-0.4], [0.0], [0.25], [1.0], [1.3]])
     kwargs = dict(n_knots=6, degree=3, extrapolation=mode)
-    cpu = SplineTransformer(**kwargs).fit(train)
+    cpu = SplineTransformer(**kwargs, device="cpu").fit(train)
     expected = np.asarray(cpu.transform(points))
 
     native = SplineTransformer(**kwargs).fit(torch.as_tensor(train, dtype=torch.float64))
@@ -90,7 +90,7 @@ def test_fama_macbeth_torch_cpu_matches_numpy_and_predict_stays_native():
     X = rng.normal(size=(periods.size, 2))
     y = 0.7 + X @ np.array([1.2, -0.5]) + rng.normal(scale=0.2, size=periods.size)
     kwargs = dict(cov_type="newey-west", bandwidth=2, min_obs_per_period=8)
-    cpu = FamaMacBeth(**kwargs).fit(X, y, periods)
+    cpu = FamaMacBeth(**kwargs, device="cpu").fit(X, y, periods)
     native = FamaMacBeth(**kwargs).fit(
         torch.as_tensor(X, dtype=torch.float64),
         torch.as_tensor(y, dtype=torch.float64),
@@ -155,12 +155,12 @@ def test_optional_cupy_native_paths_match_numpy_when_cuda_is_available():
     X = rng.normal(size=(60, 3))
     X_gpu = cp.asarray(X)
 
-    gl_cpu = GraphicalLasso(alpha=0.05, tol=1e-7).fit(X)
+    gl_cpu = GraphicalLasso(alpha=0.05, tol=1e-7, device="cpu").fit(X)
     gl_gpu = GraphicalLasso(alpha=0.05, tol=1e-7).fit(X_gpu)
     assert isinstance(gl_gpu.covariance_, cp.ndarray)
     assert_allclose(cp.asnumpy(gl_gpu.covariance_), gl_cpu.covariance_, rtol=3e-6, atol=3e-7)
 
-    spline_cpu = SplineTransformer(n_knots=5, extrapolation="continue").fit(X[:, :1])
+    spline_cpu = SplineTransformer(n_knots=5, extrapolation="continue", device="cpu").fit(X[:, :1])
     spline_gpu = SplineTransformer(n_knots=5, extrapolation="continue").fit(X_gpu[:, :1])
     points = np.array([[-0.5], [0.25], [1.5]])
     out = spline_gpu.transform(cp.asarray(points))

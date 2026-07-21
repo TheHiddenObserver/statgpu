@@ -128,7 +128,7 @@ class TestKernelAndSplineTorchPaths:
 
         rng = np.random.default_rng(14)
         X = rng.normal(size=(35, 4))
-        expected = KernelPCA(n_components=3, alpha=0.1).fit_transform(X)
+        expected = KernelPCA(n_components=3, alpha=0.1, device="cpu").fit_transform(X)
         torch, backend_patch = _torch_backend_patch()
         with backend_patch:
             actual = KernelPCA(n_components=3, alpha=0.1).fit_transform(

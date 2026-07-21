@@ -619,6 +619,11 @@ def compute_panel_inference(model, X, resid, params, scale, n, k, xp, backend_na
         pvalues_dev = 2 * t_dist.sf(xp.abs(tvalues_dev))
         t_crit = t_dist.isf(alpha / 2)
 
+    # Ensure t_crit is on the same device as params (distribution may return CPU scalar).
+    # Use the device-aware asarray from backends to handle torch device correctly.
+    from statgpu.backends import xp_asarray
+    t_crit = xp_asarray(t_crit, dtype=params.dtype, xp=xp, ref_arr=params)
+
     conf_low = params - t_crit * bse_dev
     conf_high = params + t_crit * bse_dev
 
