@@ -1,0 +1,54 @@
+name: PR79 F-stat semantics fix
+
+on:
+  pull_request:
+    branches:
+      - master
+
+permissions:
+  contents: write
+
+jobs:
+  apply-fix:
+    if: github.event.pull_request.number == 79
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/code-review-fixes
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Apply F-stat semantics patch
+        run: python dev/scripts/apply_pr79_fstat_semantics.py
+
+      - name: Install validation dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[validation,formula]"
+
+      - name: Run focused CPU validation
+        run: |
+          python -m compileall -q \
+            statgpu/backends/_gpu_inference_cupy.py \
+            statgpu/backends/_gpu_inference_torch.py \
+            dev/tests/test_pr79_final_review_fixes.py
+          python -m pytest dev/tests/test_pr79_final_review_fixes.py -q -rs --tb=short
+
+      - name: Commit and push if changed
+        run: |
+          if git diff --quiet; then
+            echo "No changes to commit"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            statgpu/backends/_gpu_inference_cupy.py \
+            statgpu/backends/_gpu_inference_torch.py \
+            dev/tests/test_pr79_final_review_fixes.py
+          git commit -m "fix: align GPU F-stat degenerate semantics"
+          git push origin HEAD:agent/code-review-fixes
