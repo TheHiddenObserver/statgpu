@@ -36,3 +36,5 @@ jobs:
           git add CHANGELOG.md docs/en/changelog.md docs/cn/changelog.md dev/reviews/pr79_physical_gpu_validation.md
           git commit -m "docs: record PR79 exact-head GPU acceptance"
           git push origin HEAD:agent/code-review-fixes
+
+# Trigger final exact-head documentation sync.
