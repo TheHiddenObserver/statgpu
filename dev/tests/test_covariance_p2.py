@@ -21,13 +21,13 @@ class TestShrunkCovariance:
 
     def test_shrinkage_zero_equals_empirical(self):
         X = np.random.randn(50, 5)
-        sc = ShrunkCovariance(shrinkage=0.0).fit(X)
-        ec = EmpiricalCovariance().fit(X)
+        sc = ShrunkCovariance(shrinkage=0.0, device="cpu").fit(X)
+        ec = EmpiricalCovariance(device="cpu").fit(X)
         assert_allclose(sc.covariance_, ec.covariance_, rtol=1e-10)
 
     def test_shrinkage_one_equals_scaled_identity(self):
         X = np.random.randn(50, 5)
-        sc = ShrunkCovariance(shrinkage=1.0).fit(X)
+        sc = ShrunkCovariance(shrinkage=1.0, device="cpu").fit(X)
         # Should be mu * I
         mu = np.trace(np.cov(X, rowvar=False, bias=True)) / 5
         expected = mu * np.eye(5)
@@ -36,7 +36,7 @@ class TestShrunkCovariance:
     def test_vs_sklearn(self):
         from sklearn.covariance import ShrunkCovariance as SkShrunk
         X = np.random.randn(100, 5)
-        sg = ShrunkCovariance(shrinkage=0.3).fit(X)
+        sg = ShrunkCovariance(shrinkage=0.3, device="cpu").fit(X)
         sk = SkShrunk(shrinkage=0.3).fit(X)
         assert_allclose(sg.covariance_, sk.covariance_, rtol=1e-6)
 

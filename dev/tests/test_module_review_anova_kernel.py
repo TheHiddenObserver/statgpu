@@ -132,7 +132,7 @@ def test_kernel_ridge_multioutput_score_matches_sklearn_r2():
         X[:, 0] - 0.5 * X[:, 1] + rng.normal(scale=0.05, size=50),
         2 * X[:, 2] + rng.normal(scale=0.2, size=50),
     ])
-    model = KernelRidge(alpha=0.2, kernel="rbf", gamma=0.4).fit(X, y)
+    model = KernelRidge(alpha=0.2, kernel="rbf", gamma=0.4, device="cpu").fit(X, y)
     pred = np.asarray(model.predict(X))
     assert_allclose(model.score(X, y), r2_score(y, pred, multioutput="uniform_average"), rtol=1e-12)
 
@@ -161,7 +161,7 @@ def test_kernel_ridge_cv_validates_cv_and_reports_fold_r2():
 def test_kernel_pca_fit_transform_matches_training_transform():
     rng = np.random.RandomState(19)
     X = rng.normal(size=(35, 3))
-    model = KernelPCA(n_components=4, kernel="rbf", gamma=0.6, alpha=1.0)
+    model = KernelPCA(n_components=4, kernel="rbf", gamma=0.6, alpha=1.0, device="cpu")
     fit_transformed = np.asarray(model.fit_transform(X))
     transformed = np.asarray(model.transform(X))
     assert_allclose(fit_transformed, transformed, rtol=1e-10, atol=1e-10)
@@ -171,7 +171,7 @@ def test_nystroem_sigmoid_uses_stable_svd_normalization():
     rng = np.random.RandomState(23)
     X = rng.normal(size=(40, 5))
     transformed = np.asarray(
-        Nystroem(kernel="sigmoid", n_components=15, gamma=0.3, coef0=-0.4, random_state=1)
+        Nystroem(kernel="sigmoid", n_components=15, gamma=0.3, coef0=-0.4, random_state=1, device="cpu")
         .fit_transform(X)
     )
     assert np.all(np.isfinite(transformed))

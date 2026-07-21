@@ -18,7 +18,7 @@ from statgpu.panel._covariance import clustered_covariance, hac_covariance
 def test_empirical_precision_is_inverse_without_unnecessary_jitter():
     rng = np.random.RandomState(100)
     X = rng.normal(size=(120, 5)) @ np.diag([1.0, 1.3, 0.8, 2.0, 0.7])
-    model = EmpiricalCovariance().fit(X)
+    model = EmpiricalCovariance(device='cpu').fit(X)
     assert_allclose(
         np.asarray(model.covariance_) @ np.asarray(model.precision_),
         np.eye(5),
@@ -29,7 +29,7 @@ def test_empirical_precision_is_inverse_without_unnecessary_jitter():
 
 def test_empirical_covariance_validates_feature_count():
     rng = np.random.RandomState(101)
-    model = EmpiricalCovariance().fit(rng.normal(size=(30, 4)))
+    model = EmpiricalCovariance(device='cpu').fit(rng.normal(size=(30, 4)))
     with pytest.raises(ValueError, match="features"):
         model.score(rng.normal(size=(10, 3)))
     with pytest.raises(ValueError, match="features"):

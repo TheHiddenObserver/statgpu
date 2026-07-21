@@ -300,18 +300,18 @@ class TestFirstDifferenceOLSFormula:
 class TestFamaMacBethFormula:
 
     def test_formula_basic(self, panel_df, panel_arrays):
-        m_formula = FamaMacBeth()
+        m_formula = FamaMacBeth(device='cpu')
         m_formula.fit(formula="y ~ x1 + x2", data=panel_df,
                       time_ids=panel_arrays['time_ids'])
 
-        m_array = FamaMacBeth()
+        m_array = FamaMacBeth(device='cpu')
         m_array.fit(X=panel_arrays['X'], y=panel_arrays['y'],
                     time_ids=panel_arrays['time_ids'])
 
         assert_allclose(m_formula.coef_, m_array.coef_, rtol=1e-10)
 
     def test_formula_predict(self, panel_df):
-        m = FamaMacBeth()
+        m = FamaMacBeth(device='cpu')
         m.fit(formula="y ~ x1 + x2", data=panel_df,
               time_ids=panel_df['time'].values)
         y_pred = m.predict(panel_df)

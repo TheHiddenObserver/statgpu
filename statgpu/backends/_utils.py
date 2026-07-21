@@ -406,7 +406,7 @@ def xp_asarray(data, dtype=None, xp=None, ref_arr=None):
         torch = _require_torch()
         if not isinstance(dtype, torch.dtype):
             dtype = _np_dtype_to_torch(dtype)
-    if dev is not None:
+    if dev is not None and getattr(xp, '__name__', '') == 'torch':
         kwargs = {'device': dev}
         if dtype is not None:
             kwargs['dtype'] = dtype
