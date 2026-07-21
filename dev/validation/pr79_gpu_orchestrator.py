@@ -20,6 +20,7 @@ import argparse
 import datetime
 import json
 import os
+import shlex
 import sys
 import time
 import traceback
@@ -56,7 +57,7 @@ REMOTE_PATHS = {
 GIT_INFO = {
     "repo_url": "https://github.com/TheHiddenObserver/statgpu.git",
     "base_sha": "a4879fb4d9fb183efc01f147cd2cc501691f28c4",
-    "head_sha": "e30cec6768a734a0d61dfec44b6b4884adf9a880",
+    "head_sha": os.environ.get("STATGPU_PR79_HEAD_SHA"),
 }
 
 # Gate A test files (Section 8 of test plan)
@@ -172,7 +173,7 @@ class PR79GPUValidator:
         full_cmd = (
             f"{CONDA_ACTIVATE} && "
             f"{env_prefix}"
-            f"{cmd}"
+            f"bash -o pipefail -c {shlex.quote(cmd)}"
         )
         self._log(f"[REMOTE-RAW] {full_cmd[:200]}...", level="debug")
 
@@ -197,7 +198,7 @@ class PR79GPUValidator:
             f"{CONDA_ACTIVATE} && "
             f"cd {wt} && "
             f"{env_prefix}"
-            f"{cmd}"
+            f"bash -o pipefail -c {shlex.quote(cmd)}"
         )
         self._log(f"[REMOTE] {full_cmd[:200]}...", level="debug")
 
@@ -294,15 +295,17 @@ class PR79GPUValidator:
         self._log(f"Results downloaded to {self.local_results}")
 
     def upload_package(self):
-        """Upload the statgpu package and dev/ directory to remote worktrees.
+        """Upload local files to the head worktree only.
 
-        Uploads to BOTH base and head worktrees so both can run tests.
+        The base worktree must remain an immutable checkout of ``base_sha``.
+        Prefer validating pushed commits directly; this helper is retained only
+        for explicit local-development use.
         """
         project_root = Path(__file__).resolve().parent.parent.parent
         skip = {"__pycache__", ".pyc", ".git", ".venv", ".pytest_cache",
                 "results", "node_modules", "frontend", ".mypy_cache", "*.egg-info"}
 
-        for wt in ["base", "head"]:
+        for wt in ["head"]:
             remote_wt = REMOTE_PATHS[f"worktree_{wt}"]
             self._log(f"Uploading to worktree: {wt} ({remote_wt})")
 
@@ -354,6 +357,12 @@ class PR79GPUValidator:
         """
         self._log_section("Remote Environment Setup")
 
+        if not GIT_INFO["head_sha"]:
+            self._log(
+                "ERROR: pass --head-sha or set STATGPU_PR79_HEAD_SHA to an exact commit SHA"
+            )
+            return False
+
         # Step 1: Create directory structure
         self._log("Step 1/6: Creating directory structure...")
         dirs = [
@@ -371,13 +380,10 @@ class PR79GPUValidator:
             return False
         self._log(out.strip())
 
-        # Step 2: Use existing repo or clone
+        # Step 2: Use the dedicated validation repository only.
         self._log("Step 2/6: Setting up repository...")
         code, out, err = self.run_raw(
-            f"if [ -d /root/statgpu/.git ]; then "
-            f"  echo 'Using existing /root/statgpu as source repo'; "
-            f"  cd /root/statgpu && git fetch --all --prune 2>/dev/null || true; "
-            f"elif [ -d {REMOTE_PATHS['repo']}/.git ]; then "
+            f"if [ -d {REMOTE_PATHS['repo']}/.git ]; then "
             f"  cd {REMOTE_PATHS['repo']} && git fetch --all --prune && echo 'Repo exists, fetched'; "
             f"else "
             f"  git clone {GIT_INFO['repo_url']} {REMOTE_PATHS['repo']} && echo 'Repo cloned'; "
@@ -395,9 +401,14 @@ class PR79GPUValidator:
             wt_path = REMOTE_PATHS[f"worktree_{wt_name.replace('pr79-', '')}"]
             code, out, err = self.run_raw(
                 f"cd {source_repo} && "
-                f"(git worktree list 2>/dev/null | grep -q {wt_path} && "
-                f"  echo 'Worktree {wt_name} already exists' || "
-                f"  git worktree add --detach {wt_path} {sha} && echo 'Worktree {wt_name} created at {sha}')",
+                f"if git worktree list 2>/dev/null | grep -q {wt_path}; then "
+                f"  git -C {wt_path} reset --hard {sha} && "
+                f"  git -C {wt_path} clean -fdx && "
+                f"  echo 'Worktree {wt_name} reset to {sha}'; "
+                f"else "
+                f"  git worktree add --detach {wt_path} {sha} && "
+                f"  echo 'Worktree {wt_name} created at {sha}'; "
+                f"fi",
                 timeout=60
             )
             self._log(out.strip())
@@ -426,9 +437,15 @@ class PR79GPUValidator:
         # We don't actually clone; we use sys.path.insert in test scripts
         self._log("  Using myconda environment for both base and head")
 
-        # Step 6: Upload package
-        self._log("Step 6/6: Uploading statgpu package...")
-        self.upload_package()
+        # Step 6: Enforce immutable, clean exact-SHA worktrees.
+        self._log("Step 6/6: Verifying clean worktrees...")
+        for wt_key in ["base", "head"]:
+            code, out, err = self.run_remote(
+                "git status --porcelain", timeout=30, worktree=wt_key
+            )
+            if code != 0 or out.strip():
+                self._log(f"ERROR: {wt_key} worktree is dirty or unreadable: {out} {err}")
+                return False
 
         self._log("Setup complete!")
         return True
@@ -1341,8 +1358,8 @@ class PR79GPUValidator:
             "print('exit_decision.json written')\n"
         ).format(
             result_dir=self.result_dir,
-            base_sha="a4879fb4d9fb183efc01f147cd2cc501691f28c4",
-            head_sha="e30cec6768a734a0d61dfec44b6b4884adf9a880",
+            base_sha=GIT_INFO["base_sha"],
+            head_sha=GIT_INFO["head_sha"],
             run_id=self.run_id,
         )
         code, out, err = self.run_remote_script(script, timeout=30)
@@ -1435,8 +1452,14 @@ Examples:
     parser.add_argument("--host", type=str, help="Remote host (overrides config)")
     parser.add_argument("--port", type=int, help="Remote port (overrides config)")
     parser.add_argument("--user", type=str, help="Remote user (overrides config)")
+    parser.add_argument("--base-sha", type=str, help="Exact base commit SHA")
+    parser.add_argument("--head-sha", type=str, help="Exact head commit SHA")
 
     args = parser.parse_args()
+    if args.base_sha:
+        GIT_INFO["base_sha"] = args.base_sha
+    if args.head_sha:
+        GIT_INFO["head_sha"] = args.head_sha
 
     # Get password from env or config
     password = os.environ.get("STATGPU_REMOTE_PASSWORD", REMOTE_CONFIG["password"])

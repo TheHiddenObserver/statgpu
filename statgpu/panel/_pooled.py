@@ -17,17 +17,20 @@ from statgpu.panel._covariance import clustered_covariance, hac_covariance
 
 
 def _panel_lstsq(X, y, xp):
-    """Rank-revealing least squares for panel estimators.
-
-    Uses pinv (SVD-based) for torch and lstsq for numpy/cupy,
-    falling back to pinv when lstsq is unavailable or fails.
-    """
-    if getattr(xp, '__name__', '') == 'torch':
-        return xp.linalg.pinv(X) @ y
+    """Return least-squares coefficients and the effective design rank."""
+    if getattr(xp, "__name__", "") == "torch":
+        params = xp.linalg.pinv(X) @ y
+        rank = int(_to_float_scalar(xp.linalg.matrix_rank(X)))
+        return params, rank
     try:
-        return xp.linalg.lstsq(X, y, rcond=None)[0]
+        result = xp.linalg.lstsq(X, y, rcond=None)
+        params = result[0]
+        rank = int(_to_float_scalar(result[2]))
+        return params, rank
     except (TypeError, AttributeError, np.linalg.LinAlgError):
-        return xp.linalg.pinv(X) @ y
+        params = xp.linalg.pinv(X) @ y
+        rank = int(_to_float_scalar(xp.linalg.matrix_rank(X)))
+        return params, rank
 
 
 class PooledOLS(BaseEstimator):
@@ -100,7 +103,8 @@ class PooledOLS(BaseEstimator):
         cluster : array-like, shape (n,), optional
             Cluster labels (required when ``cov_type='clustered'``).
         time_index : array-like, shape (n,), optional
-            Time index for HAC estimation.  Data should be sorted by time.
+            Time index for HAC estimation. When supplied, observations are
+            stably sorted by this index before the Newey-West calculation.
         formula : str, optional
             R-style formula string (e.g. ``"y ~ x1 + x2"``).
         data : DataFrame, optional
@@ -128,6 +132,17 @@ class PooledOLS(BaseEstimator):
         validate_panel_alpha(self.alpha)
         validate_panel_numeric_data(X_arr, y_arr, xp)
 
+        # HAC depends on temporal ordering. Metadata may remain on CPU, but the
+        # numerical arrays are reordered on their selected backend.
+        if self.cov_type == "hac" and time_index is not None:
+            time_values = np.asarray(_to_numpy(time_index))
+            if time_values.ndim != 1 or time_values.shape[0] != X_arr.shape[0]:
+                raise ValueError("time_index must be one-dimensional with length n_samples")
+            order_np = np.argsort(time_values, kind="stable")
+            order = xp_asarray(order_np, dtype=xp.int64, xp=xp, ref_arr=X_arr)
+            X_arr = X_arr[order]
+            y_arr = y_arr[order]
+
         # Add intercept
         n = X_arr.shape[0]
         ones = xp.ones((n, 1), dtype=xp.float64)
@@ -137,17 +152,21 @@ class PooledOLS(BaseEstimator):
 
         n, k = X_arr.shape
 
-        # OLS: use rank-revealing solver for stability with near-singular designs
-        params = _panel_lstsq(X_arr, y_arr, xp)
-
-        if n <= k:
-            raise ValueError(f"positive residual degrees of freedom required; n={n}, k={k}")
+        # OLS: use a rank-revealing solver and rank-aware residual df.
+        params, rank = _panel_lstsq(X_arr, y_arr, xp)
+        df_resid = n - rank
+        if df_resid <= 0:
+            raise ValueError(
+                f"positive residual degrees of freedom required; n={n}, rank={rank}"
+            )
         resid = y_arr - X_arr @ params
-        scale = _to_float_scalar(xp.sum(resid * resid)) / (n - k)
+        scale = _to_float_scalar(xp.sum(resid * resid)) / df_resid
 
         # Inference
-        self._compute_inference(X_arr, resid, params, scale, n, k, xp, backend.name,
-                                cluster=cluster)
+        self._compute_inference(
+            X_arr, resid, params, scale, n, k, df_resid, xp, backend.name,
+            cluster=cluster,
+        )
 
         # R-squared
         y_mean = xp.mean(y_arr)
@@ -155,7 +174,8 @@ class PooledOLS(BaseEstimator):
         ss_res = _to_float_scalar(xp.sum(resid * resid))
         self.rsquared = 1.0 - ss_res / ss_tot if ss_tot > 0 else float("nan")
         self.nobs = n
-        self.df_resid = n - k
+        self.rank_ = rank
+        self.df_resid = df_resid
         self._fitted = True
 
         return self
@@ -213,7 +233,9 @@ class PooledOLS(BaseEstimator):
             feature_names=feature_names,
         )
 
-    def _compute_inference(self, X, resid, params, scale, n, k, xp, backend_name, cluster=None):
+    def _compute_inference(
+        self, X, resid, params, scale, n, k, df_resid, xp, backend_name, cluster=None
+    ):
         """Compute standard errors, t-stats, p-values, and CIs."""
         # X'X generalized inverse (pinv for stability with rank-deficient designs)
         XtX = X.T @ X / n
@@ -225,7 +247,7 @@ class PooledOLS(BaseEstimator):
             # HC1: (X'X)^{-1} X' diag(e^2) X (X'X)^{-1} * n/(n-k)
             scores = X * resid[:, None]
             meat = scores.T @ scores
-            cov_params = XtX_inv @ meat @ XtX_inv / (n * n) * n / (n - k)
+            cov_params = XtX_inv @ meat @ XtX_inv / (n * n) * n / df_resid
         elif self.cov_type == "clustered":
             if cluster is None:
                 raise ValueError("cluster is required for cov_type='clustered'")
@@ -240,7 +262,7 @@ class PooledOLS(BaseEstimator):
         # SE, t, p, CI
         bse_dev = xp.sqrt(xp.diag(cov_params))
         tvalues_dev = params / bse_dev
-        df = n - k
+        df = df_resid
 
         from statgpu.inference._distributions_backend import get_distribution
         dist_name = "norm" if self.cov_type in ("robust", "clustered", "hac") else "t"

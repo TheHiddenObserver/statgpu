@@ -338,29 +338,23 @@ class LinearRegression(BaseEstimator):
             self._feature_names = None
             self._design_info = None
             self._formula_has_intercept = None
-            # Handle CuPy/Torch inputs safely (CuPy 13+ forbids implicit asarray)
-            from statgpu.backends._utils import _to_numpy
-            try:
-                y_arr = np.asarray(y)
-            except TypeError:
-                y_arr = _to_numpy(y)
-            if y_arr.ndim == 2 and y_arr.shape[1] == 1:
-                y_arr = y_arr.ravel()
-            try:
-                X_arr = np.asarray(X)
-            except TypeError:
-                X_arr = _to_numpy(X)
+            # Preserve backend-native inputs. Conversion is performed only
+            # after the estimator backend has been resolved below.
+            X_arr = X
+            y_arr = y
 
         self.fit_intercept = _orig_fit_intercept
-        # Store y (may be CuPy/Torch array, convert later for CPU)
-        self._y = y_arr
 
-        # Get backend - support explicit torch backend selection
+        # Resolve the backend before converting raw arrays so CuPy/Torch inputs
+        # never make a GPU -> CPU -> GPU round trip.
         backend = self._get_backend(backend="auto")
         backend_name = backend.name
 
         X_arr = self._to_array(X_arr, backend=backend_name)
         y_arr = self._to_array(y_arr, backend=backend_name)
+        if y_arr.ndim == 2 and y_arr.shape[1] == 1:
+            y_arr = y_arr.reshape(-1)
+        self._y = y_arr
         self._is_multi_output = y_arr.ndim > 1 and y_arr.shape[1] > 1
 
         device = self._get_compute_device()
@@ -1086,9 +1080,11 @@ class LinearRegression(BaseEstimator):
                     intercept_idx = col_names.index("Intercept")
                     X = np.delete(X, intercept_idx, axis=1)
             else:
-                X = np.asarray(X)
+                # Preserve backend-native arrays; conversion happens below.
+                pass
         else:
-            X = np.asarray(X)
+            # Preserve backend-native arrays; conversion happens below.
+            pass
 
         device = self._get_compute_device()
         if device == Device.CUDA:
