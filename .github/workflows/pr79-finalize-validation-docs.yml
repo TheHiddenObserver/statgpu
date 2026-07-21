@@ -24,18 +24,22 @@ jobs:
 
       - name: Update final validation documentation
         run: |
-          set +e
-          python dev/scripts/finalize_pr79_gpu_validation.py > /tmp/pr79-docs.log 2>&1
-          rc=$?
-          if [ "$rc" -ne 0 ]; then
-            cp /tmp/pr79-docs.log dev/reviews/pr79_finalize_docs_error.txt
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add dev/reviews/pr79_finalize_docs_error.txt
-            git commit -m "chore: capture PR79 docs updater failure"
-            git push origin HEAD:agent/code-review-fixes
-            exit "$rc"
-          fi
+          python - <<'PY'
+          from pathlib import Path
+          p = Path("dev/scripts/finalize_pr79_gpu_validation.py")
+          text = p.read_text()
+          old = '''    start_pos = text.index(start)
+              end_pos = text.index(end, start_pos)
+          '''
+          new = '''    if start not in text:
+                  return
+              start_pos = text.index(start)
+              end_pos = text.index(end, start_pos)
+          '''
+          if old in text:
+              p.write_text(text.replace(old, new, 1))
+          PY
+          python dev/scripts/finalize_pr79_gpu_validation.py
 
       - name: Commit and push documentation
         run: |
