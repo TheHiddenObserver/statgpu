@@ -21,6 +21,7 @@ GPU-accelerated statistical methods with sklearn-compatible API.
 - **PyTorch Backend**: [PyTorch Backend](docs/en/guides/pytorch-backend.md)
 - **Distribution API**: [Distribution API](docs/en/guides/distribution-api.md) — 15 distributions across 3 backends
 - **Multiple Testing**: [Multiple Testing](docs/en/guides/multiple-testing-combine-pvalues.md) — p-value adjustment and combination
+- **PR #79 GPU validation**: [Final physical-GPU report](dev/reviews/pr79_physical_gpu_validation.md)
 - **Changelog**: [Changelog](docs/en/changelog.md)
 
 ## Features
@@ -61,11 +62,15 @@ GPU-accelerated statistical methods with sklearn-compatible API.
 ## Backend execution status
 
 `GraphicalLasso`/`GraphicalLassoCV`, `MinCovDet`, `SplineTransformer`, and
-`FamaMacBeth` now keep their main numerical computation on NumPy, CuPy, or Torch.
+`FamaMacBeth` keep their main numerical computation on NumPy, CuPy, or Torch.
 Tukey and Bonferroni keep group reductions on-device and synchronize only scalar
-statistics for distributions not implemented by CuPy/Torch. NumPy/Torch-CPU parity
-is covered by CI; physical CuPy CUDA and Torch CUDA convergence, memory, runtime,
-and repeated-fit validation is still tracked as `PARTIAL_REMOTE_PENDING`.
+statistics for distributions not implemented by CuPy/Torch.
+
+PR #79 completed physical CuPy CUDA and Torch CUDA validation on a Tesla P100:
+all mandatory gates passed, no audited full-design transfer was observed, no leak
+was found over 15 repeated cycles, and the complete CPU and GPU suites each reached
+1100 passed. See the [final validation report](dev/reviews/pr79_physical_gpu_validation.md)
+for environment details, performance baselines, and non-blocking follow-ups.
 
 ## Installation
 

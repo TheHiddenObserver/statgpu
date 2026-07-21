@@ -2,6 +2,19 @@
 
 All notable changes to statgpu are documented here, organized by date and PR.
 
+## 2026-07-21
+
+### PR #79 — Final physical GPU validation and correctness hardening
+
+- Completed GPU smoke, three-backend correctness, metamorphic, device-purity,
+  memory-leak, performance, external-validation, and full CPU/GPU gates on Tesla P100.
+- Final result: 1100 passed, 0 failed, 124 skipped, and 1 version-limited strict XFAIL;
+  all 40 initially observed Gate B failures were eliminated or formally dispositioned.
+- Fixed panel device mismatches, CuPy 13.x array conversion, rank-deficient PooledOLS,
+  debiased-inference state retention, weighted GLM recursion, and Stepwise cloning.
+- Recorded synchronized CuPy/Torch performance baselines and follow-up issues #81/#82;
+  see `dev/reviews/pr79_physical_gpu_validation.md`.
+
 ## 2026-07-14
 
 ### PR #79 — Third review/fix cycle
@@ -10,6 +23,8 @@ All notable changes to statgpu are documented here, organized by date and PR.
   thin-plate Torch failures, and full-design CPU fallbacks in panel array workflows.
 - Added shared finite-input validation for panel, covariance, unsupervised, KernelPCA,
   Nystroem, and thin-plate paths plus 21 focused regressions.
+- The physical-GPU work pending at this stage was completed on 2026-07-21; see the final
+  validation entry and `dev/reviews/pr79_physical_gpu_validation.md`.
 
 ## 2026-07-12
 
@@ -33,8 +48,8 @@ All notable changes to statgpu are documented here, organized by date and PR.
 - Kept Tukey/Bonferroni group reductions on-device; only scalar distribution
   CDF/quantile evaluations cross the CPU boundary.
 - Added NumPy/Torch parity and backend-preservation tests plus optional CuPy CUDA
-  checks. Physical CuPy/Torch CUDA memory, runtime, convergence, and repeated-fit
-  validation remains `PARTIAL_REMOTE_PENDING`.
+  checks. The physical CuPy/Torch CUDA validation planned at this stage was completed
+  on 2026-07-21.
 - Synchronized README, bilingual implemented-method lists, model pages, and all
   three changelogs with the corrected execution and validation boundaries.
 
@@ -53,9 +68,8 @@ All notable changes to statgpu are documented here, organized by date and PR.
   GAM, and binary-metric input contracts.
 - Added three focused regression suites and expanded the permanent Python 3.9–3.12,
   full-CPU, static-contract, compilation, and complete-collection gates.
-- Validation remains `PARTIAL_REMOTE_PENDING`: all hosted CPU/static gates pass, while
-  physical CuPy/Torch CUDA numerical, memory, type/device, and performance validation is
-  still required for affected GPU paths.
+- The physical CuPy/Torch CUDA numerical, memory, type/device, and performance validation
+  planned at this stage was completed on 2026-07-21.
 
 ### PR #79 — Ridge objective and weighted-path consistency follow-up
 
@@ -98,8 +112,8 @@ All notable changes to statgpu are documented here, organized by date and PR.
   compilation, static-contract, and complete test-collection CI gates.
 - Added `dev/reviews/pr79_full_repository_review.md` with accepted fixes, deferred
   architectural debt, and the physical-GPU validation plan.
-- Validation status: `PARTIAL_REMOTE_PENDING`; CPU and contract gates pass, while
-  physical CuPy/Torch CUDA numerical, memory, and performance validation remains required.
+- The physical CuPy/Torch CUDA numerical, memory, and performance validation required at
+  this stage was completed on 2026-07-21.
 
 ## 2026-07-08
 
