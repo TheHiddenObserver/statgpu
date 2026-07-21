@@ -22,8 +22,8 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Apply disambiguated third-round patches
-        run: python dev/scripts/apply_pr79_review_fixes_round3b.py
+      - name: Apply correctly bound third-round patches
+        run: python dev/scripts/apply_pr79_review_fixes_round3c.py
 
       - name: Install validation dependencies
         run: |
