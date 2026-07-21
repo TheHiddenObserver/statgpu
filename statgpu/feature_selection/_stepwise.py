@@ -64,22 +64,28 @@ class StepwiseSelector:
         verbose: bool = False,
         **model_kwargs,
     ):
+        # Public constructor parameters: preserve exactly for sklearn clone identity.
         self.model_class = model_class
-        self.criterion = str(criterion).lower()
-        self.direction = str(direction).lower()
+        self.criterion = criterion
+        self.direction = direction
         self.max_features = max_features
         self.n_jobs = n_jobs
-        self.verbose = bool(verbose)
-        self.model_kwargs = dict(model_kwargs)
+        self.verbose = verbose
+        self.model_kwargs = model_kwargs  # already a new dict from **kwargs
         self._validate_constructor_params()
         self._reset_fit_state()
 
     def _validate_constructor_params(self) -> None:
+        # Normalize public params into private versions for internal use.
+        self._criterion = str(self.criterion).lower()
+        self._direction = str(self.direction).lower()
+        self._verbose = bool(self.verbose)
+
         if not callable(self.model_class):
             raise TypeError("model_class must be an estimator class or callable")
-        if self.criterion not in self._VALID_CRITERIA:
+        if self._criterion not in self._VALID_CRITERIA:
             raise ValueError("criterion must be 'aic' or 'bic'")
-        if self.direction not in self._VALID_DIRECTIONS:
+        if self._direction not in self._VALID_DIRECTIONS:
             raise ValueError("direction must be 'forward', 'backward', or 'both'")
         if self.max_features is not None:
             if isinstance(self.max_features, bool) or not isinstance(
@@ -141,7 +147,7 @@ class StepwiseSelector:
                 f"max_features={feature_cap} exceeds n_features={n_features}"
             )
 
-        if self.direction == "backward":
+        if self._direction == "backward":
             selected = list(range(n_features))
         else:
             selected = []
@@ -158,10 +164,10 @@ class StepwiseSelector:
             # A backward search with a hard cap must remove features even if the
             # information criterion temporarily gets worse.
             mandatory_backward = (
-                self.direction == "backward" and len(selected) > feature_cap
+                self._direction == "backward" and len(selected) > feature_cap
             )
 
-            if not mandatory_backward and self.direction in ("forward", "both"):
+            if not mandatory_backward and self._direction in ("forward", "both"):
                 if len(selected) < feature_cap:
                     remaining = [j for j in range(n_features) if j not in selected]
                     proposals.extend(
@@ -169,7 +175,7 @@ class StepwiseSelector:
                         for feature in remaining
                     )
 
-            if self.direction in ("backward", "both") and selected:
+            if self._direction in ("backward", "both") and selected:
                 proposals.extend(
                     (
                         "remove",
@@ -186,7 +192,7 @@ class StepwiseSelector:
             finite = [
                 item
                 for item in evaluated
-                if np.isfinite(item[3][self.criterion])
+                if np.isfinite(item[3][self._criterion])
             ]
             if not finite:
                 break
@@ -194,14 +200,14 @@ class StepwiseSelector:
             action, feature, candidate_features, candidate_score = min(
                 finite,
                 key=lambda item: (
-                    item[3][self.criterion],
+                    item[3][self._criterion],
                     0 if item[0] == "remove" else 1,
                     item[1],
                 ),
             )
 
-            current = float(best_score[self.criterion])
-            candidate = float(candidate_score[self.criterion])
+            current = float(best_score[self._criterion])
+            candidate = float(candidate_score[self._criterion])
             tolerance = 1e-12 * max(1.0, abs(current))
             improves = candidate < current - tolerance
             if not (mandatory_backward or improves):
@@ -210,10 +216,10 @@ class StepwiseSelector:
             selected = list(candidate_features)
             best_score = candidate_score
             self._record_state(selected, best_score, action=action, feature=feature)
-            if self.verbose:
+            if self._verbose:
                 print(
                     f"Step {iteration}: {action} feature {feature}, "
-                    f"{self.criterion.upper()}={candidate:.6g}"
+                    f"{self._criterion.upper()}={candidate:.6g}"
                 )
 
         # Fit in exactly the same deterministic order stored for prediction.
@@ -270,13 +276,13 @@ class StepwiseSelector:
         try:
             model.fit(X[:, feature_indices], y)
         except (np.linalg.LinAlgError, FloatingPointError) as exc:
-            if self.verbose:
+            if self._verbose:
                 print(f"Candidate {feature_indices} failed numerically: {exc}")
             return {"aic": float("inf"), "bic": float("inf")}
         except RuntimeError as exc:
             message = str(exc).lower()
             if any(token in message for token in ("converg", "singular", "positive definite")):
-                if self.verbose:
+                if self._verbose:
                     print(f"Candidate {feature_indices} failed numerically: {exc}")
                 return {"aic": float("inf"), "bic": float("inf")}
             raise
@@ -328,8 +334,8 @@ class StepwiseSelector:
         print("=" * 60)
         print("Stepwise Model Selection Summary")
         print("=" * 60)
-        print(f"Criterion: {self.criterion.upper()}")
-        print(f"Direction: {self.direction}")
+        print(f"Criterion: {self._criterion.upper()}")
+        print(f"Direction: {self._direction}")
         print(f"Selected features: {self.selected_features_}")
         print(f"Number of features: {len(self.selected_features_)}")
         print(f"Final AIC: {self.aic_history_[-1]:.6g}")
@@ -370,9 +376,6 @@ class StepwiseSelector:
                 setattr(self, name, value)
             else:
                 self.model_kwargs[name] = value
-        self.criterion = str(self.criterion).lower()
-        self.direction = str(self.direction).lower()
-        self.verbose = bool(self.verbose)
         self._validate_constructor_params()
         return self
 
