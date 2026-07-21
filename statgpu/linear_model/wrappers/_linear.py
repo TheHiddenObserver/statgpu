@@ -88,6 +88,7 @@ class LinearRegression(BaseEstimator):
         self._feature_names = None
         self._design_info = None
         self._formula_has_intercept = None
+        self._effective_fit_intercept = bool(fit_intercept)
 
     def _clear_inference_result(self):
         self._bse = None
@@ -307,8 +308,9 @@ class LinearRegression(BaseEstimator):
         """
         self._clear_inference_result()
 
-        # Handle formula interface
-        _orig_fit_intercept = self.fit_intercept
+        # Formula syntax controls the fitted design without mutating the
+        # public constructor parameter required by sklearn-style cloning.
+        effective_fit_intercept = bool(self.fit_intercept)
         if formula is not None:
             if data is None:
                 raise ValueError(
@@ -326,10 +328,10 @@ class LinearRegression(BaseEstimator):
                 intercept_idx = formula_column_names.index("Intercept")
                 # Drop the intercept column — let the fitting methods handle it
                 X_arr = np.delete(X_arr, intercept_idx, axis=1)
-                self.fit_intercept = True
+                effective_fit_intercept = True
             else:
                 # Formula syntax owns intercept semantics, matching statsmodels/R.
-                self.fit_intercept = False
+                effective_fit_intercept = False
         else:
             if X is None or y is None:
                 raise ValueError(
@@ -343,7 +345,7 @@ class LinearRegression(BaseEstimator):
             X_arr = X
             y_arr = y
 
-        self.fit_intercept = _orig_fit_intercept
+        self._effective_fit_intercept = effective_fit_intercept
 
         # Resolve the backend before converting raw arrays so CuPy/Torch inputs
         # never make a GPU -> CPU -> GPU round trip.
@@ -402,7 +404,7 @@ class LinearRegression(BaseEstimator):
             X = X * sqrt_sw[:, np.newaxis]
             y = y * sqrt_sw
         
-        if self.fit_intercept:
+        if self._effective_fit_intercept:
             self._X_design = np.column_stack([np.ones(n_samples, dtype=X.dtype), X])
         else:
             self._X_design = X.copy()
@@ -412,7 +414,7 @@ class LinearRegression(BaseEstimator):
 
         coef, _, _, _ = np.linalg.lstsq(self._X_design, y, rcond=None)
 
-        if self.fit_intercept:
+        if self._effective_fit_intercept:
             if coef.shape[1] > 1:
                 self.intercept_ = coef[0, :].copy()
                 self.coef_ = coef[1:, :].T
@@ -436,7 +438,7 @@ class LinearRegression(BaseEstimator):
         self._resid = y - y_pred
         if self._resid.shape[1] == 1:
             self._resid = self._resid[:, 0]
-        self._df_resid = n_samples - (n_features + (1 if self.fit_intercept else 0))
+        self._df_resid = n_samples - (n_features + (1 if self._effective_fit_intercept else 0))
         
         if self._df_resid > 0:
             if np.asarray(self._resid).ndim == 1:
@@ -470,7 +472,7 @@ class LinearRegression(BaseEstimator):
             X = X * sqrt_sw[:, cp.newaxis]
             y = y * sqrt_sw
         
-        if self.fit_intercept:
+        if self._effective_fit_intercept:
             X_design = cp.column_stack([cp.ones(n_samples, dtype=X.dtype), X])
         else:
             X_design = X
@@ -495,7 +497,7 @@ class LinearRegression(BaseEstimator):
         resid = y - y_pred
         
         # Compute scale on GPU
-        df_resid = n_samples - (n_features + (1 if self.fit_intercept else 0))
+        df_resid = n_samples - (n_features + (1 if self._effective_fit_intercept else 0))
         if df_resid > 0:
             if y.shape[1] > 1:
                 scale = cp.sum(resid ** 2, axis=0) / df_resid
@@ -533,7 +535,7 @@ class LinearRegression(BaseEstimator):
             self._rsquared_gpu = compute_r2_gpu(y, resid)
 
             # AIC/BIC on GPU
-            k = n_features + (1 if self.fit_intercept else 0)
+            k = n_features + (1 if self._effective_fit_intercept else 0)
             scale_mle = cp.sum(resid ** 2) / n_samples
             self._aic_gpu, self._bic_gpu = compute_aic_bic_gpu(n_samples, k, scale_mle)
 
@@ -557,7 +559,7 @@ class LinearRegression(BaseEstimator):
             self._conf_int = self._conf_int_gpu.get()
         
         # Store results
-        if self.fit_intercept:
+        if self._effective_fit_intercept:
             if coef_np.shape[1] > 1:
                 self.intercept_ = coef_np[0, :].copy()
                 self.coef_ = coef_np[1:, :].T
@@ -704,7 +706,7 @@ class LinearRegression(BaseEstimator):
             X = X * sqrt_sw[:, None]
             y = y * sqrt_sw
 
-        if self.fit_intercept:
+        if self._effective_fit_intercept:
             X_design = torch.cat([torch.ones(n_samples, 1, dtype=X.dtype, device=torch_device), X], dim=1)
         else:
             X_design = X.clone()
@@ -731,7 +733,7 @@ class LinearRegression(BaseEstimator):
         resid = y - y_pred
 
         # Compute scale on Torch
-        df_resid = n_samples - (n_features + (1 if self.fit_intercept else 0))
+        df_resid = n_samples - (n_features + (1 if self._effective_fit_intercept else 0))
         if df_resid > 0:
             if y.shape[1] > 1:
                 scale = torch.sum(resid ** 2, dim=0) / df_resid
@@ -769,7 +771,7 @@ class LinearRegression(BaseEstimator):
             self._rsquared_gpu = compute_r2_torch(y, resid)
 
             # AIC/BIC on Torch
-            k = n_features + (1 if self.fit_intercept else 0)
+            k = n_features + (1 if self._effective_fit_intercept else 0)
             scale_mle = torch.sum(resid ** 2) / n_samples
             self._aic_gpu, self._bic_gpu = compute_aic_bic_torch(n_samples, k, scale_mle, device=torch_device)
 
@@ -794,7 +796,7 @@ class LinearRegression(BaseEstimator):
             self._conf_int = self._conf_int_gpu.detach().cpu().numpy()
 
         # Store results
-        if self.fit_intercept:
+        if self._effective_fit_intercept:
             if coef_np.shape[1] > 1:
                 self.intercept_ = coef_np[0, :].copy()
                 self.coef_ = coef_np[1:, :].T
@@ -866,13 +868,13 @@ class LinearRegression(BaseEstimator):
     def _inference_feature_names(self):
         if self._feature_names is not None:
             names = list(self._feature_names)
-            if self.fit_intercept:
+            if self._effective_fit_intercept:
                 names.insert(0, "(Intercept)")
             return names
         if self.coef_ is None:
             return None
         n_features = int(np.asarray(self.coef_).shape[-1])
-        if self.fit_intercept:
+        if self._effective_fit_intercept:
             return ["(Intercept)"] + [f"x{i+1}" for i in range(n_features)]
         return [f"x{i+1}" for i in range(n_features)]
 
@@ -926,7 +928,7 @@ class LinearRegression(BaseEstimator):
         """
         if self._y is None or self._resid is None:
             return None
-        k = int(self._X_design.shape[1] - (1 if self.fit_intercept else 0))
+        k = int(self._X_design.shape[1] - (1 if self._effective_fit_intercept else 0))
         if k <= 0 or self._df_resid is None or self._df_resid <= 0:
             return np.nan
         y = np.asarray(self._y, dtype=float)
@@ -951,7 +953,7 @@ class LinearRegression(BaseEstimator):
             return np.nan
         if np.isposinf(fv):
             return 0.0
-        k = int(self._X_design.shape[1] - (1 if self.fit_intercept else 0))
+        k = int(self._X_design.shape[1] - (1 if self._effective_fit_intercept else 0))
         return float(stats.f.sf(fv, k, self._df_resid))
     
     @property
@@ -1016,9 +1018,9 @@ class LinearRegression(BaseEstimator):
         # Build feature names
         if self._feature_names is not None:
             feature_names = list(self._feature_names)
-            if self.fit_intercept:
+            if self._effective_fit_intercept:
                 feature_names.insert(0, '(Intercept)')
-        elif self.fit_intercept:
+        elif self._effective_fit_intercept:
             feature_names = ['(Intercept)'] + [f'x{i+1}' for i in range(len(self.coef_))]
         else:
             feature_names = [f'x{i+1}' for i in range(len(self.coef_))]

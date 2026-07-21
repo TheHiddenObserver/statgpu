@@ -2,8 +2,10 @@
 
 from pathlib import Path
 import inspect
+import subprocess
 
 import numpy as np
+import pandas as pd
 import pytest
 from numpy.testing import assert_allclose
 
@@ -46,15 +48,21 @@ def test_pooled_hac_time_index_validates_shape():
 
 
 def test_pooled_rank_deficiency_uses_effective_rank_for_df():
-    x = np.arange(20.0)
+    import statsmodels.api as sm
+
+    rng = np.random.default_rng(79)
+    x = np.arange(40.0)
     X = np.column_stack([x, 2.0 * x])
-    y = 1.0 + 3.0 * x
+    y = 1.0 + 3.0 * x + rng.normal(scale=0.25, size=x.shape[0])
     model = PooledOLS().fit(X, y)
     design = np.column_stack([np.ones(X.shape[0]), X])
+    reference = sm.OLS(y, design).fit()
     expected_rank = int(np.linalg.matrix_rank(design))
+
     assert model.rank_ == expected_rank
     assert model.df_resid == X.shape[0] - expected_rank
-    assert np.all(np.isfinite(model.bse_))
+    assert model.df_resid == int(reference.df_resid)
+    assert_allclose(model.bse_, reference.bse, rtol=1e-8, atol=1e-10)
 
 
 def test_orchestrator_enforces_exact_clean_worktrees_and_pipefail():
@@ -66,6 +74,34 @@ def test_orchestrator_enforces_exact_clean_worktrees_and_pipefail():
     assert 'git status --porcelain' in text
     assert 'STATGPU_PR79_HEAD_SHA' in text
     assert 'reset --hard {sha}' in text
+
+
+def test_linear_formula_intercept_semantics_do_not_mutate_public_parameter():
+    x = np.linspace(-2.0, 2.0, 60)
+    frame = pd.DataFrame({"x": x, "y": 1.75 + 2.5 * x})
+
+    with_intercept = LinearRegression(fit_intercept=False).fit(
+        formula="y ~ x", data=frame
+    )
+    assert with_intercept.fit_intercept is False
+    assert np.isclose(with_intercept.intercept_, 1.75, atol=1e-10)
+    assert_allclose(with_intercept.coef_, [2.5], atol=1e-10)
+
+    without_intercept = LinearRegression(fit_intercept=True).fit(
+        formula="y ~ x - 1", data=frame
+    )
+    assert without_intercept.fit_intercept is True
+    assert without_intercept.intercept_ == 0.0
+    expected = np.linalg.lstsq(x[:, None], frame["y"].to_numpy(), rcond=None)[0]
+    assert_allclose(without_intercept.coef_, expected, atol=1e-10)
+
+
+def test_pipefail_propagates_the_failing_pytest_side_of_a_pipeline():
+    result = subprocess.run(
+        ["bash", "-o", "pipefail", "-c", "false | tee /dev/null"],
+        check=False,
+    )
+    assert result.returncode != 0
 
 
 @pytest.mark.parametrize("backend", ["cupy", "torch"])
