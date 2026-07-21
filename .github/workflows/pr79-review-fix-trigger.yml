@@ -22,19 +22,8 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Extract and apply stored patch script
-        run: |
-          python - <<'PY'
-          from pathlib import Path
-
-          text = Path('.github/workflows/pr79-review-fix-once.yml').read_text()
-          marker = "          python - <<'PY'\n"
-          start = text.index(marker) + len(marker)
-          end = text.index("\n          PY\n", start)
-          lines = text[start:end].splitlines()
-          script = "\n".join(line[10:] if line.startswith("          ") else line for line in lines)
-          exec(compile(script, '<pr79-review-fix>', 'exec'))
-          PY
+      - name: Apply asserted review patches
+        run: python dev/scripts/apply_pr79_review_fixes.py
 
       - name: Install validation dependencies
         run: |
