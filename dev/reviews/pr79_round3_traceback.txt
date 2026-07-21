@@ -7,8 +7,8 @@ Traceback (most recent call last):
     namespace["main"]()
   File "dev/scripts/apply_pr79_review_fixes_round3.py", line 493, in main
     patch_linear_weighted_fit()
-  File "dev/scripts/apply_pr79_review_fixes_round3.py", line 202, in patch_linear_weighted_fit
+  File "dev/scripts/apply_pr79_review_fixes_round3.py", line 20, in patch_linear_weighted_fit
     replace_once(
   File "dev/scripts/apply_pr79_review_fixes_round3.py", line 12, in replace_once
     raise RuntimeError(
-RuntimeError: statgpu/linear_model/wrappers/_linear.py: expected one match, found 2: '        if resid_np.shape[1] == 1:\n            self._resid = resid_np[:, 0]\n        else:\n            self._resid = resi'
+RuntimeError: statgpu/linear_model/wrappers/_linear.py: expected one match, found 0: '        self._effective_fit_intercept = bool(fit_intercept)\n\n    def _clear_inference_result(self):\n'
