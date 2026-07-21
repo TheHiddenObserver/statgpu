@@ -7,58 +7,73 @@
 
 ## 2026-07
 
-### Fixed (2026-07-21) — PR #79 final physical-GPU correctness pass
+### Fixed (2026-07-21) — PR #79 physical-GPU validation
 
-- **Panel inference and rank-deficient PooledOLS**:
-  - Root cause: CPU distribution critical values were combined directly with CuPy/Torch
-    arrays, categorical cluster labels were sent to numerical GPU constructors, and
-    rank-deficient designs depended on unstable direct solves.
-  - Impact: clustered inference could fail with device or object-dtype errors, while
-    singular pooled designs could produce unstable coefficients and covariance results.
-  - Fix: convert critical values with backend-aware helpers, factorize labels as CPU
-    metadata before copying integer codes, and use a stable least-squares/pseudoinverse
-    path where rank deficiency requires it.
-  - Files: `statgpu/panel/_utils.py`, `statgpu/panel/_pooled.py`.
+The complete Tesla P100 campaign passed on code head
+`2f18e5dec9195da1a12e5eea89ee2d832557b3ad`.
 
-- **Cross-backend array construction and CuPy 13.x compatibility**:
-  - Root cause: Torch-only `device=` arguments were forwarded to NumPy/CuPy `asarray`,
-    and linear wrappers attempted implicit `np.asarray(cupy_array)` conversion.
-  - Impact: valid explicit-CUDA inputs failed before model computation.
-  - Fix: pass `device=` only on Torch paths, guard Nystroem construction by backend,
-    and use explicit backend-to-NumPy conversion only at documented output boundaries.
-  - Files: `statgpu/backends/_utils.py`,
-    `statgpu/nonparametric/kernel_methods/_nystroem.py`,
-    `statgpu/linear_model/wrappers/_linear.py`.
+- Gate A: 160 passed, 0 failed, 2 expected skips.
+- Gate B: 1100 passed, 0 failed, 124 skipped, 1 strict XFAIL.
+- Gate C: 10/10 metamorphic checks passed.
+- Gate D: no audited full-design GPU-to-CPU transfer.
+- Gate E: no leak over 15 repeated CuPy and Torch cycles.
+- Gate F: synchronized Tesla P100 baselines recorded at three scales.
+- Gate G: Ridge/scikit-learn and linear-regression/statsmodels parity passed.
+- Final complete suites: CPU 1100 passed; GPU 1100 passed.
 
-- **Debiased-Lasso post-fit diagnostics**:
-  - Root cause: inference cleanup cleared `_resid`, `_X_design`, and `_y` although
-    `rsquared`, AIC, BIC, and related diagnostics still require them.
-  - Impact: a successful inference fit could leave the estimator unable to provide
-    documented diagnostics.
-  - Fix: preserve fitted inference state on NumPy, CuPy, and Torch paths.
-  - File: `statgpu/linear_model/penalized/_inference_mixin.py`.
+Gate B improved from **1036 passed / 40 failed / 159 skipped** to
+**1100 passed / 0 failed / 124 skipped / 1 strict XFAIL**. The version-limited clone
+XFAIL reproduces on base SHA `a4879fb` and is tracked in issue #82.
 
-- **Weighted GLM fused loss/gradient recursion**:
-  - Root cause: `_weighted_loss_and_grad()` called `loss.fused_value_and_gradient()` with
-    weights, which dispatched back into `_weighted_loss_and_grad()`.
-  - Impact: weighted smooth-penalty logistic fits could end in `RecursionError` after
-    FISTA-BB correctly redirected to FISTA.
-  - Fix: compute the weighted per-sample loss and score directly, keeping reductions on
-    the selected backend.
-  - File: `statgpu/glm_core/_fused.py`.
+Production fixes from that campaign included panel device mismatches, categorical cluster
+factorization, rank-deficient PooledOLS, Torch-only `device=` leakage, CuPy 13.x and
+Nystroem construction, debiased-Lasso fitted-state retention, weighted GLM fused recursion,
+and StepwiseSelector legacy clone behavior.
 
-- **StepwiseSelector legacy sklearn clone behavior**:
-  - Root cause: the constructor replaced public parameters with normalized or copied
-    objects, violating the identity check used by scikit-learn <=1.2.
-  - Impact: `sklearn.base.clone()` failed for StepwiseSelector.
-  - Fix: preserve public constructor parameters and keep normalized runtime state private.
-  - File: `statgpu/feature_selection/_stepwise.py`.
+### Fixed (2026-07-21) — post-validation review-fix loop
 
-### Optimized (2026-07-21) — synchronized Tesla P100 baseline
+A further review → fix → test → re-review cycle was completed after the full GPU campaign.
+The cleaned code head is `ff72424071ec7ca52399146dbd8a556534c9e6c3`.
 
-Physical-GPU timings were measured after correctness passed, with warmup and backend
-synchronization. These are environment-specific regression baselines, not portable
-performance guarantees.
+Additional repairs:
+
+- preserved backend-native `LinearRegression.fit` and `predict` inputs until backend
+  resolution instead of performing eager NumPy conversion;
+- made PooledOLS HAC ordering explicit through validated, stable `time_index` sorting;
+- used effective design rank for PooledOLS residual degrees of freedom;
+- hardened the remote validator with shell `pipefail`, exact required SHAs, immutable base
+  worktrees, and reset/clean verification;
+- separated formula-controlled intercept semantics from the public clone-visible
+  `fit_intercept` constructor parameter;
+- corrected weighted `LinearRegression` on CPU, CuPy, and Torch by weighting the intercept
+  column, fixing multi-output broadcasting, validating weights, retaining raw and weighted
+  residual states, and using stable least-squares fallback paths;
+- aligned original-length formula sample weights after Patsy removes missing rows.
+
+Permanent tests were added in `dev/tests/test_pr79_final_review_fixes.py`, including
+scikit-learn/statsmodels parity, rank-deficient and HAC invariants, formula intercept and
+missing-row behavior, invalid weight contracts, multi-output WLS, orchestrator exact-SHA
+checks, pipeline failure propagation, and optional physical CuPy/Torch parity.
+
+### Validation boundary for the latest head
+
+GitHub Actions Tests run #477 passed on cleaned code head `ff72424`:
+
+- Python 3.9, 3.10, 3.11, and 3.12 regression matrices;
+- static contracts, compilation, and complete test collection;
+- the complete CPU suite.
+
+The post-validation changes touch weighted CuPy/Torch `LinearRegression` paths. Therefore,
+one focused physical-GPU recheck on the exact cleaned code head is still required before
+PR #79 is changed from Draft to Ready for review. The prior full P100 campaign remains
+valid evidence for `2f18e5d`, but is not presented as exact-head evidence for later code.
+See `dev/reviews/pr79_physical_gpu_validation.md` for the required command and acceptance
+criteria.
+
+### Performance baseline — Tesla P100
+
+These measurements were recorded on the physically validated head and are
+hardware/environment-specific regression baselines, not portable guarantees.
 
 | Shape | CuPy median | Torch median |
 |---:|---:|---:|
@@ -67,50 +82,15 @@ performance guarantees.
 | 10000 x 50 | 4.3 ms | 5.1 ms |
 
 Environment: Tesla P100-SXM2-16GB, Python 3.9, CuPy 13.6.0,
-PyTorch 2.0.0+cu117. Audit report:
-`dev/reviews/pr79_physical_gpu_validation.md`.
-
-### Improved (2026-07-21) — validation and release evidence
-
-- Added a reproducible physical-GPU validation plan, remote orchestrator, shared GPU
-  fixtures, result aggregation, device-transfer audit, memory checks, performance
-  measurements, and external-reference comparisons.
-- Added `dev/tests/test_pr79_physical_gpu.py` and supporting scripts under
-  `dev/validation/`.
-- Added the final review artifact at
-  `dev/reviews/pr79_physical_gpu_validation.md` and bilingual user-facing summaries at
-  `docs/en/releases/pr79-final-validation.md` and
-  `docs/cn/releases/pr79-final-validation.md`.
-
-### Validation (2026-07-21) — all gates passed
-
-| Gate | Scope | Result |
-|---|---|---|
-| A | GPU smoke | 160 passed, 0 failed, 2 expected skips |
-| B | NumPy/CuPy/Torch correctness | 1100 passed, 0 failed, 124 skipped, 1 strict XFAIL |
-| C | Metamorphic properties | 10/10 passed; one known finite-input finding |
-| D | Device purity | Zero full-design transfers; three model families audited |
-| E | Memory | Zero leaks over 15 repeated CuPy and Torch cycles |
-| F | Performance | Three synchronized scales recorded on both GPU backends |
-| G | External references | Ridge versus scikit-learn; linear regression versus statsmodels |
-| Final | Complete suites | CPU 1100 passed; GPU 1100 passed |
-
-Gate B improved from **1036 passed / 40 failed / 159 skipped** to
-**1100 passed / 0 failed / 124 skipped / 1 strict XFAIL**. The clone XFAIL under
-scikit-learn <=1.2 reproduces for the same 26 estimators on base SHA `a4879fb`, so it
-is not introduced by PR #79.
+PyTorch 2.0.0+cu117.
 
 ### Known non-blocking follow-ups
 
 - [Issue #81](https://github.com/TheHiddenObserver/statgpu/issues/81): complete the
-  shared backend-native NaN/Inf validation contract. Ridge currently has one path that
-  does not reject non-finite input before a CUDA kernel.
-- [Issue #82](https://github.com/TheHiddenObserver/statgpu/issues/82): refactor public
-  estimator constructors to satisfy the scikit-learn <=1.2 clone identity contract.
-- The Torch Cox Hessian still materializes an `O(n*p*p)` intermediate and remains a
-  separate performance optimization item.
-
-None of these findings blocks the finite-input paths validated in PR #79.
+  shared backend-native NaN/Inf validation contract.
+- [Issue #82](https://github.com/TheHiddenObserver/statgpu/issues/82): coordinated public
+  constructor refactor for scikit-learn <=1.2 clone identity.
+- Torch Cox Hessian `O(n*p*p)` intermediate allocation remains a separate performance item.
 
 ## Historical entries
 

@@ -7,53 +7,71 @@
 
 ## 2026-07
 
-### 修复（2026-07-21）— PR #79 最终真实 GPU 正确性审查
+### 修复（2026-07-21）— PR #79 真实 GPU 完整验证
 
-- **面板推断与秩亏 PooledOLS**：
-  - 根因：CPU 分布临界值直接参与 CuPy/Torch 数组运算，字符串 cluster 标签被送入
-    数值 GPU 构造函数，秩亏设计仍依赖不稳定的直接求解。
-  - 影响：clustered inference 可能因 device 或 object dtype 报错，奇异设计的系数与
-    协方差也可能不稳定。
-  - 修复：使用后端感知 helper 转换临界值；在 CPU 将标签 factorize 为元数据后，仅将
-    整数编码复制到设备；秩亏时使用稳定的 least-squares/pseudoinverse 路径。
-  - 文件：`statgpu/panel/_utils.py`、`statgpu/panel/_pooled.py`。
+Tesla P100 完整验证已在代码 head
+`2f18e5dec9195da1a12e5eea89ee2d832557b3ad` 上通过。
 
-- **跨后端数组构造与 CuPy 13.x 兼容**：
-  - 根因：将 Torch 专用的 `device=` 参数传给 NumPy/CuPy `asarray`，线性模型 wrapper
-    还尝试隐式执行 `np.asarray(cupy_array)`。
-  - 影响：合法的显式 CUDA 输入在模型计算前即失败。
-  - 修复：只在 Torch 路径传递 `device=`；按后端保护 Nystroem 数组构造；仅在公开
-    输出边界执行显式 backend-to-NumPy 转换。
-  - 文件：`statgpu/backends/_utils.py`、
-    `statgpu/nonparametric/kernel_methods/_nystroem.py`、
-    `statgpu/linear_model/wrappers/_linear.py`。
+- Gate A：160 passed，0 failed，2 个预期 skip。
+- Gate B：1100 passed，0 failed，124 skipped，1 个 strict XFAIL。
+- Gate C：10/10 个 metamorphic 检查通过。
+- Gate D：审计路径未发生完整设计矩阵 GPU-to-CPU 传输。
+- Gate E：CuPy 与 Torch 各重复 15 次，未发现显存泄漏。
+- Gate F：记录三个规模下的同步 Tesla P100 性能基线。
+- Gate G：Ridge/scikit-learn 与线性回归/statsmodels 对齐通过。
+- 最终完整测试：CPU 1100 passed；GPU 1100 passed。
 
-- **Debiased Lasso 拟合后 diagnostics**：
-  - 根因：inference 清理逻辑删除 `_resid`、`_X_design` 与 `_y`，但 `rsquared`、AIC、
-    BIC 等 diagnostics 仍依赖这些状态。
-  - 影响：成功完成 inference fit 后，估计器可能无法提供已公开的 diagnostics。
-  - 修复：在 NumPy、CuPy、Torch 路径保留拟合后的 inference 状态。
-  - 文件：`statgpu/linear_model/penalized/_inference_mixin.py`。
+Gate B 从 **1036 passed / 40 failed / 159 skipped** 改进至
+**1100 passed / 0 failed / 124 skipped / 1 strict XFAIL**。该版本限定的 clone
+XFAIL 可在 base SHA `a4879fb` 上复现，并由 issue #82 跟踪。
 
-- **带权 GLM fused loss/gradient 递归**：
-  - 根因：`_weighted_loss_and_grad()` 携带权重再次调用
-    `loss.fused_value_and_gradient()`，后者又调度回 `_weighted_loss_and_grad()`。
-  - 影响：FISTA-BB 正确重定向至 FISTA 后，带权 smooth-penalty logistic fit 可能触发
-    `RecursionError`。
-  - 修复：直接从逐样本 loss 与 score 计算带权目标和梯度，并保持归约在所选后端。
-  - 文件：`statgpu/glm_core/_fused.py`。
+该轮真实 GPU 验证修复了面板 device mismatch、字符串 cluster factorization、
+秩亏 PooledOLS、Torch 专用 `device=` 泄漏、CuPy 13.x 与 Nystroem 构造、
+Debiased Lasso 拟合状态丢失、带权 GLM fused 递归以及 StepwiseSelector 旧版 clone
+契约等问题。
 
-- **StepwiseSelector 旧版 sklearn clone 行为**：
-  - 根因：构造函数使用规范化或复制后的对象替换公开参数，违反 scikit-learn <=1.2
-    使用的 constructor identity 检查。
-  - 影响：`sklearn.base.clone()` 无法 clone StepwiseSelector。
-  - 修复：原样保留公开构造参数，并将规范化运行状态放入私有属性。
-  - 文件：`statgpu/feature_selection/_stepwise.py`。
+### 修复（2026-07-21）— 验证后的 review-fix 循环
 
-### 优化（2026-07-21）— Tesla P100 同步性能基线
+完整 GPU 验证之后又执行了一轮 review → fix → test → re-review。清理后的代码
+head 为 `ff72424071ec7ca52399146dbd8a556534c9e6c3`。
 
-正确性 gate 通过后，使用 warmup 与后端同步进行真实 GPU 计时。以下结果只作为该环境
-下的回归基线，不构成可跨硬件推广的性能保证。
+新增修复包括：
+
+- `LinearRegression.fit` 与 `predict` 在后端解析前保留 CuPy/Torch 原生输入，
+  不再提前执行 NumPy 转换；
+- PooledOLS HAC 通过经过验证的 `time_index` 稳定排序，显式消除输入行顺序依赖；
+- PooledOLS 使用有效设计秩计算 residual degrees of freedom；
+- 远程验证器加入 shell `pipefail`、必须显式提供的精确 SHA、不可变 base worktree
+  以及 reset/clean 检查；
+- 将公式控制的截距语义与公开、clone 可见的 `fit_intercept` 构造参数分离；
+- 修正 CPU、CuPy、Torch 三条带权 `LinearRegression` 路径：截距列同步乘
+  `sqrt(weight)`，修复 multi-output 广播，统一权重验证，分别保留原始与带权残差，
+  并在奇异设计下使用稳定 least-squares fallback；
+- Patsy 删除缺失行后，按照保留的原始行位置对齐原始长度的 formula sample weights。
+
+永久回归测试位于 `dev/tests/test_pr79_final_review_fixes.py`，覆盖
+scikit-learn/statsmodels 对齐、秩亏与 HAC 不变量、公式截距及缺失行语义、非法权重、
+multi-output WLS、orchestrator 精确 SHA、pipeline 失败传播，以及可选的真实
+CuPy/Torch parity。
+
+### 最新 head 的验证边界
+
+GitHub Actions Tests run #477 已在清理后的代码 head `ff72424` 上通过：
+
+- Python 3.9、3.10、3.11、3.12 regression matrix；
+- static contracts、编译与完整测试收集；
+- 完整 CPU suite。
+
+验证后的修改涉及 CuPy/Torch 带权 `LinearRegression` 路径。因此，在 PR #79 从
+Draft 改为 Ready for review 之前，仍必须针对精确的最新代码 head 执行一次聚焦的
+真实 GPU 复验。先前 P100 完整验证仍是 `2f18e5d` 的有效证据，但不会被表述为后续
+代码的 exact-head 验证。所需命令与验收标准见
+`dev/reviews/pr79_physical_gpu_validation.md`。
+
+### 性能基线 — Tesla P100
+
+以下结果来自已完成真实 GPU 验证的 head，只作为特定硬件与环境下的回归基线，
+不构成可跨环境推广的性能保证。
 
 | 数据形状 | CuPy median | Torch median |
 |---:|---:|---:|
@@ -62,45 +80,15 @@
 | 10000 x 50 | 4.3 ms | 5.1 ms |
 
 环境：Tesla P100-SXM2-16GB、Python 3.9、CuPy 13.6.0、
-PyTorch 2.0.0+cu117。审计报告：
-`dev/reviews/pr79_physical_gpu_validation.md`。
-
-### 改进（2026-07-21）— 验证与发布证据
-
-- 新增可复现的真实 GPU 验证计划、远程 orchestrator、共享 GPU fixture、结果聚合、
-  device-transfer 审计、显存检查、性能计时和外部参考对齐。
-- 新增 `dev/tests/test_pr79_physical_gpu.py` 以及 `dev/validation/` 下的配套脚本。
-- 新增最终审查产物 `dev/reviews/pr79_physical_gpu_validation.md`，并提供中英文用户摘要：
-  `docs/en/releases/pr79-final-validation.md` 与
-  `docs/cn/releases/pr79-final-validation.md`。
-
-### 验证（2026-07-21）— 全部 gate 通过
-
-| Gate | 内容 | 结果 |
-|---|---|---|
-| A | GPU smoke | 160 passed，0 failed，2 个预期 skip |
-| B | NumPy/CuPy/Torch 正确性 | 1100 passed，0 failed，124 skipped，1 个 strict XFAIL |
-| C | Metamorphic 性质 | 10/10 通过；记录 1 个已知有限输入问题 |
-| D | 设备纯度 | 完整设计矩阵传回 CPU 次数为 0；审计 3 个模型族 |
-| E | 显存 | CuPy 与 Torch 各重复 15 次，未发现泄漏 |
-| F | 性能 | 两个 GPU 后端均记录 3 个同步规模 |
-| G | 外部参考 | Ridge 对齐 scikit-learn；线性回归对齐 statsmodels |
-| Final | 完整测试 | CPU 1100 passed；GPU 1100 passed |
-
-Gate B 从 **1036 passed / 40 failed / 159 skipped** 改进至
-**1100 passed / 0 failed / 124 skipped / 1 strict XFAIL**。scikit-learn <=1.2
-下的 clone XFAIL 可在 base SHA `a4879fb` 上对相同 26 个 estimator 复现，因此不是
-PR #79 引入的回归。
+PyTorch 2.0.0+cu117。
 
 ### 已知非阻塞后续工作
 
 - [Issue #81](https://github.com/TheHiddenObserver/statgpu/issues/81)：补齐共享的后端原生
-  NaN/Inf 输入验证契约。目前 Ridge 有一条路径未在 CUDA kernel 前拒绝非有限输入。
+  NaN/Inf 输入验证契约。
 - [Issue #82](https://github.com/TheHiddenObserver/statgpu/issues/82)：统一重构公开 estimator
   构造函数，以满足 scikit-learn <=1.2 clone identity contract。
-- Torch Cox Hessian 仍会物化 `O(n*p*p)` 中间量，作为独立性能优化任务保留。
-
-这些发现均不阻塞 PR #79 已验证的有限输入路径。
+- Torch Cox Hessian 的 `O(n*p*p)` 中间量仍作为独立性能优化任务保留。
 
 ## 历史变更记录
 
