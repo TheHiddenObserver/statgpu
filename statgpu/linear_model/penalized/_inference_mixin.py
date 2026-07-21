@@ -757,10 +757,7 @@ class _PenalizedInferenceMixin:
         if getattr(self, 'enable_simultaneous_inference', False):
             self._compute_simultaneous_ci_maxz_bootstrap()
 
-        # Cleanup: free large intermediates that were only needed for bootstrap
-        self._resid = None
-        self._X_design = None
-        self._y = None
+        # Keep public post-fit Gaussian state for rsquared/AIC/BIC/diagnostics.
 
         # Populate _inference_result for API consumers
         from statgpu.inference._results import DebiasedInferenceResult
@@ -947,10 +944,7 @@ class _PenalizedInferenceMixin:
         if getattr(self, 'enable_simultaneous_inference', False):
             self._compute_simultaneous_ci_maxz_bootstrap()
 
-        # Cleanup: free large intermediates that were only needed for bootstrap
-        self._resid = None
-        self._X_design = None
-        self._y = None
+        # Keep public post-fit Gaussian state for rsquared/AIC/BIC/diagnostics.
 
         # Populate _inference_result for API consumers
         from statgpu.inference._results import DebiasedInferenceResult
