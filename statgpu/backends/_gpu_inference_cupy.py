@@ -192,7 +192,7 @@ def compute_f_stat_gpu(y, resid, X_design, df_resid):
     
     k = X_design.shape[1] - 1  # exclude intercept
     if k == 0 or ss_res <= 0:
-        return np.inf
+        return (np.inf, 1.0)
     
     fvalue_gpu = (ss_reg / k) / (ss_res / df_resid)
     fvalue = float(cp.asnumpy(fvalue_gpu))
