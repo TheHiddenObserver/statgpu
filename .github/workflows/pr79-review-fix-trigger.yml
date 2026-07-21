@@ -1,0 +1,67 @@
+name: PR79 review fix trigger
+
+on:
+  pull_request:
+    branches:
+      - master
+
+permissions:
+  contents: write
+
+jobs:
+  apply-review-fixes:
+    if: github.event.pull_request.number == 79
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/code-review-fixes
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Extract and apply stored patch script
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          text = Path('.github/workflows/pr79-review-fix-once.yml').read_text()
+          marker = "          python - <<'PY'\n"
+          start = text.index(marker) + len(marker)
+          end = text.index("\n          PY\n", start)
+          lines = text[start:end].splitlines()
+          script = "\n".join(line[10:] if line.startswith("          ") else line for line in lines)
+          exec(compile(script, '<pr79-review-fix>', 'exec'))
+          PY
+
+      - name: Install validation dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[validation,formula]"
+
+      - name: Run focused review-fix tests
+        run: |
+          python -m compileall -q \
+            statgpu/linear_model/wrappers/_linear.py \
+            statgpu/panel/_pooled.py \
+            dev/validation/pr79_gpu_orchestrator.py \
+            dev/tests/test_pr79_final_review_fixes.py
+          python -m pytest \
+            dev/tests/test_pr79_final_review_fixes.py \
+            dev/tests/test_module_review_covariance_panel.py \
+            dev/tests/test_linear.py \
+            -q --tb=short
+
+      - name: Commit and push fixes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            statgpu/linear_model/wrappers/_linear.py \
+            statgpu/panel/_pooled.py \
+            dev/validation/pr79_gpu_orchestrator.py \
+            dev/tests/test_pr79_final_review_fixes.py
+          git commit -m "fix: address final PR79 review findings"
+          git push origin HEAD:agent/code-review-fixes
