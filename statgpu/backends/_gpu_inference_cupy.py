@@ -164,51 +164,38 @@ def compute_aic_bic_gpu(n, k, scale):
 
 
 def compute_f_stat_gpu(y, resid, X_design, df_resid):
-    """
-    Compute F-statistic on GPU.
-    
-    Parameters
-    ----------
-    y : cupy.ndarray
-        True values on GPU.
-    resid : cupy.ndarray
-        Residuals on GPU.
-    X_design : cupy.ndarray
-        Design matrix on GPU.
-    df_resid : int
-        Residual degrees of freedom.
-    
-    Returns
-    -------
-    fvalue : float
-        F-statistic.
-    """
+    """Compute the overall-regression F statistic and p-value on CuPy."""
     import cupy as cp
-    
+
     y_mean = y.mean()
     ss_tot = cp.sum((y - y_mean) ** 2)
     ss_res = cp.sum(resid ** 2)
-    ss_reg = ss_tot - ss_res
-    
-    k = X_design.shape[1] - 1  # exclude intercept
-    if k == 0 or ss_res <= 0:
-        return (np.inf, 1.0)
-    
-    fvalue_gpu = (ss_reg / k) / (ss_res / df_resid)
-    fvalue = float(cp.asnumpy(fvalue_gpu))
-    
-    # p-value on GPU using F CDF expressed via regularized incomplete beta.
-    #
-    # For F ~ F(d1, d2):
-    #   CDF(x) = I_{ d1 x / (d1 x + d2) }(d1/2, d2/2)
-    #   pvalue = 1 - CDF
+
+    k = int(X_design.shape[1] - 1)  # exclude intercept
     d1 = float(k)
     d2 = float(df_resid)
-    if d2 <= 0 or d1 <= 0:
-        pvalue = 1.0
-    else:
-        z = (d1 * fvalue) / (d1 * fvalue + d2)
-        cdf = regularized_betainc_gpu(d1 / 2.0, d2 / 2.0, cp.asarray(z))
-        pvalue = float(1.0 - cp.asnumpy(cdf))
-    
-    return fvalue, pvalue
+    if d1 <= 0.0 or d2 <= 0.0:
+        return np.nan, np.nan
+
+    # Only scalar reductions cross the host boundary.  These checks mirror the
+    # public CPU LinearRegression F-statistic semantics.
+    ss_tot_value = float(cp.asnumpy(ss_tot))
+    ss_res_value = float(cp.asnumpy(ss_res))
+    if not np.isfinite(ss_tot_value) or not np.isfinite(ss_res_value):
+        return np.nan, np.nan
+
+    tol = np.finfo(float).eps * max(1.0, abs(ss_tot_value))
+    if ss_tot_value <= tol:
+        return np.nan, np.nan
+    if ss_res_value <= tol:
+        return np.inf, 0.0
+
+    ss_reg = cp.maximum(ss_tot - ss_res, 0.0)
+    fvalue_gpu = (ss_reg / d1) / (ss_res / d2)
+    fvalue = float(cp.asnumpy(fvalue_gpu))
+
+    # For F ~ F(d1, d2), CDF(x) is a regularized incomplete beta.
+    z = (d1 * fvalue) / (d1 * fvalue + d2)
+    cdf = regularized_betainc_gpu(d1 / 2.0, d2 / 2.0, cp.asarray(z))
+    pvalue = float(1.0 - cp.asnumpy(cdf))
+    return fvalue, float(np.clip(pvalue, 0.0, 1.0))

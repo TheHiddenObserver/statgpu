@@ -224,3 +224,54 @@ def test_linear_regression_gpu_fit_does_not_use_backend_to_numpy(monkeypatch, ba
     )
     assert_allclose(model.coef_, cpu.coef_, rtol=1e-8, atol=1e-9)
     assert np.isclose(model.intercept_, cpu.intercept_, rtol=1e-8, atol=1e-9)
+
+
+@pytest.mark.parametrize("backend", ["cupy", "torch"])
+def test_gpu_f_stat_degenerate_semantics(backend):
+    """GPU helpers must match public CPU semantics on degenerate F tests."""
+    y_np = np.array([-1.0, 0.0, 1.0, 2.0])
+    design_np = np.column_stack([np.ones(y_np.size), y_np])
+    intercept_only_np = np.ones((y_np.size, 1))
+
+    if backend == "cupy":
+        cp = pytest.importorskip("cupy")
+        if cp.cuda.runtime.getDeviceCount() < 1:
+            pytest.skip("CuPy CUDA device unavailable")
+        from statgpu.backends._gpu_inference_cupy import compute_f_stat_gpu
+
+        y = cp.asarray(y_np)
+        perfect_f, perfect_p = compute_f_stat_gpu(
+            y, cp.zeros_like(y), cp.asarray(design_np), df_resid=2
+        )
+        null_f, null_p = compute_f_stat_gpu(
+            y,
+            y - y.mean(),
+            cp.asarray(intercept_only_np),
+            df_resid=3,
+        )
+    else:
+        torch = pytest.importorskip("torch")
+        if not torch.cuda.is_available():
+            pytest.skip("Torch CUDA device unavailable")
+        from statgpu.backends._gpu_inference_torch import compute_f_stat_torch
+
+        y = torch.as_tensor(y_np, dtype=torch.float64, device="cuda")
+        perfect_f, perfect_p = compute_f_stat_torch(
+            y,
+            torch.zeros_like(y),
+            torch.as_tensor(design_np, dtype=torch.float64, device="cuda"),
+            df_resid=2,
+            device="cuda",
+        )
+        null_f, null_p = compute_f_stat_torch(
+            y,
+            y - y.mean(),
+            torch.as_tensor(intercept_only_np, dtype=torch.float64, device="cuda"),
+            df_resid=3,
+            device="cuda",
+        )
+
+    assert np.isposinf(perfect_f)
+    assert perfect_p == 0.0
+    assert np.isnan(null_f)
+    assert np.isnan(null_p)
