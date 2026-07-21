@@ -173,7 +173,7 @@ class Nystroem(BaseEstimator):
         else:
             # GPU path: use GPU landmarks
             landmarks = self._landmarks
-            if hasattr(X_arr, 'device'):
+            if hasattr(X_arr, 'device') and getattr(xp, '__name__', '') == 'torch':
                 # torch: ensure landmarks on same device
                 landmarks = xp.asarray(_to_numpy(landmarks), dtype=xp.float64,
                                        device=X_arr.device)

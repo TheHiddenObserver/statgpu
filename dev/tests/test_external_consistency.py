@@ -151,11 +151,13 @@ class TestStatsmodelsConsistency:
         X_sm = sm.add_constant(X)
         sm_res = sm.OLS(y, X_sm).fit(cov_type=sm_cov_type)
 
-        assert np.allclose(sg.intercept_, sm_res.params[0], rtol=1e-6, atol=1e-6)
-        assert np.allclose(sg.coef_, sm_res.params[1:], rtol=1e-6, atol=1e-6)
-        assert np.allclose(sg._bse, sm_res.bse, rtol=2e-3, atol=1e-6)
-        assert np.allclose(sg._pvalues, sm_res.pvalues, rtol=5e-2, atol=1e-5)
-        assert np.allclose(sg._conf_int, sm_res.conf_int(), rtol=2e-2, atol=1e-4)
+        # Use _to_numpy for safe cross-backend comparison
+        from statgpu.backends import _to_numpy
+        assert np.allclose(_to_numpy(sg.intercept_), sm_res.params[0], rtol=1e-6, atol=1e-6)
+        assert np.allclose(_to_numpy(sg.coef_), sm_res.params[1:], rtol=1e-6, atol=1e-6)
+        assert np.allclose(_to_numpy(sg._bse), sm_res.bse, rtol=2e-3, atol=1e-6)
+        assert np.allclose(_to_numpy(sg._pvalues), sm_res.pvalues, rtol=5e-2, atol=1e-5)
+        assert np.allclose(_to_numpy(sg._conf_int), sm_res.conf_int(), rtol=2e-2, atol=1e-4)
 
     @pytest.mark.parametrize(
         "n_samples,n_features,seed",

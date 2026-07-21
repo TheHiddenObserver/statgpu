@@ -45,7 +45,7 @@ def test_graphical_lasso_matches_sklearn_and_preserves_covariance_diagonal():
     X = rng.multivariate_normal(np.zeros(6), cov, size=350)
 
     alpha = 0.08
-    actual = GraphicalLasso(alpha=alpha, max_iter=250, tol=1e-7).fit(X)
+    actual = GraphicalLasso(alpha=alpha, max_iter=250, tol=1e-7, device="cpu").fit(X)
     expected = SkGraphicalLasso(alpha=alpha, max_iter=250, tol=1e-7).fit(X)
 
     assert_allclose(actual.covariance_, expected.covariance_, rtol=3e-3, atol=3e-3)
@@ -86,11 +86,11 @@ def test_min_cov_det_validates_fraction_and_honors_assume_centered():
     rng = np.random.RandomState(103)
     X = rng.normal(loc=4.0, scale=1.0, size=(90, 3))
     with pytest.raises(ValueError, match="support_fraction"):
-        MinCovDet(support_fraction=0).fit(X)
+        MinCovDet(support_fraction=0, device="cpu").fit(X)
     with pytest.raises(ValueError, match="support_fraction"):
-        MinCovDet(support_fraction=1.1).fit(X)
+        MinCovDet(support_fraction=1.1, device="cpu").fit(X)
 
-    centered_model = MinCovDet(assume_centered=True, random_state=0).fit(X)
+    centered_model = MinCovDet(assume_centered=True, random_state=0, device="cpu").fit(X)
     assert_allclose(centered_model.location_, np.zeros(3), atol=0, rtol=0)
     assert_allclose(centered_model.raw_location_, np.zeros(3), atol=0, rtol=0)
 

@@ -338,10 +338,18 @@ class LinearRegression(BaseEstimator):
             self._feature_names = None
             self._design_info = None
             self._formula_has_intercept = None
-            y_arr = np.asarray(y)
+            # Handle CuPy/Torch inputs safely (CuPy 13+ forbids implicit asarray)
+            from statgpu.backends._utils import _to_numpy
+            try:
+                y_arr = np.asarray(y)
+            except TypeError:
+                y_arr = _to_numpy(y)
             if y_arr.ndim == 2 and y_arr.shape[1] == 1:
                 y_arr = y_arr.ravel()
-            X_arr = np.asarray(X)
+            try:
+                X_arr = np.asarray(X)
+            except TypeError:
+                X_arr = _to_numpy(X)
 
         self.fit_intercept = _orig_fit_intercept
         # Store y (may be CuPy/Torch array, convert later for CPU)
