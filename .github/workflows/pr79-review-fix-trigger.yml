@@ -22,8 +22,8 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Apply correctly bound third-round patches
-        run: python dev/scripts/apply_pr79_review_fixes_round3c.py
+      - name: Apply fourth-round review patches
+        run: python dev/scripts/apply_pr79_review_fixes_round4.py
 
       - name: Install validation dependencies
         run: |
@@ -50,5 +50,5 @@ jobs:
           git add \
             statgpu/linear_model/wrappers/_linear.py \
             dev/tests/test_pr79_final_review_fixes.py
-          git commit -m "fix: correct weighted LinearRegression paths"
+          git commit -m "fix: align formula sample weights"
           git push origin HEAD:agent/code-review-fixes
