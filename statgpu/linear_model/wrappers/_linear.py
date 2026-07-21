@@ -21,14 +21,17 @@ from statgpu.linear_model._gaussian_inference import (
 
 
 def _parse_formula_if_provided(formula, data, X, y):
-    """Parse formula+data or fall back to raw arrays. Returns (y, X, info)."""
+    """Parse formula data and return retained source-row positions."""
     if formula is not None:
-        from statgpu.core.formula import parse_formula
-        return parse_formula(formula, data)
+        from statgpu.core.formula import FormulaParser
+
+        parser = FormulaParser(formula)
+        y_arr, X_arr, info = parser.eval(data)
+        return y_arr, X_arr, info, parser.row_positions
     y = np.asarray(y)
     if y.ndim == 2 and y.shape[1] == 1:
         y = y.ravel()
-    return y, np.asarray(X), None
+    return y, np.asarray(X), None, None
 
 
 class LinearRegression(BaseEstimator):
@@ -321,13 +324,32 @@ class LinearRegression(BaseEstimator):
                     "formula was provided but data is None. "
                     "Pass data=your_dataframe when using formula."
                 )
-            y_arr, X_arr, design_info = _parse_formula_if_provided(
+            y_arr, X_arr, design_info, retained_rows = _parse_formula_if_provided(
                 formula, data, None, None
             )
             self._design_info = design_info
             formula_column_names = list(design_info.column_names)
             self._formula_has_intercept = "Intercept" in formula_column_names
             self._feature_names = [name for name in formula_column_names if name != "Intercept"]
+
+            if sample_weight is not None:
+                from statgpu.backends import _to_numpy
+
+                weights = np.asarray(_to_numpy(sample_weight), dtype=float)
+                if weights.ndim != 1:
+                    raise ValueError("sample_weight must be one-dimensional")
+                retained_rows = np.asarray(retained_rows, dtype=np.int64)
+                if weights.shape[0] == len(data):
+                    sample_weight = weights[retained_rows]
+                elif weights.shape[0] == len(y_arr):
+                    # Already aligned weights are accepted for programmatic use.
+                    sample_weight = weights
+                else:
+                    raise ValueError(
+                        "sample_weight must match the original data length or "
+                        "the number of formula rows retained after missing-value filtering"
+                    )
+
             if self._formula_has_intercept:
                 intercept_idx = formula_column_names.index("Intercept")
                 # Drop the intercept column — let the fitting methods handle it

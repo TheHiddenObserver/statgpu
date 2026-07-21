@@ -96,6 +96,45 @@ def test_linear_formula_intercept_semantics_do_not_mutate_public_parameter():
     assert_allclose(without_intercept.coef_, expected, atol=1e-10)
 
 
+def test_weighted_formula_aligns_weights_after_patsy_drops_rows():
+    from sklearn.linear_model import LinearRegression as SkLinearRegression
+
+    rng = np.random.default_rng(7906)
+    n = 90
+    x1 = rng.normal(size=n)
+    x2 = rng.normal(size=n)
+    y = 0.9 + 1.3 * x1 - 0.4 * x2 + rng.normal(scale=0.2, size=n)
+    frame = pd.DataFrame({"y": y, "x1": x1, "x2": x2})
+    frame.loc[[4, 17, 51], "x1"] = np.nan
+    frame.loc[[9, 52], "y"] = np.nan
+    weights = np.linspace(0.2, 2.5, n) ** 2
+
+    model = LinearRegression().fit(
+        formula="y ~ x1 + x2",
+        data=frame,
+        sample_weight=weights,
+    )
+    kept = frame[["y", "x1", "x2"]].notna().all(axis=1).to_numpy()
+    reference = SkLinearRegression().fit(
+        frame.loc[kept, ["x1", "x2"]].to_numpy(),
+        frame.loc[kept, "y"].to_numpy(),
+        sample_weight=weights[kept],
+    )
+
+    assert np.isclose(model.intercept_, reference.intercept_, rtol=1e-10, atol=1e-10)
+    assert_allclose(model.coef_, reference.coef_, rtol=1e-10, atol=1e-10)
+    assert model._sample_weight_fit.shape == (int(kept.sum()),)
+    assert_allclose(model._sample_weight_fit, weights[kept])
+
+
+def test_weighted_formula_rejects_unalignable_weight_length():
+    frame = pd.DataFrame({"y": [1.0, 2.0, 3.0], "x": [1.0, np.nan, 3.0]})
+    with pytest.raises(ValueError, match="sample_weight"):
+        LinearRegression().fit(
+            formula="y ~ x", data=frame, sample_weight=np.ones(4)
+        )
+
+
 def test_weighted_linear_regression_matches_sklearn_and_statsmodels():
     import statsmodels.api as sm
     from sklearn.linear_model import LinearRegression as SkLinearRegression
