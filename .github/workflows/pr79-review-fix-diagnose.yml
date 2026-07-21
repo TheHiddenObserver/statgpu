@@ -19,35 +19,37 @@ jobs:
           ref: agent/code-review-fixes
           fetch-depth: 0
 
-      - name: Diagnose stored patch
+      - name: Diagnose third-round patch
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           python - <<'PY'
-          from pathlib import Path
+          import runpy
           import subprocess
           import traceback
 
-          text = Path('.github/workflows/pr79-review-fix-once.yml').read_text()
-          marker = "          python - <<'PY'\n"
-          start = text.index(marker) + len(marker)
-          end = text.index("\n          PY\n", start)
-          lines = text[start:end].splitlines()
-          script = "\n".join(line[10:] if line.startswith("          ") else line for line in lines)
-
           try:
-              exec(compile(script, '<pr79-review-fix>', 'exec'))
+              runpy.run_path(
+                  'dev/scripts/apply_pr79_review_fixes_round3.py',
+                  run_name='__main__',
+              )
           except Exception:
-              message = "## PR79 review-fix diagnostic\n\n```text\n" + traceback.format_exc() + "\n```"
+              body = (
+                  '## PR79 round-3 diagnostic\n\n```text\n'
+                  + traceback.format_exc()
+                  + '\n```'
+              )
               subprocess.run(
-                  ['gh', 'pr', 'comment', '79', '--repo', 'TheHiddenObserver/statgpu', '--body', message],
+                  ['gh', 'pr', 'comment', '79', '--repo',
+                   'TheHiddenObserver/statgpu', '--body', body],
                   check=True,
               )
               raise
           else:
               subprocess.run(
-                  ['gh', 'pr', 'comment', '79', '--repo', 'TheHiddenObserver/statgpu',
-                   '--body', '## PR79 review-fix diagnostic\n\nStored patch applied cleanly in a fresh checkout.'],
+                  ['gh', 'pr', 'comment', '79', '--repo',
+                   'TheHiddenObserver/statgpu', '--body',
+                   '## PR79 round-3 diagnostic\n\nPatch applied cleanly.'],
                   check=True,
               )
           PY
