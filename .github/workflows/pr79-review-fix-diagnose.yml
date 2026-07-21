@@ -1,0 +1,53 @@
+name: PR79 review fix diagnose
+
+on:
+  pull_request:
+    branches:
+      - master
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  diagnose:
+    if: github.event.pull_request.number == 79
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/code-review-fixes
+          fetch-depth: 0
+
+      - name: Diagnose stored patch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import subprocess
+          import traceback
+
+          text = Path('.github/workflows/pr79-review-fix-once.yml').read_text()
+          marker = "          python - <<'PY'\n"
+          start = text.index(marker) + len(marker)
+          end = text.index("\n          PY\n", start)
+          lines = text[start:end].splitlines()
+          script = "\n".join(line[10:] if line.startswith("          ") else line for line in lines)
+
+          try:
+              exec(compile(script, '<pr79-review-fix>', 'exec'))
+          except Exception:
+              message = "## PR79 review-fix diagnostic\n\n```text\n" + traceback.format_exc() + "\n```"
+              subprocess.run(
+                  ['gh', 'pr', 'comment', '79', '--repo', 'TheHiddenObserver/statgpu', '--body', message],
+                  check=True,
+              )
+              raise
+          else:
+              subprocess.run(
+                  ['gh', 'pr', 'comment', '79', '--repo', 'TheHiddenObserver/statgpu',
+                   '--body', '## PR79 review-fix diagnostic\n\nStored patch applied cleanly in a fresh checkout.'],
+                  check=True,
+              )
+          PY
