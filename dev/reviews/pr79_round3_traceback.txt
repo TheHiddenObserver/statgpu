@@ -1,0 +1,14 @@
+Traceback (most recent call last):
+  File "<stdin>", line 6, in <module>
+  File "<frozen runpy>", line 286, in run_path
+  File "<frozen runpy>", line 98, in _run_module_code
+  File "<frozen runpy>", line 88, in _run_code
+  File "dev/scripts/apply_pr79_review_fixes_round3b.py", line 32, in <module>
+    namespace["main"]()
+  File "dev/scripts/apply_pr79_review_fixes_round3.py", line 493, in main
+    patch_linear_weighted_fit()
+  File "dev/scripts/apply_pr79_review_fixes_round3.py", line 202, in patch_linear_weighted_fit
+    replace_once(
+  File "dev/scripts/apply_pr79_review_fixes_round3.py", line 12, in replace_once
+    raise RuntimeError(
+RuntimeError: statgpu/linear_model/wrappers/_linear.py: expected one match, found 2: '        if resid_np.shape[1] == 1:\n            self._resid = resid_np[:, 0]\n        else:\n            self._resid = resi'
