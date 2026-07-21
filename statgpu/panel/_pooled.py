@@ -12,8 +12,22 @@ from statgpu._base import BaseEstimator
 from statgpu._config import Device
 from statgpu.backends import _LINALG_ERRORS, _to_float_scalar, _to_numpy, xp_asarray, xp_zeros
 
-from statgpu.panel._utils import PanelSummary, validate_panel_alpha, validate_panel_numeric_data
+from statgpu.panel._utils import PanelSummary, factorize_panel_labels, validate_panel_alpha, validate_panel_numeric_data
 from statgpu.panel._covariance import clustered_covariance, hac_covariance
+
+
+def _panel_lstsq(X, y, xp):
+    """Rank-revealing least squares for panel estimators.
+
+    Uses pinv (SVD-based) for torch and lstsq for numpy/cupy,
+    falling back to pinv when lstsq is unavailable or fails.
+    """
+    if getattr(xp, '__name__', '') == 'torch':
+        return xp.linalg.pinv(X) @ y
+    try:
+        return xp.linalg.lstsq(X, y, rcond=None)[0]
+    except (TypeError, AttributeError, np.linalg.LinAlgError):
+        return xp.linalg.pinv(X) @ y
 
 
 class PooledOLS(BaseEstimator):
@@ -123,13 +137,8 @@ class PooledOLS(BaseEstimator):
 
         n, k = X_arr.shape
 
-        # OLS: beta = (X'X)^{-1} X'y
-        XtX = X_arr.T @ X_arr
-        Xty = X_arr.T @ y_arr
-        try:
-            params = xp.linalg.solve(XtX, Xty)
-        except _LINALG_ERRORS:
-            params = xp.linalg.pinv(X_arr) @ y_arr
+        # OLS: use rank-revealing solver for stability with near-singular designs
+        params = _panel_lstsq(X_arr, y_arr, xp)
 
         if n <= k:
             raise ValueError(f"positive residual degrees of freedom required; n={n}, k={k}")
@@ -206,12 +215,9 @@ class PooledOLS(BaseEstimator):
 
     def _compute_inference(self, X, resid, params, scale, n, k, xp, backend_name, cluster=None):
         """Compute standard errors, t-stats, p-values, and CIs."""
-        # X'X inverse
+        # X'X generalized inverse (pinv for stability with rank-deficient designs)
         XtX = X.T @ X / n
-        try:
-            XtX_inv = xp.linalg.inv(XtX)
-        except _LINALG_ERRORS:
-            XtX_inv = xp.linalg.pinv(XtX)
+        XtX_inv = xp.linalg.pinv(XtX)
 
         if self.cov_type == "nonrobust":
             cov_params = scale * XtX_inv / n
@@ -223,7 +229,9 @@ class PooledOLS(BaseEstimator):
         elif self.cov_type == "clustered":
             if cluster is None:
                 raise ValueError("cluster is required for cov_type='clustered'")
-            cluster_arr = xp_asarray(cluster, xp=xp, ref_arr=X).ravel()
+            cluster_arr, _ = factorize_panel_labels(
+                cluster, xp, ref_arr=X, name="cluster", expected_n=n,
+            )
             cov_params = clustered_covariance(X, resid, cluster_arr, xp)
         elif self.cov_type == "hac":
             cov_params = hac_covariance(X, resid, bandwidth=self.bandwidth,
