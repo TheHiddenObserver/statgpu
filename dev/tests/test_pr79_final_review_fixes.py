@@ -96,6 +96,51 @@ def test_linear_formula_intercept_semantics_do_not_mutate_public_parameter():
     assert_allclose(without_intercept.coef_, expected, atol=1e-10)
 
 
+def test_weighted_linear_regression_matches_sklearn_and_statsmodels():
+    import statsmodels.api as sm
+    from sklearn.linear_model import LinearRegression as SkLinearRegression
+
+    rng = np.random.default_rng(7903)
+    X = rng.normal(size=(120, 4))
+    y = 1.4 + X @ np.array([0.8, -1.1, 0.25, 0.6]) + rng.normal(scale=0.3, size=120)
+    weights = np.linspace(0.2, 3.0, X.shape[0]) ** 2
+
+    model = LinearRegression().fit(X, y, sample_weight=weights)
+    sk = SkLinearRegression().fit(X, y, sample_weight=weights)
+    reference = sm.WLS(y, sm.add_constant(X), weights=weights).fit()
+
+    assert np.isclose(model.intercept_, sk.intercept_, rtol=1e-10, atol=1e-10)
+    assert_allclose(model.coef_, sk.coef_, rtol=1e-10, atol=1e-10)
+    assert_allclose(model._bse, reference.bse, rtol=1e-8, atol=1e-10)
+    assert np.isclose(model.rsquared, sk.score(X, y, sample_weight=weights), atol=1e-12)
+
+
+def test_weighted_linear_multioutput_broadcasts_weights_by_row():
+    from sklearn.linear_model import LinearRegression as SkLinearRegression
+
+    rng = np.random.default_rng(7904)
+    X = rng.normal(size=(70, 3))
+    beta = np.array([[0.5, -0.2, 0.8], [-0.7, 1.2, 0.1]])
+    y = X @ beta.T + np.array([1.0, -2.0]) + rng.normal(scale=0.1, size=(70, 2))
+    weights = np.linspace(0.1, 2.0, X.shape[0])
+
+    model = LinearRegression(compute_inference=False).fit(X, y, sample_weight=weights)
+    reference = SkLinearRegression().fit(X, y, sample_weight=weights)
+    assert_allclose(model.intercept_, reference.intercept_, rtol=1e-10, atol=1e-10)
+    assert_allclose(model.coef_, reference.coef_, rtol=1e-10, atol=1e-10)
+
+
+def test_weighted_linear_rejects_invalid_weights():
+    X = np.arange(30.0).reshape(10, 3)
+    y = np.arange(10.0)
+    with pytest.raises(ValueError, match="sample_weight"):
+        LinearRegression().fit(X, y, sample_weight=np.ones(9))
+    with pytest.raises(ValueError, match="sample_weight"):
+        LinearRegression().fit(X, y, sample_weight=-np.ones(10))
+    with pytest.raises(ValueError, match="sample_weight"):
+        LinearRegression().fit(X, y, sample_weight=np.zeros(10))
+
+
 def test_pipefail_propagates_the_failing_pytest_side_of_a_pipeline():
     result = subprocess.run(
         ["bash", "-o", "pipefail", "-c", "false | tee /dev/null"],
@@ -107,25 +152,36 @@ def test_pipefail_propagates_the_failing_pytest_side_of_a_pipeline():
 @pytest.mark.parametrize("backend", ["cupy", "torch"])
 def test_linear_regression_gpu_fit_does_not_use_backend_to_numpy(monkeypatch, backend):
     import statgpu.backends._utils as backend_utils
+    rng = np.random.default_rng(7905)
+    X_np = rng.normal(size=(40, 3))
+    y_np = 0.7 + X_np @ np.array([0.5, -0.2, 0.1])
+    weights_np = np.linspace(0.25, 2.0, X_np.shape[0])
     if backend == "cupy":
         cp = pytest.importorskip("cupy")
         if cp.cuda.runtime.getDeviceCount() < 1:
             pytest.skip("CuPy CUDA device unavailable")
-        X = cp.arange(60, dtype=cp.float64).reshape(20, 3)
-        y = X @ cp.asarray([0.5, -0.2, 0.1])
+        X = cp.asarray(X_np)
+        y = cp.asarray(y_np)
+        weights = cp.asarray(weights_np)
         model = LinearRegression(device="cuda", compute_inference=False)
     else:
         torch = pytest.importorskip("torch")
         if not torch.cuda.is_available():
             pytest.skip("Torch CUDA device unavailable")
-        X = torch.arange(60, dtype=torch.float64, device="cuda").reshape(20, 3)
-        y = X @ torch.tensor([0.5, -0.2, 0.1], dtype=torch.float64, device="cuda")
+        X = torch.as_tensor(X_np, dtype=torch.float64, device="cuda")
+        y = torch.as_tensor(y_np, dtype=torch.float64, device="cuda")
+        weights = torch.as_tensor(weights_np, dtype=torch.float64, device="cuda")
         model = LinearRegression(device="torch", compute_inference=False)
 
     def forbidden(value):
         raise AssertionError(f"unexpected backend-to-NumPy conversion: {type(value)!r}")
 
     monkeypatch.setattr(backend_utils, "_to_numpy", forbidden)
-    model.fit(X, y)
+    model.fit(X, y, sample_weight=weights)
     pred = model.predict(X[:3])
     assert tuple(pred.shape) == (3,)
+    cpu = LinearRegression(compute_inference=False).fit(
+        X_np, y_np, sample_weight=weights_np
+    )
+    assert_allclose(model.coef_, cpu.coef_, rtol=1e-8, atol=1e-9)
+    assert np.isclose(model.intercept_, cpu.intercept_, rtol=1e-8, atol=1e-9)

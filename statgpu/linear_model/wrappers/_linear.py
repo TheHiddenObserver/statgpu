@@ -89,6 +89,8 @@ class LinearRegression(BaseEstimator):
         self._design_info = None
         self._formula_has_intercept = None
         self._effective_fit_intercept = bool(fit_intercept)
+        self._sample_weight_fit = None
+        self._raw_resid = None
 
     def _clear_inference_result(self):
         self._bse = None
@@ -307,6 +309,8 @@ class LinearRegression(BaseEstimator):
             DataFrame used with ``formula`` for column lookup.
         """
         self._clear_inference_result()
+        self._sample_weight_fit = None
+        self._raw_resid = None
 
         # Formula syntax controls the fitted design without mutating the
         # public constructor parameter required by sklearn-style cloning.
@@ -392,27 +396,35 @@ class LinearRegression(BaseEstimator):
     
     def _fit_cpu(self, X, y, sample_weight=None):
         """Fit using CPU."""
-        X = np.asarray(X)
-        y = np.asarray(y)
-        
-        n_samples, n_features = X.shape
-        self._nobs = n_samples
-        
-        if sample_weight is not None:
-            sample_weight = np.asarray(sample_weight)
-            sqrt_sw = np.sqrt(sample_weight)
-            X = X * sqrt_sw[:, np.newaxis]
-            y = y * sqrt_sw
-        
-        if self._effective_fit_intercept:
-            self._X_design = np.column_stack([np.ones(n_samples, dtype=X.dtype), X])
-        else:
-            self._X_design = X.copy()
-        
-        if y.ndim == 1:
-            y = y.reshape(-1, 1)
+        X_raw = np.asarray(X)
+        y_raw = np.asarray(y)
 
-        coef, _, _, _ = np.linalg.lstsq(self._X_design, y, rcond=None)
+        n_samples, n_features = X_raw.shape
+        self._nobs = n_samples
+        y_2d = y_raw.reshape(-1, 1) if y_raw.ndim == 1 else y_raw
+
+        if sample_weight is not None:
+            sw = np.asarray(sample_weight, dtype=float).reshape(-1)
+            if sw.shape[0] != n_samples:
+                raise ValueError("sample_weight must have length n_samples")
+            if not np.all(np.isfinite(sw)) or np.any(sw < 0) or float(sw.sum()) <= 0:
+                raise ValueError("sample_weight must be finite, non-negative, and have positive sum")
+            sqrt_sw = np.sqrt(sw)
+            X_fit = X_raw * sqrt_sw[:, None]
+            y_fit = y_2d * sqrt_sw[:, None]
+            intercept_column = sqrt_sw[:, None]
+            self._sample_weight_fit = sw.copy()
+        else:
+            X_fit = X_raw
+            y_fit = y_2d
+            intercept_column = np.ones((n_samples, 1), dtype=X_raw.dtype)
+
+        if self._effective_fit_intercept:
+            self._X_design = np.column_stack([intercept_column, X_fit])
+        else:
+            self._X_design = X_fit.copy()
+
+        coef, _, _, _ = np.linalg.lstsq(self._X_design, y_fit, rcond=None)
 
         if self._effective_fit_intercept:
             if coef.shape[1] > 1:
@@ -435,7 +447,14 @@ class LinearRegression(BaseEstimator):
                 self._params = self.coef_.copy()
 
         y_pred = self._X_design @ coef
-        self._resid = y - y_pred
+        self._resid = y_fit - y_pred
+        raw_pred = (
+            coef[0] + X_raw @ coef[1:]
+            if self._effective_fit_intercept
+            else X_raw @ coef
+        )
+        raw_resid = y_2d - raw_pred
+        self._raw_resid = raw_resid[:, 0] if raw_resid.shape[1] == 1 else raw_resid
         if self._resid.shape[1] == 1:
             self._resid = self._resid[:, 0]
         self._df_resid = n_samples - (n_features + (1 if self._effective_fit_intercept else 0))
@@ -462,23 +481,33 @@ class LinearRegression(BaseEstimator):
         n_samples, n_features = X.shape
         self._nobs = n_samples
         
-        # Ensure CuPy arrays
-        X = cp.asarray(X)
-        y = cp.asarray(y)
-        
+        # Ensure CuPy arrays and retain raw arrays for weighted diagnostics.
+        X_raw = cp.asarray(X)
+        y_raw = cp.asarray(y)
+        y_2d = y_raw.reshape(-1, 1) if y_raw.ndim == 1 else y_raw
+
+        sw = None
         if sample_weight is not None:
-            sample_weight = cp.asarray(sample_weight)
-            sqrt_sw = cp.sqrt(sample_weight)
-            X = X * sqrt_sw[:, cp.newaxis]
-            y = y * sqrt_sw
-        
-        if self._effective_fit_intercept:
-            X_design = cp.column_stack([cp.ones(n_samples, dtype=X.dtype), X])
+            sw = cp.asarray(sample_weight, dtype=cp.float64).reshape(-1)
+            if sw.shape[0] != n_samples:
+                raise ValueError("sample_weight must have length n_samples")
+            valid = cp.all(cp.isfinite(sw)) & cp.all(sw >= 0) & (cp.sum(sw) > 0)
+            if not bool(valid.item()):
+                raise ValueError("sample_weight must be finite, non-negative, and have positive sum")
+            sqrt_sw = cp.sqrt(sw)
+            X_fit = X_raw * sqrt_sw[:, cp.newaxis]
+            y_fit = y_2d * sqrt_sw[:, cp.newaxis]
+            intercept_column = sqrt_sw[:, cp.newaxis]
         else:
-            X_design = X
-        
-        if y.ndim == 1:
-            y = y.reshape(-1, 1)
+            X_fit = X_raw
+            y_fit = y_2d
+            intercept_column = cp.ones((n_samples, 1), dtype=X_raw.dtype)
+
+        if self._effective_fit_intercept:
+            X_design = cp.column_stack([intercept_column, X_fit])
+        else:
+            X_design = X_fit
+        y = y_fit
         
         # Use normal equations: (X'X)^-1 X'y
         XtX = X_design.T @ X_design
@@ -490,11 +519,17 @@ class LinearRegression(BaseEstimator):
             tmp = cp.linalg.solve_triangular(L, Xty, lower=True)
             coef = cp.linalg.solve_triangular(L.T, tmp, lower=False)
         except Exception:
-            coef = cp.linalg.solve(XtX, Xty)
-        
-        # Compute predictions and residuals on GPU
+            coef = cp.linalg.lstsq(X_design, y, rcond=None)[0]
+
+        # Compute weighted inference residuals and raw diagnostic residuals.
         y_pred = X_design @ coef
         resid = y - y_pred
+        raw_pred = (
+            coef[0] + X_raw @ coef[1:]
+            if self._effective_fit_intercept
+            else X_raw @ coef
+        )
+        raw_resid = y_2d - raw_pred
         
         # Compute scale on GPU
         df_resid = n_samples - (n_features + (1 if self._effective_fit_intercept else 0))
@@ -545,6 +580,8 @@ class LinearRegression(BaseEstimator):
         # Single transfer to CPU at the end
         coef_np = coef.get()
         resid_np = resid.get()
+        raw_resid_np = raw_resid.get()
+        self._sample_weight_fit = None if sw is None else sw.get()
         if y.shape[1] > 1:
             scale_np = scale.get()
         else:
@@ -583,6 +620,9 @@ class LinearRegression(BaseEstimator):
             self._resid = resid_np[:, 0]
         else:
             self._resid = resid_np
+        self._raw_resid = (
+            raw_resid_np[:, 0] if raw_resid_np.shape[1] == 1 else raw_resid_np
+        )
         self._df_resid = df_resid
         self._scale = scale_np
         if self.compute_inference and not self._is_multi_output:
@@ -697,22 +737,34 @@ class LinearRegression(BaseEstimator):
         if y.dtype != torch.float64:
             y = y.to(torch.float64)
 
+        X_raw = X
+        y_raw = y
+        y_2d = y_raw.reshape(-1, 1) if y_raw.ndim == 1 else y_raw
+
+        sw = None
         if sample_weight is not None:
-            if not isinstance(sample_weight, torch.Tensor):
-                sample_weight = torch.from_numpy(np.asarray(sample_weight)).to(torch_device)
-            if sample_weight.dtype != torch.float64:
-                sample_weight = sample_weight.to(torch.float64)
-            sqrt_sw = torch.sqrt(sample_weight)
-            X = X * sqrt_sw[:, None]
-            y = y * sqrt_sw
+            sw = torch.as_tensor(sample_weight, dtype=torch.float64, device=torch_device).reshape(-1)
+            if sw.shape[0] != n_samples:
+                raise ValueError("sample_weight must have length n_samples")
+            valid = torch.all(torch.isfinite(sw)) & torch.all(sw >= 0) & (torch.sum(sw) > 0)
+            if not bool(valid.item()):
+                raise ValueError("sample_weight must be finite, non-negative, and have positive sum")
+            sqrt_sw = torch.sqrt(sw)
+            X_fit = X_raw * sqrt_sw[:, None]
+            y_fit = y_2d * sqrt_sw[:, None]
+            intercept_column = sqrt_sw[:, None]
+        else:
+            X_fit = X_raw
+            y_fit = y_2d
+            intercept_column = torch.ones(
+                n_samples, 1, dtype=X_raw.dtype, device=X_raw.device
+            )
 
         if self._effective_fit_intercept:
-            X_design = torch.cat([torch.ones(n_samples, 1, dtype=X.dtype, device=torch_device), X], dim=1)
+            X_design = torch.cat([intercept_column, X_fit], dim=1)
         else:
-            X_design = X.clone()
-
-        if y.ndim == 1:
-            y = y.reshape(-1, 1)
+            X_design = X_fit.clone()
+        y = y_fit
 
         # Use normal equations: (X'X)^-1 X'y
         XtX = X_design.T @ X_design
@@ -726,11 +778,17 @@ class LinearRegression(BaseEstimator):
             # Solve L.T @ coef = tmp (L.T is upper triangular)
             coef = torch.linalg.solve_triangular(L.T, tmp, upper=True)
         except Exception:
-            coef = torch.linalg.solve(XtX, Xty)
+            coef = torch.linalg.lstsq(X_design, y).solution
 
-        # Compute predictions and residuals on Torch
+        # Compute weighted inference residuals and raw diagnostic residuals.
         y_pred = X_design @ coef
         resid = y - y_pred
+        raw_pred = (
+            coef[0] + X_raw @ coef[1:]
+            if self._effective_fit_intercept
+            else X_raw @ coef
+        )
+        raw_resid = y_2d - raw_pred
 
         # Compute scale on Torch
         df_resid = n_samples - (n_features + (1 if self._effective_fit_intercept else 0))
@@ -781,6 +839,10 @@ class LinearRegression(BaseEstimator):
         # Single transfer to CPU at the end
         coef_np = coef.detach().cpu().numpy()
         resid_np = resid.detach().cpu().numpy()
+        raw_resid_np = raw_resid.detach().cpu().numpy()
+        self._sample_weight_fit = (
+            None if sw is None else sw.detach().cpu().numpy()
+        )
         if y.shape[1] > 1:
             scale_np = scale.detach().cpu().numpy()
         else:
@@ -820,6 +882,9 @@ class LinearRegression(BaseEstimator):
             self._resid = resid_np[:, 0]
         else:
             self._resid = resid_np
+        self._raw_resid = (
+            raw_resid_np[:, 0] if raw_resid_np.shape[1] == 1 else raw_resid_np
+        )
         self._df_resid = df_resid
         self._scale = scale_np
         if self.compute_inference and not self._is_multi_output:
@@ -901,9 +966,23 @@ class LinearRegression(BaseEstimator):
         """R-squared."""
         if self._y is None or self._resid is None:
             return None
-        y_mean = np.mean(self._y)
-        ss_tot = np.sum((self._y - y_mean) ** 2)
-        ss_res = np.sum(self._resid ** 2)
+        y = np.asarray(self._y, dtype=float)
+        resid = np.asarray(
+            self._raw_resid if self._raw_resid is not None else self._resid,
+            dtype=float,
+        )
+        weights = self._sample_weight_fit
+        if weights is None:
+            y_mean = np.mean(y, axis=0) if y.ndim > 1 else np.mean(y)
+            ss_tot = np.sum((y - y_mean) ** 2)
+            ss_res = np.sum(resid ** 2)
+        else:
+            weights = np.asarray(weights, dtype=float)
+            y_mean = np.average(y, axis=0, weights=weights)
+            weight_shape = (weights.shape[0],) + (1,) * (y.ndim - 1)
+            w = weights.reshape(weight_shape)
+            ss_tot = np.sum(w * (y - y_mean) ** 2)
+            ss_res = np.sum(w * resid ** 2)
         return 1 - ss_res / ss_tot if ss_tot > 0 else 0.0
     
     @property
@@ -932,9 +1011,19 @@ class LinearRegression(BaseEstimator):
         if k <= 0 or self._df_resid is None or self._df_resid <= 0:
             return np.nan
         y = np.asarray(self._y, dtype=float)
-        resid = np.asarray(self._resid, dtype=float)
-        ss_tot = float(np.sum((y - np.mean(y)) ** 2))
-        ss_res = float(np.sum(resid ** 2))
+        resid = np.asarray(
+            self._raw_resid if self._raw_resid is not None else self._resid,
+            dtype=float,
+        )
+        weights = self._sample_weight_fit
+        if weights is None:
+            ss_tot = float(np.sum((y - np.mean(y)) ** 2))
+            ss_res = float(np.sum(resid ** 2))
+        else:
+            weights = np.asarray(weights, dtype=float)
+            y_mean = np.average(y, weights=weights)
+            ss_tot = float(np.sum(weights * (y - y_mean) ** 2))
+            ss_res = float(np.sum(weights * resid ** 2))
         if not np.isfinite(ss_tot) or not np.isfinite(ss_res) or ss_tot <= 0:
             return np.nan
         ss_reg = max(0.0, ss_tot - ss_res)
