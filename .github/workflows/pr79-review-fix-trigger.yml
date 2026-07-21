@@ -22,8 +22,8 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Apply asserted review patches
-        run: python dev/scripts/apply_pr79_review_fixes.py
+      - name: Apply second-round review patches
+        run: python dev/scripts/apply_pr79_review_fixes_round2.py
 
       - name: Install validation dependencies
         run: |
@@ -49,8 +49,6 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add \
             statgpu/linear_model/wrappers/_linear.py \
-            statgpu/panel/_pooled.py \
-            dev/validation/pr79_gpu_orchestrator.py \
             dev/tests/test_pr79_final_review_fixes.py
-          git commit -m "fix: address final PR79 review findings"
+          git commit -m "fix: preserve formula intercept semantics"
           git push origin HEAD:agent/code-review-fixes
