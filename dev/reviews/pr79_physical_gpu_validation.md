@@ -3,7 +3,7 @@
 Date: 2026-07-21  
 Base SHA: `a4879fb4d9fb183efc01f147cd2cc501691f28c4`  
 PR branch: `agent/code-review-fixes`  
-Physical-GPU validated code head: `2f18e5dec9195da1a12e5eea89ee2d832557b3ad`  
+Physical-GPU validated campaign head: `2f18e5dec9195da1a12e5eea89ee2d832557b3ad`  
 Exact-head physical-GPU acceptance SHA: `786af9e2eb4742a56e5203b4380b03aec63a3ac8`
 
 ## Decision
@@ -14,8 +14,9 @@ review-fix cycle was completed, and the exact cleaned head
 acceptance suite with **17 passed, 0 failed, and 0 skipped in 7.28 seconds**.
 
 CuPy CUDA and Torch CUDA both executed under `STATGPU_REQUIRE_PHYSICAL_GPU=1`. The exact
-SHA and clean-worktree state were recorded. Standard GitHub Actions Tests run #483 also
-passed. No unresolved CRITICAL/HIGH defect or PR-introduced regression is known.
+SHA and clean-worktree state were recorded. Standard GitHub Actions Tests run #495 passed
+on the final documentation/cleanup head `1d877d65db0926f38170ec851f0f0479937bcd61`.
+No unresolved CRITICAL/HIGH defect or PR-introduced regression is known.
 
 Issues #81 and #82 and the Torch Cox Hessian memory optimization remain explicitly tracked,
 non-blocking follow-ups.
@@ -51,14 +52,14 @@ tracked in issue #82.
 ### Post-validation review-fix and exact-head evidence
 
 The post-validation review repaired additional backend-routing, PooledOLS, WLS, formula,
-validator, and GPU inference edge cases. Standard GitHub Actions Tests run #483 completed
-successfully on the cleaned head with:
+validator, and GPU inference edge cases. Standard GitHub Actions Tests run #495 completed
+successfully on the final cleanup head with:
 
 - regression matrices on Python 3.9, 3.10, 3.11, and 3.12;
 - static-contract, compilation, and complete-collection gates;
 - the complete CPU test suite.
 
-The mandatory Tesla P100 exact-head acceptance then ran on clean SHA
+The mandatory Tesla P100 exact-head acceptance ran on clean SHA
 `786af9e2eb4742a56e5203b4380b03aec63a3ac8`:
 
 ```text
@@ -86,7 +87,7 @@ and backend-consistent degenerate F-statistic semantics.
 Permanent regression coverage includes scikit-learn/statsmodels parity, rank-deficient
 PooledOLS inference, HAC row-order invariance, formula intercept behavior, invalid weight
 contracts, multi-output WLS broadcasting, Patsy missing-row alignment, pipeline failure
-propagation, exact-SHA worktree checks, and optional physical CuPy/Torch parity tests.
+propagation, exact-SHA worktree checks, and physical CuPy/Torch parity tests.
 
 ## Exact-head physical-GPU acceptance — PASS
 
