@@ -1242,9 +1242,46 @@ class CoxPH(BaseEstimator):
                     beta = new_beta
                     current_obj = new_ll
             else:
-                beta = beta - delta
+                # No-entry penalized objective line search (matches entry path).
+                if use_penalty:
+                    if current_obj is None:
+                        old_ll = self._compute_log_likelihood_gpu_from_stats(
+                            aux_stats[0], aux_stats[1], aux_stats[2],
+                            time_sorted, event_sorted, efron_pre,
+                        )
+                        old_ll = old_ll - penalty * cp.sum(beta * beta)
+                        current_obj = old_ll
+                    else:
+                        old_ll = current_obj
+                    new_beta = beta - delta
+                    new_ll = self._compute_log_likelihood_gpu(
+                        new_beta, X_sorted, time_sorted, event_sorted, efron_pre,
+                    )
+                    new_ll = new_ll - penalty * cp.sum(new_beta * new_beta)
+                    if float((new_ll - old_ll).item()) <= -1e-8:
+                        step = 0.5
+                        accepted = False
+                        for _ in range(20):
+                            trial_beta = beta - step * delta
+                            trial_ll = self._compute_log_likelihood_gpu(
+                                trial_beta, X_sorted, time_sorted, event_sorted, efron_pre,
+                            )
+                            trial_ll = trial_ll - penalty * cp.sum(trial_beta * trial_beta)
+                            if float((trial_ll - old_ll).item()) > -1e-8:
+                                beta = trial_beta
+                                current_obj = trial_ll
+                                accepted = True
+                                break
+                            step *= 0.5
+                        if not accepted:
+                            accepted_step = False
+                    else:
+                        beta = new_beta
+                        current_obj = new_ll
+                else:
+                    beta = beta - delta
 
-            # Check convergence on GPU
+            # Check convergence: recompute KKT at new beta for correctness.
             if entry_sorted is not None:
                 delta_norm = float(cp.linalg.norm(delta).item())
                 if accepted_step and delta_norm * step < self.tol:
@@ -1254,9 +1291,9 @@ class CoxPH(BaseEstimator):
                     )
                     break
             else:
-                grad_norm = float(cp.linalg.norm(grad).item())
                 delta_norm = float(cp.linalg.norm(delta).item())
-                if accepted_step and grad_norm < max(self.tol * 10.0, 1e-8) and delta_norm * step < self.tol:
+                step_norm = delta_norm * step
+                if accepted_step and step_norm < max(self.tol * (1.0 + float(cp.linalg.norm(beta).item())), 1e-8):
                     self._converged = True
                     break
 
@@ -1600,9 +1637,46 @@ class CoxPH(BaseEstimator):
                     beta = new_beta
                     current_obj = new_ll
             else:
-                beta = beta - delta
+                # No-entry penalized objective line search.
+                if use_penalty:
+                    if current_obj is None:
+                        old_ll = self._compute_log_likelihood_torch_from_stats(
+                            aux_stats[0], aux_stats[1], aux_stats[2],
+                            time_sorted, event_sorted, efron_pre,
+                        )
+                        old_ll = old_ll - penalty * torch.sum(beta * beta)
+                        current_obj = old_ll
+                    else:
+                        old_ll = current_obj
+                    new_beta = beta - delta
+                    new_ll = self._compute_log_likelihood_torch(
+                        new_beta, X_sorted, time_sorted, event_sorted, efron_pre,
+                    )
+                    new_ll = new_ll - penalty * torch.sum(new_beta * new_beta)
+                    if float((new_ll - old_ll).item()) <= -1e-8:
+                        step = 0.5
+                        accepted = False
+                        for _ in range(20):
+                            trial_beta = beta - step * delta
+                            trial_ll = self._compute_log_likelihood_torch(
+                                trial_beta, X_sorted, time_sorted, event_sorted, efron_pre,
+                            )
+                            trial_ll = trial_ll - penalty * torch.sum(trial_beta * trial_beta)
+                            if float((trial_ll - old_ll).item()) > -1e-8:
+                                beta = trial_beta
+                                current_obj = trial_ll
+                                accepted = True
+                                break
+                            step *= 0.5
+                        if not accepted:
+                            accepted_step = False
+                    else:
+                        beta = new_beta
+                        current_obj = new_ll
+                else:
+                    beta = beta - delta
 
-            # Check convergence
+            # Check convergence: step-based criterion at new beta.
             if entry_sorted is not None:
                 delta_norm = float(torch.linalg.norm(delta).item())
                 if accepted_step and delta_norm * step < self.tol:
@@ -1612,9 +1686,9 @@ class CoxPH(BaseEstimator):
                     )
                     break
             else:
-                grad_norm = float(torch.linalg.norm(grad).item())
                 delta_norm = float(torch.linalg.norm(delta).item())
-                if accepted_step and grad_norm < max(self.tol * 10.0, 1e-8) and delta_norm * step < self.tol:
+                step_norm = delta_norm * step
+                if accepted_step and step_norm < max(self.tol * (1.0 + float(torch.linalg.norm(beta).item())), 1e-8):
                     self._converged = True
                     break
 
