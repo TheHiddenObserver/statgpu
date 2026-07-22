@@ -67,14 +67,11 @@ def run_tie_config(X, time_, event, beta_ref, tie_label, penalty=0.0):
     n_events = int(event.sum())
     p = len(beta_ref)
 
-    # Build efron_pre (matching _fit_torch setup)
+    # Build efron_pre using the model's own method (numpy-based pre-computation)
     model = CoxPH(ties="efron", compute_inference=False, compute_cindex=False)
-    # Sort by time descending for risk-set computation
-    order = torch.argsort(t_t, descending=True)
-    X_s = X_t[order]; t_s = t_t[order]; e_s = e_t[order]
-    # Build efron_pre structure
-    unique_times, inverse, counts = torch.unique(t_s[e_s > 0], return_inverse=True, return_counts=True)
-    efron_pre = (t_s, e_s, unique_times, inverse, counts, X_s)
+    # Fit briefly to prepare efron_pre
+    model.fit(X, time=time_, event=event)
+    efron_pre = model._efron_pre
 
     results = {}
 
