@@ -292,8 +292,8 @@ class LinearRegression(BaseEstimator):
         Xw = X * e2[:, cp.newaxis]
         meat = X.T @ Xw
         cov_params = XtX_inv @ meat @ XtX_inv
-        if self.cov_type == "hc1" and n > k:
-            cov_params = cov_params * (n / (n - k))
+        if self.cov_type == "hc1" and self._df_resid is not None and self._df_resid > 0:
+            cov_params = cov_params * (n / self._df_resid)
         return cov_params
     
     def fit(self, X=None, y=None, sample_weight=None, formula=None, data=None):
@@ -740,8 +740,8 @@ class LinearRegression(BaseEstimator):
         Xw = X * e2[:, None]
         meat = X.T @ Xw
         cov_params = XtX_inv @ meat @ XtX_inv
-        if self.cov_type == "hc1" and n > k:
-            cov_params = cov_params * (n / (n - k))
+        if self.cov_type == "hc1" and self._df_resid is not None and self._df_resid > 0:
+            cov_params = cov_params * (n / self._df_resid)
         return cov_params
 
     def _fit_torch(self, X, y, sample_weight=None):
@@ -1043,7 +1043,8 @@ class LinearRegression(BaseEstimator):
         """
         if self._y is None or self._resid is None:
             return None
-        k = int(self._X_design.shape[1] - (1 if self._effective_fit_intercept else 0))
+        k = self._df_model if self._df_model is not None else int(
+            self._X_design.shape[1] - (1 if self._effective_fit_intercept else 0))
         if k <= 0 or self._df_resid is None or self._df_resid <= 0:
             return np.nan
         y = np.asarray(self._y, dtype=float)

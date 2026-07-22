@@ -510,6 +510,9 @@ class CoxPH(BaseEstimator):
         self._nobs = None
         self._nevents = None
         self.concordance_ = None
+        self._cindex = None
+        self._feature_names = None
+        self._design_info = None
         self._fitted = False
 
     def fit(self, X=None, time=None, event=None, entry=None, cluster=None, init_coef=None, formula=None, data=None):
@@ -1654,9 +1657,9 @@ class CoxPH(BaseEstimator):
                 # For hc0/hc1/cluster, use CPU inference path
                 self._compute_inference_cpu(X_sorted.cpu().numpy(), time_sorted.cpu().numpy(), event_sorted.cpu().numpy(),
                                            cluster_sorted.cpu().numpy() if cluster_sorted is not None else None)
-                self._baseline_hazard = None
-                self._baseline_cumulative_hazard = None
-                self._unique_times = None
+            # Compute baseline hazard on Torch for all covariance types
+            if self.compute_inference:
+                self._compute_baseline_hazard_torch(X_sorted, time_sorted, event_sorted, beta)
         else:
             self._var_matrix = None
             self._bse = None
