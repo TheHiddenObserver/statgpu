@@ -1651,8 +1651,6 @@ class CoxPH(BaseEstimator):
                 self._wald_test_pvalue = 1 - stats.chi2.cdf(self._wald_test_stat, n_features)
                 self._score_test_stat = np.nan
                 self._score_test_pvalue = np.nan
-                # Compute baseline hazard on Torch
-                self._compute_baseline_hazard_torch(X_sorted, time_sorted, event_sorted, beta)
             else:
                 # For hc0/hc1/cluster, use CPU inference path
                 self._compute_inference_cpu(X_sorted.cpu().numpy(), time_sorted.cpu().numpy(), event_sorted.cpu().numpy(),

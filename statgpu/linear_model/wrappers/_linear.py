@@ -267,7 +267,7 @@ class LinearRegression(BaseEstimator):
             cov_params *= (n / self._df_resid)
         return cov_params
 
-    def _robust_covariance_cupy(self, X, resid, XtX_inv):
+    def _robust_covariance_cupy(self, X, resid, XtX_inv, *, df_resid=None):
         """Compute robust/HAC covariance matrix for OLS-like score equations on GPU."""
         import cupy as cp
 
@@ -292,8 +292,10 @@ class LinearRegression(BaseEstimator):
         Xw = X * e2[:, cp.newaxis]
         meat = X.T @ Xw
         cov_params = XtX_inv @ meat @ XtX_inv
-        if self.cov_type == "hc1" and self._df_resid is not None and self._df_resid > 0:
-            cov_params = cov_params * (n / self._df_resid)
+        if self.cov_type == "hc1":
+            correction_df = df_resid if df_resid is not None else (n - k)
+            if correction_df > 0:
+                cov_params = cov_params * (n / correction_df)
         return cov_params
     
     def fit(self, X=None, y=None, sample_weight=None, formula=None, data=None):
@@ -314,6 +316,11 @@ class LinearRegression(BaseEstimator):
             DataFrame used with ``formula`` for column lookup.
         """
         self._clear_inference_result()
+        self.rank_ = None
+        self._effective_rank = None
+        self._df_model = None
+        self._df_resid = None
+
         self._sample_weight_fit = None
         self._raw_resid = None
 
@@ -590,7 +597,7 @@ class LinearRegression(BaseEstimator):
                     XtX_inv = cp.linalg.inv(XtX_cov)
                 except Exception:
                     XtX_inv = cp.linalg.pinv(XtX_cov)
-                cov_params = self._robust_covariance_cupy(X_design, resid, XtX_inv)
+                cov_params = self._robust_covariance_cupy(X_design, resid, XtX_inv, df_resid=df_resid)
                 self._bse_gpu = cp.sqrt(cp.maximum(cp.diag(cov_params), 0.0))
                 self._tvalues_gpu = coef_flat / (self._bse_gpu + 1e-30)
                 self._pvalues_gpu = cp.minimum(1.0, 2.0 * norm.sf(cp.abs(self._tvalues_gpu)))
@@ -711,7 +718,7 @@ class LinearRegression(BaseEstimator):
             meat = meat + weight * (gamma + gamma.T)
         return meat
 
-    def _robust_covariance_torch(self, X, resid, XtX_inv, device=None):
+    def _robust_covariance_torch(self, X, resid, XtX_inv, device=None, *, df_resid=None):
         """Compute robust/HAC covariance matrix for OLS-like score equations on Torch GPU."""
         import torch
 
@@ -740,8 +747,10 @@ class LinearRegression(BaseEstimator):
         Xw = X * e2[:, None]
         meat = X.T @ Xw
         cov_params = XtX_inv @ meat @ XtX_inv
-        if self.cov_type == "hc1" and self._df_resid is not None and self._df_resid > 0:
-            cov_params = cov_params * (n / self._df_resid)
+        if self.cov_type == "hc1":
+            correction_df = df_resid if df_resid is not None else (n - k)
+            if correction_df > 0:
+                cov_params = cov_params * (n / correction_df)
         return cov_params
 
     def _fit_torch(self, X, y, sample_weight=None):
@@ -851,7 +860,7 @@ class LinearRegression(BaseEstimator):
                     XtX_inv = torch.linalg.inv(XtX_cov)
                 except Exception:
                     XtX_inv = torch.linalg.pinv(XtX_cov)
-                cov_params = self._robust_covariance_torch(X_design, resid, XtX_inv, device=torch_device)
+                cov_params = self._robust_covariance_torch(X_design, resid, XtX_inv, device=torch_device, df_resid=df_resid)
                 self._bse_gpu = torch.sqrt(torch.clamp(torch.diag(cov_params), 0.0))
                 self._tvalues_gpu = coef_flat / (self._bse_gpu + 1e-30)
                 self._pvalues_gpu = torch.clamp(2.0 * norm.sf(torch.abs(self._tvalues_gpu), device=torch_device), 0.0, 1.0)

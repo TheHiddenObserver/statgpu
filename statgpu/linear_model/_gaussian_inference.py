@@ -104,6 +104,7 @@ def robust_covariance_numpy(
     bread_inv: np.ndarray,
     cov_type: str,
     hac_maxlags: Optional[int] = None,
+    df_resid: Optional[int] = None,
 ) -> np.ndarray:
     cov_type = validate_cov_type(cov_type)
     n, k = X.shape
@@ -128,12 +129,14 @@ def robust_covariance_numpy(
         omega = resid ** 2
 
     meat = X.T @ (X * omega[:, None])
-    if cov_type == "hc1" and n > k:
-        meat *= n / (n - k)
+    if cov_type == "hc1":
+        correction_df = df_resid if df_resid is not None else (n - k)
+        if correction_df > 0:
+            meat *= n / correction_df
     return bread_inv @ meat @ bread_inv
 
 
-def robust_covariance_gpu(X, resid, bread_inv, cov_type, xp, hac_maxlags=None):
+def robust_covariance_gpu(X, resid, bread_inv, cov_type, xp, hac_maxlags=None, df_resid=None):
     """GPU-native robust/HAC covariance (CuPy or Torch)."""
     cov_type = validate_cov_type(cov_type)
     n, k = X.shape
@@ -157,8 +160,10 @@ def robust_covariance_gpu(X, resid, bread_inv, cov_type, xp, hac_maxlags=None):
         omega = resid ** 2
 
     meat = X.T @ (X * omega[:, None])
-    if cov_type == "hc1" and n > k:
-        meat = meat * (n / (n - k))
+    if cov_type == "hc1":
+        correction_df = df_resid if df_resid is not None else (n - k)
+        if correction_df > 0:
+            meat = meat * (n / correction_df)
     return bread_inv @ meat @ bread_inv
 
 
