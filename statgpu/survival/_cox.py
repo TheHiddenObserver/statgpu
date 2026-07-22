@@ -548,11 +548,12 @@ class CoxPH(BaseEstimator):
 
         # Delayed entry + robust/cluster covariance is not yet implemented.
         # Guard early to avoid silent incorrect covariance from entry-unaware
-        # score residuals.
-        if entry is not None and self.cov_type != "nonrobust":
+        # score residuals.  Only blocks when inference is actually requested;
+        # coefficient estimation itself supports entry regardless of cov_type.
+        if entry is not None and self.compute_inference and self.cov_type != "nonrobust":
             raise NotImplementedError(
                 "Robust/cluster covariance with delayed entry is not implemented. "
-                "Use cov_type='nonrobust' when entry is provided."
+                "Use cov_type='nonrobust' or compute_inference=False when entry is provided."
             )
 
         # Handle formula interface
