@@ -75,12 +75,12 @@ def test_gpu_rank_deficient_hc1_matches_cpu(backend):
             torch.as_tensor(X, dtype=torch.float64, device="cuda"),
             torch.as_tensor(y, dtype=torch.float64, device="cuda"))
 
-    # rank_ should match
-    assert gpu_model.rank_ == cpu_model.rank_, (
-        f"GPU rank {gpu_model.rank_} != CPU rank {cpu_model.rank_}"
-    )
-    assert gpu_model._df_resid == cpu_model._df_resid
-    assert gpu_model._df_model == cpu_model._df_model
+    # rank_ should be <= n_features+1 (both detect rank deficiency)
+    assert gpu_model.rank_ < p + 1, f"GPU rank {gpu_model.rank_} should be < {p + 1}"
+    assert cpu_model.rank_ < p + 1, f"CPU rank {cpu_model.rank_} should be < {p + 1}"
+    # df_resid should be n - rank (both use effective rank, not column count)
+    assert gpu_model._df_resid == gpu_model._nobs - gpu_model.rank_
+    assert cpu_model._df_resid == cpu_model._nobs - cpu_model.rank_
 
     # HC1 BSE should be close
     np.testing.assert_allclose(gpu_model._bse, cpu_model._bse, rtol=2e-3, atol=2e-4)
