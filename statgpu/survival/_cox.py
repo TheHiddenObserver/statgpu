@@ -880,7 +880,7 @@ class CoxPH(BaseEstimator):
         # Compute optional inference statistics
         if self.compute_inference:
             self._compute_inference_cpu(X_sorted, time_sorted, event_sorted, cluster_sorted)
-            self._compute_baseline_hazard(X_sorted, time_sorted, event_sorted)
+            self._compute_baseline_hazard(X_sorted, time_sorted, event_sorted, entry=entry_sorted)
         else:
             self._var_matrix = None
             self._bse = None
@@ -1308,7 +1308,7 @@ class CoxPH(BaseEstimator):
                 self._score_test_stat = np.nan
                 self._score_test_pvalue = np.nan
                 # Compute baseline hazard on GPU — consistent with Torch and CPU paths.
-                self._compute_baseline_hazard_gpu(X_sorted, time_sorted, event_sorted, beta)
+                self._compute_baseline_hazard_gpu(X_sorted, time_sorted, event_sorted, beta, entry=entry_sorted)
             else:
                 score_resid_gpu = self._compute_robust_score_residuals_gpu(X_sorted, time_sorted, event_sorted)
                 try:
@@ -1357,7 +1357,7 @@ class CoxPH(BaseEstimator):
                 self._score_test_stat = np.nan
                 self._score_test_pvalue = np.nan
                 # Compute baseline hazard on GPU
-                self._compute_baseline_hazard_gpu(X_sorted, time_sorted, event_sorted, beta)
+                self._compute_baseline_hazard_gpu(X_sorted, time_sorted, event_sorted, beta, entry=entry_sorted)
         else:
             self._var_matrix = None
             self._bse = None
@@ -1657,7 +1657,7 @@ class CoxPH(BaseEstimator):
                                            cluster_sorted.cpu().numpy() if cluster_sorted is not None else None)
             # Compute baseline hazard on Torch for all covariance types
             if self.compute_inference:
-                self._compute_baseline_hazard_torch(X_sorted, time_sorted, event_sorted, beta)
+                self._compute_baseline_hazard_torch(X_sorted, time_sorted, event_sorted, beta, entry=entry_sorted)
         else:
             self._var_matrix = None
             self._bse = None
@@ -3848,7 +3848,7 @@ class CoxPH(BaseEstimator):
         u = event_mask[:, np.newaxis] * s - exp_eta[:, np.newaxis] * csum_a
         return u
     
-    def _compute_baseline_hazard(self, X, time, event):
+    def _compute_baseline_hazard(self, X, time, event, entry=None):
         """Compute Breslow estimator of baseline hazard and survival function."""
         # Get unique event times
         event_mask = event == 1
@@ -3874,6 +3874,8 @@ class CoxPH(BaseEstimator):
             
             # Risk set at time t (all with time >= t)
             risk_set = time >= t
+            if entry is not None:
+                risk_set = risk_set & (entry <= t)
             risk_sum = np.sum(exp_eta[risk_set])
             
             # Breslow estimator contribution
@@ -3885,7 +3887,7 @@ class CoxPH(BaseEstimator):
         # Hazard (discrete)
         self._baseline_hazard = cumulative_hazard
 
-    def _compute_baseline_hazard_gpu(self, X, time, event, beta):
+    def _compute_baseline_hazard_gpu(self, X, time, event, beta, entry=None):
         """Compute Breslow estimator of baseline hazard and survival function on GPU."""
         import cupy as cp
 
@@ -3915,6 +3917,8 @@ class CoxPH(BaseEstimator):
 
             # Risk set at time t (all with time >= t)
             risk_set = time >= t
+            if entry is not None:
+                risk_set = risk_set & (entry <= t)
             risk_sum = cp.sum(exp_eta[risk_set])
 
             # Breslow estimator contribution
@@ -3931,7 +3935,7 @@ class CoxPH(BaseEstimator):
         self._baseline_hazard = cp.asnumpy(self._baseline_hazard)
         self._baseline_cumulative_hazard = cp.asnumpy(self._baseline_cumulative_hazard)
 
-    def _compute_baseline_hazard_torch(self, X, time, event, beta):
+    def _compute_baseline_hazard_torch(self, X, time, event, beta, entry=None):
         """Compute Breslow estimator of baseline hazard and survival function on Torch."""
         import torch
 
@@ -3960,6 +3964,8 @@ class CoxPH(BaseEstimator):
 
             # Risk set at time t (all with time >= t)
             risk_set = time >= t
+            if entry is not None:
+                risk_set = risk_set & (entry <= t)
             risk_sum = torch.sum(exp_eta[risk_set])
 
             # Breslow estimator contribution
