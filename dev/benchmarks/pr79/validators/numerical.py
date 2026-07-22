@@ -49,7 +49,10 @@ def bse_rel_error(bse: np.ndarray, ref: np.ndarray) -> float:
     """Relative BSE error (max element)."""
     bse = np.asarray(bse); ref = np.asarray(ref)
     err = np.abs(bse - ref) / np.maximum(np.abs(ref), 1e-30)
-    return float(np.max(err[np.isfinite(err)]))
+    finite_err = err[np.isfinite(err)]
+    if len(finite_err) == 0:
+        return 0.0
+    return float(np.max(finite_err))
 
 
 def covariance_rel_fro_error(cov: np.ndarray, ref: np.ndarray) -> float:
