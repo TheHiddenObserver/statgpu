@@ -256,6 +256,56 @@ def _efron_backward_scan_vectorized(
     return grad, -hess
 
 
+def _align_cox_side_array(values, retained_rows, original_n, name="array"):
+    """Filter a side array to match rows retained by Patsy after NA drops.
+
+    Parameters
+    ----------
+    values : array-like or None
+        Side array (entry, cluster, etc.).  May be NumPy, CuPy, or Torch.
+    retained_rows : ndarray of int64
+        Zero-based row positions kept by Patsy.
+    original_n : int
+        Number of rows in the original DataFrame.
+    name : str
+        Human-readable name for error messages.
+
+    Returns
+    -------
+    array-like or None
+        Filtered array matching the retained rows, or None.
+    """
+    if values is None:
+        return None
+
+    arr = np.asarray(values)
+    if arr.ndim != 1:
+        raise ValueError(f"{name} must be one-dimensional")
+
+    n_values = arr.shape[0]
+    n_retained = len(retained_rows)
+    if n_values == n_retained:
+        return values  # already aligned, preserve backend
+    if n_values != original_n:
+        raise ValueError(
+            f"{name} length {n_values} does not match "
+            f"original data length {original_n}"
+        )
+
+    # Detect backend and filter on-device when possible.
+    module = type(values).__module__
+    if module.startswith("cupy"):
+        import cupy as cp
+        idx = cp.asarray(retained_rows)
+        return values[idx]
+    if module.startswith("torch"):
+        import torch
+        idx = torch.as_tensor(retained_rows, device=values.device)
+        return values[idx]
+
+    return arr[retained_rows]
+
+
 class CoxPH(BaseEstimator):
     """
     Cox Proportional Hazards regression with GPU acceleration.
@@ -448,14 +498,17 @@ class CoxPH(BaseEstimator):
             from patsy import EvalEnvironment
 
             env = make_surv_env()
-            # Create evaluation environment with custom Surv function
             custom_env = EvalEnvironment([env])
+            # Replace index with zero-based positions so Patsy's row-dropping
+            # leaves behind a true positional index (not original labels).
+            formula_data = data.copy(deep=False)
+            formula_data.index = np.arange(len(data), dtype=np.int64)
             y_patsy, X_patsy = patsy.dmatrices(
-                formula, data, eval_env=custom_env, return_type="dataframe",
+                formula, formula_data, eval_env=custom_env,
+                return_type="dataframe",
             )
             design_info = X_patsy.design_info
-            row_positions = np.asarray(X_patsy.index, dtype=np.int64)
-            setattr(design_info, "_statgpu_row_positions", row_positions)
+            retained_rows = np.asarray(X_patsy.index, dtype=np.int64)
 
             # y_patsy is the result of Surv(time, event) -> shape (n, 2)
             y_arr = np.asarray(y_patsy)
@@ -468,11 +521,11 @@ class CoxPH(BaseEstimator):
             event = y_arr[:, 1]
             X_arr = np.asarray(X_patsy)
 
-            # Align side arrays after Patsy drops rows with missing values
-            from statgpu.panel._formula import _align_formula_side_array
-            n_retained = y_arr.shape[0]
-            entry = _align_formula_side_array(entry, design_info, n_retained, "entry")
-            cluster = _align_formula_side_array(cluster, design_info, n_retained, "cluster")
+            # Align side arrays after Patsy drops rows with missing values.
+            # Keep alignment local to avoid cross-module coupling.
+            n_original = len(data)
+            entry = _align_cox_side_array(entry, retained_rows, n_original, "entry")
+            cluster = _align_cox_side_array(cluster, retained_rows, n_original, "cluster")
 
             # Drop intercept column from design matrix (CoxPH doesn't use intercept)
             self._feature_names = list(design_info.column_names)
