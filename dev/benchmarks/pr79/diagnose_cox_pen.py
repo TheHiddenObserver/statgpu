@@ -229,7 +229,7 @@ def _from_torch(x):
 def _compute_cpu_grad_hess(model, beta, X, time_, event):
     """Use CuPy path for CPU gradient/Hessian at fixed beta."""
     import cupy as cp
-    X_g = cp.asarray(X); t_g = cp.asarray(time_); e_g = cp.asarray(event_)
+    X_g = cp.asarray(X); t_g = cp.asarray(time_); e_g = cp.asarray(event)
     b_g = cp.asarray(beta)
     g, h, a = model._compute_gradient_hessian_gpu(b_g, X_g, t_g, e_g, None, return_aux=True)
     return cp.asnumpy(g), cp.asnumpy(h), a
@@ -240,7 +240,7 @@ def _compute_cpu_grad(model, beta, X, time_, event):
 
 def _compute_cpu_ll(model, beta, X, time_, event):
     import cupy as cp
-    X_g = cp.asarray(X); t_g = cp.asarray(time_); e_g = cp.asarray(event_)
+    X_g = cp.asarray(X); t_g = cp.asarray(time_); e_g = cp.asarray(event)
     b_g = cp.asarray(beta)
     return float(cp.asnumpy(model._compute_log_likelihood_gpu(
         b_g, X_g, t_g, e_g, None)))
