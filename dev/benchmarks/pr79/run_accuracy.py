@@ -243,6 +243,17 @@ def _backend_inputs(X, y, backend, sw=None):
 
 def _extract(m):
     r = {}
+    # Add information-matrix condition number for condition-aware thresholds
+    vm = getattr(m, "_var_matrix", None)
+    if vm is not None:
+        try:
+            if hasattr(vm, "get"): import cupy as cp; vm = cp.asnumpy(vm)
+            elif hasattr(vm, "cpu") and hasattr(vm, "detach"): vm = vm.detach().cpu().numpy()
+            vm_np = np.asarray(vm, dtype=float)
+            r["_info_cond"] = float(np.linalg.cond(vm_np))
+        except Exception:
+            pass
+
     for a in ["coef_", "intercept_", "rank_", "rsquared", "aic", "bic",
               "_df_model", "_df_resid", "_bse", "_pvalues", "_log_likelihood",
               "_var_matrix", "_converged"]:
