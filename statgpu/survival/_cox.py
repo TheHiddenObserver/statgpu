@@ -480,6 +480,38 @@ class CoxPH(BaseEstimator):
                 return bool(conv_attr)
         return None
         
+    def _reset_fit_state(self):
+        """Clear all fitted state before a new fit."""
+        self._fitted = False
+        self._converged = False
+        self._iterations = 0
+        self.coef_ = None
+        self.hazard_ratios_ = None
+        self._bse = None
+        self._zvalues = None
+        self._pvalues = None
+        self._conf_int = None
+        self._var_matrix = None
+        self._log_likelihood = None
+        self._log_likelihood_null = None
+        self._lr_test_stat = None
+        self._lr_test_pvalue = None
+        self._wald_test_stat = None
+        self._wald_test_pvalue = None
+        self._score_test_stat = None
+        self._score_test_pvalue = None
+        self._baseline_hazard = None
+        self._baseline_cumulative_hazard = None
+        self._unique_times = None
+        self._time = None
+        self._event = None
+        self._X = None
+        self._entry = None
+        self._nobs = None
+        self._nevents = None
+        self.concordance_ = None
+        self._fitted = False
+
     def fit(self, X=None, time=None, event=None, entry=None, cluster=None, init_coef=None, formula=None, data=None):
         """
         Fit Cox Proportional Hazards model.
@@ -509,6 +541,8 @@ class CoxPH(BaseEstimator):
         self : CoxPH
             Fitted estimator.
         """
+        self._reset_fit_state()
+
         # Handle formula interface
         if formula is not None:
             if data is None:
@@ -1270,10 +1304,8 @@ class CoxPH(BaseEstimator):
                 self._wald_test_pvalue = 1 - stats.chi2.cdf(self._wald_test_stat, n_features)
                 self._score_test_stat = np.nan
                 self._score_test_pvalue = np.nan
-                # Keep baseline hazard optional in CUDA fast path to reduce transfer overhead.
-                self._baseline_hazard = None
-                self._baseline_cumulative_hazard = None
-                self._unique_times = None
+                # Compute baseline hazard on GPU — consistent with Torch and CPU paths.
+                self._compute_baseline_hazard_gpu(X_sorted, time_sorted, event_sorted, beta)
             else:
                 score_resid_gpu = self._compute_robust_score_residuals_gpu(X_sorted, time_sorted, event_sorted)
                 try:
