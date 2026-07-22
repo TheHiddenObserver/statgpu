@@ -61,7 +61,9 @@ def main():
 
     for name, (dev, to_fn, from_fn) in backends.items():
         print(f"  {name}:")
-        X_b, t_b, e_b = to_fn(X), time_, event
+        X_b = to_fn(X)
+        t_b = to_fn(time_)
+        e_b = to_fn(event.astype(np.int32))
         beta_b = to_fn(beta_ref)
 
         model = CoxPH(ties="efron", penalty=penalty, compute_inference=False,
@@ -82,8 +84,6 @@ def main():
             ll = float(model._compute_log_likelihood_torch_from_stats(
                 aux[0], aux[1], aux[2], t_b, e_b, None).item())
         else:
-            import cupy as cp
-            ll = model._compute_log_likelihood_gpu(beta_b, X_b, t_b, e_b, None)[0] if False else None
             ll = float(_compute_cpu_ll(model, beta_ref, X, time_, event))
 
         # Hessian to numpy
