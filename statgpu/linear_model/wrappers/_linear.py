@@ -446,7 +446,8 @@ class LinearRegression(BaseEstimator):
         else:
             self._X_design = X_fit.copy()
 
-        coef, _, _, _ = np.linalg.lstsq(self._X_design, y_fit, rcond=None)
+        coef, _, rank, _ = np.linalg.lstsq(self._X_design, y_fit, rcond=None)
+        self._effective_rank = int(rank)
 
         if self._effective_fit_intercept:
             if coef.shape[1] > 1:
@@ -479,7 +480,7 @@ class LinearRegression(BaseEstimator):
         self._raw_resid = raw_resid[:, 0] if raw_resid.shape[1] == 1 else raw_resid
         if self._resid.shape[1] == 1:
             self._resid = self._resid[:, 0]
-        self._df_resid = n_samples - (n_features + (1 if self._effective_fit_intercept else 0))
+        self._df_resid = n_samples - self._effective_rank
         
         if self._df_resid > 0:
             if np.asarray(self._resid).ndim == 1:
@@ -541,7 +542,9 @@ class LinearRegression(BaseEstimator):
             tmp = cp.linalg.solve_triangular(L, Xty, lower=True)
             coef = cp.linalg.solve_triangular(L.T, tmp, lower=False)
         except Exception:
-            coef = cp.linalg.lstsq(X_design, y, rcond=None)[0]
+            lstsq_result = cp.linalg.lstsq(X_design, y, rcond=None)
+            coef = lstsq_result[0]
+            self._effective_rank = int(lstsq_result[2]) if len(lstsq_result) > 2 else X_design.shape[1]
 
         # Compute weighted inference residuals and raw diagnostic residuals.
         y_pred = X_design @ coef
@@ -552,9 +555,9 @@ class LinearRegression(BaseEstimator):
             else X_raw @ coef
         )
         raw_resid = y_2d - raw_pred
-        
+
         # Compute scale on GPU
-        df_resid = n_samples - (n_features + (1 if self._effective_fit_intercept else 0))
+        df_resid = n_samples - self._effective_rank
         if df_resid > 0:
             if y.shape[1] > 1:
                 scale = cp.sum(resid ** 2, axis=0) / df_resid

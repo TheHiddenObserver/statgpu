@@ -137,7 +137,7 @@ def two_way_clustered_covariance(X, resid, cluster1, cluster2, xp=None):
     # Factorize labels to integers (supports string/categorical labels)
     c1_raw = np.asarray(_to_numpy(cluster1)).ravel()
     c2_raw = np.asarray(_to_numpy(cluster2)).ravel()
-    n = int(np.asarray(_to_numpy(X)).shape[0])
+    n = int(X.shape[0])
     if c1_raw.shape[0] != n or c2_raw.shape[0] != n:
         raise ValueError("cluster arrays must match the number of observations")
     _, c1 = np.unique(c1_raw, return_inverse=True)

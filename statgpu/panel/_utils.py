@@ -309,8 +309,11 @@ def make_group_dummies(groups, xp=None):
 
     # Build dummy matrix using advanced indexing (no per-group loop)
     D = xp_zeros((n, n_groups), xp.float64, xp, groups)
-    row_idx = xp.arange(n, device=getattr(groups, 'device', None)
-                        if hasattr(groups, 'device') else None)
+    if getattr(xp, '__name__', '') == 'torch':
+        row_idx = xp.arange(n, device=getattr(groups, 'device', None)
+                            if hasattr(groups, 'device') else None)
+    else:
+        row_idx = xp.arange(n)
     D[row_idx, idx] = 1.0
 
     return D

@@ -451,9 +451,12 @@ class CoxPH(BaseEstimator):
             # Create evaluation environment with custom Surv function
             custom_env = EvalEnvironment([env])
             y_patsy, X_patsy = patsy.dmatrices(
-                formula, data, eval_env=custom_env, return_type="matrix",
+                formula, data, eval_env=custom_env, return_type="dataframe",
             )
             design_info = X_patsy.design_info
+            row_positions = np.asarray(X_patsy.index, dtype=np.int64)
+            setattr(design_info, "_statgpu_row_positions", row_positions)
+
             # y_patsy is the result of Surv(time, event) -> shape (n, 2)
             y_arr = np.asarray(y_patsy)
             if y_arr.ndim == 1:
@@ -464,6 +467,12 @@ class CoxPH(BaseEstimator):
             time = y_arr[:, 0]
             event = y_arr[:, 1]
             X_arr = np.asarray(X_patsy)
+
+            # Align side arrays after Patsy drops rows with missing values
+            from statgpu.panel._formula import _align_formula_side_array
+            n_retained = y_arr.shape[0]
+            entry = _align_formula_side_array(entry, design_info, n_retained, "entry")
+            cluster = _align_formula_side_array(cluster, design_info, n_retained, "cluster")
 
             # Drop intercept column from design matrix (CoxPH doesn't use intercept)
             self._feature_names = list(design_info.column_names)
@@ -1173,7 +1182,8 @@ class CoxPH(BaseEstimator):
                 self._zvalues = cp.asnumpy(z_gpu)
                 self._pvalues = cp.asnumpy(p_gpu)
                 self._conf_int = cp.asnumpy(ci_gpu)
-                self._var_matrix = np.diag(np.square(self._bse))
+                self._var_matrix = cp.asnumpy(var_gpu)
+                self._var_matrix = 0.5 * (self._var_matrix + self._var_matrix.T)  # numerical symmetrization
                 self._lr_test_stat = 2 * (self._log_likelihood - self._log_likelihood_null)
                 self._lr_test_pvalue = 1 - stats.chi2.cdf(self._lr_test_stat, n_features)
                 try:
@@ -1518,7 +1528,8 @@ class CoxPH(BaseEstimator):
                 self._zvalues = z_torch.cpu().numpy()
                 self._pvalues = p_torch.cpu().numpy()
                 self._conf_int = ci_torch.cpu().numpy()
-                self._var_matrix = np.diag(np.square(self._bse))
+                self._var_matrix = var_torch.cpu().numpy()
+                self._var_matrix = 0.5 * (self._var_matrix + self._var_matrix.T)  # numerical symmetrization
                 self._lr_test_stat = 2 * (self._log_likelihood - self._log_likelihood_null)
                 self._lr_test_pvalue = 1 - stats.chi2.cdf(self._lr_test_stat, n_features)
                 try:
