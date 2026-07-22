@@ -130,15 +130,17 @@ def main():
     for name, (dev, to_fn, from_fn) in backends.items():
         if name == "numpy":
             beta_b = beta_ref
+            X_b, t_b, e_b = X, time_, event
         else:
+            X_b = to_fn(X)
+            t_b = to_fn(time_)
+            e_b = to_fn(event.astype(np.int32))
             model = CoxPH(ties="efron", penalty=penalty, compute_inference=True,
                           device=dev, compute_cindex=False, tol=1e-6, max_iter=30)
-            X_b, t_b, e_b = to_fn(X), time_, event
             model.fit(X_b, time=t_b, event=e_b)
             beta_b = from_fn(model.coef_)
 
         # Compute gradient at fitted beta
-        X_b, t_b, e_b = to_fn(X), time_, event
         beta_dev = to_fn(beta_b)
 
         if name == "cupy":
