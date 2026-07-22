@@ -72,7 +72,9 @@ class LinearRegression(BaseEstimator):
         self.hac_maxlags = validate_hac_maxlags(hac_maxlags)
         self.coef_ = None
         self.intercept_ = None
-        
+        self.rank_ = None
+        self._df_model = None
+
         # Internal storage for inference
         self._X_design = None
         self._y = None
@@ -447,7 +449,10 @@ class LinearRegression(BaseEstimator):
             self._X_design = X_fit.copy()
 
         coef, _, rank, _ = np.linalg.lstsq(self._X_design, y_fit, rcond=None)
-        self._effective_rank = int(rank)
+        self.rank_ = int(rank)
+        self._effective_rank = self.rank_
+        self._df_model = max(self.rank_ - (1 if self._effective_fit_intercept else 0), 0)
+        self._df_resid = n_samples - self.rank_
 
         if self._effective_fit_intercept:
             if coef.shape[1] > 1:
@@ -480,8 +485,8 @@ class LinearRegression(BaseEstimator):
         self._raw_resid = raw_resid[:, 0] if raw_resid.shape[1] == 1 else raw_resid
         if self._resid.shape[1] == 1:
             self._resid = self._resid[:, 0]
-        self._df_resid = n_samples - self._effective_rank
-        
+
+
         if self._df_resid > 0:
             if np.asarray(self._resid).ndim == 1:
                 self._scale = np.sum(self._resid ** 2) / self._df_resid
@@ -536,15 +541,19 @@ class LinearRegression(BaseEstimator):
         XtX = X_design.T @ X_design
         Xty = X_design.T @ y
         
+        n_design_cols = int(X_design.shape[1])
         try:
-            # Cholesky decomposition
             L = cp.linalg.cholesky(XtX)
             tmp = cp.linalg.solve_triangular(L, Xty, lower=True)
             coef = cp.linalg.solve_triangular(L.T, tmp, lower=False)
+            self.rank_ = n_design_cols
         except Exception:
             lstsq_result = cp.linalg.lstsq(X_design, y, rcond=None)
             coef = lstsq_result[0]
-            self._effective_rank = int(lstsq_result[2]) if len(lstsq_result) > 2 else X_design.shape[1]
+            self.rank_ = int(lstsq_result[2]) if len(lstsq_result) > 2 else n_design_cols
+        self._effective_rank = self.rank_
+        self._df_model = max(self.rank_ - (1 if self._effective_fit_intercept else 0), 0)
+        df_resid = n_samples - self.rank_
 
         # Compute weighted inference residuals and raw diagnostic residuals.
         y_pred = X_design @ coef
@@ -795,15 +804,18 @@ class LinearRegression(BaseEstimator):
         XtX = X_design.T @ X_design
         Xty = X_design.T @ y
 
+        n_design_cols = int(X_design.shape[1])
         try:
-            # Cholesky decomposition
             L = torch.linalg.cholesky(XtX)
-            # Solve L @ tmp = Xty (L is lower triangular)
             tmp = torch.linalg.solve_triangular(L, Xty, upper=False)
-            # Solve L.T @ coef = tmp (L.T is upper triangular)
             coef = torch.linalg.solve_triangular(L.T, tmp, upper=True)
+            self.rank_ = n_design_cols
         except Exception:
             coef = torch.linalg.lstsq(X_design, y).solution
+            self.rank_ = int(torch.linalg.matrix_rank(X_design).item())
+        self._effective_rank = self.rank_
+        self._df_model = max(self.rank_ - (1 if self._effective_fit_intercept else 0), 0)
+        df_resid = n_samples - self.rank_
 
         # Compute weighted inference residuals and raw diagnostic residuals.
         y_pred = X_design @ coef
@@ -815,8 +827,7 @@ class LinearRegression(BaseEstimator):
         )
         raw_resid = y_2d - raw_pred
 
-        # Compute scale on Torch
-        df_resid = n_samples - (n_features + (1 if self._effective_fit_intercept else 0))
+        # Compute scale on Torch (df_resid already set above)
         if df_resid > 0:
             if y.shape[1] > 1:
                 scale = torch.sum(resid ** 2, dim=0) / df_resid
