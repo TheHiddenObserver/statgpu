@@ -935,6 +935,11 @@ class CoxPH(BaseEstimator):
         does not support penalized fitting). A warning is emitted when
         penalty is specified.
         """
+        if self.cov_type != "nonrobust":
+            raise NotImplementedError(
+                "Robust/cluster covariance with delayed entry is not implemented. "
+                "Use cov_type='nonrobust' when entry is provided."
+            )
         if float(self.penalty) > 0:
             import warnings
             warnings.warn(
@@ -1009,9 +1014,14 @@ class CoxPH(BaseEstimator):
     
     def _fit_gpu(self, X, time, event, entry=None, cluster=None, init_coef=None):
         """Fit using GPU with full GPU computation."""
+        if entry is not None and self.cov_type != "nonrobust":
+            raise NotImplementedError(
+                "Robust/cluster covariance with delayed entry is not implemented. "
+                "Use cov_type='nonrobust' when entry is provided."
+            )
         import cupy as cp
         from statgpu.inference._distributions_backend import norm
-        
+
         n_samples, n_features = X.shape
 
         # Transfer to GPU once
@@ -1376,6 +1386,11 @@ class CoxPH(BaseEstimator):
 
     def _fit_torch(self, X, time, event, entry=None, cluster=None, torch_device="cuda", init_coef=None):
         """Fit using Torch with full GPU computation."""
+        if entry is not None and self.cov_type != "nonrobust":
+            raise NotImplementedError(
+                "Robust/cluster covariance with delayed entry is not implemented. "
+                "Use cov_type='nonrobust' when entry is provided."
+            )
         import torch
         from statgpu.inference._distributions_backend import norm
 

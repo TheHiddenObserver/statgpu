@@ -288,6 +288,7 @@ def compute_gaussian_inference(
         bread_inv,
         cov_type,
         hac_maxlags=hac_maxlags,
+        df_resid=df_resid,
     )
     bse = np.sqrt(np.maximum(np.diag(cov_params), 0.0))
     tvalues = params_arr / (bse + 1e-30)
