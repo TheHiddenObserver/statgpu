@@ -1184,20 +1184,41 @@ class CoxPH(BaseEstimator):
             else None
         )
 
-        # Newton-Raphson optimization on GPU
+        # Newton-Raphson optimization on GPU with KKT-based convergence
         loglik_gpu = None
         current_obj = None
-        iteration = -1  # default if max_iter=0
+        iteration = -1
+        kkt_tol = max(self.tol * 1e-3, 1e-9)  # KKT threshold
+        self._termination_reason = "max_iter"
+        self._final_kkt_inf = None
+        self._final_kkt_normalized = None
+
         for iteration in range(self.max_iter):
-            # Compute gradient and Hessian on GPU
+            # Compute gradient and Hessian at CURRENT beta_k
             grad, hess, aux_stats = self._compute_gradient_hessian_gpu(
                 beta, X_sorted, time_sorted, event_sorted, efron_pre, return_aux=True, entry=entry_sorted, entry_ctx=entry_ctx_gpu
             )
 
-            # Add penalty terms: gradient -= 2*penalty*beta, hessian -= 2*penalty*I
+            # Check KKT at current beta BEFORE taking the step.
             if use_penalty:
-                grad = grad - 2 * penalty * beta
-                # In-place diagonal shift avoids allocating a new dense eye each iteration.
+                pen_grad = grad - 2 * penalty * beta
+            else:
+                pen_grad = grad
+            kkt_inf = float(cp.linalg.norm(pen_grad, ord=cp.inf).item())
+            grad_inf = float(cp.linalg.norm(grad, ord=cp.inf).item())
+            beta_inf = float(cp.linalg.norm(beta, ord=cp.inf).item())
+            kkt_norm = kkt_inf / (1.0 + grad_inf + 2.0 * penalty * beta_inf)
+
+            if kkt_norm <= kkt_tol:
+                self._converged = True
+                self._termination_reason = "kkt_converged"
+                self._final_kkt_inf = kkt_inf
+                self._final_kkt_normalized = kkt_norm
+                break
+
+            # Add penalty terms for Newton step
+            if use_penalty:
+                grad = pen_grad
                 hess[diag_idx, diag_idx] -= 2 * penalty
 
             # Newton: delta = inv(hess) @ grad; hess is NSD — solve (-hess) x = grad, delta = -x
@@ -1281,21 +1302,34 @@ class CoxPH(BaseEstimator):
                 else:
                     beta = beta - delta
 
-            # Check convergence: recompute KKT at new beta for correctness.
-            if entry_sorted is not None:
-                delta_norm = float(cp.linalg.norm(delta).item())
-                if accepted_step and delta_norm * step < self.tol:
-                    self._converged = True
-                    loglik_gpu = self._compute_log_likelihood_gpu(
-                        beta, X_sorted, time_sorted, event_sorted, efron_pre, entry=entry_sorted, entry_ctx=entry_ctx_gpu
-                    )
-                    break
+            # Check step-based convergence after Newton update.
+            if not accepted_step:
+                self._termination_reason = "line_search_failed"
+                self._converged = False
+                break
+
+            delta_norm = float(cp.linalg.norm(delta).item())
+            step_norm = delta_norm * step
+            if step_norm < max(self.tol * (1.0 + float(cp.linalg.norm(beta).item())), 1e-8):
+                self._converged = True
+                self._termination_reason = "step_converged"
+                break
+
+        # Compute final KKT at exit point (unless already broken with kkt_converged)
+        if self._final_kkt_inf is None:
+            grad_final, hess_final, _aux_final = self._compute_gradient_hessian_gpu(
+                beta, X_sorted, time_sorted, event_sorted, efron_pre, return_aux=True,
+                entry=entry_sorted, entry_ctx=entry_ctx_gpu,
+            )
+            if use_penalty:
+                pen_grad_final = grad_final - 2 * penalty * beta
             else:
-                delta_norm = float(cp.linalg.norm(delta).item())
-                step_norm = delta_norm * step
-                if accepted_step and step_norm < max(self.tol * (1.0 + float(cp.linalg.norm(beta).item())), 1e-8):
-                    self._converged = True
-                    break
+                pen_grad_final = grad_final
+            self._final_kkt_inf = float(cp.linalg.norm(pen_grad_final, ord=cp.inf).item())
+            self._final_kkt_normalized = self._final_kkt_inf / (
+                1.0 + float(cp.linalg.norm(grad_final, ord=cp.inf).item())
+                + 2.0 * penalty * float(cp.linalg.norm(beta, ord=cp.inf).item())
+            )
 
         # Recompute gradient, Hessian, and log-likelihood at final beta
         # so that coef_, _log_likelihood, and _var_matrix are all anchored
@@ -1580,19 +1614,41 @@ class CoxPH(BaseEstimator):
         use_penalty = penalty > 0.0
         diag_idx = torch.arange(n_features, dtype=torch.long, device=torch_device) if use_penalty else None
 
-        # Newton-Raphson optimization on Torch
+        # Newton-Raphson optimization on Torch with KKT-based convergence
         iteration = 0
         loglik_torch = None
         current_obj = None
+        kkt_tol = max(self.tol * 1e-3, 1e-9)
+        self._termination_reason = "max_iter"
+        self._final_kkt_inf = None
+        self._final_kkt_normalized = None
+
         for iteration in range(self.max_iter):
-            # Compute gradient and Hessian on Torch
+            # Compute gradient and Hessian at CURRENT beta_k
             grad, hess, aux_stats = self._compute_gradient_hessian_torch(
                 beta, X_sorted, time_sorted, event_sorted, efron_pre, return_aux=True, entry=entry_sorted, entry_ctx=entry_ctx_torch
             )
 
-            # Add penalty terms: gradient -= 2*penalty*beta, hessian -= 2*penalty*I
+            # Check KKT at current beta BEFORE taking the step.
             if use_penalty:
-                grad = grad - 2 * penalty * beta
+                pen_grad = grad - 2 * penalty * beta
+            else:
+                pen_grad = grad
+            kkt_inf = float(torch.linalg.norm(pen_grad, ord=float('inf')).item())
+            grad_inf = float(torch.linalg.norm(grad, ord=float('inf')).item())
+            beta_inf = float(torch.linalg.norm(beta, ord=float('inf')).item())
+            kkt_norm = kkt_inf / (1.0 + grad_inf + 2.0 * penalty * beta_inf)
+
+            if kkt_norm <= kkt_tol:
+                self._converged = True
+                self._termination_reason = "kkt_converged"
+                self._final_kkt_inf = kkt_inf
+                self._final_kkt_normalized = kkt_norm
+                break
+
+            # Add penalty terms for Newton step
+            if use_penalty:
+                grad = pen_grad
                 hess[diag_idx, diag_idx] -= 2 * penalty
 
             # Newton: delta = inv(hess) @ grad; hess is NSD — solve (-hess) x = grad, delta = -x
@@ -1676,21 +1732,34 @@ class CoxPH(BaseEstimator):
                 else:
                     beta = beta - delta
 
-            # Check convergence: step-based criterion at new beta.
-            if entry_sorted is not None:
-                delta_norm = float(torch.linalg.norm(delta).item())
-                if accepted_step and delta_norm * step < self.tol:
-                    self._converged = True
-                    loglik_torch = self._compute_log_likelihood_torch(
-                        beta, X_sorted, time_sorted, event_sorted, efron_pre, entry=entry_sorted, entry_ctx=entry_ctx_torch
-                    )
-                    break
+            # Check step-based convergence after Newton update.
+            if not accepted_step:
+                self._termination_reason = "line_search_failed"
+                self._converged = False
+                break
+
+            delta_norm = float(torch.linalg.norm(delta).item())
+            step_norm = delta_norm * step
+            if step_norm < max(self.tol * (1.0 + float(torch.linalg.norm(beta).item())), 1e-8):
+                self._converged = True
+                self._termination_reason = "step_converged"
+                break
+
+        # Compute final KKT at exit point (unless already broken with kkt_converged)
+        if self._final_kkt_inf is None:
+            grad_final, hess_final, _aux_final = self._compute_gradient_hessian_torch(
+                beta, X_sorted, time_sorted, event_sorted, efron_pre, return_aux=True,
+                entry=entry_sorted, entry_ctx=entry_ctx_torch,
+            )
+            if use_penalty:
+                pen_grad_final = grad_final - 2 * penalty * beta
             else:
-                delta_norm = float(torch.linalg.norm(delta).item())
-                step_norm = delta_norm * step
-                if accepted_step and step_norm < max(self.tol * (1.0 + float(torch.linalg.norm(beta).item())), 1e-8):
-                    self._converged = True
-                    break
+                pen_grad_final = grad_final
+            self._final_kkt_inf = float(torch.linalg.norm(pen_grad_final, ord=float('inf')).item())
+            self._final_kkt_normalized = self._final_kkt_inf / (
+                1.0 + float(torch.linalg.norm(grad_final, ord=float('inf')).item())
+                + 2.0 * penalty * float(torch.linalg.norm(beta, ord=float('inf')).item())
+            )
 
         # Recompute gradient, Hessian, and log-likelihood at final beta
         # for consistent inference regardless of convergence path.
