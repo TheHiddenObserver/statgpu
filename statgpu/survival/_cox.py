@@ -973,44 +973,45 @@ class CoxPH(BaseEstimator):
         except Exception:
             self._log_likelihood_null = np.nan
 
-        cov = np.asarray(res.cov_params(), dtype=np.float64)
-        if cov.shape != (n_features, n_features):
-            cov = np.full((n_features, n_features), np.nan, dtype=np.float64)
-        self._var_matrix = cov
-        self._bse = np.sqrt(np.maximum(np.diag(cov), 0.0))
-        self._zvalues = self.coef_ / (self._bse + 1e-30)
-        self._pvalues = 2 * stats.norm.sf(np.abs(self._zvalues))
-        self._conf_int = np.asarray(res.conf_int(), dtype=np.float64)
+        if self.compute_inference:
+            cov = np.asarray(res.cov_params(), dtype=np.float64)
+            if cov.shape != (n_features, n_features):
+                cov = np.full((n_features, n_features), np.nan, dtype=np.float64)
+            self._var_matrix = cov
+            self._bse = np.sqrt(np.maximum(np.diag(cov), 0.0))
+            self._zvalues = self.coef_ / (self._bse + 1e-30)
+            self._pvalues = 2 * stats.norm.sf(np.abs(self._zvalues))
+            self._conf_int = np.asarray(res.conf_int(), dtype=np.float64)
 
-        # Delayed-entry robust covariance override is intentionally skipped:
-        # current internal robust score/hessian helpers do not account for entry.
+            # Delayed-entry robust covariance override is intentionally skipped:
+            # current internal robust score/hessian helpers do not account for entry.
 
-        self._lr_test_stat = 2 * (self._log_likelihood - self._log_likelihood_null)
-        self._lr_test_pvalue = stats.chi2.sf(self._lr_test_stat, n_features)
-        try:
-            var_inv = np.linalg.solve(self._var_matrix, np.eye(n_features))
-            self._wald_test_stat = self.coef_ @ var_inv @ self.coef_
-        except np.linalg.LinAlgError:
-            self._wald_test_stat = np.nan
-        self._wald_test_pvalue = stats.chi2.sf(self._wald_test_stat, n_features)
-        self._score_test_stat = np.nan
-        self._score_test_pvalue = np.nan
+            self._lr_test_stat = 2 * (self._log_likelihood - self._log_likelihood_null)
+            self._lr_test_pvalue = stats.chi2.sf(self._lr_test_stat, n_features)
+            try:
+                var_inv = np.linalg.solve(self._var_matrix, np.eye(n_features))
+                self._wald_test_stat = self.coef_ @ var_inv @ self.coef_
+            except np.linalg.LinAlgError:
+                self._wald_test_stat = np.nan
+            self._wald_test_pvalue = stats.chi2.sf(self._wald_test_stat, n_features)
+            self._score_test_stat = np.nan
+            self._score_test_pvalue = np.nan
 
-        # Baseline hazard from PHReg output.
-        try:
-            base = res.baseline_cumulative_hazard[0]
-            self._unique_times = np.asarray(base[0], dtype=np.float64)
-            self._baseline_cumulative_hazard = np.asarray(base[1], dtype=np.float64)
-            if self._baseline_cumulative_hazard.size > 0:
-                self._baseline_hazard = np.diff(
-                    np.concatenate([[0.0], self._baseline_cumulative_hazard])
-                )
-            else:
-                self._baseline_hazard = np.array([], dtype=np.float64)
-        except Exception:
-            self._baseline_hazard = None
-            self._baseline_cumulative_hazard = None
-            self._unique_times = None
+            # Baseline hazard from PHReg output.
+            try:
+                base = res.baseline_cumulative_hazard[0]
+                self._unique_times = np.asarray(base[0], dtype=np.float64)
+                self._baseline_cumulative_hazard = np.asarray(base[1], dtype=np.float64)
+                if self._baseline_cumulative_hazard.size > 0:
+                    self._baseline_hazard = np.diff(
+                        np.concatenate([[0.0], self._baseline_cumulative_hazard])
+                    )
+                else:
+                    self._baseline_hazard = np.array([], dtype=np.float64)
+            except Exception:
+                self._baseline_hazard = None
+                self._baseline_cumulative_hazard = None
+                self._unique_times = None
 
         if self.compute_cindex:
             self._compute_cindex()
