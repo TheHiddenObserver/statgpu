@@ -117,23 +117,30 @@ def validate_backend_parity(
             # For rank-deficient, this is the correct measure
             pass  # prediction parity checked separately
 
-        # BSE
+        # BSE — reclassify for rank-deficient (coefficient-level BSE non-identifiable)
         if "_bse" in rr and "_bse" in rr_ref:
             e = bse_rel_error(rr["_bse"], rr_ref["_bse"])
-            # Use condition-aware threshold
-            cond = rr.get("_info_cond", 1.0)
-            bse_thresh = _bse_threshold_from_condition(cond, thresh["bse_rel"])
-            check = {
-                "run": run["run_key"],
-                "check": "bse_rel",
-                "value": round(e, 12),
-                "threshold": round(bse_thresh, 10),
-                "passed": e <= bse_thresh,
-            }
-            if bse_thresh > thresh["bse_rel"]:
-                check["condition_aware"] = True
-                check["condition_number"] = round(cond, 2)
-            checks.append(check)
+            if is_rank_def:
+                reclassified.append({
+                    "run": run["run_key"],
+                    "check": "bse_rel",
+                    "value": round(e, 12),
+                    "reason": "rank-deficient: coefficient-level BSE non-identifiable",
+                })
+            else:
+                cond = rr.get("_info_cond", 1.0)
+                bse_thresh = _bse_threshold_from_condition(cond, thresh["bse_rel"])
+                check = {
+                    "run": run["run_key"],
+                    "check": "bse_rel",
+                    "value": round(e, 12),
+                    "threshold": round(bse_thresh, 10),
+                    "passed": e <= bse_thresh,
+                }
+                if bse_thresh > thresh["bse_rel"]:
+                    check["condition_aware"] = True
+                    check["condition_number"] = round(cond, 2)
+                checks.append(check)
 
         # Log-likelihood / objective
         if "_log_likelihood" in rr and "_log_likelihood" in rr_ref:
