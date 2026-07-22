@@ -278,31 +278,54 @@ def _align_cox_side_array(values, retained_rows, original_n, name="array"):
     if values is None:
         return None
 
+    # Detect backend BEFORE any np.asarray() to avoid CuPy 13.x implicit
+    # conversion errors and unnecessary GPU→CPU transfers.
+    module = type(values).__module__
+
+    if module.startswith("cupy"):
+        import cupy as cp
+        if values.ndim != 1:
+            raise ValueError(f"{name} must be one-dimensional")
+        n_values = int(values.shape[0])
+        n_retained = len(retained_rows)
+        if n_values == n_retained:
+            return values
+        if n_values != original_n:
+            raise ValueError(
+                f"{name} length {n_values} does not match "
+                f"original data length {original_n}"
+            )
+        idx = cp.asarray(retained_rows, dtype=cp.int64)
+        return values[idx]
+
+    if module.startswith("torch"):
+        import torch
+        if values.ndim != 1:
+            raise ValueError(f"{name} must be one-dimensional")
+        n_values = int(values.shape[0])
+        n_retained = len(retained_rows)
+        if n_values == n_retained:
+            return values
+        if n_values != original_n:
+            raise ValueError(
+                f"{name} length {n_values} does not match "
+                f"original data length {original_n}"
+            )
+        idx = torch.as_tensor(retained_rows, dtype=torch.long, device=values.device)
+        return values.index_select(0, idx)
+
+    # NumPy / list / pandas path
     arr = np.asarray(values)
     if arr.ndim != 1:
         raise ValueError(f"{name} must be one-dimensional")
-
     n_values = arr.shape[0]
-    n_retained = len(retained_rows)
-    if n_values == n_retained:
-        return values  # already aligned, preserve backend
+    if n_values == len(retained_rows):
+        return values
     if n_values != original_n:
         raise ValueError(
             f"{name} length {n_values} does not match "
             f"original data length {original_n}"
         )
-
-    # Detect backend and filter on-device when possible.
-    module = type(values).__module__
-    if module.startswith("cupy"):
-        import cupy as cp
-        idx = cp.asarray(retained_rows)
-        return values[idx]
-    if module.startswith("torch"):
-        import torch
-        idx = torch.as_tensor(retained_rows, device=values.device)
-        return values[idx]
-
     return arr[retained_rows]
 
 

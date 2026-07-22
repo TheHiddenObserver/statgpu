@@ -263,8 +263,8 @@ class LinearRegression(BaseEstimator):
         Xw = X * e2[:, np.newaxis]
         meat = X.T @ Xw
         cov_params = XtX_inv @ meat @ XtX_inv
-        if self.cov_type == "hc1" and n > k:
-            cov_params *= (n / (n - k))
+        if self.cov_type == "hc1" and self._df_resid is not None and self._df_resid > 0:
+            cov_params *= (n / self._df_resid)
         return cov_params
 
     def _robust_covariance_cupy(self, X, resid, XtX_inv):
@@ -1078,7 +1078,8 @@ class LinearRegression(BaseEstimator):
             return np.nan
         if np.isposinf(fv):
             return 0.0
-        k = int(self._X_design.shape[1] - (1 if self._effective_fit_intercept else 0))
+        k = self._df_model if self._df_model is not None else int(
+            self._X_design.shape[1] - (1 if self._effective_fit_intercept else 0))
         return float(stats.f.sf(fv, k, self._df_resid))
     
     @property
@@ -1091,8 +1092,9 @@ class LinearRegression(BaseEstimator):
         if np.any(np.isnan(self._scale)):
             return None
         # AIC = -2 * log-likelihood + 2 * k
-        return -2 * self.llf + 2 * len(self._params)
-    
+        k = self.rank_ if self.rank_ is not None else len(self._params)
+        return -2 * self.llf + 2 * k
+
     @property
     def bic(self):
         """Bayesian Information Criterion."""
@@ -1103,7 +1105,7 @@ class LinearRegression(BaseEstimator):
         if np.any(np.isnan(self._scale)):
             return None
         n = self._nobs
-        k = len(self._params)
+        k = self.rank_ if self.rank_ is not None else len(self._params)
         # BIC = -2 * log-likelihood + k * log(n)
         return -2 * self.llf + k * np.log(n)
     
