@@ -1272,7 +1272,19 @@ class CoxPH(BaseEstimator):
                 beta, X_sorted, time_sorted, event_sorted, efron_pre
                 , entry=entry_sorted, entry_ctx=entry_ctx_gpu
             )
-        
+
+        # Recompute gradient and Hessian at final beta so that inference
+        # (nonrobust covariance, robust bread, Wald) is anchored at the
+        # same parameter point as coef_ and log-likelihood.
+        final_hess = None
+        if self.compute_inference:
+            _, final_hess, _final_aux = self._compute_gradient_hessian_gpu(
+                beta, X_sorted, time_sorted, event_sorted, efron_pre,
+                return_aux=True, entry=entry_sorted, entry_ctx=entry_ctx_gpu,
+            )
+            if use_penalty:
+                final_hess[diag_idx, diag_idx] -= 2.0 * penalty_val
+
         # Single transfer at the end
         self._iterations = iteration + 1
         self.coef_ = cp.asnumpy(beta)
@@ -1284,11 +1296,12 @@ class CoxPH(BaseEstimator):
             self._cindex = float(cp.asnumpy(cindex_gpu))
         else:
             self._cindex = None
-        
+
         # Inference:
         # - nonrobust: stay on GPU to avoid expensive host transfers/recompute
         # - hc0/hc1/cluster: use CPU inference path (current implementation)
         if self.compute_inference:
+            hess = final_hess  # use final-beta Hessian
             if self.cov_type == "nonrobust":
                 try:
                     info = -hess
@@ -1620,6 +1633,16 @@ class CoxPH(BaseEstimator):
                 , entry=entry_sorted, entry_ctx=entry_ctx_torch
             )
 
+        # Recompute gradient and Hessian at final beta for consistent inference.
+        final_hess = None
+        if self.compute_inference:
+            _, final_hess, _final_aux = self._compute_gradient_hessian_torch(
+                beta, X_sorted, time_sorted, event_sorted, efron_pre,
+                return_aux=True, entry=entry_sorted, entry_ctx=entry_ctx_torch,
+            )
+            if use_penalty:
+                final_hess[diag_idx, diag_idx] -= 2.0 * penalty_val
+
         # Single transfer at the end
         self._iterations = iteration + 1
         self.coef_ = beta.cpu().numpy()
@@ -1634,6 +1657,7 @@ class CoxPH(BaseEstimator):
 
         # Inference: nonrobust on Torch, other types fall back to CPU
         if self.compute_inference:
+            hess = final_hess  # use final-beta Hessian
             if self.cov_type == "nonrobust":
                 try:
                     info = -hess
@@ -3311,19 +3335,25 @@ class CoxPH(BaseEstimator):
 
         if self.ties == "efron" and efron_pre is not None and entry is None:
             needs_exact_ties = not getattr(self, "_efron_all_singletons", False)
-            n_samples = int(X.shape[0])
-            avg_tie = float(n_samples) / max(1.0, float(_unpack_efron_pre6(efron_pre)[4]))
-            use_grouped_gemm = (
-                os.environ.get("STATGPU_EFRON_GROUPED_GEMM", "1").strip().lower()
-                in ("1", "true", "yes", "on")
-            )
-            # For real ties, use exact torch grouped GEMM path only.
-            if needs_exact_ties and (
-                use_grouped_gemm
-                and beta.is_cuda
-                and n_features <= 192
-                and avg_tie >= 24.0
-            ):
+
+            if needs_exact_ties:
+                # Triton as optional fast path.
+                if (
+                    os.environ.get("STATGPU_EFRON_TRITON", "0").strip().lower()
+                    in ("1", "true", "yes", "on")
+                    and beta.is_cuda
+                ):
+                    from statgpu.survival._cox_efron_triton import (
+                        compute_efron_grad_hess_triton,
+                    )
+                    triton_out = compute_efron_grad_hess_triton(X, beta, efron_pre)
+                    if triton_out is not None:
+                        grad, hess = triton_out
+                        if return_aux:
+                            return grad, hess, (eta, exp_eta, risk_sum)
+                        return grad, hess
+
+                # Mandatory exact fallback: grouped-GEMM for all real ties.
                 out = self._compute_gradient_hessian_efron_grouped_gemm_torch(
                     beta, X, efron_pre
                 )
