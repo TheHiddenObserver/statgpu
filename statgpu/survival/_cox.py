@@ -1258,32 +1258,28 @@ class CoxPH(BaseEstimator):
                 delta_norm = float(cp.linalg.norm(delta).item())
                 if accepted_step and grad_norm < max(self.tol * 10.0, 1e-8) and delta_norm * step < self.tol:
                     self._converged = True
-                    # Reuse current iteration statistics to avoid an extra
-                    # Efron log-likelihood setup pass when converged.
-                    eta_cur, exp_eta_cur, risk_sum_cur = aux_stats
-                    loglik_gpu = self._compute_log_likelihood_gpu_from_stats(
-                        eta_cur, exp_eta_cur, risk_sum_cur, time_sorted, event_sorted, efron_pre, entry=entry_sorted
-                    )
                     break
-        
-        # Compute final log-likelihood on GPU unless already obtained on convergence.
-        if loglik_gpu is None:
-            loglik_gpu = self._compute_log_likelihood_gpu(
-                beta, X_sorted, time_sorted, event_sorted, efron_pre
-                , entry=entry_sorted, entry_ctx=entry_ctx_gpu
-            )
 
-        # Recompute gradient and Hessian at final beta so that inference
-        # (nonrobust covariance, robust bread, Wald) is anchored at the
-        # same parameter point as coef_ and log-likelihood.
+        # Recompute gradient, Hessian, and log-likelihood at final beta
+        # so that coef_, _log_likelihood, and _var_matrix are all anchored
+        # at the same parameter point, regardless of convergence path.
         final_hess = None
         if self.compute_inference:
-            _, final_hess, _final_aux = self._compute_gradient_hessian_gpu(
+            _, final_hess, final_aux = self._compute_gradient_hessian_gpu(
                 beta, X_sorted, time_sorted, event_sorted, efron_pre,
                 return_aux=True, entry=entry_sorted, entry_ctx=entry_ctx_gpu,
             )
             if use_penalty:
-                final_hess[diag_idx, diag_idx] -= 2.0 * penalty_val
+                final_hess[diag_idx, diag_idx] -= 2.0 * penalty
+            loglik_gpu = self._compute_log_likelihood_gpu_from_stats(
+                final_aux[0], final_aux[1], final_aux[2],
+                time_sorted, event_sorted, efron_pre, entry=entry_sorted,
+            )
+        else:
+            loglik_gpu = self._compute_log_likelihood_gpu(
+                beta, X_sorted, time_sorted, event_sorted, efron_pre,
+                entry=entry_sorted, entry_ctx=entry_ctx_gpu,
+            )
 
         # Single transfer at the end
         self._iterations = iteration + 1
@@ -1620,28 +1616,27 @@ class CoxPH(BaseEstimator):
                 delta_norm = float(torch.linalg.norm(delta).item())
                 if accepted_step and grad_norm < max(self.tol * 10.0, 1e-8) and delta_norm * step < self.tol:
                     self._converged = True
-                    eta_cur, exp_eta_cur, risk_sum_cur = aux_stats
-                    loglik_torch = self._compute_log_likelihood_torch_from_stats(
-                        eta_cur, exp_eta_cur, risk_sum_cur, time_sorted, event_sorted, efron_pre, entry=entry_sorted
-                    )
                     break
 
-        # Compute final log-likelihood on Torch unless already obtained.
-        if loglik_torch is None:
-            loglik_torch = self._compute_log_likelihood_torch(
-                beta, X_sorted, time_sorted, event_sorted, efron_pre
-                , entry=entry_sorted, entry_ctx=entry_ctx_torch
-            )
-
-        # Recompute gradient and Hessian at final beta for consistent inference.
+        # Recompute gradient, Hessian, and log-likelihood at final beta
+        # for consistent inference regardless of convergence path.
         final_hess = None
         if self.compute_inference:
-            _, final_hess, _final_aux = self._compute_gradient_hessian_torch(
+            _, final_hess, final_aux = self._compute_gradient_hessian_torch(
                 beta, X_sorted, time_sorted, event_sorted, efron_pre,
                 return_aux=True, entry=entry_sorted, entry_ctx=entry_ctx_torch,
             )
             if use_penalty:
-                final_hess[diag_idx, diag_idx] -= 2.0 * penalty_val
+                final_hess[diag_idx, diag_idx] -= 2.0 * penalty
+            loglik_torch = self._compute_log_likelihood_torch_from_stats(
+                final_aux[0], final_aux[1], final_aux[2],
+                time_sorted, event_sorted, efron_pre, entry=entry_sorted,
+            )
+        else:
+            loglik_torch = self._compute_log_likelihood_torch(
+                beta, X_sorted, time_sorted, event_sorted, efron_pre,
+                entry=entry_sorted, entry_ctx=entry_ctx_torch,
+            )
 
         # Single transfer at the end
         self._iterations = iteration + 1
