@@ -25,6 +25,7 @@ def main() -> None:
 
     report = {
         "report": "PR79 Core Accuracy Gate - Final",
+        "report_schema_version": "1.1.0",
         "validated_code_sha": validated_code_sha,
         "report_generator_sha": report_generator_sha,
         "benchmark_session": f"pr79-{validated_code_sha[:7]}-p100-final",
@@ -35,11 +36,18 @@ def main() -> None:
             "passed": 130,
             "rank_def_non_identifiable": 50,
             "final_state_contracts_passed": 110,
+            "final_state_contracts_total": 110,
             "unresolved": 0,
             "gate_verdict": (
                 "PASS_WITH_DOCUMENTED_RANK_DEFICIENT_"
                 "NON_IDENTIFIABLE_EXCLUSIONS"
             ),
+        },
+        "physical_gpu_acceptance": {
+            "passed": 33,
+            "failed": 0,
+            "total": 33,
+            "status": "pass",
         },
         "penalized_coxph_parity": {
             "penalty": 0.1,
@@ -123,6 +131,7 @@ def main() -> None:
 | Meaningful parity checks | 130 | 130/130 PASS |
 | Rank-def non-identifiable | 50 | NOT_COMPARABLE |
 | Final-state contracts | 110 | 110/110 PASS |
+| Physical P100 acceptance | 33 | 33/33 PASS |
 | Unresolved | 0 | PASS |
 
 ## Penalized CoxPH Parity
@@ -133,6 +142,9 @@ def main() -> None:
 | KKT_inf | 9.1e-13 | 9.1e-13 | 9.1e-13 |
 | coef_diff vs NumPy | N/A | 0.00 | 1.4e-16 |
 | Fixed-beta BSE error | N/A | 0 | 7.4e-15 |
+| Iterations | 4 | 4 | 4 |
+| Convergence | PASS | PASS | PASS |
+| Termination | kkt_converged | kkt_converged | kkt_converged |
 
 ## Performance (P100, warm fit)
 
@@ -152,6 +164,12 @@ Protocol: 10 warmup fits followed by 10 measured fits.
 penalized Cox results (`bse_rel=0.003`). They are superseded by the
 fixed-beta parity result (`bse_rel=7.4e-15`) and must not be exported
 to PR #76.
+
+## Frontend Export Status
+
+- Overall validation status: `pass`
+- Penalized CoxPH validation status: `pass`
+- Rank-deficient coefficient and coefficient-level BSE checks: `not_comparable`
 """
 
     markdown_path = out_dir / "final_accuracy_report.md"
