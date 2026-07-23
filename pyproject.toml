@@ -49,6 +49,10 @@ cpu_ext = ["Cython>=3.0"]
 [project.urls]
 Homepage = "https://github.com/TheHiddenObserver/statgpu"
 Repository = "https://github.com/TheHiddenObserver/statgpu"
+Documentation = "https://github.com/TheHiddenObserver/statgpu/tree/master/docs/en"
+Issues = "https://github.com/TheHiddenObserver/statgpu/issues"
+Changelog = "https://github.com/TheHiddenObserver/statgpu/blob/master/CHANGELOG.md"
+Contributing = "https://github.com/TheHiddenObserver/statgpu/blob/master/CONTRIBUTING.md"
 
 [tool.setuptools.packages.find]
 where = ["."]
