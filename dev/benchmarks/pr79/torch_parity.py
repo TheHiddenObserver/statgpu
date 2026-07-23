@@ -14,7 +14,9 @@ from dev.benchmarks.pr79.generators.survival import generate_coxph_penalized
 from statgpu.survival import CoxPH
 
 PENALTY = 0.1
-WARMUPS = 10
+# The canonical stored timings were produced with one untimed warmup fit
+# followed by ten measured fits. Keep this script aligned with that evidence.
+WARMUPS = 1
 MEASURED_REPETITIONS = 10
 COEF_TOL = 1e-6
 LL_TOL = 1e-9
@@ -186,7 +188,7 @@ def main() -> None:
     assert torch_bse_error <= BSE_TOL
 
     print(
-        f"\n=== Timing ({WARMUPS} warmups + "
+        f"\n=== Timing ({WARMUPS} warmup + "
         f"{MEASURED_REPETITIONS} measured fits) ==="
     )
     timings = {
