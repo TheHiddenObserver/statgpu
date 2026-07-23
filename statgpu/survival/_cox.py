@@ -1241,7 +1241,7 @@ class CoxPH(BaseEstimator):
                 )
                 if use_penalty:
                     new_ll = new_ll - penalty * cp.sum(new_beta * new_beta)
-                if float((new_ll - old_ll).item()) <= -1e-8:
+                if float((new_ll - old_ll).item()) < 0:
                     step = 0.5
                     accepted = False
                     for _ in range(20):
@@ -1251,7 +1251,7 @@ class CoxPH(BaseEstimator):
                         )
                         if use_penalty:
                             trial_ll = trial_ll - penalty * cp.sum(trial_beta * trial_beta)
-                        if float((trial_ll - old_ll).item()) > -1e-8:
+                        if float((trial_ll - old_ll).item()) >= 0:
                             beta = trial_beta
                             current_obj = trial_ll
                             accepted = True
@@ -1279,7 +1279,7 @@ class CoxPH(BaseEstimator):
                         new_beta, X_sorted, time_sorted, event_sorted, efron_pre,
                     )
                     new_ll = new_ll - penalty * cp.sum(new_beta * new_beta)
-                    if float((new_ll - old_ll).item()) <= -1e-8:
+                    if float((new_ll - old_ll).item()) < 0:
                         step = 0.5
                         accepted = False
                         for _ in range(20):
@@ -1288,7 +1288,7 @@ class CoxPH(BaseEstimator):
                                 trial_beta, X_sorted, time_sorted, event_sorted, efron_pre,
                             )
                             trial_ll = trial_ll - penalty * cp.sum(trial_beta * trial_beta)
-                            if float((trial_ll - old_ll).item()) > -1e-8:
+                            if float((trial_ll - old_ll).item()) >= 0:
                                 beta = trial_beta
                                 current_obj = trial_ll
                                 accepted = True
@@ -1302,7 +1302,7 @@ class CoxPH(BaseEstimator):
                 else:
                     beta = beta - delta
 
-            # Check step-based convergence after Newton update.
+            # Step-norm check: must verify KKT before declaring convergence.
             if not accepted_step:
                 self._termination_reason = "line_search_failed"
                 self._converged = False
@@ -1311,11 +1311,33 @@ class CoxPH(BaseEstimator):
             delta_norm = float(cp.linalg.norm(delta).item())
             step_norm = delta_norm * step
             if step_norm < max(self.tol * (1.0 + float(cp.linalg.norm(beta).item())), 1e-8):
-                self._converged = True
-                self._termination_reason = "step_converged"
+                # Step is small — check if KKT is actually satisfied.
+                grad_check, hess_check, _aux_check = self._compute_gradient_hessian_gpu(
+                    beta, X_sorted, time_sorted, event_sorted, efron_pre, return_aux=True,
+                    entry=entry_sorted, entry_ctx=entry_ctx_gpu,
+                )
+                if use_penalty:
+                    pg = grad_check - 2 * penalty * beta
+                else:
+                    pg = grad_check
+                kkt_check = float(cp.linalg.norm(pg, ord=cp.inf).item())
+                kkt_n_check = kkt_check / (
+                    1.0 + float(cp.linalg.norm(grad_check, ord=cp.inf).item())
+                    + 2.0 * penalty * float(cp.linalg.norm(beta, ord=cp.inf).item())
+                )
+                if kkt_n_check <= kkt_tol:
+                    self._converged = True
+                    self._termination_reason = "kkt_converged"
+                    self._final_kkt_inf = kkt_check
+                    self._final_kkt_normalized = kkt_n_check
+                else:
+                    self._converged = False
+                    self._termination_reason = "stalled_with_large_kkt"
+                    self._final_kkt_inf = kkt_check
+                    self._final_kkt_normalized = kkt_n_check
                 break
 
-        # Compute final KKT at exit point (unless already broken with kkt_converged)
+        # Compute final KKT at exit point if not done yet.
         if self._final_kkt_inf is None:
             grad_final, hess_final, _aux_final = self._compute_gradient_hessian_gpu(
                 beta, X_sorted, time_sorted, event_sorted, efron_pre, return_aux=True,
@@ -1330,6 +1352,11 @@ class CoxPH(BaseEstimator):
                 1.0 + float(cp.linalg.norm(grad_final, ord=cp.inf).item())
                 + 2.0 * penalty * float(cp.linalg.norm(beta, ord=cp.inf).item())
             )
+
+        # Override _converged if final KKT is too large.
+        if (self._final_kkt_normalized is not None
+                and self._final_kkt_normalized > kkt_tol):
+            self._converged = False
 
         # Recompute gradient, Hessian, and log-likelihood at final beta
         # so that coef_, _log_likelihood, and _var_matrix are all anchored
@@ -1671,7 +1698,7 @@ class CoxPH(BaseEstimator):
                 )
                 if use_penalty:
                     new_ll = new_ll - penalty * torch.sum(new_beta * new_beta)
-                if float((new_ll - old_ll).item()) <= -1e-8:
+                if float((new_ll - old_ll).item()) < 0:
                     step = 0.5
                     accepted = False
                     for _ in range(20):
@@ -1681,7 +1708,7 @@ class CoxPH(BaseEstimator):
                         )
                         if use_penalty:
                             trial_ll = trial_ll - penalty * torch.sum(trial_beta * trial_beta)
-                        if float((trial_ll - old_ll).item()) > -1e-8:
+                        if float((trial_ll - old_ll).item()) >= 0:
                             beta = trial_beta
                             current_obj = trial_ll
                             accepted = True
@@ -1709,7 +1736,7 @@ class CoxPH(BaseEstimator):
                         new_beta, X_sorted, time_sorted, event_sorted, efron_pre,
                     )
                     new_ll = new_ll - penalty * torch.sum(new_beta * new_beta)
-                    if float((new_ll - old_ll).item()) <= -1e-8:
+                    if float((new_ll - old_ll).item()) < 0:
                         step = 0.5
                         accepted = False
                         for _ in range(20):
@@ -1718,7 +1745,7 @@ class CoxPH(BaseEstimator):
                                 trial_beta, X_sorted, time_sorted, event_sorted, efron_pre,
                             )
                             trial_ll = trial_ll - penalty * torch.sum(trial_beta * trial_beta)
-                            if float((trial_ll - old_ll).item()) > -1e-8:
+                            if float((trial_ll - old_ll).item()) >= 0:
                                 beta = trial_beta
                                 current_obj = trial_ll
                                 accepted = True
@@ -1732,7 +1759,7 @@ class CoxPH(BaseEstimator):
                 else:
                     beta = beta - delta
 
-            # Check step-based convergence after Newton update.
+            # Step-norm check: must verify KKT before declaring convergence.
             if not accepted_step:
                 self._termination_reason = "line_search_failed"
                 self._converged = False
@@ -1741,11 +1768,32 @@ class CoxPH(BaseEstimator):
             delta_norm = float(torch.linalg.norm(delta).item())
             step_norm = delta_norm * step
             if step_norm < max(self.tol * (1.0 + float(torch.linalg.norm(beta).item())), 1e-8):
-                self._converged = True
-                self._termination_reason = "step_converged"
+                grad_check, hess_check, _aux_check = self._compute_gradient_hessian_torch(
+                    beta, X_sorted, time_sorted, event_sorted, efron_pre, return_aux=True,
+                    entry=entry_sorted, entry_ctx=entry_ctx_torch,
+                )
+                if use_penalty:
+                    pg = grad_check - 2 * penalty * beta
+                else:
+                    pg = grad_check
+                kkt_check = float(torch.linalg.norm(pg, ord=float('inf')).item())
+                kkt_n_check = kkt_check / (
+                    1.0 + float(torch.linalg.norm(grad_check, ord=float('inf')).item())
+                    + 2.0 * penalty * float(torch.linalg.norm(beta, ord=float('inf')).item())
+                )
+                if kkt_n_check <= kkt_tol:
+                    self._converged = True
+                    self._termination_reason = "kkt_converged"
+                    self._final_kkt_inf = kkt_check
+                    self._final_kkt_normalized = kkt_n_check
+                else:
+                    self._converged = False
+                    self._termination_reason = "stalled_with_large_kkt"
+                    self._final_kkt_inf = kkt_check
+                    self._final_kkt_normalized = kkt_n_check
                 break
 
-        # Compute final KKT at exit point (unless already broken with kkt_converged)
+        # Compute final KKT at exit point if not done yet.
         if self._final_kkt_inf is None:
             grad_final, hess_final, _aux_final = self._compute_gradient_hessian_torch(
                 beta, X_sorted, time_sorted, event_sorted, efron_pre, return_aux=True,
@@ -1760,6 +1808,11 @@ class CoxPH(BaseEstimator):
                 1.0 + float(torch.linalg.norm(grad_final, ord=float('inf')).item())
                 + 2.0 * penalty * float(torch.linalg.norm(beta, ord=float('inf')).item())
             )
+
+        # Override _converged if final KKT is too large.
+        if (self._final_kkt_normalized is not None
+                and self._final_kkt_normalized > kkt_tol):
+            self._converged = False
 
         # Recompute gradient, Hessian, and log-likelihood at final beta
         # for consistent inference regardless of convergence path.

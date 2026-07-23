@@ -16,7 +16,7 @@ def main():
     print("=== NumPy reference ===")
     m_np = CoxPH(ties="efron", penalty=penalty, compute_inference=True, compute_cindex=False,
                  tol=1e-6, max_iter=30)
-    m_np.fit(X, time=t, event=e)
+    m_np.fit(Xs, time=ts, event=es)  # Use sorted data
     b_ref = m_np.coef_.copy()
     print(f"  LL={m_np._log_likelihood:.6f}, iters={m_np._iterations}, converged={m_np._converged}")
     print(f"  termination={getattr(m_np,'_termination_reason','?')}, KKT={getattr(m_np,'_final_kkt_inf','?')}")
@@ -28,11 +28,17 @@ def main():
     from statgpu.survival._cox import CoxPH as _CoxPH
     model = _CoxPH(ties="efron", penalty=penalty, compute_inference=False, compute_cindex=False,
                    tol=1e-6, max_iter=30)
-    # Prepare efron_pre
-    model.fit(X, time=t, event=e)
-    efron_pre = model._efron_pre
 
-    n_features = X.shape[1]
+    # Sort data (time ascending) for risk-set computation — matching _fit_gpu.
+    order_np = np.argsort(t, kind="stable")
+    Xs = X[order_np].astype(np.float64)
+    ts = t[order_np].astype(np.float64)
+    es = e[order_np].astype(np.int32)
+
+    Xc = cp.asarray(Xs); tc = cp.asarray(ts); ec = cp.asarray(es)
+    efron_pre = model._efron_unique_failure_indices(ts, es)
+
+    n_features = Xs.shape[1]
     diag_idx = cp.arange(n_features)
 
     print(f"\n=== CuPy trace ===")
