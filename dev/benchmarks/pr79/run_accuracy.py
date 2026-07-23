@@ -682,6 +682,11 @@ def _bench_pooled(
     device = {"numpy": "cpu", "cupy": "cuda", "torch": "torch"}[backend]
     covariance = "clustered" if cluster is not None else "nonrobust"
     measured = []
+    # PooledOLS + GPU: pass entity/time_index explicitly to avoid
+    # internal np.asarray(cupy_array) triggers on CuPy 13.x.
+    entity_device = _to_numpy(entity) if backend != "numpy" else entity
+    time_device = _to_numpy(time_index) if backend != "numpy" else time_index
+
     for iteration in range(n_warm + n_meas):
         model = PooledOLS(cov_type=covariance, device=device)
         _, elapsed = synchronized_time(
@@ -689,6 +694,7 @@ def _bench_pooled(
             X_device,
             y_device,
             cluster=cluster if cluster is not None else None,
+            time_index=time_device,
         )
         if iteration >= n_warm:
             results = _extract(model)
