@@ -21,6 +21,8 @@ GPU-accelerated statistical methods with sklearn-compatible API.
 - **PyTorch Backend**: [PyTorch Backend](docs/en/guides/pytorch-backend.md)
 - **Distribution API**: [Distribution API](docs/en/guides/distribution-api.md) — 15 distributions across 3 backends
 - **Multiple Testing**: [Multiple Testing](docs/en/guides/multiple-testing-combine-pvalues.md) — p-value adjustment and combination
+- **Contributing**: [Contributor Guide](CONTRIBUTING.md)
+- **Releasing**: [PyPI Release Guide](RELEASING.md)
 - **PR #79 GPU validation**: [Final physical-GPU report](dev/reviews/pr79_physical_gpu_validation.md)
 - **Changelog**: [Changelog](docs/en/changelog.md)
 
@@ -170,6 +172,23 @@ Test environment: RTX 4090 (24GB), CuPy 14.1.0, PyTorch 2.8.0+cu128, scikit-lear
 | CoxPH | coef correlation vs lifelines | 1.000 |
 | adjust_pvalues (BH) | reject agreement vs statsmodels | 100% (100K to 5M p-values) |
 | Penalized (L1/L2) | self-consistency | C-index match across penalties |
+
+## Contributing
+
+Contributions are welcome, including bug fixes, documentation, tests, statistical validation, GPU performance work, and new methods.
+
+1. Read the [Contributor Guide](CONTRIBUTING.md) before making a substantial change.
+2. Open an issue first for new estimators, public API changes, inference methods, solvers, penalties, or large refactors.
+3. Install the repository in editable mode with development and validation dependencies:
+
+   ```bash
+   python -m pip install -e ".[dev,validation,formula]"
+   ```
+
+4. Add focused tests and run the relevant CPU/GPU checks. Statistical-method changes are expected to preserve NumPy, CuPy, and Torch behavior unless an explicit limitation is agreed and documented.
+5. Update English and Chinese documentation and changelogs when user-visible behavior changes.
+
+Maintainers preparing a package release should follow the [PyPI Release Guide](RELEASING.md).
 
 ## Requirements
 
