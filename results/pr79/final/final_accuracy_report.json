@@ -1,6 +1,8 @@
 {
-  "report": "PR79 Core Accuracy Gate \u2014 Final",
-  "git_sha": "bef91ad2cd19fa2ab575e701f645799eaff6aff9",
+  "report": "PR79 Core Accuracy Gate - Final",
+  "report_schema_version": "1.1.0",
+  "validated_code_sha": "bef91ad2cd19fa2ab575e701f645799eaff6aff9",
+  "report_generator_sha": "0243bbb6fa81f7f0c92085d00e178adf242517db",
   "benchmark_session": "pr79-bef91ad-p100-final",
   "gpu": "Tesla P100-SXM2-16GB",
   "generated_at": "2026-07-23T07:12:00Z",
@@ -9,8 +11,15 @@
     "passed": 130,
     "rank_def_non_identifiable": 50,
     "final_state_contracts_passed": 110,
+    "final_state_contracts_total": 110,
     "unresolved": 0,
     "gate_verdict": "PASS_WITH_DOCUMENTED_RANK_DEFICIENT_NON_IDENTIFIABLE_EXCLUSIONS"
+  },
+  "physical_gpu_acceptance": {
+    "passed": 33,
+    "failed": 0,
+    "total": 33,
+    "status": "pass"
   },
   "penalized_coxph_parity": {
     "penalty": 0.1,
@@ -38,6 +47,8 @@
   },
   "performance_p100_warm_fit": {
     "workload": "Penalized CoxPH, penalty=0.1, Efron ties, n=100, p=8",
+    "warmups": 10,
+    "measured_repetitions": 10,
     "numPy_median_ms": 49.1,
     "cuPy_median_ms": 52.5,
     "torch_median_ms": 27.5,
@@ -47,7 +58,7 @@
   },
   "invalidated_results": {
     "old_file": "results/pr79/accuracy/accuracy_results.json",
-    "reason": "stale pre-fix penalized Cox result \u2014 bse_rel=0.003 from (d+1)/2 approximate Efron fallback and unsorted diagnostic data. Superseded by fixed-beta parity test showing bse_rel=7.4e-15.",
+    "reason": "Stale pre-fix penalized Cox result: bse_rel=0.003 from the removed approximate Efron fallback and unsorted diagnostic data. Superseded by fixed-beta parity with bse_rel=7.4e-15.",
     "action": "Do not use for PR #76 frontend export. Use this report instead."
   },
   "frontend_recommendation": {
@@ -55,6 +66,6 @@
     "cox_penalized_validation": {
       "status": "pass"
     },
-    "rank_deficient_checks": "not_comparable \u2014 coefficient/BSE non-identifiable under rank deficiency"
+    "rank_deficient_checks": "not_comparable - coefficient/BSE non-identifiable under rank deficiency"
   }
 }
