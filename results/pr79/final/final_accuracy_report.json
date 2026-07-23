@@ -1,8 +1,8 @@
 {
   "report": "PR79 Core Accuracy Gate - Final",
-  "report_schema_version": "1.1.0",
+  "report_schema_version": "1.1.1",
+  "generator_path": "dev/benchmarks/pr79/emit_final_report.py",
   "validated_code_sha": "bef91ad2cd19fa2ab575e701f645799eaff6aff9",
-  "report_generator_sha": "074fd5c556970332400d2866fdd9e0c70d2e37db",
   "benchmark_session": "pr79-bef91ad-p100-final",
   "gpu": "Tesla P100-SXM2-16GB",
   "generated_at": "2026-07-23T07:12:00Z",
@@ -47,14 +47,14 @@
   },
   "performance_p100_warm_fit": {
     "workload": "Penalized CoxPH, penalty=0.1, Efron ties, n=100, p=8",
-    "warmups": 10,
+    "warmups": 1,
     "measured_repetitions": 10,
     "numPy_median_ms": 49.1,
     "cuPy_median_ms": 52.5,
     "torch_median_ms": 27.5,
     "torch_speedup_vs_numpy": 1.78,
     "cuPy_speedup_vs_numpy": 0.93,
-    "note": "Single-scale benchmark. Not representative of all CoxPH workloads."
+    "note": "Stored timings were produced with one untimed warmup fit followed by ten measured fits. This is a single-scale benchmark and is not representative of all CoxPH workloads."
   },
   "invalidated_results": {
     "old_file": "results/pr79/accuracy/accuracy_results.json",
