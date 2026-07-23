@@ -14,20 +14,19 @@ _DEFAULT_VALIDATED_CODE_SHA = "bef91ad2cd19fa2ab575e701f645799eaff6aff9"
 
 
 def main() -> None:
-    report_generator_sha = _git_sha()
     validated_code_sha = os.environ.get(
         "PR79_VALIDATED_CODE_SHA", _DEFAULT_VALIDATED_CODE_SHA
     )
-    generated_at = _now()
+    generated_at = os.environ.get("PR79_GENERATED_AT", _now())
 
     out_dir = _PROJECT_ROOT / "results" / "pr79" / "final"
     out_dir.mkdir(parents=True, exist_ok=True)
 
     report = {
         "report": "PR79 Core Accuracy Gate - Final",
-        "report_schema_version": "1.1.0",
+        "report_schema_version": "1.1.1",
+        "generator_path": "dev/benchmarks/pr79/emit_final_report.py",
         "validated_code_sha": validated_code_sha,
-        "report_generator_sha": report_generator_sha,
         "benchmark_session": f"pr79-{validated_code_sha[:7]}-p100-final",
         "gpu": "Tesla P100-SXM2-16GB",
         "generated_at": generated_at,
@@ -75,7 +74,7 @@ def main() -> None:
             "workload": (
                 "Penalized CoxPH, penalty=0.1, Efron ties, n=100, p=8"
             ),
-            "warmups": 10,
+            "warmups": 1,
             "measured_repetitions": 10,
             "numPy_median_ms": 49.1,
             "cuPy_median_ms": 52.5,
@@ -83,8 +82,9 @@ def main() -> None:
             "torch_speedup_vs_numpy": 1.78,
             "cuPy_speedup_vs_numpy": 0.93,
             "note": (
-                "Single-scale benchmark. Not representative of all CoxPH "
-                "workloads."
+                "Stored timings were produced with one untimed warmup fit followed "
+                "by ten measured fits. This is a single-scale benchmark and is not "
+                "representative of all CoxPH workloads."
             ),
         },
         "invalidated_results": {
@@ -116,7 +116,7 @@ def main() -> None:
     markdown = f"""# PR79 Core Accuracy Gate - Final Report
 
 **Validated code SHA**: `{validated_code_sha}`  
-**Report generator SHA**: `{report_generator_sha}`  
+**Generator**: `dev/benchmarks/pr79/emit_final_report.py`  
 **GPU**: Tesla P100-SXM2-16GB  
 **Generated**: {generated_at}
 
@@ -148,7 +148,7 @@ def main() -> None:
 
 ## Performance (P100, warm fit)
 
-Protocol: 10 warmup fits followed by 10 measured fits.
+Protocol used for the stored values: 1 untimed warmup fit followed by 10 measured fits.
 
 | Backend | Median | Speedup vs NumPy |
 |---------|--------|------------------|
@@ -171,10 +171,8 @@ to PR #76.
 - Penalized CoxPH validation status: `pass`
 - Rank-deficient coefficient and coefficient-level BSE checks: `not_comparable`
 """
-
     markdown_path = out_dir / "final_accuracy_report.md"
-    with markdown_path.open("w", encoding="utf-8", newline="\n") as file:
-        file.write(markdown)
+    markdown_path.write_text(markdown, encoding="utf-8", newline="\n")
 
     print(f"Saved: {json_path}")
     print(f"Saved: {markdown_path}")
@@ -183,19 +181,14 @@ to PR #76.
 def _git_sha() -> str:
     try:
         return subprocess.check_output(
-            ["git", "rev-parse", "HEAD"],
-            text=True,
-            timeout=5,
-            cwd=_PROJECT_ROOT,
+            ["git", "rev-parse", "HEAD"], text=True, timeout=5
         ).strip()
     except (OSError, subprocess.SubprocessError):
         return "unknown"
 
 
 def _now() -> str:
-    return datetime.datetime.now(datetime.timezone.utc).strftime(
-        "%Y-%m-%dT%H:%M:%SZ"
-    )
+    return datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 if __name__ == "__main__":
