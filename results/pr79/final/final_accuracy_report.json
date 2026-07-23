@@ -1,0 +1,60 @@
+{
+  "report": "PR79 Core Accuracy Gate \u2014 Final",
+  "git_sha": "bef91ad2cd19fa2ab575e701f645799eaff6aff9",
+  "benchmark_session": "pr79-bef91ad-p100-final",
+  "gpu": "Tesla P100-SXM2-16GB",
+  "generated_at": "2026-07-23T07:12:00Z",
+  "summary": {
+    "meaningful_parity_checks": 130,
+    "passed": 130,
+    "rank_def_non_identifiable": 50,
+    "final_state_contracts_passed": 110,
+    "unresolved": 0,
+    "gate_verdict": "PASS_WITH_DOCUMENTED_RANK_DEFICIENT_NON_IDENTIFIABLE_EXCLUSIONS"
+  },
+  "penalized_coxph_parity": {
+    "penalty": 0.1,
+    "ties": "efron",
+    "n_samples": 100,
+    "n_features": 8,
+    "numPy_ll": -208.019584,
+    "numPy_iters": 4,
+    "numPy_kkt": 9.13e-13,
+    "cuPy_ll": -208.019584,
+    "cuPy_coef_diff_vs_numpy": 0.0,
+    "cuPy_kkt": 9.13e-13,
+    "torch_ll": -208.019584,
+    "torch_coef_diff_vs_numpy": 1.42e-16,
+    "torch_fixed_beta_bse_error": 7.44e-15,
+    "torch_kkt": 9.1e-13,
+    "validation": {
+      "status": "pass"
+    },
+    "accuracy": {
+      "coef_rel_error": 1.4e-16,
+      "bse_rel_error": 7.4e-15,
+      "kkt_inf": 9.1e-13
+    }
+  },
+  "performance_p100_warm_fit": {
+    "workload": "Penalized CoxPH, penalty=0.1, Efron ties, n=100, p=8",
+    "numPy_median_ms": 49.1,
+    "cuPy_median_ms": 52.5,
+    "torch_median_ms": 27.5,
+    "torch_speedup_vs_numpy": 1.78,
+    "cuPy_speedup_vs_numpy": 0.93,
+    "note": "Single-scale benchmark. Not representative of all CoxPH workloads."
+  },
+  "invalidated_results": {
+    "old_file": "results/pr79/accuracy/accuracy_results.json",
+    "reason": "stale pre-fix penalized Cox result \u2014 bse_rel=0.003 from (d+1)/2 approximate Efron fallback and unsorted diagnostic data. Superseded by fixed-beta parity test showing bse_rel=7.4e-15.",
+    "action": "Do not use for PR #76 frontend export. Use this report instead."
+  },
+  "frontend_recommendation": {
+    "status": "pass",
+    "cox_penalized_validation": {
+      "status": "pass"
+    },
+    "rank_deficient_checks": "not_comparable \u2014 coefficient/BSE non-identifiable under rank deficiency"
+  }
+}
