@@ -2,7 +2,7 @@
   "report": "PR79 Core Accuracy Gate - Final",
   "report_schema_version": "1.1.0",
   "validated_code_sha": "bef91ad2cd19fa2ab575e701f645799eaff6aff9",
-  "report_generator_sha": "0243bbb6fa81f7f0c92085d00e178adf242517db",
+  "report_generator_sha": "074fd5c556970332400d2866fdd9e0c70d2e37db",
   "benchmark_session": "pr79-bef91ad-p100-final",
   "gpu": "Tesla P100-SXM2-16GB",
   "generated_at": "2026-07-23T07:12:00Z",
