@@ -6,7 +6,6 @@ from __future__ import annotations
 import datetime
 import json
 import os
-import subprocess
 from pathlib import Path
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent
@@ -17,15 +16,17 @@ def main() -> None:
     validated_code_sha = os.environ.get(
         "PR79_VALIDATED_CODE_SHA", _DEFAULT_VALIDATED_CODE_SHA
     )
-    generated_at = os.environ.get("PR79_GENERATED_AT", _now())
+    generated_at = os.environ.get("PR79_GENERATED_AT") or _now()
 
     out_dir = _PROJECT_ROOT / "results" / "pr79" / "final"
     out_dir.mkdir(parents=True, exist_ok=True)
 
     report = {
         "report": "PR79 Core Accuracy Gate - Final",
-        "report_schema_version": "1.1.1",
+        "report_schema_version": "1.1.2",
         "generator_path": "dev/benchmarks/pr79/emit_final_report.py",
+        # Backward-compatible alias retained for existing report consumers.
+        "git_sha": validated_code_sha,
         "validated_code_sha": validated_code_sha,
         "benchmark_session": f"pr79-{validated_code_sha[:7]}-p100-final",
         "gpu": "Tesla P100-SXM2-16GB",
@@ -176,15 +177,6 @@ to PR #76.
 
     print(f"Saved: {json_path}")
     print(f"Saved: {markdown_path}")
-
-
-def _git_sha() -> str:
-    try:
-        return subprocess.check_output(
-            ["git", "rev-parse", "HEAD"], text=True, timeout=5
-        ).strip()
-    except (OSError, subprocess.SubprocessError):
-        return "unknown"
 
 
 def _now() -> str:
