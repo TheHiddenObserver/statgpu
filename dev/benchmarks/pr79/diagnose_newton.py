@@ -11,12 +11,18 @@ def main():
     X, t, e, _ = generate_coxph_penalized(100, 8, 42)
     penalty = 0.1
 
-    # Fit NumPy reference
+    # Sort data first
+    order_np = np.argsort(t, kind="stable")
+    Xs = X[order_np].astype(np.float64)
+    ts = t[order_np].astype(np.float64)
+    es = e[order_np].astype(np.int32)
+
+    # Fit NumPy reference on sorted data
     from statgpu.survival import CoxPH
     print("=== NumPy reference ===")
     m_np = CoxPH(ties="efron", penalty=penalty, compute_inference=True, compute_cindex=False,
                  tol=1e-6, max_iter=30)
-    m_np.fit(Xs, time=ts, event=es)  # Use sorted data
+    m_np.fit(Xs, time=ts, event=es)
     b_ref = m_np.coef_.copy()
     print(f"  LL={m_np._log_likelihood:.6f}, iters={m_np._iterations}, converged={m_np._converged}")
     print(f"  termination={getattr(m_np,'_termination_reason','?')}, KKT={getattr(m_np,'_final_kkt_inf','?')}")
@@ -28,12 +34,6 @@ def main():
     from statgpu.survival._cox import CoxPH as _CoxPH
     model = _CoxPH(ties="efron", penalty=penalty, compute_inference=False, compute_cindex=False,
                    tol=1e-6, max_iter=30)
-
-    # Sort data (time ascending) for risk-set computation — matching _fit_gpu.
-    order_np = np.argsort(t, kind="stable")
-    Xs = X[order_np].astype(np.float64)
-    ts = t[order_np].astype(np.float64)
-    es = e[order_np].astype(np.int32)
 
     Xc = cp.asarray(Xs); tc = cp.asarray(ts); ec = cp.asarray(es)
     efron_pre = model._efron_unique_failure_indices(ts, es)
