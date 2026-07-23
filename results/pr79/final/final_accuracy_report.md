@@ -1,7 +1,7 @@
 # PR79 Core Accuracy Gate - Final Report
 
 **Validated code SHA**: `bef91ad2cd19fa2ab575e701f645799eaff6aff9`  
-**Report generator SHA**: `0243bbb6fa81f7f0c92085d00e178adf242517db`  
+**Report generator SHA**: `074fd5c556970332400d2866fdd9e0c70d2e37db`  
 **GPU**: Tesla P100-SXM2-16GB  
 **Generated**: 2026-07-23T07:12:00Z
 
