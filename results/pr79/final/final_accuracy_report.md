@@ -1,7 +1,7 @@
 # PR79 Core Accuracy Gate - Final Report
 
 **Validated code SHA**: `bef91ad2cd19fa2ab575e701f645799eaff6aff9`  
-**Report generator SHA**: `074fd5c556970332400d2866fdd9e0c70d2e37db`  
+**Generator**: `dev/benchmarks/pr79/emit_final_report.py`  
 **GPU**: Tesla P100-SXM2-16GB  
 **Generated**: 2026-07-23T07:12:00Z
 
@@ -33,7 +33,7 @@
 
 ## Performance (P100, warm fit)
 
-Protocol: 10 warmup fits followed by 10 measured fits.
+Protocol used for the stored values: 1 untimed warmup fit followed by 10 measured fits.
 
 | Backend | Median | Speedup vs NumPy |
 |---------|--------|------------------|
