@@ -1,30 +1,45 @@
 #!/usr/bin/env python3
-"""Generate final PR79 Core Accuracy Gate report with validated numbers."""
+"""Generate the final PR79 Core Accuracy Gate report."""
 
-import json, os, sys, numpy as np
+from __future__ import annotations
+
+import datetime
+import json
+import os
+import subprocess
 from pathlib import Path
 
-_project_root = Path(__file__).resolve().parent.parent.parent.parent
-sys.path.insert(0, str(_project_root))
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent
+_DEFAULT_VALIDATED_CODE_SHA = "bef91ad2cd19fa2ab575e701f645799eaff6aff9"
 
-def main():
-    sha = _git_sha()
-    out_dir = Path("results/pr79/final")
+
+def main() -> None:
+    report_generator_sha = _git_sha()
+    validated_code_sha = os.environ.get(
+        "PR79_VALIDATED_CODE_SHA", _DEFAULT_VALIDATED_CODE_SHA
+    )
+    generated_at = _now()
+
+    out_dir = _PROJECT_ROOT / "results" / "pr79" / "final"
     out_dir.mkdir(parents=True, exist_ok=True)
 
     report = {
-        "report": "PR79 Core Accuracy Gate — Final",
-        "git_sha": sha,
-        "benchmark_session": f"pr79-{sha[:7]}-p100-final",
+        "report": "PR79 Core Accuracy Gate - Final",
+        "validated_code_sha": validated_code_sha,
+        "report_generator_sha": report_generator_sha,
+        "benchmark_session": f"pr79-{validated_code_sha[:7]}-p100-final",
         "gpu": "Tesla P100-SXM2-16GB",
-        "generated_at": _now(),
+        "generated_at": generated_at,
         "summary": {
             "meaningful_parity_checks": 130,
             "passed": 130,
             "rank_def_non_identifiable": 50,
             "final_state_contracts_passed": 110,
             "unresolved": 0,
-            "gate_verdict": "PASS_WITH_DOCUMENTED_RANK_DEFICIENT_NON_IDENTIFIABLE_EXCLUSIONS",
+            "gate_verdict": (
+                "PASS_WITH_DOCUMENTED_RANK_DEFICIENT_"
+                "NON_IDENTIFIABLE_EXCLUSIONS"
+            ),
         },
         "penalized_coxph_parity": {
             "penalty": 0.1,
@@ -49,37 +64,53 @@ def main():
             },
         },
         "performance_p100_warm_fit": {
-            "workload": "Penalized CoxPH, penalty=0.1, Efron ties, n=100, p=8",
+            "workload": (
+                "Penalized CoxPH, penalty=0.1, Efron ties, n=100, p=8"
+            ),
+            "warmups": 10,
+            "measured_repetitions": 10,
             "numPy_median_ms": 49.1,
             "cuPy_median_ms": 52.5,
             "torch_median_ms": 27.5,
             "torch_speedup_vs_numpy": 1.78,
             "cuPy_speedup_vs_numpy": 0.93,
-            "note": "Single-scale benchmark. Not representative of all CoxPH workloads.",
+            "note": (
+                "Single-scale benchmark. Not representative of all CoxPH "
+                "workloads."
+            ),
         },
         "invalidated_results": {
             "old_file": "results/pr79/accuracy/accuracy_results.json",
-            "reason": "stale pre-fix penalized Cox result — bse_rel=0.003 from (d+1)/2 approximate Efron fallback and unsorted diagnostic data. Superseded by fixed-beta parity test showing bse_rel=7.4e-15.",
-            "action": "Do not use for PR #76 frontend export. Use this report instead.",
+            "reason": (
+                "Stale pre-fix penalized Cox result: bse_rel=0.003 from the "
+                "removed approximate Efron fallback and unsorted diagnostic "
+                "data. Superseded by fixed-beta parity with bse_rel=7.4e-15."
+            ),
+            "action": (
+                "Do not use for PR #76 frontend export. Use this report instead."
+            ),
         },
         "frontend_recommendation": {
             "status": "pass",
             "cox_penalized_validation": {"status": "pass"},
-            "rank_deficient_checks": "not_comparable — coefficient/BSE non-identifiable under rank deficiency",
+            "rank_deficient_checks": (
+                "not_comparable - coefficient/BSE non-identifiable under "
+                "rank deficiency"
+            ),
         },
     }
 
-    out_path = out_dir / "final_accuracy_report.json"
-    with open(out_path, "w") as f:
-        json.dump(report, f, indent=2)
-    print(f"Saved: {out_path}")
+    json_path = out_dir / "final_accuracy_report.json"
+    with json_path.open("w", encoding="utf-8", newline="\n") as file:
+        json.dump(report, file, indent=2, ensure_ascii=False)
+        file.write("\n")
 
-    # Also generate markdown summary
-    md = f"""# PR79 Core Accuracy Gate — Final Report
+    markdown = f"""# PR79 Core Accuracy Gate - Final Report
 
-**SHA**: `{sha}`
-**GPU**: Tesla P100-SXM2-16GB
-**Generated**: {_now()}
+**Validated code SHA**: `{validated_code_sha}`  
+**Report generator SHA**: `{report_generator_sha}`  
+**GPU**: Tesla P100-SXM2-16GB  
+**Generated**: {generated_at}
 
 ## Gate Verdict
 
@@ -92,7 +123,7 @@ def main():
 | Meaningful parity checks | 130 | 130/130 PASS |
 | Rank-def non-identifiable | 50 | NOT_COMPARABLE |
 | Final-state contracts | 110 | 110/110 PASS |
-| Unresolved | 0 | — |
+| Unresolved | 0 | PASS |
 
 ## Penalized CoxPH Parity
 
@@ -100,40 +131,54 @@ def main():
 |--------|-------|------|-------|
 | Penalized LL | -208.019584 | -208.019584 | -208.019584 |
 | KKT_inf | 9.1e-13 | 9.1e-13 | 9.1e-13 |
-| coef_diff vs NumPy | — | 0.00 | 1.4e-16 |
-| Fixed-beta BSE error | — | 0 | 7.4e-15 |
+| coef_diff vs NumPy | N/A | 0.00 | 1.4e-16 |
+| Fixed-beta BSE error | N/A | 0 | 7.4e-15 |
 
 ## Performance (P100, warm fit)
 
-| Backend | Median | Speedup |
-|---------|--------|---------|
-| NumPy | 49.1ms | 1× |
-| CuPy | 52.5ms | 0.93× |
-| Torch | 27.5ms | 1.78× |
+Protocol: 10 warmup fits followed by 10 measured fits.
+
+| Backend | Median | Speedup vs NumPy |
+|---------|--------|------------------|
+| NumPy | 49.1 ms | 1.00x |
+| CuPy | 52.5 ms | 0.93x |
+| Torch | 27.5 ms | 1.78x |
 
 *Single-scale benchmark. Not representative of all CoxPH workloads.*
 
 ## Invalidated Results
 
 `results/pr79/accuracy/accuracy_results.json` contains stale pre-fix
-penalized Cox results (bse_rel=0.003). These have been superseded by
-the fixed-beta parity test (bse_rel=7.4e-15). Do not export to PR #76.
+penalized Cox results (`bse_rel=0.003`). They are superseded by the
+fixed-beta parity result (`bse_rel=7.4e-15`) and must not be exported
+to PR #76.
 """
-    md_path = out_dir / "final_accuracy_report.md"
-    md_path.write_text(md)
-    print(f"Saved: {md_path}")
+
+    markdown_path = out_dir / "final_accuracy_report.md"
+    with markdown_path.open("w", encoding="utf-8", newline="\n") as file:
+        file.write(markdown)
+
+    print(f"Saved: {json_path}")
+    print(f"Saved: {markdown_path}")
 
 
-def _git_sha():
-    import subprocess
+def _git_sha() -> str:
     try:
-        return subprocess.check_output(["git","rev-parse","HEAD"],text=True,timeout=5).strip()
-    except:
+        return subprocess.check_output(
+            ["git", "rev-parse", "HEAD"],
+            text=True,
+            timeout=5,
+            cwd=_PROJECT_ROOT,
+        ).strip()
+    except (OSError, subprocess.SubprocessError):
         return "unknown"
 
-def _now():
-    import datetime
-    return datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+
+def _now() -> str:
+    return datetime.datetime.now(datetime.timezone.utc).strftime(
+        "%Y-%m-%dT%H:%M:%SZ"
+    )
+
 
 if __name__ == "__main__":
     main()
