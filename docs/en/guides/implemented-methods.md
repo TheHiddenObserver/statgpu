@@ -203,7 +203,7 @@ CUDA validation remains pending.
 
 | Class | Description | Backends |
 |---|---|---|
-| `CoxPH` | Cox proportional hazards (Efron/Breslow ties, vectorized grad/hess) | CPU, CuPy, Torch |
+| `CoxPH` | Cox proportional hazards (Efron/Breslow ties, strict robust-inference contract, backend-native prediction) | CPU, CuPy, Torch |
 | `PenalizedCoxPHModel` | CoxPH + SCAD/MCP penalties via proximal Newton | CPU |
 
 ## Feature Selection

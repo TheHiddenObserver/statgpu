@@ -25,6 +25,9 @@ CUDA major version, and `statgpu[torch]` for the PyTorch backend.
 - [Models Overview](models/README.md)
 - [Generalized Linear Models](models/generalized-linear-model.md)
 - [Cox Proportional Hazards](models/coxph.md)
+
+`CoxPH` defaults to strict robust inference; delayed-entry/penalty support and
+the optional `statgpu[survival]` dependency are documented in its support matrix.
 - [Panel Models](models/panel.md)
 - [ANOVA](models/anova.md)
 - [Covariance Estimation](models/covariance.md)

@@ -1,11 +1,25 @@
 # Changelog
 
 > 语言：中文  
-> 最后更新：2026-07-21  
+> 最后更新：2026-07-23
 > 页面定位：变更记录  
 > 切换：[English](../en/changelog.md)
 
 ## 2026-07
+
+### 修复（2026-07-23）— PR #79 完整 review 闭环
+
+- 统一 CPU/CuPy/Torch CoxPH 的最终 KKT、行搜索、终止原因和公共结果字段，
+  并显式拒绝不支持的 delayed-entry penalty/robust 组合。
+- 新增默认 strict、显式 opt-in 的 approx 稳健推断契约、推断来源字段与
+  `statgpu[survival]` 可选依赖。
+- Cox 预测与评分保持后端原生，baseline hazard 改为向量化风险集，移除
+  Torch `O(n p^2)` Hessian 张量，并避免 nonrobust GPU 推断无条件复制完整训练数据。
+- 强化 PR79 diagnostics 与 canonical report：missing、failed、duplicate、
+  non-finite、wrong-SHA 证据全部 fail closed，并加入 CPU smoke gate。
+- canonical 证据必须来自 clean、稳定且 exact-head 的 Git 状态；删除陈旧的硬编码
+  PASS 产物，并新增可执行的 576-case 真实 GPU Cox 矩阵、排列不变性和显存峰值门禁。
+- 新增行为回归并同步中英文 Cox 支持矩阵；真实 CUDA 验收仍是独立 exact-head gate。
 
 ### 修复（2026-07-21）— PR #79 真实 GPU 完整验证
 

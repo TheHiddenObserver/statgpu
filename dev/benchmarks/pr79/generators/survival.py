@@ -54,7 +54,7 @@ def generate_coxph_entry(
     n_features: int = 4,
     seed: int = 42,
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-    """Delayed entry (left truncation) data."""
+    """Delayed entry (left truncation) data with valid observed intervals."""
     rng = np.random.default_rng(seed)
     X = rng.normal(size=(n_samples, n_features)).astype(np.float64)
     beta = np.array([0.5, -0.3, 0.2, 0.0], dtype=np.float64)[:n_features]
@@ -62,15 +62,15 @@ def generate_coxph_entry(
     baseline = rng.exponential(scale=1.0, size=n_samples).astype(np.float64)
     time_raw = baseline / np.exp(eta)
     entry = rng.exponential(scale=0.5, size=n_samples).astype(np.float64)
-    # Only keep observations where entry < time (truncation)
-    valid = entry < time_raw
-    time_raw = time_raw[valid]
-    entry = entry[valid]
-    X = X[valid]
-    censor_time = rng.exponential(scale=2.0, size=time_raw.shape[0]).astype(np.float64)
+    censor_time = rng.exponential(scale=2.0, size=n_samples).astype(np.float64)
     event = (time_raw <= censor_time).astype(np.int32)
     time = np.minimum(time_raw, censor_time)
-    return X, time, event, entry[:X.shape[0]], beta
+
+    # Left truncation applies to the observed interval, not only the latent
+    # failure time. Filtering after censoring prevents censored rows with
+    # entry > time from reaching CoxPH, while one mask keeps every array aligned.
+    valid = entry < time
+    return X[valid], time[valid], event[valid], entry[valid], beta
 
 
 def generate_coxph_penalized(

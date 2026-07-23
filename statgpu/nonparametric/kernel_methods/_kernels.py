@@ -95,6 +95,15 @@ def rbf_kernel(X, Y=None, gamma=None, xp=None):
     if X.shape[1] != Y.shape[1]:
         raise ValueError("X and Y must have the same number of features")
 
+    x_complex_flag = getattr(X, 'is_complex', None)
+    y_complex_flag = getattr(Y, 'is_complex', None)
+    x_is_complex = bool(x_complex_flag()) if callable(x_complex_flag) else False
+    y_is_complex = bool(y_complex_flag()) if callable(y_complex_flag) else False
+    x_kind = getattr(getattr(X, 'dtype', None), 'kind', None)
+    y_kind = getattr(getattr(Y, 'dtype', None), 'kind', None)
+    if x_is_complex or y_is_complex or x_kind == 'c' or y_kind == 'c':
+        raise ValueError('rbf_kernel does not support complex-valued inputs')
+
     # Torch integer tensors cannot be updated in-place with floating kernel
     # coefficients. Promote integer inputs while preserving floating dtypes.
     if getattr(xp, "__name__", "") == "torch":

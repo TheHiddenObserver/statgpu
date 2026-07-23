@@ -25,6 +25,12 @@ from statgpu.backends import (
     xp_asarray,
 )
 
+# Small inputs retain exact full-content hashes. Large inputs use a bounded
+# row sample plus backend-native reductions to avoid an eager full GPU-to-host
+# transfer solely for cache identity construction.
+_FULL_HASH_THRESHOLD = 10_000_000
+_LARGE_HASH_SAMPLE_ROWS = 100
+
 
 def _torch_cuda_available():
     """Check if torch CUDA is available (shared utility)."""
@@ -112,48 +118,146 @@ def folds_are_complete(folds, n_samples: int) -> bool:
     return np.array_equal(np.sort(val_indices), np.arange(n_samples))
 
 
-def hash_cv_data(X, y, sample_weight=None) -> bytes:
-    """Compute a compact hash of X, y, and optionally sample_weight.
+def _shape_without_host_transfer(value) -> Tuple[int, ...]:
+    """Read shape metadata without materializing a GPU array on the host."""
+    shape = getattr(value, "shape", None)
+    if shape is None:
+        shape = np.shape(value)
+    return tuple(int(dimension) for dimension in shape)
 
-    For small datasets (n * p <= 10,000,000), hashes full content for zero
-    collision risk.  For very large datasets, samples evenly spaced rows plus
-    first/last rows, row indices, and aggregate statistics to keep hashing fast
-    while minimizing collision probability.
+
+def _hash_array_metadata(h, label: bytes, value) -> None:
+    """Hash shape, dtype, backend, and device metadata."""
+    backend_name = _resolve_backend("auto", value)
+    shape = _shape_without_host_transfer(value)
+    dtype = getattr(value, "dtype", None)
+    if dtype is None:
+        dtype = np.asarray(value).dtype
+    if backend_name == "torch":
+        device = str(getattr(value, "device", "cpu"))
+    elif backend_name == "cupy":
+        array_device = getattr(value, "device", None)
+        device = f"cuda:{getattr(array_device, 'id', array_device)}"
+    else:
+        device = "cpu"
+    metadata = repr((shape, str(dtype), backend_name, device)).encode("utf-8")
+    h.update(len(label).to_bytes(2, "big"))
+    h.update(label)
+    h.update(len(metadata).to_bytes(8, "big"))
+    h.update(metadata)
+
+
+def _as_backend_array(value):
+    """Return a native backend-name, array module, and array tuple."""
+    backend_name = _resolve_backend("auto", value)
+    xp = _get_xp(backend_name)
+    ref = value if backend_name == "torch" else None
+    return backend_name, xp, xp_asarray(value, xp=xp, ref_arr=ref)
+
+
+def _sample_and_summarize(value, indices, *, flatten: bool):
+    """Copy bounded rows and a two-scalar native summary to the host."""
+    backend_name, xp, array = _as_backend_array(value)
+    if flatten:
+        array = array.reshape(-1)
+    index_array = xp_asarray(
+        indices,
+        dtype=xp.int64,
+        xp=xp,
+        ref_arr=array if backend_name == "torch" else None,
+    )
+    sample = np.ascontiguousarray(_to_numpy(array[index_array]))
+
+    if backend_name == "torch":
+        stats_array = array
+        if not (stats_array.is_floating_point() or stats_array.is_complex()):
+            stats_array = stats_array.to(dtype=xp.float64)
+        mean = xp.mean(stats_array)
+        # NumPy/CuPy and the historical implementation use correction=0.
+        std = xp.std(stats_array, correction=0)
+        summary = xp.stack((mean, std)).to(dtype=xp.float64)
+    else:
+        mean = xp.mean(array, dtype=xp.float64)
+        std = xp.std(array, dtype=xp.float64)
+        summary = xp.stack((mean, std)).astype(xp.float64, copy=False)
+
+    summary_np = np.asarray(_to_numpy(summary), dtype=np.float64)
+    return sample, np.ascontiguousarray(summary_np)
+
+
+def hash_cv_data(X, y, sample_weight=None, *, cache_key=None) -> bytes:
+    """Compute a compact cache hash for CV inputs.
+
+    When cache_key is supplied, it is treated as a caller-controlled identity
+    and array contents are not inspected. Otherwise, inputs with at most
+    10,000,000 X elements hash their full contents. Larger inputs are
+    classified from X.shape before any host transfer and hash at most 100
+    evenly spaced rows plus backend-native mean/std summaries.
+
+    Large-input hashes are probabilistic cache identities, not proofs that two
+    complete datasets are equal. Callers with an authoritative data identity
+    should pass it as cache_key to skip content hashing entirely.
     """
     h = hashlib.blake2b(digest_size=16)
-    X_np = np.asarray(_to_numpy(X), dtype=np.float64)
-    y_np = np.asarray(_to_numpy(y), dtype=np.float64).ravel()
-    n, p = X_np.shape
+    h.update(b"statgpu-cv-data-v2")
+
+    if cache_key is not None:
+        # Reuse the framed serializer used by the in-process CV cache instead
+        # of repr().  repr(set(...)) and repr() of arbitrary objects can vary
+        # with PYTHONHASHSEED or include a process-local address.
+        key_payload = CVCache.make_key(cache_key).encode('ascii')
+        h.update(b'explicit')
+        h.update(len(key_payload).to_bytes(8, 'big'))
+        h.update(key_payload)
+        return h.digest()
+
+    x_shape = _shape_without_host_transfer(X)
+    if len(x_shape) != 2:
+        raise ValueError(f"X must be 2D, got shape {x_shape}")
+    n, p = x_shape
+
+    _hash_array_metadata(h, b"X", X)
+    _hash_array_metadata(h, b"y", y)
+    if sample_weight is not None:
+        _hash_array_metadata(h, b"sample_weight", sample_weight)
     h.update(np.asarray([n, p], dtype=np.int64).tobytes())
 
-    _FULL_HASH_THRESHOLD = 10_000_000  # n * p threshold for full hashing
     if n * p <= _FULL_HASH_THRESHOLD:
-        # Small dataset: hash full content (zero collision risk)
+        # Retain historical float64 normalization while hashing every value.
+        # Metadata above distinguishes source dtype, backend, and device.
+        X_np = np.ascontiguousarray(
+            np.asarray(_to_numpy(X), dtype=np.float64)
+        )
+        y_np = np.ascontiguousarray(
+            np.asarray(_to_numpy(y), dtype=np.float64).ravel()
+        )
         h.update(X_np.tobytes())
         h.update(y_np.tobytes())
         if sample_weight is not None:
-            sw_np = np.asarray(_to_numpy(sample_weight), dtype=np.float64).ravel()
+            sw_np = np.ascontiguousarray(
+                np.asarray(_to_numpy(sample_weight), dtype=np.float64).ravel()
+            )
             h.update(sw_np.tobytes())
-    else:
-        # Very large dataset: sample rows + indices + aggregate statistics
-        # Include first and last rows (boundary) plus evenly spaced interior
-        step = max(1, n // 100)
-        idx = np.arange(0, n, step)[:100]
-        # Ensure first and last rows are always included
-        if idx[0] != 0:
-            idx = np.concatenate([[0], idx])
-        if idx[-1] != n - 1:
-            idx = np.concatenate([idx, [n - 1]])
-        # Hash row indices to prevent collision from reordered data
-        h.update(idx.astype(np.int64).tobytes())
-        h.update(X_np[idx].tobytes())
-        h.update(y_np[idx].tobytes())
-        h.update(np.asarray([X_np.mean(), X_np.std()], dtype=np.float64).tobytes())
-        h.update(np.asarray([y_np.mean(), y_np.std()], dtype=np.float64).tobytes())
-        if sample_weight is not None:
-            sw_np = np.asarray(_to_numpy(sample_weight), dtype=np.float64).ravel()
-            h.update(sw_np[idx].tobytes())
-            h.update(np.asarray([sw_np.mean(), sw_np.std()], dtype=np.float64).tobytes())
+        return h.digest()
+
+    sample_count = min(n, _LARGE_HASH_SAMPLE_ROWS)
+    indices = np.unique(
+        np.linspace(0, n - 1, num=sample_count, dtype=np.int64)
+    )
+    h.update(indices.tobytes())
+
+    X_sample, X_summary = _sample_and_summarize(X, indices, flatten=False)
+    y_sample, y_summary = _sample_and_summarize(y, indices, flatten=True)
+    h.update(X_sample.tobytes())
+    h.update(X_summary.tobytes())
+    h.update(y_sample.tobytes())
+    h.update(y_summary.tobytes())
+    if sample_weight is not None:
+        sw_sample, sw_summary = _sample_and_summarize(
+            sample_weight, indices, flatten=True
+        )
+        h.update(sw_sample.tobytes())
+        h.update(sw_summary.tobytes())
     return h.digest()
 
 
@@ -259,9 +363,13 @@ class CVCache:
                 frame(b"list" if isinstance(value, list) else b"tuple", str(len(value)).encode())
                 for item in value:
                     update(item)
+            elif isinstance(value, (set, frozenset)):
+                frame(b'set' if isinstance(value, set) else b'frozenset', str(len(value)).encode())
+                for item in sorted(value, key=CVCache.make_key):
+                    update(item)
             elif isinstance(value, dict):
                 frame(b"dict", str(len(value)).encode())
-                for key in sorted(value, key=lambda item: (type(item).__name__, repr(item))):
+                for key in sorted(value, key=CVCache.make_key):
                     update(key)
                     update(value[key])
             elif hasattr(value, "shape"):
@@ -271,8 +379,10 @@ class CVCache:
                 frame(b"array-data", array.tobytes())
             else:
                 typename = f"{type(value).__module__}.{type(value).__qualname__}"
-                frame(b"object-type", typename.encode("utf-8"))
-                frame(b"object-repr", repr(value).encode("utf-8"))
+                raise TypeError(
+                    "CV cache keys must contain deterministic primitive, array, "
+                    f"sequence, mapping, or set values; got {typename}"
+                )
 
         for argument in args:
             update(argument)

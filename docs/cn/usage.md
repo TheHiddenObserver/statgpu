@@ -24,6 +24,9 @@ PyTorch 后端使用 `statgpu[torch]`。
 - [模型总览](models/README.md)
 - [广义线性模型](models/generalized-linear-model.md)
 - [Cox 比例风险模型](models/coxph.md)
+
+`CoxPH` 默认采用 strict 稳健推断；delayed-entry/penalty 支持范围及可选
+`statgpu[survival]` 依赖见模型页支持矩阵。
 - [面板模型](models/panel.md)
 - [ANOVA](models/anova.md)
 - [协方差估计](models/covariance.md)

@@ -61,6 +61,14 @@ jobs:
             dev/tests/test_three_backend_native_followup.py \
             dev/tests/test_second_full_review.py \
             dev/tests/test_third_full_review.py \
+            dev/tests/test_pr79_accuracy_git_integrity.py \
+            dev/tests/test_pr79_accuracy_pipeline.py \
+            dev/tests/test_pr79_complete_review_fixes.py \
+            dev/tests/test_pr79_cox_full_matrix_contract.py \
+            dev/tests/test_pr79_cox_parity_smoke.py \
+            dev/tests/test_pr79_performance_followups.py \
+            dev/tests/test_pr79_renderer_cli.py \
+            dev/tests/test_pr79_survival_generator.py \
             dev/tests/test_elasticnet_cv.py \
             dev/tests/test_v10_import_smoke.py \
             -q --tb=short
@@ -132,15 +140,27 @@ jobs:
             statgpu/unsupervised/_umap.py \
             statgpu/unsupervised/_utils.py \
             --select F821,E9,F63,F7,F82
-      - name: Cox review structure checks
+      - name: Cox behavior checks
+        run: python -m pytest dev/tests/test_cox.py -q --tb=short
+      - name: PR79 canonical accuracy evidence smoke
+        shell: bash
         run: |
-          python - <<'PY'
-          from pathlib import Path
-          text = Path('statgpu/survival/_cox.py').read_text()
-          assert '.reshape(n_samples, n_features * n_features)' in text
-          assert text.count('def _observed_information(hess):') == 1
-          assert text.count('information = self._observed_information(hess)') == 1
-          assert text.count('info_0 = self._observed_information(hess_0)') == 1
-          PY
+          artifact_dir="$(mktemp -d)"
+          validated_sha="$(git rev-parse HEAD)"
+          python dev/benchmarks/pr79/run_accuracy.py \
+            --config smoke \
+            --backend numpy \
+            --output "$artifact_dir/raw.json"
+          python dev/benchmarks/pr79/aggregate_results.py \
+            --config smoke \
+            --raw "$artifact_dir/raw.json" \
+            --expected-sha "$validated_sha" \
+            --output "$artifact_dir/validated.json"
+          python dev/benchmarks/pr79/emit_final_report.py \
+            --config smoke \
+            --validated "$artifact_dir/validated.json" \
+            --output-json "$artifact_dir/final.json" \
+            --output-markdown "$artifact_dir/final.md"
+          git diff --exit-code
       - name: Collect complete test tree
         run: python -m pytest --collect-only -q

@@ -2,6 +2,30 @@
 
 All notable changes to statgpu are documented here, organized by date and PR.
 
+## 2026-07-23
+
+### PR #79 — Complete review contract and evidence-pipeline hardening
+
+- Unified CoxPH final-KKT, line-search, termination-reason, and public fitted-state
+  contracts across CPU, CuPy, and Torch; failed CPU line searches no longer update
+  coefficients or report convergence.
+- Made delayed-entry penalty and robust-covariance limitations explicit, added
+  strict/approx robust inference with provenance fields, and introduced the
+  `statgpu[survival]` optional dependency.
+- Preserved estimator backends in Cox prediction/scoring, vectorized baseline
+  hazard risk sets, removed the Torch `O(n p^2)` Hessian allocation, and avoided
+  unconditional full training-data host transfers for nonrobust GPU inference.
+- Unified complex RBF rejection, Cox chi-square survival-function evaluation, and
+  CuPy Cholesky inverse solves.
+- Rebuilt PR79 diagnostic/canonical-report validation so missing, failed,
+  duplicate, non-finite, or wrong-SHA evidence fails closed; added CPU smoke CI.
+- Canonical evidence now requires clean, stable, exact-head Git provenance; the
+  stale hard-coded final PASS artifacts were removed until a new full campaign
+  regenerates them, and an executable 576-case physical-GPU Cox matrix records
+  permutation invariance, robust-inference provenance, and peak memory.
+- Added behavioral regression coverage and synchronized the English/Chinese Cox
+  support matrix. Physical CUDA acceptance remains a separate exact-head gate.
+
 ## 2026-07-21
 
 ### PR #79 — Final physical GPU validation and correctness hardening

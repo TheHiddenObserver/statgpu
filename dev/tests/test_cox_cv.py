@@ -1,6 +1,7 @@
 """Tests for CoxPHCV cross-validation behavior."""
 
 import numpy as np
+import pytest
 
 from statgpu.survival import CoxPHCV
 from statgpu.survival._cox_cv import _select_coxph_penalty_cv, _env_int, _env_float
@@ -16,8 +17,8 @@ def _make_survival_data(n_samples=180, n_features=5, seed=123):
     return X.astype(np.float64), time.astype(np.float64), event
 
 
-def test_coxphcv_supports_entry_and_cluster_cpu():
-    """CoxPHCV should fit on CPU with entry/cluster passthrough enabled."""
+def test_coxphcv_rejects_nonzero_delayed_entry_penalties_on_cpu():
+    """CPU delayed-entry CV must not silently fit a different objective."""
     X, time, event = _make_survival_data(seed=77)
     entry = np.zeros_like(time, dtype=np.float64)
     entry[:60] = np.minimum(time[:60] * 0.25, time[:60] * 0.95)
@@ -32,14 +33,24 @@ def test_coxphcv_supports_entry_and_cluster_cpu():
         compute_inference=False,
         random_state=11,
     )
-    model.fit(X, time, event, entry=entry, cluster=cluster)
+    with pytest.raises(NotImplementedError, match='nonzero penalties'):
+        model.fit(X, time, event, entry=entry, cluster=cluster)
 
-    assert model.penalty_ is not None
-    assert np.isfinite(model.penalty_)
+
+def test_coxphcv_allows_explicit_unpenalized_delayed_entry_cpu():
+    X, time, event = _make_survival_data(seed=78)
+    entry = np.minimum(time * 0.2, time * 0.95)
+    model = CoxPHCV(
+        penalties=[0.0], device='cpu', cv=3, max_iter=50, tol=1e-7,
+        compute_inference=False, random_state=11,
+    ).fit(X, time, event, entry=entry)
+
+    assert model.penalty_ == 0.0
     assert model.coef_ is not None
     assert np.all(np.isfinite(model.coef_))
     assert model.cv_results_ is not None
     assert model.cv_results_["pl_path"].shape[0] == model.penalties_.shape[0]
+    assert model.termination_reason_ == model.estimator_.termination_reason_
 
 
 def test_coxphcv_env_toggles_do_not_change_cpu_penalty_selection(monkeypatch):

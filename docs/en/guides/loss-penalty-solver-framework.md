@@ -158,7 +158,7 @@ The `solver="auto"` dispatch follows priority:
 | Quantile IRLS (smooth) | ✅ | ✅ | ✅ |
 | CoxPH Efron GPU | ✅ | ✅ (kernel) | ✅ (DLPack→CuPy) |
 | DBSCAN | ✅ | GPU dist + host-sync CC | ✅ on-device |
-| UMAP | ✅ | backend-aware + known host transfer | backend-aware + known host transfer |
+| UMAP | yes | supported with explicit SciPy host graph boundary | supported with explicit SciPy host graph boundary |
 
 ## 5. Penalized Model Classes
 

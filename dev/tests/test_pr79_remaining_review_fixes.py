@@ -221,16 +221,16 @@ def test_delayed_entry_robust_covariance_contract(backend):
 
 
 @pytest.mark.parametrize("backend", ["cpu", "cupy", "torch"])
-def test_entry_robust_bypassed_when_inference_disabled(backend):
-    """Entry+hc1 with compute_inference=False fits successfully (no guard)."""
-    if backend == "cupy":
-        cp = pytest.importorskip("cupy")
+def test_entry_robust_rejected_when_inference_disabled(backend):
+    '''Entry plus robust covariance is unsupported regardless of inference.'''
+    if backend == 'cupy':
+        cp = pytest.importorskip('cupy')
         if cp.cuda.runtime.getDeviceCount() < 1:
-            pytest.skip("CuPy CUDA not available")
-    elif backend == "torch":
-        torch = pytest.importorskip("torch")
+            pytest.skip('CuPy CUDA not available')
+    elif backend == 'torch':
+        torch = pytest.importorskip('torch')
         if not torch.cuda.is_available():
-            pytest.skip("Torch CUDA not available")
+            pytest.skip('Torch CUDA not available')
 
     from statgpu.survival import CoxPH
 
@@ -241,22 +241,18 @@ def test_entry_robust_bypassed_when_inference_disabled(backend):
     event = np.ones(n, dtype=np.int32)
     entry = np.zeros(n, dtype=np.float64)
 
-    kwargs = {"cov_type": "hc1", "compute_inference": False, "compute_cindex": False,
-              "tol": 1e-6, "max_iter": 30}
-    if backend == "cupy":
-        model = CoxPH(device="cuda", **kwargs)
-        model.fit(cp.asarray(X), time=time, event=event, entry=entry)
-    elif backend == "torch":
-        model = CoxPH(device="torch", **kwargs)
-        model.fit(torch.as_tensor(X, dtype=torch.float64, device="cuda"),
-                  time=time, event=event, entry=entry)
-    else:
-        model = CoxPH(**kwargs)
-        model.fit(X, time=time, event=event, entry=entry)
+    kwargs = {'cov_type': 'hc1', 'compute_inference': False,
+              'compute_cindex': False, 'tol': 1e-6, 'max_iter': 30}
+    model = CoxPH(device={'cupy': 'cuda', 'torch': 'torch'}.get(backend, 'cpu'),
+                  **kwargs)
+    X_backend = X
+    if backend == 'cupy':
+        X_backend = cp.asarray(X)
+    elif backend == 'torch':
+        X_backend = torch.as_tensor(X, dtype=torch.float64, device='cuda')
 
-    assert model.coef_ is not None, "coefficients should be fitted"
-    assert model._bse is None, "inference should not be computed"
-    assert model._var_matrix is None, "covariance should not be computed"
+    with pytest.raises(NotImplementedError, match='delayed entry'):
+        model.fit(X_backend, time=time, event=event, entry=entry)
 
 
 @pytest.mark.parametrize("backend", ["cupy", "torch"])

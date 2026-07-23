@@ -1,11 +1,28 @@
 # Changelog
 
 > Language: English  
-> Last updated: 2026-07-21  
+> Last updated: 2026-07-23
 > This page: Changelog  
 > Switch: [Chinese](../cn/changelog.md)
 
 ## 2026-07
+
+### Fixed (2026-07-23) — PR #79 complete review closure
+
+- Unified CoxPH final KKT, line-search, termination, and public result fields on
+  CPU/CuPy/Torch; rejected unsupported delayed-entry penalty/robust combinations.
+- Added strict-by-default robust inference with explicit approximate opt-in,
+  provenance fields, and the `statgpu[survival]` optional dependency.
+- Kept Cox prediction/scoring backend-native, vectorized baseline hazards, removed
+  the Torch `O(n p^2)` Hessian tensor, and avoided unconditional GPU training-data
+  host copies for nonrobust inference.
+- Hardened PR79 diagnostics and canonical-report generation against missing,
+  failed, duplicate, non-finite, and wrong-SHA evidence, with a CPU smoke gate.
+- Required clean, stable, exact-head provenance for canonical evidence, removed
+  the stale hard-coded PASS artifacts, and added an executable 576-case physical
+  GPU Cox matrix with permutation and peak-memory gates.
+- Added behavioral regressions and synchronized the bilingual Cox support matrix;
+  physical CUDA acceptance remains an exact-head follow-up gate.
 
 ### Fixed (2026-07-21) — PR #79 physical-GPU validation
 

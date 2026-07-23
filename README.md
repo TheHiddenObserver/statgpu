@@ -56,7 +56,7 @@ GPU-accelerated statistical methods with sklearn-compatible API.
 | **Nonparametric** | 10+ classes/functions | KDE/kernel regression, KernelRidge/CV, KernelPCA, Nystroem, spline bases and SplineTransformer |
 | **Semiparametric** | 1 class | GAM (penalized B-splines + GCV) |
 | **Unsupervised** | 12 classes | PCA, SVD, NMF, UMAP, t-SNE, KMeans, DBSCAN, GMM, AgglomerativeClustering |
-| **Survival** | 1 class | CoxPH (Breslow/Efron ties, robust SE) |
+| **Survival** | 1 class | CoxPH (Breslow/Efron ties, strict robust-inference contract, backend-native prediction) |
 | **Feature Selection** | 7 interfaces | Stepwise forward/backward/bidirectional selection plus fixed-X/model-X knockoff filters and selector wrappers |
 | **Diagnostics** | 2 interfaces | RegressionDiagnostics and diagnose_model for residual, leverage, influence, and VIF analysis |
 | **Multiple Testing** | 3 functions | adjust_pvalues, combine_pvalues, permutation_test |

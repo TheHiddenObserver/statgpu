@@ -6,16 +6,18 @@ from pathlib import Path
 _project_root = Path(__file__).resolve().parent.parent.parent.parent
 sys.path.insert(0, str(_project_root))
 from dev.benchmarks.pr79.generators.survival import generate_coxph_penalized
+from dev.benchmarks.pr79.diagnose_cox_pen import stable_sort_risk_set_inputs
+
 
 def main():
     X, t, e, _ = generate_coxph_penalized(100, 8, 42)
     penalty = 0.1
 
-    # Sort data first
-    order_np = np.argsort(t, kind="stable")
-    Xs = X[order_np].astype(np.float64)
-    ts = t[order_np].astype(np.float64)
-    es = e[order_np].astype(np.int32)
+    # Every suffix-risk-set input must use the same stable time order.
+    sorted_inputs = stable_sort_risk_set_inputs(X, t, e)
+    Xs = np.asarray(sorted_inputs["X"], dtype=np.float64)
+    ts = np.asarray(sorted_inputs["time"], dtype=np.float64)
+    es = np.asarray(sorted_inputs["event"], dtype=np.int32)
 
     # Fit NumPy reference on sorted data
     from statgpu.survival import CoxPH
@@ -29,7 +31,6 @@ def main():
 
     # Now trace CuPy iterations manually
     import cupy as cp
-    Xc = cp.asarray(X); tc = cp.asarray(t); ec = cp.asarray(e.astype(np.int32))
 
     from statgpu.survival._cox import CoxPH as _CoxPH
     model = _CoxPH(ties="efron", penalty=penalty, compute_inference=False, compute_cindex=False,

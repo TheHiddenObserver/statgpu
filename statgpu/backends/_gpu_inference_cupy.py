@@ -72,7 +72,8 @@ def compute_inference_gpu(X_design, resid, scale, df_resid, params_gpu):
     try:
         # Use Cholesky for inversion
         L = cp.linalg.cholesky(XtX)
-        XtX_inv = cp.linalg.inv(XtX)  # Simpler but less stable
+        identity = cp.eye(XtX.shape[0], dtype=XtX.dtype)
+        XtX_inv = cp.linalg.solve(L.T, cp.linalg.solve(L, identity))
     except Exception:
         # Fallback to pseudo-inverse
         XtX_inv = cp.linalg.pinv(XtX)

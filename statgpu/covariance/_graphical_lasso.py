@@ -105,8 +105,22 @@ class GraphicalLasso(EmpiricalCovariance):
         else:
             covariance = _copy_array(empirical)
             inner_tol = min(1e-8, float(self.tol) * 0.1)
+            # A full device-to-host scalar transfer after every coordinate
+            # sweep dominates small GPU solves. Preserve Gauss-Seidel updates,
+            # but check convergence only after a bounded batch of sweeps.
+            inner_check_interval = 16
             beta_cache = [xp_zeros(p - 1, xp.float64, xp, X_arr) for _ in range(p)]
             self.n_iter_ = 0
+            self._inner_iterations_ = 0
+            self._inner_convergence_checks_ = 0
+            # Every W11 diagonal below is a subset of this fixed empirical
+            # diagonal. Validate it with one backend reduction rather than
+            # synchronizing one scalar for every coordinate update.
+            positive_diagonal = xp.all(xp.diagonal(empirical) > 0.0)
+            if not bool(_to_float_scalar(positive_diagonal)):
+                raise ValueError(
+                    "GraphicalLasso encountered a non-positive covariance diagonal"
+                )
 
             for outer in range(int(self.max_iter)):
                 previous = _copy_array(covariance)
@@ -119,21 +133,20 @@ class GraphicalLasso(EmpiricalCovariance):
                     s12 = empirical[idx, j]
                     beta = _copy_array(beta_cache[j])
 
-                    for _ in range(1000):
+                    for sweep_start in range(0, 1000, inner_check_interval):
                         beta_old = _copy_array(beta)
-                        for coordinate in range(p - 1):
-                            diagonal = W11[coordinate, coordinate]
-                            if _to_float_scalar(diagonal) <= 0.0:
-                                raise ValueError(
-                                    "GraphicalLasso encountered a non-positive covariance diagonal"
+                        for _ in range(min(inner_check_interval, 1000 - sweep_start)):
+                            for coordinate in range(p - 1):
+                                diagonal = W11[coordinate, coordinate]
+                                partial = (
+                                    s12[coordinate]
+                                    - W11[coordinate] @ beta
+                                    + diagonal * beta[coordinate]
                                 )
-                            partial = (
-                                s12[coordinate]
-                                - W11[coordinate] @ beta
-                                + diagonal * beta[coordinate]
-                            )
-                            beta[coordinate] = _soft_threshold(partial, alpha, xp) / diagonal
+                                beta[coordinate] = _soft_threshold(partial, alpha, xp) / diagonal
+                            self._inner_iterations_ += 1
                         delta = _to_float_scalar(xp.max(xp.abs(beta - beta_old)))
+                        self._inner_convergence_checks_ += 1
                         if delta <= inner_tol:
                             break
 

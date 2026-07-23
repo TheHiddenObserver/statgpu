@@ -11,10 +11,9 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 import time
 import traceback
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 import numpy as np
 
@@ -112,14 +111,16 @@ def make_raw_run(
     framework: str,
     backend: str,
     parameters: Dict[str, Any],
-    timing: Dict[str, float],
-    results: Dict[str, Any],
+    timing: Optional[Dict[str, float]],
+    results: Optional[Dict[str, Any]],
     status: str = "success",
     error: Optional[str] = None,
+    error_type: Optional[str] = None,
+    traceback_text: Optional[str] = None,
     resources: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """Build a raw run record in PR79 benchmark source format."""
-    return {
+    record = {
         "run_key": run_key,
         "case_id": case_id,
         "method_config_id": method_config_id,
@@ -133,11 +134,24 @@ def make_raw_run(
         "resources": resources or {},
         "error": error,
     }
+    if status == "error":
+        record["error_type"] = error_type or "UnknownError"
+        record["traceback"] = traceback_text or ""
+    return record
 
 
-def safe_run(fn, *args, **kwargs) -> Tuple[Any, Optional[str]]:
-    """Run a function and return (result, error_string)."""
+def safe_run(fn, *args, **kwargs) -> Tuple[Any, Optional[Dict[str, str]]]:
+    """Run ``fn`` and retain structured failure evidence.
+
+    Callers must serialize the returned error object into a raw run rather
+    than dropping the failed run. Keeping the exception class, message, and
+    traceback separate also makes the raw schema machine-verifiable.
+    """
     try:
         return fn(*args, **kwargs), None
     except Exception as exc:
-        return None, f"{type(exc).__name__}: {exc}\n{traceback.format_exc()}"
+        return None, {
+            "error_type": type(exc).__name__,
+            "error": str(exc),
+            "traceback": traceback.format_exc(),
+        }

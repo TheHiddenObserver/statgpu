@@ -514,6 +514,15 @@ def _select_coxph_penalty_cv(
             penalties = _default_coxph_penalty_grid(X_np, time_np, event_np, n_penalties, penalty_min_ratio)
 
     n_penalties_actual = len(penalties)
+    if (
+        entry_np is not None
+        and fit_device == Device.CPU.value
+        and np.any(penalties > 0.0)
+    ):
+        raise NotImplementedError(
+            'CPU delayed-entry CoxPHCV cannot evaluate nonzero penalties; '
+            'use device=cuda/device=torch or pass penalties=[0.0].'
+        )
 
     # Handle degenerate cases
     if n_samples < 4 or cv_folds < 2:
@@ -828,6 +837,8 @@ class CoxPHCV(CVEstimatorBase):
         Whether to compute standard errors after fitting.
     cov_type : str, default='nonrobust'
         Covariance estimator.
+    inference_mode : {'strict', 'approx'}, default='strict'
+        Robust-inference policy forwarded to the final CoxPH estimator.
     gpu_memory_cleanup : bool, default=False
         Whether to free GPU memory after fitting.
     random_state : int or None
@@ -877,6 +888,7 @@ class CoxPHCV(CVEstimatorBase):
         n_jobs: Optional[int] = None,
         compute_inference: bool = True,
         cov_type: str = "nonrobust",
+        inference_mode: str = "strict",
         gpu_memory_cleanup: bool = False,
         random_state: Optional[int] = None,
     ):
@@ -896,6 +908,9 @@ class CoxPHCV(CVEstimatorBase):
         self.max_iter = int(max_iter)
         self.compute_inference = bool(compute_inference)
         self.cov_type = str(cov_type)
+        self.inference_mode = str(inference_mode).lower()
+        if self.inference_mode not in ('strict', 'approx'):
+            raise ValueError('inference_mode must be strict or approx')
         self.gpu_memory_cleanup = bool(gpu_memory_cleanup)
 
         # Output attributes (initialized to None)
@@ -906,6 +921,16 @@ class CoxPHCV(CVEstimatorBase):
         self.coef_ = None
         self.hazard_ratios_ = None
         self.estimator_ = None
+        self.converged_ = False
+        self.termination_reason_ = None
+        self.n_iter_ = 0
+        self.final_kkt_inf_ = None
+        self.final_kkt_normalized_ = None
+        self.inference_method_ = None
+        self.inference_backend_ = None
+        self.inference_approximate_ = False
+        self.inference_fallback_reason_ = None
+        self.full_host_transfer_performed_ = False
 
     def _cleanup_cuda_memory(self):
         """Best-effort CuPy memory pool cleanup."""
@@ -960,7 +985,15 @@ class CoxPHCV(CVEstimatorBase):
         self
         """
         device_name = self._get_compute_device().value
-        n_samples, n_features = np.asarray(X).shape
+        X_shape = getattr(X, 'shape', None)
+        if X_shape is None or len(X_shape) != 2:
+            raise ValueError('X must be a two-dimensional array')
+        n_samples, n_features = (int(X_shape[0]), int(X_shape[1]))
+        if entry is not None and self.cov_type.lower() != 'nonrobust':
+            raise NotImplementedError(
+                'Robust/cluster covariance with delayed entry is not implemented. '
+                'Use cov_type=nonrobust when entry is provided.'
+            )
         cv_cuda_torch_bridge = os.environ.get(
             "STATGPU_COXPHCV_CUDA_TORCH_BRIDGE", "0"
         ).strip().lower() in ("1", "true", "yes", "on")
@@ -1019,6 +1052,7 @@ class CoxPHCV(CVEstimatorBase):
             n_jobs=self.n_jobs,
             compute_inference=self.compute_inference,
             cov_type=self.cov_type,
+            inference_mode=self.inference_mode,
             gpu_memory_cleanup=self.gpu_memory_cleanup,
             penalty=self.penalty_,
         )
@@ -1027,6 +1061,13 @@ class CoxPHCV(CVEstimatorBase):
         self.estimator_ = final_model
         self.coef_ = final_model.coef_.copy()
         self.hazard_ratios_ = final_model.hazard_ratios_.copy()
+        for attribute in (
+            'converged_', 'termination_reason_', 'n_iter_', 'final_kkt_inf_',
+            'final_kkt_normalized_', 'inference_method_', 'inference_backend_',
+            'inference_approximate_', 'inference_fallback_reason_',
+            'full_host_transfer_performed_',
+        ):
+            setattr(self, attribute, getattr(final_model, attribute))
         self._cleanup_cuda_memory()
         self._cleanup_torch_memory()
 
@@ -1066,14 +1107,12 @@ class CoxPHCV(CVEstimatorBase):
 
         Returns
         -------
-        risk_scores : ndarray
-            Risk scores (linear predictor).
+        risk_scores : backend-native array
+            Risk scores (linear predictor) on the estimator backend.
         """
-        if self.coef_ is None:
+        if self.estimator_ is None:
             raise ValueError("Model not fitted. Call fit() first.")
-
-        X_arr = np.asarray(X, dtype=np.float64)
-        return X_arr @ self.coef_
+        return self.estimator_.predict_risk_score(X)
 
     def score(self, X, time, event):
         """
@@ -1093,62 +1132,9 @@ class CoxPHCV(CVEstimatorBase):
         c_index : float
             C-index (0.5 = random, 1.0 = perfect).
         """
-        if self.coef_ is None:
+        if self.estimator_ is None:
             raise ValueError("Model not fitted. Call fit() first.")
-
-        X_arr = np.asarray(X, dtype=np.float64)
-        time_arr = np.asarray(time, dtype=np.float64)
-        event_arr = np.asarray(event, dtype=np.int32)
-
-        # Compute risk scores
-        risk_scores = X_arr @ self.coef_
-
-        n = len(time_arr)
-        event_mask = (event_arr == 1)
-
-        if not np.any(event_mask):
-            return 0.5
-
-        # Use chunked vectorized approach for memory efficiency
-        # Similar to _compute_cindex in _cox.py
-        event_idx = np.where(event_mask)[0]
-        n_events = len(event_idx)
-
-        if n_events == 0:
-            return 0.5
-
-        concordant = np.int64(0)
-        permissible = np.int64(0)
-        tied_risk = np.int64(0)
-
-        # Chunk size: keep each (chunk × n) bool matrix <= 128 MB
-        chunk_size = max(1, min(n_events, int(128e6 / max(n, 1))))
-
-        for start in range(0, n_events, chunk_size):
-            end = min(start + chunk_size, n_events)
-            idx_chunk = event_idx[start:end]
-
-            time_i = time_arr[idx_chunk, np.newaxis]
-            risk_i = risk_scores[idx_chunk, np.newaxis]
-            time_j = time_arr[np.newaxis, :]
-            risk_j = risk_scores[np.newaxis, :]
-            event_j = event_arr[np.newaxis, :]
-
-            # Permissible pairs: earlier time OR same time with j censored
-            perm = (time_i < time_j) | ((time_i == time_j) & (event_j == 0))
-
-            # Exclude self-comparisons
-            chunk_indices = np.arange(end - start, dtype=np.int64)
-            perm[chunk_indices, idx_chunk] = False
-
-            concordant += int(np.sum(perm & (risk_i > risk_j)))
-            tied_risk += int(np.sum(perm & (risk_i == risk_j)))
-            permissible += int(np.sum(perm))
-
-        if permissible == 0:
-            return 0.5
-
-        return (concordant + 0.5 * tied_risk) / permissible
+        return self.estimator_.score(X, time, event)
 
     def summary(self):
         """Return summary of the fitted model."""

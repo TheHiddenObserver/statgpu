@@ -202,7 +202,7 @@ Torch-CPU 一致性；真实 CUDA 验证仍待完成。
 
 | Class | Description | Backends |
 |---|---|---|
-| `CoxPH` | Cox 比例风险模型（Efron/Breslow ties、向量化 grad/hess） | CPU, CuPy, Torch |
+| `CoxPH` | Cox 比例风险模型（Efron/Breslow ties、strict 稳健推断契约、后端原生预测） | CPU, CuPy, Torch |
 | `PenalizedCoxPHModel` | CoxPH + SCAD/MCP 惩罚，通过 proximal Newton 求解 | CPU, CuPy, Torch |
 
 ## 特征选择
