@@ -10,56 +10,14 @@ permissions:
   contents: read
 
 jobs:
-  docs-link-autofix:
-    if: github.event_name == 'pull_request' && github.head_ref == 'agent/readme-layout-cleanup'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.head_ref }}
-      - name: Normalize bilingual model links
-        run: python3 dev/validation/fix_docs_links.py --write
-      - name: Commit normalized links
-        shell: bash
-        run: |
-          if git diff --quiet -- docs/en/models docs/cn/models; then
-            echo "No link normalization changes required."
-            exit 0
-          fi
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add docs/en/models docs/cn/models
-          git commit -m "docs: normalize bilingual model links"
-          git push origin "HEAD:${{ github.head_ref }}"
-
   docs-contracts:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - name: Check deterministic bilingual links
         run: python3 dev/validation/fix_docs_links.py --check
-      - name: Run maintained documentation contracts
-        id: docs_check
-        shell: bash
-        run: |
-          set +e
-          python3 dev/validation/check_docs_contracts.py > docs-contracts.log 2>&1
-          status=$?
-          cat docs-contracts.log
-          echo "status=$status" >> "$GITHUB_OUTPUT"
-          exit 0
-      - name: Upload documentation diagnostics
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: docs-contracts-log
-          path: docs-contracts.log
-          if-no-files-found: error
-      - name: Enforce documentation contracts
-        if: steps.docs_check.outputs.status != '0'
-        run: exit 1
+      - name: Check maintained documentation contracts
+        run: python3 dev/validation/check_docs_contracts.py
 
   regression-matrix:
     runs-on: ubuntu-latest
