@@ -1,144 +1,121 @@
-# PR #79 Physical GPU Validation and Post-Validation Review — Final Report
+# PR #79 Physical-GPU Validation and Final Review Closure
 
-Date: 2026-07-21  
+Date: 2026-07-24  
 Base SHA: `a4879fb4d9fb183efc01f147cd2cc501691f28c4`  
 PR branch: `agent/code-review-fixes`  
-Physical-GPU validated campaign head: `2f18e5dec9195da1a12e5eea89ee2d832557b3ad`  
-Exact-head physical-GPU acceptance SHA: `786af9e2eb4742a56e5203b4380b03aec63a3ac8`
+Final reviewed production head: `c85750d63d4e6dbc9d988847566c20f5fa862e91`
 
 ## Decision
 
-**MERGE-READY.** The complete Tesla P100 Gate A–G campaign passed, the subsequent
-review-fix cycle was completed, and the exact cleaned head
-`786af9e2eb4742a56e5203b4380b03aec63a3ac8` passed the mandatory focused physical-GPU
-acceptance suite with **17 passed, 0 failed, and 0 skipped in 7.28 seconds**.
+**MERGE-READY.** PR #79 completed the repository-wide correctness review, the exact-head CPU and static gates, and maintained physical-GPU validation. No unresolved CRITICAL or HIGH production defect is known.
 
-CuPy CUDA and Torch CUDA both executed under `STATGPU_REQUIRE_PHYSICAL_GPU=1`. The exact
-SHA and clean-worktree state were recorded. Standard GitHub Actions Tests run #495 passed
-on the final documentation/cleanup head `1d877d65db0926f38170ec851f0f0479937bcd61`.
-No unresolved CRITICAL/HIGH defect or PR-introduced regression is known.
+Final evidence:
 
-Issues #81 and #82 and the Torch Cox Hessian memory optimization remain explicitly tracked,
-non-blocking follow-ups.
+| Gate | Result |
+|---|---|
+| GitHub Actions exact-head run | **PASS** — Tests run #545 |
+| Python regression matrix | **PASS** — Python 3.9, 3.10, 3.11, 3.12 |
+| Full CPU suite | **PASS** — 1074 passed, 275 skipped, 0 failed |
+| PR79 targeted contract tests | **PASS** |
+| Canonical clean-head smoke pipeline | **PASS** — `canonical_eligible=True`, verdict `PASS` |
+| Maintained Tesla P100 suite | **PASS** — 33 passed, 2 expected skips, 0 failed |
+| Penalized CoxPH three-backend parity | **PASS** |
+| Linear and Panel maintained parity paths | **PASS** |
 
-## Evidence boundary
+The maintained P100 result is the acceptance count for the final review closure. Six ignored legacy diagnostic scripts were also executed separately; they are not maintained pytest Gate tests and are tracked in Issue #83.
 
-### Complete physical-GPU campaign — validated head `2f18e5d`
+## Final Environment
 
-Environment:
+- GPU: Tesla P100-SXM2-16GB, 16280 MiB available;
+- Python: 3.9.16;
+- CuPy: 13.6.0;
+- PyTorch: 2.0.0+cu117;
+- pytest: 8.4.2;
+- maintained physical-GPU test: `dev/tests/test_pr79_physical_gpu.py`.
 
-- GPU: Tesla P100-SXM2-16GB
-- Python: 3.9
-- CuPy: 13.6.0
-- PyTorch: 2.0.0+cu117
-- Backends: NumPy, CuPy CUDA, Torch CUDA
-
-| Gate | Scope | Result |
-|---|---|---|
-| A | GPU smoke | **PASS** — 160 passed, 0 failed, 2 expected skips |
-| B | Three-backend correctness | **PASS** — 1100 passed, 0 failed, 124 skipped, 1 strict XFAIL |
-| C | Metamorphic properties | **PASS** — 10/10; one known NaN/Inf finding recorded |
-| D | Device purity | **PASS** — zero full-design transfers; three model families audited |
-| E | Memory leak | **PASS** — zero leaks over 15 repeated cycles on CuPy and Torch |
-| F | Performance | **PASS** — synchronized timings at three scales on both GPU backends |
-| G | External validation | **PASS** — Ridge versus scikit-learn; linear regression versus statsmodels |
-| Final | Complete CPU and GPU suites | **PASS** — CPU 1100 passed; GPU 1100 passed |
-
-Gate B improved from **1036 passed / 40 failed / 159 skipped** to
-**1100 passed / 0 failed / 124 skipped / 1 strict XFAIL**. The clone XFAIL under
-scikit-learn <=1.2 reproduces for the same 26 estimators on base SHA `a4879fb` and is
-tracked in issue #82.
-
-### Post-validation review-fix and exact-head evidence
-
-The post-validation review repaired additional backend-routing, PooledOLS, WLS, formula,
-validator, and GPU inference edge cases. Standard GitHub Actions Tests run #495 completed
-successfully on the final cleanup head with:
-
-- regression matrices on Python 3.9, 3.10, 3.11, and 3.12;
-- static-contract, compilation, and complete-collection gates;
-- the complete CPU test suite.
-
-The mandatory Tesla P100 exact-head acceptance ran on clean SHA
-`786af9e2eb4742a56e5203b4380b03aec63a3ac8`:
+## Maintained Physical-GPU Result
 
 ```text
-17 passed in 7.28s
+33 passed, 2 skipped, 0 failed
 ```
 
-Both CuPy and Torch CUDA parameterizations executed with no skips. The suite confirmed
-weighted fit/predict parity, formula missing-row weight alignment, device-purity guards,
-and backend-consistent degenerate F-statistic semantics.
+The maintained suite exercised both CuPy CUDA and Torch CUDA. It covered the PR79 production contracts, including backend preservation, CoxPH numerical parity, Panel GPU prediction, inference guards, and rank-deficient classification.
 
-## Additional defects fixed by the post-validation review-fix loop
+## Final Correctness Contracts
 
-| Area | Root cause and repair | Severity |
-|---|---|---|
-| `LinearRegression` backend routing | Eager NumPy conversion occurred before backend resolution. Raw CuPy/Torch arrays are now preserved until backend-native conversion. | HIGH |
-| `LinearRegression.predict` | Non-formula inputs were eagerly converted with `np.asarray`. Prediction now preserves backend-native inputs until dispatch. | HIGH |
-| PooledOLS HAC ordering | HAC covariance implicitly depended on input row order. Optional `time_index` now validates and stably orders observations. | HIGH |
-| PooledOLS rank deficiency | Residual degrees of freedom used the column count instead of effective rank. Least-squares rank now drives `df_resid`. | HIGH |
-| Validation orchestrator | Pipelines could mask pytest failure; worktrees could be dirty or point at stale SHAs; the base tree could be overwritten. Commands now use `pipefail`, exact SHAs, immutable base, reset/clean checks, and required explicit head SHA. | HIGH |
-| Formula intercept semantics | Formula syntax set an intercept decision and then immediately restored the public constructor value. A private effective-intercept state now controls fitting without mutating clone-visible parameters. | HIGH |
-| Weighted `LinearRegression` | The intercept column was not multiplied by `sqrt(weight)`, multi-output weighting broadcast incorrectly, and raw versus weighted residual state was conflated. CPU/CuPy/Torch paths now implement the same WLS transformation, validation, fallback solve, diagnostics, and weighted R² semantics. | CRITICAL |
-| Formula sample weights | Patsy could drop rows while `sample_weight` retained original length. Formula evaluation now returns retained row positions and aligns weights deterministically. | HIGH |
-| GPU overall F-test edge cases | The early return mixed perfect-fit and intercept-only cases and returned an incorrect p-value. CuPy/Torch now return `(inf, 0.0)` for perfect non-constant fits and `(nan, nan)` when the overall test is undefined. | HIGH |
+### CoxPH optimization and state
 
-Permanent regression coverage includes scikit-learn/statsmodels parity, rank-deficient
-PooledOLS inference, HAC row-order invariance, formula intercept behavior, invalid weight
-contracts, multi-output WLS broadcasting, Patsy missing-row alignment, pipeline failure
-propagation, exact-SHA worktree checks, and physical CuPy/Torch parity tests.
+- CPU, CuPy, and Torch expose aligned convergence fields;
+- failed line searches do not update coefficients or report convergence;
+- the final coefficient vector is used to recompute log likelihood, Hessian, covariance, and KKT state;
+- prediction and scoring preserve the selected backend;
+- penalized objective, log likelihood, Hessian, covariance, BSE, and KKT parity passed the maintained thresholds.
 
-## Exact-head physical-GPU acceptance — PASS
+### Delayed entry and robust inference
 
-Command:
+The supported contract is:
 
-```bash
-STATGPU_REQUIRE_PHYSICAL_GPU=1 \
-python -m pytest dev/tests/test_pr79_final_review_fixes.py -q -rs --tb=short
-```
+| Entry | Robust/cluster `cov_type` | `compute_inference` | Result |
+|---|---|---:|---|
+| provided | yes | `True` | explicit `NotImplementedError` |
+| provided | yes | `False` | estimation succeeds; inference fields remain `None` |
 
-Recorded result on clean SHA `786af9e2eb4742a56e5203b4380b03aec63a3ac8`:
+`CoxPHCV` applies the same guard during final refit. There is no silent fallback.
+
+### Panel and rank deficiency
+
+- `PooledOLS.predict()` preserves CuPy and Torch inputs instead of applying eager `np.asarray`;
+- HAC covariance uses validated stable `time_index` ordering;
+- residual degrees of freedom use `nobs - rank(X)`;
+- rank-deficient fitted values, prediction, RSS, rank, and fitted-space contracts remain valid;
+- coefficient-level covariance, BSE, tests, and intervals are non-identifiable and are recorded as `NOT_COMPARABLE`, not `ERROR` or a unique successful inference result.
+
+### Evidence pipeline
+
+The PR79 evidence pipeline is:
 
 ```text
-17 passed in 7.28s
+run_accuracy
+    -> aggregate_results
+    -> validated exact-head artifact
+    -> emit_final_report
 ```
 
-Acceptance results:
+It rejects missing, duplicate, failed, non-finite, wrong-SHA, dirty-worktree, or noncanonical evidence. The renderer accepts only `pr79-validated-accuracy-1.0` objects with successful status, `canonical_eligible=True`, exact SHA consistency, complete summaries, and zero unresolved checks.
 
-1. CuPy CUDA available and executed: PASS.
-2. Torch CUDA available and executed: PASS.
-3. No GPU parameterization skipped: PASS.
-4. Weighted fit/predict parity: PASS.
-5. Formula missing-row and sample-weight alignment: PASS.
-6. Perfect-fit overall F test `(inf, 0.0)` on CuPy and Torch: PASS.
-7. Intercept-only overall F test `(nan, nan)` on CuPy and Torch: PASS.
-8. Exact SHA and clean-worktree state recorded: PASS.
+A clean-head smoke run passed. The repository must not publish an old hard-coded PASS JSON/Markdown as a current canonical report. A new full final report may be committed only after the full raw matrix is rerun on the exact target SHA and processed through the current aggregator and renderer.
 
-The physical-GPU validation loop is closed. PR #79 may be marked Ready for review.
+## Earlier Validation Campaigns
 
-## Previously fixed production defects from the full GPU campaign
+Earlier PR79 campaigns remain useful historical evidence:
 
-- panel critical-value device mismatches and categorical cluster handling;
-- rank-deficient panel solving;
-- Torch-only `device=` leakage into NumPy/CuPy constructors;
-- CuPy 13.x/Nystroem construction failures;
-- debiased-Lasso fitted-state loss;
-- weighted GLM fused-dispatch recursion;
-- StepwiseSelector legacy sklearn clone behavior.
+- complete Tesla P100 Gate A–G campaign on `2f18e5d`;
+- post-validation exact-head acceptance on `786af9e`;
+- subsequent review/fix iterations covering LinearRegression backend routing, WLS, formula alignment, PooledOLS HAC/rank, validation-orchestrator integrity, CoxPH optimizer/inference contracts, and canonical evidence generation.
 
-## Known non-blocking follow-ups
+Those historical SHAs are not the final PR head and must not be presented as the current exact-head result.
 
-- Issue #81: shared backend-native NaN/Inf validation consistency.
-- Issue #82: coordinated constructor refactor for scikit-learn <=1.2 clone identity.
-- Torch Cox Hessian `O(n*p*p)` intermediate allocation remains a separate performance item.
+## Non-Blocking Follow-ups
 
-## Auditable repository artifacts
+- Issue #81: consistent backend-native NaN/Inf validation across public estimators;
+- Issue #82: coordinated constructor refactor for scikit-learn <=1.2 clone identity;
+- Issue #83: convert or retire ignored legacy GPU diagnostic scripts and simplify `.gitignore` test boundaries.
 
-- Validation plan: `dev/plans/pr79_gpu_review_fix_test_plan.md`
-- Physical GPU tests: `dev/tests/test_pr79_physical_gpu.py`
-- Post-review regression tests: `dev/tests/test_pr79_final_review_fixes.py`
-- Orchestrator: `dev/validation/pr79_gpu_orchestrator.py`
-- Environment/result helpers: `dev/validation/pr79_remote_utils.py`
-- Result aggregation: `dev/validation/pr79_results.py`
-- Result bundle convention: `results/pr79/<UTC-run-id>/`
+These issues do not block the maintained finite-input and exact-head paths validated for PR #79.
+
+## Auditable Repository Artifacts
+
+- review plan: `dev/plans/pr79_gpu_review_fix_test_plan.md`;
+- maintained physical GPU tests: `dev/tests/test_pr79_physical_gpu.py`;
+- PR79 contract and pipeline tests: `dev/tests/test_pr79_*.py`;
+- accuracy runner and manifest: `dev/benchmarks/pr79/`;
+- numerical validators: `dev/validation/pr79_checks/`;
+- result bundle convention: `results/pr79/<UTC-run-id>/`;
+- legacy diagnostic cleanup: Issue #83.
+
+## Merge Recommendation
+
+```text
+APPROVE
+SQUASH AND MERGE
+```
