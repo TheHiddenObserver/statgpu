@@ -2,7 +2,7 @@
 
 > 语言：中文  
 > 最后更新：2026-07-12  
-> 切换：[English](../../../en/models/feature-selection.md)
+> 切换：[English](../../en/models/feature-selection.md)
 
 ## 概览与路径
 

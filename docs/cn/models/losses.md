@@ -3,7 +3,7 @@
 > 语言：中文  
 > 最后更新：2026-07-01  
 > 页面定位：模型文档  
-> 切换：[English](../../../en/models/losses.md)
+> 切换：[English](../../en/models/losses.md)
 
 ## 概述
 

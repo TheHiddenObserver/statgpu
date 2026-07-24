@@ -2,7 +2,7 @@
 
 > 语言：中文  
 > 最后更新：2026-07-24  
-> 切换：[English](../../../en/models/anova.md)
+> 切换：[English](../../en/models/anova.md)
 
 ## 概览
 
