@@ -1,0 +1,241 @@
+{
+  "manifest_schema_version": "pr79-accuracy-manifest-1.0",
+  "allowed_classifications": [
+    "meaningful_parity",
+    "contract",
+    "not_comparable"
+  ],
+  "cases": {
+    "linear-fr": {
+      "case_id": "case-401adcafb3ce6a99",
+      "model_id": "LinearRegression",
+      "rank_deficient": false
+    },
+    "linear-rd": {
+      "case_id": "case-7b1c978289c88875",
+      "model_id": "LinearRegression",
+      "rank_deficient": true,
+      "not_comparable_reason": "rank-deficient coefficient and coefficient-level covariance are not identifiable",
+      "still_comparable": ["predictions", "residual_sum_squares", "final_state_contract"]
+    },
+    "linear-wt": {
+      "case_id": "case-a7f56d7f9446e6ad",
+      "model_id": "LinearRegression",
+      "rank_deficient": false
+    },
+    "linear-rd-hc1": {
+      "case_id": "case-7b1c978289c88875",
+      "model_id": "LinearRegression",
+      "rank_deficient": true,
+      "not_comparable_reason": "rank-deficient coefficient and coefficient-level HC1 covariance are not identifiable",
+      "still_comparable": ["predictions", "residual_sum_squares", "final_state_contract"]
+    },
+    "cox-no-ties": {
+      "case_id": "case-6bdbfc16dda2a16a",
+      "model_id": "CoxPH",
+      "rank_deficient": false
+    },
+    "cox-small-ties": {
+      "case_id": "case-7e343629c5abafc1",
+      "model_id": "CoxPH",
+      "rank_deficient": false
+    },
+    "cox-entry": {
+      "case_id": "case-aaa52f219963a602",
+      "model_id": "CoxPH",
+      "rank_deficient": false
+    },
+    "cox-pen": {
+      "case_id": "case-7a47b2e3b584b246",
+      "model_id": "CoxPH",
+      "rank_deficient": false
+    },
+    "pooled-bal": {
+      "case_id": "case-5d517b3a22c96f73",
+      "model_id": "PooledOLS",
+      "rank_deficient": false
+    },
+    "pooled-rd": {
+      "case_id": "case-4705b1c173d99a03",
+      "model_id": "PooledOLS",
+      "rank_deficient": true,
+      "not_comparable_reason": "rank-deficient panel coefficients are not identifiable",
+      "still_comparable": ["predictions", "residual_sum_squares", "final_state_contract"]
+    }
+  },
+  "configurations": {
+    "smoke": {
+      "cases": ["linear-fr", "cox-pen"],
+      "backends": ["numpy"],
+      "warmup": 0,
+      "iterations": 1,
+      "expected_runs": [
+        {
+          "run_key": "linear-fr-numpy-0",
+          "case_id": "case-401adcafb3ce6a99",
+          "case_label": "linear-fr",
+          "backend": "numpy",
+          "model_id": "LinearRegression"
+        },
+        {
+          "run_key": "cox-pen-numpy-0",
+          "case_id": "case-7a47b2e3b584b246",
+          "case_label": "cox-pen",
+          "backend": "numpy",
+          "model_id": "CoxPH"
+        }
+      ],
+      "expected_checks": [
+        {
+          "check_id": "linear-fr-numpy-0-final-state",
+          "run_key": "linear-fr-numpy-0",
+          "reference_run_key": "linear-fr-numpy-0",
+          "case_id": "case-401adcafb3ce6a99",
+          "backend": "numpy",
+          "reference_backend": "numpy",
+          "metric": "final_state_contract",
+          "expected_class": "contract",
+          "threshold": 1e-7
+        },
+        {
+          "check_id": "cox-pen-numpy-0-final-state",
+          "run_key": "cox-pen-numpy-0",
+          "reference_run_key": "cox-pen-numpy-0",
+          "case_id": "case-7a47b2e3b584b246",
+          "backend": "numpy",
+          "reference_backend": "numpy",
+          "metric": "final_state_contract",
+          "expected_class": "contract",
+          "threshold": 1e-9
+        }
+      ]
+    },
+    "full": {
+      "cases": [
+        "linear-fr",
+        "linear-rd",
+        "linear-wt",
+        "linear-rd-hc1",
+        "cox-no-ties",
+        "cox-small-ties",
+        "cox-entry",
+        "cox-pen",
+        "pooled-bal",
+        "pooled-rd"
+      ],
+      "backends": ["numpy", "cupy", "torch"],
+      "warmup": 3,
+      "iterations": 5,
+      "check_templates": [
+        {
+          "template_id": "linear-panel-final-state",
+          "cases": [
+            "linear-fr",
+            "linear-rd",
+            "linear-wt",
+            "linear-rd-hc1",
+            "pooled-bal",
+            "pooled-rd"
+          ],
+          "backends": "all",
+          "metric": "final_state_contract",
+          "expected_class": "contract",
+          "threshold": 1e-7
+        },
+        {
+          "template_id": "cox-final-state",
+          "cases": "cox",
+          "backends": "all",
+          "metric": "final_state_contract",
+          "expected_class": "contract",
+          "threshold": 1e-9
+        },
+        {
+          "template_id": "prediction-parity",
+          "cases": "full_rank",
+          "backends": ["cupy", "torch"],
+          "metric": "prediction_rel_error",
+          "expected_class": "meaningful_parity",
+          "threshold": 1e-7
+        },
+        {
+          "template_id": "coefficient-parity",
+          "cases": "full_rank",
+          "backends": ["cupy", "torch"],
+          "metric": "coef_rel_l2_error",
+          "expected_class": "meaningful_parity",
+          "threshold": 1e-6
+        },
+        {
+          "template_id": "bse-parity",
+          "cases": "full_rank",
+          "backends": ["cupy", "torch"],
+          "metric": "bse_rel_error",
+          "expected_class": "meaningful_parity",
+          "threshold": 1e-5
+        },
+        {
+          "template_id": "covariance-parity",
+          "cases": "cox",
+          "backends": ["cupy", "torch"],
+          "metric": "covariance_rel_fro_error",
+          "expected_class": "meaningful_parity",
+          "threshold": 1e-5
+        },
+        {
+          "template_id": "cox-loglik-parity",
+          "cases": "cox",
+          "backends": ["cupy", "torch"],
+          "metric": "loglik_rel_error",
+          "expected_class": "meaningful_parity",
+          "threshold": 1e-9
+        },
+        {
+          "template_id": "rank-deficient-estimable-space",
+          "cases": "rank_deficient",
+          "backends": ["cupy", "torch"],
+          "metric": "prediction_rel_error",
+          "expected_class": "not_comparable",
+          "threshold": 1e-7,
+          "reason_field": "not_comparable_reason",
+          "still_comparable_field": "still_comparable"
+        }
+      ],
+      "cox_physical_gpu_matrix": {
+        "matrix_schema_version": "pr79-cox-gpu-matrix-1.0",
+        "reference_backend": "numpy",
+        "physical_gpu_backends": ["cupy", "torch"],
+        "axes": {
+          "penalty": [0.01, 0.1, 1.0],
+          "ties": ["breslow", "efron"],
+          "entry": [false, true],
+          "tie_pattern": ["no_ties", "small_ties", "heavy_ties"],
+          "compute_inference": [false, true],
+          "inference_mode": ["strict", "approx"],
+          "row_order": ["canonical", "permuted"]
+        },
+        "execution": {
+          "driver": "dev/benchmarks/pr79/diagnose_cox_pen.py",
+          "enumerate_cli": "--print-full-matrix",
+          "single_case_cli": "--matrix-case-id CASE_ID",
+          "full_matrix_cli": "--run-full-matrix --matrix-backend BACKEND",
+          "cov_type_policy": "hc0_when_no_entry_and_inference_else_nonrobust",
+          "stable_sort_required_after_permutation": true,
+          "gpu_synchronize_for_timing": true,
+          "final_state_recomputation": true,
+          "peak_memory_recording": true
+        },
+        "thresholds": {
+          "coefficient_rel_l2_error": 1e-6,
+          "unpenalized_log_likelihood_rel_error": 1e-9,
+          "penalized_objective_rel_error": 1e-9,
+          "normalized_final_kkt": 1e-7,
+          "hessian_rel_fro_error": 1e-6,
+          "covariance_rel_fro_error": 1e-5,
+          "bse_rel_error": 1e-5,
+          "objective_decrease_tolerance": 1e-10
+        }
+      }
+    }
+  }
+}

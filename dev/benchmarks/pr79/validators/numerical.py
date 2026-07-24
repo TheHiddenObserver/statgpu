@@ -410,7 +410,7 @@ def validate_least_squares_final_state(
         )
     elif results.get("_var_matrix") is not None:
         raise NumericalValidationError("stored covariance is present without BSE")
-    elif results.get("_bse") is not None:
+    elif results.get("_bse") is not None and not results.get("_rank_deficient"):
         _finite_array(results["_bse"], "stored BSE")
     passed = all(check["passed"] for check in checks)
     return {
