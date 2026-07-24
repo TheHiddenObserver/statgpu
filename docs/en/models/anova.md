@@ -166,7 +166,7 @@ result = f_oneway(g1, g2, backend="cupy")
 import torch
 from statgpu.anova import f_oneway
 
- torch_device = torch.device("cuda")
+torch_device = torch.device("cuda")
 g1 = torch.randn(100, device=torch_device, dtype=torch.float64)
 g2 = torch.randn(100, device=torch_device, dtype=torch.float64) + 0.5
 result = f_oneway(g1, g2, backend="torch")
