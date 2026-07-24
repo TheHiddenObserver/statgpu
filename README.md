@@ -62,16 +62,6 @@ GPU-accelerated statistical methods with an sklearn-compatible API.
 - **Releasing**: [PyPI Release Guide](RELEASING.md)
 - **Changelog**: [Changelog](docs/en/changelog.md)
 
-## Backend Execution Status
-
-`GraphicalLasso`/`GraphicalLassoCV`, `MinCovDet`, `SplineTransformer`, and
-`FamaMacBeth` keep their main numerical computation on NumPy, CuPy, or Torch.
-Tukey and Bonferroni keep group reductions on-device and synchronize only scalar
-statistics for distributions not implemented by CuPy or Torch.
-
-Explicit `device="cuda"` and `device="torch"` selections do not silently fall back
-to CPU. Use `device="auto"` when automatic backend selection is desired.
-
 ## Installation
 
 ```bash
