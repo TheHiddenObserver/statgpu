@@ -1,11 +1,42 @@
 # Changelog
 
 > Language: English  
-> Last updated: 2026-07-08
+> Last updated: 2026-07-24
 > This page: Changelog  
 > Switch: [Chinese](../changelog.md)
 
 Language switch: [Chinese](../changelog.md)
+
+## 2026-07-24 — v0.2.2
+
+statgpu 0.2.2 ships the complete PR #79 hardening campaign: a repository-wide
+correctness audit and fix cycle covering NumPy, CuPy, and Torch backends with
+physical Tesla P100 validation.
+
+- **Repository-wide correctness hardening** — every top-level public module
+  family was reviewed and corrected for backend routing, statistical contracts,
+  API conformance, and edge-case robustness.
+- **NumPy/CuPy/Torch consistency** — LinearRegression, Ridge, Panel, ANOVA,
+  covariance, unsupervised, nonparametric, feature-selection, and inference
+  paths produce identical results across all three backends; degenerate
+  F-statistics, weighted fitting, and formula alignment match CPU on GPU.
+- **CoxPH optimizer/inference contracts** — unified final-KKT, line-search,
+  termination-reason, and public fitted-state contracts; strict/approx robust
+  inference with provenance fields; `statgpu[survival]` optional dependency.
+- **Panel rank-deficient semantics** — PooledOLS HAC ordering, effective design
+  rank for residual df, stable `time_index` sorting.
+- **Canonical evidence pipeline** — rebuilt diagnostics so missing, failed,
+  duplicate, non-finite, or wrong-SHA evidence fails closed; exact-head Git
+  provenance required; CPU smoke CI gate.
+- **Python 3.9–3.12 support** — permanent CI gates for all four Python versions.
+- **P100 physical GPU validation** — complete Tesla P100 campaign: 1100 passed,
+  0 failed, 124 skipped, 1 strict XFAIL; exact-head acceptance at
+  786af9e: 17 passed / 0 failed / 0 skipped in 7.28 seconds.
+
+### Packaging
+
+Pure-Python wheel policy: set `STATGPU_NO_EXT=1` at build time to produce
+`py3-none-any` wheels compatible with all OS / Python versions.
 
 ## 2026-07
 

@@ -2,6 +2,54 @@
 
 All notable changes to statgpu are documented here, organized by date and PR.
 
+## 2026-07-24 — v0.2.2
+
+### Release summary
+
+statgpu 0.2.2 ships the complete PR #79 hardening campaign: a repository-wide
+correctness audit and fix cycle covering NumPy, CuPy, and Torch backends with
+physical Tesla P100 validation.
+
+This release includes:
+
+- **Repository-wide correctness hardening** — every top-level public module
+  family was reviewed and corrected for backend routing, statistical contracts,
+  API conformance, and edge-case robustness.
+- **NumPy/CuPy/Torch consistency** — LinearRegression, Ridge, Panel, ANOVA,
+  covariance, unsupervised, nonparametric, feature-selection, and inference
+  paths produce identical results across all three backends; degenerate
+  F-statistics, weighted fitting, and formula alignment now match the CPU
+  reference contract on GPU.
+- **CoxPH optimizer/inference contracts** — unified final-KKT, line-search,
+  termination-reason, and public fitted-state contracts across CPU, CuPy, and
+  Torch; strict/approx robust inference with provenance fields; vectorized
+  baseline hazard risk sets; removed the Torch `O(n p^2)` Hessian allocation;
+  added the `statgpu[survival]` optional dependency.
+- **Panel rank-deficient semantics** — PooledOLS HAC ordering, effective design
+  rank for residual degrees of freedom, and stable `time_index` sorting;
+  rank-deficient panel regressions use explicit fallback contracts.
+- **Canonical evidence pipeline** — rebuilt diagnostic/canonical-report
+  validation so missing, failed, duplicate, non-finite, or wrong-SHA evidence
+  fails closed; added CPU smoke CI; canonical evidence now requires clean,
+  stable, exact-head Git provenance.
+- **Python 3.9–3.12 support** — permanent CI gates for all four Python versions
+  with static contracts, compilation, complete test collection, and full CPU
+  suite.
+- **P100 physical GPU validation** — complete Tesla P100 campaign: 1100 passed,
+  0 failed, 124 skipped, 1 strict XFAIL across GPU smoke, three-backend
+  correctness, metamorphic, device-purity, memory-leak, performance, and
+  external-validation gates; exact-head acceptance at 17 passed / 0 failed /
+  0 skipped in 7.28 seconds.
+
+### Packaging
+
+- Pure-Python wheel policy continued from v0.2.1: set `STATGPU_NO_EXT=1`
+  at build time to produce `py3-none-any` wheels compatible with all operating
+  systems and Python versions.
+
+See the [detailed PR #79 changelog](docs/en/changelog.md) for full per-date
+entries covering each review/fix/validation cycle.
+
 ## 2026-07-08
 
 ### v0.2.1 — Packaging / PyPI release hygiene

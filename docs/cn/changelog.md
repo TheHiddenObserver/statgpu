@@ -1,11 +1,40 @@
 # Changelog
 
 > 语言：中文  
-> 最后更新：2026-07-08  
+> 最后更新：2026-07-24
 > 页面定位：变更记录  
 > 切换：[English](en/changelog.md)
 
 语言切换：[English](en/changelog.md)
+
+## 2026-07-24 — v0.2.2
+
+statgpu 0.2.2 发布完整的 PR #79 加固活动：一次覆盖 NumPy、CuPy、Torch 三后端的全仓库
+正确性审计与修复循环，并在 Tesla P100 上完成真实 GPU 验证。
+
+- **全仓库正确性加固** — 对每个顶层公共模块族进行后端路由、统计契约、API 合规性
+  和边界情况稳健性审查与修正。
+- **NumPy/CuPy/Torch 一致性** — LinearRegression、Ridge、Panel、ANOVA、
+  covariance、unsupervised、nonparametric、feature-selection 和 inference
+  路径在三后端上产生相同结果；退化 F 统计量、加权拟合和公式对齐在 GPU 上
+  与 CPU 参考契约一致。
+- **CoxPH 优化器/推断契约** — 统一 CPU/CuPy/Torch 的最终 KKT、行搜索、
+  终止原因和公共拟合状态契约；strict/approx 稳健推断与来源字段；
+  `statgpu[survival]` 可选依赖。
+- **Panel 秩亏语义** — PooledOLS HAC 排序、基于有效设计秩的残差自由度、
+  稳定的 `time_index` 排序。
+- **Canonical evidence pipeline** — 重建诊断工具，使 missing、failed、
+  duplicate、non-finite 或 wrong-SHA 证据全部 fail closed；要求 exact-head
+  Git provenance；新增 CPU smoke CI gate。
+- **Python 3.9–3.12 支持** — 四个 Python 版本的永久 CI 门禁。
+- **P100 真实 GPU 验证** — 完整 Tesla P100 活动：1100 passed、0 failed、
+  124 skipped、1 strict XFAIL；exact-head 验收（786af9e）：17 passed /
+  0 failed / 0 skipped，耗时 7.28 秒。
+
+### 打包
+
+纯 Python wheel 策略：构建时设置 `STATGPU_NO_EXT=1` 以生成兼容所有操作系统和
+Python 版本的 `py3-none-any` wheel。
 
 ## 2026-07
 
