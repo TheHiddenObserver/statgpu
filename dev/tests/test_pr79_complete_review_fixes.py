@@ -164,14 +164,23 @@ def test_cpu_penalized_objective_is_monotone_within_tolerance():
 def test_delayed_entry_penalty_and_robust_contracts_are_explicit():
     X, time, event = _cox_sample(n=45, p=2)
     entry = np.maximum(0.0, time * 0.25)
+    # Penalised delayed-entry on CPU is unsupported (Guard 2).
     with pytest.raises(NotImplementedError, match='penalty'):
         CoxPH(device='cpu', penalty=0.1).fit(
             X, time=time, event=event, entry=entry
         )
+    # Robust covariance with delayed entry + inference is unsupported (Guard 1).
     with pytest.raises(NotImplementedError, match='Robust/cluster'):
-        CoxPH(device='cpu', cov_type='hc0', compute_inference=False).fit(
+        CoxPH(device='cpu', cov_type='hc0', compute_inference=True).fit(
             X, time=time, event=event, entry=entry
         )
+    # But robust covariance with delayed entry is allowed when inference is off.
+    model = CoxPH(
+        device='cpu', cov_type='hc0', compute_inference=False, compute_cindex=False,
+    ).fit(X, time=time, event=event, entry=entry)
+    assert model.coef_ is not None
+    assert model._bse is None
+    assert model._conf_int is None
 
 
 def test_delayed_entry_missing_statsmodels_has_actionable_error(monkeypatch):

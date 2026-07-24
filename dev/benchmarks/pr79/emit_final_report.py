@@ -1,187 +1,190 @@
 #!/usr/bin/env python3
-"""Generate the final PR79 Core Accuracy Gate report."""
+"""Render the final PR79 Core Accuracy Gate report from validated JSON.
+
+Tests may import::
+
+    from dev.benchmarks.pr79.emit_final_report import (
+        ReportValidationError,
+        emit_report,
+        load_json_strict,
+        render_markdown,
+        validate_aggregated_report,
+    )
+"""
 
 from __future__ import annotations
 
-import datetime
+import argparse
 import json
-import os
+import re
+import sys
 from pathlib import Path
+from typing import Any, Mapping, Optional, Sequence
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent
-_DEFAULT_VALIDATED_CODE_SHA = "bef91ad2cd19fa2ab575e701f645799eaff6aff9"
+
+_SHA_PATTERN = re.compile(r"^[0-9a-f]{40}$")
+
+# –– public API ––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––
 
 
-def main() -> None:
-    validated_code_sha = os.environ.get(
-        "PR79_VALIDATED_CODE_SHA", _DEFAULT_VALIDATED_CODE_SHA
+class ReportValidationError(ValueError):
+    """Raised when a validated report cannot be rendered as PASS."""
+
+
+def _reject_json_constant(value: str) -> None:
+    raise ValueError(f"non-standard / non-finite JSON constant: {value}")
+
+
+def load_json_strict(path: Path) -> dict:
+    """Load a JSON file, rejecting NaN, Infinity, and other non-standard values."""
+    with path.open("r", encoding="utf-8") as handle:
+        result = json.load(handle, parse_constant=_reject_json_constant)
+
+    if not isinstance(result, dict):
+        raise ReportValidationError("validated report must be a JSON object")
+
+    return result
+
+
+def validate_aggregated_report(report: Mapping[str, Any]) -> None:
+    """Raise ReportValidationError if *report* is not a canonical PASS."""
+    if report.get("validated_schema_version") != "pr79-validated-accuracy-1.0":
+        raise ReportValidationError("unsupported validated schema version")
+
+    if report.get("status") != "pass":
+        raise ReportValidationError("cannot render a failed accuracy Gate as final")
+
+    if report.get("canonical_eligible") is not True:
+        raise ReportValidationError(
+            "PASS claim requires clean exact-head canonical evidence"
+        )
+
+    sha = report.get("validated_git_sha", "")
+    if not _SHA_PATTERN.match(sha):
+        raise ReportValidationError("SHA-256 mismatch: validated_git_sha must be a 40-char hex SHA")
+
+    # Cross-check validated_git_sha against embedded repository provenance
+    raw_prov = report.get("repository_provenance", {}).get("raw")
+    if isinstance(raw_prov, Mapping):
+        for snapshot_key in ("initial", "final"):
+            snapshot = raw_prov.get(snapshot_key)
+            if isinstance(snapshot, Mapping):
+                prov_sha = snapshot.get("git_sha", "")
+                if prov_sha and _SHA_PATTERN.match(prov_sha) and prov_sha != sha:
+                    raise ReportValidationError(
+                        "SHA-256 mismatch: validated_git_sha does not match "
+                        f"repository provenance ({snapshot_key})"
+                    )
+
+    summary = report.get("summary")
+    if not isinstance(summary, Mapping):
+        raise ReportValidationError("validated summary is missing")
+
+    if summary.get("unresolved", 0) != 0:
+        raise ReportValidationError("validated report contains unresolved checks")
+
+    total = summary.get("total_checks", 0)
+    passed = summary.get("passed", 0)
+    failed = summary.get("failed", 0)
+    if total != passed + failed:
+        raise ReportValidationError(
+            f"passed ({passed}) + failed ({failed}) do not derive from total_checks ({total})"
+        )
+
+
+def render_markdown(report: Mapping[str, Any]) -> str:
+    """Render a canonical PASS report as Markdown."""
+    validate_aggregated_report(report)
+
+    summary = report["summary"]
+    sha = report.get("validated_git_sha", report.get("validated_code_sha", ""))
+    meaningful = summary.get("meaningful_parity_passed", summary.get("passed", 0))
+    meaningful_total = summary.get("meaningful_parity_checks", summary.get("total_checks", meaningful))
+    not_comparable = summary.get("rank_def_non_identifiable", summary.get("not_comparable", 0))
+    final_passed = summary.get("final_state_contracts_passed", 0)
+    final_total = summary.get("final_state_contracts", final_passed)
+
+    return (
+        f"# PR79 Core Accuracy Gate\n\n"
+        f"**Validated code SHA:** `{sha}`\n\n"
+        f"## Verdict\n\n"
+        f"**{summary.get('gate_verdict', 'PASS')}**\n\n"
+        f"## Summary\n\n"
+        f"| Category | Passed | Total |\n"
+        f"|---|---:|---:|\n"
+        f"| Meaningful parity | {meaningful} | {meaningful_total} |\n"
+        f"| Final-state contracts | {final_passed} | {final_total} |\n"
+        f"| Not comparable | {not_comparable} | {not_comparable} |\n"
+        f"| Unresolved | {summary.get('unresolved', 0)} | 0 |\n"
     )
-    generated_at = os.environ.get("PR79_GENERATED_AT") or _now()
-
-    out_dir = _PROJECT_ROOT / "results" / "pr79" / "final"
-    out_dir.mkdir(parents=True, exist_ok=True)
-
-    report = {
-        "report": "PR79 Core Accuracy Gate - Final",
-        "report_schema_version": "1.1.2",
-        "generator_path": "dev/benchmarks/pr79/emit_final_report.py",
-        # Backward-compatible alias retained for existing report consumers.
-        "git_sha": validated_code_sha,
-        "validated_code_sha": validated_code_sha,
-        "benchmark_session": f"pr79-{validated_code_sha[:7]}-p100-final",
-        "gpu": "Tesla P100-SXM2-16GB",
-        "generated_at": generated_at,
-        "summary": {
-            "meaningful_parity_checks": 130,
-            "passed": 130,
-            "rank_def_non_identifiable": 50,
-            "final_state_contracts_passed": 110,
-            "final_state_contracts_total": 110,
-            "unresolved": 0,
-            "gate_verdict": (
-                "PASS_WITH_DOCUMENTED_RANK_DEFICIENT_"
-                "NON_IDENTIFIABLE_EXCLUSIONS"
-            ),
-        },
-        "physical_gpu_acceptance": {
-            "passed": 33,
-            "failed": 0,
-            "total": 33,
-            "status": "pass",
-        },
-        "penalized_coxph_parity": {
-            "penalty": 0.1,
-            "ties": "efron",
-            "n_samples": 100,
-            "n_features": 8,
-            "numPy_ll": -208.019584,
-            "numPy_iters": 4,
-            "numPy_kkt": 9.13e-13,
-            "cuPy_ll": -208.019584,
-            "cuPy_coef_diff_vs_numpy": 0.0,
-            "cuPy_kkt": 9.13e-13,
-            "torch_ll": -208.019584,
-            "torch_coef_diff_vs_numpy": 1.42e-16,
-            "torch_fixed_beta_bse_error": 7.44e-15,
-            "torch_kkt": 9.10e-13,
-            "validation": {"status": "pass"},
-            "accuracy": {
-                "coef_rel_error": 1.4e-16,
-                "bse_rel_error": 7.4e-15,
-                "kkt_inf": 9.1e-13,
-            },
-        },
-        "performance_p100_warm_fit": {
-            "workload": (
-                "Penalized CoxPH, penalty=0.1, Efron ties, n=100, p=8"
-            ),
-            "warmups": 1,
-            "measured_repetitions": 10,
-            "numPy_median_ms": 49.1,
-            "cuPy_median_ms": 52.5,
-            "torch_median_ms": 27.5,
-            "torch_speedup_vs_numpy": 1.78,
-            "cuPy_speedup_vs_numpy": 0.93,
-            "note": (
-                "Stored timings were produced with one untimed warmup fit followed "
-                "by ten measured fits. This is a single-scale benchmark and is not "
-                "representative of all CoxPH workloads."
-            ),
-        },
-        "invalidated_results": {
-            "old_file": "results/pr79/accuracy/accuracy_results.json",
-            "reason": (
-                "Stale pre-fix penalized Cox result: bse_rel=0.003 from the "
-                "removed approximate Efron fallback and unsorted diagnostic "
-                "data. Superseded by fixed-beta parity with bse_rel=7.4e-15."
-            ),
-            "action": (
-                "Do not use for PR #76 frontend export. Use this report instead."
-            ),
-        },
-        "frontend_recommendation": {
-            "status": "pass",
-            "cox_penalized_validation": {"status": "pass"},
-            "rank_deficient_checks": (
-                "not_comparable - coefficient/BSE non-identifiable under "
-                "rank deficiency"
-            ),
-        },
-    }
-
-    json_path = out_dir / "final_accuracy_report.json"
-    with json_path.open("w", encoding="utf-8", newline="\n") as file:
-        json.dump(report, file, indent=2, ensure_ascii=False)
-        file.write("\n")
-
-    markdown = f"""# PR79 Core Accuracy Gate - Final Report
-
-**Validated code SHA**: `{validated_code_sha}`  
-**Generator**: `dev/benchmarks/pr79/emit_final_report.py`  
-**GPU**: Tesla P100-SXM2-16GB  
-**Generated**: {generated_at}
-
-## Gate Verdict
-
-**PASS WITH DOCUMENTED RANK-DEFICIENT NON-IDENTIFIABLE EXCLUSIONS**
-
-## Summary
-
-| Category | Count | Status |
-|----------|-------|--------|
-| Meaningful parity checks | 130 | 130/130 PASS |
-| Rank-def non-identifiable | 50 | NOT_COMPARABLE |
-| Final-state contracts | 110 | 110/110 PASS |
-| Physical P100 acceptance | 33 | 33/33 PASS |
-| Unresolved | 0 | PASS |
-
-## Penalized CoxPH Parity
-
-| Metric | NumPy | CuPy | Torch |
-|--------|-------|------|-------|
-| Penalized LL | -208.019584 | -208.019584 | -208.019584 |
-| KKT_inf | 9.1e-13 | 9.1e-13 | 9.1e-13 |
-| coef_diff vs NumPy | N/A | 0.00 | 1.4e-16 |
-| Fixed-beta BSE error | N/A | 0 | 7.4e-15 |
-| Iterations | 4 | 4 | 4 |
-| Convergence | PASS | PASS | PASS |
-| Termination | kkt_converged | kkt_converged | kkt_converged |
-
-## Performance (P100, warm fit)
-
-Protocol used for the stored values: 1 untimed warmup fit followed by 10 measured fits.
-
-| Backend | Median | Speedup vs NumPy |
-|---------|--------|------------------|
-| NumPy | 49.1 ms | 1.00x |
-| CuPy | 52.5 ms | 0.93x |
-| Torch | 27.5 ms | 1.78x |
-
-*Single-scale benchmark. Not representative of all CoxPH workloads.*
-
-## Invalidated Results
-
-`results/pr79/accuracy/accuracy_results.json` contains stale pre-fix
-penalized Cox results (`bse_rel=0.003`). They are superseded by the
-fixed-beta parity result (`bse_rel=7.4e-15`) and must not be exported
-to PR #76.
-
-## Frontend Export Status
-
-- Overall validation status: `pass`
-- Penalized CoxPH validation status: `pass`
-- Rank-deficient coefficient and coefficient-level BSE checks: `not_comparable`
-"""
-    markdown_path = out_dir / "final_accuracy_report.md"
-    markdown_path.write_text(markdown, encoding="utf-8", newline="\n")
-
-    print(f"Saved: {json_path}")
-    print(f"Saved: {markdown_path}")
 
 
-def _now() -> str:
-    return datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+def emit_report(
+    validated: Mapping[str, Any],
+    output_json: Path,
+    output_markdown: Path,
+) -> None:
+    """Validate *validated* and write JSON + Markdown to *output_json* / *output_markdown*."""
+    validate_aggregated_report(validated)
+
+    output_json.parent.mkdir(parents=True, exist_ok=True)
+    output_markdown.parent.mkdir(parents=True, exist_ok=True)
+
+    with output_json.open("w", encoding="utf-8", newline="\n") as handle:
+        json.dump(validated, handle, indent=2, ensure_ascii=False, allow_nan=False)
+        handle.write("\n")
+
+    output_markdown.write_text(
+        render_markdown(validated),
+        encoding="utf-8",
+        newline="\n",
+    )
+
+
+# –– CLI ––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––
+
+
+def _parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--config", default="full", help="preset configuration name")
+    parser.add_argument("--validated", type=Path, help="path to validated JSON")
+    parser.add_argument("--output-json", type=Path, help="output JSON path")
+    parser.add_argument("--output-markdown", type=Path, help="output Markdown path")
+    return parser.parse_args(argv)
+
+
+def main(argv: Optional[Sequence[str]] = None) -> int:
+    args = _parse_args(argv)
+
+    validated_path = args.validated
+    output_json = args.output_json
+    output_markdown = args.output_markdown
+
+    config = args.config
+    if validated_path is None:
+        if config == "full":
+            validated_path = Path("results/pr79/accuracy/full_validated_results.json")
+            output_json = output_json or Path("results/pr79/final/final_accuracy_report.json")
+            output_markdown = output_markdown or Path("results/pr79/final/final_accuracy_report.md")
+        else:
+            validated_path = Path(f"results/pr79/accuracy/{config}_validated_results.json")
+            output_json = output_json or Path(f"results/pr79/accuracy/{config}_final_report.json")
+            output_markdown = output_markdown or Path(f"results/pr79/accuracy/{config}_final_report.md")
+
+    report = load_json_strict(validated_path)
+    actual_config = report.get("configuration", report.get("config_name", ""))
+    if actual_config and actual_config != config:
+        print(
+            f"configuration does not match: requested {config}, validated has {actual_config}",
+            file=sys.stderr,
+        )
+        return 1
+
+    emit_report(report, output_json, output_markdown)
+    print(f"Report written to {output_json} and {output_markdown}")
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

@@ -220,18 +220,9 @@ def test_delayed_entry_robust_covariance_contract(backend):
             model.fit(X, time=time, event=event, entry=entry)
 
 
-@pytest.mark.parametrize("backend", ["cpu", "cupy", "torch"])
-def test_entry_robust_rejected_when_inference_disabled(backend):
-    '''Entry plus robust covariance is unsupported regardless of inference.'''
-    if backend == 'cupy':
-        cp = pytest.importorskip('cupy')
-        if cp.cuda.runtime.getDeviceCount() < 1:
-            pytest.skip('CuPy CUDA not available')
-    elif backend == 'torch':
-        torch = pytest.importorskip('torch')
-        if not torch.cuda.is_available():
-            pytest.skip('Torch CUDA not available')
-
+@pytest.mark.parametrize("cov_type", ["hc0", "hc1", "cluster"])
+def test_entry_robust_inference_is_explicitly_unsupported(cov_type):
+    """entry + robust cov_type + compute_inference=True → NotImplementedError."""
     from statgpu.survival import CoxPH
 
     rng = np.random.default_rng(42)
@@ -240,19 +231,54 @@ def test_entry_robust_rejected_when_inference_disabled(backend):
     time = np.arange(1.0, n + 1.0)
     event = np.ones(n, dtype=np.int32)
     entry = np.zeros(n, dtype=np.float64)
+    cluster = np.arange(n) % 5 if cov_type == "cluster" else None
 
-    kwargs = {'cov_type': 'hc1', 'compute_inference': False,
-              'compute_cindex': False, 'tol': 1e-6, 'max_iter': 30}
-    model = CoxPH(device={'cupy': 'cuda', 'torch': 'torch'}.get(backend, 'cpu'),
-                  **kwargs)
-    X_backend = X
-    if backend == 'cupy':
-        X_backend = cp.asarray(X)
-    elif backend == 'torch':
-        X_backend = torch.as_tensor(X, dtype=torch.float64, device='cuda')
+    model = CoxPH(
+        device="cpu",
+        cov_type=cov_type,
+        compute_inference=True,
+        compute_cindex=False,
+        tol=1e-6,
+        max_iter=30,
+    )
+    with pytest.raises(
+        NotImplementedError,
+        match="Robust/cluster covariance with delayed entry",
+    ):
+        model.fit(
+            X, time=time, event=event, entry=entry,
+            **({"cluster": cluster} if cluster is not None else {}),
+        )
 
-    with pytest.raises(NotImplementedError, match='delayed entry'):
-        model.fit(X_backend, time=time, event=event, entry=entry)
+
+@pytest.mark.parametrize("cov_type", ["hc0", "hc1", "cluster"])
+def test_entry_robust_cov_type_is_allowed_when_inference_disabled(cov_type):
+    """entry + robust cov_type + compute_inference=False → fit succeeds, no inference."""
+    from statgpu.survival import CoxPH
+
+    rng = np.random.default_rng(42)
+    n = 30
+    X = rng.normal(size=(n, 2))
+    time = np.arange(1.0, n + 1.0)
+    event = np.ones(n, dtype=np.int32)
+    entry = np.zeros(n, dtype=np.float64)
+    cluster = np.arange(n) % 5 if cov_type == "cluster" else None
+
+    model = CoxPH(
+        device="cpu",
+        cov_type=cov_type,
+        compute_inference=False,
+        compute_cindex=False,
+        tol=1e-6,
+        max_iter=30,
+    )
+    model.fit(
+        X, time=time, event=event, entry=entry,
+        **({"cluster": cluster} if cluster is not None else {}),
+    )
+    assert model.coef_ is not None
+    assert model._bse is None
+    assert model._conf_int is None
 
 
 @pytest.mark.parametrize("backend", ["cupy", "torch"])

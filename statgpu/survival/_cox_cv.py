@@ -989,10 +989,10 @@ class CoxPHCV(CVEstimatorBase):
         if X_shape is None or len(X_shape) != 2:
             raise ValueError('X must be a two-dimensional array')
         n_samples, n_features = (int(X_shape[0]), int(X_shape[1]))
-        if entry is not None and self.cov_type.lower() != 'nonrobust':
+        if entry is not None and self.compute_inference and self.cov_type.lower() != 'nonrobust':
             raise NotImplementedError(
                 'Robust/cluster covariance with delayed entry is not implemented. '
-                'Use cov_type=nonrobust when entry is provided.'
+                'Use cov_type=nonrobust or compute_inference=False when entry is provided.'
             )
         cv_cuda_torch_bridge = os.environ.get(
             "STATGPU_COXPHCV_CUDA_TORCH_BRIDGE", "0"

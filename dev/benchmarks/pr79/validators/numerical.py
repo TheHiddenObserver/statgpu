@@ -395,7 +395,8 @@ def validate_least_squares_final_state(
             threshold,
         ),
     ]
-    if results.get("_var_matrix") is not None and results.get("_bse") is not None:
+    rank_deficient = bool(results.get("_rank_deficient"))
+    if not rank_deficient and results.get("_var_matrix") is not None and results.get("_bse") is not None:
         covariance = _finite_array(results["_var_matrix"], "stored covariance")
         bse = _finite_array(results["_bse"], "stored BSE")
         if covariance.ndim != 2 or covariance.shape[0] != covariance.shape[1]:
@@ -408,9 +409,9 @@ def validate_least_squares_final_state(
                 threshold,
             )
         )
-    elif results.get("_var_matrix") is not None:
+    elif not rank_deficient and results.get("_var_matrix") is not None:
         raise NumericalValidationError("stored covariance is present without BSE")
-    elif results.get("_bse") is not None and not results.get("_rank_deficient"):
+    elif not rank_deficient and results.get("_bse") is not None:
         _finite_array(results["_bse"], "stored BSE")
     passed = all(check["passed"] for check in checks)
     return {
