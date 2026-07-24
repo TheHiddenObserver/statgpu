@@ -1,232 +1,159 @@
 # Implemented Methods
 
-> Last updated: 2026-07-12
+> Last updated: 2026-07-24  
+> Switch: [Chinese](../../cn/guides/implemented-methods.md)
 
-Complete list of all implemented models, functions, and classes in statgpu.
+This page is the maintained inventory of public models, functions, and major solver
+families in statgpu. Detailed mathematical and backend contracts live on the linked
+model and guide pages.
 
-## Regression & GLM
+## Regression and Generalized Linear Models
 
-| Class | Description | Link Functions | Backends |
-|---|---|---|---|
-| `LinearRegression` | OLS with HC0-HC3/HAC inference | identity | CPU, CuPy, Torch |
-| `Ridge` | L2 penalty, exact/irls solver | identity | CPU, CuPy, Torch |
-| `Lasso` | L1 penalty, debiased inference | identity | CPU, CuPy, Torch |
-| `ElasticNet` | L1+L2 penalty | identity | CPU, CuPy, Torch |
-| `LogisticRegression` | Binary logistic, L2 penalty | logit, probit | CPU, CuPy, Torch |
-| `PoissonRegression` | Poisson GLM | log | CPU, CuPy, Torch |
-| `GammaRegression` | Gamma GLM | log, inverse_power | CPU, CuPy, Torch |
-| `InverseGaussianRegression` | Inverse Gaussian GLM | log, inverse_squared | CPU, CuPy, Torch |
-| `NegativeBinomialRegression` | NB GLM (configurable α) | log | CPU, CuPy, Torch |
-| `TweedieRegression` | Tweedie GLM (configurable p) | log | CPU, CuPy, Torch |
-| `OrderedLogitRegression` | Ordered logit model | logit | CPU, CuPy, Torch |
-| `OrderedProbitRegression` | Ordered probit model | probit | CPU, CuPy, Torch |
+| Class | Description | Backends |
+|---|---|---|
+| `LinearRegression` | OLS with classical, HC0–HC3, and HAC inference | NumPy, CuPy, Torch |
+| `Ridge` | L2-penalized linear regression | NumPy, CuPy, Torch |
+| `Lasso` | L1 regression with debiased/bootstrap inference paths | NumPy, CuPy, Torch |
+| `ElasticNet` | L1+L2 penalized regression | NumPy, CuPy, Torch |
+| `LogisticRegression` | Binary logistic/probit regression | NumPy, CuPy, Torch |
+| `PoissonRegression` | Poisson GLM | NumPy, CuPy, Torch |
+| `GammaRegression` | Gamma GLM | NumPy, CuPy, Torch |
+| `InverseGaussianRegression` | Inverse Gaussian GLM | NumPy, CuPy, Torch |
+| `NegativeBinomialRegression` | Negative-binomial GLM | NumPy, CuPy, Torch |
+| `TweedieRegression` | Tweedie GLM | NumPy, CuPy, Torch |
+| `QuantileRegression` | Quantile regression with kernel/bootstrap inference | NumPy, CuPy, Torch |
+| `OrderedLogitRegression` | Ordered logit with analytical-Hessian inference | NumPy, CuPy, Torch |
+| `OrderedProbitRegression` | Ordered probit with analytical-Hessian inference | NumPy, CuPy, Torch |
 
-## Penalized GLM
+## Penalized Models
 
-All 7 GLM families support penalties through `PenalizedGeneralizedLinearModel` or typed wrappers:
+The penalty registry includes L1, L2, Elastic Net, SCAD, MCP, adaptive L1,
+group Lasso, adaptive group Lasso, group MCP, and group SCAD implementations.
+Aliases are accepted for selected penalties; the registry and compatibility matrix are
+the source of truth rather than a hard-coded count.
 
-| Class | Loss | Solvers | Penalties | Backends |
-|---|---|---|---|---|
-| `PenalizedGeneralizedLinearModel` | Any of 7 families | exact, irls, newton, lbfgs, fista, fista_bb | l1, l2, elasticnet, scad, mcp, adaptive_l1, group_lasso, group_mcp, group_scad | CPU, CuPy, Torch |
-| `PenalizedLinearRegression` | squared_error | exact, fista | l1, l2, elasticnet, scad, mcp, adaptive_l1 | CPU, CuPy, Torch |
-| `PenalizedLogisticRegression` | logistic | irls, fista | l1, l2, elasticnet, scad, mcp, adaptive_l1 | CPU, CuPy, Torch |
-| `PenalizedPoissonRegression` | poisson | irls, fista | l1, l2, elasticnet, scad, mcp, adaptive_l1 | CPU, CuPy, Torch |
-| `PenalizedQuantileRegression` | quantile | proximal_irls_cd, fista | scad, mcp, l2 | CPU, CuPy, Torch |
-| `PenalizedRobustRegression` | huber, bisquare | proximal_newton, irls | scad, mcp, l2 | CPU, CuPy, Torch |
-| `PenalizedCoxPHModel` | cox_ph | proximal_newton | scad, mcp, l2 | CPU, CuPy, Torch |
+| Class | Loss or model family | Backends |
+|---|---|---|
+| `PenalizedGeneralizedLinearModel` | Unified penalized GLM interface | NumPy, CuPy, Torch |
+| `PenalizedLinearRegression` | Penalized Gaussian regression | NumPy, CuPy, Torch |
+| `PenalizedLogisticRegression` | Penalized binary regression | NumPy, CuPy, Torch |
+| `PenalizedPoissonRegression` | Penalized Poisson regression | NumPy, CuPy, Torch |
+| `PenalizedQuantileRegression` | Quantile loss with proximal/FISTA paths | NumPy, CuPy, Torch |
+| `PenalizedRobustRegression` | Huber, bisquare, and fair losses where supported | NumPy, CuPy, Torch |
+| `PenalizedCoxPHModel` | Penalized Cox partial likelihood | NumPy, CuPy, Torch |
 
-For Gamma, InverseGaussian, NegativeBinomial, and Tweedie with penalties, use `PenalizedGeneralizedLinearModel(loss=..., penalty=...)`:
+Solver availability depends on the selected loss and penalty. Consult the
+[Loss × Penalty × Solver Framework](loss-penalty-solver-framework.md) and
+[Solver × Penalty Matrix](solver-penalty-matrix.md) before choosing an explicit
+solver.
+
+### Example
 
 ```python
-import numpy as np
-from statgpu.inference import norm, poisson, uniform
 from statgpu.linear_model import PenalizedGeneralizedLinearModel
 
-# Default: numpy backend (scipy-compatible: rvs, cdf, sf, ppf)
-X = norm.rvs(size=(2000, 20))
-y = poisson.rvs(mu=3.0, size=2000).astype(float)
-
-# GPU backend via backend= keyword
-X_torch = norm.rvs(size=(2000, 20), backend="torch")   # torch tensor on CUDA
-X_cupy = norm.rvs(size=(2000, 20), backend="cupy")     # CuPy array on GPU
-
-# Auto-detect from input type
-import torch
-x = torch.tensor([0.0, 1.96]).cuda()
-p = norm.cdf(x)  # automatically uses torch backend
-
-# Gamma + SCAD with auto solver selection
-model = PenalizedGeneralizedLinearModel(loss="gamma", penalty="scad", alpha=0.1, solver="auto")
-model.fit(X, y)
-
-# NegativeBinomial + ElasticNet with custom dispersion
+# L1 is non-smooth, so use FISTA or solver="auto".
 model = PenalizedGeneralizedLinearModel(
-    loss="negative_binomial", penalty="elasticnet",
-    loss_kwargs={"alpha": 2.0},  # custom dispersion parameter
-    alpha=0.1, l1_ratio=0.5,
-    solver="fista",  # explicit solver choice
-)
-model.fit(X, y)
-
-# Tweedie + group_lasso with sample_weight
-sw = uniform.rvs(size=len(y)) * 0.5 + 0.5  # uniform(0.5, 1.5)
-model = PenalizedGeneralizedLinearModel(
-    loss="tweedie", penalty="group_lasso",
-    loss_kwargs={"power": 1.5},
-    alpha=0.1, solver="fista",
-)
-model.fit(X, y, sample_weight=sw)
-
-# Poisson + L1 with IRLS solver (smooth penalty)
-model = PenalizedGeneralizedLinearModel(
-    loss="poisson", penalty="l1", alpha=0.05,
-    solver="irls",  # IRLS for smooth penalties
+    loss="poisson",
+    penalty="l1",
+    alpha=0.05,
+    solver="fista",
 )
 model.fit(X, y)
 ```
-
-**Solver selection guide:**
-
-| Solver | When to use | Penalties |
-|---|---|---|
-| `exact` | squared_error + L2 (closed-form) | l2 only |
-| `irls` | Smooth penalties (L2, ElasticNet) | l2, elasticnet |
-| `newton` / `lbfgs` | Smooth penalties with Hessian | l2, elasticnet |
-| `fista` | Non-smooth penalties (L1, SCAD, MCP) | l1, scad, mcp, adaptive_l1 |
-| `fista_bb` | Non-smooth with BB step acceleration | l1, elasticnet |
-| `auto` | Automatic selection based on penalty | all |
-
-**`sample_weight` support:** All GLM families and solvers support `sample_weight` parameter for weighted regression. Pass a 1D array of weights to `fit(X, y, sample_weight=sw)`.
 
 ## Cross-Validation
 
 | Class | Description | Backends |
 |---|---|---|
-| `RidgeCV` | GPU-accelerated Ridge CV | CPU, CuPy, Torch |
-| `LassoCV` | Warm-start alpha path | CPU, CuPy, Torch |
-| `ElasticNetCV` | l1_ratio + alpha grid | CPU, CuPy, Torch |
-| `LogisticRegressionCV` | GPU-accelerated logistic CV | CPU, CuPy, Torch |
-| `PenalizedGLM_CV` | Unified CV for all 7 losses × 10 penalties | CPU, CuPy, Torch |
-| `CoxPHCV` | CV penalty search + refit | CPU, CuPy |
+| `RidgeCV` | Ridge alpha selection | NumPy, CuPy, Torch |
+| `LassoCV` | Warm-start Lasso path | NumPy, CuPy, Torch |
+| `ElasticNetCV` | Joint `l1_ratio` and alpha search | NumPy, CuPy, Torch |
+| `LogisticRegressionCV` | Logistic-regression CV | NumPy, CuPy, Torch |
+| `PenalizedGLM_CV` | Unified penalized-GLM CV | NumPy, CuPy, Torch |
+| `CoxPHCV` | Cox penalty search and final refit | NumPy, CuPy; see CoxPH docs |
 
 ## ANOVA
 
-| Function | Description |
-|---|---|
-| `f_oneway` | One-way ANOVA |
-| `f_twoway` | Balanced two-way ANOVA, full or additive model |
-| `f_welch` | Welch one-way ANOVA with fractional denominator df |
-| `tukey_hsd` | Tukey HSD simultaneous post-hoc comparisons |
-| `bonferroni` | Bonferroni-adjusted pairwise Welch tests |
-| `cohens_f` | Cohen's f effect size |
-| `partial_eta_squared` | Partial eta-squared effect size |
+- `f_oneway`
+- `f_twoway`
+- `f_welch`
+- `tukey_hsd`
+- `bonferroni`
+- `cohens_f`
+- `partial_eta_squared`
+
+See [ANOVA](../models/anova.md) for design restrictions and scalar distribution
+boundaries.
 
 ## Covariance Estimation
 
-| Class | Description | Backends |
-|---|---|---|
-| `EmpiricalCovariance` | Sample covariance with jitter-stabilized inversion | CPU, CuPy, Torch |
-| `LedoitWolf` | Ledoit-Wolf shrinkage estimator | CPU, CuPy, Torch |
-| `OAS` | Oracle Approximating Shrinkage estimator | CPU, CuPy, Torch |
-| `ShrunkCovariance` | User-specified covariance shrinkage | CPU, CuPy, Torch |
-| `MinCovDet` | Robust FAST-MCD covariance with backend-native C-steps | CPU, CuPy, Torch |
-| `GraphicalLasso` | Sparse inverse covariance via block coordinate descent | CPU, CuPy, Torch |
-| `GraphicalLassoCV` | Cross-validated Graphical Lasso | CPU, CuPy, Torch |
+- `EmpiricalCovariance`
+- `LedoitWolf`
+- `OAS`
+- `ShrunkCovariance`
+- `MinCovDet`
+- `GraphicalLasso`
+- `GraphicalLassoCV`
+
+See [Covariance Estimation](../models/covariance.md).
 
 ## Panel Data
 
-| Class | Description | Backends |
-|---|---|---|
-| `PanelOLS` | Fixed effects with nonrobust/robust/clustered SE | CPU, CuPy, Torch |
-| `RandomEffects` | Swamy-Arora feasible GLS random effects | CPU, CuPy, Torch |
-| `PooledOLS` | Stacked OLS with robust/clustered/HAC covariance | CPU, CuPy, Torch |
-| `BetweenOLS` | OLS on entity means | CPU, CuPy, Torch |
-| `FirstDifferenceOLS` | Within-entity first-difference OLS | CPU, CuPy, Torch |
-| `FamaMacBeth` | Per-period cross-sectional regressions with Newey-West inference | CPU, CuPy, Torch |
+- `PanelOLS`
+- `RandomEffects`
+- `PooledOLS`
+- `BetweenOLS`
+- `FirstDifferenceOLS`
+- `FamaMacBeth`
 
-## Nonparametric Methods
+See [Panel Data Models](../models/panel.md) for covariance, rank-deficiency, and
+backend-preserving prediction contracts.
 
-| Class/Function | Description |
-|---|---|
-| `KernelRidge` | Kernel ridge regression |
-| `KernelRidgeCV` | Cross-validated kernel ridge regression |
-| `pairwise_kernels` | 6 kernel functions (RBF, polynomial, linear, Laplacian, sigmoid, cosine) |
-| `bspline_basis` | B-spline basis (De Boor algorithm, vectorized on GPU) |
-| `natural_cubic_spline_basis` | Natural cubic spline basis |
-| `KernelPCA` | Centered-kernel principal component embedding |
-| `Nystroem` | Low-rank kernel feature approximation via stable SVD normalization |
-| `KernelDensity` / kernel regression | Backend-native kernel smoothing estimators |
-| `cyclic_cubic_spline_basis` | Periodic cubic spline basis |
-| `thin_plate_spline_basis` | Multi-dimensional thin-plate radial basis |
-| `SplineTransformer` | sklearn-style backend-native B-spline transformer with four extrapolation modes |
+## Nonparametric and Semiparametric Methods
 
-### Backend execution boundary
-
-Graphical Lasso/CV, MinCovDet, SplineTransformer, and Fama–MacBeth keep their
-main numerical work on NumPy/CuPy/Torch. Formula and categorical-label parsing,
-integer fold/subset metadata, and unsupported scalar distribution CDF/quantiles
-remain intentional CPU boundaries. NumPy/Torch-CPU parity is tested; physical
-CUDA validation remains pending.
-
-## Semiparametric Models
-
-| Class | Description | Backends |
-|---|---|---|
-| `GAM` | Generalized additive model with penalized B-splines + GCV | CPU, CuPy, Torch |
+- `KernelDensity` and kernel regression
+- `KernelRidge` and `KernelRidgeCV`
+- `KernelPCA`
+- `Nystroem`
+- `SplineTransformer`
+- B-spline, natural cubic, cyclic cubic, and thin-plate spline bases
+- `GAM`
 
 ## Unsupervised Learning
 
-**Dimensionality Reduction & Factorization:**
+- `PCA`, `TruncatedSVD`, `IncrementalPCA`
+- `NMF`, `MiniBatchNMF`
+- `KMeans`, `MiniBatchKMeans`, `DBSCAN`
+- `GaussianMixture`, `AgglomerativeClustering`
+- `UMAP`, `TSNE`, `NNDescent`
+
+## Survival Analysis
 
 | Class | Description | Backends |
 |---|---|---|
-| `PCA` | Principal component analysis | CPU, CuPy, Torch |
-| `TruncatedSVD` | Dense truncated SVD | CPU, CuPy, Torch |
-| `IncrementalPCA` | Incremental PCA for large datasets | CPU, CuPy, Torch |
-| `NMF` | Non-negative matrix factorization (multiplicative updates) | CPU, CuPy, Torch |
-| `MiniBatchNMF` | Mini-batch NMF for large datasets | CPU, CuPy, Torch |
-| `UMAP` | Uniform Manifold Approximation and Projection (sparse COO edges, NNDescent NN) | CPU, CuPy, Torch |
-| `TSNE` | t-distributed Stochastic Neighbor Embedding | CPU, CuPy, Torch |
-| `NNDescent` | Approximate nearest neighbor descent (standalone) | CPU, CuPy, Torch |
+| `CoxPH` | Breslow/Efron ties, delayed entry, robust/cluster inference contracts, backend-native prediction | NumPy, CuPy, Torch |
+| `PenalizedCoxPHModel` | Cox partial likelihood with convex/non-convex penalties where supported | NumPy, CuPy, Torch |
 
-**Clustering & Mixture Models:**
+Optional CPU dependencies for exact Efron robust inference and delayed-entry reference
+paths are installed with `pip install statgpu[survival]`. See
+[Cox Proportional Hazards](../models/coxph.md) for the precise support matrix.
 
-| Class | Description | Backends |
-|---|---|---|
-| `KMeans` | Lloyd K-Means clustering (k-means++ init) | CPU, CuPy, Torch |
-| `MiniBatchKMeans` | Mini-batch K-Means for large datasets | CPU, CuPy, Torch |
-| `DBSCAN` | Density-based spatial clustering | CPU, CuPy, Torch |
-| `GaussianMixture` | Gaussian mixture model (log-domain EM) | CPU, CuPy, Torch |
-| `AgglomerativeClustering` | Exact agglomerative hierarchical clustering | CPU, CuPy, Torch |
+## Feature Selection and Diagnostics
 
-## Survival
+- `StepwiseSelector` and `stepwise_selection`
+- fixed-X and model-X knockoff filters and selector wrappers
+- `RegressionDiagnostics` and `diagnose_model`
 
-| Class | Description | Backends |
-|---|---|---|
-| `CoxPH` | Cox proportional hazards (Efron/Breslow ties, strict robust-inference contract, backend-native prediction) | CPU, CuPy, Torch |
-| `PenalizedCoxPHModel` | CoxPH + SCAD/MCP penalties via proximal Newton | CPU |
+## Multiple Testing and Resampling
 
-## Feature Selection
+- `adjust_pvalues`
+- `combine_pvalues`
+- `permutation_test`
+- bootstrap utilities exposed by the inference API
 
-| Interface | Description | Backends |
-|---|---|---|
-| `StepwiseSelector` / `stepwise_selection` | AIC/BIC forward, backward, or bidirectional subset search | follows wrapped estimator |
-| `knockoff_filter` | Unified fixed-X/model-X FDR-controlled selection | CPU, CuPy, Torch |
-| `fixed_x_knockoff_filter` | Fixed-X knockoff filter | CPU, CuPy, Torch |
-| `model_x_knockoff_filter` | Gaussian second-order model-X knockoff filter | CPU, CuPy, Torch |
-| `KnockoffSelector` / `FixedXKnockoffSelector` | sklearn-style selector wrappers | CPU, CuPy, Torch |
+## Validation Scope
 
-## Regression Diagnostics
-
-| Interface | Description |
-|---|---|
-| `RegressionDiagnostics` | Residuals, leverage, internal/external studentization, Cook's distance, and VIF |
-| `diagnose_model` | Construct and print a diagnostic summary |
-
-## Multiple Testing
-
-| Function | Description |
-|---|---|
-| `adjust_pvalues` | BH/BY/Holm/Bonferroni/Hochberg correction |
-| `combine_pvalues` | Fisher/Cauchy/Stouffer combination |
-| `permutation_test` | Permutation-based hypothesis testing |
+Backend support in this inventory means the public execution path exists. Numerical,
+performance, and physical-GPU claims remain scoped to the exact model, backend,
+hardware, and commit recorded by the corresponding tests or validation artifact.
