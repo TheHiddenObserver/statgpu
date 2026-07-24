@@ -3,7 +3,7 @@
 > Language: Chinese (中文)  
 > Last updated: 2026-04-18  
 > This page: 模型文档  
-> Language switch: [English](../../en/models/elastic-net.md)
+> Language switch: [English](../../../en/models/elastic-net.md)
 
 ## 概述
 

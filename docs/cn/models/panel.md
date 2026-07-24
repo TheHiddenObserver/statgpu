@@ -3,7 +3,7 @@
 > 语言：中文  
 > 最后更新：2026-07-24  
 > 页面定位：模型文档  
-> 切换：[English](../../en/models/panel.md)
+> 切换：[English](../../../en/models/panel.md)
 
 ## 概览
 

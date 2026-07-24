@@ -3,9 +3,9 @@
 > 语言: 中文
 > 最后更新: 2026-05-28
 > 页面定位: 模型文档
-> 切换: [English](../en/models/semiparametric.md)
+> 切换: [English](../../en/models/semiparametric.md)
 
-语言切换：[English](../en/models/semiparametric.md)
+语言切换：[English](../../en/models/semiparametric.md)
 
 ## 概览（Overview）
 

@@ -3,9 +3,9 @@
 > Language: English  
 > Last updated: 2026-06-14  
 > This page: Model documentation  
-> Switch: [Chinese](../../models/scad.md)
+> Switch: [Chinese](../../cn/models/scad.md)
 
-Language switch: [Chinese](../../models/scad.md)
+Language switch: [Chinese](../../cn/models/scad.md)
 
 ## Overview
 

@@ -3,9 +3,9 @@
 > 语言：中文  
 > 最后更新：2026-06-14  
 > 页面定位：模型文档  
-> 切换：[English](../../en/models/scad.md)
+> 切换：[English](../../../en/models/scad.md)
 
-语言切换：[English](../../en/models/scad.md)
+语言切换：[English](../../../en/models/scad.md)
 
 ## 概述
 

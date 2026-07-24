@@ -3,9 +3,9 @@
 > Language: English  
 > Last updated: 2026-04-17  
 > This page: Model documentation  
-> Switch: [Chinese](../../models/linear-regression.md)
+> Switch: [Chinese](../../cn/models/linear-regression.md)
 
-Language switch: [Chinese](../../models/linear-regression.md)
+Language switch: [Chinese](../../cn/models/linear-regression.md)
 
 ## Overview
 

@@ -3,7 +3,7 @@
 > 语言：中文
 > 最后更新：2026-07-14
 > 本页：无监督模型总览
-> English: [English](../en/models/unsupervised.md)
+> English: [English](../../en/models/unsupervised.md)
 
 ## 概览
 

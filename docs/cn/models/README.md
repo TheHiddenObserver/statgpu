@@ -2,7 +2,7 @@
 
 > 语言：中文  
 > 最后更新：2026-07-24  
-> 切换：[English](../../en/models/README.md)
+> 切换：[English](../../../en/models/README.md)
 
 本页仅作为导航。当前 solver、penalty、后端与推断覆盖以
 [已实现方法](../guides/implemented-methods.md)和对应模型页为准。

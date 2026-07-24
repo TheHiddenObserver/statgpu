@@ -2,7 +2,7 @@
 
 > Language: English  
 > Last updated: 2026-07-07  
-> Switch: [Chinese](../../models/ordered.md)
+> Switch: [Chinese](../../cn/models/ordered.md)
 
 Ordered response models for ordinal categorical outcomes (e.g., "low/medium/high").
 
