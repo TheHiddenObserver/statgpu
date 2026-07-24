@@ -25,6 +25,18 @@
   - `docs/en/changelog.md`
   - `docs/cn/changelog.md`
 
+### 验证（2026-07-25）— v0.2.2 发布候选
+
+- 两处版本声明均为 0.2.2；实时 PyPI 元数据显示最新版本仍为 0.2.1，远端仓库中
+  不存在 `v0.2.2` 标签。
+- 文档链接检查与维护中文档契约检查全部通过，共覆盖 122 个维护中文档文件。
+- 完整 CPU-only suite 结果为 **1051 passed、257 skipped、0 failed**。
+- `STATGPU_NO_EXT=1` 成功生成 `statgpu-0.2.2-py3-none-any.whl` 和
+  `statgpu-0.2.2.tar.gz`，两个制品均通过 `twine check`。
+- 已审计 wheel/sdist 元数据、归档路径与内容，未发现本地配置、凭据、缓存或无关结果包。
+- wheel 与 sdist 均在全新环境中从已安装的 `site-packages` 导入 statgpu 0.2.2，
+  并通过 CPU `LinearRegression` smoke test。
+
 ### 验证（2026-07-24）— PR #79 exact-head 最终闭环
 
 最终 review 的生产代码 head 为

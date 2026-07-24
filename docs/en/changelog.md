@@ -26,6 +26,20 @@
   - `docs/en/changelog.md`
   - `docs/cn/changelog.md`
 
+### Validation (2026-07-25) — v0.2.2 release candidate
+
+- The version declarations agree at 0.2.2; live PyPI metadata reported 0.2.1 as
+  the latest release, and the remote repository had no `v0.2.2` tag.
+- The documentation link check and maintained-document contracts passed for
+  all 122 maintained documentation files.
+- The complete CPU-only suite passed with **1051 passed, 257 skipped, 0 failed**.
+- `STATGPU_NO_EXT=1` produced `statgpu-0.2.2-py3-none-any.whl` and
+  `statgpu-0.2.2.tar.gz`; both artifacts passed `twine check`.
+- Wheel and sdist metadata, archive paths, and contents were audited, with no
+  local configuration, credentials, caches, or unrelated result bundles found.
+- Fresh wheel and sdist environments both imported statgpu 0.2.2 from their
+  installed `site-packages` and passed a CPU `LinearRegression` smoke test.
+
 ### Validation (2026-07-24) — PR #79 exact-head closure
 
 The final reviewed production head is
