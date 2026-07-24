@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import ast
 import re
 import sys
 from pathlib import Path
@@ -21,6 +22,10 @@ MAINTAINED_GLOBS = (
 )
 
 FENCED_CODE_RE = re.compile(r"```.*?```|~~~.*?~~~", re.DOTALL)
+PYTHON_FENCE_RE = re.compile(
+    r"```(?:python|py)\s*\n(.*?)```",
+    re.DOTALL | re.IGNORECASE,
+)
 INLINE_LINK_RE = re.compile(r"!?\[[^\]]*\]\(([^)]+)\)")
 REFERENCE_LINK_RE = re.compile(r"^\s*\[[^\]]+\]:\s*(\S+)", re.MULTILINE)
 HTML_LINK_RE = re.compile(r"(?:href|src)=[\"']([^\"']+)[\"']", re.IGNORECASE)
@@ -139,6 +144,35 @@ def validate_content(path: Path, text: str) -> list[str]:
     return errors
 
 
+def normalize_python_fence(code: str) -> str:
+    """Strip doctest prompts while preserving ordinary Python indentation."""
+    lines: list[str] = []
+    for line in code.splitlines():
+        if line.startswith((">>> ", "... ")):
+            line = line[4:]
+        lines.append(line)
+    return "\n".join(lines)
+
+
+def validate_python_fences(path: Path, text: str) -> list[str]:
+    """Require maintained Python examples to be syntactically valid."""
+    rel = path.relative_to(ROOT).as_posix()
+    if is_historical(rel):
+        return []
+
+    errors: list[str] = []
+    for index, match in enumerate(PYTHON_FENCE_RE.finditer(text), start=1):
+        code = normalize_python_fence(match.group(1))
+        try:
+            ast.parse(code)
+        except SyntaxError as exc:
+            errors.append(
+                f"{rel}: Python fence {index} is invalid at line "
+                f"{exc.lineno}: {exc.msg}"
+            )
+    return errors
+
+
 def main() -> int:
     errors: list[str] = []
     files = iter_maintained_files()
@@ -146,6 +180,7 @@ def main() -> int:
         text = path.read_text(encoding="utf-8")
         errors.extend(validate_links(path, text))
         errors.extend(validate_content(path, text))
+        errors.extend(validate_python_fences(path, text))
 
     if errors:
         print("Documentation contract check failed:", file=sys.stderr)

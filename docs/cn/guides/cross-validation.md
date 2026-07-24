@@ -496,7 +496,7 @@ scores = to_numpy(torch.stack(scores_dev))  # 一次同步
 ```python
 coef = zeros(p)
 for alpha in alphas_descending:
-    coef = fista_solver(init_coef=coef, ...)  # Warm start
+    coef = fista_solver(..., init_coef=coef)  # Warm start
 ```
 
 这比冷启动减少 3-5 倍迭代次数。

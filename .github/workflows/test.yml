@@ -183,6 +183,7 @@ jobs:
             statgpu/metrics \
             statgpu/nonparametric/kernel_methods \
             statgpu/nonparametric/kernel_smoothing \
+            statgpu/nonparametric/splines \
             statgpu/panel \
             statgpu/penalties/_adaptive_l1.py \
             statgpu/penalties/_base.py \

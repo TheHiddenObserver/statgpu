@@ -511,7 +511,7 @@ Descending alpha grid (strongest regularization first). Each alpha's solution in
 ```python
 coef = zeros(p)
 for alpha in alphas_descending:
-    coef = fista_solver(init_coef=coef, ...)  # Warm start
+    coef = fista_solver(..., init_coef=coef)  # Warm start
 ```
 
 This reduces iterations by 3-5x compared to cold start.
