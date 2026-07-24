@@ -346,7 +346,9 @@ def _formula_predict(X, design_info, formula_has_intercept, model_has_intercept)
             intercept_idx = col_names.index("Intercept")
             X_arr = np.delete(X_arr, intercept_idx, axis=1)
     else:
-        X_arr = np.asarray(X, dtype=np.float64)
+        # Preserve NumPy/CuPy/Torch input. The estimator performs
+        # backend-aware dtype/device conversion downstream.
+        X_arr = X
     return X_arr
 
 
