@@ -6,13 +6,13 @@
 [![GitHub stars](https://img.shields.io/github/stars/TheHiddenObserver/statgpu.svg)](https://github.com/TheHiddenObserver/statgpu/stargazers)
 [![Downloads](https://img.shields.io/pypi/dm/statgpu.svg)](https://pypi.org/project/statgpu/)
 
-GPU-accelerated statistical methods with an sklearn-compatible API.
+GPU-accelerated statistical methods with an sklearn-style API.
 
 ## Core Features
 
 - 🚀 **Three backends**: NumPy (CPU), CuPy (CUDA), and PyTorch (CUDA), with automatic device selection
-- 🧭 **Backend transparency**: core numerical paths preserve backend arrays; intentional CPU boundaries are limited to formula/label metadata and unsupported scalar distribution functions
-- 🔧 **sklearn-compatible**: `fit`/`predict`/`score` API and `sklearn.base.clone()` support
+- 🧭 **Explicit backend semantics**: core numerical arrays remain on the selected backend where supported; explicit device requests do not silently switch backend, and model-specific metadata, control-flow, and scalar boundaries are documented per method
+- 🔧 **sklearn-style estimators**: familiar `fit`/`predict`/`score` methods and parameter conventions
 - 📊 **GLM + robust + quantile + Cox**: Gaussian and non-Gaussian regression, robust losses, quantile regression, and survival analysis
 - 🔥 **Penalty framework**: L1, L2, Elastic Net, SCAD, MCP, adaptive, and grouped penalties
 - ⚡ **Solver framework**: exact, IRLS, Newton, L-BFGS, FISTA-family, proximal IRLS, proximal Newton, and ADMM implementations where supported
@@ -90,18 +90,21 @@ Choose CuPy and PyTorch builds compatible with the installed CUDA driver and run
 
 ## Quick Start
 
+The default example runs after the base `pip install statgpu` installation. Use an
+explicit GPU device only after installing the corresponding CuPy or PyTorch extra.
+
 ```python
 import numpy as np
+from statgpu import adjust_pvalues, combine_pvalues
 from statgpu.inference import norm, poisson
 from statgpu.linear_model import LinearRegression, PenalizedGLM_CV
-from statgpu import adjust_pvalues, combine_pvalues
 
 # Generate data using statgpu distributions
 X = norm.rvs(size=(10000, 100))
 y = X @ norm.rvs(size=100) + norm.rvs(size=10000) * 0.5
 
-# Linear regression with GPU
-model = LinearRegression(device="cuda")
+# Portable linear regression: selects an available backend
+model = LinearRegression(device="auto")
 model.fit(X, y)
 print(f"R²: {model.score(X, y):.4f}")
 
@@ -143,7 +146,7 @@ sg.set_device("cuda")
 sg.set_device("cpu")
 sg.set_device("auto")
 
-# Per-model setting
+# Per-model setting; requires the matching GPU extra and runtime
 from statgpu.linear_model import LinearRegression
 model = LinearRegression(device="cuda", n_jobs=4)
 ```
@@ -157,7 +160,7 @@ scikit-learn 1.8.0, statsmodels 0.14.6, lifelines 0.30.3.
 These are environment-specific benchmark results, not installation requirements or
 universal speed guarantees.
 
-### Real-Data Performance
+### Selected Benchmark Results
 
 | Module | Dataset | n | p | Best Speedup | Precision |
 |---|---|---:|---:|---:|---|
