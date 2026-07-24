@@ -4,21 +4,44 @@
 from __future__ import annotations
 
 import argparse
+import re
 import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 
+SWITCH_MARKERS = (
+    "Switch:",
+    "Language switch:",
+    "切换:",
+    "切换：",
+    "语言切换:",
+    "语言切换：",
+    "English:",
+)
 
-def apply_replacements(path: Path, replacements: tuple[tuple[str, str], ...]) -> bool:
+MODEL_LINK_RE = re.compile(
+    r"\((?:\.\./)+(?:en/|cn/)?models/[^)#\s]+\.md(?:#[^)]*)?\)"
+)
+
+
+def normalize_switch_links(text: str, target: str) -> str:
+    """Normalize only bilingual switch lines, never ordinary cross-model links."""
+    normalized: list[str] = []
+    replacement = f"({target})"
+    for line in text.splitlines(keepends=True):
+        if any(marker in line for marker in SWITCH_MARKERS):
+            line = MODEL_LINK_RE.sub(replacement, line)
+        normalized.append(line)
+    return "".join(normalized)
+
+
+def normalize_file(path: Path, target: str) -> str:
     original = path.read_text(encoding="utf-8")
-    updated = original
-    for old, new in replacements:
-        updated = updated.replace(old, new)
-    if updated == original:
-        return False
-    path.write_text(updated, encoding="utf-8", newline="\n")
-    return True
+    updated = normalize_switch_links(original, target)
+    if path.name == "splines.md":
+        updated = updated.replace("../semiparametric.md", "semiparametric.md")
+    return updated
 
 
 def collect_changes(write: bool) -> list[Path]:
@@ -26,9 +49,7 @@ def collect_changes(write: bool) -> list[Path]:
 
     for path in sorted((ROOT / "docs" / "en" / "models").glob("*.md")):
         original = path.read_text(encoding="utf-8")
-        updated = original.replace("../../models/", "../../cn/models/")
-        if path.name == "splines.md":
-            updated = updated.replace("../semiparametric.md", "semiparametric.md")
+        updated = normalize_file(path, f"../../cn/models/{path.name}")
         if updated != original:
             changed.append(path)
             if write:
@@ -36,9 +57,7 @@ def collect_changes(write: bool) -> list[Path]:
 
     for path in sorted((ROOT / "docs" / "cn" / "models").glob("*.md")):
         original = path.read_text(encoding="utf-8")
-        updated = original.replace("../en/models/", "../../en/models/")
-        if path.name == "splines.md":
-            updated = updated.replace("../semiparametric.md", "semiparametric.md")
+        updated = normalize_file(path, f"../../en/models/{path.name}")
         if updated != original:
             changed.append(path)
             if write:
