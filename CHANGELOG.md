@@ -4,6 +4,13 @@ All notable changes to statgpu are documented here, organized by date and PR.
 
 ## 2026-07-24
 
+### PR #84 — Refresh maintained documentation contracts
+
+- Refreshed the release-facing README, documentation portals, method inventory,
+  and bilingual ANOVA, covariance, kernel-method, and PyTorch backend guides.
+- Added deterministic bilingual-link normalization and CI validation for
+  maintained relative links, release-facing content, and Python examples.
+
 ### PR #79 — Exact-head review closure and documentation synchronization
 
 - Final reviewed production head `c85750d63d4e6dbc9d988847566c20f5fa862e91`

@@ -3,9 +3,9 @@
 > 语言：中文  
 > 最后更新：2026-07-12  
 > 页面定位：变更记录  
-> 切换：[English](en/changelog.md)
+> 切换：[English](../en/changelog-history-through-2026-07-14.md)
 
-语言切换：[English](en/changelog.md)
+语言切换：[English](../en/changelog-history-through-2026-07-14.md)
 
 ## 2026-07
 

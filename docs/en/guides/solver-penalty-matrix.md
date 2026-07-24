@@ -3,7 +3,7 @@
 > Language: English  
 > Last updated: 2026-06-12  
 > This page: Reference guide  
-> Switch: [Chinese](../../guides/solver-penalty-matrix.md)
+> Switch: [Chinese](../../cn/guides/solver-penalty-matrix.md)
 
 ## Overview
 

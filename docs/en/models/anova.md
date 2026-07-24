@@ -1,451 +1,235 @@
 # ANOVA
 
 > Language: English  
-> Last updated: 2026-07-12  
-> This page: Model documentation  
-> Switch: [Chinese](../../models/anova.md)
-
-Language switch: [Chinese](../../models/anova.md)
+> Last updated: 2026-07-24  
+> Switch: [Chinese](../../cn/models/anova.md)
 
 ## Overview
 
-The ANOVA module provides one-way ANOVA, balanced two-way ANOVA, Welch ANOVA, Tukey HSD, Bonferroni-adjusted pairwise Welch tests, and effect-size helpers. Group reductions support NumPy, CuPy, and Torch backends.
+The ANOVA module provides one-way ANOVA, balanced two-way ANOVA, Welch ANOVA,
+Tukey HSD, Bonferroni-adjusted pairwise Welch tests, and effect-size helpers.
+Group reductions support NumPy, CuPy, and Torch backends.
 
-## Path
+## Paths
 
-`statgpu.anova.f_oneway`, `statgpu.anova.AnovaResult`
-`statgpu.anova.f_twoway`, `statgpu.anova.TwoWayAnovaResult`
-`statgpu.anova.f_welch`
-`statgpu.anova.tukey_hsd`, `statgpu.anova.TukeyResult`
-`statgpu.anova.bonferroni`, `statgpu.anova.PosthocResult`
-`statgpu.anova.cohens_f`
-`statgpu.anova.partial_eta_squared`
+- `statgpu.anova.f_oneway`, `statgpu.anova.AnovaResult`
+- `statgpu.anova.f_twoway`, `statgpu.anova.TwoWayAnovaResult`
+- `statgpu.anova.f_welch`
+- `statgpu.anova.tukey_hsd`, `statgpu.anova.TukeyResult`
+- `statgpu.anova.bonferroni`, `statgpu.anova.PosthocResult`
+- `statgpu.anova.cohens_f`
+- `statgpu.anova.partial_eta_squared`
 
-## Objective Function
+## One-Way ANOVA
 
-Grand mean:
+For groups with sizes $n_i$, means $\bar y_i$, and total size
+$N=\sum_i n_i$, the grand mean is
+
 $$
-\bar{y} = \frac{\sum_i n_i \bar{y}_i}{\sum_i n_i}
-$$
-
-Between-group sum of squares:
-$$
-SSB = \sum_{i=1}^k n_i (\bar{y}_i - \bar{y})^2
-$$
-
-Within-group sum of squares:
-$$
-SSW = \sum_{i=1}^k \sum_{j=1}^{n_i} (y_{ij} - \bar{y}_i)^2
+\bar y = \frac{\sum_i n_i\bar y_i}{N}.
 $$
 
-F-statistic:
+The between- and within-group sums of squares are
+
 $$
-F = \frac{SSB / (k-1)}{SSW / (N-k)}
-$$
-
-where $k$ is the number of groups, $n_i$ is the size of group $i$, and $N = \sum_i n_i$ is the total number of observations.
-
-## Estimating Equation
-
-Direct computation, no iterative solver needed. The F-statistic is computed in a single pass over the data using backend-native reduction operations.
-
-## Covariance/Inference
-
-P-value is obtained from the F-distribution survival function $1 - F_{k-1,\,N-k}(F)$. Effect size is reported as:
-$$
-\eta^2 = \frac{SSB}{SSB + SSW}
+SSB = \sum_i n_i(\bar y_i-\bar y)^2,
+\qquad
+SSW = \sum_i\sum_j(y_{ij}-\bar y_i)^2.
 $$
 
-## Parameters
+The test statistic is
+
+$$
+F = \frac{SSB/(k-1)}{SSW/(N-k)}.
+$$
+
+`f_oneway` computes these quantities directly with backend-native reductions; no
+iterative solver is used. The p-value is obtained from the F-distribution survival
+function. Eta-squared is
+
+$$
+\eta^2 = \frac{SSB}{SSB+SSW}.
+$$
+
+### Parameters
 
 | Parameter | Default | Description |
 |---|---:|---|
-| `*groups` | (required) | Two or more 1-D arrays, one per group |
-| `backend` | `"auto"` | `"auto"` / `"numpy"` / `"cupy"` / `"torch"` |
+| `*groups` | required | Two or more one-dimensional samples |
+| `backend` | `"auto"` | `"auto"`, `"numpy"`, `"cupy"`, or `"torch"` |
+| `dtype` | `None` | Computation dtype where exposed by the function |
 
-## CPU+GPU Examples
+### Output
 
-```python
-from statgpu.anova import f_oneway
-import numpy as np
+`AnovaResult` exposes:
 
-# CPU
-g1 = np.random.randn(100)
-g2 = np.random.randn(100) + 0.5
-result = f_oneway(g1, g2, backend="numpy")
-print(f"F={result.statistic:.4f}, p={result.pvalue:.4e}, eta2={result.eta_squared:.4f}")
-
-# GPU (cupy)
-import cupy as cp
-g1_gpu = cp.asarray(g1)
-g2_gpu = cp.asarray(g2)
-result_gpu = f_oneway(g1_gpu, g2_gpu, backend="cupy")
-
-# GPU (torch)
-import torch
-g1_t = torch.from_numpy(g1).cuda()
-g2_t = torch.from_numpy(g2).cuda()
-result_torch = f_oneway(g1_t, g2_t, backend="torch")
-```
-
-## strict/approx difference
-
-No strict/approx modes. Backend-native reductions share one statistical definition; unsupported distribution functions use scalar CPU calls.
-
-## Outputs
-
-`AnovaResult` dataclass with fields:
-
-| Field | Type | Description |
-|---|---|---|
-| `statistic` | float | F-statistic value |
-| `pvalue` | float | P-value from F-distribution |
-| `df_between` | int | Between-group degrees of freedom ($k - 1$) |
-| `df_within` | int | Within-group degrees of freedom ($N - k$) |
-| `eta_squared` | float | Effect size $\eta^2$ |
-
-## Three-backend support
-
-All ANOVA functions (`f_oneway`, `f_twoway`, `f_welch`, `tukey_hsd`, `bonferroni`, `cohens_f`, `partial_eta_squared`) support three compute backends via the `backend` parameter:
-
-| Backend | Description |
+| Field | Description |
 |---|---|
-| `"numpy"` | CPU computation using NumPy |
-| `"cupy"` | GPU computation using CuPy (NVIDIA CUDA) |
-| `"torch"` | GPU computation using PyTorch (NVIDIA CUDA) |
-| `"auto"` | Automatically selects the best available backend |
+| `statistic` | F statistic |
+| `pvalue` | F-distribution tail probability |
+| `df_between` | Numerator degrees of freedom |
+| `df_within` | Denominator degrees of freedom |
+| `eta_squared` | One-way effect size |
 
-### Execution boundary
+## Two-Way ANOVA
 
-One-way, two-way, Welch, and post-hoc group reductions remain on the selected backend.
-Tukey's studentized-range distribution and Welch/t/normal/F distribution CDF or
-quantile evaluations may use CPU scalar calls where CuPy/Torch provide no equivalent.
-Complete group vectors are not transferred to NumPy. NumPy/Torch-CPU parity is tested;
-physical CUDA validation remains pending.
-
----
-
-## f_twoway
-
-Two-way ANOVA with optional interaction term.
-
-### Path
-
-`statgpu.anova.f_twoway`, `statgpu.anova.TwoWayAnovaResult`
-
-### Overview
-
-`f_twoway` performs a two-factor analysis of variance for balanced cell sizes, testing factor A, factor B, and optionally their interaction. Unbalanced designs are rejected until the API exposes an explicit Type I/II/III sums-of-squares convention. In the additive model, interaction variation is included in the residual term.
+`f_twoway` analyzes a balanced two-factor design. It tests factor A, factor B,
+and, when requested, the interaction. Unbalanced cell sizes are rejected until
+the public API exposes an explicit Type I, II, or III sums-of-squares convention.
+When `interaction=False`, the additive model uses the remaining interaction
+variation in the residual term.
 
 ### Parameters
 
 | Parameter | Default | Description |
 |---|---:|---|
-| `data` | (required) | Nested list/array of shape `(a, b)` where each element is an array of cell observations |
-| `interaction` | `True` | If `True`, include the interaction term (full model); if `False`, fit additive model |
-| `backend` | `"auto"` | `"auto"` / `"numpy"` / `"cupy"` / `"torch"` |
-| `dtype` | `None` | Float dtype for computation; `None` uses `float64` |
+| `data` | required | Nested `(a, b)` cells containing observations |
+| `interaction` | `True` | Fit and test the interaction term |
+| `backend` | `"auto"` | Numerical backend |
+| `dtype` | `None` | Computation dtype |
 
-### Outputs
+### Output
 
-`TwoWayAnovaResult` dataclass with fields:
+`TwoWayAnovaResult` reports factor-A, factor-B, and optional interaction
+statistics, p-values, degrees of freedom, eta-squared values, residual degrees of
+freedom, and residual sum of squares.
 
-| Field | Type | Description |
-|---|---|---|
-| `factor_a_statistic` | float | F-statistic for factor A |
-| `factor_a_pvalue` | float | P-value for factor A |
-| `factor_a_df` | int | Degrees of freedom for factor A ($a - 1$) |
-| `factor_a_eta_squared` | float | Eta-squared for factor A |
-| `factor_b_statistic` | float | F-statistic for factor B |
-| `factor_b_pvalue` | float | P-value for factor B |
-| `factor_b_df` | int | Degrees of freedom for factor B ($b - 1$) |
-| `factor_b_eta_squared` | float | Eta-squared for factor B |
-| `interaction_statistic` | float or None | F-statistic for interaction (`None` if `interaction=False`) |
-| `interaction_pvalue` | float or None | P-value for interaction (`None` if `interaction=False`) |
-| `interaction_df` | int or None | Degrees of freedom for interaction (`None` if `interaction=False`) |
-| `interaction_eta_squared` | float or None | Eta-squared for interaction (`None` if `interaction=False`) |
-| `df_within` | int | Residual degrees of freedom |
-| `ss_within` | float | Residual sum of squares |
+## Welch ANOVA
 
-### Example
+`f_welch` is the unequal-variance alternative to one-way ANOVA. It uses the
+Welch-Satterthwaite denominator degrees of freedom, which are generally
+fractional. Its returned `AnovaResult.df_within` is therefore a floating-point
+value. `eta_squared` is reported as `NaN` because the ordinary pooled-variance
+one-way effect size is not the corresponding Welch estimand.
 
-```python
-from statgpu.anova import f_twoway
-import numpy as np
+## Post-Hoc Comparisons
 
-# 2x3 balanced design, 5 observations per cell
-data = [[np.random.randn(5) for _ in range(3)] for _ in range(2)]
-result = f_twoway(data, interaction=True)
-print(f"Factor A: F={result.factor_a_statistic:.4f}, p={result.factor_a_pvalue:.4e}")
-print(f"Factor B: F={result.factor_b_statistic:.4f}, p={result.factor_b_pvalue:.4e}")
-print(f"Interaction: F={result.interaction_statistic:.4f}, p={result.interaction_pvalue:.4e}")
+### Tukey HSD
 
-# Additive model (no interaction)
-result_add = f_twoway(data, interaction=False)
-```
+`tukey_hsd` performs all pairwise mean comparisons using the studentized-range
+distribution. It controls family-wise error and reports simultaneous confidence
+intervals. `TukeyResult` contains the comparison list, significance level,
+number of groups, residual degrees of freedom, and pooled mean square error.
+Each comparison reports group indices, mean difference, adjusted p-value,
+confidence interval, and rejection decision.
 
----
+### Bonferroni Pairwise Welch Tests
 
-## f_welch
+`bonferroni` applies Welch's pairwise t-test and Bonferroni correction. It does
+not assume equal variances. `PosthocResult` reports all pairwise comparisons,
+the family-wise significance level, and the number of comparisons.
 
-Welch's one-way ANOVA for groups with unequal variances.
+## Effect Sizes
 
-### Path
+- `partial_eta_squared(ss_effect, ss_error)` computes
+  $ss_{effect}/(ss_{effect}+ss_{error})$ and validates finite, non-negative sums
+  of squares.
+- `cohens_f(*groups)` derives Cohen's $f$ from eta-squared:
 
-`statgpu.anova.f_welch`
+$$
+f = \sqrt{\frac{\eta^2}{1-\eta^2}}.
+$$
 
-### Overview
+## CPU and GPU Examples
 
-`f_welch` performs Welch's ANOVA, which does not assume equal variances across groups. It is a GPU-accelerated alternative to `scipy.stats.alexandergovern` and R's `oneway.test`. Uses the Welch-Satterthwaite equation for degrees of freedom.
-
-### Parameters
-
-| Parameter | Default | Description |
-|---|---:|---|
-| `*groups` | (required) | Two or more 1-D arrays, one per group |
-| `backend` | `"auto"` | `"auto"` / `"numpy"` / `"cupy"` / `"torch"` |
-| `dtype` | `None` | Float dtype for computation; `None` uses `float64` |
-
-### Outputs
-
-Returns `AnovaResult` (same as `f_oneway`):
-
-| Field | Type | Description |
-|---|---|---|
-| `statistic` | float | Welch F-statistic |
-| `pvalue` | float | P-value from F-distribution |
-| `df_between` | int | Between-group degrees of freedom ($k - 1$) |
-| `df_within` | float | Fractional Welch-Satterthwaite denominator degrees of freedom |
-| `eta_squared` | float | `NaN` (not meaningful for Welch's test) |
-
-### Example
+### NumPy
 
 ```python
-from statgpu.anova import f_welch
 import numpy as np
+from statgpu.anova import f_oneway, f_welch, tukey_hsd
 
-# Groups with very different variances
-g1 = np.random.randn(100)
-g2 = np.random.randn(100) * 5 + 2
-g3 = np.random.randn(50) * 0.5 - 1
+rng = np.random.default_rng(7)
+g1 = rng.normal(0.0, 1.0, 100)
+g2 = rng.normal(0.5, 1.0, 100)
+g3 = rng.normal(-0.2, 2.0, 80)
 
-result = f_welch(g1, g2, g3, backend="numpy")
-print(f"Welch F={result.statistic:.4f}, p={result.pvalue:.4e}")
+result = f_oneway(g1, g2, backend="numpy")
+welch = f_welch(g1, g2, g3, backend="numpy")
+posthoc = tukey_hsd(g1, g2, alpha=0.05, backend="numpy")
 ```
 
----
-
-## tukey_hsd
-
-Tukey's Honestly Significant Difference post-hoc test.
-
-### Path
-
-`statgpu.anova.tukey_hsd`, `statgpu.anova.TukeyResult`
-
-### Overview
-
-`tukey_hsd` performs all pairwise comparisons between group means using the studentized range distribution. It controls the family-wise error rate and provides simultaneous confidence intervals. Use after a significant ANOVA result to identify which specific group means differ.
-
-### Parameters
-
-| Parameter | Default | Description |
-|---|---:|---|
-| `*groups` | (required) | Two or more 1-D arrays, one per group |
-| `alpha` | `0.05` | Family-wise significance level |
-| `backend` | `"auto"` | `"auto"` / `"numpy"` / `"cupy"` / `"torch"` |
-| `dtype` | `None` | Float dtype for computation; `None` uses `float64` |
-
-### Outputs
-
-`TukeyResult` dataclass with fields:
-
-| Field | Type | Description |
-|---|---|---|
-| `comparisons` | list of `PairwiseComparison` | All pairwise comparisons |
-| `alpha` | float | Significance level used |
-| `n_groups` | int | Number of groups |
-| `df_within` | int | Within-group degrees of freedom |
-| `mse` | float | Mean square error (within-group variance) |
-
-Each `PairwiseComparison` has:
-
-| Field | Type | Description |
-|---|---|---|
-| `group_i` | int | Index of first group |
-| `group_j` | int | Index of second group |
-| `mean_diff` | float | Difference in means ($\bar{x}_i - \bar{x}_j$) |
-| `pvalue` | float | P-value from studentized range distribution |
-| `ci_lower` | float | Lower bound of simultaneous confidence interval |
-| `ci_upper` | float | Upper bound of simultaneous confidence interval |
-| `reject` | bool | `True` if `pvalue < alpha` |
-
-### Example
+### CuPy
 
 ```python
-from statgpu.anova import f_oneway, tukey_hsd
-import numpy as np
+import cupy as cp
+from statgpu.anova import f_oneway
 
-g1 = np.random.randn(30)
-g2 = np.random.randn(30) + 1.0
-g3 = np.random.randn(30) + 0.5
-
-# Check overall significance first
-f_result = f_oneway(g1, g2, g3)
-if f_result.pvalue < 0.05:
-    # Pairwise comparisons
-    t_result = tukey_hsd(g1, g2, g3, alpha=0.05)
-    for c in t_result.comparisons:
-        print(f"Group {c.group_i} vs {c.group_j}: diff={c.mean_diff:.4f}, "
-              f"p={c.pvalue:.4e}, reject={c.reject}")
+rng = cp.random.RandomState(7)
+g1 = rng.standard_normal(100, dtype=cp.float64)
+g2 = rng.standard_normal(100, dtype=cp.float64) + 0.5
+result = f_oneway(g1, g2, backend="cupy")
 ```
 
----
-
-## bonferroni
-
-Bonferroni-corrected pairwise t-tests.
-
-### Path
-
-`statgpu.anova.bonferroni`, `statgpu.anova.PosthocResult`
-
-### Overview
-
-`bonferroni` performs Welch's t-test for each pair of groups with Bonferroni correction for multiple comparisons. Unlike Tukey HSD, it does not assume equal variances and uses a simpler correction. The per-comparison significance level is $\alpha / m$ where $m = k(k-1)/2$.
-
-### Parameters
-
-| Parameter | Default | Description |
-|---|---:|---|
-| `*groups` | (required) | Two or more 1-D arrays, one per group |
-| `alpha` | `0.05` | Family-wise significance level |
-| `backend` | `"auto"` | `"auto"` / `"numpy"` / `"cupy"` / `"torch"` |
-| `dtype` | `None` | Float dtype for computation; `None` uses `float64` |
-
-### Outputs
-
-`PosthocResult` dataclass with fields:
-
-| Field | Type | Description |
-|---|---|---|
-| `comparisons` | list of `PairwiseComparison` | All pairwise comparisons (same fields as Tukey) |
-| `alpha` | float | Family-wise significance level |
-| `n_comparisons` | int | Number of pairwise comparisons ($k(k-1)/2$) |
-
-### Example
+### Torch CUDA
 
 ```python
-from statgpu.anova import bonferroni
-import numpy as np
+import torch
+from statgpu.anova import f_oneway
 
-g1 = np.random.randn(30)
-g2 = np.random.randn(30) + 1.0
-g3 = np.random.randn(30) + 0.5
-
-result = bonferroni(g1, g2, g3, alpha=0.05)
-print(f"Number of comparisons: {result.n_comparisons}")
-for c in result.comparisons:
-    print(f"Group {c.group_i} vs {c.group_j}: diff={c.mean_diff:.4f}, "
-          f"p={c.pvalue:.4e}, reject={c.reject}")
+torch_device = torch.device("cuda")
+g1 = torch.randn(100, device=torch_device, dtype=torch.float64)
+g2 = torch.randn(100, device=torch_device, dtype=torch.float64) + 0.5
+result = f_oneway(g1, g2, backend="torch")
 ```
 
----
+## Backend and Execution Boundaries
 
-## cohens_f
+Means, variances, sums of squares, and group reductions remain on the selected
+backend. Scalar F, t, normal, or studentized-range distribution evaluations may
+cross to CPU where the selected GPU backend does not provide the required
+function. Complete group vectors are not transferred solely to compute a
+p-value.
 
-Cohen's f effect size measure.
+`backend="cupy"` selects CuPy and `backend="torch"` selects Torch. Explicit
+backend requests do not silently select another backend.
 
-### Path
+## Strict and Approximate Modes
 
-`statgpu.anova.cohens_f`
+ANOVA functions do not expose separate strict and approximate statistical
+modes. All backends use the same test definitions. A scalar distribution call
+on CPU is an execution boundary, not an alternative ANOVA formula.
 
-### Overview
+## Limitations and Failure Modes
 
-`cohens_f` computes Cohen's f effect size from group data. It is derived from eta-squared via $f = \sqrt{\eta^2 / (1 - \eta^2)}$. Benchmarks: small = 0.10, medium = 0.25, large = 0.40 (Cohen 1988).
-
-### Parameters
-
-| Parameter | Default | Description |
-|---|---:|---|
-| `*groups` | (required) | Two or more 1-D arrays, one per group |
-| `backend` | `"auto"` | `"auto"` / `"numpy"` / `"cupy"` / `"torch"` |
-| `dtype` | `None` | Float dtype for computation; `None` uses `float64` |
-
-### Outputs
-
-Returns `float`: Cohen's f value.
-
-### Example
-
-```python
-from statgpu.anova import cohens_f
-import numpy as np
-
-g1 = np.random.randn(50)
-g2 = np.random.randn(50) + 0.5
-
-f_val = cohens_f(g1, g2, backend="numpy")
-print(f"Cohen's f = {f_val:.4f}")
-# Interpret: < 0.10 small, < 0.25 medium, < 0.40 large
-```
-
----
-
-## partial_eta_squared
-
-Partial eta-squared effect size from sum of squares.
-
-### Path
-
-`statgpu.anova.partial_eta_squared`
-
-### Overview
-
-`partial_eta_squared` computes partial eta-squared from pre-computed sum of squares: $\eta_p^2 = SS_{\text{effect}} / (SS_{\text{effect}} + SS_{\text{error}})$. This is equivalent to eta-squared in one-way ANOVA but differs in multi-factor designs where $SS_{\text{error}}$ is the residual SS. Useful with `TwoWayAnovaResult` fields.
-
-### Parameters
-
-| Parameter | Default | Description |
-|---|---:|---|
-| `ss_effect` | (required) | Sum of squares for the effect of interest |
-| `ss_error` | (required) | Sum of squares for the error term |
-| `backend` | `"auto"` | Not used (kept for API consistency) |
-
-### Outputs
-
-Returns `float`: Partial eta-squared value in $[0, 1]$, or `NaN` if both SS are zero.
-
-### Example
-
-```python
-from statgpu.anova import f_twoway, partial_eta_squared
-import numpy as np
-
-data = [[np.random.randn(10) for _ in range(3)] for _ in range(2)]
-result = f_twoway(data)
-
-# Partial eta-squared for factor A
-eta_a = partial_eta_squared(
-    result.factor_a_statistic * result.factor_a_df * (result.ss_within / result.df_within),
-    result.ss_within
-)
-print(f"Partial eta-squared for factor A: {eta_a:.4f}")
-```
-
----
-
-## FAQ
-
-- **How many groups are supported?** Two or more.
-- **What if all observations are identical?** Returns `NaN` for `statistic`, `pvalue`, and `eta_squared`.
-- **What if groups are perfectly separated?** Returns `inf` for `statistic`, `0.0` for `pvalue`, `1.0` for `eta_squared`.
-- **Is this a drop-in replacement for scipy?** Yes. The function signature and output fields are compatible with `scipy.stats.f_oneway`, with the addition of `eta_squared`, `df_between`, and `df_within`.
+- One-way and Welch tests require at least two non-empty groups.
+- Two-way ANOVA currently requires balanced cell sizes.
+- Non-finite observations are rejected by maintained public validation paths.
+- Tukey HSD relies on the studentized-range distribution and may use a CPU scalar
+  distribution implementation.
+- Effect-size helpers reject invalid sums of squares rather than returning a
+  misleading finite value.
 
 ## External Validation
 
-Validated against `scipy.stats.f_oneway` with relative error < 1e-15 across a wide range of group sizes and effect magnitudes.
+Maintained tests compare Welch ANOVA with `statsmodels.stats.oneway.anova_oneway`
+and exercise NumPy/Torch parity, degrees-of-freedom semantics, balanced-design
+restrictions, effect-size validation, and backend execution boundaries.
+Validation claims remain scoped to the exact function, backend, environment, and
+commit tested.
+
+## FAQ
+
+### Does Torch input require `backend="torch"`?
+
+Use `backend="torch"` for an explicit Torch execution request. `"auto"` may infer
+the backend from input type, but explicit selection is preferable in tests and
+benchmarks.
+
+### Why can the returned p-value be a Python scalar?
+
+ANOVA result objects expose statistical summaries as scalars. The sufficient
+statistics used to obtain them remain on the selected backend until the final
+scalar distribution boundary.
+
+### Why is an unbalanced two-way design rejected?
+
+Different sums-of-squares conventions answer different hypotheses in an
+unbalanced design. The implementation fails explicitly rather than silently
+choosing a convention.
 
 ## References
 
-- Fisher, R. A. (1925). *Statistical Methods for Research Workers*. Oliver and Boyd.
+- Fisher, R. A. (1925). *Statistical Methods for Research Workers*.
+- Welch, B. L. (1951). On the comparison of several mean values.
+- Tukey, J. W. (1949). Comparing individual means in the analysis of variance.
+- Cohen, J. (1988). *Statistical Power Analysis for the Behavioral Sciences*.

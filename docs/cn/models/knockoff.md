@@ -3,9 +3,9 @@
 > 语言: 中文  
 > 最后更新: 2026-07-12  
 > 页面定位: 方法文档  
-> 切换: [English](../en/models/knockoff.md)
+> 切换: [English](../../en/models/knockoff.md)
 
-语言切换：[English](../en/models/knockoff.md)
+语言切换：[English](../../en/models/knockoff.md)
 
 ## 概览（Overview）
 

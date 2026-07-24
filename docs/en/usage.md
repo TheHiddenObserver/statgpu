@@ -1,10 +1,10 @@
 # statgpu Documentation Portal (English)
 
 > Language: English  
-> Last updated: 2026-07-12  
+> Last updated: 2026-07-24  
 > Switch: [Chinese](../cn/usage.md)
 
-This portal points to the maintained capability inventories rather than duplicating
+This portal links to maintained capability inventories instead of duplicating
 version-sensitive support tables.
 
 ## Getting Started
@@ -18,16 +18,14 @@ version-sensitive support tables.
 - [Changelog](changelog.md)
 
 Use `pip install statgpu[gpu11]` or `statgpu[gpu12]` for the matching CuPy
-CUDA major version, and `statgpu[torch]` for the PyTorch backend.
+CUDA major version, `statgpu[torch]` for the PyTorch backend, and
+`statgpu[survival]` for optional CPU survival-analysis dependencies.
 
 ## Model Families
 
 - [Models Overview](models/README.md)
 - [Generalized Linear Models](models/generalized-linear-model.md)
 - [Cox Proportional Hazards](models/coxph.md)
-
-`CoxPH` defaults to strict robust inference; delayed-entry/penalty support and
-the optional `statgpu[survival]` dependency are documented in its support matrix.
 - [Panel Models](models/panel.md)
 - [ANOVA](models/anova.md)
 - [Covariance Estimation](models/covariance.md)
@@ -38,19 +36,20 @@ the optional `statgpu[survival]` dependency are documented in its support matrix
 
 The CV classes `RidgeCV`, `LassoCV`, `ElasticNetCV`,
 `LogisticRegressionCV`, `PenalizedGLM_CV`, and `CoxPHCV` are implemented.
-Their exact loss/penalty/backend coverage is listed in
-[Implemented Methods](guides/implemented-methods.md).
+Exact loss, penalty, inference, and backend coverage is listed in
+[Implemented Methods](guides/implemented-methods.md) and the relevant model page.
 
-## Validation Boundary
+## Validation and Evidence
 
-Hosted CI covers Python 3.9–3.12, the full CPU test tree, static contracts, and
-NumPy/Torch-CPU parity for the affected native-backend paths. Physical CuPy CUDA
-and Torch CUDA convergence, transfer, memory, runtime, and repeated-fit validation
-remains `PARTIAL_REMOTE_PENDING`; documentation does not claim otherwise.
+Validation claims are scoped to the model, backend, hardware, and commit tested.
+Hosted CI, physical-GPU campaigns, historical benchmarks, and release evidence are
+recorded in their corresponding workflow, model, changelog, `results/`, or `dev/`
+artifacts. A skipped GPU test is not treated as physical-GPU evidence.
 
 ## Contributor Checklist
 
-Follow `dev/AGENTS.md` and `.claude/workflows/new-module-dev.md`: preserve explicit
-device semantics, verify objective normalization before external comparisons, add
-architecture-specific tests, and synchronize README, English/Chinese docs, and all
-three changelogs for user-visible changes.
+Follow [`dev/AGENTS.md`](../../dev/AGENTS.md) and
+[`.claude/workflows/new-module-dev.md`](../../.claude/workflows/new-module-dev.md):
+preserve explicit device semantics, verify objective normalization before external
+comparisons, add architecture-specific tests, and synchronize README, English/Chinese
+docs, and all three changelogs for user-visible changes.

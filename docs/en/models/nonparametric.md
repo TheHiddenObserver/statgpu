@@ -3,9 +3,9 @@
 > Language: English  
 > Last updated: 2026-04-17  
 > This page: Nonparametric overview  
-> Switch: [Chinese](../../models/nonparametric.md)
+> Switch: [Chinese](../../cn/models/nonparametric.md)
 
-Language switch: [Chinese](../../models/nonparametric.md)
+Language switch: [Chinese](../../cn/models/nonparametric.md)
 
 ## Related Pages
 

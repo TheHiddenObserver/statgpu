@@ -1,19 +1,25 @@
-# Kernel Methods
+# 核方法
 
-> 语言: 中文  
-> 最后更新: 2026-07-14  
-> 页面定位: 模型文档  
-> 切换: [English](../en/models/kernel-methods.md)
+> 语言：中文  
+> 最后更新：2026-07-24  
+> 切换：[English](../../en/models/kernel-methods.md)
 
-语言切换：[English](../en/models/kernel-methods.md)
+## 概览
 
-## 概览（Overview）
+核方法模块提供：
 
-核方法模块提供核岭回归（`KernelRidge`）、交叉验证核岭回归（`KernelRidgeCV`）、核主成分分析（`KernelPCA`）、Nystroem 显式核特征近似，以及 RBF、多项式、线性、Laplacian、Sigmoid、余弦和 chi-squared 核。相关接口通过后端无关数组层支持 NumPy、CuPy 和 Torch。
+- `KernelRidge`
+- `KernelRidgeCV`
+- `KernelPCA`
+- `Nystroem`
+- `pairwise_kernels`
+- RBF、多项式、线性、Laplacian、sigmoid、cosine 和 chi-squared 核
 
-## 路径（Path）
+公共实现会在所选估计器和核支持的范围内提供 NumPy、CuPy 和 Torch 执行路径。
 
-```
+## 路径
+
+```text
 statgpu.nonparametric.kernel_methods.KernelRidge
 statgpu.nonparametric.kernel_methods.KernelRidgeCV
 statgpu.nonparametric.kernel_methods.KernelPCA
@@ -21,229 +27,259 @@ statgpu.nonparametric.kernel_methods.Nystroem
 statgpu.nonparametric.kernel_methods.pairwise_kernels
 ```
 
-各核函数也可单独导入：
+各个核函数也可以从 `statgpu.nonparametric.kernel_methods` 直接导入。
 
-```
-statgpu.nonparametric.kernel_methods.rbf_kernel
-statgpu.nonparametric.kernel_methods.polynomial_kernel
-statgpu.nonparametric.kernel_methods.linear_kernel
-statgpu.nonparametric.kernel_methods.laplacian_kernel
-statgpu.nonparametric.kernel_methods.sigmoid_kernel
-statgpu.nonparametric.kernel_methods.cosine_kernel
-statgpu.nonparametric.kernel_methods.chi2_kernel
-```
+## 核岭回归
 
-## 目标函数（Objective Function）
-
-**KernelRidge** 求解核岭回归对偶问题。给定从训练数据计算的 \(n \times n\) 核矩阵 \(K\)，对偶空间的目标函数为：
+给定训练核矩阵 $K$，核岭回归求解对偶线性系统
 
 $$
-\min_{\boldsymbol{\alpha}} \| \mathbf{y} - K \boldsymbol{\alpha} \|_2^2 + \lambda \| \boldsymbol{\alpha} \|_2^2
+(K+\alpha I)c=y.
 $$
 
-其中 \(\lambda\) 为正则化强度（`alpha`）。闭式解为：
+等价的对偶目标为
 
 $$
-\boldsymbol{\alpha} = (K + \lambda I)^{-1} \mathbf{y}
+\min_c \lVert y-Kc\rVert_2^2+\alpha\lVert c\rVert_2^2.
 $$
 
-**KernelRidgeCV** 利用核矩阵的特征分解 \(K = Q \Lambda Q^\top\) 高效地在一系列正则化参数上求解，无需为每个参数值重新求解线性系统。对任意 \(\lambda\) 的解为：
+测试样本预测为
 
 $$
-\boldsymbol{\alpha}(\lambda) = Q \, \text{diag}\!\left(\frac{1}{\lambda_i + \lambda}\right) Q^\top \mathbf{y}
+\hat y_{test}=K(X_{test},X_{train})c.
 $$
 
-其中 \(\lambda_i\) 为 \(K\) 的特征值。对网格中每个 \(\lambda\) 计算交叉验证 MSE，选择使平均 CV MSE 最小的值。
+`KernelRidge` 直接求解正则化线性系统。实现收到兼容的响应矩阵时，可支持多输出响应。
 
-**KernelPCA** 对中心化核矩阵做特征分解，保留正特征值方向，并使用训练核均值对样本外核矩阵做一致中心化。
+## 核岭交叉验证
 
-**Nystroem** 随机选择 landmark，对 landmark 核矩阵使用稳定 SVD 归一化，生成可交给线性模型的显式低维核特征。
+`KernelRidgeCV` 在 CV folds 上评估一组正则化参数，并在完整数据上使用选出的值
+重新拟合。后端特定实现可能复用核矩阵特征分解，或向量化全部 alpha，而不是为每个
+候选值独立求解线性系统。
 
-## 估计方程（Estimating Equation）
+选出的 alpha 存在 `alpha_` 中。CV 诊断记录在 `cv_results_`；具体字段以所选路径
+拟合后的对象为准。
 
-**KernelRidge**：对偶问题的一阶条件导出线性系统
+## Kernel PCA
 
-$$
-(K + \lambda I) \boldsymbol{\alpha} = \mathbf{y}
-$$
-
-通过 `xp.linalg.solve` 直接求解。对新数据 \(X_{\text{test}}\) 的预测计算为：
-
-$$
-\hat{\mathbf{y}} = K_{\text{test}} \boldsymbol{\alpha}
-$$
-
-其中 \(K_{\text{test}}\) 为测试数据与训练数据之间的核矩阵。
-
-**KernelRidgeCV**：对每个交叉验证折叠，训练核矩阵仅需特征分解一次。所有 alpha 值的对偶系数随后通过单次向量化操作完成计算：
+对中心化核矩阵 $\widetilde K$，Kernel PCA 执行
 
 $$
-\boldsymbol{\alpha}(\lambda) = Q \, \text{diag}\!\left(\frac{1}{\lambda_i + \lambda}\right) Q^\top \mathbf{y}_{\text{train}}
+\widetilde K = V\Lambda V^\top.
 $$
 
-在 torch CUDA 后端上，该 alpha 扫描通过批量矩阵操作在所有 alpha 值上完全向量化，避免了对 alpha 网格的 Python 级循环。
+领先特征向量定义非线性主成分。变换新数据时，需要计算测试集到训练集的核矩阵，
+应用训练期中心化量，并投影到保留的成分。
 
-## 协方差与推断（Covariance/Inference）
+## Nystroem 近似
 
-核方法为非参数方法，不产生系数级别的推断（无标准误、t 值或 p 值）。模型质量通过以下指标评估：
+Nystroem 选择 $m$ 个 landmark，并构造显式近似特征映射。若 landmark 核矩阵为
 
-- **R 方**：决定系数 \(R^2 = 1 - \text{SS}_{\text{res}} / \text{SS}_{\text{tot}}\)，由 `score` 方法计算。
-- **交叉验证 MSE**（KernelRidgeCV）：K 折交叉验证的平均均方误差，存储在 `cv_results_["mean_mse"]` 中。
+$$
+K_{mm}=V\Lambda V^\top,
+$$
 
-## 参数（Parameters）
+则变换特征具有形式
 
-**KernelRidge**：
+$$
+Z=K_{nm}V\Lambda^{-1/2}.
+$$
 
-| 参数 | 默认值 | 说明 |
-|---|---:|---|
-| `alpha` | `1.0` | 正则化强度（\(\lambda\)） |
-| `kernel` | `"rbf"` | 核函数：`rbf`、`gaussian`、`linear`、`polynomial`、`poly`、`laplacian`、`sigmoid`、`cosine`，或可调用对象 |
-| `gamma` | `None` | rbf/多项式/laplacian/sigmoid 的核系数。默认为 `1 / n_features` |
-| `degree` | `3` | 多项式核的阶数 |
-| `coef0` | `1` | 多项式核和 sigmoid 核的独立项 |
-| `kernel_params` | `None` | 传递给核函数的额外关键字参数 |
-| `device` | `"auto"` | `cpu` / `cuda` / `auto` |
-| `n_jobs` | `None` | 未使用；保留以维持 API 兼容性 |
+当 $m\ll n$ 时，这会用 $n\times m$ 特征矩阵替代完整的 $n\times n$ 核表示。
 
-**KernelRidgeCV**（继承上述所有核相关参数，另有：
+## 内置核
 
-| 参数 | 默认值 | 说明 |
-|---|---:|---|
-| `alphas` | `None` | 待评估的正则化强度数组。若为 `None` 则自动生成 100 个点的对数网格 |
-| `cv` | `5` | 交叉验证折数 |
-| `random_state` | `None` | 折叠洗牌的随机状态 |
-
-**核函数**：
-
-| 函数 | 公式 |
+| 核 | 定义 |
 |---|---|
-| `rbf_kernel` | \(K(x, y) = \exp(-\gamma \|x - y\|^2)\) |
-| `polynomial_kernel` | \(K(x, y) = (\gamma \, x^\top y + c_0)^d\) |
-| `linear_kernel` | \(K(x, y) = x^\top y\) |
-| `laplacian_kernel` | \(K(x, y) = \exp(-\gamma \|x - y\|_1)\) |
-| `sigmoid_kernel` | \(K(x, y) = \tanh(\gamma \, x^\top y + c_0)\) |
-| `cosine_kernel` | \(K(x, y) = \frac{x^\top y}{\|x\| \, \|y\|}\) |
+| RBF | $\exp(-\gamma\lVert x-y\rVert_2^2)$ |
+| Polynomial | $(\gamma x^\top y+c_0)^d$ |
+| Linear | $x^\top y$ |
+| Laplacian | $\exp(-\gamma\lVert x-y\rVert_1)$ |
+| Sigmoid | $\tanh(\gamma x^\top y+c_0)$ |
+| Cosine | $x^\top y/(\lVert x\rVert\lVert y\rVert)$ |
+| Chi-squared | $\exp\{-\gamma\sum_j (x_j-y_j)^2/(x_j+y_j)\}$ |
 
-所有核函数接受可选的 `xp` 参数用于后端分发（numpy/cupy/torch）。当 `xp` 为 `None` 时默认使用 NumPy。
+chi-squared 核要求输入特征非负。估计器允许时也可传入 callable kernel；该函数必须
+返回请求后端上的数组，并满足预期的两两核矩阵形状。
 
-## CPU+GPU 示例（CPU+GPU Examples）
+## 参数
+
+### KernelRidge
+
+| 参数 | 默认值 | 说明 |
+|---|---:|---|
+| `alpha` | `1.0` | Ridge 正则化强度 |
+| `kernel` | `"rbf"` | 内置核名称或 callable |
+| `gamma` | `None` | 适用核的系数 |
+| `degree` | `3` | 多项式次数 |
+| `coef0` | `1` | 多项式或 sigmoid 截距项 |
+| `kernel_params` | `None` | callable kernel 的额外参数 |
+| `device` | `"auto"` | `"cpu"`、`"cuda"`（CuPy）、`"torch"` 或 `"auto"` |
+| `n_jobs` | `None` | 未实现并行处保留的参数 |
+
+### KernelRidgeCV
+
+除核相关参数外：
+
+| 参数 | 默认值 | 说明 |
+|---|---:|---|
+| `alphas` | `None` | 候选正则化强度 |
+| `cv` | `5` | CV fold 数 |
+| `random_state` | `None` | 适用时的 fold 随机状态 |
+
+### KernelPCA
+
+常用参数包括 `n_components`、`kernel`、`gamma`、`degree`、`coef0`、`alpha`、
+`eigen_solver` 和 `device`。
+
+### Nystroem
+
+常用参数包括 `kernel`、`n_components`、`gamma`、`degree`、`coef0`、
+`random_state` 和 `device`。
+
+确切别名、callable 合同和参数验证以类 docstring 为准。
+
+## 拟合属性与输出
+
+### KernelRidge
+
+常见拟合状态包括训练样本、对偶系数、解析后的核参数和拟合特征数。
+`predict(X)` 在维护的估计器路径中保持后端类型，`score(X, y)` 返回决定系数。
+
+### KernelRidgeCV
+
+除最终 refit 状态外，模型还暴露 `alpha_`、实现支持时的 `best_score_`，以及
+`cv_results_`。
+
+### KernelPCA
+
+拟合输出包括保留的特征值/特征向量或归一化对偶成分、训练核中心化量，以及
+`fit_transform` 或 `transform` 生成的成分。
+
+### Nystroem
+
+拟合状态包括 landmark 索引或 components，以及归一化矩阵。`transform(X)` 返回
+显式近似特征映射。
+
+## CPU 与 GPU 示例
+
+### NumPy
 
 ```python
-from statgpu.nonparametric.kernel_methods import KernelRidge, KernelRidgeCV
 import numpy as np
+from statgpu.nonparametric.kernel_methods import (
+    KernelRidge,
+    KernelRidgeCV,
+    KernelPCA,
+    Nystroem,
+)
 
-X = np.random.randn(500, 10)
-y = X @ np.random.randn(10) + 0.1 * np.random.randn(500)
+rng = np.random.default_rng(42)
+X = rng.normal(size=(500, 10))
+y = X[:, 0] - 0.5 * X[:, 1] + rng.normal(scale=0.1, size=500)
 
-# CPU
-kr = KernelRidge(alpha=1.0, kernel="rbf", device="cpu")
-kr.fit(X, y)
-print(f"R^2: {kr.score(X, y):.4f}")
+kr = KernelRidge(alpha=1.0, kernel="rbf", device="cpu").fit(X, y)
+print(kr.score(X, y))
 
-# GPU + 交叉验证
-kr_cv = KernelRidgeCV(cv=5, kernel="rbf", device="cuda")
-kr_cv.fit(X, y)
-print(f"Best alpha: {kr_cv.alpha_:.6f}, R^2: {kr_cv.best_score_:.4f}")
+kr_cv = KernelRidgeCV(kernel="rbf", cv=5, device="cpu").fit(X, y)
+print(kr_cv.alpha_)
 
-# 预测
-y_pred = kr_cv.predict(X)
+kpca = KernelPCA(n_components=3, kernel="rbf", device="cpu")
+X_kpca = kpca.fit_transform(X)
 
-# 查看交叉验证结果
-print(f"Alpha grid size: {len(kr_cv.cv_results_['alphas'])}")
-print(f"CV results shape: {kr_cv.cv_results_['mean_mse'].shape}")
+nystroem = Nystroem(kernel="rbf", n_components=50, random_state=42)
+X_features = nystroem.fit_transform(X)
 ```
 
-使用自定义核函数：
+### CuPy
 
 ```python
-from statgpu.nonparametric.kernel_methods import KernelRidge
+import cupy as cp
+from statgpu.nonparametric.kernel_methods import KernelRidgeCV
 
-# 多项式核 + 自定义参数
-kr_poly = KernelRidge(alpha=0.1, kernel="polynomial", degree=4, coef0=2.0, device="auto")
-kr_poly.fit(X, y)
-
-# Laplacian 核
-kr_lap = KernelRidge(alpha=1.0, kernel="laplacian", gamma=0.5, device="cpu")
-kr_lap.fit(X, y)
-
-# 用户自定义核函数
-def my_kernel(X, Y=None, xp=None):
-    if xp is None:
-        xp = np
-    if Y is None:
-        Y = X
-    return xp.tanh(X @ Y.T + 1.0)
-
-kr_custom = KernelRidge(alpha=1.0, kernel=my_kernel, device="cpu")
-kr_custom.fit(X, y)
+X = cp.random.randn(500, 10, dtype=cp.float64)
+y = X[:, 0] - 0.5 * X[:, 1]
+model = KernelRidgeCV(kernel="rbf", cv=5, device="cuda").fit(X, y)
 ```
 
-## 输入与后端保护
+### Torch CUDA
 
-`KernelPCA` 和 `Nystroem` 在拟合与变换时都会拒绝 NaN/Inf。KernelPCA 使用
-Torch 兼容的降序特征值索引；RidgeCV 的批量 Gram 特征分解求解在秩亏 Torch
-矩阵上使用标量安全的 eigenvalue floor。已覆盖 NumPy/Torch-CPU 回归，真实 CUDA
-验证仍待完成。
+```python
+import torch
+from statgpu.nonparametric.kernel_methods import KernelRidgeCV
 
-## strict/approx 差异（strict/approx difference）
+X = torch.randn(500, 10, device="cuda", dtype=torch.float64)
+y = X[:, 0] - 0.5 * X[:, 1]
+model = KernelRidgeCV(kernel="rbf", cv=5, device="torch").fit(X, y)
+```
 
-核方法模块没有 strict/approx 模式区分。闭式对偶解直接计算，无迭代近似。
+`device="cuda"` 选择 CuPy，`device="torch"` 选择 Torch。
 
-`KernelRidgeCV` 在未提供 `alphas` 时自动生成 100 个点的对数间距 alpha 网格。网格范围从 `max(lambda_min * 1e-3, 1e-8)` 到 `max(lambda_max * 10, 1)`，其中 `lambda_min` 和 `lambda_max` 为训练核矩阵的极值特征值。用户可提供自定义 `alphas` 数组覆盖此行为。
+## 后端与执行边界
 
-## 输出（Outputs）
+两两核矩阵构造、正则化求解、特征分解、投影和变换后的特征数组在实现支持时保留
+在所选后端。小型随机索引元数据、CV fold 索引、参数 bookkeeping 和标量 score
+可以位于 CPU。显式设备请求不会静默选择其他后端。
 
-**KernelRidge 拟合属性**：
+维护中的验证路径会在 `KernelPCA` 和 `Nystroem` 的拟合与变换阶段拒绝 NaN/Inf。
+核特有定义域检查（例如 chi-squared 核要求非负输入）会显式失败。
 
-| 属性 | 形状 | 说明 |
-|---|---|---|
-| `dual_coef_` | `(n_samples,)` 或 `(n_samples, n_targets)` | 核空间中的对偶系数 |
-| `X_fit_` | `(n_samples, n_features)` | 用于预测的训练数据 |
+## 推断语义
 
-**KernelRidgeCV 拟合属性**：
+核方法当前不提供系数级标准误、假设检验或置信区间。模型质量通过预测分数、
+交叉验证损失、嵌入性质、重构或近似诊断以及应用相关验证进行评估。
 
-| 属性 | 形状 | 说明 |
-|---|---|---|
-| `alpha_` | 标量 | 交叉验证选出的最优正则化参数 |
-| `best_score_` | 标量 | 最优 alpha 对应的 R 方得分 |
-| `cv_results_` | dict | 字典，键包括：`alphas`、`mean_mse`、`mse_table`、`best_alpha`、`best_score` |
-| `estimator_` | `KernelRidge` | 使用最优 alpha 拟合的 `KernelRidge` 实例 |
-| `dual_coef_` | `(n_samples,)` 或 `(n_samples, n_targets)` | `estimator_.dual_coef_` 的快捷访问 |
-| `X_fit_` | `(n_samples, n_features)` | `estimator_.X_fit_` 的快捷访问 |
+该模块没有 strict/approximate inference 模式。Nystroem 是显式低秩核近似，
+不是精确核估计器的静默 fallback。
 
-**KernelPCA** 提供 `lambdas_`、`alphas_`、`X_fit_` 和 `transform()`；
-**Nystroem** 提供 `components_`、`component_indices_`、`normalization_`、`eigenvalues_` 和 `transform()`。
+## 复杂度与性能说明
 
-**方法**（两个类共有）：
+- 精确核方法构造 $n\times n$ 训练核矩阵，内存复杂度为二次量级。
+- 直接核岭求解和稠密特征分解对训练样本数具有三次最坏计算复杂度。
+- `KernelRidgeCV` 可以在 alpha 间复用分解，但 CV 仍会乘以 fold 数。
+- `Nystroem` 将核存储降低到 $O(nm)$，另加 landmark 线性代数。
+- GPU 收益依赖样本量、dtype、核、同步和可用显存；小问题可能 CPU 更快。
 
-| 方法 | 说明 |
-|---|---|
-| `fit(X, y)` | 拟合模型。返回 `self`。 |
-| `predict(X)` | 对新数据预测目标值。 |
-| `score(X, y)` | 返回决定系数 R 方。 |
+## 限制与失败行为
 
-## 常见问题（FAQ）
+- 核矩阵可能病态；必要时增大 `alpha` 或调整核尺度。
+- RBF 等核对 `gamma` 敏感。
+- Chi-squared 核要求非负输入。
+- 大规模稠密精确核方法可能耗尽设备内存。
+- 用户自定义核负责满足所选估计器要求的后端、dtype、形状和对称性合同。
+- 大 fold 和 alpha 网格会使 `KernelRidgeCV` 成本很高。
 
-**问：不提供 alpha 网格时如何生成？**
-答：`KernelRidgeCV` 计算训练核矩阵的特征值，创建从 `max(lambda_min * 1e-3, 1e-8)` 到 `max(lambda_max * 10, 1)` 的 100 个点的对数间距网格。如果范围退化（alpha_min >= alpha_max），网格设置为从 `alpha_max * 1e-4` 到 `alpha_max`。
+## 外部验证
 
-**问：GPU 的优势在哪里？**
-答：使用 torch CUDA 后端时，每个折叠训练核矩阵的特征分解以及整个 alpha 扫描（对所有 100 个 alpha 值计算对偶系数和预测）完全在 GPU 上通过批量矩阵操作运行。numpy/CuPy 路径回退到 Python 级的 alpha 循环。
+维护测试覆盖 NumPy/Torch 一致性、非有限输入验证、秩亏核保护、CV alpha 选择与
+refit、核定义域错误以及输出后端保持。准确性和性能结论仅适用于相应测试或
+benchmark artifact 记录的具体估计器、后端、硬件和 commit。
 
-**问：能否使用自定义核函数？**
-答：可以。将任意可调用对象作为 `kernel` 参数传入。该可调用对象应接受 `(X, Y, xp=None, **kwargs)` 并返回形状为 `(n_samples_X, n_samples_Y)` 的核矩阵。`xp` 参数提供用于后端分发的数组模块。
+## FAQ
 
-**问：不指定 `gamma` 时默认值是多少？**
-答：当 `gamma` 为 `None` 时，核函数默认使用 `1 / n_features`，遵循 scikit-learn 的约定。
+### 应使用 KernelRidge，还是 Nystroem 加线性模型？
 
-**问：KernelRidge 是否支持多输出目标？**
-答：支持。如果 `y` 的形状为 `(n_samples, n_targets)`，`KernelRidge` 和 `KernelRidgeCV` 会同时拟合所有目标。对偶系数的形状为 `(n_samples, n_targets)`。
+当完整训练核矩阵能放入内存且精确核表示重要时使用 Kernel Ridge；当需要可控低秩
+特征近似以扩展规模或复用特征时使用 Nystroem。
 
-## 外部验证（External Validation）
+### 为什么 GPU 核方法可能比 CPU 慢？
 
-KernelRidge 结果针对 `sklearn.kernel_ridge.KernelRidge` 进行验证，所有支持的核函数类型下相对误差低于 \(10^{-10}\)。一致性检查维护在测试套件中，覆盖 RBF、多项式、线性、Laplacian、Sigmoid 和余弦核在 CPU 和 GPU 后端上的表现。
+核构造和线性代数需要足够大，才能摊薄设备 launch、同步和内存传输成本。
 
-## 参考文献（References）
+### `device="auto"` 会覆盖显式请求吗？
 
-- Hastie, T., Tibshirani, R., & Friedman, J. (2009). *The Elements of Statistical Learning* (2nd ed.). Springer. Chapter 6. [https://hastie.su.domains/ElemStatLearn/](https://hastie.su.domains/ElemStatLearn/)
-- Saunders, C., Gammerman, A., & Vovk, V. (1998). Ridge regression learning algorithm in dual variables. *Proceedings of the 15th International Conference on Machine Learning (ICML)*, 515-521.
+不会。`"auto"` 本身表示自动选择；显式 `"cuda"` 或 `"torch"` 在对应后端不可用时
+会报错。
+
+### 不同拟合的 KernelPCA 成分是否可直接比较？
+
+特征向量符号，以及重根或近重根特征空间内的基不唯一。需要时应比较表示的子空间
+或下游量，而不是逐列直接比较。
+
+## 参考文献
+
+- Schölkopf, B., Smola, A., & Müller, K.-R. (1998). Nonlinear component analysis
+  as a kernel eigenvalue problem.
+- Williams, C. K. I., & Seeger, M. (2001). Using the Nystroem method to speed up
+  kernel machines.
+- Shawe-Taylor, J., & Cristianini, N. (2004). *Kernel Methods for Pattern Analysis*.

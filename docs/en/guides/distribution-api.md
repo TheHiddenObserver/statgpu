@@ -3,9 +3,9 @@
 > Language: English
 > Last updated: 2026-04-24
 > This page: Guide
-> Switch: [Chinese](../../guides/distribution-api.md)
+> Switch: [Chinese](../../cn/guides/distribution-api.md)
 
-Language switch: [Chinese](../../guides/distribution-api.md)
+Language switch: [Chinese](../../cn/guides/distribution-api.md)
 
 This page documents the recommended distribution API usage.
 

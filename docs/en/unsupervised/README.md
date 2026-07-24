@@ -3,7 +3,7 @@
 > Language: English
 > Last updated: 2026-07-23
 > This page: Unsupervised learning index
-> Switch: [Chinese](../../unsupervised/README.md)
+> Switch: [Chinese](../../cn/unsupervised/README.md)
 
 ## Overview
 

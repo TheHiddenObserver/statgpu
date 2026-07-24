@@ -3,7 +3,7 @@
 > 语言：中文
 > 最后更新：2026-07-23
 > 本页：无监督学习索引
-> English: [English](../en/unsupervised/README.md)
+> English: [English](../../en/unsupervised/README.md)
 
 ## 概览
 

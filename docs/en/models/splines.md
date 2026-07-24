@@ -3,9 +3,9 @@
 > Language: English  
 > Last updated: 2026-07-14  
 > This page: Model documentation  
-> Switch: [Chinese](../../models/splines.md)
+> Switch: [Chinese](../../cn/models/splines.md)
 
-Language switch: [Chinese](../../models/splines.md)
+Language switch: [Chinese](../../cn/models/splines.md)
 
 ## Overview
 
@@ -71,7 +71,7 @@ Evaluation is a direct recursive computation; no linear system is solved. For `c
 
 ## Covariance / Inference
 
-Spline basis functions are deterministic computational utilities. They do not produce inference outputs (no standard errors, p-values, or confidence intervals). For statistical inference using splines, see the [GAM](../semiparametric.md) model which wraps penalized splines with GCV-based smoothing parameter selection.
+Spline basis functions are deterministic computational utilities. They do not produce inference outputs (no standard errors, p-values, or confidence intervals). For statistical inference using splines, see the [GAM](semiparametric.md) model which wraps penalized splines with GCV-based smoothing parameter selection.
 
 ## Backend execution and extrapolation boundary
 

@@ -3,9 +3,9 @@
 > Language: English  
 > Last updated: 2026-07-12  
 > This page: Model documentation  
-> Switch: [Chinese](../../models/ridge.md)
+> Switch: [Chinese](../../cn/models/ridge.md)
 
-Language switch: [Chinese](../../models/ridge.md)
+Language switch: [Chinese](../../cn/models/ridge.md)
 
 ## Overview
 
