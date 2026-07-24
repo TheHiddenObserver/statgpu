@@ -1,7 +1,7 @@
 # Unsupervised Learning
 
 > Language: English
-> Last updated: 2026-07-01
+> Last updated: 2026-07-14
 > This page: unsupervised model overview
 > Switch: [Chinese](../../cn/models/unsupervised.md)
 
@@ -30,6 +30,12 @@
 ## Device Behavior
 
 Most unsupervised estimators expose `device="auto"`, `"cpu"`, `"cuda"`, and `"torch"` following the project-wide device rules. Explicit GPU devices must either run on that backend or raise a clear error; they should not silently fall back to CPU. Some algorithms have narrower support, so check the per-model page before relying on a GPU path.
+
+## Input validation
+
+Dense unsupervised estimators share one backend-aware finite-input check. NaN/Inf is
+rejected before SVD, eigendecomposition, distance computation, or iterative updates,
+so users receive a stable public error rather than estimator-specific low-level failures.
 
 ## Notes
 

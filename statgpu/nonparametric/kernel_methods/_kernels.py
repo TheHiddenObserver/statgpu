@@ -10,9 +10,10 @@ from __future__ import annotations
 
 from typing import Optional
 
+import inspect
 import numpy as np
 
-from statgpu.backends import xp_maximum
+from statgpu.backends import _to_float_scalar, xp_maximum
 
 
 # ---------------------------------------------------------------------------
@@ -47,18 +48,27 @@ def rbf_kernel(X, Y=None, gamma=None, xp=None):
 
     n, m = X.shape[0], Y.shape[0]
 
-    # For numpy: chunked float32 for large matrices (halves memory, avoids OOM).
-    # Preserves input dtype for small matrices (important for eigendecomposition).
+    # NumPy uses chunking for large matrices but never silently changes an
+    # explicitly floating input dtype. Integer inputs are promoted because the
+    # exponential kernel is intrinsically floating point.
     if xp is np:
-        orig_dt = np.asarray(X).dtype
-        use_f32 = n * m > 4e6 and orig_dt == np.float64  # >4M elements and float64 input
-        dt = np.float32 if use_f32 else orig_dt
-        XX = np.sum(np.asarray(X, dtype=dt) ** 2, axis=1)  # (n,)
-        YY = np.sum(np.asarray(Y, dtype=dt) ** 2, axis=1)  # (m,)
+        X_np = np.asarray(X)
+        Y_np = np.asarray(Y)
+        if X_np.ndim != 2 or Y_np.ndim != 2:
+            raise ValueError("X and Y must be two-dimensional arrays")
+        if X_np.shape[1] != Y_np.shape[1]:
+            raise ValueError("X and Y must have the same number of features")
+        dt = np.result_type(X_np.dtype, Y_np.dtype, np.float32)
+        if np.issubdtype(dt, np.complexfloating):
+            raise ValueError("rbf_kernel does not support complex-valued inputs")
+        X_np = np.asarray(X_np, dtype=dt)
+        Y_np = np.asarray(Y_np, dtype=dt)
+        XX = np.sum(X_np ** 2, axis=1)  # (n,)
+        YY = np.sum(Y_np ** 2, axis=1)  # (m,)
         chunk = max(1, min(n, int(5e8 / (m * np.dtype(dt).itemsize))))
         if chunk >= n:
-            X_a = np.asarray(X, dtype=dt)
-            Y_a = np.asarray(Y, dtype=dt)
+            X_a = X_np
+            Y_a = Y_np
             K = X_a @ Y_a.T
             K *= -2.0
             K += XX[:, None]
@@ -68,10 +78,10 @@ def rbf_kernel(X, Y=None, gamma=None, xp=None):
             return K
         else:
             K = np.empty((n, m), dtype=dt)
-            Y_a = np.asarray(Y, dtype=dt)
+            Y_a = Y_np
             for s in range(0, n, chunk):
                 e = min(s + chunk, n)
-                Kc = np.asarray(X[s:e], dtype=dt) @ Y_a.T
+                Kc = X_np[s:e] @ Y_a.T
                 Kc *= -2.0
                 Kc += XX[s:e, None]
                 Kc += YY[None, :]
@@ -80,6 +90,33 @@ def rbf_kernel(X, Y=None, gamma=None, xp=None):
                 K[s:e] = Kc
             return K
 
+    if getattr(X, "ndim", None) != 2 or getattr(Y, "ndim", None) != 2:
+        raise ValueError("X and Y must be two-dimensional arrays")
+    if X.shape[1] != Y.shape[1]:
+        raise ValueError("X and Y must have the same number of features")
+
+    x_complex_flag = getattr(X, 'is_complex', None)
+    y_complex_flag = getattr(Y, 'is_complex', None)
+    x_is_complex = bool(x_complex_flag()) if callable(x_complex_flag) else False
+    y_is_complex = bool(y_complex_flag()) if callable(y_complex_flag) else False
+    x_kind = getattr(getattr(X, 'dtype', None), 'kind', None)
+    y_kind = getattr(getattr(Y, 'dtype', None), 'kind', None)
+    if x_is_complex or y_is_complex or x_kind == 'c' or y_kind == 'c':
+        raise ValueError('rbf_kernel does not support complex-valued inputs')
+
+    # Torch integer tensors cannot be updated in-place with floating kernel
+    # coefficients. Promote integer inputs while preserving floating dtypes.
+    if getattr(xp, "__name__", "") == "torch":
+        if not X.is_floating_point() or not Y.is_floating_point():
+            X = X.to(dtype=xp.float64)
+            Y = Y.to(dtype=xp.float64)
+    else:
+        x_kind = getattr(getattr(X, "dtype", None), "kind", None)
+        y_kind = getattr(getattr(Y, "dtype", None), "kind", None)
+        if x_kind not in ("f",) or y_kind not in ("f",):
+            X = X.astype(xp.float64, copy=False)
+            Y = Y.astype(xp.float64, copy=False)
+
     # ||x - y||^2 = ||x||^2 + ||y||^2 - 2 * x @ y.T
     # Single n×m buffer, all in-place.
     K = X @ Y.T                     # (n, m) — BLAS gemm
@@ -87,7 +124,7 @@ def rbf_kernel(X, Y=None, gamma=None, xp=None):
     # norms — avoid n×n temporary via row-wise sum
     K += xp.sum(X * X, axis=1)[:, None]
     K += xp.sum(Y * Y, axis=1)[None, :]
-    xp.maximum(K, 0.0, out=K)      # clamp negatives
+    K = xp_maximum(K, 0.0, xp)      # clamp negatives, including Torch scalar handling
     K *= -gamma
     if hasattr(K, 'exp_'):
         K.exp_()                    # torch in-place
@@ -243,6 +280,30 @@ def cosine_kernel(X, Y=None, xp=None):
     return (X @ Y.T) / (X_norm * Y_norm + 1e-10)
 
 
+def _chi2_kernel_numpy_fallback(X, Y, gamma=1.0, max_elements=2_000_000):
+    """Chunked NumPy chi-squared kernel used when sklearn is unavailable."""
+    X = np.asarray(X)
+    Y = np.asarray(Y)
+    n, p = X.shape
+    m = Y.shape[0]
+    chunk = min(p, max(1, int(max_elements) // max(n * m, 1)))
+    chi2_dist = np.zeros((n, m), dtype=np.result_type(X.dtype, Y.dtype, np.float64))
+    for start in range(0, p, chunk):
+        end = min(start + chunk, p)
+        Xc = X[:, None, start:end]
+        Yc = Y[None, :, start:end]
+        numerator = (Xc - Yc) ** 2
+        denominator = Xc + Yc
+        contribution = np.divide(
+            numerator,
+            denominator,
+            out=np.zeros_like(numerator, dtype=chi2_dist.dtype),
+            where=denominator > 0,
+        )
+        chi2_dist += np.sum(contribution, axis=2)
+    return np.exp(-float(gamma) * chi2_dist)
+
+
 def chi2_kernel(X, Y=None, gamma=1.0, xp=None):
     r"""Chi-squared kernel.
 
@@ -275,48 +336,36 @@ def chi2_kernel(X, Y=None, gamma=1.0, xp=None):
     """
     if xp is None:
         xp = np
-    if Y is None:
+    if not np.isfinite(gamma) or gamma < 0:
+        raise ValueError("gamma must be finite and non-negative")
+
+    if xp is np:
+        X = np.asarray(X)
+        Y = X if Y is None else np.asarray(Y)
+    elif Y is None:
         Y = X
 
-    # Ensure non-negative
-    if xp is np:
-        X = np.maximum(np.asarray(X), 0)
-        Y = np.maximum(np.asarray(Y), 0)
-    else:
-        X = xp_maximum(X, 0, xp)
-        Y = xp_maximum(Y, 0, xp)
+    if getattr(X, "ndim", None) != 2 or getattr(Y, "ndim", None) != 2:
+        raise ValueError("X and Y must be two-dimensional arrays")
+    if X.shape[1] != Y.shape[1]:
+        raise ValueError("X and Y must have the same number of features")
+    if _to_float_scalar(xp.min(X)) < 0 or _to_float_scalar(xp.min(Y)) < 0:
+        raise ValueError("chi2_kernel requires non-negative input features")
 
-    # chi-squared distance: sum_i (x_i - y_i)^2 / (x_i + y_i)
     if xp is np:
-        # Use sklearn's Cython-optimized implementation for numpy
         try:
             from sklearn.metrics.pairwise import chi2_kernel as _sk_chi2
-            return _sk_chi2(np.asarray(X), np.asarray(Y), gamma=gamma)
+            return _sk_chi2(X, Y, gamma=gamma)
         except ImportError:
-            pass
-        # Fallback: chunked broadcasting
-        n, p = X.shape
-        m = Y.shape[0]
-        chunk = min(p, max(1, 2000000 // max(n * m, 1)))
-        chi2_dist = np.zeros((n, m), dtype=X.dtype)
-        for start in range(0, p, chunk):
-            end = min(start + chunk, p)
-            Xc = X[:, start:end, None]
-            Yc = Y[None, :, start:end]
-            s = Xc + Yc
-            np.maximum(s, 1e-10, out=s)
-            chi2_dist += np.sum((Xc - Yc) ** 2 / s, axis=2)
-        return np.exp(-gamma * chi2_dist)
-    else:
-        # GPU: use broadcasting
-        X_exp = X[:, None, :]
-        Y_exp = Y[None, :, :]
-        numerator = (X_exp - Y_exp) ** 2
-        denominator = X_exp + Y_exp
-        denom_safe = xp_maximum(denominator, 1e-10, xp)
-        chi2_dist = xp.sum(numerator / denom_safe, axis=2)
+            return _chi2_kernel_numpy_fallback(X, Y, gamma=gamma)
 
-    return xp.exp(-gamma * chi2_dist, out=chi2_dist)
+    X_exp = X[:, None, :]
+    Y_exp = Y[None, :, :]
+    numerator = (X_exp - Y_exp) ** 2
+    denominator = X_exp + Y_exp
+    denom_safe = xp_maximum(denominator, 1e-10, xp)
+    chi2_dist = xp.sum(numerator / denom_safe, axis=2)
+    return xp.exp(-gamma * chi2_dist)
 
 
 # ---------------------------------------------------------------------------
@@ -356,14 +405,20 @@ def pairwise_kernels(X, Y=None, metric="rbf", xp=None, **params):
     K : array of shape (n_samples_X, n_samples_Y)
     """
     if callable(metric):
-        # Try calling with xp parameter first; fall back without it
-        # for user-defined callables that don't accept xp.
-        # Pass Y as-is (including None) so callables can distinguish
-        # self-kernel (Y=None) from cross-kernel.
+        # Decide whether the callable accepts ``xp`` before invoking it. Catching
+        # TypeError around the call itself masks genuine errors raised inside a
+        # user kernel and can execute a stateful callable twice.
         try:
+            signature = inspect.signature(metric)
+        except (TypeError, ValueError):
+            signature = None
+        accepts_xp = signature is None or "xp" in signature.parameters or any(
+            parameter.kind == inspect.Parameter.VAR_KEYWORD
+            for parameter in signature.parameters.values()
+        )
+        if accepts_xp:
             return metric(X, Y, xp=xp, **params)
-        except TypeError:
-            return metric(X, Y, **params)
+        return metric(X, Y, **params)
 
     key = str(metric).strip().lower()
     func = KERNEL_REGISTRY.get(key)

@@ -1,47 +1,19 @@
-"""GPU-accelerated post-hoc tests for ANOVA.
-
-Provides :func:`tukey_hsd` and :func:`bonferroni` for pairwise comparisons
-after a significant ANOVA result.
-"""
+"""Backend-aware post-hoc tests for ANOVA."""
 
 from __future__ import annotations
 
 __all__ = ["tukey_hsd", "bonferroni", "TukeyResult", "PosthocResult"]
 
-from dataclasses import dataclass, field
-from typing import Any, List, Tuple
+from dataclasses import dataclass
+from typing import Any, List
 
 import numpy as np
 
-from statgpu.backends import _get_xp, _resolve_backend, _to_float_scalar
+from statgpu.backends import _get_xp, _resolve_backend, _to_float_scalar, xp_asarray
 
-
-# ---------------------------------------------------------------------------
-# Result containers
-# ---------------------------------------------------------------------------
 
 @dataclass
 class PairwiseComparison:
-    """A single pairwise comparison.
-
-    Attributes
-    ----------
-    group_i : int
-        Index of the first group.
-    group_j : int
-        Index of the second group.
-    mean_diff : float
-        Difference in group means (mean_i - mean_j).
-    pvalue : float
-        Two-sided p-value for the comparison.
-    ci_lower : float
-        Lower bound of the confidence interval for mean_diff.
-    ci_upper : float
-        Upper bound of the confidence interval for mean_diff.
-    reject : bool
-        True if the null hypothesis (equal means) is rejected at the
-        given significance level.
-    """
     group_i: int
     group_j: int
     mean_diff: float
@@ -53,21 +25,6 @@ class PairwiseComparison:
 
 @dataclass
 class TukeyResult:
-    """Result of Tukey HSD post-hoc test.
-
-    Attributes
-    ----------
-    comparisons : list of PairwiseComparison
-        All pairwise comparisons.
-    alpha : float
-        Significance level used.
-    n_groups : int
-        Number of groups.
-    df_within : int
-        Within-group degrees of freedom.
-    mse : float
-        Mean square error (within-group variance).
-    """
     comparisons: List[PairwiseComparison]
     alpha: float
     n_groups: int
@@ -77,25 +34,37 @@ class TukeyResult:
 
 @dataclass
 class PosthocResult:
-    """Result of Bonferroni post-hoc test.
-
-    Attributes
-    ----------
-    comparisons : list of PairwiseComparison
-        All pairwise comparisons.
-    alpha : float
-        Significance level used.
-    n_comparisons : int
-        Number of pairwise comparisons.
-    """
     comparisons: List[PairwiseComparison]
     alpha: float
     n_comparisons: int
 
 
-# ---------------------------------------------------------------------------
-# Tukey HSD
-# ---------------------------------------------------------------------------
+def _array_size(arr, xp):
+    return int(arr.numel()) if xp.__name__ == "torch" else int(arr.size)
+
+
+def _prepare_groups(groups, backend, dtype, min_size, label):
+    resolved = _resolve_backend(backend, *groups)
+    xp = _get_xp(resolved)
+    float_dtype = xp.float64 if dtype is None else dtype
+    ref = None
+    for group in groups:
+        if type(group).__module__.startswith(("torch", "cupy")):
+            ref = group
+            break
+
+    arrays = []
+    for index, group in enumerate(groups):
+        arr = xp_asarray(group, dtype=float_dtype, xp=xp, ref_arr=ref).ravel()
+        if _array_size(arr, xp) < min_size:
+            raise ValueError(
+                f"Group {index} must have at least {min_size} observations for {label}"
+            )
+        if not bool(_to_float_scalar(xp.all(xp.isfinite(arr)))):
+            raise ValueError(f"Group {index} contains NaN or infinite values")
+        arrays.append(arr)
+    return resolved, xp, arrays
+
 
 def tukey_hsd(
     *groups: Any,
@@ -103,116 +72,71 @@ def tukey_hsd(
     backend: str = "auto",
     dtype: Any = None,
 ) -> TukeyResult:
-    """Perform Tukey's Honestly Significant Difference test.
+    """Perform Tukey's honestly significant difference test.
 
-    Parameters
-    ----------
-    *groups : array-like
-        Two or more sample arrays, one per group.
-    alpha : float, default=0.05
-        Family-wise significance level.
-    backend : {'auto', 'numpy', 'cupy', 'torch'}, default='auto'
-        Compute backend.
-    dtype : dtype or None, default=None
-        Float dtype for computation.
-
-    Returns
-    -------
-    TukeyResult
-        Dataclass with all pairwise comparisons.
-
-    Notes
-    -----
-    Uses the studentized range distribution for p-value computation.
-    When the studentized range distribution is not natively available,
-    falls back to scipy.stats.studentized_range.
+    Group reductions remain on the selected backend. The studentized-range CDF
+    and quantile are scalar SciPy operations because neither CuPy nor Torch
+    provides that distribution.
     """
     if len(groups) < 2:
         raise ValueError("tukey_hsd requires at least 2 groups")
+    if not np.isfinite(alpha) or not 0.0 < alpha < 1.0:
+        raise ValueError("alpha must be finite and strictly between 0 and 1")
 
-    resolved = _resolve_backend(backend, *groups)
-    xp = _get_xp(resolved)
-    float_dtype = dtype if dtype is not None else xp.float64
+    _, xp, arrays = _prepare_groups(groups, backend, dtype, 2, "Tukey HSD")
+    k = len(arrays)
+    sizes = [_array_size(group, xp) for group in arrays]
+    means = [_to_float_scalar(xp.mean(group)) for group in arrays]
+    N = int(sum(sizes))
+    df_within = N - k
+    if df_within <= 0:
+        raise ValueError("Tukey HSD requires positive within-group degrees of freedom")
+    ss_within = sum(
+        _to_float_scalar(xp.sum((group - mean) ** 2))
+        for group, mean in zip(arrays, means)
+    )
+    mse = ss_within / float(df_within)
 
-    # Convert to numpy for statistics
-    flat_groups = [np.asarray(g, dtype=np.float64).ravel() for g in groups]
-    for i, g in enumerate(flat_groups):
-        if g.size < 2:
-            raise ValueError(f"Group {i} must have at least 2 observations for Tukey HSD")
-
-    k = len(flat_groups)
-    n_k = np.array([g.size for g in flat_groups], dtype=np.float64)
-    means = np.array([g.mean() for g in flat_groups], dtype=np.float64)
-
-    N = n_k.sum()
-    df_within = int(N - k)
-
-    # MSE (pooled within-group variance)
-    ss_within = sum(((g - g.mean()) ** 2).sum() for g in flat_groups)
-    mse = ss_within / df_within if df_within > 0 else float("inf")
-
-    # Studentized range distribution
     try:
-        from scipy.stats import studentized_range as _srange
-        _has_scipy_srange = True
-    except ImportError:
-        _has_scipy_srange = False
+        from scipy.stats import studentized_range
+    except ImportError as exc:
+        raise ImportError("Tukey HSD requires scipy.stats.studentized_range") from exc
 
-    # Pre-compute F distribution fallback (outside loop)
-    if not _has_scipy_srange:
-        from statgpu.inference._distributions_backend import get_distribution
-        _f_dist = get_distribution("f", backend=resolved)
-
+    q_crit = float(studentized_range.ppf(1.0 - alpha, k, df_within))
     comparisons = []
     for i in range(k):
         for j in range(i + 1, k):
             mean_diff = means[i] - means[j]
-
-            # Standard error for the difference (harmonic mean for unequal sizes)
-            n_harmonic = 2.0 / (1.0 / n_k[i] + 1.0 / n_k[j])
-            se = np.sqrt(mse / n_harmonic) if mse < float("inf") else float("inf")
-
-            # Studentized range statistic
-            q_stat = abs(mean_diff) / se if se > 0 else float("inf")
-
-            # P-value from studentized range distribution
-            if _has_scipy_srange:
-                pvalue = float(_srange.sf(q_stat, k, df_within))
+            harmonic = 2.0 / (1.0 / sizes[i] + 1.0 / sizes[j])
+            se = float(np.sqrt(mse / harmonic))
+            if se == 0.0:
+                q_stat = 0.0 if mean_diff == 0.0 else float("inf")
             else:
-                pvalue = _to_float_scalar(_f_dist.sf(q_stat ** 2 / 2, k - 1, df_within))
-
-            # Critical value for CI
-            if _has_scipy_srange:
-                q_crit = float(_srange.ppf(1 - alpha, k, df_within))
-            else:
-                q_crit = np.sqrt(_to_float_scalar(_f_dist.isf(alpha, k - 1, df_within)) * 2)
-
+                q_stat = abs(mean_diff) / se
+            pvalue = float(studentized_range.sf(q_stat, k, df_within))
+            if not np.isfinite(pvalue):
+                pvalue = 1.0 if q_stat == 0.0 else 0.0
             margin = q_crit * se
-            ci_lower = mean_diff - margin
-            ci_upper = mean_diff + margin
-
-            comparisons.append(PairwiseComparison(
-                group_i=i,
-                group_j=j,
-                mean_diff=mean_diff,
-                pvalue=pvalue,
-                ci_lower=ci_lower,
-                ci_upper=ci_upper,
-                reject=pvalue < alpha,
-            ))
+            comparisons.append(
+                PairwiseComparison(
+                    group_i=i,
+                    group_j=j,
+                    mean_diff=float(mean_diff),
+                    pvalue=float(min(max(pvalue, 0.0), 1.0)),
+                    ci_lower=float(mean_diff - margin),
+                    ci_upper=float(mean_diff + margin),
+                    reject=bool(pvalue < alpha),
+                )
+            )
 
     return TukeyResult(
         comparisons=comparisons,
-        alpha=alpha,
+        alpha=float(alpha),
         n_groups=k,
         df_within=df_within,
-        mse=mse,
+        mse=float(mse),
     )
 
-
-# ---------------------------------------------------------------------------
-# Bonferroni
-# ---------------------------------------------------------------------------
 
 def bonferroni(
     *groups: Any,
@@ -220,93 +144,71 @@ def bonferroni(
     backend: str = "auto",
     dtype: Any = None,
 ) -> PosthocResult:
-    """Perform Bonferroni-corrected pairwise t-tests.
+    """Perform Bonferroni-corrected pairwise Welch tests.
 
-    Parameters
-    ----------
-    *groups : array-like
-        Two or more sample arrays, one per group.
-    alpha : float, default=0.05
-        Family-wise significance level.
-    backend : {'auto', 'numpy', 'cupy', 'torch'}, default='auto'
-        Compute backend.
-    dtype : dtype or None, default=None
-        Float dtype for computation.
-
-    Returns
-    -------
-    PosthocResult
-        Dataclass with all pairwise comparisons.
-
-    Notes
-    -----
-    Uses Welch's t-test for each pair (does not assume equal variances),
-    with Bonferroni correction: the per-comparison alpha is ``alpha / m``
-    where ``m`` is the number of comparisons.
+    Means and variances are computed on the selected backend. Only the scalar
+    Welch statistics are passed to the CPU t distribution.
     """
     if len(groups) < 2:
         raise ValueError("bonferroni requires at least 2 groups")
+    if not np.isfinite(alpha) or not 0.0 < alpha < 1.0:
+        raise ValueError("alpha must be finite and strictly between 0 and 1")
 
-    resolved = _resolve_backend(backend, *groups)
-    xp = _get_xp(resolved)
+    _, xp, arrays = _prepare_groups(groups, backend, dtype, 2, "t-test")
+    k = len(arrays)
+    m = k * (k - 1) // 2
+    alpha_bonf = alpha / m
 
-    # Convert to numpy for statistics
-    flat_groups = [np.asarray(g, dtype=np.float64).ravel() for g in groups]
-    for i, g in enumerate(flat_groups):
-        if g.size < 2:
-            raise ValueError(f"Group {i} must have at least 2 observations for t-test")
-
-    k = len(flat_groups)
-    m = k * (k - 1) // 2  # number of pairwise comparisons
-    alpha_bonf = alpha / m if m > 0 else alpha
-
-    # Use t distribution from statgpu.inference
     from statgpu.inference._distributions_backend import get_distribution
-    t_dist = get_distribution("t", backend=resolved)
+
+    t_dist = get_distribution("t", backend="numpy")
+    sizes = [_array_size(group, xp) for group in arrays]
+    means = [_to_float_scalar(xp.mean(group)) for group in arrays]
+    variances = [
+        _to_float_scalar(xp.sum((group - mean) ** 2)) / float(size - 1)
+        for group, mean, size in zip(arrays, means, sizes)
+    ]
 
     comparisons = []
     for i in range(k):
         for j in range(i + 1, k):
-            ni = flat_groups[i].size
-            nj = flat_groups[j].size
-            mean_i = flat_groups[i].mean()
-            mean_j = flat_groups[j].mean()
-            var_i = flat_groups[i].var(ddof=1)
-            var_j = flat_groups[j].var(ddof=1)
+            ni, nj = sizes[i], sizes[j]
+            mean_diff = means[i] - means[j]
+            var_i, var_j = variances[i], variances[j]
+            se2 = var_i / ni + var_j / nj
+            se = float(np.sqrt(max(se2, 0.0)))
 
-            mean_diff = mean_i - mean_j
+            if se == 0.0:
+                pvalue = 1.0 if mean_diff == 0.0 else 0.0
+                margin = 0.0
+            else:
+                t_stat = mean_diff / se
+                numerator = se2**2
+                denominator = (
+                    (var_i / ni) ** 2 / (ni - 1)
+                    + (var_j / nj) ** 2 / (nj - 1)
+                )
+                df = numerator / denominator if denominator > 0.0 else float("inf")
+                pvalue = min(
+                    2.0 * _to_float_scalar(t_dist.sf(abs(t_stat), df)), 1.0
+                )
+                critical = _to_float_scalar(t_dist.isf(alpha_bonf / 2.0, df))
+                margin = critical * se
 
-            # Welch's t-test
-            se = np.sqrt(var_i / ni + var_j / nj)
-            t_stat = mean_diff / se if se > 0 else float("inf")
-
-            # Welch-Satterthwaite df
-            num = (var_i / ni + var_j / nj) ** 2
-            den = (var_i / ni) ** 2 / (ni - 1) + (var_j / nj) ** 2 / (nj - 1)
-            df = num / den if den > 0 else float("inf")
-
-            # Two-sided p-value
-            pvalue_raw = _to_float_scalar(t_dist.sf(abs(t_stat), df)) * 2
-            pvalue = min(pvalue_raw, 1.0)
-
-            # Bonferroni-corrected CI
-            t_crit = _to_float_scalar(t_dist.isf(alpha_bonf / 2, df))
-            margin = t_crit * se
-            ci_lower = mean_diff - margin
-            ci_upper = mean_diff + margin
-
-            comparisons.append(PairwiseComparison(
-                group_i=i,
-                group_j=j,
-                mean_diff=mean_diff,
-                pvalue=pvalue,
-                ci_lower=ci_lower,
-                ci_upper=ci_upper,
-                reject=pvalue < alpha_bonf,
-            ))
+            comparisons.append(
+                PairwiseComparison(
+                    group_i=i,
+                    group_j=j,
+                    mean_diff=float(mean_diff),
+                    pvalue=float(pvalue),
+                    ci_lower=float(mean_diff - margin),
+                    ci_upper=float(mean_diff + margin),
+                    reject=bool(pvalue < alpha_bonf),
+                )
+            )
 
     return PosthocResult(
         comparisons=comparisons,
-        alpha=alpha,
+        alpha=float(alpha),
         n_comparisons=m,
     )

@@ -236,6 +236,27 @@ class BaseEstimator(ABC):
             return X.detach().cpu().numpy()
         return np.asarray(X)
 
+    def _resolve_inference_backend(self, backend: str) -> str:
+        """Resolve model-context inference backend from the estimator device."""
+        backend_name = str(backend).strip().lower()
+        if backend_name == "auto":
+            compute_device = self._get_compute_device()
+            if compute_device == Device.CUDA:
+                return "cupy"
+            if compute_device == Device.TORCH:
+                return "torch"
+        return backend_name
+
+    def _cast_inference_array(self, value, backend_name: str):
+        """Cast an inference input to the explicitly resolved backend."""
+        if backend_name == "cupy":
+            return self._to_array(value, Device.CUDA, backend="cupy")
+        if backend_name == "torch":
+            return self._to_array(value, Device.TORCH, backend="torch")
+        if backend_name == "numpy":
+            return self._to_numpy(value)
+        return value
+
     def adjust_pvalues(
         self,
         pvalues=None,
@@ -258,8 +279,8 @@ class BaseEstimator(ABC):
             Rejection threshold in (0, 1).
         axis : int or None, default=0
             Axis along which to adjust. ``None`` flattens all entries.
-        backend : {'auto', 'numpy', 'cupy'}, default='auto'
-            Compute backend. ``'auto'`` uses CuPy when estimator device is CUDA.
+        backend : {'auto', 'numpy', 'cupy', 'torch'}, default='auto'
+            Compute backend. ``'auto'`` follows the estimator's resolved device.
 
         Returns
         -------
@@ -277,14 +298,9 @@ class BaseEstimator(ABC):
                 "No p-values available. Fit with inference enabled or pass pvalues explicitly."
             )
 
-        backend_name = str(backend).strip().lower()
-        if backend_name == "auto" and self._get_compute_device() == Device.CUDA:
-            backend_name = "cupy"
+        backend_name = self._resolve_inference_backend(backend)
 
-        if backend_name == "cupy":
-            pvals = self._to_array(source, Device.CUDA)
-        else:
-            pvals = self._to_numpy(source)
+        pvals = self._cast_inference_array(source, backend_name)
 
         reject, pvals_adj = _adjust_pvalues(
             pvals,
@@ -325,8 +341,8 @@ class BaseEstimator(ABC):
             Optional non-negative weights for cauchy combination.
         axis : int or None, default=None
             Axis along which to combine p-values. ``None`` flattens input.
-        backend : {'auto', 'numpy', 'cupy'}, default='auto'
-            Compute backend. ``'auto'`` uses CuPy when estimator device is CUDA.
+        backend : {'auto', 'numpy', 'cupy', 'torch'}, default='auto'
+            Compute backend. ``'auto'`` follows the estimator's resolved device.
 
         Returns
         -------
@@ -344,19 +360,14 @@ class BaseEstimator(ABC):
                 "No p-values available. Fit with inference enabled or pass pvalues explicitly."
             )
 
-        backend_name = str(backend).strip().lower()
-        if backend_name == "auto" and self._get_compute_device() == Device.CUDA:
-            backend_name = "cupy"
+        backend_name = self._resolve_inference_backend(backend)
 
-        if backend_name == "cupy":
-            pvals = self._to_array(source, Device.CUDA)
-            w_cast = None if weights is None else self._to_array(weights, Device.CUDA)
-        elif backend_name == "numpy":
-            pvals = self._to_numpy(source)
-            w_cast = None if weights is None else self._to_numpy(weights)
-        else:
-            pvals = source
-            w_cast = weights
+        pvals = self._cast_inference_array(source, backend_name)
+        w_cast = (
+            None
+            if weights is None
+            else self._cast_inference_array(weights, backend_name)
+        )
 
         statistic, pvalue = _combine_pvalues(
             pvals,
@@ -407,22 +418,21 @@ class BaseEstimator(ABC):
                 )
             arrays_use = (X_cache, y_cache)
 
-        backend_name = str(backend).strip().lower()
-        if backend_name == "auto" and self._get_compute_device() == Device.CUDA:
-            backend_name = "cupy"
+        backend_name = self._resolve_inference_backend(backend)
 
-        if backend_name == "cupy":
-            arrays_cast = tuple(self._to_array(a, Device.CUDA) for a in arrays_use)
-            strata_cast = None if strata is None else self._to_array(strata, Device.CUDA)
-            clusters_cast = None if clusters is None else self._to_array(clusters, Device.CUDA)
-        elif backend_name == "numpy":
-            arrays_cast = tuple(self._to_numpy(a) for a in arrays_use)
-            strata_cast = None if strata is None else self._to_numpy(strata)
-            clusters_cast = None if clusters is None else self._to_numpy(clusters)
-        else:
-            arrays_cast = arrays_use
-            strata_cast = strata
-            clusters_cast = clusters
+        arrays_cast = tuple(
+            self._cast_inference_array(a, backend_name) for a in arrays_use
+        )
+        strata_cast = (
+            None
+            if strata is None
+            else self._cast_inference_array(strata, backend_name)
+        )
+        clusters_cast = (
+            None
+            if clusters is None
+            else self._cast_inference_array(clusters, backend_name)
+        )
 
         return _bootstrap_statistic(
             statistic,
@@ -459,25 +469,20 @@ class BaseEstimator(ABC):
         """
         from statgpu.inference import permutation_test as _permutation_test
 
-        backend_name = str(backend).strip().lower()
-        if backend_name == "auto" and self._get_compute_device() == Device.CUDA:
-            backend_name = "cupy"
+        backend_name = self._resolve_inference_backend(backend)
 
-        if backend_name == "cupy":
-            X_cast = self._to_array(X, Device.CUDA)
-            y_cast = self._to_array(y, Device.CUDA)
-            strata_cast = None if strata is None else self._to_array(strata, Device.CUDA)
-            groups_cast = None if groups is None else self._to_array(groups, Device.CUDA)
-        elif backend_name == "numpy":
-            X_cast = self._to_numpy(X)
-            y_cast = self._to_numpy(y)
-            strata_cast = None if strata is None else self._to_numpy(strata)
-            groups_cast = None if groups is None else self._to_numpy(groups)
-        else:
-            X_cast = X
-            y_cast = y
-            strata_cast = strata
-            groups_cast = groups
+        X_cast = self._cast_inference_array(X, backend_name)
+        y_cast = self._cast_inference_array(y, backend_name)
+        strata_cast = (
+            None
+            if strata is None
+            else self._cast_inference_array(strata, backend_name)
+        )
+        groups_cast = (
+            None
+            if groups is None
+            else self._cast_inference_array(groups, backend_name)
+        )
 
         return _permutation_test(
             statistic,
@@ -511,34 +516,90 @@ class BaseEstimator(ABC):
                 "Call 'fit' before using this method."
             )
     
-    def get_params(self, deep=True):
-        """Get parameters for this estimator.
+    def __sklearn_clone__(self):
+        """Return an unfitted estimator clone for scikit-learn >= 1.3.
 
-        Only returns parameters accepted by this class's own ``__init__``,
-        not parent class parameters. This matches sklearn's contract where
-        ``clone(est).__init__(**est.get_params())`` must work.
+        Several statgpu constructors validate or canonicalize immutable strings
+        and copy mutable dictionaries. scikit-learn's legacy identity check
+        treats those defensive copies as constructor mutation. The explicit
+        clone protocol preserves the public constructor values while discarding
+        fitted state.
+        """
+        from copy import deepcopy
+
+        return type(self)(**deepcopy(self.get_params(deep=False)))
+
+    def get_params(self, deep=True):
+        """Get constructor parameters for this estimator.
+
+        Nested estimator parameters are exposed as ``name__param`` when
+        ``deep=True``, matching the scikit-learn estimator contract.
         """
         import inspect
+
         params = {}
-        # Only look at the most specific __init__ (this class, not parents)
         try:
             sig = inspect.signature(type(self).__init__)
         except (ValueError, TypeError):
             return params
-        for name in sig.parameters:
-            if name == "self":
+
+        for name, parameter in sig.parameters.items():
+            if name == "self" or parameter.kind in (
+                inspect.Parameter.VAR_POSITIONAL,
+                inspect.Parameter.VAR_KEYWORD,
+            ):
                 continue
             if hasattr(self, name):
                 params[name] = getattr(self, name)
-            elif hasattr(self, f'_{name}'):
-                params[name] = getattr(self, f'_{name}')
+            elif hasattr(self, f"_{name}"):
+                params[name] = getattr(self, f"_{name}")
+
+        if deep:
+            for name, value in list(params.items()):
+                if hasattr(value, "get_params"):
+                    for sub_name, sub_value in value.get_params(deep=True).items():
+                        params[f"{name}__{sub_name}"] = sub_value
         return params
-    
+
+
     def set_params(self, **params):
-        """Set parameters for this estimator."""
+        """Set estimator parameters, validating names and nesting."""
+        if not params:
+            return self
+
+        valid_params = self.get_params(deep=True)
+        nested_params = {}
+
         for key, value in params.items():
-            if key == 'device':
-                self.device = Device(value) if isinstance(value, str) else value
+            root, delimiter, sub_key = key.partition("__")
+            if root not in valid_params:
+                valid_names = sorted(name for name in valid_params if "__" not in name)
+                raise ValueError(
+                    f"Invalid parameter {root!r} for estimator "
+                    f"{self.__class__.__name__}. Valid parameters are: "
+                    f"{', '.join(valid_names)}."
+                )
+
+            if delimiter:
+                nested_params.setdefault(root, {})[sub_key] = value
+                continue
+
+            if root == "device" and isinstance(value, str):
+                value = Device(value)
+            if hasattr(self, root):
+                setattr(self, root, value)
             else:
-                setattr(self, key, value)
+                setattr(self, f"_{root}", value)
+
+        for root, sub_params in nested_params.items():
+            nested_estimator = getattr(self, root, None)
+            if nested_estimator is None:
+                nested_estimator = getattr(self, f"_{root}", None)
+            if not hasattr(nested_estimator, "set_params"):
+                raise ValueError(
+                    f"Parameter {root!r} of {self.__class__.__name__} "
+                    "does not support nested parameters."
+                )
+            nested_estimator.set_params(**sub_params)
+
         return self

@@ -1,7 +1,7 @@
 # Kernel Methods
 
 > 语言: 中文  
-> 最后更新: 2026-05-28  
+> 最后更新: 2026-07-14  
 > 页面定位: 模型文档  
 > 切换: [English](../en/models/kernel-methods.md)
 
@@ -9,13 +9,15 @@
 
 ## 概览（Overview）
 
-核方法模块提供核岭回归（`KernelRidge`）、交叉验证核岭回归（`KernelRidgeCV`）以及六种核函数（RBF、多项式、线性、Laplacian、Sigmoid、余弦）。两个估计器均接受 `kernel` 参数，可选择内置核函数或用户自定义的可调用对象。所有计算通过后端无关的数组接口分发，支持 CPU（NumPy）、CuPy 和 PyTorch 后端，`KernelRidgeCV` 还支持自动 CUDA 加速。
+核方法模块提供核岭回归（`KernelRidge`）、交叉验证核岭回归（`KernelRidgeCV`）、核主成分分析（`KernelPCA`）、Nystroem 显式核特征近似，以及 RBF、多项式、线性、Laplacian、Sigmoid、余弦和 chi-squared 核。相关接口通过后端无关数组层支持 NumPy、CuPy 和 Torch。
 
 ## 路径（Path）
 
 ```
 statgpu.nonparametric.kernel_methods.KernelRidge
 statgpu.nonparametric.kernel_methods.KernelRidgeCV
+statgpu.nonparametric.kernel_methods.KernelPCA
+statgpu.nonparametric.kernel_methods.Nystroem
 statgpu.nonparametric.kernel_methods.pairwise_kernels
 ```
 
@@ -28,6 +30,7 @@ statgpu.nonparametric.kernel_methods.linear_kernel
 statgpu.nonparametric.kernel_methods.laplacian_kernel
 statgpu.nonparametric.kernel_methods.sigmoid_kernel
 statgpu.nonparametric.kernel_methods.cosine_kernel
+statgpu.nonparametric.kernel_methods.chi2_kernel
 ```
 
 ## 目标函数（Objective Function）
@@ -51,6 +54,10 @@ $$
 $$
 
 其中 \(\lambda_i\) 为 \(K\) 的特征值。对网格中每个 \(\lambda\) 计算交叉验证 MSE，选择使平均 CV MSE 最小的值。
+
+**KernelPCA** 对中心化核矩阵做特征分解，保留正特征值方向，并使用训练核均值对样本外核矩阵做一致中心化。
+
+**Nystroem** 随机选择 landmark，对 landmark 核矩阵使用稳定 SVD 归一化，生成可交给线性模型的显式低维核特征。
 
 ## 估计方程（Estimating Equation）
 
@@ -171,6 +178,13 @@ kr_custom = KernelRidge(alpha=1.0, kernel=my_kernel, device="cpu")
 kr_custom.fit(X, y)
 ```
 
+## 输入与后端保护
+
+`KernelPCA` 和 `Nystroem` 在拟合与变换时都会拒绝 NaN/Inf。KernelPCA 使用
+Torch 兼容的降序特征值索引；RidgeCV 的批量 Gram 特征分解求解在秩亏 Torch
+矩阵上使用标量安全的 eigenvalue floor。已覆盖 NumPy/Torch-CPU 回归，真实 CUDA
+验证仍待完成。
+
 ## strict/approx 差异（strict/approx difference）
 
 核方法模块没有 strict/approx 模式区分。闭式对偶解直接计算，无迭代近似。
@@ -196,6 +210,9 @@ kr_custom.fit(X, y)
 | `estimator_` | `KernelRidge` | 使用最优 alpha 拟合的 `KernelRidge` 实例 |
 | `dual_coef_` | `(n_samples,)` 或 `(n_samples, n_targets)` | `estimator_.dual_coef_` 的快捷访问 |
 | `X_fit_` | `(n_samples, n_features)` | `estimator_.X_fit_` 的快捷访问 |
+
+**KernelPCA** 提供 `lambdas_`、`alphas_`、`X_fit_` 和 `transform()`；
+**Nystroem** 提供 `components_`、`component_indices_`、`normalization_`、`eigenvalues_` 和 `transform()`。
 
 **方法**（两个类共有）：
 

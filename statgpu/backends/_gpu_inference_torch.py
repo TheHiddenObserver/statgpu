@@ -281,63 +281,44 @@ def compute_aic_bic_torch(n, k, scale, device=None):
 
 
 def compute_f_stat_torch(y, resid, X_design, df_resid, device=None):
-    """
-    Compute F-statistic and p-value on Torch GPU.
-
-    Parameters
-    ----------
-    y : torch.Tensor
-        True values on GPU.
-    resid : torch.Tensor
-        Residuals on GPU.
-    X_design : torch.Tensor
-        Design matrix on GPU.
-    df_resid : int
-        Residual degrees of freedom.
-    device : str, optional
-        Torch device string.
-
-    Returns
-    -------
-    fvalue : float
-        F-statistic.
-    pvalue : float
-        p-value for F-statistic.
-    """
+    """Compute the overall-regression F statistic and p-value on Torch."""
     torch = _import_torch()
 
     if device is None:
         device = _get_torch_device()
 
-    from statgpu.inference._distributions_backend import get_distribution
-    f_dist = get_distribution("f", backend="torch", device=device)
-
     y_mean = torch.mean(y)
     ss_tot = torch.sum((y - y_mean) ** 2)
     ss_res = torch.sum(resid ** 2)
-    ss_reg = ss_tot - ss_res
 
-    k = X_design.shape[1] - 1  # exclude intercept
-
-    if k == 0 or ss_res <= 0:
-        return float('inf'), 1.0
-
-    fvalue_tensor = (ss_reg / k) / (ss_res / df_resid)
-    fvalue = float(fvalue_tensor.cpu().numpy())
-
-    # p-value using F CDF
-    # For F ~ F(d1, d2): CDF(x) = I_{d1*x/(d1*x+d2)}(d1/2, d2/2)
+    k = int(X_design.shape[1] - 1)  # exclude intercept
     d1 = float(k)
     d2 = float(df_resid)
+    if d1 <= 0.0 or d2 <= 0.0:
+        return np.nan, np.nan
 
-    if d2 <= 0 or d1 <= 0:
-        pvalue = 1.0
-    else:
-        z = (d1 * fvalue) / (d1 * fvalue + d2)
-        cdf = f_dist.cdf(fvalue, dfn=d1, dfd=d2)
-        pvalue = 1.0 - float(cdf.cpu().numpy())
+    # Only scalar reductions cross the host boundary.  These checks mirror the
+    # public CPU LinearRegression F-statistic semantics.
+    ss_tot_value = float(ss_tot.detach().cpu().item())
+    ss_res_value = float(ss_res.detach().cpu().item())
+    if not np.isfinite(ss_tot_value) or not np.isfinite(ss_res_value):
+        return np.nan, np.nan
 
-    return fvalue, pvalue
+    tol = np.finfo(float).eps * max(1.0, abs(ss_tot_value))
+    if ss_tot_value <= tol:
+        return np.nan, np.nan
+    if ss_res_value <= tol:
+        return np.inf, 0.0
+
+    ss_reg = torch.clamp(ss_tot - ss_res, min=0.0)
+    fvalue_tensor = (ss_reg / d1) / (ss_res / d2)
+    fvalue = float(fvalue_tensor.detach().cpu().item())
+
+    from statgpu.inference._distributions_backend import get_distribution
+    f_dist = get_distribution("f", backend="torch", device=device)
+    cdf = f_dist.cdf(fvalue, dfn=d1, dfd=d2)
+    pvalue = 1.0 - float(cdf.detach().cpu().item())
+    return fvalue, float(np.clip(pvalue, 0.0, 1.0))
 
 
 def torch_memory_cleanup():

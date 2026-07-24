@@ -17,7 +17,19 @@ from statgpu._base import BaseEstimator
 # Shared constant: intercept clipping bound for CV proximal operators
 INTERCEPT_CLIP_BOUND = 15.0
 from statgpu._config import Device
-from statgpu.backends import _to_numpy
+from statgpu.backends import (
+    _get_xp,
+    _resolve_backend,
+    _to_float_scalar,
+    _to_numpy,
+    xp_asarray,
+)
+
+# Small inputs retain exact full-content hashes. Large inputs use a bounded
+# row sample plus backend-native reductions to avoid an eager full GPU-to-host
+# transfer solely for cache identity construction.
+_FULL_HASH_THRESHOLD = 10_000_000
+_LARGE_HASH_SAMPLE_ROWS = 100
 
 
 def _torch_cuda_available():
@@ -56,6 +68,14 @@ def kfold_indices(
     -------
     folds : list of (train_idx, val_idx) tuples
     """
+    if isinstance(n_samples, bool) or not isinstance(n_samples, (int, np.integer)):
+        raise TypeError("n_samples must be a positive integer")
+    if isinstance(n_splits, bool) or not isinstance(n_splits, (int, np.integer)):
+        raise TypeError("n_splits must be an integer")
+    n_samples = int(n_samples)
+    n_splits = int(n_splits)
+    if n_samples <= 0:
+        raise ValueError("n_samples must be positive")
     if n_splits < 2:
         raise ValueError(f"n_splits={n_splits} must be at least 2")
     if n_splits > n_samples:
@@ -83,79 +103,193 @@ def kfold_indices(
 
 
 def folds_are_complete(folds, n_samples: int) -> bool:
-    """Check that all folds together cover every sample exactly once."""
-    val_indices = np.concatenate([f[1] for f in folds])
+    """Check that validation folds cover every sample exactly once."""
+    if isinstance(n_samples, bool) or not isinstance(n_samples, (int, np.integer)):
+        return False
+    n_samples = int(n_samples)
+    if n_samples < 0 or not folds:
+        return False
+    try:
+        val_indices = np.concatenate([np.asarray(fold[1], dtype=int) for fold in folds])
+    except (TypeError, ValueError, IndexError):
+        return False
     if len(val_indices) != n_samples:
         return False
     return np.array_equal(np.sort(val_indices), np.arange(n_samples))
 
 
-def hash_cv_data(X, y, sample_weight=None) -> bytes:
-    """Compute a compact hash of X, y, and optionally sample_weight.
+def _shape_without_host_transfer(value) -> Tuple[int, ...]:
+    """Read shape metadata without materializing a GPU array on the host."""
+    shape = getattr(value, "shape", None)
+    if shape is None:
+        shape = np.shape(value)
+    return tuple(int(dimension) for dimension in shape)
 
-    For small datasets (n * p <= 10,000,000), hashes full content for zero
-    collision risk.  For very large datasets, samples evenly spaced rows plus
-    first/last rows, row indices, and aggregate statistics to keep hashing fast
-    while minimizing collision probability.
+
+def _hash_array_metadata(h, label: bytes, value) -> None:
+    """Hash shape, dtype, backend, and device metadata."""
+    backend_name = _resolve_backend("auto", value)
+    shape = _shape_without_host_transfer(value)
+    dtype = getattr(value, "dtype", None)
+    if dtype is None:
+        dtype = np.asarray(value).dtype
+    if backend_name == "torch":
+        device = str(getattr(value, "device", "cpu"))
+    elif backend_name == "cupy":
+        array_device = getattr(value, "device", None)
+        device = f"cuda:{getattr(array_device, 'id', array_device)}"
+    else:
+        device = "cpu"
+    metadata = repr((shape, str(dtype), backend_name, device)).encode("utf-8")
+    h.update(len(label).to_bytes(2, "big"))
+    h.update(label)
+    h.update(len(metadata).to_bytes(8, "big"))
+    h.update(metadata)
+
+
+def _as_backend_array(value):
+    """Return a native backend-name, array module, and array tuple."""
+    backend_name = _resolve_backend("auto", value)
+    xp = _get_xp(backend_name)
+    ref = value if backend_name == "torch" else None
+    return backend_name, xp, xp_asarray(value, xp=xp, ref_arr=ref)
+
+
+def _sample_and_summarize(value, indices, *, flatten: bool):
+    """Copy bounded rows and a two-scalar native summary to the host."""
+    backend_name, xp, array = _as_backend_array(value)
+    if flatten:
+        array = array.reshape(-1)
+    index_array = xp_asarray(
+        indices,
+        dtype=xp.int64,
+        xp=xp,
+        ref_arr=array if backend_name == "torch" else None,
+    )
+    sample = np.ascontiguousarray(_to_numpy(array[index_array]))
+
+    if backend_name == "torch":
+        stats_array = array
+        if not (stats_array.is_floating_point() or stats_array.is_complex()):
+            stats_array = stats_array.to(dtype=xp.float64)
+        mean = xp.mean(stats_array)
+        # NumPy/CuPy and the historical implementation use correction=0.
+        std = xp.std(stats_array, correction=0)
+        summary = xp.stack((mean, std)).to(dtype=xp.float64)
+    else:
+        mean = xp.mean(array, dtype=xp.float64)
+        std = xp.std(array, dtype=xp.float64)
+        summary = xp.stack((mean, std)).astype(xp.float64, copy=False)
+
+    summary_np = np.asarray(_to_numpy(summary), dtype=np.float64)
+    return sample, np.ascontiguousarray(summary_np)
+
+
+def hash_cv_data(X, y, sample_weight=None, *, cache_key=None) -> bytes:
+    """Compute a compact cache hash for CV inputs.
+
+    When cache_key is supplied, it is treated as a caller-controlled identity
+    and array contents are not inspected. Otherwise, inputs with at most
+    10,000,000 X elements hash their full contents. Larger inputs are
+    classified from X.shape before any host transfer and hash at most 100
+    evenly spaced rows plus backend-native mean/std summaries.
+
+    Large-input hashes are probabilistic cache identities, not proofs that two
+    complete datasets are equal. Callers with an authoritative data identity
+    should pass it as cache_key to skip content hashing entirely.
     """
     h = hashlib.blake2b(digest_size=16)
-    X_np = np.asarray(_to_numpy(X), dtype=np.float64)
-    y_np = np.asarray(_to_numpy(y), dtype=np.float64).ravel()
-    n, p = X_np.shape
+    h.update(b"statgpu-cv-data-v2")
+
+    if cache_key is not None:
+        # Reuse the framed serializer used by the in-process CV cache instead
+        # of repr().  repr(set(...)) and repr() of arbitrary objects can vary
+        # with PYTHONHASHSEED or include a process-local address.
+        key_payload = CVCache.make_key(cache_key).encode('ascii')
+        h.update(b'explicit')
+        h.update(len(key_payload).to_bytes(8, 'big'))
+        h.update(key_payload)
+        return h.digest()
+
+    x_shape = _shape_without_host_transfer(X)
+    if len(x_shape) != 2:
+        raise ValueError(f"X must be 2D, got shape {x_shape}")
+    n, p = x_shape
+
+    _hash_array_metadata(h, b"X", X)
+    _hash_array_metadata(h, b"y", y)
+    if sample_weight is not None:
+        _hash_array_metadata(h, b"sample_weight", sample_weight)
     h.update(np.asarray([n, p], dtype=np.int64).tobytes())
 
-    _FULL_HASH_THRESHOLD = 10_000_000  # n * p threshold for full hashing
     if n * p <= _FULL_HASH_THRESHOLD:
-        # Small dataset: hash full content (zero collision risk)
+        # Retain historical float64 normalization while hashing every value.
+        # Metadata above distinguishes source dtype, backend, and device.
+        X_np = np.ascontiguousarray(
+            np.asarray(_to_numpy(X), dtype=np.float64)
+        )
+        y_np = np.ascontiguousarray(
+            np.asarray(_to_numpy(y), dtype=np.float64).ravel()
+        )
         h.update(X_np.tobytes())
         h.update(y_np.tobytes())
         if sample_weight is not None:
-            sw_np = np.asarray(_to_numpy(sample_weight), dtype=np.float64).ravel()
+            sw_np = np.ascontiguousarray(
+                np.asarray(_to_numpy(sample_weight), dtype=np.float64).ravel()
+            )
             h.update(sw_np.tobytes())
-    else:
-        # Very large dataset: sample rows + indices + aggregate statistics
-        # Include first and last rows (boundary) plus evenly spaced interior
-        step = max(1, n // 100)
-        idx = np.arange(0, n, step)[:100]
-        # Ensure first and last rows are always included
-        if idx[0] != 0:
-            idx = np.concatenate([[0], idx])
-        if idx[-1] != n - 1:
-            idx = np.concatenate([idx, [n - 1]])
-        # Hash row indices to prevent collision from reordered data
-        h.update(idx.astype(np.int64).tobytes())
-        h.update(X_np[idx].tobytes())
-        h.update(y_np[idx].tobytes())
-        h.update(np.asarray([X_np.mean(), X_np.std()], dtype=np.float64).tobytes())
-        h.update(np.asarray([y_np.mean(), y_np.std()], dtype=np.float64).tobytes())
-        if sample_weight is not None:
-            sw_np = np.asarray(_to_numpy(sample_weight), dtype=np.float64).ravel()
-            h.update(sw_np[idx].tobytes())
-            h.update(np.asarray([sw_np.mean(), sw_np.std()], dtype=np.float64).tobytes())
+        return h.digest()
+
+    sample_count = min(n, _LARGE_HASH_SAMPLE_ROWS)
+    indices = np.unique(
+        np.linspace(0, n - 1, num=sample_count, dtype=np.int64)
+    )
+    h.update(indices.tobytes())
+
+    X_sample, X_summary = _sample_and_summarize(X, indices, flatten=False)
+    y_sample, y_summary = _sample_and_summarize(y, indices, flatten=True)
+    h.update(X_sample.tobytes())
+    h.update(X_summary.tobytes())
+    h.update(y_sample.tobytes())
+    h.update(y_summary.tobytes())
+    if sample_weight is not None:
+        sw_sample, sw_summary = _sample_and_summarize(
+            sample_weight, indices, flatten=True
+        )
+        h.update(sw_sample.tobytes())
+        h.update(sw_summary.tobytes())
     return h.digest()
 
 
 def validate_cv_sample_weight(sample_weight, n_samples: int):
-    """Validate sample_weight for CV: must be non-negative and finite.
+    """Validate CV sample weights without transferring the full vector to CPU.
 
-    Returns None if sample_weight is None, otherwise returns validated array.
-    Raises ValueError for invalid weights.  Preserves the original backend
-    (CuPy/Torch/numpy) — does not force conversion to numpy.
+    The returned array uses the same NumPy/CuPy/Torch backend as the input.
+    Only scalar validation results are synchronized.
     """
     if sample_weight is None:
         return None
-    # Validate on numpy (single D2H sync) but return original array
-    sw_np = _to_numpy(sample_weight).ravel().astype(np.float64)
-    if sw_np.shape[0] != n_samples:
+    if isinstance(n_samples, bool) or not isinstance(n_samples, (int, np.integer)):
+        raise TypeError("n_samples must be a positive integer")
+    n_samples = int(n_samples)
+    if n_samples <= 0:
+        raise ValueError("n_samples must be positive")
+
+    resolved = _resolve_backend("auto", sample_weight)
+    xp = _get_xp(resolved)
+    ref = sample_weight if resolved in ("cupy", "torch") else None
+    weights = xp_asarray(sample_weight, dtype=xp.float64, xp=xp, ref_arr=ref).ravel()
+    if int(weights.shape[0]) != n_samples:
         raise ValueError(
-            f"sample_weight length {sw_np.shape[0]} != n_samples {n_samples}"
+            f"sample_weight length {weights.shape[0]} != n_samples {n_samples}"
         )
-    if np.any(sw_np < 0):
-        raise ValueError("sample_weight must be non-negative")
-    if not np.all(np.isfinite(sw_np)):
+    if not bool(_to_float_scalar(xp.all(xp.isfinite(weights)))):
         raise ValueError("sample_weight must be finite")
-    # Return the original array (preserves CuPy/Torch backend)
-    return sample_weight
+    if bool(_to_float_scalar(xp.any(weights < 0))):
+        raise ValueError("sample_weight must be non-negative")
+    if _to_float_scalar(xp.sum(weights)) <= 0.0:
+        raise ValueError("sample_weight must have a positive sum")
+    return weights
 
 
 # ---------------------------------------------------------------------------
@@ -174,8 +308,10 @@ class CVCache:
     """
 
     def __init__(self, maxsize: int = 64):
+        if not isinstance(maxsize, (int, np.integer)) or int(maxsize) < 0:
+            raise ValueError("maxsize must be a non-negative integer")
         self._cache: OrderedDict = OrderedDict()
-        self._maxsize = maxsize
+        self._maxsize = int(maxsize)
         self._lock = __import__('threading').Lock()
 
     def get(self, key: str):
@@ -196,19 +332,60 @@ class CVCache:
 
     @staticmethod
     def make_key(*args) -> str:
-        """Generate a blake2b hash key from arbitrary arguments.
+        """Generate a framed content hash for nested CV arguments.
 
-        Uses content-based hashing for arrays (tobytes) to avoid collisions
-        from str() truncation on large arrays.
+        Type tags and payload lengths prevent concatenation collisions such as
+        ``("ab", "c")`` versus ``("a", "bc")``. Arrays additionally include
+        dtype and shape metadata before their contiguous content bytes.
         """
         h = hashlib.blake2b(digest_size=32)
-        for arg in args:
-            if hasattr(arg, 'tobytes') and hasattr(arg, 'shape'):
-                # Array-like: hash shape + content bytes
-                h.update(str(arg.shape).encode())
-                h.update(np.ascontiguousarray(_to_numpy(arg)).tobytes())
+
+        def frame(tag: bytes, payload: bytes = b"") -> None:
+            h.update(len(tag).to_bytes(4, "big"))
+            h.update(tag)
+            h.update(len(payload).to_bytes(8, "big"))
+            h.update(payload)
+
+        def update(value) -> None:
+            if value is None:
+                frame(b"none")
+            elif isinstance(value, (bool, np.bool_)):
+                frame(b"bool", b"1" if bool(value) else b"0")
+            elif isinstance(value, (int, np.integer)):
+                frame(b"int", str(int(value)).encode("ascii"))
+            elif isinstance(value, (float, np.floating)):
+                frame(b"float", np.float64(value).tobytes())
+            elif isinstance(value, str):
+                frame(b"str", value.encode("utf-8"))
+            elif isinstance(value, (bytes, bytearray, memoryview)):
+                frame(b"bytes", bytes(value))
+            elif isinstance(value, (list, tuple)):
+                frame(b"list" if isinstance(value, list) else b"tuple", str(len(value)).encode())
+                for item in value:
+                    update(item)
+            elif isinstance(value, (set, frozenset)):
+                frame(b'set' if isinstance(value, set) else b'frozenset', str(len(value)).encode())
+                for item in sorted(value, key=CVCache.make_key):
+                    update(item)
+            elif isinstance(value, dict):
+                frame(b"dict", str(len(value)).encode())
+                for key in sorted(value, key=CVCache.make_key):
+                    update(key)
+                    update(value[key])
+            elif hasattr(value, "shape"):
+                array = np.ascontiguousarray(_to_numpy(value))
+                metadata = (array.dtype.str + "|" + repr(tuple(array.shape))).encode("utf-8")
+                frame(b"array-meta", metadata)
+                frame(b"array-data", array.tobytes())
             else:
-                h.update(str(arg).encode())
+                typename = f"{type(value).__module__}.{type(value).__qualname__}"
+                raise TypeError(
+                    "CV cache keys must contain deterministic primitive, array, "
+                    f"sequence, mapping, or set values; got {typename}"
+                )
+
+        for argument in args:
+            update(argument)
         return h.hexdigest()
 
 
@@ -216,57 +393,43 @@ class CVCache:
 # GPU input detection
 # ---------------------------------------------------------------------------
 
-def detect_gpu_input(X, y) -> Tuple[str, Any, Any]:
-    """Detect whether inputs are CuPy or Torch arrays.
 
-    Returns
-    -------
-    backend : str
-        One of 'numpy', 'cupy', 'torch'.
-    X, y : arrays
-        Original arrays (unchanged).
+def detect_gpu_input(X, y) -> Tuple[str, Any, Any]:
+    """Detect a common input backend, converting mixed inputs safely.
+
+    Matching CuPy or Torch inputs are preserved. Any mixture of NumPy and
+    GPU arrays, or CuPy and Torch arrays, is converted to NumPy so callers
+    never receive ``backend='numpy'`` alongside an unconverted GPU object.
     """
     import warnings as _warnings
 
-    x_type = None
-    y_type = None
+    def array_type(value):
+        try:
+            import cupy as cp
+            if isinstance(value, cp.ndarray):
+                return "cupy"
+        except ImportError:
+            pass
+        try:
+            import torch
+            if isinstance(value, torch.Tensor):
+                return "torch"
+        except ImportError:
+            pass
+        return "numpy"
 
-    try:
-        import cupy as cp
-        if isinstance(X, cp.ndarray):
-            x_type = 'cupy'
-        if isinstance(y, cp.ndarray):
-            y_type = 'cupy'
-    except ImportError:
-        pass
+    x_type = array_type(X)
+    y_type = array_type(y)
+    if x_type == y_type:
+        return x_type, X, y
 
-    try:
-        import torch
-        if isinstance(X, torch.Tensor):
-            x_type = 'torch'
-        if isinstance(y, torch.Tensor):
-            y_type = 'torch'
-    except ImportError:
-        pass
-
-    if x_type is not None and y_type is not None and x_type != y_type:
-        _warnings.warn(
-            f"Mixed backend detected: X is {x_type} but y is {y_type}. "
-            f"Both arrays should use the same backend. Falling back to numpy.",
-            RuntimeWarning,
-            stacklevel=2,
-        )
-        # Convert both arrays to numpy for consistent backend
-        X_np = _to_numpy(X)
-        y_np = _to_numpy(y)
-        return 'numpy', X_np, y_np
-
-    if x_type == 'cupy' and y_type == 'cupy':
-        return 'cupy', X, y
-    if x_type == 'torch' and y_type == 'torch':
-        return 'torch', X, y
-
-    return 'numpy', X, y
+    _warnings.warn(
+        f"Mixed backend detected: X is {x_type} but y is {y_type}. "
+        "Converting both arrays to NumPy.",
+        RuntimeWarning,
+        stacklevel=2,
+    )
+    return "numpy", _to_numpy(X), _to_numpy(y)
 
 
 # ---------------------------------------------------------------------------
@@ -320,13 +483,32 @@ def batch_mse(
             f"X_val has {X_val.shape[0]} samples"
         )
     n_models = coefs.shape[0]
+    if not isinstance(chunk_size, (int, np.integer)) or int(chunk_size) < 1:
+        raise ValueError("chunk_size must be a positive integer")
+    chunk_size = int(chunk_size)
 
     if intercepts is not None:
-        intercepts = _to_numpy(intercepts)
+        intercepts = _to_numpy(intercepts).ravel()
+        if intercepts.shape[0] != n_models:
+            raise ValueError(
+                f"intercepts length {intercepts.shape[0]} != n_models {n_models}"
+            )
+        if not np.all(np.isfinite(intercepts)):
+            raise ValueError("intercepts must be finite")
 
     if sample_weight is not None:
-        sw = _to_numpy(sample_weight).ravel()
+        sw = _to_numpy(sample_weight).ravel().astype(np.float64, copy=False)
+        if sw.shape[0] != X_val.shape[0]:
+            raise ValueError(
+                f"sample_weight length {sw.shape[0]} != n_samples {X_val.shape[0]}"
+            )
+        if not np.all(np.isfinite(sw)):
+            raise ValueError("sample_weight must be finite")
+        if np.any(sw < 0):
+            raise ValueError("sample_weight must be non-negative")
         sw_sum = float(np.sum(sw))
+        if sw_sum <= 0.0:
+            raise ValueError("sample_weight must have a positive sum")
     else:
         sw = None
         sw_sum = 0.0
@@ -346,10 +528,7 @@ def batch_mse(
         residuals = y_val[None, :] - y_pred  # (chunk_size, n_val)
 
         if sw is not None:
-            if sw_sum > 0:
-                mse[start:end] = np.sum(residuals ** 2 * sw[None, :], axis=1) / sw_sum
-            else:
-                mse[start:end] = np.nan
+            mse[start:end] = np.sum(residuals ** 2 * sw[None, :], axis=1) / sw_sum
         else:
             mse[start:end] = np.mean(residuals ** 2, axis=1)
 

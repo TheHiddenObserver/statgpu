@@ -193,6 +193,7 @@ def parse_panel_formula(formula, data):
     from statgpu.core.formula import FormulaParser
     parser = FormulaParser(main_formula)
     y_arr, X_arr, design_info = parser.eval(data)
+    setattr(design_info, "_statgpu_row_positions", np.asarray(parser._row_positions, dtype=np.int64))
 
     formula_column_names = list(design_info.column_names)
     has_intercept = "Intercept" in formula_column_names
@@ -217,7 +218,9 @@ def _parse_formula_panel(formula, data):
     """
     from statgpu.core.formula import FormulaParser
     parser = FormulaParser(formula)
-    return parser.eval(data)
+    y_arr, X_arr, design_info = parser.eval(data)
+    setattr(design_info, "_statgpu_row_positions", np.asarray(parser._row_positions, dtype=np.int64))
+    return y_arr, X_arr, design_info
 
 
 def _prepare_formula_fit(formula, data, X, y, model_has_intercept=True,
@@ -275,6 +278,8 @@ def _prepare_formula_fit(formula, data, X, y, model_has_intercept=True,
             if time_effects and time_ids is None and hasattr(data, 'columns'):
                 if 'time' in data.columns:
                     time_ids = data['time'].values
+            entity_ids = _align_formula_side_array(entity_ids, design_info, len(y_arr), "entity_ids")
+            time_ids = _align_formula_side_array(time_ids, design_info, len(y_arr), "time_ids")
         else:
             y_arr, X_arr, design_info = _parse_formula_panel(formula, data)
             entity_ids, time_ids = None, None
@@ -294,12 +299,33 @@ def _prepare_formula_fit(formula, data, X, y, model_has_intercept=True,
     else:
         if X is None or y is None:
             raise ValueError("Either formula+data or X+y must be provided.")
-        y_arr = np.asarray(y, dtype=np.float64)
-        if y_arr.ndim == 2 and y_arr.shape[1] == 1:
-            y_arr = y_arr.ravel()
-        X_arr = np.asarray(X, dtype=np.float64)
-        return (y_arr, X_arr, None, None, None,
+        # Preserve NumPy/CuPy/Torch arrays.  The estimator resolves dtype/device
+        # after this formula-only boundary; converting here would force GPU
+        # array input through host NumPy.
+        return (y, X, None, None, None,
                 None, None, False, False)
+
+
+def _align_formula_side_array(values, design_info, expected_n=None, name="array"):
+    """Align an observation-level side array with rows retained by Patsy."""
+    if values is None:
+        return None
+    arr = np.asarray(values)
+    if arr.ndim == 0:
+        raise ValueError(f"{name} must be observation-level")
+    positions = getattr(design_info, "_statgpu_row_positions", None)
+    if positions is None:
+        if expected_n is not None and arr.shape[0] != expected_n:
+            raise ValueError(f"{name} must have {expected_n} observations")
+        return arr
+    positions = np.asarray(positions, dtype=np.int64)
+    if arr.shape[0] == positions.shape[0]:
+        return arr
+    if positions.size and arr.shape[0] > int(positions.max()):
+        return arr[positions]
+    if positions.size == 0 and arr.shape[0] == 0:
+        return arr
+    raise ValueError(f"{name} has {arr.shape[0]} observations and cannot be aligned to the {positions.shape[0]} rows retained by the formula")
 
 
 def _formula_predict(X, design_info, formula_has_intercept, model_has_intercept):
@@ -320,7 +346,9 @@ def _formula_predict(X, design_info, formula_has_intercept, model_has_intercept)
             intercept_idx = col_names.index("Intercept")
             X_arr = np.delete(X_arr, intercept_idx, axis=1)
     else:
-        X_arr = np.asarray(X, dtype=np.float64)
+        # Preserve NumPy/CuPy/Torch input. The estimator performs
+        # backend-aware dtype/device conversion downstream.
+        X_arr = X
     return X_arr
 
 

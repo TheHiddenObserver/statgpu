@@ -1,7 +1,7 @@
 # 无监督学习
 
 > 语言：中文
-> 最后更新：2026-05-08
+> 最后更新：2026-07-23
 > 本页：无监督学习索引
 > English: [English](../en/unsupervised/README.md)
 
@@ -38,7 +38,7 @@
 | `MiniBatchKMeans` | 支持 | 支持 | 支持 | Mini-batch squared Euclidean inertia |
 | `IncrementalPCA` | 支持 | 支持 | 支持 | Batch-wise centered low-rank reconstruction |
 | `MiniBatchNMF` | 支持 | 支持 | 支持 | Mini-batch Frobenius reconstruction loss |
-| `UMAP` | 支持 | 支持 | 支持 | Fuzzy graph cross-entropy |
+| `UMAP` | 支持 | 支持，含 host SciPy graph assembly | 支持，含 host SciPy graph assembly | Fuzzy graph cross-entropy |
 | `TSNE` | 支持 | 支持 | 支持 | 高低维 affinity 的 KL divergence |
 
 显式 `device="cuda"` 和 `device="torch"` 不会静默 fallback 到 CPU；依赖不可用或模型不支持时会明确报错。

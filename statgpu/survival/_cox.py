@@ -12,6 +12,8 @@ from scipy import stats
 
 from statgpu._base import BaseEstimator
 from statgpu._config import Device
+from statgpu.backends import _to_float_scalar
+from statgpu.inference._distributions_backend import chi2
 
 # Optional Cython import for faster Efron gradient/Hessian computation
 try:
@@ -256,6 +258,79 @@ def _efron_backward_scan_vectorized(
     return grad, -hess
 
 
+def _align_cox_side_array(values, retained_rows, original_n, name="array"):
+    """Filter a side array to match rows retained by Patsy after NA drops.
+
+    Parameters
+    ----------
+    values : array-like or None
+        Side array (entry, cluster, etc.).  May be NumPy, CuPy, or Torch.
+    retained_rows : ndarray of int64
+        Zero-based row positions kept by Patsy.
+    original_n : int
+        Number of rows in the original DataFrame.
+    name : str
+        Human-readable name for error messages.
+
+    Returns
+    -------
+    array-like or None
+        Filtered array matching the retained rows, or None.
+    """
+    if values is None:
+        return None
+
+    # Detect backend BEFORE any np.asarray() to avoid CuPy 13.x implicit
+    # conversion errors and unnecessary GPU→CPU transfers.
+    module = type(values).__module__
+
+    if module.startswith("cupy"):
+        import cupy as cp
+        if values.ndim != 1:
+            raise ValueError(f"{name} must be one-dimensional")
+        n_values = int(values.shape[0])
+        n_retained = len(retained_rows)
+        if n_values == n_retained:
+            return values
+        if n_values != original_n:
+            raise ValueError(
+                f"{name} length {n_values} does not match "
+                f"original data length {original_n}"
+            )
+        idx = cp.asarray(retained_rows, dtype=cp.int64)
+        return values[idx]
+
+    if module.startswith("torch"):
+        import torch
+        if values.ndim != 1:
+            raise ValueError(f"{name} must be one-dimensional")
+        n_values = int(values.shape[0])
+        n_retained = len(retained_rows)
+        if n_values == n_retained:
+            return values
+        if n_values != original_n:
+            raise ValueError(
+                f"{name} length {n_values} does not match "
+                f"original data length {original_n}"
+            )
+        idx = torch.as_tensor(retained_rows, dtype=torch.long, device=values.device)
+        return values.index_select(0, idx)
+
+    # NumPy / list / pandas path
+    arr = np.asarray(values)
+    if arr.ndim != 1:
+        raise ValueError(f"{name} must be one-dimensional")
+    n_values = arr.shape[0]
+    if n_values == len(retained_rows):
+        return values
+    if n_values != original_n:
+        raise ValueError(
+            f"{name} length {n_values} does not match "
+            f"original data length {original_n}"
+        )
+    return arr[retained_rows]
+
+
 class CoxPH(BaseEstimator):
     """
     Cox Proportional Hazards regression with GPU acceleration.
@@ -271,11 +346,19 @@ class CoxPH(BaseEstimator):
     device : str or Device, default='auto'
         Computation device: 'cpu', 'cuda', or 'auto'.
     compute_inference : bool, default=True
-        If True, compute standard errors/tests/baseline hazard on CPU after fitting.
-        Set to False to reduce CPU-GPU data transfers in CUDA mode.
+        If True, compute standard errors, tests, and baseline hazard. Nonrobust
+        CuPy/Torch inference remains on the selected backend.
     compute_cindex : bool, default=True
         If True, compute training-set C-index during fit. Disabling this can
         significantly reduce fit time, especially on CUDA/Torch for moderate n.
+    cov_type : {'nonrobust', 'hc0', 'hc1', 'cluster'}, default='nonrobust'
+        Covariance estimator. Cluster covariance requires ``cluster`` in fit.
+    penalty : float, default=0.0
+        Non-negative L2 penalty. CPU delayed-entry fitting rejects nonzero
+        penalties because PHReg does not optimize the penalized objective.
+    inference_mode : {'strict', 'approx'}, default='strict'
+        Robust-inference policy. Strict mode requires exact score residuals;
+        approximate Efron event-row residuals require explicit opt-in.
     
     Attributes
     ----------
@@ -283,6 +366,11 @@ class CoxPH(BaseEstimator):
         Estimated coefficients (log hazard ratios).
     hazard_ratios_ : ndarray of shape (n_features,)
         exp(coef) = hazard ratios.
+    converged_ : bool
+        Whether the final normalized KKT condition met its tolerance.
+    termination_reason_ : str
+        One of ``kkt_converged``, ``line_search_failed``,
+        ``stalled_with_large_kkt``, or ``max_iter``.
     """
     
     def __init__(
@@ -297,6 +385,7 @@ class CoxPH(BaseEstimator):
         cov_type: str = "nonrobust",
         gpu_memory_cleanup: bool = False,
         penalty: float = 0.0,
+        inference_mode: str = 'strict',
     ):
         super().__init__(device=device, n_jobs=n_jobs)
         self.ties = ties.lower()
@@ -307,11 +396,14 @@ class CoxPH(BaseEstimator):
         self.cov_type = cov_type.lower()
         self.gpu_memory_cleanup = bool(gpu_memory_cleanup)
         self.penalty = float(penalty)
+        self.inference_mode = str(inference_mode).lower()
 
         if self.ties not in ('breslow', 'efron'):
             raise ValueError("ties must be 'breslow' or 'efron'")
         if self.cov_type not in ("nonrobust", "hc0", "hc1", "cluster"):
             raise ValueError("cov_type must be one of: 'nonrobust', 'hc0', 'hc1', 'cluster'")
+        if self.inference_mode not in ('strict', 'approx'):
+            raise ValueError('inference_mode must be strict or approx')
         if self.penalty < 0:
             raise ValueError("penalty must be non-negative")
         
@@ -334,6 +426,11 @@ class CoxPH(BaseEstimator):
         self._log_likelihood_null = None
         self._iterations = 0
         self._converged = False
+        self._termination_reason = None
+        self._final_kkt_inf = None
+        self._final_kkt_normalized = None
+        self._penalized_objective = None
+        self._objective_history = []
         self._var_matrix = None
         self._score_test_stat = None
         self._baseline_hazard = None
@@ -346,6 +443,16 @@ class CoxPH(BaseEstimator):
         self._lr_test_stat = None
         self._lr_test_pvalue = None
         self._score_test_pvalue = None
+        self.converged_ = False
+        self.termination_reason_ = None
+        self.n_iter_ = 0
+        self.final_kkt_inf_ = None
+        self.final_kkt_normalized_ = None
+        self.inference_method_ = None
+        self.inference_backend_ = None
+        self.inference_approximate_ = False
+        self.inference_fallback_reason_ = None
+        self.full_host_transfer_performed_ = False
         # Efron only: cached (uft, uft_ix, risk_enter, risk_exit, nuft, first_idx_uft); depends only on sorted time/event.
         self._efron_pre = None
         # Efron optimization: True when all failure groups are singletons (no ties),
@@ -407,6 +514,56 @@ class CoxPH(BaseEstimator):
                 return bool(conv_attr)
         return None
         
+    def _reset_fit_state(self):
+        """Clear all fitted state before a new fit."""
+        self._fitted = False
+        self._converged = False
+        self._iterations = 0
+        self._termination_reason = None
+        self._final_kkt_inf = None
+        self._final_kkt_normalized = None
+        self._penalized_objective = None
+        self._objective_history = []
+        self.coef_ = None
+        self.hazard_ratios_ = None
+        self._bse = None
+        self._zvalues = None
+        self._pvalues = None
+        self._conf_int = None
+        self._var_matrix = None
+        self._log_likelihood = None
+        self._log_likelihood_null = None
+        self._lr_test_stat = None
+        self._lr_test_pvalue = None
+        self._wald_test_stat = None
+        self._wald_test_pvalue = None
+        self._score_test_stat = None
+        self._score_test_pvalue = None
+        self.converged_ = False
+        self.termination_reason_ = None
+        self.n_iter_ = 0
+        self.final_kkt_inf_ = None
+        self.final_kkt_normalized_ = None
+        self.inference_method_ = None
+        self.inference_backend_ = None
+        self.inference_approximate_ = False
+        self.inference_fallback_reason_ = None
+        self.full_host_transfer_performed_ = False
+        self._baseline_hazard = None
+        self._baseline_cumulative_hazard = None
+        self._unique_times = None
+        self._time = None
+        self._event = None
+        self._X = None
+        self._entry = None
+        self._nobs = None
+        self._nevents = None
+        self.concordance_ = None
+        self._cindex = None
+        self._feature_names = None
+        self._design_info = None
+        self._fitted = False
+
     def fit(self, X=None, time=None, event=None, entry=None, cluster=None, init_coef=None, formula=None, data=None):
         """
         Fit Cox Proportional Hazards model.
@@ -436,6 +593,19 @@ class CoxPH(BaseEstimator):
         self : CoxPH
             Fitted estimator.
         """
+        self._reset_fit_state()
+
+        if entry is not None and self.compute_inference and self.cov_type != 'nonrobust':
+            raise NotImplementedError(
+                'Robust/cluster covariance with delayed entry is not implemented. '
+                'Use cov_type=nonrobust or compute_inference=False when entry is provided.'
+            )
+        if entry is not None and self.penalty > 0 and self._get_compute_device() == Device.CPU:
+            raise NotImplementedError(
+                'CPU delayed-entry CoxPH with penalty is not implemented; '
+                'use device=cuda or device=torch.'
+            )
+
         # Handle formula interface
         if formula is not None:
             if data is None:
@@ -448,12 +618,18 @@ class CoxPH(BaseEstimator):
             from patsy import EvalEnvironment
 
             env = make_surv_env()
-            # Create evaluation environment with custom Surv function
             custom_env = EvalEnvironment([env])
+            # Replace index with zero-based positions so Patsy's row-dropping
+            # leaves behind a true positional index (not original labels).
+            formula_data = data.copy(deep=False)
+            formula_data.index = np.arange(len(data), dtype=np.int64)
             y_patsy, X_patsy = patsy.dmatrices(
-                formula, data, eval_env=custom_env, return_type="matrix",
+                formula, formula_data, eval_env=custom_env,
+                return_type="dataframe",
             )
             design_info = X_patsy.design_info
+            retained_rows = np.asarray(X_patsy.index, dtype=np.int64)
+
             # y_patsy is the result of Surv(time, event) -> shape (n, 2)
             y_arr = np.asarray(y_patsy)
             if y_arr.ndim == 1:
@@ -464,6 +640,12 @@ class CoxPH(BaseEstimator):
             time = y_arr[:, 0]
             event = y_arr[:, 1]
             X_arr = np.asarray(X_patsy)
+
+            # Align side arrays after Patsy drops rows with missing values.
+            # Keep alignment local to avoid cross-module coupling.
+            n_original = len(data)
+            entry = _align_cox_side_array(entry, retained_rows, n_original, "entry")
+            cluster = _align_cox_side_array(cluster, retained_rows, n_original, "cluster")
 
             # Drop intercept column from design matrix (CoxPH doesn't use intercept)
             self._feature_names = list(design_info.column_names)
@@ -498,17 +680,12 @@ class CoxPH(BaseEstimator):
             if self._feature_names is None:
                 self._feature_names = [f'x{i+1}' for i in range(int(X_gpu.shape[1]))]
             
-            # Keep CPU copies only when CPU-side inference/baseline stats are requested.
-            if self.compute_inference:
-                self._X = cp.asnumpy(X_gpu)
-                self._time = cp.asnumpy(time_gpu)
-                self._event = cp.asnumpy(event_gpu)
-                self._entry = None if entry_gpu is None else cp.asnumpy(entry_gpu)
-            else:
-                self._X = None
-                self._time = None
-                self._event = None
-                self._entry = None
+            # Nonrobust inference and C-index stay on-device. Robust strict
+            # inference performs an explicit, recorded transfer only if used.
+            self._X = None
+            self._time = None
+            self._event = None
+            self._entry = None
             
             cluster_gpu = None if cluster is None else cp.asarray(self._to_array(cluster), dtype=cp.int64)
             self._fit_gpu(X_gpu, time_gpu, event_gpu, entry_gpu, cluster_gpu, init_coef=init_coef)
@@ -534,17 +711,10 @@ class CoxPH(BaseEstimator):
             if self._feature_names is None:
                 self._feature_names = [f'x{i+1}' for i in range(int(X_torch.shape[1]))]
 
-            # Keep CPU copies only when CPU-side inference/baseline stats are requested.
-            if self.compute_inference:
-                self._X = X_torch.cpu().numpy()
-                self._time = time_torch.cpu().numpy()
-                self._event = event_torch.cpu().numpy()
-                self._entry = None if entry_torch is None else entry_torch.cpu().numpy()
-            else:
-                self._X = None
-                self._time = None
-                self._event = None
-                self._entry = None
+            self._X = None
+            self._time = None
+            self._event = None
+            self._entry = None
 
             cluster_torch = None if cluster is None else self._to_array(
                 cluster, Device.TORCH, backend="torch"
@@ -584,7 +754,16 @@ class CoxPH(BaseEstimator):
             self._fit_cpu(X_np, time_np, event_np, entry_np, cluster_np, init_coef=init_coef)
         
         self._fitted = True
+        self._sync_public_fit_state()
         return self
+
+    def _sync_public_fit_state(self):
+        '''Publish the backend-neutral fitted-state contract.'''
+        self.converged_ = bool(self._converged)
+        self.termination_reason_ = self._termination_reason
+        self.n_iter_ = int(self._iterations)
+        self.final_kkt_inf_ = self._final_kkt_inf
+        self.final_kkt_normalized_ = self._final_kkt_normalized
     
     def _fit_cpu(self, X, time, event, entry=None, cluster=None, init_coef=None):
         """Fit using CPU (NumPy)."""
@@ -595,7 +774,7 @@ class CoxPH(BaseEstimator):
         
         # Sort by time ascending so risk-set terms are suffix sums:
         # R(t_i) = {j: t_j >= t_i} -> indices i..n-1 after ascending sort.
-        order = np.argsort(time)
+        order = np.argsort(time, kind='stable')
         X_sorted = X[order]
         time_sorted = time[order]
         event_sorted = event[order]
@@ -655,96 +834,113 @@ class CoxPH(BaseEstimator):
             np.zeros(n_features), X_sorted, time_sorted, event_sorted, self._efron_pre, entry=entry_sorted
         )
 
-        # Newton-Raphson optimization with L2 penalty
-        penalty = float(self.penalty) if hasattr(self, 'penalty') else 0.0
+        # Newton-Raphson optimization with a backend-neutral KKT and
+        # line-search contract. The observed-information helper normalizes the
+        # historical Breslow/Efron Hessian sign difference before solving.
+        penalty = float(self.penalty)
         use_penalty = penalty > 0.0
-        # Preferred Newton direction for CPU path; updated adaptively.
-        preferred_direction = -1.0
-        iteration = -1  # default if max_iter=0
+        identity = np.eye(n_features, dtype=np.float64)
+        kkt_tol = max(self.tol * 1e-3, 1e-9)
+        objective_tol = 1e-10
+        self._termination_reason = 'max_iter'
+        iteration = -1
+        current_obj = self._compute_log_likelihood(
+            beta, X_sorted, time_sorted, event_sorted, self._efron_pre
+        ) - penalty * float(beta @ beta)
+        self._objective_history = [float(current_obj)]
 
         for iteration in range(self.max_iter):
-            # Compute gradient and Hessian
-            grad, hess = self._compute_gradient_hessian(
-                beta, X_sorted, time_sorted, event_sorted, self._efron_pre, entry=entry_sorted
+            grad_data, hess_data = self._compute_gradient_hessian(
+                beta, X_sorted, time_sorted, event_sorted, self._efron_pre
             )
-
-            # Add penalty terms: gradient -= 2*penalty*beta, hessian -= 2*penalty*I
-            if use_penalty:
-                grad = grad - 2 * penalty * beta
-                hess = hess - 2 * penalty * np.eye(n_features, dtype=np.float64)
-
-            # Solve a Newton-like step on (-hess). In practice, different tie paths
-            # may expose Hessian with different sign conventions, so we choose the
-            # ascent direction adaptively below using objective evaluation.
-            try:
-                delta = np.linalg.solve(-hess, grad)
-            except np.linalg.LinAlgError:
-                # Use pseudo-inverse if singular
-                delta = np.linalg.lstsq(-hess, grad, rcond=None)[0]
-
-            # Line search with step halving
-            # Compute log-likelihood at current point
-            old_ll = self._compute_log_likelihood(
-                beta, X_sorted, time_sorted, event_sorted, self._efron_pre, entry=entry_sorted
+            penalized_grad = grad_data - 2.0 * penalty * beta
+            kkt_inf = float(np.linalg.norm(penalized_grad, ord=np.inf))
+            kkt_norm = kkt_inf / (
+                1.0
+                + float(np.linalg.norm(grad_data, ord=np.inf))
+                + 2.0 * penalty * float(np.linalg.norm(beta, ord=np.inf))
             )
-            if use_penalty:
-                old_ll = old_ll - penalty * np.sum(beta ** 2)
-
-            # Fast path: try preferred direction first, only test opposite
-            # when the preferred full step does not improve.
-            direction = preferred_direction
-            new_beta = beta + direction * delta
-            new_ll = self._compute_log_likelihood(
-                new_beta, X_sorted, time_sorted, event_sorted, self._efron_pre, entry=entry_sorted
-            )
-            if use_penalty:
-                new_ll = new_ll - penalty * np.sum(new_beta ** 2)
-
-            if new_ll <= old_ll - 1e-8:
-                # Probe the opposite direction only when needed.
-                if entry_sorted is None:
-                    alt_direction = -direction
-                    alt_beta = beta + alt_direction * delta
-                    alt_ll = self._compute_log_likelihood(
-                        alt_beta, X_sorted, time_sorted, event_sorted, self._efron_pre, entry=entry_sorted
-                    )
-                    if use_penalty:
-                        alt_ll = alt_ll - penalty * np.sum(alt_beta ** 2)
-                    if alt_ll > new_ll:
-                        direction = alt_direction
-                        preferred_direction = alt_direction
-                        new_beta = alt_beta
-                        new_ll = alt_ll
-
-                # Backtracking line search from step=0.5; step=1 was already evaluated.
-                if new_ll <= old_ll - 1e-8:
-                    step = 0.5
-                    for _ in range(20):
-                        trial_beta = beta + direction * step * delta
-                        trial_ll = self._compute_log_likelihood(
-                            trial_beta, X_sorted, time_sorted, event_sorted, self._efron_pre, entry=entry_sorted
-                        )
-                        if use_penalty:
-                            trial_ll = trial_ll - penalty * np.sum(trial_beta ** 2)
-                        if trial_ll > old_ll - 1e-8:
-                            new_beta = trial_beta
-                            new_ll = trial_ll
-                            break
-                        step *= 0.5
-                else:
-                    step = 1.0
-            else:
-                # Keep successful direction for the next iteration.
-                preferred_direction = direction
-                step = 1.0
-
-            # Check convergence
-            if np.linalg.norm(delta) * step < self.tol:
+            if kkt_norm <= kkt_tol:
                 self._converged = True
-                beta = new_beta
+                self._termination_reason = 'kkt_converged'
+                self._final_kkt_inf = kkt_inf
+                self._final_kkt_normalized = kkt_norm
                 break
 
-            beta = new_beta
+            information = self._observed_information(hess_data)
+            if use_penalty:
+                information = information + 2.0 * penalty * identity
+            try:
+                delta = np.linalg.solve(information, penalized_grad)
+            except np.linalg.LinAlgError:
+                delta = np.linalg.lstsq(information, penalized_grad, rcond=None)[0]
+
+            accepted = False
+            accepted_beta = beta
+            accepted_obj = current_obj
+            for direction in (1.0, -1.0):
+                step = 1.0
+                for _ in range(21):
+                    trial_beta = beta + direction * step * delta
+                    trial_obj = self._compute_log_likelihood(
+                        trial_beta, X_sorted, time_sorted, event_sorted, self._efron_pre
+                    ) - penalty * float(trial_beta @ trial_beta)
+                    if np.isfinite(trial_obj) and trial_obj >= current_obj - objective_tol:
+                        accepted = True
+                        accepted_beta = trial_beta
+                        accepted_obj = float(trial_obj)
+                        break
+                    step *= 0.5
+                if accepted:
+                    break
+
+            if not accepted:
+                self._converged = False
+                self._termination_reason = 'line_search_failed'
+                break
+
+            update_norm = float(np.linalg.norm(accepted_beta - beta))
+            beta = accepted_beta
+            current_obj = accepted_obj
+            self._objective_history.append(current_obj)
+
+            if update_norm < max(self.tol * (1.0 + float(np.linalg.norm(beta))), 1e-8):
+                trial_grad, _ = self._compute_gradient_hessian(
+                    beta, X_sorted, time_sorted, event_sorted, self._efron_pre
+                )
+                trial_pen_grad = trial_grad - 2.0 * penalty * beta
+                trial_kkt_inf = float(np.linalg.norm(trial_pen_grad, ord=np.inf))
+                trial_kkt_norm = trial_kkt_inf / (
+                    1.0
+                    + float(np.linalg.norm(trial_grad, ord=np.inf))
+                    + 2.0 * penalty * float(np.linalg.norm(beta, ord=np.inf))
+                )
+                self._final_kkt_inf = trial_kkt_inf
+                self._final_kkt_normalized = trial_kkt_norm
+                if trial_kkt_norm <= kkt_tol:
+                    self._converged = True
+                    self._termination_reason = 'kkt_converged'
+                else:
+                    self._converged = False
+                    self._termination_reason = 'stalled_with_large_kkt'
+                break
+
+        final_grad, final_hess = self._compute_gradient_hessian(
+            beta, X_sorted, time_sorted, event_sorted, self._efron_pre
+        )
+        final_pen_grad = final_grad - 2.0 * penalty * beta
+        self._final_kkt_inf = float(np.linalg.norm(final_pen_grad, ord=np.inf))
+        self._final_kkt_normalized = self._final_kkt_inf / (
+            1.0
+            + float(np.linalg.norm(final_grad, ord=np.inf))
+            + 2.0 * penalty * float(np.linalg.norm(beta, ord=np.inf))
+        )
+        if self._final_kkt_normalized <= kkt_tol:
+            self._converged = True
+            self._termination_reason = 'kkt_converged'
+        elif self._converged:
+            self._converged = False
+            self._termination_reason = 'stalled_with_large_kkt'
         
         self._iterations = iteration + 1
         self.coef_ = beta
@@ -754,11 +950,12 @@ class CoxPH(BaseEstimator):
         self._log_likelihood = self._compute_log_likelihood(
             beta, X_sorted, time_sorted, event_sorted, self._efron_pre, entry=entry_sorted
         )
+        self._penalized_objective = self._log_likelihood - penalty * float(beta @ beta)
         
         # Compute optional inference statistics
         if self.compute_inference:
             self._compute_inference_cpu(X_sorted, time_sorted, event_sorted, cluster_sorted)
-            self._compute_baseline_hazard(X_sorted, time_sorted, event_sorted)
+            self._compute_baseline_hazard(X_sorted, time_sorted, event_sorted, entry=entry_sorted)
         else:
             self._var_matrix = None
             self._bse = None
@@ -775,53 +972,25 @@ class CoxPH(BaseEstimator):
             self._baseline_cumulative_hazard = None
             self._unique_times = None
 
-        # Release large temporary GPU tensors early.
-        try:
-            del X_sorted
-        except Exception:
-            pass
-        try:
-            del time_sorted
-        except Exception:
-            pass
-        try:
-            del event_sorted
-        except Exception:
-            pass
-        try:
-            del grad
-        except Exception:
-            pass
-        try:
-            del hess
-        except Exception:
-            pass
-        try:
-            del delta
-        except Exception:
-            pass
-        self._cleanup_cuda_memory()
         if self.compute_cindex:
             self._compute_cindex()
         else:
             self._cindex = None
 
     def _fit_cpu_with_entry(self, X, time, event, entry, cluster=None):
-        """Fit using statsmodels PHReg when delayed entry is provided.
-
-        Note: L2 penalty is not applied in this path (statsmodels PHReg
-        does not support penalized fitting). A warning is emitted when
-        penalty is specified.
-        """
+        """Fit unpenalized delayed-entry data with statsmodels PHReg."""
         if float(self.penalty) > 0:
-            import warnings
-            warnings.warn(
-                "CoxPH with entry (delayed entry) does not support penalties via "
-                "statsmodels PHReg. The penalty will be ignored. "
-                "Use the GPU/torch path for penalized Cox with delayed entry.",
-                UserWarning, stacklevel=3,
+            raise NotImplementedError(
+                'CPU delayed-entry CoxPH with penalty is not implemented; '
+                'use device=cuda or device=torch.'
             )
-        import statsmodels.duration.api as smd
+        try:
+            import statsmodels.duration.api as smd
+        except ImportError as exc:
+            raise ImportError(
+                'CPU delayed-entry CoxPH requires statsmodels. '
+                'Install with: pip install statgpu[survival]'
+            ) from exc
 
         n_samples, n_features = X.shape
         model = smd.PHReg(time, X, status=event, entry=entry, ties=self.ties)
@@ -833,6 +1002,34 @@ class CoxPH(BaseEstimator):
         self.coef_ = np.asarray(res.params, dtype=np.float64)
         self.hazard_ratios_ = np.exp(self.coef_)
         self._log_likelihood = float(res.llf)
+        self._penalized_objective = self._log_likelihood
+        self._objective_history = [self._penalized_objective]
+
+        order = np.argsort(time, kind='stable')
+        X_sorted = np.asarray(X, dtype=np.float64)[order]
+        time_sorted = np.asarray(time, dtype=np.float64)[order]
+        event_sorted = np.asarray(event, dtype=np.int32)[order]
+        entry_sorted = np.asarray(entry, dtype=np.float64)[order]
+        efron_pre = (
+            self._efron_unique_failure_indices(time_sorted, event_sorted)
+            if self.ties == 'efron'
+            else None
+        )
+        final_grad, _ = self._compute_gradient_hessian(
+            self.coef_, X_sorted, time_sorted, event_sorted,
+            efron_pre, entry=entry_sorted,
+        )
+        self._final_kkt_inf = float(np.linalg.norm(final_grad, ord=np.inf))
+        self._final_kkt_normalized = self._final_kkt_inf / (
+            1.0 + float(np.linalg.norm(final_grad, ord=np.inf))
+        )
+        kkt_tol = max(self.tol * 1e-3, 1e-9)
+        if self._final_kkt_normalized <= kkt_tol:
+            self._converged = True
+            self._termination_reason = 'kkt_converged'
+        else:
+            self._converged = False
+            self._termination_reason = 'stalled_with_large_kkt'
 
         try:
             null_model = smd.PHReg(time, np.zeros((n_samples, 1), dtype=np.float64), status=event, entry=entry, ties=self.ties)
@@ -841,44 +1038,48 @@ class CoxPH(BaseEstimator):
         except Exception:
             self._log_likelihood_null = np.nan
 
-        cov = np.asarray(res.cov_params(), dtype=np.float64)
-        if cov.shape != (n_features, n_features):
-            cov = np.full((n_features, n_features), np.nan, dtype=np.float64)
-        self._var_matrix = cov
-        self._bse = np.sqrt(np.maximum(np.diag(cov), 0.0))
-        self._zvalues = self.coef_ / (self._bse + 1e-30)
-        self._pvalues = 2 * (1 - stats.norm.cdf(np.abs(self._zvalues)))
-        self._conf_int = np.asarray(res.conf_int(), dtype=np.float64)
+        if self.compute_inference:
+            cov = np.asarray(res.cov_params(), dtype=np.float64)
+            if cov.shape != (n_features, n_features):
+                cov = np.full((n_features, n_features), np.nan, dtype=np.float64)
+            self._var_matrix = cov
+            self._bse = np.sqrt(np.maximum(np.diag(cov), 0.0))
+            self._zvalues = self.coef_ / (self._bse + 1e-30)
+            self._pvalues = 2 * stats.norm.sf(np.abs(self._zvalues))
+            self._conf_int = np.asarray(res.conf_int(), dtype=np.float64)
+            self.inference_method_ = 'phreg_observed_information'
+            self.inference_backend_ = 'statsmodels'
+            self.inference_approximate_ = False
 
-        # Delayed-entry robust covariance override is intentionally skipped:
-        # current internal robust score/hessian helpers do not account for entry.
+            # Delayed-entry robust covariance override is intentionally skipped:
+            # current internal robust score/hessian helpers do not account for entry.
 
-        self._lr_test_stat = 2 * (self._log_likelihood - self._log_likelihood_null)
-        self._lr_test_pvalue = 1 - stats.chi2.cdf(self._lr_test_stat, n_features)
-        try:
-            var_inv = np.linalg.solve(self._var_matrix, np.eye(n_features))
-            self._wald_test_stat = self.coef_ @ var_inv @ self.coef_
-        except np.linalg.LinAlgError:
-            self._wald_test_stat = np.nan
-        self._wald_test_pvalue = 1 - stats.chi2.cdf(self._wald_test_stat, n_features)
-        self._score_test_stat = np.nan
-        self._score_test_pvalue = np.nan
+            self._lr_test_stat = 2 * (self._log_likelihood - self._log_likelihood_null)
+            self._lr_test_pvalue = float(chi2.sf(self._lr_test_stat, df=n_features))
+            try:
+                var_inv = np.linalg.solve(self._var_matrix, np.eye(n_features))
+                self._wald_test_stat = self.coef_ @ var_inv @ self.coef_
+            except np.linalg.LinAlgError:
+                self._wald_test_stat = np.nan
+            self._wald_test_pvalue = float(chi2.sf(self._wald_test_stat, df=n_features))
+            self._score_test_stat = np.nan
+            self._score_test_pvalue = np.nan
 
-        # Baseline hazard from PHReg output.
-        try:
-            base = res.baseline_cumulative_hazard[0]
-            self._unique_times = np.asarray(base[0], dtype=np.float64)
-            self._baseline_cumulative_hazard = np.asarray(base[1], dtype=np.float64)
-            if self._baseline_cumulative_hazard.size > 0:
-                self._baseline_hazard = np.diff(
-                    np.concatenate([[0.0], self._baseline_cumulative_hazard])
-                )
-            else:
-                self._baseline_hazard = np.array([], dtype=np.float64)
-        except Exception:
-            self._baseline_hazard = None
-            self._baseline_cumulative_hazard = None
-            self._unique_times = None
+            # Baseline hazard from PHReg output.
+            try:
+                base = res.baseline_cumulative_hazard[0]
+                self._unique_times = np.asarray(base[0], dtype=np.float64)
+                self._baseline_cumulative_hazard = np.asarray(base[1], dtype=np.float64)
+                if self._baseline_cumulative_hazard.size > 0:
+                    self._baseline_hazard = np.diff(
+                        np.concatenate([[0.0], self._baseline_cumulative_hazard])
+                    )
+                else:
+                    self._baseline_hazard = np.array([], dtype=np.float64)
+            except Exception:
+                self._baseline_hazard = None
+                self._baseline_cumulative_hazard = None
+                self._unique_times = None
 
         if self.compute_cindex:
             self._compute_cindex()
@@ -889,7 +1090,7 @@ class CoxPH(BaseEstimator):
         """Fit using GPU with full GPU computation."""
         import cupy as cp
         from statgpu.inference._distributions_backend import norm
-        
+
         n_samples, n_features = X.shape
 
         # Transfer to GPU once
@@ -1051,111 +1252,186 @@ class CoxPH(BaseEstimator):
             else None
         )
 
-        # Newton-Raphson optimization on GPU
+        # Newton-Raphson optimization on GPU with KKT-based convergence
         loglik_gpu = None
         current_obj = None
-        iteration = -1  # default if max_iter=0
+        iteration = -1
+        kkt_tol = max(self.tol * 1e-3, 1e-9)  # KKT threshold
+        objective_tol = 1e-10
+        self._termination_reason = "max_iter"
+        self._final_kkt_inf = None
+        self._final_kkt_normalized = None
+
         for iteration in range(self.max_iter):
-            # Compute gradient and Hessian on GPU
+            # Compute gradient and Hessian at CURRENT beta_k
             grad, hess, aux_stats = self._compute_gradient_hessian_gpu(
                 beta, X_sorted, time_sorted, event_sorted, efron_pre, return_aux=True, entry=entry_sorted, entry_ctx=entry_ctx_gpu
             )
 
-            # Add penalty terms: gradient -= 2*penalty*beta, hessian -= 2*penalty*I
+            # Check KKT at current beta BEFORE taking the step.
             if use_penalty:
-                grad = grad - 2 * penalty * beta
-                # In-place diagonal shift avoids allocating a new dense eye each iteration.
+                pen_grad = grad - 2 * penalty * beta
+            else:
+                pen_grad = grad
+            kkt_inf = float(cp.linalg.norm(pen_grad, ord=cp.inf).item())
+            grad_inf = float(cp.linalg.norm(grad, ord=cp.inf).item())
+            beta_inf = float(cp.linalg.norm(beta, ord=cp.inf).item())
+            kkt_norm = kkt_inf / (1.0 + grad_inf + 2.0 * penalty * beta_inf)
+
+            if kkt_norm <= kkt_tol:
+                self._converged = True
+                self._termination_reason = "kkt_converged"
+                self._final_kkt_inf = kkt_inf
+                self._final_kkt_normalized = kkt_norm
+                break
+
+            # Add penalty terms for Newton step
+            if use_penalty:
+                grad = pen_grad
                 hess[diag_idx, diag_idx] -= 2 * penalty
 
             # Newton: delta = inv(hess) @ grad; hess is NSD — solve (-hess) x = grad, delta = -x
             delta = self._solve_newton_delta_gpu(hess, grad, cp, eye_cache=eye_cache)
-            step = 1.0
-            accepted_step = True
-            if entry_sorted is not None:
-                if current_obj is None:
-                    old_ll = self._compute_log_likelihood_gpu_from_stats(
-                        aux_stats[0], aux_stats[1], aux_stats[2], time_sorted, event_sorted, efron_pre, entry=entry_sorted, entry_ctx=entry_ctx_gpu
-                    )
-                    if use_penalty:
-                        old_ll = old_ll - penalty * cp.sum(beta * beta)
-                    current_obj = old_ll
-                else:
-                    old_ll = current_obj
-                new_beta = beta - delta
-                new_ll = self._compute_log_likelihood_gpu(
-                    new_beta, X_sorted, time_sorted, event_sorted, efron_pre, entry=entry_sorted, entry_ctx=entry_ctx_gpu
+            if current_obj is None:
+                current_obj = self._compute_log_likelihood_gpu_from_stats(
+                    aux_stats[0], aux_stats[1], aux_stats[2],
+                    time_sorted, event_sorted, efron_pre,
+                    entry=entry_sorted, entry_ctx=entry_ctx_gpu,
                 )
                 if use_penalty:
-                    new_ll = new_ll - penalty * cp.sum(new_beta * new_beta)
-                if float((new_ll - old_ll).item()) <= -1e-8:
-                    step = 0.5
-                    accepted = False
-                    for _ in range(20):
-                        trial_beta = beta - step * delta
-                        trial_ll = self._compute_log_likelihood_gpu(
-                            trial_beta, X_sorted, time_sorted, event_sorted, efron_pre, entry=entry_sorted, entry_ctx=entry_ctx_gpu
-                        )
-                        if use_penalty:
-                            trial_ll = trial_ll - penalty * cp.sum(trial_beta * trial_beta)
-                        if float((trial_ll - old_ll).item()) > -1e-8:
-                            beta = trial_beta
-                            current_obj = trial_ll
-                            accepted = True
-                            break
-                        step *= 0.5
-                    if not accepted:
-                        accepted_step = False
-                else:
-                    beta = new_beta
-                    current_obj = new_ll
-            else:
-                beta = beta - delta
+                    current_obj = current_obj - penalty * cp.sum(beta * beta)
+                self._objective_history = [float(current_obj.item())]
 
-            # Check convergence on GPU
-            if entry_sorted is not None:
-                delta_norm = float(cp.linalg.norm(delta).item())
-                if accepted_step and delta_norm * step < self.tol:
-                    self._converged = True
-                    loglik_gpu = self._compute_log_likelihood_gpu(
-                        beta, X_sorted, time_sorted, event_sorted, efron_pre, entry=entry_sorted, entry_ctx=entry_ctx_gpu
+            accepted_step = False
+            accepted_beta = beta
+            accepted_obj = current_obj
+            accepted_step_size = 0.0
+            for direction in (-1.0, 1.0):
+                step = 1.0
+                for _ in range(21):
+                    trial_beta = beta + direction * step * delta
+                    trial_obj = self._compute_log_likelihood_gpu(
+                        trial_beta, X_sorted, time_sorted, event_sorted, efron_pre,
+                        entry=entry_sorted, entry_ctx=entry_ctx_gpu,
                     )
+                    if use_penalty:
+                        trial_obj = trial_obj - penalty * cp.sum(trial_beta * trial_beta)
+                    if float((trial_obj - current_obj).item()) >= -objective_tol:
+                        accepted_step = True
+                        accepted_beta = trial_beta
+                        accepted_obj = trial_obj
+                        accepted_step_size = step
+                        break
+                    step *= 0.5
+                if accepted_step:
                     break
-            else:
-                grad_norm = float(cp.linalg.norm(grad).item())
-                delta_norm = float(cp.linalg.norm(delta).item())
-                if accepted_step and grad_norm < max(self.tol * 10.0, 1e-8) and delta_norm * step < self.tol:
+
+            if accepted_step:
+                beta = accepted_beta
+                current_obj = accepted_obj
+                self._objective_history.append(float(current_obj.item()))
+
+            # Step-norm check: must verify KKT before declaring convergence.
+            if not accepted_step:
+                self._termination_reason = "line_search_failed"
+                self._converged = False
+                break
+
+            delta_norm = float(cp.linalg.norm(delta).item())
+            step_norm = delta_norm * accepted_step_size
+            if step_norm < max(self.tol * (1.0 + float(cp.linalg.norm(beta).item())), 1e-8):
+                # Step is small — check if KKT is actually satisfied.
+                grad_check, hess_check, _aux_check = self._compute_gradient_hessian_gpu(
+                    beta, X_sorted, time_sorted, event_sorted, efron_pre, return_aux=True,
+                    entry=entry_sorted, entry_ctx=entry_ctx_gpu,
+                )
+                if use_penalty:
+                    pg = grad_check - 2 * penalty * beta
+                else:
+                    pg = grad_check
+                kkt_check = float(cp.linalg.norm(pg, ord=cp.inf).item())
+                kkt_n_check = kkt_check / (
+                    1.0 + float(cp.linalg.norm(grad_check, ord=cp.inf).item())
+                    + 2.0 * penalty * float(cp.linalg.norm(beta, ord=cp.inf).item())
+                )
+                if kkt_n_check <= kkt_tol:
                     self._converged = True
-                    # Reuse current iteration statistics to avoid an extra
-                    # Efron log-likelihood setup pass when converged.
-                    eta_cur, exp_eta_cur, risk_sum_cur = aux_stats
-                    loglik_gpu = self._compute_log_likelihood_gpu_from_stats(
-                        eta_cur, exp_eta_cur, risk_sum_cur, time_sorted, event_sorted, efron_pre, entry=entry_sorted
-                    )
-                    break
-        
-        # Compute final log-likelihood on GPU unless already obtained on convergence.
-        if loglik_gpu is None:
-            loglik_gpu = self._compute_log_likelihood_gpu(
-                beta, X_sorted, time_sorted, event_sorted, efron_pre
-                , entry=entry_sorted, entry_ctx=entry_ctx_gpu
+                    self._termination_reason = "kkt_converged"
+                    self._final_kkt_inf = kkt_check
+                    self._final_kkt_normalized = kkt_n_check
+                else:
+                    self._converged = False
+                    self._termination_reason = "stalled_with_large_kkt"
+                    self._final_kkt_inf = kkt_check
+                    self._final_kkt_normalized = kkt_n_check
+                break
+
+        # Compute final KKT at exit point if not done yet.
+        if self._final_kkt_inf is None:
+            grad_final, hess_final, _aux_final = self._compute_gradient_hessian_gpu(
+                beta, X_sorted, time_sorted, event_sorted, efron_pre, return_aux=True,
+                entry=entry_sorted, entry_ctx=entry_ctx_gpu,
             )
-        
+            if use_penalty:
+                pen_grad_final = grad_final - 2 * penalty * beta
+            else:
+                pen_grad_final = grad_final
+            self._final_kkt_inf = float(cp.linalg.norm(pen_grad_final, ord=cp.inf).item())
+            self._final_kkt_normalized = self._final_kkt_inf / (
+                1.0 + float(cp.linalg.norm(grad_final, ord=cp.inf).item())
+                + 2.0 * penalty * float(cp.linalg.norm(beta, ord=cp.inf).item())
+            )
+
+        # Override _converged if final KKT is too large.
+        if (self._final_kkt_normalized is not None
+                and self._final_kkt_normalized > kkt_tol):
+            if self._converged:
+                self._termination_reason = "stalled_with_large_kkt"
+            self._converged = False
+
+        # Recompute gradient, Hessian, and log-likelihood at final beta
+        # so that coef_, _log_likelihood, and _var_matrix are all anchored
+        # at the same parameter point, regardless of convergence path.
+        final_hess = None
+        if self.compute_inference:
+            _, final_hess, final_aux = self._compute_gradient_hessian_gpu(
+                beta, X_sorted, time_sorted, event_sorted, efron_pre,
+                return_aux=True, entry=entry_sorted, entry_ctx=entry_ctx_gpu,
+            )
+            if use_penalty:
+                final_hess[diag_idx, diag_idx] -= 2.0 * penalty
+            loglik_gpu = self._compute_log_likelihood_gpu_from_stats(
+                final_aux[0], final_aux[1], final_aux[2],
+                time_sorted, event_sorted, efron_pre, entry=entry_sorted,
+            )
+        else:
+            loglik_gpu = self._compute_log_likelihood_gpu(
+                beta, X_sorted, time_sorted, event_sorted, efron_pre,
+                entry=entry_sorted, entry_ctx=entry_ctx_gpu,
+            )
+
         # Single transfer at the end
         self._iterations = iteration + 1
         self.coef_ = cp.asnumpy(beta)
         self.hazard_ratios_ = np.exp(self.coef_)
         self._log_likelihood_null = float(cp.asnumpy(loglik_null_gpu))
         self._log_likelihood = float(cp.asnumpy(loglik_gpu))
+        self._penalized_objective = (
+            self._log_likelihood - penalty * float(np.dot(self.coef_, self.coef_))
+        )
+        if not self._objective_history:
+            self._objective_history = [self._penalized_objective]
         if self.compute_cindex:
             cindex_gpu = self._compute_cindex_gpu(X_sorted, time_sorted, event_sorted, beta)
             self._cindex = float(cp.asnumpy(cindex_gpu))
         else:
             self._cindex = None
-        
+
         # Inference:
         # - nonrobust: stay on GPU to avoid expensive host transfers/recompute
         # - hc0/hc1/cluster: use CPU inference path (current implementation)
         if self.compute_inference:
+            hess = final_hess  # use final-beta Hessian
             if self.cov_type == "nonrobust":
                 try:
                     info = -hess
@@ -1173,21 +1449,26 @@ class CoxPH(BaseEstimator):
                 self._zvalues = cp.asnumpy(z_gpu)
                 self._pvalues = cp.asnumpy(p_gpu)
                 self._conf_int = cp.asnumpy(ci_gpu)
-                self._var_matrix = np.diag(np.square(self._bse))
+                self._var_matrix = cp.asnumpy(var_gpu)
+                self.inference_method_ = (
+                    'penalized_observed_information'
+                    if self.penalty > 0 else 'observed_information'
+                )
+                self.inference_backend_ = 'cupy'
+                self.inference_approximate_ = False
+                self._var_matrix = 0.5 * (self._var_matrix + self._var_matrix.T)  # numerical symmetrization
                 self._lr_test_stat = 2 * (self._log_likelihood - self._log_likelihood_null)
-                self._lr_test_pvalue = 1 - stats.chi2.cdf(self._lr_test_stat, n_features)
+                self._lr_test_pvalue = float(chi2.sf(self._lr_test_stat, df=n_features))
                 try:
                     var_inv = np.linalg.solve(self._var_matrix, np.eye(self._var_matrix.shape[0]))
                     self._wald_test_stat = self.coef_ @ var_inv @ self.coef_
                 except np.linalg.LinAlgError:
                     self._wald_test_stat = np.nan
-                self._wald_test_pvalue = 1 - stats.chi2.cdf(self._wald_test_stat, n_features)
+                self._wald_test_pvalue = float(chi2.sf(self._wald_test_stat, df=n_features))
                 self._score_test_stat = np.nan
                 self._score_test_pvalue = np.nan
-                # Keep baseline hazard optional in CUDA fast path to reduce transfer overhead.
-                self._baseline_hazard = None
-                self._baseline_cumulative_hazard = None
-                self._unique_times = None
+                # Compute baseline hazard on GPU — consistent with Torch and CPU paths.
+                self._compute_baseline_hazard_gpu(X_sorted, time_sorted, event_sorted, beta, entry=entry_sorted)
             else:
                 score_resid_gpu = self._compute_robust_score_residuals_gpu(X_sorted, time_sorted, event_sorted)
                 try:
@@ -1226,17 +1507,17 @@ class CoxPH(BaseEstimator):
                 self._pvalues = cp.asnumpy(p_gpu)
                 self._conf_int = cp.asnumpy(ci_gpu)
                 self._lr_test_stat = 2 * (self._log_likelihood - self._log_likelihood_null)
-                self._lr_test_pvalue = 1 - stats.chi2.cdf(self._lr_test_stat, n_features)
+                self._lr_test_pvalue = float(chi2.sf(self._lr_test_stat, df=n_features))
                 try:
                     var_inv = np.linalg.solve(self._var_matrix, np.eye(self._var_matrix.shape[0]))
                     self._wald_test_stat = self.coef_ @ var_inv @ self.coef_
                 except np.linalg.LinAlgError:
                     self._wald_test_stat = np.nan
-                self._wald_test_pvalue = 1 - stats.chi2.cdf(self._wald_test_stat, n_features)
+                self._wald_test_pvalue = float(chi2.sf(self._wald_test_stat, df=n_features))
                 self._score_test_stat = np.nan
                 self._score_test_pvalue = np.nan
                 # Compute baseline hazard on GPU
-                self._compute_baseline_hazard_gpu(X_sorted, time_sorted, event_sorted, beta)
+                self._compute_baseline_hazard_gpu(X_sorted, time_sorted, event_sorted, beta, entry=entry_sorted)
         else:
             self._var_matrix = None
             self._bse = None
@@ -1402,90 +1683,160 @@ class CoxPH(BaseEstimator):
         use_penalty = penalty > 0.0
         diag_idx = torch.arange(n_features, dtype=torch.long, device=torch_device) if use_penalty else None
 
-        # Newton-Raphson optimization on Torch
-        iteration = 0
+        # Newton-Raphson optimization on Torch with KKT-based convergence
+        iteration = -1
         loglik_torch = None
         current_obj = None
+        kkt_tol = max(self.tol * 1e-3, 1e-9)
+        objective_tol = 1e-10
+        self._termination_reason = "max_iter"
+        self._final_kkt_inf = None
+        self._final_kkt_normalized = None
+
         for iteration in range(self.max_iter):
-            # Compute gradient and Hessian on Torch
+            # Compute gradient and Hessian at CURRENT beta_k
             grad, hess, aux_stats = self._compute_gradient_hessian_torch(
                 beta, X_sorted, time_sorted, event_sorted, efron_pre, return_aux=True, entry=entry_sorted, entry_ctx=entry_ctx_torch
             )
 
-            # Add penalty terms: gradient -= 2*penalty*beta, hessian -= 2*penalty*I
+            # Check KKT at current beta BEFORE taking the step.
             if use_penalty:
-                grad = grad - 2 * penalty * beta
+                pen_grad = grad - 2 * penalty * beta
+            else:
+                pen_grad = grad
+            kkt_inf = float(torch.linalg.norm(pen_grad, ord=float('inf')).item())
+            grad_inf = float(torch.linalg.norm(grad, ord=float('inf')).item())
+            beta_inf = float(torch.linalg.norm(beta, ord=float('inf')).item())
+            kkt_norm = kkt_inf / (1.0 + grad_inf + 2.0 * penalty * beta_inf)
+
+            if kkt_norm <= kkt_tol:
+                self._converged = True
+                self._termination_reason = "kkt_converged"
+                self._final_kkt_inf = kkt_inf
+                self._final_kkt_normalized = kkt_norm
+                break
+
+            # Add penalty terms for Newton step
+            if use_penalty:
+                grad = pen_grad
                 hess[diag_idx, diag_idx] -= 2 * penalty
 
             # Newton: delta = inv(hess) @ grad; hess is NSD — solve (-hess) x = grad, delta = -x
             delta = self._solve_newton_delta_torch(hess, grad)
-            step = 1.0
-            accepted_step = True
-            if entry_sorted is not None:
-                if current_obj is None:
-                    old_ll = self._compute_log_likelihood_torch_from_stats(
-                        aux_stats[0], aux_stats[1], aux_stats[2], time_sorted, event_sorted, efron_pre, entry=entry_sorted, entry_ctx=entry_ctx_torch
-                    )
-                    if use_penalty:
-                        old_ll = old_ll - penalty * torch.sum(beta * beta)
-                    current_obj = old_ll
-                else:
-                    old_ll = current_obj
-                new_beta = beta - delta
-                new_ll = self._compute_log_likelihood_torch(
-                    new_beta, X_sorted, time_sorted, event_sorted, efron_pre, entry=entry_sorted, entry_ctx=entry_ctx_torch
+            if current_obj is None:
+                current_obj = self._compute_log_likelihood_torch_from_stats(
+                    aux_stats[0], aux_stats[1], aux_stats[2],
+                    time_sorted, event_sorted, efron_pre,
+                    entry=entry_sorted, entry_ctx=entry_ctx_torch,
                 )
                 if use_penalty:
-                    new_ll = new_ll - penalty * torch.sum(new_beta * new_beta)
-                if float((new_ll - old_ll).item()) <= -1e-8:
-                    step = 0.5
-                    accepted = False
-                    for _ in range(20):
-                        trial_beta = beta - step * delta
-                        trial_ll = self._compute_log_likelihood_torch(
-                            trial_beta, X_sorted, time_sorted, event_sorted, efron_pre, entry=entry_sorted, entry_ctx=entry_ctx_torch
-                        )
-                        if use_penalty:
-                            trial_ll = trial_ll - penalty * torch.sum(trial_beta * trial_beta)
-                        if float((trial_ll - old_ll).item()) > -1e-8:
-                            beta = trial_beta
-                            current_obj = trial_ll
-                            accepted = True
-                            break
-                        step *= 0.5
-                    if not accepted:
-                        accepted_step = False
+                    current_obj = current_obj - penalty * torch.sum(beta * beta)
+                self._objective_history = [float(current_obj.item())]
+
+            accepted_step = False
+            accepted_beta = beta
+            accepted_obj = current_obj
+            accepted_step_size = 0.0
+            for direction in (-1.0, 1.0):
+                step = 1.0
+                for _ in range(21):
+                    trial_beta = beta + direction * step * delta
+                    trial_obj = self._compute_log_likelihood_torch(
+                        trial_beta, X_sorted, time_sorted, event_sorted, efron_pre,
+                        entry=entry_sorted, entry_ctx=entry_ctx_torch,
+                    )
+                    if use_penalty:
+                        trial_obj = trial_obj - penalty * torch.sum(trial_beta * trial_beta)
+                    if float((trial_obj - current_obj).item()) >= -objective_tol:
+                        accepted_step = True
+                        accepted_beta = trial_beta
+                        accepted_obj = trial_obj
+                        accepted_step_size = step
+                        break
+                    step *= 0.5
+                if accepted_step:
+                    break
+
+            if accepted_step:
+                beta = accepted_beta
+                current_obj = accepted_obj
+                self._objective_history.append(float(current_obj.item()))
+
+            # Step-norm check: must verify KKT before declaring convergence.
+            if not accepted_step:
+                self._termination_reason = "line_search_failed"
+                self._converged = False
+                break
+
+            delta_norm = float(torch.linalg.norm(delta).item())
+            step_norm = delta_norm * accepted_step_size
+            if step_norm < max(self.tol * (1.0 + float(torch.linalg.norm(beta).item())), 1e-8):
+                grad_check, hess_check, _aux_check = self._compute_gradient_hessian_torch(
+                    beta, X_sorted, time_sorted, event_sorted, efron_pre, return_aux=True,
+                    entry=entry_sorted, entry_ctx=entry_ctx_torch,
+                )
+                if use_penalty:
+                    pg = grad_check - 2 * penalty * beta
                 else:
-                    beta = new_beta
-                    current_obj = new_ll
-            else:
-                beta = beta - delta
-
-            # Check convergence
-            if entry_sorted is not None:
-                delta_norm = float(torch.linalg.norm(delta).item())
-                if accepted_step and delta_norm * step < self.tol:
+                    pg = grad_check
+                kkt_check = float(torch.linalg.norm(pg, ord=float('inf')).item())
+                kkt_n_check = kkt_check / (
+                    1.0 + float(torch.linalg.norm(grad_check, ord=float('inf')).item())
+                    + 2.0 * penalty * float(torch.linalg.norm(beta, ord=float('inf')).item())
+                )
+                if kkt_n_check <= kkt_tol:
                     self._converged = True
-                    loglik_torch = self._compute_log_likelihood_torch(
-                        beta, X_sorted, time_sorted, event_sorted, efron_pre, entry=entry_sorted, entry_ctx=entry_ctx_torch
-                    )
-                    break
-            else:
-                grad_norm = float(torch.linalg.norm(grad).item())
-                delta_norm = float(torch.linalg.norm(delta).item())
-                if accepted_step and grad_norm < max(self.tol * 10.0, 1e-8) and delta_norm * step < self.tol:
-                    self._converged = True
-                    eta_cur, exp_eta_cur, risk_sum_cur = aux_stats
-                    loglik_torch = self._compute_log_likelihood_torch_from_stats(
-                        eta_cur, exp_eta_cur, risk_sum_cur, time_sorted, event_sorted, efron_pre, entry=entry_sorted
-                    )
-                    break
+                    self._termination_reason = "kkt_converged"
+                    self._final_kkt_inf = kkt_check
+                    self._final_kkt_normalized = kkt_n_check
+                else:
+                    self._converged = False
+                    self._termination_reason = "stalled_with_large_kkt"
+                    self._final_kkt_inf = kkt_check
+                    self._final_kkt_normalized = kkt_n_check
+                break
 
-        # Compute final log-likelihood on Torch unless already obtained.
-        if loglik_torch is None:
+        # Compute final KKT at exit point if not done yet.
+        if self._final_kkt_inf is None:
+            grad_final, hess_final, _aux_final = self._compute_gradient_hessian_torch(
+                beta, X_sorted, time_sorted, event_sorted, efron_pre, return_aux=True,
+                entry=entry_sorted, entry_ctx=entry_ctx_torch,
+            )
+            if use_penalty:
+                pen_grad_final = grad_final - 2 * penalty * beta
+            else:
+                pen_grad_final = grad_final
+            self._final_kkt_inf = float(torch.linalg.norm(pen_grad_final, ord=float('inf')).item())
+            self._final_kkt_normalized = self._final_kkt_inf / (
+                1.0 + float(torch.linalg.norm(grad_final, ord=float('inf')).item())
+                + 2.0 * penalty * float(torch.linalg.norm(beta, ord=float('inf')).item())
+            )
+
+        # Override _converged if final KKT is too large.
+        if (self._final_kkt_normalized is not None
+                and self._final_kkt_normalized > kkt_tol):
+            if self._converged:
+                self._termination_reason = "stalled_with_large_kkt"
+            self._converged = False
+
+        # Recompute gradient, Hessian, and log-likelihood at final beta
+        # for consistent inference regardless of convergence path.
+        final_hess = None
+        if self.compute_inference:
+            _, final_hess, final_aux = self._compute_gradient_hessian_torch(
+                beta, X_sorted, time_sorted, event_sorted, efron_pre,
+                return_aux=True, entry=entry_sorted, entry_ctx=entry_ctx_torch,
+            )
+            if use_penalty:
+                final_hess[diag_idx, diag_idx] -= 2.0 * penalty
+            loglik_torch = self._compute_log_likelihood_torch_from_stats(
+                final_aux[0], final_aux[1], final_aux[2],
+                time_sorted, event_sorted, efron_pre, entry=entry_sorted,
+            )
+        else:
             loglik_torch = self._compute_log_likelihood_torch(
-                beta, X_sorted, time_sorted, event_sorted, efron_pre
-                , entry=entry_sorted, entry_ctx=entry_ctx_torch
+                beta, X_sorted, time_sorted, event_sorted, efron_pre,
+                entry=entry_sorted, entry_ctx=entry_ctx_torch,
             )
 
         # Single transfer at the end
@@ -1494,6 +1845,11 @@ class CoxPH(BaseEstimator):
         self.hazard_ratios_ = np.exp(self.coef_)
         self._log_likelihood_null = float(loglik_null_torch.item())
         self._log_likelihood = float(loglik_torch.item())
+        self._penalized_objective = (
+            self._log_likelihood - penalty * float(np.dot(self.coef_, self.coef_))
+        )
+        if not self._objective_history:
+            self._objective_history = [self._penalized_objective]
         if self.compute_cindex:
             cindex_torch = self._compute_cindex_torch(X_sorted, time_sorted, event_sorted, beta)
             self._cindex = float(cindex_torch.item())
@@ -1502,6 +1858,7 @@ class CoxPH(BaseEstimator):
 
         # Inference: nonrobust on Torch, other types fall back to CPU
         if self.compute_inference:
+            hess = final_hess  # use final-beta Hessian
             if self.cov_type == "nonrobust":
                 try:
                     info = -hess
@@ -1518,26 +1875,32 @@ class CoxPH(BaseEstimator):
                 self._zvalues = z_torch.cpu().numpy()
                 self._pvalues = p_torch.cpu().numpy()
                 self._conf_int = ci_torch.cpu().numpy()
-                self._var_matrix = np.diag(np.square(self._bse))
+                self._var_matrix = var_torch.cpu().numpy()
+                self.inference_method_ = (
+                    'penalized_observed_information'
+                    if self.penalty > 0 else 'observed_information'
+                )
+                self.inference_backend_ = 'torch'
+                self.inference_approximate_ = False
+                self._var_matrix = 0.5 * (self._var_matrix + self._var_matrix.T)  # numerical symmetrization
                 self._lr_test_stat = 2 * (self._log_likelihood - self._log_likelihood_null)
-                self._lr_test_pvalue = 1 - stats.chi2.cdf(self._lr_test_stat, n_features)
+                self._lr_test_pvalue = float(chi2.sf(self._lr_test_stat, df=n_features))
                 try:
                     var_inv = np.linalg.solve(self._var_matrix, np.eye(self._var_matrix.shape[0]))
                     self._wald_test_stat = self.coef_ @ var_inv @ self.coef_
                 except np.linalg.LinAlgError:
                     self._wald_test_stat = np.nan
-                self._wald_test_pvalue = 1 - stats.chi2.cdf(self._wald_test_stat, n_features)
+                self._wald_test_pvalue = float(chi2.sf(self._wald_test_stat, df=n_features))
                 self._score_test_stat = np.nan
                 self._score_test_pvalue = np.nan
-                # Compute baseline hazard on Torch
-                self._compute_baseline_hazard_torch(X_sorted, time_sorted, event_sorted, beta)
             else:
                 # For hc0/hc1/cluster, use CPU inference path
+                self.full_host_transfer_performed_ = True
                 self._compute_inference_cpu(X_sorted.cpu().numpy(), time_sorted.cpu().numpy(), event_sorted.cpu().numpy(),
                                            cluster_sorted.cpu().numpy() if cluster_sorted is not None else None)
-                self._baseline_hazard = None
-                self._baseline_cumulative_hazard = None
-                self._unique_times = None
+            # Compute baseline hazard on Torch for all covariance types
+            if self.compute_inference:
+                self._compute_baseline_hazard_torch(X_sorted, time_sorted, event_sorted, beta, entry=entry_sorted)
         else:
             self._var_matrix = None
             self._bse = None
@@ -3180,19 +3543,25 @@ class CoxPH(BaseEstimator):
 
         if self.ties == "efron" and efron_pre is not None and entry is None:
             needs_exact_ties = not getattr(self, "_efron_all_singletons", False)
-            n_samples = int(X.shape[0])
-            avg_tie = float(n_samples) / max(1.0, float(_unpack_efron_pre6(efron_pre)[4]))
-            use_grouped_gemm = (
-                os.environ.get("STATGPU_EFRON_GROUPED_GEMM", "1").strip().lower()
-                in ("1", "true", "yes", "on")
-            )
-            # For real ties, use exact torch grouped GEMM path only.
-            if needs_exact_ties and (
-                use_grouped_gemm
-                and beta.is_cuda
-                and n_features <= 192
-                and avg_tie >= 24.0
-            ):
+
+            if needs_exact_ties:
+                # Triton as optional fast path.
+                if (
+                    os.environ.get("STATGPU_EFRON_TRITON", "0").strip().lower()
+                    in ("1", "true", "yes", "on")
+                    and beta.is_cuda
+                ):
+                    from statgpu.survival._cox_efron_triton import (
+                        compute_efron_grad_hess_triton,
+                    )
+                    triton_out = compute_efron_grad_hess_triton(X, beta, efron_pre)
+                    if triton_out is not None:
+                        grad, hess = triton_out
+                        if return_aux:
+                            return grad, hess, (eta, exp_eta, risk_sum)
+                        return grad, hess
+
+                # Mandatory exact fallback: grouped-GEMM for all real ties.
                 out = self._compute_gradient_hessian_efron_grouped_gemm_torch(
                     beta, X, efron_pre
                 )
@@ -3362,10 +3731,9 @@ class CoxPH(BaseEstimator):
         n_uft = len(uft)
         counts = torch.bincount(unique_inv).to(torch.float64)
 
-        # Get first index of each unique time
-        sorted_times, sort_idx = torch.sort(time)
-        first_in_sorted = torch.searchsorted(sorted_times, uft, side="left")
-        first_idx = sort_idx[first_in_sorted]
+        # The optimizer contract supplies a stable time-ascending array, so the
+        # left boundary is the complete tied risk set for each failure time.
+        first_idx = torch.searchsorted(time, uft, side="left")
 
         # Risk values at unique times
         risk_at_uft = risk_sum[first_idx]
@@ -3417,29 +3785,38 @@ class CoxPH(BaseEstimator):
         # hess = -sum_g (counts[g]/s0[g]) * risk_X2[g] + sum_g counts[g] * outer(E_X[g], E_X[g])
         # where risk_X2[g] = total - prefix[g], prefix = cumsum of outer products.
         total = risk_X2  # X_exp.T @ X
-        sc = weights / torch.clamp(risk_at_uft, min=1e-300)  # (n_uft,)
-
-        # Cumsum of outer products → prefix at each failure time
-        flat = (X_exp[:, :, None] * X[:, None, :]).reshape(n, n_features * n_features)
-        prefix_flat = torch.cumsum(flat, dim=0)  # (n, p*p)
-
-        # prefix_at_g[g] = prefix_flat[first_idx[g] - 1] if first_idx[g] > 0 else 0
-        prefix_at_g = torch.zeros((n_uft, n_features, n_features),
-                                  dtype=torch.float64, device=beta.device)
-        mask = first_idx > 0
-        if mask.any():
-            prefix_at_g[mask] = prefix_flat[first_idx[mask] - 1].reshape(-1, n_features, n_features)
-
-        # risk_X2[g] = total - prefix[g]
-        risk_X2_at_g = total.unsqueeze(0) - prefix_at_g  # (n_uft, p, p)
-
-        # hess = -sum_g sc[g] * risk_X2[g] + sum_g weights[g] * outer(E_X[g], E_X[g])
-        hess = -torch.einsum("g,gij->ij", sc, risk_X2_at_g)
-        hess += torch.einsum("g,gi,gj->ij", weights, E_X_at_uft, E_X_at_uft)
-
+        # Stream risk-set second moments. This keeps peak memory at O(p^2)
+        # instead of materializing an O(n*p^2) prefix tensor.
+        hess = self._compute_hessian_grouped_streaming_torch(
+            X, X_exp, total, risk_at_uft, risk_X_sum,
+            first_idx, weights,
+        )
         if return_aux:
             return grad, hess, (eta, exp_eta, risk_sum)
         return grad, hess
+
+    def _compute_hessian_grouped_streaming_torch(
+        self, X, X_exp, total, risk_at, risk_X_sum, first_idx, weights
+    ):
+        '''Grouped Torch Hessian with O(p^2) working memory.'''
+        import torch
+
+        risk_x2 = total.clone()
+        hess = torch.zeros_like(total)
+        previous = 0
+        first_idx_host = first_idx.detach().cpu().tolist()
+        self._last_torch_hessian_peak_shape_ = tuple(total.shape)
+        for group, index_value in enumerate(first_idx_host):
+            index = int(index_value)
+            if index > previous:
+                block = slice(previous, index)
+                risk_x2 = risk_x2 - X_exp[block].transpose(0, 1) @ X[block]
+                previous = index
+            denominator = torch.clamp(risk_at[group], min=1e-300)
+            expected_x = risk_X_sum[index] / denominator
+            centered = risk_x2 / denominator - torch.outer(expected_x, expected_x)
+            hess = hess - weights[group] * centered
+        return hess
 
     def _s2_weighted_update_torch_blocked(self, s2, x, w, block_size, sign=1.0):
         """Blocked update for large slices: s2 += sign * X^T (X * w)."""
@@ -3532,6 +3909,21 @@ class CoxPH(BaseEstimator):
         else:
             return torch.tensor(float("nan"), dtype=torch.float64, device=beta.device)
 
+    @staticmethod
+    def _observed_information(hess):
+        """Return a symmetric positive-oriented observed information matrix.
+
+        Breslow kernels return the log-likelihood Hessian, while legacy Efron
+        kernels return its negation.  Select the orientation with the larger
+        positive spectral mass and keep this compatibility normalization at the
+        inference boundary.
+        """
+        sym = 0.5 * (np.asarray(hess, dtype=np.float64) + np.asarray(hess, dtype=np.float64).T)
+        eigvals = np.linalg.eigvalsh(sym)
+        positive_mass = float(np.sum(np.clip(eigvals, 0.0, None)))
+        negative_mass = float(np.sum(np.clip(-eigvals, 0.0, None)))
+        return sym if positive_mass >= negative_mass else -sym
+
     def _compute_inference_cpu(self, X, time, event, cluster=None):
         """Compute standard errors, z-values, p-values, and confidence intervals."""
         n_features = X.shape[1]
@@ -3545,13 +3937,22 @@ class CoxPH(BaseEstimator):
         )
         
         # Bread matrix from observed information.
+        information = self._observed_information(hess)
+        if self.penalty > 0:
+            information = information + 2.0 * self.penalty * np.eye(n_features)
         try:
-            bread = np.linalg.solve(-hess, np.eye(n_features))
+            bread = np.linalg.solve(information, np.eye(n_features))
         except np.linalg.LinAlgError:
-            bread = np.linalg.pinv(-hess)
+            bread = np.linalg.pinv(information)
 
         if self.cov_type == "nonrobust":
             self._var_matrix = bread
+            self.inference_method_ = (
+                'penalized_observed_information'
+                if self.penalty > 0 else 'observed_information'
+            )
+            self.inference_backend_ = 'numpy'
+            self.inference_approximate_ = False
         elif self.cov_type == "cluster":
             if cluster is None:
                 raise ValueError("cov_type='cluster' requires cluster ids in fit(..., cluster=...)")
@@ -3596,49 +3997,107 @@ class CoxPH(BaseEstimator):
             self._wald_test_stat = self.coef_ @ var_inv @ self.coef_
         except np.linalg.LinAlgError:
             self._wald_test_stat = np.nan
-        self._wald_test_pvalue = 1 - stats.chi2.cdf(self._wald_test_stat, n_features)
+        self._wald_test_pvalue = float(chi2.sf(self._wald_test_stat, df=n_features))
         
         # Likelihood ratio test
         self._lr_test_stat = 2 * (self._log_likelihood - self._log_likelihood_null)
-        self._lr_test_pvalue = 1 - stats.chi2.cdf(self._lr_test_stat, n_features)
+        self._lr_test_pvalue = float(chi2.sf(self._lr_test_stat, df=n_features))
         
-        # Score test (Rao's test) - computed at beta = 0
+        # Score test (Rao's test) - computed at beta = 0.  Compute the
+        # gradient and Hessian in one call because Efron paths can be expensive.
         ep = getattr(self, "_efron_pre", None)
-        grad_0, _ = self._compute_gradient_hessian(np.zeros(n_features), X, time, event, ep, entry=getattr(self, "_entry", None))
         try:
-            _, hess_0 = self._compute_gradient_hessian(np.zeros(n_features), X, time, event, ep, entry=getattr(self, "_entry", None))
-            info_0 = -hess_0
+            grad_0, hess_0 = self._compute_gradient_hessian(
+                np.zeros(n_features),
+                X,
+                time,
+                event,
+                ep,
+                entry=getattr(self, "_entry", None),
+            )
+            info_0 = self._observed_information(hess_0)
             info_0_inv = np.linalg.solve(info_0, np.eye(n_features))
-            self._score_test_stat = grad_0 @ info_0_inv @ grad_0
-        except:
+            self._score_test_stat = float(grad_0 @ info_0_inv @ grad_0)
+        except (np.linalg.LinAlgError, ValueError, FloatingPointError):
             self._score_test_stat = np.nan
-        self._score_test_pvalue = 1 - stats.chi2.cdf(self._score_test_stat, n_features)
+        self._score_test_pvalue = float(chi2.sf(self._score_test_stat, df=n_features))
 
     def _compute_robust_score_residuals(self, X, time, event):
         """
         Per-observation contributions for sandwich (HC0/HC1/cluster).
 
-        When `statsmodels` is available, uses `PHReg.score_residuals`, which
-        follows the martingale / leverage construction used by statsmodels for
+        In strict mode, uses `PHReg.score_residuals` when available. It follows
+        the martingale / leverage construction used by statsmodels for
         cluster-robust covariance (same for both Breslow and Efron partial
-        likelihood). This aligns robust SEs with statsmodels much more closely
-        than the closed-form Breslow score residual or the fast Efron
-        approximation.
+        likelihood). In explicitly selected approx mode, always uses the
+        disclosed event-row approximation, independent of optional packages.
 
-        Falls back to `_compute_score_residuals_exact_breslow` (Breslow) or
-        `_compute_score_residuals_fast` (Efron) when statsmodels is missing or
-        raises.
+        Strict Breslow falls back to `_compute_score_residuals_exact_breslow`
+        when statsmodels is missing or raises; strict Efron fails explicitly.
         """
+        if self.inference_mode == 'approx':
+            self.inference_method_ = 'event_row_score_sandwich'
+            self.inference_backend_ = 'numpy'
+            self.inference_approximate_ = True
+            self.inference_fallback_reason_ = 'inference_mode=approx'
+            return self._compute_score_residuals_fast(X, time, event)
+
         sr = self._score_residuals_via_statsmodels_if_available(X, time, event)
         if sr is not None:
+            self.inference_method_ = 'phreg_score_residual_sandwich'
+            self.inference_backend_ = 'statsmodels'
+            self.inference_approximate_ = False
             return sr
         if self.ties == "breslow":
+            self.inference_method_ = 'exact_breslow_score_sandwich'
+            self.inference_backend_ = 'numpy'
+            self.inference_approximate_ = False
+            self.inference_fallback_reason_ = (
+                'statsmodels score residuals unavailable; used exact internal Breslow residuals'
+            )
             return self._compute_score_residuals_exact_breslow(X, time, event)
-        return self._compute_score_residuals_fast(X, time, event)
+        raise RuntimeError(
+            'Strict robust Efron CoxPH inference requires statsmodels score residuals. '
+            'Install statgpu[survival] or set inference_mode=approx explicitly.'
+        )
 
     def _compute_robust_score_residuals_gpu(self, X, time, event):
         """GPU robust score residuals using event-row approximation."""
         import cupy as cp
+
+        if self.inference_mode == 'strict':
+            self.full_host_transfer_performed_ = True
+            X_host = cp.asnumpy(X)
+            time_host = cp.asnumpy(time)
+            event_host = cp.asnumpy(event)
+            residuals = self._score_residuals_via_statsmodels_if_available(
+                X_host, time_host, event_host
+            )
+            if residuals is None and self.ties == 'breslow':
+                residuals = self._compute_score_residuals_exact_breslow(
+                    X_host, time_host, event_host
+                )
+                self.inference_method_ = 'exact_breslow_score_sandwich'
+                self.inference_backend_ = 'numpy'
+                self.inference_approximate_ = False
+                self.inference_fallback_reason_ = (
+                    'statsmodels score residuals unavailable; used exact internal Breslow residuals'
+                )
+                return cp.asarray(residuals)
+            if residuals is None:
+                raise RuntimeError(
+                    'Strict robust Efron CoxPH inference requires statsmodels score residuals. '
+                    'Install statgpu[survival] or set inference_mode=approx explicitly.'
+                )
+            self.inference_method_ = 'phreg_score_residual_sandwich'
+            self.inference_backend_ = 'statsmodels'
+            self.inference_approximate_ = False
+            return cp.asarray(residuals)
+
+        self.inference_method_ = 'event_row_score_sandwich'
+        self.inference_backend_ = 'cupy'
+        self.inference_approximate_ = True
+        self.inference_fallback_reason_ = 'inference_mode=approx'
 
         eta = X @ cp.asarray(self.coef_)
         exp_eta = cp.exp(eta)
@@ -3705,7 +4164,7 @@ class CoxPH(BaseEstimator):
         u = event_mask[:, np.newaxis] * s - exp_eta[:, np.newaxis] * csum_a
         return u
     
-    def _compute_baseline_hazard(self, X, time, event):
+    def _compute_baseline_hazard(self, X, time, event, entry=None):
         """Compute Breslow estimator of baseline hazard and survival function."""
         # Get unique event times
         event_mask = event == 1
@@ -3715,34 +4174,33 @@ class CoxPH(BaseEstimator):
             self._baseline_cumulative_hazard = np.array([])
             return
         
-        unique_times = np.unique(time[event_mask])
+        unique_times, event_counts = np.unique(time[event_mask], return_counts=True)
         self._unique_times = unique_times
         
         # Linear predictor
         eta = X @ self.coef_
         exp_eta = np.exp(eta)
         
-        # Compute baseline cumulative hazard using Breslow estimator
-        cumulative_hazard = np.zeros(len(unique_times))
-        
-        for i, t in enumerate(unique_times):
-            # Events at time t
-            d_i = np.sum((time == t) & (event == 1))
-            
-            # Risk set at time t (all with time >= t)
-            risk_set = time >= t
-            risk_sum = np.sum(exp_eta[risk_set])
-            
-            # Breslow estimator contribution
-            cumulative_hazard[i] = d_i / risk_sum
-        
-        # Cumulative sum
-        self._baseline_cumulative_hazard = np.cumsum(cumulative_hazard)
-        
-        # Hazard (discrete)
-        self._baseline_hazard = cumulative_hazard
+        if entry is None:
+            suffix_risk = np.cumsum(exp_eta[::-1])[::-1]
+            first_idx = np.searchsorted(time, unique_times, side='left')
+            risk_at = suffix_risk[first_idx]
+        else:
+            entry_order = np.argsort(entry, kind='stable')
+            entry_sorted = np.asarray(entry)[entry_order]
+            entry_prefix = np.cumsum(exp_eta[entry_order])
+            time_prefix = np.cumsum(exp_eta)
+            add_end = np.searchsorted(entry_sorted, unique_times, side='right')
+            remove_end = np.searchsorted(time, unique_times, side='left')
+            add_sum = np.where(add_end > 0, entry_prefix[np.maximum(add_end - 1, 0)], 0.0)
+            remove_sum = np.where(
+                remove_end > 0, time_prefix[np.maximum(remove_end - 1, 0)], 0.0
+            )
+            risk_at = add_sum - remove_sum
+        self._baseline_hazard = event_counts / np.maximum(risk_at, 1e-300)
+        self._baseline_cumulative_hazard = np.cumsum(self._baseline_hazard)
 
-    def _compute_baseline_hazard_gpu(self, X, time, event, beta):
+    def _compute_baseline_hazard_gpu(self, X, time, event, beta, entry=None):
         """Compute Breslow estimator of baseline hazard and survival function on GPU."""
         import cupy as cp
 
@@ -3754,41 +4212,40 @@ class CoxPH(BaseEstimator):
             self._baseline_cumulative_hazard = cp.array([])
             return
 
-        unique_times = cp.unique(time[event_mask])
+        unique_times, event_counts = cp.unique(time[event_mask], return_counts=True)
         self._unique_times = unique_times
 
         # Linear predictor
         eta = X @ beta
         exp_eta = cp.exp(eta)
 
-        # Compute baseline cumulative hazard using Breslow estimator (vectorized)
-        cumulative_hazard = cp.zeros(len(unique_times))
-
-        # Vectorized computation using searchsorted
-        # For each unique time, compute d_i / risk_sum
-        for i, t in enumerate(unique_times):
-            # Events at time t
-            d_i = int(cp.sum((time == t) & (event == 1)))
-
-            # Risk set at time t (all with time >= t)
-            risk_set = time >= t
-            risk_sum = cp.sum(exp_eta[risk_set])
-
-            # Breslow estimator contribution
-            cumulative_hazard[i] = d_i / risk_sum
-
-        # Cumulative sum
-        self._baseline_cumulative_hazard = cp.cumsum(cumulative_hazard)
-
-        # Hazard (discrete)
-        self._baseline_hazard = cumulative_hazard
+        if entry is None:
+            suffix_risk = cp.cumsum(exp_eta[::-1])[::-1]
+            first_idx = cp.searchsorted(time, unique_times, side='left')
+            risk_at = suffix_risk[first_idx]
+        else:
+            entry_order = cp.argsort(entry)
+            entry_sorted = entry[entry_order]
+            entry_prefix = cp.cumsum(exp_eta[entry_order])
+            time_prefix = cp.cumsum(exp_eta)
+            add_end = cp.searchsorted(entry_sorted, unique_times, side='right')
+            remove_end = cp.searchsorted(time, unique_times, side='left')
+            add_sum = cp.where(
+                add_end > 0, entry_prefix[cp.maximum(add_end - 1, 0)], 0.0
+            )
+            remove_sum = cp.where(
+                remove_end > 0, time_prefix[cp.maximum(remove_end - 1, 0)], 0.0
+            )
+            risk_at = add_sum - remove_sum
+        self._baseline_hazard = event_counts / cp.maximum(risk_at, 1e-300)
+        self._baseline_cumulative_hazard = cp.cumsum(self._baseline_hazard)
 
         # Transfer to CPU for storage
         self._unique_times = cp.asnumpy(self._unique_times)
         self._baseline_hazard = cp.asnumpy(self._baseline_hazard)
         self._baseline_cumulative_hazard = cp.asnumpy(self._baseline_cumulative_hazard)
 
-    def _compute_baseline_hazard_torch(self, X, time, event, beta):
+    def _compute_baseline_hazard_torch(self, X, time, event, beta, entry=None):
         """Compute Breslow estimator of baseline hazard and survival function on Torch."""
         import torch
 
@@ -3800,33 +4257,43 @@ class CoxPH(BaseEstimator):
             self._baseline_cumulative_hazard = torch.tensor([], dtype=torch.float64, device=beta.device)
             return
 
-        unique_times = torch.unique(time[event_mask])
+        unique_times, event_counts = torch.unique(
+            time[event_mask], sorted=True, return_counts=True
+        )
         self._unique_times = unique_times
 
         # Linear predictor
         eta = X @ beta
         exp_eta = torch.exp(eta)
 
-        # Compute baseline cumulative hazard using Breslow estimator (vectorized)
-        cumulative_hazard = torch.zeros(len(unique_times), dtype=torch.float64, device=beta.device)
-
-        # Vectorized computation
-        for i, t in enumerate(unique_times):
-            # Events at time t
-            d_i = int(torch.sum((time == t) & (event == 1)))
-
-            # Risk set at time t (all with time >= t)
-            risk_set = time >= t
-            risk_sum = torch.sum(exp_eta[risk_set])
-
-            # Breslow estimator contribution
-            cumulative_hazard[i] = d_i / risk_sum
-
-        # Cumulative sum
-        self._baseline_cumulative_hazard = torch.cumsum(cumulative_hazard, dim=0)
-
-        # Hazard (discrete)
-        self._baseline_hazard = cumulative_hazard
+        if entry is None:
+            suffix_risk = torch.cumsum(exp_eta.flip(0), dim=0).flip(0)
+            first_idx = torch.searchsorted(time, unique_times, side='left')
+            risk_at = suffix_risk[first_idx]
+        else:
+            entry_order = torch.argsort(entry, stable=True)
+            entry_sorted = entry[entry_order]
+            entry_prefix = torch.cumsum(exp_eta[entry_order], dim=0)
+            time_prefix = torch.cumsum(exp_eta, dim=0)
+            add_end = torch.searchsorted(entry_sorted, unique_times, side='right')
+            remove_end = torch.searchsorted(time, unique_times, side='left')
+            add_sum = torch.where(
+                add_end > 0,
+                entry_prefix[torch.clamp(add_end - 1, min=0)],
+                torch.zeros_like(unique_times),
+            )
+            remove_sum = torch.where(
+                remove_end > 0,
+                time_prefix[torch.clamp(remove_end - 1, min=0)],
+                torch.zeros_like(unique_times),
+            )
+            risk_at = add_sum - remove_sum
+        self._baseline_hazard = event_counts.to(torch.float64) / torch.clamp(
+            risk_at, min=1e-300
+        )
+        self._baseline_cumulative_hazard = torch.cumsum(
+            self._baseline_hazard, dim=0
+        )
 
         # Transfer to CPU for storage
         self._unique_times = self._unique_times.cpu().numpy()
@@ -3992,6 +4459,31 @@ class CoxPH(BaseEstimator):
         print(f"Converged: {self._converged}")
         print("=" * 80)
     
+    def _prepare_prediction_X(self, X):
+        backend = self._get_backend(backend='auto')
+        xp = backend.xp
+        X_arr = backend.asarray(X, dtype=backend.float64)
+        if X_arr.ndim == 1:
+            n_features = int(len(self.coef_))
+            if n_features == 1:
+                X_arr = X_arr.reshape(-1, 1)
+            elif int(X_arr.shape[0]) == n_features:
+                X_arr = X_arr.reshape(1, -1)
+            else:
+                raise ValueError(
+                    f'one-dimensional X must contain exactly {n_features} features'
+                )
+        if X_arr.ndim != 2:
+            raise ValueError('X must be a two-dimensional array')
+        if int(X_arr.shape[1]) != int(len(self.coef_)):
+            raise ValueError(
+                f'X has {int(X_arr.shape[1])} features; expected {len(self.coef_)}'
+            )
+        if not bool(_to_float_scalar(xp.all(xp.isfinite(X_arr)))):
+            raise ValueError('X contains NaN or infinite values')
+        coef = backend.asarray(self.coef_, dtype=backend.float64)
+        return X_arr, backend, coef
+
     def predict_hazard_ratio(self, X):
         """
         Predict hazard ratios (exp(X @ coef)).
@@ -4003,14 +4495,12 @@ class CoxPH(BaseEstimator):
         
         Returns
         -------
-        hazard_ratios : ndarray of shape (n_samples,)
-            Predicted hazard ratios.
+        hazard_ratios : backend-native array of shape (n_samples,)
+            Predicted hazard ratios on the estimator backend.
         """
         self._check_is_fitted()
-        X = np.asarray(X, dtype=np.float64)
-        if X.ndim == 1:
-            X = X.reshape(-1, 1)
-        return np.exp(X @ self.coef_)
+        X_arr, backend, coef = self._prepare_prediction_X(X)
+        return backend.xp.exp(X_arr @ coef)
     
     def predict_risk_score(self, X):
         """
@@ -4023,14 +4513,12 @@ class CoxPH(BaseEstimator):
         
         Returns
         -------
-        risk_scores : ndarray of shape (n_samples,)
-            Predicted risk scores (linear predictor).
+        risk_scores : backend-native array of shape (n_samples,)
+            Predicted risk scores on the estimator backend.
         """
         self._check_is_fitted()
-        X = np.asarray(X, dtype=np.float64)
-        if X.ndim == 1:
-            X = X.reshape(-1, 1)
-        return X @ self.coef_
+        X_arr, _, coef = self._prepare_prediction_X(X)
+        return X_arr @ coef
     
     def predict_survival(self, X, times=None):
         """
@@ -4040,37 +4528,58 @@ class CoxPH(BaseEstimator):
         ----------
         X : array-like of shape (n_samples, n_features)
             Covariate matrix.
-        time : array-like, optional
+        times : array-like, optional
             Times at which to evaluate survival function.
             If None, uses unique event times from training data.
         
         Returns
         -------
-        survival : ndarray of shape (n_samples, n_times)
-            Predicted survival probabilities.
-        times : ndarray
+        survival : backend-native array of shape (n_samples, n_times)
+            Predicted survival probabilities on the estimator backend.
+        times : backend-native array
             Times at which survival is evaluated.
         """
         self._check_is_fitted()
-        X = np.asarray(X, dtype=np.float64)
-        if X.ndim == 1:
-            X = X.reshape(-1, 1)
+        X_arr, backend, coef = self._prepare_prediction_X(X)
+        xp = backend.xp
         
         if times is None:
-            times = self._unique_times
+            times_arr = backend.asarray(self._unique_times, dtype=backend.float64)
         else:
-            times = np.asarray(times)
+            times_arr = backend.asarray(times, dtype=backend.float64)
+            if times_arr.ndim != 1:
+                raise ValueError('times must be a one-dimensional array')
+            if not bool(_to_float_scalar(xp.all(xp.isfinite(times_arr)))):
+                raise ValueError('times contains NaN or infinite values')
         
-        if len(times) == 0 or self._baseline_cumulative_hazard is None:
-            return np.ones((X.shape[0], len(times))), times
+        if (
+            len(times_arr) == 0
+            or self._baseline_cumulative_hazard is None
+            or len(self._baseline_cumulative_hazard) == 0
+        ):
+            return backend.ones((int(X_arr.shape[0]), len(times_arr))), times_arr
         
         # Hazard ratios
-        hr = np.exp(X @ self.coef_)
+        hr = xp.exp(X_arr @ coef)
         
         # Survival function: S(t) = exp(-H0(t) * HR)
-        survival = np.exp(-self._baseline_cumulative_hazard[np.newaxis, :] * hr[:, np.newaxis])
+        baseline_train = backend.asarray(
+            self._baseline_cumulative_hazard, dtype=backend.float64
+        )
+        if times is None:
+            baseline = baseline_train
+        else:
+            train_times = backend.asarray(self._unique_times, dtype=backend.float64)
+            positions = xp.searchsorted(train_times, times_arr, side='right') - 1
+            safe_positions = backend.clip(positions, 0, len(train_times) - 1)
+            baseline = xp.where(
+                positions >= 0,
+                baseline_train[safe_positions],
+                xp.zeros_like(times_arr),
+            )
+        survival = xp.exp(-baseline[None, :] * hr[:, None])
         
-        return survival, times
+        return survival, times_arr
     
     def predict(self, X):
         """Alias for predict_hazard_ratio."""
@@ -4096,52 +4605,47 @@ class CoxPH(BaseEstimator):
         """
         self._check_is_fitted()
 
-        risk_score = self.predict_risk_score(X)
-        time = np.asarray(time)
-        event = np.asarray(event)
+        X_arr, backend, coef = self._prepare_prediction_X(X)
+        xp = backend.xp
+        risk_score = X_arr @ coef
+        time_arr = backend.asarray(time, dtype=backend.float64)
+        event_arr = backend.asarray(event)
+        if time_arr.ndim != 1 or event_arr.ndim != 1:
+            raise ValueError('time and event must be one-dimensional arrays')
+        n = int(time_arr.shape[0])
+        if int(event_arr.shape[0]) != n or int(X_arr.shape[0]) != n:
+            raise ValueError('X, time, and event must contain the same number of rows')
+        if not bool(_to_float_scalar(xp.all(xp.isfinite(time_arr)))):
+            raise ValueError('time contains NaN or infinite values')
+        if not bool(_to_float_scalar(xp.all(xp.isfinite(event_arr)))):
+            raise ValueError('event contains NaN or infinite values')
 
-        n = len(time)
-        event_mask = (event == 1)
-
-        if not np.any(event_mask):
-            return 0.5
-
-        # Use chunked vectorized approach for memory efficiency
-        # Similar to _compute_cindex
-        event_idx = np.where(event_mask)[0]
-        n_events = len(event_idx)
-
+        event_mask = event_arr == 1
+        event_idx = xp.where(event_mask)[0]
+        n_events = int(event_idx.shape[0])
         if n_events == 0:
             return 0.5
 
-        concordant = np.int64(0)
-        permissible = np.int64(0)
-        tied_risk = np.int64(0)
-
-        # Chunk size: keep each (chunk × n) bool matrix <= 128 MB
+        concordant = 0.0
+        permissible = 0.0
+        tied_risk = 0.0
         chunk_size = max(1, min(n_events, int(128e6 / max(n, 1))))
 
         for start in range(0, n_events, chunk_size):
             end = min(start + chunk_size, n_events)
             idx_chunk = event_idx[start:end]
-
-            time_i = time[idx_chunk, np.newaxis]
-            risk_i = risk_score[idx_chunk, np.newaxis]
-            time_j = time[np.newaxis, :]
-            risk_j = risk_score[np.newaxis, :]
-            event_j = event[np.newaxis, :]
-
-            # Permissible pairs: earlier time OR same time with j censored
+            time_i = time_arr[idx_chunk, None]
+            risk_i = risk_score[idx_chunk, None]
+            time_j = time_arr[None, :]
+            risk_j = risk_score[None, :]
+            event_j = event_arr[None, :]
             perm = (time_i < time_j) | ((time_i == time_j) & (event_j == 0))
-
-            # Exclude self-comparisons
-            chunk_indices = np.arange(end - start, dtype=np.int64)
+            chunk_indices = backend.arange(end - start, dtype=backend.int64)
             perm[chunk_indices, idx_chunk] = False
-
-            concordant += int(np.sum(perm & (risk_i > risk_j)))
-            tied_risk += int(np.sum(perm & (risk_i == risk_j)))
-            permissible += int(np.sum(perm))
+            concordant += _to_float_scalar(xp.sum(perm & (risk_i > risk_j)))
+            tied_risk += _to_float_scalar(xp.sum(perm & (risk_i == risk_j)))
+            permissible += _to_float_scalar(xp.sum(perm))
 
         if permissible > 0:
-            return (concordant + 0.5 * tied_risk) / permissible
+            return float((concordant + 0.5 * tied_risk) / permissible)
         return np.nan

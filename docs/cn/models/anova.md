@@ -1,7 +1,7 @@
 # ANOVA
 
 > 语言: 中文  
-> 最后更新: 2026-05-28  
+> 最后更新: 2026-07-12  
 > 页面定位: 模型文档  
 > 切换: [English](../en/models/anova.md)
 
@@ -9,11 +9,16 @@
 
 ## 概览（Overview）
 
-`f_oneway` 执行单因素方差分析（One-Way ANOVA），检验各组均值是否相等。它是 `scipy.stats.f_oneway` 的 GPU 加速替代实现，支持 numpy、cupy 和 torch 后端。
+ANOVA 模块提供 `f_oneway`、平衡设计 `f_twoway`、`f_welch`、`tukey_hsd`、`bonferroni` 以及 `cohens_f`/`partial_eta_squared` 效应量工具。组内归约支持 NumPy、CuPy 和 Torch。
 
 ## 路径（Path）
 
-`statgpu.anova.f_oneway`、`statgpu.anova.AnovaResult`
+- `statgpu.anova.f_oneway` / `AnovaResult`
+- `statgpu.anova.f_twoway` / `TwoWayAnovaResult`
+- `statgpu.anova.f_welch`
+- `statgpu.anova.tukey_hsd` / `TukeyResult`
+- `statgpu.anova.bonferroni` / `PosthocResult`
+- `statgpu.anova.cohens_f` / `partial_eta_squared`
 
 ## 目标函数（Objective Function）
 
@@ -50,6 +55,16 @@ $$
 \eta^2 = \frac{SSB}{SSB + SSW}
 $$
 
+### 双因素、Welch 与事后检验
+
+`f_twoway` 支持包含交互项的完整模型和不含交互项的加性模型。当前只接受各 cell
+样本量相同的平衡设计；非平衡设计在 API 明确 Type I/II/III 平方和前会报错。
+加性模型会把交互变异并入残差。
+
+`f_welch` 用于异方差组，并保留 Welch-Satterthwaite 的小数分母自由度。
+`tukey_hsd` 使用 studentized-range 分布，`bonferroni` 执行 Bonferroni 校正的
+两两 Welch t 检验。
+
 ## 参数（Parameters）
 
 | 参数 | 默认值 | 说明 |
@@ -82,9 +97,15 @@ g2_t = torch.from_numpy(g2).cuda()
 result_torch = f_oneway(g1_t, g2_t, backend="torch")
 ```
 
+## 后端执行与分布边界
+
+单/双因素、Welch 与事后检验的组内均值、方差和平方和保留在所选后端。
+studentized-range、t、normal 或 F 分布在后端缺少实现时只接收标量并在 CPU 计算；
+不会把完整组向量传回 NumPy。已验证 NumPy/Torch-CPU 一致性，真实 CUDA 验证仍待完成。
+
 ## strict/approx 差异（strict/approx difference）
 
-无 strict/approx 模式区分。单一计算路径，仅需选择后端。
+无 strict/approx 模式。各后端共享同一统计定义；后端不支持的分布函数仅使用 CPU 标量调用。
 
 ## 输出（Outputs）
 
@@ -97,6 +118,8 @@ result_torch = f_oneway(g1_t, g2_t, backend="torch")
 | `df_between` | int | 组间自由度（$k - 1$） |
 | `df_within` | int | 组内自由度（$N - k$） |
 | `eta_squared` | float | 效应量 $\eta^2$ |
+
+Welch ANOVA 的 `df_within` 为 Welch-Satterthwaite 小数自由度；`TwoWayAnovaResult` 分别报告 factor A、factor B、interaction 与 residual 项；`TukeyResult`/`PosthocResult` 返回每一对组别的均值差、p 值、置信区间和拒绝标记。
 
 ## 常见问题（FAQ）
 

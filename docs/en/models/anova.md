@@ -1,7 +1,7 @@
 # ANOVA
 
 > Language: English  
-> Last updated: 2026-06-17  
+> Last updated: 2026-07-12  
 > This page: Model documentation  
 > Switch: [Chinese](../../models/anova.md)
 
@@ -9,7 +9,7 @@ Language switch: [Chinese](../../models/anova.md)
 
 ## Overview
 
-`f_oneway` performs one-way Analysis of Variance (ANOVA), testing whether group means are equal. It is a GPU-accelerated drop-in replacement for `scipy.stats.f_oneway`, supporting numpy, cupy, and torch backends.
+The ANOVA module provides one-way ANOVA, balanced two-way ANOVA, Welch ANOVA, Tukey HSD, Bonferroni-adjusted pairwise Welch tests, and effect-size helpers. Group reductions support NumPy, CuPy, and Torch backends.
 
 ## Path
 
@@ -90,7 +90,7 @@ result_torch = f_oneway(g1_t, g2_t, backend="torch")
 
 ## strict/approx difference
 
-No strict/approx modes. Single computation path with backend selection.
+No strict/approx modes. Backend-native reductions share one statistical definition; unsupported distribution functions use scalar CPU calls.
 
 ## Outputs
 
@@ -115,6 +115,14 @@ All ANOVA functions (`f_oneway`, `f_twoway`, `f_welch`, `tukey_hsd`, `bonferroni
 | `"torch"` | GPU computation using PyTorch (NVIDIA CUDA) |
 | `"auto"` | Automatically selects the best available backend |
 
+### Execution boundary
+
+One-way, two-way, Welch, and post-hoc group reductions remain on the selected backend.
+Tukey's studentized-range distribution and Welch/t/normal/F distribution CDF or
+quantile evaluations may use CPU scalar calls where CuPy/Torch provide no equivalent.
+Complete group vectors are not transferred to NumPy. NumPy/Torch-CPU parity is tested;
+physical CUDA validation remains pending.
+
 ---
 
 ## f_twoway
@@ -127,7 +135,7 @@ Two-way ANOVA with optional interaction term.
 
 ### Overview
 
-`f_twoway` performs a two-factor analysis of variance, testing the effects of factor A, factor B, and their interaction. It accepts data as a nested list of cell observations and supports both full (with interaction) and additive (without interaction) models.
+`f_twoway` performs a two-factor analysis of variance for balanced cell sizes, testing factor A, factor B, and optionally their interaction. Unbalanced designs are rejected until the API exposes an explicit Type I/II/III sums-of-squares convention. In the additive model, interaction variation is included in the residual term.
 
 ### Parameters
 
@@ -207,7 +215,7 @@ Returns `AnovaResult` (same as `f_oneway`):
 | `statistic` | float | Welch F-statistic |
 | `pvalue` | float | P-value from F-distribution |
 | `df_between` | int | Between-group degrees of freedom ($k - 1$) |
-| `df_within` | int | Approximate within-group df (Welch-Satterthwaite) |
+| `df_within` | float | Fractional Welch-Satterthwaite denominator degrees of freedom |
 | `eta_squared` | float | `NaN` (not meaningful for Welch's test) |
 
 ### Example

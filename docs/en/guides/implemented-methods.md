@@ -1,6 +1,6 @@
 # Implemented Methods
 
-> Last updated: 2026-06-14
+> Last updated: 2026-07-12
 
 Complete list of all implemented models, functions, and classes in statgpu.
 
@@ -113,7 +113,13 @@ model.fit(X, y)
 
 | Function | Description |
 |---|---|
-| `f_oneway` | GPU-accelerated one-way ANOVA |
+| `f_oneway` | One-way ANOVA |
+| `f_twoway` | Balanced two-way ANOVA, full or additive model |
+| `f_welch` | Welch one-way ANOVA with fractional denominator df |
+| `tukey_hsd` | Tukey HSD simultaneous post-hoc comparisons |
+| `bonferroni` | Bonferroni-adjusted pairwise Welch tests |
+| `cohens_f` | Cohen's f effect size |
+| `partial_eta_squared` | Partial eta-squared effect size |
 
 ## Covariance Estimation
 
@@ -122,6 +128,10 @@ model.fit(X, y)
 | `EmpiricalCovariance` | Sample covariance with jitter-stabilized inversion | CPU, CuPy, Torch |
 | `LedoitWolf` | Ledoit-Wolf shrinkage estimator | CPU, CuPy, Torch |
 | `OAS` | Oracle Approximating Shrinkage estimator | CPU, CuPy, Torch |
+| `ShrunkCovariance` | User-specified covariance shrinkage | CPU, CuPy, Torch |
+| `MinCovDet` | Robust FAST-MCD covariance with backend-native C-steps | CPU, CuPy, Torch |
+| `GraphicalLasso` | Sparse inverse covariance via block coordinate descent | CPU, CuPy, Torch |
+| `GraphicalLassoCV` | Cross-validated Graphical Lasso | CPU, CuPy, Torch |
 
 ## Panel Data
 
@@ -129,6 +139,10 @@ model.fit(X, y)
 |---|---|---|
 | `PanelOLS` | Fixed effects with nonrobust/robust/clustered SE | CPU, CuPy, Torch |
 | `RandomEffects` | Swamy-Arora feasible GLS random effects | CPU, CuPy, Torch |
+| `PooledOLS` | Stacked OLS with robust/clustered/HAC covariance | CPU, CuPy, Torch |
+| `BetweenOLS` | OLS on entity means | CPU, CuPy, Torch |
+| `FirstDifferenceOLS` | Within-entity first-difference OLS | CPU, CuPy, Torch |
+| `FamaMacBeth` | Per-period cross-sectional regressions with Newey-West inference | CPU, CuPy, Torch |
 
 ## Nonparametric Methods
 
@@ -139,6 +153,20 @@ model.fit(X, y)
 | `pairwise_kernels` | 6 kernel functions (RBF, polynomial, linear, Laplacian, sigmoid, cosine) |
 | `bspline_basis` | B-spline basis (De Boor algorithm, vectorized on GPU) |
 | `natural_cubic_spline_basis` | Natural cubic spline basis |
+| `KernelPCA` | Centered-kernel principal component embedding |
+| `Nystroem` | Low-rank kernel feature approximation via stable SVD normalization |
+| `KernelDensity` / kernel regression | Backend-native kernel smoothing estimators |
+| `cyclic_cubic_spline_basis` | Periodic cubic spline basis |
+| `thin_plate_spline_basis` | Multi-dimensional thin-plate radial basis |
+| `SplineTransformer` | sklearn-style backend-native B-spline transformer with four extrapolation modes |
+
+### Backend execution boundary
+
+Graphical Lasso/CV, MinCovDet, SplineTransformer, and Fama–MacBeth keep their
+main numerical work on NumPy/CuPy/Torch. Formula and categorical-label parsing,
+integer fold/subset metadata, and unsupported scalar distribution CDF/quantiles
+remain intentional CPU boundaries. NumPy/Torch-CPU parity is tested; physical
+CUDA validation remains pending.
 
 ## Semiparametric Models
 
@@ -175,15 +203,25 @@ model.fit(X, y)
 
 | Class | Description | Backends |
 |---|---|---|
-| `CoxPH` | Cox proportional hazards (Efron/Breslow ties, vectorized grad/hess) | CPU, CuPy, Torch |
+| `CoxPH` | Cox proportional hazards (Efron/Breslow ties, strict robust-inference contract, backend-native prediction) | CPU, CuPy, Torch |
 | `PenalizedCoxPHModel` | CoxPH + SCAD/MCP penalties via proximal Newton | CPU |
 
 ## Feature Selection
 
-| Function | Description |
+| Interface | Description | Backends |
+|---|---|---|
+| `StepwiseSelector` / `stepwise_selection` | AIC/BIC forward, backward, or bidirectional subset search | follows wrapped estimator |
+| `knockoff_filter` | Unified fixed-X/model-X FDR-controlled selection | CPU, CuPy, Torch |
+| `fixed_x_knockoff_filter` | Fixed-X knockoff filter | CPU, CuPy, Torch |
+| `model_x_knockoff_filter` | Gaussian second-order model-X knockoff filter | CPU, CuPy, Torch |
+| `KnockoffSelector` / `FixedXKnockoffSelector` | sklearn-style selector wrappers | CPU, CuPy, Torch |
+
+## Regression Diagnostics
+
+| Interface | Description |
 |---|---|
-| `fixed_x_knockoff_filter` | Fixed-X knockoff filter |
-| `model_x_knockoff_filter` | Model-X knockoff filter |
+| `RegressionDiagnostics` | Residuals, leverage, internal/external studentization, Cook's distance, and VIF |
+| `diagnose_model` | Construct and print a diagnostic summary |
 
 ## Multiple Testing
 

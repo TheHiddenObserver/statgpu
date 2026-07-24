@@ -12,7 +12,7 @@ from statgpu._base import BaseEstimator
 from statgpu._config import Device
 from statgpu.backends import _LINALG_ERRORS, _to_float_scalar, _to_numpy, xp_asarray
 
-from statgpu.panel._utils import PanelSummary
+from statgpu.panel._utils import PanelSummary, factorize_panel_labels, validate_panel_alpha, validate_panel_numeric_data
 from statgpu.panel._utils import compute_panel_inference as _compute_ols_inference
 
 
@@ -91,20 +91,25 @@ class FirstDifferenceOLS(BaseEstimator):
         if entity_ids is None:
             raise ValueError("entity_ids is required for FirstDifferenceOLS")
 
-        from statgpu.panel._formula import _prepare_formula_fit
+        from statgpu.panel._formula import _align_formula_side_array, _prepare_formula_fit
         (y_arr, X_arr, self._design_info, self._feature_names, self._formula_has_intercept,
          _fe_eids, _fe_tids, _fe_entity, _fe_time) = \
             _prepare_formula_fit(formula, data, X, y, model_has_intercept=False)
+        if formula is not None:
+            entity_ids = _align_formula_side_array(entity_ids, self._design_info, len(y_arr), "entity_ids")
+            time_ids = _align_formula_side_array(time_ids, self._design_info, len(y_arr), "time_ids")
 
         backend = self._get_backend(backend="auto")
         xp = backend.xp
 
         X_arr = xp_asarray(X_arr, dtype=xp.float64, xp=xp)
         y_arr = xp_asarray(y_arr, dtype=xp.float64, xp=xp, ref_arr=X_arr).ravel()
-        eids = xp_asarray(entity_ids, xp=xp, ref_arr=X_arr).ravel()
+        eids, _entity_labels = factorize_panel_labels(entity_ids, xp, ref_arr=X_arr, name="entity_ids", expected_n=X_arr.shape[0])
 
         if X_arr.ndim == 1:
             X_arr = X_arr.reshape(-1, 1)
+        validate_panel_alpha(self.alpha)
+        validate_panel_numeric_data(X_arr, y_arr, xp)
 
         # First differencing: sort by entity and time, then diff
         X_diff, y_diff = _first_diff_transform(X_arr, y_arr, eids, time_ids, xp)
@@ -117,8 +122,10 @@ class FirstDifferenceOLS(BaseEstimator):
         try:
             params = xp.linalg.solve(XtX, Xty)
         except _LINALG_ERRORS:
-            params = xp.linalg.lstsq(XtX, Xty)[0]
+            params = xp.linalg.pinv(X_diff) @ y_diff
 
+        if n <= k:
+            raise ValueError(f"positive residual degrees of freedom required; n={n}, k={k}")
         resid = y_diff - X_diff @ params
         scale = _to_float_scalar(xp.sum(resid * resid)) / (n - k)
 
@@ -193,44 +200,24 @@ def _first_diff_transform(X, y, entity_ids, time_ids, xp):
 
     Returns X_diff, y_diff (differenced data, potentially shorter than input).
     """
-    # Work in numpy for indexing
+    # Sorting is metadata-only on CPU; numerical X/y stay on the backend.
     eids_np = _to_numpy(entity_ids).ravel()
-    X_np = _to_numpy(X)
-    y_np = _to_numpy(y).ravel()
-
     if time_ids is not None:
-        tids_np = _to_numpy(time_ids).ravel()
-        # Sort by entity then time
-        sort_idx = np.lexsort((tids_np, eids_np))
+        tids_np = np.asarray(_to_numpy(time_ids)).ravel()
+        if tids_np.shape[0] != eids_np.shape[0]:
+            raise ValueError("time_ids must have the same length as entity_ids")
+        sort_idx_np = np.lexsort((tids_np, eids_np))
     else:
-        # Assume already sorted by entity and time
-        sort_idx = np.argsort(eids_np, kind='stable')
+        sort_idx_np = np.argsort(eids_np, kind="stable")
 
-    X_sorted = X_np[sort_idx]
-    y_sorted = y_np[sort_idx]
-    eids_sorted = eids_np[sort_idx]
+    sort_idx = xp_asarray(sort_idx_np, dtype=xp.int64, xp=xp, ref_arr=X)
+    X_sorted = X[sort_idx]
+    y_sorted = y[sort_idx]
+    eids_sorted = entity_ids[sort_idx]
 
-    # First diff within each entity
-    X_diff_list = []
-    y_diff_list = []
-    unique_eids = np.unique(eids_sorted)
-
-    for eid in unique_eids:
-        mask = eids_sorted == eid
-        X_ent = X_sorted[mask]
-        y_ent = y_sorted[mask]
-        if X_ent.shape[0] < 2:
-            continue
-        X_diff_list.append(np.diff(X_ent, axis=0))
-        y_diff_list.append(np.diff(y_ent))
-
-    if not X_diff_list:
+    same_entity = eids_sorted[1:] == eids_sorted[:-1]
+    X_diff = (X_sorted[1:] - X_sorted[:-1])[same_entity]
+    y_diff = (y_sorted[1:] - y_sorted[:-1])[same_entity]
+    if int(X_diff.shape[0]) == 0:
         raise ValueError("No entities with 2+ observations for differencing")
-
-    X_diff_np = np.vstack(X_diff_list)
-    y_diff_np = np.concatenate(y_diff_list)
-
-    return (
-        xp.asarray(X_diff_np, dtype=xp.float64),
-        xp.asarray(y_diff_np, dtype=xp.float64),
-    )
+    return X_diff, y_diff

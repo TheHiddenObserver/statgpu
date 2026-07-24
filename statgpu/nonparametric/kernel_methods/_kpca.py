@@ -95,6 +95,17 @@ class KernelPCA(BaseEstimator):
         if X_arr.ndim == 1:
             X_arr = X_arr.reshape(-1, 1)
 
+        if X_arr.ndim != 2 or X_arr.shape[0] == 0 or X_arr.shape[1] == 0:
+            raise ValueError("X must be a non-empty two-dimensional array")
+        if not bool(_to_float_scalar(xp.all(xp.isfinite(X_arr)))):
+            raise ValueError("X must contain only finite values")
+        if isinstance(self.n_components, bool) or int(self.n_components) < 1:
+            raise ValueError("n_components must be a positive integer")
+        if not np.isfinite(self.alpha) or self.alpha < 0:
+            raise ValueError("alpha must be finite and non-negative")
+        if self.eigen_solver not in ("auto", "dense"):
+            raise ValueError("eigen_solver must be 'auto' or 'dense'")
+
         n_samples = int(X_arr.shape[0])
         n_features = int(X_arr.shape[1])
         self.n_features_in_ = n_features
@@ -130,21 +141,29 @@ class KernelPCA(BaseEstimator):
         except _LINALG_ERRORS:
             K_np = _to_numpy(K_centered)
             eigvals_np, eigvecs_np = np.linalg.eigh(K_np)
-            eigenvalues = xp.asarray(eigvals_np, dtype=xp.float64)
-            eigenvectors = xp.asarray(eigvecs_np, dtype=xp.float64)
+            eigenvalues = xp_asarray(eigvals_np, dtype=xp.float64, xp=xp, ref_arr=K)
+            eigenvectors = xp_asarray(eigvecs_np, dtype=xp.float64, xp=xp, ref_arr=K)
+
+        # Adding alpha*I shifts eigenvalues but not eigenvectors.  Remove that
+        # shift before defining the KPCA embedding so training transform and
+        # out-of-sample transform use the same unregularized centered kernel.
+        eigenvalues = eigenvalues - float(self.alpha)
 
         # Sort by descending eigenvalue
-        idx = xp.argsort(eigenvalues)[::-1]
+        idx = xp.argsort(eigenvalues)
+        idx = xp.flip(idx, dims=(0,)) if xp.__name__ == "torch" else idx[::-1]
         eigenvalues = eigenvalues[idx]
         eigenvectors = eigenvectors[:, idx]
 
-        # Keep top n_components
-        eigenvalues = eigenvalues[:n_comp]
-        eigenvectors = eigenvectors[:, :n_comp]
+        # Keep positive eigenvalues only; centered kernels can have exact
+        # zero directions and indefinite user kernels can have negatives.
+        positive = eigenvalues > 1e-12
+        eigenvalues = eigenvalues[positive][:n_comp]
+        eigenvectors = eigenvectors[:, positive][:, :n_comp]
+        if int(eigenvalues.shape[0]) == 0:
+            raise ValueError("centered kernel matrix has no positive eigenvalues")
 
-        # Normalize eigenvectors: alpha_k = v_k / sqrt(lambda_k)
-        # (only for positive eigenvalues)
-        norms = xp.sqrt(xp.maximum(eigenvalues, 1e-12))
+        norms = xp.sqrt(eigenvalues)
         alphas = eigenvectors / norms[None, :]
 
         self.lambdas_ = _to_numpy(eigenvalues)
@@ -172,6 +191,10 @@ class KernelPCA(BaseEstimator):
         X_arr = xp_asarray(X, dtype=xp.float64, xp=xp)
         if X_arr.ndim == 1:
             X_arr = X_arr.reshape(-1, 1)
+        if X_arr.ndim != 2 or X_arr.shape[1] != self.n_features_in_:
+            raise ValueError(f"X must have {self.n_features_in_} features")
+        if not bool(_to_float_scalar(xp.all(xp.isfinite(X_arr)))):
+            raise ValueError("X must contain only finite values")
 
         X_fit_arr = xp.asarray(self.X_fit_, dtype=xp.float64)
         if hasattr(X_arr, 'is_cuda'):
@@ -207,14 +230,8 @@ class KernelPCA(BaseEstimator):
         return X_transformed
 
     def fit_transform(self, X, y=None):
-        """Fit and transform in one step."""
-        self.fit(X, y)
-        # For training data: K_centered @ alphas_ = V * sqrt(lambda)
-        # alphas_ = V / sqrt(lambda), so alphas_ * lambda = V * sqrt(lambda)
-        backend = self._get_backend(backend="auto")
-        xp = backend.xp
-        result = np.asarray(self.alphas_) * np.maximum(self.lambdas_, 0)[None, :]
-        return xp.asarray(result, dtype=xp.float64)
+        """Fit and transform using the same out-of-sample centering path."""
+        return self.fit(X, y).transform(X)
 
     def predict(self, X):
         """Alias for transform (required by BaseEstimator)."""

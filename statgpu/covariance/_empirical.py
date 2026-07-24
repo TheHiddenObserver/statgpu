@@ -56,6 +56,22 @@ def _torch_device_from_data(X) -> Optional[str]:
     return None
 
 
+def _validate_covariance_input(X_arr, xp, *, min_samples=1):
+    """Validate shape and finiteness without transferring the full array."""
+    if X_arr.ndim != 2:
+        raise ValueError("X must be a two-dimensional array")
+    n_samples, n_features = map(int, X_arr.shape)
+    if n_samples < min_samples:
+        raise ValueError(
+            f"Need at least {min_samples} samples to estimate covariance, got {n_samples}"
+        )
+    if n_features < 1:
+        raise ValueError("X must contain at least one feature")
+    if not bool(_to_float_scalar(xp.all(xp.isfinite(X_arr)))):
+        raise ValueError("X must contain only finite values")
+    return n_samples, n_features
+
+
 class EmpiricalCovariance(BaseEstimator):
     """
     Maximum likelihood covariance estimator with GPU acceleration.
@@ -125,13 +141,9 @@ class EmpiricalCovariance(BaseEstimator):
         if X_arr.ndim == 1:
             X_arr = X_arr.reshape(-1, 1)
 
-        n_samples = int(X_arr.shape[0])
-        n_features = int(X_arr.shape[1])
-
-        if n_samples < 2:
-            raise ValueError(
-                f"Need at least 2 samples to estimate covariance, got {n_samples}"
-            )
+        n_samples, n_features = _validate_covariance_input(
+            X_arr, xp, min_samples=2
+        )
 
         # Center if needed
         if self.assume_centered:
@@ -190,8 +202,9 @@ class EmpiricalCovariance(BaseEstimator):
         if X_arr.ndim == 1:
             X_arr = X_arr.reshape(-1, 1)
 
-        n_samples = int(X_arr.shape[0])
-        p = int(X_arr.shape[1])
+        n_samples, p = _validate_covariance_input(X_arr, xp, min_samples=1)
+        if p != self.n_features_:
+            raise ValueError(f"X must have {self.n_features_} features, got {p}")
 
         loc = xp_asarray(self.location_, dtype=xp.float64, xp=xp, ref_arr=X_arr)
         prec = xp_asarray(self.precision_, dtype=xp.float64, xp=xp, ref_arr=X_arr)
@@ -205,6 +218,9 @@ class EmpiricalCovariance(BaseEstimator):
 
         # log(det(S)) via slogdet for numerical stability
         sign, logdet = xp.linalg.slogdet(cov)
+        sign_val = _to_float_scalar(sign)
+        if sign_val <= 0:
+            return float("-inf")
         logdet_val = _to_float_scalar(logdet)
 
         # Average log-likelihood:
@@ -231,6 +247,13 @@ class EmpiricalCovariance(BaseEstimator):
         X_arr = xp_asarray(X, dtype=xp.float64, xp=xp)
         if X_arr.ndim == 1:
             X_arr = X_arr.reshape(1, -1)
+        _n_samples, n_features = _validate_covariance_input(
+            X_arr, xp, min_samples=1
+        )
+        if n_features != self.n_features_:
+            raise ValueError(
+                f"X must have {self.n_features_} features, got {n_features}"
+            )
 
         loc = xp_asarray(self.location_, dtype=xp.float64, xp=xp, ref_arr=X_arr)
         prec = xp_asarray(self.precision_, dtype=xp.float64, xp=xp, ref_arr=X_arr)
@@ -288,15 +311,20 @@ def _stable_inv(S, xp, backend_name: str):
     else:
         eye = xp.eye(p, dtype=xp.float64)
 
+    # Preserve the exact estimator whenever the covariance is invertible.
+    # Jitter is a fallback, not part of the empirical covariance definition.
+    try:
+        inv_S = xp.linalg.inv(S)
+        test_val = _to_float_scalar(xp.max(xp.abs(inv_S)))
+        if np.isfinite(test_val):
+            return inv_S
+    except _LINALG_ERRORS + (ValueError,):
+        pass
+
     jitter = base
     for _ in range(12):
         try:
-            if jitter > 0:
-                S_work = S + jitter * eye
-            else:
-                S_work = S
-
-            inv_S = xp.linalg.inv(S_work)
+            inv_S = xp.linalg.inv(S + jitter * eye)
             test_val = _to_float_scalar(xp.max(xp.abs(inv_S)))
             if np.isfinite(test_val):
                 return inv_S

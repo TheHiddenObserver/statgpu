@@ -22,6 +22,16 @@ results/
 
 # Dev tooling (benchmarks, scripts, plans, docs — not production code)
 dev/benchmarks/
+# Keep the PR79 evidence pipeline and its reviewed manifest versioned while
+# continuing to ignore ad-hoc benchmark artifacts elsewhere.
+!dev/benchmarks/
+dev/benchmarks/*
+!dev/benchmarks/pr79/
+dev/benchmarks/pr79/*
+!dev/benchmarks/pr79/aggregate_results.py
+!dev/benchmarks/pr79/configs/
+dev/benchmarks/pr79/configs/*
+!dev/benchmarks/pr79/configs/expected_accuracy_manifest.json
 dev/scripts/
 dev/docs/
 dev/plans/

@@ -269,9 +269,16 @@ def fista_lla_path(
         y_c = y
         n_aug = n_features + 1
     elif fit_intercept:
-        # squared_error: centering is exact for identity link
-        X_mean = xp.mean(X, axis=0)
-        y_mean = xp.mean(y)
+        # Squared-error centering is exact for the identity link. With sample
+        # weights, use the same normalized weighted objective as the gradient;
+        # ordinary means would solve a different intercept problem.
+        if _sw_arr is not None:
+            sw_sum = xp.sum(_sw_arr)
+            X_mean = xp.sum(X * _sw_arr[:, None], axis=0) / sw_sum
+            y_mean = xp.sum(y * _sw_arr) / sw_sum
+        else:
+            X_mean = xp.mean(X, axis=0)
+            y_mean = xp.mean(y)
         X_c = X - X_mean
         y_c = y - y_mean
         n_aug = n_features
@@ -283,7 +290,12 @@ def fista_lla_path(
     # Precompute Lipschitz using loss-specific method.
     # Pass zero coef (global bound) -- not all losses handle coef=None.
     _zero_coef_lla = _zeros(n_aug, backend, ref_tensor=X_c)
-    L_base = loss.lipschitz(X_c, _zero_coef_lla, y=y_c)
+    L_base = loss.lipschitz(
+        X_c,
+        _zero_coef_lla,
+        y=y_c,
+        sample_weight=_sw_arr,
+    )
     # Precompute XtX only for squared_error fast path (skip for GLM losses)
     XtX = X_c.T @ X_c if _is_quadratic else None
     if L_base <= 0:
@@ -467,10 +479,14 @@ def fista_lla_path(
                     break
             _record_path_alpha(cont_alpha)
     else:
-        # Generic path for non-quadratic losses (Huber, Bisquare, Fair, CoxPH, etc.)
+        # Generic path: fixed-step FISTA for quadratic/no-Hessian losses and
+        # proximal Newton for genuinely non-quadratic Hessian-equipped losses.
         # For losses with Hessian: use Proximal Newton (5-10 iter per LLA step).
         # For losses without Hessian: use FISTA (300+ iter per LLA step).
-        _has_hessian = getattr(loss, 'has_hessian', False)
+        # Quadratic losses use the fixed-step FISTA branch below. Routing
+        # CPU/weighted squared error through proximal Newton caused avoidable
+        # line-search failures and could return the initial iterate unchanged.
+        _has_hessian = getattr(loss, 'has_hessian', False) and not _is_quadratic
         _is_numpy = backend == "numpy"
 
         if _has_hessian:

@@ -1,131 +1,52 @@
 # statgpu 文档入口（中文）
 
-> 语言: 中文  
-> 最后更新: 2026-04-26  
-> 页面定位: 中文文档入口  
-> 切换: [English](../en/usage.md)
+> 语言：中文  
+> 最后更新：2026-07-12  
+> 切换：[English](../en/usage.md)
 
-语言切换：
-- English: [../en/usage.md](../en/usage.md)
+该入口只链接维护中的能力清单，避免重复保存容易过期的支持状态。
 
-中文入口，详细内容按”快速开始 / 核心指南 / 方法文档 / 基准脚本”拆分到 `` 和 `docs/en/`。
+## 快速开始
 
-## 1) 快速开始
-
-- [快速上手](getting-started/quickstart.md)
-- [设备与显存管理](guides/device-and-memory.md)
-- [推断配置（Lasso）](guides/inference-modes.md)
-- [Distribution API 使用指南（原生 GPU + 显式 Fallback）](guides/distribution-api.md)
-- [多重检验：P值校正与合并（BH/BY/Holm/Bonferroni/Hochberg + Fisher/Cauchy/Stouffer）](guides/multiple-testing-combine-pvalues.md)
+- [快速入门](getting-started/quickstart.md)
+- [已实现方法](guides/implemented-methods.md)
+- [设备与 GPU 内存](guides/device-and-memory.md)
+- [PyTorch 后端](guides/pytorch-backend.md)
+- [交叉验证](guides/cross-validation.md)
+- [推断 API](guides/inference-api.md)
 - [变更记录](changelog.md)
 
-安装提示：
-- GPU 环境请按 CUDA 主版本选择 CuPy wheel：
-  - CUDA 11.x -> `cupy-cuda11x`
-  - CUDA 12.x -> `cupy-cuda12x`
+CuPy 请按 CUDA 主版本安装 `statgpu[gpu11]` 或 `statgpu[gpu12]`；
+PyTorch 后端使用 `statgpu[torch]`。
 
-## 2) 方法文档（按模块扩展）
+## 模型族
 
-总览索引：
 - [模型总览](models/README.md)
-- [GeneralizedLinearModel 与 Penalized GLM](models/generalized-linear-model.md)
-- [PoissonRegression](models/poisson-regression.md)
-- [Knockoff 特征选择](models/knockoff.md)
-- [有序广义线性模型 (Logit/Probit)](models/ordered.md)
+- [广义线性模型](models/generalized-linear-model.md)
+- [Cox 比例风险模型](models/coxph.md)
+
+`CoxPH` 默认采用 strict 稳健推断；delayed-entry/penalty 支持范围及可选
+`statgpu[survival]` 依赖见模型页支持矩阵。
+- [面板模型](models/panel.md)
+- [ANOVA](models/anova.md)
+- [协方差估计](models/covariance.md)
 - [非参数方法](models/nonparametric.md)
+- [无监督学习](models/unsupervised.md)
+- [特征选择](models/feature-selection.md)
+- [回归诊断](guides/regression-diagnostics.md)
 
-### 线性模型 `statgpu.linear_model`
-- [LinearRegression](models/linear-regression.md)
-- [GeneralizedLinearModel 与 Penalized GLM](models/generalized-linear-model.md)
-- [PoissonRegression](models/poisson-regression.md)
-- [Ridge](models/ridge.md)
-- [Lasso](models/lasso.md)
-- [ElasticNet](models/elastic-net.md)
-- [LogisticRegression](models/logistic-regression.md)
+`RidgeCV`、`LassoCV`、`ElasticNetCV`、`LogisticRegressionCV`、
+`PenalizedGLM_CV` 与 `CoxPHCV` 均已实现；具体 loss、penalty 与后端覆盖见
+[已实现方法](guides/implemented-methods.md)。
 
-### 生存分析 `statgpu.survival`
-- [CoxPH](models/coxph.md)
+## 验证边界
 
-当前已实现方法：
-- `LinearRegression`
-- `GeneralizedLinearModel`
-- `PoissonRegression`
-- `PenalizedLinearRegression`
-- `PenalizedLogisticRegression`
-- `PenalizedPoissonRegression`
-- `Ridge`
-- `Lasso`
-- `ElasticNet`
-- `LassoCV`
-- `LogisticRegression`
-- `CoxPH` ✅ (Torch backend)
-  - `cov_type=nonrobust/hc0/hc1/cluster` (cluster 为 CPU 路径)
-  - `ties=breslow/efron` (Efron 带数值稳定性 clipping 保护)
-  - 支持 C-index、baseline hazard、AIC/BIC
-  - **性能**: Torch GPU 在 n=5000, p=20 规模下实现 15.44x 加速 (vs statsmodels)
-  - 详见 `results/coxph_benchmark_report_2026-04-20.md` 综合性能对比报告
-- `OrderedLogitRegression` / `OrderedProbitRegression` ✅ (三后端)
-  - 有序响应模型（累积 logit/probit 链接函数）
-  - 跨后端精度修复 (2026-04-26)：coef 最大差异 < 1e-2
+托管 CI 覆盖 Python 3.9–3.12、完整 CPU 测试、静态契约，以及受影响原生后端
+路径的 NumPy/Torch-CPU 一致性。真实 CuPy CUDA 与 Torch CUDA 的收敛、传输、
+显存、运行时间和重复拟合验证仍为 `PARTIAL_REMOTE_PENDING`，文档不作超出证据的声明。
 
-当前导出的 CV 类：
-- `RidgeCV` ✅ (完整实现，支持 GPU 加速交叉验证)
-- `LogisticRegressionCV` ✅ (完整实现，支持 GPU 加速交叉验证)
-- `CoxPHCV` (骨架，待实现完整 CV 训练/搜索逻辑)
+## 贡献者检查
 
-当前已实现特征选择：
-- `knockoff_filter`
-- `fixed_x_knockoff_filter`
-- `model_x_knockoff_filter`
-- `KnockoffSelector`
-- `FixedXKnockoffSelector`
-
-推断能力摘要：
-- `LinearRegression`: `cov_type=nonrobust/hc0/hc1/hc2/hc3/hac`（CPU+GPU）
-- `Ridge`: `cov_type=nonrobust/hc0/hc1/hc2/hc3/hac`（CPU+GPU）
-- `Lasso`: `inference_method=cpu_ols_inference/gpu_ols_inference/bootstrap`
-- `LogisticRegression`: `cov_type=nonrobust/hc0/hc1/hc2/hc3/hac`（CPU+GPU）
-- 多重比较工具：`statgpu.adjust_pvalues` / `statgpu.multipletests`（`bh/by/holm/bonferroni/hochberg`）
-- 全局 p 值合并：`statgpu.combine_pvalues`（`fisher/cauchy/stouffer`）
-- 有序响应模型：`OrderedLogitRegression` / `OrderedProbitRegression`（CPU/CuPy/Torch）
-- 统一重采样引擎：`statgpu.bootstrap_statistic` / `statgpu.permutation_test`
-
-## 3) 基准与验证
-
-- [基准脚本索引](guides/benchmarks.md)
-
-当前重点脚本：
-- `dev/benchmarks/_bench_inference_timing.py`（多重检验计时, p=100-10k）
-- `dev/benchmarks/_bench_inference_timing_large.py`（多重检验计时, p=50k-1M）
-- `dev/benchmarks/benchmark_gpu_memory_cleanup.py`
-- `dev/benchmarks/benchmark_all_methods_large_scale.py`
-- `dev/benchmarks/benchmark_kernel_regression_vs_statsmodels.py`
-
-最新非参数产物：
-- 公平核对齐运行 `20260415_103036`（对角核设置下与 statsmodels 达到机器精度对齐）
-- local-linear 优化运行 `20260415_120903`（多维 local-linear：CPU 约 4.8-5.4x，GPU 约 115-116x）
-
-最新三方协方差产物：
-- `results/remote_covariance_full_compare_2026-04-10.json`（`statsmodels` / `statgpu CPU` / `statgpu GPU`，`hc2/hc3/hac`）
-
-建议给协作者跑的大规模计时命令：
-
-```bash
-python dev/benchmarks/benchmark_all_methods_large_scale.py \
-  --devices cpu,cuda \
-  --repeats 3 \
-  --warmup-runs 1 \
-  --n-reg 60000 --p-reg 64 \
-  --n-logit 80000 --p-logit 48 \
-  --n-cox 50000 --p-cox 24 \
-  --json-out results/bench_all_large_results.json
-```
-
-## 4) 协作建议
-
-- 跑性能对比时，优先使用 `dev/benchmarks/benchmark_all_methods_large_scale.py`
-- 报告结果时至少包含：设备信息、数据规模、`repeats/warmup`、是否包含 inference
-- 若新增功能，请同步更新：
-  - `docs/models/*.md`
-  - `docs/guides/benchmarks.md`（如新增脚本）
-  - `docs/changelog.md`
+修改代码时遵循 `dev/AGENTS.md` 与 `.claude/workflows/new-module-dev.md`：显式设备
+不得静默回退，外部比较前确认目标函数归一化，补齐架构相关测试，并同步 README、
+中英文文档及三份 changelog。

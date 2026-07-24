@@ -25,6 +25,40 @@ from statgpu.penalties._categories import (
 )
 _SMOOTH_PENALTIES = frozenset({"l2", "none", "null", ""})
 
+
+def _validate_sample_weight_backend(sample_weight, n_samples, backend_name):
+    """Validate sample weights in place and synchronize only scalar reductions."""
+    if getattr(sample_weight, "ndim", None) != 1:
+        raise ValueError("sample_weight must be one-dimensional")
+    if int(sample_weight.shape[0]) != int(n_samples):
+        raise ValueError("sample_weight must have length n_samples")
+
+    if backend_name == "torch":
+        import torch
+        if not bool(torch.all(torch.isfinite(sample_weight)).item()):
+            raise ValueError("sample_weight must be finite")
+        if bool(torch.any(sample_weight < 0).item()):
+            raise ValueError("sample_weight must be non-negative")
+        total = float(torch.sum(sample_weight).item())
+    elif backend_name == "cupy":
+        import cupy as cp
+        if not bool(cp.all(cp.isfinite(sample_weight)).item()):
+            raise ValueError("sample_weight must be finite")
+        if bool(cp.any(sample_weight < 0).item()):
+            raise ValueError("sample_weight must be non-negative")
+        total = float(cp.sum(sample_weight).item())
+    else:
+        weights = np.asarray(sample_weight)
+        if not np.all(np.isfinite(weights)):
+            raise ValueError("sample_weight must be finite")
+        if np.any(weights < 0):
+            raise ValueError("sample_weight must be non-negative")
+        total = float(np.sum(weights))
+
+    if total <= 0.0:
+        raise ValueError("sample_weight must have a positive sum")
+    return total
+
 # Losses with special LLA handling (not routed through generic GLM path).
 # squared_error: quadratic, uses fused FISTA-LLA fast path.
 # quantile: non-smooth gradient, uses proximal IRLS-CD.
@@ -272,6 +306,18 @@ class _PenalizedFitMixin:
 
             parser = FormulaParser(formula)
             y, X, design_info = parser.eval(data)
+            if sample_weight is not None:
+                sw_formula = np.asarray(_to_numpy(sample_weight), dtype=np.float64).reshape(-1)
+                row_positions = parser.row_positions
+                if sw_formula.shape[0] == len(data):
+                    sample_weight = sw_formula[row_positions]
+                elif sw_formula.shape[0] == X.shape[0]:
+                    sample_weight = sw_formula
+                else:
+                    raise ValueError(
+                        "For formula fitting, sample_weight must have length "
+                        "len(data) or the number of rows retained by the formula."
+                    )
             formula_column_names = list(design_info.column_names)
             self._design_info = design_info
             self._formula_has_intercept = "Intercept" in formula_column_names
@@ -330,7 +376,8 @@ class _PenalizedFitMixin:
         # Convert sample_weight to target backend once (avoids CPU/CUDA mismatch)
         _sw_arr = None
         if sample_weight is not None:
-            _sw_arr = self._to_array(sample_weight, backend=backend_name)
+            _sw_arr = self._to_array(sample_weight, backend=backend_name).reshape(-1)
+            _validate_sample_weight_backend(_sw_arr, X.shape[0], backend_name)
 
         # Handle penalties requiring initialization (e.g., Adaptive Lasso)
         if self._penalty.requires_init:
@@ -694,25 +741,36 @@ class _PenalizedFitMixin:
         # Original squared-error path (backward compatible)
 
         if sample_weight is not None:
-            sample_weight = np.asarray(sample_weight)
-            sqrt_sw = np.sqrt(sample_weight)
-            X = X * sqrt_sw[:, np.newaxis]
-            y = y * sqrt_sw
-
-        pen = self._penalty
+            sample_weight = np.asarray(sample_weight, dtype=np.float64).reshape(-1)
+            n_eff = float(np.sum(sample_weight))
+        else:
+            n_eff = float(n_samples)
 
         if self._effective_intercept:
-            X_mean = np.mean(X, axis=0)
-            y_mean = np.mean(y)
+            if sample_weight is None:
+                X_mean = np.mean(X, axis=0)
+                y_mean = float(np.mean(y))
+            else:
+                X_mean = np.average(X, axis=0, weights=sample_weight)
+                y_mean = float(np.average(y, weights=sample_weight))
             X_centered = X - X_mean
             y_centered = y - y_mean
         else:
-            X_centered = X
+            X_mean = np.zeros(n_features, dtype=X.dtype)
             y_mean = 0.0
+            X_centered = X
             y_centered = y
 
-        if y_centered.ndim == 1:
-            y_centered = y_centered.reshape(-1, 1)
+        if sample_weight is not None:
+            sqrt_sw = np.sqrt(sample_weight)
+            X_work = X_centered * sqrt_sw[:, np.newaxis]
+            y_work = y_centered * sqrt_sw
+        else:
+            X_work = X_centered
+            y_work = y_centered
+
+        if y_work.ndim == 1:
+            y_work = y_work.reshape(-1, 1)
 
         # Precompute for gradient (use CV cache if available)
         _cv = getattr(self, '_cv_cache', None)
@@ -720,14 +778,14 @@ class _PenalizedFitMixin:
             XtX = _cv['XtX']
             Xty = _cv['Xty']
         else:
-            XtX = X_centered.T @ X_centered
-            Xty = X_centered.T @ y_centered.flatten()
+            XtX = X_work.T @ X_work
+            Xty = X_work.T @ y_work.flatten()
 
         pen = self._penalty
         if solver_name == "exact":
             if pen.name != "l2":
                 raise ValueError("solver='exact' is only supported for L2/Ridge penalty.")
-            self.coef_ = self._solve_exact_numpy(XtX, Xty, n_samples)
+            self.coef_ = self._solve_exact_numpy(XtX, Xty, n_eff)
             self.n_iter_ = 1
             if self._effective_intercept:
                 self.intercept_ = float(y_mean - X_mean @ self.coef_)
@@ -743,7 +801,7 @@ class _PenalizedFitMixin:
             L = float(self.lipschitz_L)
         else:
             from statgpu.backends._array_ops import _max_eigval_power
-            L = _max_eigval_power(XtX) / n_samples
+            L = _max_eigval_power(XtX) / n_eff
 
         if L <= 0:
             self.coef_ = np.zeros(n_features)
@@ -766,7 +824,7 @@ class _PenalizedFitMixin:
                 for iteration in range(self.max_iter):
                     coef_old = coef.copy()
 
-                    grad_at_y = (XtX @ y_k - Xty) / n_samples
+                    grad_at_y = (XtX @ y_k - Xty) / n_eff
                     w_tilde = y_k - step * grad_at_y
                     coef = pen.proximal(w_tilde, step, backend="numpy")
 
@@ -798,7 +856,7 @@ class _PenalizedFitMixin:
                 _adaptive_thresh = None
                 if pen.name in ("adaptive_l1", "adaptive_lasso"):
                     _w = np.asarray(getattr(pen, '_weights', np.ones(n_features)), dtype=float)
-                    _adaptive_thresh = self.alpha * _w * n_samples
+                    _adaptive_thresh = self.alpha * _w * n_eff
 
                 # Precompute SCAD/MCP constants (hoisted out of inner loop)
                 _a_scad = float(getattr(pen, 'a', 3.7)) if pen.name == "scad" else 0.0
@@ -855,7 +913,7 @@ class _PenalizedFitMixin:
                                     coef[j] = 0.0
                             elif pen.name == "l1":
                                 # Soft thresholding
-                                thresh = self.alpha * n_samples
+                                thresh = self.alpha * n_eff
                                 if X_sq_norms[j] > 1e-10:
                                     coef[j] = np.sign(rho_j) * np.maximum(np.abs(rho_j) - thresh, 0) / X_sq_norms[j]
                                 else:
@@ -863,10 +921,10 @@ class _PenalizedFitMixin:
                             elif pen.name == "elasticnet":
                                 # Elastic net CD matching both sklearn and R glmnet:
                                 # beta_j = S(rho_j, alpha*l1_ratio*n) / (X_j'X_j + alpha*(1-l1_ratio)*n)
-                                thresh = self.alpha * self.l1_ratio * n_samples
+                                thresh = self.alpha * self.l1_ratio * n_eff
                                 if X_sq_norms[j] > 1e-10:
                                     st = np.sign(rho_j) * np.maximum(np.abs(rho_j) - thresh, 0)
-                                    coef[j] = st / (X_sq_norms[j] + self.alpha * (1 - self.l1_ratio) * n_samples)
+                                    coef[j] = st / (X_sq_norms[j] + self.alpha * (1 - self.l1_ratio) * n_eff)
                                 else:
                                     coef[j] = 0.0
                             elif pen.name == "scad":
@@ -878,7 +936,7 @@ class _PenalizedFitMixin:
                                 if X_sq_norms[j] > 1e-10:
                                     w_j = rho_j / X_sq_norms[j]
                                     aw = np.abs(w_j)
-                                    lam = self.alpha * n_samples
+                                    lam = self.alpha * n_eff
                                     if aw > a_scad * lam:
                                         coef[j] = w_j
                                     elif aw > lam:
@@ -894,7 +952,7 @@ class _PenalizedFitMixin:
                                 if X_sq_norms[j] > 1e-10:
                                     w_j = rho_j / X_sq_norms[j]
                                     aw = np.abs(w_j)
-                                    lam = self.alpha * n_samples
+                                    lam = self.alpha * n_eff
                                     if aw > gamma_mcp * lam:
                                         coef[j] = w_j
                                     elif aw > lam:
@@ -983,42 +1041,62 @@ class _PenalizedFitMixin:
                 import torch
                 if X.dtype != torch.float64:
                     X = X.to(torch.float64)
+
+            sw = None
+            n_eff = float(n_samples)
             if sample_weight is not None:
-                sw = xp_asarray(sample_weight, dtype=X.dtype, xp=xp, ref_arr=X)
-                sqrt_sw = xp.sqrt(sw)
-                X = X * sqrt_sw[:, None]
-                y = y * sqrt_sw
+                sw = xp_asarray(sample_weight, dtype=X.dtype, xp=xp, ref_arr=X).reshape(-1)
+                n_eff = _validate_sample_weight_backend(sw, n_samples, backend_name)
+
             if self._effective_intercept:
-                X_mean = xp.mean(X, axis=0)
-                y_mean = xp.mean(y)
+                if sw is None:
+                    X_mean = xp.mean(X, axis=0)
+                    y_mean = xp.mean(y)
+                else:
+                    X_mean = xp.sum(X * sw[:, None], axis=0) / n_eff
+                    y_mean = xp.sum(y * sw) / n_eff
                 X_centered = X - X_mean
                 y_centered = y - y_mean
             else:
-                X_centered = X
+                X_mean = None
                 y_mean = xp_zeros((), X.dtype, xp, ref_arr=X) if is_torch else xp.array(0.0, dtype=X.dtype)
+                X_centered = X
                 y_centered = y
-            if y_centered.ndim == 1:
-                y_centered = y_centered.reshape(-1)
+
+            if sw is not None:
+                sqrt_sw = xp.sqrt(sw)
+                X_work = X_centered * sqrt_sw[:, None]
+                y_work = y_centered * sqrt_sw
+            else:
+                X_work = X_centered
+                y_work = y_centered
+
+            if y_work.ndim == 1:
+                y_work = y_work.reshape(-1)
             _cv = getattr(self, '_cv_cache', None)
-            if _cv is not None and 'XtX' in _cv:
+            if sw is None and _cv is not None and 'XtX' in _cv:
                 XtX = _cv['XtX']
                 Xty = _cv['Xty']
             else:
-                XtX = X_centered.T @ X_centered
-                Xty = X_centered.T @ y_centered
+                XtX = X_work.T @ X_work
+                Xty = X_work.T @ y_work
 
-            # Dispatch to backend-specific exact solver
             solve_fn = getattr(self, f'_solve_exact_{"torch" if is_torch else "cupy"}')
-            coef = solve_fn(XtX, Xty, n_samples)
+            coef = solve_fn(XtX, Xty, n_eff)
             self.n_iter_ = 1
+            if self._effective_intercept:
+                intercept_gpu = (y_mean.reshape(1) - X_mean.reshape(1, -1) @ coef.reshape(-1, 1)).reshape(-1)
+                coef_full_gpu = xp.concatenate([intercept_gpu, coef.reshape(-1)])
+            else:
+                coef_full_gpu = coef.reshape(-1)
+
             if self.compute_inference:
                 infer_fn = getattr(self, f'_precompute_exact_l2_inference_{"torch" if is_torch else "cupy"}')
-                if self._effective_intercept:
-                    intercept_gpu = (y_mean.reshape(1) - X_mean.reshape(1, -1) @ coef.reshape(-1, 1)).reshape(-1)
-                    coef_full_gpu = xp.concatenate([intercept_gpu, coef.reshape(-1)])
-                    infer_fn(X, y, XtX, X_mean, coef_full_gpu.reshape(-1), n_samples)
-                else:
-                    infer_fn(X, y, XtX, None, coef.reshape(-1), n_samples)
+                infer_fn(
+                    X, y, XtX, X_mean, coef_full_gpu, n_samples,
+                    sample_weight=sw, normalization=n_eff,
+                )
+
             coef_np = _to_numpy(coef)
             if self._effective_intercept:
                 self.intercept_ = float(_to_numpy(y_mean) - _to_numpy(X_mean) @ coef_np)
@@ -1278,24 +1356,24 @@ class _PenalizedFitMixin:
         """Return L2 alpha for the exact Ridge normal equations."""
         return float(getattr(self._penalty, "alpha", self.alpha))
 
-    def _solve_exact_numpy(self, XtX, Xty, n_samples):
+    def _solve_exact_numpy(self, XtX, Xty, normalization):
         alpha = self._ridge_alpha_for_exact()
         p = XtX.shape[0]
         # Per-sample convention: XtX is unnormalized (X'X), so we need
         # n*alpha to match loss/n + alpha*||w||^2 used by all other paths.
-        A = XtX + (float(n_samples) * alpha) * np.eye(p, dtype=XtX.dtype)
+        A = XtX + (float(normalization) * alpha) * np.eye(p, dtype=XtX.dtype)
         try:
             return np.linalg.solve(A, Xty)
         except np.linalg.LinAlgError:
             return np.linalg.pinv(A) @ Xty
 
-    def _solve_exact_cupy(self, XtX, Xty, n_samples):
+    def _solve_exact_cupy(self, XtX, Xty, normalization):
         import cupy as cp
         from cupyx.scipy.linalg import solve_triangular as cp_solve_triangular
 
         alpha = self._ridge_alpha_for_exact()
         p = XtX.shape[0]
-        A = XtX + (float(n_samples) * alpha) * cp.eye(p, dtype=XtX.dtype)
+        A = XtX + (float(normalization) * alpha) * cp.eye(p, dtype=XtX.dtype)
         try:
             # Cholesky + triangular solve is faster than general solve
             # for positive-definite matrices (Ridge penalty guarantees PD)
@@ -1308,12 +1386,12 @@ class _PenalizedFitMixin:
             except _LINALG_ERRORS:
                 return cp.linalg.pinv(A) @ Xty
 
-    def _solve_exact_torch(self, XtX, Xty, n_samples):
+    def _solve_exact_torch(self, XtX, Xty, normalization):
         import torch
 
         alpha = self._ridge_alpha_for_exact()
         p = XtX.shape[0]
-        A = XtX + (float(n_samples) * alpha) * torch.eye(
+        A = XtX + (float(normalization) * alpha) * torch.eye(
             p, dtype=XtX.dtype, device=XtX.device
         )
         try:
@@ -2063,10 +2141,17 @@ class _PenalizedFitMixin:
         solver = IRLSSolver(
             self._family_for_loss(), max_iter=self.max_iter, tol=self.tol
         )
+        ridge_normalization = (
+            float(n_samples)
+            if sample_weight is None
+            else _validate_sample_weight_backend(
+                sample_weight, n_samples, backend_name
+            )
+        )
         params, n_iter = solver.fit(
             X_work, y_arr,
             sample_weight=sample_weight,
-            ridge_alpha=float(n_samples * self.alpha),
+            ridge_alpha=float(ridge_normalization * self.alpha),
             ridge_penalize_intercept=False if self._effective_intercept else True,
             backend=backend_name,
             init_coef=init_coef,

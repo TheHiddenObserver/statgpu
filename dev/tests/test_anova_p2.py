@@ -83,14 +83,14 @@ class TestFtwoway:
         assert r.interaction_statistic is None
         assert r.interaction_pvalue is None
 
-    def test_unbalanced(self):
+    def test_unbalanced_requires_explicit_ss_type(self):
         np.random.seed(42)
         data = [
             [np.random.randn(5), np.random.randn(10), np.random.randn(8)],
             [np.random.randn(12), np.random.randn(6), np.random.randn(9)],
         ]
-        r = f_twoway(data, interaction=True)
-        assert r.factor_a_statistic > 0
+        with pytest.raises(ValueError, match="balanced"):
+            f_twoway(data, interaction=True)
 
     def test_eta_squared_range(self):
         np.random.seed(42)

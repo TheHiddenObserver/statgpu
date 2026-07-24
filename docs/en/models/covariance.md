@@ -1,7 +1,7 @@
 # Covariance
 
 > Language: English
-> Last updated: 2026-06-17
+> Last updated: 2026-07-14
 > This page: Model documentation
 > Switch: [Chinese](../../models/covariance.md)
 
@@ -79,10 +79,10 @@ A reweighting step then uses observations within the 97.5th percentile of the \(
 **GraphicalLasso** solves the following convex optimization problem:
 
 $$
-\max_{\Theta \succ 0}\; \log\det(\Theta) - \operatorname{tr}(S\Theta) - \alpha\|\Theta\|_1
+\max_{\Theta \succ 0}\; \log\det(\Theta) - \operatorname{tr}(S\Theta) - \alpha\|\Theta\|_{1,\mathrm{off}}
 $$
 
-using the block coordinate descent algorithm of Friedman, Hastie & Tibshirani (2008). Each outer iteration cycles over all \(p\) features, solving an L1-regularized regression for each column of the precision matrix via soft-thresholding. Convergence is checked via the dual gap.
+using the block coordinate descent algorithm of Friedman, Hastie & Tibshirani (2008). Each outer iteration cycles over all \(p\) features, solving an L1-regularized regression for each column of the precision matrix via soft-thresholding. Convergence is checked by the maximum absolute covariance update between outer iterations; the precision diagonal is not L1-penalized.
 
 **GraphicalLassoCV** selects the regularization parameter \(\alpha\) by K-fold cross-validation. A grid of candidate \(\alpha\) values is evaluated by fitting `GraphicalLasso` on each training fold and scoring the held-out log-likelihood. The \(\alpha\) with the highest mean cross-validated log-likelihood is selected for the final model.
 
@@ -90,12 +90,12 @@ using the block coordinate descent algorithm of Friedman, Hastie & Tibshirani (2
 
 Most estimators use direct computation rather than iterative optimization:
 
-- **EmpiricalCovariance**: The sample covariance \(\hat{S} = X^\top X / n\) is computed directly. The precision matrix \(\hat{S}^{-1}\) is obtained via jitter-stabilized matrix inversion (progressive diagonal augmentation if the matrix is near-singular).
+- **EmpiricalCovariance**: The sample covariance \(\hat{S} = X^\top X / n\) is computed directly. The precision matrix \(\hat{S}^{-1}\) is computed by exact inversion first; progressive diagonal jitter is used only when the exact inverse fails or is non-finite.
 - **LedoitWolf**: The analytical Ledoit-Wolf formula for \(\alpha\) is evaluated in closed form from the centered data, then the shrunk covariance and its inverse are computed.
 - **OAS**: Same closed-form approach as Ledoit-Wolf but with the OAS shrinkage formula, which is derived under a Gaussian assumption and is asymptotically optimal when \(n > p\).
 - **ShrunkCovariance**: Same as LedoitWolf/OAS but with a user-supplied \(\alpha\); no iterative optimization.
-- **MinCovDet**: The FAST-MCD algorithm uses multi-stage C-steps (concentration steps). For \(n \le 500\), 30 random subsets are drawn, each refined by 2 C-steps, the top 10 are refined to convergence, and the best is kept. For \(n > 500\), the data is partitioned into subsets of ~300 with 500 total trials, followed by the same top-10 refinement. After finding the raw MCD estimate, reweighting and consistency correction are applied.
-- **GraphicalLasso**: Block coordinate descent iterates over features, solving an L1-regularized regression per column via cyclical coordinate descent with soft-thresholding (up to 100 inner iterations). Convergence is checked by the dual gap \(|\operatorname{tr}(W\Theta) - p|\).
+- **MinCovDet**: The FAST-MCD algorithm uses multi-stage C-steps (concentration steps). For \(n \le 500\), 30 random subsets are drawn, each refined by 2 C-steps, the top 10 are refined to convergence, and the best is kept. For larger data, 50 seeded random starts are used; candidate subsets are refined by backend-native C-steps and the best positive-definite support is retained. After finding the raw MCD estimate, reweighting and consistency correction are applied.
+- **GraphicalLasso**: Block coordinate descent iterates over features, solving an L1-regularized regression per column via cyclical coordinate descent with soft-thresholding (up to 1000 inner iterations). Outer convergence is checked by the maximum absolute covariance update.
 - **GraphicalLassoCV**: K-fold cross-validation over a grid of \(\alpha\) values, each fit using `GraphicalLasso`. The final model is refitted on all data with the best \(\alpha\).
 
 ## Covariance/Inference
@@ -250,13 +250,30 @@ for r in glcv.cv_results_:
     print(f"  alpha={r['alpha']:.4f}  mean_score={r['mean_score']:.4f}")
 ```
 
+## Backend execution and validation boundary
+
+`GraphicalLasso` and `GraphicalLassoCV` keep centering, covariance updates,
+coordinate descent, inversion, fold fitting, and held-out scoring on the selected
+NumPy, CuPy, or Torch backend. `MinCovDet` keeps C-steps, Mahalanobis distances,
+sorting, support masks, reweighting, and final covariance/precision on the selected
+backend. Only seeded integer indices, convergence/CV scalars, and chi-square scalar
+CDF/quantile calculations cross the CPU boundary.
+
+NumPy/Torch-CPU parity and output-backend preservation are covered by regression
+tests. Physical CuPy CUDA and Torch CUDA convergence, memory, runtime, and repeated-fit
+validation remains `PARTIAL_REMOTE_PENDING`.
+
+Empirical and shrinkage covariance estimators validate a non-empty feature dimension
+and finite input values on the selected backend before centering or inversion, avoiding
+misleading singular-covariance errors for NaN/Inf data.
+
 ## strict/approx difference
 
 The shrinkage estimators (`EmpiricalCovariance`, `LedoitWolf`, `OAS`, `ShrunkCovariance`) do not have separate strict or approx modes. They use direct analytical formulas with no iterative solver, so there is no convergence tolerance to tune.
 
 `MinCovDet` uses iterative C-steps internally but the number of iterations is not user-configurable; convergence is determined by the algorithm.
 
-`GraphicalLasso` and `GraphicalLassoCV` have two convergence-related parameters: `max_iter` (outer iterations) and `tol` (dual gap tolerance). The inner coordinate descent for each feature uses a fixed 100-iteration cap with tolerance \(10^{-6}\).
+`GraphicalLasso` and `GraphicalLassoCV` have two convergence-related parameters: `max_iter` (outer iterations) and `tol` (maximum absolute covariance-update tolerance). The inner coordinate descent uses a 1000-iteration cap and tolerance `min(1e-8, 0.1 * tol)`.
 
 `LedoitWolf` and `OAS` provide different shrinkage intensity formulas. Choose based on your use case:
 
@@ -346,7 +363,7 @@ All estimators are validated against their scikit-learn counterparts:
 - `sklearn.covariance.GraphicalLasso`
 - `sklearn.covariance.GraphicalLassoCV`
 
-Fitted `covariance_`, `precision_`, `location_`, and `shrinkage_` values match to relative error < 1e-15 on test datasets. `MinCovDet` matches sklearn with consistency correction factors and multi-stage FAST-MCD. `GraphicalLasso` implements the block coordinate descent of Friedman et al. (2008). Consistency checks are maintained in `dev/tests/test_external_consistency.py`.
+Empirical and shrinkage estimators are compared with scikit-learn at tight numerical tolerances. `MinCovDet` is checked through robust-location/covariance and support invariants, while `GraphicalLasso` is checked against reference solutions and covariance/precision structural identities. NumPy/Torch-CPU parity is covered in `dev/tests/test_three_backend_native_followup.py`; physical CUDA parity is not yet claimed.
 
 ## References
 

@@ -531,8 +531,8 @@ def evaluate_binary_classification(
     dict
         Batch evaluation dictionary.
     """
-    if threshold < 0.0 or threshold > 1.0:
-        raise ValueError("threshold must be in [0, 1]")
+    if not np.isfinite(float(threshold)) or threshold < 0.0 or threshold > 1.0:
+        raise ValueError("threshold must be finite and in [0, 1]")
 
     backend_name = _resolve_backend(backend, y_true, y_score)
     if backend_name == "numpy":

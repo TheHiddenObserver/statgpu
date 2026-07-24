@@ -1,95 +1,56 @@
 # statgpu Documentation Portal (English)
 
 > Language: English  
-> Last updated: 2026-04-15  
+> Last updated: 2026-07-12  
 > Switch: [Chinese](../cn/usage.md)
 
-Primary English entrypoint. See also: [Documentation Index](../index.md)
+This portal points to the maintained capability inventories rather than duplicating
+version-sensitive support tables.
 
-## 1) Getting Started
+## Getting Started
 
 - [Quickstart](getting-started/quickstart.md)
+- [Implemented Methods](guides/implemented-methods.md)
 - [Device and GPU Memory](guides/device-and-memory.md)
-- [Inference Modes (Lasso)](guides/inference-modes.md)
-- [Distribution API (GPU Native + Explicit Fallback)](guides/distribution-api.md)
-- [Global P-value Combination (Fisher/Cauchy/ACAT)](guides/multiple-testing-combine-pvalues.md)
+- [PyTorch Backend](guides/pytorch-backend.md)
+- [Cross-Validation](guides/cross-validation.md)
+- [Inference API](guides/inference-api.md)
 - [Changelog](changelog.md)
 
-Install note:
-- Choose CuPy wheel by CUDA major version:
-  - CUDA 11.x -> `cupy-cuda11x`
-  - CUDA 12.x -> `cupy-cuda12x`
+Use `pip install statgpu[gpu11]` or `statgpu[gpu12]` for the matching CuPy
+CUDA major version, and `statgpu[torch]` for the PyTorch backend.
 
-## 2) Model Docs
+## Model Families
 
 - [Models Overview](models/README.md)
-- [Knockoff Feature Selection](models/knockoff.md)
+- [Generalized Linear Models](models/generalized-linear-model.md)
+- [Cox Proportional Hazards](models/coxph.md)
+
+`CoxPH` defaults to strict robust inference; delayed-entry/penalty support and
+the optional `statgpu[survival]` dependency are documented in its support matrix.
+- [Panel Models](models/panel.md)
+- [ANOVA](models/anova.md)
+- [Covariance Estimation](models/covariance.md)
 - [Nonparametric Methods](models/nonparametric.md)
+- [Unsupervised Learning](models/unsupervised.md)
+- [Feature Selection](models/feature-selection.md)
+- [Regression Diagnostics](guides/regression-diagnostics.md)
 
-Implemented estimators:
-- `LinearRegression`
-- `Ridge`
-- `Lasso`
-- `LassoCV`
-- `LogisticRegression`
-- `CoxPH`
+The CV classes `RidgeCV`, `LassoCV`, `ElasticNetCV`,
+`LogisticRegressionCV`, `PenalizedGLM_CV`, and `CoxPHCV` are implemented.
+Their exact loss/penalty/backend coverage is listed in
+[Implemented Methods](guides/implemented-methods.md).
 
-Exported CV classes currently in skeleton state:
-- `RidgeCV`
-- `LogisticRegressionCV`
-- `CoxPHCV`
-- Current behavior: `fit()` raises `NotImplementedError`.
+## Validation Boundary
 
-Implemented feature selection:
-- `knockoff_filter`
-- `fixed_x_knockoff_filter`
-- `model_x_knockoff_filter`
-- `KnockoffSelector`
-- `FixedXKnockoffSelector`
+Hosted CI covers Python 3.9–3.12, the full CPU test tree, static contracts, and
+NumPy/Torch-CPU parity for the affected native-backend paths. Physical CuPy CUDA
+and Torch CUDA convergence, transfer, memory, runtime, and repeated-fit validation
+remains `PARTIAL_REMOTE_PENDING`; documentation does not claim otherwise.
 
-Inference highlights:
-- `LinearRegression`: `cov_type=nonrobust/hc0/hc1/hc2/hc3/hac` (CPU+GPU)
-- `Ridge`: `cov_type=nonrobust/hc0/hc1/hc2/hc3/hac` (CPU+GPU)
-- `Lasso`: `cpu_ols_inference/gpu_ols_inference/bootstrap`
-- `LogisticRegression`: `cov_type=nonrobust/hc0/hc1/hc2/hc3/hac` (CPU+GPU)
-- Multiple-testing utilities: `statgpu.adjust_pvalues` / `statgpu.multipletests` (`bh/by/holm/bonferroni`)
-- Global p-value combination: `statgpu.combine_pvalues` (`fisher/cauchy/acat`)
-- Unified resampling engine: `statgpu.bootstrap_statistic` / `statgpu.permutation_test`
+## Contributor Checklist
 
-## 3) Benchmarks and Validation
-
-- [Benchmark Index](guides/benchmarks.md)
-
-Primary scripts:
-- `dev/benchmarks/benchmark_lasso_inference_gpu_vs_cpu.py`
-- `dev/benchmarks/benchmark_gpu_memory_cleanup.py`
-- `dev/benchmarks/benchmark_all_methods_large_scale.py`
-- `dev/benchmarks/benchmark_kernel_regression_vs_statsmodels.py`
-
-Latest nonparametric artifacts:
-- Fair-kernel parity run `20260415_103036` (statsmodels parity in diagonal metric mode)
-- Local-linear optimization run `20260415_120903` (~4.8-5.4x CPU and ~115-116x GPU speedups in multidim local-linear)
-
-Latest tri-backend covariance artifact:
-- `results/remote_covariance_full_compare_2026-04-10.json` (`statsmodels` / `statgpu CPU` / `statgpu GPU`, `hc2/hc3/hac`)
-
-Recommended large-scale command:
-
-```bash
-python dev/benchmarks/benchmark_all_methods_large_scale.py \
-  --devices cpu,cuda \
-  --repeats 3 \
-  --warmup-runs 1 \
-  --n-reg 60000 --p-reg 64 \
-  --n-logit 80000 --p-logit 48 \
-  --n-cox 50000 --p-cox 24 \
-  --json-out results/bench_all_large_results.json
-```
-
-## 4) Collaboration Notes
-
-- For performance reports, include: device info, data shape, `repeats/warmup`, and whether inference is timed.
-- If you add new features, also update:
-  - `models/*.md`
-  - `guides/benchmarks.md`
-  - `changelog.md`
+Follow `dev/AGENTS.md` and `.claude/workflows/new-module-dev.md`: preserve explicit
+device semantics, verify objective normalization before external comparisons, add
+architecture-specific tests, and synchronize README, English/Chinese docs, and all
+three changelogs for user-visible changes.

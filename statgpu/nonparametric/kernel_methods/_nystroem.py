@@ -10,7 +10,7 @@ import numpy as np
 
 from statgpu._base import BaseEstimator
 from statgpu._config import Device
-from statgpu.backends import _to_numpy, xp_asarray
+from statgpu.backends import _to_float_scalar, _to_numpy, xp_asarray
 from statgpu.nonparametric.kernel_methods._kernels import pairwise_kernels
 
 
@@ -97,6 +97,13 @@ class Nystroem(BaseEstimator):
         if X_arr.ndim == 1:
             X_arr = X_arr.reshape(-1, 1)
 
+        if X_arr.ndim != 2 or X_arr.shape[0] == 0 or X_arr.shape[1] == 0:
+            raise ValueError("X must be a non-empty two-dimensional array")
+        if not bool(_to_float_scalar(xp.all(xp.isfinite(X_arr)))):
+            raise ValueError("X must contain only finite values")
+        if isinstance(self.n_components, bool) or int(self.n_components) < 1:
+            raise ValueError("n_components must be a positive integer")
+
         n_samples = int(X_arr.shape[0])
         n_features = int(X_arr.shape[1])
         self.n_features_in_ = n_features
@@ -120,12 +127,13 @@ class Nystroem(BaseEstimator):
         landmarks_np = _to_numpy(landmarks)
         K_mm_np = pairwise_kernels(landmarks_np, metric=self.kernel, xp=np, **kernel_params)
 
-        eigvals, eigvecs = np.linalg.eigh(K_mm_np)
-        eigvals = np.maximum(eigvals, 1e-12)
-
-        # Normalization: K_mm^{-1/2} = V @ diag(1/sqrt(λ)) @ V^T
-        self.normalization_ = (eigvecs * (1.0 / np.sqrt(eigvals))[None, :]) @ eigvecs.T
-        self.eigenvalues_ = eigvals
+        # SVD is stable for both PSD and indefinite kernels (for example,
+        # sigmoid).  Clipping negative eigenvalues from eigh would otherwise
+        # create enormous artificial features.
+        U, singular_values, Vt = np.linalg.svd(K_mm_np, full_matrices=False)
+        singular_values = np.maximum(singular_values, 1e-12)
+        self.normalization_ = (U / np.sqrt(singular_values)[None, :]) @ Vt
+        self.eigenvalues_ = singular_values
         self._landmarks = landmarks
         self._landmarks_np = landmarks_np
         self._kernel_params = kernel_params
@@ -153,6 +161,10 @@ class Nystroem(BaseEstimator):
         X_arr = xp_asarray(X, dtype=xp.float64, xp=xp)
         if X_arr.ndim == 1:
             X_arr = X_arr.reshape(-1, 1)
+        if X_arr.ndim != 2 or X_arr.shape[1] != self.n_features_in_:
+            raise ValueError(f"X must have {self.n_features_in_} features")
+        if not bool(_to_float_scalar(xp.all(xp.isfinite(X_arr)))):
+            raise ValueError("X must contain only finite values")
 
         # Compute K_nm on the same device as X
         if xp is np:
@@ -161,7 +173,7 @@ class Nystroem(BaseEstimator):
         else:
             # GPU path: use GPU landmarks
             landmarks = self._landmarks
-            if hasattr(X_arr, 'device'):
+            if hasattr(X_arr, 'device') and getattr(xp, '__name__', '') == 'torch':
                 # torch: ensure landmarks on same device
                 landmarks = xp.asarray(_to_numpy(landmarks), dtype=xp.float64,
                                        device=X_arr.device)

@@ -1,7 +1,7 @@
 # Models Overview
 
 > Language: English  
-> Last updated: 2026-07-01  
+> Last updated: 2026-07-12  
 > Switch: [Chinese](../../cn/models/README.md)
 
 ---
@@ -25,7 +25,7 @@
 | Huber | [robust.md](robust.md) | `PenalizedRobustRegression` | Proximal Newton |
 | Bisquare | [robust.md](robust.md) | `PenalizedRobustRegression` | Proximal Newton |
 | Fair | [robust.md](robust.md) | `PenalizedRobustRegression` | Proximal Newton |
-| Cox PH | [coxph.md](coxph.md) | `PenalizedCoxRegression` | Proximal Newton |
+| Cox PH | [coxph.md](coxph.md) | `PenalizedCoxPHModel` | Proximal Newton |
 | GLM (7 families) | [losses.md](losses.md) | `PenalizedGeneralizedLinearModel` | IRLS / Newton / FISTA |
 
 ---
@@ -44,7 +44,7 @@
 | LogisticRegression | [logistic-regression.md](logistic-regression.md) | L2 |
 | PoissonRegression | [poisson-regression.md](poisson-regression.md) | — |
 | GeneralizedLinearModel | [generalized-linear-model.md](generalized-linear-model.md) | All penalties |
-| Ordered (Logit/Probit) | [ordered.md](ordered.md) | — | Newton-Raphson + analytical Hessian inference |
+| Ordered (Logit/Probit) | [ordered.md](ordered.md) | Newton-Raphson + analytical Hessian inference |
 
 ---
 

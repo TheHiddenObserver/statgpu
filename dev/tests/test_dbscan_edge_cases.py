@@ -331,7 +331,7 @@ class TestCrossBackendParity:
         y_np = X_np @ beta_true + np.random.randn(n) * 0.5
 
         if backend == "torch":
-            import torch
+            torch = pytest.importorskip("torch")
             X = torch.tensor(X_np, dtype=torch.float64)
             y = torch.tensor(y_np, dtype=torch.float64)
         else:

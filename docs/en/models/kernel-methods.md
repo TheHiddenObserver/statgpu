@@ -1,7 +1,7 @@
 # Kernel Methods
 
 > Language: English
-> Last updated: 2026-06-17
+> Last updated: 2026-07-14
 > This page: Model documentation
 > Switch: [Chinese](../../models/kernel-methods.md)
 
@@ -239,6 +239,13 @@ def my_kernel(X, Y=None, xp=None):
 kr_custom = KernelRidge(alpha=1.0, kernel=my_kernel, device="cpu")
 kr_custom.fit(X, y)
 ```
+
+## Input and backend safeguards
+
+`KernelPCA` and `Nystroem` reject NaN/Inf during both fitting and transformation.
+KernelPCA uses a Torch-compatible descending eigensort; the RidgeCV batched Gram-eigen
+solver uses a scalar-safe eigenvalue floor for rank-deficient Torch matrices. These
+paths have NumPy/Torch-CPU regression coverage; physical CUDA validation remains pending.
 
 ## strict/approx difference
 

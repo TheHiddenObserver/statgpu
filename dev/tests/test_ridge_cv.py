@@ -2,10 +2,12 @@
 Test RidgeCV implementation against sklearn.
 """
 import numpy as np
+import pytest
 import sys
 sys.path.insert(0, '..')
 
 from statgpu.linear_model import RidgeCV
+from statgpu.backends import get_backend
 from sklearn.linear_model import RidgeCV as SklearnRidgeCV
 from sklearn.model_selection import KFold
 
@@ -81,7 +83,7 @@ def test_ridge_cv_cpu_vs_sklearn():
     print(f"  Alpha match: {alpha_match} {'✓' if alpha_match else '(may differ due to CV fold differences)'}")
     print(f"  Coef L2 diff: {coef_diff:.6f} {'✓' if coef_diff < 0.01 else '(acceptable if CV folds differ)'}")
 
-    return alpha_match, coef_diff
+    assert coef_diff < 0.01
 
 
 def test_ridge_cv_gpu_vs_cpu():
@@ -90,12 +92,10 @@ def test_ridge_cv_gpu_vs_cpu():
     print("Test 2: statgpu RidgeCV (GPU) vs RidgeCV (CPU)")
     print("=" * 70)
 
-    try:
-        import cupy as cp
-        print(f"CuPy available: {cp.__version__}")
-    except ImportError:
-        print("CuPy not available, skipping GPU test")
-        return None, None
+    cp = pytest.importorskip("cupy")
+    if not get_backend("cupy").is_available():
+        pytest.skip("working CuPy CUDA backend is unavailable")
+    print(f"CuPy available: {cp.__version__}")
 
     # Generate data
     X, y, _ = generate_ridge_data(n_samples=1000, n_features=50, random_state=20260418)
@@ -145,7 +145,8 @@ def test_ridge_cv_gpu_vs_cpu():
     print(f"  Alpha match: {alpha_match} {'✓' if alpha_match else '(may differ due to numerical precision)'}")
     print(f"  Coef L2 diff: {coef_diff:.6f} {'✓' if coef_diff < 1e-5 else '⚠'}")
 
-    return alpha_match, coef_diff
+    assert alpha_match
+    assert coef_diff < 1e-5
 
 
 def test_ridge_cv_alpha_selection():

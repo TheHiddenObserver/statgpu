@@ -115,13 +115,16 @@ def _rng_default(backend_name: str, random_state: Optional[int], device: str = "
     if backend_name == "torch":
         import torch
         g = torch.Generator(device=device)
-        if random_state is not None:
+        if random_state is None:
+            g.seed()
+        else:
             g.manual_seed(int(random_state))
         return g
     import cupy as cp
 
-    seed = 0 if random_state is None else int(random_state)
-    return cp.random.RandomState(seed)
+    if random_state is None:
+        return cp.random.RandomState()
+    return cp.random.RandomState(int(random_state))
 
 
 def _rng_integers(rng, low: int, high: int, size, backend_name: str, device: str = "cuda"):
@@ -658,24 +661,38 @@ class PermutationTestResult:
 
 def _validate_confidence_level(confidence_level: float) -> float:
     level = float(confidence_level)
-    if level <= 0.0 or level >= 1.0:
-        raise ValueError("confidence_level must be in (0, 1)")
+    if not np.isfinite(level) or level <= 0.0 or level >= 1.0:
+        raise ValueError("confidence_level must be finite and in (0, 1)")
     return level
 
 
+def _validate_positive_integer(value, name: str) -> int:
+    if isinstance(value, (bool, np.bool_)):
+        raise TypeError(f"{name} must be a positive integer")
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError) as exc:
+        raise TypeError(f"{name} must be a positive integer") from exc
+    if not np.isfinite(numeric) or not numeric.is_integer() or numeric <= 0:
+        raise ValueError(f"{name} must be a positive integer")
+    return int(numeric)
+
+
 def _validate_n_resamples(n_resamples: int) -> int:
-    n = int(n_resamples)
-    if n <= 0:
-        raise ValueError("n_resamples must be a positive integer")
-    return n
+    return _validate_positive_integer(n_resamples, "n_resamples")
 
 
 def _ensure_same_first_dim(arrays: Sequence[Any]) -> int:
     if len(arrays) == 0:
         raise ValueError("At least one array is required")
-    n = arrays[0].shape[0]
+    for arr in arrays:
+        if getattr(arr, "ndim", 0) == 0:
+            raise ValueError("Resampling arrays must have at least one dimension")
+    n = int(arrays[0].shape[0])
+    if n <= 0:
+        raise ValueError("Resampling arrays must contain at least one observation")
     for arr in arrays[1:]:
-        if arr.shape[0] != n:
+        if int(arr.shape[0]) != n:
             raise ValueError("All arrays must have the same length in axis 0")
     return n
 
@@ -750,9 +767,9 @@ def _prepare_bootstrap_state(
         }
 
     if strategy_n == "block":
-        b = int(block_size) if block_size is not None else 0
-        if b <= 0:
-            raise ValueError("block_size must be a positive integer for block bootstrap")
+        if block_size is None:
+            raise ValueError("block_size is required for block bootstrap")
+        b = _validate_positive_integer(block_size, "block_size")
         b_eff = min(b, n)
         n_blocks = int(np.ceil(n / b_eff))
         max_start = max(1, n - b_eff + 1)
@@ -924,6 +941,8 @@ def bootstrap_statistic(
     BootstrapResult
         Structured bootstrap result with samples and confidence interval.
     """
+    if not callable(statistic):
+        raise TypeError("statistic must be callable")
     n_boot = _validate_n_resamples(n_resamples)
     level = _validate_confidence_level(confidence_level)
 
@@ -937,7 +956,10 @@ def bootstrap_statistic(
     if clusters is not None and backend.asarray(clusters).shape[0] != n:
         raise ValueError("clusters must have the same length as arrays")
 
-    observed = _to_float_scalar(statistic(*arrays_xp))
+    observed_value = _coerce_sample_value(statistic(*arrays_xp), backend)
+    observed = _to_float_scalar(observed_value)
+    if not np.isfinite(observed):
+        raise ValueError("statistic must return a finite scalar for the observed sample")
     fastpath_hint = _validate_fastpath_hint(statistic_hint)
     bootstrap_state = _prepare_bootstrap_state(
         n,
@@ -1094,6 +1116,9 @@ def bootstrap_statistic(
             sampled_args = [arr[idx] for arr in arrays_xp]
             samples[i] = _coerce_sample_value(statistic(*sampled_args), backend)
 
+    if _to_float_scalar(backend.xp.any(~backend.xp.isfinite(samples))):
+        raise ValueError("statistic returned a non-finite value for a bootstrap resample")
+
     alpha = 1.0 - level
     ci = (
         _to_float_scalar(backend.xp.quantile(samples, alpha / 2.0)),
@@ -1102,7 +1127,7 @@ def bootstrap_statistic(
 
     return BootstrapResult(
         statistic_name=str(statistic_name),
-        strategy=str(strategy).lower(),
+        strategy=bootstrap_state["strategy"],
         observed=observed,
         samples=samples,
         confidence_interval=ci,
@@ -1255,6 +1280,8 @@ def permutation_test(
     PermutationTestResult
         Structured permutation test result with empirical p-value.
     """
+    if not callable(statistic):
+        raise TypeError("statistic must be callable")
     n_perm = _validate_n_resamples(n_resamples)
     alt = str(alternative).strip().lower()
     if alt not in ("two-sided", "greater", "less"):
@@ -1264,11 +1291,19 @@ def permutation_test(
     backend = get_backend(backend_name)
 
     X_arr = backend.asarray(X)
-    y_arr = backend.asarray(y).reshape(-1)
-    if X_arr.shape[0] != y_arr.shape[0]:
+    y_raw = backend.asarray(y)
+    if getattr(X_arr, "ndim", 0) == 0 or getattr(y_raw, "ndim", 0) == 0:
+        raise ValueError("X and y must have at least one dimension")
+    y_arr = y_raw.reshape(-1)
+    if int(X_arr.shape[0]) != int(y_arr.shape[0]):
         raise ValueError("X and y must have the same number of rows")
+    if int(y_arr.shape[0]) <= 0:
+        raise ValueError("X and y must contain at least one observation")
 
-    observed = _to_float_scalar(statistic(X_arr, y_arr))
+    observed_value = _coerce_sample_value(statistic(X_arr, y_arr), backend)
+    observed = _to_float_scalar(observed_value)
+    if not np.isfinite(observed):
+        raise ValueError("statistic must return a finite scalar for the observed sample")
     fastpath_hint = _validate_fastpath_hint(statistic_hint)
     permutation_state = _prepare_permutation_state(
         int(y_arr.shape[0]),
@@ -1378,6 +1413,9 @@ def permutation_test(
                 samples[write_pos + j] = _coerce_sample_value(statistic(X_arr, y_perm_batch[j]), backend)
             write_pos += cur
 
+    if _to_float_scalar(backend.xp.any(~backend.xp.isfinite(samples))):
+        raise ValueError("statistic returned a non-finite value for a permutation resample")
+
     if alt == "two-sided":
         numerator = _to_float_scalar(backend.xp.sum(backend.xp.abs(samples) >= abs(observed)))
     elif alt == "greater":
@@ -1389,7 +1427,7 @@ def permutation_test(
 
     return PermutationTestResult(
         statistic_name=str(statistic_name),
-        strategy=str(strategy).lower(),
+        strategy=permutation_state["strategy"],
         alternative=alt,
         observed=observed,
         samples=samples,

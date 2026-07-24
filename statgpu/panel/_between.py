@@ -12,7 +12,7 @@ from statgpu._base import BaseEstimator
 from statgpu._config import Device
 from statgpu.backends import _LINALG_ERRORS, _to_float_scalar, _to_numpy, xp_asarray
 
-from statgpu.panel._utils import PanelSummary, group_means
+from statgpu.panel._utils import PanelSummary, factorize_panel_labels, group_means, validate_panel_alpha, validate_panel_numeric_data
 
 
 class BetweenOLS(BaseEstimator):
@@ -85,20 +85,24 @@ class BetweenOLS(BaseEstimator):
         if entity_ids is None:
             raise ValueError("entity_ids is required for BetweenOLS")
 
-        from statgpu.panel._formula import _prepare_formula_fit
+        from statgpu.panel._formula import _align_formula_side_array, _prepare_formula_fit
         (y_arr, X_arr, self._design_info, self._feature_names, self._formula_has_intercept,
          _fe_eids, _fe_tids, _fe_entity, _fe_time) = \
             _prepare_formula_fit(formula, data, X, y, model_has_intercept=True)
+        if formula is not None:
+            entity_ids = _align_formula_side_array(entity_ids, self._design_info, len(y_arr), "entity_ids")
 
         backend = self._get_backend(backend="auto")
         xp = backend.xp
 
         X_arr = xp_asarray(X_arr, dtype=xp.float64, xp=xp)
         y_arr = xp_asarray(y_arr, dtype=xp.float64, xp=xp, ref_arr=X_arr).ravel()
-        eids = xp_asarray(entity_ids, xp=xp, ref_arr=X_arr).ravel()
+        eids, unique_eids = factorize_panel_labels(entity_ids, xp, ref_arr=X_arr, name="entity_ids", expected_n=X_arr.shape[0])
 
         if X_arr.ndim == 1:
             X_arr = X_arr.reshape(-1, 1)
+        validate_panel_alpha(self.alpha)
+        validate_panel_numeric_data(X_arr, y_arr, xp)
 
         n_orig = X_arr.shape[0]
         p = X_arr.shape[1]
@@ -112,21 +116,17 @@ class BetweenOLS(BaseEstimator):
 
         # Collapse to group means
         # For each column of X and y, compute group means
-        unique_eids = xp.unique(eids)
-        n_groups = int(unique_eids.shape[0])
+        n_groups = len(unique_eids)
 
-        # Build collapsed data
-        X_mean = xp.zeros((n_groups, k), dtype=xp.float64)
-        y_mean = xp.zeros(n_groups, dtype=xp.float64)
-        if hasattr(X_arr, 'is_cuda'):
-            X_mean = X_mean.to(device=X_arr.device)
-            y_mean = y_mean.to(device=X_arr.device)
-
-        for idx in range(n_groups):
-            eid = unique_eids[idx]
-            mask = eids == eid
-            X_mean[idx] = xp.mean(X_full[mask], axis=0)
-            y_mean[idx] = xp.mean(y_arr[mask])
+        # Compute group means with O(k) scatter reductions rather than O(G)
+        # masked means, then select one aligned row per group.
+        first_idx_np = np.unique(_to_numpy(eids).ravel(), return_index=True)[1]
+        first_idx = xp_asarray(first_idx_np, dtype=xp.int64, xp=xp, ref_arr=X_arr)
+        y_mean = group_means(y_arr, eids, xp=xp)[first_idx]
+        X_mean_aligned = xp.zeros_like(X_full)
+        for j in range(k):
+            X_mean_aligned[:, j] = group_means(X_full[:, j], eids, xp=xp)
+        X_mean = X_mean_aligned[first_idx]
 
         # OLS on group means
         XtX = X_mean.T @ X_mean
@@ -134,10 +134,12 @@ class BetweenOLS(BaseEstimator):
         try:
             params = xp.linalg.solve(XtX, Xty)
         except _LINALG_ERRORS:
-            params = xp.linalg.lstsq(XtX, Xty)[0]
+            params = xp.linalg.pinv(X_mean) @ y_mean
 
         resid = y_mean - X_mean @ params
         n = n_groups
+        if n <= k:
+            raise ValueError(f"positive residual degrees of freedom required; groups={n}, parameters={k}")
         scale = _to_float_scalar(xp.sum(resid * resid)) / (n - k)
 
         # Inference

@@ -1,252 +1,128 @@
-"""NNDescent: Approximate nearest neighbor search via iterative graph refinement.
 
-Implements the NNDescent algorithm (Dong et al., 2011) for all 3 backends.
-O(n log n) complexity instead of O(n²) for exact neighbors.
-
-Algorithm:
-1. Initialize: random k neighbors per point
-2. Iterate: for each point, consider neighbors' neighbors as candidates
-3. Keep k nearest candidates as new neighbors
-4. Converge when neighbor graph stabilizes
-"""
+"""NNDescent approximate nearest-neighbor search for NumPy, Torch, and CuPy."""
 from __future__ import annotations
 
 import numpy as np
 
+from statgpu.unsupervised._utils import draw_random_seed
+
+
+def _validate_inputs(X, k, max_iter, tol):
+    if getattr(X, "ndim", None) != 2:
+        raise ValueError("X must be a 2D array")
+    n = int(X.shape[0])
+    if n < 2:
+        raise ValueError("X must contain at least two samples")
+    if not isinstance(k, (int, np.integer)) or not 1 <= int(k) < n:
+        raise ValueError("k must be an integer in [1, n_samples)")
+    if not isinstance(max_iter, (int, np.integer)) or int(max_iter) < 1:
+        raise ValueError("max_iter must be a positive integer")
+    if float(tol) < 0:
+        raise ValueError("tol must be non-negative")
+    return n, int(k), int(max_iter), float(tol)
+
 
 def nndescent_numpy(X, k=15, max_iter=10, tol=0.001, seed=42):
-    """NNDescent on CPU using numpy.
-
-    Parameters
-    ----------
-    X : (n, d) array
-        Input data.
-    k : int
-        Number of neighbors.
-    max_iter : int
-        Maximum iterations.
-    tol : float
-        Convergence threshold (fraction of neighbors changed).
-    seed : int
-        Random seed.
-
-    Returns
-    -------
-    indices : (n, k) int64 array
-        Neighbor indices.
-    distances : (n, k) float64 array
-        Neighbor distances.
-    """
-    rng = np.random.RandomState(seed)
-    n, d = X.shape
-
-    # Initialize with random neighbors (avoid self)
-    indices = np.zeros((n, k), dtype=np.int64)
+    n, k, max_iter, tol = _validate_inputs(X, k, max_iter, tol)
+    d = int(X.shape[1])
+    rng = np.random.RandomState(draw_random_seed(seed))
+    indices = np.empty((n, k), dtype=np.int64)
     for i in range(n):
-        candidates = list(range(n))
-        candidates.remove(i)
-        indices[i] = rng.choice(candidates, size=k, replace=False)
-
-    # Compute initial distances
-    distances = np.zeros((n, k), dtype=np.float64)
-    for i in range(n):
-        diff = X[i] - X[indices[i]]
-        distances[i] = np.sum(diff * diff, axis=1)
-
-    # Iterate
-    for epoch in range(max_iter):
-        # Per-point candidates: self + neighbors + neighbors of neighbors
-        # O(k + k²) per point, avoids degenerating to all-pairs
-        new_indices = np.zeros((n, k), dtype=np.int64)
-        new_distances = np.zeros((n, k), dtype=np.float64)
-
+        choices = np.concatenate((np.arange(i), np.arange(i + 1, n)))
+        indices[i] = rng.choice(choices, size=k, replace=False)
+    neighbors = X[indices.reshape(-1)].reshape(n, k, d)
+    distances = np.sum((X[:, None, :] - neighbors) ** 2, axis=2)
+    for _ in range(max_iter):
+        new_indices = np.empty((n, k), dtype=np.int64)
+        new_distances = np.empty((n, k), dtype=np.float64)
+        changed = 0
         for i in range(n):
-            # Build per-point candidate set: self + neighbors + neighbors-of-neighbors
-            candidates = set(indices[i])
-            candidates.add(i)  # include self
-            for j in indices[i]:
-                candidates.update(indices[j])
-            candidates.discard(i)  # exclude self from final set
-
-            cand_list = list(candidates)
-            cand_X = X[cand_list]
-            diff = X[i] - cand_X
-            dists = np.sum(diff * diff, axis=1)
-            # Keep k nearest
-            k_eff = min(k, len(cand_list))
-            idx = np.argpartition(dists, k_eff)[:k_eff]
-            sorted_idx = idx[np.argsort(dists[idx])]
-            new_indices[i] = np.array(cand_list)[sorted_idx]
-            new_distances[i] = dists[sorted_idx]
-
-            # Count changes
+            candidates = set(int(v) for v in indices[i])
+            for neighbor in indices[i]:
+                candidates.update(int(v) for v in indices[int(neighbor)])
+            candidates.discard(i)
+            ids = np.fromiter(candidates, dtype=np.int64)
+            dists = np.sum((X[i] - X[ids]) ** 2, axis=1)
+            pos = np.argpartition(dists, k - 1)[:k]
+            pos = pos[np.argsort(dists[pos])]
+            new_indices[i] = ids[pos]
+            new_distances[i] = dists[pos]
             changed += len(set(new_indices[i]) - set(indices[i]))
-
-        # Check convergence FIRST (compare old vs new), then assign
-        change_ratio = changed / (n * k)
-
-        indices = new_indices
-        distances = new_distances
-
-        if change_ratio < tol:
+        indices, distances = new_indices, new_distances
+        if changed / float(n * k) < tol:
             break
-
     return indices, distances
 
 
 def nndescent_torch(X, k=15, max_iter=10, tol=0.001, seed=42):
-    """NNDescent on GPU using torch.
-
-    Parameters
-    ----------
-    X : (n, d) tensor
-        Input data on GPU.
-    k : int
-        Number of neighbors.
-    max_iter : int
-        Maximum iterations.
-    tol : float
-        Convergence threshold.
-    seed : int
-        Random seed.
-
-    Returns
-    -------
-    indices : (n, k) int64 tensor
-        Neighbor indices.
-    distances : (n, k) float64 tensor
-        Neighbor distances.
-    """
     import torch
-
-    n, d = X.shape
-    device = X.device
-    rng = torch.Generator(device=device)
-    rng.manual_seed(seed)
-
-    # Initialize with random neighbors (avoid self)
-    indices = torch.zeros((n, k), dtype=torch.int64, device=device)
+    n, k, max_iter, tol = _validate_inputs(X, k, max_iter, tol)
+    d, device = int(X.shape[1]), X.device
+    generator = torch.Generator(device=device)
+    generator.manual_seed(draw_random_seed(seed))
+    indices = torch.empty((n, k), dtype=torch.int64, device=device)
+    all_ids = torch.arange(n, device=device)
     for i in range(n):
-        candidates = torch.arange(n, device=device)
-        mask = candidates != i
-        candidates = candidates[mask]
-        perm = torch.randperm(len(candidates), generator=rng, device=device)[:k]
-        indices[i] = candidates[perm]
-
-    # Compute initial distances (use float64 for precision)
-    X_neighbors = X[indices.view(-1)].view(n, k, d)
-    diff = X.unsqueeze(1) - X_neighbors
-    distances = torch.sum(diff * diff, dim=2).to(torch.float64)
-
-    # Iterate
-    node_ids = torch.arange(n, device=X.device).unsqueeze(1)  # (n, 1)
-    for epoch in range(max_iter):
-        # Collect candidates: neighbors + neighbors of neighbors
-        nn_of_nn = indices[indices.view(-1)].view(n, k * k)
-        candidates = torch.cat([indices, nn_of_nn], dim=1)  # (n, k + k²)
-
-        # Exclude self-candidates (set distance to inf for self)
-        is_self = (candidates == node_ids)  # (n, k + k²)
-
-        # Compute distances to candidates
-        X_cand = X[candidates.view(-1)].view(n, k + k * k, d)
-        diff = X.unsqueeze(1) - X_cand
-        dists = torch.sum(diff * diff, dim=2).to(torch.float64)  # (n, k + k²)
-        dists[is_self] = float('inf')  # exclude self from top-k
-
-        # Keep k nearest
-        _, topk_idx = torch.topk(dists, k, largest=False, sorted=True)
-        new_indices = candidates.gather(1, topk_idx)
-        new_distances = dists.gather(1, topk_idx)
-
-        # Check convergence FIRST (compare old vs new), then assign
-        changed = torch.sum(indices != new_indices).item()
-        change_ratio = changed / (n * k)
-
-        indices = new_indices
-        distances = new_distances
-
-        if change_ratio < tol:
+        choices = all_ids[all_ids != i]
+        indices[i] = choices[torch.randperm(n - 1, generator=generator, device=device)[:k]]
+    neighbors = X[indices.reshape(-1)].reshape(n, k, d)
+    distances = torch.sum((X[:, None, :] - neighbors) ** 2, dim=2).to(torch.float64)
+    node_ids = torch.arange(n, device=device).reshape(n, 1)
+    for _ in range(max_iter):
+        nn2 = indices[indices.reshape(-1)].reshape(n, k * k)
+        candidates = torch.cat((indices, nn2), dim=1)
+        order = torch.argsort(candidates, dim=1)
+        sorted_ids = torch.gather(candidates, 1, order)
+        dup_sorted = torch.zeros_like(sorted_ids, dtype=torch.bool)
+        dup_sorted[:, 1:] = sorted_ids[:, 1:] == sorted_ids[:, :-1]
+        duplicates = torch.zeros_like(dup_sorted)
+        duplicates.scatter_(1, order, dup_sorted)
+        invalid = (candidates == node_ids) | duplicates
+        candidate_X = X[candidates.reshape(-1)].reshape(n, k + k * k, d)
+        dists = torch.sum((X[:, None, :] - candidate_X) ** 2, dim=2).to(torch.float64)
+        dists[invalid] = torch.inf
+        new_distances, pos = torch.topk(dists, k, largest=False, sorted=True)
+        new_indices = torch.gather(candidates, 1, pos)
+        changed = int(torch.sum(indices != new_indices).item())
+        indices, distances = new_indices, new_distances
+        if changed / float(n * k) < tol:
             break
-
     return indices, distances
 
 
 def nndescent_cupy(X, k=15, max_iter=10, tol=0.001, seed=42):
-    """NNDescent on GPU using cupy.
-
-    Parameters
-    ----------
-    X : (n, d) cupy array
-        Input data on GPU.
-    k : int
-        Number of neighbors.
-    max_iter : int
-        Maximum iterations.
-    tol : float
-        Convergence threshold.
-    seed : int
-        Random seed.
-
-    Returns
-    -------
-    indices : (n, k) int64 cupy array
-        Neighbor indices.
-    distances : (n, k) float64 cupy array
-        Neighbor distances.
-    """
     import cupy as cp
-
-    n, d = X.shape
-    dtype = X.dtype
-
-    # Initialize with random neighbors (vectorized)
-    rng = cp.random.RandomState(seed)
-    indices = cp.zeros((n, k), dtype=cp.int64)
+    n, k, max_iter, tol = _validate_inputs(X, k, max_iter, tol)
+    d = int(X.shape[1])
+    rng = cp.random.RandomState(draw_random_seed(seed))
+    indices = cp.empty((n, k), dtype=cp.int64)
     for i in range(n):
-        # Generate k unique random indices != i
-        idx = rng.choice(n - 1, size=k, replace=False)
-        idx = cp.where(idx >= i, idx + 1, idx)
-        indices[i] = idx
-
-    # Compute initial distances (vectorized)
-    X_neighbors = X[indices.ravel()].reshape(n, k, d)
-    diff = X[:, None, :] - X_neighbors
-    distances = cp.sum(diff * diff, axis=2).astype(dtype)
-
-    # Iterate
-    node_ids = cp.arange(n, dtype=cp.int64).reshape(n, 1)  # (n, 1)
-    for epoch in range(max_iter):
-        # Collect candidates: neighbors + neighbors of neighbors (vectorized)
-        nn_of_nn = indices[indices.ravel()].reshape(n, k * k)
-        candidates = cp.concatenate([indices, nn_of_nn], axis=1)
-
-        # Exclude self-candidates (set distance to inf for self)
-        is_self = (candidates == node_ids)  # (n, k + k²)
-
-        # Compute distances to candidates (vectorized)
-        X_cand = X[candidates.ravel()].reshape(n, k + k * k, d)
-        diff = X[:, None, :] - X_cand
-        dists = cp.sum(diff * diff, axis=2).astype(dtype)
-        dists[is_self] = cp.inf  # exclude self from top-k
-
-        # Keep k nearest (vectorized)
-        topk_idx = cp.argpartition(dists, k, axis=1)[:, :k]
-        topk_dists = cp.take_along_axis(dists, topk_idx, axis=1)
-        sort_idx = cp.argsort(topk_dists, axis=1)
-        topk_idx = cp.take_along_axis(topk_idx, sort_idx, axis=1)
-
-        new_indices = cp.take_along_axis(candidates, topk_idx, axis=1)
-        new_distances = cp.take_along_axis(dists, topk_idx, axis=1)
-
-        # Check convergence FIRST (compare old vs new), then assign
+        choices = rng.choice(n - 1, size=k, replace=False)
+        indices[i] = cp.where(choices >= i, choices + 1, choices)
+    neighbors = X[indices.reshape(-1)].reshape(n, k, d)
+    distances = cp.sum((X[:, None, :] - neighbors) ** 2, axis=2).astype(cp.float64)
+    node_ids = cp.arange(n, dtype=cp.int64).reshape(n, 1)
+    rows = cp.arange(n, dtype=cp.int64)[:, None]
+    for _ in range(max_iter):
+        nn2 = indices[indices.reshape(-1)].reshape(n, k * k)
+        candidates = cp.concatenate((indices, nn2), axis=1)
+        order = cp.argsort(candidates, axis=1)
+        sorted_ids = cp.take_along_axis(candidates, order, axis=1)
+        dup_sorted = cp.zeros_like(sorted_ids, dtype=cp.bool_)
+        dup_sorted[:, 1:] = sorted_ids[:, 1:] == sorted_ids[:, :-1]
+        duplicates = cp.zeros_like(dup_sorted)
+        duplicates[rows, order] = dup_sorted
+        invalid = (candidates == node_ids) | duplicates
+        candidate_X = X[candidates.reshape(-1)].reshape(n, k + k * k, d)
+        dists = cp.sum((X[:, None, :] - candidate_X) ** 2, axis=2).astype(cp.float64)
+        dists[invalid] = cp.inf
+        pos = cp.argpartition(dists, k - 1, axis=1)[:, :k]
+        chosen = cp.take_along_axis(dists, pos, axis=1)
+        pos = cp.take_along_axis(pos, cp.argsort(chosen, axis=1), axis=1)
+        new_indices = cp.take_along_axis(candidates, pos, axis=1)
+        new_distances = cp.take_along_axis(dists, pos, axis=1)
         changed = int(cp.sum(indices != new_indices))
-        change_ratio = changed / (n * k)
-
-        indices = new_indices
-        distances = new_distances
-
-        if change_ratio < tol:
+        indices, distances = new_indices, new_distances
+        if changed / float(n * k) < tol:
             break
-
     return indices, distances

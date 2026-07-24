@@ -73,12 +73,27 @@ class Ridge(_PenalizedLinearRegression):
 
         X_np = np.asarray(self._to_array(X, Device.CPU), dtype=np.float64)
         y_np = np.asarray(self._to_array(y, Device.CPU), dtype=np.float64)
+        if X_np.ndim != 2:
+            raise ValueError("X must be a 2D array")
+        if y_np.ndim != 1:
+            raise ValueError("y must be one-dimensional")
+        if y_np.shape[0] != X_np.shape[0]:
+            raise ValueError("X and y must contain the same number of samples")
 
         n_samples, n_features = X_np.shape
         self._nobs = n_samples
         self._fitted = False
 
         sw = np.asarray(sample_weight, dtype=np.float64).ravel() if sample_weight is not None else None
+        if sw is not None:
+            if sw.shape[0] != n_samples:
+                raise ValueError("sample_weight must have length n_samples")
+            if not np.all(np.isfinite(sw)):
+                raise ValueError("sample_weight must be finite")
+            if np.any(sw < 0):
+                raise ValueError("sample_weight must be non-negative")
+            if float(np.sum(sw)) <= 0.0:
+                raise ValueError("sample_weight must have a positive sum")
 
         if self.fit_intercept:
             if sw is not None:
@@ -93,7 +108,8 @@ class Ridge(_PenalizedLinearRegression):
         # Weighted: X'WX, X'Wy.  Unweighted: X'X, X'y.
         # Centering for intercept: subtract weighted/unweighted outer product.
         if sw is not None:
-            # Weighted normal equations: (X'WX + alpha*I) coef = X'Wy
+            # Weighted average-loss normal equations:
+            # (X'WX + sum(w)*alpha*I) coef = X'Wy.
             sw_col = sw[:, None]
             XtX = (X_np * sw_col).T @ X_np
             Xty = (X_np * sw_col).T @ y_np
@@ -121,9 +137,9 @@ class Ridge(_PenalizedLinearRegression):
         if Xty.ndim == 1:
             Xty = Xty.reshape(-1, 1)
 
-        # Solve (XtX + n_eff*alpha*I) @ coef = Xty
-        # n_eff scaling matches PenalizedGeneralizedLinearModel exact ridge
-        # and sklearn Ridge convention.
+        # LossBase uses an average data-fit term and L2Penalty uses
+        # (alpha/2)||coef||^2, hence the normal equation contains
+        # n_eff*alpha. This preserves loss/penalty/solver consistency.
         A = XtX + float(self.alpha) * n_eff * np.eye(n_features, dtype=np.float64)
         try:
             coef = np.linalg.solve(A, Xty).flatten()
