@@ -14,14 +14,31 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.9'
+      - name: Exercise Python 3.9 documentation writer
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          from tempfile import TemporaryDirectory
+
+          from dev.validation.fix_docs_links import write_utf8
+
+          with TemporaryDirectory() as directory:
+              path = Path(directory) / "example.md"
+              write_utf8(path, "first\nsecond\n")
+              assert path.read_bytes() == b"first\nsecond\n"
+          PY
       - name: Run documentation contracts
         id: docs_check
         shell: bash
         run: |
           set +e
-          python3 dev/validation/fix_docs_links.py --check > docs-links.log 2>&1
+          python dev/validation/fix_docs_links.py --check > docs-links.log 2>&1
           links_status=$?
-          python3 dev/validation/check_docs_contracts.py > docs-contracts-only.log 2>&1
+          python dev/validation/check_docs_contracts.py > docs-contracts-only.log 2>&1
           contracts_status=$?
           {
             echo "=== Deterministic bilingual links ==="
