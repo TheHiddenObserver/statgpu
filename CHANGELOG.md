@@ -2,6 +2,26 @@
 
 All notable changes to statgpu are documented here, organized by date and PR.
 
+## 2026-07-24
+
+### PR #79 — Exact-head review closure and documentation synchronization
+
+- Final reviewed production head `c85750d63d4e6dbc9d988847566c20f5fa862e91`
+  passed GitHub Actions Tests run #545, including Python 3.9–3.12, static contracts,
+  canonical smoke, and the full CPU suite.
+- The maintained Tesla P100 suite passed 33/33 executed checks with two expected skips;
+  ignored legacy diagnostic scripts are tracked separately in Issue #83.
+- Corrected the documented CoxPH delayed-entry contract: robust/cluster inference raises
+  when `compute_inference=True`, while `compute_inference=False` permits estimation-only
+  fits with inference fields unset.
+- Documented PooledOLS backend-preserving prediction, stable HAC `time_index` ordering,
+  effective-rank residual degrees of freedom, and rank-deficient coefficient inference as
+  `NOT_COMPARABLE` rather than `ERROR`.
+- Synchronized README, bilingual model pages, release notes, and the auditable PR79 report.
+- Removed stale hard-coded final accuracy artifacts; a new full canonical report may be
+  committed only after an exact-head full raw campaign is processed by the current
+  aggregator and renderer.
+
 ## 2026-07-23
 
 ### PR #79 — Complete review contract and evidence-pipeline hardening
@@ -13,18 +33,17 @@ All notable changes to statgpu are documented here, organized by date and PR.
   strict/approx robust inference with provenance fields, and introduced the
   `statgpu[survival]` optional dependency.
 - Preserved estimator backends in Cox prediction/scoring, vectorized baseline
-  hazard risk sets, removed the Torch `O(n p^2)` Hessian allocation, and avoided
-  unconditional full training-data host transfers for nonrobust GPU inference.
+  hazard risk sets, removed the affected Torch `O(n p^2)` Hessian materialization,
+  and avoided unconditional full training-data host transfers for nonrobust GPU inference.
 - Unified complex RBF rejection, Cox chi-square survival-function evaluation, and
   CuPy Cholesky inverse solves.
 - Rebuilt PR79 diagnostic/canonical-report validation so missing, failed,
   duplicate, non-finite, or wrong-SHA evidence fails closed; added CPU smoke CI.
-- Canonical evidence now requires clean, stable, exact-head Git provenance; the
-  stale hard-coded final PASS artifacts were removed until a new full campaign
-  regenerates them, and an executable 576-case physical-GPU Cox matrix records
-  permutation invariance, robust-inference provenance, and peak memory.
+- Canonical evidence now requires clean, stable, exact-head Git provenance; stale
+  hard-coded final PASS artifacts are not authoritative and must not be regenerated
+  without a full validated campaign.
 - Added behavioral regression coverage and synchronized the English/Chinese Cox
-  support matrix. Physical CUDA acceptance remains a separate exact-head gate.
+  support matrix.
 
 ## 2026-07-21
 
@@ -43,8 +62,7 @@ All notable changes to statgpu are documented here, organized by date and PR.
   in 7.28 seconds, with CuPy and Torch CUDA tests both executed.
 - Degenerate F tests now agree across backends: perfect non-constant fit returns
   `(inf, 0.0)`; intercept-only and otherwise undefined overall tests return `(nan, nan)`.
-- Standard GitHub Actions Tests run #483 also passed on the exact cleaned head.
-- Follow-up issues #81 and #82 remain non-blocking; see
+- Follow-up issues #81, #82, and #83 remain non-blocking; see
   `dev/reviews/pr79_physical_gpu_validation.md`.
 
 ## 2026-07-14
@@ -155,20 +173,18 @@ All notable changes to statgpu are documented here, organized by date and PR.
 - **Pure-Python wheel policy**: the PyPI release workflow now sets `STATGPU_NO_EXT=1`,
   so the published wheel is tagged `py3-none-any` and installs on every OS / Python
   version. Previously `python -m build` compiled the optional Cython extensions during
-  `bdist_wheel`, producing a platform-locked wheel (e.g. `cp311-linux_x86_64`) that
-  served almost no one and forced everyone else onto the sdist.
-- **setup.py**: added the `STATGPU_NO_EXT` switch — when set to `1`, `ext_modules` is
-  empty (forces a pure-Python build). The Cython extensions remain optional CPU
-  accelerators with pure-Python fallbacks; users who want the C speedups build them
-  from the sdist, which still ships the `.pyx`/`.pxd` sources via `MANIFEST.in`.
+  `bdist_wheel`, producing a platform-locked wheel that served almost no one and forced
+  everyone else onto the sdist.
+- **setup.py**: added the `STATGPU_NO_EXT` switch. The Cython extensions remain optional
+  CPU accelerators with pure-Python fallbacks.
 - **publish.yml**: added `twine check dist/*` before upload.
 
 ### PR #74 — Ordered Newton-Raphson + Analytical Hessian Inference + Unified Sandwich Engine
-- Ordered Logit/Probit: L-BFGS replaced with Newton-Raphson + trust-region (3-backend)
-- Ordered inference: analytical Hessian, SE/z/p/CI, loglikelihood/aic/bic (CPU+GPU)
-- Sandwich engine: m_estimation_inference, fisher_information, penalty curvature API
-- Penalized inference: sandwich (L2/EN), oracle active-set (SCAD/MCP)
-- QuantileRegression standalone class with kernel+bootstrap inference
-- 28 bug fixes across 4 code review rounds; scipy→get_distribution; GPU guards
-- Docs: ordered.md rewrite, v0.2.1 coverage matrix, solver-algorithms/quantile/robust
-- Validated: R ordinal::clm, three-backend GPU (CuPy+Torch), 226 CI tests
+
+- Ordered Logit/Probit: L-BFGS replaced with Newton-Raphson + trust-region (3-backend).
+- Ordered inference: analytical Hessian, SE/z/p/CI, loglikelihood/aic/bic (CPU+GPU).
+- Sandwich engine: m-estimation inference, Fisher information, and penalty curvature API.
+- Penalized inference: sandwich (L2/EN), oracle active-set (SCAD/MCP).
+- QuantileRegression standalone class with kernel and bootstrap inference.
+- 28 bug fixes across four code-review rounds; scipy distribution calls routed through
+  the project distribution abstraction where applicable.
