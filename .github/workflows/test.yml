@@ -10,6 +10,13 @@ permissions:
   contents: read
 
 jobs:
+  docs-contracts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check maintained documentation contracts
+        run: python3 dev/validation/check_docs_contracts.py
+
   regression-matrix:
     runs-on: ubuntu-latest
     strategy:
@@ -95,8 +102,6 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - name: Check maintained documentation contracts
-        run: python dev/validation/check_docs_contracts.py
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
