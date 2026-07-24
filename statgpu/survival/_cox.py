@@ -595,10 +595,10 @@ class CoxPH(BaseEstimator):
         """
         self._reset_fit_state()
 
-        if entry is not None and self.cov_type != 'nonrobust':
+        if entry is not None and self.compute_inference and self.cov_type != 'nonrobust':
             raise NotImplementedError(
                 'Robust/cluster covariance with delayed entry is not implemented. '
-                'Use cov_type=nonrobust when entry is provided.'
+                'Use cov_type=nonrobust or compute_inference=False when entry is provided.'
             )
         if entry is not None and self.penalty > 0 and self._get_compute_device() == Device.CPU:
             raise NotImplementedError(
