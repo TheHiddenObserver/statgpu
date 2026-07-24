@@ -10,54 +10,55 @@ GPU-accelerated statistical methods with an sklearn-compatible API.
 
 ## Core Features
 
-- 🚀 **3 Backends**: NumPy (CPU), CuPy (CUDA), PyTorch (CUDA) — automatic device selection
+- 🚀 **Three backends**: NumPy (CPU), CuPy (CUDA), and PyTorch (CUDA), with automatic device selection
 - 🧭 **Backend transparency**: core numerical paths preserve backend arrays; intentional CPU boundaries are limited to formula/label metadata and unsupported scalar distribution functions
-- 🔧 **sklearn-compatible**: `fit`/`predict`/`score` API, `sklearn.base.clone()` support
-- 📊 **GLM + Robust + Quantile + Cox**: 10+ loss types, including quantile, Huber, bisquare, fair, Cox PH, and seven GLM families
-- 🔥 **10 Penalties**: L1, L2, Elastic Net, SCAD, MCP, adaptive L1, group Lasso, group MCP, and group SCAD
-- ⚡ **8 Solvers**: exact, Newton, L-BFGS, IRLS, FISTA, FISTA-BB, proximal IRLS-CD, and proximal Newton through `solver="auto"`
+- 🔧 **sklearn-compatible**: `fit`/`predict`/`score` API and `sklearn.base.clone()` support
+- 📊 **GLM + robust + quantile + Cox**: Gaussian and non-Gaussian regression, robust losses, quantile regression, and survival analysis
+- 🔥 **Penalty framework**: L1, L2, Elastic Net, SCAD, MCP, adaptive, and grouped penalties
+- ⚡ **Solver framework**: exact, IRLS, Newton, L-BFGS, FISTA-family, proximal IRLS, proximal Newton, and ADMM implementations where supported
 - 🧮 **Inference**: covariance, standard errors, hypothesis tests, confidence intervals, penalized sandwich/oracle inference where supported, debiased Lasso, bootstrap, and simultaneous inference
-- 📈 **Nonparametric**: KDE, kernel regression, B-splines, and GAM
+- 📈 **Nonparametric**: KDE, kernel regression, kernel approximation, B-splines, and GAM
 - 🧬 **Unsupervised**: PCA, KMeans, DBSCAN, GMM, UMAP, t-SNE, NNDescent, and related methods
-- 📐 **Distributions**: 15 distributions across three backends through `get_distribution()`
-- 🧪 **Multiple Testing**: `adjust_pvalues`, `combine_pvalues`, and `permutation_test`
-- 🔥 **Cross-Validation**: PenalizedGLM_CV, RidgeCV, LassoCV, ElasticNetCV, LogisticCV, and CoxPHCV
+- 📐 **Distributions**: backend-aware distribution functions through `get_distribution()`
+- 🧪 **Multiple testing**: `adjust_pvalues`, `combine_pvalues`, and `permutation_test`
+- 🔁 **Cross-validation**: `PenalizedGLM_CV`, `RidgeCV`, `LassoCV`, `ElasticNetCV`, `LogisticRegressionCV`, and `CoxPHCV`
 
 ## Implemented Methods
 
 > **[Full method list with solvers, penalties, and link functions →](docs/en/guides/implemented-methods.md)**
 
-| Category | Classes | Highlights |
-|---|---:|---|
-| **Regression & GLM** | 13 classes | LinearRegression, Ridge, Lasso, ElasticNet, Logistic, Poisson, Gamma, Inverse Gaussian, Negative Binomial, Tweedie, QuantileRegression, and ordered models |
-| **Penalized GLM** | 11 classes | PenalizedGLM, family wrappers, PenalizedQuantileRegression, PenalizedRobustRegression, and PenalizedCoxPHModel |
-| **Cross-Validation** | 6 classes | RidgeCV, LassoCV, ElasticNetCV, LogisticCV, PenalizedGLM_CV, and CoxPHCV |
-| **ANOVA** | 7 functions | One-way, two-way, Welch ANOVA, post-hoc comparisons, and effect sizes |
-| **Covariance** | 7 classes | Empirical and shrinkage covariance, MinCovDet, GraphicalLasso, and GraphicalLassoCV |
-| **Panel Data** | 6 classes | PanelOLS, RandomEffects, PooledOLS, BetweenOLS, FirstDifferenceOLS, and FamaMacBeth |
-| **Nonparametric** | 10+ classes/functions | KDE, kernel regression, KernelRidge/CV, KernelPCA, Nystroem, spline bases, and SplineTransformer |
-| **Semiparametric** | 1 class | GAM with penalized B-splines and GCV |
-| **Unsupervised** | 12 classes | PCA, SVD, NMF, UMAP, t-SNE, KMeans, DBSCAN, GMM, and AgglomerativeClustering |
-| **Survival** | 1 class | CoxPH with Breslow/Efron ties, delayed entry, strict robust-inference behavior, and backend-native prediction |
-| **Feature Selection** | 7 interfaces | Stepwise selection plus fixed-X and model-X knockoff filters and wrappers |
-| **Diagnostics** | 2 interfaces | RegressionDiagnostics and `diagnose_model` |
-| **Multiple Testing** | 3 functions | `adjust_pvalues`, `combine_pvalues`, and `permutation_test` |
+| Category | Highlights |
+|---|---|
+| **Regression & GLM** | LinearRegression, Ridge, Lasso, ElasticNet, Logistic, Poisson, Gamma, Inverse Gaussian, Negative Binomial, Tweedie, QuantileRegression, and ordered models |
+| **Penalized models** | Unified penalized GLM, typed family wrappers, penalized quantile/robust regression, and PenalizedCoxPHModel |
+| **Cross-validation** | RidgeCV, LassoCV, ElasticNetCV, LogisticRegressionCV, PenalizedGLM_CV, and CoxPHCV |
+| **ANOVA** | One-way, two-way, Welch ANOVA, post-hoc comparisons, and effect sizes |
+| **Covariance** | Empirical and shrinkage covariance, MinCovDet, GraphicalLasso, and GraphicalLassoCV |
+| **Panel data** | PanelOLS, RandomEffects, PooledOLS, BetweenOLS, FirstDifferenceOLS, and FamaMacBeth |
+| **Nonparametric** | KDE, kernel regression, KernelRidge/CV, KernelPCA, Nystroem, spline bases, and SplineTransformer |
+| **Semiparametric** | GAM with penalized B-splines and GCV |
+| **Unsupervised** | PCA, SVD, NMF, UMAP, t-SNE, KMeans, DBSCAN, GMM, and AgglomerativeClustering |
+| **Survival** | CoxPH and PenalizedCoxPHModel |
+| **Feature selection** | Stepwise selection plus fixed-X and model-X knockoff filters and wrappers |
+| **Diagnostics** | RegressionDiagnostics and `diagnose_model` |
+| **Multiple testing** | `adjust_pvalues`, `combine_pvalues`, and `permutation_test` |
 
 ## Documentation
 
 - **English docs**: [docs/en/](docs/en/) — full documentation index
 - **Chinese docs**: [docs/cn/](docs/cn/) — 中文文档
 - **Quickstart**: [Quickstart](docs/en/getting-started/quickstart.md)
+- **Implemented methods**: [Method Inventory](docs/en/guides/implemented-methods.md)
 - **GLM + Penalty**: [Generalized Linear Model](docs/en/models/generalized-linear-model.md)
-- **Cross-Validation**: [Cross-Validation Guide](docs/en/guides/cross-validation.md)
+- **Cross-validation**: [Cross-Validation Guide](docs/en/guides/cross-validation.md)
 - **Loss × Penalty × Solver Framework**: [Framework Guide](docs/en/guides/loss-penalty-solver-framework.md)
 - **Solver-Penalty Matrix**: [Solver × Penalty](docs/en/guides/solver-penalty-matrix.md)
-- **Survival Analysis**: [Cox Proportional Hazards](docs/en/models/coxph.md)
-- **Panel Models**: [Panel Data Models](docs/en/models/panel.md)
-- **Device & Memory**: [Device and GPU Memory](docs/en/guides/device-and-memory.md)
-- **PyTorch Backend**: [PyTorch Backend](docs/en/guides/pytorch-backend.md)
+- **Survival analysis**: [Cox Proportional Hazards](docs/en/models/coxph.md)
+- **Panel models**: [Panel Data Models](docs/en/models/panel.md)
+- **Device & memory**: [Device and GPU Memory](docs/en/guides/device-and-memory.md)
+- **PyTorch backend**: [PyTorch Backend](docs/en/guides/pytorch-backend.md)
 - **Distribution API**: [Distribution API](docs/en/guides/distribution-api.md)
-- **Multiple Testing**: [Multiple Testing](docs/en/guides/multiple-testing-combine-pvalues.md)
+- **Multiple testing**: [Multiple Testing](docs/en/guides/multiple-testing-combine-pvalues.md)
 - **Contributing**: [Contributor Guide](CONTRIBUTING.md)
 - **Releasing**: [PyPI Release Guide](RELEASING.md)
 - **Changelog**: [Changelog](docs/en/changelog.md)
