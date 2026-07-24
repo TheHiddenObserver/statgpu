@@ -1,365 +1,104 @@
 # Kernel Methods
 
-> Language: English
-> Last updated: 2026-07-14
-> This page: Model documentation
-> Switch: [Chinese](../../models/kernel-methods.md)
-
-Language switch: [Chinese](../../models/kernel-methods.md)
+> Language: English  
+> Last updated: 2026-07-24  
+> Switch: [Chinese](../../cn/models/kernel-methods.md)
 
 ## Overview
 
-The kernel methods module provides kernel ridge regression (`KernelRidge`), cross-validated kernel ridge regression (`KernelRidgeCV`), kernel PCA (`KernelPCA`), Nystroem kernel approximation (`Nystroem`), and seven kernel functions (RBF, polynomial, linear, Laplacian, sigmoid, cosine, chi-squared). Both regression estimators accept a `kernel` parameter that selects one of the built-in kernels or a user-supplied callable. All computation dispatches through a backend-agnostic array interface and supports CPU (NumPy), CuPy, and PyTorch backends, including automatic CUDA acceleration for `KernelRidgeCV`.
+The kernel-methods module provides:
 
-## Path
+- `KernelRidge`
+- `KernelRidgeCV`
+- `KernelPCA`
+- `Nystroem`
+- `pairwise_kernels`
+- RBF, polynomial, linear, Laplacian, sigmoid, cosine, and chi-squared kernels
 
-```
-statgpu.nonparametric.kernel_methods.KernelRidge
-statgpu.nonparametric.kernel_methods.KernelRidgeCV
-statgpu.nonparametric.kernel_methods.KernelPCA
-statgpu.nonparametric.kernel_methods.Nystroem
-statgpu.nonparametric.kernel_methods.pairwise_kernels
-```
+The public implementations expose NumPy, CuPy, and Torch execution paths where
+supported by the selected estimator and kernel.
 
-Individual kernel functions are also importable:
+## Kernel Ridge Regression
 
-```
-statgpu.nonparametric.kernel_methods.rbf_kernel
-statgpu.nonparametric.kernel_methods.polynomial_kernel
-statgpu.nonparametric.kernel_methods.linear_kernel
-statgpu.nonparametric.kernel_methods.laplacian_kernel
-statgpu.nonparametric.kernel_methods.sigmoid_kernel
-statgpu.nonparametric.kernel_methods.cosine_kernel
-statgpu.nonparametric.kernel_methods.chi2_kernel
-```
-
-## Objective Function
-
-**KernelRidge** solves the kernel ridge regression dual problem. Given an \(n \times n\) kernel matrix \(K\) computed from the training data, the objective in the dual space is:
+Given a training kernel matrix $K$, kernel ridge regression solves
 
 $$
-\min_{\boldsymbol{\alpha}} \| \mathbf{y} - K \boldsymbol{\alpha} \|_2^2 + \lambda \| \boldsymbol{\alpha} \|_2^2
+(K+\alpha I)c = y
 $$
 
-where \(\lambda\) is the regularization strength (`alpha`). The closed-form solution is:
+and predicts with
 
 $$
-\boldsymbol{\alpha} = (K + \lambda I)^{-1} \mathbf{y}
+\hat y_{\mathrm{test}} = K_{\mathrm{test}}c.
 $$
 
-**KernelRidgeCV** uses eigendecomposition \(K = Q \Lambda Q^\top\) of the kernel matrix to efficiently evaluate the solution across a grid of regularization parameters without re-solving the linear system for each value. The solution for any \(\lambda\) is:
+`KernelRidgeCV` evaluates an alpha grid across cross-validation folds and refits the
+selected model. Its exact batching and decomposition strategy is backend-dependent.
 
-$$
-\boldsymbol{\alpha}(\lambda) = Q \, \text{diag}\!\left(\frac{1}{\lambda_i + \lambda}\right) Q^\top \mathbf{y}
-$$
+## Kernel PCA and Nystroem
 
-where \(\lambda_i\) are the eigenvalues of \(K\). Cross-validation MSE is computed for each \(\lambda\) in the grid and the value that minimizes the mean CV MSE is selected.
+`KernelPCA` eigendecomposes the centered kernel matrix to construct nonlinear
+components. `Nystroem` samples landmark points and forms an explicit low-rank feature
+map with cost proportional to the number of landmarks rather than the full
+$n\times n$ kernel matrix.
 
-**KernelPCA** performs nonlinear dimensionality reduction by eigendecomposing the centered kernel matrix. Given the kernel matrix \(K\), the centered kernel matrix is:
+## Built-In Kernels
 
-$$
-\tilde{K} = K - \mathbf{1}_n K - K \mathbf{1}_n + \mathbf{1}_n K \mathbf{1}_n
-$$
-
-where \(\mathbf{1}_n = \frac{1}{n} \mathbf{1} \mathbf{1}^\top\). The top \(q\) eigenvectors of \(\tilde{K}\) (scaled by \(1/\sqrt{\lambda_k}\)) define the projection into kernel PC space.
-
-**Nystroem** approximates a kernel feature map using \(m\) randomly selected landmark points. The landmark kernel matrix \(K_{mm}\) is eigendecomposed as \(K_{mm} = V \Lambda V^\top\), and the approximate feature map is:
-
-$$
-Z = K_{nm} \, V \, \Lambda^{-1/2}
-$$
-
-where \(K_{nm}\) is the kernel between all \(n\) samples and the \(m\) landmarks. This reduces the cost from \(O(n^2)\) to \(O(nm)\).
-
-## Estimating Equation
-
-**KernelRidge**: The first-order condition of the dual problem yields the linear system
-
-$$
-(K + \lambda I) \boldsymbol{\alpha} = \mathbf{y}
-$$
-
-which is solved directly via `xp.linalg.solve`. Predictions for new data \(X_{\text{test}}\) are computed as:
-
-$$
-\hat{\mathbf{y}} = K_{\text{test}} \boldsymbol{\alpha}
-$$
-
-where \(K_{\text{test}}\) is the kernel matrix between the test and training data.
-
-**KernelRidgeCV**: For each cross-validation fold, the training kernel matrix is eigendecomposed once. The dual coefficients for all alpha values are then computed in a single vectorized operation:
-
-$$
-\boldsymbol{\alpha}(\lambda) = Q \, \text{diag}\!\left(\frac{1}{\lambda_i + \lambda}\right) Q^\top \mathbf{y}_{\text{train}}
-$$
-
-On the torch CUDA backend, this alpha sweep is fully vectorized across all alpha values using batched matrix operations, avoiding any Python-level loop over the alpha grid.
-
-**KernelPCA**: The centered kernel matrix \(\tilde{K} + \alpha I\) is eigendecomposed via `xp.linalg.eigh`. Eigenvalues are sorted in descending order and the top \(q\) eigenvectors are normalized: \(\boldsymbol{\alpha}_k = \mathbf{v}_k / \sqrt{\lambda_k}\). Transforming new data requires computing the kernel between test and training data, centering it, and projecting: \(\tilde{X}_{\text{test}} = \tilde{K}_{\text{test}} \, A\).
-
-**Nystroem**: At fit time, \(m\) landmarks are sampled without replacement. The landmark kernel \(K_{mm}\) is decomposed via SVD: \(K_{mm} = U S V^\top\), and the normalization matrix \(U \, S^{-1/2} \, V\) is stored. At transform time, \(K_{nm}\) is computed and multiplied by the normalization matrix.
-
-## Covariance/Inference
-
-Kernel methods are non-parametric and do not produce coefficient-level inference (no standard errors, t-values, or p-values). `KernelPCA` and `Nystroem` are feature extraction/approximation utilities and do not produce inference outputs. Model quality is assessed through:
-
-- **R-squared**: the coefficient of determination \(R^2 = 1 - \text{SS}_{\text{res}} / \text{SS}_{\text{tot}}\) computed by the `score` method.
-- **Cross-validation MSE** (KernelRidgeCV): the mean squared error averaged over K folds, stored in `cv_results_["mean_mse"]`.
-
-## Parameters
-
-**KernelRidge**:
-
-| Parameter | Default | Description |
-|---|---:|---|
-| `alpha` | `1.0` | Regularization strength (\(\lambda\)) |
-| `kernel` | `"rbf"` | Kernel function: `rbf`, `gaussian`, `linear`, `polynomial`, `poly`, `laplacian`, `sigmoid`, `cosine`, or a callable |
-| `gamma` | `None` | Kernel coefficient for rbf/polynomial/laplacian/sigmoid. Defaults to `1 / n_features` |
-| `degree` | `3` | Degree for the polynomial kernel |
-| `coef0` | `1` | Independent term for polynomial and sigmoid kernels |
-| `kernel_params` | `None` | Additional keyword arguments passed to the kernel function |
-| `device` | `"auto"` | `cpu` / `cuda` / `auto` |
-| `n_jobs` | `None` | Not used; kept for API compatibility |
-
-**KernelRidgeCV** (inherits all kernel-related parameters above, plus):
-
-| Parameter | Default | Description |
-|---|---:|---|
-| `alphas` | `None` | Array of regularization strengths to evaluate. Auto-generated as a 100-point log-spaced grid if `None` |
-| `cv` | `5` | Number of cross-validation folds |
-| `random_state` | `None` | Random state for fold shuffling |
-
-**Kernel functions**:
-
-| Function | Formula |
+| Kernel | Definition |
 |---|---|
-| `rbf_kernel` | \(K(x, y) = \exp(-\gamma \|x - y\|^2)\) |
-| `polynomial_kernel` | \(K(x, y) = (\gamma \, x^\top y + c_0)^d\) |
-| `linear_kernel` | \(K(x, y) = x^\top y\) |
-| `laplacian_kernel` | \(K(x, y) = \exp(-\gamma \|x - y\|_1)\) |
-| `sigmoid_kernel` | \(K(x, y) = \tanh(\gamma \, x^\top y + c_0)\) |
-| `cosine_kernel` | \(K(x, y) = \frac{x^\top y}{\|x\| \, \|y\|}\) |
-| `chi2_kernel` | \(K(x, y) = \exp\!\left(-\gamma \sum_i \frac{(x_i - y_i)^2}{x_i + y_i}\right)\) |
+| RBF | $\exp(-\gamma\lVert x-y\rVert_2^2)$ |
+| Polynomial | $(\gamma x^\top y+c_0)^d$ |
+| Linear | $x^\top y$ |
+| Laplacian | $\exp(-\gamma\lVert x-y\rVert_1)$ |
+| Sigmoid | $\tanh(\gamma x^\top y+c_0)$ |
+| Cosine | $x^\top y/(\lVert x\rVert\lVert y\rVert)$ |
+| Chi-squared | $\exp\{-\gamma\sum_j (x_j-y_j)^2/(x_j+y_j)\}$ |
 
-All kernel functions accept an optional `xp` argument for backend dispatch (numpy/cupy/torch). When `xp` is `None`, they default to NumPy.
+The chi-squared kernel requires non-negative inputs.
 
-**chi2_kernel** requires non-negative input features and is commonly used for histogram-based data (e.g., image descriptors). It accepts a `gamma` coefficient (default `1.0`).
+## Examples
 
-**KernelPCA**:
-
-| Parameter | Default | Description |
-|---|---:|---|
-| `n_components` | `2` | Number of components to extract |
-| `kernel` | `'rbf'` | Kernel function name or callable |
-| `gamma` | `None` | Kernel coefficient (for rbf, poly, etc.) |
-| `degree` | `3` | Polynomial degree (for poly kernel) |
-| `coef0` | `1` | Independent term (for poly and sigmoid kernels) |
-| `alpha` | `1.0` | Regularization; adds `alpha * I` to the centered kernel matrix for numerical stability |
-| `eigen_solver` | `'auto'` | Eigensolver: `'auto'` or `'dense'` |
-| `device` | `'auto'` | Computation device |
-
-**Nystroem**:
-
-| Parameter | Default | Description |
-|---|---:|---|
-| `kernel` | `'rbf'` | Kernel function name or callable |
-| `n_components` | `100` | Number of landmark points to sample |
-| `gamma` | `None` | Kernel coefficient (for rbf, poly, etc.) |
-| `degree` | `3` | Polynomial degree (for poly kernel) |
-| `coef0` | `1` | Independent term (for poly and sigmoid kernels) |
-| `random_state` | `None` | Random seed for landmark selection |
-| `device` | `'auto'` | Computation device |
-
-## CPU+GPU Examples
+### NumPy
 
 ```python
-from statgpu.nonparametric.kernel_methods import (
-    KernelRidge, KernelRidgeCV, KernelPCA, Nystroem, chi2_kernel,
-)
 import numpy as np
-
-X = np.random.randn(500, 10)
-y = X @ np.random.randn(10) + 0.1 * np.random.randn(500)
-
-# CPU: Kernel Ridge Regression
-kr = KernelRidge(alpha=1.0, kernel="rbf", device="cpu")
-kr.fit(X, y)
-print(f"R^2: {kr.score(X, y):.4f}")
-
-# GPU with CV
-kr_cv = KernelRidgeCV(cv=5, kernel="rbf", device="cuda")
-kr_cv.fit(X, y)
-print(f"Best alpha: {kr_cv.alpha_:.6f}, R^2: {kr_cv.best_score_:.4f}")
-
-# Predict
-y_pred = kr_cv.predict(X)
-
-# Inspect CV results
-print(f"Alpha grid size: {len(kr_cv.cv_results_['alphas'])}")
-print(f"CV results shape: {kr_cv.cv_results_['mean_mse'].shape}")
-
-# CPU: Kernel PCA
-kpca = KernelPCA(n_components=3, kernel="rbf", gamma=0.1, device="cpu")
-X_kpca = kpca.fit_transform(X)
-print(f"KernelPCA shape: {X_kpca.shape}")  # (500, 3)
-print(f"Eigenvalues: {kpca.lambdas_}")
-
-# CPU: Nystroem approximation
-nyst = Nystroem(kernel="rbf", n_components=50, gamma=0.1, device="cpu")
-X_nyst = nyst.fit_transform(X)
-print(f"Nystroem shape: {X_nyst.shape}")  # (500, 50)
-
-# CPU: Chi-squared kernel (for non-negative histogram data)
-H = np.abs(np.random.randn(100, 20))  # histogram-like data
-K_chi2 = chi2_kernel(H, gamma=1.0)
-print(f"Chi2 kernel shape: {K_chi2.shape}")  # (100, 100)
-```
-
-Using a custom kernel:
-
-```python
 from statgpu.nonparametric.kernel_methods import KernelRidge
 
-# Polynomial kernel with custom parameters
-kr_poly = KernelRidge(alpha=0.1, kernel="polynomial", degree=4, coef0=2.0, device="auto")
-kr_poly.fit(X, y)
-
-# Laplacian kernel
-kr_lap = KernelRidge(alpha=1.0, kernel="laplacian", gamma=0.5, device="cpu")
-kr_lap.fit(X, y)
-
-# User-defined kernel function
-def my_kernel(X, Y=None, xp=None):
-    if xp is None:
-        xp = np
-    if Y is None:
-        Y = X
-    return xp.tanh(X @ Y.T + 1.0)
-
-kr_custom = KernelRidge(alpha=1.0, kernel=my_kernel, device="cpu")
-kr_custom.fit(X, y)
+X = np.random.randn(500, 10)
+y = X[:, 0] - 0.5 * X[:, 1] + 0.1 * np.random.randn(500)
+model = KernelRidge(alpha=1.0, kernel="rbf", device="cpu").fit(X, y)
 ```
 
-## Input and backend safeguards
+### CuPy
 
-`KernelPCA` and `Nystroem` reject NaN/Inf during both fitting and transformation.
-KernelPCA uses a Torch-compatible descending eigensort; the RidgeCV batched Gram-eigen
-solver uses a scalar-safe eigenvalue floor for rank-deficient Torch matrices. These
-paths have NumPy/Torch-CPU regression coverage; physical CUDA validation remains pending.
+```python
+import cupy as cp
+from statgpu.nonparametric.kernel_methods import KernelRidgeCV
 
-## strict/approx difference
+X = cp.random.randn(500, 10, dtype=cp.float64)
+y = X[:, 0] - 0.5 * X[:, 1]
+model = KernelRidgeCV(kernel="rbf", cv=5, device="cuda").fit(X, y)
+```
 
-There is no strict/approx mode distinction in the kernel methods module. The closed-form dual solution is computed directly with no iterative approximation. `KernelPCA` uses exact eigendecomposition (not iterative/approximate). `Nystroem` provides an *approximate* kernel feature map by design (controlled by `n_components`), but the approximation itself is computed exactly from the SVD of the landmark kernel matrix.
+### Torch CUDA
 
-`KernelRidgeCV` auto-generates a log-spaced alpha grid of 100 points when `alphas` is not provided. The grid spans from `max(lambda_min * 1e-3, 1e-8)` to `max(lambda_max * 10, 1)`, where `lambda_min` and `lambda_max` are the extreme eigenvalues of the training kernel matrix. Users can supply a custom `alphas` array to override this behavior.
+```python
+import torch
+from statgpu.nonparametric.kernel_methods import KernelRidgeCV
 
-## Outputs
+X = torch.randn(500, 10, device="cuda", dtype=torch.float64)
+y = X[:, 0] - 0.5 * X[:, 1]
+model = KernelRidgeCV(kernel="rbf", cv=5, device="torch").fit(X, y)
+```
 
-**KernelRidge fitted attributes**:
+`device="cuda"` selects CuPy; `device="torch"` selects Torch.
 
-| Attribute | Shape | Description |
-|---|---|---|
-| `dual_coef_` | `(n_samples,)` or `(n_samples, n_targets)` | Dual coefficients in kernel space |
-| `X_fit_` | `(n_samples, n_features)` | Training data stored for prediction |
+## Inference and Validation
 
-**KernelRidgeCV fitted attributes**:
+Kernel methods do not currently expose coefficient-level standard errors or
+hypothesis tests. Model quality is evaluated through prediction metrics, embedding
+properties, and cross-validation results.
 
-| Attribute | Shape | Description |
-|---|---|---|
-| `alpha_` | scalar | Best regularization parameter selected by CV |
-| `best_score_` | scalar | R-squared score corresponding to the best alpha |
-| `cv_results_` | dict | Dictionary with keys: `alphas`, `mean_mse`, `mse_table`, `best_alpha`, `best_score` |
-| `estimator_` | `KernelRidge` | Fitted `KernelRidge` instance using the best alpha |
-| `dual_coef_` | `(n_samples,)` or `(n_samples, n_targets)` | Shortcut to `estimator_.dual_coef_` |
-| `X_fit_` | `(n_samples, n_features)` | Shortcut to `estimator_.X_fit_` |
-
-**Methods** (both classes):
-
-| Method | Description |
-|---|---|
-| `fit(X, y)` | Fit the model. Returns `self`. |
-| `predict(X)` | Predict targets for new data. |
-| `score(X, y)` | Return the coefficient of determination R-squared. |
-
-**KernelPCA fitted attributes**:
-
-| Attribute | Shape | Description |
-|---|---|---|
-| `lambdas_` | `(n_components,)` | Eigenvalues of the centered kernel matrix (descending order) |
-| `alphas_` | `(n_samples, n_components)` | Normalized eigenvectors (\(\mathbf{v}_k / \sqrt{\lambda_k}\)) |
-| `X_fit_` | `(n_samples, n_features)` | Training data stored for transform |
-| `n_samples_` | int | Number of training samples |
-| `n_features_in_` | int | Number of input features |
-
-**KernelPCA methods**:
-
-| Method | Description |
-|---|---|
-| `fit(X, y=None)` | Compute eigendecomposition of the centered kernel matrix. Returns `self`. |
-| `transform(X)` | Project new data into kernel PC space. |
-| `fit_transform(X, y=None)` | Fit and transform in one step. Returns `(n_samples, n_components)` array. |
-
-**Nystroem fitted attributes**:
-
-| Attribute | Shape | Description |
-|---|---|---|
-| `components_` | `(n_components, n_features)` | Selected landmark points |
-| `component_indices_` | `(n_components,)` | Indices of landmarks in the training data |
-| `normalization_` | `(n_components, n_components)` | Normalization matrix: \(V \, \Lambda^{-1/2}\) |
-| `eigenvalues_` | `(n_components,)` | Eigenvalues of the landmark kernel matrix |
-| `n_features_in_` | int | Number of input features |
-
-**Nystroem methods**:
-
-| Method | Description |
-|---|---|
-| `fit(X, y=None)` | Sample landmarks and compute the normalization matrix. Returns `self`. |
-| `transform(X)` | Map data to approximate kernel feature space. |
-| `fit_transform(X, y=None)` | Fit and transform in one step. Returns `(n_samples, n_components)` array. |
-
-## FAQ
-
-**Q: How is the alpha grid generated when I do not provide one?**
-A: `KernelRidgeCV` computes the eigenvalues of the training kernel matrix and creates a 100-point log-spaced grid from `max(lambda_min * 1e-3, 1e-8)` to `max(lambda_max * 10, 1)`. If the range is degenerate (alpha_min >= alpha_max), the grid is set to span `alpha_max * 1e-4` to `alpha_max`.
-
-**Q: What is the GPU advantage for KernelRidgeCV?**
-A: When using the torch CUDA backend, the eigendecomposition of each fold's training kernel matrix and the entire alpha sweep (computing dual coefficients and predictions for all 100 alpha values) run entirely on the GPU using batched matrix operations. The numpy/CuPy path falls back to a Python-level loop over alpha values.
-
-**Q: Can I use a custom kernel function?**
-A: Yes. Pass any callable as the `kernel` parameter. The callable should accept `(X, Y, xp=None, **kwargs)` and return a kernel matrix of shape `(n_samples_X, n_samples_Y)`. The `xp` argument provides the array module for backend dispatch.
-
-**Q: How does `gamma` default when I do not specify it?**
-A: When `gamma` is `None`, the kernel functions default to `1 / n_features`, following the convention used by scikit-learn.
-
-**Q: Does KernelRidge support multi-output targets?**
-A: Yes. If `y` has shape `(n_samples, n_targets)`, both `KernelRidge` and `KernelRidgeCV` fit all targets simultaneously. The dual coefficients will have shape `(n_samples, n_targets)`.
-
-**Q: When should I use chi2_kernel?**
-A: The chi-squared kernel is designed for non-negative feature vectors, particularly histogram data (e.g., color histograms, bag-of-visual-words). It measures similarity based on the normalized difference between feature bins. Input features must be non-negative.
-
-**Q: How does Nystroem differ from KernelPCA?**
-A: `Nystroem` approximates the kernel feature map itself, producing explicit feature vectors of dimension `n_components` that can be fed to any linear method. `KernelPCA` performs eigendecomposition of the full centered kernel matrix and projects data into the principal component space. Use `Nystroem` when you need explicit features for large datasets (cost \(O(nm)\)); use `KernelPCA` when you need the exact kernel PCA projection (cost \(O(n^2)\)).
-
-**Q: How many landmarks should I use for Nystroem?**
-A: `n_components` controls the approximation quality. More landmarks give a better approximation but increase memory and computation. Typical values range from 50 to 500. The approximation error decreases as \(O(1/\sqrt{m})\) where \(m\) is the number of landmarks.
-
-**Q: What does the `alpha` parameter do in KernelPCA?**
-A: `alpha` adds a regularization term \(\alpha I\) to the centered kernel matrix before eigendecomposition. This improves numerical stability when the kernel matrix is near-singular or ill-conditioned. Larger values increase regularization.
-
-## External Validation
-
-KernelRidge results are validated against `sklearn.kernel_ridge.KernelRidge` with relative error below \(10^{-10}\) for all supported kernel types. Consistency checks are maintained in the test suite covering RBF, polynomial, linear, Laplacian, sigmoid, cosine, and chi-squared kernels across both CPU and GPU backends.
-
-`KernelPCA` output validated against `sklearn.decomposition.KernelPCA`; eigenvectors agree up to sign with relative eigenvalue error below \(10^{-8}\).
-
-`Nystroem` output validated against `sklearn.kernel_approximation.Nystroem`; feature map approximation error decreases as expected with increasing `n_components`.
-
-`chi2_kernel` validated against `sklearn.metrics.pairwise.chi2_kernel`; relative error below \(10^{-12}\).
-
-## References
-
-- Hastie, T., Tibshirani, R., & Friedman, J. (2009). *The Elements of Statistical Learning* (2nd ed.). Springer. Chapter 6. [https://hastie.su.domains/ElemStatLearn/](https://hastie.su.domains/ElemStatLearn/)
-- Saunders, C., Gammerman, A., & Vovk, V. (1998). Ridge regression learning algorithm in dual variables. *Proceedings of the 15th International Conference on Machine Learning (ICML)*, 515-521.
-- Scholkopf, B., Smola, A., & Muller, K.-R. (1998). Nonlinear component analysis as a kernel eigenvalue problem. *Neural Computation*, 10(5), 1299-1319.
-- Williams, C. K. I., & Seeger, M. (2001). Using the Nystroem method to speed up kernel machines. *Advances in Neural Information Processing Systems (NeurIPS)*, 13, 682-688.
-- Vedaldi, A., & Zisserman, A. (2012). Efficient additive kernels via explicit feature maps. *IEEE Transactions on Pattern Analysis and Machine Intelligence*, 34(3), 480-492.
+This page does not maintain a global physical-GPU completion flag. Hardware-specific
+accuracy and performance claims belong to the maintained tests and benchmark artifacts
+that record the exact backend, environment, and commit.
