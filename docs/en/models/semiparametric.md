@@ -3,9 +3,9 @@
 > Language: English  
 > Last updated: 2026-05-28  
 > This page: Model documentation  
-> Switch: [Chinese](../models/semiparametric.md)
+> Switch: [Chinese](../../cn/models/semiparametric.md)
 
-Language switch: [Chinese](../models/semiparametric.md)
+Language switch: [Chinese](../../cn/models/semiparametric.md)
 
 ## Overview
 

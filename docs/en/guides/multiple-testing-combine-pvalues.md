@@ -3,9 +3,9 @@
 > Language: English  
 > Last updated: 2026-04-26  
 > This page: Guide  
-> Switch: [Chinese](../../guides/multiple-testing-combine-pvalues.md)
+> Switch: [Chinese](../../cn/guides/multiple-testing-combine-pvalues.md)
 
-Language switch: [Chinese](../../guides/multiple-testing-combine-pvalues.md)
+Language switch: [Chinese](../../cn/guides/multiple-testing-combine-pvalues.md)
 
 ## API Summary
 

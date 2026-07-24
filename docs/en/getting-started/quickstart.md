@@ -3,9 +3,9 @@
 > Language: English  
 > Last updated: 2026-04-11  
 > This page: Getting started  
-> Switch: [Chinese](../../getting-started/quickstart.md)
+> Switch: [Chinese](../../cn/getting-started/quickstart.md)
 
-Language switch: [Chinese](../../getting-started/quickstart.md)
+Language switch: [Chinese](../../cn/getting-started/quickstart.md)
 
 ## Installation
 

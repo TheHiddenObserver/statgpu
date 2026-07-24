@@ -2,7 +2,7 @@
 
 > 语言：中文
 > 最后更新：2026-05-07
-> English: [English](../en/unsupervised/incremental-pca.md)
+> English: [English](../../en/unsupervised/incremental-pca.md)
 
 ## 概览
 

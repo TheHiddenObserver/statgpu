@@ -3,9 +3,9 @@
 > Language: English  
 > Last updated: 2026-07-12  
 > This page: Method documentation  
-> Switch: [Chinese](../../models/knockoff.md)
+> Switch: [Chinese](../../cn/models/knockoff.md)
 
-Language switch: [Chinese](../../models/knockoff.md)
+Language switch: [Chinese](../../cn/models/knockoff.md)
 
 ## Overview
 

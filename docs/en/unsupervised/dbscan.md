@@ -2,7 +2,7 @@
 
 > Language: English
 > Last updated: 2026-06-26
-> Switch: [Chinese](../../unsupervised/dbscan.md)
+> Switch: [Chinese](../../cn/unsupervised/dbscan.md)
 
 ## Overview
 

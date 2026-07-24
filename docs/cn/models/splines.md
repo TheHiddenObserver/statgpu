@@ -3,9 +3,9 @@
 > 语言: 中文
 > 最后更新: 2026-07-14
 > 页面定位: 模型文档
-> 切换: [English](../en/models/splines.md)
+> 切换: [English](../../en/models/splines.md)
 
-语言切换：[English](../en/models/splines.md)
+语言切换：[English](../../en/models/splines.md)
 
 ## 概览（Overview）
 
@@ -62,7 +62,7 @@ $$
 
 ## 协方差 / 推断（Covariance / Inference）
 
-样条基函数是确定性计算工具，不产生推断输出（无标准误、p 值或置信区间）。如需使用样条进行统计推断，请参见 [GAM](../semiparametric.md) 模型，该模型将惩罚样条与 GCV 平滑参数选择相结合。
+样条基函数是确定性计算工具，不产生推断输出（无标准误、p 值或置信区间）。如需使用样条进行统计推断，请参见 [GAM](semiparametric.md) 模型，该模型将惩罚样条与 GCV 平滑参数选择相结合。
 
 ## 后端执行与验证边界
 

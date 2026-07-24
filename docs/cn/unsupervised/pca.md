@@ -2,7 +2,7 @@
 
 > 语言：中文
 > 最后更新：2026-05-02
-> English: [English](../en/unsupervised/pca.md)
+> English: [English](../../en/unsupervised/pca.md)
 
 ## 概览
 

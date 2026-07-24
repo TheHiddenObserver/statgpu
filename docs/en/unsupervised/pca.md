@@ -2,7 +2,7 @@
 
 > Language: English
 > Last updated: 2026-05-02
-> Switch: [Chinese](../../unsupervised/pca.md)
+> Switch: [Chinese](../../cn/unsupervised/pca.md)
 
 ## Overview
 

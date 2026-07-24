@@ -3,9 +3,9 @@
 > 语言: 中文  
 > 最后更新: 2026-04-26  
 > 页面定位: 指南文档  
-> 切换: [English](../en/guides/multiple-testing-combine-pvalues.md)
+> 切换: [English](../../en/guides/multiple-testing-combine-pvalues.md)
 
-语言切换：[English](../en/guides/multiple-testing-combine-pvalues.md)
+语言切换：[English](../../en/guides/multiple-testing-combine-pvalues.md)
 
 ## API 概览
 

@@ -10,6 +10,61 @@ permissions:
   contents: read
 
 jobs:
+  docs-contracts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.9'
+      - name: Exercise Python 3.9 documentation writer
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          from tempfile import TemporaryDirectory
+
+          from dev.validation.fix_docs_links import write_utf8
+
+          with TemporaryDirectory() as directory:
+              path = Path(directory) / "example.md"
+              write_utf8(path, "first\nsecond\n")
+              assert path.read_bytes() == b"first\nsecond\n"
+          PY
+      - name: Run documentation contracts
+        id: docs_check
+        shell: bash
+        run: |
+          set +e
+          python dev/validation/fix_docs_links.py --check > docs-links.log 2>&1
+          links_status=$?
+          python dev/validation/check_docs_contracts.py > docs-contracts-only.log 2>&1
+          contracts_status=$?
+          {
+            echo "=== Deterministic bilingual links ==="
+            cat docs-links.log
+            echo
+            echo "=== Maintained documentation contracts ==="
+            cat docs-contracts-only.log
+          } | tee docs-contracts.log
+          if [ "$links_status" -ne 0 ] || [ "$contracts_status" -ne 0 ]; then
+            status=1
+          else
+            status=0
+          fi
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+          exit 0
+      - name: Upload documentation diagnostics
+        if: steps.docs_check.outputs.status != '0'
+        uses: actions/upload-artifact@v4
+        with:
+          name: docs-contracts-log
+          path: docs-contracts.log
+          if-no-files-found: error
+      - name: Enforce documentation contracts
+        if: steps.docs_check.outputs.status != '0'
+        run: exit 1
+
   regression-matrix:
     runs-on: ubuntu-latest
     strategy:
@@ -128,7 +183,6 @@ jobs:
             statgpu/metrics \
             statgpu/nonparametric/kernel_methods \
             statgpu/nonparametric/kernel_smoothing \
-            statgpu/nonparametric/splines \
             statgpu/panel \
             statgpu/penalties/_adaptive_l1.py \
             statgpu/penalties/_base.py \

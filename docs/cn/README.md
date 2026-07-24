@@ -1,7 +1,7 @@
 # StatGPU 文档
 
 > 语言：中文  
-> 切换：[English](en/README.md)
+> 切换：[English](../en/README.md)
 
 ## 快速开始
 

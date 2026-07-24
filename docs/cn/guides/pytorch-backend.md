@@ -1,393 +1,245 @@
 # PyTorch 后端指南
 
-**最后更新**: 2026-04-18  
-**状态**: 稳定（全部完成 - 所有核心模型 + 非参数模块 + 特征选择）
+> 语言：中文  
+> 最后更新：2026-07-24  
+> 切换：[English](../../en/guides/pytorch-backend.md)
 
-本指南介绍 StatGPU 的 PyTorch 后端，作为 CuPy 后端的替代 GPU 加速方案。
+## 概览
 
----
+StatGPU 支持三个执行后端：
 
-## 概述
+| `device` 值 | 数值后端 | 典型执行位置 |
+|---|---|---|
+| `"cpu"` | NumPy | CPU |
+| `"cuda"` | CuPy | NVIDIA CUDA |
+| `"torch"` | PyTorch | NVIDIA CUDA |
+| `"auto"` | 自动选择 | 根据可用性与输入选择 CuPy、Torch CUDA 或 NumPy |
 
-StatGPU 支持两种 GPU 后端：
+`device="torch"` 是显式 PyTorch 请求；`device="cuda"` 选择 CuPy，不是 Torch 的
+别名。显式请求在对应后端不可用时会报错，不会静默切换到其他后端。
 
-| 后端 | 包名 | CUDA 版本 | 适用场景 |
-|---------|---------|--------------|----------|
-| CuPy | `cupy-cuda11x` / `cupy-cuda12x` | 11.x / 12.x | legacy 兼容性，小数据集 |
-| PyTorch | `torch>=2.0` | 11.x / 12.x | PyTorch 生态，中大数据集 |
-
-两种后端提供相同的 API 和数值精度。
-
-**已完成模型**:
-- ✅ Ridge 回归（Torch GPU 完整协方差：HC1/HC2/HC3/HAC）
-- ✅ LogisticRegression（Torch GPU 带 IRLS + 完整推断）
-- ✅ Lasso（Torch GPU 带 FISTA 求解器 + Debiased 推断）
-- ✅ CoxPH（Torch GPU 带 Breslow 近似 + 完整推断）
-- ✅ KDE（Torch GPU）
-- ✅ KernelRegression（Torch GPU）
-- ✅ Knockoff（Torch GPU）
-
-**大规模基准测试结果** (Tesla P100):
-
-| 模型 | 后端 | 小数据集 (2K×50) | 大数据集 (50K×200) | 数值精度 |
-|-------|---------|-----------------|-------------------|----------|
-| LinearRegression | Torch GPU | 0.002s | 0.083s | ~1e-15 |
-| LinearRegression | CuPy GPU | 0.001s | 0.033s | ~1e-15 |
-| Ridge | Torch GPU | 0.005s | 0.091s | ~1e-15 |
-| Ridge | CuPy GPU | 0.004s | 0.040s | ~1e-15 |
-| Lasso | Torch GPU | 0.012s | 0.063s | ~1e-5 |
-| Lasso | CuPy GPU | 0.011s | 0.013s | ~1e-5 |
-| LogisticRegression | Torch GPU | 0.008s | 0.114s | ~1e-14 |
-| LogisticRegression | CuPy GPU | 0.008s | 0.063s | ~1e-14 |
-| CoxPH | Torch GPU | 0.024s | FAIL | ~1e-15 |
-| CoxPH | CuPy GPU | 0.022s | FAIL | ~1e-15 |
-
-**关键发现**:
-- 小数据集上 CuPy 略有优势（开销更低）
-- 大数据集上 CuPy 领先 2-5x（线性代数优化更成熟）
-- 所有模型通过精度阈值 (< 1e-6 vs CPU)
-- CoxPH 在大数据集上两种后端均失败（内存限制）
-
----
+不同模型、solver、交叉验证和推断选项的覆盖范围可能不同。应查看
+[已实现方法](implemented-methods.md)和对应模型页，而不是假设每个公共估计器都有
+完全相同的 Torch 路径。
 
 ## 安装
 
-### 方式 1: Pip 安装
+通过可选依赖安装 Torch：
 
 ```bash
-# 安装带 PyTorch 后端的 StatGPU
-pip install statgpu[torch]
+pip install "statgpu[torch]"
+```
 
-# 或单独安装 PyTorch
-pip install torch scipy
+GPU 执行需要兼容的 PyTorch CUDA build 和 NVIDIA 驱动。拟合前可检查：
+
+```python
+import torch
+
+print(torch.__version__)
+print(torch.cuda.is_available())
+if torch.cuda.is_available():
+    print(torch.cuda.get_device_name(0))
+```
+
+仅安装基础包不会自动安装 PyTorch：
+
+```bash
 pip install statgpu
 ```
 
-### 方式 2: Conda 安装（推荐）
+## 基本用法
 
-```bash
-# 创建带 PyTorch 的 conda 环境
-conda create -n statgpu-torch python=3.10
-conda activate statgpu-torch
-
-# 安装带 CUDA 11.7 的 PyTorch
-conda install pytorch cudatoolkit=11.7 -c pytorch
-
-# 安装 StatGPU
-pip install statgpu
-```
-
-### 验证安装
+### NumPy 输入并显式使用 Torch
 
 ```python
-import torch
+import numpy as np
 from statgpu.linear_model import LinearRegression
 
-print(f"PyTorch: {torch.__version__}")
-print(f"CUDA 可用：{torch.cuda.is_available()}")
-print(f"GPU: {torch.cuda.get_device_name(0) if torch.cuda.is_available() else None}")
+rng = np.random.default_rng(42)
+X = rng.normal(size=(1000, 20))
+y = 1.0 + X @ rng.normal(size=20) + rng.normal(size=1000)
 
-# 快速测试
-import numpy as np
-X = np.random.randn(100, 10)
-y = X @ np.random.randn(10) + np.random.randn(100)
-
-model = LinearRegression(device='torch')
+model = LinearRegression(device="torch")
 model.fit(X, y)
-print(f"R²: {model.rsquared:.4f}")
+print(model.score(X, y))
 ```
 
----
+估计器会将兼容的 NumPy 输入转换到所选 Torch CUDA 后端。若 Torch CUDA
+不可用，显式 Torch 请求会报错。
 
-## 使用方法
-
-### 基础 LinearRegression
+### 直接使用 Torch CUDA tensor
 
 ```python
-import numpy as np
+import torch
 from statgpu.linear_model import LinearRegression
 
-# 生成数据
-np.random.seed(42)
-X = np.random.randn(1000, 50)
-y = X @ np.random.randn(50) + np.random.randn(1000)
+X = torch.randn(1000, 20, device="cuda", dtype=torch.float64)
+y = torch.randn(1000, device="cuda", dtype=torch.float64)
 
-# 使用 PyTorch GPU 拟合
-model = LinearRegression(device='torch')
+model = LinearRegression(device="torch")
 model.fit(X, y)
-
-print(f"系数：{model.coef_}")
-print(f"R²: {model.rsquared:.4f}")
-print(f"P 值：{model._pvalues[1:]}")  # 排除截距
+prediction = model.predict(X)
 ```
 
-### 直接使用 Torch 张量
+输出是否保持为 Torch tensor 取决于具体方法。应查看模型页，确认输出是 Torch
+数组，还是有意暴露为 CPU 元数据或标量统计摘要。
+
+## 设备选择
+
+### 估计器级选择
+
+```python
+from statgpu.linear_model import Ridge
+
+model = Ridge(alpha=1.0, device="torch")
+```
+
+### 全局默认值
+
+```python
+import statgpu as sg
+
+sg.set_device("torch")
+```
+
+估计器公开 `device=` 参数时，估计器级设置优先。只有明确需要自动选择时才使用
+`"auto"`。
+
+## 统计推断
+
+使用 Torch 执行并不意味着每一种推断选项都可用。推断覆盖取决于估计器、协方差
+类型、solver、数据合同和可选依赖。对于支持推断的模型，应在其文档中确认：
+
+- 支持的协方差估计；
+- 标准误、检验统计量、p 值和置信区间；
+- strict 路径与显式请求的 approximate 行为；
+- delayed entry、cluster、ties、秩亏或 formula 限制；
+- 最终摘要是 Torch 数组、NumPy 数组还是标量元数据。
+
+不支持的推断组合应显式失败，或进入文档化的 estimation-only 模式；不应静默
+产生近似结果。
+
+## 执行边界
+
+方法支持 Torch 时，核心数值数组应保留在 Torch 后端。合理的 CPU 边界可能包括：
+
+- formula、标签、特征名和小型索引元数据；
+- fold 定义、收敛决策和标量控制流；
+- Torch 中缺失的标量分布函数；
+- 有意表示为 NumPy 或 Python 标量的用户摘要；
+- 只接受 CPU 数组的外部验证库。
+
+这些边界取决于具体模型。声称所有中间量都始终位于 GPU 并不准确。完整设计矩阵
+转移或后端切换不能作为静默 fallback 出现。
+
+## Dtype 与数值精度
+
+统计推断通常更适合使用 `float64`：
+
+```python
+X = torch.randn(2000, 50, device="cuda", dtype=torch.float64)
+```
+
+预测变量、响应、权重、offset 和初始化数组应使用相容 dtype。NumPy、CuPy 与
+Torch 的结果差异应结合算法、条件数、停止规则和 dtype 设定容差，而不是要求
+bitwise 相同。
+
+## 随机性与可复现性
+
+算法含随机性时，同时设置模型的 `random_state` 与 Torch seed：
 
 ```python
 import torch
-from statgpu.linear_model import LinearRegression
 
-# 在 GPU 上创建张量
-X_torch = torch.randn(1000, 50, device='cuda')
-y_torch = torch.randn(1000, device='cuda')
-
-# 使用 Torch 张量并强制 Torch 后端
-model = LinearRegression(device='torch')
-model.fit(X_torch, y_torch)
-
-# 系数以 numpy 数组形式返回
-print(f"系数：{model.coef_}")
+torch.manual_seed(42)
+torch.cuda.manual_seed_all(42)
 ```
 
-> 注意：`device='cuda'` 为自动后端选择，若安装 CuPy 会优先使用 CuPy。  
-> 如需强制使用 Torch，请设置 `device='torch'`。
+交叉验证 folds、landmark 抽样、随机分解和随机初始化还可能使用估计器自己的
+`random_state`。
 
-### 稳健协方差选项
+## 显存管理
 
-```python
-# HC1 异方差一致性标准误
-model_hc1 = LinearRegression(device='cuda', cov_type='hc1')
-model_hc1.fit(X, y)
+显存需求取决于估计器和工作负载。精确核方法、稠密 Hessian 或协方差计算可能需要
+二次或更高阶的中间存储。应在文档支持时使用适合问题的 batching 或近似方法。
 
-# HAC (Newey-West) 用于时间序列
-model_hac = LinearRegression(device='cuda', cov_type='hac')
-model_hac.fit(X, y)
-```
-
----
-
-## 性能
-
-### 小数据集基线 (2K×50)
-
-| 后端 | Ridge | Logistic | Lasso |
-|---------|-------|----------|-------|
-| NumPy CPU | 0.0066s | 0.0140s | 0.0037s |
-| CuPy GPU | 0.0048s | 0.0114s | 0.0134s |
-| Torch GPU | 0.997s | 0.210s | 0.016s |
-
-**注意**: 对于小数据集 (<10K)，CuPy 开销更低。小数据请使用 CPU。
-
-### 大规模基准测试 (Tesla P100)
-
-**大数据集 (50K×200)**:
-
-| 后端 | LinearRegression | Ridge | Lasso | LogisticRegression |
-|---------|-----------------|-------|-------|-------------------|
-| Torch GPU | 0.083s | 0.091s | 0.063s | 0.114s |
-| CuPy GPU | 0.033s | 0.040s | 0.013s | 0.063s |
-| **比率** | 2.5x | 2.3x | 4.8x | 1.8x |
-
-**小数据集 (2K×50)**:
-
-| 后端 | LinearRegression | Ridge | Lasso | LogisticRegression | CoxPH |
-|---------|-----------------|-------|-------|-------------------|-------|
-| Torch GPU | 0.002s | 0.005s | 0.012s | 0.008s | 0.024s |
-| CuPy GPU | 0.001s | 0.004s | 0.011s | 0.008s | 0.022s |
-| **比率** | 1.6x | 1.2x | 1.1x | 1.1x | 1.1x |
-
-**关键发现**:
-- 小数据集上两者性能接近（<20% 差距）
-- 大数据集上 CuPy 领先 2-5x（线性代数优化更成熟）
-- Torch 优势场景：需要 autograd、与 PyTorch 生态集成
-- CuPy 优势场景：大规模线性代数、Lasso 迭代算法
-
-### 何时使用 PyTorch 后端
-
-**推荐 Torch GPU**:
-- 需要与 PyTorch 生态集成（深度学习流水线）
-- 需要 autograd 能力或 Torch 调试工具（profiler, NVTX）
-- Lasso 模型（Torch 与 CuPy 性能接近）
-- 中等规模数据集 (10K-50K 样本)
-
-**推荐 CuPy GPU**:
-- 大规模线性代数（LinearRegression, Ridge）
-- 追求极致性能
-- 小数据集 (<10K 样本) 低开销
-
-**推荐 CPU**:
-- 非常小的数据集 (<2K 样本)
-- 单次执行场景
-- 无 GPU 可用环境
-
----
-
-## 后端对比
-
-### 数值精度
-
-所有后端在浮点精度范围内产生相同结果：
-
-```python
-import numpy as np
-from statgpu.linear_model import LinearRegression
-
-np.random.seed(42)
-X = np.random.randn(200, 10)
-y = X @ np.array([1.0, -2.0, 0.5, 0.0, 1.5, 0.3, -0.8, 1.2, -0.5, 0.7]) + 0.5 * np.random.randn(200)
-
-# NumPy CPU
-model_cpu = LinearRegression(device='cpu')
-model_cpu.fit(X, y)
-
-# PyTorch GPU
-model_torch = LinearRegression(device='torch')
-model_torch.fit(X, y)
-
-# 对比
-coef_diff = np.max(np.abs(model_cpu.coef_ - model_torch.coef_))
-print(f"最大系数差异：{coef_diff:.2e}")
-# 输出：最大系数差异：4.00e-15
-```
-
-### API 兼容性
-
-| 功能 | CuPy 后端 | PyTorch 后端 |
-|---------|--------------|-----------------|
-| `device='cuda'` | ✓ | 自动（优先 CuPy） |
-| `device='torch'` | ✗ | ✓ |
-| `device='cpu'` | ✓ | ✓ |
-| 稳健协方差 (HC1/HC2/HC3) | ✓ | ✓ |
-| HAC (Newey-West) | ✓ | ✓ |
-| Torch 张量输入 | ✗ | ✓ |
-| CuPy 张量输入 | ✓ | ✗ |
-| Autograd 支持 | ✗ | 未来 |
-| LinearRegression + 完整推断 | ✓ | ✓ |
-| Ridge + 完整推断 | ✓ | ✓ |
-| LogisticRegression + 完整推断 | ✓ | ✓ |
-| Lasso + OLS/Debiased 推断 | ✓ | ✓ |
-| CoxPH + 完整推断 | ✓ | ✓ |
-| KDE | ✓ | ✓ |
-| KernelRegression | ✓ | ✓ |
-| Knockoff 特征选择 | ✓ | ✓ |
-
-### 数值精度 (50K×200)
-
-所有后端在浮点精度范围内产生相同结果：
-
-| 模型 | 后端 | 系数差异 | 标准误差异 |
-|-------|---------|-----------|----------|
-| LinearRegression | Torch GPU | ~1e-15 | ~1e-15 |
-| Ridge | Torch GPU | ~1e-15 | ~1e-15 |
-| Lasso | Torch GPU | ~1e-5 | ~1e-5 |
-| LogisticRegression | Torch GPU | ~1e-14 | ~1e-14 |
-
-**全部在阈值内 (< 1e-6)**
-
----
-
-## 故障排除
-
-### CUDA 不可用
+排查问题时可释放 Torch 缓存：
 
 ```python
 import torch
-print(torch.cuda.is_available())  # False
-```
 
-**解决方案**:
-1. 检查 NVIDIA 驱动：`nvidia-smi`
-2. 验证 CUDA 工具包与 PyTorch 版本匹配
-3. 使用正确的 CUDA 版本重新安装 PyTorch
-
-### 内存不足
-
-```python
 torch.cuda.empty_cache()
 ```
 
-或使用 `gpu_memory_cleanup=True`:
+部分估计器公开 `gpu_memory_cleanup=True`。该选项控制缓存清理，不改变统计目标，
+也不允许 CPU fallback。
+
+## 性能与验证证据
+
+GPU 性能依赖样本量、特征维度、dtype、kernel 或 solver、硬件、同步和显存压力。
+小型任务可能在 CPU 上更快。不能把一个模型或一张 GPU 上的 benchmark 当成全局
+加速保证。
+
+维护的证据应记录：
+
+- 精确 commit SHA；
+- Python、Torch、CUDA 和驱动版本；
+- GPU 型号；
+- 包含同步的计时方法；
+- 准确性或统计一致性指标；
+- passed、failed 和 skipped 测试数量。
+
+当前与历史 benchmark 位于 `results/` 和 `dev/benchmarks/`。保留的
+[Torch 后端报告](../../../dev/docs/torch_backend_final_report.md)是带日期的证据快照，
+不是当前支持矩阵。
+
+## 故障排查
+
+### Torch CUDA 不可用
 
 ```python
-model = LinearRegression(device='cuda', gpu_memory_cleanup=True)
-```
-
-### PyTorch 版本过旧 (< 2.0)
-
-某些特殊函数需要 PyTorch 2.0+。显式 `device="torch"` 不会静默回退到 SciPy/CPU；如果 Torch CUDA 或所需函数不可用，应升级依赖或改用 `device="auto"`/`device="cpu"`：
-
-```python
-# 检查 PyTorch 版本
 import torch
-print(f"PyTorch: {torch.__version__}")
-
-# 升级
-pip install --upgrade torch
+print(torch.cuda.is_available())
 ```
 
----
+检查 NVIDIA 驱动、安装的 Torch build 及其自带 CUDA runtime。系统 CUDA toolkit
+版本本身不能决定哪个 Torch wheel 可用。
 
-## 实现细节
+### 显式 Torch 执行报错
 
-### 已完成实现
+当 Torch CUDA 或必要 Torch 运算不可用时，这是预期行为。只有在符合预期合同的
+情况下才改用 `device="cpu"` 或 `device="auto"`；不能期待 `device="torch"`
+静默 fallback。
 
-**核心模型**:
-- LinearRegression: `_fit_torch()`, `_robust_covariance_torch()`, `_hac_meat_torch()`
-- Ridge: `_fit_torch()`, `_robust_covariance_torch()`, `_hac_meat_torch()`
-- LogisticRegression: `_fit_torch()` 带 IRLS，完整推断
-- Lasso: `_fit_torch()` 带 FISTA 求解器，OLS/Debiased/Simultaneous 推断
-- CoxPH: `_fit_torch()`, `_compute_log_likelihood_torch()`, `_compute_gradient_hessian_torch()`
+### 显存不足
 
-**非参数模块**:
-- KDE: Torch 后端支持
-- KernelRegression: Torch 后端支持
+减小问题规模，使用文档化的 batching 或近似方法，减少 CV grid 或 fold 数，或选择
+内存复杂度更低的方法。`torch.cuda.empty_cache()` 无法减少算法当前活跃 tensor
+必须占用的内存。
 
-**特征选择**:
-- Knockoff: Torch 随机数生成，`backend='torch'` 支持
+### 与其他框架结果不同
 
-**基础设施**:
-- `statgpu/backends/_torch.py` - 后端适配器 (50+ NumPy 兼容方法)
-- `statgpu/inference/_distributions_torch.py` - 分布对象 (norm, t, F)
-- `statgpu/_gpu_utils_torch.py` - Torch GPU 工具函数
-- `statgpu/nonparametric/_kernel_common.py` - 非参数模块 Torch 支持
-- `statgpu/feature_selection/_knockoff_utils.py` - Knockoff Torch 支持
+首先对齐：
 
-### 修改的文件
+- 目标函数归一化；
+- 正则化尺度；
+- 截距与特征编码；
+- solver 与停止容差；
+- sample weights、offset、ties 和协方差选项；
+- dtype 与随机种子。
 
-- `statgpu/linear_model/_linear.py` - 添加 Torch 后端
-- `statgpu/linear_model/_ridge.py` - 添加 Torch 后端
-- `statgpu/linear_model/_logistic.py` - 添加 Torch 后端
-- `statgpu/linear_model/_lasso.py` - 添加 Torch 后端
-- `statgpu/survival/_cox.py` - 添加 Torch 后端
-- `statgpu/nonparametric/_kernel_common.py` - 添加 Torch 支持
-- `statgpu/feature_selection/_knockoff_utils.py` - 添加 Torch 支持
-- `statgpu/inference/_distributions_torch.py` - 添加分布对象
-- `statgpu/_gpu_utils_torch.py` - 添加 Torch 工具函数
-- `statgpu/backends/_torch.py` - 扩展后端适配器
+若其他框架优化求和损失，而 StatGPU 优化平均损失，惩罚参数可能需要相应缩放。
 
----
+## 相关文档
 
-## 下一步
-
-### 已完成工作
-
-- ✅ Phase 1: 后端验证 (LinearRegression, Ridge, Lasso, LogisticRegression, CoxPH)
-- ✅ Phase 2: 基础设施 (分布对象，推断工具，Torch 工具函数)
-- ✅ Phase 3: 模型实现 (所有核心线性模型 + CoxPH)
-- ✅ Phase 4: 大规模基准测试 (50K×200)
-- ✅ Phase 5: 文档与发布 (使用指南，基准报告)
-- ✅ 非参数模块 (KDE, KernelRegression)
-- ✅ 特征选择模块 (Knockoff)
-
-### 未来增强
-
-- Torch 编译优化 (PyTorch 2.0+ `torch.compile()`)
-- 基于 Autograd 的推断
-- 混合精度训练 (FP16)
-
----
+- [设备与显存管理](device-and-memory.md)
+- [已实现方法](implemented-methods.md)
+- [交叉验证](cross-validation.md)
+- [推断 API](inference-api.md)
+- [模型总览](../models/README.md)
+- [快速开始](../getting-started/quickstart.md)
 
 ## 参考资料
 
 - [PyTorch 文档](https://pytorch.org/docs/)
-- [Torch 后端最终报告](../../dev/docs/torch_backend_final_report.md)
-- [Torch vs CuPy 综合对比](../../dev/docs/torch_vs_cupy_comprehensive_report.md)
-- [Knockoff FDR 校准报告](../../results/knockoff_fdr_2026-04-18_09-15-29.md)
-- [Torch vs CuPy 基准结果](../../results/torch_vs_cupy_20260418_092648.md)
-
----
-
-**另见**:
-- [设备与内存管理](device-and-memory.md)
-- [快速入门指南](../getting-started/quickstart.md)
-- [模型概览](../models/README.md)
+- [StatGPU Torch 后端证据快照](../../../dev/docs/torch_backend_final_report.md)

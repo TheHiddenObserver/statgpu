@@ -2,7 +2,7 @@
 
 > Language: English
 > Last updated: 2026-05-07
-> Switch: [Chinese](../../unsupervised/minibatch-nmf.md)
+> Switch: [Chinese](../../cn/unsupervised/minibatch-nmf.md)
 
 ## Overview
 

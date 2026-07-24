@@ -3,9 +3,9 @@
 > 语言: 中文  
 > 最后更新: 2026-04-02  
 > 页面定位: 指南文档  
-> 切换: [English](../en/guides/inference-modes.md)
+> 切换: [English](../../en/guides/inference-modes.md)
 
-语言切换：[English](../en/guides/inference-modes.md)
+语言切换：[English](../../en/guides/inference-modes.md)
 
 `Lasso` 的 `inference_method`：
 

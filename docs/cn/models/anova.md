@@ -1,137 +1,215 @@
 # ANOVA
 
-> 语言: 中文  
-> 最后更新: 2026-07-12  
-> 页面定位: 模型文档  
-> 切换: [English](../en/models/anova.md)
+> 语言：中文  
+> 最后更新：2026-07-24  
+> 切换：[English](../../en/models/anova.md)
 
-语言切换：[English](../en/models/anova.md)
+## 概览
 
-## 概览（Overview）
+ANOVA 模块提供单因素 ANOVA、平衡双因素 ANOVA、Welch ANOVA、Tukey HSD、
+Bonferroni 校正的两两 Welch 检验以及效应量辅助函数。分组归约支持
+NumPy、CuPy 和 Torch 后端。
 
-ANOVA 模块提供 `f_oneway`、平衡设计 `f_twoway`、`f_welch`、`tukey_hsd`、`bonferroni` 以及 `cohens_f`/`partial_eta_squared` 效应量工具。组内归约支持 NumPy、CuPy 和 Torch。
+## 路径
 
-## 路径（Path）
-
-- `statgpu.anova.f_oneway` / `AnovaResult`
-- `statgpu.anova.f_twoway` / `TwoWayAnovaResult`
+- `statgpu.anova.f_oneway`、`statgpu.anova.AnovaResult`
+- `statgpu.anova.f_twoway`、`statgpu.anova.TwoWayAnovaResult`
 - `statgpu.anova.f_welch`
-- `statgpu.anova.tukey_hsd` / `TukeyResult`
-- `statgpu.anova.bonferroni` / `PosthocResult`
-- `statgpu.anova.cohens_f` / `partial_eta_squared`
+- `statgpu.anova.tukey_hsd`、`statgpu.anova.TukeyResult`
+- `statgpu.anova.bonferroni`、`statgpu.anova.PosthocResult`
+- `statgpu.anova.cohens_f`
+- `statgpu.anova.partial_eta_squared`
 
-## 目标函数（Objective Function）
+## 单因素 ANOVA
 
-总均值：
-$$
-\bar{y} = \frac{\sum_i n_i \bar{y}_i}{\sum_i n_i}
-$$
+设第 $i$ 组样本量为 $n_i$、均值为 $\bar y_i$，总样本量
+$N=\sum_i n_i$，总体均值为
 
-组间平方和：
 $$
-SSB = \sum_{i=1}^k n_i (\bar{y}_i - \bar{y})^2
+\bar y = \frac{\sum_i n_i\bar y_i}{N}.
 $$
 
-组内平方和：
-$$
-SSW = \sum_{i=1}^k \sum_{j=1}^{n_i} (y_{ij} - \bar{y}_i)^2
-$$
+组间平方和与组内平方和分别为
 
-F 统计量：
 $$
-F = \frac{SSB / (k-1)}{SSW / (N-k)}
+SSB = \sum_i n_i(\bar y_i-\bar y)^2,
+\qquad
+SSW = \sum_i\sum_j(y_{ij}-\bar y_i)^2.
 $$
 
-其中 $k$ 为组数，$n_i$ 为第 $i$ 组的样本量，$N = \sum_i n_i$ 为总观测数。
+检验统计量为
 
-## 估计方程（Estimating Equation）
-
-直接计算，无需迭代求解器。F 统计量通过后端原生的归约操作在单次数据遍历中完成计算。
-
-## 协方差与推断（Covariance/Inference）
-
-p 值由 F 分布的生存函数 $1 - F_{k-1,\,N-k}(F)$ 得到。效应量报告为：
 $$
-\eta^2 = \frac{SSB}{SSB + SSW}
+F = \frac{SSB/(k-1)}{SSW/(N-k)}.
 $$
 
-### 双因素、Welch 与事后检验
+`f_oneway` 通过后端原生归约直接计算这些量，不需要迭代求解器。p 值来自
+F 分布生存函数。Eta-squared 为
 
-`f_twoway` 支持包含交互项的完整模型和不含交互项的加性模型。当前只接受各 cell
-样本量相同的平衡设计；非平衡设计在 API 明确 Type I/II/III 平方和前会报错。
-加性模型会把交互变异并入残差。
+$$
+\eta^2 = \frac{SSB}{SSB+SSW}.
+$$
 
-`f_welch` 用于异方差组，并保留 Welch-Satterthwaite 的小数分母自由度。
-`tukey_hsd` 使用 studentized-range 分布，`bonferroni` 执行 Bonferroni 校正的
-两两 Welch t 检验。
-
-## 参数（Parameters）
+### 参数
 
 | 参数 | 默认值 | 说明 |
 |---|---:|---|
-| `*groups` | （必填） | 两个或更多一维数组，每组一个 |
-| `backend` | `"auto"` | `"auto"` / `"numpy"` / `"cupy"` / `"torch"` |
+| `*groups` | 必填 | 至少两个一维样本 |
+| `backend` | `"auto"` | `"auto"`、`"numpy"`、`"cupy"` 或 `"torch"` |
+| `dtype` | `None` | 函数公开该参数时使用的计算 dtype |
 
-## CPU+GPU 示例（CPU+GPU Examples）
+### 输出
+
+`AnovaResult` 包含：
+
+| 字段 | 说明 |
+|---|---|
+| `statistic` | F 统计量 |
+| `pvalue` | F 分布尾概率 |
+| `df_between` | 分子自由度 |
+| `df_within` | 分母自由度 |
+| `eta_squared` | 单因素效应量 |
+
+## 双因素 ANOVA
+
+`f_twoway` 用于平衡双因素设计，可检验因子 A、因子 B 以及可选的交互项。
+在公共 API 明确 Type I、II 或 III 平方和约定之前，不平衡单元格会被拒绝。
+当 `interaction=False` 时，使用加性模型，剩余交互变异进入残差项。
+
+### 参数
+
+| 参数 | 默认值 | 说明 |
+|---|---:|---|
+| `data` | 必填 | 包含观测值的 `(a, b)` 嵌套单元格 |
+| `interaction` | `True` | 是否拟合和检验交互项 |
+| `backend` | `"auto"` | 数值后端 |
+| `dtype` | `None` | 计算 dtype |
+
+### 输出
+
+`TwoWayAnovaResult` 给出因子 A、因子 B 和可选交互项的统计量、p 值、自由度、
+eta-squared，以及残差自由度和残差平方和。
+
+## Welch ANOVA
+
+`f_welch` 是允许组间方差不等的单因素检验。分母自由度使用
+Welch-Satterthwaite 公式，通常为小数，因此返回的
+`AnovaResult.df_within` 是浮点数。普通合并方差 ANOVA 的 eta-squared 并非
+相应的 Welch 估计目标，所以 `eta_squared` 返回 `NaN`。
+
+## 事后比较
+
+### Tukey HSD
+
+`tukey_hsd` 使用 studentized-range 分布进行全部均值两两比较，控制族错误率，
+并返回同时置信区间。`TukeyResult` 包含比较列表、显著性水平、组数、残差自由度
+和合并均方误差。每项比较包含组索引、均值差、校正 p 值、置信区间和拒绝结论。
+
+### Bonferroni 两两 Welch 检验
+
+`bonferroni` 对每一对组执行 Welch t 检验并进行 Bonferroni 校正，不要求等方差。
+`PosthocResult` 给出全部两两比较、族显著性水平和比较数量。
+
+## 效应量
+
+- `partial_eta_squared(ss_effect, ss_error)` 计算
+  $ss_{effect}/(ss_{effect}+ss_{error})$，并验证平方和有限且非负。
+- `cohens_f(*groups)` 根据 eta-squared 计算 Cohen's $f$：
+
+$$
+f = \sqrt{\frac{\eta^2}{1-\eta^2}}.
+$$
+
+## CPU 与 GPU 示例
+
+### NumPy
 
 ```python
-from statgpu.anova import f_oneway
 import numpy as np
+from statgpu.anova import f_oneway, f_welch, tukey_hsd
 
-# CPU
-g1 = np.random.randn(100)
-g2 = np.random.randn(100) + 0.5
+rng = np.random.default_rng(7)
+g1 = rng.normal(0.0, 1.0, 100)
+g2 = rng.normal(0.5, 1.0, 100)
+g3 = rng.normal(-0.2, 2.0, 80)
+
 result = f_oneway(g1, g2, backend="numpy")
-print(f"F={result.statistic:.4f}, p={result.pvalue:.4e}, eta2={result.eta_squared:.4f}")
-
-# GPU (cupy)
-import cupy as cp
-g1_gpu = cp.asarray(g1)
-g2_gpu = cp.asarray(g2)
-result_gpu = f_oneway(g1_gpu, g2_gpu, backend="cupy")
-
-# GPU (torch)
-import torch
-g1_t = torch.from_numpy(g1).cuda()
-g2_t = torch.from_numpy(g2).cuda()
-result_torch = f_oneway(g1_t, g2_t, backend="torch")
+welch = f_welch(g1, g2, g3, backend="numpy")
+posthoc = tukey_hsd(g1, g2, alpha=0.05, backend="numpy")
 ```
 
-## 后端执行与分布边界
+### CuPy
 
-单/双因素、Welch 与事后检验的组内均值、方差和平方和保留在所选后端。
-studentized-range、t、normal 或 F 分布在后端缺少实现时只接收标量并在 CPU 计算；
-不会把完整组向量传回 NumPy。已验证 NumPy/Torch-CPU 一致性，真实 CUDA 验证仍待完成。
+```python
+import cupy as cp
+from statgpu.anova import f_oneway
 
-## strict/approx 差异（strict/approx difference）
+rng = cp.random.RandomState(7)
+g1 = rng.standard_normal(100, dtype=cp.float64)
+g2 = rng.standard_normal(100, dtype=cp.float64) + 0.5
+result = f_oneway(g1, g2, backend="cupy")
+```
 
-无 strict/approx 模式。各后端共享同一统计定义；后端不支持的分布函数仅使用 CPU 标量调用。
+### Torch CUDA
 
-## 输出（Outputs）
+```python
+import torch
+from statgpu.anova import f_oneway
 
-`AnovaResult` dataclass，包含以下字段：
+torch_device = torch.device("cuda")
+g1 = torch.randn(100, device=torch_device, dtype=torch.float64)
+g2 = torch.randn(100, device=torch_device, dtype=torch.float64) + 0.5
+result = f_oneway(g1, g2, backend="torch")
+```
 
-| 字段 | 类型 | 说明 |
-|---|---|---|
-| `statistic` | float | F 统计量 |
-| `pvalue` | float | F 分布的 p 值 |
-| `df_between` | int | 组间自由度（$k - 1$） |
-| `df_within` | int | 组内自由度（$N - k$） |
-| `eta_squared` | float | 效应量 $\eta^2$ |
+## 后端与执行边界
 
-Welch ANOVA 的 `df_within` 为 Welch-Satterthwaite 小数自由度；`TwoWayAnovaResult` 分别报告 factor A、factor B、interaction 与 residual 项；`TukeyResult`/`PosthocResult` 返回每一对组别的均值差、p 值、置信区间和拒绝标记。
+均值、方差、平方和和分组归约保留在所选后端。若 GPU 后端没有所需函数，
+F、t、正态或 studentized-range 分布的最终标量计算可能跨到 CPU。不会仅为了
+计算 p 值而把完整分组向量转移到 NumPy。
 
-## 常见问题（FAQ）
+`backend="cupy"` 选择 CuPy，`backend="torch"` 选择 Torch。显式后端请求不会
+静默切换到其他后端。
 
-- **支持多少组？** 两组或更多。
-- **所有观测值完全相同时会怎样？** `statistic`、`pvalue` 和 `eta_squared` 均返回 `NaN`。
-- **各组完全分离时会怎样？** `statistic` 返回 `inf`，`pvalue` 返回 `0.0`，`eta_squared` 返回 `1.0`。
-- **能否直接替代 scipy？** 可以。函数签名和输出字段与 `scipy.stats.f_oneway` 兼容，并额外提供 `eta_squared`、`df_between` 和 `df_within`。
+## strict 与 approximate
 
-## 外部验证（External Validation）
+ANOVA 函数没有独立的 strict/approximate 统计模式，所有后端使用相同的检验定义。
+CPU 标量分布调用只是执行边界，不是另一套近似 ANOVA 公式。
 
-针对 `scipy.stats.f_oneway` 进行验证，在多种组数和效应量组合下相对误差 < 1e-15。
+## 限制与失败行为
 
-## 参考文献（References）
+- 单因素和 Welch 检验至少需要两个非空组。
+- 双因素 ANOVA 当前要求平衡单元格。
+- 维护中的公共验证路径会拒绝非有限观测值。
+- Tukey HSD 依赖 studentized-range 分布，可能使用 CPU 标量实现。
+- 效应量辅助函数对非法平方和显式报错，而不是返回误导性的有限结果。
 
-- Fisher, R. A. (1925). *Statistical Methods for Research Workers*. Oliver and Boyd.
+## 外部验证
+
+维护测试将 Welch ANOVA 与 `statsmodels.stats.oneway.anova_oneway` 对齐，并覆盖
+NumPy/Torch 一致性、自由度语义、平衡设计限制、效应量验证和后端执行边界。
+所有验证结论仅适用于记录中的具体函数、后端、环境和 commit。
+
+## FAQ
+
+### Torch 输入是否必须指定 `backend="torch"`？
+
+显式 Torch 执行应使用 `backend="torch"`。`"auto"` 可以根据输入类型推断，
+但测试和 benchmark 中推荐显式指定。
+
+### 为什么返回的 p 值可能是 Python 标量？
+
+ANOVA 结果对象将统计摘要暴露为标量。用于获得这些摘要的充分统计量会一直保留
+在所选后端，直到最终标量分布边界。
+
+### 为什么拒绝不平衡双因素设计？
+
+不平衡设计中的不同平方和约定检验不同假设。实现选择显式失败，而不是静默采用
+某一种约定。
+
+## 参考文献
+
+- Fisher, R. A. (1925). *Statistical Methods for Research Workers*.
+- Welch, B. L. (1951). On the comparison of several mean values.
+- Tukey, J. W. (1949). Comparing individual means in the analysis of variance.
+- Cohen, J. (1988). *Statistical Power Analysis for the Behavioral Sciences*.

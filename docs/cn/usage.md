@@ -1,10 +1,10 @@
 # statgpu 文档入口（中文）
 
 > 语言：中文  
-> 最后更新：2026-07-12  
+> 最后更新：2026-07-24  
 > 切换：[English](../en/usage.md)
 
-该入口只链接维护中的能力清单，避免重复保存容易过期的支持状态。
+该入口只链接维护中的能力清单，避免重复保存容易过期的支持矩阵。
 
 ## 快速开始
 
@@ -17,16 +17,14 @@
 - [变更记录](changelog.md)
 
 CuPy 请按 CUDA 主版本安装 `statgpu[gpu11]` 或 `statgpu[gpu12]`；
-PyTorch 后端使用 `statgpu[torch]`。
+PyTorch 后端使用 `statgpu[torch]`；可选 CPU 生存分析依赖使用
+`statgpu[survival]`。
 
 ## 模型族
 
 - [模型总览](models/README.md)
 - [广义线性模型](models/generalized-linear-model.md)
 - [Cox 比例风险模型](models/coxph.md)
-
-`CoxPH` 默认采用 strict 稳健推断；delayed-entry/penalty 支持范围及可选
-`statgpu[survival]` 依赖见模型页支持矩阵。
 - [面板模型](models/panel.md)
 - [ANOVA](models/anova.md)
 - [协方差估计](models/covariance.md)
@@ -36,17 +34,18 @@ PyTorch 后端使用 `statgpu[torch]`。
 - [回归诊断](guides/regression-diagnostics.md)
 
 `RidgeCV`、`LassoCV`、`ElasticNetCV`、`LogisticRegressionCV`、
-`PenalizedGLM_CV` 与 `CoxPHCV` 均已实现；具体 loss、penalty 与后端覆盖见
-[已实现方法](guides/implemented-methods.md)。
+`PenalizedGLM_CV` 与 `CoxPHCV` 均已实现。具体 loss、penalty、推断与后端覆盖见
+[已实现方法](guides/implemented-methods.md)及对应模型页。
 
-## 验证边界
+## 验证与证据
 
-托管 CI 覆盖 Python 3.9–3.12、完整 CPU 测试、静态契约，以及受影响原生后端
-路径的 NumPy/Torch-CPU 一致性。真实 CuPy CUDA 与 Torch CUDA 的收敛、传输、
-显存、运行时间和重复拟合验证仍为 `PARTIAL_REMOTE_PENDING`，文档不作超出证据的声明。
+所有验证结论都应限定到实际测试的模型、后端、硬件与 commit。托管 CI、物理 GPU
+测试、历史 benchmark 与发布证据分别记录在对应 workflow、模型页、changelog、
+`results/` 或 `dev/` artifact 中；GPU 测试被跳过不等同于完成物理 GPU 验证。
 
 ## 贡献者检查
 
-修改代码时遵循 `dev/AGENTS.md` 与 `.claude/workflows/new-module-dev.md`：显式设备
-不得静默回退，外部比较前确认目标函数归一化，补齐架构相关测试，并同步 README、
-中英文文档及三份 changelog。
+修改代码时遵循 [`dev/AGENTS.md`](../../dev/AGENTS.md) 与
+[`.claude/workflows/new-module-dev.md`](../../.claude/workflows/new-module-dev.md)：
+显式设备不得静默回退，外部比较前确认目标函数归一化，补齐架构相关测试，并同步
+README、中英文文档及三份 changelog。

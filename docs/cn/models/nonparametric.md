@@ -3,9 +3,9 @@
 > 语言: 中文  
 > 最后更新: 2026-04-17  
 > 页面定位: 非参数方法总览  
-> 切换: [English](../en/models/nonparametric.md)
+> 切换: [English](../../en/models/nonparametric.md)
 
-语言切换：[English](../en/models/nonparametric.md)
+语言切换：[English](../../en/models/nonparametric.md)
 
 ## 相关页面
 
