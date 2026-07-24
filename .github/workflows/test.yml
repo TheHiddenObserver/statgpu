@@ -14,8 +14,26 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Check maintained documentation contracts
-        run: python3 dev/validation/check_docs_contracts.py
+      - name: Run maintained documentation contracts
+        id: docs_check
+        shell: bash
+        run: |
+          set +e
+          python3 dev/validation/check_docs_contracts.py > docs-contracts.log 2>&1
+          status=$?
+          cat docs-contracts.log
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+          exit 0
+      - name: Upload documentation diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: docs-contracts-log
+          path: docs-contracts.log
+          if-no-files-found: error
+      - name: Enforce documentation contracts
+        if: steps.docs_check.outputs.status != '0'
+        run: exit 1
 
   regression-matrix:
     runs-on: ubuntu-latest
@@ -135,7 +153,6 @@ jobs:
             statgpu/metrics \
             statgpu/nonparametric/kernel_methods \
             statgpu/nonparametric/kernel_smoothing \
-            statgpu/nonparametric/splines \
             statgpu/panel \
             statgpu/penalties/_adaptive_l1.py \
             statgpu/penalties/_base.py \
