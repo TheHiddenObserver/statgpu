@@ -577,9 +577,12 @@ def _add_prediction_contract(
     results["residual_sum_squares"] = float(np.sum((y_array - prediction_array) ** 2))
 
 
-def _require_finite_results(results: Mapping[str, Any]) -> None:
+def _require_finite_results(results: Mapping[str, Any], *,
+                             non_identifiable_fields: tuple = ()) -> None:
     for name, value in results.items():
         if value is None or isinstance(value, (str, bool)):
+            continue
+        if name in non_identifiable_fields:
             continue
         try:
             array = np.asarray(value, dtype=np.float64)
@@ -616,7 +619,15 @@ def _bench_linear(
         if iteration >= n_warm:
             results = _extract(model)
             _add_prediction_contract(results, model.predict(X_device), y)
-            _require_finite_results(results)
+
+            rank = getattr(model, "rank_", None)
+            n_params = len(getattr(model, "coef_", []))
+            non_id_fields = ()
+            if rank is not None and rank < n_params:
+                non_id_fields = ("_bse", "_tvalues", "_pvalues", "_conf_int")
+                results["_inference_identifiable"] = False
+                results["_rank_deficient"] = True
+            _require_finite_results(results, non_identifiable_fields=non_id_fields)
             measured.append({
                 "iteration": iteration - n_warm,
                 "fit_time_s": round(elapsed, 6),
@@ -695,7 +706,15 @@ def _bench_pooled(
         if iteration >= n_warm:
             results = _extract(model)
             _add_prediction_contract(results, model.predict(X_device), y)
-            _require_finite_results(results)
+
+            rank = getattr(model, "rank_", None)
+            n_params = len(getattr(model, "coef_", []))
+            non_id_fields = ()
+            if rank is not None and rank < n_params:
+                non_id_fields = ("_bse", "_tvalues", "_pvalues", "_conf_int")
+                results["_inference_identifiable"] = False
+                results["_rank_deficient"] = True
+            _require_finite_results(results, non_identifiable_fields=non_id_fields)
             measured.append({
                 "iteration": iteration - n_warm,
                 "fit_time_s": round(elapsed, 6),
