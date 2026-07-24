@@ -8,82 +8,69 @@
 
 GPU-accelerated statistical methods with an sklearn-compatible API.
 
-## Documentation
-
-- **English documentation**: [docs/en/](docs/en/)
-- **中文文档**: [docs/cn/](docs/cn/)
-- **Quickstart**: [docs/en/getting-started/quickstart.md](docs/en/getting-started/quickstart.md)
-- **Implemented methods**: [docs/en/guides/implemented-methods.md](docs/en/guides/implemented-methods.md)
-- **GLM + penalty framework**: [docs/en/models/generalized-linear-model.md](docs/en/models/generalized-linear-model.md)
-- **Cross-validation**: [docs/en/guides/cross-validation.md](docs/en/guides/cross-validation.md)
-- **Loss × penalty × solver framework**: [docs/en/guides/loss-penalty-solver-framework.md](docs/en/guides/loss-penalty-solver-framework.md)
-- **Device and memory**: [docs/en/guides/device-and-memory.md](docs/en/guides/device-and-memory.md)
-- **CoxPH contract**: [docs/en/models/coxph.md](docs/en/models/coxph.md)
-- **Panel models**: [docs/en/models/panel.md](docs/en/models/panel.md)
-- **Contributor guide**: [CONTRIBUTING.md](CONTRIBUTING.md)
-- **Release guide**: [RELEASING.md](RELEASING.md)
-- **PR #79 final validation**: [dev/reviews/pr79_physical_gpu_validation.md](dev/reviews/pr79_physical_gpu_validation.md)
-- **Changelog**: [docs/en/changelog.md](docs/en/changelog.md)
-
 ## Core Features
 
-- **Three backends**: NumPy CPU, CuPy CUDA, and Torch CUDA.
-- **Explicit device semantics**: `device="cuda"` and `device="torch"` do not silently fall back to CPU; `device="auto"` is the only automatic-selection mode.
-- **sklearn-style estimators**: `fit`, `predict`, `score`, fitted attributes, and cloning-oriented parameter contracts.
-- **Statistical inference**: covariance, standard errors, test statistics, p-values, confidence intervals, likelihood criteria, bootstrap, permutation, and multiple testing where supported.
-- **Penalized models**: L1, L2, Elastic Net, SCAD, MCP, adaptive and group penalties.
-- **Cross-validation**: generic penalized GLM CV plus model-specific Ridge, Lasso, Elastic Net, Logistic, and CoxPH CV.
-- **Formula interfaces**: patsy-based interfaces with explicit intercept, missing-row, and side-array alignment contracts.
-- **Backend transparency**: core numerical array paths remain on the selected backend; intentional CPU boundaries are restricted to formula/label metadata and unsupported scalar distribution operations.
+- 🚀 **3 Backends**: NumPy (CPU), CuPy (CUDA), PyTorch (CUDA) — automatic device selection
+- 🧭 **Backend transparency**: core numerical paths preserve backend arrays; intentional CPU boundaries are limited to formula/label metadata and unsupported scalar distribution functions
+- 🔧 **sklearn-compatible**: `fit`/`predict`/`score` API, `sklearn.base.clone()` support
+- 📊 **GLM + Robust + Quantile + Cox**: 10+ loss types, including quantile, Huber, bisquare, fair, Cox PH, and seven GLM families
+- 🔥 **10 Penalties**: L1, L2, Elastic Net, SCAD, MCP, adaptive L1, group Lasso, group MCP, and group SCAD
+- ⚡ **8 Solvers**: exact, Newton, L-BFGS, IRLS, FISTA, FISTA-BB, proximal IRLS-CD, and proximal Newton through `solver="auto"`
+- 🧮 **Inference**: covariance, standard errors, hypothesis tests, confidence intervals, penalized sandwich/oracle inference where supported, debiased Lasso, bootstrap, and simultaneous inference
+- 📈 **Nonparametric**: KDE, kernel regression, B-splines, and GAM
+- 🧬 **Unsupervised**: PCA, KMeans, DBSCAN, GMM, UMAP, t-SNE, NNDescent, and related methods
+- 📐 **Distributions**: 15 distributions across three backends through `get_distribution()`
+- 🧪 **Multiple Testing**: `adjust_pvalues`, `combine_pvalues`, and `permutation_test`
+- 🔥 **Cross-Validation**: PenalizedGLM_CV, RidgeCV, LassoCV, ElasticNetCV, LogisticCV, and CoxPHCV
 
-## Implemented Method Families
+## Implemented Methods
 
-| Category | Representative interfaces |
-|---|---|
-| Regression and GLM | LinearRegression, Ridge, Lasso, ElasticNet, Logistic, Poisson, Gamma, InvGauss, Negative Binomial, Tweedie, QuantileRegression |
-| Penalized GLM | PenalizedGLM, family wrappers, PenalizedQuantileRegression, PenalizedRobustRegression, PenalizedCoxPHModel |
-| Cross-validation | RidgeCV, LassoCV, ElasticNetCV, LogisticCV, PenalizedGLM_CV, CoxPHCV |
-| Survival | CoxPH with Breslow/Efron ties, delayed-entry support matrix, strict robust-inference contract, backend-native prediction |
-| Panel data | PanelOLS, RandomEffects, PooledOLS, BetweenOLS, FirstDifferenceOLS, FamaMacBeth |
-| ANOVA and inference | one-way/two-way/Welch ANOVA, post-hoc methods, effect sizes, diagnostics |
-| Covariance | empirical/shrinkage covariance, MinCovDet, GraphicalLasso, GraphicalLassoCV |
-| Nonparametric | KDE, kernel regression, KernelRidge/CV, KernelPCA, Nystroem, B-splines, SplineTransformer |
-| Semiparametric | GAM |
-| Unsupervised | PCA, SVD, NMF, UMAP, t-SNE, KMeans, DBSCAN, GMM, AgglomerativeClustering |
-| Feature selection | stepwise selection and fixed-X/model-X knockoff interfaces |
-| Multiple testing | `adjust_pvalues`, `combine_pvalues`, `permutation_test` |
+> **[Full method list with solvers, penalties, and link functions →](docs/en/guides/implemented-methods.md)**
 
-## Important Statistical Contracts
+| Category | Classes | Highlights |
+|---|---:|---|
+| **Regression & GLM** | 13 classes | LinearRegression, Ridge, Lasso, ElasticNet, Logistic, Poisson, Gamma, Inverse Gaussian, Negative Binomial, Tweedie, QuantileRegression, and ordered models |
+| **Penalized GLM** | 11 classes | PenalizedGLM, family wrappers, PenalizedQuantileRegression, PenalizedRobustRegression, and PenalizedCoxPHModel |
+| **Cross-Validation** | 6 classes | RidgeCV, LassoCV, ElasticNetCV, LogisticCV, PenalizedGLM_CV, and CoxPHCV |
+| **ANOVA** | 7 functions | One-way, two-way, Welch ANOVA, post-hoc comparisons, and effect sizes |
+| **Covariance** | 7 classes | Empirical and shrinkage covariance, MinCovDet, GraphicalLasso, and GraphicalLassoCV |
+| **Panel Data** | 6 classes | PanelOLS, RandomEffects, PooledOLS, BetweenOLS, FirstDifferenceOLS, and FamaMacBeth |
+| **Nonparametric** | 10+ classes/functions | KDE, kernel regression, KernelRidge/CV, KernelPCA, Nystroem, spline bases, and SplineTransformer |
+| **Semiparametric** | 1 class | GAM with penalized B-splines and GCV |
+| **Unsupervised** | 12 classes | PCA, SVD, NMF, UMAP, t-SNE, KMeans, DBSCAN, GMM, and AgglomerativeClustering |
+| **Survival** | 1 class | CoxPH with Breslow/Efron ties, delayed entry, strict robust-inference behavior, and backend-native prediction |
+| **Feature Selection** | 7 interfaces | Stepwise selection plus fixed-X and model-X knockoff filters and wrappers |
+| **Diagnostics** | 2 interfaces | RegressionDiagnostics and `diagnose_model` |
+| **Multiple Testing** | 3 functions | `adjust_pvalues`, `combine_pvalues`, and `permutation_test` |
 
-### CoxPH delayed entry and inference
+## Documentation
 
-Delayed entry is supported subject to the documented matrix in the [CoxPH guide](docs/en/models/coxph.md). In particular:
+- **English docs**: [docs/en/](docs/en/) — full documentation index
+- **Chinese docs**: [docs/cn/](docs/cn/) — 中文文档
+- **Quickstart**: [Quickstart](docs/en/getting-started/quickstart.md)
+- **GLM + Penalty**: [Generalized Linear Model](docs/en/models/generalized-linear-model.md)
+- **Cross-Validation**: [Cross-Validation Guide](docs/en/guides/cross-validation.md)
+- **Loss × Penalty × Solver Framework**: [Framework Guide](docs/en/guides/loss-penalty-solver-framework.md)
+- **Solver-Penalty Matrix**: [Solver × Penalty](docs/en/guides/solver-penalty-matrix.md)
+- **Survival Analysis**: [Cox Proportional Hazards](docs/en/models/coxph.md)
+- **Panel Models**: [Panel Data Models](docs/en/models/panel.md)
+- **Device & Memory**: [Device and GPU Memory](docs/en/guides/device-and-memory.md)
+- **PyTorch Backend**: [PyTorch Backend](docs/en/guides/pytorch-backend.md)
+- **Distribution API**: [Distribution API](docs/en/guides/distribution-api.md)
+- **Multiple Testing**: [Multiple Testing](docs/en/guides/multiple-testing-combine-pvalues.md)
+- **Contributing**: [Contributor Guide](CONTRIBUTING.md)
+- **Releasing**: [PyPI Release Guide](RELEASING.md)
+- **Changelog**: [Changelog](docs/en/changelog.md)
 
-- delayed entry plus robust or cluster covariance and `compute_inference=True` raises `NotImplementedError`;
-- the same model with `compute_inference=False` is allowed as estimation-only, with `_bse` and `_conf_int` left unset;
-- CPU delayed entry with a nonzero penalty is not implemented;
-- robust inference is strict by default, and approximate Efron inference requires explicit opt-in.
+## Backend Execution Status
 
-### Rank-deficient PooledOLS
+`GraphicalLasso`/`GraphicalLassoCV`, `MinCovDet`, `SplineTransformer`, and
+`FamaMacBeth` keep their main numerical computation on NumPy, CuPy, or Torch.
+Tukey and Bonferroni keep group reductions on-device and synchronize only scalar
+statistics for distributions not implemented by CuPy or Torch.
 
-For exactly rank-deficient designs:
-
-- prediction, fitted values, residuals, RSS, effective rank, and fitted-space comparisons remain valid;
-- residual degrees of freedom use `nobs - rank(X)`;
-- individual coefficients and coefficient-level inference are not uniquely identified and are classified as `NOT_COMPARABLE`, not as runtime errors or unique successful inference results.
-
-### Canonical validation artifacts
-
-PR79 reports use a fail-closed evidence pipeline:
-
-```text
-run_accuracy
-    -> aggregate_results
-    -> validated exact-head artifact
-    -> emit_final_report
-```
-
-A canonical PASS requires a clean exact-head repository, matching embedded provenance, finite complete evidence, and zero unresolved checks. Old hard-coded PASS files are not authoritative.
+Explicit `device="cuda"` and `device="torch"` selections do not silently fall back
+to CPU. Use `device="auto"` when automatic backend selection is desired.
 
 ## Installation
 
@@ -91,16 +78,14 @@ A canonical PASS requires a clean exact-head repository, matching embedded prove
 # CPU only
 pip install statgpu
 
-# CuPy CUDA 11.x
+# CuPy backend — choose the CUDA major version that matches your environment
 pip install "statgpu[gpu11]"
-
-# CuPy CUDA 12.x
 pip install "statgpu[gpu12]"
 
-# Torch backend
+# PyTorch backend
 pip install "statgpu[torch]"
 
-# Formula/dataframe support
+# Formula/dataframe interfaces
 pip install "statgpu[formula]"
 
 # CPU delayed entry and exact Efron robust Cox inference
@@ -110,22 +95,26 @@ pip install "statgpu[survival]"
 pip install -e ".[dev,validation,formula]"
 ```
 
-Choose CuPy and Torch builds compatible with the installed CUDA driver/runtime.
+Choose CuPy and PyTorch builds compatible with the installed CUDA driver and runtime.
 
 ## Quick Start
 
 ```python
 import numpy as np
-from statgpu.linear_model import LinearRegression, PenalizedGLM_CV
 from statgpu.inference import norm, poisson
+from statgpu.linear_model import LinearRegression, PenalizedGLM_CV
+from statgpu import adjust_pvalues, combine_pvalues
 
+# Generate data using statgpu distributions
 X = norm.rvs(size=(10000, 100))
 y = X @ norm.rvs(size=100) + norm.rvs(size=10000) * 0.5
 
+# Linear regression with GPU
 model = LinearRegression(device="cuda")
 model.fit(X, y)
 print(f"R²: {model.score(X, y):.4f}")
 
+# Penalized GLM with cross-validation
 y_pois = poisson.rvs(
     mu=np.exp(X[:, :5] @ np.ones(5) * 0.1),
     size=X.shape[0],
@@ -139,6 +128,18 @@ cv_model = PenalizedGLM_CV(
 )
 cv_model.fit(X[:, :5], y_pois)
 print(f"Best alpha: {cv_model.alpha_:.4f}")
+
+# Multiple-testing correction
+reject, pvals_adj = adjust_pvalues(
+    np.array([0.003, 0.02, 0.5]),
+    method="bh",
+)
+
+# Global p-value combination
+stat, p_global = combine_pvalues(
+    np.array([0.01, 0.07, 0.03, 0.40]),
+    method="fisher",
+)
 ```
 
 ## Device Control
@@ -146,66 +147,66 @@ print(f"Best alpha: {cv_model.alpha_:.4f}")
 ```python
 import statgpu as sg
 
+# Global setting
 sg.set_device("cuda")
 sg.set_device("cpu")
 sg.set_device("auto")
+
+# Per-model setting
+from statgpu.linear_model import LinearRegression
+model = LinearRegression(device="cuda", n_jobs=4)
 ```
 
-Per-estimator `device=` overrides follow the same explicit no-silent-fallback contract.
+## Benchmark Results (RTX 4090)
 
-## PR #79 Final Validation
+Full reports: `results/unsupervised_bench_2026-06-27.md`, `results/glm_solver_benchmark_2026-06-23.md`
 
-Final reviewed production head before documentation synchronization:
+Test environment: RTX 4090 (24GB), CuPy 14.1.0, PyTorch 2.8.0+cu128,
+scikit-learn 1.8.0, statsmodels 0.14.6, lifelines 0.30.3.
+These are environment-specific benchmark results, not installation requirements or
+universal speed guarantees.
 
-```text
-c85750d63d4e6dbc9d988847566c20f5fa862e91
-```
+### Real-Data Performance
 
-Verified results:
+| Module | Dataset | n | p | Best Speedup | Precision |
+|---|---|---:|---:|---:|---|
+| Poisson GLM | freMTPL2 | 678K | 42 | 196.9x vs sklearn | coef_corr=1.000000 |
+| Gamma GLM | synthetic | 678K | 42 | 97.9x vs sklearn | coef_corr=0.9995 |
+| CoxPH | synthetic | 1.9K | 500 | 1.2x vs CPU | coef_corr=1.000 |
+| adjust_pvalues (BH) | synthetic | — | 1M | 0.55x | 100% agreement |
+| PenalizedPoisson (L1) | freMTPL2 | 678K | 42 | — | OK |
+| PenalizedCoxPH (L2) | synthetic | 1.9K | 500 | — | C-index match |
 
-- GitHub Actions Tests run #545: PASS;
-- Python 3.9–3.12 regression matrix: PASS;
-- full CPU suite: 1074 passed, 275 skipped, 0 failed;
-- clean-head canonical smoke: PASS with `canonical_eligible=True`;
-- maintained Tesla P100 suite: 33 passed, 2 expected skips, 0 failed;
-- CoxPH full maintained parity: PASS;
-- Panel GPU prediction and rank-deficient contracts: PASS.
+### Precision Summary
 
-The earlier complete P100 campaigns and performance measurements remain historical regression evidence. See the [auditable final report](dev/reviews/pr79_physical_gpu_validation.md) for evidence boundaries and exact SHAs.
-
-Non-blocking follow-ups:
-
-- [Issue #81](https://github.com/TheHiddenObserver/statgpu/issues/81): backend-native NaN/Inf validation;
-- [Issue #82](https://github.com/TheHiddenObserver/statgpu/issues/82): old scikit-learn clone compatibility;
-- [Issue #83](https://github.com/TheHiddenObserver/statgpu/issues/83): legacy GPU diagnostic-script cleanup.
-
-## Benchmark Notes
-
-Performance measurements are hardware-, workload-, dtype-, and synchronization-specific. Repository benchmark reports under `results/` and `dev/benchmarks/` should be treated as regression evidence, not universal speed guarantees.
-
-Examples include:
-
-- `results/unsupervised_bench_2026-06-27.md`;
-- `results/glm_solver_benchmark_2026-06-23.md`;
-- the PR79 Tesla P100 evidence referenced in the final validation report.
+| Module | Metric | Result |
+|---|---|---|
+| Poisson GLM | coefficient correlation vs sklearn | 1.000000 |
+| Gamma GLM | coefficient correlation vs sklearn | 0.9995 |
+| CoxPH | coefficient correlation vs lifelines | 1.000 |
+| adjust_pvalues (BH) | rejection agreement vs statsmodels | 100% |
+| Penalized models | self-consistency | validated across supported penalties |
 
 ## Contributing
 
-Contributions are welcome for statistical methods, correctness fixes, documentation, tests, external validation, and GPU performance.
+Contributions are welcome, including bug fixes, documentation, tests, statistical
+validation, GPU performance work, and new methods.
 
-1. Read [CONTRIBUTING.md](CONTRIBUTING.md) and `dev/AGENTS.md`.
+1. Read the [Contributor Guide](CONTRIBUTING.md) before making a substantial change.
 2. Open an issue first for new estimators, public API changes, inference methods, solvers, penalties, or large refactors.
-3. Preserve NumPy, CuPy, and Torch behavior unless an explicit limitation is approved and documented.
+3. Install development and validation dependencies with `python -m pip install -e ".[dev,validation,formula]"`.
 4. Add focused tests and run the relevant CPU and physical-GPU checks.
 5. Update English and Chinese documentation and changelogs for user-visible behavior changes.
 
+Maintainers preparing a package release should follow the [PyPI Release Guide](RELEASING.md).
+
 ## Requirements
 
-- Python >= 3.9;
-- NumPy >= 1.20;
-- optional CuPy wheel matching the CUDA major version;
-- optional Torch CUDA build;
-- optional extras for formula, survival, development, and validation workflows.
+- Python >= 3.9
+- NumPy >= 1.20
+- CuPy optional, using the wheel matching the CUDA major version
+- PyTorch optional, using a CUDA-compatible build for GPU execution
+- CUDA runtime compatible with the selected CuPy or PyTorch build
 
 ## License
 
