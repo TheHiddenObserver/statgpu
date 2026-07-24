@@ -25,6 +25,12 @@ MODEL_LINK_RE = re.compile(
 )
 
 
+def write_utf8(path: Path, text: str) -> None:
+    """Write LF-normalized UTF-8 text on every supported Python version."""
+    with path.open("w", encoding="utf-8", newline="\n") as handle:
+        handle.write(text)
+
+
 def normalize_switch_links(text: str, target: str) -> str:
     """Normalize only bilingual switch lines, never ordinary cross-model links."""
     normalized: list[str] = []
@@ -53,7 +59,7 @@ def collect_changes(write: bool) -> list[Path]:
         if updated != original:
             changed.append(path)
             if write:
-                path.write_text(updated, encoding="utf-8", newline="\n")
+                write_utf8(path, updated)
 
     for path in sorted((ROOT / "docs" / "cn" / "models").glob("*.md")):
         original = path.read_text(encoding="utf-8")
@@ -61,7 +67,7 @@ def collect_changes(write: bool) -> list[Path]:
         if updated != original:
             changed.append(path)
             if write:
-                path.write_text(updated, encoding="utf-8", newline="\n")
+                write_utf8(path, updated)
 
     return changed
 
