@@ -3,7 +3,7 @@
 > 语言：中文  
 > 最后更新：2026-06-12  
 > 页面定位：参考指南  
-> 切换：[English](../en/guides/solver-penalty-matrix.md)
+> 切换：[English](../../en/guides/solver-penalty-matrix.md)
 
 ## 概述
 

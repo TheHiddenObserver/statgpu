@@ -3,9 +3,9 @@
 > 语言: 中文  
 > 最后更新: 2026-04-17  
 > 页面定位: 模型文档  
-> 切换: [English](../en/models/linear-regression.md)
+> 切换: [English](../../en/models/linear-regression.md)
 
-语言切换：[English](../en/models/linear-regression.md)
+语言切换：[English](../../en/models/linear-regression.md)
 
 ## 概览（Overview）
 

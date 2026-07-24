@@ -236,6 +236,23 @@ class GAM(BaseEstimator):
         self : GAM
             Fitted model.
         """
+        if isinstance(self.n_splines, bool) or not isinstance(self.n_splines, (int, np.integer)):
+            raise ValueError("n_splines must be an integer")
+        if isinstance(self.degree, bool) or not isinstance(self.degree, (int, np.integer)):
+            raise ValueError("degree must be an integer")
+        if int(self.degree) < 0:
+            raise ValueError("degree must be non-negative")
+        if int(self.n_splines) <= int(self.degree) + 1:
+            raise ValueError("n_splines must be greater than degree + 1")
+        if isinstance(self.penalty_order, bool) or not isinstance(self.penalty_order, (int, np.integer)) or int(self.penalty_order) < 1:
+            raise ValueError("penalty_order must be a positive integer")
+        if self.lam is not None and (not np.isfinite(float(self.lam)) or float(self.lam) < 0):
+            raise ValueError("lam must be finite and non-negative or None")
+        if str(self.knot_method).lower() not in {"uniform", "quantile"}:
+            raise ValueError("knot_method must be 'uniform' or 'quantile'")
+        if not np.isfinite(float(self.gamma)) or float(self.gamma) <= 0:
+            raise ValueError("gamma must be finite and positive")
+
         xp = self._get_xp()
 
         # Convert to arrays on the correct device
@@ -249,9 +266,20 @@ class GAM(BaseEstimator):
             elif torch.cuda.is_available():
                 _ref = torch.empty(0, device="cuda")
         X = xp_asarray(X, dtype=xp.float64, xp=xp, ref_arr=_ref)
+        if X.ndim == 1:
+            X = X.reshape(-1, 1)
+        if X.ndim != 2 or X.shape[0] == 0 or X.shape[1] == 0:
+            raise ValueError("X must be a non-empty one- or two-dimensional array")
         y = xp_asarray(y, dtype=xp.float64, xp=xp, ref_arr=X).ravel()
+        if int(y.shape[0]) != int(X.shape[0]):
+            raise ValueError("X and y must have the same number of observations")
+        if not bool(float(xp.all(xp.isfinite(X)))) or not bool(float(xp.all(xp.isfinite(y)))):
+            raise ValueError("X and y must contain only finite values")
 
         n, p = X.shape
+        for j in range(p):
+            if float(xp.max(X[:, j]) - xp.min(X[:, j])) <= 0.0:
+                raise ValueError(f"feature {j} is constant and cannot define a smooth term")
         self.n_features_ = p
         self.knots_ = []
         self._boundary_lo_ = []
@@ -313,6 +341,17 @@ class GAM(BaseEstimator):
         # Re-resolve backend to handle device changes since fit()
         xp = self._get_xp()
         X = xp_asarray(X, dtype=xp.float64, xp=xp, ref_arr=self._xp_asarray_ref_)
+        if X.ndim == 1:
+            if self.n_features_ == 1:
+                X = X.reshape(-1, 1)
+            elif int(X.size) == self.n_features_:
+                X = X.reshape(1, -1)
+            else:
+                raise ValueError("X shape is incompatible with fitted feature count")
+        if X.ndim != 2:
+            raise ValueError("X must be one- or two-dimensional")
+        if not bool(float(xp.all(xp.isfinite(X)))):
+            raise ValueError("X must contain only finite values")
 
         n, p = X.shape
         if p != self.n_features_:

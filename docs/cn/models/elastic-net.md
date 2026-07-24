@@ -1,7 +1,7 @@
 # Elastic Net 弹性网络
 
 > Language: Chinese (中文)  
-> Last updated: 2026-04-18  
+> Last updated: 2026-07-24<br>
 > This page: 模型文档  
 > Language switch: [English](../../en/models/elastic-net.md)
 
@@ -106,14 +106,14 @@ print(f"R²: {model_cpu.score(X, y):.4f}")
 
 # GPU (CuPy)
 model_gpu_cupy = ElasticNet(
-    alpha=0.1, l1_ratio=0.5, device="cuda", backend="cupy",
+    alpha=0.1, l1_ratio=0.5, device="cuda",
     gpu_memory_cleanup=True
 )
 model_gpu_cupy.fit(X, y)
 
 # GPU (PyTorch，推荐用于 n >= 10,000)
 model_gpu_torch = ElasticNet(
-    alpha=0.1, l1_ratio=0.5, device="cuda", backend="torch"
+    alpha=0.1, l1_ratio=0.5, device="torch"
 )
 model_gpu_torch.fit(X, y)
 ```

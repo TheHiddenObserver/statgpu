@@ -2,7 +2,7 @@
 
 > Language: English
 > Last updated: 2026-05-07
-> Switch: [Chinese](../../unsupervised/gaussian-mixture.md)
+> Switch: [Chinese](../../cn/unsupervised/gaussian-mixture.md)
 
 ## Overview
 

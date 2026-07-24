@@ -3,9 +3,9 @@
 > Language: English  
 > Last updated: 2026-06-14  
 > This page: Model documentation  
-> Switch: [Chinese](../../models/mcp.md)
+> Switch: [Chinese](../../cn/models/mcp.md)
 
-Language switch: [Chinese](../../models/mcp.md)
+Language switch: [Chinese](../../cn/models/mcp.md)
 
 ## Overview
 

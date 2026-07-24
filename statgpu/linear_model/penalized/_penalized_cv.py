@@ -98,6 +98,19 @@ def _device_to_name(device):
     return str(device).lower()
 
 
+def _should_build_squared_error_cv_cache(loss_name, penalty_name, solver_name, device_name):
+    """Return whether the general CV fallback can consume a Gram cache."""
+    if str(loss_name).lower() != "squared_error":
+        return False
+    if str(device_name).lower() not in ("cuda", "torch"):
+        return False
+    penalty_name = str(penalty_name).lower()
+    solver_name = str(solver_name).lower()
+    # The default GPU Ridge route is Newton and does not read _cv_cache.
+    # Explicit exact Ridge and sparse squared-error paths do consume it.
+    return not (penalty_name == "l2" and solver_name != "exact")
+
+
 def _slice_rows(arr, idx):
     """Slice rows with backend-native indices when arr lives on GPU."""
     mod = type(arr).__module__
@@ -1987,21 +2000,46 @@ class PenalizedGLM_CV(CVEstimatorBase):
         self._cv_auto_reason_ = "No GPU available, falling back to CPU"
         return "cpu"
 
-    def _generate_alpha_grid(self, X, y):
-        """Auto-generate alpha grid based on loss and penalty type."""
+    def _generate_alpha_grid(self, X, y, sample_weight=None):
+        """Auto-generate an alpha grid on the fitted average-loss scale."""
         from statgpu.linear_model.penalized._base import PenalizedGeneralizedLinearModel
 
         X_np = _to_numpy(X).astype(np.float64)
         y_np = _to_numpy(y).astype(np.float64).ravel()
         n = X_np.shape[0]
+        if sample_weight is None:
+            sw_np = None
+            normalization = float(n)
+        else:
+            sw_np = np.asarray(_to_numpy(sample_weight), dtype=np.float64).reshape(-1)
+            if sw_np.shape[0] != n:
+                raise ValueError("sample_weight must have length n_samples")
+            if not np.all(np.isfinite(sw_np)):
+                raise ValueError("sample_weight must be finite")
+            if np.any(sw_np < 0):
+                raise ValueError("sample_weight must be non-negative")
+            normalization = float(np.sum(sw_np))
+            if normalization <= 0.0:
+                raise ValueError("sample_weight must have a positive sum")
 
         if self.loss == 'squared_error':
-            # Gradient at null model (intercept = mean(y)): X'(y - mean(y)) / n
-            alpha_max = float(np.max(np.abs(X_np.T @ (y_np - np.mean(y_np))))) / n
+            if sw_np is None:
+                x_mean = np.mean(X_np, axis=0)
+                y_mean = float(np.mean(y_np))
+                grad = (X_np - x_mean).T @ (y_np - y_mean) / normalization
+            else:
+                x_mean = np.sum(X_np * sw_np[:, None], axis=0) / normalization
+                y_mean = float(np.sum(y_np * sw_np) / normalization)
+                grad = (X_np - x_mean).T @ (sw_np * (y_np - y_mean)) / normalization
+            alpha_max = float(np.max(np.abs(grad)))
         elif self.loss == 'logistic':
-            # Null model prediction: mu_null = mean(y)
-            mu_null = np.mean(y_np)
-            alpha_max = float(np.max(np.abs(X_np.T @ (y_np - mu_null)))) / n
+            if sw_np is None:
+                mu_null = float(np.mean(y_np))
+                grad = X_np.T @ (y_np - mu_null) / normalization
+            else:
+                mu_null = float(np.sum(y_np * sw_np) / normalization)
+                grad = X_np.T @ (sw_np * (y_np - mu_null)) / normalization
+            alpha_max = float(np.max(np.abs(grad)))
         else:
             try:
                 model = PenalizedGeneralizedLinearModel(
@@ -2010,8 +2048,12 @@ class PenalizedGLM_CV(CVEstimatorBase):
                     loss_kwargs=getattr(self, '_loss_kwargs', None),
                     penalty_kwargs=getattr(self, '_penalty_kwargs', None),
                 )
-                model.fit(X_np, y_np)
-                grad = X_np.T @ (y_np - _to_numpy(model.predict(X_np))) / n
+                model.fit(X_np, y_np, sample_weight=sw_np)
+                residual = y_np - _to_numpy(model.predict(X_np))
+                if sw_np is None:
+                    grad = X_np.T @ residual / normalization
+                else:
+                    grad = X_np.T @ (sw_np * residual) / normalization
                 alpha_max = float(np.max(np.abs(grad)))
             except Exception as e:
                 warnings.warn(
@@ -2454,10 +2496,15 @@ class PenalizedGLM_CV(CVEstimatorBase):
             y_train_fit = y_train
             sw_train_fit = sw_train
 
-        # Precompute XtX/Xty for squared-error GPU cache
-        cv_cache, L_np = self._build_cv_cache(
-            loss_name, device_name, X_train, y_train, sw_train
-        )
+        # Precompute a Gram cache only for solver paths that consume it.
+        if _should_build_squared_error_cv_cache(
+            loss_name, penalty_name, cv_solver, device_name
+        ):
+            cv_cache, L_np = self._build_cv_cache(
+                loss_name, device_name, X_train, y_train, sw_train
+            )
+        else:
+            cv_cache, L_np = None, None
 
         model = PenalizedGeneralizedLinearModel(
             loss=loss_name, penalty=self.penalty, alpha=alpha_sorted[0],
@@ -2636,7 +2683,9 @@ class PenalizedGLM_CV(CVEstimatorBase):
         if self._alpha_grid_input is not None:
             alpha_grid = np.asarray(self._alpha_grid_input, dtype=np.float64)
         else:
-            alpha_grid = self._generate_alpha_grid(X, y)
+            alpha_grid = self._generate_alpha_grid(
+                X, y, sample_weight=sample_weight
+            )
         alpha_grid = np.asarray(alpha_grid, dtype=np.float64).ravel()
 
         self.alpha_grid_ = alpha_grid

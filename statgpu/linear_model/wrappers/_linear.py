@@ -21,14 +21,17 @@ from statgpu.linear_model._gaussian_inference import (
 
 
 def _parse_formula_if_provided(formula, data, X, y):
-    """Parse formula+data or fall back to raw arrays. Returns (y, X, info)."""
+    """Parse formula data and return retained source-row positions."""
     if formula is not None:
-        from statgpu.core.formula import parse_formula
-        return parse_formula(formula, data)
+        from statgpu.core.formula import FormulaParser
+
+        parser = FormulaParser(formula)
+        y_arr, X_arr, info = parser.eval(data)
+        return y_arr, X_arr, info, parser.row_positions
     y = np.asarray(y)
     if y.ndim == 2 and y.shape[1] == 1:
         y = y.ravel()
-    return y, np.asarray(X), None
+    return y, np.asarray(X), None, None
 
 
 class LinearRegression(BaseEstimator):
@@ -69,7 +72,9 @@ class LinearRegression(BaseEstimator):
         self.hac_maxlags = validate_hac_maxlags(hac_maxlags)
         self.coef_ = None
         self.intercept_ = None
-        
+        self.rank_ = None
+        self._df_model = None
+
         # Internal storage for inference
         self._X_design = None
         self._y = None
@@ -88,6 +93,9 @@ class LinearRegression(BaseEstimator):
         self._feature_names = None
         self._design_info = None
         self._formula_has_intercept = None
+        self._effective_fit_intercept = bool(fit_intercept)
+        self._sample_weight_fit = None
+        self._raw_resid = None
 
     def _clear_inference_result(self):
         self._bse = None
@@ -255,11 +263,11 @@ class LinearRegression(BaseEstimator):
         Xw = X * e2[:, np.newaxis]
         meat = X.T @ Xw
         cov_params = XtX_inv @ meat @ XtX_inv
-        if self.cov_type == "hc1" and n > k:
-            cov_params *= (n / (n - k))
+        if self.cov_type == "hc1" and self._df_resid is not None and self._df_resid > 0:
+            cov_params *= (n / self._df_resid)
         return cov_params
 
-    def _robust_covariance_cupy(self, X, resid, XtX_inv):
+    def _robust_covariance_cupy(self, X, resid, XtX_inv, *, df_resid=None):
         """Compute robust/HAC covariance matrix for OLS-like score equations on GPU."""
         import cupy as cp
 
@@ -284,8 +292,10 @@ class LinearRegression(BaseEstimator):
         Xw = X * e2[:, cp.newaxis]
         meat = X.T @ Xw
         cov_params = XtX_inv @ meat @ XtX_inv
-        if self.cov_type == "hc1" and n > k:
-            cov_params = cov_params * (n / (n - k))
+        if self.cov_type == "hc1":
+            correction_df = df_resid if df_resid is not None else (n - k)
+            if correction_df > 0:
+                cov_params = cov_params * (n / correction_df)
         return cov_params
     
     def fit(self, X=None, y=None, sample_weight=None, formula=None, data=None):
@@ -306,30 +316,57 @@ class LinearRegression(BaseEstimator):
             DataFrame used with ``formula`` for column lookup.
         """
         self._clear_inference_result()
+        self.rank_ = None
+        self._effective_rank = None
+        self._df_model = None
+        self._df_resid = None
 
-        # Handle formula interface
-        _orig_fit_intercept = self.fit_intercept
+        self._sample_weight_fit = None
+        self._raw_resid = None
+
+        # Formula syntax controls the fitted design without mutating the
+        # public constructor parameter required by sklearn-style cloning.
+        effective_fit_intercept = bool(self.fit_intercept)
         if formula is not None:
             if data is None:
                 raise ValueError(
                     "formula was provided but data is None. "
                     "Pass data=your_dataframe when using formula."
                 )
-            y_arr, X_arr, design_info = _parse_formula_if_provided(
+            y_arr, X_arr, design_info, retained_rows = _parse_formula_if_provided(
                 formula, data, None, None
             )
             self._design_info = design_info
             formula_column_names = list(design_info.column_names)
             self._formula_has_intercept = "Intercept" in formula_column_names
             self._feature_names = [name for name in formula_column_names if name != "Intercept"]
+
+            if sample_weight is not None:
+                from statgpu.backends import _to_numpy
+
+                weights = np.asarray(_to_numpy(sample_weight), dtype=float)
+                if weights.ndim != 1:
+                    raise ValueError("sample_weight must be one-dimensional")
+                retained_rows = np.asarray(retained_rows, dtype=np.int64)
+                if weights.shape[0] == len(data):
+                    sample_weight = weights[retained_rows]
+                elif weights.shape[0] == len(y_arr):
+                    # Already aligned weights are accepted for programmatic use.
+                    sample_weight = weights
+                else:
+                    raise ValueError(
+                        "sample_weight must match the original data length or "
+                        "the number of formula rows retained after missing-value filtering"
+                    )
+
             if self._formula_has_intercept:
                 intercept_idx = formula_column_names.index("Intercept")
                 # Drop the intercept column — let the fitting methods handle it
                 X_arr = np.delete(X_arr, intercept_idx, axis=1)
-                self.fit_intercept = True
+                effective_fit_intercept = True
             else:
                 # Formula syntax owns intercept semantics, matching statsmodels/R.
-                self.fit_intercept = False
+                effective_fit_intercept = False
         else:
             if X is None or y is None:
                 raise ValueError(
@@ -338,21 +375,23 @@ class LinearRegression(BaseEstimator):
             self._feature_names = None
             self._design_info = None
             self._formula_has_intercept = None
-            y_arr = np.asarray(y)
-            if y_arr.ndim == 2 and y_arr.shape[1] == 1:
-                y_arr = y_arr.ravel()
-            X_arr = np.asarray(X)
+            # Preserve backend-native inputs. Conversion is performed only
+            # after the estimator backend has been resolved below.
+            X_arr = X
+            y_arr = y
 
-        self.fit_intercept = _orig_fit_intercept
-        # Store y (may be CuPy/Torch array, convert later for CPU)
-        self._y = y_arr
+        self._effective_fit_intercept = effective_fit_intercept
 
-        # Get backend - support explicit torch backend selection
+        # Resolve the backend before converting raw arrays so CuPy/Torch inputs
+        # never make a GPU -> CPU -> GPU round trip.
         backend = self._get_backend(backend="auto")
         backend_name = backend.name
 
         X_arr = self._to_array(X_arr, backend=backend_name)
         y_arr = self._to_array(y_arr, backend=backend_name)
+        if y_arr.ndim == 2 and y_arr.shape[1] == 1:
+            y_arr = y_arr.reshape(-1)
+        self._y = y_arr
         self._is_multi_output = y_arr.ndim > 1 and y_arr.shape[1] > 1
 
         device = self._get_compute_device()
@@ -388,29 +427,41 @@ class LinearRegression(BaseEstimator):
     
     def _fit_cpu(self, X, y, sample_weight=None):
         """Fit using CPU."""
-        X = np.asarray(X)
-        y = np.asarray(y)
-        
-        n_samples, n_features = X.shape
+        X_raw = np.asarray(X)
+        y_raw = np.asarray(y)
+
+        n_samples, n_features = X_raw.shape
         self._nobs = n_samples
-        
+        y_2d = y_raw.reshape(-1, 1) if y_raw.ndim == 1 else y_raw
+
         if sample_weight is not None:
-            sample_weight = np.asarray(sample_weight)
-            sqrt_sw = np.sqrt(sample_weight)
-            X = X * sqrt_sw[:, np.newaxis]
-            y = y * sqrt_sw
-        
-        if self.fit_intercept:
-            self._X_design = np.column_stack([np.ones(n_samples, dtype=X.dtype), X])
+            sw = np.asarray(sample_weight, dtype=float).reshape(-1)
+            if sw.shape[0] != n_samples:
+                raise ValueError("sample_weight must have length n_samples")
+            if not np.all(np.isfinite(sw)) or np.any(sw < 0) or float(sw.sum()) <= 0:
+                raise ValueError("sample_weight must be finite, non-negative, and have positive sum")
+            sqrt_sw = np.sqrt(sw)
+            X_fit = X_raw * sqrt_sw[:, None]
+            y_fit = y_2d * sqrt_sw[:, None]
+            intercept_column = sqrt_sw[:, None]
+            self._sample_weight_fit = sw.copy()
         else:
-            self._X_design = X.copy()
-        
-        if y.ndim == 1:
-            y = y.reshape(-1, 1)
+            X_fit = X_raw
+            y_fit = y_2d
+            intercept_column = np.ones((n_samples, 1), dtype=X_raw.dtype)
 
-        coef, _, _, _ = np.linalg.lstsq(self._X_design, y, rcond=None)
+        if self._effective_fit_intercept:
+            self._X_design = np.column_stack([intercept_column, X_fit])
+        else:
+            self._X_design = X_fit.copy()
 
-        if self.fit_intercept:
+        coef, _, rank, _ = np.linalg.lstsq(self._X_design, y_fit, rcond=None)
+        self.rank_ = int(rank)
+        self._effective_rank = self.rank_
+        self._df_model = max(self.rank_ - (1 if self._effective_fit_intercept else 0), 0)
+        self._df_resid = n_samples - self.rank_
+
+        if self._effective_fit_intercept:
             if coef.shape[1] > 1:
                 self.intercept_ = coef[0, :].copy()
                 self.coef_ = coef[1:, :].T
@@ -431,11 +482,18 @@ class LinearRegression(BaseEstimator):
                 self._params = self.coef_.copy()
 
         y_pred = self._X_design @ coef
-        self._resid = y - y_pred
+        self._resid = y_fit - y_pred
+        raw_pred = (
+            coef[0] + X_raw @ coef[1:]
+            if self._effective_fit_intercept
+            else X_raw @ coef
+        )
+        raw_resid = y_2d - raw_pred
+        self._raw_resid = raw_resid[:, 0] if raw_resid.shape[1] == 1 else raw_resid
         if self._resid.shape[1] == 1:
             self._resid = self._resid[:, 0]
-        self._df_resid = n_samples - (n_features + (1 if self.fit_intercept else 0))
-        
+
+
         if self._df_resid > 0:
             if np.asarray(self._resid).ndim == 1:
                 self._scale = np.sum(self._resid ** 2) / self._df_resid
@@ -458,42 +516,64 @@ class LinearRegression(BaseEstimator):
         n_samples, n_features = X.shape
         self._nobs = n_samples
         
-        # Ensure CuPy arrays
-        X = cp.asarray(X)
-        y = cp.asarray(y)
-        
+        # Ensure CuPy arrays and retain raw arrays for weighted diagnostics.
+        X_raw = cp.asarray(X)
+        y_raw = cp.asarray(y)
+        y_2d = y_raw.reshape(-1, 1) if y_raw.ndim == 1 else y_raw
+
+        sw = None
         if sample_weight is not None:
-            sample_weight = cp.asarray(sample_weight)
-            sqrt_sw = cp.sqrt(sample_weight)
-            X = X * sqrt_sw[:, cp.newaxis]
-            y = y * sqrt_sw
-        
-        if self.fit_intercept:
-            X_design = cp.column_stack([cp.ones(n_samples, dtype=X.dtype), X])
+            sw = cp.asarray(sample_weight, dtype=cp.float64).reshape(-1)
+            if sw.shape[0] != n_samples:
+                raise ValueError("sample_weight must have length n_samples")
+            valid = cp.all(cp.isfinite(sw)) & cp.all(sw >= 0) & (cp.sum(sw) > 0)
+            if not bool(valid.item()):
+                raise ValueError("sample_weight must be finite, non-negative, and have positive sum")
+            sqrt_sw = cp.sqrt(sw)
+            X_fit = X_raw * sqrt_sw[:, cp.newaxis]
+            y_fit = y_2d * sqrt_sw[:, cp.newaxis]
+            intercept_column = sqrt_sw[:, cp.newaxis]
         else:
-            X_design = X
-        
-        if y.ndim == 1:
-            y = y.reshape(-1, 1)
+            X_fit = X_raw
+            y_fit = y_2d
+            intercept_column = cp.ones((n_samples, 1), dtype=X_raw.dtype)
+
+        if self._effective_fit_intercept:
+            X_design = cp.column_stack([intercept_column, X_fit])
+        else:
+            X_design = X_fit
+        y = y_fit
         
         # Use normal equations: (X'X)^-1 X'y
         XtX = X_design.T @ X_design
         Xty = X_design.T @ y
         
+        n_design_cols = int(X_design.shape[1])
         try:
-            # Cholesky decomposition
             L = cp.linalg.cholesky(XtX)
             tmp = cp.linalg.solve_triangular(L, Xty, lower=True)
             coef = cp.linalg.solve_triangular(L.T, tmp, lower=False)
+            self.rank_ = n_design_cols
         except Exception:
-            coef = cp.linalg.solve(XtX, Xty)
-        
-        # Compute predictions and residuals on GPU
+            lstsq_result = cp.linalg.lstsq(X_design, y, rcond=None)
+            coef = lstsq_result[0]
+            self.rank_ = int(lstsq_result[2]) if len(lstsq_result) > 2 else n_design_cols
+        self._effective_rank = self.rank_
+        self._df_model = max(self.rank_ - (1 if self._effective_fit_intercept else 0), 0)
+        df_resid = n_samples - self.rank_
+
+        # Compute weighted inference residuals and raw diagnostic residuals.
         y_pred = X_design @ coef
         resid = y - y_pred
-        
+        raw_pred = (
+            coef[0] + X_raw @ coef[1:]
+            if self._effective_fit_intercept
+            else X_raw @ coef
+        )
+        raw_resid = y_2d - raw_pred
+
         # Compute scale on GPU
-        df_resid = n_samples - (n_features + (1 if self.fit_intercept else 0))
+        df_resid = n_samples - self._effective_rank
         if df_resid > 0:
             if y.shape[1] > 1:
                 scale = cp.sum(resid ** 2, axis=0) / df_resid
@@ -517,7 +597,7 @@ class LinearRegression(BaseEstimator):
                     XtX_inv = cp.linalg.inv(XtX_cov)
                 except Exception:
                     XtX_inv = cp.linalg.pinv(XtX_cov)
-                cov_params = self._robust_covariance_cupy(X_design, resid, XtX_inv)
+                cov_params = self._robust_covariance_cupy(X_design, resid, XtX_inv, df_resid=df_resid)
                 self._bse_gpu = cp.sqrt(cp.maximum(cp.diag(cov_params), 0.0))
                 self._tvalues_gpu = coef_flat / (self._bse_gpu + 1e-30)
                 self._pvalues_gpu = cp.minimum(1.0, 2.0 * norm.sf(cp.abs(self._tvalues_gpu)))
@@ -531,7 +611,7 @@ class LinearRegression(BaseEstimator):
             self._rsquared_gpu = compute_r2_gpu(y, resid)
 
             # AIC/BIC on GPU
-            k = n_features + (1 if self.fit_intercept else 0)
+            k = n_features + (1 if self._effective_fit_intercept else 0)
             scale_mle = cp.sum(resid ** 2) / n_samples
             self._aic_gpu, self._bic_gpu = compute_aic_bic_gpu(n_samples, k, scale_mle)
 
@@ -541,6 +621,8 @@ class LinearRegression(BaseEstimator):
         # Single transfer to CPU at the end
         coef_np = coef.get()
         resid_np = resid.get()
+        raw_resid_np = raw_resid.get()
+        self._sample_weight_fit = None if sw is None else sw.get()
         if y.shape[1] > 1:
             scale_np = scale.get()
         else:
@@ -555,7 +637,7 @@ class LinearRegression(BaseEstimator):
             self._conf_int = self._conf_int_gpu.get()
         
         # Store results
-        if self.fit_intercept:
+        if self._effective_fit_intercept:
             if coef_np.shape[1] > 1:
                 self.intercept_ = coef_np[0, :].copy()
                 self.coef_ = coef_np[1:, :].T
@@ -579,6 +661,9 @@ class LinearRegression(BaseEstimator):
             self._resid = resid_np[:, 0]
         else:
             self._resid = resid_np
+        self._raw_resid = (
+            raw_resid_np[:, 0] if raw_resid_np.shape[1] == 1 else raw_resid_np
+        )
         self._df_resid = df_resid
         self._scale = scale_np
         if self.compute_inference and not self._is_multi_output:
@@ -633,7 +718,7 @@ class LinearRegression(BaseEstimator):
             meat = meat + weight * (gamma + gamma.T)
         return meat
 
-    def _robust_covariance_torch(self, X, resid, XtX_inv, device=None):
+    def _robust_covariance_torch(self, X, resid, XtX_inv, device=None, *, df_resid=None):
         """Compute robust/HAC covariance matrix for OLS-like score equations on Torch GPU."""
         import torch
 
@@ -662,8 +747,10 @@ class LinearRegression(BaseEstimator):
         Xw = X * e2[:, None]
         meat = X.T @ Xw
         cov_params = XtX_inv @ meat @ XtX_inv
-        if self.cov_type == "hc1" and n > k:
-            cov_params = cov_params * (n / (n - k))
+        if self.cov_type == "hc1":
+            correction_df = df_resid if df_resid is not None else (n - k)
+            if correction_df > 0:
+                cov_params = cov_params * (n / correction_df)
         return cov_params
 
     def _fit_torch(self, X, y, sample_weight=None):
@@ -693,43 +780,63 @@ class LinearRegression(BaseEstimator):
         if y.dtype != torch.float64:
             y = y.to(torch.float64)
 
+        X_raw = X
+        y_raw = y
+        y_2d = y_raw.reshape(-1, 1) if y_raw.ndim == 1 else y_raw
+
+        sw = None
         if sample_weight is not None:
-            if not isinstance(sample_weight, torch.Tensor):
-                sample_weight = torch.from_numpy(np.asarray(sample_weight)).to(torch_device)
-            if sample_weight.dtype != torch.float64:
-                sample_weight = sample_weight.to(torch.float64)
-            sqrt_sw = torch.sqrt(sample_weight)
-            X = X * sqrt_sw[:, None]
-            y = y * sqrt_sw
-
-        if self.fit_intercept:
-            X_design = torch.cat([torch.ones(n_samples, 1, dtype=X.dtype, device=torch_device), X], dim=1)
+            sw = torch.as_tensor(sample_weight, dtype=torch.float64, device=torch_device).reshape(-1)
+            if sw.shape[0] != n_samples:
+                raise ValueError("sample_weight must have length n_samples")
+            valid = torch.all(torch.isfinite(sw)) & torch.all(sw >= 0) & (torch.sum(sw) > 0)
+            if not bool(valid.item()):
+                raise ValueError("sample_weight must be finite, non-negative, and have positive sum")
+            sqrt_sw = torch.sqrt(sw)
+            X_fit = X_raw * sqrt_sw[:, None]
+            y_fit = y_2d * sqrt_sw[:, None]
+            intercept_column = sqrt_sw[:, None]
         else:
-            X_design = X.clone()
+            X_fit = X_raw
+            y_fit = y_2d
+            intercept_column = torch.ones(
+                n_samples, 1, dtype=X_raw.dtype, device=X_raw.device
+            )
 
-        if y.ndim == 1:
-            y = y.reshape(-1, 1)
+        if self._effective_fit_intercept:
+            X_design = torch.cat([intercept_column, X_fit], dim=1)
+        else:
+            X_design = X_fit.clone()
+        y = y_fit
 
         # Use normal equations: (X'X)^-1 X'y
         XtX = X_design.T @ X_design
         Xty = X_design.T @ y
 
+        n_design_cols = int(X_design.shape[1])
         try:
-            # Cholesky decomposition
             L = torch.linalg.cholesky(XtX)
-            # Solve L @ tmp = Xty (L is lower triangular)
             tmp = torch.linalg.solve_triangular(L, Xty, upper=False)
-            # Solve L.T @ coef = tmp (L.T is upper triangular)
             coef = torch.linalg.solve_triangular(L.T, tmp, upper=True)
+            self.rank_ = n_design_cols
         except Exception:
-            coef = torch.linalg.solve(XtX, Xty)
+            coef = torch.linalg.lstsq(X_design, y).solution
+            self.rank_ = int(torch.linalg.matrix_rank(X_design).item())
+        self._effective_rank = self.rank_
+        self._df_model = max(self.rank_ - (1 if self._effective_fit_intercept else 0), 0)
+        df_resid = n_samples - self.rank_
 
-        # Compute predictions and residuals on Torch
+        # Compute weighted inference residuals and raw diagnostic residuals.
         y_pred = X_design @ coef
         resid = y - y_pred
+        raw_pred = (
+            coef[0] + X_raw @ coef[1:]
+            if self._effective_fit_intercept
+            else X_raw @ coef
+        )
+        raw_resid = y_2d - raw_pred
 
-        # Compute scale on Torch
-        df_resid = n_samples - (n_features + (1 if self.fit_intercept else 0))
+        # Compute scale on Torch (df_resid already set above)
         if df_resid > 0:
             if y.shape[1] > 1:
                 scale = torch.sum(resid ** 2, dim=0) / df_resid
@@ -753,7 +860,7 @@ class LinearRegression(BaseEstimator):
                     XtX_inv = torch.linalg.inv(XtX_cov)
                 except Exception:
                     XtX_inv = torch.linalg.pinv(XtX_cov)
-                cov_params = self._robust_covariance_torch(X_design, resid, XtX_inv, device=torch_device)
+                cov_params = self._robust_covariance_torch(X_design, resid, XtX_inv, device=torch_device, df_resid=df_resid)
                 self._bse_gpu = torch.sqrt(torch.clamp(torch.diag(cov_params), 0.0))
                 self._tvalues_gpu = coef_flat / (self._bse_gpu + 1e-30)
                 self._pvalues_gpu = torch.clamp(2.0 * norm.sf(torch.abs(self._tvalues_gpu), device=torch_device), 0.0, 1.0)
@@ -767,7 +874,7 @@ class LinearRegression(BaseEstimator):
             self._rsquared_gpu = compute_r2_torch(y, resid)
 
             # AIC/BIC on Torch
-            k = n_features + (1 if self.fit_intercept else 0)
+            k = n_features + (1 if self._effective_fit_intercept else 0)
             scale_mle = torch.sum(resid ** 2) / n_samples
             self._aic_gpu, self._bic_gpu = compute_aic_bic_torch(n_samples, k, scale_mle, device=torch_device)
 
@@ -777,6 +884,10 @@ class LinearRegression(BaseEstimator):
         # Single transfer to CPU at the end
         coef_np = coef.detach().cpu().numpy()
         resid_np = resid.detach().cpu().numpy()
+        raw_resid_np = raw_resid.detach().cpu().numpy()
+        self._sample_weight_fit = (
+            None if sw is None else sw.detach().cpu().numpy()
+        )
         if y.shape[1] > 1:
             scale_np = scale.detach().cpu().numpy()
         else:
@@ -792,7 +903,7 @@ class LinearRegression(BaseEstimator):
             self._conf_int = self._conf_int_gpu.detach().cpu().numpy()
 
         # Store results
-        if self.fit_intercept:
+        if self._effective_fit_intercept:
             if coef_np.shape[1] > 1:
                 self.intercept_ = coef_np[0, :].copy()
                 self.coef_ = coef_np[1:, :].T
@@ -816,6 +927,9 @@ class LinearRegression(BaseEstimator):
             self._resid = resid_np[:, 0]
         else:
             self._resid = resid_np
+        self._raw_resid = (
+            raw_resid_np[:, 0] if raw_resid_np.shape[1] == 1 else raw_resid_np
+        )
         self._df_resid = df_resid
         self._scale = scale_np
         if self.compute_inference and not self._is_multi_output:
@@ -864,13 +978,13 @@ class LinearRegression(BaseEstimator):
     def _inference_feature_names(self):
         if self._feature_names is not None:
             names = list(self._feature_names)
-            if self.fit_intercept:
+            if self._effective_fit_intercept:
                 names.insert(0, "(Intercept)")
             return names
         if self.coef_ is None:
             return None
         n_features = int(np.asarray(self.coef_).shape[-1])
-        if self.fit_intercept:
+        if self._effective_fit_intercept:
             return ["(Intercept)"] + [f"x{i+1}" for i in range(n_features)]
         return [f"x{i+1}" for i in range(n_features)]
 
@@ -897,42 +1011,86 @@ class LinearRegression(BaseEstimator):
         """R-squared."""
         if self._y is None or self._resid is None:
             return None
-        y_mean = np.mean(self._y)
-        ss_tot = np.sum((self._y - y_mean) ** 2)
-        ss_res = np.sum(self._resid ** 2)
+        y = np.asarray(self._y, dtype=float)
+        resid = np.asarray(
+            self._raw_resid if self._raw_resid is not None else self._resid,
+            dtype=float,
+        )
+        weights = self._sample_weight_fit
+        if weights is None:
+            y_mean = np.mean(y, axis=0) if y.ndim > 1 else np.mean(y)
+            ss_tot = np.sum((y - y_mean) ** 2)
+            ss_res = np.sum(resid ** 2)
+        else:
+            weights = np.asarray(weights, dtype=float)
+            y_mean = np.average(y, axis=0, weights=weights)
+            weight_shape = (weights.shape[0],) + (1,) * (y.ndim - 1)
+            w = weights.reshape(weight_shape)
+            ss_tot = np.sum(w * (y - y_mean) ** 2)
+            ss_res = np.sum(w * resid ** 2)
         return 1 - ss_res / ss_tot if ss_tot > 0 else 0.0
     
     @property
     def rsquared_adj(self):
-        """Adjusted R-squared."""
+        """Adjusted R-squared, or NaN when residual degrees of freedom are invalid."""
         if self._nobs is None:
             return None
+        if self._df_resid is None or self._df_resid <= 0:
+            return np.nan
         r2 = self.rsquared
-        k = int(self._X_design.shape[1] - (1 if self.fit_intercept else 0))
+        if r2 is None:
+            return None
         return 1 - (1 - r2) * (self._nobs - 1) / self._df_resid
     
     @property
     def fvalue(self):
-        """F-statistic."""
+        """Overall regression F-statistic.
+
+        The statistic is undefined for an intercept-only model, a constant target,
+        or non-positive residual degrees of freedom.  A perfect non-constant fit
+        has an infinite F-statistic.
+        """
         if self._y is None or self._resid is None:
             return None
-        y_mean = np.mean(self._y)
-        ss_tot = np.sum((self._y - y_mean) ** 2)
-        ss_res = np.sum(self._resid ** 2)
-        ss_reg = ss_tot - ss_res
-        k = int(self._X_design.shape[1] - (1 if self.fit_intercept else 0))
-        if k == 0 or ss_res <= 0:
-            return np.inf
+        k = self._df_model if self._df_model is not None else int(
+            self._X_design.shape[1] - (1 if self._effective_fit_intercept else 0))
+        if k <= 0 or self._df_resid is None or self._df_resid <= 0:
+            return np.nan
+        y = np.asarray(self._y, dtype=float)
+        resid = np.asarray(
+            self._raw_resid if self._raw_resid is not None else self._resid,
+            dtype=float,
+        )
+        weights = self._sample_weight_fit
+        if weights is None:
+            ss_tot = float(np.sum((y - np.mean(y)) ** 2))
+            ss_res = float(np.sum(resid ** 2))
+        else:
+            weights = np.asarray(weights, dtype=float)
+            y_mean = np.average(y, weights=weights)
+            ss_tot = float(np.sum(weights * (y - y_mean) ** 2))
+            ss_res = float(np.sum(weights * resid ** 2))
+        if not np.isfinite(ss_tot) or not np.isfinite(ss_res) or ss_tot <= 0:
+            return np.nan
+        ss_reg = max(0.0, ss_tot - ss_res)
+        tol = np.finfo(float).eps * max(1.0, ss_tot)
+        if ss_res <= tol:
+            return np.inf if ss_reg > tol else np.nan
         return (ss_reg / k) / (ss_res / self._df_resid)
     
     @property
     def f_pvalue(self):
-        """p-value for F-statistic."""
+        """Upper-tail p-value for the overall F-test."""
         fv = self.fvalue
-        if fv is None or fv == np.inf:
-            return 1.0
-        k = int(self._X_design.shape[1] - (1 if self.fit_intercept else 0))
-        return 1 - stats.f.cdf(fv, k, self._df_resid)
+        if fv is None:
+            return None
+        if np.isnan(fv):
+            return np.nan
+        if np.isposinf(fv):
+            return 0.0
+        k = self._df_model if self._df_model is not None else int(
+            self._X_design.shape[1] - (1 if self._effective_fit_intercept else 0))
+        return float(stats.f.sf(fv, k, self._df_resid))
     
     @property
     def aic(self):
@@ -944,8 +1102,9 @@ class LinearRegression(BaseEstimator):
         if np.any(np.isnan(self._scale)):
             return None
         # AIC = -2 * log-likelihood + 2 * k
-        return -2 * self.llf + 2 * len(self._params)
-    
+        k = self.rank_ if self.rank_ is not None else len(self._params)
+        return -2 * self.llf + 2 * k
+
     @property
     def bic(self):
         """Bayesian Information Criterion."""
@@ -956,20 +1115,24 @@ class LinearRegression(BaseEstimator):
         if np.any(np.isnan(self._scale)):
             return None
         n = self._nobs
-        k = len(self._params)
+        k = self.rank_ if self.rank_ is not None else len(self._params)
         # BIC = -2 * log-likelihood + k * log(n)
         return -2 * self.llf + k * np.log(n)
     
     @property
     def llf(self):
-        """Log-likelihood (matches statsmodels/R)."""
+        """Gaussian log-likelihood evaluated at the MLE residual variance."""
         if self._nobs is None or self._resid is None:
             return None
-        n = self._nobs
-        # Use MLE estimate of sigma^2 = RSS/n (not RSS/df_resid)
-        sigma2_mle = np.sum(self._resid ** 2) / n
-        # LL = -n/2 * log(2*pi*sigma2_mle) - n/2
-        return -n/2 * np.log(2 * np.pi * sigma2_mle) - n/2
+        n = int(self._nobs)
+        if n <= 0:
+            return np.nan
+        sigma2_mle = float(np.sum(np.asarray(self._resid, dtype=float) ** 2) / n)
+        if not np.isfinite(sigma2_mle) or sigma2_mle < 0:
+            return np.nan
+        if sigma2_mle == 0:
+            return np.inf
+        return -n / 2 * (np.log(2 * np.pi * sigma2_mle) + 1.0)
     
     def summary(self):
         """Print summary table similar to R's summary(lm())."""
@@ -992,9 +1155,9 @@ class LinearRegression(BaseEstimator):
         # Build feature names
         if self._feature_names is not None:
             feature_names = list(self._feature_names)
-            if self.fit_intercept:
+            if self._effective_fit_intercept:
                 feature_names.insert(0, '(Intercept)')
-        elif self.fit_intercept:
+        elif self._effective_fit_intercept:
             feature_names = ['(Intercept)'] + [f'x{i+1}' for i in range(len(self.coef_))]
         else:
             feature_names = [f'x{i+1}' for i in range(len(self.coef_))]
@@ -1056,9 +1219,11 @@ class LinearRegression(BaseEstimator):
                     intercept_idx = col_names.index("Intercept")
                     X = np.delete(X, intercept_idx, axis=1)
             else:
-                X = np.asarray(X)
+                # Preserve backend-native arrays; conversion happens below.
+                pass
         else:
-            X = np.asarray(X)
+            # Preserve backend-native arrays; conversion happens below.
+            pass
 
         device = self._get_compute_device()
         if device == Device.CUDA:

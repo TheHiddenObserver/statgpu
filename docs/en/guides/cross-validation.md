@@ -3,7 +3,7 @@
 > Language: English  
 > Last updated: 2026-06-12  
 > This page: Unified CV guide — API reference, architecture, GPU acceleration, and caching  
-> Switch: [Chinese](../../guides/cross-validation.md)
+> Switch: [Chinese](../../cn/guides/cross-validation.md)
 
 ---
 
@@ -511,7 +511,7 @@ Descending alpha grid (strongest regularization first). Each alpha's solution in
 ```python
 coef = zeros(p)
 for alpha in alphas_descending:
-    coef = fista_solver(init_coef=coef, ...)  # Warm start
+    coef = fista_solver(..., init_coef=coef)  # Warm start
 ```
 
 This reduces iterations by 3-5x compared to cold start.

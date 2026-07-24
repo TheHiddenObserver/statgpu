@@ -1,6 +1,6 @@
 """
-Comprehensive benchmark: statgpu vs sklearn vs statsmodels vs R
-Compares computation time and numerical accuracy.
+Comprehensive benchmark: statgpu vs sklearn vs statsmodels vs R.
+Compares computation time and numerical accuracy under equivalent objectives.
 """
 
 import numpy as np
@@ -12,26 +12,21 @@ print("=" * 80)
 print("StatGPU Benchmark: Time & Accuracy Comparison")
 print("=" * 80)
 
-# Configuration
 np.random.seed(42)
 N_SAMPLES = 10000
 N_FEATURES = 50
 NOISE = 0.1
 
-# Generate data
 X = np.random.randn(N_SAMPLES, N_FEATURES)
 true_coef = np.random.randn(N_FEATURES) * 2
 true_intercept = 5.0
 y = X @ true_coef + true_intercept + np.random.randn(N_SAMPLES) * NOISE
-
-# Binary target for logistic
 y_binary = (y > np.median(y)).astype(int)
 
 print(f"\nDataset: {N_SAMPLES} samples × {N_FEATURES} features")
 print(f"Data size: {X.nbytes / 1e6:.1f} MB")
 print()
 
-# Import statgpu
 import sys
 from pathlib import Path
 
@@ -41,7 +36,6 @@ if str(_REPO_ROOT) not in sys.path:
 from statgpu.linear_model import LinearRegression, Ridge, Lasso, LogisticRegression
 from statgpu._config import set_device, cuda_available
 
-# Check GPU availability
 has_gpu = cuda_available()
 print(f"GPU available: {has_gpu}")
 print()
@@ -55,7 +49,6 @@ print("=" * 80)
 
 results_lr = {}
 
-# statgpu CPU
 print("\n--- statgpu CPU ---")
 set_device('cpu')
 model = LinearRegression(device='cpu')
@@ -65,12 +58,11 @@ results_lr['statgpu_cpu'] = {
     'time': (time.perf_counter() - t0) * 1000,
     'coef': model.coef_.copy(),
     'intercept': model.intercept_,
-    'r2': model.rsquared
+    'r2': model.rsquared,
 }
 print(f"Time: {results_lr['statgpu_cpu']['time']:.2f} ms")
 print(f"R²: {results_lr['statgpu_cpu']['r2']:.6f}")
 
-# statgpu GPU (if available)
 if has_gpu:
     print("\n--- statgpu GPU ---")
     set_device('cuda')
@@ -81,14 +73,13 @@ if has_gpu:
         'time': (time.perf_counter() - t0) * 1000,
         'coef': model.coef_.copy(),
         'intercept': model.intercept_,
-        'r2': model.rsquared
+        'r2': model.rsquared,
     }
     print(f"Time: {results_lr['statgpu_gpu']['time']:.2f} ms")
     print(f"R²: {results_lr['statgpu_gpu']['r2']:.6f}")
     speedup = results_lr['statgpu_cpu']['time'] / results_lr['statgpu_gpu']['time']
     print(f"Speedup vs CPU: {speedup:.2f}x")
 
-# sklearn
 try:
     from sklearn.linear_model import LinearRegression as SklearnLR
     print("\n--- sklearn ---")
@@ -99,14 +90,13 @@ try:
         'time': (time.perf_counter() - t0) * 1000,
         'coef': model.coef_.copy(),
         'intercept': model.intercept_,
-        'r2': model.score(X, y)
+        'r2': model.score(X, y),
     }
     print(f"Time: {results_lr['sklearn']['time']:.2f} ms")
     print(f"R²: {results_lr['sklearn']['r2']:.6f}")
 except ImportError:
     print("sklearn not available")
 
-# statsmodels
 try:
     import statsmodels.api as sm
     print("\n--- statsmodels ---")
@@ -117,14 +107,13 @@ try:
         'time': (time.perf_counter() - t0) * 1000,
         'coef': np.array(model.params[1:]),
         'intercept': float(model.params[0]),
-        'r2': model.rsquared
+        'r2': model.rsquared,
     }
     print(f"Time: {results_lr['statsmodels']['time']:.2f} ms")
     print(f"R²: {results_lr['statsmodels']['r2']:.6f}")
 except ImportError:
     print("statsmodels not available")
 
-# Accuracy comparison
 print("\n--- Accuracy Comparison (vs sklearn) ---")
 if 'sklearn' in results_lr:
     for name, result in results_lr.items():
@@ -137,58 +126,60 @@ if 'sklearn' in results_lr:
 # ============================================================================
 # 2. RIDGE REGRESSION
 # ============================================================================
+STATGPU_RIDGE_ALPHA = 1.0
+SKLEARN_RIDGE_ALPHA = N_SAMPLES * STATGPU_RIDGE_ALPHA
 print("\n" + "=" * 80)
-print("2. RIDGE REGRESSION (alpha=1.0)")
+print(
+    "2. RIDGE REGRESSION "
+    f"(statgpu alpha={STATGPU_RIDGE_ALPHA}, sklearn alpha={SKLEARN_RIDGE_ALPHA})"
+)
 print("=" * 80)
+print("Mapping: sklearn_alpha = n_samples * statgpu_alpha")
 
 results_ridge = {}
 
-# statgpu CPU
 print("\n--- statgpu CPU ---")
-model = Ridge(alpha=1.0, device='cpu')
+model = Ridge(alpha=STATGPU_RIDGE_ALPHA, device='cpu')
 t0 = time.perf_counter()
 model.fit(X, y)
 results_ridge['statgpu_cpu'] = {
     'time': (time.perf_counter() - t0) * 1000,
     'coef': model.coef_.copy(),
-    'r2': model.rsquared
+    'r2': model.rsquared,
 }
 print(f"Time: {results_ridge['statgpu_cpu']['time']:.2f} ms")
 print(f"R²: {results_ridge['statgpu_cpu']['r2']:.6f}")
 
-# statgpu GPU
 if has_gpu:
     print("\n--- statgpu GPU ---")
-    model = Ridge(alpha=1.0, device='cuda')
+    model = Ridge(alpha=STATGPU_RIDGE_ALPHA, device='cuda')
     t0 = time.perf_counter()
     model.fit(X, y)
     results_ridge['statgpu_gpu'] = {
         'time': (time.perf_counter() - t0) * 1000,
         'coef': model.coef_.copy(),
-        'r2': model.rsquared
+        'r2': model.rsquared,
     }
     print(f"Time: {results_ridge['statgpu_gpu']['time']:.2f} ms")
     speedup = results_ridge['statgpu_cpu']['time'] / results_ridge['statgpu_gpu']['time']
     print(f"Speedup vs CPU: {speedup:.2f}x")
 
-# sklearn
 try:
     from sklearn.linear_model import Ridge as SklearnRidge
     print("\n--- sklearn ---")
-    model = SklearnRidge(alpha=1.0)
+    model = SklearnRidge(alpha=SKLEARN_RIDGE_ALPHA)
     t0 = time.perf_counter()
     model.fit(X, y)
     results_ridge['sklearn'] = {
         'time': (time.perf_counter() - t0) * 1000,
         'coef': model.coef_.copy(),
-        'r2': model.score(X, y)
+        'r2': model.score(X, y),
     }
     print(f"Time: {results_ridge['sklearn']['time']:.2f} ms")
     print(f"R²: {results_ridge['sklearn']['r2']:.6f}")
 except ImportError:
     print("sklearn not available")
 
-# Accuracy
 print("\n--- Accuracy Comparison ---")
 if 'sklearn' in results_ridge:
     for name, result in results_ridge.items():
@@ -206,7 +197,6 @@ print("=" * 80)
 
 results_lasso = {}
 
-# statgpu CPU
 print("\n--- statgpu CPU ---")
 model = Lasso(alpha=0.1, device='cpu', max_iter=1000)
 t0 = time.perf_counter()
@@ -215,14 +205,13 @@ results_lasso['statgpu_cpu'] = {
     'time': (time.perf_counter() - t0) * 1000,
     'coef': model.coef_.copy(),
     'r2': model.rsquared,
-    'n_iter': model.n_iter_
+    'n_iter': model.n_iter_,
 }
 print(f"Time: {results_lasso['statgpu_cpu']['time']:.2f} ms")
 print(f"R²: {results_lasso['statgpu_cpu']['r2']:.6f}")
 print(f"Iterations: {results_lasso['statgpu_cpu']['n_iter']}")
 print(f"Non-zero coefs: {np.sum(np.abs(model.coef_) > 1e-10)}")
 
-# statgpu GPU
 if has_gpu:
     print("\n--- statgpu GPU ---")
     model = Lasso(alpha=0.1, device='cuda', max_iter=1000)
@@ -232,11 +221,9 @@ if has_gpu:
         'time': (time.perf_counter() - t0) * 1000,
         'coef': model.coef_.copy(),
         'r2': model.rsquared,
-        'n_iter': model.n_iter_
+        'n_iter': model.n_iter_,
     }
     print(f"Time: {results_lasso['statgpu_gpu']['time']:.2f} ms")
     print(f"Iterations: {results_lasso['statgpu_gpu']['n_iter']}")
     speedup = results_lasso['statgpu_cpu']['time'] / results_lasso['statgpu_gpu']['time']
     print(f"Speedup vs CPU: {speedup:.2f}x")
-
-# sklearn

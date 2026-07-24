@@ -24,9 +24,9 @@ from scipy import stats
 
 from statgpu._base import BaseEstimator
 from statgpu._config import Device
-from statgpu.backends import _LINALG_ERRORS, _get_torch_device_str, _torch_dev, _to_float_scalar, _to_numpy, xp_astype, xp_zeros, xp_cholesky_solve
+from statgpu.backends import _LINALG_ERRORS, _get_torch_device_str, _torch_dev, _to_float_scalar, _to_numpy, xp_astype, xp_zeros, xp_cholesky_solve, xp_maximum, xp_asarray
 
-from statgpu.panel._utils import PanelSummary, within_transform, group_means, group_sizes
+from statgpu.panel._utils import PanelSummary, within_transform, group_means, group_sizes, factorize_panel_labels, validate_panel_alpha, validate_panel_numeric_data
 
 
 class RandomEffects(BaseEstimator):
@@ -114,7 +114,7 @@ class RandomEffects(BaseEstimator):
         """
         # Handle formula interface
         if formula is not None:
-            from statgpu.panel._formula import _prepare_formula_fit
+            from statgpu.panel._formula import _align_formula_side_array, _prepare_formula_fit
             (y_raw, X_raw, self._design_info, self._feature_names,
              self._formula_has_intercept,
              fe_entity_ids, fe_time_ids,
@@ -128,6 +128,12 @@ class RandomEffects(BaseEstimator):
                 time_ids = fe_time_ids
             X = X_raw
             y = y_raw
+            entity_ids = _align_formula_side_array(
+                entity_ids, self._design_info, len(y_raw), "entity_ids"
+            )
+            time_ids = _align_formula_side_array(
+                time_ids, self._design_info, len(y_raw), "time_ids"
+            )
         else:
             self._design_info = None
             self._feature_names = None
@@ -147,8 +153,12 @@ class RandomEffects(BaseEstimator):
         X_arr = xp_astype(self._to_array(X, backend=backend_name), xp.float64, xp)
         if X_arr.ndim == 1:
             X_arr = X_arr.reshape(-1, 1)
+        validate_panel_alpha(self.alpha)
+        validate_panel_numeric_data(X_arr, y_arr, xp)
 
-        entity_arr = self._to_array(entity_ids, backend=backend_name).ravel()
+        entity_arr, _entity_labels = factorize_panel_labels(
+            entity_ids, xp, ref_arr=X_arr, name="entity_ids"
+        )
         n, k = X_arr.shape
         self.nobs = n
 
@@ -173,7 +183,7 @@ class RandomEffects(BaseEstimator):
         entity_np = _to_numpy(entity_arr).ravel()
         unique_entities, first_idx = np.unique(entity_np, return_index=True)
         n_groups = len(unique_entities)
-        first_idx_dev = xp.asarray(first_idx, dtype=xp.int64)
+        first_idx_dev = xp_asarray(first_idx, dtype=xp.int64, xp=xp, ref_arr=X_arr)
         y_bar_unique = y_bar_i[first_idx_dev]
         X_bar_unique = X_bar_i[first_idx_dev]
 
@@ -321,11 +331,11 @@ class RandomEffects(BaseEstimator):
 
         # cov_params = scale * (X'X)^{-1} on device
         cov_params = self._scale * XtX_inv
-        bse_dev = xp.sqrt(xp.maximum(xp.diag(cov_params), 0.0))
+        bse_dev = xp.sqrt(xp_maximum(xp.diag(cov_params), 0.0, xp))
 
         # t-values on device
         _eps = xp.finfo(xp.float64).tiny if hasattr(xp, 'finfo') else 2.2e-308
-        tvalues_dev = coef / xp.maximum(bse_dev, _eps)
+        tvalues_dev = coef / xp_maximum(bse_dev, _eps, xp)
         abs_t = xp.abs(tvalues_dev)
 
         # p-values via backend-agnostic inference framework — on device

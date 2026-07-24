@@ -116,6 +116,8 @@ def _newton_step_call(compiled_fn, *args):
         return compiled_fn(*args)
     except (RuntimeError, TypeError):
         def _newton_eager(params, direction, params_old):
+            import torch
+
             params_new = params - direction
             diff_norm = torch.linalg.norm(params_new - params_old)
             return params_new, diff_norm

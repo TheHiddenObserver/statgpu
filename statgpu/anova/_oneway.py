@@ -32,7 +32,7 @@ class AnovaResult:
         P-value from the F-distribution survival function.
     df_between : int
         Degrees of freedom between groups (k - 1).
-    df_within : int
+    df_within : int or float
         Degrees of freedom within groups (N - k).
     eta_squared : float
         Effect size: SSB / (SSB + SSW).
@@ -41,7 +41,7 @@ class AnovaResult:
     statistic: float
     pvalue: float
     df_between: int
-    df_within: int
+    df_within: float
     eta_squared: float
 
 

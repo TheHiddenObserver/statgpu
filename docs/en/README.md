@@ -49,19 +49,21 @@
 - [Unsupervised Overview](models/unsupervised.md) — 13 algorithms: PCA, KMeans, DBSCAN, GMM, UMAP, NNDescent, t-SNE, NMF, Agglomerative, TruncatedSVD, IncrementalPCA, MiniBatchKMeans, MiniBatchNMF
 
 ### Panel
-- [Panel](models/panel.md) — fixed/random effects panel models
+- [Panel](models/panel.md) — six panel estimators including pooled, between, first-difference, and Fama–MacBeth
 
 ### Nonparametric
 - [Nonparametric Overview](models/nonparametric.md) — kernel methods and splines
 - [Kernel Methods](models/kernel-methods.md) — KDE, kernel regression, KRR
-- [Splines](models/splines.md) — B-spline basis, penalized splines
+- [Splines](models/splines.md) — B/natural/cyclic/thin-plate splines and SplineTransformer
 - [Semiparametric (GAM)](models/semiparametric.md) — generalized additive models
 
 ### Inference
-- [ANOVA](models/anova.md) — analysis of variance
-- [Covariance](models/covariance.md) — covariance estimation, shrinkage
+- [ANOVA](models/anova.md) — one/two-way, Welch, post-hoc, and effect sizes
+- [Covariance](models/covariance.md) — empirical/shrinkage, robust MCD, and sparse precision
 - [Multiple Testing](models/multiple-testing.md) — p-value adjustment (BH, Holm, Bonferroni) and combination (Fisher, Cauchy, Stouffer)
 - [Knockoff](models/knockoff.md) — knockoff feature selection
+- [Feature Selection](models/feature-selection.md) — stepwise selection and knockoff overview
+- [Regression Diagnostics](guides/regression-diagnostics.md) — residuals, leverage, Cook’s distance, and VIF
 
 ## Reference
 

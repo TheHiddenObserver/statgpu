@@ -2,7 +2,7 @@
 
 > 语言: 中文  
 > 最后更新: 2026-07-07  
-> 切换: [English](../en/models/ordered.md)
+> 切换: [English](../../en/models/ordered.md)
 
 有序响应模型，适用于目标变量为序数类别（如"低/中/高"）的场景。
 

@@ -1,0 +1,31 @@
+# PR79 cross-framework reference mappings.
+# Documents how statgpu parameters relate to external frameworks.
+# Used by validators to detect undeclared definition mismatches.
+
+Ridge:
+  statgpu_objective: mean_squared_loss_plus_alpha_l2
+  sklearn_alpha_unweighted: n_samples_times_statgpu_alpha
+  sklearn_alpha_weighted: sum_weights_times_statgpu_alpha
+  r_glmnet_mapping: explicitly_derived_in_generator
+  centering: statgpu_uses_augmented_X_not_centering_for_non_gaussian_links
+
+LinearRegression:
+  cov_type_nonrobust: statsmodels_default
+  cov_type_hc0: statsmodels_cov_type_HC0
+  cov_type_hc1: statsmodels_cov_type_HC1
+  hc1_degrees_of_freedom: effective_rank_not_column_count
+  rank_aware_df: statgpu_specific_contract
+
+CoxPH:
+  ties_efron: exact_per_k_summation
+  ties_breslow: standard
+  baseline_hazard: breslow_estimator
+  partial_loglik: standard
+  penalty: l2_on_coefficients_only
+  entry: left_truncation
+
+Panel:
+  PooledOLS_cluster: sandwich_cluster_covariance
+  PooledOLS_hac: newey_west
+  FamaMacBeth: standard_two_pass
+  rank_deficiency: stable_pinv
