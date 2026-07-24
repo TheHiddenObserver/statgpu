@@ -76,8 +76,6 @@ def strip_fenced_code(text: str) -> str:
 
 def normalize_link_target(raw_target: str) -> str:
     target = raw_target.strip()
-    if target.startswith("<") and target.endswith(")"):
-        target = target[1:-1]
     if target.startswith("<") and target.endswith(">"):
         target = target[1:-1]
     # Markdown permits an optional quoted title after whitespace.
