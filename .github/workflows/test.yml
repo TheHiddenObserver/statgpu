@@ -14,16 +14,27 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Check deterministic bilingual links
-        run: python3 dev/validation/fix_docs_links.py --check
-      - name: Run maintained documentation contracts
+      - name: Run documentation contracts
         id: docs_check
         shell: bash
         run: |
           set +e
-          python3 dev/validation/check_docs_contracts.py > docs-contracts.log 2>&1
-          status=$?
-          cat docs-contracts.log
+          python3 dev/validation/fix_docs_links.py --check > docs-links.log 2>&1
+          links_status=$?
+          python3 dev/validation/check_docs_contracts.py > docs-contracts-only.log 2>&1
+          contracts_status=$?
+          {
+            echo "=== Deterministic bilingual links ==="
+            cat docs-links.log
+            echo
+            echo "=== Maintained documentation contracts ==="
+            cat docs-contracts-only.log
+          } | tee docs-contracts.log
+          if [ "$links_status" -ne 0 ] || [ "$contracts_status" -ne 0 ]; then
+            status=1
+          else
+            status=0
+          fi
           echo "status=$status" >> "$GITHUB_OUTPUT"
           exit 0
       - name: Upload documentation diagnostics
