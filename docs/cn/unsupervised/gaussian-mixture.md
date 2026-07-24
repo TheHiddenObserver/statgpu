@@ -2,7 +2,7 @@
 
 > 语言：中文
 > 最后更新：2026-05-07
-> English: [English](../en/unsupervised/gaussian-mixture.md)
+> English: [English](../../en/unsupervised/gaussian-mixture.md)
 
 ## 概览
 

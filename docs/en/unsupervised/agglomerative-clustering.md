@@ -2,7 +2,7 @@
 
 > Language: English
 > Last updated: 2026-05-09
-> Switch: [Chinese](../../unsupervised/agglomerative-clustering.md)
+> Switch: [Chinese](../../cn/unsupervised/agglomerative-clustering.md)
 
 ## Overview
 

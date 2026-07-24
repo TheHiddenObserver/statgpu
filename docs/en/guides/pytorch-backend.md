@@ -371,10 +371,10 @@ pip install --upgrade torch
 ## References
 
 - [PyTorch Documentation](https://pytorch.org/docs/)
-- [Torch Backend Final Report](../../dev/docs/torch_backend_final_report.md)
-- [Torch vs CuPy Comprehensive Comparison](../../dev/docs/torch_vs_cupy_comprehensive_report.md)
-- [Knockoff FDR Calibration Report](../../results/knockoff_fdr_2026-04-18_09-15-29.md)
-- [Torch vs CuPy Benchmark Results](../../results/torch_vs_cupy_20260418_092648.md)
+- [Torch Backend Final Report](../../../dev/docs/torch_backend_final_report.md)
+- [Torch vs CuPy Comprehensive Comparison](../../../dev/docs/torch_vs_cupy_comprehensive_report.md)
+- [Knockoff FDR Calibration Report](../../../results/knockoff_fdr_2026-04-18_09-15-29.md)
+- [Torch vs CuPy Benchmark Results](../../../results/torch_vs_cupy_20260418_092648.md)
 
 ---
 

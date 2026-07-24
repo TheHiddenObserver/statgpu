@@ -3,9 +3,9 @@
 > Language: English  
 > Last updated: 2026-05-07
 > This page: Benchmark index  
-> Switch: [Chinese](../benchmarks.md)
+> Switch: [Chinese](../cn/benchmarks.md)
 
-Language switch: [Chinese](../benchmarks.md)
+Language switch: [Chinese](../cn/benchmarks.md)
 
 ## Inference
 

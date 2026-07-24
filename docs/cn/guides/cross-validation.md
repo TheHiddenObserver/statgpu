@@ -3,7 +3,7 @@
 > 语言：中文  
 > 最后更新：2026-06-12  
 > 页面定位：CV 用户指南 + 架构实现 + 缓存机制（统一页面）  
-> 切换：[English](../en/guides/cross-validation.md)
+> 切换：[English](../../en/guides/cross-validation.md)
 
 ## 概述
 

@@ -3,7 +3,7 @@
 > Language: English  
 > Last updated: 2026-06-12  
 > This page: Unified CV guide — API reference, architecture, GPU acceleration, and caching  
-> Switch: [Chinese](../../guides/cross-validation.md)
+> Switch: [Chinese](../../cn/guides/cross-validation.md)
 
 ---
 

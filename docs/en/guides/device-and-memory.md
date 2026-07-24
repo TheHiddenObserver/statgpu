@@ -3,9 +3,9 @@
 > Language: English  
 > Last updated: 2026-06-01
 > This page: Guide  
-> Switch: [Chinese](../../guides/device-and-memory.md)
+> Switch: [Chinese](../../cn/guides/device-and-memory.md)
 
-Language switch: [Chinese](../../guides/device-and-memory.md)
+Language switch: [Chinese](../../cn/guides/device-and-memory.md)
 
 ## Device Selection
 

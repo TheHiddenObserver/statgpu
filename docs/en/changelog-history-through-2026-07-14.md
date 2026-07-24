@@ -3,9 +3,9 @@
 > Language: English  
 > Last updated: 2026-07-12
 > This page: Changelog  
-> Switch: [Chinese](../changelog.md)
+> Switch: [Chinese](../cn/changelog-history-through-2026-07-14.md)
 
-Language switch: [Chinese](../changelog.md)
+Language switch: [Chinese](../cn/changelog-history-through-2026-07-14.md)
 
 ## 2026-07
 

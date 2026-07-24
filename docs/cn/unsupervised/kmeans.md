@@ -2,7 +2,7 @@
 
 > 语言：中文
 > 最后更新：2026-05-02
-> English: [English](../en/unsupervised/kmeans.md)
+> English: [English](../../en/unsupervised/kmeans.md)
 
 ## 概览
 

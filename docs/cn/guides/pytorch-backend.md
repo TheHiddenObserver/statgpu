@@ -380,10 +380,10 @@ pip install --upgrade torch
 ## 参考资料
 
 - [PyTorch 文档](https://pytorch.org/docs/)
-- [Torch 后端最终报告](../../dev/docs/torch_backend_final_report.md)
-- [Torch vs CuPy 综合对比](../../dev/docs/torch_vs_cupy_comprehensive_report.md)
-- [Knockoff FDR 校准报告](../../results/knockoff_fdr_2026-04-18_09-15-29.md)
-- [Torch vs CuPy 基准结果](../../results/torch_vs_cupy_20260418_092648.md)
+- [Torch 后端最终报告](../../../dev/docs/torch_backend_final_report.md)
+- [Torch vs CuPy 综合对比](../../../dev/docs/torch_vs_cupy_comprehensive_report.md)
+- [Knockoff FDR 校准报告](../../../results/knockoff_fdr_2026-04-18_09-15-29.md)
+- [Torch vs CuPy 基准结果](../../../results/torch_vs_cupy_20260418_092648.md)
 
 ---
 
