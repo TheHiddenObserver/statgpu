@@ -10,10 +10,36 @@ permissions:
   contents: read
 
 jobs:
+  docs-link-autofix:
+    if: github.event_name == 'pull_request' && github.head_ref == 'agent/readme-layout-cleanup'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
+      - name: Normalize bilingual model links
+        run: python3 dev/validation/fix_docs_links.py --write
+      - name: Commit normalized links
+        shell: bash
+        run: |
+          if git diff --quiet -- docs/en/models docs/cn/models; then
+            echo "No link normalization changes required."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/en/models docs/cn/models
+          git commit -m "docs: normalize bilingual model links"
+          git push origin "HEAD:${{ github.head_ref }}"
+
   docs-contracts:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Check deterministic bilingual links
+        run: python3 dev/validation/fix_docs_links.py --check
       - name: Run maintained documentation contracts
         id: docs_check
         shell: bash
