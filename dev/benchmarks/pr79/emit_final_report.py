@@ -135,11 +135,8 @@ def emit_report(
         json.dump(validated, handle, indent=2, ensure_ascii=False, allow_nan=False)
         handle.write("\n")
 
-    output_markdown.write_text(
-        render_markdown(validated),
-        encoding="utf-8",
-        newline="\n",
-    )
+    with output_markdown.open("w", encoding="utf-8", newline="\n") as handle:
+        handle.write(render_markdown(validated))
 
 
 # –– CLI ––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––
