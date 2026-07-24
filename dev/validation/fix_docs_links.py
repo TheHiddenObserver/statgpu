@@ -23,6 +23,8 @@ SWITCH_MARKERS = (
 )
 
 MARKDOWN_MD_LINK_RE = re.compile(r"(\[[^\]]+\]\()([^)]+\.md(?:#[^)]*)?)(\))")
+DEV_DOCS_LINK_RE = re.compile(r"(?:\.\./)+dev/docs/")
+RESULTS_LINK_RE = re.compile(r"(?:\.\./)+results/")
 
 
 def write_utf8(path: Path, text: str) -> None:
@@ -53,10 +55,8 @@ def normalize_repository_links(path: Path, text: str) -> str:
     """Repair known links from nested docs pages to repository-root artifacts."""
     if path.name != "pytorch-backend.md" or path.parent.name != "guides":
         return text
-    return (
-        text.replace("../../dev/docs/", "../../../dev/docs/")
-        .replace("../../results/", "../../../results/")
-    )
+    text = DEV_DOCS_LINK_RE.sub("../../../dev/docs/", text)
+    return RESULTS_LINK_RE.sub("../../../results/", text)
 
 
 def normalize_file(path: Path, counterpart: Path) -> str:
