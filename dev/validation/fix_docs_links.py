@@ -4,11 +4,13 @@
 from __future__ import annotations
 
 import argparse
+import os
 import re
 import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
+DOCS = ROOT / "docs"
 
 SWITCH_MARKERS = (
     "Switch:",
@@ -20,9 +22,7 @@ SWITCH_MARKERS = (
     "English:",
 )
 
-MODEL_LINK_RE = re.compile(
-    r"\((?:\.\./)+(?:en/|cn/)?models/[^)#\s]+\.md(?:#[^)]*)?\)"
-)
+MARKDOWN_MD_LINK_RE = re.compile(r"(\[[^\]]+\]\()([^)]+\.md(?:#[^)]*)?)(\))")
 
 
 def write_utf8(path: Path, text: str) -> None:
@@ -31,44 +31,65 @@ def write_utf8(path: Path, text: str) -> None:
         handle.write(text)
 
 
+def relative_target(path: Path, counterpart: Path) -> str:
+    return os.path.relpath(counterpart, path.parent).replace(os.sep, "/")
+
+
 def normalize_switch_links(text: str, target: str) -> str:
-    """Normalize only bilingual switch lines, never ordinary cross-model links."""
+    """Normalize bilingual switch lines without changing ordinary cross-links."""
     normalized: list[str] = []
-    replacement = f"({target})"
     for line in text.splitlines(keepends=True):
         if any(marker in line for marker in SWITCH_MARKERS):
-            line = MODEL_LINK_RE.sub(replacement, line)
+            line = MARKDOWN_MD_LINK_RE.sub(
+                lambda match: f"{match.group(1)}{target}{match.group(3)}",
+                line,
+                count=1,
+            )
         normalized.append(line)
     return "".join(normalized)
 
 
-def normalize_file(path: Path, target: str) -> str:
+def normalize_repository_links(path: Path, text: str) -> str:
+    """Repair known links from nested docs pages to repository-root artifacts."""
+    if path.name != "pytorch-backend.md" or path.parent.name != "guides":
+        return text
+    return (
+        text.replace("../../dev/docs/", "../../../dev/docs/")
+        .replace("../../results/", "../../../results/")
+    )
+
+
+def normalize_file(path: Path, counterpart: Path) -> str:
     original = path.read_text(encoding="utf-8")
+    target = relative_target(path, counterpart)
     updated = normalize_switch_links(original, target)
-    if path.name == "splines.md":
+    updated = normalize_repository_links(path, updated)
+    if path.name == "splines.md" and path.parent.name == "models":
         updated = updated.replace("../semiparametric.md", "semiparametric.md")
     return updated
 
 
+def iter_mirrored_pairs() -> list[tuple[Path, Path]]:
+    pairs: list[tuple[Path, Path]] = []
+    for language, other_language in (("en", "cn"), ("cn", "en")):
+        language_root = DOCS / language
+        other_root = DOCS / other_language
+        for path in sorted(language_root.rglob("*.md")):
+            counterpart = other_root / path.relative_to(language_root)
+            if counterpart.is_file():
+                pairs.append((path, counterpart))
+    return pairs
+
+
 def collect_changes(write: bool) -> list[Path]:
     changed: list[Path] = []
-
-    for path in sorted((ROOT / "docs" / "en" / "models").glob("*.md")):
+    for path, counterpart in iter_mirrored_pairs():
         original = path.read_text(encoding="utf-8")
-        updated = normalize_file(path, f"../../cn/models/{path.name}")
+        updated = normalize_file(path, counterpart)
         if updated != original:
             changed.append(path)
             if write:
                 write_utf8(path, updated)
-
-    for path in sorted((ROOT / "docs" / "cn" / "models").glob("*.md")):
-        original = path.read_text(encoding="utf-8")
-        updated = normalize_file(path, f"../../en/models/{path.name}")
-        if updated != original:
-            changed.append(path)
-            if write:
-                write_utf8(path, updated)
-
     return changed
 
 
