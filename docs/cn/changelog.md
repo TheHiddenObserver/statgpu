@@ -1,11 +1,41 @@
 # Changelog
 
 > 语言：中文  
-> 最后更新：2026-07-24  
+> 最后更新：2026-07-25<br>
 > 页面定位：变更记录  
 > 切换：[English](../en/changelog.md)
 
 ## 2026-07
+
+### 改进（2026-07-25）— v0.2.2 发布准备
+
+- **版本与打包**：
+  - 将 `pyproject.toml` 和 `statgpu/__init__.py` 的版本从 0.2.1 更新为 0.2.2；
+  - 保留 tag 触发的 PyPI workflow 和 `STATGPU_NO_EXT=1` 构建策略，生成通用
+    `py3-none-any` wheel 与 source distribution；
+  - 继续以 Python 3.9 至 3.12 作为维护中的 CI 版本矩阵。
+- **纳入的维护范围**：
+  - 包含下方条目与可审计产物所记录的 PR #79 正确性、后端契约、推断和验证工作；
+  - 包含 PR #84 对发布入口 README、文档门户、方法清单、中英文模型/后端指南和
+    确定性文档契约的更新。
+- **发布文件**：
+  - `pyproject.toml`
+  - `statgpu/__init__.py`
+  - `CHANGELOG.md`
+  - `docs/en/changelog.md`
+  - `docs/cn/changelog.md`
+
+### 验证（2026-07-25）— v0.2.2 发布候选
+
+- 两处版本声明均为 0.2.2；实时 PyPI 元数据显示最新版本仍为 0.2.1，远端仓库中
+  不存在 `v0.2.2` 标签。
+- 文档链接检查与维护中文档契约检查全部通过，共覆盖 122 个维护中文档文件。
+- 完整 CPU-only suite 结果为 **1051 passed、257 skipped、0 failed**。
+- `STATGPU_NO_EXT=1` 成功生成 `statgpu-0.2.2-py3-none-any.whl` 和
+  `statgpu-0.2.2.tar.gz`，两个制品均通过 `twine check`。
+- 已审计 wheel/sdist 元数据、归档路径与内容，未发现本地配置、凭据、缓存或无关结果包。
+- wheel 与 sdist 均在全新环境中从已安装的 `site-packages` 导入 statgpu 0.2.2，
+  并通过 CPU `LinearRegression` smoke test。
 
 ### 验证（2026-07-24）— PR #79 exact-head 最终闭环
 

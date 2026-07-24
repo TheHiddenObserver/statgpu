@@ -2,6 +2,18 @@
 
 All notable changes to statgpu are documented here, organized by date and PR.
 
+## 2026-07-25
+
+### PR #85 — Release statgpu 0.2.2
+
+- Bumped the package version from 0.2.1 to 0.2.2 in `pyproject.toml` and
+  `statgpu/__init__.py`.
+- Based the release candidate on the current `master`, including the PR #79
+  hardening work and PR #84 maintained-documentation refresh.
+- Retained the `STATGPU_NO_EXT=1` pure-Python `py3-none-any` wheel policy and sdist.
+- Validated 122 maintained documentation files, the full CPU-only suite, both
+  distribution formats, `twine check`, artifact contents, and clean installs.
+
 ## 2026-07-24
 
 ### PR #84 — Refresh maintained documentation contracts

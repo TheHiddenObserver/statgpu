@@ -1,11 +1,44 @@
 # Changelog
 
 > Language: English  
-> Last updated: 2026-07-24  
+> Last updated: 2026-07-25<br>
 > This page: Changelog  
 > Switch: [Chinese](../cn/changelog.md)
 
 ## 2026-07
+
+### Improved (2026-07-25) — v0.2.2 release preparation
+
+- **Version and packaging**:
+  - Updated `pyproject.toml` and `statgpu/__init__.py` from 0.2.1 to 0.2.2.
+  - Retained the tag-triggered PyPI workflow and `STATGPU_NO_EXT=1` build policy,
+    which produces a universal `py3-none-any` wheel plus a source distribution.
+  - Kept Python 3.9 through 3.12 in the maintained CI matrix.
+- **Included maintained scope**:
+  - Carries the PR #79 correctness, backend-contract, inference, and validation
+    work summarized in the entries below and the linked auditable artifacts.
+  - Includes PR #84's release-facing README, documentation portals, method
+    inventory, bilingual model/backend guides, and deterministic docs contracts.
+- **Release files**:
+  - `pyproject.toml`
+  - `statgpu/__init__.py`
+  - `CHANGELOG.md`
+  - `docs/en/changelog.md`
+  - `docs/cn/changelog.md`
+
+### Validation (2026-07-25) — v0.2.2 release candidate
+
+- The version declarations agree at 0.2.2; live PyPI metadata reported 0.2.1 as
+  the latest release, and the remote repository had no `v0.2.2` tag.
+- The documentation link check and maintained-document contracts passed for
+  all 122 maintained documentation files.
+- The complete CPU-only suite passed with **1051 passed, 257 skipped, 0 failed**.
+- `STATGPU_NO_EXT=1` produced `statgpu-0.2.2-py3-none-any.whl` and
+  `statgpu-0.2.2.tar.gz`; both artifacts passed `twine check`.
+- Wheel and sdist metadata, archive paths, and contents were audited, with no
+  local configuration, credentials, caches, or unrelated result bundles found.
+- Fresh wheel and sdist environments both imported statgpu 0.2.2 from their
+  installed `site-packages` and passed a CPU `LinearRegression` smoke test.
 
 ### Validation (2026-07-24) — PR #79 exact-head closure
 
