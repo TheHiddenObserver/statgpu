@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate maintained Markdown links and release-facing documentation contracts."""
+"""Validate release-facing Markdown links and documentation contracts."""
 
 from __future__ import annotations
 
@@ -13,24 +13,26 @@ ROOT = Path(__file__).resolve().parents[2]
 MAINTAINED_PATHS = (
     ROOT / "README.md",
     ROOT / "docs" / "index.md",
-    ROOT / "docs" / "en" / "usage.md",
-    ROOT / "docs" / "cn" / "usage.md",
-    ROOT / "docs" / "en" / "guides" / "implemented-methods.md",
-    ROOT / "docs" / "cn" / "guides" / "implemented-methods.md",
 )
 
 MAINTAINED_GLOBS = (
-    "docs/en/models/*.md",
-    "docs/cn/models/*.md",
+    "docs/en/**/*.md",
+    "docs/cn/**/*.md",
 )
 
-LINK_RE = re.compile(r"(?<!!)\[[^\]]*\]\(([^)]+)\)")
+FENCED_CODE_RE = re.compile(r"```.*?```|~~~.*?~~~", re.DOTALL)
+INLINE_LINK_RE = re.compile(r"!?\[[^\]]*\]\(([^)]+)\)")
+REFERENCE_LINK_RE = re.compile(r"^\s*\[[^\]]+\]:\s*(\S+)", re.MULTILINE)
+HTML_LINK_RE = re.compile(r"(?:href|src)=[\"']([^\"']+)[\"']", re.IGNORECASE)
 
 BANNED_TEXT = {
     "README.md": (
         "## Important Statistical Contracts",
         "## PR #79 Final Validation",
         "## Backend Execution Status",
+        "sklearn.base.clone() support",
+        "intentional CPU boundaries are limited to",
+        "### Real-Data Performance",
     ),
     "docs/index.md": (
         "USAGE_CN.md",
@@ -45,6 +47,21 @@ BANNED_CURRENT_STATUS = (
     "真实 CUDA 验证仍待完成",
 )
 
+HISTORICAL_PARTS = (
+    "/releases/",
+    "changelog",
+    "history",
+)
+
+SKIP_SCHEMES = (
+    "http://",
+    "https://",
+    "mailto:",
+    "tel:",
+    "data:",
+    "javascript:",
+)
+
 
 def iter_maintained_files() -> list[Path]:
     files = set(MAINTAINED_PATHS)
@@ -53,29 +70,50 @@ def iter_maintained_files() -> list[Path]:
     return sorted(path for path in files if path.is_file())
 
 
+def strip_fenced_code(text: str) -> str:
+    return FENCED_CODE_RE.sub("", text)
+
+
 def normalize_link_target(raw_target: str) -> str:
     target = raw_target.strip()
+    if target.startswith("<") and target.endswith(")"):
+        target = target[1:-1]
     if target.startswith("<") and target.endswith(">"):
         target = target[1:-1]
     # Markdown permits an optional quoted title after whitespace.
     target = target.split(maxsplit=1)[0]
     target = unquote(target)
-    return target.split("#", 1)[0]
+    target = target.split("#", 1)[0]
+    target = target.split("?", 1)[0]
+    return target
+
+
+def iter_link_targets(text: str) -> list[str]:
+    searchable = strip_fenced_code(text)
+    targets = [match.group(1) for match in INLINE_LINK_RE.finditer(searchable)]
+    targets.extend(match.group(1) for match in REFERENCE_LINK_RE.finditer(searchable))
+    targets.extend(match.group(1) for match in HTML_LINK_RE.finditer(searchable))
+    return targets
 
 
 def validate_links(path: Path, text: str) -> list[str]:
     errors: list[str] = []
-    for match in LINK_RE.finditer(text):
-        raw_target = match.group(1)
+    for raw_target in iter_link_targets(text):
         target = normalize_link_target(raw_target)
-        if not target or target.startswith(("http://", "https://", "mailto:")):
+        if not target or target.startswith(("#",) + SKIP_SCHEMES):
             continue
-        resolved = (path.parent / target).resolve()
+
+        if target.startswith("/"):
+            resolved = (ROOT / target.lstrip("/")).resolve()
+        else:
+            resolved = (path.parent / target).resolve()
+
         try:
             resolved.relative_to(ROOT)
         except ValueError:
             errors.append(f"{path.relative_to(ROOT)}: link escapes repository: {raw_target}")
             continue
+
         if not resolved.exists():
             errors.append(
                 f"{path.relative_to(ROOT)}: missing relative link target "
@@ -84,15 +122,19 @@ def validate_links(path: Path, text: str) -> list[str]:
     return errors
 
 
+def is_historical(rel: str) -> bool:
+    normalized = f"/{rel.lower()}"
+    return any(part in normalized for part in HISTORICAL_PARTS)
+
+
 def validate_content(path: Path, text: str) -> list[str]:
     rel = path.relative_to(ROOT).as_posix()
     errors: list[str] = []
     for banned in BANNED_TEXT.get(rel, ()):
         if banned in text:
             errors.append(f"{rel}: banned release-facing text remains: {banned!r}")
-    if rel.startswith("docs/") and not (
-        "/changelog" in rel or "/releases/" in rel
-    ):
+
+    if rel.startswith("docs/") and not is_historical(rel):
         for banned in BANNED_CURRENT_STATUS:
             if banned in text:
                 errors.append(f"{rel}: stale global validation status remains: {banned!r}")
