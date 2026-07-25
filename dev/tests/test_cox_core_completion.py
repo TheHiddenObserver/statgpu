@@ -110,30 +110,94 @@ def test_efron_heavy_ties_bse_matches_statsmodels():
 
 def test_torch_efron_private_path_is_exact_and_native(monkeypatch):
     torch = pytest.importorskip("torch")
-    X, time, event = _survival_data(n=180, p=4, seed=2704, tied=True)
+    # Keep rows-per-failure-group above the cumulative-moment dispatch threshold
+    # so this exercises the vectorized heavy-ties path without requiring CUDA.
+    X, time, event = _survival_data(n=480, p=4, seed=2704, tied=True)
     order = np.argsort(time, kind="stable")
     X, time, event = X[order], time[order], event[order]
 
     model = CoxPH(ties="efron", device="cpu", compute_inference=False)
     efron_pre = model._efron_unique_failure_indices(time, event)
+    assert X.shape[0] / efron_pre[4] >= 24.0
     model._efron_pre = efron_pre
     model._efron_all_singletons = False
     monkeypatch.delenv("STATGPU_EFRON_TRITON", raising=False)
 
     beta = np.linspace(-0.12, 0.15, X.shape[1])
     grad_np, hess_np = model._compute_gradient_hessian(beta, X, time, event, efron_pre)
+    loglik_np = model._compute_log_likelihood(beta, X, time, event, efron_pre)
+    beta_t = torch.as_tensor(beta, dtype=torch.float64)
+    X_t = torch.as_tensor(X, dtype=torch.float64)
+    time_t = torch.as_tensor(time, dtype=torch.float64)
+    event_t = torch.as_tensor(event, dtype=torch.int32)
     grad_t, hess_t = model._compute_gradient_hessian_torch(
-        torch.as_tensor(beta, dtype=torch.float64),
-        torch.as_tensor(X, dtype=torch.float64),
-        torch.as_tensor(time, dtype=torch.float64),
-        torch.as_tensor(event, dtype=torch.int32),
-        efron_pre,
+        beta_t, X_t, time_t, event_t, efron_pre
+    )
+    loglik_t = model._compute_log_likelihood_torch(
+        beta_t, X_t, time_t, event_t, efron_pre
     )
 
     assert grad_t.device.type == "cpu"
+    np.testing.assert_allclose(loglik_t.numpy(), loglik_np, rtol=2e-12, atol=2e-12)
     np.testing.assert_allclose(grad_t.numpy(), grad_np, rtol=2e-11, atol=2e-11)
     np.testing.assert_allclose(
         model._observed_information_torch(hess_t).numpy(),
+        model._observed_information(hess_np),
+        rtol=2e-11,
+        atol=2e-11,
+    )
+
+    # The configured workspace ceiling must gate both moments and log-likelihood.
+    monkeypatch.setenv("STATGPU_EFRON_CUMULATIVE_MAX_BYTES", "0")
+
+    def unexpected_cumulative_indices(*_args, **_kwargs):
+        raise AssertionError("bounded Efron fallback was not selected")
+
+    monkeypatch.setattr(
+        model, "_efron_cumulative_indices_torch", unexpected_cumulative_indices
+    )
+    grad_fallback, hess_fallback = model._compute_gradient_hessian_torch(
+        beta_t, X_t, time_t, event_t, efron_pre
+    )
+    loglik_fallback = model._compute_log_likelihood_torch(
+        beta_t, X_t, time_t, event_t, efron_pre
+    )
+    np.testing.assert_allclose(
+        loglik_fallback.numpy(), loglik_np, rtol=2e-12, atol=2e-12
+    )
+    np.testing.assert_allclose(
+        grad_fallback.numpy(), grad_np, rtol=2e-11, atol=2e-11
+    )
+    np.testing.assert_allclose(
+        model._observed_information_torch(hess_fallback).numpy(),
+        model._observed_information(hess_np),
+        rtol=2e-11,
+        atol=2e-11,
+    )
+
+
+def test_cupy_efron_vectorized_path_builds_missing_csr_indices():
+    _require_backend("cuda")
+    import cupy as cp
+
+    X, time, event = _survival_data(n=480, p=4, seed=2712, tied=True)
+    order = np.argsort(time, kind="stable")
+    X, time, event = X[order], time[order], event[order]
+    model = CoxPH(ties="efron", device="cpu", compute_inference=False)
+    efron_pre = model._efron_unique_failure_indices(time, event)
+    assert X.shape[0] / efron_pre[4] >= 24.0
+    assert not hasattr(model, "_efron_pre_csr_gpu")
+
+    beta = np.linspace(-0.12, 0.15, X.shape[1])
+    grad_np, hess_np = model._compute_gradient_hessian(
+        beta, X, time, event, efron_pre
+    )
+    grad_cp, hess_cp = model._compute_gradient_hessian_efron_grouped_gemm_cupy(
+        cp.asarray(beta), cp.asarray(X), efron_pre
+    )
+    np.testing.assert_allclose(cp.asnumpy(grad_cp), grad_np, rtol=2e-11, atol=2e-11)
+    np.testing.assert_allclose(
+        cp.asnumpy(model._observed_information_cupy(hess_cp)),
         model._observed_information(hess_np),
         rtol=2e-11,
         atol=2e-11,

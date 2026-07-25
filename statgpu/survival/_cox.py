@@ -3917,8 +3917,153 @@ class CoxPH(BaseEstimator):
         hess = -hess_inner
         return grad, hess
 
+    @staticmethod
+    def _efron_cumulative_workspace_fits(
+        efron_pre,
+        n_samples,
+        n_features,
+        itemsize,
+        *,
+        include_second_moments,
+    ):
+        """Return whether the dense Efron workspace fits its configured cap."""
+        _, uft_ix, _, _, nuft, first_idx_uft = _unpack_efron_pre6(efron_pre)
+        if (
+            nuft == 0
+            or first_idx_uft is None
+            or float(n_samples) / float(max(nuft, 1)) < 24.0
+        ):
+            return False
+
+        max_tie = max((len(ix) for ix in uft_ix), default=0)
+        # ``frac``, denominators, masks, inverse weights, and reduction
+        # temporaries coexist at the group-by-substep boundary. Eight dense
+        # values per substep is a conservative estimate across CuPy and Torch.
+        substep_bytes = 8 * nuft * max_tie * itemsize
+        moment_bytes = 0
+        if include_second_moments:
+            moment_bytes = 2 * n_samples * n_features * n_features * itemsize
+        estimated_bytes = moment_bytes + substep_bytes
+        max_bytes = max(
+            0,
+            int(
+                os.environ.get(
+                    "STATGPU_EFRON_CUMULATIVE_MAX_BYTES", 512 * 1024 * 1024
+                )
+            ),
+        )
+        return estimated_bytes <= max_bytes
+
     def _compute_gradient_hessian_efron_grouped_gemm_cupy(self, beta, X, efron_pre):
-        """Exact Efron grad/hess on CuPy via grouped GEMM updates (no p^2 atomics)."""
+        """Vectorized CuPy Efron moments from cumulative risk-set statistics.
+
+        Dense ties previously launched several small kernels for every failure
+        group.  For memory-safe shapes, form all risk/failure moments once and
+        evaluate every Efron substep as one group-by-substep matrix.  Wide or
+        very large shapes retain the bounded grouped-GEMM fallback.
+        """
+        import cupy as cp
+
+        _, uft_ix, _, _, nuft, first_idx_uft = _unpack_efron_pre6(efron_pre)
+        n_samples, n_features = int(X.shape[0]), int(X.shape[1])
+        if not self._efron_cumulative_workspace_fits(
+            efron_pre,
+            n_samples,
+            n_features,
+            int(X.dtype.itemsize),
+            include_second_moments=True,
+        ):
+            return self._compute_gradient_hessian_efron_grouped_gemm_loop_cupy(
+                beta, X, efron_pre
+            )
+
+        csr_gpu = getattr(self, "_efron_pre_csr_gpu", None)
+        if csr_gpu is not None:
+            _, _, _, _, fail_ptr, fail_ind, first_idx, _ = csr_gpu
+        else:
+            counts_np = np.fromiter((len(ix) for ix in uft_ix), dtype=np.int64)
+            fail_ptr_np = np.empty(nuft + 1, dtype=np.int64)
+            fail_ptr_np[0] = 0
+            fail_ptr_np[1:] = np.cumsum(counts_np, dtype=np.int64)
+            fail_ind_np = np.asarray(
+                [row for group in uft_ix for row in group], dtype=np.int64
+            )
+            fail_ptr = cp.asarray(fail_ptr_np)
+            fail_ind = cp.asarray(fail_ind_np)
+            first_idx = cp.asarray(first_idx_uft, dtype=cp.int64)
+
+        linpred = X @ beta
+        linpred = linpred - cp.max(linpred)
+        weights = cp.exp(linpred)
+        first_idx = first_idx.astype(cp.int64, copy=False)
+        fail_ptr = fail_ptr.astype(cp.int64, copy=False)
+        fail_ind = fail_ind.astype(cp.int64, copy=False)
+
+        risk0_all = cp.cumsum(weights[::-1], axis=0)[::-1]
+        weighted_X = weights[:, None] * X
+        risk1_all = cp.cumsum(weighted_X[::-1], axis=0)[::-1]
+        row_second = weighted_X[:, :, None] * X[:, None, :]
+        risk2_all = cp.cumsum(row_second[::-1], axis=0)[::-1]
+        risk0 = risk0_all[first_idx]
+        risk1 = risk1_all[first_idx]
+        risk2 = risk2_all[first_idx].copy()
+        del risk0_all, risk1_all, risk2_all, row_second, weighted_X
+
+        fail_X = X[fail_ind]
+        fail_weights = weights[fail_ind]
+        fail_weighted_X = fail_weights[:, None] * fail_X
+
+        def segment_sum(values):
+            zero = cp.zeros((1,) + tuple(values.shape[1:]), dtype=values.dtype)
+            prefix = cp.concatenate((zero, cp.cumsum(values, axis=0)), axis=0)
+            return prefix[fail_ptr[1:]] - prefix[fail_ptr[:-1]]
+
+        fail0 = segment_sum(fail_weights)
+        fail1 = segment_sum(fail_weighted_X)
+        fail2 = segment_sum(
+            fail_weighted_X[:, :, None] * fail_X[:, None, :]
+        )
+        fail_X_sum = segment_sum(fail_X)
+        counts = (fail_ptr[1:] - fail_ptr[:-1]).astype(X.dtype, copy=False)
+        max_tie = max(len(ix) for ix in uft_ix)
+        steps = cp.arange(max_tie, dtype=X.dtype).reshape(1, -1)
+        active = steps < counts.reshape(-1, 1)
+        frac = steps / counts.reshape(-1, 1)
+        denominator = cp.maximum(
+            risk0.reshape(-1, 1) - frac * fail0.reshape(-1, 1), 1e-300
+        )
+        inv = cp.where(active, 1.0 / denominator, 0.0)
+        frac_inv = frac * inv
+        sum_inv = cp.sum(inv, axis=1)
+        sum_frac_inv = cp.sum(frac_inv, axis=1)
+        sum_inv2 = cp.sum(inv * inv, axis=1)
+        sum_frac_inv2 = cp.sum(frac_inv * frac_inv, axis=1)
+        sum_cross = cp.sum(inv * frac_inv, axis=1)
+
+        grad = cp.sum(
+            fail_X_sum
+            - risk1 * sum_inv[:, None]
+            + fail1 * sum_frac_inv[:, None],
+            axis=0,
+        )
+        risk_outer = risk1[:, :, None] * risk1[:, None, :]
+        fail_outer = fail1[:, :, None] * fail1[:, None, :]
+        cross_outer = (
+            risk1[:, :, None] * fail1[:, None, :]
+            + fail1[:, :, None] * risk1[:, None, :]
+        )
+        hess_inner = cp.sum(
+            risk2 * sum_inv[:, None, None]
+            - fail2 * sum_frac_inv[:, None, None]
+            - risk_outer * sum_inv2[:, None, None]
+            - fail_outer * sum_frac_inv2[:, None, None]
+            + cross_outer * sum_cross[:, None, None],
+            axis=0,
+        )
+        return grad, -hess_inner
+
+    def _compute_gradient_hessian_efron_grouped_gemm_loop_cupy(self, beta, X, efron_pre):
+        """Memory-bounded grouped-GEMM fallback for CuPy Efron moments."""
         import cupy as cp
 
         _, uft_ix, risk_enter, risk_exit, nuft, _ = _unpack_efron_pre6(efron_pre)
@@ -4006,8 +4151,134 @@ class CoxPH(BaseEstimator):
                 result = torch.linalg.lstsq(hess, grad)
                 return result.solution.flatten()
 
+    def _efron_cumulative_indices_torch(self, efron_pre, device):
+        """Cache grouped Efron indices on the active Torch device."""
+        import torch
+
+        cache = getattr(self, "_efron_cumulative_torch_cache", None)
+        if cache is not None and cache[0] is efron_pre and cache[1] == device:
+            return cache[2:]
+        _, uft_ix, _, _, nuft, first_idx_uft = _unpack_efron_pre6(efron_pre)
+        counts_np = np.fromiter((len(ix) for ix in uft_ix), dtype=np.int64)
+        fail_ptr_np = np.empty(nuft + 1, dtype=np.int64)
+        fail_ptr_np[0] = 0
+        fail_ptr_np[1:] = np.cumsum(counts_np, dtype=np.int64)
+        fail_ind_np = np.asarray(
+            [row for group in uft_ix for row in group], dtype=np.int64
+        )
+        first_idx = torch.as_tensor(first_idx_uft, dtype=torch.long, device=device)
+        fail_ptr = torch.as_tensor(fail_ptr_np, dtype=torch.long, device=device)
+        fail_ind = torch.as_tensor(fail_ind_np, dtype=torch.long, device=device)
+        counts = torch.as_tensor(counts_np, dtype=torch.long, device=device)
+        max_tie = int(np.max(counts_np)) if counts_np.size else 0
+        cache = (
+            efron_pre,
+            device,
+            first_idx,
+            fail_ptr,
+            fail_ind,
+            counts,
+            max_tie,
+        )
+        self._efron_cumulative_torch_cache = cache
+        return cache[2:]
+
     def _compute_gradient_hessian_efron_grouped_gemm_torch(self, beta, X, efron_pre):
-        """Exact Efron grad/hess on Torch device via grouped GEMM updates."""
+        """Vectorized Torch Efron moments from cumulative risk-set statistics."""
+        import torch
+
+        n_samples, n_features = int(X.shape[0]), int(X.shape[1])
+        if not self._efron_cumulative_workspace_fits(
+            efron_pre,
+            n_samples,
+            n_features,
+            X.element_size(),
+            include_second_moments=True,
+        ):
+            return self._compute_gradient_hessian_efron_grouped_gemm_loop_torch(
+                beta, X, efron_pre
+            )
+
+        first_idx, fail_ptr, fail_ind, counts_int, max_tie = (
+            self._efron_cumulative_indices_torch(efron_pre, beta.device)
+        )
+
+        linpred = X @ beta
+        linpred = linpred - torch.max(linpred)
+        weights = torch.exp(linpred)
+        risk0_all = torch.flip(torch.cumsum(torch.flip(weights, (0,)), dim=0), (0,))
+        weighted_X = weights[:, None] * X
+        risk1_all = torch.flip(
+            torch.cumsum(torch.flip(weighted_X, (0,)), dim=0), (0,)
+        )
+        row_second = weighted_X[:, :, None] * X[:, None, :]
+        risk2_all = torch.flip(
+            torch.cumsum(torch.flip(row_second, (0,)), dim=0), (0,)
+        )
+        risk0 = risk0_all[first_idx]
+        risk1 = risk1_all[first_idx]
+        risk2 = risk2_all[first_idx].clone()
+        del risk0_all, risk1_all, risk2_all, row_second, weighted_X
+
+        fail_X = X[fail_ind]
+        fail_weights = weights[fail_ind]
+        fail_weighted_X = fail_weights[:, None] * fail_X
+
+        def segment_sum(values):
+            zero = torch.zeros(
+                (1,) + tuple(values.shape[1:]),
+                dtype=values.dtype,
+                device=values.device,
+            )
+            prefix = torch.cat((zero, torch.cumsum(values, dim=0)), dim=0)
+            return prefix[fail_ptr[1:]] - prefix[fail_ptr[:-1]]
+
+        fail0 = segment_sum(fail_weights)
+        fail1 = segment_sum(fail_weighted_X)
+        fail2 = segment_sum(
+            fail_weighted_X[:, :, None] * fail_X[:, None, :]
+        )
+        fail_X_sum = segment_sum(fail_X)
+        counts = counts_int.to(dtype=X.dtype)
+        max_tie = int(max_tie)
+        steps = torch.arange(max_tie, dtype=X.dtype, device=X.device).reshape(1, -1)
+        active = steps < counts.reshape(-1, 1)
+        frac = steps / counts.reshape(-1, 1)
+        denominator = torch.clamp(
+            risk0.reshape(-1, 1) - frac * fail0.reshape(-1, 1), min=1e-300
+        )
+        inv = torch.where(active, 1.0 / denominator, torch.zeros_like(denominator))
+        frac_inv = frac * inv
+        sum_inv = torch.sum(inv, dim=1)
+        sum_frac_inv = torch.sum(frac_inv, dim=1)
+        sum_inv2 = torch.sum(inv * inv, dim=1)
+        sum_frac_inv2 = torch.sum(frac_inv * frac_inv, dim=1)
+        sum_cross = torch.sum(inv * frac_inv, dim=1)
+
+        grad = torch.sum(
+            fail_X_sum
+            - risk1 * sum_inv[:, None]
+            + fail1 * sum_frac_inv[:, None],
+            dim=0,
+        )
+        risk_outer = risk1[:, :, None] * risk1[:, None, :]
+        fail_outer = fail1[:, :, None] * fail1[:, None, :]
+        cross_outer = (
+            risk1[:, :, None] * fail1[:, None, :]
+            + fail1[:, :, None] * risk1[:, None, :]
+        )
+        hess_inner = torch.sum(
+            risk2 * sum_inv[:, None, None]
+            - fail2 * sum_frac_inv[:, None, None]
+            - risk_outer * sum_inv2[:, None, None]
+            - fail_outer * sum_frac_inv2[:, None, None]
+            + cross_outer * sum_cross[:, None, None],
+            dim=0,
+        )
+        return grad, -hess_inner
+
+    def _compute_gradient_hessian_efron_grouped_gemm_loop_torch(self, beta, X, efron_pre):
+        """Memory-bounded grouped-GEMM fallback for Torch Efron moments."""
         import torch
 
         _, uft_ix, risk_enter, risk_exit, nuft, _ = _unpack_efron_pre6(efron_pre)
@@ -4217,7 +4488,41 @@ class CoxPH(BaseEstimator):
                 risk_at = risk_sum[first_idx_t]
                 return torch.sum(eta[event_mask]) - torch.sum(counts_t * torch.log(risk_at))
 
-        # Fallback Efron (loop version)
+        if (
+            efron_pre is not None
+            and needs_exact_ties
+            and self._efron_cumulative_workspace_fits(
+                efron_pre,
+                int(eta.shape[0]),
+                0,
+                eta.element_size(),
+                include_second_moments=False,
+            )
+        ):
+            first_idx, fail_ptr, fail_ind, counts_int, max_tie = (
+                self._efron_cumulative_indices_torch(efron_pre, eta.device)
+            )
+            risk_at = risk_sum[first_idx]
+            fail_weights = exp_eta[fail_ind]
+            zero = torch.zeros(1, dtype=exp_eta.dtype, device=eta.device)
+            fail_prefix = torch.cat((zero, torch.cumsum(fail_weights, dim=0)))
+            fail_sum = fail_prefix[fail_ptr[1:]] - fail_prefix[fail_ptr[:-1]]
+            counts = counts_int.to(dtype=eta.dtype)
+            steps = torch.arange(
+                int(max_tie), dtype=eta.dtype, device=eta.device
+            ).reshape(1, -1)
+            active = steps < counts.reshape(-1, 1)
+            frac = steps / counts.reshape(-1, 1)
+            denominator = torch.clamp(
+                risk_at.reshape(-1, 1) - frac * fail_sum.reshape(-1, 1),
+                min=1e-300,
+            )
+            log_terms = torch.where(
+                active, torch.log(denominator), torch.zeros_like(denominator)
+            )
+            return torch.sum(eta[fail_ind]) - torch.sum(log_terms)
+
+        # Memory-bounded fallback for sparse ties or oversized cumulative moments.
         unique_times = torch.unique(time[event_mask])
         for t in unique_times:
             at_time_t = time == t

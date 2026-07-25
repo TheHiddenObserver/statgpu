@@ -418,10 +418,13 @@ def _exact_tie_log_partition_moments(
     """Stable elementary-symmetric DP for an exact tied-event group.
 
     Returns ``(log_Z, E[S], E[S S'])`` for the weighted distribution over all
-    size-``d`` subsets, where ``S`` is the subset covariate sum.  Maintaining
+    size-``d`` subsets, where ``S`` is the subset covariate sum. Maintaining
     normalized moments and ``log_Z`` avoids overflow from combinatorial counts
-    such as ``choose(1100, 550)``.  Descending subset-size updates ensure each
-    risk-set row is used at most once.
+    such as ``choose(1100, 550)``.
+
+    All subset sizes for one risk-set row are updated as one backend operation.
+    Snapshotting the previous row preserves the descending-DP dependency while
+    avoiding one GPU kernel-launch sequence per ``(row, subset_size)`` pair.
     """
     n_risk, n_features = int(X_risk.shape[0]), int(X_risk.shape[1])
     if d > n_risk:
@@ -430,31 +433,45 @@ def _exact_tie_log_partition_moments(
     log_z[1:] = -float("inf")
     mean = _zeros(backend, xp, (d + 1, n_features), X_risk)
     second = _zeros(backend, xp, (d + 1, n_features, n_features), X_risk)
+
+    def snapshot(value: Any):
+        return value.clone() if backend == "torch" else value.copy()
+
     for row in range(n_risk):
+        upper = min(d, row + 1)
         x = X_risk[row]
         log_weight = log_w_risk[row]
-        outer_x = _outer(x, x, backend, xp)
-        for subset_size in range(min(d, row + 1), 0, -1):
-            old_log_z = log_z[subset_size]
-            added_log_z = log_weight + log_z[subset_size - 1]
-            new_log_z = xp.logaddexp(old_log_z, added_log_z)
-            old_weight = _exp(old_log_z - new_log_z, xp)
-            added_weight = _exp(added_log_z - new_log_z, xp)
-            previous_mean = mean[subset_size - 1]
-            added_mean = previous_mean + x
-            added_second = (
-                second[subset_size - 1]
-                + _outer(previous_mean, x, backend, xp)
-                + _outer(x, previous_mean, backend, xp)
-                + outer_x
-            )
-            mean[subset_size] = (
-                old_weight * mean[subset_size] + added_weight * added_mean
-            )
-            second[subset_size] = (
-                old_weight * second[subset_size] + added_weight * added_second
-            )
-            log_z[subset_size] = new_log_z
+
+        old_log_z = snapshot(log_z[1 : upper + 1])
+        previous_log_z = snapshot(log_z[:upper])
+        added_log_z = log_weight + previous_log_z
+        new_log_z = xp.logaddexp(old_log_z, added_log_z)
+        old_weight = _exp(old_log_z - new_log_z, xp)
+        added_weight = _exp(added_log_z - new_log_z, xp)
+
+        old_mean = snapshot(mean[1 : upper + 1])
+        previous_mean = snapshot(mean[:upper])
+        old_second = snapshot(second[1 : upper + 1])
+        previous_second = snapshot(second[:upper])
+        added_mean = previous_mean + x.reshape(1, -1)
+        outer_x = _outer(x, x, backend, xp).reshape(1, n_features, n_features)
+        cross = (
+            previous_mean.reshape(upper, n_features, 1)
+            * x.reshape(1, 1, n_features)
+            + x.reshape(1, n_features, 1)
+            * previous_mean.reshape(upper, 1, n_features)
+        )
+        added_second = previous_second + cross + outer_x
+
+        mean[1 : upper + 1] = (
+            old_weight.reshape(-1, 1) * old_mean
+            + added_weight.reshape(-1, 1) * added_mean
+        )
+        second[1 : upper + 1] = (
+            old_weight.reshape(-1, 1, 1) * old_second
+            + added_weight.reshape(-1, 1, 1) * added_second
+        )
+        log_z[1 : upper + 1] = new_log_z
     return log_z[d], mean[d], second[d]
 
 
@@ -470,12 +487,17 @@ def _exact_tie_log_partition(
         raise ValueError("number of tied events cannot exceed the risk-set size")
     log_z = _zeros(backend, xp, (d + 1,), log_w_risk)
     log_z[1:] = -float("inf")
+
+    def snapshot(value: Any):
+        return value.clone() if backend == "torch" else value.copy()
+
     for row in range(n_risk):
-        log_weight = log_w_risk[row]
-        for subset_size in range(min(d, row + 1), 0, -1):
-            log_z[subset_size] = xp.logaddexp(
-                log_z[subset_size], log_weight + log_z[subset_size - 1]
-            )
+        upper = min(d, row + 1)
+        old_log_z = snapshot(log_z[1 : upper + 1])
+        previous_log_z = snapshot(log_z[:upper])
+        log_z[1 : upper + 1] = xp.logaddexp(
+            old_log_z, log_w_risk[row] + previous_log_z
+        )
     return log_z[d]
 
 

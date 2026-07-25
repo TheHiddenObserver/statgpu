@@ -48,12 +48,18 @@
   held-out likelihood、后端一致的最终 refit 与 inference-mode provenance。
 - 修复最终 KKT 收敛、open-left `start < event_time` 边界、baseline hazard 构造、
   后端原生预测/评分，以及 GPU benchmark 同步计时和源码版本记录。
+- 将 CuPy/Torch 的密集 Efron 累积矩、log-likelihood 子步骤以及 Exact 每个风险行的
+  全部活动子集状态向量化；稀疏或超大 Efron 工作负载仍使用受内存上限保护的回退路径。
 - 2026-07-25 的本地 NumPy quick gate 已通过全部可执行 correctness、inference、
   CV、schema 与外部对齐检查。随后通过 Paramiko 在远程 Tesla P100 的 `myconda`
   环境中验证准确的 reviewed source，发现并修复 Torch prediction、
-  scikit-learn 1.2.2 clone 与测试边界问题。最终真实 GPU 矩阵为 **379 passed、
+  scikit-learn 1.2.2 clone 与测试边界问题。最终真实 GPU 矩阵为 **380 passed、
   2 个预期 skip、0 failed**；NumPy、CuPy、Torch 的 quick/full benchmark schema
   均通过且没有 gate failure。
+- 同步后的 full benchmark 中，heavy ties 中位拟合时间为 NumPy 0.477 秒、CuPy
+  0.179 秒、Torch 0.212 秒；两个 GPU 路径相对优化前分别提速 8.36 倍和 24.31 倍。
+  Exact ties 在 CuPy/Torch 上分别提速 3.37 倍和 3.42 倍；受控的 120 行小规模场景
+  仍然由 CPU 更快，且实现未使用隐式 CPU fallback。
 
 ### 验证（2026-07-24）— PR #79 exact-head 最终闭环
 

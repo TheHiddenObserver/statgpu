@@ -19,11 +19,19 @@ All notable changes to statgpu are documented here, organized by date and PR.
 - Reconciled the PR #80 branch based on 0.2.1 with the 0.2.2 release tree without a version downgrade.
 - Added Breslow/Efron/Exact counting-process risk sets, delayed entry, strata, time-varying rows, robust inference, and subject-grouped CoxPHCV across NumPy/CuPy/Torch paths.
 - Fixed KKT convergence, open-left risk-set boundaries, backend-native prediction/scoring, and synchronized benchmark timing; refreshed bilingual contracts.
+- Vectorized dense Efron cumulative moments/log-likelihood and Exact
+  elementary-symmetric DP updates to remove launch-bound GPU loops, with a
+  memory-bounded Efron fallback for sparse or oversized workloads.
 - Local NumPy correctness and external-comparison gates pass. Remote `myconda`
   validation on a Tesla P100 found and fixed Torch prediction, scikit-learn
   1.2.2 cloning, and test-boundary issues; the final physical-GPU matrix passed
-  with **379 passed, 2 expected skips, 0 failed**, and quick/full benchmark
+  with **380 passed, 2 expected skips, 0 failed**, and quick/full benchmark
   schemas passed without gate failures on NumPy, CuPy, and Torch.
+- On the synchronized full benchmark, heavy-ties median fit time is 0.477 s
+  NumPy, 0.179 s CuPy, and 0.212 s Torch; the GPU paths improved 8.36x and
+  24.31x from their pre-optimization medians. Exact ties improved 3.37x on CuPy
+  and 3.42x on Torch, while the deliberately small 120-row case remains
+  CPU-faster without an implicit fallback.
 
 ## 2026-07-24
 

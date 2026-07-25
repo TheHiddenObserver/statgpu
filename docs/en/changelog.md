@@ -53,13 +53,21 @@
 - Fixed final-KKT convergence, the open-left `start < event_time` boundary,
   baseline-hazard construction, backend-native prediction/scoring, and
   synchronized GPU benchmark timing and source-version reporting.
+- Vectorized dense Efron cumulative moments and log-likelihood substeps on CuPy
+  and Torch, and updated all active Exact subset sizes per risk row. Sparse or
+  oversized Efron workloads retain a memory-bounded fallback.
 - The 2026-07-25 local NumPy quick gate passed all executable correctness,
   inference, CV, schema, and external-comparison checks. Paramiko validation of
   the exact reviewed source in remote `myconda` on a Tesla P100 exposed and
   fixed Torch prediction, scikit-learn 1.2.2 cloning, and test-boundary issues.
-  The final physical-GPU matrix passed with **379 passed, 2 expected skips, 0
+  The final physical-GPU matrix passed with **380 passed, 2 expected skips, 0
   failed**; quick/full benchmark schemas passed without gate failures on NumPy,
   CuPy, and Torch.
+- The synchronized full benchmark measured heavy-ties median fit time at
+  0.477 s for NumPy, 0.179 s for CuPy, and 0.212 s for Torch. The GPU paths are
+  8.36x and 24.31x faster than their pre-optimization medians. Exact ties
+  improved 3.37x on CuPy and 3.42x on Torch; the deliberately bounded 120-row
+  case remains CPU-faster, and no implicit CPU fallback is used.
 
 ### Validation (2026-07-24) — PR #79 exact-head closure
 
