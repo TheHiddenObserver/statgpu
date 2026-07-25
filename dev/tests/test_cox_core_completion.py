@@ -5,6 +5,15 @@ import pytest
 
 from statgpu.survival import CoxPH
 
+def _to_numpy(value):
+    """Make backend-native test outputs explicit at the assertion boundary."""
+    if hasattr(value, "get"):
+        return value.get()
+    if hasattr(value, "detach"):
+        return value.detach().cpu().numpy()
+    return np.asarray(value)
+
+
 
 def _survival_data(n=260, p=4, seed=2701, tied=False):
     rng = np.random.default_rng(seed)
@@ -228,7 +237,7 @@ def test_predict_survival_custom_times_use_step_lookup():
     expected = np.exp(-np.exp(X[:3] @ model.coef_)[:, None] * expected_h0[None, :])
 
     assert survival.shape == (3, custom_times.size)
-    np.testing.assert_array_equal(returned_times, custom_times)
+    np.testing.assert_array_equal(_to_numpy(returned_times), custom_times)
     np.testing.assert_allclose(survival, expected, rtol=1e-12, atol=1e-12)
     np.testing.assert_allclose(survival[:, 0], 1.0, rtol=0, atol=0)
 
@@ -278,7 +287,7 @@ def test_gpu_nonrobust_inference_keeps_full_covariance_and_baseline(device, ties
     )
     survival, returned_times = model.predict_survival(X[:5], custom_times)
     assert survival.shape == (5, 3)
-    np.testing.assert_array_equal(returned_times, custom_times)
+    np.testing.assert_array_equal(_to_numpy(returned_times), custom_times)
 
 
 @pytest.mark.parametrize(

@@ -114,37 +114,42 @@ def _fused_glm_value_and_gradient(loss, X, y, coef):
 
 
 def _weighted_loss_and_grad(loss, X, y, coef, sample_weight):
-    """Weighted loss+gradient (GLM-specific fast paths)."""
-    n = X.shape[0]
+    """Weighted loss+gradient using per_sample_value/gradient directly.
+
+    Uses per_sample_value() and per_sample_gradient() to compute
+    weighted results without calling back into fused_value_and_gradient(),
+    avoiding infinite recursion when fused_value_and_gradient itself
+    delegates to this helper for weighted computations.
+    """
+    from statgpu.backends import xp_asarray
+
     _backend = _resolve_backend("auto", X)
     xp = _get_xp(_backend)
-    _sw_np = _to_numpy(sample_weight)
-    if hasattr(X, "device"):
-        _sw = xp.asarray(_sw_np, dtype=X.dtype, device=X.device)
-    else:
-        _sw = xp.asarray(_sw_np, dtype=X.dtype)
-    sw_sum = _to_float_scalar(xp.sum(_sw))
+
+    sw = xp_asarray(sample_weight, dtype=X.dtype, xp=xp, ref_arr=X).reshape(-1)
+
+    if sw.ndim != 1 or sw.shape[0] != X.shape[0]:
+        raise ValueError(
+            "sample_weight must be one-dimensional with length n_samples"
+        )
 
     loss_name = getattr(loss, "name", "")
     if loss_name == "squared_error":
         resid = X @ coef - y
-        grad = X.T @ (_sw * resid) / sw_sum
-        val = 0.5 * _to_float_scalar(xp.sum(_sw * resid * resid)) / sw_sum
+        weight_sum = _to_float_scalar(xp.sum(sw))
+        grad = X.T @ (sw * resid) / weight_sum
+        val = 0.5 * _to_float_scalar(xp.sum(sw * resid * resid)) / weight_sum
         return val, grad
 
-    if hasattr(loss, "fused_value_and_gradient"):
-        try:
-            return loss.fused_value_and_gradient(
-                X, y, coef, sample_weight=sample_weight
-            )
-        except TypeError:
-            pass
+    # Compute per-sample loss and gradient, then apply weights.
+    # This avoids calling fused_value_and_gradient() which would recurse
+    # back into this same function when sample_weight is present.
+    eta = X @ coef
+    per_value = loss.per_sample_value(eta, y)
+    per_gradient = loss.per_sample_gradient(eta, y)
 
-    try:
-        val = loss.value(X, y, coef, sample_weight=sample_weight)
-        grad = loss.gradient(X, y, coef, sample_weight=sample_weight)
-        return val, grad
-    except TypeError:
-        val = loss.value(X, y, coef)
-        grad = loss.gradient(X, y, coef)
-        return val, grad
+    weight_sum = xp.sum(sw)
+    val = xp.sum(sw * per_value) / weight_sum
+    grad = X.T @ (sw * per_gradient) / weight_sum
+
+    return val, grad

@@ -1,256 +1,217 @@
-# Cox 比例风险模型
+# CoxPH
 
-> 语言：中文
->
-> 最后更新：2026-07-12
->
-> 页面定位：模型文档
->
+> 语言：中文<br>
+> 最后更新：2026-07-25<br>
+> 页面定位：模型文档<br>
 > 切换：[English](../../en/models/coxph.md)
 
 ## 概览
 
-statgpu 提供三层 Cox 比例风险模型接口：
+`CoxPH` 在 NumPy、CuPy CUDA 与 Torch CUDA 后端实现比例风险回归，支持
+Breslow、Efron 与 Exact 三种 ties 处理，同时覆盖普通右删失、delayed entry、
+计数过程 `(start, stop]` 行、独立 strata、时变协变量、稳健/聚类协方差，以及
+通过 `CoxPHCV` 选择 L2 惩罚。
 
-| 接口 | 用途 | 当前边界 |
-|---|---|---|
-| `statgpu.survival.CoxPH` | 无惩罚或固定 L2 惩罚的估计、推断、基线风险与预测 | 支持 Breslow、Efron、Exact ties |
-| `statgpu.survival.CoxPHCV` | 用 K 折部分似然选择 L2 强度并在全量数据上重拟合 | 支持与 `CoxPH` 相同的 ties、计数过程和三后端轴 |
-| `statgpu.linear_model.PenalizedCoxPHModel` | L1、L2、Elastic Net、SCAD、MCP 惩罚估计 | 仅估计；无截距、无推断和基线风险 |
+重要行为：
 
-三者均支持 NumPy CPU、CuPy CUDA 和 Torch CUDA。显式选择 `device="cuda"` 或
-`device="torch"` 时，后端不可用或执行失败会直接报错，不会静默回退 CPU。
+- 显式 `device="cuda"` 与 `device="torch"` 不会静默回退 CPU；
+- `entry=` 与 `start=` 是互斥的别名；
+- 某行在时刻 `t` 进入风险集，当且仅当 `start < t <= stop`，且其 stratum
+  与事件所属 stratum 相同；
+- `subject_id=` 标识同一受试者的重复行，用于 concordance、sandwich 聚合和
+  保持受试者完整的 CV folds；
+- `compute_inference=False` 仅执行估计，推断与 baseline-hazard 字段保持未设置。
 
-## 数据与风险集
-
-对第 $s$ 个分层，计数过程数据在事件时刻 $t$ 的风险集定义为
-
-$$
-R_s(t)=\{j:\operatorname{strata}_j=s,\;\operatorname{start}_j<t\leq
-\operatorname{stop}_j\}.
-$$
-
-因此区间采用 **$(\text{start},\text{stop}]$** 约定。`time` 表示 `stop`；
-`entry` 与 `start` 是同一含义的两个入口，二者不能同时传入。未传入时等价于普通
-右删失数据。`strata` 为每个分层建立独立风险集和基线风险，但所有分层共享系数。
-对同一受试者的多行时变协变量数据，传入 `subject_id` 可让 C-index 排除受试者内部配对，
-并在 HC0/HC1 稳健推断中按受试者聚合行级得分。
-
-公式接口接受以下两种响应：
+## 导入
 
 ```python
-from statgpu.survival import CoxPH
-
-CoxPH().fit(formula="Surv(time, event) ~ age + treatment", data=df)
-CoxPH().fit(formula="Surv(start, stop, event) ~ age + treatment", data=df)
+from statgpu.survival import CoxPH, CoxPHCV
 ```
 
-拟合时 Patsy 会删除生存响应或设计项中含缺失值的行，并将外部逐行数组同步到保留行。
-预测和评分不会静默复用这种删行行为：公式协变量含缺失值时会抛出 `ValueError`，从而
-保证每个输入行都对应一个输出。
+## 风险集与 ties 方法
 
-## 部分似然与 ties
-
-模型为
+对第 `i` 行的起始时间 `a_i`、终止时间 `b_i`、事件指示 `delta_i` 与分层
+`s_i`，时刻 `t` 的风险集为
 
 $$
-h_s(t\mid x)=h_{0s}(t)\exp(x^\top\beta).
+R_s(t)=\{i : a_i < t \le b_i,\ s_i=s\}.
 $$
 
-`ties` 支持：
+`ties="breslow"` 和 `ties="efron"` 使用对应的并列事件部分似然；
+`ties="exact"` 通过 elementary-symmetric 动态规划计算 Exact 分母。
+delayed entry、strata、Exact ties、L2 惩罚拟合与 GPU 稳健推断共用同一套
+计数过程风险集引擎，因此三个后端遵循一致的 `(start, stop]` 约定。
 
-- `"breslow"`：Breslow 近似；
-- `"efron"`：Efron 近似，通常更适合存在较多并列事件的普通规模数据；
-- `"exact"`：Exact 部分似然，通过基本对称多项式动态规划计算并列事件组合。
+当 `penalty > 0` 时，优化目标为部分对数似然减去
+`penalty * ||beta||^2`。惩罚估计不是无约束最大似然估计，因此不会把普通
+likelihood-ratio 统计量与信息准则作为经典无惩罚结果报告。
 
-普通右删失的 Breslow/Efron 路径使用专用向量化实现；`start`/`entry`、`strata`、
-`subject_id` 或 Exact 会进入共享的后端原生计数过程实现。Exact 的成本随风险集大小和
-同一时刻事件数增长，当前更适合并列事件数受控的场景。
+## Formula 接口
 
-## 推断、基线风险与预测
-
-`CoxPH(compute_inference=True)` 支持：
-
-- `cov_type="nonrobust"`：观测信息矩阵协方差；
-- `cov_type="hc0"`、`"hc1"`：sandwich 稳健协方差；
-- `cov_type="cluster"`：聚类稳健协方差，需要 `fit(..., cluster=...)`。
-
-Breslow/Efron、普通右删失和 start-stop/分层数据均可在 NumPy、CuPy、Torch 上执行这些
-推断路径。**当 `compute_inference=True` 时，Exact 只支持
-`cov_type="nonrobust"`**；Exact 与 HC0、HC1 或 cluster 组合会抛出
-`NotImplementedError`，不会改用近似协方差。`compute_inference=False` 时
-`cov_type` 不参与计算，因此不会阻止纯估计拟合。
-
-系数无论使用 Breslow、Efron 还是 Exact 拟合，基线风险、累计基线风险和
-生存概率都统一使用常规 **Breslow 基线估计量**；分层模型为每个 stratum 单独保存基线。
-这些结果在 `compute_inference=True` 时计算；分层模型调用 `predict_survival` 时需为预测行
-提供 `strata`。
-
-当 `penalty > 0` 时，协方差来自惩罚后的观测曲率，并以给定 penalty 为条件；
-`CoxPHCV` 最终重拟合给出的标准误和区间属于未经选择校正的朴素 post-selection
-推断。经典 likelihood-ratio、AIC 与 BIC 因此只对无惩罚拟合报告。
-
-主要输出包括：
-
-- `coef_`、`hazard_ratios_`；
-- `_bse`、`_zvalues`、`_pvalues`、`_conf_int`（启用推断时）；
-- `log_likelihood`、`concordance_index`，以及无惩罚拟合的 `aic`、`bic`；
-- 基线风险、累计基线风险和 `predict_survival(...)`。
-
-## `CoxPH` 示例
-
-### 分层 start-stop 与受试者级稳健推断
+支持两种生存响应：
 
 ```python
-from statgpu.survival import CoxPH
-
-model = CoxPH(
-    ties="efron",
-    cov_type="hc1",
-    device="cuda",
-    compute_inference=True,
+CoxPH().fit(formula="Surv(time, event) ~ age + C(group)", data=df)
+CoxPH().fit(
+    formula="Surv(start, stop, event) ~ age + treatment",
+    data=df,
+    strata=df["clinic"],
+    subject_id=df["patient_id"],
 )
-model.fit(
-    X,
+```
+
+Formula 删除缺失行时，会同步对齐 `entry`/`start`、`cluster`、`strata` 与
+`subject_id`。三列 `Surv(start, stop, event)` 已定义起始时间，不能再同时传入
+`entry=` 或 `start=`。
+
+## 优化与收敛
+
+Newton 迭代使用 line search，并在最终参数处执行 KKT 检查。line search
+失败不会更新系数，也不能报告收敛。公开拟合状态包括：
+
+- `converged_`；
+- `termination_reason_`；
+- `n_iter_`；
+- `final_kkt_inf_`；
+- `final_kkt_normalized_`。
+
+likelihood、gradient、Hessian、协方差、baseline hazard 与公开收敛状态均从
+最终系数向量重新计算。
+
+## 协方差与推断
+
+| `cov_type` | 含义 |
+|---|---|
+| `"nonrobust"` | 基于观测信息矩阵的模型协方差 |
+| `"hc0"` | score-sandwich 协方差 |
+| `"hc1"` | 带有限独立单元修正的 score-sandwich 协方差 |
+| `"cluster"` | 聚类稳健协方差；在 `fit` 时传入 `cluster=` |
+
+Breslow 与 Efron 的 strict 稳健推断使用 statgpu 内部的精确计数过程 score
+residual，不依赖 statsmodels。同一受试者的重复行会先按 `subject_id` 汇总再
+形成 HC0/HC1 meat；cluster 协方差按 `cluster` 汇总。
+
+`inference_mode="strict"` 是默认值。`inference_mode="approx"` 仅用于显式选择
+旧路径的 event-row Efron sandwich 近似。近似推断会写入公开 provenance 字段，
+不会被静默启用。
+
+Exact ties 当前只支持模型协方差（`cov_type="nonrobust"`）。若在
+`ties="exact"` 下请求 HC0、HC1 或 cluster 推断，会抛出
+`NotImplementedError`。当 `compute_inference=False` 时，可以保留稳健
+`cov_type` 标签，但不会计算协方差。
+
+推断来源通过以下字段公开：
+
+- `inference_method_`；
+- `inference_backend_`；
+- `inference_approximate_`；
+- `inference_fallback_reason_`；
+- `full_host_transfer_performed_`。
+
+## 参数
+
+| 参数 | 默认值 | 说明 |
+|---|---:|---|
+| `ties` | `"breslow"` | `"breslow"`、`"efron"` 或 `"exact"` |
+| `tol` | `1e-9` | Newton/KKT 收敛阈值 |
+| `max_iter` | `100` | 最大迭代次数 |
+| `device` | `"auto"` | `"cpu"`、`"cuda"`、`"torch"` 或 `"auto"` |
+| `compute_inference` | `True` | 计算协方差、检验与 baseline hazard |
+| `compute_cindex` | `True` | 计算训练集 concordance |
+| `cov_type` | `"nonrobust"` | `"nonrobust"`、`"hc0"`、`"hc1"` 或 `"cluster"` |
+| `penalty` | `0.0` | 非负 L2 惩罚 |
+| `inference_mode` | `"strict"` | `"strict"` 或显式 `"approx"` |
+| `gpu_memory_cleanup` | `False` | 尝试释放 CuPy/Torch 缓存 |
+
+## 支持矩阵
+
+| 能力 | Breslow | Efron | Exact | NumPy | CuPy | Torch |
+|---|---|---|---|---|---|---|
+| 普通右删失 | 支持 | 支持 | 支持 | 支持 | 支持 | 支持 |
+| delayed entry / `(start, stop]` | 支持 | 支持 | 支持 | 支持 | 支持 | 支持 |
+| 独立 `strata` | 支持 | 支持 | 支持 | 支持 | 支持 | 支持 |
+| 非负 L2 `penalty` | 支持 | 支持 | 支持 | 支持 | 支持 | 支持 |
+| nonrobust 推断 | 支持 | 支持 | 支持 | 支持 | 支持 | 支持 |
+| HC0 / HC1 / cluster 推断 | 支持 | 支持 | 未实现 | 支持 | 支持 | 支持 |
+| 后端原生预测数组 | 支持 | 支持 | 支持 | NumPy | CuPy | Torch |
+
+`predict_survival` 需要已拟合的 baseline hazard，因此需要生存曲线时应保留
+`compute_inference=True`。risk-score 与 hazard-ratio 预测不依赖 baseline。
+
+## 交叉验证
+
+`CoxPHCV` 使用相同的 ties、start/entry、strata 与后端语义评估 L2 penalty
+网格，再以最佳 penalty 重拟合 `CoxPH`。传入 `subject_id` 后，同一受试者的
+全部行会被保留在同一自动生成 fold 中；若用户提供的 `cv_splits` 把同一
+受试者泄漏到 train 与 validation，会被拒绝。`inference_mode` 与
+`compute_inference` 会转发到最终 refit。
+
+```python
+cv_model = CoxPHCV(
+    penalties=[0.0, 0.01, 0.1],
+    cv=5,
+    ties="efron",
+    device="cpu",
+).fit(
+    X_rows,
     stop,
     event,
     start=start,
-    strata=strata,
-    subject_id=subject_id,
-)
-
-survival, eval_times = model.predict_survival(
-    X_new,
-    times=[1.0, 2.0, 5.0],
-    strata=strata_new,
+    strata=clinic,
+    subject_id=patient_id,
 )
 ```
 
-### Exact ties
+## 预测与评分
 
-```python
-from statgpu.survival import CoxPH
+对数组输入，`predict`、`predict_risk_score`、`predict_hazard_ratio`、
+`predict_survival` 与 `score` 都在拟合后端执行。分层生存预测要求每个预测行
+提供一个训练时已知的 stratum 标签。生存曲线在 log-domain 中累计 baseline，
+以提高数值稳定性。Formula 拟合模型会在预测前应用已保存的设计矩阵转换。
 
-model = CoxPH(
-    ties="exact",
-    cov_type="nonrobust",  # Exact 当前仅支持非稳健协方差
-    device="torch",
-)
-model.fit(X_torch, time_torch, event_torch)
-```
+## 输出
 
-## `CoxPHCV`：L2 交叉验证
+- 参数：`coef_`、`hazard_ratios_`；
+- 推断：启用时的 `_bse`、`_zvalues`、`_pvalues`、`_conf_int`；
+- 诊断：定义时的 `log_likelihood`、`aic`、`bic`、`concordance_index`；
+- 收敛：`converged_`、`termination_reason_`、`n_iter_`、
+  `final_kkt_inf_`、`final_kkt_normalized_`；
+- provenance：`inference_method_`、`inference_backend_`、
+  `inference_approximate_`、`inference_fallback_reason_`、
+  `full_host_transfer_performed_`。
 
-`CoxPHCV` 对候选 `penalties` 计算 held-out Cox 部分似然，选择最佳 L2 强度后在全量数据
-上用同一后端重拟合 `CoxPH`。评分遵循所选 Breslow/Efron/Exact ties、
-$(\text{start},\text{stop}]$ 风险集和分层边界。
+## 验证
 
-当提供 `subject_id` 时，自动 K 折按受试者分组，避免同一受试者同时出现在训练集与验证集；
-自定义 `cv_splits` 若产生受试者泄漏会直接报错。`cv_results_` 包含每个 penalty/fold 的
-部分似然、收敛状态、迭代数、停止原因和 fold 元数据。拟合失败会传播或记录为失败诊断，
-不会把 CPU 或另一个 GPU 后端的结果伪装成当前设备结果。
-fold 构造与诊断记录由主机编排；显式 CuPy/Torch 模式下，候选拟合和 held-out
-部分似然评分都保留在所请求后端，`cv_results_` 分别记录拟合、评分和编排设备。
+2026-07-25 的 PR #80 review 已通过本地 NumPy quick gate，覆盖普通 heavy ties、
+delayed entry、Exact ties、分层 start-stop、推断、subject-grouped CV，以及模型
+可比场景下的 statsmodels 对齐；结果 schema 通过且没有本地 gate failure。
+随后通过 Paramiko 将准确的 reviewed source 放入远程隔离 worktree，并在 Tesla
+P100-SXM2-16GB 的 `myconda` 环境中验证。首次真实 GPU 执行暴露了 11 个可修复的
+后端/测试边界及 scikit-learn 1.2.2 兼容问题；review-fix 后，原失败节点与相邻
+契约共 **15 项全部通过**，完整矩阵结果为 **379 passed、2 个预期 skip、0
+failed**。远程 quick 与 full benchmark 均报告
+`validation_tier="remote-full"`、`schema_status="ok"`、零 gate failure；
+NumPy、CuPy、Torch 的 compatibility、inference 与 subject-grouped CV 全部
+通过。因此 PR #80 新路径由当前源码的真实 P100 结果验证，而不是仅沿用 PR #79
+的历史证据。
 
-```python
-from statgpu.survival import CoxPHCV
+相关验证入口：
 
-cv = CoxPHCV(
-    penalties=[0.0, 1e-4, 1e-3, 1e-2],
-    cv=5,
-    ties="exact",
-    device="cuda",
-    cov_type="nonrobust",
-    random_state=42,
-)
-cv.fit(
-    X_cupy,
-    stop_cupy,
-    event_cupy,
-    start=start_cupy,
-    strata=strata_cupy,
-    subject_id=subject_cupy,
-)
+- `dev/tests/test_survival_risk_sets.py`；
+- `dev/tests/test_cox_phase1_completion.py`；
+- `dev/tests/test_cox_cv.py`；
+- `dev/benchmarks/benchmark_survival_completion.py`。
 
-print(cv.penalty_, cv.best_score_)
-print(cv.cv_results_["converged_path"])
-```
+## 限制
 
-Exact 的最终重拟合也受“仅 `nonrobust` 推断”的限制。
-
-## `PenalizedCoxPHModel`：稀疏与非凸惩罚
-
-`PenalizedCoxPHModel` 当前公开并验证五类惩罚：`l1`、`l2`、`elasticnet`、`scad`、
-`mcp`。求解使用 FISTA 家族；SCAD/MCP 使用 FISTA-LLA 的局部线性近似路径。
-
-```python
-import numpy as np
-from statgpu.linear_model import PenalizedCoxPHModel
-
-y_surv = np.column_stack([time, event])
-model = PenalizedCoxPHModel(
-    penalty="scad",
-    alpha=0.05,
-    ties="efron",
-    fit_intercept=False,
-    compute_inference=False,
-    device="cuda",
-)
-model.fit(X, y_surv)
-hazard_ratio = model.predict_hazard_ratio(X_new)
-
-# 右删失公式支持分类变量、交互项、变换和 Patsy 的 NA 删除；
-# 不可识别的截距会自动从设计矩阵中移除。
-formula_model = PenalizedCoxPHModel(
-    penalty="l2", alpha=0.05, ties="efron", device="cpu"
-)
-formula_model.fit(
-    formula="Surv(time, event) ~ age * C(group) + np.log(marker)",
-    data=frame,
-)
-```
-
-当前限制必须显式考虑：
-
-- Cox 部分似然不能识别截距，因此 `fit_intercept=True` 会报错；
-- 该类仅提供惩罚估计、风险比和 C-index；`compute_inference=True` 会抛出
-  `NotImplementedError`；
-- 需要标准误、显著性检验、置信区间、基线风险或生存曲线时，使用无惩罚 `CoxPH`；
-- 该惩罚接口接收形如 `[time, event]` 的二维响应，或右删失
-  `Surv(time, event)` 公式；公式支持分类变量、交互项、变换和 NA 删除；
-- 尚不提供 `CoxPH` 的 start-stop/strata/subject 公共接口，也不支持 Exact ties；
-- 仅接受已公开验证的 L1、L2/Ridge、Elastic Net、SCAD、MCP 或无惩罚；可传入字符串
-  或对应的内置 penalty 对象。对象参数会在每次拟合前重新校验，并支持 `sklearn.clone`；
-  adaptive/group penalty 的 Cox 路径尚未验证，因此会显式报错；
-- 非有限的 penalty、容差及非法迭代次数会在优化前显式报错。
-
-## 性能与验证
-
-2026-07-12 的两份可复现实验产物为：
-
-- [`results/survival_completion_2026-07-12.json`](../../../results/survival_completion_2026-07-12.json)：quick 规模；
-- [`results/survival_completion_full_2026-07-12.json`](../../../results/survival_completion_full_2026-07-12.json)：full 规模。
-
-实验使用 NVIDIA RTX 5880 Ada Generation、Python 3.11.15、NumPy 2.4.6、
-CuPy 14.1.1、Torch 2.8.0+cu128、float64；每个场景 1 次 warmup、2 次计时重复。
-`fit` 计时包含优化、推断和基线估计，主机到设备传输单独计时。
-
-full delayed-entry 场景（$n=2500,p=16$，Breslow）中，CuPy 和 Torch 相对 NumPy
-分别为 **1.044×** 和 **1.374×**。但性能高度依赖风险集结构和问题规模：同一 full
-产物中的 stratified start-stop 场景仅为 **0.241×** 和 **0.411×**；Exact 与普通
-重 ties 场景也慢于 NumPy。quick delayed-entry 中 CuPy 为 0.647×、Torch 为 0.959×。
-这两份产物未确定通用 crossover 规模，因此不能据此承诺所有生存分析工作负载都有 GPU
-加速。
-
-三后端在 delayed-entry、Exact、普通重 ties 和 stratified start-stop 场景均通过兼容性、
-收敛和推断矩阵；后端间系数、标准误、对数部分似然和预测误差在所列容差内。Breslow/Efron
-CPU 结果与 statsmodels PHReg 比较；Exact 由小规模暴力枚举测试验证，当前产物未调用
-R `survival`。两份产物中的 stratified start-stop + subject-grouped `CoxPHCV` 在三后端
-均选择相同 penalty，最终 refit 系数和标准误的最大后端差异小于 $10^{-16}$。
+- Exact ties 尚不支持 robust/cluster 协方差；
+- Exact ties 使用组合动态规划，适合规模适中的并列事件组，不适合无限制的大型 tie block；
+- 尚未实现 frailty/random-effect 项；
+- 可选 `torch.compile` 加速要求兼容 Triton 的硬件，不属于可移植 correctness 契约。
 
 ## 参考文献
 
 - Cox, D. R. (1972). Regression models and life-tables. *JRSS B*, 34(2), 187–220.
 - Breslow, N. (1974). Covariance analysis of censored survival data. *Biometrics*, 30(1), 89–99.
 - Efron, B. (1977). The efficiency of Cox's likelihood function for censored data. *JASA*, 72(359), 557–565.
-- Lin, D. Y. & Wei, L. J. (1989). The robust inference for the Cox proportional hazards model. *JASA*, 84(408), 1074–1078.
+- Lin, D. Y., & Wei, L. J. (1989). The robust inference for the Cox proportional hazards model. *JASA*, 84(408), 1074–1078.

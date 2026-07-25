@@ -1,9 +1,9 @@
 # Unsupervised Learning
 
 > Language: English
-> Last updated: 2026-05-08
+> Last updated: 2026-07-23
 > This page: Unsupervised learning index
-> Switch: [Chinese](../../unsupervised/README.md)
+> Switch: [Chinese](../../cn/unsupervised/README.md)
 
 ## Overview
 
@@ -38,7 +38,7 @@
 | `MiniBatchKMeans` | yes | yes | yes | Mini-batch squared Euclidean inertia |
 | `IncrementalPCA` | yes | yes | yes | Batch-wise centered low-rank reconstruction |
 | `MiniBatchNMF` | yes | yes | yes | Mini-batch Frobenius reconstruction loss |
-| `UMAP` | yes | yes | yes | Fuzzy graph cross-entropy |
+| `UMAP` | yes | yes, host SciPy graph assembly | yes, host SciPy graph assembly | Fuzzy graph cross-entropy |
 | `TSNE` | yes | yes | yes | KL divergence between high- and low-dimensional affinities |
 
 Explicit `device="cuda"` and `device="torch"` do not silently fall back to CPU. Unsupported GPU paths raise clear errors.

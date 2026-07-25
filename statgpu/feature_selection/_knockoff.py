@@ -1,4 +1,4 @@
-"""Fixed-X knockoff feature selection skeleton (CPU/GPU)."""
+"""Fixed-X and model-X knockoff feature selection across supported backends."""
 
 from __future__ import annotations
 
@@ -29,6 +29,18 @@ from statgpu.feature_selection._knockoff_utils import (
 
 # Backward compatibility for existing internal profiling scripts.
 _random_permutation_inds = _kutils._random_permutation_inds
+
+
+def _validate_optional_positive_int(value, name: str) -> Optional[int]:
+    """Validate an optional strictly-positive integer without truncation."""
+    if value is None:
+        return None
+    if isinstance(value, (bool, np.bool_)) or not isinstance(value, (int, np.integer)):
+        raise TypeError(f"{name} must be a positive integer or None")
+    result = int(value)
+    if result <= 0:
+        raise ValueError(f"{name} must be a positive integer")
+    return result
 
 
 @dataclass
@@ -407,6 +419,7 @@ def model_x_knockoff_filter(
         if method_key in ("ols_coef_diff", "ols", "coef_diff", "lasso_coef_diff", "lasso", "lasso_diff")
         else 3
     )
+    validated_draws = _validate_optional_positive_int(modelx_draws, "modelx_draws")
 
     if compat == "knockpy":
         # Preserve backend-native execution when caller supplies Xk and explicitly
@@ -506,7 +519,7 @@ def model_x_knockoff_filter(
                     )
                 )
             else:
-                n_modelx_draws = max(1, int(default_draws if modelx_draws is None else modelx_draws))
+                n_modelx_draws = default_draws if validated_draws is None else validated_draws
                 for draw_idx in range(n_modelx_draws):
                     draw_seed = _model_x_draw_seed(random_state, draw_idx)
                     Xk_draw, draw_meta = _build_model_x_knockoffs_knockpy_compat(
@@ -537,7 +550,7 @@ def model_x_knockoff_filter(
             model_meta.update(draw_meta)
 
         n_modelx_draws = int(len(draw_specs))
-        W_np = np.asarray(W_acc / float(max(1, n_modelx_draws)), dtype=np.float64)
+        W_np = np.asarray(W_acc / float(n_modelx_draws), dtype=np.float64)
         threshold, fdr_hat, trajectory = _knockoff_threshold_and_path(W_np, q=q_f, offset=offset)
 
         if np.isfinite(threshold):
@@ -602,7 +615,7 @@ def model_x_knockoff_filter(
         }
     else:
         X_std = _standardize_features_unit_variance(X_arr, xp)
-        n_modelx_draws = max(1, int(default_draws if modelx_draws is None else modelx_draws))
+        n_modelx_draws = default_draws if validated_draws is None else validated_draws
 
         W_acc = None
         method_n = "corr_diff"
@@ -808,11 +821,66 @@ class KnockoffSelector:
     def transform(self, X):
         if self.selected_features_ is None:
             raise RuntimeError("Selector has not been fitted yet")
-        X_arr = np.asarray(X)
-        return X_arr[:, self.selected_features_]
+        module = type(X).__module__
+        if module.startswith("torch"):
+            import torch
+
+            X_arr = X
+            indices = torch.as_tensor(
+                self.selected_features_, dtype=torch.long, device=X.device
+            )
+        elif module.startswith("cupy"):
+            import cupy as cp
+
+            X_arr = X
+            indices = cp.asarray(self.selected_features_, dtype=cp.int64)
+        else:
+            X_arr = np.asarray(X)
+            indices = self.selected_features_
+        if X_arr.ndim != 2:
+            raise ValueError(f"X must be 2D, got shape {X_arr.shape}")
+        expected = int(self.result_.W.shape[0])
+        if int(X_arr.shape[1]) != expected:
+            raise ValueError(
+                f"X has {X_arr.shape[1]} features, but selector was fitted with {expected}"
+            )
+        return X_arr[:, indices]
 
     def fit_transform(self, X, y, Xk=None):
         return self.fit(X, y, Xk=Xk).transform(X)
+
+    def get_params(self, deep=True):
+        return {
+            "knockoff_type": self.knockoff_type,
+            "q": self.q,
+            "method": self.method,
+            "fdr_control": self.fdr_control,
+            "random_state": self.random_state,
+            "backend": self.backend,
+            "compat_mode": self.compat_mode,
+            "lasso_cv_impl": self.lasso_cv_impl,
+            "lasso_fast_profile": self.lasso_fast_profile,
+            "modelx_covariance_shrinkage": self.modelx_covariance_shrinkage,
+            "modelx_s_scale": self.modelx_s_scale,
+            "modelx_draws": self.modelx_draws,
+            "modelx_shrinkage": self.modelx_shrinkage,
+            "modelx_smatrix_method": self.modelx_smatrix_method,
+            "knockpy_sampler": self.knockpy_sampler,
+            "knockpy_sampler_method": self.knockpy_sampler_method,
+        }
+
+    def set_params(self, **params):
+        valid = self.get_params(deep=False)
+        for name, value in params.items():
+            if name not in valid:
+                raise ValueError(
+                    f"Invalid parameter {name!r} for KnockoffSelector. "
+                    f"Valid parameters are: {', '.join(sorted(valid))}."
+                )
+            setattr(self, name, value)
+        self.result_ = None
+        self.selected_features_ = None
+        return self
 
 
 class FixedXKnockoffSelector:
@@ -866,5 +934,41 @@ class FixedXKnockoffSelector:
 
     def fit_transform(self, X, y, Xk=None):
         return self.fit(X, y, Xk=Xk).transform(X)
+
+    def get_params(self, deep=True):
+        return {
+            "q": self.q,
+            "method": self.method,
+            "fdr_control": self.fdr_control,
+            "random_state": self.random_state,
+            "backend": self.backend,
+            "compat_mode": self.compat_mode,
+            "lasso_cv_impl": self.lasso_cv_impl,
+            "lasso_fast_profile": self.lasso_fast_profile,
+        }
+
+    def set_params(self, **params):
+        valid = self.get_params(deep=False)
+        for name, value in params.items():
+            if name not in valid:
+                raise ValueError(
+                    f"Invalid parameter {name!r} for FixedXKnockoffSelector. "
+                    f"Valid parameters are: {', '.join(sorted(valid))}."
+                )
+            setattr(self, name, value)
+        self._selector = KnockoffSelector(
+            knockoff_type="fixed_x",
+            q=self.q,
+            method=self.method,
+            fdr_control=self.fdr_control,
+            random_state=self.random_state,
+            backend=self.backend,
+            compat_mode=self.compat_mode,
+            lasso_cv_impl=self.lasso_cv_impl,
+            lasso_fast_profile=self.lasso_fast_profile,
+        )
+        self.result_ = None
+        self.selected_features_ = None
+        return self
 
 

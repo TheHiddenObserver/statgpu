@@ -67,13 +67,24 @@ class _DeviceManager:
         if isinstance(device, str):
             device = Device(device.lower())
 
-        if device in (Device.CUDA, Device.TORCH) and not self.cuda_available():
-            warnings.warn(
-                "CUDA requested but not available. statgpu keeps the explicit "
-                "device setting and model execution will raise unless a matching "
-                "GPU backend is installed; use device='auto' for automatic CPU selection.",
-                RuntimeWarning
+        warning_message = None
+        if device == Device.CUDA and not self._check_cupy():
+            warning_message = (
+                "device='cuda' requested but a working CuPy CUDA backend is not "
+                "available. statgpu keeps the explicit device setting and model "
+                "execution will raise; use device='auto' for automatic backend "
+                "selection."
             )
+        elif device == Device.TORCH and not self._check_torch():
+            warning_message = (
+                "device='torch' requested but a working PyTorch CUDA backend is not "
+                "available. statgpu keeps the explicit device setting and model "
+                "execution will raise; use device='auto' for automatic backend "
+                "selection."
+            )
+
+        if warning_message is not None:
+            warnings.warn(warning_message, RuntimeWarning, stacklevel=2)
 
         self._current_device = device
 

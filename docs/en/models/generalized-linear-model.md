@@ -3,9 +3,9 @@
 > Language: English  
 > Last updated: 2026-05-20  
 > This page: Model documentation  
-> Switch: [Chinese](../../models/generalized-linear-model.md)
+> Switch: [Chinese](../../cn/models/generalized-linear-model.md)
 
-Language switch: [Chinese](../../models/generalized-linear-model.md)
+Language switch: [Chinese](../../cn/models/generalized-linear-model.md)
 
 ## Overview
 

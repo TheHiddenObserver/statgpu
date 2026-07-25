@@ -3,9 +3,9 @@
 > 语言: 中文
 > 最后更新: 2026-04-24
 > 页面定位: 指南文档
-> 切换: [English](../en/guides/distribution-api.md)
+> 切换: [English](../../en/guides/distribution-api.md)
 
-语言切换：[English](../en/guides/distribution-api.md)
+语言切换：[English](../../en/guides/distribution-api.md)
 
 本页说明当前 distribution API 的推荐调用方式。
 

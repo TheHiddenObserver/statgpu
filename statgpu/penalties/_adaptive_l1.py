@@ -14,6 +14,7 @@ __all__ = ["AdaptiveL1Penalty"]
 
 from typing import Optional
 import numpy as np
+from statgpu.backends._array_ops import _xp
 from statgpu.penalties._base import Penalty
 
 # ---- torch.compile lazy-loader (fuses elementwise ops into 1 kernel) ---------

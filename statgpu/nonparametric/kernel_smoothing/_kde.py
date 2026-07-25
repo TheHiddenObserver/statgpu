@@ -305,12 +305,19 @@ class KernelDensityEstimator(BaseEstimator):
         )
         log_terms_max = _xp_max(log_terms, axis=1, keepdims=True)
         finite_rows = xp.isfinite(log_terms_max[:, 0])
-        shifted = xp.where(finite_rows[:, None], log_terms - log_terms_max, float("-inf"))
-        return xp.where(
-            finite_rows,
-            log_terms_max[:, 0] + xp.log(xp.sum(xp.exp(shifted), axis=1)),
+        # ``where`` evaluates both branches on NumPy/CuPy, so protect the
+        # subtraction and logarithm explicitly to avoid inf-inf and log(0)
+        # warnings for valid zero-density rows of compact-support kernels.
+        safe_max = xp.where(finite_rows[:, None], log_terms_max, 0.0)
+        shifted = xp.where(
+            finite_rows[:, None],
+            log_terms - safe_max,
             float("-inf"),
         )
+        exp_sum = xp.sum(xp.exp(shifted), axis=1)
+        safe_exp_sum = xp.where(finite_rows, exp_sum, 1.0)
+        finite_result = safe_max[:, 0] + xp.log(safe_exp_sum)
+        return xp.where(finite_rows, finite_result, float("-inf"))
 
     def pdf(self, points, *, batch_size: int = 1024):
         self._require_fitted()

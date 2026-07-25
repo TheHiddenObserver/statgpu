@@ -2,7 +2,7 @@
 
 > 语言：中文
 > 最后更新：2026-05-09
-> English: [English](../en/unsupervised/agglomerative-clustering.md)
+> English: [English](../../en/unsupervised/agglomerative-clustering.md)
 
 ## 概览
 

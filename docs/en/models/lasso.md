@@ -3,9 +3,9 @@
 > Language: English  
 > Last updated: 2026-04-17  
 > This page: Model documentation  
-> Switch: [Chinese](../../models/lasso.md)
+> Switch: [Chinese](../../cn/models/lasso.md)
 
-Language switch: [Chinese](../../models/lasso.md)
+Language switch: [Chinese](../../cn/models/lasso.md)
 
 ## Overview
 

@@ -170,7 +170,7 @@ convex L1/L2/ElasticNet paths use the corresponding FISTA/Newton routing.
 | Cox partial likelihood (Breslow/Efron) | ✅ native | ✅ native | ✅ native |
 | CoxPH counting process / strata / Exact | ✅ native | ✅ native | ✅ native |
 | DBSCAN | ✅ | GPU dist + host-sync CC | ✅ on-device |
-| UMAP | ✅ | backend-aware + known host transfer | backend-aware + known host transfer |
+| UMAP | yes | supported with explicit SciPy host graph boundary | supported with explicit SciPy host graph boundary |
 
 ## 5. Penalized Model Classes
 

@@ -1,6 +1,6 @@
 """
 Validation script for Ridge and Lasso implementations.
-Compares against sklearn and statsmodels.
+Compares against sklearn and statsmodels using explicit objective mappings.
 """
 
 import numpy as np
@@ -53,7 +53,7 @@ def generate_data(n_samples=1000, n_features=10, noise=0.1, random_state=42):
 
 
 def validate_ridge():
-    """Validate Ridge implementation."""
+    """Validate Ridge implementation under the average-loss objective."""
     print("\n" + "="*80)
     print("RIDGE REGRESSION VALIDATION")
     print("="*80)
@@ -70,26 +70,27 @@ def validate_ridge():
     print(f"R²: {ridge_sg.rsquared:.6f}")
     print(f"AIC: {ridge_sg.aic:.4f}, BIC: {ridge_sg.bic:.4f}")
 
-    # Compare with sklearn
+    # Compare with sklearn after mapping the objective scale.
     if sklearn_available:
-        print("\n--- sklearn Ridge ---")
-        ridge_sk = SklearnRidge(alpha=alpha, fit_intercept=True)
+        sklearn_alpha = X.shape[0] * alpha
+        print(f"\n--- sklearn Ridge (alpha={sklearn_alpha:g}) ---")
+        print("Mapping: sklearn_alpha = n_samples * statgpu_alpha")
+        ridge_sk = SklearnRidge(alpha=sklearn_alpha, fit_intercept=True)
         ridge_sk.fit(X, y)
         print(f"Coefficients (first 5): {ridge_sk.coef_[:5]}")
         print(f"Intercept: {ridge_sk.intercept_:.6f}")
         print(f"R² (score): {ridge_sk.score(X, y):.6f}")
 
-        # Compare coefficients
         coef_diff = np.abs(ridge_sg.coef_ - ridge_sk.coef_)
         intercept_diff = abs(ridge_sg.intercept_ - ridge_sk.intercept_)
-        print(f"\n--- Comparison ---")
+        print("\n--- Comparison ---")
         print(f"Max coefficient difference: {np.max(coef_diff):.2e}")
         print(f"Intercept difference: {intercept_diff:.2e}")
 
         if np.max(coef_diff) < 1e-6 and intercept_diff < 1e-6:
-            print("✓ Ridge coefficients match sklearn!")
+            print("✓ Ridge coefficients match sklearn under the mapped objective!")
         else:
-            print("✗ Ridge coefficients differ from sklearn")
+            print("✗ Ridge coefficients differ from sklearn under the mapped objective")
 
     # Compare with statsmodels
     if statsmodels_available:
@@ -108,9 +109,8 @@ def validate_lasso():
     print("="*80)
 
     X, y, true_coef = generate_data(n_samples=1000, n_features=10)
-    alpha = 0.1  # Smaller alpha for Lasso
+    alpha = 0.1
 
-    # Fit our implementation
     print("\n--- statgpu Lasso ---")
     lasso_sg = Lasso(alpha=alpha, fit_intercept=True, max_iter=2000, device='cpu')
     lasso_sg.fit(X, y)
@@ -121,7 +121,6 @@ def validate_lasso():
     print(f"R²: {lasso_sg.rsquared:.6f}")
     print(f"AIC: {lasso_sg.aic:.4f}, BIC: {lasso_sg.bic:.4f}")
 
-    # Compare with sklearn
     if sklearn_available:
         print("\n--- sklearn Lasso ---")
         lasso_sk = SklearnLasso(alpha=alpha, fit_intercept=True, max_iter=2000)
@@ -132,10 +131,9 @@ def validate_lasso():
         print(f"Iterations: {lasso_sk.n_iter_}")
         print(f"R² (score): {lasso_sk.score(X, y):.6f}")
 
-        # Compare coefficients
         coef_diff = np.abs(lasso_sg.coef_ - lasso_sk.coef_)
         intercept_diff = abs(lasso_sg.intercept_ - lasso_sk.intercept_)
-        print(f"\n--- Comparison ---")
+        print("\n--- Comparison ---")
         print(f"Max coefficient difference: {np.max(coef_diff):.2e}")
         print(f"Intercept difference: {intercept_diff:.2e}")
 
@@ -168,14 +166,11 @@ def benchmark_gpu():
     for n_samples, n_features in sizes:
         X, y, _ = generate_data(n_samples, n_features)
 
-        # Ridge benchmark
-        # CPU
         ridge_cpu = Ridge(alpha=1.0, device='cpu')
         t0 = time.perf_counter()
         ridge_cpu.fit(X, y)
         cpu_time = (time.perf_counter() - t0) * 1000
 
-        # GPU
         ridge_gpu = Ridge(alpha=1.0, device='cuda')
         t0 = time.perf_counter()
         ridge_gpu.fit(X, y)
@@ -184,15 +179,12 @@ def benchmark_gpu():
         speedup = cpu_time / gpu_time if gpu_time > 0 else float('inf')
         print(f"{n_samples}x{n_features:<8} {'Ridge':<10} {cpu_time:<12.2f} {gpu_time:<12.2f} {speedup:<10.2f}x")
 
-        # Lasso benchmark (smaller sizes due to iterative nature)
         if n_samples <= 10000:
-            # CPU
             lasso_cpu = Lasso(alpha=0.1, max_iter=500, device='cpu')
             t0 = time.perf_counter()
             lasso_cpu.fit(X, y)
             cpu_time = (time.perf_counter() - t0) * 1000
 
-            # GPU
             lasso_gpu = Lasso(alpha=0.1, max_iter=500, device='cuda')
             t0 = time.perf_counter()
             lasso_gpu.fit(X, y)
@@ -230,27 +222,25 @@ def test_api_compliance():
     X, y, _ = generate_data(n_samples=200, n_features=5)
     X_test, y_test, _ = generate_data(n_samples=100, n_features=5, random_state=43)
 
-    # Test Ridge API
     ridge = Ridge(alpha=1.0, device='cpu')
     ridge.fit(X, y)
     y_pred = ridge.predict(X_test)
     score = ridge.score(X_test, y_test)
 
-    print(f"\n--- Ridge API ---")
-    print(f"fit() works: ✓")
+    print("\n--- Ridge API ---")
+    print("fit() works: ✓")
     print(f"predict() shape: {y_pred.shape}")
     print(f"score() R²: {score:.6f}")
     print(f"coef_ shape: {ridge.coef_.shape}")
     print(f"intercept_: {ridge.intercept_:.6f}")
 
-    # Test Lasso API
     lasso = Lasso(alpha=0.1, device='cpu')
     lasso.fit(X, y)
     y_pred = lasso.predict(X_test)
     score = lasso.score(X_test, y_test)
 
-    print(f"\n--- Lasso API ---")
-    print(f"fit() works: ✓")
+    print("\n--- Lasso API ---")
+    print("fit() works: ✓")
     print(f"predict() shape: {y_pred.shape}")
     print(f"score() R²: {score:.6f}")
     print(f"coef_ shape: {lasso.coef_.shape}")

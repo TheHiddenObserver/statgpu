@@ -25,6 +25,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
+import statgpu  # noqa: E402
 from statgpu.survival import CoxPH, CoxPHCV  # noqa: E402
 
 REQUIRED_SCHEMA_KEYS = {
@@ -289,6 +290,17 @@ def _convert_data(data: Dict[str, np.ndarray], backend: str) -> Dict[str, Any]:
     return {name: _convert_array(value, backend) for name, value in data.items()}
 
 
+def _to_host(value: Any) -> np.ndarray:
+    """Convert a completed backend result after the timed/synchronized region."""
+    module = type(value).__module__
+    if module.startswith("cupy"):
+        import cupy as cp
+        return cp.asnumpy(value)
+    if module.startswith("torch"):
+        return value.detach().cpu().numpy()
+    return np.asarray(value)
+
+
 def _fit_kwargs(scenario: Dict[str, Any], converted: Dict[str, Any]) -> Dict[str, Any]:
     output: Dict[str, Any] = {}
     if scenario["use_start"]:
@@ -348,16 +360,22 @@ def _time_backend(
         _sync(backend)
         fit_samples.append(time.perf_counter() - started)
 
-    prediction_X = data["X"][: min(8, data["X"].shape[0])]
-    prediction_times = np.quantile(data["stop"], [0.2, 0.5, 0.8])
-    prediction_strata = (
-        data["strata"][: prediction_X.shape[0]] if scenario["use_strata"] else None
+    prediction_rows = min(8, data["X"].shape[0])
+    prediction_X = converted["X"][:prediction_rows]
+    prediction_times = _convert_array(
+        np.quantile(data["stop"], [0.2, 0.5, 0.8]), backend
     )
+    prediction_strata = (
+        converted["strata"][:prediction_rows] if scenario["use_strata"] else None
+    )
+    _sync(backend)
     pred_started = time.perf_counter()
     survival, _ = model.predict_survival(
         prediction_X, times=prediction_times, strata=prediction_strata
     )
+    _sync(backend)
     prediction_seconds = time.perf_counter() - pred_started
+    survival_host = _to_host(survival)
 
     baseline = model._baseline_by_stratum
     if baseline is None:
@@ -379,7 +397,7 @@ def _time_backend(
         "pvalues": model._pvalues.tolist(),
         "conf_int": model._conf_int.tolist(),
         "log_likelihood": float(model._log_likelihood),
-        "prediction": survival.tolist(),
+        "prediction": survival_host.tolist(),
         "baseline_last": baseline_last,
         "converged": bool(model._converged),
         "iterations": int(model._iterations),
@@ -449,7 +467,7 @@ def _cv_evidence(
                 "fit_seconds": float(time.perf_counter() - started),
                 "selected_penalty": float(model.penalty_),
                 "best_score": float(model.best_score_),
-                "coef": model.coef_.tolist(),
+                "coef": _to_host(model.coef_).tolist(),
                 "bse": model.estimator_._bse.tolist(),
                 "effective_device": model.effective_device_,
                 "scoring_device": model.cv_results_["scoring_device"],
@@ -806,7 +824,7 @@ def main() -> int:
         "timing_scope": {
             "transfer": "host arrays to backend arrays, separately synchronized",
             "fit": "warm backend arrays through optimization + inference + baseline",
-            "prediction": "host-side public predict_survival after fit",
+            "prediction": "backend-native predict_survival with synchronization before and after timing; result conversion excluded",
             "gpu_sync": "before and after every transfer/fit timing",
         },
         "reproducibility": {
@@ -820,7 +838,9 @@ def main() -> int:
             "python": sys.version.split()[0],
             "platform": platform.platform(),
             "packages": {
-                "statgpu": _version("statgpu"),
+                # Distribution metadata can point at a different editable
+                # checkout. Record the code imported for this benchmark.
+                "statgpu": statgpu.__version__,
                 "numpy": _version("numpy"),
                 "cupy": _version("cupy-cuda12x") or _version("cupy"),
                 "torch": _version("torch"),

@@ -98,13 +98,19 @@ def fit_counting_process_cox(
     for iteration in range(max_iter):
         iterations = iteration + 1
         penalized_score = current["score"] - 2.0 * penalty * beta
+        score_inf = xp.max(xp.abs(penalized_score))
+        raw_score_inf = xp.max(xp.abs(current["score"]))
+        beta_inf = xp.max(xp.abs(beta))
+        kkt_normalized = score_inf / (
+            1.0 + raw_score_inf + 2.0 * penalty * beta_inf
+        )
+        if _scalar_bool(kkt_normalized <= tol):
+            converged = True
+            stop_reason = "kkt_converged"
+            break
         penalized_information = current["information"] + 2.0 * penalty * identity
         delta = _solve(penalized_information, penalized_score, backend, xp)
         delta_norm = _norm(delta, backend, xp)
-        if _scalar_bool(delta_norm <= tol * (1.0 + _norm(beta, backend, xp))):
-            converged = True
-            stop_reason = "newton_step"
-            break
 
         step = 1.0
         accepted = False
@@ -143,10 +149,9 @@ def fit_counting_process_cox(
         beta, current = candidate
         current_penalized = candidate_penalized
         objective_history.append(current_penalized)
-        if _scalar_bool(step * delta_norm <= tol * (1.0 + _norm(beta, backend, xp))):
-            converged = True
-            stop_reason = "newton_step"
-            break
+        # A small Newton step alone is not a convergence certificate.  The
+        # next iteration evaluates the normalized KKT residual at the accepted
+        # coefficient vector.
 
     final = cox_counting_process_objective(
         beta,
@@ -159,12 +164,15 @@ def fit_counting_process_cox(
         score_residuals=bool(compute_score_residuals),
     )
     final_penalized_score = final["score"] - 2.0 * penalty * beta
-    if not converged and _scalar_bool(
-        _norm(final_penalized_score, backend, xp)
-        <= 10.0 * tol * (1.0 + _norm(beta, backend, xp))
-    ):
+    final_score_inf = xp.max(xp.abs(final_penalized_score))
+    final_raw_score_inf = xp.max(xp.abs(final["score"]))
+    final_beta_inf = xp.max(xp.abs(beta))
+    final_kkt_normalized = final_score_inf / (
+        1.0 + final_raw_score_inf + 2.0 * penalty * final_beta_inf
+    )
+    if _scalar_bool(final_kkt_normalized <= tol):
         converged = True
-        stop_reason = "score_norm"
+        stop_reason = "kkt_converged"
 
     null_beta = beta * 0.0
     null_result = cox_counting_process_objective(

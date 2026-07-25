@@ -3,9 +3,9 @@
 > Language: English  
 > Last updated: 2026-05-20  
 > This page: Model documentation  
-> Switch: [Chinese](../../models/poisson-regression.md)
+> Switch: [Chinese](../../cn/models/poisson-regression.md)
 
-Language switch: [Chinese](../../models/poisson-regression.md)
+Language switch: [Chinese](../../cn/models/poisson-regression.md)
 
 ## Overview
 

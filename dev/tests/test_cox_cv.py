@@ -64,12 +64,27 @@ def test_coxphcv_supports_entry_and_cluster_cpu():
     )
     model.fit(X, time, event, entry=entry, cluster=cluster)
 
-    assert model.penalty_ is not None
-    assert np.isfinite(model.penalty_)
+    assert model.penalty_ >= 0.0
+    assert np.all(np.isfinite(model.coef_))
+    assert model.effective_device_ == "cpu"
+    assert np.all(model.cv_results_["candidate_complete"])
+    assert model.estimator_._entry is not None
+
+
+def test_coxphcv_allows_explicit_unpenalized_delayed_entry_cpu():
+    X, time, event = _make_survival_data(seed=78)
+    entry = np.minimum(time * 0.2, time * 0.95)
+    model = CoxPHCV(
+        penalties=[0.0], device='cpu', cv=3, max_iter=50, tol=1e-7,
+        compute_inference=False, random_state=11,
+    ).fit(X, time, event, entry=entry)
+
+    assert model.penalty_ == 0.0
     assert model.coef_ is not None
     assert np.all(np.isfinite(model.coef_))
     assert model.cv_results_ is not None
     assert model.cv_results_["pl_path"].shape[0] == model.penalties_.shape[0]
+    assert model.termination_reason_ == model.estimator_.termination_reason_
 
 
 def test_coxphcv_env_toggles_do_not_change_cpu_penalty_selection(monkeypatch):

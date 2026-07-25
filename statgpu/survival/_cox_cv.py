@@ -1397,11 +1397,13 @@ class CoxPHCV(CVEstimatorBase):
     max_iter : int, default=100
         Maximum iterations.
     device : str or Device, default='auto'
-        Computation device: 'cpu', 'cuda', or 'auto'.
+        Computation device: 'cpu', 'cuda', 'torch', or 'auto'.
     compute_inference : bool, default=True
         Whether to compute standard errors after fitting.
     cov_type : str, default='nonrobust'
         Covariance estimator.
+    inference_mode : {'strict', 'approx'}, default='strict'
+        Robust-inference policy forwarded to the final CoxPH estimator.
     gpu_memory_cleanup : bool, default=False
         Whether to free backend caches after public prediction/scoring calls
         and when the estimator is destroyed. Fit-time caches are retained.
@@ -1476,6 +1478,7 @@ class CoxPHCV(CVEstimatorBase):
         n_jobs: Optional[int] = None,
         compute_inference: bool = True,
         cov_type: str = "nonrobust",
+        inference_mode: str = "strict",
         gpu_memory_cleanup: bool = False,
         random_state: Optional[int] = None,
     ):
@@ -1497,6 +1500,7 @@ class CoxPHCV(CVEstimatorBase):
         self.max_iter = max_iter
         self.compute_inference = compute_inference
         self.cov_type = cov_type
+        self.inference_mode = inference_mode
         self.gpu_memory_cleanup = gpu_memory_cleanup
 
         ties_name = str(ties).lower()
@@ -1507,6 +1511,8 @@ class CoxPHCV(CVEstimatorBase):
             raise ValueError(
                 "cov_type must be one of: 'nonrobust', 'hc0', 'hc1', 'cluster'"
             )
+        if str(inference_mode).lower() not in {"strict", "approx"}:
+            raise ValueError("inference_mode must be strict or approx")
 
         # Output attributes (initialized to None)
         self.penalty_ = None
@@ -1517,6 +1523,16 @@ class CoxPHCV(CVEstimatorBase):
         self.hazard_ratios_ = None
         self.estimator_ = None
         self.effective_device_ = None
+        self.converged_ = False
+        self.termination_reason_ = None
+        self.n_iter_ = 0
+        self.final_kkt_inf_ = None
+        self.final_kkt_normalized_ = None
+        self.inference_method_ = None
+        self.inference_backend_ = None
+        self.inference_approximate_ = False
+        self.inference_fallback_reason_ = None
+        self.full_host_transfer_performed_ = False
 
     def _reset_fit_state(self):
         """Remove every fitted/CV artifact before a new public fit attempt."""
@@ -1529,6 +1545,16 @@ class CoxPHCV(CVEstimatorBase):
         self.hazard_ratios_ = None
         self.estimator_ = None
         self.effective_device_ = None
+        self.converged_ = False
+        self.termination_reason_ = None
+        self.n_iter_ = 0
+        self.final_kkt_inf_ = None
+        self.final_kkt_normalized_ = None
+        self.inference_method_ = None
+        self.inference_backend_ = None
+        self.inference_approximate_ = False
+        self.inference_fallback_reason_ = None
+        self.full_host_transfer_performed_ = False
 
     def _cleanup_cuda_memory(self):
         """Best-effort CuPy memory pool cleanup."""
@@ -1702,6 +1728,7 @@ class CoxPHCV(CVEstimatorBase):
             n_jobs=self.n_jobs,
             compute_inference=bool(self.compute_inference),
             cov_type=cov_type_name,
+            inference_mode=str(self.inference_mode).lower(),
             gpu_memory_cleanup=bool(self.gpu_memory_cleanup),
             penalty=self.penalty_,
         )
@@ -1717,10 +1744,17 @@ class CoxPHCV(CVEstimatorBase):
         )
 
         self.estimator_ = final_model
-        self.coef_ = np.asarray(_to_numpy(final_model.coef_)).copy()
-        self.hazard_ratios_ = np.asarray(
-            _to_numpy(final_model.hazard_ratios_)
-        ).copy()
+        self.coef_ = final_model.coef_.copy()
+        self.hazard_ratios_ = final_model.hazard_ratios_.copy()
+        for attribute, default in (
+            ("converged_", False), ("termination_reason_", None),
+            ("n_iter_", 0), ("final_kkt_inf_", None),
+            ("final_kkt_normalized_", None), ("inference_method_", None),
+            ("inference_backend_", None), ("inference_approximate_", False),
+            ("inference_fallback_reason_", None),
+            ("full_host_transfer_performed_", False),
+        ):
+            setattr(self, attribute, getattr(final_model, attribute, default))
         self._fitted = True
 
         return self
@@ -1802,9 +1836,7 @@ class CoxPHCV(CVEstimatorBase):
         try:
             if self.estimator_ is None:
                 raise ValueError("Model not fitted. Call fit() first.")
-            return self.estimator_.predict(
-                np.asarray(_to_numpy(X), dtype=np.float64)
-            )
+            return self.estimator_.predict(X)
         finally:
             self._cleanup_cuda_memory()
             self._cleanup_torch_memory()
@@ -1814,16 +1846,20 @@ class CoxPHCV(CVEstimatorBase):
         try:
             if self.estimator_ is None:
                 raise ValueError("Model not fitted. Call fit() first.")
-            return self.estimator_.predict_risk_score(
-                np.asarray(_to_numpy(X), dtype=np.float64)
-            )
+            return self.estimator_.predict_risk_score(X)
         finally:
             self._cleanup_cuda_memory()
             self._cleanup_torch_memory()
 
     def predict_hazard_ratio(self, X):
         """Predict hazard ratios through the final refitted estimator."""
-        return self.predict(X)
+        try:
+            if self.estimator_ is None:
+                raise ValueError("Model not fitted. Call fit() first.")
+            return self.estimator_.predict_hazard_ratio(X)
+        finally:
+            self._cleanup_cuda_memory()
+            self._cleanup_torch_memory()
 
     def predict_survival(self, X, times=None, strata=None):
         """Predict survival curves through the final refitted estimator."""
@@ -1831,9 +1867,7 @@ class CoxPHCV(CVEstimatorBase):
             if self.estimator_ is None:
                 raise ValueError("Model not fitted. Call fit() first.")
             return self.estimator_.predict_survival(
-                np.asarray(_to_numpy(X), dtype=np.float64),
-                times=times,
-                strata=strata,
+                X, times=times, strata=strata
             )
         finally:
             self._cleanup_cuda_memory()
@@ -1871,22 +1905,7 @@ class CoxPHCV(CVEstimatorBase):
             )
             return float(
                 self.estimator_.score(
-                    np.asarray(_to_numpy(X), dtype=np.float64),
-                    np.asarray(_to_numpy(time), dtype=np.float64),
-                    np.asarray(_to_numpy(event), dtype=np.float64),
-                    start=(
-                        None
-                        if start is None
-                        else np.asarray(_to_numpy(start), dtype=np.float64)
-                    ),
-                    strata=(
-                        None if strata is None else np.asarray(_to_numpy(strata))
-                    ),
-                    subject_id=(
-                        None
-                        if subject_id is None
-                        else np.asarray(_to_numpy(subject_id))
-                    ),
+                    X, time, event, start=start, strata=strata, subject_id=subject_id
                 )
             )
         finally:

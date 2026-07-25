@@ -240,8 +240,13 @@ class KMeans(BaseEstimator):
 
     def score(self, X, y=None):
         self._check_is_fitted()
+        if sparse.issparse(X):
+            raise NotImplementedError("sparse input is not supported in KMeans v1")
         backend = self._get_backend()
         X_arr = backend.asarray(X, dtype=backend.float64)
+        check_2d_array(X_arr)
+        if X_arr.shape[1] != self.n_features_in_:
+            raise ValueError(f"X has {X_arr.shape[1]} features, expected {self.n_features_in_}")
         distances = self._squared_distances(backend, X_arr, self.cluster_centers_)
         min_dist_sq = backend.min(distances, axis=1)
         return -scalar_to_float(backend.sum(min_dist_sq))

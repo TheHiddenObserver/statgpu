@@ -8,6 +8,15 @@ from numpy.testing import assert_allclose, assert_array_equal
 
 from statgpu.survival import CoxPH
 
+def _to_numpy(value):
+    """Make backend-native test outputs explicit at the assertion boundary."""
+    if hasattr(value, "get"):
+        return value.get()
+    if hasattr(value, "detach"):
+        return value.detach().cpu().numpy()
+    return np.asarray(value)
+
+
 
 def _right_censored_subjects(n=140, p=3, seed=3101):
     """Generate right-censored subject-level data with continuous times."""
@@ -277,7 +286,7 @@ def test_formula_dataframe_prediction_reuses_fitted_design_matrix():
     assert np.isfinite(model.score(prediction_frame, stop[:8], event[:8]))
     invalid_design = design.copy()
     invalid_design[0, 0] = np.nan
-    with pytest.raises(ValueError, match="X must contain only finite values"):
+    with pytest.raises(ValueError, match="NaN or infinite"):
         model.predict(invalid_design)
 
 
@@ -639,7 +648,7 @@ def test_counting_strata_numpy_cupy_torch_parity(device):
     labels = np.array(["clinic-a", "clinic-b"])
     pred_cpu, _ = cpu.predict_survival(X[:2], times=times, strata=labels)
     pred_gpu, _ = gpu.predict_survival(X[:2], times=times, strata=labels)
-    assert_allclose(pred_gpu, pred_cpu, rtol=2e-7, atol=2e-9)
+    assert_allclose(_to_numpy(pred_gpu), pred_cpu, rtol=2e-7, atol=2e-9)
 
 
 @pytest.mark.parametrize("device", ["cuda", "torch"])

@@ -1,305 +1,230 @@
 # CoxPH
 
-> Language: English
->
-> Last updated: 2026-07-12
->
-> This page: Model documentation
->
+> Language: English<br>
+> Last updated: 2026-07-25<br>
+> This page: Model documentation<br>
 > Switch: [Chinese](../../cn/models/coxph.md)
 
 ## Overview
 
-`CoxPH` fits Cox proportional-hazards models with native NumPy, CuPy, and
-PyTorch implementations. It supports:
+`CoxPH` implements proportional-hazards regression with Breslow, Efron, or Exact
+tie handling on NumPy, CuPy CUDA, and Torch CUDA. It supports ordinary
+right-censored observations, delayed entry, counting-process `(start, stop]`
+rows, independent strata, time-varying covariates, robust/cluster covariance,
+and L2-penalty selection through `CoxPHCV`.
 
-- `ties="breslow"`, `ties="efron"`, and exact tied partial likelihood with
-  `ties="exact"`;
-- right-censored, delayed-entry, and counting-process `(start, stop]` data;
-- stratified risk sets and repeated rows identified by `subject_id`;
-- model-based, HC0, HC1, and cluster-robust covariance; and
-- coefficient, hazard-ratio, concordance, baseline-hazard, and survival
-  prediction outputs.
+Important behavior:
 
-Explicit `device="cuda"` and `device="torch"` requests never silently fall
-back to NumPy. `device="auto"` is the only mode that selects an available
-backend automatically.
+- explicit `device="cuda"` and `device="torch"` requests never silently fall back to CPU;
+- `entry=` and `start=` are aliases and are mutually exclusive;
+- a row is in the risk set at time `t` exactly when `start < t <= stop` and its
+  stratum matches the event stratum;
+- `subject_id=` identifies repeated rows from one subject for concordance,
+  sandwich aggregation, and subject-preserving CV folds;
+- `compute_inference=False` performs estimation only and leaves inference and
+  baseline-hazard fields unset.
 
-Related estimators:
-
-- `CoxPHCV` selects a scalar L2 penalty on a cross-validation grid and refits
-  the final `CoxPH`. It accepts `start`, `strata`, `subject_id`, and all three
-  tie methods.
-- `PenalizedCoxPHModel` provides estimation-only L1, L2, ElasticNet, SCAD, and
-  MCP fits. It has no intercept; SCAD/MCP use the FISTA-LLA path.
-
-## Paths
-
-```text
-statgpu.survival.CoxPH
-statgpu.survival.CoxPHCV
-statgpu.linear_model.PenalizedCoxPHModel
-```
-
-## Objective Function
-
-For row $i$, let $s_i$ be its start time, $t_i$ its stop time, and
-$\delta_i$ its event indicator. Within stratum $g_i$, the risk set at an
-event time $t$ is
-
-$$
-R_g(t)=\{j:g_j=g,\ s_j<t\leq t_j\}.
-$$
-
-`CoxPH` maximizes the partial log-likelihood. Breslow and Efron use their
-respective tied-event denominators. `ties="exact"` sums over the relevant
-tied-event subsets with an elementary-symmetric dynamic program; it is an
-exact tied partial likelihood, not an approximation.
-
-The coefficient estimate is obtained with Newton iterations. A scalar
-`penalty` adds L2 regularization; `CoxPHCV` searches this same L2 parameter.
-
-## Data Interfaces
-
-The array interface is:
+## Import
 
 ```python
-model.fit(
-    X, stop, event,
-    entry=None,       # delayed entry
-    cluster=None,     # covariance clusters
-    start=None,       # counting-process alias for entry
-    strata=None,      # independent risk sets/baselines
-    subject_id=None,  # repeated-row subject identity
+from statgpu.survival import CoxPH, CoxPHCV
+```
+
+## Risk Sets and Tie Methods
+
+For row `i`, start time `a_i`, stop time `b_i`, event indicator `delta_i`, and
+stratum `s_i`, the risk set for an event at `t` is
+
+$$
+R_s(t)=\{i : a_i < t \le b_i,\ s_i=s\}.
+$$
+
+`ties="breslow"` and `ties="efron"` use their standard tied-event partial
+likelihoods. `ties="exact"` evaluates the exact tied-event denominator with an
+elementary-symmetric dynamic program. The same counting-process risk-set engine
+is used for delayed entry, strata, Exact ties, L2-penalized fits, and GPU robust
+inference, which keeps the `(start, stop]` convention consistent across backends.
+
+With `penalty > 0`, the optimized objective is the partial log likelihood minus
+`penalty * ||beta||^2`. Classical likelihood-ratio statistics and information
+criteria are therefore not reported as if the penalized estimate were an
+unconstrained maximum-likelihood estimate.
+
+## Formula Interface
+
+Both survival response forms are accepted:
+
+```python
+CoxPH().fit(formula="Surv(time, event) ~ age + C(group)", data=df)
+CoxPH().fit(
+    formula="Surv(start, stop, event) ~ age + treatment",
+    data=df,
+    strata=df["clinic"],
+    subject_id=df["patient_id"],
 )
 ```
 
-Pass only one of `entry` and `start`; each row must satisfy
-`0 <= start < stop`. `subject_id` controls within-subject concordance pairs,
-subject-preserving automatic CV folds, and the default independent unit for
-HC0/HC1 covariance when a subject contributes repeated rows. It does not
-replace `cluster`, which explicitly defines the units for cluster-robust
-covariance.
+Formula row removal is applied consistently to `entry`/`start`, `cluster`,
+`strata`, and `subject_id`. Supplying `entry=` or `start=` together with a
+three-column `Surv(start, stop, event)` response raises an error.
 
-The formula interface accepts both right-censored and start-stop responses:
+## Optimization and Convergence
 
-```python
-model.fit(formula="Surv(time, event) ~ age + treatment", data=df)
-model.fit(formula="Surv(start, stop, event) ~ age + treatment", data=df_long)
-```
+Newton iterations use line search and final-state KKT verification. A failed
+line search does not update coefficients and cannot report convergence. Public
+fitted-state fields include:
 
-Patsy removes rows with missing values in either the survival response or the
-design terms during fitting, and auxiliary row-level arrays are aligned to the
-retained rows. Prediction and scoring never silently apply this row removal:
-missing formula covariates raise `ValueError`, preserving one output per input
-row.
+- `converged_`;
+- `termination_reason_`;
+- `n_iter_`;
+- `final_kkt_inf_`;
+- `final_kkt_normalized_`.
+
+The likelihood, gradient, Hessian, covariance, baseline hazard, and public
+convergence state are evaluated from the final coefficient vector.
 
 ## Covariance and Inference
 
-| `cov_type` | Meaning | Extra fit input |
-|---|---|---|
-| `"nonrobust"` | Inverse observed information | none |
-| `"hc0"` | Score-residual sandwich covariance | none |
-| `"hc1"` | HC1 finite-sample adjustment to HC0 | none |
-| `"cluster"` | Cluster-summed score sandwich | `cluster=` |
+| `cov_type` | Meaning |
+|---|---|
+| `"nonrobust"` | Model-based covariance from observed information |
+| `"hc0"` | Score-sandwich covariance |
+| `"hc1"` | Score-sandwich covariance with finite-unit correction |
+| `"cluster"` | Cluster-robust covariance; pass `cluster=` to `fit` |
 
-`compute_inference=True` computes standard errors, z statistics, p-values,
-confidence intervals, likelihood diagnostics, and baseline hazards.
-`compute_inference=False` skips inference and baseline estimation; consequently,
-`predict_survival()` is unavailable until the model is refit with inference
-enabled.
+For Breslow and Efron ties, strict robust inference uses statgpu's internal exact
+counting-process score residuals; it does not require statsmodels. Repeated rows
+are summed by `subject_id` before forming HC0/HC1 meat, and cluster covariance is
+summed by `cluster`.
 
-Robust covariance is intentionally unsupported for `ties="exact"`. When
-`compute_inference=True`, Exact-tie fits must use `cov_type="nonrobust"`;
-requesting HC0, HC1, or cluster covariance raises `NotImplementedError`. With
-`compute_inference=False`, `cov_type` is unused and does not block estimation.
+`inference_mode="strict"` is the default. `inference_mode="approx"` is an
+explicit opt-in to the legacy event-row Efron sandwich approximation when that
+legacy path is used. Approximate inference is identified by the public
+provenance fields and is never silently selected.
 
-For `penalty > 0`, covariance is based on penalized observed curvature and is
-conditional on the chosen penalty. In particular, inference from the final
-`CoxPHCV` refit is naive post-selection inference; it is not adjusted for the
-CV search. Classical likelihood-ratio, AIC, and BIC diagnostics are therefore
-reported only for an unpenalized fit.
+Exact ties currently support model-based (`cov_type="nonrobust"`) inference only.
+Requesting HC0, HC1, or cluster inference with `ties="exact"` raises
+`NotImplementedError`. If `compute_inference=False`, a robust covariance label
+is accepted but no covariance is computed.
 
-## Baseline-Hazard Convention
+Inference provenance is exposed through:
 
-Baseline hazards use one unified Breslow estimator for coefficients fitted
-with Breslow, Efron, or Exact ties. A stratified model stores a separate
-baseline for every stratum. Accordingly, `predict_survival(..., strata=...)`
-requires a stratum label for each prediction row after a stratified fit.
+- `inference_method_`;
+- `inference_backend_`;
+- `inference_approximate_`;
+- `inference_fallback_reason_`;
+- `full_host_transfer_performed_`.
 
-This convention keeps survival predictions comparable across tie methods; it
-does not change the tie method used to estimate the coefficients.
-
-## Main Parameters
+## Parameters
 
 | Parameter | Default | Description |
 |---|---:|---|
 | `ties` | `"breslow"` | `"breslow"`, `"efron"`, or `"exact"` |
-| `tol` | `1e-9` | Newton convergence tolerance |
-| `max_iter` | `100` | Maximum Newton iterations |
+| `tol` | `1e-9` | Newton/KKT convergence tolerance |
+| `max_iter` | `100` | Maximum iterations |
 | `device` | `"auto"` | `"cpu"`, `"cuda"`, `"torch"`, or `"auto"` |
-| `compute_inference` | `True` | Compute inference and Breslow baselines |
-| `compute_cindex` | `True` | Compute training concordance during fit |
+| `compute_inference` | `True` | Compute covariance, tests, and baseline hazards |
+| `compute_cindex` | `True` | Compute training concordance |
 | `cov_type` | `"nonrobust"` | `"nonrobust"`, `"hc0"`, `"hc1"`, or `"cluster"` |
-| `penalty` | `0.0` | Scalar L2 penalty used by `CoxPH`/`CoxPHCV` |
-| `gpu_memory_cleanup` | `False` | Best-effort cleanup after public prediction/scoring calls |
+| `penalty` | `0.0` | Non-negative L2 penalty |
+| `inference_mode` | `"strict"` | `"strict"` or explicit `"approx"` |
+| `gpu_memory_cleanup` | `False` | Best-effort CuPy/Torch cache cleanup |
 
-## CPU and GPU Examples
+## Support Matrix
 
-```python
-from statgpu.survival import CoxPH
+| Capability | Breslow | Efron | Exact | NumPy | CuPy | Torch |
+|---|---|---|---|---|---|---|
+| ordinary right censoring | supported | supported | supported | supported | supported | supported |
+| delayed entry / `(start, stop]` | supported | supported | supported | supported | supported | supported |
+| independent `strata` | supported | supported | supported | supported | supported | supported |
+| non-negative L2 `penalty` | supported | supported | supported | supported | supported | supported |
+| nonrobust inference | supported | supported | supported | supported | supported | supported |
+| HC0 / HC1 / cluster inference | supported | supported | not implemented | supported | supported | supported |
+| backend-native prediction arrays | supported | supported | supported | NumPy | CuPy | Torch |
 
-# NumPy with cluster-robust inference.
-cpu = CoxPH(ties="efron", device="cpu", cov_type="cluster")
-cpu.fit(X, stop, event, start=start, strata=strata, cluster=cluster_id)
+`predict_survival` requires fitted baseline hazards, so leave
+`compute_inference=True` when survival curves are needed. Risk-score and hazard-
+ratio prediction do not require a baseline.
 
-# Native CuPy path.
-cupy_model = CoxPH(ties="breslow", device="cuda")
-cupy_model.fit(X_cupy, stop_cupy, event_cupy, entry=entry_cupy)
+## Cross-Validation
 
-# Native PyTorch-CUDA Exact path. Exact supports nonrobust inference only.
-torch_model = CoxPH(
-    ties="exact", device="torch", cov_type="nonrobust"
-)
-torch_model.fit(X_torch, time_torch, event_torch)
-```
-
-For start-stop data, pass subject identity explicitly when rows repeat:
-
-```python
-model = CoxPH(ties="efron", device="cuda")
-model.fit(
-    X_long, stop, event,
-    start=start, strata=strata, subject_id=subject_id,
-)
-
-survival, eval_times = model.predict_survival(
-    X_new, times=[1.0, 2.0, 5.0], strata=new_strata
-)
-```
-
-## Cross-Validation and Penalization
+`CoxPHCV` evaluates an L2 penalty grid using the same tie method, start/entry,
+strata, and backend semantics, then refits a `CoxPH` estimator at the selected
+penalty. When `subject_id` is supplied, every row from a subject remains wholly
+inside one automatically generated fold. User-provided `cv_splits` are rejected
+if they leak a subject between train and validation. `inference_mode` and
+`compute_inference` are forwarded to the final refit.
 
 ```python
-import numpy as np
-from statgpu.survival import CoxPHCV
-from statgpu.linear_model import PenalizedCoxPHModel
-
-# L2 grid search; subject rows remain together in automatically generated folds.
-cv = CoxPHCV(
-    penalties=np.geomspace(1.0, 1e-3, 20),
-    ties="exact",
+cv_model = CoxPHCV(
+    penalties=[0.0, 0.01, 0.1],
     cv=5,
-    device="torch",
-)
-cv.fit(X_long, stop, event, start=start, strata=strata, subject_id=subject_id)
-
-# Estimation-only sparse/non-convex Cox fit. y_surv has [time, event] columns.
-y_surv = np.column_stack([time, event])
-penalized = PenalizedCoxPHModel(
-    penalty="scad", alpha=0.05, ties="efron",
-    device="cuda", compute_inference=False,
-)
-penalized.fit(X, y_surv)
-
-# The right-censored formula path supports categoricals, interactions,
-# transforms, and Patsy NA removal. The intercept is removed automatically.
-penalized_formula = PenalizedCoxPHModel(
-    penalty="l2", alpha=0.05, ties="efron", device="cpu",
-)
-penalized_formula.fit(
-    formula="Surv(time, event) ~ age * C(group) + np.log(marker)",
-    data=frame,
+    ties="efron",
+    device="cpu",
+).fit(
+    X_rows,
+    stop,
+    event,
+    start=start,
+    strata=clinic,
+    subject_id=patient_id,
 )
 ```
 
-Fold construction and diagnostics are orchestrated on the host. For explicit
-CuPy or Torch devices, both candidate fitting and held-out partial-likelihood
-scoring remain on the requested backend; `cv_results_` records the fitting,
-scoring, and orchestration devices separately.
+## Prediction and Scoring
 
-`PenalizedCoxPHModel` rejects `fit_intercept=True`. It also raises
-`NotImplementedError` at fit time when `compute_inference=True`; use
-unpenalized `CoxPH` when standard errors or confidence intervals are required.
-The penalized formula interface accepts `Surv(time, event)` only; use `CoxPH`
-for `Surv(start, stop, event)`, strata, or subject-level counting-process data.
-Only the documented L1, L2/Ridge, ElasticNet, SCAD, MCP, and no-penalty choices
-are accepted; adaptive and group penalties are rejected because their Cox paths
-have not been validated. String names and the corresponding built-in penalty
-objects are accepted. Penalty objects are revalidated before each fit and are
-compatible with `sklearn.clone`. Non-finite regularization/solver controls are
-rejected before optimization.
-
-## Tie Methods and Strictness
-
-- Breslow is the simplest tied-event approximation.
-- Efron usually provides a closer approximation when tied failures are common.
-- Exact evaluates the exact tied partial likelihood and is substantially more
-  expensive as risk sets and tied-event multiplicities grow.
-
-These are explicit statistical choices. The GPU backends do not replace one
-method with another or fall back to a CPU approximation. The shared baseline
-hazard remains Breslow by convention for every choice.
+`predict`, `predict_risk_score`, `predict_hazard_ratio`, `predict_survival`, and
+`score` execute on the fitted backend for array inputs. Stratified survival
+prediction requires one known stratum label per prediction row. Survival curves
+use log-domain baseline accumulation for numerical stability. Formula-fitted
+models apply their saved design transformation before prediction.
 
 ## Outputs
 
-- Estimates: `coef_`, `hazard_ratios_`, `log_likelihood`; `aic` and `bic` for
-  unpenalized fits
-- Inference when enabled: `_bse`, `_zvalues`, `_pvalues`, `_conf_int`
-- Diagnostics: `concordance_index`, convergence state, iteration count
-- Predictions: `predict_risk_score`, `predict_hazard_ratio`,
-  `predict_survival`, and `predict`
-- CV: `penalty_`, `penalties_`, `cv_results_`, `best_score_`, and `estimator_`
+- parameters: `coef_`, `hazard_ratios_`;
+- inference: `_bse`, `_zvalues`, `_pvalues`, `_conf_int` when enabled;
+- diagnostics: `log_likelihood`, `aic`, `bic`, `concordance_index` where defined;
+- convergence: `converged_`, `termination_reason_`, `n_iter_`,
+  `final_kkt_inf_`, `final_kkt_normalized_`;
+- provenance: `inference_method_`, `inference_backend_`,
+  `inference_approximate_`, `inference_fallback_reason_`,
+  `full_host_transfer_performed_`.
 
-## Performance and Validation
+## Validation
 
-The audited 2026-07-12 artifacts define speedup as NumPy fit time divided by
-backend fit time, so values above 1 mean the GPU backend was faster. Timings use
-float64 on an NVIDIA RTX 5880 Ada Generation and include optimization,
-inference, and baseline estimation, with transfer measured separately.
+The PR #80 review on 2026-07-25 passed the local NumPy quick gate for ordinary
+heavy ties, delayed entry, Exact ties, stratified start-stop data, inference,
+subject-grouped CV, and statsmodels comparisons where the models are comparable.
+The result schema passed with no local gate failures. The exact reviewed source
+was then validated through Paramiko in an isolated remote `myconda` environment
+on a Tesla P100-SXM2-16GB. The first physical-GPU run exposed 11 actionable
+backend/test and scikit-learn 1.2.2 compatibility failures; after review and
+fixes, all 15 failed and adjacent nodes passed, followed by a complete result of
+**379 passed, 2 expected skips, 0 failed**. Remote quick and full benchmark
+artifacts both report `validation_tier="remote-full"`, `schema_status="ok"`,
+and no gate failures; compatibility, inference, and subject-grouped CV pass on
+NumPy, CuPy, and Torch. These current-source results, rather than earlier PR #79
+results alone, validate the new PR #80 paths.
 
-| Scenario | Scale | CuPy vs NumPy | Torch vs NumPy |
-|---|---:|---:|---:|
-| Delayed entry, Breslow | quick (`n=700`, `p=8`) | 0.647x | 0.959x |
-| Delayed entry, Breslow | full (`n=2500`, `p=16`) | 1.044x | 1.374x |
-| Stratified start-stop, Efron | full (`n=2400`, `p=16`) | 0.241x | 0.411x |
+Relevant validation entry points:
 
-Exact-tie and standard heavy-tie target cases were also slower on GPU in these
-runs. The artifacts do not establish a general crossover size: Exact dynamic
-programming and small risk-set kernels expose launch/synchronization overhead,
-and workload shape materially changes the result. Benchmark the intended data
-shape instead of assuming a GPU speedup.
+- `dev/tests/test_survival_risk_sets.py`;
+- `dev/tests/test_cox_phase1_completion.py`;
+- `dev/tests/test_cox_cv.py`;
+- `dev/benchmarks/benchmark_survival_completion.py`.
 
-The same artifacts report coefficient, inference, likelihood, baseline, and
-prediction parity across NumPy, CuPy, and Torch. The CV matrix selected the same
-penalty on all three backends, with final-refit coefficient and standard-error
-differences below `1e-16` in that run.
+## Limitations
 
-Auditable artifacts:
-
-- `results/survival_completion_2026-07-12.json`
-- `results/survival_completion_full_2026-07-12.json`
-
-External Breslow/Efron checks use `statsmodels.duration.PHReg` with aligned
-ties, entry, strata, and convergence settings. Exact is checked against
-brute-force tied-risk-set references because PHReg does not supply that method.
-
-## FAQ
-
-- **Can I request robust inference with Exact ties?** No. Use
-  `cov_type="nonrobust"`, or choose Breslow/Efron for robust covariance.
-- **Are `subject_id` and `cluster` interchangeable?** No. `subject_id` describes
-  repeated rows for concordance/CV grouping and is the HC0/HC1 aggregation unit
-  for repeated-row data; `cluster` explicitly defines cluster-robust covariance
-  units.
-- **Why can `predict_survival()` fail after a successful fit?** Baseline
-  estimation is skipped when `compute_inference=False`.
-- **Does GPU always make Cox fitting faster?** No. Whether a crossover exists
-  is workload- and hardware-dependent, especially for Exact and small kernels.
+- robust/cluster covariance for Exact ties is not implemented;
+- Exact ties use combinatorial dynamic programming and are intended for modest
+  tied-event groups rather than unrestricted large tie blocks;
+- frailty/random-effect terms are not implemented;
+- optional `torch.compile` acceleration requires compatible Triton-capable
+  hardware and is not part of the portable correctness contract.
 
 ## References
 
-- Cox, D. R. (1972). Regression models and life-tables. *Journal of the Royal Statistical Society: Series B*, 34(2), 187-220. [https://doi.org/10.1111/j.2517-6161.1972.tb00899.x](https://doi.org/10.1111/j.2517-6161.1972.tb00899.x)
-- Breslow, N. (1974). Covariance analysis of censored survival data. *Biometrics*, 30(1), 89-99. [https://doi.org/10.2307/2529620](https://doi.org/10.2307/2529620)
-- Efron, B. (1977). The efficiency of Cox's likelihood function for censored data. *Journal of the American Statistical Association*, 72(359), 557-565. [https://doi.org/10.1080/01621459.1977.10480613](https://doi.org/10.1080/01621459.1977.10480613)
-- Lin, D. Y., & Wei, L. J. (1989). The robust inference for the Cox proportional hazards model. *Journal of the American Statistical Association*, 84(408), 1074-1078. [https://doi.org/10.1080/01621459.1989.10478874](https://doi.org/10.1080/01621459.1989.10478874)
+- Cox, D. R. (1972). Regression models and life-tables. *JRSS B*, 34(2), 187?220.
+- Breslow, N. (1974). Covariance analysis of censored survival data. *Biometrics*, 30(1), 89?99.
+- Efron, B. (1977). The efficiency of Cox's likelihood function for censored data. *JASA*, 72(359), 557?565.
+- Lin, D. Y., & Wei, L. J. (1989). The robust inference for the Cox proportional hazards model. *JASA*, 84(408), 1074?1078.

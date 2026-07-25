@@ -3,7 +3,7 @@
 > 语言：中文  
 > 最后更新：2026-06-12  
 > 页面定位：CV 用户指南 + 架构实现 + 缓存机制（统一页面）  
-> 切换：[English](../en/guides/cross-validation.md)
+> 切换：[English](../../en/guides/cross-validation.md)
 
 ## 概述
 
@@ -496,7 +496,7 @@ scores = to_numpy(torch.stack(scores_dev))  # 一次同步
 ```python
 coef = zeros(p)
 for alpha in alphas_descending:
-    coef = fista_solver(init_coef=coef, ...)  # Warm start
+    coef = fista_solver(..., init_coef=coef)  # Warm start
 ```
 
 这比冷启动减少 3-5 倍迭代次数。

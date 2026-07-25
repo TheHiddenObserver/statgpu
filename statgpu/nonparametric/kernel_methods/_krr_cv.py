@@ -188,34 +188,43 @@ class KernelRidgeCV(BaseEstimator):
         if y_arr.ndim == 1:
             y_arr = y_arr.reshape(-1, 1)
 
+        if X_arr.ndim == 1:
+            X_arr = X_arr.reshape(-1, 1)
+        if X_arr.ndim != 2 or X_arr.shape[0] == 0 or X_arr.shape[1] == 0:
+            raise ValueError("X must be a non-empty two-dimensional array")
+        if y_arr.ndim != 2 or y_arr.shape[0] != X_arr.shape[0]:
+            raise ValueError("y must have one row per X row")
+
         n_samples = X_arr.shape[0]
         n_targets = y_arr.shape[1]
+        if isinstance(self.cv, bool) or not isinstance(self.cv, (int, np.integer)):
+            raise ValueError("cv must be an integer")
+        n_folds = int(self.cv)
+        if n_folds < 2 or n_folds > n_samples:
+            raise ValueError("cv must satisfy 2 <= cv <= n_samples")
 
         # Compute full kernel matrix once
         kernel_params = self._get_kernel_params()
         K = pairwise_kernels(X_arr, X_arr, metric=self.kernel, xp=xp, **kernel_params)
 
-        # Eigendecompose: K = Q @ diag(eigvals) @ Q.T
-        eigvals, Q = xp.linalg.eigh(K)
-
-        # Generate alpha grid if not provided
+        # Generate alpha grid if not provided.  Only eigenvalues are needed;
+        # avoid materializing a full eigenvector matrix that the CV loop never uses.
         alphas_np = self.alphas
         if alphas_np is None:
+            eigvals = xp.linalg.eigvalsh(K)
             alphas_np = self._generate_alpha_grid(eigvals)
         else:
             alphas_np = np.asarray(alphas_np, dtype=np.float64).ravel()
+        if alphas_np.size == 0 or not np.all(np.isfinite(alphas_np)) or np.any(alphas_np < 0):
+            raise ValueError("alphas must be a non-empty finite non-negative array")
         n_alphas = alphas_np.shape[0]
 
-        # Project y into eigenbasis once: Q_T @ y
-        Q_T = Q.T  # eigh returns real eigenvectors for symmetric K
-        Qt_y = Q_T @ y_arr  # (n_samples, n_targets)
-
         # K-fold CV
-        n_folds = int(self.cv)
         folds = _kfold_indices(n_samples, n_folds, random_state=self.random_state)
 
         # mse_table: (n_alphas, n_folds, n_targets)
         mse_table = xp_zeros((n_alphas, n_folds, n_targets), xp.float64, xp, X_arr)
+        r2_table = xp_zeros((n_alphas, n_folds, n_targets), xp.float64, xp, X_arr)
 
         # Detect torch backend for GPU-accelerated CV
         _is_torch = hasattr(K, 'device') and hasattr(K, 'is_cuda') and not hasattr(K, 'get')
@@ -249,6 +258,12 @@ class KernelRidgeCV(BaseEstimator):
                 mse_vals = torch.mean(residuals ** 2, dim=1)  # (n_alphas, n_targets)
 
                 mse_table[:, fi, :] = mse_vals
+                y_var = torch.mean((y_test - torch.mean(y_test, dim=0)) ** 2, dim=0)
+                r2_table[:, fi, :] = torch.where(
+                    y_var[None, :] > 0,
+                    1.0 - mse_vals / y_var[None, :],
+                    torch.where(mse_vals <= 1e-15, 1.0, 0.0),
+                )
             else:
                 # NumPy and CuPy path: vectorized alpha sweep on device
                 fold_eigvals, fold_Q = xp.linalg.eigh(K_train)
@@ -277,9 +292,16 @@ class KernelRidgeCV(BaseEstimator):
                     mse_vals = xp.mean(residuals ** 2, axis=1)  # (a, n_targets)
 
                 mse_table[:, fi, :] = mse_vals
+                y_var = xp.mean((y_test - xp.mean(y_test, axis=0)) ** 2, axis=0)
+                r2_table[:, fi, :] = xp.where(
+                    y_var[None, :] > 0,
+                    1.0 - mse_vals / y_var[None, :],
+                    xp.where(mse_vals <= 1e-15, 1.0, 0.0),
+                )
 
-        # Mean MSE across folds: (n_alphas, n_targets)
+        # Mean metrics across folds: (n_alphas, n_targets)
         mean_mse = xp.mean(mse_table, axis=1)
+        mean_r2 = xp.mean(r2_table, axis=1)
 
         # For single target, select best alpha by mean MSE
         if n_targets == 1:
@@ -292,16 +314,16 @@ class KernelRidgeCV(BaseEstimator):
 
         self.alpha_ = float(alphas_np[best_idx])
 
-        # Compute mean R^2 across folds for best alpha
-        mean_mse_best = float(mean_mse[best_idx, 0].item()) if n_targets == 1 else float(xp.mean(mean_mse[best_idx]).item())
-        y_var = float(xp.var(y_arr).item())
-        self.best_score_ = 1.0 - mean_mse_best / y_var if y_var > 0 else 0.0
+        # Actual mean fold R^2, uniformly averaged across targets.
+        self.best_score_ = float(xp.mean(mean_r2[best_idx]).item())
 
         # Build cv_results_
         self.cv_results_ = {
             "alphas": alphas_np,
             "mean_mse": _to_numpy(mean_mse),
             "mse_table": _to_numpy(mse_table),
+            "mean_r2": _to_numpy(mean_r2),
+            "r2_table": _to_numpy(r2_table),
             "best_alpha": self.alpha_,
             "best_score": self.best_score_,
         }
