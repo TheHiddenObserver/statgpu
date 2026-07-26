@@ -34,4 +34,21 @@ if remaining:
 '''
 if text.count(old) != 1:
     raise RuntimeError("expected one scipy distribution audit block")
-path.write_text(text.replace(old, new, 1), encoding="utf-8")
+text = text.replace(old, new, 1)
+
+cleanup_old = '''# Restore the maintained workflow, then remove every one-shot helper.
+subprocess.run(
+    ["git", "checkout", "origin/master", "--", ".github/workflows/test.yml"],
+    cwd=ROOT,
+    check=True,
+)
+(ROOT / "dev/_apply_pr80_review_fixes.py").unlink()
+(ROOT / ".github/workflows/pr80-review-fix.yml").unlink()
+'''
+cleanup_new = '''# The GitHub App restores workflow files after the code-only bot commit.
+(ROOT / "dev/_apply_pr80_review_fixes.py").unlink()
+'''
+if text.count(cleanup_old) != 1:
+    raise RuntimeError("expected one applicator cleanup block")
+text = text.replace(cleanup_old, cleanup_new, 1)
+path.write_text(text, encoding="utf-8")
