@@ -1,120 +1,221 @@
-name: PR80 Atomic Review Fix
+name: Tests
 
 on:
   push:
-    branches: [codex/survival-gpu-completion]
+    branches: [master]
   pull_request:
     branches: [master]
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  apply-atomic-review-fix:
-    if: github.actor != 'github-actions[bot]'
+  docs-contracts:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
         with:
-          ref: codex/survival-gpu-completion
-          fetch-depth: 0
-      - name: Apply reviewed source and test patches
+          python-version: '3.9'
+      - name: Exercise Python 3.9 documentation writer
+        shell: bash
         run: |
           python - <<'PY'
           from pathlib import Path
+          from tempfile import TemporaryDirectory
 
-          cox_path = Path("statgpu/survival/_cox.py")
-          text = cox_path.read_text(encoding="utf-8")
-          old = '''        self._check_is_fitted()
-          if event is None:
-              target = np.asarray(self._to_numpy(time), dtype=np.float64)
-              if target.ndim != 2 or target.shape[1] not in (2, 3):
-                  raise ValueError("packed survival targets require [time, event] or [start, stop, event]")
-              if target.shape[1] == 2:
-                  time, event = target[:, 0], target[:, 1]
-              else:
-                  if start is not None:
-                      raise ValueError("start is already present in the packed survival target")
-                  start, time, event = target[:, 0], target[:, 1], target[:, 2]
-          X_arr, backend, coef = self._prepare_prediction_X(X)
-          xp = backend.xp
-          n_samples = int(X_arr.shape[0])
-  '''
-          new = '''        self._check_is_fitted()
-          X_arr, backend, coef = self._prepare_prediction_X(X)
-          xp = backend.xp
-          n_samples = int(X_arr.shape[0])
-          if event is None:
-              target = backend.asarray(time, dtype=backend.float64)
-              if target.ndim != 2 or int(target.shape[1]) not in (2, 3):
-                  raise ValueError("packed survival targets require [time, event] or [start, stop, event]")
-              if int(target.shape[0]) != n_samples:
-                  raise ValueError("X and packed survival target must contain the same number of rows")
-              if int(target.shape[1]) == 2:
-                  time, event = target[:, 0], target[:, 1]
-              else:
-                  if start is not None:
-                      raise ValueError("start is already present in the packed survival target")
-                  start, time, event = target[:, 0], target[:, 1], target[:, 2]
-  '''
-          if text.count(old) != 1:
-              raise RuntimeError("expected one CoxPH.score packed-target block")
-          cox_path.write_text(text.replace(old, new, 1), encoding="utf-8")
+          from dev.validation.fix_docs_links import write_utf8
 
-          loss_path = Path("statgpu/losses/_cox_ph.py")
-          text = loss_path.read_text(encoding="utf-8")
-          old = '''    def _shared_objective(self, coef_dev, *, compute_derivatives: bool):
-          """Use the audited three-backend risk-set implementation."""
-          if self._n_events == 0:
-              return self._zero_objective(compute_derivatives=compute_derivatives)
-          return cox_counting_process_objective(
-  '''
-          new = '''    def _shared_objective(self, coef_dev, *, compute_derivatives: bool):
-          """Use the audited three-backend risk-set implementation."""
-          xp = _get_xp(self._X_sorted)
-          n_features = int(self._X_sorted.shape[1])
-          if int(coef_dev.shape[0]) != n_features:
-              raise ValueError("coef must have shape (n_features,)")
-          if _to_float_scalar(xp.sum(~xp.isfinite(coef_dev))) > 0:
-              raise ValueError("coef must contain only finite values")
-          if self._n_events == 0:
-              return self._zero_objective(compute_derivatives=compute_derivatives)
-          return cox_counting_process_objective(
-  '''
-          if text.count(old) != 1:
-              raise RuntimeError("expected one shared Cox objective block")
-          loss_path.write_text(text.replace(old, new, 1), encoding="utf-8")
-
-          test_path = Path("dev/tests/test_pr80_post_review_fixes.py")
-          text = test_path.read_text(encoding="utf-8")
-          addition = '''\n\ndef test_cox_score_packed_target_preserves_active_backend():
-      import statgpu.survival._cox as cox_module
-
-      source = inspect.getsource(cox_module.CoxPH.score)
-      assert "np.asarray(self._to_numpy(time)" not in source
-      assert "target = backend.asarray(time" in source
-
-
-def test_all_censored_loss_hessian_validates_coefficient_shape():
-      X = np.ones((4, 1), dtype=np.float64)
-      y = np.column_stack(
-          [np.arange(1.0, 5.0), np.zeros(4, dtype=np.float64)]
-      )
-      loss = CoxPartialLikelihoodLoss(ties="breslow")
-      with pytest.raises(ValueError, match="coef must have shape"):
-          loss.hessian(X, y, np.zeros(2, dtype=np.float64))
-  '''
-          marker = "def test_cox_score_packed_target_preserves_active_backend():"
-          if marker not in text:
-              test_path.write_text(text.rstrip() + addition + "\n", encoding="utf-8")
+          with TemporaryDirectory() as directory:
+              path = Path(directory) / "example.md"
+              write_utf8(path, "first\nsecond\n")
+              assert path.read_bytes() == b"first\nsecond\n"
           PY
-      - name: Restore read-only validation workflow
-        run: git show a7aff89678803f97cfaadae8381eaae02067bc2b:.github/workflows/test.yml > .github/workflows/test.yml
-      - name: Commit atomic review fix
+      - name: Run documentation contracts
+        id: docs_check
+        shell: bash
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add .github/workflows/test.yml statgpu/survival/_cox.py statgpu/losses/_cox_ph.py dev/tests/test_pr80_post_review_fixes.py
-          git diff --cached --check
-          git commit -m "fix(cox): preserve packed target backend"
-          git push origin HEAD:codex/survival-gpu-completion
+          set +e
+          python dev/validation/fix_docs_links.py --check > docs-links.log 2>&1
+          links_status=$?
+          python dev/validation/check_docs_contracts.py > docs-contracts-only.log 2>&1
+          contracts_status=$?
+          {
+            echo "=== Deterministic bilingual links ==="
+            cat docs-links.log
+            echo
+            echo "=== Maintained documentation contracts ==="
+            cat docs-contracts-only.log
+          } | tee docs-contracts.log
+          if [ "$links_status" -ne 0 ] || [ "$contracts_status" -ne 0 ]; then
+            status=1
+          else
+            status=0
+          fi
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+          exit 0
+      - name: Upload documentation diagnostics
+        if: steps.docs_check.outputs.status != '0'
+        uses: actions/upload-artifact@v4
+        with:
+          name: docs-contracts-log
+          path: docs-contracts.log
+          if-no-files-found: error
+      - name: Enforce documentation contracts
+        if: steps.docs_check.outputs.status != '0'
+        run: exit 1
+
+  regression-matrix:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.9', '3.10', '3.11', '3.12']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[validation,formula]"
+      - name: Run regression gate
+        run: |
+          python -m pytest \
+            dev/tests/test_refactor_safety_net.py \
+            dev/tests/test_refactor_post_phase.py \
+            dev/tests/test_linear.py \
+            dev/tests/test_logistic.py \
+            dev/tests/test_cox.py \
+            dev/tests/test_cox_cv.py \
+            dev/tests/test_distributions_backend.py \
+            dev/tests/test_penalties_and_exports.py \
+            dev/tests/test_ridge_inference.py \
+            dev/tests/test_ridge_weighted_consistency.py \
+            dev/tests/test_lasso_debiased_inference.py \
+            dev/tests/test_ordered_cross_backend.py \
+            dev/tests/test_hessian_fd_cpu.py \
+            dev/tests/test_quantile_regression.py \
+            dev/tests/test_unsupervised_pca.py \
+            dev/tests/test_unsupervised_kmeans.py \
+            dev/tests/test_unsupervised_dbscan.py \
+            dev/tests/test_unsupervised_gmm.py \
+            dev/tests/test_unsupervised_nmf.py \
+            dev/tests/test_unsupervised_tsne.py \
+            dev/tests/test_unsupervised_umap.py \
+            dev/tests/test_inference_resampling.py \
+            dev/tests/test_core_contracts.py \
+            dev/tests/test_repository_review_regressions.py \
+            dev/tests/test_repository_review_batch2.py \
+            dev/tests/test_repository_review_batch3.py \
+            dev/tests/test_repository_review_final.py \
+            dev/tests/test_module_review_anova_kernel.py \
+            dev/tests/test_module_review_covariance_panel.py \
+            dev/tests/test_module_review_smoothing_splines_gam_metrics.py \
+            dev/tests/test_three_backend_native_followup.py \
+            dev/tests/test_second_full_review.py \
+            dev/tests/test_third_full_review.py \
+            dev/tests/test_pr79_accuracy_git_integrity.py \
+            dev/tests/test_pr79_accuracy_pipeline.py \
+            dev/tests/test_pr79_complete_review_fixes.py \
+            dev/tests/test_pr79_cox_full_matrix_contract.py \
+            dev/tests/test_pr79_cox_parity_smoke.py \
+            dev/tests/test_pr79_performance_followups.py \
+            dev/tests/test_pr79_renderer_cli.py \
+            dev/tests/test_pr79_survival_generator.py \
+            dev/tests/test_elasticnet_cv.py \
+            dev/tests/test_v10_import_smoke.py \
+            -q --tb=short
+
+  full-cpu-suite:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[validation,formula]"
+      - name: Run complete CPU test tree
+        run: python -m pytest dev/tests -q --tb=short
+
+  static-contracts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[validation,formula]"
+          python -m pip install ruff
+      - name: Compile package and maintained dev scripts
+        run: python -m compileall -q statgpu dev/validation dev/benchmarks
+      - name: High-signal static checks
+        run: |
+          ruff check \
+            statgpu/_base.py \
+            statgpu/_config.py \
+            statgpu/anova \
+            statgpu/backends/_factory.py \
+            statgpu/backends/_utils.py \
+            statgpu/core/formula/_parser.py \
+            statgpu/covariance \
+            statgpu/cross_validation \
+            statgpu/diagnostics \
+            statgpu/feature_selection \
+            statgpu/glm_core/_solver_utils.py \
+            statgpu/inference/_resampling.py \
+            statgpu/linear_model/_stats.py \
+            statgpu/linear_model/cv/_ridge_cv.py \
+            statgpu/linear_model/penalized/_fit_mixin.py \
+            statgpu/linear_model/penalized/_inference_mixin.py \
+            statgpu/linear_model/penalized/_penalized_cv.py \
+            statgpu/linear_model/penalized/_penalized_linear.py \
+            statgpu/linear_model/wrappers/_linear.py \
+            statgpu/linear_model/wrappers/_ridge.py \
+            statgpu/metrics \
+            statgpu/nonparametric/kernel_methods \
+            statgpu/nonparametric/kernel_smoothing \
+            statgpu/nonparametric/splines \
+            statgpu/panel \
+            statgpu/penalties/_adaptive_l1.py \
+            statgpu/penalties/_base.py \
+            statgpu/semiparametric \
+            statgpu/solvers/_fista_lla.py \
+            statgpu/survival/_cox.py \
+            statgpu/unsupervised/_kmeans.py \
+            statgpu/unsupervised/_nndescent.py \
+            statgpu/unsupervised/_umap.py \
+            statgpu/unsupervised/_utils.py \
+            --select F821,E9,F63,F7,F82
+      - name: Cox behavior checks
+        run: python -m pytest dev/tests/test_cox.py -q --tb=short
+      - name: PR79 canonical accuracy evidence smoke
+        shell: bash
+        run: |
+          artifact_dir="$(mktemp -d)"
+          validated_sha="$(git rev-parse HEAD)"
+          python dev/benchmarks/pr79/run_accuracy.py \
+            --config smoke \
+            --backend numpy \
+            --output "$artifact_dir/raw.json"
+          python dev/benchmarks/pr79/aggregate_results.py \
+            --config smoke \
+            --raw "$artifact_dir/raw.json" \
+            --expected-sha "$validated_sha" \
+            --output "$artifact_dir/validated.json"
+          python dev/benchmarks/pr79/emit_final_report.py \
+            --config smoke \
+            --validated "$artifact_dir/validated.json" \
+            --output-json "$artifact_dir/final.json" \
+            --output-markdown "$artifact_dir/final.md"
+          git diff --exit-code
+      - name: Collect complete test tree
+        run: python -m pytest --collect-only -q
