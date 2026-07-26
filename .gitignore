@@ -18,7 +18,14 @@ SECURITY.md
 .claude/
 
 # Results
+# Keep the final PR80 Exact benchmark source available to the PR76 dashboard
+# pipeline while continuing to ignore ad-hoc result artifacts.
 results/
+!results/
+results/*
+!results/benchmark_frontend_sources/
+results/benchmark_frontend_sources/*
+!results/benchmark_frontend_sources/coxph_exact_pr80_20260726.json
 
 # Dev tooling (benchmarks, scripts, plans, docs — not production code)
 dev/benchmarks/
