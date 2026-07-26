@@ -526,7 +526,7 @@ def _to_numpy(value: Any) -> Any:
     return np.asarray(value)
 
 
-def _extract(model) -> Dict[str, Any]:
+def _extract(model, *, skip_attributes: Iterable[str] = ()) -> Dict[str, Any]:
     results: Dict[str, Any] = {}
     covariance = getattr(model, "_var_matrix", None)
     if covariance is not None:
@@ -552,7 +552,10 @@ def _extract(model) -> Dict[str, Any]:
         "_termination_reason",
         "_iterations",
     )
+    skipped = set(skip_attributes)
     for attribute in attributes:
+        if attribute in skipped:
+            continue
         value = getattr(model, attribute, None)
         if value is None:
             continue
@@ -665,7 +668,11 @@ def _bench_coxph(
             model.fit, X_device, time=time, event=event, entry=entry
         )
         if iteration >= n_warm:
-            results = _extract(model)
+            # Classical partial-likelihood information criteria do not apply to
+            # penalized Cox estimates.  Preserve the public AIC/BIC error contract
+            # while collecting the valid objective, KKT, and inference evidence.
+            unavailable = ("aic", "bic") if penalty > 0.0 else ()
+            results = _extract(model, skip_attributes=unavailable)
             risk_score = model.predict_risk_score(X_device)
             results["predictions"] = _to_numpy(risk_score).astype(np.float64).reshape(-1).tolist()
             _require_finite_results(results)

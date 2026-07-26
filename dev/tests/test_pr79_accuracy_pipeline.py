@@ -9,6 +9,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from dev.benchmarks.pr79 import run_accuracy as accuracy_module
 from dev.benchmarks.pr79 import aggregate_results as aggregate_module
 from dev.benchmarks.pr79.aggregate_results import (
     AggregationError,
@@ -171,6 +172,57 @@ def test_safe_run_retains_structured_failure_evidence():
     assert record["results"] is None
     assert record["error_type"] == "RuntimeError"
     assert record["traceback"]
+
+
+def test_penalized_cox_accuracy_run_does_not_read_classical_aic_bic(monkeypatch):
+    captured = {}
+
+    class FakeCoxPH:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+        @property
+        def aic(self):
+            raise RuntimeError("AIC is unavailable for penalized CoxPH")
+
+        @property
+        def bic(self):
+            raise RuntimeError("BIC is unavailable for penalized CoxPH")
+
+        def fit(self, X, *, time, event, entry=None):
+            self.coef_ = np.zeros(X.shape[1])
+            self._var_matrix = np.eye(X.shape[1])
+            self._bse = np.ones(X.shape[1])
+            self._log_likelihood = -2.0
+            self._penalized_objective = -2.1
+            self._final_kkt_inf = 0.0
+            self._final_kkt_normalized = 0.0
+            self._converged = True
+            self._termination_reason = "converged"
+            self._iterations = 1
+            return self
+
+        def predict_risk_score(self, X):
+            return np.zeros(X.shape[0])
+
+    import statgpu.survival
+
+    monkeypatch.setattr(statgpu.survival, "CoxPH", FakeCoxPH)
+    measured = accuracy_module._bench_coxph(
+        np.zeros((6, 2)),
+        np.arange(1.0, 7.0),
+        np.array([1, 1, 1, 0, 1, 0]),
+        "numpy",
+        penalty=0.1,
+        n_meas=1,
+    )
+
+    assert captured["penalty"] == 0.1
+    results = measured[0]["results"]
+    assert "aic" not in results
+    assert "bic" not in results
+    assert results["_penalized_objective"] == -2.1
+    assert results["_final_kkt_normalized"] == 0.0
 
 
 def test_non_finite_bse_is_a_hard_numerical_failure():
