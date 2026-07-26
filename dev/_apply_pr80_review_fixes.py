@@ -8,6 +8,7 @@ from __future__ import annotations
 import base64
 from pathlib import Path
 import re
+import subprocess
 import zlib
 
 
@@ -166,6 +167,11 @@ path.write_text(text, encoding="utf-8")
 )
 
 
-# Remove the one-shot applicator and workflow from the resulting commit.
+# Restore the maintained workflow, then remove every one-shot helper.
+subprocess.run(
+    ["git", "checkout", "origin/master", "--", ".github/workflows/test.yml"],
+    cwd=ROOT,
+    check=True,
+)
 (ROOT / "dev/_apply_pr80_review_fixes.py").unlink()
 (ROOT / ".github/workflows/pr80-review-fix.yml").unlink()
