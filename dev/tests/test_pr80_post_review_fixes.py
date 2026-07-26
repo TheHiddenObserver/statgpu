@@ -11,6 +11,7 @@ from numpy.testing import assert_allclose
 from statgpu.cross_validation._base import CVCache
 from statgpu.linear_model import PenalizedCoxPHModel
 from statgpu.losses import CoxPartialLikelihoodLoss
+from statgpu.survival import CoxPH
 from statgpu.survival import _cox_counting as counting_module
 from statgpu.survival import _cox_cv as cox_cv_module
 from statgpu.survival._cox_counting import fit_counting_process_cox
@@ -123,6 +124,55 @@ def test_cox_inference_uses_unified_distribution_backend():
     assert "from scipy import stats" not in source
     assert "stats.norm" not in source
     assert "stats.chi2" not in source
+
+
+def test_cox_public_facade_preserves_historical_class_path():
+    assert CoxPH.__module__ == "statgpu.survival._cox"
+    assert CoxPH.__name__ == "CoxPH"
+
+
+def test_cox_score_packed_target_uses_active_backend_source():
+    source = inspect.getsource(CoxPH.score)
+    assert "np.asarray(self._to_numpy(time)" not in source
+    assert "target = backend.asarray(time" in source
+
+
+@pytest.mark.parametrize("device", ["cuda", "torch"])
+def test_cox_score_packed_target_preserves_explicit_gpu_backend(device, monkeypatch):
+    X_np = np.array([[1.0], [0.0], [-1.0], [-2.0]], dtype=np.float64)
+    y_np = np.array(
+        [[1.0, 1.0], [2.0, 1.0], [3.0, 0.0], [4.0, 0.0]],
+        dtype=np.float64,
+    )
+    if device == "cuda":
+        cp = pytest.importorskip("cupy")
+        try:
+            if cp.cuda.runtime.getDeviceCount() < 1:
+                pytest.skip("CuPy CUDA device is unavailable")
+        except Exception as exc:
+            pytest.skip(f"CuPy CUDA backend is unavailable: {exc}")
+        X = cp.asarray(X_np)
+        y = cp.asarray(y_np)
+    else:
+        torch = pytest.importorskip("torch")
+        if not torch.cuda.is_available():
+            pytest.skip("Torch CUDA device is unavailable")
+        X = torch.as_tensor(X_np, dtype=torch.float64, device="cuda")
+        y = torch.as_tensor(y_np, dtype=torch.float64, device="cuda")
+
+    model = CoxPH(
+        device=device,
+        compute_inference=False,
+        compute_cindex=False,
+        max_iter=50,
+    ).fit(X, time=y[:, 0], event=y[:, 1])
+
+    def reject_host_transfer(*args, **kwargs):
+        raise AssertionError("packed GPU survival target was transferred to NumPy")
+
+    monkeypatch.setattr(model, "_to_numpy", reject_host_transfer)
+    score = model.score(X, y)
+    assert np.isfinite(score)
 
 
 @pytest.mark.parametrize("device", ["cuda", "torch"])
