@@ -78,7 +78,15 @@ text = replace_once(
 text = text.replace("stats.norm.sf", "norm.sf")
 text = text.replace("stats.chi2.sf", "chi2.sf")
 if "stats." in text:
-    raise RuntimeError("unconverted scipy.stats use remains in _cox.py")
+    remaining = [
+        f"{line_number}: {line.strip()}"
+        for line_number, line in enumerate(text.splitlines(), start=1)
+        if "stats." in line
+    ]
+    raise RuntimeError(
+        "unconverted scipy.stats use remains in _cox.py:\n"
+        + "\n".join(remaining)
+    )
 text = replace_once(
     text,
     '            if "Intercept" in self._feature_names:\n                self._feature_names.remove("Intercept")\n                X_arr = X_arr[:, 1:]\n',
