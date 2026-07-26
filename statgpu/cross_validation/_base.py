@@ -330,6 +330,20 @@ class CVCache:
             while len(self._cache) > self._maxsize:
                 self._cache.popitem(last=False)
 
+    def pop(self, key, default=None):
+        """Remove and return one cached value under the cache lock."""
+        with self._lock:
+            return self._cache.pop(key, default)
+
+    def clear(self) -> None:
+        """Remove every cached value under the cache lock."""
+        with self._lock:
+            self._cache.clear()
+
+    def __len__(self) -> int:
+        with self._lock:
+            return len(self._cache)
+
     @staticmethod
     def make_key(*args) -> str:
         """Generate a framed content hash for nested CV arguments.

@@ -8,14 +8,13 @@ parameter for Cox PH models.
 from typing import Optional, Union, Tuple, Dict, Any, List
 import copy
 import numbers
-from collections import OrderedDict
 import hashlib
 import os
 import numpy as np
 
 from statgpu._config import Device, get_device
 from statgpu.backends import _to_numpy
-from statgpu.cross_validation._base import CVEstimatorBase
+from statgpu.cross_validation._base import CVCache, CVEstimatorBase, kfold_indices
 from statgpu.survival._cox import CoxPH
 from statgpu.survival._risk_sets import cox_counting_process_objective
 
@@ -25,7 +24,7 @@ from statgpu.survival._risk_sets import cox_counting_process_objective
 # =============================================================================
 
 _COXPH_CV_CACHE_MAXSIZE = int(64)
-_COXPH_CV_CACHE: "OrderedDict[str, Dict[str, Any]]" = OrderedDict()
+_COXPH_CV_CACHE = CVCache(maxsize=_COXPH_CV_CACHE_MAXSIZE)
 
 
 def _env_flag(name: str, default: bool = False) -> bool:
@@ -84,24 +83,17 @@ def _hash_optional_array(h: "hashlib._blake2.blake2b", tag: str, arr: Optional[n
 
 
 def _coxcv_cache_get(cache_key: Optional[str]) -> Optional[Dict[str, Any]]:
-    """Get cached CoxPH CV results."""
+    """Get an isolated copy of cached CoxPH CV results."""
     if cache_key is None:
         return None
-    val = _COXPH_CV_CACHE.get(cache_key)
-    if val is not None:
-        _COXPH_CV_CACHE.move_to_end(cache_key)
-        return copy.deepcopy(val)
-    return None
+    value = _COXPH_CV_CACHE.get(cache_key)
+    return None if value is None else copy.deepcopy(value)
 
 
 def _coxcv_cache_put(cache_key: Optional[str], value: Dict[str, Any]) -> None:
-    """Put cached CoxPH CV results."""
-    if cache_key is None:
-        return
-    _COXPH_CV_CACHE[cache_key] = copy.deepcopy(value)
-    _COXPH_CV_CACHE.move_to_end(cache_key)
-    while len(_COXPH_CV_CACHE) > _COXPH_CV_CACHE_MAXSIZE:
-        _COXPH_CV_CACHE.popitem(last=False)
+    """Store an isolated copy in the shared thread-safe CV cache."""
+    if cache_key is not None:
+        _COXPH_CV_CACHE.put(cache_key, copy.deepcopy(value))
 
 
 def _sample_hash(h, arr, max_rows=50):
@@ -197,22 +189,18 @@ def _make_coxph_cv_auto_cache_key(
 # K-fold helpers
 # =============================================================================
 
-def _kfold_indices(n_samples: int, n_splits: int, random_state: Optional[int] = None):
-    """Generate K-fold train/test indices."""
-    rng = np.random.RandomState(random_state)
-    indices = np.arange(n_samples)
-    rng.shuffle(indices)
-    fold_sizes = np.full(n_splits, n_samples // n_splits, dtype=np.int64)
-    fold_sizes[: n_samples % n_splits] += 1
-    current = 0
-    folds = []
-    for fold_size in fold_sizes:
-        start, stop = current, current + fold_size
-        test_idx = indices[start:stop]
-        train_idx = np.concatenate([indices[:start], indices[stop:]])
-        folds.append((train_idx, test_idx))
-        current = stop
-    return folds
+def _kfold_indices(
+    n_samples: int,
+    n_splits: int,
+    random_state: Optional[int] = None,
+):
+    """Generate folds through the shared CV splitter."""
+    return kfold_indices(
+        n_samples,
+        n_splits=n_splits,
+        random_state=random_state,
+        shuffle=True,
+    )
 
 
 def _group_kfold_indices(

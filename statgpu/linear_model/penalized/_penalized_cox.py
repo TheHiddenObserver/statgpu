@@ -9,7 +9,7 @@ __all__ = ["PenalizedCoxPHModel"]
 import numbers
 import numpy as np
 from statgpu._config import Device
-from statgpu.backends._utils import _to_numpy
+from statgpu.backends._utils import _to_float_scalar, _to_numpy
 
 from ._base import PenalizedGeneralizedLinearModel
 
@@ -530,52 +530,112 @@ class PenalizedCoxPHModel(PenalizedGeneralizedLinearModel):
         return np.exp(np.clip(raw, -500.0, 500.0))
 
     def score(self, X, y, sample_weight=None):
-        """Concordance index (C-index) for survival data.
+        """Return the backend-native Harrell concordance index.
 
-        Returns the C-index measuring discrimination ability.
-        Higher is better (0.5 = random, 1.0 = perfect).
-
-        Note: C-index is a ranking metric and does not support sample_weight.
-        The sample_weight parameter is accepted for sklearn API compatibility
-        but is ignored during computation.
+        ``sample_weight`` is accepted for sklearn compatibility but is ignored
+        because the shared concordance definition is pair-based.
         """
         if sample_weight is not None:
             import warnings
-            warnings.warn("sample_weight is not supported for C-index (ranking metric), ignoring.",
-                          UserWarning, stacklevel=2)
 
+            warnings.warn(
+                "sample_weight is not supported for C-index (ranking metric), "
+                "ignoring.",
+                UserWarning,
+                stacklevel=2,
+            )
         if self.coef_ is None:
             raise RuntimeError("Model has not been fitted yet.")
 
         from statgpu.survival._risk_sets import counting_process_concordance
 
         X = self._prepare_predict_X(X)
-        X_np = np.asarray(_to_numpy(X), dtype=np.float64)
-        if X_np.ndim == 1:
-            X_np = X_np.reshape(-1, 1)
-        if isinstance(y, dict):
-            if "time" not in y or "event" not in y:
-                raise ValueError("survival y dict must contain time and event")
-            time = np.asarray(_to_numpy(y["time"]), dtype=np.float64).reshape(-1)
-            event = np.asarray(_to_numpy(y["event"]), dtype=np.float64).reshape(-1)
-            if time.shape[0] != event.shape[0]:
-                raise ValueError("time and event must contain the same number of rows")
-            n_response_rows = time.shape[0]
-        else:
-            y = np.asarray(_to_numpy(y), dtype=np.float64)
-            if y.ndim == 2 and y.shape[1] == 2:
-                time = y[:, 0]
-                event = y[:, 1]
+        backend_name = self._prediction_backend_name()
+
+        if backend_name == "cupy":
+            import cupy as cp
+
+            Xb = cp.asarray(self._to_array(X, Device.CUDA), dtype=cp.float64)
+            if isinstance(y, dict):
+                if "time" not in y or "event" not in y:
+                    raise ValueError(
+                        "survival y dict must contain time and event"
+                    )
+                time = cp.asarray(y["time"], dtype=cp.float64).reshape(-1)
+                event = cp.asarray(y["event"], dtype=cp.float64).reshape(-1)
             else:
-                raise ValueError("y must be (n, 2) array with columns [time, event]")
-            n_response_rows = y.shape[0]
-        if X_np.shape[0] != n_response_rows:
-            raise ValueError("X and y must contain the same number of rows")
-        return float(
-            counting_process_concordance(
-                np.asarray(self.coef_, dtype=np.float64),
-                X_np,
-                time,
-                event,
+                yb = cp.asarray(y, dtype=cp.float64)
+                if yb.ndim != 2 or int(yb.shape[1]) != 2:
+                    raise ValueError(
+                        "y must be (n, 2) array with columns [time, event]"
+                    )
+                time, event = yb[:, 0], yb[:, 1]
+            coef = cp.asarray(self.coef_, dtype=cp.float64)
+        elif backend_name == "torch":
+            import torch
+
+            Xb = self._to_array(
+                X, Device.TORCH, backend="torch"
+            ).to(dtype=torch.float64)
+            if isinstance(y, dict):
+                if "time" not in y or "event" not in y:
+                    raise ValueError(
+                        "survival y dict must contain time and event"
+                    )
+                time = torch.as_tensor(
+                    y["time"],
+                    dtype=torch.float64,
+                    device=Xb.device,
+                ).reshape(-1)
+                event = torch.as_tensor(
+                    y["event"],
+                    dtype=torch.float64,
+                    device=Xb.device,
+                ).reshape(-1)
+            else:
+                yb = torch.as_tensor(
+                    y, dtype=torch.float64, device=Xb.device
+                )
+                if yb.ndim != 2 or int(yb.shape[1]) != 2:
+                    raise ValueError(
+                        "y must be (n, 2) array with columns [time, event]"
+                    )
+                time, event = yb[:, 0], yb[:, 1]
+            coef = torch.as_tensor(
+                self.coef_, dtype=Xb.dtype, device=Xb.device
             )
+        else:
+            Xb = np.asarray(X, dtype=np.float64)
+            if isinstance(y, dict):
+                if "time" not in y or "event" not in y:
+                    raise ValueError(
+                        "survival y dict must contain time and event"
+                    )
+                time = np.asarray(
+                    _to_numpy(y["time"]), dtype=np.float64
+                ).reshape(-1)
+                event = np.asarray(
+                    _to_numpy(y["event"]), dtype=np.float64
+                ).reshape(-1)
+            else:
+                yb = np.asarray(_to_numpy(y), dtype=np.float64)
+                if yb.ndim != 2 or yb.shape[1] != 2:
+                    raise ValueError(
+                        "y must be (n, 2) array with columns [time, event]"
+                    )
+                time, event = yb[:, 0], yb[:, 1]
+            coef = np.asarray(self.coef_, dtype=np.float64)
+
+        if Xb.ndim == 1:
+            Xb = Xb.reshape(-1, 1)
+        if (
+            int(time.shape[0]) != int(event.shape[0])
+            or int(Xb.shape[0]) != int(time.shape[0])
+        ):
+            raise ValueError(
+                "X, time, and event must contain the same number of rows"
+            )
+
+        return _to_float_scalar(
+            counting_process_concordance(coef, Xb, time, event)
         )

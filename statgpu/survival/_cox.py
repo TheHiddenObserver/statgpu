@@ -9,12 +9,11 @@ from typing import Optional, Union
 import numbers
 import os
 import numpy as np
-from scipy import stats
 
 from statgpu._base import BaseEstimator
 from statgpu._config import Device
 from statgpu.backends import _to_float_scalar
-from statgpu.inference._distributions_backend import chi2
+from statgpu.inference._distributions_backend import chi2, norm
 
 # Optional Cython import for faster Efron gradient/Hessian computation
 try:
@@ -902,8 +901,13 @@ class CoxPH(BaseEstimator):
             # Drop intercept column from design matrix (CoxPH doesn't use intercept)
             self._feature_names = list(design_info.column_names)
             if "Intercept" in self._feature_names:
-                self._feature_names.remove("Intercept")
-                X_arr = X_arr[:, 1:]
+                intercept_index = self._feature_names.index("Intercept")
+                X_arr = np.delete(X_arr, intercept_index, axis=1)
+                self._feature_names = [
+                    name
+                    for index, name in enumerate(self._feature_names)
+                    if index != intercept_index
+                ]
             self._design_info = design_info
             X = X_arr
         else:
@@ -1460,14 +1464,14 @@ class CoxPH(BaseEstimator):
             self._var_matrix = to_numpy(variance)
             self._bse = np.sqrt(np.maximum(np.diag(self._var_matrix), 0.0))
             self._zvalues = self.coef_ / (self._bse + 1e-30)
-            self._pvalues = 2.0 * stats.norm.sf(np.abs(self._zvalues))
+            self._pvalues = 2.0 * norm.sf(np.abs(self._zvalues))
             self._conf_int = np.column_stack(
                 [self.coef_ - 1.96 * self._bse, self.coef_ + 1.96 * self._bse]
             )
             self._lr_test_stat = 2.0 * (
                 self._log_likelihood - self._log_likelihood_null
             )
-            self._lr_test_pvalue = stats.chi2.sf(
+            self._lr_test_pvalue = chi2.sf(
                 self._lr_test_stat, int(Xb.shape[1])
             )
             try:
@@ -1476,7 +1480,7 @@ class CoxPH(BaseEstimator):
                 )
             except np.linalg.LinAlgError:
                 self._wald_test_stat = np.nan
-            self._wald_test_pvalue = stats.chi2.sf(
+            self._wald_test_pvalue = chi2.sf(
                 self._wald_test_stat, int(Xb.shape[1])
             )
             # The solver already evaluates the null objective (and starts there
@@ -1487,7 +1491,7 @@ class CoxPH(BaseEstimator):
                 self._score_test_stat = scalar(score0 @ score_delta)
             except Exception:
                 self._score_test_stat = np.nan
-            self._score_test_pvalue = stats.chi2.sf(
+            self._score_test_pvalue = chi2.sf(
                 self._score_test_stat, int(Xb.shape[1])
             )
         else:
@@ -5086,11 +5090,11 @@ class CoxPH(BaseEstimator):
         self._zvalues = self.coef_ / (self._bse + 1e-30)
         
         # p-values (two-sided)
-        self._pvalues = 2 * (1 - stats.norm.cdf(np.abs(self._zvalues)))
+        self._pvalues = 2 * (1 - norm.cdf(np.abs(self._zvalues)))
         
         # 95% confidence intervals
         alpha = 0.05
-        z_crit = stats.norm.ppf(1 - alpha / 2)
+        z_crit = norm.ppf(1 - alpha / 2)
         self._conf_int = np.column_stack([
             self.coef_ - z_crit * self._bse,
             self.coef_ + z_crit * self._bse

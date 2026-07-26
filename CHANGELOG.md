@@ -4,17 +4,10 @@ All notable changes to statgpu are documented here, organized by date and PR.
 
 ## 2026-07-26
 
-### PR #80 — Right-censored Exact full-fit optimization follow-up
-
-- Added descending-stop baseline prefixes and gated per-channel Torch CUDA scans
-  for ordinary one-stratum right-censored Exact fits.
-- Kept stable backend-native fallbacks for delayed entry, extreme CuPy
-  predictors, small/wide Torch scans, and memory-constrained nested workspaces.
-- Passed **297 local tests** with 97 optional-dependency skips and **392
-  physical-P100 tests** with two expected skips.
-- At `n=122880`, Torch full-fit time fell from 3.0308 s to 0.1000 s: 30.44x
-  faster than NumPy, 1.43x faster than CuPy, and 26.92x faster than R, with all
-  convergence and R precision gates passing.
+### PR #80 — Complete GPU Cox phase one
+- Added Breslow, Efron, and Exact Cox risk sets with delayed entry, start-stop rows, strata, robust inference, and subject-grouped CV across NumPy, CuPy, and Torch.
+- Hardened penalized Cox estimation, formula handling, sklearn compatibility, numerical stability, and backend-preserving prediction and scoring.
+- Added synchronized GPU and R validation artifacts for coefficients, likelihood, covariance, convergence, and performance.
 
 ## 2026-07-25
 
@@ -27,34 +20,6 @@ All notable changes to statgpu are documented here, organized by date and PR.
 - Retained the `STATGPU_NO_EXT=1` pure-Python `py3-none-any` wheel policy and sdist.
 - Validated 122 maintained documentation files, the full CPU-only suite, both
   distribution formats, `twine check`, artifact contents, and clean installs.
-
-### PR #80 — Cox survival Phase-1 completion and 0.2.2 compatibility review
-
-- Reconciled the PR #80 branch based on 0.2.1 with the 0.2.2 release tree without a version downgrade.
-- Added Breslow/Efron/Exact counting-process risk sets, delayed entry, strata, time-varying rows, robust inference, and subject-grouped CoxPHCV across NumPy/CuPy/Torch paths.
-- Fixed KKT convergence, open-left risk-set boundaries, backend-native prediction/scoring, and synchronized benchmark timing; refreshed bilingual contracts.
-- Vectorized dense Efron moments and added a one-stratum right-censored Exact
-  prefix DP across nested risk sets on NumPy/CuPy/Torch; sorted segment sums
-  also remove the dense failure-group-by-sample mask. Pre-allocation 512 MiB
-  gates retain backend-native normalized fallbacks.
-- Reused zero-initial, accepted-final, and null score/information objectives to
-  remove redundant Exact evaluations in fitting and score-test inference.
-- Local NumPy correctness and external-comparison gates pass. Remote `myconda`
-  validation on a Tesla P100 found and fixed Torch prediction, scikit-learn
-  1.2.2 cloning, and test-boundary issues; the final physical-GPU matrix passed
-  with **384 passed, 2 expected skips, 0 failed**, and quick/full benchmark
-  schemas passed without gate failures on NumPy, CuPy, and Torch.
-- Heavy-ties remains 0.477/0.179/0.212 s on NumPy/CuPy/Torch. On the final
-  P100 nested-Exact benchmark (`n=1920`, `p=4`, maximum tie size 8), full-fit
-  R/NumPy/CuPy/Torch times are 0.047/0.0585/0.2690/0.1590 s; the StatGPU paths
-  improve about 928x/41.0x/41.6x over the reviewed pre-prefix implementation,
-  without an implicit CPU fallback.
-- Added R 4.4.1 survival 3.8.9 `coxph(ties="exact")` alignment for bounded
-  scaling, delayed entry, strata, and combined delayed-entry/strata cases.
-  NumPy/CuPy/Torch passed convergence and coefficient/log-likelihood/covariance
-  gates with maxima `1.30e-09`/`4.55e-13`/`5.01e-12` versus R. Timings confirm
-  shape dependence: R led the n=1920 right-censored GPU paths, while StatGPU led
-  the separate n=160 delayed-entry case.
 
 ## 2026-07-24
 
