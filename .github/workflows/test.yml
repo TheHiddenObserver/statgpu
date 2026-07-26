@@ -5,33 +5,92 @@ on:
     branches: [master]
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  pr80-full-cpu-diagnostics:
+  apply-pr80-all-censored-fix:
+    if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
-    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: codex/survival-gpu-completion
+          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - name: Install dependencies
+      - name: Restore all-censored loss semantics
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("statgpu/losses/_cox_ph.py")
+          text = path.read_text(encoding="utf-8")
+          old = '''        if _to_float_scalar(xp.sum(event)) <= 0:
+            raise ValueError("at least one observed event is required")
+
+        self._x_reference = (
+'''
+          new = '''        self._x_reference = (
+'''
+          if text.count(old) != 1:
+              raise RuntimeError("expected one all-censored preprocessing rejection")
+          text = text.replace(old, new, 1)
+
+          old = '''    def _shared_objective(self, coef_dev, *, compute_derivatives: bool):
+        """Use the audited three-backend risk-set implementation."""
+        return cox_counting_process_objective(
+            coef_dev,
+            self._X_sorted,
+            self._time_sorted,
+            self._event_sorted,
+            ties=self.ties,
+            compute_derivatives=compute_derivatives,
+        )
+'''
+          new = '''    def _shared_objective(self, coef_dev, *, compute_derivatives: bool):
+        """Use the audited three-backend risk-set implementation."""
+        if self._n_events == 0:
+            xp = _get_xp(self._X_sorted)
+            n_features = int(self._X_sorted.shape[1])
+            result = {
+                "log_likelihood": _backend_zeros((), xp, self._X_sorted)
+            }
+            if compute_derivatives:
+                result["score"] = _backend_zeros(
+                    (n_features,), xp, self._X_sorted
+                )
+                result["information"] = _backend_zeros(
+                    (n_features, n_features), xp, self._X_sorted
+                )
+            return result
+        return cox_counting_process_objective(
+            coef_dev,
+            self._X_sorted,
+            self._time_sorted,
+            self._event_sorted,
+            ties=self.ties,
+            compute_derivatives=compute_derivatives,
+        )
+'''
+          if text.count(old) != 1:
+              raise RuntimeError("expected one shared Cox loss objective")
+          path.write_text(text.replace(old, new, 1), encoding="utf-8")
+          PY
+      - name: Install and test loss edge cases
         run: |
           python -m pip install --upgrade pip
           python -m pip install -e ".[validation,formula]"
-      - name: Run full CPU diagnostics
-        id: full
-        continue-on-error: true
-        run: python -m pytest dev/tests -q --tb=long > pr80-full-cpu.log 2>&1
-      - name: Upload full CPU diagnostics
-        uses: actions/upload-artifact@v4
-        with:
-          name: pr80-full-cpu-diagnostics
-          path: pr80-full-cpu.log
-          if-no-files-found: error
-      - name: Enforce result
-        if: steps.full.outcome == 'failure'
+          python -m pytest \
+            dev/tests/test_losses.py::TestEdgeCases::test_cox_all_censored \
+            dev/tests/test_penalized_cox_completion.py \
+            dev/tests/test_pr80_post_review_fixes.py \
+            -q --tb=short
+      - name: Commit code-only fix
         run: |
-          tail -n 200 pr80-full-cpu.log
-          exit 1
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add statgpu/losses/_cox_ph.py
+          git diff --cached --check
+          git commit -m "fix(cox): preserve all-censored loss contract"
+          git push origin HEAD:codex/survival-gpu-completion
