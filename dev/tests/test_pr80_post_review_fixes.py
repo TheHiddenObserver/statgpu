@@ -84,7 +84,7 @@ def test_counting_solver_reports_line_search_failure_without_discarding_iterate(
     def objective(beta, X, stop, event, **kwargs):
         beta_value = float(np.asarray(beta)[0])
         return {
-            "log_likelihood": np.asarray(-(beta_value**2)),
+            "log_likelihood": np.asarray(0.0 if beta_value == 0.0 else -1.0),
             "score": np.array([1.0]),
             "information": np.array([[1.0]]),
         }

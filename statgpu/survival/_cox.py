@@ -1472,7 +1472,7 @@ class CoxPH(BaseEstimator):
                 self._log_likelihood - self._log_likelihood_null
             )
             self._lr_test_pvalue = chi2.sf(
-                self._lr_test_stat, int(Xb.shape[1])
+                self._lr_test_stat, df=int(Xb.shape[1])
             )
             try:
                 self._wald_test_stat = float(
@@ -1481,7 +1481,7 @@ class CoxPH(BaseEstimator):
             except np.linalg.LinAlgError:
                 self._wald_test_stat = np.nan
             self._wald_test_pvalue = chi2.sf(
-                self._wald_test_stat, int(Xb.shape[1])
+                self._wald_test_stat, df=int(Xb.shape[1])
             )
             # The solver already evaluates the null objective (and starts there
             # for the default zero initialization), so reuse its score test terms.
@@ -1492,7 +1492,7 @@ class CoxPH(BaseEstimator):
             except Exception:
                 self._score_test_stat = np.nan
             self._score_test_pvalue = chi2.sf(
-                self._score_test_stat, int(Xb.shape[1])
+                self._score_test_stat, df=int(Xb.shape[1])
             )
         else:
             self._var_matrix = None
