@@ -23,7 +23,10 @@ jobs:
       - name: Apply review fixes
         id: apply
         continue-on-error: true
-        run: python dev/_apply_pr80_review_fixes.py > pr80-apply.log 2>&1
+        run: |
+          python dev/_prepare_pr80_applicator.py
+          python dev/_apply_pr80_review_fixes.py > pr80-apply.log 2>&1
+          rm dev/_prepare_pr80_applicator.py
       - name: Upload applicator diagnostics
         if: steps.apply.outcome == 'failure'
         uses: actions/upload-artifact@v4
