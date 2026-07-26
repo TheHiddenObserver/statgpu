@@ -1,7 +1,13 @@
 # PR #80 Review-Fix Report
 
-> Review date: 2026-07-25<br>
-> PR head reviewed: `d6f798c1834fd6318c8257eed334f84a198fa8ad`<br>
+> Review date: 2026-07-26<br>
+> Original PR head reviewed: `d6f798c1834fd6318c8257eed334f84a198fa8ad`<br>
+> Performance-fix base: `ad3c0026eb682ac6394369a3318e9fb806e631b8`<br>
+> Final Exact risk-set SHA-256: `190567fbbc7ae40f24e9e1506ce8ac1fca5a58118a2afb800f7dec2fa05a10d8`<br>
+> Final counting-solver SHA-256: `9684867f90b153c23675d8804698f76092765a3d96da05c7a3d989528782d501`<br>
+> Final Cox dispatch SHA-256: `efe199e7bb40112f882109efbe8b462ab8050f52349d939d33a611f819f81e6c`<br>
+> Final R/performance artifact SHA-256: `85e7c72d736b859564e598e8e6e26b26b05a6fe06a076c39645083af80ea896e`<br>
+> Physical-GPU matrix SHA-256: `09cdcc9e900ba7eccae7a5d7e389c7ff6ddcbabdf5f4a648ce776b52ff8d78c6`<br>
 > Original merge base: `a4879fb` (0.2.1 line)<br>
 > Compatibility target: `origin/master` at `7ccf616` (0.2.2 line)<br>
 > Status: `COMPLETE`
@@ -27,12 +33,12 @@ while retaining PR #80's counting-process implementation.
 | Area | Reviewed impact | Result |
 |---|---|---|
 | Risk sets and ties | Breslow, Efron, Exact; `(start, stop]`; strata | fixed and locally validated |
-| Optimization | objective monotonicity, line search, final normalized KKT, tie-path kernel launches | fixed; local and physical-P100 validation passes |
+| Optimization | objective monotonicity, line search, final normalized KKT, nested Exact, Torch channel scans, baseline prefixes, objective reuse | fixed; local and physical-P100 validation passes |
 | Inference | observed information, HC0/HC1/cluster, Exact restriction | fixed and locally validated |
 | Backends | NumPy/CuPy/Torch fit and prediction boundaries | fixed; physical P100 validation passes |
 | Cross-validation | penalty completeness, held-out likelihood, subject grouping | fixed and locally validated |
 | Compatibility | 0.2.1 PR head against 0.2.2 and PR #79 contracts | fixed |
-| Benchmark evidence | synchronization, transfer scope, source version, schema | fixed; local and remote quick/full artifacts pass |
+| Benchmark evidence | synchronization, transfer scope, source version, schema, Exact scaling, R external alignment | fixed; local and remote artifacts pass with zero gate failures |
 | Documentation | English-first/Chinese-follow capability and limitation contracts | fixed; contracts pass |
 
 ## Findings and Fixes
@@ -90,18 +96,109 @@ while retaining PR #80's counting-process implementation.
   uses backend inputs and synchronizes before/after the measured region, while
   result conversion is excluded. The artifact records the imported source
   version rather than unrelated editable-install metadata.
-- [HIGH][PERFORMANCE/GPU][fixed] `statgpu/survival/_cox.py:3921`,
+- [HIGH][PERF][fixed] `statgpu/survival/_cox.py:3921`,
   `statgpu/survival/_cox.py:3957`, `statgpu/survival/_cox.py:4154`,
-  `statgpu/survival/_cox.py:4494`, and `statgpu/survival/_risk_sets.py:411`: dense Efron ties launched small kernels
-  once per failure group and tie substep, while Exact ties launched once per
-  risk row and subset size. CuPy/Torch Efron risk/failure moments and
-  log-likelihood substeps are now evaluated in bounded cumulative tensors, and
-  Exact dynamic-programming states update all active subset sizes per risk row.
-  Sparse or oversized Efron shapes retain the memory-bounded loop path; the
-  cumulative path accounts for moment and group-by-substep tensors under a
-  default 512 MiB estimated workspace ceiling, shared by gradient/Hessian and
-  Torch log-likelihood; it can be adjusted with
-  `STATGPU_EFRON_CUMULATIVE_MAX_BYTES`.
+  `statgpu/survival/_cox.py:4494`, `statgpu/survival/_risk_sets.py:182`, and
+  `statgpu/survival/_risk_sets.py:739` -
+  dense Efron ties launched small kernels once per failure group and tie
+  substep, while Exact ties nested GPU loops over failure groups, risk rows,
+  and subset sizes.
+  Impact: Exact remained slower than NumPy at small sizes and scaled poorly as
+  the number of failure groups grew.
+  Fix: CuPy/Torch Efron moments remain in bounded cumulative tensors; Exact now
+  carries a failure-group batch dimension and evaluates all active subset sizes
+  in one row-wise DP scan. Launch-bound iterations fall from the sum of risk-set
+  sizes to the sample count, and six redundant state copies per row are gone.
+  Evidence: synchronized P100 fits are 2.59x/4.12x faster than NumPy at n=960
+  and 5.14x/8.36x faster at n=1920 for CuPy/Torch.
+- [HIGH][PERF][fixed] `statgpu/survival/_risk_sets.py:455` and
+  `statgpu/survival/_risk_sets.py:855` - the batched GPU DP removed inner
+  scalar launches but still recomputed every nested right-censored risk set;
+  NumPy retained the same failure-group factor.
+  Impact: at `n=1920`, R completed in 0.048 s while the reviewed
+  NumPy/CuPy/Torch paths took 54.222/11.032/6.621 s.
+  Fix: ordinary one-stratum right-censored fits now sort rows by decreasing stop
+  time and reuse a single elementary-symmetric prefix DP across all failure
+  groups on NumPy, CuPy, and Torch. Sorted event-time segment prefix sums also
+  remove the remaining quadratic failure-group-by-sample numerator mask. A
+  pre-allocation 512 MiB gate and conservative exponent/combination/moment bounds
+  fall back to the normalized implementation;
+  delayed entry, strata, and score-residual requests keep their existing paths.
+  Evidence: on the final synchronized P100 `n=1920` case, full-fit times are
+  0.0396/0.0915/0.0589 s, about 1368x/121x/112x faster than the reviewed
+  pre-prefix NumPy/CuPy/Torch implementation. All R precision gates pass.
+- [HIGH][PERF][fixed] `statgpu/survival/_risk_sets.py:1299` - after the Exact
+  objective was optimized, ordinary right-censored baseline-hazard inference
+  still built a full risk mask for every failure time.
+  Impact: phase profiling at `n=61,440` measured 6.847/5.988/3.328 s in the
+  NumPy/CuPy/Torch baseline phases, substantially more than the optimized Exact
+  solver for NumPy and CuPy and therefore hiding the large-sample GPU benefit.
+  Fix: sort each stratum by descending stop time and compute every ordinary
+  right-censored risk denominator from one log-risk prefix. NumPy uses
+  `logaddexp.accumulate`, Torch uses `logcumsumexp`, and CuPy uses a shifted
+  exponential cumulative sum inside a conservative predictor-range gate.
+  Extreme CuPy predictors and delayed entry retain the stable backend-native
+  per-group implementation.
+  Evidence: the same baseline phases now take 0.0202/0.00701/0.00265 s. At
+  `n=122,880`, synchronized full-fit CuPy time is 0.1518 s versus 2.589 s for R
+  and 3.023 s for NumPy, with zero convergence or R precision gate failures.
+- [HIGH][PERF/GPU][fixed] `statgpu/survival/_risk_sets.py:129`,
+  `statgpu/survival/_risk_sets.py:532`, and
+  `statgpu/survival/_risk_sets.py:684` - PyTorch 2.0's CUDA implementation of
+  a long multidimensional `cumsum(dim=0)` dominated the nested Exact moment
+  updates even though the equivalent one-dimensional scan was fast.
+  Impact: on the P100 at `n=122,880`, Torch took 3.0308 s versus 3.0230 s for
+  NumPy, while an operator probe measured 43.725 ms for an `(n, 4)` Torch scan
+  versus 0.164 ms for CuPy; splitting four Torch channels into one-dimensional
+  scans reduced that operator from 10.034 ms to 0.103 ms in the controlled
+  layout probe.
+  Fix: eligible Torch CUDA moment arrays are laid out channel-major, scanned as
+  bounded one-dimensional channels, and stacked back on device. Conservative
+  defaults require at least 2,048 rows and at most 64 trailing channels;
+  environment variables expose both gates. CPU, small, and wide inputs retain
+  the native scan. The extra transpose/output workspace is included in the
+  nested memory decision; if only that extra space is unavailable, the nested
+  DP stays active with the native scan instead of falling back to general Exact.
+  Evidence: final synchronized Torch time is 0.1000 s at `n=122,880`, 30.32x
+  faster than the prior Torch result, 30.44x faster than NumPy, 1.43x faster
+  than CuPy, and 26.92x faster than R. Dedicated CUDA scan and full-objective
+  parity tests pass, as do the memory-gate regression and all R precision gates.
+- [MEDIUM][PERF/MAINT][fixed] `statgpu/survival/_cox_counting.py:95`,
+  `statgpu/survival/_cox_counting.py:154`, and
+  `statgpu/survival/_cox.py:1484` - the solver recomputed the accepted final
+  objective, recomputed the default zero-init null objective, and the estimator
+  evaluated the null score/information a third time.
+  Impact: every Exact fit paid for up to two avoidable objective evaluations.
+  Fix: reuse the initial null state, reuse the accepted final state unless score
+  residuals are requested, and return null score/information for the estimator's
+  score test. A call-recording regression locks the reuse contract.
+- [HIGH][PERF][fixed] `statgpu/survival/_risk_sets.py:855` - the first batched
+  Exact prototype allocated dense group-by-sample masks before enforcing its
+  workspace cap.
+  Impact: an oversized workload could OOM before reaching the documented
+  backend-native memory-bounded fallback.
+  Fix: unique failure counts and the full workspace estimate are now computed
+  first. A zero or exceeded `STATGPU_EXACT_BATCH_MAX_BYTES` ceiling returns
+  before any dense mask allocation.
+  Evidence: the forced-fallback regression verifies numerical parity and that
+  no group-by-sample float conversion occurs before fallback; local and P100
+  matrices pass.
+- [MEDIUM][EVIDENCE/EXTERNAL][fixed]
+  `dev/benchmarks/benchmark_exact_ties_scaling.py`: the Exact benchmark compared
+  StatGPU backends only with NumPy, so it did not establish agreement with an
+  independent Exact implementation or expose shape-dependent external timing.
+  The reusable benchmark now optionally runs R
+  `survival::coxph(ties="exact", robust=FALSE, timefix=FALSE)`, records R and
+  package versions, compares coefficients, exact partial log likelihood,
+  model-based covariance, convergence, and synchronized timings, and fails
+  closed on numerical or convergence gate violations. Separate cases cover
+  right-censoring, delayed entry, strata, and delayed entry plus strata. The
+  reviewed script is explicitly unignored so a normal commit cannot omit the
+  reusable evidence entry point while retaining the repository's blanket ignore
+  for ad-hoc benchmarks.
+  Evidence: R 4.4.1/survival 3.8.9 and all NumPy/CuPy/Torch cases passed with
+  zero gate failures; maximum coefficient/log-likelihood/covariance differences
+  were `1.30e-09`/`5.12e-09`/`5.01e-12`.
 - [MEDIUM][TEST/COMPATIBILITY][fixed] `dev/tests/test_cox_cv.py:49`,
   `dev/tests/test_cox_phase1_completion.py:280`, and
   `dev/tests/test_pr79_remaining_review_fixes.py:237`: 0.2.1/PR #79 tests that
@@ -120,9 +217,11 @@ while retaining PR #80's counting-process implementation.
 - [HIGH][GPU/VALIDATION][fixed] Paramiko validation in the remote `myconda`
   environment on a Tesla P100-SXM2-16GB first reproduced 11 failures across
   backend-native test boundaries, Torch scalar prediction, and scikit-learn
-  1.2.2 cloning. After the fixes above, all 15 failed and adjacent nodes passed,
-  the final complete matrix passed with 380 tests and two expected availability
-  skips, and both quick and full benchmark schemas passed with no gate failure.
+  1.2.2 cloning. After the fixes above, all failed and adjacent nodes passed.
+  The final current-source matrix passed with 392 tests and two expected
+  availability skips, including CuPy/Torch baseline parity, the extreme-CuPy
+  stability fallback, Torch channel-scan parity, and its memory gate; quick/full
+  benchmark schemas have no gate failure.
 
 ## Review-Fix Cycles
 
@@ -145,11 +244,43 @@ while retaining PR #80's counting-process implementation.
    the bilingual public documentation.
 7. Profiled the reported heavy/Exact tie slowdown, rejected slower raw-CuPy,
    grouped-Torch, Triton, and `segment_reduce` alternatives, and vectorized the
-   launch-bound Efron and Exact paths.
-8. Re-reviewed the optimization, included group-by-substep memory in the
-   workspace gate, applied the same gate to Torch log-likelihood, and added
-   forced-fallback plus no-prebuilt-CSR regressions. The final exact-source local
-   and remote matrices and full benchmark were then rerun to closure.
+   launch-bound Efron path plus Exact subset-size updates.
+8. Re-reviewed the first optimization, included group-by-substep memory in the
+   Efron workspace gate, applied the same gate to Torch log-likelihood, and
+   closed its local and remote matrices.
+9. Reproduced Exact scaling separately, batched failure groups into one row-wise
+   DP scan, removed redundant per-row state copies, moved the 512 MiB gate ahead
+   of dense allocation, and reran precision, 13-file physical-GPU, and n=960/
+   n=1920 scaling gates to closure.
+10. Added an optional R `survival::coxph(ties="exact")` reference to the same
+    machine-readable benchmark, fixed its fail-closed R diagnostics and direct
+    covariance extraction, ran ordinary/delayed-entry/strata alignment on the
+    remote P100 host, independently audited the artifact, and synchronized the
+    shape-specific findings into English-first and Chinese-follow documentation.
+11. Re-reviewed R's right-censored advantage, replaced repeated nested risk-set
+    work with a backend-native prefix DP, added pre-allocation/numerical gates,
+    and removed redundant final/null/score-test objective evaluations.
+12. Compared the prefix path against the forced normalized fallback, reran the
+    local Cox matrix and exact-source physical-GPU matrix, regenerated R timing
+    and precision evidence with all three source hashes, and completed another
+    English-first/Chinese-follow review-fix pass.
+13. Phase-profiled the large-sample complete fit, isolated the remaining
+    failure-time-by-sample baseline scan, and replaced the ordinary
+    right-censored path with backend-native descending-stop log-risk prefixes.
+14. The targeted P100 rerun exposed CuPy 13.6's missing
+    `logaddexp.accumulate`; added the shifted-cumulative implementation plus an
+    extreme-predictor stable fallback, then reran local, physical-GPU, R
+    alignment, and large-scale timing gates to closure.
+15. Microprofiled the remaining Torch/R/NumPy gap on the P100, isolated the
+    PyTorch 2.0 multidimensional long-axis scan, measured its row/channel
+    crossover, and implemented gated per-channel one-dimensional CUDA scans.
+16. Re-reviewed numerical ordering and peak workspace, replaced an invalid
+    bit-equality expectation with strict floating-point tolerances, and ensured
+    scan-workspace pressure disables only the split scan rather than the nested
+    DP. Targeted, full local, full P100, and R/performance gates then closed.
+17. Audited the final source/artifact hashes and synchronized the algorithm,
+    performance, compatibility, and limitation evidence English-first and then
+    Chinese-follow.
 
 ## Validation Evidence
 
@@ -168,7 +299,8 @@ while retaining PR #80's counting-process implementation.
   `0.2.2`; NumPy ordinary-heavy-ties, delayed-entry, Exact, stratified
   start-stop, inference, and subject-grouped CV scenarios all passed.
 - Remote environment: Tesla P100-SXM2-16GB; Python 3.9.16, NumPy 1.24.2,
-  CuPy 13.6.0, Torch 2.0.0+cu117, scikit-learn 1.2.2, and statsmodels 0.14.6.
+  CuPy 13.6.0, Torch 2.0.0+cu117, scikit-learn 1.2.2, statsmodels 0.14.6,
+  R 4.4.1, and survival 3.8.9.
 - Initial remote physical-GPU matrix: **368 passed, 2 skipped, 11 failed**.
   All failures were reviewed and fixed; no failure was waived.
 - Remote targeted review-fix rerun: **15 passed, 0 failed**.
@@ -176,9 +308,20 @@ while retaining PR #80's counting-process implementation.
   `STATGPU_REQUIRE_PHYSICAL_GPU=1`: **379 passed, 2 expected skips, 0 failed**
   in 57.19 seconds. The skips are the CuPy/Torch-unavailable negative tests,
   which cannot execute when both GPU backends are available.
-- Performance-optimized exact-source rerun of the physical-GPU matrix,
-  including the new no-prebuilt-CSR regression: **380 passed, 2 expected skips,
-  0 failed** in 48.70 seconds, a 14.8% reduction in maintained-suite wall time.
+- Prior Exact-batched physical-GPU matrix, including the pre-allocation batch
+  workspace-fallback regression: **381 passed, 2 expected skips, 0 failed** in
+  48.26 seconds.
+- Prior nested-Exact/objective-reuse physical-GPU matrix: **384 passed, 2
+  expected skips, 0 failed** in 45.74 seconds.
+- Prior baseline-prefix current-source physical-GPU matrix: **388 passed, 2
+  expected skips, 0 failed** in 45.55 seconds.
+- Final Torch-channel-scan current-source physical-GPU matrix: **392 passed, 2
+  expected skips, 0 failed** in 46.98 seconds. The final dedicated CUDA gate
+  passed the scan and complete-objective parity tests; the adjacent targeted
+  selection passed 7 tests with 47 deselected.
+- Local 13-file affected Cox matrix: **297 passed, 97 skipped, 0 failed** in
+  44.68 seconds. The focused risk-set file passed **45 tests, 9 skipped** in
+  31.57 seconds.
 - Remote quick and full benchmarks: `validation_tier="remote-full"`,
   `schema_status="ok"`, zero `gate_failures`; all four compatibility and
   inference scenarios plus subject-grouped CV passed on NumPy, CuPy, and Torch.
@@ -186,22 +329,55 @@ while retaining PR #80's counting-process implementation.
   heavy-ties medians of 0.477 s NumPy, 0.179 s CuPy, and 0.212 s Torch. Against
   the pre-optimization GPU medians, CuPy improved 8.36x and Torch 24.31x; both
   are now faster than NumPy for this 20,000-by-32 workload.
-- Exact-ties medians improved from 9.402 s to 2.787 s on CuPy (3.37x) and from
-  5.850 s to 1.712 s on Torch (3.42x). The bounded full scenario has only 120
-  rows, so its 0.190 s NumPy path still wins; no implicit CPU fallback was added.
+- The final synchronized Exact/Torch-channel-scan scaling benchmark (`p=4`,
+  maximum tie size 8, full fit plus inference) measured R/NumPy/CuPy/Torch
+  medians of 0.0460/0.0354/0.0838/0.0571 s at `n=1,920`,
+  0.295/0.273/0.0949/0.0558 s at `n=15,360`,
+  1.323/1.465/0.1114/0.0662 s at `n=61,440`, and
+  2.691/3.043/0.1430/0.1000 s at `n=122,880`. At the largest size Torch is
+  30.32x faster than the previous Torch implementation, 26.92x faster than R,
+  30.44x faster than NumPy, and 1.43x faster than CuPy. The `n=1,920` GPU paths
+  remain launch-bound.
+- Phase profiling at `n=61,440` measured baseline-hazard construction before
+  the final optimization at 6.847/5.988/3.328 s on NumPy/CuPy/Torch and after it
+  at 0.0202/0.00701/0.00265 s. No implicit CPU fallback was added.
+- R external-alignment artifact: status `complete`, zero gate failures, and all
+  three recorded source hashes match the uploaded worktree. It covers bounded
+  scaling plus separate right-censored, delayed-entry, strata, and combined
+  delayed-entry/strata cases. Across NumPy/CuPy/Torch, the largest differences
+  from R were `1.30e-09` for coefficients, `5.12e-09` for exact partial log
+  likelihood, and `5.01e-12` for model-based covariance; every fit converged.
+- On the separate `n=160` delayed-entry case, R/NumPy/CuPy/Torch medians were
+  59.116/0.174/0.603/0.358 seconds. The artifact keeps all timings as
+  shape-specific evidence and records the unequal process boundary: StatGPU
+  includes conversion and inference, while R includes the `coxph` call and
+  inference but excludes startup, package loading, and CSV parsing.
 - Final heavy-ties coefficient differences versus NumPy are at most
   `8.88e-16` (CuPy) and `1.22e-15` (Torch); Exact coefficient differences are
   at most `8.33e-17` and `5.55e-17`, with zero log-likelihood difference.
-- The three remote-tested performance source files have path-delimited aggregate
+- The final remote-loaded risk-set/counting-solver/Cox-dispatch SHA-256 values
+  are `190567fbbc7ae40f24e9e1506ce8ac1fca5a58118a2afb800f7dec2fa05a10d8`,
+  `9684867f90b153c23675d8804698f76092765a3d96da05c7a3d989528782d501`, and
+  `efe199e7bb40112f882109efbe8b462ab8050f52349d939d33a611f819f81e6c`.
+  `exact-torch-channel-scan-memory-final.json` records the same hashes, benchmark
+  SHA-256 `a3c1ed48d03ff3d9d557a478d9ec832cd0a303b85d64fcbe1a397d7e6a649b39`,
+  P100 metadata, and the R/performance evidence; its SHA-256 is
+  `85e7c72d736b859564e598e8e6e26b26b05a6fe06a076c39645083af80ea896e`.
+  The final matrix XML `exact-torch-channel-scan-memory-final-matrix.xml` has
   SHA-256
-  `910b763dcc42a4de309434b1be8dc4894d53d5ecedcace2889626d959cc1b09d`.
+  `09cdcc9e900ba7eccae7a5d7e389c7ff6ddcbabdf5f4a648ce776b52ff8d78c6`.
 - Full PR delta `git diff --check origin/master`: passed.
 - Version compatibility: `git diff origin/master -- pyproject.toml
   statgpu/__init__.py` is empty.
 
 ## Remaining Gate
 
-None for the reviewed PR #80 scope. The benchmark explicitly does not invoke R,
-does not estimate a deployment crossover threshold from one workload, and keeps
-Exact ties at a bounded size; these are declared evidence boundaries rather than
-failed gates.
+None for the reviewed PR #80 scope. External R alignment closes the
+independent-implementation accuracy gate, but timings remain shape-specific.
+Both GPU backends are faster than R from the measured `n=15,360` ordinary
+right-censored case through `n=122,880`; Torch is the fastest measured backend
+on that low-dimensional large-sample shape. Small GPU fits remain launch-bound,
+and wide Torch moment tensors keep the native scan. Large individual tie blocks
+remain combinatorial; delayed-entry, score-residual, and multi-stratum Exact use
+the backend-native normalized paths. These are explicit evidence boundaries
+rather than failed gates.

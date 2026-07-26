@@ -1,11 +1,61 @@
 # Changelog
 
 > 语言：中文<br>
-> 最后更新：2026-07-25<br>
+> 最后更新：2026-07-26<br>
 > 页面定位：变更记录<br>
 > 切换：[English](../en/changelog.md)
 
 ## 2026-07
+
+### 优化（2026-07-26）— PR #80 Torch Exact 通道扫描
+
+- 在 Tesla P100、PyTorch 2.0.0+cu117 上 profiling nested Exact 后发现：一维 CUDA
+  前缀和很快，但对 4 或 16 个尾部矩通道执行长轴 `cumsum(dim=0)` 会主导 Torch
+  用时。
+- 对至少 2,048 行且尾部通道不超过 64 的 Torch CUDA 输入，Exact 现在把各通道
+  转为连续布局，执行高效的一维扫描，再在设备上拼回结果。
+  `STATGPU_TORCH_EXACT_SCAN_MIN_ROWS` 与
+  `STATGPU_TORCH_EXACT_SCAN_MAX_CHANNELS` 可配置门禁；小样本、宽张量和 CPU
+  仍使用原生扫描。
+- 额外通道扫描工作区已计入现有 512 MiB nested Exact 内存决策。若基础 DP 可容纳
+  而额外扫描工作区不足，则 nested 算法继续使用原生 Torch 扫描。
+- 在同步 bounded-tie 工作负载（`p=4`、最大 tie size 为 8、完整拟合及推断）中，
+  `n=15,360` 的 R/NumPy/CuPy/Torch 中位时间为
+  0.295/0.273/0.0949/0.0558 秒，`n=61,440` 为
+  1.323/1.465/0.1114/0.0662 秒，`n=122,880` 为
+  2.691/3.043/0.1430/0.1000 秒。最大规模下 Torch 比优化前快 30.32 倍、比 R
+  快 26.92 倍、比 NumPy 快 30.44 倍、比 CuPy 快 1.43 倍。
+- R 4.4.1/survival 3.8.9 对齐为零 gate failure；最大系数、Exact 部分对数似然和
+  协方差差异为 `1.30e-09`、`5.12e-09`、`5.01e-12`。本地 13 文件矩阵通过
+  **297 项**、97 项可选依赖 skip；真实 P100 矩阵通过 **392 项**、2 项预期 skip。
+- 可复用入口为 `dev/benchmarks/benchmark_exact_ties_scaling.py`，输出
+  `results/exact_ties_scaling.json`；最终 artifact hash 记录于
+  `dev/reviews/pr80_review_fix.md`。
+
+### 优化（2026-07-26）— PR #80 普通右删失 Exact 完整拟合
+
+- 大样本分阶段 profiling 表明，Exact likelihood 前缀已不再是完整拟合瓶颈；
+  Breslow baseline 推断仍会对普通右删失数据执行 `失败组 × 样本` 风险掩码扫描。
+- 将该常用路径改为每个 stratum 内按 stop time 降序的一次 log-risk 前缀：
+  NumPy 使用 `logaddexp.accumulate`，Torch 使用 `logcumsumexp`，CuPy 在保守
+  predictor-range 门禁内使用平移后的累积和。delayed entry 与极端 CuPy
+  predictor 保留数值稳定的后端原生 fallback。
+- 在 `n=61,440`，NumPy/CuPy/Torch 的 baseline 阶段从
+  6.847/5.988/3.328 秒降至 0.0202/0.00701/0.00265 秒。最终本地受影响矩阵为
+  **226 passed、37 skipped、0 failed**；13 文件真实 P100 完整矩阵为
+  **388 passed、2 个预期 skip、0 failed**。
+- 在同步 P100 bounded-tie 工作负载（`p=4`、最大 tie size 为 8、完整拟合及推断）
+  中，`n=15,360` 的 R/NumPy/CuPy/Torch 中位时间为
+  0.305/0.282/0.0971/0.361 秒，`n=61,440` 为
+  1.293/1.469/0.113/1.510 秒，`n=122,880` 为
+  2.589/3.023/0.1518/3.031 秒。最大规模下 CuPy 比 R 快 17.05 倍、比 NumPy
+  快 19.91 倍；小规模 `n=1920` GPU 拟合仍受 kernel launch 限制。
+- R 4.4.1/survival 3.8.9 对齐仍为零 gate failure；综合场景相对 R 的最大系数、
+  exact partial log-likelihood 与 model covariance 差异为
+  `1.30e-09`、`5.46e-12`、`5.01e-12`。
+- 可复用验证入口为 `dev/benchmarks/benchmark_exact_ties_scaling.py`，
+  输出 `results/exact_ties_scaling.json`。
+
 
 ### 改进（2026-07-25）— v0.2.2 发布准备
 
@@ -48,18 +98,36 @@
   held-out likelihood、后端一致的最终 refit 与 inference-mode provenance。
 - 修复最终 KKT 收敛、open-left `start < event_time` 边界、baseline hazard 构造、
   后端原生预测/评分，以及 GPU benchmark 同步计时和源码版本记录。
-- 将 CuPy/Torch 的密集 Efron 累积矩、log-likelihood 子步骤以及 Exact 每个风险行的
-  全部活动子集状态向量化；稀疏或超大 Efron 工作负载仍使用受内存上限保护的回退路径。
+- 将 CuPy/Torch 的密集 Efron 累积矩与 log-likelihood 子步骤向量化；对于单个
+  stratum 的普通 right-censored Exact 拟合，NumPy/CuPy/Torch 现在跨嵌套风险集复用
+  elementary-symmetric 前缀 DP，并用按事件时间排序的分段前缀和移除
+  `失败组 × 样本` 密集掩码。delayed entry、多个 strata、score residuals、
+  工作区超限和保守数值范围门禁继续使用后端原生的 normalized batch/逐组 fallback。
+  两个 Exact 工作区上限默认均为 512 MiB，并在密集分配前完成检查。
+- 复用默认零初值的 null objective、不需要 score residuals 时已接受的 final
+  objective，以及求解器已计算的 null score/information，避免 Exact 拟合与 score
+  test 中的重复求值。
 - 2026-07-25 的本地 NumPy quick gate 已通过全部可执行 correctness、inference、
   CV、schema 与外部对齐检查。随后通过 Paramiko 在远程 Tesla P100 的 `myconda`
   环境中验证准确的 reviewed source，发现并修复 Torch prediction、
-  scikit-learn 1.2.2 clone 与测试边界问题。最终真实 GPU 矩阵为 **380 passed、
+  scikit-learn 1.2.2 clone 与测试边界问题。最终真实 GPU 矩阵为 **384 passed、
   2 个预期 skip、0 failed**；NumPy、CuPy、Torch 的 quick/full benchmark schema
   均通过且没有 gate failure。
 - 同步后的 full benchmark 中，heavy ties 中位拟合时间为 NumPy 0.477 秒、CuPy
-  0.179 秒、Torch 0.212 秒；两个 GPU 路径相对优化前分别提速 8.36 倍和 24.31 倍。
-  Exact ties 在 CuPy/Torch 上分别提速 3.37 倍和 3.42 倍；受控的 120 行小规模场景
-  仍然由 CPU 更快，且实现未使用隐式 CPU fallback。
+  0.179 秒、Torch 0.212 秒，较早的 Efron 优化仍使 CuPy/Torch 提速 8.36 倍和
+  24.31 倍。最终 nested-Exact benchmark 在同一 Tesla P100 上（`p=4`、最大 tie
+  size 为 8、完整拟合并计算推断）测得 `n=960` 的 R/NumPy/CuPy/Torch 时间为
+  0.029/0.0253/0.1686/0.0941 秒，`n=1920` 时为
+  0.047/0.0585/0.2690/0.1590 秒。在 `n=1920`，StatGPU 三条路径相对 reviewed
+  pre-prefix NumPy/CuPy/Torch 实现分别提速约 928 倍/41.0 倍/41.6 倍，且未使用
+  隐式 CPU fallback。可复用脚本为 `dev/benchmarks/benchmark_exact_ties_scaling.py`。
+- 将该基准扩展为可选的 R 4.4.1/survival 3.8.9
+  `coxph(ties="exact")` 外部对齐。right-censored、delayed-entry、strata 及组合场景
+  在三个 StatGPU 后端上均通过系数、exact log-likelihood、协方差和收敛门禁；相对
+  R 的最大差异分别为 `1.30e-09`、`4.55e-13`、`5.01e-12`。bounded
+  right-censored `n=1920` 场景的 R/NumPy/CuPy/Torch 时间为
+  0.047/0.0585/0.2690/0.1590 秒；另一个 delayed-entry `n=160` 场景则为
+  57.079/0.167/0.544/0.353 秒，表明 Exact 性能强烈依赖风险集形状。
 
 ### 验证（2026-07-24）— PR #79 exact-head 最终闭环
 

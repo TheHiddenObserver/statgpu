@@ -1,11 +1,70 @@
 # Changelog
 
 > Language: English<br>
-> Last updated: 2026-07-25<br>
+> Last updated: 2026-07-26<br>
 > This page: Changelog<br>
 > Switch: [Chinese](../cn/changelog.md)
 
 ## 2026-07
+
+### Optimized (2026-07-26) — PR #80 Torch Exact channel scans
+
+- Profiling the nested Exact implementation on a Tesla P100 with PyTorch
+  2.0.0+cu117 showed that one-dimensional CUDA prefix sums were fast, while
+  long `cumsum(dim=0)` calls over 4 or 16 trailing moment channels dominated
+  the Torch runtime.
+- For Torch CUDA inputs with at least 2,048 rows and at most 64 trailing
+  channels, Exact now transposes each channel into contiguous storage, executes
+  efficient one-dimensional scans, and stacks the results back on device.
+  `STATGPU_TORCH_EXACT_SCAN_MIN_ROWS` and
+  `STATGPU_TORCH_EXACT_SCAN_MAX_CHANNELS` configure the gates. Small, wide, and
+  CPU cases keep the native scan.
+- The extra channel-scan workspace is included in the existing 512 MiB nested
+  Exact memory decision. If the base DP fits but the extra scan workspace does
+  not, the nested algorithm remains active with the native Torch scan.
+- On the synchronized bounded-tie workload (`p=4`, maximum tie size 8, full fit
+  plus inference), R/NumPy/CuPy/Torch medians were
+  0.295/0.273/0.0949/0.0558 s at `n=15,360`,
+  1.323/1.465/0.1114/0.0662 s at `n=61,440`, and
+  2.691/3.043/0.1430/0.1000 s at `n=122,880`. At the largest size Torch is
+  30.32x faster than its previous result, 26.92x faster than R, 30.44x faster
+  than NumPy, and 1.43x faster than CuPy.
+- R 4.4.1/survival 3.8.9 alignment reports zero gate failures; the maximum
+  coefficient, exact partial-log-likelihood, and covariance differences are
+  `1.30e-09`, `5.12e-09`, and `5.01e-12`. The local 13-file matrix passed
+  **297 tests** with 97 optional-dependency skips, and the physical-P100 matrix
+  passed **392 tests** with 2 expected skips.
+- Reusable entry point: `dev/benchmarks/benchmark_exact_ties_scaling.py`, which
+  writes `results/exact_ties_scaling.json`; final artifact hashes are recorded
+  in `dev/reviews/pr80_review_fix.md`.
+
+### Optimized (2026-07-26) — PR #80 right-censored Exact full fit
+
+- Large-sample phase profiling showed that the Exact likelihood prefix was no
+  longer the full-fit bottleneck: Breslow baseline inference still performed a
+  failure-group-by-sample risk-mask scan for ordinary right-censored data.
+- Replaced that common path with a per-stratum descending-stop log-risk prefix:
+  NumPy uses `logaddexp.accumulate`, Torch uses `logcumsumexp`, and CuPy uses a
+  shifted cumulative sum inside a conservative predictor-range gate. Delayed
+  entry and extreme CuPy predictors retain stable backend-native fallbacks.
+- At `n=61,440`, NumPy/CuPy/Torch baseline phases fell from
+  6.847/5.988/3.328 s to 0.0202/0.00701/0.00265 s. The final local affected
+  matrix passed with **226 passed, 37 skipped, 0 failed**; the complete 13-file
+  physical-P100 matrix passed with **388 passed, 2 expected skips, 0 failed**.
+- On the synchronized P100 bounded-tie workload (`p=4`, maximum tie size 8,
+  full fit plus inference), R/NumPy/CuPy/Torch medians were
+  0.305/0.282/0.0971/0.361 s at `n=15,360`,
+  1.293/1.469/0.113/1.510 s at `n=61,440`, and
+  2.589/3.023/0.1518/3.031 s at `n=122,880`. CuPy was 17.05x faster than R and
+  19.91x faster than NumPy at the largest measured size; small `n=1920` GPU
+  fits remain launch-bound.
+- R 4.4.1 survival 3.8.9 alignment still reports zero gate failures. Maximum
+  coefficient, exact partial-log-likelihood, and model-covariance differences
+  across the comprehensive cases are `1.30e-09`, `5.46e-12`, and `5.01e-12`.
+- Reusable validation entry point:
+  `dev/benchmarks/benchmark_exact_ties_scaling.py`, which writes
+  `results/exact_ties_scaling.json`.
+
 
 ### Improved (2026-07-25) — v0.2.2 release preparation
 
@@ -54,20 +113,41 @@
   baseline-hazard construction, backend-native prediction/scoring, and
   synchronized GPU benchmark timing and source-version reporting.
 - Vectorized dense Efron cumulative moments and log-likelihood substeps on CuPy
-  and Torch, and updated all active Exact subset sizes per risk row. Sparse or
-  oversized Efron workloads retain a memory-bounded fallback.
+  and Torch. For one-stratum ordinary right-censored Exact fits, NumPy/CuPy/Torch
+  now reuse an elementary-symmetric prefix DP across nested risk sets, while
+  sorted event-time segment sums remove the dense failure-group-by-sample mask.
+  Delayed entry, multiple strata, score residuals, excessive workspace, and conservative
+  numerical-range gates retain the normalized backend-native batch/per-group
+  fallbacks. Both Exact workspace limits default to 512 MiB and are checked
+  before dense allocation.
+- Reused the default zero-initial objective for null-model inference, the
+  accepted final objective when score residuals are not requested, and the
+  solver's null score/information in `CoxPH`, removing redundant Exact fits.
 - The 2026-07-25 local NumPy quick gate passed all executable correctness,
   inference, CV, schema, and external-comparison checks. Paramiko validation of
   the exact reviewed source in remote `myconda` on a Tesla P100 exposed and
   fixed Torch prediction, scikit-learn 1.2.2 cloning, and test-boundary issues.
-  The final physical-GPU matrix passed with **380 passed, 2 expected skips, 0
+  The final physical-GPU matrix passed with **384 passed, 2 expected skips, 0
   failed**; quick/full benchmark schemas passed without gate failures on NumPy,
   CuPy, and Torch.
 - The synchronized full benchmark measured heavy-ties median fit time at
-  0.477 s for NumPy, 0.179 s for CuPy, and 0.212 s for Torch. The GPU paths are
-  8.36x and 24.31x faster than their pre-optimization medians. Exact ties
-  improved 3.37x on CuPy and 3.42x on Torch; the deliberately bounded 120-row
-  case remains CPU-faster, and no implicit CPU fallback is used.
+  0.477 s for NumPy, 0.179 s for CuPy, and 0.212 s for Torch; the earlier Efron
+  optimization remains 8.36x/24.31x faster on CuPy/Torch. The final nested-Exact
+  benchmark on the same Tesla P100 (`p=4`, maximum tie size 8, full fit plus
+  inference) measured R/NumPy/CuPy/Torch at 0.029/0.0253/0.1686/0.0941 s for
+  `n=960` and 0.047/0.0585/0.2690/0.1590 s for `n=1920`. At `n=1920`, the
+  StatGPU paths improved about 928x/41.0x/41.6x over the reviewed pre-prefix
+  NumPy/CuPy/Torch implementation, with no implicit CPU fallback. The reusable
+  benchmark is `dev/benchmarks/benchmark_exact_ties_scaling.py`.
+- Extended that benchmark with R 4.4.1 survival 3.8.9
+  `coxph(ties="exact")` alignment. Right-censored, delayed-entry, strata, and
+  combined delayed-entry/strata cases passed coefficient, exact log-likelihood,
+  covariance, and convergence gates on all three StatGPU backends. Maximum
+  differences from R were `1.30e-09`, `4.55e-13`, and `5.01e-12`, respectively.
+  At `n=1920` on the bounded right-censored shape, R/NumPy/CuPy/Torch took
+  0.047/0.0585/0.2690/0.1590 s; on the separate `n=160` delayed-entry shape they
+  took 57.079/0.167/0.544/0.353 s, demonstrating that Exact performance depends
+  strongly on risk-set shape.
 
 ### Validation (2026-07-24) — PR #79 exact-head closure
 

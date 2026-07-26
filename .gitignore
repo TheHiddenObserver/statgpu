@@ -26,6 +26,7 @@ dev/benchmarks/
 # continuing to ignore ad-hoc benchmark artifacts elsewhere.
 !dev/benchmarks/
 dev/benchmarks/*
+!dev/benchmarks/benchmark_exact_ties_scaling.py
 !dev/benchmarks/pr79/
 dev/benchmarks/pr79/*
 !dev/benchmarks/pr79/aggregate_results.py

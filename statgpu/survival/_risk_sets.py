@@ -11,6 +11,8 @@ rows are at risk on the half-open interval ``(start, stop]``.
 
 from __future__ import annotations
 
+import math
+import os
 from typing import Any, Dict, Optional, Tuple
 
 import numpy as np
@@ -122,6 +124,48 @@ def _as_float(mask: Any, backend: str, like: Any):
     if backend == "torch":
         return mask.to(dtype=like.dtype)
     return mask.astype(like.dtype, copy=False)
+
+
+def _torch_channelwise_scan_limits() -> Tuple[int, int]:
+    """Return the row/channel bounds for the Torch Exact split-scan path."""
+    min_rows = max(0, int(os.environ.get("STATGPU_TORCH_EXACT_SCAN_MIN_ROWS", 2048)))
+    max_channels = max(
+        0, int(os.environ.get("STATGPU_TORCH_EXACT_SCAN_MAX_CHANNELS", 64))
+    )
+    return min_rows, max_channels
+
+
+def _cumsum_axis0(value: Any, backend: str, xp: Any, *, allow_channelwise: bool = True):
+    """Cumulative sum over rows with a bounded Torch CUDA channel split.
+
+    Torch 2.0 CUDA has a severe long-scan penalty for small multi-dimensional
+    tensors when the sample axis is scanned directly.  For sufficiently long
+    arrays with a bounded number of trailing channels, make those channels
+    contiguous and run the efficient one-dimensional scan per channel.  Small,
+    wide, CPU, NumPy, and CuPy inputs retain their native single-call path.
+    """
+    if backend != "torch":
+        return xp.cumsum(value, axis=0)
+    if value.ndim <= 1 or not bool(value.is_cuda):
+        return xp.cumsum(value, dim=0)
+
+    n_rows = int(value.shape[0])
+    n_channels = math.prod(int(size) for size in value.shape[1:])
+    min_rows, max_channels = _torch_channelwise_scan_limits()
+    if (
+        not allow_channelwise
+        or n_rows < min_rows
+        or max_channels == 0
+        or n_channels > max_channels
+    ):
+        return xp.cumsum(value, dim=0)
+
+    channel_major = value.reshape(n_rows, n_channels).transpose(0, 1).contiguous()
+    scanned = xp.stack(
+        [xp.cumsum(channel_major[channel], dim=0) for channel in range(n_channels)],
+        dim=1,
+    )
+    return scanned.reshape(value.shape)
 
 
 def _center_within_strata(X: Any, strata: Any, backend: str, xp: Any):
@@ -408,6 +452,513 @@ def _numpy_group_objective(
     return result
 
 
+def _nested_exact_group_objective(
+    eta: Any,
+    X: Any,
+    stop: Any,
+    event: Any,
+    start: Any,
+    strata: Any,
+    *,
+    score_residuals: bool,
+    compute_derivatives: bool,
+):
+    """Exact objective for nested one-stratum right-censored risk sets.
+
+    Sorting rows by decreasing stop time turns every risk set into a prefix.
+    The size-k elementary-symmetric state for every prefix can then be formed
+    with one cumulative sum, so the DP costs ``O(n * max_ties)`` instead of
+    carrying a separate state for every failure group.  A conservative numeric
+    gate retains the normalized log-space reference for extreme predictors or
+    combinatorial counts that are unsafe in ordinary float64 arithmetic.
+    """
+    if score_residuals:
+        return None
+    backend, xp = _array_namespace(X)
+    if int(_unique_sorted(strata, backend, xp).shape[0]) != 1:
+        return None
+    if _scalar_bool(_sum(start != 0, backend, xp) > 0):
+        return None
+
+    event_times = stop[event == 1]
+    if backend == "torch":
+        failure_times, integer_counts = xp.unique(
+            event_times, sorted=True, return_counts=True
+        )
+    else:
+        failure_times, integer_counts = xp.unique(event_times, return_counts=True)
+    n_groups = int(failure_times.shape[0])
+    if n_groups == 0:
+        return None
+
+    n_samples, n_features = int(X.shape[0]), int(X.shape[1])
+    max_ties = _scalar_int(_max(integer_counts, backend, xp))
+    eta_min = xp.min(eta)
+    eta_range = float((_max(eta, backend, xp) - eta_min).item())
+    max_abs_x = float(_max(xp.abs(X), backend, xp).item())
+    log_combinations = (
+        math.lgamma(n_samples + 1)
+        - math.lgamma(max_ties + 1)
+        - math.lgamma(n_samples - max_ties + 1)
+    )
+    # Global scaling makes every row weight <= 1.  These bounds prevent either
+    # early-prefix underflow or raw polynomial/moment overflow.  Shapes outside
+    # the safe region keep the fully normalized log-space implementation.
+    if (
+        max_ties * eta_range > 500.0
+        or log_combinations > 600.0
+        or log_combinations + 2.0 * math.log(max(max_abs_x, 1.0)) > 600.0
+    ):
+        return None
+
+    state_width = 1
+    if compute_derivatives:
+        state_width += n_features + n_features * n_features
+    itemsize = X.element_size() if backend == "torch" else int(X.dtype.itemsize)
+    n_events = int(event_times.shape[0])
+    event_state_width = 2 + (2 * n_features if compute_derivatives else 0)
+    base_estimated_bytes = itemsize * (
+        12 * n_samples * state_width
+        + 4 * n_events * event_state_width
+        + 4 * n_groups * state_width
+    )
+    max_bytes = max(
+        0,
+        int(os.environ.get("STATGPU_EXACT_NESTED_MAX_BYTES", 512 * 1024 * 1024)),
+    )
+    if max_bytes == 0 or base_estimated_bytes > max_bytes:
+        return None
+
+    allow_torch_channelwise = True
+    if backend == "torch":
+        min_scan_rows, max_scan_channels = _torch_channelwise_scan_limits()
+        eligible_channels = [
+            channels
+            for channels in (n_features, n_features * n_features)
+            if 0 < channels <= max_scan_channels
+        ]
+        split_scan_extra_bytes = 0
+        if n_samples >= min_scan_rows and eligible_channels:
+            # Contiguous channel-major input, per-channel outputs, and stacked
+            # row-major output can coexist at the scan boundary. If those extras
+            # do not fit, keep the nested DP but use Torch's native scan instead
+            # of falling back to the much more expensive general Exact path.
+            split_scan_extra_bytes = itemsize * 3 * max(eligible_channels) * n_samples
+        allow_torch_channelwise = (
+            base_estimated_bytes + split_scan_extra_bytes <= max_bytes
+        )
+
+    if backend == "torch":
+        order = xp.argsort(stop, descending=True)
+    else:
+        order = xp.argsort(-stop)
+    sorted_stop = stop[order]
+    sorted_eta = eta[order]
+    sorted_X = X[order]
+    eta_shift = _max(sorted_eta, backend, xp)
+    weights = _exp(sorted_eta - eta_shift, xp)
+    if backend == "torch":
+        risk_counts = xp.searchsorted(-sorted_stop, -failure_times, right=True).to(
+            dtype=xp.int64
+        )
+    else:
+        risk_counts = xp.searchsorted(
+            -sorted_stop, -failure_times, side="right"
+        ).astype(xp.int64, copy=False)
+    if _scalar_bool(_sum(risk_counts < integer_counts, backend, xp) > 0):
+        raise FloatingPointError("exact failure count exceeds its Cox risk set")
+
+    # Aggregate failure numerators over the already stop-sorted event rows.  A
+    # dense ``failure_group x sample`` mask would reintroduce quadratic work and
+    # memory after the nested-risk-set DP has removed that same factor.
+    sorted_event_mask = event[order] == 1
+    sorted_event_eta = sorted_eta[sorted_event_mask]
+    if backend == "torch":
+        descending_counts = xp.flip(integer_counts, dims=(0,))
+        event_offsets = xp.cumsum(descending_counts, dim=0)
+        cumulative_failure_eta = xp.cumsum(sorted_event_eta, dim=0)
+    else:
+        descending_counts = integer_counts[::-1]
+        event_offsets = xp.cumsum(descending_counts)
+        cumulative_failure_eta = xp.cumsum(sorted_event_eta, axis=0)
+    event_end_idx = event_offsets - 1
+    prior_failure_eta = cumulative_failure_eta[event_offsets[:-1] - 1]
+    zero_failure_eta = xp.zeros_like(cumulative_failure_eta[:1])
+    if backend == "torch":
+        prior_failure_eta = xp.cat((zero_failure_eta, prior_failure_eta), dim=0)
+        failure_eta = xp.flip(
+            cumulative_failure_eta[event_end_idx] - prior_failure_eta, dims=(0,)
+        )
+    else:
+        prior_failure_eta = xp.concatenate(
+            (zero_failure_eta, prior_failure_eta), axis=0
+        )
+        failure_eta = (cumulative_failure_eta[event_end_idx] - prior_failure_eta)[::-1]
+    failure_X = None
+    if compute_derivatives:
+        sorted_event_X = sorted_X[sorted_event_mask]
+        cumulative_failure_X = _cumsum_axis0(
+            sorted_event_X,
+            backend,
+            xp,
+            allow_channelwise=allow_torch_channelwise,
+        )
+        prior_failure_X = cumulative_failure_X[event_offsets[:-1] - 1]
+        zero_failure_X = xp.zeros_like(cumulative_failure_X[:1])
+        if backend == "torch":
+            prior_failure_X = xp.cat((zero_failure_X, prior_failure_X), dim=0)
+            failure_X = xp.flip(
+                cumulative_failure_X[event_end_idx] - prior_failure_X, dims=(0,)
+            )
+        else:
+            prior_failure_X = xp.concatenate((zero_failure_X, prior_failure_X), axis=0)
+            failure_X = (cumulative_failure_X[event_end_idx] - prior_failure_X)[::-1]
+    counts = _as_float(integer_counts, backend, X)
+    partition = _zeros(backend, xp, (n_groups,), X)
+    exact_mean = (
+        _zeros(backend, xp, (n_groups, n_features), X) if compute_derivatives else None
+    )
+    exact_second = (
+        _zeros(backend, xp, (n_groups, n_features, n_features), X)
+        if compute_derivatives
+        else None
+    )
+
+    previous_z = xp.ones_like(sorted_eta)
+    previous_first = (
+        _zeros(backend, xp, (n_samples, n_features), X) if compute_derivatives else None
+    )
+    previous_second = (
+        _zeros(backend, xp, (n_samples, n_features, n_features), X)
+        if compute_derivatives
+        else None
+    )
+    row_outer = (
+        xp.einsum("ni,nj->nij", sorted_X, sorted_X) if compute_derivatives else None
+    )
+    zero_z = _zeros(backend, xp, (1,), X)
+    zero_first = (
+        _zeros(backend, xp, (1, n_features), X) if compute_derivatives else None
+    )
+    zero_second = (
+        _zeros(backend, xp, (1, n_features, n_features), X)
+        if compute_derivatives
+        else None
+    )
+
+    for subset_size in range(1, max_ties + 1):
+        if subset_size == 1:
+            base_z = previous_z
+            base_first = previous_first
+            base_second = previous_second
+        elif backend == "torch":
+            base_z = xp.cat((zero_z, previous_z[:-1]), dim=0)
+            if compute_derivatives:
+                base_first = xp.cat((zero_first, previous_first[:-1]), dim=0)
+                base_second = xp.cat((zero_second, previous_second[:-1]), dim=0)
+        else:
+            base_z = xp.concatenate((zero_z, previous_z[:-1]), axis=0)
+            if compute_derivatives:
+                base_first = xp.concatenate((zero_first, previous_first[:-1]), axis=0)
+                base_second = xp.concatenate(
+                    (zero_second, previous_second[:-1]), axis=0
+                )
+
+        contribution_z = weights * base_z
+        if backend == "torch":
+            current_z = xp.cumsum(contribution_z, dim=0)
+        else:
+            current_z = xp.cumsum(contribution_z, axis=0)
+        if compute_derivatives:
+            contribution_first = weights.reshape(-1, 1) * (
+                base_first + base_z.reshape(-1, 1) * sorted_X
+            )
+            cross = base_first.reshape(n_samples, n_features, 1) * sorted_X.reshape(
+                n_samples, 1, n_features
+            ) + sorted_X.reshape(n_samples, n_features, 1) * base_first.reshape(
+                n_samples, 1, n_features
+            )
+            contribution_second = weights.reshape(-1, 1, 1) * (
+                base_second + cross + base_z.reshape(-1, 1, 1) * row_outer
+            )
+            current_first = _cumsum_axis0(
+                contribution_first,
+                backend,
+                xp,
+                allow_channelwise=allow_torch_channelwise,
+            )
+            current_second = _cumsum_axis0(
+                contribution_second,
+                backend,
+                xp,
+                allow_channelwise=allow_torch_channelwise,
+            )
+
+        selected = integer_counts == subset_size
+        if _scalar_bool(_sum(selected, backend, xp) > 0):
+            group_idx = _nonzero(selected, backend, xp)
+            prefix_idx = risk_counts[group_idx] - 1
+            selected_z = current_z[prefix_idx]
+            partition[group_idx] = selected_z
+            if compute_derivatives:
+                exact_mean[group_idx] = current_first[prefix_idx] / selected_z.reshape(
+                    -1, 1
+                )
+                exact_second[group_idx] = current_second[
+                    prefix_idx
+                ] / selected_z.reshape(-1, 1, 1)
+
+        previous_z = current_z
+        if compute_derivatives:
+            previous_first = current_first
+            previous_second = current_second
+
+    if _scalar_bool(_sum((partition <= 0) | ~xp.isfinite(partition), backend, xp) > 0):
+        return None
+    loglik = _sum(
+        failure_eta - _log(partition, xp) - counts * eta_shift,
+        backend,
+        xp,
+    )
+    result: Dict[str, Any] = {"log_likelihood": loglik}
+    if compute_derivatives:
+        if _scalar_bool(
+            _sum(~xp.isfinite(exact_mean), backend, xp)
+            + _sum(~xp.isfinite(exact_second), backend, xp)
+            > 0
+        ):
+            return None
+        score = _sum(failure_X - exact_mean, backend, xp, axis=0)
+        covariance = exact_second - xp.einsum("gi,gj->gij", exact_mean, exact_mean)
+        information = _sum(covariance, backend, xp, axis=0)
+        result["score"] = score
+        result["information"] = 0.5 * (information + information.T)
+    return result
+
+
+def _batched_exact_states(
+    X: Any,
+    log_weights: Any,
+    risk_mask: Any,
+    counts: Any,
+    backend: str,
+    xp: Any,
+    *,
+    compute_derivatives: bool,
+):
+    """Evaluate every exact failure group in one row-wise DP scan.
+
+    The elementary-symmetric recurrence is independent across failure groups
+    but sequential across risk rows.  Keeping a leading group dimension reduces
+    the launch-bound loop from ``sum(risk_set_sizes)`` iterations to ``n_rows``
+    while preserving the same normalized log-space moments.
+    """
+    n_groups, n_rows = int(risk_mask.shape[0]), int(risk_mask.shape[1])
+    n_features = int(X.shape[1])
+    max_ties = _scalar_int(_max(counts, backend, xp))
+    if backend == "torch":
+        counts_int = counts.to(dtype=xp.int64)
+        subset_sizes = xp.arange(
+            1, max_ties + 1, dtype=xp.int64, device=X.device
+        ).reshape(1, -1)
+    else:
+        counts_int = counts.astype(xp.int64, copy=False)
+        subset_sizes = xp.arange(1, max_ties + 1, dtype=xp.int64).reshape(1, -1)
+
+    log_z = _zeros(backend, xp, (n_groups, max_ties + 1), X)
+    log_z[:, 1:] = -float("inf")
+    mean = (
+        _zeros(backend, xp, (n_groups, max_ties + 1, n_features), X)
+        if compute_derivatives
+        else None
+    )
+    second = (
+        _zeros(
+            backend,
+            xp,
+            (n_groups, max_ties + 1, n_features, n_features),
+            X,
+        )
+        if compute_derivatives
+        else None
+    )
+    processed = xp.zeros_like(counts_int)
+
+    for row in range(n_rows):
+        active = risk_mask[:, row]
+        if backend == "torch":
+            processed_next = processed + active.to(dtype=xp.int64)
+        else:
+            processed_next = processed + active.astype(xp.int64, copy=False)
+        valid = (
+            active.reshape(-1, 1)
+            & (subset_sizes <= counts_int.reshape(-1, 1))
+            & (subset_sizes <= processed_next.reshape(-1, 1))
+        )
+
+        old_log_z = log_z[:, 1:]
+        previous_log_z = log_z[:, :-1]
+        added_log_z = log_weights[:, row].reshape(-1, 1) + previous_log_z
+        new_log_z = xp.logaddexp(old_log_z, added_log_z)
+        safe_new_log_z = xp.where(valid, new_log_z, 0.0)
+        old_weight = xp.where(valid, _exp(old_log_z - safe_new_log_z, xp), 0.0)
+        added_weight = xp.where(valid, _exp(added_log_z - safe_new_log_z, xp), 0.0)
+
+        if compute_derivatives:
+            old_mean = mean[:, 1:]
+            previous_mean = mean[:, :-1]
+            old_second = second[:, 1:]
+            previous_second = second[:, :-1]
+            x = X[row].reshape(1, 1, n_features)
+            added_mean = previous_mean + x
+            outer_x = x.reshape(1, 1, n_features, 1) * x.reshape(1, 1, 1, n_features)
+            cross = previous_mean.reshape(
+                n_groups, max_ties, n_features, 1
+            ) * x.reshape(1, 1, 1, n_features) + x.reshape(
+                1, 1, n_features, 1
+            ) * previous_mean.reshape(
+                n_groups, max_ties, 1, n_features
+            )
+            added_second = previous_second + cross + outer_x
+            new_mean = (
+                old_weight.reshape(n_groups, max_ties, 1) * old_mean
+                + added_weight.reshape(n_groups, max_ties, 1) * added_mean
+            )
+            new_second = (
+                old_weight.reshape(n_groups, max_ties, 1, 1) * old_second
+                + added_weight.reshape(n_groups, max_ties, 1, 1) * added_second
+            )
+            mean[:, 1:] = xp.where(
+                valid.reshape(n_groups, max_ties, 1), new_mean, old_mean
+            )
+            second[:, 1:] = xp.where(
+                valid.reshape(n_groups, max_ties, 1, 1), new_second, old_second
+            )
+
+        log_z[:, 1:] = xp.where(valid, new_log_z, old_log_z)
+        processed = processed_next
+
+    if backend == "torch":
+        group_index = xp.arange(n_groups, dtype=xp.int64, device=X.device)
+    else:
+        group_index = xp.arange(n_groups, dtype=xp.int64)
+    partition = log_z[group_index, counts_int]
+    if not compute_derivatives:
+        return partition, None, None
+    return (
+        partition,
+        mean[group_index, counts_int],
+        second[group_index, counts_int],
+    )
+
+
+def _batched_exact_group_objective(
+    eta: Any,
+    X: Any,
+    stop: Any,
+    event: Any,
+    start: Any,
+    strata: Any,
+    *,
+    score_residuals: bool,
+    compute_derivatives: bool,
+):
+    """Batched Exact objective for one-stratum CuPy/Torch workloads.
+
+    Return ``None`` when the estimated dense workspace exceeds the configured
+    ceiling so the memory-bounded per-group reference path remains available.
+    """
+    backend, xp = _array_namespace(X)
+    unique_strata = _unique_sorted(strata, backend, xp)
+    if backend == "numpy" or int(unique_strata.shape[0]) != 1:
+        return None
+
+    event_times = stop[event == 1]
+    if backend == "torch":
+        failure_times, integer_counts = xp.unique(
+            event_times, sorted=True, return_counts=True
+        )
+    else:
+        failure_times, integer_counts = xp.unique(event_times, return_counts=True)
+    n_groups = int(failure_times.shape[0])
+    if n_groups == 0:
+        return None
+    counts = _as_float(integer_counts, backend, X)
+    n_samples, n_features = int(X.shape[0]), int(X.shape[1])
+    max_ties = _scalar_int(_max(integer_counts, backend, xp))
+    state_width = 1
+    if compute_derivatives:
+        state_width += n_features + n_features * n_features
+    itemsize = X.element_size() if backend == "torch" else int(X.dtype.itemsize)
+    estimated_bytes = itemsize * (
+        4 * n_groups * n_samples + 12 * n_groups * (max_ties + 1) * state_width
+    )
+    max_bytes = max(
+        0,
+        int(os.environ.get("STATGPU_EXACT_BATCH_MAX_BYTES", 512 * 1024 * 1024)),
+    )
+    if max_bytes == 0 or estimated_bytes > max_bytes:
+        return None
+
+    risk_mask = (start.reshape(1, -1) < failure_times.reshape(-1, 1)) & (
+        stop.reshape(1, -1) >= failure_times.reshape(-1, 1)
+    )
+    fail_mask = (event.reshape(1, -1) == 1) & (
+        stop.reshape(1, -1) == failure_times.reshape(-1, 1)
+    )
+    risk_float = _as_float(risk_mask, backend, X)
+    fail_float = _as_float(fail_mask, backend, X)
+    risk_counts = _sum(risk_float, backend, xp, axis=1)
+    if _scalar_bool(_sum(risk_counts <= 0, backend, xp) > 0):
+        raise FloatingPointError("empty Cox risk set at an observed failure time")
+
+    masked_eta = xp.where(
+        risk_mask,
+        eta.reshape(1, -1),
+        xp.full_like(risk_float, -float("inf")),
+    )
+    if backend == "torch":
+        eta_shift = xp.max(masked_eta, dim=1).values
+    else:
+        eta_shift = xp.max(masked_eta, axis=1)
+    log_weights = xp.where(
+        risk_mask,
+        eta.reshape(1, -1) - eta_shift.reshape(-1, 1),
+        xp.zeros_like(risk_float),
+    )
+    partition, exact_mean, exact_second = _batched_exact_states(
+        X,
+        log_weights,
+        risk_mask,
+        counts,
+        backend,
+        xp,
+        compute_derivatives=compute_derivatives,
+    )
+    if _scalar_bool(_sum(~xp.isfinite(partition), backend, xp) > 0):
+        raise FloatingPointError("non-finite exact Cox tie log-partition")
+
+    loglik = _sum(
+        fail_float @ eta - partition - counts * eta_shift,
+        backend,
+        xp,
+    )
+    result: Dict[str, Any] = {"log_likelihood": loglik}
+    if compute_derivatives:
+        score = _sum(fail_float @ X - exact_mean, backend, xp, axis=0)
+        covariance = exact_second - xp.einsum("gi,gj->gij", exact_mean, exact_mean)
+        information = _sum(covariance, backend, xp, axis=0)
+        result["score"] = score
+        result["information"] = 0.5 * (information + information.T)
+    if score_residuals:
+        event_count = _sum(fail_float, backend, xp, axis=0)
+        allocation = exact_mean / risk_counts.reshape(-1, 1)
+        result["score_residuals"] = (
+            X * event_count.reshape(-1, 1) - risk_float.T @ allocation
+        )
+    return result
+
+
 def _exact_tie_log_partition_moments(
     X_risk: Any,
     log_w_risk: Any,
@@ -455,12 +1006,9 @@ def _exact_tie_log_partition_moments(
         previous_second = snapshot(second[:upper])
         added_mean = previous_mean + x.reshape(1, -1)
         outer_x = _outer(x, x, backend, xp).reshape(1, n_features, n_features)
-        cross = (
-            previous_mean.reshape(upper, n_features, 1)
-            * x.reshape(1, 1, n_features)
-            + x.reshape(1, n_features, 1)
-            * previous_mean.reshape(upper, 1, n_features)
-        )
+        cross = previous_mean.reshape(upper, n_features, 1) * x.reshape(
+            1, 1, n_features
+        ) + x.reshape(1, n_features, 1) * previous_mean.reshape(upper, 1, n_features)
         added_second = previous_second + cross + outer_x
 
         mean[1 : upper + 1] = (
@@ -495,9 +1043,7 @@ def _exact_tie_log_partition(
         upper = min(d, row + 1)
         old_log_z = snapshot(log_z[1 : upper + 1])
         previous_log_z = snapshot(log_z[:upper])
-        log_z[1 : upper + 1] = xp.logaddexp(
-            old_log_z, log_w_risk[row] + previous_log_z
-        )
+        log_z[1 : upper + 1] = xp.logaddexp(old_log_z, log_w_risk[row] + previous_log_z)
     return log_z[d]
 
 
@@ -624,6 +1170,32 @@ def cox_counting_process_objective(
     # ``X_g = z_g +/- 1e10`` while preserving the exact objective.
     X_centered = _center_within_strata(X, strata, backend, xp)
     eta = X_centered @ beta
+    if ties == "exact":
+        nested_exact = _nested_exact_group_objective(
+            eta,
+            X_centered,
+            stop,
+            event,
+            start,
+            strata,
+            score_residuals=score_residuals,
+            compute_derivatives=compute_derivatives,
+        )
+        if nested_exact is not None:
+            return nested_exact
+    if ties == "exact" and backend != "numpy":
+        batched_exact = _batched_exact_group_objective(
+            eta,
+            X_centered,
+            stop,
+            event,
+            start,
+            strata,
+            score_residuals=score_residuals,
+            compute_derivatives=compute_derivatives,
+        )
+        if batched_exact is not None:
+            return batched_exact
     if ties != "exact":
         if backend == "numpy":
             return _numpy_group_objective(
@@ -747,22 +1319,103 @@ def cox_baseline_hazard(
 
     for stratum in _unique_sorted(strata, backend, xp):
         stratum_mask = strata == stratum
-        n_stratum = _scalar_int(_sum(stratum_mask, backend, xp))
-        x_reference = _sum(X[stratum_mask], backend, xp, axis=0) / float(n_stratum)
-        eta = (X - x_reference.reshape(1, -1)) @ beta
+        X_s = X[stratum_mask]
+        stop_s = stop[stratum_mask]
+        event_s = event[stratum_mask]
+        start_s = start[stratum_mask]
+        n_stratum = int(X_s.shape[0])
+        x_reference = _sum(X_s, backend, xp, axis=0) / float(n_stratum)
+        eta = (X_s - x_reference.reshape(1, -1)) @ beta
         reference_linear_predictor = x_reference @ beta
-        event_mask_s = stratum_mask & (event == 1)
-        failure_times = _unique_sorted(stop[event_mask_s], backend, xp)
-        increments = _zeros(backend, xp, (int(failure_times.shape[0]),), X)
-        log_increments = _zeros(backend, xp, (int(failure_times.shape[0]),), X)
-        log_cumulative = _zeros(backend, xp, (int(failure_times.shape[0]),), X)
-        log_increments_centered = _zeros(backend, xp, (int(failure_times.shape[0]),), X)
-        log_cumulative_centered = _zeros(backend, xp, (int(failure_times.shape[0]),), X)
-        if int(failure_times.shape[0]) == 0:
+        event_mask = event_s == 1
+        event_times = stop_s[event_mask]
+        if backend == "torch":
+            failure_times, event_counts = xp.unique(
+                event_times, sorted=True, return_counts=True
+            )
+        else:
+            failure_times, event_counts = xp.unique(event_times, return_counts=True)
+        n_groups = int(failure_times.shape[0])
+
+        if n_groups == 0:
+            empty = _zeros(backend, xp, (0,), X)
             output[_scalar_int(stratum)] = {
                 "time": failure_times,
-                "hazard": increments,
-                "cumulative_hazard": increments,
+                "hazard": empty,
+                "cumulative_hazard": empty,
+                "log_hazard": empty,
+                "log_cumulative_hazard": empty,
+                "log_hazard_centered": empty,
+                "log_cumulative_hazard_centered": empty,
+                "x_reference": x_reference,
+            }
+            continue
+
+        # Ordinary right-censored risk sets are nested.  A descending stop-time
+        # order turns every denominator into a prefix, so one stable log-prefix
+        # scan replaces the previous full risk-mask scan per failure group.
+        use_prefix = not _scalar_bool(_sum(start_s != 0, backend, xp) > 0)
+        if use_prefix and backend == "cupy":
+            # CuPy does not implement logaddexp.accumulate.  A global shift is
+            # safe in the normal predictor range; extreme ranges retain the
+            # stable per-group path instead of underflowing an early prefix.
+            eta_range = float((_max(eta, backend, xp) - xp.min(eta)).item())
+            use_prefix = eta_range <= 500.0
+        if use_prefix:
+            if backend == "torch":
+                order = xp.argsort(stop_s, descending=True)
+            else:
+                order = xp.argsort(-stop_s)
+            sorted_stop = stop_s[order]
+            sorted_eta = eta[order]
+            if backend == "torch":
+                log_risk_prefix = xp.logcumsumexp(sorted_eta, dim=0)
+                risk_counts = xp.searchsorted(
+                    -sorted_stop, -failure_times, right=True
+                ).to(dtype=xp.int64)
+            else:
+                if backend == "cupy":
+                    eta_shift = _max(sorted_eta, backend, xp)
+                    log_risk_prefix = (
+                        _log(xp.cumsum(_exp(sorted_eta - eta_shift, xp)), xp)
+                        + eta_shift
+                    )
+                else:
+                    log_risk_prefix = xp.logaddexp.accumulate(sorted_eta)
+                risk_counts = xp.searchsorted(
+                    -sorted_stop, -failure_times, side="right"
+                ).astype(xp.int64, copy=False)
+            if _scalar_bool(_sum(risk_counts < event_counts, backend, xp) > 0):
+                raise FloatingPointError(
+                    "baseline failure count exceeds its Cox risk set"
+                )
+            counts = _as_float(event_counts, backend, X)
+            log_increments_centered = (
+                _log(counts, xp) - log_risk_prefix[risk_counts - 1]
+            )
+            log_increments = log_increments_centered - reference_linear_predictor
+            if backend == "torch":
+                log_cumulative_centered = xp.logcumsumexp(
+                    log_increments_centered, dim=0
+                )
+            elif backend == "cupy":
+                increment_shift = _max(log_increments_centered, backend, xp)
+                log_cumulative_centered = (
+                    _log(
+                        xp.cumsum(_exp(log_increments_centered - increment_shift, xp)),
+                        xp,
+                    )
+                    + increment_shift
+                )
+            else:
+                log_cumulative_centered = xp.logaddexp.accumulate(
+                    log_increments_centered
+                )
+            log_cumulative = log_cumulative_centered - reference_linear_predictor
+            output[_scalar_int(stratum)] = {
+                "time": failure_times,
+                "hazard": _exp_finite_float64(log_increments, backend, xp),
+                "cumulative_hazard": _exp_finite_float64(log_cumulative, backend, xp),
                 "log_hazard": log_increments,
                 "log_cumulative_hazard": log_cumulative,
                 "log_hazard_centered": log_increments_centered,
@@ -771,24 +1424,29 @@ def cox_baseline_hazard(
             }
             continue
 
+        # Delayed entry breaks nested prefixes.  Retain the stable, backend-
+        # native per-group implementation for the general counting-process case.
+        increments = _zeros(backend, xp, (n_groups,), X)
+        log_increments = _zeros(backend, xp, (n_groups,), X)
+        log_cumulative = _zeros(backend, xp, (n_groups,), X)
+        log_increments_centered = _zeros(backend, xp, (n_groups,), X)
+        log_cumulative_centered = _zeros(backend, xp, (n_groups,), X)
         running_log_cumulative = _zeros(backend, xp, (), X)
         running_log_cumulative[...] = -float("inf")
         running_log_cumulative_centered = _zeros(backend, xp, (), X)
         running_log_cumulative_centered[...] = -float("inf")
         for group_idx, failure_time in enumerate(failure_times):
-            fail_mask = event_mask_s & (stop == failure_time)
-            risk_mask = stratum_mask & (start < failure_time) & (stop >= failure_time)
+            fail_mask = event_mask & (stop_s == failure_time)
+            risk_mask = (start_s < failure_time) & (stop_s >= failure_time)
             d = _scalar_int(_sum(fail_mask, backend, xp))
             eta_shift = _max(eta[risk_mask], backend, xp)
             s0 = _sum(_exp(eta[risk_mask] - eta_shift, xp), backend, xp)
             # Use the conventional Breslow baseline after Breslow, Efron, or
-            # Exact coefficient estimation.  This matches the legacy CoxPH
-            # prediction path and common external APIs; tie handling affects
-            # beta, not this baseline convention.
+            # Exact coefficient estimation.  Tie handling affects beta, not
+            # this baseline convention.
             log_increment_centered = float(np.log(float(d))) - eta_shift - _log(s0, xp)
             log_increment = log_increment_centered - reference_linear_predictor
-            increment = _exp_finite_float64(log_increment, backend, xp)
-            increments[group_idx] = increment
+            increments[group_idx] = _exp_finite_float64(log_increment, backend, xp)
             log_increments[group_idx] = log_increment
             log_increments_centered[group_idx] = log_increment_centered
             running_log_cumulative = xp.logaddexp(running_log_cumulative, log_increment)

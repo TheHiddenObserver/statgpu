@@ -92,6 +92,7 @@ def fit_counting_process_cox(
     current = cox_counting_process_objective(
         beta, X, stop, event, start=start, strata=strata, ties=ties
     )
+    initial_null = current if init_coef is None else None
     current_penalized = current["log_likelihood"] - penalty * (beta @ beta)
     objective_history.append(current_penalized)
 
@@ -153,15 +154,19 @@ def fit_counting_process_cox(
         # next iteration evaluates the normalized KKT residual at the accepted
         # coefficient vector.
 
-    final = cox_counting_process_objective(
-        beta,
-        X,
-        stop,
-        event,
-        start=start,
-        strata=strata,
-        ties=ties,
-        score_residuals=bool(compute_score_residuals),
+    final = (
+        cox_counting_process_objective(
+            beta,
+            X,
+            stop,
+            event,
+            start=start,
+            strata=strata,
+            ties=ties,
+            score_residuals=True,
+        )
+        if compute_score_residuals
+        else current
     )
     final_penalized_score = final["score"] - 2.0 * penalty * beta
     final_score_inf = xp.max(xp.abs(final_penalized_score))
@@ -174,10 +179,13 @@ def fit_counting_process_cox(
         converged = True
         stop_reason = "kkt_converged"
 
-    null_beta = beta * 0.0
-    null_result = cox_counting_process_objective(
-        null_beta, X, stop, event, start=start, strata=strata, ties=ties
-    )
+    if initial_null is None:
+        null_beta = beta * 0.0
+        null_result = cox_counting_process_objective(
+            null_beta, X, stop, event, start=start, strata=strata, ties=ties
+        )
+    else:
+        null_result = initial_null
     baseline = (
         cox_baseline_hazard(beta, X, stop, event, start=start, strata=strata, ties=ties)
         if compute_baseline
@@ -188,6 +196,8 @@ def fit_counting_process_cox(
         "log_likelihood": final["log_likelihood"],
         "penalized_log_likelihood": final["log_likelihood"] - penalty * (beta @ beta),
         "null_log_likelihood": null_result["log_likelihood"],
+        "null_score": null_result["score"],
+        "null_information": null_result["information"],
         "score": final["score"],
         "penalized_score": final_penalized_score,
         "information": final["information"],

@@ -1479,21 +1479,11 @@ class CoxPH(BaseEstimator):
             self._wald_test_pvalue = stats.chi2.sf(
                 self._wald_test_stat, int(Xb.shape[1])
             )
-            # Re-evaluate the null score/information on the active backend.
-            from statgpu.survival._risk_sets import cox_counting_process_objective
-
-            null_eval = cox_counting_process_objective(
-                result["coef"] * 0.0,
-                Xb,
-                stopb,
-                eventb,
-                start=startb,
-                strata=stratab,
-                ties=self.ties,
-            )
-            score0 = null_eval["score"]
+            # The solver already evaluates the null objective (and starts there
+            # for the default zero initialization), so reuse its score test terms.
+            score0 = result["null_score"]
             try:
-                score_delta = xp.linalg.solve(null_eval["information"], score0)
+                score_delta = xp.linalg.solve(result["null_information"], score0)
                 self._score_test_stat = scalar(score0 @ score_delta)
             except Exception:
                 self._score_test_stat = np.nan
