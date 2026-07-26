@@ -1,0 +1,48 @@
+name: PR80 review fix applicator
+
+on:
+  push:
+    branches:
+      - codex/survival-gpu-completion
+
+permissions:
+  contents: write
+
+jobs:
+  apply-review-fixes:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out PR branch
+        uses: actions/checkout@v4
+        with:
+          ref: codex/survival-gpu-completion
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Apply reviewed fixes
+        run: python dev/_apply_pr80_review_fixes.py
+
+      - name: Compile changed Python files
+        run: >-
+          python -m compileall -q
+          statgpu/losses/_cox_ph.py
+          statgpu/linear_model/penalized/_penalized_cox.py
+          statgpu/survival/_cox.py
+          statgpu/survival/_cox_cv.py
+          statgpu/cross_validation/_base.py
+          statgpu/survival/_cox_counting.py
+          dev/tests/test_pr80_post_review_fixes.py
+
+      - name: Commit atomic review fixes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          git commit -m "fix(cox): address PR80 review findings"
+          git push origin HEAD:codex/survival-gpu-completion
