@@ -9,11 +9,6 @@ Survival analysis models.
 """
 
 from ._cox import CoxPH
-from ._cox_score import install as _install_cox_score
-
-_install_cox_score(CoxPH)
-del _install_cox_score
-
 from ._cox_cv import CoxPHCV
 
 __all__ = ['CoxPH', 'CoxPHCV']

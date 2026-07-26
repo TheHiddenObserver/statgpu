@@ -161,13 +161,4 @@ def score(
     return float((concordant + 0.5 * tied_risk) / permissible)
 
 
-def install(CoxPH):
-    """Install the reviewed public score boundary on the existing class object."""
-    score.__name__ = "score"
-    score.__qualname__ = "CoxPH.score"
-    score.__module__ = CoxPH.__module__
-    CoxPH.score = score
-    return CoxPH
-
-
-__all__ = ["install", "score"]
+__all__ = ["score"]

@@ -79,14 +79,6 @@ def _sum(value, xp, axis=None):
     return xp.sum(value, axis=axis)
 
 
-def _transpose2d(value, xp):
-    return value.transpose(0, 1) if xp.__name__ == "torch" else value.T
-
-
-def _is_nonpositive(value) -> bool:
-    return _to_float_scalar(value) <= 0.0
-
-
 @register_loss("cox_ph")
 class CoxPartialLikelihoodLoss(LossBase):
     """Negative Cox partial likelihood with Breslow or Efron ties.
@@ -126,6 +118,11 @@ class CoxPartialLikelihoodLoss(LossBase):
         self._efron_backend_index_cache = {}
         self._n_events = 0
         self._x_reference = None
+        self._group_first_indices_np = None
+        self._group_counts_np = None
+        self._group_event_indices_np = None
+        self._event_group_codes_np = None
+        self._efron_fractions_np = None
 
     def _ensure_sorted(self, X, y):
         if self._sorted and X is self._X_sorted:
@@ -205,6 +202,35 @@ class CoxPartialLikelihoodLoss(LossBase):
             )
             self._efron_pre_np = None
         self._efron_csr = None
+
+        if self.ties == "efron":
+            _, grouped, _, _, _, first_indices = self._efron_pre_np
+            counts = np.asarray(
+                [len(indices) for indices in grouped], dtype=np.int64
+            )
+        else:
+            first_indices, counts = self._breslow_pre_np
+            grouped = self._breslow_event_indices_np
+            counts = np.asarray(counts, dtype=np.int64)
+        self._group_first_indices_np = np.asarray(
+            first_indices, dtype=np.int64
+        )
+        self._group_counts_np = counts
+        self._group_event_indices_np = (
+            np.concatenate(grouped).astype(np.int64, copy=False)
+            if grouped
+            else np.empty(0, dtype=np.int64)
+        )
+        self._event_group_codes_np = np.repeat(
+            np.arange(len(grouped), dtype=np.int64), counts
+        )
+        self._efron_fractions_np = (
+            np.concatenate(
+                [np.arange(count, dtype=np.float64) / count for count in counts]
+            )
+            if counts.size
+            else np.empty(0, dtype=np.float64)
+        )
         return self._X_sorted, _xp_zeros(
             X_arr.shape[0], dtype=xp.float64, ref_arr=X_arr
         )
@@ -303,9 +329,17 @@ class CoxPartialLikelihoodLoss(LossBase):
         coef_dev = _xp_asarray(
             coef, dtype=xp.float64, ref_arr=self._X_sorted
         ).reshape(-1)
-        result = self._shared_objective(coef_dev, compute_derivatives=True)
+        self._validate_coef(coef_dev)
+        eta = self._X_sorted @ coef_dev
+        _, score, loglik_hessian = self._objective_from_eta_backend(
+            eta,
+            self._X_sorted,
+            xp,
+            self.ties,
+            compute_information=True,
+        )
         n = self._X_sorted.shape[0]
-        return -result["score"] / n, result["information"] / n
+        return -score / n, -loglik_hessian / n
 
     def hessian(self, X, y, coef, sample_weight=None):
         return self.fused_gradient_and_hessian(
@@ -325,103 +359,448 @@ class CoxPartialLikelihoodLoss(LossBase):
                 ref_arr=self._X_sorted,
             )
         )
-        result = self._shared_objective(coef_dev, compute_derivatives=True)
-        return _max_eigval_power(result["information"] / self._X_sorted.shape[0])
+        self._validate_coef(coef_dev)
+        eta = self._X_sorted @ coef_dev
+        _, _, loglik_hessian = self._objective_from_eta_backend(
+            eta,
+            self._X_sorted,
+            xp,
+            self.ties,
+            compute_information=True,
+        )
+        information = -loglik_hessian / self._X_sorted.shape[0]
+        return _max_eigval_power(information)
+
+    @staticmethod
+    def _reverse_cumsum(values, xp):
+        """Return an axis-zero reverse cumulative sum on every backend."""
+        if xp.__name__ == "torch":
+            return xp.cumsum(values.flip(0), dim=0).flip(0)
+        return xp.cumsum(values[::-1], axis=0)[::-1]
+
+    @staticmethod
+    def _stable_segment_boundaries(eta, xp, max_block_rows):
+        """Split predictor blocks until every block spans at most 500 logs.
+
+        CuPy does not implement ``maximum.accumulate``. A bounded recursive
+        range check provides the same numerical guarantee using only scalar
+        device reductions, without copying the predictor to the host.
+        """
+        n = int(eta.shape[0])
+        pending = [
+            (lo, min(lo + max_block_rows, n))
+            for lo in range(0, n, max_block_rows)
+        ]
+        boundaries = {0, n}
+        while pending:
+            lo, hi = pending.pop()
+            if hi - lo > 1:
+                block = eta[lo:hi]
+                block_range = _to_float_scalar(
+                    xp.max(block) - xp.min(block)
+                )
+                if block_range > 500.0:
+                    midpoint = lo + (hi - lo) // 2
+                    pending.append((lo, midpoint))
+                    pending.append((midpoint, hi))
+                    continue
+            boundaries.add(lo)
+            boundaries.add(hi)
+        return np.asarray(sorted(boundaries), dtype=np.int64)
+
+    def _suffix_group_moments(self, eta, X, xp, first_indices):
+        """Compute stable suffix log-sums and means at failure-group starts.
+
+        A single global shift is fast but can underflow after the observation
+        attaining that shift leaves a later risk set. Re-scanning every risk
+        set avoids the underflow at quadratic cost. This routine instead
+        performs reverse cumulative sums in bounded segments. Segment
+        boundaries are added whenever the suffix maximum crosses a 500-log-unit
+        bucket, so each stored suffix retains ample float64 dynamic range.
+        """
+        n, p = int(X.shape[0]), int(X.shape[1])
+        n_groups = int(len(first_indices))
+        risk_log_sum = _backend_zeros((n_groups,), xp, X)
+        risk_mean = _backend_zeros((n_groups, p), xp, X)
+        if n_groups == 0:
+            return risk_log_sum, risk_mean
+        if not bool(_to_float_scalar(xp.all(xp.isfinite(eta)))):
+            raise FloatingPointError("Cox linear predictor contains non-finite values")
+
+        # Keep temporary moment buffers bounded for high-dimensional inputs.
+        max_block_rows = max(
+            1,
+            min(n, 65_536, 2_000_000 // max(p, 1)),
+        )
+        boundaries = self._stable_segment_boundaries(
+            eta, xp, max_block_rows
+        )
+
+        tail_shift = None
+        tail_sum = None
+        tail_first = None
+        first_indices = np.asarray(first_indices, dtype=np.int64)
+        for boundary_index in range(len(boundaries) - 2, -1, -1):
+            lo = int(boundaries[boundary_index])
+            hi = int(boundaries[boundary_index + 1])
+            block_shift = xp.max(eta[lo:hi])
+            shift = (
+                block_shift
+                if tail_shift is None
+                else xp.maximum(block_shift, tail_shift)
+            )
+            weights = xp.exp(eta[lo:hi] - shift)
+            block_sum = self._reverse_cumsum(weights, xp)
+            block_first = self._reverse_cumsum(
+                X[lo:hi] * weights.reshape(-1, 1), xp
+            )
+            if tail_shift is not None:
+                tail_scale = xp.exp(tail_shift - shift)
+                block_sum = block_sum + tail_sum * tail_scale
+                block_first = block_first + tail_first * tail_scale
+
+            group_lo = int(np.searchsorted(first_indices, lo, side="left"))
+            group_hi = int(np.searchsorted(first_indices, hi, side="left"))
+            if group_hi > group_lo:
+                local_indices = _backend_index(
+                    first_indices[group_lo:group_hi] - lo, xp, X
+                )
+                selected_sum = block_sum[local_indices]
+                if bool(_to_float_scalar(xp.any(selected_sum <= 0))):
+                    raise FloatingPointError(
+                        "non-positive Cox risk-set denominator"
+                    )
+                risk_log_sum[group_lo:group_hi] = (
+                    xp.log(selected_sum) + shift
+                )
+                risk_mean[group_lo:group_hi] = (
+                    block_first[local_indices]
+                    / selected_sum.reshape(-1, 1)
+                )
+
+            tail_shift = shift
+            tail_sum = block_sum[0]
+            tail_first = block_first[0]
+
+        return risk_log_sum, risk_mean
+
+    def _first_order_objective_from_eta_backend(self, eta, X, xp, ties):
+        """Evaluate log likelihood and score in near-linear time."""
+        p = int(X.shape[1])
+        first_indices = self._group_first_indices_np
+        counts_int = self._group_counts_np
+        if len(first_indices) == 0:
+            return (
+                _backend_zeros((), xp, X),
+                _backend_zeros((p,), xp, X),
+                None,
+            )
+
+        risk_log_sum, risk_mean = self._suffix_group_moments(
+            eta, X, xp, first_indices
+        )
+        event_indices_np = self._group_event_indices_np
+        event_groups_np = self._event_group_codes_np
+        event_indices = _backend_index(event_indices_np, xp, X)
+        event_groups = _backend_index(event_groups_np, xp, X)
+        event_X = X[event_indices]
+        event_eta = eta[event_indices]
+
+        if ties == "breslow":
+            counts_backend = _xp_asarray(
+                counts_int, dtype=xp.float64, ref_arr=X
+            )
+            loglik = _sum(event_eta, xp) - _sum(
+                counts_backend * risk_log_sum, xp
+            )
+            score = _sum(event_X, xp, axis=0) - _sum(
+                risk_mean * counts_backend.reshape(-1, 1),
+                xp,
+                axis=0,
+            )
+            return loglik, score, None
+
+        # Efron correction in denominator-ratio space. Scaling each event
+        # weight by its complete risk denominator avoids both overflow and the
+        # global-shift underflow that motivated this implementation.
+        event_weight_ratio = xp.exp(
+            event_eta - risk_log_sum[event_groups]
+        )
+        event_ratio_sum = _backend_zeros(
+            (len(first_indices),), xp, X
+        )
+        event_first_ratio = _backend_zeros(
+            (len(first_indices), p), xp, X
+        )
+        if xp.__name__ == "torch":
+            event_ratio_sum.index_add_(
+                0, event_groups, event_weight_ratio
+            )
+            event_first_ratio.index_add_(
+                0,
+                event_groups,
+                event_X * event_weight_ratio.reshape(-1, 1),
+            )
+        else:
+            xp.add.at(event_ratio_sum, event_groups, event_weight_ratio)
+            xp.add.at(
+                event_first_ratio,
+                event_groups,
+                event_X * event_weight_ratio.reshape(-1, 1),
+            )
+
+        fractions_np = self._efron_fractions_np
+        fractions = _xp_asarray(
+            fractions_np, dtype=xp.float64, ref_arr=X
+        )
+        denominator_ratio = (
+            1.0 - fractions * event_ratio_sum[event_groups]
+        )
+        if bool(_to_float_scalar(xp.any(denominator_ratio <= 0))):
+            raise FloatingPointError("non-positive Cox risk-set denominator")
+        adjusted_mean = (
+            risk_mean[event_groups]
+            - fractions.reshape(-1, 1)
+            * event_first_ratio[event_groups]
+        ) / denominator_ratio.reshape(-1, 1)
+        loglik = _sum(event_eta, xp) - _sum(
+            risk_log_sum[event_groups] + xp.log(denominator_ratio), xp
+        )
+        score = _sum(event_X, xp, axis=0) - _sum(
+            adjusted_mean, xp, axis=0
+        )
+        return loglik, score, None
+
+    def _full_objective_from_eta_backend(self, eta, X, xp, ties):
+        """Evaluate likelihood, score, and information in stable blocks."""
+        n, p = int(X.shape[0]), int(X.shape[1])
+        first_indices = self._group_first_indices_np
+        counts = self._group_counts_np
+        loglik = _backend_zeros((), xp, X)
+        score = _backend_zeros((p,), xp, X)
+        information = _backend_zeros((p, p), xp, X)
+        if len(first_indices) == 0:
+            return loglik, score, -information
+        if not bool(_to_float_scalar(xp.all(xp.isfinite(eta)))):
+            raise FloatingPointError("Cox linear predictor contains non-finite values")
+
+        # Bound the n-by-p-by-p temporary used for suffix second moments.
+        moment_width = max(p * p, 1)
+        max_block_rows = max(
+            1,
+            min(n, 16_384, 2_000_000 // moment_width),
+        )
+        boundaries = self._stable_segment_boundaries(
+            eta, xp, max_block_rows
+        )
+        event_offsets = np.concatenate(
+            [np.array([0], dtype=np.int64), np.cumsum(counts)]
+        )
+
+        tail_shift = None
+        tail_sum = None
+        tail_first = None
+        tail_second = None
+        tail_feature_shift = None
+        for boundary_index in range(len(boundaries) - 2, -1, -1):
+            lo = int(boundaries[boundary_index])
+            hi = int(boundaries[boundary_index + 1])
+            block_shift = xp.max(eta[lo:hi])
+            shift = (
+                block_shift
+                if tail_shift is None
+                else xp.maximum(block_shift, tail_shift)
+            )
+            feature_shift = X[hi - 1]
+            centered_X = X[lo:hi] - feature_shift
+            weights = xp.exp(eta[lo:hi] - shift)
+            weighted_first = centered_X * weights.reshape(-1, 1)
+            weighted_second = (
+                weighted_first[:, :, None] * centered_X[:, None, :]
+            )
+            block_sum = self._reverse_cumsum(weights, xp)
+            block_first = self._reverse_cumsum(weighted_first, xp)
+            block_second = self._reverse_cumsum(weighted_second, xp)
+            if tail_shift is not None:
+                feature_delta = tail_feature_shift - feature_shift
+                transformed_tail_first = (
+                    tail_first + tail_sum * feature_delta
+                )
+                transformed_tail_second = (
+                    tail_second
+                    + feature_delta[:, None] * tail_first[None, :]
+                    + tail_first[:, None] * feature_delta[None, :]
+                    + tail_sum
+                    * feature_delta[:, None]
+                    * feature_delta[None, :]
+                )
+                tail_scale = xp.exp(tail_shift - shift)
+                block_sum = block_sum + tail_sum * tail_scale
+                block_first = block_first + transformed_tail_first * tail_scale
+                block_second = block_second + transformed_tail_second * tail_scale
+
+            group_lo = int(np.searchsorted(first_indices, lo, side="left"))
+            group_hi = int(np.searchsorted(first_indices, hi, side="left"))
+            if group_hi > group_lo:
+                local_indices = _backend_index(
+                    first_indices[group_lo:group_hi] - lo, xp, X
+                )
+                selected_sum = block_sum[local_indices]
+                if bool(_to_float_scalar(xp.any(selected_sum <= 0))):
+                    raise FloatingPointError(
+                        "non-positive Cox risk-set denominator"
+                    )
+                risk_log_sum = xp.log(selected_sum) + shift
+                selected_first = block_first[local_indices]
+                selected_second = block_second[local_indices]
+                risk_mean = (
+                    selected_first
+                    / selected_sum.reshape(-1, 1)
+                )
+                risk_second = (
+                    selected_second
+                    / selected_sum.reshape(-1, 1, 1)
+                )
+
+                event_lo = int(event_offsets[group_lo])
+                event_hi = int(event_offsets[group_hi])
+                event_indices = _backend_index(
+                    self._group_event_indices_np[event_lo:event_hi], xp, X
+                )
+                event_groups_np = (
+                    self._event_group_codes_np[event_lo:event_hi] - group_lo
+                )
+                event_groups = _backend_index(event_groups_np, xp, X)
+                event_X = X[event_indices]
+                centered_event_X = event_X - feature_shift
+                event_eta = eta[event_indices]
+                group_counts = counts[group_lo:group_hi]
+
+                if ties == "breslow":
+                    counts_backend = _xp_asarray(
+                        group_counts, dtype=xp.float64, ref_arr=X
+                    )
+                    loglik = loglik + _sum(event_eta, xp) - _sum(
+                        counts_backend * risk_log_sum, xp
+                    )
+                    score = score + _sum(centered_event_X, xp, axis=0) - _sum(
+                        risk_mean * counts_backend.reshape(-1, 1),
+                        xp,
+                        axis=0,
+                    )
+                    covariance = (
+                        risk_second
+                        - risk_mean[:, :, None] * risk_mean[:, None, :]
+                    )
+                    information = information + _sum(
+                        covariance
+                        * counts_backend.reshape(-1, 1, 1),
+                        xp,
+                        axis=0,
+                    )
+                else:
+                    n_groups = group_hi - group_lo
+                    event_weight_ratio = xp.exp(event_eta - shift)
+                    event_ratio_sum = _backend_zeros(
+                        (n_groups,), xp, X
+                    )
+                    event_first_ratio = _backend_zeros(
+                        (n_groups, p), xp, X
+                    )
+                    event_second_ratio = _backend_zeros(
+                        (n_groups, p, p), xp, X
+                    )
+                    weighted_event_first = (
+                        centered_event_X * event_weight_ratio.reshape(-1, 1)
+                    )
+                    weighted_event_second = (
+                        weighted_event_first[:, :, None]
+                        * centered_event_X[:, None, :]
+                    )
+                    if xp.__name__ == "torch":
+                        event_ratio_sum.index_add_(
+                            0, event_groups, event_weight_ratio
+                        )
+                        event_first_ratio.index_add_(
+                            0, event_groups, weighted_event_first
+                        )
+                        event_second_ratio.index_add_(
+                            0, event_groups, weighted_event_second
+                        )
+                    else:
+                        xp.add.at(
+                            event_ratio_sum, event_groups, event_weight_ratio
+                        )
+                        xp.add.at(
+                            event_first_ratio,
+                            event_groups,
+                            weighted_event_first,
+                        )
+                        xp.add.at(
+                            event_second_ratio,
+                            event_groups,
+                            weighted_event_second,
+                        )
+
+                    fractions = _xp_asarray(
+                        self._efron_fractions_np[event_lo:event_hi],
+                        dtype=xp.float64,
+                        ref_arr=X,
+                    )
+                    denominator_ratio = (
+                        selected_sum[event_groups]
+                        - fractions * event_ratio_sum[event_groups]
+                    )
+                    if bool(
+                        _to_float_scalar(xp.any(denominator_ratio <= 0))
+                    ):
+                        raise FloatingPointError(
+                            "non-positive Cox risk-set denominator"
+                        )
+                    fractions_first = fractions.reshape(-1, 1)
+                    fractions_second = fractions.reshape(-1, 1, 1)
+                    adjusted_mean = (
+                        selected_first[event_groups]
+                        - fractions_first
+                        * event_first_ratio[event_groups]
+                    ) / denominator_ratio.reshape(-1, 1)
+                    adjusted_second = (
+                        selected_second[event_groups]
+                        - fractions_second
+                        * event_second_ratio[event_groups]
+                    ) / denominator_ratio.reshape(-1, 1, 1)
+                    loglik = loglik + _sum(event_eta, xp) - _sum(
+                        xp.log(denominator_ratio) + shift,
+                        xp,
+                    )
+                    score = score + _sum(centered_event_X, xp, axis=0) - _sum(
+                        adjusted_mean, xp, axis=0
+                    )
+                    information = information + _sum(
+                        adjusted_second
+                        - adjusted_mean[:, :, None]
+                        * adjusted_mean[:, None, :],
+                        xp,
+                        axis=0,
+                    )
+
+            tail_shift = shift
+            tail_sum = block_sum[0]
+            tail_first = block_first[0]
+            tail_second = block_second[0]
+            tail_feature_shift = feature_shift
+
+        return loglik, score, -information
 
     def _objective_from_eta_backend(
         self, eta, X, xp, ties, *, compute_information=True
     ):
         """Evaluate log likelihood and score from a precomputed predictor."""
-        n, p = int(X.shape[0]), int(X.shape[1])
-        loglik = _backend_zeros((), xp, X)
-        score = _backend_zeros((p,), xp, X)
-        information = (
-            _backend_zeros((p, p), xp, X) if compute_information else None
-        )
-
-        if ties == "breslow":
-            if self._breslow_pre_np is None:
-                first_indices, counts = _build_breslow_pre_numpy(
-                    self._time_np, self._event_np
-                )
-            else:
-                first_indices, counts = self._breslow_pre_np
-            grouped_event_idx = (
-                self._breslow_event_indices_np
-                if self._breslow_event_indices_np is not None
-                else _build_breslow_event_indices_numpy(
-                    self._time_np, self._event_np
-                )
+        if not compute_information:
+            return self._first_order_objective_from_eta_backend(
+                eta, X, xp, ties
             )
-        else:
-            if self._efron_pre_np is None:
-                efron_pre = _build_efron_pre_numpy(self._time_np, self._event_np)
-            else:
-                efron_pre = self._efron_pre_np
-            _, grouped_event_idx, _, _, _, first_indices = efron_pre
-            counts = np.asarray(
-                [len(indices) for indices in grouped_event_idx], dtype=np.float64
-            )
-
-        for first_index, count, event_indices_np in zip(
-            first_indices, counts, grouped_event_idx
-        ):
-            first_index = int(first_index)
-            d = int(count)
-            if d <= 0:
-                continue
-            risk_X = X[first_index:n]
-            risk_eta = eta[first_index:n]
-            shift = xp.max(risk_eta)
-            risk_weights = xp.exp(risk_eta - shift)
-            s0 = _sum(risk_weights, xp)
-            if _is_nonpositive(s0):
-                raise FloatingPointError("non-positive Cox risk-set denominator")
-            s1 = _transpose2d(risk_X, xp) @ risk_weights
-            s2 = (
-                _transpose2d(risk_X, xp)
-                @ (risk_X * risk_weights.reshape(-1, 1))
-                if compute_information
-                else None
-            )
-
-            event_indices = _backend_index(event_indices_np, xp, X)
-            event_X = X[event_indices]
-            event_eta = eta[event_indices]
-            event_weights = xp.exp(event_eta - shift)
-            e0 = _sum(event_weights, xp)
-            e1 = _transpose2d(event_X, xp) @ event_weights
-            e2 = (
-                _transpose2d(event_X, xp)
-                @ (event_X * event_weights.reshape(-1, 1))
-                if compute_information
-                else None
-            )
-
-            loglik = loglik + _sum(event_eta, xp)
-            score = score + _sum(event_X, xp, axis=0)
-            substeps = 1 if ties == "breslow" else d
-            for substep in range(substeps):
-                frac = 0.0 if ties == "breslow" else float(substep) / float(d)
-                denom = s0 - frac * e0
-                if _is_nonpositive(denom):
-                    raise FloatingPointError("non-positive Cox risk-set denominator")
-                a1 = s1 - frac * e1
-                mean = a1 / denom
-                loglik = loglik - (xp.log(denom) + shift)
-                score = score - mean
-                if compute_information:
-                    a2 = s2 - frac * e2
-                    information = information + a2 / denom - xp.outer(mean, mean)
-            if ties == "breslow" and d > 1:
-                mean = s1 / s0
-                loglik = loglik - float(d - 1) * (xp.log(s0) + shift)
-                score = score - float(d - 1) * mean
-                if compute_information:
-                    covariance = s2 / s0 - xp.outer(mean, mean)
-                    information = information + float(d - 1) * covariance
-
-        return loglik, score, None if information is None else -information
+        return self._full_objective_from_eta_backend(eta, X, xp, ties)
 
     def _is_gpu(self, arr):
         xp = _get_xp(arr)
@@ -430,12 +809,21 @@ class CoxPartialLikelihoodLoss(LossBase):
         )
 
     def _compute_grad_hess(self, coef_dev, X_s):
-        result = self._shared_objective(coef_dev, compute_derivatives=True)
-        return result["score"], -result["information"]
+        xp = _get_xp(X_s)
+        self._validate_coef(coef_dev)
+        eta = X_s @ coef_dev
+        _, score, hessian = self._objective_from_eta_backend(
+            eta, X_s, xp, self.ties, compute_information=True
+        )
+        return score, hessian
 
     def _gpu_loglik(self, coef_dev, X_s):
-        result = self._shared_objective(coef_dev, compute_derivatives=False)
-        return result["log_likelihood"]
+        xp = _get_xp(X_s)
+        self._validate_coef(coef_dev)
+        eta = X_s @ coef_dev
+        return self._objective_from_eta_backend(
+            eta, X_s, xp, self.ties, compute_information=False
+        )[0]
 
     def _loglik_from_eta(self, eta, X_s):
         xp = _get_xp(X_s)

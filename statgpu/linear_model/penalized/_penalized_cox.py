@@ -605,7 +605,7 @@ class PenalizedCoxPHModel(PenalizedGeneralizedLinearModel):
                 self.coef_, dtype=Xb.dtype, device=Xb.device
             )
         else:
-            Xb = np.asarray(X, dtype=np.float64)
+            Xb = np.asarray(_to_numpy(X), dtype=np.float64)
             if isinstance(y, dict):
                 if "time" not in y or "event" not in y:
                     raise ValueError(

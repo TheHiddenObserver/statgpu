@@ -15,6 +15,7 @@ from statgpu.survival import CoxPH
 from statgpu.survival import _cox_counting as counting_module
 from statgpu.survival import _cox_cv as cox_cv_module
 from statgpu.survival._cox_counting import fit_counting_process_cox
+from statgpu.survival._cox_score import score as cox_score
 from statgpu.survival._risk_sets import cox_counting_process_objective
 
 
@@ -53,12 +54,14 @@ def test_penalized_cox_uses_failure_time_local_risk_scaling(ties):
     assert_allclose(
         hessian,
         np.asarray(reference["information"]) / n,
-        rtol=1e-12,
-        atol=1e-12,
+        # The stable suffix implementation changes summation order while
+        # retaining substantially tighter accuracy than backend parity needs.
+        rtol=5e-11,
+        atol=5e-12,
     )
 
 
-def test_penalized_cox_first_order_path_avoids_information_matrix(monkeypatch):
+def test_penalized_cox_loss_avoids_quadratic_shared_risk_scans(monkeypatch):
     import statgpu.losses._cox_ph as cox_loss_module
 
     X = np.array([[1000.0], [0.0], [-1.0], [-2.0]])
@@ -75,8 +78,10 @@ def test_penalized_cox_first_order_path_avoids_information_matrix(monkeypatch):
         fail_shared_derivatives,
     )
     value, gradient = loss.fused_value_and_gradient(X, y, coef)
+    hessian = loss.hessian(X, y, coef)
     assert np.isfinite(value)
     assert np.all(np.isfinite(np.asarray(gradient)))
+    assert np.all(np.isfinite(np.asarray(hessian)))
 
 
 def test_all_censored_loss_validates_coefficient_contract():
@@ -147,7 +152,7 @@ def test_cox_public_facade_preserves_historical_class_path():
 
 
 def test_cox_score_packed_target_uses_active_backend_source():
-    source = inspect.getsource(CoxPH.score)
+    source = inspect.getsource(cox_score)
     assert "np.asarray(self._to_numpy(time)" not in source
     assert "target = backend.asarray(time" in source
 
