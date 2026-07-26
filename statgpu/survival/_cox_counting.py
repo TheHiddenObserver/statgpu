@@ -142,10 +142,13 @@ def fit_counting_process_cox(
             step *= 0.5
 
         if not accepted:
+            # Return the last accepted iterate instead of turning an ordinary
+            # numerical non-convergence into an estimator-level exception.  The
+            # caller receives converged=False and can decide whether to exclude
+            # the candidate (for example, in CoxPHCV) while programming, input,
+            # import, and device errors still propagate normally.
             stop_reason = "line_search_failed"
-            raise RuntimeError(
-                "Cox Newton line search failed to find an improving step"
-            )
+            break
 
         beta, current = candidate
         current_penalized = candidate_penalized
