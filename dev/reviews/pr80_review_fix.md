@@ -3,10 +3,11 @@
 > Review date: 2026-07-26<br>
 > Original PR head reviewed: `d6f798c1834fd6318c8257eed334f84a198fa8ad`<br>
 > Performance-fix base: `ad3c0026eb682ac6394369a3318e9fb806e631b8`<br>
-> Final Exact risk-set SHA-256: `190567fbbc7ae40f24e9e1506ce8ac1fca5a58118a2afb800f7dec2fa05a10d8`<br>
+> Final Exact risk-set SHA-256: `f231445d27c5919b829cb30377fe8e6c92e22592eb5c6a2099ecb7a2453b4d8c`<br>
 > Final counting-solver SHA-256: `9684867f90b153c23675d8804698f76092765a3d96da05c7a3d989528782d501`<br>
 > Final Cox dispatch SHA-256: `efe199e7bb40112f882109efbe8b462ab8050f52349d939d33a611f819f81e6c`<br>
 > Final R/performance artifact SHA-256: `85e7c72d736b859564e598e8e6e26b26b05a6fe06a076c39645083af80ea896e`<br>
+> Final stratified-Exact artifact SHA-256: `0bc0325240b64e1a957f0597a969233374ca4696571c0fcc6229a8ea0986e2c6`<br>
 > Physical-GPU matrix SHA-256: `09cdcc9e900ba7eccae7a5d7e389c7ff6ddcbabdf5f4a648ce776b52ff8d78c6`<br>
 > Original merge base: `a4879fb` (0.2.1 line)<br>
 > Compatibility target: `origin/master` at `7ccf616` (0.2.2 line)<br>
@@ -282,6 +283,20 @@ while retaining PR #80's counting-process implementation.
     performance, compatibility, and limitation evidence English-first and then
     Chinese-follow.
 
+- [HIGH][PERF][fixed] `statgpu/survival/_risk_sets.py`: multi-stratum Exact
+  objectives bypassed both optimized one-stratum kernels and executed one
+  elementary-symmetric DP per failure time. Exact likelihood additivity now
+  composes the bounded nested/batched kernels once per stratum; NumPy also uses
+  the memory-gated batched path for eligible delayed-entry workloads. No device
+  fallback or statistical-definition change was introduced.
+- [MEDIUM][TEST/ARTIFACT][fixed]
+  `dev/benchmarks/benchmark_exact_ties_scaling.py` and
+  `dev/tests/test_survival_risk_sets.py`: the maintained scaling benchmark only
+  generated ordinary right-censored data, and no regression forced the
+  multi-stratum fast paths on all three backends. The benchmark now accepts
+  `--scaling-scenario strata`, and tests compare nested/batched results with the
+  forced memory-bounded reference on NumPy, CuPy, and Torch.
+
 ## Validation Evidence
 
 - `pytest` survival core target: **143 passed, 14 skipped, 0 failed** (157 total).
@@ -293,6 +308,18 @@ while retaining PR #80's counting-process implementation.
 - `dev/tests/test_core_contracts.py`: **7 passed, 0 failed**.
 - Documentation contracts: **122 files passed**; deterministic link check:
   **0 affected files**.
+- Current stratified-Exact local affected matrix: **162 passed, 26 skipped, 0
+  failed**. The complete local suite reached **1272 passed, 298 skipped, 0
+  failed** with four unrelated/pre-existing warnings.
+- Current physical-P100 risk-set and Cox public-API matrix: **103 passed, 0
+  failed** on Python 3.9.16, CuPy 13.6.0, and Torch 2.0.0+cu117.
+- The synchronized three-stratum Exact benchmark (`p=4`, full fit plus
+  inference) measured R/NumPy/CuPy/Torch medians of
+  0.0180/0.0143/0.1742/0.0747 s at `n=160`,
+  0.258/0.2263/0.2181/0.1341 s at `n=15,360`, and
+  1.118/0.9874/0.2285/0.1384 s at `n=61,440`. CuPy and Torch are 4.89x and
+  8.08x faster than R at the largest size; the artifact reports zero alignment
+  gate failures and hashes matching the exact source and benchmark files.
 - `py_compile` passed for the Cox, counting-process, CV, solver, and benchmark
   modules.
 - Local quick benchmark: `schema_status="ok"`, no `gate_failures`, source version
@@ -378,6 +405,7 @@ Both GPU backends are faster than R from the measured `n=15,360` ordinary
 right-censored case through `n=122,880`; Torch is the fastest measured backend
 on that low-dimensional large-sample shape. Small GPU fits remain launch-bound,
 and wide Torch moment tensors keep the native scan. Large individual tie blocks
-remain combinatorial; delayed-entry, score-residual, and multi-stratum Exact use
-the backend-native normalized paths. These are explicit evidence boundaries
-rather than failed gates.
+remain combinatorial. Eligible multi-stratum Exact fits compose the bounded
+one-stratum kernels; score-residual requests and shapes rejected by numerical
+or memory gates retain the backend-native normalized reference. These are
+explicit evidence boundaries rather than failed gates.

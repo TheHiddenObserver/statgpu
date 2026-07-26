@@ -863,14 +863,14 @@ def _batched_exact_group_objective(
     score_residuals: bool,
     compute_derivatives: bool,
 ):
-    """Batched Exact objective for one-stratum CuPy/Torch workloads.
+    """Batched Exact objective for one-stratum backend-native workloads.
 
     Return ``None`` when the estimated dense workspace exceeds the configured
     ceiling so the memory-bounded per-group reference path remains available.
     """
     backend, xp = _array_namespace(X)
     unique_strata = _unique_sorted(strata, backend, xp)
-    if backend == "numpy" or int(unique_strata.shape[0]) != 1:
+    if int(unique_strata.shape[0]) != 1:
         return None
 
     event_times = stop[event == 1]
@@ -957,6 +957,83 @@ def _batched_exact_group_objective(
             X * event_count.reshape(-1, 1) - risk_float.T @ allocation
         )
     return result
+
+
+def _stratified_exact_group_objective(
+    eta: Any,
+    X: Any,
+    stop: Any,
+    event: Any,
+    start: Any,
+    strata: Any,
+    *,
+    score_residuals: bool,
+    compute_derivatives: bool,
+):
+    """Compose optimized one-stratum Exact objectives across strata.
+
+    Exact partial likelihoods are additive across strata. Reusing a bounded
+    fast path once per stratum avoids the launch-bound stratum-by-failure-time
+    reference loop without weakening its numerical or memory safety fallback.
+    """
+    if score_residuals:
+        return None
+    backend, xp = _array_namespace(X)
+    unique_strata = _unique_sorted(strata, backend, xp)
+    if int(unique_strata.shape[0]) <= 1:
+        return None
+
+    n_features = int(X.shape[1])
+    loglik = _zeros(backend, xp, (), X)
+    score = _zeros(backend, xp, (n_features,), X) if compute_derivatives else None
+    information = (
+        _zeros(backend, xp, (n_features, n_features), X)
+        if compute_derivatives
+        else None
+    )
+    for stratum in unique_strata:
+        rows = _nonzero(strata == stratum, backend, xp)
+        event_s = event[rows]
+        if _scalar_int(_sum(event_s == 1, backend, xp)) == 0:
+            continue
+        X_s = X[rows]
+        stop_s = stop[rows]
+        start_s = start[rows]
+        strata_s = strata[rows]
+        eta_s = eta[rows]
+        result = _nested_exact_group_objective(
+            eta_s,
+            X_s,
+            stop_s,
+            event_s,
+            start_s,
+            strata_s,
+            score_residuals=False,
+            compute_derivatives=compute_derivatives,
+        )
+        if result is None:
+            result = _batched_exact_group_objective(
+                eta_s,
+                X_s,
+                stop_s,
+                event_s,
+                start_s,
+                strata_s,
+                score_residuals=False,
+                compute_derivatives=compute_derivatives,
+            )
+        if result is None:
+            return None
+        loglik = loglik + result["log_likelihood"]
+        if compute_derivatives:
+            score = score + result["score"]
+            information = information + result["information"]
+
+    combined: Dict[str, Any] = {"log_likelihood": loglik}
+    if compute_derivatives:
+        combined["score"] = score
+        combined["information"] = 0.5 * (information + information.T)
+    return combined
 
 
 def _exact_tie_log_partition_moments(
@@ -1183,7 +1260,19 @@ def cox_counting_process_objective(
         )
         if nested_exact is not None:
             return nested_exact
-    if ties == "exact" and backend != "numpy":
+        stratified_exact = _stratified_exact_group_objective(
+            eta,
+            X_centered,
+            stop,
+            event,
+            start,
+            strata,
+            score_residuals=score_residuals,
+            compute_derivatives=compute_derivatives,
+        )
+        if stratified_exact is not None:
+            return stratified_exact
+    if ties == "exact":
         batched_exact = _batched_exact_group_objective(
             eta,
             X_centered,

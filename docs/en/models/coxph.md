@@ -268,6 +268,17 @@ the prior native multidimensional-scan Torch result at the largest size. Torch
 is 26.92x faster than R, 30.44x faster than NumPy, and 1.43x faster than CuPy
 there; both GPU paths overtake R by the measured `n=15,360` point.
 
+For three-stratum Exact fits, the optimized objective is now composed from one
+bounded fast-path evaluation per stratum instead of a device/Python loop per
+failure time. On the same P100 timing contract, R/NumPy/CuPy/Torch medians were
+0.0180/0.0143/0.1742/0.0747 s at `n=160`,
+0.258/0.2263/0.2181/0.1341 s at `n=15,360`, and
+1.118/0.9874/0.2285/0.1384 s at `n=61,440`. Explicit GPU fits remain
+launch-bound at the smallest size, overtake R by the measured `n=15,360`
+point, and reach 4.89x CuPy and 8.08x Torch speedups over R at `n=61,440`.
+See `results/benchmark_frontend_sources/coxph_exact_strata_pr80_20260726.json`
+for source hashes, device metadata, convergence, and R-alignment errors.
+
 Phase profiling at `n=61,440` identified baseline construction as the remaining
 full-fit hotspot. Before the prefix change, NumPy/CuPy/Torch baseline phases
 took 6.847/5.988/3.328 s; the same phases now take

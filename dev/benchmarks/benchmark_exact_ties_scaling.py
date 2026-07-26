@@ -275,6 +275,24 @@ def make_r_alignment_cases(
     return cases
 
 
+def make_scaling_data(scenario: str, n_samples: int, n_features: int, seed: int):
+    """Create one deterministic scaling case and its optional row metadata."""
+    if scenario == "right_censored":
+        X, stop, event, n_bins = make_data(n_samples, n_features, seed)
+        return X, stop, event, None, None, n_bins
+    if scenario != "strata":
+        raise ValueError(f"unsupported scaling scenario: {scenario!r}")
+    data = make_r_alignment_cases(n_samples, n_features, seed)["strata"]
+    return (
+        data["X"],
+        data["stop"],
+        data["event"],
+        None,
+        data["strata"],
+        int(np.unique(data["stop"]).size),
+    )
+
+
 def device_metadata(devices: Iterable[str]) -> Dict[str, Any]:
     metadata: Dict[str, Any] = {}
     if "cuda" in devices:
@@ -364,6 +382,12 @@ def parse_args():
     parser.add_argument("--sizes", type=int, nargs="+", default=[960, 1920])
     parser.add_argument("--features", type=int, default=4)
     parser.add_argument("--seed", type=int, default=88031)
+    parser.add_argument(
+        "--scaling-scenario",
+        choices=["right_censored", "strata"],
+        default="right_censored",
+        help="Risk-set scenario used for the requested scaling sizes.",
+    )
     parser.add_argument("--repeats", type=int, default=3)
     parser.add_argument(
         "--largest-repeats",
@@ -389,6 +413,11 @@ def parse_args():
         help="Rows per right-censored/delayed-entry/strata R alignment case.",
     )
     parser.add_argument(
+        "--skip-r-alignment",
+        action="store_true",
+        help="Skip the four small external-alignment cases after scaling.",
+    )
+    parser.add_argument(
         "--r-timeout",
         type=int,
         default=600,
@@ -409,13 +438,29 @@ def main() -> int:
     if args.r_alignment_size <= 0 or args.r_timeout <= 0:
         raise ValueError("R alignment size and timeout must be positive")
 
-    X_warm, stop_warm, event_warm, _ = make_data(80, args.features, args.seed)
+    X_warm, stop_warm, event_warm, start_warm, strata_warm, _ = make_scaling_data(
+        args.scaling_scenario, 80, args.features, args.seed
+    )
     for device in args.devices:
-        fit_once(device, X_warm, stop_warm, event_warm)
+        fit_once(
+            device,
+            X_warm,
+            stop_warm,
+            event_warm,
+            start=start_warm,
+            strata=strata_warm,
+        )
     r_versions = None
     if args.include_r:
         r_versions = r_metadata()
-        fit_r_once(X_warm, stop_warm, event_warm, timeout=args.r_timeout)
+        fit_r_once(
+            X_warm,
+            stop_warm,
+            event_warm,
+            start=start_warm,
+            strata=strata_warm,
+            timeout=args.r_timeout,
+        )
 
     source_paths = {
         "risk_sets": Path(risk_sets_module.__file__).resolve(),
@@ -445,6 +490,7 @@ def main() -> int:
         "numpy": np.__version__,
         "features": args.features,
         "seed": args.seed,
+        "scaling_scenario": args.scaling_scenario,
         "timing_scope": {
             "statgpu": (
                 "CoxPH.fit including input conversion and inference; "
@@ -463,6 +509,7 @@ def main() -> int:
             else None
         ),
         "r_metadata": r_versions,
+        "r_alignment_skipped": bool(args.include_r and args.skip_r_alignment),
         "alignment_thresholds": thresholds,
         "gate_failures": [],
         "cases": [],
@@ -473,8 +520,17 @@ def main() -> int:
     name_for_device = {"cpu": "numpy", "cuda": "cupy", "torch": "torch"}
     for n_samples in args.sizes:
         repeats = args.largest_repeats if n_samples == largest else args.repeats
-        X, stop, event, n_bins = make_data(n_samples, args.features, args.seed)
-        _, tie_counts = np.unique(stop[event == 1], return_counts=True)
+        X, stop, event, start, strata, n_bins = make_scaling_data(
+            args.scaling_scenario, n_samples, args.features, args.seed
+        )
+        event_mask = event == 1
+        failure_strata = (
+            np.zeros(int(event_mask.sum()), dtype=np.int64)
+            if strata is None
+            else strata[event_mask]
+        )
+        failure_keys = np.column_stack((failure_strata, stop[event_mask]))
+        _, tie_counts = np.unique(failure_keys, axis=0, return_counts=True)
         case: Dict[str, Any] = {
             "n": n_samples,
             "repeats": repeats,
@@ -483,19 +539,28 @@ def main() -> int:
             "failure_groups": int(tie_counts.size),
             "max_tie": int(tie_counts.max()),
             "median_tie": float(np.median(tie_counts)),
+            "strata_count": 1 if strata is None else int(np.unique(strata).size),
             "backends": {},
         }
         best: Dict[str, Dict[str, Any]] = {}
         for device in args.devices:
             name = name_for_device[device]
             summary = summarize_runs(
-                fit_once(device, X, stop, event) for _ in range(repeats)
+                fit_once(device, X, stop, event, start=start, strata=strata)
+                for _ in range(repeats)
             )
             case["backends"][name] = summary
             best[name] = summary
         if args.include_r:
             summary = summarize_runs(
-                fit_r_once(X, stop, event, timeout=args.r_timeout)
+                fit_r_once(
+                    X,
+                    stop,
+                    event,
+                    start=start,
+                    strata=strata,
+                    timeout=args.r_timeout,
+                )
                 for _ in range(repeats)
             )
             case["backends"]["r_survival"] = summary
@@ -540,7 +605,7 @@ def main() -> int:
                 )
         report["cases"].append(case)
 
-    if args.include_r:
+    if args.include_r and not args.skip_r_alignment:
         alignment_cases = make_r_alignment_cases(
             args.r_alignment_size, args.features, args.seed
         )

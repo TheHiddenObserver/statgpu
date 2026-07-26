@@ -26,6 +26,7 @@ results/*
 !results/benchmark_frontend_sources/
 results/benchmark_frontend_sources/*
 !results/benchmark_frontend_sources/coxph_exact_pr80_20260726.json
+!results/benchmark_frontend_sources/coxph_exact_strata_pr80_20260726.json
 
 # Dev tooling (benchmarks, scripts, plans, docs — not production code)
 dev/benchmarks/

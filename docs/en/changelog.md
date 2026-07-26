@@ -7,6 +7,26 @@
 
 ## 2026-07
 
+### Optimized (2026-07-26) — PR #80 stratified Exact composition
+
+- Multi-stratum Exact fits previously bypassed both optimized one-stratum
+  kernels and fell back to a Python/device loop over every stratum and failure
+  time. The new path composes the nested right-censored or bounded batched
+  counting-process objective once per stratum; NumPy can now use the same
+  memory-gated batched Exact kernel for delayed-entry workloads.
+- On a Tesla P100-SXM2-16GB (`p=4`, three strata, full fit plus inference),
+  R/NumPy/CuPy/Torch medians were 0.0180/0.0143/0.1742/0.0747 s at `n=160`,
+  0.258/0.2263/0.2181/0.1341 s at `n=15,360`, and
+  1.118/0.9874/0.2285/0.1384 s at `n=61,440`. The GPU paths overtake R by the
+  measured `n=15,360` point; at `n=61,440`, CuPy and Torch are 4.89x and 8.08x
+  faster than R. Small stratified fits remain launch-bound on explicit GPUs.
+- R 4.4.1/survival 3.8.9 alignment reports zero gate failures. Maximum
+  coefficient, exact partial-log-likelihood, and covariance differences are
+  `5.84e-10`, `8.15e-10`, and `4.45e-12`.
+- Reusable benchmark: `dev/benchmarks/benchmark_exact_ties_scaling.py` with
+  `--scaling-scenario strata`; auditable artifact:
+  `results/benchmark_frontend_sources/coxph_exact_strata_pr80_20260726.json`.
+
 ### Optimized (2026-07-26) — PR #80 Torch Exact channel scans
 
 - Profiling the nested Exact implementation on a Tesla P100 with PyTorch

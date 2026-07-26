@@ -7,6 +7,26 @@
 
 ## 2026-07
 
+### 优化（2026-07-26）— PR #80 分层 Exact 组合路径
+
+- 多 strata 的 Exact 拟合此前无法进入两条单 strata 快速路径，而会退回到按
+  `stratum × failure time` 执行的 Python/设备循环。新路径利用分层部分似然的
+  可加性，对每个 stratum 复用 nested right-censored 或有界 batched
+  counting-process objective；NumPy 也可在内存门禁内使用 batched Exact 处理
+  delayed-entry 工作负载。
+- 在 Tesla P100-SXM2-16GB 上（`p=4`、三个 strata、完整拟合及推断），
+  `n=160` 时 R/NumPy/CuPy/Torch 中位时间为
+  0.0180/0.0143/0.1742/0.0747 秒，`n=15,360` 时为
+  0.258/0.2263/0.2181/0.1341 秒，`n=61,440` 时为
+  1.118/0.9874/0.2285/0.1384 秒。两个 GPU 后端均在实测 `n=15,360`
+  超过 R；`n=61,440` 时 CuPy 与 Torch 分别比 R 快 4.89 倍和 8.08 倍。
+  显式 GPU 在小型分层拟合中仍受 kernel launch 开销限制。
+- R 4.4.1/survival 3.8.9 对齐为零 gate failure；系数、Exact 部分对数似然与
+  协方差的最大差异分别为 `5.84e-10`、`8.15e-10`、`4.45e-12`。
+- 可复用 benchmark 为 `dev/benchmarks/benchmark_exact_ties_scaling.py`
+  的 `--scaling-scenario strata`；可审计产物为
+  `results/benchmark_frontend_sources/coxph_exact_strata_pr80_20260726.json`。
+
 ### 优化（2026-07-26）— PR #80 Torch Exact 通道扫描
 
 - 在 Tesla P100、PyTorch 2.0.0+cu117 上 profiling nested Exact 后发现：一维 CUDA

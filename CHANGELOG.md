@@ -8,6 +8,7 @@ All notable changes to statgpu are documented here, organized by date and PR.
 - Added Breslow, Efron, and Exact Cox risk sets with delayed entry, start-stop rows, strata, robust inference, and subject-grouped CV across NumPy, CuPy, and Torch.
 - Hardened penalized Cox estimation, formula handling, sklearn compatibility, numerical stability, and backend-preserving prediction and scoring.
 - Added synchronized GPU and R validation artifacts for coefficients, likelihood, covariance, convergence, and performance.
+- Composed optimized Exact kernels across strata, cutting the `n=160` P100 full-fit time from 0.276/4.25/2.58 s to 0.0143/0.174/0.0747 s for NumPy/CuPy/Torch and preserving large-sample GPU acceleration.
 
 ## 2026-07-25
 

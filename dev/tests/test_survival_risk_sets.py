@@ -392,6 +392,7 @@ def test_nested_exact_matches_forced_memory_bounded_path(backend, monkeypatch):
 
     monkeypatch.setattr(risk_sets_module, "_zeros", recording_zeros)
     monkeypatch.setenv("STATGPU_EXACT_NESTED_MAX_BYTES", "0")
+    monkeypatch.setenv("STATGPU_EXACT_BATCH_MAX_BYTES", "0")
     reference = cox_counting_process_objective(beta, X, stop, event, ties="exact")
     assert selected == [False]
     assert (n_samples, n_features, n_features) not in allocated_shapes
@@ -424,6 +425,138 @@ def test_nested_exact_matches_forced_memory_bounded_path(backend, monkeypatch):
             rtol=2e-11,
             atol=2e-11,
         )
+
+
+@pytest.mark.parametrize("backend", ["numpy", "cupy", "torch"])
+def test_stratified_exact_composes_nested_fast_paths(backend, monkeypatch):
+    rng = np.random.default_rng(7134)
+    n_samples, n_features = 72, 3
+    X = rng.normal(size=(n_samples, n_features))
+    strata = np.repeat(np.arange(3), n_samples // 3)
+    stop = rng.integers(1, 9, size=n_samples).astype(np.float64)
+    event = rng.binomial(1, 0.65, size=n_samples).astype(np.int64)
+    for stratum in range(3):
+        event[np.flatnonzero(strata == stratum)[0]] = 1
+    beta = rng.normal(scale=0.12, size=n_features)
+    if backend == "cupy":
+        xp = pytest.importorskip("cupy")
+        try:
+            if xp.cuda.runtime.getDeviceCount() < 1:
+                pytest.skip("CuPy CUDA unavailable")
+        except Exception as exc:
+            pytest.skip(f"CuPy CUDA unavailable: {exc}")
+        beta = xp.asarray(beta, dtype=xp.float64)
+        X = xp.asarray(X, dtype=xp.float64)
+        stop = xp.asarray(stop, dtype=xp.float64)
+        event = xp.asarray(event, dtype=xp.int64)
+        strata = xp.asarray(strata, dtype=xp.int64)
+    elif backend == "torch":
+        xp = pytest.importorskip("torch")
+        beta = xp.as_tensor(beta, dtype=xp.float64)
+        X = xp.as_tensor(X, dtype=xp.float64)
+        stop = xp.as_tensor(stop, dtype=xp.float64)
+        event = xp.as_tensor(event, dtype=xp.int64)
+        strata = xp.as_tensor(strata, dtype=xp.int64)
+
+    selected_sizes = []
+    original_nested = risk_sets_module._nested_exact_group_objective
+
+    def recording_nested(*call_args, **call_kwargs):
+        result = original_nested(*call_args, **call_kwargs)
+        if result is not None:
+            selected_sizes.append(int(call_args[1].shape[0]))
+        return result
+
+    monkeypatch.setattr(
+        risk_sets_module, "_nested_exact_group_objective", recording_nested
+    )
+    optimized = cox_counting_process_objective(
+        beta, X, stop, event, strata=strata, ties="exact"
+    )
+    assert selected_sizes == [24, 24, 24]
+
+    monkeypatch.setenv("STATGPU_EXACT_NESTED_MAX_BYTES", "0")
+    monkeypatch.setenv("STATGPU_EXACT_BATCH_MAX_BYTES", "0")
+    reference = cox_counting_process_objective(
+        beta, X, stop, event, strata=strata, ties="exact"
+    )
+    for key in ("log_likelihood", "score", "information"):
+        if backend in {"cupy", "torch"}:
+            assert xp.allclose(optimized[key], reference[key], rtol=2e-11, atol=2e-11)
+        else:
+            assert np.allclose(optimized[key], reference[key], rtol=2e-11, atol=2e-11)
+
+
+@pytest.mark.parametrize("backend", ["numpy", "cupy", "torch"])
+def test_backend_stratified_delayed_entry_exact_composes_batched_fast_paths(
+    backend, monkeypatch
+):
+    if backend == "numpy":
+        xp = np
+        asarray = np.asarray
+    elif backend == "cupy":
+        xp = pytest.importorskip("cupy")
+        try:
+            if xp.cuda.runtime.getDeviceCount() < 1:
+                pytest.skip("CuPy CUDA unavailable")
+        except Exception as exc:
+            pytest.skip(f"CuPy CUDA unavailable: {exc}")
+        asarray = xp.asarray
+    else:
+        xp = pytest.importorskip("torch")
+        asarray = xp.as_tensor
+    rng = np.random.default_rng(7135)
+    n_samples, n_features = 72, 3
+    X_np = rng.normal(size=(n_samples, n_features))
+    strata_np = np.repeat(np.arange(3), n_samples // 3)
+    stop_np = rng.integers(2, 10, size=n_samples).astype(np.float64)
+    start_np = rng.uniform(0.0, 0.8, size=n_samples) * stop_np
+    event_np = rng.binomial(1, 0.65, size=n_samples).astype(np.int64)
+    for stratum in range(3):
+        event_np[np.flatnonzero(strata_np == stratum)[0]] = 1
+    beta_np = rng.normal(scale=0.12, size=n_features)
+    beta = asarray(beta_np, dtype=xp.float64)
+    X = asarray(X_np, dtype=xp.float64)
+    stop = asarray(stop_np, dtype=xp.float64)
+    start = asarray(start_np, dtype=xp.float64)
+    event = asarray(event_np, dtype=xp.int64)
+    strata = asarray(strata_np, dtype=xp.int64)
+
+    selected_sizes = []
+    original_batched = risk_sets_module._batched_exact_group_objective
+
+    def recording_batched(*call_args, **call_kwargs):
+        result = original_batched(*call_args, **call_kwargs)
+        if result is not None:
+            selected_sizes.append(int(call_args[1].shape[0]))
+        return result
+
+    monkeypatch.setattr(
+        risk_sets_module, "_batched_exact_group_objective", recording_batched
+    )
+    optimized = cox_counting_process_objective(
+        beta,
+        X,
+        stop,
+        event,
+        start=start,
+        strata=strata,
+        ties="exact",
+    )
+    assert selected_sizes == [24, 24, 24]
+
+    monkeypatch.setenv("STATGPU_EXACT_BATCH_MAX_BYTES", "0")
+    reference = cox_counting_process_objective(
+        beta,
+        X,
+        stop,
+        event,
+        start=start,
+        strata=strata,
+        ties="exact",
+    )
+    for key in ("log_likelihood", "score", "information"):
+        assert xp.allclose(optimized[key], reference[key], rtol=2e-11, atol=2e-11)
 
 
 def test_exact_tie_partition_matches_brute_force():
