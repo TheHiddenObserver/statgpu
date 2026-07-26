@@ -231,8 +231,17 @@ class CoxPartialLikelihoodLoss(LossBase):
             )
         return result
 
+    def _validate_coef(self, coef_dev):
+        xp = _get_xp(self._X_sorted)
+        n_features = int(self._X_sorted.shape[1])
+        if int(coef_dev.ndim) != 1 or int(coef_dev.shape[0]) != n_features:
+            raise ValueError("coef must have shape (n_features,)")
+        if _to_float_scalar(xp.sum(~xp.isfinite(coef_dev))) > 0:
+            raise ValueError("coef must contain only finite values")
+
     def _shared_objective(self, coef_dev, *, compute_derivatives: bool):
         """Use the audited three-backend risk-set implementation."""
+        self._validate_coef(coef_dev)
         if self._n_events == 0:
             return self._zero_objective(compute_derivatives=compute_derivatives)
         return cox_counting_process_objective(
@@ -251,6 +260,7 @@ class CoxPartialLikelihoodLoss(LossBase):
         coef_dev = _xp_asarray(
             coef, dtype=xp.float64, ref_arr=self._X_sorted
         ).reshape(-1)
+        self._validate_coef(coef_dev)
         eta = self._X_sorted @ coef_dev
         loglik, _, _ = self._objective_from_eta_backend(
             eta, self._X_sorted, xp, self.ties, compute_information=False
@@ -264,6 +274,7 @@ class CoxPartialLikelihoodLoss(LossBase):
         coef_dev = _xp_asarray(
             coef, dtype=xp.float64, ref_arr=self._X_sorted
         ).reshape(-1)
+        self._validate_coef(coef_dev)
         eta = self._X_sorted @ coef_dev
         _, score, _ = self._objective_from_eta_backend(
             eta, self._X_sorted, xp, self.ties, compute_information=False
@@ -277,6 +288,7 @@ class CoxPartialLikelihoodLoss(LossBase):
         coef_dev = _xp_asarray(
             coef, dtype=xp.float64, ref_arr=self._X_sorted
         ).reshape(-1)
+        self._validate_coef(coef_dev)
         eta = self._X_sorted @ coef_dev
         loglik, score, _ = self._objective_from_eta_backend(
             eta, self._X_sorted, xp, self.ties, compute_information=False

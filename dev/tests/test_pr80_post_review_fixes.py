@@ -79,6 +79,21 @@ def test_penalized_cox_first_order_path_avoids_information_matrix(monkeypatch):
     assert np.all(np.isfinite(np.asarray(gradient)))
 
 
+def test_all_censored_loss_validates_coefficient_contract():
+    X = np.ones((4, 1), dtype=np.float64)
+    y = np.column_stack(
+        [np.arange(1.0, 5.0), np.zeros(4, dtype=np.float64)]
+    )
+    loss = CoxPartialLikelihoodLoss(ties="breslow")
+
+    with pytest.raises(ValueError, match="coef must have shape"):
+        loss.hessian(X, y, np.zeros(2, dtype=np.float64))
+    with pytest.raises(ValueError, match="coef must contain only finite"):
+        loss.hessian(X, y, np.array([np.nan]))
+    with pytest.raises(ValueError, match="coef must have shape"):
+        loss.lipschitz(X, np.zeros(2, dtype=np.float64), y=y)
+
+
 def test_counting_solver_reports_line_search_failure_without_discarding_iterate(
     monkeypatch,
 ):
