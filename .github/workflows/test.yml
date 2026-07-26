@@ -51,11 +51,28 @@ jobs:
           statgpu/survival/_cox_counting.py
           dev/tests/test_pr80_post_review_fixes.py
       - name: Commit atomic review fixes
+        id: commit
         if: steps.apply.outcome == 'success'
+        continue-on-error: true
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A
-          git diff --cached --check
-          git commit -m "fix(cox): address PR80 review findings"
-          git push origin HEAD:codex/survival-gpu-completion
+          {
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add -A
+            git diff --cached --check
+            git status --short
+            git commit -m "fix(cox): address PR80 review findings"
+            git push origin HEAD:codex/survival-gpu-completion
+          } > pr80-commit.log 2>&1
+      - name: Upload commit diagnostics
+        if: steps.commit.outcome == 'failure'
+        uses: actions/upload-artifact@v4
+        with:
+          name: pr80-commit-diagnostics
+          path: pr80-commit.log
+          if-no-files-found: error
+      - name: Surface commit failure
+        if: steps.commit.outcome == 'failure'
+        run: |
+          cat pr80-commit.log
+          exit 1
