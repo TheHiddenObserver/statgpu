@@ -1,11 +1,9 @@
 """Cox partial-likelihood loss for survival analysis.
 
-The public loss API delegates to the shared counting-process risk-set engine so
-Breslow and Efron likelihoods use the same numerical definition as
-``statgpu.survival.CoxPH`` on NumPy, CuPy, and Torch.  In particular, every
-failure time is normalized inside its own risk set; a global linear-predictor
-shift is not sufficient once the sample attaining the maximum has left a later
-risk set.
+The public loss API uses failure-time-local normalization so Breslow and Efron
+likelihoods remain stable after the observation attaining the global maximum
+linear predictor has left a later risk set.  Hessian evaluations delegate to
+the shared counting-process engine used by :class:`statgpu.survival.CoxPH`.
 """
 
 from __future__ import annotations
@@ -50,8 +48,10 @@ def _build_breslow_pre_numpy(time_np, event_np):
 
 
 def _build_breslow_event_indices_numpy(time_np, event_np):
-    """Return event-row indices grouped in the same order as Breslow predata."""
+    """Return event-row indices grouped in Breslow failure-time order."""
     event_idx = np.flatnonzero(event_np == 1)
+    if event_idx.size == 0:
+        return []
     event_times = time_np[event_idx]
     _, inverse = np.unique(event_times, return_inverse=True)
     return [
@@ -94,6 +94,9 @@ class CoxPartialLikelihoodLoss(LossBase):
     The response is either a ``{"time": ..., "event": ...}`` dictionary or an
     ``(n, 2)`` array.  ``sample_weight`` is intentionally unsupported because
     case weights require a separate, explicitly documented survival contract.
+    An all-censored response is a valid loss boundary with zero value and zero
+    derivatives, even though estimators reject it because no coefficient can be
+    identified from such data.
     """
 
     name = "cox_ph"
@@ -140,7 +143,7 @@ class CoxPartialLikelihoodLoss(LossBase):
             event = _xp_asarray(y["event"], dtype=xp.float64, ref_arr=X)
         else:
             y_arr = _xp_asarray(y, dtype=xp.float64, ref_arr=X)
-            if y_arr.ndim != 2 or y_arr.shape[1] < 2:
+            if y_arr.ndim != 2 or int(y_arr.shape[1]) != 2:
                 raise ValueError("y must be dict or (n, 2) array")
             time, event = y_arr[:, 0], y_arr[:, 1]
 
@@ -163,8 +166,6 @@ class CoxPartialLikelihoodLoss(LossBase):
             raise ValueError("event must contain only 0/1 finite values")
         if _to_float_scalar(xp.sum(time <= 0)) > 0:
             raise ValueError("time must contain only positive values")
-        if _to_float_scalar(xp.sum(event)) <= 0:
-            raise ValueError("at least one observed event is required")
 
         self._x_reference = (
             xp.mean(X_arr, dim=0)
@@ -194,6 +195,7 @@ class CoxPartialLikelihoodLoss(LossBase):
                 self._time_np, self._event_np
             )
             self._breslow_pre_np = None
+            self._breslow_event_indices_np = None
         else:
             self._breslow_pre_np = _build_breslow_pre_numpy(
                 self._time_np, self._event_np
@@ -214,8 +216,25 @@ class CoxPartialLikelihoodLoss(LossBase):
                 "CoxPartialLikelihoodLoss does not support sample_weight"
             )
 
+    def _zero_objective(self, *, compute_derivatives: bool):
+        xp = _get_xp(self._X_sorted)
+        result = {
+            "log_likelihood": _backend_zeros((), xp, self._X_sorted),
+        }
+        if compute_derivatives:
+            n_features = int(self._X_sorted.shape[1])
+            result["score"] = _backend_zeros(
+                (n_features,), xp, self._X_sorted
+            )
+            result["information"] = _backend_zeros(
+                (n_features, n_features), xp, self._X_sorted
+            )
+        return result
+
     def _shared_objective(self, coef_dev, *, compute_derivatives: bool):
         """Use the audited three-backend risk-set implementation."""
+        if self._n_events == 0:
+            return self._zero_objective(compute_derivatives=compute_derivatives)
         return cox_counting_process_objective(
             coef_dev,
             self._X_sorted,
@@ -297,15 +316,10 @@ class CoxPartialLikelihoodLoss(LossBase):
         result = self._shared_objective(coef_dev, compute_derivatives=True)
         return _max_eigval_power(result["information"] / self._X_sorted.shape[0])
 
-    # ------------------------------------------------------------------
-    # Compatibility helpers used by focused kernel tests.  They share one
-    # failure-time-local normalization routine and are not used by the public
-    # optimization path.
-    # ------------------------------------------------------------------
-
     def _objective_from_eta_backend(
         self, eta, X, xp, ties, *, compute_information=True
     ):
+        """Evaluate log likelihood and score from a precomputed predictor."""
         n, p = int(X.shape[0]), int(X.shape[1])
         loglik = _backend_zeros((), xp, X)
         score = _backend_zeros((p,), xp, X)
@@ -388,8 +402,6 @@ class CoxPartialLikelihoodLoss(LossBase):
                     a2 = s2 - frac * e2
                     information = information + a2 / denom - xp.outer(mean, mean)
             if ties == "breslow" and d > 1:
-                # The loop above consumed one denominator; Breslow repeats that
-                # same denominator and moment contribution d times.
                 mean = s1 / s0
                 loglik = loglik - float(d - 1) * (xp.log(s0) + shift)
                 score = score - float(d - 1) * mean
@@ -464,8 +476,6 @@ class CoxPartialLikelihoodLoss(LossBase):
 
     @staticmethod
     def _efron_grad_hess_np(eta, X, efron_pre):
-        # Kept only for compatibility with external private-method probes.  Use
-        # a temporary lightweight loss so the same stable implementation is used.
         temp = CoxPartialLikelihoodLoss(ties="efron")
         temp._X_sorted = np.asarray(X, dtype=np.float64)
         temp._time_np = np.asarray(efron_pre[0], dtype=np.float64)
