@@ -89,6 +89,12 @@ jobs:
             dev/tests/test_logistic.py \
             dev/tests/test_cox.py \
             dev/tests/test_cox_cv.py \
+            dev/tests/test_cox_core_completion.py \
+            dev/tests/test_cox_phase1_completion.py \
+            dev/tests/test_penalized_cox_completion.py \
+            dev/tests/test_pr80_all_censored_loss.py \
+            dev/tests/test_pr80_post_review_fixes.py \
+            dev/tests/test_survival_risk_sets.py \
             dev/tests/test_distributions_backend.py \
             dev/tests/test_penalties_and_exports.py \
             dev/tests/test_ridge_inference.py \
@@ -176,10 +182,12 @@ jobs:
             statgpu/linear_model/cv/_ridge_cv.py \
             statgpu/linear_model/penalized/_fit_mixin.py \
             statgpu/linear_model/penalized/_inference_mixin.py \
+            statgpu/linear_model/penalized/_penalized_cox.py \
             statgpu/linear_model/penalized/_penalized_cv.py \
             statgpu/linear_model/penalized/_penalized_linear.py \
             statgpu/linear_model/wrappers/_linear.py \
             statgpu/linear_model/wrappers/_ridge.py \
+            statgpu/losses/_cox_ph.py \
             statgpu/metrics \
             statgpu/nonparametric/kernel_methods \
             statgpu/nonparametric/kernel_smoothing \
@@ -190,6 +198,10 @@ jobs:
             statgpu/semiparametric \
             statgpu/solvers/_fista_lla.py \
             statgpu/survival/_cox.py \
+            statgpu/survival/_cox_counting.py \
+            statgpu/survival/_cox_cv.py \
+            statgpu/survival/_cox_score.py \
+            statgpu/survival/_risk_sets.py \
             statgpu/unsupervised/_kmeans.py \
             statgpu/unsupervised/_nndescent.py \
             statgpu/unsupervised/_umap.py \
