@@ -36,6 +36,25 @@ if text.count(old) != 1:
     raise RuntimeError("expected one scipy distribution audit block")
 text = text.replace(old, new, 1)
 
+score_write_old = '''    flags=re.DOTALL,
+)
+path.write_text(text, encoding="utf-8")
+
+
+# 3. Unified inference distributions and position-safe formula intercept removal.
+'''
+score_write_new = '''    flags=re.DOTALL,
+)
+text = text.rstrip() + "\\n"
+path.write_text(text, encoding="utf-8")
+
+
+# 3. Unified inference distributions and position-safe formula intercept removal.
+'''
+if text.count(score_write_old) != 1:
+    raise RuntimeError("expected one penalized Cox score write block")
+text = text.replace(score_write_old, score_write_new, 1)
+
 cleanup_old = '''# Restore the maintained workflow, then remove every one-shot helper.
 subprocess.run(
     ["git", "checkout", "origin/master", "--", ".github/workflows/test.yml"],
