@@ -357,7 +357,9 @@ def test_high_level_complex_guards_preserve_gpu_backend_contract(device):
         CoxPH(device=device, compute_inference=False).fit(
             complex_X, stop, event
         )
-    fitted = CoxPH(device=device, compute_inference=False).fit(X, stop, event)
+    fitted = CoxPH(
+        device=device, compute_inference=False, penalty=0.1
+    ).fit(X, stop, event)
     with pytest.raises(ValueError, match="packed survival target.*real-valued"):
         fitted.score(X, complex_target)
     with pytest.raises(ValueError, match="X.*real-valued"):
