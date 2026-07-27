@@ -16,6 +16,10 @@
 - The trusted gradient still performs adaptive predictor-range segmentation.
   This numerical scaling is independent of duplicate finite-state checks and
   prevents a departing maximum predictor from underflowing a later risk set.
+- A machine-readable physical-P100 artifact records clean commit `4f3a452`,
+  exact Cox/FISTA/fit source hashes, six gradient comparisons, and twelve
+  SCAD/MCP coefficient/objective/KKT/finite-state results:
+  `results/benchmark_frontend_sources/penalized_cox_trusted_gradient_pr80_20260727.json`.
 - Ordinary right-censored Exact ties now use one segmented prefix DP across all
   strata. Delayed-entry GPU workloads with at least eight strata can use one
   memory-gated global batch; smaller cases use bounded per-stratum batches.

@@ -18,6 +18,8 @@ All notable changes to statgpu are documented here, organized by date and PR.
   preventing underflow when the maximum predictor leaves a later risk set.
 - Reject strata labels outside the signed-int64 domain before backend casting,
   preventing overflow from silently merging distinct strata.
+- Added a clean-commit, machine-readable NumPy/CuPy/Torch artifact for the
+  extreme-range SCAD/MCP trusted-gradient, objective, and KKT regression.
 
 ## 2026-07-26
 

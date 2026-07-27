@@ -1,0 +1,522 @@
+{
+  "status": "complete",
+  "generated_at": "2026-07-27T07:53:31.879033+00:00",
+  "git_commit": "4f3a452bfdb74f544f76b2bbebc659b43be04869",
+  "tracked_worktree_dirty_before_run": false,
+  "statgpu_version": "0.2.2",
+  "python": "3.9.16",
+  "numpy": "1.24.2",
+  "source_hashes": {
+    "cox_ph_loss": "c15d76eda53db156b497a50f094de6d158f76371b20fab260f3b7f68d805c8ab",
+    "fista_lla": "76751dad27539b5f0d7194fbb90d80e506e23cefd5d34a20c7a5c8201a3217dd",
+    "fit_mixin": "56fcaa3667afc27935a73a363e77ca940560ce9beb3019b809c2544998b6062d",
+    "risk_sets": "92e60fb223d28de368f93d4e56f9cdb00ebe984f7358127550f0a72d3a243c21"
+  },
+  "benchmark_sha256": "8a9130c9e370a9f4869e8a21b31c088a1c6a472dae1bbc42c1df8b0028cdda4a",
+  "command_argv": [
+    "/root/miniconda3/envs/myconda/bin/python",
+    "dev/benchmarks/benchmark_penalized_cox_trusted_gradient.py",
+    "--devices",
+    "cpu",
+    "cuda",
+    "torch",
+    "--ties",
+    "breslow",
+    "efron",
+    "--penalties",
+    "scad",
+    "mcp",
+    "--alpha",
+    "0.01",
+    "--output",
+    "results/benchmark_frontend_sources/penalized_cox_trusted_gradient_pr80_20260727.json"
+  ],
+  "device_metadata": {
+    "cupy_version": "13.6.0",
+    "cupy_gpu": "Tesla P100-SXM2-16GB",
+    "cupy_compute_capability": [
+      6,
+      0
+    ],
+    "torch_version": "2.0.0+cu117",
+    "torch_cuda_version": "11.7",
+    "torch_gpu": "Tesla P100-SXM2-16GB",
+    "torch_compute_capability": [
+      6,
+      0
+    ]
+  },
+  "scenario": {
+    "X": [
+      [
+        1000.0
+      ],
+      [
+        0.0
+      ]
+    ],
+    "time": [
+      1.0,
+      2.0
+    ],
+    "event": [
+      0.0,
+      1.0
+    ],
+    "initial_coef": [
+      1.0
+    ],
+    "expected_gradient": [
+      0.0
+    ]
+  },
+  "thresholds": {
+    "gradient_max_abs": 1e-12,
+    "coefficient_max_abs_vs_numpy": 1e-12,
+    "objective_abs_vs_numpy": 1e-10,
+    "kkt_max_abs": 1e-08
+  },
+  "gradient_cases": [
+    {
+      "backend": "numpy",
+      "device_argument": "cpu",
+      "ties": "breslow",
+      "trusted_gradient": [
+        -0.0
+      ],
+      "public_gradient": [
+        -0.0
+      ],
+      "shared_gradient": [
+        -0.0
+      ],
+      "trusted_finite": true,
+      "trusted_public_max_abs": 0.0,
+      "trusted_shared_max_abs": 0.0
+    },
+    {
+      "backend": "cupy",
+      "device_argument": "cuda",
+      "ties": "breslow",
+      "trusted_gradient": [
+        -0.0
+      ],
+      "public_gradient": [
+        -0.0
+      ],
+      "shared_gradient": [
+        -0.0
+      ],
+      "trusted_finite": true,
+      "trusted_public_max_abs": 0.0,
+      "trusted_shared_max_abs": 0.0
+    },
+    {
+      "backend": "torch",
+      "device_argument": "torch",
+      "ties": "breslow",
+      "trusted_gradient": [
+        -0.0
+      ],
+      "public_gradient": [
+        -0.0
+      ],
+      "shared_gradient": [
+        -0.0
+      ],
+      "trusted_finite": true,
+      "trusted_public_max_abs": 0.0,
+      "trusted_shared_max_abs": 0.0
+    },
+    {
+      "backend": "numpy",
+      "device_argument": "cpu",
+      "ties": "efron",
+      "trusted_gradient": [
+        -0.0
+      ],
+      "public_gradient": [
+        -0.0
+      ],
+      "shared_gradient": [
+        -0.0
+      ],
+      "trusted_finite": true,
+      "trusted_public_max_abs": 0.0,
+      "trusted_shared_max_abs": 0.0
+    },
+    {
+      "backend": "cupy",
+      "device_argument": "cuda",
+      "ties": "efron",
+      "trusted_gradient": [
+        -0.0
+      ],
+      "public_gradient": [
+        -0.0
+      ],
+      "shared_gradient": [
+        -0.0
+      ],
+      "trusted_finite": true,
+      "trusted_public_max_abs": 0.0,
+      "trusted_shared_max_abs": 0.0
+    },
+    {
+      "backend": "torch",
+      "device_argument": "torch",
+      "ties": "efron",
+      "trusted_gradient": [
+        -0.0
+      ],
+      "public_gradient": [
+        -0.0
+      ],
+      "shared_gradient": [
+        -0.0
+      ],
+      "trusted_finite": true,
+      "trusted_public_max_abs": 0.0,
+      "trusted_shared_max_abs": 0.0
+    }
+  ],
+  "fit_cases": [
+    {
+      "backend": "numpy",
+      "device_argument": "cpu",
+      "ties": "breslow",
+      "penalty": "scad",
+      "alpha": 0.01,
+      "initial_coef": [
+        1.0
+      ],
+      "coef": [
+        1.0
+      ],
+      "loss_value": -0.0,
+      "penalty_value": 0.00023500000000000002,
+      "objective": 0.00023500000000000002,
+      "smooth_gradient": [
+        -0.0
+      ],
+      "penalty_gradient": [
+        0.0
+      ],
+      "kkt_max_abs": 0.0,
+      "all_finite": true,
+      "seconds": 0.003359079360961914,
+      "n_iter": 0,
+      "coef_max_abs_vs_numpy": 0.0,
+      "objective_abs_vs_numpy": 0.0
+    },
+    {
+      "backend": "cupy",
+      "device_argument": "cuda",
+      "ties": "breslow",
+      "penalty": "scad",
+      "alpha": 0.01,
+      "initial_coef": [
+        1.0
+      ],
+      "coef": [
+        1.0
+      ],
+      "loss_value": -0.0,
+      "penalty_value": 0.00023500000000000002,
+      "objective": 0.00023500000000000002,
+      "smooth_gradient": [
+        -0.0
+      ],
+      "penalty_gradient": [
+        0.0
+      ],
+      "kkt_max_abs": 0.0,
+      "all_finite": true,
+      "seconds": 0.030399292707443237,
+      "n_iter": 0,
+      "coef_max_abs_vs_numpy": 0.0,
+      "objective_abs_vs_numpy": 0.0
+    },
+    {
+      "backend": "torch",
+      "device_argument": "torch",
+      "ties": "breslow",
+      "penalty": "scad",
+      "alpha": 0.01,
+      "initial_coef": [
+        1.0
+      ],
+      "coef": [
+        1.0
+      ],
+      "loss_value": -0.0,
+      "penalty_value": 0.00023499999952036887,
+      "objective": 0.00023499999952036887,
+      "smooth_gradient": [
+        -0.0
+      ],
+      "penalty_gradient": [
+        0.0
+      ],
+      "kkt_max_abs": 0.0,
+      "all_finite": true,
+      "seconds": 0.013934910297393799,
+      "n_iter": 0,
+      "coef_max_abs_vs_numpy": 0.0,
+      "objective_abs_vs_numpy": 4.796311459977221e-13
+    },
+    {
+      "backend": "numpy",
+      "device_argument": "cpu",
+      "ties": "breslow",
+      "penalty": "mcp",
+      "alpha": 0.01,
+      "initial_coef": [
+        1.0
+      ],
+      "coef": [
+        1.0
+      ],
+      "loss_value": -0.0,
+      "penalty_value": 0.00015000000000000001,
+      "objective": 0.00015000000000000001,
+      "smooth_gradient": [
+        -0.0
+      ],
+      "penalty_gradient": [
+        0.0
+      ],
+      "kkt_max_abs": 0.0,
+      "all_finite": true,
+      "seconds": 0.0026233792304992676,
+      "n_iter": 0,
+      "coef_max_abs_vs_numpy": 0.0,
+      "objective_abs_vs_numpy": 0.0
+    },
+    {
+      "backend": "cupy",
+      "device_argument": "cuda",
+      "ties": "breslow",
+      "penalty": "mcp",
+      "alpha": 0.01,
+      "initial_coef": [
+        1.0
+      ],
+      "coef": [
+        1.0
+      ],
+      "loss_value": -0.0,
+      "penalty_value": 0.00015000000000000001,
+      "objective": 0.00015000000000000001,
+      "smooth_gradient": [
+        -0.0
+      ],
+      "penalty_gradient": [
+        0.0
+      ],
+      "kkt_max_abs": 0.0,
+      "all_finite": true,
+      "seconds": 0.021071255207061768,
+      "n_iter": 0,
+      "coef_max_abs_vs_numpy": 0.0,
+      "objective_abs_vs_numpy": 0.0
+    },
+    {
+      "backend": "torch",
+      "device_argument": "torch",
+      "ties": "breslow",
+      "penalty": "mcp",
+      "alpha": 0.01,
+      "initial_coef": [
+        1.0
+      ],
+      "coef": [
+        1.0
+      ],
+      "loss_value": -0.0,
+      "penalty_value": 0.0001500000071246177,
+      "objective": 0.0001500000071246177,
+      "smooth_gradient": [
+        -0.0
+      ],
+      "penalty_gradient": [
+        0.0
+      ],
+      "kkt_max_abs": 0.0,
+      "all_finite": true,
+      "seconds": 0.012994110584259033,
+      "n_iter": 0,
+      "coef_max_abs_vs_numpy": 0.0,
+      "objective_abs_vs_numpy": 7.124617681843887e-12
+    },
+    {
+      "backend": "numpy",
+      "device_argument": "cpu",
+      "ties": "efron",
+      "penalty": "scad",
+      "alpha": 0.01,
+      "initial_coef": [
+        1.0
+      ],
+      "coef": [
+        1.0
+      ],
+      "loss_value": -0.0,
+      "penalty_value": 0.00023500000000000002,
+      "objective": 0.00023500000000000002,
+      "smooth_gradient": [
+        -0.0
+      ],
+      "penalty_gradient": [
+        0.0
+      ],
+      "kkt_max_abs": 0.0,
+      "all_finite": true,
+      "seconds": 0.002837568521499634,
+      "n_iter": 0,
+      "coef_max_abs_vs_numpy": 0.0,
+      "objective_abs_vs_numpy": 0.0
+    },
+    {
+      "backend": "cupy",
+      "device_argument": "cuda",
+      "ties": "efron",
+      "penalty": "scad",
+      "alpha": 0.01,
+      "initial_coef": [
+        1.0
+      ],
+      "coef": [
+        1.0
+      ],
+      "loss_value": -0.0,
+      "penalty_value": 0.00023500000000000002,
+      "objective": 0.00023500000000000002,
+      "smooth_gradient": [
+        -0.0
+      ],
+      "penalty_gradient": [
+        0.0
+      ],
+      "kkt_max_abs": 0.0,
+      "all_finite": true,
+      "seconds": 0.02559441328048706,
+      "n_iter": 0,
+      "coef_max_abs_vs_numpy": 0.0,
+      "objective_abs_vs_numpy": 0.0
+    },
+    {
+      "backend": "torch",
+      "device_argument": "torch",
+      "ties": "efron",
+      "penalty": "scad",
+      "alpha": 0.01,
+      "initial_coef": [
+        1.0
+      ],
+      "coef": [
+        1.0
+      ],
+      "loss_value": -0.0,
+      "penalty_value": 0.00023499999952036887,
+      "objective": 0.00023499999952036887,
+      "smooth_gradient": [
+        -0.0
+      ],
+      "penalty_gradient": [
+        0.0
+      ],
+      "kkt_max_abs": 0.0,
+      "all_finite": true,
+      "seconds": 0.014735132455825806,
+      "n_iter": 0,
+      "coef_max_abs_vs_numpy": 0.0,
+      "objective_abs_vs_numpy": 4.796311459977221e-13
+    },
+    {
+      "backend": "numpy",
+      "device_argument": "cpu",
+      "ties": "efron",
+      "penalty": "mcp",
+      "alpha": 0.01,
+      "initial_coef": [
+        1.0
+      ],
+      "coef": [
+        1.0
+      ],
+      "loss_value": -0.0,
+      "penalty_value": 0.00015000000000000001,
+      "objective": 0.00015000000000000001,
+      "smooth_gradient": [
+        -0.0
+      ],
+      "penalty_gradient": [
+        0.0
+      ],
+      "kkt_max_abs": 0.0,
+      "all_finite": true,
+      "seconds": 0.0028056204319000244,
+      "n_iter": 0,
+      "coef_max_abs_vs_numpy": 0.0,
+      "objective_abs_vs_numpy": 0.0
+    },
+    {
+      "backend": "cupy",
+      "device_argument": "cuda",
+      "ties": "efron",
+      "penalty": "mcp",
+      "alpha": 0.01,
+      "initial_coef": [
+        1.0
+      ],
+      "coef": [
+        1.0
+      ],
+      "loss_value": -0.0,
+      "penalty_value": 0.00015000000000000001,
+      "objective": 0.00015000000000000001,
+      "smooth_gradient": [
+        -0.0
+      ],
+      "penalty_gradient": [
+        0.0
+      ],
+      "kkt_max_abs": 0.0,
+      "all_finite": true,
+      "seconds": 0.024480611085891724,
+      "n_iter": 0,
+      "coef_max_abs_vs_numpy": 0.0,
+      "objective_abs_vs_numpy": 0.0
+    },
+    {
+      "backend": "torch",
+      "device_argument": "torch",
+      "ties": "efron",
+      "penalty": "mcp",
+      "alpha": 0.01,
+      "initial_coef": [
+        1.0
+      ],
+      "coef": [
+        1.0
+      ],
+      "loss_value": -0.0,
+      "penalty_value": 0.0001500000071246177,
+      "objective": 0.0001500000071246177,
+      "smooth_gradient": [
+        -0.0
+      ],
+      "penalty_gradient": [
+        0.0
+      ],
+      "kkt_max_abs": 0.0,
+      "all_finite": true,
+      "seconds": 0.014509975910186768,
+      "n_iter": 0,
+      "coef_max_abs_vs_numpy": 0.0,
+      "objective_abs_vs_numpy": 7.124617681843887e-12
+    }
+  ],
+  "gate_failures": []
+}

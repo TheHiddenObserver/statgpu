@@ -14,6 +14,10 @@
   清理前释放 loss 持有的训练数组。
 - trusted gradient 仍会执行自适应 predictor-range 分段；该数值缩放与重复 finite-state
   检查相互独立，避免最大 predictor 离开后续风险集时发生 underflow。
+- 新增 machine-readable 的物理 P100 产物，记录 clean commit `4f3a452`、Cox/FISTA/
+  fit 源码哈希、6 组 gradient 对齐及 12 组 SCAD/MCP coefficient/objective/KKT/
+  finite-state 结果：
+  `results/benchmark_frontend_sources/penalized_cox_trusted_gradient_pr80_20260727.json`。
 - 普通 right-censored Exact ties 在所有 strata 上使用一次分段前缀 DP。带 delayed
   entry 且 strata 数量至少为 8 的 GPU 工作负载可使用受内存门禁保护的全局 batch；
   较小场景使用有界的逐-stratum batch。

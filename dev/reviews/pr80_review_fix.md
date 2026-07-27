@@ -3,13 +3,18 @@
 > Review date: 2026-07-27<br>
 > Original PR head reviewed: `d6f798c1834fd6318c8257eed334f84a198fa8ad`<br>
 > Performance-fix base: `ad3c0026eb682ac6394369a3318e9fb806e631b8`<br>
-> Final Exact risk-set SHA-256: `da8bb597ddfaf2006ac662324da41591711676009b772b84a54f1c10d7486bd7`<br>
+> Current risk-set SHA-256: `92e60fb223d28de368f93d4e56f9cdb00ebe984f7358127550f0a72d3a243c21`<br>
+> Current Cox-loss SHA-256: `c15d76eda53db156b497a50f094de6d158f76371b20fab260f3b7f68d805c8ab`<br>
+> Current FISTA-LLA SHA-256: `76751dad27539b5f0d7194fbb90d80e506e23cefd5d34a20c7a5c8201a3217dd`<br>
+> Current penalized-fit mixin SHA-256: `56fcaa3667afc27935a73a363e77ca940560ce9beb3019b809c2544998b6062d`<br>
+> Trusted-gradient artifact source commit: `4f3a452bfdb74f544f76b2bbebc659b43be04869`<br>
 > Final counting-solver SHA-256: `9684867f90b153c23675d8804698f76092765a3d96da05c7a3d989528782d501`<br>
 > Final Cox dispatch SHA-256: `efe199e7bb40112f882109efbe8b462ab8050f52349d939d33a611f819f81e6c`<br>
 > Final R/performance artifact SHA-256: `85e7c72d736b859564e598e8e6e26b26b05a6fe06a076c39645083af80ea896e`<br>
 > Final stratified-Exact artifact SHA-256: `0bc0325240b64e1a957f0597a969233374ca4696571c0fcc6229a8ea0986e2c6`<br>
 > Follow-up delayed-entry+strata artifact SHA-256: `b3c9cadb3235b8280fc0c338d81302d4929d109da6506208868782d2fac01c1b`<br>
 > Follow-up strata-count artifact SHA-256: `c7465368a66f748a5f1e410795c5ff3acb64ca6e43efcb6cdeec63ee22de335f`<br>
+> Penalized-Cox trusted-gradient artifact SHA-256: `ab6512ff5ac241880111b66507172c2a735bd37e20666cce5879787b789e41bb`<br>
 > Physical-GPU matrix SHA-256: `09cdcc9e900ba7eccae7a5d7e389c7ff6ddcbabdf5f4a648ce776b52ff8d78c6`<br>
 > Original merge base: `a4879fb` (0.2.1 line)<br>
 > Compatibility target: `origin/master` at `7ccf616` (0.2.2 line)<br>
@@ -402,6 +407,49 @@ Follow-up performance evidence on the remote Tesla P100-SXM2-16GB:
   smaller cases remain launch-bound. R survival completed 320 and 640 rows in
   `0.327/24.173` s and was recorded as an explicit 30-second timeout at larger
   sizes rather than producing a synthetic timing or aborting the artifact.
+
+## 2026-07-27 Trusted-Gradient Underflow Follow-up
+
+- [HIGH][P1][NUMERICAL/PERF][fixed] `gradient_preprocessed()` skipped duplicate
+  device-scalar finite checks by passing `validate_numerics=False`, but that flag
+  also disabled the adaptive predictor-range segmentation required for stable
+  suffix risk sets. A finite two-row example with centered predictors
+  `(500, -500)` therefore underflowed the second denominator to zero and returned
+  `NaN`, while the public gradient returned zero. Finite-state validation is now
+  a separate `validate_finite_state` concern; adaptive segmentation is
+  unconditional and cannot be disabled by the trusted solver path. Breslow and
+  Efron trusted gradients match the public and shared counting-process gradients
+  on NumPy, CuPy, and Torch for the deterministic departing-maximum example.
+- [MEDIUM][P2][VALIDATION][fixed] integral floats and unsigned integers were
+  accepted without checking the signed-int64 domain, so values such as `1e30`
+  or `uint64.max` could overflow and merge distinct strata. All three backends
+  now reject values below `-2**63`, floats at or above `2**63`, and unsigned
+  values above `2**63 - 1` before casting. Signed-int64 boundary labels remain
+  accepted and unchanged.
+- [MEDIUM][P2][GPU EVIDENCE][fixed for source evidence; CI infrastructure still
+  external] `benchmark_penalized_cox_trusted_gradient.py` generates a
+  machine-readable artifact from a clean detached worktree. It records exact
+  Git commit and source/script hashes, complete command argv, P100/CUDA/CuPy/
+  Torch metadata, six trusted/public/shared gradient comparisons, and twelve
+  SCAD/MCP fit results with coefficients, objective components, KKT residuals,
+  finite state, iterations, and timing. This closes the requested auditable
+  physical-GPU evidence without pretending that repository CI has a CUDA runner.
+
+Follow-up validation and performance evidence:
+
+- remote Tesla P100 matrix with physical NumPy, CuPy CUDA, and Torch CUDA:
+  **199 passed, 0 failed** in 14.55 seconds; the newly focused P1/P2 selection
+  passed **27 tests** in 6.48 seconds;
+- local affected Cox/survival matrix: **265 passed, 74 optional GPU skips, 0
+  failed**; documentation contracts still pass for 122 files;
+- at `n=4096`, `p=12`, 64 time bins, SCAD NumPy/CuPy/Torch medians were
+  `0.102/0.038/0.024` seconds and MCP medians were `0.085/0.038/0.023`
+  seconds. Coefficients were identical across backends, so restoring mandatory
+  adaptive scaling preserved the measured GPU advantage;
+- `penalized_cox_trusted_gradient_pr80_20260727.json` is `complete` with zero
+  gate failures from clean commit `4f3a452`. Across its 6 gradient and 12 fit
+  cases, maximum gradient, coefficient, and KKT differences are zero; maximum
+  cross-backend objective difference is `7.13e-12`.
 
 ## Validation Evidence
 
