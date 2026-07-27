@@ -30,40 +30,45 @@ def _normalize_boolean_control(value, name: str) -> bool:
     raise ValueError(f"{name} must be a boolean or integer 0/1")
 
 
-def _normalize_mutable_fit_controls(estimator) -> None:
-    """Revalidate controls that may have changed through ``set_params``."""
-    estimator._validate_optimization_controls()
-    estimator.tol = float(estimator.tol)
-    estimator.penalty = float(estimator.penalty)
-
-    ties = str(estimator.ties).lower()
-    if ties not in _TIE_METHODS:
-        raise ValueError("ties must be 'breslow', 'efron', or 'exact'")
-    estimator.ties = ties
-
-    cov_type = str(estimator.cov_type).lower()
-    if cov_type not in _COVARIANCE_TYPES:
-        raise ValueError(
-            "cov_type must be one of: 'nonrobust', 'hc0', 'hc1', 'cluster'"
-        )
-    estimator.cov_type = cov_type
-
-    inference_mode = str(estimator.inference_mode).lower()
-    if inference_mode not in _INFERENCE_MODES:
-        raise ValueError("inference_mode must be strict or approx")
-    estimator.inference_mode = inference_mode
-
+def _normalize_device_control(value) -> Device:
+    """Normalize a public device value without silently selecting CPU."""
     try:
-        estimator.device = (
-            estimator.device
-            if isinstance(estimator.device, Device)
-            else Device(estimator.device)
-        )
+        return value if isinstance(value, Device) else Device(value)
     except (TypeError, ValueError) as exc:
         raise ValueError(
             "device must be one of: 'auto', 'cpu', 'cuda', or 'torch'"
         ) from exc
 
+
+def _normalize_choice_control(value, choices, name: str) -> str:
+    """Lowercase and validate a finite string-like choice control."""
+    normalized = str(value).lower()
+    if normalized not in choices:
+        if name == "ties":
+            raise ValueError("ties must be 'breslow', 'efron', or 'exact'")
+        if name == "cov_type":
+            raise ValueError(
+                "cov_type must be one of: 'nonrobust', 'hc0', 'hc1', 'cluster'"
+            )
+        raise ValueError("inference_mode must be strict or approx")
+    return normalized
+
+
+def _normalize_mutable_fit_controls(estimator) -> None:
+    """Revalidate CoxPH controls that may have changed through ``set_params``."""
+    estimator._validate_optimization_controls()
+    estimator.tol = float(estimator.tol)
+    estimator.penalty = float(estimator.penalty)
+    estimator.ties = _normalize_choice_control(
+        estimator.ties, _TIE_METHODS, "ties"
+    )
+    estimator.cov_type = _normalize_choice_control(
+        estimator.cov_type, _COVARIANCE_TYPES, "cov_type"
+    )
+    estimator.inference_mode = _normalize_choice_control(
+        estimator.inference_mode, _INFERENCE_MODES, "inference_mode"
+    )
+    estimator.device = _normalize_device_control(estimator.device)
     estimator.compute_inference = _normalize_boolean_control(
         estimator.compute_inference, "compute_inference"
     )
@@ -73,6 +78,35 @@ def _normalize_mutable_fit_controls(estimator) -> None:
     estimator.gpu_memory_cleanup = _normalize_boolean_control(
         estimator.gpu_memory_cleanup, "gpu_memory_cleanup"
     )
+
+
+def _normalize_mutable_cv_controls(estimator) -> None:
+    """Validate CoxPHCV controls before any fold fitting is attempted."""
+    estimator.ties = _normalize_choice_control(
+        estimator.ties, _TIE_METHODS, "ties"
+    )
+    estimator.cov_type = _normalize_choice_control(
+        estimator.cov_type, _COVARIANCE_TYPES, "cov_type"
+    )
+    estimator.inference_mode = _normalize_choice_control(
+        estimator.inference_mode, _INFERENCE_MODES, "inference_mode"
+    )
+    estimator.device = _normalize_device_control(estimator.device)
+    estimator.compute_inference = _normalize_boolean_control(
+        estimator.compute_inference, "compute_inference"
+    )
+    estimator.gpu_memory_cleanup = _normalize_boolean_control(
+        estimator.gpu_memory_cleanup, "gpu_memory_cleanup"
+    )
+    if (
+        estimator.ties == "exact"
+        and estimator.compute_inference
+        and estimator.cov_type != "nonrobust"
+    ):
+        raise NotImplementedError(
+            "robust covariance is not yet defined for ties='exact'; "
+            "use cov_type='nonrobust' or compute_inference=False"
+        )
 
 
 def install_coxph_fit_adapter(coxph_class) -> None:
@@ -194,4 +228,45 @@ def install_coxph_fit_adapter(coxph_class) -> None:
         coxph_class.predict_survival = predict_survival
 
 
-__all__ = ["install_coxph_fit_adapter"]
+def install_coxphcv_fit_adapter(coxphcv_class) -> None:
+    """Install transactional fit-time validation on ``CoxPHCV`` exactly once."""
+    original_fit = coxphcv_class.fit
+    if getattr(original_fit, "_statgpu_validated_cv_controls", False):
+        return
+
+    @wraps(original_fit)
+    def fit(
+        self,
+        X,
+        time,
+        event=None,
+        entry=None,
+        cluster=None,
+        *,
+        start=None,
+        strata=None,
+        subject_id=None,
+    ):
+        self._reset_fit_state()
+        try:
+            _normalize_mutable_cv_controls(self)
+            return original_fit(
+                self,
+                X,
+                time,
+                event=event,
+                entry=entry,
+                cluster=cluster,
+                start=start,
+                strata=strata,
+                subject_id=subject_id,
+            )
+        except Exception:
+            self._reset_fit_state()
+            raise
+
+    fit._statgpu_validated_cv_controls = True
+    coxphcv_class.fit = fit
+
+
+__all__ = ["install_coxph_fit_adapter", "install_coxphcv_fit_adapter"]
