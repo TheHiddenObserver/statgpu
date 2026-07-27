@@ -1,7 +1,7 @@
 # CoxPH
 
 > Language: English<br>
-> Last updated: 2026-07-26<br>
+> Last updated: 2026-07-27<br>
 > This page: Model documentation<br>
 > Switch: [Chinese](../../cn/models/coxph.md)
 
@@ -45,12 +45,13 @@ elementary-symmetric dynamic program. The same counting-process risk-set engine
 is used for delayed entry, strata, Exact ties, L2-penalized fits, and GPU robust
 inference, which keeps the `(start, stop]` convention consistent across backends.
 
-For ordinary right-censored, one-stratum Exact fits, the risk sets are nested.
-StatGPU sorts rows by decreasing stop time and reuses one elementary-symmetric
-prefix dynamic program across every failure group on NumPy, CuPy, and Torch.
+For ordinary right-censored Exact fits, the risk sets are nested within each
+stratum. StatGPU sorts rows by stratum and decreasing stop time, then reuses one
+segmented elementary-symmetric prefix dynamic program across every failure group
+on NumPy, CuPy, and Torch without a Python loop over strata.
 This removes the repeated risk-set scan that made work grow with both sample
-count and failure-group count. Failure numerators use sorted event-time segment
-prefix sums instead of a dense failure-group-by-sample mask. The prefix workspace
+count and failure-group count. Failure numerators use backend-native grouped
+reductions instead of a dense failure-group-by-sample mask. The prefix workspace
 defaults to a 512 MiB ceiling
 controlled by `STATGPU_EXACT_NESTED_MAX_BYTES` and is checked before allocation.
 
@@ -59,20 +60,24 @@ dominate this otherwise linear prefix DP. For at least 2,048 rows and at most 64
 trailing moment channels, StatGPU therefore lays out each channel contiguously,
 runs the efficient one-dimensional CUDA scan per channel, and stacks the results
 back on device. `STATGPU_TORCH_EXACT_SCAN_MIN_ROWS` and
-`STATGPU_TORCH_EXACT_SCAN_MAX_CHANNELS` control these conservative gates. CPU,
-small, or wide inputs keep Torch's native multidimensional scan. The additional
+`STATGPU_TORCH_EXACT_SCAN_MAX_CHANNELS` control these conservative gates, and
+`STATGPU_TORCH_EXACT_SCAN_STRATEGY` accepts `auto`, `native`, or `channelwise`.
+`auto` enables the split scan only for the benchmarked Torch 2.0 + Pascal/P100
+combination; unbenchmarked Torch/GPU combinations use the native scan. CPU,
+small, or wide inputs also keep Torch's native multidimensional scan. The additional
 transpose/output workspace is included in the existing nested-workspace check:
 if the base DP fits but the channel-scan workspace does not, the nested
 algorithm stays active and uses the native Torch scan rather than falling back
 to the more expensive general Exact path.
 
-Delayed entry, multiple strata, score-residual construction, an exceeded prefix
-workspace, or a conservative numerical-range gate uses the existing normalized
-Exact implementation. CuPy and Torch can first use its failure-group batch path,
-whose separate 512 MiB ceiling is controlled by
-`STATGPU_EXACT_BATCH_MAX_BYTES`; an oversized batch uses the memory-bounded
-per-group path on the same backend. These are explicit algorithmic fallbacks,
-never implicit CPU fallbacks.
+Delayed entry prevents the nested-prefix shortcut. With at least eight strata,
+GPU backends first try all eligible failure groups in one backend-native batch;
+smaller GPU cases and NumPy use per-stratum batches to avoid empty cross-stratum
+mask work. The separate 512 MiB ceiling is controlled by
+`STATGPU_EXACT_BATCH_MAX_BYTES`. An oversized global batch is retried per
+stratum before the memory-bounded per-group path; score-residual requests and
+conservative numerical-range gates also retain the normalized implementation.
+These are explicit algorithmic fallbacks, never implicit CPU fallbacks.
 
 Full-fit inference also constructs a Breslow baseline hazard. For ordinary
 right-censored rows, StatGPU now sorts each stratum by decreasing stop time and

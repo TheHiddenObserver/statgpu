@@ -2,7 +2,7 @@
 
 > 语言：中文
 >
-> 最后更新：2026-07-12
+> 最后更新：2026-07-27
 >
 > 页面定位：模型文档
 >
@@ -213,8 +213,10 @@ model.fit(X_t, y_t)
 ## 注意事项
 
 - `CoxPartialLikelihoodLoss` 的 Breslow/Efron 路径在 NumPy、CuPy CUDA 和 Torch CUDA
-  后端原生执行；Torch 不依赖 CuPy 桥接。显式 GPU 输入在对应路径失败时
-  `raise RuntimeError`，不会回退 NumPy。
+  后端执行；Torch 不依赖 CuPy 桥接。预处理阶段会把排序后的 `time` 与 `event`
+  一次性复制到主机以构造确定性的失败组元数据，再把索引缓存到所选设备；设计矩阵、
+  predictor、目标函数、梯度和 Hessian 在迭代中不会转到 CPU。显式 GPU 输入在对应
+  路径失败时 `raise RuntimeError`，不会回退 NumPy。
 - `PenalizedCoxPHModel` 无可识别截距，且当前仅提供估计：`fit_intercept=True` 会报错，
   `compute_inference=True` 会抛出 `NotImplementedError`。SCAD/MCP 使用 FISTA-LLA；
   需要标准误和基线风险时使用 `CoxPH`。

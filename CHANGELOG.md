@@ -2,6 +2,19 @@
 
 All notable changes to statgpu are documented here, organized by date and PR.
 
+## 2026-07-27
+
+### PR #80 — Cox review-fix follow-up
+
+- Reused one Cox preprocessing cache across SCAD/MCP FISTA-LLA iterations,
+  removed unused objective transfers and hot-loop GPU synchronizations, and
+  released loss-held training arrays after fit.
+- Added segmented multi-stratum right-censored Exact evaluation, bounded
+  delayed-entry batching, strict strata validation, and a conservative
+  Torch/P100 channel-scan policy with explicit overrides.
+- Added maintained delayed-entry/strata and strata-count benchmark artifacts;
+  the final physical-P100 related matrix passed 169 tests.
+
 ## 2026-07-26
 
 ### PR #80 — Complete GPU Cox phase one

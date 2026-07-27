@@ -91,6 +91,7 @@ def fit_once(
     model.fit(X, stop, event, start=start, strata=strata)
     synchronize(device)
     return {
+        "status": "complete",
         "seconds": time.perf_counter() - started,
         "coef": np.asarray(model.coef_, dtype=np.float64).tolist(),
         "log_likelihood": float(model._log_likelihood),
@@ -197,13 +198,21 @@ cat(
 cat("iterations=", fit$iter, "\\n", sep="")
 cat("converged=", as.integer(fit$iter < control$iter.max), "\\n", sep="")
 """
-        result = subprocess.run(
-            [rscript, "--vanilla", "-e", r_code],
-            check=False,
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-        )
+        try:
+            result = subprocess.run(
+                [rscript, "--vanilla", "-e", r_code],
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+            )
+        except subprocess.TimeoutExpired:
+            return {
+                "status": "timeout",
+                "timeout_seconds": int(timeout),
+                "seconds": None,
+                "converged": False,
+            }
         if result.returncode:
             raise RuntimeError(
                 "R survival::coxph failed with exit code "
@@ -234,6 +243,7 @@ cat("converged=", as.integer(fit$iter < control$iter.max), "\\n", sep="")
         (n_features, n_features), order="F"
     )
     fitted: Dict[str, Any] = {
+        "status": "complete",
         "seconds": float(values["seconds"]),
         "coef": np.fromstring(values["coef"], sep=",").tolist(),
         "log_likelihood": float(values["log_likelihood"]),
@@ -246,50 +256,86 @@ cat("converged=", as.integer(fit$iter < control$iter.max), "\\n", sep="")
     return fitted
 
 
+SCENARIOS = (
+    "right_censored",
+    "delayed_entry",
+    "strata",
+    "delayed_entry_strata",
+)
+
+
+def make_scenario_data(
+    scenario: str,
+    n_samples: int,
+    n_features: int,
+    seed: int,
+    *,
+    strata_count: int = 3,
+) -> Dict[str, np.ndarray]:
+    """Create one deterministic scenario used by scaling and R alignment."""
+    if scenario not in SCENARIOS:
+        raise ValueError(f"unsupported scaling scenario: {scenario!r}")
+    if strata_count <= 0:
+        raise ValueError("strata_count must be positive")
+    offset = SCENARIOS.index(scenario)
+    case_seed = seed + 1009 * (offset + 1)
+    X, stop, event, n_bins = make_data(n_samples, n_features, case_seed)
+    rng = np.random.default_rng(case_seed)
+    case: Dict[str, np.ndarray] = {
+        "X": X,
+        "stop": stop,
+        "event": event,
+        "n_bins": np.asarray(n_bins),
+    }
+    if scenario in {"delayed_entry", "delayed_entry_strata"}:
+        case["start"] = stop * rng.uniform(0.0, 0.8, size=n_samples)
+    if scenario in {"strata", "delayed_entry_strata"}:
+        strata = rng.integers(
+            0, strata_count, size=n_samples, dtype=np.int64
+        )
+        for stratum in range(strata_count):
+            indices = np.flatnonzero(strata == stratum)
+            if indices.size:
+                event[indices[0]] = 1
+        case["strata"] = strata
+    return case
+
+
 def make_r_alignment_cases(
     n_samples: int, n_features: int, seed: int
 ) -> Dict[str, Dict[str, np.ndarray]]:
     """Create deterministic right-censored, delayed-entry, and strata cases."""
-    cases: Dict[str, Dict[str, np.ndarray]] = {}
-    definitions = [
-        ("right_censored", False, False),
-        ("delayed_entry", True, False),
-        ("strata", False, True),
-        ("delayed_entry_strata", True, True),
-    ]
-    for offset, (name, has_start, has_strata) in enumerate(definitions):
-        case_seed = seed + 1009 * (offset + 1)
-        X, stop, event, _ = make_data(n_samples, n_features, case_seed)
-        rng = np.random.default_rng(case_seed)
-        case: Dict[str, np.ndarray] = {"X": X, "stop": stop, "event": event}
-        if has_start:
-            case["start"] = stop * rng.uniform(0.0, 0.8, size=n_samples)
-        if has_strata:
-            strata = rng.integers(0, 3, size=n_samples, dtype=np.int64)
-            for stratum in range(3):
-                indices = np.flatnonzero(strata == stratum)
-                if indices.size:
-                    event[indices[0]] = 1
-            case["strata"] = strata
-        cases[name] = case
-    return cases
+    return {
+        scenario: make_scenario_data(
+            scenario, n_samples, n_features, seed, strata_count=3
+        )
+        for scenario in SCENARIOS
+    }
 
 
-def make_scaling_data(scenario: str, n_samples: int, n_features: int, seed: int):
+def make_scaling_data(
+    scenario: str,
+    n_samples: int,
+    n_features: int,
+    seed: int,
+    *,
+    strata_count: int = 3,
+):
     """Create one deterministic scaling case and its optional row metadata."""
-    if scenario == "right_censored":
-        X, stop, event, n_bins = make_data(n_samples, n_features, seed)
-        return X, stop, event, None, None, n_bins
-    if scenario != "strata":
-        raise ValueError(f"unsupported scaling scenario: {scenario!r}")
-    data = make_r_alignment_cases(n_samples, n_features, seed)["strata"]
+    data = make_scenario_data(
+        scenario,
+        n_samples,
+        n_features,
+        seed,
+        strata_count=strata_count,
+    )
     return (
         data["X"],
         data["stop"],
         data["event"],
-        None,
-        data["strata"],
-        int(np.unique(data["stop"]).size),
+        data.get("start"),
+        data.get("strata"),
+        int(data["n_bins"]),
     )
 
 
@@ -313,15 +359,64 @@ def device_metadata(devices: Iterable[str]) -> Dict[str, Any]:
 
 
 def summarize_runs(runs: Iterable[Dict[str, Any]]) -> Dict[str, Any]:
-    """Summarize repeated fits while retaining the fastest fitted result."""
+    """Summarize repeats using the actual median-ranked fitted result."""
     materialized = list(runs)
-    best = min(materialized, key=lambda result: result["seconds"])
+    completed = [
+        (index, result)
+        for index, result in enumerate(materialized)
+        if result.get("status", "complete") == "complete"
+        and result.get("seconds") is not None
+    ]
+    if not completed:
+        timeout_values = [
+            result.get("timeout_seconds")
+            for result in materialized
+            if result.get("status") == "timeout"
+        ]
+        return {
+            "status": "timeout" if timeout_values else "failed",
+            "seconds": [],
+            "median_seconds": None,
+            "representative_seconds": None,
+            "representative_run_index": None,
+            "run_converged": [],
+            "all_converged": False,
+            "all_finite": False,
+            "timeout_seconds": timeout_values[0] if timeout_values else None,
+        }
+    ranked = sorted(completed, key=lambda item: item[1]["seconds"])
+    representative_index, representative = ranked[(len(ranked) - 1) // 2]
+    run_converged = [bool(result.get("converged", False)) for _, result in completed]
+    run_finite = [
+        bool(
+            np.isfinite(result["seconds"])
+            and np.isfinite(result["log_likelihood"])
+            and np.all(np.isfinite(np.asarray(result["coef"], dtype=np.float64)))
+            and np.all(
+                np.isfinite(np.asarray(result["covariance"], dtype=np.float64))
+            )
+        )
+        for _, result in completed
+    ]
     return {
-        "seconds": [result["seconds"] for result in materialized],
-        "median_seconds": statistics.median(
-            result["seconds"] for result in materialized
+        "status": (
+            "partial_timeout" if len(completed) != len(materialized) else "complete"
         ),
-        **{key: best[key] for key in best if key != "seconds"},
+        "seconds": [result["seconds"] for _, result in completed],
+        "median_seconds": statistics.median(
+            result["seconds"] for _, result in completed
+        ),
+        "representative_seconds": representative["seconds"],
+        "representative_run_index": representative_index,
+        "run_converged": run_converged,
+        "all_converged": all(run_converged),
+        "all_finite": all(run_finite),
+        **{
+            key: representative[key]
+            for key in representative
+            if key not in {"seconds", "status", "converged"}
+        },
+        "converged": all(run_converged),
     }
 
 
@@ -384,16 +479,23 @@ def parse_args():
     parser.add_argument("--seed", type=int, default=88031)
     parser.add_argument(
         "--scaling-scenario",
-        choices=["right_censored", "strata"],
+        choices=list(SCENARIOS),
         default="right_censored",
         help="Risk-set scenario used for the requested scaling sizes.",
     )
-    parser.add_argument("--repeats", type=int, default=3)
+    parser.add_argument("--strata-count", type=int, default=3)
+    parser.add_argument("--repeats", type=int, default=5)
     parser.add_argument(
         "--largest-repeats",
         type=int,
         default=1,
         help="Repeat count for the largest size, which can be expensive on NumPy.",
+    )
+    parser.add_argument(
+        "--reduced-repeat-from",
+        type=int,
+        default=None,
+        help="Use --largest-repeats for every size at or above this threshold.",
     )
     parser.add_argument(
         "--devices",
@@ -424,6 +526,12 @@ def parse_args():
         help="Timeout in seconds for each external R fit.",
     )
     parser.add_argument(
+        "--r-repeats",
+        type=int,
+        default=1,
+        help="Repeat count for R scaling fits, independent of statgpu repeats.",
+    )
+    parser.add_argument(
         "--output", type=Path, default=Path("results/exact_ties_scaling.json")
     )
     return parser.parse_args()
@@ -435,11 +543,21 @@ def main() -> int:
         raise ValueError("sizes must contain only positive integers")
     if args.repeats <= 0 or args.largest_repeats <= 0:
         raise ValueError("repeat counts must be positive")
+    if args.r_repeats <= 0:
+        raise ValueError("R repeat count must be positive")
+    if args.strata_count <= 0:
+        raise ValueError("strata count must be positive")
+    if args.reduced_repeat_from is not None and args.reduced_repeat_from <= 0:
+        raise ValueError("reduced repeat threshold must be positive")
     if args.r_alignment_size <= 0 or args.r_timeout <= 0:
         raise ValueError("R alignment size and timeout must be positive")
 
     X_warm, stop_warm, event_warm, start_warm, strata_warm, _ = make_scaling_data(
-        args.scaling_scenario, 80, args.features, args.seed
+        args.scaling_scenario,
+        80,
+        args.features,
+        args.seed,
+        strata_count=args.strata_count,
     )
     for device in args.devices:
         fit_once(
@@ -486,11 +604,21 @@ def main() -> int:
         },
         "benchmark_path": str(benchmark_path),
         "benchmark_sha256": hashlib.sha256(benchmark_path.read_bytes()).hexdigest(),
+        "command_argv": [
+            sys.executable,
+            str(benchmark_path.relative_to(REPO_ROOT)),
+            *sys.argv[1:],
+        ],
         "python": platform.python_version(),
         "numpy": np.__version__,
         "features": args.features,
         "seed": args.seed,
         "scaling_scenario": args.scaling_scenario,
+        "strata_count_requested": args.strata_count,
+        "statgpu_repeats": args.repeats,
+        "reduced_repeats": args.largest_repeats,
+        "reduced_repeat_from": args.reduced_repeat_from,
+        "r_repeats": args.r_repeats,
         "timing_scope": {
             "statgpu": (
                 "CoxPH.fit including input conversion and inference; "
@@ -519,9 +647,17 @@ def main() -> int:
     largest = max(args.sizes)
     name_for_device = {"cpu": "numpy", "cuda": "cupy", "torch": "torch"}
     for n_samples in args.sizes:
-        repeats = args.largest_repeats if n_samples == largest else args.repeats
+        reduced = n_samples == largest or (
+            args.reduced_repeat_from is not None
+            and n_samples >= args.reduced_repeat_from
+        )
+        repeats = args.largest_repeats if reduced else args.repeats
         X, stop, event, start, strata, n_bins = make_scaling_data(
-            args.scaling_scenario, n_samples, args.features, args.seed
+            args.scaling_scenario,
+            n_samples,
+            args.features,
+            args.seed,
+            strata_count=args.strata_count,
         )
         event_mask = event == 1
         failure_strata = (
@@ -551,6 +687,10 @@ def main() -> int:
             )
             case["backends"][name] = summary
             best[name] = summary
+            if not summary["all_converged"]:
+                failures.append(f"scaling_n={n_samples}/{name}: a repeat did not converge")
+            if not summary["all_finite"]:
+                failures.append(f"scaling_n={n_samples}/{name}: a repeat was non-finite")
         if args.include_r:
             summary = summarize_runs(
                 fit_r_once(
@@ -561,10 +701,13 @@ def main() -> int:
                     strata=strata,
                     timeout=args.r_timeout,
                 )
-                for _ in range(repeats)
+                for _ in range(args.r_repeats)
             )
             case["backends"]["r_survival"] = summary
-            best["r_survival"] = summary
+            if summary["status"] in {"complete", "partial_timeout"}:
+                best["r_survival"] = summary
+            else:
+                case["r_scaling_status"] = summary["status"]
 
         if "numpy" in best:
             numpy_seconds = case["backends"]["numpy"]["median_seconds"]
@@ -631,6 +774,10 @@ def main() -> int:
                 "reference": r_result,
                 "backends": {},
             }
+            if r_result.get("status") != "complete":
+                failures.append(f"{case_name}/r_survival: {r_result['status']}")
+                report["r_alignment_cases"].append(alignment)
+                continue
             if not r_result["converged"]:
                 failures.append(f"{case_name}/r_survival: did not converge")
             for device in args.devices:

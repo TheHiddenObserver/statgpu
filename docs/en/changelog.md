@@ -1,11 +1,29 @@
 # Changelog
 
 > Language: English<br>
-> Last updated: 2026-07-26<br>
+> Last updated: 2026-07-27<br>
 > This page: Changelog<br>
 > Switch: [Chinese](../cn/changelog.md)
 
 ## 2026-07
+
+### Fixed and optimized (2026-07-27) — PR #80 follow-up review
+
+- Penalized Cox SCAD/MCP now preprocesses, sorts, and transfers survival-group
+  metadata once per fit. FISTA-LLA uses a gradient-only hot path, performs its
+  finite/convergence transfer periodically, and releases loss-held training
+  arrays before allocator cleanup.
+- Ordinary right-censored Exact ties now use one segmented prefix DP across all
+  strata. Delayed-entry GPU workloads with at least eight strata can use one
+  memory-gated global batch; smaller cases use bounded per-stratum batches.
+- Fractional or non-finite strata are rejected before integer conversion.
+  `STATGPU_TORCH_EXACT_SCAN_STRATEGY` selects `auto`, `native`, or
+  `channelwise`; conservative `auto` enables the split scan only on the
+  benchmarked Torch 2.0 + Pascal/P100 combination.
+- The maintained delayed-entry + 3-strata P100 benchmark reached
+  NumPy/CuPy/Torch medians of 136.02/36.50/21.95 seconds at 10,240 rows, or
+  3.73x/6.20x GPU speedups over NumPy. The corresponding artifact and the new
+  strata-count artifact completed with zero gate failures.
 
 ### Optimized (2026-07-26) — PR #80 stratified Exact composition
 

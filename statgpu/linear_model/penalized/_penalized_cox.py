@@ -254,6 +254,7 @@ class PenalizedCoxPHModel(PenalizedGeneralizedLinearModel):
 
     def _reset_fit_state(self):
         """Clear fitted state before every fit attempt."""
+        self._release_loss_fit_cache()
         self._fitted = False
         self.coef_ = None
         self.intercept_ = None
@@ -268,6 +269,24 @@ class PenalizedCoxPHModel(PenalizedGeneralizedLinearModel):
         self._formula_has_intercept = None
         self._use_intercept = None
         self._clear_inference_state()
+
+    def _release_loss_fit_cache(self):
+        """Drop large sorted training arrays retained by the Cox loss."""
+        loss = getattr(self, "_loss", None)
+        release = getattr(loss, "release_fit_cache", None)
+        if release is not None:
+            release()
+
+    def _cleanup_backend_memory(self, backend_name):
+        if backend_name == "cupy":
+            self._cleanup_cuda_memory()
+        elif backend_name == "torch":
+            self._cleanup_torch_memory()
+
+    def _cleanup_selected_backend_memory(self):
+        self._cleanup_backend_memory(
+            getattr(self, "_selected_backend_name", None)
+        )
 
     @staticmethod
     def _validate_positive_integer(value, name):
@@ -466,8 +485,13 @@ class PenalizedCoxPHModel(PenalizedGeneralizedLinearModel):
                 self._use_intercept = False
             return result
         except Exception:
+            backend_name = getattr(self, "_selected_backend_name", None)
             self._reset_fit_state()
+            self._cleanup_backend_memory(backend_name)
             raise
+        finally:
+            self._release_loss_fit_cache()
+            self._cleanup_selected_backend_memory()
 
     def predict(self, X, return_cpu=True):
         """Predict hazard ratio: ``exp(X @ coef)``.
@@ -485,6 +509,13 @@ class PenalizedCoxPHModel(PenalizedGeneralizedLinearModel):
         return self.predict_hazard_ratio(X, return_cpu=return_cpu)
 
     def predict_hazard_ratio(self, X, return_cpu=True):
+        """Predict hazard ratios and release unused backend cache blocks."""
+        try:
+            return self._predict_hazard_ratio_impl(X, return_cpu=return_cpu)
+        finally:
+            self._cleanup_selected_backend_memory()
+
+    def _predict_hazard_ratio_impl(self, X, return_cpu=True):
         """Predict hazard ratio: exp(X @ coef). Excludes intercept.
 
         Parameters
@@ -530,6 +561,13 @@ class PenalizedCoxPHModel(PenalizedGeneralizedLinearModel):
         return np.exp(np.clip(raw, -500.0, 500.0))
 
     def score(self, X, y, sample_weight=None):
+        """Return Harrell concordance and release unused backend cache blocks."""
+        try:
+            return self._score_impl(X, y, sample_weight=sample_weight)
+        finally:
+            self._cleanup_selected_backend_memory()
+
+    def _score_impl(self, X, y, sample_weight=None):
         """Return the backend-native Harrell concordance index.
 
         ``sample_weight`` is accepted for sklearn compatibility but is ignored
@@ -639,3 +677,10 @@ class PenalizedCoxPHModel(PenalizedGeneralizedLinearModel):
         return _to_float_scalar(
             counting_process_concordance(coef, Xb, time, event)
         )
+
+    def __del__(self):
+        try:
+            self._release_loss_fit_cache()
+            self._cleanup_selected_backend_memory()
+        except Exception:
+            pass

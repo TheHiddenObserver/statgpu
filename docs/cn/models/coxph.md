@@ -1,7 +1,7 @@
 # CoxPH
 
 > 语言：中文<br>
-> 最后更新：2026-07-26<br>
+> 最后更新：2026-07-27<br>
 > 页面定位：模型文档<br>
 > 切换：[English](../../en/models/coxph.md)
 
@@ -42,10 +42,11 @@ $$
 delayed entry、strata、Exact ties、L2 惩罚拟合与 GPU 稳健推断共用同一套
 计数过程风险集引擎，因此三个后端遵循一致的 `(start, stop]` 约定。
 
-对于普通 right-censored、单个 stratum 的 Exact 拟合，风险集具有嵌套结构。
-StatGPU 按 stop time 降序排列样本，并在 NumPy、CuPy、Torch 上让所有失败组复用
-同一个 elementary-symmetric 前缀动态规划，避免随失败组数量重复扫描风险集。
-失败分子改用按事件时间排序的分段前缀和，不再构造 `失败组 × 样本` 密集掩码。
+对于普通 right-censored Exact 拟合，风险集在各 stratum 内具有嵌套结构。
+StatGPU 先按 stratum、再按 stop time 降序排列样本，并在 NumPy、CuPy、Torch 上让
+所有失败组复用同一个分段 elementary-symmetric 前缀动态规划，不再通过 Python
+逐 stratum 循环，也避免随失败组数量重复扫描风险集。
+失败分子改用后端原生的分组归约，不再构造 `失败组 × 样本` 密集掩码。
 前缀工作区默认上限为 512 MiB，由 `STATGPU_EXACT_NESTED_MAX_BYTES` 控制，且在
 分配前完成检查。
 
@@ -54,15 +55,19 @@ StatGPU 按 stop time 降序排列样本，并在 NumPy、CuPy、Torch 上让所
 StatGPU 会将每个通道连续布局，分别执行高效的一维 CUDA 扫描，再在设备上拼回原
 形状。`STATGPU_TORCH_EXACT_SCAN_MIN_ROWS` 与
 `STATGPU_TORCH_EXACT_SCAN_MAX_CHANNELS` 可配置这两个保守门禁。CPU、小样本和宽
-张量保留 Torch 原生多维扫描。额外的转置与输出工作区也计入 nested 工作区检查：
+张量保留 Torch 原生多维扫描。`STATGPU_TORCH_EXACT_SCAN_STRATEGY` 可设为 `auto`、
+`native` 或 `channelwise`；`auto` 仅在已有实测证据的 Torch 2.0 + Pascal/P100
+组合启用分通道扫描，未经验证的 Torch/GPU 组合使用原生扫描。额外的转置与输出
+工作区也计入 nested 工作区检查：
 若基础 DP 能容纳而通道扫描额外空间不足，则继续使用 nested 算法的原生 Torch
 扫描，不会回退到开销更高的通用 Exact 路径。
 
-delayed entry、多个 strata、构造 score residuals、前缀工作区超限，或触发保守的
-数值范围门禁时，会使用原有的 normalized Exact 实现。CuPy/Torch 可先使用失败组
-批量路径，其独立的 512 MiB 上限由 `STATGPU_EXACT_BATCH_MAX_BYTES` 控制；批量
-工作区超限时在同一后端使用逐组内存受限路径。这些都是显式算法回退，不会隐式
-回退到 CPU。
+delayed entry 不满足嵌套前缀条件。当 strata 至少为 8 时，GPU 后端会先在一次后端
+原生批量路径中处理所有合格失败组；更少的 GPU strata 与 NumPy 使用逐-stratum
+batch，避免计算跨 stratum 的空掩码。独立的 512 MiB 上限由
+`STATGPU_EXACT_BATCH_MAX_BYTES` 控制。全局批量工作区超限时先按 stratum 重试，
+再使用逐组内存受限路径；构造 score residuals 或触发保守数值范围门禁时也保留
+normalized 实现。这些都是显式算法回退，不会隐式回退到 CPU。
 
 完整拟合的推断阶段还需要构造 Breslow baseline hazard。对于普通右删失行，
 StatGPU 现在在每个 stratum 内按 stop time 降序排列，并通过一次 log-risk 前缀

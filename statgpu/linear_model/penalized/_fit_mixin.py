@@ -1777,6 +1777,7 @@ class _PenalizedFitMixin:
             X_feat = X_work[:, :p] if self._effective_intercept else X_work
             _n = X_feat.shape[0]
             if _loss_name == "cox_ph":
+                X_feat, y_lla = self._loss.preprocess(X_feat, y_arr)
                 if backend_name == "torch":
                     import torch
                     _zero_coef = torch.zeros(
@@ -1785,7 +1786,7 @@ class _PenalizedFitMixin:
                 else:
                     _zero_coef = xp.zeros(p, dtype=X_feat.dtype)
                 _score_at_zero = self._loss.gradient(
-                    X_feat, y_arr, _zero_coef, sample_weight=sample_weight
+                    X_feat, y_lla, _zero_coef, sample_weight=sample_weight
                 )
                 _lam_max = float(xp.max(xp.abs(_score_at_zero)))
             else:
@@ -1828,7 +1829,14 @@ class _PenalizedFitMixin:
                 _mi_path = [_saved_mi if i == _n_cont - 1 else max(100, _saved_mi // 10)
                             for i in range(_n_cont)]
 
-            X_orig = X_work[:, :p] if self._effective_intercept else X_work
+            X_orig = (
+                X_feat
+                if _loss_name == "cox_ph"
+                else X_work[:, :p]
+                if self._effective_intercept
+                else X_work
+            )
+            y_lla = y_lla if _loss_name == "cox_ph" else y_arr
 
             _warm_coef = None
             _warm_intercept = None
@@ -1866,7 +1874,7 @@ class _PenalizedFitMixin:
 
             _lla_result = fista_lla_path(
                 self._loss, self._penalty,
-                X_orig, y_arr,
+                X_orig, y_lla,
                 alpha_path=_alpha_path,
                 max_lla_per_step=_max_lla_per_step,
                 lla_tol=getattr(self, '_lla_tol', 1e-6),

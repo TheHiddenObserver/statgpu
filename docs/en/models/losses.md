@@ -2,7 +2,7 @@
 
 > Language: English
 >
-> Last updated: 2026-07-12
+> Last updated: 2026-07-27
 >
 > This page: Model documentation
 >
@@ -185,8 +185,12 @@ gradient = loss.gradient(X, y_surv, coef)
 hessian = loss.hessian(X, y_surv, coef)
 ```
 
-The same calls accept NumPy arrays, CuPy arrays, or Torch tensors and remain on
-the selected backend.
+The iterative numerical arrays in these calls remain on the selected NumPy,
+CuPy, or Torch backend. Cox loss preprocessing makes a one-time host copy of
+the sorted `time` and `event` vectors to construct deterministic failure-group
+metadata; the resulting indices are cached on the selected device and the
+design matrix, predictor, objective, gradient, and Hessian are not moved to CPU
+during solver iterations.
 
 ### Regularized Survival
 

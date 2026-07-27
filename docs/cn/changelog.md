@@ -1,11 +1,26 @@
 # Changelog
 
 > 语言：中文<br>
-> 最后更新：2026-07-26<br>
+> 最后更新：2026-07-27<br>
 > 页面定位：变更记录<br>
 > 切换：[English](../en/changelog.md)
 
 ## 2026-07
+
+### 修复与优化（2026-07-27）— PR #80 后续审查
+
+- Penalized Cox SCAD/MCP 现在每次拟合只预处理、排序和传输一次 survival 分组元数据；
+  FISTA-LLA 使用只计算梯度的热路径，按周期合并有限性与收敛状态传输，并在 allocator
+  清理前释放 loss 持有的训练数组。
+- 普通 right-censored Exact ties 在所有 strata 上使用一次分段前缀 DP。带 delayed
+  entry 且 strata 数量至少为 8 的 GPU 工作负载可使用受内存门禁保护的全局 batch；
+  较小场景使用有界的逐-stratum batch。
+- 浮点 strata 在转为整数前会拒绝小数和非有限值。
+  `STATGPU_TORCH_EXACT_SCAN_STRATEGY` 支持 `auto`、`native` 和 `channelwise`；
+  保守的 `auto` 只在已有实测证据的 Torch 2.0 + Pascal/P100 组合启用分通道扫描。
+- 维护的 delayed-entry + 3-strata P100 基准在 10,240 行时测得
+  NumPy/CuPy/Torch 中位时间 136.02/36.50/21.95 秒，即 GPU 相对 NumPy 提速
+  3.73 倍/6.20 倍；该产物与新增的 strata-count 产物均为零 gate failure。
 
 ### 优化（2026-07-26）— PR #80 分层 Exact 组合路径
 

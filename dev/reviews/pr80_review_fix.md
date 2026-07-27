@@ -1,17 +1,19 @@
 # PR #80 Review-Fix Report
 
-> Review date: 2026-07-26<br>
+> Review date: 2026-07-27<br>
 > Original PR head reviewed: `d6f798c1834fd6318c8257eed334f84a198fa8ad`<br>
 > Performance-fix base: `ad3c0026eb682ac6394369a3318e9fb806e631b8`<br>
-> Final Exact risk-set SHA-256: `f231445d27c5919b829cb30377fe8e6c92e22592eb5c6a2099ecb7a2453b4d8c`<br>
+> Final Exact risk-set SHA-256: `da8bb597ddfaf2006ac662324da41591711676009b772b84a54f1c10d7486bd7`<br>
 > Final counting-solver SHA-256: `9684867f90b153c23675d8804698f76092765a3d96da05c7a3d989528782d501`<br>
 > Final Cox dispatch SHA-256: `efe199e7bb40112f882109efbe8b462ab8050f52349d939d33a611f819f81e6c`<br>
 > Final R/performance artifact SHA-256: `85e7c72d736b859564e598e8e6e26b26b05a6fe06a076c39645083af80ea896e`<br>
 > Final stratified-Exact artifact SHA-256: `0bc0325240b64e1a957f0597a969233374ca4696571c0fcc6229a8ea0986e2c6`<br>
+> Follow-up delayed-entry+strata artifact SHA-256: `b3c9cadb3235b8280fc0c338d81302d4929d109da6506208868782d2fac01c1b`<br>
+> Follow-up strata-count artifact SHA-256: `c7465368a66f748a5f1e410795c5ff3acb64ca6e43efcb6cdeec63ee22de335f`<br>
 > Physical-GPU matrix SHA-256: `09cdcc9e900ba7eccae7a5d7e389c7ff6ddcbabdf5f4a648ce776b52ff8d78c6`<br>
 > Original merge base: `a4879fb` (0.2.1 line)<br>
 > Compatibility target: `origin/master` at `7ccf616` (0.2.2 line)<br>
-> Status: `COMPLETE`
+> Status: `COMPLETE` for source review; external GPU-CI wiring remains an infrastructure action
 
 ## Review Contract
 
@@ -297,8 +299,123 @@ while retaining PR #80's counting-process implementation.
   `--scaling-scenario strata`, and tests compare nested/batched results with the
   forced memory-bounded reference on NumPy, CuPy, and Torch.
 
+## 2026-07-27 Follow-up Review-Fix Cycle
+
+This follow-up applies the additional P1/P2/P3 review list against commit
+`99a43881ffe50d8116702bde150ea8a69c1f8881` and re-runs the complete affected
+axes from `.claude/skills/code-review.md`: survival semantics, loss/solver,
+penalty continuation, NumPy/CuPy/Torch behavior, memory lifetime, performance,
+tests, benchmark provenance, and bilingual documentation.
+
+- [HIGH][P1-1][LOSS/SOLVER][fixed] Cox SCAD/MCP computed the zero-score from a
+  sorted/centered loss cache but then passed the original `X`/`y` into
+  `fista_lla_path`; that function discarded its own `X_proc`/`y_proc`, so every
+  LLA/FISTA gradient could sort and transfer the response again. Cox preprocessing
+  now returns an opaque active-cache token, FISTA-LLA carries the exact
+  preprocessed pair through continuation, and the estimator reuses it for the
+  zero-score and fit. The three-backend SCAD/MCP regression requires exactly one
+  preprocessing call per fit and makes the obsolete fused objective raise if it
+  is called.
+- [HIGH][P1-2][GPU/PERF][fixed] the nonquadratic inner loop requested a fused
+  objective although it used only the gradient; Cox converted that unused value
+  to a Python float, validated coefficients with a device scalar on every step,
+  rebuilt failure-group indices/fractions on the device, and range-checked every
+  segment synchronously. The solver now uses a Cox gradient-only trusted path,
+  metadata is cached by backend/device once, the fused public value stays a
+  backend scalar, fixed bounded segments avoid hot-loop host reads, and finite
+  state is checked together with the existing periodic convergence transfer.
+  Public loss calls and periodic Hessian/Lipschitz evaluations retain the full
+  numerical validation path.
+- [HIGH][P1-3][MEMORY][fixed] the estimator's loss retained sorted design,
+  response, order, and device metadata after fit, so freeing allocator pools
+  could not release active training allocations. `release_fit_cache()` now
+  invalidates the preprocessing token and clears every host/device training
+  reference. Fit success/failure, refit reset, prediction/score cleanup, and
+  destruction all release loss state before allocator cleanup. Physical-P100
+  active-byte tests keep the input arrays alive and verify that fitting does not
+  retain an additional training-sized allocation.
+- [MEDIUM][P2-1][VALIDATION][fixed] low-level counting-process input conversion
+  cast floating strata directly to integer labels. NumPy, CuPy, and Torch now
+  reject fractional/non-finite labels before conversion and continue to accept
+  integral floating labels.
+- [MEDIUM][P2-2][TORCH/PERF][fixed] the Torch channelwise Exact scan was enabled
+  on every CUDA architecture from evidence collected only on Torch 2.0/P100.
+  `STATGPU_TORCH_EXACT_SCAN_STRATEGY={auto,native,channelwise}` now exposes the
+  policy; `auto` enables only the evidenced Torch 2.0 + compute-capability 6.0
+  combination and conservatively uses native scans elsewhere. Explicit strategy
+  tests continue to exercise channelwise numerical parity on any GPU.
+- [MEDIUM][P2-3][STRATA/PERF][fixed] centering covariates looped over strata with
+  a scalar device read, ordinary multi-stratum Exact called one prefix DP per
+  stratum, and a failed fast path discarded completed strata before a global
+  reference recomputation. Centering now uses `unique`/inverse codes plus
+  `add.at` or `index_add_`; ordinary right-censored Exact uses one segmented
+  prefix DP across all strata; delayed-entry Exact with at least eight GPU strata
+  first tries one global batched path, while smaller GPU cases and NumPy retain
+  per-stratum batches; and only the failing stratum reaches the per-group
+  reference. No statistical boundary or CPU fallback changed.
+- [MEDIUM][P2-4][DOC/BACKEND][fixed] the loss guide overstated that every Cox
+  object remained on the selected device. The English-first and Chinese-follow
+  text now records the one-time sorted `time`/`event` host copy used to construct
+  deterministic group metadata, while distinguishing it from iterative matrix,
+  predictor, objective, gradient, or Hessian transfers.
+- [MEDIUM][P2-5][BENCHMARK][fixed]
+  `benchmark_exact_ties_scaling.py` now accepts all four right-censored,
+  delayed-entry, strata, and combined scenarios; records the complete command;
+  uses five ordinary repeats by default; supports explicit reduced-repeat and R
+  repeat policies; reports R timeout rather than aborting the artifact; verifies
+  finiteness/convergence for every repeat; and takes numerical fields from the
+  actual median-ranked run. The committed delayed-entry+strata artifact is
+  generated by this maintained CLI rather than an ad-hoc driver.
+- [MEDIUM][P2-6][CI][external infrastructure pending] repository-hosted CI still
+  has no CUDA runner. Adding an unconfigured `self-hosted` label would leave PR
+  checks queued indefinitely, so no fictitious gate was added. The maintained
+  GPU tests are complete and pass under `STATGPU_REQUIRE_PHYSICAL_GPU=1`; wiring
+  them into nightly/required CI needs a repository CUDA runner or equivalent
+  external CI credential, which is outside this source-only PR.
+- [LOW][P3-1][CONFIG][fixed] every Exact workspace/scan integer environment
+  variable now uses bounded, non-negative parsing with safe defaults for invalid
+  strings and caps for unreasonable values.
+- [LOW][P3-2][MAINT][deferred] consolidating all local backend helper functions
+  into `statgpu.backends` is a broad internal refactor with no current defect and
+  would enlarge the survival-risk regression surface. The follow-up reuses new
+  helpers within `_risk_sets.py` but leaves cross-module consolidation for a
+  dedicated maintenance PR.
+
+Follow-up performance evidence on the remote Tesla P100-SXM2-16GB:
+
+- penalized Cox at `n=4096`, `p=12`, 64 tie bins: SCAD NumPy/CuPy/Torch medians
+  `0.4416/0.1749/0.1317` s (CuPy 2.52x, Torch 3.35x); MCP medians
+  `0.4564/0.1874/0.1462` s (2.44x, 3.12x). Every fit performed one preprocess;
+  maximum coefficient difference from NumPy was `5.0e-16`.
+- vectorized centering at 100,000 rows remained approximately constant from 3
+  through 1,000 strata: NumPy `0.045-0.051` s, CuPy `0.00122-0.00148` s, and
+  Torch `0.00084-0.00121` s.
+- for a controlled right-censored Exact workload with one tied failure group per
+  stratum, the 1,000-stratum NumPy/CuPy/Torch medians fell from
+  `0.2643/4.3872/1.7104` s before segmented DP to
+  `0.00653/0.00825/0.00417` s after it. Torch is 1.56x faster than NumPy; CuPy is
+  within 1.26x, and maximum log-likelihood difference is `4.10e-12`.
+- the maintained delayed-entry + 3-strata fit benchmark completed at 320 through
+  10,240 rows with zero gate failures. At 10,240 rows the NumPy/CuPy/Torch
+  medians were `136.02/36.50/21.95` s, so CuPy and Torch were 3.73x and 6.20x
+  faster than NumPy. Torch crossed NumPy by 2,560 rows and CuPy by 5,120 rows;
+  smaller cases remain launch-bound. R survival completed 320 and 640 rows in
+  `0.327/24.173` s and was recorded as an explicit 30-second timeout at larger
+  sizes rather than producing a synthetic timing or aborting the artifact.
+
 ## Validation Evidence
 
+- Final follow-up local Cox/survival matrix: **255 passed, 54 skipped, 0
+  failed**; the post-cleanup focused matrix passed **63 tests** with 20 optional
+  GPU skips.
+- Final physical-P100 follow-up matrix under
+  `STATGPU_REQUIRE_PHYSICAL_GPU=1`: **169 passed, 0 failed** in 13.87 seconds,
+  including NumPy, CuPy CUDA, and Torch CUDA execution.
+- Final maintained delayed-entry+strata and strata-count artifacts: status
+  `complete`, zero gate failures, exact source/benchmark hashes, synchronized
+  GPU timing, finite/converged StatGPU repeats, and explicit R timeout states.
+- Final documentation contracts: **122 files passed**; deterministic link check:
+  **0 affected files**.
 - `pytest` survival core target: **143 passed, 14 skipped, 0 failed** (157 total).
 - Legacy `dev/tests/test_cox.py`: **8 passed, 4 skipped, 0 failed**.
 - Penalized/PR79 compatibility run: **103 passed, 25 skipped** before the four
@@ -399,13 +516,20 @@ while retaining PR #80's counting-process implementation.
 
 ## Remaining Gate
 
-None for the reviewed PR #80 scope. External R alignment closes the
+No source-code or numerical gate remains for the reviewed PR #80 scope. External
+R alignment closes the
 independent-implementation accuracy gate, but timings remain shape-specific.
 Both GPU backends are faster than R from the measured `n=15,360` ordinary
 right-censored case through `n=122,880`; Torch is the fastest measured backend
 on that low-dimensional large-sample shape. Small GPU fits remain launch-bound,
 and wide Torch moment tensors keep the native scan. Large individual tie blocks
-remain combinatorial. Eligible multi-stratum Exact fits compose the bounded
-one-stratum kernels; score-residual requests and shapes rejected by numerical
-or memory gates retain the backend-native normalized reference. These are
-explicit evidence boundaries rather than failed gates.
+remain combinatorial. Ordinary multi-stratum Exact fits use one segmented prefix
+DP; delayed-entry fits use either a memory-gated global GPU batch or bounded
+per-stratum kernels. Score-residual requests and shapes rejected by numerical or
+memory gates retain the backend-native normalized reference. These are explicit
+evidence boundaries rather than failed gates.
+
+Repository-hosted CI still lacks a CUDA runner. The maintained physical-GPU gate
+is ready and passes under `STATGPU_REQUIRE_PHYSICAL_GPU=1`, but making it nightly
+or required needs repository-level runner/credential provisioning; no
+unconfigured self-hosted job was added to this PR.

@@ -126,13 +126,44 @@ def _as_float(mask: Any, backend: str, like: Any):
     return mask.astype(like.dtype, copy=False)
 
 
+def _nonnegative_env_int(name: str, default: int, maximum: int) -> int:
+    """Read a bounded non-negative integer without import-time fragility."""
+    try:
+        value = int(os.environ.get(name, str(default)))
+    except (TypeError, ValueError, OverflowError):
+        value = int(default)
+    return min(max(0, value), int(maximum))
+
+
 def _torch_channelwise_scan_limits() -> Tuple[int, int]:
     """Return the row/channel bounds for the Torch Exact split-scan path."""
-    min_rows = max(0, int(os.environ.get("STATGPU_TORCH_EXACT_SCAN_MIN_ROWS", 2048)))
-    max_channels = max(
-        0, int(os.environ.get("STATGPU_TORCH_EXACT_SCAN_MAX_CHANNELS", 64))
+    min_rows = _nonnegative_env_int(
+        "STATGPU_TORCH_EXACT_SCAN_MIN_ROWS", 2048, 10_000_000
+    )
+    max_channels = _nonnegative_env_int(
+        "STATGPU_TORCH_EXACT_SCAN_MAX_CHANNELS", 64, 4096
     )
     return min_rows, max_channels
+
+
+def _torch_channelwise_scan_strategy(value: Any, xp: Any) -> str:
+    """Resolve native/channelwise scanning with a conservative auto gate."""
+    strategy = os.environ.get(
+        "STATGPU_TORCH_EXACT_SCAN_STRATEGY", "auto"
+    ).strip().lower()
+    if strategy not in {"auto", "native", "channelwise"}:
+        strategy = "auto"
+    if strategy != "auto":
+        return strategy
+
+    # The optimization is evidenced on Torch 2.0 and Pascal/P100. Later Torch
+    # releases and newer GPU architectures use native cumsum until benchmarked.
+    version = str(getattr(xp, "__version__", "")).split("+")[0]
+    try:
+        capability = tuple(xp.cuda.get_device_capability(value.device))
+    except Exception:
+        return "native"
+    return "channelwise" if version.startswith("2.0.") and capability == (6, 0) else "native"
 
 
 def _cumsum_axis0(value: Any, backend: str, xp: Any, *, allow_channelwise: bool = True):
@@ -152,8 +183,10 @@ def _cumsum_axis0(value: Any, backend: str, xp: Any, *, allow_channelwise: bool 
     n_rows = int(value.shape[0])
     n_channels = math.prod(int(size) for size in value.shape[1:])
     min_rows, max_channels = _torch_channelwise_scan_limits()
+    strategy = _torch_channelwise_scan_strategy(value, xp)
     if (
         not allow_channelwise
+        or strategy == "native"
         or n_rows < min_rows
         or max_channels == 0
         or n_channels > max_channels
@@ -170,13 +203,84 @@ def _cumsum_axis0(value: Any, backend: str, xp: Any, *, allow_channelwise: bool 
 
 def _center_within_strata(X: Any, strata: Any, backend: str, xp: Any):
     """Center covariates by stratum on their existing backend."""
-    centered = _zeros(backend, xp, tuple(X.shape), X)
-    for stratum in _unique_sorted(strata, backend, xp):
-        rows = strata == stratum
-        n_rows = _scalar_int(_sum(rows, backend, xp))
-        reference = _sum(X[rows], backend, xp, axis=0) / float(n_rows)
-        centered[rows] = X[rows] - reference.reshape(1, -1)
-    return centered
+    if backend == "torch":
+        unique, inverse = xp.unique(
+            strata, sorted=True, return_inverse=True
+        )
+        sums = _zeros(backend, xp, (int(unique.shape[0]), int(X.shape[1])), X)
+        sums.index_add_(0, inverse, X)
+        counts = xp.bincount(inverse, minlength=int(unique.shape[0])).to(
+            dtype=X.dtype
+        )
+    else:
+        unique, inverse = xp.unique(strata, return_inverse=True)
+        sums = _zeros(backend, xp, (int(unique.shape[0]), int(X.shape[1])), X)
+        xp.add.at(sums, inverse, X)
+        counts = xp.bincount(inverse, minlength=int(unique.shape[0])).astype(
+            X.dtype, copy=False
+        )
+    means = sums / counts.reshape(-1, 1)
+    return X - means[inverse]
+
+
+def _segment_codes(starts: Any, backend: str, xp: Any):
+    """Return zero-based segment codes from a boolean start mask."""
+    if backend == "torch":
+        return xp.cumsum(starts.to(dtype=xp.int64), dim=0) - 1
+    return xp.cumsum(starts.astype(xp.int64, copy=False), axis=0) - 1
+
+
+def _segmented_cumsum_axis0(
+    value: Any,
+    segment_codes: Any,
+    segment_starts: Any,
+    backend: str,
+    xp: Any,
+    *,
+    allow_channelwise: bool = True,
+):
+    """Cumulative sum over contiguous segments without a Python segment loop."""
+    cumulative = _cumsum_axis0(
+        value, backend, xp, allow_channelwise=allow_channelwise
+    )
+    n_segments = int(segment_starts.shape[0])
+    offsets = _zeros(
+        backend, xp, (n_segments, *tuple(value.shape[1:])), value
+    )
+    if n_segments > 1:
+        offsets[1:] = cumulative[segment_starts[1:] - 1]
+    return cumulative - offsets[segment_codes]
+
+
+def _group_sum_axis0(
+    value: Any, group_codes: Any, n_groups: int, backend: str, xp: Any
+):
+    """Sum rows by integer group code on the active backend."""
+    output = _zeros(
+        backend, xp, (n_groups, *tuple(value.shape[1:])), value
+    )
+    if backend == "torch":
+        output.index_add_(0, group_codes, value)
+    else:
+        xp.add.at(output, group_codes, value)
+    return output
+
+
+def _group_max_1d(
+    value: Any, group_codes: Any, n_groups: int, backend: str, xp: Any
+):
+    """Maximum of a vector by integer group code on the active backend."""
+    if backend == "torch":
+        output = xp.full(
+            (n_groups,), -float("inf"), dtype=value.dtype, device=value.device
+        )
+        output.scatter_reduce_(
+            0, group_codes, value, reduce="amax", include_self=True
+        )
+    else:
+        output = xp.full((n_groups,), -float("inf"), dtype=value.dtype)
+        xp.maximum.at(output, group_codes, value)
+    return output
 
 
 def _batched_group_objective(
@@ -475,23 +579,48 @@ def _nested_exact_group_objective(
     if score_residuals:
         return None
     backend, xp = _array_namespace(X)
-    if int(_unique_sorted(strata, backend, xp).shape[0]) != 1:
-        return None
     if _scalar_bool(_sum(start != 0, backend, xp) > 0):
         return None
 
-    event_times = stop[event == 1]
+    n_samples, n_features = int(X.shape[0]), int(X.shape[1])
     if backend == "torch":
-        failure_times, integer_counts = xp.unique(
-            event_times, sorted=True, return_counts=True
-        )
+        order = xp.argsort(stop, descending=True, stable=True)
+        order = order[xp.argsort(strata[order], stable=True)]
     else:
-        failure_times, integer_counts = xp.unique(event_times, return_counts=True)
-    n_groups = int(failure_times.shape[0])
-    if n_groups == 0:
+        order = xp.lexsort(xp.stack((-stop, strata), axis=0))
+    sorted_stop = stop[order]
+    sorted_strata = strata[order]
+    sorted_eta = eta[order]
+    sorted_X = X[order]
+    sorted_event_mask = event[order] == 1
+    event_rows = _nonzero(sorted_event_mask, backend, xp)
+    if int(event_rows.shape[0]) == 0:
         return None
 
-    n_samples, n_features = int(X.shape[0]), int(X.shape[1])
+    stratum_starts_mask = xp.zeros_like(sorted_strata, dtype=xp.bool_ if backend != "torch" else xp.bool)
+    stratum_starts_mask[0] = True
+    stratum_starts_mask[1:] = sorted_strata[1:] != sorted_strata[:-1]
+    stratum_codes = _segment_codes(stratum_starts_mask, backend, xp)
+    stratum_starts = _nonzero(stratum_starts_mask, backend, xp)
+    n_strata = int(stratum_starts.shape[0])
+
+    event_stops = sorted_stop[event_rows]
+    event_stratum_codes = stratum_codes[event_rows]
+    failure_starts_mask = xp.zeros_like(
+        event_stratum_codes, dtype=xp.bool_ if backend != "torch" else xp.bool
+    )
+    failure_starts_mask[0] = True
+    failure_starts_mask[1:] = (
+        (event_stratum_codes[1:] != event_stratum_codes[:-1])
+        | (event_stops[1:] != event_stops[:-1])
+    )
+    event_group_codes = _segment_codes(failure_starts_mask, backend, xp)
+    failure_starts = _nonzero(failure_starts_mask, backend, xp)
+    n_groups = int(failure_starts.shape[0])
+    if n_groups == 0:
+        return None
+    integer_counts = xp.bincount(event_group_codes, minlength=n_groups)
+
     max_ties = _scalar_int(_max(integer_counts, backend, xp))
     eta_min = xp.min(eta)
     eta_range = float((_max(eta, backend, xp) - eta_min).item())
@@ -515,16 +644,17 @@ def _nested_exact_group_objective(
     if compute_derivatives:
         state_width += n_features + n_features * n_features
     itemsize = X.element_size() if backend == "torch" else int(X.dtype.itemsize)
-    n_events = int(event_times.shape[0])
+    n_events = int(event_rows.shape[0])
     event_state_width = 2 + (2 * n_features if compute_derivatives else 0)
     base_estimated_bytes = itemsize * (
         12 * n_samples * state_width
         + 4 * n_events * event_state_width
         + 4 * n_groups * state_width
     )
-    max_bytes = max(
-        0,
-        int(os.environ.get("STATGPU_EXACT_NESTED_MAX_BYTES", 512 * 1024 * 1024)),
+    max_bytes = _nonnegative_env_int(
+        "STATGPU_EXACT_NESTED_MAX_BYTES",
+        512 * 1024 * 1024,
+        1 << 50,
     )
     if max_bytes == 0 or base_estimated_bytes > max_bytes:
         return None
@@ -548,71 +678,55 @@ def _nested_exact_group_objective(
             base_estimated_bytes + split_scan_extra_bytes <= max_bytes
         )
 
-    if backend == "torch":
-        order = xp.argsort(stop, descending=True)
-    else:
-        order = xp.argsort(-stop)
-    sorted_stop = stop[order]
-    sorted_eta = eta[order]
-    sorted_X = X[order]
-    eta_shift = _max(sorted_eta, backend, xp)
-    weights = _exp(sorted_eta - eta_shift, xp)
-    if backend == "torch":
-        risk_counts = xp.searchsorted(-sorted_stop, -failure_times, right=True).to(
-            dtype=xp.int64
-        )
-    else:
-        risk_counts = xp.searchsorted(
-            -sorted_stop, -failure_times, side="right"
-        ).astype(xp.int64, copy=False)
+    eta_shift_by_stratum = _group_max_1d(
+        sorted_eta, stratum_codes, n_strata, backend, xp
+    )
+    weights = _exp(
+        sorted_eta - eta_shift_by_stratum[stratum_codes], xp
+    )
+
+    stop_block_starts_mask = xp.zeros_like(stratum_starts_mask)
+    stop_block_starts_mask[0] = True
+    stop_block_starts_mask[1:] = (
+        (sorted_strata[1:] != sorted_strata[:-1])
+        | (sorted_stop[1:] != sorted_stop[:-1])
+    )
+    stop_block_codes = _segment_codes(stop_block_starts_mask, backend, xp)
+    stop_block_ends_mask = xp.zeros_like(stratum_starts_mask)
+    stop_block_ends_mask[-1] = True
+    stop_block_ends_mask[:-1] = stop_block_starts_mask[1:]
+    stop_block_ends = _nonzero(stop_block_ends_mask, backend, xp)
+    stop_block_risk_counts = (
+        stop_block_ends
+        - stratum_starts[stratum_codes[stop_block_ends]]
+        + 1
+    )
+    risk_counts_by_row = stop_block_risk_counts[stop_block_codes]
+    failure_event_positions = event_rows[failure_starts]
+    risk_counts = risk_counts_by_row[failure_event_positions]
     if _scalar_bool(_sum(risk_counts < integer_counts, backend, xp) > 0):
         raise FloatingPointError("exact failure count exceeds its Cox risk set")
 
-    # Aggregate failure numerators over the already stop-sorted event rows.  A
-    # dense ``failure_group x sample`` mask would reintroduce quadratic work and
-    # memory after the nested-risk-set DP has removed that same factor.
-    sorted_event_mask = event[order] == 1
     sorted_event_eta = sorted_eta[sorted_event_mask]
-    if backend == "torch":
-        descending_counts = xp.flip(integer_counts, dims=(0,))
-        event_offsets = xp.cumsum(descending_counts, dim=0)
-        cumulative_failure_eta = xp.cumsum(sorted_event_eta, dim=0)
-    else:
-        descending_counts = integer_counts[::-1]
-        event_offsets = xp.cumsum(descending_counts)
-        cumulative_failure_eta = xp.cumsum(sorted_event_eta, axis=0)
-    event_end_idx = event_offsets - 1
-    prior_failure_eta = cumulative_failure_eta[event_offsets[:-1] - 1]
-    zero_failure_eta = xp.zeros_like(cumulative_failure_eta[:1])
-    if backend == "torch":
-        prior_failure_eta = xp.cat((zero_failure_eta, prior_failure_eta), dim=0)
-        failure_eta = xp.flip(
-            cumulative_failure_eta[event_end_idx] - prior_failure_eta, dims=(0,)
-        )
-    else:
-        prior_failure_eta = xp.concatenate(
-            (zero_failure_eta, prior_failure_eta), axis=0
-        )
-        failure_eta = (cumulative_failure_eta[event_end_idx] - prior_failure_eta)[::-1]
+    failure_eta = _group_sum_axis0(
+        sorted_event_eta,
+        event_group_codes,
+        n_groups,
+        backend,
+        xp,
+    )
+    failure_group_stratum_codes = event_stratum_codes[failure_starts]
+    eta_shift = eta_shift_by_stratum[failure_group_stratum_codes]
     failure_X = None
     if compute_derivatives:
         sorted_event_X = sorted_X[sorted_event_mask]
-        cumulative_failure_X = _cumsum_axis0(
+        failure_X = _group_sum_axis0(
             sorted_event_X,
+            event_group_codes,
+            n_groups,
             backend,
             xp,
-            allow_channelwise=allow_torch_channelwise,
         )
-        prior_failure_X = cumulative_failure_X[event_offsets[:-1] - 1]
-        zero_failure_X = xp.zeros_like(cumulative_failure_X[:1])
-        if backend == "torch":
-            prior_failure_X = xp.cat((zero_failure_X, prior_failure_X), dim=0)
-            failure_X = xp.flip(
-                cumulative_failure_X[event_end_idx] - prior_failure_X, dims=(0,)
-            )
-        else:
-            prior_failure_X = xp.concatenate((zero_failure_X, prior_failure_X), axis=0)
-            failure_X = (cumulative_failure_X[event_end_idx] - prior_failure_X)[::-1]
     counts = _as_float(integer_counts, backend, X)
     partition = _zeros(backend, xp, (n_groups,), X)
     exact_mean = (
@@ -663,12 +777,27 @@ def _nested_exact_group_objective(
                 base_second = xp.concatenate(
                     (zero_second, previous_second[:-1]), axis=0
                 )
+        if subset_size > 1:
+            base_z = xp.where(stratum_starts_mask, 0.0, base_z)
+            if compute_derivatives:
+                base_first = xp.where(
+                    stratum_starts_mask.reshape(-1, 1), 0.0, base_first
+                )
+                base_second = xp.where(
+                    stratum_starts_mask.reshape(-1, 1, 1),
+                    0.0,
+                    base_second,
+                )
 
         contribution_z = weights * base_z
-        if backend == "torch":
-            current_z = xp.cumsum(contribution_z, dim=0)
-        else:
-            current_z = xp.cumsum(contribution_z, axis=0)
+        current_z = _segmented_cumsum_axis0(
+            contribution_z,
+            stratum_codes,
+            stratum_starts,
+            backend,
+            xp,
+            allow_channelwise=False,
+        )
         if compute_derivatives:
             contribution_first = weights.reshape(-1, 1) * (
                 base_first + base_z.reshape(-1, 1) * sorted_X
@@ -681,14 +810,18 @@ def _nested_exact_group_objective(
             contribution_second = weights.reshape(-1, 1, 1) * (
                 base_second + cross + base_z.reshape(-1, 1, 1) * row_outer
             )
-            current_first = _cumsum_axis0(
+            current_first = _segmented_cumsum_axis0(
                 contribution_first,
+                stratum_codes,
+                stratum_starts,
                 backend,
                 xp,
                 allow_channelwise=allow_torch_channelwise,
             )
-            current_second = _cumsum_axis0(
+            current_second = _segmented_cumsum_axis0(
                 contribution_second,
+                stratum_codes,
+                stratum_starts,
                 backend,
                 xp,
                 allow_channelwise=allow_torch_channelwise,
@@ -697,7 +830,13 @@ def _nested_exact_group_objective(
         selected = integer_counts == subset_size
         if _scalar_bool(_sum(selected, backend, xp) > 0):
             group_idx = _nonzero(selected, backend, xp)
-            prefix_idx = risk_counts[group_idx] - 1
+            prefix_idx = (
+                stratum_starts[
+                    failure_group_stratum_codes[group_idx]
+                ]
+                + risk_counts[group_idx]
+                - 1
+            )
             selected_z = current_z[prefix_idx]
             partition[group_idx] = selected_z
             if compute_derivatives:
@@ -863,26 +1002,47 @@ def _batched_exact_group_objective(
     score_residuals: bool,
     compute_derivatives: bool,
 ):
-    """Batched Exact objective for one-stratum backend-native workloads.
+    """Batched Exact objective for backend-native multi-stratum workloads.
 
     Return ``None`` when the estimated dense workspace exceeds the configured
     ceiling so the memory-bounded per-group reference path remains available.
     """
     backend, xp = _array_namespace(X)
-    unique_strata = _unique_sorted(strata, backend, xp)
-    if int(unique_strata.shape[0]) != 1:
+    n_strata = int(_unique_sorted(strata, backend, xp).shape[0])
+    if n_strata > 1 and (backend == "numpy" or n_strata < 8):
         return None
-
-    event_times = stop[event == 1]
+    event_rows = _nonzero(event == 1, backend, xp)
+    if int(event_rows.shape[0]) == 0:
+        return None
+    event_times = stop[event_rows]
+    event_strata = strata[event_rows]
     if backend == "torch":
-        failure_times, integer_counts = xp.unique(
-            event_times, sorted=True, return_counts=True
-        )
+        event_order = xp.argsort(event_times, descending=True, stable=True)
+        event_order = event_order[
+            xp.argsort(event_strata[event_order], stable=True)
+        ]
     else:
-        failure_times, integer_counts = xp.unique(event_times, return_counts=True)
-    n_groups = int(failure_times.shape[0])
+        event_order = xp.lexsort(
+            xp.stack((-event_times, event_strata), axis=0)
+        )
+    grouped_times = event_times[event_order]
+    grouped_strata = event_strata[event_order]
+    failure_starts_mask = xp.zeros_like(
+        grouped_strata, dtype=xp.bool_ if backend != "torch" else xp.bool
+    )
+    failure_starts_mask[0] = True
+    failure_starts_mask[1:] = (
+        (grouped_strata[1:] != grouped_strata[:-1])
+        | (grouped_times[1:] != grouped_times[:-1])
+    )
+    event_group_codes = _segment_codes(failure_starts_mask, backend, xp)
+    failure_starts = _nonzero(failure_starts_mask, backend, xp)
+    n_groups = int(failure_starts.shape[0])
     if n_groups == 0:
         return None
+    integer_counts = xp.bincount(event_group_codes, minlength=n_groups)
+    failure_times = grouped_times[failure_starts]
+    failure_strata = grouped_strata[failure_starts]
     counts = _as_float(integer_counts, backend, X)
     n_samples, n_features = int(X.shape[0]), int(X.shape[1])
     max_ties = _scalar_int(_max(integer_counts, backend, xp))
@@ -893,19 +1053,21 @@ def _batched_exact_group_objective(
     estimated_bytes = itemsize * (
         4 * n_groups * n_samples + 12 * n_groups * (max_ties + 1) * state_width
     )
-    max_bytes = max(
-        0,
-        int(os.environ.get("STATGPU_EXACT_BATCH_MAX_BYTES", 512 * 1024 * 1024)),
+    max_bytes = _nonnegative_env_int(
+        "STATGPU_EXACT_BATCH_MAX_BYTES",
+        512 * 1024 * 1024,
+        1 << 50,
     )
     if max_bytes == 0 or estimated_bytes > max_bytes:
         return None
 
-    risk_mask = (start.reshape(1, -1) < failure_times.reshape(-1, 1)) & (
-        stop.reshape(1, -1) >= failure_times.reshape(-1, 1)
-    )
+    same_stratum = strata.reshape(1, -1) == failure_strata.reshape(-1, 1)
+    risk_mask = same_stratum & (
+        start.reshape(1, -1) < failure_times.reshape(-1, 1)
+    ) & (stop.reshape(1, -1) >= failure_times.reshape(-1, 1))
     fail_mask = (event.reshape(1, -1) == 1) & (
         stop.reshape(1, -1) == failure_times.reshape(-1, 1)
-    )
+    ) & same_stratum
     risk_float = _as_float(risk_mask, backend, X)
     fail_float = _as_float(fail_mask, backend, X)
     risk_counts = _sum(risk_float, backend, xp, axis=1)
@@ -956,6 +1118,91 @@ def _batched_exact_group_objective(
         result["score_residuals"] = (
             X * event_count.reshape(-1, 1) - risk_float.T @ allocation
         )
+    return result
+
+
+def _reference_exact_group_objective(
+    eta: Any,
+    X: Any,
+    stop: Any,
+    event: Any,
+    start: Any,
+    strata: Any,
+    *,
+    score_residuals: bool,
+    compute_derivatives: bool,
+) -> Dict[str, Any]:
+    """Evaluate Exact ties with the bounded reference loop."""
+    backend, xp = _array_namespace(X)
+    n_samples, n_features = int(X.shape[0]), int(X.shape[1])
+    loglik = _zeros(backend, xp, (), X)
+    score = _zeros(backend, xp, (n_features,), X) if compute_derivatives else None
+    information = (
+        _zeros(backend, xp, (n_features, n_features), X)
+        if compute_derivatives
+        else None
+    )
+    residuals = (
+        _zeros(backend, xp, (n_samples, n_features), X)
+        if score_residuals
+        else None
+    )
+
+    for stratum in _unique_sorted(strata, backend, xp):
+        stratum_mask = strata == stratum
+        event_mask_s = stratum_mask & (event == 1)
+        failure_times = _unique_sorted(stop[event_mask_s], backend, xp)
+        for failure_time in failure_times:
+            fail_mask = event_mask_s & (stop == failure_time)
+            risk_mask = stratum_mask & (start < failure_time) & (stop >= failure_time)
+            fail_idx = _nonzero(fail_mask, backend, xp)
+            risk_idx = _nonzero(risk_mask, backend, xp)
+            d = int(fail_idx.shape[0])
+            if d == 0:
+                continue
+            if int(risk_idx.shape[0]) == 0:
+                raise FloatingPointError(
+                    "empty Cox risk set at an observed failure time"
+                )
+
+            eta_shift = _max(eta[risk_idx], backend, xp)
+            log_w_risk = eta[risk_idx] - eta_shift
+            loglik = loglik + _sum(eta[fail_idx], backend, xp)
+            if compute_derivatives:
+                X_risk = X[risk_idx]
+                X_fail = X[fail_idx]
+                score = score + _sum(X_fail, backend, xp, axis=0)
+                if residuals is not None:
+                    residuals[fail_idx] = residuals[fail_idx] + X_fail
+                (
+                    log_partition,
+                    exact_mean,
+                    exact_second,
+                ) = _exact_tie_log_partition_moments(
+                    X_risk, log_w_risk, d, backend, xp
+                )
+            else:
+                log_partition = _exact_tie_log_partition(
+                    log_w_risk, d, backend, xp
+                )
+            if _scalar_bool(~xp.isfinite(log_partition)):
+                raise FloatingPointError("non-finite exact Cox tie log-partition")
+            loglik = loglik - (log_partition + float(d) * eta_shift)
+            if compute_derivatives:
+                score = score - exact_mean
+                information = information + (
+                    exact_second - _outer(exact_mean, exact_mean, backend, xp)
+                )
+                if residuals is not None:
+                    allocation = exact_mean / float(risk_idx.shape[0])
+                    residuals[risk_idx] = residuals[risk_idx] - allocation
+
+    result = {"log_likelihood": loglik}
+    if compute_derivatives:
+        result["score"] = score
+        result["information"] = 0.5 * (information + information.T)
+    if residuals is not None:
+        result["score_residuals"] = residuals
     return result
 
 
@@ -1023,7 +1270,16 @@ def _stratified_exact_group_objective(
                 compute_derivatives=compute_derivatives,
             )
         if result is None:
-            return None
+            result = _reference_exact_group_objective(
+                eta_s,
+                X_s,
+                stop_s,
+                event_s,
+                start_s,
+                strata_s,
+                score_residuals=False,
+                compute_derivatives=compute_derivatives,
+            )
         loglik = loglik + result["log_likelihood"]
         if compute_derivatives:
             score = score + result["score"]
@@ -1178,11 +1434,19 @@ def prepare_counting_process_inputs(
             if start is None
             else xp.as_tensor(start, dtype=X.dtype, device=X.device)
         )
-        strata = (
-            xp.zeros(stop.shape[0], dtype=xp.int64, device=X.device)
-            if strata is None
-            else xp.as_tensor(strata, dtype=xp.int64, device=X.device)
-        )
+        if strata is None:
+            strata = xp.zeros(stop.shape[0], dtype=xp.int64, device=X.device)
+        else:
+            strata_raw = xp.as_tensor(strata, device=X.device)
+            if strata_raw.ndim != 1 or int(strata_raw.shape[0]) != int(stop.shape[0]):
+                raise ValueError("strata must have shape (n_samples,)")
+            if strata_raw.is_complex():
+                raise ValueError("strata must contain integer-valued labels")
+            if strata_raw.is_floating_point():
+                invalid = ~xp.isfinite(strata_raw) | (strata_raw != xp.round(strata_raw))
+                if _scalar_bool(xp.any(invalid)):
+                    raise ValueError("strata must contain finite integer-valued labels")
+            strata = strata_raw.to(dtype=xp.int64)
     else:
         X = xp.asarray(X, dtype=xp.float64)
         stop = xp.asarray(stop, dtype=xp.float64)
@@ -1192,11 +1456,20 @@ def prepare_counting_process_inputs(
             if start is None
             else xp.asarray(start, dtype=xp.float64)
         )
-        strata = (
-            xp.zeros(stop.shape[0], dtype=xp.int64)
-            if strata is None
-            else xp.asarray(strata, dtype=xp.int64)
-        )
+        if strata is None:
+            strata = xp.zeros(stop.shape[0], dtype=xp.int64)
+        else:
+            strata_raw = xp.asarray(strata)
+            if strata_raw.ndim != 1 or int(strata_raw.shape[0]) != int(stop.shape[0]):
+                raise ValueError("strata must have shape (n_samples,)")
+            kind = strata_raw.dtype.kind
+            if kind not in "biuf":
+                raise ValueError("strata must contain numeric integer-valued labels")
+            if kind == "f":
+                invalid = ~xp.isfinite(strata_raw) | (strata_raw != xp.rint(strata_raw))
+                if _scalar_bool(xp.any(invalid)):
+                    raise ValueError("strata must contain finite integer-valued labels")
+            strata = strata_raw.astype(xp.int64, copy=False)
     _validate_counting_process_inputs(X, stop, event, start, strata)
     event = event.to(dtype=xp.int64) if backend == "torch" else event.astype(xp.int64)
     return X, stop, event, start, strata
@@ -1237,7 +1510,7 @@ def cox_counting_process_objective(
     )
     backend, xp = _array_namespace(X)
     beta = _as_backend_array(beta, backend, xp, X).reshape(-1)
-    n_samples, n_features = int(X.shape[0]), int(X.shape[1])
+    n_features = int(X.shape[1])
     if int(beta.shape[0]) != n_features:
         raise ValueError("beta must have shape (n_features,)")
 
@@ -1260,19 +1533,6 @@ def cox_counting_process_objective(
         )
         if nested_exact is not None:
             return nested_exact
-        stratified_exact = _stratified_exact_group_objective(
-            eta,
-            X_centered,
-            stop,
-            event,
-            start,
-            strata,
-            score_residuals=score_residuals,
-            compute_derivatives=compute_derivatives,
-        )
-        if stratified_exact is not None:
-            return stratified_exact
-    if ties == "exact":
         batched_exact = _batched_exact_group_objective(
             eta,
             X_centered,
@@ -1285,6 +1545,18 @@ def cox_counting_process_objective(
         )
         if batched_exact is not None:
             return batched_exact
+        stratified_exact = _stratified_exact_group_objective(
+            eta,
+            X_centered,
+            stop,
+            event,
+            start,
+            strata,
+            score_residuals=score_residuals,
+            compute_derivatives=compute_derivatives,
+        )
+        if stratified_exact is not None:
+            return stratified_exact
     if ties != "exact":
         if backend == "numpy":
             return _numpy_group_objective(
@@ -1310,79 +1582,16 @@ def cox_counting_process_objective(
             compute_derivatives=compute_derivatives,
         )
 
-    loglik = _zeros(backend, xp, (), X)
-    score = _zeros(backend, xp, (n_features,), X) if compute_derivatives else None
-    information = (
-        _zeros(backend, xp, (n_features, n_features), X)
-        if compute_derivatives
-        else None
+    return _reference_exact_group_objective(
+        eta,
+        X_centered,
+        stop,
+        event,
+        start,
+        strata,
+        score_residuals=score_residuals,
+        compute_derivatives=compute_derivatives,
     )
-    residuals = (
-        _zeros(backend, xp, (n_samples, n_features), X) if score_residuals else None
-    )
-
-    unique_strata = _unique_sorted(strata, backend, xp)
-    for stratum in unique_strata:
-        stratum_mask = strata == stratum
-        event_mask_s = stratum_mask & (event == 1)
-        failure_times = _unique_sorted(stop[event_mask_s], backend, xp)
-        if int(failure_times.shape[0]) == 0:
-            continue
-
-        for failure_time in failure_times:
-            fail_mask = event_mask_s & (stop == failure_time)
-            risk_mask = stratum_mask & (start < failure_time) & (stop >= failure_time)
-            fail_idx = _nonzero(fail_mask, backend, xp)
-            risk_idx = _nonzero(risk_mask, backend, xp)
-            d = int(fail_idx.shape[0])
-            if d == 0:
-                continue
-            if int(risk_idx.shape[0]) == 0:
-                raise FloatingPointError(
-                    "empty Cox risk set at an observed failure time"
-                )
-
-            eta_shift = _max(eta[risk_idx], backend, xp)
-            log_w_risk = eta[risk_idx] - eta_shift
-
-            loglik = loglik + _sum(eta[fail_idx], backend, xp)
-            if compute_derivatives:
-                X_risk = X_centered[risk_idx]
-                X_fail = X_centered[fail_idx]
-                score = score + _sum(X_fail, backend, xp, axis=0)
-                if residuals is not None:
-                    residuals[fail_idx] = residuals[fail_idx] + X_fail
-                (
-                    log_partition,
-                    exact_mean,
-                    exact_second,
-                ) = _exact_tie_log_partition_moments(X_risk, log_w_risk, d, backend, xp)
-            else:
-                log_partition = _exact_tie_log_partition(log_w_risk, d, backend, xp)
-            if _scalar_bool(~xp.isfinite(log_partition)):
-                raise FloatingPointError("non-finite exact Cox tie log-partition")
-            loglik = loglik - (log_partition + float(d) * eta_shift)
-            if compute_derivatives:
-                score = score - exact_mean
-                information = information + (
-                    exact_second - _outer(exact_mean, exact_mean, backend, xp)
-                )
-                if residuals is not None:
-                    # The exact score is additive but individual conditional
-                    # inclusion probabilities require another DP pass.  Preserve
-                    # the exact row-sum contract with an equal risk-set allocation.
-                    # Cluster-robust inference for exact ties is rejected by the
-                    # estimator until exact inclusion probabilities are exposed.
-                    allocation = exact_mean / float(risk_idx.shape[0])
-                    residuals[risk_idx] = residuals[risk_idx] - allocation
-
-    result = {"log_likelihood": loglik}
-    if compute_derivatives:
-        result["score"] = score
-        result["information"] = 0.5 * (information + information.T)
-    if residuals is not None:
-        result["score_residuals"] = residuals
-    return result
 
 
 def cox_baseline_hazard(

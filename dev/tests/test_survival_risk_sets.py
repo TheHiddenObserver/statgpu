@@ -251,12 +251,14 @@ def test_torch_exact_channelwise_extra_memory_keeps_nested_native_scan(monkeypat
     original = risk_sets_module._cumsum_axis0
 
     def recording_cumsum(*args, **kwargs):
-        calls.append(kwargs.get("allow_channelwise", True))
+        if int(args[0].ndim) > 1:
+            calls.append(kwargs.get("allow_channelwise", True))
         return original(*args, **kwargs)
 
     monkeypatch.setattr(risk_sets_module, "_cumsum_axis0", recording_cumsum)
     monkeypatch.setenv("STATGPU_TORCH_EXACT_SCAN_MIN_ROWS", "0")
     monkeypatch.setenv("STATGPU_TORCH_EXACT_SCAN_MAX_CHANNELS", "64")
+    monkeypatch.setenv("STATGPU_TORCH_EXACT_SCAN_STRATEGY", "channelwise")
     monkeypatch.setenv(
         "STATGPU_EXACT_NESTED_MAX_BYTES", str(base_bytes + split_extra_bytes - 1)
     )
@@ -333,9 +335,10 @@ def test_torch_cuda_exact_channelwise_objective_matches_native_scan(monkeypatch)
 
     monkeypatch.setenv("STATGPU_TORCH_EXACT_SCAN_MIN_ROWS", "0")
     monkeypatch.setenv("STATGPU_TORCH_EXACT_SCAN_MAX_CHANNELS", "64")
+    monkeypatch.setenv("STATGPU_TORCH_EXACT_SCAN_STRATEGY", "channelwise")
     channelwise = cox_counting_process_objective(beta, X, stop, event, ties="exact")
 
-    monkeypatch.setenv("STATGPU_TORCH_EXACT_SCAN_MAX_CHANNELS", "0")
+    monkeypatch.setenv("STATGPU_TORCH_EXACT_SCAN_STRATEGY", "native")
     native = cox_counting_process_objective(beta, X, stop, event, ties="exact")
     for key in ("log_likelihood", "score", "information"):
         assert torch.allclose(channelwise[key], native[key], rtol=2e-10, atol=2e-10)
@@ -428,7 +431,7 @@ def test_nested_exact_matches_forced_memory_bounded_path(backend, monkeypatch):
 
 
 @pytest.mark.parametrize("backend", ["numpy", "cupy", "torch"])
-def test_stratified_exact_composes_nested_fast_paths(backend, monkeypatch):
+def test_stratified_exact_uses_one_segmented_nested_fast_path(backend, monkeypatch):
     rng = np.random.default_rng(7134)
     n_samples, n_features = 72, 3
     X = rng.normal(size=(n_samples, n_features))
@@ -473,7 +476,7 @@ def test_stratified_exact_composes_nested_fast_paths(backend, monkeypatch):
     optimized = cox_counting_process_objective(
         beta, X, stop, event, strata=strata, ties="exact"
     )
-    assert selected_sizes == [24, 24, 24]
+    assert selected_sizes == [n_samples]
 
     monkeypatch.setenv("STATGPU_EXACT_NESTED_MAX_BYTES", "0")
     monkeypatch.setenv("STATGPU_EXACT_BATCH_MAX_BYTES", "0")
@@ -488,7 +491,7 @@ def test_stratified_exact_composes_nested_fast_paths(backend, monkeypatch):
 
 
 @pytest.mark.parametrize("backend", ["numpy", "cupy", "torch"])
-def test_backend_stratified_delayed_entry_exact_composes_batched_fast_paths(
+def test_backend_three_strata_delayed_entry_uses_local_batched_fast_paths(
     backend, monkeypatch
 ):
     if backend == "numpy":
@@ -543,7 +546,7 @@ def test_backend_stratified_delayed_entry_exact_composes_batched_fast_paths(
         strata=strata,
         ties="exact",
     )
-    assert selected_sizes == [24, 24, 24]
+    assert selected_sizes == [n_samples // 3] * 3
 
     monkeypatch.setenv("STATGPU_EXACT_BATCH_MAX_BYTES", "0")
     reference = cox_counting_process_objective(

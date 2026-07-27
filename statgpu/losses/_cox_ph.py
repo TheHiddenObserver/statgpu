@@ -79,6 +79,16 @@ def _sum(value, xp, axis=None):
     return xp.sum(value, axis=axis)
 
 
+class _CoxPreprocessedTarget:
+    """Opaque proof that ``X`` belongs to the active Cox fit cache."""
+
+    __slots__ = ("generation", "n_samples")
+
+    def __init__(self, generation: int, n_samples: int):
+        self.generation = int(generation)
+        self.n_samples = int(n_samples)
+
+
 @register_loss("cox_ph")
 class CoxPartialLikelihoodLoss(LossBase):
     """Negative Cox partial likelihood with Breslow or Efron ties.
@@ -97,6 +107,7 @@ class CoxPartialLikelihoodLoss(LossBase):
     has_hessian = True
 
     _lipschitz_safety = 1.0
+    _lipschitz_uses_y = True
     _has_constant_hessian = False
 
     def __init__(self, ties: str = "breslow"):
@@ -123,15 +134,31 @@ class CoxPartialLikelihoodLoss(LossBase):
         self._group_event_indices_np = None
         self._event_group_codes_np = None
         self._efron_fractions_np = None
+        self._group_first_indices_backend = None
+        self._group_counts_backend = None
+        self._group_event_indices_backend = None
+        self._event_group_codes_backend = None
+        self._efron_fractions_backend = None
+        self._cache_generation = 0
+        self._preprocessed_target = None
+
+    def is_preprocessed(self, X, y) -> bool:
+        """Return whether ``(X, y)`` is the active sorted fit-cache pair."""
+        return bool(
+            self._sorted
+            and X is self._X_sorted
+            and y is self._preprocessed_target
+            and getattr(y, "generation", None) == self._cache_generation
+        )
 
     def _ensure_sorted(self, X, y):
-        if self._sorted and X is self._X_sorted:
+        if self.is_preprocessed(X, y):
             return
-        self._sorted = False
         self.preprocess(X, y)
 
     def preprocess(self, X, y):
         """Validate, center, and stably sort right-censored survival data."""
+        self.release_fit_cache()
         xp = _get_xp(X)
         if isinstance(y, dict):
             if "time" not in y or "event" not in y:
@@ -231,9 +258,70 @@ class CoxPartialLikelihoodLoss(LossBase):
             if counts.size
             else np.empty(0, dtype=np.float64)
         )
-        return self._X_sorted, _xp_zeros(
-            X_arr.shape[0], dtype=xp.float64, ref_arr=X_arr
+        self._backend_group_metadata(xp, self._X_sorted)
+        self._preprocessed_target = _CoxPreprocessedTarget(
+            self._cache_generation, int(X_arr.shape[0])
         )
+        return self._X_sorted, self._preprocessed_target
+
+    def release_fit_cache(self):
+        """Release all training-data and backend metadata references."""
+        self._cache_generation += 1
+        self._sorted = False
+        self._X_sorted = None
+        self._time_sorted = None
+        self._event_sorted = None
+        self._order = None
+        self._time_np = None
+        self._event_np = None
+        self._efron_pre_np = None
+        self._breslow_pre_np = None
+        self._breslow_event_indices_np = None
+        self._efron_csr = None
+        self._efron_backend_index_cache = {}
+        self._n_events = 0
+        self._x_reference = None
+        self._group_first_indices_np = None
+        self._group_counts_np = None
+        self._group_event_indices_np = None
+        self._event_group_codes_np = None
+        self._efron_fractions_np = None
+        self._group_first_indices_backend = None
+        self._group_counts_backend = None
+        self._group_event_indices_backend = None
+        self._event_group_codes_backend = None
+        self._efron_fractions_backend = None
+        self._preprocessed_target = None
+
+    def _backend_group_metadata(self, xp, reference):
+        """Return failure-group metadata cached by backend and device."""
+        device = str(getattr(reference, "device", "cpu"))
+        key = (xp.__name__, device, str(getattr(reference, "dtype", "")))
+        cached = self._efron_backend_index_cache.get(key)
+        if cached is None:
+            cached = (
+                _backend_index(self._group_first_indices_np, xp, reference),
+                _xp_asarray(
+                    self._group_counts_np, dtype=xp.float64, ref_arr=reference
+                ),
+                _backend_index(self._group_event_indices_np, xp, reference),
+                _backend_index(self._event_group_codes_np, xp, reference),
+                _xp_asarray(
+                    self._efron_fractions_np,
+                    dtype=xp.float64,
+                    ref_arr=reference,
+                ),
+            )
+            self._efron_backend_index_cache[key] = cached
+        if reference is self._X_sorted:
+            (
+                self._group_first_indices_backend,
+                self._group_counts_backend,
+                self._group_event_indices_backend,
+                self._event_group_codes_backend,
+                self._efron_fractions_backend,
+            ) = cached
+        return cached
 
     @staticmethod
     def _reject_sample_weight(sample_weight):
@@ -257,12 +345,12 @@ class CoxPartialLikelihoodLoss(LossBase):
             )
         return result
 
-    def _validate_coef(self, coef_dev):
+    def _validate_coef(self, coef_dev, *, finite=True):
         xp = _get_xp(self._X_sorted)
         n_features = int(self._X_sorted.shape[1])
         if int(coef_dev.ndim) != 1 or int(coef_dev.shape[0]) != n_features:
             raise ValueError("coef must have shape (n_features,)")
-        if _to_float_scalar(xp.sum(~xp.isfinite(coef_dev))) > 0:
+        if finite and _to_float_scalar(xp.sum(~xp.isfinite(coef_dev))) > 0:
             raise ValueError("coef must contain only finite values")
 
     def _shared_objective(self, coef_dev, *, compute_derivatives: bool):
@@ -307,6 +395,26 @@ class CoxPartialLikelihoodLoss(LossBase):
         )
         return -score / self._X_sorted.shape[0]
 
+    def gradient_preprocessed(self, coef):
+        """Return a gradient from the active solver-owned fit cache."""
+        if not self._sorted or self._preprocessed_target is None:
+            raise RuntimeError("Cox fit cache is not active")
+        xp = _get_xp(self._X_sorted)
+        coef_dev = _xp_asarray(
+            coef, dtype=xp.float64, ref_arr=self._X_sorted
+        ).reshape(-1)
+        self._validate_coef(coef_dev, finite=False)
+        eta = self._X_sorted @ coef_dev
+        _, score, _ = self._objective_from_eta_backend(
+            eta,
+            self._X_sorted,
+            xp,
+            self.ties,
+            compute_information=False,
+            validate_numerics=False,
+        )
+        return -score / self._X_sorted.shape[0]
+
     def fused_value_and_gradient(self, X, y, coef, sample_weight=None):
         self._reject_sample_weight(sample_weight)
         self._ensure_sorted(X, y)
@@ -320,7 +428,7 @@ class CoxPartialLikelihoodLoss(LossBase):
             eta, self._X_sorted, xp, self.ties, compute_information=False
         )
         n = self._X_sorted.shape[0]
-        return -_to_float_scalar(loglik) / n, -score / n
+        return -loglik / n, -score / n
 
     def fused_gradient_and_hessian(self, X, y, coef, sample_weight=None):
         self._reject_sample_weight(sample_weight)
@@ -379,7 +487,9 @@ class CoxPartialLikelihoodLoss(LossBase):
         return xp.cumsum(values[::-1], axis=0)[::-1]
 
     @staticmethod
-    def _stable_segment_boundaries(eta, xp, max_block_rows):
+    def _stable_segment_boundaries(
+        eta, xp, max_block_rows, *, check_ranges=True
+    ):
         """Split predictor blocks until every block spans at most 500 logs.
 
         CuPy does not implement ``maximum.accumulate``. A bounded recursive
@@ -391,6 +501,10 @@ class CoxPartialLikelihoodLoss(LossBase):
             (lo, min(lo + max_block_rows, n))
             for lo in range(0, n, max_block_rows)
         ]
+        if not check_ranges:
+            return np.asarray(
+                [lo for lo, _ in pending] + [n], dtype=np.int64
+            )
         boundaries = {0, n}
         while pending:
             lo, hi = pending.pop()
@@ -408,7 +522,9 @@ class CoxPartialLikelihoodLoss(LossBase):
             boundaries.add(hi)
         return np.asarray(sorted(boundaries), dtype=np.int64)
 
-    def _suffix_group_moments(self, eta, X, xp, first_indices):
+    def _suffix_group_moments(
+        self, eta, X, xp, first_indices, *, validate_numerics=True
+    ):
         """Compute stable suffix log-sums and means at failure-group starts.
 
         A single global shift is fast but can underflow after the observation
@@ -424,7 +540,9 @@ class CoxPartialLikelihoodLoss(LossBase):
         risk_mean = _backend_zeros((n_groups, p), xp, X)
         if n_groups == 0:
             return risk_log_sum, risk_mean
-        if not bool(_to_float_scalar(xp.all(xp.isfinite(eta)))):
+        if validate_numerics and not bool(
+            _to_float_scalar(xp.all(xp.isfinite(eta)))
+        ):
             raise FloatingPointError("Cox linear predictor contains non-finite values")
 
         # Keep temporary moment buffers bounded for high-dimensional inputs.
@@ -433,8 +551,12 @@ class CoxPartialLikelihoodLoss(LossBase):
             min(n, 65_536, 2_000_000 // max(p, 1)),
         )
         boundaries = self._stable_segment_boundaries(
-            eta, xp, max_block_rows
+            eta,
+            xp,
+            max_block_rows,
+            check_ranges=validate_numerics,
         )
+        first_indices_backend = self._backend_group_metadata(xp, X)[0]
 
         tail_shift = None
         tail_sum = None
@@ -462,11 +584,13 @@ class CoxPartialLikelihoodLoss(LossBase):
             group_lo = int(np.searchsorted(first_indices, lo, side="left"))
             group_hi = int(np.searchsorted(first_indices, hi, side="left"))
             if group_hi > group_lo:
-                local_indices = _backend_index(
-                    first_indices[group_lo:group_hi] - lo, xp, X
+                local_indices = (
+                    first_indices_backend[group_lo:group_hi] - lo
                 )
                 selected_sum = block_sum[local_indices]
-                if bool(_to_float_scalar(xp.any(selected_sum <= 0))):
+                if validate_numerics and bool(
+                    _to_float_scalar(xp.any(selected_sum <= 0))
+                ):
                     raise FloatingPointError(
                         "non-positive Cox risk-set denominator"
                     )
@@ -484,11 +608,19 @@ class CoxPartialLikelihoodLoss(LossBase):
 
         return risk_log_sum, risk_mean
 
-    def _first_order_objective_from_eta_backend(self, eta, X, xp, ties):
+    def _first_order_objective_from_eta_backend(
+        self, eta, X, xp, ties, *, validate_numerics=True
+    ):
         """Evaluate log likelihood and score in near-linear time."""
         p = int(X.shape[1])
         first_indices = self._group_first_indices_np
-        counts_int = self._group_counts_np
+        (
+            _,
+            counts_backend,
+            event_indices,
+            event_groups,
+            fractions,
+        ) = self._backend_group_metadata(xp, X)
         if len(first_indices) == 0:
             return (
                 _backend_zeros((), xp, X),
@@ -497,19 +629,16 @@ class CoxPartialLikelihoodLoss(LossBase):
             )
 
         risk_log_sum, risk_mean = self._suffix_group_moments(
-            eta, X, xp, first_indices
+            eta,
+            X,
+            xp,
+            first_indices,
+            validate_numerics=validate_numerics,
         )
-        event_indices_np = self._group_event_indices_np
-        event_groups_np = self._event_group_codes_np
-        event_indices = _backend_index(event_indices_np, xp, X)
-        event_groups = _backend_index(event_groups_np, xp, X)
         event_X = X[event_indices]
         event_eta = eta[event_indices]
 
         if ties == "breslow":
-            counts_backend = _xp_asarray(
-                counts_int, dtype=xp.float64, ref_arr=X
-            )
             loglik = _sum(event_eta, xp) - _sum(
                 counts_backend * risk_log_sum, xp
             )
@@ -549,14 +678,12 @@ class CoxPartialLikelihoodLoss(LossBase):
                 event_X * event_weight_ratio.reshape(-1, 1),
             )
 
-        fractions_np = self._efron_fractions_np
-        fractions = _xp_asarray(
-            fractions_np, dtype=xp.float64, ref_arr=X
-        )
         denominator_ratio = (
             1.0 - fractions * event_ratio_sum[event_groups]
         )
-        if bool(_to_float_scalar(xp.any(denominator_ratio <= 0))):
+        if validate_numerics and bool(
+            _to_float_scalar(xp.any(denominator_ratio <= 0))
+        ):
             raise FloatingPointError("non-positive Cox risk-set denominator")
         adjusted_mean = (
             risk_mean[event_groups]
@@ -596,6 +723,13 @@ class CoxPartialLikelihoodLoss(LossBase):
         event_offsets = np.concatenate(
             [np.array([0], dtype=np.int64), np.cumsum(counts)]
         )
+        (
+            first_indices_backend,
+            counts_backend_all,
+            event_indices_backend,
+            event_groups_backend,
+            fractions_backend,
+        ) = self._backend_group_metadata(xp, X)
 
         tail_shift = None
         tail_sum = None
@@ -642,8 +776,8 @@ class CoxPartialLikelihoodLoss(LossBase):
             group_lo = int(np.searchsorted(first_indices, lo, side="left"))
             group_hi = int(np.searchsorted(first_indices, hi, side="left"))
             if group_hi > group_lo:
-                local_indices = _backend_index(
-                    first_indices[group_lo:group_hi] - lo, xp, X
+                local_indices = (
+                    first_indices_backend[group_lo:group_hi] - lo
                 )
                 selected_sum = block_sum[local_indices]
                 if bool(_to_float_scalar(xp.any(selected_sum <= 0))):
@@ -664,22 +798,20 @@ class CoxPartialLikelihoodLoss(LossBase):
 
                 event_lo = int(event_offsets[group_lo])
                 event_hi = int(event_offsets[group_hi])
-                event_indices = _backend_index(
-                    self._group_event_indices_np[event_lo:event_hi], xp, X
+                event_indices = event_indices_backend[
+                    event_lo:event_hi
+                ]
+                event_groups = (
+                    event_groups_backend[event_lo:event_hi] - group_lo
                 )
-                event_groups_np = (
-                    self._event_group_codes_np[event_lo:event_hi] - group_lo
-                )
-                event_groups = _backend_index(event_groups_np, xp, X)
                 event_X = X[event_indices]
                 centered_event_X = event_X - feature_shift
                 event_eta = eta[event_indices]
-                group_counts = counts[group_lo:group_hi]
 
                 if ties == "breslow":
-                    counts_backend = _xp_asarray(
-                        group_counts, dtype=xp.float64, ref_arr=X
-                    )
+                    counts_backend = counts_backend_all[
+                        group_lo:group_hi
+                    ]
                     loglik = loglik + _sum(event_eta, xp) - _sum(
                         counts_backend * risk_log_sum, xp
                     )
@@ -742,11 +874,9 @@ class CoxPartialLikelihoodLoss(LossBase):
                             weighted_event_second,
                         )
 
-                    fractions = _xp_asarray(
-                        self._efron_fractions_np[event_lo:event_hi],
-                        dtype=xp.float64,
-                        ref_arr=X,
-                    )
+                    fractions = fractions_backend[
+                        event_lo:event_hi
+                    ]
                     denominator_ratio = (
                         selected_sum[event_groups]
                         - fractions * event_ratio_sum[event_groups]
@@ -793,12 +923,23 @@ class CoxPartialLikelihoodLoss(LossBase):
         return loglik, score, -information
 
     def _objective_from_eta_backend(
-        self, eta, X, xp, ties, *, compute_information=True
+        self,
+        eta,
+        X,
+        xp,
+        ties,
+        *,
+        compute_information=True,
+        validate_numerics=True,
     ):
         """Evaluate log likelihood and score from a precomputed predictor."""
         if not compute_information:
             return self._first_order_objective_from_eta_backend(
-                eta, X, xp, ties
+                eta,
+                X,
+                xp,
+                ties,
+                validate_numerics=validate_numerics,
             )
         return self._full_objective_from_eta_backend(eta, X, xp, ties)
 

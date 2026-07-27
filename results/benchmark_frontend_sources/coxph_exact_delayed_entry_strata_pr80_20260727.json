@@ -1,40 +1,64 @@
 {
   "status": "complete",
-  "generated_at": "2026-07-27T01:43:02.752000+00:00",
+  "generated_at": "2026-07-27T05:58:40.845864+00:00",
   "statgpu_version": "0.2.2",
   "source_path": "/root/statgpu-validation/worktrees/pr80-reviewfix-20260726/statgpu/survival/_risk_sets.py",
-  "source_sha256": "f231445d27c5919b829cb30377fe8e6c92e22592eb5c6a2099ecb7a2453b4d8c",
+  "source_sha256": "da8bb597ddfaf2006ac662324da41591711676009b772b84a54f1c10d7486bd7",
   "source_hashes": {
-    "risk_sets": "f231445d27c5919b829cb30377fe8e6c92e22592eb5c6a2099ecb7a2453b4d8c",
+    "risk_sets": "da8bb597ddfaf2006ac662324da41591711676009b772b84a54f1c10d7486bd7",
     "cox_counting": "879dec8281d4d4426875924aaa3ae474dbcdc8cc249826c8569494ab54c7d286",
     "cox": "74a8cbc400333be82e1a3573f68ed893e4ce5d73fd8e58035443f921f4b07be6"
   },
   "benchmark_path": "/root/statgpu-validation/worktrees/pr80-reviewfix-20260726/dev/benchmarks/benchmark_exact_ties_scaling.py",
-  "benchmark_sha256": "61127b29ddcb06b4c604e075dcfa3cec28781bcb92a038466272149cb5c965b5",
-  "generation_method": "A temporary remote driver imported make_r_alignment_cases, fit_once, fit_r_once, and result_differences from the benchmark module; it did not change the estimator or benchmark helpers.",
+  "benchmark_sha256": "3a26ff7f7c3aa9285af0a864404f5fe40d7b39f662615eefe74e2bdf5b5946d6",
+  "command_argv": [
+    "/root/miniconda3/envs/myconda/bin/python",
+    "dev/benchmarks/benchmark_exact_ties_scaling.py",
+    "--sizes",
+    "320",
+    "640",
+    "1280",
+    "2560",
+    "5120",
+    "10240",
+    "--features",
+    "4",
+    "--scaling-scenario",
+    "delayed_entry_strata",
+    "--strata-count",
+    "3",
+    "--repeats",
+    "5",
+    "--largest-repeats",
+    "1",
+    "--reduced-repeat-from",
+    "2560",
+    "--devices",
+    "cpu",
+    "cuda",
+    "torch",
+    "--include-r",
+    "--r-repeats",
+    "1",
+    "--r-timeout",
+    "30",
+    "--skip-r-alignment",
+    "--output",
+    "results/benchmark_frontend_sources/coxph_exact_delayed_entry_strata_pr80_20260727.json"
+  ],
   "python": "3.9.16",
   "numpy": "1.24.2",
   "features": 4,
   "seed": 88031,
   "scaling_scenario": "delayed_entry_strata",
-  "scenario": {
-    "ties": "exact",
-    "has_delayed_entry": true,
-    "strata_count": 3,
-    "compute_inference": true,
-    "compute_cindex": false,
-    "tol": 1e-08,
-    "max_iter": 50
-  },
+  "strata_count_requested": 3,
+  "statgpu_repeats": 5,
+  "reduced_repeats": 1,
+  "reduced_repeat_from": 2560,
+  "r_repeats": 1,
   "timing_scope": {
-    "statgpu": "One CoxPH.fit after an n=80 scenario-matched warm-up; includes input conversion, optimization, and inference; GPU synchronized immediately before and after fit",
+    "statgpu": "CoxPH.fit including input conversion and inference; GPU synchronized immediately before and after fit",
     "r_survival": "survival::coxph call including inference; R startup, package load, and CSV parsing excluded"
-  },
-  "repeat_policy": {
-    "statgpu_repeats": 1,
-    "statgpu_warmup_n": 80,
-    "r_repeats": 1,
-    "r_timeout_seconds": 120
   },
   "devices": [
     "cpu",
@@ -47,8 +71,7 @@
     "torch_gpu": "Tesla P100-SXM2-16GB",
     "torch_version": "2.0.0+cu117"
   },
-  "external_reference": "R survival::coxph with ties=exact, robust=FALSE, and timefix=FALSE",
-  "external_reference_status": "partial_timeouts",
+  "external_reference": "R survival::coxph(ties=\"exact\", robust=FALSE, timefix=FALSE)",
   "r_metadata": {
     "r_version": "4.4.1",
     "survival_version": "3.8.9"
@@ -59,36 +82,11 @@
     "log_likelihood_abs": 1e-07,
     "covariance_max_abs": 1e-06
   },
-  "max_observed_backend_differences_vs_numpy": {
-    "coef_max_abs": 5.051514762044462e-15,
-    "log_likelihood_abs": 7.275957614183426e-12,
-    "covariance_max_abs": 7.643625316022806e-18
-  },
   "gate_failures": [],
-  "external_reference_observations": [
-    {
-      "n": 1280,
-      "status": "timeout",
-      "timeout_seconds": 120
-    },
-    {
-      "n": 2560,
-      "status": "timeout",
-      "timeout_seconds": 120
-    },
-    {
-      "n": 5120,
-      "status": "skipped_after_repeated_timeout"
-    },
-    {
-      "n": 10240,
-      "status": "skipped_after_repeated_timeout"
-    }
-  ],
   "cases": [
     {
       "n": 320,
-      "repeats": 1,
+      "repeats": 5,
       "ties_bins": 40,
       "events": 201,
       "failure_groups": 95,
@@ -98,61 +96,253 @@
       "backends": {
         "numpy": {
           "status": "complete",
-          "seconds": [0.18973210453987122],
-          "median_seconds": 0.18973210453987122,
+          "seconds": [
+            0.18880710005760193,
+            0.1940954029560089,
+            0.19076859951019287,
+            0.1882469654083252,
+            0.1871948540210724
+          ],
+          "median_seconds": 0.18880710005760193,
+          "representative_seconds": 0.18880710005760193,
+          "representative_run_index": 0,
+          "run_converged": [
+            true,
+            true,
+            true,
+            true,
+            true
+          ],
+          "all_converged": true,
+          "all_finite": true,
+          "coef": [
+            0.15704145882360857,
+            -0.22879330120872285,
+            0.09887602043268852,
+            -0.0011607508365679652
+          ],
+          "log_likelihood": -559.974374948261,
+          "covariance": [
+            [
+              0.005435021804591078,
+              -0.00023889367231479547,
+              0.0008771607823722043,
+              -0.00014457845961089326
+            ],
+            [
+              -0.00023889367231479547,
+              0.005695903825565987,
+              0.0003351598326493318,
+              -0.0006016530383930991
+            ],
+            [
+              0.0008771607823722043,
+              0.0003351598326493318,
+              0.006147723004578975,
+              -0.00022645064973338992
+            ],
+            [
+              -0.00014457845961089326,
+              -0.0006016530383930991,
+              -0.00022645064973338992,
+              0.006544277263672636
+            ]
+          ],
           "iterations": 4,
           "converged": true,
-          "coef_max_abs_vs_r": 3.3306690738754696e-16,
-          "log_likelihood_abs_vs_r": 0.0,
-          "covariance_max_abs_vs_r": 1.3010426069826053e-17,
-          "speedup_vs_r": 1.6760473973089463
+          "coef_max_abs_vs_r": 2.914335439641036e-16,
+          "log_likelihood_abs_vs_r": 1.1368683772161603e-13,
+          "covariance_max_abs_vs_r": 1.5612511283791264e-17,
+          "speedup_vs_r": 1.7319263941887655
         },
         "cupy": {
           "status": "complete",
-          "seconds": [1.1060238182544708],
-          "median_seconds": 1.1060238182544708,
+          "seconds": [
+            1.1965081691741943,
+            1.1470791399478912,
+            1.1469507217407227,
+            1.1978272497653961,
+            1.19381982088089
+          ],
+          "median_seconds": 1.19381982088089,
+          "representative_seconds": 1.19381982088089,
+          "representative_run_index": 4,
+          "run_converged": [
+            true,
+            true,
+            true,
+            true,
+            true
+          ],
+          "all_converged": true,
+          "all_finite": true,
+          "coef": [
+            0.1570414588236086,
+            -0.22879330120872285,
+            0.09887602043268857,
+            -0.0011607508365679743
+          ],
+          "log_likelihood": -559.974374948261,
+          "covariance": [
+            [
+              0.005435021804591076,
+              -0.00023889367231479558,
+              0.0008771607823722041,
+              -0.00014457845961089342
+            ],
+            [
+              -0.00023889367231479558,
+              0.005695903825565987,
+              0.00033515983264933145,
+              -0.0006016530383930991
+            ],
+            [
+              0.0008771607823722041,
+              0.00033515983264933145,
+              0.006147723004578975,
+              -0.00022645064973338987
+            ],
+            [
+              -0.00014457845961089342,
+              -0.0006016530383930991,
+              -0.00022645064973338987,
+              0.006544277263672637
+            ]
+          ],
           "iterations": 4,
           "converged": true,
           "coef_max_abs_vs_numpy": 5.551115123125783e-17,
           "log_likelihood_abs_vs_numpy": 0.0,
-          "covariance_max_abs_vs_numpy": 2.6020852139652106e-18,
-          "speedup_vs_numpy": 0.17154432066328087,
+          "covariance_max_abs_vs_numpy": 1.734723475976807e-18,
+          "speedup_vs_numpy": 0.15815376554753954,
           "coef_max_abs_vs_r": 3.469446951953614e-16,
-          "log_likelihood_abs_vs_r": 0.0,
+          "log_likelihood_abs_vs_r": 1.1368683772161603e-13,
           "covariance_max_abs_vs_r": 1.5612511283791264e-17,
-          "speedup_vs_r": 0.2875164121708232
+          "speedup_vs_r": 0.2739106808921256
         },
         "torch": {
           "status": "complete",
-          "seconds": [0.6947092711925507],
-          "median_seconds": 0.6947092711925507,
+          "seconds": [
+            0.7464395761489868,
+            0.7182467877864838,
+            0.7063445448875427,
+            0.7112890481948853,
+            0.6983349621295929
+          ],
+          "median_seconds": 0.7112890481948853,
+          "representative_seconds": 0.7112890481948853,
+          "representative_run_index": 3,
+          "run_converged": [
+            true,
+            true,
+            true,
+            true,
+            true
+          ],
+          "all_converged": true,
+          "all_finite": true,
+          "coef": [
+            0.15704145882360862,
+            -0.22879330120872288,
+            0.09887602043268855,
+            -0.0011607508365679515
+          ],
+          "log_likelihood": -559.9743749482609,
+          "covariance": [
+            [
+              0.005435021804591075,
+              -0.00023889367231479553,
+              0.0008771607823722042,
+              -0.00014457845961089318
+            ],
+            [
+              -0.00023889367231479553,
+              0.005695903825565987,
+              0.0003351598326493316,
+              -0.0006016530383930992
+            ],
+            [
+              0.0008771607823722042,
+              0.0003351598326493316,
+              0.006147723004578977,
+              -0.0002264506497333899
+            ],
+            [
+              -0.00014457845961089318,
+              -0.0006016530383930992,
+              -0.0002264506497333899,
+              0.006544277263672636
+            ]
+          ],
           "iterations": 4,
           "converged": true,
-          "coef_max_abs_vs_numpy": 2.7755575615628914e-17,
-          "log_likelihood_abs_vs_numpy": 0.0,
+          "coef_max_abs_vs_numpy": 5.551115123125783e-17,
+          "log_likelihood_abs_vs_numpy": 1.1368683772161603e-13,
           "covariance_max_abs_vs_numpy": 2.6020852139652106e-18,
-          "speedup_vs_numpy": 0.2731100798671847,
-          "coef_max_abs_vs_r": 3.3306690738754696e-16,
+          "speedup_vs_numpy": 0.26544356409923364,
+          "coef_max_abs_vs_r": 3.191891195797325e-16,
           "log_likelihood_abs_vs_r": 0.0,
           "covariance_max_abs_vs_r": 1.5612511283791264e-17,
-          "speedup_vs_r": 0.4577454385402334
+          "speedup_vs_r": 0.4597287148310002
         },
         "r_survival": {
           "status": "complete",
-          "seconds": [0.31800000000000006],
-          "median_seconds": 0.31800000000000006,
+          "seconds": [
+            0.32699999999999996
+          ],
+          "median_seconds": 0.32699999999999996,
+          "representative_seconds": 0.32699999999999996,
+          "representative_run_index": 0,
+          "run_converged": [
+            true
+          ],
+          "all_converged": true,
+          "all_finite": true,
+          "coef": [
+            0.15704145882360884,
+            -0.22879330120872268,
+            0.09887602043268823,
+            -0.0011607508365679656
+          ],
+          "log_likelihood": -559.9743749482609,
+          "covariance": [
+            [
+              0.005435021804591071,
+              -0.00023889367231479843,
+              0.0008771607823722026,
+              -0.00014457845961088955
+            ],
+            [
+              -0.00023889367231479843,
+              0.005695903825565971,
+              0.00033515983264932755,
+              -0.0006016530383931
+            ],
+            [
+              0.0008771607823722026,
+              0.00033515983264932755,
+              0.006147723004578964,
+              -0.00022645064973338824
+            ],
+            [
+              -0.00014457845961088955,
+              -0.0006016530383931,
+              -0.00022645064973338824,
+              0.006544277263672627
+            ]
+          ],
           "iterations": 3,
           "converged": true,
-          "coef_max_abs_vs_numpy": 3.3306690738754696e-16,
-          "log_likelihood_abs_vs_numpy": 0.0,
-          "covariance_max_abs_vs_numpy": 1.3010426069826053e-17,
-          "speedup_vs_numpy": 0.5966418381756955
+          "coef_max_abs_vs_numpy": 2.914335439641036e-16,
+          "log_likelihood_abs_vs_numpy": 1.1368683772161603e-13,
+          "covariance_max_abs_vs_numpy": 1.5612511283791264e-17,
+          "speedup_vs_numpy": 0.5773917432954189
         }
       }
     },
     {
       "n": 640,
-      "repeats": 1,
+      "repeats": 5,
       "ties_bins": 80,
       "events": 412,
       "failure_groups": 202,
@@ -162,61 +352,253 @@
       "backends": {
         "numpy": {
           "status": "complete",
-          "seconds": [0.6216806173324585],
-          "median_seconds": 0.6216806173324585,
+          "seconds": [
+            0.6228351891040802,
+            0.5854374170303345,
+            0.5801560282707214,
+            0.5796505510807037,
+            0.6098045408725739
+          ],
+          "median_seconds": 0.5854374170303345,
+          "representative_seconds": 0.5854374170303345,
+          "representative_run_index": 1,
+          "run_converged": [
+            true,
+            true,
+            true,
+            true,
+            true
+          ],
+          "all_converged": true,
+          "all_finite": true,
+          "coef": [
+            0.17519715865647778,
+            -0.19814449925270897,
+            0.17163749047258797,
+            -0.11330001422758712
+          ],
+          "log_likelihood": -1453.7263696722518,
+          "covariance": [
+            [
+              0.002802223690072167,
+              6.540508659080796e-05,
+              7.143921337150488e-05,
+              -0.00022650780036567904
+            ],
+            [
+              6.540508659080796e-05,
+              0.003033021586404596,
+              3.934512697758376e-05,
+              -7.924022430624021e-05
+            ],
+            [
+              7.143921337150488e-05,
+              3.934512697758376e-05,
+              0.0030284066759349777,
+              2.966407440849437e-05
+            ],
+            [
+              -0.00022650780036567904,
+              -7.924022430624021e-05,
+              2.966407440849437e-05,
+              0.0027902732833423997
+            ]
+          ],
           "iterations": 4,
           "converged": true,
           "coef_max_abs_vs_r": 1.4710455076283324e-15,
-          "log_likelihood_abs_vs_r": 9.094947017729282e-13,
-          "covariance_max_abs_vs_r": 1.7780915628762273e-17,
-          "speedup_vs_r": 39.747097321494486
+          "log_likelihood_abs_vs_r": 6.821210263296962e-13,
+          "covariance_max_abs_vs_r": 1.734723475976807e-17,
+          "speedup_vs_r": 41.29049373478545
         },
         "cupy": {
           "status": "complete",
-          "seconds": [2.189583122730255],
-          "median_seconds": 2.189583122730255,
+          "seconds": [
+            2.379528969526291,
+            2.294312357902527,
+            2.2291379570961,
+            2.2532085478305817,
+            2.3264227211475372
+          ],
+          "median_seconds": 2.294312357902527,
+          "representative_seconds": 2.294312357902527,
+          "representative_run_index": 1,
+          "run_converged": [
+            true,
+            true,
+            true,
+            true,
+            true
+          ],
+          "all_converged": true,
+          "all_finite": true,
+          "coef": [
+            0.17519715865647792,
+            -0.19814449925270916,
+            0.17163749047258806,
+            -0.11330001422758729
+          ],
+          "log_likelihood": -1453.7263696722518,
+          "covariance": [
+            [
+              0.0028022236900721695,
+              6.540508659080796e-05,
+              7.143921337150482e-05,
+              -0.0002265078003656791
+            ],
+            [
+              6.540508659080796e-05,
+              0.0030330215864045997,
+              3.9345126977583935e-05,
+              -7.924022430624035e-05
+            ],
+            [
+              7.143921337150482e-05,
+              3.9345126977583935e-05,
+              0.0030284066759349816,
+              2.966407440849434e-05
+            ],
+            [
+              -0.0002265078003656791,
+              -7.924022430624035e-05,
+              2.966407440849434e-05,
+              0.0027902732833424023
+            ]
+          ],
           "iterations": 4,
           "converged": true,
           "coef_max_abs_vs_numpy": 1.942890293094024e-16,
-          "log_likelihood_abs_vs_numpy": 2.2737367544323206e-13,
-          "covariance_max_abs_vs_numpy": 4.7704895589362195e-18,
-          "speedup_vs_numpy": 0.2839264748064311,
-          "coef_max_abs_vs_r": 1.3600232051658168e-15,
-          "log_likelihood_abs_vs_r": 6.821210263296962e-13,
-          "covariance_max_abs_vs_r": 1.5178830414797062e-17,
-          "speedup_vs_r": 11.28525322628007
-        },
-        "torch": {
-          "status": "complete",
-          "seconds": [1.3572126924991608],
-          "median_seconds": 1.3572126924991608,
-          "iterations": 4,
-          "converged": true,
-          "coef_max_abs_vs_numpy": 1.6653345369377348e-16,
-          "log_likelihood_abs_vs_numpy": 2.2737367544323206e-13,
-          "covariance_max_abs_vs_numpy": 5.204170427930421e-18,
-          "speedup_vs_numpy": 0.4580568843544343,
+          "log_likelihood_abs_vs_numpy": 0.0,
+          "covariance_max_abs_vs_numpy": 3.903127820947816e-18,
+          "speedup_vs_numpy": 0.25516901175807843,
           "coef_max_abs_vs_r": 1.3322676295501878e-15,
           "log_likelihood_abs_vs_r": 6.821210263296962e-13,
           "covariance_max_abs_vs_r": 1.5612511283791264e-17,
-          "speedup_vs_r": 18.206431561216245
+          "speedup_vs_r": 10.536054481308332
+        },
+        "torch": {
+          "status": "complete",
+          "seconds": [
+            1.4157365262508392,
+            1.4138123691082,
+            1.410054862499237,
+            1.4297336339950562,
+            1.402822107076645
+          ],
+          "median_seconds": 1.4138123691082,
+          "representative_seconds": 1.4138123691082,
+          "representative_run_index": 1,
+          "run_converged": [
+            true,
+            true,
+            true,
+            true,
+            true
+          ],
+          "all_converged": true,
+          "all_finite": true,
+          "coef": [
+            0.17519715865647792,
+            -0.19814449925270916,
+            0.17163749047258803,
+            -0.11330001422758729
+          ],
+          "log_likelihood": -1453.7263696722518,
+          "covariance": [
+            [
+              0.002802223690072169,
+              6.540508659080796e-05,
+              7.143921337150476e-05,
+              -0.00022650780036567904
+            ],
+            [
+              6.540508659080796e-05,
+              0.0030330215864046,
+              3.934512697758392e-05,
+              -7.924022430624031e-05
+            ],
+            [
+              7.143921337150476e-05,
+              3.934512697758392e-05,
+              0.0030284066759349816,
+              2.9664074408494332e-05
+            ],
+            [
+              -0.00022650780036567904,
+              -7.924022430624031e-05,
+              2.9664074408494332e-05,
+              0.002790273283342402
+            ]
+          ],
+          "iterations": 4,
+          "converged": true,
+          "coef_max_abs_vs_numpy": 1.942890293094024e-16,
+          "log_likelihood_abs_vs_numpy": 0.0,
+          "covariance_max_abs_vs_numpy": 3.903127820947816e-18,
+          "speedup_vs_numpy": 0.41408423764153,
+          "coef_max_abs_vs_r": 1.3322676295501878e-15,
+          "log_likelihood_abs_vs_r": 6.821210263296962e-13,
+          "covariance_max_abs_vs_r": 1.5178830414797062e-17,
+          "speedup_vs_r": 17.097742620011005
         },
         "r_survival": {
           "status": "complete",
-          "seconds": [24.71],
-          "median_seconds": 24.71,
+          "seconds": [
+            24.173000000000002
+          ],
+          "median_seconds": 24.173000000000002,
+          "representative_seconds": 24.173000000000002,
+          "representative_run_index": 0,
+          "run_converged": [
+            true
+          ],
+          "all_converged": true,
+          "all_finite": true,
+          "coef": [
+            0.17519715865647925,
+            -0.1981444992527097,
+            0.17163749047258806,
+            -0.11330001422758773
+          ],
+          "log_likelihood": -1453.7263696722512,
+          "covariance": [
+            [
+              0.0028022236900721842,
+              6.540508659080804e-05,
+              7.14392133715072e-05,
+              -0.0002265078003656762
+            ],
+            [
+              6.540508659080804e-05,
+              0.0030330215864045966,
+              3.9345126977583406e-05,
+              -7.924022430623763e-05
+            ],
+            [
+              7.14392133715072e-05,
+              3.9345126977583406e-05,
+              0.0030284066759349937,
+              2.9664074408493807e-05
+            ],
+            [
+              -0.0002265078003656762,
+              -7.924022430623763e-05,
+              2.9664074408493807e-05,
+              0.0027902732833423867
+            ]
+          ],
           "iterations": 3,
           "converged": true,
           "coef_max_abs_vs_numpy": 1.4710455076283324e-15,
-          "log_likelihood_abs_vs_numpy": 9.094947017729282e-13,
-          "covariance_max_abs_vs_numpy": 1.7780915628762273e-17,
-          "speedup_vs_numpy": 0.02515906990418691
+          "log_likelihood_abs_vs_numpy": 6.821210263296962e-13,
+          "covariance_max_abs_vs_numpy": 1.734723475976807e-17,
+          "speedup_vs_numpy": 0.024218649610322857
         }
       }
     },
     {
       "n": 1280,
-      "repeats": 1,
+      "repeats": 5,
       "ties_bins": 160,
       "events": 798,
       "failure_groups": 414,
@@ -226,44 +608,196 @@
       "backends": {
         "numpy": {
           "status": "complete",
-          "seconds": [2.2304369807243347],
-          "median_seconds": 2.2304369807243347,
+          "seconds": [
+            2.4854768216609955,
+            2.2422957122325897,
+            2.285354048013687,
+            2.217081695795059,
+            2.209699511528015
+          ],
+          "median_seconds": 2.2422957122325897,
+          "representative_seconds": 2.2422957122325897,
+          "representative_run_index": 1,
+          "run_converged": [
+            true,
+            true,
+            true,
+            true,
+            true
+          ],
+          "all_converged": true,
+          "all_finite": true,
+          "coef": [
+            0.26376220952875007,
+            -0.17441532277238014,
+            0.13197590323198424,
+            -0.11964846696906928
+          ],
+          "log_likelihood": -3373.0697273317414,
+          "covariance": [
+            [
+              0.0013972422322264843,
+              -0.00012306415195550925,
+              0.0001292181605849715,
+              -9.22202283141465e-06
+            ],
+            [
+              -0.00012306415195550925,
+              0.0013209927438112392,
+              8.77594194658943e-06,
+              2.702313323178904e-05
+            ],
+            [
+              0.0001292181605849715,
+              8.77594194658943e-06,
+              0.001437070393528625,
+              -6.519472828207877e-05
+            ],
+            [
+              -9.22202283141465e-06,
+              2.702313323178904e-05,
+              -6.519472828207877e-05,
+              0.0014014038344517977
+            ]
+          ],
           "iterations": 4,
-          "converged": true,
-          "speedup_vs_r_lower_bound": 53.801116569108345
+          "converged": true
         },
         "cupy": {
           "status": "complete",
-          "seconds": [4.335656076669693],
-          "median_seconds": 4.335656076669693,
+          "seconds": [
+            4.672551393508911,
+            4.731903463602066,
+            4.597920209169388,
+            4.546542078256607,
+            4.454462766647339
+          ],
+          "median_seconds": 4.597920209169388,
+          "representative_seconds": 4.597920209169388,
+          "representative_run_index": 2,
+          "run_converged": [
+            true,
+            true,
+            true,
+            true,
+            true
+          ],
+          "all_converged": true,
+          "all_finite": true,
+          "coef": [
+            0.26376220952875046,
+            -0.17441532277238028,
+            0.13197590323198438,
+            -0.11964846696906961
+          ],
+          "log_likelihood": -3373.0697273317414,
+          "covariance": [
+            [
+              0.0013972422322264901,
+              -0.0001230641519555096,
+              0.00012921816058497203,
+              -9.222022831414455e-06
+            ],
+            [
+              -0.0001230641519555096,
+              0.0013209927438112437,
+              8.775941946589507e-06,
+              2.7023133231789017e-05
+            ],
+            [
+              0.00012921816058497203,
+              8.775941946589507e-06,
+              0.0014370703935286306,
+              -6.519472828207882e-05
+            ],
+            [
+              -9.222022831414455e-06,
+              2.7023133231789017e-05,
+              -6.519472828207882e-05,
+              0.0014014038344518026
+            ]
+          ],
           "iterations": 4,
           "converged": true,
           "coef_max_abs_vs_numpy": 3.885780586188048e-16,
           "log_likelihood_abs_vs_numpy": 0.0,
           "covariance_max_abs_vs_numpy": 5.854691731421724e-18,
-          "speedup_vs_numpy": 0.5144404771232638,
-          "speedup_vs_r_lower_bound": 27.67747207757643
+          "speedup_vs_numpy": 0.4876760818425902
         },
         "torch": {
           "status": "complete",
-          "seconds": [2.742938607931137],
-          "median_seconds": 2.742938607931137,
+          "seconds": [
+            2.7689037024974823,
+            2.8357106149196625,
+            2.8242073953151703,
+            2.74043345451355,
+            2.747110426425934
+          ],
+          "median_seconds": 2.7689037024974823,
+          "representative_seconds": 2.7689037024974823,
+          "representative_run_index": 0,
+          "run_converged": [
+            true,
+            true,
+            true,
+            true,
+            true
+          ],
+          "all_converged": true,
+          "all_finite": true,
+          "coef": [
+            0.26376220952875046,
+            -0.17441532277238028,
+            0.1319759032319844,
+            -0.11964846696906961
+          ],
+          "log_likelihood": -3373.0697273317414,
+          "covariance": [
+            [
+              0.00139724223222649,
+              -0.00012306415195550963,
+              0.00012921816058497206,
+              -9.222022831414457e-06
+            ],
+            [
+              -0.00012306415195550963,
+              0.001320992743811244,
+              8.7759419465895e-06,
+              2.702313323178903e-05
+            ],
+            [
+              0.00012921816058497206,
+              8.7759419465895e-06,
+              0.0014370703935286306,
+              -6.519472828207881e-05
+            ],
+            [
+              -9.222022831414457e-06,
+              2.702313323178903e-05,
+              -6.519472828207881e-05,
+              0.0014014038344518029
+            ]
+          ],
           "iterations": 4,
           "converged": true,
           "coef_max_abs_vs_numpy": 3.885780586188048e-16,
           "log_likelihood_abs_vs_numpy": 0.0,
-          "covariance_max_abs_vs_numpy": 5.854691731421724e-18,
-          "speedup_vs_numpy": 0.8131559978320634,
-          "speedup_vs_r_lower_bound": 43.748700628232456
+          "covariance_max_abs_vs_numpy": 5.637851296924623e-18,
+          "speedup_vs_numpy": 0.8098135410812932
         },
         "r_survival": {
           "status": "timeout",
           "seconds": [],
           "median_seconds": null,
-          "timeout_seconds": 120,
-          "converged": null
+          "representative_seconds": null,
+          "representative_run_index": null,
+          "run_converged": [],
+          "all_converged": false,
+          "all_finite": false,
+          "timeout_seconds": 30
         }
-      }
+      },
+      "r_scaling_status": "timeout"
     },
     {
       "n": 2560,
@@ -277,44 +811,172 @@
       "backends": {
         "numpy": {
           "status": "complete",
-          "seconds": [10.82187369465828],
-          "median_seconds": 10.82187369465828,
+          "seconds": [
+            10.584796130657196
+          ],
+          "median_seconds": 10.584796130657196,
+          "representative_seconds": 10.584796130657196,
+          "representative_run_index": 0,
+          "run_converged": [
+            true
+          ],
+          "all_converged": true,
+          "all_finite": true,
+          "coef": [
+            0.2975866626353055,
+            -0.22954482411604507,
+            0.11546934091758077,
+            -0.08080552396604601
+          ],
+          "log_likelihood": -7808.551962585086,
+          "covariance": [
+            [
+              0.0006907311287886746,
+              -4.5312625184302e-05,
+              3.281430394580693e-05,
+              -1.4082558030339117e-05
+            ],
+            [
+              -4.5312625184302e-05,
+              0.0007198163524809356,
+              -7.790892937287786e-06,
+              -2.8119939880232122e-06
+            ],
+            [
+              3.281430394580693e-05,
+              -7.790892937287786e-06,
+              0.0006391333457136541,
+              -4.246100383602326e-06
+            ],
+            [
+              -1.4082558030339117e-05,
+              -2.8119939880232122e-06,
+              -4.246100383602326e-06,
+              0.0006361810345475771
+            ]
+          ],
           "iterations": 5,
-          "converged": true,
-          "speedup_vs_r_lower_bound": 11.088652795793807
+          "converged": true
         },
         "cupy": {
           "status": "complete",
-          "seconds": [10.673709243535995],
-          "median_seconds": 10.673709243535995,
+          "seconds": [
+            10.779580235481262
+          ],
+          "median_seconds": 10.779580235481262,
+          "representative_seconds": 10.779580235481262,
+          "representative_run_index": 0,
+          "run_converged": [
+            true
+          ],
+          "all_converged": true,
+          "all_finite": true,
+          "coef": [
+            0.29758666263530714,
+            -0.229544824116046,
+            0.11546934091758133,
+            -0.08080552396604648
+          ],
+          "log_likelihood": -7808.551962585085,
+          "covariance": [
+            [
+              0.0006907311287886803,
+              -4.531262518430189e-05,
+              3.281430394580688e-05,
+              -1.4082558030338987e-05
+            ],
+            [
+              -4.531262518430189e-05,
+              0.0007198163524809422,
+              -7.790892937287779e-06,
+              -2.8119939880233893e-06
+            ],
+            [
+              3.281430394580688e-05,
+              -7.790892937287779e-06,
+              0.00063913334571366,
+              -4.2461003836023346e-06
+            ],
+            [
+              -1.4082558030338987e-05,
+              -2.8119939880233893e-06,
+              -4.2461003836023346e-06,
+              0.0006361810345475834
+            ]
+          ],
+          "iterations": 5,
+          "converged": true,
+          "coef_max_abs_vs_numpy": 1.6653345369377348e-15,
+          "log_likelihood_abs_vs_numpy": 9.094947017729282e-13,
+          "covariance_max_abs_vs_numpy": 6.613633252161577e-18,
+          "speedup_vs_numpy": 0.9819302699577365
+        },
+        "torch": {
+          "status": "complete",
+          "seconds": [
+            6.824526906013489
+          ],
+          "median_seconds": 6.824526906013489,
+          "representative_seconds": 6.824526906013489,
+          "representative_run_index": 0,
+          "run_converged": [
+            true
+          ],
+          "all_converged": true,
+          "all_finite": true,
+          "coef": [
+            0.29758666263530714,
+            -0.229544824116046,
+            0.11546934091758133,
+            -0.08080552396604648
+          ],
+          "log_likelihood": -7808.551962585087,
+          "covariance": [
+            [
+              0.0006907311287886802,
+              -4.531262518430191e-05,
+              3.281430394580688e-05,
+              -1.4082558030338987e-05
+            ],
+            [
+              -4.531262518430191e-05,
+              0.0007198163524809423,
+              -7.790892937287776e-06,
+              -2.811993988023389e-06
+            ],
+            [
+              3.281430394580688e-05,
+              -7.790892937287776e-06,
+              0.00063913334571366,
+              -4.246100383602335e-06
+            ],
+            [
+              -1.4082558030338987e-05,
+              -2.811993988023389e-06,
+              -4.246100383602335e-06,
+              0.0006361810345475834
+            ]
+          ],
           "iterations": 5,
           "converged": true,
           "coef_max_abs_vs_numpy": 1.6653345369377348e-15,
           "log_likelihood_abs_vs_numpy": 9.094947017729282e-13,
           "covariance_max_abs_vs_numpy": 6.7220534694101275e-18,
-          "speedup_vs_numpy": 1.013881252312734,
-          "speedup_vs_r_lower_bound": 11.242577183060526
-        },
-        "torch": {
-          "status": "complete",
-          "seconds": [6.876364976167679],
-          "median_seconds": 6.876364976167679,
-          "iterations": 5,
-          "converged": true,
-          "coef_max_abs_vs_numpy": 1.6653345369377348e-15,
-          "log_likelihood_abs_vs_numpy": 0.0,
-          "covariance_max_abs_vs_numpy": 6.938893903907228e-18,
-          "speedup_vs_numpy": 1.5737782581589355,
-          "speedup_vs_r_lower_bound": 17.45108068229359
+          "speedup_vs_numpy": 1.5509933913998222
         },
         "r_survival": {
           "status": "timeout",
           "seconds": [],
           "median_seconds": null,
-          "timeout_seconds": 120,
-          "converged": null
+          "representative_seconds": null,
+          "representative_run_index": null,
+          "run_converged": [],
+          "all_converged": false,
+          "all_finite": false,
+          "timeout_seconds": 30
         }
-      }
+      },
+      "r_scaling_status": "timeout"
     },
     {
       "n": 5120,
@@ -328,40 +990,172 @@
       "backends": {
         "numpy": {
           "status": "complete",
-          "seconds": [36.32830688357353],
-          "median_seconds": 36.32830688357353,
+          "seconds": [
+            36.485492676496506
+          ],
+          "median_seconds": 36.485492676496506,
+          "representative_seconds": 36.485492676496506,
+          "representative_run_index": 0,
+          "run_converged": [
+            true
+          ],
+          "all_converged": true,
+          "all_finite": true,
+          "coef": [
+            0.2588546184035081,
+            -0.18226316301140996,
+            0.15291112111017266,
+            -0.06495244164252688
+          ],
+          "log_likelihood": -17633.847624411712,
+          "covariance": [
+            [
+              0.0003460387044774824,
+              -2.056685069290184e-05,
+              1.5335544827221066e-05,
+              -9.742194806257842e-06
+            ],
+            [
+              -2.056685069290184e-05,
+              0.00033018422726329566,
+              -1.5497375719126822e-05,
+              5.885964915090297e-06
+            ],
+            [
+              1.5335544827221066e-05,
+              -1.5497375719126822e-05,
+              0.0003363869471004129,
+              8.31885908534558e-06
+            ],
+            [
+              -9.742194806257842e-06,
+              5.885964915090297e-06,
+              8.31885908534558e-06,
+              0.0003058170153693189
+            ]
+          ],
           "iterations": 4,
           "converged": true
         },
         "cupy": {
           "status": "complete",
-          "seconds": [17.724200189113617],
-          "median_seconds": 17.724200189113617,
+          "seconds": [
+            17.742800801992416
+          ],
+          "median_seconds": 17.742800801992416,
+          "representative_seconds": 17.742800801992416,
+          "representative_run_index": 0,
+          "run_converged": [
+            true
+          ],
+          "all_converged": true,
+          "all_finite": true,
+          "coef": [
+            0.2588546184035106,
+            -0.18226316301141116,
+            0.15291112111017466,
+            -0.0649524416425272
+          ],
+          "log_likelihood": -17633.847624411712,
+          "covariance": [
+            [
+              0.00034603870447748954,
+              -2.056685069290176e-05,
+              1.5335544827221012e-05,
+              -9.742194806258023e-06
+            ],
+            [
+              -2.056685069290176e-05,
+              0.00033018422726330255,
+              -1.549737571912696e-05,
+              5.8859649150904326e-06
+            ],
+            [
+              1.5335544827221012e-05,
+              -1.549737571912696e-05,
+              0.0003363869471004203,
+              8.318859085345902e-06
+            ],
+            [
+              -9.742194806258023e-06,
+              5.8859649150904326e-06,
+              8.318859085345902e-06,
+              0.00030581701536932566
+            ]
+          ],
+          "iterations": 4,
+          "converged": true,
+          "coef_max_abs_vs_numpy": 2.4980018054066022e-15,
+          "log_likelihood_abs_vs_numpy": 0.0,
+          "covariance_max_abs_vs_numpy": 7.426784881525705e-18,
+          "speedup_vs_numpy": 2.0563547482536912
+        },
+        "torch": {
+          "status": "complete",
+          "seconds": [
+            11.23490995168686
+          ],
+          "median_seconds": 11.23490995168686,
+          "representative_seconds": 11.23490995168686,
+          "representative_run_index": 0,
+          "run_converged": [
+            true
+          ],
+          "all_converged": true,
+          "all_finite": true,
+          "coef": [
+            0.2588546184035106,
+            -0.18226316301141118,
+            0.15291112111017466,
+            -0.0649524416425272
+          ],
+          "log_likelihood": -17633.847624411712,
+          "covariance": [
+            [
+              0.0003460387044774895,
+              -2.056685069290176e-05,
+              1.5335544827221012e-05,
+              -9.742194806258018e-06
+            ],
+            [
+              -2.056685069290176e-05,
+              0.00033018422726330255,
+              -1.5497375719126957e-05,
+              5.885964915090431e-06
+            ],
+            [
+              1.5335544827221012e-05,
+              -1.5497375719126957e-05,
+              0.00033638694710042027,
+              8.3188590853459e-06
+            ],
+            [
+              -9.742194806258018e-06,
+              5.885964915090431e-06,
+              8.3188590853459e-06,
+              0.00030581701536932555
+            ]
+          ],
           "iterations": 4,
           "converged": true,
           "coef_max_abs_vs_numpy": 2.4980018054066022e-15,
           "log_likelihood_abs_vs_numpy": 0.0,
           "covariance_max_abs_vs_numpy": 7.37257477290143e-18,
-          "speedup_vs_numpy": 2.0496443560757536
-        },
-        "torch": {
-          "status": "complete",
-          "seconds": [11.199792951345444],
-          "median_seconds": 11.199792951345444,
-          "iterations": 4,
-          "converged": true,
-          "coef_max_abs_vs_numpy": 2.4980018054066022e-15,
-          "log_likelihood_abs_vs_numpy": 0.0,
-          "covariance_max_abs_vs_numpy": 7.318364664277155e-18,
-          "speedup_vs_numpy": 3.243658792746644
+          "speedup_vs_numpy": 3.2475109131620954
         },
         "r_survival": {
-          "status": "skipped_after_repeated_timeout",
+          "status": "timeout",
           "seconds": [],
           "median_seconds": null,
-          "converged": null
+          "representative_seconds": null,
+          "representative_run_index": null,
+          "run_converged": [],
+          "all_converged": false,
+          "all_finite": false,
+          "timeout_seconds": 30
         }
-      }
+      },
+      "r_scaling_status": "timeout"
     },
     {
       "n": 10240,
@@ -375,40 +1169,172 @@
       "backends": {
         "numpy": {
           "status": "complete",
-          "seconds": [136.4374106824398],
-          "median_seconds": 136.4374106824398,
+          "seconds": [
+            136.02499771118164
+          ],
+          "median_seconds": 136.02499771118164,
+          "representative_seconds": 136.02499771118164,
+          "representative_run_index": 0,
+          "run_converged": [
+            true
+          ],
+          "all_converged": true,
+          "all_finite": true,
+          "coef": [
+            0.2655392596306602,
+            -0.18389954637908573,
+            0.1424561978778759,
+            -0.09503632457969927
+          ],
+          "log_likelihood": -39629.45456293356,
+          "covariance": [
+            [
+              0.00017437890897759278,
+              -8.091234816888116e-06,
+              8.35650523571932e-06,
+              -6.96739078200522e-06
+            ],
+            [
+              -8.091234816888116e-06,
+              0.00016651930411729673,
+              -9.207192989687983e-06,
+              4.468938494762962e-06
+            ],
+            [
+              8.35650523571932e-06,
+              -9.207192989687983e-06,
+              0.00016014247033974095,
+              -2.3123106599775164e-06
+            ],
+            [
+              -6.96739078200522e-06,
+              4.468938494762962e-06,
+              -2.3123106599775164e-06,
+              0.00015502215970809416
+            ]
+          ],
           "iterations": 4,
           "converged": true
         },
         "cupy": {
           "status": "complete",
-          "seconds": [34.90918633341789],
-          "median_seconds": 34.90918633341789,
+          "seconds": [
+            36.49715143442154
+          ],
+          "median_seconds": 36.49715143442154,
+          "representative_seconds": 36.49715143442154,
+          "representative_run_index": 0,
+          "run_converged": [
+            true
+          ],
+          "all_converged": true,
+          "all_finite": true,
+          "coef": [
+            0.26553925963066527,
+            -0.18389954637908856,
+            0.14245619787787905,
+            -0.09503632457970107
+          ],
+          "log_likelihood": -39629.45456293356,
+          "covariance": [
+            [
+              0.00017437890897760026,
+              -8.091234816887998e-06,
+              8.356505235719253e-06,
+              -6.967390782005391e-06
+            ],
+            [
+              -8.091234816887998e-06,
+              0.0001665193041173043,
+              -9.207192989688092e-06,
+              4.468938494763001e-06
+            ],
+            [
+              8.356505235719253e-06,
+              -9.207192989688092e-06,
+              0.00016014247033974838,
+              -2.312310659977424e-06
+            ],
+            [
+              -6.967390782005391e-06,
+              4.468938494763001e-06,
+              -2.312310659977424e-06,
+              0.00015502215970810145
+            ]
+          ],
           "iterations": 4,
           "converged": true,
           "coef_max_abs_vs_numpy": 5.051514762044462e-15,
           "log_likelihood_abs_vs_numpy": 0.0,
-          "covariance_max_abs_vs_numpy": 7.643625316022806e-18,
-          "speedup_vs_numpy": 3.9083526433221647
+          "covariance_max_abs_vs_numpy": 7.562310153086393e-18,
+          "speedup_vs_numpy": 3.7270031321647874
         },
         "torch": {
           "status": "complete",
-          "seconds": [22.06385913491249],
-          "median_seconds": 22.06385913491249,
+          "seconds": [
+            21.95341071486473
+          ],
+          "median_seconds": 21.95341071486473,
+          "representative_seconds": 21.95341071486473,
+          "representative_run_index": 0,
+          "run_converged": [
+            true
+          ],
+          "all_converged": true,
+          "all_finite": true,
+          "coef": [
+            0.26553925963066527,
+            -0.18389954637908856,
+            0.14245619787787903,
+            -0.09503632457970106
+          ],
+          "log_likelihood": -39629.45456293356,
+          "covariance": [
+            [
+              0.00017437890897760024,
+              -8.091234816887991e-06,
+              8.356505235719251e-06,
+              -6.967390782005391e-06
+            ],
+            [
+              -8.091234816887991e-06,
+              0.00016651930411730427,
+              -9.207192989688092e-06,
+              4.468938494763001e-06
+            ],
+            [
+              8.356505235719251e-06,
+              -9.207192989688092e-06,
+              0.0001601424703397484,
+              -2.312310659977425e-06
+            ],
+            [
+              -6.967390782005391e-06,
+              4.468938494763001e-06,
+              -2.312310659977425e-06,
+              0.00015502215970810145
+            ]
+          ],
           "iterations": 4,
           "converged": true,
           "coef_max_abs_vs_numpy": 5.051514762044462e-15,
-          "log_likelihood_abs_vs_numpy": 7.275957614183426e-12,
-          "covariance_max_abs_vs_numpy": 7.643625316022806e-18,
-          "speedup_vs_numpy": 6.183750986088814
+          "log_likelihood_abs_vs_numpy": 0.0,
+          "covariance_max_abs_vs_numpy": 7.535205098774256e-18,
+          "speedup_vs_numpy": 6.1960758388708435
         },
         "r_survival": {
-          "status": "skipped_after_repeated_timeout",
+          "status": "timeout",
           "seconds": [],
           "median_seconds": null,
-          "converged": null
+          "representative_seconds": null,
+          "representative_run_index": null,
+          "run_converged": [],
+          "all_converged": false,
+          "all_finite": false,
+          "timeout_seconds": 30
         }
-      }
+      },
+      "r_scaling_status": "timeout"
     }
   ],
   "r_alignment_cases": []
