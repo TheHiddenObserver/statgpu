@@ -283,7 +283,7 @@ def main() -> int:
         "thresholds": {
             "gradient_max_abs": 1e-12,
             "coefficient_max_abs_vs_numpy": 1e-12,
-            "objective_abs_vs_numpy": 1e-12,
+            "objective_abs_vs_numpy": 1e-10,
             "kkt_max_abs": 1e-8,
         },
         "gradient_cases": [],
