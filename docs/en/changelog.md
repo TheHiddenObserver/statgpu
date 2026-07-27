@@ -43,6 +43,13 @@
   propagate, while singular null information is recorded explicitly. Both
   ordinary and counting-process concordance return `0.5` when no comparable
   pair exists.
+- The exact clean-commit P100 artifact at `n=4096`, `p=12` records synchronized
+  NumPy/CuPy/Torch medians of 0.1003/0.0367/0.0373 seconds for continuous
+  Breslow, 0.2316/0.0501/0.0488 for continuous Efron,
+  0.0234/0.0184/0.0187 for heavy-ties Breslow, and
+  0.1858/0.0214/0.0198 for heavy-ties Efron. All runs converged and all six
+  extreme-predictor backend/tie cases were finite:
+  `results/benchmark_frontend_sources/coxph_stability_resource_pr80_20260727.json`.
 - A machine-readable physical-P100 artifact records its exact clean source
   commit, Cox/FISTA/fit source hashes, 24 synchronization/gradient comparisons,
   48 SCAD/MCP coefficient/objective/KKT/finite-state results, six synchronized

@@ -22,6 +22,12 @@
   拒绝 complex 输入。score test 通过 `score_test_available_` 与
   `score_test_failure_reason_` 暴露可用状态；device 错误原样传播，null information
   奇异则明确记录。ordinary 与 counting-process concordance 在无可比较 pair 时统一返回 `0.5`。
+- exact clean commit 的 P100 产物在 `n=4096`、`p=12` 下记录了同步的
+  NumPy/CuPy/Torch 中位时间：continuous Breslow 为 0.1003/0.0367/0.0373 秒，
+  continuous Efron 为 0.2316/0.0501/0.0488 秒，heavy-ties Breslow 为
+  0.0234/0.0184/0.0187 秒，heavy-ties Efron 为 0.1858/0.0214/0.0198 秒。
+  所有重复均收敛且有限，六个 extreme-predictor 后端/ties 组合也全部有限：
+  `results/benchmark_frontend_sources/coxph_stability_resource_pr80_20260727.json`。
 - Penalized Cox SCAD/MCP 现在每次拟合只预处理、排序和传输一次 survival 分组元数据；
   FISTA-LLA 使用只计算梯度的热路径，按周期合并有限性与收敛状态传输，并在 allocator
   清理前释放 loss 持有的训练数组。

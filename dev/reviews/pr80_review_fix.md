@@ -9,13 +9,14 @@
 > Current penalized-fit mixin SHA-256: `56fcaa3667afc27935a73a363e77ca940560ce9beb3019b809c2544998b6062d`<br>
 > Current penalized-Cox estimator SHA-256: `8349b9a9a3d80f254db06bdd2e7601aa68c1d36b83e112973fc85ef8afa3ea55`<br>
 > Trusted-gradient artifact source commit: `98de333d5be17715a2cafa0c560aa78a9c92b3e1`<br>
-> Final counting-solver SHA-256: `eeec7a9cb16990d0248673d488ad86794d5d4144eb260e0b32607ef0e2674491`<br>
-> Final Cox dispatch SHA-256: `4df2afa9c06297e35ea719269fdcecaa284f20fb8bfea2042b1f82c536c44fcf`<br>
+> Final counting-solver SHA-256: `466bdc86891bc41749e2272d2566344cd28c112b7234fb5d1e104df25c61e2da`<br>
+> Final Cox dispatch SHA-256: `17738770458ae986037f5e1209a8da51e1bad41a1869d5d5518886c15ad348d0`<br>
 > Final R/performance artifact SHA-256: `85e7c72d736b859564e598e8e6e26b26b05a6fe06a076c39645083af80ea896e`<br>
 > Final stratified-Exact artifact SHA-256: `0bc0325240b64e1a957f0597a969233374ca4696571c0fcc6229a8ea0986e2c6`<br>
 > Follow-up delayed-entry+strata artifact SHA-256: `b3c9cadb3235b8280fc0c338d81302d4929d109da6506208868782d2fac01c1b`<br>
 > Follow-up strata-count artifact SHA-256: `c7465368a66f748a5f1e410795c5ff3acb64ca6e43efcb6cdeec63ee22de335f`<br>
 > Penalized-Cox trusted-gradient artifact SHA-256: `8956b71e09ac5036e726f913e4665767919edb6ae497d00dc0f34f83da35d51c`<br>
+> Ordinary-Cox stability artifact SHA-256: `29855aa68b78f93dfc233b4fa45ff813ccf7875e2eb197ab22ae753c551b6f3e`<br>
 > Exact-kernel physical-GPU matrix SHA-256: `09cdcc9e900ba7eccae7a5d7e389c7ff6ddcbabdf5f4a648ce776b52ff8d78c6`<br>
 > Original merge base: `a4879fb` (0.2.1 line)<br>
 > Compatibility target: `origin/master` at `7ccf616` (0.2.2 line)<br>
@@ -587,12 +588,25 @@ Final evidence for this follow-up:
   branches, and kept the legacy numerical primitives only for private
   compatibility tests.
 
-Local evidence before the physical-GPU rerun: the focused review file passed
-**33 tests with 5 optional-backend skips**; the Cox core/phase/CV matrix passed
-**101 tests with 15 optional-backend skips**. A warm CPU smoke at continuous
+Local evidence: the focused review file passed **34 tests with 4 optional
+backend skips**; the Cox core/phase/CV matrix passed **101 tests with 15
+optional-backend skips**. The complete CPU gate passed **1359 tests**, with
+357 optional-backend skips and 43 marker deselections. A warm CPU smoke at continuous
 event times completed `n=500`, `1000`, and `5000`, `p=4` ordinary fits in
 0.0184, 0.0311, and 0.1447 seconds, confirming the stable dispatch does not use
 the quadratic dense risk-set reference.
+
+The exact clean commit `0214e701c68f12be15dddaad4667ce519b491898`
+passed **41 focused physical-P100 tests** and the expanded three-backend Cox
+matrix passed **460 tests**, both with zero failures. At `n=4096`, `p=12`, one
+excluded warmup and three synchronized repeats, continuous Breslow medians were
+0.1003/0.0367/0.0373 seconds and continuous Efron medians were
+0.2316/0.0501/0.0488 seconds for NumPy/CuPy/Torch. Heavy-ties Breslow medians
+were 0.0234/0.0184/0.0187 seconds and Efron medians were
+0.1858/0.0214/0.0198 seconds. Every run converged and stayed finite; every
+backend/tie combination also passed the centered `[-1000,0,1000]` nonzero-init
+case. The machine-readable artifact is
+`results/benchmark_frontend_sources/coxph_stability_resource_pr80_20260727.json`.
 
 ## Validation Evidence
 
