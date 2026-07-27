@@ -1437,15 +1437,34 @@ def prepare_counting_process_inputs(
         if strata is None:
             strata = xp.zeros(stop.shape[0], dtype=xp.int64, device=X.device)
         else:
-            strata_raw = xp.as_tensor(strata, device=X.device)
+            try:
+                strata_raw = xp.as_tensor(strata, device=X.device)
+            except (TypeError, ValueError, RuntimeError, OverflowError) as exc:
+                raise ValueError(
+                    "strata must contain integer-valued labels within int64 range"
+                ) from exc
             if strata_raw.ndim != 1 or int(strata_raw.shape[0]) != int(stop.shape[0]):
                 raise ValueError("strata must have shape (n_samples,)")
             if strata_raw.is_complex():
                 raise ValueError("strata must contain integer-valued labels")
             if strata_raw.is_floating_point():
-                invalid = ~xp.isfinite(strata_raw) | (strata_raw != xp.round(strata_raw))
+                invalid = (
+                    ~xp.isfinite(strata_raw)
+                    | (strata_raw != xp.round(strata_raw))
+                    | (strata_raw < -float(1 << 63))
+                    | (strata_raw >= float(1 << 63))
+                )
                 if _scalar_bool(xp.any(invalid)):
-                    raise ValueError("strata must contain finite integer-valued labels")
+                    raise ValueError(
+                        "strata must contain finite integer-valued labels "
+                        "within int64 range"
+                    )
+            elif str(strata_raw.dtype).rsplit(".", 1)[-1].startswith("uint"):
+                if _scalar_bool(xp.any(strata_raw > (1 << 63) - 1)):
+                    raise ValueError(
+                        "strata must contain integer-valued labels within "
+                        "int64 range"
+                    )
             strata = strata_raw.to(dtype=xp.int64)
     else:
         X = xp.asarray(X, dtype=xp.float64)
@@ -1466,9 +1485,23 @@ def prepare_counting_process_inputs(
             if kind not in "biuf":
                 raise ValueError("strata must contain numeric integer-valued labels")
             if kind == "f":
-                invalid = ~xp.isfinite(strata_raw) | (strata_raw != xp.rint(strata_raw))
+                invalid = (
+                    ~xp.isfinite(strata_raw)
+                    | (strata_raw != xp.rint(strata_raw))
+                    | (strata_raw < -float(1 << 63))
+                    | (strata_raw >= float(1 << 63))
+                )
                 if _scalar_bool(xp.any(invalid)):
-                    raise ValueError("strata must contain finite integer-valued labels")
+                    raise ValueError(
+                        "strata must contain finite integer-valued labels "
+                        "within int64 range"
+                    )
+            elif kind == "u" and _scalar_bool(
+                xp.any(strata_raw > (1 << 63) - 1)
+            ):
+                raise ValueError(
+                    "strata must contain integer-valued labels within int64 range"
+                )
             strata = strata_raw.astype(xp.int64, copy=False)
     _validate_counting_process_inputs(X, stop, event, start, strata)
     event = event.to(dtype=xp.int64) if backend == "torch" else event.astype(xp.int64)

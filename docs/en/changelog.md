@@ -13,10 +13,14 @@
   metadata once per fit. FISTA-LLA uses a gradient-only hot path, performs its
   finite/convergence transfer periodically, and releases loss-held training
   arrays before allocator cleanup.
+- The trusted gradient still performs adaptive predictor-range segmentation.
+  This numerical scaling is independent of duplicate finite-state checks and
+  prevents a departing maximum predictor from underflowing a later risk set.
 - Ordinary right-censored Exact ties now use one segmented prefix DP across all
   strata. Delayed-entry GPU workloads with at least eight strata can use one
   memory-gated global batch; smaller cases use bounded per-stratum batches.
-- Fractional or non-finite strata are rejected before integer conversion.
+- Fractional, non-finite, or out-of-int64-range strata are rejected before
+  integer conversion, including oversized unsigned labels.
   `STATGPU_TORCH_EXACT_SCAN_STRATEGY` selects `auto`, `native`, or
   `channelwise`; conservative `auto` enables the split scan only on the
   benchmarked Torch 2.0 + Pascal/P100 combination.

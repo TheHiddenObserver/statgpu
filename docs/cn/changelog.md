@@ -12,10 +12,13 @@
 - Penalized Cox SCAD/MCP 现在每次拟合只预处理、排序和传输一次 survival 分组元数据；
   FISTA-LLA 使用只计算梯度的热路径，按周期合并有限性与收敛状态传输，并在 allocator
   清理前释放 loss 持有的训练数组。
+- trusted gradient 仍会执行自适应 predictor-range 分段；该数值缩放与重复 finite-state
+  检查相互独立，避免最大 predictor 离开后续风险集时发生 underflow。
 - 普通 right-censored Exact ties 在所有 strata 上使用一次分段前缀 DP。带 delayed
   entry 且 strata 数量至少为 8 的 GPU 工作负载可使用受内存门禁保护的全局 batch；
   较小场景使用有界的逐-stratum batch。
-- 浮点 strata 在转为整数前会拒绝小数和非有限值。
+- strata 在转为整数前会拒绝小数、非有限值和超出 int64 范围的标签，包括过大的
+  unsigned 标签。
   `STATGPU_TORCH_EXACT_SCAN_STRATEGY` 支持 `auto`、`native` 和 `channelwise`；
   保守的 `auto` 只在已有实测证据的 Torch 2.0 + Pascal/P100 组合启用分通道扫描。
 - 维护的 delayed-entry + 3-strata P100 基准在 10,240 行时测得

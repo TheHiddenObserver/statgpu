@@ -29,6 +29,7 @@ results/benchmark_frontend_sources/*
 !results/benchmark_frontend_sources/coxph_exact_strata_pr80_20260726.json
 !results/benchmark_frontend_sources/coxph_exact_delayed_entry_strata_pr80_20260727.json
 !results/benchmark_frontend_sources/coxph_exact_strata_count_pr80_20260727.json
+!results/benchmark_frontend_sources/penalized_cox_trusted_gradient_pr80_20260727.json
 
 # Dev tooling (benchmarks, scripts, plans, docs — not production code)
 dev/benchmarks/
@@ -38,6 +39,7 @@ dev/benchmarks/
 dev/benchmarks/*
 !dev/benchmarks/benchmark_exact_ties_scaling.py
 !dev/benchmarks/benchmark_exact_strata_count_scaling.py
+!dev/benchmarks/benchmark_penalized_cox_trusted_gradient.py
 !dev/benchmarks/pr79/
 dev/benchmarks/pr79/*
 !dev/benchmarks/pr79/aggregate_results.py

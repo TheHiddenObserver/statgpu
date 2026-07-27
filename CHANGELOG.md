@@ -14,6 +14,10 @@ All notable changes to statgpu are documented here, organized by date and PR.
   Torch/P100 channel-scan policy with explicit overrides.
 - Added maintained delayed-entry/strata and strata-count benchmark artifacts;
   the final physical-P100 related matrix passed 169 tests.
+- Kept adaptive risk-set scaling active inside the trusted SCAD/MCP gradient,
+  preventing underflow when the maximum predictor leaves a later risk set.
+- Reject strata labels outside the signed-int64 domain before backend casting,
+  preventing overflow from silently merging distinct strata.
 
 ## 2026-07-26
 

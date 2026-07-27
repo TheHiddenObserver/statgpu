@@ -44,6 +44,8 @@ likelihoods. `ties="exact"` evaluates the exact tied-event denominator with an
 elementary-symmetric dynamic program. The same counting-process risk-set engine
 is used for delayed entry, strata, Exact ties, L2-penalized fits, and GPU robust
 inference, which keeps the `(start, stop]` convention consistent across backends.
+Strata labels must be numeric, integer-valued, finite, and representable as
+signed int64 values; validation occurs before any NumPy/CuPy/Torch cast.
 
 For ordinary right-censored Exact fits, the risk sets are nested within each
 stratum. StatGPU sorts rows by stratum and decreasing stop time, then reuses one

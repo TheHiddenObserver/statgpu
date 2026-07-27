@@ -396,7 +396,12 @@ class CoxPartialLikelihoodLoss(LossBase):
         return -score / self._X_sorted.shape[0]
 
     def gradient_preprocessed(self, coef):
-        """Return a gradient from the active solver-owned fit cache."""
+        """Return a stable gradient from the active solver-owned fit cache.
+
+        The trusted solver path skips duplicate scalar validity checks, but it
+        must retain adaptive predictor-range splitting. That splitting is part
+        of the risk-set calculation, not input validation.
+        """
         if not self._sorted or self._preprocessed_target is None:
             raise RuntimeError("Cox fit cache is not active")
         xp = _get_xp(self._X_sorted)
@@ -411,7 +416,7 @@ class CoxPartialLikelihoodLoss(LossBase):
             xp,
             self.ties,
             compute_information=False,
-            validate_numerics=False,
+            validate_finite_state=False,
         )
         return -score / self._X_sorted.shape[0]
 
@@ -487,9 +492,7 @@ class CoxPartialLikelihoodLoss(LossBase):
         return xp.cumsum(values[::-1], axis=0)[::-1]
 
     @staticmethod
-    def _stable_segment_boundaries(
-        eta, xp, max_block_rows, *, check_ranges=True
-    ):
+    def _stable_segment_boundaries(eta, xp, max_block_rows):
         """Split predictor blocks until every block spans at most 500 logs.
 
         CuPy does not implement ``maximum.accumulate``. A bounded recursive
@@ -501,10 +504,6 @@ class CoxPartialLikelihoodLoss(LossBase):
             (lo, min(lo + max_block_rows, n))
             for lo in range(0, n, max_block_rows)
         ]
-        if not check_ranges:
-            return np.asarray(
-                [lo for lo, _ in pending] + [n], dtype=np.int64
-            )
         boundaries = {0, n}
         while pending:
             lo, hi = pending.pop()
@@ -523,7 +522,7 @@ class CoxPartialLikelihoodLoss(LossBase):
         return np.asarray(sorted(boundaries), dtype=np.int64)
 
     def _suffix_group_moments(
-        self, eta, X, xp, first_indices, *, validate_numerics=True
+        self, eta, X, xp, first_indices, *, validate_finite_state=True
     ):
         """Compute stable suffix log-sums and means at failure-group starts.
 
@@ -531,8 +530,10 @@ class CoxPartialLikelihoodLoss(LossBase):
         attaining that shift leaves a later risk set. Re-scanning every risk
         set avoids the underflow at quadratic cost. This routine instead
         performs reverse cumulative sums in bounded segments. Segment
-        boundaries are added whenever the suffix maximum crosses a 500-log-unit
-        bucket, so each stored suffix retains ample float64 dynamic range.
+        blocks are recursively split until every block spans at most 500 log
+        units, so each stored suffix retains ample float64 dynamic range. This
+        stabilization is unconditional; ``validate_finite_state`` only controls
+        redundant scalar error checks for trusted solver calls.
         """
         n, p = int(X.shape[0]), int(X.shape[1])
         n_groups = int(len(first_indices))
@@ -540,7 +541,7 @@ class CoxPartialLikelihoodLoss(LossBase):
         risk_mean = _backend_zeros((n_groups, p), xp, X)
         if n_groups == 0:
             return risk_log_sum, risk_mean
-        if validate_numerics and not bool(
+        if validate_finite_state and not bool(
             _to_float_scalar(xp.all(xp.isfinite(eta)))
         ):
             raise FloatingPointError("Cox linear predictor contains non-finite values")
@@ -550,12 +551,7 @@ class CoxPartialLikelihoodLoss(LossBase):
             1,
             min(n, 65_536, 2_000_000 // max(p, 1)),
         )
-        boundaries = self._stable_segment_boundaries(
-            eta,
-            xp,
-            max_block_rows,
-            check_ranges=validate_numerics,
-        )
+        boundaries = self._stable_segment_boundaries(eta, xp, max_block_rows)
         first_indices_backend = self._backend_group_metadata(xp, X)[0]
 
         tail_shift = None
@@ -588,7 +584,7 @@ class CoxPartialLikelihoodLoss(LossBase):
                     first_indices_backend[group_lo:group_hi] - lo
                 )
                 selected_sum = block_sum[local_indices]
-                if validate_numerics and bool(
+                if validate_finite_state and bool(
                     _to_float_scalar(xp.any(selected_sum <= 0))
                 ):
                     raise FloatingPointError(
@@ -609,7 +605,7 @@ class CoxPartialLikelihoodLoss(LossBase):
         return risk_log_sum, risk_mean
 
     def _first_order_objective_from_eta_backend(
-        self, eta, X, xp, ties, *, validate_numerics=True
+        self, eta, X, xp, ties, *, validate_finite_state=True
     ):
         """Evaluate log likelihood and score in near-linear time."""
         p = int(X.shape[1])
@@ -633,7 +629,7 @@ class CoxPartialLikelihoodLoss(LossBase):
             X,
             xp,
             first_indices,
-            validate_numerics=validate_numerics,
+            validate_finite_state=validate_finite_state,
         )
         event_X = X[event_indices]
         event_eta = eta[event_indices]
@@ -681,7 +677,7 @@ class CoxPartialLikelihoodLoss(LossBase):
         denominator_ratio = (
             1.0 - fractions * event_ratio_sum[event_groups]
         )
-        if validate_numerics and bool(
+        if validate_finite_state and bool(
             _to_float_scalar(xp.any(denominator_ratio <= 0))
         ):
             raise FloatingPointError("non-positive Cox risk-set denominator")
@@ -930,7 +926,7 @@ class CoxPartialLikelihoodLoss(LossBase):
         ties,
         *,
         compute_information=True,
-        validate_numerics=True,
+        validate_finite_state=True,
     ):
         """Evaluate log likelihood and score from a precomputed predictor."""
         if not compute_information:
@@ -939,7 +935,7 @@ class CoxPartialLikelihoodLoss(LossBase):
                 X,
                 xp,
                 ties,
-                validate_numerics=validate_numerics,
+                validate_finite_state=validate_finite_state,
             )
         return self._full_objective_from_eta_backend(eta, X, xp, ties)
 

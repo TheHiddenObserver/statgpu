@@ -112,6 +112,83 @@ def test_cox_preprocessed_contract_and_backend_scalar_value():
     assert replacement is not y_pre
 
 
+def _backend_extreme_survival_arrays(backend):
+    X = np.array([[1000.0], [0.0]], dtype=np.float64)
+    y = np.array([[1.0, 0.0], [2.0, 1.0]], dtype=np.float64)
+    coef = np.array([1.0], dtype=np.float64)
+    if backend == "cupy":
+        _require_device("cuda")
+        import cupy as cp
+
+        return cp.asarray(X), cp.asarray(y), cp.asarray(coef)
+    if backend == "torch":
+        _require_device("torch")
+        import torch
+
+        return tuple(
+            torch.as_tensor(value, dtype=torch.float64, device="cuda")
+            for value in (X, y, coef)
+        )
+    return X, y, coef
+
+
+def _array_to_numpy(value):
+    module = type(value).__module__.split(".", 1)[0]
+    if module == "cupy":
+        import cupy as cp
+
+        return cp.asnumpy(value)
+    if module == "torch":
+        return value.detach().cpu().numpy()
+    return np.asarray(value)
+
+
+@pytest.mark.parametrize("ties", ["breslow", "efron"])
+@pytest.mark.parametrize("backend", ["numpy", "cupy", "torch"])
+def test_gradient_preprocessed_extreme_departing_maximum(ties, backend):
+    X, y, coef = _backend_extreme_survival_arrays(backend)
+    loss = CoxPartialLikelihoodLoss(ties=ties)
+    X_pre, y_pre = loss.preprocess(X, y)
+
+    trusted = loss.gradient_preprocessed(coef)
+    public = loss.gradient(X_pre, y_pre, coef)
+    shared = -loss._shared_objective(
+        coef, compute_derivatives=True
+    )["score"] / X.shape[0]
+
+    trusted_np = _array_to_numpy(trusted)
+    public_np = _array_to_numpy(public)
+    shared_np = _array_to_numpy(shared)
+    assert np.all(np.isfinite(trusted_np))
+    np.testing.assert_allclose(trusted_np, public_np, rtol=0.0, atol=1e-12)
+    np.testing.assert_allclose(trusted_np, shared_np, rtol=0.0, atol=1e-12)
+
+
+@pytest.mark.parametrize("penalty", ["scad", "mcp"])
+@pytest.mark.parametrize("ties", ["breslow", "efron"])
+@pytest.mark.parametrize("device", ["cpu", "cuda", "torch"])
+def test_penalized_cox_extreme_departing_maximum_stays_finite(
+    penalty, ties, device
+):
+    _require_device(device)
+    X, y, _ = _backend_extreme_survival_arrays(
+        "numpy" if device == "cpu" else device
+    )
+    model = PenalizedCoxPHModel(
+        penalty=penalty,
+        alpha=0.01,
+        ties=ties,
+        max_iter=5,
+        max_lla_iters=1,
+        tol=1e-6,
+        device=device,
+    )
+    model._init_coef = np.array([1.0])
+    model.fit(X, y)
+    assert np.all(np.isfinite(model.coef_))
+    np.testing.assert_allclose(model.coef_, [1.0], rtol=0.0, atol=1e-12)
+
+
 @pytest.mark.gpu
 @pytest.mark.memory
 @pytest.mark.parametrize("device", ["cuda", "torch"])
@@ -196,6 +273,70 @@ def test_integral_float_strata_are_accepted():
     )
     np.testing.assert_array_equal(strata, [0, 1, 1])
     assert strata.dtype == np.int64
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [
+        np.array([1e30, 2e30], dtype=np.float64),
+        np.array([-1e30, 0.0], dtype=np.float64),
+        np.array([np.iinfo(np.uint64).max, 0], dtype=np.uint64),
+    ],
+)
+@pytest.mark.parametrize("backend", ["numpy", "cupy", "torch"])
+def test_out_of_int64_range_strata_are_rejected_before_cast(bad, backend):
+    X = np.arange(6, dtype=np.float64).reshape(3, 2)
+    stop = np.array([1.0, 2.0, 3.0])
+    event = np.array([1.0, 0.0, 1.0])
+    strata = np.resize(bad, 3)
+    if backend == "cupy":
+        _require_device("cuda")
+        import cupy as cp
+
+        X, stop, event, strata = map(cp.asarray, (X, stop, event, strata))
+    elif backend == "torch":
+        _require_device("torch")
+        import torch
+
+        X = torch.as_tensor(X, dtype=torch.float64, device="cuda")
+        stop = torch.as_tensor(stop, dtype=torch.float64, device="cuda")
+        event = torch.as_tensor(event, dtype=torch.float64, device="cuda")
+        # Keep uint64 on the host: Torch 2.0 cannot represent it, and the
+        # normalization boundary must still convert that failure to ValueError.
+        if strata.dtype.kind != "u":
+            strata = torch.as_tensor(
+                strata, dtype=torch.float64, device="cuda"
+            )
+    with pytest.raises(ValueError, match="int64 range"):
+        prepare_counting_process_inputs(X, stop, event, strata=strata)
+
+
+@pytest.mark.parametrize("backend", ["numpy", "cupy", "torch"])
+def test_int64_boundary_strata_are_preserved(backend):
+    X = np.arange(6, dtype=np.float64).reshape(3, 2)
+    stop = np.array([1.0, 2.0, 3.0])
+    event = np.array([1.0, 0.0, 1.0])
+    strata = np.array(
+        [np.iinfo(np.int64).min, 0, np.iinfo(np.int64).max],
+        dtype=np.int64,
+    )
+    if backend == "cupy":
+        _require_device("cuda")
+        import cupy as cp
+
+        X, stop, event, strata = map(cp.asarray, (X, stop, event, strata))
+    elif backend == "torch":
+        _require_device("torch")
+        import torch
+
+        X = torch.as_tensor(X, dtype=torch.float64, device="cuda")
+        stop = torch.as_tensor(stop, dtype=torch.float64, device="cuda")
+        event = torch.as_tensor(event, dtype=torch.float64, device="cuda")
+        strata = torch.as_tensor(strata, dtype=torch.int64, device="cuda")
+    *_, actual = prepare_counting_process_inputs(
+        X, stop, event, strata=strata
+    )
+    np.testing.assert_array_equal(_array_to_numpy(actual), strata.cpu().numpy() if backend == "torch" else _array_to_numpy(strata))
 
 
 def test_channelwise_scan_env_parsing_and_auto_gate(monkeypatch):

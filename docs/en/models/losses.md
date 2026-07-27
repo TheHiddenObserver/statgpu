@@ -192,6 +192,10 @@ metadata; the resulting indices are cached on the selected device and the
 design matrix, predictor, objective, gradient, and Hessian are not moved to CPU
 during solver iterations.
 
+The SCAD/MCP trusted-gradient path skips duplicate finite-state checks but keeps
+adaptive predictor-range segmentation on every evaluation. Stable risk-set
+scaling is therefore never disabled by the solver fast path.
+
 ### Regularized Survival
 
 ```python

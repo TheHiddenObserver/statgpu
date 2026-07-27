@@ -41,6 +41,8 @@ $$
 `ties="exact"` 通过 elementary-symmetric 动态规划计算 Exact 分母。
 delayed entry、strata、Exact ties、L2 惩罚拟合与 GPU 稳健推断共用同一套
 计数过程风险集引擎，因此三个后端遵循一致的 `(start, stop]` 约定。
+strata 标签必须是数值、整数值、有限且可由有符号 int64 表示；NumPy/CuPy/Torch
+都会在任何类型转换前执行该校验。
 
 对于普通 right-censored Exact 拟合，风险集在各 stratum 内具有嵌套结构。
 StatGPU 先按 stratum、再按 stop time 降序排列样本，并在 NumPy、CuPy、Torch 上让

@@ -217,6 +217,8 @@ model.fit(X_t, y_t)
   一次性复制到主机以构造确定性的失败组元数据，再把索引缓存到所选设备；设计矩阵、
   predictor、目标函数、梯度和 Hessian 在迭代中不会转到 CPU。显式 GPU 输入在对应
   路径失败时 `raise RuntimeError`，不会回退 NumPy。
+- SCAD/MCP 的 trusted-gradient 路径会跳过重复的 finite-state 检查，但每次计算仍保留
+  自适应 predictor-range 分段；求解器快速路径不会关闭稳定的风险集缩放。
 - `PenalizedCoxPHModel` 无可识别截距，且当前仅提供估计：`fit_intercept=True` 会报错，
   `compute_inference=True` 会抛出 `NotImplementedError`。SCAD/MCP 使用 FISTA-LLA；
   需要标准误和基线风险时使用 `CoxPH`。
