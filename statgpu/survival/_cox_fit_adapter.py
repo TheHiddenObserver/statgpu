@@ -10,11 +10,38 @@ from statgpu.backends._utils import _require_real_array
 
 
 _NATIVE_ARRAY_MODULES = ("cupy", "torch")
+_TIE_METHODS = ("breslow", "efron", "exact")
+_COVARIANCE_TYPES = ("nonrobust", "hc0", "hc1", "cluster")
+_INFERENCE_MODES = ("strict", "approx")
 
 
 def _is_native_backend_array(value) -> bool:
     """Return whether slicing ``value`` preserves a CuPy/Torch backend."""
     return type(value).__module__.startswith(_NATIVE_ARRAY_MODULES)
+
+
+def _normalize_mutable_fit_controls(estimator) -> None:
+    """Revalidate controls that may have changed through ``set_params``."""
+    estimator._validate_optimization_controls()
+    estimator.tol = float(estimator.tol)
+    estimator.penalty = float(estimator.penalty)
+
+    ties = str(estimator.ties).lower()
+    if ties not in _TIE_METHODS:
+        raise ValueError("ties must be 'breslow', 'efron', or 'exact'")
+    estimator.ties = ties
+
+    cov_type = str(estimator.cov_type).lower()
+    if cov_type not in _COVARIANCE_TYPES:
+        raise ValueError(
+            "cov_type must be one of: 'nonrobust', 'hc0', 'hc1', 'cluster'"
+        )
+    estimator.cov_type = cov_type
+
+    inference_mode = str(estimator.inference_mode).lower()
+    if inference_mode not in _INFERENCE_MODES:
+        raise ValueError("inference_mode must be strict or approx")
+    estimator.inference_mode = inference_mode
 
 
 def install_coxph_fit_adapter(coxph_class) -> None:
@@ -24,8 +51,9 @@ def install_coxph_fit_adapter(coxph_class) -> None:
     while ordinary array-likes (including pandas DataFrames) retain the historical
     NumPy normalization contract. Adapter-level validation is transactional: a
     failed refit clears any previously fitted state just like ``CoxPH.fit``.
-    Prediction adapters reject complex arrays before a real-dtype cast can discard
-    their imaginary components.
+    Mutable sklearn-style parameters are normalized and revalidated before every
+    fit. Prediction adapters reject complex arrays before a real-dtype cast can
+    discard their imaginary components.
     """
     original_fit = coxph_class.fit
     if not getattr(original_fit, "_statgpu_backend_native_packed_target", False):
@@ -48,6 +76,8 @@ def install_coxph_fit_adapter(coxph_class) -> None:
         ):
             self._reset_fit_state()
             try:
+                _normalize_mutable_fit_controls(self)
+
                 if formula is None and X is not None:
                     x_shape = getattr(X, "shape", None)
                     if x_shape is None:
