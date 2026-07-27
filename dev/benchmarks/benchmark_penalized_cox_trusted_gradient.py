@@ -267,6 +267,9 @@ def main() -> int:
         "cox_ph_loss": REPO_ROOT / "statgpu/losses/_cox_ph.py",
         "fista_lla": REPO_ROOT / "statgpu/solvers/_fista_lla.py",
         "fit_mixin": REPO_ROOT / "statgpu/linear_model/penalized/_fit_mixin.py",
+        "penalized_cox_estimator": (
+            REPO_ROOT / "statgpu/linear_model/penalized/_penalized_cox.py"
+        ),
         "risk_sets": REPO_ROOT / "statgpu/survival/_risk_sets.py",
     }
     report = {
