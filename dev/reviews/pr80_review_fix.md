@@ -3,19 +3,19 @@
 > Review date: 2026-07-27<br>
 > Original PR head reviewed: `d6f798c1834fd6318c8257eed334f84a198fa8ad`<br>
 > Performance-fix base: `ad3c0026eb682ac6394369a3318e9fb806e631b8`<br>
-> Current risk-set SHA-256: `f8a8ea3858f90c63903a536334fdc28057ee9d650e62b6930d70e71e6dcb4f6a`<br>
-> Current Cox-loss SHA-256: `812d0695825a83ca3e1c682ca1a94d4092919341c4b258c45682e7c25619c510`<br>
+> Current risk-set SHA-256: `0770b7b71462d57426234b9e1a7772b4f02a1098a2d7abd2827f04a72540a12b`<br>
+> Current Cox-loss SHA-256: `7220b6de7ebc0a72e0468b86e56617252eff1722339b9bd1c937976a1f41a7ea`<br>
 > Current FISTA-LLA SHA-256: `3c9a665d0d46bebc32c6e43dbd2f777d989fe09114f73a2c7ae1e9bdb1642536`<br>
 > Current penalized-fit mixin SHA-256: `56fcaa3667afc27935a73a363e77ca940560ce9beb3019b809c2544998b6062d`<br>
-> Current penalized-Cox estimator SHA-256: `42efb292e91cb64070f032eeb5b357af3d3114a62642305fcc55ee266056a87f`<br>
-> Trusted-gradient artifact source commit: `bbbf4b9bf17eb21ab97b54d733fe3e59cac1c249`<br>
+> Current penalized-Cox estimator SHA-256: `8349b9a9a3d80f254db06bdd2e7601aa68c1d36b83e112973fc85ef8afa3ea55`<br>
+> Trusted-gradient artifact source commit: `98de333d5be17715a2cafa0c560aa78a9c92b3e1`<br>
 > Final counting-solver SHA-256: `9684867f90b153c23675d8804698f76092765a3d96da05c7a3d989528782d501`<br>
 > Final Cox dispatch SHA-256: `efe199e7bb40112f882109efbe8b462ab8050f52349d939d33a611f819f81e6c`<br>
 > Final R/performance artifact SHA-256: `85e7c72d736b859564e598e8e6e26b26b05a6fe06a076c39645083af80ea896e`<br>
 > Final stratified-Exact artifact SHA-256: `0bc0325240b64e1a957f0597a969233374ca4696571c0fcc6229a8ea0986e2c6`<br>
 > Follow-up delayed-entry+strata artifact SHA-256: `b3c9cadb3235b8280fc0c338d81302d4929d109da6506208868782d2fac01c1b`<br>
 > Follow-up strata-count artifact SHA-256: `c7465368a66f748a5f1e410795c5ff3acb64ca6e43efcb6cdeec63ee22de335f`<br>
-> Penalized-Cox trusted-gradient artifact SHA-256: `45895b75d763e084cdc70f3ec56f79aee0dfe3a5e1c6c992f99e458d0fa50789`<br>
+> Penalized-Cox trusted-gradient artifact SHA-256: `8956b71e09ac5036e726f913e4665767919edb6ae497d00dc0f34f83da35d51c`<br>
 > Exact-kernel physical-GPU matrix SHA-256: `09cdcc9e900ba7eccae7a5d7e389c7ff6ddcbabdf5f4a648ce776b52ff8d78c6`<br>
 > Original merge base: `a4879fb` (0.2.1 line)<br>
 > Compatibility target: `origin/master` at `7ccf616` (0.2.2 line)<br>
@@ -27,7 +27,8 @@ This review follows `dev/AGENTS.md` and the complete
 `.claude/skills/code-review.md` workflow: inspect before editing, assess impact
 across correctness/API/backend/inference/performance/docs/tests, fix all relevant
 critical/high/medium findings, rerun affected gates, and re-review the resulting
-diff. No PR merge, release, commit, or push is part of this report.
+diff. PR merge and release remain outside this report; reviewed commits are
+pushed only after the local and physical-GPU gates pass.
 
 ## Compatibility Result
 
@@ -527,13 +528,27 @@ Physical-P100 evidence for this follow-up:
   applicable. The regenerated artifact also records predictor-range sync counts
   rather than requiring a misleading zero.
 
-Local evidence before the physical-GPU rerun:
+Final evidence for this follow-up:
 
 - focused cancellation, complex-boundary, and bounded-block selection:
-  **31 passed, 60 optional GPU skips, 0 failed**;
+  **31 passed, 60 optional GPU skips, 0 failed** locally;
 - CPU artifact dry run: 8 trusted/public/shared comparisons and 16 SCAD/MCP fit
   cases had zero gradient, coefficient, objective, and KKT gate differences;
-  its only expected failure was the dirty-worktree audit used during development.
+  its only expected failure was the dirty-worktree audit used during development;
+- physical Tesla P100 follow-up file: **148 passed, 0 failed**; expanded
+  Cox/loss/solver matrix: **413 passed, 102 expected skips, 0 failed**;
+- clean-source artifact from commit `98de333d5be17715a2cafa0c560aa78a9c92b3e1`:
+  `status="complete"`, zero gate failures, 24 gradient comparisons, 48 fit/KKT
+  cases, six performance cases, and two workspace cases. Every deterministic
+  gradient, coefficient, and KKT difference is zero; maximum cross-backend
+  objective difference is `7.13e-12`; every trusted call records the one
+  documented predictor-range scalar check;
+- physical workspace delta at `n=300,000`, `p=1` was 6,758,400 bytes for CuPy
+  and 6,076,928 bytes for Torch, below the 64 MiB gate;
+- synchronized `n=4096`, `p=12`, 64-bin Efron medians after one excluded warmup
+  were SCAD NumPy/CuPy/Torch `0.08350/0.03148/0.02137` seconds and MCP
+  `0.08469/0.03100/0.02133` seconds. CuPy/Torch speedups were 2.65x/3.91x for
+  SCAD and 2.73x/3.97x for MCP, with zero coefficient difference from NumPy.
 
 ## Validation Evidence
 

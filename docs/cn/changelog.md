@@ -24,7 +24,7 @@
   转为实数之前明确拒绝。
 - machine-readable 的物理 P100 产物记录其精确 clean source commit、Cox/FISTA/fit
   源码哈希、24 组同步次数与 gradient 对齐、48 组 SCAD/MCP
-  coefficient/objective/KKT/finite-state 结果及 2 组物理 GPU 工作区测量：
+  coefficient/objective/KKT/finite-state 结果、6 组同步性能结果及 2 组物理 GPU 工作区测量：
   `results/benchmark_frontend_sources/penalized_cox_trusted_gradient_pr80_20260727.json`。
   产物明确标注 fresh-process cold-start 未测量，同时分别记录 warm process 中的首次
   fit 与紧接着的 steady-state fit，并说明未计入的初始化或编译成本。
@@ -38,8 +38,10 @@
 - 维护的 delayed-entry + 3-strata P100 基准在 10,240 行时测得
   NumPy/CuPy/Torch 中位时间 136.02/36.50/21.95 秒，即 GPU 相对 NumPy 提速
   3.73 倍/6.20 倍；该产物与新增的 strata-count 产物均为零 gate failure。
-- 维护中的 P100 用时会针对 correctness-first direct-moment head 重新同步测量；先前
-  log-scan 的数字只保留为已被后续修复取代的审查历史，不再作为当前性能声明。
+- 同一 P100 的 `n=4096`、`p=12`、64 个 time bin 场景在排除一次 warmup 后，
+  direct-moment SCAD 的 NumPy/CuPy/Torch 中位时间为 0.08350/0.03148/0.02137 秒，
+  MCP 为 0.08469/0.03100/0.02133 秒。CuPy/Torch 对 SCAD 的提速为 2.65/3.91 倍，
+  对 MCP 为 2.73/3.97 倍；产物明确将其标为同步 warm timing，而不是 fresh-process latency。
 
 ### 优化（2026-07-26）— PR #80 分层 Exact 组合路径
 

@@ -27,8 +27,8 @@
   before any real-valued cast on NumPy, CuPy, and Torch.
 - A machine-readable physical-P100 artifact records its exact clean source
   commit, Cox/FISTA/fit source hashes, 24 synchronization/gradient comparisons,
-  48 SCAD/MCP coefficient/objective/KKT/finite-state results, and two physical
-  GPU workspace measurements:
+  48 SCAD/MCP coefficient/objective/KKT/finite-state results, six synchronized
+  performance cases, and two physical GPU workspace measurements:
   `results/benchmark_frontend_sources/penalized_cox_trusted_gradient_pr80_20260727.json`.
   It labels fresh-process cold-start timing as unmeasured, records both the
   first fit in the warmed process and the immediately repeated steady-state
@@ -46,9 +46,12 @@
   NumPy/CuPy/Torch medians of 136.02/36.50/21.95 seconds at 10,240 rows, or
   3.73x/6.20x GPU speedups over NumPy. The corresponding artifact and the new
   strata-count artifact completed with zero gate failures.
-- The maintained P100 timing is synchronized and reported separately for the
-  correctness-first direct-moment head; earlier log-scan numbers are retained
-  only as superseded review history, not as current performance claims.
+- On the same P100 at `n=4096`, `p=12`, and 64 time bins, the direct-moment
+  SCAD NumPy/CuPy/Torch medians were 0.08350/0.03148/0.02137 seconds and MCP
+  medians were 0.08469/0.03100/0.02133 seconds after one excluded warmup.
+  CuPy/Torch were 2.65x/3.91x faster than NumPy for SCAD and 2.73x/3.97x for
+  MCP. The artifact labels these as warm, synchronized timings rather than
+  fresh-process latency.
 
 ### Optimized (2026-07-26) — PR #80 stratified Exact composition
 
