@@ -123,6 +123,52 @@ def test_adapter_validation_failure_clears_stale_fit_state(invalid):
         model.predict(X[:2])
 
 
+@pytest.mark.parametrize(
+    ("parameter", "value", "message"),
+    [
+        ("ties", "not-a-tie-method", "ties must be"),
+        ("cov_type", "not-a-covariance", "cov_type must be"),
+        ("inference_mode", "not-an-inference-mode", "inference_mode must be"),
+    ],
+)
+def test_invalid_mutated_control_is_rejected_and_clears_stale_state(
+    parameter, value, message
+):
+    X, stop, event = _stable_sample(seed=2282, p=1)
+    model = CoxPH(
+        device="cpu", compute_inference=False, compute_cindex=False
+    ).fit(X, stop, event)
+    model.set_params(**{parameter: value})
+
+    with pytest.raises(ValueError, match=message):
+        model.fit(X, stop, event)
+
+    assert model._fitted is False
+    assert model.coef_ is None
+
+
+def test_mutated_controls_are_canonicalized_before_fit():
+    X, stop, event = _stable_sample(seed=2283, p=1)
+    model = CoxPH(
+        device="cpu", compute_inference=False, compute_cindex=False
+    )
+    model.set_params(
+        ties="EFRON",
+        cov_type="HC1",
+        inference_mode="STRICT",
+        penalty="0.1",
+        tol="1e-7",
+    )
+    model.fit(X, stop, event)
+
+    assert model.ties == "efron"
+    assert model.cov_type == "hc1"
+    assert model.inference_mode == "strict"
+    assert model.penalty == pytest.approx(0.1)
+    assert model.tol == pytest.approx(1e-7)
+    assert np.all(np.isfinite(model.coef_))
+
+
 def test_scalar_X_has_public_validation_error():
     with pytest.raises(ValueError, match="one- or two-dimensional"):
         CoxPH(device="cpu", compute_inference=False).fit(
