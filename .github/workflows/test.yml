@@ -95,6 +95,7 @@ jobs:
             dev/tests/test_pr80_all_censored_loss.py \
             dev/tests/test_pr80_post_review_fixes.py \
             dev/tests/test_pr80_fit_boundary.py \
+            dev/tests/test_pr80_cv_fit_boundary.py \
             dev/tests/test_survival_risk_sets.py \
             dev/tests/test_distributions_backend.py \
             dev/tests/test_penalties_and_exports.py \
