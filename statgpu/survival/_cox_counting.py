@@ -17,24 +17,65 @@ from ._risk_sets import (
 )
 
 
-def _norm(value: Any, backend: str, xp: Any):
-    if backend == "torch":
-        return xp.linalg.vector_norm(value)
-    return xp.linalg.norm(value)
+_DEVICE_ERROR_MARKERS = (
+    "out of memory",
+    "cuda",
+    "cublas",
+    "cusolver",
+    "illegal memory",
+    "device mismatch",
+    "device-side",
+    "hip error",
+    "driver error",
+)
+_SINGULAR_ERROR_MARKERS = (
+    "singular",
+    "not invertible",
+    "not positive definite",
+    "not positive-definite",
+    "rank deficient",
+    "rank-deficient",
+    "ill-conditioned",
+)
+
+
+def _is_singular_linalg_error(exc: BaseException) -> bool:
+    """Identify numerical singularity without swallowing device/runtime errors."""
+    message = str(exc).lower()
+    if any(marker in message for marker in _DEVICE_ERROR_MARKERS):
+        return False
+    return any(marker in message for marker in _SINGULAR_ERROR_MARKERS)
 
 
 def _solve(information: Any, score: Any, backend: str, xp: Any):
     try:
         return xp.linalg.solve(information, score)
     except Exception as exc:
+        if not _is_singular_linalg_error(exc):
+            raise
         # Stay on the selected backend.  A least-squares solve is a numerical
         # fallback, not a device fallback.
         try:
             if backend == "torch":
                 return xp.linalg.lstsq(information, score.unsqueeze(1)).solution[:, 0]
             return xp.linalg.lstsq(information, score, rcond=None)[0]
-        except Exception:
-            raise RuntimeError("Cox observed information is singular") from exc
+        except Exception as fallback_exc:
+            if not _is_singular_linalg_error(fallback_exc):
+                raise
+            raise RuntimeError(
+                f"{backend} Cox observed information is singular"
+            ) from fallback_exc
+
+
+def _score_test_statistic(score: Any, information: Any, backend: str, xp: Any):
+    """Return the null-score quadratic form or an explicit singular reason."""
+    try:
+        delta = xp.linalg.solve(information, score)
+    except Exception as exc:
+        if not _is_singular_linalg_error(exc):
+            raise
+        return None, f"{backend} null information is singular: {exc}"
+    return score @ delta, None
 
 
 def fit_counting_process_cox(
@@ -51,6 +92,7 @@ def fit_counting_process_cox(
     init_coef: Optional[Any] = None,
     compute_baseline: bool = True,
     compute_score_residuals: bool = True,
+    right_censored_fast_path: bool = False,
 ) -> Dict[str, Any]:
     """Fit a Cox model using a backend-native damped Newton method.
 
@@ -66,7 +108,9 @@ def fit_counting_process_cox(
     if init_coef is None:
         beta = _as_backend_array([0.0] * n_features, backend, xp, X)
     else:
-        beta = _as_backend_array(init_coef, backend, xp, X).reshape(-1)
+        beta = _as_backend_array(
+            init_coef, backend, xp, X, name="init_coef"
+        ).reshape(-1)
         if int(beta.shape[0]) != n_features:
             raise ValueError("init_coef must have shape (n_features,)")
         if not _scalar_bool(xp.all(xp.isfinite(beta))):
@@ -84,14 +128,49 @@ def fit_counting_process_cox(
         raise ValueError("tol must be a finite positive number")
 
     identity = _eye(backend, xp, n_features, X)
+    fast_loss = None
+    fast_X = None
+    if right_censored_fast_path:
+        if ties not in {"breslow", "efron"}:
+            raise ValueError(
+                "right_censored_fast_path supports only Breslow/Efron ties"
+            )
+        if compute_score_residuals:
+            raise ValueError(
+                "right_censored_fast_path does not compute score residuals"
+            )
+        from statgpu.losses import CoxPartialLikelihoodLoss
+
+        fast_loss = CoxPartialLikelihoodLoss(ties=ties)
+        fast_X, _ = fast_loss.preprocess(
+            X, {"time": stop, "event": event}
+        )
+
+    def evaluate(coef):
+        if fast_loss is None:
+            return cox_counting_process_objective(
+                coef, X, stop, event, start=start, strata=strata, ties=ties
+            )
+        eta = fast_X @ coef
+        loglik, score, hessian = fast_loss._objective_from_eta_backend(
+            eta,
+            fast_X,
+            xp,
+            ties,
+            compute_information=True,
+        )
+        return {
+            "log_likelihood": loglik,
+            "score": score,
+            "information": -hessian,
+        }
+
     converged = False
     iterations = 0
     stop_reason = "max_iter"
     objective_history = []
 
-    current = cox_counting_process_objective(
-        beta, X, stop, event, start=start, strata=strata, ties=ties
-    )
+    current = evaluate(beta)
     initial_null = current if init_coef is None else None
     current_penalized = current["log_likelihood"] - penalty * (beta @ beta)
     objective_history.append(current_penalized)
@@ -111,7 +190,12 @@ def fit_counting_process_cox(
             break
         penalized_information = current["information"] + 2.0 * penalty * identity
         delta = _solve(penalized_information, penalized_score, backend, xp)
-        delta_norm = _norm(delta, backend, xp)
+        directional = penalized_score @ delta
+        if _scalar_bool((~xp.isfinite(directional)) | (directional <= 0.0)):
+            # At a saturated but finite predictor, the observed information can
+            # round to zero while the score remains informative.  A normalized
+            # score direction lets backtracking leave that boundary safely.
+            delta = penalized_score / (1.0 + xp.max(xp.abs(penalized_score)))
 
         step = 1.0
         accepted = False
@@ -119,15 +203,7 @@ def fit_counting_process_cox(
         candidate_penalized = None
         for _ in range(30):
             candidate_beta = beta + step * delta
-            trial = cox_counting_process_objective(
-                candidate_beta,
-                X,
-                stop,
-                event,
-                start=start,
-                strata=strata,
-                ties=ties,
-            )
+            trial = evaluate(candidate_beta)
             trial_penalized = trial["log_likelihood"] - penalty * (
                 candidate_beta @ candidate_beta
             )
@@ -184,9 +260,7 @@ def fit_counting_process_cox(
 
     if initial_null is None:
         null_beta = beta * 0.0
-        null_result = cox_counting_process_objective(
-            null_beta, X, stop, event, start=start, strata=strata, ties=ties
-        )
+        null_result = evaluate(null_beta)
     else:
         null_result = initial_null
     baseline = (

@@ -13,7 +13,38 @@ import numpy as np
 from statgpu._base import BaseEstimator
 from statgpu._config import Device
 from statgpu.backends import _to_float_scalar
+from statgpu.backends._utils import _require_real_array
 from statgpu.inference._distributions_backend import chi2, norm
+from statgpu.survival._cox_counting import (
+    _is_singular_linalg_error,
+    _score_test_statistic,
+    _solve as _solve_counting_information,
+)
+
+
+_DEFAULT_BRESLOW_HESSIAN_MAX_BYTES = 512 * 1024 * 1024
+
+
+def _breslow_hessian_max_bytes():
+    """Return the configured ceiling for explicit ``(n, p, p)`` moments."""
+    raw = os.environ.get("STATGPU_BRESLOW_HESSIAN_MAX_BYTES")
+    if raw is None:
+        return _DEFAULT_BRESLOW_HESSIAN_MAX_BYTES
+    try:
+        return max(0, int(raw))
+    except (TypeError, ValueError):
+        return _DEFAULT_BRESLOW_HESSIAN_MAX_BYTES
+
+
+def _estimate_breslow_tensor_bytes(n, p, n_groups, itemsize=8):
+    """Conservatively estimate simultaneously live grouped moment buffers."""
+    elements = (
+        2 * int(n) * int(p) * int(p)
+        + int(n) * int(p)
+        + 3 * int(n_groups) * int(p) * int(p)
+        + 2 * int(n_groups) * int(p)
+    )
+    return int(elements) * int(itemsize)
 
 # Optional Cython import for faster Efron gradient/Hessian computation
 try:
@@ -476,6 +507,8 @@ class CoxPH(BaseEstimator):
         self._objective_history = []
         self._var_matrix = None
         self._score_test_stat = None
+        self.score_test_available_ = False
+        self.score_test_failure_reason_ = None
         self._baseline_hazard = None
         self._baseline_cumulative_hazard = None
         self._baseline_log_hazard = None
@@ -561,6 +594,8 @@ class CoxPH(BaseEstimator):
         self._var_matrix = None
         self._score_test_stat = None
         self._score_test_pvalue = None
+        self.score_test_available_ = False
+        self.score_test_failure_reason_ = None
         self._wald_test_stat = None
         self._wald_test_pvalue = None
         self._lr_test_stat = None
@@ -698,6 +733,15 @@ class CoxPH(BaseEstimator):
         self._reset_fit_state()
         try:
             self._validate_optimization_controls()
+            _require_real_array(X, "X")
+            if formula is None and event is None and time is not None:
+                _require_real_array(time, "packed survival target")
+            else:
+                _require_real_array(time, "time")
+                _require_real_array(event, "event")
+            _require_real_array(entry, "entry")
+            _require_real_array(start, "start")
+            _require_real_array(init_coef, "init_coef")
             if formula is None and event is None and time is not None:
                 target = np.asarray(self._to_numpy(time), dtype=np.float64)
                 if target.ndim != 2 or target.shape[1] not in (2, 3):
@@ -916,194 +960,28 @@ class CoxPH(BaseEstimator):
                     "Either formula+data or X+time+event must be provided."
                 )
             self._design_info = None
+        _require_real_array(X, "X")
+        _require_real_array(time, "time")
+        _require_real_array(event, "event")
+        _require_real_array(entry, "entry/start")
+        _require_real_array(init_coef, "init_coef")
         device = self._get_compute_device()
-        has_large_common_offset = self._has_large_common_feature_offset(X)
 
-        # Counting-process risk sets are also the canonical backend-native
-        # implementation for GPU sandwich covariance.  Routing robust
-        # CUDA/Torch fits here prevents the legacy paths from materialising
-        # training data on the host solely for HC/cluster inference.
-        if (
-            entry is not None
-            or strata is not None
-            or subject_id is not None
-            or self.penalty > 0
-            or self.ties == "exact"
-            or has_large_common_offset
-            or (
-                self.cov_type != "nonrobust"
-                and device in {Device.CUDA, Device.TORCH}
-            )
-        ):
-            return self._fit_counting_process_dispatch(
-                X,
-                time,
-                event,
-                entry=entry,
-                strata=strata,
-                cluster=cluster,
-                subject_id=subject_id,
-                init_coef=init_coef,
-                device=device,
-            )
-        
-        if device == Device.CUDA:
-            import cupy as cp
-            
-            X_gpu = cp.asarray(self._to_array(X), dtype=cp.float64)
-            time_gpu = cp.asarray(self._to_array(time), dtype=cp.float64)
-            event_raw_gpu = cp.asarray(self._to_array(event), dtype=cp.float64)
-            entry_gpu = None if entry is None else cp.asarray(self._to_array(entry), dtype=cp.float64)
-            
-            if X_gpu.ndim == 1:
-                X_gpu = X_gpu.reshape(-1, 1)
-            if time_gpu.ndim != 1 or time_gpu.shape[0] != X_gpu.shape[0]:
-                raise ValueError("time must have shape (n_samples,)")
-            if event_raw_gpu.ndim != 1 or event_raw_gpu.shape[0] != X_gpu.shape[0]:
-                raise ValueError("event must have shape (n_samples,)")
-            if entry_gpu is not None and entry_gpu.shape[0] != X_gpu.shape[0]:
-                raise ValueError("entry must have shape (n_samples,)")
-            if bool(cp.any(~cp.isfinite(X_gpu)).item()) or bool(
-                cp.any(~cp.isfinite(time_gpu)).item()
-            ):
-                raise ValueError("X and time must contain only finite values")
-            if bool(cp.any(time_gpu <= 0).item()):
-                raise ValueError("time must contain only positive values")
-            if bool(cp.any(~cp.isfinite(event_raw_gpu)).item()) or bool(
-                cp.any((event_raw_gpu != 0) & (event_raw_gpu != 1)).item()
-            ):
-                raise ValueError("event must contain only 0/1 finite values")
-            if entry_gpu is not None and bool(cp.any(~cp.isfinite(entry_gpu)).item()):
-                raise ValueError("entry must contain only finite values")
-            event_gpu = event_raw_gpu.astype(cp.int32)
-            if int(cp.sum(event_gpu).item()) == 0:
-                raise ValueError("at least one observed event is required")
-            
-            self._nobs = int(X_gpu.shape[0])
-            self._nevents = int(cp.sum(event_gpu).item())
-            if self._feature_names is None:
-                self._feature_names = [f'x{i+1}' for i in range(int(X_gpu.shape[1]))]
-            
-            # Nonrobust inference and C-index stay on-device. Robust strict
-            # inference performs an explicit, recorded transfer only if used.
-            self._X = None
-            self._time = None
-            self._event = None
-            self._entry = None
-            
-            cluster_gpu = None if cluster is None else cp.asarray(self._to_array(cluster), dtype=cp.int64)
-            self._fit_gpu(X_gpu, time_gpu, event_gpu, entry_gpu, cluster_gpu, init_coef=init_coef)
-        elif device == Device.TORCH:
-            import torch
-
-            torch_device = "cuda"
-
-            X_torch = self._to_array(X, Device.TORCH, backend="torch").to(dtype=torch.float64)
-            time_torch = self._to_array(time, Device.TORCH, backend="torch").to(dtype=torch.float64)
-            event_raw_torch = self._to_array(event, Device.TORCH, backend="torch").to(dtype=torch.float64)
-            entry_torch = None if entry is None else self._to_array(
-                entry, Device.TORCH, backend="torch"
-            ).to(dtype=torch.float64)
-
-            if X_torch.ndim == 1:
-                X_torch = X_torch.reshape(-1, 1)
-            if time_torch.ndim != 1 or time_torch.shape[0] != X_torch.shape[0]:
-                raise ValueError("time must have shape (n_samples,)")
-            if event_raw_torch.ndim != 1 or event_raw_torch.shape[0] != X_torch.shape[0]:
-                raise ValueError("event must have shape (n_samples,)")
-            if entry_torch is not None and entry_torch.shape[0] != X_torch.shape[0]:
-                raise ValueError("entry must have shape (n_samples,)")
-            if bool(torch.any(~torch.isfinite(X_torch)).item()) or bool(
-                torch.any(~torch.isfinite(time_torch)).item()
-            ):
-                raise ValueError("X and time must contain only finite values")
-            if bool(torch.any(time_torch <= 0).item()):
-                raise ValueError("time must contain only positive values")
-            if bool(torch.any(~torch.isfinite(event_raw_torch)).item()) or bool(
-                torch.any((event_raw_torch != 0) & (event_raw_torch != 1)).item()
-            ):
-                raise ValueError("event must contain only 0/1 finite values")
-            if entry_torch is not None and bool(
-                torch.any(~torch.isfinite(entry_torch)).item()
-            ):
-                raise ValueError("entry must contain only finite values")
-            event_torch = event_raw_torch.to(dtype=torch.int32)
-            if int(torch.sum(event_torch).item()) == 0:
-                raise ValueError("at least one observed event is required")
-
-            self._nobs = int(X_torch.shape[0])
-            self._nevents = int(torch.sum(event_torch).item())
-            if self._feature_names is None:
-                self._feature_names = [f'x{i+1}' for i in range(int(X_torch.shape[1]))]
-
-            self._X = None
-            self._time = None
-            self._event = None
-            self._entry = None
-
-            cluster_torch = None if cluster is None else self._to_array(
-                cluster, Device.TORCH, backend="torch"
-            ).to(dtype=torch.int64)
-            self._fit_torch(
-                X_torch,
-                time_torch,
-                event_torch,
-                entry_torch,
-                cluster_torch,
-                torch_device,
-                init_coef=init_coef,
-            )
-        else:
-            X_np = np.asarray(self._to_array(X, Device.CPU), dtype=np.float64)
-            time_np = np.asarray(self._to_array(time, Device.CPU), dtype=np.float64)
-            event_raw_np = np.asarray(self._to_array(event, Device.CPU), dtype=np.float64)
-            entry_np = None if entry is None else np.asarray(self._to_array(entry, Device.CPU), dtype=np.float64)
-            
-            if X_np.ndim == 1:
-                X_np = X_np.reshape(-1, 1)
-            if time_np.ndim != 1 or time_np.shape[0] != X_np.shape[0]:
-                raise ValueError("time must have shape (n_samples,)")
-            if event_raw_np.ndim != 1 or event_raw_np.shape[0] != X_np.shape[0]:
-                raise ValueError("event must have shape (n_samples,)")
-            if entry_np is not None and entry_np.shape[0] != X_np.shape[0]:
-                raise ValueError("entry must have shape (n_samples,)")
-            if not np.all(np.isfinite(X_np)) or not np.all(np.isfinite(time_np)):
-                raise ValueError("X and time must contain only finite values")
-            if np.any(time_np <= 0):
-                raise ValueError("time must contain only positive values")
-            if not np.all(np.isfinite(event_raw_np)) or np.any(
-                (event_raw_np != 0) & (event_raw_np != 1)
-            ):
-                raise ValueError("event must contain only 0/1 finite values")
-            if entry_np is not None and not np.all(np.isfinite(entry_np)):
-                raise ValueError("entry must contain only finite values")
-            event_np = event_raw_np.astype(np.int32)
-            if int(np.sum(event_np)) == 0:
-                raise ValueError("at least one observed event is required")
-            
-            self._nobs = X_np.shape[0]
-            self._nevents = np.sum(event_np)
-            
-            # Store original data (CPU mode is CPU-only)
-            self._time = time_np.copy()
-            self._event = event_np.copy()
-            self._X = X_np.copy()
-            self._entry = None if entry_np is None else entry_np.copy()
-            if self._feature_names is None:
-                self._feature_names = [f'x{i+1}' for i in range(X_np.shape[1])]
-            
-            cluster_np = None if cluster is None else np.asarray(self._to_array(cluster, Device.CPU))
-            self._fit_cpu(X_np, time_np, event_np, entry_np, cluster_np, init_coef=init_coef)
-        
-        if self.penalty > 0:
-            # A penalized estimate is not the unconstrained maximizer of the
-            # partial likelihood, so the ordinary LR chi-square reference and
-            # classical information criteria are not valid.
-            self._lr_test_stat = None
-            self._lr_test_pvalue = None
-        self._fitted = True
-        self._sync_public_fit_state()
-        return self
+        # The shared counting-process objective is the canonical implementation
+        # for every Cox fit, including ordinary right-censored Breslow/Efron.
+        # It uses risk-set-local scaling and therefore cannot overflow merely
+        # because a finite initial coefficient gives a large predictor range.
+        return self._fit_counting_process_dispatch(
+            X,
+            time,
+            event,
+            entry=entry,
+            strata=strata,
+            cluster=cluster,
+            subject_id=subject_id,
+            init_coef=init_coef,
+            device=device,
+        )
 
     def set_params(self, **params):
         """Set sklearn-style parameters with Cox-specific validation."""
@@ -1143,35 +1021,6 @@ class CoxPH(BaseEstimator):
                 raise ValueError("inference_mode must be strict or approx")
             params["inference_mode"] = mode
         return super().set_params(**params)
-
-    @staticmethod
-    def _has_large_common_feature_offset(X):
-        """Detect offsets that make raw Cox moment subtraction ill-conditioned."""
-        module = type(X).__module__
-        if module.startswith("cupy"):
-            import cupy as xp
-
-            arr = xp.asarray(X, dtype=xp.float64)
-            if arr.ndim == 1:
-                arr = arr.reshape(-1, 1)
-            location = xp.abs(xp.mean(arr, axis=0))
-            scale = xp.std(arr, axis=0)
-            return bool(xp.any(location > 1e6 * (1.0 + scale)).item())
-        if module.startswith("torch"):
-            import torch
-
-            arr = X.to(dtype=torch.float64)
-            if arr.ndim == 1:
-                arr = arr.reshape(-1, 1)
-            location = torch.abs(torch.mean(arr, dim=0))
-            scale = torch.std(arr, dim=0, correction=0)
-            return bool(torch.any(location > 1e6 * (1.0 + scale)).item())
-        arr = np.asarray(X, dtype=np.float64)
-        if arr.ndim == 1:
-            arr = arr.reshape(-1, 1)
-        location = np.abs(np.mean(arr, axis=0))
-        scale = np.std(arr, axis=0)
-        return bool(np.any(location > 1e6 * (1.0 + scale)))
 
     @staticmethod
     def _encode_group_labels(values, n_samples, name):
@@ -1336,6 +1185,8 @@ class CoxPH(BaseEstimator):
 
         if Xb.ndim == 1:
             Xb = Xb.reshape(-1, 1)
+        if entry is None and bool(_to_float_scalar(xp.any(stopb <= 0))):
+            raise ValueError("time must contain only positive values")
         Xb, stopb, eventb, startb, stratab = prepare_counting_process_inputs(
             Xb,
             stopb,
@@ -1357,6 +1208,13 @@ class CoxPH(BaseEstimator):
             compute_baseline=self.compute_inference,
             compute_score_residuals=(
                 self.compute_inference and self.cov_type != "nonrobust"
+            ),
+            right_censored_fast_path=(
+                entry is None
+                and strata is None
+                and subject_id is None
+                and self.cov_type == "nonrobust"
+                and self.ties in {"breslow", "efron"}
             ),
         )
 
@@ -1385,7 +1243,11 @@ class CoxPH(BaseEstimator):
         self._nobs = n_samples
         self._nevents = int(scalar(eventb.sum()))
         self._entry = to_numpy(startb)
-        self._strata = to_numpy(stratab).astype(np.int64, copy=False)
+        self._strata = (
+            None
+            if strata is None
+            else to_numpy(stratab).astype(np.int64, copy=False)
+        )
         self._strata_labels = strata_labels
         self._subject_id = None if subjectb is None else to_numpy(subjectb)
         self._is_counting_process = entry is not None or subject_id is not None
@@ -1486,11 +1348,17 @@ class CoxPH(BaseEstimator):
             # The solver already evaluates the null objective (and starts there
             # for the default zero initialization), so reuse its score test terms.
             score0 = result["null_score"]
-            try:
-                score_delta = xp.linalg.solve(result["null_information"], score0)
-                self._score_test_stat = scalar(score0 @ score_delta)
-            except Exception:
+            score_stat, score_failure = _score_test_statistic(
+                score0, result["null_information"], backend, xp
+            )
+            if score_failure is None:
+                self._score_test_stat = scalar(score_stat)
+                self.score_test_available_ = True
+                self.score_test_failure_reason_ = None
+            else:
                 self._score_test_stat = np.nan
+                self.score_test_available_ = False
+                self.score_test_failure_reason_ = score_failure
             self._score_test_pvalue = chi2.sf(
                 self._score_test_stat, df=int(Xb.shape[1])
             )
@@ -1506,6 +1374,8 @@ class CoxPH(BaseEstimator):
             self._wald_test_pvalue = None
             self._score_test_stat = None
             self._score_test_pvalue = None
+            self.score_test_available_ = False
+            self.score_test_failure_reason_ = "compute_inference=False"
 
         if result["baseline"] is None:
             self._baseline_by_stratum = None
@@ -1515,15 +1385,15 @@ class CoxPH(BaseEstimator):
             self._baseline_log_hazard = None
             self._baseline_log_cumulative_hazard = None
         else:
-            self._baseline_by_stratum = {
+            baseline_by_stratum = {
                 int(key): {
                     name: to_numpy(value).astype(np.float64, copy=False)
                     for name, value in baseline.items()
                 }
                 for key, baseline in result["baseline"].items()
             }
-            if len(self._baseline_by_stratum) == 1:
-                baseline = next(iter(self._baseline_by_stratum.values()))
+            if len(baseline_by_stratum) == 1:
+                baseline = next(iter(baseline_by_stratum.values()))
                 self._unique_times = baseline["time"]
                 self._baseline_hazard = baseline["hazard"]
                 self._baseline_cumulative_hazard = baseline["cumulative_hazard"]
@@ -1531,7 +1401,13 @@ class CoxPH(BaseEstimator):
                 self._baseline_log_cumulative_hazard = baseline.get(
                     "log_cumulative_hazard"
                 )
+                self._baseline_by_stratum = (
+                    None
+                    if strata is None and entry is None and subject_id is None
+                    else baseline_by_stratum
+                )
             else:
+                self._baseline_by_stratum = baseline_by_stratum
                 self._unique_times = None
                 self._baseline_hazard = None
                 self._baseline_cumulative_hazard = None
@@ -2781,24 +2657,25 @@ class CoxPH(BaseEstimator):
     def _solve_newton_delta_gpu(self, hess, grad, cp, eye_cache=None):
         """Newton step delta = inv(hess) @ grad; prefer SPD solve on (-hess) with light jitter."""
         p = int(hess.shape[0])
+        H = -hess
+        eps = 1e-11 * (cp.max(cp.abs(cp.diag(H))) + 1.0)
+        jitter_eye = eye_cache if eye_cache is not None else cp.eye(p, dtype=cp.float64)
+        H = H + eps * jitter_eye
+        # Fast path: SPD solve via Cholesky is usually faster than generic solve.
         try:
-            H = -hess
-            eps = 1e-11 * (cp.max(cp.abs(cp.diag(H))) + 1.0)
-            jitter_eye = eye_cache if eye_cache is not None else cp.eye(p, dtype=cp.float64)
-            H = H + eps * jitter_eye
-            # Fast path: SPD solve via Cholesky is usually faster than generic solve.
-            try:
-                L = cp.linalg.cholesky(H)
-                y = cp.linalg.solve(L, grad)
-                x = cp.linalg.solve(L.T, y)
-                return -x
-            except Exception:
-                return -cp.linalg.solve(H, grad)
-        except Exception:
-            try:
-                return cp.linalg.solve(hess, grad)
-            except Exception:
-                return cp.linalg.lstsq(hess, grad, rcond=None)[0].flatten()
+            L = cp.linalg.cholesky(H)
+            y = cp.linalg.solve(L, grad)
+            x = cp.linalg.solve(L.T, y)
+            return -x
+        except Exception as exc:
+            if not _is_singular_linalg_error(exc):
+                raise
+        try:
+            return -cp.linalg.solve(H, grad)
+        except Exception as exc:
+            if not _is_singular_linalg_error(exc):
+                raise
+        return _solve_counting_information(hess, grad, "cupy", cp)
 
     def _compute_log_likelihood_gpu(self, beta, X, time, event, efron_pre=None, entry=None, entry_ctx=None):
         """Compute log partial likelihood on GPU."""
@@ -3177,10 +3054,18 @@ class CoxPH(BaseEstimator):
         # 2) Incremental path: lower memory traffic for larger (n, p).
         p = int(X.shape[1])
         n_groups = int(len(first_idx))
-        if p <= 24 and n_groups <= 512:
+        estimated_bytes = _estimate_breslow_tensor_bytes(
+            int(X.shape[0]), p, n_groups, int(X.dtype.itemsize)
+        )
+        max_bytes = _breslow_hessian_max_bytes()
+        self._last_breslow_hessian_workspace_estimate_ = estimated_bytes
+        self._last_breslow_hessian_workspace_limit_ = max_bytes
+        if p <= 24 and n_groups <= 512 and estimated_bytes <= max_bytes:
+            self._last_breslow_hessian_strategy_ = "tensor"
             return self._compute_hessian_breslow_tensor_grouped(
                 X, risk_sum, risk_X_sum, exp_eta, first_idx, counts
             )
+        self._last_breslow_hessian_strategy_ = "incremental"
         return self._compute_hessian_breslow_incremental_grouped(
             X, risk_sum, risk_X_sum, exp_eta, first_idx, counts
         )
@@ -3237,6 +3122,18 @@ class CoxPH(BaseEstimator):
         nuft = int(first_idx.shape[0])
         if nuft == 0:
             return cp.zeros((p, p), dtype=cp.float64)
+        estimated_bytes = _estimate_breslow_tensor_bytes(
+            n, p, nuft, int(X.dtype.itemsize)
+        )
+        max_bytes = _breslow_hessian_max_bytes()
+        self._last_breslow_hessian_workspace_estimate_ = estimated_bytes
+        self._last_breslow_hessian_workspace_limit_ = max_bytes
+        if estimated_bytes > max_bytes:
+            self._last_breslow_hessian_strategy_ = "cupy_streaming"
+            return self._compute_hessian_breslow_streaming_grouped_cupy(
+                X, risk_sum, risk_X_sum, exp_eta, first_idx, counts
+            )
+        self._last_breslow_hessian_strategy_ = "cupy_vectorized"
 
         X_exp = X * exp_eta[:, cp.newaxis]
         total = X_exp.T @ X  # (p, p)
@@ -3265,26 +3162,43 @@ class CoxPH(BaseEstimator):
 
         return hess
 
-    def _compute_hessian_breslow_fused_cupy(self, X, first_idx, counts, exp_eta):
-        """Try fused RawKernel Hessian for Breslow; return None on failure."""
+    def _compute_hessian_breslow_streaming_grouped_cupy(
+        self, X, risk_sum, risk_X_sum, exp_eta, first_idx, counts
+    ):
+        """Bounded-memory CuPy Breslow Hessian using grouped GEMM updates."""
         import cupy as cp
-        debug_fused = (
-            os.environ.get("STATGPU_DEBUG_BRESLOW_FUSED", "0").strip().lower()
-            in ("1", "true", "yes", "on")
-        )
+
+        p = int(X.shape[1])
+        first_idx_host = cp.asnumpy(first_idx).astype(np.int64, copy=False)
+        X_exp = X * exp_eta[:, cp.newaxis]
+        risk_X2 = X_exp.T @ X
+        hess = cp.zeros((p, p), dtype=X.dtype)
+        prev_idx = 0
+        for group, idx_value in enumerate(first_idx_host):
+            idx = int(idx_value)
+            if idx > prev_idx:
+                block = slice(prev_idx, idx)
+                risk_X2 -= X_exp[block].T @ X[block]
+                prev_idx = idx
+            rs = risk_sum[idx]
+            ex = risk_X_sum[idx] / rs
+            hess -= counts[group] * (risk_X2 / rs - cp.outer(ex, ex))
+        return hess
+
+    def _compute_hessian_breslow_fused_cupy(self, X, first_idx, counts, exp_eta):
+        """Run the bounded fused RawKernel; only import absence may fall back."""
+        import cupy as cp
         try:
             from ._cox_efron_cuda import compute_breslow_hess_raw
-            return compute_breslow_hess_raw(
-                X,
-                first_idx,
-                counts,
-                cupy_module=cp,
-                exp_eta=exp_eta,
-            )
-        except Exception as ex:
-            if debug_fused:
-                print(f"[CUDA Breslow fused fallback] {type(ex).__name__}: {ex}")
+        except ImportError:
             return None
+        return compute_breslow_hess_raw(
+            X,
+            first_idx,
+            counts,
+            cupy_module=cp,
+            exp_eta=exp_eta,
+        )
 
     def _compute_hessian_breslow(self, beta, X, time, event, risk_sum, risk_X_sum, exp_eta):
         """
@@ -4133,17 +4047,15 @@ class CoxPH(BaseEstimator):
         import torch
 
         p = int(hess.shape[0])
+        H = -hess
+        eps = 1e-11 * (torch.max(torch.abs(torch.diag(H))) + 1.0)
+        H = H + eps * torch.eye(p, dtype=torch.float64, device=hess.device)
         try:
-            H = -hess
-            eps = 1e-11 * (torch.max(torch.abs(torch.diag(H))) + 1.0)
-            H = H + eps * torch.eye(p, dtype=torch.float64, device=hess.device)
             return -torch.linalg.solve(H, grad)
-        except Exception:
-            try:
-                return torch.linalg.solve(hess, grad)
-            except Exception:
-                result = torch.linalg.lstsq(hess, grad)
-                return result.solution.flatten()
+        except Exception as exc:
+            if not _is_singular_linalg_error(exc):
+                raise
+        return _solve_counting_information(hess, grad, "torch", torch)
 
     def _efron_cumulative_indices_torch(self, efron_pre, device):
         """Cache grouped Efron indices on the active Torch device."""
@@ -5127,8 +5039,14 @@ class CoxPH(BaseEstimator):
             info_0 = self._observed_information(hess_0)
             info_0_inv = np.linalg.solve(info_0, np.eye(n_features))
             self._score_test_stat = float(grad_0 @ info_0_inv @ grad_0)
-        except (np.linalg.LinAlgError, ValueError, FloatingPointError):
+            self.score_test_available_ = True
+            self.score_test_failure_reason_ = None
+        except np.linalg.LinAlgError as exc:
             self._score_test_stat = np.nan
+            self.score_test_available_ = False
+            self.score_test_failure_reason_ = (
+                f"numpy null information is singular: {exc}"
+            )
         self._score_test_pvalue = float(chi2.sf(self._score_test_stat, df=n_features))
 
     def _score_residuals_via_statsmodels_if_available(self, X, time, event):
@@ -5524,7 +5442,13 @@ class CoxPH(BaseEstimator):
         if self.compute_inference and self._lr_test_stat is not None:
             print(f"Likelihood ratio test: {self._lr_test_stat:.2f} on {len(self.coef_)} df, p={self._lr_test_pvalue:.4e}")
             print(f"Wald test:            {self._wald_test_stat:.2f} on {len(self.coef_)} df, p={self._wald_test_pvalue:.4e}")
-            print(f"Score (logrank) test: {self._score_test_stat:.2f} on {len(self.coef_)} df, p={self._score_test_pvalue:.4e}")
+            if self.score_test_available_:
+                print(f"Score (logrank) test: {self._score_test_stat:.2f} on {len(self.coef_)} df, p={self._score_test_pvalue:.4e}")
+            else:
+                print(
+                    "Score (logrank) test unavailable: "
+                    f"{self.score_test_failure_reason_ or 'null information is singular'}"
+                )
         elif self.compute_inference and self.penalty > 0:
             print(
                 "Classical LR/AIC/BIC diagnostics suppressed for the penalized "

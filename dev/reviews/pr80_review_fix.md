@@ -9,8 +9,8 @@
 > Current penalized-fit mixin SHA-256: `56fcaa3667afc27935a73a363e77ca940560ce9beb3019b809c2544998b6062d`<br>
 > Current penalized-Cox estimator SHA-256: `8349b9a9a3d80f254db06bdd2e7601aa68c1d36b83e112973fc85ef8afa3ea55`<br>
 > Trusted-gradient artifact source commit: `98de333d5be17715a2cafa0c560aa78a9c92b3e1`<br>
-> Final counting-solver SHA-256: `9684867f90b153c23675d8804698f76092765a3d96da05c7a3d989528782d501`<br>
-> Final Cox dispatch SHA-256: `efe199e7bb40112f882109efbe8b462ab8050f52349d939d33a611f819f81e6c`<br>
+> Final counting-solver SHA-256: `eeec7a9cb16990d0248673d488ad86794d5d4144eb260e0b32607ef0e2674491`<br>
+> Final Cox dispatch SHA-256: `4df2afa9c06297e35ea719269fdcecaa284f20fb8bfea2042b1f82c536c44fcf`<br>
 > Final R/performance artifact SHA-256: `85e7c72d736b859564e598e8e6e26b26b05a6fe06a076c39645083af80ea896e`<br>
 > Final stratified-Exact artifact SHA-256: `0bc0325240b64e1a957f0597a969233374ca4696571c0fcc6229a8ea0986e2c6`<br>
 > Follow-up delayed-entry+strata artifact SHA-256: `b3c9cadb3235b8280fc0c338d81302d4929d109da6506208868782d2fac01c1b`<br>
@@ -549,6 +549,50 @@ Final evidence for this follow-up:
   were SCAD NumPy/CuPy/Torch `0.08350/0.03148/0.02137` seconds and MCP
   `0.08469/0.03100/0.02133` seconds. CuPy/Torch speedups were 2.65x/3.91x for
   SCAD and 2.73x/3.97x for MCP, with zero coefficient difference from NumPy.
+
+## Ordinary-Cox Stability and Resource-Safety Follow-up
+
+- [CRITICAL][BUG/BACKEND][fixed] ordinary unpenalized Breslow/Efron fits could
+  still evaluate raw `exp(X @ beta)`. Centered `X=[-1000, 0, 1000]` with
+  `init_coef=[1]` overflowed in the legacy NumPy/CuPy/Torch paths. Every public
+  fit now enters the stable shared solver; the ordinary nonrobust case uses the
+  cancellation-safe bounded suffix-moment kernel rather than the dense
+  group-by-row reference. The deterministic case is finite for both tie rules
+  and all three backends.
+- [HIGH][PERF][fixed] legacy Breslow Hessian strategies could allocate two or
+  more `(n,p,p)` buffers without considering `n`. The conservative workspace
+  estimate includes simultaneously live row/group moments and is capped by
+  `STATGPU_BRESLOW_HESSIAN_MAX_BYTES` (default 512 MiB). CPU selects the
+  incremental strategy and CuPy selects bounded streaming GEMM when the cap is
+  exceeded; the stable ordinary public path already uses bounded row blocks.
+- [HIGH][API/BACKEND][fixed] `CoxPH.fit`, `CoxPH.score`, `CoxPHCV.fit/score`,
+  and held-out partial likelihood could discard complex components before the
+  low-level guards ran. They now share the pre-cast real-valued validator for
+  `X`, packed targets, time/event/start/entry, coefficients, and initial
+  coefficients. CPU plus physical CuPy/Torch regressions cover the boundaries.
+- [HIGH][FALLBACK/BACKEND][fixed] counting, legacy Torch/CuPy Newton, and the
+  fused CuPy Hessian used broad exception fallbacks that could retry a larger
+  least-squares solve after OOM and report a device failure as singular
+  information. Device/runtime failures now propagate unchanged; only explicit
+  singular, rank-deficient, or non-positive-definite solves may use the
+  least-squares fallback. Sentinel tests ensure the fallback is not entered for
+  CUDA OOM/illegal-memory errors.
+- [MEDIUM][API/INFER][fixed] ordinary concordance returned `NaN` for no
+  comparable pair while counting-process concordance returned `0.5`. Both now
+  use the existing neutral `0.5` convention. Score-test availability and a
+  singular-null-information reason are exposed explicitly, while device errors
+  are not converted to `NaN`.
+- [LOW][MAINT][fixed] removed the unused counting-solver `delta_norm`, removed
+  the obsolete feature-offset dispatch heuristic and unreachable public fit
+  branches, and kept the legacy numerical primitives only for private
+  compatibility tests.
+
+Local evidence before the physical-GPU rerun: the focused review file passed
+**33 tests with 5 optional-backend skips**; the Cox core/phase/CV matrix passed
+**101 tests with 15 optional-backend skips**. A warm CPU smoke at continuous
+event times completed `n=500`, `1000`, and `5000`, `p=4` ordinary fits in
+0.0184, 0.0311, and 0.1447 seconds, confirming the stable dispatch does not use
+the quadratic dense risk-set reference.
 
 ## Validation Evidence
 

@@ -788,7 +788,7 @@ def test_standard_api_automatically_uses_stable_path_for_large_common_offset():
     assert_allclose(shifted._bse, reference._bse, rtol=2e-6, atol=2e-7)
 
 
-def test_large_offset_detection_is_per_feature_not_masked_by_another_scale():
+def test_stable_dispatch_is_not_masked_by_another_feature_scale():
     X, stop, event = _right_censored_subjects(n=100, p=2, seed=3137)
     transformed = X.copy()
     transformed[:, 0] += 1e10
@@ -797,7 +797,6 @@ def test_large_offset_detection_is_per_feature_not_masked_by_another_scale():
     # numerically unidentified.
     transformed[:, 1] *= 1e5
 
-    assert CoxPH._has_large_common_feature_offset(transformed)
     model = CoxPH(
         ties="efron",
         device="cpu",

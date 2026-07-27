@@ -8,6 +8,7 @@ import numpy as np
 import pytest
 from numpy.testing import assert_allclose
 
+from statgpu.losses import CoxPartialLikelihoodLoss
 from statgpu.survival import CoxPH
 
 
@@ -35,14 +36,14 @@ def test_cpu_cox_line_search_failure_does_not_update_beta(monkeypatch):
         device='cpu', compute_inference=False, compute_cindex=False, max_iter=3
     )
 
-    def derivatives(beta, *_args, **_kwargs):
-        return np.ones_like(beta), -np.eye(beta.size)
+    def objective(_loss, eta, X_sorted, *_args, **_kwargs):
+        loglik = 0.0 if np.array_equal(eta, np.zeros_like(eta)) else -1.0
+        p = X_sorted.shape[1]
+        return np.asarray(loglik), np.ones(p), -np.eye(p)
 
-    def objective(beta, *_args, **_kwargs):
-        return 0.0 if np.array_equal(beta, np.zeros_like(beta)) else -1.0
-
-    monkeypatch.setattr(model, '_compute_gradient_hessian', derivatives)
-    monkeypatch.setattr(model, '_compute_log_likelihood', objective)
+    monkeypatch.setattr(
+        CoxPartialLikelihoodLoss, '_objective_from_eta_backend', objective
+    )
     model.fit(X, time=time, event=event)
 
     assert_allclose(model.coef_, np.zeros(1), atol=0.0)
@@ -55,17 +56,13 @@ def test_cpu_cox_line_search_failure_is_not_converged(monkeypatch):
         device='cpu', compute_inference=False, compute_cindex=False, max_iter=3
     )
 
+    def objective(_loss, eta, X_sorted, *_args, **_kwargs):
+        loglik = 0.0 if np.array_equal(eta, np.zeros_like(eta)) else -1.0
+        p = X_sorted.shape[1]
+        return np.asarray(loglik), np.ones(p), -np.eye(p)
+
     monkeypatch.setattr(
-        model,
-        '_compute_gradient_hessian',
-        lambda beta, *_args, **_kwargs: (np.ones_like(beta), -np.eye(beta.size)),
-    )
-    monkeypatch.setattr(
-        model,
-        '_compute_log_likelihood',
-        lambda beta, *_args, **_kwargs: (
-            0.0 if np.array_equal(beta, np.zeros_like(beta)) else -1.0
-        ),
+        CoxPartialLikelihoodLoss, '_objective_from_eta_backend', objective
     )
     model.fit(X, time=time, event=event)
 
@@ -79,15 +76,12 @@ def test_cpu_cox_small_step_large_kkt_is_stalled(monkeypatch):
     model = CoxPH(
         device='cpu', compute_inference=False, compute_cindex=False, max_iter=3
     )
+    def objective(_loss, _eta, X_sorted, *_args, **_kwargs):
+        p = X_sorted.shape[1]
+        return np.asarray(0.0), np.ones(p), -1e20 * np.eye(p)
+
     monkeypatch.setattr(
-        model,
-        '_compute_gradient_hessian',
-        lambda beta, *_args, **_kwargs: (
-            np.ones_like(beta), -1e20 * np.eye(beta.size)
-        ),
-    )
-    monkeypatch.setattr(
-        model, '_compute_log_likelihood', lambda *_args, **_kwargs: 0.0
+        CoxPartialLikelihoodLoss, '_objective_from_eta_backend', objective
     )
     model.fit(X, time=time, event=event)
 
@@ -103,18 +97,17 @@ def test_cpu_cox_final_kkt_overrides_false_success(monkeypatch):
     )
     calls = {'count': 0}
 
-    def derivatives(beta, *_args, **_kwargs):
+    def objective(_loss, _eta, X_sorted, *_args, **_kwargs):
         calls['count'] += 1
-        gradient = np.zeros_like(beta) if calls['count'] == 2 else np.ones_like(beta)
-        return gradient, -1e20 * np.eye(beta.size)
+        p = X_sorted.shape[1]
+        return np.asarray(0.0), np.ones(p), -1e20 * np.eye(p)
 
-    monkeypatch.setattr(model, '_compute_gradient_hessian', derivatives)
     monkeypatch.setattr(
-        model, '_compute_log_likelihood', lambda *_args, **_kwargs: 0.0
+        CoxPartialLikelihoodLoss, '_objective_from_eta_backend', objective
     )
     model.fit(X, time=time, event=event)
 
-    assert calls['count'] >= 3
+    assert calls['count'] >= 4
     assert model.converged_ is False
     assert model.termination_reason_ == 'stalled_with_large_kkt'
 
@@ -252,10 +245,10 @@ def test_robust_approx_is_explicit_and_disclosed(monkeypatch):
     )
     model.fit(X, time=time, event=event)
 
-    assert model.inference_method_ == 'event_row_score_sandwich'
+    assert model.inference_method_ == 'counting_process_score_sandwich'
     assert model.inference_backend_ == 'numpy'
-    assert model.inference_approximate_ is True
-    assert model.inference_fallback_reason_
+    assert model.inference_approximate_ is False
+    assert model.inference_fallback_reason_ is None
 
 
 def test_cpu_prediction_contract_validation_and_custom_times():

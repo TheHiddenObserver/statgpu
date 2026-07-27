@@ -14,6 +14,7 @@ import numpy as np
 
 from statgpu._config import Device, get_device
 from statgpu.backends import _to_numpy
+from statgpu.backends._utils import _require_real_array
 from statgpu.cross_validation._base import CVCache, CVEstimatorBase, kfold_indices
 from statgpu.survival._cox import CoxPH
 from statgpu.survival._risk_sets import cox_counting_process_objective
@@ -256,9 +257,14 @@ def _folds_are_complements(folds, n_samples: int) -> bool:
 
 def _unpack_survival_target(time, event, *, entry=None, start=None):
     """Accept either separate arrays or sklearn-style two/three-column y."""
+    _require_real_array(entry, "entry")
+    _require_real_array(start, "start")
     if event is not None:
+        _require_real_array(time, "time")
+        _require_real_array(event, "event")
         return time, event, entry, start
 
+    _require_real_array(time, "packed survival target")
     y = np.asarray(_to_numpy(time), dtype=np.float64)
     if y.ndim != 2 or y.shape[1] not in (2, 3):
         raise ValueError(
@@ -499,6 +505,11 @@ def _compute_partial_likelihood(
     if ties not in {"breslow", "efron", "exact"}:
         raise ValueError("ties must be 'breslow', 'efron', or 'exact'")
 
+    _require_real_array(X, "X")
+    _require_real_array(time, "time")
+    _require_real_array(event, "event")
+    _require_real_array(coef, "coef")
+    _require_real_array(entry, "entry")
     X_arr = np.asarray(X, dtype=np.float64)
     time_arr = np.asarray(time, dtype=np.float64).reshape(-1)
     event_raw = np.asarray(event, dtype=np.float64).reshape(-1)
@@ -758,6 +769,11 @@ def _select_coxph_penalty_cv(
     # Fold construction and diagnostics are orchestrated on the host. Explicit
     # GPU modes convert each fold once, then keep both candidate fitting and
     # held-out partial-likelihood scoring on the requested backend.
+    _require_real_array(X, "X")
+    _require_real_array(time, "time")
+    _require_real_array(event, "event")
+    _require_real_array(start_values, "entry/start")
+    _require_real_array(penalties, "penalties")
     X_np = np.asarray(_to_numpy(X), dtype=np.float64)
     time_np = np.asarray(_to_numpy(time), dtype=np.float64).reshape(-1)
     event_raw_np = np.asarray(_to_numpy(event), dtype=np.float64).reshape(-1)
@@ -1520,6 +1536,8 @@ class CoxPHCV(CVEstimatorBase):
         self.inference_backend_ = None
         self.inference_approximate_ = False
         self.inference_fallback_reason_ = None
+        self.score_test_available_ = False
+        self.score_test_failure_reason_ = None
         self.full_host_transfer_performed_ = False
 
     def _reset_fit_state(self):
@@ -1542,6 +1560,8 @@ class CoxPHCV(CVEstimatorBase):
         self.inference_backend_ = None
         self.inference_approximate_ = False
         self.inference_fallback_reason_ = None
+        self.score_test_available_ = False
+        self.score_test_failure_reason_ = None
         self.full_host_transfer_performed_ = False
 
     def _cleanup_cuda_memory(self):
@@ -1650,6 +1670,7 @@ class CoxPHCV(CVEstimatorBase):
             n_penalties = self.n_penalties
             penalty_min_ratio = self.penalty_min_ratio
 
+        _require_real_array(self.penalties, "penalties")
         penalties = (
             None
             if self.penalties is None
@@ -1740,6 +1761,8 @@ class CoxPHCV(CVEstimatorBase):
             ("final_kkt_normalized_", None), ("inference_method_", None),
             ("inference_backend_", None), ("inference_approximate_", False),
             ("inference_fallback_reason_", None),
+            ("score_test_available_", False),
+            ("score_test_failure_reason_", None),
             ("full_host_transfer_performed_", False),
         ):
             setattr(self, attribute, getattr(final_model, attribute, default))

@@ -6,9 +6,10 @@ All notable changes to statgpu are documented here, organized by date and PR.
 
 ### PR #80 — Cox review-fix follow-up
 - Reused Cox preprocessing across SCAD/MCP iterations and removed redundant objective, metadata, and finite-check transfers.
-- Restored cancellation-safe bounded Cox moments, rejected complex survival inputs before casting, and corrected FISTA-LLA iteration counts.
+- Unified CoxPH on stable risk-set objectives with a bounded ordinary suffix fast path, and restored cancellation-safe penalized moments.
+- Added Breslow Hessian workspace gates, preserved device/runtime solver errors, rejected complex high-level inputs, and unified no-pair scoring.
 - Added optimized stratified Exact and delayed-entry batching paths with maintained P100/R benchmark artifacts.
-- Added three-backend precision, synchronization, transfer-scope, performance, and clean-commit audit coverage.
+- Added three-backend precision, synchronization, memory, error-contract, performance, and clean-commit audit coverage.
 
 ## 2026-07-26
 

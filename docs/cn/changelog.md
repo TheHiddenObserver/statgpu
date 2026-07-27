@@ -9,6 +9,19 @@
 
 ### 修复与优化（2026-07-27）— PR #80 后续审查
 
+- 所有公开 `CoxPH.fit()` 现在统一使用稳定的 shared risk-set objective。普通
+  nonrobust Breslow/Efron 使用有界 suffix-moment 快速路径，在保持近线性行扩展的同时，
+  可稳定处理 `[-1000, 0, 1000]` 配合非零初始系数的有限输入；start-stop、strata、
+  robust 与 Exact 场景继续使用对应的 backend-native shared kernel。
+- 显式 Breslow `(n, p, p)` Hessian 工作区受
+  `STATGPU_BRESLOW_HESSIAN_MAX_BYTES` 控制（默认 512 MiB）；CPU 超限时使用
+  incremental grouped moment，CuPy 使用有界 grouped GEMM。CUDA OOM/runtime
+  错误不再被 fused kernel 吞掉或误报为 information singular，least-squares 只针对
+  已识别的 singular/ill-conditioned 线性求解失败。
+- `CoxPH`、`CoxPHCV`、公开 `score()` 与 held-out partial likelihood 均在实数转换前
+  拒绝 complex 输入。score test 通过 `score_test_available_` 与
+  `score_test_failure_reason_` 暴露可用状态；device 错误原样传播，null information
+  奇异则明确记录。ordinary 与 counting-process concordance 在无可比较 pair 时统一返回 `0.5`。
 - Penalized Cox SCAD/MCP 现在每次拟合只预处理、排序和传输一次 survival 分组元数据；
   FISTA-LLA 使用只计算梯度的热路径，按周期合并有限性与收敛状态传输，并在 allocator
   清理前释放 loss 持有的训练数组。

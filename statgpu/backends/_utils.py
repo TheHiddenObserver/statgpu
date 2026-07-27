@@ -135,6 +135,12 @@ def _is_complex_array(value: Any) -> bool:
     return bool(np.iscomplexobj(value))
 
 
+def _require_real_array(value: Any, name: str) -> None:
+    """Reject complex public inputs before any real-dtype normalization."""
+    if value is not None and _is_complex_array(value):
+        raise ValueError(f"{name} must be real-valued")
+
+
 def scatter_add_1d(target, indices, values):
     """Scatter-add 1D values to target array at given indices.
 

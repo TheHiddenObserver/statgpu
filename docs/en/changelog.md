@@ -25,6 +25,24 @@
   target; valid host `uint64` strata are normalized before Torch 2.0 conversion.
   Complex `X`, time, event, start, stop, and coefficient inputs are rejected
   before any real-valued cast on NumPy, CuPy, and Torch.
+- Every public `CoxPH.fit()` now uses the stable shared risk-set objective.
+  Ordinary nonrobust Breslow/Efron fits use its bounded suffix-moment fast path,
+  retaining near-linear row scaling while keeping finite objectives and
+  gradients for centered predictors such as `[-1000, 0, 1000]` with a nonzero
+  initial coefficient. Start-stop, strata, robust, and Exact cases retain the
+  corresponding backend-native shared kernels.
+- Explicit Breslow `(n, p, p)` Hessian buffers are gated by
+  `STATGPU_BRESLOW_HESSIAN_MAX_BYTES` (512 MiB by default); CPU falls back to
+  incremental grouped moments and CuPy to bounded grouped GEMM updates. CUDA
+  OOM/runtime failures are no longer swallowed by the fused kernel or relabeled
+  as singular information, and least-squares is attempted only for recognized
+  singular/ill-conditioned solves.
+- `CoxPH`, `CoxPHCV`, public scoring, and held-out partial likelihood all reject
+  complex values before real conversion. A score test now exposes
+  `score_test_available_` and `score_test_failure_reason_`; device failures
+  propagate, while singular null information is recorded explicitly. Both
+  ordinary and counting-process concordance return `0.5` when no comparable
+  pair exists.
 - A machine-readable physical-P100 artifact records its exact clean source
   commit, Cox/FISTA/fit source hashes, 24 synchronization/gradient comparisons,
   48 SCAD/MCP coefficient/objective/KKT/finite-state results, six synchronized

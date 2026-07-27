@@ -11,6 +11,7 @@ from __future__ import annotations
 import numpy as np
 
 from statgpu.backends import _to_float_scalar
+from statgpu.backends._utils import _require_real_array
 
 
 def score(
@@ -24,6 +25,13 @@ def score(
 ):
     """Compute a backend-native Harrell-style concordance index."""
     self._check_is_fitted()
+    _require_real_array(X, "X")
+    _require_real_array(start, "start")
+    if event is None:
+        _require_real_array(time, "packed survival target")
+    else:
+        _require_real_array(time, "time")
+        _require_real_array(event, "event")
     X_arr, backend, coef = self._prepare_prediction_X(X)
     xp = backend.xp
     n_samples = int(X_arr.shape[0])
@@ -157,7 +165,7 @@ def score(
         permissible += _to_float_scalar(xp.sum(perm))
 
     if permissible <= 0:
-        return float("nan")
+        return 0.5
     return float((concordant + 0.5 * tied_risk) / permissible)
 
 
