@@ -6,6 +6,7 @@ from functools import wraps
 
 import numpy as np
 
+from statgpu._config import Device
 from statgpu.backends._utils import _require_real_array
 
 
@@ -18,6 +19,15 @@ _INFERENCE_MODES = ("strict", "approx")
 def _is_native_backend_array(value) -> bool:
     """Return whether slicing ``value`` preserves a CuPy/Torch backend."""
     return type(value).__module__.startswith(_NATIVE_ARRAY_MODULES)
+
+
+def _normalize_boolean_control(value, name: str) -> bool:
+    """Normalize an actual boolean or integer 0/1 without truthy strings."""
+    if isinstance(value, (bool, np.bool_)):
+        return bool(value)
+    if isinstance(value, (int, np.integer)) and int(value) in (0, 1):
+        return bool(value)
+    raise ValueError(f"{name} must be a boolean or integer 0/1")
 
 
 def _normalize_mutable_fit_controls(estimator) -> None:
@@ -42,6 +52,27 @@ def _normalize_mutable_fit_controls(estimator) -> None:
     if inference_mode not in _INFERENCE_MODES:
         raise ValueError("inference_mode must be strict or approx")
     estimator.inference_mode = inference_mode
+
+    try:
+        estimator.device = (
+            estimator.device
+            if isinstance(estimator.device, Device)
+            else Device(estimator.device)
+        )
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            "device must be one of: 'auto', 'cpu', 'cuda', or 'torch'"
+        ) from exc
+
+    estimator.compute_inference = _normalize_boolean_control(
+        estimator.compute_inference, "compute_inference"
+    )
+    estimator.compute_cindex = _normalize_boolean_control(
+        estimator.compute_cindex, "compute_cindex"
+    )
+    estimator.gpu_memory_cleanup = _normalize_boolean_control(
+        estimator.gpu_memory_cleanup, "gpu_memory_cleanup"
+    )
 
 
 def install_coxph_fit_adapter(coxph_class) -> None:
