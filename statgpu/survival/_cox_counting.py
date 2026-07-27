@@ -6,7 +6,6 @@ from typing import Any, Dict, Optional
 import numbers
 import numpy as np
 
-from ._cox_score_residuals import cox_score_residuals
 from ._risk_sets import (
     _array_namespace,
     _as_backend_array,
@@ -234,30 +233,8 @@ def fit_counting_process_cox(
         # next iteration evaluates the normalized KKT residual at the accepted
         # coefficient vector.
 
-    if compute_score_residuals and ties in {"breslow", "efron"}:
-        # Re-evaluate the final likelihood derivatives and build case-wise
-        # residuals from the same tie-specific estimating equation.  In
-        # particular Efron residuals must not reuse Breslow hazard increments.
-        final = cox_counting_process_objective(
-            beta,
-            X,
-            stop,
-            event,
-            start=start,
-            strata=strata,
-            ties=ties,
-        )
-        final["score_residuals"] = cox_score_residuals(
-            beta,
-            X,
-            stop,
-            event,
-            start=start,
-            strata=strata,
-            ties=ties,
-        )
-    elif compute_score_residuals:
-        final = cox_counting_process_objective(
+    final = (
+        cox_counting_process_objective(
             beta,
             X,
             stop,
@@ -267,9 +244,9 @@ def fit_counting_process_cox(
             ties=ties,
             score_residuals=True,
         )
-    else:
-        final = current
-
+        if compute_score_residuals
+        else current
+    )
     final_penalized_score = final["score"] - 2.0 * penalty * beta
     final_score_inf = xp.max(xp.abs(final_penalized_score))
     final_raw_score_inf = xp.max(xp.abs(final["score"]))
