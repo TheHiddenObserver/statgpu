@@ -1,0 +1,415 @@
+{
+  "status": "complete",
+  "generated_at": "2026-07-27T01:43:02.752000+00:00",
+  "statgpu_version": "0.2.2",
+  "source_path": "/root/statgpu-validation/worktrees/pr80-reviewfix-20260726/statgpu/survival/_risk_sets.py",
+  "source_sha256": "f231445d27c5919b829cb30377fe8e6c92e22592eb5c6a2099ecb7a2453b4d8c",
+  "source_hashes": {
+    "risk_sets": "f231445d27c5919b829cb30377fe8e6c92e22592eb5c6a2099ecb7a2453b4d8c",
+    "cox_counting": "879dec8281d4d4426875924aaa3ae474dbcdc8cc249826c8569494ab54c7d286",
+    "cox": "74a8cbc400333be82e1a3573f68ed893e4ce5d73fd8e58035443f921f4b07be6"
+  },
+  "benchmark_path": "/root/statgpu-validation/worktrees/pr80-reviewfix-20260726/dev/benchmarks/benchmark_exact_ties_scaling.py",
+  "benchmark_sha256": "61127b29ddcb06b4c604e075dcfa3cec28781bcb92a038466272149cb5c965b5",
+  "generation_method": "A temporary remote driver imported make_r_alignment_cases, fit_once, fit_r_once, and result_differences from the benchmark module; it did not change the estimator or benchmark helpers.",
+  "python": "3.9.16",
+  "numpy": "1.24.2",
+  "features": 4,
+  "seed": 88031,
+  "scaling_scenario": "delayed_entry_strata",
+  "scenario": {
+    "ties": "exact",
+    "has_delayed_entry": true,
+    "strata_count": 3,
+    "compute_inference": true,
+    "compute_cindex": false,
+    "tol": 1e-08,
+    "max_iter": 50
+  },
+  "timing_scope": {
+    "statgpu": "One CoxPH.fit after an n=80 scenario-matched warm-up; includes input conversion, optimization, and inference; GPU synchronized immediately before and after fit",
+    "r_survival": "survival::coxph call including inference; R startup, package load, and CSV parsing excluded"
+  },
+  "repeat_policy": {
+    "statgpu_repeats": 1,
+    "statgpu_warmup_n": 80,
+    "r_repeats": 1,
+    "r_timeout_seconds": 120
+  },
+  "devices": [
+    "cpu",
+    "cuda",
+    "torch"
+  ],
+  "device_metadata": {
+    "cupy_gpu": "Tesla P100-SXM2-16GB",
+    "cupy_version": "13.6.0",
+    "torch_gpu": "Tesla P100-SXM2-16GB",
+    "torch_version": "2.0.0+cu117"
+  },
+  "external_reference": "R survival::coxph with ties=exact, robust=FALSE, and timefix=FALSE",
+  "external_reference_status": "partial_timeouts",
+  "r_metadata": {
+    "r_version": "4.4.1",
+    "survival_version": "3.8.9"
+  },
+  "r_alignment_skipped": true,
+  "alignment_thresholds": {
+    "coef_max_abs": 1e-06,
+    "log_likelihood_abs": 1e-07,
+    "covariance_max_abs": 1e-06
+  },
+  "max_observed_backend_differences_vs_numpy": {
+    "coef_max_abs": 5.051514762044462e-15,
+    "log_likelihood_abs": 7.275957614183426e-12,
+    "covariance_max_abs": 7.643625316022806e-18
+  },
+  "gate_failures": [],
+  "external_reference_observations": [
+    {
+      "n": 1280,
+      "status": "timeout",
+      "timeout_seconds": 120
+    },
+    {
+      "n": 2560,
+      "status": "timeout",
+      "timeout_seconds": 120
+    },
+    {
+      "n": 5120,
+      "status": "skipped_after_repeated_timeout"
+    },
+    {
+      "n": 10240,
+      "status": "skipped_after_repeated_timeout"
+    }
+  ],
+  "cases": [
+    {
+      "n": 320,
+      "repeats": 1,
+      "ties_bins": 40,
+      "events": 201,
+      "failure_groups": 95,
+      "max_tie": 6,
+      "median_tie": 2.0,
+      "strata_count": 3,
+      "backends": {
+        "numpy": {
+          "status": "complete",
+          "seconds": [0.18973210453987122],
+          "median_seconds": 0.18973210453987122,
+          "iterations": 4,
+          "converged": true,
+          "coef_max_abs_vs_r": 3.3306690738754696e-16,
+          "log_likelihood_abs_vs_r": 0.0,
+          "covariance_max_abs_vs_r": 1.3010426069826053e-17,
+          "speedup_vs_r": 1.6760473973089463
+        },
+        "cupy": {
+          "status": "complete",
+          "seconds": [1.1060238182544708],
+          "median_seconds": 1.1060238182544708,
+          "iterations": 4,
+          "converged": true,
+          "coef_max_abs_vs_numpy": 5.551115123125783e-17,
+          "log_likelihood_abs_vs_numpy": 0.0,
+          "covariance_max_abs_vs_numpy": 2.6020852139652106e-18,
+          "speedup_vs_numpy": 0.17154432066328087,
+          "coef_max_abs_vs_r": 3.469446951953614e-16,
+          "log_likelihood_abs_vs_r": 0.0,
+          "covariance_max_abs_vs_r": 1.5612511283791264e-17,
+          "speedup_vs_r": 0.2875164121708232
+        },
+        "torch": {
+          "status": "complete",
+          "seconds": [0.6947092711925507],
+          "median_seconds": 0.6947092711925507,
+          "iterations": 4,
+          "converged": true,
+          "coef_max_abs_vs_numpy": 2.7755575615628914e-17,
+          "log_likelihood_abs_vs_numpy": 0.0,
+          "covariance_max_abs_vs_numpy": 2.6020852139652106e-18,
+          "speedup_vs_numpy": 0.2731100798671847,
+          "coef_max_abs_vs_r": 3.3306690738754696e-16,
+          "log_likelihood_abs_vs_r": 0.0,
+          "covariance_max_abs_vs_r": 1.5612511283791264e-17,
+          "speedup_vs_r": 0.4577454385402334
+        },
+        "r_survival": {
+          "status": "complete",
+          "seconds": [0.31800000000000006],
+          "median_seconds": 0.31800000000000006,
+          "iterations": 3,
+          "converged": true,
+          "coef_max_abs_vs_numpy": 3.3306690738754696e-16,
+          "log_likelihood_abs_vs_numpy": 0.0,
+          "covariance_max_abs_vs_numpy": 1.3010426069826053e-17,
+          "speedup_vs_numpy": 0.5966418381756955
+        }
+      }
+    },
+    {
+      "n": 640,
+      "repeats": 1,
+      "ties_bins": 80,
+      "events": 412,
+      "failure_groups": 202,
+      "max_tie": 5,
+      "median_tie": 2.0,
+      "strata_count": 3,
+      "backends": {
+        "numpy": {
+          "status": "complete",
+          "seconds": [0.6216806173324585],
+          "median_seconds": 0.6216806173324585,
+          "iterations": 4,
+          "converged": true,
+          "coef_max_abs_vs_r": 1.4710455076283324e-15,
+          "log_likelihood_abs_vs_r": 9.094947017729282e-13,
+          "covariance_max_abs_vs_r": 1.7780915628762273e-17,
+          "speedup_vs_r": 39.747097321494486
+        },
+        "cupy": {
+          "status": "complete",
+          "seconds": [2.189583122730255],
+          "median_seconds": 2.189583122730255,
+          "iterations": 4,
+          "converged": true,
+          "coef_max_abs_vs_numpy": 1.942890293094024e-16,
+          "log_likelihood_abs_vs_numpy": 2.2737367544323206e-13,
+          "covariance_max_abs_vs_numpy": 4.7704895589362195e-18,
+          "speedup_vs_numpy": 0.2839264748064311,
+          "coef_max_abs_vs_r": 1.3600232051658168e-15,
+          "log_likelihood_abs_vs_r": 6.821210263296962e-13,
+          "covariance_max_abs_vs_r": 1.5178830414797062e-17,
+          "speedup_vs_r": 11.28525322628007
+        },
+        "torch": {
+          "status": "complete",
+          "seconds": [1.3572126924991608],
+          "median_seconds": 1.3572126924991608,
+          "iterations": 4,
+          "converged": true,
+          "coef_max_abs_vs_numpy": 1.6653345369377348e-16,
+          "log_likelihood_abs_vs_numpy": 2.2737367544323206e-13,
+          "covariance_max_abs_vs_numpy": 5.204170427930421e-18,
+          "speedup_vs_numpy": 0.4580568843544343,
+          "coef_max_abs_vs_r": 1.3322676295501878e-15,
+          "log_likelihood_abs_vs_r": 6.821210263296962e-13,
+          "covariance_max_abs_vs_r": 1.5612511283791264e-17,
+          "speedup_vs_r": 18.206431561216245
+        },
+        "r_survival": {
+          "status": "complete",
+          "seconds": [24.71],
+          "median_seconds": 24.71,
+          "iterations": 3,
+          "converged": true,
+          "coef_max_abs_vs_numpy": 1.4710455076283324e-15,
+          "log_likelihood_abs_vs_numpy": 9.094947017729282e-13,
+          "covariance_max_abs_vs_numpy": 1.7780915628762273e-17,
+          "speedup_vs_numpy": 0.02515906990418691
+        }
+      }
+    },
+    {
+      "n": 1280,
+      "repeats": 1,
+      "ties_bins": 160,
+      "events": 798,
+      "failure_groups": 414,
+      "max_tie": 6,
+      "median_tie": 2.0,
+      "strata_count": 3,
+      "backends": {
+        "numpy": {
+          "status": "complete",
+          "seconds": [2.2304369807243347],
+          "median_seconds": 2.2304369807243347,
+          "iterations": 4,
+          "converged": true,
+          "speedup_vs_r_lower_bound": 53.801116569108345
+        },
+        "cupy": {
+          "status": "complete",
+          "seconds": [4.335656076669693],
+          "median_seconds": 4.335656076669693,
+          "iterations": 4,
+          "converged": true,
+          "coef_max_abs_vs_numpy": 3.885780586188048e-16,
+          "log_likelihood_abs_vs_numpy": 0.0,
+          "covariance_max_abs_vs_numpy": 5.854691731421724e-18,
+          "speedup_vs_numpy": 0.5144404771232638,
+          "speedup_vs_r_lower_bound": 27.67747207757643
+        },
+        "torch": {
+          "status": "complete",
+          "seconds": [2.742938607931137],
+          "median_seconds": 2.742938607931137,
+          "iterations": 4,
+          "converged": true,
+          "coef_max_abs_vs_numpy": 3.885780586188048e-16,
+          "log_likelihood_abs_vs_numpy": 0.0,
+          "covariance_max_abs_vs_numpy": 5.854691731421724e-18,
+          "speedup_vs_numpy": 0.8131559978320634,
+          "speedup_vs_r_lower_bound": 43.748700628232456
+        },
+        "r_survival": {
+          "status": "timeout",
+          "seconds": [],
+          "median_seconds": null,
+          "timeout_seconds": 120,
+          "converged": null
+        }
+      }
+    },
+    {
+      "n": 2560,
+      "repeats": 1,
+      "ties_bins": 320,
+      "events": 1605,
+      "failure_groups": 804,
+      "max_tie": 7,
+      "median_tie": 2.0,
+      "strata_count": 3,
+      "backends": {
+        "numpy": {
+          "status": "complete",
+          "seconds": [10.82187369465828],
+          "median_seconds": 10.82187369465828,
+          "iterations": 5,
+          "converged": true,
+          "speedup_vs_r_lower_bound": 11.088652795793807
+        },
+        "cupy": {
+          "status": "complete",
+          "seconds": [10.673709243535995],
+          "median_seconds": 10.673709243535995,
+          "iterations": 5,
+          "converged": true,
+          "coef_max_abs_vs_numpy": 1.6653345369377348e-15,
+          "log_likelihood_abs_vs_numpy": 9.094947017729282e-13,
+          "covariance_max_abs_vs_numpy": 6.7220534694101275e-18,
+          "speedup_vs_numpy": 1.013881252312734,
+          "speedup_vs_r_lower_bound": 11.242577183060526
+        },
+        "torch": {
+          "status": "complete",
+          "seconds": [6.876364976167679],
+          "median_seconds": 6.876364976167679,
+          "iterations": 5,
+          "converged": true,
+          "coef_max_abs_vs_numpy": 1.6653345369377348e-15,
+          "log_likelihood_abs_vs_numpy": 0.0,
+          "covariance_max_abs_vs_numpy": 6.938893903907228e-18,
+          "speedup_vs_numpy": 1.5737782581589355,
+          "speedup_vs_r_lower_bound": 17.45108068229359
+        },
+        "r_survival": {
+          "status": "timeout",
+          "seconds": [],
+          "median_seconds": null,
+          "timeout_seconds": 120,
+          "converged": null
+        }
+      }
+    },
+    {
+      "n": 5120,
+      "repeats": 1,
+      "ties_bins": 640,
+      "events": 3181,
+      "failure_groups": 1615,
+      "max_tie": 7,
+      "median_tie": 2.0,
+      "strata_count": 3,
+      "backends": {
+        "numpy": {
+          "status": "complete",
+          "seconds": [36.32830688357353],
+          "median_seconds": 36.32830688357353,
+          "iterations": 4,
+          "converged": true
+        },
+        "cupy": {
+          "status": "complete",
+          "seconds": [17.724200189113617],
+          "median_seconds": 17.724200189113617,
+          "iterations": 4,
+          "converged": true,
+          "coef_max_abs_vs_numpy": 2.4980018054066022e-15,
+          "log_likelihood_abs_vs_numpy": 0.0,
+          "covariance_max_abs_vs_numpy": 7.37257477290143e-18,
+          "speedup_vs_numpy": 2.0496443560757536
+        },
+        "torch": {
+          "status": "complete",
+          "seconds": [11.199792951345444],
+          "median_seconds": 11.199792951345444,
+          "iterations": 4,
+          "converged": true,
+          "coef_max_abs_vs_numpy": 2.4980018054066022e-15,
+          "log_likelihood_abs_vs_numpy": 0.0,
+          "covariance_max_abs_vs_numpy": 7.318364664277155e-18,
+          "speedup_vs_numpy": 3.243658792746644
+        },
+        "r_survival": {
+          "status": "skipped_after_repeated_timeout",
+          "seconds": [],
+          "median_seconds": null,
+          "converged": null
+        }
+      }
+    },
+    {
+      "n": 10240,
+      "repeats": 1,
+      "ties_bins": 1280,
+      "events": 6334,
+      "failure_groups": 3274,
+      "max_tie": 6,
+      "median_tie": 2.0,
+      "strata_count": 3,
+      "backends": {
+        "numpy": {
+          "status": "complete",
+          "seconds": [136.4374106824398],
+          "median_seconds": 136.4374106824398,
+          "iterations": 4,
+          "converged": true
+        },
+        "cupy": {
+          "status": "complete",
+          "seconds": [34.90918633341789],
+          "median_seconds": 34.90918633341789,
+          "iterations": 4,
+          "converged": true,
+          "coef_max_abs_vs_numpy": 5.051514762044462e-15,
+          "log_likelihood_abs_vs_numpy": 0.0,
+          "covariance_max_abs_vs_numpy": 7.643625316022806e-18,
+          "speedup_vs_numpy": 3.9083526433221647
+        },
+        "torch": {
+          "status": "complete",
+          "seconds": [22.06385913491249],
+          "median_seconds": 22.06385913491249,
+          "iterations": 4,
+          "converged": true,
+          "coef_max_abs_vs_numpy": 5.051514762044462e-15,
+          "log_likelihood_abs_vs_numpy": 7.275957614183426e-12,
+          "covariance_max_abs_vs_numpy": 7.643625316022806e-18,
+          "speedup_vs_numpy": 6.183750986088814
+        },
+        "r_survival": {
+          "status": "skipped_after_repeated_timeout",
+          "seconds": [],
+          "median_seconds": null,
+          "converged": null
+        }
+      }
+    }
+  ],
+  "r_alignment_cases": []
+}
